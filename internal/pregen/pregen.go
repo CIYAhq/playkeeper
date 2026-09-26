@@ -10,10 +10,13 @@
 package pregen
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 )
 
 const (
@@ -268,6 +271,9 @@ const (
 	CodeUnexpectedReply   = "unexpected_reply"
 	CodeConsole           = "console_failed"
 	CodeConfig            = "config_failed"
+	// CodeFileRefused is a file in the server's folder that Playkeeper
+	// refused, such as a link; see internal/gamefiles.
+	CodeFileRefused = "file_refused"
 )
 
 // Error is an error the UI can show: Code is a stable identifier to
@@ -302,6 +308,21 @@ var (
 	ErrRadiusLimit       = &Error{Code: CodeRadiusLimit}
 	ErrUnexpectedReply   = &Error{Code: CodeUnexpectedReply}
 )
+
+// refusal explains a file in the server's folder that Playkeeper refused,
+// after the sentence saying what it could not do. Other errors are returned
+// as they are.
+func refusal(err error, couldNot string) error {
+	var ge *gamefiles.Error
+	if !errors.As(err, &ge) {
+		return err
+	}
+	params := map[string]any{"kind": string(ge.Kind)}
+	for k, v := range ge.Params {
+		params[k] = v
+	}
+	return &Error{Code: CodeFileRefused, Params: params, Msg: couldNot + " " + ge.Msg, Hint: ge.Hint, Err: ge}
+}
 
 // shortQuote quotes a name for a message, eliding the middle of a long one.
 func shortQuote(s string) string {

@@ -25,7 +25,7 @@ control() { # NAME FILE FROM TO PACKAGE TESTS [RUNS]
     echo "MISSED   $name: $tests still pass without the guard"
     bad=1
   else
-    echo "caught   $name: $(grep -m1 -E '^\s+[a-z_]+_test\.go:[0-9]+:' /tmp/negative-control.out | sed 's/^\s*//')"
+    echo "caught   $name: $(grep -m1 -E '^\s+[a-z0-9_]+_test\.go:[0-9]+:' /tmp/negative-control.out | sed 's/^\s*//')"
   fi
   git checkout -q -- "$file"
 }
@@ -115,19 +115,19 @@ control "preflight existing Minecraft setups" internal/install/install.go \
   'case true:' \
   ./internal/install '^TestPreflightRefusesEachCollisionWithAFix$'
 control "start/stop no-op under the operation lock" internal/agent/handlers.go \
-  'release, ok := a.holdOpLock()
+  'release, ok := s.holdOpLock()
 	if !ok {
-		writeError(w, a.busyError())
+		writeError(w, s.busyError())
 		return
 	}
-	_, running, err := a.containerRunning(r.Context())
+	_, running, err := s.containerRunning(r.Context())
 	if err == nil && !running {' \
-  'release, ok := func() { }, !a.busy()
+  'release, ok := func() { }, !s.busy()
 	if !ok {
-		writeError(w, a.busyError())
+		writeError(w, s.busyError())
 		return
 	}
-	_, running, err := a.containerRunning(r.Context())
+	_, running, err := s.containerRunning(r.Context())
 	if err == nil && !running {' \
   ./internal/agent '^TestConcurrentStartAndStopLeaveDesiredMatchingContainer$' 5
 
@@ -274,7 +274,7 @@ control "Minecraft never goes back to an older version" internal/agent/versions.
   '	case false:' \
   ./internal/agent '^TestVersionChangesNeverGoBack$'
 control "a version that does not start gets the world back" internal/agent/versions.go \
-  'if err := a.putBackupBack(b); err != nil {' \
+  'if err := s.putBackupBack(b); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/agent '^TestVersionThatDoesNotStartPutsTheWorldBack$'
 control "Paper builds without a checksum are not offered" internal/minecraft/fill.go \
@@ -453,13 +453,13 @@ control "add-on scan: stops with its context" internal/addons/scan.go \
   'l.readLocal(ctx, root, lf, identify, verify)
 			if err := ctx.Err(); false && err != nil {' \
   ./internal/addons '^TestAScanStopsWithItsContext$'
-control "pre-generation: a named pipe for the plugins folder is not waited on" internal/pregen/detect.go \
-  'root.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)' \
-  'root.OpenFile(dir, os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
+control "pre-generation: a named pipe for the plugins folder is refused before it is opened" internal/gamefiles/gamefiles.go \
+  'err = folderError(p, fi)' \
+  'err = nil' \
   ./internal/pregen '^TestDetectDoesNotWaitOnAPipe$'
-control "data packs: a named pipe for the datapacks folder is not waited on" internal/packs/datapacks.go \
-  'root.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)' \
-  'root.OpenFile(dir, os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
+control "data packs: a named pipe for the datapacks folder is refused before it is opened" internal/gamefiles/gamefiles.go \
+  'err = folderError(p, fi)' \
+  'err = nil' \
   ./internal/packs '^TestListDoesNotWaitOnAPipe$'
 control "add-on jars: the table of contents is checked before archive/zip reads it" internal/addons/jar.go \
   'n, err := zipdir.Check(r, size, zipdir.Metadata)
@@ -561,6 +561,37 @@ control "add-on updates: only the confirmed plan is carried out" internal/agent/
   'Changed: req.Changed, Fingerprint: req.Fingerprint, OnProgress: progress' \
   'Changed: req.Changed, OnProgress: progress' \
   ./internal/agent '^TestAddonsInstallUpdateRemove$'
+control "add-on plans: the order Hangar lists dependencies in does not change the plan" internal/addons/resolve.go \
+  'c.deps = append(c.deps, dd)
+	}
+	sortDeps(c.deps)' \
+  'c.deps = append(c.deps, dd)
+	}' \
+  ./internal/addons '^TestInstallHangarWhateverOrderItListsDependenciesIn$'
+control "add-on plans: the fingerprint ignores the order of the steps" internal/addons/plan.go \
+  'slices.SortStableFunc(steps, ' \
+  'slices.SortStableFunc(steps[:0], ' \
+  ./internal/addons '^TestFingerprintIgnoresOrderButNotVersions$'
+control "add-on plans: the fingerprint ignores the order of what the server already has" internal/addons/plan.go \
+  'slices.SortStableFunc(satisfied, ' \
+  'slices.SortStableFunc(satisfied[:0], ' \
+  ./internal/addons '^TestFingerprintIgnoresOrderButNotVersions$'
+control "add-on versions: a Hangar release behind pages of snapshots is asked for by channel" internal/addons/resolve.go \
+  'releases.Offset, releases.Channel = 0, "Release"' \
+  'releases.Offset, releases.Channel = 0, ""' \
+  ./internal/addons '^TestHangarReleaseBehindPagesOfSnapshots$/^in_the_Release_channel$'
+control "add-on versions: a Hangar release channel named otherwise is found on a later page" internal/addons/resolve.go \
+  'for page := 1; page < hangarPages' \
+  'for page := hangarPages; page < hangarPages' \
+  ./internal/addons '^TestHangarReleaseBehindPagesOfSnapshots$/^in_a_channel_named_Stable$'
+control "add-on versions: reading Hangar's pages stops at the first release that fits" internal/addons/resolve.go \
+  'page < hangarPages && more && !found' \
+  'page < hangarPages && more' \
+  ./internal/addons '^TestHangarReleaseBehindPagesOfSnapshots$/^in_a_channel_named_Stable$'
+control "add-on versions: reading Hangar's pages stops after hangarPages" internal/addons/resolve.go \
+  'page < hangarPages && more && !found' \
+  'more && !found' \
+  ./internal/addons '^TestHangarOnlySnapshotsStayPreRelease$/^more_than_the_pages_read$'
 control "port sharing: a connection nobody accepts is closed" internal/portshare/portshare.go \
   't := time.NewTimer(l.s.handoff)' \
   't := time.NewTimer(time.Hour)' \
@@ -617,6 +648,173 @@ control "a template data pack must match the template's checksum" internal/templ
   'if got := hex.EncodeToString(h.Sum(nil)); !strings.EqualFold(got, want) {' \
   'if got := hex.EncodeToString(h.Sum(nil)); false && !strings.EqualFold(got, want) {' \
   ./internal/templates '^TestFetchPack$'
+
+# Follow-ups after 0.3.0.
+control "an interrupted restore gets the previous world back at start" internal/agent/backups.go \
+  'if dirExists(aside) {' \
+  'if false && dirExists(aside) {' \
+  ./internal/agent '^TestInterruptedRestoreIsSettledAtStart$'
+control "an interrupted restore gets the previous settings back at start" internal/agent/backups.go \
+  'return s.saveServerConfig(*j.Previous)' \
+  'return nil' \
+  ./internal/agent '^TestInterruptedRestoreIsSettledAtStart$'
+control "a restore stage is kept while its swap is not settled" internal/agent/backups.go \
+  'if err := a.settleSwap(dir); err != nil {' \
+  'if err := a.settleSwap(dir); false && err != nil {' \
+  ./internal/agent '^TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack$'
+control "no start recreates a world directory a restore moved aside" internal/agent/lifecycle.go \
+  'if prev := s.newestPreviousWorld(); prev != "" {' \
+  'if prev := s.newestPreviousWorld(); false && prev != "" {' \
+  ./internal/agent '^TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack$'
+control "a world copy is discarded only by its exact name" internal/agent/backups.go \
+  'if !reWorldCopy.MatchString(name) {' \
+  'if false && !reWorldCopy.MatchString(name) {' \
+  ./internal/agent '^TestWorldCopiesAreListedAndDiscarded$'
+control "no world copy is discarded while the live world folder is missing" internal/agent/backups.go \
+  'if !dirExists(s.dataDir()) {' \
+  'if false && !dirExists(s.dataDir()) {' \
+  ./internal/agent '^TestWorldCopiesAreListedAndDiscarded$'
+control "a world a restore would refuse is refused before the server stops" internal/agent/backups.go \
+  'err := backup.Check(s.dataDir(), archiveLimits())
+	if !errors.As(err, &refused) {' \
+  'err := backup.Check(s.dataDir(), archiveLimits())
+	if !errors.As(err, &refused) || true {' \
+  ./internal/agent '^(TestBackupRefusesAWorldARestoreWouldRefuse|TestBackupRefusesAWholeWorldOverALimitBeforeStopping|TestRestoreAndUpdateRefuseAWorldTheirBackupWouldRefuseBeforeStopping)$'
+control "an update refuses such a world before the server stops" internal/agent/versions.go \
+  'if err := s.archiveRefusal("Nothing was changed."); err != nil {' \
+  'if err := s.archiveRefusal("Nothing was changed."); false && err != nil {' \
+  ./internal/agent '^TestRestoreAndUpdateRefuseAWorldTheirBackupWouldRefuseBeforeStopping$'
+control "the pre-stop check applies the archive limits" internal/backup/archive.go \
+  'if err := tally.add(rel, size); err != nil {' \
+  'if err := tally.add(rel, size); false && err != nil {' \
+  ./internal/backup '^TestCheckRefusesWhatCreateRefuses$'
+control "a failed undo deletes neither copy of the world" internal/agent/backups.go \
+  'if perr := putBack(failedAt, cause); perr != nil {' \
+  'if perr := putBack(failedAt, cause); false && perr != nil {' \
+  ./internal/agent '^TestRestoreKeepsBothCopiesWhenPuttingThePreviousWorldBackFails$'
+control "a failed undo moves the restored world out of the stage" internal/agent/backups.go \
+  'if restoredAt == st.data && renameDir(st.data, failedAt) == nil {' \
+  'if false && restoredAt == st.data && renameDir(st.data, failedAt) == nil {' \
+  ./internal/agent '^TestRestoreKeepsBothCopiesWhenPuttingThePreviousWorldBackFails$'
+control "a restore the agent stops in is not undone" internal/agent/backups.go \
+  'if err != nil && s.stopping() {' \
+  'if false && err != nil && s.stopping() {' \
+  ./internal/agent '^TestRestoreSurvivesTheAgentStopping$/^stops_while'
+control "an undo the agent stops in is finished by the next start" internal/agent/backups.go \
+  'if s.stopping() {' \
+  'if false && s.stopping() {' \
+  ./internal/agent '^TestInterruptedRestoreIsSettledAtStart$/^stops_while_the_previous_world_is_put_back$'
+control "the stage of a restore being finished is not pruned at start" internal/agent/backups.go \
+  'if a.resuming(dir) {' \
+  'if false && a.resuming(dir) {' \
+  ./internal/agent '^TestRestoreSurvivesTheAgentStopping$/^dies_after_the_swap$'
+control "the previous world's copy goes only once the restore is recorded as kept" internal/agent/backups.go \
+  'j.State = swapKept' \
+  'j.State = swapChecking' \
+  ./internal/agent '^TestRestoreSurvivesTheAgentStopping$/^dies_once_the_restore_is_kept$'
+control "a restored world still starting after a restart is kept only once online" internal/agent/backups.go \
+  'err = s.waitOnline(ctx, h)' \
+  'err = nil' \
+  ./internal/agent '^TestRestoredWorldThatDoesNotStartIsSwappedBackOut$/^after_the_agent_stops_while_the_restored_world_boots$'
+control "a restore finished after a restart saves the restored settings" internal/agent/backups.go \
+  'if err := s.saveServerConfig(j.Restored); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestRestoreSurvivesTheAgentStopping$/^dies_after_the_swap$'
+control "a restored world that does not start is swapped back out" internal/agent/backups.go \
+  'return s.revertRestore(h, stageDir, j)' \
+  'return err' \
+  ./internal/agent '^TestRestoredWorldThatDoesNotStartIsSwappedBackOut$/^during_the_restore$'
+control "a 0.3.0 restore that saved its settings is finished" internal/agent/recovery.go \
+  'case hasLive && hasAside && !hasStaged && restored:' \
+  'case hasLive && hasAside && !hasStaged && false:' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/^dies_with_the_restored_settings_saved$'
+control "a 0.3.0 restore whose world was online is kept" internal/agent/recovery.go \
+  'case p.op.Phase == string(api.PhaseOnline) && hasLive && !hasStaged:' \
+  'case false:' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/^dies_while_deleting_the_previous_world.s_copy$'
+control "a 0.3.0 restore that moved the live world aside is undone" internal/agent/recovery.go \
+  'case !hasLive && hasAside:' \
+  'case false:' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/^dies_with_the_live_world_moved_aside$'
+control "a 0.3.0 restore counts as having saved its settings only if they are the backup's" internal/agent/recovery.go \
+  'return sc == want, nil' \
+  'return sc == want || true, nil' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsKeptOnlyWithTheBackupsSettings$/^dies_before_the_save_with_only_the_build_changed$'
+control "a 0.3.0 restore whose settings only look like the backup's is undone" internal/agent/recovery.go \
+  'restored, err := s.restoredSettings030(ctx, *cur, m)' \
+  'restored, err := restoredFrom(*cur, m), error(nil)' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsKeptOnlyWithTheBackupsSettings$/^dies_before_the_save_with_memory_and_build_changed$'
+control "a 0.3.0 restore the agent stops in while checking its settings is left for the next start" internal/agent/recovery.go \
+  'if err != nil && s.stopping() {' \
+  'if false && err != nil && s.stopping() {' \
+  ./internal/agent '^TestStoppingWhileTakingOverA030RestoreLeavesItForTheNextStart$/^the_server_has_the_backup.s_settings$'
+control "an undone 0.3.0 restore tells the previous MOTD from the backup's" internal/agent/recovery.go \
+  'sc.MOTD == validMOTDOr(m.Settings["motd"])' \
+  'true' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/restored_world_does_not_start$'
+control "an undone 0.3.0 restore gets the settings from its rollback archive back" internal/agent/recovery.go \
+  'if rollbackID == "" || !restoredFrom(cur, restored) {' \
+  'if true {' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/restored_world_does_not_start$'
+control "only unfinished backups are deleted at start" internal/agent/recovery.go \
+  'if !e.Type().IsRegular() || !reArchiveLeftover.MatchString(e.Name()) {' \
+  'if !e.Type().IsRegular() {' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/^dies_while_saving_the_rollback_archive$'
+control "an unfinished rollback archive is deleted at start" internal/agent/agent.go \
+  'a.pruneArchiveLeftovers()' \
+  '' \
+  ./internal/agent '^TestRestoreInterruptedUnder030IsRecovered$/^dies_while_saving_the_rollback_archive$'
+control "a 0.3.0 restore the agent stops in while taking it over is left for the next start" internal/agent/recovery.go \
+  'if s.stopping() {' \
+  'if false && s.stopping() {' \
+  ./internal/agent '^TestStoppingWhileTakingOverA030RestoreLeavesItForTheNextStart$'
+control "only a restored world started during a restore 0.3.0 undid is stopped" internal/agent/recovery.go \
+  'if !running || !ok || started.Before(op.StartedAt) || started.After(*op.FinishedAt) {' \
+  'if !running || !ok || started.IsZero() {' \
+  ./internal/agent '^TestRestoreUndoneBy030StoppingIsTidiedUp$/^the_server_was_restarted_since$'
+control "only a restore 0.3.0 undid because the agent stopped is corrected" internal/agent/recovery.go \
+  'strings.Contains(why, "context canceled")' \
+  'strings.Contains(why, "")' \
+  ./internal/agent '^TestUndoneByStop$'
+control "a restore 0.3.0 undid is dealt with once" internal/agent/recovery.go \
+  ' || op.Detail["recoveredAfterRestart"] != nil' \
+  '' \
+  ./internal/agent '^TestUndoneByStop$'
+control "the pre-stop check sizes server.properties without following a link or waiting on a pipe" internal/backup/archive.go \
+  'if rel == "server.properties" {
+		b, err := readProperties(dataDir)' \
+  'if rel == "server.properties" {
+		b, err := os.ReadFile(filepath.Join(dataDir, rel))' \
+  ./internal/backup '^TestArchivedSizeDoesNotFollowALinkOrWaitOnAPipe$'
+shcontrol() { # NAME FILE FROM TO TEST-SCRIPT
+  local name=$1 file=$2 test=$5
+  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
+  if ! sh -n "$file" 2>/dev/null; then
+    echo "INVALID  $name: the mutated script does not parse"
+    bad=1
+  elif bash "$test" >/tmp/negative-control.out 2>&1; then
+    echo "MISSED   $name: $test still passes without the guard"
+    bad=1
+  else
+    echo "caught   $name: $(grep -m1 '^FAIL: ' /tmp/negative-control.out | cut -c1-200)"
+  fi
+  git checkout -q -- "$file"
+}
+# shellcheck disable=SC2016
+shcontrol "every get.sh download is size-limited" packaging/get.sh \
+  '--max-filesize "$3" ' \
+  '' \
+  packaging/get_test.sh
+# shellcheck disable=SC2016
+shcontrol "get.sh refuses an oversized download curl let through" packaging/get.sh \
+  ' || { [ "$rc" = 0 ] && [ "$(wc -c <"$2")" -gt "$3" ]; }' \
+  '' \
+  packaging/get_test.sh
+# shellcheck disable=SC2016
+shcontrol "get.sh says a download curl stopped is too large" packaging/get.sh \
+  '[ "$rc" = 63 ] || ' \
+  '' \
+  packaging/get_test.sh
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

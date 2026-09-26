@@ -11,8 +11,9 @@ import (
 	"io/fs"
 	"os"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 )
 
 const (
@@ -80,22 +81,22 @@ func PackIcon(ctx context.Context, r io.ReaderAt, size int64) ([]byte, error) {
 // Summary reads the description of the installed data pack name, a zip or
 // a folder, and looks for its icon.
 func (d DataPacks) Summary(ctx context.Context, name string) (Summary, error) {
-	root, target, dir, err := d.openPack(name)
+	files, target, dir, err := d.openPack(name)
 	if err != nil {
 		return Summary{}, err
 	}
-	defer root.Close()
+	defer files.Close()
 	if dir {
 		var s Summary
-		if b, ok := readSmallFile(root, target+"/pack.mcmeta", maxMcmetaBytes); ok {
+		if b, err := files.ReadFile(target+"/pack.mcmeta", maxMcmetaBytes); err == nil {
 			s.Description = describe(b, Data)
 		}
-		if st, err := root.Lstat(target + "/pack.png"); err == nil && st.Mode().IsRegular() && st.Size() <= maxIconBytes {
+		if st, err := files.Lstat(target + "/pack.png"); err == nil && st.Mode().IsRegular() && st.Size() <= maxIconBytes {
 			s.Icon = true
 		}
 		return s, nil
 	}
-	f, st, err := openRegular(root, target)
+	f, st, err := files.OpenFile(target)
 	if err != nil {
 		return Summary{}, notInstalled(name)
 	}
@@ -105,19 +106,19 @@ func (d DataPacks) Summary(ctx context.Context, name string) (Summary, error) {
 
 // Icon returns the icon of the installed data pack name, as PackIcon does.
 func (d DataPacks) Icon(ctx context.Context, name string) ([]byte, error) {
-	root, target, dir, err := d.openPack(name)
+	files, target, dir, err := d.openPack(name)
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
+	defer files.Close()
 	if dir {
-		b, ok := readSmallFile(root, target+"/pack.png", maxIconBytes)
-		if !ok {
+		b, err := files.ReadFile(target+"/pack.png", maxIconBytes)
+		if err != nil {
 			return nil, noIcon()
 		}
 		return checkIcon(b)
 	}
-	f, st, err := openRegular(root, target)
+	f, st, err := files.OpenFile(target)
 	if err != nil {
 		return nil, notInstalled(name)
 	}
@@ -127,8 +128,8 @@ func (d DataPacks) Icon(ctx context.Context, name string) ([]byte, error) {
 
 // openPack opens the server's folder and finds the installed data pack
 // name in it: its path in the folder, and whether it is a folder pack.
-// The caller closes root.
-func (d DataPacks) openPack(name string) (root *os.Root, target string, dir bool, err error) {
+// The caller closes files.
+func (d DataPacks) openPack(name string) (files *gamefiles.Dir, target string, dir bool, err error) {
 	if !validFileName(name) {
 		return nil, "", false, &Error{
 			Code:   CodeInvalidName,
@@ -139,23 +140,23 @@ func (d DataPacks) openPack(name string) (root *os.Root, target string, dir bool
 	if err := checkLevel(d.Level); err != nil {
 		return nil, "", false, err
 	}
-	root, err = os.OpenRoot(d.DataDir)
+	files, err = gamefiles.Open(d.DataDir, nil)
 	if err != nil {
 		return nil, "", false, fileFailed("open the server's folder", err)
 	}
 	target = d.Level + "/datapacks/" + name
-	st, err := root.Lstat(target)
+	st, err := files.Lstat(target)
 	switch {
 	case err == nil && st.IsDir():
-		return root, target, true, nil
+		return files, target, true, nil
 	case err == nil && st.Mode().IsRegular() && strings.HasSuffix(name, ".zip"):
-		return root, target, false, nil
+		return files, target, false, nil
 	case err == nil || errors.Is(err, fs.ErrNotExist):
 		err = notInstalled(name)
 	default:
 		err = fileFailed("read the data pack", err)
 	}
-	root.Close()
+	files.Close()
 	return nil, "", false, err
 }
 
@@ -258,40 +259,6 @@ func readSmall(ctx context.Context, f *zip.File, max int64) ([]byte, bool) {
 		return nil, false
 	}
 	return b.Bytes(), true
-}
-
-// readSmallFile reads the plain file name in root when it has at most max
-// bytes.
-func readSmallFile(root *os.Root, name string, max int64) ([]byte, bool) {
-	f, st, err := openRegular(root, name)
-	if err != nil || st.Size() > max {
-		return nil, false
-	}
-	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, max+1))
-	if err != nil || int64(len(b)) > max {
-		return nil, false
-	}
-	return b, true
-}
-
-// openRegular opens the plain file name in root. Opening without blocking
-// and checking the type afterwards keeps a FIFO or device from hanging or
-// misleading the caller.
-func openRegular(root *os.Root, name string) (*os.File, fs.FileInfo, error) {
-	f, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return nil, nil, err
-	}
-	st, err := f.Stat()
-	if err == nil && !st.Mode().IsRegular() {
-		err = errors.New("not a regular file")
-	}
-	if err != nil {
-		f.Close()
-		return nil, nil, err
-	}
-	return f, st, nil
 }
 
 // describe is the description in a pack.mcmeta, or empty when the game

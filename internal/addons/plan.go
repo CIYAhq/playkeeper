@@ -1,6 +1,7 @@
 package addons
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -129,17 +130,26 @@ type Plan struct {
 }
 
 func (p *Plan) fingerprint() string {
-	// An author rewording a description does not change what the plan does.
+	// An author rewording a description does not change what the plan does,
+	// and neither does the order it lists the files and dependencies in.
 	steps := slices.Clone(p.Steps)
 	for i := range steps {
 		steps[i].Summary = ""
+		steps[i].Requires = slices.Sorted(slices.Values(steps[i].Requires))
 	}
+	slices.SortStableFunc(steps, func(a, b Step) int {
+		return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.ProjectID, b.ProjectID))
+	})
+	satisfied := slices.Clone(p.Satisfied)
+	slices.SortStableFunc(satisfied, func(a, b Satisfied) int {
+		return cmp.Or(cmp.Compare(a.For, b.For), cmp.Compare(a.Name, b.Name), cmp.Compare(a.FileName, b.FileName))
+	})
 	b, _ := json.Marshal(struct {
 		Steps     []Step
 		Satisfied []Satisfied
 		Manual    []ManualStep
 		Blockers  []Notice
-	}{steps, p.Satisfied, p.Manual, p.Blockers})
+	}{steps, satisfied, p.Manual, p.Blockers})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:16])
 }
@@ -436,7 +446,7 @@ func (r *resolver) version(ctx context.Context, parent Step, p *project, pinned 
 			return c, nil, nil
 		}
 	}
-	cands, err := r.l.candidates(ctx, r.t, mc, p)
+	cands, err := r.l.candidates(ctx, r.t, mc, p, true)
 	if err != nil {
 		return candidate{}, nil, err
 	}

@@ -179,12 +179,16 @@ func TestConsoleIDs(t *testing.T) {
 		strings.Repeat("a", 256):    `"` + strings.Repeat("a", 256) + `"`,
 	} {
 		f := &fakeConsole{replies: map[string][]string{
-			"datapack enable " + arg:  {"Enabling data pack [" + id + " (world)]"},
-			"datapack disable " + arg: {"Disabling data pack [" + id + " (world)]"},
+			"datapack enable " + arg:               {"Enabling data pack [" + id + " (world)]"},
+			"datapack enable " + arg + ` after ""`: {"Pack '" + id + "' is already enabled!"},
+			"datapack disable " + arg:              {"Disabling data pack [" + id + " (world)]"},
 		}}
 		c := Console{Commander: f, ServerType: "vanilla"}
 		if err := c.Enable(ctx, id); err != nil {
 			t.Errorf("Enable(%q) = %v", id, err)
+		}
+		if on, err := c.IsEnabled(ctx, id); err != nil || !on {
+			t.Errorf("IsEnabled(%q) = %v, %v", id, on, err)
 		}
 		if err := c.Disable(ctx, id); err != nil {
 			t.Errorf("Disable(%q) = %v", id, err)
@@ -196,7 +200,8 @@ func TestConsoleIDs(t *testing.T) {
 	} {
 		f := &fakeConsole{}
 		c := Console{Commander: f, ServerType: "paper"}
-		for name, err := range map[string]error{"Enable": c.Enable(ctx, id), "Disable": c.Disable(ctx, id)} {
+		_, isEnabledErr := c.IsEnabled(ctx, id)
+		for name, err := range map[string]error{"Enable": c.Enable(ctx, id), "Disable": c.Disable(ctx, id), "IsEnabled": isEnabledErr} {
 			e := wantCode(t, err, CodeInvalidID)
 			if e.Params["id"] != shortName(id) {
 				t.Errorf("%s(%q) has params %v", name, id, e.Params)
@@ -210,6 +215,9 @@ func TestConsoleIDs(t *testing.T) {
 	if want := `"a\nb" isn't a data pack ID Playkeeper can send to the server.`; e.Msg != want {
 		t.Errorf("message %q, want %q", e.Msg, want)
 	}
+	if !errors.Is(e, ErrInvalidID) {
+		t.Error("the error doesn't match ErrInvalidID")
+	}
 }
 
 func TestConsoleUnsupported(t *testing.T) {
@@ -221,13 +229,11 @@ func TestConsoleUnsupported(t *testing.T) {
 	} {
 		f := &fakeConsole{}
 		c := Console{Commander: f, ServerType: typ}
-		_, enabledErr := c.Enabled(ctx)
-		_, availableErr := c.Available(ctx)
+		_, isEnabledErr := c.IsEnabled(ctx, "file/a.zip")
 		for name, err := range map[string]error{
 			"Enable":      c.Enable(ctx, "file/a.zip"),
 			"Disable":     c.Disable(ctx, "file/a.zip"),
-			"Enabled":     enabledErr,
-			"Available":   availableErr,
+			"IsEnabled":   isEnabledErr,
 			"Reload":      c.Reload(ctx),
 			"WaitEnabled": c.WaitEnabled(ctx, "file/a.zip", true, time.Millisecond),
 		} {
@@ -242,66 +248,38 @@ func TestConsoleUnsupported(t *testing.T) {
 	}
 }
 
-func TestConsoleLists(t *testing.T) {
+func TestConsoleIsEnabled(t *testing.T) {
+	const id = "file/My Pack (1).zip"
 	for _, tc := range []struct {
-		name      string
-		available bool
-		reply     string
-		want      []string
+		name, reply string
+		want        bool
+		code        string
 	}{
-		{
-			name:  "enabled",
-			reply: "There are 3 data pack(s) enabled: [vanilla (built-in)], [fabric (Fabric mod)], [file/My Pack (1).zip (world)]",
-			want:  []string{"vanilla", "fabric", "file/My Pack (1).zip"},
-		},
-		{
-			name:  "formatted",
-			reply: "§eThere are 2 data pack(s) enabled: §r[§avanilla (built-in)§r], [§afile/terralith.zip (world)§r]",
-			want:  []string{"vanilla", "file/terralith.zip"},
-		},
-		{
-			name:  "terminal colors",
-			reply: "\x1b[0;32;1mThere are 1 data pack(s) enabled: [vanilla (built-in)]\x1b[m",
-			want:  []string{"vanilla"},
-		},
-		{
-			name:  "more lines",
-			reply: "Loaded 7 recipes\nThere are 2 data pack(s) enabled: [vanilla (built-in)], [file/b.zip (world)]\n",
-			want:  []string{"vanilla", "file/b.zip"},
-		},
-		{name: "none enabled", reply: "There are no data packs enabled", want: []string{}},
-		{
-			name: "available", available: true,
-			reply: "There are 2 data pack(s) available: [file/a.zip (world)], [trade_rebalance (feature)]",
-			want:  []string{"file/a.zip", "trade_rebalance"},
-		},
-		{name: "none available", available: true, reply: "There are no more data packs available", want: []string{}},
-		{name: "unknown command", reply: unknownCommand},
-		{name: "silence", reply: ""},
-		{name: "the other list", reply: "There are 1 data pack(s) available: [file/a.zip (world)]"},
-		{name: "the other empty list", available: true, reply: "There are no data packs enabled"},
+		{name: "enabled", reply: "Pack 'file/My Pack (1).zip' is already enabled!", want: true},
+		{name: "formatted", reply: "§cPack 'file/My Pack (1).zip' is already enabled!§r\n", want: true},
+		{name: "disabled", reply: "Unknown data pack ''"},
+		{name: "not installed", reply: "Unknown data pack 'file/My Pack (1).zip'"},
+		{name: "needs features", reply: "Pack 'file/My Pack (1).zip' cannot be enabled, since required flags are not enabled in this world: minecraft:trade_rebalance!"},
+		{name: "enabled instead", reply: "Enabling data pack [file/My Pack (1).zip (world)]", code: CodeUnexpectedReply},
+		{name: "another enabled pack", reply: "Pack 'file/My Pack (1).zip.old' is already enabled!", code: CodeUnexpectedReply},
+		{name: "another unknown pack", reply: "Unknown data pack 'file/My Pack (1).zip.old'", code: CodeUnexpectedReply},
+		{name: "unknown command", reply: unknownCommand, code: CodeUnexpectedReply},
+		{name: "silence", reply: "", code: CodeUnexpectedReply},
 	} {
 		for typ, p := range consolePrefixes {
 			t.Run(tc.name+"/"+typ, func(t *testing.T) {
-				cmd := p + "datapack list enabled"
-				list := Console.Enabled
-				if tc.available {
-					cmd, list = p+"datapack list available", Console.Available
+				probe := p + `datapack enable "file/My Pack (1).zip" after ""`
+				f := &fakeConsole{replies: map[string][]string{probe: {tc.reply}}}
+				on, err := Console{Commander: f, ServerType: typ}.IsEnabled(context.Background(), id)
+				if got := f.commands(); !slices.Equal(got, []string{probe}) {
+					t.Errorf("sent %q, want %q", got, []string{probe})
 				}
-				f := &fakeConsole{replies: map[string][]string{cmd: {tc.reply}}}
-				got, err := list(Console{Commander: f, ServerType: typ}, context.Background())
-				if sent := f.commands(); !slices.Equal(sent, []string{cmd}) {
-					t.Errorf("sent %q, want %q", sent, []string{cmd})
-				}
-				if tc.want == nil {
-					wantCode(t, err, CodeUnexpectedReply)
-					if got != nil {
-						t.Errorf("got %q with an error", got)
-					}
+				if tc.code != "" {
+					wantCode(t, err, tc.code)
 					return
 				}
-				if err != nil || got == nil || !slices.Equal(got, tc.want) {
-					t.Errorf("got %q, %v, want %q", got, err, tc.want)
+				if err != nil || on != tc.want {
+					t.Errorf("IsEnabled = %v, %v, want %v", on, err, tc.want)
 				}
 			})
 		}
@@ -355,12 +333,12 @@ func TestConsoleErrors(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	c := Console{Commander: &fakeConsole{err: errors.New("use of closed network connection")}, ServerType: "paper"}
-	_, enabledErr := c.Enabled(ctx)
+	_, isEnabledErr := c.IsEnabled(ctx, "file/a.zip")
 	for name, err := range map[string]error{
-		"Enable":  c.Enable(ctx, "file/a.zip"),
-		"Disable": c.Disable(ctx, "file/a.zip"),
-		"Enabled": enabledErr,
-		"Reload":  c.Reload(ctx),
+		"Enable":    c.Enable(ctx, "file/a.zip"),
+		"Disable":   c.Disable(ctx, "file/a.zip"),
+		"IsEnabled": isEnabledErr,
+		"Reload":    c.Reload(ctx),
 	} {
 		if err != context.Canceled {
 			t.Errorf("%s with a canceled context = %v, want context.Canceled", name, err)
@@ -371,10 +349,10 @@ func TestConsoleErrors(t *testing.T) {
 func TestWaitEnabled(t *testing.T) {
 	const (
 		id      = "file/terralith.zip"
-		list    = "minecraft:datapack list enabled"
-		none    = "There are no data packs enabled"
-		vanilla = "There are 1 data pack(s) enabled: [vanilla (built-in)]"
-		both    = "There are 2 data pack(s) enabled: [vanilla (built-in)], [file/terralith.zip (world)]"
+		probe   = `minecraft:datapack enable "file/terralith.zip" after ""`
+		on      = "Pack 'file/terralith.zip' is already enabled!"
+		off     = "Unknown data pack ''"
+		unknown = "Unknown data pack 'file/terralith.zip'"
 	)
 	for _, tc := range []struct {
 		name    string
@@ -382,12 +360,12 @@ func TestWaitEnabled(t *testing.T) {
 		replies []string
 		polls   int
 	}{
-		{"enabled", true, []string{none, vanilla, both}, 3},
-		{"enabled already", true, []string{both}, 1},
-		{"disabled", false, []string{both, both, vanilla}, 3},
-		{"disabled already", false, []string{none}, 1},
+		{"enabled", true, []string{unknown, off, on}, 3},
+		{"enabled already", true, []string{on}, 1},
+		{"disabled", false, []string{on, on, off}, 3},
+		{"disabled already", false, []string{unknown}, 1},
 	} {
-		f := &fakeConsole{replies: map[string][]string{list: tc.replies}}
+		f := &fakeConsole{replies: map[string][]string{probe: tc.replies}}
 		if err := (Console{Commander: f, ServerType: "paper"}).WaitEnabled(context.Background(), id, tc.want, time.Millisecond); err != nil {
 			t.Errorf("%s: WaitEnabled = %v", tc.name, err)
 		}
@@ -396,9 +374,9 @@ func TestWaitEnabled(t *testing.T) {
 		}
 	}
 
-	for want, reply := range map[bool]string{true: vanilla, false: both} {
+	for want, reply := range map[bool]string{true: off, false: on} {
 		verb := map[bool]string{true: "enabling", false: "disabling"}[want]
-		f := &fakeConsole{replies: map[string][]string{list: {reply}}}
+		f := &fakeConsole{replies: map[string][]string{probe: {reply}}}
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		err := Console{Commander: f, ServerType: "paper"}.WaitEnabled(ctx, id, want, 5*time.Millisecond)
 		cancel()
@@ -412,7 +390,7 @@ func TestWaitEnabled(t *testing.T) {
 		}
 	}
 
-	f := &fakeConsole{replies: map[string][]string{list: {none, both}}}
+	f := &fakeConsole{replies: map[string][]string{probe: {off, on}}}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	wantCode(t, Console{Commander: f, ServerType: "paper"}.WaitEnabled(ctx, id, true, 0), CodeNotApplied)

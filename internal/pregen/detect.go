@@ -7,12 +7,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"regexp"
-	"slices"
 	"strings"
-	"syscall"
 
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/zipdir"
 )
 
@@ -25,6 +23,7 @@ type Installed struct {
 }
 
 const (
+	maxEntries  = 10_000
 	maxJars     = 1000
 	maxJarBytes = 512 << 20
 	maxMetaSize = 1 << 20
@@ -32,7 +31,8 @@ const (
 
 // Detect looks for Chunky among the server's plugins (Bukkit) or mods
 // (Fabric, NeoForge) by reading the metadata inside each jar, so a renamed
-// jar is still found. A server without it gets ErrNotInstalled.
+// jar is still found. A server without it gets ErrNotInstalled. The folder
+// is read through internal/gamefiles, and links in it are skipped.
 func Detect(dataDir string, p Platform) (Installed, error) {
 	dir := "mods"
 	if p == Bukkit {
@@ -42,22 +42,17 @@ func Detect(dataDir string, p Platform) (Installed, error) {
 		return Installed{}, fmt.Errorf("unknown platform %q", p)
 	}
 	notInstalled := &Error{Code: CodeNotInstalled, Msg: "Chunky is not installed on this server.", Hint: "Install Chunky from the add-ons page and restart the server."}
-	root, err := os.OpenRoot(dataDir)
+	files, err := gamefiles.Open(dataDir, nil)
 	if err != nil {
 		return Installed{}, err
 	}
-	defer root.Close()
-	d, err := root.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+	defer files.Close()
+	entries, err := files.ReadDir(dir, maxEntries)
+	switch {
+	case errors.Is(err, fs.ErrNotExist), gamefiles.KindOf(err) == gamefiles.KindNotFolder:
 		return Installed{}, notInstalled
-	}
-	if err != nil {
-		return Installed{}, err
-	}
-	entries, err := d.ReadDir(maxJars + 1)
-	d.Close()
-	if err != nil && !errors.Is(err, io.EOF) {
-		return Installed{}, err
+	case err != nil:
+		return Installed{}, refusal(err, "Playkeeper could not look for Chunky.")
 	}
 	var names []string
 	for _, e := range entries {
@@ -65,9 +60,8 @@ func Detect(dataDir string, p Platform) (Installed, error) {
 			names = append(names, e.Name())
 		}
 	}
-	slices.Sort(names)
 	for _, name := range names[:min(len(names), maxJars)] {
-		if v, ok := chunkyVersion(root, dir+"/"+name, p); ok {
+		if v, ok := chunkyVersion(files, dir+"/"+name, p); ok {
 			return Installed{File: dir + "/" + name, Version: v}, nil
 		}
 	}
@@ -76,14 +70,13 @@ func Detect(dataDir string, p Platform) (Installed, error) {
 
 // chunkyVersion reads the jar's plugin or mod metadata and returns its
 // version if the jar is Chunky. Unreadable jars are not Chunky.
-func chunkyVersion(root *os.Root, name string, p Platform) (string, bool) {
-	f, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+func chunkyVersion(files *gamefiles.Dir, name string, p Platform) (string, bool) {
+	f, st, err := files.OpenFile(name)
 	if err != nil {
 		return "", false
 	}
 	defer f.Close()
-	st, err := f.Stat()
-	if err != nil || !st.Mode().IsRegular() || st.Size() > maxJarBytes {
+	if st.Size() > maxJarBytes {
 		return "", false
 	}
 	n, err := zipdir.Check(f, st.Size(), zipdir.Metadata)

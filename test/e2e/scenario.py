@@ -361,9 +361,16 @@ def host_a_play(a, c, anon):
     json.dump(summary, open(os.path.join(out, "summary-a.json"), "w"), indent=2)
     today = summary["days"][-1]
     day_sessions = c.ok("GET", c.sp("/players/sessions?range=24h"))["sessions"]
-    total = sum(s["durationSeconds"] for s in day_sessions)
-    check(today["uniquePlayers"] == len({s["player"] for s in day_sessions}) and abs(today["playtimeSeconds"] - total) <= len(day_sessions),
-          f"daily summary recomputes from sessions: {today['uniquePlayers']} players, {today['sessions']} sessions, {today['playtimeSeconds']} s observed, {today['coverage']:.0%} collected")
+    # The summary counts only the part of each session inside its UTC day, so
+    # a run that crosses midnight leaves the earlier part out.
+    day_start = ts(today["date"] + "T00:00:00Z")
+    in_day = [(s, s["durationSeconds"] - max(0.0, (day_start - ts(s["start"])).total_seconds())) for s in day_sessions]
+    in_day = [(s, secs) for s, secs in in_day if secs > 0]
+    players = {s["player"] for s, _ in in_day}
+    total = sum(secs for _, secs in in_day)
+    check(today["uniquePlayers"] == len(players) and abs(today["playtimeSeconds"] - total) <= len(in_day) + 1,
+          f"daily summary recomputes from sessions: {today['uniquePlayers']} players, {today['sessions']} sessions, {today['playtimeSeconds']} s observed "
+          f"(expected {len(players)} players, {total:.0f} s), {today['coverage']:.0%} collected")
 
 
 def host_b(a):

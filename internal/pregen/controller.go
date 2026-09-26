@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 )
 
 // Commander runs one command on the server console and returns its output.
@@ -27,7 +29,7 @@ type Controller struct {
 	DataDir string
 	// Owner owns the config files the Controller writes; nil keeps the
 	// writing process's user.
-	Owner *Owner
+	Owner *gamefiles.Owner
 
 	mu sync.Mutex
 }

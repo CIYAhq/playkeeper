@@ -3,11 +3,14 @@
 package pregen
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 )
 
 func TestWriteConfigStaysInDataDir(t *testing.T) {
@@ -21,7 +24,7 @@ func TestWriteConfigStaysInDataDir(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(dir, "plugins")); err != nil {
 		t.Fatal(err)
 	}
-	wantCode(t, WriteConfig(dir, Bukkit, Config{}, nil), CodeConfig)
+	wantCode(t, WriteConfig(dir, Bukkit, Config{}, nil), CodeFileRefused)
 
 	dir = t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "plugins", "Chunky"), 0o755); err != nil {
@@ -30,7 +33,7 @@ func TestWriteConfigStaysInDataDir(t *testing.T) {
 	if err := os.Symlink(secret, filepath.Join(dir, "plugins", "Chunky", "config.yml")); err != nil {
 		t.Fatal(err)
 	}
-	wantCode(t, WriteConfig(dir, Bukkit, Config{}, nil), CodeConfig)
+	wantCode(t, WriteConfig(dir, Bukkit, Config{}, nil), CodeFileRefused)
 
 	if got := readFile(t, secret); got != "secret: 1\n" {
 		t.Errorf("file outside the data directory changed to %q", got)
@@ -48,6 +51,62 @@ func TestWriteConfigStaysInDataDir(t *testing.T) {
 	}
 	if _, _, err := ReadTask(dir, Bukkit, "world"); err == nil {
 		t.Error("task file outside the data directory was read")
+	}
+}
+
+// A link that stays inside the data directory is refused as well, as
+// internal/gamefiles refuses it, so the refusal names the link to fix and
+// what it leads to is neither read nor changed.
+func TestLinksInsideTheDataDirAreNotFollowed(t *testing.T) {
+	dir := t.TempDir()
+	elsewhere := filepath.Join(dir, "elsewhere")
+	makeJar(t, filepath.Join(elsewhere, "Chunky.jar"), map[string]string{"plugin.yml": fixture(t, "plugin.yml")})
+	if err := os.WriteFile(filepath.Join(elsewhere, "config.yml"), []byte("language: de\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(elsewhere, "tasks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(elsewhere, "tasks", "world.properties"), []byte("world=world\ncancelled=false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plugins := filepath.Join(dir, "plugins")
+
+	if err := os.Symlink("elsewhere", plugins); err != nil {
+		t.Fatal(err)
+	}
+	e := wantCode(t, WriteConfig(dir, Bukkit, Config{}, nil), CodeFileRefused)
+	if e.Msg != "Playkeeper could not update Chunky's settings. plugins in the server's files is a link, which Playkeeper does not follow." ||
+		e.Hint == "" || e.Params["path"] != "plugins" || e.Params["kind"] != "link" {
+		t.Errorf("refusal = %+v", e)
+	}
+	_, err := Detect(dir, Bukkit)
+	if e := wantCode(t, err, CodeFileRefused); e.Params["kind"] != "link" {
+		t.Errorf("Detect through a linked plugins folder = %+v", e)
+	}
+
+	if err := os.Remove(plugins); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(plugins, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../elsewhere", filepath.Join(plugins, "Chunky")); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, WriteConfig(dir, Bukkit, Config{}, nil), CodeFileRefused)
+	_, _, err = ReadTask(dir, Bukkit, "world")
+	wantCode(t, err, CodeFileRefused)
+
+	if err := os.Symlink("../elsewhere/Chunky.jar", filepath.Join(plugins, "Chunky.jar")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Detect(dir, Bukkit); !errors.Is(err, ErrNotInstalled) {
+		t.Errorf("Detect followed a linked jar: %v", err)
+	}
+
+	if got := readFile(t, filepath.Join(elsewhere, "config.yml")); got != "language: de\n" {
+		t.Errorf("the file a link leads to changed to %q", got)
 	}
 }
 
@@ -86,9 +145,9 @@ func TestSpecialFilesDoNotBlock(t *testing.T) {
 }
 
 func TestWriteConfigOwner(t *testing.T) {
-	owner := Owner{UID: os.Getuid(), GID: os.Getgid()}
+	owner := gamefiles.Owner{UID: os.Getuid(), GID: os.Getgid()}
 	if os.Geteuid() == 0 {
-		owner = Owner{UID: 4242, GID: 4243}
+		owner = gamefiles.Owner{UID: 4242, GID: 4243}
 	}
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "config"), 0o755); err != nil {

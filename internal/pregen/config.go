@@ -2,28 +2,17 @@ package pregen
 
 import (
 	"bytes"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"math"
-	"os"
-	"path"
 	"strconv"
 	"strings"
-	"syscall"
 	"unicode/utf8"
-)
 
-// Owner is the user and group that own the files Playkeeper writes for the
-// server, so the server, which runs as that user, can still change them.
-type Owner struct {
-	UID int
-	GID int
-}
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
+)
 
 // Config is the part of Chunky's config Playkeeper manages.
 type Config struct {
@@ -60,9 +49,9 @@ const (
 // rest of the file, and switches Chunky to English so its messages can be
 // read. Chunky reads the file when it starts and on "chunky reload"
 // (Controller.Configure). The data directory is writable by the server, so
-// every path is resolved inside it and files are replaced, never written in
-// place.
-func WriteConfig(dataDir string, p Platform, cfg Config, owner *Owner) error {
+// the file is read and replaced through internal/gamefiles; what it made is
+// given to owner.
+func WriteConfig(dataDir string, p Platform, cfg Config, owner *gamefiles.Owner) error {
 	if !p.valid() {
 		return fmt.Errorf("unknown platform %q", p)
 	}
@@ -71,6 +60,9 @@ func WriteConfig(dataDir string, p Platform, cfg Config, owner *Owner) error {
 	}
 	rel := ConfigPath(p)
 	fail := func(err error) error {
+		if gamefiles.KindOf(err) != "" {
+			return refusal(err, "Playkeeper could not update Chunky's settings.")
+		}
 		return &Error{
 			Code:   CodeConfig,
 			Params: map[string]any{"file": rel},
@@ -79,15 +71,12 @@ func WriteConfig(dataDir string, p Platform, cfg Config, owner *Owner) error {
 			Err:    err,
 		}
 	}
-	root, err := os.OpenRoot(dataDir)
+	files, err := gamefiles.Open(dataDir, owner)
 	if err != nil {
 		return fail(err)
 	}
-	defer root.Close()
-	if err := mkdirAll(root, path.Dir(rel), owner); err != nil {
-		return fail(err)
-	}
-	old, err := readRegular(root, rel, maxConfigBytes)
+	defer files.Close()
+	old, err := files.ReadFile(rel, maxConfigBytes)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fail(err)
 	}
@@ -100,7 +89,7 @@ func WriteConfig(dataDir string, p Platform, cfg Config, owner *Owner) error {
 	if err != nil {
 		return fail(err)
 	}
-	if err := writeFileAtomic(root, rel, out, owner); err != nil {
+	if err := files.WriteFile(rel, out, 0o644); err != nil {
 		return fail(err)
 	}
 	return nil
@@ -207,15 +196,18 @@ func ReadTask(dataDir string, p Platform, world string) (Task, bool, error) {
 	if err := p.CheckWorld(world); err != nil {
 		return Task{}, false, err
 	}
-	root, err := os.OpenRoot(dataDir)
+	files, err := gamefiles.Open(dataDir, nil)
 	if err != nil {
 		return Task{}, false, err
 	}
-	defer root.Close()
+	defer files.Close()
 	rel := TaskDir(p) + "/" + strings.ReplaceAll(world, ":", "/") + ".properties"
-	b, err := readRegular(root, rel, maxTaskBytes)
+	b, err := files.ReadFile(rel, maxTaskBytes)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Task{}, false, nil
+	}
+	if gamefiles.KindOf(err) != "" {
+		return Task{}, false, refusal(err, "Playkeeper could not read Chunky's saved task.")
 	}
 	if err != nil {
 		return Task{}, false, fmt.Errorf("cannot read Chunky's saved task %s: %w", rel, err)
@@ -269,108 +261,4 @@ func atofStrict(s string) float64 {
 		return 0
 	}
 	return f
-}
-
-// readRegular reads a regular file of at most limit bytes inside root.
-// Opening without blocking and checking the type afterwards keeps a FIFO or
-// device planted by the server from hanging or misleading the reader.
-func readRegular(root *os.Root, name string, limit int64) ([]byte, error) {
-	f, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if !st.Mode().IsRegular() {
-		return nil, errors.New("it is not a regular file")
-	}
-	if st.Size() > limit {
-		return nil, fmt.Errorf("it is larger than %d bytes", limit)
-	}
-	b, err := io.ReadAll(io.LimitReader(f, limit+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(b)) > limit {
-		return nil, fmt.Errorf("it is larger than %d bytes", limit)
-	}
-	return b, nil
-}
-
-// mkdirAll creates dir and its missing parents inside root, giving new
-// directories to owner.
-func mkdirAll(root *os.Root, dir string, owner *Owner) error {
-	if dir == "." || dir == "" {
-		return nil
-	}
-	cur := ""
-	for _, part := range strings.Split(dir, "/") {
-		cur = path.Join(cur, part)
-		err := root.Mkdir(cur, 0o755)
-		switch {
-		case err == nil:
-			if owner != nil {
-				if err := root.Lchown(cur, owner.UID, owner.GID); err != nil {
-					return err
-				}
-			}
-		case errors.Is(err, fs.ErrExist):
-			st, err := root.Stat(cur)
-			if err != nil {
-				return err
-			}
-			if !st.IsDir() {
-				return fmt.Errorf("%s is not a directory", cur)
-			}
-		default:
-			return err
-		}
-	}
-	return nil
-}
-
-// writeFileAtomic replaces name inside root with data: it writes a new file
-// next to it, gives it to owner, syncs it and renames it over the old one.
-func writeFileAtomic(root *os.Root, name string, data []byte, owner *Owner) error {
-	var rnd [6]byte
-	if _, err := rand.Read(rnd[:]); err != nil {
-		return err
-	}
-	tmp := path.Join(path.Dir(name), "."+path.Base(name)+".playkeeper-"+hex.EncodeToString(rnd[:]))
-	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		return err
-	}
-	ok := false
-	defer func() {
-		if !ok {
-			f.Close()
-			root.Remove(tmp)
-		}
-	}()
-	if _, err := f.Write(data); err != nil {
-		return err
-	}
-	if owner != nil {
-		if err := f.Chown(owner.UID, owner.GID); err != nil {
-			return err
-		}
-	}
-	if err := f.Chmod(0o644); err != nil {
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := root.Rename(tmp, name); err != nil {
-		return err
-	}
-	ok = true
-	return nil
 }

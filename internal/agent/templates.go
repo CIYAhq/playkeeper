@@ -326,7 +326,7 @@ type templateImport struct {
 func (a *Agent) confirmTemplate(ctx context.Context, fingerprint string) (*templateImport, error) {
 	t, ok := a.templatePlans.get(fingerprint, a.now())
 	if !ok {
-		return nil, &apiError{Status: http.StatusConflict, Code: string(addons.KindPlanChanged), Msg: "Playkeeper no longer has that template.", Hint: "Choose it again."}
+		return nil, &apiError{Status: http.StatusConflict, Code: api.CodePlanChanged, Msg: "Playkeeper no longer has that template.", Hint: "Choose it again."}
 	}
 	p, err := a.planTemplate(ctx, t)
 	if err != nil {

@@ -1094,12 +1094,30 @@ const (
 	CodeIconInvalid       = "icon_invalid"
 )
 
+// WorldCopy is a world folder a restore left next to the live one: the
+// previous world it moved aside, or a restored world that had to make way.
+type WorldCopy struct {
+	Name      string    `json:"name"`
+	Kind      string    `json:"kind"` // previous | failed_restore
+	CreatedAt time.Time `json:"createdAt"`
+	SizeBytes int64     `json:"sizeBytes"`
+}
+
+const (
+	WorldCopyPrevious      = "previous"
+	WorldCopyFailedRestore = "failed_restore"
+)
+
 // Wave 4: every server type.
 
 // CodeUpstream is an error from a download site Playkeeper reads (Mojang,
 // Fabric, Modrinth and the others): unreachable, or answering with
 // something Playkeeper refuses to use.
 const CodeUpstream = "upstream_unavailable"
+
+// CodePlanChanged refuses a create from a template whose confirmed plan
+// Playkeeper no longer has, or that would now do something else.
+const CodePlanChanged = "plan_changed"
 
 // SoftwarePin is the exact software of a server type other than Paper. It
 // mirrors software.Pin field for field; only its own type's build is set.

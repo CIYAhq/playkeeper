@@ -5,16 +5,17 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 )
 
@@ -27,8 +28,10 @@ const (
 	// pregenUpdateInterval is how often Chunky logs its progress, in
 	// seconds; its default of every second floods the console.
 	pregenUpdateInterval = 60
-	// pregenIdleGrace is how long Chunky may report no task at all for an
-	// unfinished one before Playkeeper takes it as gone.
+	// pregenIdleGrace is how long Chunky may report no task, or a cancelled
+	// one, for an unfinished task before Playkeeper takes it as gone or
+	// cancelled. Chunky saves a task that ran to its end as cancelled while
+	// its last chunks still load, and logs that it finished once they have.
 	pregenIdleGrace      = time.Minute
 	pregenCommandTimeout = 30 * time.Second
 
@@ -124,6 +127,38 @@ type pregenCache struct {
 	// override is set when someone continues the task while people play,
 	// so the policy leaves it running until the server is empty.
 	override bool
+	// finished is the last "Task finished" line Chunky logged for each
+	// world.
+	finished map[string]pregenFinish
+}
+
+type pregenFinish struct {
+	at       time.Time
+	progress pregen.Progress
+}
+
+// sawFinish notes that Chunky logged at at that the task for world finished.
+func (c *pregenCache) sawFinish(world string, at time.Time, p pregen.Progress) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.finished == nil {
+		c.finished = map[string]pregenFinish{}
+	}
+	if at.After(c.finished[world].at) {
+		c.finished[world] = pregenFinish{at: at, progress: p}
+	}
+}
+
+// finishedSince is what Chunky logged when the task for world finished, if
+// it finished after since.
+func (c *pregenCache) finishedSince(world string, since time.Time) (pregen.Progress, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	f, ok := c.finished[world]
+	if !ok || !f.at.After(since) {
+		return pregen.Progress{}, false
+	}
+	return f.progress, true
 }
 
 // forget drops Chunky's last report.
@@ -150,6 +185,16 @@ func (c *pregenCache) latest(now time.Time, fresh time.Duration) *pregen.Status 
 	return &st
 }
 
+// pregenLogLine notes a "Task finished" line from Chunky in the server log.
+func (s *server) pregenLogLine(ts time.Time, line string) {
+	if !strings.Contains(line, "[Chunky] Task finished for ") {
+		return
+	}
+	if ev, ok := pregen.ParseLine(line); ok && ev.Kind == pregen.EventFinished && ev.Progress != nil {
+		s.pg.sawFinish(ev.World, ts, *ev.Progress)
+	}
+}
+
 // pregenFresh is how long a report from Chunky stands.
 func (s *server) pregenFresh() time.Duration { return 3*s.opts.PregenInterval + 5*time.Second }
 
@@ -164,9 +209,9 @@ func (s *server) chunky(p pregen.Platform) *pregen.Controller {
 	return s.pg.ctrl
 }
 
-func (s *server) pregenOwner() *pregen.Owner {
+func (s *server) pregenOwner() *gamefiles.Owner {
 	if o := s.gameOwner(); o != nil {
-		return &pregen.Owner{UID: o.UID, GID: o.GID}
+		return &gamefiles.Owner{UID: o.UID, GID: o.GID}
 	}
 	return nil
 }
@@ -366,7 +411,8 @@ func (s *server) pregenTick(ctx context.Context) {
 
 // pregenCheck asks Chunky where the unfinished task stands and records it
 // once it finished, was cancelled from the console or is gone. It returns
-// the task and Chunky's report while the task stays unfinished.
+// the task and Chunky's report while the task stays unfinished. A task
+// finished when Chunky logged so; what it saved can fall short of the area.
 func (s *server) pregenCheck(ctx context.Context, p pregen.Platform) (*pregenTask, *pregen.Status) {
 	s.pg.run.Lock()
 	defer s.pg.run.Unlock()
@@ -381,6 +427,9 @@ func (s *server) pregenCheck(ctx context.Context, p pregen.Platform) (*pregenTas
 	if err != nil {
 		s.log.Debug("could not check the map pre-generation", "server", s.id, "err", err)
 		return nil, nil
+	}
+	if done, ok := s.pg.finishedSince(task.World, task.StartedAt); ok {
+		st.State, st.Progress = pregen.StateFinished, &done
 	}
 	now := s.now()
 	switch st.State {
@@ -403,12 +452,7 @@ func (s *server) pregenCheck(ctx context.Context, p pregen.Platform) (*pregenTas
 		}
 		s.audit("playkeeper", "pregen.finished", task.World, "succeeded", detail)
 		return nil, nil
-	case pregen.StateCancelled:
-		if err := s.endPregen(task, pregenCancelled, st.Task, nil); err == nil {
-			s.audit("playkeeper", "pregen.cancelled", task.World, "succeeded", "cancelled from the console")
-		}
-		return nil, nil
-	case pregen.StateIdle:
+	case pregen.StateCancelled, pregen.StateIdle:
 		s.pg.mu.Lock()
 		if s.pg.idleSince.IsZero() {
 			s.pg.idleSince = now
@@ -416,8 +460,12 @@ func (s *server) pregenCheck(ctx context.Context, p pregen.Platform) (*pregenTas
 		gone := now.Sub(s.pg.idleSince) >= pregenIdleGrace
 		s.pg.mu.Unlock()
 		if gone {
-			if err := s.endPregen(task, pregenCancelled, nil, nil); err == nil {
-				s.audit("playkeeper", "pregen.cancelled", task.World, "failed", "Chunky no longer has the task")
+			result, detail := "succeeded", "cancelled from the console"
+			if st.State == pregen.StateIdle {
+				result, detail = "failed", "Chunky no longer has the task"
+			}
+			if err := s.endPregen(task, pregenCancelled, st.Task, nil); err == nil {
+				s.audit("playkeeper", "pregen.cancelled", task.World, result, detail)
 			}
 			return nil, nil
 		}
@@ -653,7 +701,7 @@ func (s *server) startPregen(ctx context.Context, h *opHandle, actor string, p p
 func (s *server) installChunky(ctx context.Context, h *opHandle, actor string, p pregen.Platform) error {
 	_, err := pregen.Detect(s.dataDir(), p)
 	if !errors.Is(err, pregen.ErrNotInstalled) {
-		return err
+		return pregenError(err)
 	}
 	h.set("step", "installing")
 	key := addons.Key{Source: addons.Modrinth, ProjectID: pregen.ModrinthProjectID}
@@ -822,7 +870,13 @@ func (s *server) holdRestoredPregen(sc api.ServerConfig) {
 	if err != nil {
 		return
 	}
-	if _, err := os.Lstat(filepath.Join(s.dataDir(), pregen.ConfigPath(p))); err != nil {
+	d, err := s.gameFiles()
+	if err != nil {
+		return
+	}
+	_, err = d.Lstat(pregen.ConfigPath(p))
+	d.Close()
+	if errors.Is(err, fs.ErrNotExist) {
 		return
 	}
 	if err := pregen.WriteConfig(s.dataDir(), p, pregen.Config{}, s.pregenOwner()); err != nil {

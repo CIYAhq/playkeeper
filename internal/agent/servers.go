@@ -58,6 +58,9 @@ type server struct {
 	opLock chan struct{}
 	opMu   sync.Mutex
 	op     *api.Operation
+	// recovery is a restore a previous agent process left running, found
+	// when the agent is made and finished when it starts.
+	recovery *pendingRestore
 
 	mu              sync.Mutex
 	runPhase        api.Phase

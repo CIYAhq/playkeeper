@@ -338,15 +338,18 @@ func New(opts Options) (*Agent, error) {
 	}
 	a.loadUpdateState()
 	a.collectUpdateResult()
-	a.markInterruptedOperations()
+	a.markInterruptedOperations(a.findInterruptedRestores()...)
 	a.pruneStages()
+	a.pruneArchiveLeftovers()
 	return a, nil
 }
 
 // Start launches the background loops: each server's follower, collector and
-// reconciler, and the machine's pruning, sampling and update checks.
+// reconciler, and the machine's pruning, sampling and update checks. A
+// restore a previous agent process was in the middle of is finished first.
 func (a *Agent) Start() {
 	for _, s := range a.serverList() {
+		s.recoverAtStart()
 		s.startLoops()
 	}
 	a.loop(a.pruneLoop)
@@ -642,6 +645,9 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/update", a.hUpdate},
 		{"POST", "/v1/update/check", a.hUpdateCheck},
 		{"POST", "/v1/update/apply", a.hUpdateApply},
+		// Follow-ups after 0.3.0.
+		{"GET", "/v1/servers/{id}/world-copies", srv((*server).hWorldCopies)},
+		{"DELETE", "/v1/servers/{id}/world-copies/{name}", srv((*server).hWorldCopyDelete)},
 
 		// Wave 4: every server type.
 		{"GET", "/v1/catalog/builds", a.hCatalogBuilds},

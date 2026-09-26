@@ -132,6 +132,7 @@ export function RestoreDialog({ preview, server, onClose }: { preview: RestorePr
     }
   }
 
+  const askEula = !!(preview?.compatible && preview.needsEula) && !eula
   const blocked = !preview ? undefined : creating ? (!name.trim() ? t('reason.nameFirst') : eula ? undefined : t('reason.eula')) : phrase.trim() === preview.confirmPhrase ? undefined : t('restore.typeFirst', { phrase: preview.confirmPhrase })
   return (
     <Dialog open={!!preview} onOpenChange={(open) => !open && void discard()}>
@@ -162,11 +163,12 @@ export function RestoreDialog({ preview, server, onClose }: { preview: RestorePr
                   <Row label={t('restore.memory')}>{formatMB(preview.memoryMB)}</Row>
                 </dl>
               )}
-              {preview.warnings.length > 0 && (
+              {(preview.warnings.length > 0 || askEula) && (
                 <ul className="mt-3 flex flex-col gap-1 text-[13px] text-warning-foreground">
                   {preview.warnings.map((w) => (
                     <li key={w}>{w}</li>
                   ))}
+                  {askEula && <li>{t('restore.eulaWarning')}</li>}
                 </ul>
               )}
               {preview.compatible && preview.steps.length > 0 && (
