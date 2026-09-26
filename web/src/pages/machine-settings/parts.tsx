@@ -118,7 +118,7 @@ export function CopyIconButton({ value, touch, className }: { value: string; tou
 /** A link out of Playkeeper, in the small green style. */
 export function OutLink({ href, children, className }: { href: string; children: ReactNode; className?: string }) {
   return (
-    <a href={href} target="_blank" rel="noreferrer" className={cn('inline-flex items-center gap-1 text-xs font-medium text-success-foreground hover:underline', className)}>
+    <a href={href} target="_blank" rel="noreferrer" className={cn('inline-flex items-center gap-1 text-xs font-medium text-success-foreground hover:underline max-sm:text-success-strong', className)}>
       {children}
       <ExternalLinkIcon className="size-3" aria-hidden="true" />
     </a>
@@ -132,7 +132,7 @@ export function TermsLine({ a, className }: { a: Address; className?: string }) 
     <p className={cn('text-xs text-muted-foreground', className)}>
       {rich('address.terms', {
         link: (chunk) => (
-          <a href={t('address.termsUrl')} target="_blank" rel="noreferrer" className="font-medium text-success-foreground hover:underline">
+          <a href={t('address.termsUrl')} target="_blank" rel="noreferrer" className="font-medium text-success-foreground hover:underline max-sm:text-success-strong">
             {chunk}
           </a>
         ),
@@ -145,7 +145,7 @@ export type Tone = 'default' | 'green' | 'amber' | 'red'
 
 const toneClass: Record<Tone, string> = {
   default: 'text-foreground',
-  green: 'text-success-foreground',
+  green: 'text-success-foreground max-sm:text-success-strong',
   amber: 'text-warning-foreground',
   red: 'text-destructive-foreground',
 }
