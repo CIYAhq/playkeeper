@@ -498,3 +498,15 @@ func TestDocsSearchIndexIsText(t *testing.T) {
 }
 
 var reEntity = regexp.MustCompile(`&(#\d+|#x[0-9a-fA-F]+|[a-z]+);`)
+// A page's breadcrumb links its section's hub, also when the hub is a part
+// of another page, like the landing page's features, and then gives search
+// engines the trail.
+func TestCrumbsLinkTheirHub(t *testing.T) {
+	feature := pages(build(t, Default))["/features/mods-and-modpacks"]
+	if !strings.Contains(feature, `<a href="/#features">Features</a>`) {
+		t.Error("the feature page's breadcrumb doesn't link Features to the landing page's features")
+	}
+	if !strings.Contains(feature, `"BreadcrumbList"`) {
+		t.Error("the feature page has no BreadcrumbList data")
+	}
+}

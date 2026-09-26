@@ -292,10 +292,11 @@ func (s *Site) crumbs(p *Page) []Crumb {
 	parent := Crumb{Label: p.Crumb}
 	for _, n := range navSections {
 		if n.Label == p.Crumb {
+			hubPage, _, _ := strings.Cut(n.Hub, "#")
 			switch {
 			case n.Link != "":
 				parent.Path = n.Link
-			case s.byPath[n.Hub] != nil:
+			case s.byPath[hubPage] != nil:
 				parent.Path = n.Hub
 			}
 		}
