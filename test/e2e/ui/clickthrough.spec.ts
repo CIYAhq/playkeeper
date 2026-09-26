@@ -29,7 +29,7 @@ const sizes = {
 const addonTabs: Record<string, string> = { paper: '/plugins', purpur: '/plugins', fabric: '/mods', quilt: '/mods', neoforge: '/mods' }
 
 async function routes(page: Page, phone: boolean): Promise<string[]> {
-  const servers = (await (await page.request.get('/api/servers')).json()) as { slug: string; type?: string }[]
+  const servers = (await (await page.request.get('/api/servers')).json()) as { id: string; slug: string; type?: string }[]
   const machines = (await (await page.request.get('/api/machines')).json()) as { id: string }[]
   const out = ['/']
   for (const s of servers) {
@@ -37,6 +37,16 @@ async function routes(page: Page, phone: boolean): Promise<string[]> {
     for (const tab of ['', '/console', '/players', '/world', ...(addons ? [addons] : []), '/settings']) out.push(`/servers/${s.slug}${tab}`)
   }
   out.push('/servers/new')
+  // The add-on library with Playkeeper's picks, for the first server that
+  // has one (each library takes minutes), and a template someone shared.
+  const library = servers.find((s) => addonTabs[s.type ?? ''])
+  if (library) out.push(`/servers/${library.slug}${addonTabs[library.type ?? '']}/browse`)
+  const first = servers[0]
+  if (first) {
+    const exported = (await (await page.request.get(`/api/servers/${first.id}/template`)).json()) as { link?: string }
+    const payload = exported.link?.split('#')[1]
+    if (payload) out.push(`/servers/new#template=${payload}`)
+  }
   for (const m of machines) out.push(`/machines/${m.id}`)
   out.push('/settings')
   if (phone) out.push('/more')

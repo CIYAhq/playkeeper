@@ -12,7 +12,7 @@ export interface ApiCall {
   status: number
   faked: boolean
   error?: string
-  /** A fake that answers with an error on purpose, like a wrong password. */
+  /** An error the dashboard expects: a fake's on purpose, like a wrong password, or an icon it shows a stand-in for. */
   expected?: boolean
   at: number
 }
@@ -144,6 +144,19 @@ const routes: [string, RegExp, Handler][] = [
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
   // Wave 4: reinstalling changed software, trying a template's skipped add-ons again, and the friends' pack switch.
   ['POST', /^\/api\/servers\/(\w+)\/software\/reinstall$/, (r, state) => op(state, 'reinstall', r.params[0])],
+  // Wave 4: the CurseForge key. A key typed here isn't one CurseForge knows, so it's refused as the real check would.
+  ['POST', /^\/api\/machines\/(\w+)\/addon-sources\/curseforge$/, () => ({ status: 400, body: { error: "That key didn't work. Copy it again from console.curseforge.com.", code: 'curseforge_key_refused' }, expected: true })],
+  ['DELETE', /^\/api\/machines\/(\w+)\/addon-sources\/curseforge$/, () => ({ status: 200, body: { curseforge: { key: 'none' } } })],
+  // Wave 4: installing from the library (voice chat with leave to open its port).
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/addons\/install$/,
+    (r, state) => {
+      const b = r.body as { source?: unknown; projectId?: unknown; fingerprint?: unknown } | null
+      if (typeof b?.source !== 'string' || typeof b.projectId !== 'string' || typeof b.fingerprint !== 'string') return invalid('Confirm the plan first.')
+      return op(state, 'addon-install', r.params[0])
+    },
+  ],
   ['POST', /^\/api\/servers\/(\w+)\/template\/retry$/, (r, state) => op(state, 'template-retry', r.params[0])],
   [
     'POST',
@@ -224,7 +237,9 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
     const method = request.method()
     const path = url.pathname
     const at = Date.now()
-    if (method === 'GET' || method === 'HEAD') {
+    // Planning a template reads it and changes nothing, so the real panel answers.
+    const planning = method === 'POST' && /^\/api\/machines\/\w+\/templates\/plan$/.test(path)
+    if (method === 'GET' || method === 'HEAD' || planning) {
       const head = /^\/api\/players\/([^/]+)\/head$/.exec(path)
       if (head?.[1]) {
         calls.push({ method, path, status: 200, faked: true, at })
@@ -234,6 +249,14 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
       if (/^\/api\/servers\/\w+\/backups\/[\w-]+\/download$/.test(path)) {
         calls.push({ method, path, status: 200, faked: true, at })
         await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/gzip', 'Content-Disposition': 'attachment; filename="backup.tar.gz"' }, body: 'fake backup' })
+        return
+      }
+      // A faked job finishes at once, for the dialogs that follow it.
+      const fakeOp = /^\/api\/machines\/\w+\/operations\/(fake-op-\d+)$/.exec(path)
+      if (fakeOp?.[1]) {
+        calls.push({ method, path, status: 200, faked: true, at })
+        const done = new Date().toISOString()
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: fakeOp[1], kind: 'addon-install', status: 'succeeded', phase: '', actor: 'admin', startedAt: done, finishedAt: done, detail: { files: [] } }) })
         return
       }
       if (/^\/api\/servers\/\w+\/world-copies$/.test(path)) {
@@ -246,7 +269,10 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
         await route.abort().catch(() => {})
         return
       }
-      calls.push({ method, path, status: res.status(), faked: false, at })
+      // Add-on icons come from their sites through the panel, and one that
+      // can't be had shows a stand-in, so its error is expected.
+      const icon = /^\/api\/(servers|machines)\/\w+\/(addons|modpacks)\/icon$/.test(path)
+      calls.push({ method, path, status: res.status(), faked: false, at, expected: icon && !res.ok() })
       if (res.ok()) {
         if (path === '/api/me/prefs') Object.assign(state.prefs, await res.json().catch(() => ({})))
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
