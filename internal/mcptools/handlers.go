@@ -126,7 +126,7 @@ func getServerStatus(ctx context.Context, c *call) (*mcp.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := statusOut{ID: c.server.ID, Name: st.Name, Slug: st.Slug, Machine: c.server.MachineName, Status: phase(st), Detail: clip(st.PhaseDetail),
+	out := statusOut{ID: c.server.ID, Name: st.Name, Slug: c.server.Slug, Machine: c.server.MachineName, Status: phase(st), Detail: clip(st.PhaseDetail),
 		Wanted: st.Desired, Reachable: st.Reachable, GamePort: st.GamePort, Problem: clip(st.LastError), Hint: clip(st.LastErrorHint),
 		RecentCrashes: st.CrashCount, Operation: operationOf(st.Operation)}
 	var b strings.Builder

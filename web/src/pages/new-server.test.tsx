@@ -276,3 +276,95 @@ describe('New server from a world', () => {
     expect(text()).toContain('Drop the world .zip here')
   })
 })
+
+describe('New server on a joined machine', () => {
+  const remote = { id: 'r2345abcde', projectId: 'p2345abcde', name: 'home-server', kind: 'remote' } as MachineView
+  const on = (state: 'connected' | 'offline'): Workspace => ({ ...workspace, machines: [machine, { ...remote, link: { machineId: remote.id, name: remote.name, fingerprint: '', state, problems: [] } }] })
+  const unreachable = new client.ApiError(503, { error: 'home-server is not connected.', code: 'machine_not_connected' })
+
+  /** Renders the page for home-server, or renders it again with the workspace changed. */
+  async function renderOn(ws: Workspace) {
+    const r = root ?? createRoot(document.body.appendChild(document.createElement('div')))
+    root = r
+    await act(async () => r.render(<WorkspaceContext.Provider value={ws}>{<NewServerPage key={remote.id} machine={remote.id} />}</WorkspaceContext.Provider>))
+    await act(settle)
+  }
+
+  function continueButton(): HTMLButtonElement {
+    const b = [...document.querySelectorAll('button')].find((x) => /^(Continue to|Create and start)/.test(x.textContent?.trim() ?? ''))
+    if (!b) throw new Error(`no Continue button in: ${text()}`)
+    return b
+  }
+
+  async function next(times = 1) {
+    for (let i = 0; i < times; i++) await click(continueButton())
+  }
+
+  async function acceptEula() {
+    const eula = document.querySelector('input[type="checkbox"]')
+    if (!eula) throw new Error('no EULA checkbox')
+    await click(eula)
+  }
+
+  const posted = () => vi.mocked(client.post).mock.calls.map(([path]) => path)
+  const asked = () => vi.mocked(client.get).mock.calls.map(([path]) => path)
+
+  beforeEach(() => {
+    window.history.replaceState(null, '', `/servers/new?machine=${remote.id}`)
+    vi.mocked(client.get).mockClear()
+    vi.mocked(client.post).mockImplementation((() => Promise.resolve({ id: 'op1', kind: 'create', status: 'running', serverId: 's2345abcde' } as Operation)) as typeof client.post)
+  })
+
+  for (const tc of [
+    {
+      name: 'makes the server there while it’s connected, and keeps the machine once the flow starts',
+      steps: async () => {
+        await renderOn(on('connected'))
+        expect(text()).toContain('New server on')
+        await next()
+        expect(text()).not.toContain('New server on')
+        await next(3)
+        await acceptEula()
+        await next()
+      },
+      posts: ['/api/machines/r2345abcde/servers'],
+    },
+    {
+      name: 'says it’s away and holds Create back when it’s away as the page opens',
+      steps: async () => {
+        vi.mocked(client.get).mockImplementation(((path: string) => (path.includes('/catalog') ? (path.includes(remote.id) ? Promise.reject(unreachable) : Promise.resolve(catalog)) : new Promise(() => {}))) as typeof client.get)
+        await renderOn(on('offline'))
+        expect(text()).toContain('Can’t reach home-server Create waits until it’s back.')
+        expect(text()).not.toContain('Couldn’t load the versions')
+        expect(continueButton().disabled).toBe(true)
+        expect(continueButton().title).toBe('Can’t reach home-server')
+        await click(continueButton())
+      },
+      posts: [],
+    },
+    {
+      name: 'keeps the machine when it goes away after step 2, and goes on once it’s back',
+      steps: async () => {
+        await renderOn(on('connected'))
+        await next(2)
+        await renderOn(on('offline'))
+        expect(text()).toContain('Can’t reach home-server')
+        expect(continueButton().title).toBe('Can’t reach home-server')
+        await click(continueButton())
+        expect(continueButton().textContent).toContain('Continue to memory')
+        await renderOn(on('connected'))
+        expect(text()).not.toContain('Can’t reach home-server')
+        await next(2)
+        await acceptEula()
+        await next()
+      },
+      posts: ['/api/machines/r2345abcde/servers'],
+    },
+  ]) {
+    it(tc.name, async () => {
+      await tc.steps()
+      expect(posted()).toEqual(tc.posts)
+      expect(asked().filter((p) => p.includes(machine.id))).toEqual([])
+    })
+  }
+})

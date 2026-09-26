@@ -1317,9 +1317,9 @@ function server(view: View, s: Json): Json {
       return { ...s, operation: { id: 'fake-op-busy', serverId: s.id, kind: 'backup', status: 'running', phase: 'copying', actor: 'admin', startedAt: ago(20) } }
     case 'empty lists':
       return { ...s, players: s.players ? { ...(s.players as Json), online: 0, names: [] } : undefined }
-    case 'live':
     case 'asleep':
       return { ...stopped(s), desired: 'running', phase: 'asleep', sleep: { enabled: true, idleMinutes: 30, asleepSince: ago(40 * 60), listening: true } }
+    case 'live':
     case 'no servers':
     case 'update available':
     case 'space to free':
@@ -1903,7 +1903,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         const body = image || answer.status !== 200 ? answer.body : (lay(view(), path, answer.body, url.host) ?? answer.body)
         if (answer.status === 200 && /^\/api\/servers\/\w+\/addons(\/checks)?$/.test(path)) state.reads.set(path, body as Record<string, unknown>)
         const error = answer.status >= 400 ? String((body as { error?: string }).error ?? '') : undefined
-        // An icon the proxy refuses, such as a CurseForge pack's, shows a stand-in, so its error is expected.
+        // An icon the proxy refuses shows a stand-in, so its error is expected.
         const icon = /^\/api\/(servers|machines)\/\w+\/(addons|modpacks)\/icon$/.test(path)
         calls.push({ method, path, status: answer.status, faked: true, error, expected: (icon && answer.status >= 400) || undefined, at })
         await route.fulfill({ status: answer.status, headers: answer.headers, body: image ? (body as Buffer) : JSON.stringify(body) }).catch(() => {})

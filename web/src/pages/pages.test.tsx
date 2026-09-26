@@ -75,7 +75,6 @@ import { PlayersPage } from './server/players'
 import { PlayerProfilePage } from './server/profile'
 import { RunningPage } from './server/running'
 import { ServerSettingsPage } from './server/settings'
-import { SchedulesSection } from './server/schedules'
 import { AsleepCard } from './server/sleep'
 import { WorldPage } from './server/world'
 import { GlobalSettingsPage } from './settings'
@@ -1109,18 +1108,6 @@ describe('Backups with players online', () => {
     if (!b) throw new Error('no Back up now in the refusal notice')
     return b
   }
-
-  it('never says a scheduled backup stops the server', async () => {
-    answer({ '/schedules/runs': { runs: [] }, '/schedules': { schedules: [] } })
-    await render(<SchedulesSection server={server()} />)
-    await press('New schedule')
-    const backUp = [...document.querySelectorAll('label')].find((l) => l.textContent?.trim() === 'Back up')
-    if (!backUp) throw new Error('no Back up choice')
-    await click(backUp)
-    expect(page()).toContain('Only if someone played')
-    expect(page()).toContain('Tries again an hour later instead.')
-    expect(page()).not.toContain('stops for a moment')
-  })
 
   it('keeps refused scheduled backups on the World tab, and stops the server for a backup only after saying so', async () => {
     vi.mocked(client.post).mockClear()

@@ -30,3 +30,14 @@ func TestAgentUnitCapsItsMemory(t *testing.T) {
 			soft, high, hard, minecraft.HostReserveMB)
 	}
 }
+
+// The updater may write only the binary, the units, the config and
+// Playkeeper's state: the rest of the host is read-only to it.
+func TestTheUpdaterWritesOnlyItsOwnPaths(t *testing.T) {
+	unit := updateServiceUnit()
+	for _, want := range []string{"ProtectSystem=strict\n", "ReadWritePaths=/usr/local/bin /etc/systemd/system /etc/playkeeper /var/lib/playkeeper\n", "ProtectHome=yes\n", "NoNewPrivileges=yes\n"} {
+		if !strings.Contains(unit, want) {
+			t.Errorf("the updater's unit lacks %q:\n%s", want, unit)
+		}
+	}
+}

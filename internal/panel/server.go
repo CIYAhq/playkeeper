@@ -412,8 +412,8 @@ func (s *Server) Routes() []Route {
 		// Wave 4: add-on sources. The CurseForge key is the machine's, so only
 		// those who may manage the machine change it.
 		mg("/api/machines/{mid}/addon-sources", "/v1/addon-sources"),
-		mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),
-		mm("DELETE", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),
+		mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageAddonSources),
+		mm("DELETE", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageAddonSources),
 		// Wave 4: templates.
 		sg("/api/servers/{id}/template", "/v1/servers/{id}/template"),
 		sm("POST", "/api/servers/{id}/template/retry", "/v1/servers/{id}/template/retry"),
@@ -421,7 +421,7 @@ func (s *Server) Routes() []Route {
 		// Wave 4: sharing the pack with friends; the public page is in
 		// publicRoutes.
 		sg("/api/servers/{id}/mods/share", "/v1/servers/{id}/mods/share"),
-		sm("POST", "/api/servers/{id}/mods/share", "/v1/servers/{id}/mods/share"),
+		{"POST", "/api/servers/{id}/mods/share", needSessionCSRF, actManageServers, s.sharing("/v1/servers/{id}/mods/share", s.recordPackLink)},
 		view("/api/servers/{id}/mods/share.mrpack", s.hPackShareFile),
 
 		// Wave 7: schedules, sleep, backup rules and copies somewhere else, disk space.
@@ -489,7 +489,7 @@ func (s *Server) Routes() []Route {
 		view("/api/servers/{id}/map/tiles/{world}/{zoom}/{tile}", s.mapProxy("/v1/servers/{id}/map/tiles/{world}/{zoom}/{tile}")),
 		sm("POST", "/api/servers/{id}/map/enable", "/v1/servers/{id}/map/enable"),
 		sm("POST", "/api/servers/{id}/map/disable", "/v1/servers/{id}/map/disable"),
-		sm("POST", "/api/servers/{id}/map/share", "/v1/servers/{id}/map/share"),
+		{"POST", "/api/servers/{id}/map/share", needSessionCSRF, actManageServers, s.sharing("/v1/servers/{id}/map/share", s.recordMapLink)},
 		sm("POST", "/api/servers/{id}/map/restart-later", "/v1/servers/{id}/map/restart-later"),
 		sm("POST", "/api/servers/{id}/world-imports", "/v1/servers/{id}/world-imports"),
 		mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actCreateServers),
@@ -1046,12 +1046,13 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 		wg.Go(func() {
 			ctx, cancel := context.WithTimeout(r.Context(), machineTimeout)
 			defer cancel()
-			m.agent.Do(ctx, "GET", "/v1/audit", url.Values{"limit": {"200"}}, nil, &audits[i])
+			m.agent.Do(ctx, "GET", "/v1/audit", url.Values{"limit": {strconv.Itoa(maxMachineAudit)}}, nil, &audits[i])
 		})
 	}
 	wg.Wait()
+	now := s.now().UTC()
 	for i, m := range machines {
-		for _, a := range audits[i] {
+		for _, a := range machineAudit(audits[i], now) {
 			out = append(out, entry{AuditEntry: a, Source: "agent", MachineID: m.ID})
 		}
 	}
@@ -1064,6 +1065,33 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 		out[i].ActorKind, out[i].ActorName = actorInfo(out[i].Actor, names)
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// maxMachineAudit is how many audit rows the log takes from each machine.
+const maxMachineAudit = 200
+
+// machineAudit is what the log takes of the audit rows a machine sent: the
+// first maxMachineAudit, each id once, none dated after now. A machine's
+// clock may run ahead, and one that sends more rows than asked, or dates
+// them in the future to stay on top, still leaves the log room for the
+// dashboard's own rows.
+func machineAudit(rows []api.AuditEntry, now time.Time) []api.AuditEntry {
+	out := make([]api.AuditEntry, 0, min(len(rows), maxMachineAudit))
+	seen := map[int64]bool{}
+	for _, a := range rows {
+		if len(out) == maxMachineAudit {
+			break
+		}
+		if seen[a.ID] {
+			continue
+		}
+		seen[a.ID] = true
+		if a.TS.After(now) {
+			a.TS = now
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // --- agent proxy ---
@@ -1169,6 +1197,13 @@ func (s *Server) forwardThen(method, pattern string, then func(machine, *session
 	return s.forwardTo(method, pattern, false, then)
 }
 
+// asActor is ctx for requests to a machine's agent made on actor's behalf. A
+// machine link refuses a change that names no actor, so every request that
+// changes something on a machine goes with one.
+func asActor(ctx context.Context, actor string) context.Context {
+	return machinelink.WithActor(ctx, actor)
+}
+
 // forwardTo is forward, also stamping panelHost when withHost is set and
 // calling then (if set) after a request that succeeded. What the panel stamps
 // replaces anything the browser sent under the same name.
@@ -1178,7 +1213,7 @@ func (s *Server) forwardTo(method, pattern string, withHost bool, then func(mach
 		if !ok {
 			return
 		}
-		ctx := machinelink.WithActor(r.Context(), sess.User.Username)
+		ctx := asActor(r.Context(), sess.User.Username)
 		path := agentPath(pattern, r)
 		// The host the dashboard was opened with is its own machine's
 		// address: a joined machine would point its name at the dashboard.

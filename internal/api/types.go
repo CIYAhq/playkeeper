@@ -2103,11 +2103,14 @@ type DiscordSettingsRequest struct {
 type DiscordNotifyRequest struct {
 	Kind     string `json:"kind"`
 	ServerID string `json:"serverId,omitempty"`
-	Player   string `json:"player,omitempty"`
-	Member   string `json:"member,omitempty"`
-	On       bool   `json:"on,omitempty"`
-	Admin    bool   `json:"admin,omitempty"`
-	Actor    string `json:"actor"`
+	// ServerName names a join request's server when it runs on a joined
+	// machine: the dashboard's agent, which posts the alert, doesn't run it.
+	ServerName string `json:"serverName,omitempty"`
+	Player     string `json:"player,omitempty"`
+	Member     string `json:"member,omitempty"`
+	On         bool   `json:"on,omitempty"`
+	Admin      bool   `json:"admin,omitempty"`
+	Actor      string `json:"actor"`
 }
 
 // Kinds of DiscordNotifyRequest.

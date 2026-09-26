@@ -161,20 +161,20 @@ type serverRef struct {
 	Name string `json:"name"`
 }
 
-// listServers lists every server on every machine. It fails when a machine
-// doesn't answer, since team invites narrow to the servers that exist.
+// listServers lists every server on every machine, as allServers does: a
+// joined machine that doesn't answer gives its servers as it last listed
+// them, so it can't hold up team changes and invites. Only the dashboard's
+// own machine has to answer, and only when it's the only one.
 func (s *Server) listServers(ctx context.Context) ([]serverRef, error) {
-	list, err := s.machines()
+	all, _, err := s.allServers(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var out []serverRef
-	for _, m := range list {
-		var servers []serverRef
-		if _, err := m.agent.Do(ctx, "GET", "/v1/servers", nil, nil, &servers); err != nil {
-			return nil, err
-		}
-		out = append(out, servers...)
+	out := make([]serverRef, 0, len(all))
+	for _, sv := range all {
+		id, _ := sv["id"].(string)
+		name, _ := sv["name"].(string)
+		out = append(out, serverRef{ID: id, Name: name})
 	}
 	return out, nil
 }
@@ -429,7 +429,7 @@ func (s *Server) askToJoin(w http.ResponseWriter, r *http.Request, c joinCall, i
 	}
 	if asked {
 		s.audit(inv.Actor(), "invite.redeem", p.Name, "succeeded", "asked to join")
-		s.notifyJoinRequest(r.Context(), m, jr, inv.Actor())
+		s.notifyJoinRequest(r.Context(), srv.Name, jr, inv.Actor())
 	}
 	info, err := invites.Wait(srv, p, "")
 	s.answerJoin(w, info, err)

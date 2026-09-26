@@ -109,7 +109,8 @@ type Library struct {
 	// writable by the game; empty means the system temporary directory.
 	TempDir string
 	// ModrinthFiles and HangarFiles are the hosts files may come from, and
-	// IconHosts those icons may; each defaults to the sources' own CDN.
+	// IconHosts those icons may; each defaults to the sources' own CDN, and
+	// icons also to the host of CurseForge's modpack logos.
 	ModrinthFiles, HangarFiles, IconHosts fetch.Hosts
 	// MaxFileSize bounds each add-on file and MaxIconSize each icon.
 	MaxFileSize, MaxIconSize int64
@@ -150,11 +151,15 @@ func (l *Library) fileHosts(s Source) fetch.Hosts {
 	return nil
 }
 
+// CurseForgeLogoHost is where CurseForge serves projects' logos, a
+// modpack's icon among them. CurseForge's files come from other hosts.
+const CurseForgeLogoHost = "media.forgecdn.net"
+
 func (l *Library) iconHosts() fetch.Hosts {
 	if l.IconHosts != nil {
 		return l.IconHosts
 	}
-	return fetch.Hosts{modrinth.CDNHost, hangar.CDNHost}
+	return fetch.Hosts{modrinth.CDNHost, hangar.CDNHost, CurseForgeLogoHost}
 }
 
 func (l *Library) maxFileSize() int64 {

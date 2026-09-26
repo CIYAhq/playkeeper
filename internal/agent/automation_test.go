@@ -10,11 +10,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -669,6 +673,16 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 				e.t.Fatalf("wake: %+v", o)
 			}
 		}, want: asleep},
+		{name: "a wake that finds the server software changed", steps: func(e *agentEnv) {
+			s := e.srv()
+			sc, _ := s.serverConfig()
+			if err := os.WriteFile(s.jarPath(*sc), []byte("tampered"), 0o644); err != nil {
+				e.t.Fatal(err)
+			}
+			if o := wake(e); o.Status != api.OpFailed || !strings.Contains(o.Error, "doesn't match what Playkeeper installed") {
+				e.t.Fatalf("wake: %+v", o)
+			}
+		}, want: state{api.DesiredStopped, false, true, api.PhaseCrashed}},
 		{name: "a player wakes it during a backup", steps: func(e *agentEnv) {
 			release := e.holdOp("backup")
 			began := make(chan struct{})
@@ -733,6 +747,110 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 				t.Fatalf("%d sleep periods open, with the server meant to be %s", open, c.want.desired)
 			}
 		})
+	}
+}
+
+// A start that fails leaves nothing answering for a sleeping server, which
+// isn't asleep any more: the start left it stopped. Wake up now and Start
+// both start it this way.
+func TestAFailedStartLeavesNothingAnsweringForTheServer(t *testing.T) {
+	cases := []struct {
+		name string
+		// fail makes the start fail, and returns what undoes it.
+		fail func(e *agentEnv) func()
+	}{
+		{name: "the image can't be pulled", fail: func(e *agentEnv) func() {
+			e.fd.mu.Lock()
+			e.fd.down = "/images/"
+			e.fd.mu.Unlock()
+			return func() {
+				e.fd.mu.Lock()
+				e.fd.down = ""
+				e.fd.mu.Unlock()
+			}
+		}},
+		{name: "the server software changed", fail: func(e *agentEnv) func() {
+			s := e.srv()
+			sc, _ := s.serverConfig()
+			if err := os.WriteFile(s.jarPath(*sc), []byte("tampered"), 0o644); err != nil {
+				e.t.Fatal(err)
+			}
+			return func() {}
+		}},
+		{name: "the container can't start", fail: func(e *agentEnv) func() {
+			e.fd.mu.Lock()
+			e.fd.startErr = "driver failed programming external connectivity: Bind for 0.0.0.0:25565 failed: port is already allocated"
+			e.fd.mu.Unlock()
+			return func() {
+				e.fd.mu.Lock()
+				e.fd.startErr = ""
+				e.fd.mu.Unlock()
+			}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.create()
+			e.putToSleep()
+			undo := c.fail(e)
+			op := e.runOp("POST", "/start")
+			undo()
+			s := e.srv()
+			s.auto.mu.Lock()
+			m := s.auto.standIn
+			s.auto.mu.Unlock()
+			desired, listening := s.desired(), m != nil && m.Listening()
+			open := e.countRows(`SELECT COUNT(*) FROM sleep_periods WHERE end_ts IS NULL`)
+			if op.Status != api.OpFailed || desired != api.DesiredStopped || listening || open != 0 {
+				t.Fatalf("after the failed start (%s): desired %s, stand-in listening %v, %d sleep periods open; want it stopped with nothing answering", op.Error, desired, listening, open)
+			}
+		})
+	}
+}
+
+// Every operation the agent starts has a label for the busy message, so
+// "Playkeeper is busy with …" never ends in nothing.
+func TestEveryOperationHasABusyLabel(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	kinds := map[string]string{}
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) == 0 {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || (sel.Sel.Name != "beginOp" && sel.Sel.Name != "beginMachineOp" && sel.Sel.Name != "startOp") {
+				return true
+			}
+			if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				kind, _ := strconv.Unquote(lit.Value)
+				kinds[kind] = fset.Position(lit.Pos()).String()
+			}
+			return true
+		})
+	}
+	for _, kind := range []string{"backup", "sleep", "offsite-restore", "offsite-recover", "disk-cleanup"} {
+		if kinds[kind] == "" {
+			t.Fatalf("found no %s operation among %v", kind, kinds)
+		}
+	}
+	for kind, at := range kinds {
+		if opLabels[kind] == "" {
+			t.Errorf("%s: the %s operation has no busy label", at, kind)
+		}
 	}
 }
 
@@ -903,6 +1021,109 @@ func TestSleepWaitsForAScheduledRestartsCountdown(t *testing.T) {
 	}
 }
 
+// setSleepLooks makes fn run as the sleep operation looks again, until the
+// test's later cleanups have run, the agent's included when set before it
+// starts.
+func setSleepLooks(t *testing.T, fn func()) {
+	sleepLooks = fn
+	t.Cleanup(func() { sleepLooks = func() {} })
+}
+
+// The sleep operation looks again before it stops the server, and is called
+// off, the server staying awake, when since the sleep watch decided sleep
+// was turned off or set to wait longer, or someone joined. Saving the
+// setting takes the operation lock, so while the sleep runs, turning sleep
+// off changes nothing, as during a backup: a server is never left asleep
+// with sleep off.
+func TestSleepLooksAgainBeforeItStopsTheServer(t *testing.T) {
+	type state struct {
+		desired   string
+		listening bool
+		sleep     sleep.Settings
+		phase     api.Phase
+		op        string
+	}
+	on, off, longer := sleep.Settings{Enabled: true, IdleMinutes: 5}, sleep.Settings{IdleMinutes: 5}, sleep.Settings{Enabled: true, IdleMinutes: 60}
+	asleep := state{api.DesiredSleeping, true, on, api.PhaseAsleep, api.OpSucceeded}
+	awake := func(set sleep.Settings) state {
+		return state{api.DesiredRunning, false, set, api.PhaseOnline, api.OpCancelled}
+	}
+	read := func(e *agentEnv) state {
+		s := e.srv()
+		s.auto.mu.Lock()
+		m := s.auto.standIn
+		s.auto.mu.Unlock()
+		var op string
+		_ = e.a.db.QueryRow(`SELECT status FROM operations WHERE kind = 'sleep'`).Scan(&op)
+		return state{s.desired(), m != nil && m.Listening(), s.sleepSettings(), e.status().Phase, op}
+	}
+	setSleep := func(e *agentEnv, set sleep.Settings) (int, map[string]any) {
+		return e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": set.Enabled, "idleMinutes": set.IdleMinutes})
+	}
+	// saved saves the setting as the Sleep page does, which wakes nothing
+	// while the server is awake.
+	saved := func(set sleep.Settings) func(e *agentEnv) {
+		return func(e *agentEnv) {
+			if code, out := setSleep(e, set); code != http.StatusOK || out["operation"] != nil {
+				e.t.Errorf("save %+v: %d %v", set, code, out)
+			}
+		}
+	}
+	cases := []struct {
+		name string
+		// decided runs after the sleep watch decided and before the
+		// operation begins; looking, as the operation looks again.
+		decided, looking func(e *agentEnv)
+		want             state
+	}{
+		{name: "nothing changed", want: asleep},
+		{name: "sleep turned off after it decided", decided: saved(off), want: awake(off)},
+		{name: "a longer idle time after it decided", decided: saved(longer), want: awake(longer)},
+		{name: "someone joined as it looks again", looking: func(e *agentEnv) { e.rcon.setOnline("Alex") }, want: awake(on)},
+		{name: "sleep turned off while it runs", looking: func(e *agentEnv) {
+			if code, out := setSleep(e, off); code != http.StatusConflict || out["code"] != api.CodeBusy {
+				e.t.Errorf("sleep off while the server falls asleep: %d %v", code, out)
+			}
+		}, want: asleep},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var e *agentEnv
+			var once sync.Once
+			setSleepLooks(t, func() {
+				if c.looking != nil {
+					once.Do(func() { c.looking(e) })
+				}
+			})
+			localStandIn(t)
+			e = newAgentEnv(t)
+			e.create()
+			if code, out := setSleep(e, on); code != http.StatusOK {
+				t.Fatalf("turn sleep on: %d %v", code, out)
+			}
+			s := e.srv()
+			set := s.sleepSettings()
+			if c.decided != nil {
+				c.decided(e)
+			}
+			s.fallAsleep(set)
+			e.waitFor("the operation over", func() bool { return !e.a.busy() })
+			got := read(e)
+			for deadline := time.Now().Add(5 * time.Second); got != c.want && time.Now().Before(deadline); got = read(e) {
+				time.Sleep(50 * time.Millisecond)
+			}
+			if got != c.want {
+				t.Fatalf("the server is left %+v, want %+v", got, c.want)
+			}
+			fell := e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_fell_asleep'`)
+			open := e.countRows(`SELECT COUNT(*) FROM sleep_periods WHERE end_ts IS NULL`)
+			if want := c.want.desired == api.DesiredSleeping; (fell == 1) != want || (open == 1) != want {
+				t.Fatalf("%d fell-asleep events and %d sleep periods open, with the server meant to be %s", fell, open, c.want.desired)
+			}
+		})
+	}
+}
+
 // Who may wake a sleeping server by joining: with the allowlist on, the
 // players on it and operators; with it off, anyone who isn't banned, as
 // anyone else may join. If the ban list or server.properties can't be read,
@@ -926,6 +1147,8 @@ func TestWhoMayWakeASleepingServer(t *testing.T) {
 	write("whitelist.json", `[{"name":"Alex","uuid":"00000000-0000-0000-0000-00000000a1e7"}]`)
 	write("ops.json", `[{"name":"Oscar","uuid":"00000000-0000-0000-0000-0000000000c5","level":4}]`)
 	const bans = `[{"name":"Griefer","uuid":"00000000-0000-0000-0000-00000000bad1"}]`
+	// Playkeeper's Ban leaves a player on the allowlist.
+	const listedBans = `[{"name":"Alex","uuid":"00000000-0000-0000-0000-00000000a1e7"},{"name":"Oscar","uuid":"00000000-0000-0000-0000-0000000000c5"}]`
 	cases := []struct {
 		name       string
 		properties string // "" leaves server.properties out
@@ -946,6 +1169,12 @@ func TestWhoMayWakeASleepingServer(t *testing.T) {
 			wakes: map[string]bool{"Steve": false, "Alex": true}},
 		{name: "no server.properties", bans: bans,
 			wakes: map[string]bool{"Steve": false, "Alex": true, "Oscar": true}},
+		{name: "allowlist on, banned though listed or an operator", properties: "white-list=true\n", bans: listedBans,
+			wakes: map[string]bool{"Alex": false, "alex": false, "Oscar": false, "Steve": false}},
+		{name: "no server.properties, banned though listed", bans: listedBans,
+			wakes: map[string]bool{"Alex": false, "Oscar": false}},
+		{name: "allowlist on, ban list unreadable", properties: "white-list=true\n", bans: `{"not a list`,
+			wakes: map[string]bool{"Alex": true, "Oscar": true, "Steve": false}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

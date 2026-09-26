@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"os"
@@ -60,10 +61,14 @@ const (
 	actRecoverBackups     action = "backups.recover"
 )
 
+// actManageAddonSources changes the machine's own CurseForge key. It isn't
+// in actNeeds, so only the owner may, as the dashboard says.
+const actManageAddonSources action = "addon_sources.manage"
+
 // actions lists every action, for the signed-in account's "can" list.
 var actions = []action{actView, actManageAccount, actRunServers, actConsole, actManagePlayers, actMakeBackups,
 	actRestore, actManageServers, actCreateServers, actManageTeam, actManageMachine, actViewAuditTrail,
-	actManageBackupCopies, actRecoveryKey, actRecoverBackups}
+	actManageBackupCopies, actRecoveryKey, actRecoverBackups, actManageAddonSources}
 
 // keyActions are decided by mayHoldBackupKeys rather than actNeeds.
 var keyActions = map[action]bool{actManageBackupCopies: true, actRecoveryKey: true, actRecoverBackups: true}
@@ -417,7 +422,9 @@ var errServerMachine = errors.New("could not look up the machine that runs the s
 // (see claimServers). A server with no record goes to the dashboard's own
 // machine only if that machine listed it last or no joined machine did: a
 // joined machine's server whose record couldn't be saved goes to none. A
-// disputed server has none. It never asks the machines.
+// server whose record names a removed machine is unknown, unless the
+// dashboard's machine listed it last. A disputed server has none. It never
+// asks the machines.
 func (s *Server) machineForServer(serverID string) (machine, error) {
 	list, err := s.machines()
 	if err != nil {
@@ -433,7 +440,8 @@ func (s *Server) machineForServer(serverID string) (machine, error) {
 		s.log.Error("look up the machine that runs a server", "server", serverID, "err", err)
 		return machine{}, errServerMachine
 	}
-	if err == nil {
+	recorded := err == nil
+	if recorded {
 		for _, m := range list {
 			if m.ID != owner {
 				continue
@@ -454,10 +462,14 @@ func (s *Server) machineForServer(serverID string) (machine, error) {
 			joinedListed = true
 		}
 	}
-	if joinedListed && !s.listings.has(local.ID, serverID) {
+	switch {
+	case local.Kind == localKind && s.listings.has(local.ID, serverID):
+		return local, nil
+	case joinedListed:
 		return machine{}, errServerMachine
-	}
-	if local.Kind == localKind {
+	case recorded:
+		return machine{}, errNotFound
+	case local.Kind == localKind:
 		return local, nil
 	}
 	return machine{}, errNotFound
@@ -617,9 +629,10 @@ func (s *Server) hServers(w http.ResponseWriter, r *http.Request, sess *session)
 
 // allServers lists every server on every machine, each with its machine's
 // id, and the machines. A machine that can't be reached shows its servers
-// as it last listed them, with lastKnownAt. When the dashboard's own
-// machine is the only one, its error is the list's. When every machine
-// answered, servers that no longer exist lose their invites.
+// as it last listed them, with lastKnownAt, and when those can't be read
+// the list fails with errDB. When the dashboard's own machine is the only
+// one, its error is the list's. When every machine answered, servers that
+// no longer exist lose their invites.
 func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, error) {
 	list, err := s.machines()
 	if err != nil {
@@ -630,6 +643,7 @@ func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, e
 		err     error
 	}
 	got := make([]listing, len(list))
+	listedAt := s.now()
 	var wg sync.WaitGroup
 	for i, m := range list {
 		wg.Go(func() {
@@ -659,20 +673,59 @@ func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, e
 		switch {
 		case got[i].err != nil:
 			everyMachine = false
-			servers = s.lastKnownServers(m)
+			known, err := s.lastKnownServers(m)
+			if err != nil {
+				// Shown as none, the machine's servers would look deleted.
+				s.log.Error("read a machine's last known servers", "machine", m.ID, "err", err)
+				return nil, nil, errDB
+			}
+			servers = known
 		case m.Kind == localKind:
 		default:
-			servers = s.claimServers(m, servers)
+			servers = s.claimListing(m, servers, listedAt)
 		}
 		for _, sv := range servers {
 			sv["machineId"] = m.ID
 			out = append(out, sv)
 		}
 	}
+	uniqueSlugs(out)
 	if everyMachine && len(ids) > 0 {
 		s.forgetDeletedServers(ids)
 	}
 	return out, list, nil
+}
+
+// uniqueSlugs gives every server in the list a slug no other one has, since
+// the dashboard's pages find a server by its slug. Each agent keeps slugs
+// unique among its own servers only, so a later machine's duplicate gets a
+// number, as the agent numbers its own ("my-server-2"), skipping any slug
+// already in the list.
+func uniqueSlugs(servers []map[string]any) {
+	taken := map[string]bool{}
+	for _, sv := range servers {
+		if slug, _ := sv["slug"].(string); slug != "" {
+			taken[slug] = true
+		}
+	}
+	seen := map[string]bool{}
+	for _, sv := range servers {
+		slug, _ := sv["slug"].(string)
+		if slug == "" {
+			continue
+		}
+		if !seen[slug] {
+			seen[slug] = true
+			continue
+		}
+		for i := 2; ; i++ {
+			if next := fmt.Sprintf("%s-%d", slug, i); !taken[next] {
+				sv["slug"] = next
+				taken[next], seen[next] = true, true
+				break
+			}
+		}
+	}
 }
 
 // forgetDeletedServers drops the friend invites, join requests and origins
