@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, Gamepad2Icon, RefreshCwIcon, XIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { ApiError, get, post } from '@/api/client'
 import { useBuilds } from '@/api/software'
 import { planTemplate } from '@/api/templates'
-import type { Operation, RestorePreview, ServerStatus, TemplatePlan } from '@/api/types'
+import type { Operation, RestorePreview, ServerStatus, TemplatePlan, WorldImport, WorldImportPreview } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
 import { Card, Notice } from '@/components/app/bits'
@@ -14,12 +14,14 @@ import { PhoneActions } from '@/components/app/frame'
 import { ModpackPicker, type ModpackChoice } from '@/components/app/modpacks'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { PageBody, PageHeader } from '@/components/app/shell'
-import { CardsSkeleton } from '@/components/app/skeletons'
+import { CardsSkeleton, ListSkeleton } from '@/components/app/skeletons'
 import { BuildSelect, TypeCompare } from '@/components/app/software'
 import { TemplatePicker, type TemplateChoice } from '@/components/app/templates'
+import { checkError, defaultWorld, sourceFrom, suggestedName, uploadName, useWorldUpload, versionChange, WorldCheck, WorldSourceStep, type CheckError, type WorldSource, type WorldUploadState } from '@/components/app/world-import'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
@@ -35,13 +37,19 @@ const stepKeys: MessageKey[] = ['new.step.type', 'new.step.version', 'new.step.s
 const nextKeys: MessageKey[] = ['new.nextVersion', 'new.nextStyle', 'new.nextMemory', 'new.nextName']
 const continueKeys: MessageKey[] = ['new.continueVersion', 'new.continueStyle', 'new.continueMemory', 'new.continueName']
 const noteKeys: MessageKey[] = ['new.note.type', 'new.note.version', 'new.note.version', 'new.note.memory', 'new.note.name']
+// Starting from a world, step 2 checks the upload and play style is skipped: the world keeps its own game rules.
+const worldStepKeys: Partial<Record<number, { next: MessageKey; button: MessageKey; note: MessageKey }>> = {
+  0: { next: 'import.nextCheck', button: 'import.check', note: 'import.footnote' },
+  1: { next: 'import.nextMemory', button: 'import.continueMemory', note: 'import.footnoteCheck' },
+}
 
-export type StartFrom = 'type' | 'modpack' | 'template'
+export type StartFrom = 'type' | 'modpack' | 'template' | 'world'
 
 const startFroms: { value: StartFrom; long: MessageKey; short: MessageKey }[] = [
   { value: 'type', long: 'new.from.type', short: 'new.from.typeShort' },
   { value: 'modpack', long: 'new.from.modpack', short: 'new.from.modpackShort' },
   { value: 'template', long: 'new.from.template', short: 'new.from.templateShort' },
+  { value: 'world', long: 'new.from.world', short: 'new.from.worldShort' },
 ]
 
 /** A server made from a pack runs the type, version and game settings the pack names; the play style step is skipped. */
@@ -57,8 +65,10 @@ function templateRequest(c: CreateChoices, choice: TemplateChoice) {
 
 /** The line under the summary. A modpack or template decides the type, so the name step names that type, or none when it isn't known yet. */
 export function createNote(step: number, from: StartFrom, type: string | undefined): string {
+  const worldNote = from === 'world' ? worldStepKeys[step]?.note : undefined
+  if (worldNote) return t(worldNote)
   if (step === 0) return from === 'template' ? '' : from === 'modpack' ? t('new.note.modpack') : t('new.note.type')
-  if (step === 4 && from !== 'type') {
+  if (step === 4 && (from === 'modpack' || from === 'template')) {
     if (!type) return t('new.note.nameAny')
     return t(from === 'modpack' ? 'new.note.namePack' : 'new.note.nameTemplate', { type: typeName(type) })
   }
@@ -87,6 +97,13 @@ async function openCreated(op: Operation, refresh: () => Promise<void>) {
   navigate({ name: 'home' })
 }
 
+/** What the check found in an upload, for the world picked in it. */
+interface Checked {
+  upload: WorldImport
+  preview: WorldImportPreview
+  world?: string
+}
+
 export function NewServerPage() {
   const ws = useWorkspace()
   const phone = useIsPhone()
@@ -106,12 +123,22 @@ export function NewServerPage() {
     // Once read, a shared template's data stays out of the address bar and history.
     if (templateFromHash(window.location.hash)) window.history.replaceState(null, '', window.location.pathname)
   }, [])
-  const [from, setFrom] = useState<StartFrom>(handoff ? 'template' : 'type')
+  const [from, setFrom] = useState<StartFrom>(() => (handoff ? 'template' : window.location.hash === '#world' ? 'world' : 'type'))
   const [pack, setPack] = useState<ModpackChoice>()
   const packed = from === 'modpack' && !!pack
   const [tpl, setTpl] = useState<TemplateChoice>()
   const [tplProblem, setTplProblem] = useState<string>()
   const templated = from === 'template' && !!tpl
+  const [source, setSource] = useState<WorldSource>('singleplayer')
+  const upload = useWorldUpload(ws.machine?.id)
+  const [check, setCheck] = useState<Checked>()
+  const [checkBusy, setCheckBusy] = useState(false)
+  const [checkErr, setCheckErr] = useState<CheckError>()
+  const checkSeq = useRef(0)
+  const world = from === 'world'
+  const uploaded = upload.state.phase === 'done' ? upload.state : undefined
+  // A check belongs to one upload: choosing another file starts over.
+  const inspected = check && uploaded && check.upload.id === uploaded.upload.id ? check : undefined
   const chooseTemplate = useCallback((choice: TemplateChoice | undefined) => {
     setTpl(choice)
     setTplProblem(undefined)
@@ -143,6 +170,18 @@ export function NewServerPage() {
 
   function blocked(): string | undefined {
     if (!c) return t('common.loading')
+    if (world) {
+      switch (step) {
+        case 0:
+          if (uploaded || checkBusy) return undefined
+          return upload.state.phase === 'uploading' ? t('reason.uploading') : t('reason.uploadFirst')
+        case 1:
+          if (!inspected) return checkBusy ? undefined : t('common.loading')
+          return inspected.preview.preview.problems?.length ? t('reason.worldProblem') : undefined
+        case 4:
+          return nameBlocked(c)
+      }
+    }
     switch (step) {
       case 0:
         if (from === 'template') {
@@ -164,12 +203,24 @@ export function NewServerPage() {
   }
 
   async function create() {
-    if (!c || !ws.machine) return
+    if (!c || !ws.machine || (world && !inspected)) return
     setBusy(true)
     setCreateError(undefined)
     try {
-      const body = templated && tpl ? templateRequest(c, tpl) : packed && pack ? packRequest(c, pack) : createRequest(c)
-      const op = await post<Operation>(machineApi(ws.machine.id, '/servers'), body)
+      let op: Operation
+      if (world && inspected) {
+        op = await post<Operation>(machineApi(ws.machine.id, `/world-imports/${inspected.upload.id}/create`), {
+          options: { world: inspected.world ?? '', keepAddons: false, keepPlayerLists: false, keepOperators: false },
+          versionId: inspected.preview.versionId,
+          name: c.name.trim(),
+          memoryMB: c.memoryMB,
+          acceptEula: c.eula,
+        })
+        upload.keep()
+      } else {
+        const body = templated && tpl ? templateRequest(c, tpl) : packed && pack ? packRequest(c, pack) : createRequest(c)
+        op = await post<Operation>(machineApi(ws.machine.id, '/servers'), body)
+      }
       await openCreated(op, ws.refresh)
     } catch (e) {
       if (templated && tpl && e instanceof ApiError && e.code === 'plan_changed') {
@@ -209,8 +260,72 @@ export function NewServerPage() {
     setTplProblem(undefined)
     go(3)
   }
-  const next = () => (step === 4 ? void create() : step === 0 && templated && tpl ? startWithTemplate(tpl) : step === 0 && packed && pack ? startWithPack(pack) : go(step + 1))
-  const back = () => go(step === 3 && (packed || templated) ? 0 : Math.max(0, step - 1))
+  /** Looks inside the upload, then previews its main world on the recommended version. */
+  async function checkWorld() {
+    if (!ws.machine || !uploaded || !catalog) return
+    const mid = ws.machine.id
+    const seq = ++checkSeq.current
+    setCheckBusy(true)
+    setCheckErr(undefined)
+    try {
+      const imp = await post<WorldImport>(machineApi(mid, `/world-imports/${uploaded.upload.id}/inspect`))
+      const id = defaultWorld(imp)
+      const p = await post<WorldImportPreview>(machineApi(mid, `/world-imports/${imp.id}/preview`), { options: { world: id ?? '' } })
+      if (seq !== checkSeq.current) return
+      setCheck({ upload: imp, preview: p, world: id })
+      const name = suggestedName(imp, id, uploaded.files)
+      setC((prev) => prev && { ...prev, memoryMB: worldMemory(p), ...(nameEdited || !name ? {} : { name: freeName(name, ws.servers) }) })
+      go(1)
+    } catch (e) {
+      if (seq === checkSeq.current) setCheckErr(checkError(e))
+    } finally {
+      if (seq === checkSeq.current) setCheckBusy(false)
+    }
+  }
+
+  /** Previews another world in the upload, or another version. */
+  async function repreview(id: string, versionId?: string) {
+    if (!ws.machine || !inspected || !uploaded) return
+    const imp = inspected.upload
+    const seq = ++checkSeq.current
+    setCheckBusy(true)
+    setCheckErr(undefined)
+    try {
+      const p = await post<WorldImportPreview>(machineApi(ws.machine.id, `/world-imports/${imp.id}/preview`), { options: { world: id }, ...(versionId ? { versionId } : {}) })
+      if (seq !== checkSeq.current) return
+      setCheck({ upload: imp, preview: p, world: id })
+      const name = suggestedName(imp, id, uploaded.files)
+      if (!versionId && !nameEdited && name) update({ name: freeName(name, ws.servers) })
+    } catch (e) {
+      if (seq === checkSeq.current) setCheckErr(checkError(e))
+    } finally {
+      if (seq === checkSeq.current) setCheckBusy(false)
+    }
+  }
+
+  /** The memory the agent suggests for the world, when this machine offers it. */
+  function worldMemory(p: WorldImportPreview | undefined): number {
+    return p?.memoryMB && options.includes(p.memoryMB) ? p.memoryMB : styleMemory(catalog, c?.style ?? 'friends')
+  }
+
+  function pickFrom(v: StartFrom) {
+    checkSeq.current++
+    setCheckBusy(false)
+    setFrom(v)
+    window.history.replaceState(null, '', v === 'world' ? '#world' : window.location.pathname)
+  }
+
+  function next() {
+    if (world && step === 0) {
+      if (inspected) go(1)
+      else void checkWorld()
+    } else if (world && step === 1) go(3)
+    else if (step === 4) void create()
+    else if (step === 0 && templated && tpl) startWithTemplate(tpl)
+    else if (step === 0 && packed && pack) startWithPack(pack)
+    else go(step + 1)
+  }
+  const back = () => go(step === 3 && world ? 1 : step === 3 && (packed || templated) ? 0 : Math.max(0, step - 1))
   const stepTitles = stepKeys.map((k) => t(k))
 
   let body: ReactNode
@@ -246,6 +361,14 @@ export function NewServerPage() {
                 <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em]">{t('new.templateQuestion')}</h1>
                 <p className="mt-1 text-[15px] text-muted-foreground">{t('new.templateHint')}</p>
               </div>
+            ) : phone && world ? (
+              <>
+                <div>
+                  <h1 className="text-[26px] leading-8 font-extrabold tracking-[-0.02em]">{t('import.titlePhone')}</h1>
+                  <p className="mt-1 text-[15px] text-muted-foreground">{t('import.checkedPhone')}</p>
+                </div>
+                <GameCard phone />
+              </>
             ) : phone ? (
               <>
                 <div>
@@ -269,7 +392,7 @@ export function NewServerPage() {
             <section>
               {phone ? (
                 <>
-                  <Segmented value={from} onChange={setFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.short) }))} label={t('new.startFrom')} className="grid w-full grid-cols-3 rounded-xl p-1" itemClassName="h-11 rounded-[10px] text-[15px]" />
+                  <Segmented value={from} onChange={pickFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.short) }))} label={t('new.startFrom')} className="grid w-full grid-cols-4 rounded-xl p-1" itemClassName="h-11 rounded-[10px] text-[15px]" />
                   {from === 'type' && (
                     <div className="mt-1 mb-2 flex justify-end">
                       <button type="button" onClick={() => setCompareOpen(true)} className="inline-flex min-h-11 items-center gap-1 text-[15px] font-semibold text-success-strong">
@@ -283,13 +406,15 @@ export function NewServerPage() {
                 <div>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <h2 className="text-[15px] font-semibold">{t('new.startFrom')}</h2>
-                    <Segmented value={from} onChange={setFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.long) }))} label={t('new.startFrom')} />
+                    <Segmented value={from} onChange={pickFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.long) }))} label={t('new.startFrom')} />
                   </div>
                   <p className="mt-0.5 text-[13px] text-muted-foreground">
                     {from === 'modpack' ? (
                       t('new.modpackHint')
                     ) : from === 'template' ? (
                       t('new.templateHint')
+                    ) : world ? (
+                      t('import.checked')
                     ) : (
                       <>
                         {t('new.typeHint')}{' '}
@@ -306,6 +431,8 @@ export function NewServerPage() {
                   <ModpackPicker machineId={ws.machine.id} value={pack} onChange={setPack} onUse={startWithPack} phone={phone} />
                 ) : from === 'template' && ws.machine ? (
                   <TemplatePicker machineId={ws.machine.id} value={tpl} onChange={chooseTemplate} handoff={handoff} problem={tplProblem} acceptExperimental={c.acceptExperimental} onAcceptExperimental={(acceptExperimental) => update({ acceptExperimental })} />
+                ) : world ? (
+                  <WorldSourceStep source={source} onSource={setSource} upload={upload} phone={phone} error={checkErr} />
                 ) : (
                   <TypeCards catalog={catalog} value={c.type} onChange={(type) => type !== c.type && update({ type, versionId: '', build: '', acceptExperimental: false })} phone={phone} />
                 )}
@@ -316,6 +443,17 @@ export function NewServerPage() {
         )
         break
       case 1: {
+        if (world) {
+          body = inspected ? (
+            <WorldCheck check={inspected.preview} upload={inspected.upload} world={inspected.world} onWorld={(id) => void repreview(id)} onVersion={(id) => void repreview(inspected.world ?? '', id)} busy={checkBusy} phone={phone} error={checkErr} />
+          ) : (
+            <div className="flex flex-col gap-4">
+              <Skeleton className={cn('h-6', phone ? 'w-3/4' : 'w-2/5')} />
+              <ListSkeleton rows={4} face="size-[18px] rounded-full" rowClassName="flex gap-3 border-b border-border py-3.5 last:border-b-0" className="flex flex-col rounded-2xl border border-border bg-card px-4" />
+            </div>
+          )
+          break
+        }
         const mods = addonKind(c.type) === 'mods'
         const typeCheck = catalog.types.find((ty) => ty.id === c.type)?.check
         const weakCheck = typeCheck && typeCheck !== 'full' ? typeTexts(c.type)?.check : undefined
@@ -403,7 +541,7 @@ export function NewServerPage() {
         break
       case 3: {
         const packMB = templated ? (tpl?.plan.memoryMB ?? 0) : packed ? (pack?.memoryMB ?? 0) : 0
-        const suggested = packMB ? (options.find((mb) => mb >= packMB) ?? options[options.length - 1] ?? 0) : styleMemory(catalog, c.style)
+        const suggested = world ? worldMemory(inspected?.preview) : packMB ? (options.find((mb) => mb >= packMB) ?? options[options.length - 1] ?? 0) : styleMemory(catalog, c.style)
         const largest = options[options.length - 1]
         const others = catalog.servers.filter((x) => !x.running)
         body = (
@@ -412,7 +550,7 @@ export function NewServerPage() {
               <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('new.memoryTitle')}</h2>
               {!noMemory && (
                 <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">
-                  {templated && packMB ? t('new.memoryLeadTemplate', { memory: formatMB(suggested) }) : packMB && pack ? t('new.memoryLeadPack', { pack: pack.name, memory: formatMB(packMB) }) : t('new.memoryLead', { memory: formatMB(suggested), players: playersFor(suggested) })}
+                  {world ? t('import.memoryLead', { memory: formatMB(suggested) }) : templated && packMB ? t('new.memoryLeadTemplate', { memory: formatMB(suggested) }) : packMB && pack ? t('new.memoryLeadPack', { pack: pack.name, memory: formatMB(packMB) }) : t('new.memoryLead', { memory: formatMB(suggested), players: playersFor(suggested) })}
                 </p>
               )}
             </div>
@@ -432,7 +570,7 @@ export function NewServerPage() {
                   <div className="mt-5 grid items-center gap-6 md:grid-cols-[1fr_200px]">
                     <MemorySlider options={options} value={c.memoryMB} onChange={(memoryMB) => update({ memoryMB })} />
                     <div className="md:border-l md:border-border md:pl-5">
-                      <MemoryReadout memoryMB={c.memoryMB} recommended={c.memoryMB === suggested} style={c.style} />
+                      <MemoryReadout memoryMB={c.memoryMB} recommended={c.memoryMB === suggested} style={world ? undefined : c.style} />
                     </div>
                   </div>
                   {largest !== undefined && (
@@ -467,7 +605,7 @@ export function NewServerPage() {
                 className="max-w-[360px] max-sm:max-w-none"
               />
             </label>
-            {!templated && (
+            {!templated && !world && (
               <label className="flex flex-col gap-1.5 text-[13px] font-medium">
                 {t('new.motdLabel')}
                 <Input value={c.motd} onChange={(e) => update({ motd: e.target.value })} maxLength={59} placeholder={c.name || t('new.motdPlaceholder')} autoComplete="off" className="max-w-[360px] max-sm:max-w-none" />
@@ -485,16 +623,18 @@ export function NewServerPage() {
   }
 
   const note = createNote(step, from, from === 'modpack' ? pack?.type : from === 'template' ? tpl?.plan.type || tpl?.plan.contents.type : c?.type)
+  const worldSummary = world ? { from: sourceFrom(source), name: upload.state.phase === 'idle' ? '' : uploadName(upload.state.files), upload: upload.state, version: inspected ? versionChange(inspected.preview) : '' } : undefined
   const stepBody = (
     <div key={step} className={cn(stepped && 'animate-page')}>
       {body}
     </div>
   )
-  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} from={from} pack={from === 'modpack' ? pack : undefined} plan={from === 'template' ? tpl?.plan : undefined} note={note} />
+  const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} from={from} pack={from === 'modpack' ? pack : undefined} plan={from === 'template' ? tpl?.plan : undefined} world={worldSummary} note={note} />
+  const worldKeys = world ? worldStepKeys[step] : undefined
   const tplMods = addonKind(tpl?.plan.type || tpl?.plan.contents.type) === 'mods'
   const continueLabel =
-    step === 4 ? t('new.create', { name: c?.name.trim() || t('nav.newServer') }) : step === 0 && from === 'modpack' ? t('new.continuePack') : step === 0 && from === 'template' ? t('new.continueMemory') : phone ? (step === 0 ? t('new.continueVersion') : t('common.continue')) : t(continueKeys[step] ?? 'new.continueName')
-  const nextHint = step === 0 && from === 'modpack' ? t('new.nextPack') : step === 0 && from === 'template' ? t(tplMods ? 'new.nextTemplateMods' : 'new.nextTemplate') : step < 4 ? t(nextKeys[step] ?? 'new.nextName', { type: typeName(c?.type) }) : ''
+    step === 4 ? t('new.create', { name: c?.name.trim() || t('nav.newServer') }) : worldKeys && (!phone || step === 0) ? t(worldKeys.button) : step === 0 && from === 'modpack' ? t('new.continuePack') : step === 0 && from === 'template' ? t('new.continueMemory') : phone ? (step === 0 ? t('new.continueVersion') : t('common.continue')) : t(continueKeys[step] ?? 'new.continueName')
+  const nextHint = worldKeys ? t(worldKeys.next) : step === 0 && from === 'modpack' ? t('new.nextPack') : step === 0 && from === 'template' ? t(tplMods ? 'new.nextTemplateMods' : 'new.nextTemplate') : step < 4 ? t(nextKeys[step] ?? 'new.nextName', { type: typeName(c?.type) }) : ''
   const restoreLink = (
     <p className="text-xs text-muted-foreground">
       {rich('restore.newLink', {
@@ -555,9 +695,9 @@ export function NewServerPage() {
           ))}
         </div>
         {stepBody}
-        <div className="mt-6">{restoreLink}</div>
+        {!world && <div className="mt-6">{restoreLink}</div>}
         <PhoneActions>
-          <Button size="touch" onClick={next} disabledReason={blocked()} loading={busy}>
+          <Button size="touch" onClick={next} disabledReason={blocked()} loading={busy || checkBusy}>
             {continueLabel}
             <ArrowRightIcon />
           </Button>
@@ -589,7 +729,7 @@ export function NewServerPage() {
         }
       />
       <PageBody className="flex flex-col gap-5">
-        <Stepper steps={stepTitles} current={step} label={t('new.steps')} />
+        <Stepper steps={stepTitles} current={step} label={t('new.steps')} skip={world ? 2 : undefined} />
         <div className="grid gap-6 xl:grid-cols-[1fr_280px]">
           <div className="flex min-w-0 flex-col">
             {stepBody}
@@ -601,12 +741,12 @@ export function NewServerPage() {
                 </Button>
               )}
               <span className="ml-auto text-xs text-muted-foreground">{nextHint}</span>
-              <Button onClick={next} disabledReason={blocked()} loading={busy}>
+              <Button onClick={next} disabledReason={blocked()} loading={busy || checkBusy}>
                 {continueLabel}
                 <ArrowRightIcon />
               </Button>
             </div>
-            <div className="mt-4">{restoreLink}</div>
+            {!world && <div className="mt-4">{restoreLink}</div>}
           </div>
           <aside className="self-start">
             {summary}
@@ -634,7 +774,17 @@ function GameCard({ phone }: { phone?: boolean }) {
   )
 }
 
-function Summary({ choices: c, step, port, version, from, pack, plan, note }: { choices: CreateChoices; step: number; port?: number; version: string; from: StartFrom; pack?: ModpackChoice; plan?: TemplatePlan; note?: string }) {
+interface WorldSummary {
+  /** Where the world came from: "Aternos". */
+  from: string
+  /** The uploaded file's name without its extension. */
+  name: string
+  upload: WorldUploadState
+  /** The version it runs, or "1.21.4 → 26.1.2", once checked. */
+  version: string
+}
+
+function Summary({ choices: c, step, port, version, from, pack, plan, world, note }: { choices: CreateChoices; step: number; port?: number; version: string; from: StartFrom; pack?: ModpackChoice; plan?: TemplatePlan; world?: WorldSummary; note?: string }) {
   const ws = useWorkspace()
   const p = preset(c.style)
   const v = (done: boolean, value: string) =>
@@ -649,8 +799,26 @@ function Summary({ choices: c, step, port, version, from, pack, plan, note }: { 
       <span className="text-muted-foreground">{t('common.notPicked')}</span>
     )
   const upNext = <span className="font-semibold text-success-foreground">{t('common.notPicked')}</span>
-  const rows: { label: string; value: ReactNode }[] =
-    from === 'template'
+  const muted = (text: string) => <span className="text-muted-foreground tabular-nums">{text}</span>
+  const rows: { label: string; value: ReactNode }[] = world
+    ? [
+        { label: t('new.row.game'), value: v(true, t('new.gameValue')) },
+        { label: t('new.row.startFrom'), value: v(true, t('new.startFrom.world')) },
+        { label: t('new.row.from'), value: v(step > 0, world.from) },
+        {
+          label: t('new.row.world'),
+          value:
+            step > 0 || world.upload.phase === 'done'
+              ? v(step > 0, world.name)
+              : world.upload.phase === 'uploading'
+                ? muted(t('import.uploadingPct', { percent: world.upload.total > 0 ? Math.floor((world.upload.sent / world.upload.total) * 100) : 0 }))
+                : muted(t('import.notUploaded')),
+        },
+        step === 0 ? { label: t('new.row.type'), value: muted(t('import.typeSuggested')) } : { label: t('new.row.version'), value: v(step > 1, world.version) },
+        { label: t('new.row.memory'), value: step >= 3 ? v(step > 3, formatMB(c.memoryMB)) : v(false, '') },
+        ...(step >= 3 ? [{ label: t('new.row.name'), value: v(false, step >= 4 ? c.name : '') }] : []),
+      ]
+    : from === 'template'
       ? [
           { label: t('new.row.game'), value: v(true, t('new.gameValue')) },
           { label: t('new.row.startFrom'), value: v(true, t('new.startFrom.template')) },

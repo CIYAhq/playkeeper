@@ -593,6 +593,9 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 			return err
 		}
 	}
+	if _, err := tx.Exec(`DELETE FROM maps WHERE server_id = ?`, s.id); err != nil {
+		return err
+	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}

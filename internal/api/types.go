@@ -5,6 +5,8 @@ package api
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/worldimport"
 )
 
 // Phase is the user-visible lifecycle phase of a Minecraft server.
@@ -884,7 +886,14 @@ type Addon struct {
 	// was installed for.
 	DependencyOf string    `json:"dependencyOf,omitempty"`
 	InstalledAt  time.Time `json:"installedAt"`
+	// UsedBy is the part of Playkeeper that installed the add-on and alone
+	// removes it: UsedByMap for the Map's squaremap and what it needs.
+	// Empty for add-ons installed from the Plugins or Mods tab.
+	UsedBy string `json:"usedBy,omitempty"`
 }
+
+// UsedByMap marks the add-ons the Map installed.
+const UsedByMap = "map"
 
 // AddonKey names an installed add-on.
 type AddonKey struct {
@@ -2026,3 +2035,162 @@ const (
 // two-factor sign-in but whose Admin rights the owner or an admin hasn't
 // confirmed yet.
 const CodeAdminUnconfirmed = "admin_unconfirmed"
+
+// Wave 6: each server's live map, and starting a server from a world.
+
+// MapInfo is a server's live map: whether Playkeeper set it up, how it is
+// doing (internal/webmap's states) and its two sharing switches.
+type MapInfo struct {
+	// Supported is false for server types that cannot run a map plugin.
+	Supported bool `json:"supported"`
+	// Enabled: Playkeeper installed the map plugin on the server, and its
+	// files are still there.
+	Enabled bool `json:"enabled"`
+	// Missing: the map was turned on, but the files it installed are gone,
+	// for example deleted by hand. The map counts as off, and turning it on
+	// installs them again.
+	Missing bool `json:"missing,omitempty"`
+	// State is unsupported, not_installed, server_stopped, needs_restart,
+	// not_answering, drawing or ready.
+	State     string            `json:"state"`
+	Params    map[string]string `json:"params,omitempty"`
+	Message   string            `json:"message"`
+	Hint      string            `json:"hint,omitempty"`
+	Areas     int               `json:"areas"`
+	Bytes     int64             `json:"bytes"`
+	LastDrawn *time.Time        `json:"lastDrawn,omitempty"`
+	Progress  *MapProgress      `json:"progress,omitempty"`
+	// Plugin and PluginVersion name the map plugin Playkeeper installs.
+	Plugin        string `json:"plugin"`
+	PluginVersion string `json:"pluginVersion,omitempty"`
+	// What drawing the land explored so far costs, for the setup card.
+	EstimatedMinutes   int `json:"estimatedMinutes"`
+	EstimatedMegabytes int `json:"estimatedMegabytes"`
+	// Public lets anyone with the link open the map; PublicPlayers shows
+	// players on it.
+	Public        bool `json:"public"`
+	PublicPlayers bool `json:"publicPlayers"`
+	// Path is the shared map's path on any of the panel's addresses,
+	// /map/<link token>, and Link the same under the machine's name. Both
+	// are empty while the map isn't shared, and Link until the name points
+	// at the machine and has a certificate.
+	Link string `json:"link,omitempty"`
+	Path string `json:"path"`
+	// RestartWhenEmpty: the server restarts to load the map once nobody is
+	// playing.
+	RestartWhenEmpty bool      `json:"restartWhenEmpty"`
+	CheckedAt        time.Time `json:"checkedAt"`
+}
+
+// MapProgress is a full render's progress in 512×512-block areas, with an
+// estimate of the time left once it has been measured.
+type MapProgress struct {
+	Done        int  `json:"done"`
+	Total       int  `json:"total"`
+	Percent     int  `json:"percent"`
+	SecondsLeft *int `json:"secondsLeft,omitempty"`
+}
+
+// MapShareRequest changes the sharing switches that are set.
+type MapShareRequest struct {
+	Public  *bool  `json:"public,omitempty"`
+	Players *bool  `json:"players,omitempty"`
+	Actor   string `json:"actor"`
+}
+
+// MapDisableRequest turns the map off; DeleteMap also deletes what was
+// drawn.
+type MapDisableRequest struct {
+	DeleteMap bool   `json:"deleteMap"`
+	Actor     string `json:"actor"`
+}
+
+// PublicMap is what the shared map page may know about a server.
+type PublicMap struct {
+	Name    string `json:"name"`
+	Players bool   `json:"players"`
+}
+
+// WorldImport is an upload of world archives: for a new server when
+// ServerID is empty, otherwise to replace that server's world.
+type WorldImport struct {
+	ID        string            `json:"id"`
+	ServerID  string            `json:"serverId,omitempty"`
+	CreatedAt time.Time         `json:"createdAt"`
+	Files     []WorldImportFile `json:"files"`
+	// LimitBytes bounds all files together.
+	LimitBytes int64 `json:"limitBytes"`
+	// Inspection is what the files hold, once they were checked.
+	Inspection *worldimport.Inspection `json:"inspection,omitempty"`
+}
+
+// WorldImportFile is one uploaded archive. Received counts the bytes that
+// arrived; an interrupted upload carries on from there.
+type WorldImportFile struct {
+	Index    int    `json:"index"`
+	Name     string `json:"name"`
+	Size     int64  `json:"size"`
+	Received int64  `json:"received"`
+	SHA256   string `json:"sha256,omitempty"`
+}
+
+// WorldImportFileRequest announces an archive before its bytes arrive.
+type WorldImportFileRequest struct {
+	Name  string `json:"name"`
+	Size  int64  `json:"size"`
+	Actor string `json:"actor"`
+}
+
+// WorldImportPreviewRequest asks what an import would do.
+type WorldImportPreviewRequest struct {
+	Options worldimport.Options `json:"options"`
+	// VersionID is the version a new server runs, one of the preview's
+	// Versions; empty picks the first.
+	VersionID string `json:"versionId,omitempty"`
+	Actor     string `json:"actor"`
+}
+
+// WorldImportVersion is a version a new server from the world can run.
+type WorldImportVersion struct {
+	CatalogEntry
+	// Keep: the world's own version, so the world isn't upgraded.
+	Keep bool `json:"keep"`
+}
+
+// WorldImportPreview is what an import will do, for the owner to confirm.
+type WorldImportPreview struct {
+	ID       string               `json:"id"`
+	ServerID string               `json:"serverId,omitempty"`
+	Preview  *worldimport.Preview `json:"preview"`
+	// Versions are a new server's choices, recommended first; VersionID is
+	// the one previewed.
+	Versions  []WorldImportVersion `json:"versions,omitempty"`
+	VersionID string               `json:"versionId"`
+	// KeepsOriginal: the world gets upgraded, so it is saved as a backup as
+	// it was before its first start.
+	KeepsOriginal bool `json:"keepsOriginal"`
+	// CurrentWorld is the world an import into a server replaces.
+	CurrentWorld       *CurrentWorld `json:"currentWorld,omitempty"`
+	WillCreateRollback bool          `json:"willCreateRollback"`
+	ConfirmPhrase      string        `json:"confirmPhrase,omitempty"`
+	Steps              []string      `json:"steps,omitempty"`
+	// MemoryMB is the suggested memory for a new server.
+	MemoryMB int `json:"memoryMB,omitempty"`
+}
+
+// WorldImportApplyRequest replaces a server's world with the import.
+type WorldImportApplyRequest struct {
+	Options worldimport.Options `json:"options"`
+	Confirm string              `json:"confirm"`
+	Actor   string              `json:"actor"`
+}
+
+// WorldImportCreateRequest creates a server from the imported world.
+type WorldImportCreateRequest struct {
+	Options    worldimport.Options `json:"options"`
+	VersionID  string              `json:"versionId"`
+	Name       string              `json:"name,omitempty"`
+	MemoryMB   int                 `json:"memoryMB"`
+	AcceptEULA bool                `json:"acceptEula"`
+	Actor      string              `json:"actor"`
+}

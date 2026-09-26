@@ -276,4 +276,32 @@ CREATE TABLE discord (
 	`
 ALTER TABLE servers ADD COLUMN minecraft_update_alerted TEXT NOT NULL DEFAULT '';
 `,
+	// Wave 6: each server's map. A row exists while the map is turned on. It
+	// keeps the add-on records of squaremap (and anything it needed) as JSON,
+	// the two sharing switches, when the first full drawing was asked for,
+	// and who asked for a restart once nobody is playing.
+	`
+CREATE TABLE maps (
+  server_id          TEXT PRIMARY KEY,
+  addons             TEXT NOT NULL DEFAULT '[]',
+  installed_at       INTEGER NOT NULL,
+  public             INTEGER NOT NULL DEFAULT 0,
+  public_players     INTEGER NOT NULL DEFAULT 0,
+  first_render_at    INTEGER,
+  restart_when_empty TEXT NOT NULL DEFAULT ''
+);
+`,
+	// Wave 6: the shared map's link token, new each time sharing is switched
+	// on. Maps shared before tokens existed have none, so they stop being
+	// shared until someone switches sharing on again.
+	`
+ALTER TABLE maps ADD COLUMN share_token TEXT NOT NULL DEFAULT '';
+UPDATE maps SET public = 0;
+`,
+	// Wave 6: the copy of the world as uploaded that a server made from an
+	// upload has to save before its first start upgrades the world, as JSON,
+	// or '' when none is due.
+	`
+ALTER TABLE servers ADD COLUMN original_due TEXT NOT NULL DEFAULT '';
+`,
 }

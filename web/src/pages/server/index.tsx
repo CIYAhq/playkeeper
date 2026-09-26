@@ -23,6 +23,7 @@ import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
 import { ConsolePage } from './console'
+import { MapPage } from './map'
 import { Overview } from './overview'
 import { PlayersPage } from './players'
 import { PlayerProfilePage } from './profile'
@@ -76,6 +77,9 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
     case 'mods':
       body = <PluginsPage server={server} tab={tab} sub={sub} />
       break
+    case 'map':
+      body = <MapPage server={server} />
+      break
     case 'settings':
       body = <ServerSettingsPage server={server} />
       break
@@ -84,7 +88,8 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
       body = unreachable
     }
   }
-  if (settingUp && (page || (tab !== 'overview' && tab !== 'console'))) body = <Overview server={server} />
+  const locked = settingUp && (!!page || (tab !== 'overview' && tab !== 'console'))
+  if (locked) body = <Overview server={server} />
   // The Plugins tab keeps its running job and highlighted file across its
   // views, and animates switching between them itself.
   const pageKey = tab === 'plugins' || tab === 'mods' ? tab : player ? `${tab}:${player}` : `${tab}:${sub ?? page ?? ''}`
@@ -97,9 +102,9 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
           <PhoneBackHeader to={{ name: 'server', slug: server.slug, tab: 'players' }} label={t('tab.players')} title={player} />
         ) : page === 'running' && !settingUp ? (
           <PhoneBackHeader to={{ name: 'server', slug: server.slug, tab: 'overview' }} label={t('tab.overview')} title={t('overview.running')} />
-        ) : (tab === 'plugins' || tab === 'mods') && !settingUp ? (
+        ) : (tab === 'plugins' || tab === 'mods') && !locked ? (
           <PluginsPhoneHeader server={server} tab={tab} sub={sub} />
-        ) : tab === 'world' && sub && !settingUp ? null : (
+        ) : (tab === 'world' && sub && !locked) || (tab === 'map' && !locked) ? null : (
           <PhoneServerHeader server={server} tab={tab} />
         )
       ) : (

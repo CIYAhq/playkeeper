@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
-export type ServerTab = 'overview' | 'console' | 'players' | 'world' | 'plugins' | 'mods' | 'settings'
-export const serverTabs: ServerTab[] = ['overview', 'console', 'players', 'world', 'plugins', 'mods', 'settings']
+export type ServerTab = 'overview' | 'console' | 'players' | 'world' | 'map' | 'plugins' | 'mods' | 'settings'
+export const serverTabs: ServerTab[] = ['overview', 'console', 'players', 'world', 'map', 'plugins', 'mods', 'settings']
 
 /** Pages under a tab, such as /servers/survival/world/pregen. */
 export type ServerSub = 'pregen' | 'packs' | 'browse'

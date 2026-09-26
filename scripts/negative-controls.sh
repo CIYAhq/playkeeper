@@ -2501,6 +2501,401 @@ control "Minecraft update alerts read each server type's own versions" internal/
   'versions, _, _ = a.typeCatalog(ctx, typ)' \
   'versions, _, _ = a.versionCatalog(ctx)' \
   ./internal/agent '^TestMinecraftUpdateAlertsReadEachTypesOwnVersions$'
+# Wave 6: the shared map's link token and its players switch, and the game
+# files a world import and the shared map read.
+control "shared map link tokens carry at least 128 bits" internal/webmap/share.go \
+  'const ShareTokenLen = 22' \
+  'const ShareTokenLen = 12' \
+  ./internal/webmap '^TestShareTokensAreUnguessable$'
+control "every link token character is equally likely" internal/webmap/share.go \
+  'if b < 248 && len(token) < ShareTokenLen {' \
+  'if len(token) < ShareTokenLen {' \
+  ./internal/webmap '^TestShareTokensAreUnguessable$'
+control "a shared map needs its sharing switch" internal/agent/maps.go \
+  'if err != nil || rec == nil || !rec.public {' \
+  'if err != nil || rec == nil {' \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "a new link token each time sharing is switched on" internal/agent/maps.go \
+  "WHEN ?1 = 1 AND (public = 0 OR share_token = '') THEN ?2" \
+  "WHEN ?1 = 1 AND share_token = '' THEN ?2" \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "the shared map's link token is compared" internal/agent/maps.go \
+  'if rows.Scan(&sid, &stored) == nil && webmap.ShareTokenMatches(stored, token) {' \
+  'if rows.Scan(&sid, &stored) == nil {' \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "shared players hidden while their switch is off" internal/agent/maps.go \
+  'case rest == "players" && !rec.publicPlayers:' \
+  'case rest == "players" && !rec.publicPlayers && false:' \
+  ./internal/agent '^TestSharedMapAnswersOnlyWhileItsSwitchIsOn$'
+control "the panel checks a link token before asking the agent" internal/panel/maps.go \
+  'if !webmap.ValidShareToken(token) {
+		return "", nil, false' \
+  'if false && !webmap.ValidShareToken(token) {
+		return "", nil, false' \
+  ./internal/panel '^TestSharedMapAnswersTheSameWhenItIsNotAvailable$'
+control "a shared map shows faces only of players it lists" internal/panel/maps.go \
+  'if !strings.EqualFold(p.Name, name) {' \
+  'if false && !strings.EqualFold(p.Name, name) {' \
+  ./internal/panel '^TestSharedMapAnswersTheSameWhenItIsNotAvailable$'
+control "the shared map is served by the public route group" internal/panel/public.go \
+  '		{prefix: mapPagePrefix, limits: mapPageLimits, handler: s.mapPage()},
+		{prefix: mapDataPrefix, limits: mapDataLimits, handler: s.mapData()},' \
+  '' \
+  ./internal/panel '^(TestOnlyThePublicGroupAnswersWithoutSignIn|TestSharedMapAnswersTheSameWhenItIsNotAvailable)$'
+control "per-address shared map rate limit" internal/panel/public.go \
+  '{prefix: mapDataPrefix, limits: mapDataLimits, handler: s.mapData()}' \
+  '{prefix: mapDataPrefix, limits: publicLimits{perMinute: 1 << 30, open: 1 << 30, read: time.Minute, write: time.Minute}, handler: s.mapData()}' \
+  ./internal/panel '^TestSharedMapIsRateLimitedPerAddress$'
+control "link tokens stay out of the request log" internal/panel/public.go \
+  'return rt.prefix + "…"' \
+  'return p' \
+  ./internal/panel '^TestSharedMapTokensStayOutOfTheLog$'
+control "a public path is cleaned before it is logged" internal/panel/public.go \
+  'c := path.Clean("/" + p)' \
+  'c := p + path.Ext("")' \
+  ./internal/panel '^TestSharedMapTokensStayOutOfTheLog$'
+control "a world import reads server.properties without following a link" internal/agent/worldimports.go \
+  'b, err := d.ReadProperties()' \
+  'b, err := os.ReadFile(filepath.Join(s.dataDir(), "server.properties"))' \
+  ./internal/agent '^TestAWorldImportNeverFollowsAPlantedServerProperties$'
+control "the shared map reads the server's icon without following a link" internal/agent/maps.go \
+  'b, err := s.readIcon()' \
+  'b, err := os.ReadFile(s.dataDir() + "/" + iconFile)' \
+  ./internal/agent '^TestTheSharedMapsIconIsReadWithoutFollowingLinks$'
+control "the Plugins tab lists the map's squaremap as the Map's" internal/agent/addons.go \
+  'if e.Installed != nil && isMapAddon(mapRecs, e.Installed.Key()) {' \
+  'if false && e.Installed != nil && isMapAddon(mapRecs, e.Installed.Key()) {' \
+  ./internal/agent '^TestPluginsTabLeavesTheMapsSquaremapToTheMap$'
+control "the Plugins tab never offers to manage the map's squaremap" internal/agent/addons.go \
+  'withMap := append(slices.Clone(installed), s.mapAddons(installed)...)
+	res, err := s.lib().Scan(r.Context(), srv, withMap, false)' \
+  'withMap := installed
+	res, err := s.lib().Scan(r.Context(), srv, withMap, false)' \
+  ./internal/agent '^TestPluginsTabLeavesTheMapsSquaremapToTheMap$'
+control "the Plugins tab refuses to change what the map installed" internal/agent/maps.go \
+  'if slices.Contains(keys, a.Key()) {' \
+  'if false && slices.Contains(keys, a.Key()) {' \
+  ./internal/agent '^TestPluginsTabLeavesTheMapsSquaremapToTheMap$'
+control "a map whose squaremap is gone counts as off and turns on again" internal/agent/maps.go \
+  'if fi, err := root.Lstat(l.Folder + "/" + a.FileName); err != nil || !fi.Mode().IsRegular() {' \
+  'if fi, err := root.Lstat(l.Folder + "/" + a.FileName); false && (err != nil || !fi.Mode().IsRegular()) {' \
+  ./internal/agent '^TestTurningOnTheMapInstallsAMissingSquaremapAgain$'
+control "a start saves the world as uploaded before upgrading it" internal/agent/lifecycle.go \
+  'if err := s.ensureOriginalSaved(h, sc); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAnUpgradedWorldWaitsForTheCopyOfItAsUploaded$'
+control "announces take turns with the upload allowance" internal/agent/worldimports.go \
+  'a.imports.announce.Lock()
+	defer a.imports.announce.Unlock()' \
+  '' \
+  ./internal/agent '^TestAnnouncesTakeTurnsWithTheUploadAllowance$'
+control "the shared map's link waits for the own domain to point here" internal/agent/maps.go \
+  'if st.Check == nil || !st.Check.Ready {' \
+  'if st.Check == nil {' \
+  ./internal/agent '^TestSharedMapLinkWaitsForAWorkingName$'
+control "the shared map's link waits for the free name to be published" internal/agent/maps.go \
+  'st.Free.Name.State != names.StateActive || st.Free.Name.DNS != names.DNSOK {' \
+  'st.Free.Name.State != names.StateActive {' \
+  ./internal/agent '^TestSharedMapLinkWaitsForAWorkingName$'
+control "the shared map's link waits for a certificate that hasn't expired" internal/agent/maps.go \
+  'if row == nil || row.status.Certificate == nil || !row.status.Certificate.NotAfter.After(a.now()) {' \
+  'if row == nil || row.status.Certificate == nil {' \
+  ./internal/agent '^TestSharedMapLinkWaitsForAWorkingName$'
+control "an upload for a new server needs rights over every server" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actCreateServers),' \
+  'mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actManageServers),' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+control "making a server from an upload needs rights over every server" internal/panel/server.go \
+  'needSessionCSRF, actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
+  'needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+control "turning the map on counts what the Mods tab installed as there" internal/agent/maps.go \
+  's.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})' \
+  's.lib().Install(ctx, srv, installed[:0], addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})' \
+  ./internal/agent '^TestTurningTheMapOffRemovesOnlyWhatItAddedAndNothingElseNeeds$'
+control "turning the map off leaves the Mods tab's own files" internal/agent/maps.go \
+  'if slices.ContainsFunc(others, func(o addons.Installed) bool { return o.Key() == rec.Key() && o.FileName == rec.FileName }) {' \
+  'if false && slices.ContainsFunc(others, func(o addons.Installed) bool { return o.Key() == rec.Key() && o.FileName == rec.FileName }) {' \
+  ./internal/agent '^TestTurningTheMapOffRemovesOnlyWhatItAddedAndNothingElseNeeds$'
+control "turning the map off keeps what another add-on needs" internal/agent/maps.go \
+  'if parent := neededBy(others, rec); parent != "" {' \
+  'if parent := neededBy(others, rec); false && parent != "" {' \
+  ./internal/agent '^TestTurningTheMapOffRemovesOnlyWhatItAddedAndNothingElseNeeds$'
+control "a Nether or End downloaded in the 26.1 layout joins its world" internal/worldimport/detect.go \
+  'case d.id == dimNether && (d.folder == "DIM-1" || d.folder == modernFolder(dimNether)):' \
+  'case d.id == dimNether && d.folder == "DIM-1":' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a Nether or End in the 26.1 layout without level.dat joins its world" internal/worldimport/detect.go \
+  '		{id: dimNether, folder: modernFolder(dimNether), suffix: "_nether"},
+' \
+  '' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a separate dimension joins a 26.1 world instead of blocking it" internal/worldimport/plan.go \
+  '				pl.staleWarning(c.id, pl.inWorld(kept), pl.in.display(c.path))
+			}
+		}
+	} else {' \
+  '				pl.staleWarning(c.id, pl.inWorld(kept), pl.in.display(c.path))
+			} else {
+				pl.spigotLayout()
+			}
+		}
+	} else {' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a 26.1 world takes an older Nether or End into dimensions/minecraft" internal/worldimport/plan.go \
+  'if pl.modern && legacyFolder(c.folder) {' \
+  'if false && pl.modern && legacyFolder(c.folder) {' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a 26.1 world merges its Nether and End on Paper too" internal/worldimport/plan.go \
+  'case pl.fam == familyBukkit && !pl.modern:' \
+  'case pl.fam == familyBukkit:' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "an older world refuses a Nether or End saved by 26.1" internal/worldimport/plan.go \
+  'if vanillaDim(c.id) && !legacyFolder(c.folder) {
+				pl.problem(note(KindMixedLayout, "Upload the Nether and the End the server saved together with this world.",' \
+  'if false && vanillaDim(c.id) && !legacyFolder(c.folder) {
+				pl.problem(note(KindMixedLayout, "Upload the Nether and the End the server saved together with this world.",' \
+  ./internal/worldimport '^TestSeparateNetherAndEndDownloadsJoinTheirWorld$'
+control "a world no version can load yet is offered none" internal/agent/worldimports.go \
+  '			return []api.WorldImportVersion{{CatalogEntry: keep, Keep: true}}, rec, nil
+		}
+		return nil, rec, nil' \
+  '			return []api.WorldImportVersion{{CatalogEntry: keep, Keep: true}}, rec, nil
+		}
+		return []api.WorldImportVersion{recommended}, rec, nil' \
+  ./internal/agent '^TestWorldImportRefusals$'
+control "a link named like a custom dimension's folder is refused" internal/worldimport/folders.go \
+  'case custom && link && dimensionName(dim):' \
+  'case false && custom && link && dimensionName(dim):' \
+  ./internal/worldimport '^TestWorldFoldersRefusesLinks$'
+control "an import refused over a linked world folder starts the previous world again" internal/agent/worldimports.go \
+  '	folders, err := worldimport.WorldFolders(live, level)
+	if err != nil {
+		s.startPrevious(ctx, h, prev, wasRunning)' \
+  '	folders, err := worldimport.WorldFolders(live, level)
+	if err != nil {' \
+  ./internal/agent '^TestAWorldImportRefusesLinkedWorldFolders$'
+control "each run that comes online waits for squaremap afresh" internal/agent/maps.go \
+  '	if prev := ms.rendering[s.id]; prev != nil {
+		prev.stop()
+	}' \
+  '	if prev := ms.rendering[s.id]; prev != nil {
+		ms.mu.Unlock()
+		stop()
+		return
+	}' \
+  ./internal/agent '^TestEveryRunThatComesOnlineGetsTheFirstRender$'
+control "turning the map on uses squaremap the Plugins or Mods tab installed" internal/agent/maps.go \
+  'if !slices.ContainsFunc(installed, isSquaremap) {' \
+  'if true || !slices.ContainsFunc(installed, isSquaremap) {' \
+  ./internal/agent '^TestTheMapUsesSquaremapThePluginsTabInstalled$'
+control "the map counts squaremap the Plugins or Mods tab manages as its own file" internal/agent/maps.go \
+  'if i := slices.IndexFunc(installed, isSquaremap); i >= 0 {' \
+  'if i := slices.IndexFunc(installed, isSquaremap); false && i >= 0 {' \
+  ./internal/agent '^TestTheMapUsesSquaremapThePluginsTabInstalled$'
+control "turning the map on doesn't take a failed look at the server for a stopped one" internal/agent/maps.go \
+  '	if err != nil {
+		return restartUnchecked("squaremap is installed",' \
+  '	if false && err != nil {
+		return restartUnchecked("squaremap is installed",' \
+  ./internal/agent '^TestAMapChangeThatCantCheckTheServerSaysToRestart$'
+control "turning the map off doesn't take a failed look at the server for a stopped one" internal/agent/maps.go \
+  'if _, running, err = s.containerRunning(ctx); err != nil {' \
+  'if _, running, err = s.containerRunning(ctx); false && err != nil {' \
+  ./internal/agent '^TestAMapChangeThatCantCheckTheServerSaysToRestart$'
+control "a sparse member of a tar or tar.gz is refused" internal/worldimport/archive.go \
+  '		if sparse(h) {' \
+  '		if false && sparse(h) {' \
+  ./internal/worldimport '^TestExpansionLimitsHoldForEveryFormat$'
+control "staging stops a zip file past its own allowance" internal/worldimport/stage.go \
+  'own := &readCap{n: entryAllowance(e.csize, in.lim.MaxRatio), err: arc.err}' \
+  'own := &readCap{n: 1 << 62, err: arc.err}' \
+  ./internal/worldimport '^TestStagingCountsWhatItWrites$'
+control "staging stops an archive past its ratio allowance" internal/worldimport/stage.go \
+  'arc := &readCap{n: ratioAllowance(info.Bytes, in.lim.MaxRatio), err: ratioError(info.Name, in.lim.MaxRatio)}' \
+  'arc := &readCap{n: 1 << 62, err: ratioError(info.Name, in.lim.MaxRatio)}' \
+  ./internal/worldimport '^TestStagingCountsWhatItWrites$'
+control "staging counts what it writes against MaxTotalBytes" internal/worldimport/stage.go \
+  'if w.b.left -= int64(len(p)); w.b.left < 0 {' \
+  'if w.b.left -= int64(len(p)); false && w.b.left < 0 {' \
+  ./internal/worldimport '^TestStagingCountsWhatItWrites$'
+control "the first render follows every run that comes online, however it started" internal/agent/collector.go \
+  '			if take {
+				s.mapRunOnline(runStart)
+			}' \
+  '			if false && take {
+				s.mapRunOnline(runStart)
+			}' \
+  ./internal/agent '^TestEveryRunThatComesOnlineGetsTheFirstRender$'
+control "a restart is put off only while squaremap needs it" internal/agent/maps.go \
+  'if l := s.mapLive(r.Context(), true); !rec.pendingRestart(l) {' \
+  'if l := s.mapLive(r.Context(), true); false && !rec.pendingRestart(l) {' \
+  ./internal/agent '^TestRestartLaterOnlyWhileSquaremapNeedsARestart$'
+control "a restart put off is dropped once squaremap is loaded" internal/agent/maps.go \
+  'if !rec.pendingRestart(l) {' \
+  'if false && !rec.pendingRestart(l) {' \
+  ./internal/agent '^TestRestartLaterOnlyWhileSquaremapNeedsARestart$'
+control "an unfinished upload is forgotten after an hour" internal/agent/worldimports.go \
+  '		if !imp.complete() {
+			idle = incompleteImportIdle
+		}' \
+  '' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "a finished upload is kept for a day" internal/agent/worldimports.go \
+  'idle := worldImportIdle' \
+  'idle := incompleteImportIdle' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "an announce forgets the stale uploads before it counts the space" internal/agent/worldimports.go \
+  '	a.imports.mu.Lock()
+	stale := a.staleImports(a.now(), imp)
+	a.imports.mu.Unlock()
+	removeImports(stale)
+' \
+  '' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "the upload being added to is never forgotten as stale" internal/agent/worldimports.go \
+  'stale := a.staleImports(a.now(), imp)' \
+  'stale := a.staleImports(a.now(), nil)' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "a cancel marks the upload gone as it checks it" internal/agent/worldimports.go \
+  '	if !inUse {
+		imp.gone = true
+	}' \
+  '' \
+  ./internal/agent '^TestCancellingAnUploadNeverDeletesItFromUnderAnOperation$'
+control "an imported world moves back only once the server stopped" internal/agent/worldimports.go \
+  '	if err := s.stopServer(ctx, h); err != nil {
+		if s.stopping() {' \
+  '	if err := s.stopServer(ctx, h); false && err != nil {
+		if s.stopping() {' \
+  ./internal/agent '^TestAnImportedWorldMovesBackOnlyOnceTheServerStopped$'
+control "an import the agent stopped during says so" internal/agent/worldimports.go \
+  '		if s.stopping() {
+			return false, &apiError{' \
+  '		if false {
+			return false, &apiError{' \
+  ./internal/agent '^TestAnImportedWorldMovesBackOnlyOnceTheServerStopped$'
+control "a create that can't move the world in drops the upload" internal/agent/worldimports.go \
+  '		// upload again, so it goes with what is left of its unpacked copy.
+		s.dropImport(imp)' \
+  '		// upload again, so it goes with what is left of its unpacked copy.
+		imp.release()' \
+  ./internal/agent '^TestACreateThatCantMoveTheWorldInDropsTheUpload$'
+control "imports count the space the others claimed" internal/agent/worldimports.go \
+  'if err == nil && free-claimed < need+minFreeAfterBackup {' \
+  'if err == nil && free < need+minFreeAfterBackup {' \
+  ./internal/agent '^TestImportsClaimDiskSpaceInTurn$'
+control "an import records the space it claimed" internal/agent/worldimports.go \
+  '	imp.reserved = need
+' \
+  '' \
+  ./internal/agent '^TestImportsClaimDiskSpaceInTurn$'
+control "a create refused for space doesn't keep the upload" internal/agent/worldimports.go \
+  '	if err := a.reserveImportSpace(imp, need); err != nil {
+		imp.release()' \
+  '	if err := a.reserveImportSpace(imp, need); err != nil {' \
+  ./internal/agent '^TestImportsClaimDiskSpaceInTurn$'
+control "turning the map off stops squaremap before deleting what it drew" internal/agent/maps.go \
+  '		if running {
+			h.phase("stopping")
+			if err := s.stopServer(ctx, h); err != nil {
+				return err
+			}
+		}
+	}
+	startAgain := func() error {
+		if !running {
+			return nil
+		}
+		h.phase("starting")' \
+  '	}
+	startAgain := func() error {
+		if !running {
+			return nil
+		}
+		h.phase("starting")
+		if err := s.stopServer(ctx, h); err != nil {
+			return err
+		}' \
+  ./internal/agent '^TestTurningTheMapOffStopsSquaremapFirst$'
+control "the map's record goes even when some of the drawing can't be deleted" internal/agent/maps.go \
+  'leftover = &apiError{Msg: "The map is off, but' \
+  'return &apiError{Msg: "The map is off, but' \
+  ./internal/agent '^TestTurningTheMapOffStopsSquaremapFirst$'
+control "turning the map off leaves the Plugins tab's squaremap and its folder" internal/agent/maps.go \
+  'owned := len(rec.addons) > 0' \
+  'owned := true' \
+  ./internal/agent '^TestTurningTheMapOffStopsSquaremapFirst$'
+control "a replaced world's drawn map is deleted" internal/agent/worldimports.go \
+  '	s.forgetDrawnMap()
+' \
+  '' \
+  ./internal/agent '^TestAReplacedWorldIsDrawnAfresh$'
+control "a replaced world is drawn again once it is online" internal/agent/maps.go \
+  'UPDATE maps SET first_render_at = NULL WHERE server_id = ?' \
+  'UPDATE maps SET first_render_at = first_render_at WHERE server_id = ?' \
+  ./internal/agent '^TestAReplacedWorldIsDrawnAfresh$'
+control "an import leaves squaremap's folder alone while the map is off" internal/agent/maps.go \
+  '	if err != nil || rec == nil {
+		return
+	}
+	l, err := webmap.LayoutFor(s.serverType(nil))
+	if err != nil {
+		return
+	}
+	for _, rel := range' \
+  '	if err != nil || rec == nil && false {
+		return
+	}
+	l, err := webmap.LayoutFor(s.serverType(nil))
+	if err != nil {
+		return
+	}
+	for _, rel := range' \
+  ./internal/agent '^TestAReplacedWorldIsDrawnAfresh$'
+webcontrol() { # NAME FILE FROM TO TEST-FILE
+  local name=$1 file=$2 test=$5
+  ln -sfn "$root/web/node_modules" web/node_modules
+  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
+  if ! (cd web && npx tsc --noEmit -p . >/dev/null 2>&1); then
+    echo "INVALID  $name: the mutated code does not type-check"
+    bad=1
+  elif (cd web && npx vitest run "${test#web/}" >/tmp/negative-control.out 2>&1); then
+    echo "MISSED   $name: $test still passes without the guard"
+    bad=1
+  else
+    echo "caught   $name: $(grep -m1 -E '^ *(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
+  fi
+  git checkout -q -- "$file"
+  rm web/node_modules
+}
+webcontrol "leaving the page cancels the upload" web/src/components/app/world-import.tsx \
+  "window.addEventListener('pagehide', leave)" \
+  "window.addEventListener('pageshow', leave)" \
+  web/src/pages/new-server.test.tsx
+webcontrol "the request cancelling an upload outlives the page" web/src/components/app/world-import.tsx \
+  'keepalive: true' \
+  'keepalive: false' \
+  web/src/pages/new-server.test.tsx
+webcontrol "leaving the page keeps an upload a server was made from" web/src/components/app/world-import.tsx \
+  'if (!j.upload || !machineId || kept.current) return' \
+  'if (!j.upload || !machineId) return' \
+  web/src/pages/new-server.test.tsx
+# shellcheck disable=SC2016
+webcontrol "carrying on with an upload asks the machine which files it has" web/src/lib/upload.ts \
+  'let imp = seen(o.resume ? await get<WorldImport>(`${o.base}/${o.resume.id}`) : await post<WorldImport>(o.base, {}))' \
+  'let imp = seen(o.resume ?? (await post<WorldImport>(o.base, {})))' \
+  web/src/lib/upload.test.ts
+webcontrol "carrying on refuses an upload whose files differ" web/src/lib/upload.ts \
+  ' || imp.files.some((f, n) => f.name !== o.files[n]?.name || f.size !== o.files[n]?.size)' \
+  '' \
+  web/src/lib/upload.test.ts
+webcontrol "Try again carries on with the upload as the machine last described it" web/src/components/app/world-import.tsx \
+  '          j.upload = imp
+        },' \
+  '          j.upload ??= imp
+        },' \
+  web/src/pages/new-server.test.tsx
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

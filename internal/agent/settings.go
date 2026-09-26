@@ -303,12 +303,7 @@ func iconNewer(sc *api.ServerConfig, startedAt *time.Time) bool {
 }
 
 func (s *server) hIcon(w http.ResponseWriter, r *http.Request) {
-	d, err := s.gameFiles()
-	var b []byte
-	if err == nil {
-		b, err = d.ReadFile(iconFile, maxIconBytes)
-		d.Close()
-	}
+	b, err := s.readIcon()
 	if err != nil {
 		writeError(w, errNotFound("Server icon"))
 		return
@@ -316,6 +311,16 @@ func (s *server) hIcon(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Write(b)
+}
+
+// readIcon reads the server's icon from its files, which the game can change.
+func (s *server) readIcon() ([]byte, error) {
+	d, err := s.gameFiles()
+	if err != nil {
+		return nil, err
+	}
+	defer d.Close()
+	return d.ReadFile(iconFile, maxIconBytes)
 }
 
 func (s *server) hIconSet(w http.ResponseWriter, r *http.Request) {

@@ -257,6 +257,9 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 				s.lastError, s.lastErrorHint = "", ""
 			}
 			s.mu.Unlock()
+			if take {
+				s.mapRunOnline(runStart)
+			}
 			if recovered && fresh {
 				s.alert(discord.Event{Kind: discord.KindRecovered, At: ts})
 			} else if fresh {
@@ -612,6 +615,7 @@ func (s *server) sample(ctx context.Context) {
 	}
 	s.mu.Unlock()
 	s.setCollectingSince(now)
+	s.restartMapWhenEmpty(row.state == "online", snap)
 }
 
 func cpuPercent(prev, cur *docker.Stats) *float64 {

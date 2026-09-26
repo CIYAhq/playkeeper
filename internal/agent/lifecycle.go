@@ -614,6 +614,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if err := s.ensureDirs(); err != nil {
 		return err
 	}
+	if err := s.ensureOriginalSaved(h, sc); err != nil {
+		return err
+	}
 	if err := s.ensureImage(ctx, h, runtimeImage(sc.MinecraftVersion)); err != nil {
 		return err
 	}
@@ -637,6 +640,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 		if err := s.ensureTelemetryOff(); err != nil {
 			return err
 		}
+	}
+	if err := s.writeMapConfig(); err != nil {
+		return err
 	}
 	pastFiles = true
 	name := s.containerName()
