@@ -45,8 +45,10 @@ const (
 	// published: the service allows a key about one request a minute.
 	freePollEvery = 5 * time.Minute
 	publishWait   = 10 * time.Minute
-	// settleWait bounds finding out what a change of name did when the
-	// claim got no clear answer, and claiming the old name back.
+	// settleWait bounds what follows a step of a change of name that
+	// failed: finding out what the step did at the names service, undoing
+	// it and claiming the old name back. It is time of its own, as a
+	// request that got no answer may have used up the change's.
 	settleWait = 2 * time.Minute
 	// ownRecheckPending and ownRecheckReady are how often the own domain's
 	// records are looked up while they are not right yet, and after.
@@ -77,10 +79,13 @@ type freeState struct {
 	NextRefresh time.Time `json:"nextRefresh,omitzero"`
 	// ServersWait is the names service's reason for giving the servers no
 	// address yet (names.CodeServerNotYet or names.CodeNotAnswering), with
-	// ServersFrom from the first; the loop asks again at ServersRetry.
-	ServersWait  string    `json:"serversWait,omitempty"`
-	ServersFrom  time.Time `json:"serversFrom,omitzero"`
-	ServersRetry time.Time `json:"serversRetry,omitzero"`
+	// ServersFrom from the first. ServersFailed counts the updates of the
+	// servers' records that failed otherwise, in a row. The loop tries
+	// again at ServersRetry.
+	ServersWait   string    `json:"serversWait,omitempty"`
+	ServersFrom   time.Time `json:"serversFrom,omitzero"`
+	ServersFailed int       `json:"serversFailed,omitempty"`
+	ServersRetry  time.Time `json:"serversRetry,omitzero"`
 }
 
 // addressRuntime is the address's in-memory side. lock allows one change
@@ -210,8 +215,7 @@ func (a *Agent) startAddressOp(kind, actor string, fn func(ctx context.Context, 
 		done := finishOp(op, h, err, a.now().UTC())
 		a.addr.op = nil
 		a.addr.mu.Unlock()
-		a.saveOperation(&done)
-		a.audit(actor, kind, "machine", done.Status, done.Error)
+		a.finishOperation("", "machine", &done)
 		if err != nil {
 			a.log.Warn("operation failed", "kind", kind, "err", err)
 		}
@@ -321,13 +325,14 @@ func namesCode(err error, code string) bool {
 	return errors.As(err, &ne) && ne.Code == code
 }
 
-// claimRefused reports whether a claim's error says the claim was not
-// stored: the service refuses a claim before it stores it (4xx), and the
-// client refuses one it doesn't send. No answer, or a 5xx from the service
-// or a proxy in front of it, can come after the claim was stored.
-func claimRefused(err error) bool {
+// maybeStored reports whether a claim or release that failed with err may
+// have been carried out all the same: the service refuses a change before
+// it stores it (4xx), and the client refuses one it doesn't send, but no
+// answer, or a 5xx from the service or a proxy in front of it, can come
+// after the change was stored.
+func maybeStored(err error) bool {
 	var ne *names.Error
-	return errors.As(err, &ne) && ne.Status < 500
+	return !errors.As(err, &ne) || ne.Status >= 500
 }
 
 // listedName looks name up in the service's list of the names this key
@@ -415,10 +420,13 @@ func suggestNames(ctx context.Context, c *names.Client, name string) []string {
 
 // claimFree claims name for this machine. A key holds one name at a time,
 // so changing names releases the old one first, and claims it back when
-// the new one can't be had or this machine can't save the change. A claim
-// that got no answer, or one that doesn't say it failed, may have been
-// stored all the same, so then the service's list of this key's names
-// says which name the machine has.
+// the new one can't be had or this machine can't save the change. A
+// release or claim that got no answer, or one that doesn't say it failed,
+// may have been carried out all the same: after a release the old name is
+// claimed back, and after a claim the service's list of this key's names
+// says which name the machine has; when it can't, a first name is released
+// again. A name the service says the key holds, and the machine doesn't
+// know of, becomes the machine's name (see followService).
 func (a *Agent) claimFree(ctx context.Context, st addressState, name, actor string) error {
 	c, err := a.namesClient(true)
 	if err != nil {
@@ -432,7 +440,13 @@ func (a *Agent) claimFree(ctx context.Context, st addressState, name, actor stri
 		return nil
 	}
 	if old != "" {
-		if _, err := c.Release(ctx); err != nil && !namesCode(err, names.CodeNotClaimed) {
+		// A name the service doesn't hold for this key needs no release.
+		if _, err := c.Release(ctx); err != nil && !namesCode(err, names.CodeNotClaimed) && !namesCode(err, names.CodeNotYourName) {
+			if maybeStored(err) {
+				rctx, cancel := context.WithTimeout(a.ctx, settleWait)
+				defer cancel()
+				a.reclaim(rctx, c, old, actor)
+			}
 			return a.namesError(err)
 		}
 	}
@@ -440,17 +454,37 @@ func (a *Agent) claimFree(ctx context.Context, st addressState, name, actor stri
 	n, err := c.Claim(ctx, name)
 	a.setClaiming("")
 	if err != nil {
-		// A claim that got no answer may have used up ctx.
 		sctx, cancel := context.WithTimeout(a.ctx, settleWait)
 		defer cancel()
-		if !claimRefused(err) {
-			if l, listed, _ := listedName(sctx, c, name); listed && l.State != names.StateReleased {
+		unsure := false
+		if maybeStored(err) {
+			l, listed, lerr := listedName(sctx, c, name)
+			if listed && l.State != names.StateReleased {
 				n, err = l, nil
 			}
+			unsure = lerr != nil
 		}
 		if err != nil {
-			if old != "" {
-				a.reclaim(sctx, c, st, old)
+			switch {
+			case old != "":
+				if a.reclaim(sctx, c, old, actor) == name {
+					// The service holds the new name for this key after all.
+					return nil
+				}
+			case unsure:
+				// Nothing says whether the claim was stored: give name up,
+				// so that the key holds no name the machine doesn't use.
+				c.Name = name
+				if _, rerr := c.Release(sctx); rerr != nil && !namesCode(rerr, names.CodeNotClaimed) {
+					a.log.Warn("could not release a free address whose claim got no clear answer", "name", name, "err", rerr)
+				}
+			case namesCode(err, names.CodeLimitReached):
+				// The key holds a name the machine doesn't know of, left by
+				// a claim that got no clear answer or couldn't be saved,
+				// and couldn't be undone.
+				if held, ok := a.followService(sctx, c, "", actor, err); ok {
+					a.useFree(sctx, c, held)
+				}
 			}
 			return a.namesError(err)
 		}
@@ -466,11 +500,13 @@ func (a *Agent) claimFree(ctx context.Context, st addressState, name, actor stri
 		released = ""
 	}
 	if err := a.setAddress(addressState{Kind: api.AddressPlaykeeper, Host: host, Since: now, IP: st.IP, Free: &freeState{Name: n, CheckedAt: now}, Released: released}); err != nil {
+		uctx, cancel := context.WithTimeout(a.ctx, settleWait)
+		defer cancel()
 		c.Name = name
-		if _, rerr := c.Release(ctx); rerr != nil && !namesCode(rerr, names.CodeNotClaimed) {
+		if _, rerr := c.Release(uctx); rerr != nil && !namesCode(rerr, names.CodeNotClaimed) {
 			a.log.Warn("could not release a free address this machine couldn't save", "name", name, "err", rerr)
 		} else if old != "" {
-			a.reclaim(ctx, c, st, old)
+			a.reclaim(uctx, c, old, actor)
 		}
 		return err
 	}
@@ -481,37 +517,117 @@ func (a *Agent) claimFree(ctx context.Context, st addressState, name, actor stri
 	return nil
 }
 
-// reclaim takes back the name released for a change that failed. While
-// the service still holds the name for this key, or can't say, the machine
-// keeps it even if it can't be claimed back now: the address loop claims
-// it back when it refreshes it, within the hour.
-func (a *Agent) reclaim(ctx context.Context, c *names.Client, st addressState, old string) {
+// reclaim takes back old, the name released for a change that failed, and
+// returns the machine's name afterwards. When old can't be claimed back,
+// the machine follows the names service (see followService).
+func (a *Agent) reclaim(ctx context.Context, c *names.Client, old, actor string) string {
 	n, err := c.Claim(ctx, old)
 	if err != nil {
 		a.log.Warn("could not claim the previous free address back", "name", old, "err", err)
-		if _, listed, lerr := listedName(ctx, c, old); lerr != nil || listed {
-			retry := a.now().UTC().Add(freeRetryEvery)
-			_ = a.updateAddress(func(st *addressState) {
-				if st.Free != nil && st.Free.Name.Name == old {
-					f := *st.Free
-					f.NextRefresh = retry
-					st.Free = &f
-				}
-			})
-			return
+		var held bool
+		if n, held = a.followService(ctx, c, old, actor, err); !held {
+			return n.Name
 		}
-		_ = a.setAddress(addressState{IP: st.IP, Released: old})
-		a.forgetCertificate(names.Address(old, names.DefaultBase))
-		return
 	}
-	c.Name = old
+	a.useFree(ctx, c, n)
+	return n.Name
+}
+
+// useFree points n, the name the names service holds for this key and the
+// machine's name now, at the machine, and has the address loop give the
+// servers their records under it.
+func (a *Agent) useFree(ctx context.Context, c *names.Client, n names.Name) {
+	c.Name = n.Name
+	var next time.Time
 	if r, err := c.Refresh(ctx); err == nil {
-		n = r
+		n, next = r, a.now().UTC().Add(freeRefreshEvery)
 	}
-	a.saveFree(n, time.Time{})
-	// Releasing the name removed its servers' records: the loop puts them
-	// back.
+	a.saveFree(n, next)
+	// Releasing a name removes its servers' records, and a name the
+	// machine didn't use has none of them: the loop puts them in.
 	a.serversChanged()
+}
+
+// followService makes the machine's free name follow the names service,
+// after a step for old, the machine's name ("" for none), failed with err.
+// The service's list of this key's names decides:
+//   - a name the key holds (a key holds one at a time) is the machine's
+//     name, old or not; a new one comes with its own records and
+//     certificate, and old's certificate goes;
+//   - while the key holds none, the machine gives old up once the service
+//     has said, with err, that another key has it and doesn't list it for
+//     this key any more; until then it keeps old, and the loop tries it
+//     again within the hour.
+//
+// n is the machine's name afterwards ("" for none); held reports whether
+// the service holds it for this key, n then being its description.
+func (a *Agent) followService(ctx context.Context, c *names.Client, old, actor string, err error) (n names.Name, held bool) {
+	list, lerr := c.Names(ctx)
+	if lerr != nil {
+		_ = a.namesError(lerr)
+		a.retryFree(old)
+		return names.Name{Name: old}, false
+	}
+	a.noteNames("")
+	listed := false
+	for _, l := range list {
+		if l.State != names.StateReleased {
+			if l.Name != old && !a.adoptFree(l, old, actor) {
+				return names.Name{Name: old}, false
+			}
+			return l, true
+		}
+		listed = listed || l.Name == old
+	}
+	if listed || !takenElsewhere(err) {
+		a.retryFree(old)
+		return names.Name{Name: old}, false
+	}
+	st := a.address()
+	_ = a.setAddress(addressState{IP: st.IP, Released: old})
+	a.forgetCertificate(names.Address(old, names.DefaultBase))
+	return names.Name{}, false
+}
+
+// adoptFree makes n, a name the names service holds for this key, the
+// machine's name instead of old. The address loop refreshes it, gives the
+// servers their records under it and gets its certificate.
+func (a *Agent) adoptFree(n names.Name, old, actor string) bool {
+	was := a.address()
+	now := a.now().UTC()
+	host := names.Address(n.Name, names.DefaultBase)
+	released := old
+	if released == "" {
+		released = was.Released
+	}
+	if err := a.setAddress(addressState{Kind: api.AddressPlaykeeper, Host: host, Since: now, IP: was.IP, Free: &freeState{Name: n, CheckedAt: now}, Released: released}); err != nil {
+		a.log.Warn("could not save the free address the names service holds for this machine", "name", n.Name, "err", err)
+		return false
+	}
+	a.forgetCertificate(was.Host)
+	a.log.Warn("the free address service holds another name for this machine; using it", "name", n.Name, "was", old)
+	a.audit(actor, "address.claim", host, "succeeded", "")
+	a.serversChanged()
+	return true
+}
+
+// takenElsewhere reports whether err, the names service's answer to a
+// request for a name, says another key has the name.
+func takenElsewhere(err error) bool {
+	return namesCode(err, names.CodeNameTaken) || namesCode(err, names.CodeNameHeld) || namesCode(err, names.CodeNotYourName)
+}
+
+// retryFree has the address loop refresh name, the machine's free name,
+// again within the hour.
+func (a *Agent) retryFree(name string) {
+	retry := a.now().UTC().Add(freeRetryEvery)
+	_ = a.updateAddress(func(st *addressState) {
+		if st.Free != nil && st.Free.Name.Name == name {
+			f := *st.Free
+			f.NextRefresh = retry
+			st.Free = &f
+		}
+	})
 }
 
 // saveFree records the names service's answer about the machine's name;
@@ -532,7 +648,10 @@ func (a *Agent) saveFree(n names.Name, next time.Time) {
 }
 
 // refreshFree points the free name at this machine's current addresses,
-// which also keeps it from lapsing.
+// which also keeps it from lapsing, and claims it back when the names
+// service has released it. A refresh the service answers says the key
+// holds the name; when it doesn't work out, the service's list of this
+// key's names says which name the machine has (see followService).
 func (a *Agent) refreshFree(ctx context.Context) error {
 	c, err := a.namesClient(true)
 	if err != nil {
@@ -543,21 +662,21 @@ func (a *Agent) refreshFree(ctx context.Context) error {
 	}
 	n, err := c.Refresh(ctx)
 	if namesCode(err, names.CodeNotClaimed) {
-		// The service gave the name back to everyone after two months
-		// without a refresh: claim it again while nobody else has.
-		if _, cerr := c.Claim(ctx, c.Name); cerr == nil {
+		// Released for a change that failed, or given back to everyone
+		// after two months without a refresh: claim it again while
+		// nobody else has.
+		if _, err = c.Claim(ctx, c.Name); err == nil {
 			n, err = c.Refresh(ctx)
 		}
 	}
 	if err != nil {
-		retry := a.now().UTC().Add(freeRetryEvery)
-		_ = a.updateAddress(func(st *addressState) {
-			if st.Free != nil {
-				f := *st.Free
-				f.NextRefresh = retry
-				st.Free = &f
-			}
-		})
+		if held, ok := a.followService(ctx, c, c.Name, "playkeeper", err); ok {
+			c.Name = held.Name
+			n, err = c.Refresh(ctx)
+		}
+	}
+	if err != nil {
+		a.retryFree(c.Name)
 		return a.namesError(err)
 	}
 	a.noteNames("")
@@ -602,11 +721,12 @@ func (a *Agent) syncFreeServers(ctx context.Context) error {
 		}
 	}
 	if len(remove) == 0 && len(set) == 0 {
-		a.saveServersWait("", time.Time{})
+		a.saveServersSync("", time.Time{}, false)
 		return nil
 	}
 	c, err := a.namesClient(true)
 	if err != nil {
+		a.saveServersSync("", time.Time{}, true)
 		return err
 	}
 	var errs []error
@@ -632,7 +752,7 @@ func (a *Agent) syncFreeServers(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
-	a.saveServersWait(wait, from)
+	a.saveServersSync(wait, from, len(errs) > 0)
 	a.pollFree(ctx, c)
 	if len(errs) > 0 {
 		return a.namesError(errs[0])
@@ -640,24 +760,50 @@ func (a *Agent) syncFreeServers(ctx context.Context) error {
 	return nil
 }
 
-// saveServersWait records why the names service gives the servers no
-// address yet, or that it does ("").
-func (a *Agent) saveServersWait(wait string, from time.Time) {
+// saveServersSync records how an update of the servers' records went: why
+// the names service gives the servers no address yet (wait, with from),
+// whether it failed otherwise, or that it all worked. The loop tries again
+// when the service allows after a wait, and soon after a failure, less
+// often while failures go on; a failure says nothing new about a wait
+// recorded before, whose time it doesn't bring forward.
+func (a *Agent) saveServersSync(wait string, from time.Time, failed bool) {
 	now := a.now().UTC()
 	_ = a.updateAddress(func(st *addressState) {
-		if st.Kind != api.AddressPlaykeeper || st.Free == nil || (st.Free.ServersWait == "" && wait == "") {
+		if st.Kind != api.AddressPlaykeeper || st.Free == nil || (wait == "" && !failed && st.Free.ServersWait == "" && st.Free.ServersFailed == 0) {
 			return
 		}
 		f := *st.Free
-		f.ServersWait, f.ServersFrom, f.ServersRetry = wait, from, time.Time{}
 		switch {
 		case wait == names.CodeServerNotYet && from.After(now):
-			f.ServersRetry = from
+			f.ServersWait, f.ServersFrom, f.ServersRetry = wait, from, from
 		case wait != "":
-			f.ServersRetry = now.Add(freeRetryEvery)
+			f.ServersWait, f.ServersFrom, f.ServersRetry = wait, from, now.Add(freeRetryEvery)
+		case !failed:
+			f.ServersWait, f.ServersFrom, f.ServersRetry = "", time.Time{}, time.Time{}
+		}
+		f.ServersFailed = 0
+		if failed {
+			f.ServersFailed = st.Free.ServersFailed + 1
+			if retry := now.Add(serversRetryAfter(f.ServersFailed)); retry.After(f.ServersRetry) {
+				f.ServersRetry = retry
+			}
 		}
 		st.Free = &f
 	})
+}
+
+// serversRetryAfter is how long the loop waits to update the servers'
+// records again after failed updates in a row: freePollEvery at first,
+// twice as long after each further one, and at most freeRetryEvery.
+func serversRetryAfter(failed int) time.Duration {
+	d := freePollEvery
+	for range failed - 1 {
+		d *= 2
+		if d >= freeRetryEvery {
+			return freeRetryEvery
+		}
+	}
+	return d
 }
 
 // pollFree asks the names service how the machine's name is doing.
@@ -679,13 +825,15 @@ func (a *Agent) pollFree(ctx context.Context, c *names.Client) {
 }
 
 // freePublished reports whether the free name's records and those of the
-// servers that should have one are all published.
+// servers that should have one are all published. Records the names
+// service refused, or that couldn't be given, are not waited for: the loop
+// asks for them again later.
 func freePublished(st addressState, servers []joinServer) bool {
 	if st.Free == nil || st.Free.Name.State != names.StateActive || st.Free.Name.DNS != names.DNSOK {
 		return false
 	}
 	for _, s := range freeServers(servers) {
-		if !st.Free.serverPublished(s) && st.Free.ServersWait == "" {
+		if !st.Free.serverPublished(s) && st.Free.ServersWait == "" && st.Free.ServersFailed == 0 {
 			return false
 		}
 	}
@@ -1428,7 +1576,7 @@ func (a *Agent) addressTick(ctx context.Context, start bool) {
 			return
 		}
 		changed := a.takeServersChanged()
-		if st.Free.ServersWait != "" && !now.Before(st.Free.ServersRetry) {
+		if (st.Free.ServersWait != "" || st.Free.ServersFailed > 0) && !now.Before(st.Free.ServersRetry) {
 			changed = true
 		}
 		switch {

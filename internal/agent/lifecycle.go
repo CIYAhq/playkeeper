@@ -161,7 +161,7 @@ func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opH
 	if op.Detail == nil {
 		op.Detail = map[string]any{}
 	}
-	kind, actor := op.Kind, op.Actor
+	kind := op.Kind
 	s.opMu.Lock()
 	s.op = op
 	snap := copyOp(op)
@@ -179,10 +179,7 @@ func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opH
 		done := finishOp(op, h, err, s.now().UTC())
 		s.op = nil
 		s.opMu.Unlock()
-		s.saveOperation(&done)
-		if done.Status != api.OpRunning {
-			s.audit(actor, kind, "server", done.Status, done.Error)
-		}
+		s.finishOperation(s.id, "server", &done)
 		if err != nil {
 			s.log.Warn("operation failed", "server", s.id, "kind", kind, "err", err)
 		}
