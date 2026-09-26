@@ -1512,10 +1512,14 @@ control "the CurseForge key file is readable by root only" internal/agent/addons
   'os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
   'os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)' \
   ./internal/agent '^TestCurseForgeKeyIsCheckedSavedAndRemoved$'
-control "only who manages the machine changes its CurseForge key" internal/panel/server.go \
-  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \
+control "a member can't change the CurseForge key" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageAddonSources),' \
   'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actView),' \
-  ./internal/panel '^TestOnlyWhoManagesTheMachineChangesItsCurseForgeKey$'
+  ./internal/panel '^TestOnlyTheOwnerChangesTheCurseForgeKey$'
+control "only the owner changes the CurseForge key, not an admin of all servers" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageAddonSources),' \
+  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \
+  ./internal/panel '^TestOnlyTheOwnerChangesTheCurseForgeKey$'
 control "an exported template names no one" internal/agent/templates.go \
   '	file, err := templates.MarshalFile(t)' \
   '	t.Author = q.Get("author")
@@ -4021,6 +4025,14 @@ webcontrol "free addresses: a certificate problem is the notice that shows" web/
   'certProblemText(a, now) ? (' \
   'certProblemText(a, now) && !a.names.unreachable ? (' \
   web/src/pages/machine-settings/address.test.tsx 'as the one notice'
+
+# Wave 9: the updater's sandbox (the 0.4.0 docs check).
+control "the updater can't write the rest of the host" internal/install/units.go \
+  'ProtectSystem=strict
+ReadWritePaths=/usr/local/bin /etc/systemd/system /etc/playkeeper /var/lib/playkeeper' \
+  'ProtectSystem=full
+ReadWritePaths=/usr/local/bin /etc/systemd/system /etc/playkeeper /var/lib/playkeeper' \
+  ./internal/install '^TestTheUpdaterWritesOnlyItsOwnPaths$'
 
 # Wave 9: fixes from the screen review of Waves 5-8.
 webcontrol "the players chart keeps its labels clear of now" web/src/components/app/players-chart.tsx \

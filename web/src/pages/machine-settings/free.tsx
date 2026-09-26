@@ -342,7 +342,7 @@ function nameStatus({ name, address, problem, mine, answer, onPick }: { name: st
     )
   }
   if (isFailure(answer)) return null
-  if (answer.available) return <p className="text-xs font-semibold text-success-foreground">{t('address.isFree', { address })}</p>
+  if (answer.available) return <p className="text-xs font-semibold text-success-foreground max-sm:text-success-strong">{t('address.isFree', { address })}</p>
   const until = Number(answer.params?.until)
   switch (answer.code) {
     case 'name_taken':
@@ -353,7 +353,7 @@ function nameStatus({ name, address, problem, mine, answer, onPick }: { name: st
             <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               {t('address.suggestions')}
               {answer.suggestions.map((s) => (
-                <button key={s} type="button" onClick={() => onPick(s)} className="rounded-sm font-semibold text-success-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+                <button key={s} type="button" onClick={() => onPick(s)} className="rounded-sm font-semibold text-success-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring max-sm:text-success-strong">
                   {s}
                 </button>
               ))}
@@ -365,7 +365,7 @@ function nameStatus({ name, address, problem, mine, answer, onPick }: { name: st
       return (
         <>
           <p className="text-xs font-semibold">{until ? t('address.held', { address, date: formatDate(new Date(until * 1000).toISOString()) }) : answer.message}</p>
-          <a href={t('address.helpUrl')} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-success-foreground hover:underline">
+          <a href={t('address.helpUrl')} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-success-foreground hover:underline max-sm:text-success-strong">
             {t('address.learnMore')}
           </a>
         </>
@@ -384,7 +384,7 @@ function Unavailable({ onRetry }: { onRetry: () => void }) {
   return (
     <p className="text-xs text-muted-foreground max-sm:text-[13px]">
       {t('address.unavailable')}{' '}
-      <button type="button" onClick={onRetry} className="rounded-sm font-semibold text-success-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+      <button type="button" onClick={onRetry} className="rounded-sm font-semibold text-success-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring max-sm:text-success-strong">
         {t('common.tryAgain')}
       </button>
     </p>

@@ -61,10 +61,14 @@ const (
 	actRecoverBackups     action = "backups.recover"
 )
 
+// actManageAddonSources changes the machine's own CurseForge key. It isn't
+// in actNeeds, so only the owner may, as the dashboard says.
+const actManageAddonSources action = "addon_sources.manage"
+
 // actions lists every action, for the signed-in account's "can" list.
 var actions = []action{actView, actManageAccount, actRunServers, actConsole, actManagePlayers, actMakeBackups,
 	actRestore, actManageServers, actCreateServers, actManageTeam, actManageMachine, actViewAuditTrail,
-	actManageBackupCopies, actRecoveryKey, actRecoverBackups}
+	actManageBackupCopies, actRecoveryKey, actRecoverBackups, actManageAddonSources}
 
 // keyActions are decided by mayHoldBackupKeys rather than actNeeds.
 var keyActions = map[action]bool{actManageBackupCopies: true, actRecoveryKey: true, actRecoverBackups: true}
