@@ -90,8 +90,10 @@ type ServerStatus struct {
 	// SoftwareChanged is set when the server's software no longer matches
 	// what Playkeeper installed, so it was not started.
 	SoftwareChanged *SoftwareChange `json:"softwareChanged,omitempty"`
-	// Wave 7 (0.4.0): sleep when nobody's playing.
-	Sleep *SleepStatus `json:"sleep,omitempty"`
+	// Wave 7 (0.4.0): sleep when nobody's playing, and the scheduled backups
+	// refused since the last backup that succeeded.
+	Sleep         *SleepStatus   `json:"sleep,omitempty"`
+	BackupRefused *BackupRefusal `json:"backupRefused,omitempty"`
 }
 
 // FileRefusal is a file in the server's folder that Playkeeper would not

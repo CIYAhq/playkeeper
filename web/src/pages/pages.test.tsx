@@ -8,6 +8,7 @@ import type {
   AddonSources,
   Address,
   Backup,
+  BackupRefusal,
   BackupRulesView,
   Candidate,
   Catalog,
@@ -385,6 +386,18 @@ describe('Home for team members', () => {
     expect(text).toContain('Lenn0x joined with an invite link')
     expect(text).toContain('siya added pixelpia to the allowlist')
     expect(text).not.toContain('invite:')
+  })
+
+  it('says why a scheduled backup was refused', async () => {
+    answer({ '/activity': [
+      { ts: hoursAgo(1), serverId: 'abcdefghjk', kind: 'backup_refused', actor: 'playkeeper', detail: 'unexpected_reply' },
+      { ts: hoursAgo(2), serverId: 'abcdefghjk', kind: 'backup_refused', actor: 'playkeeper', detail: 'not_online' },
+      { ts: hoursAgo(3), serverId: 'abcdefghjk', kind: 'backup_refused', actor: 'playkeeper', detail: 'something_newer' },
+    ] })
+    const text = await render(<HomePage />, workspace({ servers: both() }))
+    expect(text).toContain('Scheduled backup of Survival refused · the server gave an unexpected reply')
+    expect(text).toContain('Scheduled backup of Survival refused · the server was starting or stopping')
+    expect(text).toContain('Scheduled backup of Survival refused · world saving couldn’t be paused')
   })
 
   it('gives a viewer no Start button and a member no first steps', async () => {
@@ -948,6 +961,73 @@ describe('Backups with players online', () => {
     const text = await render(<WorldPage server={server({ lastOperation: space, resources: { diskFreeBytes: 400 * 2 ** 20, at: new Date().toISOString() } })} />)
     expect(text).toContain('Backing up Survival failed')
     expect(text).not.toContain('Stop and back up')
+  })
+
+  const unexpected = 'The server gave an unexpected reply to "save-off": "Unknown command". No backup was made.'
+  const refusal = (over: Partial<BackupRefusal> = {}): BackupRefusal => ({
+    at: hoursAgo(2),
+    since: hoursAgo(26),
+    count: 2,
+    kind: 'unexpected_reply',
+    error: unexpected,
+    hint: 'A plugin or mod may have changed this command. Back up with the server stopped instead.',
+    scheduleId: 'qrstuvwxyz',
+    operationId: 'backup-1',
+    ...over,
+  })
+  const refusedNotice = () => [...document.querySelectorAll('[role="status"]')].find((n) => n.textContent?.includes('refused'))
+  /** The refusal notice's "Back up now", not the backup card's. */
+  function backUpFromNotice(): HTMLButtonElement {
+    const b = refusedNotice()?.querySelector('button')
+    if (!b) throw new Error('no Back up now in the refusal notice')
+    return b
+  }
+
+  it('keeps refused scheduled backups on the World tab, and stops the server for a backup only after saying so', async () => {
+    vi.mocked(client.post).mockClear()
+    answer({ '/backups': [backup()] })
+    const refused = failed('backup', 'saving', unexpected, { errorKind: 'unexpected_reply' })
+    const text = await render(<WorldPage server={server({ backupRefused: refusal(), lastOperation: refused, lastBackup: backup({ createdAt: '2026-09-01T10:00:00Z' }) })} />)
+    expect(text).toContain('2 scheduled backups in a row were refused')
+    expect(text).toContain(`${unexpected} Scheduled backups never stop the server. The last backup is from ${formatDate('2026-09-01T10:00:00Z')}.`)
+    expect(text).not.toContain('Backing up Survival failed')
+    await click(backUpFromNotice())
+    expect(posts()).toEqual([])
+    expect(page()).toContain('Stop Survival for a backup?')
+    expect(page()).toContain('Survival stops for the backup and starts again once it’s made, so anyone playing is disconnected until then.')
+    await press('Stop and back up')
+    expect(posts()).toEqual([['/backups', { stopped: true }]])
+  })
+
+  it('backs up a server that isn’t running as it is, and still shows a later failure', async () => {
+    vi.mocked(client.post).mockClear()
+    answer({ '/backups': [] })
+    const stopped = server({ phase: 'stopped', desired: 'stopped', startedAt: undefined, backupRefused: refusal({ count: 1, kind: 'not_online', error: 'Survival is starting or stopping, so it can’t be backed up right now.' }) })
+    const text = await render(<WorldPage server={stopped} />)
+    expect(text).toContain('A scheduled backup was refused')
+    expect(text).toContain('Survival was starting or stopping, so no backup was made. Scheduled backups never stop the server, and there’s no backup of this world yet.')
+    expect(text).not.toContain('right now')
+    await click(backUpFromNotice())
+    expect(posts()).toEqual([['/backups', {}]])
+    expect(page()).not.toContain('for a backup?')
+    const space = { ...failed('backup', '', 'Not enough disk space for a backup.', { errorKind: 'insufficient_space' }), id: 'backup-2' }
+    const later = await render(<WorldPage server={{ ...stopped, lastOperation: space }} />)
+    expect(later).toContain('A scheduled backup was refused')
+    expect(later).toContain('Backing up Survival failed: Not enough disk space for a backup.')
+  })
+
+  it('shows refused backups beside world saving paused, waits for a starting server, and gives no button without backup rights', async () => {
+    answer({ '/backups': [backup()] })
+    const paused = await render(<WorldPage server={server({ backupRefused: refusal(), savingPausedSince: since.toISOString() })} />)
+    expect(paused).toContain('World saving is paused')
+    expect(paused).toContain('2 scheduled backups in a row were refused')
+    await render(<WorldPage server={server({ phase: 'starting', backupRefused: refusal() })} />)
+    expect([backUpFromNotice().disabled, backUpFromNotice().title]).toEqual([true, 'Starting Survival. Try again when it’s done.'])
+    const viewer = await render(<WorldPage server={server({ backupRefused: refusal() })} />, workspace({ me: member('viewer', ['view', 'account.manage']) }))
+    expect(viewer).toContain('2 scheduled backups in a row were refused')
+    expect(refusedNotice()?.querySelector('button')).toBeNull()
+    const cleared = await render(<WorldPage server={server()} />)
+    expect(cleared).not.toContain('refused')
   })
 
   it('puts world saving paused first on the Overview, and drops its failure once saving is back on', async () => {

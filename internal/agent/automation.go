@@ -71,10 +71,11 @@ func (s *server) forgetAutomation(tx *sql.Tx) error {
 	return nil
 }
 
-// automationStatus adds the sleep setting to a server's status, and shows a
-// server stopped to sleep as asleep.
+// automationStatus adds the sleep setting and the refused scheduled backups
+// to a server's status, and shows a server stopped to sleep as asleep.
 func (s *server) automationStatus(st *api.ServerStatus) {
 	st.Sleep = s.sleepStatus(st.Desired)
+	st.BackupRefused = s.backupRefusal()
 	if st.Desired == api.DesiredSleeping && st.Operation == nil && st.Phase == api.PhaseStopped {
 		st.Phase = api.PhaseAsleep
 	}

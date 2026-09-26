@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/discord"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/offsite"
 	"github.com/CIYAhq/playkeeper/internal/schedule"
@@ -265,6 +266,149 @@ func TestAutomaticBackupsAndRulesDeleteWhatTheyNoLongerKeep(t *testing.T) {
 	op.OnlyIfPlayed = true
 	if _, err := run(); !errors.Is(err, schedule.ErrNobodyPlayed) {
 		t.Fatalf("a backup after nobody played: %v", err)
+	}
+}
+
+// Scheduled backups never stop a running server, so one that world saving
+// can't be paused for is refused, and a refusal never passes unseen: each is
+// a line in the recent activity with its reason and sends the backup-failed
+// Discord alert if that's on, and the server's status carries the refusals
+// for the World tab until a backup succeeds. A backup someone asked for, or a
+// scheduled one that fails for another reason, isn't a refusal.
+func TestARefusedScheduledBackupIsShownUntilABackupSucceeds(t *testing.T) {
+	f := startFakeHook(t)
+	e := newAgentEnv(t)
+	e.stop()
+	e.discordClient = f.client()
+	e.start()
+	e.create()
+	e.connectDiscord()
+	alertsOn := func(kinds ...string) {
+		t.Helper()
+		if code, out := e.call("PUT", "/v1/discord", map[string]any{"alerts": kinds, "liveStatus": false, "actor": "admin"}); code != 200 {
+			t.Fatalf("alert settings: %d %v", code, out)
+		}
+	}
+	backupFailedAlerts := func(from int) int {
+		n := 0
+		for _, a := range f.alertsSince(t, from) {
+			if a.Kind == discord.KindBackupFailed {
+				n++
+			}
+		}
+		return n
+	}
+	idle := func() {
+		t.Helper()
+		e.waitFor("the operation lock free", func() bool {
+			release, ok := e.srv().holdOpLock()
+			if ok {
+				release()
+			}
+			return ok
+		})
+	}
+	const sid = "qrstuvwxyz"
+	scheduled := func() *api.Operation {
+		t.Helper()
+		for {
+			opID, err := (scheduleServer{e.srv()}).Run(context.Background(), schedule.Operation{Kind: schedule.OpBackup, Actor: schedule.Actor(sid), ScheduleID: sid})
+			if errors.Is(err, schedule.ErrBusy) {
+				time.Sleep(20 * time.Millisecond)
+				continue
+			}
+			if err == nil || opID == "" {
+				t.Fatalf("a scheduled backup meant to fail: %q %v", opID, err)
+			}
+			op := e.waitOp(opID)
+			if op.Status != api.OpFailed {
+				t.Fatalf("scheduled backup: %+v", op)
+			}
+			return op
+		}
+	}
+	refusals := func() []api.Activity {
+		t.Helper()
+		list, err := e.a.Activity(e.sid, 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []api.Activity
+		for _, a := range list {
+			if a.Kind == "backup_refused" {
+				out = append(out, a)
+			}
+		}
+		return out
+	}
+
+	// A plugin answers save-off, so saving can't be paused. The backup-failed
+	// alert is off.
+	alertsOn("crash")
+	e.rcon.setAnswer(func(cmd string) (string, bool) {
+		if cmd == "save-off" {
+			return `Unknown command. Type "/help" for help.`, true
+		}
+		return "", false
+	})
+	from := f.mark()
+	first := scheduled()
+	r1 := e.status().BackupRefused
+	if first.Detail["errorKind"] != "unexpected_reply" || r1 == nil || r1.Count != 1 || r1.Kind != "unexpected_reply" || r1.Error != first.Error ||
+		r1.Hint != first.Hint || r1.Hint == "" || r1.ScheduleID != sid || r1.OperationID != first.ID || !r1.Since.Equal(r1.At) {
+		t.Fatalf("after the first refusal: %+v, status %+v", first, r1)
+	}
+	if got := refusals(); len(got) != 1 || got[0].Detail != "unexpected_reply" {
+		t.Fatalf("the recent activity after the first refusal: %+v", got)
+	}
+	time.Sleep(700 * time.Millisecond)
+	if n := backupFailedAlerts(from); n != 0 {
+		t.Fatalf("%d backup-failed alerts while that alert is off", n)
+	}
+
+	// The next run finds the server starting, with the alert on.
+	alertsOn("crash", "backup_failed")
+	e.srv().setRunPhase(api.PhaseStarting, "")
+	second := scheduled()
+	e.srv().setRunPhase(api.PhaseOnline, "")
+	r2 := e.status().BackupRefused
+	if r2 == nil || r2.Count != 2 || r2.Kind != "not_online" || r2.OperationID != second.ID || !r2.Since.Equal(r1.At) || !r2.At.After(r1.At) {
+		t.Fatalf("after the second refusal: %+v, status %+v", second, r2)
+	}
+	if got := refusals(); len(got) != 2 || got[0].Detail != "not_online" {
+		t.Fatalf("the recent activity after the second refusal: %+v", got)
+	}
+	e.waitFor("the backup-failed alert", func() bool { return backupFailedAlerts(from) == 1 })
+
+	// Neither a backup someone asked for nor a scheduled one without room
+	// is a refusal.
+	idle()
+	if op := e.backupNow(nil); op.Status != api.OpFailed || op.Detail["errorKind"] != "unexpected_reply" {
+		t.Fatalf("a backup asked for: %+v", op)
+	}
+	e.diskFree.Store(1 << 20)
+	if op := scheduled(); op.Detail["errorKind"] != "insufficient_space" {
+		t.Fatalf("a scheduled backup without room: %+v", op)
+	}
+	e.diskFree.Store(0)
+	if r := e.status().BackupRefused; r == nil || r.Count != 2 || r.OperationID != second.ID {
+		t.Fatalf("other failures changed the refusals: %+v", r)
+	}
+	if got := refusals(); len(got) != 2 {
+		t.Fatalf("other failures are in the recent activity as refusals: %+v", got)
+	}
+
+	// "Back up now" stops the server for the backup, so it needs no pause,
+	// and a backup that succeeds ends the refusals.
+	idle()
+	if op := e.backupNow(map[string]any{"stopped": true}); op.Status != api.OpSucceeded {
+		t.Fatalf("a backup with the server stopped: %+v", op)
+	}
+	if r := e.status().BackupRefused; r != nil {
+		t.Fatalf("a backup succeeded, and the refusals are still shown: %+v", r)
+	}
+	if got := refusals(); len(got) != 2 {
+		t.Fatalf("the refusals left the recent activity: %+v", got)
 	}
 }
 

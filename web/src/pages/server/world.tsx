@@ -4,6 +4,7 @@ import { ApiError, del, get, post } from '@/api/client'
 import type { Backup, RestorePreview, ServerStatus, WorldCopy } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { EmptyArt, Pip } from '@/components/app/art'
+import { BackupRefusedNotice } from '@/components/app/backup-refused'
 import { Card, CardHint, CardTitle, copyText, Notice, SectionLabel } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { FailedJobNotice, SavingPausedNotice } from '@/components/app/notices'
@@ -48,15 +49,32 @@ function onlineBody(backups: Backup[]): string {
   return t('world.makeOnlineMinutes', { count: Math.max(1, Math.round(last.durationMs / 60_000)) })
 }
 
-/** World saving paused, a backup that just failed, or a world a restore left behind: one line above the rest. */
+/**
+ * World saving paused, scheduled backups refused since the last backup, a
+ * backup that just failed, or a world a restore left behind, above the rest.
+ * Refused scheduled backups stay until a backup succeeds.
+ */
 function WorldNotice({ server: s, className }: { server: ServerStatus; className?: string }) {
   const { stale } = useWorkspace()
   const [dismissed, setDismissed] = useState<string>()
   if (stale) return null
-  if (s.savingPausedSince) return <SavingPausedNotice server={s} className={className} />
+  const refused = s.backupRefused
+  const refusedNotice = refused && <BackupRefusedNotice server={s} refusal={refused} className={className} />
+  if (s.savingPausedSince)
+    return (
+      <>
+        <SavingPausedNotice server={s} className={className} />
+        {refusedNotice}
+      </>
+    )
   const failed = failedJob(s)
-  if (failed?.kind === 'backup' && dismissed !== failed.id) return <FailedJobNotice server={s} op={failed} onDismiss={() => setDismissed(failed.id)} className={className} />
-  return <LeftoverCopy server={s} className={className} />
+  return (
+    <>
+      {refusedNotice}
+      {failed?.kind === 'backup' && failed.id !== refused?.operationId && dismissed !== failed.id && <FailedJobNotice server={s} op={failed} onDismiss={() => setDismissed(failed.id)} className={className} />}
+      <LeftoverCopy server={s} className={className} />
+    </>
+  )
 }
 
 /** Backups, restores (their rollback archive) and version updates add a backup when they finish, not when they're asked for. */

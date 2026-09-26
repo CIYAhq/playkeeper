@@ -2425,6 +2425,54 @@ control "a new place counts its copies from none" internal/agent/offsite.go \
   'copies_made = 0 WHERE' \
   'copies_made = copies_made WHERE' \
   ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
+control "a scheduled backup refused for want of a pause is recorded" internal/agent/schedules.go \
+  's.noteBackupRefused(h.op.ID, op.ScheduleID, why, err)' \
+  '_ = why' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "only backups refused for want of a pause count as refused" internal/agent/schedules.go \
+  'case pauseRefusals[backup.ErrorKind(ae.Code)]:' \
+  'case ae.Code != "":' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a scheduled backup refused while the server starts counts" internal/agent/schedules.go \
+  'case ae.Reason == refusedNotOnline:' \
+  'case false:' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a backup refused while the server starts says so" internal/agent/backups.go \
+  'e.Reason = refusedNotOnline' \
+  '_ = refusedNotOnline' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "refused scheduled backups in a row count from the first" internal/agent/schedules.go \
+  'r.Since, r.Count = prev.Since, prev.Count+1' \
+  '_ = prev' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refusal names its operation, so the World tab shows it once" internal/agent/schedules.go \
+  'ScheduleID: scheduleID, OperationID: opID}' \
+  'ScheduleID: scheduleID}' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refusal keeps the backup's hint" internal/agent/schedules.go \
+  'r.Hint = ae.Hint' \
+  '_ = ae' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refused scheduled backup gets a line in the recent activity" internal/agent/schedules.go \
+  's.recordEvent(now, "backup_refused", "", "playkeeper", why)' \
+  '_ = why' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "the recent activity lists refused scheduled backups" internal/agent/analytics.go \
+  ', "backup_refused": "backup_refused",' \
+  ',' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a server's status carries its refused scheduled backups" internal/agent/automation.go \
+  'st.BackupRefused = s.backupRefusal()' \
+  '' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a backup that succeeds clears the refused scheduled backups" internal/agent/backuprules.go \
+  's.clearBackupRefused()' \
+  '' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refused scheduled backup sends the backup-failed alert" internal/agent/lifecycle.go \
+  'if kind == "backup" && done.Status == api.OpFailed {' \
+  'if false && kind == "backup" && done.Status == api.OpFailed {' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

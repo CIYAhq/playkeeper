@@ -179,6 +179,8 @@ export interface ServerStatus {
   softwareChanged?: SoftwareChange
   // Wave 7: sleep when nobody's playing.
   sleep?: SleepStatus
+  /** The scheduled backups refused since the last backup that succeeded. */
+  backupRefused?: BackupRefusal
 }
 
 /** A file in the server's folder that Playkeeper would not follow or change. */
@@ -591,6 +593,8 @@ export type ActivityKind =
   // Wave 7
   | 'fell_asleep'
   | 'woke_up'
+  // A scheduled backup refused because world saving couldn't be paused; detail is why.
+  | 'backup_refused'
 
 export interface Activity {
   ts: string
@@ -1904,6 +1908,22 @@ export interface SleepStatus {
   asleepSince?: string
   listening: boolean
   sleepAt?: string
+}
+
+/**
+ * Scheduled backups never stop a running server, so a run is refused when
+ * world saving can't be paused. `kind` is why the last one was: a backup
+ * error's kind, or `not_online` while the server was starting or stopping.
+ */
+export interface BackupRefusal {
+  at: string
+  since: string
+  count: number
+  kind: string
+  error: string
+  hint?: string
+  scheduleId?: string
+  operationId?: string
 }
 
 export interface SleepView extends SleepStatus {

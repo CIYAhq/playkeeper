@@ -317,7 +317,9 @@ func (a *Agent) queryBackups(where string, args ...any) ([]api.Backup, error) {
 // errNotOnlineForBackup refuses a backup of a server that is starting or
 // stopping: its console can't pause saving yet, and stopping it isn't asked.
 func (s *server) errNotOnlineForBackup() error {
-	return errConflict(s.name()+" is starting or stopping, so it can't be backed up right now.", "Wait until the server is online, then try again.")
+	e := errConflict(s.name()+" is starting or stopping, so it can't be backed up right now.", "Wait until the server is online, then try again.")
+	e.Reason = refusedNotOnline
+	return e
 }
 
 // backupOp backs up the world, then verifies the archive. An online server

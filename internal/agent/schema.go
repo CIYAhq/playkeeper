@@ -404,4 +404,10 @@ ALTER TABLE offsite_copies ADD COLUMN removed_by TEXT NOT NULL DEFAULT '';
 	`
 ALTER TABLE offsite ADD COLUMN copies_made INTEGER NOT NULL DEFAULT 0;
 `,
+	// Wave 7 (0.4.0): the scheduled backups refused since the last backup
+	// that succeeded, because world saving couldn't be paused, as JSON, or
+	// '' when none were.
+	`
+ALTER TABLE servers ADD COLUMN backup_refused TEXT NOT NULL DEFAULT '';
+`,
 }

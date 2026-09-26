@@ -181,9 +181,10 @@ func (s *server) retentionPlan() (retention.Result, error) {
 }
 
 // afterBackup runs inside a backup operation once its archive is verified:
-// it queues the copy somewhere else, then deletes what the rules no longer
-// keep on this machine.
+// it forgets the scheduled backups refused before it, queues the copy
+// somewhere else, then deletes what the rules no longer keep on this machine.
 func (s *server) afterBackup(b *api.Backup) {
+	s.clearBackupRefused()
 	s.queueOffsite(b.ID)
 	s.applyRetention()
 }
