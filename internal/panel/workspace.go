@@ -408,6 +408,10 @@ func (s *Server) machineByID(id string) (machine, error) {
 
 var errNotFound = errors.New("not found")
 
+// errUnknownServer is a server no machine runs, as far as the dashboard
+// knows. It is errNotFound too.
+var errUnknownServer = fmt.Errorf("%w: no machine runs this server", errNotFound)
+
 // errServerMachine is a lookup of the machine that runs a server that
 // failed, or found a server a joined machine listed whose record isn't
 // saved yet. The request goes to no machine: the dashboard's own may not be
@@ -428,7 +432,7 @@ func (s *Server) machineForServer(serverID string) (machine, error) {
 		return machine{}, errServerMachine
 	}
 	if len(list) == 0 {
-		return machine{}, errNotFound
+		return machine{}, errUnknownServer
 	}
 	var owner, disputedBy string
 	err = s.db.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, serverID).Scan(&owner, &disputedBy)
@@ -464,11 +468,11 @@ func (s *Server) machineForServer(serverID string) (machine, error) {
 	case joinedListed:
 		return machine{}, errServerMachine
 	case recorded:
-		return machine{}, errNotFound
+		return machine{}, errUnknownServer
 	case local.Kind == localKind:
 		return local, nil
 	}
-	return machine{}, errNotFound
+	return machine{}, errUnknownServer
 }
 
 func (s *Server) hProjects(w http.ResponseWriter, r *http.Request, sess *session) {

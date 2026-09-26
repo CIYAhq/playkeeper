@@ -3695,6 +3695,14 @@ control "an existing server's plugins count as plugins and its mods as mods" int
   'if addonDir(*sc) == "plugins" {' \
   'if addonDir(*sc) != "plugins" {' \
   ./internal/agent '^TestTheCatalogSizesMemoryForWhatTheServerRuns$'
+control "a disputed server is answered as disputed, not as an agent that's down" internal/panel/machines.go \
+  'if errors.Is(err, errDisputed) {' \
+  'if false && errors.Is(err, errDisputed) {' \
+  ./internal/panel '^TestJoinPathsSayWhyAServerCantBeReached$'
+control "a server no machine runs is answered as not found, not as an agent that's down" internal/panel/machines.go \
+  'if errors.Is(err, errUnknownServer) {' \
+  'if false && errors.Is(err, errUnknownServer) {' \
+  ./internal/panel '^TestJoinPathsSayWhyAServerCantBeReached$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
