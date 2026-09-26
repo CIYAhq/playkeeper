@@ -335,6 +335,63 @@ func TestPortCrashNamesTheDockerContainerHoldingThePort(t *testing.T) {
 	}
 }
 
+// A start that isn't accepted, and a remove-and-start whose remove fails,
+// leave the crash and the crash count as they were: nothing started, so the
+// crash still says why the server is down.
+func TestAStartThatDoesNotGoAheadKeepsTheCrash(t *testing.T) {
+	e := crashEnv(t)
+	writeGameFile(t, filepath.Join(e.dataDir(), "plugins", "Multiverse-Portals-5.0.2.jar"), "portals", time.Time{})
+	e.fd.crash(1)
+	e.waitCrash()
+	s := e.srv()
+	s.mu.Lock()
+	crash, crashes := s.crash, len(s.crashes)
+	s.mu.Unlock()
+	if crash == nil || crashes == 0 {
+		t.Fatalf("no crash to keep: %v, %d counted", crash, crashes)
+	}
+	kept := func(what string) {
+		t.Helper()
+		s.mu.Lock()
+		c, n := s.crash, len(s.crashes)
+		s.mu.Unlock()
+		if c != crash || n != crashes {
+			t.Fatalf("%s: crash %v (want %v), %d counted (want %d)", what, c, crash, n, crashes)
+		}
+	}
+	removeAndStart := func() (int, map[string]any) {
+		return e.call("POST", e.sp("/addons/remove-file"), map[string]any{"actor": "admin", "jar": "Multiverse-Portals-5.0.2.jar", "start": true})
+	}
+
+	e.a.upd.mu.Lock()
+	e.a.upd.installing = "0.4.1"
+	e.a.upd.mu.Unlock()
+	if code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"}); code != 409 {
+		t.Fatalf("start during an update: %d %v", code, out)
+	}
+	kept("a start refused during an update")
+	if code, out := removeAndStart(); code != 409 {
+		t.Fatalf("remove and start during an update: %d %v", code, out)
+	}
+	kept("a remove-and-start refused during an update")
+	e.a.upd.mu.Lock()
+	e.a.upd.installing = ""
+	e.a.upd.mu.Unlock()
+
+	writeGameFile(t, filepath.Join(e.dataDir(), "..", removedAddonsDir), "a file where the folder goes", time.Time{})
+	code, out := removeAndStart()
+	if code != 202 {
+		t.Fatalf("remove and start: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed {
+		t.Fatalf("a remove that can't move the jar: %+v", op)
+	}
+	kept("a remove-and-start whose remove failed")
+	if st := e.status(); st.Crash == nil || st.Crash.Kind != crash.Kind {
+		t.Fatalf("status after the failed remove: %+v", st.Crash)
+	}
+}
+
 // Removing an add-on takes a jar file name, only for a jar directly in the
 // server's plugin folder and never through a symlink, and moves it aside
 // where the owner can find it.

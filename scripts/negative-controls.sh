@@ -259,6 +259,14 @@ control "a crash fix whose add-on can't be put in place doesn't start the server
   'if err := s.installAddons(ctx, h, actor, run); err != nil {' \
   'if err := s.installAddons(ctx, h, actor, run); err != nil && !start {' \
   ./internal/agent '^TestAddonFixesStartTheStoppedServer$'
+control "a start that isn't accepted keeps the crash" internal/agent/handlers.go \
+  'op, err := s.beginOp("start", actor, s.startNow)' \
+  's.forgetCrashes(); op, err := s.beginOp("start", actor, s.startNow)' \
+  ./internal/agent '^TestAStartThatDoesNotGoAheadKeepsTheCrash$'
+control "a remove-and-start keeps the crash until its start goes ahead" internal/agent/crash.go \
+  'op, err := s.beginOp("remove-addon", actor, func(ctx context.Context, h *opHandle) error {' \
+  'if req.Start { s.forgetCrashes() }; op, err := s.beginOp("remove-addon", actor, func(ctx context.Context, h *opHandle) error {' \
+  ./internal/agent '^TestAStartThatDoesNotGoAheadKeepsTheCrash$'
 control "preflight port collision" internal/install/install.go \
   'if sys.Listening(p.port) {' \
   'if false && sys.Listening(p.port) {' \

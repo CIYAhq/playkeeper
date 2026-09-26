@@ -824,7 +824,6 @@ func (s *server) addonJob(ctx context.Context, h *opHandle, actor string, start 
 			return err
 		}
 		if !running {
-			s.forgetCrashes()
 			return s.startNow(ctx, h)
 		}
 	}

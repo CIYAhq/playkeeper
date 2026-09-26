@@ -310,9 +310,6 @@ func (s *server) hRemoveAddon(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errConflict(s.name()+" is running.", "Stop it before removing a plugin or mod."))
 		return
 	}
-	if req.Start {
-		s.forgetCrashes()
-	}
 	op, err := s.beginOp("remove-addon", actor, func(ctx context.Context, h *opHandle) error {
 		h.set("jar", req.Jar)
 		if _, running, err := s.containerRunning(ctx); err != nil {
