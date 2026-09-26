@@ -10,12 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/mail"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +33,13 @@ const maxACMEResponse = 1 << 20
 // check of a name, for the order to become ready, and for the certificate
 // once the order is finalized. Tests shorten it.
 var validationWait = 2 * time.Minute
+
+// issuedWait bounds a wait of its own for the certificate of a finalized
+// order: after a finalize request that failed without a problem from the
+// certificate authority, which may issue the certificate even when the
+// request timed out, and for an order kept by an earlier attempt. Tests
+// shorten it.
+var issuedWait = time.Minute
 
 // maxPollWait bounds the wait before another look at an authorization or
 // order. The ACME client waits out the Retry-After of the last look, and a
@@ -75,7 +84,11 @@ type Request struct {
 	DNS01  *DNS01
 	// Dir is where the certificate is saved, with its key, as
 	// "<first name>.pem". It is created when missing; its parent's path
-	// must not be writable by less trusted users (see openDir).
+	// must not be writable by less trusted users (see openDir). From just
+	// before the certificate is asked for until it is saved, the order is
+	// kept there as "<first name>.order", so that the next attempt gets
+	// the certificate of that order rather than another; Forget deletes
+	// both files.
 	Dir string
 	// Owner, when set, gets the saved file (mode 0640) and Dir (mode 0750),
 	// so that it can read them; otherwise they are private to this process
@@ -105,7 +118,9 @@ func (is *Issuer) Terms(ctx context.Context) (string, error) {
 	return d.Terms, nil
 }
 
-// Issue gets a certificate for req.Names and saves it in req.Dir. Errors are
+// Issue gets a certificate for req.Names and saves it in req.Dir. When an
+// earlier attempt failed after asking for the certificate, it gets the
+// certificate of that order rather than asking for another. Errors are
 // *Problems.
 func (is *Issuer) Issue(ctx context.Context, req Request) (*Certificate, error) {
 	names, err := normalizeNames(req.Names)
@@ -146,48 +161,14 @@ func (is *Issuer) Issue(ctx context.Context, req Request) (*Certificate, error) 
 	if err := is.account(ctx, c, d, s); err != nil {
 		return nil, err
 	}
-	order, err := c.AuthorizeOrder(ctx, acme.DomainIDs(names...))
+	kept := &keptOrder{dir: dir, file: names[0] + orderSuffix}
+	der, key, err := is.certificate(ctx, c, kept, names, req, s)
 	if err != nil {
-		return nil, explain(err, s, is.now())
-	}
-	for _, u := range order.AuthzURLs {
-		if err := is.authorize(ctx, c, u, req, s); err != nil {
-			return nil, err
-		}
-	}
-	wctx, cancel := context.WithTimeout(ctx, validationWait)
-	ready, err := c.WaitOrder(wctx, order.URI)
-	cancel()
-	if err != nil {
-		return nil, explain(err, s, is.now())
-	}
-
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return nil, newProblem(err, CodeFailed, nil)
-	}
-	tmpl := &x509.CertificateRequest{DNSNames: names}
-	if len(names[0]) <= 64 {
-		tmpl.Subject = pkix.Name{CommonName: names[0]}
-	}
-	csr, err := x509.CreateCertificateRequest(rand.Reader, tmpl, key)
-	if err != nil {
-		return nil, newProblem(err, CodeFailed, nil)
-	}
-	wctx, cancel = context.WithTimeout(ctx, validationWait)
-	defer cancel()
-	der, _, err := c.CreateOrderCert(wctx, ready.FinalizeURL, csr, true)
-	if err != nil {
-		der, err = fetchIssued(wctx, c, order.URI, err)
-	}
-	if err != nil {
-		if ctx.Err() == nil && errors.Is(wctx.Err(), context.DeadlineExceeded) {
-			return nil, newProblem(err, CodeIssuanceTimeout, nil)
-		}
-		return nil, explain(err, s, is.now())
+		return nil, err
 	}
 	leaf, err := checkChain(der, key, names, is.now())
 	if err != nil {
+		kept.drop()
 		return nil, newProblem(err, CodeBadCertificate, nil)
 	}
 	data, err := encodeBundle(der, key)
@@ -202,8 +183,167 @@ func (is *Issuer) Issue(ctx context.Context, req Request) (*Certificate, error) 
 	if err := writeFile(dir, file, data, mode, req.Owner); err != nil {
 		return nil, newProblem(err, CodeSaveFailed, nil)
 	}
+	kept.drop()
 	info := certificateInfo(filepath.Join(filepath.Clean(req.Dir), file), leaf)
 	return &info, nil
+}
+
+// certificate gets a certificate chain for names, and the key it is for,
+// from the order an earlier attempt kept while that can still give one,
+// otherwise from a new order. An order is kept from just before it is
+// finalized until its certificate is saved or it can give none.
+func (is *Issuer) certificate(ctx context.Context, c *acme.Client, kept *keptOrder, names []string, req Request, s situation) ([][]byte, *ecdsa.PrivateKey, error) {
+	order, key, err := is.resume(ctx, c, kept, names, s)
+	if err != nil {
+		return nil, nil, err
+	}
+	if order != nil && (order.Status == acme.StatusProcessing || order.Status == acme.StatusValid) {
+		der, err := is.fetch(ctx, c, kept, order.URI, s)
+		if !errors.Is(err, errNotFinalized) {
+			return der, key, err
+		}
+	}
+	if order == nil {
+		if order, err = c.AuthorizeOrder(ctx, acme.DomainIDs(names...)); err != nil {
+			return nil, nil, explain(err, s, is.now())
+		}
+	}
+	for _, u := range order.AuthzURLs {
+		if err := is.authorize(ctx, c, u, req, s); err != nil {
+			return nil, nil, err
+		}
+	}
+	wctx, cancel := context.WithTimeout(ctx, validationWait)
+	ready, err := c.WaitOrder(wctx, order.URI)
+	cancel()
+	if err != nil {
+		return nil, nil, is.orderFailed(err, kept, s)
+	}
+
+	if key == nil {
+		if key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader); err != nil {
+			return nil, nil, newProblem(err, CodeFailed, nil)
+		}
+		if err := kept.keep(order.URI, ready.Expires, key); err != nil {
+			return nil, nil, newProblem(err, CodeSaveFailed, nil)
+		}
+	}
+	tmpl := &x509.CertificateRequest{DNSNames: names}
+	if len(names[0]) <= 64 {
+		tmpl.Subject = pkix.Name{CommonName: names[0]}
+	}
+	csr, err := x509.CreateCertificateRequest(rand.Reader, tmpl, key)
+	if err != nil {
+		return nil, nil, newProblem(err, CodeFailed, nil)
+	}
+	wctx, cancel = context.WithTimeout(ctx, validationWait)
+	defer cancel()
+	der, _, err := c.CreateOrderCert(wctx, ready.FinalizeURL, csr, true)
+	var ae *acme.Error
+	var oe *acme.OrderError
+	if err != nil && !errors.As(err, &ae) && !errors.As(err, &oe) {
+		issued, ferr := is.fetch(ctx, c, kept, order.URI, s)
+		if !errors.Is(ferr, errNotFinalized) {
+			return issued, key, ferr
+		}
+	}
+	if err != nil {
+		if ctx.Err() == nil && errors.Is(wctx.Err(), context.DeadlineExceeded) {
+			return nil, nil, newProblem(err, CodeIssuanceTimeout, nil)
+		}
+		return nil, nil, is.orderFailed(err, kept, s)
+	}
+	return der, key, nil
+}
+
+// resume returns the order an earlier attempt kept, and the key of the
+// certificate asked for, while the order can still give that certificate
+// for names. Otherwise it drops the order and returns none, so that a new
+// one is made. When the certificate authority can't be asked about the
+// order now, the attempt fails and the order is kept for the next.
+func (is *Issuer) resume(ctx context.Context, c *acme.Client, kept *keptOrder, names []string, s situation) (*acme.Order, *ecdsa.PrivateKey, error) {
+	saved, key, err := kept.load()
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, nil
+	}
+	if err != nil || (!saved.Expires.IsZero() && !is.now().Before(saved.Expires)) {
+		kept.drop()
+		return nil, nil, nil
+	}
+	o, err := c.GetOrder(ctx, saved.URL)
+	var guard *refusedError
+	switch {
+	case errors.As(err, &guard) || refused(err):
+		kept.drop()
+		return nil, nil, nil
+	case err != nil:
+		return nil, nil, explain(err, s, is.now())
+	case o.Status == acme.StatusInvalid || !forNames(o, names):
+		kept.drop()
+		return nil, nil, nil
+	}
+	o.URI = saved.URL
+	return o, key, nil
+}
+
+// fetch gets the certificate of an order that was finalized, waiting at most
+// issuedWait for it to be issued: a wait of its own, as the certificate
+// authority may issue the certificate just after a finalize request timed
+// out. For an order that is still ready it returns errNotFinalized rather
+// than a Problem.
+func (is *Issuer) fetch(ctx context.Context, c *acme.Client, kept *keptOrder, orderURL string, s situation) ([][]byte, error) {
+	fctx, cancel := context.WithTimeout(ctx, issuedWait)
+	defer cancel()
+	der, err := fetchIssued(fctx, c, orderURL)
+	switch {
+	case err == nil || errors.Is(err, errNotFinalized):
+		return der, err
+	case ctx.Err() == nil && errors.Is(fctx.Err(), context.DeadlineExceeded):
+		return nil, newProblem(err, CodeIssuanceTimeout, nil)
+	}
+	return nil, is.orderFailed(err, kept, s)
+}
+
+// orderFailed explains err, how a request about an order failed, and drops
+// the order when the certificate authority refused it for good.
+func (is *Issuer) orderFailed(err error, kept *keptOrder, s situation) *Problem {
+	if refused(err) {
+		kept.drop()
+	}
+	return explain(err, s, is.now())
+}
+
+// refused reports whether the certificate authority refused an order, or a
+// request about it, for good: the order is invalid, or a request was refused
+// for another reason than a rate limit or trouble at the certificate
+// authority, which the next attempt may not meet.
+func refused(err error) bool {
+	var oe *acme.OrderError
+	var ae *acme.Error
+	switch {
+	case errors.As(err, &oe):
+		return true
+	case !errors.As(err, &ae):
+		return false
+	}
+	switch explain(ae, situation{}, time.Time{}).Code {
+	case CodeRateLimited, CodePaused, CodeCAUnavailable:
+		return false
+	}
+	return true
+}
+
+// forNames reports whether an order is for names and no others.
+func forNames(o *acme.Order, names []string) bool {
+	ids := make([]string, 0, len(o.Identifiers))
+	for _, id := range o.Identifiers {
+		if id.Type != "dns" {
+			return false
+		}
+		ids = append(ids, strings.ToLower(id.Value))
+	}
+	slices.Sort(ids)
+	return slices.Equal(ids, slices.Sorted(slices.Values(names)))
 }
 
 // client returns an ACME client for the directory; withKey loads (or
@@ -324,27 +464,29 @@ func (is *Issuer) authorize(ctx context.Context, c *acme.Client, authzURL string
 	return nil
 }
 
-// fetchIssued gets the certificate of an order whose finalize request failed
-// without a problem from the certificate authority: the answer may have been
-// lost after the order went through, or lacked the order's URL (Pebble's
-// does), which the ACME client needs to wait for issuance to finish, or a
-// look at the order failed during that wait. Fetching it spares a new order
-// and a duplicate certificate, so looks that fail to reach the certificate
-// authority are tried again until ctx is done. An order that is still ready
-// never got the request, and finalizeErr is returned.
-func fetchIssued(ctx context.Context, c *acme.Client, orderURL string, finalizeErr error) ([][]byte, error) {
-	var ae *acme.Error
-	var oe *acme.OrderError
-	if errors.As(finalizeErr, &ae) || errors.As(finalizeErr, &oe) || ctx.Err() != nil {
-		return nil, finalizeErr
-	}
+// errNotFinalized is fetchIssued's answer for an order that is still ready:
+// the certificate authority did not carry out the finalize request.
+var errNotFinalized = errors.New("the certificate authority did not carry out the request for the certificate")
+
+// fetchIssued gets the certificate of an order that was finalized, waiting
+// until ctx is done for it to be issued. The finalize request was sent by an
+// earlier attempt, or failed without a problem from the certificate
+// authority: it timed out, its answer was lost after the order went through
+// or lacked the order's URL (Pebble's does), which the ACME client needs to
+// wait for issuance to finish, or a look at the order failed during that
+// wait. Fetching the certificate spares a new order and a duplicate
+// certificate, so looks that fail to reach the certificate authority are
+// tried again.
+func fetchIssued(ctx context.Context, c *acme.Client, orderURL string) ([][]byte, error) {
 	for {
 		o, err := c.WaitOrder(ctx, orderURL)
 		switch {
 		case err == nil && o.Status == acme.StatusValid && o.CertURL != "":
 			return c.FetchCert(ctx, o.CertURL, true)
+		case err == nil && o.Status == acme.StatusReady:
+			return nil, errNotFinalized
 		case err == nil:
-			return nil, finalizeErr
+			return nil, &acme.OrderError{OrderURL: orderURL, Status: o.Status}
 		case ctx.Err() != nil || !unreachable(err):
 			return nil, err
 		}
