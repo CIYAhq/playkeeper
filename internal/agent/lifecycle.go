@@ -541,6 +541,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	if err := s.ensureDirs(); err != nil {
 		return err
 	}
+	if err := s.ensureOriginalSaved(h, sc); err != nil {
+		return err
+	}
 	if err := s.ensureImage(ctx, h); err != nil {
 		return err
 	}

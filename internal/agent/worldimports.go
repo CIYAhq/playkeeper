@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash"
@@ -1057,15 +1059,105 @@ func (s *server) importRecord(h *opHandle, imp *worldImport, p *worldimport.Prev
 	s.audit(actor, "world_import.applied", imp.id, "succeeded", detail)
 }
 
+// originalDue is the copy of the world as uploaded that a server made from
+// an upload must save before its first start, which upgrades the world.
+type originalDue struct {
+	Config api.ServerConfig `json:"config"`
+	Note   string           `json:"note"`
+	Actor  string           `json:"actor"`
+}
+
+func (s *server) setOriginalDue(d *originalDue) error {
+	raw := ""
+	if d != nil {
+		b, err := json.Marshal(d)
+		if err != nil {
+			return err
+		}
+		raw = string(b)
+	}
+	_, err := s.db.Exec(`UPDATE servers SET original_due = ? WHERE id = ?`, raw, s.id)
+	return err
+}
+
+func (s *server) loadOriginalDue() (*originalDue, error) {
+	var raw string
+	err := s.db.QueryRow(`SELECT original_due FROM servers WHERE id = ?`, s.id).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && raw == "" {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var d originalDue
+	if err := json.Unmarshal([]byte(raw), &d); err != nil {
+		return nil, fmt.Errorf("the copy of the world as uploaded that is due cannot be read: %w", err)
+	}
+	return &d, nil
+}
+
+// saveOriginal saves the world as uploaded as a verified backup, after which
+// it is no longer due.
+func (s *server) saveOriginal(d originalDue) (*api.Backup, error) {
+	b, err := s.saveVerifiedRollback(d.Config, d.Actor, d.Note)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.setOriginalDue(nil); err != nil {
+		s.log.Warn("the world as uploaded was saved but is still marked due", "server", s.id, "backup", b.ID, "err", err)
+	}
+	return b, nil
+}
+
+// ensureOriginalSaved saves the world as uploaded before a start, when a
+// server made from an upload could not save it as it was created. The start
+// upgrades the world, so it waits until the copy is saved.
+func (s *server) ensureOriginalSaved(h *opHandle, sc api.ServerConfig) error {
+	d, err := s.loadOriginalDue()
+	if err != nil || d == nil {
+		return err
+	}
+	h.phase("saving_original")
+	b, err := s.saveOriginal(*d)
+	if err != nil {
+		return s.originalNotSaved(sc.MinecraftVersion, err)
+	}
+	h.set("originalBackupId", b.ID)
+	return nil
+}
+
+func (s *server) originalNotSaved(version string, err error) error {
+	e := &apiError{
+		Msg:  fmt.Sprintf("%s did not start, because its world as uploaded could not be saved before Minecraft %s upgrades it: %v", s.name(), version, err),
+		Hint: "Free disk space, then press Start. Playkeeper saves the world as uploaded first.",
+	}
+	if r, ok := s.withRefusalHint(err).(*apiError); ok {
+		e.Hint = r.Hint
+	}
+	return e
+}
+
 // createFromWorld is the first operation of a server made from an upload: the
 // staged world moves into the empty data directory, the world as uploaded is
 // saved as a backup when the server's version upgrades it, and the server
 // starts. A server whose first start fails keeps its world, so the owner can
-// try again or pick another version.
+// try again or pick another version. When the copy of the world as uploaded
+// can't be saved, the server doesn't start, and every later start saves it
+// first.
 func (s *server) createFromWorld(ctx context.Context, h *opHandle, imp *worldImport, p *worldimport.Preview, sc api.ServerConfig, label string, original *api.ServerConfig, actor string) error {
 	s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
 	s.recordEvent(s.now(), "server_created", "", "playkeeper", label)
 	h.set("import", imp.id)
+	var due *originalDue
+	if original != nil {
+		// Recorded before the world moves in, so that no start upgrades it
+		// before the copy is saved, whatever happens in between.
+		due = &originalDue{Config: *original, Note: fmt.Sprintf("%s as uploaded, before Minecraft %s upgraded it", worldLabel(p.World), sc.MinecraftVersion), Actor: actor}
+		if err := s.setOriginalDue(due); err != nil {
+			imp.release()
+			return err
+		}
+	}
 	h.phase("installing_world")
 	err := s.ensureDirs()
 	if err == nil {
@@ -1081,17 +1173,22 @@ func (s *server) createFromWorld(ctx context.Context, h *opHandle, imp *worldImp
 		}
 	}
 	if err != nil {
+		if due != nil {
+			if cerr := s.setOriginalDue(nil); cerr != nil {
+				s.log.Warn("clear the copy of the world as uploaded that was due", "server", s.id, "err", cerr)
+			}
+		}
 		imp.release()
 		return &apiError{Msg: "Could not move the world into " + s.name() + ": " + err.Error(), Hint: "Delete this server and create it from the world again."}
 	}
 	extra := ""
-	if original != nil {
+	if due != nil {
 		h.phase("saving_original")
-		note := fmt.Sprintf("%s as uploaded, before Minecraft %s upgraded it", worldLabel(p.World), sc.MinecraftVersion)
-		b, err := s.saveVerifiedRollback(*original, actor, note)
+		b, err := s.saveOriginal(*due)
 		if err != nil {
+			s.importRecord(h, imp, p, actor, "; the world as uploaded is saved before the first start")
 			s.dropImport(imp)
-			return s.withRefusalHint(fmt.Errorf("could not save the world as uploaded, before the upgrade, so %s did not start: %w", s.name(), err))
+			return s.originalNotSaved(sc.MinecraftVersion, err)
 		}
 		h.set("originalBackupId", b.ID)
 		extra = "; the world as uploaded is backup " + b.ID

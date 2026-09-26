@@ -197,4 +197,10 @@ CREATE TABLE maps (
 ALTER TABLE maps ADD COLUMN share_token TEXT NOT NULL DEFAULT '';
 UPDATE maps SET public = 0;
 `,
+	// Wave 6: the copy of the world as uploaded that a server made from an
+	// upload has to save before its first start upgrades the world, as JSON,
+	// or '' when none is due.
+	`
+ALTER TABLE servers ADD COLUMN original_due TEXT NOT NULL DEFAULT '';
+`,
 }

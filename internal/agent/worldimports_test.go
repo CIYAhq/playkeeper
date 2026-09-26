@@ -450,6 +450,75 @@ func TestServerStartsFromASingleplayerWorld(t *testing.T) {
 	}
 }
 
+// A world the new server's version upgrades never starts before the world as
+// uploaded is saved. When saving it fails, the server is made with the world
+// but doesn't start, and every Start saves it first, starting only once that
+// works.
+func TestAnUpgradedWorldWaitsForTheCopyOfItAsUploaded(t *testing.T) {
+	e := newAgentEnv(t)
+	e.fill.set("", append(defaultFill(), fillVersionSpec{"1.21.4", "UNSUPPORTED", []fillBuildSpec{{232, "STABLE"}}}))
+	archive, level := singleplayerUpload(t)
+	imp := e.uploadWorld("/v1/world-imports", "Survival-2024.zip", archive)
+	// Every copy fails its check, as if the disk had changed it.
+	if _, err := e.a.db.Exec(`CREATE TRIGGER damaged_copy AFTER INSERT ON backups WHEN NEW.kind = 'rollback'
+		BEGIN UPDATE backups SET sha256 = '` + strings.Repeat("0", 64) + `' WHERE id = NEW.id; END`); err != nil {
+		t.Fatal(err)
+	}
+	code, out := e.call("POST", importPath(imp, "/create"), map[string]any{"versionId": "paper-26.2", "name": "Survival", "memoryMB": 1536, "acceptEula": true, "actor": "admin"})
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	e.sid = out["serverId"].(string)
+	const refused = "world as uploaded could not be saved before Minecraft 26.2 upgrades it"
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed || !strings.Contains(op.Error, refused) {
+		t.Fatalf("creating the server when the copy can't be saved: %+v", op)
+	}
+	if readFile(t, filepath.Join(e.dataDir(), "world", "level.dat")) != level {
+		t.Fatal("the server does not have the uploaded world")
+	}
+	neverStarted := func() bool {
+		e.fd.mu.Lock()
+		defer e.fd.mu.Unlock()
+		_, ok := e.fd.byName[e.cname()]
+		return !ok
+	}
+	start := func() *api.Operation {
+		t.Helper()
+		code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+		if code != 202 {
+			t.Fatalf("start: %d %v", code, out)
+		}
+		return e.waitOp(out["id"].(string))
+	}
+	if op := start(); op.Status != api.OpFailed || !strings.Contains(op.Error, refused) || !neverStarted() {
+		t.Fatalf("a start while the copy can't be saved: %+v", op)
+	}
+
+	if _, err := e.a.db.Exec(`DROP TRIGGER damaged_copy`); err != nil {
+		t.Fatal(err)
+	}
+	op := start()
+	if op.Status != api.OpSucceeded {
+		t.Fatalf("a start once the copy can be saved: %+v", op)
+	}
+	e.waitFor("online", func() bool { return e.status().Phase == api.PhaseOnline })
+	copies := func() []api.Backup {
+		t.Helper()
+		all, err := e.srv().listBackups(`kind = 'rollback'`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return slices.DeleteFunc(all, func(b api.Backup) bool { return b.Verified == nil || !*b.Verified })
+	}
+	if c := copies(); len(c) != 1 || c[0].MinecraftVersion != "1.21.4" || !strings.Contains(c[0].Note, "as uploaded") || op.Detail["originalBackupId"] != c[0].ID {
+		t.Fatalf("the start must save the world as uploaded first: %+v %v", c, op.Detail)
+	}
+	code, out = e.call("POST", e.sp("/restart"), map[string]any{"actor": "admin"})
+	if code != 202 || e.waitOp(out["id"].(string)).Status != api.OpSucceeded || len(copies()) != 1 {
+		t.Fatalf("a later restart saves the world as uploaded again: %d %v", code, out)
+	}
+}
+
 // Importing into a server works like a restore: the upload is unpacked
 // while the server runs, a verified rollback archive of the current world
 // is saved, and only the world folders are swapped, so the server keeps its
