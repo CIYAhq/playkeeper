@@ -2092,6 +2092,10 @@ export interface OffsiteCopy {
   sha256?: string
   /** Why the last check found the copy missing or damaged. */
   checkError?: string
+  /** Who removed the backup from this machine, once only the copy is left, if known. */
+  removed?: 'rules' | 'person'
+  /** The person's name, when a person removed it. */
+  removedBy?: string
 }
 
 export interface OffsitePending {

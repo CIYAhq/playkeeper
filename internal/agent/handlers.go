@@ -1131,6 +1131,7 @@ func (s *server) hBackupDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.noteRemoved(b.ID, actor)
 	s.audit(actor, "backup.deleted", b.ID, "succeeded", b.FileName)
 	w.WriteHeader(http.StatusNoContent)
 }

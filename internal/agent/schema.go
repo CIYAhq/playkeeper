@@ -393,4 +393,10 @@ CREATE TABLE offsite_uploads (
 	`
 ALTER TABLE offsite ADD COLUMN key_saved_folder TEXT;
 `,
+	// Wave 7 (0.4.0): who removed a copied backup from this machine, as the
+	// audit names them, so the World tab says why only the copy is left.
+	// Empty while the backup is here, or when not known.
+	`
+ALTER TABLE offsite_copies ADD COLUMN removed_by TEXT NOT NULL DEFAULT '';
+`,
 }

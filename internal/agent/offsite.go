@@ -423,6 +423,11 @@ type offsiteCopy struct {
 	OnHost           bool      `json:"onHost"`
 	SHA256           string    `json:"sha256,omitempty"`     // the backup's, as recorded
 	CheckError       string    `json:"checkError,omitempty"` // why the last check found the copy missing or damaged
+	// Removed says who removed the backup from this machine once only the
+	// copy is left: "rules", or "person" with their name in RemovedBy.
+	// Empty when not known.
+	Removed   string `json:"removed,omitempty"`
+	RemovedBy string `json:"removedBy,omitempty"`
 }
 
 // copyRecord is a copy as offsite_copies keeps it: what its upload reported,
@@ -527,7 +532,7 @@ func (s *server) offsiteCopies() ([]offsiteCopy, error) {
 			onHost[b.ID] = true
 		}
 	}
-	rows, err := s.db.Query(`SELECT backup_id, kind, backup_created_at, file_name, size_bytes, minecraft_version, level_name, copy, copied_at
+	rows, err := s.db.Query(`SELECT backup_id, kind, backup_created_at, file_name, size_bytes, minecraft_version, level_name, copy, copied_at, removed_by
 		FROM offsite_copies WHERE server_id = ? ORDER BY backup_created_at DESC`, s.id)
 	if err != nil {
 		return nil, err
@@ -537,8 +542,8 @@ func (s *server) offsiteCopies() ([]offsiteCopy, error) {
 	for rows.Next() {
 		var c offsiteCopy
 		var created, copied int64
-		var raw string
-		if err := rows.Scan(&c.BackupID, &c.Kind, &created, &c.FileName, &c.SizeBytes, &c.MinecraftVersion, &c.LevelName, &raw, &copied); err != nil {
+		var raw, removedBy string
+		if err := rows.Scan(&c.BackupID, &c.Kind, &created, &c.FileName, &c.SizeBytes, &c.MinecraftVersion, &c.LevelName, &raw, &copied, &removedBy); err != nil {
 			return nil, err
 		}
 		var cp copyRecord
@@ -546,6 +551,13 @@ func (s *server) offsiteCopies() ([]offsiteCopy, error) {
 		c.CreatedAt, c.CopiedAt = time.UnixMilli(created).UTC(), time.UnixMilli(copied).UTC()
 		c.Name, c.CopySizeBytes, c.Checked, c.OnHost = offsite.CopyName(c.FileName), cp.Size, cp.Checked, onHost[c.BackupID]
 		c.SHA256, c.CheckError = cp.ArchiveSHA256, cp.CheckError
+		switch {
+		case c.OnHost || removedBy == "":
+		case removedBy == retentionActor:
+			c.Removed = "rules"
+		default:
+			c.Removed, c.RemovedBy = "person", removedBy
+		}
 		out = append(out, c)
 	}
 	return out, rows.Err()

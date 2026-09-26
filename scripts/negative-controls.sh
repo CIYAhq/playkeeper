@@ -2294,6 +2294,18 @@ control "looking for copies in a missing folder doesn't say to create it" intern
   'if op == opList {' \
   'if false && op == opList {' \
   ./internal/offsite '^TestSFTPList$'
+control "a copy says the rules removed its backup only when they did" internal/agent/offsite.go \
+  'case removedBy == retentionActor:' \
+  'case false:' \
+  ./internal/agent '^TestACopyWithoutItsBackupSaysWhoRemovedIt$'
+control "the rules note on a copy that they removed its backup" internal/agent/backuprules.go \
+  's.noteRemoved(b.ID, actor)' \
+  '' \
+  ./internal/agent '^TestACopyWithoutItsBackupSaysWhoRemovedIt$'
+control "deleting a backup by hand is noted on its copy" internal/agent/handlers.go \
+  's.noteRemoved(b.ID, actor)' \
+  '' \
+  ./internal/agent '^TestACopyWithoutItsBackupSaysWhoRemovedIt$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

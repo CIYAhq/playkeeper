@@ -197,6 +197,42 @@ func TestTheRecoveryKeyIsDownloadedAgainWhenCopiesGoToAnotherFolder(t *testing.T
 	}
 }
 
+// A copy whose backup is gone from this machine says who removed the
+// backup: the backup rules, or the person who deleted it.
+func TestACopyWithoutItsBackupSaysWhoRemovedIt(t *testing.T) {
+	e, first, _ := withCopies(t, &fakeDest{stored: map[string]offsite.Copy{}})
+	rules := map[string]any{"onHost": map[string]any{"last": 1}, "offSite": map[string]any{"keepAll": true}, "includeManual": true}
+	if code, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "rules": rules}); code != http.StatusOK {
+		t.Fatalf("rules: %d %v", code, out)
+	}
+	second := e.backup()
+	e.waitFor("the second copy", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, second) == 1
+	})
+	if n := e.countRows(`SELECT COUNT(*) FROM backups WHERE id = ?`, first); n != 0 {
+		t.Fatal("the rules kept the first backup here")
+	}
+	removed := func() map[string]string {
+		t.Helper()
+		_, out := e.call("GET", e.sp("/offsite/copies"), nil)
+		got := map[string]string{}
+		for _, c := range out["copies"].([]any) {
+			m := c.(map[string]any)
+			got[m["backupId"].(string)] = fmt.Sprintf("%v %v", m["removed"], m["removedBy"])
+		}
+		return got
+	}
+	if got := removed(); got[first] != "rules <nil>" || got[second] != "<nil> <nil>" {
+		t.Fatalf("after the rules removed the first backup here: %v", got)
+	}
+	if code, _ := e.call("DELETE", e.sp("/backups/"+second)+"?actor=admin", nil); code != http.StatusNoContent {
+		t.Fatalf("delete the second backup here: %d", code)
+	}
+	if got := removed(); got[first] != "rules <nil>" || got[second] != "person admin" {
+		t.Fatalf("after deleting the second backup by hand: %v", got)
+	}
+}
+
 func (e *agentEnv) staged() []string {
 	entries, _ := os.ReadDir(e.a.cfg.StagingDir())
 	var names []string

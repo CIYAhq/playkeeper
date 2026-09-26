@@ -3033,6 +3033,7 @@ export const en = {
   'world.storedCopyingPct': '{percent} to {place}',
   'world.storedOnlyThere': 'Only on {place}',
   'world.storedRemoved': 'Removed here by your rules',
+  'world.storedDeletedBy': 'Deleted here by {name}',
   'world.showAll': 'Show all {count}',
   'world.showFewer': 'Show fewer',
   'world.restoreCopy': 'Restore…',

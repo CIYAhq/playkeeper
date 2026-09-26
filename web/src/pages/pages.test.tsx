@@ -2364,7 +2364,7 @@ describe('World backups with copies', () => {
   })
 
   async function restoreOldCopy() {
-    answer({ '/offsite/copies': { copies: [copy('b2', '2026-09-25T12:47:00Z', true), copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z'), backup('b2', '2026-09-25T12:47:00Z')] })
+    answer({ '/offsite/copies': { copies: [copy('b2', '2026-09-25T12:47:00Z', true), { ...copy('b1', '2026-09-20T18:47:00Z', false), removed: 'rules' }] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z'), backup('b2', '2026-09-25T12:47:00Z')] })
     vi.mocked(client.post).mockImplementation(((path: string) => Promise.resolve(path.endsWith('/offsite/restore') ? started : {})) as typeof client.post)
     await render(<WorldPage server={server()} />)
     const button = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Restore…')
@@ -2390,6 +2390,19 @@ describe('World backups with copies', () => {
     await rerender(server({ lastOperation: { ...started, status: 'succeeded', phase: 'checking', detail: { name: 'survival-b1.tar.zst.age', restoreId: 'r1' } } }))
     expect(document.body.textContent).toContain('Decrypted and checked')
     expect(vi.mocked(client.get)).toHaveBeenCalledWith('/api/machines/m2345abcde/restore/r1')
+  })
+
+  it('says the rules removed a backup here only when they did', async () => {
+    const copies = [{ ...copy('b1', '2026-09-20T18:47:00Z', false), removed: 'rules' }, { ...copy('b0', '2026-09-19T18:47:00Z', false), removed: 'person', removedBy: 'mara_k' }, copy('a9', '2026-09-18T18:47:00Z', false)]
+    answer({ '/offsite/copies': { copies }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await render(<WorldPage server={server()} />)
+    const rows = [...document.querySelectorAll('tr')].filter((r) => r.textContent?.includes('Only on Backblaze B2')).map((r) => r.textContent ?? '')
+    expect(rows).toHaveLength(3)
+    expect(rows[0]).toContain('Removed here by your rules')
+    expect(rows[1]).toContain('Deleted here by mara_k')
+    expect(rows[1]).not.toContain('your rules')
+    expect(rows[2]).not.toContain('your rules')
+    expect(rows[2]).not.toContain('Deleted here')
   })
 
   it('says why a copy could not be fetched', async () => {
