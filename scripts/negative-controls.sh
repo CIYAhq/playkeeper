@@ -169,6 +169,22 @@ webcontrol "Start says it waits for the missing world folder" web/src/lib/phase.
   "if (st.worldMissing) return t('reason.worldMissing')" \
   "if (st.worldMissing && false) return t('reason.worldMissing')" \
   web/src/lib/lib.test.ts 'start a server whose world folder'
+webcontrol "a backup says it waits for the missing world folder" web/src/lib/phase.ts \
+  "return st.worldMissing ? t('reason.worldMissing') : undefined" \
+  "return undefined" \
+  web/src/lib/lib.test.ts 'back up a server whose world folder'
+webcontrol "Back up now waits for the missing world folder" web/src/pages/server/world.tsx \
+  "const blocked = whyNot(s, 'backup', ws.stale)" \
+  "const blocked = whyNot(s, 'change', ws.stale)" \
+  web/src/pages/pages.test.tsx 'offer a backup while the world folder is missing'
+webcontrol "Make my first backup waits for the missing world folder" web/src/pages/server/world.tsx \
+  "disabledReason={whyNot(s, 'backup', ws.stale)}" \
+  "disabledReason={whyNot(s, 'change', ws.stale)}" \
+  web/src/pages/pages.test.tsx 'offer a backup while the world folder is missing'
+webcontrol "the server menu's Back up now waits for the missing world folder" web/src/pages/server/index.tsx \
+  "const backUpBlocked = whyNot(server, 'backup', stale)" \
+  "const backUpBlocked = whyNot(server, 'change', stale)" \
+  web/src/pages/pages.test.tsx 'offer a backup while the world folder is missing'
 webcontrol "Home says a server's world folder is missing instead of napping" web/src/pages/home.tsx \
   'if (s.worldMissing)
         return (' \
