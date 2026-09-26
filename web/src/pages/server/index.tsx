@@ -2,7 +2,7 @@ import { useId, useState, type ReactNode } from 'react'
 import { ArchiveIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, CopyIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, PlayIcon, PlusIcon, RotateCwIcon, SearchIcon, SlidersHorizontalIcon, SquareIcon, SquareTerminalIcon, Trash2Icon, UsersIcon } from 'lucide-react'
 import { post } from '@/api/client'
 import type { ServerStatus } from '@/api/types'
-import { errorText, serverApi, useServer, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useServer, useServerMachine, useWorkspace } from '@/api/workspace'
 import { Emblem, Pip } from '@/components/app/art'
 import { copyText, Dot, JobPill, StatusPill } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { formatMB, joinAddress, relativeTime } from '@/lib/format'
+import { awayOf, isStale, reachOf } from '@/lib/machines'
 import { controls, isSettingUp, phaseTone } from '@/lib/phase'
 import { linkPath, linkProps, navigate, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
@@ -55,7 +56,7 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
     )
   }
   if (!server) return <NotFound />
-  const settingUp = !ws.stale && isSettingUp(server)
+  const settingUp = !isStale(server, ws.stale) && reachOf(server, ws).state === 'live' && isSettingUp(server)
   let body: ReactNode
   switch (tab) {
     case 'overview':
@@ -109,31 +110,37 @@ function NotFound() {
   )
 }
 
-/** "Minecraft 26.1.2 · Paper · Survival with friends". */
-function metaLine(s: ServerStatus, settingUp: boolean, stale: boolean, lastSeenAt: number | undefined): string {
+/**
+ * "Minecraft 26.1.2 · Paper · Survival with friends", ending "on home-server"
+ * when there's more than one machine. lastSeen is when a stale status was
+ * last heard, while an agent doesn't answer.
+ */
+function metaLine(s: ServerStatus, settingUp: boolean, lastSeen: string | undefined, on: string | undefined): string {
   const cfg = s.config
   const parts: string[] = []
   if (cfg?.minecraftVersion) parts.push(t('server.minecraft', { version: cfg.minecraftVersion }))
   parts.push(typeName(s.type))
-  if (stale) {
-    if (lastSeenAt && s.phase === 'online') parts.push(t('server.lastSeen', { time: relativeTime(new Date(lastSeenAt).toISOString()) }))
+  if (lastSeen) {
+    if (s.phase === 'online') parts.push(t('server.lastSeen', { time: relativeTime(lastSeen) }))
   } else {
     const style = styleTitle(cfg)
     if (style) parts.push(style)
     if (settingUp && cfg?.memoryMB) parts.push(formatMB(cfg.memoryMB))
   }
+  if (on) parts.push(t('machines.onMachine', { name: on }))
   return parts.join(t('common.dot'))
 }
 
 function useCopyAddress(server: ServerStatus) {
+  const { host } = useServerMachine(server)
   return async () => {
-    const ok = await copyText(joinAddress(window.location.hostname, server.gamePort))
+    const ok = await copyText(joinAddress(host, server.gamePort))
     toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })
   }
 }
 
 function PrimaryAction({ server }: { server: ServerStatus }) {
-  const { stale } = useWorkspace()
+  const { stale } = useServerMachine(server)
   const [busy, setBusy] = useState(false)
   const c = controls(server)
   const run = async (action: 'start' | 'restart') => {
@@ -167,7 +174,7 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
 }
 
 function MoreMenu({ server }: { server: ServerStatus }) {
-  const { stale } = useWorkspace()
+  const { stale } = useServerMachine(server)
   const c = controls(server)
   return (
     <Menu>
@@ -203,16 +210,18 @@ function MoreMenu({ server }: { server: ServerStatus }) {
 
 function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab: ServerTab; settingUp: boolean }) {
   const ws = useWorkspace()
+  const place = useServerMachine(s)
   const copy = useCopyAddress(s)
-  const op = !ws.stale ? s.operation : undefined
+  const op = !place.stale ? s.operation : undefined
+  const lastSeen = place.reach.state === 'away' ? undefined : place.reach.state === 'agentDown' ? place.reach.since : ws.stale && ws.lastSeenAt ? new Date(ws.lastSeenAt).toISOString() : undefined
   const locked = (t2: ServerTab) => settingUp && t2 !== 'overview' && t2 !== 'console'
   return (
     <header className="border-b border-border px-7 pt-3.5">
       <div className="flex h-8 items-center gap-2 text-[13px]">
         <nav aria-label={t('nav.breadcrumb')} className="flex min-w-0 items-center gap-1.5">
-          {ws.machine && (
-            <a {...linkProps({ name: 'machine', id: ws.machine.id })} className="text-muted-foreground hover:text-foreground">
-              {ws.machineName}
+          {place.route && (
+            <a {...linkProps(place.route)} className="text-muted-foreground hover:text-foreground">
+              {place.name}
             </a>
           )}
           <span className="text-muted-foreground/60" aria-hidden="true">
@@ -226,7 +235,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
             <MenuPopup align="start" className="min-w-56">
               {(ws.servers ?? []).map((o) => (
                 <MenuItem key={o.id} onClick={() => navigate({ name: 'server', slug: o.slug, tab })}>
-                  <Dot tone={ws.stale ? 'unknown' : phaseTone(o.phase)} className="mx-1" />
+                  <Dot tone={isStale(o, ws.stale) || reachOf(o, ws).state !== 'live' ? 'unknown' : phaseTone(o.phase)} className="mx-1" />
                   <span className="flex-1">{o.name}</span>
                   {o.id === s.id && <CheckIcon className="text-primary" />}
                 </MenuItem>
@@ -246,13 +255,13 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
         )}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-3">
-        <Emblem size={44} stopped={ws.stale || phaseTone(s.phase) !== 'online'} icon={iconURL(s)} name={s.name} />
+        <Emblem size={44} stopped={place.stale || phaseTone(s.phase) !== 'online'} icon={iconURL(s)} name={s.name} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
             <h1 className="truncate text-title font-bold tracking-[-0.015em]">{s.name}</h1>
-            <StatusPill server={s} agentDown={ws.stale} elapsed={settingUp ? s.operation?.startedAt : undefined} />
+            <StatusPill server={s} agentDown={place.stale} away={awayOf(place.reach)} elapsed={settingUp ? s.operation?.startedAt : undefined} />
           </div>
-          <p className="mt-0.5 truncate text-[13px] text-muted-foreground">{metaLine(s, settingUp, ws.stale, ws.lastSeenAt)}</p>
+          <p className="mt-0.5 truncate text-[13px] text-muted-foreground">{metaLine(s, settingUp, lastSeen, place.shared ? place.name : undefined)}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={copy}>
@@ -260,7 +269,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
             {t('server.copyAddress')}
           </Button>
           {!settingUp && <PrimaryAction server={s} />}
-          {!settingUp && !ws.stale && <MoreMenu server={s} />}
+          {!settingUp && !place.stale && <MoreMenu server={s} />}
         </div>
       </div>
       <nav aria-label={t('nav.serverTabs')} className="mt-4 -mb-px flex gap-[22px] overflow-x-auto">
@@ -317,10 +326,10 @@ function PhoneServerHeader({ server: s, tab }: { server: ServerStatus; tab: Serv
 }
 
 function PhoneStatus({ server }: { server: ServerStatus }) {
-  const ws = useWorkspace()
+  const place = useServerMachine(server)
   return (
     <div className="mt-0.5 flex items-center">
-      <StatusPill server={server} agentDown={ws.stale} onChalk className="h-auto border-0 bg-transparent px-0 text-[13px] font-medium" />
+      <StatusPill server={server} agentDown={place.stale} away={awayOf(place.reach)} onChalk className="h-auto border-0 bg-transparent px-0 text-[13px] font-medium" />
     </div>
   )
 }
@@ -333,9 +342,11 @@ export function SwitcherSheet({ open, onOpenChange, current, tab }: { open: bool
     onOpenChange(false)
     navigate(to)
   }
+  const staleOf = (s: ServerStatus) => isStale(s, ws.stale) || reachOf(s, ws).state !== 'live'
   const line = (s: ServerStatus) => {
-    const tone = ws.stale ? 'unknown' : phaseTone(s.phase)
-    const state = tone === 'online' ? (s.players?.online ? `${t('status.online')}${t('common.dot')}${t('status.playing', { count: s.players.online })}` : t('status.online')) : tone === 'stopped' && s.stoppedAt ? t('switcher.stoppedAgo', { time: relativeTime(s.stoppedAt) }) : ws.stale ? t('status.unknown') : undefined
+    const stale = staleOf(s)
+    const tone = stale ? 'unknown' : phaseTone(s.phase)
+    const state = tone === 'online' ? (s.players?.online ? `${t('status.online')}${t('common.dot')}${t('status.playing', { count: s.players.online })}` : t('status.online')) : tone === 'stopped' && s.stoppedAt ? t('switcher.stoppedAgo', { time: relativeTime(s.stoppedAt) }) : stale ? t('status.unknown') : undefined
     return [state, softwareLabel(s)].filter(Boolean).join(t('common.dot'))
   }
   return (
@@ -348,7 +359,7 @@ export function SwitcherSheet({ open, onOpenChange, current, tab }: { open: bool
           {(ws.servers ?? []).map((s) => (
             <li key={s.id} className="border-b border-border last:border-b-0">
               <button type="button" onClick={() => go({ name: 'server', slug: s.slug, tab: tab === 'settings' ? 'overview' : tab })} className="flex min-h-16 w-full items-center gap-3 px-3 py-2 text-left" aria-current={s.id === current?.id ? 'true' : undefined}>
-                <Emblem size={44} stopped={ws.stale || phaseTone(s.phase) !== 'online'} icon={iconURL(s)} name={s.name} />
+                <Emblem size={44} stopped={staleOf(s) || phaseTone(s.phase) !== 'online'} icon={iconURL(s)} name={s.name} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-base font-semibold">{s.name}</span>
                   <span className="block truncate text-[13px] text-muted-foreground">{line(s)}</span>

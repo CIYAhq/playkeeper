@@ -563,3 +563,34 @@ func TestRefusedCallsAreCountedNotEachAudited(t *testing.T) {
 		t.Fatalf("a window later: %q", tail)
 	}
 }
+
+// Accounts cover every server for now, so an account losing a server is only
+// reachable through rights.
+func TestATokenLosesWhatItsAccountLoses(t *testing.T) {
+	some := rights{role: tokenAdmin, servers: []string{survivalID}}
+	for _, c := range []struct {
+		name   string
+		token  rights
+		max    rights
+		within bool
+	}{
+		{"a viewer token of a member", rights{role: tokenViewer, all: true}, accountRights(roleMember), true},
+		{"a moderator token of a member", rights{role: tokenModerator, all: true}, accountRights(roleMember), false},
+		{"a token of an account without a role", rights{role: tokenViewer, all: true}, accountRights(""), false},
+		{"a token without a role", rights{all: true}, accountRights(roleOwner), false},
+		{"a token for a server its account has", rights{role: tokenViewer, servers: []string{survivalID}}, some, true},
+		{"a token for a server its account lost", rights{role: tokenViewer, servers: []string{survivalID, creativeID}}, some, false},
+		{"a token for every server of an account with some", rights{role: tokenViewer, all: true}, some, true},
+	} {
+		if got := c.token.within(c.max); got != c.within {
+			t.Errorf("%s: within is %v", c.name, got)
+		}
+	}
+	if got := (rights{role: tokenViewer, all: true}).effective(some); got.role != tokenViewer || got.all || !slices.Equal(got.servers, some.servers) {
+		t.Fatalf("a token for every server may use more than its account's servers: %+v", got)
+	}
+	listed := rights{role: tokenModerator, servers: []string{survivalID}}
+	if got := listed.effective(accountRights(roleOwner)); got.all || !slices.Equal(got.servers, listed.servers) {
+		t.Fatalf("a token for some servers may use more than those: %+v", got)
+	}
+}

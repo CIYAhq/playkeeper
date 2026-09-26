@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ApiError, get, post } from './client'
 import type { MachineView, Me, ServerStatus } from './types'
+import { isStale, joinHost, machineLabel, machineOf, machineRoute, reachOf } from '@/lib/machines'
 import { usePoll } from '@/lib/usePoll'
 
 export interface Workspace {
@@ -148,6 +149,27 @@ export function useServer(slug: string | undefined): ServerStatus | undefined {
 export function usePhoneServer(): ServerStatus | undefined {
   const { servers, lastSlug } = useWorkspace()
   return servers?.find((s) => s.slug === lastSlug) ?? servers?.[0]
+}
+
+/**
+ * The machine a server runs on and whether the dashboard sees the server
+ * live: stale when the machine is away, its agent doesn't answer, or the
+ * status is the last one heard. shared is whether there's more than one
+ * machine, so pages name the server's.
+ */
+export function useServerMachine(s: ServerStatus) {
+  const ws = useWorkspace()
+  const machine = machineOf(s, ws.machines)
+  const reach = reachOf(s, ws)
+  return {
+    machine,
+    reach,
+    stale: isStale(s, ws.stale) || reach.state !== 'live',
+    shared: ws.machines.length > 1,
+    name: machineLabel(machine) || ws.machineName,
+    route: machine ? machineRoute(machine) : undefined,
+    host: joinHost(machine, window.location.hostname),
+  }
 }
 
 export const serverApi = (id: string, rest = '') => `/api/servers/${id}${rest}`

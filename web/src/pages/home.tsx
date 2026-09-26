@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { ArrowRightIcon, CircleAlertIcon, LinkIcon, PlayIcon, PlusIcon } from 'lucide-react'
+import { ArrowRightIcon, CircleAlertIcon, LinkIcon, PlayIcon, PlusIcon, ServerIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { get, post } from '@/api/client'
-import type { Activity, CatalogEntry, ServerStatus } from '@/api/types'
+import type { Activity, CatalogEntry, MachineView, ServerStatus } from '@/api/types'
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Emblem, Pip } from '@/components/app/art'
@@ -14,7 +14,8 @@ import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { demo } from '@/lib/demo'
-import { formatBytes, formatMB, formatPercent, formatSpan, joinAddress } from '@/lib/format'
+import { formatBytes, formatDate, formatMB, formatPercent, formatSpan, joinAddress, sameDay } from '@/lib/format'
+import { awayLong, awayOf, byMachine, isAway, isStale, joinHost, machineLabel, machineOf, machineState, reachOf } from '@/lib/machines'
 import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
@@ -27,7 +28,8 @@ export function HomePage() {
   const servers = ws.servers
   const machine = ws.machine
   const { catalog } = useCatalog(machine?.id)
-  const activity = usePoll(() => (machine ? get<Activity[]>(machineApi(machine.id, '/activity?limit=5')) : Promise.resolve([])), 10000, machine?.id ?? '')
+  const reachable = ws.machines.filter((m) => !isAway(m)).map((m) => m.id)
+  const activity = usePoll(() => recentActivity(reachable), 10000, reachable.join(' '))
 
   const newButton = (
     <Button render={<a {...linkProps({ name: 'new-server' })} />}>
@@ -58,19 +60,36 @@ export function HomePage() {
     )
   }
 
-  const players = playersOnline(servers)
-  const subtitle = servers ? `${t('home.servers', { count: servers.length, machine: ws.machineName })}${t('common.dot')}${t('home.playing', { count: players })}` : undefined
+  const grouped = ws.machines.length > 1
+  const players = playersOnline(servers?.filter((s) => !s.lastKnownAt))
+  let subtitle: string | undefined
+  if (servers && grouped) subtitle = `${t('machines.home.subtitle', { count: servers.length, machines: ws.machines.length })}${t('common.dot')}${t('machines.home.playing', { count: players })}`
+  else if (servers) subtitle = `${t('home.servers', { count: servers.length, machine: ws.machineName })}${t('common.dot')}${t('home.playing', { count: players })}`
   return (
     <>
       <PageHeader title={t('home.title')} subtitle={demo ? demo.homeSubtitle() : subtitle} actions={demo ? <demo.HomeAction /> : newButton} phoneAction={<PhoneMoreButton />} />
       <PageBody className="flex flex-col gap-4">
         <MachineNotice />
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {(servers ?? []).map((s) => (
-            <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />
-          ))}
-          {demo ? <demo.HomeCard /> : <NewServerCard />}
-        </div>
+        {grouped ? (
+          byMachine(servers ?? [], ws.machines).map((g) => (
+            <section key={g.machine.id} aria-labelledby={`on-${g.machine.id}`} className="flex flex-col gap-3">
+              <MachineHeading machine={g.machine} />
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {g.servers.map((s) => (
+                  <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />
+                ))}
+                <NewServerCard machine={g.machine} />
+              </div>
+            </section>
+          ))
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {(servers ?? []).map((s) => (
+              <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />
+            ))}
+            {demo ? <demo.HomeCard /> : <NewServerCard />}
+          </div>
+        )}
         <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
           <Card>
             <CardTitle>{t('home.activityTitle')}</CardTitle>
@@ -85,6 +104,17 @@ export function HomePage() {
       </PageBody>
     </>
   )
+}
+
+/** The latest activity on the machines that answer, newest first. */
+async function recentActivity(machines: string[]): Promise<Activity[]> {
+  const got = await Promise.allSettled(machines.map((id) => get<Activity[]>(machineApi(id, '/activity?limit=5'))))
+  const lists = got.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+  if (!lists.length && got[0]?.status === 'rejected') throw got[0].reason
+  return lists
+    .flat()
+    .sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts))
+    .slice(0, 5)
 }
 
 /** One line about the machine when something needs attention: the agent, or disk space. */
@@ -124,8 +154,10 @@ function StartButton({ server, label }: { server: ServerStatus; label: string })
 }
 
 function CardDetail({ server: s }: { server: ServerStatus }) {
-  const { stale } = useWorkspace()
-  if (stale) return <span className="text-[13px] text-muted-foreground">{t('status.noLive')}</span>
+  const ws = useWorkspace()
+  const away = awayOf(reachOf(s, ws))
+  if (away) return <span className="text-[13px] text-muted-foreground">{t('machines.away.pill', { name: away.name })}</span>
+  if (isStale(s, ws.stale) || reachOf(s, ws).state !== 'live') return <span className="text-[13px] text-muted-foreground">{t('status.noLive')}</span>
   if (isSettingUp(s) && s.operation) {
     return (
       <span className="flex items-center gap-2 text-[13px] text-info-foreground">
@@ -186,8 +218,10 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
 }
 
 function ServerCard({ server: s, update }: { server: ServerStatus; update?: CatalogEntry }) {
-  const { stale } = useWorkspace()
-  const address = joinAddress(window.location.hostname, s.gamePort)
+  const ws = useWorkspace()
+  const reach = reachOf(s, ws)
+  const stale = isStale(s, ws.stale) || reach.state !== 'live'
+  const address = joinAddress(joinHost(machineOf(s, ws.machines), window.location.hostname), s.gamePort)
   const stopped = phaseTone(s.phase) !== 'online'
   return (
     <article className="relative flex flex-col gap-3.5 rounded-3xl border border-border bg-card p-4 shadow-card transition-[box-shadow,border-color] focus-within:border-primary/40 hover:border-primary/40 hover:shadow-lift">
@@ -222,21 +256,55 @@ function ServerCard({ server: s, update }: { server: ServerStatus; update?: Cata
   )
 }
 
-function NewServerCard() {
+/** The dashed card that starts a new server: on the dashboard's machine, or on the machine given. */
+function NewServerCard({ machine }: { machine?: MachineView }) {
   const ws = useWorkspace()
-  const live = ws.machine?.live
+  const m = machine ?? ws.machine
+  const live = m?.live
+  const name = m && m.kind === 'remote' ? machineLabel(m) : ws.machineName
   const full = !!live && live.memoryFreeMB <= 0
+  const cls = 'flex min-h-[176px] flex-col items-center justify-center rounded-3xl border border-dashed border-input bg-warm p-4 text-center outline-none'
+  if (machine && isAway(machine)) {
+    return (
+      <div className={cn(cls, 'text-muted-foreground')} aria-disabled="true">
+        <PlusIcon className="size-5" aria-hidden="true" />
+        <span className="mt-3 text-[15px] font-semibold">{t('machines.newServerHere')}</span>
+        <span className="mt-1 text-xs">{t('machines.away.pill', { name })}</span>
+      </div>
+    )
+  }
   return (
-    <a
-      {...linkProps({ name: 'new-server' })}
-      className={cn(
-        'flex min-h-[176px] flex-col items-center justify-center rounded-3xl border border-dashed border-input bg-warm p-4 text-center outline-none hover:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring',
-      )}
-    >
+    <a {...linkProps(machine ? { name: 'new-server', machine: machine.id } : { name: 'new-server' })} className={cn(cls, 'hover:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring')}>
       <PlusIcon className="size-5 text-primary" aria-hidden="true" />
-      <span className="mt-3 text-[15px] font-semibold">{t('nav.newServer')}</span>
-      {live && <span className="mt-1 text-xs text-muted-foreground">{full ? t('home.newServerFull', { machine: ws.machineName }) : t('home.newServerFree', { memory: formatMB(live.memoryFreeMB), machine: ws.machineName })}</span>}
+      <span className="mt-3 text-[15px] font-semibold">{machine ? t('machines.newServerHere') : t('nav.newServer')}</span>
+      {live && <span className="mt-1 text-xs text-muted-foreground">{full ? t('home.newServerFull', { machine: name }) : t('home.newServerFree', { memory: formatMB(live.memoryFreeMB), machine: name })}</span>}
     </a>
+  )
+}
+
+/** "On home-server  Ubuntu 24.04 · 32 GB · connected today" above a machine's servers. */
+function MachineHeading({ machine: m }: { machine: MachineView }) {
+  const ws = useWorkspace()
+  const now = Date.now()
+  const name = m.kind === 'local' ? ws.machineName : machineLabel(m)
+  const link = m.link
+  let word: string
+  if (m.kind === 'local') word = machineState(m, ws).tone === 'good' ? t('machines.home.healthy') : ws.agentDown ? t('machines.home.notAnswering') : t('status.docker')
+  else if (link?.state === 'connected') {
+    if (m.error || !m.live) word = t('machines.home.notAnswering')
+    else if (!link.connectedAt) word = t('machines.home.healthy')
+    else word = sameDay(new Date(link.connectedAt), new Date(now)) ? t('machines.home.connectedToday') : t('machines.home.connectedOn', { date: formatDate(link.connectedAt) })
+  } else if (link?.state === 'waiting') word = t('machines.home.waiting')
+  else word = link?.lastSeen ? t('machines.home.away', { duration: awayLong(link.lastSeen, now) }) : t('machines.offline')
+  const meta = m.live ? [m.live.os, formatMB(m.live.memoryTotalMB), word] : [word]
+  return (
+    <h2 id={`on-${m.id}`} className="flex flex-wrap items-baseline gap-x-2 text-[15px] font-semibold">
+      <ServerIcon className="size-4 shrink-0 self-center text-muted-foreground" aria-hidden="true" />
+      <a {...linkProps(m.kind === 'local' ? { name: 'machine', id: m.id } : { name: 'machine-settings', id: m.id })} className="rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+        {t('machines.home.on', { name })}
+      </a>
+      <span className="text-[13px] font-normal text-muted-foreground">{meta.join(t('common.dot'))}</span>
+    </h2>
   )
 }
 

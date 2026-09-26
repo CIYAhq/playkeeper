@@ -6,7 +6,9 @@ import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneBackHeader } from '@/components/app/shell'
 import { Button } from '@/components/ui/button'
 import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { formatBytes, formatMB, formatPercent } from '@/lib/format'
+import { isStale, machineOf } from '@/lib/machines'
 import { phaseLabel, phaseTone } from '@/lib/phase'
 import { linkProps } from '@/lib/router'
 import { newerStable, softwareLabel } from '@/lib/servers'
@@ -75,9 +77,10 @@ export function MachinePage({ id }: { id: string }) {
             </Button>
           </div>
           <ul className="mt-3 flex flex-col">
-            {(ws.servers ?? []).map((s) => {
-              const tone = ws.stale ? 'unknown' : phaseTone(s.phase)
-              const state = ws.stale ? t('status.unknown') : tone === 'online' ? `${t('status.online')}${t('common.dot')}${t('status.playing', { count: s.players?.online ?? 0 })}` : phaseLabel(s.phase)
+            {(ws.servers ?? []).filter((s) => machineOf(s, ws.machines)?.id === m.id).map((s) => {
+              const stale = isStale(s, ws.stale) || ws.agentDown
+              const tone = stale ? 'unknown' : phaseTone(s.phase)
+              const state = stale ? t('status.unknown') : tone === 'online' ? `${t('status.online')}${t('common.dot')}${t('status.playing', { count: s.players?.online ?? 0 })}` : phaseLabel(s.phase)
               return (
                 <li key={s.id} className="border-t border-border first:border-t-0">
                   <a {...linkProps({ name: 'server', slug: s.slug, tab: 'overview' })} className="flex min-h-14 items-center gap-3 py-2 outline-none hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring">
@@ -96,11 +99,16 @@ export function MachinePage({ id }: { id: string }) {
               )
             })}
           </ul>
-          <div className="mt-auto flex items-center gap-3 rounded-2xl border border-dashed border-input px-3 py-2.5 text-[13px] text-muted-foreground">
-            <PlugIcon className="size-4" aria-hidden="true" />
-            <span className="flex-1">{t('machine.connect')}</span>
-            <span className="text-xs">{t('common.later')}</span>
-          </div>
+          {can(ws.me, 'machine.manage') && (
+            <a
+              {...linkProps({ name: 'machines' })}
+              className="mt-auto flex items-center gap-3 rounded-2xl border border-dashed border-input px-3 py-2.5 text-[13px] text-muted-foreground outline-none hover:border-primary/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <PlugIcon className="size-4" aria-hidden="true" />
+              <span className="flex-1">{t('machine.connect')}</span>
+              <ChevronRightIcon className="size-4" aria-hidden="true" />
+            </a>
+          )}
         </Card>
       </PageBody>
     </>

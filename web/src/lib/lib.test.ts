@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { Catalog, CatalogEntry, MemorySizing, MetricsBucket, ServerConfig, ServerStatus } from '@/api/types'
+import type { Catalog, CatalogEntry, MachineEvent, MemorySizing, MetricsBucket, ServerConfig, ServerStatus } from '@/api/types'
 import { budgetAdvice, createRequest, freeName, styleMemory, versionCards } from '@/components/app/create'
 import { passwordStrength } from '@/pages/onboarding'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine, ranOutOfMemory } from './console'
 import { formatBytes, formatClock, formatDate, formatDuration, formatList, formatMB, formatWhen, joinAddress, relativeTime } from './format'
+import { machineEventText } from './machines'
 import { memorySegments } from './memory'
 import { controls, createStepOf, isSettingUp, phaseTone } from './phase'
 import { href, parse, type Route } from './router'
@@ -52,9 +53,17 @@ describe('router', () => {
       { name: 'ai-agents' },
       { name: 'more' },
       { name: 'welcome' },
+      { name: 'machines' },
+      { name: 'machine-settings', id: 'm2345abcde' },
+      { name: 'new-server', machine: 'm2345abcde' },
     ]
-    for (const r of routes) expect(parse(href(r))).toEqual(r)
+    for (const r of routes) {
+      const [path = '', query = ''] = href(r).split('?')
+      expect(parse(path, query ? `?${query}` : '')).toEqual(r)
+    }
     expect(parse('/settings/ai-agents/extra')).toEqual({ name: 'settings' })
+    expect(parse('/settings/machines/Not-An-Id')).toEqual({ name: 'settings' })
+    expect(parse('/servers/new', '?machine=../../x')).toEqual({ name: 'new-server' })
   })
 
   it('keeps 0.2.0 links working and sends unknown paths home', () => {
@@ -343,5 +352,22 @@ describe('creating a server', () => {
 
   it('labels the software', () => {
     expect(softwareLabel(server({ config: { minecraftVersion: '26.1.2' } as ServerConfig }))).toBe('Paper 26.1.2')
+  })
+})
+
+describe('machine events', () => {
+  it('say what happened, newest first', () => {
+    const events: MachineEvent[] = [
+      { at: '2026-09-25T17:04:00Z', kind: 'machine.connected' },
+      { at: '2026-09-25T17:02:00Z', kind: 'machine.disconnected', code: 'link_dropped' },
+      { at: '2026-09-24T09:00:00Z', kind: 'machine.dashboard_updated', code: '0.3.1' },
+      { at: '2026-09-12T16:40:00Z', kind: 'machine.joined', actor: 'siya', address: '203.0.113.24' },
+    ]
+    expect(events.map((_, i) => machineEventText(events, i))).toEqual([
+      'Reconnected',
+      'Lost the connection for 2 minutes · the network dropped',
+      'The dashboard updated to Playkeeper 0.3.1',
+      'Joined with a code siya made · from 203.0.113.24',
+    ])
   })
 })

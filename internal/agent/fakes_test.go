@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,6 +46,7 @@ type fakeDocker struct {
 	// target names the container addLog, crash and the like act on when
 	// there is more than one server.
 	target string
+	down   atomic.Bool // every request fails, as when the Docker daemon is stopped
 }
 
 type fakeLine struct {
@@ -179,6 +181,10 @@ func jsonOut(w http.ResponseWriter, status int, v any) {
 
 func (fd *fakeDocker) serve(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
+	if fd.down.Load() {
+		jsonOut(w, 500, map[string]string{"message": "Cannot connect to the Docker daemon"})
+		return
+	}
 	if path == "/version" {
 		jsonOut(w, 200, map[string]string{"Version": "29.0.0-fake", "ApiVersion": "1.52", "MinAPIVersion": "1.44"})
 		return

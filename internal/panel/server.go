@@ -131,6 +131,7 @@ func New(opts Options) (*Server, error) {
 		return nil, err
 	}
 	s.pruneAudit()
+	s.noteVersion(version.Version)
 	if err := s.startMCP(); err != nil {
 		db.Close()
 		return nil, err

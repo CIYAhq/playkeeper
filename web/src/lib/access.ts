@@ -18,8 +18,13 @@ export function tokenRoles(me: Me): TokenRole[] {
   return me.user.role === 'owner' ? ['viewer', 'moderator', 'admin'] : ['viewer']
 }
 
+export type SettingsSectionName = 'ai-agents' | 'machines'
+
 /** The sections of Settings, each for the accounts that may use it. */
-export const settingsSections: { route: Route & { name: 'ai-agents' }; label: MessageKey; act: Action }[] = [{ route: { name: 'ai-agents' }, label: 'global.nav.aiAgents', act: 'account.manage' }]
+export const settingsSections: { route: Route & { name: SettingsSectionName }; label: MessageKey; act: Action }[] = [
+  { route: { name: 'ai-agents' }, label: 'global.nav.aiAgents', act: 'account.manage' },
+  { route: { name: 'machines' }, label: 'global.nav.machines', act: 'view' },
+]
 
 /** Where Settings opens: the first section the account can use, else its account page. */
 export function settingsHome(me: Me): Route {
@@ -28,5 +33,5 @@ export function settingsHome(me: Me): Route {
 
 /** Whether a route is one of the Settings pages, for the sidebar's Settings row. */
 export function inSettings(route: Route): boolean {
-  return route.name === 'settings' || route.name === 'ai-agents'
+  return route.name === 'settings' || route.name === 'ai-agents' || route.name === 'machines' || route.name === 'machine-settings'
 }

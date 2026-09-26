@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ArrowRightIcon, CopyIcon, EllipsisIcon, PlusIcon, ShieldCheckIcon, ShieldOffIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
 import type { Activity, OperatorEntry, PlayersSummary, ServerStatus, SessionsResponse, WhitelistEntry } from '@/api/types'
-import { errorText, serverApi, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useServerMachine } from '@/api/workspace'
 import { EmptyArt } from '@/components/app/art'
 import { Card, CardHint, CardTitle, copyText, CopyButton, PlayerFace, SectionLabel } from '@/components/app/bits'
 import { Segmented, useIsPhone } from '@/components/app/controls'
@@ -38,12 +38,12 @@ function usePlayers(s: ServerStatus, days: Days) {
 
 /** The "add a player" field and button, used on the page, in the empty state and on phones. */
 function AddPlayer({ server, onAdded, big, placeholder, iconButton }: { server: ServerStatus; onAdded: () => void; big?: boolean; placeholder: string; iconButton?: boolean }) {
-  const ws = useWorkspace()
+  const { stale } = useServerMachine(server)
   const [name, setName] = useState('')
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
   const input = useRef<HTMLInputElement>(null)
-  const online = !ws.stale && server.phase === 'online'
+  const online = !stale && server.phase === 'online'
   const hash = window.location.hash
 
   useEffect(() => {
@@ -123,8 +123,8 @@ async function playerAction(server: ServerStatus, method: 'POST' | 'DELETE', pat
 }
 
 function PlayerMenu({ server, name, op, online, after, phone }: { server: ServerStatus; name: string; op: boolean; online: boolean; after: () => void; phone?: boolean }) {
-  const ws = useWorkspace()
-  const up = !ws.stale && server.phase === 'online'
+  const { stale } = useServerMachine(server)
+  const up = !stale && server.phase === 'online'
   return (
     <Menu>
       <MenuTrigger render={<Button variant="ghost" size={phone ? 'icon-lg' : 'icon-sm'} aria-label={t('players.menuFor', { name })} disabled={!up} />}>
@@ -168,12 +168,12 @@ function PlayerMenu({ server, name, op, online, after, phone }: { server: Server
 }
 
 export function PlayersPage({ server: s }: { server: ServerStatus }) {
-  const ws = useWorkspace()
+  const { stale, host } = useServerMachine(s)
   const phone = useIsPhone()
   const [days, setDays] = useState<Days>('7')
   const p = usePlayers(s, days)
-  const address = joinAddress(window.location.hostname, s.gamePort)
-  const online = !ws.stale && s.phase === 'online'
+  const address = joinAddress(host, s.gamePort)
+  const online = !stale && s.phase === 'online'
   const onlineNames = online ? (s.players?.names ?? []) : []
   const isOnline = (n: string) => onlineNames.some((o) => o.toLowerCase() === n.toLowerCase())
   const ops = new Set((p.operators ?? []).map((o) => o.name.toLowerCase()))

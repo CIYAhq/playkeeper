@@ -304,6 +304,12 @@ func TestAMachineJoinsAndItsServersAreReachable(t *testing.T) {
 	if r := e.do(t, "GET", "/api/servers/abcdefghjk", "", auth(cookie, "")); r.status != http.StatusOK || !e.sawLocally("GET /v1/servers/abcdefghjk") {
 		t.Fatalf("the dashboard's own server stays local: %d", r.status)
 	}
+	e.do(t, "GET", "/api/servers/nobodyhass", "", auth(cookie, ""))
+	for _, id := range []string{"abcdefghjk", "nobodyhass"} {
+		if _, ok := ra.saw("GET /v1/servers/" + id); ok {
+			t.Fatalf("the joined machine was asked about %s, which it doesn't run", id)
+		}
+	}
 
 	ra.reply("POST /v1/servers", `{"id":"0123456789abcdef","serverId":"newsrvabcd","kind":"create","status":"running"}`)
 	if r := e.do(t, "POST", "/api/machines/"+rid+"/servers", `{"name":"Skyblock"}`, auth(cookie, csrf)); r.status != http.StatusOK {
@@ -623,6 +629,27 @@ func TestAnOfflineMachineShowsItsLastKnownServers(t *testing.T) {
 	}
 	if e.sawLocally("POST /v1/servers/xxxxxxxxxx/restart") {
 		t.Fatal("another machine's restart went to the dashboard's agent")
+	}
+}
+
+// With other machines joined, the dashboard's own servers stay listed as
+// last known while its agent is down, instead of vanishing from the list.
+func TestTheDashboardsServersStayListedWhileItsAgentIsDown(t *testing.T) {
+	e := newEnv(t)
+	cookie, _ := e.setup(t)
+	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+	var list []map[string]any
+	e.get(t, "/api/servers", cookie, &list)
+	e.addRemote(t, "alphaalpha", "alpha")
+	os.Remove(e.cfg.SocketPath)
+	e.srv.agent = agentclient.New(e.cfg.SocketPath)
+	if r := e.get(t, "/api/servers", cookie, &list); r != http.StatusOK || ids(list) != "abcdefghjk" ||
+		list[0]["machineId"] != e.localMachine(t) || list[0]["phase"] != "online" || list[0]["lastKnownAt"] == nil {
+		t.Fatalf("servers while the dashboard's agent is down: %d %v", r, list)
+	}
+	local := e.machineView(t, cookie, e.localMachine(t))
+	if merr, _ := local["error"].(map[string]any); merr["code"] != api.CodeAgentUnavailable {
+		t.Fatalf("the dashboard's machine says its agent is down: %v", local)
 	}
 }
 
@@ -979,6 +1006,31 @@ func TestMachineEventsAreCapped(t *testing.T) {
 	e.srv.db.QueryRow(`SELECT COUNT(*) FROM machine_events WHERE machine_id = 'betabetabe'`).Scan(&beta)
 	if alpha != maxMachineEvents || beta != 1 {
 		t.Fatalf("events kept: alpha %d, beta %d", alpha, beta)
+	}
+}
+
+func TestTheDashboardsUpdatesAreInEveryMachinesEvents(t *testing.T) {
+	e := newEnv(t)
+	cookie, _ := e.setup(t)
+	alpha := e.addRemote(t, "alphaalpha", "alpha")
+	updates := func() int {
+		var n int
+		e.srv.db.QueryRow(`SELECT COUNT(*) FROM machine_events WHERE kind = 'machine.dashboard_updated'`).Scan(&n)
+		return n
+	}
+	e.srv.noteVersion(version.Version)
+	if n := updates(); n != 0 {
+		t.Fatalf("starting the same version again is not an update: %d events", n)
+	}
+	e.srv.noteVersion("0.4.1")
+	e.srv.noteVersion("0.4.1")
+	if list, _ := e.srv.machines(); len(list) != 2 || updates() != 2 {
+		t.Fatalf("an update is noted once on every machine: %d events on %d machines", updates(), len(list))
+	}
+	var events []map[string]any
+	e.get(t, "/api/machines/"+alpha.ID+"/events", cookie, &events)
+	if len(events) != 1 || events[0]["kind"] != "machine.dashboard_updated" || events[0]["code"] != "0.4.1" {
+		t.Fatalf("alpha's events: %v", events)
 	}
 }
 

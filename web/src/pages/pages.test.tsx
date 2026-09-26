@@ -6,7 +6,7 @@ import * as client from '@/api/client'
 import type { MachineView, Me, Operation, PlayersSummary, Preflight, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { activityText } from '@/components/app/activity'
-import { GetStartedCard } from '@/components/app/checklist'
+import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
 import { HomePage } from './home'
 import { Onboarding } from './onboarding'
@@ -151,6 +151,39 @@ describe('Home', () => {
     expect(text).toContain('3 people playing right now')
   })
 
+  it('groups servers by machine, with activity from every machine that answers', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      live: { ...machine.live!, hostname: 'home-server', memoryTotalMB: 32768 },
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const away: MachineView = { ...home, id: 'a2345abcde', name: 'attic', live: undefined, link: { ...home.link!, machineId: 'a2345abcde', name: 'attic', state: 'offline' } }
+    vi.mocked(client.get).mockImplementation(((path: string) => {
+      if (path.includes(`/${machine.id}/activity`)) return Promise.resolve([{ ts: '2026-09-25T10:00:00Z', serverId: 'abcdefghjk', kind: 'backup', actor: 'siya' }])
+      if (path.includes(`/${home.id}/activity`)) return Promise.resolve([{ ts: '2026-09-25T11:00:00Z', serverId: 'cobblemon1', kind: 'restarted', actor: 'siya' }])
+      if (path.includes(`/${away.id}/`)) return Promise.reject(new client.ApiError(503, { error: 'offline', code: 'machine_offline' }))
+      return new Promise(() => {})
+    }) as typeof client.get)
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id })
+    const attic = server({ id: 'atticsrv01', name: 'Attic', slug: 'attic', machineId: away.id, lastKnownAt: new Date().toISOString() })
+    const text = await render(<HomePage />, workspace({ machines: [machine, home, away], servers: [server({ machineId: machine.id }), cobblemon, attic] }))
+    expect(text).toContain('On my-vps')
+    expect(text).toContain('On home-server')
+    expect(text).toContain('On attic')
+    expect(text).toContain('3 servers on 3 machines')
+    const atticCard = [...document.querySelectorAll('article')].find((a) => a.textContent?.includes('Attic'))?.textContent ?? ''
+    expect(atticCard).toContain('No live status')
+    expect(atticCard).toContain('Can’t reach attic')
+    const activity = [...document.querySelectorAll('li')].map((li) => li.textContent ?? '')
+    const at = (line: string) => activity.findIndex((l) => l.includes(line))
+    expect(at('Cobblemon restarted')).toBeGreaterThan(-1)
+    expect(at('Cobblemon restarted')).toBeLessThan(at('You backed up Survival'))
+    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/${away.id}/`))).toBe(false)
+  })
+
   it('says when the agent stopped answering, keeping names but not numbers', async () => {
     const text = await render(<HomePage />, workspace({ agentDown: true, stale: true, servers: [server({ players: { online: 3, max: 10, names: [], source: '', at: '' } })] }))
     expect(text).toContain('Playkeeper can’t see your servers right now')
@@ -270,7 +303,11 @@ describe('Get started', () => {
   })
 
   it('hides once the owner hid it', async () => {
-    expect(await render(<GetStartedCard route={{ name: 'home' }} />, workspace({ prefs: { 'firstSteps.hidden.abcdefghjk': '1' } }))).toBe('')
+    expect(await render(<GetStartedCard route={{ name: 'home' }} />, workspace({ prefs: { [hiddenKey(server())]: '1' } }))).toBe('')
+  })
+
+  it('keeps that under a key the dashboard accepts', () => {
+    for (const key of [hiddenKey(server()), hiddenKey(undefined)]) expect(key).toMatch(/^[a-z][a-z0-9.:_-]{0,63}$/)
   })
 })
 

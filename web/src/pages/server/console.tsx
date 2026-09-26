@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import { ArrowUpRightIcon, CloudRainIcon, DownloadIcon, MessageSquareIcon, SaveIcon, SearchIcon, SendIcon, SunIcon, UsersIcon } from 'lucide-react'
 import { ApiError, get, post } from '@/api/client'
 import type { LogLine, LogsResponse, ServerStatus } from '@/api/types'
-import { errorText, serverApi, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useServerMachine } from '@/api/workspace'
 import { Card, CardHint, CardTitle } from '@/components/app/bits'
 import { Segmented, useIsPhone } from '@/components/app/controls'
 import { Button } from '@/components/ui/button'
@@ -73,7 +73,7 @@ function useLog(server: ServerStatus) {
 }
 
 export function ConsolePage({ server: s }: { server: ServerStatus }) {
-  const ws = useWorkspace()
+  const { stale } = useServerMachine(s)
   const phone = useIsPhone()
   const { lines, truncated } = useLog(s)
   const [filter, setFilter] = useState<Filter>('all')
@@ -84,7 +84,7 @@ export function ConsolePage({ server: s }: { server: ServerStatus }) {
   const [sending, setSending] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
-  const online = !ws.stale && s.phase === 'online'
+  const online = !stale && s.phase === 'online'
   const busy = s.operation
 
   const rows = useMemo<Row[]>(() => {

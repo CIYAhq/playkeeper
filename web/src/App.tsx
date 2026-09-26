@@ -141,15 +141,16 @@ function page(route: Route) {
     case 'legacy':
       return <HomePage />
     case 'new-server':
-      return <NewServerPage />
+      return <NewServerPage key={route.machine ?? ''} machine={route.machine} />
     case 'server':
       return <ServerPage slug={route.slug} tab={route.tab} />
     case 'machine':
       return <MachinePage id={route.id} />
     case 'settings':
-      return <GlobalSettingsPage section="general" />
     case 'ai-agents':
-      return <GlobalSettingsPage section="ai-agents" />
+    case 'machines':
+    case 'machine-settings':
+      return <GlobalSettingsPage page={route} />
     case 'more':
       return <MorePage />
     default: {

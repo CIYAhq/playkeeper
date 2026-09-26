@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ArchiveIcon, ChevronRightIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, MapIcon, PackageIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
 import type { Backup, RestorePreview, ServerStatus } from '@/api/types'
-import { errorText, serverApi, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useServerMachine } from '@/api/workspace'
 import { EmptyArt, Pip } from '@/components/app/art'
 import { Card, CardHint, CardTitle, copyText, SectionLabel } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
@@ -23,7 +23,7 @@ function downloadURL(s: ServerStatus, b: Backup): string {
 }
 
 export function WorldPage({ server: s }: { server: ServerStatus }) {
-  const ws = useWorkspace()
+  const { stale } = useServerMachine(s)
   const phone = useIsPhone()
   const backups = usePoll(() => get<Backup[]>(serverApi(s.id, '/backups')), 10_000, s.id)
   const [preview, setPreview] = useState<RestorePreview>()
@@ -168,18 +168,18 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
           </ul>
         </div>
       </Card>
-      {ws.stale ? null : dialog}
+      {stale ? null : dialog}
     </>
   )
 }
 
 function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?: boolean; onDone: () => void }) {
-  const ws = useWorkspace()
+  const { stale } = useServerMachine(s)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
   const online = s.phase === 'online'
-  const disabled = ws.stale || !s.exists || (!!s.operation && !running) || s.phase === 'docker_unavailable'
+  const disabled = stale || !s.exists || (!!s.operation && !running) || s.phase === 'docker_unavailable'
 
   async function backup() {
     setBusy(true)
@@ -404,7 +404,7 @@ function BackupRow({ server: s, backup: b, newest, onRestore, onChanged }: { ser
 }
 
 function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boolean }) {
-  const ws = useWorkspace()
+  const { stale } = useServerMachine(s)
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
   const players = s.phase === 'online' ? (s.players?.online ?? 0) : 0
@@ -422,7 +422,7 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
         size={phone ? 'touch' : 'lg'}
         className="mt-5 max-sm:w-full"
         loading={busy || running}
-        disabled={ws.stale || !s.exists || (!!s.operation && !running) || running}
+        disabled={stale || !s.exists || (!!s.operation && !running) || running}
         onClick={async () => {
           setBusy(true)
           try {

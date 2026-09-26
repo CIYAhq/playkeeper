@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { BotIcon, ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, PlusIcon, ServerIcon, SlidersHorizontalIcon } from 'lucide-react'
+import { BotIcon, ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, PlusIcon, ServerCogIcon, ServerIcon, SlidersHorizontalIcon } from 'lucide-react'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { SectionLabel, Spinner } from '@/components/app/bits'
 import { stepRoute, stepTitle } from '@/components/app/checklist'
@@ -113,6 +113,9 @@ export function MorePage() {
       <Group label={t('global.title')}>
         <li>
           <Row icon={<BotIcon />} title={t('global.nav.aiAgents')} hint={t('more.aiAgentsHint')} to={{ name: 'ai-agents' }} />
+        </li>
+        <li>
+          <Row icon={<ServerCogIcon />} title={t('global.nav.machines')} hint={t('more.machinesHint')} to={{ name: 'machines' }} />
         </li>
       </Group>
       <Group label={t('more.you')}>
