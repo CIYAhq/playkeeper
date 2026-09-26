@@ -37,10 +37,10 @@ func (s Size) ArchiveBytes() int64 {
 }
 
 // Measure sizes a backup of dataDir without writing anything. Like Create, it
-// returns a *RefusedError for a world a restore would refuse. Zero Limits
-// mean DefaultLimits.
+// returns a *RefusedError for a world a restore would refuse, and an error for
+// a server.properties Playkeeper won't read. Zero Limits mean DefaultLimits.
 func Measure(dataDir string, lim Limits) (Size, error) {
-	rels, err := archiveFiles(dataDir, LevelName(dataDir))
+	rels, err := archivedFiles(dataDir)
 	if err != nil {
 		return Size{}, err
 	}
@@ -67,6 +67,17 @@ func Measure(dataDir string, lim Limits) (Size, error) {
 	}
 	s.DiskBytes += int64(len(dirs)) * blockSize
 	return s, nil
+}
+
+// archivedFiles lists the files an archive of dataDir holds, as Create does:
+// a server.properties Playkeeper won't read is an error (see levelName), since
+// the copy it stages would otherwise be taken for a world without one.
+func archivedFiles(dataDir string) ([]string, error) {
+	level, err := levelName(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	return archiveFiles(dataDir, level)
 }
 
 func (l Limits) orDefault() Limits {
@@ -98,7 +109,7 @@ func (s *stager) step(name string) error {
 // copyAll copies the allowlisted files of dataDir into the empty directory
 // dst. server.properties is copied without its secrets.
 func (s *stager) copyAll(ctx context.Context, dataDir, dst string) error {
-	rels, err := archiveFiles(dataDir, LevelName(dataDir))
+	rels, err := archivedFiles(dataDir)
 	if err != nil {
 		return err
 	}

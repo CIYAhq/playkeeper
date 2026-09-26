@@ -99,6 +99,18 @@ func (a *Agent) restoreBuild(ctx context.Context, mc string, build int) (api.Cat
 	return e, err
 }
 
+// forgetFailedBuild drops a failed restoreBuild lookup from the cache, so
+// the next one asks PaperMC again instead of repeating the failure.
+func (a *Agent) forgetFailedBuild(mc string, build int) {
+	c := &a.catalog
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	key := fmt.Sprintf("%s#%d", mc, build)
+	if b, ok := c.builds[key]; ok && b.err != nil {
+		delete(c.builds, key)
+	}
+}
+
 // jarChecksum is the SHA-256 a server's jar must have. Servers created by
 // 0.1.0 did not record it; their builds' checksums are known.
 func jarChecksum(sc api.ServerConfig) (string, error) {

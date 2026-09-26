@@ -606,7 +606,7 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.45fr_1fr]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
       <Card className="min-w-0 p-6">
         <div className="flex items-start gap-5">
           <Pip pose="hurt" size={72} />
