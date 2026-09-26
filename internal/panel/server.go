@@ -115,6 +115,12 @@ type Server struct {
 	activePacks *activePacks
 	// listings are the servers each machine last listed.
 	listings listings
+	// toldSlugs are the slugs elsewhere the dashboard's machine last heard
+	// of (see stableSlugs).
+	toldSlugs struct {
+		sync.Mutex
+		list string
+	}
 }
 
 func New(opts Options) (*Server, error) {

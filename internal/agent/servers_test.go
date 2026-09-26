@@ -198,6 +198,38 @@ func TestSingleServerInstallMigratesWithoutRestarting(t *testing.T) {
 	}
 }
 
+// A new server gets a slug that no server the dashboard shows from another
+// machine has, as the dashboard last said; what it says next replaces that,
+// and a slug a server couldn't have is refused.
+func TestANewServerSkipsTheSlugsOfServersElsewhere(t *testing.T) {
+	e := newAgentEnv(t)
+	for _, body := range []any{
+		map[string]any{"slugs": []string{"Survival"}},
+		map[string]any{"slugs": []string{"../survival"}},
+		map[string]any{"slugs": []string{""}},
+		map[string]any{"slugs": []string{"survival"}, "actor": "admin"},
+		`{"slugs": ["survival"]} {}`,
+	} {
+		if code, out := e.call("PUT", "/v1/slugs/elsewhere", body); code != http.StatusBadRequest {
+			t.Errorf("%v: %d %v", body, code, out)
+		}
+	}
+	if code, out := e.call("PUT", "/v1/slugs/elsewhere", map[string]any{"slugs": []string{"creative"}}); code != http.StatusNoContent {
+		t.Fatalf("slugs elsewhere: %d %v", code, out)
+	}
+	if code, out := e.call("PUT", "/v1/slugs/elsewhere", map[string]any{"slugs": []string{"survival", "survival-2"}}); code != http.StatusNoContent {
+		t.Fatalf("slugs elsewhere: %d %v", code, out)
+	}
+	e.createWith(map[string]any{"name": "Survival"})
+	if st := e.status(); st.Slug != "survival-3" {
+		t.Fatalf("a server named like two elsewhere has slug %q", st.Slug)
+	}
+	e.createWith(map[string]any{"name": "Creative"})
+	if st := e.status(); st.Slug != "creative" {
+		t.Fatalf("a slug the dashboard no longer names is taken as %q", st.Slug)
+	}
+}
+
 func TestServersRunSideBySide(t *testing.T) {
 	e := newAgentEnv(t)
 	e.createWith(map[string]any{"name": "Survival", "playStyle": "friends"})

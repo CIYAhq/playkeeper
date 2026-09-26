@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -689,43 +690,158 @@ func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, e
 			out = append(out, sv)
 		}
 	}
-	uniqueSlugs(out)
+	s.stableSlugs(ctx, out, list)
 	if everyMachine && len(ids) > 0 {
 		s.forgetDeletedServers(ids)
 	}
 	return out, list, nil
 }
 
-// uniqueSlugs gives every server in the list a slug no other one has, since
-// the dashboard's pages find a server by its slug. Each agent keeps slugs
-// unique among its own servers only, so a later machine's duplicate gets a
-// number, as the agent numbers its own ("my-server-2"), skipping any slug
-// already in the list.
-func uniqueSlugs(servers []map[string]any) {
-	taken := map[string]bool{}
-	for _, sv := range servers {
-		if slug, _ := sv["slug"].(string); slug != "" {
-			taken[slug] = true
+// stableSlugs gives every server in the list the slug the dashboard shows
+// for it, which its pages, bookmarks and AI agents find it by, and which
+// stays with it once shown. Each agent keeps slugs unique among its own
+// servers only. The dashboard's own machine's servers keep their agent's,
+// which its Discord links use. Every other server keeps the slug its record
+// keeps, as a removed machine's servers do for when the same host joins
+// again. A server new to the dashboard gets its agent's slug when no server
+// has it, else a number, as the agent numbers its own ("my-server-2"),
+// skipping every slug a server has or its agent gave it; servers new at once
+// go in the order the dashboard first saw them. The dashboard's machine then
+// hears of the slugs shown for other machines' servers, so that a server it
+// makes gets none of them.
+func (s *Server) stableSlugs(ctx context.Context, servers []map[string]any, list []machine) {
+	var local machine
+	for _, m := range list {
+		if m.Kind == localKind {
+			local = m
 		}
 	}
-	seen := map[string]bool{}
+	type entry struct {
+		id, agentSlug, kept string
+		recorded            bool
+		sv                  map[string]any
+	}
+	taken := map[string]bool{}
+	elsewhere := map[string]map[string]any{}
 	for _, sv := range servers {
+		id, _ := sv["id"].(string)
 		slug, _ := sv["slug"].(string)
-		if slug == "" {
-			continue
+		switch {
+		case local.ID != "" && sv["machineId"] == local.ID:
+			if slug != "" {
+				taken[slug] = true
+			}
+		default:
+			elsewhere[id] = sv
 		}
-		if !seen[slug] {
-			seen[slug] = true
-			continue
+	}
+	var entries []*entry
+	rows, err := s.db.QueryContext(ctx, `SELECT server_id, machine_id, slug, status FROM server_machines ORDER BY rowid`)
+	if err != nil {
+		s.log.Error("read the servers' slugs", "err", err)
+	} else {
+		for rows.Next() {
+			var id, machineID, kept, status string
+			if err := rows.Scan(&id, &machineID, &kept, &status); err != nil || machineID == local.ID {
+				continue
+			}
+			e := &entry{id: id, kept: kept, recorded: true, sv: elsewhere[id]}
+			if e.sv != nil {
+				e.agentSlug, _ = e.sv["slug"].(string)
+				delete(elsewhere, id)
+			} else {
+				var st struct {
+					Slug string `json:"slug"`
+				}
+				_ = json.Unmarshal([]byte(status), &st)
+				e.agentSlug = st.Slug
+			}
+			entries = append(entries, e)
 		}
-		for i := 2; ; i++ {
-			if next := fmt.Sprintf("%s-%d", slug, i); !taken[next] {
-				sv["slug"] = next
-				taken[next], seen[next] = true, true
-				break
+		rows.Close()
+	}
+	for _, sv := range servers {
+		if id, _ := sv["id"].(string); elsewhere[id] != nil {
+			slug, _ := sv["slug"].(string)
+			entries = append(entries, &entry{id: id, agentSlug: slug, sv: sv})
+		}
+	}
+	avoid := map[string]bool{}
+	for slug := range taken {
+		avoid[slug] = true
+	}
+	for _, e := range entries {
+		avoid[e.agentSlug], avoid[e.kept] = true, true
+	}
+	choose := func(e *entry, want string) {
+		slug := want
+		if taken[slug] {
+			base := e.agentSlug
+			if base == "" {
+				base = want
+			}
+			for i := 2; ; i++ {
+				if next := fmt.Sprintf("%s-%d", base, i); !taken[next] && !avoid[next] {
+					slug = next
+					break
+				}
 			}
 		}
+		taken[slug] = true
+		if e.sv != nil {
+			e.sv["slug"] = slug
+		}
+		if e.recorded && slug != e.kept {
+			if _, err := s.db.ExecContext(ctx, `UPDATE server_machines SET slug = ? WHERE server_id = ?`, slug, e.id); err != nil {
+				s.log.Error("keep a server's slug", "server", e.id, "err", err)
+			}
+		}
+		e.kept = slug
 	}
+	for _, e := range entries {
+		if e.kept != "" {
+			choose(e, e.kept)
+		}
+	}
+	for _, e := range entries {
+		if e.kept == "" && e.agentSlug != "" {
+			choose(e, e.agentSlug)
+		}
+	}
+	var shown []string
+	for _, e := range entries {
+		if e.kept != "" {
+			shown = append(shown, e.kept)
+		}
+	}
+	sort.Strings(shown)
+	s.tellSlugsElsewhere(ctx, local, shown)
+}
+
+// tellSlugsElsewhere tells the dashboard's machine the slugs shown for other
+// machines' servers when they changed since it last heard (at first, none),
+// so that a server it makes gets none of them. An agent that doesn't hear
+// them hears them with the next listing.
+func (s *Server) tellSlugsElsewhere(ctx context.Context, local machine, slugs []string) {
+	if local.agent == nil {
+		return
+	}
+	list := strings.Join(slugs, " ")
+	s.toldSlugs.Lock()
+	defer s.toldSlugs.Unlock()
+	if list == s.toldSlugs.list {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, machineTimeout)
+	defer cancel()
+	if slugs == nil {
+		slugs = []string{}
+	}
+	if _, err := local.agent.Do(ctx, "PUT", "/v1/slugs/elsewhere", nil, map[string]any{"slugs": slugs}, nil); err != nil {
+		s.log.Warn("could not tell the dashboard's machine the slugs of other machines' servers", "err", err)
+		return
+	}
+	s.toldSlugs.list = list
 }
 
 // forgetDeletedServers drops the friend invites, join requests and origins

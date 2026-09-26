@@ -1829,6 +1829,122 @@ func TestEveryServerInTheListHasItsOwnSlug(t *testing.T) {
 	}
 }
 
+// A server keeps the slug it was shown with, which its pages, bookmarks and
+// AI agents find it by. A server that comes later on any machine gets the
+// number, the dashboard's machine keeps its own slugs and hears of the
+// others', and neither removing a machine nor deleting the first of two
+// servers named alike moves a slug.
+func TestAServerKeepsTheSlugItWasShownWith(t *testing.T) {
+	server := func(id, slug string) string {
+		return `{"id":"` + id + `","slug":"` + slug + `","name":"Survival","phase":"online"}`
+	}
+	shown := func(t *testing.T, e *env, cookie string) string {
+		t.Helper()
+		var list []map[string]any
+		if r := e.get(t, "/api/servers", cookie, &list); r != http.StatusOK {
+			t.Fatalf("servers: %d", r)
+		}
+		var out []string
+		for _, sv := range list {
+			out = append(out, fmt.Sprintf("%v=%v", sv["id"], sv["slug"]))
+		}
+		return strings.Join(out, " ")
+	}
+	twoJoined := func(t *testing.T, e *env, cookie, csrf string, alpha, beta *remoteAgent) string {
+		t.Helper()
+		alpha.reply("GET /v1/servers", "["+server("aaaaaaaaaa", "survival")+"]")
+		a, _ := e.joined(t, cookie, csrf, alpha)
+		e.clock.add(time.Minute)
+		beta.reply("GET /v1/servers", "["+server("bbbbbbbbbb", "survival")+"]")
+		e.joined(t, cookie, csrf, beta)
+		if got := shown(t, e, cookie); got != "aaaaaaaaaa=survival bbbbbbbbbb=survival-2" {
+			t.Fatalf("two joined servers named alike: %s", got)
+		}
+		return a
+	}
+	for _, tc := range []struct {
+		name      string
+		run       func(t *testing.T, e *env, cookie, csrf string, alpha, beta *remoteAgent)
+		want      string // id=slug, in the list's order
+		elsewhere string // what the dashboard's machine last heard
+	}{
+		{"a joined machine has survival, then the dashboard's machine makes Survival", func(t *testing.T, e *env, cookie, csrf string, alpha, beta *remoteAgent) {
+			alpha.reply("GET /v1/servers", "["+server("aaaaaaaaaa", "survival")+"]")
+			e.joined(t, cookie, csrf, alpha)
+			shown(t, e, cookie)
+			// Its agent heard survival is taken, so it names the new one
+			// survival-2 (see TestANewServerSkipsTheSlugsOfServersElsewhere).
+			e.reply("GET", "/v1/servers", "["+server("abcdefghjk", "survival-2")+"]")
+		}, "abcdefghjk=survival-2 aaaaaaaaaa=survival", `{"slugs":["survival"]}`},
+		{"the dashboard's machine lists a slug a joined server has", func(t *testing.T, e *env, cookie, csrf string, alpha, beta *remoteAgent) {
+			alpha.reply("GET /v1/servers", "["+server("aaaaaaaaaa", "survival")+"]")
+			e.joined(t, cookie, csrf, alpha)
+			shown(t, e, cookie)
+			e.reply("GET", "/v1/servers", "["+server("abcdefghjk", "survival")+"]")
+		}, "abcdefghjk=survival aaaaaaaaaa=survival-2", `{"slugs":["survival-2"]}`},
+		{"of two joined machines, the earlier makes a duplicate", func(t *testing.T, e *env, cookie, csrf string, alpha, beta *remoteAgent) {
+			alpha.reply("GET /v1/servers", "["+server("aaaaaaaaaa", "cobblemon")+"]")
+			e.joined(t, cookie, csrf, alpha)
+			e.clock.add(time.Minute)
+			beta.reply("GET /v1/servers", "["+server("bbbbbbbbbb", "survival")+"]")
+			e.joined(t, cookie, csrf, beta)
+			shown(t, e, cookie)
+			alpha.reply("GET /v1/servers", "["+server("aaaaaaaaaa", "cobblemon")+","+server("cccccccccc", "survival")+"]")
+		}, "aaaaaaaaaa=cobblemon cccccccccc=survival-2 bbbbbbbbbb=survival", `{"slugs":["cobblemon","survival","survival-2"]}`},
+		{"a machine is removed and joins again", func(t *testing.T, e *env, cookie, csrf string, alpha, beta *remoteAgent) {
+			a := twoJoined(t, e, cookie, csrf, alpha, beta)
+			if r := e.do(t, "DELETE", "/api/machines/"+a, "", auth(cookie, csrf)); r.status != http.StatusNoContent {
+				t.Fatalf("remove: %d %v", r.status, r.body)
+			}
+			beta.reply("GET /v1/servers", "["+server("bbbbbbbbbb", "survival")+","+server("dddddddddd", "survival")+"]")
+			if got := shown(t, e, cookie); got != "bbbbbbbbbb=survival-2 dddddddddd=survival-3" {
+				t.Fatalf("with the first machine removed: %s", got)
+			}
+			e.agent.mu.Lock()
+			told := e.agent.lastBody["PUT /v1/slugs/elsewhere"]
+			e.agent.mu.Unlock()
+			if told != `{"slugs":["survival","survival-2","survival-3"]}` {
+				t.Fatalf("with the first machine removed, the dashboard's machine heard %s", told)
+			}
+			e.clock.add(time.Minute)
+			e.joined(t, cookie, csrf, alpha)
+		}, "bbbbbbbbbb=survival-2 dddddddddd=survival-3 aaaaaaaaaa=survival", `{"slugs":["survival","survival-2","survival-3"]}`},
+		{"the first of two servers named alike is deleted", func(t *testing.T, e *env, cookie, csrf string, alpha, beta *remoteAgent) {
+			twoJoined(t, e, cookie, csrf, alpha, beta)
+			alpha.reply("GET /v1/servers", `[]`)
+		}, "bbbbbbbbbb=survival-2", `{"slugs":["survival-2"]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnvConfig(t, withDomain, nil)
+			cookie, csrf := e.setup(t)
+			e.reply("GET", "/v1/machine", `{"hostname":"my-vps","agentVersion":"0.4.0"}`)
+			e.reply("GET", "/v1/servers", `[]`)
+			alpha, beta := newRemoteAgent(), newRemoteAgent()
+			tc.run(t, e, cookie, csrf, alpha, beta)
+			if got := shown(t, e, cookie); got != tc.want {
+				t.Fatalf("servers %q, want %q", got, tc.want)
+			}
+			e.agent.mu.Lock()
+			told := e.agent.lastBody["PUT /v1/slugs/elsewhere"]
+			e.agent.mu.Unlock()
+			if told != tc.elsewhere {
+				t.Errorf("the dashboard's machine heard %s, want %s", told, tc.elsewhere)
+			}
+			_, token := e.newToken(t, cookie, csrf, `{"name":"Claude","role":"admin","allServers":true}`)
+			for _, pair := range strings.Fields(tc.want) {
+				id, slug, _ := strings.Cut(pair, "=")
+				key := "GET /v1/servers/" + id
+				e.callTool(t, token, "get_server_status", map[string]any{"server": slug})
+				_, byAlpha := alpha.saw(key)
+				_, byBeta := beta.saw(key)
+				if !e.sawLocally(key) && !byAlpha && !byBeta {
+					t.Errorf("AI agents' %q isn't %s", slug, id)
+				}
+			}
+		})
+	}
+}
+
 // A machine that can't answer holds up no change on the Team page. With a
 // joined machine away, demoting a member (whose admin token stops at once),
 // making a team invite, and previewing and accepting it go by the servers

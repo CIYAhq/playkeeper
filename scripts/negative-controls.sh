@@ -3620,12 +3620,12 @@ control "a machine that lists a removed machine's server takes it over" internal
   'case false && owner != m.ID && !ownerActive:' \
   ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
 control "every server in the list has its own slug" internal/panel/workspace.go \
-  'uniqueSlugs(out)' \
+  's.stableSlugs(ctx, out, list)' \
   '' \
   ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
 control "a duplicate's number skips slugs another server has" internal/panel/workspace.go \
-  'if next := fmt.Sprintf("%s-%d", slug, i); !taken[next] {' \
-  'if next := fmt.Sprintf("%s-%d", slug, i); true {' \
+  'if next := fmt.Sprintf("%s-%d", base, i); !taken[next] && !avoid[next] {' \
+  'if next := fmt.Sprintf("%s-%d", base, i); true {' \
   ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
 control "a joined machine that can't answer holds up no team change" internal/panel/join.go \
   'all, _, err := s.allServers(ctx)
@@ -3907,7 +3907,9 @@ control "a server no machine runs is answered as not found, not as an agent that
 
 # Wave 8, second bug hunt: what a machine sends reaches the browser as a file
 # to save, a refusal never signs it out, and the web follows a machine's link
-# only when it is an https: link to another site.
+# only when it is an https: link to another site. A removed machine's servers
+# keep their invites, the join page says why a server can't be asked, and a
+# server keeps the slug it was shown with.
 control "the recovery key downloads as bytes, whatever type its machine gives" internal/panel/automation.go \
   'h.Set("Content-Type", "application/octet-stream")' \
   'h.Set("Content-Type", resp.Header.Get("Content-Type"))' \
@@ -4041,6 +4043,41 @@ control "the join page logs a server no machine runs by its own reason" internal
   'e.Reason = "no machine runs the invite'"'"'s server"' \
   '_ = "no machine runs the invite'"'"'s server"' \
   ./internal/panel '^TestTheJoinPageSaysWhyAServerCantBeReached$'
+control "the dashboard's machine keeps its own slugs, which its Discord links use" internal/panel/workspace.go \
+  'case local.ID != "" && sv["machineId"] == local.ID:' \
+  'case false && sv["machineId"] == local.ID:' \
+  ./internal/panel '^TestAServerKeepsTheSlugItWasShownWith$'
+control "a server keeps the slug it was shown with" internal/panel/workspace.go \
+  'choose(e, e.kept)' \
+  'choose(e, e.agentSlug)' \
+  ./internal/panel '^TestAServerKeepsTheSlugItWasShownWith$'
+control "servers new at once get slugs in the order the dashboard first saw them" internal/panel/workspace.go \
+  'SELECT server_id, machine_id, slug, status FROM server_machines ORDER BY rowid`' \
+  'SELECT server_id, machine_id, slug, status FROM server_machines ORDER BY rowid DESC`' \
+  ./internal/panel '^TestAServerKeepsTheSlugItWasShownWith$'
+control "a removed machine's servers keep their slugs while it's away" internal/panel/workspace.go \
+  'e := &entry{id: id, kept: kept, recorded: true, sv: elsewhere[id]}' \
+  'e := &entry{id: id, kept: kept, recorded: true, sv: elsewhere[id]}
+			if e.sv == nil {
+				continue
+			}' \
+  ./internal/panel '^TestAServerKeepsTheSlugItWasShownWith$'
+control "a numbered slug skips every slug a server has or its agent gave it" internal/panel/workspace.go \
+  '!taken[next] && !avoid[next]' \
+  '!taken[next]' \
+  ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
+control "the dashboard's machine hears the slugs shown for other machines' servers" internal/panel/workspace.go \
+  'if list == s.toldSlugs.list {' \
+  'if list == s.toldSlugs.list || true {' \
+  ./internal/panel '^TestAServerKeepsTheSlugItWasShownWith$'
+control "a new server gets none of the slugs shown for other machines' servers" internal/agent/servers.go \
+  'if elsewhere[s] {' \
+  'if false && elsewhere[s] {' \
+  ./internal/agent '^TestANewServerSkipsTheSlugsOfServersElsewhere$'
+control "the dashboard can only hold back slugs a server could have" internal/agent/servers.go \
+  'if !reSlug.MatchString(s) {' \
+  'if false && !reSlug.MatchString(s) {' \
+  ./internal/agent '^TestANewServerSkipsTheSlugsOfServersElsewhere$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
