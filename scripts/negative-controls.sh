@@ -3126,7 +3126,7 @@ control "the Disk space page needs every server to look at" internal/panel/serve
   'actView, s.machineProxy("GET", "/v1/disk")},' \
   ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
 control "the panel never caches the recovery key" internal/panel/automation.go \
-  'w.Header().Set("Cache-Control", "no-store")' \
+  'h.Set("Cache-Control", "no-store")' \
   '_ = 0' \
   ./internal/panel '^TestRecoveryKeyIsNeverCachedAndNamesWhoTookIt$'
 control "the agent never caches the recovery key" internal/agent/offsite.go \
