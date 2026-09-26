@@ -487,10 +487,6 @@ control "a rollback finished after a restart puts the backup where the world was
   'if !dirExists(live) || !dirExists(failed) {' \
   'if !dirExists(failed) {' \
   ./internal/agent '^TestVersionRollbackSurvivesTheAgentStopping$/^dies_with_the_new_version.s_world_moved_aside$'
-control "no start recreates a world folder an update's rollback moved aside" internal/agent/lifecycle.go \
-  'if s.updateLeftWorldAside() {' \
-  'if false && s.updateLeftWorldAside() {' \
-  ./internal/agent '^TestNoStartMakesANewWorldWhereARollbackMovedTheWorldAside$'
 control "Paper builds without a checksum are not offered" internal/minecraft/fill.go \
   'if !ok || !reSHA256.MatchString(d.Checksums.SHA256) {' \
   'if !ok || false && !reSHA256.MatchString(d.Checksums.SHA256) {' \

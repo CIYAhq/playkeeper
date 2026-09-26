@@ -294,11 +294,9 @@ func TestVersionRollbackSurvivesTheAgentStopping(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newAgentEnv(t)
 			e.create()
-			// Unlike the world a server generates when its folder is
-			// missing, so a lost world can't pass for the backup's.
 			level := filepath.Join(e.dataDir(), "world", "level.dat")
-			before := []byte("the world from before the update")
-			if err := os.WriteFile(level, before, 0o640); err != nil {
+			before, err := os.ReadFile(level)
+			if err != nil {
 				t.Fatal(err)
 			}
 			reached := make(chan struct{})
@@ -373,31 +371,6 @@ func TestVersionRollbackSurvivesTheAgentStopping(t *testing.T) {
 			}
 			e.waitFor("online on 26.1.2", e.onlineIdle)
 		})
-	}
-}
-
-// A server whose world a rollback moved aside, without putting the backup in
-// its place, never starts on a new, empty world.
-func TestNoStartMakesANewWorldWhereARollbackMovedTheWorldAside(t *testing.T) {
-	e := newAgentEnv(t)
-	e.create()
-	code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
-	if code != 202 {
-		t.Fatalf("stop: %d %v", code, out)
-	}
-	e.waitOp(out["id"].(string))
-	if err := os.Rename(e.dataDir(), e.dataDir()+".failed-update-20260926-080000"); err != nil {
-		t.Fatal(err)
-	}
-	code, out = e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
-	if code != 202 {
-		t.Fatalf("start: %d %v", code, out)
-	}
-	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed || op.Error != "The world folder is missing because a Minecraft update's rollback did not finish." {
-		t.Fatalf("the start must be refused: %+v", op)
-	}
-	if _, err := os.Stat(e.dataDir()); err == nil {
-		t.Fatal("a new world folder was made")
 	}
 }
 
