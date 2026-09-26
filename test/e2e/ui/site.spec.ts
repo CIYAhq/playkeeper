@@ -5,7 +5,8 @@ import fs from 'node:fs'
 // Every page of playkeeper.io, from its sitemap, plus the share page, its
 // template state and the 404, at the designs' two sizes: nothing wider than
 // the screen, and no serious accessibility violations, with and without
-// reduced motion. playwright.site.config.ts builds and serves the site.
+// reduced motion. Each page is checked even when one before it fails.
+// playwright.site.config.ts builds and serves the site.
 const sizes = [
   { name: 'desktop', width: 1440, height: 900, mobile: false },
   { name: 'phone', width: 390, height: 844, mobile: true },
@@ -22,7 +23,7 @@ async function pagesToVisit(page: Page) {
 async function axe(page: Page, where: string) {
   const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()
   const bad = result.violations.filter((x) => x.impact === 'serious' || x.impact === 'critical')
-  expect(bad.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`), where).toEqual([])
+  expect.soft(bad.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`), where).toEqual([])
 }
 
 for (const size of sizes) {
@@ -42,7 +43,7 @@ for (const size of sizes) {
         })
         await page.waitForTimeout(700)
         const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
-        expect(wide, `${path} at ${size.name} is wider than the screen by ${wide}px`).toBeLessThanOrEqual(0)
+        expect.soft(wide, `${path} at ${size.name} is wider than the screen by ${wide}px`).toBeLessThanOrEqual(0)
         await axe(page, `${path} at ${size.name}`)
       }
       // The GitHub star count is fetched from api.github.com, which may be

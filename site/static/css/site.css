@@ -740,6 +740,7 @@ main:focus { outline: none; }
 .loader-cell img { width: 34px; height: 34px; padding: 5px; border: 1px solid var(--twine); border-radius: 9px; background: var(--white); object-fit: contain; }
 .table-note { display: flex; justify-content: space-between; gap: 16px; font-size: 13px; color: var(--sage); }
 .table-scroll { overflow-x: auto; }
+.table-scroll:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; border-radius: var(--radius); }
 .codeblock { margin: 20px 0; border-radius: 14px; background: var(--console); color: var(--console-text); overflow: hidden; box-shadow: var(--shadow); }
 .code-head { display: flex; align-items: center; gap: 8px; padding: 8px 8px 0 12px; border-bottom: 1px solid rgb(255 255 255 / 0.08); }
 .code-tabs { display: flex; align-items: center; gap: 4px; }
@@ -781,7 +782,6 @@ main:focus { outline: none; }
 .prose p, .prose li { color: var(--ink); opacity: 0.92; }
 .prose ul, .prose ol { padding-left: 22px; margin: 0 0 1em; }
 .prose :not(pre) > code { overflow-wrap: anywhere; }
-.prose .table-scroll:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
 .prose li { margin: 6px 0; }
 .prose code { padding: 1px 5px; border-radius: 5px; background: var(--muted); font-size: 0.88em; }
 .prose pre { position: relative; margin: 18px 0; padding: 16px 18px; border-radius: 14px; background: var(--console); color: var(--console-text); overflow-x: auto; font-size: 13.5px; line-height: 1.7; }
