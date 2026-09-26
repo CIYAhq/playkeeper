@@ -244,6 +244,16 @@ func TestRedirectsAreNotFollowed(t *testing.T) {
 	}
 }
 
+func TestAnswersAreAwaitedLongerThanTheServiceWaitsForCloudflare(t *testing.T) {
+	c := directClient("tcp")
+	wait := c.Transport.(*http.Transport).ResponseHeaderTimeout
+	// The service checks a change before it stores it and then waits up to
+	// SyncWait; connecting takes up to 20 s on top of the answer.
+	if wait < SyncWait+20*time.Second || c.Timeout < wait+20*time.Second {
+		t.Fatalf("an answer is awaited for %v and a request for %v, but the service may wait %v for Cloudflare alone", wait, c.Timeout, SyncWait)
+	}
+}
+
 func TestLocalChecksNeedNoRequest(t *testing.T) {
 	ctx := context.Background()
 	c := &Client{Key: ed25519.NewKeyFromSeed(testSeed), Name: "alice", HTTP: offline(t), HTTP4: offline(t), HTTP6: offline(t)}

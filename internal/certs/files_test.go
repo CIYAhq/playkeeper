@@ -148,6 +148,25 @@ func TestOpenDir(t *testing.T) {
 	}
 }
 
+func TestForget(t *testing.T) {
+	dir := t.TempDir()
+	for _, file := range []string{"mc.example.com.pem", "mc.example.com.order", "www.example.com.pem", "account.key"} {
+		if err := os.WriteFile(filepath.Join(dir, file), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Forget(dir, "MC.Example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if names := dirNames(t, dir); !slices.Equal(names, []string{"account.key", "www.example.com.pem"}) {
+		t.Errorf("left %q", names)
+	}
+	if err := Forget(dir, "mc.example.com"); err != nil {
+		t.Errorf("forgetting it again = %v", err)
+	}
+	wantProblem(t, Forget(dir, "../mc.example.com"), CodeInvalidName, "not_a_name")
+}
+
 func TestLoadAccountKey(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agent", "acme-account.key")

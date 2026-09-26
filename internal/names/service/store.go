@@ -105,7 +105,7 @@ type nameRow struct {
 	IPv4, IPv6                                   string
 	ClaimedAt, RefreshedAt, LapsedAt, ReleasedAt int64
 	Version, Synced                              int64
-	// Network is the network (see network) the name was claimed from.
+	// Network is the network the name counts against (see nameNetwork).
 	Network string
 	// AliveAt is when the address last answered the liveness check since
 	// the claim (0 if never), CheckedAt when it was last checked, and

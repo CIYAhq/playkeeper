@@ -102,7 +102,7 @@ The image has its own health check, so Coolify's **Healthcheck** can stay off; i
 | Name | Default | Meaning |
 | --- | --- | --- |
 | `NAMES_MAX_NAMES_PER_KEY` | `1` | names one install may hold (1 to 100) |
-| `NAMES_MAX_NAMES_PER_NETWORK` | `3` | names claimed from one IPv4 /24 or IPv6 /48 network, together (1 to 10000) |
+| `NAMES_MAX_NAMES_PER_NETWORK` | `3` | names pointing into one IPv4 /24 or IPv6 /48 network, together (1 to 10000) |
 | `NAMES_CLAIMS_PER_DAY` | `30` | new names per day, everyone together (1 to 100000) |
 | `NAMES_RECORD_RESERVE` | `10` | DNS records the service always leaves free in the zone for you (0 to 100000; see [Zone full](#zone-full)) |
 | `NAMES_RECORD_QUOTA` | `200` | the most DNS records the zone may hold; Cloudflare's own quota wins when it is lower (1 to 1000000) |
@@ -274,7 +274,7 @@ These keep one install, one network or a flood of claims from using up the zone 
 | --- | --- | --- |
 | A name | 3 to 32 characters: `a-z`, `0-9` and single hyphens inside; not reserved or blocked | |
 | Names per install | 1 | `NAMES_MAX_NAMES_PER_KEY` |
-| Names claimed from one IPv4 /24 or IPv6 /48 network, together | 3 | `NAMES_MAX_NAMES_PER_NETWORK` |
+| Names pointing into one IPv4 /24 or IPv6 /48 network, together; a refresh that would move a name into a full one is refused | 3 | `NAMES_MAX_NAMES_PER_NETWORK` |
 | New names per day, everyone together | 30 | `NAMES_CLAIMS_PER_DAY` |
 | New names per day from one IPv4 address or IPv6 /56 | 3 | |
 | Requests from one IPv4 address or IPv6 /64 | 60 at once, then 120 an hour | |
