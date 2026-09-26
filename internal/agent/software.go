@@ -33,7 +33,9 @@ type softwareCache struct {
 	mu       sync.Mutex
 	catalogs map[string]cachedCatalog
 	builds   map[string]cachedBuilds
-	flights  map[string]*flight
+	// Lists being fetched, by type and by type and version.
+	catalogFlights map[string]*flight[[]api.CatalogEntry]
+	buildFlights   map[string]*flight[[]software.Build]
 
 	datesMu sync.Mutex
 	dates   map[string]time.Time
@@ -53,39 +55,43 @@ type cachedBuilds struct {
 // maxCachedBuilds bounds the build lists kept, one per type and version.
 const maxCachedBuilds = 64
 
-// flight is a list being fetched; err is how the fetch ended.
-type flight struct {
+// flight is a list being fetched: once done is closed, what it fetched and
+// when, or why it couldn't.
+type flight[T any] struct {
 	done chan struct{}
+	val  T
+	at   time.Time
 	err  error
 }
 
 // fetchOnce runs get, unless a fetch of the same list is under way: then it
-// waits for that one and returns how it ended. The lock isn't held while get
-// runs, so a slow upstream holds up only the callers of its own list; get
-// stores what it fetched under the lock itself.
-func (c *softwareCache) fetchOnce(ctx context.Context, key string, get func() error) error {
-	c.mu.Lock()
-	if f := c.flights[key]; f != nil {
-		c.mu.Unlock()
+// waits for that one and returns what it fetched, never the cache, which
+// another list's fetch may have emptied meanwhile. mu isn't held while get
+// runs, so a slow upstream holds up only the callers of its own list.
+func fetchOnce[T any](ctx context.Context, mu *sync.Mutex, flights *map[string]*flight[T], key string, get func() (T, time.Time, error)) (T, time.Time, error) {
+	mu.Lock()
+	if f := (*flights)[key]; f != nil {
+		mu.Unlock()
 		select {
 		case <-f.done:
-			return f.err
+			return f.val, f.at, f.err
 		case <-ctx.Done():
-			return ctx.Err()
+			var none T
+			return none, time.Time{}, ctx.Err()
 		}
 	}
-	if c.flights == nil {
-		c.flights = map[string]*flight{}
+	if *flights == nil {
+		*flights = map[string]*flight[T]{}
 	}
-	f := &flight{done: make(chan struct{})}
-	c.flights[key] = f
-	c.mu.Unlock()
-	f.err = get()
-	c.mu.Lock()
-	delete(c.flights, key)
-	c.mu.Unlock()
+	f := &flight[T]{done: make(chan struct{})}
+	(*flights)[key] = f
+	mu.Unlock()
+	f.val, f.at, f.err = get()
+	mu.Lock()
+	delete(*flights, key)
+	mu.Unlock()
 	close(f.done)
-	return f.err
+	return f.val, f.at, f.err
 }
 
 func (a *Agent) sources() software.Sources {
@@ -118,12 +124,12 @@ func (a *Agent) typeCatalog(ctx context.Context, typ string) ([]api.CatalogEntry
 	if ok && a.now().Sub(hit.at) < catalogTTL {
 		return hit.entries, hit.at, nil
 	}
-	err := c.fetchOnce(ctx, "catalog "+typ, func() error {
+	entries, at, err := fetchOnce(ctx, &c.mu, &c.catalogFlights, typ, func() ([]api.CatalogEntry, time.Time, error) {
 		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 		defer cancel()
 		rels, err := a.sources().Catalog(cctx, typ)
 		if err != nil {
-			return err
+			return nil, time.Time{}, err
 		}
 		entries := make([]api.CatalogEntry, 0, len(rels))
 		for _, r := range rels {
@@ -132,13 +138,14 @@ func (a *Agent) typeCatalog(ctx context.Context, typ string) ([]api.CatalogEntry
 				Recommended: r.Recommended, Notes: r.Notes, Channel: string(r.Channel), Experimental: r.Experimental, Supported: true,
 				Software: &pin, Build: pinBuild(r.Pin)})
 		}
+		now := a.now()
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if c.catalogs == nil {
 			c.catalogs = map[string]cachedCatalog{}
 		}
-		c.catalogs[typ] = cachedCatalog{entries: entries, at: a.now()}
-		return nil
+		c.catalogs[typ] = cachedCatalog{entries: entries, at: now}
+		return entries, now, nil
 	})
 	if err != nil {
 		a.log.Warn("could not load a server type's version list", "type", typ, "err", err)
@@ -147,10 +154,7 @@ func (a *Agent) typeCatalog(ctx context.Context, typ string) ([]api.CatalogEntry
 		}
 		return nil, time.Time{}, err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	hit = c.catalogs[typ]
-	return hit.entries, hit.at, nil
+	return entries, at, nil
 }
 
 // typeEntry finds a version to create a server of a type with.
@@ -230,22 +234,21 @@ func (a *Agent) typeBuilds(ctx context.Context, typ, mc string) ([]software.Buil
 	if ok && a.now().Sub(hit.at) < catalogTTL {
 		return hit.builds, hit.at, nil
 	}
-	var got cachedBuilds
-	err := c.fetchOnce(ctx, "builds "+key, func() error {
+	bs, at, err := fetchOnce(ctx, &c.mu, &c.buildFlights, key, func() ([]software.Build, time.Time, error) {
 		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
 		bs, err := a.sources().Builds(cctx, typ, mc)
 		if err != nil {
-			return err
+			return nil, time.Time{}, err
 		}
+		now := a.now()
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if c.builds == nil || len(c.builds) >= maxCachedBuilds {
 			c.builds = map[string]cachedBuilds{}
 		}
-		got = cachedBuilds{builds: bs, at: a.now()}
-		c.builds[key] = got
-		return nil
+		c.builds[key] = cachedBuilds{builds: bs, at: now}
+		return bs, now, nil
 	})
 	if err != nil {
 		if ok {
@@ -253,12 +256,7 @@ func (a *Agent) typeBuilds(ctx context.Context, typ, mc string) ([]software.Buil
 		}
 		return nil, time.Time{}, err
 	}
-	if got.at.IsZero() {
-		c.mu.Lock()
-		got = c.builds[key]
-		c.mu.Unlock()
-	}
-	return got.builds, got.at, nil
+	return bs, at, nil
 }
 
 func (a *Agent) hCatalogBuilds(w http.ResponseWriter, r *http.Request) {
