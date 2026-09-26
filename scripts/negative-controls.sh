@@ -2276,6 +2276,17 @@ control "an unchanged memory budget keeps the heap" internal/agent/handlers.go \
 		sc.MemoryMB, sc.HeapMB = *req.MemoryMB, minecraft.HeapFor(*req.MemoryMB, serverTypeOf(*sc), s.modJars(*sc))' \
   ./internal/agent '^TestModLoaderHeapLeavesRoomForItsMods$'
 
+# Wave 9: a modpack with only betas has its own line, whatever path its notice takes.
+control "a pack's only-pre-release notice has the pack's own line" internal/agent/addons.go \
+  'if n.Params["pack"] != "" {' \
+  'if false {' \
+  ./internal/agent '^TestOnlyPrereleaseNoticesOfferNothingPlaykeeperCantDo$'
+control "an add-on or pack error the agent answers with has Playkeeper's hint" internal/agent/addons.go \
+  '	n := apiNotice(e.Notice)
+	return &apiError{Status: status, Code: string(e.Kind), Msg: n.Message, Hint: n.Hint}' \
+  '	return &apiError{Status: status, Code: string(e.Kind), Msg: e.Msg, Hint: e.Hint}' \
+  ./internal/agent '^TestOnlyPrereleaseNoticesOfferNothingPlaykeeperCantDo$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
