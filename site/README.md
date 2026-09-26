@@ -62,7 +62,7 @@ DNS changes can take a while to spread; carry on with the next steps meanwhile. 
 4. Fill in:
    - **Branch**: `main`
    - **Build Pack**: **Dockerfile**
-   - **Base Directory**: `/` (the whole repository: the site reads the product's code and docs)
+   - **Base Directory**: `/` (the whole repository: the site reads the product's code and docs, and the image builds the live demo from `web/`)
    - **Dockerfile Location**: `/site/Dockerfile`
    - **Ports Exposes**: `80`
 5. Select **Continue**. Coolify opens the application's configuration.
@@ -90,13 +90,24 @@ curl -sI https://playkeeper.io/install   # a 302, with location: https://github.
 curl -s https://playkeeper.io/healthz    # ok
 ```
 
-Then open `https://playkeeper.io` in a browser. `https://playkeeper.io/t` should say that the link has no template in it.
+Then open `https://playkeeper.io` in a browser. `https://playkeeper.io/t` should say that the link has no template in it, and `https://playkeeper.io/sizing` should suggest a VPS with 6 GB of memory for 5–10 friends on Vanilla or Paper. Open `https://playkeeper.io/demo/` too: on a first visit it says it's the live demo, then shows the dashboard with its sample servers and the amber "Live demo · resets every hour" line under the brand.
+
+### Already hosting the site? Switch it to the repository root
+
+Before 0.4.0, Coolify built the image from the `site` folder alone. The image now needs the whole repository: one stage builds the live demo from `web/`, another builds the site with `cmd/site`, which reads `go.mod`, `internal/`, the docs and the dashboard's art. An application set up the old way fails to build, with errors such as `"/web/package-lock.json": not found` or `"/go.mod": not found`. Once, in Coolify:
+
+1. Open the application, then **Configuration** → **General**.
+2. Under **Build**, change **Base Directory** from `/site` to `/`.
+3. Change **Dockerfile Location** from `/Dockerfile` to `/site/Dockerfile`. It's read from the Base Directory, so this is the repository's `site/Dockerfile`. BuildKit, Docker's default builder, picks up `site/Dockerfile.dockerignore` beside it, which keeps the build to the files the image needs.
+4. Leave **Build Pack** at **Dockerfile**, **Ports Exposes** at `80` and the domains as they are. Nothing else changes: nginx still listens on port 80, and the image's own health check still asks `/healthz`.
+5. Select **Save**, then **Deploy**, and wait until the deployment log says it has finished. Builds take a few minutes longer than before, while they build the site with Go and the demo with Node.
+6. Check it as in step 4 above, including `https://playkeeper.io/sizing` and `https://playkeeper.io/demo/`.
 
 ## Updating
 
 - **A new Playkeeper release:** nothing to do for `/install`, which always points at the latest release. The site's docs, version and server types come from the repository, so deploy again once the release is on `main`.
-- **A change to this folder or the docs:** in Coolify, open the application and select **Deploy** again. An application added by repository URL is not redeployed on its own when `main` changes.
-- **A new nginx or Go version:** change the tag and the digest on its `FROM` line of `Dockerfile` (Docker Hub lists both for each tag), then check and redeploy.
+- **A change to this folder, the docs or the dashboard:** in Coolify, open the application and select **Deploy** again. An application added by repository URL is not redeployed on its own when `main` changes. That includes new sizing numbers in `internal/sizing`, which reach `/sizing` only with the next deploy, and changes in `web/`, which reach the live demo only with the next deploy.
+- **A new nginx, Go or Node version:** change the tag and the digest on the matching `FROM` line of `Dockerfile` (Docker Hub lists both for each tag; nginx uses an `…-alpine-slim` tag, Go and Node the `…-alpine` tags of the versions in `scripts/toolchains.txt`), then check and redeploy.
 
 ## Try it on your computer
 
@@ -105,6 +116,6 @@ With Go (`./scripts/setup.sh` installs it) or Docker, from the repository root:
 ```bash
 make site                                     # builds the site into site/dist
 go run ./cmd/site -serve 127.0.0.1:8080       # serves it as nginx would, at http://127.0.0.1:8080
-scripts/site-check.sh                         # builds the image and checks every page, /t, /healthz, /install and the headers; with Chrome installed, opens /t in it
-docker build -f site/Dockerfile -t playkeeper-site . && docker run --rm -p 8080:80 playkeeper-site   # then open http://localhost:8080
+scripts/site-check.sh                         # builds the image and checks every page, /sizing, /demo/, /t, /healthz, /install and the headers; with Chrome installed, opens /sizing and /t in it
+docker build -f site/Dockerfile -t playkeeper-site . && docker run --rm -p 8080:80 playkeeper-site   # then open http://localhost:8080 and http://localhost:8080/demo/
 ```

@@ -720,3 +720,37 @@ func TestInstallCommandIsOneSetting(t *testing.T) {
 		}
 	}
 }
+
+// site/README.md's Coolify settings are the ones the image builds with: the
+// repository root, site/Dockerfile and its port, and its Go and Node stages
+// on the versions in scripts/toolchains.txt, as its Updating notes say.
+func TestHostingNotesMatchTheDockerfile(t *testing.T) {
+	read := func(name string) string {
+		b, err := os.ReadFile("../../" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	readme, dockerfile, toolchains := read("site/README.md"), read("site/Dockerfile"), read("scripts/toolchains.txt")
+	for _, want := range []string{
+		"**Base Directory**: `/`", "**Dockerfile Location**: `/site/Dockerfile`", "**Ports Exposes**: `80`",
+		"**Base Directory** from `/site` to `/`", "**Dockerfile Location** from `/Dockerfile` to `/site/Dockerfile`",
+	} {
+		if !strings.Contains(readme, want) {
+			t.Errorf("site/README.md doesn't say %s", want)
+		}
+	}
+	if !strings.Contains(dockerfile, "\nEXPOSE 80\n") {
+		t.Error("site/Dockerfile doesn't expose port 80, which site/README.md has Coolify use")
+	}
+	for _, tool := range []struct{ name, image string }{{"go", "golang"}, {"node", "node"}} {
+		m := regexp.MustCompile(`(?m)^` + tool.name + ` (\S+)$`).FindStringSubmatch(toolchains)
+		if m == nil {
+			t.Fatalf("scripts/toolchains.txt has no %s version", tool.name)
+		}
+		if !strings.Contains(dockerfile, "FROM "+tool.image+":"+m[1]+"-alpine@sha256:") {
+			t.Errorf("site/Dockerfile doesn't build on %s:%s-alpine, the %s in scripts/toolchains.txt", tool.image, m[1], tool.name)
+		}
+	}
+}
