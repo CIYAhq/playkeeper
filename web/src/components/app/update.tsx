@@ -6,11 +6,12 @@ import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Elapsed, Spinner } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { ListSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
+import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { formatList } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 /** Reads what Playkeeper knows about updates, while `enabled`. */
@@ -139,8 +140,7 @@ export function UpdateDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const lastPhase = useRef('downloading')
   if (live?.operation?.kind === 'update' && live.operation.phase) lastPhase.current = live.operation.phase
   const current = info?.current ?? live?.agentVersion ?? ws.me.version
-  const names = (ws.servers ?? []).map((s) => s.name)
-  const servers = formatList(names)
+  const hasServers = (ws.servers ?? []).length > 0
 
   async function apply() {
     if (!info?.latest || !ws.machine) return
@@ -165,7 +165,7 @@ export function UpdateDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           <div className="min-w-0 pt-1">
             <DialogTitle className="text-xl leading-7 font-bold">{updating ? t('update.updatingTitle', { version: target }) : t('update.title', { version: target })}</DialogTitle>
             <DialogDescription className="mt-0.5 text-[13px]">
-              {updating ? (names.length ? t('update.updatingLead', { servers }) : t('update.updatingLeadNoServers')) : phone ? t('update.metaPhone', { current }) : t('update.meta', { current })}
+              {updating ? (hasServers ? t('update.updatingLead') : t('update.updatingLeadNoServers')) : phone ? t('update.metaPhone', { current }) : t('update.meta', { current })}
             </DialogDescription>
           </div>
         </div>
@@ -175,6 +175,14 @@ export function UpdateDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           ) : (
             <>
               {error && <p className="text-sm text-destructive-foreground">{error}</p>}
+              {!info && !error && (
+                <>
+                  <div className="flex h-5 items-center">
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                  <ListSkeleton rows={3} lines={1} face="size-1.5 rounded-full" rowClassName="flex h-[18px] items-center gap-2.5 max-sm:h-5" className="mt-2 flex flex-col gap-1.5" />
+                </>
+              )}
               {info && noteLines(info.notes).length > 0 && (
                 <>
                   <h3 className="text-[13px] font-semibold">{t('update.whatsNew')}</h3>
@@ -189,21 +197,20 @@ export function UpdateDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                 </>
               )}
               <p className="mt-4 text-xs leading-[18px] text-muted-foreground max-sm:text-[13px]">
-                {phone ? t('update.safetyPhone', { current, version: target }) : names.length ? t('update.safety', { servers, version: target, current }) : t('update.safetyNoServers', { version: target, current })}
+                {phone ? t('update.safetyPhone', { current }) : hasServers ? t('update.safety', { version: target, current }) : t('update.safetyNoServers', { version: target, current })}
               </p>
             </>
           )}
         </DialogPanel>
         {updating ? (
-          <DialogFooter variant="bare" className="items-center border-t border-border pt-4 sm:justify-between">
-            <span className="text-xs text-muted-foreground">{t('update.closeNote')}</span>
+          <DialogFooter variant="bare" className="items-center border-t border-border pt-4">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               {t('common.hide')}
             </Button>
           </DialogFooter>
         ) : phone ? (
           <div className="flex flex-col gap-1 px-5 pt-2">
-            <Button size="touch" onClick={apply} loading={busy} disabled={!info?.available}>
+            <Button size="touch" onClick={apply} loading={busy} disabledReason={info?.available ? undefined : info ? t('update.latest') : t('common.loading')}>
               <CircleArrowUpIcon />
               {t('update.updateNow')}
             </Button>
@@ -221,7 +228,7 @@ export function UpdateDialog({ open, onOpenChange }: { open: boolean; onOpenChan
               <Button variant="ghost" onClick={() => onOpenChange(false)}>
                 {t('common.later')}
               </Button>
-              <Button onClick={apply} loading={busy} disabled={!info?.available}>
+              <Button onClick={apply} loading={busy} disabledReason={info?.available ? undefined : info ? t('update.latest') : t('common.loading')}>
                 <CircleArrowUpIcon />
                 {t('update.update')}
               </Button>

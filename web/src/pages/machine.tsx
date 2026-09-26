@@ -7,7 +7,9 @@ import { machineApi, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, Dot, MeterRow } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneBackHeader } from '@/components/app/shell'
+import { LoadingLabel, MeterSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { certState, type CertState } from '@/lib/address'
 import { formatBytes, formatLongDate, formatMB, formatPercent } from '@/lib/format'
@@ -24,10 +26,19 @@ export function MachinePage({ id }: { id: string }) {
   const m = ws.machines.find((x) => x.id === id) ?? (ws.machine?.id === id ? ws.machine : undefined)
   const { catalog } = useCatalog(m?.id)
   const address = useAddress(m?.id)
-  if (!m) {
+  if (!m && ws.machines.length) {
     return (
       <PageBody>
-        <p className="text-sm text-muted-foreground">{ws.machines.length ? t('machine.notFound') : t('common.loading')}</p>
+        <p className="text-sm text-muted-foreground">{t('machine.notFound')}</p>
+      </PageBody>
+    )
+  }
+  if (!m) {
+    return (
+      <PageBody className="grid gap-4 lg:grid-cols-2">
+        <LoadingLabel />
+        <Skeleton className="h-64 rounded-3xl" />
+        <Skeleton className="h-64 rounded-3xl" />
       </PageBody>
     )
   }
@@ -61,8 +72,10 @@ export function MachinePage({ id }: { id: string }) {
               <MeterRow label={t('machine.memory')} value={t('home.ofTotal', { used: formatMB(reserved), total: formatMB(live.memoryTotalMB) })} percent={live.memoryTotalMB ? (reserved / live.memoryTotalMB) * 100 : 0} />
               <MeterRow label={t('machine.disk')} value={t('home.diskFree', { free: formatBytes(live.diskFreeBytes) })} percent={diskUsed} />
             </div>
+          ) : ws.agentDown ? (
+            <p className="mt-3 text-[13px] text-muted-foreground">{t('nav.notAnswering')}</p>
           ) : (
-            <p className="mt-3 text-[13px] text-muted-foreground">{ws.agentDown ? t('nav.notAnswering') : t('common.loading')}</p>
+            <MeterSkeleton className="mt-4" />
           )}
           {address && <CertificateLine id={m.id} address={address} />}
           <div className="mt-auto flex flex-wrap justify-between gap-2 border-t border-border pt-3 text-xs text-muted-foreground">

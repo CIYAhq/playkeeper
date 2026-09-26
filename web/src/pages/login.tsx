@@ -96,7 +96,7 @@ function PasswordStep({ username, setUsername, error, setError, onAnswer }: { us
               {error}
             </p>
           )}
-          <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabled={!username.trim() || !password}>
+          <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabledReason={username.trim() && password ? undefined : t('reason.fillIn')}>
             <LogInIcon />
             {busy ? t('login.submitting') : t('login.submit')}
           </Button>

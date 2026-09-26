@@ -4,6 +4,8 @@ import type { MetricsResponse, ServerStatus } from '@/api/types'
 import { serverApi } from '@/api/workspace'
 import { Card, CardTitle } from '@/components/app/bits'
 import { Segmented } from '@/components/app/controls'
+import { LoadingLabel } from '@/components/app/skeletons'
+import { Skeleton } from '@/components/ui/skeleton'
 import { formatLocale, t, type MessageKey } from '@/i18n'
 import { niceMax, regroup, ticks, type Bar } from '@/lib/chart'
 import { formatClock, formatDate, formatDateTime } from '@/lib/format'
@@ -14,6 +16,8 @@ export type ChartRange = '24h' | '7d' | '30d'
 
 // The agent's buckets are 10 minutes, 1 hour and 6 hours; bars are wider.
 const factors: Record<ChartRange, number> = { '24h': 6, '7d': 3, '30d': 2 }
+
+const skeletonBars = ['h-[20%]', 'h-[35%]', 'h-[25%]', 'h-[50%]', 'h-[40%]', 'h-[65%]', 'h-[55%]', 'h-[30%]', 'h-[45%]', 'h-[70%]', 'h-[60%]', 'h-[35%]', 'h-[25%]', 'h-[40%]', 'h-[55%]', 'h-[75%]', 'h-[50%]', 'h-[30%]', 'h-[45%]', 'h-[35%]', 'h-[20%]', 'h-[30%]', 'h-[50%]', 'h-[40%]']
 
 function label(bar: Bar, range: ChartRange, index: number, count: number): string | undefined {
   const d = new Date(bar.start)
@@ -91,6 +95,19 @@ export function PlayersChart({ server, className }: { server: ServerStatus; clas
               ))}
             </tbody>
           </table>
+        </div>
+      ) : !m.data ? (
+        <div className="mt-4 flex gap-2">
+          <LoadingLabel />
+          <div className="w-4 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="flex h-[130px] items-end gap-[3px] border-b border-border">
+              {skeletonBars.map((h, i) => (
+                <Skeleton key={i} className={cn('min-w-0 flex-1 rounded-b-none', h)} />
+              ))}
+            </div>
+            <div className="mt-1.5 h-4" />
+          </div>
         </div>
       ) : (
         <div className="mt-4 flex gap-2" role="img" aria-label={t('overview.chartAriaPlain', { title: t(titleKey) })}>
