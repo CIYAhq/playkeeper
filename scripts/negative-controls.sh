@@ -487,6 +487,30 @@ control "install --join says only the join is left after a lost answer" cmd/play
   'case errors.As(err, &unfinished):' \
   'case false && errors.As(err, &unfinished):' \
   ./cmd/playkeeper '^TestInstallingToJoinWithoutAnAnswerSaysOnlyTheJoinIsLeft$'
+control "a reply that keeps coming may outlast the link's time limit" internal/machinelink/hub.go \
+  'func (w *waitLimit) leave() {
+	if w == nil {' \
+  'func (w *waitLimit) leave() {
+	if true {' \
+  ./internal/machinelink '^TestLinkTimeLimitsCountOnlyWaitingOnTheMachine$'
+control "a reply that stops coming still ends at the link's time limit" internal/machinelink/hub.go \
+  'if w.away--; w.away == 0 && !w.ended {' \
+  'if w.away--; false && !w.ended {' \
+  ./internal/machinelink '^TestLinkTimeLimitsCountOnlyWaitingOnTheMachine$'
+control "waiting for a request body's own source doesn't count against the machine" internal/machinelink/hub.go \
+  'b.wait.leave()
+	n, err := b.rc.Read(p)
+	b.wait.back()' \
+  'n, err := b.rc.Read(p)' \
+  ./internal/machinelink '^TestLinkTimeLimitsCountOnlyWaitingOnTheMachine$'
+control "a joined machine takes data packs bigger than a request" internal/agent/link.go \
+  '"POST /v1/servers/{id}/datapacks":             true,' \
+  '"POST /v1/servers/{id}/datapacks":             false,' \
+  ./internal/panel '^TestAJoinedMachineTakesBigPacks$'
+control "a joined machine takes resource packs bigger than a request" internal/agent/link.go \
+  '"POST /v1/servers/{id}/resourcepack":          true,' \
+  '"POST /v1/servers/{id}/resourcepack":          false,' \
+  ./internal/panel '^TestAJoinedMachineTakesBigPacks$'
 control "the dashboard keeps wrong join codes in panel.db" internal/panel/linkstore.go \
   '	for _, f := range fails {
 		network := ""' \

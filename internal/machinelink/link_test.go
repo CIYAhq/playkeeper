@@ -356,6 +356,69 @@ func TestLinkTimeLimits(t *testing.T) {
 	}
 }
 
+// slowSource gives its chunks with a pause before each, as a browser that
+// uploads slowly does.
+type slowSource struct {
+	chunks []string
+	pause  time.Duration
+}
+
+func (s *slowSource) Read(p []byte) (int, error) {
+	if len(s.chunks) == 0 {
+		return 0, io.EOF
+	}
+	time.Sleep(s.pause)
+	n := copy(p, s.chunks[0])
+	s.chunks = s.chunks[1:]
+	return n, nil
+}
+
+// The time limit of a request that is not a stream counts only waiting on
+// the machine: an answer that keeps coming, one read slowly, or a request
+// body from a slow source may all take longer. An answer that stops coming
+// still ends at the limit.
+func TestLinkTimeLimitsCountOnlyWaitingOnTheMachine(t *testing.T) {
+	const limit = 300 * time.Millisecond
+	th := startHub(t, func(o *HubOptions) { o.RequestTimeout = limit })
+	m := th.linkMachine(t, "home", nil)
+
+	start := time.Now()
+	if _, body, err := sendRead(m.rt, "GET", "/v1/test/trickle", ""); err != nil || body != strings.Repeat("tick\n", 12) || time.Since(start) < 2*limit {
+		t.Fatalf("an answer that keeps coming: %q, %v after %s", body, err, time.Since(start))
+	}
+
+	m.agent.bigBytes.Store(64 << 10)
+	resp, err := send(m.rt, "GET", "/v1/test/big", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, buf := 0, make([]byte, 32<<10)
+	for err == nil {
+		time.Sleep(limit + limit/2)
+		var n int
+		n, err = resp.Body.Read(buf)
+		got += n
+	}
+	resp.Body.Close()
+	if err != io.EOF || got != 64<<10 {
+		t.Fatalf("an answer read slowly: %d bytes, %v", got, err)
+	}
+
+	resp, err = send(m.rt, "POST", "/v1/servers/abc/settings", "alice", &slowSource{chunks: []string{"{", `"motd":"hi"`, "}"}, pause: limit + limit/2})
+	if err != nil || resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("a request body from a slow source: %v, %v", resp, err)
+	}
+	resp.Body.Close()
+
+	_, body, err := sendRead(m.rt, "GET", "/v1/test/stall", "")
+	if e := wantCode(t, err, CodeTimeout); body != "first\n" || !strings.Contains(e.Msg, "didn't answer") {
+		t.Fatalf("an answer that stops coming: %q, %v", body, e)
+	}
+	if !th.Connected(m.d.MachineID) {
+		t.Fatal("the link dropped")
+	}
+}
+
 // On a link the dashboard is the HTTP/2 client: whatever a machine sends
 // as requests is never served.
 func TestMachineCannotSendRequests(t *testing.T) {

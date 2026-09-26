@@ -85,6 +85,8 @@ func testRoutes() []Route {
 		{Method: "POST", Pattern: "/v1/restore/upload", Stream: true},
 		{Method: "GET", Pattern: "/v1/test/big"},
 		{Method: "GET", Pattern: "/v1/test/slow"},
+		{Method: "GET", Pattern: "/v1/test/trickle"},
+		{Method: "GET", Pattern: "/v1/test/stall"},
 		{Method: "GET", Pattern: "/v1/test/headers"},
 		{Method: "GET", Pattern: "/v1/test/redirect"},
 		{Method: "GET", Pattern: "/v1/test/abort"},
@@ -371,6 +373,22 @@ func (a *fakeAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	mux.HandleFunc("GET /v1/test/slow", func(w http.ResponseWriter, r *http.Request) {
 		a.slowStarted <- struct{}{}
+		<-r.Context().Done()
+	})
+	mux.HandleFunc("GET /v1/test/trickle", func(w http.ResponseWriter, r *http.Request) {
+		for range 12 {
+			io.WriteString(w, "tick\n")
+			http.NewResponseController(w).Flush()
+			select {
+			case <-time.After(50 * time.Millisecond):
+			case <-r.Context().Done():
+				return
+			}
+		}
+	})
+	mux.HandleFunc("GET /v1/test/stall", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "first\n")
+		http.NewResponseController(w).Flush()
 		<-r.Context().Done()
 	})
 	mux.HandleFunc("GET /v1/test/headers", func(w http.ResponseWriter, r *http.Request) {

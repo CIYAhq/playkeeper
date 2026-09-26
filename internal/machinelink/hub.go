@@ -47,8 +47,10 @@ type HubOptions struct {
 	// handshake is done (3s).
 	HandshakeTimeout time.Duration
 	HelloTimeout     time.Duration
-	// RequestTimeout bounds a whole request that is not a stream (60s),
-	// and MaxResponseBytes the size of its answer (16 MiB).
+	// RequestTimeout bounds how long a request that is not a stream waits
+	// on the machine at a time: for its answer to begin, then for each
+	// next part (60s). MaxResponseBytes bounds the size of that answer
+	// (16 MiB).
 	RequestTimeout   time.Duration
 	MaxResponseBytes int64
 	// OfflineAfter is how long a machine may be away before its status
@@ -948,12 +950,10 @@ func (t *machineTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		return fail(errNotConnected(t.id, name))
 	}
 	parent := req.Context()
-	var ctx context.Context
-	var cancel context.CancelFunc
-	if route.Stream {
-		ctx, cancel = context.WithCancel(parent)
-	} else {
-		ctx, cancel = context.WithTimeout(parent, h.opts.RequestTimeout)
+	ctx, cancel := context.WithCancel(parent)
+	var wait *waitLimit
+	if !route.Stream {
+		wait = newWaitLimit(h.opts.RequestTimeout, cancel)
 	}
 	out := req.Clone(ctx)
 	out.URL = &url.URL{Scheme: "http", Host: s.host, Path: req.URL.Path, RawQuery: req.URL.RawQuery}
@@ -968,11 +968,12 @@ func (t *machineTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 	var body *requestBody
 	if out.Body != nil && out.Body != http.NoBody {
-		body = &requestBody{rc: out.Body}
+		body = &requestBody{rc: out.Body, wait: wait}
 		out.Body = body
 	}
 	resp, err := s.cc.RoundTrip(out)
 	if err != nil {
+		wait.end()
 		cancel()
 		if body != nil {
 			body.Close()
@@ -980,8 +981,9 @@ func (t *machineTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 				return nil, err
 			}
 		}
-		return nil, t.mapErr(s, name, parent, ctx, err)
+		return nil, t.mapErr(s, name, parent, wait, err)
 	}
+	wait.leave()
 	stripHeaders(resp.Header)
 	resp.Header.Del("Set-Cookie")
 	if route.Stream {
@@ -990,19 +992,20 @@ func (t *machineTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 	if resp.ContentLength > h.opts.MaxResponseBytes {
 		resp.Body.Close()
+		wait.end()
 		cancel()
 		return nil, errTooLarge(name, h.opts.MaxResponseBytes)
 	}
-	resp.Body = &limitedBody{rc: resp.Body, left: h.opts.MaxResponseBytes, ctx: ctx, parent: parent, cancel: cancel,
+	resp.Body = &limitedBody{rc: resp.Body, left: h.opts.MaxResponseBytes, parent: parent, wait: wait, cancel: cancel,
 		tooLarge: errTooLarge(name, h.opts.MaxResponseBytes), timeout: errTimeout(name, h.opts.RequestTimeout)}
 	return resp, nil
 }
 
-func (t *machineTransport) mapErr(s *session, name string, parent, ctx context.Context, err error) error {
+func (t *machineTransport) mapErr(s *session, name string, parent context.Context, wait *waitLimit, err error) error {
 	switch {
 	case parent.Err() != nil:
 		return parent.Err()
-	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+	case wait.timedOut():
 		return errTimeout(name, t.hub.opts.RequestTimeout)
 	case s.isDone() && errors.Is(s.reason, errRevoked):
 		return errRemoved(t.id, name)
@@ -1017,9 +1020,11 @@ func (t *machineTransport) mapErr(s *session, name string, parent, ctx context.C
 
 // requestBody lets RoundTrip close a request body that HTTP/2 may have
 // closed already (some of its errors leave the body open), and tell the
-// body's own errors from the link's.
+// body's own errors from the link's. Waiting for the body's own source
+// doesn't count as waiting on the machine.
 type requestBody struct {
 	rc   io.ReadCloser
+	wait *waitLimit
 	once sync.Once
 	cerr error
 
@@ -1028,7 +1033,9 @@ type requestBody struct {
 }
 
 func (b *requestBody) Read(p []byte) (int, error) {
+	b.wait.leave()
 	n, err := b.rc.Read(p)
+	b.wait.back()
 	if err != nil && err != io.EOF {
 		b.mu.Lock()
 		if b.rerr == nil {
@@ -1050,16 +1057,17 @@ func (b *requestBody) readErr() error {
 	return b.rerr
 }
 
-// limitedBody ends a reply that grows past its limit or outlives its
-// request's time limit.
+// limitedBody ends a reply that grows past its limit, or that keeps the
+// reader waiting past its request's time limit.
 type limitedBody struct {
-	rc          io.ReadCloser
-	left        int64
-	ctx, parent context.Context
-	cancel      context.CancelFunc
-	tooLarge    error
-	timeout     error
-	err         error
+	rc       io.ReadCloser
+	left     int64
+	parent   context.Context
+	wait     *waitLimit
+	cancel   context.CancelFunc
+	tooLarge error
+	timeout  error
+	err      error
 }
 
 func (b *limitedBody) Read(p []byte) (int, error) {
@@ -1068,7 +1076,7 @@ func (b *limitedBody) Read(p []byte) (int, error) {
 	}
 	if b.left <= 0 {
 		var one [1]byte
-		n, err := b.rc.Read(one[:])
+		n, err := b.read(one[:])
 		if n > 0 {
 			b.err = b.tooLarge
 			return 0, b.err
@@ -1078,13 +1086,19 @@ func (b *limitedBody) Read(p []byte) (int, error) {
 	if int64(len(p)) > b.left {
 		p = p[:b.left]
 	}
-	n, err := b.rc.Read(p)
+	n, err := b.read(p)
 	b.left -= int64(n)
 	return n, b.fix(err)
 }
 
+func (b *limitedBody) read(p []byte) (int, error) {
+	b.wait.back()
+	defer b.wait.leave()
+	return b.rc.Read(p)
+}
+
 func (b *limitedBody) fix(err error) error {
-	if err != nil && err != io.EOF && b.parent.Err() == nil && b.ctx.Err() == context.DeadlineExceeded {
+	if err != nil && err != io.EOF && b.parent.Err() == nil && b.wait.timedOut() {
 		b.err = b.timeout
 		return b.err
 	}
@@ -1093,8 +1107,107 @@ func (b *limitedBody) fix(err error) error {
 
 func (b *limitedBody) Close() error {
 	err := b.rc.Close()
+	b.wait.end()
 	b.cancel()
 	return err
+}
+
+// waitLimit cancels a request that waits on the machine for longer than
+// limit at a time: for its answer to begin, then for each next part. Time
+// the dashboard spends away (reading a request body from its own source,
+// or handling what already arrived) doesn't count, so an answer that keeps
+// coming, or one read slowly, is never cut off. A nil waitLimit never
+// cancels.
+type waitLimit struct {
+	limit  time.Duration
+	cancel context.CancelFunc
+
+	mu    sync.Mutex
+	away  int // callers doing something other than waiting on the machine
+	gen   int // the countdown that may still fire
+	timer *time.Timer
+	ended bool
+	fired bool
+}
+
+func newWaitLimit(limit time.Duration, cancel context.CancelFunc) *waitLimit {
+	w := &waitLimit{limit: limit, cancel: cancel}
+	w.mu.Lock()
+	w.arm()
+	w.mu.Unlock()
+	return w
+}
+
+// arm starts the countdown over; w.mu is held.
+func (w *waitLimit) arm() {
+	w.gen++
+	gen := w.gen
+	w.timer = time.AfterFunc(w.limit, func() { w.fire(gen) })
+}
+
+// disarm stops the countdown; w.mu is held. A timer that already fired
+// finds its countdown gone.
+func (w *waitLimit) disarm() {
+	w.gen++
+	w.timer.Stop()
+}
+
+func (w *waitLimit) fire(gen int) {
+	w.mu.Lock()
+	if w.ended || gen != w.gen {
+		w.mu.Unlock()
+		return
+	}
+	w.fired, w.ended = true, true
+	w.mu.Unlock()
+	w.cancel()
+}
+
+// leave says a caller stops waiting on the machine for now.
+func (w *waitLimit) leave() {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.away++; w.away == 1 && !w.ended {
+		w.disarm()
+	}
+}
+
+// back says a caller waits on the machine again.
+func (w *waitLimit) back() {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.away--; w.away == 0 && !w.ended {
+		w.arm()
+	}
+}
+
+// end stops the countdown for good.
+func (w *waitLimit) end() {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.ended {
+		w.ended = true
+		w.disarm()
+	}
+}
+
+// timedOut reports whether the machine kept the request waiting too long.
+func (w *waitLimit) timedOut() bool {
+	if w == nil {
+		return false
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.fired
 }
 
 // streamBody is a streamed reply, which has no time limit; closing it

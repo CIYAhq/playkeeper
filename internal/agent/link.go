@@ -3,11 +3,14 @@ package agent
 import "github.com/CIYAhq/playkeeper/internal/machinelink"
 
 // streamed are the routes whose bodies are large or open-ended: backup
-// downloads and uploads.
+// downloads and uploads, and data and resource pack uploads (up to
+// packs.ResourcePackMaxBytes).
 var streamed = map[string]bool{
 	"GET /v1/servers/{id}/backups/{bid}/download": true,
 	"POST /v1/servers/{id}/restore/upload":        true,
 	"POST /v1/restore/upload":                     true,
+	"POST /v1/servers/{id}/datapacks":             true,
+	"POST /v1/servers/{id}/resourcepack":          true,
 }
 
 // LinkRoutes is the route table as data, for machine links: a dashboard may
