@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 )
 
@@ -51,6 +52,8 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"AddonRemovePreview": AddonRemovePreview{}, "AddonRemoval": AddonRemoval{}, "Addons": Addons{}, "AddonStep": AddonStep{},
 		"AddonTarget": AddonTarget{}, "AddonUpdate": AddonUpdate{}, "AddonVersion": AddonVersion{}, "DataPack": DataPack{}, "DataPacks": DataPacks{},
 		"Pregen": Pregen{}, "PregenPreset": PregenPreset{}, "ResourcePack": ResourcePack{}, "ResourcePackOffer": ResourcePackOffer{},
+		"Crash": Crash{}, "CrashLine": CrashLine{}, "DiagnosisAction": DiagnosisAction{}, "DiagnosisEvidence": DiagnosisEvidence{}, "FileRefusal": FileRefusal{},
+		"LagCause": LagCause{}, "MemoryAdvice": MemoryAdvice{}, "MemoryDay": MemoryDay{}, "MemoryOption": MemoryOption{}, "Running": Running{},
 	}
 	addedByPanel := map[string]bool{"ServerStatus.machineId": true, "AuditEntry.source": true}
 	field := regexp.MustCompile(`(?m)^  (\w+)\??:`)
@@ -75,7 +78,11 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 
 func TestErrorCodesTheDashboardChecksForExist(t *testing.T) {
 	codes := map[string]bool{}
-	for _, c := range []string{CodeInvalid, CodeEULARequired, CodeBusy, CodeNotFound, CodeConflict, CodeNotCreated, CodeDockerUnavailable, CodeForbidden, CodeUnauthorized, CodeRateLimited, CodeInternal, CodeAgentUnavailable, CodeInsufficientSpace, CodeIconInvalid, pregen.CodeUnsupportedServer} {
+	sent := []string{CodeInvalid, CodeEULARequired, CodeBusy, CodeNotFound, CodeConflict, CodeNotCreated, CodeDockerUnavailable, CodeForbidden, CodeUnauthorized, CodeRateLimited, CodeInternal, CodeAgentUnavailable, CodeInsufficientSpace, CodeIconInvalid, pregen.CodeUnsupportedServer}
+	for _, k := range []gamefiles.Kind{gamefiles.KindLink, gamefiles.KindSpecial, gamefiles.KindNotFile, gamefiles.KindNotFolder, gamefiles.KindTooLarge, gamefiles.KindTooMany, gamefiles.KindChanged, gamefiles.KindBadName} {
+		sent = append(sent, string(k))
+	}
+	for _, c := range sent {
 		if codes[c] {
 			t.Errorf("error code %q is used twice", c)
 		}
