@@ -2517,6 +2517,30 @@ control "only the dropped backups' unfinished copies are discarded" internal/age
   's.discardUploads(append(s.queuedStates(), dropped...))' \
   ./internal/agent '^TestABackupDroppedFromAFullQueueDiscardsWhatItLeftAtTheDestination$/^S3$'
 
+# Wave 7 after Bugbot's finding on ee0e519: the uploader claims the copy it
+# picks as it picks it, the queue trim leaves the claimed copy alone, and
+# turning copies off between the pick and the upload stops the copy.
+control "the queue trim leaves the copy the uploader claimed alone" internal/agent/offsite.go \
+  'claimed = c.backupID' \
+  '_ = c' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$'
+control "the uploader's claim names the copy it picked" internal/agent/offsite.go \
+  's.auto.claim = &uploadClaim{backupID: j.backupID, cancel: cancel}' \
+  's.auto.claim = &uploadClaim{cancel: cancel}' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^SFTP$'
+control "a claimed copy uploads under the claim's cancel" internal/agent/offsite.go \
+  'cp, err := dest.Upload(job.ctx,' \
+  'cp, err := dest.Upload(ctx,' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
+control "turning copies off stops the copy the uploader claimed" internal/agent/offsite.go \
+  'func (s *server) stopUpload() {
+	s.auto.mu.Lock()
+	c := s.auto.claim' \
+  'func (s *server) stopUpload() {
+	s.auto.mu.Lock()
+	var c *uploadClaim' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
