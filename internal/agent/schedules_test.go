@@ -99,7 +99,9 @@ func TestAScheduleListsItsRetryOnlyWhileTheRunnerPlansIt(t *testing.T) {
 // time that starts afresh is in the dashboard's zone.
 func TestAutomaticBackupsKeepTheirTimeZoneWhileTheyKeepTheirTime(t *testing.T) {
 	const ny, tokyo = "America/New_York", "Asia/Tokyo"
-	daily := func(at, tz string) schedule.Timing { return schedule.Timing{Kind: schedule.Daily, At: at, TimeZone: tz} }
+	daily := func(at, tz string) schedule.Timing {
+		return schedule.Timing{Kind: schedule.Daily, At: at, TimeZone: tz}
+	}
 	every := func(h int, at, tz string) schedule.Timing {
 		return schedule.Timing{Kind: schedule.Interval, EveryHours: h, At: at, TimeZone: tz}
 	}
