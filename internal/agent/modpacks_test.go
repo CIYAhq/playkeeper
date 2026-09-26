@@ -6,6 +6,7 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,6 +46,13 @@ func (f *fakeUpstream) serveJSON(rawURL string, v any) {
 // fake Modrinth.
 func (f *fakeUpstream) servePack() *fakePack {
 	f.t.Helper()
+	return f.servePackWith(nil)
+}
+
+// servePackWith is servePack with more files in the pack's archive, by
+// their path in it.
+func (f *fakeUpstream) servePackWith(extra map[string][]byte) *fakePack {
+	f.t.Helper()
 	p := &fakePack{mods: map[string][]byte{}}
 	var files []map[string]any
 	for _, m := range []struct{ project, name string }{{"WAYS0001", "waystones"}, {"CHNK0001", "chunky"}} {
@@ -63,9 +71,11 @@ func (f *fakeUpstream) servePack() *fakePack {
 	if err != nil {
 		f.t.Fatal(err)
 	}
+	entries := map[string][]byte{"modrinth.index.json": index, "overrides/config/testpack.toml": []byte("spawn = true\n")}
+	maps.Copy(entries, extra)
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	for name, body := range map[string][]byte{"modrinth.index.json": index, "overrides/config/testpack.toml": []byte("spawn = true\n")} {
+	for name, body := range entries {
 		w, err := zw.Create(name)
 		if err != nil {
 			f.t.Fatal(err)
@@ -217,6 +227,40 @@ func TestCreateFromModpack(t *testing.T) {
 		t.Fatalf("delete: %d", code)
 	}
 	e.waitFor("the record to go", func() bool { return e.countRows(`SELECT COUNT(*) FROM modpacks`) == 0 })
+}
+
+// packProperties is the server.properties a pack ships: settings it may
+// suggest, and ones about reaching the server, operators and the server list
+// that Playkeeper never takes from a pack.
+const packProperties = "#Minecraft server properties\nallow-flight=true\nspawn-protection=0\ngenerator-settings={\"biome\"\\:\"minecraft\\:plains\"}\nonline-mode=false\nop-permission-level=4\nmotd=Hacked\n"
+
+// A pack's suggested settings reach server.properties when the pack is
+// installed; everything else it ships there is left out.
+func TestCreateFromModpackTakesItsSuggestedSettings(t *testing.T) {
+	e := newAgentEnv(t)
+	e.up.servePackWith(map[string][]byte{"overrides/server.properties": []byte(packProperties)})
+	code, out := e.startCreate(packCreate)
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("create failed: %+v", op)
+	}
+	b, err := os.ReadFile(filepath.Join(e.dataDir(), "server.properties"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(b)
+	for _, want := range []string{"allow-flight=true\n", "spawn-protection=0\n", "generator-settings={\"biome\"\\:\"minecraft\\:plains\"}\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("server.properties lacks %q:\n%s", want, got)
+		}
+	}
+	for _, never := range []string{"online-mode", "op-permission-level", "Hacked"} {
+		if strings.Contains(got, never) {
+			t.Errorf("server.properties took %q from the pack:\n%s", never, got)
+		}
+	}
 }
 
 func TestCreateFromModpackTriesAgainOnTheNextStart(t *testing.T) {

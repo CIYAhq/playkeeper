@@ -313,6 +313,62 @@ func TestGameFilesAreReadWithoutFollowingLinks(t *testing.T) {
 	}
 }
 
+// A plugin or mod can put a link to one of Playkeeper's own files where a
+// modpack's suggested settings go (security review H4). Installing the pack
+// stops with a message naming server.properties; the file the link leads to
+// is neither copied into the server's files nor written, and nothing of the
+// pack is installed. Once the link is gone the pack's settings are saved.
+func TestPackSettingsAreNotReadOrWrittenThroughALink(t *testing.T) {
+	e := newAgentEnv(t)
+	p := e.up.servePackWith(map[string][]byte{"overrides/server.properties": []byte(packProperties)})
+	e.up.remove(p.modURLs[1])
+	_, out := e.startCreate(packCreate)
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed {
+		t.Fatalf("the first start, with a mod missing: %+v", op)
+	}
+	e.up.serve(p.modURLs[1], p.mods[p.modURLs[1]])
+	host := e.hostFiles()
+	props := filepath.Join(e.dataDir(), "server.properties")
+	if err := os.RemoveAll(props); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(host, "link.key"), props); err != nil {
+		t.Fatal(err)
+	}
+	before := tree(t, host)
+	time.Sleep(20 * time.Millisecond)
+	op := e.act("start")
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "server.properties in the server's files is a link") {
+		t.Fatalf("installing the pack with a link at server.properties: %+v", op)
+	}
+	if r := e.status().Refusal; r == nil || r.Code != "link" || r.Params["path"] != "server.properties" {
+		t.Fatalf("the status after the refused install: %+v", r)
+	}
+	if after := tree(t, host); !maps.Equal(after, before) {
+		t.Fatalf("the link at server.properties changed what it leads to:\n%v\nwas\n%v", after, before)
+	}
+	if target, err := os.Readlink(props); err != nil || target != filepath.Join(host, "link.key") {
+		t.Fatalf("the link was replaced: %q %v", target, err)
+	}
+	if _, err := os.Stat(filepath.Join(e.dataDir(), "mods")); !os.IsNotExist(err) {
+		t.Fatalf("mods were installed before the settings were saved: %v", err)
+	}
+	if sc, _ := e.srv().serverConfig(); sc.Modpack == nil || !sc.Modpack.Pending {
+		t.Fatalf("the pack is still to install: %+v", sc.Modpack)
+	}
+
+	if err := os.Remove(props); err != nil {
+		t.Fatal(err)
+	}
+	if op := e.act("start"); op.Status != api.OpSucceeded {
+		t.Fatalf("start once the link is gone: %+v", op)
+	}
+	b, err := os.ReadFile(props)
+	if err != nil || !strings.Contains(string(b), "allow-flight=true\n") || strings.Contains(string(b), "difficulty=hard") {
+		t.Fatalf("server.properties after the install: %q %v", b, err)
+	}
+}
+
 // A plugin can truncate the server's jar to a terabyte of holes. The start
 // doesn't spend hours hashing it: it's too large to be the software
 // Playkeeper installed, so the start stops at once and says the software

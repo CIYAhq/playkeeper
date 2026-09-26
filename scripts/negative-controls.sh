@@ -581,6 +581,22 @@ control "packs cannot suggest operator or function permission levels" internal/m
   '"force-gamemode", "gamemode",' \
   '"force-gamemode", "function-permission-level", "op-permission-level", "gamemode",' \
   ./internal/modpacks '^TestPacksCannotSuggestPermissionLevels$'
+control "a pack's settings are read and written without following a link" internal/agent/modpacks.go \
+  'cur, err := d.ReadProperties()
+	if errors.Is(err, fs.ErrNotExist) {
+		cur, err = nil, nil
+	}
+	if err == nil {
+		err = d.WriteProperties(mergeProperties(cur, props))
+	}' \
+  'cur, err := os.ReadFile(filepath.Join(s.dataDir(), "server.properties"))
+	if errors.Is(err, fs.ErrNotExist) {
+		cur, err = nil, nil
+	}
+	if err == nil {
+		err = os.WriteFile(filepath.Join(s.dataDir(), "server.properties"), mergeProperties(cur, props), 0o640)
+	}' \
+  ./internal/agent '^TestPackSettingsAreNotReadOrWrittenThroughALink$'
 control "server software is written inside the data directory's root" internal/minecraft/software/files.go \
   'f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
   'f, err := os.OpenFile(root.Name()+"/"+tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \

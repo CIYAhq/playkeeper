@@ -6,10 +6,13 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/gamefiles"
@@ -144,6 +147,71 @@ func readProperties(dataDir string) map[string]string {
 		}
 	}
 	return out
+}
+
+// mergeProperties sets keys in a server.properties file and keeps its other
+// lines as they are. Keys it doesn't have yet are added at the end, sorted.
+func mergeProperties(cur []byte, set map[string]string) []byte {
+	var b bytes.Buffer
+	done := map[string]bool{}
+	for line := range strings.SplitAfterSeq(string(cur), "\n") {
+		k := propertyKey(line)
+		if _, ok := set[k]; ok {
+			// Java keeps a key's last line; Playkeeper writes the key once.
+			if !done[k] {
+				fmt.Fprintf(&b, "%s=%s\n", k, escapeProperty(set[k]))
+				done[k] = true
+			}
+			continue
+		}
+		b.WriteString(line)
+		if line != "" && !strings.HasSuffix(line, "\n") {
+			b.WriteByte('\n')
+		}
+	}
+	for _, k := range slices.Sorted(maps.Keys(set)) {
+		if !done[k] {
+			fmt.Fprintf(&b, "%s=%s\n", k, escapeProperty(set[k]))
+		}
+	}
+	return b.Bytes()
+}
+
+// propertyKey is the key of a server.properties line; "" for comments and
+// blank lines.
+func propertyKey(line string) string {
+	l := strings.TrimLeft(line, " \t\f")
+	if l == "" || l[0] == '#' || l[0] == '!' {
+		return ""
+	}
+	if i := strings.IndexAny(l, "=: \t\f\r\n"); i > 0 {
+		return l[:i]
+	}
+	return strings.TrimRight(l, "\r\n")
+}
+
+// escapeProperty writes a value the way Java's Properties.store does, so
+// Minecraft reads back exactly the value: separators, comment marks and a
+// leading space are escaped, and anything outside printable ASCII becomes
+// \uXXXX.
+func escapeProperty(v string) string {
+	var b strings.Builder
+	for i, r := range v {
+		switch {
+		case r == ' ' && i == 0:
+			b.WriteString(`\ `)
+		case strings.ContainsRune(`\=:#!`, r):
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case r < 0x20 || r > 0x7e:
+			for _, u := range utf16.Encode([]rune{r}) {
+				fmt.Fprintf(&b, `\u%04X`, u)
+			}
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // effectiveGameplay is what the server runs with: the settings chosen in

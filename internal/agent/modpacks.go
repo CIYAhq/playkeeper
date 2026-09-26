@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -383,6 +384,9 @@ func (s *server) installPendingPack(ctx context.Context, h *opHandle, sc *api.Se
 		return err
 	}
 	h.phase("installing_modpack")
+	if err := s.applyPackSettings(prep.Plan.Properties); err != nil {
+		return err
+	}
 	res, err := prep.Apply(ctx)
 	if err != nil {
 		return packFailure(h, err)
@@ -403,6 +407,33 @@ func (s *server) installPendingPack(ctx context.Context, h *opHandle, sc *api.Se
 			manual = append(manual, apiManual(m))
 		}
 		h.set("manual", manual)
+	}
+	return nil
+}
+
+// applyPackSettings puts the server.properties settings a pack suggests
+// (only ones about how the game plays; see modpacks.suggestible) in the
+// server's server.properties, keeping its other lines. The file is read and
+// written through gamefiles: a plugin or mod can put a link there, and root
+// must not copy what it leads to into a file the game can read.
+func (s *server) applyPackSettings(props map[string]string) error {
+	if len(props) == 0 {
+		return nil
+	}
+	d, err := s.gameFiles()
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	cur, err := d.ReadProperties()
+	if errors.Is(err, fs.ErrNotExist) {
+		cur, err = nil, nil
+	}
+	if err == nil {
+		err = d.WriteProperties(mergeProperties(cur, props))
+	}
+	if err != nil {
+		return gameFileError(err, "The modpack's settings could not be saved, so the server was not started.")
 	}
 	return nil
 }
