@@ -1817,6 +1817,14 @@ control "the shared map's link waits for a certificate that hasn't expired" inte
   'if row == nil || row.status.Certificate == nil || !row.status.Certificate.NotAfter.After(a.now()) {' \
   'if row == nil || row.status.Certificate == nil {' \
   ./internal/agent '^TestSharedMapLinkWaitsForAWorkingName$'
+control "an upload for a new server needs rights over every server" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actCreateServers),' \
+  'mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actManageServers),' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+control "making a server from an upload needs rights over every server" internal/panel/server.go \
+  'needSessionCSRF, actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
+  'needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

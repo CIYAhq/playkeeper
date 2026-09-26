@@ -361,7 +361,8 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/discord/test", needSessionCSRF, actManageMachine, s.discordProxy("POST", "/v1/discord/test")},
 	}...)
 	// Wave 6: each server's live map, and worlds people upload, for a new
-	// server or to replace a server's world.
+	// server or to replace a server's world. An upload for a new server, and
+	// making the server from it, need the same rights as creating a server.
 	routes = append(routes, []Route{
 		sg("/api/servers/{id}/map", "/v1/servers/{id}/map"),
 		view("/api/servers/{id}/map/worlds", s.mapProxy("/v1/servers/{id}/map/worlds")),
@@ -372,7 +373,7 @@ func (s *Server) Routes() []Route {
 		sm("POST", "/api/servers/{id}/map/share", "/v1/servers/{id}/map/share"),
 		sm("POST", "/api/servers/{id}/map/restart-later", "/v1/servers/{id}/map/restart-later"),
 		sm("POST", "/api/servers/{id}/world-imports", "/v1/servers/{id}/world-imports"),
-		mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actManageServers),
+		mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actCreateServers),
 		mg("/api/machines/{mid}/world-imports/{imp}", "/v1/world-imports/{imp}"),
 		mm("DELETE", "/api/machines/{mid}/world-imports/{imp}", "/v1/world-imports/{imp}", actManageServers),
 		mm("POST", "/api/machines/{mid}/world-imports/{imp}/files", "/v1/world-imports/{imp}/files", actManageServers),
@@ -380,7 +381,7 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/machines/{mid}/world-imports/{imp}/inspect", needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/inspect")},
 		{"POST", "/api/machines/{mid}/world-imports/{imp}/preview", needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/preview")},
 		{"POST", "/api/machines/{mid}/world-imports/{imp}/apply", needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/apply")},
-		{"POST", "/api/machines/{mid}/world-imports/{imp}/create", needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/create")},
+		{"POST", "/api/machines/{mid}/world-imports/{imp}/create", needSessionCSRF, actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create")},
 	}...)
 	return routes
 }
