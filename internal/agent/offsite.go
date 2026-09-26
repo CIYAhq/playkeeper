@@ -395,6 +395,30 @@ type offsiteCopy struct {
 	CopiedAt         time.Time `json:"copiedAt"`
 	Checked          string    `json:"checked"`
 	OnHost           bool      `json:"onHost"`
+	SHA256           string    `json:"sha256,omitempty"`     // the backup's, as recorded
+	CheckError       string    `json:"checkError,omitempty"` // why the last check found the copy missing or damaged
+}
+
+// copyRecord is a copy as offsite_copies keeps it: what its upload reported,
+// and why the last check found it missing or damaged, if it did.
+type copyRecord struct {
+	offsite.Copy
+	CheckError string `json:"checkError,omitempty"`
+}
+
+// copyBackup is the ID of the backup a recorded copy was made from.
+func (s *server) copyBackup(archive string) (string, bool) {
+	var id string
+	return id, s.db.QueryRow(`SELECT backup_id FROM offsite_copies WHERE server_id = ? AND file_name = ?`, s.id, archive).Scan(&id) == nil
+}
+
+func (s *server) copyRecord(archive string) (copyRecord, bool) {
+	var raw string
+	if s.db.QueryRow(`SELECT copy FROM offsite_copies WHERE server_id = ? AND file_name = ?`, s.id, archive).Scan(&raw) != nil {
+		return copyRecord{}, false
+	}
+	var cp copyRecord
+	return cp, json.Unmarshal([]byte(raw), &cp) == nil
 }
 
 // pendingView is the upload in progress, or the next one waiting.
@@ -488,10 +512,11 @@ func (s *server) offsiteCopies() ([]offsiteCopy, error) {
 		if err := rows.Scan(&c.BackupID, &c.Kind, &created, &c.FileName, &c.SizeBytes, &c.MinecraftVersion, &c.LevelName, &raw, &copied); err != nil {
 			return nil, err
 		}
-		var cp offsite.Copy
+		var cp copyRecord
 		_ = json.Unmarshal([]byte(raw), &cp)
 		c.CreatedAt, c.CopiedAt = time.UnixMilli(created).UTC(), time.UnixMilli(copied).UTC()
 		c.Name, c.CopySizeBytes, c.Checked, c.OnHost = offsite.CopyName(c.FileName), cp.Size, cp.Checked, onHost[c.BackupID]
+		c.SHA256, c.CheckError = cp.ArchiveSHA256, cp.CheckError
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -977,60 +1002,26 @@ func (s *server) hOffsiteRestore(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	archive, ok := strings.CutSuffix(strings.TrimSpace(req.Name), ".age")
-	if !ok || !offsite.ValidName(archive) {
-		writeError(w, &apiError{Status: http.StatusBadRequest, Code: api.CodeInvalid, Field: "name", Msg: "That is not the name of a backup's copy."})
+	archive, ok := copyArchive(req.Name)
+	if !ok {
+		writeError(w, notACopy())
 		return
 	}
-	row, err := s.loadOffsite()
+	dest, err := s.copyDest()
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if !row.configured() || !row.hasKeys {
-		writeError(w, errConflict("Copies somewhere else aren't set up for this server.", ""))
-		return
-	}
-	dest, err := s.openDest(row, row.keys)
-	if err != nil {
-		writeError(w, automationError(err))
-		return
-	}
 	op, err := s.beginOp("offsite-restore", actor, func(ctx context.Context, h *opHandle) error {
 		h.set("name", offsite.CopyName(archive))
-		dl := offsite.Download{Name: offsite.CopyName(archive)}
-		var raw string
-		if s.db.QueryRow(`SELECT copy FROM offsite_copies WHERE server_id = ? AND file_name = ?`, s.id, archive).Scan(&raw) == nil {
-			var cp offsite.Copy
-			if json.Unmarshal([]byte(raw), &cp) == nil {
-				dl.Size, dl.SHA256, dl.Recipient, dl.ArchiveSHA256 = cp.Size, cp.SHA256, cp.Recipient, cp.ArchiveSHA256
-			}
-		}
-		if dl.Size == 0 {
-			h.phase("listing")
-			objs, err := dest.List(ctx)
-			if err != nil {
-				return automationError(err)
-			}
-			for _, o := range objs {
-				if o.Name == dl.Name {
-					dl.Size = o.Size
-				}
-			}
-			if dl.Size == 0 {
-				return errNotFound("Copy")
-			}
-		}
 		dir := filepath.Join(s.cfg.StagingDir(), randomSecret(8))
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return err
 		}
 		defer os.RemoveAll(dir)
-		dl.Dir = dir
-		h.phase("downloading")
-		got, err := dest.Download(ctx, dl)
+		got, dl, err := s.fetchCopy(ctx, h, dest, archive, dir)
 		if err != nil {
-			return automationError(err)
+			return err
 		}
 		h.phase("checking")
 		f, err := os.Open(got.Path)
@@ -1056,6 +1047,191 @@ func (s *server) hOffsiteRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, op)
+}
+
+// copyArchive is the backup's file name inside a copy's name, if it is one.
+func copyArchive(name string) (string, bool) {
+	archive, ok := strings.CutSuffix(strings.TrimSpace(name), ".age")
+	return archive, ok && offsite.ValidName(archive)
+}
+
+func notACopy() error {
+	return &apiError{Status: http.StatusBadRequest, Code: api.CodeInvalid, Field: "name", Msg: "That is not the name of a backup's copy."}
+}
+
+// copyDest opens where the server's copies are, for a request about one.
+func (s *server) copyDest() (offsiteDest, error) {
+	row, err := s.loadOffsite()
+	if err != nil {
+		return nil, err
+	}
+	if !row.configured() || !row.hasKeys {
+		return nil, errConflict("Copies somewhere else aren't set up for this server.", "")
+	}
+	dest, err := s.openDest(row, row.keys)
+	if err != nil {
+		return nil, automationError(err)
+	}
+	return dest, nil
+}
+
+// fetchCopy downloads a copy into dir, decrypting it and checking it against
+// its record on the way.
+func (s *server) fetchCopy(ctx context.Context, h *opHandle, dest offsiteDest, archive, dir string) (offsite.Archive, offsite.Download, error) {
+	dl := offsite.Download{Name: offsite.CopyName(archive), Dir: dir}
+	if cp, ok := s.copyRecord(archive); ok {
+		dl.Size, dl.SHA256, dl.Recipient, dl.ArchiveSHA256 = cp.Size, cp.SHA256, cp.Recipient, cp.ArchiveSHA256
+	}
+	if dl.Size == 0 {
+		h.phase("listing")
+		objs, err := dest.List(ctx)
+		if err != nil {
+			return offsite.Archive{}, dl, automationError(err)
+		}
+		for _, o := range objs {
+			if o.Name == dl.Name {
+				dl.Size = o.Size
+			}
+		}
+		if dl.Size == 0 {
+			return offsite.Archive{}, dl, errNotFound("Copy")
+		}
+	}
+	h.phase("downloading")
+	got, err := dest.Download(ctx, dl)
+	if err != nil {
+		return offsite.Archive{}, dl, automationError(err)
+	}
+	return got, dl, nil
+}
+
+// copyAtFault is true when a failed download says the copy itself is missing
+// or damaged, rather than the way to it.
+func copyAtFault(err error) bool {
+	var ae *apiError
+	if !errors.As(err, &ae) {
+		return false
+	}
+	switch offsite.Kind(ae.Reason) {
+	case offsite.KindVerifyFailed, offsite.KindNotFound, offsite.KindKeyMismatch:
+		return true
+	}
+	return ae.Code == api.CodeNotFound
+}
+
+// hOffsiteCheck downloads a copy, decrypts it and checks it against its
+// record as a restore would, then deletes the download. Nothing else changes.
+func (s *server) hOffsiteCheck(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Actor string `json:"actor"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	actor, err := validActor(req.Actor)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	archive, ok := copyArchive(r.PathValue("name"))
+	if !ok {
+		writeError(w, notACopy())
+		return
+	}
+	backupID, ok := s.copyBackup(archive)
+	if !ok {
+		writeError(w, errNotFound("Copy"))
+		return
+	}
+	dest, err := s.copyDest()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	op, err := s.beginOp("offsite-check", actor, func(ctx context.Context, h *opHandle) error {
+		name := offsite.CopyName(archive)
+		h.set("name", name)
+		dir := filepath.Join(s.cfg.StagingDir(), randomSecret(8))
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+		defer os.RemoveAll(dir)
+		got, _, err := s.fetchCopy(ctx, h, dest, archive, dir)
+		switch {
+		case err == nil:
+			s.noteCopyCheck(archive, func(cp *copyRecord) {
+				cp.CheckError = ""
+				if got.Matched {
+					cp.Checked, cp.VerifiedAt = offsite.CheckedDecrypted, s.now().UTC()
+				}
+			})
+			s.audit(actor, "offsite.copy_checked", backupID, "succeeded", name)
+		case copyAtFault(err):
+			s.noteCopyCheck(archive, func(cp *copyRecord) { cp.CheckError = err.Error() })
+			s.audit(actor, "offsite.copy_checked", backupID, "failed", err.Error())
+		}
+		return err
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, op)
+}
+
+func (s *server) noteCopyCheck(archive string, note func(cp *copyRecord)) {
+	cp, ok := s.copyRecord(archive)
+	if !ok {
+		return
+	}
+	note(&cp)
+	raw, _ := json.Marshal(cp)
+	if _, err := s.db.Exec(`UPDATE offsite_copies SET copy = ? WHERE server_id = ? AND file_name = ?`, string(raw), s.id, archive); err != nil {
+		s.log.Warn("a copy's check could not be recorded", "server", s.id, "copy", archive, "err", err)
+	}
+}
+
+// hOffsiteCopyDelete deletes a copy where it is kept, then its record.
+func (s *server) hOffsiteCopyDelete(w http.ResponseWriter, r *http.Request) {
+	actor, err := validActor(r.URL.Query().Get("actor"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	archive, ok := copyArchive(r.PathValue("name"))
+	if !ok {
+		writeError(w, notACopy())
+		return
+	}
+	backupID, ok := s.copyBackup(archive)
+	if !ok {
+		writeError(w, errNotFound("Copy"))
+		return
+	}
+	if s.busy() {
+		writeError(w, s.busyError())
+		return
+	}
+	dest, err := s.copyDest()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	name := offsite.CopyName(archive)
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	if err := dest.Delete(ctx, name); err != nil {
+		s.audit(actor, "offsite.copy_deleted", backupID, "failed", err.Error())
+		writeError(w, automationError(err))
+		return
+	}
+	if _, err := s.db.Exec(`DELETE FROM offsite_copies WHERE server_id = ? AND backup_id = ?`, s.id, backupID); err != nil {
+		writeError(w, err)
+		return
+	}
+	s.audit(actor, "offsite.copy_deleted", backupID, "succeeded", name)
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": name})
 }
 
 // --- the uploader ---

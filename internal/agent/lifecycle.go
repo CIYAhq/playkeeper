@@ -79,7 +79,7 @@ var opLabels = map[string]string{
 	"auto-restart": "an automatic restart after a crash", "delete-backup": "deleting a backup",
 	"update": "a Playkeeper update", "update-version": "updating Minecraft", "delete": "being deleted",
 	// Wave 7 (0.4.0)
-	"sleep": "falling asleep", "wake": "waking up", "disk-cleanup": "freeing disk space", "offsite-restore": "restoring a copy",
+	"sleep": "falling asleep", "wake": "waking up", "disk-cleanup": "freeing disk space", "offsite-restore": "restoring a copy", "offsite-check": "checking a copy",
 }
 
 // machineBusy is the error for a request that has to wait for a machine-wide
