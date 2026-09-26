@@ -3058,7 +3058,6 @@ export const en = {
   'schedules.messageHint': '{minutes} becomes the number.',
   'schedules.skip': 'Skip it if people are playing',
   'schedules.skipHint': 'Tries again an hour later instead.',
-  'schedules.skipBackupHint': 'The server stops for a moment while it backs up. Tries again an hour later instead.',
   'schedules.onlyIfPlayed': 'Only if someone played since the last one',
   'schedules.onlyIfPlayedHint': 'No new backup of a world nobody touched.',
   'schedules.command': 'Command',
