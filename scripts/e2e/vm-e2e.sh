@@ -429,17 +429,31 @@ fetch_cert "$B" "$OUT/cert-$B.pem"
 curl -fsS --cacert "$OUT/cert-$B.pem" "https://$B:8443/healthz" >/dev/null && echo "panel reachable from another host through ufw" | tee -a "$OUT/host-b-ufw.txt"
 
 phase "HOST B: blocked outbound HTTPS gives actionable errors; after unblocking, Start recovers"
+egress() { # block | allow: new outbound HTTP and HTTPS connections from host B
+  local op='-I OUTPUT 1'
+  [ "$1" = allow ] && op='-D OUTPUT'
+  lab_ssh "$B" "for t in iptables ip6tables; do sudo \$t $op -p tcp -m multiport --dports 80,443 -m conntrack --ctstate NEW -j REJECT --reject-with tcp-reset; done"
+}
 pk "$B" setup "$code_b" admin "$PK_PASSWORD" >/dev/null
-lab_ssh "$B" 'for t in iptables ip6tables; do sudo $t -I OUTPUT 1 -p tcp -m multiport --dports 80,443 -m conntrack --ctstate NEW -j REJECT --reject-with tcp-reset; done'
+egress block
 pk "$B" call GET '/api/machines/{machine}/preflight' | python3 -c '
 import json, sys
 for c in json.loads(sys.stdin.read().split("\n", 1)[1])["checks"]:
     fix = " -> Fix: " + c["fix"] if c.get("fix") else ""
     print("[" + c["status"] + "] " + c["label"] + ": " + c["detail"] + fix)' | tee "$OUT/host-b-blocked-egress.txt"
 shoot "$B" state-blocked-egress-check /
+# A new agent has no Paper version list yet, so no server can be created until
+# PaperMC answers. Once the list has loaded, creating a server fails at a
+# download instead, and Start finishes it.
+echo "## creating a server before the version list has loaded" | tee -a "$OUT/host-b-blocked-egress.txt"
+pk "$B" create --version paper-26.1.2 2>&1 | grep -E '"status"|"error"|"hint"' | tee -a "$OUT/host-b-blocked-egress.txt" || true
+egress allow
+pk "$B" call GET '/api/machines/{machine}/catalog' >/dev/null
+egress block
+echo "## the version list loaded while outbound HTTPS was allowed; blocked again, creating the server" | tee -a "$OUT/host-b-blocked-egress.txt"
 pk "$B" create --version paper-26.1.2 | grep -E '"status"|"error"|"hint"' | tee -a "$OUT/host-b-blocked-egress.txt" || true
 shoot "$B" state-blocked-egress-failed /
-lab_ssh "$B" 'for t in iptables ip6tables; do sudo $t -D OUTPUT -p tcp -m multiport --dports 80,443 -m conntrack --ctstate NEW -j REJECT --reject-with tcp-reset; done'
+egress allow
 echo "## outbound HTTPS allowed again; pressing Start as the hint says" | tee -a "$OUT/host-b-blocked-egress.txt"
 pk "$B" action start --wait | grep -E '"kind"|"status"|"error"' | tee -a "$OUT/host-b-blocked-egress.txt"
 wait_online "$B" && echo "server online after the fix" | tee -a "$OUT/host-b-blocked-egress.txt"
