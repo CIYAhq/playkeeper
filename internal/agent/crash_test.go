@@ -523,16 +523,19 @@ func TestOnlyJavaSaysItRanOutOfMemory(t *testing.T) {
 					e.fd.addLog("[03:11:31 INFO]: Stopping server")
 				}
 				e.fd.crash(exit.code)
+				stops := func() int {
+					return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_stopped_externally'`)
+				}
+				e.waitFor("the exit to be judged", func() bool { return stops()+e.crashEvents() > 0 })
 				if !line.oom && exit.stopping {
-					e.waitFor("the stop", func() bool {
-						return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_stopped_externally'`) == 1
-					})
-					if n := e.crashEvents(); n != 0 {
+					if n := e.crashEvents(); n != 0 || stops() != 1 {
 						t.Fatalf("a clean stop was counted as %d crash(es)", n)
 					}
 					return
 				}
-				e.waitFor("the crash", func() bool { return e.crashEvents() == 1 })
+				if n := e.crashEvents(); n != 1 {
+					t.Fatalf("want the exit counted as a crash, got %d crash(es) and %d stop(s)", n, stops())
+				}
 				acts, err := e.a.Activity(e.sid, 10)
 				if err != nil {
 					t.Fatal(err)
