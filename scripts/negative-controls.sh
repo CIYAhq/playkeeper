@@ -1908,8 +1908,8 @@ control "a profile shows a player online only from a fresh sample" internal/agen
   ./internal/agent '^TestProfileShowsOnlineOnlyFromAFreshSample$'
 control "Discord hears a manual backup finish" internal/agent/backups.go \
   '	s.alert(discord.BackupSucceeded(vb.SizeBytes))
-	return nil' \
-  '	return nil' \
+	s.afterBackup(b)' \
+  '	s.afterBackup(b)' \
   ./internal/agent '^TestDiscordOptionalAlertsGoOut$/backup$'
 control "Discord hears an automatic backup finish" internal/agent/backups.go \
   '	s.alert(discord.BackupSucceeded(vb.SizeBytes))
