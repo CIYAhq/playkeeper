@@ -185,7 +185,7 @@ func buildDocs(root fs.FS, s Settings) (*docsBuild, error) {
 		d := pt.doc
 		p := &Page{
 			Path: "/docs/" + d.Slug, Title: d.Title + " · Playkeeper docs", Description: d.Description,
-			Label: d.Title, Card: d.Title, Kind: "Docs", Section: "docs", Layout: "docs", Crumb: "Docs",
+			Label: d.Title, H1: d.Title, Card: d.Title, Kind: "Docs", Section: "docs", Layout: "docs", Crumb: "Docs",
 			OG: "docs", Closing: "none", body: template.HTML(body), docs: &pt.doc,
 		}
 		built[d.Slug] = p

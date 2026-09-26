@@ -171,6 +171,35 @@ func TestEveryPageIsWellFormed(t *testing.T) {
 	}
 }
 
+// reH1 matches a top heading: its attributes and what's in it.
+var reH1 = regexp.MustCompile(`(?s)<h1(\s[^>]*)?>(.*?)</h1>`)
+
+// Every page has a top heading with words in it. The share page has one for
+// each of its states; the ready state's is the template's name, which
+// js/t.js puts in before showing it, since a template without a name is
+// damaged.
+func TestEveryPageHasAHeading(t *testing.T) {
+	script, err := os.ReadFile("../../site/static/js/t.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for p, html := range pages(build(t, Default)) {
+		headings := reH1.FindAllStringSubmatch(html, -1)
+		if len(headings) == 0 {
+			t.Errorf("%s has no <h1>", p)
+		}
+		for _, h := range headings {
+			if plainText(h[2]) != "" {
+				continue
+			}
+			if id := between(h[1], ` id="`, `"`); p == "/t" && id != "" && strings.Contains(string(script), "put('"+id+"', name)") {
+				continue
+			}
+			t.Errorf("%s has an empty heading: %s", p, h[0])
+		}
+	}
+}
+
 func between(s, a, b string) string {
 	_, rest, ok := strings.Cut(s, a)
 	if !ok {
