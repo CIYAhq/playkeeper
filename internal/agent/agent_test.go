@@ -1937,16 +1937,25 @@ func TestBackupRestoreRollbackAndRefusals(t *testing.T) {
 	os.WriteFile(filepath.Join(world, "marker.txt"), []byte("nonce-changed"), 0o644)
 	live := worldHash(t, e.dataDir())
 
-	flipped := append([]byte(nil), archive...)
-	flipped[len(flipped)/2] ^= 0xff
 	evil := craftTar(t, map[string]string{"playkeeper-backup/data/../../../etc/cron.d/x": "* * * * * root id"})
-	for name, bad := range map[string][]byte{"flipped byte": flipped, "truncated": archive[:len(archive)/2], "traversal": evil, "not gzip": []byte("hello")} {
-		code, out := e.upload(bad)
+	for _, c := range []struct {
+		name, reason string
+		bad          []byte
+	}{
+		{"changed byte", "does not match its recorded checksum", changeByte(t, archive, "nonce-original")},
+		{"truncated", "", archive[:len(archive)/2]},
+		{"traversal", "", evil},
+		{"not gzip", "", []byte("hello")},
+	} {
+		code, out := e.upload(c.bad)
 		if code != http.StatusUnprocessableEntity {
-			t.Fatalf("%s archive: %d %v", name, code, out)
+			t.Fatalf("%s archive: %d %v", c.name, code, out)
+		}
+		if msg, _ := out["error"].(string); !strings.Contains(msg, c.reason) {
+			t.Fatalf("%s archive refused for another reason: %v", c.name, out)
 		}
 		if got := worldHash(t, e.dataDir()); got != live {
-			t.Fatalf("%s archive changed the live world", name)
+			t.Fatalf("%s archive changed the live world", c.name)
 		}
 	}
 	entries, _ := os.ReadDir(e.cfg.StagingDir())
@@ -2019,6 +2028,30 @@ func craftTar(t *testing.T, files map[string]string) []byte {
 	}
 	tw.Close()
 	gz.Close()
+	return buf.Bytes()
+}
+
+// changeByte returns archive packed again with one byte of the file content
+// in changed. A byte flipped in the compressed stream can unpack to the same
+// files, which a restore then rightly accepts.
+func changeByte(t *testing.T, archive []byte, in string) []byte {
+	t.Helper()
+	zr, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := bytes.Count(raw, []byte(in)); n != 1 {
+		t.Fatalf("the archive holds %q %d times, want once", in, n)
+	}
+	raw[bytes.Index(raw, []byte(in))] ^= 0x20
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	zw.Write(raw)
+	zw.Close()
 	return buf.Bytes()
 }
 
