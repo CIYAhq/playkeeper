@@ -66,3 +66,17 @@ test("the modded guide's Copy copies the whole script of the tab that's showing"
   await expect(copy).toHaveAttribute('data-copy', await script('code-fabric'))
   await ctx.close()
 })
+
+test("the Pterodactyl page's hero on a phone: its terminal under the words, and no browser frame", async ({ browser, baseURL }) => {
+  const ctx = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+  const page = await ctx.newPage()
+  await page.goto('/alternatives/pterodactyl', { waitUntil: 'networkidle' })
+  await expect(page.locator('.alt-art-ptero .browser')).toBeHidden()
+  const link = await page.locator('.alt-hero-row .link-arrow').first().boundingBox()
+  const art = await page.locator('.alt-art-ptero').boundingBox()
+  const terminal = await page.locator('.alt-art-ptero .art-terminal').boundingBox()
+  expect(link && art && terminal, 'the hero link, its picture and the terminal are on the page').toBeTruthy()
+  expect(terminal!.y, 'the terminal starts inside its picture, not pulled up towards the words').toBeGreaterThanOrEqual(art!.y - 1)
+  expect(terminal!.y, 'the terminal starts below the hero link').toBeGreaterThanOrEqual(link!.y + link!.height)
+  await ctx.close()
+})

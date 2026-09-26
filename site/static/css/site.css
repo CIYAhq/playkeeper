@@ -1050,16 +1050,13 @@ main:focus { outline: none; }
 .alt-art-ptero .browser { max-width: 560px; margin-left: auto; }
 .alt-art-ptero .art-terminal { position: relative; width: 420px; max-width: 100%; margin: -64px 0 0 -8px; }
 @media (max-width: 639.98px) {
-  .alt-art-ptero .browser { display: none; }
-  .alt-art-ptero .art-terminal { width: 100%; margin: 0; }
   .alt-hero-row .h1-page { font-size: 33px; }
-}
-@media (max-width: 639.98px) {
   .alt-art { min-height: 0; margin-top: 12px; }
   .alt-art .mini-card, .art-joined { position: relative; top: auto; left: auto; right: auto; width: auto; }
   .art-running { display: none; }
   .art-joined { margin: -20px 0 0 auto; width: fit-content; }
-  .alt-art-ptero .art-terminal { width: auto; margin: -40px 0 0; }
+  .alt-art-ptero .browser { display: none; }
+  .alt-art-ptero .art-terminal { width: 100%; margin: 0; }
 }
 
 /* ---------- The landing page's product loop (landing.js) ---------- */
