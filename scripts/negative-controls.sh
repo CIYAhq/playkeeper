@@ -34,19 +34,19 @@ control() { # NAME FILE FROM TO PACKAGE TESTS [RUNS]
   git checkout -q -- "$file"
 }
 
-# webcontrol is control for the web UI: the Vitest tests in TEST-FILE (under
-# web/) whose names match TEST-NAME must fail. The mutated code has to run,
-# not type-check, and a test has to have failed.
-webcontrol() { # NAME FILE FROM TO TEST-FILE TEST-NAME
-  local name=$1 file=$2 test=${5#web/} pattern=$6
-  if [ ! -d web/node_modules ]; then
-    echo "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
-    bad=1
-    return
-  fi
+# webcontrol is the one web control: the Vitest tests in TEST-FILE (under
+# web/, written with or without that prefix), those named by TESTS when it's
+# given, must fail. The mutated code has to run, not type-check, and a test
+# has to have failed. It links web's node_modules into the worktree if
+# nothing did yet.
+webcontrol() { # NAME FILE FROM TO TEST-FILE [TESTS]
+  local name=$1 file=$2 test=${5#web/} tests=${6:-}
+  local only=()
+  if [ -n "$tests" ]; then only=(-t "$tests"); fi
+  [ -e web/node_modules ] || ln -sfn "$root/web/node_modules" web/node_modules
   FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
-  if (cd web && npx vitest run "$test" -t "$pattern") >/tmp/negative-control.out 2>&1; then
-    echo "MISSED   $name: $test \"$pattern\" still passes without the guard"
+  if (cd web && npx vitest run "$test" "${only[@]}") >/tmp/negative-control.out 2>&1; then
+    echo "MISSED   $name: ${tests:-$test} still passes without the guard"
     bad=1
   elif grep -qE 'Transform failed|SyntaxError|Failed to load url|No test files found' /tmp/negative-control.out; then
     echo "INVALID  $name: the mutated code does not run"
@@ -55,7 +55,7 @@ webcontrol() { # NAME FILE FROM TO TEST-FILE TEST-NAME
     echo "INVALID  $name: no test ran to fail"
     bad=1
   else
-    echo "caught   $name: $(grep -m1 -E '^ +(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
+    echo "caught   $name: $(grep -m1 -E '^ +(FAIL|×) |^(AssertionError|Error): ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
   fi
   git checkout -q -- "$file"
 }
@@ -3417,10 +3417,8 @@ control "turning the map on doesn't take a failed look at the server for a stopp
 		return restartUnchecked("squaremap is installed",' \
   ./internal/agent '^TestAMapChangeThatCantCheckTheServerSaysToRestart$'
 control "turning the map off doesn't take a failed look at the server for a stopped one" internal/agent/maps.go \
-  '	if err != nil {
-		return restartUnchecked("squaremap is removed",' \
-  '	if false && err != nil {
-		return restartUnchecked("squaremap is removed",' \
+  'if _, running, err = s.containerRunning(ctx); err != nil {' \
+  'if _, running, err = s.containerRunning(ctx); false && err != nil {' \
   ./internal/agent '^TestAMapChangeThatCantCheckTheServerSaysToRestart$'
 control "a sparse member of a tar or tar.gz is refused" internal/worldimport/archive.go \
   '		if sparse(h) {' \
@@ -3454,6 +3452,151 @@ control "a restart put off is dropped once squaremap is loaded" internal/agent/m
   'if !rec.pendingRestart(l) {' \
   'if false && !rec.pendingRestart(l) {' \
   ./internal/agent '^TestRestartLaterOnlyWhileSquaremapNeedsARestart$'
+control "an unfinished upload is forgotten after an hour" internal/agent/worldimports.go \
+  '		if !imp.complete() {
+			idle = incompleteImportIdle
+		}' \
+  '' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "a finished upload is kept for a day" internal/agent/worldimports.go \
+  'idle := worldImportIdle' \
+  'idle := incompleteImportIdle' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "an announce forgets the stale uploads before it counts the space" internal/agent/worldimports.go \
+  '	a.imports.mu.Lock()
+	stale := a.staleImports(a.now(), imp)
+	a.imports.mu.Unlock()
+	removeImports(stale)
+' \
+  '' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "the upload being added to is never forgotten as stale" internal/agent/worldimports.go \
+  'stale := a.staleImports(a.now(), imp)' \
+  'stale := a.staleImports(a.now(), nil)' \
+  ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "a cancel marks the upload gone as it checks it" internal/agent/worldimports.go \
+  '	if !inUse {
+		imp.gone = true
+	}' \
+  '' \
+  ./internal/agent '^TestCancellingAnUploadNeverDeletesItFromUnderAnOperation$'
+control "an imported world moves back only once the server stopped" internal/agent/worldimports.go \
+  '	if err := s.stopServer(ctx, h); err != nil {
+		if s.stopping() {' \
+  '	if err := s.stopServer(ctx, h); false && err != nil {
+		if s.stopping() {' \
+  ./internal/agent '^TestAnImportedWorldMovesBackOnlyOnceTheServerStopped$'
+control "an import the agent stopped during says so" internal/agent/worldimports.go \
+  '		if s.stopping() {
+			return false, &apiError{' \
+  '		if false {
+			return false, &apiError{' \
+  ./internal/agent '^TestAnImportedWorldMovesBackOnlyOnceTheServerStopped$'
+control "a create that can't move the world in drops the upload" internal/agent/worldimports.go \
+  '		// upload again, so it goes with what is left of its unpacked copy.
+		s.dropImport(imp)' \
+  '		// upload again, so it goes with what is left of its unpacked copy.
+		imp.release()' \
+  ./internal/agent '^TestACreateThatCantMoveTheWorldInDropsTheUpload$'
+control "imports count the space the others claimed" internal/agent/worldimports.go \
+  'if err == nil && free-claimed < need+minFreeAfterBackup {' \
+  'if err == nil && free < need+minFreeAfterBackup {' \
+  ./internal/agent '^TestImportsClaimDiskSpaceInTurn$'
+control "an import records the space it claimed" internal/agent/worldimports.go \
+  '	imp.reserved = need
+' \
+  '' \
+  ./internal/agent '^TestImportsClaimDiskSpaceInTurn$'
+control "a create refused for space doesn't keep the upload" internal/agent/worldimports.go \
+  '	if err := a.reserveImportSpace(imp, need); err != nil {
+		imp.release()' \
+  '	if err := a.reserveImportSpace(imp, need); err != nil {' \
+  ./internal/agent '^TestImportsClaimDiskSpaceInTurn$'
+control "turning the map off stops squaremap before deleting what it drew" internal/agent/maps.go \
+  '		if running {
+			h.phase("stopping")
+			if err := s.stopServer(ctx, h); err != nil {
+				return err
+			}
+		}
+	}
+	startAgain := func() error {
+		if !running {
+			return nil
+		}
+		h.phase("starting")' \
+  '	}
+	startAgain := func() error {
+		if !running {
+			return nil
+		}
+		h.phase("starting")
+		if err := s.stopServer(ctx, h); err != nil {
+			return err
+		}' \
+  ./internal/agent '^TestTurningTheMapOffStopsSquaremapFirst$'
+control "the map's record goes even when some of the drawing can't be deleted" internal/agent/maps.go \
+  'leftover = &apiError{Msg: "The map is off, but' \
+  'return &apiError{Msg: "The map is off, but' \
+  ./internal/agent '^TestTurningTheMapOffStopsSquaremapFirst$'
+control "turning the map off leaves the Plugins tab's squaremap and its folder" internal/agent/maps.go \
+  'owned := len(rec.addons) > 0' \
+  'owned := true' \
+  ./internal/agent '^TestTurningTheMapOffStopsSquaremapFirst$'
+control "a replaced world's drawn map is deleted" internal/agent/worldimports.go \
+  '	s.forgetDrawnMap()
+' \
+  '' \
+  ./internal/agent '^TestAReplacedWorldIsDrawnAfresh$'
+control "a replaced world is drawn again once it is online" internal/agent/maps.go \
+  'UPDATE maps SET first_render_at = NULL WHERE server_id = ?' \
+  'UPDATE maps SET first_render_at = first_render_at WHERE server_id = ?' \
+  ./internal/agent '^TestAReplacedWorldIsDrawnAfresh$'
+control "an import leaves squaremap's folder alone while the map is off" internal/agent/maps.go \
+  '	if err != nil || rec == nil {
+		return
+	}
+	l, err := webmap.LayoutFor(s.serverType(nil))
+	if err != nil {
+		return
+	}
+	for _, rel := range' \
+  '	if err != nil || rec == nil && false {
+		return
+	}
+	l, err := webmap.LayoutFor(s.serverType(nil))
+	if err != nil {
+		return
+	}
+	for _, rel := range' \
+  ./internal/agent '^TestAReplacedWorldIsDrawnAfresh$'
+webcontrol "leaving the page cancels the upload" web/src/components/app/world-import.tsx \
+  "window.addEventListener('pagehide', leave)" \
+  "window.addEventListener('pageshow', leave)" \
+  web/src/pages/new-server.test.tsx
+webcontrol "the request cancelling an upload outlives the page" web/src/components/app/world-import.tsx \
+  'keepalive: true' \
+  'keepalive: false' \
+  web/src/pages/new-server.test.tsx
+webcontrol "leaving the page keeps an upload a server was made from" web/src/components/app/world-import.tsx \
+  'if (!j.upload || !machineId || kept.current) return' \
+  'if (!j.upload || !machineId) return' \
+  web/src/pages/new-server.test.tsx
+# shellcheck disable=SC2016
+webcontrol "carrying on with an upload asks the machine which files it has" web/src/lib/upload.ts \
+  'let imp = seen(o.resume ? await get<WorldImport>(`${o.base}/${o.resume.id}`) : await post<WorldImport>(o.base, {}))' \
+  'let imp = seen(o.resume ?? (await post<WorldImport>(o.base, {})))' \
+  web/src/lib/upload.test.ts
+webcontrol "carrying on refuses an upload whose files differ" web/src/lib/upload.ts \
+  ' || imp.files.some((f, n) => f.name !== o.files[n]?.name || f.size !== o.files[n]?.size)' \
+  '' \
+  web/src/lib/upload.test.ts
+webcontrol "Try again carries on with the upload as the machine last described it" web/src/components/app/world-import.tsx \
+  '          j.upload = imp
+        },' \
+  '          j.upload ??= imp
+        },' \
+  web/src/pages/new-server.test.tsx
 
 # Wave 7: who may change where backup copies go and hold the recovery key.
 control "an admin needs two-factor on to hold backup keys" internal/panel/workspace.go \
@@ -4223,6 +4366,14 @@ control "a failed start closes the stand-in" internal/agent/lifecycle.go \
   '		_ = s.setDesired(api.DesiredStopped)
 	}' \
   ./internal/agent '^TestAFailedStartLeavesNothingAnsweringForTheServer$'
+control "a sleeping server started outside Playkeeper lets go of the stand-in" internal/agent/sleeping.go \
+  '_ = s.setDesired(api.DesiredRunning)
+		s.leaveSleep()
+		return' \
+  '_ = s.setDesired(api.DesiredRunning)
+		s.endSleepPeriod(s.now().UTC(), "")
+		return' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^started_outside_Playkeeper$'
 control "a wake whose start stopped the server leaves it stopped" internal/agent/sleeping.go \
   'if d := s.desired(); d != api.DesiredRunning && d != api.DesiredSleeping {
 				s.leaveSleep()' \
@@ -4253,6 +4404,20 @@ control "a copy queue that can't be read is an error" internal/agent/backuprules
 	}
 	defer rows.Close()' \
   ./internal/agent '^TestBackupRulesThatCantBeReadDeleteNothing$/^the_copy_queue_can.t_be_read$'
+control "the catalog sizes memory for what the server runs, not always vanilla" internal/agent/handlers.go \
+  'Sizing: memorySizing(a.catalogWorkload(forServer, typ, mods), opts),' \
+  'Sizing: memorySizing(sizing.Vanilla, opts),' \
+  ./internal/agent '^TestTheCatalogSizesMemoryForWhatTheServerRuns$'
+control "a new server from a pack is sized by the pack's mods" internal/agent/handlers.go \
+  'if mods >= 0 {
+		return sizing.WorkloadFor(mods, 0)' \
+  'if false && mods >= 0 {
+		return sizing.WorkloadFor(mods, 0)' \
+  ./internal/agent '^TestTheCatalogSizesMemoryForWhatTheServerRuns$'
+control "an existing server's plugins count as plugins and its mods as mods" internal/agent/handlers.go \
+  'if addonDir(*sc) == "plugins" {' \
+  'if addonDir(*sc) != "plugins" {' \
+  ./internal/agent '^TestTheCatalogSizesMemoryForWhatTheServerRuns$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

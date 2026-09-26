@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { CircleAlertIcon, CircleCheckIcon, CircleXIcon, FileArchiveIcon, FileUpIcon, RefreshCwIcon, UploadIcon } from 'lucide-react'
-import { ApiError, del } from '@/api/client'
+import { ApiError, del, writeHeaders } from '@/api/client'
 import type { ImportMessage, ImportWorld, WorldImport, WorldImportPreview } from '@/api/types'
 import { errorText, machineApi } from '@/api/workspace'
 import { Notice, Progress } from '@/components/app/bits'
@@ -69,21 +69,28 @@ export interface WorldUpload {
 }
 
 /**
- * One world upload to a machine. Leaving the page stops it and deletes what
- * arrived, unless a server was made from it.
+ * One world upload to a machine. Leaving the page, by reloading or closing
+ * it too, stops it and deletes what arrived, unless a server was made from it.
  */
 export function useWorldUpload(machineId: string | undefined): WorldUpload {
   const [state, setState] = useState<WorldUploadState>({ phase: 'idle' })
   const job = useRef<{ ctl: AbortController; files: File[]; upload?: WorldImport }>(undefined)
   const kept = useRef(false)
 
-  const drop = useCallback(() => {
-    const j = job.current
-    job.current = undefined
-    if (!j) return
-    j.ctl.abort()
-    if (j.upload && machineId && !kept.current) void del(machineApi(machineId, `/world-imports/${j.upload.id}`)).catch(() => undefined)
-  }, [machineId])
+  /** Stops the upload and deletes it. leaving: the page is going away, so the request must outlive it. */
+  const drop = useCallback(
+    (leaving = false) => {
+      const j = job.current
+      job.current = undefined
+      if (!j) return
+      j.ctl.abort()
+      if (!j.upload || !machineId || kept.current) return
+      const path = machineApi(machineId, `/world-imports/${j.upload.id}`)
+      if (leaving) void fetch(path, { method: 'DELETE', keepalive: true, headers: writeHeaders(), credentials: 'same-origin' }).catch(() => undefined)
+      else void del(path).catch(() => undefined)
+    },
+    [machineId],
+  )
 
   const run = useCallback(
     (files: File[], resume?: WorldImport) => {
@@ -99,7 +106,7 @@ export function useWorldUpload(machineId: string | undefined): WorldUpload {
         files,
         signal: j.ctl.signal,
         resume,
-        onStart: (imp) => {
+        onImport: (imp) => {
           j.upload = imp
         },
         onProgress: (p) => {
@@ -143,7 +150,18 @@ export function useWorldUpload(machineId: string | undefined): WorldUpload {
     kept.current = true
   }, [])
 
-  useEffect(() => drop, [drop])
+  useEffect(() => {
+    // React doesn't unmount on a reload or a closed tab, so the page says it's going.
+    const leave = () => {
+      drop(true)
+      setState({ phase: 'idle' })
+    }
+    window.addEventListener('pagehide', leave)
+    return () => {
+      window.removeEventListener('pagehide', leave)
+      drop()
+    }
+  }, [drop])
   return { state, start, retry, cancel, keep }
 }
 

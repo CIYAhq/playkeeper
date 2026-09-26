@@ -683,6 +683,14 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 				e.t.Fatalf("wake: %+v", o)
 			}
 		}, want: state{api.DesiredStopped, false, true, api.PhaseCrashed}},
+		{name: "started outside Playkeeper", steps: func(e *agentEnv) {
+			e.fd.mu.Lock()
+			c := e.fd.server()
+			c.running, c.started, c.finished, c.exitCode = true, time.Now().UTC(), time.Time{}, 0
+			e.fd.log(c, `[12:00:01 INFO]: Done (1.000s)! For help, type "help"`)
+			e.fd.mu.Unlock()
+			e.srv().resumeSleep(context.Background())
+		}, want: awake},
 		{name: "a player wakes it during a backup", steps: func(e *agentEnv) {
 			release := e.holdOp("backup")
 			began := make(chan struct{})

@@ -132,7 +132,6 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const away = unavailable(machine, target, ws.machines)
   const machineName = target?.kind === 'remote' || (machine && !target) ? machineLabel(target) : ws.machineName
   const [c, setC] = useState<CreateChoices>()
-  const { catalog, error, reload } = useCatalog(target?.id, { type: c?.type ?? 'paper', fresh: true })
   const [step, setStep] = useState(0)
   // The first step comes in with the page; later ones animate in themselves.
   const [stepped, setStepped] = useState(false)
@@ -155,6 +154,8 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const packPlan = useModpackPreview(packed ? target?.id : undefined, pack?.source, pack?.projectId, pack?.versionId || packDetail.data?.newest)
   const voicePort = packed ? packVoicePort(packPlan.data) : undefined
   const planPending = packed && !packPlan.data && !packPlan.error && !packDetail.error
+  // A pack's mods size its memory options, as the sizing guide does.
+  const { catalog, error, reload } = useCatalog(target?.id, { type: c?.type ?? 'paper', mods: packed ? pack.mods : undefined, fresh: true })
   const [tpl, setTpl] = useState<TemplateChoice>()
   const [tplProblem, setTplProblem] = useState<string>()
   const templated = from === 'template' && !!tpl

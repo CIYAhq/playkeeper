@@ -364,7 +364,7 @@ func (s *server) sleepLoop(ctx context.Context) {
 
 // resumeSleep makes a sleeping server's stand-in answer: when the agent
 // starts, and again after its port was busy. A sleeping server found running
-// was started outside Playkeeper, so it is awake.
+// was started outside Playkeeper, so it is awake, and the stand-in lets go.
 func (s *server) resumeSleep(ctx context.Context) {
 	if s.desired() != api.DesiredSleeping {
 		return
@@ -383,7 +383,7 @@ func (s *server) resumeSleep(ctx context.Context) {
 	}
 	if running {
 		_ = s.setDesired(api.DesiredRunning)
-		s.endSleepPeriod(s.now().UTC(), "")
+		s.leaveSleep()
 		return
 	}
 	m, err := s.standIn()

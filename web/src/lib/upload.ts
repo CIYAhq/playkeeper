@@ -1,5 +1,6 @@
 import { ApiError, get, post, responseError, writeHeaders } from '@/api/client'
 import type { WorldImport } from '@/api/types'
+import { t } from '@/i18n'
 
 // Resumable world uploads. Each file is announced, then sent in pieces from
 // the byte the machine says it has. After a dropped connection the upload
@@ -37,25 +38,35 @@ export interface UploadOptions {
   signal: AbortSignal
   /** An upload an earlier try opened, to carry on with. */
   resume?: WorldImport
-  onStart?: (imp: WorldImport) => void
+  /** The upload as the machine last described it, after each answer. */
+  onImport?: (imp: WorldImport) => void
   onProgress?: (p: UploadProgress) => void
   put?: Put
   wait?: (ms: number, signal: AbortSignal) => Promise<void>
   piece?: number
 }
 
-/** Uploads files into a world import and returns it once the machine has every byte. */
+/**
+ * Uploads files into a world import and returns it once the machine has every byte.
+ * Carrying on with an upload asks the machine which files it has first and announces only the rest.
+ */
 export async function uploadWorld(o: UploadOptions): Promise<WorldImport> {
   const put = o.put ?? xhrPut
   const wait = o.wait ?? sleep
   const piece = o.piece ?? pieceBytes
   const total = o.files.reduce((n, f) => n + f.size, 0)
-  let imp = o.resume ?? (await post<WorldImport>(o.base, {}))
-  o.onStart?.(imp)
+  const seen = (imp: WorldImport) => {
+    o.onImport?.(imp)
+    return imp
+  }
+  let imp = seen(o.resume ? await get<WorldImport>(`${o.base}/${o.resume.id}`) : await post<WorldImport>(o.base, {}))
   const path = `${o.base}/${imp.id}`
+  if (imp.files.length > o.files.length || imp.files.some((f, n) => f.name !== o.files[n]?.name || f.size !== o.files[n]?.size)) {
+    throw new ApiError(409, { error: t('import.otherFiles'), code: 'conflict' })
+  }
   for (const f of o.files.slice(imp.files.length)) {
     o.signal.throwIfAborted()
-    imp = await post<WorldImport>(`${path}/files`, { name: f.name, size: f.size })
+    imp = seen(await post<WorldImport>(`${path}/files`, { name: f.name, size: f.size }))
   }
 
   let before = 0
@@ -70,7 +81,7 @@ export async function uploadWorld(o: UploadOptions): Promise<WorldImport> {
       const res = await put(`${path}/files/${n}?offset=${from}`, f.slice(from, Math.min(f.size, from + piece)), (bytes) => report(from + bytes), o.signal)
       let err: ApiError
       if (res.status >= 200 && res.status < 300) {
-        imp = JSON.parse(res.text) as WorldImport
+        imp = seen(JSON.parse(res.text) as WorldImport)
         at = imp.files[n]?.received ?? 0
         report(at)
         if (at > from) {
@@ -90,7 +101,7 @@ export async function uploadWorld(o: UploadOptions): Promise<WorldImport> {
         await wait(backoffMs(tries), o.signal)
       }
       try {
-        imp = await get<WorldImport>(path)
+        imp = seen(await get<WorldImport>(path))
         at = imp.files[n]?.received ?? at
         if (at > from) tries = 0
       } catch (e) {
