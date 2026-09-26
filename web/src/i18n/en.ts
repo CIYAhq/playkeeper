@@ -3373,7 +3373,6 @@ export const en = {
   'recover.noCopies': 'Connected, but no copies of {server} are there',
   'recover.phoneFound': { one: '{where} · 1 copy found', other: '{where} · {count} copies found' },
   'recover.copySize': '{size} · encrypted',
-  'recover.pickFirst': 'Copies show here once Playkeeper finds them.',
   'recover.keyFirst': 'Choose the recovery key file first.',
   'recover.findFirst': 'Find the copies first.',
   'recover.pickCopy': 'Pick a copy first.',

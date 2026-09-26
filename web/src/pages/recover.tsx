@@ -5,8 +5,7 @@ import type { Operation, RecoverView, RestorePreview } from '@/api/types'
 import { errorText, machineApi, useWorkspace, type Workspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Card, Notice, SectionLabel } from '@/components/app/bits'
-import { CardGroup, ChoiceCard, ChoiceSelect, useIsPhone } from '@/components/app/controls'
-import { PhoneActions } from '@/components/app/frame'
+import { CardGroup, ChoiceCard, ChoiceSelect, fieldSelectClass, useIsPhone } from '@/components/app/controls'
 import { RestoreDialog } from '@/components/app/restore'
 import { PageBody, PageHeader, PhoneBackHeader } from '@/components/app/shell'
 import { Button } from '@/components/ui/button'
@@ -347,7 +346,7 @@ function CopyPicker({ r, phone }: { r: Recover; phone?: boolean }) {
   const [all, setAll] = useState(false)
   const copies = r.view?.copies ?? []
   const shown = all ? copies : copies.slice(0, newestShown)
-  if (!r.view) return <p className="text-[13px] text-muted-foreground max-sm:px-4">{t('recover.pickFirst')}</p>
+  if (!r.view) return null
   const rowClass = phone ? 'min-h-14 items-center gap-3 rounded-none border-0 border-b border-border px-4 py-2 shadow-none last:border-b-0 has-[[data-checked]]:border-border has-[[data-checked]]:bg-transparent has-[[data-checked]]:shadow-none' : 'items-start gap-3 px-3.5 py-2.5'
   return (
     <div className="flex animate-fade flex-col gap-2">
@@ -386,7 +385,7 @@ function nextReason(r: Recover, ws: Workspace): string | undefined {
 
 function Summary({ r }: { r: Recover }) {
   const ws = useWorkspace()
-  const none = <span className="text-muted-foreground">{t('common.notPicked')}</span>
+  const none = <span className="text-muted-foreground">{t('common.none')}</span>
   const rows: { label: string; value: ReactNode }[] = [
     { label: t('recover.row.key'), value: r.key ? [r.key.server, t('recover.keys', { count: r.key.keys })].filter(Boolean).join(t('common.dot')) : none },
     { label: t('recover.row.from'), value: r.view ? r.view.place : none },
@@ -555,7 +554,7 @@ function PhoneRecover({ r }: { r: Recover }) {
         ) : (
           <div className="flex flex-col gap-4 rounded-3xl border border-border bg-white p-4">
             <ChoiceSelect
-              className="w-full"
+              className={fieldSelectClass}
               label={t('recover.step.where')}
               value={r.where.type}
               onChange={(x) => r.set('type', x)}
@@ -579,12 +578,12 @@ function PhoneRecover({ r }: { r: Recover }) {
         <CopyPicker r={r} phone />
       </section>
       <p className="px-1 text-[13px] text-muted-foreground">{t('recover.note')}</p>
-      <PhoneActions>
-        <Button size="touch" disabledReason={nextReason(r, ws)} loading={r.busy && !!r.view} onClick={() => void r.start()}>
+      <div className="fixed inset-x-4 bottom-[max(env(safe-area-inset-bottom),16px)] z-20 sm:hidden">
+        <Button size="touch" className="w-full" disabledReason={nextReason(r, ws)} loading={r.busy && !!r.view} onClick={() => void r.start()}>
           {nextLabel(r)}
           <ArrowRightIcon />
         </Button>
-      </PhoneActions>
+      </div>
     </div>
   )
 }
