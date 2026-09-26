@@ -408,13 +408,16 @@ func (s *Server) machineByID(id string) (machine, error) {
 var errNotFound = errors.New("not found")
 
 // errServerMachine is a lookup of the machine that runs a server that
-// failed. The request goes to no machine: the dashboard's own may not be
+// failed, or found a server a joined machine listed whose record isn't
+// saved yet. The request goes to no machine: the dashboard's own may not be
 // the one.
 var errServerMachine = errors.New("could not look up the machine that runs the server")
 
 // machineForServer finds the machine that runs a server in server_machines
-// (see claimServers), or the dashboard's own machine for a server no
-// machine has. A disputed server has none. It never asks the machines.
+// (see claimServers). A server with no record goes to the dashboard's own
+// machine only if that machine listed it last or no joined machine did: a
+// joined machine's server whose record couldn't be saved goes to none. A
+// disputed server has none. It never asks the machines.
 func (s *Server) machineForServer(serverID string) (machine, error) {
 	list, err := s.machines()
 	if err != nil {
@@ -441,10 +444,21 @@ func (s *Server) machineForServer(serverID string) (machine, error) {
 			return m, nil
 		}
 	}
+	var local machine
+	var joinedListed bool
 	for _, m := range list {
-		if m.Kind == localKind {
-			return m, nil
+		switch {
+		case m.Kind == localKind:
+			local = m
+		case s.listings.has(m.ID, serverID):
+			joinedListed = true
 		}
+	}
+	if joinedListed && !s.listings.has(local.ID, serverID) {
+		return machine{}, errServerMachine
+	}
+	if local.Kind == localKind {
+		return local, nil
 	}
 	return machine{}, errNotFound
 }

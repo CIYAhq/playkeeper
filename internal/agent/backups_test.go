@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -309,6 +310,124 @@ func TestReconcilerTurnsSavingBackOn(t *testing.T) {
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'saving_resumed'`); n != 1 {
 		t.Fatalf("%d saving_resumed events, want 1", n)
+	}
+}
+
+// While the reconciler turns world saving back on, the console may be slow to
+// answer save-on. That refuses no one: a stop or restart goes ahead, a backup
+// waits for the save-on, for a few seconds at most, before it pauses saving
+// itself, and "Turn saving back on" waits for it and finds saving back on.
+func TestSaveOnRetryRefusesNoAction(t *testing.T) {
+	for _, tc := range []struct {
+		name, path string
+		want       int
+		// answered is whether the console ever answers the reconciler's save-on.
+		answered bool
+	}{
+		{"stop", "/stop", http.StatusAccepted, true},
+		{"restart", "/restart", http.StatusAccepted, true},
+		{"a backup", "/backups", http.StatusAccepted, true},
+		{"a backup, when save-on gets no answer", "/backups", http.StatusAccepted, false},
+		{"turn saving back on", "/saving/resume", http.StatusOK, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.create()
+			answer := make(chan struct{})
+			var once sync.Once
+			reply := func() { once.Do(func() { close(answer) }) }
+			t.Cleanup(reply)
+			var first atomic.Bool
+			e.rcon.setAnswer(func(cmd string) (string, bool) {
+				if cmd == "save-on" && first.CompareAndSwap(false, true) {
+					<-answer
+				}
+				return "", false
+			})
+			if _, err := e.a.db.Exec(`UPDATE servers SET saving_paused_since = ? WHERE id = ?`, time.Now().UnixMilli(), e.sid); err != nil {
+				t.Fatal(err)
+			}
+			e.waitFor("the reconciler's save-on", func() bool { return e.rcon.count("save-on") == 1 })
+			if tc.answered {
+				time.AfterFunc(300*time.Millisecond, reply)
+			}
+			asked := time.Now()
+			code, out := e.call("POST", e.sp(tc.path), map[string]any{"actor": "admin"})
+			if code != tc.want {
+				t.Fatalf("%s while save-on waits for the console: %d %v", tc.name, code, out)
+			}
+			if code == http.StatusAccepted {
+				if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+					t.Fatalf("%s: %+v", tc.name, op)
+				}
+			}
+			if took := time.Since(asked); took > 12*time.Second {
+				t.Fatalf("%s took %s: save-on held it up", tc.name, took)
+			}
+			e.waitFor("the pause to end", func() bool { return e.status().SavingPausedSince == nil })
+			if tc.path == "/saving/resume" && e.rcon.count("save-on") != 1 {
+				t.Fatalf("save-on sent %d times; the reconciler's had already turned saving back on", e.rcon.count("save-on"))
+			}
+		})
+	}
+}
+
+// The saving lock keeps save-on out of an online backup's pause: a backup
+// doesn't pause saving while a save-on holds the lock, and the reconciler
+// doesn't send save-on while a backup holds it.
+func TestSavingLockKeepsSaveOnOutOfABackup(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// act starts the step that must wait, and returns a check that it
+		// finished once the lock was free.
+		act func(e *agentEnv) func()
+		// held is the console command the step must not send meanwhile.
+		held string
+	}{
+		{"a backup waits for a save-on", func(e *agentEnv) func() {
+			code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+			if code != http.StatusAccepted {
+				e.t.Fatalf("backup: %d %v", code, out)
+			}
+			return func() {
+				if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+					e.t.Fatalf("backup: %+v", op)
+				}
+			}
+		}, "save-off"},
+		{"the reconciler's save-on waits for a backup", func(e *agentEnv) func() {
+			if _, err := e.a.db.Exec(`UPDATE servers SET saving_paused_since = ? WHERE id = ?`, time.Now().UnixMilli(), e.sid); err != nil {
+				e.t.Fatal(err)
+			}
+			return func() {
+				e.waitFor("the pause to end", func() bool { return e.status().SavingPausedSince == nil })
+			}
+		}, "save-on"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.create()
+			s := e.srv()
+			s.savingLock <- struct{}{}
+			locked := true
+			t.Cleanup(func() {
+				if locked {
+					<-s.savingLock
+				}
+			})
+			done := tc.act(e)
+			for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+				if n := e.rcon.count(tc.held); n > 0 {
+					t.Fatalf("%s sent while the saving lock was held", tc.held)
+				}
+			}
+			locked = false
+			<-s.savingLock
+			done()
+			if e.rcon.count(tc.held) != 1 || e.rcon.savingIsOff() {
+				t.Fatalf("after the lock was free: %s sent %d times, saving off %v", tc.held, e.rcon.count(tc.held), e.rcon.savingIsOff())
+			}
+		})
 	}
 }
 

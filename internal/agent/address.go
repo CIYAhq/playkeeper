@@ -700,10 +700,12 @@ func freeServers(servers []joinServer) []joinServer {
 
 // syncFreeServers makes the free name's server records match the servers:
 // records of removed servers go first, since a name has a limited number.
-func (a *Agent) syncFreeServers(ctx context.Context) error {
+// It returns the servers that should have a record now, as this sync saw
+// them.
+func (a *Agent) syncFreeServers(ctx context.Context) ([]joinServer, error) {
 	st := a.address()
 	if st.Kind != api.AddressPlaykeeper || st.Free == nil {
-		return nil
+		return nil, nil
 	}
 	// This sync covers every server read below, so a change the loop hasn't
 	// seen yet (it may have found the address busy with the claim) must not
@@ -724,12 +726,12 @@ func (a *Agent) syncFreeServers(ctx context.Context) error {
 	}
 	if len(remove) == 0 && len(set) == 0 {
 		a.saveServersSync("", time.Time{}, false)
-		return nil
+		return want, nil
 	}
 	c, err := a.namesClient(true)
 	if err != nil {
 		a.saveServersSync("", time.Time{}, true)
-		return err
+		return want, err
 	}
 	var errs []error
 	for _, s := range remove {
@@ -757,9 +759,9 @@ func (a *Agent) syncFreeServers(ctx context.Context) error {
 	a.saveServersSync(wait, from, len(errs) > 0)
 	a.pollFree(ctx, c)
 	if len(errs) > 0 {
-		return a.namesError(errs[0])
+		return want, a.namesError(errs[0])
 	}
-	return nil
+	return want, nil
 }
 
 // saveServersSync records how an update of the servers' records went: why
@@ -850,13 +852,15 @@ func (f *freeState) serverPublished(s joinServer) bool {
 
 // publishFree points the free name at this machine, gives the servers their
 // addresses, gets the dashboard's certificate and then waits, a while, for
-// the records to be published.
+// the records to be published. Servers added meanwhile are not waited for:
+// the loop gives them their records afterwards.
 func (a *Agent) publishFree(ctx context.Context, h *opHandle) error {
 	h.phase("pointing")
 	if err := a.refreshFree(ctx); err != nil {
 		return err
 	}
-	if err := a.syncFreeServers(ctx); err != nil {
+	synced, err := a.syncFreeServers(ctx)
+	if err != nil {
 		a.log.Warn("could not give every server its free address", "err", err)
 	}
 	h.phase("certificate")
@@ -873,7 +877,7 @@ func (a *Agent) publishFree(ctx context.Context, h *opHandle) error {
 		return err
 	}
 	start := time.Now()
-	for !freePublished(a.address(), a.joinServers()) && time.Since(start) < publishWait {
+	for !freePublished(a.address(), synced) && time.Since(start) < publishWait {
 		t := time.NewTimer(a.opts.PublishPoll)
 		select {
 		case <-ctx.Done():
@@ -1599,7 +1603,7 @@ func (a *Agent) addressTick(ctx context.Context, start bool) {
 			}
 		}
 		if changed {
-			if err := a.syncFreeServers(ctx); err != nil {
+			if _, err := a.syncFreeServers(ctx); err != nil {
 				a.log.Warn("could not update the servers' free addresses", "err", err)
 			}
 		}

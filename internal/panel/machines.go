@@ -126,6 +126,7 @@ func (s *Server) onMachineEvent(e machinelink.Event) {
 		s.joinRefused(e)
 	case machinelink.EventRemoved, machinelink.EventLeft:
 		s.audit(orUnknown(e.Actor), string(e.Kind), e.Name, "succeeded", "")
+		s.listings.forget(e.MachineID)
 		if _, err := s.db.Exec(`DELETE FROM server_machines WHERE machine_id = ?`, e.MachineID); err != nil {
 			s.log.Error("forget a removed machine's servers", "err", err)
 		}
@@ -566,6 +567,7 @@ const codeServerDisputed = "server_disputed"
 // stops answering, and forgets those it no longer lists. It writes only what
 // changed.
 func (s *Server) claimLocal(m machine, servers []map[string]any) {
+	s.listings.note(m.ID, servers)
 	rows, err := s.db.Query(`SELECT server_id FROM server_machines WHERE machine_id = ?`, m.ID)
 	if err != nil {
 		s.log.Error("record server machines", "err", err)
@@ -620,14 +622,15 @@ func (s *Server) takeServer(m machine, id string) {
 // claimServers records which of the servers a joined machine lists it runs,
 // keeping their statuses for when it is away, and returns those. Listing a
 // server another machine has disputes it (see above) and goes in the
-// machine's events. When the record can't be written, it returns the
-// servers as the machine listed them, which it just answered with.
+// machine's events. When the record can't be written, it returns what
+// unsavedServers shows.
 func (s *Server) claimServers(m machine, servers []map[string]any) []map[string]any {
+	s.listings.note(m.ID, servers)
 	now := s.now()
 	out, disputed, err := s.recordServers(m, servers, now)
 	if err != nil {
 		s.log.Error("record server machines", "machine", m.ID, "err", err)
-		return listedServers(servers)
+		return s.unsavedServers(m, servers)
 	}
 	for _, id := range disputed {
 		s.machineEvent(m.ID, now, "machine.server_disputed", "", "", id)
@@ -635,20 +638,128 @@ func (s *Server) claimServers(m machine, servers []map[string]any) []map[string]
 	return out
 }
 
-// listedServers are the servers a machine listed that have a server id, at
-// most maxMachineServers of them.
-func listedServers(servers []map[string]any) []map[string]any {
-	var out []map[string]any
+// unsavedServers is what a joined machine shows when claimServers can't
+// save its record: the servers it listed that the record gives it, and
+// those the record gives no machine, marked unsaved, since their requests
+// get "try again" until the record is saved (see machineForServer). A
+// server the record gives another machine isn't shown with this one. When
+// even the record can't be read, the servers another machine listed last
+// are left out and the rest are unsaved.
+func (s *Server) unsavedServers(m machine, servers []map[string]any) []map[string]any {
+	var listed []map[string]any
+	var ids []any
 	for _, sv := range servers {
-		if id, _ := sv["id"].(string); !reMachineID.MatchString(id) {
+		id, _ := sv["id"].(string)
+		if !reMachineID.MatchString(id) {
 			continue
 		}
-		if len(out) == maxMachineServers {
+		if len(listed) == maxMachineServers {
 			break
+		}
+		listed = append(listed, sv)
+		ids = append(ids, id)
+	}
+	records, err := s.serverRecords(ids)
+	if err != nil {
+		s.log.Error("read server machines", "machine", m.ID, "err", err)
+	}
+	var out []map[string]any
+	for _, sv := range listed {
+		id, _ := sv["id"].(string)
+		rec, saved := records[id]
+		switch {
+		case err != nil:
+			if s.listings.elsewhere(m.ID, id) {
+				continue
+			}
+			sv["unsaved"] = true
+		case !saved:
+			sv["unsaved"] = true
+		case rec.machineID != m.ID:
+			continue
+		case rec.disputedBy != "":
+			sv["disputed"] = true
 		}
 		out = append(out, sv)
 	}
 	return out
+}
+
+// serverRecord is which machine runs a server, and which other machine
+// disputes it.
+type serverRecord struct{ machineID, disputedBy string }
+
+// serverRecords reads the record of the servers ids, by server id.
+func (s *Server) serverRecords(ids []any) (map[string]serverRecord, error) {
+	out := map[string]serverRecord{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.Query(`SELECT server_id, machine_id, disputed_by FROM server_machines WHERE server_id IN (?`+strings.Repeat(",?", len(ids)-1)+`)`, ids...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var r serverRecord
+		if err := rows.Scan(&id, &r.machineID, &r.disputedBy); err != nil {
+			return nil, err
+		}
+		out[id] = r
+	}
+	return out, rows.Err()
+}
+
+// listings are the servers each machine last listed, by machine id. They
+// are kept in memory so that a server whose record couldn't be saved goes
+// to no machine rather than the dashboard's own (see machineForServer).
+type listings struct {
+	mu  sync.Mutex
+	ids map[string]map[string]bool
+}
+
+// note keeps the servers a machine just listed.
+func (l *listings) note(machineID string, servers []map[string]any) {
+	ids := map[string]bool{}
+	for _, sv := range servers {
+		if id, _ := sv["id"].(string); reMachineID.MatchString(id) {
+			ids[id] = true
+		}
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.ids == nil {
+		l.ids = map[string]map[string]bool{}
+	}
+	l.ids[machineID] = ids
+}
+
+// forget drops what a removed machine listed.
+func (l *listings) forget(machineID string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.ids, machineID)
+}
+
+// has reports whether the machine's last listing had the server.
+func (l *listings) has(machineID, serverID string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.ids[machineID][serverID]
+}
+
+// elsewhere reports whether a machine other than machineID last listed the
+// server.
+func (l *listings) elsewhere(machineID, serverID string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for id, servers := range l.ids {
+		if id != machineID && servers[serverID] {
+			return true
+		}
+	}
+	return false
 }
 
 // recordServers is claimServers' record in one transaction. It returns the

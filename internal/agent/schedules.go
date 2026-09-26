@@ -52,6 +52,20 @@ func (s *server) scheduleLoop(ctx context.Context) {
 	_ = r.Run(ctx)
 }
 
+// scheduleWorking reports whether a schedule is restarting the server or
+// backing it up, a restart's warnings included, so the server doesn't fall
+// asleep before the restart its players were warned of.
+func (s *server) scheduleWorking() bool {
+	s.auto.mu.Lock()
+	r := s.auto.runner
+	s.auto.mu.Unlock()
+	if r == nil {
+		return false
+	}
+	act, ok := r.Current()
+	return ok && (act.Job.Schedule.Kind == schedule.KindRestart || act.Job.Schedule.Kind == schedule.KindBackup)
+}
+
 // reloadSchedules makes the runner read the server's schedules again.
 func (s *server) reloadSchedules() {
 	s.auto.mu.Lock()

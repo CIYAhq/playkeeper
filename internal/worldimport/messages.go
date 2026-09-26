@@ -35,6 +35,7 @@ const (
 	KindPathTooLong      = "path_too_long"       // path, limit
 	KindLink             = "archive_link"        // path
 	KindSpecialFile      = "special_file"        // path
+	KindSparseFile       = "sparse_file"         // path
 	KindEncrypted        = "archive_encrypted"   // name
 	KindCompression      = "archive_compression" // name, method
 	KindRatio            = "compression_ratio"   // name, limit
