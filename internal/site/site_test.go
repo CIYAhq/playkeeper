@@ -284,7 +284,8 @@ func TestCommunityIsOneSetting(t *testing.T) {
 		s.Community = c
 		o := build(t, s)
 		for p, html := range pages(o) {
-			if c == issues && strings.Contains(html, "Discussions") {
+			// Docs pages say what the repository's Markdown says.
+			if c == issues && !strings.HasPrefix(p, "/docs/") && strings.Contains(html, "Discussions") {
 				t.Errorf("%s says Discussions while questions go to the issues", p)
 			}
 		}
