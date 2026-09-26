@@ -50,15 +50,33 @@ export function storedRows(backups: Backup[], copies: OffsiteCopy[], view: Offsi
   return rows.sort((a, b) => made(b) - made(a))
 }
 
+/** Who removed a copy's backup from this machine, if known. */
+function removedHere(c: OffsiteCopy): string | undefined {
+  switch (c.removed) {
+    case 'rules':
+      return t('world.storedRemoved')
+    case 'person':
+      return c.removedBy ? t('world.storedDeletedBy', { name: c.removedBy }) : undefined
+    case undefined:
+      return undefined
+    default: {
+      const never: never = c.removed
+      return never
+    }
+  }
+}
+
 /** The Stored column for a row the copies say something about, else undefined. */
 export function storedCell(row: StoredRow, place: string): ReactNode {
-  if (row.kind === 'there')
+  if (row.kind === 'there') {
+    const why = removedHere(row.copy)
     return (
       <>
         <span className="block font-medium">{t('world.storedOnlyThere', { place })}</span>
-        <span className="block text-xs text-muted-foreground">{t('world.storedRemoved')}</span>
+        {why && <span className="block text-xs text-muted-foreground">{why}</span>}
       </>
     )
+  }
   if (row.copying !== undefined)
     return (
       <>

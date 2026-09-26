@@ -71,7 +71,7 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"MapInfo": MapInfo{}, "MapProgress": MapProgress{}, "PublicMap": PublicMap{}, "WorldImport": WorldImport{}, "WorldImportFile": WorldImportFile{},
 		"WorldImportPreview": WorldImportPreview{}, "WorldImportVersion": WorldImportVersion{}, "ImportMessage": worldimport.Message{},
 		"ImportLevel": worldimport.Level{}, "ImportWorld": worldimport.World{}, "ImportPreview": worldimport.Preview{},
-		"SleepStatus": SleepStatus{}, "RetentionEstimate": retention.Estimate{}, "RetentionRules": retention.Rules{},
+		"SleepStatus": SleepStatus{}, "BackupRefusal": BackupRefusal{}, "RetentionEstimate": retention.Estimate{}, "RetentionRules": retention.Rules{},
 		"RetentionSettings": retention.Settings{}, "RetentionText": retention.Text{}, "OffsiteCheck": offsite.Check{}, "OffsiteProvider": offsite.Provider{},
 		"OffsiteTestResult": offsite.TestResult{}, "DiskCandidate": diskusage.Candidate{}, "DiskReport": diskusage.Report{},
 		"DiskServer": diskusage.ServerUsage{}, "DiskUsage": diskusage.Usage{}, "DiskWay": diskusage.Way{},

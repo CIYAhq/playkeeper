@@ -676,7 +676,7 @@ func TestSFTPUploadFailures(t *testing.T) {
 		_, err := d.Upload(ctx, newTestFile(10<<10, 30).upload(testName))
 		e := wantKind(t, err, KindNoSuchFolder)
 		kept(t, d, e, 0)
-		if e.Msg != "There is no folder backups/survival on the other machine." || e.Field != "folder" || e.Folder != testFolder {
+		if e.Msg != "There is no folder backups/survival on the other machine." || e.Field != "folder" || e.Folder != testFolder || !strings.HasPrefix(e.Hint, "Create it there first.") {
 			t.Errorf("error %+v", e)
 		}
 	})
@@ -957,7 +957,9 @@ func TestSFTPList(t *testing.T) {
 
 	removeAll(t, srv.folder())
 	_, err = d.List(ctx)
-	if e := wantKind(t, err, KindNoSuchFolder); e.Op != opList || e.Field != "folder" || e.Msg != "There is no folder backups/survival on the other machine." {
+	// Copies are listed to be read back, and a folder made now holds none.
+	if e := wantKind(t, err, KindNoSuchFolder); e.Op != opList || e.Field != "folder" || e.Msg != "There is no folder backups/survival on the other machine." ||
+		!strings.HasPrefix(e.Hint, "Check the folder's name.") {
 		t.Errorf("error %+v", e)
 	}
 }

@@ -77,6 +77,8 @@ export interface ServerConfig {
   software?: SoftwarePin
   /** The pack the server was created from. */
   modpack?: ServerModpack
+  /** Restored from a backup that doesn't record which modpack, if any, it ran: Playkeeper manages no pack on it. */
+  modpackUnknown?: boolean
   /** The template the server was created from. */
   template?: ServerTemplate
   /** The UDP port voice chat has on this server. */
@@ -181,6 +183,8 @@ export interface ServerStatus {
   softwareChanged?: SoftwareChange
   // Wave 7: sleep when nobody's playing.
   sleep?: SleepStatus
+  /** The scheduled backups refused since the last backup that succeeded. */
+  backupRefused?: BackupRefusal
 }
 
 /** A file in the server's folder that Playkeeper would not follow or change. */
@@ -732,6 +736,8 @@ export type ActivityKind =
   // Wave 7
   | 'fell_asleep'
   | 'woke_up'
+  // A scheduled backup refused because world saving couldn't be paused; detail is why.
+  | 'backup_refused'
 
 /** An actor that isn't an account: an AI agent's token, or root running `playkeeper mcp` for a user. */
 export type ActorKind = 'token' | 'cli'
@@ -1536,6 +1542,8 @@ export interface ServerTemplate {
   pending?: boolean
   /** The template's add-ons and data packs that couldn't be installed, each with params.name; Try again retries them. */
   skipped?: AddonNotice[]
+  /** The record of what the template adds was gone by the time the server started, so none of it was installed. */
+  lost?: boolean
 }
 
 export interface TemplateSettings {
@@ -2055,6 +2063,22 @@ export interface SleepStatus {
   sleepAt?: string
 }
 
+/**
+ * Scheduled backups never stop a running server, so a run is refused when
+ * world saving can't be paused. `kind` is why the last one was: a backup
+ * error's kind, or `not_online` while the server was starting or stopping.
+ */
+export interface BackupRefusal {
+  at: string
+  since: string
+  count: number
+  kind: string
+  error: string
+  hint?: string
+  scheduleId?: string
+  operationId?: string
+}
+
 export interface SleepView extends SleepStatus {
   defaultIdleMinutes: number
   minIdleMinutes: number
@@ -2245,6 +2269,10 @@ export interface OffsiteCopy {
   sha256?: string
   /** Why the last check found the copy missing or damaged. */
   checkError?: string
+  /** Who removed the backup from this machine, once only the copy is left, if known. */
+  removed?: 'rules' | 'person'
+  /** The person's name, when a person removed it. */
+  removedBy?: string
 }
 
 export interface OffsitePending {
@@ -2271,8 +2299,22 @@ export interface OffsiteView {
   s3?: OffsiteS3
   sftp?: OffsiteSFTP
   sshKey?: { publicKey: string; authorizedKey: string; fingerprint: string }
-  key?: { recipient: string; createdAt: string; oldKeys: number; savedAt?: string; fileName: string }
+  key?: {
+    recipient: string
+    createdAt: string
+    oldKeys: number
+    savedAt?: string
+    fileName: string
+    /** The folder a file downloaded now names, if any. */
+    folder?: string
+    /** Copies went to another folder since the file was downloaded. */
+    stale?: boolean
+    /** The folder the downloaded file names, when stale. */
+    savedFolder?: string
+  }
   lastCopy?: OffsiteCopy
+  /** lastCopy is the first copy made to this place. */
+  firstCopy?: boolean
   copies: number
   copiesBytes: number
   pending?: OffsitePending

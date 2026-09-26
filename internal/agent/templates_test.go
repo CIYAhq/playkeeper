@@ -503,6 +503,128 @@ func TestCreateFromTemplateTriesAgainOnTheNextStart(t *testing.T) {
 	}
 }
 
+// chunkyTemplate is a Paper template with Chunky.
+func chunkyTemplate(t *testing.T) string {
+	t.Helper()
+	file, err := templates.MarshalFile(&templates.Template{Format: templates.Format, Name: "Pregen", Game: templates.Game,
+		Server: templates.Server{Type: "paper", MinecraftVersion: "26.1.2"},
+		Addons: []templates.Addon{{Source: addons.Modrinth, Project: "fALzjamp", Slug: "chunky", Name: "Chunky", Latest: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(file)
+}
+
+// A server made from a template never forgets the template quietly. The
+// record of what the template adds is written with the server and settles
+// with the server's settings, and a start that finds it gone says so on the
+// server page rather than settling as if nothing was left to install.
+func TestTemplateRecordIsNeverLostSilently(t *testing.T) {
+	const (
+		installed = "installed" // the add-on is on the server and the import settled
+		refused   = "refused"   // no server was made
+		lost      = "lost"      // the server page says the record was lost, and nothing was installed
+	)
+	holdImages := func(e *agentEnv, on bool) {
+		e.fd.mu.Lock()
+		e.fd.holdImages = on
+		e.fd.mu.Unlock()
+	}
+	// stopBeforeFirstStart creates the server and stops the agent while its
+	// first start waits on the image, before anything is installed; between
+	// the two, between runs.
+	stopBeforeFirstStart := func(t *testing.T, e *agentEnv, create func() (int, string), between func()) {
+		images := e.fd.called("GET /images/")
+		holdImages(e, true)
+		if code, _ := create(); code != 202 {
+			t.Fatalf("create: %d", code)
+		}
+		e.waitFor("the first start to check the image", func() bool { return e.fd.called("GET /images/") > images })
+		between()
+		e.stop()
+		holdImages(e, false)
+		e.start()
+	}
+	for _, tc := range []struct {
+		name string
+		want string
+		run  func(t *testing.T, e *agentEnv, create func() (int, string))
+	}{
+		{"the agent stops between creating the server and its first start", installed, func(t *testing.T, e *agentEnv, create func() (int, string)) {
+			stopBeforeFirstStart(t, e, create, func() {})
+		}},
+		{"writing the template's record fails", refused, func(t *testing.T, e *agentEnv, create func() (int, string)) {
+			if _, err := e.a.db.Exec(`CREATE TRIGGER no_record BEFORE INSERT ON template_installs BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
+				t.Fatal(err)
+			}
+			if code, id := create(); code == 202 {
+				e.waitOp(id)
+			}
+		}},
+		{"recording that the import finished fails", installed, func(t *testing.T, e *agentEnv, create func() (int, string)) {
+			if _, err := e.a.db.Exec(`CREATE TRIGGER unsettled BEFORE UPDATE OF config ON servers
+				WHEN json_extract(OLD.config, '$.template.pending') AND json_extract(NEW.config, '$.template.pending') IS NULL
+				BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
+				t.Fatal(err)
+			}
+			code, id := create()
+			if code != 202 {
+				t.Fatalf("create: %d", code)
+			}
+			if op := e.waitOp(id); op.Status != api.OpFailed {
+				t.Fatalf("the first start can't record that the import finished: %+v", op)
+			}
+			if _, err := e.a.db.Exec(`DROP TRIGGER unsettled`); err != nil {
+				t.Fatal(err)
+			}
+			if op := e.runOp("POST", "/start"); op.Status != api.OpSucceeded {
+				t.Fatalf("start: %+v", op)
+			}
+		}},
+		{"the record is gone when the agent starts again", lost, func(t *testing.T, e *agentEnv, create func() (int, string)) {
+			stopBeforeFirstStart(t, e, create, func() {
+				if _, err := e.a.db.Exec(`DELETE FROM template_installs`); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			publishPinnable(e.withSources())
+			create := func() (int, string) {
+				code, plan, raw := e.planTemplate(chunkyTemplate(t))
+				if code != 200 || !plan.Ready {
+					t.Fatalf("plan: %d %v", code, raw)
+				}
+				code, out := e.createFromTemplate(plan.Fingerprint, nil)
+				id, _ := out["id"].(string)
+				return code, id
+			}
+			tc.run(t, e, create)
+			if tc.want == refused {
+				if n := e.countRows(`SELECT COUNT(*) FROM servers`); n != 0 {
+					t.Fatalf("a create whose record can't be written makes no server, but there are %d", n)
+				}
+				return
+			}
+			e.waitFor("the template's import to end", func() bool {
+				sc, _ := e.srv().serverConfig()
+				return sc != nil && sc.Template != nil && !sc.Template.Pending && e.onlineIdle()
+			})
+			recs, _ := e.srv().installedAddons()
+			sc, _ := e.srv().serverConfig()
+			audits := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'template.lost' AND server_id = ?`, e.sid)
+			switch {
+			case tc.want == installed && (len(recs) != 1 || recs[0].Name != "Chunky" || sc.Template.Lost || e.countRows(`SELECT COUNT(*) FROM template_installs`) != 0):
+				t.Fatalf("the template's add-on must be installed and its import settled: %v %+v", recs, sc.Template)
+			case tc.want == lost && (!sc.Template.Lost || len(recs) != 0 || audits != 1):
+				t.Fatalf("the server page must say the template's record was lost: %+v, add-ons %v, %d audits", sc.Template, recs, audits)
+			}
+		})
+	}
+}
+
 func TestTemplateRequestsAreChecked(t *testing.T) {
 	e := newAgentEnv(t)
 	e.createWith(map[string]any{"memoryMB": 1536})

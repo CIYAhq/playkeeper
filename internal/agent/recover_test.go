@@ -150,4 +150,30 @@ func TestANewMachineBringsAServerBackFromItsCopiesWithTheRecoveryKey(t *testing.
 	if last.SFTP.Password.Reveal() != "hunter2 but longer" || last.SFTP.HostKey != "" || last.SFTP.Folder != "backups/survival" {
 		t.Fatalf("opened %+v", last.SFTP)
 	}
+
+	// The folder the file names may be one copies left after it was
+	// downloaded: making it there would bring none back.
+	missing := func(folder string) *offsite.Error {
+		return &offsite.Error{Kind: offsite.KindNoSuchFolder, Op: "list", Field: "folder", Folder: folder,
+			Msg: "There is no folder " + folder + " on the other machine.", Hint: "Check the folder's name."}
+	}
+	fromFile := map[string]any{"type": "sftp", "sftp": map[string]any{"host": "vault.example.net", "port": 22, "user": "playkeeper"}}
+	const notInFile = "There is no folder playkeeper/survival/ on the other machine, the folder the recovery key file names."
+	dest.list = missing("playkeeper/survival/")
+	code, out = e.call("POST", "/v1/offsite/recover", body(map[string]any{"config": fromFile, "secretKey": "", "password": "hunter2 but longer"}))
+	if hint, _ := out["hint"].(string); code == http.StatusOK || out["field"] != "folder" || out["error"] != notInFile || !strings.Contains(hint, "Type that folder under Folder.") {
+		t.Fatalf("the file's folder isn't there: %d %v", code, out)
+	}
+	code, out = e.call("POST", "/v1/offsite/recover/restore", body(map[string]any{"config": fromFile, "secretKey": "", "password": "hunter2 but longer", "name": copies[0].(map[string]any)["name"]}))
+	if code != http.StatusAccepted {
+		t.Fatalf("restore from the file's folder: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != "failed" || op.Error != notInFile {
+		t.Fatalf("restore from the file's folder: %+v", op)
+	}
+	dest.list = missing("backups/survival")
+	code, out = e.call("POST", "/v1/offsite/recover", body(map[string]any{"config": sftp, "secretKey": "", "password": "hunter2 but longer"}))
+	if code == http.StatusOK || out["error"] != "There is no folder backups/survival on the other machine." || out["hint"] != "Check the folder's name." {
+		t.Fatalf("a typed folder that isn't there: %d %v", code, out)
+	}
 }

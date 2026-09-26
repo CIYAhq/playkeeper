@@ -90,6 +90,186 @@ func withCopies(t *testing.T, dest offsiteDest) (e *agentEnv, backupID, file str
 	return e, backupID, file
 }
 
+// Changing where copies go asks first while copies are recorded at the old
+// place, saying how many there are and how many are a backup's only copy,
+// and forgets them only once that's confirmed.
+func TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies(t *testing.T) {
+	e, first, _ := withCopies(t, &fakeDest{stored: map[string]offsite.Copy{}})
+	for range 2 {
+		id := e.backup()
+		e.waitFor("another copy", func() bool {
+			return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1
+		})
+	}
+	if code, _ := e.call("DELETE", e.sp("/backups/"+first)+"?actor=admin", nil); code != http.StatusNoContent {
+		t.Fatalf("delete the first backup here: %d", code)
+	}
+	s3 := map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds", "accessKeyId": "PKEXAMPLE"}
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "config": map[string]any{"type": "s3", "s3": s3}, "secretKey": "another-example-secret"}); code != http.StatusOK {
+		t.Fatalf("a new secret key for the same place: %d %v", code, out)
+	}
+
+	elsewhere := maps.Clone(s3)
+	elsewhere["bucket"] = "worlds-2"
+	move := map[string]any{"actor": "admin", "config": map[string]any{"type": "s3", "s3": elsewhere}}
+	code, out := e.call("POST", e.sp("/offsite"), move)
+	params, _ := out["params"].(map[string]any)
+	if code != http.StatusConflict || out["reason"] != "copies_recorded" || params["copies"] != float64(3) || params["onlyThere"] != float64(1) || params["place"] == "" {
+		t.Fatalf("moving while copies are recorded: %d %v", code, out)
+	}
+	_, out = e.call("GET", e.sp("/offsite"), nil)
+	if out["s3"].(map[string]any)["bucket"] != "worlds" || out["copies"] != float64(3) {
+		t.Fatalf("a refused move changed the settings or the copies: %v", out)
+	}
+
+	move["forgetCopies"] = true
+	if code, out := e.call("POST", e.sp("/offsite"), move); code != http.StatusOK || out["s3"].(map[string]any)["bucket"] != "worlds-2" {
+		t.Fatalf("the confirmed move: %d %v", code, out)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, first); n != 0 {
+		t.Fatal("the copy at the old place is still listed")
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite.copies_forgotten' AND actor = 'admin' AND detail LIKE '3 copies on % · 1 only there'`); n != 1 {
+		t.Fatalf("audited forgetting the copies %d times", n)
+	}
+}
+
+// recoveryKey downloads the recovery key file as the owner.
+func (e *agentEnv) recoveryKey() string {
+	e.t.Helper()
+	req, _ := http.NewRequest("GET", e.ts.URL+e.sp("/offsite/recovery-key"), nil)
+	req.Header.Set("X-Playkeeper-Actor", "owner")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		e.t.Fatalf("recovery key: %d %s", resp.StatusCode, body)
+	}
+	return string(body)
+}
+
+// The recovery key file names the folder copies go to. Once they go to
+// another folder, the downloaded file is out of date until it's downloaded
+// again; a new place with the same folder leaves it as it is.
+func TestTheRecoveryKeyIsDownloadedAgainWhenCopiesGoToAnotherFolder(t *testing.T) {
+	e, _, _ := withCopies(t, &fakeDest{stored: map[string]offsite.Copy{}})
+	key := func(out map[string]any) map[string]any {
+		t.Helper()
+		k, _ := out["key"].(map[string]any)
+		if k == nil {
+			t.Fatalf("no key: %v", out)
+		}
+		return k
+	}
+	_, out := e.call("GET", e.sp("/offsite"), nil)
+	prefix, _ := key(out)["folder"].(string)
+	if !strings.HasPrefix(prefix, "playkeeper/") {
+		t.Fatalf("the key names %q", prefix)
+	}
+	if file := e.recoveryKey(); !strings.Contains(file, "# folder: "+prefix+"\n") {
+		t.Fatalf("the file doesn't name %s:\n%s", prefix, file)
+	}
+	_, out = e.call("GET", e.sp("/offsite"), nil)
+	if k := key(out); k["savedAt"] == nil || k["stale"] != nil || k["savedFolder"] != nil {
+		t.Fatalf("just downloaded: %v", k)
+	}
+
+	s3 := map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds-2", "accessKeyId": "PKEXAMPLE"}
+	code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "config": map[string]any{"type": "s3", "s3": s3}, "secretKey": "another-example-secret", "forgetCopies": true})
+	if k := key(out); code != http.StatusOK || k["stale"] != nil || k["folder"] != prefix {
+		t.Fatalf("another bucket, the same folder: %d %v", code, k)
+	}
+
+	sftp := map[string]any{"host": "203.0.113.20", "port": 22, "user": "playkeeper", "folder": "/copies"}
+	code, out = e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "config": map[string]any{"type": "sftp", "sftp": sftp}, "sftpAuth": "password", "password": "an example password", "forgetCopies": true})
+	if k := key(out); code != http.StatusOK || k["stale"] != true || k["savedFolder"] != prefix || k["folder"] != "/copies" || k["savedAt"] == nil {
+		t.Fatalf("another folder: %d %v", code, k)
+	}
+	if file := e.recoveryKey(); !strings.Contains(file, "# folder: /copies\n") {
+		t.Fatalf("the new file doesn't name /copies:\n%s", file)
+	}
+	_, out = e.call("GET", e.sp("/offsite"), nil)
+	if k := key(out); k["stale"] != nil || k["savedFolder"] != nil {
+		t.Fatalf("downloaded again: %v", k)
+	}
+}
+
+// A copy whose backup is gone from this machine says who removed the
+// backup: the backup rules, or the person who deleted it.
+func TestACopyWithoutItsBackupSaysWhoRemovedIt(t *testing.T) {
+	e, first, _ := withCopies(t, &fakeDest{stored: map[string]offsite.Copy{}})
+	rules := map[string]any{"onHost": map[string]any{"last": 1}, "offSite": map[string]any{"keepAll": true}, "includeManual": true}
+	if code, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "rules": rules}); code != http.StatusOK {
+		t.Fatalf("rules: %d %v", code, out)
+	}
+	second := e.backup()
+	e.waitFor("the second copy", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, second) == 1
+	})
+	if n := e.countRows(`SELECT COUNT(*) FROM backups WHERE id = ?`, first); n != 0 {
+		t.Fatal("the rules kept the first backup here")
+	}
+	removed := func() map[string]string {
+		t.Helper()
+		_, out := e.call("GET", e.sp("/offsite/copies"), nil)
+		got := map[string]string{}
+		for _, c := range out["copies"].([]any) {
+			m := c.(map[string]any)
+			got[m["backupId"].(string)] = fmt.Sprintf("%v %v", m["removed"], m["removedBy"])
+		}
+		return got
+	}
+	if got := removed(); got[first] != "rules <nil>" || got[second] != "<nil> <nil>" {
+		t.Fatalf("after the rules removed the first backup here: %v", got)
+	}
+	if code, _ := e.call("DELETE", e.sp("/backups/"+second)+"?actor=admin", nil); code != http.StatusNoContent {
+		t.Fatalf("delete the second backup here: %d", code)
+	}
+	if got := removed(); got[first] != "rules <nil>" || got[second] != "person admin" {
+		t.Fatalf("after deleting the second backup by hand: %v", got)
+	}
+}
+
+// The card calls the last copy the first only when it's the first made to
+// the place copies go to, not whenever one copy is recorded.
+func TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst(t *testing.T) {
+	e, _, _ := withCopies(t, &fakeDest{stored: map[string]offsite.Copy{}})
+	view := func() map[string]any {
+		t.Helper()
+		_, out := e.call("GET", e.sp("/offsite"), nil)
+		return out
+	}
+	if v := view(); v["copies"] != float64(1) || v["firstCopy"] != true {
+		t.Fatalf("after the first copy: %v", v)
+	}
+	rules := map[string]any{"onHost": map[string]any{"keepAll": true}, "offSite": map[string]any{"last": 1}, "includeManual": true}
+	if code, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "rules": rules}); code != http.StatusOK {
+		t.Fatalf("rules: %d %v", code, out)
+	}
+	second := e.backup()
+	e.waitFor("the rules to keep only the second copy", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM offsite_copies`) == 1 && e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, second) == 1
+	})
+	if v := view(); v["copies"] != float64(1) || v["firstCopy"] != nil {
+		t.Fatalf("one copy left of two: %v", v)
+	}
+
+	// A new place gets the newest backup straight away.
+	s3 := map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds-2", "accessKeyId": "PKEXAMPLE"}
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "config": map[string]any{"type": "s3", "s3": s3}, "forgetCopies": true}); code != http.StatusOK || out["firstCopy"] != nil {
+		t.Fatalf("another bucket: %d %v", code, out)
+	}
+	e.waitFor("the first copy in the other bucket", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, second) == 1
+	})
+	if v := view(); v["copies"] != float64(1) || v["firstCopy"] != true {
+		t.Fatalf("after the first copy to another bucket: %v", v)
+	}
+}
+
 func (e *agentEnv) staged() []string {
 	entries, _ := os.ReadDir(e.a.cfg.StagingDir())
 	var names []string

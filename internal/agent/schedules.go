@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/backup"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/schedule"
@@ -222,7 +223,11 @@ func (ss scheduleServer) Run(ctx context.Context, op schedule.Operation) (string
 		}()
 		h.set("scheduleId", op.ScheduleID)
 		if op.Kind == schedule.OpBackup {
-			return s.backupOp(ctx, h, op.Actor, op.Note, false)
+			err = s.backupOp(ctx, h, op.Actor, op.Note, false)
+			if why := pauseRefusal(err); why != "" {
+				s.noteBackupRefused(h.op.ID, op.ScheduleID, why, err)
+			}
+			return err
 		}
 		if err := s.stopServer(ctx, h); err != nil {
 			return err
@@ -249,6 +254,78 @@ func (ss scheduleServer) Run(ctx context.Context, op schedule.Operation) (string
 		return started.ID, err
 	case <-ctx.Done():
 		return started.ID, ctx.Err()
+	}
+}
+
+// refusedNotOnline is why a backup of a server that is starting or stopping
+// is refused: its console can't pause saving yet.
+const refusedNotOnline = "not_online"
+
+// pauseRefusals are the ways an online backup fails when world saving
+// couldn't be paused, or not for long enough to copy one moment's world. A
+// backup with the server stopped needs no pause, so it avoids each.
+var pauseRefusals = map[backup.ErrorKind]bool{
+	backup.KindConsoleUnavailable: true, backup.KindSaveTimeout: true, backup.KindUnexpectedReply: true,
+	backup.KindSavingResumed: true, backup.KindSavingPaused: true, backup.KindFileChanging: true,
+}
+
+// pauseRefusal is why a backup was refused for want of a pause in world
+// saving: the backup error's kind, or refusedNotOnline. It is "" for any
+// other outcome.
+func pauseRefusal(err error) string {
+	var ae *apiError
+	switch {
+	case !errors.As(err, &ae):
+		return ""
+	case ae.Reason == refusedNotOnline:
+		return refusedNotOnline
+	case pauseRefusals[backup.ErrorKind(ae.Code)]:
+		return ae.Code
+	}
+	return ""
+}
+
+// noteBackupRefused records a scheduled backup refused because world saving
+// couldn't be paused. Scheduled backups never stop a running server, so the
+// refusal mustn't pass unseen: it gets a line in the recent activity, and the
+// World tab shows it until a backup succeeds. The failed operation sends the
+// backup-failed Discord alert.
+func (s *server) noteBackupRefused(opID, scheduleID, why string, err error) {
+	now := s.now().UTC()
+	r := api.BackupRefusal{At: now, Since: now, Count: 1, Kind: why, Error: err.Error(), ScheduleID: scheduleID, OperationID: opID}
+	var ae *apiError
+	if errors.As(err, &ae) {
+		r.Hint = ae.Hint
+	}
+	if prev := s.backupRefusal(); prev != nil {
+		r.Since, r.Count = prev.Since, prev.Count+1
+	}
+	raw, _ := json.Marshal(r)
+	if _, err := s.db.Exec(`UPDATE servers SET backup_refused = ? WHERE id = ?`, string(raw), s.id); err != nil {
+		s.log.Warn("a refused scheduled backup could not be recorded", "server", s.id, "err", err)
+	}
+	s.recordEvent(now, "backup_refused", "", "playkeeper", why)
+}
+
+// backupRefusal is the scheduled backups refused since the last backup that
+// succeeded, or nil.
+func (s *server) backupRefusal() *api.BackupRefusal {
+	var raw string
+	if err := s.db.QueryRow(`SELECT backup_refused FROM servers WHERE id = ?`, s.id).Scan(&raw); err != nil || raw == "" {
+		return nil
+	}
+	var r api.BackupRefusal
+	if json.Unmarshal([]byte(raw), &r) != nil {
+		return nil
+	}
+	return &r
+}
+
+// clearBackupRefused forgets the refused scheduled backups once a backup
+// succeeds.
+func (s *server) clearBackupRefused() {
+	if _, err := s.db.Exec(`UPDATE servers SET backup_refused = '' WHERE id = ? AND backup_refused != ''`, s.id); err != nil {
+		s.log.Warn("refused scheduled backups could not be cleared", "server", s.id, "err", err)
 	}
 }
 

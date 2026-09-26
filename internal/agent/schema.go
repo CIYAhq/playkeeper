@@ -388,4 +388,26 @@ CREATE TABLE offsite_uploads (
   PRIMARY KEY (server_id, backup_id)
 );
 `,
+	// Wave 7 (0.4.0): the folder the last recovery key file downloaded names,
+	// so a change of folder asks for the key again. NULL when not known.
+	`
+ALTER TABLE offsite ADD COLUMN key_saved_folder TEXT;
+`,
+	// Wave 7 (0.4.0): who removed a copied backup from this machine, as the
+	// audit names them, so the World tab says why only the copy is left.
+	// Empty while the backup is here, or when not known.
+	`
+ALTER TABLE offsite_copies ADD COLUMN removed_by TEXT NOT NULL DEFAULT '';
+`,
+	// Wave 7 (0.4.0): how many copies were made to the place copies go to
+	// now, so the card calls only the first one the first.
+	`
+ALTER TABLE offsite ADD COLUMN copies_made INTEGER NOT NULL DEFAULT 0;
+`,
+	// Wave 7 (0.4.0): the scheduled backups refused since the last backup
+	// that succeeded, because world saving couldn't be paused, as JSON, or
+	// '' when none were.
+	`
+ALTER TABLE servers ADD COLUMN backup_refused TEXT NOT NULL DEFAULT '';
+`,
 }

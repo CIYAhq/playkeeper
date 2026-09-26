@@ -186,6 +186,18 @@ control "nether and end folders missing beside the world don't void a chunk coun
   'if !optional || !errors.Is(err, fs.ErrNotExist) {' \
   'if true || !optional || !errors.Is(err, fs.ErrNotExist) {' \
   ./internal/agent '^TestAChunkCountThatCannotListTheWorldIsNotKept$'
+control "running out of memory, then Stopping server, is still a crash" internal/agent/collector.go \
+  's.sawCrash, s.lastError = true, "Java ran out of memory."' \
+  's.sawCrash, s.lastError = false, "Java ran out of memory."' \
+  ./internal/agent '^TestAnOutOfMemoryErrorThenStoppingServerIsACrash$'
+control "the GC log's folder is given to the game user on every start" internal/agent/lifecycle.go \
+  'return f.Chown(uid, gid)' \
+  'return nil' \
+  ./internal/agent '^TestTheLogsFolderIsGivenToTheGameOnEveryStart$'
+control "giving the GC log's folder never follows a link at logs" internal/agent/lifecycle.go \
+  'os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK' \
+  'os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK' \
+  ./internal/agent '^TestTheLogsFolderIsGivenToTheGameOnEveryStart$'
 control "a crash that logs Stopping server is still a crash" internal/agent/lifecycle.go \
   'return s.sawStopping && !s.sawCrash' \
   'return s.sawStopping' \
@@ -1014,6 +1026,26 @@ control "a template plan without a version creates nothing" internal/agent/templ
   'if p.Version == nil {' \
   'if false {' \
   ./internal/agent '^TestTemplateCreateNeedsAVersion$'
+control "a server made from a template is recorded with what the template adds" internal/agent/handlers.go \
+  'record = func(tx *sql.Tx, id string) error { return saveTemplateInstall(tx, id, planned, dataPacks, at) }' \
+  'record = func(tx *sql.Tx, id string) error { _, _, _ = planned, dataPacks, at; return nil }' \
+  ./internal/agent '^TestTemplateRecordIsNeverLostSilently$'
+control "a new server whose record can't be written is not made" internal/agent/servers.go \
+  '		if err := spec.record(tx, id); err != nil {
+			return nil, nil, err
+		}' \
+  '		_ = spec.record(tx, id)' \
+  ./internal/agent '^TestTemplateRecordIsNeverLostSilently$'
+control "a start that finds a template's record gone says so" internal/agent/templates.go \
+  '	if !found {
+		return s.templateLost(h, sc)' \
+  '	if false && !found {
+		return s.templateLost(h, sc)' \
+  ./internal/agent '^TestTemplateRecordIsNeverLostSilently$'
+control "a template's record and settings settle together" internal/agent/templates.go \
+  '	defer tx.Rollback()' \
+  '	defer tx.Commit()' \
+  ./internal/agent '^TestTemplateRecordIsNeverLostSilently$'
 control "packs cannot suggest operator or function permission levels" internal/modpacks/rules.go \
   '"force-gamemode", "gamemode",' \
   '"force-gamemode", "function-permission-level", "op-permission-level", "gamemode",' \
@@ -1056,8 +1088,8 @@ control "voice chat installs only with leave to open its port" internal/agent/ad
   'if false && voice && !req.OpenPorts {' \
   ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
 control "removing voice chat closes its port" internal/agent/addons.go \
-  'if voiceChat(key) || slices.ContainsFunc(extra, voiceChat) {' \
-  'if false && (voiceChat(key) || slices.ContainsFunc(extra, voiceChat)) {' \
+  'if slices.ContainsFunc(drop, voiceChat) {' \
+  'if false && slices.ContainsFunc(drop, voiceChat) {' \
   ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
 control "voice chat gets a UDP port nothing on the machine uses" internal/agent/curated.go \
   'return func(p int) bool { return used[p] || a.opts.UDPPortInUse(p) }' \
@@ -1090,15 +1122,17 @@ control "an ask for a share that waited reads the setup again" internal/agent/pa
 	for {
 		fs.mu.Lock()' \
   ./internal/agent '^TestFriendsShareKeepsTheNewestBuild$'
-control "removing voice chat closes its port before anything is removed" internal/agent/addons.go \
-  'if voiceChat(key) || slices.ContainsFunc(extra, voiceChat) {' \
-  'if false && (voiceChat(key) || slices.ContainsFunc(extra, voiceChat)) {' \
-  ./internal/agent '^TestVoiceChatRemovalClosesItsPortFirst$'
-control "voice chat that a removal leaves gets its port back" internal/agent/addons.go \
-  '		s.reopenVoiceChat(voicePort, actor)
-		s.audit(actor, "addon.removed", target, "refused", err.Error())' \
-  '		s.audit(actor, "addon.removed", target, "refused", err.Error())' \
-  ./internal/agent '^TestVoiceChatRemovalClosesItsPortFirst$'
+control "voice chat's port closes in the transaction that drops its record" internal/agent/addons.go \
+  'if err := saveConfig(tx, s.id, *sc); err != nil {' \
+  'if err := saveConfig(s.db, s.id, *sc); err != nil {' \
+  ./internal/agent '^TestVoiceChatRecordAndPortNeverDisagree$'
+control "a removal closes voice chat's port only with its record" internal/agent/addons.go \
+  '	target := string(key.Source) + ":" + key.ProjectID
+	rm, err := lib.Uninstall(' \
+  '	_ = s.closeVoiceChat(actor)
+	target := string(key.Source) + ":" + key.ProjectID
+	rm, err := lib.Uninstall(' \
+  ./internal/agent '^TestVoiceChatRecordAndPortNeverDisagree$'
 control "each version list is fetched on its own" internal/agent/software.go \
   'entries, at, err := fetchOnce(ctx, &c.mu, &c.catalogFlights, typ, func() ([]api.CatalogEntry, time.Time, error) {' \
   'entries, at, err := fetchOnce(ctx, &c.mu, &c.catalogFlights, "", func() ([]api.CatalogEntry, time.Time, error) {' \
@@ -1120,6 +1154,31 @@ control "a backup records voice chat's UDP port" internal/agent/backups.go \
   'm.Settings[manifestVoiceChatPort] = strconv.Itoa(sc.VoiceChatPort)' \
   '_ = sc.VoiceChatPort' \
   ./internal/agent '^TestRestoreKeepsVoiceChatsPort$'
+control "a backup records its server's modpack" internal/agent/backups.go \
+  '	if v := s.packSetting(sc); v != "" {' \
+  '	if v := s.packSetting(sc); false && v != "" {' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
+control "a restore takes the modpack from its backup, not the live server" internal/agent/backups.go \
+  '	j.RestoredPack = restoredModpack(&j.Restored, setting, recorded)' \
+  '	_, _ = setting, recorded
+	j.Restored.Modpack = prev.Modpack' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
+control "a restore swaps the modpack's record with the world" internal/agent/backups.go \
+  '	err = s.saveWithPack(j.Restored, j.RestoredPack)' \
+  '	err = s.saveServerConfig(j.Restored)' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
+control "an undone restore puts the live server's modpack record back" internal/agent/backups.go \
+  'return s.saveWithPack(*j.Previous, j.PreviousPack)' \
+  'return s.saveWithPack(*j.Previous, nil)' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
+control "a restored server whose backup doesn't record its modpack says so" internal/agent/modpacks.go \
+  'sc.ModpackUnknown = true' \
+  'sc.ModpackUnknown = false' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
+control "a backup's modpack record must stay inside the server's folder" internal/agent/modpacks.go \
+  'if !filepath.IsLocal(f.Path) {' \
+  'if false && !filepath.IsLocal(f.Path) {' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
 control "a restore gives voice chat back its UDP port" internal/agent/backups.go \
   'releasePort, err := s.restoredVoiceChat(&j.Restored, prev, m, st.data)' \
   'releasePort, err := func() {}, error(nil)' \
@@ -1131,14 +1190,6 @@ control "voice chat never gets a port held for another server" internal/agent/cu
 control "a restore holds voice chat's port until the restored settings are saved" internal/agent/backups.go \
   '	defer releasePort()' \
   '	releasePort()' \
-  ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
-control "a removal holds the voice chat port it closes" internal/agent/curated.go \
-  'release = s.voicePorts.hold(port, s.id)' \
-  'release = func() {}' \
-  ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
-control "a finished removal frees voice chat's port" internal/agent/addons.go \
-  '		defer releasePort()' \
-  '		_ = releasePort' \
   ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
 control "a restore the agent restarted in holds voice chat's port until the restored settings are saved" internal/agent/recovery.go \
   'p.releasePort = a.voicePorts.hold(j.Restored.VoiceChatPort, s.id)' \
@@ -1160,9 +1211,9 @@ control "voice chat's port opens before voice chat installs" internal/agent/cura
   ./internal/agent '^TestVoiceChatInstallOpensItsPortFirst$'
 control "a voice chat install that fails closes the port it opened" internal/agent/curated.go \
   '		if opened {
-			_, release, cerr := s.closeVoiceChat(actor)' \
+			if cerr := s.closeVoiceChat(actor); cerr != nil {' \
   '		if false && opened {
-			_, release, cerr := s.closeVoiceChat(actor)' \
+			if cerr := s.closeVoiceChat(actor); cerr != nil {' \
   ./internal/agent '^TestVoiceChatInstallOpensItsPortFirst$'
 control "a running server restarts to publish voice chat's port" internal/agent/curated.go \
   '	if !running {
@@ -1209,7 +1260,7 @@ control "an interrupted restore gets the previous world back at start" internal/
   'if false && dirExists(aside) {' \
   ./internal/agent '^TestInterruptedRestoreIsSettledAtStart$'
 control "an interrupted restore gets the previous settings back at start" internal/agent/backups.go \
-  'return s.saveServerConfig(*j.Previous)' \
+  'return s.saveWithPack(*j.Previous, j.PreviousPack)' \
   'return nil' \
   ./internal/agent '^TestInterruptedRestoreIsSettledAtStart$'
 control "a restore stage is kept while its swap is not settled" internal/agent/backups.go \
@@ -1279,7 +1330,7 @@ control "a restored world still starting after a restart is kept only once onlin
   'err = nil' \
   ./internal/agent '^TestRestoredWorldThatDoesNotStartIsSwappedBackOut$/^after_the_agent_stops_while_the_restored_world_boots$'
 control "a restore finished after a restart saves the restored settings" internal/agent/backups.go \
-  'if err := s.saveServerConfig(j.Restored); err != nil {' \
+  'if err := s.saveWithPack(j.Restored, j.RestoredPack); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/agent '^TestRestoreSurvivesTheAgentStopping$/^dies_after_the_swap$'
 control "a restored world that does not start is swapped back out" internal/agent/backups.go \
@@ -1853,6 +1904,22 @@ control "resource pack links: a look at the certificates in progress doesn't hid
   'if every < 0 {' \
   'if every < 0 && false {' \
   ./internal/certs '^TestStoreCanLookEveryTime$'
+control "certificate issuance: a long Retry-After waits no longer than maxPollWait" internal/certs/acme.go \
+  'if resp.StatusCode < 300 && retryAfter(' \
+  'if false && retryAfter(' \
+  ./internal/certs '^TestIssueWaitsForTheCertificate$'
+control "certificate issuance: a look at the order that gets no answer is tried again" internal/certs/acme.go \
+  'case ctx.Err() != nil || !unreachable(err):' \
+  'case true:' \
+  ./internal/certs '^TestIssueWaitsForTheCertificate$'
+control "certificate issuance: running out of time waiting for the certificate is a timeout, not a refusal" internal/certs/acme.go \
+  'return nil, newProblem(err, CodeIssuanceTimeout, nil)' \
+  'return nil, explain(err, s, is.now())' \
+  ./internal/certs '^TestIssueTimesOutWaitingForTheCertificate$'
+control "certificate issuance: the wait for the certificate ends validationWait after the finalize request" internal/certs/acme.go \
+  'c.CreateOrderCert(wctx, ready.FinalizeURL, csr, true)' \
+  'c.CreateOrderCert(ctx, ready.FinalizeURL, csr, true)' \
+  ./internal/certs '^TestIssueTimesOutWaitingForTheCertificate$'
 control "resource pack links: back to plain HTTP a week before the certificate runs out" internal/agent/packs.go \
   'const packCertMargin = 7 * 24 * time.Hour' \
   'const packCertMargin = 0' \
@@ -2048,6 +2115,28 @@ control "a start after failed starts is not a recovery" internal/agent/collector
   'recovered := take && s.runCrashed' \
   'recovered := take && s.crashed' \
   ./internal/agent '^TestDiscordAlertSequences$/^a_start_fails,_then_one_works$'
+control "a Discord settings save that leaves out live status keeps it" internal/agent/discord.go \
+  'if req.LiveStatus != nil {
+		s.LiveStatus = *req.LiveStatus
+	}' \
+  's.LiveStatus = req.LiveStatus != nil && *req.LiveStatus' \
+  ./internal/agent '^TestDiscordLiveStatusIsOnUnlessTurnedOff$'
+control "Discord's live status is on until the owner turns it off" internal/discord/settings.go \
+  'Settings{Alerts: DefaultAlerts(), LiveStatus: true}' \
+  'Settings{Alerts: DefaultAlerts()}' \
+  ./internal/agent '^TestDiscordLiveStatusIsOnUnlessTurnedOff$'
+control "connecting the same Discord webhook again keeps its live status message" internal/agent/discord.go \
+  "status_message_id = CASE WHEN webhook_url = excluded.webhook_url THEN status_message_id ELSE '' END," \
+  "status_message_id = ''," \
+  ./internal/agent '^TestDiscordReconnectKeepsTheLiveStatusMessageOfTheSameWebhook$'
+control "the low disk alert without a server's name is about your servers" internal/discord/alerts.go \
+  'runs = "your servers"' \
+  'runs = name' \
+  ./internal/discord '^TestLowDiskAlertWithAndWithoutAServerName$'
+control "Discord takes running out of memory, then Stopping server, for a crash" internal/agent/collector.go \
+  's.sawCrash, s.lastError = true, "Java ran out of memory."' \
+  's.sawCrash, s.lastError = false, "Java ran out of memory."' \
+  ./internal/agent '^TestDiscordAlertSequences$/^out_of_memory,_then_Stopping_server'
 control "a Done line delivered again changes nothing" internal/agent/collector.go \
   'take := fresh || !s.runReady' \
   'take := true' \
@@ -2269,6 +2358,32 @@ control "an import refused over a linked world folder starts the previous world 
   '	folders, err := worldimport.WorldFolders(live, level)
 	if err != nil {' \
   ./internal/agent '^TestAWorldImportRefusesLinkedWorldFolders$'
+control "each run that comes online waits for squaremap afresh" internal/agent/maps.go \
+  '	if prev := ms.rendering[s.id]; prev != nil {
+		prev.stop()
+	}' \
+  '	if prev := ms.rendering[s.id]; prev != nil {
+		ms.mu.Unlock()
+		stop()
+		return
+	}' \
+  ./internal/agent '^TestEveryRunThatComesOnlineGetsTheFirstRender$'
+control "the first render follows every run that comes online, however it started" internal/agent/collector.go \
+  '			if take {
+				s.mapRunOnline(runStart)
+			}' \
+  '			if false && take {
+				s.mapRunOnline(runStart)
+			}' \
+  ./internal/agent '^TestEveryRunThatComesOnlineGetsTheFirstRender$'
+control "a restart is put off only while squaremap needs it" internal/agent/maps.go \
+  'if l := s.mapLive(r.Context(), true); !rec.pendingRestart(l) {' \
+  'if l := s.mapLive(r.Context(), true); false && !rec.pendingRestart(l) {' \
+  ./internal/agent '^TestRestartLaterOnlyWhileSquaremapNeedsARestart$'
+control "a restart put off is dropped once squaremap is loaded" internal/agent/maps.go \
+  'if !rec.pendingRestart(l) {' \
+  'if false && !rec.pendingRestart(l) {' \
+  ./internal/agent '^TestRestartLaterOnlyWhileSquaremapNeedsARestart$'
 
 # Wave 7: who may change where backup copies go and hold the recovery key.
 control "an admin needs two-factor on to hold backup keys" internal/panel/workspace.go \
@@ -2402,6 +2517,179 @@ control "turning sleep off lets go of the game port when the server can't start"
 				s.startFailed(ctx)' \
   '				s.startFailed(ctx)' \
   ./internal/agent '^TestSleepAndWakeTransitions$/^sleep_turned_off,_and_the_server_can.t_start$'
+
+# Wave 7 after the real-world restore check: the copies at the old place, the
+# recovery key's folder, who removed a backup here, the first copy, and
+# scheduled backups refused because saving couldn't be paused.
+control "a new place asks before forgetting the copies at the old one" internal/agent/offsite.go \
+  'if len(forgotten) > 0 && !req.ForgetCopies {' \
+  'if false && len(forgotten) > 0 && !req.ForgetCopies {' \
+  ./internal/agent '^TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies$'
+control "the question counts the backups whose only copy is at the old place" internal/agent/offsite.go \
+  '		if !c.OnHost {
+			n++' \
+  '		if c.OnHost {
+			n++' \
+  ./internal/agent '^TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies$'
+control "forgetting the copies at the old place is audited" internal/agent/offsite.go \
+  's.audit(actor, "offsite.copies_forgotten", "server", "succeeded", forgottenDetail(offsitePlace(row.cfg.Config), forgotten))' \
+  '_ = forgotten' \
+  ./internal/agent '^TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies$'
+control "a recovery key file naming another folder asks to be downloaded again" internal/agent/offsite.go \
+  'if r.keySavedAt != nil && r.keySavedFolder != nil && !sameFolder(*r.keySavedFolder, kv.Folder) {' \
+  'if false && r.keySavedAt != nil && r.keySavedFolder != nil && !sameFolder(*r.keySavedFolder, kv.Folder) {' \
+  ./internal/agent '^TestTheRecoveryKeyIsDownloadedAgainWhenCopiesGoToAnotherFolder$'
+control "downloading the recovery key records the folder the file names" internal/agent/offsite.go \
+  's.now().UnixMilli(), f.Folder, s.id)' \
+  's.now().UnixMilli(), "", s.id)' \
+  ./internal/agent '^TestTheRecoveryKeyIsDownloadedAgainWhenCopiesGoToAnotherFolder$'
+control "looking for copies says the key file's folder isn't there" internal/agent/recover.go \
+  'writeError(w, automationError(keyFileFolder(err, req)))' \
+  'writeError(w, automationError(err))' \
+  ./internal/agent '^TestANewMachineBringsAServerBackFromItsCopiesWithTheRecoveryKey$'
+control "a restore says the key file's folder isn't there" internal/agent/recover.go \
+  'h, automationError(keyFileFolder(err, req)))' \
+  'h, automationError(err))' \
+  ./internal/agent '^TestANewMachineBringsAServerBackFromItsCopiesWithTheRecoveryKey$'
+control "a folder the user typed isn't blamed on the key file" internal/agent/recover.go \
+  'strings.TrimSpace(req.Config.SFTP.Folder) != "" || ' \
+  '' \
+  ./internal/agent '^TestANewMachineBringsAServerBackFromItsCopiesWithTheRecoveryKey$'
+control "looking for copies in a missing folder doesn't say to create it" internal/offsite/sftp.go \
+  'if op == opList {' \
+  'if false && op == opList {' \
+  ./internal/offsite '^TestSFTPList$'
+control "a copy says the rules removed its backup only when they did" internal/agent/offsite.go \
+  'case removedBy == retentionActor:' \
+  'case false:' \
+  ./internal/agent '^TestACopyWithoutItsBackupSaysWhoRemovedIt$'
+control "the rules note on a copy that they removed its backup" internal/agent/backuprules.go \
+  's.noteRemoved(b.ID, actor)' \
+  '' \
+  ./internal/agent '^TestACopyWithoutItsBackupSaysWhoRemovedIt$'
+control "deleting a backup by hand is noted on its copy" internal/agent/handlers.go \
+  's.noteRemoved(b.ID, actor)' \
+  '' \
+  ./internal/agent '^TestACopyWithoutItsBackupSaysWhoRemovedIt$'
+control "only the first copy to a place is called the first" internal/agent/offsite.go \
+  'v.FirstCopy = v.LastCopy != nil && r.copiesMade == 1' \
+  'v.FirstCopy = v.LastCopy != nil && v.Copies == 1' \
+  ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
+control "each finished copy is counted" internal/agent/offsite.go \
+  'copies_made = copies_made + 1 WHERE' \
+  'copies_made = copies_made WHERE' \
+  ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
+control "a new place counts its copies from none" internal/agent/offsite.go \
+  'copies_made = 0 WHERE' \
+  'copies_made = copies_made WHERE' \
+  ./internal/agent '^TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst$'
+control "a scheduled backup refused for want of a pause is recorded" internal/agent/schedules.go \
+  's.noteBackupRefused(h.op.ID, op.ScheduleID, why, err)' \
+  '_ = why' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "only backups refused for want of a pause count as refused" internal/agent/schedules.go \
+  'case pauseRefusals[backup.ErrorKind(ae.Code)]:' \
+  'case ae.Code != "":' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a scheduled backup refused while the server starts counts" internal/agent/schedules.go \
+  'case ae.Reason == refusedNotOnline:' \
+  'case false:' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a backup refused while the server starts says so" internal/agent/backups.go \
+  'e.Reason = refusedNotOnline' \
+  '_ = refusedNotOnline' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "refused scheduled backups in a row count from the first" internal/agent/schedules.go \
+  'r.Since, r.Count = prev.Since, prev.Count+1' \
+  '_ = prev' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refusal names its operation, so the World tab shows it once" internal/agent/schedules.go \
+  'ScheduleID: scheduleID, OperationID: opID}' \
+  'ScheduleID: scheduleID}' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refusal keeps the backup's hint" internal/agent/schedules.go \
+  'r.Hint = ae.Hint' \
+  '_ = ae' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refused scheduled backup gets a line in the recent activity" internal/agent/schedules.go \
+  's.recordEvent(now, "backup_refused", "", "playkeeper", why)' \
+  '_ = why' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "the recent activity lists refused scheduled backups" internal/agent/analytics.go \
+  ', "backup_refused": "backup_refused",' \
+  ',' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a server's status carries its refused scheduled backups" internal/agent/automation.go \
+  'st.BackupRefused = s.backupRefusal()' \
+  '' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a backup that succeeds clears the refused scheduled backups" internal/agent/backuprules.go \
+  's.clearBackupRefused()' \
+  '' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+control "a refused scheduled backup sends the backup-failed alert" internal/agent/lifecycle.go \
+  'if kind == "backup" && done.Status == api.OpFailed {' \
+  'if false && kind == "backup" && done.Status == api.OpFailed {' \
+  ./internal/agent '^TestARefusedScheduledBackupIsShownUntilABackupSucceeds$'
+
+# Wave 7 after Bugbot's findings on d825c69: a running map pre-generation keeps
+# an empty server awake, and a backup dropped from a full copy queue discards
+# what it left at the destination.
+control "a running map pre-generation keeps an empty server awake" internal/agent/sleeping.go \
+  'Busy: s.busy() || s.pregenRunning(),' \
+  'Busy: s.busy(),' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^running$'
+control "sleep goes by what Chunky reported last about the task" internal/agent/pregen.go \
+  'return st == pregen.StateRunning' \
+  '_ = st' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^paused_from_the_console$'
+control "until Chunky reports, a running task keeps the server awake" internal/agent/pregen.go \
+  'return !task.PausedByUser && !task.PausedByPolicy' \
+  'return false' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^running,_before_Chunky_reports$'
+control "until Chunky reports, a paused task lets the server sleep" internal/agent/pregen.go \
+  'return !task.PausedByUser && !task.PausedByPolicy' \
+  'return true' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^paused,_before_Chunky_reports$'
+control "a finished map pre-generation lets the server sleep" internal/agent/pregen.go \
+  '	if !task.unfinished() {
+		return false
+	}
+	if st, ok := s.pg.lastState(); ok {' \
+  '	if st, ok := s.pg.lastState(); ok {' \
+  ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^finished$'
+control "a backup dropped from a full copy queue discards what it left at the destination" internal/agent/offsite.go \
+  's.discardUploads(dropped)' \
+  '_ = dropped' \
+  ./internal/agent '^TestABackupDroppedFromAFullQueueDiscardsWhatItLeftAtTheDestination$'
+control "only the dropped backups' unfinished copies are discarded" internal/agent/offsite.go \
+  's.discardUploads(dropped)' \
+  's.discardUploads(append(s.queuedStates(), dropped...))' \
+  ./internal/agent '^TestABackupDroppedFromAFullQueueDiscardsWhatItLeftAtTheDestination$/^S3$'
+
+# Wave 7 after Bugbot's finding on ee0e519: the uploader claims the copy it
+# picks as it picks it, the queue trim leaves the claimed copy alone, and
+# turning copies off between the pick and the upload stops the copy.
+control "the queue trim leaves the copy the uploader claimed alone" internal/agent/offsite.go \
+  'claimed = c.backupID' \
+  '_ = c' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$'
+control "the uploader's claim names the copy it picked" internal/agent/offsite.go \
+  's.auto.claim = &uploadClaim{backupID: j.backupID, cancel: cancel}' \
+  's.auto.claim = &uploadClaim{cancel: cancel}' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^SFTP$'
+control "a claimed copy uploads under the claim's cancel" internal/agent/offsite.go \
+  'cp, err := dest.Upload(job.ctx,' \
+  'cp, err := dest.Upload(ctx,' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
+control "turning copies off stops the copy the uploader claimed" internal/agent/offsite.go \
+  'func (s *server) stopUpload() {
+	s.auto.mu.Lock()
+	c := s.auto.claim' \
+  'func (s *server) stopUpload() {
+	s.auto.mu.Lock()
+	var c *uploadClaim' \
+  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

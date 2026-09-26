@@ -174,6 +174,8 @@ func (k Keys) Rotate(now time.Time) (Keys, Rotation, error) {
 type RecoveryFile struct {
 	Name    string `json:"name"`
 	Content Secret `json:"-"`
+	// Folder is the bucket prefix or SFTP folder the file names, if any.
+	Folder string `json:"folder,omitempty"`
 }
 
 // RecoveryFile writes k as the recovery key file of the server named
@@ -221,6 +223,8 @@ func (k Keys) RecoveryFileFor(server, folder string, now time.Time) (RecoveryFil
 		"# made before the key was changed.")
 	if folder != "" && len(folder) <= 256 && printable(folder) {
 		line("#", "# folder: "+folder)
+	} else {
+		folder = ""
 	}
 	for _, id := range k.all() {
 		line("")
@@ -229,7 +233,7 @@ func (k Keys) RecoveryFileFor(server, folder string, now time.Time) (RecoveryFil
 		}
 		line("# public key: "+id.Recipient, id.Secret.Reveal())
 	}
-	return RecoveryFile{Name: name, Content: NewSecret(b.String())}, nil
+	return RecoveryFile{Name: name, Content: NewSecret(b.String()), Folder: folder}, nil
 }
 
 // ParseRecoveryFile reads the keys back from a recovery key file, the

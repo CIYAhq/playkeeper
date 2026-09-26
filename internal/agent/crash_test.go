@@ -189,6 +189,31 @@ func TestFailedStartIsExplained(t *testing.T) {
 	}
 }
 
+// Java can log "Stopping server" after running out of memory, with no crash
+// line of its own. The run still crashed: it is explained and counted, the
+// automatic restart waits for its backoff, and the open session ends as a
+// crash, not as a stop.
+func TestAnOutOfMemoryErrorThenStoppingServerIsACrash(t *testing.T) {
+	e := crashEnv(t)
+	e.fd.addLog("[03:10:02 INFO]: PkBotBuilder joined the game")
+	e.waitFor("the session open", func() bool { return e.countRows(`SELECT COUNT(*) FROM sessions WHERE end_ts IS NULL`) == 1 })
+	e.fd.addLog("java.lang.OutOfMemoryError: Java heap space")
+	e.fd.addLog("[03:11:31 INFO]: Stopping server")
+	e.fd.crash(1)
+	c := e.waitCrash()
+	if c.Kind != "heap_out_of_memory" || c.Start {
+		t.Fatalf("got %s (start %v): %s", c.Kind, c.Start, c.Explanation)
+	}
+	if st := e.status(); st.Phase != api.PhaseCrashed || st.CrashCount != 1 || e.crashEvents() != 1 || e.autoRestarts() != 0 {
+		t.Fatalf("phase %s, %d crash(es) counted, %d crash event(s), %d automatic restart(s); want crashed, 1, 1, none before the backoff",
+			st.Phase, st.CrashCount, e.crashEvents(), e.autoRestarts())
+	}
+	var reason string
+	if err := e.a.db.QueryRow(`SELECT end_reason FROM sessions WHERE player = 'PkBotBuilder'`).Scan(&reason); err != nil || reason != "server_crashed" {
+		t.Fatalf("the session ended as %q (%v), want server_crashed", reason, err)
+	}
+}
+
 // A start Docker refused because the game port is taken names the program
 // holding the port, when the agent can see it; one it can't see is left out.
 // A start that failed for another reason doesn't look.

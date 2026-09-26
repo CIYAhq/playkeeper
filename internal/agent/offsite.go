@@ -63,6 +63,10 @@ var openOffsite = func(cfg offsite.Config, keys offsite.Keys, o offsite.Options)
 	return d, nil
 }
 
+// uploadClaimed runs as the uploader starts on an upload it claimed, before
+// it looks at the backup; tests hold it there.
+var uploadClaimed = func(uploadJob) {}
+
 // Sign-in methods over SFTP.
 const (
 	sftpAuthKey      = "key"
@@ -128,6 +132,10 @@ type offsiteRow struct {
 	keys       offsite.Keys
 	hasKeys    bool
 	keySavedAt *time.Time
+	// keySavedFolder is the folder the downloaded recovery key file names,
+	// nil when not known.
+	keySavedFolder *string
+	copiesMade     int // to the place copies go to now
 }
 
 func (r offsiteRow) configured() bool { return r.cfg.Type != "" }
@@ -153,8 +161,9 @@ func (s *server) loadOffsite() (offsiteRow, error) {
 	var enabled int
 	var config, keys string
 	var saved sql.NullInt64
-	err := s.db.QueryRow(`SELECT enabled, config, secret, password, private_key, ssh_public, keys, key_saved_at FROM offsite WHERE server_id = ?`, s.id).
-		Scan(&enabled, &config, &r.secret, &r.password, &r.privateKey, &r.sshPublic, &keys, &saved)
+	var savedFolder sql.NullString
+	err := s.db.QueryRow(`SELECT enabled, config, secret, password, private_key, ssh_public, keys, key_saved_at, key_saved_folder, copies_made FROM offsite WHERE server_id = ?`, s.id).
+		Scan(&enabled, &config, &r.secret, &r.password, &r.privateKey, &r.sshPublic, &keys, &saved, &savedFolder, &r.copiesMade)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, nil
 	}
@@ -176,8 +185,23 @@ func (s *server) loadOffsite() (offsiteRow, error) {
 		t := time.UnixMilli(saved.Int64).UTC()
 		r.keySavedAt = &t
 	}
+	if savedFolder.Valid {
+		r.keySavedFolder = &savedFolder.String
+	}
 	return r, nil
 }
+
+// keyFolder is the folder a recovery key file made now names: where the
+// server's copies go.
+func keyFolder(c storedOffsite) string {
+	if c.Type == offsite.TypeSFTP {
+		return c.SFTP.Folder
+	}
+	return c.S3.Prefix
+}
+
+// sameFolder says whether two folders a recovery key file names are one.
+func sameFolder(a, b string) bool { return strings.TrimRight(a, "/") == strings.TrimRight(b, "/") }
 
 // saveOffsite writes the settings and secrets; the keys and when the
 // recovery key was saved are written by their own routes.
@@ -380,6 +404,12 @@ type keyView struct {
 	OldKeys   int        `json:"oldKeys"`
 	SavedAt   *time.Time `json:"savedAt,omitempty"`
 	FileName  string     `json:"fileName"`
+	// Folder is where the recovery key file says the copies are.
+	Folder string `json:"folder,omitempty"`
+	// Stale says the downloaded file names SavedFolder, where copies no
+	// longer go, so a new machine would look for them in the wrong place.
+	Stale       bool   `json:"stale,omitempty"`
+	SavedFolder string `json:"savedFolder,omitempty"`
 }
 
 // offsiteCopy is a recorded copy at the destination.
@@ -398,6 +428,11 @@ type offsiteCopy struct {
 	OnHost           bool      `json:"onHost"`
 	SHA256           string    `json:"sha256,omitempty"`     // the backup's, as recorded
 	CheckError       string    `json:"checkError,omitempty"` // why the last check found the copy missing or damaged
+	// Removed says who removed the backup from this machine once only the
+	// copy is left: "rules", or "person" with their name in RemovedBy.
+	// Empty when not known.
+	Removed   string `json:"removed,omitempty"`
+	RemovedBy string `json:"removedBy,omitempty"`
 }
 
 // copyRecord is a copy as offsite_copies keeps it: what its upload reported,
@@ -451,6 +486,7 @@ type offsiteView struct {
 	SSHKey      *sshKeyView        `json:"sshKey,omitempty"`
 	Key         *keyView           `json:"key,omitempty"`
 	LastCopy    *offsiteCopy       `json:"lastCopy,omitempty"`
+	FirstCopy   bool               `json:"firstCopy,omitempty"` // LastCopy is the first made to this place
 	Copies      int                `json:"copies"`
 	CopiesBytes int64              `json:"copiesBytes"`
 	Pending     *pendingView       `json:"pending,omitempty"`
@@ -475,8 +511,11 @@ func (s *server) offsiteView(r offsiteRow) offsiteView {
 	}
 	if r.hasKeys {
 		kv := &keyView{Recipient: r.keys.Current.Recipient, CreatedAt: r.keys.Current.CreatedAt, OldKeys: len(r.keys.Old), SavedAt: r.keySavedAt}
-		if f, err := r.keys.RecoveryFile(s.name(), s.now()); err == nil {
-			kv.FileName = f.Name
+		if f, err := r.keys.RecoveryFileFor(s.name(), keyFolder(r.cfg), s.now()); err == nil {
+			kv.FileName, kv.Folder = f.Name, f.Folder
+		}
+		if r.keySavedAt != nil && r.keySavedFolder != nil && !sameFolder(*r.keySavedFolder, kv.Folder) {
+			kv.Stale, kv.SavedFolder = true, *r.keySavedFolder
 		}
 		v.Key = kv
 	}
@@ -488,6 +527,7 @@ func (s *server) offsiteView(r offsiteRow) offsiteView {
 			v.LastCopy = &copies[i]
 		}
 	}
+	v.FirstCopy = v.LastCopy != nil && r.copiesMade == 1
 	v.Pending, v.Queued = s.pendingUpload()
 	return v
 }
@@ -499,7 +539,7 @@ func (s *server) offsiteCopies() ([]offsiteCopy, error) {
 			onHost[b.ID] = true
 		}
 	}
-	rows, err := s.db.Query(`SELECT backup_id, kind, backup_created_at, file_name, size_bytes, minecraft_version, level_name, copy, copied_at
+	rows, err := s.db.Query(`SELECT backup_id, kind, backup_created_at, file_name, size_bytes, minecraft_version, level_name, copy, copied_at, removed_by
 		FROM offsite_copies WHERE server_id = ? ORDER BY backup_created_at DESC`, s.id)
 	if err != nil {
 		return nil, err
@@ -509,8 +549,8 @@ func (s *server) offsiteCopies() ([]offsiteCopy, error) {
 	for rows.Next() {
 		var c offsiteCopy
 		var created, copied int64
-		var raw string
-		if err := rows.Scan(&c.BackupID, &c.Kind, &created, &c.FileName, &c.SizeBytes, &c.MinecraftVersion, &c.LevelName, &raw, &copied); err != nil {
+		var raw, removedBy string
+		if err := rows.Scan(&c.BackupID, &c.Kind, &created, &c.FileName, &c.SizeBytes, &c.MinecraftVersion, &c.LevelName, &raw, &copied, &removedBy); err != nil {
 			return nil, err
 		}
 		var cp copyRecord
@@ -518,6 +558,13 @@ func (s *server) offsiteCopies() ([]offsiteCopy, error) {
 		c.CreatedAt, c.CopiedAt = time.UnixMilli(created).UTC(), time.UnixMilli(copied).UTC()
 		c.Name, c.CopySizeBytes, c.Checked, c.OnHost = offsite.CopyName(c.FileName), cp.Size, cp.Checked, onHost[c.BackupID]
 		c.SHA256, c.CheckError = cp.ArchiveSHA256, cp.CheckError
+		switch {
+		case c.OnHost || removedBy == "":
+		case removedBy == retentionActor:
+			c.Removed = "rules"
+		default:
+			c.Removed, c.RemovedBy = "person", removedBy
+		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -530,7 +577,14 @@ type uploadProgress struct {
 	total     int64
 	startSent int64
 	started   time.Time
-	cancel    context.CancelFunc
+}
+
+// uploadClaim is the upload the uploader claimed, until it is done with the
+// upload's row: trimming the queue leaves that row alone, and stopUpload
+// cancels the upload through cancel, whether it has started or not.
+type uploadClaim struct {
+	backupID string
+	cancel   context.CancelFunc
 }
 
 // storedBytes is how much of an unfinished upload the destination has.
@@ -621,6 +675,10 @@ type offsiteRequest struct {
 	// HostKey is the SFTP host key the user confirmed, as the connection
 	// test returned it.
 	HostKey *string `json:"hostKey,omitempty"`
+	// ForgetCopies confirms a change of place that stops listing the copies
+	// recorded at the old one, as the refusal with reason copies_recorded
+	// asked.
+	ForgetCopies bool `json:"forgetCopies,omitempty"`
 }
 
 // merge applies req to the saved settings. The password stays only while
@@ -710,6 +768,44 @@ func offsiteDetail(r offsiteRow) string {
 	return d
 }
 
+// onlyThere counts the copies whose backup is no longer on this machine.
+func onlyThere(copies []offsiteCopy) int {
+	n := 0
+	for _, c := range copies {
+		if !c.OnHost {
+			n++
+		}
+	}
+	return n
+}
+
+// errCopiesRecorded refuses a change of place while copies are recorded at
+// the old one. They stay there, but this server stops listing, restoring
+// and deleting them, so the change waits for ForgetCopies.
+func errCopiesRecorded(place string, copies []offsiteCopy) error {
+	n, only := len(copies), onlyThere(copies)
+	msg := fmt.Sprintf("Changing where copies go forgets the %d copies on %s.", n, place)
+	hint := "They stay there, but this server stops listing them, so the World tab can't restore them and the backup rules don't delete old ones there."
+	if n == 1 {
+		msg = fmt.Sprintf("Changing where copies go forgets the copy on %s.", place)
+		hint = "It stays there, but this server stops listing it, so the World tab can't restore it."
+	}
+	switch {
+	case only == 1 && n == 1:
+		hint += " It's the only copy of its backup."
+	case only == 1:
+		hint += " One of them is the only copy of its backup."
+	case only > 1:
+		hint += fmt.Sprintf(" %d of them are the only copy of their backup.", only)
+	}
+	return &apiError{Status: http.StatusConflict, Code: api.CodeConflict, Reason: "copies_recorded", Msg: msg, Hint: hint + " Confirm the change to go ahead.",
+		Params: map[string]any{"place": place, "copies": n, "onlyThere": only}}
+}
+
+func forgottenDetail(place string, copies []offsiteCopy) string {
+	return fmt.Sprintf("%d copies on %s · %d only there", len(copies), place, onlyThere(copies))
+}
+
 func (s *server) hOffsiteSet(w http.ResponseWriter, r *http.Request) {
 	var req offsiteRequest
 	if err := decode(r, &req); err != nil {
@@ -749,6 +845,17 @@ func (s *server) hOffsiteSet(w http.ResponseWriter, r *http.Request) {
 		next.keys, next.hasKeys = k, true
 	}
 	moved := row.configured() && offsiteIdentity(row.cfg.Config) != offsiteIdentity(next.cfg.Config)
+	var forgotten []offsiteCopy
+	if moved {
+		if forgotten, err = s.offsiteCopies(); err != nil {
+			writeError(w, err)
+			return
+		}
+		if len(forgotten) > 0 && !req.ForgetCopies {
+			writeError(w, errCopiesRecorded(offsitePlace(row.cfg.Config), forgotten))
+			return
+		}
+	}
 	if err := s.saveOffsite(next); err != nil {
 		writeError(w, err)
 		return
@@ -757,6 +864,11 @@ func (s *server) hOffsiteSet(w http.ResponseWriter, r *http.Request) {
 		// The recorded copies stay where they were; the rules no longer
 		// reach them from here.
 		_, _ = s.db.Exec(`DELETE FROM offsite_copies WHERE server_id = ?`, s.id)
+		_, _ = s.db.Exec(`UPDATE offsite SET copies_made = 0 WHERE server_id = ?`, s.id)
+		next.copiesMade = 0
+		if len(forgotten) > 0 {
+			s.audit(actor, "offsite.copies_forgotten", "server", "succeeded", forgottenDetail(offsitePlace(row.cfg.Config), forgotten))
+		}
 	}
 	if moved || !next.enabled {
 		s.stopUpload()
@@ -891,11 +1003,7 @@ func (s *server) hOffsiteRecoveryKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errConflict("There is no recovery key yet.", "Turn on copies somewhere else first; the key is made then."))
 		return
 	}
-	folder := row.cfg.S3.Prefix
-	if row.cfg.Type == offsite.TypeSFTP {
-		folder = row.cfg.SFTP.Folder
-	}
-	f, err := row.keys.RecoveryFileFor(s.name(), folder, s.now())
+	f, err := row.keys.RecoveryFileFor(s.name(), keyFolder(row.cfg), s.now())
 	if err != nil {
 		writeError(w, automationError(err))
 		return
@@ -911,7 +1019,7 @@ func (s *server) hOffsiteRecoveryKey(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write([]byte(body)); err != nil {
 		return
 	}
-	_, _ = s.db.Exec(`UPDATE offsite SET key_saved_at = ? WHERE server_id = ?`, s.now().UnixMilli(), s.id)
+	_, _ = s.db.Exec(`UPDATE offsite SET key_saved_at = ?, key_saved_folder = ? WHERE server_id = ?`, s.now().UnixMilli(), f.Folder, s.id)
 }
 
 // hOffsiteNewKey makes a new encryption key for new copies and keeps the
@@ -943,11 +1051,11 @@ func (s *server) hOffsiteNewKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, automationError(err))
 		return
 	}
-	if _, err := s.db.Exec(`UPDATE offsite SET keys = ?, key_saved_at = NULL, updated_at = ? WHERE server_id = ?`, encodeKeys(keys), s.now().UnixMilli(), s.id); err != nil {
+	if _, err := s.db.Exec(`UPDATE offsite SET keys = ?, key_saved_at = NULL, key_saved_folder = NULL, updated_at = ? WHERE server_id = ?`, encodeKeys(keys), s.now().UnixMilli(), s.id); err != nil {
 		writeError(w, err)
 		return
 	}
-	row.keys, row.keySavedAt = keys, nil
+	row.keys, row.keySavedAt, row.keySavedFolder = keys, nil, nil
 	s.audit(actor, "offsite.key_rotated", "server", "succeeded", "new key "+rot.Recipient)
 	writeJSON(w, http.StatusOK, offsiteNewKey{Rotation: rot, Offsite: s.offsiteView(row)})
 }
@@ -1318,18 +1426,19 @@ func (s *server) kickOffsite() {
 	}
 }
 
-// stopUpload cancels the upload running now, if any.
+// stopUpload cancels the upload the uploader claimed, if any.
 func (s *server) stopUpload() {
 	s.auto.mu.Lock()
-	up := s.auto.upload
+	c := s.auto.claim
 	s.auto.mu.Unlock()
-	if up != nil && up.cancel != nil {
-		up.cancel()
+	if c != nil {
+		c.cancel()
 	}
 }
 
 // queueOffsite queues a verified backup for its copy, when copies are on.
-// Only the newest waiting backups stay queued.
+// Only the newest waiting backups stay queued, besides the one the uploader
+// claimed; what the dropped ones left unfinished is discarded.
 func (s *server) queueOffsite(backupID string) {
 	var enabled int
 	if s.db.QueryRow(`SELECT enabled FROM offsite WHERE server_id = ?`, s.id).Scan(&enabled) != nil || enabled != 1 {
@@ -1339,43 +1448,82 @@ func (s *server) queueOffsite(backupID string) {
 		s.log.Warn("could not queue a backup's copy", "server", s.id, "backup", backupID, "err", err)
 		return
 	}
+	// The uploader picks and claims an upload under the same lock, so the
+	// claim read here names any upload it picked before the delete.
 	s.auto.mu.Lock()
-	busy := ""
-	if s.auto.upload != nil {
-		busy = s.auto.upload.backupID
+	claimed := ""
+	if c := s.auto.claim; c != nil {
+		claimed = c.backupID
+	}
+	var dropped []*offsite.UploadState
+	n := 0
+	rows, err := s.db.Query(`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id != ? AND backup_id NOT IN
+		(SELECT backup_id FROM offsite_uploads WHERE server_id = ? ORDER BY created_at DESC LIMIT ?) RETURNING state`, s.id, claimed, s.id, offsiteMaxQueue)
+	if err == nil {
+		dropped, n = scanStates(rows)
 	}
 	s.auto.mu.Unlock()
-	res, err := s.db.Exec(`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id != ? AND backup_id NOT IN
-		(SELECT backup_id FROM offsite_uploads WHERE server_id = ? ORDER BY created_at DESC LIMIT ?)`, s.id, busy, s.id, offsiteMaxQueue)
-	if err == nil {
-		if n, _ := res.RowsAffected(); n > 0 {
-			s.log.Warn("older backups waiting for their copy were dropped from the queue", "server", s.id, "count", n)
-		}
+	if n > 0 {
+		s.log.Warn("older backups waiting for their copy were dropped from the queue", "server", s.id, "count", n)
 	}
+	s.discardUploads(dropped)
 	s.kickOffsite()
 }
 
+// discardUploads discards, in the background, what uploads dropped from the
+// queue left at the destination and in the spool folder, as far as the
+// destination answers: it may be why they waited.
+func (s *server) discardUploads(states []*offsite.UploadState) {
+	if len(states) == 0 {
+		return
+	}
+	row, err := s.loadOffsite()
+	if err != nil || !row.configured() || !row.hasKeys {
+		return
+	}
+	dest, err := s.openDest(row, row.keys)
+	if err != nil {
+		s.log.Warn("unfinished copies could not be discarded", "server", s.id, "count", len(states), "err", err)
+		return
+	}
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.abandon(s.ctx, dest, states)
+	}()
+}
+
+// uploadJob is an upload the uploader claimed. It runs under ctx, which
+// stopUpload cancels from the moment of the claim.
 type uploadJob struct {
 	backupID string
 	state    *offsite.UploadState
 	attempts int
+	ctx      context.Context
 }
 
 func (s *server) queuedStates() []*offsite.UploadState {
-	var out []*offsite.UploadState
 	rows, err := s.db.Query(`SELECT state FROM offsite_uploads WHERE server_id = ? AND state != ''`, s.id)
 	if err != nil {
 		return nil
 	}
+	states, _ := scanStates(rows)
+	return states
+}
+
+// scanStates reads the saved states of queued uploads, skipping those with
+// none, and counts the rows. It closes rows.
+func scanStates(rows *sql.Rows) (states []*offsite.UploadState, n int) {
 	defer rows.Close()
 	for rows.Next() {
+		n++
 		var raw string
 		var st offsite.UploadState
 		if rows.Scan(&raw) == nil && json.Unmarshal([]byte(raw), &st) == nil {
-			out = append(out, &st)
+			states = append(states, &st)
 		}
 	}
-	return out
+	return states, n
 }
 
 func (s *server) offsiteLoop(ctx context.Context) {
@@ -1437,7 +1585,7 @@ func (s *server) offsiteRound(ctx context.Context, prev offsiteDest, prevIdent s
 		}
 	}
 	for ctx.Err() == nil {
-		job, ok := s.nextUpload()
+		job, ok := s.claimUpload(ctx)
 		if !ok || !s.uploadOne(ctx, dest, ident, job) {
 			break
 		}
@@ -1460,7 +1608,11 @@ func (s *server) abandon(ctx context.Context, dest offsiteDest, states []*offsit
 	}
 }
 
-func (s *server) nextUpload() (uploadJob, bool) {
+// claimUpload picks the newest upload that is due and claims it, holding
+// the lock queueOffsite trims the queue under from the pick to the claim.
+func (s *server) claimUpload(ctx context.Context) (uploadJob, bool) {
+	s.auto.mu.Lock()
+	defer s.auto.mu.Unlock()
 	var j uploadJob
 	var raw string
 	err := s.db.QueryRow(`SELECT backup_id, state, attempts FROM offsite_uploads WHERE server_id = ? AND next_attempt <= ? ORDER BY created_at DESC LIMIT 1`,
@@ -1474,15 +1626,33 @@ func (s *server) nextUpload() (uploadJob, bool) {
 			j.state = &st
 		}
 	}
+	var cancel context.CancelFunc
+	j.ctx, cancel = context.WithCancel(ctx)
+	s.auto.claim = &uploadClaim{backupID: j.backupID, cancel: cancel}
 	return j, true
+}
+
+// releaseUpload lets go of the claimed upload.
+func (s *server) releaseUpload() {
+	s.auto.mu.Lock()
+	c := s.auto.claim
+	s.auto.claim = nil
+	s.auto.mu.Unlock()
+	if c != nil {
+		c.cancel()
+	}
 }
 
 func (s *server) dropUpload(backupID string) {
 	_, _ = s.db.Exec(`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id = ?`, s.id, backupID)
 }
 
-// uploadOne copies one backup. It reports whether the next one can go.
+// uploadOne copies the backup of an upload the uploader claimed, and lets go
+// of the claim once it is done with the upload's row. It reports whether the
+// next one can go.
 func (s *server) uploadOne(ctx context.Context, dest offsiteDest, ident string, job uploadJob) bool {
+	defer s.releaseUpload()
+	uploadClaimed(job)
 	b, err := s.getBackup(job.backupID)
 	if err != nil || b.Verified == nil || !*b.Verified {
 		s.dropUpload(job.backupID)
@@ -1500,13 +1670,11 @@ func (s *server) uploadOne(ctx context.Context, dest offsiteDest, ident string, 
 		return true
 	}
 	defer f.Close()
-	uctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	sent := storedBytes(job.state)
 	s.auto.mu.Lock()
-	s.auto.upload = &uploadProgress{backupID: b.ID, sent: sent, total: b.SizeBytes, startSent: sent, started: s.now(), cancel: cancel}
+	s.auto.upload = &uploadProgress{backupID: b.ID, sent: sent, total: b.SizeBytes, startSent: sent, started: s.now()}
 	s.auto.mu.Unlock()
-	cp, err := dest.Upload(uctx, offsite.Upload{Name: b.FileName, File: f, Size: b.SizeBytes, SHA256: b.SHA256, Resume: job.state,
+	cp, err := dest.Upload(job.ctx, offsite.Upload{Name: b.FileName, File: f, Size: b.SizeBytes, SHA256: b.SHA256, Resume: job.state,
 		Progress: func(p offsite.Progress) {
 			s.auto.mu.Lock()
 			if up := s.auto.upload; up != nil {
@@ -1586,6 +1754,7 @@ func (s *server) copyDone(ctx context.Context, dest offsiteDest, row offsiteRow,
 		s.log.Warn("a finished copy could not be recorded", "server", s.id, "backup", b.ID, "err", err)
 		return
 	}
+	_, _ = s.db.Exec(`UPDATE offsite SET copies_made = copies_made + 1 WHERE server_id = ?`, s.id)
 	s.dropUpload(b.ID)
 	s.audit("playkeeper", "offsite.copied", b.ID, "succeeded", cp.Name+" · "+offsitePlace(row.cfg.Config))
 	s.pruneOffsite(ctx, dest)

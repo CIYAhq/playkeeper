@@ -181,9 +181,10 @@ func (s *server) retentionPlan() (retention.Result, error) {
 }
 
 // afterBackup runs inside a backup operation once its archive is verified:
-// it queues the copy somewhere else, then deletes what the rules no longer
-// keep on this machine.
+// it forgets the scheduled backups refused before it, queues the copy
+// somewhere else, then deletes what the rules no longer keep on this machine.
 func (s *server) afterBackup(b *api.Backup) {
+	s.clearBackupRefused()
 	s.queueOffsite(b.ID)
 	s.applyRetention()
 }
@@ -217,8 +218,15 @@ func (s *server) removeBackup(b *api.Backup, actor string) error {
 	if _, err := s.db.Exec(`DELETE FROM backups WHERE id = ? AND server_id = ?`, b.ID, s.id); err != nil {
 		return err
 	}
+	s.noteRemoved(b.ID, actor)
 	s.audit(actor, "backup.deleted", b.ID, "succeeded", b.FileName)
 	return nil
+}
+
+// noteRemoved records on a backup's copy, if it has one, who removed the
+// backup from this machine.
+func (s *server) noteRemoved(backupID, actor string) {
+	_, _ = s.db.Exec(`UPDATE offsite_copies SET removed_by = ? WHERE server_id = ? AND backup_id = ?`, actor, s.id, backupID)
 }
 
 // automaticBackups is the Backup rules page's "Automatic backups".

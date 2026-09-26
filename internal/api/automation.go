@@ -27,3 +27,25 @@ type SleepStatus struct {
 	// SleepAt is when the empty server falls asleep if nobody joins.
 	SleepAt *time.Time `json:"sleepAt,omitempty"`
 }
+
+// BackupRefusal is the scheduled backups refused since the last backup that
+// succeeded, because world saving couldn't be paused. Scheduled backups
+// never stop a running server; a backup with the server stopped needs no
+// pause.
+type BackupRefusal struct {
+	// At is when the last refused run was, and Since the first of those in a
+	// row; Count is how many there were.
+	At    time.Time `json:"at"`
+	Since time.Time `json:"since"`
+	Count int       `json:"count"`
+	// Kind is why the last one was refused: a backup error's kind, such as
+	// "unexpected_reply", or "not_online" while the server was starting or
+	// stopping. Error and Hint say it in plain English.
+	Kind  string `json:"kind"`
+	Error string `json:"error"`
+	Hint  string `json:"hint,omitempty"`
+	// ScheduleID and OperationID are the last refused run's schedule and
+	// operation.
+	ScheduleID  string `json:"scheduleId,omitempty"`
+	OperationID string `json:"operationId,omitempty"`
+}
