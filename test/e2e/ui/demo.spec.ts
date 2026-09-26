@@ -98,6 +98,32 @@ test('the live demo: Home, a server’s pages, Settings and a restart, without l
   expect(problems).toEqual([])
 })
 
+test('the live demo’s machines pages: its one machine, and Connect says what it needs', async ({ page }) => {
+  const problems = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`${demoUrl}settings/machines`)
+  await expect(page.getByRole('heading', { name: 'Machines' }).first()).toBeVisible()
+  await expect(page.getByText('This dashboard runs here')).toBeVisible()
+  await expect(page.getByRole('alert').filter({ hasText: 'The demo has just this one machine.' })).toBeVisible()
+  await still(page, 'demo-machines-desktop')
+
+  const main = page.getByRole('navigation', { name: 'Main' })
+  await main.getByRole('link', { name: /my-vps/ }).click()
+  await expect(page).toHaveURL(/\/demo\/machines\/[a-z2-9]{10}$/)
+  await expect(page.getByRole('heading', { name: 'my-vps', level: 1 })).toBeVisible()
+  const machinePage = page.url()
+
+  await page.goto(machinePage.replace('/demo/machines/', '/demo/settings/machines/'))
+  await expect(page).toHaveURL(machinePage)
+  await page.goto(`${demoUrl}settings/machines/zzzzzzzzzz`)
+  await expect(page.getByText('There’s no machine at this address')).toBeVisible()
+  await page.goto(`${demoUrl}servers/new?machine=${machinePage.split('/').pop()}`)
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+  await expect(page.getByText('Live demo · resets every hour')).toBeVisible()
+
+  expect(problems).toEqual([])
+})
+
 test('the live demo on a phone: the brand line and the install card', async ({ page }) => {
   const problems = watch(page)
   await page.setViewportSize({ width: 390, height: 844 })
