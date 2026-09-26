@@ -149,7 +149,7 @@ export function BrowseView() {
 
   const filters = (
     <div className={cn('flex gap-2', phone && 'flex-col')}>
-      <InputGroup className={cn('flex-1', phone && 'h-11')}>
+      <InputGroup className={phone ? 'h-11' : 'flex-1'}>
         <InputGroupAddon>
           <SearchIcon aria-hidden="true" />
         </InputGroupAddon>
@@ -212,7 +212,7 @@ export function BrowseView() {
           <h2 id="browse-title" className="text-lg font-bold tracking-[-0.01em]">
             {a.kind === 'mod' ? t('addons.browseMods') : t('addons.browse')}
           </h2>
-          <span className="text-[13px] text-muted-foreground">{t('addons.forSoftware', { software: softwareLabel(a.server) })}</span>
+          {!picks && <span className="text-[13px] text-muted-foreground">{t('addons.forSoftware', { software: softwareLabel(a.server) })}</span>}
         </div>
       )}
       {filters}

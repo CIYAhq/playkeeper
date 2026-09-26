@@ -37,10 +37,10 @@ export function InstalledView() {
   if (a.rows.length === 0 && !a.addons.modpack) {
     return (
       <div className="flex flex-1 animate-fade flex-col items-center justify-center py-16 text-center">
-        <Pip pose="search" size={96} />
-        <h2 className="mt-4 text-xl font-bold">{a.kind === 'mod' ? t('addons.emptyTitleMods') : t('addons.emptyTitle')}</h2>
-        <p className="mt-1 max-w-[380px] text-sm text-muted-foreground">{t('addons.emptyBody')}</p>
-        <Button className="mt-5" size={phone ? 'touch' : 'default'} render={<a {...linkProps(browse)} />}>
+        <Pip pose="search" size={112} />
+        <h2 className="mt-4 text-2xl font-bold">{a.kind === 'mod' ? t('addons.emptyTitleMods') : t('addons.emptyTitle')}</h2>
+        <p className="mt-2 max-w-[380px] text-sm text-muted-foreground">{t('addons.emptyBody')}</p>
+        <Button className="mt-5" size={phone ? 'touch' : 'xl'} render={<a {...linkProps(browse)} />}>
           <SearchIcon />
           {browseLabel}
         </Button>

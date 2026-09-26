@@ -597,7 +597,7 @@ describe('Plugins tab', () => {
     ])
     const text = await render(server(), 'plugins', 'browse')
     expect(text).toContain('Browse plugins')
-    expect(text).toContain('For Paper 26.1.2')
+    expect(text).not.toContain('For Paper 26.1.2')
     expect(text).toContain('by BlueColored')
     expect(text).toContain('2.1M downloads')
     expect(text).toContain('Installed')
