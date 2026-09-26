@@ -20,8 +20,8 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { parseLine } from '@/lib/console'
 import { crashDetail, crashFixes, crashSummary, lookupKey, lookUpAddonFixes, phoneLines, preselect, refusalFixes, refusalLine, type AddonLookups } from '@/lib/crash'
-import { formatBytes, formatClock, formatDate, formatDuration, formatList, formatMB, formatPercent, formatSpan, relativeTime, sameDay, serverJoinAddress } from '@/lib/format'
-import { awayLong, joinHost, machineLabel, machineRoute } from '@/lib/machines'
+import { formatBytes, formatClock, formatDate, formatDuration, formatList, formatMB, formatPercent, formatSpan, relativeTime, sameDay } from '@/lib/format'
+import { awayLong, joinAddressOf, machineLabel, machineRoute } from '@/lib/machines'
 import { busyReason, createStepOf, failedJob, isSettingUp, packStepOf, phaseLabel, statusTone, templateStepOf, whyNot } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { formatTPS } from '@/lib/running'
@@ -149,9 +149,8 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
 }
 
 function JoinCard({ server: s }: { server: ServerStatus }) {
-  const { stale, host } = useServerMachine(s)
+  const { stale, joinAddress: address } = useServerMachine(s)
   const phone = useIsPhone()
-  const address = serverJoinAddress(s, host)
   const online = !stale && s.phase === 'online'
   const long = address.length > 20
   return (
@@ -708,7 +707,7 @@ function MachineAwayView({ server: s, machine: m, since }: { server: ServerStatu
   const phone = useIsPhone()
   const now = useNow(30_000)
   const name = machineLabel(m)
-  const address = serverJoinAddress(s, joinHost(m, window.location.hostname))
+  const address = joinAddressOf(s, m)
   const joined = m.joinedAt
   let title: string
   if (since) title = t('machines.problem.offline', { name, duration: awayLong(since, now) })

@@ -12,7 +12,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/in
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { formatDay, formatDuration, localTimeZone, relativeTime, serverJoinAddress } from '@/lib/format'
+import { formatDay, formatDuration, localTimeZone, relativeTime } from '@/lib/format'
 import { usePending, withChanges, type ListChange } from '@/lib/optimistic'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
@@ -227,12 +227,11 @@ function PlayerMenu({ server, name, op, online, onAction, phone }: { server: Ser
 }
 
 export function PlayersPage({ server: s }: { server: ServerStatus }) {
-  const { stale, host } = useServerMachine(s)
+  const { stale, joinAddress: address } = useServerMachine(s)
   const phone = useIsPhone()
   const [days, setDays] = useState<Days>('7')
   const p = usePlayers(s, days)
   const lists = usePlayerLists(s, p.whitelist, p.operators, p.refresh)
-  const address = serverJoinAddress(s, host)
   const online = !stale && s.phase === 'online'
   const onlineNames = online ? (s.players?.names ?? []) : []
   const isOnline = (n: string) => onlineNames.some((o) => o.toLowerCase() === n.toLowerCase())

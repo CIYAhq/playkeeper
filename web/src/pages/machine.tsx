@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ChevronRightIcon, GlobeIcon, PlugIcon, PlusIcon, SettingsIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { get } from '@/api/client'
@@ -16,11 +16,25 @@ import { certState, type CertState } from '@/lib/address'
 import { formatBytes, formatLongDate, formatMB, formatPercent } from '@/lib/format'
 import { isStale, machineOf } from '@/lib/machines'
 import { statusLabel, statusTone } from '@/lib/phase'
-import { linkProps } from '@/lib/router'
+import { linkProps, navigate } from '@/lib/router'
 import { newerStable, softwareLabel } from '@/lib/servers'
 import { cn } from '@/lib/utils'
 import { certProblemText } from './machine-settings/parts'
 import { Group } from './more'
+
+/**
+ * The dashboard machine's pages. A joined machine opens its details
+ * instead: it has no Machine settings, since free names and own domains
+ * stay with the dashboard's machine and its servers join at its IP and port.
+ */
+export function DashboardMachineOnly({ id, children }: { id: string; children: ReactNode }) {
+  const ws = useWorkspace()
+  const joined = ws.machines.some((m) => m.id === id && m.kind === 'remote')
+  useEffect(() => {
+    if (joined) navigate({ name: 'machine-details', id }, true)
+  }, [joined, id])
+  return joined ? null : <>{children}</>
+}
 
 export function MachinePage({ id }: { id: string }) {
   const ws = useWorkspace()

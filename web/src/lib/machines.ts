@@ -1,6 +1,6 @@
 import type { LinkProblem, Machine, MachineEvent, MachineView, ServerStatus } from '@/api/types'
 import { t } from '@/i18n'
-import { formatMB, formatSpan } from './format'
+import { formatMB, formatSpan, joinAddress, serverJoinAddress } from './format'
 import type { Route } from './router'
 
 /** A machine's name: the one it joined with, else its host name. */
@@ -120,6 +120,15 @@ export function joinHost(m: MachineView | undefined, dashboardHost: string): str
   if (v6?.[1]) return v6[1]
   const parts = addr.split(':')
   return parts.length === 2 && parts[0] ? parts[0] : addr
+}
+
+/**
+ * Where players join a server. A joined machine's servers join at its
+ * address and their port: free names and own domains stay with the
+ * dashboard's machine, whose servers join at their name once it works.
+ */
+export function joinAddressOf(s: Pick<ServerStatus, 'joinAddress' | 'gamePort'>, m: MachineView | undefined, dashboardHost: string = window.location.hostname): string {
+  return m?.kind === 'remote' ? joinAddress(joinHost(m, dashboardHost), s.gamePort) : serverJoinAddress(s, dashboardHost)
 }
 
 /** "10 min", "3 h" or "2 days" since a moment, for a status pill. */

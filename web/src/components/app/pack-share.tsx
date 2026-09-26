@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { CheckIcon, CopyIcon, DownloadIcon, ExternalLinkIcon, LinkIcon, Share2Icon, XIcon } from 'lucide-react'
 import { packFileUrl, packLink, useMachineAddress, usePackShare } from '@/api/packs'
 import type { PackShare, ServerStatus, ShareYourself } from '@/api/types'
-import { errorText } from '@/api/workspace'
+import { errorText, useServerMachine, useWorkspace } from '@/api/workspace'
 import { Emblem } from '@/components/app/art'
 import { copyText, CopyButton, Notice } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
@@ -16,7 +16,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { namedDashboard } from '@/lib/address'
-import { serverJoinAddress } from '@/lib/format'
 import { fileHolds, shareText, yourselfLink, yourselfReason } from '@/lib/packs'
 import { linkProps } from '@/lib/router'
 import { iconURL } from '@/lib/servers'
@@ -86,7 +85,10 @@ export function PackShareNotice({ server }: { server: ServerStatus }) {
 export function PackShareSheet({ server, pack, open, onOpenChange }: { server: ServerStatus; pack: PackShareState; open: boolean; onOpenChange: (open: boolean) => void }) {
   const phone = useIsPhone()
   const [busy, setBusy] = useState<'on' | 'off'>()
-  const address = useMachineAddress(open ? server.machineId : undefined)
+  // The page is the dashboard's, whichever machine runs the server, so the
+  // link takes the dashboard machine's name.
+  const dashboard = useWorkspace().machine?.id
+  const address = useMachineAddress(open ? dashboard : undefined)
   const ps = pack.share
   if (!ps) return null
   const named = namedDashboard(address, Date.now())
@@ -113,7 +115,7 @@ export function PackShareSheet({ server, pack, open, onOpenChange }: { server: S
   const body = (
     <div key={link ? 'shared' : 'off'} className="flex animate-fade flex-col gap-4">
       {link ? <SharedBody ps={ps} server={server} link={link} phone={phone} /> : <OffBody server={server} />}
-      {address && !named && server.machineId && <NameFirst machineId={server.machineId} />}
+      {address && !named && dashboard && <NameFirst machineId={dashboard} />}
     </div>
   )
 
@@ -207,7 +209,7 @@ function OffBody({ server }: { server: ServerStatus }) {
 }
 
 function SharedBody({ ps, server, link, phone }: { ps: PackShare; server: ServerStatus; link: string; phone: boolean }) {
-  const address = serverJoinAddress(server)
+  const { joinAddress: address } = useServerMachine(server)
   const steps = [t('share.step.open_link'), t('share.step.import'), address ? t('share.step.play_join', { address }) : t('share.step.play')]
   const yourself = ps.share.yourself ?? []
   return (
@@ -259,7 +261,7 @@ function SharedBody({ ps, server, link, phone }: { ps: PackShare; server: Server
   )
 }
 
-/** Without a name the link carries the machine's IP: suggest giving it one first; sharing works either way. */
+/** Without a name the link carries the dashboard's IP: suggest giving its machine one first; sharing works either way. */
 function NameFirst({ machineId }: { machineId: string }) {
   return (
     <Notice

@@ -525,6 +525,14 @@ control "a joined machine never gets the browser's panelHost" internal/panel/ser
   '				q.Del("panelHost")' \
   '				_ = q' \
   ./internal/panel '^TestAJoinedMachinesAddressRoutesCarryNoDashboardHost$'
+control "a joined machine gets no free name or own domain" internal/panel/server.go \
+  'an("/api/machines/{mid}/address/claim", "/v1/address/claim"),' \
+  'am("/api/machines/{mid}/address/claim", "/v1/address/claim"),' \
+  ./internal/panel '^TestAJoinedMachineGetsNoFreeName$'
+control "a joined machine's pack page gives its IP and port" internal/panel/packshare.go \
+  'case fp.m.Kind == remoteKind:' \
+  'case false:' \
+  ./internal/panel '^TestAJoinedMachinesPackPageGivesItsIPAndPort$'
 control "RCON finds a closed connection before writing" internal/minecraft/rcon.go \
   'if err := r.stale(); err != nil {' \
   'if err := r.stale(); false && err != nil {' \

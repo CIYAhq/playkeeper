@@ -12,7 +12,7 @@ import { afterSignIn, signInPath } from '@/lib/templates'
 import { AccountPage } from '@/pages/account'
 import { HomePage } from '@/pages/home'
 import { LoginPage } from '@/pages/login'
-import { MachinePage } from '@/pages/machine'
+import { DashboardMachineOnly, MachinePage } from '@/pages/machine'
 import { MachineSettingsPage } from '@/pages/machine-settings'
 import { MorePage } from '@/pages/more'
 import { NewServerPage } from '@/pages/new-server'
@@ -153,9 +153,17 @@ function page(route: Route) {
     case 'server':
       return <ServerPage slug={route.slug} tab={route.tab} sub={route.sub} page={route.page} />
     case 'machine':
-      return <MachinePage id={route.id} />
+      return (
+        <DashboardMachineOnly id={route.id}>
+          <MachinePage id={route.id} />
+        </DashboardMachineOnly>
+      )
     case 'machine-settings':
-      return <MachineSettingsPage id={route.id} />
+      return (
+        <DashboardMachineOnly id={route.id}>
+          <MachineSettingsPage id={route.id} />
+        </DashboardMachineOnly>
+      )
     case 'settings':
     case 'ai-agents':
     case 'machines':

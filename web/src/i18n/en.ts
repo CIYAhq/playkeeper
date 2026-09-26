@@ -2124,7 +2124,7 @@ export const en = {
   'packShare.linkHint': 'Anyone with the link can see the page. It holds names and versions only.',
   'packShare.linkHintPhone': 'Anyone with the link can see the page.',
   'packShare.nameFirst': 'Set up an address first',
-  'packShare.nameFirstBody': 'so the link keeps working if the machine’s IP changes.',
+  'packShare.nameFirstBody': 'so the link keeps working if the dashboard’s IP changes.',
   'packShare.steps': 'What friends do',
   'packShare.yourself': 'Get these yourself',
   'packShare.why.curseforge': 'From CurseForge, which doesn’t allow sharing it',

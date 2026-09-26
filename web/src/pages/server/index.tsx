@@ -16,7 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { demo } from '@/lib/demo'
-import { formatMB, relativeTime, serverJoinAddress } from '@/lib/format'
+import { formatMB, relativeTime } from '@/lib/format'
 import { awayOf, isStale, outOfReach, reachOf } from '@/lib/machines'
 import { controls, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from '@/lib/phase'
 import { addonTab } from '@/lib/addons'
@@ -161,9 +161,9 @@ function metaLine(s: ServerStatus, settingUp: boolean, lastSeen: string | undefi
 }
 
 function useCopyAddress(server: ServerStatus) {
-  const { host } = useServerMachine(server)
+  const { joinAddress } = useServerMachine(server)
   return async () => {
-    const ok = await copyText(serverJoinAddress(server, host))
+    const ok = await copyText(joinAddress)
     toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })
   }
 }

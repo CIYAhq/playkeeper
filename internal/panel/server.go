@@ -225,6 +225,9 @@ func (s *Server) Routes() []Route {
 	am := func(p, agentPath string) Route {
 		return Route{"POST", p, needSessionCSRF, actManageMachine, s.addressProxy("POST", agentPath)}
 	}
+	an := func(p, agentPath string) Route {
+		return Route{"POST", p, needSessionCSRF, actManageMachine, s.dashboardAddress(s.addressProxy("POST", agentPath))}
+	}
 	return []Route{
 		{"GET", "/api/health", public, "", s.hHealth},
 		{"GET", "/api/setup/status", public, "", s.hSetupStatus},
@@ -267,11 +270,11 @@ func (s *Server) Routes() []Route {
 		ag("/api/machines/{mid}/address", "/v1/address"),
 		mg("/api/machines/{mid}/address/available", "/v1/address/available"),
 		ag("/api/machines/{mid}/address/plan", "/v1/address/plan"),
-		am("/api/machines/{mid}/address/claim", "/v1/address/claim"),
-		am("/api/machines/{mid}/address/refresh", "/v1/address/refresh"),
+		an("/api/machines/{mid}/address/claim", "/v1/address/claim"),
+		an("/api/machines/{mid}/address/refresh", "/v1/address/refresh"),
 		am("/api/machines/{mid}/address/release", "/v1/address/release"),
-		am("/api/machines/{mid}/address/check", "/v1/address/check"),
-		am("/api/machines/{mid}/address/certificate", "/v1/address/certificate"),
+		an("/api/machines/{mid}/address/check", "/v1/address/check"),
+		an("/api/machines/{mid}/address/certificate", "/v1/address/certificate"),
 		mm("DELETE", "/api/machines/{mid}/address", "/v1/address", actManageMachine),
 		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actManageServers, s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)},
 		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actManageServers, s.rawUpload("/v1/restore/upload", "application/gzip")},
@@ -942,6 +945,24 @@ func (s *Server) machineProxy(method, pattern string) func(http.ResponseWriter, 
 // interface, and an own domain's A record needs it.
 func (s *Server) addressProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
 	return s.forwardTo(method, pattern, true, nil)
+}
+
+// dashboardAddress refuses to give a joined machine a free name or an own
+// domain, or to keep one: they stay with the dashboard's machine, and a
+// joined machine's servers join at its IP and port. Letting one go works.
+func (s *Server) dashboardAddress(next func(http.ResponseWriter, *http.Request, *session)) func(http.ResponseWriter, *http.Request, *session) {
+	return func(w http.ResponseWriter, r *http.Request, sess *session) {
+		m, ok := s.machineFromPath(w, r)
+		if !ok {
+			return
+		}
+		if m.Kind == remoteKind {
+			writeErr(w, http.StatusConflict, api.CodeConflict, "Free names and own domains are for the dashboard's machine.",
+				"Players join "+m.Name+"'s servers at its IP address and each server's port.")
+			return
+		}
+		next(w, r, sess)
+	}
 }
 
 // claimCreatedBy records the server a machine route just created on a

@@ -67,8 +67,9 @@ async function routes(page: Page, phone: boolean): Promise<string[]> {
     const payload = exported.link?.split('#')[1]
     if (payload) out.push(`/servers/new#template=${payload}`)
   }
-  // A joined machine's page is in Settings › Machines; the dashboard's own has its own page.
-  for (const m of machines) out.push(m.kind === 'remote' ? `/settings/machines/${m.id}` : `/machines/${m.id}`, `/machines/${m.id}/settings`)
+  // A joined machine's page is in Settings › Machines, and it has no Machine
+  // settings; the dashboard's own machine has both pages.
+  for (const m of machines) out.push(...(m.kind === 'remote' ? [`/settings/machines/${m.id}`] : [`/machines/${m.id}`, `/machines/${m.id}/settings`]))
   out.push('/settings', '/settings/ai-agents', '/settings/machines', '/account', '/account/two-factor')
   if (phone) out.push('/more')
   return out

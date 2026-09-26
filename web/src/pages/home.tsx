@@ -17,8 +17,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { demo } from '@/lib/demo'
-import { formatBytes, formatDate, formatMB, formatPercent, formatSpan, sameDay, serverJoinAddress } from '@/lib/format'
-import { awayLong, awayOf, byMachine, isAway, isStale, joinHost, machineLabel, machineOf, machineRoute, machineState, outOfReach, reachOf } from '@/lib/machines'
+import { formatBytes, formatDate, formatMB, formatPercent, formatSpan, sameDay } from '@/lib/format'
+import { awayLong, awayOf, byMachine, isAway, isStale, joinAddressOf, machineLabel, machineOf, machineRoute, machineState, outOfReach, reachOf } from '@/lib/machines'
 import { couldntStart, isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkPath, linkProps } from '@/lib/router'
@@ -225,7 +225,7 @@ function ServerCard({ server: s, update }: { server: ServerStatus; update?: Cata
   const ws = useWorkspace()
   const reach = reachOf(s, ws)
   const stale = isStale(s, ws.stale) || reach.state !== 'live'
-  const address = serverJoinAddress(s, joinHost(machineOf(s, ws.machines), window.location.hostname))
+  const address = joinAddressOf(s, machineOf(s, ws.machines))
   const stopped = phaseTone(s.phase) !== 'online'
   return (
     <article className="relative flex flex-col gap-3.5 rounded-3xl border border-border bg-card p-4 shadow-card transition-[box-shadow,border-color] focus-within:border-primary/40 hover:border-primary/40 hover:shadow-lift">

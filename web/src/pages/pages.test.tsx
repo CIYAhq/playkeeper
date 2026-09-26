@@ -17,7 +17,8 @@ import { toastManager } from '@/components/ui/toast'
 import { formatLongDate } from '@/lib/format'
 import { AiAgentsSection } from './ai-agents'
 import { HomePage } from './home'
-import { MachinePage } from './machine'
+import { DashboardMachineOnly, MachinePage } from './machine'
+import { MachineSettingsPage } from './machine-settings'
 import { forgetJoinCode, MachinesSection } from './machines'
 import { createNote, NewServerPage } from './new-server'
 import { Onboarding } from './onboarding'
@@ -1630,6 +1631,55 @@ describe('Machines and AI agents', () => {
     await render(<Overview server={{ ...cobblemon, phase: 'crashed', stoppedAt: new Date().toISOString() }} />, ws)
     expect(asked().some((p) => p.startsWith(`/api/machines/${home.id}/catalog`))).toBe(true)
     expect(asked().filter((p) => p.startsWith(`/api/machines/${machine.id}/`))).toEqual([])
+  })
+
+  it('joins a joined machine’s servers at its IP and port, whatever name its agent reports', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      live: { ...machine.live!, hostname: 'home-server' },
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), address: '203.0.113.20', problems: [] },
+    }
+    const survival = server({ machineId: machine.id, joinAddress: 'survival.alex.playkeeper.io' })
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id, gamePort: 25566, joinAddress: 'cobblemon.home.playkeeper.io' })
+    const ws = workspace({ machines: [machine, home], servers: [survival, cobblemon] })
+    let text = await render(<HomePage />, ws)
+    expect(text).toContain('survival.alex.playkeeper.io')
+    expect(text).toContain('203.0.113.20:25566')
+    expect(text).not.toContain('cobblemon.home.playkeeper.io')
+    text = await render(<Overview server={cobblemon} />, ws)
+    expect(text).toContain('203.0.113.20:25566')
+    expect(text).not.toContain('cobblemon.home.playkeeper.io')
+  })
+
+  it('opens a joined machine’s details for its machine page and Machine settings, and never asks it for an address', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const ws = workspace({ machines: [machine, home] })
+    for (const page of [<MachinePage key="page" id={home.id} />, <MachineSettingsPage key="settings" id={home.id} />]) {
+      window.history.replaceState(null, '', '/')
+      vi.mocked(client.get).mockClear()
+      const text = await render(<DashboardMachineOnly id={home.id}>{page}</DashboardMachineOnly>, ws)
+      expect(window.location.pathname).toBe(`/settings/machines/${home.id}`)
+      expect(text).not.toContain('Machine settings')
+      expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes('/address'))).toBe(false)
+    }
+    window.history.replaceState(null, '', '/')
+    const text = await render(
+      <DashboardMachineOnly id={machine.id}>
+        <MachinePage id={machine.id} />
+      </DashboardMachineOnly>,
+      ws,
+    )
+    expect(window.location.pathname).toBe('/')
+    expect(text).toContain('Machine settings')
   })
 
   it('says how to get a command when the dashboard has no address another machine can dial', async () => {
