@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArchiveIcon, ChevronRightIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, MapIcon, PackageIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
-import type { Backup, RestorePreview, ServerStatus } from '@/api/types'
+import type { Backup, RestorePreview, ServerStatus, WorldCopy } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { EmptyArt, Pip } from '@/components/app/art'
-import { Card, CardHint, CardTitle, copyText, SectionLabel } from '@/components/app/bits'
+import { Card, CardHint, CardTitle, copyText, Notice, SectionLabel } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { InlineSkeleton, ListSkeleton, TableSkeleton } from '@/components/app/skeletons'
@@ -17,7 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
-import { whyNot } from '@/lib/phase'
+import { busyReason, whyNot } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -61,6 +61,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
   if (backups.data && list.length === 0) {
     return (
       <>
+        <LeftoverCopy server={s} />
         <EmptyBackups server={s} phone={phone} />
         {dialog}
       </>
@@ -70,6 +71,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
   if (phone) {
     return (
       <div className="flex flex-col gap-4">
+        <LeftoverCopy server={s} />
         <MakeBackup server={s} phone onDone={refresh} />
         <section aria-labelledby="backups">
           <SectionLabel className="px-4">
@@ -143,6 +145,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
 
   return (
     <>
+      <LeftoverCopy server={s} />
       <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr]">
         <MakeBackup server={s} onDone={refresh} />
         <WorldInfo server={s} backups={backups.data} />
@@ -455,6 +458,86 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
           </li>
         ))}
       </ol>
+    </div>
+  )
+}
+
+function leftoverTitle(c: WorldCopy): string {
+  switch (c.kind) {
+    case 'previous':
+      return t('world.leftoverPrevious')
+    case 'failed_restore':
+      return t('world.leftoverFailed')
+    default: {
+      const unreachable: never = c.kind
+      return unreachable
+    }
+  }
+}
+
+/** The newest world folder a restore left next to the live one, until it's discarded. */
+function LeftoverCopy({ server: s }: { server: ServerStatus }) {
+  const ws = useWorkspace()
+  const copies = usePoll(() => get<WorldCopy[]>(serverApi(s.id, '/world-copies')), 30_000, s.id)
+  const newest = useListPresence(copies.data?.slice(0, 1), (c) => c.name)
+  if (ws.stale) return null
+  return (
+    <>
+      {newest.map(({ key, item, state }) => (
+        <LeftoverNotice key={key} server={s} copy={item} state={state} onDiscarded={copies.refresh} />
+      ))}
+    </>
+  )
+}
+
+function LeftoverNotice({ server: s, copy: c, state, onDiscarded }: { server: ServerStatus; copy: WorldCopy; state: Presence; onDiscarded: () => Promise<void> }) {
+  const [confirm, setConfirm] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const when = formatDay(c.createdAt)
+
+  async function discard() {
+    setBusy(true)
+    try {
+      await del(serverApi(s.id, `/world-copies/${encodeURIComponent(c.name)}`))
+      setConfirm(false)
+      await onDiscarded()
+    } catch (e) {
+      toastManager.add({ title: errorText(e), type: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div {...presenceProps(state)}>
+      <Notice
+        title={leftoverTitle(c)}
+        action={
+          <Button variant="outline" size="sm" disabledReason={busyReason(s)} onClick={() => setConfirm(true)}>
+            <Trash2Icon />
+            {t('world.leftoverDiscard')}
+          </Button>
+        }
+      >
+        {t('world.leftoverBody', { time: when, size: formatBytes(c.sizeBytes) })}
+      </Notice>
+      <Dialog open={confirm} onOpenChange={setConfirm}>
+        <DialogPopup className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold">{t('world.leftoverDiscardTitle')}</DialogTitle>
+            <DialogDescription>{t('world.leftoverDiscardBody', { time: when })}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter variant="bare" className="border-t border-border pt-4">
+            <Button variant="ghost" onClick={() => setConfirm(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="destructive" onClick={discard} loading={busy}>
+              <Trash2Icon />
+              {t('world.leftoverDiscardConfirm')}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </div>
   )
 }

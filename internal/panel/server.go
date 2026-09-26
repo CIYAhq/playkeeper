@@ -213,6 +213,9 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/servers/{id}/restore/upload", needSessionCSRF, actManageServers, s.rawUpload("/v1/servers/{id}/restore/upload", "application/gzip")},
 		view("/api/players/{name}/head", s.hHead),
 		view("/api/server", s.hLegacyStatus),
+		// Follow-ups after 0.3.0.
+		sg("/api/servers/{id}/world-copies", "/v1/servers/{id}/world-copies"),
+		sm("DELETE", "/api/servers/{id}/world-copies/{name}", "/v1/servers/{id}/world-copies/{name}"),
 		// Wave 1: plugins and mods, map pre-generation, data and resource packs.
 		sg("/api/servers/{id}/addons", "/v1/servers/{id}/addons"),
 		sg("/api/servers/{id}/addons/checks", "/v1/servers/{id}/addons/checks"),

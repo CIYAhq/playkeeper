@@ -193,6 +193,9 @@ func (s *server) versionChangeOp(ctx context.Context, h *opHandle, e api.Catalog
 		return &apiError{Code: api.CodeInsufficientSpace, Msg: fmt.Sprintf("Not enough disk space to update safely: %s free, about %s needed for the backup and a possible rollback.", humanBytes(free), humanBytes(2*need+minFreeAfterBackup)),
 			Hint: "Delete old backups (after downloading any you want to keep) or free disk space, then try again."}
 	}
+	if err := s.archiveRefusal("Nothing was changed."); err != nil {
+		return err
+	}
 	_, wasRunning, err := s.containerRunning(ctx)
 	if err != nil {
 		return err

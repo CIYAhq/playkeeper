@@ -466,6 +466,16 @@ export interface Me {
   version: string
 }
 
+// Follow-ups after 0.3.0.
+
+/** A world folder a restore left next to the live one. */
+export interface WorldCopy {
+  name: string
+  kind: 'previous' | 'failed_restore'
+  createdAt: string
+  sizeBytes: number
+}
+
 // Wave 1: plugins and mods, map pre-generation, resource and data packs.
 
 export type AddonSource = 'modrinth' | 'hangar'

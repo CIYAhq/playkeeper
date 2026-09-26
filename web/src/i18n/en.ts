@@ -1020,6 +1020,16 @@ export const en = {
   'error.notice': 'Playkeeper is in test mode',
   'error.noticeBody': 'Offline mode is on for Playkeeper’s automated tests: anyone could join with any name. Never use this for a real server.',
 
+  // Follow-ups after 0.3.0.
+  'world.leftoverPrevious': 'Your previous world is still on this VPS',
+  'world.leftoverFailed': 'A restored world that didn’t start is still on this VPS',
+  'world.leftoverBody': 'Set aside {time} · {size}',
+  'world.leftoverDiscard': 'Discard',
+  'world.leftoverDiscardTitle': 'Discard this world copy?',
+  'world.leftoverDiscardBody': 'The copy from {time} is removed from this VPS. Your world and backups aren’t affected.',
+  'world.leftoverDiscardConfirm': 'Discard copy',
+  'restore.eulaWarning': 'The restore creates a new server, so you must accept the Minecraft EULA first.',
+
   // Plugins and mods
   'tab.plugins': 'Plugins',
   'tab.mods': 'Mods',

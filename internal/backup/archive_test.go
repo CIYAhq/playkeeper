@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -381,5 +382,48 @@ func TestLimitsAreEnforced(t *testing.T) {
 func TestNotGzip(t *testing.T) {
 	if _, err := Verify(strings.NewReader("PK\x03\x04 zip file"), DefaultLimits()); err == nil {
 		t.Fatal("non-gzip input accepted")
+	}
+}
+
+// Check refuses a world at the same limits as Create and for the same file,
+// without writing an archive. Its manifest estimate is smaller than the real
+// manifest, so it accepts a world whose real manifest exactly meets the limit.
+func TestCheckRefusesWhatCreateRefuses(t *testing.T) {
+	d := fixtureDataDir(t)
+	meta := Manifest{CreatedAt: time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC), MinecraftVersion: "26.1.2", Settings: map[string]string{"motd": "A Playkeeper server"}}
+	m, err := Create(io.Discard, d, meta, DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, _ := json.MarshalIndent(m, "", "  ")
+	exact := DefaultLimits()
+	exact.MaxFiles, exact.MaxTotalBytes, exact.MaxFileBytes, exact.MaxPathLen, exact.MaxManifestBytes = len(m.Files), m.TotalBytes, 0, 0, len(manifest)
+	for _, f := range m.Files {
+		exact.MaxFileBytes = max(exact.MaxFileBytes, f.Size)
+		exact.MaxPathLen = max(exact.MaxPathLen, len(dataPrefix)+len(f.Path))
+	}
+	if err := Check(d, exact); err != nil {
+		t.Fatalf("every limit exactly met: %v", err)
+	}
+	for name, tighten := range map[string]func(*Limits){
+		"file count":  func(l *Limits) { l.MaxFiles-- },
+		"total size":  func(l *Limits) { l.MaxTotalBytes-- },
+		"file size":   func(l *Limits) { l.MaxFileBytes-- },
+		"path length": func(l *Limits) { l.MaxPathLen-- },
+	} {
+		lim := exact
+		tighten(&lim)
+		_, cerr := Create(io.Discard, d, meta, lim)
+		err := Check(d, lim)
+		var refused *RefusedError
+		if !errors.As(err, &refused) || cerr == nil || err.Error() != cerr.Error() {
+			t.Errorf("%s one below the world: Check error %v, Create error %v; want the same refusal", name, err, cerr)
+		}
+	}
+	lim := exact
+	lim.MaxManifestBytes = 1000
+	var refused *RefusedError
+	if err := Check(d, lim); !errors.As(err, &refused) || refused.File != "" || !strings.Contains(err.Error(), "manifest would be") {
+		t.Errorf("a manifest over the limit: %v", err)
 	}
 }

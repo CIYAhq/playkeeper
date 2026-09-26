@@ -1043,3 +1043,17 @@ const (
 	CodeInsufficientSpace = "insufficient_space"
 	CodeIconInvalid       = "icon_invalid"
 )
+
+// WorldCopy is a world folder a restore left next to the live one: the
+// previous world it moved aside, or a restored world that had to make way.
+type WorldCopy struct {
+	Name      string    `json:"name"`
+	Kind      string    `json:"kind"` // previous | failed_restore
+	CreatedAt time.Time `json:"createdAt"`
+	SizeBytes int64     `json:"sizeBytes"`
+}
+
+const (
+	WorldCopyPrevious      = "previous"
+	WorldCopyFailedRestore = "failed_restore"
+)
