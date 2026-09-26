@@ -3,6 +3,7 @@ package agent
 import (
 	"archive/zip"
 	"bytes"
+	"cmp"
 	"crypto/sha1"
 	"crypto/sha512"
 	"encoding/hex"
@@ -51,6 +52,8 @@ type fakeVersion struct {
 	published                 time.Time
 	requires                  []string // project ids
 	data                      []byte
+	channel                   string // Modrinth's version type; empty is a release
+	unlisted                  bool
 }
 
 func newFakeSources(t *testing.T) *fakeSources {
@@ -105,6 +108,13 @@ func (f *fakeSources) publish(project, id, number string, at time.Time, requires
 		file: p.title + "-" + number + ".jar", data: pluginJar(f.t, p.title, number)}
 	f.versions = append(f.versions, v)
 	return v
+}
+
+// change edits a published version, as its author can.
+func (f *fakeSources) change(versionID string, edit func(*fakeVersion)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	edit(f.version(versionID))
 }
 
 // jar is a published version's file.
@@ -196,9 +206,13 @@ func (f *fakeSources) versionJSON(v *fakeVersion) map[string]any {
 	for _, r := range v.requires {
 		deps = append(deps, map[string]any{"project_id": r, "dependency_type": "required"})
 	}
+	channel, status := cmp.Or(v.channel, "release"), "listed"
+	if v.unlisted {
+		status = "unlisted"
+	}
 	return map[string]any{
-		"id": v.id, "project_id": v.project, "name": v.number, "version_number": v.number, "version_type": "release",
-		"status": "listed", "game_versions": []string{"26.1.2"}, "loaders": []string{"bukkit", "paper"},
+		"id": v.id, "project_id": v.project, "name": v.number, "version_number": v.number, "version_type": channel,
+		"status": status, "game_versions": []string{"26.1.2"}, "loaders": []string{"bukkit", "paper"},
 		"date_published": v.published.Format(time.RFC3339),
 		"files": []map[string]any{{
 			"hashes":   map[string]string{"sha512": hex.EncodeToString(s512[:]), "sha1": hex.EncodeToString(s1[:])},

@@ -293,6 +293,8 @@ control "preflight existing Minecraft setups" internal/install/install.go \
   'case len(existing) == 0:' \
   'case true:' \
   ./internal/install '^TestPreflightRefusesEachCollisionWithAFix$'
+# Without the lock a start can slip in between the check and the write; the
+# sleep holds that gap open so the race shows in most runs, not one in three.
 control "start/stop no-op under the operation lock" internal/agent/handlers.go \
   'release, ok := s.holdOpLock()
 	if !ok {
@@ -301,14 +303,15 @@ control "start/stop no-op under the operation lock" internal/agent/handlers.go \
 	}
 	_, running, err := s.containerRunning(r.Context())
 	if err == nil && !running {' \
-  'release, ok := func() { }, !s.busy()
+  'release, ok := func() { }, true
 	if !ok {
 		writeError(w, s.busyError())
 		return
 	}
 	_, running, err := s.containerRunning(r.Context())
-	if err == nil && !running {' \
-  ./internal/agent '^TestConcurrentStartAndStopLeaveDesiredMatchingContainer$' 5
+	if err == nil && !running {
+		time.Sleep(50 * time.Millisecond)' \
+  ./internal/agent '^TestConcurrentStartAndStopLeaveDesiredMatchingContainer$' 8
 
 control "release manifest signature" internal/update/manifest.go \
   'if !verified {' \
@@ -806,6 +809,14 @@ control "add-on updates: only the confirmed plan is carried out" internal/agent/
   'Changed: req.Changed, Fingerprint: req.Fingerprint, OnProgress: progress' \
   'Changed: req.Changed, OnProgress: progress' \
   ./internal/agent '^TestAddonsInstallUpdateRemove$'
+control "add-on details: a pre-release is never offered to install or update to" internal/agent/addons.go \
+  'd.Latest, d.Notes = nil, ""' \
+  'd.Notes = ""' \
+  ./internal/agent '^TestAddonDetailsOfferNoPrerelease$'
+control "add-on notices: only pre-releases doesn't say to allow them" internal/agent/addons.go \
+  'hint = onlyPrereleaseHint' \
+  'hint = n.Hint' \
+  ./internal/agent '^TestOnlyPrereleaseNoticesOfferNothingPlaykeeperCantDo$'
 control "add-on plans: the order Hangar lists dependencies in does not change the plan" internal/addons/resolve.go \
   'c.deps = append(c.deps, dd)
 	}
@@ -853,6 +864,10 @@ control "a template decides the type, version and settings" internal/agent/handl
   'if req.Modpack != nil || req.Type != "" || req.VersionID != "" || req.Build != "" || req.PlayStyle != "" || req.Gameplay != nil || req.MOTD != "" || req.MaxPlayers != 0 {' \
   'if false {' \
   ./internal/agent '^TestTemplateRequestsAreChecked$'
+control "a template plan without a version creates nothing" internal/agent/templates.go \
+  'if p.Version == nil {' \
+  'if false {' \
+  ./internal/agent '^TestTemplateCreateNeedsAVersion$'
 control "packs cannot suggest operator or function permission levels" internal/modpacks/rules.go \
   '"force-gamemode", "gamemode",' \
   '"force-gamemode", "function-permission-level", "op-permission-level", "gamemode",' \
@@ -885,10 +900,11 @@ control "only who manages the machine changes its CurseForge key" internal/panel
   'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \
   'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actView),' \
   ./internal/panel '^TestOnlyWhoManagesTheMachineChangesItsCurseForgeKey$'
-control "a template's author is the account that exports it" internal/panel/server.go \
-  'q.Set("author", sess.User.Username)' \
-  '_ = sess.User.Username' \
-  ./internal/panel '^TestTemplateRoutesReachTheAgent$'
+control "an exported template names no one" internal/agent/templates.go \
+  '	file, err := templates.MarshalFile(t)' \
+  '	t.Author = q.Get("author")
+	file, err := templates.MarshalFile(t)' \
+  ./internal/agent '^TestTemplatesNameNoOne$'
 control "voice chat installs only with leave to open its port" internal/agent/addons.go \
   'if voice && !req.OpenPorts {' \
   'if false && voice && !req.OpenPorts {' \
@@ -959,9 +975,59 @@ control "a backup records voice chat's UDP port" internal/agent/backups.go \
   '_ = sc.VoiceChatPort' \
   ./internal/agent '^TestRestoreKeepsVoiceChatsPort$'
 control "a restore gives voice chat back its UDP port" internal/agent/backups.go \
-  'if err := s.restoredVoiceChat(&j.Restored, prev, m, st.data); err != nil {' \
-  'if err := error(nil); err != nil {' \
+  'releasePort, err := s.restoredVoiceChat(&j.Restored, prev, m, st.data)' \
+  'releasePort, err := func() {}, error(nil)' \
   ./internal/agent '^TestRestoreKeepsVoiceChatsPort$'
+control "voice chat never gets a port held for another server" internal/agent/curated.go \
+  'if holder != id {' \
+  'if false && holder != id {' \
+  ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
+control "a restore holds voice chat's port until the restored settings are saved" internal/agent/backups.go \
+  '	defer releasePort()' \
+  '	releasePort()' \
+  ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
+control "a removal holds the voice chat port it closes" internal/agent/curated.go \
+  'release = s.voicePorts.hold(port, s.id)' \
+  'release = func() {}' \
+  ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
+control "a finished removal frees voice chat's port" internal/agent/addons.go \
+  '		defer releasePort()' \
+  '		_ = releasePort' \
+  ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
+control "a restore the agent restarted in holds voice chat's port until the restored settings are saved" internal/agent/recovery.go \
+  'p.releasePort = a.voicePorts.hold(j.Restored.VoiceChatPort, s.id)' \
+  '_ = j.Restored.VoiceChatPort' \
+  ./internal/agent '^TestResumedRestoreHoldsVoiceChatsPort$'
+control "a resumed restore frees voice chat's port once it's done" internal/agent/recovery.go \
+  '		defer p.releasePort()' \
+  '		_ = p.releasePort' \
+  ./internal/agent '^TestResumedRestoreHoldsVoiceChatsPort$'
+control "voice chat's port opens before voice chat installs" internal/agent/curated.go \
+  '	if err := s.setUpVoiceChat(h, sc, srv, actor); err != nil {
+		return err
+	}
+	if err := s.installAddons(ctx, h, actor, run); err != nil {' \
+  '	if err := s.installAddons(ctx, h, actor, run); err != nil {
+		return err
+	}
+	if err := s.setUpVoiceChat(h, sc, srv, actor); err != nil {' \
+  ./internal/agent '^TestVoiceChatInstallOpensItsPortFirst$'
+control "a voice chat install that fails closes the port it opened" internal/agent/curated.go \
+  '		if opened {
+			_, release, cerr := s.closeVoiceChat(actor)' \
+  '		if false && opened {
+			_, release, cerr := s.closeVoiceChat(actor)' \
+  ./internal/agent '^TestVoiceChatInstallOpensItsPortFirst$'
+control "a running server restarts to publish voice chat's port" internal/agent/curated.go \
+  '	if !running {
+		if !start {' \
+  '	if true || !running {
+		if !start {' \
+  ./internal/agent '^TestVoiceChatInstallOpensItsPortFirst$'
+control "voice chat installed with start starts a stopped server" internal/agent/curated.go \
+  'return s.startNow(ctx, h)' \
+  'return nil' \
+  ./internal/agent '^TestVoiceChatInstallOpensItsPortFirst$'
 control "a setup container still running when its output ends fails" internal/agent/software.go \
   'if c.State.Running {' \
   'if false && c.State.Running {' \
@@ -1821,9 +1887,13 @@ control "Discord hears a clean stop outside Playkeeper" internal/agent/lifecycle
   '		s.recordEvent(fin, "server_stopped_externally"' \
   ./internal/agent '^TestDiscordAlertSequences$/^a_clean_stop_outside_Playkeeper$/^every_alert$'
 control "a start after failed starts is not a recovery" internal/agent/collector.go \
-  'recovered := s.runCrashed' \
-  'recovered := s.crashed' \
+  'recovered := take && s.runCrashed' \
+  'recovered := take && s.crashed' \
   ./internal/agent '^TestDiscordAlertSequences$/^a_start_fails,_then_one_works$'
+control "a Done line delivered again changes nothing" internal/agent/collector.go \
+  'take := fresh || !s.runReady' \
+  'take := true' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_crash,_its_Done_line_delivered_again,_then_a_restart$'
 control "a profile shows a player online only from a fresh sample" internal/agent/profile.go \
   'if s.players != nil && s.fresh(s.players.At) {' \
   'if s.players != nil {' \

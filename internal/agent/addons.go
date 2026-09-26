@@ -238,9 +238,17 @@ func apiAddons(recs []addons.Installed) []api.Addon {
 	return out
 }
 
+// apiNotice is n as the API sends it. Installs and updates here never allow
+// pre-releases, so the library's hint to allow them is replaced.
 func apiNotice(n addons.Notice) api.AddonNotice {
-	return api.AddonNotice{Kind: string(n.Kind), Params: n.Params, Message: n.Msg, Hint: n.Hint}
+	hint := n.Hint
+	if n.Kind == addons.KindOnlyPrerelease {
+		hint = onlyPrereleaseHint
+	}
+	return api.AddonNotice{Kind: string(n.Kind), Params: n.Params, Message: n.Msg, Hint: hint}
 }
+
+const onlyPrereleaseHint = "Playkeeper installs releases only, so this waits for a release that runs on this Minecraft version."
 
 func apiNotices(ns []addons.Notice) []api.AddonNotice {
 	out := make([]api.AddonNotice, 0, len(ns))
@@ -678,6 +686,11 @@ func (s *server) hAddonDetails(w http.ResponseWriter, r *http.Request) {
 			d = other
 		}
 	}
+	if d.Notice != nil {
+		// The library names a newest version with a notice only when it's a
+		// pre-release, which installs and updates here never take.
+		d.Latest, d.Notes = nil, ""
+	}
 	out := api.AddonDetails{Card: apiCard(d.Card, withMap), Latest: apiVersion(d.Latest), Notes: d.Notes, Ports: s.addonPorts(key)}
 	if d.Notice != nil {
 		n := apiNotice(*d.Notice)
@@ -780,13 +793,13 @@ func (s *server) hAddonInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	op, err := s.beginOp("addon-install", actor, func(ctx context.Context, h *opHandle) error {
-		err := s.addonJob(ctx, h, actor, req.Start, func(srv addons.Server, installed []addons.Installed, progress func(addons.Progress)) (*addons.Result, error) {
+		install := func(srv addons.Server, installed []addons.Installed, progress func(addons.Progress)) (*addons.Result, error) {
 			return s.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: key.Source, Project: key.ProjectID, Fingerprint: req.Fingerprint, OnProgress: progress})
-		})
-		if err != nil || !voice {
-			return err
 		}
-		return s.openVoiceChat(ctx, h, actor)
+		if voice {
+			return s.installVoiceChat(ctx, h, actor, req.Start, install)
+		}
+		return s.addonJob(ctx, h, actor, req.Start, install)
 	})
 	if err != nil {
 		writeError(w, err)
@@ -1075,10 +1088,12 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 	// behind it. If voice chat then stays, so does its port.
 	var voicePort int
 	if voiceChat(key) || slices.ContainsFunc(extra, voiceChat) {
-		if voicePort, err = s.closeVoiceChat(actor); err != nil {
+		var releasePort func()
+		if voicePort, releasePort, err = s.closeVoiceChat(actor); err != nil {
 			writeError(w, err)
 			return
 		}
+		defer releasePort()
 	}
 	target := string(key.Source) + ":" + key.ProjectID
 	rm, err := lib.Uninstall(r.Context(), srv, installed, key, addons.UninstallOptions{RemoveConfig: !req.KeepConfig, Force: req.Force, Changed: req.Changed})
