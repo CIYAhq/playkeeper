@@ -490,6 +490,11 @@ describe('Machines and AI agents', () => {
     const restart = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Restart'))
     expect(restart?.disabled).toBe(true)
     expect(restart?.title).toBe('Can’t reach attic')
+    for (const tab of ['console', 'players', 'world', 'settings'] as const) {
+      vi.mocked(client.get).mockClear()
+      expect(await render(<ServerPage slug="attic" tab={tab} />, workspace({ machines: [machine, away], servers: [server({ machineId: machine.id }), attic] }))).toContain('attic hasn’t called in for 10 minutes')
+      expect(vi.mocked(client.get).mock.calls.filter(([p]) => String(p).includes(attic.id)), `${tab} asks the away machine`).toEqual([])
+    }
   })
 
   it('asks a joined machine, not the dashboard’s, about the servers it runs', async () => {

@@ -58,7 +58,8 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
     )
   }
   if (!server) return <NotFound />
-  const settingUp = !isStale(server, ws.stale) && reachOf(server, ws).state === 'live' && isSettingUp(server)
+  const reach = reachOf(server, ws).state
+  const settingUp = !isStale(server, ws.stale) && reach === 'live' && isSettingUp(server)
   let body: ReactNode
   switch (tab) {
     case 'overview':
@@ -82,6 +83,8 @@ export function ServerPage({ slug, tab }: { slug: string; tab: ServerTab }) {
     }
   }
   if (settingUp && tab !== 'overview' && tab !== 'console') body = <Overview server={server} />
+  // Nothing on the other tabs can load from a machine that's away, so they show what Overview says about it.
+  if (reach === 'away' && tab !== 'overview') body = <Overview server={server} />
   return (
     <>
       {phone ? (
