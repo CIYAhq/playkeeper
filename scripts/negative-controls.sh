@@ -1176,6 +1176,10 @@ control "only the owner changes the CurseForge key, not an admin of all servers"
   'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageAddonSources),' \
   'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \
   ./internal/panel '^TestOnlyTheOwnerChangesTheCurseForgeKey$'
+control "only the owner removes any machine's CurseForge key, not an admin of all servers" internal/panel/server.go \
+  'mm("DELETE", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageAddonSources),' \
+  'mm("DELETE", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \
+  ./internal/panel '^TestOnlyTheOwnerChanges(TheCurseForgeKey|AJoinedMachinesCurseForgeKey)$'
 control "an exported template names no one" internal/agent/templates.go \
   '	file, err := templates.MarshalFile(t)' \
   '	t.Author = q.Get("author")

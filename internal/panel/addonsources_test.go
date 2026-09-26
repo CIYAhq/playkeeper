@@ -73,3 +73,40 @@ func TestOnlyTheOwnerChangesTheCurseForgeKey(t *testing.T) {
 		}
 	}
 }
+
+// A joined machine's CurseForge key, which Add-on sources shows for each
+// machine, is the owner's to change too: an admin of all servers with
+// two-factor sign-in may see it, but setting or removing it never reaches
+// the machine.
+func TestOnlyTheOwnerChangesAJoinedMachinesCurseForgeKey(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	ra := newRemoteAgent()
+	ra.reply("GET /v1/addon-sources", `{"sources":[]}`)
+	mid, _ := e.joined(t, cookie, csrf, ra)
+	sources := "/api/machines/" + mid + "/addon-sources"
+	admin := addAdmin(t, e, "helper", "*")
+	if r := e.do(t, "GET", sources, "", admin.auth()); r.status != http.StatusOK {
+		t.Errorf("an admin may see a joined machine's sources: %d %v", r.status, r.body)
+	}
+	for _, c := range []struct {
+		who    string
+		hdr    map[string]string
+		status int
+	}{
+		{"an admin of all servers with two-factor sign-in", admin.auth(), http.StatusForbidden},
+		{"the owner", auth(cookie, csrf), http.StatusOK},
+	} {
+		for _, m := range []string{"POST", "DELETE"} {
+			body := ""
+			if m == "POST" {
+				body = `{"key":"pasted-key-0123456789abcdef"}`
+			}
+			r := e.do(t, m, sources+"/curseforge", body, c.hdr)
+			_, reached := ra.saw(m + " /v1/addon-sources/curseforge")
+			if r.status != c.status || reached != (c.status == http.StatusOK) {
+				t.Errorf("%s: %s the key answers %d %v, and it reached the machine: %v", c.who, m, r.status, r.body, reached)
+			}
+		}
+	}
+}
