@@ -234,6 +234,8 @@ describe('Overview', () => {
     expect(steps[0]?.querySelector('.bg-primary')).not.toBeNull()
     expect(steps[1]?.querySelector('.text-destructive-foreground')?.textContent).toBe('Downloading Paper 26.1.2')
     expect(steps[2]?.querySelector('.text-destructive-foreground')).toBeNull()
+    expect(steps[1]?.textContent).not.toContain('Checksum matched')
+    expect(text).not.toContain('Checksum matched')
   })
 
   it('counts a modpack’s files as each one is checked', async () => {

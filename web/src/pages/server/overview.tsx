@@ -325,9 +325,11 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
   const loader = packRead ? (cfg?.software?.fabricLoader ?? cfg?.software?.quiltLoader) : undefined
   const done = Number(op?.detail?.packFiles ?? 0)
   const total = Number(op?.detail?.packFilesTotal ?? 0)
+  // Only a finished download has matched its checksum.
+  const checked = state(1) === 'done'
   const software = {
     title: loader ? t(at > 1 ? 'creating.downloadedPack' : 'creating.downloadingPack', { type, version, loader: loaderLabel(s.type, loader) }) : at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }),
-    hint: t(loader ? 'creating.downloadedPackDetail' : 'creating.downloadedDetail'),
+    hint: checked ? t(loader ? 'creating.downloadedPackDetail' : 'creating.downloadedDetail') : undefined,
     state: state(1),
   }
   const starting = (i: number) => ({ title: t('creating.starting'), hint: pct ? t('creating.startingPercent', { percent: pct }) : t('creating.startingDetail'), state: state(i), progress: pct ? Number(pct) : undefined })
@@ -339,7 +341,7 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
   const steps = tpl
     ? [
         { title: t('creating.checked', { machine: ws.machineName }), hint: t('creating.checkedDetail', { memory: formatMB(cfg?.memoryMB ?? 0), disk: formatBytes(disk) }), state: state(0) },
-        { ...software, title: at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }), hint: t('creating.downloadedDetail') },
+        { ...software, title: at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }), hint: checked ? t('creating.downloadedDetail') : undefined },
         {
           title: t(at > 2 ? (onlyPacks ? 'creating.templatePacksDone' : mods ? 'creating.templateModsDone' : 'creating.templatePluginsDone') : onlyPacks ? 'creating.templatePacks' : mods ? 'creating.templateMods' : 'creating.templatePlugins'),
           hint: addonsHint || undefined,
@@ -359,7 +361,7 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
       ]
     : [
         { title: t('creating.checked', { machine: ws.machineName }), hint: t('creating.checkedDetail', { memory: formatMB(cfg?.memoryMB ?? 0), disk: formatBytes(disk) }), state: state(0) },
-        { ...software, title: at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }), hint: t('creating.downloadedDetail') },
+        { ...software, title: at > 1 ? t('creating.downloaded', { type, version }) : t('creating.downloading', { type, version }), hint: checked ? t('creating.downloadedDetail') : undefined },
         starting(2),
         { title: t('creating.reachable', { port: s.gamePort }), state: state(3) },
       ]
