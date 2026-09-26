@@ -1373,6 +1373,11 @@ control "own domain: a certificate attempt that finds the name wrong brings the 
   'if !saved || ready {' \
   'if true || !saved || ready {' \
   ./internal/agent '^TestOwnDomainChecksTheNameBeforeHTTP01$'
+control "free address: a server change the claim's publish covered doesn't make the loop ask again early" internal/agent/address.go \
+  'a.takeServersChanged()
+	want := freeServers(a.joinServers())' \
+  'want := freeServers(a.joinServers())' \
+  ./internal/agent '^TestServerAddressesCoveredByThePublishAreNotAskedAgain$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

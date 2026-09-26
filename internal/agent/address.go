@@ -584,6 +584,10 @@ func (a *Agent) syncFreeServers(ctx context.Context) error {
 	if st.Kind != api.AddressPlaykeeper || st.Free == nil {
 		return nil
 	}
+	// This sync covers every server read below, so a change the loop hasn't
+	// seen yet (it may have found the address busy with the claim) must not
+	// make it ask again, before the names service allows server addresses.
+	a.takeServersChanged()
 	want := freeServers(a.joinServers())
 	have := st.Free.Name.Servers
 	var remove, set []joinServer

@@ -1623,6 +1623,44 @@ func TestServerAddressesWaitForTheNamesService(t *testing.T) {
 	})
 }
 
+// A server added just before a claim can reach the loop only after the
+// claim's own publish has already given the servers their records: the
+// loop, finding the address busy, leaves the change for its next look.
+// That look must not ask the names service again before it allows it.
+func TestServerAddressesCoveredByThePublishAreNotAskedAgain(t *testing.T) {
+	e := newAddressEnv(t, func(o *Options) { o.AddressInterval = time.Hour })
+	e.addServerNamed("Survival")
+	from := time.Now().Add(72 * time.Hour).UTC().Truncate(time.Second)
+	e.names.setFail(func(r *http.Request) *fakeRefusal {
+		if r.Method != "PUT" || !strings.Contains(r.URL.Path, "/servers/") {
+			return nil
+		}
+		return &fakeRefusal{status: http.StatusConflict, code: names.CodeServerNotYet, msg: "Not yet.", params: map[string]any{"name": "alex", "from": from.Unix()}}
+	})
+	// One look of the loop, here rather than on its hourly tick.
+	look := func() { e.a.addressTick(t.Context(), false) }
+	// Adding the server kicked the loop; wait until that look has taken
+	// the change, so the one made below stays for the look after the claim.
+	e.waitFor("the loop to see the new server", func() bool {
+		e.a.addr.mu.Lock()
+		defer e.a.addr.mu.Unlock()
+		return !e.a.addr.serversUp && len(e.a.addr.kick) == 0
+	})
+
+	e.a.addr.mu.Lock()
+	e.a.addr.serversUp = true
+	e.a.addr.mu.Unlock()
+	if v := e.claim("alex"); v.Free.ServersWait != names.CodeServerNotYet {
+		t.Fatalf("the claim's publish: %+v", v.Free)
+	}
+	puts := func() int { return e.names.count("PUT /v1/names/alex/servers/") }
+	n := puts()
+	look()
+	if got := puts(); got != n {
+		t.Fatalf("the loop asked for server addresses again (%d times, was %d) before the service allows them", got, n)
+	}
+}
+
 func TestFreeViewSaysWhyANameLapsed(t *testing.T) {
 	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 	claimed, answered, refreshed := now.Add(-20*24*time.Hour), now.Add(-9*24*time.Hour), now.Add(-31*24*time.Hour)
