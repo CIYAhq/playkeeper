@@ -2032,6 +2032,8 @@ export const en = {
   'new.note.nameAny': 'After you start it, Playkeeper downloads what it needs, checks it, and tells you when friends can join.',
   'templateSkipped.title': { one: '{names} from the template isn’t installed', other: '{names} from the template aren’t installed' },
   'templateSkipped.body': 'Playkeeper couldn’t install them when the server was set up.',
+  'templateLost.title': 'Playkeeper lost the list of what {template} adds',
+  'templateLost.body': 'None of the template’s add-ons or data packs were installed. Add them yourself, or create the server again from the template.',
   'op.templateRetry': 'Installing {server}’s template add-ons',
   'reason.softwareChanged': 'Reinstall the server software first.',
   // Wave 4: add-on sources

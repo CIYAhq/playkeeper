@@ -142,6 +142,8 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
       </Notice>
     )
   }
+  const template = s.config?.template
+  if (template?.lost) return <Notice tone="warning" title={t('templateLost.title', { template: template.name })}>{t('templateLost.body')}</Notice>
   return null
 }
 

@@ -868,6 +868,26 @@ control "a template plan without a version creates nothing" internal/agent/templ
   'if p.Version == nil {' \
   'if false {' \
   ./internal/agent '^TestTemplateCreateNeedsAVersion$'
+control "a server made from a template is recorded with what the template adds" internal/agent/handlers.go \
+  'record = func(tx *sql.Tx, id string) error { return saveTemplateInstall(tx, id, planned, dataPacks, at) }' \
+  'record = func(tx *sql.Tx, id string) error { _, _, _ = planned, dataPacks, at; return nil }' \
+  ./internal/agent '^TestTemplateRecordIsNeverLostSilently$'
+control "a new server whose record can't be written is not made" internal/agent/servers.go \
+  '		if err := spec.record(tx, id); err != nil {
+			return nil, nil, err
+		}' \
+  '		_ = spec.record(tx, id)' \
+  ./internal/agent '^TestTemplateRecordIsNeverLostSilently$'
+control "a start that finds a template's record gone says so" internal/agent/templates.go \
+  '	if !found {
+		return s.templateLost(h, sc)' \
+  '	if false && !found {
+		return s.templateLost(h, sc)' \
+  ./internal/agent '^TestTemplateRecordIsNeverLostSilently$'
+control "a template's record and settings settle together" internal/agent/templates.go \
+  '	defer tx.Rollback()' \
+  '	defer tx.Commit()' \
+  ./internal/agent '^TestTemplateRecordIsNeverLostSilently$'
 control "packs cannot suggest operator or function permission levels" internal/modpacks/rules.go \
   '"force-gamemode", "gamemode",' \
   '"force-gamemode", "function-permission-level", "op-permission-level", "gamemode",' \

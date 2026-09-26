@@ -1367,6 +1367,8 @@ export interface ServerTemplate {
   pending?: boolean
   /** The template's add-ons and data packs that couldn't be installed, each with params.name; Try again retries them. */
   skipped?: AddonNotice[]
+  /** The record of what the template adds was gone by the time the server started, so none of it was installed. */
+  lost?: boolean
 }
 
 export interface TemplateSettings {

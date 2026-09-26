@@ -1764,6 +1764,10 @@ type ServerTemplate struct {
 	// installed, each with params["name"]; POST …/template/retry tries them
 	// again.
 	Skipped []AddonNotice `json:"skipped,omitempty"`
+	// Lost says the record of what the template adds was gone by the time
+	// the server started, so none of its add-ons or data packs were
+	// installed.
+	Lost bool `json:"lost,omitempty"`
 }
 
 // TemplateSettings are the settings a template carries.
