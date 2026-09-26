@@ -719,12 +719,12 @@ func TestFinishRefusesToStartUncheckedFiles(t *testing.T) {
 	}
 }
 
-// forgeInstaller builds a stand-in Forge installer from the install profile
-// and version file fixtures of build id, changed by edit. Every library's
-// SHA-1 and size, and every SHA-1 the profile publishes for a file it
-// builds, are set for the content the stand-in install writes, which it
-// returns by path in the data directory.
-func forgeInstaller(t *testing.T, id string, edit func(profile map[string]any)) ([]byte, map[string]string) {
+// forgeInstaller builds a stand-in Forge installer from the fixtures of
+// build id, its install profile changed by edit and its launch arguments by
+// args. Every library's SHA-1 and size, and every SHA-1 the profile
+// publishes for a file it builds, are set for the content the stand-in
+// install writes, which it returns by path in the data directory.
+func forgeInstaller(t *testing.T, id string, edit func(profile map[string]any), args func(string) string) ([]byte, map[string]string) {
 	t.Helper()
 	files := map[string]string{}
 	fakeLibs := func(doc any) any {
@@ -760,8 +760,12 @@ func forgeInstaller(t *testing.T, id string, edit func(profile map[string]any)) 
 	version := editJSON(t, readFixture(t, "forge/version-"+id+".json"), fakeLibs)
 	shim := "net/minecraftforge/forge/" + id + "/forge-" + id + "-shim.jar"
 	files["forge-"+id+"-shim.jar"] = files["libraries/"+shim]
-	files["libraries/net/minecraftforge/forge/"+id+"/unix_args.txt"] = string(readFixture(t, "forge/unix_args-"+id+".txt"))
-	return zipOf(t, "install_profile.json", string(profile), "version.json", string(version), "data/unix_args.txt", string(readFixture(t, "forge/unix_args-"+id+".txt"))), files
+	launch := string(readFixture(t, "forge/unix_args-"+id+".txt"))
+	if args != nil {
+		launch = args(launch)
+	}
+	files["libraries/net/minecraftforge/forge/"+id+"/unix_args.txt"] = launch
+	return zipOf(t, "install_profile.json", string(profile), "version.json", string(version), "data/unix_args.txt", launch), files
 }
 
 type forgeInstall struct {
@@ -773,10 +777,10 @@ type forgeInstall struct {
 
 // newForgeInstall downloads the plan for Forge v for Minecraft mc, whose
 // installer is built from the fixtures of build fixture.
-func newForgeInstall(t *testing.T, mc, v, fixture string, edit func(profile map[string]any)) *forgeInstall {
+func newForgeInstall(t *testing.T, mc, v, fixture string, edit func(profile map[string]any), args func(string) string) *forgeInstall {
 	t.Helper()
 	f, _ := installFake(t, mc)
-	installer, files := forgeInstaller(t, fixture, edit)
+	installer, files := forgeInstaller(t, fixture, edit, args)
 	f.serve(forgeInstallerURL(mc+"-"+v), installer)
 	f.serve(forgeInstallerURL(mc+"-"+v)+".sha512", []byte(hexSum(SHA512, installer)))
 	_, p := resolve(t, f, Pin{Type: Forge, MinecraftVersion: mc, ForgeVersion: v})
@@ -810,7 +814,7 @@ const (
 )
 
 func TestInstallForge(t *testing.T) {
-	in := newForgeInstall(t, "26.2", "65.1.0", "26.2-65.1.0", nil)
+	in := newForgeInstall(t, "26.2", "65.1.0", "26.2-65.1.0", nil, nil)
 	in.runInstaller(t)
 	m, err := Finish(in.dir, in.plan)
 	if err != nil {
@@ -873,7 +877,7 @@ func TestInstallForge(t *testing.T) {
 }
 
 func TestInstallForgeForMinecraft1211(t *testing.T) {
-	in := newForgeInstall(t, "1.21.1", "52.1.0", "1.21.1-52.1.0", nil)
+	in := newForgeInstall(t, "1.21.1", "52.1.0", "1.21.1-52.1.0", nil, nil)
 	in.runInstaller(t)
 	m, err := Finish(in.dir, in.plan)
 	if err != nil {
@@ -964,7 +968,7 @@ func TestInstallForgeRefuses(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			in := newForgeInstall(t, "26.2", "65.1.0", tt.fixture, tt.edit)
+			in := newForgeInstall(t, "26.2", "65.1.0", tt.fixture, tt.edit, nil)
 			if tt.install != nil {
 				tt.install(t, in)
 			}
@@ -977,6 +981,16 @@ func TestInstallForgeRefuses(t *testing.T) {
 			}
 		})
 	}
+	t.Run("the installer's launch arguments start another jar than its shim", func(t *testing.T) {
+		in := newForgeInstall(t, "26.2", "65.1.0", "26.2-65.1.0", nil, func(args string) string {
+			return strings.Replace(args, "-jar forge-26.2-65.1.0-shim.jar", "-jar libraries/net/minecraftforge/forge/26.2-65.1.0/forge-26.2-65.1.0-server.jar", 1)
+		})
+		in.runInstaller(t)
+		_, err := Finish(in.dir, in.plan)
+		if e := wantKind(t, err, KindMalformed); !strings.Contains(e.Msg, "its launch arguments do not start forge-26.2-65.1.0-shim.jar.") {
+			t.Errorf("got %q", e.Msg)
+		}
+	})
 }
 
 func TestStartsJar(t *testing.T) {

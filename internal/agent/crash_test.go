@@ -192,7 +192,7 @@ func TestFailedStartIsExplained(t *testing.T) {
 
 // Forge logs that the server failed to start when a mod fails in its setup,
 // then keeps running: the start stops it after a short wait and explains
-// why, instead of waiting out ReadyTimeout.
+// why, instead of waiting out ReadyTimeout. The next start forgets it.
 func TestAStartThatGaveUpButKeptRunningIsStoppedAndExplained(t *testing.T) {
 	old := hungStartWait
 	hungStartWait = 500 * time.Millisecond
@@ -224,6 +224,12 @@ func TestAStartThatGaveUpButKeptRunningIsStoppedAndExplained(t *testing.T) {
 	c := e.waitCrash()
 	if !c.Start || c.Kind != "addon_failed" || c.Params["addon"] != "waila" {
 		t.Fatalf("got %s start %v params %v:\n%s", c.Kind, c.Start, c.Params, crashLines(c))
+	}
+	e.fd.mu.Lock()
+	e.fd.hangsAfterFailing = false
+	e.fd.mu.Unlock()
+	if op := run("start"); op.Status != api.OpSucceeded {
+		t.Fatalf("the next start: %+v", op)
 	}
 }
 
