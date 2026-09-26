@@ -1,5 +1,5 @@
 /* playkeeper.io/sizing without JavaScript: the questions can't answer, so the page shows the table of every size and the site links. */
-.guide, .menu-button, .lead .wide-only { display: none; }
+.guide, .menu-button { display: none; }
 .lead { margin-bottom: 10px; }
 .nojs-note { display: block; margin: 0 0 8px; text-align: center; }
 @media (max-width: 640px) {

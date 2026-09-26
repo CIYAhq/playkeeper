@@ -178,6 +178,8 @@ footer { max-width: 1168px; margin: 0 auto; padding: 0 24px 48px; color: var(--m
   .reason dt, .reason strong { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .reason-text { display: inline; font-size: inherit; line-height: inherit; }
   .reason-text::after { content: " "; }
+  /* On phones the paragraph keeps the memory and CPU reasons; screen readers still get disk's and network's values. */
+  .reason:nth-child(n + 3) .reason-text { display: none; }
   h2, .more-servers h2, .install h2 { margin-top: 32px; }
   thead th:first-child { width: 22%; }
   thead th + th { width: 26%; }

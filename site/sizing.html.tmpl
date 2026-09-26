@@ -33,7 +33,7 @@
 
   <main id="guide">
     <h1>How big a VPS do you need?</h1>
-    <p class="lead"><span class="wide-only">Answer two questions. </span>Memory matters most, then fast CPU cores, then disk.</p>
+    <p class="lead">Memory matters most, then fast CPU cores, then disk.</p>
     <p class="nojs-note">Turn on JavaScript to answer the two questions, or find your size in the table below.</p>
 
     <div class="guide">
@@ -69,7 +69,7 @@
             </div>
           </div>
         </fieldset>
-        <p class="card-foot">These are starting points. You can move to a bigger VPS later and bring your worlds with a backup.</p>
+        <p class="card-foot">These are starting points.</p>
       </div>
 
       <section class="card answer" aria-labelledby="answer-title">
@@ -86,7 +86,7 @@
           <div class="reason"><dt>{{.Label}}</dt><dd><strong>{{.Value}}</strong> <span class="reason-text">{{.Text}}</span></dd></div>
           {{- end}}
         </dl>
-        <p class="card-foot">Already running? Your Overview shows how it's really doing, and Settings suggests memory from real use.</p>
+        <p class="card-foot">Already running? Settings suggests memory from real use.</p>
       </section>
     </div>
     <p class="visually-hidden" role="status" id="answer-status"></p>
@@ -111,7 +111,7 @@
 
     <section class="more-servers" aria-labelledby="several-title">
       <h2 id="several-title">More than one server on the VPS?</h2>
-      <p>They add up. Every server counts, running or not: Playkeeper keeps a stopped server's memory, so it can always start.</p>
+      <p>They add up, stopped servers too.</p>
       <dl class="rules">
         <div><dt>Memory</dt><dd>Add up what each server gets for the world, then {{.SystemGB}} GB for Ubuntu, Docker and Playkeeper once, and pick the next size up.</dd></div>
         <div><dt>CPU</dt><dd>The busiest server's cores, plus one for each other server.</dd></div>
@@ -128,7 +128,7 @@
         <button type="button" id="copy" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>Copy</button>
       </div>
       <p class="status" id="copy-status" role="status"></p>
-      <p><a href="/#install">What the install command does, and what else you need</a></p>
+      <p><a href="/#install">What the install does</a></p>
     </section>
   </main>
   <footer>Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.</footer>
