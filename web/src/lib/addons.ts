@@ -21,6 +21,9 @@ export function addonTab(serverType: string | undefined): 'plugins' | 'mods' | u
 /** The libraries' own names, which aren't translated. */
 export const sourceNames: Record<AddonSource, string> = { modrinth: 'Modrinth', hangar: 'Hangar' }
 
+/** Simple Voice Chat on Modrinth, whose install also opens its UDP port. */
+export const voiceChatProject: AddonKey = { source: 'modrinth', projectId: '9eGKb6K1' }
+
 export const keyOf = (a: AddonKey): string => `${a.source}:${a.projectId}`
 export const sameKey = (a: AddonKey, b: AddonKey): boolean => a.source === b.source && a.projectId === b.projectId
 /** Just the key: the agent refuses fields it doesn't know. */

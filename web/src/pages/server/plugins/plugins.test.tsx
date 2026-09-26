@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Addon, AddonBrowse, AddonCard, AddonChecks, AddonDetails, AddonPlan, AddonRemovePreview, AddonStep, Addons, MachineView, Me, Operation, PackShare, ServerConfig, ServerStatus } from '@/api/types'
+import type { Addon, AddonBrowse, AddonCard, AddonChecks, AddonDetails, AddonPlan, AddonRemovePreview, AddonStep, Addons, CuratedAddons, MachineView, Me, Operation, PackShare, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import type { ServerSub } from '@/lib/router'
 import { PluginsPage } from '.'
@@ -554,5 +554,77 @@ describe('Plugins tab', () => {
     expect(vi.mocked(client.get).mock.calls.some(([path]) => path === '/api/servers/abcdefghjk/addons/search?q=ProtocolLib')).toBe(true)
     expect(text).toContain('ProtocolLib isn’t in the library. Add it by hand first.')
     expect(document.querySelector('a[href="https://github.com/dmulloy2/ProtocolLib/"]')).not.toBeNull()
+  })
+
+  const svc = card('Simple Voice Chat', { projectId: '9eGKb6K1', slug: 'simple-voice-chat' })
+  const picked: CuratedAddons = {
+    picks: [
+      { id: 'voice-chat', card: svc, ports: [{ protocol: 'udp', port: 24454 }] },
+      { id: 'rollback', card: card('CoreProtect', { projectId: 'Lu3KuzdV' }) },
+      { id: 'pregenerate', card: card('Chunky', { source: 'hangar', projectId: '81', installed: true }) },
+      { id: 'permissions', card: card('LuckPerms', { projectId: 'Vebnzrzj' }) },
+      { id: 'essentials', card: card('EssentialsX', { projectId: 'hXiIvTyT' }) },
+    ],
+  }
+  const library: AddonBrowse = { cards: [card('BlueMap')], more: false, unanswered: [] }
+  const none: Addons = { target, files: [], missing: [], warnings: [], restartNeeded: false }
+
+  it('shows four of Playkeeper’s picks before a search, then Most downloaded', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      answer([
+        ['/addons/checks', checks],
+        ['/addons/curated', picked],
+        ['/addons/search', library],
+        ['/addons', none],
+      ])
+      const text = await render(server(), 'plugins', 'browse')
+      expect(text).toContain('Picked by PlaykeeperHand-picked for Paper 26.1.2')
+      for (const line of ['Hear friends nearby, quieter as they walk away.', 'Needs one more port. Friends add the mod to talk.', 'Undo griefing, block by block.', 'Groups decide who can use which commands.']) expect(text).toContain(line)
+      expect(text).not.toContain('EssentialsX')
+      const headings = [...document.querySelectorAll('h3')].map((h) => h.textContent)
+      expect(headings).toEqual(['Picked by PlaykeeperHand-picked for Paper 26.1.2', 'Most downloaded'])
+      expect(text.lastIndexOf('Most downloaded')).toBeLessThan(text.indexOf('BlueMap'))
+      const search = document.querySelector<HTMLInputElement>('input[type="search"]')
+      if (!search) throw new Error('no search field')
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, 'maps')
+        search.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(400)
+      })
+      await act(async () => {})
+      expect(document.body.textContent).not.toContain('Picked by Playkeeper')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('asks before installing voice chat, then installs it and opens its port', async () => {
+    const details: AddonDetails = {
+      card: svc,
+      latest: version('2.6.4'),
+      plan: { steps: [{ ...step('Simple Voice Chat', '2.6.4'), projectId: '9eGKb6K1' }], manual: [], blockers: [], warnings: [], ready: true, fingerprint: 'fp-voice' },
+      ports: [{ protocol: 'udp', port: 24454 }],
+    }
+    answer([
+      ['/addons/checks', checks],
+      ['/addons/curated', picked],
+      ['/addons/project/modrinth/9eGKb6K1', details],
+      ['/addons/search', library],
+      ['/addons', none],
+    ])
+    reply([['/addons/install', () => ({ id: 'op-voice', kind: 'addon-install', status: 'running', phase: '', actor: 'siya', startedAt: '2026-09-26T00:00:00Z' })]])
+    await render(server(), 'plugins', 'browse')
+    const install = document.querySelector<HTMLButtonElement>('button[aria-label="Install Simple Voice Chat"]')
+    if (!install) throw new Error('no Install on the voice chat card')
+    await act(async () => install.click())
+    for (let i = 0; i < 5; i++) await act(async () => {})
+    const text = document.body.textContent ?? ''
+    for (const line of ['Add proximity voice chat', 'Simple Voice Chat · Modrinth', 'UDP 24454', 'one more port', 'Voice travels on its own port', 'Playkeeper opens it on my-vps. Open UDP 24454 in your provider’s firewall too.', 'How to open a port', 'Friends who want to talk', 'Friends add the Simple Voice Chat mod to talk.', 'Copy the link for friends', 'Survival restarts for about 20 s.']) expect(text).toContain(line)
+    expect(vi.mocked(client.post).mock.calls.some(([path]) => String(path).endsWith('/addons/install'))).toBe(false)
+    await click('Install and open the port')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/addons/install', { source: 'modrinth', projectId: '9eGKb6K1', fingerprint: 'fp-voice', openPorts: true })
   })
 })

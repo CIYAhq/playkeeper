@@ -52,6 +52,7 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"AddonTarget": AddonTarget{}, "AddonUpdate": AddonUpdate{}, "AddonVersion": AddonVersion{}, "DataPack": DataPack{}, "DataPacks": DataPacks{},
 		"Pregen": Pregen{}, "PregenPreset": PregenPreset{}, "ResourcePack": ResourcePack{}, "ResourcePackOffer": ResourcePackOffer{},
 		"AddonSources": AddonSources{}, "CurseForgeSource": CurseForgeSource{},
+		"AddonPort": AddonPort{}, "CuratedAddons": CuratedAddons{}, "CuratedAddon": CuratedAddon{},
 	}
 	addedByPanel := map[string]bool{"ServerStatus.machineId": true, "AuditEntry.source": true}
 	field := regexp.MustCompile(`(?m)^  (\w+)\??:`)

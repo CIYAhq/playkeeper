@@ -5,7 +5,7 @@ import type { AddonChecks, AddonDetails, AddonKey, AddonNotice, AddonPlan, Addon
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { footerFor, isAddonOp, keyFrom, keyOf, mergeRows, sameKey, type AddonKind, type AddonRow } from '@/lib/addons'
+import { footerFor, isAddonOp, keyFrom, keyOf, mergeRows, sameKey, voiceChatProject, type AddonKind, type AddonRow } from '@/lib/addons'
 import { navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -29,6 +29,13 @@ export interface Detail {
   key: AddonKey
   adoptFile?: string
   details?: AddonDetails
+}
+
+/** Voice chat, which asks before it opens its port. */
+export interface VoiceAsk {
+  key: AddonKey
+  name: string
+  fingerprint?: string
 }
 
 /** An update of a file that changed since it was installed, which asks first. */
@@ -56,7 +63,10 @@ interface AddonsState {
   asking: Ask | undefined
   askUpdate: (a: Ask | undefined) => void
   highlight: string | undefined
-  install: (key: AddonKey, name: string, fingerprint?: string) => Promise<boolean>
+  /** Installs the add-on; voice chat asks first, and installs with openPorts once the owner agrees. */
+  install: (key: AddonKey, name: string, fingerprint?: string, openPorts?: boolean) => Promise<boolean>
+  voice: VoiceAsk | undefined
+  closeVoice: () => void
   update: (keys: AddonKey[] | undefined, title: string, changed?: boolean) => Promise<boolean>
   adopt: (fileName: string) => Promise<boolean>
   forget: (key: AddonKey) => Promise<boolean>
@@ -100,6 +110,7 @@ export function AddonsProvider({ server, kind, children }: { server: ServerStatu
   const [job, setJob] = useState<Job>()
   const [removing, setRemoving] = useState<AddonKey>()
   const [asking, setAsking] = useState<Ask>()
+  const [voice, setVoice] = useState<VoiceAsk>()
   const [highlight, setHighlight] = useState<string>()
 
   const refreshList = list.refresh
@@ -148,16 +159,22 @@ export function AddonsProvider({ server, kind, children }: { server: ServerStatu
   }, [serverOp, refresh])
 
   const install = useCallback(
-    async (key: AddonKey, name: string, fingerprint?: string): Promise<boolean> => {
-      try {
-        const op = await post<Operation>(serverApi(id, '/addons/install'), { source: key.source, projectId: key.projectId, fingerprint })
+    async (key: AddonKey, name: string, fingerprint?: string, openPorts = false): Promise<boolean> => {
+      if (!openPorts && sameKey(key, voiceChatProject)) {
         setDetail(undefined)
+        setVoice({ key, name, fingerprint })
+        return true
+      }
+      try {
+        const op = await post<Operation>(serverApi(id, '/addons/install'), { source: key.source, projectId: key.projectId, fingerprint, openPorts: openPorts || undefined })
+        setDetail(undefined)
+        setVoice(undefined)
         // The plan may have changed since: confirm the new one, or show why not.
         const again = () => {
           void get<AddonDetails>(detailsPath(id, key))
             .then((d) => {
               const f = footerFor(d)
-              if (f.kind === 'install' && d.plan && d.plan.steps.length <= 1) return void install(key, name, f.fingerprint)
+              if (f.kind === 'install' && d.plan && d.plan.steps.length <= 1) return void install(key, name, f.fingerprint, openPorts)
               setJob(undefined)
               setDetail({ key, details: d })
             })
@@ -323,6 +340,8 @@ export function AddonsProvider({ server, kind, children }: { server: ServerStatu
     },
     highlight,
     install,
+    voice,
+    closeVoice: () => setVoice(undefined),
     update,
     adopt,
     forget,

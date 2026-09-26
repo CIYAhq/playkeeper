@@ -72,6 +72,8 @@ export interface ServerConfig {
   modpack?: ServerModpack
   /** The template the server was created from. */
   template?: ServerTemplate
+  /** The UDP port voice chat has on this server. */
+  voiceChatPort?: number
 }
 
 export interface Operation {
@@ -636,6 +638,27 @@ export interface AddonDetails {
   updateAvailable?: boolean
   plan?: AddonPlan
   planError?: AddonNotice
+  /** Ports the add-on needs of its own, with the numbers Playkeeper would open. */
+  ports?: AddonPort[]
+}
+
+/** A port an add-on listens on, such as voice chat's: opened when it's installed, closed when it's removed. */
+export interface AddonPort {
+  protocol: 'udp' | 'tcp'
+  port: number
+}
+
+/** The add-ons Playkeeper picked by hand that fit the server's type and version. */
+export interface CuratedAddons {
+  picks: CuratedAddon[]
+}
+
+export interface CuratedAddon {
+  /** Names the pick across releases: voice-chat, rollback, pregenerate… */
+  id: string
+  card: AddonCard
+  permission?: string
+  ports?: AddonPort[]
 }
 
 /** One file of an add-on install or update, from the operation's detail. */
