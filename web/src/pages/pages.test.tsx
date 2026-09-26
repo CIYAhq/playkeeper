@@ -2926,7 +2926,7 @@ describe('Machines and AI agents', () => {
     vi.mocked(client.get).mockClear()
     await render(<HomePage />, ws)
     expect(asked(), 'Home asks home-server for its activity').toEqual([])
-    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/${machine.id}/activity`))).toBe(true)
+    expect(vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes('/activity'))).toEqual(['/api/activity?limit=5'])
   })
 
   it('asks a joined machine, not the dashboard’s, about the servers it runs', async () => {
