@@ -1775,6 +1775,7 @@ func (s *server) copyDone(ctx context.Context, dest offsiteDest, row offsiteRow,
 func (s *server) pruneOffsite(ctx context.Context, dest offsiteDest) {
 	res, err := s.retentionPlan()
 	if err != nil {
+		s.log.Warn("backup rules could not be applied to the copies", "server", s.id, "err", err)
 		return
 	}
 	for _, id := range res.OffSite.DeleteIDs() {

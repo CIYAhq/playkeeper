@@ -5,7 +5,7 @@ import { ApiError, get, post } from '@/api/client'
 import { useModpackDetail, useModpackPreview } from '@/api/modpacks'
 import { useBuilds } from '@/api/software'
 import { planTemplate } from '@/api/templates'
-import type { Operation, RestorePreview, ServerStatus, TemplatePlan, WorldImport, WorldImportPreview } from '@/api/types'
+import type { MachineView, Operation, RestorePreview, ServerStatus, TemplatePlan, WorldImport, WorldImportPreview } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { GameIcon, Pip, TypeLogo } from '@/components/app/art'
 import { Card, Notice } from '@/components/app/bits'
@@ -112,13 +112,25 @@ interface Checked {
   world?: string
 }
 
-/** Makes a server on the dashboard's machine, or on the joined machine given while it's connected. */
+/** Why the machine given can't take a new server now, if it can't: it isn't connected to the dashboard, or it's away. */
+function unavailable(machine: string | undefined, target: MachineView | undefined, machines: MachineView[]): string | undefined {
+  if (!machine || machines.length === 0) return undefined
+  if (!target) return t('new.machineGone')
+  return isAway(target) ? t('machines.away.pill', { name: machineLabel(target) }) : undefined
+}
+
+/**
+ * Makes a server on the dashboard's machine, or on the machine given. A
+ * machine that's away is never swapped for another: the page says so and
+ * holds Create back until it's back. App keys the page by machine, so the
+ * machine can't change while the page is open.
+ */
 export function NewServerPage({ machine }: { machine?: string }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
-  const targets = ws.machines.filter((m) => !isAway(m))
-  const target = targets.find((m) => m.id === machine) ?? ws.machine
-  const machineName = target?.kind === 'remote' ? machineLabel(target) : ws.machineName
+  const target = machine ? ws.machines.find((m) => m.id === machine) : ws.machine
+  const away = unavailable(machine, target, ws.machines)
+  const machineName = target?.kind === 'remote' || (machine && !target) ? machineLabel(target) : ws.machineName
   const [c, setC] = useState<CreateChoices>()
   const { catalog, error, reload } = useCatalog(target?.id, { type: c?.type ?? 'paper', fresh: true })
   const [step, setStep] = useState(0)
@@ -188,7 +200,8 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const runsMods = from === 'modpack' ? (pack?.mods ?? 0) : from === 'template' ? (tpl?.plan.contents.addons.length ?? 0) : 0
 
   function blocked(): string | undefined {
-    if (!c) return t('common.loading')
+    if (away) return away
+    if (!c || !target) return t('common.loading')
     if (world) {
       switch (step) {
         case 0:
@@ -347,8 +360,15 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const back = () => go(step === 3 && world ? 1 : step === 3 && (packed || templated) ? 0 : Math.max(0, step - 1))
   const stepTitles = stepKeys.map((k) => t(k))
 
+  const awayNotice = away && (
+    <Notice tone="warning" title={away} className="mb-5">
+      {target && t('new.machineAwayBody')}
+    </Notice>
+  )
   let body: ReactNode
-  if (error) {
+  if (away && (error || !c || !catalog)) {
+    body = null
+  } else if (error) {
     body = (
       <Notice
         tone="error"
@@ -659,9 +679,13 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const worldSummary = world ? { from: sourceFrom(source), name: upload.state.phase === 'idle' ? '' : uploadName(upload.state.files), upload: upload.state, version: inspected ? versionChange(inspected.preview) : '' } : undefined
   const stepBody = (
     <div key={step} className={cn(stepped && 'animate-page')}>
+      {awayNotice}
       {body}
     </div>
   )
+  // The machine is picked before the flow starts, and stays the same after.
+  const started = step > 0 || upload.state.phase !== 'idle'
+  const choices = started ? [] : ws.machines.filter((m) => m.id === target?.id || !isAway(m))
   const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} machine={machineName} from={from} pack={from === 'modpack' ? pack : undefined} plan={from === 'template' ? tpl?.plan : undefined} world={worldSummary} note={note} />
   const worldKeys = world ? worldStepKeys[step] : undefined
   const tplMods = addonKind(tpl?.plan.type || tpl?.plan.contents.type) === 'mods'
@@ -746,25 +770,29 @@ export function NewServerPage({ machine }: { machine?: string }) {
       <PageHeader
         breadcrumb={
           <span className="flex items-center gap-1.5">
-            {machineName}
-            <span className="text-muted-foreground/60" aria-hidden="true">
-              /
-            </span>
+            {machineName && (
+              <>
+                {machineName}
+                <span className="text-muted-foreground/60" aria-hidden="true">
+                  /
+                </span>
+              </>
+            )}
             <span className="font-semibold text-foreground">{t('new.title')}</span>
           </span>
         }
         title={t('new.title')}
-        subtitle={t('new.lead', { machine: machineName })}
+        subtitle={machineName ? t('new.lead', { machine: machineName }) : undefined}
         actions={
           <>
-            {targets.length > 1 && target && (
+            {choices.length > 1 && target && (
               <label className="flex items-center gap-2 text-[13px] text-muted-foreground">
                 {t('machines.newServerOn')}
                 <ChoiceSelect
                   value={target.id}
                   onChange={(id) => navigate({ name: 'new-server', machine: id }, true)}
                   label={t('machines.newServerOn')}
-                  options={targets.map((m) => ({ value: m.id, label: m.kind === 'remote' ? machineLabel(m) : ws.machineName }))}
+                  options={choices.map((m) => ({ value: m.id, label: m.kind === 'remote' ? machineLabel(m) : ws.machineName }))}
                   className="min-w-36 text-foreground"
                 />
               </label>

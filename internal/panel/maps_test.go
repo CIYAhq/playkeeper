@@ -345,6 +345,73 @@ func TestSharedMapAnswersTheSameWhenItIsNotAvailable(t *testing.T) {
 	unavailable("agent down", pub, pub+"/tiles/minecraft_overworld/3/0_0.png")
 }
 
+// A shared map opens on the machine whose server it shows: the dashboard
+// records each map link as it's shared, and asks only that machine's agent
+// about it, for the details, tiles, players and faces alike.
+func TestASharedMapOpensOnTheMachineThatSharedIt(t *testing.T) {
+	const (
+		localMap  = "LocalSurvivalMapLink01"
+		joinedMap = "JoinedCobblemonMapLink"
+	)
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	face := []byte("\x89PNG\r\n\x1a\nAlex's face")
+	if _, err := e.srv.db.Exec(`INSERT INTO player_heads(name, status, png, fetched_at) VALUES('alex', 'ok', ?, ?)`, face, e.clock.now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+	e.reply("POST", "/v1/servers/abcdefghjk/map/share", `{"public":true,"path":"/map/`+localMap+`","state":"ready"}`)
+	e.reply("GET", "/v1/public-maps/"+localMap, `{"name":"Survival","players":false}`)
+	ra := newRemoteAgent()
+	ra.reply("POST /v1/servers/rstuvwxyzq/map/share", `{"public":true,"path":"/map/`+joinedMap+`","state":"ready"}`)
+	ra.reply("GET /v1/public-maps/"+joinedMap, `{"name":"Cobblemon","players":true}`)
+	ra.reply("GET /v1/public-maps/"+joinedMap+"/players", `{"players":[{"name":"Alex","uuid":"4566e69f-c907-48ee-8d71-d7ba5aa00d20","world":"minecraft_overworld","x":1,"z":2}],"updatedAt":"2026-09-24T12:00:00Z"}`)
+	ra.handle("GET /v1/public-maps/"+joinedMap+"/tiles/minecraft_overworld/3/0_0.png", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(tilePNG)
+	})
+	rid, link := e.joined(t, cookie, csrf, ra)
+	e.get(t, "/api/servers", cookie, nil)
+
+	for _, tc := range []struct {
+		name, server, token, details string
+		joined                       bool
+	}{
+		{"the dashboard's server", "abcdefghjk", localMap, `{"name":"Survival","players":false}`, false},
+		{"a joined machine's server", "rstuvwxyzq", joinedMap, `{"name":"Cobblemon","players":true}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if r := e.do(t, "POST", "/api/servers/"+tc.server+"/map/share", `{"public":true}`, auth(cookie, csrf)); r.status != http.StatusOK {
+				t.Fatalf("share: %d %v", r.status, r.body)
+			}
+			pub := "/api/public/map/" + tc.token
+			if r, body := e.stream(t, "GET", pub, nil, nil); r.StatusCode != http.StatusOK || string(body) != tc.details {
+				t.Fatalf("the shared map's details: %d %s", r.StatusCode, body)
+			}
+			if !tc.joined {
+				return
+			}
+			if r, body := e.stream(t, "GET", pub+"/tiles/minecraft_overworld/3/0_0.png", nil, nil); r.StatusCode != http.StatusOK || r.Header.Get("Content-Type") != "image/png" || !bytes.Equal(body, tilePNG) {
+				t.Fatalf("a tile: %d %v", r.StatusCode, r.Header)
+			}
+			if r, body := e.stream(t, "GET", pub+"/faces/alex", nil, nil); r.StatusCode != http.StatusOK || !bytes.Equal(body, face) {
+				t.Fatalf("a listed player's face: %d %v", r.StatusCode, r.Header)
+			}
+			if e.sawLocally("GET /v1/public-maps/"+tc.token) || e.sawLocally("GET /v1/public-maps/"+tc.token+"/players") {
+				t.Fatal("the dashboard's own agent was asked about the joined machine's map")
+			}
+		})
+	}
+
+	// While the joined machine is offline its map isn't available, and the
+	// dashboard's own agent still isn't asked about it.
+	link.stop()
+	eventually(t, "the machine is offline", func() bool { return linkState(e.machineView(t, cookie, rid)) == "offline" })
+	if r, _ := e.stream(t, "GET", "/api/public/map/"+joinedMap, nil, nil); r.StatusCode != http.StatusNotFound || e.sawLocally("GET /v1/public-maps/"+joinedMap) {
+		t.Fatalf("an offline machine's map: %d", r.StatusCode)
+	}
+}
+
 // lockedBuffer is a log destination the panel's handlers may write to
 // while a test reads it.
 type lockedBuffer struct {

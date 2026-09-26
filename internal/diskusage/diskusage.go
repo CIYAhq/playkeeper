@@ -74,6 +74,9 @@ type Layout struct {
 	// data folders, the backups, staging and downloads folders that is set.
 	// It may be inside one of them.
 	DiskDir string
+	// Problems are what the caller couldn't find out while making the
+	// layout, with codes of its own; the report lists them first.
+	Problems []Problem
 }
 
 // Server is one Minecraft server on the machine.
@@ -227,7 +230,8 @@ type Report struct {
 // Problem is a place the scan couldn't fully count.
 type Problem struct {
 	// Code is unreadable, missing, other_filesystem, too_deep,
-	// too_many_files, changed or disk_space (the disk's size is unknown).
+	// too_many_files, changed or disk_space (the disk's size is unknown),
+	// or the code of one of the layout's Problems.
 	Code string `json:"code"`
 	Path string `json:"path"`
 	Text string `json:"text"`

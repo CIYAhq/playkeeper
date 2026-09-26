@@ -14,6 +14,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can, settingsHome, settingsSections, type SettingsSectionName } from '@/lib/access'
 import { formatDateTime, relativeTime } from '@/lib/format'
+import { machineLabel } from '@/lib/machines'
 import { linkProps, navigate, type Route } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -218,7 +219,9 @@ function AuditCard({ phone }: { phone: boolean }) {
   const ws = useWorkspace()
   const audit = usePoll(() => get<AuditEntry[]>('/api/audit'), 30_000)
   const serverName = (id?: string) => (id ? (ws.servers?.find((s) => s.id === id)?.name ?? '') : '')
-  const rows = (audit.data ?? []).slice(0, 100)
+  // With more than one machine, an agent's row says whose it is.
+  const machineName = (e: AuditEntry) => (e.source === 'agent' && ws.machines.length > 1 ? machineLabel(ws.machines.find((m) => m.id === e.machineId)) : '')
+  const rows = audit.data ?? []
   const tone = (e: AuditEntry) => (e.result === 'succeeded' ? 'text-success-foreground' : e.result === 'failed' || e.result === 'refused' ? 'text-destructive-foreground' : 'text-muted-foreground')
   if (phone) {
     return (
@@ -237,6 +240,7 @@ function AuditCard({ phone }: { phone: boolean }) {
                   <p className="flex flex-wrap items-baseline gap-x-2">
                     <span className="font-mono text-xs">{e.action}</span>
                     {serverName(e.serverId) && <span>{serverName(e.serverId)}</span>}
+                    {machineName(e) && <span className="text-muted-foreground">{t('machines.onMachine', { name: machineName(e) })}</span>}
                     <span className={cn('ml-auto', tone(e))}>{e.result}</span>
                   </p>
                   <p className="text-muted-foreground">{[e.actor, formatDateTime(e.ts)].filter(Boolean).join(t('common.dot'))}</p>
@@ -275,7 +279,7 @@ function AuditCard({ phone }: { phone: boolean }) {
               </tr>
             )}
             {rows.map((e) => (
-              <tr key={`${e.source}-${e.id}`} className="h-11 border-t border-border align-top">
+              <tr key={`${e.source}-${e.machineId ?? ''}-${e.id}`} className="h-11 border-t border-border align-top">
                 <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatDateTime(e.ts)}</td>
                 <td className="px-3 py-2">
                   {e.actorKind && e.actorName ? (
@@ -288,7 +292,10 @@ function AuditCard({ phone }: { phone: boolean }) {
                   )}
                 </td>
                 <td className="px-3 py-2 font-mono text-xs">{e.action}</td>
-                <td className="px-3 py-2">{serverName(e.serverId)}</td>
+                <td className="px-3 py-2">
+                  {serverName(e.serverId)}
+                  {machineName(e) && <span className="block text-xs text-muted-foreground">{t('machines.onMachine', { name: machineName(e) })}</span>}
+                </td>
                 <td className={cn('px-3 py-2', tone(e))}>{e.result}</td>
                 <td className="max-w-[280px] px-3 py-2 break-words text-muted-foreground">{e.detail}</td>
               </tr>

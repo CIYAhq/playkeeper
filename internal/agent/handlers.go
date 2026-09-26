@@ -186,7 +186,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	st.LastOperation = s.lastFinishedOperation()
 	if st.Operation == nil && sc != nil {
 		st.WorldMissing = s.worldMissing()
-		if s.restoreUnsettled() {
+		if unsettled, _ := s.restoreUnsettled(); unsettled {
 			st.RestoreUnsettled = &api.RestoreUnsettled{Problem: sentence(s.settleProblemNow())}
 		}
 	}

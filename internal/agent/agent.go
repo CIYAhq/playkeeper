@@ -275,7 +275,8 @@ type Agent struct {
 	// Wave 7 (0.4.0): the Disk space page's last scan.
 	disk diskCache
 	// unreadableSwaps is the error last logged for each stage whose swap
-	// journal can't be read, so each is logged once.
+	// journal can't be read, and under "" for the staging folder itself, so
+	// each is logged once.
 	unreadableSwaps sync.Map
 }
 

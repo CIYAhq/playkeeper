@@ -233,6 +233,113 @@ func TestACopyWithoutItsBackupSaysWhoRemovedIt(t *testing.T) {
 	}
 }
 
+// When the backup rules or the copy queue can't be read, the rules delete
+// nothing, on this machine or where copies go, rather than act on the
+// defaults or on a queue they take for empty. Only rules nobody saved fall
+// back to the defaults.
+func TestBackupRulesThatCantBeReadDeleteNothing(t *testing.T) {
+	keepAll := map[string]any{"onHost": map[string]any{"keepAll": true}, "offSite": map[string]any{"keepAll": true}, "includeManual": true}
+	newestOnly := map[string]any{"onHost": map[string]any{"last": 1}, "offSite": map[string]any{"keepAll": true}, "includeManual": true}
+	exec := func(q string) func(e *agentEnv) func() {
+		return func(e *agentEnv) func() {
+			if _, err := e.a.db.Exec(q); err != nil {
+				e.t.Fatal(err)
+			}
+			return func() {}
+		}
+	}
+	rename := func(q, back string) func(e *agentEnv) func() {
+		return func(e *agentEnv) func() {
+			if _, err := e.a.db.Exec(q); err != nil {
+				e.t.Fatal(err)
+			}
+			return func() {
+				if _, err := e.a.db.Exec(back); err != nil {
+					e.t.Fatal(err)
+				}
+			}
+		}
+	}
+	cases := []struct {
+		name  string
+		rules map[string]any
+		// breaks makes a read fail, and returns what undoes it.
+		breaks func(e *agentEnv) func()
+		// deletes is whether the rules delete backups here.
+		deletes bool
+	}{
+		{name: "rules saved", rules: keepAll},
+		{name: "no rules saved", rules: keepAll, breaks: exec(`UPDATE servers SET backup_rules = ''`), deletes: true},
+		{name: "rules that don't parse", rules: keepAll, breaks: exec(`UPDATE servers SET backup_rules = '{"settings":'`)},
+		{name: "the rules can't be read", rules: keepAll,
+			breaks: rename(`ALTER TABLE servers RENAME COLUMN backup_rules TO backup_rules_gone`, `ALTER TABLE servers RENAME COLUMN backup_rules_gone TO backup_rules`)},
+		{name: "rules that keep only the newest", rules: newestOnly, deletes: true},
+		{name: "the copy queue can't be read", rules: newestOnly,
+			breaks: rename(`ALTER TABLE offsite_uploads RENAME TO offsite_uploads_gone`, `ALTER TABLE offsite_uploads_gone RENAME TO offsite_uploads`)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dest := &fakeDest{stored: map[string]offsite.Copy{}}
+			e, first, _ := withCopies(t, dest)
+			ids := []string{first}
+			for range 2 {
+				id := e.backup()
+				e.waitFor("its copy", func() bool {
+					return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1
+				})
+				ids = append(ids, id)
+			}
+			// Three backups, all copied: two made on one day 100 days ago,
+			// which the defaults no longer keep here, and the newest.
+			old := time.Now().Add(-100 * 24 * time.Hour)
+			for i, id := range ids[:2] {
+				at := old.Add(time.Duration(i) * time.Hour).UnixMilli()
+				if _, err := e.a.db.Exec(`UPDATE backups SET created_at = ? WHERE id = ?`, at, id); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := e.a.db.Exec(`UPDATE offsite_copies SET backup_created_at = ? WHERE backup_id = ?`, at, id); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := e.a.db.Exec(`UPDATE backups SET kind = 'scheduled'`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := e.a.db.Exec(`UPDATE offsite_copies SET kind = 'scheduled'`); err != nil {
+				t.Fatal(err)
+			}
+			if code, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "rules": c.rules}); code != http.StatusOK {
+				t.Fatalf("rules: %d %v", code, out)
+			}
+			undo := func() {}
+			if c.breaks != nil {
+				undo = c.breaks(e)
+			}
+			s := e.srv()
+			release, ok := s.holdOpLock()
+			if !ok {
+				t.Fatal("the server is busy")
+			}
+			s.applyRetention()
+			release()
+			s.pruneOffsite(context.Background(), dest)
+			undo()
+			here, there := e.countRows(`SELECT COUNT(*) FROM backups`), e.countRows(`SELECT COUNT(*) FROM offsite_copies`)
+			dest.mu.Lock()
+			deleted := len(dest.deleted)
+			dest.mu.Unlock()
+			if c.deletes {
+				if here == 3 {
+					t.Fatal("the rules deleted nothing here")
+				}
+				return
+			}
+			if here != 3 || there != 3 || deleted != 0 {
+				t.Fatalf("the rules deleted: %d of 3 backups left here, %d of 3 copies recorded, %d deleted where copies go", here, there, deleted)
+			}
+		})
+	}
+}
+
 // The card calls the last copy the first only when it's the first made to
 // the place copies go to, not whenever one copy is recorded.
 func TestOnlyTheFirstCopyToAPlaceIsCalledTheFirst(t *testing.T) {
@@ -867,4 +974,159 @@ func TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver(t *testing.T) {
 		t.Fatal(err)
 	}
 	discarded("without a swap journal", s)
+}
+
+// A staging folder that can't be read may hold any server's swap journal, as
+// a journal that can't be read may be any server's. Until it can be read,
+// each of the three that delete what a restore may need keeps it and says
+// why: the backup rules keep every rollback archive, the Disk space page
+// counts every server as busy and offers no set-aside world, and the World
+// tab discards no world copy. The agent logs it once each time.
+func TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed(t *testing.T) {
+	type restored struct {
+		e         *agentEnv
+		s, other  *server
+		rollback  string
+		copyName  string
+		stagingAt string
+	}
+	ways := []struct {
+		name string
+		// unreadable makes dir unreadable, or is nil when it can't.
+		unreadable func(t *testing.T, dir string) (undo func())
+	}{
+		{"without permission", func(t *testing.T, dir string) func() {
+			if os.Geteuid() == 0 {
+				return nil
+			}
+			if err := os.Chmod(dir, 0); err != nil {
+				t.Fatal(err)
+			}
+			return func() { os.Chmod(dir, 0o700) }
+		}},
+		{"not a folder", func(t *testing.T, dir string) func() {
+			if err := os.Rename(dir, dir+".away"); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(dir, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return func() {
+				os.Remove(dir)
+				os.Rename(dir+".away", dir)
+			}
+		}},
+	}
+	discard := func(r restored, sv *server) (int, map[string]any) {
+		r.e.t.Helper()
+		if err := os.MkdirAll(filepath.Join(sv.dir(), r.copyName, "world"), 0o750); err != nil {
+			r.e.t.Fatal(err)
+		}
+		return r.e.call("DELETE", "/v1/servers/"+sv.id+"/world-copies/"+r.copyName+"?actor=admin", nil)
+	}
+	restoresUnknown := func(r restored) string {
+		r.e.t.Helper()
+		code, out := r.e.call("GET", "/v1/disk?fresh=1", nil)
+		if code != http.StatusOK {
+			r.e.t.Fatalf("the Disk space page: %d %v", code, out)
+		}
+		problems, _ := out["problems"].([]any)
+		for _, p := range problems {
+			if p, _ := p.(map[string]any); p["code"] == diskRestoresUnknown {
+				return fmt.Sprint(p["text"])
+			}
+		}
+		return ""
+	}
+	callers := []struct {
+		name string
+		// keeps checks that what a restore may need is kept, and why said.
+		keeps func(t *testing.T, r restored)
+		// lets checks it can go once the folder can be read.
+		lets func(t *testing.T, r restored)
+	}{
+		{name: "backup rules", keeps: func(t *testing.T, r restored) {
+			if by := keptFor(t, r.s, r.rollback); by != "restore" {
+				t.Fatalf("the rules keep the rollback archive for %q", by)
+			}
+		}, lets: func(t *testing.T, r restored) {
+			if by := keptFor(t, r.s, r.rollback); by != "" {
+				t.Fatalf("the rules still keep the rollback archive for %q", by)
+			}
+		}},
+		{name: "Disk space", keeps: func(t *testing.T, r restored) {
+			l := r.e.a.diskLayout(context.Background())
+			if !serverBusy(t, l, r.s.id) || !serverBusy(t, l, r.other.id) {
+				t.Fatalf("busy: %v, %s %v", serverBusy(t, l, r.s.id), r.other.name(), serverBusy(t, l, r.other.id))
+			}
+			if o := r.e.diskOffered(); o[filepath.Join(r.s.dir(), r.copyName)] {
+				t.Fatal("the Disk space page offers the set-aside world")
+			}
+			if why := restoresUnknown(r); !strings.Contains(why, "can't read its restore staging folder") || !strings.Contains(why, r.stagingAt) || !strings.Contains(why, "Nothing of any server is offered") {
+				t.Fatalf("the Disk space page says %q", why)
+			}
+		}, lets: func(t *testing.T, r restored) {
+			l := r.e.a.diskLayout(context.Background())
+			if serverBusy(t, l, r.s.id) || serverBusy(t, l, r.other.id) {
+				t.Fatal("a server still counts as busy")
+			}
+			if o := r.e.diskOffered(); !o[filepath.Join(r.s.dir(), r.copyName)] {
+				t.Fatal("the set-aside world isn't offered")
+			}
+			if why := restoresUnknown(r); why != "" {
+				t.Fatalf("the Disk space page still says %q", why)
+			}
+		}},
+		{name: "World tab", keeps: func(t *testing.T, r restored) {
+			for _, sv := range []*server{r.s, r.other} {
+				code, out := discard(r, sv)
+				if code != http.StatusConflict || !strings.Contains(fmt.Sprint(out["error"]), "can't read its restore staging folder") || !strings.Contains(fmt.Sprint(out["hint"]), r.stagingAt) {
+					t.Fatalf("discarding %s's world copy: %d %v", sv.name(), code, out)
+				}
+				if !dirExists(filepath.Join(sv.dir(), r.copyName)) {
+					t.Fatalf("%s's world copy is gone", sv.name())
+				}
+			}
+		}, lets: func(t *testing.T, r restored) {
+			if code, out := discard(r, r.s); code != http.StatusNoContent || dirExists(filepath.Join(r.s.dir(), r.copyName)) {
+				t.Fatalf("discarding the world copy: %d %v", code, out)
+			}
+		}},
+	}
+	for _, c := range callers {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			id, phrase, _, _ := e.restoreScenario()
+			s := e.srv()
+			op := e.waitOp(e.startRestore(id, phrase))
+			rollback, _ := op.Detail["rollbackBackupId"].(string)
+			if op.Status != api.OpSucceeded || rollback == "" {
+				t.Fatalf("the restore: %+v", op)
+			}
+			e.createWith(map[string]any{"name": "Creative"})
+			r := restored{e: e, s: s, other: e.srv(), rollback: rollback, stagingAt: e.a.cfg.StagingDir(),
+				copyName: "data.replaced-" + time.Now().UTC().Add(-48*time.Hour).Format("20060102-150405")}
+			if err := os.MkdirAll(filepath.Join(s.dir(), r.copyName, "world"), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			c.lets(t, r)
+			for _, w := range ways {
+				undo := w.unreadable(t, r.stagingAt)
+				if undo == nil {
+					t.Logf("%s: skipped, root reads folders without permission", w.name)
+					continue
+				}
+				var once sync.Once
+				t.Cleanup(func() { once.Do(undo) })
+				logged := strings.Count(e.warnings.String(), "restore staging folder can't be read")
+				c.keeps(t, r)
+				c.keeps(t, r)
+				if n := strings.Count(e.warnings.String(), "restore staging folder can't be read") - logged; n != 1 {
+					t.Fatalf("%s: the agent logged the staging folder %d times, not once:\n%s", w.name, n, e.warnings.String())
+				}
+				once.Do(undo)
+				c.lets(t, r)
+			}
+		})
+	}
 }

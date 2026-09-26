@@ -725,7 +725,10 @@ func (s *server) enableMap(ctx context.Context, h *opHandle, typ string, l webma
 	}
 	s.recordEvent(now, "map_enabled", "", "playkeeper", detail)
 	_, running, err := s.containerRunning(ctx)
-	if err != nil || !running || s.playersOnline() > 0 {
+	if err != nil {
+		return restartUnchecked("squaremap is installed", "Restart the server to load the map once Docker answers.", err)
+	}
+	if !running || s.playersOnline() > 0 {
 		return nil
 	}
 	h.phase("restarting")
@@ -806,7 +809,10 @@ func (s *server) disableMap(ctx context.Context, h *opHandle, deleteMap bool) er
 	}
 	s.recordEvent(s.now(), "map_disabled", "", "playkeeper", detail)
 	_, running, err := s.containerRunning(ctx)
-	if err != nil || !running {
+	if err != nil {
+		return restartUnchecked("squaremap is removed", "Restart the server to unload the map once Docker answers.", err)
+	}
+	if !running {
 		return nil
 	}
 	h.phase("restarting")
@@ -818,6 +824,19 @@ func (s *server) disableMap(ctx context.Context, h *opHandle, deleteMap bool) er
 		return err
 	}
 	return nil
+}
+
+// restartUnchecked is the error of a map change that is done but couldn't
+// find out whether the server is running, so a running server may not have
+// loaded it: the change isn't live until a restart.
+func restartUnchecked(done, hint string, err error) error {
+	msg := err.Error()
+	var ae *apiError
+	if errors.As(err, &ae) {
+		msg = ae.Msg
+	}
+	return &apiError{Status: http.StatusServiceUnavailable, Code: api.CodeDockerUnavailable,
+		Msg: done + ", but Playkeeper couldn't tell whether the server is running, so it may not have loaded the change. " + msg, Hint: hint}
 }
 
 // removeMapAddons uninstalls what the map installed, squaremap first, then

@@ -645,7 +645,7 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
           {form.kind === 'backup' && (
             <>
               <SwitchRow checked={form.onlyIfPlayed} onChange={(c) => set('onlyIfPlayed', c)} title={t('schedules.onlyIfPlayed')} hint={t('schedules.onlyIfPlayedHint')} />
-              <SwitchRow checked={form.skipIfPlaying} onChange={(c) => set('skipIfPlaying', c)} title={t('schedules.skip')} hint={t('schedules.skipHint')} />
+              <SwitchRow checked={form.skipIfPlaying} onChange={(c) => set('skipIfPlaying', c)} title={t('schedules.skip')} hint={t('schedules.skipBackupHint')} />
             </>
           )}
           {form.kind === 'command' && (
