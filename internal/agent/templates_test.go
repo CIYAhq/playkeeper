@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/addons/fetch"
 	"github.com/CIYAhq/playkeeper/internal/addons/modrinth"
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -360,6 +361,41 @@ func TestSkippedTemplateAddonsStayUntilTriedAgain(t *testing.T) {
 	}
 	if code, out := e.call("POST", e.sp("/template/retry"), map[string]any{"actor": "admin"}); code != 409 {
 		t.Fatalf("trying again with nothing left: %d %v", code, out)
+	}
+}
+
+// A template carries a Vanilla modpack on a Vanilla server. One naming
+// another type than its modpack runs on is blocked: the new server would
+// run the pack's type, not the one the plan shows.
+func TestTemplateModpackRunsOnTheTypeItNames(t *testing.T) {
+	e := newAgentEnv(t)
+	e.up.servePack()
+	e.up.serveFabricLists()
+	plan := func(typ string) api.TemplatePlan {
+		t.Helper()
+		file, err := templates.MarshalFile(&templates.Template{Format: templates.Format, Name: "Waystones", Game: templates.Game,
+			Server: templates.Server{Type: typ, MinecraftVersion: "26.2"},
+			Modpack: &templates.Modpack{Source: addons.Modrinth, Project: fakePackID, Slug: "testpack", Name: "Waystones Pack",
+				Pin: templates.Pin{VersionID: fakePackVersion, VersionNumber: "1.0.0", Channel: "release", HashAlgo: "sha512", Hash: strings.Repeat("a", 128)}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		code, p, raw := e.planTemplate(string(file))
+		if code != 200 {
+			t.Fatalf("plan: %d %v", code, raw)
+		}
+		return p
+	}
+	if p := plan("vanilla"); !p.Ready || p.Type != "vanilla" || len(p.Blockers) != 0 {
+		t.Fatalf("a Vanilla pack on a Vanilla server: %+v", p)
+	}
+	p := plan("fabric")
+	if p.Ready || !slices.Equal(noticeKinds(p.Blockers), []string{string(kindTemplatePackType)}) ||
+		p.Blockers[0].Message != "The template names a Fabric server, but its modpack Waystones Pack runs on Vanilla." {
+		t.Fatalf("a Vanilla pack in a Fabric template: %+v", p)
+	}
+	if code, out := e.createFromTemplate(p.Fingerprint, nil); code == 202 {
+		t.Fatalf("a blocked template must not create a server: %v", out)
 	}
 }
 

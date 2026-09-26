@@ -220,17 +220,23 @@ func TestRestoreKeepsVoiceChatsPort(t *testing.T) {
 	has("a new server from the backup", curated.VoiceChatPort+2)
 }
 
-func TestTemplateVoiceChatGetsItsPort(t *testing.T) {
-	e := newAgentEnv(t)
-	withCuratedProjects(e.withSources())
-	e.a.opts.UDPPortInUse = func(p int) bool { return p == curated.VoiceChatPort }
+// voiceChatTemplate is a Paper template with Simple Voice Chat.
+func voiceChatTemplate(t *testing.T) string {
+	t.Helper()
 	file, err := templates.MarshalFile(&templates.Template{Format: templates.Format, Name: "Talk", Game: templates.Game,
 		Server: templates.Server{Type: "paper", MinecraftVersion: "26.1.2"},
 		Addons: []templates.Addon{{Source: addons.Modrinth, Project: voiceChatProject, Slug: "simple-voice-chat", Name: "Simple Voice Chat", Latest: true}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, plan, raw := e.planTemplate(string(file))
+	return string(file)
+}
+
+func TestTemplateVoiceChatGetsItsPort(t *testing.T) {
+	e := newAgentEnv(t)
+	withCuratedProjects(e.withSources())
+	e.a.opts.UDPPortInUse = func(p int) bool { return p == curated.VoiceChatPort }
+	code, plan, raw := e.planTemplate(voiceChatTemplate(t))
 	i := slices.IndexFunc(plan.Warnings, func(n api.AddonNotice) bool { return n.Kind == string(kindTemplateVoiceChat) })
 	if code != 200 || !plan.Ready || i < 0 || !strings.Contains(plan.Warnings[i].Message, "UDP 24455") {
 		t.Fatalf("the plan says voice chat opens a port, and which: %d %+v %v", code, plan, raw)
@@ -256,5 +262,46 @@ func TestTemplateVoiceChatGetsItsPort(t *testing.T) {
 	}
 	if e.audits("addon.port_opened") != 1 {
 		t.Fatal("opening the port is audited")
+	}
+}
+
+// Voice chat that a template's first start skipped gets its port when Try
+// again installs it; the running server restarts to publish it.
+func TestTemplateVoiceChatTriedAgainGetsItsPort(t *testing.T) {
+	e := newAgentEnv(t)
+	f := e.withSources()
+	withCuratedProjects(f)
+	e.a.opts.UDPPortInUse = func(int) bool { return false }
+	_, plan, _ := e.planTemplate(voiceChatTemplate(t))
+	putBack := f.withdraw("svc-v1")
+	code, out := e.createFromTemplate(plan.Fingerprint, nil)
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("create from the template: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	if sc, _ := e.srv().serverConfig(); sc.VoiceChatPort != 0 {
+		t.Fatalf("voice chat was skipped, so no port opens: %d", sc.VoiceChatPort)
+	}
+
+	putBack()
+	code, out = e.call("POST", e.sp("/template/retry"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("try again: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded || op.Detail["restartNeeded"] != true || opDetail[int](t, op, "voiceChatPort") != curated.VoiceChatPort {
+		t.Fatalf("try again: %+v", op)
+	}
+	b, err := os.ReadFile(filepath.Join(e.dataDir(), "plugins", "voicechat", "voicechat-server.properties"))
+	if err != nil || !strings.Contains(string(b), "port=24454\n") {
+		t.Fatalf("voice chat's settings: %q %v", b, err)
+	}
+	if restart := e.addonOp("/restart", map[string]any{"actor": "admin"}); restart.Status != api.OpSucceeded {
+		t.Fatalf("restart: %+v", restart)
+	}
+	if got := e.published(); !slices.Equal(got, []string{"24454/udp→24454", "25565/tcp→" + strconv.Itoa(e.srv().gamePort)}) {
+		t.Fatalf("the restart publishes voice chat's port: %v", got)
 	}
 }

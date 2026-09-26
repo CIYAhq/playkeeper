@@ -373,6 +373,11 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
+		if tpl != nil && rt.typ != tpl.p.Type.ID {
+			writeError(w, errConflict(fmt.Sprintf("The template names a %s server, but its modpack runs on %s, so nothing was created.", tpl.p.Type.Name, typeName(rt.typ)),
+				"Ask whoever shared the template for a new one."))
+			return
+		}
 		typ, entry, pin = rt.typ, rt.entry, rt.pin
 	} else if entry, err = a.typeEntry(r.Context(), typ, req.VersionID); err != nil {
 		writeError(w, err)

@@ -32,6 +32,9 @@ const kindTemplatePacks addons.Kind = "template_packs_left_out"
 // kindTemplateVoiceChat warns that a template's voice chat opens a UDP port.
 const kindTemplateVoiceChat addons.Kind = "template_voice_chat_port"
 
+// kindTemplatePackType blocks a template whose modpack runs on another type.
+const kindTemplatePackType addons.Kind = "template_pack_type"
+
 // templateSubstitutes are the types whose versions an import lists when the
 // template's own type can't be created here, as the templates package
 // substitutes them.
@@ -246,7 +249,36 @@ func (a *Agent) planTemplate(ctx context.Context, t *templates.Template) (*templ
 	if n := a.voiceChatNotice(p.Addons); n != nil {
 		p.Warnings = append(p.Warnings, *n)
 	}
+	if n := a.packTypeNotice(ctx, p); n != nil {
+		p.Blockers, p.Ready = append(p.Blockers, *n), false
+	}
 	return p, nil
+}
+
+// packTypeNotice blocks a template whose modpack runs on another type than
+// the one the template names: the new server would run the pack's. When
+// the pack's source can't be asked, the create request checks again.
+func (a *Agent) packTypeNotice(ctx context.Context, p *templates.Plan) *addons.Notice {
+	m := p.Modpack
+	if m == nil || !p.Ready {
+		return nil
+	}
+	ref, err := parsePackRef(string(m.Source), m.Project, m.Pin.VersionID)
+	if err != nil {
+		return nil
+	}
+	d, err := a.packDetail(ctx, ref)
+	if err != nil {
+		return nil
+	}
+	i := slices.IndexFunc(d.Versions, func(v api.ModpackVersion) bool { return v.ID == m.Pin.VersionID })
+	if i < 0 || d.Versions[i].Type == "" || d.Versions[i].Type == p.Type.ID {
+		return nil
+	}
+	packType := typeName(d.Versions[i].Type)
+	return &addons.Notice{Kind: kindTemplatePackType, Params: map[string]string{"type": p.Type.Name, "modpack": m.Name, "packType": packType},
+		Msg:  fmt.Sprintf("The template names a %s server, but its modpack %s runs on %s.", p.Type.Name, m.Name, packType),
+		Hint: "Ask whoever shared the template for a new one."}
 }
 
 // templateDataPacks are the data packs a confirmed import downloads.
@@ -643,6 +675,9 @@ func (s *server) retryTemplate(ctx context.Context, h *opHandle, skips []templat
 	}
 	h.set("addons", len(addonTries))
 	if err := s.linkTemplateDependencies(planned); err != nil {
+		return err
+	}
+	if err := s.templateVoiceChat(h, sc, planned); err != nil {
 		return err
 	}
 	packSkips, err := s.installTemplatePacks(ctx, h, sc, packTries, still)
