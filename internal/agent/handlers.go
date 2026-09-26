@@ -496,10 +496,10 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 		LevelName: "world", MOTD: motd, MaxPlayers: maxPlayers, Whitelist: true, EULAAcceptedAt: now, EULAAcceptedBy: actor, CreatedAt: now,
 		PlayStyle: req.PlayStyle, Gameplay: gp,
 	}
+	// The activity line names the software as the catalog does ("Fabric 26.2"); the loader lives on the server's pages.
 	sc, label := withBuild(base, entry), entry.Label
 	if typ != api.TypePaper {
 		sc = withPin(base, entry, pin)
-		label = softwareLabel(sc)
 	}
 	if pack != nil {
 		sc.Modpack, label = pack, pack.Name+" "+pack.VersionNumber
