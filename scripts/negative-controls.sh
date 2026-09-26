@@ -963,9 +963,25 @@ control "a backup records voice chat's UDP port" internal/agent/backups.go \
   '_ = sc.VoiceChatPort' \
   ./internal/agent '^TestRestoreKeepsVoiceChatsPort$'
 control "a restore gives voice chat back its UDP port" internal/agent/backups.go \
-  'if err := s.restoredVoiceChat(&j.Restored, prev, m, st.data); err != nil {' \
-  'if err := error(nil); err != nil {' \
+  'releasePort, err := s.restoredVoiceChat(&j.Restored, prev, m, st.data)' \
+  'releasePort, err := func() {}, error(nil)' \
   ./internal/agent '^TestRestoreKeepsVoiceChatsPort$'
+control "voice chat never gets a port held for another server" internal/agent/curated.go \
+  'if holder != id {' \
+  'if false {' \
+  ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
+control "a restore holds voice chat's port until the restored settings are saved" internal/agent/backups.go \
+  '	defer releasePort()' \
+  '	releasePort()' \
+  ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
+control "a removal holds the voice chat port it closes" internal/agent/curated.go \
+  'release = s.voicePorts.hold(port, s.id)' \
+  'release = func() {}' \
+  ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
+control "a finished removal frees voice chat's port" internal/agent/addons.go \
+  '		defer releasePort()' \
+  '		_ = releasePort' \
+  ./internal/agent '^TestVoiceChatPortsAreHeldUntilSaved$'
 control "a setup container still running when its output ends fails" internal/agent/software.go \
   'if c.State.Running {' \
   'if false && c.State.Running {' \

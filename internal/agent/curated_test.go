@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -277,6 +278,117 @@ func TestRestoreKeepsVoiceChatsPort(t *testing.T) {
 	}
 	e.waitFor("the new server online", e.onlineIdle)
 	has("a new server from the backup", curated.VoiceChatPort+2)
+}
+
+// Voice chat on two servers never gets the same port: a port stays held for
+// the server it's given to until the server's settings record it. A restore
+// holds the one it gives voice chat back until the restored settings are
+// saved, and a removal holds the one it closes until it knows whether voice
+// chat stays, so voice chat installed elsewhere meanwhile gets the next one.
+func TestVoiceChatPortsAreHeldUntilSaved(t *testing.T) {
+	e := newAgentEnv(t)
+	withCuratedProjects(e.withSources())
+	e.a.opts.UDPPortInUse = func(int) bool { return false }
+	installVoiceChat := func(sid string) {
+		t.Helper()
+		e.sid = sid
+		var d api.AddonDetails
+		e.decode("GET", e.sp("/addons/project/modrinth/"+voiceChatProject), &d)
+		if d.Plan == nil || !d.Plan.Ready {
+			t.Fatalf("voice chat's details: %+v", d)
+		}
+		if op := e.addonOp("/addons/install", map[string]any{"source": "modrinth", "projectId": voiceChatProject, "fingerprint": d.Plan.Fingerprint,
+			"openPorts": true, "actor": "admin"}); op.Status != api.OpSucceeded {
+			t.Fatalf("install voice chat: %+v", op)
+		}
+	}
+	removeVoiceChat := func(sid string) {
+		t.Helper()
+		e.sid = sid
+		if code, out := e.call("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": voiceChatProject, "keepConfig": true, "actor": "admin"}); code != 200 {
+			t.Fatalf("remove voice chat: %d %v", code, out)
+		}
+	}
+	var survival, creative string
+	ports := func() (int, int) {
+		t.Helper()
+		var got []int
+		for _, sid := range []string{survival, creative} {
+			sc, err := e.a.serverByID(sid).serverConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			got = append(got, sc.VoiceChatPort)
+		}
+		return got[0], got[1]
+	}
+
+	e.createWith(map[string]any{"name": "Survival"})
+	survival = e.sid
+	e.waitFor("Survival online", e.onlineIdle)
+	installVoiceChat(survival)
+	e.waitFor("Survival online with voice chat", e.onlineIdle)
+	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpSucceeded {
+		t.Fatalf("backup: %+v", op)
+	}
+	e.waitFor("Survival online after the backup", e.onlineIdle)
+	e.createWith(map[string]any{"name": "Creative"})
+	creative = e.sid
+	e.waitFor("Creative online", e.onlineIdle)
+
+	// Survival's removal has closed its port when Creative installs voice chat.
+	closed, releasePort, err := e.a.serverByID(survival).closeVoiceChat("admin")
+	if err != nil || closed != curated.VoiceChatPort {
+		t.Fatalf("close Survival's port: %d %v", closed, err)
+	}
+	installVoiceChat(creative)
+	e.a.serverByID(survival).reopenVoiceChat(closed, "admin")
+	releasePort()
+	if s, c := ports(); s != curated.VoiceChatPort || c != curated.VoiceChatPort+1 {
+		t.Fatalf("a removal holds the port it closed: Survival %d, Creative %d", s, c)
+	}
+	removeVoiceChat(survival)
+	removeVoiceChat(creative)
+	installVoiceChat(creative)
+	if _, c := ports(); c != curated.VoiceChatPort {
+		t.Fatalf("the port of voice chat that was removed is free again: Creative got %d", c)
+	}
+	removeVoiceChat(creative)
+
+	// Survival's restore gives voice chat back its port, and stops before the
+	// restored settings are saved while Creative installs voice chat.
+	reached, proceed := make(chan struct{}), make(chan struct{})
+	setRestoreStep(t, func(ctx context.Context, step string) {
+		if step != "moved" {
+			return
+		}
+		close(reached)
+		select {
+		case <-proceed:
+		case <-ctx.Done():
+		}
+	})
+	e.sid = survival
+	e.waitFor("Survival online and idle", e.onlineIdle)
+	code, preview := e.call("POST", e.sp("/backups/"+op.Detail["backupId"].(string)+"/restore"), map[string]any{"actor": "admin"})
+	if code != 200 {
+		t.Fatalf("stage: %d %v", code, preview)
+	}
+	restore := e.startRestore(preview["id"].(string), preview["confirmPhrase"].(string))
+	waitClosed(t, reached, "Survival's restore to move its world into place")
+	installVoiceChat(creative)
+	close(proceed)
+	if op := e.waitOp(restore); op.Status != api.OpSucceeded {
+		t.Fatalf("restore: %+v", op)
+	}
+	if s, c := ports(); s != curated.VoiceChatPort || c != curated.VoiceChatPort+1 {
+		t.Fatalf("Survival's restore holds its port while Creative installs voice chat: Survival %d, Creative %d", s, c)
+	}
 }
 
 // voiceChatTemplate is a Paper template with Simple Voice Chat.

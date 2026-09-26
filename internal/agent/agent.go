@@ -215,6 +215,7 @@ type Agent struct {
 	// curatedPicks are the curated add-ons that fit a type and Minecraft
 	// version (wave 4).
 	curatedPicks *ttlCache[[]curatedPick]
+	voicePorts   voicePorts
 	icons        iconCache
 	// packMu serializes changes to the resource pack store with pruning it.
 	packMu sync.Mutex

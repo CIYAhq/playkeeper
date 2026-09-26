@@ -144,18 +144,75 @@ func (s *server) voiceChatPort() (int, error) {
 	if sc, err := s.serverConfig(); err == nil && sc != nil && sc.VoiceChatPort > 0 {
 		return sc.VoiceChatPort, nil
 	}
-	return curated.PickPort(curated.VoiceChatPort, s.portTaken())
+	return s.freeVoicePort(s.id, curated.VoiceChatPort)
 }
 
-// portTaken reports the ports voice chat on this server can't have.
-func (s *server) portTaken() func(int) bool { return s.voicePortTaken(s.id) }
+// holdVoiceChatPort is voiceChatPort, held for this server until release.
+func (s *server) holdVoiceChatPort() (int, func(), error) {
+	if sc, err := s.serverConfig(); err == nil && sc != nil && sc.VoiceChatPort > 0 {
+		return sc.VoiceChatPort, func() {}, nil
+	}
+	return s.holdVoicePort(s.id, curated.VoiceChatPort)
+}
+
+// voicePorts are the voice chat ports held for servers whose settings don't
+// record them yet: one being given to a server, or one closed while its
+// add-on is removed. Ports are picked and held under mu, so two servers
+// can't be given the same one.
+type voicePorts struct {
+	mu   sync.Mutex
+	held map[int]string // by the server's id
+}
+
+// hold holds port for the server with id until the returned release is
+// called. Call it with mu held.
+func (v *voicePorts) hold(port int, id string) func() {
+	if v.held == nil {
+		v.held = map[int]string{}
+	}
+	v.held[port] = id
+	return sync.OnceFunc(func() {
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		if v.held[port] == id {
+			delete(v.held, port)
+		}
+	})
+}
+
+// freeVoicePort is the lowest port from from that voice chat could have on
+// the server with id, or on a new server when id is empty.
+func (a *Agent) freeVoicePort(id string, from int) (int, error) {
+	a.voicePorts.mu.Lock()
+	defer a.voicePorts.mu.Unlock()
+	return curated.PickPort(from, a.voicePortTaken(id))
+}
+
+// holdVoicePort is freeVoicePort, held for the server until release, which
+// the caller calls once the server's settings record the port or it isn't
+// used after all.
+func (a *Agent) holdVoicePort(id string, from int) (int, func(), error) {
+	a.voicePorts.mu.Lock()
+	defer a.voicePorts.mu.Unlock()
+	port, err := curated.PickPort(from, a.voicePortTaken(id))
+	if err != nil {
+		return 0, func() {}, err
+	}
+	return port, a.voicePorts.hold(port, id), nil
+}
 
 // voicePortTaken reports the ports voice chat can't have on the server with
 // id, or on a new server when id is empty: any server's game port, the voice
-// chat port of another, the dashboard's, and any UDP port something on the
-// machine already uses.
+// chat port of another or one held for another, the dashboard's, and any UDP
+// port something on the machine already uses. Call it with voicePorts.mu
+// held.
 func (a *Agent) voicePortTaken(id string) func(int) bool {
 	used := map[int]bool{a.cfg.PanelPort: true}
+	for p, holder := range a.voicePorts.held {
+		if holder != id {
+			used[p] = true
+		}
+	}
 	for _, o := range a.serverList() {
 		used[o.gamePort] = true
 		if o.id == id {
@@ -208,7 +265,8 @@ func (s *server) openVoiceChat(ctx context.Context, h *opHandle, actor string) e
 // setUpVoiceChat gives voice chat its UDP port: written into the add-on's
 // settings in srv, and recorded in sc, which it saves.
 func (s *server) setUpVoiceChat(h *opHandle, sc *api.ServerConfig, srv addons.Server, actor string) error {
-	port, err := s.voiceChatPort()
+	port, release, err := s.holdVoiceChatPort()
+	defer release()
 	if err == nil {
 		_, err = curated.SetUpVoiceChat(srv, port)
 	}
@@ -256,7 +314,7 @@ func (a *Agent) voiceChatNotice(planned []templates.PlannedAddon) *addons.Notice
 	if !slices.ContainsFunc(planned, func(pa templates.PlannedAddon) bool { return voiceChat(pa.Key()) }) {
 		return nil
 	}
-	port, err := curated.PickPort(curated.VoiceChatPort, a.voicePortTaken(""))
+	port, err := a.freeVoicePort("", curated.VoiceChatPort)
 	if err != nil {
 		return nil
 	}
@@ -272,35 +330,37 @@ const manifestVoiceChatPort = "voiceChatPort"
 
 // restoredVoiceChat gives a restored server voice chat's UDP port when its
 // backup was made with the port open: the port the server has, or else the
-// backup's or the next free one. The restored add-on settings in dataDir get
-// that port, so voice chat listens where the container publishes it. A
-// backup made without the port leaves the server without one.
-func (s *server) restoredVoiceChat(sc, prev *api.ServerConfig, m backup.Manifest, dataDir string) error {
+// backup's or the next free one, held for the server until release, which
+// the restore calls once the server's settings record how it ended. The
+// restored add-on settings in dataDir get that port, so voice chat listens
+// where the container publishes it. A backup made without the port leaves
+// the server without one.
+func (s *server) restoredVoiceChat(sc, prev *api.ServerConfig, m backup.Manifest, dataDir string) (release func(), err error) {
+	release = func() {}
 	sc.VoiceChatPort = 0
 	from, _ := strconv.Atoi(m.Settings[manifestVoiceChatPort])
 	typ := cmp.Or(sc.Type, api.TypePaper)
 	if _, err := addons.TargetFor(typ); from <= 0 || err != nil {
-		return nil
+		return release, nil
 	}
 	port := 0
 	if prev != nil {
 		port = prev.VoiceChatPort
 	}
 	if port == 0 {
-		p, err := curated.PickPort(from, s.portTaken())
-		if err != nil {
-			p, err = curated.PickPort(curated.VoiceChatPort, s.portTaken())
+		if port, release, err = s.holdVoicePort(s.id, from); err != nil {
+			port, release, err = s.holdVoicePort(s.id, curated.VoiceChatPort)
 		}
 		if err != nil {
-			return voiceChatError(err)
+			return release, voiceChatError(err)
 		}
-		port = p
 	}
 	if _, err := curated.SetUpVoiceChat(addons.Server{Dir: dataDir, Type: typ, Owner: s.gameOwner()}, port); err != nil {
-		return voiceChatError(err)
+		release()
+		return func() {}, voiceChatError(err)
 	}
 	sc.VoiceChatPort = port
-	return nil
+	return release, nil
 }
 
 func voiceChatError(err error) error {
@@ -312,19 +372,24 @@ func voiceChatError(err error) error {
 
 // closeVoiceChat stops publishing voice chat's port as the add-on is
 // removed, and returns the port it closed: the container is made without it
-// at the next start.
-func (s *server) closeVoiceChat(actor string) (int, error) {
+// at the next start. The port stays held for the server until release, which
+// the removal calls once it has given the port back or removed voice chat.
+func (s *server) closeVoiceChat(actor string) (port int, release func(), err error) {
 	sc, err := s.serverConfig()
 	if err != nil || sc == nil || sc.VoiceChatPort == 0 {
-		return 0, err
+		return 0, func() {}, err
 	}
-	port := sc.VoiceChatPort
+	port = sc.VoiceChatPort
+	s.voicePorts.mu.Lock()
+	release = s.voicePorts.hold(port, s.id)
+	s.voicePorts.mu.Unlock()
 	sc.VoiceChatPort = 0
 	if err := s.saveServerConfig(*sc); err != nil {
-		return 0, err
+		release()
+		return 0, func() {}, err
 	}
 	s.audit(actor, "addon.port_closed", string(addons.Modrinth)+":"+curatedVoiceChatProject(), "succeeded", fmt.Sprintf("voice chat's UDP %d", port))
-	return port, nil
+	return port, release, nil
 }
 
 // reopenVoiceChat gives voice chat back the port closeVoiceChat closed, when

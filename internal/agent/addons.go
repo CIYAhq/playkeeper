@@ -1038,10 +1038,12 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 	// behind it. If voice chat then stays, so does its port.
 	var voicePort int
 	if voiceChat(key) || slices.ContainsFunc(extra, voiceChat) {
-		if voicePort, err = s.closeVoiceChat(actor); err != nil {
+		var releasePort func()
+		if voicePort, releasePort, err = s.closeVoiceChat(actor); err != nil {
 			writeError(w, err)
 			return
 		}
+		defer releasePort()
 	}
 	target := string(key.Source) + ":" + key.ProjectID
 	rm, err := lib.Uninstall(r.Context(), srv, installed, key, addons.UninstallOptions{RemoveConfig: !req.KeepConfig, Force: req.Force, Changed: req.Changed})
