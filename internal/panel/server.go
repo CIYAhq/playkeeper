@@ -1093,6 +1093,9 @@ func (s *Server) target(w http.ResponseWriter, r *http.Request) (machine, bool) 
 		writeErr(w, http.StatusConflict, codeServerDisputed, "Two machines say they run this server, so the dashboard sends its requests to neither.",
 			"Remove the machine that shouldn't list it in Settings › Machines.")
 		return machine{}, false
+	case errors.Is(err, errServerMachine):
+		s.agentFailure(w, err)
+		return machine{}, false
 	case err != nil:
 		writeErr(w, http.StatusNotFound, api.CodeNotFound, "Server not found.", "")
 		return machine{}, false

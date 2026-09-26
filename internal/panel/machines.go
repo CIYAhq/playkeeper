@@ -92,6 +92,10 @@ func failureOf(err error) (int, api.Error) {
 	if errors.Is(err, errLinksOff) {
 		return http.StatusServiceUnavailable, api.Error{Error: "This machine can't be reached from here.", Code: machinelink.CodeNotConnected}
 	}
+	if errors.Is(err, errServerMachine) {
+		return http.StatusServiceUnavailable, api.Error{Error: "The dashboard couldn't look up which machine runs this server, so it sent the request to none.",
+			Code: api.CodeInternal, Hint: "Try again in a moment."}
+	}
 	return http.StatusServiceUnavailable, api.Error{Error: "The Playkeeper agent is not running, so the server cannot be seen or controlled right now.",
 		Code: api.CodeAgentUnavailable, Hint: "On the server, check: sudo systemctl status playkeeper-agent"}
 }
@@ -616,13 +620,43 @@ func (s *Server) takeServer(m machine, id string) {
 // claimServers records which of the servers a joined machine lists it runs,
 // keeping their statuses for when it is away, and returns those. Listing a
 // server another machine has disputes it (see above) and goes in the
-// machine's events.
+// machine's events. When the record can't be written, it returns the
+// servers as the machine listed them, which it just answered with.
 func (s *Server) claimServers(m machine, servers []map[string]any) []map[string]any {
 	now := s.now()
+	out, disputed, err := s.recordServers(m, servers, now)
+	if err != nil {
+		s.log.Error("record server machines", "machine", m.ID, "err", err)
+		return listedServers(servers)
+	}
+	for _, id := range disputed {
+		s.machineEvent(m.ID, now, "machine.server_disputed", "", "", id)
+	}
+	return out
+}
+
+// listedServers are the servers a machine listed that have a server id, at
+// most maxMachineServers of them.
+func listedServers(servers []map[string]any) []map[string]any {
+	var out []map[string]any
+	for _, sv := range servers {
+		if id, _ := sv["id"].(string); !reMachineID.MatchString(id) {
+			continue
+		}
+		if len(out) == maxMachineServers {
+			break
+		}
+		out = append(out, sv)
+	}
+	return out
+}
+
+// recordServers is claimServers' record in one transaction. It returns the
+// servers the machine runs and those it newly disputes.
+func (s *Server) recordServers(m machine, servers []map[string]any, now time.Time) ([]map[string]any, []string, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
-		s.log.Error("record server machines", "err", err)
-		return nil
+		return nil, nil, err
 	}
 	defer tx.Rollback()
 	var out []map[string]any
@@ -644,30 +678,24 @@ func (s *Server) claimServers(m machine, servers []map[string]any) []map[string]
 		var owner, disputedBy string
 		switch err := tx.QueryRow(`SELECT machine_id, disputed_by FROM server_machines WHERE server_id = ?`, id).Scan(&owner, &disputedBy); {
 		case isNoRows(err):
-			_, err = tx.Exec(`INSERT INTO server_machines(server_id, machine_id, status, seen_at) VALUES(?,?,?,?)`, id, m.ID, string(b), millis(now))
-			if err != nil {
-				s.log.Error("record server machines", "err", err)
-				return nil
+			if _, err := tx.Exec(`INSERT INTO server_machines(server_id, machine_id, status, seen_at) VALUES(?,?,?,?)`, id, m.ID, string(b), millis(now)); err != nil {
+				return nil, nil, err
 			}
 		case err != nil:
-			s.log.Error("record server machines", "err", err)
-			return nil
+			return nil, nil, err
 		case owner != m.ID:
 			disputes = append(disputes, id)
 			if disputedBy != m.ID {
 				if _, err := tx.Exec(`UPDATE server_machines SET disputed_by = ? WHERE server_id = ?`, m.ID, id); err != nil {
-					s.log.Error("record server machines", "err", err)
-					return nil
+					return nil, nil, err
 				}
 				disputed = append(disputed, id)
 				s.log.Warn("a machine lists a server another machine runs", "machine", m.ID, "server", id, "runs on", owner)
 			}
 			continue
 		default:
-			_, err = tx.Exec(`UPDATE server_machines SET status = ?, seen_at = ? WHERE server_id = ? AND (seen_at < ? OR status = '')`, string(b), millis(now), id, millis(now.Add(-lastKnownAfter)))
-			if err != nil {
-				s.log.Error("record server machines", "err", err)
-				return nil
+			if _, err := tx.Exec(`UPDATE server_machines SET status = ?, seen_at = ? WHERE server_id = ? AND (seen_at < ? OR status = '')`, string(b), millis(now), id, millis(now.Add(-lastKnownAfter))); err != nil {
+				return nil, nil, err
 			}
 			if disputedBy != "" {
 				sv["disputed"] = true
@@ -677,21 +705,15 @@ func (s *Server) claimServers(m machine, servers []map[string]any) []map[string]
 		out = append(out, sv)
 	}
 	if _, err := tx.Exec(`DELETE FROM server_machines WHERE machine_id = ?`+notIn("server_id", len(runs)), append([]any{m.ID}, runs...)...); err != nil {
-		s.log.Error("record server machines", "err", err)
-		return nil
+		return nil, nil, err
 	}
 	if _, err := tx.Exec(`UPDATE server_machines SET disputed_by = '' WHERE disputed_by = ?`+notIn("server_id", len(disputes)), append([]any{m.ID}, disputes...)...); err != nil {
-		s.log.Error("record server machines", "err", err)
-		return nil
+		return nil, nil, err
 	}
 	if err := tx.Commit(); err != nil {
-		s.log.Error("record server machines", "err", err)
-		return nil
+		return nil, nil, err
 	}
-	for _, id := range disputed {
-		s.machineEvent(m.ID, now, "machine.server_disputed", "", "", id)
-	}
-	return out
+	return out, disputed, nil
 }
 
 // notIn is " AND column NOT IN (?, ...)" for n values, or "" for none.
