@@ -239,12 +239,14 @@ function UserRow() {
           <span className="block text-xs text-muted-foreground">{roleLabel(me)}</span>
         </span>
       </a>
-      <a href={t('nav.helpUrl')} target="_blank" rel="noreferrer" aria-label={t('common.external', { label: t('nav.help') })} className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 hover:text-foreground">
-        <CircleHelpIcon className="size-4" aria-hidden="true" />
-      </a>
-      <button type="button" onClick={() => void signOut()} aria-label={t('nav.signOut')} className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 hover:text-foreground">
-        <LogOutIcon className="size-4" aria-hidden="true" />
-      </button>
+      <span className="-mr-1 flex shrink-0 items-center">
+        <a href={t('nav.helpUrl')} target="_blank" rel="noreferrer" aria-label={t('common.external', { label: t('nav.help') })} className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 hover:text-foreground">
+          <CircleHelpIcon className="size-4" aria-hidden="true" />
+        </a>
+        <button type="button" onClick={() => void signOut()} aria-label={t('nav.signOut')} className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 hover:text-foreground">
+          <LogOutIcon className="size-4" aria-hidden="true" />
+        </button>
+      </span>
     </div>
   )
 }
