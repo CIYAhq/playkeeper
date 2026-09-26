@@ -110,11 +110,21 @@ export function CopyRow({ server: s, row, state = 'staying', place, onRestore, o
   const mayRestore = can(ws.me, 'backups.restore')
   const mayCheck = can(ws.me, 'backups.make')
   const noChecksum = c.sha256 ? undefined : t('world.noChecksum')
+  const checking = s.operation?.kind === 'offsite-check' && s.operation.detail?.name === c.name ? s.operation : undefined
 
   async function check() {
     try {
       await post<Operation>(serverApi(s.id, `${path}/check`))
       toastManager.add({ title: t('world.copyCheckStarted', { place }), description: t('world.copyCheckStartedBody') })
+    } catch (e) {
+      toastManager.add({ title: errorText(e), type: 'error' })
+    }
+  }
+
+  async function cancelCheck() {
+    if (!checking) return
+    try {
+      await post<Operation>(serverApi(s.id, '/offsite/check/cancel'), { operationId: checking.id })
     } catch (e) {
       toastManager.add({ title: errorText(e), type: 'error' })
     }
@@ -167,12 +177,18 @@ export function CopyRow({ server: s, row, state = 'staying', place, onRestore, o
                   </span>
                 </MenuItem>
               )}
-              {mayCheck && (
-                <MenuItem disabled={!!cantRun} title={cantRun} className={cn(cantRun && 'data-disabled:pointer-events-auto')} onClick={() => void check()}>
-                  <ShieldCheckIcon />
-                  {t('world.checkAgain')}
-                </MenuItem>
-              )}
+              {mayCheck &&
+                (checking ? (
+                  <MenuItem onClick={() => void cancelCheck()}>
+                    <CircleXIcon />
+                    {t('world.cancelCheck')}
+                  </MenuItem>
+                ) : (
+                  <MenuItem disabled={!!cantRun} title={cantRun} className={cn(cantRun && 'data-disabled:pointer-events-auto')} onClick={() => void check()}>
+                    <ShieldCheckIcon />
+                    {t('world.checkAgain')}
+                  </MenuItem>
+                ))}
               <MenuItem
                 disabled={!!noChecksum}
                 title={noChecksum}

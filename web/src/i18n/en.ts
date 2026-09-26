@@ -3075,6 +3075,7 @@ export const en = {
   'world.phoneOnlyThere': 'only on {place}',
   'world.copyCheckStarted': 'Checking the copy on {place}',
   'world.copyCheckStartedBody': 'It’s downloaded, decrypted and matched against the backup, then deleted here. Progress stays in the top bar.',
+  'world.cancelCheck': 'Cancel the check',
   'world.copyCheckedToast': 'The copy checked out: it decrypts and matches the backup',
   'world.noChecksum': 'This copy’s checksum wasn’t recorded.',
   'world.copyHoldersOnly': 'Only the owner, or an admin with two-factor sign-in, can delete copies kept on {place}.',

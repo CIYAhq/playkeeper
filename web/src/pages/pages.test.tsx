@@ -2565,6 +2565,21 @@ describe('World backups with copies', () => {
     expect(vi.mocked(client.del)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite/copies/survival-b1.tar.zst.age')
   })
 
+  it('cancels a check of a backup kept only somewhere else from its menu while the check runs', async () => {
+    answer({ '/offsite/copies': { copies: [copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    const checking: Operation = { ...started, id: 'op-check', kind: 'offsite-check' }
+    await render(<WorldPage server={server({ operation: checking })} />)
+    const row = [...document.querySelectorAll('tr')].find((r) => r.textContent?.includes('Only on Backblaze B2'))
+    const trigger = row?.querySelector<HTMLButtonElement>('button[aria-label^="Actions for the backup from"]')
+    if (!trigger) throw new Error('no menu on the row kept only on Backblaze B2')
+    await act(async () => trigger.click())
+    await act(async () => {})
+    const item = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent?.includes(label))
+    expect(item('Check it again')).toBeUndefined()
+    await act(async () => item('Cancel the check')?.click())
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite/check/cancel', { operationId: 'op-check' })
+  })
+
   it('shows each role only the backup controls it may use', async () => {
     const viewer = member('viewer', ['view', 'account.manage'])
     const { row, item } = await openCopyMenu(copy('b1', '2026-09-20T18:47:00Z', false), workspace({ me: viewer }))
