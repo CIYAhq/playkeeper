@@ -1812,6 +1812,8 @@ export const en = {
   'machines.problem.unstableHint': 'Check that machine’s network. Wi-Fi and mobile connections often cause this.',
   'machines.problem.cloned': 'Two computers seem to take turns connecting as {name}',
   'machines.problem.clonedHint': 'This happens when a disk is copied. Remove {name} here, then connect each computer with its own command.',
+  'machines.problem.agentDown': 'The agent on {name} stopped answering',
+  'machines.problem.agentDownHint': 'Its servers are probably still running. Restart it on {name}: sudo systemctl restart playkeeper-agent',
   'machines.newServerOn': 'New server on',
   'machines.runsOn': 'Runs on',
   'machines.away.body': '{server} may still be running. Playkeeper can’t see it until {name} is back.',

@@ -3784,6 +3784,10 @@ webcontrol "the players chart keeps its labels clear of now" web/src/components/
   'if (count - index - 0.5 < count * nowReserve) return undefined' \
   'if (false) return undefined' \
   web/src/lib/lib.test.ts 'clear of now'
+webcontrol "a joined machine's details say its agent stopped answering" web/src/pages/machines.tsx \
+  ": agentSilent(m) ? { title: t('machines.problem.agentDown', { name })" \
+  ": false ? { title: t('machines.problem.agentDown', { name })" \
+  web/src/pages/pages.test.tsx 'stopped answering, as the sidebar'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

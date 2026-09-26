@@ -15,7 +15,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
 import { formatBytes, formatClock, formatDate, formatList, formatWhen, relativeTime } from '@/lib/format'
-import { byMachine, countdown, groupFingerprint, machineEventText, machineLabel, machineState, olderMachine, problemText, systemLine, type MachineTone } from '@/lib/machines'
+import { agentSilent, byMachine, countdown, groupFingerprint, machineEventText, machineLabel, machineState, olderMachine, problemText, systemLine, type MachineTone } from '@/lib/machines'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps, navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
@@ -443,7 +443,7 @@ export function MachineDetailsSection({ id }: { id: string }) {
   const state = machineState(m, ws)
   const servers = (ws.servers ?? []).filter((s) => s.machineId === m.id)
   const problem = link?.problems[0]
-  const problemCopy = problem ? problemText(problem, now) : undefined
+  const problemCopy = problem ? problemText(problem, now) : agentSilent(m) ? { title: t('machines.problem.agentDown', { name }), hint: t('machines.problem.agentDownHint', { name }) } : undefined
   const version = link?.version ?? m.live?.agentVersion
   let status: string
   if (connected && link?.connectedAt) {
@@ -495,13 +495,13 @@ export function MachineDetailsSection({ id }: { id: string }) {
             </Button>
           ))}
       </div>
-      {problem && problemCopy && (
+      {problemCopy && (
         <div className="-mt-1 flex flex-wrap items-center gap-x-4 gap-y-2 max-sm:flex-col max-sm:items-start" role="status">
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold text-warning-foreground">{problemCopy.title}</p>
             {problemCopy.hint && <p className="text-xs text-muted-foreground">{problemCopy.hint}</p>}
           </div>
-          {manage && olderMachine(problem) && connected && (
+          {manage && problem && olderMachine(problem) && connected && (
             <Button variant="outline" size="sm" loading={updating || !!m.live?.updateInstalling} onClick={() => void update()}>
               <CircleArrowUpIcon />
               {t('machines.update', { name })}

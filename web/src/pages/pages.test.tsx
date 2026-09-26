@@ -63,7 +63,7 @@ import { HomePage } from './home'
 import { JoinPage } from './join'
 import { DashboardMachineOnly, MachinePage } from './machine'
 import { MachineSettingsPage } from './machine-settings'
-import { forgetJoinCode, MachinesSection } from './machines'
+import { forgetJoinCode, MachineDetailsSection, MachinesSection } from './machines'
 import { createNote, NewServerPage } from './new-server'
 import { Onboarding } from './onboarding'
 import { RecoverPage } from './recover'
@@ -3077,6 +3077,22 @@ describe('Machines and AI agents', () => {
     const copy = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Copy join address'))
     expect(copy?.disabled).toBe(true)
     expect(copy?.title).toBe(reason)
+  })
+
+  it('says on a joined machine’s details that its agent stopped answering, as the sidebar does', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      error: { error: 'The agent on home-server isn’t answering.', code: 'agent_unavailable' },
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), rttMs: 0.5, problems: [] },
+    }
+    const silent = await render(<MachineDetailsSection id={home.id} />, workspace({ machines: [machine, home] }))
+    expect(silent).toContain('The agent on home-server stopped answering')
+    expect(silent).toContain('Restart it on home-server: sudo systemctl restart playkeeper-agent')
+    const answering = await render(<MachineDetailsSection id={home.id} />, workspace({ machines: [machine, { ...home, error: undefined, live: machine.live }] }))
+    expect(answering).not.toContain('stopped answering')
   })
 
   it('opens a joined machine’s details for its machine page and Machine settings, and never asks it for an address', async () => {
