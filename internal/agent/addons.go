@@ -665,7 +665,7 @@ func (s *server) hAddonDetails(w http.ResponseWriter, r *http.Request) {
 			d = other
 		}
 	}
-	out := api.AddonDetails{Card: apiCard(d.Card, installed), Latest: apiVersion(d.Latest), Notes: d.Notes}
+	out := api.AddonDetails{Card: apiCard(d.Card, installed), Latest: apiVersion(d.Latest), Notes: d.Notes, Ports: s.addonPorts(key)}
 	if d.Notice != nil {
 		n := apiNotice(*d.Notice)
 		out.Notice = &n
@@ -749,10 +749,19 @@ func (s *server) hAddonInstall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	voice := voiceChat(key)
+	if voice && !req.OpenPorts {
+		writeError(w, errInvalid("Voice chat needs a UDP port of its own, so Playkeeper installs it only when it may open that port too."))
+		return
+	}
 	op, err := s.beginOp("addon-install", actor, func(ctx context.Context, h *opHandle) error {
-		return s.addonJob(ctx, h, actor, func(srv addons.Server, installed []addons.Installed, progress func(addons.Progress)) (*addons.Result, error) {
+		err := s.addonJob(ctx, h, actor, func(srv addons.Server, installed []addons.Installed, progress func(addons.Progress)) (*addons.Result, error) {
 			return s.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: key.Source, Project: key.ProjectID, Fingerprint: req.Fingerprint, OnProgress: progress})
 		})
+		if err != nil || !voice {
+			return err
+		}
+		return s.openVoiceChat(ctx, h, actor)
 	})
 	if err != nil {
 		writeError(w, err)
@@ -1048,6 +1057,12 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 	for _, rec := range removed {
 		out.Removed = append(out.Removed, rec.Name)
 		s.audit(actor, "addon.removed", string(rec.Source)+":"+rec.ProjectID, "succeeded", rec.Name+" "+rec.VersionNumber)
+	}
+	if slices.ContainsFunc(drop, voiceChat) {
+		if err := s.closeVoiceChat(actor); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

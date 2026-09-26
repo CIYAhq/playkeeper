@@ -640,6 +640,18 @@ control "only who manages the machine changes its CurseForge key" internal/panel
   'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \
   'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actView),' \
   ./internal/panel '^TestOnlyWhoManagesTheMachineChangesItsCurseForgeKey$'
+control "voice chat installs only with leave to open its port" internal/agent/addons.go \
+  'if voice && !req.OpenPorts {' \
+  'if false && voice && !req.OpenPorts {' \
+  ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
+control "removing voice chat closes its port" internal/agent/addons.go \
+  'if slices.ContainsFunc(drop, voiceChat) {' \
+  'if false && slices.ContainsFunc(drop, voiceChat) {' \
+  ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
+control "voice chat gets a UDP port nothing on the machine uses" internal/agent/curated.go \
+  'return func(p int) bool { return used[p] || s.opts.UDPPortInUse(p) }' \
+  'return func(p int) bool { return used[p] }' \
+  ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
 control "server software is written inside the data directory's root" internal/minecraft/software/files.go \
   'f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
   'f, err := os.OpenFile(root.Name()+"/"+tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \

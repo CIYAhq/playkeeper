@@ -65,7 +65,10 @@ type Options struct {
 	DiskUsage       func(path string) (free, total int64, err error)
 	CheckEgress     func(ctx context.Context) error
 	PortInUse       func(port int) bool
-	Retention       Retention
+	// UDPPortInUse reports a UDP port something on the machine listens on;
+	// add-ons such as voice chat get one no one uses.
+	UDPPortInUse func(port int) bool
+	Retention    Retention
 	// StopTimeout bounds a graceful server stop (default 90s).
 	StopTimeout time.Duration
 	// ReadyTimeout bounds waiting for "Done" after a start (default 10m).
@@ -176,7 +179,10 @@ type Agent struct {
 	upd     updateState
 	catalog catalogCache
 	browse  browseCache
-	icons   iconCache
+	// curatedPicks are the curated add-ons that fit a type and Minecraft
+	// version (wave 4).
+	curatedPicks *ttlCache[[]curatedPick]
+	icons        iconCache
 	// packMu serializes changes to the resource pack store with pruning it.
 	packMu sync.Mutex
 
@@ -226,6 +232,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.PortInUse == nil {
 		opts.PortInUse = portInUse
+	}
+	if opts.UDPPortInUse == nil {
+		opts.UDPPortInUse = udpPortInUse
 	}
 	if opts.RCONAddr == nil {
 		opts.RCONAddr = func(ip string) string { return net.JoinHostPort(ip, strconv.Itoa(rconPort)) }
@@ -312,6 +321,7 @@ func New(opts Options) (*Agent, error) {
 		packPreviews:     newTTLCache[*api.ModpackPreview](30*time.Minute, 32),
 		packPreviewSlots: make(chan struct{}, 2),
 		templatePlans:    newTTLCache[*templates.Template](time.Hour, 32),
+		curatedPicks:     newTTLCache[[]curatedPick](curatedTTL, 32),
 	}
 	a.loadPacks()
 	a.ctx, a.cancel = context.WithCancel(context.Background())
@@ -667,6 +677,8 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/servers/{id}/mods/share", srv((*server).hPackShareSet)},
 		{"GET", "/v1/servers/{id}/mods/share.mrpack", srv((*server).hPackShareFile)},
 		{"GET", "/v1/packs/{token}", a.hPackLink},
+		// Wave 4: curated add-ons.
+		{"GET", "/v1/servers/{id}/addons/curated", srv((*server).hAddonCurated)},
 		// Wave 4: add-on sources.
 		{"GET", "/v1/addon-sources", a.hAddonSources},
 		{"POST", "/v1/addon-sources/curseforge", a.hCurseForgeKeySet},

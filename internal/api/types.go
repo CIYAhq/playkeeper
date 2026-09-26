@@ -257,6 +257,9 @@ type ServerConfig struct {
 	Modpack *ServerModpack `json:"modpack,omitempty"`
 	// Template is the template the server was created from (wave 4).
 	Template *ServerTemplate `json:"template,omitempty"`
+	// VoiceChatPort is the UDP port voice chat has on this server, published
+	// from its container with the same number (wave 4); 0 without voice chat.
+	VoiceChatPort int `json:"voiceChatPort,omitempty"`
 }
 
 type CreateServerRequest struct {
@@ -856,6 +859,33 @@ type AddonDetails struct {
 	// PlanError says why it can't be installed.
 	Plan      *AddonPlan   `json:"plan,omitempty"`
 	PlanError *AddonNotice `json:"planError,omitempty"`
+	// Ports are the ports the add-on needs of its own, with the numbers
+	// Playkeeper would open (wave 4).
+	Ports []AddonPort `json:"ports,omitempty"`
+}
+
+// AddonPort is a port an add-on listens on, such as voice chat's: opened on
+// the machine when the add-on is installed, closed when it is removed.
+type AddonPort struct {
+	Protocol string `json:"protocol"` // udp or tcp
+	Port     int    `json:"port"`
+}
+
+// CuratedAddons are the add-ons Playkeeper picked by hand that have a
+// version for the server's type and Minecraft version (wave 4).
+type CuratedAddons struct {
+	Picks []CuratedAddon `json:"picks"`
+}
+
+// CuratedAddon is one of them.
+type CuratedAddon struct {
+	// ID names the pick across releases: voice-chat, rollback, pregenerate…
+	ID   string    `json:"id"`
+	Card AddonCard `json:"card"`
+	// Permission links to where the author allows this use, for a project
+	// whose licence does not.
+	Permission string      `json:"permission,omitempty"`
+	Ports      []AddonPort `json:"ports,omitempty"`
 }
 
 // AddonProgress is one file of an add-on install or update: the "files" of
@@ -877,7 +907,11 @@ type AddonInstallRequest struct {
 	// Fingerprint is the plan the user confirmed, AddonDetails.Plan; the
 	// install is refused without it, or when the plan has changed since.
 	Fingerprint string `json:"fingerprint"`
-	Actor       string `json:"actor"`
+	// OpenPorts says the owner agreed to open the ports the add-on needs,
+	// such as voice chat's UDP port; an add-on that needs one is refused
+	// without it.
+	OpenPorts bool   `json:"openPorts,omitempty"`
+	Actor     string `json:"actor"`
 }
 
 // AddonUpdatePlanRequest asks what an update would do, for the user to

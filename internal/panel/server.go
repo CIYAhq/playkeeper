@@ -220,6 +220,7 @@ func (s *Server) Routes() []Route {
 		sg("/api/servers/{id}/addons", "/v1/servers/{id}/addons"),
 		sg("/api/servers/{id}/addons/checks", "/v1/servers/{id}/addons/checks"),
 		sg("/api/servers/{id}/addons/search", "/v1/servers/{id}/addons/search"),
+		sg("/api/servers/{id}/addons/curated", "/v1/servers/{id}/addons/curated"),
 		sg("/api/servers/{id}/addons/project/{source}/{project}", "/v1/servers/{id}/addons/project/{source}/{project}"),
 		sg("/api/servers/{id}/addons/project/{source}/{project}/removal", "/v1/servers/{id}/addons/project/{source}/{project}/removal"),
 		view("/api/servers/{id}/addons/icon", s.hAddonIcon),
