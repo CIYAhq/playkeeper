@@ -74,10 +74,10 @@ control "restore undoes the swap when settings cannot be saved" internal/agent/b
   'if rerr := renameDir(live, failedAt); rerr != nil {' \
   'if rerr := error(nil); rerr != nil {' \
   ./internal/agent '^TestRestoreUndoesTheSwapWhenSettingsCannotBeSaved$'
-control "one admin from concurrent setups" internal/panel/auth.go \
-  'SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)' \
-  'SELECT ?, ?, ?, ?' \
-  ./internal/panel '^TestConcurrentSetupsCreateOneAdmin$' 3
+control "the first admin only on an empty install" internal/panel/auth.go \
+  'SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)' \
+  'SELECT ?, ?, ?, ?, ?' \
+  ./internal/panel '^(TestConcurrentSetupsCreateOneAdmin|TestFirstAdminOnlyOnAnEmptyInstall)$' 3
 control "archive per-file checksums" internal/backup/archive.go \
   'if got.Size != f.Size || got.SHA256 != f.SHA256 {' \
   'if false && (got.Size != f.Size || got.SHA256 != f.SHA256) {' \
