@@ -57,6 +57,8 @@ async function routes(page: Page, phone: boolean): Promise<string[]> {
     const player = Array.isArray(listed) ? (listed[0] as { name?: string } | undefined)?.name : undefined
     if (player) out.push(`/servers/${s.slug}/players/${encodeURIComponent(player)}`)
   }
+  // The World tab's pages of their own, as a fresh install has them.
+  if (servers[0]) out.push(`/servers/${servers[0].slug}/world/pregen`, `/servers/${servers[0].slug}/world/packs`)
   out.push('/servers/new')
   // The add-on library with Playkeeper's picks, for the first server that
   // has one (each library takes minutes), and a template someone shared.
@@ -90,6 +92,7 @@ interface Crawl {
 /** After the live pages: the pages each faked state changes, for the first server in `live`. */
 function fakedCrawls(live: string[], phone: boolean): Crawl[] {
   const first = live.find((r) => /^\/servers\/(?!new$)[^/]+$/.test(r))
+  const plugins = live.find((r) => /^\/servers\/[^/]+\/plugins$/.test(r))
   const byView: [View, string[]][] = [
     ['stopped', first ? ['/', first, `${first}/console`, `${first}/settings`] : []],
     ['crashed', first ? ['/', first] : []],
@@ -98,6 +101,8 @@ function fakedCrawls(live: string[], phone: boolean): Crawl[] {
     ['empty lists', first ? [`${first}/players`, `${first}/world`] : []],
     ['no servers', ['/', '/welcome']],
     ['update available', phone ? ['/settings', '/more'] : ['/settings']],
+    ['in use', [...(plugins ? [plugins] : []), ...(first ? [`${first}/world`, `${first}/world/packs`, `${first}/world/pregen`] : [])]],
+    ['paused', first ? [`${first}/world/pregen`] : []],
   ]
   return byView.flatMap(([view, pages]) => pages.map((route) => ({ route, view })))
 }
@@ -134,7 +139,14 @@ const minimums: Record<Size, Record<string, number>> = {
     '/machines/*/settings': 6,
     '/settings': 2,
     '/account': 7,
-    '/account/two-factor': 4,
+    '/account/two-factor': 7,
+    '/servers/*/world/pregen': 5,
+    '/login (second step)': 8,
+    '/servers/*/plugins (in use)': 40,
+    '/servers/*/world (in use)': 3,
+    '/servers/*/world/packs (in use)': 6,
+    '/servers/*/world/pregen (in use)': 2,
+    '/servers/*/world/pregen (paused)': 1,
     '/ (stopped)': 3,
     '/servers/* (stopped)': 1,
     '/servers/*/console (stopped)': 3,
@@ -163,8 +175,15 @@ const minimums: Record<Size, Record<string, number>> = {
     '/machines/*/settings': 6,
     '/settings': 1,
     '/account': 6,
-    '/account/two-factor': 1,
+    '/account/two-factor': 8,
     '/more': 5,
+    '/servers/*/world/pregen': 4,
+    '/login (second step)': 8,
+    '/servers/*/plugins (in use)': 20,
+    '/servers/*/world (in use)': 2,
+    '/servers/*/world/packs (in use)': 6,
+    '/servers/*/world/pregen (in use)': 2,
+    '/servers/*/world/pregen (paused)': 1,
     '/ (stopped)': 1,
     '/servers/* (stopped)': 2,
     '/servers/*/console (stopped)': 3,
@@ -215,7 +234,20 @@ const places: Place[] = [
   { what: 'the end of onboarding (/welcome)', sizes: ['desktop', 'phone'], view: 'no servers', key: /^button "Create my server"$/ },
   { what: 'installing a Playkeeper update', sizes: ['desktop', 'phone'], view: 'update available', key: /^button "Update( now)?" in dialog "Update Playkeeper to .+"$/ },
   { what: 'first-run setup', sizes: ['desktop', 'phone'], view: 'first run', key: /^button "Create account and continue"$/ },
+  { what: 'two-factor sign-in’s second step', sizes: ['desktop', 'phone'], view: 'second step', key: /^button "Sign in" in "Enter your code"$/ },
+  { what: 'finishing two-factor setup', sizes: ['desktop', 'phone'], key: /^button "I’ve saved them"/ },
+  { what: 'updating every plugin at once', sizes: ['desktop', 'phone'], view: 'in use', key: /^button "Update all"/ },
+  { what: 'managing a plugin added by hand', sizes: ['desktop', 'phone'], view: 'in use', key: /^button "Let Playkeeper manage it"/ },
+  { what: 'forgetting a plugin whose file is gone', sizes: ['desktop', 'phone'], view: 'in use', key: /^button "Forget"/ },
+  { what: 'a data pack’s switch', sizes: ['desktop', 'phone'], view: 'in use', key: /^switch "more-mob-heads"/ },
+  { what: 'the resource pack’s "must accept" switch', sizes: ['desktop', 'phone'], view: 'in use', key: /^switch "(Players must accept it to join|Must accept to join)"/ },
+  { what: 'pausing pre-generation', sizes: ['desktop', 'phone'], view: 'in use', key: /^button "Pause"/ },
+  { what: 'resuming pre-generation', sizes: ['desktop', 'phone'], view: 'paused', key: /^button "Resume"/ },
+  { what: 'starting pre-generation (the phone’s action bar)', sizes: ['phone'], key: /^button "Start"$/ },
 ]
+
+/** Views crawled signed out, with a crawler of their own. */
+const signedOutViews = new Set<View | undefined>(['first run', 'second step'])
 
 interface Rules {
   minimums: Record<string, number>
@@ -256,7 +288,7 @@ interface Negative {
 async function negativeControls(crawler: Crawler, size: Size, signedIn: boolean): Promise<Negative[]> {
   const out: Negative[] = []
   for (const place of places) {
-    if (!place.sizes.includes(size) || (place.view === 'first run') === signedIn) continue
+    if (!place.sizes.includes(size) || signedOutViews.has(place.view) === signedIn) continue
     const hit = found(crawler.results, place)
     if (!hit) continue
     const r = await crawler.breakAndPress(hit, hit.status === 'disabled with a reason' ? 'unexplained' : 'does nothing')
@@ -291,6 +323,19 @@ for (const [name, size] of Object.entries(sizes)) {
     report.notes.push(...outCrawler.notes)
     report.unreached.push(...outCrawler.unreached)
     await signedOut.close()
+
+    // Two-factor sign-in's second step, with a crawler of its own: the one above
+    // already pressed Sign in, where the fake answers that the password is wrong.
+    const secondStep = await browser.newContext(options)
+    const stepCrawler = new Crawler(await secondStep.newPage(), name, base, log)
+    await stepCrawler.init()
+    await stepCrawler.crawl('/login', 'second step')
+    pages.push(pageOf({ route: '/login', view: 'second step' }))
+    negatives.push(...(await negativeControls(stepCrawler, name as Size, false)))
+    report.results.push(...stepCrawler.results)
+    report.notes.push(...stepCrawler.notes)
+    report.unreached.push(...stepCrawler.unreached)
+    await secondStep.close()
 
     const context = await browser.newContext(options)
     const page = await context.newPage()

@@ -552,9 +552,13 @@ const leftoverWorld = { name: 'data.replaced-20260924-090000', kind: 'previous',
  * click-through reaches the controls only they show: its servers stopped,
  * crashed (out of memory, as the agent reports it) or busy with a backup;
  * no players, sessions or backups; no servers at all; a newer Playkeeper to
- * update to; or a panel that still needs its admin account.
+ * update to; a panel that still needs its admin account; a server that's
+ * been in use (plugins with an update, a changed file, one added by hand and
+ * one gone, data packs, a resource pack and the map being pre-generated); or
+ * its pre-generation paused while people play; or, signed out, an account
+ * with two-factor sign-in, whose right password leads to the second step.
  */
-export type View = 'live' | 'stopped' | 'crashed' | 'busy' | 'empty lists' | 'no servers' | 'update available' | 'first run'
+export type View = 'live' | 'stopped' | 'crashed' | 'busy' | 'empty lists' | 'no servers' | 'update available' | 'first run' | 'in use' | 'paused' | 'second step'
 
 type Json = Record<string, unknown>
 
@@ -578,6 +582,9 @@ function server(view: View, s: Json): Json {
     case 'no servers':
     case 'update available':
     case 'first run':
+    case 'in use':
+    case 'paused':
+    case 'second step':
       return s
     default: {
       const unreachable: never = view
@@ -589,9 +596,119 @@ function server(view: View, s: Json): Json {
 /** The version the 'update available' view offers. */
 export const newerRelease = '0.3.2'
 
+/** A plugin Playkeeper installed from Modrinth. Real projects, so their details load from the real panel. */
+function modrinthAddon(projectId: string, slug: string, name: string, versionNumber: string, fileName: string, size: number, days: number): Json {
+  return { source: 'modrinth', projectId, slug, name, versionId: `fake${slug.replace(/-/g, '')}`, versionNumber, channel: 'release', published: ago((days + 30) * 86_400), fileName, size, installedAt: ago(days * 86_400) }
+}
+
+const inUse = {
+  luckperms: modrinthAddon('Vebnzrzj', 'luckperms', 'LuckPerms', '5.5.17', 'LuckPerms-Bukkit-5.5.17.jar', 1_900_000, 1),
+  chunky: modrinthAddon('fALzjamp', 'chunky', 'Chunky', '1.4.28', 'Chunky-Bukkit-1.4.28.jar', 520_000, 40),
+  coreprotect: modrinthAddon('Lu3KuzdV', 'coreprotect', 'CoreProtect', '23.0', 'CoreProtect-23.0.jar', 1_100_000, 25),
+  viaversion: modrinthAddon('P1OZGk5p', 'viaversion', 'ViaVersion', '5.4.1', 'ViaVersion-5.4.1.jar', 5_300_000, 12),
+  voicechat: modrinthAddon('9eGKb6K1', 'simple-voice-chat', 'Simple Voice Chat', 'bukkit-2.6.1', 'voicechat-bukkit-2.6.1.jar', 2_400_000, 60),
+}
+/** The newer versions the checks find: two, so "Update all" shows. */
+const inUseLatest = new Map<Json, Json>([
+  [inUse.chunky, { versionId: 'fakechunky1440', versionNumber: '1.4.40', channel: 'release', published: ago(3 * 86_400), fileName: 'Chunky-Bukkit-1.4.40.jar', size: 530_000 }],
+  [inUse.luckperms, { versionId: 'fakeluckperms5520', versionNumber: '5.5.20', channel: 'release', published: ago(2 * 86_400), fileName: 'LuckPerms-Bukkit-5.5.20.jar', size: 1_950_000 }],
+])
+/** The records Playkeeper keeps in the 'in use' view: LuckPerms just installed, both it and Chunky with an update, CoreProtect changed on disk and voice chat whose file is gone. ViaVersion is a file added by hand. */
+const inUseManaged = [inUse.luckperms, inUse.chunky, inUse.coreprotect, inUse.voicechat]
+
+function inUseRead(path: string, body: Json, host: string): unknown {
+  if (/^\/api\/servers\/\w+\/addons$/.test(path)) {
+    const file = (a: Json, status: string, extra: Json = {}) => ({ fileName: a.fileName, size: a.size, status, addon: a, ...extra })
+    const files = [
+      file(inUse.luckperms, 'managed', { pending: true }),
+      file(inUse.chunky, 'managed'),
+      file(inUse.coreprotect, 'modified'),
+      { fileName: inUse.viaversion.fileName, size: inUse.viaversion.size, status: 'unknown' },
+      { fileName: 'HomeTeleports.jar', size: 48_000, status: 'unknown', name: 'HomeTeleports', version: '2.1' },
+    ]
+    return { ...body, files, missing: [inUse.voicechat], warnings: [], restartNeeded: false }
+  }
+  if (/^\/api\/servers\/\w+\/addons\/checks$/.test(path)) {
+    return {
+      updates: [...inUseLatest].map(([a, latest]) => ({ source: 'modrinth', projectId: a.projectId, latest, available: true })),
+      identified: [{ fileName: inUse.viaversion.fileName, size: inUse.viaversion.size, status: 'identified', addon: inUse.viaversion }],
+      checkedAt: ago(10 * 60),
+    }
+  }
+  if (/^\/api\/servers\/\w+\/datapacks$/.test(path)) {
+    return {
+      ...body,
+      added: undefined,
+      notEnabled: undefined,
+      problem: undefined,
+      packs: [
+        { name: 'more-mob-heads.zip', description: 'Mobs sometimes drop their heads', size: 182_000, enabled: true, addedAt: ago(5 * 86_400) },
+        { name: 'coordinates-hud.zip', size: 46_000, enabled: false, addedAt: ago(9 * 86_400) },
+      ],
+    }
+  }
+  if (/^\/api\/servers\/\w+\/resourcepack$/.test(path)) {
+    const sha1 = '5e3c0b7d9a1f2e4c6b8a0d2f4e6c8a0b2d4f6e8a'
+    return { ...body, pending: false, problem: undefined, offer: { sha1, fileName: 'faithful-32x.zip', size: 24_500_000, description: 'Faithful 32x', addedAt: ago(2 * 86_400), url: `http://${host}/resource-packs/${sha1}.zip`, required: true, prompt: 'Sharper textures for this server' } }
+  }
+  return undefined
+}
+
+/** The map being pre-generated ('in use'), or paused while people play ('paused'). */
+function pregenIn(view: 'in use' | 'paused', body: Json): Json {
+  const base = { ...body, error: undefined, preset: 'medium', radius: 2500, total: 98_000, pauseForPlayers: true, installed: true, startedAt: ago(20 * 60), diskBytes: 999_000_000 }
+  return view === 'paused'
+    ? { ...base, state: 'paused', pausedBy: 'players', chunks: 41_000, percent: 42, rate: undefined, etaSeconds: 2_400, elapsedSeconds: 1_150 }
+    : { ...base, state: 'running', pausedBy: undefined, chunks: 11_800, percent: 12, rate: 42, etaSeconds: 2_100, elapsedSeconds: 280 }
+}
+
+/** An add-on's details as the panel gives them, for the 'in use' view's plugins, without asking Modrinth. */
+function inUseDetails(a: Json): Json {
+  const managed = inUseManaged.includes(a)
+  const newer = inUseLatest.get(a)
+  const latest = newer ?? { versionId: a.versionId, versionNumber: a.versionNumber, channel: 'release', published: a.published, fileName: a.fileName, size: a.size }
+  const card = { source: 'modrinth', projectId: a.projectId, slug: a.slug, name: a.name, summary: `${String(a.name)}, a plugin for Paper servers.`, categories: ['utility'], downloads: 1_200_000, updated: a.published, pageUrl: `https://modrinth.com/plugin/${String(a.slug)}`, installed: managed }
+  if (managed) return { card, latest, installed: a, changed: a === inUse.coreprotect, missing: a === inUse.voicechat, updateAvailable: !!newer }
+  const install = { action: 'install', source: 'modrinth', projectId: a.projectId, name: a.name, versionNumber: a.versionNumber, channel: 'release', fileName: a.fileName, size: a.size }
+  return { card, latest, plan: { steps: [install], manual: [], blockers: [], warnings: [], ready: true, fingerprint: 'a1b2c3d4e5f60718293a4b5c6d7e8f90' } }
+}
+
+/**
+ * What the real panel can't answer for the 'in use' view's made-up plugins:
+ * their details (without asking Modrinth, so it works offline), what removing
+ * one would do and what updating them would install. The panel would refuse
+ * the last two, since it never installed them.
+ */
+function inUseAnswer(method: string, path: string, body: unknown): Reply | undefined {
+  const details = method === 'GET' ? /^\/api\/servers\/\w+\/addons\/project\/modrinth\/([^/]+)$/.exec(path) : null
+  const known = details && [...inUseManaged, inUse.viaversion].find((a) => a.projectId === decodeURIComponent(details[1] ?? ''))
+  if (known) return { status: 200, body: inUseDetails(known) }
+  const removal = method === 'GET' ? /^\/api\/servers\/\w+\/addons\/project\/modrinth\/([^/]+)\/removal$/.exec(path) : null
+  const gone = removal && inUseManaged.find((a) => a.projectId === decodeURIComponent(removal[1] ?? ''))
+  if (gone) return { status: 200, body: { addon: gone, neededBy: [], orphans: [], configFolder: `plugins/${String(gone.name)}`, changed: gone === inUse.coreprotect, missing: gone === inUse.voicechat } }
+  if (method !== 'POST' || !/^\/api\/servers\/\w+\/addons\/update\/plan$/.test(path)) return undefined
+  const b = (body ?? {}) as { addons?: { source?: unknown; projectId?: unknown }[]; changed?: unknown }
+  const picked = b.addons ? inUseManaged.filter((a) => b.addons?.some((k) => sameAddon(a as unknown as AddonRecord, k))) : [...inUseLatest.keys()]
+  if (picked.length === 0 || (b.addons && picked.length !== b.addons.length)) return undefined
+  const steps = picked.map((a) => {
+    const to = (!b.changed && inUseLatest.get(a)) || a
+    return { action: 'update', source: a.source, projectId: a.projectId, name: a.name, versionNumber: to.versionNumber, channel: 'release', fileName: to.fileName, size: to.size, was: a.versionNumber }
+  })
+  return { status: 200, body: { steps, manual: [], blockers: [], warnings: [], ready: true, fingerprint: 'f0e1d2c3b4a5968778695a4b3c2d1e0f' } }
+}
+
+/** The right password for an account with two-factor sign-in: the second step asks for a code. */
+function secondStep(body: unknown): Reply {
+  const username = (body as { username?: unknown } | null)?.username
+  if (typeof username !== 'string' || !username) return invalid('Type your username.')
+  return { status: 200, body: { secondFactor: { methods: ['app_code', 'recovery_code'], appCodesBlocked: false }, user: { username }, expiresAt: new Date(Date.now() + 5 * 60_000).toISOString() } }
+}
+
 /** A read's answer in `view`, or undefined when the view leaves it as the panel sent it. */
-function lay(view: View, path: string, body: unknown): unknown {
+function lay(view: View, path: string, body: unknown, host: string): unknown {
   if (view === 'live' || body === undefined) return undefined
+  if ((view === 'in use' || view === 'paused') && /^\/api\/servers\/\w+\/pregen$/.test(path)) return pregenIn(view, body as Json)
+  if (view === 'in use') return inUseRead(path, body as Json, host)
   if (view === 'first run') return path === '/api/setup/status' ? { needsSetup: true } : undefined
   if (path === '/api/servers' && Array.isArray(body)) return view === 'no servers' ? [] : body.map((s) => server(view, s as Json))
   if (view === 'empty lists') {
@@ -652,6 +769,9 @@ function restorePreview(b: Record<string, unknown> | undefined, serverId?: strin
   }
 }
 
+/** Writes made before signing in finishes, which have no security token yet: the panel checks the origin and the header instead. */
+const signedOutWrites = new Set(['/api/auth/login', '/api/setup', '/api/auth/second-factor', '/api/auth/second-factor/cancel'])
+
 /** Writes that only work out what another write would do and change nothing, so the real panel answers them. */
 const plans = [
   // Wave 1: what updating plugins or mods would do.
@@ -685,6 +805,12 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     // Planning changes nothing, so the real panel answers.
     const planning = method === 'POST' && plans.some((re) => re.test(path))
     if (method === 'GET' || method === 'HEAD' || planning) {
+      const made = view() === 'in use' ? inUseAnswer(method, path, planning ? request.postDataJSON() : undefined) : undefined
+      if (made) {
+        calls.push({ method, path, status: made.status, faked: true, at })
+        await route.fulfill({ status: made.status, contentType: 'application/json', body: JSON.stringify(made.body) })
+        return
+      }
       const head = /^\/api\/players\/([^/]+)\/head$/.exec(path)
       if (head?.[1]) {
         calls.push({ method, path, status: 200, faked: true, at })
@@ -722,7 +848,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         await route.abort().catch(() => {})
         return
       }
-      const laid = res.ok() ? lay(view(), path, await res.json().catch(() => undefined)) : undefined
+      const laid = res.ok() ? lay(view(), path, await res.json().catch(() => undefined), url.host) : undefined
       if (laid !== undefined) {
         calls.push({ method, path, status: res.status(), faked: true, at })
         const b = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
@@ -733,11 +859,13 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         return
       }
       // Add-on icons come from their sites through the panel, and one that
-      // can't be had shows a stand-in, so its error is expected.
+      // can't be had shows a stand-in, so its error is expected. So is the
+      // panel saying Modrinth or Hangar didn't answer, as they don't offline.
       const icon = /^\/api\/(servers|machines)\/\w+\/(addons|modpacks)\/icon$/.test(path)
+      const offline = res.status() >= 500 && /^\/api\/(servers\/\w+\/addons\/(checks|curated|search|project\/.+)|machines\/\w+\/modpacks(\/.+)?)$/.test(path)
       // The records for a domain that isn't one are refused, like a wrong password.
       const refusedDomain = res.status() === 400 && /^\/api\/machines\/\w+\/address\/plan$/.test(path)
-      calls.push({ method, path, status: res.status(), faked: false, expected: (icon && !res.ok()) || refusedDomain || undefined, at })
+      calls.push({ method, path, status: res.status(), faked: false, expected: (icon && !res.ok()) || refusedDomain || offline || undefined, at })
       if (res.ok()) {
         if (path === '/api/me/prefs') Object.assign(state.prefs, await res.json().catch(() => ({})))
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
@@ -754,7 +882,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     }
     const headers = request.headers()
     let reply: Reply | undefined
-    if (headers['x-requested-with'] !== 'playkeeper' || (path !== '/api/auth/login' && path !== '/api/setup' && !headers['x-csrf-token'])) {
+    if (headers['x-requested-with'] !== 'playkeeper' || (!signedOutWrites.has(path) && !headers['x-csrf-token'])) {
       reply = { status: 403, body: { error: 'Security token missing or invalid. Reload the page and try again.', code: 'forbidden' } }
     } else {
       let body: unknown
@@ -768,11 +896,14 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         // An upload's body is the file itself.
         body = request.postDataBuffer()
       }
-      for (const [m, re, handle] of routes) {
-        const hit = m === method ? re.exec(path) : null
-        if (hit) {
-          reply = handle({ method, path, url, body, params: hit.slice(1) }, state)
-          break
+      if (method === 'POST' && path === '/api/auth/login' && view() === 'second step') reply = secondStep(body)
+      else {
+        for (const [m, re, handle] of routes) {
+          const hit = m === method ? re.exec(path) : null
+          if (hit) {
+            reply = handle({ method, path, url, body, params: hit.slice(1) }, state)
+            break
+          }
         }
       }
     }
