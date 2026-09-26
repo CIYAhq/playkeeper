@@ -499,6 +499,14 @@ control "a 0.3.0 restore the agent stops in while taking it over is left for the
   'if s.stopping() {' \
   'if false && s.stopping() {' \
   ./internal/agent '^TestStoppingWhileTakingOverA030RestoreLeavesItForTheNextStart$'
+control "a failed lookup of a 0.3.0 restore's Paper build is tried again" internal/agent/recovery.go \
+  'for _, wait := range lookupRetries {' \
+  'for _, wait := range lookupRetries[:0] {' \
+  ./internal/agent '^TestA030RestoreIsFinishedThroughAShortPaperMCOutage$'
+control "the lookup tried again asks PaperMC, not the cached failure" internal/agent/recovery.go \
+  's.forgetFailedBuild(m.MinecraftVersion, m.PaperBuild)' \
+  '_ = m' \
+  ./internal/agent '^TestA030RestoreIsFinishedThroughAShortPaperMCOutage$'
 control "only a restored world started during a restore 0.3.0 undid is stopped" internal/agent/recovery.go \
   'if !running || !ok || started.Before(op.StartedAt) || started.After(*op.FinishedAt) {' \
   'if !running || !ok || started.IsZero() {' \
