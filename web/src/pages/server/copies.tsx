@@ -6,7 +6,7 @@ import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/work
 import { Card, CardTitle, CopyButton, Marker, Progress, SectionLabel, Spinner, copyText } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, ChoiceSelect, Segmented } from '@/components/app/controls'
 import { PhoneBackHeader } from '@/components/app/shell'
-import { LoadingLabel } from '@/components/app/skeletons'
+import { InlineSkeleton, LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -559,16 +559,16 @@ function DestFields({ c, v, phone }: { c: Copies; v: OffsiteView; phone?: boolea
         c.sshKey ? (
           <div>
             <div className="flex items-center gap-2 rounded-xl bg-muted py-1.5 ps-3 pe-1.5">
-              <code className="min-w-0 flex-1 font-mono text-xs break-all">{shortKeyLine(c.sshKey.authorizedKey)}</code>
+              <code className="min-w-0 flex-1 truncate font-mono text-xs">{shortKeyLine(c.sshKey.authorizedKey)}</code>
               <CopyIconButton text={c.sshKey.authorizedKey} label={t('offsite.copyKeyLine')} toast={t('offsite.keyLineCopied')} />
             </div>
             <p className="mt-1.5 text-xs text-muted-foreground">{d.host.trim() && d.user.trim() ? t('offsite.keyLineHint', { user: d.user.trim(), host: d.host.trim() }) : t('offsite.keyLineHintAny')}</p>
           </div>
         ) : (
-          <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Spinner className="size-3.5" />
-            {t('offsite.makingKey')}
-          </p>
+          <div className="flex h-11 items-center gap-2 rounded-xl bg-muted ps-3 pe-1.5" aria-busy="true">
+            <span className="sr-only">{t('offsite.makingKey')}</span>
+            <InlineSkeleton className="w-3/4" />
+          </div>
         )
       ) : (
         <Field id="offsite-password" label={t('offsite.password')}>
@@ -600,7 +600,7 @@ function CommandBox({ command, phone, className }: { command: string; phone?: bo
           <CopyIcon />
         </Button>
       ) : (
-        <CopyButton text={command} size="xs" className="shrink-0" />
+        <CopyButton text={command} size="sm" className="shrink-0" />
       )}
     </div>
   )
@@ -1040,11 +1040,38 @@ export function CopiesCard({ server: s, onChangeRules }: { server: ServerStatus;
       </Card>
     )
   }
+  return <CopiesSkeleton />
+}
+
+/** The copies card while it loads: its title, switch, destination boxes and footer, not one grey block. */
+function CopiesSkeleton({ phone }: { phone?: boolean }) {
   return (
-    <>
+    <Card className={phone ? 'p-4' : undefined}>
       <LoadingLabel />
-      <Skeleton className="h-[440px] rounded-3xl" />
-    </>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-4 w-36" />
+          <Skeleton className="h-3 w-56" />
+        </div>
+        <Skeleton className="h-5 w-9 rounded-full" />
+      </div>
+      <Skeleton className="mt-5 h-3 w-16" />
+      <div className="mt-2 flex flex-col gap-2">
+        {[0, 1].map((i) => (
+          <div key={i} className="flex items-center gap-3 rounded-2xl border border-border px-3.5 py-3">
+            <Skeleton className="size-5 rounded" />
+            <div className="flex flex-1 flex-col gap-1.5">
+              <Skeleton className="h-3.5 w-28" />
+              <Skeleton className={cn('h-3', i ? 'w-40' : 'w-52')} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-4">
+        <Skeleton className="h-3 w-44" />
+        <Skeleton className="h-8 w-24 rounded-lg" />
+      </div>
+    </Card>
   )
 }
 
@@ -1064,6 +1091,7 @@ function DesktopCopies({ server: s, view: v, refresh, onChangeRules }: { server:
     </Button>
   )
   let footer: ReactNode
+  const footerKey = r ? 'tested' : editing ? 'editing' : state.kind
   if (r) {
     const action = !r.ok ? (
       <Button size="sm" variant="outline" loading={c.busy === 'test'} onClick={() => void c.testNow()}>
@@ -1151,7 +1179,7 @@ function DesktopCopies({ server: s, view: v, refresh, onChangeRules }: { server:
         </div>
       )}
       {r && tone && (
-        <div className="mt-4 border-t border-border pt-4" aria-live="polite">
+        <div className="mt-4 animate-fade border-t border-border pt-4" aria-live="polite">
           <SectionLabel>{t(testLabel[tone].desktop)}</SectionLabel>
           <p className="mt-1.5 mb-2.5 text-[13px] font-semibold">{d.type === 's3' ? `${placeOf(d, v)} · ${d.bucket.trim()}` : placeOf(d, v)}</p>
           <TestChecks result={r} type={d.type} user={d.user.trim()} />
@@ -1165,7 +1193,9 @@ function DesktopCopies({ server: s, view: v, refresh, onChangeRules }: { server:
           <ProblemLine problem={c.problem} />
         </div>
       )}
-      <div className="mt-4 border-t border-border pt-4">{footer}</div>
+      <div key={footerKey} className="mt-4 animate-fade border-t border-border pt-4">
+        {footer}
+      </div>
       <CopiesDialogs c={c} v={v} server={s} machine={machine} phone={false} />
     </Card>
   )
@@ -1182,10 +1212,7 @@ export function CopiesPhonePage({ server: s }: { server: ServerStatus }) {
       ) : off.error ? (
         <p className="px-4 text-[15px] text-destructive-foreground">{off.error.message}</p>
       ) : (
-        <>
-          <LoadingLabel />
-          <Skeleton className="h-80 rounded-3xl" />
-        </>
+        <CopiesSkeleton phone />
       )}
     </>
   )
@@ -1268,17 +1295,20 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
       <SectionLabel className="mt-2 px-4">{t('offsite.whereTo')}</SectionLabel>
       {form ? (
         <div className="flex flex-col gap-3">
-          <ChoiceSelect
-            className="min-h-14 w-full justify-between rounded-3xl border border-border bg-white px-4"
-            label={t('offsite.whereTo')}
-            value={d.type}
-            onChange={(x) => c.set('type', x)}
-            disabledReason={c.readOnly}
-            options={[
-              { value: 's3', label: t('offsite.s3') },
-              { value: 'sftp', label: t('offsite.sftp') },
-            ]}
-          />
+          <div className="relative">
+            {d.type === 'sftp' ? <ServerIcon className="pointer-events-none absolute start-4 top-1/2 z-10 size-5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" /> : <HardDriveIcon className="pointer-events-none absolute start-4 top-1/2 z-10 size-5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />}
+            <ChoiceSelect
+              className="min-h-14 w-full justify-between rounded-3xl border border-border bg-white ps-12 pe-4"
+              label={t('offsite.whereTo')}
+              value={d.type}
+              onChange={(x) => c.set('type', x)}
+              disabledReason={c.readOnly}
+              options={[
+                { value: 's3', label: t('offsite.s3') },
+                { value: 'sftp', label: t('offsite.sftp') },
+              ]}
+            />
+          </div>
           <DestFields c={c} v={v} phone />
         </div>
       ) : (
@@ -1302,7 +1332,7 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
       {r && tone ? (
         <>
           <SectionLabel className="mt-2 px-4">{t(testLabel[tone].phone)}</SectionLabel>
-          <div className="rounded-3xl border border-border bg-white p-4">
+          <div className="animate-fade rounded-3xl border border-border bg-white p-4">
             <TestChecks result={r} type={d.type} user={d.user.trim()} />
           </div>
           <div className="px-1 pt-2 empty:hidden">
