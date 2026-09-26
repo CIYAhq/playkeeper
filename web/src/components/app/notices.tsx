@@ -56,7 +56,7 @@ export function FailedJobNotice({ server: s, op, onDismiss, className }: { serve
       className={className}
       title={`${t('op.failed', { what: opLabel(op, s.name) })}: ${op.error ?? ''}`}
       action={
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-2 max-sm:basis-full">
           {stoppedBackupHelps(op) && s.phase === 'online' && <BackUpStoppedButton server={s} />}
           <Button variant="ghost" size="sm" onClick={onDismiss}>
             {t('common.dismiss')}
@@ -145,7 +145,7 @@ export function SavingPausedNotice({ server: s, className }: { server: ServerSta
       className={className}
       title={t('backup.savingPaused')}
       action={
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-2 max-sm:basis-full">
           <Button variant="ghost" size="sm" render={<a {...linkProps({ name: 'server', slug: s.slug, tab: 'console' })} />}>
             <SquareTerminalIcon />
             {t('backup.openConsole')}
