@@ -1431,17 +1431,32 @@ describe('Get started', () => {
 })
 
 describe('Onboarding', () => {
+  const preflight: Preflight = {
+    ok: true,
+    checks: [
+      { id: 'docker', label: 'Docker', status: 'pass', detail: 'Docker 27.3.1 is running.' },
+      { id: 'memory', label: 'Memory', status: 'pass', detail: '16.0 GB RAM.' },
+      { id: 'disk', label: 'Disk space', status: 'pass', detail: '41.0 GB free.' },
+      { id: 'port', label: 'Game port', status: 'pass', detail: 'Port 25565 is free for Minecraft players.' },
+      { id: 'egress', label: 'Download access', status: 'pass', detail: 'PaperMC is reachable.' },
+    ],
+  }
+  const checkAgain = () => [...document.querySelectorAll('button')].find((b) => /^(Check again|Checked)$/.test(b.textContent ?? ''))
+
+  it('says the checks ran again, but not when they could not be run', async () => {
+    answer({ '/preflight': preflight })
+    await render(<Onboarding />, workspace({ servers: [] }))
+    await act(async () => checkAgain()?.click())
+    expect(checkAgain()?.textContent).toBe('Checked')
+
+    await render(<Onboarding />, workspace({ servers: [] }))
+    vi.mocked(client.get).mockImplementation((() => Promise.reject(new client.ApiError(0, { error: 'The dashboard can’t be reached.', code: 'internal' }))) as typeof client.get)
+    await act(async () => checkAgain()?.click())
+    expect(document.body.textContent).toContain('The dashboard can’t be reached.')
+    expect(checkAgain()?.textContent).toBe('Check again')
+  })
+
   it('checks the machine in plain words, with the provider firewall to do by hand', async () => {
-    const preflight: Preflight = {
-      ok: true,
-      checks: [
-        { id: 'docker', label: 'Docker', status: 'pass', detail: 'Docker 27.3.1 is running.' },
-        { id: 'memory', label: 'Memory', status: 'pass', detail: '16.0 GB RAM.' },
-        { id: 'disk', label: 'Disk space', status: 'pass', detail: '41.0 GB free.' },
-        { id: 'port', label: 'Game port', status: 'pass', detail: 'Port 25565 is free for Minecraft players.' },
-        { id: 'egress', label: 'Download access', status: 'pass', detail: 'PaperMC is reachable.' },
-      ],
-    }
     answer({ '/preflight': preflight })
     const text = await render(<Onboarding />, workspace({ servers: [] }))
     expect(text).toContain('Checking this VPS')
