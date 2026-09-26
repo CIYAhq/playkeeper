@@ -32,6 +32,11 @@ type automation struct {
 	decision sleep.Decision
 	standIn  *sleep.Manager
 	falling  bool
+	// sleepMu orders saving the sleep setting against a server falling
+	// asleep, so none falls asleep with sleep turned off. It is taken
+	// before mu and held across database writes, never across an operation
+	// or a Docker call.
+	sleepMu sync.Mutex
 
 	kick   chan struct{}
 	claim  *uploadClaim

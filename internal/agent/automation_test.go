@@ -903,6 +903,130 @@ func TestSleepWaitsForAScheduledRestartsCountdown(t *testing.T) {
 	}
 }
 
+// setSleepStep makes fn see the steps of falling asleep and of saving the
+// sleep setting until the test's later cleanups have run, the agent's
+// included when set before it starts.
+func setSleepStep(t *testing.T, fn func(step string)) {
+	sleepStep = fn
+	t.Cleanup(func() { sleepStep = func(string) {} })
+}
+
+// The sleep operation looks again before it stops the server, and is called
+// off, the server staying awake, when since the sleep watch decided sleep
+// was turned off or set to wait longer, or someone joined. Turning sleep off
+// either comes first, or finds the server meant to be asleep and then
+// changes nothing while the sleep runs, as during a backup: a server is
+// never left asleep with sleep off.
+func TestSleepLooksAgainBeforeItStopsTheServer(t *testing.T) {
+	type state struct {
+		desired   string
+		listening bool
+		sleep     sleep.Settings
+		phase     api.Phase
+		op        string
+	}
+	on, off, longer := sleep.Settings{Enabled: true, IdleMinutes: 5}, sleep.Settings{IdleMinutes: 5}, sleep.Settings{Enabled: true, IdleMinutes: 60}
+	asleep := state{api.DesiredSleeping, true, on, api.PhaseAsleep, api.OpSucceeded}
+	awake := func(set sleep.Settings) state {
+		return state{api.DesiredRunning, false, set, api.PhaseOnline, api.OpCancelled}
+	}
+	read := func(e *agentEnv) state {
+		s := e.srv()
+		s.auto.mu.Lock()
+		m := s.auto.standIn
+		s.auto.mu.Unlock()
+		var op string
+		_ = e.a.db.QueryRow(`SELECT status FROM operations WHERE kind = 'sleep'`).Scan(&op)
+		return state{s.desired(), m != nil && m.Listening(), s.sleepSettings(), e.status().Phase, op}
+	}
+	setSleep := func(e *agentEnv, set sleep.Settings) (int, map[string]any) {
+		return e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": set.Enabled, "idleMinutes": set.IdleMinutes})
+	}
+	// saved saves the setting as the Sleep page does, which wakes nothing
+	// while the server is awake.
+	saved := func(e *agentEnv, set sleep.Settings) {
+		if code, out := setSleep(e, set); code != http.StatusOK || out["operation"] != nil {
+			e.t.Errorf("save %+v: %d %v", set, code, out)
+		}
+	}
+	// at acts once, at the step.
+	at := func(step string, act func(e *agentEnv)) func(*agentEnv, string) {
+		var once sync.Once
+		return func(e *agentEnv, s string) {
+			if s == step {
+				once.Do(func() { act(e) })
+			}
+		}
+	}
+	// racing turns sleep off as the operation looks again. The save holds
+	// sleepMu until a moment after the operation went on, so the operation
+	// must wait for it before it commits.
+	racing := func() func(*agentEnv, string) {
+		saving := make(chan struct{})
+		var looked atomic.Bool
+		var once sync.Once
+		return func(e *agentEnv, step string) {
+			switch {
+			case step == "look" && looked.CompareAndSwap(false, true):
+				go saved(e, off)
+				<-saving
+			case step == "save" && looked.Load():
+				once.Do(func() {
+					close(saving)
+					time.Sleep(300 * time.Millisecond)
+				})
+			}
+		}
+	}
+	cases := []struct {
+		name string
+		hook func(e *agentEnv, step string)
+		want state
+	}{
+		{name: "nothing changed", want: asleep},
+		{name: "sleep turned off", hook: at("look", func(e *agentEnv) { saved(e, off) }), want: awake(off)},
+		{name: "a longer idle time", hook: at("look", func(e *agentEnv) { saved(e, longer) }), want: awake(longer)},
+		{name: "someone joined", hook: at("look", func(e *agentEnv) { e.rcon.setOnline("Alex") }), want: awake(on)},
+		{name: "sleep turned off while the operation looks again", hook: racing(), want: awake(off)},
+		{name: "sleep turned off once the server is meant to be asleep", hook: at("committed", func(e *agentEnv) {
+			if code, out := setSleep(e, off); code != http.StatusConflict || out["code"] != api.CodeBusy {
+				e.t.Errorf("sleep off while the server falls asleep: %d %v", code, out)
+			}
+		}), want: asleep},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var e *agentEnv
+			setSleepStep(t, func(step string) {
+				if c.hook != nil {
+					c.hook(e, step)
+				}
+			})
+			localStandIn(t)
+			e = newAgentEnv(t)
+			e.create()
+			if code, out := setSleep(e, on); code != http.StatusOK {
+				t.Fatalf("turn sleep on: %d %v", code, out)
+			}
+			s := e.srv()
+			s.fallAsleep(s.sleepSettings())
+			e.waitFor("the operation over", func() bool { return !e.a.busy() })
+			got := read(e)
+			for deadline := time.Now().Add(5 * time.Second); got != c.want && time.Now().Before(deadline); got = read(e) {
+				time.Sleep(50 * time.Millisecond)
+			}
+			if got != c.want {
+				t.Fatalf("the server is left %+v, want %+v", got, c.want)
+			}
+			fell := e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_fell_asleep'`)
+			open := e.countRows(`SELECT COUNT(*) FROM sleep_periods WHERE end_ts IS NULL`)
+			if want := c.want.desired == api.DesiredSleeping; (fell == 1) != want || (open == 1) != want {
+				t.Fatalf("%d fell-asleep events and %d sleep periods open, with the server meant to be %s", fell, open, c.want.desired)
+			}
+		})
+	}
+}
+
 // Who may wake a sleeping server by joining: with the allowlist on, the
 // players on it and operators; with it off, anyone who isn't banned, as
 // anyone else may join. If the ban list or server.properties can't be read,

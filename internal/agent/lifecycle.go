@@ -56,6 +56,14 @@ func (h *opHandle) commit() bool {
 	return !h.cancelled
 }
 
+// callOff ends the operation as cancelled: before changing anything, it
+// found it had nothing to do.
+func (h *opHandle) callOff() {
+	unlock := h.mu()
+	h.cancelled = true
+	unlock()
+}
+
 func (h *opHandle) phase(p string) {
 	unlock := h.mu()
 	h.op.Phase = p
