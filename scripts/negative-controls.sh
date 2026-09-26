@@ -894,8 +894,8 @@ control "voice chat installs only with leave to open its port" internal/agent/ad
   'if false && voice && !req.OpenPorts {' \
   ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
 control "removing voice chat closes its port" internal/agent/addons.go \
-  'if slices.ContainsFunc(drop, voiceChat) {' \
-  'if false && slices.ContainsFunc(drop, voiceChat) {' \
+  'if voiceChat(key) || slices.ContainsFunc(extra, voiceChat) {' \
+  'if false && (voiceChat(key) || slices.ContainsFunc(extra, voiceChat)) {' \
   ./internal/agent '^TestVoiceChatOpensItsPortAndClosesItWhenRemoved$'
 control "voice chat gets a UDP port nothing on the machine uses" internal/agent/curated.go \
   'return func(p int) bool { return used[p] || a.opts.UDPPortInUse(p) }' \
