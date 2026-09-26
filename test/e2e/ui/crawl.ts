@@ -49,9 +49,10 @@ export function where(route: string, view: View = 'live'): string {
 const FILL = 'fill in the form'
 const WINDOW_MS = 1600
 const MAX_WAIT_MS = 7000
-// The browser fetches a download link's target itself, out of sight of the
-// page's requests, and reports the download only once the answer starts; in
-// CI the panel has taken over 8 s to start one.
+// A link that shows nothing within the short window may still be starting a
+// download, which the browser reports only once the answer starts; in CI the
+// panel has taken over 8 s to start one. A download link's own request is
+// out of sight of the page's requests, so nothing shows it in flight.
 const DOWNLOAD_WAIT_MS = 20_000
 // A request cancelled by a page load while its route handler was still
 // fetching never reports back, so old requests stop counting as in flight.
@@ -435,7 +436,8 @@ export class Crawler {
       after = await this.snap(true)
       effects = this.effects(c, before, after, state, since, marks)
       const waited = Date.now() - since
-      if (effects.length || waited > (c.download ? DOWNLOAD_WAIT_MS : MAX_WAIT_MS) || (!c.download && waited > WINDOW_MS && this.inflight === 0)) break
+      const link = c.role === 'link'
+      if (effects.length || waited > (link ? DOWNLOAD_WAIT_MS : MAX_WAIT_MS) || (!link && waited > WINDOW_MS && this.inflight === 0)) break
     }
     await this.settle(3000)
     await this.page.waitForTimeout(150)

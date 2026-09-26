@@ -338,16 +338,24 @@ test('a combobox choice that differs from the last only in its digits still chan
 
 test('a download that starts late still counts, and a download link that does nothing is dead', async ({ browser }) => {
   // The browser fetches a download link itself, past page.route, so a real
-  // server answers, as late as CI's panel once did.
+  // server answers: a download link and a plain link to an attachment 9 s
+  // late, as CI's panel once did, and a link whose script starts its
+  // download 3 s after the press, with nothing loading meanwhile.
+  const attach = (res: http.ServerResponse) => {
+    res.writeHead(200, { 'Content-Type': 'application/gzip', 'Content-Disposition': 'attachment; filename="world.tar.gz"' })
+    res.end('a backup')
+  }
   const server = http.createServer((req, res) => {
     if (req.url === '/') {
       res.writeHead(200, { 'Content-Type': 'text/html' })
-      res.end('<!doctype html><title>Backups</title><div id="root"><h1>Backups</h1><a href="/backups/1/download" download="world.tar.gz">Download</a> <a href="/backups/2/file">Notes</a></div>')
+      res.end(`<!doctype html><title>Backups</title><div id="root"><h1>Backups</h1>
+        <a href="/backups/1/download" download="world.tar.gz">Download</a>
+        <a href="/backups/2/file">Notes</a>
+        <a href="/export" onclick="event.preventDefault(); setTimeout(() => { location.href = '/backups/3/file' }, 3000)">Export</a></div>`)
     } else if (req.url === '/backups/1/download' || req.url === '/backups/2/file') {
-      setTimeout(() => {
-        res.writeHead(200, { 'Content-Type': 'application/gzip', 'Content-Disposition': 'attachment; filename="world.tar.gz"' })
-        res.end('a backup')
-      }, 9000)
+      setTimeout(() => attach(res), 9000)
+    } else if (req.url === '/backups/3/file') {
+      attach(res)
     } else {
       res.writeHead(404)
       res.end()
@@ -361,11 +369,11 @@ test('a download that starts late still counts, and a download link that does no
     await crawler.init()
     await crawler.crawl('/')
     const download = crawler.results.find((r) => r.key === 'link "Download"')
-    const attachment = crawler.results.find((r) => r.key === 'link "Notes"')
-    expect(download?.status).toBe('works')
-    expect(download?.effects).toContain('started a download')
-    expect(attachment?.status).toBe('works')
-    expect(attachment?.effects).toContain('started a download')
+    for (const key of ['link "Download"', 'link "Notes"', 'link "Export"']) {
+      const r = crawler.results.find((x) => x.key === key)
+      expect(r?.status, key).toBe('works')
+      expect(r?.effects, key).toContain('started a download')
+    }
     expect(crawler.notes.join('\n')).toContain('› link "Download": its download started')
     const broken = await crawler.breakAndPress(download!)
     expect(typeof broken === 'string' ? broken : broken.status).toBe('dead')
