@@ -620,7 +620,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 			return err
 		}
 	}
-	if err := s.sizeHeap(&sc); err != nil {
+	if err := s.sizeHeap(ctx, &sc); err != nil {
 		return err
 	}
 	pastFiles = true
