@@ -59,7 +59,8 @@ func TestCatalogIsLiveFromPaperMCAndExperimentalNeedsConsent(t *testing.T) {
 
 // The catalog sizes memory for what the server runs, as the sizing guide
 // does: an existing server by the plugins or mods in its folder, a new one
-// from a pack by the pack's mods, and any other new one by its type.
+// from a pack or template by the mods or plugins it brings, and any other
+// new one by its type.
 func TestTheCatalogSizesMemoryForWhatTheServerRuns(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -76,6 +77,11 @@ func TestTheCatalogSizesMemoryForWhatTheServerRuns(t *testing.T) {
 		{"a Fabric server with mods", "", "fabric", 8, sizing.AddOns},
 		{"a NeoForge server with mods", "", "neoforge", 12, sizing.AddOns},
 		{"a new server from a pack of 180 mods", "type=neoforge&mods=180", "", 0, sizing.Modpack},
+		{"a new server from a pack that doesn't say its mods", "type=fabric", "", 0, sizing.AddOns},
+		{"a new server from a Paper template with 3 plugins", "type=paper&plugins=3", "", 0, sizing.Vanilla},
+		{"a new server from a Paper template with 30 plugins", "type=paper&plugins=30", "", 0, sizing.AddOns},
+		{"a new server from a Fabric template with 5 mods", "type=fabric&mods=5", "", 0, sizing.AddOns},
+		{"a new server from a Fabric template with 60 mods", "type=fabric&mods=60", "", 0, sizing.Modpack},
 		{"a server made from a modpack", "", "fabric", 60, sizing.Modpack},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -116,8 +122,10 @@ func TestTheCatalogSizesMemoryForWhatTheServerRuns(t *testing.T) {
 		})
 	}
 	e := newAgentEnv(t)
-	if code, out := e.call("GET", "/v1/catalog?type=fabric&mods=lots", nil); code != 400 {
-		t.Fatalf("a pack's mods that aren't a number: %d %v", code, out)
+	for _, q := range []string{"type=fabric&mods=lots", "type=paper&plugins=-1"} {
+		if code, out := e.call("GET", "/v1/catalog?"+q, nil); code != 400 {
+			t.Fatalf("%s: a number of add-ons that isn't a whole number: %d %v", q, code, out)
+		}
 	}
 }
 

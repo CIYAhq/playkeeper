@@ -316,8 +316,8 @@ func (a *Agent) templateCatalog(ctx context.Context, t *templates.Template) temp
 	if !typeAvailable(want) {
 		want = templateSubstitutes[want]
 	}
-	opts, rec, _ := a.memoryFor("")
-	c := templates.Catalog{MemoryOptionsMB: opts, RecommendedMemoryMB: rec}
+	opts, _, _ := a.memoryFor("")
+	c := templates.Catalog{MemoryOptionsMB: opts}
 	for _, st := range serverTypes() {
 		ct := templates.CatalogType{ID: st.ID, Name: st.Name, Available: st.Available}
 		if st.Available && st.ID == want {

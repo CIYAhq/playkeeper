@@ -3,16 +3,24 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Action, Catalog, MachineView, Me, Operation, WorldImport, WorldImportPreview } from '@/api/types'
+import * as templates from '@/api/templates'
+import type { Action, Catalog, MachineView, Me, Operation, TemplatePlan, WorldImport, WorldImportPreview } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
+import type { ModpackChoice } from '@/components/app/modpacks'
+import type { TemplateChoice } from '@/components/app/templates'
 import * as upload from '@/lib/upload'
-import { NewServerPage } from './new-server'
+import { catalogFor, NewServerPage, type StartFrom } from './new-server'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
   get: vi.fn(() => new Promise(() => {})),
   post: vi.fn(() => Promise.resolve({})),
   del: vi.fn(() => Promise.resolve(undefined)),
+}))
+
+vi.mock('@/api/templates', async (importOriginal) => ({
+  ...(await importOriginal<typeof templates>()),
+  planTemplate: vi.fn(() => new Promise(() => {})),
 }))
 
 vi.mock('@/lib/upload', async (importOriginal) => ({
@@ -426,4 +434,63 @@ describe('New server on a joined machine', () => {
       expect(asked().filter((p) => p.includes(machine.id))).toEqual([])
     })
   }
+})
+
+describe('What New server sizes memory for', () => {
+  const types = [
+    { id: 'paper', name: 'Paper', available: true },
+    { id: 'fabric', name: 'Fabric', available: true },
+    { id: 'neoforge', name: 'NeoForge', available: true },
+    { id: 'forge', name: 'Forge', available: false },
+  ]
+  const plan = (type: string, addons: number, modpack = false): TemplatePlan => ({
+    contents: {
+      name: 'Fast SMP',
+      type,
+      minecraftVersion: '1.21.1',
+      settings: {},
+      addons: Array.from({ length: addons }, (_, i) => ({ source: 'modrinth', name: `Add-on ${i}` })),
+      ...(modpack ? { modpack: { source: 'modrinth', name: 'Adrenaserver' } } : {}),
+      resourcePacks: 0,
+      dataPacks: 0,
+      packs: [],
+    },
+    type,
+    minecraftVersion: '1.21.1',
+    memoryMB: 0,
+    skipped: [],
+    warnings: [],
+    blockers: [],
+    ready: true,
+    fingerprint: 'f0f0f0f0',
+  })
+  const tpl = (p: TemplatePlan): TemplateChoice => ({ plan: p, fileName: '', text: 'template' })
+  const pack = (type: string, mods?: number): ModpackChoice => ({ source: 'modrinth', projectId: 'H9OFWiay', versionId: '', name: 'Pack', type, minecraftVersion: '1.21.1', memoryMB: 0, mods })
+
+  it.each<{ name: string; from: StartFrom; pack?: ModpackChoice; tpl?: TemplateChoice; want: object }>([
+    { name: 'a Paper template with 3 plugins', from: 'template', tpl: tpl(plan('paper', 3)), want: { type: 'paper', plugins: 3 } },
+    { name: 'a Paper template with 30 plugins', from: 'template', tpl: tpl(plan('paper', 30)), want: { type: 'paper', plugins: 30 } },
+    { name: 'a Fabric template with 5 mods', from: 'template', tpl: tpl(plan('fabric', 5)), want: { type: 'fabric', mods: 5 } },
+    { name: 'a Fabric template with 60 mods', from: 'template', tpl: tpl(plan('fabric', 60)), want: { type: 'fabric', mods: 60 } },
+    { name: 'a modpack template, as at least a few mods', from: 'template', tpl: tpl(plan('fabric', 0, true)), want: { type: 'fabric', mods: 1 } },
+    { name: 'a modpack template with 60 mods on top', from: 'template', tpl: tpl(plan('fabric', 60, true)), want: { type: 'fabric', mods: 60 } },
+    { name: 'a template of a type this machine can’t create', from: 'template', tpl: tpl(plan('forge', 5)), want: { type: 'paper' } },
+    { name: 'a pack that says its mods', from: 'modpack', pack: pack('neoforge', 180), want: { type: 'neoforge', mods: 180 } },
+    { name: 'a pack that doesn’t say its mods, by its type', from: 'modpack', pack: pack('fabric'), want: { type: 'fabric' } },
+    { name: 'a pack of a type this machine can’t create', from: 'modpack', pack: pack('forge', 40), want: { type: 'paper', mods: 40 } },
+    { name: 'a type, when a pack was chosen before', from: 'type', pack: pack('fabric', 40), want: { type: 'paper' } },
+  ])('asks the catalog for $name', ({ from, pack, tpl, want }) => {
+    expect(catalogFor(from, 'paper', pack, tpl, types)).toEqual(want)
+  })
+
+  it('sizes a shared template by its type and mods', async () => {
+    window.history.replaceState(null, '', '/servers/new#template=shared')
+    const fabric: Catalog = { ...catalog, types }
+    vi.mocked(client.get).mockImplementation(((path: string) => (path.includes('/catalog') ? Promise.resolve({ ...fabric, type: new URLSearchParams(path.split('?')[1]).get('type') ?? 'paper' }) : new Promise(() => {}))) as typeof client.get)
+    vi.mocked(templates.planTemplate).mockResolvedValue(plan('fabric', 60))
+    await render()
+    await act(settle)
+    expect(templates.planTemplate).toHaveBeenCalledWith(machine.id, 'shared')
+    expect(client.get).toHaveBeenCalledWith(`/api/machines/${machine.id}/catalog?type=fabric&mods=60`)
+  })
 })
