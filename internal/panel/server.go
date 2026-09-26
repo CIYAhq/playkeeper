@@ -1031,12 +1031,13 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 		wg.Go(func() {
 			ctx, cancel := context.WithTimeout(r.Context(), machineTimeout)
 			defer cancel()
-			m.agent.Do(ctx, "GET", "/v1/audit", url.Values{"limit": {"200"}}, nil, &audits[i])
+			m.agent.Do(ctx, "GET", "/v1/audit", url.Values{"limit": {strconv.Itoa(maxMachineAudit)}}, nil, &audits[i])
 		})
 	}
 	wg.Wait()
+	now := s.now().UTC()
 	for i, m := range machines {
-		for _, a := range audits[i] {
+		for _, a := range machineAudit(audits[i], now) {
 			out = append(out, entry{AuditEntry: a, Source: "agent", MachineID: m.ID})
 		}
 	}
@@ -1049,6 +1050,33 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 		out[i].ActorKind, out[i].ActorName = actorInfo(out[i].Actor, names)
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// maxMachineAudit is how many audit rows the log takes from each machine.
+const maxMachineAudit = 200
+
+// machineAudit is what the log takes of the audit rows a machine sent: the
+// first maxMachineAudit, each id once, none dated after now. A machine's
+// clock may run ahead, and one that sends more rows than asked, or dates
+// them in the future to stay on top, still leaves the log room for the
+// dashboard's own rows.
+func machineAudit(rows []api.AuditEntry, now time.Time) []api.AuditEntry {
+	out := make([]api.AuditEntry, 0, min(len(rows), maxMachineAudit))
+	seen := map[int64]bool{}
+	for _, a := range rows {
+		if len(out) == maxMachineAudit {
+			break
+		}
+		if seen[a.ID] {
+			continue
+		}
+		seen[a.ID] = true
+		if a.TS.After(now) {
+			a.TS = now
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // --- agent proxy ---

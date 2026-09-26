@@ -14,6 +14,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can, settingsHome, settingsSections, type SettingsSectionName } from '@/lib/access'
 import { formatDateTime, relativeTime } from '@/lib/format'
+import { machineLabel } from '@/lib/machines'
 import { linkProps, navigate, type Route } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -218,7 +219,9 @@ function AuditCard() {
   const ws = useWorkspace()
   const audit = usePoll(() => get<AuditEntry[]>('/api/audit'), 30_000)
   const serverName = (id?: string) => (id ? (ws.servers?.find((s) => s.id === id)?.name ?? '') : '')
-  const rows = (audit.data ?? []).slice(0, 100)
+  // With more than one machine, an agent's row says whose it is.
+  const machineName = (e: AuditEntry) => (e.source === 'agent' && ws.machines.length > 1 ? machineLabel(ws.machines.find((m) => m.id === e.machineId)) : '')
+  const rows = audit.data ?? []
   return (
     <Card as="section" aria-labelledby="audit-title" id="audit" className="scroll-mt-4">
       <CardTitle id="audit-title">{t('global.audit')}</CardTitle>
@@ -245,7 +248,7 @@ function AuditCard() {
               </tr>
             )}
             {rows.map((e) => (
-              <tr key={`${e.source}-${e.id}`} className="h-11 border-t border-border align-top">
+              <tr key={`${e.source}-${e.machineId ?? ''}-${e.id}`} className="h-11 border-t border-border align-top">
                 <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatDateTime(e.ts)}</td>
                 <td className="px-3 py-2">
                   {e.actorKind && e.actorName ? (
@@ -258,7 +261,10 @@ function AuditCard() {
                   )}
                 </td>
                 <td className="px-3 py-2 font-mono text-xs">{e.action}</td>
-                <td className="px-3 py-2">{serverName(e.serverId)}</td>
+                <td className="px-3 py-2">
+                  {serverName(e.serverId)}
+                  {machineName(e) && <span className="block text-xs text-muted-foreground">{t('machines.onMachine', { name: machineName(e) })}</span>}
+                </td>
                 <td className={cn('px-3 py-2', e.result === 'succeeded' ? 'text-success-foreground' : e.result === 'failed' || e.result === 'refused' ? 'text-destructive-foreground' : 'text-muted-foreground')}>{e.result}</td>
                 <td className="max-w-[280px] px-3 py-2 break-words text-muted-foreground">{e.detail}</td>
               </tr>
