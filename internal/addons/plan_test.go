@@ -141,6 +141,7 @@ func TestPlanInstallPicksTheLoadersVersion(t *testing.T) {
 		{"fabric", "mods", "Chunky 1.5.3 4Eotm6ov, Fabric API 0.161.0+26.2 ewUK83HI"},
 		{"quilt", "mods", "Chunky 1.5.3 4Eotm6ov, Fabric API 0.161.0+26.2 ewUK83HI"},
 		{"neoforge", "mods", "Chunky 1.5.4 EyCqftOK"},
+		{"forge", "mods", "Chunky 1.5.4 A9NbdnLA"},
 	} {
 		t.Run(tc.typ, func(t *testing.T) {
 			f := newFakes(t)

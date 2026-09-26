@@ -115,7 +115,7 @@ func TestProjectsMatchModrinth(t *testing.T) {
 	// Purpur runs Paper plugins. Quilt counts only where a project says it
 	// runs there, although Quilt loads many Fabric mods.
 	loaders := map[string][]string{
-		"paper": {"paper"}, "purpur": {"purpur", "paper"}, "fabric": {"fabric"}, "quilt": {"quilt"}, "neoforge": {"neoforge"},
+		"paper": {"paper"}, "purpur": {"purpur", "paper"}, "fabric": {"fabric"}, "quilt": {"quilt"}, "neoforge": {"neoforge"}, "forge": {"forge"},
 	}
 	used := map[string]bool{}
 	for _, e := range List() {
@@ -159,8 +159,9 @@ func TestForType(t *testing.T) {
 		"fabric":   {"voice-chat", "rollback", "pregenerate", "permissions", "lag-finder"},
 		"quilt":    {"voice-chat", "rollback", "lag-finder"},
 		"neoforge": {"voice-chat", "pregenerate", "permissions", "lag-finder"},
+		"forge":    {"voice-chat", "pregenerate", "permissions", "lag-finder"},
 		"vanilla":  nil,
-		"forge":    nil,
+		"folia":    nil,
 	} {
 		var got []string
 		for _, e := range ForType(typ) {
@@ -193,18 +194,22 @@ func TestFor(t *testing.T) {
 	}
 	_, err = rollback.For("vanilla")
 	wantKind(t, err, addons.KindNoAddons)
-	_, err = rollback.For("forge")
+	_, err = rollback.For("folia")
 	wantKind(t, err, addons.KindUnknownServerType)
+	_, err = rollback.For("forge")
+	if e := wantKind(t, err, KindNotForType); e.Hint != "Search the add-ons page for one made for Forge." {
+		t.Errorf("notice %+v", e.Notice)
+	}
 
 	voice, _ := Get(VoiceChatID)
-	for _, typ := range []string{"paper", "purpur", "fabric", "quilt", "neoforge"} {
+	for _, typ := range []string{"paper", "purpur", "fabric", "quilt", "neoforge", "forge"} {
 		if p, err := voice.For(typ); err != nil || p.ID != "9eGKb6K1" || p.Permission == "" {
 			t.Errorf("voice chat For(%s) = %+v, %v", typ, p, err)
 		}
 	}
 	lag, _ := Get("lag-finder")
 	_, err = lag.For("paper")
-	if e := wantKind(t, err, KindNotForType); e.Msg != "Lag finder is only offered for Fabric, Quilt and NeoForge servers; this server runs Paper." {
+	if e := wantKind(t, err, KindNotForType); e.Msg != "Lag finder is only offered for Fabric, Quilt, NeoForge and Forge servers; this server runs Paper." {
 		t.Errorf("message %q", e.Msg)
 	}
 
