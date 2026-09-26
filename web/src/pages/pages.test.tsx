@@ -8,6 +8,7 @@ import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } fro
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
 import { ModpackPicker } from '@/components/app/modpacks'
+import { AppShell } from '@/components/app/shell'
 import { TemplateDialog } from '@/components/app/templates'
 import { HomePage } from './home'
 import { createNote, NewServerPage } from './new-server'
@@ -403,6 +404,17 @@ describe('Templates', () => {
     await toggle('Plugins')
     expect(vi.mocked(client.get)).toHaveBeenLastCalledWith('/api/servers/abcdefghjk/template?addons=off')
     expect(document.body.textContent).not.toContain('Pin exact versions')
+  })
+})
+
+describe('Sidebar', () => {
+  it('stops saying Creating once a create failed, like the server’s page', async () => {
+    const failedCreate = failed('create', 'downloading_server', 'The server stopped while starting (exit code 1).')
+    const text = await render(<AppShell route={{ name: 'home' }}><p>page</p></AppShell>, workspace({ servers: [server({ name: 'Modpack check', phase: 'stopped', startedAt: undefined, lastOperation: failedCreate })] }))
+    const row = [...document.querySelectorAll('aside a')].find((a) => a.textContent?.includes('Modpack check'))
+    expect(row?.textContent).toContain('Stopped')
+    expect(text).not.toContain('Creating')
+    expect(row?.querySelector('[data-slot="spinner"], .animate-spin')).toBeNull()
   })
 })
 

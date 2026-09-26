@@ -9,7 +9,7 @@ import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine, ranOutOfMemory } from './console'
 import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativeTime } from './format'
 import { memorySegments } from './memory'
-import { busyReason, controls, createStepOf, isSettingUp, packStepOf, phaseTone, templateStepOf, whyNot } from './phase'
+import { busyReason, controls, createStepOf, isCreating, isSettingUp, packStepOf, phaseTone, templateStepOf, whyNot } from './phase'
 import { href, parse, type Route } from './router'
 import { newerStable, softwareLabel, softwareName } from './servers'
 import { addonKind, formatReleased, shortHash } from './software'
@@ -194,6 +194,13 @@ describe('server state', () => {
     expect(isSettingUp(server({ operation: { id: '1', kind: 'create', status: 'running', phase: 'downloading_server', actor: 'a', startedAt: at } }))).toBe(true)
     expect(isSettingUp(server({ phase: 'stopped', lastOperation: { id: '1', kind: 'create', status: 'failed', phase: 'downloading_server', actor: 'a', startedAt: at } }))).toBe(true)
     expect(isSettingUp(server({ phase: 'online', startedAt: at, lastOperation: { id: '1', kind: 'create', status: 'succeeded', phase: '', actor: 'a', startedAt: at } }))).toBe(false)
+  })
+
+  it('calls a server creating only while its create runs', () => {
+    const at = '2026-09-25T10:00:00Z'
+    expect(isCreating(server({ operation: { id: '1', kind: 'create', status: 'running', phase: 'downloading_server', actor: 'a', startedAt: at } }))).toBe(true)
+    expect(isCreating(server({ phase: 'stopped', lastOperation: { id: '1', kind: 'create', status: 'failed', phase: 'downloading_server', actor: 'a', startedAt: at } }))).toBe(false)
+    expect(isCreating(server({ operation: { id: '2', kind: 'start', status: 'running', phase: 'starting', actor: 'a', startedAt: at }, lastOperation: { id: '1', kind: 'create', status: 'failed', phase: '', actor: 'a', startedAt: at } }))).toBe(false)
   })
 
   it('says in a few words why a control can’t be used', () => {

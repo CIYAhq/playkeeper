@@ -64,6 +64,11 @@ export function isSettingUp(st: ServerStatus): boolean {
   return !!op && op.kind === 'create' && op.status === 'failed' && !st.startedAt && st.phase !== 'online'
 }
 
+/** Is the server's create running right now? A create that failed isn't: the server is stopped. */
+export function isCreating(st: ServerStatus): boolean {
+  return st.operation?.kind === 'create'
+}
+
 /** Which lifecycle controls make sense in the current state. */
 export function controls(st: ServerStatus) {
   const busy = st.operation !== undefined
