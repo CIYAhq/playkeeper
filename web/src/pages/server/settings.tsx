@@ -681,10 +681,13 @@ function VersionDialog({ server: s, targets, initial, open, onClose }: { server:
   )
 }
 
-/** Copies somewhere else, kept or still made, that only the server's recovery key opens, while the key was never downloaded. */
+/** The server has keys to copies somewhere else, which only its recovery key opens, and the key was never downloaded. The copies include ones a change of place forgot. */
 function keyNotSaved(v: OffsiteView | undefined): boolean {
-  return !!v?.key && !v.key.savedAt && (v.copies > 0 || v.enabled)
+  return !!v?.key && !v.key.savedAt
 }
+
+/** The agent's refusals of a delete that would delete the only key to the server's copies, or can't tell. */
+const keyRefusals = ['recovery_key_not_saved', 'recovery_key_unknown']
 
 function DangerRows({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
@@ -694,12 +697,13 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
   const [stopping, setStopping] = useState(false)
   const [withoutKey, setWithoutKey] = useState(false)
   const [savingKey, setSavingKey] = useState(false)
-  // The agent's refusal when the key wasn't downloaded, for when the page's view of the copies is older.
+  // The agent's refusal when the key wasn't downloaded, or it couldn't tell, for when the page's view of the copies is older.
   const [refused, setRefused] = useState<ApiError>()
   const list = usePoll(() => get<Backup[]>(serverApi(s.id, '/backups')), 30_000, s.id)
   const off = usePoll(() => (open ? get<OffsiteView>(serverApi(s.id, '/offsite')) : Promise.resolve(undefined)), 30_000, open ? s.id : '')
   const backups = list.data?.length ?? 0
   const keyRisk = keyNotSaved(off.data) || !!refused
+  const keyUnknown = refused?.reason === 'recovery_key_unknown'
   const place = off.data?.place || String(refused?.params?.place ?? '')
   const copies = off.data?.copies ?? Number(refused?.params?.copies ?? 0)
   function close() {
@@ -714,7 +718,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
       close()
       navigate({ name: 'home' })
     } catch (e) {
-      if (e instanceof ApiError && e.reason === 'recovery_key_not_saved') setRefused(e)
+      if (e instanceof ApiError && keyRefusals.includes(e.reason ?? '')) setRefused(e)
       else toastManager.add({ title: errorText(e), type: 'error' })
     } finally {
       setBusy(false)
@@ -782,7 +786,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
                 <Notice
                   tone="warning"
                   stacked
-                  title={t('settings.deleteKeyTitle')}
+                  title={t(keyUnknown ? 'settings.deleteKeyUnknownTitle' : 'settings.deleteKeyTitle')}
                   action={
                     off.data?.key && (
                       <Button size="sm" variant="outline" loading={savingKey} disabledReason={can(ws.me, 'backups.recovery_key') ? undefined : t('offsite.key.holdersOnly')} onClick={() => void saveKey()}>
@@ -792,7 +796,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
                     )
                   }
                 >
-                  {t('settings.deleteKeyBody', { count: copies, server: s.name, place })}
+                  {keyUnknown ? t('settings.deleteKeyUnknownBody', { server: s.name }) : t('settings.deleteKeyBody', { count: copies, server: s.name, place })}
                 </Notice>
                 <label className="flex items-start gap-2.5 text-[13px]">
                   <Checkbox checked={withoutKey} onCheckedChange={(c) => setWithoutKey(c === true)} className="mt-0.5" />
@@ -813,7 +817,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
               variant="destructive"
               onClick={remove}
               loading={busy}
-              disabledReason={typed.trim() !== s.name ? t('settings.deleteTypeFirst', { server: s.name }) : keyRisk && !withoutKey ? t('settings.deleteKeyFirst') : undefined}
+              disabledReason={typed.trim() !== s.name ? t('settings.deleteTypeFirst', { server: s.name }) : keyRisk && !withoutKey ? t(keyUnknown ? 'settings.deleteKeyUnknownFirst' : 'settings.deleteKeyFirst') : undefined}
             >
               <Trash2Icon />
               {t('settings.deleteConfirm', { server: s.name })}
