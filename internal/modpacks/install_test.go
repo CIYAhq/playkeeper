@@ -226,7 +226,7 @@ func TestRefusedPacks(t *testing.T) {
 		kind addons.Kind
 		msg  string
 	}{
-		{Ref{addons.Modrinth, "create_plus", "OirSzesD"}, KindForge, "Create+ runs on Forge, and Playkeeper does not run Forge servers."},
+		{Ref{addons.Modrinth, "create_plus", "OirSzesD"}, KindMinecraft, "Create+ is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.21 and newer."},
 		{Ref{addons.Modrinth, "the-content-smp", "ck8SrkA4"}, KindMinecraft, "The Content Smp (Fan-Made) is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.21 and newer."},
 		{Ref{addons.Modrinth, "the-content-smp", ""}, KindMinecraft, "The Content Smp (Fan-Made) is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.21 and newer."},
 		{Ref{addons.Modrinth, "adrenaline", "wGteoJrN"}, KindMinecraft, "Adrenaline is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer."},
@@ -261,7 +261,9 @@ func TestPackDependenciesDecideTheServer(t *testing.T) {
 		{deps: obj{"minecraft": "26.2", "quilt-loader": "0.29.2-beta.3"}, want: Requirements{"quilt", "26.2", "0.29.2-beta.3"}},
 		{deps: obj{"minecraft": "1.21.1", "neoforge": "21.1.233"}, want: Requirements{"neoforge", "1.21.1", "21.1.233"}},
 		{deps: obj{"minecraft": "1.21.4"}, want: Requirements{"vanilla", "1.21.4", ""}},
-		{deps: obj{"minecraft": "1.20.1", "forge": "47.4.0"}, kind: KindForge},
+		{deps: obj{"minecraft": "26.2", "forge": "65.1.3"}, want: Requirements{"forge", "26.2", "65.1.3"}},
+		{deps: obj{"minecraft": "26.2", "forge": "26.2-65.1.3"}, want: Requirements{"forge", "26.2", "65.1.3"}},
+		{deps: obj{"minecraft": "1.20.1", "forge": "47.4.0"}, kind: KindMinecraft},
 		{deps: obj{"minecraft": "26.2", "liteloader": "1.0"}, kind: KindUnknownLoader},
 		{deps: obj{"minecraft": "26.2", "fabric-loader": "0.19.5", "quilt-loader": "0.29.1"}, kind: KindBadPack},
 		{deps: obj{"minecraft": "26.2-rc1", "fabric-loader": "0.19.5"}, kind: KindMinecraft},
@@ -582,4 +584,55 @@ func TestInstallRefusesAChangedPlan(t *testing.T) {
 	}
 	wantTree(t, srv.Dir, "mods/", "mods/a-1.jar")
 	wantTree(t, l.TempDir)
+}
+
+// A Forge pack from Modrinth: The Respect My Rights Modpack 1.1, four mods
+// for Forge 61.1.1 on Minecraft 1.21.11.
+func TestInstallForgePackFromModrinth(t *testing.T) {
+	f := newFakes(t)
+	l := f.library()
+	srv := newServer(t, "", "")
+	ref := Ref{Source: addons.Modrinth, Project: "the-respect-my-rights-modpack"}
+	p := mustPlan(t, l, srv, InstallRequest{Ref: ref})
+	sameJSON(t, "requirements", p.Requirements, Requirements{Type: "forge", MinecraftVersion: "1.21.11", LoaderVersion: "61.1.1"})
+	if !p.Ready || len(p.Blockers) != 0 || p.Pack.VersionID != "orK5UWpS" {
+		t.Fatalf("plan: %+v", p)
+	}
+	var mods []string
+	for _, c := range p.Changes {
+		if c.Action != ActionAdd || c.Origin != Download || !strings.HasPrefix(c.Path, "mods/") {
+			t.Errorf("change %+v", c)
+		}
+		mods = append(mods, c.Path)
+	}
+	wantList(t, "mods", mods, "mods/NoChatReports-FORGE-1.21.11-v2.18.0.jar", "mods/NoChatRestrictions-Forge-MC1.21.11-v1.0.0.jar",
+		"mods/lazyDFU-[UNOFFICIAL]-1.21.11.jar", "mods/no-telemetry-1.10.0.jar")
+	res, err := l.Install(context.Background(), srv, nil, InstallRequest{Ref: ref, Fingerprint: p.Fingerprint})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Record.Requirements.Type != "forge" || len(res.Record.Files) != 4 {
+		t.Errorf("record %+v", res.Record)
+	}
+	wantTree(t, srv.Dir, append([]string{"mods/"}, mods...)...)
+}
+
+// Forge packs are found and listed like any other: a search for Forge packs
+// asks Modrinth for them, and their versions say they run on Forge.
+func TestForgePacksAreListed(t *testing.T) {
+	f := newFakes(t)
+	l := f.library()
+	vs, err := l.Versions(context.Background(), addons.Modrinth, "the-respect-my-rights-modpack", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vs) != 1 || vs[0].Type != "forge" || vs[0].MinecraftVersion != "1.21.11" || vs[0].Unsupported != nil {
+		t.Fatalf("versions %+v", vs)
+	}
+	if _, err := l.Search(context.Background(), Query{Source: addons.Modrinth, Type: "forge"}); err != nil {
+		t.Fatal(err)
+	}
+	if q := f.lastQueryAt("modrinth", "/v2/search").Get("facets"); !strings.Contains(q, `["categories:forge"]`) {
+		t.Errorf("searched with facets %s", q)
+	}
 }
