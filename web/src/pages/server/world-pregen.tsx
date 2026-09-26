@@ -6,6 +6,7 @@ import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Card, CardHint, CardTitle, Marker, Notice, SectionLabel, Spinner } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
+import { CardsSkeleton, ListSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Radio } from '@/components/ui/radio-group'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -165,7 +166,7 @@ export function PregenPage({ server: s }: { server: ServerStatus }) {
   return (
     <>
       <WorldSubHeader server={s} title={t('pregen.phoneTitle')} />
-      <div key={view} className="flex flex-col animate-in fade-in-0 duration-300">
+      <div key={view} className="flex animate-fade flex-col">
         {view === 'loading' && <PregenSkeleton />}
         {view === 'error' && poll.error && <PregenError message={poll.error.code === 'unsupported_server' ? t('pregen.unsupported') : errorText(poll.error)} unsupported={poll.error.code === 'unsupported_server'} onRetry={refresh} />}
         {view === 'choose' && pg && (
@@ -189,23 +190,22 @@ function PregenSkeleton() {
   const phone = useIsPhone()
   if (phone) {
     return (
-      <div className="flex flex-col gap-3 pt-2" aria-busy="true">
-        <Skeleton className="h-5 w-4/5" />
-        <Skeleton className="h-[244px] w-full rounded-3xl" />
+      <div className="flex flex-col gap-3 pt-1">
+        <p className="px-1 text-[15px] leading-5 text-muted-foreground">{t('pregen.hint')}</p>
+        <section>
+          <SectionLabel className="px-4">{t('pregen.howFar')}</SectionLabel>
+          <ListSkeleton rows={4} rowClassName="flex min-h-[60px] items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0" className="mt-2 overflow-hidden rounded-3xl border border-border bg-white" trailing={<Skeleton className="size-5 shrink-0 rounded-full" />} />
+        </section>
         <Skeleton className="h-14 w-full rounded-3xl" />
       </div>
     )
   }
   return (
-    <Card aria-busy="true">
-      <Skeleton className="h-5 w-48" />
-      <Skeleton className="mt-2 h-4 w-72" />
-      <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[0, 1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-[92px] rounded-2xl" />
-        ))}
-      </div>
-      <Skeleton className="mt-6 h-5 w-64" />
+    <Card>
+      <CardTitle>{t('world.pregen')}</CardTitle>
+      <CardHint>{t('pregen.hint')}</CardHint>
+      <CardsSkeleton count={4} className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4" card="h-[92px]" />
+      <Skeleton className="mt-7 h-5 w-64" />
     </Card>
   )
 }
@@ -299,7 +299,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
           </SectionLabel>
           <CardGroup value={preset} onChange={setPreset} label={t('pregen.howFar')} className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
             {pg.presets.map((p) => (
-              <label key={p.id} className="flex min-h-[60px] cursor-pointer items-center gap-3 border-b border-border px-4 py-2.5 transition-colors last:border-b-0 active:bg-accent/60 has-[[data-disabled]]:cursor-default has-[[data-disabled]]:opacity-60">
+              <label key={p.id} className="flex min-h-[60px] cursor-pointer items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0 active:bg-accent/60 has-[[data-disabled]]:cursor-default has-[[data-disabled]]:opacity-60">
                 <span className="min-w-0 flex-1">
                   {name(p)}
                   <span className="block text-[13px] text-muted-foreground">{[t('pregen.blocks', { radius: p.radius }), estimate(p)].join(t('common.dot'))}</span>
@@ -352,7 +352,7 @@ function Bar({ value, tone, label, className }: { value: number; tone: 'info' | 
   const pct = Math.max(0, Math.min(100, value))
   return (
     <div className={cn('h-2 w-full overflow-hidden rounded-full bg-foreground/8', className)} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(pct)} aria-label={label}>
-      <div className={cn('h-full rounded-full transition-[width,background-color] duration-700 ease-out', tone === 'info' ? 'bg-info' : 'bg-muted-foreground/35')} style={{ width: `${pct}%` }} />
+      <div className={cn('h-full rounded-full transition-[width,background-color] duration-(--motion-slow) ease-standard', tone === 'info' ? 'bg-info' : 'bg-muted-foreground/35')} style={{ width: `${pct}%` }} />
     </div>
   )
 }
@@ -403,7 +403,7 @@ function Running({ server: s, pregen: pg, onChanged }: { server: ServerStatus; p
         <span className="min-w-0">
           <span className="block text-[13px] font-semibold tabular-nums">{t('pregen.chunks', { done: pg.chunks, total: pg.total })}</span>
           {status && (
-            <span key={status} className="block text-[13px] text-muted-foreground animate-in fade-in-0 duration-300">
+            <span key={status} className="block animate-fade text-[13px] text-muted-foreground">
               {status}
             </span>
           )}
@@ -454,7 +454,7 @@ function Finished({ pregen: pg, onFurther }: { pregen: Pregen; onFurther?: () =>
   return (
     <Card className={phone ? 'mt-1 p-4' : 'py-6'}>
       <div className="flex items-center gap-5 max-sm:gap-4">
-        <Pip pose="cheer" size={phone ? 56 : 64} className="animate-in zoom-in-95 fade-in-0 duration-300" />
+        <Pip pose="cheer" size={phone ? 56 : 64} />
         <div className="min-w-0 flex-1">
           <h2 className="text-lg leading-6 font-bold tracking-[-0.01em]">{t('pregen.ready', { radius: pg.radius ?? 0 })}</h2>
           <p className="mt-0.5 text-[13px] text-muted-foreground">{line}</p>

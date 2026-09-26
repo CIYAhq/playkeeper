@@ -1,4 +1,5 @@
 import { useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronLeftIcon, UploadIcon } from 'lucide-react'
 import type { ServerStatus } from '@/api/types'
 import { Spinner } from '@/components/app/bits'
@@ -84,7 +85,7 @@ export function ZipDropZone({ label, onFile, busy, disabled, tall, className }: 
         onClick={picker.open}
         disabled={off}
         className={cn(
-          'flex h-full w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-input bg-warm px-6 text-center text-[13px] font-medium outline-none transition-[border-color,background-color,scale] duration-200 not-disabled:hover:border-primary/50 not-disabled:active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:text-muted-foreground',
+          'flex h-full w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-input bg-warm px-6 text-center text-[13px] font-medium outline-none not-disabled:hover:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:text-muted-foreground',
           tall ? 'min-h-[88px] flex-col gap-3 py-6' : 'py-5',
           over && 'border-primary bg-selected',
         )}
@@ -98,25 +99,16 @@ export function ZipDropZone({ label, onFile, busy, disabled, tall, className }: 
 }
 
 /**
- * The keys that joined a list after it first loaded, so only those rows
- * animate in; the first data shows as it is.
+ * Pins a page's main action above the phone's tabs; the spacer keeps the
+ * content clear of it. The bar lives in the document body because the page
+ * rises in with a transform, which would pin a fixed bar to the moving page
+ * instead of the screen.
  */
-export function useArrivals(keys: string[] | undefined): ReadonlySet<string> {
-  const [seen, setSeen] = useState<{ sig?: string; known: ReadonlySet<string>; fresh: ReadonlySet<string> }>({ known: new Set(), fresh: new Set() })
-  const sig = keys?.join('\n')
-  if (keys && sig !== seen.sig) {
-    const fresh = seen.sig === undefined ? new Set<string>() : new Set(keys.filter((k) => !seen.known.has(k)))
-    setSeen({ sig, known: new Set(keys), fresh })
-  }
-  return seen.fresh
-}
-
-/** Pins a page's main action above the phone's tabs; the spacer keeps the content clear of it. */
 export function PhoneActionBar({ children }: { children: ReactNode }) {
   return (
     <>
       <div className="h-20 shrink-0" aria-hidden="true" />
-      <div className="fixed inset-x-0 bottom-[calc(53px+env(safe-area-inset-bottom))] z-30 flex gap-2 bg-sidebar/95 px-4 pt-2 pb-3 backdrop-blur animate-in fade-in-0 slide-in-from-bottom-2 duration-300">{children}</div>
+      {createPortal(<div className="fixed inset-x-0 bottom-[calc(53px+env(safe-area-inset-bottom))] z-30 flex animate-page gap-2 bg-sidebar/95 px-4 pt-2 pb-3 backdrop-blur">{children}</div>, document.body)}
     </>
   )
 }

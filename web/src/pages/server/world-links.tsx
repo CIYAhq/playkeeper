@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { ChevronRightIcon, MapIcon, PackageIcon } from 'lucide-react'
 import type { Pregen, ServerStatus } from '@/api/types'
 import { Spinner } from '@/components/app/bits'
-import { Skeleton } from '@/components/ui/skeleton'
+import { InlineSkeleton } from '@/components/app/skeletons'
 import { t } from '@/i18n'
 import { linkProps, type ServerSub } from '@/lib/router'
 import { cn } from '@/lib/utils'
@@ -30,21 +30,23 @@ function DesktopLink({ server, sub, icon, title, line, lineKey, busy }: LinkProp
     <li>
       <a
         {...linkProps({ name: 'server', slug: server.slug, tab: 'world', sub })}
-        className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-1 outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring active:bg-accent [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+        className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-1 outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring active:bg-accent [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
       >
         {icon}
         <span className="min-w-0 flex-1">
           <span className="block text-[13px] font-semibold">{title}</span>
           {line === undefined ? (
-            <Skeleton className="mt-1 h-3 w-40" />
+            <span className="block text-xs">
+              <InlineSkeleton className="w-40" />
+            </span>
           ) : (
-            <span key={lineKey} className="flex items-center gap-1.5 text-xs text-muted-foreground animate-in fade-in-0 duration-300">
+            <span key={lineKey} className="flex animate-fade items-center gap-1.5 text-xs text-muted-foreground">
               {busy && <Spinner />}
               <span className="truncate">{line}</span>
             </span>
           )}
         </span>
-        <ChevronRightIcon className="transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden="true" />
+        <ChevronRightIcon className="transition-transform duration-(--motion-fast) ease-standard group-hover:translate-x-0.5" aria-hidden="true" />
       </a>
     </li>
   )
@@ -64,7 +66,7 @@ export function WorldLinks({ server: s }: { server: ServerStatus }) {
 }
 
 /** A row of the phone's World list; the class matches the list's other rows. */
-export const phoneRow = 'flex min-h-[52px] w-full items-center gap-3 px-4 py-2 text-left transition-colors active:bg-accent/60 [&>svg]:size-5 [&>svg]:shrink-0 [&>svg]:text-muted-foreground'
+export const phoneRow = 'flex min-h-[52px] w-full items-center gap-3 px-4 py-2 text-left active:bg-accent/60 [&>svg]:size-5 [&>svg]:shrink-0 [&>svg]:text-muted-foreground'
 
 function PhoneLink({ server, sub, icon, title, line, busy }: Omit<LinkProps, 'lineKey'>) {
   return (
@@ -74,7 +76,7 @@ function PhoneLink({ server, sub, icon, title, line, busy }: Omit<LinkProps, 'li
         <span className="min-w-0 flex-1">
           <span className="block text-base">{title}</span>
           {line && (
-            <span className="flex items-center gap-1.5 text-[13px] text-muted-foreground animate-in fade-in-0 duration-300">
+            <span className="flex animate-fade items-center gap-1.5 text-[13px] text-muted-foreground">
               {busy && <Spinner />}
               <span className="truncate">{line}</span>
             </span>

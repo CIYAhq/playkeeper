@@ -98,7 +98,7 @@ export function ServerPage({ slug, tab, sub }: { slug: string; tab: ServerTab; s
       ) : (
         <ServerHeader server={server} tab={tab} settingUp={settingUp} />
       )}
-      <PageBody key={tab} className="flex flex-1 animate-page flex-col gap-4">
+      <PageBody key={`${tab}:${sub ?? ''}`} className="flex flex-1 animate-page flex-col gap-4">
         {body}
       </PageBody>
     </>

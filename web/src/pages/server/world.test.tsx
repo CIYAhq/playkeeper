@@ -360,6 +360,24 @@ describe('Packs page', () => {
     expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/resourcepack/settings', { required: false, prompt: 'Grab our pack for the full look!' })
   })
 
+  it('lets a removed data pack fade out once the server has deleted it, before the list reloads', async () => {
+    answer({ '/resourcepack': { offer, pending: false } satisfies ResourcePack, '/datapacks': dataPacks() })
+    await render(<PacksPage server={server()} />)
+    await click(button('Actions for Graves'))
+    let reload: (dp: DataPacks) => void = () => {}
+    answer({ '/resourcepack': { offer, pending: false } satisfies ResourcePack, '/datapacks': new Promise<DataPacks>((done) => (reload = done)) })
+    await click(document.querySelector<HTMLElement>('[role="menuitem"]') as HTMLElement)
+    expect(client.del).toHaveBeenCalledWith('/api/servers/abcdefghjk/datapacks/Graves.zip')
+    const leaving = document.querySelector('li[data-leaving]')
+    expect(leaving?.textContent).toContain('Graves')
+    expect(leaving?.hasAttribute('inert')).toBe(true)
+    await act(async () => new Promise((done) => window.setTimeout(done, 250)))
+    expect(document.body.textContent).not.toContain('Graves')
+    await act(async () => reload({ ...dataPacks(), packs: dataPacks().packs.filter((p) => p.name !== 'Graves.zip') }))
+    await act(async () => {})
+    expect(Object.keys(switches())).toEqual(['Players must accept it to join', 'Multiplayer sleep', 'coordinates hud', 'More mob heads'])
+  })
+
   it('says when changes apply while the server is stopped', async () => {
     answer({ '/resourcepack': { offer, pending: true } satisfies ResourcePack, '/datapacks': dataPacks(false) })
     const text = await render(<PacksPage server={server({ phase: 'stopped' })} />)

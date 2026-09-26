@@ -6,6 +6,7 @@ import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Card, CardTitle, Notice, SectionLabel, Spinner } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { ListSkeleton, LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
@@ -16,9 +17,10 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, relativeTime } from '@/lib/format'
 import { opLabel } from '@/lib/phase'
+import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { usePoll, type Poll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
-import { maxPackBytes, PhoneActionBar, useArrivals, useZipPicker, WorldSubHeader, ZipDropZone } from './world-sub'
+import { maxPackBytes, PhoneActionBar, useZipPicker, WorldSubHeader, ZipDropZone } from './world-sub'
 
 /** A pack's file name as people say it: "Faithful 32x" for "Faithful_32x.zip". */
 export function packTitle(fileName: string): string {
@@ -168,7 +170,7 @@ function useResourcePackActions(s: ServerStatus, poll: Poll<ResourcePack>) {
 function useDataPackActions(s: ServerStatus, poll: Poll<DataPacks>) {
   const [uploading, setUploading] = useState(false)
   const [flips, setFlips] = useState<ReadonlyMap<string, boolean>>(() => new Map())
-  const [leaving, setLeaving] = useState<ReadonlySet<string>>(() => new Set())
+  const [gone, setGone] = useState<ReadonlySet<string>>(() => new Set())
   const queue = useRef(Promise.resolve())
   // The server reloads its data for every change, so changes wait their turn.
   const next = (job: () => Promise<void>) => {
@@ -218,17 +220,21 @@ function useDataPackActions(s: ServerStatus, poll: Poll<DataPacks>) {
     next(async () => {
       try {
         await del(serverApi(s.id, `/datapacks/${encodeURIComponent(p.name)}`))
-        setLeaving((l) => new Set(l).add(p.name))
-        await new Promise((done) => window.setTimeout(done, 200))
+        setGone((g) => new Set(g).add(p.name))
         await poll.refresh()
       } catch (e) {
         failed(e)
       }
-      setLeaving((l) => without(l, p.name))
+      setGone((g) => without(g, p.name))
     })
   }
 
-  return { uploading, flips, leaving, upload, toggle, remove }
+  return { uploading, flips, gone, upload, toggle, remove }
+}
+
+/** The data packs to show: a removed one goes as soon as the server has deleted it, before the list reloads. */
+function shownPacks(dp: Poll<DataPacks>, data: DataActions): DataPack[] | undefined {
+  return dp.data?.packs.filter((p) => !data.gone.has(p.name))
 }
 
 type ResourceActions = ReturnType<typeof useResourcePackActions>
@@ -269,7 +275,7 @@ export function PacksPage({ server: s }: { server: ServerStatus }) {
       {phone ? (
         <PhonePacks {...props} />
       ) : (
-        <div className="grid items-stretch gap-4 lg:grid-cols-2 animate-in fade-in-0 duration-300">
+        <div className="grid items-stretch gap-4 lg:grid-cols-2">
           <ResourcePackCard {...props} />
           <DataPacksCard {...props} />
         </div>
@@ -297,7 +303,7 @@ function Footnote({ server: s, children, className }: { server: ServerStatus; ch
   const text = op ? opLabel(op, s.name) : children
   return (
     <p className={className}>
-      <span key={text} className="inline-flex items-center gap-1.5 animate-in fade-in-0 duration-300">
+      <span key={text} className="inline-flex animate-fade items-center gap-1.5">
         {op && <Spinner />}
         {text}
       </span>
@@ -327,9 +333,10 @@ function ResourcePackCard({ server: s, rp, res }: PacksProps) {
   return (
     <Card>
       <CardTitle>{t('packs.resourcePack')}</CardTitle>
-      <div key={view} className="flex flex-col animate-in fade-in-0 duration-300">
+      <div key={view} className="flex animate-fade flex-col">
         {view === 'loading' && (
-          <div aria-busy="true">
+          <>
+            <LoadingLabel />
             <div className="mt-4 flex items-center gap-3">
               <Skeleton className="size-10 rounded-lg" />
               <div className="flex-1">
@@ -340,7 +347,7 @@ function ResourcePackCard({ server: s, rp, res }: PacksProps) {
             <Skeleton className="mt-5 h-4 w-56" />
             <Skeleton className="mt-5 h-8 w-full rounded-lg" />
             <Skeleton className="mt-4 h-[62px] w-full rounded-2xl" />
-          </div>
+          </>
         )}
         {view === 'error' && rp.error && <LoadError className="mt-4" error={rp.error} onRetry={rp.refresh} />}
         {offer && <OfferDetails server={s} offer={offer} res={res} gate={gate} />}
@@ -411,10 +418,10 @@ function PromptInput({ offer, onSave, id, disabled, className }: { offer: Resour
 function DataPacksCard({ server: s, dp, data }: PacksProps) {
   const gate = useGate(s)
   const picker = useZipPicker((f) => void data.upload(f))
-  const packs = dp.data?.packs
-  const fresh = useArrivals(packs?.map((p) => p.name))
+  const packs = shownPacks(dp, data)
+  const rows = useListPresence(packs, (p) => p.name)
   const live = dp.data ? dp.data.live : s.phase === 'online'
-  const view = !packs ? (dp.error ? 'error' : 'loading') : packs.length > 0 ? 'list' : 'empty'
+  const view = !packs ? (dp.error ? 'error' : 'loading') : rows.length > 0 ? 'list' : 'empty'
   return (
     <Card>
       <div className="flex min-h-7 items-center gap-3">
@@ -425,26 +432,13 @@ function DataPacksCard({ server: s, dp, data }: PacksProps) {
         </Button>
         {picker.input}
       </div>
-      <div key={view} className="flex flex-1 flex-col animate-in fade-in-0 duration-300">
-        {view === 'loading' && (
-          <div className="mt-2" aria-busy="true">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="flex items-center gap-3 border-b border-border py-2.5 last:border-b-0">
-                <Skeleton className="size-7 rounded-lg" />
-                <div className="flex-1">
-                  <Skeleton className="h-3.5 w-36" />
-                  <Skeleton className="mt-1.5 h-3 w-52" />
-                </div>
-                <Skeleton className="h-[18px] w-[30px] rounded-full" />
-              </div>
-            ))}
-          </div>
-        )}
+      <div key={view} className="flex flex-1 animate-fade flex-col">
+        {view === 'loading' && <ListSkeleton className="mt-2" rowClassName="flex min-h-[52px] items-center gap-3 border-b border-border py-2 last:border-b-0" face="size-7 rounded-lg" trailing={<Skeleton className="h-[18px] w-[30px] shrink-0 rounded-full" />} />}
         {view === 'error' && dp.error && <LoadError className="mt-4" error={dp.error} onRetry={dp.refresh} />}
-        {packs && packs.length > 0 && (
+        {view === 'list' && (
           <ul className="mt-2">
-            {packs.map((p) => (
-              <DataPackRow key={p.name} server={s} pack={p} live={live} data={data} gate={gate} fresh={fresh.has(p.name)} />
+            {rows.map(({ key, item, state }) => (
+              <DataPackRow key={key} server={s} pack={item} state={state} live={live} data={data} gate={gate} />
             ))}
           </ul>
         )}
@@ -465,39 +459,34 @@ function DataPacksCard({ server: s, dp, data }: PacksProps) {
   )
 }
 
-function DataPackRow({ server: s, pack: p, live, data, gate, fresh, phone }: { server: ServerStatus; pack: DataPack; live: boolean; data: DataActions; gate: Gate; fresh: boolean; phone?: boolean }) {
+function DataPackRow({ server: s, pack: p, state, live, data, gate, phone }: { server: ServerStatus; pack: DataPack; state: Presence; live: boolean; data: DataActions; gate: Gate; phone?: boolean }) {
   const title = packTitle(p.name)
   const pending = data.flips.has(p.name)
   const on = data.flips.get(p.name) ?? p.enabled
-  const leaving = data.leaving.has(p.name)
   return (
-    <li className={cn('grid border-b border-border transition-[grid-template-rows,opacity] duration-200 ease-out last:border-b-0', leaving ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr]', fresh && 'animate-in fade-in-0 slide-in-from-top-1 duration-300')}>
-      <div className="min-h-0 overflow-hidden">
-        <div className={cn('flex items-center gap-3', phone ? 'min-h-12 py-1.5 pr-2 pl-4' : 'py-2')}>
-          <PackIcon src={dataIcon(s, p)} size={28} />
-          <div className="min-w-0 flex-1">
-            <p className={cn('truncate', phone ? 'text-base' : 'text-[13px] font-semibold')}>{title}</p>
-            {!phone && p.description && <p className="truncate text-xs text-muted-foreground">{p.description}</p>}
-          </div>
-          {pending && <Spinner />}
-          {live && on !== undefined && <Switch checked={on} onCheckedChange={(v) => data.toggle(p, v)} disabled={gate.blocked} aria-label={title} />}
-          {p.folder ? (
-            <span className="size-8 shrink-0 sm:size-7" aria-hidden="true" />
-          ) : (
-            <Menu>
-              <MenuTrigger render={<Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label={t('packs.menuFor', { name: title })} disabled={gate.blocked || leaving} />}>
-                <EllipsisIcon />
-              </MenuTrigger>
-              <MenuPopup align="end">
-                <MenuItem variant="destructive" onClick={() => data.remove(p)}>
-                  <Trash2Icon />
-                  {t('common.remove')}
-                </MenuItem>
-              </MenuPopup>
-            </Menu>
-          )}
-        </div>
+    <li {...presenceProps(state)} className={cn('flex items-center gap-3 border-b border-border last:border-b-0', phone ? 'min-h-12 py-1.5 pr-2 pl-4' : 'py-2')}>
+      <PackIcon src={dataIcon(s, p)} size={28} />
+      <div className="min-w-0 flex-1">
+        <p className={cn('truncate', phone ? 'text-base' : 'text-[13px] font-semibold')}>{title}</p>
+        {!phone && p.description && <p className="truncate text-xs text-muted-foreground">{p.description}</p>}
       </div>
+      {pending && <Spinner />}
+      {live && on !== undefined && <Switch checked={on} onCheckedChange={(v) => data.toggle(p, v)} disabled={gate.blocked} aria-label={title} />}
+      {p.folder ? (
+        <span className="size-8 shrink-0 sm:size-7" aria-hidden="true" />
+      ) : (
+        <Menu>
+          <MenuTrigger render={<Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label={t('packs.menuFor', { name: title })} disabled={gate.blocked} />}>
+            <EllipsisIcon />
+          </MenuTrigger>
+          <MenuPopup align="end">
+            <MenuItem variant="destructive" onClick={() => data.remove(p)}>
+              <Trash2Icon />
+              {t('common.remove')}
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+      )}
     </li>
   )
 }
@@ -509,11 +498,11 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
   const resPicker = useZipPicker((f) => void res.upload(f))
   const dataPicker = useZipPicker((f) => void data.upload(f))
   const offer = rp.data?.offer
-  const packs = dp.data?.packs
-  const fresh = useArrivals(packs?.map((p) => p.name))
+  const packs = shownPacks(dp, data)
+  const rows = useListPresence(packs, (p) => p.name)
   const live = dp.data ? dp.data.live : s.phase === 'online'
   const prompt = res.draft?.prompt ?? offer?.prompt ?? ''
-  const row = 'flex w-full items-center gap-3 px-4 text-left transition-colors active:bg-accent/60 disabled:opacity-64 [&>svg]:size-5 [&>svg]:shrink-0'
+  const row = 'flex w-full items-center gap-3 px-4 text-left active:bg-accent/60 disabled:opacity-64 [&>svg]:size-5 [&>svg]:shrink-0'
   const card = 'mt-2 overflow-hidden rounded-3xl border border-border bg-white'
 
   const upload = (
@@ -535,10 +524,13 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
               <LoadError error={rp.error} onRetry={rp.refresh} />
             </div>
           ) : (
-            <Skeleton className="mt-2 h-[262px] rounded-3xl" />
+            <>
+              <LoadingLabel />
+              <Skeleton className="mt-2 h-[262px] rounded-3xl" />
+            </>
           )
         ) : (
-          <ul key={offer?.sha1 ?? 'empty'} className={cn(card, 'divide-y divide-border animate-in fade-in-0 duration-300')}>
+          <ul key={offer?.sha1 ?? 'empty'} className={cn(card, 'animate-fade divide-y divide-border')}>
             {offer && (
               <>
                 <li className="flex min-h-16 items-center gap-3 px-4 py-2.5">
@@ -599,16 +591,16 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
               <LoadError error={dp.error} onRetry={dp.refresh} />
             </div>
           ) : (
-            <Skeleton className="mt-2 h-48 rounded-3xl" />
+            <ListSkeleton className={card} rowClassName="flex min-h-12 items-center gap-3 border-b border-border py-1.5 pr-2 pl-4 last:border-b-0" face="size-7 rounded-lg" lines={1} trailing={<Skeleton className="h-[22px] w-[38px] shrink-0 rounded-full" />} />
           )
-        ) : packs.length > 0 ? (
-          <ul className={cn(card, 'animate-in fade-in-0 duration-300')}>
-            {packs.map((p) => (
-              <DataPackRow key={p.name} server={s} pack={p} live={live} data={data} gate={gate} fresh={fresh.has(p.name)} phone />
+        ) : rows.length > 0 ? (
+          <ul className={cn(card, 'animate-fade')}>
+            {rows.map(({ key, item, state }) => (
+              <DataPackRow key={key} server={s} pack={item} state={state} live={live} data={data} gate={gate} phone />
             ))}
           </ul>
         ) : (
-          <div className={cn(card, 'flex items-center gap-4 px-4 py-4 animate-in fade-in-0 duration-300')}>
+          <div className={cn(card, 'flex animate-fade items-center gap-4 px-4 py-4')}>
             <Pip pose="box" size={48} />
             <div className="min-w-0">
               <p className="text-base font-semibold">{t('packs.noData')}</p>
