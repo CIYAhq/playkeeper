@@ -571,11 +571,16 @@ func (s *server) hScheduleUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.viewSchedule(row, s.now()))
 }
 
+// scheduleEditRead runs once an edit has read the schedule, before it saves
+// the change; tests save a run there.
+var scheduleEditRead = func(scheduleRow) {}
+
 func (s *server) updateSchedule(ctx context.Context, sid string, req scheduleRequest, actor string) (scheduleRow, error) {
 	row, err := s.scheduleByID(ctx, sid)
 	if err != nil {
 		return scheduleRow{}, err
 	}
+	scheduleEditRead(row)
 	now := s.now().UTC()
 	prev := row.Schedule
 	sc := req.apply(prev)
@@ -590,7 +595,9 @@ func (s *server) updateSchedule(ctx context.Context, sid string, req scheduleReq
 	}
 	// A retry an hour later belongs to the schedule as it was when the run
 	// was skipped. The planner drops it once the schedule changes, even
-	// when it is only switched off and on, so every change clears it.
+	// when it is only switched off and on, so every change clears it. The
+	// runner may have saved a run since the read, so the save clears the
+	// retry of the run saved then and leaves the rest of it as it is.
 	if sc.LastRun != nil && !sc.LastRun.RetryAt.IsZero() {
 		last := *sc.LastRun
 		last.RetryAt = time.Time{}
@@ -598,13 +605,10 @@ func (s *server) updateSchedule(ctx context.Context, sid string, req scheduleReq
 	}
 	timing, _ := json.Marshal(sc.Timing)
 	payload, _ := json.Marshal(sc.Payload)
-	lastRun := ""
-	if sc.LastRun != nil {
-		b, _ := json.Marshal(sc.LastRun)
-		lastRun = string(b)
-	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE schedules SET name = ?, kind = ?, timing = ?, payload = ?, enabled = ?, updated_at = ?, updated_by = ?, last_run = ? WHERE id = ? AND server_id = ?`,
-		sc.Name, string(sc.Kind), string(timing), string(payload), boolInt(sc.Enabled), now.UnixMilli(), actor, lastRun, sc.ID, s.id); err != nil {
+	if _, err := s.db.ExecContext(ctx, `UPDATE schedules SET name = ?, kind = ?, timing = ?, payload = ?, enabled = ?, updated_at = ?, updated_by = ?,
+			last_run = CASE WHEN json_valid(last_run) THEN json_remove(last_run, '$.retryAt') ELSE last_run END
+		WHERE id = ? AND server_id = ?`,
+		sc.Name, string(sc.Kind), string(timing), string(payload), boolInt(sc.Enabled), now.UnixMilli(), actor, sc.ID, s.id); err != nil {
 		return scheduleRow{}, err
 	}
 	action := "schedule.changed"
