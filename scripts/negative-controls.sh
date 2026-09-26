@@ -185,9 +185,17 @@ control "a log line Docker sends again changes nothing" internal/agent/collector
   'if mark.next(c.ID, runStart, l) || true {' \
   ./internal/agent '^TestALineReadAgainKeepsTheGiveUpNotice$'
 control "a Done line from a run that has stopped is not a start" internal/agent/collector.go \
-  'if current && (ended.IsZero() || ts.After(ended)) {' \
+  'if current && ended.IsZero() {' \
   'if current {' \
   ./internal/agent '^TestADoneLineReadAfterTheExitWasJudgedChangesNothing$'
+control "a Done line stamped after a stopped run's end is not a start" internal/agent/collector.go \
+  'if current && ended.IsZero() {' \
+  'if current && (ended.IsZero() || ts.After(ended)) {' \
+  ./internal/agent '^TestADoneLineStampedAfterTheRunEndedChangesNothing$'
+control "a stopped run's log is read without following" internal/agent/collector.go \
+  'docker.LogsOptions{Follow: c.State.Running, Since: since}' \
+  'docker.LogsOptions{Follow: true, Since: since}' \
+  ./internal/agent '^TestARunStartedAsTheFollowerAttachesIsReadAsItsOwn$'
 control "the crash helper reads the run's log from Docker" internal/agent/crash.go \
   'in.Console = s.runLog(ctx, id, runStart)' \
   'in.Console = s.runLog(ctx, id, runStart)[:0]' \
