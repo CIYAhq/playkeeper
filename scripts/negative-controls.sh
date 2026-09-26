@@ -3749,6 +3749,54 @@ webcontrol "the audit log names the machine of an agent's row" web/src/pages/set
   'ws.machines.length > 99 ?' \
   src/pages/settings.test.tsx 'numbered alike'
 
+# Wave 8, second bug hunt: New server sizes templates and packs by what they
+# run, a team join shows once on Home, the CurseForge key goes to the machine
+# the card names, and Discord's preview lists only what the message posts.
+control "the catalog sizes a new server by the plugins its template brings" internal/agent/handlers.go \
+  'if mods >= 0 || plugins >= 0 {' \
+  'if mods >= 0 {' \
+  ./internal/agent '^TestTheCatalogSizesMemoryForWhatTheServerRuns$'
+control "a template without memory gets the sizing guide's suggestion" internal/templates/plan.go \
+  'p.MemoryMB = fitting(opts, suggestedMemory(t, p.Type.ID))' \
+  'p.MemoryMB = opts[0]' \
+  ./internal/templates '^TestPlanMemoryFollowsTheSizingGuide$'
+webcontrol "New server asks the catalog for what a template or pack runs" web/src/pages/new-server.tsx \
+  "{ ...catalogFor(from, c?.type ?? 'paper', pack, tpl, types), fresh: true }" \
+  "{ type: c?.type ?? 'paper', fresh: true }" \
+  src/pages/new-server.test.tsx 'sizes a shared template'
+webcontrol "New server counts a Paper template's plugins" web/src/pages/new-server.tsx \
+  "return { type: plan.type, plugins: n }" \
+  "return { type: plan.type }" \
+  src/pages/new-server.test.tsx 'asks the catalog for'
+control "only the dashboard's machine lists the team's joins" internal/panel/team.go \
+  'if m.Kind == localKind {' \
+  'if true {' \
+  ./internal/panel '^TestHomeShowsEachTeamJoinOnce$'
+control "Home's activity carries on while the dashboard's agent is down" internal/panel/team.go \
+  'if !answered && len(machines) > 0 {' \
+  'if errs[0] != nil {' \
+  ./internal/panel '^TestHomeShowsEachTeamJoinOnce$'
+webcontrol "the add-on sources card shows the machine it was opened for" web/src/components/app/addon-sources.tsx \
+  'const target = machine ? ws.machines.find((m) => m.id === machine) : ws.machine' \
+  'const target = ws.machine' \
+  src/pages/pages.test.tsx 'shows and saves the key of'
+webcontrol "the CurseForge key is saved on the machine the card shows" web/src/components/app/addon-sources.tsx \
+  "post<AddonSources>(machineApi(machineId, '/addon-sources/curseforge')" \
+  "post<AddonSources>(machineApi('m2345abcde', '/addon-sources/curseforge')" \
+  src/pages/pages.test.tsx 'shows and saves the key of'
+webcontrol "only the owner changes a machine's CurseForge key" web/src/components/app/addon-sources.tsx \
+  "const locked = ws.me.user.role === 'owner' ? undefined : t('reason.ownerOnly')" \
+  'const locked = undefined' \
+  src/pages/pages.test.tsx 'shows and saves the key of'
+webcontrol "New server's CurseForge link chooses its machine" web/src/components/app/modpacks.tsx \
+  "linkProps({ name: 'addon-sources', machine: machineId })" \
+  "linkProps({ name: 'addon-sources' })" \
+  src/pages/pages.test.tsx 'sends whoever needs a CurseForge key'
+webcontrol "Discord's preview lists only the dashboard machine's servers" web/src/pages/discord.tsx \
+  "return servers.filter((x) => machineOf(x, machines)?.kind !== 'remote')" \
+  'return servers' \
+  src/pages/pages.test.tsx 'previews the live status'
+
 # Wave 7: the sleep operation looks again right before it stops the server,
 # and saving the sleep setting takes the operation lock.
 control "a sleep decided with another setting is called off" internal/agent/sleeping.go \
