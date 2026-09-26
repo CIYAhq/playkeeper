@@ -128,8 +128,8 @@ func (a *Agent) findInterruptedVersionChanges() []string {
 
 // recoverAtStart finishes, as its own operation, the restore or version
 // change a previous agent process left running on the server. Without one,
-// it deals with a restore Playkeeper 0.3.0 undid only because the agent was
-// stopping.
+// it saves the settings a rollback over already couldn't, and deals with a
+// restore Playkeeper 0.3.0 undid only because the agent was stopping.
 func (s *server) recoverAtStart() {
 	if v := s.versionRecovery; v != nil {
 		s.versionRecovery = nil
@@ -137,6 +137,7 @@ func (s *server) recoverAtStart() {
 		s.launchOp(v.op, func(ctx context.Context, h *opHandle) error { return s.recoverVersionChange(ctx, h, v.journal) })
 		return
 	}
+	s.settleVersionChange()
 	p := s.recovery
 	s.recovery = nil
 	if p == nil {
@@ -150,10 +151,10 @@ func (s *server) recoverAtStart() {
 // recoverVersionChange finishes a version change a previous agent process
 // was in the middle of: one starting its new version saves the new settings,
 // which it may not have got to, checks the new version again and keeps it
-// once it is online; one being rolled back is rolled back.
+// once it is online; one being rolled back finishes its rollback.
 func (s *server) recoverVersionChange(ctx context.Context, h *opHandle, j *versionJournal) error {
 	h.set("resumedAfterRestart", true)
-	if j.State == versionReverting {
+	if j.State != versionStarting {
 		return s.revertVersionChange(h, j)
 	}
 	if err := s.saveServerConfig(j.Next); err != nil {
