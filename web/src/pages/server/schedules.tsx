@@ -152,13 +152,21 @@ function pausedText(s: Schedule, me: string): string {
   return s.updatedBy === me ? t('schedules.pausedYou', { time: relativeTime(s.updatedAt) }) : t('schedules.pausedBy', { actor: s.updatedBy, time: relativeTime(s.updatedAt) })
 }
 
+/** When a run skipped because people were playing tries again, while the agent still plans it: it is then the next run. */
+function retryAt(s: Schedule): string | undefined {
+  const at = s.lastRun?.retryAt
+  if (!at || !s.nextRun || new Date(s.nextRun).getTime() !== new Date(at).getTime()) return undefined
+  return new Date(at).getTime() > Date.now() ? at : undefined
+}
+
 /** The line under a schedule: what it does besides, then when it runs next or how it last went. */
 function scheduleHint(s: Schedule, current: SchedulesResponse['current'], me: string, phone: boolean): string {
   if (!s.enabled) return phone ? sentence(pausedText(s, me)) : t('schedules.turnedOff', { paused: pausedText(s, me) })
   const dot = t('common.dot')
+  const retry = retryAt(s)
   let status: string
   if (current?.scheduleId === s.id) status = current.restartAt ? t('schedules.restartsAt', { time: formatClock(current.restartAt) }) : t('schedules.result.running')
-  else if (s.lastRun?.retryAt && new Date(s.lastRun.retryAt).getTime() > Date.now()) status = t('schedules.retryAt', { time: formatClock(s.lastRun.retryAt) })
+  else if (retry) status = t('schedules.retryAt', { time: formatClock(retry) })
   else if (s.kind === 'command' && s.lastRun && s.lastRun.result !== 'running') status = phone ? lastRunText(s) : t('schedules.lastRan', { when: past(s.lastRun.due), result: lastRunText(s) })
   else status = s.nextRun ? t('schedules.next', { when: upcoming(s.nextRun) }) : t('schedules.noNext')
   if (phone) return sentence(status)

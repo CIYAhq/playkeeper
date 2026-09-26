@@ -3065,6 +3065,17 @@ control "turning copies off stops the copy the uploader claimed" internal/agent/
 	var c *uploadClaim' \
   ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
 
+# Wave 7 before Bugbot: a schedule lists the retry after a run skipped for
+# players exactly while the runner plans it.
+control "every change to a schedule drops its retry, as the planner does" internal/agent/schedules.go \
+  'if sc.LastRun != nil && !sc.LastRun.RetryAt.IsZero() {' \
+  'if !onlySwitch && sc.LastRun != nil && !sc.LastRun.RetryAt.IsZero() {' \
+  ./internal/agent '^TestAScheduleListsItsRetryOnlyWhileTheRunnerPlansIt$'
+webcontrol "the schedule list promises a retry only while it is the next run" web/src/pages/server/schedules.tsx \
+  'if (!at || !s.nextRun || new Date(s.nextRun).getTime() !== new Date(at).getTime()) return undefined' \
+  'if (!at) return undefined' \
+  web/src/pages/server/schedules.test.tsx 'list a retry the agent no longer plans'
+
 # Wave 7 after Bugbot's findings on e6a1dfc7: a scheduled restart's countdown
 # keeps an empty server awake, and with the allowlist off anyone who isn't
 # banned wakes a sleeping server by joining.

@@ -3,8 +3,9 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Action, MachineView, Me, SchedulePreview, ServerConfig, ServerStatus } from '@/api/types'
+import type { Action, MachineView, Me, Schedule, SchedulePreview, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
+import { viewerTimeZone } from '@/lib/when'
 import { SchedulesSection } from './schedules'
 
 vi.mock('@/api/client', async (importOriginal) => ({
@@ -139,6 +140,38 @@ describe('the schedule dialog’s preview', () => {
       if (c.says) expect(text).toContain(c.says)
       expect(text).not.toContain('Too many actions')
       expect(text).not.toContain('Failed to fetch')
+    })
+  }
+})
+
+describe('a restart skipped because people were playing', () => {
+  const minutes = (n: number) => new Date(Date.now() + n * 60_000).toISOString()
+  const retry = minutes(30)
+  const skipped = (nextRun: string): Schedule => ({
+    id: 'r1',
+    serverId: server.id,
+    kind: 'restart',
+    timing: { kind: 'daily', timeZone: viewerTimeZone(), at: '04:00' },
+    payload: { warnSeconds: [600], skipIfPlaying: true },
+    enabled: true,
+    createdAt: minutes(-3000),
+    updatedAt: minutes(-3000),
+    createdBy: 'siya',
+    updatedBy: 'siya',
+    lastRun: { due: minutes(-30), finished: minutes(-30), result: 'skipped', reason: 'people_playing', players: 3, retryAt: retry },
+    nextRun,
+    summary: 'every day at 04:00',
+  })
+  const cases = [
+    { name: 'lists its retry while the agent plans it next', nextRun: retry, listed: true },
+    { name: 'doesn’t list a retry the agent no longer plans', nextRun: minutes(24 * 60 - 30), listed: false },
+  ]
+  for (const c of cases) {
+    it(c.name, async () => {
+      answer({ '/schedules': { schedules: [skipped(c.nextRun)] }, '/schedules/runs?limit=6': { runs: [] } })
+      const text = await render(<SchedulesSection server={server} />)
+      expect(text.includes('tries again at')).toBe(c.listed)
+      expect(text.includes('next: ')).toBe(!c.listed)
     })
   }
 })
