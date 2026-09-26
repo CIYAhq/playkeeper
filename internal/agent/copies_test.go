@@ -406,12 +406,22 @@ func TestBackupRulesThatCantBeReadDeleteNothing(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			dest := &fakeDest{stored: map[string]offsite.Copy{}}
 			e, first, _ := withCopies(t, dest)
+			// The uploader records a copy, then applies the rules before it
+			// lets go of the upload. The backups change below only once it
+			// has, or that pass applies the defaults to them.
+			copied := func(id string) bool {
+				if e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) != 1 {
+					return false
+				}
+				s := e.srv()
+				s.auto.mu.Lock()
+				defer s.auto.mu.Unlock()
+				return s.auto.claim == nil
+			}
 			ids := []string{first}
 			for range 2 {
 				id := e.backup()
-				e.waitFor("its copy", func() bool {
-					return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1
-				})
+				e.waitFor("its copy", func() bool { return copied(id) })
 				ids = append(ids, id)
 			}
 			// Three backups, all copied: two made on one day 100 days ago,
