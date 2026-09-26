@@ -1019,7 +1019,7 @@ func (s *server) autoStartFailed(err error) {
 	gaveUp := s.countFailedStart(err)
 	s.mu.Unlock()
 	if gaveUp {
-		s.alert(discord.Crashed("Playkeeper could not start it: "+err.Error(), false))
+		s.alert(discord.StartFailed(err.Error()))
 	}
 }
 

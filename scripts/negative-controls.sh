@@ -1814,6 +1814,10 @@ control "Discord hears an automatic backup finish" internal/agent/backups.go \
 	return vb, nil' \
   '	return vb, nil' \
   ./internal/agent '^TestDiscordOptionalAlertsGoOut$/^automatic_backup_before_an_update$'
+control "a start that never came up is not a crash loop" internal/agent/lifecycle.go \
+  's.alert(discord.StartFailed(err.Error()))' \
+  's.alert(discord.Crashed("Playkeeper could not start it: "+err.Error(), false))' \
+  ./internal/agent '^TestDiscordStartFailuresAreNotCrashLoops$'
 control "a crash of a server meant to be off is not a give-up" internal/agent/lifecycle.go \
   'GaveUp: wanted && !restarting' \
   'GaveUp: !restarting' \

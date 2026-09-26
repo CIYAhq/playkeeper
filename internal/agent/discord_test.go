@@ -327,6 +327,27 @@ func TestDiscordGaveUpAlertSaysItOnceWithTheCause(t *testing.T) {
 	}
 }
 
+// When Playkeeper gives up on automatic starts of a server that never came
+// up, the alert says the start failed and why, not that the server kept
+// crashing.
+func TestDiscordStartFailuresAreNotCrashLoops(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	e.create()
+	e.fd.mu.Lock()
+	e.fd.startErr = "driver failed programming external connectivity: Bind for 0.0.0.0:25565 failed: port is already allocated"
+	e.fd.mu.Unlock()
+	if err := e.a.docker.ContainerRemove(context.Background(), e.cname(), true); err != nil {
+		t.Fatal(err)
+	}
+	f.waitMessage(e, "Server didn't start", "Playkeeper couldn't start **My server**, so it stopped trying.", "Port 25565 is already in use by another program")
+	for _, wrong := range []string{"stays off", "kept crashing"} {
+		if f.count(wrong) != 0 {
+			t.Fatalf("starts that never came up, and the alert says %q", wrong)
+		}
+	}
+}
+
 // A server that wasn't meant to be running stays off after it stops
 // unexpectedly: the alert says it crashed, not that Playkeeper gave up
 // restarting it after crashes that never happened.
