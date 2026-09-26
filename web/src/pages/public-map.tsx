@@ -4,6 +4,7 @@ import type { MapPlayer, MapPlayers, MapWorlds, PublicMap } from '@/api/types'
 import { BrandMark, Emblem, Pip } from '@/components/app/art'
 import { useIsPhone } from '@/components/app/controls'
 import { CoordsReadout, MapCoords, MapView, WorldSwitch } from '@/components/app/map-view'
+import { InlineSkeleton, LoadingLabel } from '@/components/app/skeletons'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { guessWorlds, sortWorlds } from '@/lib/map'
@@ -49,7 +50,7 @@ export function PublicMapPage({ token }: { token: string }) {
 
 function Unavailable() {
   return (
-    <main className="flex flex-1 animate-in flex-col items-center justify-center pt-13 text-center duration-300 fade-in-0 max-sm:pt-0">
+    <main className="flex flex-1 animate-fade flex-col items-center justify-center pt-13 text-center max-sm:pt-0">
       <Pip pose="sleep" size={120} />
       <h1 className="mt-4 text-[28px] leading-9 font-bold tracking-[-0.02em] max-sm:mt-3 max-sm:text-2xl max-sm:leading-8">{t('publicMap.offTitle')}</h1>
       <p className="mt-4 text-base text-muted-foreground max-sm:mt-3">{t('publicMap.offLead')}</p>
@@ -59,7 +60,8 @@ function Unavailable() {
 
 function Loading() {
   return (
-    <main className="flex flex-1 flex-col" aria-busy="true" aria-label={t('common.loading')}>
+    <main className="flex flex-1 flex-col">
+      <LoadingLabel />
       <div className="flex items-center gap-4 max-sm:gap-2.5">
         <Skeleton className="size-9 rounded-[22%] max-sm:size-8" />
         <div className="flex flex-col gap-1.5">
@@ -104,15 +106,15 @@ function SharedMap({ token, base, info }: { token: string; base: string; info: P
   const guess = useMemo(() => guessWorlds(worlds.data?.worlds ?? []), [worlds.data])
   const sorted = useMemo(() => sortWorlds(worlds.data?.worlds ?? [], guess.levelName), [worlds.data, guess])
   const world = sorted.find((w) => w.name === picked) ?? sorted[0]
-  const list = info.players ? (players.data?.players ?? []) : []
+  const list = info.players ? players.data?.players : []
   const tileURL = useMemo(() => (w: string, zoom: number, x: number, z: number) => `${base}/tiles/${encodeURIComponent(w)}/${zoom}/${x}_${z}.png`, [base])
   const faceURL = useMemo(() => (p: MapPlayer) => `${base}/faces/${encodeURIComponent(p.name)}`, [base])
-  const subtitle = info.players ? t('publicMap.playing', { count: list.length }) : t('publicMap.java')
+  const subtitle = !info.players ? t('publicMap.java') : list ? t('publicMap.playing', { count: list.length }) : <InlineSkeleton className="w-24" />
   const caption = info.players ? t('publicMap.shown') : phone ? t('publicMap.hiddenShort') : t('publicMap.hidden')
   const toggle = sorted.length > 1 && world && <WorldSwitch worlds={sorted} value={world.name} onChange={setPicked} serverName={info.name} serverType={guess.serverType} levelName={guess.levelName} large={phone} />
 
   return (
-    <main className="flex flex-1 animate-in flex-col duration-300 fade-in-0">
+    <main className="flex flex-1 animate-fade flex-col">
       <header className="flex items-center gap-4 max-sm:gap-2.5">
         <PublicEmblem base={base} name={info.name} size={phone ? 32 : 36} />
         <div className="min-w-0 flex-1">

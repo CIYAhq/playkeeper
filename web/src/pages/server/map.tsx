@@ -7,6 +7,7 @@ import { Pip, type PipPose } from '@/components/app/art'
 import { Card, CardTitle, copyText, PlayerFace, Progress, useNow } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
 import { CoordsReadout, MapCoords, MapView, WorldSwitch, type MapFocus } from '@/components/app/map-view'
+import { ListSkeleton, LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
@@ -18,7 +19,8 @@ import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { formatBytes, formatClock, formatDate, formatPercent, formatSpan, relativeTime } from '@/lib/format'
 import { coord, hasMap, sortWorlds, worldLabel } from '@/lib/map'
-import { phaseTone } from '@/lib/phase'
+import { phaseTone, whyNot } from '@/lib/phase'
+import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps, navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -30,6 +32,13 @@ function tilePath(id: string) {
 
 function faceURL(p: MapPlayer): string {
   return `/api/players/${encodeURIComponent(p.name)}/head${p.uuid ? `?uuid=${encodeURIComponent(p.uuid)}` : ''}`
+}
+
+const playerKey = (p: MapPlayer) => p.uuid || p.name
+
+/** "Restarting Survival. Try again when it's done." while its restart is being asked for. */
+function restartingReason(server: ServerStatus): string {
+  return t('reason.busy', { what: t('op.restart', { server: server.name }) })
 }
 
 /**
@@ -146,7 +155,7 @@ function PhoneMapHeader({ onMenu }: { onMenu?: () => void }) {
 function StateScreen({ pose, title, lead, facts, note, children }: { pose: PipPose; title: string; lead: ReactNode; facts?: string[]; note?: ReactNode; children?: ReactNode }) {
   const phone = useIsPhone()
   return (
-    <section className="flex flex-1 animate-in flex-col items-center py-12 text-center duration-300 fade-in-0 max-sm:justify-center max-sm:px-2 max-sm:py-8">
+    <section className="flex flex-1 animate-fade flex-col items-center py-12 text-center max-sm:justify-center max-sm:px-2 max-sm:py-8">
       <Pip pose={pose} size={phone ? 96 : 112} />
       <h2 className="mt-5 text-[22px] leading-7 font-bold tracking-[-0.015em] max-sm:mt-3">{title}</h2>
       <p className="mt-2 text-[15px] text-muted-foreground max-sm:mt-1">{lead}</p>
@@ -165,6 +174,7 @@ function StateScreen({ pose, title, lead, facts, note, children }: { pose: PipPo
 
 function SetupState({ server, info, busy, onEnable }: { server: ServerStatus; info: MapInfo; busy: boolean; onEnable: () => void }) {
   const phone = useIsPhone()
+  const ws = useWorkspace()
   const online = phaseTone(server.phase) === 'online'
   const playing = server.players?.online ?? 0
   const note = !online ? t('map.turnOnStopped', { server: server.name }) : playing > 0 ? t('map.turnOnAsk', { server: server.name }) : t('map.turnOnRestart', { server: server.name })
@@ -176,7 +186,7 @@ function SetupState({ server, info, busy, onEnable }: { server: ServerStatus; in
       facts={[t('map.setupTime', { minutes: info.estimatedMinutes, server: server.name }), t('map.setupDisk', { megabytes: info.estimatedMegabytes }), t('map.setupShare')]}
       note={note}
     >
-      <Button size={phone ? 'touch' : 'default'} onClick={onEnable} loading={busy}>
+      <Button size={phone ? 'touch' : 'default'} onClick={onEnable} loading={busy} disabledReason={whyNot(server, 'change', ws.stale)}>
         <MapIcon />
         {t('map.turnOn')}
       </Button>
@@ -186,9 +196,11 @@ function SetupState({ server, info, busy, onEnable }: { server: ServerStatus; in
 
 function RestartState({ server, info, onChange }: { server: ServerStatus; info: MapInfo; onChange: () => Promise<void> }) {
   const phone = useIsPhone()
+  const ws = useWorkspace()
   const [busy, setBusy] = useState<'now' | 'later' | null>(null)
   const playing = server.players?.online ?? 0
   const restarting = server.operation?.kind === 'restart' || phaseTone(server.phase) === 'busy'
+  const why = whyNot(server, 'restart', ws.stale)
   async function now() {
     setBusy('now')
     await serverAction(server, 'restart')
@@ -210,11 +222,11 @@ function RestartState({ server, info, onChange }: { server: ServerStatus; info: 
   return (
     <StateScreen pose="hardhat" title={phone ? t('map.restartTitlePhone') : t('map.restartTitle')} lead={t('map.restartLead', { server: server.name })} note={note}>
       {!info.restartWhenEmpty && (
-        <Button variant="outline" size={phone ? 'touch' : 'default'} onClick={later} loading={busy === 'later'} disabled={busy !== null || restarting}>
+        <Button variant="outline" size={phone ? 'touch' : 'default'} onClick={later} loading={busy === 'later'} disabledReason={busy === 'now' ? restartingReason(server) : why}>
           {t('map.restartLater')}
         </Button>
       )}
-      <Button size={phone ? 'touch' : 'default'} onClick={now} loading={busy === 'now' || restarting} disabled={busy !== null}>
+      <Button size={phone ? 'touch' : 'default'} onClick={now} loading={busy === 'now' || restarting} disabledReason={busy === 'later' ? t('reason.saving') : why}>
         <RotateCwIcon />
         {t('map.restartNow')}
       </Button>
@@ -224,6 +236,7 @@ function RestartState({ server, info, onChange }: { server: ServerStatus; info: 
 
 function StoppedState({ server }: { server: ServerStatus }) {
   const phone = useIsPhone()
+  const ws = useWorkspace()
   const [busy, setBusy] = useState(false)
   const starting = phaseTone(server.phase) === 'busy' || server.operation !== undefined
   async function start() {
@@ -233,7 +246,7 @@ function StoppedState({ server }: { server: ServerStatus }) {
   }
   return (
     <StateScreen pose="sleep" title={t('map.stoppedTitle')} lead={t('map.stoppedLead')}>
-      <Button size={phone ? 'touch' : 'default'} onClick={start} loading={busy || starting}>
+      <Button size={phone ? 'touch' : 'default'} onClick={start} loading={busy || starting} disabledReason={whyNot(server, 'start', ws.stale)}>
         <PlayIcon />
         {t('map.startServer', { server: server.name })}
       </Button>
@@ -251,25 +264,27 @@ function lastDrawn(iso: string | undefined): string | undefined {
 
 function DownState({ server, info, onRetry }: { server: ServerStatus; info: MapInfo; onRetry: () => Promise<void> }) {
   const phone = useIsPhone()
-  const [busy, setBusy] = useState<'retry' | 'restart' | null>(null)
+  const ws = useWorkspace()
+  const [retrying, setRetrying] = useState(false)
+  const [restarting, setRestarting] = useState(false)
   async function retry() {
-    setBusy('retry')
+    setRetrying(true)
     // Long enough to see that something happened when the answer is quick.
     await Promise.all([onRetry(), new Promise((r) => window.setTimeout(r, 500))])
-    setBusy(null)
+    setRetrying(false)
   }
   async function restart() {
-    setBusy('restart')
+    setRestarting(true)
     await serverAction(server, 'restart')
-    setBusy(null)
+    setRestarting(false)
   }
   return (
     <StateScreen pose="hurt" title={t('map.downTitle')} lead={t('map.downLead')} note={lastDrawn(info.lastDrawn)}>
-      <Button variant="outline" size={phone ? 'touch' : 'default'} onClick={restart} loading={busy === 'restart'} disabled={busy !== null || server.operation !== undefined}>
+      <Button variant="outline" size={phone ? 'touch' : 'default'} onClick={restart} loading={restarting} disabledReason={whyNot(server, 'restart', ws.stale)}>
         <RotateCwIcon />
         {t('map.restartServer', { server: server.name })}
       </Button>
-      <Button size={phone ? 'touch' : 'default'} onClick={retry} loading={busy === 'retry'} disabled={busy !== null}>
+      <Button size={phone ? 'touch' : 'default'} onClick={retry} loading={retrying}>
         <RefreshCwIcon />
         {t('common.tryAgain')}
       </Button>
@@ -301,14 +316,16 @@ function LoadFailed({ error, onRetry }: { error: ApiError; onRetry: () => Promis
 function MapSkeleton({ phone }: { phone: boolean }) {
   if (phone) {
     return (
-      <div className="flex flex-1 flex-col gap-3 pb-4" aria-busy="true" aria-label={t('common.loading')}>
+      <div className="flex flex-1 flex-col gap-3 pb-4">
+        <LoadingLabel />
         <Skeleton className="h-11 w-full rounded-xl" />
         <Skeleton className="min-h-[360px] flex-1 rounded-2xl" />
       </div>
     )
   }
   return (
-    <div className="flex flex-col gap-3" aria-busy="true" aria-label={t('common.loading')}>
+    <div className="flex flex-col gap-3">
+      <LoadingLabel />
       <div className="flex h-9 items-center gap-3">
         <Skeleton className="h-8 w-56 rounded-[9px]" />
         <Skeleton className="ml-auto h-4 w-44" />
@@ -336,7 +353,7 @@ function LiveMap({ server, info, onChange, onTurnOff, menuOpen, onMenuOpenChange
   const levelName = server.config?.levelName
   const sorted = useMemo(() => sortWorlds(worlds.data?.worlds ?? [], levelName), [worlds.data, levelName])
   const world = sorted.find((w) => w.name === picked) ?? sorted[0]
-  const list = players.data?.players ?? []
+  const list = players.data?.players
   const tileURL = useMemo(() => tilePath(server.id), [server.id])
 
   function find(p: MapPlayer) {
@@ -384,7 +401,7 @@ function LiveMap({ server, info, onChange, onTurnOff, menuOpen, onMenuOpenChange
     )
   }
   return (
-    <div className="flex animate-in flex-col gap-3 duration-300 fade-in-0">
+    <div className="flex animate-fade flex-col gap-3">
       <div className="flex min-h-9 flex-wrap items-center gap-x-4 gap-y-2">
         {toggle}
         <div className="ml-auto flex items-center gap-4 text-[13px] text-muted-foreground">
@@ -425,11 +442,17 @@ function Drawn({ at }: { at?: string }) {
 }
 
 function MapUnavailable({ error, onRetry, className }: { error: ApiError; onRetry: () => Promise<void>; className?: string }) {
+  const [busy, setBusy] = useState(false)
+  async function retry() {
+    setBusy(true)
+    await Promise.all([onRetry(), new Promise((r) => window.setTimeout(r, 500))])
+    setBusy(false)
+  }
   return (
-    <div className={cn('flex flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-[#E9EAE3] p-6 text-center', className)}>
+    <div className={cn('flex animate-fade flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-[#E9EAE3] p-6 text-center', className)}>
       <p className="text-sm font-semibold">{t('map.loadFailed')}</p>
       <p className="-mt-2 text-[13px] text-muted-foreground">{errorText(error)}</p>
-      <Button variant="outline" size="sm" onClick={() => void onRetry()}>
+      <Button variant="outline" size="sm" onClick={retry} loading={busy}>
         <RefreshCwIcon />
         {t('common.tryAgain')}
       </Button>
@@ -445,16 +468,19 @@ function where(p: MapPlayer, world: MapWorld | undefined, worlds: MapWorld[], le
   return t('map.atIn', { world: in_ ? worldLabel(in_, levelName, 'long') : p.world, x, z })
 }
 
-function PlayingCard({ players, world, worlds, levelName, onFind }: { players: MapPlayer[]; world?: MapWorld; worlds: MapWorld[]; levelName?: string; onFind: (p: MapPlayer) => void }) {
+function PlayingCard({ players, world, worlds, levelName, onFind }: { players: MapPlayer[] | undefined; world?: MapWorld; worlds: MapWorld[]; levelName?: string; onFind: (p: MapPlayer) => void }) {
+  const rows = useListPresence(players, playerKey)
   return (
     <Card className="gap-2.5 rounded-2xl p-4">
       <CardTitle className="text-sm">{t('map.playing')}</CardTitle>
-      {players.length === 0 ? (
-        <p className="text-[13px] text-muted-foreground">{t('map.nobody')}</p>
+      {!players ? (
+        <ListSkeleton rows={3} face="size-6 rounded-[5px]" rowClassName="flex h-[42px] items-center gap-2.5 px-1.5" className="-mx-1.5 flex flex-col gap-0.5" />
+      ) : rows.length === 0 ? (
+        <p className="animate-fade text-[13px] text-muted-foreground">{t('map.nobody')}</p>
       ) : (
         <ul className="-mx-1.5 flex max-h-[228px] flex-col gap-0.5 overflow-y-auto">
-          {players.map((p) => (
-            <li key={p.uuid || p.name}>
+          {rows.map(({ key, item: p, state }) => (
+            <li key={key} {...presenceProps(state)}>
               <button type="button" onClick={() => onFind(p)} title={t('map.find', { name: p.name })} className="flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1 text-left outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring">
                 <PlayerFace name={p.name} uuid={p.uuid} size={24} />
                 <span className="min-w-0">
@@ -471,13 +497,23 @@ function PlayingCard({ players, world, worlds, levelName, onFind }: { players: M
 }
 
 /** The phone's line under the map: faces (tap one to find them) and how many are playing. */
-function PhonePlaying({ players, onFind }: { players: MapPlayer[]; onFind: (p: MapPlayer) => void }) {
-  if (players.length === 0) return <p className="text-[15px] text-muted-foreground">{t('map.nobody')}</p>
+function PhonePlaying({ players, onFind }: { players: MapPlayer[] | undefined; onFind: (p: MapPlayer) => void }) {
+  const rows = useListPresence(players?.slice(0, 5), playerKey)
+  if (!players) {
+    return (
+      <div className="flex h-7 items-center gap-2.5">
+        <LoadingLabel />
+        <Skeleton className="h-7 w-16 rounded-[7px]" />
+        <Skeleton className="h-3 w-20" />
+      </div>
+    )
+  }
+  if (rows.length === 0) return <p className="animate-fade text-[15px] text-muted-foreground">{t('map.nobody')}</p>
   return (
     <div className="flex items-center gap-2.5">
       <div className="flex">
-        {players.slice(0, 5).map((p, i) => (
-          <button type="button" key={p.uuid || p.name} onClick={() => onFind(p)} aria-label={t('map.find', { name: p.name })} className={cn('rounded-[7px] ring-2 ring-sidebar', i > 0 && '-ml-1.5')}>
+        {rows.map(({ key, item: p, state }, i) => (
+          <button type="button" key={key} {...presenceProps(state)} onClick={() => onFind(p)} aria-label={t('map.find', { name: p.name })} className={cn('rounded-[7px] ring-2 ring-sidebar', i > 0 && '-ml-1.5')}>
             <PlayerFace name={p.name} uuid={p.uuid} size={28} />
           </button>
         ))}
@@ -504,7 +540,7 @@ function DrawingCard({ info }: { info: MapInfo }) {
           <Progress value={p.percent} tone="info" className="mt-3" label={t('map.drawingTitle')} />
         </>
       ) : (
-        <div className="mt-3 h-1.5 w-full animate-pulse rounded-full bg-info/35" role="progressbar" aria-label={t('map.drawingTitle')} />
+        <div className="mt-3 h-1.5 w-full animate-skeleton rounded-full bg-info/35" role="progressbar" aria-label={t('map.drawingTitle')} />
       )}
       <p className="mt-3 text-xs text-muted-foreground">{t('map.keepPlaying')}</p>
     </Card>
@@ -544,7 +580,7 @@ function CopyLink({ link, large }: { link: string; large?: boolean }) {
           <LinkText link={link} />
         </span>
         <Button variant="outline" size="icon-xl" onClick={copy} aria-label={t('map.copyLink')}>
-          {done ? <CheckIcon /> : <CopyIcon />}
+          {done ? <CheckIcon key="done" className="animate-fade" /> : <CopyIcon key="copy" className="animate-fade" />}
         </Button>
       </div>
     )
@@ -555,7 +591,7 @@ function CopyLink({ link, large }: { link: string; large?: boolean }) {
         <LinkText link={link} />
       </span>
       <Button variant="ghost" size="icon-xs" onClick={copy} aria-label={t('map.copyLink')} className="text-muted-foreground">
-        {done ? <CheckIcon /> : <CopyIcon />}
+        {done ? <CheckIcon key="done" className="animate-fade" /> : <CopyIcon key="copy" className="animate-fade" />}
       </Button>
     </div>
   )
@@ -604,10 +640,10 @@ function SharingControls({ server, info, onChange, large }: { server: ServerStat
           </div>
           <p className={hint}>{t('map.shareHint')}</p>
         </div>
-        <Switch checked={isPublic} onCheckedChange={(v) => void change('public', v)} aria-labelledby={shareId} disabled={pending.public !== undefined} className="mt-0.5" />
+        <Switch checked={isPublic} onCheckedChange={(v) => void change('public', v)} aria-labelledby={shareId} disabled={pending.public !== undefined} title={pending.public !== undefined ? t('reason.saving') : undefined} className="mt-0.5" />
       </div>
       {isPublic && (
-        <div className="animate-in duration-200 fade-in-0">
+        <div className="animate-enter">
           <div className={large ? 'mt-4' : 'mt-3'}>
             {link ? <CopyLink link={link} large={large} /> : <Skeleton className={large ? 'h-14 rounded-xl' : 'h-9 rounded-lg'} />}
             {link && !info.link && ws.machine && (
@@ -630,7 +666,7 @@ function SharingControls({ server, info, onChange, large }: { server: ServerStat
               </div>
               <p className={hint}>{t('map.sharePlayersHint')}</p>
             </div>
-            <Switch checked={showPlayers} onCheckedChange={(v) => void change('players', v)} aria-labelledby={playersId} disabled={pending.players !== undefined} className="mt-0.5" />
+            <Switch checked={showPlayers} onCheckedChange={(v) => void change('players', v)} aria-labelledby={playersId} disabled={pending.players !== undefined} title={pending.players !== undefined ? t('reason.saving') : undefined} className="mt-0.5" />
           </div>
         </div>
       )}

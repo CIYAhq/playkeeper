@@ -287,7 +287,7 @@ function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Back
           return (
             <li key={l.title}>
               {l.to ? (
-                <a {...linkPath(l.to)} className={cn(rowClass, '-mx-2 rounded-lg px-2 transition-colors hover:bg-muted/60')}>
+                <a {...linkPath(l.to)} className={cn(rowClass, '-mx-2 rounded-lg px-2 hover:bg-muted/60')}>
                   {row}
                 </a>
               ) : (

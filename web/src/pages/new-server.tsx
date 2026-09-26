@@ -11,11 +11,12 @@ import { createBlocked, createRequest, EulaCheck, freeName, MemoryBar, MemoryRea
 import { PhoneActions } from '@/components/app/frame'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { PageBody, PageHeader } from '@/components/app/shell'
-import { CardsSkeleton } from '@/components/app/skeletons'
+import { CardsSkeleton, ListSkeleton } from '@/components/app/skeletons'
 import { checkError, defaultWorld, sourceFrom, StartFromControl, suggestedName, uploadName, useWorldUpload, versionChange, WorldCheck, WorldSourceStep, type CheckError, type StartFrom, type WorldSource, type WorldUploadState } from '@/components/app/world-import'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
@@ -290,7 +291,7 @@ export function NewServerPage() {
                       </>
                     )}
                   </p>
-                  <div key={from} className="mt-4 animate-in duration-200 fade-in-0">
+                  <div key={from} className="mt-4 animate-fade">
                     {world ? worldStep : typeCards}
                   </div>
                 </section>
@@ -305,7 +306,10 @@ export function NewServerPage() {
           body = inspected ? (
             <WorldCheck check={inspected.preview} upload={inspected.upload} world={inspected.world} onWorld={(id) => void repreview(id)} onVersion={(id) => void repreview(inspected.world ?? '', id)} busy={checkBusy} phone={phone} error={checkErr} />
           ) : (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+            <div className="flex flex-col gap-4">
+              <Skeleton className={cn('h-6', phone ? 'w-3/4' : 'w-2/5')} />
+              <ListSkeleton rows={4} face="size-[18px] rounded-full" rowClassName="flex gap-3 border-b border-border py-3.5 last:border-b-0" className="flex flex-col rounded-2xl border border-border bg-card px-4" />
+            </div>
           )
           break
         }

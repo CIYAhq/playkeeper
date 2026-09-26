@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { CircleAlertIcon, CircleCheckIcon, CircleXIcon, FileArchiveIcon, FileUpIcon, RefreshCwIcon, UploadIcon } from 'lucide-react'
 import { ApiError, del } from '@/api/client'
 import type { ImportMessage, ImportWorld, WorldImport, WorldImportPreview } from '@/api/types'
@@ -11,6 +11,7 @@ import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { formatBytes, formatList, formatPercent, formatSpan } from '@/lib/format'
 import { coord, packName } from '@/lib/map'
+import { presenceProps, useListPresence } from '@/lib/presence'
 import { uploadWorld, UploadSpeed } from '@/lib/upload'
 import { cn } from '@/lib/utils'
 
@@ -183,7 +184,7 @@ export function checkError(e: unknown): CheckError {
 
 function CheckErrorNotice({ error }: { error: CheckError }) {
   return (
-    <Notice tone="error" title={error.title} className="animate-in duration-200 fade-in-0">
+    <Notice tone="error" title={error.title} className="animate-fade">
       {error.hint}
     </Notice>
   )
@@ -222,7 +223,7 @@ export function WorldSourceStep({ source, onSource, upload, phone, error }: { so
           </ToggleGroup>
         )}
       </div>
-      <div key={source} className="animate-in rounded-2xl border border-border bg-card p-4 duration-200 fade-in-0">
+      <div key={source} className="animate-fade rounded-2xl border border-border bg-card p-4">
         <h3 className="text-[15px] font-semibold max-sm:text-base">{t(texts.guide)}</h3>
         <ol className="mt-2 flex flex-col gap-1.5">
           {steps.map((k, i) => (
@@ -286,7 +287,7 @@ function UploadBox({ upload, phone }: { upload: WorldUpload; phone: boolean }) {
           setOver(false)
           take(e.dataTransfer.files)
         }}
-        className={cn('flex min-h-[132px] flex-col items-center justify-center rounded-2xl border border-dashed border-input bg-warm px-6 py-8 text-center transition-colors', over && 'border-primary bg-selected')}
+        className={cn('flex min-h-[132px] flex-col items-center justify-center rounded-2xl border border-dashed border-input bg-warm px-6 py-8 text-center transition-colors duration-(--motion-fast) ease-standard', over && 'border-primary bg-selected')}
       >
         <UploadIcon className="size-5 text-primary" aria-hidden="true" />
         <p className="mt-3 text-sm font-semibold">{t('import.drop')}</p>
@@ -311,7 +312,7 @@ function UploadBox({ upload, phone }: { upload: WorldUpload; phone: boolean }) {
   const detail =
     s.phase === 'done' ? t('import.uploaded', { size }) : s.phase === 'uploading' && !s.retrying && s.secondsLeft !== undefined ? t('import.left', { size, time: formatSpan(s.secondsLeft) }) : t('import.sizeOnly', { size })
   return (
-    <div className="animate-in rounded-2xl border border-dashed border-input bg-warm p-4 duration-200 fade-in-0">
+    <div className="animate-fade rounded-2xl border border-dashed border-input bg-warm p-4">
       <div className="flex items-center gap-3">
         {s.phase === 'done' ? <CircleCheckIcon className="size-5 shrink-0 text-success-foreground" aria-hidden="true" /> : <FileArchiveIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />}
         <div className="min-w-0 flex-1">
@@ -479,9 +480,11 @@ export function WorldCheck({
   const versions = check.versions ?? []
   const upgrade = versions.find((v) => !v.keep)
   const keep = versions.find((v) => v.keep)
-  const rows = checkRows(check, upload)
+  const found = useMemo(() => checkRows(check, upload), [check, upload])
+  const rows = useListPresence(found, (r) => `${r.tone}:${r.title}`)
+  const checking = busy ? t('reason.busy', { what: t('import.checking') }) : undefined
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex animate-fade flex-col gap-4">
       <div>
         <h2 className={cn(phone ? 'text-[26px] leading-8 font-extrabold tracking-[-0.02em]' : 'text-lg font-bold')}>{t('import.insideTitle', { file: check.preview.world.archive })}</h2>
         <p className="mt-0.5 text-[13px] text-muted-foreground max-sm:text-[15px]">{t('import.nothingChanged')}</p>
@@ -500,8 +503,8 @@ export function WorldCheck({
         </section>
       )}
       <ul className={cn('flex flex-col rounded-2xl border border-border bg-card px-4 transition-opacity', busy && 'opacity-60')} aria-busy={busy}>
-        {rows.map((r) => (
-          <li key={`${r.tone}:${r.title}`} className="flex animate-in gap-3 border-b border-border py-3.5 duration-300 fade-in-0 last:border-b-0">
+        {rows.map(({ key, item: r, state }) => (
+          <li key={key} {...presenceProps(state)} className="flex gap-3 border-b border-border py-3.5 last:border-b-0">
             <RowIcon tone={r.tone} />
             <span className="min-w-0 flex-1">
               <span className={cn('block text-sm max-sm:text-[15px]', r.tone === 'ok' || r.title.length < 60 ? 'font-semibold' : 'font-medium')}>{r.title}</span>
@@ -514,14 +517,14 @@ export function WorldCheck({
         <section>
           <h3 className="mb-2 text-[15px] font-semibold">{t('import.whichVersion')}</h3>
           <CardGroup value={check.versionId} onChange={onVersion} label={t('import.whichVersion')} className="flex flex-col gap-2">
-            <ChoiceCard value={upgrade.id} radio="start" disabled={busy} className="gap-3 px-4 py-3">
+            <ChoiceCard value={upgrade.id} radio="start" disabled={busy} reason={checking} className="gap-3 px-4 py-3">
               <span className="flex items-baseline gap-2">
                 <span className="text-sm font-semibold">{t('import.upgradeTo', { version: upgrade.minecraftVersion })}</span>
                 <span className="text-xs text-muted-foreground">{t('common.recommended')}</span>
               </span>
               <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{t('import.upgradeHint')}</span>
             </ChoiceCard>
-            <ChoiceCard value={keep.id} radio="start" disabled={busy} className="gap-3 px-4 py-3">
+            <ChoiceCard value={keep.id} radio="start" disabled={busy} reason={checking} className="gap-3 px-4 py-3">
               <span className="block text-sm font-semibold">{t('import.keep', { version: keep.minecraftVersion })}</span>
               <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{t('import.keepHint', { version: keep.minecraftVersion })}</span>
             </ChoiceCard>

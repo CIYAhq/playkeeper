@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { MachineView, MapInfo, ServerStatus } from '@/api/types'
+import type { MachineView, MapInfo, MapPlayers, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { t } from '@/i18n'
 import { MapPage } from './map'
@@ -86,9 +86,10 @@ afterEach(async () => {
   writeText.mockClear()
 })
 
-/** Renders the Map tab with the agent's answer about the map. */
-async function renderMap(info: MapInfo) {
-  vi.mocked(client.get).mockImplementation(((path: string) => (path.endsWith('/map') ? Promise.resolve(info) : new Promise(() => {}))) as typeof client.get)
+/** Renders the Map tab with the agent's answer about the map, and who's playing once that loads. */
+async function renderMap(info: MapInfo, players?: MapPlayers) {
+  vi.mocked(client.get).mockImplementation(((path: string) =>
+    path.endsWith('/map') ? Promise.resolve(info) : players && path.endsWith('/map/players') ? Promise.resolve(players) : new Promise(() => {})) as typeof client.get)
   if (root) await act(async () => root?.unmount())
   document.body.innerHTML = ''
   const r = createRoot(document.body.appendChild(document.createElement('div')))
@@ -137,5 +138,31 @@ describe('Map sharing', () => {
     expect(copyButton()).toBeNull()
     expect(document.body.textContent).not.toContain('/map/')
     expect(document.querySelector('[data-slot="skeleton"]')).not.toBeNull()
+  })
+
+  it('says why a sharing switch waits while its change is saved', async () => {
+    vi.mocked(client.post).mockImplementationOnce(() => new Promise(() => {}))
+    await renderMap(mapInfo({}))
+    const share = document.querySelector<HTMLElement>('[role="switch"]')
+    await act(async () => share?.click())
+    expect(client.post).toHaveBeenCalledWith(`/api/servers/${server.id}/map/share`, { public: true })
+    expect(share?.hasAttribute('data-disabled')).toBe(true)
+    expect(share?.getAttribute('title')).toBe(t('reason.saving'))
+  })
+})
+
+describe('Who is playing', () => {
+  const playingCard = () => [...document.querySelectorAll('section')].find((c) => c.textContent?.startsWith(t('map.playing')))
+
+  it('shows grey shapes until the players load, not that nobody is playing', async () => {
+    await renderMap(mapInfo({}))
+    expect(playingCard()?.querySelector('[data-slot="skeleton"]')).not.toBeNull()
+    expect(document.body.textContent).not.toContain(t('map.nobody'))
+  })
+
+  it('says nobody is playing once the list is in', async () => {
+    await renderMap(mapInfo({}), { players: [], updatedAt: '2026-09-25T22:00:00Z' })
+    expect(playingCard()?.querySelector('[data-slot="skeleton"]')).toBeNull()
+    expect(playingCard()?.textContent).toContain(t('map.nobody'))
   })
 })

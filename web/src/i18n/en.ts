@@ -1193,4 +1193,8 @@ export const en = {
   'reason.uploadFirst': 'Upload the world first.',
   'reason.uploading': 'Wait for the upload to finish.',
   'reason.worldProblem': 'The check found a problem with this world.',
+  'reason.saving': 'Saving your last change.',
+  'reason.zoomedIn': 'Zoomed in as far as it goes.',
+  'reason.zoomedOut': 'Zoomed out as far as it goes.',
+  'import.checking': 'Checking the world',
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>

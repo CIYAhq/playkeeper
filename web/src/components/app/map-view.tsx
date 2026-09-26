@@ -156,6 +156,11 @@ function reducedMotion(): boolean {
   return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 }
 
+/** How long a pan or zoom glides: the standard motion token. */
+function glideMs(): number {
+  return Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--motion-standard')) || 200
+}
+
 export interface MapFocus {
   x: number
   z: number
@@ -305,8 +310,9 @@ export function MapView({ world, tileSize, tileURL, players, faceURL, focus, coo
       }
       animTarget.current = target
       const start = performance.now()
+      const ms = glideMs()
       const step = (now: number) => {
-        const k = Math.min(1, (now - start) / 220)
+        const k = Math.min(1, (now - start) / ms)
         const e = 1 - (1 - k) ** 3
         setView({ x: from.x + (target.x - from.x) * e, z: from.z + (target.z - from.z) * e, zoom: from.zoom + (target.zoom - from.zoom) * e })
         if (k < 1) anim.current = window.requestAnimationFrame(step)
@@ -532,7 +538,7 @@ export function MapView({ world, tileSize, tileURL, players, faceURL, focus, coo
               aria-label={t('map.find', { name: p.name })}
               className={cn(
                 'absolute top-0 left-0 inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-white py-[3px] pr-2.5 pl-[3px] text-xs font-semibold whitespace-nowrap text-foreground shadow-popup outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                !moving && 'transition-transform duration-700 ease-out motion-reduce:transition-none',
+                !moving && 'transition-transform duration-(--motion-slow) ease-standard',
               )}
               style={{ transform: `translate(${Math.round(at.left)}px, ${Math.round(at.top)}px) translate(-50%, -50%)` }}
             >
@@ -543,17 +549,26 @@ export function MapView({ world, tileSize, tileURL, players, faceURL, focus, coo
         })}
       {zoomButtons && (
         <div className="absolute top-3 left-3 flex flex-col overflow-hidden rounded-lg border border-border bg-white shadow-popup max-sm:hidden">
-          <button type="button" onClick={() => zoomBy(1)} disabled={zoomLevel >= maxZoom(world)} aria-label={t('map.zoomIn')} className="flex size-8 items-center justify-center text-foreground outline-none hover:bg-accent focus-visible:bg-accent disabled:text-muted-foreground/50 [&_svg]:size-4">
+          <ZoomButton label={t('map.zoomIn')} whyNot={zoomLevel >= maxZoom(world) ? t('reason.zoomedIn') : undefined} onClick={() => zoomBy(1)}>
             <PlusIcon />
-          </button>
+          </ZoomButton>
           <span className="h-px bg-border" aria-hidden="true" />
-          <button type="button" onClick={() => zoomBy(-1)} disabled={zoomLevel <= 0} aria-label={t('map.zoomOut')} className="flex size-8 items-center justify-center text-foreground outline-none hover:bg-accent focus-visible:bg-accent disabled:text-muted-foreground/50 [&_svg]:size-4">
+          <ZoomButton label={t('map.zoomOut')} whyNot={zoomLevel <= 0 ? t('reason.zoomedOut') : undefined} onClick={() => zoomBy(-1)}>
             <MinusIcon />
-          </button>
+          </ZoomButton>
         </div>
       )}
       {caption && <div className="pointer-events-none absolute bottom-3 left-3 rounded-full bg-white px-2.5 py-1 text-xs text-foreground shadow-popup">{caption}</div>}
     </div>
+  )
+}
+
+/** A zoom button on the map; at the end of the zoom range it says why it can't go further. */
+function ZoomButton({ label, whyNot, onClick, children }: { label: string; whyNot?: string; onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} disabled={!!whyNot} title={whyNot} aria-label={label} className="flex size-8 items-center justify-center text-foreground outline-none hover:bg-accent focus-visible:bg-accent disabled:cursor-not-allowed disabled:text-muted-foreground/50 disabled:hover:bg-transparent [&_svg]:size-4">
+      {children}
+    </button>
   )
 }
 

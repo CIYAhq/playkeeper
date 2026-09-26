@@ -168,6 +168,7 @@ describe('New server from a world', () => {
     expect(text()).toContain('Not uploaded yet')
     expect(text()).toContain('Paper, suggested')
     expect(button('Check the world').disabled).toBe(true)
+    expect(button('Check the world').title).toBe('Upload the world first.')
 
     await click(button('Aternos'))
     expect(text()).toContain('Get your world from Aternos')
@@ -177,10 +178,32 @@ describe('New server from a world', () => {
     expect(text()).toContain('Uploading · 62%')
     expect(text()).toContain('It resumes if the connection drops.')
     expect(button('Check the world').disabled).toBe(true)
+    expect(button('Check the world').title).toBe('Wait for the upload to finish.')
 
     await act(async () => finish?.(uploaded))
     expect(text()).toContain('Survival-2024.zip')
     expect(button('Check the world').disabled).toBe(false)
+    expect(button('Check the world').title).toBe('')
+  })
+
+  it('says why a world the check found a problem with can’t go on', async () => {
+    const problem = { kind: 'bedrock_world', text: 'This is a Bedrock world, and Playkeeper runs Java servers.', hint: 'Upload a world from Minecraft: Java Edition.' }
+    const post = vi.mocked(client.post).getMockImplementation()
+    vi.mocked(client.post).mockImplementation(((path: string, body?: unknown) => {
+      if (path.endsWith('/preview')) {
+        const p = preview('paper-26.1.2', '26.1.2')
+        return Promise.resolve({ ...p, preview: { ...p.preview, problems: [problem] } })
+      }
+      return post?.(path, body)
+    }) as typeof client.post)
+    await render()
+    await chooseFile('Survival-2024.zip')
+    await act(async () => finish?.(uploaded))
+    await click(button('Check the world'))
+
+    expect(text()).toContain(problem.text)
+    expect(button('Continue to memory').disabled).toBe(true)
+    expect(button('Continue to memory').title).toBe('The check found a problem with this world.')
   })
 
   it('refuses files that aren’t archives before uploading', async () => {
