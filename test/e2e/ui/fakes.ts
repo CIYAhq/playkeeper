@@ -64,6 +64,7 @@ function backupFor(state: FakeState, serverId: string, backupId: string): Record
 
 const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/auth\/login$/, () => ({ status: 401, body: { error: 'Wrong username or password.', code: 'unauthorized' }, expected: true })],
+  ['POST', /^\/api\/setup$/, () => ({ status: 403, body: { error: 'That setup code is not correct.', code: 'forbidden' }, expected: true })],
   ['POST', /^\/api\/auth\/logout$/, () => ({ status: 200, body: {} })],
   ['POST', /^\/api\/auth\/logout-all$/, () => ({ status: 200, body: {} })],
   [
@@ -322,6 +323,68 @@ function confirmed(body: unknown): boolean {
 /** A world a restore left behind. A fresh install has none, so the World tab's notice and its Discard button would never show. */
 const leftoverWorld = { name: 'data.replaced-20260924-090000', kind: 'previous', createdAt: '2026-09-24T09:00:00Z', sizeBytes: 1_100_000_000 }
 
+/**
+ * States a fresh install isn't in, laid over the panel's real answers so the
+ * click-through reaches the controls only they show: its servers stopped,
+ * crashed (out of memory, as the agent reports it) or busy with a backup;
+ * no players, sessions or backups; no servers at all; a newer Playkeeper to
+ * update to; or a panel that still needs its admin account.
+ */
+export type View = 'live' | 'stopped' | 'crashed' | 'busy' | 'empty lists' | 'no servers' | 'update available' | 'first run'
+
+type Json = Record<string, unknown>
+
+const ago = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
+
+function stopped(s: Json): Json {
+  return { ...s, desired: 'stopped', phase: 'stopped', phaseDetail: undefined, reachable: false, reachableAt: undefined, startedAt: undefined, stoppedAt: ago(20 * 60), players: undefined, resources: undefined, operation: undefined, pendingRestart: false }
+}
+
+function server(view: View, s: Json): Json {
+  switch (view) {
+    case 'stopped':
+      return stopped(s)
+    case 'crashed':
+      return { ...stopped(s), desired: 'running', phase: 'crashed', stoppedAt: ago(90), exitCode: 137, crashCount: 3, lastError: 'Java ran out of memory.', lastErrorHint: 'Choose a larger memory budget in Settings.' }
+    case 'busy':
+      return { ...s, operation: { id: 'fake-op-busy', serverId: s.id, kind: 'backup', status: 'running', phase: 'copying', actor: 'admin', startedAt: ago(20) } }
+    case 'empty lists':
+      return { ...s, players: s.players ? { ...(s.players as Json), online: 0, names: [] } : undefined }
+    case 'live':
+    case 'no servers':
+    case 'update available':
+    case 'first run':
+      return s
+    default: {
+      const unreachable: never = view
+      return unreachable
+    }
+  }
+}
+
+/** The version the 'update available' view offers. */
+export const newerRelease = '0.3.2'
+
+/** A read's answer in `view`, or undefined when the view leaves it as the panel sent it. */
+function lay(view: View, path: string, body: unknown): unknown {
+  if (view === 'live' || body === undefined) return undefined
+  if (view === 'first run') return path === '/api/setup/status' ? { needsSetup: true } : undefined
+  if (path === '/api/servers' && Array.isArray(body)) return view === 'no servers' ? [] : body.map((s) => server(view, s as Json))
+  if (view === 'empty lists') {
+    if (/^\/api\/servers\/\w+\/(backups|whitelist|operators|activity)$/.test(path)) return []
+    if (/^\/api\/servers\/\w+\/players\/sessions$/.test(path)) return { ...(body as Json), sessions: [] }
+    if (/^\/api\/servers\/\w+\/players\/summary$/.test(path)) {
+      const b = body as Json & { days?: Json[] }
+      return { ...b, players: [], observedSessions: 0, uncertainSessions: 0, days: (b.days ?? []).map((d) => ({ ...d, uniquePlayers: 0, sessions: 0, playtimeSeconds: 0 })) }
+    }
+  }
+  if (view === 'update available') {
+    if (path === '/api/machines' && Array.isArray(body)) return body.map((m: Json) => (m.live ? { ...m, live: { ...(m.live as Json), updateAvailable: newerRelease } } : m))
+    if (/^\/api\/machines\/\w+\/update$/.test(path)) return { ...(body as Json), supported: true, available: true, latest: newerRelease, notes: '- Backups finish sooner\n- The phone’s Settings tab has a heading again', releaseDate: ago(2 * 86_400) }
+  }
+  return undefined
+}
+
 /** A generated 8×8 face, so tests never fetch or show a real player's skin. */
 export function standInFace(player: string): string {
   let h = 2166136261
@@ -374,9 +437,9 @@ const plans = [
 /**
  * Serves the fakes on a page. The returned list collects every API call with
  * its status; unknown writes answer 501 and are listed as unfaked so a new
- * endpoint can't slip through unchecked.
+ * endpoint can't slip through unchecked. Reads show `view()` (see View).
  */
-export async function installFakes(page: Page, baseURL: string): Promise<{ calls: ApiCall[]; unfaked: string[] }> {
+export async function installFakes(page: Page, baseURL: string, view: () => View = () => 'live'): Promise<{ calls: ApiCall[]; unfaked: string[] }> {
   const calls: ApiCall[] = []
   const unfaked: string[] = []
   const state: FakeState = { prefs: {}, backups: new Map(), update: {}, reads: new Map(), opSeq: 0 }
@@ -423,6 +486,15 @@ export async function installFakes(page: Page, baseURL: string): Promise<{ calls
       const res = await route.fetch().catch(() => null)
       if (!res) {
         await route.abort().catch(() => {})
+        return
+      }
+      const laid = res.ok() ? lay(view(), path, await res.json().catch(() => undefined)) : undefined
+      if (laid !== undefined) {
+        calls.push({ method, path, status: res.status(), faked: true, at })
+        const b = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
+        if (b?.[1]) state.backups.set(b[1], laid as Record<string, unknown>[])
+        if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = laid as Record<string, unknown>
+        await route.fulfill({ response: res, json: laid }).catch(() => {})
         return
       }
       calls.push({ method, path, status: res.status(), faked: false, at })

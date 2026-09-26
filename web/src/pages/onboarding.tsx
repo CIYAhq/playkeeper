@@ -196,19 +196,22 @@ export function Onboarding() {
   const step = stage === 'check' ? 1 : 2
   return (
     <Frame step={step} version={ws.me.version}>
-      {stage === 'check' && <CheckStage onNext={() => setStage('first')} />}
-      {stage === 'first' && <FirstStage onCreate={() => setStage('style')} />}
-      {stage === 'style' && (
-        <StyleStage
-          onBack={() => setStage('first')}
-          onCreated={(op) => {
-            setServerId(op.serverId)
-            setStage('creating')
-          }}
-        />
-      )}
-      {stage === 'creating' && server && <CreatingStage server={server} />}
-      {stage === 'online' && server && <OnlineStage server={server} />}
+      {/* The check comes in with the frame; each later stage animates in itself. */}
+      <div key={stage} className={cn('flex w-full flex-col items-center', stage !== 'check' && 'animate-page')}>
+        {stage === 'check' && <CheckStage onNext={() => setStage('first')} />}
+        {stage === 'first' && <FirstStage onCreate={() => setStage('style')} />}
+        {stage === 'style' && (
+          <StyleStage
+            onBack={() => setStage('first')}
+            onCreated={(op) => {
+              setServerId(op.serverId)
+              setStage('creating')
+            }}
+          />
+        )}
+        {stage === 'creating' && server && <CreatingStage server={server} />}
+        {stage === 'online' && server && <OnlineStage server={server} />}
+      </div>
     </Frame>
   )
 }
@@ -256,17 +259,21 @@ function CheckStage({ onNext }: { onNext: () => void }) {
   const [pre, setPre] = useState<Preflight>()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
+  const [checked, setChecked] = useState(false)
   const live = ws.machine?.live
   const id = ws.machine?.id
 
+  /** Runs the checks; false when they could not be run, which `error` then says. */
   const run = useCallback(async () => {
-    if (!id) return
+    if (!id) return false
     setBusy(true)
     try {
       setPre(await get<Preflight>(machineApi(id, '/preflight')))
       setError(undefined)
+      return true
     } catch (e) {
       setError(errorText(e))
+      return false
     } finally {
       setBusy(false)
     }
@@ -274,6 +281,18 @@ function CheckStage({ onNext }: { onNext: () => void }) {
   useEffect(() => {
     void run()
   }, [run])
+  // The checks usually come back the same, so the button says they ran.
+  async function recheck() {
+    if (!(await run())) return
+    setChecked(true)
+    window.setTimeout(() => setChecked(false), 1800)
+  }
+  const again = (
+    <>
+      {checked ? <CircleCheckIcon /> : <RefreshCwIcon />}
+      {checked ? t('onboarding.checked') : t('onboarding.checkAgain')}
+    </>
+  )
 
   const port = live?.defaultGamePort ?? 25565
   const rows = useMemo(() => {
@@ -287,7 +306,8 @@ function CheckStage({ onNext }: { onNext: () => void }) {
   const checkBlocked = !pre ? t('onboarding.checking') : pre.ok ? undefined : t('onboarding.checkBlocked')
 
   return (
-    <FrameCard wide className="max-w-[560px]">
+    // On a phone the list scrolls clear of the two buttons fixed at the bottom.
+    <FrameCard wide className="max-w-[560px] max-sm:pb-40">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold max-sm:text-[26px] max-sm:leading-8 max-sm:font-extrabold">{t('onboarding.checkTitle')}</h1>
@@ -330,16 +350,14 @@ function CheckStage({ onNext }: { onNext: () => void }) {
             {t('onboarding.looksGood')}
             <ArrowRightIcon />
           </Button>
-          <Button size="touch" variant="ghost" onClick={run} loading={busy}>
-            <RefreshCwIcon />
-            {t('onboarding.checkAgain')}
+          <Button size="touch" variant="ghost" onClick={recheck} loading={busy} aria-live="polite">
+            {again}
           </Button>
         </PhoneActions>
       ) : (
         <div className="mt-5 flex items-center justify-between gap-3">
-          <Button variant="ghost" onClick={run} loading={busy}>
-            <RefreshCwIcon />
-            {t('onboarding.checkAgain')}
+          <Button variant="ghost" onClick={recheck} loading={busy} aria-live="polite">
+            {again}
           </Button>
           <Button onClick={onNext} disabledReason={checkBlocked}>
             {t('onboarding.looksGood')}

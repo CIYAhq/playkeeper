@@ -95,8 +95,10 @@ control "extraction stays inside its destination" internal/backup/archive.go \
   'if false && !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {' \
   ./internal/backup '^TestExtractFileStaysInsideDestination$'
 control "backup creation applies the restore rules" internal/backup/archive.go \
-  'if err := tally.add(rel, size); err != nil {' \
-  'if err := tally.add(rel, size); false && err != nil {' \
+  'if err := tally.add(rel, size); err != nil {
+		return FileEntry{}, refusal(rel, err)' \
+  'if err := tally.add(rel, size); false && err != nil {
+		return FileEntry{}, refusal(rel, err)' \
   ./internal/backup '^(TestCreateRefusesNamesARestoreRefuses|TestCreateAndVerifyAgreeOnLimits)$'
 control "backup check compares the whole-archive SHA-256" internal/agent/backups.go \
   'if got := hex.EncodeToString(h.Sum(nil)); got != b.SHA256 {' \
@@ -367,9 +369,29 @@ control "the jar is hashed only up to a size no Paper jar reaches" internal/agen
   'const maxJarBytes = 1 << 62' \
   ./internal/agent '^TestAHugeSparseJarDoesNotHoldUpTheStart$'
 control "a backup reads the level name without following a link or waiting on a pipe" internal/backup/archive.go \
-  'b, err := readProperties(dataDir)' \
-  'b, err := os.ReadFile(filepath.Join(dataDir, "server.properties"))' \
+  'func levelName(dataDir string) (string, error) {
+	b, err := readProperties(dataDir)' \
+  'func levelName(dataDir string) (string, error) {
+	b, err := os.ReadFile(filepath.Join(dataDir, "server.properties"))' \
   ./internal/backup '^TestLevelNameDoesNotFollowALinkOrWaitOnAPipe$'
+control "a backup refuses a server.properties Playkeeper won't read" internal/backup/archive.go \
+  'return "world", nil
+	}
+	if err != nil {
+		return "", err
+	}' \
+  'return "world", nil
+	}
+	if err != nil {
+		return "world", nil
+	}' \
+  ./internal/backup '^TestLevelNameDoesNotFollowALinkOrWaitOnAPipe$'
+control "the check before a backup stops for a file Playkeeper won't read" internal/agent/backups.go \
+  'case gamefiles.KindOf(err) != "":
+		err = gameFileError(err, notBackedUp)' \
+  'case gamefiles.KindOf(err) != "" && false:
+		err = gameFileError(err, notBackedUp)' \
+  ./internal/agent '^TestBackupRefusesAServerPropertiesItWontReadBeforeStopping$'
 control "a restored world is given to the game without following links" internal/agent/backups.go \
   'if d.Type()&fs.ModeSymlink != 0 {' \
   'if false {' \
@@ -598,18 +620,20 @@ control "no world copy is discarded while the live world folder is missing" inte
   'if false && !dirExists(s.dataDir()) {' \
   ./internal/agent '^TestWorldCopiesAreListedAndDiscarded$'
 control "a world a restore would refuse is refused before the server stops" internal/agent/backups.go \
-  'err := backup.Check(s.dataDir(), archiveLimits())
-	if !errors.As(err, &refused) {' \
-  'err := backup.Check(s.dataDir(), archiveLimits())
-	if !errors.As(err, &refused) || true {' \
+  'case errors.As(err, &refused):
+		err = s.withRefusalHint(err)' \
+  'case errors.As(err, &refused) && false:
+		err = s.withRefusalHint(err)' \
   ./internal/agent '^(TestBackupRefusesAWorldARestoreWouldRefuse|TestBackupRefusesAWholeWorldOverALimitBeforeStopping|TestRestoreAndUpdateRefuseAWorldTheirBackupWouldRefuseBeforeStopping)$'
 control "an update refuses such a world before the server stops" internal/agent/versions.go \
   'if err := s.archiveRefusal("Nothing was changed."); err != nil {' \
   'if err := s.archiveRefusal("Nothing was changed."); false && err != nil {' \
   ./internal/agent '^TestRestoreAndUpdateRefuseAWorldTheirBackupWouldRefuseBeforeStopping$'
 control "the pre-stop check applies the archive limits" internal/backup/archive.go \
-  'if err := tally.add(rel, size); err != nil {' \
-  'if err := tally.add(rel, size); false && err != nil {' \
+  'if err := tally.add(rel, size); err != nil {
+			return refusal(rel, err)' \
+  'if err := tally.add(rel, size); false && err != nil {
+			return refusal(rel, err)' \
   ./internal/backup '^TestCheckRefusesWhatCreateRefuses$'
 control "a failed undo deletes neither copy of the world" internal/agent/backups.go \
   'if perr := putBack(failedAt, cause); perr != nil {' \
@@ -624,8 +648,10 @@ control "a restore the agent stops in is not undone" internal/agent/backups.go \
   'if false && err != nil && s.stopping() {' \
   ./internal/agent '^TestRestoreSurvivesTheAgentStopping$/^stops_while'
 control "an undo the agent stops in is finished by the next start" internal/agent/backups.go \
-  'if s.stopping() {' \
-  'if false && s.stopping() {' \
+  'if s.stopping() {
+			h.continues = true' \
+  'if false && s.stopping() {
+			h.continues = true' \
   ./internal/agent '^TestInterruptedRestoreIsSettledAtStart$/^stops_while_the_previous_world_is_put_back$'
 control "the stage of a restore being finished is not pruned at start" internal/agent/backups.go \
   'if a.resuming(dir) {' \
@@ -691,6 +717,14 @@ control "a 0.3.0 restore the agent stops in while taking it over is left for the
   'if s.stopping() {' \
   'if false && s.stopping() {' \
   ./internal/agent '^TestStoppingWhileTakingOverA030RestoreLeavesItForTheNextStart$'
+control "a failed lookup of a 0.3.0 restore's Paper build is tried again" internal/agent/recovery.go \
+  'for _, wait := range lookupRetries {' \
+  'for _, wait := range lookupRetries[:0] {' \
+  ./internal/agent '^TestA030RestoreIsFinishedThroughAShortPaperMCOutage$'
+control "the lookup tried again asks PaperMC, not the cached failure" internal/agent/recovery.go \
+  's.forgetFailedBuild(m.MinecraftVersion, m.PaperBuild)' \
+  '_ = m' \
+  ./internal/agent '^TestA030RestoreIsFinishedThroughAShortPaperMCOutage$'
 control "only a restored world started during a restore 0.3.0 undid is stopped" internal/agent/recovery.go \
   'if !running || !ok || started.Before(op.StartedAt) || started.After(*op.FinishedAt) {' \
   'if !running || !ok || started.IsZero() {' \
