@@ -9,9 +9,10 @@ import { AddonSourcesCard } from '@/components/app/addon-sources'
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
 import { ModpackPicker } from '@/components/app/modpacks'
-import { RestoreDialog } from '@/components/app/restore'
+import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { AppShell } from '@/components/app/shell'
 import { TemplateDialog } from '@/components/app/templates'
+import { toastManager } from '@/components/ui/toast'
 import { HomePage } from './home'
 import { createNote, NewServerPage } from './new-server'
 import { Onboarding } from './onboarding'
@@ -842,5 +843,31 @@ describe('Restore as a new server', () => {
     expect(box.getAttribute('aria-checked')).toBe('true')
     expect(document.body.textContent).not.toContain('you must accept the Minecraft EULA first')
     expect(document.body.textContent).toContain('This backup was made on a different Playkeeper host.')
+  })
+})
+
+describe('Backup upload', () => {
+  const choose = async (size: number) => {
+    const file = new File(['x'], 'world.tar.gz', { type: 'application/gzip' })
+    Object.defineProperty(file, 'size', { value: size })
+    const input = document.querySelector<HTMLInputElement>('input[type=file]')
+    if (!input) throw new Error('no backup upload')
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
+    return file
+  }
+
+  it('sends a 1 GB file and turns down a 21 GB one without sending it', async () => {
+    const toast = vi.spyOn(toastManager, 'add')
+    vi.mocked(client.api).mockClear()
+    await render(<RestoreDropZone server={server()} onPreview={() => {}} />)
+    const file = await choose(2 ** 30)
+    expect(client.api).toHaveBeenCalledWith('POST', '/api/servers/abcdefghjk/restore/upload', undefined, file)
+    expect(toast).not.toHaveBeenCalled()
+    vi.mocked(client.api).mockClear()
+    await choose(21 * 2 ** 30)
+    expect(client.api).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith({ title: 'That file is too big to be a Playkeeper backup.', type: 'error' })
+    toast.mockRestore()
   })
 })

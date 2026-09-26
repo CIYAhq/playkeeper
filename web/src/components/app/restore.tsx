@@ -17,7 +17,7 @@ import { navigate } from '@/lib/router'
 import { softwareName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
 
-const maxUpload = 20 << 30
+const maxUpload = 20 * 2 ** 30
 
 /** Uploads a Playkeeper backup file, for a server or (without one) as a new server. */
 export async function uploadBackup(file: File, machineId: string, server?: ServerStatus): Promise<RestorePreview> {

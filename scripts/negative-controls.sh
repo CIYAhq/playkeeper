@@ -461,6 +461,26 @@ control "data packs: a named pipe for the datapacks folder is refused before it 
   'err = folderError(p, fi)' \
   'err = nil' \
   ./internal/packs '^TestListDoesNotWaitOnAPipe$'
+control "resource packs: an offer that can't be built doesn't clear the pack or read as applied" internal/agent/packs.go \
+  'set, err := offerOf(o).Settings()' \
+  'set, err := offerOf(o).Settings(); if err != nil { set, err = settings, nil }' \
+  ./internal/agent '^TestResourcePackOfferThatCantBeBuilt$'
+control "resource packs: an offer that can't be built says what's wrong on the Packs page" internal/agent/packs.go \
+  'out.Problem = offerProblem(err)' \
+  'out.Problem = ""' \
+  ./internal/agent '^TestResourcePackOfferThatCantBeBuilt$'
+control "resource packs: a recreated container keeps the pack settings it had" internal/agent/lifecycle.go \
+  'pack = keptPackEnv(current)' \
+  'pack = keptPackEnv(nil)' \
+  ./internal/agent '^TestResourcePackOfferThatCantBeBuilt$'
+control "resource packs: without a container the pack settings are left alone, not cleared" internal/agent/packs.go \
+  'if v, ok := kept[st.Env]; ok {' \
+  'if v := kept[st.Env]; true {' \
+  ./internal/agent '^TestResourcePackOfferThatCantBeBuilt$'
+control "resource packs: a server without pack settings keeps the pack its server.properties names served" internal/agent/packs.go \
+  'if len(settings) == 0 {' \
+  'if false && len(settings) == 0 {' \
+  ./internal/agent '^TestResourcePackOfferThatCantBeBuilt$'
 control "add-on jars: the table of contents is checked before archive/zip reads it" internal/addons/jar.go \
   'n, err := zipdir.Check(r, size, zipdir.Metadata)
 	if err != nil {' \

@@ -56,7 +56,7 @@ export function zipProblem(file: File): string | undefined {
 /** The second line of the World card's packs row, such as "Faithful 32x · 3 of 4 data packs on". */
 export function packsLine(rp: ResourcePack | undefined, dp: DataPacks | undefined): string {
   const parts: string[] = []
-  if (rp?.offer) parts.push(packTitle(rp.offer.fileName))
+  if (rp?.offer) parts.push(rp.problem ? t('packs.rowProblem', { name: packTitle(rp.offer.fileName) }) : packTitle(rp.offer.fileName))
   if (dp && dp.packs.length > 0) {
     const count = dp.packs.length
     parts.push(dp.live ? t('packs.rowDataOn', { on: dp.packs.filter((p) => p.enabled).length, count }) : t('packs.rowData', { count }))
@@ -311,6 +311,22 @@ function Footnote({ server: s, children, className }: { server: ServerStatus; ch
   )
 }
 
+/** When the resource pack applies, or that players keep the previous one. */
+function resourceFootnote(s: ServerStatus, rp: ResourcePack | undefined): string {
+  if (rp?.problem) return t('packs.offeredBefore', { server: s.name })
+  return rp?.pending ? t('packs.appliesOnRestart', { server: s.name }) : t('packs.appliesOnJoin')
+}
+
+/** Why the server can't offer the stored pack, and how to fix it. */
+function OfferProblem({ server: s, problem, className }: { server: ServerStatus; problem?: string; className?: string }) {
+  if (!problem) return null
+  return (
+    <Notice className={className} tone="warning" title={t('packs.cantOffer', { server: s.name })}>
+      {problem}
+    </Notice>
+  )
+}
+
 function LoadError({ error, onRetry, className }: { error: ApiError; onRetry: () => Promise<void>; className?: string }) {
   return (
     <Notice
@@ -353,9 +369,10 @@ function ResourcePackCard({ server: s, rp, res }: PacksProps) {
         {offer && <OfferDetails server={s} offer={offer} res={res} gate={gate} />}
         {view === 'empty' && <ZipDropZone tall label={t('packs.drop')} onFile={(f) => void res.upload(f)} busy={res.uploading} disabledReason={gate.blocked ?? gate.local} className="mt-4" />}
       </div>
+      <OfferProblem server={s} problem={rp.data?.problem} className="mt-4" />
       {gate.local && rp.data && <p className="mt-3 text-xs text-warning-foreground">{gate.local}</p>}
       <Footnote server={s} className="mt-auto pt-4 text-xs text-muted-foreground">
-        {rp.data?.pending ? t('packs.appliesOnRestart', { server: s.name }) : t('packs.appliesOnJoin')}
+        {resourceFootnote(s, rp.data)}
       </Footnote>
     </Card>
   )
@@ -577,9 +594,10 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
             {!offer && <li>{upload}</li>}
           </ul>
         )}
+        <OfferProblem server={s} problem={rp.data?.problem} className="px-4 pt-2" />
         {gate.local && rp.data && <p className="px-4 pt-2 text-[13px] text-warning-foreground">{gate.local}</p>}
         <Footnote server={s} className="px-4 pt-2 text-[13px] text-muted-foreground">
-          {rp.data?.pending ? t('packs.appliesOnRestart', { server: s.name }) : t('packs.appliesOnJoin')}
+          {resourceFootnote(s, rp.data)}
         </Footnote>
       </section>
 

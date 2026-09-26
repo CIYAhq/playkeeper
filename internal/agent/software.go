@@ -450,7 +450,7 @@ func (s *server) installSoftware(ctx context.Context, h *opHandle, sc *api.Serve
 		return err
 	}
 	if plan.Setup != nil {
-		spec, _ := s.specWith(*sc, plan.Setup.Env, true)
+		spec, _ := s.specWith(*sc, plan.Setup.Env, true, nil)
 		tail, code, err := s.runSetupContainer(ctx, h, spec)
 		if err != nil {
 			return err

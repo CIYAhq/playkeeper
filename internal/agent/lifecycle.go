@@ -227,7 +227,12 @@ func (s *server) levelName(sc api.ServerConfig) string {
 // the jar that was verified against the pinned checksum, so a start never
 // re-downloads Paper. Other types run the files their verified install
 // recorded, the way its manifest says.
-func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool) (docker.ContainerConfig, string) {
+//
+// current is the environment of the server's existing container, if any: a
+// stored resource pack offer whose settings can't be built keeps the pack
+// settings it has, so the server goes on offering what it did, the machine
+// keeps serving that pack, and the Packs page says what's wrong.
+func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool, current []string) (docker.ContainerConfig, string) {
 	var typeEnv []string
 	switch {
 	case sc.Software != nil:
@@ -237,13 +242,13 @@ func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool) (docker.Cont
 	default:
 		typeEnv = []string{"TYPE=CUSTOM", "CUSTOM_SERVER=/data/" + filepath.Base(s.jarPath(sc))}
 	}
-	return s.specWith(sc, typeEnv, setupOnly)
+	return s.specWith(sc, typeEnv, setupOnly, current)
 }
 
 // specWith is the container definition with typeEnv, the part of the env
 // that depends on the server type. SKIP_DOWNLOAD_DEFAULTS stops the image
 // fetching unpinned default config files from a third-party repository.
-func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool) (docker.ContainerConfig, string) {
+func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool, current []string) (docker.ContainerConfig, string) {
 	online := "TRUE"
 	if s.offline() {
 		online = "FALSE"
@@ -270,7 +275,11 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool)
 		"USE_AIKAR_FLAGS=TRUE",
 	)
 	env = append(env, gameplayEnv(sc.Gameplay)...)
-	env = append(env, resourcePackEnv(sc.ResourcePack)...)
+	pack, err := resourcePackEnv(sc.ResourcePack)
+	if err != nil {
+		pack = keptPackEnv(current)
+	}
+	env = append(env, pack...)
 	limit := int64(sc.MemoryMB) << 20
 	pids := int64(2048)
 	stop := int(s.opts.StopTimeout.Seconds())
@@ -510,7 +519,7 @@ func (s *server) ensureServerSoftware(ctx context.Context, h *opHandle, sc *api.
 			return err
 		}
 	}
-	spec, _ := s.containerSpec(*sc, true)
+	spec, _ := s.containerSpec(*sc, true, nil)
 	tail, code, err := s.runSetupContainer(ctx, h, spec)
 	if err != nil {
 		return err
@@ -586,8 +595,8 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	}
 	pastFiles = true
 	name := s.containerName()
-	spec, hash := s.containerSpec(sc, false)
 	c, err := s.docker.ContainerInspect(ctx, name)
+	spec, hash := s.containerSpec(sc, false, c.Config.Env)
 	switch {
 	case err == nil && c.Config.Labels[labelManaged] != "true":
 		return &apiError{Msg: "A container named " + name + " exists but was not created by Playkeeper.", Hint: "Playkeeper will not touch it. Rename or remove that container, then press Start."}
