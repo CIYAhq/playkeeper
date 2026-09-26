@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
@@ -817,6 +818,13 @@ func forgottenDetail(place string, copies []offsiteCopy) string {
 	return fmt.Sprintf("%d copies on %s · %d only there", len(copies), place, onlyThere(copies))
 }
 
+// sameConnection says whether two saved settings reach the destination the
+// same way: the same settings, the same way of signing in and the same
+// secrets. An upload started with others is stopped.
+func sameConnection(a, b offsiteRow) bool {
+	return sameJSON(a.cfg, b.cfg) && a.secret == b.secret && a.password == b.password && a.privateKey == b.privateKey
+}
+
 func (s *server) hOffsiteSet(w http.ResponseWriter, r *http.Request) {
 	var req offsiteRequest
 	if err := decode(r, &req); err != nil {
@@ -888,7 +896,7 @@ func (s *server) hOffsiteSet(w http.ResponseWriter, r *http.Request) {
 			s.audit(actor, "offsite.copies_forgotten", "server", "succeeded", forgottenDetail(offsitePlace(row.cfg.Config), forgotten))
 		}
 	}
-	if moved || !next.enabled {
+	if moved || !next.enabled || !sameConnection(row, next) {
 		s.stopUpload()
 	}
 	if next.enabled {
@@ -1465,7 +1473,14 @@ func (s *server) stopUpload() {
 // claimed; what the dropped ones left unfinished is discarded.
 func (s *server) queueOffsite(backupID string) {
 	var enabled int
-	if s.db.QueryRow(`SELECT enabled FROM offsite WHERE server_id = ?`, s.id).Scan(&enabled) != nil || enabled != 1 {
+	switch err := s.db.QueryRow(`SELECT enabled FROM offsite WHERE server_id = ?`, s.id).Scan(&enabled); {
+	case errors.Is(err, sql.ErrNoRows):
+		return
+	case err != nil:
+		// A backup left out now is never copied. The uploader checks
+		// whether copies are on, and empties the queue when they're off.
+		s.log.Warn("whether copies somewhere else are on can't be read, so the backup is queued for its copy anyway", "server", s.id, "backup", backupID, "err", err)
+	case enabled != 1:
 		return
 	}
 	if _, err := s.db.Exec(`INSERT OR IGNORE INTO offsite_uploads(server_id, backup_id, created_at) VALUES(?, ?, ?)`, s.id, backupID, s.now().UnixMilli()); err != nil {
@@ -1484,9 +1499,12 @@ func (s *server) queueOffsite(backupID string) {
 	rows, err := s.db.Query(`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id != ? AND backup_id NOT IN
 		(SELECT backup_id FROM offsite_uploads WHERE server_id = ? ORDER BY created_at DESC LIMIT ?) RETURNING state`, s.id, claimed, s.id, offsiteMaxQueue)
 	if err == nil {
-		dropped, n = scanStates(rows)
+		dropped, n, err = scanStates(rows)
 	}
 	s.auto.mu.Unlock()
+	if err != nil {
+		s.log.Warn("the copy queue could not be trimmed, or what it dropped could not be read", "server", s.id, "err", err)
+	}
 	if n > 0 {
 		s.log.Warn("older backups waiting for their copy were dropped from the queue", "server", s.id, "count", n)
 	}
@@ -1522,32 +1540,39 @@ func (s *server) discardUploads(states []*offsite.UploadState) {
 type uploadJob struct {
 	backupID string
 	state    *offsite.UploadState
-	attempts int
-	ctx      context.Context
+	// claimedAt is when the uploader claimed the upload, in Unix
+	// milliseconds, as offsite.updated_at counts.
+	claimedAt int64
+	ctx       context.Context
 }
 
-func (s *server) queuedStates() []*offsite.UploadState {
+// queuedStates reads the saved states of the queued uploads. Its error is
+// never an empty queue: what the states name is kept only while they're read.
+func (s *server) queuedStates() ([]*offsite.UploadState, error) {
 	rows, err := s.db.Query(`SELECT state FROM offsite_uploads WHERE server_id = ? AND state != ''`, s.id)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	states, _ := scanStates(rows)
-	return states
+	states, _, err := scanStates(rows)
+	return states, err
 }
 
 // scanStates reads the saved states of queued uploads, skipping those with
 // none, and counts the rows. It closes rows.
-func scanStates(rows *sql.Rows) (states []*offsite.UploadState, n int) {
+func scanStates(rows *sql.Rows) (states []*offsite.UploadState, n int, err error) {
 	defer rows.Close()
 	for rows.Next() {
 		n++
 		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return states, n, err
+		}
 		var st offsite.UploadState
-		if rows.Scan(&raw) == nil && json.Unmarshal([]byte(raw), &st) == nil {
+		if json.Unmarshal([]byte(raw), &st) == nil {
 			states = append(states, &st)
 		}
 	}
-	return states, n
+	return states, n, rows.Err()
 }
 
 func (s *server) offsiteLoop(ctx context.Context) {
@@ -1574,12 +1599,25 @@ func (s *server) offsiteLoop(ctx context.Context) {
 // unfinished uploads.
 func (s *server) offsiteRound(ctx context.Context, prev offsiteDest, prevIdent string, tidied map[string]bool) (offsiteDest, string) {
 	row, err := s.loadOffsite()
-	if err != nil || !row.configured() || !row.hasKeys {
+	if err != nil {
+		return prev, prevIdent
+	}
+	if !row.configured() || !row.hasKeys {
+		if row.exists && !row.enabled {
+			// Copies never ran, so nothing waits at a destination: a backup
+			// queued while the settings couldn't be read just leaves.
+			_, _ = s.db.Exec(`DELETE FROM offsite_uploads WHERE server_id = ?`, s.id)
+		}
 		return prev, prevIdent
 	}
 	ident := offsiteIdentity(row.cfg.Config)
 	if !row.enabled {
-		if states := s.queuedStates(); len(states) > 0 {
+		states, err := s.queuedStates()
+		if err != nil {
+			s.log.Warn("the copy queue can't be read, so it is emptied once it can", "server", s.id, "err", err)
+			return prev, prevIdent
+		}
+		if len(states) > 0 {
 			old := prev
 			if old == nil || prevIdent != ident {
 				old, _ = s.openDest(row, row.keys)
@@ -1590,7 +1628,12 @@ func (s *server) offsiteRound(ctx context.Context, prev offsiteDest, prevIdent s
 		return nil, ""
 	}
 	if prev != nil && prevIdent != ident {
-		s.abandon(ctx, prev, s.queuedStates())
+		states, err := s.queuedStates()
+		if err != nil {
+			s.log.Warn("the copy queue can't be read, so copies go to the new place once it can", "server", s.id, "err", err)
+			return prev, prevIdent
+		}
+		s.abandon(ctx, prev, states)
 		_, _ = s.db.Exec(`UPDATE offsite_uploads SET state = '' WHERE server_id = ?`, s.id)
 	}
 	dest, err := s.openDest(row, row.keys)
@@ -1599,13 +1642,19 @@ func (s *server) offsiteRound(ctx context.Context, prev offsiteDest, prevIdent s
 		return nil, ""
 	}
 	if !tidied[ident] {
-		tctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		n, err := dest.AbortStale(tctx, s.now().Add(-offsiteStaleAfter), s.queuedStates())
-		cancel()
-		if err == nil {
-			tidied[ident] = true
-			if n > 0 {
-				s.log.Info("cleaned up unfinished copies", "server", s.id, "count", n)
+		// AbortStale discards every unfinished upload that isn't in keep, so
+		// it waits for a round that reads the queue.
+		if keep, err := s.queuedStates(); err != nil {
+			s.log.Warn("the copy queue can't be read, so unfinished copies are cleaned up another time", "server", s.id, "err", err)
+		} else {
+			tctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+			n, err := dest.AbortStale(tctx, s.now().Add(-offsiteStaleAfter), keep)
+			cancel()
+			if err == nil {
+				tidied[ident] = true
+				if n > 0 {
+					s.log.Info("cleaned up unfinished copies", "server", s.id, "count", n)
+				}
 			}
 		}
 	}
@@ -1638,10 +1687,10 @@ func (s *server) abandon(ctx context.Context, dest offsiteDest, states []*offsit
 func (s *server) claimUpload(ctx context.Context) (uploadJob, bool) {
 	s.auto.mu.Lock()
 	defer s.auto.mu.Unlock()
-	var j uploadJob
+	j := uploadJob{claimedAt: s.now().UnixMilli()}
 	var raw string
-	err := s.db.QueryRow(`SELECT backup_id, state, attempts FROM offsite_uploads WHERE server_id = ? AND next_attempt <= ? ORDER BY created_at DESC LIMIT 1`,
-		s.id, s.now().UnixMilli()).Scan(&j.backupID, &raw, &j.attempts)
+	err := s.db.QueryRow(`SELECT backup_id, state FROM offsite_uploads WHERE server_id = ? AND next_attempt <= ? ORDER BY created_at DESC LIMIT 1`,
+		s.id, j.claimedAt).Scan(&j.backupID, &raw)
 	if err != nil {
 		return j, false
 	}
@@ -1672,34 +1721,56 @@ func (s *server) dropUpload(backupID string) {
 	_, _ = s.db.Exec(`DELETE FROM offsite_uploads WHERE server_id = ? AND backup_id = ?`, s.id, backupID)
 }
 
+// backupGone says whether getBackup's error says there is no such backup,
+// rather than that it couldn't be read.
+func backupGone(err error) bool {
+	var ae *apiError
+	return errors.As(err, &ae) && (ae.Code == api.CodeNotFound || ae.Code == api.CodeInvalid)
+}
+
 // uploadOne copies the backup of an upload the uploader claimed to dest,
 // which the round opened with the settings and keys in at, and lets go of
 // the claim once it is done with the upload's row. It reports whether the
 // next one can go.
 //
 // A new key saved before the claim is seen here; one saved after it stops
-// the claim. Either way nothing more is encrypted to the old key.
+// the claim. Either way nothing more is encrypted to the old key. Other
+// settings or secrets saved before the claim end the round too, since dest
+// was opened with those it read.
+//
+// Only a backup that is gone leaves the queue. One that can't be read now
+// is a failed try, tried again later.
 func (s *server) uploadOne(ctx context.Context, dest offsiteDest, at offsiteRow, job uploadJob) bool {
 	defer s.releaseUpload()
 	uploadClaimed(job)
-	if row, err := s.loadOffsite(); err != nil || row.keys.Current.Recipient != at.keys.Current.Recipient {
+	if row, err := s.loadOffsite(); err != nil || row.keys.Current.Recipient != at.keys.Current.Recipient || !sameConnection(row, at) {
 		return false
 	}
-	b, err := s.getBackup(job.backupID)
-	if err != nil || b.Verified == nil || !*b.Verified {
+	gone := func() bool {
+		s.log.Info("a backup waiting for its copy can't be copied any more, so it leaves the queue", "server", s.id, "backup", job.backupID)
 		s.dropUpload(job.backupID)
 		if job.state != nil {
 			s.abandon(ctx, dest, []*offsite.UploadState{job.state})
 		}
 		return true
 	}
+	b, err := s.getBackup(job.backupID)
+	switch {
+	case backupGone(err):
+		return gone()
+	case err != nil:
+		s.uploadFailed(job.ctx, job, fmt.Errorf("the backup's record can't be read: %w", err))
+		return false
+	case b.Verified == nil || !*b.Verified:
+		return gone()
+	}
 	f, err := os.Open(s.backupPath(b.FileName))
-	if err != nil {
-		s.dropUpload(job.backupID)
-		if job.state != nil {
-			s.abandon(ctx, dest, []*offsite.UploadState{job.state})
-		}
-		return true
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return gone()
+	case err != nil:
+		s.uploadFailed(job.ctx, job, fmt.Errorf("the backup's archive can't be opened: %w", err))
+		return false
 	}
 	defer f.Close()
 	sent := storedBytes(job.state)
@@ -1728,7 +1799,7 @@ func (s *server) uploadOne(ctx context.Context, dest offsiteDest, at offsiteRow,
 		return false
 	}
 	if err != nil {
-		s.uploadFailed(job.ctx, b, job, err)
+		s.uploadFailed(job.ctx, job, err)
 		return false
 	}
 	if lerr != nil {
@@ -1741,7 +1812,11 @@ func (s *server) uploadOne(ctx context.Context, dest offsiteDest, at offsiteRow,
 	return true
 }
 
-func (s *server) uploadFailed(ctx context.Context, b *api.Backup, job uploadJob, err error) {
+// uploadFailed records a failed try of the claimed upload: the count goes
+// up by one, and the next try waits the longer the more tries failed. A try
+// ended by settings saved since the claim doesn't count: saving them made
+// the copy due again, to be tried with them.
+func (s *server) uploadFailed(ctx context.Context, job uploadJob, err error) {
 	var oe *offsite.Error
 	errors.As(err, &oe)
 	// The state the upload's progress saved stays, as NULL leaves it, unless
@@ -1752,11 +1827,14 @@ func (s *server) uploadFailed(ctx context.Context, b *api.Backup, job uploadJob,
 			state = string(raw)
 		}
 	}
+	keepState := func() {
+		_, _ = s.db.Exec(`UPDATE offsite_uploads SET state = COALESCE(?, state) WHERE server_id = ? AND backup_id = ?`, state, s.id, job.backupID)
+	}
 	if ctx.Err() != nil {
 		// Playkeeper is stopping, or stopUpload stopped the upload for new
 		// settings or a new key: it isn't a failed try, and goes on, or
 		// starts over, next time.
-		_, _ = s.db.Exec(`UPDATE offsite_uploads SET state = COALESCE(?, state) WHERE server_id = ? AND backup_id = ?`, state, s.id, b.ID)
+		keepState()
 		return
 	}
 	msg, hint, kind, params := err.Error(), "", "", ""
@@ -1767,22 +1845,34 @@ func (s *server) uploadFailed(ctx context.Context, b *api.Backup, job uploadJob,
 		}
 		if oe.Kind == offsite.KindLocalChanged || oe.Kind == offsite.KindTooLarge {
 			// Trying again can't help: this backup is never copied.
-			s.dropUpload(b.ID)
-			s.audit("playkeeper", "offsite.copy_failed", b.ID, "failed", msg)
+			s.dropUpload(job.backupID)
+			s.audit("playkeeper", "offsite.copy_failed", job.backupID, "failed", msg)
 			return
 		}
 	}
-	attempts := job.attempts + 1
-	wait := offsiteMaxBackoff
-	if attempts <= 8 {
-		wait = min(offsiteFirstBackoff<<(attempts-1), offsiteMaxBackoff)
+	// The wait doubles from offsiteFirstBackoff with each failed try before
+	// this one, up to offsiteMaxBackoff; eight tries reach it.
+	var attempts int
+	qerr := s.db.QueryRow(`UPDATE offsite_uploads SET state = COALESCE(?, state), attempts = attempts + 1, next_attempt = ? + MIN(? << MIN(attempts, 8), ?),
+			last_error = ?, error_hint = ?, error_kind = ?, error_params = ?
+		WHERE server_id = ? AND backup_id = ? AND NOT EXISTS (SELECT 1 FROM offsite WHERE server_id = ? AND updated_at >= ?)
+		RETURNING attempts`,
+		state, s.now().UnixMilli(), offsiteFirstBackoff.Milliseconds(), offsiteMaxBackoff.Milliseconds(), msg, hint, kind, params,
+		s.id, job.backupID, s.id, job.claimedAt).Scan(&attempts)
+	switch {
+	case errors.Is(qerr, sql.ErrNoRows):
+		// The settings were saved since the claim, or the copy left the
+		// queue meanwhile.
+		keepState()
+		return
+	case qerr != nil:
+		s.log.Warn("a failed copy somewhere else could not be recorded", "server", s.id, "backup", job.backupID, "err", qerr)
+		return
 	}
-	_, _ = s.db.Exec(`UPDATE offsite_uploads SET state = COALESCE(?, state), attempts = ?, next_attempt = ?, last_error = ?, error_hint = ?, error_kind = ?, error_params = ?
-		WHERE server_id = ? AND backup_id = ?`, state, attempts, s.now().Add(wait).UnixMilli(), msg, hint, kind, params, s.id, b.ID)
 	if attempts == 1 {
-		s.audit("playkeeper", "offsite.copy_failed", b.ID, "failed", msg)
+		s.audit("playkeeper", "offsite.copy_failed", job.backupID, "failed", msg)
 	}
-	s.log.Warn("a copy somewhere else failed", "server", s.id, "backup", b.ID, "kind", kind, "attempt", attempts)
+	s.log.Warn("a copy somewhere else failed", "server", s.id, "backup", job.backupID, "kind", kind, "attempt", attempts, "err", msg)
 }
 
 // copyDone records a finished copy, then applies the rules at the
