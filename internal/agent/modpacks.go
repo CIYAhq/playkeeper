@@ -49,13 +49,15 @@ func (a *Agent) curseForgeKeyFile() string {
 // and forgets what the sources said before.
 func (a *Agent) loadPacks() {
 	key, err := curseforge.LoadKey(a.curseForgeKeyFile(), curseforge.BuildKey)
+	problem := ""
 	if err != nil {
 		a.log.Warn("CurseForge modpacks are not offered", "err", err)
+		problem = sentence(err.Error())
 	}
 	lib := modpacks.New(a.opts.UpstreamClient, key)
 	lib.TempDir = a.cfg.StagingDir()
 	a.packKeyMu.Lock()
-	a.packKey = key
+	a.packKey, a.packKeyProblem = key, problem
 	a.packKeyMu.Unlock()
 	a.packLib.Store(lib)
 	a.packSearches.clear()

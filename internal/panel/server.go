@@ -254,6 +254,11 @@ func (s *Server) Routes() []Route {
 		mg("/api/machines/{mid}/modpacks/{source}/{project}", "/v1/modpacks/{source}/{project}"),
 		mg("/api/machines/{mid}/modpacks/{source}/{project}/versions/{version}/preview", "/v1/modpacks/{source}/{project}/versions/{version}/preview"),
 		view("/api/machines/{mid}/modpacks/icon", s.hAddonIcon),
+		// Wave 4: add-on sources. The CurseForge key is the machine's, so only
+		// those who may manage the machine change it.
+		mg("/api/machines/{mid}/addon-sources", "/v1/addon-sources"),
+		mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),
+		mm("DELETE", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),
 		// Wave 4: templates.
 		sg("/api/servers/{id}/template", "/v1/servers/{id}/template"),
 		sm("POST", "/api/servers/{id}/template/retry", "/v1/servers/{id}/template/retry"),

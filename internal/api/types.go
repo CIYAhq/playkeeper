@@ -1119,6 +1119,37 @@ const CodeUpstream = "upstream_unavailable"
 // Playkeeper no longer has, or that would now do something else.
 const CodePlanChanged = "plan_changed"
 
+// Wave 4: add-on sources.
+
+// CodeKeyRefused refuses a CurseForge API key that CurseForge doesn't
+// accept, or that can't be one.
+const CodeKeyRefused = "curseforge_key_refused"
+
+// AddonSources is Settings › Add-on sources: where the machine finds
+// plugins, mods and modpacks. Modrinth and Hangar are built in and always on.
+type AddonSources struct {
+	CurseForge CurseForgeSource `json:"curseforge"`
+}
+
+// CurseForgeSource is CurseForge on the machine.
+type CurseForgeSource struct {
+	// Key is where the key in use comes from: none, build (the key this
+	// release carries), file (the owner's own) or disabled (an empty key file
+	// turns CurseForge off).
+	Key string `json:"key"`
+	// Ending is the last four characters of the owner's own key.
+	Ending string `json:"ending,omitempty"`
+	// Problem says why the owner's key file can't be used; it never holds
+	// the key.
+	Problem string `json:"problem,omitempty"`
+}
+
+// CurseForgeKeyRequest saves the owner's own CurseForge API key.
+type CurseForgeKeyRequest struct {
+	Key   string `json:"key"`
+	Actor string `json:"actor"`
+}
+
 // SoftwarePin is the exact software of a server type other than Paper. It
 // mirrors software.Pin field for field; only its own type's build is set.
 type SoftwarePin struct {

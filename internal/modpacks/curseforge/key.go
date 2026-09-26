@@ -50,6 +50,15 @@ func (k Key) Source() KeySource {
 	return k.source
 }
 
+// Ending is the key's last four characters, which the owner sees in place of
+// the key to tell one key from another.
+func (k Key) Ending() string {
+	if len(k.value) < 4 {
+		return ""
+	}
+	return k.value[len(k.value)-4:]
+}
+
 func (k Key) String() string   { return "CurseForge API key (" + string(k.Source()) + ", redacted)" }
 func (k Key) GoString() string { return k.String() }
 

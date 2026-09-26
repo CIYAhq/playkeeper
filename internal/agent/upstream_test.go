@@ -22,20 +22,27 @@ type fakeUpstream struct {
 	srv    *httptest.Server
 	mu     sync.Mutex
 	routes map[string][]byte
-	hits   map[string]int
+	// handlers answer a host and path instead of a fixed body.
+	handlers map[string]http.HandlerFunc
+	hits     map[string]int
 	// serverJar is what the fake Mojang serves as each version's server jar.
 	serverJar map[string][]byte
 }
 
 func startFakeUpstream(t *testing.T) *fakeUpstream {
 	t.Helper()
-	f := &fakeUpstream{t: t, routes: map[string][]byte{}, hits: map[string]int{}, serverJar: map[string][]byte{}}
+	f := &fakeUpstream{t: t, routes: map[string][]byte{}, handlers: map[string]http.HandlerFunc{}, hits: map[string]int{}, serverJar: map[string][]byte{}}
 	f.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.Host + r.URL.Path
 		f.mu.Lock()
 		body, ok := f.routes[key]
+		h := f.handlers[key]
 		f.hits[key]++
 		f.mu.Unlock()
+		if h != nil {
+			h(w, r)
+			return
+		}
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -71,6 +78,13 @@ func (f *fakeUpstream) serve(rawURL string, body []byte) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.routes[f.key(rawURL)] = body
+}
+
+// handle answers rawURL's host and path with h.
+func (f *fakeUpstream) handle(rawURL string, h http.HandlerFunc) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.handlers[f.key(rawURL)] = h
 }
 
 func (f *fakeUpstream) remove(rawURL string) {

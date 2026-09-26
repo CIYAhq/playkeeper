@@ -187,6 +187,8 @@ type Agent struct {
 	packLib          atomic.Pointer[modpacks.Library]
 	packKeyMu        sync.Mutex
 	packKey          curseforge.Key
+	packKeyProblem   string
+	keyFileMu        sync.Mutex
 	packSearches     *ttlCache[*api.ModpackResults]
 	packDetails      *ttlCache[*api.ModpackDetail]
 	packPreviews     *ttlCache[*api.ModpackPreview]
@@ -665,6 +667,10 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/servers/{id}/mods/share", srv((*server).hPackShareSet)},
 		{"GET", "/v1/servers/{id}/mods/share.mrpack", srv((*server).hPackShareFile)},
 		{"GET", "/v1/packs/{token}", a.hPackLink},
+		// Wave 4: add-on sources.
+		{"GET", "/v1/addon-sources", a.hAddonSources},
+		{"POST", "/v1/addon-sources/curseforge", a.hCurseForgeKeySet},
+		{"DELETE", "/v1/addon-sources/curseforge", a.hCurseForgeKeyRemove},
 	}
 }
 

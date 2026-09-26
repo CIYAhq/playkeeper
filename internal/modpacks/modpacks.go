@@ -17,6 +17,7 @@
 package modpacks
 
 import (
+	"context"
 	"net/http"
 	"slices"
 	"strings"
@@ -277,6 +278,15 @@ func New(hc *http.Client, key curseforge.Key) *Library {
 		l.CurseForge = curseforge.New(key, o)
 	}
 	return l
+}
+
+// CheckKey asks CurseForge for one modpack with key, which it answers only
+// for a key it accepts. A refused key is an error of kind KindKeyRefused;
+// other failures are Upstream errors.
+func CheckKey(ctx context.Context, hc *http.Client, key curseforge.Key) error {
+	o := fetch.Options{HTTP: hc, MaxWait: 10 * time.Second, UserAgent: modrinth.UserAgent(version.Version)}
+	_, err := curseforge.New(key, o).Search(ctx, curseforge.SearchQuery{ClassID: curseforge.ClassModpacks, PageSize: 1})
+	return Upstream(CurseForge, err)
 }
 
 // Sources lists where packs can come from on this Playkeeper.

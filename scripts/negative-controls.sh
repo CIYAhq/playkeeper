@@ -628,6 +628,18 @@ control "a pack's settings are read and written without following a link" intern
 		err = os.WriteFile(filepath.Join(s.dataDir(), "server.properties"), mergeProperties(cur, props), 0o640)
 	}' \
   ./internal/agent '^TestPackSettingsAreNotReadOrWrittenThroughALink$'
+control "a CurseForge key is saved only once CurseForge accepts it" internal/agent/addonsources.go \
+  'if err := modpacks.CheckKey(ctx, a.opts.UpstreamClient, key); err != nil {' \
+  'if err := modpacks.CheckKey(ctx, a.opts.UpstreamClient, key); false && err != nil {' \
+  ./internal/agent '^TestCurseForgeKeyIsCheckedSavedAndRemoved$'
+control "the CurseForge key file is readable by root only" internal/agent/addonsources.go \
+  'os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
+  'os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)' \
+  ./internal/agent '^TestCurseForgeKeyIsCheckedSavedAndRemoved$'
+control "only who manages the machine changes its CurseForge key" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \
+  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actView),' \
+  ./internal/panel '^TestOnlyWhoManagesTheMachineChangesItsCurseForgeKey$'
 control "server software is written inside the data directory's root" internal/minecraft/software/files.go \
   'f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
   'f, err := os.OpenFile(root.Name()+"/"+tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
