@@ -1491,7 +1491,6 @@ export const en = {
 
   // Global settings
   'global.title': 'Settings',
-  'global.lead': 'Playkeeper, add-on sources and the audit log.',
   'global.playkeeper': 'Playkeeper',
   'global.audit': 'Audit log',
   'global.auditHint': 'Sign-ins and every change to your servers, newest first. Secrets are never recorded.',
