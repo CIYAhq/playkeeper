@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import path from 'node:path'
-import { answerRead, installJob, isAddonRead, recordedFolder, type World } from './addon-fixtures'
+import { answerRead, installJob, isAddonRead, recordedFolder, updateJob, type World } from './addon-fixtures'
 import { Crawler, failing, failureList, where, type CrawlReport, type Result, type Status } from './crawl'
 import { installPageHelpers } from './crawl-page'
 import type { View } from './fakes'
@@ -459,7 +459,43 @@ test('the add-on fixtures answer as the panel would, work out plans against the 
   expect(get(`/icon?url=${encodeURIComponent('https://example.com/icon.png')}`)).toMatchObject({ status: 400, body: { code: 'host_not_allowed' } })
 
   expect(get('/project/modrinth/AAAAAAAA')).toBeUndefined()
-  expect(get('/curated')).toBeUndefined()
   expect(isAddonRead('GET', '/api/servers/abc/addons/curated')).toBe(true)
   expect(isAddonRead('POST', '/api/servers/abc/addons/install')).toBe(false)
+})
+
+test("the add-on fixtures list Playkeeper's picks, and installs take Wave 3's start and Wave 4's openPorts", () => {
+  const stopped: World = { addons: recordedFolder(), running: false }
+  const viaVersion = { source: 'modrinth', projectId: 'P1OZGk5p', name: 'ViaVersion', versionId: 'FaishMnD', versionNumber: '5.12.0', published: '2026-09-18T15:01:59.741758Z', fileName: 'ViaVersion-5.12.0.jar' }
+  const withVia: World = { addons: { ...recordedFolder(), files: [{ fileName: viaVersion.fileName, size: 6_503_775, status: 'managed', addon: viaVersion }] }, running: true }
+  const get = (rest: string, world = stopped) => answerRead('GET', new URL(`https://panel/api/servers/abc/addons${rest}`), undefined, world)
+
+  type Picks = { picks: { id: string; card: { name: string; installed: boolean }; permission?: string; ports?: { protocol: string; port: number }[] }[] }
+  const picks = get('/curated')?.body as Picks
+  expect(picks.picks.map((p) => p.id)).toEqual(['voice-chat', 'rollback', 'pregenerate', 'newer-clients', 'essentials', 'permissions'])
+  expect(picks.picks[0]).toMatchObject({ card: { name: 'Simple Voice Chat', installed: false }, permission: 'https://modrepo.de/minecraft/voicechat/faq', ports: [{ protocol: 'udp', port: 24454 }] })
+  expect((get('/curated', withVia)?.body as Picks).picks.filter((p) => p.card.installed).map((p) => p.id)).toEqual(['newer-clients'])
+  const voice = get('/project/modrinth/9eGKb6K1')?.body as { ports?: unknown; plan: { fingerprint: string } }
+  expect(voice.ports).toEqual([{ protocol: 'udp', port: 24454 }])
+  expect((get('/project/modrinth/P1OZGk5p')?.body as { ports?: unknown }).ports).toBeUndefined()
+
+  // Voice chat installs only with leave to open its port, which its job opens before restarting the server.
+  const install = (body: Record<string, unknown>, world = stopped) => installJob({ source: 'modrinth', projectId: '9eGKb6K1', fingerprint: voice.plan.fingerprint, ...body }, world)
+  expect(install({})).toMatchObject({ refused: { status: 400, body: { error: 'Voice chat needs a UDP port of its own, so Playkeeper installs it only when it may open that port too.' } } })
+  expect(install({ openPorts: false })).toMatchObject({ refused: { status: 400 } })
+  expect(install({ openPorts: true }, withVia)).toMatchObject({ ends: { status: 'succeeded', detail: { voiceChatPort: 24454, restartNeeded: false, files: [{ name: 'Simple Voice Chat' }] } } })
+  expect(install({ openPorts: 'yes' })).toMatchObject({ refused: { status: 400, body: { error: 'Invalid request body.' } } })
+  // The crash screen's fix installs with start: a stopped server starts instead of waiting for a restart.
+  const essentials = get('/project/modrinth/hXiIvTyT')?.body as { plan: { fingerprint: string } }
+  const withStart = installJob({ source: 'modrinth', projectId: 'hXiIvTyT', fingerprint: essentials.plan.fingerprint, start: true }, stopped)
+  expect(withStart).toMatchObject({ ends: { status: 'succeeded' } })
+  expect((withStart as { ends: { detail: Record<string, unknown> } }).ends.detail.restartNeeded).toBeUndefined()
+  expect(installJob({ source: 'modrinth', projectId: 'hXiIvTyT', fingerprint: essentials.plan.fingerprint, start: 1 }, stopped)).toMatchObject({ refused: { status: 400 } })
+  expect(installJob({ source: 'modrinth', projectId: 'hXiIvTyT', fingerprint: essentials.plan.fingerprint, keepConfig: true }, stopped)).toMatchObject({ refused: { body: { error: 'Invalid request body: json: unknown field "keepConfig"' } } })
+
+  // An update takes start too, and what it would do doesn't.
+  const outdated: World = { addons: { ...recordedFolder(), files: [{ fileName: 'ViaVersion-5.11.0.jar', size: 6_400_000, status: 'managed', addon: { ...viaVersion, versionId: 'older', versionNumber: '5.11.0', published: '2026-08-01T00:00:00Z', fileName: 'ViaVersion-5.11.0.jar' } }] }, running: false }
+  const plan = answerRead('POST', new URL('https://panel/api/servers/abc/addons/update/plan'), {}, outdated)?.body as { fingerprint: string; steps: unknown[] }
+  expect(plan.steps).toHaveLength(1)
+  expect(updateJob({ fingerprint: plan.fingerprint, start: true }, outdated)).toMatchObject({ ends: { status: 'succeeded', detail: { files: [{ name: 'ViaVersion', was: '5.11.0' }] } } })
+  expect(answerRead('POST', new URL('https://panel/api/servers/abc/addons/update/plan'), { start: true }, outdated)).toMatchObject({ status: 400, body: { error: 'Invalid request body: json: unknown field "start"' } })
 })
