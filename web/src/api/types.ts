@@ -573,6 +573,8 @@ export type ActivityKind =
   | 'crashed'
   | 'created'
   | 'restored'
+  | 'restored_after_restart'
+  | 'put_back'
   | 'version'
   | 'stopped_outside'
   | 'allowlisted'

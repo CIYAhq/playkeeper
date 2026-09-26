@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { templateQuery } from '@/api/templates'
 import type { Address, CatalogEntry, Crash, DNSRecord, FileRefusal, JoinAddress, LagCause, MemoryAdvice, MetricsBucket, Operation, Running, ServerConfig, ServerStatus, TemplateContents } from '@/api/types'
 import { createRequest, freeName, heapMB, versionCards, versionLine } from '@/components/app/create'
+import { activityText } from '@/components/app/activity'
 import { lineRuns } from '@/components/app/line-chart'
 import { packRequest } from '@/pages/new-server'
 import { passwordStrength } from '@/pages/onboarding'
@@ -832,6 +833,11 @@ describe('address', () => {
 
 // Found checking the restore path on a real server.
 describe('a restore that didn’t finish', () => {
+  it('says in the activity what Playkeeper did after it restarted', () => {
+    expect(activityText({ ts: '', kind: 'restored_after_restart' }, 'Survival', 'siya')).toBe('Survival restored from a backup after Playkeeper restarted')
+    expect(activityText({ ts: '', kind: 'put_back' }, 'Survival', 'siya')).toBe('Survival’s previous world put back after Playkeeper restarted')
+  })
+
   it('won’t start a server whose world folder a restore left missing, and says why', () => {
     const missing = { previous: '/var/lib/playkeeper/servers/a/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/a/data', setAsideAt: '2026-09-26T10:30:28Z' }
     expect(whyNot(server({ phase: 'stopped', worldMissing: missing }), 'start', false)).toBe('Its world folder is missing. Move the previous world back first.')
