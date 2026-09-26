@@ -532,6 +532,12 @@ control "a joined machine gets no free name or own domain" internal/panel/server
   'an("/api/machines/{mid}/address/claim", "/v1/address/claim"),' \
   'am("/api/machines/{mid}/address/claim", "/v1/address/claim"),' \
   ./internal/panel '^TestAJoinedMachineGetsNoFreeName$'
+control "a friend's invite to a joined machine's server gives its IP and port" internal/panel/friends.go \
+  'if m.Kind == remoteKind {
+		addr = s.joinedAddress(r.Context(), m, port)' \
+  'if false {
+		addr = s.joinedAddress(r.Context(), m, port)' \
+  ./internal/panel '^TestAnInviteToAJoinedMachinesServerGivesItsIPAndPort$'
 control "a joined machine's pack page gives its IP and port" internal/panel/packshare.go \
   'case fp.m.Kind == remoteKind:' \
   'case false:' \

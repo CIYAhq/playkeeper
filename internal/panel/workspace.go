@@ -578,9 +578,11 @@ func (s *Server) hServers(w http.ResponseWriter, r *http.Request, sess *session)
 	}
 	out := []map[string]any{}
 	for _, sv := range all {
-		if id, _ := sv["id"].(string); sess.Access.covers(id) {
-			out = append(out, sv)
+		id, _ := sv["id"].(string)
+		if !sess.Access.covers(id) {
+			continue
 		}
+		out = append(out, sv)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

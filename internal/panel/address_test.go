@@ -11,6 +11,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -309,5 +310,33 @@ func TestAJoinedMachineGetsNoFreeName(t *testing.T) {
 	local := e.localMachine(t)
 	if r := e.do(t, "POST", "/api/machines/"+local+"/address/claim", `{"name":"alex"}`, auth(cookie, csrf)); r.status != http.StatusOK || !e.sawLocally("POST /v1/address/claim") {
 		t.Fatalf("the dashboard's own claim: %d %v", r.status, r.body)
+	}
+}
+
+// A friend's invite link gives a joined machine's server the IP the machine
+// calls in from and the server's port, never the dashboard's address name;
+// without that IP it gives no address.
+func TestAnInviteToAJoinedMachinesServerGivesItsIPAndPort(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	rid, _ := e.joined(t, cookie, csrf, newRemoteAgent())
+	req := httptest.NewRequest("GET", "/join/code", nil)
+	st := api.ServerStatus{ID: "cobblemon1", Name: "Cobblemon", GamePort: 25566}
+	for _, tc := range []struct {
+		name, machine, want string
+	}{
+		{"the dashboard's own server", e.localMachine(t), "panel.example.com:25566"},
+		{"a joined machine's server", rid, "127.0.0.1:25566"},
+	} {
+		m, err := e.srv.machineByID(tc.machine)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := e.srv.inviteServer(req, m, st).Address; got != tc.want {
+			t.Errorf("%s joins at %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	if got := e.srv.inviteServer(req, machine{ID: "zzzzzzzzzz", Kind: remoteKind}, st).Address; got != "" {
+		t.Errorf("a joined machine the dashboard hasn't seen gives %q", got)
 	}
 }
