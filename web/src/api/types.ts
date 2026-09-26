@@ -675,6 +675,10 @@ export interface OffsiteCopy {
   copiedAt: string
   checked: string
   onHost: boolean
+  /** The backup's SHA-256, as recorded when it was copied. */
+  sha256?: string
+  /** Why the last check found the copy missing or damaged. */
+  checkError?: string
 }
 
 export interface OffsitePending {

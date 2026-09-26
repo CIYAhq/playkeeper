@@ -1,21 +1,24 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { CheckIcon, CircleXIcon, InfoIcon, RotateCcwIcon } from 'lucide-react'
-import { get, post } from '@/api/client'
+import { CheckIcon, CircleXIcon, CopyIcon, EllipsisIcon, HistoryIcon, InfoIcon, RotateCcwIcon, ShieldCheckIcon, Trash2Icon } from 'lucide-react'
+import { del, get, post } from '@/api/client'
 import type { Backup, OffsiteCopy, OffsitePending, OffsiteView, Operation, RestorePreview, ServerStatus } from '@/api/types'
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
-import { Spinner } from '@/components/app/bits'
+import { copyText, Spinner } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { jobsOnScreen, restoreCopyHash } from '@/components/app/jobs'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogDescription, DialogFooter, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatDate, formatDay, formatPercent } from '@/lib/format'
+import { whyNot } from '@/lib/phase'
 import { presenceProps, type Presence } from '@/lib/presence'
 import { navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
+import { holdsBackupKeys } from './copies'
 
 export type StoredRow = { kind: 'here'; backup: Backup; copy?: OffsiteCopy; copying?: number } | { kind: 'there'; copy: OffsiteCopy }
 
@@ -76,17 +79,51 @@ export function phoneStored(row: StoredRow, place: string): string | undefined {
 
 const kindLabel = (kind: string) => (kind === 'manual' ? t('world.manual') : t('world.rollback'))
 
-/** A backup that is only in the copies: it can be fetched back, nothing else. */
-export function CopyRow({ row, state = 'staying', place, onRestore }: { row: Extract<StoredRow, { kind: 'there' }>; state?: Presence; place: string; onRestore: () => void }) {
+/** A backup that is only in the copies: it can be fetched back, checked again there or deleted there. */
+export function CopyRow({ server: s, row, state = 'staying', place, onRestore, onChanged }: { server: ServerStatus; row: Extract<StoredRow, { kind: 'there' }>; state?: Presence; place: string; onRestore: () => void; onChanged: () => void }) {
+  const ws = useWorkspace()
+  const [confirm, setConfirm] = useState(false)
+  const [busy, setBusy] = useState(false)
   const c = row.copy
+  const when = formatDay(c.createdAt)
+  const path = `/offsite/copies/${encodeURIComponent(c.name)}`
+  const cantRun = whyNot(s, 'change', ws.stale)
+  const cantDelete = holdsBackupKeys(ws.me?.user.role ?? '') ? cantRun : t('world.copyOwnerOnly', { place })
+  const noChecksum = c.sha256 ? undefined : t('world.noChecksum')
+
+  async function check() {
+    try {
+      await post<Operation>(serverApi(s.id, `${path}/check`))
+      toastManager.add({ title: t('world.copyCheckStarted', { place }), description: t('world.copyCheckStartedBody') })
+    } catch (e) {
+      toastManager.add({ title: errorText(e), type: 'error' })
+    }
+  }
+
+  async function remove() {
+    setBusy(true)
+    try {
+      await del(serverApi(s.id, path))
+      setConfirm(false)
+      toastManager.add({ title: t('world.copyDeletedToast', { place }), type: 'success' })
+      onChanged()
+    } catch (e) {
+      toastManager.add({ title: errorText(e), type: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <tr {...presenceProps(state)} className="h-12 border-t border-border">
       <td className="px-3 py-2">
-        <span className="block font-semibold">{formatDay(c.createdAt)}</span>
+        <span className="block font-semibold">{when}</span>
         <span className="block text-xs text-muted-foreground">{kindLabel(c.kind)}</span>
       </td>
       <td className="px-3 text-right tabular-nums">{formatBytes(c.sizeBytes)}</td>
-      <td className={cn('px-3 font-medium', c.checked ? 'text-success-foreground' : 'text-muted-foreground')}>{c.checked ? t('world.verified') : t('world.unchecked')}</td>
+      <td className={cn('px-3 font-medium', c.checkError ? 'text-destructive-foreground' : c.checked ? 'text-success-foreground' : 'text-muted-foreground')} title={c.checkError}>
+        {c.checkError ? t('world.failed') : c.checked ? t('world.verified') : t('world.unchecked')}
+      </td>
       <td className="px-3">{storedCell(row, place)}</td>
       <td className="px-3">
         <span className="flex items-center justify-end gap-1">
@@ -94,8 +131,62 @@ export function CopyRow({ row, state = 'staying', place, onRestore }: { row: Ext
             <RotateCcwIcon />
             {t('world.restoreCopy')}
           </Button>
-          <span className="w-8 shrink-0" aria-hidden="true" />
+          <Menu>
+            <MenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t('world.menuFor', { time: when })} />}>
+              <EllipsisIcon />
+            </MenuTrigger>
+            <MenuPopup align="end" className="min-w-60">
+              <MenuItem onClick={onRestore} className="items-start py-1.5">
+                <HistoryIcon className="mt-0.5" />
+                <span>
+                  <span className="block">{t('world.restoreThis')}</span>
+                  <span className="block text-xs text-muted-foreground">{t('world.restoreThisHint')}</span>
+                </span>
+              </MenuItem>
+              <MenuItem disabled={!!cantRun} title={cantRun} className={cn(cantRun && 'data-disabled:pointer-events-auto')} onClick={() => void check()}>
+                <ShieldCheckIcon />
+                {t('world.checkAgain')}
+              </MenuItem>
+              <MenuItem
+                disabled={!!noChecksum}
+                title={noChecksum}
+                className={cn('items-start py-1.5', noChecksum && 'data-disabled:pointer-events-auto')}
+                onClick={async () => {
+                  const ok = await copyText(c.sha256 ?? '')
+                  toastManager.add(ok ? { title: t('world.checksumCopied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })
+                }}
+              >
+                <CopyIcon className="mt-0.5" />
+                <span>
+                  <span className="block">{t('world.copyChecksum')}</span>
+                  {c.sha256 && <span className="block font-mono text-xs text-muted-foreground">{t('world.checksum', { short: `${c.sha256.slice(0, 6)}…${c.sha256.slice(-4)}` })}</span>}
+                </span>
+              </MenuItem>
+              <MenuSeparator />
+              <MenuItem variant="destructive" disabled={!!cantDelete} title={cantDelete} className={cn(cantDelete && 'data-disabled:pointer-events-auto')} onClick={() => setConfirm(true)}>
+                <Trash2Icon />
+                {t('world.deleteBackup')}
+              </MenuItem>
+            </MenuPopup>
+          </Menu>
         </span>
+        <Dialog open={confirm} onOpenChange={setConfirm}>
+          <DialogPopup className="sm:max-w-[460px]">
+            <DialogHeader>
+              <DialogTitle className="text-lg font-bold">{t('world.deleteTitle')}</DialogTitle>
+              <DialogDescription>{t('world.deleteCopyBody', { time: when, place })}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter variant="bare" className="border-t border-border pt-4">
+              <Button variant="ghost" onClick={() => setConfirm(false)}>
+                {t('common.cancel')}
+              </Button>
+              <Button variant="destructive" onClick={remove} loading={busy}>
+                <Trash2Icon />
+                {t('world.deleteConfirm')}
+              </Button>
+            </DialogFooter>
+          </DialogPopup>
+        </Dialog>
       </td>
     </tr>
   )

@@ -221,7 +221,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
               {!backups.data && <TableSkeleton cols={['start', 'end', 'start', 'start', 'end']} rowClassName="h-12 border-t border-border" />}
               {rows.map(({ key, item: r, state }) =>
                 r.kind === 'there' ? (
-                  <CopyRow key={key} row={r} state={state} place={place} onRestore={() => void restore.start(r.copy)} />
+                  <CopyRow key={key} server={s} row={r} state={state} place={place} onRestore={() => void restore.start(r.copy)} onChanged={() => void stored.refresh()} />
                 ) : (
                   <BackupRow key={key} server={s} backup={r.backup} state={state} newest={r.backup.id === newest} copiesOn={copiesOn} stored={storedCell(r, place)} onRestore={() => void restoreFrom(r.backup)} onChanged={refresh} />
                 ),

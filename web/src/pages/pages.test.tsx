@@ -20,6 +20,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
   get: vi.fn(() => new Promise(() => {})),
   post: vi.fn(() => Promise.resolve({})),
+  del: vi.fn(() => Promise.resolve({})),
   api: vi.fn(() => Promise.resolve({})),
 }))
 
@@ -586,6 +587,49 @@ describe('World backups with copies', () => {
     expect(text).toContain('The copy couldn’t be restored')
     expect(text).toContain('That copy is no longer there.')
     expect(text).toContain('Restore another copy.')
+  })
+
+  async function openCopyMenu(onlyThere: OffsiteCopy, ws = workspace()) {
+    answer({ '/offsite/copies': { copies: [onlyThere] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await render(<WorldPage server={server()} />, ws)
+    const row = [...document.querySelectorAll('tr')].find((r) => r.textContent?.includes('Only on Backblaze B2'))
+    const trigger = row?.querySelector<HTMLButtonElement>('button[aria-label^="Actions for the backup from"]')
+    if (!row || !trigger) throw new Error('no menu on the row kept only on Backblaze B2')
+    await act(async () => trigger.click())
+    await act(async () => {})
+    return { row, item: (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent?.includes(label)) }
+  }
+
+  it('gives a backup kept only somewhere else a menu to restore, check, copy its checksum or delete it', async () => {
+    const onlyThere = { ...copy('b1', '2026-09-20T18:47:00Z', false), sha256: 'c'.repeat(58) + 'd00d42', checkError: 'The copy doesn’t match the backup it was made from.' }
+    const { row, item } = await openCopyMenu(onlyThere)
+    const failed = [...row.querySelectorAll('td')].find((td) => td.textContent === 'Failed check')
+    expect(failed?.title).toBe('The copy doesn’t match the backup it was made from.')
+    expect([...document.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent)).toEqual(['Restore this backup…Your current world is saved first', 'Check it again', 'Copy checksumSHA-256 cccccc…0d42', 'Delete backup'])
+
+    await act(async () => item('Check it again')?.click())
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite/copies/survival-b1.tar.zst.age/check')
+
+    const trigger = row.querySelector<HTMLButtonElement>('button[aria-label^="Actions for the backup from"]')
+    await act(async () => trigger?.click())
+    await act(async () => item('Delete backup')?.click())
+    await act(async () => {})
+    expect(document.body.textContent).toContain('is deleted from Backblaze B2. It isn’t on this VPS any more, so it can’t be brought back.')
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent === 'Delete backup')
+    await act(async () => confirm?.click())
+    expect(vi.mocked(client.del)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite/copies/survival-b1.tar.zst.age')
+  })
+
+  it('says why a copy’s checksum or deleting it is out of reach', async () => {
+    const { item } = await openCopyMenu(copy('b1', '2026-09-20T18:47:00Z', false), workspace({ me: { ...me, user: { username: 'alex', role: 'admin' } } }))
+    for (const [label, reason] of [
+      ['Copy checksum', 'This copy’s checksum wasn’t recorded.'],
+      ['Delete backup', 'Only the owner can delete copies kept on Backblaze B2.'],
+    ] as const) {
+      expect(item(label)?.getAttribute('aria-disabled')).toBe('true')
+      expect(item(label)?.title).toBe(reason)
+    }
+    expect(item('Check it again')?.getAttribute('aria-disabled')).not.toBe('true')
   })
 
   it('stays closed once the restore that follows takes over the status', async () => {

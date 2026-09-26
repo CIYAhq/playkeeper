@@ -131,6 +131,7 @@ const opKeys: Record<string, MessageKey> = {
   wake: 'op.wake',
   'disk-cleanup': 'op.disk-cleanup',
   'offsite-restore': 'op.offsite-restore',
+  'offsite-check': 'op.offsite-check',
 }
 
 /** "Backing up Survival", for the job pill and busy notes. */

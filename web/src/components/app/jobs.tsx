@@ -43,6 +43,9 @@ function finished(op: Operation, server: ServerStatus) {
         actionProps: { children: t('offsiteRestore.inside'), onClick: () => navigate(href({ name: 'server', slug: server.slug, tab: 'world' }) + restoreCopyHash) },
       })
       return
+    case 'offsite-check':
+      toastManager.add({ title: t('world.copyCheckedToast'), type: 'success' })
+      return
   }
 }
 
