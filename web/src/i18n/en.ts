@@ -211,6 +211,7 @@ export const en = {
   'home.nextAbout': 'Next · about 3 minutes',
   'card.napping': 'Napping for {duration}',
   'card.stoppedNever': 'Stopped',
+  'card.worldMissing': 'World folder missing',
   'card.nobodyOn': 'Nobody on right now',
   'card.crashed': 'Stopped unexpectedly',
   'card.start': 'Start',

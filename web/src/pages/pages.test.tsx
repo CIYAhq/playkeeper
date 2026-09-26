@@ -1972,4 +1972,12 @@ describe('A restore that didn’t finish', () => {
     expect(button('Discard')).toBeDefined()
   })
 
+  it('says on Home that the world folder is missing, and lets only a stopped server nap', async () => {
+    const stoppedAt = new Date(Date.now() - 5 * 60_000).toISOString()
+    const text = await render(<HomePage />, workspace({ servers: [server({ phase: 'stopped', stoppedAt, worldMissing: missing })] }))
+    expect(text).toContain('World folder missing')
+    expect(text).not.toContain('Napping')
+    expect(button('Start')).toBeUndefined()
+    expect(await render(<HomePage />, workspace({ servers: [server({ phase: 'stopped', stoppedAt })] }))).toContain('Napping for 5 minutes')
+  })
 })

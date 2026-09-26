@@ -187,6 +187,13 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
     case 'stopped':
     case 'unknown':
       if (s.phase === 'asleep') return <AsleepDetail server={s} />
+      if (s.worldMissing)
+        return (
+          <span className="flex items-center gap-2 text-[13px] text-destructive-foreground">
+            <CircleAlertIcon className="size-4" aria-hidden="true" />
+            {t('card.worldMissing')}
+          </span>
+        )
       return (
         <>
           <Pip pose="sleep" size={40} />
