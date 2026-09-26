@@ -75,6 +75,8 @@ export interface ServerConfig {
   software?: SoftwarePin
   /** The pack the server was created from. */
   modpack?: ServerModpack
+  /** Restored from a backup that doesn't record which modpack, if any, it ran: Playkeeper manages no pack on it. */
+  modpackUnknown?: boolean
   /** The template the server was created from. */
   template?: ServerTemplate
   /** The UDP port voice chat has on this server. */

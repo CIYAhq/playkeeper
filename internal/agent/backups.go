@@ -96,6 +96,9 @@ func (s *server) archiveMeta(sc api.ServerConfig, now time.Time) backup.Manifest
 	if sc.VoiceChatPort > 0 {
 		m.Settings[manifestVoiceChatPort] = strconv.Itoa(sc.VoiceChatPort)
 	}
+	if v := s.packSetting(sc); v != "" {
+		m.Settings[manifestModpack] = v
+	}
 	return m
 }
 
@@ -623,9 +626,14 @@ type swapJournal struct {
 	StartedAt time.Time         `json:"startedAt"`
 	Previous  *api.ServerConfig `json:"previous,omitempty"`
 	Restored  api.ServerConfig  `json:"restored"`
-	SHA256    string            `json:"sha256"`
-	Detail    string            `json:"detail"`
-	State     swapState         `json:"state"`
+	// PreviousPack and RestoredPack are the records of the modpack files the
+	// previous and the restored world have, saved with their settings; none
+	// means no pack.
+	PreviousPack json.RawMessage `json:"previousPack,omitempty"`
+	RestoredPack json.RawMessage `json:"restoredPack,omitempty"`
+	SHA256       string          `json:"sha256"`
+	Detail       string          `json:"detail"`
+	State        swapState       `json:"state"`
 	// Why is what made the restore undo itself, for its operation's error.
 	Why string `json:"why,omitempty"`
 }
@@ -770,7 +778,7 @@ func (s *server) putPreviousBack(j *swapJournal) error {
 		return fmt.Errorf("the world directory %s is missing", live)
 	}
 	if j.Previous != nil {
-		return s.saveServerConfig(*j.Previous)
+		return s.saveWithPack(*j.Previous, j.PreviousPack)
 	}
 	return nil
 }
@@ -1085,9 +1093,10 @@ func (a *Agent) restoredConfig(m backup.Manifest, entry api.CatalogEntry, mem in
 
 // restoredConfigFor is a server's settings after restoring the backup with
 // manifest m on rt's software: the backup's world, version and game
-// settings, and from prev what belongs to the server rather than its world,
-// including a modpack it finished installing. The restored server.properties
-// carries the backup's game settings, so none chosen since override them.
+// settings, and from prev what belongs to the server rather than its world.
+// A modpack comes with the world: the restore takes it from the backup
+// (restoredModpack). The restored server.properties carries the backup's
+// game settings, so none chosen since override them.
 func (a *Agent) restoredConfigFor(m backup.Manifest, rt restoreTarget, mem int, prev *api.ServerConfig, actor string) api.ServerConfig {
 	now := a.now().UTC()
 	sc := rt.config(api.ServerConfig{
@@ -1096,9 +1105,6 @@ func (a *Agent) restoredConfigFor(m backup.Manifest, rt restoreTarget, mem int, 
 	})
 	if prev != nil {
 		sc.EULAAcceptedAt, sc.EULAAcceptedBy, sc.CreatedAt, sc.PlayStyle = prev.EULAAcceptedAt, prev.EULAAcceptedBy, prev.CreatedAt, prev.PlayStyle
-		if prev.Modpack != nil && !prev.Modpack.Pending {
-			sc.Modpack = prev.Modpack
-		}
 	}
 	return sc
 }
@@ -1201,6 +1207,12 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		prevPack = prev.ResourcePack
 	}
 	j.Restored.ResourcePack = restoredPackOffer(prevPack, st.data)
+	setting, recorded := m.Settings[manifestModpack]
+	j.RestoredPack = restoredModpack(&j.Restored, setting, recorded)
+	if j.PreviousPack, err = s.packRecordJSON(); err != nil {
+		s.startPrevious(ctx, h, prev, wasRunning)
+		return fmt.Errorf("could not read the server's modpack record, so nothing was replaced: %w", err)
+	}
 	releasePort, err := s.restoredVoiceChat(&j.Restored, prev, m, st.data)
 	if err != nil {
 		s.startPrevious(ctx, h, prev, wasRunning)
@@ -1267,11 +1279,11 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	if err := chownTree(live, s.cfg.GameUID, s.cfg.GameGID); err != nil {
 		s.log.Warn("chown restored world", "err", err)
 	}
-	err = s.saveServerConfig(j.Restored)
+	err = s.saveWithPack(j.Restored, j.RestoredPack)
 	if err == nil {
 		j.State = swapChecking
 		if err = writeSwapJournal(st.dir, j); err != nil && prev != nil {
-			_ = s.saveServerConfig(*prev)
+			_ = s.saveWithPack(*prev, j.PreviousPack)
 		}
 	}
 	if err != nil {
@@ -1435,7 +1447,7 @@ func (s *server) rollForward(stageDir string, j *swapJournal) error {
 	if err := chownTree(live, s.cfg.GameUID, s.cfg.GameGID); err != nil {
 		s.log.Warn("chown restored world", "err", err)
 	}
-	if err := s.saveServerConfig(j.Restored); err != nil {
+	if err := s.saveWithPack(j.Restored, j.RestoredPack); err != nil {
 		return err
 	}
 	j.State = swapChecking

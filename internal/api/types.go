@@ -306,6 +306,9 @@ type ServerConfig struct {
 	Software *SoftwarePin `json:"software,omitempty"`
 	// Modpack is the pack the server was created from (wave 4).
 	Modpack *ServerModpack `json:"modpack,omitempty"`
+	// ModpackUnknown says the server was restored from a backup that doesn't
+	// record which modpack, if any, it ran: Playkeeper manages no pack on it.
+	ModpackUnknown bool `json:"modpackUnknown,omitempty"`
 	// Template is the template the server was created from (wave 4).
 	Template *ServerTemplate `json:"template,omitempty"`
 	// VoiceChatPort is the UDP port voice chat has on this server, published

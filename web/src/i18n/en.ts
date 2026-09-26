@@ -2034,6 +2034,8 @@ export const en = {
   'templateSkipped.body': 'Playkeeper couldn’t install them when the server was set up.',
   'templateLost.title': 'Playkeeper lost the list of what {template} adds',
   'templateLost.body': 'None of the template’s add-ons or data packs were installed. Add them yourself, or create the server again from the template.',
+  'modpackUnknown.title': 'The backup doesn’t say which modpack {server} ran',
+  'modpackUnknown.body': 'Playkeeper doesn’t manage a pack on it: its mods are the backup’s files, which it won’t update as a pack or share with friends as one.',
   'op.templateRetry': 'Installing {server}’s template add-ons',
   'reason.softwareChanged': 'Reinstall the server software first.',
   // Wave 4: add-on sources

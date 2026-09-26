@@ -994,6 +994,31 @@ control "a backup records voice chat's UDP port" internal/agent/backups.go \
   'm.Settings[manifestVoiceChatPort] = strconv.Itoa(sc.VoiceChatPort)' \
   '_ = sc.VoiceChatPort' \
   ./internal/agent '^TestRestoreKeepsVoiceChatsPort$'
+control "a backup records its server's modpack" internal/agent/backups.go \
+  '	if v := s.packSetting(sc); v != "" {' \
+  '	if v := s.packSetting(sc); false && v != "" {' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
+control "a restore takes the modpack from its backup, not the live server" internal/agent/backups.go \
+  '	j.RestoredPack = restoredModpack(&j.Restored, setting, recorded)' \
+  '	_, _ = setting, recorded
+	j.Restored.Modpack = prev.Modpack' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
+control "a restore swaps the modpack's record with the world" internal/agent/backups.go \
+  '	err = s.saveWithPack(j.Restored, j.RestoredPack)' \
+  '	err = s.saveServerConfig(j.Restored)' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
+control "an undone restore puts the live server's modpack record back" internal/agent/backups.go \
+  'return s.saveWithPack(*j.Previous, j.PreviousPack)' \
+  'return s.saveWithPack(*j.Previous, nil)' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
+control "a restored server whose backup doesn't record its modpack says so" internal/agent/modpacks.go \
+  'sc.ModpackUnknown = true' \
+  'sc.ModpackUnknown = false' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
+control "a backup's modpack record must stay inside the server's folder" internal/agent/modpacks.go \
+  'if !filepath.IsLocal(f.Path) {' \
+  'if false && !filepath.IsLocal(f.Path) {' \
+  ./internal/agent '^TestRestoreBringsTheBackupsModpack$'
 control "a restore gives voice chat back its UDP port" internal/agent/backups.go \
   'releasePort, err := s.restoredVoiceChat(&j.Restored, prev, m, st.data)' \
   'releasePort, err := func() {}, error(nil)' \

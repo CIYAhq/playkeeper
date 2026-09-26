@@ -144,6 +144,7 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
   }
   const template = s.config?.template
   if (template?.lost) return <Notice tone="warning" title={t('templateLost.title', { template: template.name })}>{t('templateLost.body')}</Notice>
+  if (s.config?.modpackUnknown) return <Notice title={t('modpackUnknown.title', { server: s.name })}>{t('modpackUnknown.body')}</Notice>
   return null
 }
 
