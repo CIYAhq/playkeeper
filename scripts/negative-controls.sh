@@ -491,35 +491,6 @@ control "no start recreates a world folder an update's rollback moved aside" int
   'if s.updateLeftWorldAside() {' \
   'if false && s.updateLeftWorldAside() {' \
   ./internal/agent '^TestNoStartMakesANewWorldWhereARollbackMovedTheWorldAside$'
-control "a rollback resumed with the backup's world in place gives it to the game" internal/agent/versions.go \
-  '		versionStep(ctx, "placed")
-	}' \
-  '		versionStep(ctx, "placed")
-	}
-	if true {
-		return os.RemoveAll(failed)
-	}' \
-  ./internal/agent '^TestVersionRollbackSurvivesTheAgentStopping$/^dies_with_the_backup.s_world_in_place$'
-control "a rollback that can't save the previous settings keeps its journal" internal/agent/versions.go \
-  'return s.previousSettingsUnsaved(j, err)' \
-  'return failed("saving the previous settings", err)' \
-  ./internal/agent '^TestARollbackThatCannotSaveThePreviousSettingsFinishesAtTheNextStart$'
-control "no start runs the new version on a world its rollback put back" internal/agent/lifecycle.go \
-  'if err := s.unfinishedRollback(sc); err != nil {' \
-  'if err := error(nil); err != nil {' \
-  ./internal/agent '^TestARollbackThatCannotSaveThePreviousSettingsFinishesAtTheNextStart$'
-control "only settings that still run the new version are refused a start" internal/agent/versions.go \
-  '|| versionText(sc) != versionText(j.Next) {' \
-  '{' \
-  ./internal/agent '^TestSettingsSavedSinceAnUnsavedRollbackWin$'
-control "a rollback's unsaved settings are saved at the next agent start" internal/agent/recovery.go \
-  '	s.settleVersionChange()' \
-  '' \
-  ./internal/agent '^TestARollbackThatCannotSaveThePreviousSettingsFinishesAtTheNextStart$'
-control "the agent start leaves settings saved since an unsaved rollback alone" internal/agent/versions.go \
-  'if versionText(*cur) == versionText(j.Next) {' \
-  'if true {' \
-  ./internal/agent '^TestSettingsSavedSinceAnUnsavedRollbackWin$'
 control "Paper builds without a checksum are not offered" internal/minecraft/fill.go \
   'if !ok || !reSHA256.MatchString(d.Checksums.SHA256) {' \
   'if !ok || false && !reSHA256.MatchString(d.Checksums.SHA256) {' \

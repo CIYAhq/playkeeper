@@ -596,9 +596,6 @@ func lastNonEmpty(lines []string) string {
 func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConfig) (err error) {
 	pastFiles := false
 	defer func() { s.noteRefusal(err, pastFiles) }()
-	if err := s.unfinishedRollback(sc); err != nil {
-		return err
-	}
 	if err := s.ensureDirs(); err != nil {
 		return err
 	}

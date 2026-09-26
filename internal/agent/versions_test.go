@@ -5,9 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -187,40 +185,6 @@ func (e *agentEnv) bootingOn(v string, since time.Time) bool {
 	return c != nil && c.running && c.started.After(since) && strings.HasPrefix(env(c.cfg, "CUSTOM_SERVER"), "/data/paper-"+v+"-")
 }
 
-// givenWorlds records the world folders a rollback gives to the game's user.
-type givenWorlds struct {
-	mu   sync.Mutex
-	dirs []string
-}
-
-func (g *givenWorlds) reset() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.dirs = nil
-}
-
-func (g *givenWorlds) list() []string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return slices.Clone(g.dirs)
-}
-
-func (g *givenWorlds) has(dir string) bool { return slices.Contains(g.list(), dir) }
-
-// recordGivenWorlds records the worlds rollbacks give to the game's user
-// until the test ends, instead of changing their owner, which only root can.
-func (e *agentEnv) recordGivenWorlds() *givenWorlds {
-	g := &givenWorlds{}
-	giveWorld = func(root string, _, _ int) error {
-		g.mu.Lock()
-		defer g.mu.Unlock()
-		g.dirs = append(g.dirs, root)
-		return nil
-	}
-	e.t.Cleanup(func() { giveWorld = chownTree })
-	return g
-}
-
 func (e *agentEnv) versionLeftovers() (copies []string, journal bool) {
 	copies, _ = filepath.Glob(e.dataDir() + ".failed-update-*")
 	_, err := os.Stat(filepath.Join(filepath.Dir(e.dataDir()), versionJournalFile))
@@ -324,13 +288,11 @@ func TestVersionRollbackSurvivesTheAgentStopping(t *testing.T) {
 	}{
 		{name: "dies before the world moves", step: "reverting"},
 		{name: "dies with the new version's world moved aside", step: "moved"},
-		{name: "dies with the backup's world in place", step: "placed"},
 		{name: "stops before the world moves", step: "reverting", stop: true},
 		{name: "stops while the new version boots"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newAgentEnv(t)
-			given := e.recordGivenWorlds()
 			e.create()
 			// Unlike the world a server generates when its folder is
 			// missing, so a lost world can't pass for the backup's.
@@ -385,12 +347,8 @@ func TestVersionRollbackSurvivesTheAgentStopping(t *testing.T) {
 			if op := e.opAtRest(opID); op.Status != api.OpRunning || op.Error != "" {
 				t.Fatalf("the version change must stay running for the next agent process to finish: %+v", op)
 			}
-			given.reset()
 			e.start()
 			op := e.waitOp(opID)
-			if !given.has(e.dataDir()) {
-				t.Fatalf("the next agent process must give the backup's world to the game's user: %v", given.list())
-			}
 			if op.Status != api.OpFailed || !strings.Contains(op.Error, "did not start (The server stopped while starting (exit code 1).") ||
 				!strings.HasSuffix(op.Error, "so Playkeeper put the backup from before the update back. The server runs 26.1.2 again.") || op.Detail["resumedAfterRestart"] != true {
 				t.Fatalf("the next agent process must finish the rollback and say so: %+v", op)
@@ -415,122 +373,6 @@ func TestVersionRollbackSurvivesTheAgentStopping(t *testing.T) {
 			}
 			e.waitFor("online on 26.1.2", e.onlineIdle)
 		})
-	}
-}
-
-// rollbackWithUnsavedSettings changes the server's version to one that does
-// not start, and makes saving the previous settings fail once the backup is
-// back in place. It returns the world's level.dat and what it holds.
-func (e *agentEnv) rollbackWithUnsavedSettings() (level string, before []byte) {
-	e.t.Helper()
-	e.create()
-	level = filepath.Join(e.dataDir(), "world", "level.dat")
-	before = []byte("the world from before the update")
-	if err := os.WriteFile(level, before, 0o640); err != nil {
-		e.t.Fatal(err)
-	}
-	e.fd.mu.Lock()
-	e.fd.bootFailsOn = "26.2"
-	e.fd.mu.Unlock()
-	failSaves := `CREATE TRIGGER fail_config BEFORE UPDATE OF config ON servers BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`
-	setVersionStep(e.t, func(_ context.Context, step string) {
-		if step == "restored" {
-			e.a.db.Exec(failSaves)
-		}
-	})
-	code, out := e.changeVersion(map[string]any{"versionId": "paper-26.2"})
-	if code != 202 {
-		e.t.Fatalf("change: %d %v", code, out)
-	}
-	op := e.waitOp(out["id"].(string))
-	versionStep = func(context.Context, string) {}
-	if op.Status != api.OpFailed || !strings.Contains(op.Error, "). The backup was put back, but saving the previous settings failed: ") || !strings.Contains(op.Error, "disk I/O error") {
-		e.t.Fatalf("the rollback must say the settings weren't saved: %+v", op)
-	}
-	if after, _ := os.ReadFile(level); string(after) != string(before) {
-		e.t.Fatalf("the backup must be in place: %q", after)
-	}
-	if _, journal := e.versionLeftovers(); !journal || e.srv().desired() != api.DesiredStopped {
-		e.t.Fatalf("the journal must stay and the server stay stopped: journal %v, desired %s", journal, e.srv().desired())
-	}
-	return level, before
-}
-
-// startOp presses Start and returns how it ended.
-func (e *agentEnv) startOp() *api.Operation {
-	e.t.Helper()
-	code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
-	if code != 202 {
-		e.t.Fatalf("start: %d %v", code, out)
-	}
-	return e.waitOp(out["id"].(string))
-}
-
-// A rollback that put the backup back but couldn't save the previous
-// settings keeps its journal: the server stays stopped, no start runs the new
-// version on the backup's world, and the next agent start saves the settings.
-func TestARollbackThatCannotSaveThePreviousSettingsFinishesAtTheNextStart(t *testing.T) {
-	e := newAgentEnv(t)
-	level, before := e.rollbackWithUnsavedSettings()
-	if start := e.startOp(); start.Status != api.OpFailed || !strings.HasPrefix(start.Error, "A Minecraft update's rollback did not finish") {
-		t.Fatalf("no start may run the new version on the backup's world: %+v", start)
-	}
-	if after, _ := os.ReadFile(level); string(after) != string(before) {
-		t.Fatalf("a start touched the backup's world: %q", after)
-	}
-
-	e.stop()
-	e.start()
-	if _, err := e.a.db.Exec(`DROP TRIGGER fail_config`); err != nil {
-		t.Fatal(err)
-	}
-	if sc, _ := e.srv().serverConfig(); sc == nil || sc.MinecraftVersion != "26.2" {
-		t.Fatalf("the settings can't be saved yet: %+v", sc)
-	}
-	e.stop()
-	e.start()
-	if sc, _ := e.srv().serverConfig(); sc == nil || sc.MinecraftVersion != "26.1.2" || sc.PaperBuild != 74 {
-		t.Fatalf("the next agent start must save the previous settings: %+v", sc)
-	}
-	if _, journal := e.versionLeftovers(); journal {
-		t.Fatal("the finished rollback left its journal")
-	}
-	if start := e.startOp(); start.Status != api.OpSucceeded {
-		t.Fatalf("the previous version starts: %+v", start)
-	}
-	if after, _ := os.ReadFile(level); string(after) != string(before) {
-		t.Fatalf("the previous version runs the backup's world: %q", after)
-	}
-}
-
-// Settings saved since such a rollback, as a restore saves them, win: the
-// server starts with them, and the next agent start leaves them as they are.
-func TestSettingsSavedSinceAnUnsavedRollbackWin(t *testing.T) {
-	e := newAgentEnv(t)
-	e.rollbackWithUnsavedSettings()
-	if _, err := e.a.db.Exec(`DROP TRIGGER fail_config`); err != nil {
-		t.Fatal(err)
-	}
-	sc, _ := e.srv().serverConfig()
-	j, err := e.srv().readVersionJournal()
-	if err != nil || j == nil {
-		t.Fatalf("journal: %+v %v", j, err)
-	}
-	restored := j.Previous
-	restored.MOTD = "Restored meanwhile"
-	if err := e.srv().saveServerConfig(restored); err != nil {
-		t.Fatal(err)
-	}
-	if start := e.startOp(); start.Status != api.OpSucceeded {
-		t.Fatalf("settings that no longer run the new version start (had %s): %+v", versionText(*sc), start)
-	}
-	e.stop()
-	e.start()
-	if got, _ := e.srv().serverConfig(); got == nil || got.MOTD != "Restored meanwhile" {
-		t.Fatalf("the agent start must leave settings saved since as they are: %+v", got)
-	}
-	if _, journal := e.versionLeftovers(); journal {
-		t.Fatal("the journal must go")
 	}
 }
 
