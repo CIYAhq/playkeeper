@@ -534,7 +534,7 @@ func (s *server) hStart(w http.ResponseWriter, r *http.Request) {
 // forgetCrashes starts the crash policy over for a start someone asked for.
 func (s *server) forgetCrashes() {
 	s.mu.Lock()
-	s.crashes, s.crashed, s.crash, s.nextAutoRestart = nil, false, nil, time.Time{}
+	s.crashes, s.crashed, s.runCrashed, s.crash, s.nextAutoRestart = nil, false, false, nil, time.Time{}
 	s.mu.Unlock()
 }
 
@@ -573,7 +573,7 @@ func (s *server) hStop(w http.ResponseWriter, r *http.Request) {
 	if err == nil && !running {
 		_ = s.setDesired(api.DesiredStopped)
 		s.mu.Lock()
-		s.crashed, s.crash = false, nil
+		s.crashed, s.runCrashed, s.crash = false, false, nil
 		s.mu.Unlock()
 	}
 	release()

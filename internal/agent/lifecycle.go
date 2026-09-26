@@ -763,6 +763,9 @@ func (s *server) stopContainer(ctx context.Context, h *opHandle, id string) erro
 		return s.dockerErr(err)
 	}
 	s.resetRCON()
+	// Said here rather than when the reconcile loop sees the exit: a restart
+	// or an update starts the server again before it looks.
+	s.alert(discord.Stopped())
 	return nil
 }
 
@@ -829,6 +832,12 @@ const (
 	followerGrace = 20 * time.Second
 )
 
+// stoppedCleanly reports whether the run that ended logged a clean shutdown.
+// A crashing server logs "Stopping server" too, after the error, so that
+// alone isn't one. The reconcile loop and Discord's live status both go by
+// this. The caller holds s.mu.
+func (s *server) stoppedCleanly() bool { return s.sawStopping && !s.sawCrash }
+
 func (s *server) reconcile(ctx context.Context) {
 	if s.busy() {
 		return
@@ -862,8 +871,7 @@ func (s *server) reconcile(ctx context.Context) {
 	handled := ok && last.Equal(fin)
 	ended := s.followEnded[c.ID]
 	intentional := s.intentional[c.ID]
-	// A crashing server logs "Stopping server" too, after the error.
-	graceful := s.sawStopping && !s.sawCrash
+	graceful := s.stoppedCleanly()
 	s.mu.Unlock()
 	if handled {
 		s.mu.Lock()
@@ -914,7 +922,6 @@ func (s *server) reconcile(ctx context.Context) {
 		}
 	case intentional:
 		s.closeOpenSessions(fin, "server_stopped", false)
-		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
 	case graceful:
 		s.closeOpenSessions(fin, "server_stopped", false)
 		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
@@ -966,7 +973,7 @@ func (s *server) recordCrash(fin time.Time, st docker.ContainerState) string {
 	}
 	s.crashes = append(recent, fin)
 	n := len(s.crashes)
-	s.crashed = true
+	s.crashed, s.runCrashed = true, true
 	s.runPhase = api.PhaseCrashed
 	if st.OOMKilled {
 		s.lastError = "The server ran out of memory and was killed."

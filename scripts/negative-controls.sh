@@ -187,8 +187,8 @@ control "nether and end folders missing beside the world don't void a chunk coun
   'if true || !optional || !errors.Is(err, fs.ErrNotExist) {' \
   ./internal/agent '^TestAChunkCountThatCannotListTheWorldIsNotKept$'
 control "a crash that logs Stopping server is still a crash" internal/agent/lifecycle.go \
-  'graceful := s.sawStopping && !s.sawCrash' \
-  'graceful := s.sawStopping' \
+  'return s.sawStopping && !s.sawCrash' \
+  'return s.sawStopping' \
   ./internal/agent '^TestCrashIsExplainedFromTheRunsLog$'
 control "a log line Docker sends again changes nothing" internal/agent/collector.go \
   'if mark.next(c.ID, runStart, l) {' \
@@ -938,9 +938,18 @@ control "voice chat that a removal leaves gets its port back" internal/agent/add
   '		s.audit(actor, "addon.removed", target, "refused", err.Error())' \
   ./internal/agent '^TestVoiceChatRemovalClosesItsPortFirst$'
 control "each version list is fetched on its own" internal/agent/software.go \
-  'err := c.fetchOnce(ctx, "catalog "+typ, func() error {' \
-  'err := c.fetchOnce(ctx, "catalog", func() error {' \
+  'entries, at, err := fetchOnce(ctx, &c.mu, &c.catalogFlights, typ, func() ([]api.CatalogEntry, time.Time, error) {' \
+  'entries, at, err := fetchOnce(ctx, &c.mu, &c.catalogFlights, "", func() ([]api.CatalogEntry, time.Time, error) {' \
   ./internal/agent '^TestSlowVersionListHoldsUpOnlyItsOwnCallers$'
+control "a caller that waited for a build list gets what the fetch found" internal/agent/software.go \
+  '	return bs, at, nil
+}' \
+  '	_, _ = bs, at
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.builds[key].builds, c.builds[key].at, nil
+}' \
+  ./internal/agent '^TestBuildListWaitersGetWhatTheFetchFound$'
 control "a template whose modpack runs on another type is blocked" internal/agent/templates.go \
   'p.Blockers, p.Ready = append(p.Blockers, *n), false' \
   '_ = n' \
@@ -1817,20 +1826,35 @@ control "Discord shows a crash the reconcile loop has yet to count" internal/age
   'crashed := s.crashed || false && err == nil && !busy && s.pendingCrash(c)' \
   ./internal/agent '^TestDiscordShowsAnExitAsTheReconcileLoopWillCountIt$'
 control "a clean shutdown the reconcile loop has yet to handle is not a crash" internal/agent/discord.go \
-  '&& !s.intentional[c.ID] && !s.sawStopping' \
+  '&& !s.intentional[c.ID] && !s.stoppedCleanly()' \
   '&& !s.intentional[c.ID]' \
   ./internal/agent '^TestDiscordShowsAnExitAsTheReconcileLoopWillCountIt$'
+control "the live status tells a clean stop from a crash as the reconcile loop does" internal/agent/discord.go \
+  '&& !s.intentional[c.ID] && !s.stoppedCleanly()' \
+  '&& !s.intentional[c.ID] && !s.sawStopping' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_crash_that_logged_a_shutdown,_before_the_reconcile_loop_sees_it$'
 control "Discord hears a server come online" internal/agent/collector.go \
   '} else if fresh {' \
   '} else if false && fresh {' \
   ./internal/agent '^TestDiscordOptionalAlertsGoOut$'
-control "Discord hears a server stop" internal/agent/lifecycle.go \
-  's.closeOpenSessions(fin, "server_stopped", false)
-		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
-	case graceful:' \
-  's.closeOpenSessions(fin, "server_stopped", false)
-	case graceful:' \
-  ./internal/agent '^TestDiscordOptionalAlertsGoOut$/^stopped$'
+control "Discord hears Playkeeper stop a server, restarts too" internal/agent/lifecycle.go \
+  '	s.alert(discord.Stopped())
+	return nil' \
+  '	return nil' \
+  ./internal/agent '^TestDiscordAlertSequences$/^(a_stop|a_restart)$/^every_alert$'
+control "Discord hears a clean stop outside Playkeeper" internal/agent/lifecycle.go \
+  '		s.alert(discord.Event{Kind: discord.KindStopped, At: fin})
+		s.recordEvent(fin, "server_stopped_externally"' \
+  '		s.recordEvent(fin, "server_stopped_externally"' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_clean_stop_outside_Playkeeper$/^every_alert$'
+control "a start after failed starts is not a recovery" internal/agent/collector.go \
+  'recovered := s.runCrashed' \
+  'recovered := s.crashed' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_start_fails,_then_one_works$'
+control "a profile shows a player online only from a fresh sample" internal/agent/profile.go \
+  'if s.players != nil && s.fresh(s.players.At) {' \
+  'if s.players != nil {' \
+  ./internal/agent '^TestProfileShowsOnlineOnlyFromAFreshSample$'
 control "Discord hears a manual backup finish" internal/agent/backups.go \
   '	s.alert(discord.BackupSucceeded(vb.SizeBytes))
 	return nil' \

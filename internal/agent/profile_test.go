@@ -26,6 +26,43 @@ func (e *agentEnv) addSession(player string, start time.Time, end *time.Time, un
 	}
 }
 
+// Only a sample recent enough to show says who is online: after a player
+// leaves or the server stops, the profile doesn't keep them online until
+// the next sample. After the server's first sample, none runs here.
+func TestProfileShowsOnlineOnlyFromAFreshSample(t *testing.T) {
+	e := newAgentEnv(t)
+	e.stop()
+	e.sampleInterval = time.Hour
+	e.start()
+	e.addIdleServer()
+	now := e.a.now()
+	left := now.Add(-time.Hour)
+	e.addSession("Mara_K", now.Add(-2*time.Hour), &left, false)
+	s := e.srv()
+	e.waitFor("the first sample", func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.sampled != ""
+	})
+	online := func(sampled time.Time) bool {
+		t.Helper()
+		s.mu.Lock()
+		s.players = &api.PlayerSnapshot{Online: 1, Max: 10, Names: []string{"Mara_K"}, At: sampled, Source: "status ping"}
+		s.mu.Unlock()
+		code, out := e.call("GET", e.sp("/players/profile?name=mara_k&tz=UTC"), nil)
+		if code != 200 {
+			t.Fatalf("profile: %d %v", code, out)
+		}
+		return out["online"] == true
+	}
+	if !online(now) {
+		t.Fatal("a fresh sample that lists the player must show them online")
+	}
+	if online(now.Add(-4 * time.Hour)) {
+		t.Fatal("a sample too old to show still shows the player online")
+	}
+}
+
 func TestProfileSumsAPlayersSessions(t *testing.T) {
 	e := newAgentEnv(t)
 	e.addIdleServer()
