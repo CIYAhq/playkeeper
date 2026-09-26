@@ -5,10 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 )
 
@@ -209,9 +209,9 @@ func (s *server) chunky(p pregen.Platform) *pregen.Controller {
 	return s.pg.ctrl
 }
 
-func (s *server) pregenOwner() *pregen.Owner {
+func (s *server) pregenOwner() *gamefiles.Owner {
 	if o := s.gameOwner(); o != nil {
-		return &pregen.Owner{UID: o.UID, GID: o.GID}
+		return &gamefiles.Owner{UID: o.UID, GID: o.GID}
 	}
 	return nil
 }
@@ -701,7 +701,7 @@ func (s *server) startPregen(ctx context.Context, h *opHandle, actor string, p p
 func (s *server) installChunky(ctx context.Context, h *opHandle, actor string, p pregen.Platform) error {
 	_, err := pregen.Detect(s.dataDir(), p)
 	if !errors.Is(err, pregen.ErrNotInstalled) {
-		return err
+		return pregenError(err)
 	}
 	h.set("step", "installing")
 	key := addons.Key{Source: addons.Modrinth, ProjectID: pregen.ModrinthProjectID}
@@ -870,7 +870,13 @@ func (s *server) holdRestoredPregen(sc api.ServerConfig) {
 	if err != nil {
 		return
 	}
-	if _, err := os.Lstat(filepath.Join(s.dataDir(), pregen.ConfigPath(p))); err != nil {
+	d, err := s.gameFiles()
+	if err != nil {
+		return
+	}
+	_, err = d.Lstat(pregen.ConfigPath(p))
+	d.Close()
+	if errors.Is(err, fs.ErrNotExist) {
 		return
 	}
 	if err := pregen.WriteConfig(s.dataDir(), p, pregen.Config{}, s.pregenOwner()); err != nil {

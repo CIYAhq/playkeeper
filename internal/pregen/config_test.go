@@ -185,7 +185,7 @@ func TestWriteConfigRefuses(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plugins"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	wantCode(t, WriteConfig(dir, Bukkit, Config{}, nil), CodeConfig)
+	wantCode(t, WriteConfig(dir, Bukkit, Config{}, nil), CodeFileRefused)
 	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
 		t.Errorf("data directory holds %d entries after a refused write", len(entries))
 	}
