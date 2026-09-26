@@ -21,7 +21,8 @@ import { login, outDir } from './helpers'
 // panel's real answers (View in fakes.ts): the server stopped, crashed and
 // busy, no players or backups, no servers at all (Home's empty page and
 // /welcome), a Playkeeper update to install, space to free on the machine's
-// disk, and first-run setup.
+// disk, first-run setup, set up to look after itself or asleep, and the
+// states the other views in fakes.ts describe.
 //
 // The sign-in page, first-run setup, a friends' pack link that opens nothing
 // and the shared map pages (a shared map, and a link no map has) are opened
@@ -124,6 +125,10 @@ function fakedCrawls(live: string[], phone: boolean): Crawl[] {
     ['no servers', ['/', '/welcome']],
     ['update available', phone ? ['/settings', '/more'] : ['/settings']],
     ['space to free', disk ? [disk] : []],
+    // Desktop's Settings holds its schedules among every other switch, and each schedule's switch changes its row, so crawling
+    // every combination there would take hours; the phone's Schedules page has the same rows on their own.
+    ['looks after itself', first ? [`${first}/world/backup-rules`, `${first}/world`, ...(phone ? [`${first}/settings`, `${first}/settings/schedules`, `${first}/world/backup-rules/copies`] : [])] : []],
+    ['asleep', first ? ['/', first] : []],
     ['in use', [...(plugins ? [plugins] : []), ...(first ? [`${first}/world`, `${first}/world/packs`, `${first}/world/pregen`] : [])]],
     ['paused', first ? [`${first}/world/pregen`] : []],
     ['friends and team', [...(first ? [`${first}/players`] : []), '/settings/team', '/settings/discord']],
@@ -274,6 +279,9 @@ const places: Place[] = [
   { what: 'Home with no servers', sizes: ['desktop', 'phone'], view: 'no servers', key: /^link "(Next: )?Create your first server"$/ },
   { what: 'the end of onboarding (/welcome)', sizes: ['desktop', 'phone'], view: 'no servers', key: /^button "Create my server"$/ },
   { what: 'installing a Playkeeper update', sizes: ['desktop', 'phone'], view: 'update available', key: /^button "Update( now)?" in dialog "Update Playkeeper to .+"$/ },
+  { what: 'waking a sleeping server', sizes: ['desktop', 'phone'], view: 'asleep', key: /^button "Wake up now" in ".+ is asleep"$/ },
+  { what: 'a new recovery key for the copies somewhere else', sizes: ['desktop', 'phone'], view: 'looks after itself', key: /^button "Download new key" in dialog "New recovery key made"$/ },
+  { what: 'pausing a schedule', sizes: ['phone'], view: 'looks after itself', key: /^switch "Run “Restart every day at #:#”" in row "Restart every day at #:#"$/ },
   { what: 'deleting old backups on the Disk space page', sizes: ['desktop', 'phone'], view: 'space to free', key: /^button "Delete # · .+" in dialog "Backups beyond your keep rules"$/ },
   { what: 'first-run setup', sizes: ['desktop', 'phone'], view: 'first run', key: /^button "Create account and continue"$/ },
   { what: 'two-factor sign-in’s second step', sizes: ['desktop', 'phone'], view: 'second step', key: /^button "Sign in" in "Enter your code"$/ },

@@ -1085,7 +1085,9 @@ const leftoverWorld = { name: 'data.replaced-20260924-090000', kind: 'previous',
  * crashed (out of memory, as the agent reports it) or busy with a backup;
  * no players, sessions or backups; no servers at all; a newer Playkeeper to
  * update to; space to free on the machine's disk; a panel that still needs
- * its admin account; a server that's been in use (plugins with an update, a
+ * its admin account; a server set up to look after itself (schedules, one
+ * of them paused, copies on another machine and sleep on) or asleep because
+ * nobody played; a server that's been in use (plugins with an update, a
  * changed file, one added by hand and one gone, data packs, a resource pack
  * and the map being pre-generated); or its pre-generation paused while
  * people play; friends invited to it, one waiting for a yes, a team and
@@ -1093,7 +1095,24 @@ const leftoverWorld = { name: 'data.replaced-20260924-090000', kind: 'previous',
  * to start; or, signed out, an account with two-factor sign-in, whose right
  * password leads to the second step.
  */
-export type View = 'live' | 'stopped' | 'crashed' | 'busy' | 'empty lists' | 'no servers' | 'update available' | 'space to free' | 'first run' | 'in use' | 'paused' | 'friends and team' | 'map on' | 'map restart' | 'second step'
+export type View =
+  | 'live'
+  | 'stopped'
+  | 'crashed'
+  | 'busy'
+  | 'empty lists'
+  | 'no servers'
+  | 'update available'
+  | 'space to free'
+  | 'first run'
+  | 'looks after itself'
+  | 'asleep'
+  | 'in use'
+  | 'paused'
+  | 'friends and team'
+  | 'map on'
+  | 'map restart'
+  | 'second step'
 
 type Json = Record<string, unknown>
 
@@ -1148,10 +1167,13 @@ function server(view: View, s: Json): Json {
     case 'empty lists':
       return { ...s, players: s.players ? { ...(s.players as Json), online: 0, names: [] } : undefined }
     case 'live':
+    case 'asleep':
+      return { ...stopped(s), desired: 'running', phase: 'asleep', sleep: { enabled: true, idleMinutes: 30, asleepSince: ago(40 * 60), listening: true } }
     case 'no servers':
     case 'update available':
     case 'space to free':
     case 'first run':
+    case 'looks after itself':
     case 'in use':
     case 'paused':
     case 'friends and team':
@@ -1377,11 +1399,78 @@ function spaceToFree(report: Json): Json | undefined {
   return { ...report, candidates: [...backups, ...logs, ...setAside], ways, freeable: ways.reduce((n, w) => n + w.bytes, 0) }
 }
 
+/**
+ * A server set up to look after itself: a daily restart, backups every six
+ * hours that wait while people play (the last one skipped), a paused
+ * announcement, copies on another machine over SFTP with a recovery key,
+ * and sleep after half an hour with nobody on. A fresh install has none of
+ * them, so their rows' controls would never be pressed.
+ */
+function selfCareRead(path: string, body: Json): unknown {
+  const sid = /^\/api\/servers\/(\w+)\//.exec(path)?.[1] ?? ''
+  const hour = 3600
+  if (/^\/api\/servers\/\w+\/schedules$/.test(path)) {
+    const schedule = (id: string, kind: string, timing: Json, payload: Json, summary: string, extra: Json = {}) => ({
+      id, serverId: sid, kind, timing: { timeZone: 'UTC', ...timing }, payload, enabled: true, summary,
+      createdAt: ago(20 * 24 * hour), updatedAt: ago(3 * 24 * hour), createdBy: 'admin', updatedBy: 'admin', ...extra,
+    })
+    return {
+      schedules: [
+        schedule('fakerestart', 'restart', { kind: 'daily', at: '05:00' }, { warnSeconds: [300, 60] }, 'Every day at 05:00', {
+          nextRun: new Date(Date.now() + 10 * hour * 1000).toISOString(),
+          lastRun: { due: ago(14 * hour), started: ago(14 * hour), finished: ago(14 * hour - 90), result: 'succeeded', players: 0 },
+        }),
+        schedule('fakebackups', 'backup', { kind: 'interval', everyHours: 6 }, { skipIfPlaying: true }, 'Every 6 hours', {
+          nextRun: new Date(Date.now() + 4 * hour * 1000).toISOString(),
+          lastRun: { due: ago(2 * hour), result: 'skipped', reason: 'players', players: 3, retryAt: new Date(Date.now() + hour * 1000).toISOString() },
+        }),
+        schedule('fakecontest', 'announcement', { kind: 'weekly', days: ['sat'], at: '18:00' }, { message: 'Build contest tonight at 8!' }, 'Saturdays at 18:00', { enabled: false }),
+      ],
+    }
+  }
+  if (/^\/api\/servers\/\w+\/schedules\/runs$/.test(path)) {
+    return {
+      runs: [
+        { scheduleId: 'fakebackups', kind: 'backup', due: ago(2 * hour), result: 'skipped', reason: 'players', players: 3 },
+        { scheduleId: 'fakerestart', kind: 'restart', due: ago(14 * hour), startedAt: ago(14 * hour), finishedAt: ago(14 * hour - 90), result: 'succeeded' },
+        { scheduleId: 'fakebackups', kind: 'backup', due: ago(8 * hour), startedAt: ago(8 * hour), finishedAt: ago(8 * hour - 40), result: 'succeeded', backup: { id: 'fakebackup8h', sizeBytes: 412_000_000, verified: true, downtimeMs: 900 } },
+      ],
+    }
+  }
+  const copy = (hours: number) => {
+    const at = ago(hours * hour)
+    const stamp = at.slice(0, 19).replace(/[-:]/g, '').replace('T', '-')
+    const fileName = `playkeeper-${stamp}.tar.gz`
+    return { backupId: `${stamp}-fake`, kind: 'scheduled', createdAt: at, fileName, name: `${fileName}.age`, sizeBytes: 412_000_000, copySizeBytes: 398_000_000, minecraftVersion: '26.1.2', levelName: 'world', copiedAt: ago(hours * hour - 300), checked: ago(hours * hour - 600), onHost: hours < 48 }
+  }
+  const copies = [copy(8), copy(32), copy(56)]
+  if (/^\/api\/servers\/\w+\/offsite$/.test(path)) {
+    return {
+      ...body,
+      enabled: true,
+      configured: true,
+      type: 'sftp',
+      place: 'backup.example.net',
+      sftp: { host: 'backup.example.net', port: 22, user: 'playkeeper', folder: '/srv/backups/survival', auth: 'key', hostKey: standInHostKey.key, hostKeyType: standInHostKey.type, hostKeyFingerprint: standInHostKey.fingerprint },
+      sshKey: { publicKey: standInPublicKey, authorizedKey: standInPublicKey, fingerprint: 'SHA256:c3RhbmQtaW4ga2V5IGZvciB0aGUgY2xpY2stdGhyb3U' },
+      key: { recipient: 'age1standin', createdAt: ago(20 * 24 * hour), oldKeys: 0, savedAt: ago(20 * 24 * hour), fileName: `playkeeper-recovery-key-${sid}.txt` },
+      lastCopy: copies[0],
+      copies: copies.length,
+      copiesBytes: copies.reduce((n, c) => n + c.copySizeBytes, 0),
+      queued: 0,
+    }
+  }
+  if (/^\/api\/servers\/\w+\/offsite\/copies$/.test(path)) return { copies }
+  if (/^\/api\/servers\/\w+\/sleep$/.test(path)) return { ...body, enabled: true, idleMinutes: 30, listening: false, today: { count: 2, seconds: 5400 } }
+  return undefined
+}
+
 /** A read's answer in `view`, or undefined when the view leaves it as the panel sent it. */
 function lay(view: View, path: string, body: unknown, host: string): unknown {
   if (view === 'live' || body === undefined) return undefined
   if ((view === 'map on' || view === 'map restart') && /^\/api\/servers\/\w+\/map$/.test(path)) return mapRead(view, body as Json)
   if (view === 'friends and team') return friendsRead(path, body as Json)
+  if (view === 'looks after itself') return selfCareRead(path, body as Json)
   if ((view === 'in use' || view === 'paused') && /^\/api\/servers\/\w+\/pregen$/.test(path)) return pregenIn(view, body as Json)
   if (view === 'in use') return inUseRead(path, body as Json, host)
   if (view === 'first run') return path === '/api/setup/status' ? { needsSetup: true } : undefined
@@ -1549,6 +1638,10 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (path === '/api/discord') state.discord = laid as Record<string, unknown>
         const laidMap = /^\/api\/servers\/(\w+)\/map$/.exec(path)
         if (laidMap?.[1]) state.maps.set(laidMap[1], laid as Record<string, unknown>)
+        const laidSchedules = /^\/api\/servers\/(\w+)\/schedules$/.exec(path)
+        if (laidSchedules?.[1]) state.schedules.set(laidSchedules[1], (laid as { schedules?: Record<string, unknown>[] }).schedules ?? [])
+        const laidPlace = /^\/api\/servers\/(\w+)\/offsite$/.exec(path)
+        if (laidPlace?.[1]) state.offsite.set(laidPlace[1], laid as Record<string, unknown>)
         await route.fulfill({ response: res, json: laid }).catch(() => {})
         return
       }
