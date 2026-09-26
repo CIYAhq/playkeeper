@@ -727,8 +727,6 @@ func (s *server) applySettings(req api.SettingsRequest, actor string) error {
 		if err := s.validMemory(*req.MemoryMB, s.id); err != nil {
 			return err
 		}
-		// The heap follows a new budget; an unchanged one keeps the heap the
-		// server runs with until its next start sizes it for its mods.
 		if sc.MemoryMB != *req.MemoryMB {
 			changed = append(changed, fmt.Sprintf("memoryMB %d→%d", sc.MemoryMB, *req.MemoryMB))
 			memoryChanged = true

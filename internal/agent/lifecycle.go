@@ -644,19 +644,15 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 			return err
 		}
 	}
-	name := s.containerName()
-	c, err := s.docker.ContainerInspect(ctx, name)
-	// A server running as defined keeps the heap it started with: a mod added
-	// since mustn't make a Start stop it. Its next start sizes the heap.
-	if _, was := s.containerSpec(sc, false, c.Config.Env); err != nil || !c.State.Running || c.Config.Labels[labelSpec] != was {
-		if err := s.sizeHeap(&sc); err != nil {
-			return err
-		}
+	if err := s.sizeHeap(ctx, &sc); err != nil {
+		return err
 	}
 	if err := s.writeMapConfig(); err != nil {
 		return err
 	}
 	pastFiles = true
+	name := s.containerName()
+	c, err := s.docker.ContainerInspect(ctx, name)
 	spec, hash := s.containerSpec(sc, false, c.Config.Env)
 	switch {
 	case err == nil && c.Config.Labels[labelManaged] != "true":
