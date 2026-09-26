@@ -864,6 +864,18 @@ control "Discord counts a server's slots before its first sample" internal/agent
   'if st.MaxPlayers == 0 && sc != nil {' \
   'if false && st.MaxPlayers == 0 && sc != nil {' \
   ./internal/agent '^TestDiscordLiveStatusCountsSlotsBeforeTheFirstSample$'
+control "a Minecraft update alert goes out once per version for each server" internal/agent/discord.go \
+  'WHERE id = ? AND minecraft_update_alerted != ?' \
+  'WHERE id = ? AND ? IS NOT NULL' \
+  ./internal/agent '^TestMinecraftUpdateAlertGoesOutOncePerVersion$'
+control "Minecraft update alerts are about stable versions only" internal/agent/versions.go \
+  'if e.Experimental || !e.Supported ||' \
+  'if !e.Supported ||' \
+  ./internal/agent '^TestNewerStableMatchesTheDashboard$'
+control "Minecraft update alerts are for Paper servers only" internal/agent/discord.go \
+  ' || s.serverType(sc) != api.TypePaper {' \
+  ' {' \
+  ./internal/agent '^TestMinecraftUpdateAlertsAreForPaperServersOnly$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

@@ -190,4 +190,9 @@ CREATE TABLE discord (
   update_alerted    TEXT NOT NULL DEFAULT ''
 );
 `,
+	// wave 5: the Minecraft version each server's Discord update alert last
+	// went out for.
+	`
+ALTER TABLE servers ADD COLUMN minecraft_update_alerted TEXT NOT NULL DEFAULT '';
+`,
 }

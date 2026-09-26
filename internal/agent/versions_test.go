@@ -3,6 +3,7 @@ package agent
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -83,6 +84,37 @@ func TestVersionChangesNeverGoBack(t *testing.T) {
 	}
 	if err := checkNewer(*sc, api.CatalogEntry{MinecraftVersion: "26.1.2", PaperBuild: 80}); err != nil {
 		t.Errorf("a newer build of the same version is an update: %v", err)
+	}
+}
+
+func TestNewerStableMatchesTheDashboard(t *testing.T) {
+	versions := []api.CatalogEntry{
+		{MinecraftVersion: "26.3", PaperBuild: 10, Experimental: true, Supported: true},
+		{MinecraftVersion: "26.2.1", PaperBuild: 41, Supported: true},
+		{MinecraftVersion: "26.2", PaperBuild: 10, Supported: true},
+		{MinecraftVersion: "26.1.2", PaperBuild: 80, Supported: true},
+		{MinecraftVersion: "26.1.2", PaperBuild: 60, Supported: true},
+		{MinecraftVersion: "1.21.11", PaperBuild: 10, Supported: true},
+	}
+	for _, c := range []struct {
+		cur      string
+		versions []api.CatalogEntry
+		want     string
+	}{
+		{"26.1.2", versions, "26.2.1#41"},
+		{"26.2", versions, "26.2.1#41"},
+		{"26.2.1", versions, ""},
+		{"26.3", versions, ""},
+		{"26.1.2", []api.CatalogEntry{{MinecraftVersion: "26.2", PaperBuild: 10, Supported: true}, {MinecraftVersion: "26.2", PaperBuild: 12, Supported: true}}, "26.2#12"},
+		{"26.1.2", []api.CatalogEntry{{MinecraftVersion: "26.2", PaperBuild: 10}}, ""},
+	} {
+		got := ""
+		if e, ok := newerStable(api.ServerConfig{MinecraftVersion: c.cur, PaperBuild: 74}, c.versions); ok {
+			got = e.MinecraftVersion + "#" + strconv.Itoa(e.PaperBuild)
+		}
+		if got != c.want {
+			t.Errorf("from %s: got %q, want %q", c.cur, got, c.want)
+		}
 	}
 }
 

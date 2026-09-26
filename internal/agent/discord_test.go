@@ -113,6 +113,16 @@ func (f *fakeHook) waitMessage(e *agentEnv, want ...string) {
 	e.waitFor("a Discord message with "+strings.Join(want, ", "), func() bool { return len(f.messages(want...)) > 0 })
 }
 
+// count is how often s occurs in the messages posted or edited so far;
+// alerts that go out together share a message.
+func (f *fakeHook) count(s string) int {
+	n := 0
+	for _, r := range f.messages() {
+		n += strings.Count(r.Raw, s)
+	}
+	return n
+}
+
 // statusMessage is the live status message as last posted or edited.
 func (f *fakeHook) statusMessage() string {
 	f.mu.Lock()
@@ -471,6 +481,64 @@ func TestUpdateAlertGoesOutOncePerVersion(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	if n := len(f.messages("Playkeeper update available")); n != 1 {
 		t.Fatalf("%d alerts about one release", n)
+	}
+}
+
+func TestMinecraftUpdateAlertGoesOutOncePerVersion(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	ctx := t.Context()
+	e.addIdleServer()
+	e.addIdleServer()
+	sc, _ := e.srv().serverConfig()
+	if err := e.srv().saveServerConfig(withBuild(*sc, api.CatalogEntry{ID: "paper-26.2", MinecraftVersion: "26.2", PaperBuild: 129})); err != nil {
+		t.Fatal(err)
+	}
+	e.a.alertMinecraftUpdates(ctx)
+	if n := e.countRows(`SELECT COUNT(*) FROM servers WHERE minecraft_update_alerted != ''`); n != 0 {
+		t.Fatalf("%d servers count as told before Discord was connected", n)
+	}
+	e.connectDiscord()
+	e.a.alertMinecraftUpdates(ctx)
+	e.a.alertMinecraftUpdates(ctx)
+	f.waitMessage(e, "**My server** can be updated to Minecraft 26.2 on the Settings tab.")
+	e.stop()
+	e.start()
+	e.a.alertMinecraftUpdates(ctx)
+	time.Sleep(300 * time.Millisecond)
+	if n := f.count("Minecraft update available"); n != 1 {
+		t.Fatalf("%d Minecraft update alerts, want one: for My server, about 26.2 rather than the experimental 26.3, and none for My server 2, which runs 26.2", n)
+	}
+
+	e.stop()
+	e.fill.set("", []fillVersionSpec{
+		{"26.3", "SUPPORTED", []fillBuildSpec{{41, "ALPHA"}, {57, "STABLE"}}},
+		{"26.2", "SUPPORTED", []fillBuildSpec{{129, "STABLE"}}},
+		{"26.1.2", "UNSUPPORTED", []fillBuildSpec{{74, "STABLE"}}},
+	})
+	e.start()
+	e.a.alertMinecraftUpdates(ctx)
+	e.a.alertMinecraftUpdates(ctx)
+	f.waitMessage(e, "**My server** can be updated to Minecraft 26.3 on the Settings tab.")
+	f.waitMessage(e, "**My server 2** can be updated to Minecraft 26.3 on the Settings tab.")
+	time.Sleep(300 * time.Millisecond)
+	if n := f.count("Minecraft update available"); n != 3 {
+		t.Fatalf("%d Minecraft update alerts after 26.3 got a stable build, want 3: one more for each server", n)
+	}
+}
+
+func TestMinecraftUpdateAlertsAreForPaperServersOnly(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	fabric := e.addIdleServer()
+	if _, err := e.a.db.Exec(`UPDATE servers SET type = 'fabric' WHERE id = ?`, fabric); err != nil {
+		t.Fatal(err)
+	}
+	e.addIdleServer()
+	e.a.alertMinecraftUpdates(t.Context())
+	f.waitMessage(e, "**My server 2** can be updated to Minecraft 26.2 on the Settings tab.")
+	time.Sleep(300 * time.Millisecond)
+	if n := f.count("Minecraft update available"); n != 1 {
+		t.Fatalf("%d Minecraft update alerts: PaperMC's versions are for the Paper server, not the Fabric one", n)
 	}
 }
 

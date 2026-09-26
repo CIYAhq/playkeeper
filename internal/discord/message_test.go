@@ -108,6 +108,7 @@ func allKindsEvents() []Event {
 		Started(),
 		Stopped(),
 		UpdateAvailable("0.4.0"),
+		MinecraftUpdateAvailable("26.2"),
 		PlayerJoined("Steve_123"),
 		PlayerLeft("Steve_123"),
 	}
@@ -124,6 +125,7 @@ func TestAlertEmbedsReadWell(t *testing.T) {
 		{"Server started", "**Survival** is online. Join at `play.example.com`."},
 		{"Server stopped", "**Survival** has stopped."},
 		{"Playkeeper update available", "Playkeeper 0.4.0 is available. You can update it from the dashboard."},
+		{"Minecraft update available", "**Survival** can be updated to Minecraft 26.2 on the Settings tab."},
 		{"Player joined", `**Steve\_123** joined **Survival**.`},
 		{"Player left", `**Steve\_123** left **Survival**.`},
 	}
@@ -152,6 +154,7 @@ func TestAlertEmbedsWithoutOptionalDetails(t *testing.T) {
 		{BackupSucceeded(0), "**Creative** was backed up."},
 		{Started(), "**Creative** is online."},
 		{UpdateAvailable(""), "A new version of Playkeeper is available. You can update it from the dashboard."},
+		{MinecraftUpdateAvailable(""), "**Creative** can be updated to a newer Minecraft version on the Settings tab."},
 		{PlayerJoined(""), "A player joined **Creative**."},
 	} {
 		em := c.e.embed(info)
@@ -176,8 +179,9 @@ func TestUserTextCannotPingOrBreakTheEmbed(t *testing.T) {
 		MOTD:         "§k@everyone§r\n> not a quote\nthird line",
 	}
 	em := PlayerJoined("`<@123>`_x").embed(evil)
+	up := MinecraftUpdateAvailable("26.2 @here [nitro](https://evil.example)").embed(evil)
 	st := Status{State: StateOnline, Players: []string{"@everyone", "<@123>"}}.embed(evil)
-	rendered := em.Description + "\n" + st.Description
+	rendered := em.Description + "\n" + up.Description + "\n" + st.Description
 	for _, f := range st.Fields {
 		rendered += "\n" + f.Value
 	}

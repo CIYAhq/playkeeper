@@ -401,7 +401,8 @@ func (a *Agent) abandonUpdate(opID, v, outcome, msg, hint string) {
 }
 
 // updateLoop reports updater results, times out a handoff nobody picked up,
-// and checks for new releases now and then.
+// and now and then checks for a new Playkeeper release and for newer
+// Minecraft versions for the servers.
 func (a *Agent) updateLoop(ctx context.Context) {
 	a.collectUpdateResult()
 	next := a.now().Add(time.Minute)
@@ -418,6 +419,7 @@ func (a *Agent) updateLoop(ctx context.Context) {
 		if a.opts.UpdateCheckInterval > 0 && a.now().After(next) {
 			next = a.now().Add(a.opts.UpdateCheckInterval)
 			a.checkUpdate(ctx)
+			a.alertMinecraftUpdates(ctx)
 		}
 	}
 }

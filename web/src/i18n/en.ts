@@ -1448,7 +1448,7 @@ export const en = {
   'discord.alert.disk': 'Disk nearly full',
   'discord.alert.diskHint': 'When less than 5 GB is left',
   'discord.alert.update': 'An update is ready',
-  'discord.alert.updateHint': 'A new Playkeeper version',
+  'discord.alert.updateHint': 'Playkeeper or Minecraft',
   'discord.alert.players': 'Someone joined or left',
   'discord.alert.playersHint': 'Can get chatty on busy evenings',
   'discord.live': 'Live status',

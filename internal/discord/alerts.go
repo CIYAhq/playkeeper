@@ -162,8 +162,10 @@ type Event struct {
 	Bytes int64
 	// Player is the player who joined, left or asks to join.
 	Player string
-	// Version is the Playkeeper version that is available.
-	Version string
+	// Version is the Playkeeper version that is available or, with
+	// Minecraft set, the Minecraft version the server can be updated to.
+	Version   string
+	Minecraft bool
 	// Member is the team member who turned two-factor sign-in on or off;
 	// On says which, and Admin whether they are an admin. For a
 	// confirmation, By is the admin who confirmed Member's Admin rights.
@@ -213,6 +215,12 @@ func UpdateAvailable(version string) Event {
 	return Event{Kind: KindUpdateAvailable, Version: version}
 }
 
+// MinecraftUpdateAvailable is a newer Minecraft version the server can be
+// updated to, as its Settings tab offers.
+func MinecraftUpdateAvailable(version string) Event {
+	return Event{Kind: KindUpdateAvailable, Version: version, Minecraft: true}
+}
+
 // PlayerJoined is a player joining the server.
 func PlayerJoined(name string) Event { return Event{Kind: KindPlayerJoined, Player: name} }
 
@@ -248,6 +256,9 @@ func (e Event) subjectInServer() string {
 	case KindPlayerJoined, KindPlayerLeft, KindJoinRequested:
 		return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Player))
 	case KindUpdateAvailable:
+		if e.Minecraft {
+			return string(e.Kind) + ":minecraft:" + oneLine(e.Version)
+		}
 		return string(e.Kind) + ":" + oneLine(e.Version)
 	case KindTwoFactor, KindAdminConfirmed:
 		return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Member))
@@ -298,9 +309,16 @@ func (e Event) embed(info ServerInfo) embed {
 	case KindStopped:
 		title, text = "Server stopped", name+" has stopped."
 	case KindUpdateAvailable:
-		title, text = "Playkeeper update available", "A new version of Playkeeper is available. You can update it from the dashboard."
-		if v := userText(e.Version, 40); v != "" {
-			text = "Playkeeper " + v + " is available. You can update it from the dashboard."
+		v := userText(e.Version, 40)
+		switch {
+		case e.Minecraft && v != "":
+			title, text = "Minecraft update available", name+" can be updated to Minecraft "+v+" on the Settings tab."
+		case e.Minecraft:
+			title, text = "Minecraft update available", name+" can be updated to a newer Minecraft version on the Settings tab."
+		case v != "":
+			title, text = "Playkeeper update available", "Playkeeper "+v+" is available. You can update it from the dashboard."
+		default:
+			title, text = "Playkeeper update available", "A new version of Playkeeper is available. You can update it from the dashboard."
 		}
 	case KindPlayerJoined:
 		title, text = "Player joined", player(e.Player)+" joined "+name+"."

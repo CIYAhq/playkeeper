@@ -126,6 +126,24 @@ func checkNewer(cur api.ServerConfig, e api.CatalogEntry) error {
 	return nil
 }
 
+// newerStable is the update a server's Settings tab offers: the newest
+// stable, supported Minecraft version newer than the one it runs, on its
+// newest build. It must match the dashboard's newerStable.
+func newerStable(cur api.ServerConfig, versions []api.CatalogEntry) (api.CatalogEntry, bool) {
+	var best api.CatalogEntry
+	found := false
+	for _, e := range versions {
+		if e.Experimental || !e.Supported || minecraft.CompareMinecraft(e.MinecraftVersion, cur.MinecraftVersion) <= 0 {
+			continue
+		}
+		c := minecraft.CompareMinecraft(e.MinecraftVersion, best.MinecraftVersion)
+		if !found || c > 0 || c == 0 && e.PaperBuild > best.PaperBuild {
+			best, found = e, true
+		}
+	}
+	return best, found
+}
+
 func (s *server) hVersionChange(w http.ResponseWriter, r *http.Request) {
 	var req api.VersionChangeRequest
 	if err := decode(r, &req); err != nil {

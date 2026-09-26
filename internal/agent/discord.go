@@ -311,6 +311,41 @@ func (a *Agent) alertUpdate(version string) {
 	}
 }
 
+// alertMinecraftUpdates posts, once per version for each Paper server, that
+// a newer Minecraft version is out: the update its Settings tab offers.
+// PaperMC's list is only fetched when there is a Paper server to check.
+func (a *Agent) alertMinecraftUpdates(ctx context.Context) {
+	if !a.discordConnected() {
+		return
+	}
+	var versions []api.CatalogEntry
+	loaded := false
+	for _, s := range a.serverList() {
+		sc, _ := s.serverConfig()
+		if sc == nil || sc.MinecraftVersion == "" || s.serverType(sc) != api.TypePaper {
+			continue
+		}
+		if !loaded {
+			var err error
+			if versions, _, err = a.versionCatalog(ctx); err != nil {
+				return
+			}
+			loaded = true
+		}
+		e, ok := newerStable(*sc, versions)
+		if !ok {
+			continue
+		}
+		res, err := a.db.Exec(`UPDATE servers SET minecraft_update_alerted = ? WHERE id = ? AND minecraft_update_alerted != ?`, e.MinecraftVersion, s.id, e.MinecraftVersion)
+		if err != nil {
+			continue
+		}
+		if n, _ := res.RowsAffected(); n == 1 {
+			s.alert(discord.MinecraftUpdateAvailable(e.MinecraftVersion))
+		}
+	}
+}
+
 func (a *Agent) discordSettings() api.DiscordSettings {
 	a.disc.mu.Lock()
 	s := a.disc.settings

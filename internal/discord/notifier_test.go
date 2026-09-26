@@ -457,12 +457,16 @@ func TestRepeatedAlertsAreThrottled(t *testing.T) {
 	h.Notify(PlayerJoined("Alex"))
 	h.Notify(Crashed("gave up", false))
 	h.Notify(UpdateAvailable("0.4.0"))
+	// A Minecraft version is not the Playkeeper version of the same number.
+	h.Notify(MinecraftUpdateAvailable("0.4.0"))
+	h.Notify(MinecraftUpdateAvailable("0.4.0"))
 	want := []string{
 		"**Survival** stopped unexpectedly. Playkeeper is restarting it.\n\nfirst",
 		"**Steve** joined **Survival**.",
 		"**Alex** joined **Survival**.",
 		"**Survival** kept crashing, so Playkeeper stopped restarting it. Open the dashboard to see what went wrong.\n\ngave up",
 		"Playkeeper 0.4.0 is available. You can update it from the dashboard.",
+		"**Survival** can be updated to Minecraft 0.4.0 on the Settings tab.",
 	}
 	if got := sent(); !slices.Equal(got, want) {
 		t.Errorf("within the quiet period, a second alert of the same kind about the same thing is dropped:\n%q\nwant\n%q", got, want)
@@ -473,9 +477,12 @@ func TestRepeatedAlertsAreThrottled(t *testing.T) {
 	h.Notify(PlayerJoined("Steve"))
 	h.Notify(UpdateAvailable("0.4.0"))
 	h.Notify(UpdateAvailable("0.4.1"))
+	h.Notify(MinecraftUpdateAvailable("0.4.0"))
+	h.Notify(MinecraftUpdateAvailable("26.3"))
 	want = []string{
 		"**Survival** stopped unexpectedly. Playkeeper is restarting it.\n\nthird",
 		"Playkeeper 0.4.1 is available. You can update it from the dashboard.",
+		"**Survival** can be updated to Minecraft 26.3 on the Settings tab.",
 	}
 	if got := sent(); !slices.Equal(got, want) {
 		t.Errorf("five minutes after the first crash:\n%q\nwant\n%q", got, want)
