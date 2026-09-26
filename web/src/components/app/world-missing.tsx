@@ -1,7 +1,6 @@
 import type { ServerStatus } from '@/api/types'
 import { Notice } from '@/components/app/bits'
 import { t } from '@/i18n'
-import { cn } from '@/lib/utils'
 
 /**
  * The world folder is missing because a restore didn't finish: where the
@@ -12,7 +11,7 @@ export function WorldMissingNotice({ server: s, className }: { server: ServerSta
   const m = s.worldMissing
   if (!m) return null
   return (
-    <Notice tone="error" stacked className={cn('wrap-anywhere', className)} title={t('world.missingTitle', { server: s.name })}>
+    <Notice tone="error" stacked className={className} title={t('world.missingTitle', { server: s.name })}>
       {t('world.missingBody', { previous: m.previous, data: m.dataDir })}
     </Notice>
   )

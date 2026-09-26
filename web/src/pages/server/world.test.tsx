@@ -471,6 +471,17 @@ describe('Packs page', () => {
     expect(graves?.hasAttribute('data-disabled')).toBe(true)
     expect(document.querySelector('label [role="switch"]')?.closest('label')?.getAttribute('title')).toBe(why)
   })
+
+  it('says where the previous world is when a restore left the world folder missing', async () => {
+    const previous = '/var/lib/playkeeper/servers/abcdefghjk/data.replaced-20260926-103028'
+    const refused = new client.ApiError(409, { error: `The world folder is missing because a restore did not finish; the previous world is at ${previous}.`, code: 'world_missing', hint: 'Move that folder back to /var/lib/playkeeper/servers/abcdefghjk/data, then try again.' })
+    vi.mocked(client.get).mockImplementation(((path: string) => (path.endsWith('/datapacks') ? Promise.reject(refused) : path.endsWith('/resourcepack') ? Promise.resolve({ pending: false }) : new Promise(() => {}))) as typeof client.get)
+    const text = await render(<PacksPage server={server({ phase: 'stopped', worldMissing: { previous, dataDir: '/var/lib/playkeeper/servers/abcdefghjk/data', setAsideAt: '2026-09-26T10:30:28Z' } })} />)
+    expect(text).toContain(`the previous world is at ${previous}.`)
+    const line = [...document.querySelectorAll('[role="alert"] p')].find((p) => p.textContent?.includes(previous))
+    // happy-dom has no layout: a path breaks only where overflow-wrap lets it.
+    expect(line?.className.split(' ')).toContain('wrap-anywhere')
+  })
 })
 
 describe('World card rows', () => {

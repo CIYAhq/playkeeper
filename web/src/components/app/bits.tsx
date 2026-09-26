@@ -233,7 +233,7 @@ export function Notice({ title, children, action, tone = 'default', stacked, cla
   const titleColor = { default: 'text-foreground', warning: 'text-warning-foreground', error: 'text-destructive-foreground' }[tone]
   return (
     <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-2', className)} role={tone === 'error' ? 'alert' : 'status'}>
-      <p className="min-w-0 flex-1 text-[13px] leading-5">
+      <p className="min-w-0 flex-1 text-[13px] leading-5 wrap-anywhere">
         <strong className={cn('font-semibold', titleColor)}>{title}</strong>
         {children && (stacked ? <span className="mt-0.5 block text-xs text-muted-foreground">{children}</span> : <span className="text-muted-foreground"> {children}</span>)}
       </p>
