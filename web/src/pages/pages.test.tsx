@@ -7,6 +7,7 @@ import type { Backup, MachineView, Me, OffsiteCopy, OffsiteTestResult, OffsiteVi
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
+import { toastManager } from '@/components/ui/toast'
 import { HomePage } from './home'
 import { Onboarding } from './onboarding'
 import { RecoverPage } from './recover'
@@ -587,6 +588,21 @@ describe('World backups with copies', () => {
     expect(text).toContain('The copy couldn’t be restored')
     expect(text).toContain('That copy is no longer there.')
     expect(text).toContain('Restore another copy.')
+    expect([...document.querySelectorAll('[role="dialog"] button')].map((b) => b.textContent)).toContain('Close')
+  })
+
+  it('cancels a restore from a copy while it runs and says nothing was changed', async () => {
+    const toast = vi.spyOn(toastManager, 'add')
+    await restoreOldCopy()
+    const buttons = () => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
+    expect(buttons().map((b) => b.textContent)).not.toContain('Close')
+    await act(async () => buttons().find((b) => b.textContent === 'Cancel')?.click())
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite/restore/cancel', { operationId: 'op-copy' })
+
+    await rerender(server({ lastOperation: { ...started, status: 'cancelled', finishedAt: '2026-09-25T18:51:00Z' } }))
+    expect(document.body.textContent).not.toContain('The encrypted copy from Backblaze B2')
+    expect(toast).toHaveBeenCalledWith({ title: 'Restore cancelled', description: 'Nothing was changed. What was already downloaded is deleted.' })
+    toast.mockRestore()
   })
 
   async function openCopyMenu(onlyThere: OffsiteCopy, ws = workspace()) {

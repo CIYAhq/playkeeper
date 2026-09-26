@@ -114,6 +114,7 @@ export const en = {
   'op.update': 'Updating Playkeeper',
   'op.other': 'Working on {server}',
   'op.failed': '{what} failed',
+  'op.cancelled': '{what} was cancelled',
 
   // Navigation and the app shell
   'nav.skip': 'Skip to content',
@@ -1500,6 +1501,8 @@ export const en = {
   'offsiteRestore.background': 'You can close this. Progress stays in the top bar.',
   'offsiteRestore.failed': 'The copy couldn’t be restored',
   'offsiteRestore.titleAny': 'Getting a backup back',
+  'offsiteRestore.cancelled': 'Restore cancelled',
+  'offsiteRestore.nothingChanged': 'Nothing was changed. What was already downloaded is deleted.',
   'offsiteRestore.ready': 'The copy is downloaded and checked',
   'recover.title': 'Restore from a recovery key',
   'recover.phoneTitle': 'Restore',

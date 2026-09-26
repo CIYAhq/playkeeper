@@ -203,6 +203,7 @@ export function useCopyRestore(s: ServerStatus, onStaged: (p: RestorePreview) =>
   const [started, setStarted] = useState<{ id: string; name: string }>()
   const [hidden, setHidden] = useState<string>()
   const [loadError, setLoadError] = useState<string>()
+  const [cancelling, setCancelling] = useState<string>()
   const fetched = useRef<string | undefined>(undefined)
   const running = s.operation?.kind === 'offsite-restore' ? s.operation : undefined
   const back = window.location.hash === restoreCopyHash && s.lastOperation?.kind === 'offsite-restore' ? s.lastOperation : undefined
@@ -223,6 +224,13 @@ export function useCopyRestore(s: ServerStatus, onStaged: (p: RestorePreview) =>
   useEffect(() => {
     if (back) navigate(window.location.pathname, true)
   }, [back])
+
+  const cancelled = op?.status === 'cancelled' ? op.id : undefined
+  useEffect(() => {
+    if (!cancelled) return
+    setHidden(`${cancelled}:cancelled`)
+    toastManager.add({ title: t('offsiteRestore.cancelled'), description: t('offsiteRestore.nothingChanged') })
+  }, [cancelled])
 
   const opId = op?.id
   useEffect(() => {
@@ -259,7 +267,18 @@ export function useCopyRestore(s: ServerStatus, onStaged: (p: RestorePreview) =>
     }
   }
 
-  return { op, name, open, loadError, start, hide: () => op && setHidden(`${op.id}:${op.status}`) }
+  async function cancel() {
+    if (!op) return
+    setCancelling(op.id)
+    try {
+      await post<Operation>(serverApi(s.id, '/offsite/restore/cancel'), { operationId: op.id })
+    } catch (e) {
+      setCancelling(undefined)
+      toastManager.add({ title: errorText(e), type: 'error' })
+    }
+  }
+
+  return { op, name, open, loadError, start, cancel, cancelling: !!op && cancelling === op.id, hide: () => op && setHidden(`${op.id}:${op.status}`) }
 }
 
 type StepState = 'done' | 'active' | 'waiting' | 'failed'
@@ -294,11 +313,14 @@ export function CopyRestoreDialog({ restore, copies, place }: { restore: ReturnT
   const { op, name } = restore
   if (!op) return null
   const copy = copies.find((c) => c.name === name)
-  return <CopyJobDialog op={op} open={restore.open} loadError={restore.loadError} onHide={restore.hide} date={copy?.createdAt} sizeBytes={copy && (copy.copySizeBytes || copy.sizeBytes)} place={place} />
+  return <CopyJobDialog op={op} open={restore.open} loadError={restore.loadError} onHide={restore.hide} onCancel={restore.cancel} cancelling={restore.cancelling} date={copy?.createdAt} sizeBytes={copy && (copy.copySizeBytes || copy.sizeBytes)} place={place} />
 }
 
-/** Download, decrypt and check a copy, then the usual look at what's inside. */
-export function CopyJobDialog({ op, open, loadError, onHide, date, sizeBytes, place, background = t('offsiteRestore.background') }: { op: Operation; open: boolean; loadError?: string; onHide: () => void; date?: string; sizeBytes?: number; place: string; background?: string }) {
+/**
+ * Download, decrypt and check a copy, then the usual look at what's inside.
+ * With onCancel, the job can be cancelled while it runs; closing only hides it.
+ */
+export function CopyJobDialog({ op, open, loadError, onHide, onCancel, cancelling, date, sizeBytes, place, background = t('offsiteRestore.background') }: { op: Operation; open: boolean; loadError?: string; onHide: () => void; onCancel?: () => void; cancelling?: boolean; date?: string; sizeBytes?: number; place: string; background?: string }) {
   const phone = useIsPhone()
   const size = sizeBytes ? formatBytes(sizeBytes) : ''
   const failed = op.status === 'failed' || !!loadError
@@ -331,9 +353,15 @@ export function CopyJobDialog({ op, open, loadError, onHide, date, sizeBytes, pl
               {background}
             </p>
           )}
-          <Button variant="outline" size={phone ? 'touch' : 'default'} className={cn(failed && 'sm:ml-auto')} onClick={onHide}>
-            {t('common.close')}
-          </Button>
+          {onCancel && op.status === 'running' ? (
+            <Button variant="outline" size={phone ? 'touch' : 'default'} loading={cancelling} onClick={onCancel}>
+              {t('common.cancel')}
+            </Button>
+          ) : (
+            <Button variant="outline" size={phone ? 'touch' : 'default'} className={cn(failed && 'sm:ml-auto')} onClick={onHide}>
+              {t('common.close')}
+            </Button>
+          )}
         </DialogFooter>
       </DialogPopup>
     </Dialog>

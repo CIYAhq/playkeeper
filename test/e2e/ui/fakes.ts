@@ -398,6 +398,14 @@ const routes: [string, RegExp, Handler][] = [
       return typeof n === 'string' && n ? op(state, 'offsite-restore', r.params[0], { name: n }) : { status: 400, body: { error: "That is not the name of a backup's copy.", code: 'invalid', field: 'name' } }
     },
   ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/offsite\/restore\/cancel$/,
+    (r, state) => {
+      const o = state.ops.get(String((r.body as { operationId?: unknown } | null)?.operationId ?? ''))
+      return o ? { status: 202, body: o } : { status: 409, body: { error: "That isn't running any more.", code: 'conflict' } }
+    },
+  ],
   ['POST', /^\/api\/servers\/(\w+)\/offsite\/copies\/([^/]+)\/check$/, (r, state) => op(state, 'offsite-check', r.params[0], { name: decodeURIComponent(r.params[1] ?? '') })],
   ['DELETE', /^\/api\/servers\/(\w+)\/offsite\/copies\/([^/]+)$/, (r) => ({ status: 200, body: { deleted: decodeURIComponent(r.params[1] ?? '') } })],
   [

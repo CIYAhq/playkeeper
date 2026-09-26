@@ -74,7 +74,7 @@ export interface Operation {
   id: string
   serverId?: string
   kind: string
-  status: 'running' | 'succeeded' | 'failed'
+  status: 'running' | 'succeeded' | 'failed' | 'cancelled'
   phase: string
   actor: string
   startedAt: string
