@@ -1135,6 +1135,42 @@ control "names claimed from one network are limited" internal/names/service/hand
   'if n < s.cfg.MaxNamesPerNetwork {' \
   'if n <= s.cfg.MaxNamesPerNetwork {' \
   ./internal/names/service '^TestNamesPerNetworkAreLimited$'
+control "a name that moves counts against the network it moves to" internal/names/service/handlers.go \
+  'nw := nameNetwork(was, v4, v6)' \
+  'nw := was' \
+  ./internal/names/service '^TestNamesPerNetworkFollowTheirAddress$'
+control "a move into a full network is refused" internal/names/service/handlers.go \
+  'if nw != was {' \
+  'if false {' \
+  ./internal/names/service '^TestNamesPerNetworkFollowTheirAddress$'
+control "the network a name moves to is stored" internal/names/service/handlers.go \
+  'v4, v6, nw, names.StateActive, now, bump,' \
+  'v4, v6, row.Network, names.StateActive, now, bump,' \
+  ./internal/names/service '^TestNamesPerNetworkFollowTheirAddress$'
+control "a name from before networks were recorded counts against that of its address" internal/names/service/handlers.go \
+  'if was == "" {' \
+  'if false {' \
+  ./internal/names/service '^TestNamesFromBeforeNetworksGetOne$'
+control "a name counting in an IPv6 network keeps it when it gets an IPv4 address" internal/names/service/addr.go \
+  'err4 != nil || strings.Contains(current, ":")' \
+  'err4 != nil || false' \
+  ./internal/names/service '^TestANameCountsAgainstTheNetworkOfOneAddress$'
+control "a name counting in an IPv4 network keeps it when it gets an IPv6 address" internal/names/service/addr.go \
+  'err4 != nil || strings.Contains(current, ":")' \
+  'err4 != nil || true' \
+  ./internal/names/service '^TestANameCountsAgainstTheNetworkOfOneAddress$'
+control "a name that loses its address in one IP version counts against the other" internal/names/service/addr.go \
+  'err4 != nil || strings.Contains(current, ":")' \
+  'strings.Contains(current, ":")' \
+  ./internal/names/service '^TestANameCountsAgainstTheNetworkOfOneAddress$'
+control "two names can't both take a network's last place" internal/names/service/handlers.go \
+  'if err := s.writeTx(r.Context(), func(q queryer) error {
+		return s.setAddress(r.Context(), q, row, c.addr, req.ClearOther, answered)
+	}); err != nil {' \
+  'if err := func(q queryer) error {
+		return s.setAddress(r.Context(), q, row, c.addr, req.ClearOther, answered)
+	}(s.db); err != nil {' \
+  ./internal/names/service '^TestConcurrentMovesTakeANetworksLastPlaceOnce$' 20
 control "server addresses per install are limited" internal/names/service/handlers.go \
   'case byKey >= serversPerKey:' \
   'case false:' \
@@ -1483,6 +1519,14 @@ control "free address refresh: a refused connection keeps the other IP version's
   'errors.Is(err, syscall.EADDRNOTAVAIL)' \
   'errors.Is(err, syscall.EADDRNOTAVAIL) || errors.Is(err, syscall.ECONNREFUSED)' \
   ./internal/names '^TestRefreshSetsBothVersionsAndClearsOnlyOneThatHasNoRoute$'
+control "names client: an answer is awaited longer than the service waits for Cloudflare" internal/names/client.go \
+  'ResponseHeaderTimeout: answerWait,' \
+  'ResponseHeaderTimeout: 20 * time.Second,' \
+  ./internal/names '^TestAnswersAreAwaitedLongerThanTheServiceWaitsForCloudflare$'
+control "names client: a request is not cut short while its answer is awaited" internal/names/client.go \
+  'Timeout:       answerWait + 30*time.Second,' \
+  'Timeout:       30 * time.Second,' \
+  ./internal/names '^TestAnswersAreAwaitedLongerThanTheServiceWaitsForCloudflare$'
 control "free address change: undone at the names service when it can't be saved" internal/agent/address.go \
   'if _, rerr := c.Release(ctx); rerr != nil && !namesCode(rerr, names.CodeNotClaimed) {' \
   'if rerr := error(nil); rerr != nil {' \
@@ -1491,6 +1535,39 @@ control "free address change: the old name is claimed back only once the new one
   'if _, rerr := c.Release(ctx); rerr != nil && !namesCode(rerr, names.CodeNotClaimed) {' \
   'if _, rerr := c.Release(ctx); false && rerr != nil {' \
   ./internal/agent '^TestFreeAddressChangeAndRelease$'
+control "free address change: a claim without a clear answer is looked up at the names service" internal/agent/address.go \
+  'if !claimRefused(err) {' \
+  'if false {' \
+  ./internal/agent '^TestFreeNameChangeWithALostAnswerFollowsTheService$'
+control "free address change: a 5xx doesn't say the claim wasn't stored" internal/agent/address.go \
+  'return errors.As(err, &ne) && ne.Status < 500' \
+  'return errors.As(err, &ne)' \
+  ./internal/agent '^TestFreeNameChangeWithALostAnswerFollowsTheService$'
+control "free address change: the new name is taken only when the service lists it" internal/agent/address.go \
+  'listed && l.State != names.StateReleased' \
+  '(listed || true) && l.State != names.StateReleased' \
+  ./internal/agent '^TestFreeNameChangeThatFailedGivesTheOldNameBack$'
+control "free address change: a new name the service lists as released is not taken" internal/agent/address.go \
+  'listed && l.State != names.StateReleased' \
+  'listed' \
+  ./internal/agent '^TestFreeNameChangeThatFailedGivesTheOldNameBack$'
+control "free address change: the old name claimed back gets its servers' records again" internal/agent/address.go \
+  '	a.serversChanged()
+' \
+  '' \
+  ./internal/agent '^TestFreeNameChangeThatFailedGivesTheOldNameBack$'
+control "free address change: the old name is kept while the service holds it" internal/agent/address.go \
+  'lerr != nil || listed' \
+  'false && (lerr != nil || listed)' \
+  ./internal/agent '^TestFreeNameIsKeptWhileTheServiceHoldsIt$'
+control "free address change: the old name is kept while the service can't say" internal/agent/address.go \
+  'lerr != nil || listed' \
+  '(lerr != nil && false) || listed' \
+  ./internal/agent '^TestFreeNameIsKeptWhileTheServiceHoldsIt$'
+control "free address change: the old name is given up once the service no longer has it" internal/agent/address.go \
+  'lerr != nil || listed' \
+  'true || lerr != nil || listed' \
+  ./internal/agent '^TestFreeNameIsKeptWhileTheServiceHoldsIt$'
 control "own domain: setting one keeps the released free name claimable" internal/agent/address.go \
   'Since: a.now().UTC(), IP: st.IP, Released: st.Released}' \
   'Since: a.now().UTC(), IP: st.IP}' \
@@ -1503,6 +1580,11 @@ control "own domain: a certificate attempt that finds the name wrong brings the 
   'if !saved || ready {' \
   'if true || !saved || ready {' \
   ./internal/agent '^TestOwnDomainChecksTheNameBeforeHTTP01$'
+control "free address: a server change the claim's publish covered doesn't make the loop ask again early" internal/agent/address.go \
+  'a.takeServersChanged()
+	want := freeServers(a.joinServers())' \
+  'want := freeServers(a.joinServers())' \
+  ./internal/agent '^TestServerAddressesCoveredByThePublishAreNotAskedAgain$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

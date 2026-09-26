@@ -165,6 +165,12 @@ type fakeNames struct {
 	pending bool
 	// fail, when it returns a refusal, answers a request with it.
 	fail func(r *http.Request) *fakeRefusal
+	// late is a request (method and path) that is carried out at once but
+	// answered only once the client stops waiting: stored is closed when it
+	// is carried out, and hungUp counts the clients that stopped waiting.
+	late   string
+	stored chan struct{}
+	hungUp int
 }
 
 type fakeRefusal struct {
@@ -174,6 +180,9 @@ type fakeRefusal struct {
 	retryAfter string
 	// page answers with an HTML error page instead of JSON, like a proxy.
 	page bool
+	// stored carries the request out before refusing it, as when the
+	// service fails after storing a change.
+	stored bool
 }
 
 func startFakeNames(t *testing.T) *fakeNames {
@@ -193,9 +202,34 @@ func startFakeNames(t *testing.T) *fakeNames {
 		f.mu.Lock()
 		f.calls = append(f.calls, r.Method+" "+r.URL.Path)
 		fail := f.fail
+		var stored chan struct{}
+		if f.late != "" && f.late == r.Method+" "+r.URL.Path {
+			stored, f.late = f.stored, ""
+		}
 		f.mu.Unlock()
+		if stored != nil {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, r)
+			close(stored)
+			select {
+			case <-r.Context().Done():
+				f.mu.Lock()
+				f.hungUp++
+				f.mu.Unlock()
+			case <-time.After(10 * time.Second):
+			}
+			for k, v := range rec.Header() {
+				w.Header()[k] = v
+			}
+			w.WriteHeader(rec.Code)
+			w.Write(rec.Body.Bytes())
+			return
+		}
 		if fail != nil {
 			if rf := fail(r); rf != nil {
+				if rf.stored {
+					mux.ServeHTTP(httptest.NewRecorder(), r)
+				}
 				if rf.retryAfter != "" {
 					w.Header().Set("Retry-After", rf.retryAfter)
 				}
@@ -417,6 +451,59 @@ func (f *fakeNames) setFail(fn func(r *http.Request) *fakeRefusal) {
 	f.fail = fn
 }
 
+// answerLate makes the next request for route (method and path) carried
+// out at once but answered only once the client stops waiting; stored is
+// closed when it is carried out.
+func (f *fakeNames) answerLate(route string, stored chan struct{}) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.late, f.stored = route, stored
+}
+
+func (f *fakeNames) hungUps() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.hungUp
+}
+
+// timesOut is a names client transport whose request for route gets no
+// answer in time: its deadline passes once stored is closed, that is once
+// the service has carried the request out but before it answers.
+type timesOut struct {
+	next   http.RoundTripper
+	route  string
+	stored <-chan struct{}
+}
+
+func (tr timesOut) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.Method+" "+r.URL.Path != tr.route {
+		return tr.next.RoundTrip(r)
+	}
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	go func() {
+		select {
+		case <-tr.stored:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	resp, err := tr.next.RoundTrip(r.WithContext(ctx))
+	if err != nil {
+		if ctx.Err() != nil && r.Context().Err() == nil {
+			return nil, context.DeadlineExceeded
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	resp.Body = io.NopCloser(strings.NewReader(string(b)))
+	return resp, nil
+}
+
 func (f *fakeNames) callLog() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -597,6 +684,26 @@ func (e *agentEnv) auditActions() []string {
 	return out
 }
 
+// loopRefreshes makes the free name due and waits for the address loop to
+// refresh name at the names service.
+func (e *addressEnv) loopRefreshes(name string) {
+	e.t.Helper()
+	route := "POST /v1/names/" + name + "/address"
+	before := e.names.count(route)
+	release, err := e.a.holdAddress(e.t.Context(), 15*time.Second)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	_ = e.a.updateAddress(func(st *addressState) {
+		f := *st.Free
+		f.NextRefresh = time.Now().Add(-time.Minute)
+		st.Free = &f
+	})
+	release()
+	e.a.serversChanged()
+	e.waitFor("the loop to refresh "+name, func() bool { return e.names.count(route) > before })
+}
+
 func TestFreeAddressClaimPublishesServersAndCertificate(t *testing.T) {
 	e := newAddressEnv(t, nil)
 	survival := e.addServerNamed("Survival")
@@ -729,13 +836,15 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 		t.Fatalf("address after the change couldn't be saved: %+v", v)
 	}
 	// When bob can't be released either, alex can't be claimed back, as a
-	// key holds one name: the machine keeps alex and its certificate.
+	// key holds one name, so the machine doesn't try: it keeps alex and its
+	// certificate.
 	e.names.setFail(func(r *http.Request) *fakeRefusal {
 		if r.Method == http.MethodDelete && r.URL.Path == "/v1/names/bob" {
 			return &fakeRefusal{status: 503, code: names.CodeUnavailable, msg: "Down."}
 		}
 		return nil
 	})
+	claimsBack := e.names.count("PUT /v1/names/alex")
 	if code, out := e.call("POST", "/v1/address/claim", map[string]any{"name": "bob", "actor": "admin"}); code != 500 {
 		t.Fatalf("a change that can't be saved or undone: %d %v", code, out)
 	}
@@ -743,6 +852,9 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 	failSaves(false)
 	if n, _ := e.names.name("bob"); n.State != names.StateActive {
 		t.Fatalf("bob after a release that failed: %+v", n)
+	}
+	if e.names.count("PUT /v1/names/alex") != claimsBack {
+		t.Fatal("alex was claimed back while bob was still held")
 	}
 	if v := e.address(); v.Host != "alex.playkeeper.io" || e.a.loadCertificate("alex.playkeeper.io") == nil {
 		t.Fatalf("address after a change that couldn't be saved or undone: %+v", v)
@@ -795,6 +907,178 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 		if !slices.Contains(audit, want) {
 			t.Errorf("audit lacks %q: %v", want, audit)
 		}
+	}
+}
+
+// A change of name whose answer is lost after the service stored it ends
+// with the new name: the machine asks the service which name it holds.
+func TestFreeNameChangeWithALostAnswerFollowsTheService(t *testing.T) {
+	storedThen := func(rf fakeRefusal) func(e *addressEnv) {
+		rf.stored = true
+		return func(e *addressEnv) {
+			e.names.setFail(func(r *http.Request) *fakeRefusal {
+				if r.Method == http.MethodPut && r.URL.Path == "/v1/names/bob" {
+					return &rf
+				}
+				return nil
+			})
+		}
+	}
+	for _, c := range []struct {
+		name string
+		// late answers the claim only after the client's deadline.
+		late bool
+		lose func(e *addressEnv)
+	}{
+		{name: "answered after the client's deadline", late: true},
+		{name: "an error after storing it", lose: storedThen(fakeRefusal{status: 500, code: names.CodeInternal, msg: "Something went wrong in the names service."})},
+		{name: "a proxy's error page after storing it", lose: storedThen(fakeRefusal{status: 502, page: true})},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			stored := make(chan struct{})
+			e := newAddressEnv(t, func(o *Options) {
+				if c.late {
+					o.NamesHTTP = &http.Client{Transport: timesOut{next: o.NamesHTTP.Transport, route: "PUT /v1/names/bob", stored: stored}}
+				}
+			})
+			e.addServerNamed("Survival")
+			e.claim("alex")
+			_, key := e.names.name("alex")
+			alexRefreshes := e.names.count("POST /v1/names/alex/address")
+			if c.late {
+				e.names.answerLate("PUT /v1/names/bob", stored)
+			} else {
+				c.lose(e)
+			}
+			v := e.claim("bob")
+			e.names.setFail(nil)
+			if c.late {
+				e.waitFor("the client to stop waiting for the answer", func() bool { return e.names.hungUps() == 1 })
+			}
+			if v.Host != "bob.playkeeper.io" || v.Free == nil || v.Free.State != names.StateActive || v.Servers[0].Address != "survival.bob.playkeeper.io" {
+				t.Fatalf("address after the change: %+v", v)
+			}
+			if n, owner := e.names.name("bob"); n.State != names.StateActive || owner != key {
+				t.Fatalf("the service has bob as %+v for %q", n, owner)
+			}
+			if n, _ := e.names.name("alex"); n.State != names.StateReleased {
+				t.Fatalf("the service has alex as %+v", n)
+			}
+			if e.a.loadCertificate("bob.playkeeper.io") == nil || e.a.loadCertificate("alex.playkeeper.io") != nil {
+				t.Fatal("the certificate is not for the name the service holds")
+			}
+			e.loopRefreshes("bob")
+			if n := e.names.count("POST /v1/names/alex/address"); n != alexRefreshes {
+				t.Fatalf("alex was refreshed %d more times after the change", n-alexRefreshes)
+			}
+		})
+	}
+}
+
+// A change of name that failed at the service, answered with an error that
+// doesn't say whether it was stored, gives the machine its old name back.
+func TestFreeNameChangeThatFailedGivesTheOldNameBack(t *testing.T) {
+	e := newAddressEnv(t, func(o *Options) { o.AddressInterval = 20 * time.Millisecond })
+	e.addServerNamed("Survival")
+	e.claim("alex")
+	change := func(from, to string) {
+		t.Helper()
+		e.names.setFail(func(r *http.Request) *fakeRefusal {
+			if r.Method == http.MethodPut && r.URL.Path == "/v1/names/"+to {
+				return &fakeRefusal{status: 500, code: names.CodeInternal, msg: "Something went wrong in the names service."}
+			}
+			return nil
+		})
+		calls, refreshes := len(e.names.callLog()), e.names.count("POST /v1/names/"+to+"/address")
+		code, out := e.call("POST", "/v1/address/claim", map[string]any{"name": to, "actor": "admin"})
+		e.names.setFail(nil)
+		if code != 502 || out["code"] != names.CodeInternal {
+			t.Fatalf("changing to %s: %d %v", to, code, out)
+		}
+		if log := e.names.callLog()[calls:]; !slices.Contains(log, "GET /v1/names") {
+			t.Fatalf("changing to %s did not ask the service which name the machine has: %v", to, log)
+		}
+		if n, _ := e.names.name(from); n.State != names.StateActive {
+			t.Fatalf("the service has %s as %+v", from, n)
+		}
+		if n, _ := e.names.name(to); n.State == names.StateActive {
+			t.Fatalf("the service has %s as %+v", to, n)
+		}
+		if v := e.address(); v.Host != from+".playkeeper.io" || v.Free == nil || v.Free.State != names.StateActive {
+			t.Fatalf("address after changing to %s failed: %+v", to, v)
+		}
+		if e.a.loadCertificate(from+".playkeeper.io") == nil || e.a.loadCertificate(to+".playkeeper.io") != nil {
+			t.Fatalf("the certificate is not for %s", from)
+		}
+		e.waitFor("the servers' records under "+from, func() bool { return e.names.labels(from)["survival"] == 25565 })
+		e.loopRefreshes(from)
+		if n := e.names.count("POST /v1/names/" + to + "/address"); n != refreshes {
+			t.Fatalf("%s was refreshed after the change to it failed", to)
+		}
+	}
+	// bob was never this machine's.
+	change("alex", "bob")
+	// alex is listed for this machine, but as given up.
+	e.claim("bob")
+	change("bob", "alex")
+}
+
+// A change of name that fails keeps the old name while the service still
+// holds it for this machine, even when it can't be claimed back at once:
+// the address loop claims it back.
+func TestFreeNameIsKeptWhileTheServiceHoldsIt(t *testing.T) {
+	e := newAddressEnv(t, nil)
+	e.addServerNamed("Survival")
+	e.claim("alex")
+	for _, c := range []struct {
+		name string
+		down []string
+	}{
+		{"the service lists alex for this machine", []string{"PUT /v1/names/bob", "PUT /v1/names/alex"}},
+		{"the service can't list its names either", []string{"PUT /v1/names/bob", "PUT /v1/names/alex", "GET /v1/names"}},
+	} {
+		e.names.setFail(func(r *http.Request) *fakeRefusal {
+			if slices.Contains(c.down, r.Method+" "+r.URL.Path) {
+				return &fakeRefusal{status: 503, code: names.CodeUnavailable, msg: "Down."}
+			}
+			return nil
+		})
+		if code, out := e.call("POST", "/v1/address/claim", map[string]any{"name": "bob", "actor": "admin"}); code != 503 || out["code"] != api.CodeNamesUnreachable {
+			t.Fatalf("%s: changing to bob: %d %v", c.name, code, out)
+		}
+		st := e.a.address()
+		if st.Host != "alex.playkeeper.io" || st.Free == nil || st.Free.Name.Name != "alex" || e.a.loadCertificate("alex.playkeeper.io") == nil {
+			t.Fatalf("%s: the machine gave alex up: %+v", c.name, st)
+		}
+		if d := time.Until(st.Free.NextRefresh); d < 50*time.Minute || d > 70*time.Minute {
+			t.Fatalf("%s: alex is claimed back in %v", c.name, d)
+		}
+		e.names.setFail(nil)
+		e.loopRefreshes("alex")
+		e.waitFor("alex to be claimed back with its servers' records", func() bool {
+			n, _ := e.names.name("alex")
+			return n.State == names.StateActive && e.names.labels("alex")["survival"] == 25565 && time.Until(e.a.address().Free.NextRefresh) > 23*time.Hour
+		})
+		if n, _ := e.names.name("bob"); n.Name != "" {
+			t.Fatalf("%s: the service has bob: %+v", c.name, n)
+		}
+	}
+
+	// Only once the service no longer holds alex for this machine does the
+	// machine give it up.
+	e.names.setFail(func(r *http.Request) *fakeRefusal {
+		if r.Method == http.MethodPut && r.URL.Path == "/v1/names/bob" {
+			e.names.takenBy("alex")
+			return &fakeRefusal{status: 503, code: names.CodeUnavailable, msg: "Down."}
+		}
+		return nil
+	})
+	if code, out := e.call("POST", "/v1/address/claim", map[string]any{"name": "bob", "actor": "admin"}); code != 503 || out["code"] != api.CodeNamesUnreachable {
+		t.Fatalf("changing to bob after alex went to someone else: %d %v", code, out)
+	}
+	e.names.setFail(nil)
+	if st := e.a.address(); st.Kind != api.AddressNone || st.Released != "alex" || e.a.loadCertificate("alex.playkeeper.io") != nil {
+		t.Fatalf("the machine kept a name someone else has: %+v", st)
 	}
 }
 
@@ -1337,6 +1621,44 @@ func TestServerAddressesWaitForTheNamesService(t *testing.T) {
 		v := e.address()
 		return v.Free.ServersWait == "" && len(v.Servers) == 1 && v.Servers[0].Published
 	})
+}
+
+// A server added just before a claim can reach the loop only after the
+// claim's own publish has already given the servers their records: the
+// loop, finding the address busy, leaves the change for its next look.
+// That look must not ask the names service again before it allows it.
+func TestServerAddressesCoveredByThePublishAreNotAskedAgain(t *testing.T) {
+	e := newAddressEnv(t, func(o *Options) { o.AddressInterval = time.Hour })
+	e.addServerNamed("Survival")
+	from := time.Now().Add(72 * time.Hour).UTC().Truncate(time.Second)
+	e.names.setFail(func(r *http.Request) *fakeRefusal {
+		if r.Method != "PUT" || !strings.Contains(r.URL.Path, "/servers/") {
+			return nil
+		}
+		return &fakeRefusal{status: http.StatusConflict, code: names.CodeServerNotYet, msg: "Not yet.", params: map[string]any{"name": "alex", "from": from.Unix()}}
+	})
+	// One look of the loop, here rather than on its hourly tick.
+	look := func() { e.a.addressTick(t.Context(), false) }
+	// Adding the server kicked the loop; wait until that look has taken
+	// the change, so the one made below stays for the look after the claim.
+	e.waitFor("the loop to see the new server", func() bool {
+		e.a.addr.mu.Lock()
+		defer e.a.addr.mu.Unlock()
+		return !e.a.addr.serversUp && len(e.a.addr.kick) == 0
+	})
+
+	e.a.addr.mu.Lock()
+	e.a.addr.serversUp = true
+	e.a.addr.mu.Unlock()
+	if v := e.claim("alex"); v.Free.ServersWait != names.CodeServerNotYet {
+		t.Fatalf("the claim's publish: %+v", v.Free)
+	}
+	puts := func() int { return e.names.count("PUT /v1/names/alex/servers/") }
+	n := puts()
+	look()
+	if got := puts(); got != n {
+		t.Fatalf("the loop asked for server addresses again (%d times, was %d) before the service allows them", got, n)
+	}
 }
 
 func TestFreeViewSaysWhyANameLapsed(t *testing.T) {
