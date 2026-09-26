@@ -490,13 +490,13 @@ function Claiming({ address, machine, ip, step }: { address: string; machine: st
   })
   if (phone) {
     return (
-      <div className="flex flex-col gap-5 pt-2 pb-6" role="status">
+      <div className="flex animate-fade flex-col gap-5 pt-2 pb-6" role="status">
         <Group label={title}>{items}</Group>
       </div>
     )
   }
   return (
-    <Card role="status">
+    <Card role="status" className="animate-fade">
       <CardTitle>{title}</CardTitle>
       <ol className="mt-4 grid gap-4 md:grid-cols-3">{items}</ol>
     </Card>
