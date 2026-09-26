@@ -580,10 +580,7 @@ func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, 
 		done := finishOp(op, h, err, a.now().UTC())
 		a.mop = nil
 		a.mopMu.Unlock()
-		a.saveOperation(&done)
-		if done.Status != api.OpRunning {
-			a.audit(actor, kind, "machine", done.Status, done.Error)
-		}
+		a.finishOperation("", "machine", &done)
 		if err != nil {
 			a.log.Warn("operation failed", "kind", kind, "err", err)
 		}

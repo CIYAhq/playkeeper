@@ -63,6 +63,73 @@ func (e *agentEnv) gcCollections() int {
 	return e.countRows(`SELECT COALESCE(SUM(collections), 0) FROM gc_windows WHERE server_id = ?`, e.sid)
 }
 
+// heavyPauses writes the server's GC log: ten pauses that each leave the heap
+// almost full, spread over the current run so far.
+func (e *agentEnv) heavyPauses() {
+	e.t.Helper()
+	s := e.srv()
+	s.mu.Lock()
+	start := s.runStartedAt
+	s.mu.Unlock()
+	now := time.Now()
+	var gc strings.Builder
+	for i := range 10 {
+		gc.WriteString(gcLine(start.Add(time.Duration(i+1)*now.Sub(start)/11), i, 1010, 950, 1024, 150))
+	}
+	if err := os.WriteFile(filepath.Join(e.dataDir(), "logs", "gc.log"), []byte(gc.String()), 0o644); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// Lag is explained from the current run's garbage collection only. After a
+// crash or a restart, the pauses the previous Java logged in the last minutes
+// say nothing about the new one's memory; a run that goes on keeps its own.
+func TestLagCountsOnlyTheCurrentRunsGC(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		then   func(e *agentEnv)
+		counts bool
+	}{
+		{"the same run", func(*agentEnv) {}, true},
+		{"after a crash", func(e *agentEnv) {
+			e.fd.crash(1)
+			e.waitFor("the crash recorded", func() bool { return e.crashEvents() == 1 })
+			if op := e.act("start"); op.Status != api.OpSucceeded {
+				t.Fatalf("start after the crash: %+v", op)
+			}
+		}, false},
+		{"after a restart", func(e *agentEnv) {
+			if op := e.act("restart"); op.Status != api.OpSucceeded {
+				t.Fatalf("restart: %+v", op)
+			}
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.stop()
+			e.crashBackoff = []time.Duration{time.Hour}
+			e.procStat = func() ([]byte, error) { return nil, errors.New("no /proc/stat in this test") }
+			e.start()
+			e.create()
+			e.heavyPauses()
+			e.waitFor("the pauses read", func() bool { return e.gcCollections() == 10 })
+			tc.then(e)
+			e.waitFor("online", func() bool { return e.status().Phase == api.PhaseOnline })
+			e.setTicks(paperTPSBehind, paperMSPTBehind)
+			set := e.a.now()
+			var r api.Running
+			e.waitFor("a bit behind, sampled after that", func() bool {
+				r = e.running()
+				return r.Status == "a_bit_behind" && r.At != nil && r.At.After(set)
+			})
+			memory := slices.ContainsFunc(r.Causes, func(c api.LagCause) bool { return c.Kind == "memory_pressure" })
+			if memory != tc.counts {
+				t.Fatalf("memory pressure among the causes: %v, want %v: %+v", memory, tc.counts, r.Causes)
+			}
+		})
+	}
+}
+
 // "How it's running" reads the tick rate over RCON and explains a server that
 // falls behind with the causes its measurements point at, most likely first,
 // each with the numbers the page's buttons need.
@@ -71,17 +138,10 @@ func TestHowItsRunningExplainsTheLag(t *testing.T) {
 	e.withoutProcStat()
 	e.create()
 	e.rcon.setOnline("Alex", "Steve")
-	now := time.Now()
 	if err := os.WriteFile(filepath.Join(e.dataDir(), "server.properties"), []byte("view-distance=16\nsimulation-distance=12\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	var gc strings.Builder
-	for i := range 10 {
-		gc.WriteString(gcLine(now.Add(-5*time.Minute+time.Duration(i)*20*time.Second), i, 1010, 950, 1024, 150))
-	}
-	if err := os.WriteFile(filepath.Join(e.dataDir(), "logs", "gc.log"), []byte(gc.String()), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	e.heavyPauses()
 
 	// The server was sampled as soon as it came online, before the players
 	// and files above; only a sample taken after them shows them.
