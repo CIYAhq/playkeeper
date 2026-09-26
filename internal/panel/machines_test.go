@@ -2091,6 +2091,72 @@ func TestJoinPathsSayWhyAServerCantBeReached(t *testing.T) {
 	}
 }
 
+// The join page answers a friend invite whose server can't be asked as the
+// dashboard's routes do, in a friend's words: a server no machine runs is a
+// link that doesn't work, one two machines list is a link that doesn't work
+// for now, and a lookup that failed or a machine that can't be reached is a
+// moment to try again. Each is logged by its own reason.
+func TestTheJoinPageSaysWhyAServerCantBeReached(t *testing.T) {
+	record := func(t *testing.T, e *env, owner machine, disputedBy string) {
+		t.Helper()
+		if _, err := e.srv.db.Exec(`INSERT INTO server_machines(server_id, machine_id, seen_at, disputed_by) VALUES(?, ?, 0, ?)
+			ON CONFLICT(server_id) DO UPDATE SET machine_id = excluded.machine_id, disputed_by = excluded.disputed_by`, sampleServer, owner.ID, disputedBy); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name   string
+		reach  func(t *testing.T, e *env, alpha, beta machine)
+		status int
+		code   string
+		reason string
+	}{
+		{"a server whose machine was removed", func(t *testing.T, e *env, alpha, beta machine) {
+			e.srv.listings.note(e.localMachine(t), nil)
+			record(t, e, alpha, "")
+			e.removeMachine(t, alpha)
+		}, http.StatusNotFound, invites.CodeNotWorking, "no machine runs the invite's server"},
+		{"a server its machine's agent doesn't know", func(t *testing.T, e *env, alpha, beta machine) {
+			e.replyStatus("GET", "/v1/servers/"+sampleServer, http.StatusNotFound, `{"error":"Server not found.","code":"not_found"}`)
+		}, http.StatusNotFound, invites.CodeNotWorking, "no machine runs the invite's server"},
+		{"a server two machines list", func(t *testing.T, e *env, alpha, beta machine) {
+			record(t, e, alpha, beta.ID)
+		}, http.StatusConflict, codeServerDisputed, "two machines list the invite's server"},
+		{"a server whose machine can't be looked up", func(t *testing.T, e *env, alpha, beta machine) {
+			e.srv.listings.note(e.localMachine(t), nil)
+			e.srv.listings.note(alpha.ID, serverList(sampleServer))
+			if _, err := e.srv.db.Exec(`DELETE FROM server_machines WHERE server_id = ?`, sampleServer); err != nil {
+				t.Fatal(err)
+			}
+		}, http.StatusServiceUnavailable, api.CodeInternal, "could not look up the machine that runs the invite's server"},
+		{"a server whose machine can't be reached", func(t *testing.T, e *env, alpha, beta machine) {
+			record(t, e, alpha, "")
+		}, http.StatusServiceUnavailable, api.CodeAgentUnavailable, "the agent did not answer"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newJoinEnv(t)
+			own := owner(t, e.env)
+			_, code := friendInvite(t, e.env, own, `{"label":"School friends","expiry":"30d","maxUses":3,"approval":"after_yes"}`)
+			alpha, beta := e.addRemote(t, "alphaalpha", "alpha"), e.addRemote(t, "betabetabe", "beta")
+			tc.reach(t, e.env, alpha, beta)
+			for _, call := range []struct{ route, body string }{
+				{"preview", codeBody(code)},
+				{"redeem", codeBody(code, "name", "PixelPia")},
+			} {
+				before := len(e.log.String())
+				r := e.public(t, call.route, call.body)
+				logged := e.log.String()[before:]
+				if r.status != tc.status || r.body["code"] != tc.code || strings.Contains(fmt.Sprint(r.body), "Survival") {
+					t.Errorf("%s: %d %v, want %d %s", call.route, r.status, r.body, tc.status, tc.code)
+				}
+				if !strings.Contains(logged, "refusal="+tc.code) || !strings.Contains(logged, `reason="`+tc.reason+`"`) {
+					t.Errorf("%s logged %q, want %s for %q", call.route, logged, tc.code, tc.reason)
+				}
+			}
+		})
+	}
+}
+
 // A machine's download reaches the browser as a file to save, whatever the
 // machine says it is: never a page or a script on the dashboard's origin,
 // and never with a status that would sign the browser out.

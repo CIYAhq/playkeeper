@@ -4029,6 +4029,18 @@ control "a server deleted on a machine that is still joined loses its invites" i
   'if everyMachine && len(ids) > 0 {' \
   'if false && everyMachine && len(ids) > 0 {' \
   ./internal/panel '^TestARemovedMachinesServersKeepTheirInvites$'
+control "the join page answers a server two machines list as a link that doesn't work for now" internal/panel/join.go \
+  'case errors.Is(err, errDisputed):' \
+  'case false && errors.Is(err, errDisputed):' \
+  ./internal/panel '^TestTheJoinPageSaysWhyAServerCantBeReached$'
+control "the join page answers a failed machine lookup as one, not as an agent that's down" internal/panel/join.go \
+  'case errors.Is(err, errServerMachine):' \
+  'case false && errors.Is(err, errServerMachine):' \
+  ./internal/panel '^TestTheJoinPageSaysWhyAServerCantBeReached$'
+control "the join page logs a server no machine runs by its own reason" internal/panel/join.go \
+  'e.Reason = "no machine runs the invite'"'"'s server"' \
+  '_ = "no machine runs the invite'"'"'s server"' \
+  ./internal/panel '^TestTheJoinPageSaysWhyAServerCantBeReached$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
