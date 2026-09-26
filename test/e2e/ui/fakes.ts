@@ -1612,6 +1612,21 @@ function spaceToFree(report: Json): Json | undefined {
  * and sleep after half an hour with nobody on. A fresh install has none of
  * them, so their rows' controls would never be pressed.
  */
+function selfCareCopy(hours: number) {
+  const at = ago(hours * 3600)
+  const stamp = at.slice(0, 19).replace(/[-:]/g, '').replace('T', '-')
+  const fileName = `playkeeper-${stamp}.tar.gz`
+  return { backupId: `${stamp}-fake`, kind: 'scheduled', createdAt: at, fileName, name: `${fileName}.age`, sizeBytes: 412_000_000, copySizeBytes: 398_000_000, minecraftVersion: '26.1.2', levelName: 'world', copiedAt: ago(hours * 3600 - 300), checked: ago(hours * 3600 - 600), onHost: hours < 48 }
+}
+
+let selfCareMade: ReturnType<typeof selfCareCopy>[] | undefined
+
+/** The copies somewhere else, made on the first read and kept: a copy's name comes from its time, and the World tab keys each row by it, as a real copy keeps its name. */
+function selfCareCopies() {
+  selfCareMade ??= [selfCareCopy(8), selfCareCopy(32), selfCareCopy(56)]
+  return selfCareMade
+}
+
 function selfCareRead(path: string, body: Json): unknown {
   const sid = /^\/api\/servers\/(\w+)\//.exec(path)?.[1] ?? ''
   const hour = 3600
@@ -1643,13 +1658,7 @@ function selfCareRead(path: string, body: Json): unknown {
       ],
     }
   }
-  const copy = (hours: number) => {
-    const at = ago(hours * hour)
-    const stamp = at.slice(0, 19).replace(/[-:]/g, '').replace('T', '-')
-    const fileName = `playkeeper-${stamp}.tar.gz`
-    return { backupId: `${stamp}-fake`, kind: 'scheduled', createdAt: at, fileName, name: `${fileName}.age`, sizeBytes: 412_000_000, copySizeBytes: 398_000_000, minecraftVersion: '26.1.2', levelName: 'world', copiedAt: ago(hours * hour - 300), checked: ago(hours * hour - 600), onHost: hours < 48 }
-  }
-  const copies = [copy(8), copy(32), copy(56)]
+  const copies = selfCareCopies()
   if (/^\/api\/servers\/\w+\/offsite$/.test(path)) {
     return {
       ...body,
@@ -1672,7 +1681,7 @@ function selfCareRead(path: string, body: Json): unknown {
 }
 
 /** A read's answer in `view`, or undefined when the view leaves it as the panel sent it. */
-function lay(view: View, path: string, body: unknown, host: string): unknown {
+export function lay(view: View, path: string, body: unknown, host: string): unknown {
   if (view === 'live' || body === undefined) return undefined
   if ((view === 'map on' || view === 'map restart') && /^\/api\/servers\/\w+\/map$/.test(path)) return mapRead(view, body as Json)
   if (view === 'friends and team') return friendsRead(path, body as Json)
