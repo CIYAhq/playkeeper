@@ -1757,6 +1757,17 @@ describe('World backups with copies', () => {
 
   const onPhone = () => vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
 
+  it('won’t restore a copy from a phone while a restore left the world folder missing, and says why', async () => {
+    const phone = onPhone()
+    const worldMissing = { previous: '/var/lib/playkeeper/servers/abcdefghjk/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/abcdefghjk/data', setAsideAt: '2026-09-26T10:30:28Z' }
+    answer({ '/offsite/copies': { copies: [copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing })} />)
+    const restore = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Restore')
+    expect(restore?.disabled).toBe(true)
+    expect(restore?.title).toBe('Its world folder is missing. Move the previous world back first.')
+    phone.mockRestore()
+  })
+
   it('stops offering restores in the phone’s sheet once a restore isn’t finished, and says why', async () => {
     const why = 'A restore isn’t finished. With the server stopped, restart the Playkeeper agent first.'
     const phone = onPhone()
