@@ -544,7 +544,7 @@ function AdminStep({ me, password, onSignedIn }: { me: Me; password: string; onS
     </>
   )
   const laterButton = (
-    <Button type="button" variant="ghost" size={phone ? 'touch' : 'default'} className={cn('text-muted-foreground', phone && 'w-full')} onClick={later}>
+    <Button type="button" variant="ghost" size={phone ? 'touch' : 'sm'} className={cn('text-muted-foreground', phone ? 'w-full' : '-ml-2.5 text-[13px]')} onClick={later}>
       {t('join.adminLater')}
     </Button>
   )
@@ -631,8 +631,8 @@ function AdminStep({ me, password, onSignedIn }: { me: Me; password: string; onS
                 <ErrorLine text={s.wrong ? t('signin.wrong') : s.error} />
                 <div className="mt-5 flex items-center justify-between gap-3 border-t border-border pt-4">
                   {laterButton}
-                  <span className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground">{t('join.adminNext')}</span>
+                  <span className="flex shrink-0 items-center gap-3">
+                    <span className="text-xs whitespace-nowrap text-muted-foreground">{t('join.adminNext')}</span>
                     {confirmButton}
                   </span>
                 </div>
@@ -674,7 +674,7 @@ function AdminStep({ me, password, onSignedIn }: { me: Me; password: string; onS
   }
   return (
     <JoinShell step={1}>
-      <div className={cn('flex w-full max-w-[510px] flex-col', phone && 'flex-1')}>
+      <div className={cn('flex w-full max-w-[540px] flex-col', phone && 'flex-1')}>
         {phone && <p className="mb-2 px-1 text-[13px] text-muted-foreground">{t('join.stepOf', { n: 2, total: 3, step: t('join.stepTwoFactor') })}</p>}
         {body}
       </div>
