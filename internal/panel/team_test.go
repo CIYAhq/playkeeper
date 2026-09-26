@@ -616,6 +616,66 @@ func TestAdminRightsWaitForConfirmation(t *testing.T) {
 	}
 }
 
+// A change of role or servers turns off the links the member can no longer
+// make with the rights they have after it, and only those. Made a
+// Moderator, an admin's team link goes and their friend link stays; left
+// with Creative only, the friend link for Survival goes too. An admin who
+// set up two-factor sign-in again keeps their team link when the owner makes
+// them an Admin again, which confirms the new setup.
+func TestRoleChangesTurnOffOnlyTheLinksTheNewRightsForbid(t *testing.T) {
+	e := newJoinEnv(t)
+	own := owner(t, e.env)
+	e.reply("GET", "/v1/servers", bothServers)
+	open := func(id string) bool {
+		t.Helper()
+		var at int64
+		if err := e.srv.db.QueryRow(`SELECT revoked_at FROM invites WHERE id = ?`, id).Scan(&at); err != nil {
+			t.Fatal(err)
+		}
+		return at == 0
+	}
+	teamLink := func(m member) string {
+		t.Helper()
+		r := e.do(t, "POST", "/api/team/invites", `{"role":"viewer","servers":{"all":true}}`, m.auth())
+		inv, _ := r.body["invite"].(map[string]any)
+		id, _ := inv["id"].(string)
+		if r.status != http.StatusCreated || id == "" {
+			t.Fatalf("team link: %d %v", r.status, r.body)
+		}
+		return id
+	}
+	edit := func(m member, body string) {
+		t.Helper()
+		e.clock.add(2 * time.Second)
+		if r := e.do(t, "PUT", m.path(), body, own.auth()); r.status != http.StatusOK {
+			t.Fatalf("edit %s: %d %v", body, r.status, r.body)
+		}
+	}
+
+	ada := addAdmin(t, e.env, "ada", "*")
+	friend, _ := friendInvite(t, e.env, ada, `{"label":"","expiry":"7d","maxUses":5,"approval":"right_away"}`)
+	team := teamLink(ada)
+	edit(ada, `{"role":"moderator","servers":{"all":true}}`)
+	if open(team) || !open(friend) {
+		t.Fatalf("made a Moderator, the team link must go and the friend link stay: team link open %v, friend link open %v", open(team), open(friend))
+	}
+	edit(ada, `{"role":"moderator","servers":{"servers":["bcdefghjkm"]}}`)
+	if open(friend) {
+		t.Fatal("left with Creative only, the friend link for Survival must go")
+	}
+
+	lee := addAdmin(t, e.env, "lee", "*")
+	kept := teamLink(lee)
+	setFactor(t, e.env, "lee", e.clock.now().UnixMilli()+1)
+	edit(lee, `{"role":"admin","servers":{"all":true}}`)
+	if !open(kept) {
+		t.Fatal("made an Admin again by the owner, which confirms the new two-factor setup, lee keeps the team link")
+	}
+	if rows := e.auditRows(t, "invite.revoke"); len(rows) != 2 || !strings.Contains(rows[0], "creator's role changed") {
+		t.Fatalf("each link turned off is audited with the reason: %v", rows)
+	}
+}
+
 func actionNames(list []action) []string {
 	out := make([]string, len(list))
 	for i, a := range list {

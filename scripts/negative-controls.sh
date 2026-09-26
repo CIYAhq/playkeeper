@@ -832,6 +832,10 @@ control "one join request per player" internal/panel/join.go \
   'if waiting > 0 {' \
   'if false && waiting > 0 {' \
   ./internal/panel '^TestJoinRequestsWaitForAYes$'
+control "a role change checks the member's links against their new rights" internal/panel/team.go \
+  'after, err := s.access(user{ID: t.UserID, Username: t.Name, Role: t.InstallRole})' \
+  'after, err := t, error(nil)' \
+  ./internal/panel '^TestRoleChangesTurnOffOnlyTheLinksTheNewRightsForbid$'
 control "two-factor changes reach Discord whatever the switches say" internal/discord/alerts.go \
   'return a.Has(k) || k.always()' \
   'return a.Has(k)' \

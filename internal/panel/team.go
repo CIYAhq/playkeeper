@@ -316,7 +316,12 @@ func (s *Server) hTeamMemberEdit(w http.ResponseWriter, r *http.Request, sess *s
 		return
 	}
 	s.audit(sess.User.Username, "team.edit", t.Name, "succeeded", fmt.Sprintf("%s of %s", req.Role, scopeText(req.Servers, servers)))
-	s.turnOffLinks(r, sess.User, t.Account, "creator's role changed")
+	after, err := s.access(user{ID: t.UserID, Username: t.Name, Role: t.InstallRole})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	s.turnOffLinks(r, sess.User, after.Account, "creator's role changed")
 	s.answerMember(w, r, sess, t.UserID)
 }
 
@@ -408,7 +413,8 @@ func (s *Server) hTeamMemberRemove(w http.ResponseWriter, r *http.Request, sess 
 
 // turnOffLinks turns off the open links creator made that they can no
 // longer make as they stand now, and declines what those links let people
-// ask. A removed member is the zero Account, who can make none.
+// ask. creator must be read after the change that prompts the call; a
+// removed member is the zero Account, who can make none.
 func (s *Server) turnOffLinks(r *http.Request, by user, creator invites.Account, why string) {
 	rows, err := s.db.Query(`SELECT `+inviteColumns+` FROM invites WHERE created_by = ? AND revoked_at = 0`, creator.UserID)
 	if err != nil {
