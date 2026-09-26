@@ -386,6 +386,9 @@ func (s *server) ensureDirs() error {
 		if prev := s.newestPreviousWorld(); prev != "" {
 			return &apiError{Msg: "The world folder is missing because a restore did not finish; the previous world is at " + prev + ".", Hint: "Move that folder back to " + data + ", then press Start."}
 		}
+		if s.updateLeftWorldAside() {
+			return &apiError{Msg: "The world folder is missing because a Minecraft update's rollback did not finish.", Hint: "Restore the automatic backup from before the update on the World tab."}
+		}
 	}
 	if err := os.MkdirAll(data, 0o750); err != nil {
 		return err

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sync"
 	"time"
 
@@ -354,6 +355,13 @@ func (s *server) readVersionJournal() (*versionJournal, error) {
 		return &j, nil
 	}
 	return nil, fmt.Errorf("version change journal in an unknown state %q", j.State)
+}
+
+// updateLeftWorldAside is true when a rollback moved the world a new version
+// touched out of the live folder and did not finish putting the backup there.
+func (s *server) updateLeftWorldAside() bool {
+	entries, _ := os.ReadDir(s.dir())
+	return slices.ContainsFunc(entries, func(e os.DirEntry) bool { return e.IsDir() && reFailedUpdate.MatchString(e.Name()) })
 }
 
 func (s *server) removeVersionJournal() {
