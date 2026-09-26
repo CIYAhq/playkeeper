@@ -1887,9 +1887,13 @@ control "Discord hears a clean stop outside Playkeeper" internal/agent/lifecycle
   '		s.recordEvent(fin, "server_stopped_externally"' \
   ./internal/agent '^TestDiscordAlertSequences$/^a_clean_stop_outside_Playkeeper$/^every_alert$'
 control "a start after failed starts is not a recovery" internal/agent/collector.go \
-  'recovered := s.runCrashed' \
-  'recovered := s.crashed' \
+  'recovered := take && s.runCrashed' \
+  'recovered := take && s.crashed' \
   ./internal/agent '^TestDiscordAlertSequences$/^a_start_fails,_then_one_works$'
+control "a Done line delivered again changes nothing" internal/agent/collector.go \
+  'take := fresh || !s.runReady' \
+  'take := true' \
+  ./internal/agent '^TestDiscordAlertSequences$/^a_crash,_its_Done_line_delivered_again,_then_a_restart$'
 control "a profile shows a player online only from a fresh sample" internal/agent/profile.go \
   'if s.players != nil && s.fresh(s.players.At) {' \
   'if s.players != nil {' \

@@ -12,6 +12,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/discord"
+	"github.com/CIYAhq/playkeeper/internal/docker"
 )
 
 // sentAlert is an alert as Discord got it.
@@ -140,6 +141,32 @@ func TestDiscordAlertSequences(t *testing.T) {
 		e.fd.addLog("[12:00:31 INFO]: Stopping server")
 		e.fd.crash(1)
 	}
+	// redeliverDone hands the collector the crashed run's "Done" line again,
+	// as a log stream that attached while the run was going would.
+	redeliverDone := func(e *agentEnv) {
+		e.t.Helper()
+		s := e.srv()
+		c, err := s.docker.ContainerInspect(context.Background(), s.containerName())
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		var done *fakeLine
+		e.fd.mu.Lock()
+		for _, l := range e.fd.byID[c.ID].logs {
+			if strings.Contains(l.text, "Done (") {
+				done = &l
+			}
+		}
+		e.fd.mu.Unlock()
+		if done == nil {
+			e.t.Fatal("the run logged no Done line")
+		}
+		s.mu.Lock()
+		run := s.runStartedAt
+		s.mu.Unlock()
+		raw := done.ts.Format(time.RFC3339Nano) + " " + done.text
+		s.ingest(c.ID, docker.LogLine{TS: done.ts, Stream: 1, Text: done.text, Raw: raw}, run, true, time.Time{})
+	}
 	// logRead waits until the follower has read the stopped server's log to
 	// its end, when the live status can tell how it stopped.
 	logRead := func(e *agentEnv) {
@@ -201,6 +228,19 @@ func TestDiscordAlertSequences(t *testing.T) {
 			crash(e)
 			lastError(e, "stopped trying to start")
 		}, want: []sentAlert{crashed, didntStart}, status: discord.StateOffline},
+		{name: "a crash, its Done line delivered again, then a restart", backoff: 2 * time.Second, steps: func(e *agentEnv) {
+			crash(e)
+			ready := func() int { return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_ready'`) }
+			n := ready()
+			redeliverDone(e)
+			if ready() != n {
+				e.t.Fatal("the line delivered again was stored as a new one, so it wasn't the same line")
+			}
+			if st := e.srv().discordStatus(context.Background()).State; st != discord.StateCrashed {
+				e.t.Fatalf("after its Done line came again, the live status shows the server %s, want crashed", st)
+			}
+			e.waitFor("online again", e.onlineIdle)
+		}, want: []sentAlert{crashed, back}, status: discord.StateOnline},
 		{name: "a crash, a restart that fails, then one that works", backoff: 2 * time.Second, steps: func(e *agentEnv) {
 			portTaken(e, true)
 			crash(e)

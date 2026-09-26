@@ -79,6 +79,7 @@ type server struct {
 	crashes         []time.Time
 	crashed         bool
 	runCrashed      bool // a run crashed and the server hasn't been online since; a failed automatic start sets only crashed
+	runReady        bool // this agent has taken the current run's "Done" line
 	crash           *api.Crash
 	handledExit     map[string]time.Time
 	exitSeen        map[string]seenExit
