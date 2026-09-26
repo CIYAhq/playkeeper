@@ -675,6 +675,14 @@ control "a restored world is given to the game without following links" internal
   'if d.Type()&fs.ModeSymlink != 0 {' \
   'if false {' \
   ./internal/agent '^TestRestoredWorldsAreGivenToTheGameWithoutFollowingLinks$'
+control "CurseForge's modpack logos load through the icon proxy" internal/addons/addons.go \
+  'return fetch.Hosts{modrinth.CDNHost, hangar.CDNHost, CurseForgeLogoHost}' \
+  'return fetch.Hosts{modrinth.CDNHost, hangar.CDNHost}' \
+  ./internal/addons '^TestIconsComeOnlyFromTheSourcesHosts$'
+control "icons come from no CurseForge host but its logos'" internal/addons/addons.go \
+  'return fetch.Hosts{modrinth.CDNHost, hangar.CDNHost, CurseForgeLogoHost}' \
+  'return fetch.Hosts{modrinth.CDNHost, hangar.CDNHost, CurseForgeLogoHost, "edge.forgecdn.net"}' \
+  ./internal/addons '^TestIconsComeOnlyFromTheSourcesHosts$'
 control "add-on files: opening a named pipe does not wait" internal/addons/files.go \
   'os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)' \
   'os.O_RDONLY|syscall.O_NOFOLLOW, 0)' \
