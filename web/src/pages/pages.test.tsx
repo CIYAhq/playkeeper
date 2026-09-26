@@ -308,6 +308,16 @@ describe('Home', () => {
     for (const step of ['Create your first server', 'Invite a friend', 'A friend joins', 'Make a backup', 'Download it']) expect(text).toContain(step)
   })
 
+  it('shows a sleeping server, the memory it gave back, and wakes it', async () => {
+    const asleep = server({ phase: 'asleep', desired: 'sleeping', sleep: { enabled: true, idleMinutes: 15, listening: true } })
+    const sleeping = { ...machine, live: machine.live && { ...machine.live, sleepingMemoryMB: 4096 } }
+    const text = await render(<HomePage />, workspace({ machine: sleeping, machines: [sleeping], servers: [asleep] }))
+    expect(text).toContain('Asleep · wakes on join')
+    expect(text).toContain('Survival gave back 4 GB')
+    await click(button('Wake up'))
+    expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/start', {})
+  })
+
   it('shows each server with who is playing and its address', async () => {
     const text = await render(<HomePage />, workspace({ servers: [server({ players: { online: 3, max: 10, names: ['mara_k', 'tobi2009', 'JunoFox'], source: 'rcon list', at: '' } })] }))
     expect(text).toContain('Survival')
