@@ -13,8 +13,10 @@ func nginxInclude(s Settings) []byte {
 		"script-src 'self'",
 		"style-src 'self'",
 		"img-src 'self'",
-		// The header's star count, once there are enough stars to show.
-		"connect-src https://api.github.com",
+		// The header's star count, once there are enough stars to show, and
+		// this site, where audits like Lighthouse read robots.txt from the
+		// page. img-src already lets a page ask this site for things.
+		"connect-src 'self' https://api.github.com",
 		"base-uri 'none'",
 		"form-action 'none'",
 		"frame-ancestors 'none'",

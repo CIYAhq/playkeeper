@@ -35,7 +35,7 @@ preload: loop-overview
             <span class="loop-cursor" aria-hidden="true"></span>
           </div>
         </figure>
-        {{template "phone" (dict "Name" "hero-map-phone" "Alt" "The Map tab on a phone: the world from above, with three players' positions." "Class" "product-phone")}}
+        {{template "phone" (dict "Name" "hero-map-phone" "Alt" "The Map tab on a phone: the world from above, with three players' positions." "Class" "product-phone" "Eager" true)}}
         <img class="product-pip" src="{{asset "app/pip/pip-wave.svg"}}" alt="" width="84" height="84" data-pip>
         <div class="moment moment-copied" data-moment="copied" aria-hidden="true"><span class="moment-icon">{{template "icon" "check"}}</span><span>Join address copied<small>survival.alex.playkeeper.io</small></span></div>
         <div class="moment moment-joined" data-moment="joined" aria-hidden="true"><img src="{{asset "img/face-mara.svg"}}" alt="" width="32" height="32"><span>mara_k joined Survival<small>just now</small></span></div>
