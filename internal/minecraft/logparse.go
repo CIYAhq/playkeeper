@@ -55,17 +55,21 @@ var (
 	rePort      = regexp.MustCompile(`^:\d{1,5}\b`)
 	reVersionOf = regexp.MustCompile(`(?i)(?:^|[^\w])(?:version|v|build|loader|neoforge|forge|minecraft|mc|fabric|quilt|paper|purpur|java):? ?$`)
 	reModIDNext = regexp.MustCompile(`^ \([a-z][a-z0-9_]{1,63}\)`)
+	reColour    = regexp.MustCompile(`§[0-9a-fk-orxA-FK-ORX]`)
 	reIPv6Port  = regexp.MustCompile(`/\[?[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{0,4}){2,7}(?:%[\w.]+)?\]?(?::\d{1,5})?`)
 	reName      = regexp.MustCompile(`^[A-Za-z0-9_]{3,16}$`)
 	reLogName   = regexp.MustCompile(`^[A-Za-z0-9_]{1,16}$`)
 	reListReply = regexp.MustCompile(`There are (\d+) of a max of (\d+) players online:?\s*(.*)$`)
 	reTPS       = regexp.MustCompile(`TPS from last 1m, 5m, 15m: \*?([0-9]+(?:\.[0-9]+)?)`)
-	reFormat    = regexp.MustCompile(`§[0-9a-fk-orx]`)
 	reBehind    = regexp.MustCompile(`Can't keep up! Is the server overloaded\? Running (\d+)ms or (\d+) ticks behind`)
 )
 
 // StripANSI removes terminal colour codes the container image emits.
 func StripANSI(s string) string { return reANSI.ReplaceAllString(s, "") }
+
+// StripColours removes Minecraft's § formatting codes, which plugins put in
+// their command replies and log lines (hex colours are "§x" and six more).
+func StripColours(s string) string { return reColour.ReplaceAllString(s, "") }
 
 // RedactIPs removes IPv4/IPv6 addresses (player connection addresses appear in
 // several vanilla log lines). Playkeeper never stores or displays them.
@@ -132,7 +136,7 @@ func isWord(c byte) bool {
 }
 
 // CleanLine prepares a raw container line for display and storage.
-func CleanLine(s string) string { return RedactIPs(StripANSI(s)) }
+func CleanLine(s string) string { return RedactIPs(StripColours(StripANSI(s))) }
 
 // Parse classifies a cleaned log line (without the Docker timestamp).
 func Parse(line string) Parsed {
@@ -201,7 +205,7 @@ func ParseList(reply string) (online, max int, names []string, ok bool) {
 // ParseTPS reads the last minute's ticks per second from Paper's `tps`
 // command (20 is full speed).
 func ParseTPS(reply string) (float64, bool) {
-	m := reTPS.FindStringSubmatch(reFormat.ReplaceAllString(StripANSI(reply), ""))
+	m := reTPS.FindStringSubmatch(StripColours(StripANSI(reply)))
 	if m == nil {
 		return 0, false
 	}

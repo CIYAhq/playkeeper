@@ -106,6 +106,19 @@ func TestRedactIPsKeepsVersionNumbers(t *testing.T) {
 	}
 }
 
+// Plugins colour their command replies and log lines with § codes, hex
+// colours included (a real Paper 26.2 `plugins` reply).
+func TestCleanLineStripsColourCodes(t *testing.T) {
+	in := "§x§3§4§9§f§d§aℹ §fServer Plugins (4): | §x§e§d§8§1§0§6Bukkit Plugins: | §8- §aChunky§r, §aViaBackwards§r, §AViaRewind§R, §aViaVersion"
+	want := "ℹ Server Plugins (4): | Bukkit Plugins: | - Chunky, ViaBackwards, ViaRewind, ViaVersion"
+	if got := CleanLine(in); got != want {
+		t.Fatalf("got %q", got)
+	}
+	if got := CleanLine("§f§oChecking version, please wait..."); got != "Checking version, please wait..." {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestCleanLineStripsANSI(t *testing.T) {
 	if got := CleanLine("\x1b[1;31m[mc-image-helper] ERROR\x1b[0;39m"); got != "[mc-image-helper] ERROR" {
 		t.Fatalf("got %q", got)
