@@ -666,6 +666,19 @@ func (d *slowDest) Download(ctx context.Context, dl offsite.Download) (offsite.A
 	return d.archiveDest.Download(ctx, dl)
 }
 
+// lateDest hands over its copy of a real backup once release is closed, even
+// when the download was cancelled meanwhile, as a copy that finished coming
+// just as Cancel was pressed.
+type lateDest struct {
+	archiveDest
+	release chan struct{}
+}
+
+func (d *lateDest) Download(_ context.Context, dl offsite.Download) (offsite.Archive, error) {
+	<-d.release
+	return d.archiveDest.Download(context.Background(), dl)
+}
+
 // A restore of a copy, on this machine or from a recovery key on a new one,
 // and a check of a copy take as long as the copy takes to come: the
 // download's stall timeout and Cancel stop them, not the operations'
@@ -784,6 +797,37 @@ func TestRestoringOrCheckingACopyOutlastsTheOperationDeadline(t *testing.T) {
 		}
 		if code, _ := e.call("POST", e.sp("/offsite/check/cancel"), map[string]any{"actor": "admin", "operationId": id}); code != http.StatusConflict {
 			t.Fatalf("cancelling a finished check: %d", code)
+		}
+	})
+
+	t.Run("a check cancelled as its copy finishes coming", func(t *testing.T) {
+		dest := &lateDest{archiveDest: archiveDest{fakeDest: fakeDest{stored: map[string]offsite.Copy{}}}, release: make(chan struct{})}
+		prev := openOffsite
+		openOffsite = func(offsite.Config, offsite.Keys, offsite.Options) (offsiteDest, error) { return dest, nil }
+		t.Cleanup(func() { openOffsite = prev })
+		e := newAgentEnv(t)
+		e.create()
+		b, err := e.srv().getBackup(e.backup())
+		if err != nil {
+			t.Fatal(err)
+		}
+		dest.path = e.a.backupPath(b.FileName)
+		copied(t, e, b.FileName)
+		code, out := e.call("POST", e.sp("/offsite/copies/"+offsite.CopyName(b.FileName)+"/check"), map[string]any{"actor": "admin"})
+		if code != http.StatusAccepted {
+			t.Fatalf("check: %d %v", code, out)
+		}
+		id := out["id"].(string)
+		e.waitFor("the download", func() bool { op := e.srv().currentOp(); return op != nil && op.Phase == "downloading" })
+		if code, out := e.call("POST", e.sp("/offsite/check/cancel"), map[string]any{"actor": "admin", "operationId": id}); code != http.StatusAccepted {
+			t.Fatalf("cancel: %d %v", code, out)
+		}
+		close(dest.release)
+		if op := e.waitOp(id); op.Status != api.OpCancelled {
+			t.Fatalf("the cancelled check: %+v", op)
+		}
+		if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'offsite.copy_checked'`); n != 0 {
+			t.Fatalf("a cancelled check recorded what it found: %d audit lines", n)
 		}
 	})
 
