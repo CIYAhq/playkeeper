@@ -283,7 +283,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
   const note = otherJob ? (
     <span className="inline-flex items-center gap-1.5">
       <Spinner />
-      {opLabel(otherJob, s.name)}
+      {opLabel(otherJob, s)}
     </span>
   ) : pg.diskFreeBytes !== undefined ? (
     t('pregen.diskFree', { machine: ws.machineName, free: formatBytes(pg.diskFreeBytes) })

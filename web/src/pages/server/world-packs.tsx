@@ -300,7 +300,7 @@ function PackIcon({ src, size }: { src?: string; size: number }) {
 /** A card's last line: when changes apply, or the job that holds them back. */
 function Footnote({ server: s, children, className }: { server: ServerStatus; children: string; className?: string }) {
   const op = s.operation
-  const text = op ? opLabel(op, s.name) : children
+  const text = op ? opLabel(op, s) : children
   return (
     <p className={className}>
       <span key={text} className="inline-flex animate-fade items-center gap-1.5">

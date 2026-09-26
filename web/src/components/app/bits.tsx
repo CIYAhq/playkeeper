@@ -134,7 +134,7 @@ export function StatusPill({
 }
 
 /** A long job, shrunk into a pill with a timer; the whole pill opens its page. */
-export function JobPill({ op, server, onClick }: { op: Operation; server: string; onClick?: () => void }) {
+export function JobPill({ op, server, onClick }: { op: Operation; server: ServerStatus; onClick?: () => void }) {
   return (
     <button type="button" onClick={onClick} className="inline-flex h-[26px] items-center gap-1.5 rounded-full border border-border bg-white px-2.5 text-[13px] font-semibold text-foreground shadow-outline hover:bg-accent/50">
       <Spinner />

@@ -124,6 +124,7 @@ export const en = {
   'op.delete': 'Deleting {server}',
   'op.update': 'Updating Playkeeper',
   'op.remove-addon': 'Removing a plugin from {server}',
+  'op.remove-mod': 'Removing a mod from {server}',
   'op.other': 'Working on {server}',
   'op.failed': '{what} failed',
   'op.cancelled': '{what} was cancelled',

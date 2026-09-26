@@ -3738,6 +3738,10 @@ webcontrol "with seven server types, the rest fill whole rows" web/src/component
   'const wide = i === 0 && types.length % 2 === 1' \
   'const wide = false' \
   web/src/pages/pages.test.tsx 'whole rows'
+webcontrol "removing an add-on from a mod loader says a mod" web/src/lib/phase.ts \
+  "op.kind === 'remove-addon' && addonKind(server.type) === 'mods' ? 'op.remove-mod'" \
+  "op.kind === 'remove-addon' && false ? 'op.remove-mod'" \
+  web/src/lib/lib.test.ts 'removed from a mod loader'
 control "free addresses: a names service that never answers is reported within the check's wait" internal/agent/address.go \
   'ctx, cancel := context.WithTimeout(ctx, a.opts.NamesCheckWait)' \
   'ctx, cancel := context.WithCancel(ctx)' \

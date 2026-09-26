@@ -1,5 +1,6 @@
 import type { Operation, Phase, ServerStatus } from '@/api/types'
 import { t, type MessageKey } from '@/i18n'
+import { addonKind } from '@/lib/software'
 
 export type Tone = 'online' | 'busy' | 'stopped' | 'crashed' | 'unknown'
 
@@ -105,7 +106,7 @@ export function controls(st: ServerStatus) {
 
 /** "Backing up Survival. Try again when it's done." while a job runs; undefined otherwise. */
 export function busyReason(st: ServerStatus): string | undefined {
-  return st.operation ? t('reason.busy', { what: opLabel(st.operation, st.name) }) : undefined
+  return st.operation ? t('reason.busy', { what: opLabel(st.operation, st) }) : undefined
 }
 
 /** "Its world folder is missing…" while a restore that didn't finish left it missing; undefined otherwise. */
@@ -187,8 +188,9 @@ const opKeys: Record<string, MessageKey> = {
 }
 
 /** "Backing up Survival", for the job pill and busy notes. */
-export function opLabel(op: Operation, server: string): string {
-  return t(opKeys[op.kind] ?? 'op.other', { server })
+export function opLabel(op: Operation, server: Pick<ServerStatus, 'name' | 'type'>): string {
+  const key = op.kind === 'remove-addon' && addonKind(server.type) === 'mods' ? 'op.remove-mod' : (opKeys[op.kind] ?? 'op.other')
+  return t(key, { server: server.name })
 }
 
 const recentMs = 15 * 60_000

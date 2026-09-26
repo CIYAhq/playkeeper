@@ -18,11 +18,11 @@ function finished(op: Operation, server: ServerStatus, machine: string) {
   if (jobsOnScreen.has(op.id)) return
   const name = server.name
   if (op.status === 'failed') {
-    toastManager.add({ title: t('op.failed', { what: opLabel(op, name) }), description: failureLine(op, server, machine), type: 'error', timeout: 10_000 })
+    toastManager.add({ title: t('op.failed', { what: opLabel(op, server) }), description: failureLine(op, server, machine), type: 'error', timeout: 10_000 })
     return
   }
   if (op.status === 'cancelled') {
-    toastManager.add({ title: t('op.cancelled', { what: opLabel(op, name) }), description: t('offsiteRestore.nothingChanged') })
+    toastManager.add({ title: t('op.cancelled', { what: opLabel(op, server) }), description: t('offsiteRestore.nothingChanged') })
     return
   }
   const downtime = typeof op.detail?.downtimeMs === 'number' ? op.detail.downtimeMs : undefined

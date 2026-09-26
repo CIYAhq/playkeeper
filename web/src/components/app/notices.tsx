@@ -54,7 +54,7 @@ export function FailedJobNotice({ server: s, op, onDismiss, className }: { serve
     <Notice
       tone="error"
       className={className}
-      title={`${t('op.failed', { what: opLabel(op, s.name) })}: ${op.error ?? ''}`}
+      title={`${t('op.failed', { what: opLabel(op, s) })}: ${op.error ?? ''}`}
       action={
         <span className="flex items-center gap-2 max-sm:basis-full">
           {stoppedBackupHelps(op) && s.phase === 'online' && <BackUpStoppedButton server={s} />}

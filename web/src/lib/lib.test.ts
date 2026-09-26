@@ -396,6 +396,12 @@ describe('server state', () => {
     expect(busyReason(server({ operation: backup }))).toBe('Backing up Survival. Try again when it’s done.')
   })
 
+  it('says a mod, not a plugin, is being removed from a mod loader', () => {
+    const removing: Operation = { id: '1', kind: 'remove-addon', status: 'running', phase: '', actor: 'a', startedAt: '2026-09-25T10:00:00Z' }
+    expect(busyReason(server({ operation: removing }))).toBe('Removing a plugin from Survival. Try again when it’s done.')
+    for (const type of ['fabric', 'quilt', 'neoforge', 'forge']) expect(busyReason(server({ type, operation: removing })), type).toBe('Removing a mod from Survival. Try again when it’s done.')
+  })
+
   it('maps phases to tones and setup steps', () => {
     expect(phaseTone('preparing_world')).toBe('busy')
     expect(phaseTone('not_created')).toBe('stopped')

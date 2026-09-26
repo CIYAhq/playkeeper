@@ -327,7 +327,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
         </nav>
         {op && (
           <div className="ml-auto">
-            <JobPill op={op} server={s.name} onClick={() => navigate({ name: 'server', slug: s.slug, tab: op.kind === 'backup' || op.kind === 'restore' || op.kind === 'offsite-restore' ? 'world' : 'overview' })} />
+            <JobPill op={op} server={s} onClick={() => navigate({ name: 'server', slug: s.slug, tab: op.kind === 'backup' || op.kind === 'restore' || op.kind === 'offsite-restore' ? 'world' : 'overview' })} />
           </div>
         )}
       </div>
