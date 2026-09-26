@@ -160,6 +160,9 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 		st.Operation = s.machineOp()
 	}
 	st.LastOperation = s.lastFinishedOperation()
+	if st.Operation == nil && sc != nil {
+		st.WorldMissing = s.worldMissing()
+	}
 	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	s.mu.Lock()
 	runPhase, detail := s.runPhase, s.runPhaseDetail

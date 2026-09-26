@@ -75,6 +75,10 @@ type ServerStatus struct {
 	PendingRestart  bool       `json:"pendingRestart"`
 	CollectingSince *time.Time `json:"collectingSince,omitempty"`
 	FirstSteps      FirstSteps `json:"firstSteps"`
+	// WorldMissing is set while no operation runs and the world folder is
+	// missing because a restore didn't finish. It stays until the previous
+	// world is back, however long that takes.
+	WorldMissing *WorldMissing `json:"worldMissing,omitempty"`
 	// Refusal is the file that stopped the server's last start, while the
 	// server stays stopped.
 	Refusal *FileRefusal `json:"refusal,omitempty"`
@@ -102,6 +106,17 @@ type FileRefusal struct {
 	Params  map[string]string `json:"params"`
 	Message string            `json:"message"`
 	Hint    string            `json:"hint,omitempty"`
+}
+
+// WorldMissing says where a server's world is while its world folder is
+// missing because a restore didn't finish.
+type WorldMissing struct {
+	// Previous is the folder the restore set the previous world aside in.
+	Previous string `json:"previous"`
+	// DataDir is the world folder it goes back to.
+	DataDir string `json:"dataDir"`
+	// SetAsideAt is when the restore set it aside.
+	SetAsideAt time.Time `json:"setAsideAt"`
 }
 
 // Crash explains a run that ended unexpectedly: a crash, or a start that

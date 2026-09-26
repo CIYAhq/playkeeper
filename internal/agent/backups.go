@@ -331,6 +331,11 @@ func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string, 
 	if sc == nil {
 		return errNotCreated()
 	}
+	if m := s.worldMissing(); m != nil {
+		err := errWorldMissing(m, "back it up")
+		refusedForMissingWorld(h, err)
+		return err
+	}
 	_, running, err := s.containerRunning(ctx)
 	if err != nil {
 		return err
@@ -783,15 +788,43 @@ func dirExists(p string) bool {
 	return err == nil && st.IsDir()
 }
 
-// newestPreviousWorld is the newest previous world a restore moved aside
-// from the live directory, or "".
-func (s *server) newestPreviousWorld() string {
+// worldMissing says where the previous world is while the world folder is
+// missing because a restore didn't finish, or nil. A server started then
+// would make a new, empty world.
+func (s *server) worldMissing() *api.WorldMissing {
+	if _, err := os.Stat(s.dataDir()); !errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	for _, c := range s.worldCopies() {
 		if c.Kind == api.WorldCopyPrevious {
-			return filepath.Join(s.dir(), c.Name)
+			return &api.WorldMissing{Previous: filepath.Join(s.dir(), c.Name), DataDir: s.dataDir(), SetAsideAt: c.CreatedAt}
 		}
 	}
-	return ""
+	return nil
+}
+
+// codeWorldMissing is the error code, and the operation's errorKind, of
+// something refused because the world folder is missing after a restore
+// that didn't finish.
+const codeWorldMissing = "world_missing"
+
+// errWorldMissing refuses what needs the world folder while a restore that
+// didn't finish left it missing. then is what to do once it's back, such as
+// "press Start".
+func errWorldMissing(m *api.WorldMissing, then string) error {
+	return &apiError{Status: http.StatusConflict, Code: codeWorldMissing,
+		Msg:  "The world folder is missing because a restore did not finish; the previous world is at " + m.Previous + ".",
+		Hint: "Move that folder back to " + m.DataDir + ", then " + then + "."}
+}
+
+// refusedForMissingWorld notes in the operation's detail that err refused
+// it for a missing world folder, so the dashboard drops the failure once
+// the world is back.
+func refusedForMissingWorld(h *opHandle, err error) {
+	var ae *apiError
+	if h != nil && errors.As(err, &ae) && ae.Code == codeWorldMissing {
+		h.set("errorKind", codeWorldMissing)
+	}
 }
 
 // worldCopies lists the world folders restores left next to the live one,

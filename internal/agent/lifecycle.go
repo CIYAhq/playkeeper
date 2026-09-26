@@ -425,10 +425,8 @@ func (s *server) ensureDirs() error {
 	data := s.dataDir()
 	// A server started without its world directory generates a new world, so
 	// never recreate one a restore moved aside and could not put back.
-	if _, err := os.Stat(data); errors.Is(err, os.ErrNotExist) {
-		if prev := s.newestPreviousWorld(); prev != "" {
-			return &apiError{Msg: "The world folder is missing because a restore did not finish; the previous world is at " + prev + ".", Hint: "Move that folder back to " + data + ", then press Start."}
-		}
+	if m := s.worldMissing(); m != nil {
+		return errWorldMissing(m, "press Start")
 	}
 	if err := os.MkdirAll(data, 0o750); err != nil {
 		return err
@@ -637,6 +635,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 	pastFiles := false
 	defer func() { s.noteRefusal(err, pastFiles) }()
 	if err := s.ensureDirs(); err != nil {
+		refusedForMissingWorld(h, err)
 		return err
 	}
 	if err := s.ensureImage(ctx, h, runtimeImage(sc.MinecraftVersion)); err != nil {
