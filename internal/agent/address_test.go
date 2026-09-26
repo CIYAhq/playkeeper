@@ -933,6 +933,29 @@ func TestFreeAddressPublishingWaitsForTheRecords(t *testing.T) {
 	}
 }
 
+// Publishing waits only for the servers it gave records to: a server added
+// meanwhile does not hold the claim up for publishWait, and gets its record
+// from the loop once the claim is done.
+func TestFreeAddressPublishingSkipsServersAddedMeanwhile(t *testing.T) {
+	e := newAddressEnv(t, func(o *Options) { o.AddressInterval = 20 * time.Millisecond })
+	e.addServerNamed("Survival")
+	e.names.setPending(true)
+	var v api.Address
+	if code := e.callInto("POST", "/v1/address/claim", map[string]any{"name": "alex", "actor": "admin"}, &v); code != 200 {
+		t.Fatalf("claim: %d %+v", code, v)
+	}
+	e.waitFor("the publishing phase", func() bool {
+		op := e.a.addressOp()
+		return op != nil && op.Phase == "publishing"
+	})
+	e.addServerNamed("Creative")
+	e.names.publish()
+	if op := e.waitOp(v.Operation.ID); op.Status != api.OpSucceeded {
+		t.Fatalf("publishing: %+v", op)
+	}
+	e.waitFor("the new server's record", func() bool { return e.names.labels("alex")["creative"] == 25566 })
+}
+
 func TestFreeAddressChangeAndRelease(t *testing.T) {
 	e := newAddressEnv(t, nil)
 	e.addServerNamed("Survival")
@@ -2336,7 +2359,7 @@ func TestServerAddressesFollowEveryAnswerOfTheNamesService(t *testing.T) {
 			if c.fail != nil {
 				e.names.setFail(inTurn(c.fail))
 			}
-			err = e.a.syncFreeServers(t.Context())
+			_, err = e.a.syncFreeServers(t.Context())
 			var ae *apiError
 			code := ""
 			switch {

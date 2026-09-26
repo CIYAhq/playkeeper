@@ -376,7 +376,9 @@ func (c *Client) challengePath(fqdn, value string) (string, error) {
 
 // SetTXT publishes an ACME DNS-01 challenge: a TXT record at fqdn, which
 // must be _acme-challenge.<name>.<base>. It returns once Cloudflare has the
-// record; the service removes it after an hour if ClearTXT is not called.
+// record, or an error whose Pending reports true when the service stored it
+// but Cloudflare does not have it yet. The service removes it after an hour
+// if ClearTXT is not called.
 func (c *Client) SetTXT(ctx context.Context, fqdn, value string) error {
 	path, err := c.challengePath(fqdn, value)
 	if err != nil {
