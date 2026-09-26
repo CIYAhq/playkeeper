@@ -606,8 +606,9 @@ describe('Plugins tab', () => {
     const text = await render(server(), 'plugins', 'browse')
     expect(text).toContain('Browse plugins')
     expect(text).not.toContain('For Paper 26.1.2')
-    expect(text).toContain('by BlueColored')
-    expect(text).toContain('2.1M downloads')
+    // Before a search the cards are the short ones: the summary under the name and where it's from, no author.
+    expect(text).not.toContain('by BlueColored')
+    expect(text).toContain('2.1M downloads · Modrinth')
     expect(text).toContain('Installed')
     expect(vi.mocked(client.get).mock.calls.some(([path]) => path === '/api/servers/abcdefghjk/addons/search')).toBe(true)
   })
