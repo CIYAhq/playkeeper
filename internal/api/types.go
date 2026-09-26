@@ -970,6 +970,9 @@ type AddonInstallRequest struct {
 	// install is refused without it, or when the plan has changed since.
 	Fingerprint string `json:"fingerprint"`
 	Actor       string `json:"actor"`
+	// Start starts a stopped server once the add-on is in place, for a fix
+	// on the crash screen.
+	Start bool `json:"start,omitempty"`
 }
 
 // AddonUpdatePlanRequest asks what an update would do, for the user to
@@ -991,6 +994,9 @@ type AddonUpdateRequest struct {
 	// without it, or when the plan has changed since.
 	Fingerprint string `json:"fingerprint"`
 	Actor       string `json:"actor"`
+	// Start starts a stopped server once the update is in place, for a fix
+	// on the crash screen.
+	Start bool `json:"start,omitempty"`
 }
 
 // AddonRemovePreview is what removing an add-on would involve.

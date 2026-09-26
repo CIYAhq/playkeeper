@@ -729,7 +729,7 @@ func (s *server) hAddonInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	op, err := s.beginOp("addon-install", actor, func(ctx context.Context, h *opHandle) error {
-		return s.addonJob(ctx, h, actor, func(srv addons.Server, installed []addons.Installed, progress func(addons.Progress)) (*addons.Result, error) {
+		return s.addonJob(ctx, h, actor, req.Start, func(srv addons.Server, installed []addons.Installed, progress func(addons.Progress)) (*addons.Result, error) {
 			return s.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: key.Source, Project: key.ProjectID, Fingerprint: req.Fingerprint, OnProgress: progress})
 		})
 	})
@@ -799,7 +799,7 @@ func (s *server) hAddonUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	op, err := s.beginOp("addon-update", actor, func(ctx context.Context, h *opHandle) error {
-		return s.addonJob(ctx, h, actor, func(srv addons.Server, installed []addons.Installed, progress func(addons.Progress)) (*addons.Result, error) {
+		return s.addonJob(ctx, h, actor, req.Start, func(srv addons.Server, installed []addons.Installed, progress func(addons.Progress)) (*addons.Result, error) {
 			return s.lib().Update(ctx, srv, installed, addons.UpdateRequest{Keys: keys, Changed: req.Changed, Fingerprint: req.Fingerprint, OnProgress: progress})
 		})
 	})
@@ -811,12 +811,23 @@ func (s *server) hAddonUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 // addonJob runs an install or update and says whether the running server
-// needs a restart to load it.
-func (s *server) addonJob(ctx context.Context, h *opHandle, actor string, run func(addons.Server, []addons.Installed, func(addons.Progress)) (*addons.Result, error)) error {
+// needs a restart to load it. With start, a stopped server is started once
+// the files are in place; if they can't be, it stays stopped and keeps its
+// crash explanation.
+func (s *server) addonJob(ctx context.Context, h *opHandle, actor string, start bool, run func(addons.Server, []addons.Installed, func(addons.Progress)) (*addons.Result, error)) error {
 	if err := s.installAddons(ctx, h, actor, run); err != nil {
 		return err
 	}
-	_, running, _ := s.containerRunning(ctx)
+	_, running, err := s.containerRunning(ctx)
+	if start {
+		if err != nil {
+			return err
+		}
+		if !running {
+			s.forgetCrashes()
+			return s.startNow(ctx, h)
+		}
+	}
 	h.set("restartNeeded", running)
 	return nil
 }
