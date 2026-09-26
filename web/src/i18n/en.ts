@@ -593,6 +593,11 @@ export const en = {
   'agentDown.unreachableBody': 'Check that the VPS is running and that you’re online, then reload this page.',
   'agentDown.reload': 'Reload',
 
+  // A page whose code didn't load
+  'load.failed': 'Couldn’t load this page',
+  'load.failedBody': 'Playkeeper may have just updated, or the connection dropped. Reload to get it.',
+  'load.reload': 'Reload',
+
   // Console
   'console.filter': 'Show',
   'console.filter.all': 'Everything',

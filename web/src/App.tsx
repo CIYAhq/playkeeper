@@ -3,6 +3,7 @@ import { ApiError, get, onUnauthorized, setCsrfToken } from '@/api/client'
 import type { Me, SetupStatus } from '@/api/types'
 import { useWorkspace, WorkspaceProvider } from '@/api/workspace'
 import { Frame, FrameCard } from '@/components/app/frame'
+import { LoadBoundary } from '@/components/app/load-boundary'
 import { AppShell } from '@/components/app/shell'
 import { PageSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
@@ -48,6 +49,7 @@ const GlobalSettingsPage = lazy(() => pages.settings().then((m) => ({ default: m
 
 function preloadPages() {
   for (const load of Object.values(pages)) void load().catch(() => {})
+  void pages.server().then((m) => m.preloadTabs(), () => {})
 }
 
 /** While a first page's code loads, the same spinner as while signing in is checked. */
@@ -113,15 +115,17 @@ export function App() {
 
   if (route.name === 'join') {
     return (
-      <Suspense fallback={<Booting />}>
-        <JoinPage
-          code={route.code}
-          onSignedIn={(m, to) => {
-            signedIn(m)
-            navigate(to ?? '/', true)
-          }}
-        />
-      </Suspense>
+      <LoadBoundary>
+        <Suspense fallback={<Booting />}>
+          <JoinPage
+            code={route.code}
+            onSignedIn={(m, to) => {
+              signedIn(m)
+              navigate(to ?? '/', true)
+            }}
+          />
+        </Suspense>
+      </LoadBoundary>
     )
   }
 
@@ -142,27 +146,31 @@ export function App() {
       )
     case 'setup':
       return (
-        <Suspense fallback={<Booting />}>
-          <AccountStep
-            onDone={(m) => {
-              signedIn(m)
-              navigate('/welcome', true)
-            }}
-          />
-        </Suspense>
+        <LoadBoundary>
+          <Suspense fallback={<Booting />}>
+            <AccountStep
+              onDone={(m) => {
+                signedIn(m)
+                navigate('/welcome', true)
+              }}
+            />
+          </Suspense>
+        </LoadBoundary>
       )
     case 'login':
       return (
-        <Suspense fallback={<Booting />}>
-          <LoginPage
-            machine={status?.machine}
-            version={status?.version}
-            onDone={(m) => {
-              signedIn(m)
-              navigate(afterSignIn(window.location), true)
-            }}
-          />
-        </Suspense>
+        <LoadBoundary>
+          <Suspense fallback={<Booting />}>
+            <LoginPage
+              machine={status?.machine}
+              version={status?.version}
+              onDone={(m) => {
+                signedIn(m)
+                navigate(afterSignIn(window.location), true)
+              }}
+            />
+          </Suspense>
+        </LoadBoundary>
       )
     case 'ready':
       if (!me) return null
@@ -178,7 +186,7 @@ export function App() {
   }
 }
 
-function Routes({ route }: { route: Route }) {
+export function Routes({ route }: { route: Route }) {
   const { servers } = useWorkspace()
 
   useEffect(() => {
@@ -203,14 +211,18 @@ function Routes({ route }: { route: Route }) {
 
   if (route.name === 'welcome') {
     return (
-      <Suspense fallback={<Booting />}>
-        <Onboarding />
-      </Suspense>
+      <LoadBoundary>
+        <Suspense fallback={<Booting />}>
+          <Onboarding />
+        </Suspense>
+      </LoadBoundary>
     )
   }
   return (
     <AppShell route={route}>
-      <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>
+      <LoadBoundary resetKey={JSON.stringify(route)}>
+        <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>
+      </LoadBoundary>
     </AppShell>
   )
 }

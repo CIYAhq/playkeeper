@@ -6,6 +6,7 @@ import { errorText, serverApi, useServer, useServerMachine, useWorkspace } from 
 import { Emblem, Pip } from '@/components/app/art'
 import { copyText, Dot, JobPill, StatusPill } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { LoadBoundary } from '@/components/app/load-boundary'
 import { serverTabsFor } from '@/components/app/server-tabs'
 import { PageBody, PhoneBackHeader, useShell } from '@/components/app/shell'
 import { LoadingLabel, TabSkeleton } from '@/components/app/skeletons'
@@ -28,22 +29,41 @@ import { Overview } from './overview'
 import { PluginsPhoneHeader } from './plugins/header'
 
 // The Overview comes with the server page; each other tab's code loads the
-// first time it shows.
-const BackupRulesPage = lazy(() => import('./backups').then((m) => ({ default: m.BackupRulesPage })))
-const BackupRulesPhonePage = lazy(() => import('./backups').then((m) => ({ default: m.BackupRulesPhonePage })))
-const ConsolePage = lazy(() => import('./console').then((m) => ({ default: m.ConsolePage })))
-const CopiesCard = lazy(() => import('./copies').then((m) => ({ default: m.CopiesCard })))
-const CopiesPhonePage = lazy(() => import('./copies').then((m) => ({ default: m.CopiesPhonePage })))
-const MapPage = lazy(() => import('./map').then((m) => ({ default: m.MapPage })))
-const PlayersPage = lazy(() => import('./players').then((m) => ({ default: m.PlayersPage })))
-const PlayerProfilePage = lazy(() => import('./profile').then((m) => ({ default: m.PlayerProfilePage })))
-const PluginsPage = lazy(() => import('./plugins').then((m) => ({ default: m.PluginsPage })))
-const RunningPage = lazy(() => import('./running').then((m) => ({ default: m.RunningPage })))
-const SchedulesPhonePage = lazy(() => import('./schedules').then((m) => ({ default: m.SchedulesPhonePage })))
-const ServerSettingsPage = lazy(() => import('./settings').then((m) => ({ default: m.ServerSettingsPage })))
-const WorldPage = lazy(() => import('./world').then((m) => ({ default: m.WorldPage })))
-const PacksPage = lazy(() => import('./world-packs').then((m) => ({ default: m.PacksPage })))
-const PregenPage = lazy(() => import('./world-pregen').then((m) => ({ default: m.PregenPage })))
+// first time it shows, or while the browser is idle after sign-in.
+const tabs = {
+  backups: () => import('./backups'),
+  console: () => import('./console'),
+  copies: () => import('./copies'),
+  map: () => import('./map'),
+  players: () => import('./players'),
+  profile: () => import('./profile'),
+  plugins: () => import('./plugins'),
+  running: () => import('./running'),
+  schedules: () => import('./schedules'),
+  settings: () => import('./settings'),
+  world: () => import('./world'),
+  worldPacks: () => import('./world-packs'),
+  worldPregen: () => import('./world-pregen'),
+}
+const BackupRulesPage = lazy(() => tabs.backups().then((m) => ({ default: m.BackupRulesPage })))
+const BackupRulesPhonePage = lazy(() => tabs.backups().then((m) => ({ default: m.BackupRulesPhonePage })))
+const ConsolePage = lazy(() => tabs.console().then((m) => ({ default: m.ConsolePage })))
+const CopiesCard = lazy(() => tabs.copies().then((m) => ({ default: m.CopiesCard })))
+const CopiesPhonePage = lazy(() => tabs.copies().then((m) => ({ default: m.CopiesPhonePage })))
+const MapPage = lazy(() => tabs.map().then((m) => ({ default: m.MapPage })))
+const PlayersPage = lazy(() => tabs.players().then((m) => ({ default: m.PlayersPage })))
+const PlayerProfilePage = lazy(() => tabs.profile().then((m) => ({ default: m.PlayerProfilePage })))
+const PluginsPage = lazy(() => tabs.plugins().then((m) => ({ default: m.PluginsPage })))
+const RunningPage = lazy(() => tabs.running().then((m) => ({ default: m.RunningPage })))
+const SchedulesPhonePage = lazy(() => tabs.schedules().then((m) => ({ default: m.SchedulesPhonePage })))
+const ServerSettingsPage = lazy(() => tabs.settings().then((m) => ({ default: m.ServerSettingsPage })))
+const WorldPage = lazy(() => tabs.world().then((m) => ({ default: m.WorldPage })))
+const PacksPage = lazy(() => tabs.worldPacks().then((m) => ({ default: m.PacksPage })))
+const PregenPage = lazy(() => tabs.worldPregen().then((m) => ({ default: m.PregenPage })))
+
+export function preloadTabs() {
+  for (const load of Object.values(tabs)) void load().catch(() => {})
+}
 
 export async function serverAction(server: ServerStatus, action: 'start' | 'stop' | 'restart' | 'backups', body: unknown = {}): Promise<boolean> {
   try {
@@ -142,7 +162,9 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
         <ServerHeader server={server} tab={tab} settingUp={settingUp} />
       )}
       <PageBody key={view} className="flex flex-1 animate-page flex-col gap-4">
-        <Suspense fallback={<TabSkeleton />}>{body}</Suspense>
+        <LoadBoundary>
+          <Suspense fallback={<TabSkeleton />}>{body}</Suspense>
+        </LoadBoundary>
       </PageBody>
     </>
   )
