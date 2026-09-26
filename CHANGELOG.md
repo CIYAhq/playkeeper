@@ -2,6 +2,13 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.0
+
+- Invite friends with a link: they open it, type their Minecraft name and they're on the allowlist, right away or after you say yes. Each link runs out after a day, a week, a month or when you turn it off, lets in a set number of friends, and the Players tab shows who joined with which link.
+- Share the dashboard: invite someone as an Admin, Moderator or Viewer, for every server or only some, with their own sign-in. Admins must use two-factor sign-in; until they turn it on, they have Moderator rights.
+- Discord: paste a channel's webhook link for alerts (a crash, back online, low disk space, a failed backup, and more if you want them) and one live status message with each server and who's playing.
+- A page for each player: when and how long they play, whether they're on the allowlist or an operator, and message, kick or ban them from there.
+
 ## 0.3.1
 
 - Security fix: Playkeeper no longer follows links that a plugin or mod puts in a server's files, which could make it overwrite or read other files on the machine, including its own. If one is in the way, Playkeeper stops and says which file to remove.
