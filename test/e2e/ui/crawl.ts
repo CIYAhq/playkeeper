@@ -409,8 +409,8 @@ export class Crawler {
     const since = Date.now()
     const failed = await this.press(h, c)
     if (failed) return { result: this.record(route, via, c, 'could not press', [], [failed]), opened: false, revealed: false }
-    let effects: string[] = []
-    let after: Snapshot | null = null
+    let effects: string[]
+    let after: Snapshot | null
     for (;;) {
       await this.page.waitForTimeout(120)
       after = await this.snap(true)

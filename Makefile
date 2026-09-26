@@ -19,14 +19,14 @@ setup: ## Install pinned Go/Node into .tools/ and the web dependencies
 
 check: lint typecheck test ## Everything CI's check job runs: lint, typecheck, unit tests
 
-lint: lint-go lint-web lint-notices ## gofmt, go vet, ESLint, THIRD_PARTY_NOTICES up to date
+lint: lint-go lint-web lint-notices ## gofmt, go vet, ESLint (web UI and browser tests), THIRD_PARTY_NOTICES up to date
 
 lint-go:
 	@unformatted=$$(gofmt -l cmd internal web/*.go); if [ -n "$$unformatted" ]; then echo "gofmt needed: $$unformatted"; exit 1; fi
 	go vet $(GO_PKGS)
 
 lint-web:
-	cd web && npx eslint .
+	cd web && npx eslint . ../test/e2e/ui
 
 lint-notices:
 	./scripts/third-party-notices.sh --check
