@@ -2864,19 +2864,19 @@ control "a wake waits for a backup to end" internal/agent/sleeping.go \
   'ae.Code == api.CodeBusy || time.Now().After(deadline)' \
   ./internal/agent '^TestSleepAndWakeTransitions$/^a_player_wakes_it_during_a_backup$'
 control "turning sleep off changes nothing while the server is busy" internal/agent/sleeping.go \
-  '		if err != nil {
-			return nil, err
-		}
-	}
-	sleepStep("save")' \
-  '		_ = err
-	}
-	sleepStep("save")' \
+  'release, ok := s.holdOpLock()
+	if !ok {
+		return nil, s.busyError()' \
+  'release, ok := func() {}, true
+	if !ok {
+		return nil, s.busyError()' \
   ./internal/agent '^TestSleepAndWakeTransitions$/^sleep_turned_off_during_a_backup$'
-control "turning sleep off lets go of the game port when the server can't start" internal/agent/sleeping.go \
-  '				s.leaveSleep()
-				s.startFailed(ctx)' \
-  '				s.startFailed(ctx)' \
+control "turning sleep off lets go of the game port when the server can't start" internal/agent/lifecycle.go \
+  '		_ = s.setDesired(api.DesiredStopped)
+	}
+	s.leaveSleep()' \
+  '		_ = s.setDesired(api.DesiredStopped)
+	}' \
   ./internal/agent '^TestSleepAndWakeTransitions$/^sleep_turned_off,_and_the_server_can.t_start$'
 
 # Wave 7 after the real-world restore check: the copies at the old place, the
@@ -3081,7 +3081,7 @@ control "a server.properties that can't be read keeps the allowlist rule" intern
   ./internal/agent '^TestWhoMayWakeASleepingServer$/^no_server.properties$'
 
 # Wave 7: the sleep operation looks again right before it stops the server,
-# and saving the sleep setting takes the lock its commit takes.
+# and saving the sleep setting takes the operation lock.
 control "a sleep decided with another setting is called off" internal/agent/sleeping.go \
   's.desired() != api.DesiredRunning || s.sleepSettings() != set' \
   's.desired() != api.DesiredRunning' \
@@ -3089,19 +3089,15 @@ control "a sleep decided with another setting is called off" internal/agent/slee
 control "a sleep is called off when someone joined since it decided" internal/agent/sleeping.go \
   'if !s.nobodyOn() || s.pregenRunning() || s.scheduleWorking() {' \
   'if false {' \
-  ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^someone_joined$'
-control "saving the sleep setting holds the lock a sleep commits under" internal/agent/sleeping.go \
-  '	s.auto.sleepMu.Lock()
-	defer s.auto.sleepMu.Unlock()
-	var op *api.Operation' \
-  '	var op *api.Operation' \
-  ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^sleep_turned_off_while_the_operation_looks_again$'
-control "a sleep commits under the lock saving the setting holds" internal/agent/sleeping.go \
-  '	s.auto.sleepMu.Lock()
-	defer s.auto.sleepMu.Unlock()
-	if s.desired()' \
-  '	if s.desired()' \
-  ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^sleep_turned_off_while_the_operation_looks_again$'
+  ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^someone_joined_as_it_looks_again$'
+control "saving the sleep setting takes the operation lock" internal/agent/sleeping.go \
+  'release, ok := s.holdOpLock()
+	if !ok {
+		return nil, s.busyError()' \
+  'release, ok := func() {}, true
+	if !ok {
+		return nil, s.busyError()' \
+  ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^sleep_turned_off_while_it_runs$'
 
 # Wave 7: a staging folder that can't be read may hold any server's swap
 # journal, so each caller keeps what a restore may need and says why.
@@ -3134,6 +3130,47 @@ control "the World tab says the staging folder can't be read" internal/agent/bac
   'if unsettled, err := s.restoreUnsettled(); err != nil {' \
   'if unsettled, err := s.restoreUnsettled(); err != nil && false {' \
   ./internal/agent '^TestAnUnreadableStagingFolderKeepsWhatAnyRestoreMayNeed$/^World_tab$'
+
+# Wave 7, from the bug hunt: failed starts and wakes leave nothing answering
+# for a server that isn't asleep, bans hold with the allowlist on, every
+# operation has a busy label, and unreadable backup rules delete nothing.
+control "a failed start closes the stand-in" internal/agent/lifecycle.go \
+  '		_ = s.setDesired(api.DesiredStopped)
+	}
+	s.leaveSleep()' \
+  '		_ = s.setDesired(api.DesiredStopped)
+	}' \
+  ./internal/agent '^TestAFailedStartLeavesNothingAnsweringForTheServer$'
+control "a wake whose start stopped the server leaves it stopped" internal/agent/sleeping.go \
+  'if s.desired() != api.DesiredRunning {
+				s.leaveSleep()' \
+  'if false {
+				s.leaveSleep()' \
+  ./internal/agent '^TestSleepAndWakeTransitions$/^a_wake_that_finds_the_server_software_changed$'
+control "a banned player doesn't wake a server whose allowlist is on" internal/agent/sleeping.go \
+  'if strings.EqualFold(name, player) {' \
+  'if false && strings.EqualFold(name, player) {' \
+  ./internal/agent '^TestWhoMayWakeASleepingServer$/^allowlist_on,_banned_though_listed_or_an_operator$'
+control "restoring from a recovery key has a busy label" internal/agent/lifecycle.go \
+  '"offsite-recover": "restoring a server from a recovery key",' \
+  '' \
+  ./internal/agent '^TestEveryOperationHasABusyLabel$'
+control "backup rules that can't be read are an error, not the defaults" internal/agent/backuprules.go \
+  'SELECT backup_rules FROM servers WHERE id = ?`, s.id).Scan(&raw); err != nil {' \
+  'SELECT backup_rules FROM servers WHERE id = ?`, s.id).Scan(&raw); false && err != nil {' \
+  ./internal/agent '^TestBackupRulesThatCantBeReadDeleteNothing$/^the_rules_can.t_be_read$'
+control "saved backup rules that don't parse are an error" internal/agent/backuprules.go \
+  'return retention.Settings{}, nil, false, fmt.Errorf("the saved backup rules are not valid: %w", err)' \
+  'return retention.DefaultSettings(), time.UTC, false, nil' \
+  ./internal/agent '^TestBackupRulesThatCantBeReadDeleteNothing$/^rules_that_don.t_parse$'
+control "a copy queue that can't be read is an error" internal/agent/backuprules.go \
+  'return nil, fmt.Errorf("the copy queue could not be read: %w", err)
+	}
+	defer rows.Close()' \
+  'return map[string]bool{}, nil
+	}
+	defer rows.Close()' \
+  ./internal/agent '^TestBackupRulesThatCantBeReadDeleteNothing$/^the_copy_queue_can.t_be_read$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
