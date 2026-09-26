@@ -273,7 +273,8 @@ func (c *Client) Refresh(ctx context.Context) (Name, error) {
 
 // familyUnavailable reports whether a request failed because this machine
 // has no way to reach the service over that IP version, as opposed to a
-// timeout or an answer, which say nothing about the address.
+// timeout or an answer, which say nothing about the address. A refused
+// connection is an answer: that IP version reached a host.
 func familyUnavailable(err error) bool {
 	var addrErr *net.AddrError
 	var dnsErr *net.DNSError
@@ -284,7 +285,7 @@ func familyUnavailable(err error) bool {
 		return dnsErr.IsNotFound
 	}
 	return errors.Is(err, syscall.ENETUNREACH) || errors.Is(err, syscall.EHOSTUNREACH) ||
-		errors.Is(err, syscall.EADDRNOTAVAIL) || errors.Is(err, syscall.ECONNREFUSED)
+		errors.Is(err, syscall.EADDRNOTAVAIL)
 }
 
 // Release gives the name up: its records are removed and it is held from

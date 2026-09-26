@@ -427,6 +427,7 @@ var (
 	errNoIPv6Route = &net.OpError{Op: "dial", Net: "tcp6", Err: &os.SyscallError{Syscall: "connect", Err: syscall.ENETUNREACH}}
 	errNoIPv4      = &net.OpError{Op: "dial", Net: "tcp4", Err: &net.AddrError{Err: "no suitable address found", Addr: "names.playkeeper.io"}}
 	errIPv6Timeout = &net.OpError{Op: "read", Net: "tcp6", Err: os.ErrDeadlineExceeded}
+	errIPv6Refused = &net.OpError{Op: "dial", Net: "tcp6", Err: &os.SyscallError{Syscall: "connect", Err: syscall.ECONNREFUSED}}
 )
 
 func TestRefreshSetsBothVersionsAndClearsOnlyOneThatHasNoRoute(t *testing.T) {
@@ -445,6 +446,8 @@ func TestRefreshSetsBothVersionsAndClearsOnlyOneThatHasNoRoute(t *testing.T) {
 			seen: []string{"4", "4 clear"}, want4: machineIPv4},
 		{name: "no IPv6 route and no AAAA", before4: old4, fail6: errNoIPv6Route, seen: []string{"4"}, want4: machineIPv4},
 		{name: "an IPv6 timeout keeps the AAAA", before4: old4, before6: old6, fail6: errIPv6Timeout,
+			seen: []string{"4"}, want4: machineIPv4, want6: old6},
+		{name: "a refused IPv6 connection keeps the AAAA", before4: old4, before6: old6, fail6: errIPv6Refused,
 			seen: []string{"4"}, want4: machineIPv4, want6: old6},
 		{name: "no IPv4 address removes the old A", before4: old4, before6: old6, fail4: errNoIPv4,
 			seen: []string{"6", "6 clear"}, want6: machineIPv6},

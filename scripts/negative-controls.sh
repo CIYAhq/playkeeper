@@ -1199,6 +1199,10 @@ control "resource pack links: a start offers the link the certificate allows now
   'pack, err := resourcePackEnv(s.currentOffer(sc.ResourcePack))' \
   'pack, err := resourcePackEnv(sc.ResourcePack)' \
   ./internal/agent '^TestResourcePackLinksUseHTTPSWithATrustedCertificate$'
+control "free address refresh: a refused connection keeps the other IP version's record" internal/names/client.go \
+  'errors.Is(err, syscall.EADDRNOTAVAIL)' \
+  'errors.Is(err, syscall.EADDRNOTAVAIL) || errors.Is(err, syscall.ECONNREFUSED)' \
+  ./internal/names '^TestRefreshSetsBothVersionsAndClearsOnlyOneThatHasNoRoute$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
