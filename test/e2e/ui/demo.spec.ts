@@ -63,7 +63,7 @@ test('the live demo: Home, a server’s pages, Settings and a restart, without l
   await expect(page).toHaveURL(`${demoUrl}servers/survival/console`)
   const log = page.getByRole('log', { name: 'Server output' })
   await expect(log).toContainText('Done (')
-  const lines = log.locator(':scope > div')
+  const lines = log.locator('div:has(> span)')
   const before = await lines.count()
   await expect.poll(() => lines.count(), { timeout: 30_000, message: 'new console lines keep arriving' }).toBeGreaterThan(before)
   await still(page, 'demo-console-desktop')
