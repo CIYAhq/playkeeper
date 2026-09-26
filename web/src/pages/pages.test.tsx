@@ -2005,4 +2005,12 @@ describe('A restore that didn’t finish', () => {
     expect(item?.getAttribute('aria-disabled')).toBe('true')
     expect(item?.title).toBe(why)
   })
+
+  it('shortens a long activity line instead of widening the page', async () => {
+    answer({ '/activity': [{ ts: new Date().toISOString(), serverId: 'abcdefghjk', kind: 'restored_after_restart' }] })
+    await render(<HomePage />)
+    const line = [...document.querySelectorAll('li > span')].find((el) => el.textContent === 'Survival restored from a backup after Playkeeper restarted')
+    // happy-dom has no layout. A line with no width of its own can't push its card past a phone's screen.
+    expect(line?.className.split(' ')).toContain('w-0')
+  })
 })

@@ -134,7 +134,7 @@ export function ActivityList({ items, servers, here, empty, className }: { items
             <span className="shrink-0 text-muted-foreground [&_svg]:size-4" aria-hidden="true">
               {icon(a.kind)}
             </span>
-            <span className="min-w-0 flex-1 truncate">{activityText(a, name, me.user.username, here)}</span>
+            <span className="w-0 flex-1 truncate">{activityText(a, name, me.user.username, here)}</span>
             <time dateTime={a.ts} className="shrink-0 text-xs text-muted-foreground">
               {relativeTime(a.ts)}
             </time>
