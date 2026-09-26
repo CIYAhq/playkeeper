@@ -1294,7 +1294,9 @@ func (s *server) fetchCopy(ctx context.Context, h *opHandle, dest offsiteDest, a
 		}
 	}
 	h.phase("downloading")
+	s.copyReads.RLock()
 	got, err := dest.Download(ctx, dl)
+	s.copyReads.RUnlock()
 	if err != nil {
 		return offsite.Archive{}, dl, automationError(err)
 	}
@@ -1804,8 +1806,14 @@ func (s *server) copyDone(ctx context.Context, dest offsiteDest, row offsiteRow,
 	}
 }
 
-// pruneOffsite deletes the copies the rules no longer keep.
+// pruneOffsite deletes the copies the rules no longer keep, unless a copy is
+// being downloaded: then it leaves them to the next copy's pruning.
 func (s *server) pruneOffsite(ctx context.Context, dest offsiteDest) {
+	if !s.copyReads.TryLock() {
+		s.log.Info("a copy is being downloaded, so the backup rules delete copies after the next one", "server", s.id)
+		return
+	}
+	defer s.copyReads.Unlock()
 	res, err := s.retentionPlan()
 	if err != nil {
 		s.log.Warn("backup rules could not be applied to the copies", "server", s.id, "err", err)
