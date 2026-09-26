@@ -19,7 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
-import { busyReason, failedJob, whyNot } from '@/lib/phase'
+import { busyReason, failedJob, restoreUnsettledReason, whyNot } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
@@ -621,7 +621,7 @@ function LeftoverNotice({ server: s, copy: c, state, onDiscarded, className }: {
       <Notice
         title={leftoverTitle(c)}
         action={
-          <Button variant="outline" size="sm" disabledReason={busyReason(s)} onClick={() => setConfirm(true)}>
+          <Button variant="outline" size="sm" disabledReason={busyReason(s) ?? restoreUnsettledReason(s)} onClick={() => setConfirm(true)}>
             <Trash2Icon />
             {t('world.leftoverDiscard')}
           </Button>

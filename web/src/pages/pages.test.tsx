@@ -2118,6 +2118,24 @@ describe('A restore that didn’t finish', () => {
     }
   })
 
+  it('keeps a world copy’s Discard off while a restore isn’t finished, and says why', async () => {
+    const at = '2026-09-26T10:28:00Z'
+    const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
+    const operation: Operation = { id: 'backup-1', kind: 'backup', status: 'running', phase: 'archiving', actor: 'siya', startedAt: new Date().toISOString() }
+    const cases: { name: string; over: Partial<ServerStatus>; discard: [boolean, string] }[] = [
+      { name: 'a restore isn’t finished', over: { phase: 'stopped', restoreUnsettled: {} }, discard: [true, 'A restore isn’t finished. Playkeeper finishes it once the server is stopped.'] },
+      { name: 'a restore Playkeeper couldn’t finish', over: { phase: 'stopped', restoreUnsettled: { problem: 'Saving the settings failed: disk I/O error.' } }, discard: [true, 'A restore isn’t finished, and Playkeeper couldn’t finish it.'] },
+      { name: 'another job runs', over: { phase: 'stopped', operation }, discard: [true, 'Backing up Survival. Try again when it’s done.'] },
+      { name: 'nothing to wait for', over: { phase: 'stopped' }, discard: [false, ''] },
+    ]
+    for (const c of cases) {
+      answer({ '/world-copies': copies.slice(0, 1), '/backups': [made] })
+      await render(<WorldPage server={server(c.over)} />)
+      const discard = button('Discard')
+      expect([discard?.disabled, discard?.title], c.name).toEqual(c.discard)
+    }
+  })
+
   it('says what to do when a new icon is refused for the missing world folder', async () => {
     const message = `The world folder is missing because a restore did not finish; the previous world is at ${missing.previous}.`
     const hint = `Move that folder back to ${missing.dataDir}, then upload the icon again.`
