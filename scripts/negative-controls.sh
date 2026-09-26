@@ -2209,6 +2209,118 @@ control "an unchanged memory budget keeps the heap" internal/agent/handlers.go \
 		sc.MemoryMB, sc.HeapMB = *req.MemoryMB, minecraft.HeapFor(*req.MemoryMB, serverTypeOf(*sc), s.modJars(*sc))' \
   ./internal/agent '^TestModLoaderHeapLeavesRoomForItsMods$'
 
+# Forge: every file its installer writes is checked against Forge's own
+# hashes, its builds and heap follow Forge's lists and a mod loader's needs,
+# and crash help reads Forge's console and crash reports.
+control "Forge's installer setting names a downloaded jar in the server's folder" internal/minecraft/software/plan.go \
+  'case "CUSTOM_SERVER", "NEOFORGE_INSTALLER", "FORGE_INSTALLER":' \
+  'case "FORGE_INSTALLER":
+			ok = true
+		case "CUSTOM_SERVER", "NEOFORGE_INSTALLER":' \
+  ./internal/minecraft/software '^TestPlanValidation$'
+control "a Forge installer installs the version pinned" internal/minecraft/software/forge.go \
+  'if prof.Version != name || prof.Minecraft != pin.MinecraftVersion || ver.ID != name || ver.InheritsFrom != pin.MinecraftVersion {' \
+  'if false && (prof.Version != name || prof.Minecraft != pin.MinecraftVersion || ver.ID != name || ver.InheritsFrom != pin.MinecraftVersion) {' \
+  ./internal/minecraft/software '^TestInstallForgeRefuses$'
+control "Forge's installer looks for Mojang's jar where Playkeeper verified it" internal/minecraft/software/forge.go \
+  '; prof.ServerJarPath != want {' \
+  '; false && prof.ServerJarPath != want {' \
+  ./internal/minecraft/software '^TestInstallForgeRefuses$'
+control "every Forge library has a plain path, a SHA-1 and a size" internal/minecraft/software/forge.go \
+  'if !ok || a.Size <= 0 || !cleanRel(a.Path, ".jar", ".zip") {' \
+  'if false && (!ok || a.Size <= 0 || !cleanRel(a.Path, ".jar", ".zip")) {' \
+  ./internal/minecraft/software '^TestInstallForgeRefuses$'
+control "a Forge server starts from Forge's shim jar" internal/minecraft/software/forge.go \
+  'if prof.Path != shimCoord || !ok || shim == nil || shim.Path != into+"/"+shimRel {' \
+  'if false && (prof.Path != shimCoord || !ok || shim == nil || shim.Path != into+"/"+shimRel) {' \
+  ./internal/minecraft/software '^TestInstallForgeRefuses$'
+control "the shim jar a Forge server starts is checked" internal/minecraft/software/forge.go \
+  'checks = append(checks, Check{Path: shimName, Hash: shim.Hash, Size: shim.Size, Origin: Derived, Source: forgeLibrarySource})' \
+  '' \
+  ./internal/minecraft/software '^TestInstallForgeRefuses$'
+control "Forge's launch arguments are where the server container reads them" internal/minecraft/software/forge.go \
+  'if !extractsForgeArgs(prof, forgeArgsPath(pin)) {' \
+  'if false && !extractsForgeArgs(prof, forgeArgsPath(pin)) {' \
+  ./internal/minecraft/software '^TestInstallForgeRefuses$'
+control "Forge's launch arguments start its checked shim jar" internal/minecraft/software/forge.go \
+  'if !startsJar(string(args), shimName) {' \
+  'if false && !startsJar(string(args), shimName) {' \
+  ./internal/minecraft/software '^TestInstallForgeRefuses$'
+control "the files Forge's installer builds are checked against the SHA-1s it publishes" internal/minecraft/software/forge.go \
+  'out = append(out, Check{Path: into + "/" + p, Hash: h, Origin: Derived, Source: forgeOutputSource})' \
+  '_, _ = p, h' \
+  ./internal/minecraft/software '^TestInstallForgeRefuses$'
+control "a Forge installer must publish the patched jar's SHA-1" internal/minecraft/software/forge.go \
+  'if !patched {' \
+  'if false && !patched {' \
+  ./internal/minecraft/software '^TestInstallForgeRefuses$'
+control "a Forge pin names a Forge version" internal/minecraft/software/software.go \
+  'if !reForgeVersion.MatchString(p.ForgeVersion) {' \
+  'if false && !reForgeVersion.MatchString(p.ForgeVersion) {' \
+  ./internal/minecraft/software '^TestPinValidate$'
+control "Forge builds before the one Forge recommends are beta" internal/minecraft/software/forge.go \
+  'if rec, ok := fb.recommended[mc]; ok && compareVersions(v, rec) >= 0 {' \
+  'if true {' \
+  ./internal/minecraft/software '^TestBuilds$'
+control "Forge keeps as much memory outside the heap as NeoForge" internal/minecraft/catalog.go \
+  '"neoforge": 1024, "forge": 1024}' \
+  '"neoforge": 1024}' \
+  ./internal/minecraft '^TestHeapForModLoaders$'
+control "a Forge server gets only the Forge build of a mod" internal/addons/target.go \
+  'Loaders: []string{"forge"}}' \
+  'Loaders: []string{"neoforge"}}' \
+  ./internal/addons '^(TestTargetFor|TestPlanInstallPicksTheLoadersVersion)$'
+control "Forge's crash report line counts as a crash" internal/minecraft/logparse.go \
+  'This crash report has been saved to: |Crash report saved to |' \
+  'This crash report has been saved to: |' \
+  ./internal/minecraft '^TestParseRecognisesPlayerEvents$'
+control "crash help on a Forge server names Forge" internal/diagnose/crashaddons.go \
+  'if c.in.ServerType == "forge" {
+		return "Forge"' \
+  'if false {
+		return "Forge"' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "a jar Forge can't open is explained" internal/diagnose/crashaddons.go \
+  '	if d, ok := c.forgeBrokenJar(); ok {
+		return d, true
+	}
+' \
+  '' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "crash help reads what a Forge mod needs from the crash report alone" internal/diagnose/crashaddons.go \
+  '	} else {
+		f, cur, ok = c.reportPair(reNeoRequires, reNeoCurrently)
+	}' \
+  '	}' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "a Forge mod that failed in a deferred task is named" internal/diagnose/crashaddons.go \
+  'if f, ok = c.firstIn(reForgeDeferred, 0, len(c.split)); ok {' \
+  'if f, ok = c.firstIn(reForgeDeferred, 0, len(c.split)); false && ok {' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "a failed Forge mod's jar is found from its stack frames" internal/diagnose/crashaddons.go \
+  '	if jar == "" && !f.inReport() {
+		jar = c.frameAddon(f.idx+1, c.stackEnd(f.idx))
+	}
+' \
+  '' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "a start stops a server that logged it failed but kept running" internal/agent/lifecycle.go \
+  'if err == nil && c.State.Running && !gaveUp.IsZero() && s.now().Sub(gaveUp) >= hungStartWait {' \
+  'if false && err == nil && c.State.Running && !gaveUp.IsZero() && s.now().Sub(gaveUp) >= hungStartWait {' \
+  ./internal/agent '^TestAStartThatGaveUpButKeptRunningIsStoppedAndExplained$'
+webcontrol "the dashboard gives Forge the heap the agent gives it" web/src/components/app/create.tsx \
+  'neoforge: 1024, forge: 1024 }' \
+  'neoforge: 1024 }' \
+  web/src/lib/lib.test.ts 'how much of it Java gets'
+webcontrol "Forge suits as many friends as NeoForge at the same memory" web/src/lib/styles.ts \
+  'neoforge: 2048, forge: 2048 }' \
+  'neoforge: 2048 }' \
+  web/src/lib/lib.test.ts 'fewer players on a mod loader'
+webcontrol "with seven server types, the rest fill whole rows" web/src/components/app/create.tsx \
+  'const wide = i === 0 && types.length % 2 === 1' \
+  'const wide = false' \
+  web/src/pages/pages.test.tsx 'whole rows'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
