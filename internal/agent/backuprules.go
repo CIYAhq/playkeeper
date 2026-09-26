@@ -47,28 +47,42 @@ func (s *server) backupRules() (retention.Settings, *time.Location, bool) {
 
 // unsettledSwaps reads the swap journals in the restore stages, by stage
 // name. A restore isn't over while its stage keeps one: it may still put the
-// previous world back. A journal that can't be read counts, for no server.
+// previous world back. A journal that can't be read is nil, and is logged.
 func (a *Agent) unsettledSwaps() map[string]*swapJournal {
 	entries, _ := os.ReadDir(a.cfg.StagingDir())
 	out := map[string]*swapJournal{}
 	for _, e := range entries {
-		dir := filepath.Join(a.cfg.StagingDir(), e.Name())
-		if _, err := os.Lstat(filepath.Join(dir, swapJournalFile)); err != nil || !e.IsDir() {
+		if !e.IsDir() {
 			continue
 		}
-		j, err := readSwapJournal(dir)
-		if err != nil || j == nil {
-			j = &swapJournal{}
+		j, err := readSwapJournal(filepath.Join(a.cfg.StagingDir(), e.Name()))
+		if err != nil {
+			if prev, seen := a.unreadableSwaps.Swap(e.Name(), err.Error()); !seen || prev != err.Error() {
+				a.log.Warn("a restore stage's swap journal can't be read, so every server keeps its rollback archives and world copies until the journal is fixed or removed", "stage", e.Name(), "err", err)
+			}
+			out[e.Name()] = nil
+			continue
 		}
-		out[e.Name()] = j
+		a.unreadableSwaps.Delete(e.Name())
+		if j != nil {
+			out[e.Name()] = j
+		}
 	}
 	return out
 }
 
+// concerns says whether the swap journal may be the server's. One that can't
+// be read may be any server's.
+func (j *swapJournal) concerns(serverID string) bool {
+	return j == nil || j.ServerID == serverID
+}
+
 // rollbacksNeeded names the rollback archives of the server's restores that
 // aren't over, the one running and those whose stage keeps a swap journal,
-// as the unfinished restore that may still need them.
-func (s *server) rollbacksNeeded() map[string]string {
+// as the unfinished restore that may still need them. A journal that can't
+// be read, or whose restore is no longer on record, may need any of them, so
+// it keeps every rollback archive in list.
+func (s *server) rollbacksNeeded(list []api.Backup) map[string]string {
 	needed := map[string]string{}
 	add := func(op *api.Operation) {
 		if id, _ := op.Detail["rollbackBackupId"].(string); op.Kind == "restore" && id != "" {
@@ -79,11 +93,21 @@ func (s *server) rollbacksNeeded() map[string]string {
 		add(op)
 	}
 	for _, j := range s.unsettledSwaps() {
-		if j.ServerID != s.id {
+		if !j.concerns(s.id) {
 			continue
 		}
-		if op, err := s.loadOperation(j.OpID); err == nil {
+		var op *api.Operation
+		if j != nil {
+			op, _ = s.loadOperation(j.OpID)
+		}
+		if op != nil {
 			add(op)
+			continue
+		}
+		for _, b := range list {
+			if b.Kind == retention.KindRollback || b.Kind == retention.KindBeforeRestore {
+				needed[b.ID] = "restore"
+			}
 		}
 	}
 	return needed
@@ -96,7 +120,7 @@ func (s *server) retentionBackups() ([]retention.Backup, error) {
 	if err != nil {
 		return nil, err
 	}
-	needed := s.rollbacksNeeded()
+	needed := s.rollbacksNeeded(list)
 	queued := map[string]bool{}
 	if rows, err := s.db.Query(`SELECT backup_id FROM offsite_uploads WHERE server_id = ?`, s.id); err == nil {
 		for rows.Next() {

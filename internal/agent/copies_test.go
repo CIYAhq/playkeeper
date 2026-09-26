@@ -412,6 +412,32 @@ func neededBy(t *testing.T, s *server, id string) string {
 	return ""
 }
 
+// serverBusy says whether the Disk space page counts the server as busy.
+func serverBusy(t *testing.T, l diskusage.Layout, id string) bool {
+	t.Helper()
+	for _, sv := range l.Servers {
+		if sv.ID == id {
+			return sv.Busy
+		}
+	}
+	t.Fatalf("the layout has no server %s", id)
+	return false
+}
+
+// diskOffered is the paths the Disk space page offers to delete.
+func (e *agentEnv) diskOffered() map[string]bool {
+	e.t.Helper()
+	rep, err := diskusage.Scan(context.Background(), e.a.diskLayout(context.Background()), e.a.diskOptions(time.UTC))
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	out := map[string]bool{}
+	for _, c := range rep.Candidates {
+		out[c.Path] = true
+	}
+	return out
+}
+
 // Until a restore is over, whether it is running or its stage keeps the swap
 // journal of a swap it couldn't settle, the rules keep its rollback archive
 // and the Disk space page offers nothing of its server, nor the stage.
@@ -419,15 +445,7 @@ func TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage(t *testing.T) {
 	e := newAgentEnv(t)
 	id, phrase, _, _ := e.restoreScenario()
 	s := e.srv()
-	busy := func(l diskusage.Layout) bool {
-		for _, sv := range l.Servers {
-			if sv.ID == s.id {
-				return sv.Busy
-			}
-		}
-		t.Fatalf("the layout has no server %s", s.id)
-		return false
-	}
+	busy := func(l diskusage.Layout) bool { return serverBusy(t, l, s.id) }
 
 	reached, release := make(chan struct{}), make(chan struct{})
 	var releaseOnce sync.Once
@@ -490,15 +508,8 @@ func TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage(t *testing.T) {
 	age()
 	offered := func() (stageOffered, copyOffered bool) {
 		t.Helper()
-		rep, err := diskusage.Scan(context.Background(), e.a.diskLayout(context.Background()), e.a.diskOptions(time.UTC))
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, c := range rep.Candidates {
-			stageOffered = stageOffered || c.Path == dir
-			copyOffered = copyOffered || c.Path == aside
-		}
-		return stageOffered, copyOffered
+		o := e.diskOffered()
+		return o[dir], o[aside]
 	}
 	if by := neededBy(t, s, rollback); by != "restore" {
 		t.Fatalf("with its journal left, the rules keep the rollback archive for %q", by)
@@ -519,5 +530,96 @@ func TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage(t *testing.T) {
 	}
 	if st, cp := offered(); !st || !cp {
 		t.Fatalf("once nothing needs them, the stage (%v) and the copy (%v) are offered", st, cp)
+	}
+}
+
+// A swap journal that can't be read may be any server's, and one whose
+// restore is no longer on record may be any of its server's restores. Until
+// it is settled, the rules keep every rollback archive it may need, the Disk
+// space page counts every server it may be as busy and offers neither the
+// stage nor a set-aside world, and the agent logs, once, a journal it can't
+// read.
+func TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed(t *testing.T) {
+	e := newAgentEnv(t)
+	id, phrase, _, _ := e.restoreScenario()
+	s := e.srv()
+	op := e.waitOp(e.startRestore(id, phrase))
+	rollback, _ := op.Detail["rollbackBackupId"].(string)
+	if op.Status != api.OpSucceeded || rollback == "" {
+		t.Fatalf("the restore: %+v", op)
+	}
+	e.createWith(map[string]any{"name": "Creative"})
+	other := e.srv()
+
+	old := time.Now().Add(-48 * time.Hour)
+	stamp := old.UTC().Format("20060102-150405")
+	aside := filepath.Join(s.dir(), "data.replaced-"+stamp)
+	if err := os.MkdirAll(filepath.Join(aside, "world"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	stage := "0123456789abcdef"
+	dir := e.a.stageDir(stage)
+	journal := filepath.Join(dir, swapJournalFile)
+	age := func() {
+		t.Helper()
+		for _, p := range []string{journal, dir} {
+			if err := os.Chtimes(p, old, old); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+		}
+	}
+	sc, _ := s.serverConfig()
+	for _, c := range []struct {
+		name  string
+		write func() error
+		// unreadable is a journal that may be any server's.
+		unreadable bool
+	}{
+		{"cut short", func() error { return os.WriteFile(journal, []byte(`{"serverId":"`+s.id+`","opId":`), 0o600) }, true},
+		{"not a file", func() error { return os.Mkdir(journal, 0o700) }, true},
+		{"for a restore no longer on record", func() error {
+			return writeSwapJournal(dir, &swapJournal{ServerID: s.id, OpID: "0000000000000000", Actor: "admin", Aside: filepath.Base(aside),
+				Failed: "data.failed-restore-" + stamp, HadLive: true, StartedAt: old, Previous: sc, Restored: *sc, State: swapReverting})
+		}, false},
+	} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.write(); err != nil {
+			t.Fatal(err)
+		}
+		age()
+		logged := strings.Count(e.warnings.String(), "stage="+stage)
+		if by := neededBy(t, s, rollback); by != "restore" {
+			t.Fatalf("%s: the rules keep the rollback archive for %q", c.name, by)
+		}
+		l := e.a.diskLayout(context.Background())
+		if !serverBusy(t, l, s.id) || serverBusy(t, l, other.id) != c.unreadable || !slices.Equal(l.ActiveStages, []string{stage}) {
+			t.Fatalf("%s: busy %v, %s busy %v, active stages %v", c.name, serverBusy(t, l, s.id), other.name(), serverBusy(t, l, other.id), l.ActiveStages)
+		}
+		if o := e.diskOffered(); o[dir] || o[aside] {
+			t.Fatalf("%s: the Disk space page offers the stage (%v) or the set-aside world (%v)", c.name, o[dir], o[aside])
+		}
+		want := 0
+		if c.unreadable {
+			want = 1
+		}
+		if n := strings.Count(e.warnings.String(), "stage="+stage) - logged; n != want {
+			t.Fatalf("%s: the agent logged the journal %d times, not %d:\n%s", c.name, n, want, e.warnings.String())
+		}
+		if err := os.RemoveAll(journal); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	age()
+	if by := neededBy(t, s, rollback); by != "" {
+		t.Fatalf("without the journal, the rules keep the rollback archive for %q", by)
+	}
+	if l := e.a.diskLayout(context.Background()); serverBusy(t, l, s.id) || serverBusy(t, l, other.id) {
+		t.Fatal("without the journal, a server still counts as busy")
+	}
+	if o := e.diskOffered(); !o[dir] || !o[aside] {
+		t.Fatalf("once nothing needs them, the stage (%v) and the set-aside world (%v) are offered", o[dir], o[aside])
 	}
 }

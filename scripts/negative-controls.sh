@@ -786,9 +786,29 @@ control "the rules keep the rollback archive of a restore that isn't over" inter
   ./internal/agent '^TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage$'
 control "the Disk space page leaves a restore that isn't over alone" internal/agent/disk.go \
   'l.ActiveStages = append(l.ActiveStages, stage)
-		restoring[j.ServerID] = true' \
+		journals = append(journals, j)' \
   '_, _ = stage, j' \
   ./internal/agent '^TestARestoreThatIsNotOverKeepsItsRollbackArchiveAndStage$'
+control "a swap journal that can't be read may be any server's" internal/agent/backuprules.go \
+  'return j == nil || j.ServerID == serverID' \
+  'return j != nil && j.ServerID == serverID' \
+  ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
+control "the Disk space page counts every server busy for an unreadable swap journal" internal/agent/disk.go \
+  'return j.concerns(s.id)' \
+  'return j != nil && j.concerns(s.id)' \
+  ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
+control "a swap journal whose restore is gone keeps every rollback archive" internal/agent/backuprules.go \
+  'if op != nil {
+			add(op)
+			continue
+		}' \
+  'if j != nil {
+			if op != nil {
+				add(op)
+			}
+			continue
+		}' \
+  ./internal/agent '^TestAnUnreadableSwapJournalKeepsWhatAnyRestoreMayNeed$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

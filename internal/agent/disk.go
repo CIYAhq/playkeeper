@@ -42,16 +42,18 @@ func (a *Agent) forgetDiskScan() {
 // diskLayout is where the machine's servers and shared folders are, with the
 // backups each server's rules would delete. A restore that isn't over keeps
 // its stage, and its server counts as busy, so neither the stage nor the
-// world copies it may put back are offered.
+// world copies it may put back are offered. A swap journal that can't be
+// read may be any server's, so every server counts as busy.
 func (a *Agent) diskLayout(ctx context.Context) diskusage.Layout {
 	l := diskusage.Layout{BackupsDir: a.cfg.BackupsDir(), StagingDir: a.cfg.StagingDir(), DiskDir: a.cfg.DataDir}
-	restoring := map[string]bool{}
+	var journals []*swapJournal
 	for stage, j := range a.unsettledSwaps() {
 		l.ActiveStages = append(l.ActiveStages, stage)
-		restoring[j.ServerID] = true
+		journals = append(journals, j)
 	}
 	for _, s := range a.serverList() {
-		sv := diskusage.Server{ID: s.id, Name: s.name(), DataDir: s.dataDir(), Busy: s.currentOp() != nil || restoring[s.id]}
+		restoring := slices.ContainsFunc(journals, func(j *swapJournal) bool { return j.concerns(s.id) })
+		sv := diskusage.Server{ID: s.id, Name: s.name(), DataDir: s.dataDir(), Busy: s.currentOp() != nil || restoring}
 		if fi, err := os.Stat(s.spoolDir()); err == nil && fi.IsDir() {
 			sv.SpoolDir = s.spoolDir()
 		}
