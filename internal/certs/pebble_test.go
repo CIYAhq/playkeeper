@@ -200,8 +200,9 @@ func startPebble(t *testing.T) *pebbleEnv {
 	}
 	trusted := x509.NewCertPool()
 	trusted.AppendCertsFromPEM(certPEM)
+	guard := &pebbleTransport{RoundTripper: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: trusted}}, finalized: map[string]bool{}}
 	env := &pebbleEnv{
-		client:   &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: trusted}}},
+		client:   &http.Client{Timeout: 10 * time.Second, Transport: guard},
 		dns:      loopback(freePort(t)),
 		mgmt:     loopback(freePort(t)),
 		httpPort: freePort(t),
@@ -244,6 +245,7 @@ func startPebble(t *testing.T) *pebbleEnv {
 	}
 	pebble := start(t, []string{"PEBBLE_VA_NOSLEEP=1", "PEBBLE_WFE_NONCEREJECT=0", "PEBBLE_AUTHZREUSE=0"},
 		pebbleBin, "-config", configFile, "-dnsserver", env.dns, "-strict")
+	guard.log = pebble.out
 	env.dirURL = "https://" + listen + "/dir"
 	var root []byte
 	pebble.waitReady(t, func() error {
@@ -259,6 +261,51 @@ func startPebble(t *testing.T) *pebbleEnv {
 		t.Fatalf("Pebble's root is not PEM: %q", root)
 	}
 	return env
+}
+
+// pebbleTransport holds back a look at a finalized order until Pebble has
+// stored the order's certificate. Pebble v2.10.1 deadlocks on a look that
+// arrives while it does (letsencrypt/pebble#555): the look is never
+// answered, and another look at the order stops Pebble answering anything.
+// It can go once a Pebble release has the fix.
+type pebbleTransport struct {
+	http.RoundTripper
+	log *syncBuffer // Pebble's output
+
+	mu        sync.Mutex
+	finalized map[string]bool // order IDs
+}
+
+func (p *pebbleTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	p.mu.Lock()
+	if id, ok := strings.CutPrefix(req.URL.Path, "/finalize-order/"); ok {
+		p.finalized[id] = true
+	}
+	id, ok := strings.CutPrefix(req.URL.Path, "/my-order/")
+	hold := ok && p.finalized[id]
+	p.mu.Unlock()
+	if hold {
+		p.awaitIssued(req.Context(), id)
+	}
+	return p.RoundTripper.RoundTrip(req)
+}
+
+// awaitIssued waits until Pebble has stored the certificate of order id, or
+// ctx is done.
+func (p *pebbleTransport) awaitIssued(ctx context.Context, id string) {
+	issued := " for order " + id + "\n"
+	for !strings.Contains(p.log.String(), issued) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	// Pebble logs the certificate just before it locks the order to store it.
+	select {
+	case <-ctx.Done():
+	case <-time.After(100 * time.Millisecond):
+	}
 }
 
 // pebbleBinaries finds pebble and pebble-challtestsrv in

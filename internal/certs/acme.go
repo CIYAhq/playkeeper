@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,8 +28,17 @@ import (
 const maxACMEResponse = 1 << 20
 
 // validationWait bounds each wait for the certificate authority: for one
-// check of a name, and for the order to become ready or valid.
-const validationWait = 2 * time.Minute
+// check of a name, for the order to become ready, and for the certificate
+// once the order is finalized. Tests shorten it.
+var validationWait = 2 * time.Minute
+
+// maxPollWait bounds the wait before another look at an authorization or
+// order. The ACME client waits out the Retry-After of the last look, and a
+// long one would use up validationWait on a single wait; Let's Encrypt asks
+// for 3 seconds. It is also the wait before a look that failed to reach the
+// certificate authority is tried again. Tests shorten it to a second, the
+// shortest Retry-After.
+var maxPollWait = 5 * time.Second
 
 // Issuer gets certificates from an ACME certificate authority, Let's Encrypt
 // unless DirectoryURL says otherwise.
@@ -164,11 +174,17 @@ func (is *Issuer) Issue(ctx context.Context, req Request) (*Certificate, error) 
 	if err != nil {
 		return nil, newProblem(err, CodeFailed, nil)
 	}
-	der, _, err := c.CreateOrderCert(ctx, ready.FinalizeURL, csr, true)
+	wctx, cancel = context.WithTimeout(ctx, validationWait)
+	defer cancel()
+	der, _, err := c.CreateOrderCert(wctx, ready.FinalizeURL, csr, true)
 	if err != nil {
-		if der, err = fetchIssued(ctx, c, order.URI, err); err != nil {
-			return nil, explain(err, s, is.now())
+		der, err = fetchIssued(wctx, c, order.URI, err)
+	}
+	if err != nil {
+		if ctx.Err() == nil && errors.Is(wctx.Err(), context.DeadlineExceeded) {
+			return nil, newProblem(err, CodeIssuanceTimeout, nil)
 		}
+		return nil, explain(err, s, is.now())
 	}
 	leaf, err := checkChain(der, key, names, is.now())
 	if err != nil {
@@ -311,25 +327,33 @@ func (is *Issuer) authorize(ctx context.Context, c *acme.Client, authzURL string
 // fetchIssued gets the certificate of an order whose finalize request failed
 // without a problem from the certificate authority: the answer may have been
 // lost after the order went through, or lacked the order's URL (Pebble's
-// does), which the ACME client needs to wait for issuance to finish.
-// Fetching it spares a new order and a duplicate certificate. Otherwise the
-// order's problem, or finalizeErr, is returned.
+// does), which the ACME client needs to wait for issuance to finish, or a
+// look at the order failed during that wait. Fetching it spares a new order
+// and a duplicate certificate, so looks that fail to reach the certificate
+// authority are tried again until ctx is done. An order that is still ready
+// never got the request, and finalizeErr is returned.
 func fetchIssued(ctx context.Context, c *acme.Client, orderURL string, finalizeErr error) ([][]byte, error) {
 	var ae *acme.Error
 	var oe *acme.OrderError
 	if errors.As(finalizeErr, &ae) || errors.As(finalizeErr, &oe) || ctx.Err() != nil {
 		return nil, finalizeErr
 	}
-	wctx, cancel := context.WithTimeout(ctx, validationWait)
-	o, err := c.WaitOrder(wctx, orderURL)
-	cancel()
-	switch {
-	case errors.As(err, &oe) && oe.Problem != nil:
-		return nil, err
-	case err != nil || o.Status != acme.StatusValid || o.CertURL == "":
-		return nil, finalizeErr
+	for {
+		o, err := c.WaitOrder(ctx, orderURL)
+		switch {
+		case err == nil && o.Status == acme.StatusValid && o.CertURL != "":
+			return c.FetchCert(ctx, o.CertURL, true)
+		case err == nil:
+			return nil, finalizeErr
+		case ctx.Err() != nil || !unreachable(err):
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("%w; the last look at the order failed: %v", ctx.Err(), err)
+		case <-time.After(maxPollWait):
+		}
 	}
-	return c.FetchCert(ctx, o.CertURL, true)
 }
 
 func offered(z *acme.Authorization, typ string) *acme.Challenge {
@@ -448,6 +472,12 @@ func (g *guardTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, &refusedError{fmt.Sprintf("the answer from %s is larger than %d bytes", g.host, maxACMEResponse)}
 	}
 	resp.Body = &limitedBody{rc: resp.Body, left: maxACMEResponse}
+	// The ACME client reads a successful answer's Retry-After only as the
+	// wait before its next look; see maxPollWait. Other answers keep theirs
+	// for retryBackoff and for explaining rate limits.
+	if resp.StatusCode < 300 && retryAfter(resp.Header.Get("Retry-After"), time.Now()) > maxPollWait {
+		resp.Header.Set("Retry-After", strconv.Itoa(int(maxPollWait/time.Second)))
+	}
 	return resp, nil
 }
 

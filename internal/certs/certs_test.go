@@ -121,7 +121,7 @@ var allCodes = []string{
 	CodeRateLimited, CodePaused, CodeTermsNotAccepted, CodeCAActionRequired, CodeCANeedsAccount,
 	CodeAccountDisabled, CodeAccountKeyDamaged, CodeNameRefused, CodeEmailRefused,
 	CodePort80Unreachable, CodeWrongAnswer, CodeDNSNoRecord, CodeDNSServersFailing, CodeCAAForbids,
-	CodeValidationTimeout, CodeChallengeNotOffered, CodeDNS01PublishFailed, CodeDNS01NotVisible,
+	CodeValidationTimeout, CodeIssuanceTimeout, CodeChallengeNotOffered, CodeDNS01PublishFailed, CodeDNS01NotVisible,
 	CodeDNS01RecordWrong, CodeCertificateLimit,
 	CodePort80Busy, CodePort80Denied, CodePort80Failed, CodeSaveFailed, CodeBadCertificate, CodeCanceled,
 	CodeCAUnreachable, CodeClockWrong, CodeCAUntrusted, CodeCAUnavailable, CodeCAError, CodeFailed,

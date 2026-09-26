@@ -1754,6 +1754,22 @@ control "resource pack links: a look at the certificates in progress doesn't hid
   'if every < 0 {' \
   'if every < 0 && false {' \
   ./internal/certs '^TestStoreCanLookEveryTime$'
+control "certificate issuance: a long Retry-After waits no longer than maxPollWait" internal/certs/acme.go \
+  'if resp.StatusCode < 300 && retryAfter(' \
+  'if false && retryAfter(' \
+  ./internal/certs '^TestIssueWaitsForTheCertificate$'
+control "certificate issuance: a look at the order that gets no answer is tried again" internal/certs/acme.go \
+  'case ctx.Err() != nil || !unreachable(err):' \
+  'case true:' \
+  ./internal/certs '^TestIssueWaitsForTheCertificate$'
+control "certificate issuance: running out of time waiting for the certificate is a timeout, not a refusal" internal/certs/acme.go \
+  'return nil, newProblem(err, CodeIssuanceTimeout, nil)' \
+  'return nil, explain(err, s, is.now())' \
+  ./internal/certs '^TestIssueTimesOutWaitingForTheCertificate$'
+control "certificate issuance: the wait for the certificate ends validationWait after the finalize request" internal/certs/acme.go \
+  'c.CreateOrderCert(wctx, ready.FinalizeURL, csr, true)' \
+  'c.CreateOrderCert(ctx, ready.FinalizeURL, csr, true)' \
+  ./internal/certs '^TestIssueTimesOutWaitingForTheCertificate$'
 control "resource pack links: back to plain HTTP a week before the certificate runs out" internal/agent/packs.go \
   'const packCertMargin = 7 * 24 * time.Hour' \
   'const packCertMargin = 0' \
