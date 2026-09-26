@@ -307,7 +307,7 @@ describe('console', () => {
     expect(parseLine('plain output').kind).toBe('info')
   })
 
-  // Real lines from Vanilla 26.1.2, Fabric 26.3, Quilt 26.1.2 and NeoForge 26.2 servers, as the log API gives them.
+  // Real lines from Vanilla 26.1.2, Fabric 26.3, Quilt 26.1.2 and NeoForge 26.2 and 26.1.2 servers, as the log API gives them.
   it.each([
     ['[08:36:29] [Server thread/INFO]: pkbotfriend joined the game', '08:36:29', 'INFO', 'players', 'pkbotfriend joined the game'],
     ['[08:36:30] [Server thread/INFO]: [Not Secure] <pkbotfriend> hello from the Playkeeper check bot', '08:36:30', 'INFO', 'chat', '[Not Secure] <pkbotfriend> hello from the Playkeeper check bot'],
@@ -321,6 +321,10 @@ describe('console', () => {
     ['[00:32:41] [Server thread/INFO] [minecraft/DedicatedServer]: Done (2.863s)! For help, type "help"', '00:32:41', 'INFO', 'info', 'Done (2.863s)! For help, type "help"'],
     ['[00:32:37] [modloading-worker-0/INFO] [ne.ne.ne.co.NeoForgeMod/NEOFORGE-MOD]: NeoForge mod loading, version 26.2.0.88, for MC 26.2', '00:32:37', 'INFO', 'info', 'NeoForge mod loading, version 26.2.0.88, for MC 26.2'],
     ['[00:34:26] [RCON Client /[ip redacted] #3/INFO] [minecraft/RconClient]: Thread RCON Client /[ip redacted] shutting down', '00:34:26', 'INFO', 'info', 'Thread RCON Client /[ip redacted] shutting down'],
+    ['[09:43:11] [Server thread/INFO] [minecraft/MinecraftServer]: pkbotfriend joined the game', '09:43:11', 'INFO', 'players', 'pkbotfriend joined the game'],
+    ['[09:43:12] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <pkbotfriend> hello NeoForge 1', '09:43:12', 'INFO', 'chat', '[Not Secure] <pkbotfriend> hello NeoForge 1'],
+    ['[09:43:42] [Server thread/INFO] [minecraft/ServerGamePacketListenerImpl]: pkbotfriend lost connection: Disconnected', '09:43:42', 'INFO', 'players', 'pkbotfriend lost connection: Disconnected'],
+    ['[09:42:59] [Server thread/WARN] [mojang/YggdrasilGameProfileRepository]: Couldn\'t find profile with name: pkbotfriend', '09:42:59', 'WARN', 'problem', "Couldn't find profile with name: pkbotfriend"],
   ])('reads a line from a server that is not Paper: %s', (raw, time, level, kind, text) => {
     expect(parseLine(raw)).toEqual({ time, level, kind, text })
   })
