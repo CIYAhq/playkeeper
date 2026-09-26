@@ -511,3 +511,19 @@ func TestCrumbsLinkTheirHub(t *testing.T) {
 		t.Error("the feature page has no BreadcrumbList data")
 	}
 }
+
+// A guide's contents use a heading's short label when it has one, and end
+// with its questions.
+func TestGuideContents(t *testing.T) {
+	guide := pages(build(t, Default))["/guides/modded-minecraft-server"]
+	start := strings.Index(guide, `<nav class="toc" data-toc>`)
+	if start < 0 {
+		t.Fatal("the modded server guide has no contents")
+	}
+	toc := guide[start : start+strings.Index(guide[start:], "</nav>")]
+	for _, want := range []string{`<a href="#manual">The manual way</a>`, `<a href="#memory">How much memory</a>`, `<a href="#questions">Questions</a>`} {
+		if !strings.Contains(toc, want) {
+			t.Errorf("the guide's contents lack %s", want)
+		}
+	}
+}

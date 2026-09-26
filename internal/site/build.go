@@ -215,8 +215,11 @@ type View struct {
 	// HasInstall is whether the page shows the install command before the
 	// closing band, which then leaves #install to it.
 	HasInstall bool
-	Year       int
-	Crumbs     []Crumb
+	// HasQuestions says the page has an FAQ at #questions, for a guide's
+	// contents.
+	HasQuestions bool
+	Year         int
+	Crumbs       []Crumb
 }
 
 func (s *Site) render(p *Page) ([]byte, error) {
@@ -277,6 +280,7 @@ func (s *Site) render(p *Page) ([]byte, error) {
 		}
 	}
 	v.HasInstall = strings.Contains(string(v.Main)+string(v.Article)+string(v.After), `id="install"`)
+	v.HasQuestions = strings.Contains(string(v.After), `id="questions"`)
 	var b bytes.Buffer
 	if err := t.ExecuteTemplate(&b, "layout", v); err != nil {
 		return nil, err
@@ -308,7 +312,8 @@ func (s *Site) crumbs(p *Page) []Crumb {
 }
 
 var (
-	reHeading = regexp.MustCompile(`(?s)<h2 id="([^"]+)"[^>]*>(?:\s*<span class="n"[^>]*>([^<]*)</span>)?(.*?)</h2>`)
+	reHeading = regexp.MustCompile(`(?s)<h2 id="([^"]+)"([^>]*)>(?:\s*<span class="n"[^>]*>([^<]*)</span>)?(.*?)</h2>`)
+	reTOC     = regexp.MustCompile(`\sdata-toc="([^"]*)"`)
 	reWords   = regexp.MustCompile(`[\p{L}\p{N}]+`)
 )
 
@@ -316,7 +321,11 @@ var (
 func headings(article string) []Heading {
 	var out []Heading
 	for _, m := range reHeading.FindAllStringSubmatch(article, -1) {
-		out = append(out, Heading{ID: m[1], Number: strings.TrimSpace(m[2]), Text: strings.TrimSpace(unescape(reTags.ReplaceAllString(m[3], "")))})
+		text := strings.TrimSpace(unescape(reTags.ReplaceAllString(m[4], "")))
+		if short := reTOC.FindStringSubmatch(m[2]); short != nil {
+			text = unescape(short[1])
+		}
+		out = append(out, Heading{ID: m[1], Number: strings.TrimSpace(m[3]), Text: text})
 	}
 	return out
 }

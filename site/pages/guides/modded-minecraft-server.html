@@ -45,7 +45,7 @@ schema: article
 </section>
 
 <section aria-labelledby="manual">
-  {{template "h2n" (dict "ID" "manual" "N" 2 "Text" "The manual way, in brief")}}
+  {{template "h2n" (dict "ID" "manual" "N" 2 "Text" "The manual way, in brief" "Toc" "The manual way")}}
   <p>On a Linux VPS, by hand. It works; it just takes a while, and every update means doing parts of it again.</p>
   {{template "steps" (dict "Items" (list
     (dict "Title" "Install Java" "Text" "Java 21 for Minecraft 1.21, Java 25 for 26.1 and newer.")
@@ -108,7 +108,7 @@ sudo ufw allow 25565/tcp
 </section>
 
 <section aria-labelledby="friends">
-  {{template "h2n" (dict "ID" "friends" "N" 4 "Text" "Give friends the same mods")}}
+  {{template "h2n" (dict "ID" "friends" "N" 4 "Text" "Give friends the same mods" "Toc" "Friends get the same mods")}}
   <p>Everyone needs the same loader, version and mods. Playkeeper makes one link: friends download a file, import it in the Modrinth App or Prism Launcher, and join.</p>
   <div class="figure-pair">
     {{template "cardshot" (dict "Name" "guide-share" "Alt" "Share with friends: the link, what friends do, and what they get themselves." "Caption" "What you send: one link.")}}
@@ -117,7 +117,7 @@ sudo ufw allow 25565/tcp
 </section>
 
 <section aria-labelledby="memory">
-  {{template "h2n" (dict "ID" "memory" "N" 5 "Text" "How much memory modpacks need")}}
+  {{template "h2n" (dict "ID" "memory" "N" 5 "Text" "How much memory modpacks need" "Toc" "How much memory")}}
   {{template "modded-memory" .}}
 </section>
 

@@ -132,8 +132,8 @@
 {{end}}
 
 {{/* h2n: a guide's numbered section heading; the contents list is made
-     from these. */}}
-{{define "h2n"}}<h2 id="{{.ID}}" class="h2n reveal"><span class="n">{{.N}}</span>{{.Text}}</h2>{{end}}
+     from these, with Toc in place of Text when it's given. */}}
+{{define "h2n"}}<h2 id="{{.ID}}" class="h2n reveal"{{with .Toc}} data-toc="{{.}}"{{end}}><span class="n">{{.N}}</span>{{.Text}}</h2>{{end}}
 
 {{/* steps: numbered steps; Items are dicts with Title and Text. */}}
 {{define "steps"}}

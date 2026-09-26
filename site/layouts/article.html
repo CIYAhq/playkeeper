@@ -26,7 +26,7 @@
     <aside class="guide-side" aria-label="On this page">
       <nav class="toc" data-toc>
         <p class="toc-title">On this page</p>
-        <ol>{{range .Page.TOC}}<li><a href="#{{.ID}}">{{.Text}}</a></li>{{end}}</ol>
+        <ol>{{range .Page.TOC}}<li><a href="#{{.ID}}">{{.Text}}</a></li>{{end}}{{if .HasQuestions}}<li><a href="#questions">Questions</a></li>{{end}}</ol>
       </nav>
       <div class="side-install">
         <p class="side-install-title">Skip the manual steps</p>
