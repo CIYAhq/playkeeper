@@ -215,10 +215,12 @@ control "the data pack list waits for the missing world folder" internal/agent/p
   'if m := s.worldMissing(); false && m != nil {
 		return nil, errWorldMissing(m, "try again")' \
   ./internal/agent '^TestTheDataPackListWaitsForTheMissingWorldFolder$'
-control "another restore waits for the missing world folder" internal/agent/handlers.go \
-  'if m := target.worldMissing(); m != nil {' \
-  'if m := target.worldMissing(); false && m != nil {' \
-  ./internal/agent '^TestARestoreWaitsForTheMissingWorldFolder$'
+control "applying a restore waits for the missing world folder or an unsettled restore" internal/agent/handlers.go \
+  'if err := target.restoreRefusal("restore again"); err != nil {
+			a.auditFor(p.ServerID' \
+  'if err := target.restoreRefusal("restore again"); false && err != nil {
+			a.auditFor(p.ServerID' \
+  ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
 control "a new icon refused for the missing world folder says to upload it again" internal/agent/settings.go \
   's.ensureDirs("upload the icon again")' \
   's.ensureDirs("press Start")' \
@@ -238,16 +240,8 @@ webcontrol "pre-generating says it waits for the missing world folder" web/src/l
 " \
   web/src/lib/lib.test.ts 'pre-generate or restore while'
 webcontrol "a restore says it waits for the missing world folder" web/src/lib/phase.ts \
-  "      return undefined
-    case 'backup':
-    case 'pregen':
-    case 'restore':
-" \
-  "    case 'restore':
-      return undefined
-    case 'backup':
-    case 'pregen':
-" \
+  "return worldMissingReason(st) ?? (st.restoreUnsettled ? t('reason.restoreUnsettled') : undefined)" \
+  "return st.restoreUnsettled ? t('reason.restoreUnsettled') : undefined" \
   web/src/lib/lib.test.ts 'pre-generate or restore while'
 webcontrol "the pre-generation page's Start waits for the missing world folder" web/src/pages/server/world-pregen.tsx \
   "whyNot({ ...s, operation: otherJob }, 'pregen', ws.stale)" \
@@ -293,6 +287,55 @@ webcontrol "a notice wraps a long path" web/src/components/app/bits.tsx \
   '<p className="min-w-0 flex-1 text-[13px] leading-5 wrap-anywhere">' \
   '<p className="min-w-0 flex-1 text-[13px] leading-5">' \
   web/src/pages/server/world.test.tsx 'previous world is when a restore'
+control "no restore starts while another is unsettled" internal/agent/backups.go \
+  'if !s.busy() && s.restoreUnsettled() {' \
+  'if false && !s.busy() && s.restoreUnsettled() {' \
+  ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
+control "a restore from a backup waits for an unsettled one" internal/agent/handlers.go \
+  'if err := s.restoreRefusal("restore again"); err != nil {
+		s.audit(actor, "restore.staged", b.ID,' \
+  'if err := s.restoreRefusal("restore again"); false && err != nil {
+		s.audit(actor, "restore.staged", b.ID,' \
+  ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
+control "a restore from an upload waits for an unsettled one" internal/agent/handlers.go \
+  'if err := target.restoreRefusal("restore again"); err != nil {
+			a.auditFor(target.id' \
+  'if err := target.restoreRefusal("restore again"); false && err != nil {
+			a.auditFor(target.id' \
+  ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
+control "a restore from an off-site copy waits for an unsettled one" internal/agent/offsite.go \
+  'if err := s.restoreRefusal("restore again"); err != nil {' \
+  'if err := s.restoreRefusal("restore again"); false && err != nil {' \
+  ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
+control "the status says a restore isn't settled" internal/agent/handlers.go \
+  'st.RestoreUnsettled = s.restoreUnsettled()' \
+  'st.RestoreUnsettled = false' \
+  ./internal/agent '^TestNoRestoreStartsWhileAnotherIsUnsettled$'
+webcontrol "a restore says it waits for one that isn't finished" web/src/lib/phase.ts \
+  "return worldMissingReason(st) ?? (st.restoreUnsettled ? t('reason.restoreUnsettled') : undefined)" \
+  "return worldMissingReason(st)" \
+  web/src/lib/lib.test.ts 'restore while another restore'
+webcontrol "the World tab's restores wait for one that isn't finished" web/src/lib/phase.ts \
+  "return worldMissingReason(st) ?? (st.restoreUnsettled ? t('reason.restoreUnsettled') : undefined)" \
+  "return worldMissingReason(st)" \
+  web/src/pages/pages.test.tsx 'offer a restore while another'
+webcontrol "the phone's copy rows wait for the missing world folder" web/src/pages/server/world.tsx \
+  '<Button size="lg" variant="outline" disabledReason={restoreBlocked} onClick={() => void restore.start(r.copy)}>' \
+  '<Button size="lg" variant="outline" onClick={() => void restore.start(r.copy)}>' \
+  web/src/pages/pages.test.tsx 'copy from a phone'
+webcontrol "the restore sheet's drop zone waits for an unfinished restore" web/src/pages/server/world.tsx \
+  '                compact
+                disabledReason={restoreBlocked}
+' \
+  '                compact
+' \
+  web/src/pages/pages.test.tsx 'restores in the phone'
+webcontrol "the restore sheet's list waits for an unfinished restore" web/src/pages/server/world.tsx \
+  '                        disabled={!!restoreBlocked}
+                        title={restoreBlocked}
+' \
+  '' \
+  web/src/pages/pages.test.tsx 'restores in the phone'
 control "one admin from concurrent setups" internal/panel/auth.go \
   'SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)' \
   'SELECT ?, ?, ?, ?' \
