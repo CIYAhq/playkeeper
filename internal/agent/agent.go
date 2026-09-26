@@ -128,6 +128,9 @@ type Options struct {
 	// NamesHTTP carries requests to the free address service (tests); nil
 	// uses the names client's own, which never use a proxy.
 	NamesHTTP *http.Client
+	// NamesCheckWait bounds a look at whether a name is free, which the
+	// dashboard shows as it is typed (default 10s).
+	NamesCheckWait time.Duration
 	// Resolver looks up the machine's names as the public sees them
 	// (default: public DNS-over-HTTPS resolvers).
 	Resolver certs.Resolver
@@ -363,6 +366,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.PublishPoll == 0 {
 		opts.PublishPoll = 30 * time.Second
+	}
+	if opts.NamesCheckWait == 0 {
+		opts.NamesCheckWait = 10 * time.Second
 	}
 	if opts.PublicAddrs == nil {
 		opts.PublicAddrs = func() []netip.Addr { return certs.ExpectedAddrs() }

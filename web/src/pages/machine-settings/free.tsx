@@ -19,6 +19,7 @@ import { OwnSteps } from './own'
 import {
   aliveCheckPort,
   CertificateNotice,
+  certProblemText,
   ConfirmDialog,
   CopyIconButton,
   dashboardRow,
@@ -150,13 +151,14 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
   const mine = !!current && name === current
   const { answer, forget } = useLookup(problem || mine ? '' : name, (n) => get<NameAvailability>(machineApi(id, `/address/available?name=${encodeURIComponent(n)}`)), checkDelayMs)
   const address = `${name}.${a.base}`
-  const reason = claimReason(address, problem, mine, answer)
-  const available = !reason
 
   const claimFailed = claim.state.status === 'failed' ? claim.state : undefined
   let failed: { failure: Failure; retry: () => void } | undefined
   if (claimFailed) failed = { failure: claimFailed.failure, retry: () => void claim.claim(claimFailed.name) }
   else if (isFailure(answer)) failed = { failure: answer, retry: forget }
+  const unavailable = failed?.failure.error.code === 'names_unreachable' ? failed : undefined
+  const reason = unavailable ? t('address.unavailable') : claimReason(address, problem, mine, answer)
+  const available = !reason
 
   function change(v: string) {
     setRaw(v)
@@ -198,8 +200,9 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
       </InputGroupAddon>
     </InputGroup>
   )
-  const status = nameStatus({ name, address, problem, mine, answer, onPick: pick })
-  const failedBlock = failed && <ClaimFailure failure={failed.failure} machine={machine} onRetry={failed.retry} onUseOwn={onUseOwn} touch={phone} />
+  const status = unavailable ? <Unavailable onRetry={unavailable.retry} /> : nameStatus({ name, address, problem, mine, answer, onPick: pick })
+  const failedBlock = failed && !unavailable && <ClaimFailure failure={failed.failure} machine={machine} onRetry={failed.retry} onUseOwn={onUseOwn} touch={phone} />
+  const preview = !name || unavailable
   const changeHint = current && <p className="text-xs text-muted-foreground">{t('address.changeHint', { address: `${current}.${a.base}` })}</p>
 
   if (phone) {
@@ -217,7 +220,7 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
         <Group label={t('address.youGet')}>
           {rows.map((r) => (
             <li key={r.id} className="min-h-14 px-4 py-2">
-              <span className={cn('block text-base break-all', !name && 'text-muted-foreground')}>{r.value}</span>
+              <span className={cn('block text-base break-all', preview && 'text-muted-foreground')}>{r.value}</span>
               <span className="block text-[13px] text-muted-foreground">{r.label}</span>
             </li>
           ))}
@@ -262,7 +265,7 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
             {rows.map((r) => (
               <Fragment key={r.id}>
                 <dt className="text-muted-foreground">{r.label}</dt>
-                <dd className={cn('truncate font-semibold', !name && 'font-normal text-muted-foreground')}>{r.value}</dd>
+                <dd className={cn('truncate font-semibold', preview && 'font-normal text-muted-foreground')}>{r.value}</dd>
               </Fragment>
             ))}
           </dl>
@@ -376,6 +379,18 @@ function nameStatus({ name, address, problem, mine, answer, onPick }: { name: st
   }
 }
 
+/** The free address service can't be used right now, which is all the line under the name says. */
+function Unavailable({ onRetry }: { onRetry: () => void }) {
+  return (
+    <p className="text-xs text-muted-foreground max-sm:text-[13px]">
+      {t('address.unavailable')}{' '}
+      <button type="button" onClick={onRetry} className="rounded-sm font-semibold text-success-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+        {t('common.tryAgain')}
+      </button>
+    </p>
+  )
+}
+
 /** Why a claim, or a look at a name, was refused, with the one fix. */
 function ClaimFailure({ failure, machine, onRetry, onUseOwn, touch }: { failure: Failure; machine: string; onRetry: () => void; onUseOwn?: () => void; touch: boolean }) {
   const e = failure.error
@@ -406,21 +421,6 @@ function ClaimFailure({ failure, machine, onRetry, onUseOwn, touch }: { failure:
         </ResultBlock>
       )
     }
-    case 'names_unreachable':
-      return (
-        <ResultBlock
-          tone="red"
-          title={t('address.unreachable')}
-          actions={
-            <>
-              {retry}
-              {useOwn}
-            </>
-          }
-        >
-          {t('address.unreachableBody')}
-        </ResultBlock>
-      )
     case 'not_public_address':
       return (
         <ResultBlock tone="red" title={t('address.notPublic', { machine })} actions={retry}>
@@ -544,6 +544,8 @@ export function FreeAddress({ id, a, machine, refresh, claim }: AddressProps & {
     } catch (e) {
       if (e instanceof ApiError && e.code === 'not_answering') {
         toastManager.add({ title: t('address.notReachable', { machine }), description: t('address.notReachableBody', { port: Number(e.params?.port ?? aliveCheckPort) }), type: 'error' })
+      } else if (e instanceof ApiError && e.code === 'names_unreachable') {
+        toastManager.add({ title: t('address.namesDown'), type: 'error' })
       } else {
         toastManager.add({ title: refusal(e), type: 'error' })
       }
@@ -604,11 +606,13 @@ export function FreeAddress({ id, a, machine, refresh, claim }: AddressProps & {
       <DoneView
         header={header}
         notices={
-          <>
-            <UnreachableNotice a={a} />
-            <ServersWaitNotice a={a} machine={machine} />
+          certProblemText(a, now) ? (
             <CertificateNotice a={a} now={now} busy={busy === 'certificate'} onRetry={() => void act('certificate')} />
-          </>
+          ) : a.names.unreachable ? (
+            <UnreachableNotice />
+          ) : (
+            <ServersWaitNotice a={a} machine={machine} />
+          )
         }
         rows={rows}
         ip={a.ip}
