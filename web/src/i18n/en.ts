@@ -644,7 +644,7 @@ export const en = {
   'players.operator': 'Operator · can run commands',
   'players.menuFor': 'Actions for {name}',
   'players.makeOp': 'Make operator',
-  'players.makeOpHint': 'Lets them use commands in the game',
+  'players.makeOpHint': 'Lets them use commands',
   'players.removeOp': 'Remove operator',
   'players.removeOpHint': 'They keep playing, without commands',
   'players.kick': 'Kick from the game',
