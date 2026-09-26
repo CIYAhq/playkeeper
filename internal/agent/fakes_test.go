@@ -40,13 +40,15 @@ type fakeDocker struct {
 	logDelay     time.Duration // before answering each logs request
 	bootExit     int           // when set, the server exits with it while starting
 	holdImages   bool          // image inspects wait until the caller gives up
+	down         string        // requests whose path starts with it fail, as when Docker stops answering
+	stopDelay    time.Duration // before a container stop takes effect
 	// bootFailsOn names a Minecraft version whose server rewrites the world's
 	// level.dat, as an upgrade would, then exits while starting.
 	bootFailsOn string
 	// target names the container addLog, crash and the like act on when
 	// there is more than one server.
-	target string
-	down   atomic.Bool // every request fails, as when the Docker daemon is stopped
+	target  string
+	stopped atomic.Bool // every request fails, as when the Docker daemon is stopped
 }
 
 type fakeLine struct {
@@ -181,7 +183,7 @@ func jsonOut(w http.ResponseWriter, status int, v any) {
 
 func (fd *fakeDocker) serve(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
-	if fd.down.Load() {
+	if fd.stopped.Load() {
 		jsonOut(w, 500, map[string]string{"message": "Cannot connect to the Docker daemon"})
 		return
 	}
@@ -192,7 +194,12 @@ func (fd *fakeDocker) serve(w http.ResponseWriter, r *http.Request) {
 	path = strings.TrimPrefix(path, "/v1.52")
 	fd.mu.Lock()
 	fd.calls = append(fd.calls, r.Method+" "+path)
+	down := fd.down != "" && strings.HasPrefix(path, fd.down)
 	fd.mu.Unlock()
+	if down {
+		jsonOut(w, 500, map[string]string{"message": "fake Docker is not answering"})
+		return
+	}
 	switch {
 	case r.Method == "GET" && strings.HasPrefix(path, "/images/") && strings.HasSuffix(path, "/json"):
 		ref := strings.TrimSuffix(strings.TrimPrefix(path, "/images/"), "/json")
@@ -334,6 +341,10 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 		go fd.boot(c, setup)
 		w.WriteHeader(204)
 	case r.Method == "POST" && action == "stop":
+		fd.mu.Lock()
+		delay := fd.stopDelay
+		fd.mu.Unlock()
+		time.Sleep(delay)
 		fd.mu.Lock()
 		if c.running {
 			fd.log(c, "[12:00:00 INFO]: Stopping server")

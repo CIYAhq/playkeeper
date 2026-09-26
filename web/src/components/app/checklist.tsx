@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react'
 import { ArchiveIcon, ArrowRightIcon, CheckIcon, ChevronRightIcon, DownloadIcon, LockIcon, PlusIcon, UserPlusIcon, XIcon } from 'lucide-react'
 import type { ServerStatus } from '@/api/types'
-import { useWorkspace } from '@/api/workspace'
+import { errorText, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Progress, SectionLabel } from '@/components/app/bits'
 import { Button } from '@/components/ui/button'
+import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { checklist, complete, progress, type Step, type StepId } from '@/lib/checklist'
 import { relativeTime } from '@/lib/format'
@@ -12,6 +13,7 @@ import { isSettingUp } from '@/lib/phase'
 import { linkProps, type Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
 
+/** The preference that hides a server's first steps (keys are lower case, see hPrefsSet). */
 export function hiddenKey(server: ServerStatus | undefined): string {
   return server ? `checklist.hidden.${server.id}` : 'checklist.hidden'
 }
@@ -53,7 +55,7 @@ function stepHint(step: Step, server: ServerStatus | undefined): string {
     case 'backup':
       return t('checklist.backupHintLong')
     case 'download':
-      return step.state === 'locked' ? t('checklist.downloadLocked') : t('checklist.downloadHint')
+      return t('checklist.downloadHint')
     default: {
       const unreachable: never = step.id
       return unreachable
@@ -200,7 +202,9 @@ export function FirstStepsCard({ server, phone, onBackup }: { server: ServerStat
   if (complete(steps) || prefs[hiddenKey(server)] === '1') return null
   const p = progress(steps)
   const left = p.total - p.done
-  const hide = () => void setPrefs({ [hiddenKey(server)]: '1' })
+  const hide = () => {
+    setPrefs({ [hiddenKey(server)]: '1' }).catch((e: unknown) => toastManager.add({ title: t('checklist.hideFailed'), description: errorText(e), type: 'error' }))
+  }
   if (phone) {
     const next = p.next
     return (
@@ -216,7 +220,7 @@ export function FirstStepsCard({ server, phone, onBackup }: { server: ServerStat
               <Pip pose="letter" size={52} />
               <div className="min-w-0">
                 <h2 className="text-[17px] leading-[22px] font-semibold">{stepTitle(next.id)}</h2>
-                <p className="mt-1 text-[15px] leading-5 text-muted-foreground">{next.id === 'backup' ? t('checklist.backupPhone') : stepHint(next, server)}</p>
+                <p className="mt-1 text-[15px] leading-5 text-muted-foreground">{stepHint(next, server)}</p>
               </div>
             </div>
             <StepButton step={next} server={server} size="touch" className="mt-4 w-full" onBackup={onBackup} />
@@ -240,7 +244,6 @@ export function FirstStepsCard({ server, phone, onBackup }: { server: ServerStat
         <div className="flex flex-col">
           <Pip pose="letter" size={64} />
           <h2 className="mt-3 text-[17px] leading-6 font-bold">{p.done === 0 ? t('checklist.headlineStart', { server: server.name }) : t('checklist.headline', { server: server.name, count: left })}</h2>
-          <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">{t('checklist.body')}</p>
           <div className="mt-auto flex items-center gap-3 pt-4">
             <Progress value={(p.done / p.total) * 100} className="max-w-[120px]" label={t('checklist.progressDone', { done: p.done, total: p.total })} />
             <span className="text-xs text-muted-foreground tabular-nums">{t('checklist.progressDone', { done: p.done, total: p.total })}</span>
@@ -307,7 +310,7 @@ export function EmptySteps({ phone }: { phone?: boolean }) {
           <li key={s.id}>
             <div className={cn('text-xs font-medium', s.state === 'next' ? 'text-primary' : 'text-muted-foreground')}>{s.state === 'next' ? t('checklist.stepNext', { n: i + 1 }) : t('checklist.stepNumber', { n: i + 1 })}</div>
             <div className="mt-1 text-[13px] font-semibold">{s.id === 'create' ? t('checklist.create') : stepTitle(s.id, true)}</div>
-            <div className="mt-0.5 text-xs text-muted-foreground">{emptyHint(s.id)}</div>
+            {emptyHint(s.id) && <div className="mt-0.5 text-xs text-muted-foreground">{emptyHint(s.id)}</div>}
           </li>
         ))}
       </ol>
@@ -315,16 +318,15 @@ export function EmptySteps({ phone }: { phone?: boolean }) {
   )
 }
 
-function emptyHint(id: StepId): string {
+function emptyHint(id: StepId): string | undefined {
   switch (id) {
     case 'create':
-      return t('checklist.createHint')
+    case 'backup':
+      return undefined
     case 'invite':
       return t('checklist.inviteHint')
     case 'joined':
       return t('checklist.joinedHint')
-    case 'backup':
-      return t('checklist.backupHint')
     case 'download':
       return t('checklist.downloadHint')
     default: {

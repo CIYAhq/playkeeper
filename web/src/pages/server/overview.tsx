@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, ExternalLinkIcon, PlayIcon, RefreshCwIcon, RotateCwIcon, Trash2Icon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { get, post } from '@/api/client'
-import type { Activity, LogsResponse, MachineView, ServerStatus, SessionsResponse } from '@/api/types'
+import type { Activity, FileRefusal, LogsResponse, MachineView, ServerStatus, SessionsResponse } from '@/api/types'
 import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Pip } from '@/components/app/art'
@@ -17,7 +17,7 @@ import { t } from '@/i18n'
 import { parseLine, ranOutOfMemory } from '@/lib/console'
 import { formatBytes, formatClock, formatDate, formatDuration, formatList, formatMB, formatPercent, formatSpan, joinAddress, relativeTime, sameDay } from '@/lib/format'
 import { awayLong, joinHost, machineLabel, machineRoute } from '@/lib/machines'
-import { createStepOf, isSettingUp, opLabel, phaseLabel } from '@/lib/phase'
+import { createStepOf, isSettingUp, opLabel, phaseLabel, whyNot } from '@/lib/phase'
 import { linkPath, linkProps } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
@@ -29,7 +29,7 @@ export function Overview({ server }: { server: ServerStatus }) {
   if (reach.state === 'away') return <MachineAwayView server={server} machine={reach.machine} since={reach.since} />
   if (reach.state === 'agentDown') return <AgentDownView machine={reach.machine} since={reach.since} />
   if (!stale && isSettingUp(server)) return <SettingUpView server={server} />
-  if (!stale && server.phase === 'crashed' && !server.operation) return <CrashedView server={server} />
+  if (!stale && (server.phase === 'crashed' || (server.refusal && server.phase !== 'docker_unavailable')) && !server.operation) return <CrashedView server={server} />
   return <Running server={server} />
 }
 
@@ -110,7 +110,7 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
             variant="outline"
             size="sm"
             loading={busy}
-            disabled={!!s.operation}
+            disabledReason={whyNot(s, 'restart', stale)}
             onClick={async () => {
               setBusy(true)
               await serverAction(s, 'restart')
@@ -374,13 +374,10 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
             </Button>
           </>
         ) : (
-          <>
-            <Button variant="outline" render={<a {...linkProps(other ? { name: 'server', slug: other.slug, tab: 'overview' } : { name: 'home' })} />}>
-              <ArrowLeftIcon />
-              {other ? t('creating.takeMe', { server: other.name }) : t('creating.takeHome')}
-            </Button>
-            <span className="text-xs text-muted-foreground">{t('creating.nothingToDo')}</span>
-          </>
+          <Button variant="outline" render={<a {...linkProps(other ? { name: 'server', slug: other.slug, tab: 'overview' } : { name: 'home' })} />}>
+            <ArrowLeftIcon />
+            {other ? t('creating.takeMe', { server: other.name }) : t('creating.takeHome')}
+          </Button>
         )}
       </div>
     </Card>
@@ -390,7 +387,8 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
 function CrashedView({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
   const tail = useTail(s, 3, 10_000)
-  const oom = ranOutOfMemory(s.exitCode, tail)
+  const refusal = s.refusal
+  const oom = !refusal && ranOutOfMemory(s.exitCode, tail)
   const { catalog } = useCatalog(ws.machine?.id, { server: s.id, fresh: true })
   const current = s.config?.memoryMB ?? 0
   const bigger = (catalog?.memoryOptionsMB ?? []).filter((mb) => mb > current && mb <= (catalog?.maxMemoryMB ?? 0))[0]
@@ -418,12 +416,17 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
           <Pip pose="hurt" size={80} className="max-sm:hidden" />
           <div className="min-w-0">
             <h2 className="text-lg font-bold">{t('crash.what')}</h2>
-            <p className="mt-1 text-sm">{oom ? t('crash.oom', { server: s.name, memory: formatMB(current) }) : (s.lastError ?? t('crash.generic', { server: s.name }))}</p>
-            {s.crashCount >= 2 && <p className="mt-2 text-[13px] text-muted-foreground">{t('crash.gaveUp')}</p>}
-            {!oom && s.lastErrorHint && <p className="mt-2 text-[13px] text-muted-foreground">{s.lastErrorHint}</p>}
+            {refusal ? (
+              <p className="mt-1 text-sm">{refusalLine(refusal, s.name)}</p>
+            ) : (
+              <>
+                <p className="mt-1 text-sm">{oom ? t('crash.oom', { memory: formatMB(current) }) : (s.lastError ?? t('crash.generic', { server: s.name }))}</p>
+                {!oom && s.lastErrorHint && <p className="mt-2 text-[13px] text-muted-foreground">{s.lastErrorHint}</p>}
+              </>
+            )}
           </div>
         </div>
-        {tail.length > 0 && (
+        {!refusal && tail.length > 0 && (
           <div className="mt-auto pt-5">
             <div className="text-xs font-semibold">{t('crash.lastLines')}</div>
             <ConsoleTail lines={tail} className="mt-2" />
@@ -439,7 +442,7 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
               <ChoiceCard value="more" radio="start" className="gap-3 p-3.5">
                 <span className="text-sm font-semibold">{t('crash.more', { server: s.name, memory: formatMB(bigger) })}</span>
                 <span className="ml-2 text-xs font-medium text-success-foreground">{t('common.recommended')}</span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">{free !== undefined ? t('crash.moreHint', { machine: ws.machineName, free: formatMB(free) }) : ''}</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">{free !== undefined ? t('crash.moreHint', { free: formatMB(free) }) : ''}</span>
               </ChoiceCard>
               <ChoiceCard value="keep" radio="start" className="gap-3 p-3.5">
                 <span className="text-sm font-semibold">{t('crash.keep', { memory: formatMB(current) })}</span>
@@ -448,16 +451,38 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
             </CardGroup>
           </>
         ) : (
-          <p className="mt-1 text-[13px] text-muted-foreground">{t('crash.startHint', { server: s.name })}</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">{refusal ? t('crash.refusedFix', { file: refusal.params.path, server: s.name }) : t('crash.startHint', { server: s.name })}</p>
         )}
-        <Button className="mt-4 w-full" size="lg" loading={busy} onClick={fix} disabled={!!s.operation}>
+        <Button className="mt-4 w-full" size="lg" loading={busy} onClick={fix} disabledReason={whyNot(s, 'start', ws.stale)}>
           <PlayIcon />
           {withMore && choice === 'more' ? t('crash.save', { server: s.name }) : t('crash.startOnly', { server: s.name })}
         </Button>
-        <p className="mt-3 text-center text-xs text-muted-foreground">{t('crash.offlineNote', { server: s.name })}</p>
       </Card>
     </div>
   )
+}
+
+/** Names the file that stopped a start and what to do about it. */
+function refusalLine(r: FileRefusal, server: string): string {
+  const file = r.params.path
+  const english = [r.message, r.hint].filter(Boolean).join(' ')
+  switch (r.code) {
+    case 'link':
+      return t('crash.refusedLink', { server, file })
+    case 'special_file':
+      return t('crash.refusedSpecial', { server, file })
+    case 'not_a_file':
+    case 'not_a_folder':
+    case 'too_large':
+    case 'too_many_entries':
+    case 'changed':
+    case 'bad_name':
+      return english
+    default: {
+      const unreachable: never = r.code
+      return english || unreachable
+    }
+  }
 }
 
 /** A machine's agent doesn't answer: the dashboard's own, or a joined machine's while its link is up. since is when it was last heard. */

@@ -10,7 +10,9 @@ import { Card, CardHint, CardTitle, CopyButton, Elapsed, MeterRow, Notice, Playe
 import { EmptySteps } from '@/components/app/checklist'
 import { useIsPhone } from '@/components/app/controls'
 import { PageBody, PageHeader, PhoneMoreButton } from '@/components/app/shell'
+import { InlineSkeleton, LoadingLabel, MeterSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { demo } from '@/lib/demo'
@@ -29,7 +31,7 @@ export function HomePage() {
   const machine = ws.machine
   const { catalog } = useCatalog(machine?.id)
   const reachable = ws.machines.filter((m) => !isAway(m)).map((m) => m.id)
-  const activity = usePoll(() => recentActivity(reachable), 10000, reachable.join(' '))
+  const activity = usePoll<Activity[] | undefined>(() => (reachable.length ? recentActivity(reachable) : Promise.resolve(undefined)), 10000, reachable.join(' '))
 
   const newButton = (
     <Button render={<a {...linkProps({ name: 'new-server' })} />}>
@@ -61,17 +63,15 @@ export function HomePage() {
   }
 
   const grouped = ws.machines.length > 1
-  const players = playersOnline(servers?.filter((s) => !s.lastKnownAt))
-  let subtitle: string | undefined
-  if (servers && grouped) subtitle = `${t('machines.home.subtitle', { count: servers.length, machines: ws.machines.length })}${t('common.dot')}${t('machines.home.playing', { count: players })}`
-  else if (servers) subtitle = `${t('home.servers', { count: servers.length, machine: ws.machineName })}${t('common.dot')}${t('home.playing', { count: players })}`
+  const count = servers && (grouped ? t('machines.home.subtitle', { count: servers.length, machines: ws.machines.length }) : t('home.servers', { count: servers.length, machine: ws.machineName }))
+  const subtitle = !servers ? <InlineSkeleton className="w-56" /> : ws.stale ? count : `${count}${t('common.dot')}${t('home.playing', { count: playersOnline(servers.filter((s) => !s.lastKnownAt)) })}`
   return (
     <>
       <PageHeader title={t('home.title')} subtitle={demo ? demo.homeSubtitle() : subtitle} actions={demo ? <demo.HomeAction /> : newButton} phoneAction={<PhoneMoreButton />} />
       <PageBody className="flex flex-col gap-4">
         <MachineNotice />
-        {grouped ? (
-          byMachine(servers ?? [], ws.machines).map((g) => (
+        {grouped && servers ? (
+          byMachine(servers, ws.machines).map((g) => (
             <section key={g.machine.id} aria-labelledby={`on-${g.machine.id}`} className="flex flex-col gap-3">
               <MachineHeading machine={g.machine} />
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -84,9 +84,7 @@ export function HomePage() {
           ))
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {(servers ?? []).map((s) => (
-              <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />
-            ))}
+            {servers ? servers.map((s) => <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />) : [0, 1].map((i) => <ServerCardSkeleton key={i} />)}
             {demo ? <demo.HomeCard /> : <NewServerCard />}
           </div>
         )}
@@ -121,7 +119,7 @@ async function recentActivity(machines: string[]): Promise<Activity[]> {
 function MachineNotice() {
   const ws = useWorkspace()
   const disk = ws.machine?.live?.diskWarning
-  if (ws.agentDown) return <Notice tone="error" title={t('agentDown.title')}>{t('agentDown.note')}</Notice>
+  if (ws.agentDown) return <Notice tone="error" title={t('agentDown.title')}>{t('agentDown.body', { machine: ws.machineName })}</Notice>
   if (disk) return <Notice tone={disk.status === 'fail' ? 'error' : 'warning'} title={t('overview.lowDiskTitle', { detail: disk.detail })}>{disk.fix}</Notice>
   return null
 }
@@ -256,6 +254,27 @@ function ServerCard({ server: s, update }: { server: ServerStatus; update?: Cata
   )
 }
 
+/** A server card while the list loads, in the same box as the real one. */
+function ServerCardSkeleton() {
+  return (
+    <div className="flex flex-col gap-3.5 rounded-3xl border border-border bg-card p-4 shadow-card">
+      <LoadingLabel />
+      <div className="flex items-start gap-3">
+        <Skeleton className="size-10 rounded-xl" />
+        <div className="flex min-w-0 flex-1 flex-col gap-2 pt-0.5">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-3 w-20" />
+        </div>
+        <Skeleton className="h-[26px] w-20 rounded-full" />
+      </div>
+      <div className="flex h-11 items-center">
+        <Skeleton className="h-3 w-32" />
+      </div>
+      <Skeleton className="h-10 rounded-lg" />
+    </div>
+  )
+}
+
 /** The dashed card that starts a new server: on the dashboard's machine, or on the machine given. */
 function NewServerCard({ machine }: { machine?: MachineView }) {
   const ws = useWorkspace()
@@ -324,8 +343,10 @@ function MachineCard() {
           <MeterRow label={t('home.cpu')} value={formatPercent(live.cpuPercent)} percent={live.cpuPercent} />
           <MeterRow label={t('home.disk')} value={t('home.diskFree', { free: formatBytes(live.diskFreeBytes) })} percent={diskUsed} />
         </div>
+      ) : ws.agentDown ? (
+        <p className="mt-3 flex-1 text-[13px] text-muted-foreground">{t('nav.notAnswering')}</p>
       ) : (
-        <p className="mt-3 flex-1 text-[13px] text-muted-foreground">{ws.agentDown ? t('nav.notAnswering') : t('common.loading')}</p>
+        <MeterSkeleton className="mt-4" />
       )}
       {m && (
         <a {...linkProps({ name: 'machine', id: m.id })} className="mt-auto inline-flex items-center gap-1 self-start pt-4 text-xs font-medium text-primary hover:underline">

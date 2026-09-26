@@ -584,7 +584,12 @@ func TestDownloadsArePinnedAndTelemetryIsOff(t *testing.T) {
 func TestConcurrentOperationsAreSerialized(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	e.fd.bootDelay = 300 * time.Millisecond
+	// Each operation outlasts the requests racing it, even on a loaded
+	// machine: a stop that finished first would turn the restart into "not
+	// running" instead of "busy".
+	e.fd.mu.Lock()
+	e.fd.bootDelay, e.fd.stopDelay = 300*time.Millisecond, 300*time.Millisecond
+	e.fd.mu.Unlock()
 	type res struct {
 		path string
 		code int
@@ -1887,7 +1892,7 @@ func TestAMachineWithoutServersSaysWhetherDockerAnswers(t *testing.T) {
 		return e.a.Machine(context.Background()).Docker, h["docker"] == true
 	}
 	for _, want := range []bool{true, false, true} {
-		e.fd.down.Store(!want)
+		e.fd.stopped.Store(!want)
 		deadline := time.Now().Add(5 * time.Second)
 		for {
 			m, h := docker()

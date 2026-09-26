@@ -5,7 +5,7 @@ import { PlayArt, TypeLogo, WorldArt } from '@/components/app/art'
 import { CardGroup, ChoiceCard } from '@/components/app/controls'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { Combobox, ComboboxEmpty, ComboboxGroupLabel, ComboboxInput, ComboboxItem, ComboboxList, ComboboxPopup } from '@/components/ui/combobox'
+import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxPopup } from '@/components/ui/combobox'
 import { Sheet, SheetPanel, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
@@ -82,6 +82,17 @@ export function createRequest(c: CreateChoices) {
   }
 }
 
+/** Why the chosen version can't be used yet; undefined when it can. */
+export function versionBlocked(c: CreateChoices, version: CatalogEntry | undefined): string | undefined {
+  if (!version) return t('reason.pickVersion')
+  return version.experimental && !c.acceptExperimental ? t('reason.experimental', { version: version.minecraftVersion }) : undefined
+}
+
+/** Why the server can't be created yet; undefined when it can. */
+export function createBlocked(c: CreateChoices, version: CatalogEntry | undefined): string | undefined {
+  return versionBlocked(c, version) ?? (!c.name.trim() ? t('reason.nameFirst') : c.eula ? undefined : t('reason.eula'))
+}
+
 const typeKeys: Record<string, { long: MessageKey; short: MessageKey }> = {
   paper: { long: 'new.type.paper', short: 'new.type.paper.short' },
   vanilla: { long: 'new.type.vanilla', short: 'new.type.vanilla.short' },
@@ -99,11 +110,15 @@ export function TypeCards({ catalog, value, onChange, phone }: { catalog: Catalo
         const keys = typeKeys[ty.id]
         const soon = !ty.available
         return (
-          <ChoiceCard key={ty.id} value={ty.id} disabled={soon} radio={soon ? 'none' : 'end'} className={cn(phone ? 'items-center gap-3 p-3' : 'min-h-[128px] flex-col-reverse gap-2 p-3.5 [&>[data-slot=radio]]:self-end')}>
+          <ChoiceCard key={ty.id} value={ty.id} disabled={soon} reason={t('common.comingSoon')} radio={soon ? 'none' : 'end'} className={cn(phone ? 'items-center gap-3 p-3' : 'min-h-[128px] flex-col-reverse gap-2 p-3.5 [&>[data-slot=radio]]:self-end')}>
             <span className={cn('flex gap-3', phone ? 'items-center' : 'flex-col')}>
               <span className="flex items-start justify-between">
                 <TypeLogo type={ty.id} size={phone ? 40 : 34} />
-                {soon && !phone && <span className="text-xs text-muted-foreground">{t('common.comingSoon')}</span>}
+                {soon && !phone && (
+                  <span className="text-xs text-muted-foreground" aria-hidden="true">
+                    {t('common.comingSoon')}
+                  </span>
+                )}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2 text-sm font-semibold">
@@ -112,7 +127,11 @@ export function TypeCards({ catalog, value, onChange, phone }: { catalog: Catalo
                 </span>
                 {keys && <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{phone ? t(keys.short) : t(keys.long)}</span>}
               </span>
-              {soon && phone && <span className="text-xs text-muted-foreground">{t('common.soon')}</span>}
+              {soon && phone && (
+                <span className="text-xs text-muted-foreground" aria-hidden="true">
+                  {t('common.soon')}
+                </span>
+              )}
             </span>
           </ChoiceCard>
         )
@@ -147,7 +166,7 @@ export function versionCards(versions: CatalogEntry[], servers: ServerStatus[] |
   for (const s of servers ?? []) {
     const v = s.config?.minecraftVersion
     const e = v ? stable.find((x) => x.minecraftVersion === v) : undefined
-    add(e, phone ? t('new.sameAsShort', { server: s.name }) : t('new.sameAs', { server: s.name }))
+    add(e, t('new.sameAs', { server: s.name }))
   }
   const older = stable.filter((v) => !cards.some((c) => c.entry.id === v.id))
   return { cards, older }
@@ -197,7 +216,6 @@ export function VersionPicker({ catalog, servers, value, onChange, acceptExperim
               <ComboboxInput placeholder={t('new.olderSearch', { count: older.length })} aria-label={t('new.older')} startAddon={<SearchIcon />} />
               <ComboboxPopup>
                 <ComboboxEmpty>{t('new.noMatch')}</ComboboxEmpty>
-                <ComboboxGroupLabel>{t('new.stable')}</ComboboxGroupLabel>
                 <ComboboxList>
                   {(item: (typeof items)[number]) => (
                     <ComboboxItem key={item.value} value={item}>
@@ -337,7 +355,7 @@ export function EulaCheck({ checked, onChange, short, className }: { checked: bo
                 ),
               })}
         </span>
-        <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{short ? t('eula.hintShort') : t('eula.hint')}</span>
+        <span className="block text-xs text-muted-foreground max-sm:text-[13px]">{t('eula.hint')}</span>
       </span>
     </label>
   )

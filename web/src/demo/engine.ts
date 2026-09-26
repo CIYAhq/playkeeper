@@ -453,7 +453,7 @@ function settings(s: DemoState, r: Request) {
 
 function command(s: DemoState, r: Request) {
   const srv = serverOf(s, r)
-  if (srv.phase !== 'online') throw new ApiError(409, { error: t('console.notOnline', { server: srv.name }), code: 'not_running' })
+  if (srv.phase !== 'online') throw new ApiError(409, { error: t('reason.startFirst', { server: srv.name }), code: 'not_running' })
   const text = String((r.body as { command?: string } | undefined)?.command ?? '').trim().replace(/^\//, '')
   const [verb = '', ...rest] = text.split(/\s+/)
   const names = s.live[srv.id]?.online.map((p) => p.name) ?? []

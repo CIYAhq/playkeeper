@@ -53,6 +53,30 @@ jobs:
             dist/get.sh
           retention-days: 7
 
+  ui-fake-panel:
+    name: Browser checks against a faked panel — the Console with a long log, desktop and phone
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Pinned toolchains, the built UI and the test browser
+        run: |
+          ./scripts/setup.sh
+          echo "$PWD/.tools/node/bin" >> "$GITHUB_PATH"
+          make web
+          cd test/e2e/ui
+          ../../../.tools/node/bin/npm ci --no-audit --no-fund
+          sudo env "PATH=$PWD/../../../.tools/node/bin:$PATH" npx playwright install-deps chromium
+          PATH="$PWD/../../../.tools/node/bin:$PATH" npx playwright install chromium
+      - name: Console scrolling, following and "Jump to latest"
+        run: cd test/e2e/ui && npx playwright test -c playwright.fake-panel.config.ts
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: ui-fake-panel-traces
+          path: test/e2e/ui/test-results
+          retention-days: 7
+
   site:
     name: Site image — build it, check /, /sizing, /demo/, /healthz and the /install redirect, walk the live demo
     runs-on: ubuntu-24.04
@@ -147,6 +171,12 @@ jobs:
           PK_SHOTS: /tmp/evidence/screenshots
           PK_OUT: /tmp/evidence/ui
         run: cd test/e2e/ui && npx playwright test views.spec.ts --reporter=list
+      - name: Every control does something (click-through at desktop and phone sizes, changes go to fakes)
+        env:
+          PK_URL: https://127.0.0.1:8443
+          PK_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+          PK_OUT: /tmp/evidence/ui
+        run: cd test/e2e/ui && npx playwright test clickthrough.spec.ts --reporter=list --workers=2
       - name: Exposure and privilege checks
         run: |
           set -x

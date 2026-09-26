@@ -69,12 +69,49 @@ export function AppShell({ route, children }: { route: Route; children: ReactNod
         </a>
         <Sidebar route={route} onSearch={shell.openPalette} />
         <main id="main" tabIndex={-1} className="my-2 mr-2 flex min-h-[calc(100dvh-16px)] min-w-0 flex-1 flex-col rounded-2xl border border-border bg-background shadow-card outline-none">
-          {children}
+          <Page route={route}>{children}</Page>
           <p className="mt-auto px-7 pt-6 pb-4 text-xs text-muted-foreground">{t('footer.notOfficial')}</p>
         </main>
         {overlays}
       </div>
     </ShellCtx.Provider>
+  )
+}
+
+/** Which page a route shows; a server's tabs share one, so its header stays put. */
+function pageKey(route: Route): string {
+  switch (route.name) {
+    case 'server':
+      return `server/${route.slug}`
+    case 'machine':
+      return `machine/${route.id}`
+    case 'machine-settings':
+      return `machine-settings/${route.id}`
+    case 'legacy':
+      return `legacy/${route.tab}`
+    case 'home':
+    case 'login':
+    case 'setup':
+    case 'welcome':
+    case 'new-server':
+    case 'settings':
+    case 'more':
+    case 'ai-agents':
+    case 'machines':
+      return route.name
+    default: {
+      const unreachable: never = route
+      return unreachable
+    }
+  }
+}
+
+/** Fades each new page in; a new key starts the animation again. */
+function Page({ route, children }: { route: Route; children: ReactNode }) {
+  return (
+    <div key={pageKey(route)} className="flex min-w-0 flex-1 animate-page flex-col">
+      {children}
+    </div>
   )
 }
 
@@ -301,7 +338,7 @@ function PhoneShell({ route, overlays, children }: { route: Route; overlays: Rea
       </a>
       <main id="main" tabIndex={-1} className={cn('flex flex-1 flex-col px-4 pt-[max(env(safe-area-inset-top),8px)] outline-none', inServer ? 'pb-[calc(68px+env(safe-area-inset-bottom))]' : 'pb-[max(env(safe-area-inset-bottom),24px)]')}>
         {demo && <demo.BrandLine />}
-        {children}
+        <Page route={route}>{children}</Page>
       </main>
       {inServer && slug && (
         <nav aria-label={t('nav.serverTabs')} className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
@@ -376,7 +413,7 @@ export function PhoneBackHeader({ to, label, title }: { to: Route; label: string
         <ChevronLeftIcon className="size-5" aria-hidden="true" />
         {label}
       </a>
-      {title && <div className="ml-auto text-[15px] font-semibold">{title}</div>}
+      {title && <h1 className="ml-auto text-[15px] font-semibold">{title}</h1>}
     </header>
   )
 }

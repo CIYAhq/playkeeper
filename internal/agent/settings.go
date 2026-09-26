@@ -7,13 +7,12 @@ import (
 	"image/png"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
 
@@ -122,7 +121,12 @@ func gameplayEnv(g api.Gameplay) []string {
 
 // readProperties reads server.properties (key=value lines).
 func readProperties(dataDir string) map[string]string {
-	b, err := os.ReadFile(filepath.Join(dataDir, "server.properties"))
+	d, err := gamefiles.Open(dataDir, nil)
+	if err != nil {
+		return nil
+	}
+	defer d.Close()
+	b, err := d.ReadProperties()
 	if err != nil {
 		return nil
 	}
@@ -216,9 +220,10 @@ func gameplayChanges(before, after, asked api.Gameplay) []string {
 
 // Server icon: a 64×64 PNG the Minecraft server list shows.
 
-const maxIconBytes = 64 << 10
-
-func (s *server) iconPath() string { return filepath.Join(s.dataDir(), "server-icon.png") }
+const (
+	maxIconBytes = 64 << 10
+	iconFile     = "server-icon.png"
+)
 
 // iconNewer reports whether the icon changed after the running server
 // started, so a restart is needed to show it.
@@ -227,7 +232,12 @@ func iconNewer(sc *api.ServerConfig, startedAt *time.Time) bool {
 }
 
 func (s *server) hIcon(w http.ResponseWriter, r *http.Request) {
-	b, err := os.ReadFile(s.iconPath())
+	d, err := s.gameFiles()
+	var b []byte
+	if err == nil {
+		b, err = d.ReadFile(iconFile, maxIconBytes)
+		d.Close()
+	}
 	if err != nil {
 		writeError(w, errNotFound("Server icon"))
 		return
@@ -249,20 +259,20 @@ func (s *server) hIconSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(b) > maxIconBytes {
-		writeError(w, errInvalid("The picture can be at most 64 KB."))
+		writeError(w, errIcon("This one is larger."))
 		return
 	}
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(b))
 	if err != nil || format != "png" {
-		writeError(w, errInvalid("The server icon must be a PNG picture."))
+		writeError(w, errIcon("This one is not a PNG."))
 		return
 	}
 	if cfg.Width != 64 || cfg.Height != 64 {
-		writeError(w, errInvalid("The server icon must be 64 × 64 pixels; this one is %d × %d.", cfg.Width, cfg.Height))
+		writeError(w, errIcon("This one is %d × %d.", cfg.Width, cfg.Height))
 		return
 	}
 	if _, err := png.Decode(bytes.NewReader(b)); err != nil {
-		writeError(w, errInvalid("The picture could not be read: %v", err))
+		writeError(w, errIcon("This one could not be read."))
 		return
 	}
 	if err := s.saveIcon(b); err != nil {
@@ -271,6 +281,12 @@ func (s *server) hIconSet(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(actor, "settings.changed", "server", "succeeded", "server icon")
 	writeJSON(w, http.StatusOK, s.Status(r.Context()))
+}
+
+// errIcon refuses an upload before anything is written, so every icon saved
+// can be read back.
+func errIcon(format string, args ...any) *apiError {
+	return &apiError{Status: http.StatusBadRequest, Code: api.CodeIconInvalid, Msg: "Icons need to be 64 × 64 PNG pictures of at most 64 KB. " + fmt.Sprintf(format, args...)}
 }
 
 // saveIcon installs the icon and records when. It holds the server's
@@ -292,16 +308,13 @@ func (s *server) saveIcon(b []byte) error {
 	if err := s.ensureDirs(); err != nil {
 		return err
 	}
-	tmp := s.iconPath() + ".new"
-	if err := os.WriteFile(tmp, b, 0o640); err != nil {
+	d, err := s.gameFiles()
+	if err != nil {
 		return err
 	}
-	if os.Geteuid() == 0 {
-		_ = os.Chown(tmp, s.cfg.GameUID, s.cfg.GameGID)
-	}
-	if err := os.Rename(tmp, s.iconPath()); err != nil {
-		os.Remove(tmp)
-		return err
+	defer d.Close()
+	if err := d.WriteFile(iconFile, b, 0o640); err != nil {
+		return gameFileError(err, "The server icon could not be saved.")
 	}
 	now := s.now().UTC()
 	sc.IconUpdatedAt = &now
