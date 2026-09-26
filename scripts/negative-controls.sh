@@ -853,6 +853,10 @@ control "a template decides the type, version and settings" internal/agent/handl
   'if req.Modpack != nil || req.Type != "" || req.VersionID != "" || req.Build != "" || req.PlayStyle != "" || req.Gameplay != nil || req.MOTD != "" || req.MaxPlayers != 0 {' \
   'if false {' \
   ./internal/agent '^TestTemplateRequestsAreChecked$'
+control "a template plan without a version creates nothing" internal/agent/templates.go \
+  'if p.Version == nil {' \
+  'if false {' \
+  ./internal/agent '^TestTemplateCreateNeedsAVersion$'
 control "packs cannot suggest operator or function permission levels" internal/modpacks/rules.go \
   '"force-gamemode", "gamemode",' \
   '"force-gamemode", "function-permission-level", "op-permission-level", "gamemode",' \

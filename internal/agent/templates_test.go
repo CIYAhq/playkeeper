@@ -199,6 +199,47 @@ func TestCreateFromTemplateRefusesAChangedPlan(t *testing.T) {
 	}
 }
 
+// Create goes ahead only on a plan that is still ready. A plan that can no
+// longer choose a version is refused, and fill, which that refusal keeps
+// such a plan from, refuses it too rather than panic.
+func TestTemplateCreateNeedsAVersion(t *testing.T) {
+	e := newAgentEnv(t)
+	e.createWith(map[string]any{"memoryMB": 1536})
+	var exp api.TemplateExport
+	e.decode("GET", e.sp("/template"), &exp)
+	code, plan, _ := e.planTemplate(exp.File)
+	if code != 200 || !plan.Ready {
+		t.Fatalf("plan: %d %+v", code, plan)
+	}
+	// PaperMC stops listing versions, so the plan again chooses none.
+	e.fill.set("", []fillVersionSpec{})
+	e.a.catalog.mu.Lock()
+	e.a.catalog.entries, e.a.catalog.at = nil, time.Time{}
+	e.a.catalog.mu.Unlock()
+	before := e.countRows(`SELECT COUNT(*) FROM servers`)
+	if code, out := e.createFromTemplate(plan.Fingerprint, nil); code != http.StatusConflict {
+		t.Fatalf("a plan without a version: %d %v", code, out)
+	}
+	if e.countRows(`SELECT COUNT(*) FROM servers`) != before {
+		t.Fatal("no server is created")
+	}
+
+	ti := &templateImport{p: &templates.Plan{Type: templates.TypeChoice{ID: "fabric", Name: "Fabric"}}}
+	var req api.CreateServerRequest
+	var err error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("filling in a plan without a version panicked: %v", r)
+			}
+		}()
+		err = ti.fill(&req)
+	}()
+	if err == nil || req.Type != "" || req.VersionID != "" || req.Modpack != nil {
+		t.Fatalf("a plan without a version fills nothing in: %v %+v", err, req)
+	}
+}
+
 func noticeKinds(ns []api.AddonNotice) []string {
 	out := []string{}
 	for _, n := range ns {

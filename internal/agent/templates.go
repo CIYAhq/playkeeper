@@ -399,12 +399,16 @@ func (a *Agent) confirmTemplate(ctx context.Context, fingerprint string) (*templ
 }
 
 // fill sets what the template decides on a create request: the type,
-// version and build, or the modpack that decides them, and the settings.
-func (ti *templateImport) fill(req *api.CreateServerRequest) {
+// version and build, or the modpack that decides them, and the settings. A
+// plan without either, which Confirm refuses too, creates nothing.
+func (ti *templateImport) fill(req *api.CreateServerRequest) error {
 	p := ti.p
 	if m := p.Modpack; m != nil {
 		req.Modpack = &api.ModpackRef{Source: string(m.Source), ProjectID: m.Project, VersionID: m.Pin.VersionID}
 	} else {
+		if p.Version == nil {
+			return errConflict("Playkeeper can't choose a version for this template's server, so nothing was created.", "Choose the template again.")
+		}
 		req.Type, req.VersionID = p.Type.ID, p.Version.ID
 		if p.Type.ID != api.TypePaper {
 			req.Build = p.Version.Build[templateBuildKey]
@@ -416,6 +420,7 @@ func (ti *templateImport) fill(req *api.CreateServerRequest) {
 	if gp != (api.Gameplay{}) {
 		req.Gameplay = &gp
 	}
+	return nil
 }
 
 // installPendingTemplate installs the add-ons of the template a server was
