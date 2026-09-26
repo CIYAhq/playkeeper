@@ -2096,6 +2096,28 @@ describe('A restore that didn’t finish', () => {
     expect(item?.title).toBe(why)
   })
 
+  it('says on the World tab when a restore isn’t finished, and what finishes it', async () => {
+    const at = '2026-09-26T10:28:00Z'
+    const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
+    const stuck = "The swap journal in /var/lib/playkeeper/restore-staging/8fae916f8b8f5482 can't be read (unreadable swap journal: unexpected end of JSON input)."
+    const cases: { name: string; over: Partial<ServerStatus>; phone?: boolean; notice?: string }[] = [
+      { name: 'stopped', over: { phase: 'stopped', restoreUnsettled: {} }, notice: 'A restore isn’t finished. Playkeeper finishes it in a moment.' },
+      { name: 'running', over: { phase: 'online', restoreUnsettled: {} }, notice: 'A restore isn’t finished. Stop Survival and Playkeeper finishes it.' },
+      { name: 'running, on a phone', over: { phase: 'online', restoreUnsettled: {} }, phone: true, notice: 'A restore isn’t finished. Stop Survival and Playkeeper finishes it.' },
+      { name: 'stuck', over: { phase: 'stopped', restoreUnsettled: { problem: stuck } }, notice: `A restore isn’t finished, and Playkeeper couldn’t finish it.${stuck}` },
+      { name: 'world folder missing', over: { phase: 'stopped', restoreUnsettled: {}, worldMissing: missing } },
+      { name: 'settled', over: { phase: 'stopped' } },
+    ]
+    for (const c of cases) {
+      const phone = c.phone ? vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false })) : undefined
+      answer({ '/world-copies': [], '/backups': [made] })
+      await render(<WorldPage server={server(c.over)} />)
+      const shown = [...document.querySelectorAll('[role="status"], [role="alert"]')].map((el) => el.textContent ?? '').find((text) => text.startsWith('A restore isn’t finished'))
+      expect(shown, c.name).toBe(c.notice)
+      phone?.mockRestore()
+    }
+  })
+
   it('says what to do when a new icon is refused for the missing world folder', async () => {
     const message = `The world folder is missing because a restore did not finish; the previous world is at ${missing.previous}.`
     const hint = `Move that folder back to ${missing.dataDir}, then upload the icon again.`

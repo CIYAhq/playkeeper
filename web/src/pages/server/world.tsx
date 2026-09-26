@@ -9,7 +9,7 @@ import { useIsPhone } from '@/components/app/controls'
 import { FailedJobNotice, SavingPausedNotice } from '@/components/app/notices'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { InlineSkeleton, ListSkeleton, TableSkeleton } from '@/components/app/skeletons'
-import { WorldMissingNotice } from '@/components/app/world-missing'
+import { RestoreUnsettledNotice, WorldMissingNotice } from '@/components/app/world-missing'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
@@ -48,7 +48,7 @@ function onlineBody(backups: Backup[]): string {
   return t('world.makeOnlineMinutes', { count: Math.max(1, Math.round(last.durationMs / 60_000)) })
 }
 
-/** A world folder a restore left missing, or world saving paused: one line above the rest. Otherwise a backup that just failed, above the world a restore left behind, whose Discard it never hides. */
+/** A world folder a restore left missing, or world saving paused: one line above the rest. Otherwise a restore that isn't settled and a backup that just failed, above the world a restore left behind, whose Discard they never hide. */
 function WorldNotice({ server: s, className }: { server: ServerStatus; className?: string }) {
   const { stale } = useWorkspace()
   const [dismissed, setDismissed] = useState<string>()
@@ -58,6 +58,7 @@ function WorldNotice({ server: s, className }: { server: ServerStatus; className
   const failed = failedJob(s)
   return (
     <>
+      <RestoreUnsettledNotice server={s} className={className} />
       {failed?.kind === 'backup' && dismissed !== failed.id && <FailedJobNotice server={s} op={failed} onDismiss={() => setDismissed(failed.id)} className={className} />}
       <LeftoverCopy server={s} className={className} />
     </>

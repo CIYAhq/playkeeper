@@ -1655,6 +1655,9 @@ export const en = {
   'world.leftoverDiscardConfirm': 'Discard copy',
   'world.missingTitle': 'A restore didn’t finish, so {server} has no world folder',
   'world.missingBody': 'Your previous world is safe in {previous}. Move it back to {data}, then press Start.',
+  'world.unsettledStop': 'A restore isn’t finished. Stop {server} and Playkeeper finishes it.',
+  'world.unsettledSoon': 'A restore isn’t finished. Playkeeper finishes it in a moment.',
+  'world.unsettledStuck': 'A restore isn’t finished, and Playkeeper couldn’t finish it.',
   'restore.eulaWarning': 'The restore creates a new server, so you must accept the Minecraft EULA first.',
 
   // Plugins and mods
