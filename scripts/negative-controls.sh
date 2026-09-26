@@ -2588,6 +2588,14 @@ control "each run that comes online waits for squaremap afresh" internal/agent/m
 		return
 	}' \
   ./internal/agent '^TestEveryRunThatComesOnlineGetsTheFirstRender$'
+control "turning the map on uses squaremap the Plugins or Mods tab installed" internal/agent/maps.go \
+  'if !slices.ContainsFunc(installed, isSquaremap) {' \
+  'if true || !slices.ContainsFunc(installed, isSquaremap) {' \
+  ./internal/agent '^TestTheMapUsesSquaremapThePluginsTabInstalled$'
+control "the map counts squaremap the Plugins or Mods tab manages as its own file" internal/agent/maps.go \
+  'if i := slices.IndexFunc(installed, isSquaremap); i >= 0 {' \
+  'if i := slices.IndexFunc(installed, isSquaremap); false && i >= 0 {' \
+  ./internal/agent '^TestTheMapUsesSquaremapThePluginsTabInstalled$'
 control "the first render follows every run that comes online, however it started" internal/agent/collector.go \
   '			if take {
 				s.mapRunOnline(runStart)
