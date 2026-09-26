@@ -7,11 +7,16 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-export PATH="$root/.tools/go/bin:$PATH" CGO_ENABLED=0
+export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH" CGO_ENABLED=0
 wt="$(mktemp -d)/playkeeper"
 git -C "$root" worktree add --detach -q "$wt" HEAD
 trap 'git -C "$root" worktree remove --force "$wt"' EXIT
 cd "$wt"
+# The web controls run vitest with the checkout's own dependencies, which
+# scripts/setup.sh installs.
+if [ -d "$root/web/node_modules" ]; then
+  ln -s "$root/web/node_modules" web/node_modules
+fi
 echo "negative controls at $(git rev-parse --short=12 HEAD)"
 
 bad=0
@@ -1853,6 +1858,42 @@ control "free addresses: a names service that never answers is reported within t
   'ctx, cancel := context.WithTimeout(ctx, a.opts.NamesCheckWait)' \
   'ctx, cancel := context.WithCancel(ctx)' \
   ./internal/agent '^TestANamesServiceThatNeverAnswersIsReportedInTime$'
+
+webcontrol() { # NAME FILE FROM TO TEST-FILE TEST-NAME
+  local name=$1 file=$2 test=${5#web/} pattern=$6
+  if [ ! -d web/node_modules ]; then
+    echo "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
+    bad=1
+    return
+  fi
+  FROM=$3 TO=$4 perl -0pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/ or die "guard not found\n"' "$file"
+  if (cd web && npx vitest run "$test" -t "$pattern") >/tmp/negative-control.out 2>&1; then
+    echo "MISSED   $name: $test \"$pattern\" still passes without the guard"
+    bad=1
+  elif grep -qE 'Transform failed|SyntaxError|Failed to load url|No test files found' /tmp/negative-control.out; then
+    echo "INVALID  $name: the mutated code does not run"
+    bad=1
+  else
+    echo "caught   $name: $(grep -m1 -E '^ +(FAIL|×) ' /tmp/negative-control.out | sed 's/^ *//' | cut -c1-200)"
+  fi
+  git checkout -q -- "$file"
+}
+webcontrol "free addresses: a names service that can't be used is one quiet line, not a failure block" web/src/pages/machine-settings/free.tsx \
+  "const unavailable = failed?.failure.error.code === 'names_unreachable' ? failed : undefined" \
+  "const unavailable = failed?.failure.error.code === 'names_unreachable' && false ? failed : undefined" \
+  web/src/pages/machine-settings/address.test.tsx 'one quiet line'
+webcontrol "free addresses: a claim the service stops answering is the same quiet line" web/src/pages/machine-settings/free.tsx \
+  "const unavailable = failed?.failure.error.code === 'names_unreachable' ? failed : undefined" \
+  "const unavailable = !claimFailed && failed?.failure.error.code === 'names_unreachable' ? failed : undefined" \
+  web/src/pages/machine-settings/address.test.tsx 'between the check and the claim'
+webcontrol "free addresses: Claim says why it waits while the service can't be used" web/src/pages/machine-settings/free.tsx \
+  "const reason = unavailable ? t('address.unavailable') : claimReason(address, problem, mine, answer)" \
+  'const reason = claimReason(address, problem, mine, answer)' \
+  web/src/pages/machine-settings/address.test.tsx 'one quiet line'
+webcontrol "free addresses: names that can't be had now show as a preview only" web/src/pages/machine-settings/free.tsx \
+  'const preview = !name || unavailable' \
+  'const preview = !name' \
+  web/src/pages/machine-settings/address.test.tsx 'one quiet line'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

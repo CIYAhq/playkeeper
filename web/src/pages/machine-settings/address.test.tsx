@@ -303,20 +303,65 @@ describe('choosing an address', () => {
     expect(client.post).toHaveBeenLastCalledWith('/api/machines/m1/address/claim', { name: 'siya', acceptTerms: true })
   })
 
-  it('says plainly when the free address service can’t be reached, and nothing else breaks', async () => {
+  it('says in one quiet line when free addresses aren’t available, and picks up once the service answers', async () => {
     names = { siya: refusal(503, 'names_unreachable', 'Playkeeper couldn’t reach the free address service.', { detail: 'dial tcp: lookup names.playkeeper.io: no such host' }) }
     await show(none)
     await settle()
-    expect(text()).toContain('Playkeeper couldn’t reach the free address service')
-    expect(text()).toContain('Try again later, or use your own domain.')
+    expect(text()).toContain('Free addresses aren’t available right now. Try again')
+    expect(text()).not.toContain('couldn’t reach')
     expect(text()).not.toContain('no such host')
-    expect(buttons('Claim siya.playkeeper.io')).toHaveLength(0)
+    expect(document.querySelector('[role="alert"]')).toBeNull()
+    expect(button('Claim siya.playkeeper.io').disabled).toBe(true)
+    expect(button('Claim siya.playkeeper.io').title).toBe('Free addresses aren’t available right now.')
+    const preview = need([...document.querySelectorAll('dd')].find((d) => d.textContent === 'https://siya.playkeeper.io:8443'), 'dashboard preview')
+    expect(preview.className).toContain('text-muted-foreground')
+
     const before = availableCalls()
     await click(button('Try again'))
+    expect(text()).toContain('Checking siya.playkeeper.io…')
     await settle()
     expect(availableCalls()).toBe(before + 1)
-    await click(button('Use your own domain'))
+    expect(text()).toContain('Free addresses aren’t available right now.')
+
+    delete names.siya
+    await click(button('Try again'))
+    await settle()
+    expect(text()).toContain('siya.playkeeper.io is free')
+    expect(text()).not.toContain('aren’t available')
+    expect(button('Claim siya.playkeeper.io').disabled).toBe(false)
+    expect(preview.className).not.toContain('text-muted-foreground')
+  })
+
+  it('keeps the own domain one tap away while free addresses aren’t available', async () => {
+    names = { siya: refusal(503, 'names_unreachable', 'Playkeeper couldn’t reach the free address service.') }
+    await show(none)
+    await settle()
+    expect(buttons('Use your own domain')).toHaveLength(0)
+    await click(radio('Your own domain'))
     expect(field('Your domain')).toBeTruthy()
+  })
+
+  it('says the same on a phone, with Claim waiting at the bottom', async () => {
+    names = { siya: refusal(503, 'names_unreachable', 'Playkeeper couldn’t reach the free address service.') }
+    await show(none, { phone: true })
+    await settle()
+    expect(text()).toContain('Free addresses aren’t available right now. Try again')
+    expect(text()).not.toContain('3 to 32 lowercase letters')
+    expect(document.querySelector('[role="alert"]')).toBeNull()
+    expect(button('Claim siya.playkeeper.io').disabled).toBe(true)
+  })
+
+  it('says the same when the service stops answering between the check and the claim, and Try again claims again', async () => {
+    vi.mocked(client.post).mockRejectedValueOnce(refusal(503, 'names_unreachable', 'Playkeeper couldn’t reach the free address service.'))
+    await show(none)
+    await settle()
+    await click(button('Claim siya.playkeeper.io'))
+    expect(text()).toContain('Free addresses aren’t available right now. Try again')
+    expect(document.querySelector('[role="alert"]')).toBeNull()
+    vi.mocked(client.post).mockResolvedValueOnce(free())
+    await click(button('Try again'))
+    expect(client.post).toHaveBeenCalledTimes(2)
+    expect(client.post).toHaveBeenLastCalledWith('/api/machines/m1/address/claim', { name: 'siya', acceptTerms: true })
   })
 
   it('offers Try again when the address can’t be loaded', async () => {
