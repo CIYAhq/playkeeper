@@ -1,0 +1,162 @@
+{{/*
+path: /guides/modded-minecraft-server
+title: How to make a modded Minecraft server (2026)
+description: How to make a modded Minecraft server: pick a loader, the manual way in brief, one-click modpacks, the same mods for friends, how much RAM, and common errors.
+label: Modded server
+h1: How to make a modded Minecraft server (2026)
+card: How to make a modded Minecraft server
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: modded-minecraft-server
+published: 2026-09-26
+updated: 2026-09-26
+schema: article
+*/}}
+
+{{define "short"}}Pick a loader ({{loaders "or"}}), run the same loader, version and mods on the server and on every player's game, and give a big pack about 8 GB of memory. With Playkeeper, a modpack installs in one click and friends get the same mods from one link.{{end}}
+
+{{define "closing-title"}}Your modded server is one command away.{{end}}
+{{define "closing-sub"}}Free and open source. Pick a pack, then send friends the link.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="loader">
+  {{template "h2n" (dict "ID" "loader" "N" 1 "Text" "Pick a loader")}}
+  <p>Mods are built for one loader. Pick the one your pack or mods use, then the Minecraft version they ask for.</p>
+  <div class="table-scroll">
+    <table class="data">
+      <thead><tr><th scope="col">Loader</th><th scope="col">Pick it for</th><th scope="col">Packs you may know</th></tr></thead>
+      <tbody>
+        {{range types}}{{if .Mods}}{{$i := img .Logo}}
+        <tr>
+          <th scope="row"><span class="loader-cell"><img src="{{$i.URL}}" alt="" width="34" height="34" loading="lazy">{{.Name}}</span></th>
+          {{if eq .ID "fabric"}}<td>Light and quick to update. Most performance mods.</td><td>Cobblemon, Better MC</td>
+          {{else if eq .ID "neoforge"}}<td>Big tech and magic packs.</td><td>All the Mods 10, Create packs</td>
+          {{else if eq .ID "quilt"}}<td>Runs most Fabric mods too.</td><td>Most Fabric packs</td>
+          {{else if eq .ID "forge"}}<td>The original loader, with the longest list of mods.</td><td>Packs that haven't moved to NeoForge</td>
+          {{else}}<td></td><td></td>{{end}}
+        </tr>
+        {{end}}{{end}}
+      </tbody>
+    </table>
+  </div>
+  <p class="fine">Playkeeper runs Minecraft 1.21 and newer, so older packs, like RLCraft on 1.12.2, need another way.</p>
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 2 "Text" "The manual way, in brief")}}
+  <p>On a Linux VPS, by hand. It works; it just takes a while, and every update means doing parts of it again.</p>
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Install Java" "Text" "Java 21 for Minecraft 1.21, Java 25 for 26.1 and newer.")
+    (dict "Title" "Run the loader's server installer" "Text" "It fetches Minecraft's server and the loader.")
+    (dict "Title" "Accept the EULA" "Text" "Set eula=true in eula.txt.")
+    (dict "Title" "Add the mods" "Text" "The pack's server files, or your own mods, go in the mods folder.")
+    (dict "Title" "Give it memory and open the port" "Text" "About 8 GB for a big pack, and TCP 25565 in your firewall.")
+    (dict "Title" "Start it" "Text" "Every player needs the same loader, version and mods.")
+  ))}}
+  <div class="codeblock">
+    <div class="code-tabs" role="tablist" aria-label="Loader">
+      <button type="button" class="code-tab" role="tab" id="tab-neoforge" aria-controls="code-neoforge" aria-selected="true">NeoForge</button>
+      <button type="button" class="code-tab" role="tab" id="tab-fabric" aria-controls="code-fabric" aria-selected="false" tabindex="-1">Fabric</button>
+      {{if hasType "forge"}}<button type="button" class="code-tab" role="tab" id="tab-forge" aria-controls="code-forge" aria-selected="false" tabindex="-1">Forge</button>{{end}}
+      <button type="button" class="code-copy" data-copy="sudo apt install openjdk-21-jre-headless" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-neoforge" role="tabpanel" aria-labelledby="tab-neoforge"><span class="c"># NeoForge, for a pack on Minecraft 1.21</span>
+sudo apt install openjdk-21-jre-headless
+java -jar neoforge-&lt;version&gt;-installer.jar --installServer
+echo "eula=true" &gt; eula.txt
+echo "-Xmx8G" &gt;&gt; user_jvm_args.txt
+sudo ufw allow 25565/tcp
+./run.sh nogui</pre>
+<pre id="code-fabric" role="tabpanel" aria-labelledby="tab-fabric" hidden><span class="c"># Fabric, for a pack on Minecraft 1.21.1</span>
+sudo apt install openjdk-21-jre-headless
+java -jar fabric-installer.jar server -mcversion 1.21.1 -downloadMinecraft
+echo "eula=true" &gt; eula.txt
+sudo ufw allow 25565/tcp
+java -Xmx8G -jar fabric-server-launch.jar nogui</pre>
+{{if hasType "forge"}}<pre id="code-forge" role="tabpanel" aria-labelledby="tab-forge" hidden><span class="c"># Forge, for a pack on Minecraft 1.21</span>
+sudo apt install openjdk-21-jre-headless
+java -jar forge-&lt;version&gt;-installer.jar --installServer
+echo "eula=true" &gt; eula.txt
+echo "-Xmx8G" &gt;&gt; user_jvm_args.txt
+sudo ufw allow 25565/tcp
+./run.sh nogui</pre>{{end}}
+  </div>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 3 "Text" "The one-click way")}}
+  <p class="p-lead">Playkeeper runs those steps for you, on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  <ol class="steps shot-steps">
+    <li class="step reveal"><span class="step-n" aria-hidden="true">1</span><div><h3 class="step-title">Start a server from a modpack</h3><p>New server › A modpack, from Modrinth or CurseForge. Each shows the memory it needs.</p></div></li>
+  </ol>
+  {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs.")}}
+  <div class="shot-step">
+    <ol class="steps" start="2">
+      <li class="step reveal"><span class="step-n" aria-hidden="true">2</span><div><h3 class="step-title">See what's inside first</h3><p>The loader, the version, the mods and the memory it needs, before anything installs.</p></div></li>
+    </ol>
+    {{template "cardshot" (dict "Name" "guide-modpack-details" "Alt" "A modpack's details: Minecraft version, loader, mods, memory, when it was updated and how big the download is.")}}
+  </div>
+  <ol class="steps" start="3">
+    <li class="step reveal"><span class="step-n" aria-hidden="true">3</span><div><h3 class="step-title">Or add mods one at a time</h3><p>Start a {{loaders "or"}} server, then browse mods. What a mod needs comes with it.</p></div></li>
+  </ol>
+  {{template "cardshot" (dict "Name" "guide-mods-tab" "Alt" "The Mods tab: mods added by hand, with what friends need of each, and the modpack's own mods.")}}
+</section>
+
+<section aria-labelledby="friends">
+  {{template "h2n" (dict "ID" "friends" "N" 4 "Text" "Give friends the same mods")}}
+  <p>Everyone needs the same loader, version and mods. Playkeeper makes one link: friends download a file, import it in the Modrinth App or Prism Launcher, and join.</p>
+  <div class="figure-pair">
+    {{template "cardshot" (dict "Name" "guide-share" "Alt" "Share with friends: the link, what friends do, and what they get themselves." "Caption" "What you send: one link.")}}
+    {{template "cardshot" (dict "Name" "guide-pack-page" "Alt" "The page friends open: the pack file, steps for their launcher and the address to join." "Caption" "What friends see: steps for their launcher.")}}
+  </div>
+</section>
+
+<section aria-labelledby="memory">
+  {{template "h2n" (dict "ID" "memory" "N" 5 "Text" "How much memory modpacks need")}}
+  {{template "modded-memory" .}}
+</section>
+
+<section aria-labelledby="errors">
+  {{template "h2n" (dict "ID" "errors" "N" 6 "Text" "Common errors")}}
+  <p>Most modded crashes come from three mistakes. The log names the mod.</p>
+  <div class="error-card reveal">
+    <h3>The versions don't match</h3>
+    <code class="err">requires version 1.21.1 of 'Minecraft', but only the wrong version is present: 1.21.4</code>
+    <p>{{template "icon" "arrow-right"}}Use the file built for your Minecraft version and loader.</p>
+  </div>
+  <div class="error-card reveal">
+    <h3>A mod is missing a dependency</h3>
+    <code class="err">Mod 'Create Deco' requires any version of 'Create', which is missing!</code>
+    <p>{{template "icon" "arrow-right"}}Add the mod it names, in the version it asks for.</p>
+  </div>
+  <div class="error-card reveal">
+    <h3>A client-only mod on the server</h3>
+    <code class="err">Attempted to load class net/minecraft/client/Minecraft for invalid dist DEDICATED_SERVER</code>
+    <p>{{template "icon" "arrow-right"}}Minimaps, shaders and menus belong in players' games. Take them off the server.</p>
+  </div>
+  {{template "cardshot" (dict "Name" "guide-crash" "Alt" "A crashed server's Overview: what happened, the last lines of the log, and how to fix it." "Caption" "Playkeeper reads the log and offers the fix.")}}
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Do my friends need the mods too?" "Yes, the same versions. Plugins stay on the server; mods don't.")
+    (qa "Which Java version do I need?" "The one your Minecraft version was made for: Java 21 for 1.21, Java 25 for 26.1 and newer. Playkeeper picks it for each server.")
+    (qa "Can I use Forge mods?" (ifForge "Yes. Forge servers run Forge mods from Modrinth, and Forge modpacks from Modrinth and CurseForge." "Not yet: Playkeeper doesn't run Forge servers. Look for a NeoForge or Fabric version of the mod or pack."))
+    (qa "Do I need a CurseForge key?" "No. Playkeeper has one built in. You can add your own free key under Settings › Add-on sources.")
+  ))}}
+  <section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Or start from a modpack template</h2>
+    <div class="tpl-pair">
+      {{template "template-card" (dict "ID" "cobblemon")}}
+      {{template "template-card" (dict "ID" "better-mc")}}
+    </div>
+  </section>
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/sizing" "/features/mods-and-modpacks" "/guides/play-minecraft-with-friends" "/alternatives/aternos")}}{{end}}

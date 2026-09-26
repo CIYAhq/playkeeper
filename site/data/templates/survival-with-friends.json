@@ -1,0 +1,21 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Survival with friends",
+  "description": "Paper for a group of friends: pre-generation, block logging and proximity voice chat.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "26.2" },
+  "settings": {
+    "difficulty": "normal",
+    "pvp": false,
+    "gameMode": "survival",
+    "viewDistance": 10,
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 4096
+  },
+  "addons": [
+    { "source": "modrinth", "project": "fALzjamp", "slug": "chunky", "name": "Chunky", "latest": true },
+    { "source": "modrinth", "project": "Lu3KuzdV", "slug": "coreprotect", "name": "CoreProtect", "latest": true },
+    { "source": "modrinth", "project": "9eGKb6K1", "slug": "simple-voice-chat", "name": "Simple Voice Chat", "latest": true }
+  ]
+}

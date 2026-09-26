@@ -1,0 +1,151 @@
+{{/* The page around every page: head, header, main, closing band and footer. */}}
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Page.Title}}</title>
+<meta name="description" content="{{.Page.Description}}">
+{{if .Page.NoIndex}}<meta name="robots" content="noindex">
+{{else}}<link rel="canonical" href="{{.Canonical}}">
+{{end}}<meta property="og:type" content="{{if eq .Page.Layout "post"}}article{{else}}website{{end}}">
+<meta property="og:site_name" content="Playkeeper">
+<meta property="og:title" content="{{.Page.Label}}">
+<meta property="og:description" content="{{.Page.Description}}">
+<meta property="og:url" content="{{.Canonical}}">
+<meta property="og:image" content="{{.Image}}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Pip, Playkeeper's mascot, with the words {{.Page.Label}}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{.Page.Label}}">
+<meta name="twitter:description" content="{{.Page.Description}}">
+<meta name="twitter:image" content="{{.Image}}">
+<meta name="theme-color" content="#f2f2ec">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="alternate" type="application/atom+xml" title="Playkeeper blog" href="/blog/feed.xml">
+<link rel="stylesheet" href="{{asset "css/site.css"}}">
+{{with .Page.Preload}}{{$s := shot .}}<link rel="preload" as="image" href="{{$s.Src}}"{{with $s.Srcset}} imagesrcset="{{.}}"{{end}} fetchpriority="high">
+{{end}}<script src="{{asset "js/site.js"}}" defer></script>
+{{range .Page.Scripts}}<script src="{{asset .}}" defer></script>
+{{end}}{{with .Head}}<script type="application/ld+json">{{.}}</script>
+{{end}}</head>
+<body class="layout-{{.Page.Layout}}">
+<a class="skip" href="#main">Skip to content</a>
+{{if ne .Page.Layout "bare"}}{{template "header" .}}{{end}}
+<main id="main" tabindex="-1">
+{{if eq .Page.Layout "guide"}}{{template "guide" .}}{{else if eq .Page.Layout "post"}}{{template "post" .}}{{else if eq .Page.Layout "docs"}}{{template "docs" .}}{{else}}{{.Main}}{{end}}
+</main>
+{{template "closing" .}}
+{{if ne .Page.Layout "bare"}}{{template "footer" .}}{{end}}
+<div class="toast" data-toast role="status" hidden></div>
+</body>
+</html>
+{{end}}
+
+{{/* Where the header's Install goes: the page's own install command when it
+     has one, else the install docs. */}}
+{{define "install-href"}}{{if or (ne .Page.Closing "none") (eq .Page.Path "/t")}}#install{{else}}/docs/install{{end}}{{end}}
+
+{{define "header"}}
+<header class="site-header" data-header>
+  <div class="container header-row">
+    <a class="brand" href="/"><img src="{{asset "app/brand/playkeeper-mark.svg"}}" alt="" width="28" height="28"><span>Playkeeper</span></a>
+    <nav class="main-nav" aria-label="Main">
+      <ul>
+        {{range $n := nav .Page}}
+        <li class="nav-item{{if .Active}} is-active{{end}}">
+          {{if .Link}}<a class="nav-link" href="{{.Link}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}}</a>
+          {{else}}<button type="button" class="nav-link nav-trigger" popovertarget="menu-{{.Key}}" aria-haspopup="true">{{.Label}}{{template "icon" "chevron-down"}}</button>
+          <div class="nav-menu" id="menu-{{.Key}}" popover>
+            <ul>
+              {{range .Pages}}<li><a href="{{.Path}}"{{if eq .Path $.Page.Path}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}
+              {{with .HubPath}}<li class="nav-hub"><a href="{{.}}">{{$n.HubLabel}}</a></li>{{end}}
+            </ul>
+          </div>
+          {{end}}
+        </li>
+        {{end}}
+      </ul>
+    </nav>
+    <div class="header-actions">
+      <a class="nav-link nav-demo" href="/demo/">Live demo</a>
+      <a class="btn btn-outline btn-star" href="{{.Settings.Repo}}"{{if ne .Page.Path "/t"}} data-stars="{{.Settings.StarsFrom}}"{{end}}>{{template "icon" "star"}}<span>Star on GitHub</span><span class="star-count" data-star-count hidden></span></a>
+      <a class="btn btn-primary btn-install" href="{{template "install-href" .}}">{{template "icon" "download"}}<span>Install</span></a>
+      <button type="button" class="menu-button" popovertarget="phone-menu" aria-label="Menu">{{template "icon" "menu"}}</button>
+    </div>
+  </div>
+  <div class="phone-menu" id="phone-menu" popover aria-label="Menu">
+    <div class="phone-menu-head">
+      <a class="brand" href="/"><img src="{{asset "app/brand/playkeeper-mark.svg"}}" alt="" width="28" height="28"><span>Playkeeper</span></a>
+      <button type="button" class="icon-button" popovertarget="phone-menu" popovertargetaction="hide" aria-label="Close the menu">{{template "icon" "x"}}</button>
+    </div>
+    <nav class="phone-nav" aria-label="Main">
+      {{range $n := nav .Page}}
+      {{if .Link}}<a class="phone-nav-link{{if .Active}} is-active{{end}}" href="{{.Link}}">{{.Label}}</a>
+      {{else}}<p class="phone-nav-group">{{.Label}}</p>
+      <ul>
+        {{range .Pages}}<li><a class="phone-nav-link" href="{{.Path}}"{{if eq .Path $.Page.Path}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}
+        {{with .HubPath}}<li><a class="phone-nav-link" href="{{.}}">{{$n.HubLabel}}</a></li>{{end}}
+      </ul>
+      {{end}}
+      {{end}}
+      <a class="phone-nav-link" href="/demo/">Live demo</a>
+      <a class="phone-nav-link" href="{{.Settings.Repo}}">Star on GitHub</a>
+    </nav>
+    <a class="btn btn-primary btn-block" href="{{template "install-href" .}}" data-close-menu>{{template "icon" "download"}}<span>Install</span></a>
+  </div>
+</header>
+{{end}}
+
+{{define "footer"}}
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-top">
+      <div class="footer-brand">
+        <a class="brand" href="/"><img src="{{asset "app/brand/playkeeper-mark.svg"}}" alt="" width="28" height="28"><span>Playkeeper</span></a>
+        <p>Your VPS. Your Minecraft servers. Your worlds.</p>
+      </div>
+      <div class="footer-cols">
+        {{range footer}}
+        <div class="footer-col" data-footer-col>
+          <h2 class="footer-title">{{.Title}}</h2>
+          <ul>{{range .Links}}<li><a href="{{.URL}}">{{.Label}}</a></li>{{end}}</ul>
+        </div>
+        {{end}}
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.</p>
+      <p>© {{.Year}} Playkeeper · AGPL-3.0</p>
+    </div>
+  </div>
+</footer>
+{{end}}
+
+{{/* The dark band before the footer: the install command, one more action
+     and Pip waving on pixel ground. Guides offer the sizing guide instead of
+     the demo. */}}
+{{define "closing"}}{{if ne .Page.Closing "none"}}
+<section class="closing" aria-labelledby="closing-title" data-closing>
+  <div class="container closing-inner">
+    {{if .ClosingTitle}}
+    <h2 id="closing-title" class="reveal">{{.ClosingTitle}}</h2>
+    <p class="closing-sub reveal">{{.ClosingSub}}</p>
+    {{else if eq .Page.Closing "sizing"}}
+    <h2 id="closing-title" class="reveal">Got your size? Install Playkeeper.</h2>
+    <p class="closing-sub reveal">One command on Ubuntu 24.04. Free and open source.</p>
+    {{else}}
+    <h2 id="closing-title" class="reveal">Your server is one command away.</h2>
+    <p class="closing-sub reveal">Free and open source. Friends can be playing tonight.</p>
+    {{end}}
+    <div class="closing-actions reveal">
+      {{template "install" (dict "ID" (not .HasInstall) "Dark" true)}}
+      {{if eq .Page.Closing "guide"}}<a class="btn btn-ghost-dark" href="/sizing">Work out your size{{template "icon" "arrow-right"}}</a>
+      {{else}}<a class="btn btn-ghost-dark" href="/demo/">Try the live demo{{template "icon" "arrow-right"}}</a>{{end}}
+    </div>
+    <img class="closing-pip" src="{{asset "app/pip/pip-wave.svg"}}" alt="" width="96" height="96" loading="lazy" decoding="async">
+  </div>
+  <div class="ground ground-drift" aria-hidden="true"></div>
+</section>
+{{end}}{{end}}

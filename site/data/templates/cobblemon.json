@@ -1,0 +1,25 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Cobblemon",
+  "description": "The official Cobblemon modpack for Fabric: catch, train and battle creatures around your world with friends.",
+  "game": "minecraft-java",
+  "server": { "type": "fabric", "minecraftVersion": "1.21.1" },
+  "settings": {
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 6144
+  },
+  "modpack": {
+    "source": "modrinth",
+    "project": "5FFgwNNP",
+    "slug": "cobblemon-fabric",
+    "name": "Cobblemon Official Modpack [Fabric]",
+    "pin": {
+      "versionId": "Cqimd3JM",
+      "versionNumber": "1.8.1",
+      "channel": "release",
+      "hashAlgo": "sha512",
+      "hash": "ae2429fd6ffd7ef00f19e0f8fa0121e2f24c81bd73786ae03c2b0337e3d99b916a10017b6f4aea145bcfa17562330d2e69e5c1a2caf623fa95b8e9cfb48ca928"
+    }
+  }
+}

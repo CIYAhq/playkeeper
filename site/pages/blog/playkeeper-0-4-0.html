@@ -1,0 +1,59 @@
+{{/*
+path: /blog/playkeeper-0-4-0
+title: Playkeeper 0.4.0: modpacks, a free address and live backups
+description: Playkeeper 0.4.0: {{countWord typeCount}} server types with mods and modpacks, a free address, backups that don't kick anyone off, crash help, a team, a live map and more.
+label: Playkeeper 0.4.0
+kind: Blog
+section: blog
+layout: post
+crumb: Blog
+og: playkeeper-0-4-0
+published: 2026-09-26
+author: Siya
+tags: Releases
+summary: Modpacks, a free address, backups that don't kick anyone off, and help when something breaks.
+cover: img/blog/playkeeper-0-4-0.svg
+schema: posting
+*/}}
+
+{{define "article"}}
+<p>Playkeeper turns an Ubuntu VPS into a Minecraft: Java Edition server host with one command. {{.Site.Version}} is the biggest release so far: modpacks, a free address for your server, backups that don't kick anyone off, and help when something breaks.</p>
+
+<h2>What's new</h2>
+<ol class="whats-new">
+  <li class="reveal"><span class="nn">01</span><div>
+    <h3>Plugins, mods and modpacks</h3>
+    <p>{{countWord typeCount | printf "%s" | title}} server types. Plugins and mods from Modrinth and Hangar, modpacks from Modrinth and CurseForge, and what friends need of each mod.</p>
+    {{template "cardshot" (dict "Name" "post-mods" "Alt" "The Mods tab of a Fabric server, with what friends need of each mod.")}}
+  </div></li>
+  <li class="reveal"><span class="nn">02</span><div>
+    <h3>A free address</h3>
+    <p>Friends join at yourname.playkeeper.io, with no port and a real certificate.</p>
+    {{template "cardshot" (dict "Name" "post-address" "Alt" "A server's join address at its free name, and who's playing now.")}}
+  </div></li>
+  <li class="reveal"><span class="nn">03</span><div>
+    <h3>Backups that don't kick anyone off</h3>
+    <p>Players stay online while it copies, and each copy is checked.</p>
+    {{template "cardshot" (dict "Name" "post-backups" "Alt" "The World tab: Back up now while players stay online, and the world's size and backups.")}}
+  </div></li>
+  <li class="reveal"><span class="nn">04</span><div><h3>Help when it crashes or lags</h3><p>The Overview explains what went wrong from the log, with the fix one click away.</p></div></li>
+  <li class="reveal"><span class="nn">05</span><div><h3>Friends and a team</h3><p>Invite links, co-admins with roles, Discord alerts and a page for each player.</p></div></li>
+  <li class="reveal"><span class="nn">06</span><div><h3>Worlds and a live map</h3><p>Bring a world from singleplayer, Aternos, Minehut or Realms, and share a live map.</p></div></li>
+  <li class="reveal"><span class="nn">07</span><div><h3>It runs itself</h3><p>Schedules, sleep when nobody plays, and encrypted copies off the server.</p></div></li>
+  <li class="reveal"><span class="nn">08</span><div><h3>More machines and AI agents</h3><p>Connect a second VPS, or run your servers from Claude, Cursor or any MCP client.</p></div></li>
+</ol>
+
+<h2>Install or update</h2>
+<p>New here? One command on Ubuntu 24.04:</p>
+{{template "install" (dict "ID" true)}}
+<p>Already on 0.3? Your dashboard offers the update. It's signed, your servers keep running, and a failed update rolls back by itself.</p>
+
+<h2>Thanks</h2>
+<p>To everyone who tried the early versions and told me what broke. Questions and ideas go on {{.Settings.Community.Name}}.</p>
+<div class="post-actions">
+  <a class="btn btn-outline" href="{{.Settings.Repo}}">{{template "icon" "star"}}Star on GitHub</a>
+  <a class="btn btn-outline" href="{{.Settings.Community.URL}}">{{template "icon" "message"}}{{.Settings.Community.Ask}}</a>
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/blog/why-i-built-playkeeper" "/guides/modded-minecraft-server" "/alternatives/aternos" "/features/mods-and-modpacks")}}{{end}}

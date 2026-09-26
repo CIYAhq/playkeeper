@@ -1,0 +1,102 @@
+{{/* The long-read layouts: guides, blog posts and the docs. */}}
+
+{{/* guide: the H1 with the year, the Updated line, the short answer and Pip;
+     then sticky contents and an install card beside the article; then the
+     page's "after" part (FAQ, templates) and Keep reading. */}}
+{{define "guide"}}
+<section class="band band-chalk guide-hero">
+  <div class="container guide-hero-row">
+    <div class="guide-hero-text">
+      {{template "crumbs" .}}
+      <h1 class="h1-guide hero-rise">{{.Page.H1}}</h1>
+      <p class="meta hero-rise">Updated {{day .Page.Updated}} · {{.Page.Minutes}} min read</p>
+      <div class="short-answer hero-rise">
+        <p class="eyebrow">The short answer</p>
+        <p>{{.Short}}</p>
+      </div>
+    </div>
+    <div class="guide-hero-art" aria-hidden="true">
+      <img src="{{asset "app/pip/pip-hardhat.svg"}}" alt="" width="120" height="120" class="guide-pip">
+      <div class="ground ground-short"></div>
+    </div>
+  </div>
+</section>
+<div class="band band-chalk guide-body">
+  <div class="container guide-grid">
+    <aside class="guide-side" aria-label="On this page">
+      <nav class="toc" data-toc>
+        <p class="toc-title">On this page</p>
+        <ol>{{range .Page.TOC}}<li><a href="#{{.ID}}">{{.Text}}</a></li>{{end}}</ol>
+      </nav>
+      <div class="side-install">
+        <p class="side-install-title">Skip the manual steps</p>
+        <p>Playkeeper installs modpacks in one click.</p>
+        <a class="btn btn-primary btn-sm" href="#install" data-copy="{{.Settings.InstallCommand}}">{{template "icon" "copy"}}<span data-copy-label>Copy the install command</span></a>
+      </div>
+    </aside>
+    <article class="article">
+      {{.Article}}
+      {{.After}}
+    </article>
+  </div>
+</div>
+{{.Related}}
+{{end}}
+
+{{/* post: a blog post: its day, author and reading time, the cover, the
+     article and Keep reading. */}}
+{{define "post"}}
+<article class="band band-chalk post">
+  <div class="container">
+    <header class="post-head">
+      {{template "crumbs" .}}
+      <h1 class="h1-post hero-rise">{{.Page.H1}}</h1>
+      <p class="meta hero-rise">{{day .Page.Published}} · {{.Page.Author}} · {{.Page.Minutes}} min read</p>
+    </header>
+    {{with .Page.Cover}}{{$c := img .}}<div class="post-cover hero-rise"><img src="{{$c.URL}}" alt="" width="{{$c.Width}}" height="{{$c.Height}}" fetchpriority="high" decoding="async"></div>{{end}}
+    <div class="post-body article">
+      {{.Article}}
+    </div>
+  </div>
+</article>
+{{.After}}
+{{.Related}}
+{{end}}
+
+{{/* docs: the docs nav beside the page. Docs pages from Markdown get their
+     title, source and the "Can't find it?" band around them. */}}
+{{define "docs"}}
+<div class="band band-chalk docs">
+  <div class="container docs-grid">
+    <aside class="docs-side" aria-label="Docs">
+      <nav class="docs-nav">
+        <a class="docs-nav-home{{if eq .Page.Path "/docs"}} is-active{{end}}" href="/docs"{{if eq .Page.Path "/docs"}} aria-current="page"{{end}}>Overview</a>
+        {{range docGroups}}
+        <p class="docs-nav-group">{{.Title}}</p>
+        <ul>{{range .Entries}}<li><a href="{{.URL}}"{{if eq (pathOf .URL) $.Page.Path}} class="is-current"{{end}}>{{.Label}}</a></li>{{end}}</ul>
+        {{end}}
+      </nav>
+    </aside>
+    <div class="docs-main">
+      {{if .Page.Docs}}
+      {{template "crumbs" .}}
+      <h1 class="h1-docs">{{.Page.H1}}</h1>
+      <p class="lead">{{.Page.Description}}</p>
+      <p class="meta">From <a href="{{.Settings.Repo}}/blob/main/{{.Page.Docs.Source}}">{{.Page.Docs.Source}}</a> in the repository, for Playkeeper {{.Site.Version}}.</p>
+      <div class="article prose">{{.Main}}</div>
+      {{else}}{{.Main}}{{end}}
+      {{template "docs-help" .}}
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "docs-help"}}
+<section class="docs-help reveal" aria-labelledby="docs-help-title">
+  <div>
+    <h2 id="docs-help-title">Can't find it?</h2>
+    <p>{{.Settings.Community.Ask}}. Answers are public, so the next person finds them too.</p>
+  </div>
+  <a class="btn btn-primary" href="{{.Settings.Community.URL}}">{{template "icon" "message"}}<span>{{.Settings.Community.Ask}}</span></a>
+</section>
+{{end}}

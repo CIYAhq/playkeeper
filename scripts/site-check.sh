@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
-# Builds the playkeeper.io image from site/, runs it, and checks what it
-# serves: / (the page, its files and the install command), /healthz, the
-# /install redirect to get.sh of the latest release, the share page for
-# server templates at /t, the security headers, and the container's own
-# health check. With Chrome or Chromium installed, it also opens /t in
-# headless Chrome with the template links in internal/templates/testdata,
-# and checks what the page shows and that the template never reaches the
-# server. Needs Docker.
+# Builds the playkeeper.io image the way Coolify does (site/Dockerfile, from
+# the repository root), runs it, and checks what it serves: every page in its
+# sitemap and every page the launch needs (200, a title, a description, a
+# canonical address, a social preview that answers, one <h1>, no inline
+# script or style, and every file it uses served with the content type
+# nosniff needs), /robots.txt, /sitemap.xml and the blog's feed, the share
+# page for server templates at /t (kept out of search engines), a missing
+# page's 404, an address ending in / sent to the page without it,
+# /community, /healthz, the /install redirect to get.sh of the latest
+# release, cache and security headers, and the container's own health check.
+# With Chrome or Chromium installed, it also opens /t in headless Chrome with
+# the template links in internal/templates/testdata, and checks what the page
+# shows and that the template never reaches the server. Needs Docker.
 # Usage: scripts/site-check.sh   (SITE_CHECK_PORT picks the local port, default 8080;
 #                                 CHROME picks the browser)
 set -euo pipefail
@@ -16,14 +21,48 @@ image=playkeeper-site:check
 name=playkeeper-site-check
 port=${SITE_CHECK_PORT:-8080}
 base=http://127.0.0.1:$port
+site=https://playkeeper.io
 want=https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh
+community=https://github.com/CIYAhq/playkeeper/issues
+# The pages the launch needs, whether or not the sitemap lists them.
+needed=(/ /features/mods-and-modpacks /alternatives/aternos /alternatives/pterodactyl /guides/modded-minecraft-server
+  /sizing /docs /docs/install /pricing /blog /blog/playkeeper-0-4-0)
 fail() {
   echo "site check failed: $*" >&2
   docker logs "$name" 2>&1 | tail -20 >&2 || true
   exit 1
 }
+headers_ok() { # PATH HEADERS
+  local h
+  for h in "content-security-policy: default-src 'none'" 'x-content-type-options: nosniff' 'x-frame-options: DENY' \
+    'referrer-policy: no-referrer' 'strict-transport-security: max-age='; do
+    grep -qiF "$h" <<<"$2" || fail "$1 does not send '$h'"
+  done
+  if grep -qi '^server: nginx/' <<<"$2"; then fail "$1 shows the nginx version"; fi
+}
+# check_files checks every file a page uses: each answers 200, with the
+# content type browsers need under nosniff, kept for a year when it's under
+# /assets/.
+check_files() {
+  local path=$1 file=$2 f code type want_type
+  while read -r f; do
+    read -r code type < <(curl -sS -o /dev/null -w '%{http_code} %{content_type}\n' "$base$f")
+    [ "$code" = 200 ] || fail "$path uses $f, which answered $code, not 200"
+    case $f in
+      *.js) want_type=javascript ;;
+      *.css) want_type=text/css ;;
+      *.svg) want_type=image/svg+xml ;;
+      *.webp) want_type=image/webp ;;
+      *.png) want_type=image/png ;;
+      *.xml) want_type=xml ;;
+      *) continue ;;
+    esac
+    [[ $type == *"$want_type"* ]] || fail "$f is served as '$type'; with nosniff, browsers only use it as $want_type"
+  done < <(grep -oE '(src|href|srcset|imagesrcset)="/[^"#?]*' "$file" | sed -E 's/^[a-z]+="//' | grep -vE '^/($|demo/|install$|community$|t$)' |
+    grep -E '\.[a-z0-9]+$' | sort -u)
+}
 
-docker build -t "$image" "$root/site"
+docker build -f "$root/site/Dockerfile" -t "$image" "$root"
 docker rm -f "$name" >/dev/null 2>&1 || true
 docker run -d --name "$name" -p "127.0.0.1:$port:80" "$image" >/dev/null
 work=$(mktemp -d)
@@ -39,29 +78,79 @@ health=$(curl -fsS "$base/healthz") || fail "/healthz does not answer"
 read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/install")
 [ "$code" = 302 ] || fail "/install answered $code, not 302"
 [ "$location" = "$want" ] || fail "/install redirects to '$location', not $want"
+read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/community")
+[ "$code" = 302 ] || fail "/community answered $code, not 302"
+[ "$location" = "$community" ] || fail "/community redirects to '$location', not $community"
+
+read -r code type < <(curl -sS -o "$work/robots.txt" -w '%{http_code} %{content_type}\n' "$base/robots.txt")
+[ "$code" = 200 ] || fail "/robots.txt answered $code"
+for text in "Sitemap: $site/sitemap.xml" 'Allow: /demo/$' 'Disallow: /demo/'; do
+  grep -qxF "$text" "$work/robots.txt" || fail "/robots.txt does not say '$text'"
+done
+read -r code type < <(curl -sS -o "$work/sitemap.xml" -w '%{http_code} %{content_type}\n' "$base/sitemap.xml")
+[ "$code" = 200 ] || fail "/sitemap.xml answered $code"
+[[ $type == *xml* ]] || fail "/sitemap.xml is served as '$type'"
+read -r code type < <(curl -sS -o "$work/feed.xml" -w '%{http_code} %{content_type}\n' "$base/blog/feed.xml")
+[ "$code" = 200 ] || fail "/blog/feed.xml answered $code"
+grep -qF "<link rel=\"alternate\" type=\"text/html\" href=\"$site/blog/playkeeper-0-4-0\"/>" "$work/feed.xml" || fail "the blog's feed does not have the 0.4.0 post"
+
+mapfile -t listed < <(sed -n 's|.*<loc>'"$site"'\(/[^<]*\)</loc>.*|\1|p' "$work/sitemap.xml")
+for p in "${needed[@]}"; do
+  printf '%s\n' "${listed[@]}" | grep -qxF "$p" || fail "the sitemap does not list $p"
+done
+if printf '%s\n' "${listed[@]}" | grep -qxE '/t|/404'; then fail "the sitemap lists /t or /404, which stay out of search engines"; fi
 
 page=$work/page.html
-code=$(curl -sS -o "$page" -w '%{http_code}' "$base/")
-[ "$code" = 200 ] || fail "/ answered $code, not 200"
-grep -qF 'curl -fsSL https://playkeeper.io/install | sudo sh' "$page" || fail "/ does not show the install command"
-for f in style.css copy.js favicon.svg t.js; do
-  code=$(curl -sS -o /dev/null -w '%{http_code}' "$base/$f")
-  [ "$code" = 200 ] || fail "/$f answered $code, not 200"
+checked=0
+for p in "${listed[@]}"; do
+  [ "$p" = /demo/ ] && continue
+  read -r code type < <(curl -sS -o "$page" -w '%{http_code} %{content_type}\n' "$base$p")
+  [ "$code" = 200 ] || fail "$p answered $code, not 200"
+  [[ $type == text/html* ]] || fail "$p is served as '$type'"
+  grep -qE '<title>[^<]{10,70}</title>' "$page" || fail "$p has no title of 10 to 70 characters"
+  grep -qE '<meta name="description" content="[^"]{50,170}">' "$page" || fail "$p has no description of 50 to 170 characters"
+  grep -qF "<link rel=\"canonical\" href=\"$site$p\">" "$page" || fail "$p does not name $site$p as its canonical address"
+  for tag in 'property="og:title"' 'property="og:description"' "property=\"og:url\" content=\"$site$p\"" 'name="twitter:card" content="summary_large_image"'; do
+    grep -qF "<meta $tag" "$page" || fail "$p has no <meta $tag"
+  done
+  og=$(sed -n 's|.*<meta property="og:image" content="'"$site"'\(/[^"]*\)">.*|\1|p' "$page")
+  [ -n "$og" ] || fail "$p has no social preview image on $site"
+  [ "$(curl -sS -o /dev/null -w '%{http_code}' "$base$og")" = 200 ] || fail "$p's social preview $og does not answer"
+  [ "$(grep -o '<h1[ >]' "$page" | wc -l)" = 1 ] || fail "$p does not have exactly one <h1>"
+  if sed 's|<script type="application/ld+json">[^<]*</script>||g' "$page" | grep -qE '<script>|<script [^s]|<style|[[:space:]](style|on[a-z]+)='; then
+    fail "$p has inline script or style, which the Content-Security-Policy blocks"
+  fi
+  if grep -qE '<script src="https?:' "$page"; then fail "$p loads a script from another site"; fi
+  check_files "$p" "$page"
+  checked=$((checked + 1))
 done
+grep -qF 'curl -fsSL https://playkeeper.io/install | sudo sh' <(curl -sS "$base/") || fail "/ does not show the install command"
+
+headers=$(curl -sS -D - -o /dev/null "$base/")
+grep -qi '^cache-control: no-cache' <<<"$headers" || fail "/ can be cached, so a deploy would not reach visitors"
+asset=$(grep -oE '/assets/css/site\.[0-9a-f]{8}\.css' <(curl -sS "$base/") | head -1)
+[ -n "$asset" ] || fail "/ does not use a hashed stylesheet under /assets/"
+headers=$(curl -sS -D - -o /dev/null "$base$asset")
+grep -qi '^cache-control: max-age=31536000' <<<"$headers" || fail "$asset is not cached for a year"
+
+read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/pricing/")
+[ "$code" = 301 ] || fail "/pricing/ answered $code, not 301"
+[ "$location" = "$base/pricing" ] || fail "/pricing/ redirects to '$location', not /pricing"
+code=$(curl -sS -o "$page" -w '%{http_code}' "$base/no-such-page")
+[ "$code" = 404 ] || fail "a missing page answered $code, not 404"
+grep -qF "This page isn't here" "$page" || fail "a missing page does not show the 404 page"
+grep -qF '<meta name="robots" content="noindex">' "$page" || fail "the 404 page can be indexed"
 
 code=$(curl -sS -o "$page" -w '%{http_code}' "$base/t")
 [ "$code" = 200 ] || fail "/t answered $code, not 200"
-grep -qF '<script src="t.js" defer></script>' "$page" || fail "/t is not the share page"
-type=$(curl -sS -o /dev/null -w '%{content_type}' "$base/t.js")
-[[ $type == application/javascript* || $type == text/javascript* ]] || fail "/t.js is served as '$type', which browsers do not run"
+grep -qF '<meta name="robots" content="noindex">' "$page" || fail "/t can be indexed"
+grep -qE '<script src="/assets/js/t\.[0-9a-f]{8}\.js" defer></script>' "$page" || fail "/t is not the share page"
+[ "$(grep -o '<script src=' "$page" | wc -l)" = 2 ] || fail "/t loads more than site.js and t.js"
+if grep -qF 'data-stars' "$page"; then fail "/t asks GitHub for the star count; the share page makes no requests"; fi
+check_files /t "$page"
 
-for path in / /install /t; do
-  headers=$(curl -sS -D - -o /dev/null "$base$path")
-  for h in "content-security-policy: default-src 'none'" 'x-content-type-options: nosniff' 'x-frame-options: DENY' \
-    'referrer-policy: no-referrer' 'strict-transport-security: max-age='; do
-    grep -qiF "$h" <<<"$headers" || fail "$path does not send '$h'"
-  done
-  if grep -qi '^server: nginx/' <<<"$headers"; then fail "$path shows the nginx version"; fi
+for path in / /pricing /t /install /robots.txt /no-such-page "$asset"; do
+  headers_ok "$path" "$(curl -sS -D - -o /dev/null "$base$path")"
 done
 
 # The share page reads templates in the browser, so this part opens it in
@@ -80,7 +169,7 @@ if [ -n "$chrome" ]; then
       --user-data-dir="$work/chrome" --virtual-time-budget=5000 --dump-dom "$base/t#$1" >"$dom" 2>/dev/null ||
       fail "headless Chrome ($chrome) could not open /t"
   }
-  page_state() { sed -n 's/.*<body data-state="\([a-z]*\)".*/\1/p' "$dom"; }
+  page_state() { sed -n 's/.*<body[^>]* data-state="\([a-z]*\)".*/\1/p' "$dom"; }
   expect_state() {
     open_share_page "$1"
     [ "$(page_state)" = "$2" ] || fail "/t#${1:0:24}… shows the state '$(page_state)', not '$2'"
@@ -95,8 +184,8 @@ if [ -n "$chrome" ]; then
 
   payload=$(link_data share-link.txt)
   expect_state "$payload" ready
-  for text in 'Survival with friends' 'Paper, Minecraft 26.2' 'Chunky, ViaVersion and ViaBackwards' \
-    'Fresh Animations (resource pack) and Terralith (data pack)'; do
+  for text in 'Survival with friends' 'Paper · Minecraft 26.2 · 4 GB of memory' 'Chunky, ViaVersion and ViaBackwards' \
+    'Fresh Animations (resource pack) and Terralith (data pack)' 'data-art="friends" loading="lazy">'; do
     grep -qF "$text" "$dom" || fail "/t does not show '$text' for the Paper template"
   done
   if form_hidden; then fail "/t does not offer to open the Paper template"; fi
@@ -116,6 +205,7 @@ if [ -n "$chrome" ]; then
   expect_state "$(link_data share-link-oversized.txt)" damaged
   expect_state "" empty
   form_hidden || fail "/t offers to open an address with no template in it"
+  grep -qF 'This link has no template in it' "$dom" || fail "/t does not say the address has no template in it"
   expect_state "$(link_data share-link-markup.txt)" ready
   grep -qF '&lt;b&gt;Survival&lt;/b&gt; &amp; &lt;i&gt;friends&lt;/i&gt;' "$dom" || fail "/t does not show the template's name as text"
   if grep -qF '<b>Survival' "$dom"; then fail "/t turns markup in a template's name into HTML"; fi
@@ -137,4 +227,4 @@ for _ in $(seq 30); do
 done
 [ "$status" = healthy ] || fail "the container's health check reports '$status'"
 
-echo "Site image checks out: / is 200 with the install command, /healthz is ok, /install is a 302 to $want, /t is the share page, headers set, container healthy. $browser."
+echo "Site image checks out: $checked pages from the sitemap answer with their title, description, canonical address, social preview and files; robots.txt, the sitemap and the feed; /t is the share page and kept out of search engines; a missing page is a 404; /pricing/ redirects; /community, /install and /healthz answer; cache and security headers set; container healthy. $browser."

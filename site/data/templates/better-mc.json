@@ -1,0 +1,25 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Better MC",
+  "description": "Better MC for NeoForge: hundreds of mods for new biomes, structures, mobs and quality of life.",
+  "game": "minecraft-java",
+  "server": { "type": "neoforge", "minecraftVersion": "1.21.1" },
+  "settings": {
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 8192
+  },
+  "modpack": {
+    "source": "modrinth",
+    "project": "B37WQ89b",
+    "slug": "better-mc-neoforge-bmc5",
+    "name": "Better MC [NEOFORGE] BMC5",
+    "pin": {
+      "versionId": "Mo8ro6Ra",
+      "versionNumber": "v31",
+      "channel": "release",
+      "hashAlgo": "sha512",
+      "hash": "65be2d384d38eb16d827790113d113bd5c2a9d032a72e681df5222bec431034fe5074b10235d94aca41f2b62cadcda94edec1c8943209adb1d5a5c3da56b638d"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+# site/Dockerfile builds from the repository root; it needs the site, the
+# code cmd/site reads, the dashboard's art and the docs, without anything
+# installed or built.
+*
+!go.mod
+!go.sum
+!cmd/site/
+!internal/
+!site/
+!web/src/assets/
+!README.md
+!CHANGELOG.md
+!CONTRIBUTING.md
+!SECURITY.md
+!docs/
+site/dist/
+**/.DS_Store

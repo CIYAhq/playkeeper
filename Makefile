@@ -9,7 +9,7 @@ export CGO_ENABLED ?= 0
 GO_PKGS := ./cmd/... ./internal/... ./web
 SH_FILES := $(wildcard scripts/*.sh scripts/e2e/*.sh packaging/*.sh)
 
-.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-web test-sh web build package notices dev e2e-vm clean
+.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-web test-sh web build package notices site dev e2e-vm clean
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-z0-9-]+:.*## /{printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -63,6 +63,9 @@ package: ## Build dist/playkeeper-<version>-linux-amd64.tar.gz and the one-line 
 notices: ## Regenerate THIRD_PARTY_NOTICES after changing Go or npm dependencies
 	./scripts/third-party-notices.sh
 
+site: ## Build playkeeper.io into site/dist (html/ is the web root; site/README.md)
+	go run ./cmd/site
+
 dev: web ## Run agent + panel locally (state in .dev/, uses your Docker)
 	go run ./cmd/playkeeper dev --dir .dev
 
@@ -70,4 +73,4 @@ e2e-vm: ## Full install/backup/second-host restore rehearsal in two KVM guests
 	./scripts/e2e/vm-e2e.sh
 
 clean: ## Remove build output (keeps .tools and .dev)
-	rm -rf dist web/dist
+	rm -rf dist web/dist site/dist

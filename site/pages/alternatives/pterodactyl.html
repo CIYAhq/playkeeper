@@ -1,0 +1,137 @@
+{{/*
+path: /alternatives/pterodactyl
+title: A Pterodactyl alternative for one VPS and a few friends
+description: A simpler Pterodactyl alternative for Minecraft: one command sets up Playkeeper on your VPS, with no Wings, database or web server to set up. Pelican compared too.
+label: Pterodactyl alternative
+card: The Pterodactyl alternative
+kind: Compare
+section: compare
+crumb: Compare
+og: pterodactyl
+*/}}
+
+{{define "main"}}
+<section class="band-chalk page-hero" aria-labelledby="page-title">
+  <div class="container alt-hero-row">
+    <div>
+      {{template "crumbs" .}}
+      <h1 id="page-title" class="h1-page hero-rise">A Pterodactyl alternative for one VPS and a few friends.</h1>
+      <p class="lead hero-after">One command sets up everything on your VPS. No separate daemon, database or web server to configure.</p>
+      <div class="hero-after">{{template "install" (dict "ID" true)}}</div>
+      <a class="link-arrow hero-after" href="/demo/">Try the live demo{{template "icon" "arrow-right"}}</a>
+    </div>
+    <div class="alt-art alt-art-ptero hero-after">
+      {{template "browser" (dict "Name" "ptero-home" "URL" "alex.playkeeper.io:8443" "Eager" true "Alt" "The dashboard's Home: two servers, recent activity and the machine's memory, processor and disk.")}}
+      <div aria-hidden="true">{{template "terminal" (dict "Class" "art-terminal" "Lines" (list (dict "Cmd" "curl -fsSL https://playkeeper.io/install | sudo sh") (dict "Ok" "Ubuntu 24.04 · x86_64 · 4 vCPU · 8 GB") (dict "Go" "https://203.0.113.7:8443/setup#code=…")))}}</div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="glance-title">
+  <div class="container">
+    <h2 id="glance-title" class="section-title reveal">At a glance</h2>
+    <div class="reveal">
+      <table class="compare stack">
+        <caption>Pterodactyl and Pelican facts from their docs, checked {{day "2026-09-26"}}.</caption>
+        <thead><tr><td></td><th scope="col">Pterodactyl</th><th scope="col">Pelican</th><th scope="col" class="us">Playkeeper</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Install</th><td data-col="Pterodactyl">The panel, then Wings on each machine</td><td data-col="Pelican">The panel, then Wings on each machine</td><td data-col="Playkeeper" class="us">One command</td></tr>
+          <tr><th scope="row">Parts to run</th><td data-col="Pterodactyl">Panel, Wings, a database and a web server</td><td data-col="Pelican">Panel and Wings, on PHP 8.3–8.5</td><td data-col="Playkeeper" class="us">Playkeeper and Docker</td></tr>
+          <tr><th scope="row">Games</th><td data-col="Pterodactyl">Many, through eggs</td><td data-col="Pelican">Many, through eggs</td><td data-col="Playkeeper" class="us">Minecraft: Java Edition</td></tr>
+          <tr><th scope="row">Built for</th><td data-col="Pterodactyl">Hosting companies and big setups</td><td data-col="Pelican">The same, as a newer fork</td><td data-col="Playkeeper" class="us">One VPS and a few friends</td></tr>
+          <tr><th scope="row">Licence</th><td data-col="Pterodactyl">MIT</td><td data-col="Pelican">AGPL-3.0</td><td data-col="Playkeeper" class="us">AGPL-3.0</td></tr>
+          <tr><th scope="row">Status</th><td data-col="Pterodactyl">Stable</td><td data-col="Pelican">Beta (1.0.0-beta38)</td><td data-col="Playkeeper" class="us">{{.Site.Version}}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk" aria-labelledby="installs-title">
+  <div class="container">
+    <h2 id="installs-title" class="section-title reveal">The installs, side by side</h2>
+    <div class="side-by-side">
+      <div class="card reveal">
+        <h3>Pterodactyl, from its install guide</h3>
+        {{template "steps" (dict "Items" (list
+          (dict "Title" "Install PHP, Composer, a database and a web server")
+          (dict "Title" "Download the panel, then set up its environment and database")
+          (dict "Title" "Add a queue worker and a cron job")
+          (dict "Title" "Install Docker and Wings, then add the machine as a node")
+          (dict "Title" "Set up HTTPS for the panel and Wings")
+          (dict "Title" "Add allocations and an egg, then create a server")
+        ))}}
+        <p class="fine">Pelican's install has the same shape.</p>
+      </div>
+      <div class="card reveal">
+        <h3>Playkeeper</h3>
+        {{template "terminal" (dict "Lines" (list
+          (dict "Cmd" "curl -fsSL https://playkeeper.io/install | sudo sh")
+          (dict "Ok" "Download matches its SHA-256")
+          (dict "Ok" "Ubuntu 24.04 · x86_64 · 4 vCPU · 8 GB · 71 GB free")
+          (dict "Ok" "Ports 8443 and 25565 are free")
+          (dict "Note" "It will install Docker (docker.io) and the Playkeeper services.")
+          (dict "Note" "Continue? [y/N] y")
+          (dict "Go" "Open https://203.0.113.7:8443/setup#code=…")
+        ))}}
+        <p class="fine">It checks the server, lists every change and asks first. Docker comes from Ubuntu's archive if it's missing.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="better-title">
+  <div class="container">
+    <h2 id="better-title" class="section-title reveal">What Pterodactyl and Pelican do better</h2>
+    <div class="grid-4">
+      <div class="card better-card reveal"><h3>Many games</h3><p>Eggs cover hundreds of games. Playkeeper runs Minecraft: Java Edition only.</p></div>
+      <div class="card better-card reveal"><h3>Selling servers</h3><p>Users, limits and billing systems for hosting companies.</p></div>
+      <div class="card better-card reveal"><h3>A big ecosystem</h3><p>Years of eggs, themes and guides from the community.</p></div>
+      <div class="card better-card reveal"><h3>Panel plugins</h3><p>Pelican adds a plugin system to the panel itself.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk" aria-labelledby="adds-title">
+  <div class="container move-row">
+    <div>
+      <h2 id="adds-title" class="section-title reveal">What Playkeeper adds</h2>
+      <ul class="adds">
+        <li class="reveal">{{template "icon" "sparkles"}}<div><strong>Guided setup</strong><span>A first server in a few questions, sized for your VPS.</span></div></li>
+        <li class="reveal">{{template "icon" "globe"}}<div><strong>A free address</strong><span>yourname.playkeeper.io with a real certificate. No port for friends.</span></div></li>
+        <li class="reveal">{{template "icon" "archive"}}<div><strong>Live backups</strong><span>Players stay online, and every copy is checked.</span></div></li>
+        <li class="reveal">{{template "icon" "heart-pulse"}}<div><strong>Crash help</strong><span>What went wrong, from the log, and the fix.</span></div></li>
+        <li class="reveal">{{template "icon" "user-plus"}}<div><strong>Invites</strong><span>A link that puts friends on the allowlist.</span></div></li>
+      </ul>
+    </div>
+    <div class="reveal">{{template "browser" (dict "Name" "ptero-world" "URL" "alex.playkeeper.io:8443/servers/survival/world" "Alt" "A server's World tab: Back up now while players stay online, and each backup checked.")}}</div>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="move-title">
+  <div class="container">
+    <h2 id="move-title" class="section-title reveal">Move a world over</h2>
+    <div class="move-row">
+      {{template "steps" (dict "Class" "steps-lg" "Items" (list
+        (dict "Title" "Download the world from Pterodactyl" "Text" "In the file manager, archive the world folder and download the .zip. SFTP works too.")
+        (dict "Title" "Upload it to Playkeeper" "Text" "New server › A world › Another host. The upload resumes if the connection drops.")
+        (dict "Title" "Check what's inside, then start" "Text" "The version, data packs and anything left behind, before anything changes.")
+      ))}}
+      <div class="reveal">{{template "cardshot" (dict "Name" "move-inside" "Alt" "What's inside an uploaded world: its dimensions, data packs, the Minecraft version it was made in, and which version to run.")}}</div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk">
+  <div class="container">
+    {{template "faq" (dict "ID" "questions" "Items" (list
+      (qa "Is Playkeeper a Pterodactyl fork?" "No. It's its own project, built for Minecraft: Java Edition on one VPS or a few.")
+      (qa "Can it run next to Pterodactyl?" "Give it its own VPS. Playkeeper never takes over another panel's servers, and both want the machine's Minecraft ports.")
+      (qa "Does it run other games?" "No. Playkeeper runs Minecraft: Java Edition servers only.")
+      (qa "Is Playkeeper free?" "Yes: free and open source (AGPL-3.0). You pay only for the VPS.")
+    ))}}
+  </div>
+</section>
+
+{{template "related" (related 3 "/compare/minecraft-server-panels" "/alternatives/aternos" "/features/mods-and-modpacks" "/guides/modded-minecraft-server")}}
+{{end}}

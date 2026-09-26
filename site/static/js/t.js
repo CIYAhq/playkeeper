@@ -9,7 +9,9 @@
   var FORMAT = 1; // templates.Format
   var STORE = 'playkeeper.dashboard';
   var HANDOFF = ['ready', 'newer', 'nopreview'];
-  var TYPES = { paper: 'Paper', purpur: 'Purpur', vanilla: 'Vanilla', fabric: 'Fabric', quilt: 'Quilt', neoforge: 'NeoForge' };
+  var TYPES = { paper: 'Paper', purpur: 'Purpur', vanilla: 'Vanilla', fabric: 'Fabric', quilt: 'Quilt', neoforge: 'NeoForge', forge: 'Forge' };
+  // Play styles with their own picture (templates.Settings.PlayStyle).
+  var ART = ['friends', 'creative', 'hardcore', 'solo'];
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   var form = document.getElementById('open');
@@ -52,6 +54,10 @@
       throw new Error('not a day');
     }
     return d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
+  }
+
+  function gigabytes(mb) {
+    return (mb % 1024 === 0 ? String(mb / 1024) : (mb / 1024).toFixed(1)) + ' GB';
   }
 
   function list(names) {
@@ -119,11 +125,23 @@
     });
     var modpack = t.modpack ? text(t.modpack.name, 64) : '';
     var made = day(t.created);
+    var settings = t.settings || {};
+    var memory = settings.memoryMB;
+    if (memory !== undefined && (typeof memory !== 'number' || memory % 1 !== 0 || memory < 512 || memory > 65536)) {
+      throw new Error('not a memory size');
+    }
+    // The picture follows how the template's server is played; a modpack's
+    // server without one gets the hills.
+    var style = text(settings.playStyle, 16);
+    var art = ART.indexOf(style) >= 0 ? style : 'world';
+    var pictures = document.querySelectorAll('[data-art]');
+    for (var i = 0; i < pictures.length; i++) pictures[i].hidden = pictures[i].getAttribute('data-art') !== art;
     put('t-name', name);
     put('t-description', text(t.description, 280));
     put('t-made', made ? 'Made ' + made : '');
     document.getElementById('t-made').hidden = !made;
-    put('t-server', (TYPES.hasOwnProperty(type) ? TYPES[type] : type) + ', Minecraft ' + version);
+    put('t-server', [TYPES.hasOwnProperty(type) ? TYPES[type] : type, 'Minecraft ' + version, memory ? gigabytes(memory) + ' of memory' : '']
+      .filter(Boolean).join(' · '));
     put('t-modpack', modpack);
     put('t-addons', addons.length ? list(addons) : 'None');
     put('t-packs', list(packs));

@@ -1,0 +1,22 @@
+{{/*
+path: /404
+title: Page not found · Playkeeper
+description: This page isn't on playkeeper.io.
+label: Page not found
+noindex: true
+closing: none
+*/}}
+
+{{define "main"}}
+<section class="share-empty band-chalk" aria-labelledby="nf-title">
+  <div class="container">
+    <img src="{{asset "app/pip/pip-search.svg"}}" alt="" width="104" height="104">
+    <h1 id="nf-title">This page isn't here</h1>
+    <p>It may have moved, or the link has a typo.</p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="/">Go to the home page{{template "icon" "arrow-right"}}</a>
+      <a class="btn btn-outline" href="/docs">Read the docs</a>
+    </div>
+  </div>
+</section>
+{{end}}

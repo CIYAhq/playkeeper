@@ -1,0 +1,78 @@
+{{/*
+path: /t
+title: Server template · Playkeeper
+description: A Minecraft server setup shared from Playkeeper. Open it in your own Playkeeper dashboard to create a server like it.
+label: Server template
+noindex: true
+og: t
+closing: none
+scripts: js/t.js
+*/}}
+
+{{/* The share page for server templates. The template is in the address
+     after #, which browsers never send, so it never reaches the server; the
+     page reads it in the browser (js/t.js) and makes no requests. The body's
+     data-state is the page's state; each part with data-show shows in the
+     states it names. */}}
+{{define "main"}}
+<div data-share-page>
+<noscript><div class="container share-noscript"><p class="share-note">This page needs JavaScript to read the template. Without it, add <b>/servers/new#template=</b> and everything after # in this page's address to your dashboard's address, or ask for the template file and choose it under <b>New server › A template</b>.</p></div></noscript>
+
+<section class="share-empty band-chalk" data-show="empty" hidden aria-labelledby="empty-title">
+  <div class="container">
+    <img src="{{asset "app/pip/pip-search.svg"}}" alt="" width="104" height="104">
+    <h1 id="empty-title">This link has no template in it</h1>
+    <p>Template links start with https://playkeeper.io/t# and go on with a long run of letters. Ask whoever shared yours for the whole link.</p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="{{with page "/templates"}}{{.Path}}{{else}}/#templates{{end}}">Browse templates{{template "icon" "arrow-right"}}</a>
+      <a class="btn btn-outline" href="/">What is Playkeeper?</a>
+    </div>
+  </div>
+</section>
+
+<section class="share band-chalk" data-show="loading ready incomplete damaged newer nopreview" hidden>
+  <div class="container">
+    <p class="status" data-show="loading" hidden>Reading the template…</p>
+    <div data-show="incomplete" hidden><h1 class="h1-page">This template link is cut off</h1><p class="share-note">Copy the whole link again, or ask whoever shared it for the template file.</p></div>
+    <div data-show="damaged" hidden><h1 class="h1-page">This template link is damaged</h1><p class="share-note">Copy it again, or ask whoever shared it for a new link or the template file.</p></div>
+    <div data-show="newer" hidden><h1 class="h1-page">A template from a newer Playkeeper</h1><p class="share-note">This page can't show what's in it. Your dashboard can open it once its Playkeeper is up to date.</p></div>
+    <div data-show="nopreview" hidden><h1 class="h1-page">A server template</h1><p class="share-note">This browser can't show what's in the template, but your dashboard can open it.</p></div>
+
+    <article id="template" data-show="ready" hidden aria-labelledby="t-name">
+      <p class="eyebrow">Server template</p>
+      <h1 id="t-name" class="h1-page"></h1>
+      <p id="t-made" class="meta" hidden></p>
+      <p id="t-description" class="t-description"></p>
+      <div class="share-art">
+        {{range list (list "friends" "app/pixel-art/play-with-friends.svg") (list "creative" "app/pixel-art/play-creative.svg") (list "hardcore" "app/pixel-art/play-hardcore.svg") (list "solo" "app/pixel-art/play-just-me.svg") (list "world" "app/pixel-art/world-normal.svg")}}{{$a := img (index . 1)}}<img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}" data-art="{{index . 0}}" loading="lazy" hidden>{{end}}
+      </div>
+      <dl class="facts">
+        <div><dt>Server</dt><dd id="t-server"></dd></div>
+        <div id="row-modpack"><dt>Modpack</dt><dd id="t-modpack"></dd></div>
+        <div><dt>Add-ons</dt><dd id="t-addons"></dd></div>
+        <div id="row-packs"><dt>Packs</dt><dd id="t-packs"></dd></div>
+      </dl>
+      <p class="hint">The world, the allowlist, operators and the server's address stay with whoever shared it.</p>
+    </article>
+
+    <form id="open" data-show="ready newer nopreview" class="open-card" hidden novalidate>
+      <h2>Open it in your dashboard</h2>
+      <label for="dashboard">Your dashboard's address</label>
+      <div class="open-row">
+        <input id="dashboard" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="https://203.0.113.7:8443">
+        <button type="submit" class="btn btn-primary">Open{{template "icon" "arrow-right"}}</button>
+      </div>
+      <p class="status" id="open-status" role="status"></p>
+      <p class="hint">Your dashboard shows everything first and installs nothing until you confirm. This browser remembers the address.</p>
+    </form>
+
+    <div class="no-dash">
+      <h2>No dashboard yet?</h2>
+      <p>Playkeeper is a free, open-source dashboard for your own Minecraft server.</p>
+      {{template "install" (dict "ID" true)}}
+      <a class="link-arrow" href="/">What is Playkeeper?{{template "icon" "arrow-right"}}</a>
+    </div>
+  </div>
+</section>
+</div>
+{{end}}

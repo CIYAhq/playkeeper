@@ -78,7 +78,7 @@ jobs:
           retention-days: 7
 
   site:
-    name: Site image — build it, check /, /t, /healthz and the /install redirect
+    name: Site image — build it, check every page, /t, /healthz and the /install redirect
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
