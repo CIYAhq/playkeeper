@@ -102,6 +102,7 @@ func TestSingleServerInstallMigratesWithoutRestarting(t *testing.T) {
 	// The running container, made by 0.2.0's definition.
 	legacy := &server{Agent: &Agent{cfg: e.cfg, opts: Options{StopTimeout: 5 * time.Second}}, layout: layoutV1, gamePort: e.cfg.GamePort}
 	spec, hash := legacy.containerSpec(sc, false, nil)
+	spec = withoutGCLog(spec)
 	e.fd.mu.Lock()
 	e.fd.images[minecraft.Image] = true
 	e.fd.mu.Unlock()
@@ -636,54 +637,14 @@ func (e *agentEnv) uploadTo(path string, archive []byte) (int, map[string]any) {
 	return resp.StatusCode, out
 }
 
-// The tick rate comes from Paper's tps command, and players online hear
-// about a backup in chat before the server stops for it.
-func TestTickRateAndBackupWarning(t *testing.T) {
+// The tick rate comes from Paper's tps command.
+func TestTickRate(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
 	e.waitFor("a tick rate", func() bool {
 		st := e.status()
 		return st.Resources != nil && st.Resources.TPS != nil && *st.Resources.TPS == 20
 	})
-	e.rcon.setOnline("Friend")
-	e.waitFor("the player online", func() bool { p := e.status().Players; return p != nil && p.Online == 1 })
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
-	if code != 202 {
-		t.Fatalf("backup: %d %v", code, out)
-	}
-	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
-		t.Fatalf("backup: %+v", op)
-	}
-	e.rcon.mu.Lock()
-	defer e.rcon.mu.Unlock()
-	warned, savedAfter := false, false
-	for _, c := range e.rcon.commands {
-		switch {
-		case c == "say "+backupWarning(e.a.opts.BackupWarnDelay):
-			warned = true
-		case warned && strings.HasPrefix(c, "save-all"):
-			savedAfter = true
-		}
-	}
-	if !warned || !savedAfter {
-		t.Fatalf("players must be warned, with the wait before the stop, before the server saves and stops: %v", e.rcon.commands)
-	}
-}
-
-// The chat line before a backup says when the server stops: after the wait
-// that follows it.
-func TestBackupWarningSaysWhenTheServerStops(t *testing.T) {
-	for wait, want := range map[time.Duration]string{
-		3 * time.Second:       "stops in 3 seconds",
-		10 * time.Millisecond: "stops in 1 second",
-		time.Minute:           "stops in 1 minute",
-		90 * time.Second:      "stops in 90 seconds",
-		2 * time.Minute:       "stops in 2 minutes",
-	} {
-		if got := backupWarning(wait); !strings.Contains(got, want) {
-			t.Errorf("%v: %q does not say %q", wait, got, want)
-		}
-	}
 }
 
 // The World tab shows the world's size: every dimension counts, logs don't.

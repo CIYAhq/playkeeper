@@ -207,7 +207,7 @@ func (s *Server) keepOrigin(o invites.Origin, name string) {
 
 // origins says how each player who came with an invite got onto a server,
 // by UUID and by lower-case name (offline-mode servers list other UUIDs).
-func (s *Server) origins(serverID string) (map[string]*api.Note, error) {
+func (s *Server) origins(serverID string) (map[string]*api.Phrase, error) {
 	rows, err := s.db.Query(`SELECT o.player_uuid, o.player_name, o.invite_id, o.request_id, o.joined_at FROM player_origins o WHERE o.server_id = ?`, serverID)
 	if err != nil {
 		return nil, err
@@ -228,19 +228,19 @@ func (s *Server) origins(serverID string) (map[string]*api.Note, error) {
 		list = append(list, x)
 	}
 	rows.Close()
-	out := map[string]*api.Note{}
+	out := map[string]*api.Phrase{}
 	for _, x := range list {
 		inv, _ := s.inviteByID(x.o.InviteID)
 		step := x.o.Note(inv)
 		at := x.o.JoinedAt
-		note := &api.Note{Key: step.Key, Params: step.Params, Text: step.Text, At: &at}
+		note := &api.Phrase{Key: step.Key, Params: step.Params, Text: step.Text, At: &at}
 		out[x.o.PlayerUUID] = note
 		out["name:"+strings.ToLower(x.name)] = note
 	}
 	return out, nil
 }
 
-func noteFor(origins map[string]*api.Note, name, uuid string) *api.Note {
+func noteFor(origins map[string]*api.Phrase, name, uuid string) *api.Phrase {
 	if id, ok := mojang.NormalizeUUID(uuid); ok {
 		if n := origins[id]; n != nil {
 			return n

@@ -228,7 +228,7 @@ export async function fakePanel(page: Page, log: FakeConsole) {
     const key = `${req.method()} ${url.pathname}`
     switch (key) {
       case 'GET /api/setup/status':
-        return json(route, { needsSetup: false })
+        return json(route, { needsSetup: false, machine: 'my-vps', version: '0.3.0' })
       case 'GET /api/auth/me':
         return json(route, me)
       case 'GET /api/servers':

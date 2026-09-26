@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -41,8 +42,14 @@ func (h *opHandle) phase(p string) {
 }
 
 func (h *opHandle) set(key string, v any) {
+	h.setAll(map[string]any{key: v})
+}
+
+func (h *opHandle) setAll(kv map[string]any) {
 	unlock := h.mu()
-	h.op.Detail[key] = v
+	for k, v := range kv {
+		h.op.Detail[k] = v
+	}
 	snap := copyOp(h.op)
 	unlock()
 	h.save(snap)
@@ -86,6 +93,8 @@ var opLabels = map[string]string{
 	"auto-restart": "an automatic restart after a crash", "delete-backup": "deleting a backup",
 	"update": "a Playkeeper update", "update-version": "updating Minecraft", "delete": "being deleted",
 	"addon-install": "installing add-ons", "addon-update": "updating add-ons", "pregen-start": "starting map pre-generation",
+	"address.publish": "publishing the address", "certificate.issue": "getting a certificate",
+	"remove-addon": "removing a plugin or mod",
 }
 
 // machineBusy is the error for a request that has to wait for a machine-wide
@@ -264,7 +273,7 @@ func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool, current []st
 		"USE_AIKAR_FLAGS=TRUE",
 	)
 	env = append(env, gameplayEnv(sc.Gameplay)...)
-	pack, err := resourcePackEnv(sc.ResourcePack)
+	pack, err := resourcePackEnv(s.currentOffer(sc.ResourcePack))
 	if err != nil {
 		pack = keptPackEnv(current)
 	}
@@ -299,6 +308,13 @@ func (s *server) containerSpec(sc api.ServerConfig, setupOnly bool, current []st
 	sum := sha256.Sum256(b)
 	hash := hex.EncodeToString(sum[:8])
 	cfg.Labels[labelSpec] = hash
+	if !setupOnly {
+		// The GC log stays out of the hash, so adding it never restarts a
+		// running server; startServer recreates a stopped container without
+		// it, so it applies from the server's next start.
+		cfg.Env = append(cfg.Env, "JVM_OPTS="+gcLogFlag)
+		cfg.Labels[labelGCLog] = gcLogVersion
+	}
 	return cfg, hash
 }
 
@@ -356,6 +372,17 @@ func (s *server) ensureDirs() error {
 		if err := os.Chown(data, s.cfg.GameUID, s.cfg.GameGID); err != nil {
 			return err
 		}
+	}
+	// Java refuses to start when its GC log's folder is missing. The game
+	// owns data/, so whatever already stands at logs is left alone, and
+	// Lchown never follows a symlink swapped in after Mkdir.
+	logs := filepath.Join(data, "logs")
+	if err := os.Mkdir(logs, 0o750); err == nil && os.Geteuid() == 0 {
+		if err := os.Lchown(logs, s.cfg.GameUID, s.cfg.GameGID); err != nil {
+			return err
+		}
+	} else if err != nil && !errors.Is(err, fs.ErrExist) {
+		return err
 	}
 	return s.ensureRCONSecret()
 }
@@ -571,7 +598,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 			return err
 		}
 		fallthrough
-	case err == nil && c.Config.Labels[labelSpec] != hash:
+	case err == nil && (c.Config.Labels[labelSpec] != hash || c.Config.Labels[labelGCLog] != gcLogVersion):
 		if err := s.docker.ContainerRemove(ctx, c.ID, true); err != nil && !docker.IsNotFound(err) {
 			return s.dockerErr(err)
 		}
@@ -593,6 +620,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 		// A container whose start failed (for example on a busy port) can keep
 		// broken network state; discard it so the next start creates it fresh.
 		_ = s.docker.ContainerRemove(context.Background(), id, true)
+		s.explainCrash("", docker.ContainerState{}, true, err)
 		return classifyStartError(err, s.gamePort)
 	}
 	s.mu.Lock()
@@ -634,6 +662,7 @@ func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 			if fin, ok := c.State.Finished(); ok {
 				s.markExitHandled(id, fin)
 			}
+			s.explainCrash(id, c.State, true, nil)
 			msg := fmt.Sprintf("The server stopped while starting (exit code %d).", c.State.ExitCode)
 			if lastErr != "" {
 				msg += " " + lastErr
@@ -728,7 +757,7 @@ func (s *server) resetRun(p api.Phase) {
 	s.mu.Lock()
 	s.runPhase = p
 	s.runPhaseDetail = ""
-	s.sawStopping = false
+	s.sawStopping, s.sawCrash = false, false
 	s.lastError, s.lastErrorHint = "", ""
 	s.mu.Unlock()
 }
@@ -766,6 +795,9 @@ func (s *server) reconcile(ctx context.Context) {
 	desired := s.desired()
 	c, err := s.docker.ContainerInspect(ctx, s.containerName())
 	if err != nil {
+		if docker.IsNotFound(err) {
+			s.resumeSaving(ctx, c, false)
+		}
 		s.mu.Lock()
 		due := len(s.crashes) < maxCrashes && s.now().After(s.nextAutoRestart)
 		s.mu.Unlock()
@@ -774,6 +806,7 @@ func (s *server) reconcile(ctx context.Context) {
 		}
 		return
 	}
+	s.resumeSaving(ctx, c, c.State.Running)
 	if c.State.Running {
 		return
 	}
@@ -784,7 +817,8 @@ func (s *server) reconcile(ctx context.Context) {
 	handled := ok && last.Equal(fin)
 	ended := s.followEnded[c.ID]
 	intentional := s.intentional[c.ID]
-	graceful := s.sawStopping
+	// A crashing server logs "Stopping server" too, after the error.
+	graceful := s.sawStopping && !s.sawCrash
 	s.mu.Unlock()
 	if handled {
 		s.mu.Lock()
@@ -848,6 +882,7 @@ func (s *server) reconcile(ctx context.Context) {
 		restarting := desired == api.DesiredRunning && len(s.crashes) < maxCrashes
 		s.mu.Unlock()
 		s.alert(discord.Event{Kind: discord.KindCrash, Detail: cause, Restarting: restarting, At: fin})
+		s.explainCrash(c.ID, c.State, false, nil)
 		if desired == api.DesiredRunning {
 			s.mu.Lock()
 			due := len(s.crashes) < maxCrashes && s.now().After(s.nextAutoRestart)

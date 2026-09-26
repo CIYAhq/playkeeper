@@ -17,6 +17,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/mojang"
+	"github.com/CIYAhq/playkeeper/internal/names"
 	"github.com/CIYAhq/playkeeper/internal/packs"
 )
 
@@ -515,15 +516,15 @@ func TestPublicInvitePagesKeepCodesSafe(t *testing.T) {
 // they answer without a sign-in, keep the invite guard's refusals (an
 // expired link says so; a turned-off one reads like an unknown one), and
 // get the group's per-address limit. The route table's only open routes
-// are health, setup and sign-in, and everything else asks for a sign-in
-// (TestEveryRouteRequiresSessionAndCSRF tries each one).
+// are health, setup and sign-in with its second step, and everything else
+// asks for a sign-in (TestEveryRouteRequiresSessionAndCSRF tries each one).
 func TestInvitePagesArePublicAndNothingElse(t *testing.T) {
 	e := newJoinEnv(t)
 	var prefixes []string
 	for _, rt := range e.srv.public.routes {
 		prefixes = append(prefixes, rt.prefix)
 	}
-	if want := []string{packs.PathPrefix, "/join/", "/api/public/join/"}; !slices.Equal(prefixes, want) {
+	if want := []string{packs.PathPrefix, names.AlivePath, "/join/", "/api/public/join/"}; !slices.Equal(prefixes, want) {
 		t.Errorf("the public group serves %v, want %v", prefixes, want)
 	}
 	var open []string
@@ -532,7 +533,7 @@ func TestInvitePagesArePublicAndNothingElse(t *testing.T) {
 			open = append(open, rt.Method+" "+rt.Pattern)
 		}
 	}
-	if want := []string{"GET /api/health", "GET /api/setup/status", "POST /api/setup", "POST /api/auth/login"}; !slices.Equal(open, want) {
+	if want := []string{"GET /api/health", "GET /api/setup/status", "POST /api/setup", "POST /api/auth/login", "POST /api/auth/second-factor", "POST /api/auth/second-factor/cancel"}; !slices.Equal(open, want) {
 		t.Errorf("the route table opens %v without a sign-in, want %v", open, want)
 	}
 

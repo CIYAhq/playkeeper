@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -99,6 +100,9 @@ var (
 	errForbidden  = &invites.Error{Code: api.CodeForbidden, Status: http.StatusForbidden, Msg: "Your account is not allowed to do this."}
 	errNoServer   = &invites.Error{Code: api.CodeForbidden, Status: http.StatusForbidden, Msg: "You don't have access to this server.", Hint: "Ask an admin to add it to your servers."}
 	errAllServers = &invites.Error{Code: api.CodeForbidden, Status: http.StatusForbidden, Msg: "Only admins of all servers can do this.", Hint: "Ask the owner of this Playkeeper."}
+	// errEveryServer refuses what shows every server to an account that may
+	// use only some of them.
+	errEveryServer = &invites.Error{Code: api.CodeForbidden, Status: http.StatusForbidden, Msg: "This shows every server, and your account can use only some of them.", Hint: "Ask an admin to add the other servers."}
 	// errAdminUnconfirmed is the refusal for an admin whose two-factor
 	// sign-in is on but whose Admin rights nobody has confirmed yet.
 	errAdminUnconfirmed = &invites.Error{Code: api.CodeAdminUnconfirmed, Status: http.StatusForbidden,
@@ -213,6 +217,18 @@ func (a access) can() []action {
 	return out
 }
 
+// everyServer serves h only to accounts that may use every server, for what
+// shows them all.
+func everyServer(h func(http.ResponseWriter, *http.Request, *session)) func(http.ResponseWriter, *http.Request, *session) {
+	return func(w http.ResponseWriter, r *http.Request, sess *session) {
+		if !sess.Access.Servers.All {
+			writeRefusal(w, errEveryServer)
+			return
+		}
+		h(w, r, sess)
+	}
+}
+
 // writeRefusal answers a refusal: an *invites.Error with its status, code,
 // params and wait, or a plain server error.
 func writeRefusal(w http.ResponseWriter, err error) {
@@ -224,7 +240,14 @@ func writeRefusal(w http.ResponseWriter, err error) {
 	if e.RetryAfter > 0 {
 		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(e.RetryAfter.Seconds()))))
 	}
-	writeJSON(w, e.Status, api.Error{Error: e.Msg, Code: e.Code, Hint: e.Hint, Params: e.Params})
+	body := api.Error{Error: e.Msg, Code: e.Code, Hint: e.Hint}
+	if len(e.Params) > 0 {
+		body.Params = make(map[string]any, len(e.Params))
+		for k, v := range e.Params {
+			body.Params[k] = v
+		}
+	}
+	writeJSON(w, e.Status, body)
 }
 
 // machine is a computer running a Playkeeper agent, and how to reach it.
@@ -385,6 +408,18 @@ func (s *Server) machineView(r *http.Request, m machine) machineView {
 		}
 	}
 	return v
+}
+
+// localMachineName is the name machineView gives this machine, for the
+// sign-in page. It reads the hostname here, as the self-signed certificate
+// does, so a page anyone can load costs the agent nothing.
+func (s *Server) localMachineName() string {
+	var name string
+	if err := s.db.QueryRow(`SELECT name FROM machines WHERE kind = ? ORDER BY created_at LIMIT 1`, localKind).Scan(&name); err == nil && name != "" {
+		return name
+	}
+	host, _ := os.Hostname()
+	return host
 }
 
 func (s *Server) hMachines(w http.ResponseWriter, r *http.Request, sess *session) {

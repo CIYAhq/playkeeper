@@ -551,7 +551,7 @@ function RefusalCard({ refusal, kind, error, inviter }: { refusal: Refusal; kind
       {t('join.signInLink')}
     </a>
   )
-  const name = inviter || error?.params?.inviter
+  const name = inviter || String(error?.params?.inviter ?? '')
   const askLink = name ? t('join.askNewLinkFrom', { inviter: name }) : t('join.askNewLink')
   switch (refusal) {
     case 'not_working':

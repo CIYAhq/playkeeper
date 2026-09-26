@@ -61,7 +61,7 @@ export const settingsSections: { route: Route & { name: 'team' | 'discord' }; la
   { route: { name: 'discord' }, label: 'global.nav.discord', act: 'machine.manage' },
 ]
 
-/** Where Settings opens: the first section the account can use, else its account page. */
+/** Where Settings opens: the first section the account can use, else the general page. */
 export function settingsHome(me: Me): Route {
   return settingsSections.find((s) => can(me, s.act))?.route ?? { name: 'settings' }
 }

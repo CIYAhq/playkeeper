@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,10 +39,19 @@ type fakeAgent struct {
 	hits []string
 	// bodies are the request bodies and queries, in the order of hits.
 	bodies []string
+	// reqs are the forwarded requests with their query and JSON body.
+	reqs []agentRequest
 	// replies are canned bodies by "METHOD /path"; others get {"ok":true}.
 	replies map[string]string
-	// statuses are canned statuses by "METHOD /path"; others get 200.
+	// statuses are the replies' HTTP statuses by "METHOD /path"; others
+	// are 200.
 	statuses map[string]int
+}
+
+type agentRequest struct {
+	method, path string
+	query        url.Values
+	body         map[string]any
 }
 
 func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
@@ -53,11 +63,16 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 	}
 	fa := &fakeAgent{replies: map[string]string{}, statuses: map[string]int{}}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
+		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		var body map[string]any
+		if len(raw) > 0 {
+			_ = json.Unmarshal(raw, &body)
+		}
 		key := r.Method + " " + r.URL.Path
 		fa.mu.Lock()
 		fa.hits = append(fa.hits, key)
-		fa.bodies = append(fa.bodies, r.URL.RawQuery+string(body))
+		fa.bodies = append(fa.bodies, r.URL.RawQuery+string(raw))
+		fa.reqs = append(fa.reqs, agentRequest{r.Method, r.URL.Path, r.URL.Query(), body})
 		reply, ok := fa.replies[key]
 		status := fa.statuses[key]
 		fa.mu.Unlock()
@@ -117,6 +132,11 @@ type resp struct {
 	status int
 	body   map[string]any
 	cookie string
+	// pending is the second sign-in step's cookie, and cleared whether it
+	// was deleted.
+	pending        string
+	pendingCleared bool
+	header         http.Header
 }
 
 func (e *env) do(t *testing.T, method, path, body string, hdr map[string]string) resp {
@@ -136,15 +156,20 @@ func (e *env) do(t *testing.T, method, path, body string, hdr map[string]string)
 		t.Fatal(err)
 	}
 	defer r.Body.Close()
-	out := resp{status: r.StatusCode, body: map[string]any{}}
+	out := resp{status: r.StatusCode, body: map[string]any{}, header: r.Header}
 	b, _ := io.ReadAll(r.Body)
 	_ = json.Unmarshal(b, &out.body)
 	for _, c := range r.Cookies() {
-		if c.Name == cookieName {
+		switch c.Name {
+		case cookieName:
 			out.cookie = c.Value
-			if !c.Secure || !c.HttpOnly || c.SameSite != http.SameSiteStrictMode {
-				t.Fatalf("session cookie is missing Secure/HttpOnly/SameSite=Strict: %+v", c)
-			}
+		case pendingCookieName:
+			out.pending, out.pendingCleared = c.Value, c.MaxAge < 0
+		default:
+			continue
+		}
+		if !c.Secure || !c.HttpOnly || c.SameSite != http.SameSiteStrictMode || c.Path != "/" {
+			t.Fatalf("cookie %s is missing Secure/HttpOnly/SameSite=Strict/Path=/: %+v", c.Name, c)
 		}
 	}
 	return out
@@ -206,6 +231,24 @@ func TestEveryRouteRequiresSessionAndCSRF(t *testing.T) {
 			h := auth(cookie, csrf)
 			h["Origin"] = "https://evil.example"
 			if r := e.do(t, rt.Method, path, `{}`, h); r.status != http.StatusForbidden {
+				t.Errorf("%s %s from another origin: got %d, want 403", rt.Method, rt.Pattern, r.status)
+			}
+		}
+		if rt.Level == pendingSession {
+			xrw := map[string]string{"X-Requested-With": "playkeeper"}
+			if r := e.do(t, rt.Method, path, `{}`, xrw); r.status != http.StatusUnauthorized {
+				t.Errorf("%s %s without a second-step cookie: got %d, want 401", rt.Method, rt.Pattern, r.status)
+			}
+			full := auth(cookie, csrf)
+			full["X-Requested-With"] = "playkeeper"
+			full["Cookie"] += "; " + pendingCookieName + "=" + cookie
+			if r := e.do(t, rt.Method, path, `{}`, full); r.status != http.StatusUnauthorized {
+				t.Errorf("%s %s with a full session's token as the second-step cookie: got %d, want 401", rt.Method, rt.Pattern, r.status)
+			}
+			if r := e.do(t, rt.Method, path, `{}`, nil); r.status != http.StatusForbidden {
+				t.Errorf("%s %s without X-Requested-With: got %d, want 403", rt.Method, rt.Pattern, r.status)
+			}
+			if r := e.do(t, rt.Method, path, `{}`, map[string]string{"X-Requested-With": "playkeeper", "Origin": "https://evil.example"}); r.status != http.StatusForbidden {
 				t.Errorf("%s %s from another origin: got %d, want 403", rt.Method, rt.Pattern, r.status)
 			}
 		}

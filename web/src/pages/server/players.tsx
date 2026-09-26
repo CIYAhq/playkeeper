@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
-import { formatDay, formatDuration, joinAddress, relativeTime } from '@/lib/format'
+import { formatDay, formatDuration, localTimeZone, relativeTime, serverJoinAddress } from '@/lib/format'
 import { usePending, withChanges, type ListChange } from '@/lib/optimistic'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps, rePlayerName } from '@/lib/router'
@@ -26,14 +26,10 @@ const reName = /^[A-Za-z0-9_]{3,16}$/
 
 type Days = '1' | '7' | '30'
 
-export function tz(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-}
-
 function usePlayers(s: ServerStatus, days: Days) {
   const whitelist = usePoll(() => get<WhitelistEntry[]>(serverApi(s.id, '/whitelist')), 10_000, s.id)
   const operators = usePoll(() => get<OperatorEntry[]>(serverApi(s.id, '/operators')), 10_000, s.id)
-  const summary = usePoll(() => get<PlayersSummary>(serverApi(s.id, `/players/summary?days=${days}&tz=${encodeURIComponent(tz())}`)), 30_000, `${s.id}:${days}`)
+  const summary = usePoll(() => get<PlayersSummary>(serverApi(s.id, `/players/summary?days=${days}&tz=${encodeURIComponent(localTimeZone())}`)), 30_000, `${s.id}:${days}`)
   const sessions = usePoll(() => get<SessionsResponse>(serverApi(s.id, '/players/sessions?range=24h')), 30_000, s.id)
   const activity = usePoll(() => get<Activity[]>(serverApi(s.id, '/activity?limit=200')), 60_000, s.id)
   const refresh = async () => {
@@ -270,7 +266,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
     const id = window.setTimeout(() => setFresh(undefined), 4000)
     return () => window.clearTimeout(id)
   }, [fresh])
-  const address = joinAddress(window.location.hostname, s.gamePort)
+  const address = serverJoinAddress(s)
   const online = !ws.stale && s.phase === 'online'
   const onlineNames = online ? (s.players?.names ?? []) : []
   const isOnline = (n: string) => onlineNames.some((o) => o.toLowerCase() === n.toLowerCase())

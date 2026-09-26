@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -52,11 +53,16 @@ type agentEnv struct {
 	// stagedVersion is what a downloaded binary reports.
 	updateKeys    []ed25519.PublicKey
 	stagedVersion string
+	// procStat, when set, replaces reading /proc/stat.
+	procStat func() ([]byte, error)
 	// addons, when set, is the add-on library the agent uses.
 	addons *addons.Library
 	// pregenResumeAfter, when set, is how long the server must be empty
 	// before a task paused for players continues.
 	pregenResumeAfter time.Duration
+	// portHolder, when set, names the program on a taken port; otherwise
+	// none is found.
+	portHolder func(port int) (string, int, bool)
 	// sid is the server most helpers act on: the one create made last.
 	sid string
 	// live is the running agent, for the fake RCON's password check.
@@ -66,6 +72,11 @@ type agentEnv struct {
 	// sampleInterval and reconcileInterval, when set, replace the tests'
 	// short ones.
 	sampleInterval, reconcileInterval time.Duration
+	// tweak changes the options each start builds.
+	tweak func(o *Options)
+	// skew moves the running agent's clock (nanoseconds), as time passing
+	// would.
+	skew atomic.Int64
 }
 
 // srv is the current server's runtime handle.
@@ -88,7 +99,10 @@ func (e *agentEnv) binaryVersion(string) (string, error) {
 	return e.stagedVersion, nil
 }
 
-func newAgentEnv(t *testing.T) *agentEnv {
+func newAgentEnv(t *testing.T) *agentEnv { return newAgentEnvWith(t, nil) }
+
+// newAgentEnvWith is newAgentEnv with setup run before the agent starts.
+func newAgentEnvWith(t *testing.T, setup func(e *agentEnv)) *agentEnv {
 	t.Helper()
 	dir := t.TempDir()
 	e := &agentEnv{t: t, dir: dir}
@@ -102,9 +116,26 @@ func newAgentEnv(t *testing.T) *agentEnv {
 	cfg.GameUID, cfg.GameGID = os.Getuid(), os.Getgid()
 	cfg.InstallID = "test-install-0001"
 	cfg.Dev = true
+	// Nothing in these tests reaches the real names service.
+	cfg.NamesURL = closedURL(t)
 	e.cfg = cfg
+	if setup != nil {
+		setup(e)
+	}
 	e.start()
 	return e
+}
+
+// closedURL is a local http:// address nothing listens on.
+func closedURL(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	return "http://" + addr
 }
 
 func (e *agentEnv) start() {
@@ -137,11 +168,15 @@ func (e *agentEnv) start() {
 	if e.reconcileInterval > 0 {
 		reconcile = e.reconcileInterval
 	}
-	a, err := New(Options{
-		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Now().Add(offset) },
+	holder := e.portHolder
+	if holder == nil {
+		holder = func(int) (string, int, bool) { return "", 0, false }
+	}
+	opts := Options{
+		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Now().Add(offset).Add(time.Duration(e.skew.Load())) },
 		SampleInterval: sample, ReconcileInterval: reconcile, CrashBackoff: backoff,
 		RCONAddr: func(string) string { return e.rcon.addr }, PingAddr: e.slp,
-		HostMemoryMB: func() int { return 4096 }, DiskUsage: func(string) (int64, int64, error) {
+		HostMemoryMB: func() int { return 4096 }, ProcStat: e.procStat, DiskUsage: func(string) (int64, int64, error) {
 			if free := e.diskFree.Load(); free > 0 {
 				return free, 100 << 30, nil
 			}
@@ -152,7 +187,15 @@ func (e *agentEnv) start() {
 		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
 		DiscordClient: e.discordClient,
 		Addons:        e.addons, PregenInterval: 50 * time.Millisecond, PregenResumeAfter: e.pregenResumeAfter,
-	})
+		// No public DNS and no certificate authority in these tests.
+		Resolver: &fakeResolver{}, Issue: noCA, AddressInterval: -1, PublishPoll: 10 * time.Millisecond,
+		PublicAddrs: func() []netip.Addr { return []netip.Addr{testIP} },
+		PortHolder:  holder,
+	}
+	if e.tweak != nil {
+		e.tweak(&opts)
+	}
+	a, err := New(opts)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -283,6 +326,27 @@ func (e *agentEnv) waitExitRead() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		return err == nil && ok && !c.State.Running && !s.followEnded[c.ID].Before(fin)
+	})
+}
+
+// waitReread waits until the log follower has read the stopped container's
+// log once more after reaching its end, as it does every two seconds; Docker
+// sends the last line again each time.
+func (e *agentEnv) waitReread() {
+	e.t.Helper()
+	e.waitExitRead()
+	s := e.srv()
+	c, err := e.a.docker.ContainerInspect(context.Background(), s.containerName())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	s.mu.Lock()
+	first := s.followEnded[c.ID]
+	s.mu.Unlock()
+	e.waitFor("the follower to read the log again", func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.followEnded[c.ID].After(first)
 	})
 }
 
@@ -1452,7 +1516,13 @@ func TestConsoleBufferIsBounded(t *testing.T) {
 // restore, returning the restore id and its confirmation phrase.
 func (e *agentEnv) backupAndStage() (string, string) {
 	e.t.Helper()
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	return e.backupWithAndStage(map[string]any{"actor": "admin"})
+}
+
+// backupWithAndStage is backupAndStage with the backup request's body.
+func (e *agentEnv) backupWithAndStage(body map[string]any) (string, string) {
+	e.t.Helper()
+	code, out := e.call("POST", e.sp("/backups"), body)
 	if code != 202 {
 		e.t.Fatalf("backup: %d %v", code, out)
 	}
@@ -2137,6 +2207,27 @@ func TestWhitelistAndConsoleAreAudited(t *testing.T) {
 		if !v {
 			t.Errorf("missing audit row %s", k)
 		}
+	}
+}
+
+// A console command whose reply is lost may have run, so it is never sent
+// again; the next command gets a new connection.
+func TestLostConsoleRepliesAreNeverResent(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	const give = "give PkBotFriend diamond 64"
+	e.rcon.mu.Lock()
+	e.rcon.lose = func(cmd string) bool { return cmd == give }
+	e.rcon.mu.Unlock()
+	if code, out := e.call("POST", e.sp("/command"), map[string]any{"actor": "admin", "command": give}); code != 502 {
+		t.Fatalf("a lost reply must be reported: %d %v", code, out)
+	}
+	if n := e.rcon.count(give); n != 1 {
+		t.Fatalf("the command reached the server %d times, want once", n)
+	}
+	code, out := e.call("POST", e.sp("/command"), map[string]any{"actor": "admin", "command": "list"})
+	if code != 200 || !strings.Contains(out["output"].(string), "players online") {
+		t.Fatalf("the next command must work on a new connection: %d %v", code, out)
 	}
 }
 

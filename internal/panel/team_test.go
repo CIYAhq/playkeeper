@@ -20,27 +20,16 @@ const otherServer = "bcdefghjkm"
 
 const bothServers = `[{"id":"abcdefghjk","name":"Survival","phase":"online"},{"id":"bcdefghjkm","name":"Creative","phase":"stopped"}]`
 
-// useFactors makes wave 2's table of two-factor setups, which the panel
-// reads to know whose two-factor sign-in is on.
-func useFactors(t *testing.T, e *env) {
-	t.Helper()
-	if _, err := e.srv.db.Exec(`CREATE TABLE IF NOT EXISTS user_factors (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		kind TEXT NOT NULL DEFAULT 'totp', confirmed_at INTEGER, PRIMARY KEY (user_id, kind))`); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // setFactor turns name's two-factor sign-in on as set up at the given
 // time (Unix milliseconds), or off with 0.
 func setFactor(t *testing.T, e *env, name string, at int64) {
 	t.Helper()
-	useFactors(t, e)
 	var err error
 	if at == 0 {
 		_, err = e.srv.db.Exec(`DELETE FROM user_factors WHERE user_id = (SELECT id FROM users WHERE username = ?)`, name)
 	} else {
-		_, err = e.srv.db.Exec(`INSERT INTO user_factors(user_id, kind, confirmed_at) SELECT id, 'totp', ? FROM users WHERE username = ?
-			ON CONFLICT(user_id, kind) DO UPDATE SET confirmed_at = excluded.confirmed_at`, at, name)
+		_, err = e.srv.db.Exec(`INSERT INTO user_factors(user_id, kind, secret, created_at, confirmed_at, revision) SELECT id, 'totp', 'JBSWY3DPEHPK3PXP', ?, ?, 1 FROM users WHERE username = ?
+			ON CONFLICT(user_id, kind) DO UPDATE SET confirmed_at = excluded.confirmed_at`, at, at, name)
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -241,6 +230,13 @@ func TestMachineWideActionsNeedEveryServer(t *testing.T) {
 		{"DELETE", "/api/discord"},
 		{"POST", "/api/discord/test"},
 		{"POST", "/api/servers/" + otherServer + "/delete"},
+		{"GET", "/api/machines/" + mid + "/address/available"},
+		{"POST", "/api/machines/" + mid + "/address/claim"},
+		{"POST", "/api/machines/" + mid + "/address/refresh"},
+		{"POST", "/api/machines/" + mid + "/address/release"},
+		{"POST", "/api/machines/" + mid + "/address/check"},
+		{"POST", "/api/machines/" + mid + "/address/certificate"},
+		{"DELETE", "/api/machines/" + mid + "/address"},
 	}
 	scoped := addAdmin(t, e, "ada", otherServer)
 	unconfirmed := addMember(t, e, "una", invites.RoleAdmin, "*")
@@ -486,7 +482,6 @@ func TestAdminRightsWaitForConfirmation(t *testing.T) {
 	own := owner(t, e)
 	e.reply("GET", "/v1/servers", bothServers)
 	mara := addMember(t, e, "mara", invites.RoleAdmin, "*")
-	useFactors(t, e)
 	me := func() accessBody {
 		t.Helper()
 		var body struct {
@@ -511,7 +506,7 @@ func TestAdminRightsWaitForConfirmation(t *testing.T) {
 		t.Fatalf("before two-factor: %d %s", st, code)
 	}
 	// A setup that was started but never confirmed doesn't count.
-	if _, err := e.srv.db.Exec(`INSERT INTO user_factors(user_id, kind, confirmed_at) VALUES(?, 'totp', NULL)`, mara.id); err != nil {
+	if _, err := e.srv.db.Exec(`INSERT INTO user_factors(user_id, kind, secret, created_at, confirmed_at, revision) VALUES(?, 'totp', 'JBSWY3DPEHPK3PXP', 0, NULL, 1)`, mara.id); err != nil {
 		t.Fatal(err)
 	}
 	if st, code := teamStatus(); st != 403 || code != invites.CodeTwoFactorRequired {

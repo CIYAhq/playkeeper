@@ -624,13 +624,13 @@ func writeDiscordErr(w http.ResponseWriter, err error) {
 	}
 	body := api.Error{Error: de.Msg, Code: code, Hint: de.Hint}
 	if de.Reason != "" {
-		body.Params = map[string]string{"reason": de.Reason}
+		body.Params = map[string]any{"reason": de.Reason}
 	}
 	if de.RetryAfter > 0 {
 		secs := strconv.Itoa(int(de.RetryAfter.Round(time.Second).Seconds()) + 1)
 		w.Header().Set("Retry-After", secs)
 		if body.Params == nil {
-			body.Params = map[string]string{}
+			body.Params = map[string]any{}
 		}
 		body.Params["seconds"] = secs
 	}

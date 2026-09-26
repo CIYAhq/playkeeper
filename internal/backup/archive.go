@@ -1,5 +1,7 @@
 // Package backup writes, verifies and safely extracts Playkeeper world
-// archives. It is pure file/stream logic so it can be tested without Docker.
+// archives, and backs up a running server without stopping it (Take). It
+// works on files, streams and a narrow console interface, so it can be tested
+// without Docker or a Minecraft server.
 //
 // Archive layout (tar.gz):
 //
@@ -171,12 +173,17 @@ func Create(w io.Writer, dataDir string, meta Manifest, lim Limits) (Manifest, e
 	if err != nil {
 		return meta, err
 	}
+	root, err := os.OpenRoot(dataDir)
+	if err != nil {
+		return meta, err
+	}
+	defer root.Close()
 
 	gz := gzip.NewWriter(w)
 	tw := tar.NewWriter(gz)
 	tally := fileTally{lim: lim}
 	for _, rel := range rels {
-		entry, err := writeFile(tw, dataDir, rel, &tally)
+		entry, err := writeFile(tw, root, rel, &tally)
 		var refused *RefusedError
 		if errors.As(err, &refused) {
 			return meta, err
@@ -332,32 +339,42 @@ func shortQuote(p string) string {
 	return strconv.Quote(p)
 }
 
-func writeFile(tw *tar.Writer, dataDir, rel string, tally *fileTally) (FileEntry, error) {
-	full := filepath.Join(dataDir, filepath.FromSlash(rel))
-	var content io.Reader
-	var size int64
-	var modTime time.Time
+// openRegular opens rel below root for reading, refusing anything but a
+// regular file. The server keeps running during an online backup, so a file
+// may have been swapped for a symlink out of root (refused by os.Root) or a
+// FIFO (opened non-blocking, so it cannot hang the backup) since listing.
+func openRegular(root *os.Root, rel string) (*os.File, fs.FileInfo, error) {
+	f, err := root.OpenFile(filepath.FromSlash(rel), readFlags, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	st, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, nil, err
+	}
+	if !st.Mode().IsRegular() {
+		f.Close()
+		return nil, nil, fmt.Errorf("%s is not a regular file", shortQuote(rel))
+	}
+	return f, st, nil
+}
+
+func writeFile(tw *tar.Writer, root *os.Root, rel string, tally *fileTally) (FileEntry, error) {
+	f, st, err := openRegular(root, rel)
+	if err != nil {
+		return FileEntry{}, err
+	}
+	defer f.Close()
+	var content io.Reader = f
+	size, modTime := st.Size(), st.ModTime()
 	if rel == "server.properties" {
-		b, err := os.ReadFile(full)
+		b, err := io.ReadAll(f)
 		if err != nil {
 			return FileEntry{}, err
 		}
 		b = SanitizeProperties(b)
 		content, size = bytes.NewReader(b), int64(len(b))
-		if st, err := os.Stat(full); err == nil {
-			modTime = st.ModTime()
-		}
-	} else {
-		f, err := os.Open(full)
-		if err != nil {
-			return FileEntry{}, err
-		}
-		defer f.Close()
-		st, err := f.Stat()
-		if err != nil {
-			return FileEntry{}, err
-		}
-		content, size, modTime = f, st.Size(), st.ModTime()
 	}
 	if err := tally.add(rel, size); err != nil {
 		return FileEntry{}, refusal(rel, err)

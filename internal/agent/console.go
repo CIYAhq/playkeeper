@@ -49,6 +49,19 @@ func (r *ring) len() int {
 	return len(r.lines)
 }
 
+// window returns the lines Docker dated at or after from, oldest first.
+func (r *ring) window(from time.Time) []api.LogLine {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []api.LogLine
+	for _, l := range r.lines {
+		if !l.TS.Before(from) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
 // since returns lines with Seq > after (at most limit, newest last).
 func (r *ring) since(epoch string, after int64, limit int) api.LogsResponse {
 	r.mu.Lock()

@@ -13,11 +13,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { formatLocale, t } from '@/i18n'
 import { can } from '@/lib/access'
-import { formatClock, formatDate, formatDuration, relativeTime } from '@/lib/format'
+import { formatClock, formatDate, formatDuration, localTimeZone, relativeTime } from '@/lib/format'
 import { linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
-import { listLocked, playerAction, tz } from './players'
+import { listLocked, playerAction } from './players'
 
 const shownSessions = { desktop: 4, phone: 3 }
 
@@ -95,7 +95,7 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
   const ws = useWorkspace()
   const phone = useIsPhone()
   const now = useNow(30_000)
-  const profile = usePoll(() => get<PlayerProfile>(serverApi(s.id, `/players/profile?name=${encodeURIComponent(name)}&tz=${encodeURIComponent(tz())}`)), 30_000, `${s.id}:${name}`)
+  const profile = usePoll(() => get<PlayerProfile>(serverApi(s.id, `/players/profile?name=${encodeURIComponent(name)}&tz=${encodeURIComponent(localTimeZone())}`)), 30_000, `${s.id}:${name}`)
   const [messaging, setMessaging] = useState(false)
   const [banning, setBanning] = useState(false)
   const manage = can(ws.me, 'players.manage')

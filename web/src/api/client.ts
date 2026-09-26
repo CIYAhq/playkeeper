@@ -6,8 +6,8 @@ export class ApiError extends Error {
   code: string
   hint?: string
   operation?: Operation
-  params?: Record<string, string>
-  /** Seconds from a Retry-After header, for rate limits. */
+  params?: Record<string, unknown>
+  /** Seconds from the Retry-After header. */
   retryAfter?: number
 
   constructor(status: number, body: ApiErrorBody, retryAfter?: number) {
@@ -43,8 +43,8 @@ async function parseError(res: Response): Promise<ApiError> {
   } catch {
     // Non-JSON error bodies keep the generic message.
   }
-  const retryAfter = Number(res.headers.get('Retry-After'))
-  return new ApiError(res.status, body, retryAfter > 0 ? retryAfter : undefined)
+  const retryAfter = Number(res.headers.get('Retry-After') ?? '')
+  return new ApiError(res.status, body, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined)
 }
 
 export async function api<T>(method: string, path: string, body?: unknown, raw?: Blob): Promise<T> {
@@ -64,7 +64,12 @@ export async function api<T>(method: string, path: string, body?: unknown, raw?:
   } catch {
     throw new ApiError(0, { error: t('error.network'), code: 'network' })
   }
-  if (res.status === 401 && !path.startsWith('/api/auth/login') && !path.startsWith('/api/setup')) {
+  if (
+    res.status === 401 &&
+    !path.startsWith('/api/auth/login') &&
+    !path.startsWith('/api/auth/second-factor') &&
+    !path.startsWith('/api/setup')
+  ) {
     unauthorizedListeners.forEach((fn) => fn())
   }
   if (!res.ok) throw await parseError(res)

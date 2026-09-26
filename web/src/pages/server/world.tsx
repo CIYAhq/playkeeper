@@ -6,6 +6,7 @@ import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { EmptyArt, Pip } from '@/components/app/art'
 import { Card, CardHint, CardTitle, copyText, Notice, SectionLabel } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { FailedJobNotice, SavingPausedNotice } from '@/components/app/notices'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
 import { InlineSkeleton, ListSkeleton, TableSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
@@ -17,7 +18,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
-import { busyReason, whyNot } from '@/lib/phase'
+import { busyReason, failedJob, whyNot } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -25,6 +26,30 @@ import { phoneRow, PhoneWorldLinks, WorldLinks, WorldTools } from './world-links
 
 function downloadURL(s: ServerStatus, b: Backup): string {
   return serverApi(s.id, `/backups/${b.id}/download`)
+}
+
+function madeOnline(b: Backup): boolean {
+  return b.method === 'online_copy' || b.method === 'online_in_place'
+}
+
+/** "Players stay online", with about how long the newest backup made that way took. */
+function onlineBody(backups: Backup[]): string {
+  const last = backups.find((b) => madeOnline(b) && b.durationMs > 0)
+  if (!last) return t('world.makeOnline')
+  const seconds = Math.max(5, Math.ceil(last.durationMs / 5000) * 5)
+  if (seconds < 60) return t('world.makeOnlineSeconds', { count: seconds })
+  return t('world.makeOnlineMinutes', { count: Math.max(1, Math.round(last.durationMs / 60_000)) })
+}
+
+/** World saving paused, a backup that just failed, or a world a restore left behind: one line above the rest. */
+function WorldNotice({ server: s, className }: { server: ServerStatus; className?: string }) {
+  const { stale } = useWorkspace()
+  const [dismissed, setDismissed] = useState<string>()
+  if (stale) return null
+  if (s.savingPausedSince) return <SavingPausedNotice server={s} className={className} />
+  const failed = failedJob(s)
+  if (failed?.kind === 'backup' && dismissed !== failed.id) return <FailedJobNotice server={s} op={failed} onDismiss={() => setDismissed(failed.id)} className={className} />
+  return <LeftoverCopy server={s} className={className} />
 }
 
 /** Backups, restores (their rollback archive) and version updates add a backup when they finish, not when they're asked for. */
@@ -62,7 +87,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
   if (backups.data && list.length === 0) {
     return (
       <>
-        <LeftoverCopy server={s} />
+        <WorldNotice server={s} className="max-sm:px-1" />
         <EmptyBackups server={s} phone={phone} />
         {dialog}
       </>
@@ -72,8 +97,8 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
   if (phone) {
     return (
       <div className="flex flex-col gap-4">
-        <LeftoverCopy server={s} />
-        <MakeBackup server={s} phone onDone={refresh} />
+        <WorldNotice server={s} className="px-1" />
+        <MakeBackup server={s} backups={list} phone onDone={refresh} />
         <section aria-labelledby="backups">
           <SectionLabel className="px-4">
             <span id="backups">{t('world.listPhone')}</span>
@@ -151,9 +176,9 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
 
   return (
     <>
-      <LeftoverCopy server={s} />
+      <WorldNotice server={s} />
       <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr]">
-        <MakeBackup server={s} onDone={refresh} />
+        <MakeBackup server={s} backups={list} onDone={refresh} />
         <WorldInfo server={s} backups={backups.data} />
       </div>
       <section aria-labelledby="backups" className="mt-2">
@@ -193,7 +218,7 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
   )
 }
 
-function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?: boolean; onDone: () => void }) {
+function MakeBackup({ server: s, backups, phone, onDone }: { server: ServerStatus; backups: Backup[]; phone?: boolean; onDone: () => void }) {
   const ws = useWorkspace()
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
@@ -228,7 +253,7 @@ function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?
           <Pip pose="letter" size={52} />
           <div className="min-w-0">
             <CardTitle className="text-[17px]">{t('world.make')}</CardTitle>
-            <p className="mt-1 text-[15px] leading-5 text-muted-foreground">{online ? t('world.makePhone', { server: s.name }) : t('world.makeBodyStopped', { server: s.name })}</p>
+            <p className="mt-1 text-[15px] leading-5 text-muted-foreground">{online ? t('world.makeOnline') : t('world.makeBodyStopped', { server: s.name })}</p>
           </div>
         </div>
         <div className="mt-4">{button('touch')}</div>
@@ -238,11 +263,11 @@ function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?
   return (
     <Card>
       <CardTitle>{t('world.make')}</CardTitle>
-      <div className="mt-4 flex items-start gap-4">
+      <div className="flex flex-1 items-center gap-4 py-5">
         <Pip pose="letter" size={52} />
-        <p className="min-w-0 text-[13px] leading-[18px]">{online ? t('world.makeBody', { server: s.name }) : t('world.makeBodyStopped', { server: s.name })}</p>
+        <p className="min-w-0 text-[13px] leading-[18px]">{online ? onlineBody(backups) : t('world.makeBodyStopped', { server: s.name })}</p>
       </div>
-      <div className="mt-auto flex gap-2 pt-5">
+      <div className="flex gap-2">
         <InputGroup className="flex-1">
           <InputGroupAddon>
             <PencilIcon aria-hidden="true" />
@@ -322,7 +347,8 @@ function BackupRow({ server: s, backup: b, state, newest, onRestore, onChanged }
   }
 
   const kind = b.kind === 'manual' ? t('world.manual') : t('world.rollback')
-  const detail = [kind, b.downtimeMs > 0 ? t('world.offline', { time: formatMs(b.downtimeMs) }) : undefined, t('unit.files', { count: b.fileCount })].filter(Boolean).join(t('common.dot'))
+  const downtime = madeOnline(b) ? t('world.noDowntime') : b.downtimeMs > 0 ? t('world.offline', { time: formatMs(b.downtimeMs) }) : undefined
+  const detail = [kind, downtime, t('unit.files', { count: b.fileCount })].filter(Boolean).join(t('common.dot'))
   const when = formatDay(b.createdAt)
   return (
     <tr {...presenceProps(state)} className="h-12 border-t border-border">
@@ -422,6 +448,7 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
   const ws = useWorkspace()
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
+  const online = s.phase === 'online'
   const steps = [
     { title: t('world.emptyStep1'), hint: t('world.emptyStep1Hint') },
     { title: t('world.emptyStep2'), hint: t('world.emptyStep2Hint') },
@@ -451,7 +478,7 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
         <ArchiveIcon />
         {running ? t('world.backingUp') : t('world.emptyButton')}
       </Button>
-      <p className="mt-3 text-xs text-muted-foreground">{t('world.emptyNote')}</p>
+      <p className="mt-3 text-xs text-muted-foreground">{online ? t('world.emptyNoteOnline') : t('world.emptyNote')}</p>
       <ol className="mt-8 grid w-full max-w-[720px] gap-4 border-t border-border pt-5 text-left sm:grid-cols-3">
         {steps.map((st, i) => (
           <li key={st.title}>
@@ -482,7 +509,7 @@ function leftoverTitle(c: WorldCopy): string {
 }
 
 /** The newest world folder a restore left next to the live one, until it's discarded. */
-function LeftoverCopy({ server: s }: { server: ServerStatus }) {
+function LeftoverCopy({ server: s, className }: { server: ServerStatus; className?: string }) {
   const ws = useWorkspace()
   const copies = usePoll(() => get<WorldCopy[]>(serverApi(s.id, '/world-copies')), 30_000, s.id)
   const newest = useListPresence(copies.data?.slice(0, 1), (c) => c.name)
@@ -490,13 +517,13 @@ function LeftoverCopy({ server: s }: { server: ServerStatus }) {
   return (
     <>
       {newest.map(({ key, item, state }) => (
-        <LeftoverNotice key={key} server={s} copy={item} state={state} onDiscarded={copies.refresh} />
+        <LeftoverNotice key={key} server={s} copy={item} state={state} onDiscarded={copies.refresh} className={className} />
       ))}
     </>
   )
 }
 
-function LeftoverNotice({ server: s, copy: c, state, onDiscarded }: { server: ServerStatus; copy: WorldCopy; state: Presence; onDiscarded: () => Promise<void> }) {
+function LeftoverNotice({ server: s, copy: c, state, onDiscarded, className }: { server: ServerStatus; copy: WorldCopy; state: Presence; onDiscarded: () => Promise<void>; className?: string }) {
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
   const when = formatDay(c.createdAt)
@@ -515,7 +542,7 @@ function LeftoverNotice({ server: s, copy: c, state, onDiscarded }: { server: Se
   }
 
   return (
-    <div {...presenceProps(state)}>
+    <div {...presenceProps(state)} className={className}>
       <Notice
         title={leftoverTitle(c)}
         action={
