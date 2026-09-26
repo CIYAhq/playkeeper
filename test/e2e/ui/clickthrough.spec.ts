@@ -6,7 +6,7 @@ import path from 'node:path'
 import { answerRead, installJob, isAddonRead, recordedFolder, updateJob, type World } from './addon-fixtures'
 import { Crawler, failing, failureList, where, type CrawlReport, type Result, type Status } from './crawl'
 import { installPageHelpers } from './crawl-page'
-import type { View } from './fakes'
+import { lay, type View } from './fakes'
 import { login, outDir } from './helpers'
 import { answerModpackRead, isModpackRead, type PackWorld } from './modpack-fixtures'
 
@@ -738,4 +738,13 @@ test('the modpack fixtures answer every pack the library lists, from Modrinth an
   expect(isModpackRead('GET', '/api/machines/m1/modpacks/modrinth/1ocGzRHv')).toBe(true)
   expect(isModpackRead('POST', '/api/machines/m1/modpacks')).toBe(false)
   expect(isModpackRead('GET', '/api/machines/m1/templates')).toBe(false)
+})
+
+test('the view that looks after itself names each copy somewhere else the same on every read, as a real copy is', async () => {
+  // The World tab keys a copy's row by its name, so a name that changed between reads would make the row new on every poll.
+  const names = () => (lay('looks after itself', '/api/servers/abcdefghjk/offsite/copies', {}, 'https://127.0.0.1:8443') as { copies: { name: string }[] }).copies.map((c) => c.name)
+  const first = names()
+  expect(first).toHaveLength(3)
+  await new Promise((resolve) => setTimeout(resolve, 1100))
+  expect(names()).toEqual(first)
 })

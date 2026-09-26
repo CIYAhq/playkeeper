@@ -55,7 +55,7 @@ jobs:
   build:
     name: Build and check the release assets
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
