@@ -239,7 +239,7 @@ export function ConsolePage({ server }: { server: ServerStatus }) {
 }
 
 function Console({ server: s }: { server: ServerStatus }) {
-  const { stale } = useServerMachine(s)
+  const { offline } = useServerMachine(s)
   const phone = useIsPhone()
   const { rows, loaded, truncated } = useLog(s)
   const [filter, setFilter] = useState<Filter>('all')
@@ -325,7 +325,7 @@ function Console({ server: s }: { server: ServerStatus }) {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
-  const disabledReason = whyNot(s, 'command', stale)
+  const disabledReason = whyNot(s, 'command', offline)
   const sendBlocked = disabledReason ?? (command.trim() ? undefined : t('console.typeFirst'))
   const filters = [
     { value: 'all' as const, label: phone ? t('console.filter.allShort') : t('console.filter.all') },

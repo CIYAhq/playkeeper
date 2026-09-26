@@ -541,7 +541,7 @@ function MachineAwayView({ server: s, machine: m, since }: { server: ServerStatu
   else title = t('machines.away.pill', { name })
   return (
     <>
-      <Card className="flex-row items-center gap-7 px-8 py-6 max-sm:flex-col max-sm:items-start max-sm:gap-3 max-sm:p-5" role="status">
+      <Card className="animate-fade flex-row items-center gap-7 px-8 py-6 max-sm:flex-col max-sm:items-start max-sm:gap-3 max-sm:p-5" role="status">
         <Pip pose="sleep" size={phone ? 64 : 84} />
         <div className="min-w-0">
           <h2 className="text-[17px] leading-6 font-bold">{title}</h2>

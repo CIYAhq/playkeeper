@@ -40,8 +40,8 @@ function usePlayers(s: ServerStatus, days: Days) {
 }
 
 /** Why the allowlist and operators can't change right now: they go through the running server. */
-function listLocked(server: ServerStatus, stale: boolean): string | undefined {
-  if (stale) return t('reason.noAgent')
+function listLocked(server: ServerStatus, offline: string | undefined): string | undefined {
+  if (offline) return offline
   return server.phase === 'online' ? undefined : t('players.startToChange', { server: server.name })
 }
 
@@ -136,9 +136,9 @@ function usePlayerLists(server: ServerStatus, whitelist: WhitelistEntry[] | unde
 
 /** The "add a player" field and button, used on the page, in the empty state and on phones. */
 function AddPlayer({ server, form, big, placeholder, iconButton }: { server: ServerStatus; form: AddForm; big?: boolean; placeholder: string; iconButton?: boolean }) {
-  const { stale } = useServerMachine(server)
+  const { offline } = useServerMachine(server)
   const input = useRef<HTMLInputElement>(null)
-  const blocked = listLocked(server, stale)
+  const blocked = listLocked(server, offline)
   const hash = window.location.hash
 
   useEffect(() => {
@@ -186,8 +186,8 @@ function AddPlayer({ server, form, big, placeholder, iconButton }: { server: Ser
 }
 
 function PlayerMenu({ server, name, op, online, onAction, phone }: { server: ServerStatus; name: string; op: boolean; online: boolean; onAction: (action: PlayerAction) => void; phone?: boolean }) {
-  const { stale } = useServerMachine(server)
-  const blocked = listLocked(server, stale)
+  const { offline } = useServerMachine(server)
+  const blocked = listLocked(server, offline)
   return (
     <Menu>
       <MenuTrigger disabled={!!blocked} render={<Button variant="ghost" size={phone ? 'icon-lg' : 'icon-sm'} aria-label={t('players.menuFor', { name })} disabledReason={blocked} />}>

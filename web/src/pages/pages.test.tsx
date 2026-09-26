@@ -8,8 +8,10 @@ import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } fro
 import { activityText } from '@/components/app/activity'
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
+import { AiAgentsSection } from './ai-agents'
 import { HomePage } from './home'
 import { Onboarding } from './onboarding'
+import { ServerPage } from './server'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
 import { ServerSettingsPage } from './server/settings'
@@ -468,5 +470,33 @@ describe('Command palette', () => {
     }
     expect(await tab(shortcuts, false)).toBe(search)
     expect(await tab(search, true)).toBe(shortcuts)
+  })
+})
+
+describe('Machines and AI agents', () => {
+  it('says a server’s controls wait for its machine while that machine is away', async () => {
+    const away: MachineView = {
+      id: 'a2345abcde',
+      projectId: machine.projectId,
+      name: 'attic',
+      kind: 'remote',
+      link: { machineId: 'a2345abcde', name: 'attic', fingerprint: 'X'.repeat(26), state: 'offline', lastSeen: new Date(Date.now() - 600_000).toISOString(), problems: [] },
+    }
+    const attic = server({ id: 'atticsrv01', name: 'Attic', slug: 'attic', machineId: away.id, lastKnownAt: new Date().toISOString() })
+    const text = await render(<ServerPage slug="attic" tab="overview" />, workspace({ machines: [machine, away], servers: [server({ machineId: machine.id }), attic] }))
+    expect(text).toContain('attic hasn’t called in for 10 minutes')
+    const restart = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Restart'))
+    expect(restart?.disabled).toBe(true)
+    expect(restart?.title).toBe('Can’t reach attic')
+  })
+
+  it('says why a token can’t be made yet', async () => {
+    answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5 }, sizingUrl: '', available: true }, '/api/tokens': [] })
+    await render(<AiAgentsSection />)
+    const open = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New token'))
+    await act(async () => open?.click())
+    const make = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Make token')
+    expect(make?.disabled).toBe(true)
+    expect(make?.title).toBe('Give the token a name first.')
   })
 })

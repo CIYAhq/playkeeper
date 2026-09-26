@@ -6,6 +6,7 @@ import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Card, CardHint, CardTitle, CopyButton, Spinner, useNow } from '@/components/app/bits'
 import { ChoiceSelect, Segmented, useIsPhone } from '@/components/app/controls'
+import { lineWidth, ListSkeleton, LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -15,6 +16,7 @@ import { t } from '@/i18n'
 import { can } from '@/lib/access'
 import { formatClock, formatDate, formatList, formatWhen, relativeTime } from '@/lib/format'
 import { byMachine, countdown, groupFingerprint, machineEventText, machineLabel, machineState, olderMachine, problemText, systemLine, type MachineTone } from '@/lib/machines'
+import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps, navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -35,12 +37,12 @@ export function forgetJoinCode() {
 }
 
 function StateDot({ tone }: { tone: MachineTone }) {
-  return <span className={cn('size-1.5 shrink-0 rounded-full', tone === 'good' ? 'bg-success' : tone === 'warn' ? 'bg-warning' : 'bg-muted-foreground')} aria-hidden="true" />
+  return <span key={tone} className={cn('size-1.5 shrink-0 animate-fade rounded-full', tone === 'good' ? 'bg-success' : tone === 'warn' ? 'bg-warning' : 'bg-muted-foreground')} aria-hidden="true" />
 }
 
 function StateLabel({ tone, label }: { tone: MachineTone; label: string }) {
   return (
-    <span className={cn('flex items-center gap-1.5 text-xs font-medium', tone === 'good' ? 'text-success-strong' : tone === 'warn' ? 'text-warning-strong' : 'text-muted-foreground')}>
+    <span key={label} className={cn('flex animate-fade items-center gap-1.5 text-xs font-medium', tone === 'good' ? 'text-success-strong' : tone === 'warn' ? 'text-warning-strong' : 'text-muted-foreground')}>
       <StateDot tone={tone} />
       {label}
     </span>
@@ -57,20 +59,25 @@ export function MachinesSection() {
     <>
       <MachineList fingerprint={link.data?.fingerprint} />
       {manage && link.data?.available && <ConnectCard link={link.data} refresh={link.refresh} onWaiting={setFast} />}
-      {manage && !link.data && !link.error && <Skeleton className="h-72 w-full rounded-3xl" />}
+      {manage && !link.data && !link.error && <ConnectSkeleton />}
       {manage && link.error && <p className="text-[13px] text-destructive-foreground">{errorText(link.error)}</p>}
     </>
   )
 }
 
+const machineKey = (m: MachineView) => m.id
+
 function MachineList({ fingerprint }: { fingerprint?: string }) {
   const ws = useWorkspace()
-  const groups = byMachine(ws.servers ?? [], ws.machines)
+  const rows = useListPresence(ws.machines.length ? ws.machines : undefined, machineKey)
+  const serversOn = new Map(byMachine(ws.servers ?? [], ws.machines).map((g) => [g.machine.id, g.servers]))
   return (
     <Card aria-labelledby="machines-title">
       <CardTitle id="machines-title">{t('machines.title')}</CardTitle>
-      <ul className="mt-3 flex flex-col">
-        {groups.map(({ machine: m, servers }) => {
+      {!ws.machines.length && <ListSkeleton rows={1} rowClassName="flex items-center gap-3 py-2.5" face="size-[18px] rounded" trailing={<Skeleton className="h-3 w-14" />} className="mt-3 flex flex-col" />}
+      <ul className="mt-3 flex flex-col empty:hidden">
+        {rows.map(({ key, item: m, state: presence }) => {
+          const servers = serversOn.get(m.id) ?? []
           const state = machineState(m, ws)
           const local = m.kind === 'local'
           const body = (
@@ -89,7 +96,7 @@ function MachineList({ fingerprint }: { fingerprint?: string }) {
             </>
           )
           return (
-            <li key={m.id} className="border-t border-border first:border-t-0">
+            <li key={key} {...presenceProps(presence)} className="border-t border-border first:border-t-0">
               {local ? (
                 <div className="flex items-center gap-3 py-2.5">{body}</div>
               ) : (
@@ -206,13 +213,13 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
   if (joined) return <ConnectedCard id={joined} fallbackName={code?.name ?? ''} />
   if (paused) {
     return (
-      <Card aria-labelledby="connect-paused">
+      <Card aria-labelledby="connect-paused" className="animate-fade">
         <h2 id="connect-paused" className="text-[15px] font-semibold text-warning-foreground">
           {t('machines.paused.title', { minutes: t('machines.minutes', { count: Math.max(1, Math.ceil(pausedFor / 60)) }) })}
         </h2>
         <p className="mt-1 text-[13px] text-muted-foreground">{t('machines.paused.body')}</p>
         <div className="mt-4 flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled>
+          <Button variant="outline" size="sm" disabledReason={t('machines.paused.reason', { time: countdown(pausedFor) })}>
             <RefreshCwIcon />
             {t('machines.connect.makeCode')}
           </Button>
@@ -223,7 +230,7 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
   }
   if (ranOut) {
     return (
-      <Card aria-labelledby="connect-ran-out">
+      <Card aria-labelledby="connect-ran-out" className="animate-fade">
         <h2 id="connect-ran-out" className="text-[15px] font-semibold">
           {t('machines.ranOut.title')}
         </h2>
@@ -241,7 +248,7 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
   const lines = cmd ? (form === 'install' ? cmd.installLines : cmd.joinLines) : []
   const shownName = name.trim() || (made?.name ?? '')
   return (
-    <Card aria-labelledby="connect-title">
+    <Card aria-labelledby="connect-title" className="animate-fade">
       <CardTitle id="connect-title">{t('machines.connect.title')}</CardTitle>
       <CardHint>{t('machines.connect.lead')}</CardHint>
       <ol className="mt-4 flex flex-col gap-5">
@@ -318,7 +325,10 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
               <p className="mt-2 text-xs text-muted-foreground">{t('machines.connect.fingerprintNote')}</p>
             </>
           ) : busy ? (
-            <Skeleton className="mt-3 h-28 w-full rounded-xl" />
+            <>
+              <LoadingLabel />
+              <Skeleton className="mt-3 h-28 w-full rounded-xl" />
+            </>
           ) : (
             <Button variant="outline" size="sm" className="mt-3" onClick={() => void make(name, dial)}>
               <RefreshCwIcon />
@@ -327,7 +337,7 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
           )}
         </Step>
         <Step n={4} title={t('machines.connect.step4')}>
-          <p className={cn('flex items-center gap-2 text-[13px] text-muted-foreground', !waiting && 'opacity-60')}>
+          <p className={cn('flex items-center gap-2 text-[13px] text-muted-foreground transition-opacity duration-(--motion-standard) ease-standard', !waiting && 'opacity-60')}>
             {waiting && <Spinner />}
             {shownName ? t('machines.connect.waitingFor', { name: shownName }) : t('machines.connect.waitingAny')}
           </p>
@@ -355,7 +365,7 @@ function ConnectedCard({ id, fallbackName }: { id: string; fallbackName: string 
   const name = machineLabel(m) || fallbackName
   const version = m?.link?.version ?? m?.live?.agentVersion
   return (
-    <Card aria-labelledby="connect-done">
+    <Card aria-labelledby="connect-done" className="animate-fade">
       <div className="flex items-center gap-3">
         <Pip pose="cheer" size={52} />
         <div className="min-w-0">
@@ -394,6 +404,7 @@ export function MachineDetailsSection({ id }: { id: string }) {
   const ws = useWorkspace()
   const m = ws.machines.find((x) => x.id === id)
   const events = usePoll(() => get<MachineEvent[]>(machineApi(id, '/events')), 15_000, id)
+  const eventRows = useListPresence(events.data?.slice(0, 8), eventKey)
   const now = useNow(30_000)
   const [removing, setRemoving] = useState(false)
   const [updating, setUpdating] = useState(false)
@@ -413,7 +424,7 @@ export function MachineDetailsSection({ id }: { id: string }) {
     return (
       <>
         {back}
-        {ws.machines.length ? <p className="text-sm text-muted-foreground">{t('machine.notFound')}</p> : <Skeleton className="h-40 w-full rounded-3xl" />}
+        {ws.machines.length ? <p className="text-sm text-muted-foreground">{t('machine.notFound')}</p> : <DetailsSkeleton />}
       </>
     )
   }
@@ -469,7 +480,7 @@ export function MachineDetailsSection({ id }: { id: string }) {
               {t('machines.newServerHere')}
             </Button>
           ) : (
-            <Button variant="outline" disabled>
+            <Button variant="outline" disabledReason={t('machines.away.pill', { name })}>
               <PlusIcon />
               {t('machines.newServerHere')}
             </Button>
@@ -506,19 +517,22 @@ export function MachineDetailsSection({ id }: { id: string }) {
           <CardTitle id="machine-events">{t('machines.events')}</CardTitle>
           <CardHint>{t('machines.eventsHint')}</CardHint>
           {events.data === undefined && !events.error ? (
-            <Skeleton className="mt-3 h-24 w-full" />
+            <ListSkeleton rows={4} lines={1} rowClassName={cn(eventRow, 'items-center')} className="mt-3 flex flex-col" trailing={<Skeleton className="h-3 w-10" />} />
           ) : events.error ? (
             <p className="mt-3 text-[13px] text-destructive-foreground">{errorText(events.error)}</p>
-          ) : list.length === 0 ? (
+          ) : eventRows.length === 0 ? (
             <p className="mt-3 text-[13px] text-muted-foreground">{t('machines.eventsEmpty')}</p>
           ) : (
             <ul className="mt-3 flex flex-col">
-              {list.slice(0, 8).map((e, i) => (
-                <li key={`${e.at}-${i}`} className="flex items-baseline gap-3 border-t border-border py-2 text-[13px] first:border-t-0">
-                  <span className="min-w-0 flex-1">{machineEventText(list, i)}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">{formatWhen(e.at, new Date(now))}</span>
-                </li>
-              ))}
+              {eventRows.map(({ key, item: e, state }) => {
+                const i = list.indexOf(e)
+                return (
+                  <li key={key} {...presenceProps(state)} className={eventRow}>
+                    <span className="min-w-0 flex-1">{i >= 0 ? machineEventText(list, i) : machineEventText([e], 0)}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{formatWhen(e.at, new Date(now))}</span>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </Card>
@@ -535,6 +549,53 @@ export function MachineDetailsSection({ id }: { id: string }) {
       </div>
       <RemoveDialog machine={m} servers={servers.map((s) => s.name)} open={removing} onOpenChange={setRemoving} />
     </>
+  )
+}
+
+const eventKey = (e: MachineEvent) => `${e.at}:${e.kind}:${e.code ?? ''}`
+const eventRow = 'flex items-baseline gap-3 border-t border-border py-2 text-[13px] first:border-t-0'
+
+/** Settings › Machines › a machine while the machines load: its heading and facts. */
+function DetailsSkeleton() {
+  return (
+    <>
+      <div className="flex items-start gap-3">
+        <LoadingLabel />
+        <Skeleton className="mt-1.5 size-5 rounded" />
+        <div className="flex flex-col gap-2 pt-1">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-3 w-56" />
+        </div>
+      </div>
+      <Card className="py-1">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="grid grid-cols-[94px_minmax(0,1fr)] gap-4 border-t border-border py-3 first:border-t-0">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className={cn('h-3', lineWidth(i))} />
+          </div>
+        ))}
+      </Card>
+    </>
+  )
+}
+
+/** The connect card while the dashboard's joining details load: its heading and the four steps. */
+function ConnectSkeleton() {
+  return (
+    <Card>
+      <LoadingLabel />
+      <Skeleton className="h-4 w-48" />
+      <Skeleton className="mt-2 h-3 w-60" />
+      <div className="mt-5 flex flex-col gap-5">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="grid grid-cols-[20px_minmax(0,1fr)] items-center gap-x-3">
+            <Skeleton className="size-5 rounded-full" />
+            <Skeleton className="h-3.5 w-32" />
+            <Skeleton className={cn('col-start-2 mt-2 h-3', lineWidth(i + 1))} />
+          </div>
+        ))}
+      </div>
+    </Card>
   )
 }
 

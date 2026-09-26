@@ -185,12 +185,12 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
 }
 
 function MakeBackup({ server: s, phone, onDone }: { server: ServerStatus; phone?: boolean; onDone: () => void }) {
-  const { stale } = useServerMachine(s)
+  const { offline } = useServerMachine(s)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
   const online = s.phase === 'online'
-  const blocked = whyNot(s, 'change', stale)
+  const blocked = whyNot(s, 'change', offline)
 
   async function backup() {
     setBusy(true)
@@ -411,7 +411,7 @@ function BackupRow({ server: s, backup: b, state, newest, onRestore, onChanged }
 }
 
 function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boolean }) {
-  const { stale } = useServerMachine(s)
+  const { offline } = useServerMachine(s)
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
   const steps = [
@@ -428,7 +428,7 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
         size={phone ? 'touch' : 'lg'}
         className="mt-5 max-sm:w-full"
         loading={busy || running}
-        disabledReason={whyNot(s, 'change', stale)}
+        disabledReason={whyNot(s, 'change', offline)}
         onClick={async () => {
           setBusy(true)
           try {

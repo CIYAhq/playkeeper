@@ -14,6 +14,7 @@ import { can, inSettings, settingsHome } from '@/lib/access'
 import { demo } from '@/lib/demo'
 import { byMachine, isStale, machineLabel, machineRoute, machineState, reachOf, type MachineTone } from '@/lib/machines'
 import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
+import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps, navigate, type Route, type ServerTab } from '@/lib/router'
 import { cn } from '@/lib/utils'
 
@@ -191,6 +192,8 @@ function serverMeta(s: ServerStatus, stale: boolean): ReactNode {
   }
 }
 
+const machineKey = (m: MachineView) => m.id
+
 const toneText: Record<MachineTone, string> = { good: 'text-success-strong', warn: 'text-warning-strong', off: 'text-muted-foreground' }
 const toneDot: Record<MachineTone, string> = { good: 'bg-success', warn: 'bg-warning', off: 'bg-muted-foreground' }
 
@@ -207,7 +210,7 @@ function MachineRow({ machine: m, route }: { machine: MachineView; route: Route 
     >
       <ServerIcon className="size-3.5" aria-hidden="true" />
       <span className="min-w-0 flex-1 truncate">{m.kind === 'local' ? ws.machineName : machineLabel(m)}</span>
-      <span className={cn('flex items-center gap-1.5 text-[11px] font-medium', toneText[state.tone])}>
+      <span key={state.label} className={cn('flex animate-fade items-center gap-1.5 text-[11px] font-medium', toneText[state.tone])}>
         <span className={cn('size-1.5 rounded-full', toneDot[state.tone])} aria-hidden="true" />
         {state.label}
       </span>
@@ -218,7 +221,9 @@ function MachineRow({ machine: m, route }: { machine: MachineView; route: Route 
 function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
   const ws = useWorkspace()
   const tab: ServerTab = route.name === 'server' ? route.tab : 'overview'
-  const groups = ws.machines.length > 1 ? byMachine(ws.servers ?? [], ws.machines) : [{ machine: ws.machine, servers: ws.servers ?? [] }]
+  const shared = ws.machines.length > 1
+  const machineRows = useListPresence(shared ? ws.machines : undefined, machineKey)
+  const serversOn = new Map(byMachine(ws.servers ?? [], ws.machines).map((g) => [g.machine.id, g.servers]))
   const serverItem = (s: ServerStatus) => {
     const reach = reachOf(s, ws)
     const stale = isStale(s, ws.stale)
@@ -254,16 +259,23 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
         <SideItem to={{ name: 'home' }} active={route.name === 'home'} icon={<HouseIcon />}>
           {t('nav.home')}
         </SideItem>
-        {groups.map((g, i) => (
-          <div key={g.machine?.id ?? i} className="flex flex-col gap-0.5">
-            {g.machine && <MachineRow machine={g.machine} route={route} />}
-            {g.servers.map(serverItem)}
+        {shared ? (
+          machineRows.map(({ key, item: m, state }) => (
+            <div key={key} {...presenceProps(state)} className="flex flex-col gap-0.5">
+              <MachineRow machine={m} route={route} />
+              {(serversOn.get(m.id) ?? []).map(serverItem)}
+            </div>
+          ))
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            {ws.machine && <MachineRow machine={ws.machine} route={route} />}
+            {(ws.servers ?? []).map(serverItem)}
           </div>
-        ))}
+        )}
         <SideItem to={{ name: 'new-server' }} active={route.name === 'new-server'} icon={<PlusIcon />} muted>
           {t('nav.newServer')}
         </SideItem>
-        {ws.machines.length > 1 && can(ws.me, 'machine.manage') && (
+        {shared && can(ws.me, 'machine.manage') && (
           <SideItem to={{ name: 'machines' }} active={route.name === 'machines'} icon={<PlugIcon />} muted>
             {t('machines.connectNav')}
           </SideItem>

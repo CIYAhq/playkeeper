@@ -5,6 +5,7 @@ import type { AgentActivity, ApiToken, MachineLinkInfo, NewToken, TokenRole } fr
 import { errorText, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, CopyButton, SectionLabel } from '@/components/app/bits'
 import { ChoiceSelect, useIsPhone, type Choice } from '@/components/app/controls'
+import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
@@ -18,6 +19,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { tokenRoles } from '@/lib/access'
 import { formatDate, formatWhen, relativeTime } from '@/lib/format'
+import { presenceProps, useListPresence } from '@/lib/presence'
 import { agentPhrase, elideSecret, mcpAddress, mcpSnippet, runsOutText, tokenDays, tokenExpired, tokenRoleHint, tokenRoleText, tokenServersText, type TokenDays } from '@/lib/tokens'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -117,8 +119,12 @@ function lastUsed(tk: ApiToken): string {
   return tk.lastUsedAt ? t('ai.lastUsed', { time: relativeTime(tk.lastUsedAt) }) : t('ai.neverUsed')
 }
 
+const tokenKey = (tk: ApiToken) => tk.id
+const latelyKey = (a: AgentActivity) => `${a.tokenId}:${a.tool}:${a.serverId ?? ''}:${a.at}`
+
 function TokenTable({ tokens, error, onRevoke }: { tokens: ApiToken[] | undefined; error?: string; onRevoke: (tk: ApiToken) => void }) {
   const { servers } = useWorkspace()
+  const rows = useListPresence(tokens, tokenKey)
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-white">
       <table className="w-full text-[13px]">
@@ -134,7 +140,7 @@ function TokenTable({ tokens, error, onRevoke }: { tokens: ApiToken[] | undefine
           </tr>
         </thead>
         <tbody>
-          {!tokens && !error && [0, 1].map((i) => <SkeletonRow key={i} />)}
+          {!tokens && !error && [0, 1].map((i) => <SkeletonRow key={i} first={i === 0} />)}
           {error && (
             <tr className="border-t border-border">
               <td colSpan={5} className="px-3 py-4 text-destructive-foreground">
@@ -142,17 +148,17 @@ function TokenTable({ tokens, error, onRevoke }: { tokens: ApiToken[] | undefine
               </td>
             </tr>
           )}
-          {tokens?.length === 0 && (
+          {tokens && rows.length === 0 && (
             <tr className="border-t border-border">
               <td colSpan={5} className="px-3 py-4 text-muted-foreground">
                 {t('ai.noTokens')}
               </td>
             </tr>
           )}
-          {tokens?.map((tk) => {
+          {rows.map(({ key, item: tk, state }) => {
             const expired = tokenExpired(tk)
             return (
-              <tr key={tk.id} className={cn('h-[52px] border-t border-border animate-in fade-in duration-200', expired && 'text-muted-foreground')}>
+              <tr key={key} {...presenceProps(state)} className={cn('h-[52px] border-t border-border', expired && 'text-muted-foreground')}>
                 <td className="px-3 py-2">
                   <span className="block font-semibold">{tk.name}</span>
                   <span className="block text-xs text-muted-foreground">
@@ -192,10 +198,11 @@ function TokenTable({ tokens, error, onRevoke }: { tokens: ApiToken[] | undefine
   )
 }
 
-function SkeletonRow() {
+function SkeletonRow({ first }: { first?: boolean }) {
   return (
     <tr className="h-[52px] border-t border-border">
       <td className="px-3">
+        {first && <LoadingLabel />}
         <Skeleton className="h-3.5 w-36" />
         <Skeleton className="mt-1.5 h-3 w-24" />
       </td>
@@ -213,22 +220,30 @@ function SkeletonRow() {
   )
 }
 
+const latelyRow = 'grid min-h-10 grid-cols-[180px_minmax(0,1fr)_auto] items-center gap-4 border-t border-border py-2 text-[13px] first:border-t-0'
+
 function Lately({ items, error }: { items: AgentActivity[] | undefined; error?: string }) {
+  const rows = useListPresence(items?.slice(0, 8), latelyKey)
   if (error) return <p className="mt-2 text-[13px] text-destructive-foreground">{error}</p>
   if (!items) {
     return (
-      <div className="mt-3 flex flex-col gap-3" aria-hidden="true">
+      <ul className="mt-2 flex flex-col">
         {[0, 1, 2].map((i) => (
-          <Skeleton key={i} className="h-4 w-full max-w-[420px]" />
+          <li key={i} className={latelyRow}>
+            {i === 0 && <LoadingLabel />}
+            <Skeleton className="h-3.5 w-32" />
+            <Skeleton className={cn('h-3.5', i % 2 ? 'w-1/2' : 'w-2/3')} />
+            <Skeleton className="h-3 w-10" />
+          </li>
         ))}
-      </div>
+      </ul>
     )
   }
-  if (items.length === 0) return <p className="mt-2 text-[13px] text-muted-foreground">{t('ai.latelyEmpty')}</p>
+  if (rows.length === 0) return <p className="mt-2 text-[13px] text-muted-foreground">{t('ai.latelyEmpty')}</p>
   return (
     <ul className="mt-2 flex flex-col">
-      {items.slice(0, 8).map((a, i) => (
-        <li key={`${a.tokenId}-${a.at}-${i}`} className="grid min-h-10 grid-cols-[180px_minmax(0,1fr)_auto] items-center gap-4 border-t border-border py-2 text-[13px] first:border-t-0 animate-in fade-in duration-200">
+      {rows.map(({ key, item: a, state }) => (
+        <li key={key} {...presenceProps(state)} className={latelyRow}>
           <span className="truncate font-semibold">{a.tokenName}</span>
           <span className="truncate">
             {agentPhrase(a)}
@@ -257,12 +272,14 @@ function PhoneGroup({ children, label }: { children: ReactNode; label?: string }
 }
 
 function PhoneTokens({ tokens, error, onOpen }: { tokens: ApiToken[] | undefined; error?: string; onOpen: (tk: ApiToken) => void }) {
+  const rows = useListPresence(tokens, tokenKey)
   if (error) return <p className="px-4 text-[15px] text-destructive-foreground">{error}</p>
   if (!tokens) {
     return (
       <PhoneGroup>
         {[0, 1].map((i) => (
           <li key={i} className="flex min-h-16 items-center gap-3.5 px-4">
+            {i === 0 && <LoadingLabel />}
             <Skeleton className="size-6 rounded-full" />
             <span className="flex-1">
               <Skeleton className="h-4 w-40" />
@@ -273,11 +290,11 @@ function PhoneTokens({ tokens, error, onOpen }: { tokens: ApiToken[] | undefined
       </PhoneGroup>
     )
   }
-  if (tokens.length === 0) return <p className="px-4 text-[15px] text-muted-foreground">{t('ai.noTokens')}</p>
+  if (rows.length === 0) return <p className="px-4 text-[15px] text-muted-foreground">{t('ai.noTokens')}</p>
   return (
     <PhoneGroup>
-      {tokens.map((tk) => (
-        <li key={tk.id}>
+      {rows.map(({ key, item: tk, state }) => (
+        <li key={key} {...presenceProps(state)}>
           <button type="button" onClick={() => onOpen(tk)} className="flex min-h-16 w-full items-center gap-3.5 px-4 py-2 text-left">
             <KeyRoundIcon className="size-[22px] shrink-0 text-muted-foreground" aria-hidden="true" />
             <span className="min-w-0 flex-1">
@@ -297,22 +314,24 @@ function PhoneTokens({ tokens, error, onOpen }: { tokens: ApiToken[] | undefined
 }
 
 function PhoneLately({ items, error }: { items: AgentActivity[] | undefined; error?: string }) {
+  const rows = useListPresence(items?.slice(0, 6), latelyKey)
   if (error) return <p className="px-4 text-[15px] text-destructive-foreground">{error}</p>
   if (!items) {
     return (
       <PhoneGroup>
         <li className="px-4 py-3">
+          <LoadingLabel />
           <Skeleton className="h-4 w-56" />
           <Skeleton className="mt-1.5 h-3 w-40" />
         </li>
       </PhoneGroup>
     )
   }
-  if (items.length === 0) return <p className="px-4 text-[15px] text-muted-foreground">{t('ai.latelyEmpty')}</p>
+  if (rows.length === 0) return <p className="px-4 text-[15px] text-muted-foreground">{t('ai.latelyEmpty')}</p>
   return (
     <PhoneGroup>
-      {items.slice(0, 6).map((a, i) => (
-        <li key={`${a.tokenId}-${a.at}-${i}`} className="px-4 py-2.5">
+      {rows.map(({ key, item: a, state }) => (
+        <li key={key} {...presenceProps(state)} className="px-4 py-2.5">
           <span className="block text-base first-letter:uppercase">{agentPhrase(a)}</span>
           <span className="block text-[13px] text-muted-foreground">
             {a.tokenName}
@@ -464,7 +483,7 @@ function NewTokenDialog({ open, address, onOpenChange, onCreated }: { open: bool
   const roleChoices: Choice<TokenRole>[] = roles.map((r) => ({ value: r, label: tokenRoleText(r), hint: tokenRoleHint(r) }))
   const scopeChoices: Choice<'all' | 'some'>[] = [
     { value: 'all', label: t('ai.allServers') },
-    { value: 'some', label: t('ai.someServers'), disabled: servers.length === 0 },
+    { value: 'some', label: t('ai.someServers'), disabled: servers.length === 0, hint: servers.length === 0 ? t('ai.noServersYet') : undefined },
   ]
   const dayChoices: Choice<string>[] = tokenDays.map((d) => ({ value: String(d), label: t('ai.daysOption', { days: d, date: expiryDate(d) }) }))
 
@@ -498,7 +517,7 @@ function NewTokenDialog({ open, address, onOpenChange, onCreated }: { open: bool
                 <Label htmlFor="token-scope">{t('ai.servers')}</Label>
                 <ChoiceSelect id="token-scope" value={scope} onChange={setScope} options={scopeChoices} label={t('ai.servers')} className="w-full justify-between" />
                 {scope === 'some' && (
-                  <fieldset className="mt-1 flex flex-col gap-2 rounded-2xl border border-border p-3 animate-in fade-in duration-200">
+                  <fieldset className="mt-1 flex animate-enter flex-col gap-2 rounded-2xl border border-border p-3">
                     <legend className="sr-only">{t('ai.pickServers')}</legend>
                     {servers.map((s) => (
                       <Label key={s.id} className="flex items-center gap-2.5 text-sm font-normal">
@@ -523,7 +542,7 @@ function NewTokenDialog({ open, address, onOpenChange, onCreated }: { open: bool
               <Button variant="ghost" onClick={() => onOpenChange(false)}>
                 {t('common.cancel')}
               </Button>
-              <Button type="submit" loading={busy} disabled={!name.trim()}>
+              <Button type="submit" loading={busy} disabledReason={!name.trim() ? t('ai.nameFirst') : scope === 'some' && picked.length === 0 ? t('ai.pickOne') : undefined}>
                 {t('ai.make')}
               </Button>
             </DialogFooter>
@@ -539,7 +558,7 @@ function CreatedToken({ made, address, onDone }: { made: NewToken; address: stri
   const tk = made.token
   const scope = tk.allServers ? t('ai.allServersLower') : tokenServersText(tk, servers ?? [])
   return (
-    <div className="flex min-h-0 flex-col animate-in fade-in duration-200">
+    <div className="flex min-h-0 animate-fade flex-col">
       <DialogHeader>
         <DialogTitle className="text-lg font-bold">{t('ai.createdTitle', { name: tk.name })}</DialogTitle>
         <DialogDescription>{t('ai.createdMeta', { role: tokenRoleText(tk.role), servers: scope, date: formatDate(tk.expiresAt) })}</DialogDescription>

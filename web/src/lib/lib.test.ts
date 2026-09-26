@@ -293,6 +293,8 @@ describe('server state', () => {
     expect(whyNot(server({ exists: false, phase: 'not_created' }), 'start', false)).toBe('Survival isn’t set up yet.')
     expect(whyNot(server({ phase: 'docker_unavailable' }), 'change', false)).toBe('Docker not responding')
     expect(whyNot(server(), 'change', true)).toBe('Waiting for the Playkeeper agent to answer.')
+    expect(whyNot(server(), 'restart', 'Can’t reach home-server')).toBe('Can’t reach home-server')
+    expect(whyNot(server(), 'restart', undefined)).toBeUndefined()
     expect(busyReason(server())).toBeUndefined()
     expect(busyReason(server({ operation: backup }))).toBe('Backing up Survival. Try again when it’s done.')
   })

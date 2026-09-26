@@ -528,7 +528,7 @@ function VersionDialog({ server: s, targets, initial, open, onClose }: { server:
 }
 
 function DangerRows({ server: s }: { server: ServerStatus }) {
-  const { stale } = useServerMachine(s)
+  const { offline } = useServerMachine(s)
   const [open, setOpen] = useState(false)
   const [typed, setTyped] = useState('')
   const [busy, setBusy] = useState(false)
@@ -557,7 +557,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
             variant="outline"
             size="sm"
             loading={stopping}
-            disabledReason={whyNot(s, 'stop', stale)}
+            disabledReason={whyNot(s, 'stop', offline)}
             onClick={async () => {
               setStopping(true)
               await serverAction(s, 'stop')
@@ -573,7 +573,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
         label={t('settings.deleteTitle', { server: s.name })}
         hint={t('settings.deleteHint', { count: backups })}
         control={
-          <Button variant="destructive-outline" size="sm" onClick={() => setOpen(true)} disabledReason={stale ? t('reason.noAgent') : busyReason(s)}>
+          <Button variant="destructive-outline" size="sm" onClick={() => setOpen(true)} disabledReason={offline ?? busyReason(s)}>
             <Trash2Icon />
             {t('settings.deleteButton')}
           </Button>

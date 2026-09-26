@@ -144,7 +144,7 @@ function useCopyAddress(server: ServerStatus) {
 }
 
 function PrimaryAction({ server }: { server: ServerStatus }) {
-  const { stale } = useServerMachine(server)
+  const { stale, offline } = useServerMachine(server)
   const [busy, setBusy] = useState(false)
   const run = async (action: 'start' | 'restart') => {
     setBusy(true)
@@ -154,14 +154,14 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
   const tone = phaseTone(server.phase)
   if (!stale && (tone === 'crashed' || (tone === 'stopped' && server.exists))) {
     return (
-      <Button onClick={() => run('start')} loading={busy} disabledReason={whyNot(server, 'start', stale)}>
+      <Button onClick={() => run('start')} loading={busy} disabledReason={whyNot(server, 'start', offline)}>
         <PlayIcon />
         {tone === 'crashed' ? t('server.startAgain') : t('server.start')}
       </Button>
     )
   }
   return (
-    <Button variant="outline" onClick={() => run('restart')} loading={busy} disabledReason={whyNot(server, 'restart', stale)}>
+    <Button variant="outline" onClick={() => run('restart')} loading={busy} disabledReason={whyNot(server, 'restart', offline)}>
       <RotateCwIcon />
       {t('server.restart')}
     </Button>
@@ -169,9 +169,9 @@ function PrimaryAction({ server }: { server: ServerStatus }) {
 }
 
 function MoreMenu({ server }: { server: ServerStatus }) {
-  const { stale } = useServerMachine(server)
+  const { offline } = useServerMachine(server)
   const c = controls(server)
-  const backUpBlocked = whyNot(server, 'change', stale)
+  const backUpBlocked = whyNot(server, 'change', offline)
   return (
     <Menu>
       <MenuTrigger render={<Button variant="outline" size="icon" aria-label={t('common.moreActions')} />}>

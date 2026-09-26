@@ -19,6 +19,7 @@ import { demo } from '@/lib/demo'
 import { formatBytes, formatDate, formatMB, formatPercent, formatSpan, joinAddress, sameDay } from '@/lib/format'
 import { awayLong, awayOf, byMachine, isAway, isStale, joinHost, machineLabel, machineOf, machineState, reachOf } from '@/lib/machines'
 import { isSettingUp, phaseLabel, phaseTone } from '@/lib/phase'
+import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
@@ -32,6 +33,8 @@ export function HomePage() {
   const { catalog } = useCatalog(machine?.id)
   const reachable = ws.machines.filter((m) => !isAway(m)).map((m) => m.id)
   const activity = usePoll<Activity[] | undefined>(() => (reachable.length ? recentActivity(reachable) : Promise.resolve(undefined)), 10000, reachable.join(' '))
+  const grouped = ws.machines.length > 1
+  const sections = useListPresence(grouped ? ws.machines : undefined, machineKey)
 
   const newButton = (
     <Button render={<a {...linkProps({ name: 'new-server' })} />}>
@@ -62,7 +65,6 @@ export function HomePage() {
     )
   }
 
-  const grouped = ws.machines.length > 1
   const count = servers && (grouped ? t('machines.home.subtitle', { count: servers.length, machines: ws.machines.length }) : t('home.servers', { count: servers.length, machine: ws.machineName }))
   const subtitle = !servers ? <InlineSkeleton className="w-56" /> : ws.stale ? count : `${count}${t('common.dot')}${t('home.playing', { count: playersOnline(servers.filter((s) => !s.lastKnownAt)) })}`
   return (
@@ -71,14 +73,14 @@ export function HomePage() {
       <PageBody className="flex flex-col gap-4">
         <MachineNotice />
         {grouped && servers ? (
-          byMachine(servers, ws.machines).map((g) => (
-            <section key={g.machine.id} aria-labelledby={`on-${g.machine.id}`} className="flex flex-col gap-3">
-              <MachineHeading machine={g.machine} />
+          sections.map(({ key, item: m, state }) => (
+            <section key={key} {...presenceProps(state)} aria-labelledby={`on-${m.id}`} className="flex flex-col gap-3">
+              <MachineHeading machine={m} />
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {g.servers.map((s) => (
-                  <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />
-                ))}
-                <NewServerCard machine={g.machine} />
+                {byMachine(servers, ws.machines)
+                  .find((g) => g.machine.id === m.id)
+                  ?.servers.map((s) => <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />)}
+                <NewServerCard machine={m} />
               </div>
             </section>
           ))
@@ -103,6 +105,8 @@ export function HomePage() {
     </>
   )
 }
+
+const machineKey = (m: MachineView) => m.id
 
 /** The latest activity on the machines that answer, newest first. */
 async function recentActivity(machines: string[]): Promise<Activity[]> {
@@ -322,7 +326,9 @@ function MachineHeading({ machine: m }: { machine: MachineView }) {
       <a {...linkProps(m.kind === 'local' ? { name: 'machine', id: m.id } : { name: 'machine-settings', id: m.id })} className="rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
         {t('machines.home.on', { name })}
       </a>
-      <span className="text-[13px] font-normal text-muted-foreground">{meta.join(t('common.dot'))}</span>
+      <span key={word} className="animate-fade text-[13px] font-normal text-muted-foreground">
+        {meta.join(t('common.dot'))}
+      </span>
     </h2>
   )
 }
