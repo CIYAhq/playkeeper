@@ -19,13 +19,7 @@ import (
 // id and confirmation phrase and the hashes of both worlds.
 func (e *agentEnv) restoreScenario() (id, phrase, restored, previous string) {
 	e.t.Helper()
-	e.create()
-	id, phrase = e.backupAndStage()
-	restored = worldHash(e.t, e.dataDir())
-	if err := os.WriteFile(filepath.Join(e.dataDir(), "world", "later.dat"), []byte("built after the backup"), 0o640); err != nil {
-		e.t.Fatal(err)
-	}
-	previous = worldHash(e.t, e.dataDir())
+	id, phrase, restored, previous = e.worldRestoreScenario()
 	sc, err := e.srv().serverConfig()
 	if err != nil {
 		e.t.Fatal(err)
@@ -35,6 +29,19 @@ func (e *agentEnv) restoreScenario() (id, phrase, restored, previous string) {
 		e.t.Fatal(err)
 	}
 	return id, phrase, restored, previous
+}
+
+// worldRestoreScenario is restoreScenario without the MOTD change: the
+// server keeps the backup's settings, and only its world changes.
+func (e *agentEnv) worldRestoreScenario() (id, phrase, restored, previous string) {
+	e.t.Helper()
+	e.create()
+	id, phrase = e.backupAndStage()
+	restored = worldHash(e.t, e.dataDir())
+	if err := os.WriteFile(filepath.Join(e.dataDir(), "world", "later.dat"), []byte("built after the backup"), 0o640); err != nil {
+		e.t.Fatal(err)
+	}
+	return id, phrase, restored, worldHash(e.t, e.dataDir())
 }
 
 // startRestore applies a staged restore and returns its operation's id
