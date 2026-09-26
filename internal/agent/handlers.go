@@ -1243,6 +1243,13 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errNotFound("Server"))
 		return
 	}
+	if target != nil {
+		if m := target.worldMissing(); m != nil {
+			a.auditFor(p.ServerID, actor, "restore.applied", r.PathValue("id"), "refused", "the world folder is missing")
+			writeError(w, errWorldMissing(m, "restore again"))
+			return
+		}
+	}
 	if req.MemoryMB != 0 {
 		if err := a.validMemory(req.MemoryMB, p.ServerID); err != nil {
 			writeError(w, err)

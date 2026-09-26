@@ -125,6 +125,25 @@ func TestTheDataPackListWaitsForTheMissingWorldFolder(t *testing.T) {
 	refusedForMissingWorldFolder(t, m, "the data pack list", code, out, "try again")
 }
 
+// Another restore is refused while the world folder is missing: the start
+// that settles the unfinished one would otherwise find a new world in its way.
+func TestARestoreWaitsForTheMissingWorldFolder(t *testing.T) {
+	e, m := worldLeftMissing(t)
+	list, _ := e.srv().listBackups(`kind = 'manual'`)
+	code, preview := e.call("POST", e.sp("/backups/"+list[0].ID+"/restore"), map[string]any{"actor": "admin"})
+	if code != 200 {
+		t.Fatalf("stage: %d %v", code, preview)
+	}
+	code, out := e.call("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": preview["confirmPhrase"], "actor": "admin"})
+	refusedForMissingWorldFolder(t, m, "another restore", code, out, "restore again")
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'restore.applied' AND result = 'refused'`); n != 1 {
+		t.Fatalf("want the refused restore audited once, got %d", n)
+	}
+	if _, err := os.Stat(e.dataDir()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a refused restore made a world folder: %v", err)
+	}
+}
+
 // A restore whose previous world the next start put back says so: its record
 // no longer says putting it back failed, the activity has a line for it, and
 // the audit log has what the start did.
