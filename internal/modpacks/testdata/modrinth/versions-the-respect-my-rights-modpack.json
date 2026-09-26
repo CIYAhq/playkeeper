@@ -1,0 +1,39 @@
+[
+ {
+  "game_versions": [
+   "1.21.11"
+  ],
+  "loaders": [
+   "forge"
+  ],
+  "environment": "client_only_server_optional",
+  "id": "orK5UWpS",
+  "project_id": "UiL974Yk",
+  "author_id": "C4AyvYMu",
+  "featured": false,
+  "name": "The Respect My Rights Modpack 1.1",
+  "version_number": "1.1",
+  "changelog": null,
+  "changelog_url": null,
+  "date_published": "2026-02-20T06:06:03.376317Z",
+  "downloads": 88,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "wz1fMcAc",
+    "hashes": {
+     "sha1": "00dac9d5c0076b6b960c3df95867dc49ab9b7faa",
+     "sha512": "8efb9fb6ad3d0d72984244b61d3a3b9b8d5d5a034ba19cdd8253d14ed74b822d20771b1be5481c3668533cc568edf9485c04fca18844c1b8bae3abaefcfdee08"
+    },
+    "url": "https://cdn.modrinth.com/data/UiL974Yk/versions/orK5UWpS/The%20Respect%20My%20Rights%20Modpack%201.1.mrpack",
+    "filename": "The Respect My Rights Modpack 1.1.mrpack",
+    "primary": true,
+    "size": 1255,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ }
+]

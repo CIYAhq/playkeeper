@@ -19,8 +19,8 @@ func TestEnabled(t *testing.T) {
 		typ  string
 		want bool
 	}{
-		{true, "fabric", true}, {true, "quilt", true}, {true, "neoforge", true},
-		{false, "fabric", false}, {false, "quilt", false}, {false, "neoforge", false},
+		{true, "fabric", true}, {true, "quilt", true}, {true, "neoforge", true}, {true, "forge", true},
+		{false, "fabric", false}, {false, "quilt", false}, {false, "neoforge", false}, {false, "forge", false},
 		{true, "paper", false}, {true, "purpur", false}, {true, "vanilla", false}, {true, "", false}, {true, "Fabric", false},
 	} {
 		if got := Enabled(c.on, c.typ); got != c.want {

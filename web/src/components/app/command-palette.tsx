@@ -23,7 +23,7 @@ import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/c
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { can, settingsHome } from '@/lib/access'
-import { serverJoinAddress } from '@/lib/format'
+import { joinOf, machineLabel, machineOf, machineRoute, reachOf, type Join } from '@/lib/machines'
 import { controls } from '@/lib/phase'
 import { navigate, type Route, type ServerTab } from '@/lib/router'
 
@@ -51,7 +51,7 @@ async function act(server: ServerStatus, path: string, done: string) {
   }
 }
 
-function actionsFor(s: ServerStatus, me: Me): PaletteItem[] {
+function actionsFor(s: ServerStatus, join: Join, me: Me): PaletteItem[] {
   const c = controls(s)
   const items: PaletteItem[] = []
   if (s.exists && !c.busy && s.phase !== 'docker_unavailable' && can(me, 'backups.make')) {
@@ -67,14 +67,16 @@ function actionsFor(s: ServerStatus, me: Me): PaletteItem[] {
   const run = can(me, 'servers.run')
   if (c.canRestart && run) items.push({ value: `restart:${s.id}`, label: t('cmd.restart', { server: s.name }), hint: t('cmd.restartHint'), icon: <RotateCwIcon />, run: () => void act(s, '/restart', t('op.restart', { server: s.name })) })
   if (c.canStart && run) items.push({ value: `start:${s.id}`, label: t('cmd.start', { server: s.name }), icon: <PlayIcon />, run: () => void act(s, '/start', t('op.start', { server: s.name })) })
-  items.push({
-    value: `copy:${s.id}`,
-    label: t('cmd.copyAddress', { server: s.name }),
-    hint: serverJoinAddress(s),
-    icon: <CopyIcon />,
-    run: () =>
-      void copyText(serverJoinAddress(s)).then((ok) => toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })),
-  })
+  const address = join.address
+  if (address)
+    items.push({
+      value: `copy:${s.id}`,
+      label: t('cmd.copyAddress', { server: s.name }),
+      hint: address,
+      icon: <CopyIcon />,
+      run: () =>
+        void copyText(address).then((ok) => toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })),
+    })
   if (can(me, 'players.manage')) items.push({ value: `add:${s.id}`, label: t('cmd.addPlayer', { server: s.name }), icon: <UserPlusIcon />, run: () => navigate(`/servers/${s.slug}/players#add`) })
   return items
 }
@@ -100,6 +102,7 @@ export function CommandPalette({ open, onOpenChange, route, serversOnly, onShort
   const servers = useMemo(() => ws.servers ?? [], [ws.servers])
   const current = route.name === 'server' ? servers.find((s) => s.slug === route.slug) : undefined
   const tab: ServerTab = route.name === 'server' ? route.tab : 'overview'
+  const { machines, agentDown, machineName } = ws
 
   const groups = useMemo<PaletteGroup[]>(() => {
     const ordered = current ? [current, ...servers.filter((s) => s.id !== current.id)] : servers
@@ -113,23 +116,23 @@ export function CommandPalette({ open, onOpenChange, route, serversOnly, onShort
       for (const p of serverTabsFor(ws.me, s)) go.push({ value: `go:${s.id}:${p.tab}`, label: t('cmd.page', { server: s.name, page: t(p.key) }), icon: p.icon, run: () => navigate({ name: 'server', slug: s.slug, tab: p.tab }) })
     }
     if (can(ws.me, 'servers.create')) go.push({ value: 'go:new', label: t('cmd.pageNew'), icon: <PlusIcon />, run: () => navigate({ name: 'new-server' }) })
-    if (ws.machine) {
-      const id = ws.machine.id
-      go.push({ value: 'go:machine', label: t('cmd.pageMachine', { machine: ws.machineName }), icon: <ServerIcon />, run: () => navigate({ name: 'machine', id }) })
-      go.push({ value: 'go:machine-settings', label: t('machine.settings'), hint: t('address.title'), icon: <GlobeIcon />, run: () => navigate({ name: 'machine-settings', id }) })
+    for (const m of machines) {
+      const to = machineRoute(m)
+      go.push({ value: `go:machine:${m.id}`, label: t('cmd.pageMachine', { machine: m.kind === 'local' ? machineName : machineLabel(m) }), icon: <ServerIcon />, run: () => navigate(to) })
+      if (m.kind === 'local') go.push({ value: 'go:machine-settings', label: t('machine.settings'), hint: t('address.title'), icon: <GlobeIcon />, run: () => navigate({ name: 'machine-settings', id: m.id }) })
     }
     go.push({ value: 'go:settings', label: t('cmd.pageSettings'), icon: <SettingsIcon />, run: () => navigate(settingsHome(ws.me)) })
     const help: PaletteItem[] = [
       { value: 'help:backups', label: t('cmd.docBackups'), icon: <BookOpenIcon />, external: true, run: () => window.open(t('cmd.docBackupsUrl'), '_blank', 'noreferrer') },
       { value: 'help:readme', label: t('cmd.docReadme'), hint: t('cmd.docReadmeHint'), icon: <BookOpenIcon />, external: true, run: () => window.open(t('nav.helpUrl'), '_blank', 'noreferrer') },
     ]
-    const actions = ws.agentDown ? [] : ordered.flatMap((s) => actionsFor(s, ws.me))
+    const actions = ordered.filter((s) => reachOf(s, { machines, agentDown }).state === 'live').flatMap((s) => actionsFor(s, joinOf(s, machineOf(s, machines)), ws.me))
     return [
       { value: 'actions', label: t('cmd.actions'), items: actions },
       { value: 'go', label: t('cmd.goTo'), items: go },
       { value: 'help', label: t('cmd.help'), items: help },
     ].filter((g) => g.items.length > 0)
-  }, [current, servers, serversOnly, tab, ws.agentDown, ws.machine, ws.machineName, ws.me])
+  }, [current, servers, serversOnly, tab, agentDown, machines, machineName, ws.me])
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>

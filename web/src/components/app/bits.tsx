@@ -1,10 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { CheckIcon, CopyIcon } from 'lucide-react'
+import { playerHeadUrl } from '@/api/client'
 import type { Operation, ServerStatus } from '@/api/types'
 import { Button, type ButtonProps } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatClock, relativeTime } from '@/lib/format'
+import { awayShort } from '@/lib/machines'
 import { isSettingUp, opLabel, phaseLabel, statusLabel, statusTone, type Tone } from '@/lib/phase'
 import { cn } from '@/lib/utils'
 
@@ -87,8 +89,27 @@ export function serverState(st: ServerStatus | undefined, agentDown: boolean): {
   }
 }
 
-export function StatusPill({ server, agentDown = false, elapsed, showDetail = true, onChalk = false, className }: { server: ServerStatus | undefined; agentDown?: boolean; elapsed?: string; showDetail?: boolean; onChalk?: boolean; className?: string }) {
-  const s = serverState(server, agentDown)
+export function StatusPill({
+  server,
+  agentDown = false,
+  away,
+  elapsed,
+  showDetail = true,
+  onChalk = false,
+  className,
+}: {
+  server: ServerStatus | undefined
+  agentDown?: boolean
+  /** The machine the server runs on can't be reached: its name, and when it was last heard. */
+  away?: { name: string; since?: string }
+  elapsed?: string
+  showDetail?: boolean
+  onChalk?: boolean
+  className?: string
+}) {
+  const s = away
+    ? { tone: 'unknown' as const, label: t('machines.away.pill', { name: away.name }), detail: away.since ? awayShort(away.since, Date.now()) : undefined, labelClass: 'text-foreground' }
+    : serverState(server, agentDown)
   const labelClass = onChalk ? s.labelClass.replace('text-success-foreground', 'text-success-strong') : s.labelClass
   return (
     <span className={cn('inline-flex h-[26px] shrink-0 items-center gap-1.5 rounded-full border border-border bg-white px-2.5 text-[13px] font-semibold', className)}>
@@ -113,7 +134,7 @@ export function StatusPill({ server, agentDown = false, elapsed, showDetail = tr
 }
 
 /** A long job, shrunk into a pill with a timer; the whole pill opens its page. */
-export function JobPill({ op, server, onClick }: { op: Operation; server: string; onClick?: () => void }) {
+export function JobPill({ op, server, onClick }: { op: Operation; server: ServerStatus; onClick?: () => void }) {
   return (
     <button type="button" onClick={onClick} className="inline-flex h-[26px] items-center gap-1.5 rounded-full border border-border bg-white px-2.5 text-[13px] font-semibold text-foreground shadow-outline hover:bg-accent/50">
       <Spinner />
@@ -171,7 +192,7 @@ export function PlayerFace({ name, uuid, size = 28, className }: { name: string;
   const [failed, setFailed] = useState(false)
   const radius = Math.round(size / 5)
   const color = faceColors[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % faceColors.length]
-  const src = `/api/players/${encodeURIComponent(name)}/head${uuid ? `?uuid=${encodeURIComponent(uuid)}` : ''}`
+  const src = playerHeadUrl(name, uuid)
   return (
     <span
       className={cn('relative inline-flex shrink-0 items-center justify-center overflow-hidden font-semibold text-foreground/80 after:absolute after:inset-0 after:rounded-[inherit] after:ring-1 after:ring-black/12 after:ring-inset', className)}
@@ -233,7 +254,7 @@ export function Notice({ title, children, action, tone = 'default', stacked, cla
   const titleColor = { default: 'text-foreground', warning: 'text-warning-foreground', error: 'text-destructive-foreground' }[tone]
   return (
     <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-2', className)} role={tone === 'error' ? 'alert' : 'status'}>
-      <p className="min-w-0 flex-1 text-[13px] leading-5">
+      <p className="min-w-0 flex-1 text-[13px] leading-5 wrap-anywhere">
         <strong className={cn('font-semibold', titleColor)}>{title}</strong>
         {children && (stacked ? <span className="mt-0.5 block text-xs text-muted-foreground">{children}</span> : <span className="text-muted-foreground"> {children}</span>)}
       </p>

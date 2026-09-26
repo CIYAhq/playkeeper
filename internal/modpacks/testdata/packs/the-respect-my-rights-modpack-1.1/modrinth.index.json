@@ -1,0 +1,73 @@
+{
+  "game": "minecraft",
+  "formatVersion": 1,
+  "versionId": "1.1",
+  "name": "The Respect My Rights Modpack",
+  "summary": "Companies and governments continue to insist that our rights as humans don't matter. Mojang has recently followed this trend thanks to the UK government's \"\"\"Online Safety Act\"\"\" This modpack includes mods that give you your rights (and performance) back.",
+  "files": [
+    {
+      "path": "mods/no-telemetry-1.10.0.jar",
+      "hashes": {
+        "sha512": "a123e59ee7cb9de88669de06d56f5313cc60ee5ec80b0cc407ca0cff3b54b81255fba65e615fa7a33142b8030868e0c2a4cf9bdeadda7b3c593d707eff45576d",
+        "sha1": "3d52342f5825d01dda6661ef7116cdbacbe49746"
+      },
+      "env": {
+        "client": "required",
+        "server": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/hg77g4Pw/versions/cBEkQM9c/no-telemetry-1.10.0.jar"
+      ],
+      "fileSize": 96316
+    },
+    {
+      "path": "mods/lazyDFU-[UNOFFICIAL]-1.21.11.jar",
+      "hashes": {
+        "sha1": "ccb592d032604c806fc8689cd584aea473cca515",
+        "sha512": "2ee969c6966cde62cb62bbc0a0d1956504960c99189ce0b5ba8cc7c036233c927bf0877514b1c5c6354a993090f98f3f2753b0773c3dc5ac023665384f40ac46"
+      },
+      "env": {
+        "server": "required",
+        "client": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/OmQzuQFa/versions/OHWH8E9T/lazyDFU-%5BUNOFFICIAL%5D-1.21.11.jar"
+      ],
+      "fileSize": 13582
+    },
+    {
+      "path": "mods/NoChatReports-FORGE-1.21.11-v2.18.0.jar",
+      "hashes": {
+        "sha512": "79a79d0f0b3a5569d4a5e686075dc057785c522a2b14a9d428cbf876c07d787012d36173703a8ae773b1fdf5a44e34bd3b2bb607670ac186ae727ebc764b03da",
+        "sha1": "d0335695404e3e83b2173d5b32d405fc6e6e86f6"
+      },
+      "env": {
+        "client": "required",
+        "server": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/qQyHxfxd/versions/LomxvjVv/NoChatReports-FORGE-1.21.11-v2.18.0.jar"
+      ],
+      "fileSize": 245052
+    },
+    {
+      "path": "mods/NoChatRestrictions-Forge-MC1.21.11-v1.0.0.jar",
+      "hashes": {
+        "sha1": "90646468caa60c39dd7ab5203cdd488a1f420052",
+        "sha512": "e2c25e63ddc0e161566c27a3f824ced2fdd0729e0abfc3a3c9e54bca8200110b7d81d5516fd6a9857b46547f83dd1d5e1c215d67af8acef8e88f78d46f5f5aec"
+      },
+      "env": {
+        "client": "required",
+        "server": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/z440MEwJ/versions/8t109tAp/NoChatRestrictions-Forge-MC1.21.11-v1.0.0.jar"
+      ],
+      "fileSize": 9625
+    }
+  ],
+  "dependencies": {
+    "forge": "61.1.1",
+    "minecraft": "1.21.11"
+  }
+}

@@ -6,12 +6,18 @@
 # script or style, and every file it uses served with the content type
 # nosniff needs), /robots.txt, /sitemap.xml and the blog's feed, the share
 # page for server templates at /t (kept out of search engines), a missing
-# page's 404, an address ending in / sent to the page without it,
-# /community, /healthz, the /install redirect to get.sh of the latest
-# release, cache and security headers, and the container's own health check.
-# With Chrome or Chromium installed, it also opens /t in headless Chrome with
-# the template links in internal/templates/testdata, and checks what the page
-# shows and that the template never reaches the server. Needs Docker.
+# page's 404, an address ending in / sent to the page without it, the sizing
+# guide's table at /sizing, the live demo at /demo/ (its page, its files, the
+# players' faces and the plugins' icons, deep links answered by the app, a
+# missing file still a 404, and that it is the demo build), /community,
+# /healthz, the /install redirect to get.sh of the latest release, cache and
+# security headers, and the container's own health check. With Chrome or
+# Chromium installed, it also opens /sizing in headless Chrome with an answer
+# in its address, and with one it can't read, and checks the answer the page
+# shows; and it opens /t with the template links in
+# internal/templates/testdata, and checks what the page shows and that the
+# template never reaches the server. Needs Docker. The image stays, as
+# playkeeper-site:check, for test/e2e/ui/demo.spec.ts.
 # Usage: scripts/site-check.sh   (SITE_CHECK_PORT picks the local port, default 8080;
 #                                 CHROME picks the browser)
 set -euo pipefail
@@ -141,6 +147,51 @@ code=$(curl -sS -o "$page" -w '%{http_code}' "$base/no-such-page")
 grep -qF "This page isn't here" "$page" || fail "a missing page does not show the 404 page"
 grep -qF '<meta name="robots" content="noindex">' "$page" || fail "the 404 page can be indexed"
 
+# The sizing guide: its table works without JavaScript.
+code=$(curl -sS -o "$page" -w '%{http_code}' "$base/sizing")
+[ "$code" = 200 ] || fail "/sizing answered $code, not 200"
+for text in 'How much RAM does a Minecraft server need?' 'Every size at a glance' '<td id="size-5-10-vanilla">' \
+  'Playkeeper itself needs at least 2 CPU cores, 3 GB of memory and 5 GB of free disk.' \
+  'curl -fsSL https://playkeeper.io/install | sudo sh' 'href="/demo/"'; do
+  grep -qF "$text" "$page" || fail "/sizing does not show '$text'"
+done
+read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/sizing/")
+[ "$code" = 301 ] || fail "/sizing/ answered $code, not 301"
+[ "$location" = "$base/sizing" ] || fail "/sizing/ redirects to '$location', not /sizing"
+
+# The live demo: the dashboard, built with its sample data, under /demo/.
+read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/demo")
+[ "$code" = 301 ] || fail "/demo answered $code, not 301"
+[ "$location" = "$base/demo/" ] || fail "/demo redirects to '$location', not /demo/"
+code=$(curl -sS -o "$page" -w '%{http_code}' "$base/demo/")
+[ "$code" = 200 ] || fail "/demo/ answered $code, not 200"
+grep -qF '<div id="root">' "$page" || fail "/demo/ is not the dashboard"
+grep -qE 'src="/demo/assets/index-[^"]+\.js"' "$page" || fail "/demo/ does not load its script from /demo/assets/"
+if grep -qE '<script>|<style|[[:space:]](style|on[a-z]+)=' "$page"; then
+  fail "/demo/ has inline script or style, which the Content-Security-Policy blocks"
+fi
+script=$(grep -oE '/demo/assets/index-[^"]+\.js' "$page" | head -1)
+curl -fsS -o "$work/demo.js" "$base$script" || fail "$script does not download"
+grep -qF 'playkeeper-live-demo' "$work/demo.js" || fail "$script is not the demo build (vite build --mode demo)"
+for deep in /demo/servers/survival/console /demo/settings/audit; do
+  code=$(curl -sS -o "$work/deep.html" -w '%{http_code}' "$base$deep")
+  [ "$code" = 200 ] || fail "$deep answered $code, not 200"
+  cmp -s "$page" "$work/deep.html" || fail "$deep is not answered by the demo's page"
+done
+for drawing in /demo/faces/0.svg /demo/icons/0.svg; do
+  read -r code type < <(curl -sS -o /dev/null -w '%{http_code} %{content_type}\n' "$base$drawing")
+  [ "$code" = 200 ] || fail "$drawing answered $code, not 200"
+  [[ $type == *image/svg+xml* ]] || fail "$drawing is served as '$type', not image/svg+xml"
+done
+code=$(curl -sS -o /dev/null -w '%{http_code}' "$base/demo/assets/missing.js")
+[ "$code" = 404 ] || fail "/demo/assets/missing.js answered $code; a missing file must stay a 404"
+headers=$(curl -sS -D - -o /dev/null "$base/demo/")
+grep -qi '^cache-control: no-cache' <<<"$headers" || fail "/demo/ can be cached, so a deploy would not reach visitors"
+headers_ok /demo/ "$headers"
+headers=$(curl -sS -D - -o /dev/null "$base$script")
+grep -qi '^cache-control: max-age=31536000' <<<"$headers" || fail "$script is not cached for a year"
+headers_ok "$script" "$headers"
+
 code=$(curl -sS -o "$page" -w '%{http_code}' "$base/t")
 [ "$code" = 200 ] || fail "/t answered $code, not 200"
 grep -qF '<meta name="robots" content="noindex">' "$page" || fail "/t can be indexed"
@@ -156,11 +207,30 @@ done
 # The share page reads templates in the browser, so this part opens it in
 # headless Chrome, when there is one.
 chrome=${CHROME:-$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || command -v chromium-browser || true)}
-browser="Chrome was not found, so /t was not opened in a browser (CHROME picks one)"
+browser="Chrome was not found, so /sizing and /t were not opened in a browser (CHROME picks one)"
 if [ -n "$chrome" ]; then
   limit=
   if command -v timeout >/dev/null; then limit="timeout 60"; fi
   dom=$work/dom.html
+  # open_sizing opens /sizing with the given address after # and leaves the
+  # page, once its scripts have run, in $dom. Chrome only opens this site's
+  # page here, so it runs without its sandbox, which containers and some CI
+  # runners refuse.
+  open_sizing() {
+    $limit "$chrome" --headless=new --no-sandbox --disable-gpu --no-first-run --no-default-browser-check \
+      --user-data-dir="$work/chrome" --virtual-time-budget=5000 --dump-dom "$base/sizing#$1" >"$dom" 2>/dev/null ||
+      fail "headless Chrome ($chrome) could not open /sizing"
+  }
+  open_sizing 'friends=11-20&run=modpack'
+  for text in 'id="answer-long">A VPS with 24 GB of memory<' '<dt>Memory</dt><dd><strong>24 GB</strong>' \
+    'id="run-current">A big modpack<' '<td id="size-11-20-modpack" class="current">' '<td id="size-5-10-vanilla">' \
+    'data-fit-label="">Fits your answer, 11–20 friends on a big modpack: 24 GB of memory, 6 fast cores<'; do
+    grep -qF "$text" "$dom" || fail "/sizing#friends=11-20&run=modpack does not show '$text' in Chrome"
+  done
+  open_sizing 'friends=lots&run=everything'
+  for text in 'id="answer-long">A VPS with 6 GB of memory<' '<td id="size-5-10-vanilla" class="current">'; do
+    grep -qF "$text" "$dom" || fail "/sizing#friends=lots&run=everything does not fall back to the first answer ('$text' is missing)"
+  done
   # open_share_page opens /t with the given data after # and leaves the page,
   # as it settles, in $dom. Chrome only opens this site's page here, so it
   # runs without its sandbox, which containers and some CI runners refuse.
@@ -216,7 +286,7 @@ if [ -n "$chrome" ]; then
     data=$(link_data "$f")
     if grep -qF "${data:0:32}" <<<"$logs"; then fail "the template in $f reached the server"; fi
   done
-  browser="Headless Chrome read the template links on /t, and the templates never reached the server"
+  browser="Headless Chrome showed the answer in /sizing's address and the first answer for an address it can't read, read the template links on /t, and the templates never reached the server"
 fi
 
 status=unknown

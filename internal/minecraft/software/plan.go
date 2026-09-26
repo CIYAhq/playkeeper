@@ -68,6 +68,9 @@ const (
 	// DeriveNeoForge reads the install profile, version file and launch
 	// arguments inside NeoForge's installer.
 	DeriveNeoForge DeriveKind = "neoforge_installer"
+	// DeriveForge reads the same inside Forge's installer, which also
+	// publishes the hashes of the files it builds.
+	DeriveForge DeriveKind = "forge_installer"
 )
 
 // Derivation says where more hashes are once the download From is verified.
@@ -141,10 +144,10 @@ func containerFiles(env []string) ([]string, bool) {
 		ok := false
 		switch k {
 		case "TYPE":
-			ok = v == "CUSTOM" || v == "NEOFORGE"
-		case "SETUP_ONLY", "NEOFORGE_FORCE_REINSTALL":
+			ok = v == "CUSTOM" || v == "NEOFORGE" || v == "FORGE"
+		case "SETUP_ONLY", "NEOFORGE_FORCE_REINSTALL", "FORGE_FORCE_REINSTALL":
 			ok = v == "TRUE"
-		case "CUSTOM_SERVER", "NEOFORGE_INSTALLER":
+		case "CUSTOM_SERVER", "NEOFORGE_INSTALLER", "FORGE_INSTALLER":
 			rel, ok = strings.CutPrefix(v, "/data/")
 			ok = ok && cleanRel(rel, ".jar")
 		case "CUSTOM_JAR_EXEC":
@@ -259,7 +262,7 @@ func (p Plan) validate() error {
 	}
 	for _, d := range p.Derive {
 		switch d.Kind {
-		case DeriveBundler, DerivePaperclip, DeriveNeoForge:
+		case DeriveBundler, DerivePaperclip, DeriveNeoForge, DeriveForge:
 		default:
 			return bad("it reads hashes in an unknown way (%q)", d.Kind)
 		}
@@ -400,6 +403,9 @@ func derive(root *os.Root, p Plan, d Derivation) ([]Check, []string, error) {
 		return []Check{c}, nil, nil
 	case DeriveNeoForge:
 		return neoforgeInstallerChecks(root, d.From, d.Into, p.Pin)
+	case DeriveForge:
+		checks, err := forgeInstallerChecks(root, d.From, d.Into, p.Pin)
+		return checks, nil, err
 	}
 	return nil, nil, fmt.Errorf("unknown derivation %q", d.Kind)
 }

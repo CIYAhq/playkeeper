@@ -3,7 +3,7 @@ import { ArchiveIcon, CircleArrowUpIcon, RotateCwIcon, SaveIcon, SquareIcon, Tra
 import { useCatalog } from '@/api/catalog'
 import { api, ApiError, get, post } from '@/api/client'
 import type { Backup, CatalogEntry, Difficulty, GameMode, Gameplay, MemoryAdvice, ServerStatus } from '@/api/types'
-import { errorText, serverApi, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { Emblem } from '@/components/app/art'
 import { DeleteServerDialog } from '@/components/app/delete-server'
 import { Card, CardHint, CardTitle, Progress, SectionLabel } from '@/components/app/bits'
@@ -160,12 +160,13 @@ async function iconPNG(file: File): Promise<{ blob: Blob; url: string }> {
 
 export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus; focus?: string }) {
   const ws = useWorkspace()
+  const { stale, machine, name: machineName } = useServerMachine(s)
   const phone = useIsPhone()
   const base = useMemo(() => baseOf(s), [s])
   const [asked, setAsked] = useState(askedFor)
   const [draft, setDraft] = useState<Partial<Draft>>({})
   const [saving, setSaving] = useState(false)
-  const { catalog } = useCatalog(ws.machine?.id, { server: s.id, fresh: true })
+  const { catalog } = useCatalog(machine?.id, { server: s.id, fresh: true })
   const memoryPoll = usePoll(() => get<MemoryAdvice>(serverApi(s.id, `/memory?tz=${encodeURIComponent(localTimeZone())}`)), 300_000, s.id)
   const advice = memoryPoll.data
   const offers = memoryOffers(base.memoryMB, advice, catalog)
@@ -178,7 +179,7 @@ export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus;
   const changed = (k: keyof Draft) => k in edits && edits[k] !== base[k]
   const keys = (Object.keys(edits) as (keyof Draft)[]).filter(changed)
   const restartNeeded = keys.some((k) => k !== 'name')
-  const online = !ws.stale && s.phase === 'online'
+  const online = !stale && s.phase === 'online'
   const set = <K extends keyof Draft>(k: K, value: Draft[K]) => setDraft((d) => ({ ...d, [k]: value }))
   const discard = () => {
     setDraft({})
@@ -214,11 +215,11 @@ export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus;
     }
   }
 
-  const memoryChoices: Choice<string>[] = offers.map((o) => ({ value: String(o.memoryMB), label: formatMB(o.memoryMB), hint: memoryOptionHint(o, advice, ws.machineName, s.type), disabled: !o.fits }))
+  const memoryChoices: Choice<string>[] = offers.map((o) => ({ value: String(o.memoryMB), label: formatMB(o.memoryMB), hint: memoryOptionHint(o, advice, machineName, catalog?.sizing, s.type), disabled: !o.fits }))
   const progress = advice && memoryProgress(advice)
   const memoryHint = advice ? (
     <>
-      {memoryAdviceLine(advice, ws.machineName, s.type)}
+      {memoryAdviceLine(advice, machineName, catalog?.sizing, s.type)}
       {advice.verdict !== 'not_enough_data' && advice.days.length > 0 && <MemoryDays advice={advice} />}
       {progress && (
         <div className="mt-2 flex items-center gap-3">
@@ -487,7 +488,7 @@ function IconRow({ server: s }: { server: ServerStatus }) {
     } catch (e) {
       setPreview(undefined)
       if (e instanceof ApiError && e.code === 'icon_invalid') setProblem(t('settings.iconRefused'))
-      else toastManager.add({ title: errorText(e), type: 'error' })
+      else toastManager.add({ title: errorText(e), description: e instanceof ApiError ? e.hint : undefined, type: 'error' })
     } finally {
       setBusy(false)
     }
@@ -680,7 +681,7 @@ function VersionDialog({ server: s, targets, initial, open, onClose }: { server:
 }
 
 function DangerRows({ server: s }: { server: ServerStatus }) {
-  const ws = useWorkspace()
+  const { offline } = useServerMachine(s)
   const [open, setOpen] = useState(false)
   const [stopping, setStopping] = useState(false)
   const list = usePoll(() => get<Backup[]>(serverApi(s.id, '/backups')), 30_000, s.id)
@@ -695,7 +696,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
             variant="outline"
             size="sm"
             loading={stopping}
-            disabledReason={whyNot(s, 'stop', ws.stale)}
+            disabledReason={whyNot(s, 'stop', offline)}
             onClick={async () => {
               setStopping(true)
               await serverAction(s, 'stop')
@@ -711,7 +712,7 @@ function DangerRows({ server: s }: { server: ServerStatus }) {
         label={t('settings.deleteTitle', { server: s.name })}
         hint={t('settings.deleteHint', { count: backups })}
         control={
-          <Button variant="destructive-outline" size="sm" onClick={() => setOpen(true)} disabledReason={ws.stale ? t('reason.noAgent') : busyReason(s)}>
+          <Button variant="destructive-outline" size="sm" onClick={() => setOpen(true)} disabledReason={offline ?? busyReason(s)}>
             <Trash2Icon />
             {t('settings.deleteButton')}
           </Button>

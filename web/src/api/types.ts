@@ -164,6 +164,10 @@ export interface ServerStatus {
   lastBackup?: Backup
   /** The world's size on disk, measured every few minutes. */
   worldBytes?: number
+  /** Set for as long as the world folder is missing because a restore didn't finish. */
+  worldMissing?: WorldMissing
+  /** A restore that didn't finish keeps its journal until the agent settles it, once the world folder is back and the server is stopped, or first thing on Start; no other restore starts meanwhile. */
+  restoreUnsettled?: RestoreUnsettled
   pendingRestart: boolean
   collectingSince?: string
   firstSteps: FirstSteps
@@ -171,6 +175,10 @@ export interface ServerStatus {
   joinAddress?: string
   /** The file that stopped the last start, while the server stays stopped. */
   refusal?: FileRefusal
+  /** Set while the server's machine can't be reached: the status is the one it last sent, at this time. */
+  lastKnownAt?: string
+  /** Two joined machines list this server, so the dashboard sends its requests to neither. */
+  disputed?: boolean
   /** A backup left world saving off since then; Playkeeper keeps turning it back on. */
   savingPausedSince?: string
   /** Why the server last stopped unexpectedly or could not start. */
@@ -379,6 +387,33 @@ export interface ApiErrorBody {
   reason?: string
 }
 
+export type LinkState = 'connected' | 'offline' | 'waiting' | 'removed'
+
+export type LinkProblemCode = 'machine_offline' | 'machine_never_connected' | 'link_slow' | 'clock_skew' | 'version_mismatch' | 'link_unstable' | 'machine_cloned'
+
+/** Something wrong with a machine's link; message and hint are the English text. */
+export interface LinkProblem {
+  code: LinkProblemCode
+  params?: Record<string, string>
+  message: string
+  hint?: string
+}
+
+/** A joined machine's link, as the dashboard sees it. */
+export interface MachineLink {
+  machineId: string
+  name: string
+  fingerprint: string
+  state: LinkState
+  connectedAt?: string
+  /** Its last heartbeat while connected, or when it went away. */
+  lastSeen?: string
+  rttMs?: number
+  version?: string
+  address?: string
+  problems: LinkProblem[]
+}
+
 /** A machine the panel manages, with what its agent reports now. */
 export interface MachineView {
   id: string
@@ -387,6 +422,97 @@ export interface MachineView {
   kind: 'local' | 'remote'
   live?: Machine
   error?: ApiErrorBody
+  link?: MachineLink
+  /** The address a joined machine's command dialed. */
+  dials?: string
+  joinedAt?: string
+  joinedFrom?: string
+  /** Who made the code it joined with. */
+  addedBy?: string
+}
+
+/** An address another machine can dial to reach this dashboard. */
+export interface DialAddress {
+  kind: 'name' | 'ip'
+  address: string
+  /** The name points at a proxy, which stops the machine checking the fingerprint. */
+  proxied?: boolean
+}
+
+export type JoinCodeState = 'waiting' | 'used' | 'expired'
+
+/** A join code without the code itself, which only its maker sees, once. */
+export interface JoinCode {
+  id: string
+  name?: string
+  dials?: string
+  createdAt: string
+  expiresAt: string
+  createdBy?: string
+  state: JoinCodeState
+  machineId?: string
+}
+
+export interface JoinCommand extends JoinCode {
+  code: string
+  install: string
+  join: string
+  installLines: string[]
+  joinLines: string[]
+}
+
+/** What connecting a machine needs: where it dials, the smallest machine that works and the codes. */
+export interface MachineLinkInfo {
+  addresses: DialAddress[]
+  minimum: { cores: number; memoryGB: number; freeDiskGB: number }
+  sizingUrl: string
+  available: boolean
+  fingerprint?: string
+  /** Joining is paused for this many seconds after too many wrong codes. */
+  joinPausedSeconds?: number
+  /** Only for accounts that may connect machines. */
+  codes?: JoinCode[]
+}
+
+export interface MachineEvent {
+  at: string
+  kind: string
+  actor?: string
+  address?: string
+  code?: string
+}
+
+export type TokenRole = 'viewer' | 'moderator' | 'admin'
+
+export interface ApiToken {
+  id: string
+  name: string
+  role: TokenRole
+  allServers: boolean
+  servers: string[]
+  createdAt: string
+  expiresAt: string
+  lastUsedAt?: string
+  /** The account the token acts for; owners see every account's. */
+  account: string
+  mine: boolean
+}
+
+export interface NewToken {
+  token: ApiToken
+  /** Shown this once; the dashboard keeps only its hash. */
+  secret: string
+}
+
+/** A token's calls of one tool on one server, each within 10 minutes of the one before. */
+export interface AgentActivity {
+  tokenId: string
+  tokenName: string
+  tool: string
+  serverId?: string
+  serverName?: string
+  count: number
+  at: string
 }
 
 export interface Project {
@@ -449,6 +575,25 @@ export interface ServerMemory {
   running: boolean
 }
 
+/** One memory option, with Java's share and the players at once the sizing guide sizes it for (0 below its smallest suggestion). */
+export interface MemoryBudget {
+  memoryMB: number
+  heapMB: number
+  players: number
+}
+
+/** The sizing guide's first budget for a band of players at once; players is the top of the band. */
+export interface MemorySuggestion {
+  players: number
+  memoryMB: number
+}
+
+export interface MemorySizing {
+  workload: string
+  budgets: MemoryBudget[]
+  suggestions: MemorySuggestion[]
+}
+
 export interface Catalog {
   type: string
   types: ServerType[]
@@ -466,6 +611,8 @@ export interface Catalog {
   image: string
   /** The newest Minecraft release Mojang lists, whether or not the type offers it yet. */
   latestRelease?: string
+  /** Missing while a machine still runs an agent from before 0.4. */
+  sizing?: MemorySizing
 }
 
 export interface LogLine {
@@ -578,6 +725,8 @@ export type ActivityKind =
   | 'crashed_memory'
   | 'created'
   | 'restored'
+  | 'restored_after_restart'
+  | 'put_back'
   | 'version'
   | 'stopped_outside'
   | 'allowlisted'
@@ -599,12 +748,18 @@ export type ActivityKind =
   // A scheduled backup refused because world saving couldn't be paused; detail is why.
   | 'backup_refused'
 
+/** An actor that isn't an account: an AI agent's token, or root running `playkeeper mcp` for a user. */
+export type ActorKind = 'token' | 'cli'
+
 export interface Activity {
   ts: string
   serverId?: string
   kind: ActivityKind
   player?: string
   actor?: string
+  actorKind?: ActorKind
+  /** The token's name, or the account that ran sudo. */
+  actorName?: string
   detail?: string
 }
 
@@ -653,6 +808,10 @@ export interface AuditEntry {
   result: string
   detail?: string
   source: 'panel' | 'agent'
+  /** The machine whose agent recorded it. */
+  machineId?: string
+  actorKind?: ActorKind
+  actorName?: string
 }
 
 /** Served before sign-in, so only what is public anyway. */
@@ -878,6 +1037,20 @@ export interface WorldCopy {
   kind: 'previous' | 'failed_restore'
   createdAt: string
   sizeBytes: number
+}
+
+/** Where a server's world is while its world folder is missing because a restore didn't finish. */
+export interface WorldMissing {
+  /** The folder the restore set the previous world aside in. */
+  previous: string
+  /** The world folder it goes back to. */
+  dataDir: string
+  setAsideAt: string
+}
+
+export interface RestoreUnsettled {
+  /** Why the agent can't settle it by itself, as a sentence: a journal it can't read, or why its last try failed. */
+  problem?: string
 }
 
 // Wave 1: plugins and mods, map pre-generation, resource and data packs.
@@ -1156,6 +1329,7 @@ export interface SoftwarePin {
   fabricLoader?: string
   quiltLoader?: string
   neoforgeVersion?: string
+  forgeVersion?: string
 }
 
 export interface SoftwareBuild {

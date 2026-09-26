@@ -79,6 +79,16 @@ type Options struct {
 	StopTimeout time.Duration
 	// ReadyTimeout bounds waiting for "Done" after a start (default 10m).
 	ReadyTimeout time.Duration
+	// ReadyPoll is how often a start looks whether the server is up
+	// (default 500ms).
+	ReadyPoll time.Duration
+	// FollowRetry is how long the log follower waits before looking again
+	// when there's no container, its log can't be read, or its run has
+	// ended (default 2s).
+	FollowRetry time.Duration
+	// DiscordStatusGap is the least time between two edits of Discord's
+	// live status message (0: the notifier's two seconds).
+	DiscordStatusGap time.Duration
 	// ReconcileInterval is how often desired and observed state are compared.
 	ReconcileInterval time.Duration
 	// CrashBackoff is the wait before each automatic restart after a crash.
@@ -118,6 +128,9 @@ type Options struct {
 	// NamesHTTP carries requests to the free address service (tests); nil
 	// uses the names client's own, which never use a proxy.
 	NamesHTTP *http.Client
+	// NamesCheckWait bounds a look at whether a name is free, which the
+	// dashboard shows as it is typed (default 10s).
+	NamesCheckWait time.Duration
 	// Resolver looks up the machine's names as the public sees them
 	// (default: public DNS-over-HTTPS resolvers).
 	Resolver certs.Resolver
@@ -144,7 +157,7 @@ type Options struct {
 	// (default: read from /proc).
 	PortHolder func(port int) (name string, pid int, ok bool)
 	// UpstreamClient reads the server software and modpack upstreams
-	// (Mojang, Fabric, Quilt, NeoForge, Purpur, Modrinth, CurseForge) at
+	// (Mojang, Fabric, Quilt, NeoForge, Forge, Purpur, Modrinth, CurseForge) at
 	// their fixed HTTPS hosts; tests swap its transport. It defaults to
 	// HTTPClient.
 	UpstreamClient *http.Client
@@ -312,6 +325,12 @@ func New(opts Options) (*Agent, error) {
 	if opts.ReadyTimeout == 0 {
 		opts.ReadyTimeout = 10 * time.Minute
 	}
+	if opts.ReadyPoll == 0 {
+		opts.ReadyPoll = 500 * time.Millisecond
+	}
+	if opts.FollowRetry == 0 {
+		opts.FollowRetry = 2 * time.Second
+	}
 	if opts.ReconcileInterval == 0 {
 		opts.ReconcileInterval = 3 * time.Second
 	}
@@ -347,6 +366,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.PublishPoll == 0 {
 		opts.PublishPoll = 30 * time.Second
+	}
+	if opts.NamesCheckWait == 0 {
+		opts.NamesCheckWait = 10 * time.Second
 	}
 	if opts.PublicAddrs == nil {
 		opts.PublicAddrs = func() []netip.Addr { return certs.ExpectedAddrs() }
@@ -570,10 +592,7 @@ func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, 
 		done := finishOp(op, h, err, a.now().UTC())
 		a.mop = nil
 		a.mopMu.Unlock()
-		a.saveOperation(&done)
-		if done.Status != api.OpRunning {
-			a.audit(actor, kind, "machine", done.Status, done.Error)
-		}
+		a.finishOperation("", "machine", &done)
 		if err != nil {
 			a.log.Warn("operation failed", "kind", kind, "err", err)
 		}

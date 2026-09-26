@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -211,6 +212,49 @@ func TestAnOutOfMemoryErrorThenStoppingServerIsACrash(t *testing.T) {
 	var reason string
 	if err := e.a.db.QueryRow(`SELECT end_reason FROM sessions WHERE player = 'PkBotBuilder'`).Scan(&reason); err != nil || reason != "server_crashed" {
 		t.Fatalf("the session ended as %q (%v), want server_crashed", reason, err)
+	}
+}
+
+// Forge logs that the server failed to start when a mod fails in its setup,
+// then keeps running: the start stops it after a short wait and explains
+// why, instead of waiting out ReadyTimeout. The next start forgets it.
+func TestAStartThatGaveUpButKeptRunningIsStoppedAndExplained(t *testing.T) {
+	old := hungStartWait
+	hungStartWait = 500 * time.Millisecond
+	t.Cleanup(func() { hungStartWait = old })
+	e := crashEnv(t)
+	run := func(verb string) *api.Operation {
+		t.Helper()
+		code, out := e.call("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
+		if code != 202 {
+			t.Fatalf("%s: %d %v", verb, code, out)
+		}
+		return e.waitOp(out["id"].(string))
+	}
+	run("stop")
+	e.fd.mu.Lock()
+	e.fd.hangsAfterFailing = true
+	e.fd.mu.Unlock()
+	began := time.Now()
+	op := run("start")
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "The server stopped while starting") {
+		t.Fatalf("start: %+v", op)
+	}
+	if took := time.Since(began); took > 20*time.Second {
+		t.Fatalf("the start waited %s for a server that had given up", took)
+	}
+	if c, err := e.a.docker.ContainerInspect(context.Background(), e.srv().containerName()); err != nil || c.State.Running {
+		t.Fatalf("the server that gave up is still running: %v %v", c.State.Running, err)
+	}
+	c := e.waitCrash()
+	if !c.Start || c.Kind != "addon_failed" || c.Params["addon"] != "waila" {
+		t.Fatalf("got %s start %v params %v:\n%s", c.Kind, c.Start, c.Params, crashLines(c))
+	}
+	e.fd.mu.Lock()
+	e.fd.hangsAfterFailing = false
+	e.fd.mu.Unlock()
+	if op := run("start"); op.Status != api.OpSucceeded {
+		t.Fatalf("the next start: %+v", op)
 	}
 }
 

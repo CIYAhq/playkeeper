@@ -1,10 +1,12 @@
 # playkeeper.io
 
-This folder is the website at [playkeeper.io](https://playkeeper.io): the landing page, feature, comparison and guide pages, the docs, pricing, the blog and the share page for server templates, served by nginx in a container. `https://playkeeper.io/install` answers with a redirect (HTTP 302) to `https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh`, so the one-line installer always gets `get.sh` from the latest release, and a new release never needs a redeploy of the site.
+This folder is the website at [playkeeper.io](https://playkeeper.io): the landing page, feature, comparison and guide pages, the sizing guide, the docs, pricing, the blog, the share page for server templates and the live demo, served by nginx in a container. `https://playkeeper.io/install` answers with a redirect (HTTP 302) to `https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh`, so the one-line installer always gets `get.sh` from the latest release, and a new release never needs a redeploy of the site.
 
 | Path | Answer |
 | --- | --- |
 | `/`, `/features/…`, `/alternatives/…`, `/guides/…`, `/pricing`, `/blog`, `/blog/…` | pages built from `pages/` |
+| `/sizing` | the sizing guide: its calculator, table and several-servers rules come from `internal/sizing` (`internal/site/sizing.go`, `layouts/sizing.html`, `static/js/sizing.js`); the landing page's "How big a VPS?" is the same calculator |
+| `/demo/` | the live demo: the dashboard in `web/` built with its sample data (`web/src/demo`); any path under it that isn't a file is one of its pages |
 | `/docs`, `/docs/…` | the docs, built from the repository's own Markdown: `README.md`'s sections, `docs/RECOVERY.md`, `docs/TROUBLESHOOTING.md`, `CONTRIBUTING.md` and `SECURITY.md` |
 | `/t` | the share page for server templates (`pages/t.html`, `static/js/t.js`), kept out of search engines |
 | `/sitemap.xml`, `/robots.txt`, `/blog/feed.xml` | for search engines and feed readers |
@@ -14,7 +16,7 @@ This folder is the website at [playkeeper.io](https://playkeeper.io): the landin
 
 ## How it's built
 
-`go run ./cmd/site` (or `make site`) builds the site into `site/dist`: `html/` is the web root and `nginx/site.conf` the part of `nginx.conf` that follows the settings. `site/Dockerfile` does the same in its first stage, then serves the result with nginx (pinned by digest, on port 80) with a health check on `/healthz`. Because the site reads the product's code and docs, the image is built from the **repository root**: `docker build -f site/Dockerfile .`; `Dockerfile.dockerignore` sends only what it needs. Nothing built is committed.
+`go run ./cmd/site` (or `make site`) builds the site into `site/dist`: `html/` is the web root and `nginx/site.conf` the part of `nginx.conf` that follows the settings. `site/Dockerfile` does the same in one stage, builds the live demo (`npm run build:demo` in `web/`) in another, then serves both with nginx (pinned by digest, on port 80) with a health check on `/healthz`. Because the site reads the product's code and docs and the demo is the dashboard, the image is built from the **repository root**: `docker build -f site/Dockerfile .`; `Dockerfile.dockerignore` sends only what it needs. Nothing built is committed.
 
 The generator is `internal/site`:
 

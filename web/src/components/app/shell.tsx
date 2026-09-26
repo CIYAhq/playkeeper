@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronLeftIcon, CircleHelpIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, LogOutIcon, PlusIcon, SearchIcon, ServerIcon, SettingsIcon, SquareTerminalIcon, UsersIcon } from 'lucide-react'
-import type { Me, ServerStatus } from '@/api/types'
+import { ChevronLeftIcon, CircleHelpIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, LogOutIcon, PlugIcon, PlusIcon, SearchIcon, ServerIcon, SettingsIcon, SquareTerminalIcon, UsersIcon } from 'lucide-react'
+import type { MachineView, Me, ServerStatus } from '@/api/types'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { BrandMark } from '@/components/app/art'
 import { Dot, Kbd, Spinner } from '@/components/app/bits'
@@ -10,8 +10,11 @@ import { useIsPhone } from '@/components/app/controls'
 import { useJobToasts } from '@/components/app/jobs'
 import { UpdateRow } from '@/components/app/update'
 import { t } from '@/i18n'
-import { can, roleName, settingsHome } from '@/lib/access'
+import { can, inSettings, roleName, settingsHome } from '@/lib/access'
+import { demo } from '@/lib/demo'
+import { byMachine, isStale, machineLabel, machineRoute, machineState, reachOf, type MachineTone } from '@/lib/machines'
 import { isCreating, phaseLabel, statusLabel, statusTone } from '@/lib/phase'
+import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps, navigate, type Route, type ServerTab } from '@/lib/router'
 import { cn } from '@/lib/utils'
 
@@ -84,6 +87,8 @@ function pageKey(route: Route): string {
       return `server/${route.slug}`
     case 'machine':
       return route.sub ? `machine/${route.id}/${route.sub}` : `machine/${route.id}`
+    case 'machine-details':
+      return `machine-details/${route.id}`
     case 'legacy':
       return `legacy/${route.tab}`
     case 'team':
@@ -105,6 +110,8 @@ function pageKey(route: Route): string {
     case 'more':
     case 'join':
     case 'recover':
+    case 'ai-agents':
+    case 'machines':
       return route.name
     default: {
       const unreachable: never = route
@@ -198,18 +205,63 @@ function serverMeta(s: ServerStatus, stale: boolean): ReactNode {
   }
 }
 
+const machineKey = (m: MachineView) => m.id
+
+const toneText: Record<MachineTone, string> = { good: 'text-success-strong', warn: 'text-warning-strong', off: 'text-muted-foreground' }
+const toneDot: Record<MachineTone, string> = { good: 'bg-success', warn: 'bg-warning', off: 'bg-muted-foreground' }
+
+/** A machine's line above its servers: its name and how it's doing, linking to the machine. */
+function MachineRow({ machine: m, route }: { machine: MachineView; route: Route }) {
+  const ws = useWorkspace()
+  const state = machineState(m, ws)
+  const active = (route.name === 'machine' || route.name === 'machine-details' || route.name === 'machine-settings') && route.id === m.id
+  return (
+    <a
+      {...linkProps(machineRoute(m))}
+      aria-current={active ? (route.name === 'machine-settings' ? 'true' : 'page') : undefined}
+      className={cn(
+        'mt-3 flex h-7 items-center gap-2 rounded-lg border border-transparent px-2 text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+        active && 'border-border bg-white text-foreground shadow-outline',
+      )}
+    >
+      <ServerIcon className="size-3.5" aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate">{m.kind === 'local' ? ws.machineName : machineLabel(m)}</span>
+      <span key={state.label} className={cn('flex animate-fade items-center gap-1.5 text-[11px] font-medium', toneText[state.tone])}>
+        <span className={cn('size-1.5 rounded-full', toneDot[state.tone])} aria-hidden="true" />
+        {state.label}
+      </span>
+    </a>
+  )
+}
+
 function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
   const ws = useWorkspace()
-  const live = ws.machine?.live
   const tab: ServerTab = route.name === 'server' ? route.tab : route.name === 'player' ? 'players' : 'overview'
-  const healthy = !!ws.updating || (!ws.agentDown && !!live && live.docker)
-  const onMachine = (route.name === 'machine' || route.name === 'machine-settings') && route.id === ws.machine?.id
+  const shared = ws.machines.length > 1
+  const machineRows = useListPresence(shared ? ws.machines : undefined, machineKey)
+  const serversOn = new Map(byMachine(ws.servers ?? [], ws.machines).map((g) => [g.machine.id, g.servers]))
+  const serverItem = (s: ServerStatus) => {
+    const reach = reachOf(s, ws)
+    const stale = isStale(s, ws.stale)
+    return (
+      <SideItem
+        key={s.id}
+        to={{ name: 'server', slug: s.slug, tab }}
+        active={(route.name === 'server' || route.name === 'player') && route.slug === s.slug}
+        icon={!stale && isCreating(s) ? <Spinner /> : <Dot tone={stale || reach.state !== 'live' ? 'unknown' : statusTone(s)} />}
+        trailing={reach.state === 'away' ? <span className="text-xs text-muted-foreground">{t('common.none')}</span> : serverMeta(s, stale)}
+      >
+        {s.name}
+      </SideItem>
+    )
+  }
   return (
     <aside className="sticky top-0 flex h-dvh w-64 shrink-0 flex-col px-3 pt-3 pb-2">
       <a {...linkProps({ name: 'home' })} className="flex h-9 items-center gap-2 rounded-lg px-1.5 text-[15px] font-bold outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <BrandMark size={24} />
         {t('brand.name')}
       </a>
+      {demo && <demo.BrandLine />}
       <button
         type="button"
         onClick={onSearch}
@@ -223,44 +275,34 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
         <SideItem to={{ name: 'home' }} active={route.name === 'home'} icon={<HouseIcon />}>
           {t('nav.home')}
         </SideItem>
-        {ws.machine && (
-          <a
-            {...linkProps({ name: 'machine', id: ws.machine.id })}
-            aria-current={onMachine ? (route.name === 'machine' ? 'page' : 'true') : undefined}
-            className={cn(
-              'mt-3 flex h-7 items-center gap-2 rounded-lg border border-transparent px-2 text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
-              onMachine && 'border-border bg-white text-foreground shadow-outline',
-            )}
-          >
-            <ServerIcon className="size-3.5" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate">{ws.machineName}</span>
-            <span className={cn('flex items-center gap-1.5 text-[11px] font-medium', healthy ? 'text-success-strong' : 'text-warning-strong')}>
-              <span className={cn('size-1.5 rounded-full', healthy ? 'bg-success' : 'bg-warning')} aria-hidden="true" />
-              {healthy ? t('nav.healthy') : ws.agentDown ? t('nav.notAnswering') : t('status.docker')}
-            </span>
-          </a>
+        {shared ? (
+          machineRows.map(({ key, item: m, state }) => (
+            <div key={key} {...presenceProps(state)} className="flex flex-col gap-0.5">
+              <MachineRow machine={m} route={route} />
+              {(serversOn.get(m.id) ?? []).map(serverItem)}
+            </div>
+          ))
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            {ws.machine && <MachineRow machine={ws.machine} route={route} />}
+            {(ws.servers ?? []).map(serverItem)}
+          </div>
         )}
-        {(ws.servers ?? []).map((s) => (
-          <SideItem
-            key={s.id}
-            to={{ name: 'server', slug: s.slug, tab }}
-            active={(route.name === 'server' || route.name === 'player') && route.slug === s.slug}
-            icon={!ws.stale && isCreating(s) ? <Spinner /> : <Dot tone={ws.stale ? 'unknown' : statusTone(s)} />}
-            trailing={serverMeta(s, ws.stale)}
-          >
-            {s.name}
-          </SideItem>
-        ))}
         {can(ws.me, 'servers.create') && (
           <SideItem to={{ name: 'new-server' }} active={route.name === 'new-server'} icon={<PlusIcon />} muted>
             {t('nav.newServer')}
+          </SideItem>
+        )}
+        {shared && can(ws.me, 'machine.manage') && (
+          <SideItem to={{ name: 'machines' }} active={route.name === 'machines'} icon={<PlugIcon />} muted>
+            {t('machines.connectNav')}
           </SideItem>
         )}
       </nav>
       <div className="flex flex-col gap-0.5 pt-2">
         {can(ws.me, 'servers.create') && <GetStartedCard route={route} className="mb-2" />}
         {can(ws.me, 'machine.manage') && <UpdateRow />}
-        <SideItem to={settingsHome(ws.me)} active={route.name === 'settings' || route.name === 'team' || route.name === 'addon-sources' || route.name === 'discord'} icon={<SettingsIcon />}>
+        <SideItem to={settingsHome(ws.me)} active={inSettings(route)} icon={<SettingsIcon />}>
           {t('nav.settings')}
         </SideItem>
         <UserRow active={route.name === 'account'} />
@@ -320,8 +362,8 @@ const phoneTabs: { tab: ServerTab | 'more'; key: 'tab.overview' | 'tab.players' 
 function PhoneShell({ route, overlays, children }: { route: Route; overlays: ReactNode; children: ReactNode }) {
   const ws = useWorkspace()
   const phoneServer = usePhoneServer()
-  // Settings, the machine's pages and the account open from More (More › my-vps › Disk space).
-  const underMore = route.name === 'more' || route.name === 'settings' || route.name === 'team' || route.name === 'addon-sources' || route.name === 'discord' || route.name === 'machine' || route.name === 'machine-settings' || route.name === 'account'
+  // Settings and its sections, the machine's pages and the account open from More (More › my-vps › Disk space).
+  const underMore = route.name === 'more' || route.name === 'machine' || route.name === 'machine-settings' || route.name === 'account' || inSettings(route)
   const inServer = route.name === 'server' || route.name === 'player' || (underMore && !!phoneServer)
   const slug = route.name === 'server' || route.name === 'player' ? route.slug : phoneServer?.slug
   const current: ServerTab | 'more' | undefined =
@@ -333,6 +375,7 @@ function PhoneShell({ route, overlays, children }: { route: Route; overlays: Rea
         {t('nav.skip')}
       </a>
       <main id="main" tabIndex={-1} className={cn('flex flex-1 flex-col px-4 pt-[max(env(safe-area-inset-top),8px)] outline-none', inServer ? 'pb-[calc(68px+env(safe-area-inset-bottom))]' : 'pb-[max(env(safe-area-inset-bottom),24px)]')}>
+        {demo && <demo.BrandLine />}
         <Page route={route}>{children}</Page>
       </main>
       {inServer && slug && (

@@ -47,6 +47,7 @@ import type {
   TwoFactorSetup,
 } from '@/api/types'
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
+import { activityText } from '@/components/app/activity'
 import { AddonSourcesCard } from '@/components/app/addon-sources'
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
@@ -56,13 +57,17 @@ import { AppShell } from '@/components/app/shell'
 import { TemplateDialog } from '@/components/app/templates'
 import { toastManager } from '@/components/ui/toast'
 import { formatClock, formatDate, formatDuration, formatLongDate } from '@/lib/format'
+import { AiAgentsSection } from './ai-agents'
 import { DiscordSettingsSection } from './discord'
 import { HomePage } from './home'
 import { JoinPage } from './join'
-import { MachinePage } from './machine'
+import { DashboardMachineOnly, MachinePage } from './machine'
+import { MachineSettingsPage } from './machine-settings'
+import { forgetJoinCode, MachineDetailsSection, MachinesSection } from './machines'
 import { createNote, NewServerPage } from './new-server'
 import { Onboarding } from './onboarding'
 import { RecoverPage } from './recover'
+import { ServerPage } from './server'
 import { BackupRulesPage } from './server/backups'
 import { CopiesCard } from './server/copies'
 import { Overview } from './server/overview'
@@ -70,6 +75,7 @@ import { PlayersPage } from './server/players'
 import { PlayerProfilePage } from './server/profile'
 import { RunningPage } from './server/running'
 import { ServerSettingsPage } from './server/settings'
+import { SchedulesSection } from './server/schedules'
 import { AsleepCard } from './server/sleep'
 import { WorldPage } from './server/world'
 import { GlobalSettingsPage } from './settings'
@@ -312,6 +318,41 @@ describe('Home', () => {
     expect(text).toContain('1 server on my-vps · 3 playing')
   })
 
+  it('groups servers by machine, with activity from every machine that answers', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      live: { ...machine.live!, hostname: 'home-server', memoryTotalMB: 32768 },
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const away: MachineView = { ...home, id: 'a2345abcde', name: 'attic', live: undefined, link: { ...home.link!, machineId: 'a2345abcde', name: 'attic', state: 'offline' } }
+    vi.mocked(client.get).mockImplementation(((path: string) => {
+      if (path.includes(`/${machine.id}/activity`)) return Promise.resolve([{ ts: '2026-09-25T10:00:00Z', serverId: 'abcdefghjk', kind: 'backup', actor: 'siya' }])
+      if (path.includes(`/${home.id}/activity`)) return Promise.resolve([{ ts: '2026-09-25T11:00:00Z', serverId: 'cobblemon1', kind: 'restarted', actor: 'siya' }])
+      if (path.includes(`/${away.id}/`)) return Promise.reject(new client.ApiError(503, { error: 'offline', code: 'machine_offline' }))
+      return new Promise(() => {})
+    }) as typeof client.get)
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id })
+    const attic = server({ id: 'atticsrv01', name: 'Attic', slug: 'attic', machineId: away.id, lastKnownAt: new Date().toISOString() })
+    const text = await render(<HomePage />, workspace({ machines: [machine, home, away], servers: [server({ machineId: machine.id }), cobblemon, attic] }))
+    expect(text).toContain('On my-vps')
+    expect(text).toContain('On home-server')
+    expect(text).toContain('On attic')
+    expect(text).toContain('3 servers on 3 machines')
+    const heading = (id: string) => document.querySelector(`#on-${id} a`)?.getAttribute('href')
+    expect([machine.id, home.id].map(heading)).toEqual([`/machines/${machine.id}`, `/settings/machines/${home.id}`])
+    const atticCard = [...document.querySelectorAll('article')].find((a) => a.textContent?.includes('Attic'))?.textContent ?? ''
+    expect(atticCard).toContain('No live status')
+    expect(atticCard).toContain('Can’t reach attic')
+    const activity = [...document.querySelectorAll('li')].map((li) => li.textContent ?? '')
+    const at = (line: string) => activity.findIndex((l) => l.includes(line))
+    expect(at('Cobblemon restarted')).toBeGreaterThan(-1)
+    expect(at('Cobblemon restarted')).toBeLessThan(at('You backed up Survival'))
+    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/${away.id}/`))).toBe(false)
+  })
+
   it('says when the agent stopped answering, keeping names but not numbers', async () => {
     const text = await render(<HomePage />, workspace({ agentDown: true, stale: true, servers: [server({ players: { online: 3, max: 10, names: [], source: '', at: '' } })] }))
     expect(text).toContain('Playkeeper can’t see your servers right now')
@@ -413,6 +454,17 @@ describe('Home for team members', () => {
   })
 })
 
+describe('Activity', () => {
+  it('names the AI agent or command-line user that acted, never its token id', () => {
+    const token = { actor: 'token:t2345abcde', actorKind: 'token' as const, actorName: 'Claude on my laptop' }
+    expect(activityText({ ts: '', kind: 'backup', ...token }, 'Survival', 'siya')).toBe('Claude on my laptop backed up Survival')
+    expect(activityText({ ts: '', kind: 'restarted', ...token }, 'Survival', 'siya')).toBe('Claude on my laptop restarted Survival')
+    expect(activityText({ ts: '', kind: 'stopped', actor: 'cli:alice', actorKind: 'cli', actorName: 'alice' }, 'Survival', 'siya')).toBe('alice stopped Survival')
+    expect(activityText({ ts: '', kind: 'restarted', actor: 'siya' }, 'Survival', 'siya')).toBe('Survival restarted')
+    expect(activityText({ ts: '', kind: 'backup', actor: 'siya' }, 'Survival', 'siya')).toBe('You backed up Survival')
+  })
+})
+
 describe('The notice after signing in', () => {
   const wrongCodes: SignInNotice = { kind: 'failed_attempts', count: 3, text: '' }
   const codesLow: SignInNotice = { kind: 'recovery_codes_low', count: 2, text: '' }
@@ -507,7 +559,8 @@ describe('Overview notices', () => {
 
   it('warns about low disk space with the preflight advice', async () => {
     const diskWarning = { id: 'disk', label: 'Disk space', status: 'fail' as const, detail: 'Only 0.4 GB free.', fix: 'Free at least 5 GB of disk space, then check again.' }
-    const text = await render(<Overview server={server()} />, workspace({ machine: { ...machine, live: machine.live && { ...machine.live, diskWarning } } }))
+    const local = { ...machine, live: machine.live && { ...machine.live, diskWarning } }
+    const text = await render(<Overview server={server()} />, workspace({ machine: local, machines: [local] }))
     expect(text).toContain('Low disk space: Only 0.4 GB free.')
     expect(text).toContain('Free at least 5 GB of disk space')
   })
@@ -1057,6 +1110,18 @@ describe('Backups with players online', () => {
     return b
   }
 
+  it('never says a scheduled backup stops the server', async () => {
+    answer({ '/schedules/runs': { runs: [] }, '/schedules': { schedules: [] } })
+    await render(<SchedulesSection server={server()} />)
+    await press('New schedule')
+    const backUp = [...document.querySelectorAll('label')].find((l) => l.textContent?.trim() === 'Back up')
+    if (!backUp) throw new Error('no Back up choice')
+    await click(backUp)
+    expect(page()).toContain('Only if someone played')
+    expect(page()).toContain('Tries again an hour later instead.')
+    expect(page()).not.toContain('stops for a moment')
+  })
+
   it('keeps refused scheduled backups on the World tab, and stops the server for a backup only after saying so', async () => {
     vi.mocked(client.post).mockClear()
     answer({ '/backups': [backup()] })
@@ -1535,12 +1600,12 @@ describe('Add-on sources', () => {
 
   it('is the Settings section between Team and Discord, for who manages the machine', async () => {
     answer({ '/addon-sources': none })
-    await render(<GlobalSettingsPage section="addon-sources" />)
+    await render(<GlobalSettingsPage page={{ name: 'addon-sources' }} />)
     const nav = document.querySelector('nav[aria-label="Settings sections"]')
-    expect([...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent)).toEqual(['Team', 'Add-on sources', 'Discord'])
+    expect([...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent)).toEqual(['Team', 'Add-on sources', 'Discord', 'AI agents', 'Machines'])
     expect(nav?.querySelector('[aria-current="page"]')?.getAttribute('href')).toBe('/settings/addon-sources')
     expect(document.getElementById('addon-sources')).not.toBeNull()
-    const moderator = await render(<GlobalSettingsPage section="addon-sources" />, workspace({ me: member('moderator', moderatorCan) }))
+    const moderator = await render(<GlobalSettingsPage page={{ name: 'addon-sources' }} />, workspace({ me: member('moderator', moderatorCan) }))
     expect(moderator).not.toContain('CurseForge')
     window.history.replaceState(null, '', '/')
   })
@@ -1697,9 +1762,32 @@ describe('Modpacks', () => {
     expect(await openPackPlan('VOIC0002')).not.toContain('Voice travels on its own port')
   })
 
+  it('lays out every server type in whole rows, Forge with its logo', async () => {
+    window.history.replaceState(null, '', '/servers/new')
+    const ids = ['paper', 'vanilla', 'purpur', 'fabric', 'quilt', 'neoforge', 'forge']
+    const names: Record<string, string> = { paper: 'Paper', vanilla: 'Vanilla', purpur: 'Purpur', fabric: 'Fabric', quilt: 'Quilt', neoforge: 'NeoForge', forge: 'Forge' }
+    const cards = () => [...document.querySelectorAll('[role="radiogroup"][aria-label="Server type"] label')]
+    const catalog: Catalog = { type: 'paper', types: [], versions: [], memoryOptionsMB: [2048, 3072, 4096], recommendedMemoryMB: 2048, hostMemoryMB: 16384, maxMemoryMB: 4096, systemReserveMB: 1536, memoryFreeMB: 10752, servers: [], image: '' }
+    answer({ '/catalog': { ...catalog, types: ids.map((id) => ({ id, name: names[id] ?? id, available: true })) } })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    const all = cards()
+    expect(all.map((c) => c.querySelector('.font-semibold')?.textContent?.replace('Recommended', ''))).toEqual(Object.values(names))
+    expect(all.map((c) => c.classList.contains('col-span-full'))).toEqual([true, false, false, false, false, false, false])
+    const forge = all[6]
+    expect(forge?.textContent).toContain('The original loader for Forge mods.')
+    expect(forge?.querySelector('img')?.getAttribute('src')).toContain('forge-apple-touch-icon')
+
+    answer({ '/catalog': { ...catalog, types: ids.slice(0, 6).map((id) => ({ id, name: names[id] ?? id, available: true })) } })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    expect(cards().some((c) => c.classList.contains('col-span-full'))).toBe(false)
+  })
+
   it('says what a pack’s server downloads, not Paper', () => {
     expect(createNote(4, 'modpack', 'fabric')).toBe('After you start it, Playkeeper downloads Fabric and the pack’s mods, checks each file, and tells you when friends can join.')
     expect(createNote(4, 'template', 'neoforge')).toContain('downloads NeoForge and the template’s add-ons')
+    expect(createNote(4, 'modpack', 'forge')).toContain('downloads Forge and the pack’s mods')
     expect(createNote(4, 'modpack', '')).not.toContain('Paper')
     expect(createNote(4, 'type', 'purpur')).toContain('downloads Purpur, checks it')
     expect(createNote(0, 'modpack', 'fabric')).toBe('Friends install the same modpack. You get a link to send.')
@@ -2723,6 +2811,49 @@ describe('World backups with copies', () => {
     await rerender(server({ lastOperation: { id: 'op-restore', kind: 'restore', status: 'succeeded', phase: 'starting', actor: 'siya', startedAt: '2026-09-25T18:52:00Z' } }))
     expect(document.body.textContent).not.toContain('The encrypted copy from Backblaze B2')
   })
+
+  it('won’t restore a copy while a restore left the world folder missing, and says why', async () => {
+    const worldMissing = { previous: '/var/lib/playkeeper/servers/abcdefghjk/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/abcdefghjk/data', setAsideAt: '2026-09-26T10:30:28Z' }
+    answer({ '/offsite/copies': { copies: [copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing })} />)
+    const restore = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Restore…')
+    expect(restore?.disabled).toBe(true)
+    expect(restore?.title).toBe('Its world folder is missing. Move the previous world back first.')
+  })
+
+  const onPhone = () => vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+
+  it('won’t restore a copy from a phone while a restore left the world folder missing, and says why', async () => {
+    const phone = onPhone()
+    const worldMissing = { previous: '/var/lib/playkeeper/servers/abcdefghjk/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/abcdefghjk/data', setAsideAt: '2026-09-26T10:30:28Z' }
+    answer({ '/offsite/copies': { copies: [copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing })} />)
+    const restore = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Restore')
+    expect(restore?.disabled).toBe(true)
+    expect(restore?.title).toBe('Its world folder is missing. Move the previous world back first.')
+    phone.mockRestore()
+  })
+
+  it('stops offering restores in the phone’s sheet once a restore isn’t finished, and says why', async () => {
+    const why = 'A restore isn’t finished. Playkeeper finishes it once the server is stopped.'
+    const phone = onPhone()
+    answer({ '/offsite/copies': { copies: [copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    await render(<WorldPage server={server({ phase: 'stopped' })} />)
+    await act(async () => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Restore a world')?.click())
+    await act(async () => {})
+    await rerender(server({ phase: 'stopped', restoreUnsettled: {} }))
+    const sheet = document.querySelector('[role="dialog"]')
+    const choose = [...(sheet?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.trim() === 'choose a file')
+    expect(choose?.disabled).toBe(true)
+    expect(choose?.title).toBe(why)
+    const rows = [...(sheet?.querySelectorAll<HTMLButtonElement>('ul li button') ?? [])]
+    expect(rows).toHaveLength(2)
+    expect(rows.map((b) => [b.disabled, b.title])).toEqual([
+      [true, why],
+      [true, why],
+    ])
+    phone.mockRestore()
+  })
 })
 
 describe('Restore from a recovery key', () => {
@@ -2807,6 +2938,221 @@ describe('Restore from a recovery key', () => {
     expect(document.querySelector('input[type=file]')).toBeNull()
     await render(<RecoverPage />, workspace({ servers: [], me: member('admin', [...moderatorCan, ...keys, 'backups.recover'], { twoFactor: true, servers: { all: true } }) }))
     expect(document.querySelector('input[type=file]')).not.toBeNull()
+  })
+})
+
+describe('Backups and copies on a joined machine', () => {
+  const attic: MachineView = {
+    id: 'a2345abcde',
+    projectId: machine.projectId,
+    name: 'attic',
+    kind: 'remote',
+    link: { machineId: 'a2345abcde', name: 'attic', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), address: '203.0.113.7:48211', problems: [] },
+    live: { ...machine.live!, hostname: 'attic' },
+  }
+  const onAttic = server({ id: 'atticsrv01', name: 'Attic', slug: 'attic', machineId: attic.id })
+  const joined = workspace({ machines: [machine, attic], servers: [server({ machineId: machine.id }), onAttic] })
+  const estimate = (where: RetentionEstimate['where']): RetentionEstimate => ({ where, rows: [], count: 12, bytes: 3 * 2 ** 30, summary: { code: 'kept', text: 'Keeps 12 backups.' } })
+  const rules: BackupRulesView = {
+    automatic: { enabled: true, everyHours: 6, onlyIfPlayed: false },
+    rules: { onHost: { last: 12 }, offSite: {} },
+    custom: false,
+    describe: [],
+    onHost: estimate('on-host'),
+    offSite: estimate('off-site'),
+    limits: { hours: 168, last: 100, daily: 60, weekly: 104, monthly: 120 },
+  }
+
+  it('says the backups are on the machine that runs the server', async () => {
+    answer({ '/backup-rules': rules })
+    const text = await render(<BackupRulesPage server={onAttic} />, joined)
+    expect(text).toContain('About 12 backups · roughly 3 GB on attic')
+    expect(text).not.toContain('my-vps')
+  })
+
+  it('reads a copy it fetched back from the machine that runs the server', async () => {
+    const started: Operation = { id: 'op-copy', serverId: onAttic.id, kind: 'offsite-restore', status: 'running', phase: 'downloading', actor: 'siya', startedAt: '2026-09-25T18:50:00Z', detail: { name: 'attic-b1.tar.zst.age' } }
+    answer({ '/offsite/copies': { copies: [] }, '/offsite': { enabled: true, configured: true, type: 's3', place: 'Backblaze B2', copies: 0, copiesBytes: 0, queued: 0, providers: [] }, '/backups': [] })
+    await render(<WorldPage server={{ ...onAttic, operation: started }} />, joined)
+    await act(async () => root?.render(<WorkspaceContext.Provider value={joined}>{<WorldPage server={{ ...onAttic, lastOperation: { ...started, status: 'succeeded', detail: { name: 'attic-b1.tar.zst.age', restoreId: 'r1' } } }} />}</WorkspaceContext.Provider>))
+    await act(async () => {})
+    expect(vi.mocked(client.get)).toHaveBeenCalledWith(`/api/machines/${attic.id}/restore/r1`)
+    expect(vi.mocked(client.get)).not.toHaveBeenCalledWith(`/api/machines/${machine.id}/restore/r1`)
+  })
+})
+
+describe('Machines and AI agents', () => {
+  it('says a server’s controls wait for its machine while that machine is away', async () => {
+    const away: MachineView = {
+      id: 'a2345abcde',
+      projectId: machine.projectId,
+      name: 'attic',
+      kind: 'remote',
+      link: { machineId: 'a2345abcde', name: 'attic', fingerprint: 'X'.repeat(26), state: 'offline', lastSeen: new Date(Date.now() - 600_000).toISOString(), problems: [] },
+    }
+    const attic = server({ id: 'atticsrv01', name: 'Attic', slug: 'attic', machineId: away.id, lastKnownAt: new Date().toISOString() })
+    const text = await render(<ServerPage slug="attic" tab="overview" />, workspace({ machines: [machine, away], servers: [server({ machineId: machine.id }), attic] }))
+    expect(text).toContain('attic hasn’t called in for 10 minutes')
+    const restart = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Restart'))
+    expect(restart?.disabled).toBe(true)
+    expect(restart?.title).toBe('Can’t reach attic')
+    for (const tab of ['console', 'players', 'world', 'settings'] as const) {
+      vi.mocked(client.get).mockClear()
+      expect(await render(<ServerPage slug="attic" tab={tab} />, workspace({ machines: [machine, away], servers: [server({ machineId: machine.id }), attic] }))).toContain('attic hasn’t called in for 10 minutes')
+      expect(vi.mocked(client.get).mock.calls.filter(([p]) => String(p).includes(attic.id)), `${tab} asks the away machine`).toEqual([])
+    }
+  })
+
+  it('shows the not-answering view on every tab while a joined machine’s agent doesn’t answer, and asks it nothing', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      error: { error: 'The agent on home-server isn’t answering.', code: 'agent_unavailable' },
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id, lastKnownAt: new Date(Date.now() - 120_000).toISOString() })
+    const ws = workspace({ machines: [machine, home], servers: [server({ machineId: machine.id }), cobblemon] })
+    const asked = () => vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes(cobblemon.id) || p.includes(home.id))
+    for (const tab of ['overview', 'console', 'players', 'world', 'settings'] as const) {
+      vi.mocked(client.get).mockClear()
+      const text = await render(<ServerPage slug="cobblemon" tab={tab} />, ws)
+      expect(text, tab).toContain('Playkeeper can’t see your servers right now')
+      expect(text, tab).toContain('Fix it on home-server')
+      expect(asked(), `${tab} asks home-server`).toEqual([])
+    }
+    vi.mocked(client.get).mockClear()
+    await render(<HomePage />, ws)
+    expect(asked(), 'Home asks home-server for its activity').toEqual([])
+    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/${machine.id}/activity`))).toBe(true)
+  })
+
+  it('asks a joined machine, not the dashboard’s, about the servers it runs', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      live: { ...machine.live!, hostname: 'home-server', memoryTotalMB: 32768 },
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id })
+    const ws = workspace({ machines: [machine, home], servers: [server({ machineId: machine.id }), cobblemon] })
+    const asked = () => vi.mocked(client.get).mock.calls.map(([p]) => String(p))
+    vi.mocked(client.get).mockClear()
+    await render(<ServerSettingsPage server={cobblemon} />, ws)
+    await render(<Overview server={{ ...cobblemon, phase: 'crashed', stoppedAt: new Date().toISOString() }} />, ws)
+    expect(asked().some((p) => p.startsWith(`/api/machines/${home.id}/catalog`))).toBe(true)
+    expect(asked().filter((p) => p.startsWith(`/api/machines/${machine.id}/`))).toEqual([])
+  })
+
+  it('joins a joined machine’s servers at its IP and port, whatever name its agent reports', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      live: { ...machine.live!, hostname: 'home-server' },
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), address: '203.0.113.20', problems: [] },
+    }
+    const survival = server({ machineId: machine.id, joinAddress: 'survival.alex.playkeeper.io' })
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id, gamePort: 25566, joinAddress: 'cobblemon.home.playkeeper.io' })
+    const ws = workspace({ machines: [machine, home], servers: [survival, cobblemon] })
+    let text = await render(<HomePage />, ws)
+    expect(text).toContain('survival.alex.playkeeper.io')
+    expect(text).toContain('203.0.113.20:25566')
+    expect(text).not.toContain('cobblemon.home.playkeeper.io')
+    text = await render(<Overview server={cobblemon} />, ws)
+    expect(text).toContain('203.0.113.20:25566')
+    expect(text).not.toContain('cobblemon.home.playkeeper.io')
+  })
+
+  it('says why a joined machine’s server has no address yet, and never gives the dashboard’s host or a reported name', async () => {
+    const attic: MachineView = {
+      id: 'a2345abcde',
+      projectId: machine.projectId,
+      name: 'attic',
+      kind: 'remote',
+      live: { ...machine.live!, hostname: 'attic' },
+      link: { machineId: 'a2345abcde', name: 'attic', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const box = server({ id: 'atticsrv01', name: 'Attic', slug: 'attic', machineId: attic.id, gamePort: 25567, joinAddress: 'attic.old.playkeeper.io' })
+    const ws = workspace({ machines: [machine, attic], servers: [server({ machineId: machine.id }), box] })
+    const reason = 'No address yet: the dashboard hasn’t seen attic’s IP.'
+    for (const node of [<HomePage key="home" />, <Overview key="overview" server={box} />]) {
+      const text = await render(node, ws)
+      expect(text).toContain(reason)
+      expect(text).not.toContain(`${window.location.hostname}:25567`)
+      expect(text).not.toContain('attic.old.playkeeper.io')
+    }
+    await render(<ServerPage slug="attic" tab="overview" />, ws)
+    const copy = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Copy join address'))
+    expect(copy?.disabled).toBe(true)
+    expect(copy?.title).toBe(reason)
+  })
+
+  it('says on a joined machine’s details that its agent stopped answering, as the sidebar does', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      error: { error: 'The agent on home-server isn’t answering.', code: 'agent_unavailable' },
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), rttMs: 0.5, problems: [] },
+    }
+    const silent = await render(<MachineDetailsSection id={home.id} />, workspace({ machines: [machine, home] }))
+    expect(silent).toContain('The agent on home-server stopped answering')
+    expect(silent).toContain('Restart it on home-server: sudo systemctl restart playkeeper-agent')
+    const answering = await render(<MachineDetailsSection id={home.id} />, workspace({ machines: [machine, { ...home, error: undefined, live: machine.live }] }))
+    expect(answering).not.toContain('stopped answering')
+  })
+
+  it('opens a joined machine’s details for its machine page and Machine settings, and never asks it for an address', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const ws = workspace({ machines: [machine, home] })
+    for (const page of [<MachinePage key="page" id={home.id} />, <MachineSettingsPage key="settings" id={home.id} />]) {
+      window.history.replaceState(null, '', '/')
+      vi.mocked(client.get).mockClear()
+      const text = await render(<DashboardMachineOnly id={home.id}>{page}</DashboardMachineOnly>, ws)
+      expect(window.location.pathname).toBe(`/settings/machines/${home.id}`)
+      expect(text).not.toContain('Machine settings')
+      expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes('/address'))).toBe(false)
+    }
+    window.history.replaceState(null, '', '/')
+    const text = await render(
+      <DashboardMachineOnly id={machine.id}>
+        <MachinePage id={machine.id} />
+      </DashboardMachineOnly>,
+      ws,
+    )
+    expect(window.location.pathname).toBe('/')
+    expect(text).toContain('Machine settings')
+  })
+
+  it('says how to get a command when the dashboard has no address another machine can dial', async () => {
+    forgetJoinCode()
+    vi.mocked(client.post).mockClear()
+    answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5 }, sizingUrl: 'https://playkeeper.io/sizing', available: true, codes: [] } })
+    const text = await render(<MachinesSection />)
+    expect(text).toContain('Open this dashboard at its IP address or domain name, not localhost, to get the command.')
+    expect(vi.mocked(client.post).mock.calls.some(([p]) => String(p).includes('/join-codes'))).toBe(false)
+  })
+
+  it('says why a token can’t be made yet', async () => {
+    answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5 }, sizingUrl: '', available: true }, '/api/tokens': [] })
+    await render(<AiAgentsSection />)
+    const open = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New token'))
+    await act(async () => open?.click())
+    const make = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Make token')
+    expect(make?.disabled).toBe(true)
+    expect(make?.title).toBe('Give the token a name first.')
   })
 })
 
@@ -2909,5 +3255,198 @@ describe('Backup upload', () => {
     expect(client.api).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith({ title: 'That file is too big to be a Playkeeper backup.', type: 'error' })
     toast.mockRestore()
+  })
+})
+
+// Found checking the restore path on a real server.
+describe('A restore that didn’t finish', () => {
+  const missing = { previous: '/var/lib/playkeeper/servers/abcdefghjk/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/abcdefghjk/data', setAsideAt: '2026-09-26T10:30:28Z' }
+  const copies = [
+    { name: 'data.failed-restore-20260926-103028', kind: 'failed_restore', createdAt: '2026-09-26T10:30:28Z', sizeBytes: 70 * 2 ** 20 },
+    { name: 'data.replaced-20260926-103028', kind: 'previous', createdAt: '2026-09-26T10:30:28Z', sizeBytes: 16 * 2 ** 20 },
+  ]
+  const button = (label: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)
+
+  it('says where the previous world is while the world folder is missing, long after the restore failed', async () => {
+    const hourAgo = new Date(Date.now() - 3_600_000).toISOString()
+    const restore: Operation = { ...failed('restore', 'reverting', 'The restored world did not start. Putting the previous world back failed.'), startedAt: hourAgo, finishedAt: hourAgo }
+    const s = server({ phase: 'stopped', worldMissing: missing, lastOperation: restore })
+    const overview = await render(<Overview server={s} />)
+    expect(overview).toContain('A restore didn’t finish, so Survival has no world folder')
+    expect(overview).toContain(`Your previous world is safe in ${missing.previous}. Move it back to ${missing.dataDir}, then press Start.`)
+    answer({ '/world-copies': copies, '/backups': [] })
+    const world = await render(<WorldPage server={s} />)
+    expect(world).toContain('A restore didn’t finish, so Survival has no world folder')
+    expect(world).not.toContain('A restored world that didn’t start is still on this VPS')
+  })
+
+  it('drops a start or a backup refused for the missing world folder once the world is back', async () => {
+    const refused = failed('backup', '', `The world folder is missing because a restore did not finish; the previous world is at ${missing.previous}.`, { errorKind: 'world_missing' })
+    answer({ '/world-copies': copies, '/backups': [] })
+    expect(await render(<WorldPage server={server({ phase: 'stopped', worldMissing: missing, lastOperation: refused })} />)).toContain('A restore didn’t finish, so Survival has no world folder')
+    answer({ '/world-copies': copies.slice(0, 1), '/backups': [] })
+    const back = await render(<WorldPage server={server({ phase: 'stopped', lastOperation: refused })} />)
+    expect(back).not.toContain('Backing up Survival failed')
+    expect(back).toContain('A restored world that didn’t start is still on this VPS')
+    const start = failed('start', '', 'The world folder is missing because a restore did not finish.', { errorKind: 'world_missing' })
+    expect(await render(<Overview server={server({ phase: 'stopped', lastOperation: start })} />)).not.toContain('Starting Survival failed')
+  })
+
+  it('drops a start refused while a restore wasn’t finished once it is', async () => {
+    const start = failed('start', '', "A restore isn't finished, so Survival can't start until it is.", { errorKind: 'restore_unsettled' })
+    expect(await render(<Overview server={server({ phase: 'stopped', restoreUnsettled: {}, lastOperation: start })} />)).toContain('Starting Survival failed')
+    expect(await render(<Overview server={server({ phase: 'stopped', lastOperation: start })} />)).not.toContain('Starting Survival failed')
+  })
+
+  it('keeps a world copy’s Discard under a backup that just failed', async () => {
+    answer({ '/world-copies': copies.slice(0, 1), '/backups': [] })
+    const text = await render(<WorldPage server={server({ lastOperation: failed('backup', '', 'Not enough disk space for a backup.', { neededBytes: 2 ** 40 }) })} />)
+    expect(text).toContain('Backing up Survival failed')
+    expect(text).toContain('A restored world that didn’t start is still on this VPS')
+    expect(button('Discard')).toBeDefined()
+  })
+
+  it('says on Home that the world folder is missing, and lets only a stopped server nap', async () => {
+    const stoppedAt = new Date(Date.now() - 5 * 60_000).toISOString()
+    const text = await render(<HomePage />, workspace({ servers: [server({ phase: 'stopped', stoppedAt, worldMissing: missing })] }))
+    expect(text).toContain('World folder missing')
+    expect(text).not.toContain('Napping')
+    expect(button('Start')).toBeUndefined()
+    expect(await render(<HomePage />, workspace({ servers: [server({ phase: 'stopped', stoppedAt })] }))).toContain('Napping for 5 minutes')
+  })
+
+  it('doesn’t offer a backup while the world folder is missing, and says why', async () => {
+    const why = 'Its world folder is missing. Move the previous world back first.'
+    const at = '2026-09-26T10:28:00Z'
+    const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
+    answer({ '/world-copies': copies, '/backups': [] })
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing: missing })} />)
+    expect(button('Make my first backup')?.disabled).toBe(true)
+    expect(button('Make my first backup')?.title).toBe(why)
+    answer({ '/world-copies': copies, '/backups': [made] })
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing: missing })} />)
+    expect(button('Back up now')?.disabled).toBe(true)
+    expect(button('Back up now')?.title).toBe(why)
+    answer({ '/world-copies': [], '/backups': [made] })
+    await render(<WorldPage server={server({ phase: 'stopped' })} />)
+    expect(button('Back up now')?.disabled).toBe(false)
+
+    await render(<ServerPage slug="survival" tab="overview" />, workspace({ servers: [server({ phase: 'stopped', worldMissing: missing })] }))
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="More actions"]')?.click())
+    await act(async () => {})
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === 'Back up now')
+    expect(item?.getAttribute('aria-disabled')).toBe('true')
+    expect(item?.title).toBe(why)
+  })
+
+  it('doesn’t offer a restore while the world folder is missing, and says why', async () => {
+    const why = 'Its world folder is missing. Move the previous world back first.'
+    const at = '2026-09-26T10:28:00Z'
+    const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
+    answer({ '/world-copies': copies, '/backups': [made] })
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing: missing })} />)
+    expect(button('choose a file')?.disabled).toBe(true)
+    expect(button('choose a file')?.title).toBe(why)
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label^="Actions for the backup from"]')?.click())
+    await act(async () => {})
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent?.startsWith('Restore this backup'))
+    expect(item?.getAttribute('aria-disabled')).toBe('true')
+    expect(item?.title).toBe(why)
+
+    const phone = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+    await render(<WorldPage server={server({ phase: 'stopped', worldMissing: missing })} />)
+    expect(button('Restore a world')?.disabled).toBe(true)
+    expect(button('Restore a world')?.title).toBe(why)
+    phone.mockRestore()
+
+    answer({ '/world-copies': [], '/backups': [made] })
+    await render(<WorldPage server={server({ phase: 'stopped' })} />)
+    expect(button('choose a file')?.disabled).toBe(false)
+  })
+
+  it('doesn’t offer a restore while another isn’t finished, and says why', async () => {
+    const why = 'A restore isn’t finished. Playkeeper finishes it once the server is stopped.'
+    const at = '2026-09-26T10:28:00Z'
+    const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
+    answer({ '/world-copies': copies.slice(0, 1), '/backups': [made] })
+    await render(<WorldPage server={server({ phase: 'stopped', restoreUnsettled: {} })} />)
+    expect(button('choose a file')?.disabled).toBe(true)
+    expect(button('choose a file')?.title).toBe(why)
+    expect(button('Back up now')?.disabled).toBe(false)
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label^="Actions for the backup from"]')?.click())
+    await act(async () => {})
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent?.startsWith('Restore this backup'))
+    expect(item?.getAttribute('aria-disabled')).toBe('true')
+    expect(item?.title).toBe(why)
+  })
+
+  it('says on the World tab when a restore isn’t finished, and what finishes it', async () => {
+    const at = '2026-09-26T10:28:00Z'
+    const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
+    const stuck = "The swap journal in /var/lib/playkeeper/restore-staging/8fae916f8b8f5482 can't be read (unreadable swap journal: unexpected end of JSON input)."
+    const cases: { name: string; over: Partial<ServerStatus>; phone?: boolean; notice?: string }[] = [
+      { name: 'stopped', over: { phase: 'stopped', restoreUnsettled: {} }, notice: 'A restore isn’t finished. Playkeeper finishes it in a moment.' },
+      { name: 'running', over: { phase: 'online', restoreUnsettled: {} }, notice: 'A restore isn’t finished. Stop Survival and Playkeeper finishes it.' },
+      { name: 'running, on a phone', over: { phase: 'online', restoreUnsettled: {} }, phone: true, notice: 'A restore isn’t finished. Stop Survival and Playkeeper finishes it.' },
+      { name: 'stuck', over: { phase: 'stopped', restoreUnsettled: { problem: stuck } }, notice: `A restore isn’t finished, and Playkeeper couldn’t finish it.${stuck}` },
+      { name: 'world folder missing', over: { phase: 'stopped', restoreUnsettled: {}, worldMissing: missing } },
+      { name: 'settled', over: { phase: 'stopped' } },
+    ]
+    for (const c of cases) {
+      const phone = c.phone ? vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false })) : undefined
+      answer({ '/world-copies': [], '/backups': [made] })
+      await render(<WorldPage server={server(c.over)} />)
+      const shown = [...document.querySelectorAll('[role="status"], [role="alert"]')].map((el) => el.textContent ?? '').find((text) => text.startsWith('A restore isn’t finished'))
+      expect(shown, c.name).toBe(c.notice)
+      phone?.mockRestore()
+    }
+  })
+
+  it('keeps a world copy’s Discard off while a restore isn’t finished, and says why', async () => {
+    const at = '2026-09-26T10:28:00Z'
+    const made: Backup = { id: 'b2345abcde', serverId: 'abcdefghjk', kind: 'manual', createdAt: at, fileName: 'survival.tar.gz', sizeBytes: 446 * 1024, sha256: 'a'.repeat(64), location: 'local', verified: true, verifiedAt: at, downtimeMs: 0, savingPausedMs: 0, durationMs: 0, minecraftVersion: '26.1.2', levelName: 'world', fileCount: 120, createdBy: 'siya' }
+    const operation: Operation = { id: 'backup-1', kind: 'backup', status: 'running', phase: 'archiving', actor: 'siya', startedAt: new Date().toISOString() }
+    const cases: { name: string; over: Partial<ServerStatus>; discard: [boolean, string] }[] = [
+      { name: 'a restore isn’t finished', over: { phase: 'stopped', restoreUnsettled: {} }, discard: [true, 'A restore isn’t finished. Playkeeper finishes it once the server is stopped.'] },
+      { name: 'a restore Playkeeper couldn’t finish', over: { phase: 'stopped', restoreUnsettled: { problem: 'Saving the settings failed: disk I/O error.' } }, discard: [true, 'A restore isn’t finished, and Playkeeper couldn’t finish it.'] },
+      { name: 'another job runs', over: { phase: 'stopped', operation }, discard: [true, 'Backing up Survival. Try again when it’s done.'] },
+      { name: 'nothing to wait for', over: { phase: 'stopped' }, discard: [false, ''] },
+    ]
+    for (const c of cases) {
+      answer({ '/world-copies': copies.slice(0, 1), '/backups': [made] })
+      await render(<WorldPage server={server(c.over)} />)
+      const discard = button('Discard')
+      expect([discard?.disabled, discard?.title], c.name).toEqual(c.discard)
+    }
+  })
+
+  it('says what to do when a new icon is refused for the missing world folder', async () => {
+    const message = `The world folder is missing because a restore did not finish; the previous world is at ${missing.previous}.`
+    const hint = `Move that folder back to ${missing.dataDir}, then upload the icon again.`
+    vi.mocked(client.api).mockImplementation(((_method: string, path: string) => (path.endsWith('/icon') ? Promise.reject(new client.ApiError(409, { error: message, code: 'world_missing', hint })) : new Promise(() => {}))) as typeof client.api)
+    // happy-dom has no images or canvas, so the picture comes out of stand-ins as a 64 × 64 PNG header.
+    const png = new Blob([Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 64, 0, 0, 0, 64)], { type: 'image/png' })
+    vi.stubGlobal('createImageBitmap', async () => ({ width: 64, height: 64 }))
+    const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((() => ({ drawImage: () => {} })) as unknown as HTMLCanvasElement['getContext'])
+    const dataURL = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,')
+    const toBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((done: BlobCallback) => done(png))
+    const toast = vi.spyOn(toastManager, 'add')
+    await render(<ServerSettingsPage server={server({ phase: 'stopped', worldMissing: missing })} />)
+    const input = document.querySelector<HTMLInputElement>('input[type=file][aria-label="Upload picture"]')
+    if (!input) throw new Error('no icon upload')
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'icon.png', { type: 'image/png' })], configurable: true })
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
+    await act(async () => {})
+    expect(toast).toHaveBeenCalledWith({ title: message, description: hint, type: 'error' })
+    for (const spy of [toast, toBlob, dataURL, context]) spy.mockRestore()
+    vi.unstubAllGlobals()
+  })
+
+  it('shortens a long activity line instead of widening the page', async () => {
+    answer({ '/activity': [{ ts: new Date().toISOString(), serverId: 'abcdefghjk', kind: 'restored_after_restart' }] })
+    await render(<HomePage />)
+    const line = [...document.querySelectorAll('li > span')].find((el) => el.textContent === 'Survival restored after Playkeeper restarted')
+    // happy-dom has no layout. A line with no width of its own can't push its card past a phone's screen.
+    expect(line?.className.split(' ')).toContain('w-0')
   })
 })

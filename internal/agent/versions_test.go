@@ -3,11 +3,13 @@ package agent
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/sizing"
 )
 
 func (e *agentEnv) changeVersion(body map[string]any) (int, map[string]any) {
@@ -52,6 +54,43 @@ func TestCatalogIsLiveFromPaperMCAndExperimentalNeedsConsent(t *testing.T) {
 	down.fill.set("", []fillVersionSpec{})
 	if cat := down.a.catalogInfo(t.Context(), ""); cat.VersionsError == "" || len(cat.Versions) != 0 {
 		t.Fatalf("an empty list from PaperMC must be reported: %+v", cat)
+	}
+}
+
+func TestTheCatalogSaysWhatTheSizingGuideSaysAboutEachMemoryOption(t *testing.T) {
+	e := newAgentEnv(t)
+	var cat api.Catalog
+	e.decode("GET", "/v1/catalog", &cat)
+	want := api.MemorySizing{
+		Workload: "vanilla",
+		Budgets: []api.MemoryBudget{
+			{MemoryMB: 1536, HeapMB: 1024, Players: 0}, {MemoryMB: 2048, HeapMB: 1536, Players: 4},
+			{MemoryMB: 3072, HeapMB: 2304, Players: 4},
+		},
+		Suggestions: []api.MemorySuggestion{
+			{Players: 4, MemoryMB: 2048}, {Players: 10, MemoryMB: 4096},
+			{Players: 20, MemoryMB: 6144}, {Players: 40, MemoryMB: 8192},
+		},
+	}
+	if !reflect.DeepEqual(cat.MemoryOptionsMB, []int{1536, 2048, 3072}) || !reflect.DeepEqual(cat.Sizing, want) {
+		t.Fatalf("a 4 GB machine's options and what the guide says about them:\n%v\n%+v\nwant %+v", cat.MemoryOptionsMB, cat.Sizing, want)
+	}
+
+	got := memorySizing(sizing.Vanilla, []int{1536, 2048, 3072, 4096, 6144})
+	var players []int
+	for _, b := range got.Budgets {
+		players = append(players, b.Players)
+	}
+	if !reflect.DeepEqual(players, []int{0, 4, 4, 10, 20}) || got.Budgets[3].HeapMB != 3072 {
+		t.Fatalf("4 GB is for up to 10 players and gives Java 3 GB: %+v", got.Budgets)
+	}
+	for _, b := range memorySizing(sizing.Modpack, []int{1536, 4096, 6144}).Budgets {
+		if b.Players != 0 {
+			t.Fatalf("no option below 8 GB fits a modpack: %+v", b)
+		}
+	}
+	if none := memorySizing("minigames", []int{1536}); none.Budgets == nil || none.Suggestions == nil || len(none.Budgets)+len(none.Suggestions) != 0 {
+		t.Fatalf("a workload the guide doesn't know gets no advice, as empty lists: %+v", none)
 	}
 }
 

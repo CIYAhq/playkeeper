@@ -99,8 +99,8 @@ func HeapMB(budgetMB int) int { return HeapFor(budgetMB, "", 0) }
 
 // loaderOverheadMB is the least memory a mod loader's JVM needs outside the
 // heap, before its mods: Fabric API alone is some forty mods, and NeoForge
-// patches far more of the game.
-var loaderOverheadMB = map[string]int{"fabric": 768, "quilt": 768, "neoforge": 1024}
+// and Forge patch far more of the game.
+var loaderOverheadMB = map[string]int{"fabric": 768, "quilt": 768, "neoforge": 1024, "forge": 1024}
 
 // modOverheadMB is what each mod jar adds outside the heap: its classes,
 // mixins and JIT code.

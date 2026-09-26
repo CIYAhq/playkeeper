@@ -82,7 +82,7 @@ func (s *server) followLoop(ctx context.Context) {
 	for ctx.Err() == nil {
 		c, err := s.docker.ContainerInspect(ctx, s.containerName())
 		if err != nil {
-			sleepCtx(ctx, 2*time.Second)
+			sleepCtx(ctx, s.opts.FollowRetry)
 			continue
 		}
 		if !prefilled {
@@ -115,7 +115,7 @@ func (s *server) followLoop(ctx context.Context) {
 		// meanwhile, the next attach reads the new run as its own.
 		scanner, err := s.docker.ContainerLogs(ctx, c.ID, docker.LogsOptions{Follow: c.State.Running, Since: since})
 		if err != nil {
-			sleepCtx(ctx, 2*time.Second)
+			sleepCtx(ctx, s.opts.FollowRetry)
 			continue
 		}
 		last := cur
@@ -143,7 +143,7 @@ func (s *server) followLoop(ctx context.Context) {
 			s.mu.Lock()
 			s.followEnded[c.ID] = s.now()
 			s.mu.Unlock()
-			sleepCtx(ctx, 2*time.Second)
+			sleepCtx(ctx, s.opts.FollowRetry)
 		} else {
 			sleepCtx(ctx, 300*time.Millisecond)
 		}
@@ -184,7 +184,7 @@ func (s *server) attachRun(c docker.ContainerJSON, runStart time.Time) {
 		return
 	}
 	s.runStartedAt = runStart
-	s.sawStopping, s.sawCrash, s.sawOOM, s.runReady = false, false, false, false
+	s.sawStopping, s.sawCrash, s.sawOOM, s.runReady, s.crashLineAt = false, false, false, false, time.Time{}
 	if c.State.Running && s.runPhase != api.PhaseStartingContainer {
 		s.runPhase = api.PhaseStartingContainer
 	}
@@ -305,6 +305,9 @@ func (s *server) ingest(container string, l docker.LogLine, runStart time.Time, 
 		if current {
 			s.mu.Lock()
 			s.sawCrash = true
+			if s.crashLineAt.IsZero() {
+				s.crashLineAt = s.now()
+			}
 			s.mu.Unlock()
 		}
 	case minecraft.EventOOM:
@@ -456,11 +459,17 @@ func (s *server) reconcileWithList(ts time.Time, names []string) {
 const worldEvery = 5 * time.Minute
 
 // measureWorld adds up the files of the world's dimensions every few minutes.
+// A world that isn't there, before a new server's first start or while a
+// restore swaps it, is looked for again at the next sample.
 func (s *server) measureWorld(now time.Time, level string) {
 	s.mu.Lock()
 	due := now.Sub(s.worldAt) >= worldEvery
 	s.mu.Unlock()
 	if !due || level == "" {
+		return
+	}
+	if !dirExists(filepath.Join(s.dataDir(), level)) {
+		s.worldChanged()
 		return
 	}
 	total := s.worldSize(level)
@@ -470,6 +479,14 @@ func (s *server) measureWorld(now time.Time, level string) {
 	if n, ok := s.countChunks(level); ok {
 		s.recordChunks(now, n)
 	}
+}
+
+// worldChanged forgets the world's size, so the next sample measures it
+// again: a restore put another world in place, or there is none yet.
+func (s *server) worldChanged() {
+	s.mu.Lock()
+	s.worldBytes, s.worldAt = 0, time.Time{}
+	s.mu.Unlock()
 }
 
 // worldSize adds up the files of the world's three dimensions.

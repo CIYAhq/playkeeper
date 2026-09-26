@@ -22,7 +22,7 @@ import { PhoneActionBar, WorldSubHeader } from './world-sub'
 
 const presetNames: Record<PregenPresetId, MessageKey> = { small: 'pregen.small', medium: 'pregen.medium', large: 'pregen.large', huge: 'pregen.huge' }
 const actingKeys: Record<'pause' | 'continue' | 'cancel', MessageKey> = { pause: 'pregen.pausing', continue: 'pregen.resuming', cancel: 'pregen.cancelling' }
-const modServers = new Set(['fabric', 'quilt', 'neoforge'])
+const modServers = new Set(['fabric', 'quilt', 'neoforge', 'forge'])
 
 /** A length of time, rounded the way people say it: minutes, half hours under ten hours, hours, then days. */
 export function roughTime(seconds: number): { unit: 'min' | 'h' | 'days'; count: number } {
@@ -240,7 +240,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
   const [busy, setBusy] = useState(false)
   const chosen = pg.presets.find((p) => p.id === preset)
   const otherJob = s.operation && s.operation.kind !== 'pregen-start' ? s.operation : undefined
-  const blocked = whyNot({ ...s, operation: otherJob }, 'change', ws.stale) ?? (chosen?.fits ? undefined : t('pregen.noRoom'))
+  const blocked = whyNot({ ...s, operation: otherJob }, 'pregen', ws.stale) ?? (chosen?.fits ? undefined : t('pregen.noRoom'))
 
   async function start() {
     setBusy(true)
@@ -283,7 +283,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
   const note = otherJob ? (
     <span className="inline-flex items-center gap-1.5">
       <Spinner />
-      {opLabel(otherJob, s.name)}
+      {opLabel(otherJob, s)}
     </span>
   ) : pg.diskFreeBytes !== undefined ? (
     t('pregen.diskFree', { machine: ws.machineName, free: formatBytes(pg.diskFreeBytes) })

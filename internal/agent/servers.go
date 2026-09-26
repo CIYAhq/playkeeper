@@ -62,6 +62,9 @@ type server struct {
 	// recovery is a restore a previous agent process left running, found
 	// when the agent is made and finished when it starts.
 	recovery *pendingRestore
+	// settled names the restore stages this process settled but couldn't
+	// remove yet; guarded by opLock.
+	settled map[string]bool
 
 	mu              sync.Mutex
 	runPhase        api.Phase
@@ -69,7 +72,8 @@ type server struct {
 	runStartedAt    time.Time
 	sawStopping     bool
 	sawCrash        bool
-	sawOOM          bool // the run logged Java's out-of-memory line
+	sawOOM          bool      // the run logged Java's out-of-memory line
+	crashLineAt     time.Time // when this run first logged that the server gave up
 	lastError       string
 	lastErrorHint   string
 	refusal         *api.FileRefusal
@@ -101,6 +105,9 @@ type server struct {
 	// failed to turn saving back on.
 	nextResume time.Time
 	lag        lagState
+	// settleProblem is why the last try to settle a restore whose journal
+	// is kept failed, until a try succeeds.
+	settleProblem string
 
 	// rconLock holds the console connection; a channel, so waiting for it
 	// honours a command's deadline.
@@ -128,6 +135,7 @@ func (a *Agent) newServerHandle(id, layout string, port int) *server {
 		console:     newRing(consoleCapacity),
 		opLock:      make(chan struct{}, 1),
 		rconLock:    make(chan struct{}, 1),
+		settled:     map[string]bool{},
 		handledExit: map[string]time.Time{},
 		exitSeen:    map[string]seenExit{},
 		intentional: map[string]bool{},

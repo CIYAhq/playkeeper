@@ -72,7 +72,7 @@ type Template struct {
 // Server is the server software.
 type Server struct {
 	// Type is an id from Playkeeper's registry of server types (paper,
-	// purpur, fabric, quilt, neoforge, vanilla). Types added later travel
+	// purpur, fabric, quilt, neoforge, forge, vanilla). Types added later travel
 	// too; a Playkeeper that cannot create one says so when importing.
 	Type             string `json:"type"`
 	MinecraftVersion string `json:"minecraftVersion"`

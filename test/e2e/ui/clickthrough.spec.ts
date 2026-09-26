@@ -1,6 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
 import fs from 'node:fs'
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import path from 'node:path'
+import { answerRead, installJob, isAddonRead, recordedFolder, type World } from './addon-fixtures'
 import { Crawler, failing, failureList, where, type CrawlReport, type Result, type Status } from './crawl'
 import { installPageHelpers } from './crawl-page'
 import type { View } from './fakes'
@@ -30,19 +33,24 @@ import { login, outDir } from './helpers'
 // later steps are pressed too.
 //
 // Writes go to realistic fakes (fakes.ts), so nothing is restarted, deleted or
-// downloaded. There is no list of exceptions: a control that should do nothing
-// right now must be disabled and say why (aria-describedby or a title). The
-// selected tab or option of a group may stay selected. A link another app
-// opens (an authenticator's otpauth:, mailto:, tel:) counts as working, since
-// a headless browser has no app to open. Each page gets a fresh load before a
-// control is pressed unless the page is provably unchanged.
+// downloaded, and a server's add-on reads (its folder, the library, details,
+// plans and icons) to recorded fixtures (addon-fixtures.ts), so the crawl
+// never waits on Modrinth or Hangar. The only real write is one AI agent
+// token, made before the crawl so Settings › AI agents has a token to open and
+// revoke (revoking goes to the fakes too). There is no list of exceptions: a
+// control that should do nothing right now must be disabled and say why
+// (aria-describedby or a title). The selected tab or option of a group may
+// stay selected. A link another app opens (an authenticator's otpauth:,
+// mailto:, tel:) counts as working, since a headless browser has no app to
+// open. Each page gets a fresh load before a control is pressed unless the
+// page is provably unchanged.
 //
 // It fails when a control does nothing visible, answers with an error, is
 // disabled without a reason or has no name; when it can't get back to a state
-// it found; when a page has fewer controls than its minimum; and when it
-// didn't press the control of one of `places`. For each place, a negative
-// control then breaks that control and presses it again: the crawl must
-// report it.
+// it found; when a page has fewer controls than its minimum; when an add-on
+// read reaches the panel or has no recorded answer; and when it didn't press
+// the control of one of `places`. For each place, a negative control then
+// breaks that control and presses it again: the crawl must report it.
 
 test.describe.configure({ mode: 'parallel' })
 
@@ -52,7 +60,7 @@ const sizes = {
 } as const
 
 // The add-on tab each server type has (web/src/lib/addons.ts); Vanilla has none.
-const addonTabs: Record<string, string> = { paper: '/plugins', purpur: '/plugins', fabric: '/mods', quilt: '/mods', neoforge: '/mods' }
+const addonTabs: Record<string, string> = { paper: '/plugins', purpur: '/plugins', fabric: '/mods', quilt: '/mods', neoforge: '/mods', forge: '/mods' }
 
 // A well-formed share link that no map has, for the "isn't available" page.
 const unknownMapLink = '/map/Zz9xWv8uTs7rQp6oNm5lKj'
@@ -62,7 +70,7 @@ const unknownPackLink = '/packs/Pk0Unknown0Link0Abcdef'
 /** The pages to open signed in, and the shared maps anyone can open without signing in. */
 async function routes(page: Page, phone: boolean): Promise<{ live: string[]; shared: string[] }> {
   const servers = (await (await page.request.get('/api/servers')).json()) as { id: string; slug: string; type?: string }[]
-  const machines = (await (await page.request.get('/api/machines')).json()) as { id: string }[]
+  const machines = (await (await page.request.get('/api/machines')).json()) as { id: string; kind: string }[]
   const out = ['/']
   const shared: string[] = []
   for (const s of servers) {
@@ -91,10 +99,27 @@ async function routes(page: Page, phone: boolean): Promise<{ live: string[]; sha
     const payload = exported.link?.split('#')[1]
     if (payload) out.push(`/servers/new#template=${payload}`)
   }
-  for (const m of machines) out.push(`/machines/${m.id}`, `/machines/${m.id}/settings`, `/machines/${m.id}/disk`)
-  out.push('/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/account', '/account/two-factor', '/recover')
+  // A joined machine's page is in Settings › Machines, and it has no Machine
+  // settings; the dashboard's own machine has both pages. Every machine has a
+  // Disk space page.
+  for (const m of machines) out.push(...(m.kind === 'remote' ? [`/settings/machines/${m.id}`] : [`/machines/${m.id}`, `/machines/${m.id}/settings`]), `/machines/${m.id}/disk`)
+  out.push('/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/settings/ai-agents', '/settings/machines', '/account', '/account/two-factor', '/recover')
   if (phone) out.push('/more')
   return { live: out, shared }
+}
+
+const seedToken = 'Claude on my laptop'
+
+/** Makes the AI agent token the crawl opens, once; the other size's run may have made it already. */
+async function seedAiToken(page: Page) {
+  const tokens = (await (await page.request.get('/api/tokens')).json()) as { name: string }[]
+  if (tokens.some((tk) => tk.name === seedToken)) return
+  const { csrfToken } = (await (await page.request.get('/api/auth/me')).json()) as { csrfToken: string }
+  const res = await page.request.post('/api/tokens', {
+    data: { name: seedToken, role: 'viewer', allServers: true, servers: [], days: 30 },
+    headers: { 'X-Requested-With': 'playkeeper', 'X-CSRF-Token': csrfToken },
+  })
+  expect([201, 409], `POST /api/tokens answered ${res.status()}`).toContain(res.status())
 }
 
 function summary(report: CrawlReport): string {
@@ -153,10 +178,12 @@ function pageOf(c: { route: string; view?: View }): string {
  * it is broken. A page's count leaves out controls pressed on an earlier
  * page, such as the sidebar. A page that isn't listed needs one. A dev build
  * (make dev) can't update itself, so its /settings has no "Check for updates"
- * and one control fewer than an installed panel's. A fresh install has
- * nothing to free on the Disk space page, whose way back to the machine is
- * pressed on the machine's other pages first, so its controls count in the
- * space to free view.
+ * and one control fewer than an installed panel's. The add-on library shows
+ * the recorded fixtures' cards (addon-fixtures.ts), so its count doesn't move
+ * with what Modrinth and Hangar list. A fresh install has nothing to free on
+ * the Disk space page, whose way back to the machine is pressed on the
+ * machine's other pages first, so its controls count in the space to free
+ * view.
  */
 const minimums: Record<Size, Record<string, number>> = {
   desktop: {
@@ -167,8 +194,10 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/*/console': 12,
     '/servers/*/players': 9,
     '/servers/*/world': 14,
+    '/servers/*/plugins': 1,
     '/servers/*/settings': 36,
     '/servers/new': 36,
+    '/servers/*/plugins/browse': 107,
     '/machines/*': 3,
     '/machines/*/settings': 6,
     '/machines/*/disk': 0,
@@ -209,8 +238,10 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/*/console': 9,
     '/servers/*/players': 5,
     '/servers/*/world': 9,
+    '/servers/*/plugins': 1,
     '/servers/*/settings': 34,
     '/servers/new': 29,
+    '/servers/*/plugins/browse': 81,
     '/machines/*': 1,
     '/machines/*/settings': 6,
     '/machines/*/disk': 0,
@@ -257,10 +288,11 @@ interface Place {
 }
 
 /**
- * Places the click-through didn't reach before 0.3.1's audit, and the Disk
- * space page's clean-up. In each, one control must come out as `status`,
- * and a negative control breaks it and presses it again (a disabled one
- * loses its reason instead): the crawl must then report it.
+ * Places the click-through didn't reach before 0.3.1's audit, the Disk
+ * space page's clean-up, and a select whose choices differ only in a number.
+ * In each, one control must come out as `status`, and a negative control
+ * breaks it and presses it again (a disabled one loses its reason instead):
+ * the crawl must then report it.
  */
 const places: Place[] = [
   { what: '"Restore this backup?", a dialog that replaces the menu or sheet it opens from', sizes: ['desktop', 'phone'], key: /^button "Cancel" in dialog "Restore this backup\?"$/ },
@@ -278,6 +310,7 @@ const places: Place[] = [
   { what: 'the empty World page', sizes: ['desktop', 'phone'], view: 'empty lists', key: /^button "Make my first backup"$/ },
   { what: 'Home with no servers', sizes: ['desktop', 'phone'], view: 'no servers', key: /^link "(Next: )?Create your first server"$/ },
   { what: 'the end of onboarding (/welcome)', sizes: ['desktop', 'phone'], view: 'no servers', key: /^button "Create my server"$/ },
+  { what: 'a memory choice in onboarding’s "Change the details", which changes only a number', sizes: ['desktop'], view: 'no servers', key: /^option "# GB" in listbox ""( #\d+)?$/ },
   { what: 'installing a Playkeeper update', sizes: ['desktop', 'phone'], view: 'update available', key: /^button "Update( now)?" in dialog "Update Playkeeper to .+"$/ },
   { what: 'waking a sleeping server', sizes: ['desktop', 'phone'], view: 'asleep', key: /^button "Wake up now" in ".+ is asleep"$/ },
   { what: 'a new recovery key for the copies somewhere else', sizes: ['desktop', 'phone'], view: 'looks after itself', key: /^button "Download new key" in dialog "New recovery key made"$/ },
@@ -334,6 +367,18 @@ function found(results: Result[], place: Place): Result | undefined {
   return results.find((r) => (r.view ?? 'live') === (place.view ?? 'live') && place.key.test(r.key) && r.status === (place.status ?? 'works'))
 }
 
+/**
+ * The add-on reads of a crawler's whole run, page loads included: a note of
+ * how many the recorded fixtures answered, and a problem for each that
+ * reached the panel or had no recorded answer.
+ */
+function addonReadCheck(crawler: Crawler, who: string): { note: string; problems: string[] } {
+  const reads = crawler.addonReads()
+  const note = `${who}: ${reads.answered} add-on reads answered from recorded fixtures, ${reads.live.length} reached the panel, ${reads.unrecorded.length} had no recorded answer`
+  const live = [...new Set(reads.live)].map((r) => `${who}: ${r} reached the panel; add-on reads come from the recorded fixtures`)
+  return { note, problems: [...live, ...[...new Set(reads.unrecorded)].map((r) => `${who}: no recorded answer for ${r}`)] }
+}
+
 interface Negative {
   place: string
   /** Where the broken control was, and its key. */
@@ -382,6 +427,7 @@ for (const [name, size] of Object.entries(sizes)) {
     report.results.push(...outCrawler.results)
     report.notes.push(...outCrawler.notes)
     report.unreached.push(...outCrawler.unreached)
+    const addonReads = [addonReadCheck(outCrawler, `[${name}] signed out`)]
     await signedOut.close()
 
     // Two-factor sign-in's second step, with a crawler of its own: the one above
@@ -400,6 +446,7 @@ for (const [name, size] of Object.entries(sizes)) {
     const context = await browser.newContext(options)
     const page = await context.newPage()
     await login(page)
+    await seedAiToken(page)
     const crawler = new Crawler(page, name, base, log)
     await crawler.init()
     const { live, shared } = await routes(page, name === 'phone')
@@ -411,6 +458,8 @@ for (const [name, size] of Object.entries(sizes)) {
     report.results.push(...crawler.results)
     report.notes.push(...crawler.notes)
     report.unreached.push(...crawler.unreached)
+    addonReads.push(addonReadCheck(crawler, `[${name}] signed in`))
+    report.notes.push(...addonReads.map((a) => a.note))
     await context.close()
 
     // Shared maps open signed out; the signed-in pages said which there are.
@@ -432,6 +481,7 @@ for (const [name, size] of Object.entries(sizes)) {
     for (const n of negatives) console.log(`negative control: ${n.caught ? 'caught' : 'MISSED'} ${n.place}: ${n.key} broken → ${n.verdict}`)
     const problems = passBar(name as Size, report, [...new Set(pages)])
     for (const n of negatives) if (!n.caught) problems.push(`${name}: with ${n.place} broken, the crawl said "${n.verdict}" (${n.key})`)
+    for (const a of addonReads) problems.push(...a.problems)
     expect(problems, problems.join('\n')).toEqual([])
   })
 }
@@ -445,6 +495,53 @@ test('a combobox choice that differs from the last only in its digits still chan
     document.querySelector('[role=combobox]')!.textContent = '4 GB'
   })
   expect(await combobox()).not.toEqual(before)
+})
+
+test('a download that starts late still counts, and a download link that does nothing is dead', async ({ browser }) => {
+  // The browser fetches a download link itself, past page.route, so a real
+  // server answers: a download link and a plain link to an attachment 9 s
+  // late, as CI's panel once did, and a link whose script starts its
+  // download 3 s after the press, with nothing loading meanwhile.
+  const attach = (res: http.ServerResponse) => {
+    res.writeHead(200, { 'Content-Type': 'application/gzip', 'Content-Disposition': 'attachment; filename="world.tar.gz"' })
+    res.end('a backup')
+  }
+  const server = http.createServer((req, res) => {
+    if (req.url === '/') {
+      res.writeHead(200, { 'Content-Type': 'text/html' })
+      res.end(`<!doctype html><title>Backups</title><div id="root"><h1>Backups</h1>
+        <a href="/backups/1/download" download="world.tar.gz">Download</a>
+        <a href="/backups/2/file">Notes</a>
+        <a href="/export" onclick="event.preventDefault(); setTimeout(() => { location.href = '/backups/3/file' }, 3000)">Export</a></div>`)
+    } else if (req.url === '/backups/1/download' || req.url === '/backups/2/file') {
+      setTimeout(() => attach(res), 9000)
+    } else if (req.url === '/backups/3/file') {
+      attach(res)
+    } else {
+      res.writeHead(404)
+      res.end()
+    }
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const context = await browser.newContext({ baseURL: base })
+  try {
+    const crawler = new Crawler(await context.newPage(), 'desktop', base)
+    await crawler.init()
+    await crawler.crawl('/')
+    const download = crawler.results.find((r) => r.key === 'link "Download"')
+    for (const key of ['link "Download"', 'link "Notes"', 'link "Export"']) {
+      const r = crawler.results.find((x) => x.key === key)
+      expect(r?.status, key).toBe('works')
+      expect(r?.effects, key).toContain('started a download')
+    }
+    expect(crawler.notes.join('\n')).toContain('› link "Download": its download started')
+    const broken = await crawler.breakAndPress(download!)
+    expect(typeof broken === 'string' ? broken : broken.status).toBe('dead')
+  } finally {
+    await context.close()
+    server.close()
+  }
 })
 
 test('the pass bar fails a failing control, a state it could not get back to, a page under its minimum and a place it missed', () => {
@@ -461,4 +558,49 @@ test('the pass bar fails a failing control, a state it could not get back to, a 
   expect(passBar('desktop', { ...good, results: good.results.filter((r) => r.view !== 'stopped') }, ['/', '/settings'], rules)).toEqual(['desktop /servers/* (stopped): not crawled (its minimum is 1)'])
   expect(passBar('desktop', { ...good, results: good.results.filter((r) => r.key !== 'button "Sign out"') }, pages, rules)).toEqual(['desktop /settings: 0 controls pressed, fewer than its minimum of 1'])
   expect(passBar('desktop', { ...good, results: [...good.results.filter((r) => !r.key.startsWith('slider')), works('/', 'button "More"')] }, pages, rules)).toEqual(['desktop: never pressed a slider (/^slider /)'])
+})
+
+test('the add-on fixtures answer as the panel would, work out plans against the folder and have no answer for what was never recorded', () => {
+  const empty: World = { addons: recordedFolder(), running: true }
+  const viaVersion = { source: 'modrinth', projectId: 'P1OZGk5p', name: 'ViaVersion', versionId: 'FaishMnD', versionNumber: '5.12.0', published: '2026-09-18T15:01:59.741758Z', fileName: 'ViaVersion-5.12.0.jar' }
+  const withVia: World = { addons: { ...recordedFolder(), files: [{ fileName: viaVersion.fileName, size: 6_503_775, status: 'managed', addon: viaVersion }] }, running: false }
+  const get = (rest: string, world = empty) => answerRead('GET', new URL(`https://panel/api/servers/abc/addons${rest}`), undefined, world)
+  const plan = (body: unknown, world = empty) => answerRead('POST', new URL('https://panel/api/servers/abc/addons/update/plan'), body, world)
+
+  type Cards = { cards: { source: string; name: string; downloads: number; installed: boolean }[]; more: boolean }
+  const library = get('/search')?.body as Cards
+  expect(new Set(library.cards.map((c) => c.source))).toEqual(new Set(['modrinth', 'hangar']))
+  expect(library.cards.map((c) => c.downloads)).toEqual(library.cards.map((c) => c.downloads).sort((a, b) => b - a))
+  expect(library.more).toBe(false)
+  expect((get('/search?category=protection')?.body as Cards).cards.every((c) => c.source === 'hangar')).toBe(true)
+  expect((get('/search?q=via', withVia)?.body as Cards).cards.filter((c) => c.installed).map((c) => c.name)).toEqual(['ViaVersion'])
+  expect(get('/search?sort=newest')).toMatchObject({ status: 400, body: { code: 'invalid_request' } })
+
+  type Details = { plan: { steps: { name: string }[]; fingerprint: string } }
+  const recorded = (get('/project/hangar/12')?.body as Details).plan
+  expect(recorded.steps.map((s) => s.name)).toEqual(['ViaBackwards', 'ViaVersion'])
+  const install = (fingerprint: unknown, world = empty) => installJob({ source: 'hangar', projectId: '12', fingerprint }, world)
+  expect(install(recorded.fingerprint)).toMatchObject({ ends: { status: 'succeeded', detail: { restartNeeded: true, files: [{ name: 'ViaBackwards' }, { name: 'ViaVersion', neededBy: 'ViaBackwards' }] } } })
+  expect(install(undefined)).toMatchObject({ refused: { status: 400, body: { code: 'invalid_request' } } })
+  // ViaVersion from Modrinth is the same add-on, so the plan leaves it out and has another fingerprint.
+  const planned = (get('/project/hangar/12', withVia)?.body as Details).plan
+  expect(planned.steps.map((s) => s.name)).toEqual(['ViaBackwards'])
+  expect(install(recorded.fingerprint, withVia)).toMatchObject({ ends: { status: 'failed', detail: { notice: { kind: 'plan_changed' } } } })
+  expect(install(planned.fingerprint, withVia)).toMatchObject({ ends: { status: 'succeeded', detail: { restartNeeded: false } } })
+
+  expect(get('/project/modrinth/P1OZGk5p/removal', withVia)).toMatchObject({ status: 200, body: { addon: { name: 'ViaVersion' } } })
+  expect(get('/project/hangar/12/removal', withVia)).toMatchObject({ status: 404, body: { code: 'not_managed' } })
+  expect(plan({})).toMatchObject({ status: 409, body: { code: 'up_to_date', error: 'Every add-on is up to date.' } })
+  expect(plan({ addons: [{ source: 'hangar', projectId: '12' }] }, withVia)).toMatchObject({ status: 404, body: { code: 'not_managed' } })
+  expect(plan({ addons: 'all' })).toMatchObject({ status: 400, body: { code: 'invalid_request' } })
+
+  const icon = get(`/icon?url=${encodeURIComponent('https://cdn.modrinth.com/data/P1OZGk5p/icon.png')}`)
+  expect(icon?.headers['Content-Type']).toBe('image/png')
+  expect((icon?.body as Buffer).subarray(1, 4).toString()).toBe('PNG')
+  expect(get(`/icon?url=${encodeURIComponent('https://example.com/icon.png')}`)).toMatchObject({ status: 400, body: { code: 'host_not_allowed' } })
+
+  expect(get('/project/modrinth/AAAAAAAA')).toBeUndefined()
+  expect(get('/curated')).toBeUndefined()
+  expect(isAddonRead('GET', '/api/servers/abc/addons/curated')).toBe(true)
+  expect(isAddonRead('POST', '/api/servers/abc/addons/install')).toBe(false)
 })

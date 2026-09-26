@@ -1123,6 +1123,11 @@ func (s *server) hOffsiteRestore(w http.ResponseWriter, r *http.Request) {
 		writeError(w, notACopy())
 		return
 	}
+	if err := s.restoreRefusal("restore again"); err != nil {
+		s.audit(actor, "restore.staged", archive, "refused", err.Error())
+		writeError(w, err)
+		return
+	}
 	dest, err := s.copyDest()
 	if err != nil {
 		writeError(w, err)

@@ -77,6 +77,15 @@ type ServerStatus struct {
 	PendingRestart  bool       `json:"pendingRestart"`
 	CollectingSince *time.Time `json:"collectingSince,omitempty"`
 	FirstSteps      FirstSteps `json:"firstSteps"`
+	// WorldMissing is set while no operation runs and the world folder is
+	// missing because a restore didn't finish. It stays until the previous
+	// world is back, however long that takes.
+	WorldMissing *WorldMissing `json:"worldMissing,omitempty"`
+	// RestoreUnsettled is set while no operation runs and a restore that
+	// didn't finish keeps its swap journal. No other restore starts until the
+	// agent settles it, which it does once the world folder is back and the
+	// server is stopped, and a start does first.
+	RestoreUnsettled *RestoreUnsettled `json:"restoreUnsettled,omitempty"`
 	// Refusal is the file that stopped the server's last start, while the
 	// server stays stopped.
 	Refusal *FileRefusal `json:"refusal,omitempty"`
@@ -110,6 +119,25 @@ type FileRefusal struct {
 	Params  map[string]string `json:"params"`
 	Message string            `json:"message"`
 	Hint    string            `json:"hint,omitempty"`
+}
+
+// WorldMissing says where a server's world is while its world folder is
+// missing because a restore didn't finish.
+type WorldMissing struct {
+	// Previous is the folder the restore set the previous world aside in.
+	Previous string `json:"previous"`
+	// DataDir is the world folder it goes back to.
+	DataDir string `json:"dataDir"`
+	// SetAsideAt is when the restore set it aside.
+	SetAsideAt time.Time `json:"setAsideAt"`
+}
+
+// RestoreUnsettled is a restore whose swap journal is kept because it isn't
+// settled yet.
+type RestoreUnsettled struct {
+	// Problem says, as a sentence, why the agent can't settle it by itself:
+	// a journal it can't read, or why its last try failed.
+	Problem string `json:"problem,omitempty"`
 }
 
 // Crash explains a run that ended unexpectedly: a crash, or a start that
@@ -344,7 +372,7 @@ type CreateServerRequest struct {
 	Gameplay           *Gameplay `json:"gameplay,omitempty"`
 	Actor              string    `json:"actor"`
 	// Build is the build of a type's software to pin (a Purpur build, a
-	// Fabric or Quilt loader, a NeoForge version); empty takes the one the
+	// Fabric or Quilt loader, a NeoForge or Forge version); empty takes the one the
 	// catalog recommends. Paper and Vanilla have none.
 	Build string `json:"build,omitempty"`
 	// Modpack creates the server from a pack (wave 4), which decides the
@@ -493,10 +521,38 @@ type Catalog struct {
 	Servers             []ServerMemory `json:"servers"`
 	SuggestedPort       int            `json:"suggestedPort,omitempty"`
 	Image               string         `json:"image"`
+	Sizing              MemorySizing   `json:"sizing"`
 
 	// LatestRelease is the newest Minecraft release Mojang lists, whether
 	// or not the type offers it yet.
 	LatestRelease string `json:"latestRelease,omitempty"`
+}
+
+// MemorySizing is what the sizing guide (internal/sizing) says about the
+// memory options, so that the dashboard and playkeeper.io/sizing agree.
+type MemorySizing struct {
+	// Workload is what the guide takes the server to run, such as vanilla.
+	Workload string `json:"workload"`
+	// Budgets are the memory options, each with Java's heap and the players
+	// at once the guide sizes it for: 0 when it is below the guide's
+	// suggestion for the smallest group.
+	Budgets []MemoryBudget `json:"budgets"`
+	// Suggestions are the guide's first budget for each band of players at
+	// once, smallest band first. A machine without room for one offers its
+	// largest option below it.
+	Suggestions []MemorySuggestion `json:"suggestions"`
+}
+
+type MemoryBudget struct {
+	MemoryMB int `json:"memoryMB"`
+	HeapMB   int `json:"heapMB"`
+	Players  int `json:"players"`
+}
+
+type MemorySuggestion struct {
+	// Players is the top of the band.
+	Players  int `json:"players"`
+	MemoryMB int `json:"memoryMB"`
 }
 
 type PreflightCheck struct {
@@ -1637,10 +1693,11 @@ type SoftwarePin struct {
 	FabricLoader     string `json:"fabricLoader,omitempty"`
 	QuiltLoader      string `json:"quiltLoader,omitempty"`
 	NeoForgeVersion  string `json:"neoforgeVersion,omitempty"`
+	ForgeVersion     string `json:"forgeVersion,omitempty"`
 }
 
 // SoftwareBuild is one build of a type's software for a Minecraft version:
-// a Purpur build, a Fabric or Quilt loader, or a NeoForge version.
+// a Purpur build, a Fabric or Quilt loader, or a NeoForge or Forge version.
 type SoftwareBuild struct {
 	Version     string `json:"version"`
 	Channel     string `json:"channel"`
@@ -1741,7 +1798,7 @@ type ModpackDetail struct {
 type ModpackPreview struct {
 	Type             string `json:"type"`
 	MinecraftVersion string `json:"minecraftVersion"`
-	// LoaderVersion is the Fabric Loader, Quilt Loader or NeoForge version;
+	// LoaderVersion is the Fabric Loader, Quilt Loader, NeoForge or Forge version;
 	// empty for vanilla packs.
 	LoaderVersion string `json:"loaderVersion,omitempty"`
 	// Java is set when the pack's Minecraft version runs on an older Java

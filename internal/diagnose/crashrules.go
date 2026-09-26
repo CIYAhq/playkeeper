@@ -51,7 +51,7 @@ var (
 
 	reClassVersion = regexp.MustCompile(`(\S{1,300}) has been compiled by a more recent version of the Java Runtime \(class file version (\d{2,3})(?:\.\d{1,5})?\), this version of the Java Runtime only recognizes class file versions up to (\d{2,3})`)
 	reMainClass    = regexp.MustCompile(`^Error: LinkageError occurred while loading main class `)
-	reServerClass  = regexp.MustCompile(`^(?:net/minecraft|com/mojang|io/papermc|org/bukkit|org/spigotmc|net/fabricmc|net/neoforged|cpw/mods)/`)
+	reServerClass  = regexp.MustCompile(`^(?:net/minecraft|com/mojang|io/papermc|org/bukkit|org/spigotmc|net/fabricmc|net/neoforged|net/minecraftforge|cpw/mods)/`)
 
 	reSessionLock = regexp.MustCompile(`session\.lock: already locked|The save is being accessed from another location`)
 	reLevelDat    = regexp.MustCompile(`Failed to load world data from \S{1,300} and \S{1,300}\. World files may be corrupted`)

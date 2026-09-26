@@ -51,7 +51,7 @@ func TestSearchModrinth(t *testing.T) {
 		t.Errorf("page: %d from %d of %d", res.Limit, res.Offset, res.Total)
 	}
 	q := f.lastQueryAt("modrinth", "/v2/search")
-	if q.Get("facets") != `[["project_type:modpack"],["categories:fabric","categories:quilt","categories:neoforge","categories:minecraft"],["server_side:required","server_side:optional"]]` ||
+	if q.Get("facets") != `[["project_type:modpack"],["categories:fabric","categories:quilt","categories:neoforge","categories:forge","categories:minecraft"],["server_side:required","server_side:optional"]]` ||
 		q.Get("index") != "relevance" || q.Get("limit") != "20" || q.Has("query") {
 		t.Errorf("query %v", q)
 	}
@@ -63,7 +63,7 @@ func TestSearchModrinth(t *testing.T) {
 			IconURL: "https://cdn.modrinth.com/data/vwgtbO0y/e16493aab7b0a32a2c9920cb0d89ebe06c4b3726_96.webp",
 			Updated: time.Date(2026, 9, 17, 8, 39, 6, 72455000, time.UTC), PageURL: "https://modrinth.com/modpack/the-pixelmon-modpack",
 		},
-		Types: []string{"neoforge"}, MinecraftVersions: []string{"1.21.1"},
+		Types: []string{"neoforge", "forge"}, MinecraftVersions: []string{"1.21.1"},
 	})
 	rso := cardBySlug(t, res.Cards, "rso")
 	wantList(t, "rso's Minecraft versions", rso.MinecraftVersions, "26.3", "26.2", "26.1.2", "26.1.1", "26.1", "1.21.11", "1.21.10",
@@ -108,7 +108,7 @@ func TestSearchModrinth(t *testing.T) {
 		t.Error("a search Playkeeper refused reached Modrinth")
 	}
 	_, err = l.Search(ctx, Query{Source: addons.Modrinth, Type: "paper"})
-	if e := wantKind(t, err, addons.KindInvalid); e.Msg != "Playkeeper runs packs on Fabric, Quilt, NeoForge and Vanilla servers." {
+	if e := wantKind(t, err, addons.KindInvalid); e.Msg != "Playkeeper runs packs on Fabric, Quilt, NeoForge, Forge and Vanilla servers." {
 		t.Errorf("message %q", e.Msg)
 	}
 }
@@ -121,8 +121,8 @@ func TestSearchCurseForge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The Forge pack and the pack for Minecraft 1.19.2 are left out; a pack
-	// whose files name no loader is a vanilla pack.
+	// The Forge pack for Minecraft 1.20.1 and the pack for Minecraft 1.19.2
+	// are left out; a pack whose files name no loader is a vanilla pack.
 	wantList(t, "results", cardSlugs(res.Cards), "example-fabric-pack", "example-neoforge-pack", "example-untagged-pack")
 	if res.Total != 812 {
 		t.Errorf("total %d", res.Total)
@@ -157,6 +157,11 @@ func TestSearchCurseForge(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantList(t, "NeoForge results", cardSlugs(res.Cards), "example-neoforge-pack")
+	res, err = l.Search(ctx, Query{Source: CurseForge, Type: "forge", MinecraftVersion: "26.2"})
+	if q := f.lastQuery("curseforge"); err != nil || q.Get("gameVersion") != "26.2" || q.Get("modLoaderType") != "1" {
+		t.Errorf("query %v, %v", q, err)
+	}
+	wantList(t, "Forge 26.2 results", cardSlugs(res.Cards))
 }
 
 func TestVersions(t *testing.T) {
@@ -193,9 +198,9 @@ func TestVersions(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantList(t, "Create+", versionIDs(vs), "BSg2ZS8u", "3XKDXorU", "OirSzesD")
-	if v := vs[2]; v.Type != "forge" || v.MinecraftVersion != "1.19.2" || v.Unsupported == nil || v.Unsupported.Kind != KindForge ||
-		v.Unsupported.Msg != "Create+ runs on Forge, and Playkeeper does not run Forge servers." {
-		t.Errorf("Forge version: %+v", v)
+	if v := vs[2]; v.Type != "forge" || v.MinecraftVersion != "1.19.2" || v.Unsupported == nil || v.Unsupported.Kind != KindMinecraft ||
+		v.Unsupported.Msg != "Create+ is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.21 and newer." {
+		t.Errorf("Forge version for an old Minecraft: %+v", v)
 	}
 	if v := vs[0]; v.Channel != "alpha" || v.Type != "neoforge" || v.MinecraftVersion != "1.21.1" || v.Unsupported != nil {
 		t.Errorf("NeoForge version: %+v", v)
@@ -251,7 +256,7 @@ func TestDetail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantList(t, "Create+ types", d.Types, "neoforge")
+	wantList(t, "Create+ types", d.Types, "neoforge", "forge")
 	wantList(t, "Create+ categories", d.Categories, "lightweight", "multiplayer", "technology", "adventure", "optimization")
 
 	d, err = l.Detail(ctx, addons.Modrinth, "sodiumplus")

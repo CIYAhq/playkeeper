@@ -408,6 +408,9 @@ var (
 		"server_version_changed": "version", "server_stopped_externally": "stopped_outside",
 		// Wave 7 (0.4.0)
 		"server_fell_asleep": "fell_asleep", "server_woke_up": "woke_up", "backup_refused": "backup_refused",
+		// A previous world a start put back after a restore that didn't
+		// finish, and a restore the next agent process finished.
+		"world_put_back": "put_back", "world_restored_after_restart": "restored_after_restart",
 	}
 	activityAudit = map[string]string{
 		"whitelist.add": "allowlisted", "whitelist.remove": "unlisted", "operator.add": "operator", "operator.remove": "deoperator",

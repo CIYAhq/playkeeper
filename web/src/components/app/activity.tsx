@@ -20,6 +20,8 @@ function icon(kind: ActivityKind): ReactNode {
     case 'created':
       return <SproutIcon />
     case 'restored':
+    case 'restored_after_restart':
+    case 'put_back':
       return <HistoryIcon />
     case 'version':
       return <CircleArrowUpIcon />
@@ -87,9 +89,14 @@ function actorText(actor: string | undefined, me: string): string {
   return actor
 }
 
-/** One activity entry as a sentence. `here` drops the server's name where it's obvious. */
+/**
+ * One activity entry as a sentence. `here` drops the server's name where it's
+ * obvious. An AI agent's token or a command-line user goes by its name, and
+ * also says when it started, stopped or restarted a server.
+ */
 export function activityText(a: Activity, server: string, me: string, here = false): string {
-  const actor = actorText(a.actor, me)
+  const named = !!a.actorKind && !!a.actorName
+  const actor = named ? (a.actorName ?? '') : actorText(a.actor, me)
   const player = a.player ?? ''
   switch (a.kind) {
     case 'joined':
@@ -102,6 +109,10 @@ export function activityText(a: Activity, server: string, me: string, here = fal
       return a.detail ? t('activity.created', { server, detail: a.detail }) : t('activity.createdPlain', { server })
     case 'restored':
       return t('activity.restored', { server })
+    case 'restored_after_restart':
+      return t('activity.restoredAfterRestart', { server })
+    case 'put_back':
+      return t('activity.putBack', { server })
     case 'version':
       return a.detail ? t('activity.version', { server, detail: a.detail }) : t('activity.versionPlain', { server })
     case 'stopped_outside':
@@ -121,11 +132,11 @@ export function activityText(a: Activity, server: string, me: string, here = fal
     case 'downloaded':
       return t('activity.downloaded', { actor, server })
     case 'started':
-      return t('activity.started', { server })
+      return named ? t('activity.startedBy', { actor, server }) : t('activity.started', { server })
     case 'stopped':
-      return t('activity.stopped', { server })
+      return named ? t('activity.stoppedBy', { actor, server }) : t('activity.stopped', { server })
     case 'restarted':
-      return t('activity.restarted', { server })
+      return named ? t('activity.restartedBy', { actor, server }) : t('activity.restarted', { server })
     case 'settings':
       return t('activity.settings', { actor, server })
     case 'team_joined': {
@@ -158,7 +169,7 @@ export function ActivityList({ items, servers, here, empty, className }: { items
             <span className="shrink-0 text-muted-foreground [&_svg]:size-4" aria-hidden="true">
               {icon(a.kind)}
             </span>
-            <span className="min-w-0 flex-1 truncate">{activityText(a, name, me.user.username, here)}</span>
+            <span className="w-0 flex-1 truncate">{activityText(a, name, me.user.username, here)}</span>
             <time dateTime={a.ts} className="shrink-0 text-xs text-muted-foreground">
               {relativeTime(a.ts)}
             </time>

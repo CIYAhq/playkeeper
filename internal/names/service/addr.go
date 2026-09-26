@@ -123,6 +123,22 @@ func network(a netip.Addr) string {
 	return p.String()
 }
 
+// nameNetwork is the network a name with the addresses v4 and v6 counts
+// against: that of its address in the IP version of current, the network it
+// counted against so far, or of its other address when it has none in that
+// version. With no current network, IPv4 goes first.
+func nameNetwork(current, v4, v6 string) string {
+	a4, err4 := netip.ParseAddr(v4)
+	a6, err6 := netip.ParseAddr(v6)
+	switch {
+	case err6 == nil && (err4 != nil || strings.Contains(current, ":")):
+		return network(a6)
+	case err4 == nil:
+		return network(a4)
+	}
+	return current
+}
+
 func family(a netip.Addr) string {
 	if a.Is4() {
 		return "ipv4"

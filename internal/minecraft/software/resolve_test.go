@@ -15,6 +15,10 @@ func neoforgeInstallerURL(v string) string {
 	return neoforgeMaven + "/" + v + "/neoforge-" + v + "-installer.jar"
 }
 
+func forgeInstallerURL(id string) string {
+	return forgeMaven + "/" + id + "/forge-" + id + "-installer.jar"
+}
+
 // resolveFake serves everything Resolve reads for a type, from the
 // fixtures. Fabric keeps the SHA-512 hashes its metadata lists.
 func resolveFake(t *testing.T, typeID string) *fakeNet {
@@ -32,6 +36,10 @@ func resolveFake(t *testing.T, typeID string) *fakeNet {
 		serveNeoForgeMetadata(t, f)
 		f.serve(neoforgeInstallerURL("26.2.0.88")+".sha512", []byte(strings.Repeat("ab", 64)))
 		f.serve(neoforgeInstallerURL("21.1.251")+".sha512", []byte(strings.Repeat("CD", 64)+"  neoforge-21.1.251-installer.jar\n"))
+	case Forge:
+		serveForgeMetadata(t, f)
+		f.serve(forgeInstallerURL("26.2-65.1.0")+".sha512", []byte(strings.Repeat("ab", 64)))
+		f.serve(forgeInstallerURL("1.21.1-52.1.0")+".sha512", []byte(strings.Repeat("CD", 64)+"  forge-1.21.1-52.1.0-installer.jar\n"))
 	}
 	return f
 }
@@ -247,11 +255,44 @@ func TestResolveNeoForge(t *testing.T) {
 	}
 }
 
+func TestResolveForge(t *testing.T) {
+	f := resolveFake(t, Forge)
+	r, p := resolve(t, f, Pin{Type: Forge, MinecraftVersion: "26.2", ForgeVersion: "65.1.0"})
+	want := &Artifact{URL: forgeInstallerURL("26.2-65.1.0"), Path: "forge-26.2-65.1.0-installer.jar",
+		Hash: Hash{Algorithm: SHA512, Value: strings.Repeat("ab", 64)}, Source: "Forge's Maven repository", Upstream: "Forge", Hosts: []string{"maven.minecraftforge.net"}}
+	if !reflect.DeepEqual(r.Software, want) {
+		t.Errorf("got %+v", r.Software)
+	}
+	wantStrings(t, "downloads", describeDownloads(p), []string{
+		"forge-26.2-65.1.0-installer.jar sha512 maven.minecraftforge.net (Forge's Maven repository)",
+		"libraries/net/minecraft/server/26.2/server-26.2-bundled.jar sha1 piston-data.mojang.com (Mojang's version manifest)",
+	})
+	if p.Setup == nil {
+		t.Fatal("Forge needs a setup container")
+	}
+	wantStrings(t, "setup env", p.Setup.Env, []string{"TYPE=FORGE", "FORGE_INSTALLER=/data/forge-26.2-65.1.0-installer.jar", "FORGE_FORCE_REINSTALL=TRUE", "SETUP_ONLY=TRUE"})
+	wantStrings(t, "run env", p.Run.Env, []string{"TYPE=CUSTOM", "CUSTOM_JAR_EXEC=@libraries/net/minecraftforge/forge/26.2-65.1.0/unix_args.txt"})
+	wantStrings(t, "removed", p.Remove, []string{"forge-26.2-65.1.0-installer.jar", "forge-26.2-65.1.0-installer.jar.log"})
+	wantDerive := []Derivation{
+		{Kind: DeriveForge, From: "forge-26.2-65.1.0-installer.jar", Into: "libraries"},
+		{Kind: DeriveBundler, From: "libraries/net/minecraft/server/26.2/server-26.2-bundled.jar", Into: "libraries"},
+	}
+	if !reflect.DeepEqual(p.Derive, wantDerive) || p.Launcher != nil || !checksDownloads(p) || p.Assurance.Level != LevelFull || len(p.Record) != 0 {
+		t.Errorf("got %+v", p)
+	}
+
+	r, p = resolve(t, f, Pin{Type: Forge, MinecraftVersion: "1.21.1", ForgeVersion: "52.1.0"})
+	if r.Java != 21 || r.Software.Hash.Value != strings.Repeat("cd", 64) || p.Downloads[1].Path != "libraries/net/minecraft/server/1.21.1/server-1.21.1-bundled.jar" {
+		t.Errorf("got Java %d, installer hash %s and server jar at %s", r.Java, short(r.Software.Hash.Value), p.Downloads[1].Path)
+	}
+}
+
 func TestResolveErrors(t *testing.T) {
 	vanilla := Pin{Type: Vanilla, MinecraftVersion: "26.2"}
 	fabric := Pin{Type: Fabric, MinecraftVersion: "1.21.8", FabricLoader: "0.19.5"}
 	quilt := Pin{Type: Quilt, MinecraftVersion: "26.3", QuiltLoader: "0.30.1"}
 	neoforge := Pin{Type: NeoForge, MinecraftVersion: "26.2", NeoForgeVersion: "26.2.0.88"}
+	forge := Pin{Type: Forge, MinecraftVersion: "26.2", ForgeVersion: "65.1.0"}
 	editVersionFile := func(edit func(v map[string]any)) func(t *testing.T, f *fakeNet) {
 		return func(t *testing.T, f *fakeNet) {
 			files := mojangFiles(t)
@@ -338,6 +379,11 @@ func TestResolveErrors(t *testing.T) {
 		{"NeoForge checksum too long", neoforge, func(t *testing.T, f *fakeNet) {
 			f.serve(neoforgeInstallerURL("26.2.0.88")+".sha512", []byte(strings.Repeat("ab", 1024)))
 		}, KindTooLarge, "NeoForge sent more than 1 KiB for the SHA-512 of neoforge-26.2.0.88-installer.jar"},
+		{"Forge version it does not have", Pin{Type: Forge, MinecraftVersion: "26.2", ForgeVersion: "64.1.0"}, nil, KindNotFound, "Forge has no version 64.1.0 for Minecraft 26.2."},
+		{"Forge limits requests", forge, func(t *testing.T, f *fakeNet) { f.status(forgeInstallerURL("26.2-65.1.0")+".sha512", 429) }, KindRateLimited,
+			"Forge is limiting requests from this host"},
+		{"Forge checksum unreadable", forge, func(t *testing.T, f *fakeNet) { f.serve(forgeInstallerURL("26.2-65.1.0")+".sha512", []byte("<html>")) },
+			KindMalformed, "Forge sent the SHA-512 of forge-26.2-65.1.0-installer.jar in a form Playkeeper could not read."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

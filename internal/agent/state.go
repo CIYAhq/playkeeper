@@ -113,13 +113,18 @@ func (s *server) audit(actor, action, target, result, detail string) {
 }
 
 func (a *Agent) auditFor(serverID, actor, action, target, result, detail string) {
+	if err := a.insertAudit(a.db, serverID, actor, action, target, result, detail); err != nil {
+		a.log.Error("audit write failed", "err", err)
+	}
+}
+
+func (a *Agent) insertAudit(ex execer, serverID, actor, action, target, result, detail string) error {
 	if actor == "" {
 		actor = "unknown"
 	}
-	if _, err := a.db.Exec(`INSERT INTO audit(ts, actor, action, target, result, detail, server_id) VALUES(?,?,?,?,?,?,?)`,
-		a.now().UnixMilli(), actor, action, target, result, detail, serverID); err != nil {
-		a.log.Error("audit write failed", "err", err)
-	}
+	_, err := ex.Exec(`INSERT INTO audit(ts, actor, action, target, result, detail, server_id) VALUES(?,?,?,?,?,?,?)`,
+		a.now().UnixMilli(), actor, action, target, result, detail, serverID)
+	return err
 }
 
 func (a *Agent) listAudit(limit int) ([]api.AuditEntry, error) {
@@ -142,18 +147,50 @@ func (a *Agent) listAudit(limit int) ([]api.AuditEntry, error) {
 }
 
 func (a *Agent) saveOperation(op *api.Operation) {
+	if err := writeOperation(a.db, op); err != nil {
+		a.log.Error("operation write failed", "err", err)
+	}
+}
+
+func writeOperation(ex execer, op *api.Operation) error {
 	detail, _ := json.Marshal(op.Detail)
 	var finished any
 	if op.FinishedAt != nil {
 		finished = op.FinishedAt.UnixMilli()
 	}
-	_, err := a.db.Exec(`INSERT INTO operations(id, server_id, kind, status, phase, actor, started_at, finished_at, error, hint, detail)
+	_, err := ex.Exec(`INSERT INTO operations(id, server_id, kind, status, phase, actor, started_at, finished_at, error, hint, detail)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET status=excluded.status, phase=excluded.phase, finished_at=excluded.finished_at,
 		error=excluded.error, hint=excluded.hint, detail=excluded.detail`,
 		op.ID, op.ServerID, op.Kind, op.Status, op.Phase, op.Actor, op.StartedAt.UnixMilli(), finished, op.Error, op.Hint, string(detail))
+	return err
+}
+
+// finishOperation stores how an operation ended together with its audit
+// entry, the entry first, so whoever sees the operation finished finds it
+// audited and a crash can't keep one without the other. An operation the
+// agent's stop left running is stored as it is, unaudited.
+func (a *Agent) finishOperation(serverID, target string, op *api.Operation) {
+	if op.Status == api.OpRunning {
+		a.saveOperation(op)
+		return
+	}
+	tx, err := a.db.Begin()
+	if err == nil {
+		if err = a.insertAudit(tx, serverID, op.Actor, op.Kind, target, op.Status, op.Error); err == nil {
+			err = writeOperation(tx, op)
+		}
+		if err == nil {
+			err = tx.Commit()
+		} else {
+			_ = tx.Rollback()
+		}
+	}
 	if err != nil {
+		// The operation must not stay running for want of its audit entry.
 		a.log.Error("operation write failed", "err", err)
+		a.saveOperation(op)
+		a.auditFor(serverID, op.Actor, op.Kind, target, op.Status, op.Error)
 	}
 }
 

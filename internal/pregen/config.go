@@ -130,8 +130,8 @@ func editYAML(old []byte, cfg Config) ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
-// editJSON sets Playkeeper's keys in the config.json Chunky's Fabric and
-// NeoForge builds read, keeping unknown keys (such as saved tasks).
+// editJSON sets Playkeeper's keys in the config.json Chunky's Fabric,
+// NeoForge and Forge builds read, keeping unknown keys (such as saved tasks).
 func editJSON(old []byte, cfg Config) ([]byte, error) {
 	m := map[string]json.RawMessage{}
 	if old != nil && len(bytes.TrimSpace(old)) > 0 {

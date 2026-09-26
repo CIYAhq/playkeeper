@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react'
-import { ArrowRightIcon, CircleAlertIcon, LinkIcon, PlayIcon, PlusIcon, ShieldCheckIcon, XIcon } from 'lucide-react'
+import { ArrowRightIcon, CircleAlertIcon, LinkIcon, PlayIcon, PlusIcon, ServerIcon, ShieldCheckIcon, XIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { get, post } from '@/api/client'
-import type { Activity, CatalogEntry, ProjectRole, ServerStatus, TeamResponse } from '@/api/types'
+import type { Activity, CatalogEntry, MachineView, ProjectRole, ServerStatus, TeamResponse } from '@/api/types'
 import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Emblem, Pip } from '@/components/app/art'
@@ -18,8 +18,11 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { can, welcomeKey } from '@/lib/access'
-import { formatBytes, formatList, formatMB, formatPercent, formatSpan, serverJoinAddress } from '@/lib/format'
+import { demo } from '@/lib/demo'
+import { formatBytes, formatDate, formatList, formatMB, formatPercent, formatSpan, sameDay } from '@/lib/format'
+import { awayLong, awayOf, byMachine, isAway, isStale, joinOf, machineLabel, machineOf, machineRoute, machineState, outOfReach, reachOf } from '@/lib/machines'
 import { couldntStart, isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
+import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
@@ -33,7 +36,10 @@ export function HomePage() {
   const servers = ws.servers
   const machine = ws.machine
   const { catalog } = useCatalog(machine?.id)
-  const activity = usePoll<Activity[] | undefined>(() => (machine ? get<Activity[]>(machineApi(machine.id, '/activity?limit=5')) : Promise.resolve(undefined)), 10000, machine?.id ?? '')
+  const reachable = ws.machines.filter((m) => !outOfReach(m)).map((m) => m.id)
+  const activity = usePoll<Activity[] | undefined>(() => (reachable.length ? recentActivity(reachable) : Promise.resolve(undefined)), 10000, reachable.join(' '))
+  const grouped = ws.machines.length > 1
+  const sections = useListPresence(grouped ? ws.machines : undefined, machineKey)
 
   const create = can(ws.me, 'servers.create')
   const newButton = create && (
@@ -77,17 +83,31 @@ export function HomePage() {
     )
   }
 
-  const count = servers && t('home.servers', { count: servers.length, machine: ws.machineName })
-  const subtitle = !servers ? <InlineSkeleton className="w-56" /> : ws.stale ? count : `${count}${t('common.dot')}${t('home.playing', { count: playersOnline(servers) })}`
+  const count = servers && (grouped ? t('machines.home.subtitle', { count: servers.length, machines: ws.machines.length }) : t('home.servers', { count: servers.length, machine: ws.machineName }))
+  const subtitle = !servers ? <InlineSkeleton className="w-56" /> : ws.stale ? count : `${count}${t('common.dot')}${t('home.playing', { count: playersOnline(servers.filter((s) => !s.lastKnownAt)) })}`
   return (
     <>
-      <PageHeader title={t('home.title')} subtitle={subtitle} actions={newButton} phoneAction={<PhoneMoreButton />} />
+      <PageHeader title={t('home.title')} subtitle={demo ? demo.homeSubtitle() : subtitle} actions={demo ? <demo.HomeAction /> : newButton} phoneAction={<PhoneMoreButton />} />
       <PageBody className="flex flex-col gap-4">
         <HomeNotice />
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {servers ? servers.map((s) => <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />) : [0, 1].map((i) => <ServerCardSkeleton key={i} />)}
-          <NewServerCard />
-        </div>
+        {grouped && servers ? (
+          sections.map(({ key, item: m, state }) => (
+            <section key={key} {...presenceProps(state)} aria-labelledby={`on-${m.id}`} className="flex flex-col gap-3">
+              <MachineHeading machine={m} />
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {byMachine(servers, ws.machines)
+                  .find((g) => g.machine.id === m.id)
+                  ?.servers.map((s) => <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />)}
+                <NewServerCard machine={m} />
+              </div>
+            </section>
+          ))
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {servers ? servers.map((s) => <ServerCard key={s.id} server={s} update={newerStable(s.config, catalog?.versions)} />) : [0, 1].map((i) => <ServerCardSkeleton key={i} />)}
+            {demo ? <demo.HomeCard /> : <NewServerCard />}
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.23fr)_minmax(0,1fr)]">
           <Card>
             <CardTitle>{t('home.activityTitle')}</CardTitle>
@@ -104,6 +124,19 @@ export function HomePage() {
       </PageBody>
     </>
   )
+}
+
+const machineKey = (m: MachineView) => m.id
+
+/** The latest activity on the machines that answer, newest first. */
+async function recentActivity(machines: string[]): Promise<Activity[]> {
+  const got = await Promise.allSettled(machines.map((id) => get<Activity[]>(machineApi(id, '/activity?limit=5'))))
+  const lists = got.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+  if (!lists.length && got[0]?.status === 'rejected') throw got[0].reason
+  return lists
+    .flat()
+    .sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts))
+    .slice(0, 5)
 }
 
 /**
@@ -218,8 +251,10 @@ function StartButton({ server, label }: { server: ServerStatus; label: string })
 }
 
 function CardDetail({ server: s }: { server: ServerStatus }) {
-  const { stale } = useWorkspace()
-  if (stale) return <span className="text-[13px] text-muted-foreground">{t('status.noLive')}</span>
+  const ws = useWorkspace()
+  const away = awayOf(reachOf(s, ws))
+  if (away) return <span className="text-[13px] text-muted-foreground">{t('machines.away.pill', { name: away.name })}</span>
+  if (isStale(s, ws.stale) || reachOf(s, ws).state !== 'live') return <span className="text-[13px] text-muted-foreground">{t('status.noLive')}</span>
   if (isSettingUp(s) && s.operation) {
     return (
       <span className="flex items-center gap-2 text-[13px] text-info-foreground">
@@ -266,6 +301,13 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
     case 'stopped':
     case 'unknown':
       if (s.phase === 'asleep') return <AsleepDetail server={s} />
+      if (s.worldMissing)
+        return (
+          <span className="flex items-center gap-2 text-[13px] text-destructive-foreground">
+            <CircleAlertIcon className="size-4" aria-hidden="true" />
+            {t('card.worldMissing')}
+          </span>
+        )
       return (
         <>
           <Pip pose="sleep" size={40} />
@@ -281,8 +323,10 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
 }
 
 function ServerCard({ server: s, update }: { server: ServerStatus; update?: CatalogEntry }) {
-  const { stale } = useWorkspace()
-  const address = serverJoinAddress(s)
+  const ws = useWorkspace()
+  const reach = reachOf(s, ws)
+  const stale = isStale(s, ws.stale) || reach.state !== 'live'
+  const join = joinOf(s, machineOf(s, ws.machines))
   const stopped = phaseTone(s.phase) !== 'online'
   return (
     <article className="relative flex flex-col gap-3.5 rounded-3xl border border-border bg-card p-4 shadow-card transition-[box-shadow,border-color] focus-within:border-primary/40 hover:border-primary/40 hover:shadow-lift">
@@ -308,10 +352,18 @@ function ServerCard({ server: s, update }: { server: ServerStatus; update?: Cata
       <div className="flex h-11 items-center gap-3">
         <CardDetail server={s} />
       </div>
-      <div className="relative z-10 flex h-10 items-center gap-2 rounded-lg bg-muted pr-1 pl-3 text-sm font-semibold">
+      <div className={cn('relative z-10 flex h-10 items-center gap-2 rounded-lg bg-muted pl-3 text-sm font-semibold', join.address ? 'pr-1' : 'pr-3')}>
         <LinkIcon className="size-4 text-muted-foreground" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate">{address}</span>
-        <CopyButton text={address} size="xs" className="bg-white" />
+        {join.address ? (
+          <>
+            <span className="min-w-0 flex-1 truncate">{join.address}</span>
+            <CopyButton text={join.address} size="xs" className="bg-white" />
+          </>
+        ) : (
+          <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground" title={join.reason}>
+            {join.reason}
+          </span>
+        )}
       </div>
     </article>
   )
@@ -338,22 +390,58 @@ function ServerCardSkeleton() {
   )
 }
 
-function NewServerCard() {
+/** The dashed card that starts a new server: on the dashboard's machine, or on the machine given. */
+function NewServerCard({ machine }: { machine?: MachineView }) {
   const ws = useWorkspace()
-  const live = ws.machine?.live
+  const m = machine ?? ws.machine
+  const live = m?.live
+  const name = m && m.kind === 'remote' ? machineLabel(m) : ws.machineName
   const full = !!live && live.memoryFreeMB <= 0
   if (!can(ws.me, 'servers.create')) return null
+  const cls = 'flex min-h-[176px] flex-col items-center justify-center rounded-3xl border border-dashed border-input bg-warm p-4 text-center outline-none'
+  if (machine && isAway(machine)) {
+    return (
+      <div className={cn(cls, 'text-muted-foreground')} aria-disabled="true">
+        <PlusIcon className="size-5" aria-hidden="true" />
+        <span className="mt-3 text-[15px] font-semibold">{t('machines.newServerHere')}</span>
+        <span className="mt-1 text-xs">{t('machines.away.pill', { name })}</span>
+      </div>
+    )
+  }
   return (
-    <a
-      {...linkProps({ name: 'new-server' })}
-      className={cn(
-        'flex min-h-[176px] flex-col items-center justify-center rounded-3xl border border-dashed border-input bg-warm p-4 text-center outline-none hover:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring',
-      )}
-    >
+    <a {...linkProps(machine ? { name: 'new-server', machine: machine.id } : { name: 'new-server' })} className={cn(cls, 'hover:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring')}>
       <PlusIcon className="size-5 text-primary" aria-hidden="true" />
-      <span className="mt-3 text-[15px] font-semibold">{t('nav.newServer')}</span>
-      {live && <span className="mt-1 text-xs text-muted-foreground">{full ? t('home.newServerFull', { machine: ws.machineName }) : t('home.newServerFree', { memory: formatMB(live.memoryFreeMB), machine: ws.machineName })}</span>}
+      <span className="mt-3 text-[15px] font-semibold">{machine ? t('machines.newServerHere') : t('nav.newServer')}</span>
+      {live && <span className="mt-1 text-xs text-muted-foreground">{full ? t('home.newServerFull', { machine: name }) : t('home.newServerFree', { memory: formatMB(live.memoryFreeMB), machine: name })}</span>}
     </a>
+  )
+}
+
+/** "On home-server  Ubuntu 24.04 · 32 GB · connected today" above a machine's servers. */
+function MachineHeading({ machine: m }: { machine: MachineView }) {
+  const ws = useWorkspace()
+  const now = Date.now()
+  const name = m.kind === 'local' ? ws.machineName : machineLabel(m)
+  const link = m.link
+  let word: string
+  if (m.kind === 'local') word = machineState(m, ws).tone === 'good' ? t('machines.home.healthy') : ws.agentDown ? t('machines.home.notAnswering') : t('status.docker')
+  else if (link?.state === 'connected') {
+    if (m.error || !m.live) word = t('machines.home.notAnswering')
+    else if (!link.connectedAt) word = t('machines.home.healthy')
+    else word = sameDay(new Date(link.connectedAt), new Date(now)) ? t('machines.home.connectedToday') : t('machines.home.connectedOn', { date: formatDate(link.connectedAt) })
+  } else if (link?.state === 'waiting') word = t('machines.home.waiting')
+  else word = link?.lastSeen ? t('machines.home.away', { duration: awayLong(link.lastSeen, now) }) : t('machines.offline')
+  const meta = m.live ? [m.live.os, formatMB(m.live.memoryTotalMB), word] : [word]
+  return (
+    <h2 id={`on-${m.id}`} className="flex flex-wrap items-baseline gap-x-2 text-[15px] font-semibold">
+      <ServerIcon className="size-4 shrink-0 self-center text-muted-foreground" aria-hidden="true" />
+      <a {...linkProps(machineRoute(m))} className="rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+        {t('machines.home.on', { name })}
+      </a>
+      <span key={word} className="animate-fade text-[13px] font-normal text-muted-foreground">
+        {meta.join(t('common.dot'))}
+      </span>
+    </h2>
   )
 }
 
@@ -362,7 +450,7 @@ function MachineCard() {
   const m = ws.machine
   const live = m?.live
   const reserved = live ? live.systemReserveMB + live.serversMemoryMB : 0
-  const gaveBack = gaveBackText(ws.servers, live?.sleepingMemoryMB)
+  const gaveBack = gaveBackText(ws.servers?.filter((s) => machineOf(s, ws.machines)?.id === m?.id), live?.sleepingMemoryMB)
   const diskUsed = live?.diskTotalBytes && live.diskFreeBytes !== undefined ? ((live.diskTotalBytes - live.diskFreeBytes) / live.diskTotalBytes) * 100 : undefined
   return (
     <Card>

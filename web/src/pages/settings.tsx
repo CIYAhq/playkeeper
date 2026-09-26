@@ -14,17 +14,20 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can, settingsHome, settingsSections, type SettingsSectionName } from '@/lib/access'
 import { formatDateTime, relativeTime } from '@/lib/format'
-import { linkProps, navigate } from '@/lib/router'
+import { linkProps, navigate, type Route } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
+import { AiAgentsSection } from './ai-agents'
 import { DiscordSettingsSection } from './discord'
+import { MachineDetailsSection, MachinesSection } from './machines'
 import { TeamSection } from './team'
 
-export type SettingsPage = 'general' | SettingsSectionName
+export type SettingsPage = Extract<Route, { name: 'settings' | SettingsSectionName | 'machine-details' }>
 
-export function GlobalSettingsPage({ section }: { section: SettingsPage }) {
-  switch (section) {
-    case 'general':
+/** Settings: Playkeeper itself, the audit log and about, or a section. */
+export function GlobalSettingsPage({ page }: { page: SettingsPage }) {
+  switch (page.name) {
+    case 'settings':
       return <GeneralSettings />
     case 'team':
       return (
@@ -44,15 +47,33 @@ export function GlobalSettingsPage({ section }: { section: SettingsPage }) {
           <DiscordSettingsSection />
         </SettingsSection>
       )
+    case 'ai-agents':
+      return (
+        <SettingsSection current="ai-agents">
+          <AiAgentsSection />
+        </SettingsSection>
+      )
+    case 'machines':
+      return (
+        <SettingsSection current="machines">
+          <MachinesSection />
+        </SettingsSection>
+      )
+    case 'machine-details':
+      return (
+        <SettingsSection current="machines" phoneBack={{ to: { name: 'machines' }, label: t('global.nav.machines') }}>
+          <MachineDetailsSection key={page.id} id={page.id} />
+        </SettingsSection>
+      )
     default: {
-      const unreachable: never = section
+      const unreachable: never = page
       return unreachable
     }
   }
 }
 
-/** A Settings section: the sections list beside it on desktop, a back link to More on phones. */
-function SettingsSection({ current, children }: { current: SettingsSectionName; children: ReactNode }) {
+/** A Settings section: the sections list beside it on desktop, a back link on phones (to More, where the sections are listed, unless phoneBack says where). */
+function SettingsSection({ current, phoneBack, children }: { current: SettingsSectionName; phoneBack?: { to: Route; label: string }; children: ReactNode }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
   const sections = settingsSections.filter((s) => can(ws.me, s.act))
@@ -64,8 +85,8 @@ function SettingsSection({ current, children }: { current: SettingsSectionName; 
   if (phone) {
     return (
       <>
-        <PhoneBackHeader to={{ name: 'more' }} label={t('nav.more')} title={t(here.label)} />
-        <div className="flex flex-col gap-4 pt-2">{children}</div>
+        <PhoneBackHeader to={phoneBack?.to ?? { name: 'more' }} label={phoneBack?.label ?? t('nav.more')} title={phoneBack ? undefined : t(here.label)} />
+        <div className="flex flex-col gap-4 pt-2 pb-6">{children}</div>
       </>
     )
   }
@@ -256,7 +277,16 @@ function AuditCard({ phone }: { phone: boolean }) {
             {rows.map((e) => (
               <tr key={`${e.source}-${e.id}`} className="h-11 border-t border-border align-top">
                 <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatDateTime(e.ts)}</td>
-                <td className="px-3 py-2">{e.actor}</td>
+                <td className="px-3 py-2">
+                  {e.actorKind && e.actorName ? (
+                    <>
+                      {e.actorName}
+                      <span className="block text-xs text-muted-foreground">{e.actorKind === 'token' ? t('global.actorToken') : t('global.actorCli')}</span>
+                    </>
+                  ) : (
+                    e.actor
+                  )}
+                </td>
                 <td className="px-3 py-2 font-mono text-xs">{e.action}</td>
                 <td className="px-3 py-2">{serverName(e.serverId)}</td>
                 <td className={cn('px-3 py-2', tone(e))}>{e.result}</td>

@@ -1,11 +1,14 @@
 import type { APIResponse, Page, Request, Route } from '@playwright/test'
+import { addonKeyProblem, answerRead, installJob, isAddonRead, recordedFolder, updateJob, type JobStart, type World } from './addon-fixtures'
 
 // Realistic stand-ins for every API call that changes something, so the
 // click-through can press every button without restarting, deleting or
 // downloading anything. Reads go to the real panel, and so do the POSTs that
-// only work something out (see plans). Each fake checks the request the way
-// the panel does (CSRF and origin headers, body shape, the preference key
-// rule) and answers with the shape the real handler returns.
+// only work something out (see plans), except a server's add-ons: those are
+// answered from recorded fixtures (addon-fixtures.ts) and never reach it.
+// Each fake checks the request the way the panel does (CSRF and origin
+// headers, body shape, the preference key rule) and answers with the shape
+// the real handler returns.
 
 export interface ApiCall {
   method: string
@@ -26,30 +29,47 @@ interface Reply {
   expected?: boolean
 }
 
-type Handler = (req: { method: string; path: string; url: URL; body: unknown; params: string[] }, state: FakeState) => Reply
+/** A fake's answer, or undefined when it has none, which is reported like a write without a fake. */
+type Handler = (req: { method: string; path: string; url: URL; body: unknown; params: string[] }, state: FakeState) => Reply | undefined
+
+interface DialAddress {
+  kind: string
+  address: string
+}
 
 interface FakeState {
   origin: string
   prefs: Record<string, string>
   backups: Map<string, Record<string, unknown>[]>
   update: Record<string, unknown>
-  /** The real panel's last answer to each read of a server's add-ons, packs and pre-generation, by path. */
+  /** The last answer the page got to each read of a server's add-ons, packs and pre-generation, by path. */
   reads: Map<string, Record<string, unknown>>
   discord: Record<string, unknown>
   opSeq: number
   inviteSeq: number
   /** Each machine's address as the real panel last showed it; address changes answer with it. */
   addresses: Map<string, Record<string, unknown>>
+  /** What the page's reads show (see View). */
+  view: () => View
+  /** Each server's phase in the last list of servers. */
+  phases: Map<string, string>
+  /** How each faked add-on job ended, by operation id. */
+  jobs: Map<string, Record<string, unknown>>
   /** Each server's map as the panel last described it. */
   maps: Map<string, Record<string, unknown>>
   /** World uploads opened on the fakes. */
   imports: Map<string, WorldUpload>
+  /** The operations the fakes started, for the dialogs that follow one by its id. */
   ops: Map<string, Record<string, unknown>>
   schedules: Map<string, Record<string, unknown>[]>
   backupRules: Map<string, Record<string, unknown>>
   offsite: Map<string, Record<string, unknown>>
   /** Servers the fakes made an SSH key for. */
   sshKeys: Set<string>
+  /** What GET /api/machines/link last said: the addresses a joining machine can dial and the dashboard's fingerprint. */
+  link: { addresses?: DialAddress[]; fingerprint?: string }
+  machines: { id: string; kind: string }[]
+  seq: number
 }
 
 interface UploadedFile {
@@ -80,7 +100,9 @@ const expiryDays = new Map([
 ])
 const webhookHosts = new Set(['discord.com', 'canary.discord.com', 'ptb.discord.com', 'discordapp.com'])
 const badName = 'Minecraft usernames are 3–16 letters, numbers or underscores.'
+const id = /^[a-z2-9]{10}$/
 const worldCopyName = /^data\.(replaced|failed-restore)-[0-9]{8}-[0-9]{6}$/
+const maxAddonKeys = 200
 
 function invalid(error: string): Reply {
   return { status: 400, body: { error, code: 'invalid' } }
@@ -103,12 +125,19 @@ function op(state: FakeState, kind: string, serverId?: string, detail?: Record<s
   return { status: 202, body: o }
 }
 
+/** Why the agent would refuse a list of add-ons, or undefined. */
+function badAddonKeys(keys: unknown): string | undefined {
+  if (keys === undefined) return undefined
+  if (!Array.isArray(keys) || keys.length > maxAddonKeys) return `At most ${maxAddonKeys} add-ons can be changed at once.`
+  return keys.map(addonKeyProblem).find(Boolean)
+}
+
 /** A fake operation once it's done, as the operations endpoint reports it to a page that waits for it. */
 function finished(o: Record<string, unknown>): Record<string, unknown> {
-  const detail = { ...(o.detail as Record<string, unknown> | undefined) }
+  const detail: Record<string, unknown> = { files: [], ...(o.detail as Record<string, unknown> | undefined) }
   if (o.kind === 'disk-cleanup') detail.freed = 734_003_200
   if (o.kind === 'offsite-recover') detail.restoreId = 'fakerestore'
-  return { ...o, status: 'succeeded', finishedAt: new Date().toISOString(), detail }
+  return { ...o, status: 'succeeded', phase: '', finishedAt: new Date().toISOString(), detail }
 }
 
 function knownZone(z: unknown): boolean {
@@ -325,6 +354,78 @@ function discordAlerts(body: unknown, state: FakeState): Reply {
   const kinds = Array.isArray(state.discord.kinds) ? (state.discord.kinds as unknown[]) : []
   if (!Array.isArray(alerts) || !alerts.every((k) => kinds.includes(k)) || typeof b?.liveStatus !== 'boolean') return invalid('Choose alerts from the list.')
   return { status: 200, body: { ...state.discord, alerts, liveStatus: b.liveStatus } }
+}
+
+/** A new id in the panel's alphabet, different on every call. */
+function nextId(state: FakeState, alphabet = 'abcdefghijkmnpqrstuvwxyz23456789', length = 10): string {
+  state.seq++
+  let n = state.seq * 2654435761
+  let out = ''
+  for (let i = 0; i < length; i++) {
+    out += alphabet.charAt(n % alphabet.length)
+    n = Math.floor(n / alphabet.length) + 7919 * (i + 1)
+  }
+  return out
+}
+
+function tokenReply(body: unknown, state: FakeState): Reply {
+  const b = (body ?? {}) as { name?: unknown; role?: unknown; allServers?: unknown; servers?: unknown; days?: unknown }
+  const tokenName = typeof b.name === 'string' ? b.name.trim() : ''
+  if (!tokenName || [...tokenName].length > 40) return invalid('Give the token a name of up to 40 characters, such as "Claude on my laptop".')
+  const days = b.days === undefined || b.days === 0 ? 60 : b.days
+  if (typeof days !== 'number' || ![30, 60, 90, 365].includes(days)) return invalid('A token can last 30, 60, 90 or 365 days.')
+  if (typeof b.role !== 'string' || !['viewer', 'moderator', 'admin'].includes(b.role)) return invalid('Choose what the token can do: viewer, moderator or admin.')
+  const servers = Array.isArray(b.servers) ? b.servers : []
+  if (b.allServers === true && servers.length > 0) return invalid('Send either all servers or a list of servers, not both.')
+  if (b.allServers !== true && (servers.length === 0 || !servers.every((x) => typeof x === 'string' && id.test(x)))) return invalid('Choose at least one server, or all servers.')
+  const now = Date.now()
+  const token = { id: nextId(state), name: tokenName, role: b.role, allServers: b.allServers === true, servers, createdAt: new Date(now).toISOString(), expiresAt: new Date(now + days * 86_400_000).toISOString(), account: 'admin', mine: true }
+  return { status: 201, body: { token, secret: `pk_mcp_${nextId(state, 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789', 32)}` } }
+}
+
+/** A machine name as machinelink.CleanName makes it: letters, digits, single spaces and - _ ., at most 40. */
+function cleanName(raw: string): string {
+  return raw
+    .replace(/[^\p{L}\p{N}\s._-]/gu, '')
+    .trim()
+    .split(/\s+/)
+    .join(' ')
+    .slice(0, 40)
+    .trim()
+}
+
+/** The join command in both forms, as machinelink.Command writes them. */
+function joinCommand(address: string, code: string, fingerprint: string, machineName: string) {
+  const quote = (a: string) => (/^[A-Za-z0-9._:/@%+=,-]+$/.test(a) ? a : `'${a.replaceAll("'", '')}'`)
+  const shell = (args: string[]) => args.map(quote).join(' ')
+  const flags = ['--code', code, '--fingerprint', fingerprint, ...(machineName ? ['--name', machineName] : [])]
+  const continued = (head: string, pairs: string[]) => {
+    const lines = [head]
+    for (let i = 0; i + 1 < pairs.length; i += 2) lines.push(`  ${shell(pairs.slice(i, i + 2))}`)
+    return lines.map((l, i) => (i < lines.length - 1 ? `${l} \\` : l))
+  }
+  const install = 'curl -fsSL https://playkeeper.io/install | sudo sh -s --'
+  return {
+    install: `${install} ${shell(['--join', address, ...flags])}`,
+    join: `sudo playkeeper join ${shell([address, ...flags])}`,
+    installLines: continued(install, ['--join', address, ...flags]),
+    joinLines: continued(`sudo playkeeper join ${quote(address)}`, flags),
+  }
+}
+
+function joinCodeReply(body: unknown, state: FakeState): Reply {
+  const b = (body ?? {}) as { name?: unknown; dial?: unknown }
+  const raw = typeof b.name === 'string' ? b.name : ''
+  const machineName = cleanName(raw)
+  if (raw.trim() && !machineName) return invalid('Use letters, numbers, spaces, dashes, dots or underscores in the name.')
+  const addresses = state.link.addresses ?? []
+  const dial = addresses.find((a) => a.kind === b.dial) ?? (b.dial ? undefined : addresses[0])
+  if (!dial) return invalid('Choose the address the machine dials.')
+  const raw8 = nextId(state, '0123456789ABCDEFGHJKMNPQRSTVWXYZ', 8)
+  const code = `${raw8.slice(0, 4)}-${raw8.slice(4)}`
+  const now = Date.now()
+  const view = { id: nextId(state), name: machineName || undefined, dials: dial.address, createdAt: new Date(now).toISOString(), expiresAt: new Date(now + 30 * 60_000).toISOString(), createdBy: 'admin', state: 'waiting' }
+  return { status: 201, body: { ...view, code, ...joinCommand(dial.address, code, state.link.fingerprint ?? '4N2DGMFMPH723389KAWSKMR2EM', machineName) } }
 }
 
 const freeName = /^(?=.{3,32}$)[a-z0-9]+(-[a-z0-9]+)*$/
@@ -567,15 +668,15 @@ const routes: [string, RegExp, Handler][] = [
     /^\/api\/servers\/(\w+)\/addons\/remove$/,
     (r, state) => {
       const orphans: unknown = (r.body as { orphans?: unknown } | null)?.orphans ?? []
-      if (!Array.isArray(orphans)) return invalid('Invalid request body.')
-      const problem = addonKeyProblem(r.body) ?? (orphans.length > 200 ? 'Too many add-ons to remove at once.' : orphans.map(addonKeyProblem).find(Boolean))
+      const problem = addonKeyProblem(r.body) ?? badAddonKeys(orphans)
       if (problem) return invalid(problem)
       const managed = managedAddons(state, r.params[0])
       const name = (k: unknown) => managed.find((a) => sameAddon(a, k))?.name
       const target = name(r.body)
       if (!target) return notManaged
-      if (!orphans.every(name)) return invalid(`Only add-ons that nothing else needs can be removed along with ${target}.`)
-      return { status: 200, body: { removed: [r.body, ...orphans].map(name), warnings: [] } }
+      const also = orphans as unknown[]
+      if (!also.every(name)) return invalid(`Only add-ons that nothing else needs can be removed along with ${target}.`)
+      return { status: 200, body: { removed: [r.body, ...also].map(name), warnings: [] } }
     },
   ],
   [
@@ -583,12 +684,12 @@ const routes: [string, RegExp, Handler][] = [
     /^\/api\/servers\/(\w+)\/addons\/adopt$/,
     (r, state) => {
       const file = (r.body as { fileName?: unknown } | null)?.fileName
-      if (typeof file !== 'string' || !/^[^/\\]*\.jar$/.test(file) || new TextEncoder().encode(file).length > 255) return invalid('That is not a file in the add-on folder.')
+      if (typeof file !== 'string' || !/^[^/\\]+\.jar$/.test(file) || new TextEncoder().encode(file).length > 255) return invalid('That is not a file in the add-on folder.')
       const identified = (lastRead(state, r.params[0], 'addons/checks').identified ?? []) as { fileName: string; addon?: AddonRecord }[]
       const rec = identified.find((f) => f.fileName === file)?.addon
       if (!rec) return refuse(409, 'conflict', `Modrinth does not recognize ${file}, so Playkeeper cannot manage it.`, 'It stays in the folder as it is.')
       if (managedAddons(state, r.params[0]).some((a) => sameAddon(a, rec))) return refuse(409, 'conflict', `${rec.name} is already managed by Playkeeper as another file.`, 'Remove one of the two copies first.')
-      return { status: 200, body: rec }
+      return { status: 200, body: { ...rec, fileName: file, installedAt: new Date().toISOString() } }
     },
   ],
   [
@@ -603,8 +704,8 @@ const routes: [string, RegExp, Handler][] = [
       return { status: 200, body: { removed: [rec.name], warnings: [] } }
     },
   ],
-  ['POST', /^\/api\/servers\/(\w+)\/addons\/update$/, (r, state) => (confirmed(r.body) && Array.isArray((r.body as { addons?: unknown }).addons) ? op(state, 'addon-update', r.params[0]) : invalid('This request doesn’t include the plan you confirmed.'))],
-  ['POST', /^\/api\/servers\/(\w+)\/addons\/install$/, (r, state) => (confirmed(r.body) && typeof (r.body as { projectId?: unknown }).projectId === 'string' ? op(state, 'addon-install', r.params[0]) : invalid('This request doesn’t include the plan you confirmed.'))],
+  ['POST', /^\/api\/servers\/(\w+)\/addons\/update$/, (r, state) => addonJob(state, 'addon-update', r.params[0], updateJob(r.body, addonWorld(state, r.params[0])))],
+  ['POST', /^\/api\/servers\/(\w+)\/addons\/install$/, (r, state) => addonJob(state, 'addon-install', r.params[0], installJob(r.body, addonWorld(state, r.params[0])))],
   // Wave 2: the second sign-in step, two-factor sign-in and the machine's address.
   ['POST', /^\/api\/auth\/second-factor$/, () => ({ status: 401, body: { error: 'That code didn’t work. Try the one showing now.', code: 'code_wrong' }, expected: true })],
   ['POST', /^\/api\/auth\/second-factor\/cancel$/, () => ({ status: 200, body: {} })],
@@ -636,10 +737,13 @@ const routes: [string, RegExp, Handler][] = [
   [
     'POST',
     /^\/api\/servers\/(\w+)\/mods\/share$/,
-    ({ body }) => {
+    ({ body, params }, state) => {
       const on = (body as { public?: unknown } | null)?.public
       if (typeof on !== 'boolean') return invalid('Say whether to share the pack.')
-      return { status: 200, body: { public: on, token: on ? 'Fake0Share0Token0Abcde' : undefined, file: 'server.mrpack', size: 2048, loaderName: 'Fabric', share: { server: 'Server', type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', notice: { key: 'share.notice.none', text: 'Friends can join without mods' }, mods: [] } } }
+      // The pack of the server's own loader, as the panel last showed it: a Forge server's names Forge.
+      const read = lastRead(state, params[0], 'mods/share')
+      const share = read.share ?? { server: 'Server', type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', notice: { key: 'share.notice.none', text: 'Friends can join without mods' }, mods: [] }
+      return { status: 200, body: { public: on, token: on ? 'Fake0Share0Token0Abcde' : undefined, file: read.file ?? 'server.mrpack', size: read.size ?? 2048, loaderName: read.loaderName ?? 'Fabric', share } }
     },
   ],
   // Wave 6: the map's switches, and worlds uploaded for a new server.
@@ -893,6 +997,16 @@ const routes: [string, RegExp, Handler][] = [
       return op(state, 'disk-cleanup')
     },
   ],
+  // Wave 8: AI agent tokens, join codes and joined machines.
+  ['POST', /^\/api\/tokens$/, ({ body }, state) => tokenReply(body, state)],
+  ['DELETE', /^\/api\/tokens\/([^/]+)$/, (r) => (id.test(r.params[0] ?? '') ? { status: 204 } : invalid('Invalid token id.'))],
+  ['POST', /^\/api\/join-codes$/, ({ body }, state) => joinCodeReply(body, state)],
+  ['DELETE', /^\/api\/join-codes\/([^/]+)$/, (r) => (id.test(r.params[0] ?? '') ? { status: 204 } : { status: 404, body: { error: 'Join code not found.', code: 'not_found' } })],
+  [
+    'DELETE',
+    /^\/api\/machines\/([a-z2-9]{10})$/,
+    (r, state) => (state.machines.find((m) => m.id === r.params[0])?.kind === 'local' ? invalid('This is the dashboard’s own machine, so it can’t be removed.') : { status: 204 }),
+  ],
 ]
 
 interface AddonRecord {
@@ -905,7 +1019,7 @@ interface AddonRecord {
 
 const notManaged = refuse(404, 'not_managed', 'Playkeeper did not install this add-on, so it cannot manage it.', 'Scan the folder to let Playkeeper identify files added by hand.')
 
-/** What the real panel last answered to a read of the server's add-ons, packs or pre-generation. */
+/** What the page last got for a read of the server's add-ons, packs, pre-generation or friends' pack. */
 function lastRead(state: FakeState, serverId: string | undefined, what: string): Record<string, unknown> {
   return state.reads.get(`/api/servers/${serverId}/${what}`) ?? {}
 }
@@ -935,14 +1049,6 @@ function changeDataPack(state: FakeState, [serverId, encoded]: string[], change:
   return { status: 200, body: { ...dp, packs: packs.flatMap((p) => (p.name === name ? change(p) : [p])) } }
 }
 
-/** The agent's check of the add-on a request names. */
-function addonKeyProblem(k: unknown): string | undefined {
-  const { source, projectId } = (k ?? {}) as { source?: unknown; projectId?: unknown }
-  if (source !== 'modrinth' && source !== 'hangar') return 'Add-ons come from Modrinth or Hangar.'
-  if (typeof projectId !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(projectId) || projectId === '.' || projectId === '..') return 'That is not a valid project id.'
-  return undefined
-}
-
 /** The add-ons Playkeeper manages on the server, from the last list of its folder; gone ones have lost their file. */
 function managedAddons(state: FakeState, serverId: string | undefined): AddonRecord[] {
   const { files = [], missing = [] } = lastRead(state, serverId, 'addons') as { files?: { status: string; addon?: AddonRecord }[]; missing?: AddonRecord[] }
@@ -956,9 +1062,25 @@ function sameAddon(a: AddonRecord, k: unknown): boolean {
 
 const addonJar = /^[^./\\][^/\\]{0,195}\.jar$/
 
-/** An add-on install or update carries the fingerprint of the plan the user confirmed. */
-function confirmed(body: unknown): boolean {
-  return /^[0-9a-f]{32}$/.test(String((body as { fingerprint?: unknown } | null)?.fingerprint ?? ''))
+/** The phases in which a server's container runs (web/src/lib/phase.ts), so a finished add-on job asks for a restart. */
+const running = ['online', 'starting', 'starting_container', 'preparing_world', 'downloading_server', 'stopping']
+
+/** The server as the add-on fixtures see it: its folder as the Plugins tab last showed it, and whether it runs. */
+function addonWorld(state: FakeState, serverId: string | undefined): World {
+  const path = `/api/servers/${serverId}/addons`
+  const folder = recordedFolder()
+  const addons = state.reads.get(path) ?? ((lay(state.view(), path, folder, new URL(state.origin).host) as Record<string, unknown> | undefined) ?? folder)
+  return { addons, running: running.includes(state.phases.get(serverId ?? '') ?? '') }
+}
+
+/** Starts a faked add-on job that ends the way the fixtures say, or refuses it; undefined when they have no answer. */
+function addonJob(state: FakeState, kind: string, serverId: string | undefined, start: JobStart | undefined): Reply | undefined {
+  if (!start) return undefined
+  if ('refused' in start) return { status: start.refused.status, body: start.refused.body, headers: start.refused.headers }
+  const started = op(state, kind, serverId)
+  const begun = started.body as Record<string, unknown>
+  state.jobs.set(String(begun.id), { ...begun, ...start.ends, finishedAt: new Date().toISOString() })
+  return started
 }
 
 function importGone(): Reply {
@@ -1537,9 +1659,9 @@ function restorePreview(b: Record<string, unknown> | undefined, serverId?: strin
 /** Writes made before signing in finishes, which have no security token yet: the panel checks the origin and the header instead. */
 const signedOutWrites = new Set(['/api/auth/login', '/api/setup', '/api/auth/second-factor', '/api/auth/second-factor/cancel'])
 
-/** Writes that only work out what another write would do and change nothing, so the real panel answers them. */
+/** Writes that only work out what another write would do and change nothing, so they're answered like reads: add-on update plans from the fixtures, the rest by the real panel. */
 const plans = [
-  // Wave 1: what updating plugins or mods would do.
+  // Wave 1: what updating plugins or mods would do, from the recorded fixtures.
   /^\/api\/servers\/\w+\/addons\/update\/plan$/,
   // Wave 4: what a template would create.
   /^\/api\/machines\/\w+\/templates\/plan$/,
@@ -1548,16 +1670,64 @@ const plans = [
   /^\/api\/servers\/\w+\/backup-rules\/estimate$/,
 ]
 
+/** The panel's refusal of a write without its CSRF headers; signing in and setting up come before there's a token. */
+function csrfRefusal(path: string, headers: Record<string, string>): Reply | undefined {
+  if (headers['x-requested-with'] === 'playkeeper' && (signedOutWrites.has(path) || headers['x-csrf-token'])) return undefined
+  return { status: 403, body: { error: 'Security token missing or invalid. Reload the page and try again.', code: 'forbidden' } }
+}
+
+/** A POST's body as the panel reads it: none, JSON, or text it refuses. */
+function posted(request: Request): unknown {
+  const raw = request.postData() ?? ''
+  if (raw === '') return undefined
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return raw
+  }
+}
+
+function notePhases(state: FakeState, servers: unknown) {
+  if (!Array.isArray(servers)) return
+  for (const s of servers as { id?: unknown; phase?: unknown }[]) if (typeof s.id === 'string') state.phases.set(s.id, String(s.phase ?? ''))
+}
+
 /**
  * Serves the fakes on a page. The returned list collects every API call with
  * its status; unknown writes answer 501 and are listed as unfaked so a new
- * endpoint can't slip through unchecked. Reads show `view()` (see View).
+ * endpoint can't slip through unchecked, and add-on reads the fixtures have
+ * no answer for do the same and are listed as unrecorded. Reads show
+ * `view()` (see View).
  */
-export async function installFakes(page: Page, baseURL: string, view: () => View = () => 'live'): Promise<{ calls: ApiCall[]; unfaked: string[] }> {
+export async function installFakes(page: Page, baseURL: string, view: () => View = () => 'live'): Promise<{ calls: ApiCall[]; unfaked: string[]; unrecorded: string[] }> {
   const calls: ApiCall[] = []
   const unfaked: string[] = []
+  const unrecorded: string[] = []
   const origin = new URL(baseURL).origin
-  const state: FakeState = { origin, prefs: {}, backups: new Map(), update: {}, reads: new Map(), discord: { connected: false, alerts: [], liveStatus: true, delivery: {}, kinds: [] }, opSeq: 0, inviteSeq: 0, addresses: new Map(), maps: new Map(), imports: new Map(), ops: new Map(), schedules: new Map(), backupRules: new Map(), offsite: new Map(), sshKeys: new Set() }
+  const state: FakeState = {
+    prefs: {},
+    backups: new Map(),
+    update: {},
+    reads: new Map(),
+    opSeq: 0,
+    addresses: new Map(),
+    view,
+    phases: new Map(),
+    jobs: new Map(),
+    origin,
+    discord: { connected: false, alerts: [], liveStatus: true, delivery: {}, kinds: [] },
+    inviteSeq: 0,
+    maps: new Map(),
+    imports: new Map(),
+    ops: new Map(),
+    schedules: new Map(),
+    backupRules: new Map(),
+    offsite: new Map(),
+    sshKeys: new Set(),
+    link: {},
+    machines: [],
+    seq: 0,
+  }
 
   // Links out of the dashboard open a stand-in page instead of the internet.
   await page.context().route(
@@ -1570,8 +1740,8 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     const method = request.method()
     const path = url.pathname
     const at = Date.now()
-    // Planning changes nothing, so the real panel answers.
-    const planning = method === 'POST' && plans.some((re) => re.test(path))
+    // Planning changes nothing, so it's answered like a read once it passes the panel's CSRF check.
+    const planning = method === 'POST' && plans.some((re) => re.test(path)) && !csrfRefusal(path, request.headers())
     if (method === 'GET' || method === 'HEAD' || planning) {
       const made = view() === 'in use' ? inUseAnswer(method, path, planning ? request.postDataJSON() : undefined) : view() === 'map on' && method === 'GET' ? mapAnswer(path) : undefined
       if (made) {
@@ -1597,12 +1767,13 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         await route.fulfill({ status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Content-Disposition': `attachment; filename="${file}"`, 'Cache-Control': 'no-store' }, body: '# A stand-in recovery key from the click-through. It opens nothing.\n' })
         return
       }
-      // A faked job finishes at once, for the dialogs that follow it.
+      // A faked job finishes at once, for the dialogs that follow it; an add-on job ends the way the fixtures say.
       const fakeOp = /^\/api\/(?:servers|machines)\/\w+\/operations\/(fake-op-\d+)$/.exec(path)
       if (fakeOp?.[1]) {
-        const o = state.ops.get(fakeOp[1])
+        const started = state.ops.get(fakeOp[1])
+        const o = state.jobs.get(fakeOp[1]) ?? (started && finished(started))
         calls.push({ method, path, status: o ? 200 : 404, faked: true, at })
-        await route.fulfill({ status: o ? 200 : 404, contentType: 'application/json', body: JSON.stringify(o ? finished(o) : { error: 'Operation not found.', code: 'not_found' }) })
+        await route.fulfill({ status: o ? 200 : 404, contentType: 'application/json', body: JSON.stringify(o ?? { error: 'Operation not found.', code: 'not_found' }) })
         return
       }
       if (/^\/api\/machines\/\w+\/restore\/fakerestore$/.test(path)) {
@@ -1623,6 +1794,23 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         await route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify(reply.body) })
         return
       }
+      if (isAddonRead(method, path)) {
+        const answer = answerRead(method, url, planning ? posted(request) : undefined, addonWorld(state, /^\/api\/servers\/(\w+)\//.exec(path)?.[1]))
+        if (!answer) {
+          const error = `No recorded answer for ${method} ${path}.`
+          unrecorded.push(`${method} ${path}`)
+          calls.push({ method, path, status: 501, faked: true, error, at })
+          await route.fulfill({ status: 501, contentType: 'application/json', body: JSON.stringify({ error, code: 'internal' }) }).catch(() => {})
+          return
+        }
+        const image = Buffer.isBuffer(answer.body)
+        const body = image || answer.status !== 200 ? answer.body : (lay(view(), path, answer.body, url.host) ?? answer.body)
+        if (answer.status === 200 && /^\/api\/servers\/\w+\/addons(\/checks)?$/.test(path)) state.reads.set(path, body as Record<string, unknown>)
+        const error = answer.status >= 400 ? String((body as { error?: string }).error ?? '') : undefined
+        calls.push({ method, path, status: answer.status, faked: true, error, at })
+        await route.fulfill({ status: answer.status, headers: answer.headers, body: image ? (body as Buffer) : JSON.stringify(body) }).catch(() => {})
+        return
+      }
       const res = await fetchFromPanel(route, planning)
       if (!res) {
         await route.abort().catch(() => {})
@@ -1633,7 +1821,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         calls.push({ method, path, status: res.status(), faked: true, at })
         const b = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (b?.[1]) state.backups.set(b[1], laid as Record<string, unknown>[])
-        if (/^\/api\/servers\/\w+\/(addons(\/checks)?|datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, laid as Record<string, unknown>)
+        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen|mods\/share)$/.test(path)) state.reads.set(path, laid as Record<string, unknown>)
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = laid as Record<string, unknown>
         if (path === '/api/discord') state.discord = laid as Record<string, unknown>
         const laidMap = /^\/api\/servers\/(\w+)\/map$/.exec(path)
@@ -1642,6 +1830,11 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (laidSchedules?.[1]) state.schedules.set(laidSchedules[1], (laid as { schedules?: Record<string, unknown>[] }).schedules ?? [])
         const laidPlace = /^\/api\/servers\/(\w+)\/offsite$/.exec(path)
         if (laidPlace?.[1]) state.offsite.set(laidPlace[1], laid as Record<string, unknown>)
+        if (path === '/api/machines/link') state.link = laid as FakeState['link']
+        if (path === '/api/machines') state.machines = laid as FakeState['machines']
+        const address = /^\/api\/machines\/(\w+)\/address$/.exec(path)
+        if (address?.[1]) state.addresses.set(address[1], laid as Record<string, unknown>)
+        if (path === '/api/servers') notePhases(state, laid)
         await route.fulfill({ response: res, json: laid }).catch(() => {})
         return
       }
@@ -1659,13 +1852,16 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (path === '/api/me/prefs') Object.assign(state.prefs, await res.json().catch(() => ({})))
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (m?.[1]) state.backups.set(m[1], await res.json().catch(() => []))
-        if (/^\/api\/servers\/\w+\/(addons(\/checks)?|datapacks|resourcepack|pregen)$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
+        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen|mods\/share)$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
         const map = /^\/api\/servers\/(\w+)\/map$/.exec(path)
         if (map?.[1]) state.maps.set(map[1], await res.json().catch(() => ({})))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
         if (path === '/api/discord') state.discord = await res.json().catch(() => state.discord)
+        if (path === '/api/machines/link') state.link = await res.json().catch(() => ({}))
+        if (path === '/api/machines') state.machines = await res.json().catch(() => [])
         const address = /^\/api\/machines\/(\w+)\/address$/.exec(path)
         if (address?.[1]) state.addresses.set(address[1], await res.json().catch(() => ({})))
+        if (path === '/api/servers') notePhases(state, await res.json().catch(() => []))
         const sched = /^\/api\/servers\/(\w+)\/schedules$/.exec(path)
         if (sched?.[1] && method === 'GET') state.schedules.set(sched[1], ((await res.json().catch(() => ({}))) as { schedules?: Record<string, unknown>[] }).schedules ?? [])
         const rules = /^\/api\/servers\/(\w+)\/backup-rules$/.exec(path)
@@ -1678,10 +1874,8 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
       return
     }
     const headers = request.headers()
-    let reply: Reply | undefined
-    if (headers['x-requested-with'] !== 'playkeeper' || (!signedOutWrites.has(path) && !headers['x-csrf-token'])) {
-      reply = { status: 403, body: { error: 'Security token missing or invalid. Reload the page and try again.', code: 'forbidden' } }
-    } else {
+    let reply = csrfRefusal(path, headers)
+    if (!reply) {
       let body: unknown
       if ((headers['content-type'] ?? '').includes('json')) {
         try {
@@ -1710,7 +1904,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     }
     const error = reply.status >= 400 ? String((reply.body as { error?: string } | undefined)?.error ?? '') : undefined
     calls.push({ method, path, status: reply.status, faked: true, error, expected: reply.expected, at })
-    await route.fulfill({ status: reply.status, headers: { 'Content-Type': 'application/json', ...reply.headers }, body: reply.raw ?? JSON.stringify(reply.body ?? {}) })
+    await route.fulfill({ status: reply.status, headers: { 'Content-Type': 'application/json', ...reply.headers }, body: reply.status === 204 ? '' : (reply.raw ?? JSON.stringify(reply.body ?? {})) })
   })
-  return { calls, unfaked }
+  return { calls, unfaked, unrecorded }
 }

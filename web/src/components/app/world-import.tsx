@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
+import { demo } from '@/lib/demo'
 import { formatBytes, formatList, formatPercent, formatSpan } from '@/lib/format'
 import { coord, packName } from '@/lib/map'
 import { presenceProps, useListPresence } from '@/lib/presence'
@@ -190,12 +191,12 @@ export function WorldSourceStep({ source, onSource, upload, phone, error }: { so
             className="mt-2 min-h-11 w-full justify-between rounded-2xl border border-border bg-white px-4 text-base"
           />
         ) : (
-          <ToggleGroup value={[source]} onValueChange={(v) => v[0] && onSource(v[0] as WorldSource)} aria-labelledby="world-source" className="mt-2.5 grid w-full grid-cols-5 gap-2">
+          <ToggleGroup value={[source]} onValueChange={(v) => v[0] && onSource(v[0] as WorldSource)} aria-labelledby="world-source" className="mt-2.5 flex w-full flex-wrap gap-2">
             {worldSources.map((s) => (
               <ToggleGroupItem
                 key={s}
                 value={s}
-                className="h-11 rounded-xl border border-border bg-card px-2 text-[13px] font-medium text-foreground hover:border-input hover:bg-card data-pressed:border-primary/55 data-pressed:bg-selected data-pressed:font-semibold data-pressed:shadow-selected sm:h-11 sm:text-[13px]"
+                className="h-11 flex-auto rounded-xl border border-border bg-card px-4 text-[13px] font-medium text-foreground hover:border-input hover:bg-card data-pressed:border-primary/55 data-pressed:bg-selected data-pressed:font-semibold data-pressed:shadow-selected sm:h-11 sm:text-[13px]"
               >
                 {t(sourceTexts[s].name)}
               </ToggleGroupItem>
@@ -243,6 +244,7 @@ function UploadBox({ upload, phone }: { upload: WorldUpload; phone: boolean }) {
   )
 
   if (s.phase === 'idle') {
+    const sample = demo?.SampleWorld && <demo.SampleWorld onPick={upload.start} />
     if (phone) {
       return (
         <div>
@@ -251,6 +253,7 @@ function UploadBox({ upload, phone }: { upload: WorldUpload; phone: boolean }) {
             {t('import.choose')}
           </Button>
           {wrongType}
+          {sample}
           {picker}
         </div>
       )
@@ -281,6 +284,7 @@ function UploadBox({ upload, phone }: { upload: WorldUpload; phone: boolean }) {
           })}
         </p>
         {wrongType}
+        {sample}
         {picker}
       </div>
     )

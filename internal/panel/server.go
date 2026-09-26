@@ -14,6 +14,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"net/netip"
@@ -21,9 +22,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
@@ -31,6 +35,8 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/certs"
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/invites"
+	"github.com/CIYAhq/playkeeper/internal/machinelink"
+	"github.com/CIYAhq/playkeeper/internal/mcp"
 	"github.com/CIYAhq/playkeeper/internal/mojang"
 	"github.com/CIYAhq/playkeeper/internal/packs"
 	"github.com/CIYAhq/playkeeper/internal/portshare"
@@ -53,6 +59,18 @@ type Options struct {
 	// faces (default: Mojang's profile service). One client keeps one
 	// cache and one request budget.
 	Mojang *mojang.Client
+	// LinkRoutes are the agent routes joined machines may be sent (the
+	// agent's route table). Without them the panel accepts no machines:
+	// the root recovery commands leave them out, so they never create the
+	// link key as root.
+	LinkRoutes []machinelink.Route
+	// LookupIP resolves names for the proxy check (default: the system
+	// resolver).
+	LookupIP func(ctx context.Context, host string) ([]netip.Addr, error)
+	// HostIPs are this host's addresses, offered for joining when the
+	// dashboard was opened at a loopback address (default: HostIPs). The
+	// installed panel's unit leaves out AF_NETLINK, so there it finds none.
+	HostIPs func() []net.IP
 }
 
 type Server struct {
@@ -76,6 +94,17 @@ type Server struct {
 	mojang    *mojang.Client
 	// joinGuard limits attempts on the public invite pages.
 	joinGuard *invites.Guard
+	hub       *machinelink.Hub
+	proxies   proxyCache
+	// mcpHTTP serves the MCP tools at /mcp to API tokens.
+	mcpHTTP *mcp.HTTPHandler
+	// refusals counts refusals for the audit log (see refusals.go).
+	refusals refusalSink
+	// audits counts audit rows written, to prune the log every so often;
+	// auditMaxAge and maxAudit are how much of it is kept.
+	audits      atomic.Int64
+	auditMaxAge time.Duration
+	maxAudit    int
 
 	public      *publicGroup
 	activePacks *activePacks
@@ -97,6 +126,14 @@ func New(opts Options) (*Server, error) {
 	if opts.Agent == nil {
 		opts.Agent = agentclient.New(opts.Config.SocketPath)
 	}
+	if opts.LookupIP == nil {
+		opts.LookupIP = func(ctx context.Context, host string) ([]netip.Addr, error) {
+			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+		}
+	}
+	if opts.HostIPs == nil {
+		opts.HostIPs = HostIPs
+	}
 	if err := os.MkdirAll(opts.Config.PanelDir(), 0o700); err != nil {
 		return nil, err
 	}
@@ -117,14 +154,16 @@ func New(opts Options) (*Server, error) {
 	}
 	s := &Server{
 		cfg: opts.Config, opts: opts, db: db, log: opts.Logger, now: opts.Now, agent: opts.Agent, static: opts.Static,
-		loginIP:   newLimiter(10, 15*time.Minute, opts.Now),
-		control:   newLimiter(30, time.Minute, opts.Now),
-		previews:  newLimiter(120, time.Minute, opts.Now),
-		locks:     newLockout(opts.Now),
-		loginUser: newLimiter(30, time.Hour, opts.Now),
-		heads:     newHeadFetcher(src, mc),
-		mojang:    mc,
-		joinGuard: invites.NewGuard(invites.GuardLimits{}, opts.Now),
+		loginIP:     newLimiter(10, 15*time.Minute, opts.Now),
+		control:     newLimiter(30, time.Minute, opts.Now),
+		previews:    newLimiter(120, time.Minute, opts.Now),
+		locks:       newLockout(opts.Now),
+		loginUser:   newLimiter(30, time.Hour, opts.Now),
+		heads:       newHeadFetcher(src, mc),
+		mojang:      mc,
+		joinGuard:   invites.NewGuard(invites.GuardLimits{}, opts.Now),
+		auditMaxAge: 365 * 24 * time.Hour,
+		maxAudit:    100_000,
 	}
 	s.activePacks = &activePacks{fetch: s.fetchActivePacks, now: opts.Now}
 	s.public = newPublicGroup(s.publicRoutes(), opts.Now)
@@ -132,10 +171,30 @@ func New(opts Options) (*Server, error) {
 		db.Close()
 		return nil, err
 	}
+	s.pruneAudit()
+	s.noteVersion(version.Version)
+	if err := s.startMCP(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	s.sweepTokens()
+	if len(opts.LinkRoutes) > 0 {
+		if err := s.startHub(opts.LinkRoutes); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	return s, nil
 }
 
-func (s *Server) Close() error { return s.db.Close() }
+func (s *Server) Close() error {
+	s.mcpHTTP.Close()
+	if s.hub != nil {
+		s.hub.Close()
+	}
+	s.flushRefusals(true)
+	return s.db.Close()
+}
 
 type authLevel int
 
@@ -207,6 +266,9 @@ func (s *Server) Routes() []Route {
 	am := func(p, agentPath string) Route {
 		return Route{"POST", p, needSessionCSRF, actManageMachine, s.addressProxy("POST", agentPath)}
 	}
+	an := func(p, agentPath string) Route {
+		return Route{"POST", p, needSessionCSRF, actManageMachine, s.dashboardAddress(s.addressProxy("POST", agentPath))}
+	}
 	routes := []Route{
 		{"GET", "/api/health", public, "", s.hHealth},
 		{"GET", "/api/setup/status", public, "", s.hSetupStatus},
@@ -227,30 +289,39 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/auth/2fa/recovery-codes", needSessionCSRF, actManageAccount, s.h2FARecoveryCodes},
 		{"GET", "/api/me/prefs", needSession, actManageAccount, s.hPrefs},
 		{"POST", "/api/me/prefs", needSessionCSRF, actManageAccount, s.hPrefsSet},
+		view("/api/tokens", s.hTokens),
+		{"POST", "/api/tokens", needSessionCSRF, actManageAccount, s.hTokenCreate},
+		view("/api/tokens/activity", s.hTokenActivity),
+		{"DELETE", "/api/tokens/{tid}", needSessionCSRF, actManageAccount, s.hTokenRevoke},
 		{"GET", "/api/audit", needSession, actViewAuditTrail, s.hAudit},
 		view("/api/projects", s.hProjects),
 		view("/api/machines", s.hMachines),
+		view("/api/machines/link", s.hMachineLink),
+		{"POST", "/api/join-codes", needSessionCSRF, actManageMachine, s.hJoinCodeCreate},
+		{"DELETE", "/api/join-codes/{cid}", needSessionCSRF, actManageMachine, s.hJoinCodeCancel},
 		view("/api/machines/{mid}", s.hMachine),
+		{"DELETE", "/api/machines/{mid}", needSessionCSRF, actManageMachine, s.hMachineRemove},
+		view("/api/machines/{mid}/events", s.hMachineEvents),
 		mg("/api/machines/{mid}/preflight", "/v1/preflight"),
 		mg("/api/machines/{mid}/catalog", "/v1/catalog"),
 		view("/api/machines/{mid}/activity", s.hMachineActivity),
 		mg("/api/machines/{mid}/update", "/v1/update"),
 		mm("POST", "/api/machines/{mid}/update/check", "/v1/update/check", actManageMachine),
-		mm("POST", "/api/machines/{mid}/update/apply", "/v1/update/apply", actManageMachine),
+		{"POST", "/api/machines/{mid}/update/apply", needSessionCSRF, actManageMachine, s.forwardThen("POST", "/v1/update/apply", s.recordUpdate)},
 		ag("/api/machines/{mid}/address", "/v1/address"),
 		{"GET", "/api/machines/{mid}/address/available", needSession, actManageMachine, s.machineProxy("GET", "/v1/address/available")},
 		ag("/api/machines/{mid}/address/plan", "/v1/address/plan"),
-		am("/api/machines/{mid}/address/claim", "/v1/address/claim"),
-		am("/api/machines/{mid}/address/refresh", "/v1/address/refresh"),
+		an("/api/machines/{mid}/address/claim", "/v1/address/claim"),
+		an("/api/machines/{mid}/address/refresh", "/v1/address/refresh"),
 		am("/api/machines/{mid}/address/release", "/v1/address/release"),
-		am("/api/machines/{mid}/address/check", "/v1/address/check"),
-		am("/api/machines/{mid}/address/certificate", "/v1/address/certificate"),
+		an("/api/machines/{mid}/address/check", "/v1/address/check"),
+		an("/api/machines/{mid}/address/certificate", "/v1/address/certificate"),
 		mm("DELETE", "/api/machines/{mid}/address", "/v1/address", actManageMachine),
-		mm("POST", "/api/machines/{mid}/servers", "/v1/servers", actCreateServers),
+		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actCreateServers, s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)},
 		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actCreateServers, s.rawUpload("/v1/restore/upload", "application/gzip")},
-		{"GET", "/api/machines/{mid}/restore/{rid}", needSession, actRestore, s.restoreProxy("GET", "/v1/restore/{rid}")},
-		{"POST", "/api/machines/{mid}/restore/{rid}/apply", needSessionCSRF, actRestore, s.restoreProxy("POST", "/v1/restore/{rid}/apply")},
-		{"DELETE", "/api/machines/{mid}/restore/{rid}", needSessionCSRF, actRestore, s.restoreProxy("DELETE", "/v1/restore/{rid}")},
+		{"GET", "/api/machines/{mid}/restore/{rid}", needSession, actRestore, s.restoreProxy("GET", "/v1/restore/{rid}", nil)},
+		{"POST", "/api/machines/{mid}/restore/{rid}/apply", needSessionCSRF, actRestore, s.restoreProxy("POST", "/v1/restore/{rid}/apply", s.claimCreatedBy)},
+		{"DELETE", "/api/machines/{mid}/restore/{rid}", needSessionCSRF, actRestore, s.restoreProxy("DELETE", "/v1/restore/{rid}", nil)},
 		view("/api/machines/{mid}/operations/{op}", s.hOperation),
 		view("/api/servers", s.hServers),
 		sg("/api/servers/{id}", "/v1/servers/{id}"),
@@ -439,6 +510,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, api.CodeNotFound, "Unknown API route.", "")
 	})
+	mux.Handle("/mcp", s.mcpHTTP)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		io.WriteString(w, "ok\n")
@@ -907,6 +979,9 @@ func (s *Server) ResetAdmin(username, password string) error {
 	_, _ = s.db.Exec(`DELETE FROM sessions WHERE user_id = (SELECT id FROM users WHERE username = ?)`, username)
 	_, _ = s.db.Exec(`DELETE FROM pending_logins WHERE user_id = (SELECT id FROM users WHERE username = ?)`, username)
 	s.audit("root@host", "password.reset", username, "succeeded", "reset from the server command line")
+	if u, err := s.userByName(username); err == nil {
+		s.revokeAccountTokens(u.ID, "root@host", "its account's password was reset from the server command line")
+	}
 	return nil
 }
 
@@ -928,6 +1003,7 @@ func (s *Server) Usernames() ([]string, error) {
 }
 
 func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
+	s.flushRefusals(false)
 	rows, err := s.db.Query(`SELECT id, ts, actor, action, target, result, detail FROM audit ORDER BY id DESC LIMIT 200`)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
@@ -936,7 +1012,11 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 	defer rows.Close()
 	type entry struct {
 		api.AuditEntry
-		Source string `json:"source"`
+		Source    string `json:"source"`
+		MachineID string `json:"machineId,omitempty"`
+		// ActorKind and ActorName say who a token or command-line actor is.
+		ActorKind string `json:"actorKind,omitempty"`
+		ActorName string `json:"actorName,omitempty"`
 	}
 	out := []entry{}
 	for rows.Next() {
@@ -948,15 +1028,33 @@ func (s *Server) hAudit(w http.ResponseWriter, r *http.Request, sess *session) {
 			out = append(out, e)
 		}
 	}
-	var agentAudit []api.AuditEntry
-	if _, err := s.agent.Do(r.Context(), "GET", "/v1/audit", url.Values{"limit": {"200"}}, nil, &agentAudit); err == nil {
-		for _, a := range agentAudit {
-			out = append(out, entry{AuditEntry: a, Source: "agent"})
+	rows.Close()
+	machines, _ := s.machines()
+	if len(machines) == 0 {
+		machines = []machine{{Kind: localKind, agent: s.agent}}
+	}
+	audits := make([][]api.AuditEntry, len(machines))
+	var wg sync.WaitGroup
+	for i, m := range machines {
+		wg.Go(func() {
+			ctx, cancel := context.WithTimeout(r.Context(), machineTimeout)
+			defer cancel()
+			m.agent.Do(ctx, "GET", "/v1/audit", url.Values{"limit": {"200"}}, nil, &audits[i])
+		})
+	}
+	wg.Wait()
+	for i, m := range machines {
+		for _, a := range audits[i] {
+			out = append(out, entry{AuditEntry: a, Source: "agent", MachineID: m.ID})
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].TS.After(out[j].TS) })
 	if len(out) > 300 {
 		out = out[:300]
+	}
+	names := s.actorNames()
+	for i := range out {
+		out[i].ActorKind, out[i].ActorName = actorInfo(out[i].Actor, names)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -974,12 +1072,8 @@ func agentPath(pattern string, r *http.Request) string {
 }
 
 func (s *Server) agentFailure(w http.ResponseWriter, err error) {
-	var ae *agentclient.Error
-	if errors.As(err, &ae) {
-		writeJSON(w, ae.Status, ae.Body)
-		return
-	}
-	writeErr(w, http.StatusServiceUnavailable, api.CodeAgentUnavailable, "The Playkeeper agent is not running, so the server cannot be seen or controlled right now.", "On the server, check: sudo systemctl status playkeeper-agent")
+	status, body := failureOf(err)
+	writeJSON(w, status, body)
 }
 
 // target is the machine a request goes to: the one named by {mid}, or the
@@ -993,8 +1087,16 @@ func (s *Server) target(w http.ResponseWriter, r *http.Request) (machine, bool) 
 		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid server id.", "")
 		return machine{}, false
 	}
-	m, err := s.machineForServer(r, id)
-	if err != nil {
+	m, err := s.machineForServer(id)
+	switch {
+	case errors.Is(err, errDisputed):
+		writeErr(w, http.StatusConflict, codeServerDisputed, "Two machines say they run this server, so the dashboard sends its requests to neither.",
+			"Remove the machine that shouldn't list it in Settings › Machines.")
+		return machine{}, false
+	case errors.Is(err, errServerMachine):
+		s.agentFailure(w, err)
+		return machine{}, false
+	case err != nil:
 		writeErr(w, http.StatusNotFound, api.CodeNotFound, "Server not found.", "")
 		return machine{}, false
 	}
@@ -1014,25 +1116,69 @@ func (s *Server) machineProxy(method, pattern string) func(http.ResponseWriter, 
 // it is a public IP address: behind NAT that address is on no network
 // interface, and an own domain's A record needs it.
 func (s *Server) addressProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
-	return s.forwardTo(method, pattern, true)
+	return s.forwardTo(method, pattern, true, nil)
+}
+
+// dashboardAddress refuses to give a joined machine a free name or an own
+// domain, or to keep one: they stay with the dashboard's machine, and a
+// joined machine's servers join at its IP and port. Letting one go works.
+func (s *Server) dashboardAddress(next func(http.ResponseWriter, *http.Request, *session)) func(http.ResponseWriter, *http.Request, *session) {
+	return func(w http.ResponseWriter, r *http.Request, sess *session) {
+		m, ok := s.machineFromPath(w, r)
+		if !ok {
+			return
+		}
+		if m.Kind == remoteKind {
+			writeErr(w, http.StatusConflict, api.CodeConflict, "Free names and own domains are for the dashboard's machine.",
+				"Players join "+m.Name+"'s servers at its IP address and each server's port.")
+			return
+		}
+		next(w, r, sess)
+	}
+}
+
+// claimCreatedBy records the server a machine route just created on a
+// joined machine.
+func (s *Server) claimCreatedBy(m machine, _ *session, raw json.RawMessage) { s.claimCreated(m, raw) }
+
+// recordUpdate puts a dashboard-started update in a joined machine's events.
+func (s *Server) recordUpdate(m machine, sess *session, _ json.RawMessage) {
+	if m.Kind == remoteKind {
+		s.machineEvent(m.ID, s.now(), "machine.update", sess.User.Username, "", "")
+	}
 }
 
 // forward sends the request to its machine's agent. GETs pass the query on;
 // JSON bodies get the signed-in account stamped as actor (the agent checks
 // every field and rejects unknown ones); DELETEs pass the actor in the query.
+// Machine links read the actor from the request's context.
 func (s *Server) forward(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
-	return s.forwardTo(method, pattern, false)
+	return s.forwardTo(method, pattern, false, nil)
 }
 
-// forwardTo is forward, also stamping panelHost when withHost is set. What
-// the panel stamps replaces anything the browser sent under the same name.
-func (s *Server) forwardTo(method, pattern string, withHost bool) func(http.ResponseWriter, *http.Request, *session) {
+// forwardThen is forward, then calls then with the answer of a request that
+// succeeded.
+func (s *Server) forwardThen(method, pattern string, then func(machine, *session, json.RawMessage)) func(http.ResponseWriter, *http.Request, *session) {
+	return s.forwardTo(method, pattern, false, then)
+}
+
+// forwardTo is forward, also stamping panelHost when withHost is set and
+// calling then (if set) after a request that succeeded. What the panel stamps
+// replaces anything the browser sent under the same name.
+func (s *Server) forwardTo(method, pattern string, withHost bool, then func(machine, *session, json.RawMessage)) func(http.ResponseWriter, *http.Request, *session) {
 	return func(w http.ResponseWriter, r *http.Request, sess *session) {
 		m, ok := s.target(w, r)
 		if !ok {
 			return
 		}
+		ctx := machinelink.WithActor(r.Context(), sess.User.Username)
 		path := agentPath(pattern, r)
+		// The host the dashboard was opened with is its own machine's
+		// address: a joined machine would point its name at the dashboard.
+		host := ""
+		if withHost && m.Kind != remoteKind {
+			host = r.Host
+		}
 		var raw json.RawMessage
 		var status int
 		var err error
@@ -1040,11 +1186,14 @@ func (s *Server) forwardTo(method, pattern string, withHost bool) func(http.Resp
 		case "GET":
 			q := r.URL.Query()
 			if withHost {
-				q.Set("panelHost", r.Host)
+				q.Del("panelHost")
+				if host != "" {
+					q.Set("panelHost", host)
+				}
 			}
-			status, err = m.agent.Do(r.Context(), "GET", path, q, nil, &raw)
+			status, err = m.agent.Do(ctx, "GET", path, q, nil, &raw)
 		case "DELETE":
-			status, err = m.agent.Do(r.Context(), "DELETE", path, url.Values{"actor": {sess.User.Username}}, nil, &raw)
+			status, err = m.agent.Do(ctx, "DELETE", path, url.Values{"actor": {sess.User.Username}}, nil, &raw)
 		default:
 			body := map[string]any{}
 			b, rerr := io.ReadAll(io.LimitReader(r.Body, 64<<10))
@@ -1059,14 +1208,20 @@ func (s *Server) forwardTo(method, pattern string, withHost bool) func(http.Resp
 				}
 			}
 			if withHost {
-				body["panelHost"] = r.Host
+				delete(body, "panelHost")
+				if host != "" {
+					body["panelHost"] = host
+				}
 			}
 			body["actor"] = sess.User.Username
-			status, err = m.agent.Do(r.Context(), method, path, nil, body, &raw)
+			status, err = m.agent.Do(ctx, method, path, nil, body, &raw)
 		}
 		if err != nil {
 			s.agentFailure(w, err)
 			return
+		}
+		if then != nil {
+			then(m, sess, raw)
 		}
 		if status == http.StatusNoContent || len(raw) == 0 {
 			w.WriteHeader(status)
@@ -1085,16 +1240,64 @@ func (s *Server) hServerActivity(w http.ResponseWriter, r *http.Request, _ *sess
 	if l := r.URL.Query().Get("limit"); l != "" {
 		q.Set("limit", l)
 	}
-	var raw json.RawMessage
-	status, err := m.agent.Do(r.Context(), "GET", "/v1/activity", q, nil, &raw)
+	s.activity(w, r, m, q)
+}
+
+// withActorNames is an activity feed as the dashboard reads it, with the
+// names of the tokens and command-line accounts that acted.
+func (s *Server) withActorNames(list []api.Activity) []map[string]any {
+	names := s.actorNames()
+	out := make([]map[string]any, 0, len(list))
+	for _, a := range list {
+		raw, err := json.Marshal(a)
+		var e map[string]any
+		if err != nil || json.Unmarshal(raw, &e) != nil {
+			continue
+		}
+		if kind, name := actorInfo(a.Actor, names); kind != "" {
+			e["actorKind"], e["actorName"] = kind, name
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// activity relays a machine's activity feed, with the names of the tokens
+// and command-line accounts that acted.
+func (s *Server) activity(w http.ResponseWriter, r *http.Request, m machine, q url.Values) {
+	var list []map[string]any
+	status, err := m.agent.Do(r.Context(), "GET", "/v1/activity", q, nil, &list)
 	if err != nil {
 		s.agentFailure(w, err)
 		return
 	}
-	writeJSON(w, status, raw)
+	names := s.actorNames()
+	for _, e := range list {
+		actor, _ := e["actor"].(string)
+		if kind, name := actorInfo(actor, names); kind != "" {
+			e["actorKind"], e["actorName"] = kind, name
+		}
+	}
+	if list == nil {
+		list = []map[string]any{}
+	}
+	writeJSON(w, status, list)
 }
 
+var (
+	reFileWord = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	reSHA256   = regexp.MustCompile(`^[0-9a-f]{64}$`)
+)
+
+// hDownload streams a backup archive as a download the panel describes
+// itself. A joined machine chooses the bytes but not their type or name,
+// so nothing it sends can render on the panel's origin.
 func (s *Server) hDownload(w http.ResponseWriter, r *http.Request, sess *session) {
+	bid := r.PathValue("bid")
+	if !reFileWord.MatchString(bid) {
+		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid backup id.", "")
+		return
+	}
 	m, ok := s.target(w, r)
 	if !ok {
 		return
@@ -1106,19 +1309,45 @@ func (s *Server) hDownload(w http.ResponseWriter, r *http.Request, sess *session
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+		s.agentFailure(w, agentclient.DecodeError(resp))
 		return
 	}
-	for _, h := range []string{"Content-Type", "Content-Disposition", "Content-Length", "X-Playkeeper-SHA256"} {
-		if v := resp.Header.Get(h); v != "" {
-			w.Header().Set(h, v)
-		}
+	if resp.StatusCode != http.StatusOK {
+		s.agentFailure(w, agentclient.ErrBadAnswer)
+		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
+	h := w.Header()
+	h.Set("Content-Type", "application/octet-stream")
+	h.Set("Content-Disposition", `attachment; filename="`+backupFileName(bid, resp.Header.Get("Content-Disposition"))+`"`)
+	h.Set("Content-Security-Policy", "sandbox")
+	if resp.ContentLength >= 0 {
+		h.Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
+	}
+	if sum := resp.Header.Get("X-Playkeeper-SHA256"); reSHA256.MatchString(sum) {
+		h.Set("X-Playkeeper-SHA256", sum)
+	}
+	h.Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	io.Copy(w, resp.Body)
+}
+
+// backupFileName is the name a backup downloads as: the agent's
+// playkeeper-<world>-<id>.tar.gz when the machine's name has exactly that
+// shape for the id asked for, and playkeeper-<id>.tar.gz otherwise.
+func backupFileName(bid, disposition string) string {
+	name := "playkeeper-" + bid + ".tar.gz"
+	_, params, err := mime.ParseMediaType(disposition)
+	if err != nil {
+		return name
+	}
+	world, ok := strings.CutPrefix(params["filename"], "playkeeper-")
+	if !ok {
+		return name
+	}
+	if world, ok = strings.CutSuffix(world, "-"+bid+".tar.gz"); !ok || !reFileWord.MatchString(world) {
+		return name
+	}
+	return params["filename"]
 }
 
 // rawGet streams a non-JSON agent response of the given type (an image).
@@ -1135,9 +1364,11 @@ func (s *Server) rawGet(pattern, contentType string) func(http.ResponseWriter, *
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode >= 400 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(resp.StatusCode)
-			io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+			s.agentFailure(w, agentclient.DecodeError(resp))
+			return
+		}
+		if resp.StatusCode != http.StatusOK {
+			s.agentFailure(w, agentclient.ErrBadAnswer)
 			return
 		}
 		w.Header().Set("Content-Type", contentType)
@@ -1172,10 +1403,21 @@ func (s *Server) relayUpload(w http.ResponseWriter, r *http.Request, m machine, 
 		return
 	}
 	defer resp.Body.Close()
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode >= 400 {
+		s.agentFailure(w, agentclient.DecodeError(resp))
+		return
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	switch {
+	case err != nil || resp.StatusCode < 200 || resp.StatusCode > 299:
+		s.agentFailure(w, agentclient.ErrBadAnswer)
+	case len(bytes.TrimSpace(b)) == 0:
+		w.WriteHeader(resp.StatusCode)
+	case !json.Valid(b):
+		s.agentFailure(w, agentclient.ErrBadAnswer)
+	default:
+		writeJSON(w, resp.StatusCode, json.RawMessage(b))
+	}
 }
 
 // --- UI ---
@@ -1268,24 +1510,18 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	return s.serve(ctx, ln, tc)
 }
 
-// serve answers on ln until ctx ends: HTTPS for the panel, and plain HTTP
-// for players' games, which refuse the panel's self-signed certificate.
+// serve answers on ln until ctx ends: HTTPS for the panel and joined
+// machines' links, and plain HTTP for players' games, which refuse the
+// panel's self-signed certificate.
 func (s *Server) serve(ctx context.Context, ln net.Listener, tc *tls.Config) error {
 	split := portshare.Split(ln, portshare.Options{})
 	defer split.Close()
-	errLog := slog.NewLogLogger(s.log.Handler(), slog.LevelDebug)
-	secure := &http.Server{
-		Handler:           s.Handler(),
-		TLSConfig:         tc,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       2 * time.Minute,
-		ErrorLog:          errLog,
-	}
+	secure := s.httpServer(ln.Addr().String(), tc)
 	plain := &http.Server{
 		Handler:           s.plainHandler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
-		ErrorLog:          errLog,
+		ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelDebug),
 	}
 	errc := make(chan error, 2)
 	go func() { errc <- secure.ServeTLS(split.TLS(), "", "") }()
@@ -1303,6 +1539,29 @@ func (s *Server) serve(ctx context.Context, ln net.Listener, tc *tls.Config) err
 		return nil
 	}
 	return err
+}
+
+// httpServer is the panel's HTTPS server. With machine links on, machines
+// share its port: TLS hands connections that offer the link's ALPN to the
+// hub, and browsers keep HTTP/2.
+func (s *Server) httpServer(addr string, tc *tls.Config) *http.Server {
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           s.Handler(),
+		TLSConfig:         tc,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelDebug),
+	}
+	if s.hub != nil {
+		srv.TLSConfig = s.hub.ShareTLS(tc)
+		srv.TLSNextProto = map[string]func(*http.Server, *tls.Conn, http.Handler){machinelink.ALPN: s.hub.HandleTLSNextProto}
+		srv.Protocols = new(http.Protocols)
+		srv.Protocols.SetHTTP1(true)
+		srv.Protocols.SetHTTP2(true)
+		srv.RegisterOnShutdown(func() { s.hub.Close() })
+	}
+	return srv
 }
 
 // plainHandler answers plain HTTP on the panel's port: resource pack

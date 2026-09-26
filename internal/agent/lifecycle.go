@@ -188,7 +188,7 @@ func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opH
 	if op.Detail == nil {
 		op.Detail = map[string]any{}
 	}
-	kind, actor := op.Kind, op.Actor
+	kind := op.Kind
 	ctx, cancel := context.WithTimeout(s.ctx, 45*time.Minute)
 	h := &opHandle{save: s.saveOperation, op: op, mu: func() func() { s.opMu.Lock(); return s.opMu.Unlock }, cancel: cancel}
 	s.opMu.Lock()
@@ -206,10 +206,7 @@ func (s *server) launchOp(op *api.Operation, fn func(ctx context.Context, h *opH
 		done := finishOp(op, h, err, s.now().UTC())
 		s.op, s.opH = nil, nil
 		s.opMu.Unlock()
-		s.saveOperation(&done)
-		if done.Status != api.OpRunning {
-			s.audit(actor, kind, "server", done.Status, done.Error)
-		}
+		s.finishOperation(s.id, "server", &done)
 		if kind == "backup" && done.Status == api.OpFailed {
 			s.alert(discord.BackupFailed(done.Error))
 		}
@@ -426,14 +423,14 @@ func (a *Agent) ensureNetwork(ctx context.Context) error {
 	return nil
 }
 
-func (s *server) ensureDirs() error {
+// ensureDirs makes the server's folders. then is what to do once the world
+// folder is back, for the refusal while a restore left it missing.
+func (s *server) ensureDirs(then string) error {
 	data := s.dataDir()
 	// A server started without its world directory generates a new world, so
 	// never recreate one a restore moved aside and could not put back.
-	if _, err := os.Stat(data); errors.Is(err, os.ErrNotExist) {
-		if prev := s.newestPreviousWorld(); prev != "" {
-			return &apiError{Msg: "The world folder is missing because a restore did not finish; the previous world is at " + prev + ".", Hint: "Move that folder back to " + data + ", then press Start."}
-		}
+	if m := s.worldMissing(); m != nil {
+		return errWorldMissing(m, then)
 	}
 	if err := os.MkdirAll(data, 0o750); err != nil {
 		return err
@@ -657,7 +654,12 @@ func lastNonEmpty(lines []string) string {
 func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConfig) (err error) {
 	pastFiles := false
 	defer func() { s.noteRefusal(err, pastFiles) }()
-	if err := s.ensureDirs(); err != nil {
+	if err := s.ensureDirs("press Start"); err != nil {
+		markRestoreRefusal(h, err)
+		return err
+	}
+	if err := s.startRefusal(h); err != nil {
+		markRestoreRefusal(h, err)
 		return err
 	}
 	if err := s.ensureOriginalSaved(h, sc); err != nil {
@@ -755,12 +757,12 @@ func classifyStartError(err error, port int) error {
 
 func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 	deadline := s.now().Add(s.opts.ReadyTimeout)
-	t := time.NewTicker(500 * time.Millisecond)
+	t := time.NewTicker(s.opts.ReadyPoll)
 	defer t.Stop()
 	reported := ""
 	for {
 		s.mu.Lock()
-		phase, lastErr, hint := s.runPhase, s.lastError, s.lastErrorHint
+		phase, lastErr, hint, gaveUp := s.runPhase, s.lastError, s.lastErrorHint, s.crashLineAt
 		s.mu.Unlock()
 		if phase == api.PhaseOnline {
 			h.phase(string(api.PhaseOnline))
@@ -771,6 +773,15 @@ func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 			h.phase(reported)
 		}
 		c, err := s.docker.ContainerInspect(ctx, id)
+		// Forge logs that the server failed to start when a mod fails in its
+		// setup, then keeps running without ever starting.
+		if err == nil && c.State.Running && !gaveUp.IsZero() && s.now().Sub(gaveUp) >= hungStartWait {
+			s.log.Warn("the server gave up starting but kept running; stopping it", "server", s.id)
+			if err := s.docker.ContainerStop(ctx, id, 10*time.Second); err != nil && !docker.IsNotFound(err) {
+				return s.dockerErr(err)
+			}
+			c, err = s.docker.ContainerInspect(ctx, id)
+		}
 		if err == nil && !c.State.Running {
 			// This start reports the exit; the reconcile loop must not count
 			// it a second time as a crash.
@@ -801,6 +812,10 @@ func (s *server) waitReady(ctx context.Context, h *opHandle, id string) error {
 		}
 	}
 }
+
+// hungStartWait is how long a start waits for a server that logged it gave
+// up to exit on its own; tests shorten it.
+var hungStartWait = 20 * time.Second
 
 // waitOnline waits until the server is online. startServer returns at once
 // for a container that was already running, which after an agent restart may
@@ -879,7 +894,7 @@ func (s *server) resetRun(p api.Phase) {
 	s.mu.Lock()
 	s.runPhase = p
 	s.runPhaseDetail = ""
-	s.sawStopping, s.sawCrash, s.sawOOM = false, false, false
+	s.sawStopping, s.sawCrash, s.sawOOM, s.crashLineAt = false, false, false, time.Time{}
 	s.lastError, s.lastErrorHint = "", ""
 	s.mu.Unlock()
 }
@@ -923,6 +938,7 @@ func (s *server) reconcile(ctx context.Context) {
 	if s.busy() {
 		return
 	}
+	s.settleWhenBack(ctx)
 	sc, err := s.serverConfig()
 	if err != nil || sc == nil {
 		return

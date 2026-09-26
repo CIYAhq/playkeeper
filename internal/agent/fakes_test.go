@@ -48,6 +48,9 @@ type fakeDocker struct {
 	// bootFailsOn names a Minecraft version whose server rewrites the world's
 	// level.dat, as an upgrade would, then exits while starting.
 	bootFailsOn string
+	// hangsAfterFailing makes servers log that a mod failed and the server
+	// failed to start, then keep running, as Forge does.
+	hangsAfterFailing bool
 	// target names the container addLog, crash and the like act on when
 	// there is more than one server.
 	target string
@@ -505,6 +508,12 @@ func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 		c.running, c.exitCode, c.finished = false, 1, time.Now().UTC()
 		close(c.wake)
 		c.wake = make(chan struct{})
+		return
+	}
+	if fd.hangsAfterFailing {
+		fd.log(c, "[12:00:00] [main/ERROR] [ne.mi.fm.DeferredWorkQueue/]: Mod 'waila' encountered an error in a deferred task:")
+		fd.log(c, "java.lang.NoSuchFieldError: Class net.minecraft.world.entity.EntityType does not have member field 'net.minecraft.world.entity.EntityType AREA_EFFECT_CLOUD'")
+		fd.log(c, "[12:00:00] [main/ERROR] [minecraft/Main]: Failed to start the minecraft server")
 		return
 	}
 	exit := fd.bootExit

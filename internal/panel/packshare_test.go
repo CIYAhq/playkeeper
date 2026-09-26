@@ -110,6 +110,30 @@ func TestFriendsPackPageGivesTheServersNamedAddress(t *testing.T) {
 	}
 }
 
+// A joined machine's servers join at its IP and port: its pack page gives the
+// IP the machine last called in from, not the host the page was opened at nor
+// a name the machine reports, since names stay with the dashboard's machine.
+func TestAJoinedMachinesPackPageGivesItsIPAndPort(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	e.replyStatus("GET", "/v1/packs/"+friendsToken, http.StatusNotFound, `{"error":"Pack not found.","code":"not_found"}`)
+	f := newFriendsAgent(t)
+	f.link.JoinAddress = "cobblemon.home.playkeeper.io"
+	e.joined(t, cookie, csrf, http.HandlerFunc(f.handler))
+	req, _ := http.NewRequest("GET", e.ts.URL+share.PathPrefix+friendsToken+"/page", nil)
+	req.Host = "panel.example.com"
+	r, err := e.ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	body, _ := io.ReadAll(r.Body)
+	var p share.Page
+	if r.StatusCode != http.StatusOK || json.Unmarshal(body, &p) != nil || p.Address != "127.0.0.1:25566" {
+		t.Fatalf("a joined machine's pack page: %d %s", r.StatusCode, body)
+	}
+}
+
 func TestFriendsPackPageIsPublicAndListsOnlyWhatFriendsGet(t *testing.T) {
 	f := newFriendsAgent(t)
 	logs := &syncBuffer{}

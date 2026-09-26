@@ -127,7 +127,7 @@ func TestProjectDecodesTheRealAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 	if p.ID != "fALzjamp" || p.License.ID != "GPL-3.0-only" || p.ServerSide != "optional" || p.Updated.Year() != 2026 ||
-		!reflect.DeepEqual(p.Environment, []string{"client_or_server_prefers_both"}) || len(p.Versions) != 4 {
+		!reflect.DeepEqual(p.Environment, []string{"client_or_server_prefers_both"}) || len(p.Versions) != 5 {
 		t.Errorf("project = %+v", p)
 	}
 	byID, err := c.Project(context.Background(), "fALzjamp")

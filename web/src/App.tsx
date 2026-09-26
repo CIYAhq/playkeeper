@@ -35,6 +35,7 @@ const HomePage = lazy(() => pages.home().then((m) => ({ default: m.HomePage })))
 const JoinPage = lazy(() => pages.join().then((m) => ({ default: m.JoinPage })))
 const LoginPage = lazy(() => pages.login().then((m) => ({ default: m.LoginPage })))
 const MachinePage = lazy(() => pages.machine().then((m) => ({ default: m.MachinePage })))
+const DashboardMachineOnly = lazy(() => pages.machine().then((m) => ({ default: m.DashboardMachineOnly })))
 const MachineSettingsPage = lazy(() => pages.machineSettings().then((m) => ({ default: m.MachineSettingsPage })))
 const MorePage = lazy(() => pages.more().then((m) => ({ default: m.MorePage })))
 const NewServerPage = lazy(() => pages.newServer().then((m) => ({ default: m.NewServerPage })))
@@ -224,23 +225,33 @@ function page(route: Route) {
     case 'join':
       return <HomePage />
     case 'new-server':
-      return <NewServerPage />
+      return <NewServerPage key={route.machine ?? ''} machine={route.machine} />
     case 'server':
       return <ServerPage slug={route.slug} tab={route.tab} sub={route.sub} page={route.page} />
     case 'player':
       return <ServerPage slug={route.slug} tab="players" player={route.player} />
     case 'machine':
-      return route.sub === 'disk' ? <DiskPage id={route.id} /> : <MachinePage id={route.id} />
+      return route.sub === 'disk' ? (
+        <DiskPage id={route.id} />
+      ) : (
+        <DashboardMachineOnly id={route.id}>
+          <MachinePage id={route.id} />
+        </DashboardMachineOnly>
+      )
     case 'machine-settings':
-      return <MachineSettingsPage id={route.id} />
+      return (
+        <DashboardMachineOnly id={route.id}>
+          <MachineSettingsPage id={route.id} />
+        </DashboardMachineOnly>
+      )
     case 'settings':
-      return <GlobalSettingsPage section="general" />
     case 'team':
-      return <GlobalSettingsPage section="team" />
     case 'addon-sources':
-      return <GlobalSettingsPage section="addon-sources" />
     case 'discord':
-      return <GlobalSettingsPage section="discord" />
+    case 'ai-agents':
+    case 'machines':
+    case 'machine-details':
+      return <GlobalSettingsPage page={route} />
     case 'account':
       return <AccountPage section={route.section} />
     case 'more':

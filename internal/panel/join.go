@@ -152,7 +152,7 @@ func (s *Server) joinServer(r *http.Request, serverID string) (invites.Server, m
 	case err != nil:
 		return invites.Server{}, machine{}, errJoinUnavailable
 	}
-	return s.inviteServer(r, st), m, nil
+	return s.inviteServer(r, m, st), m, nil
 }
 
 // serverRef is a server's id and name.

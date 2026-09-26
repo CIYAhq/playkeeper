@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { CheckIcon, CircleXIcon, CopyIcon, EllipsisIcon, HistoryIcon, InfoIcon, RotateCcwIcon, ShieldCheckIcon, Trash2Icon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
 import type { Backup, OffsiteCopy, OffsitePending, OffsiteView, Operation, RestorePreview, ServerStatus } from '@/api/types'
-import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
+import { errorText, machineApi, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { copyText, Spinner } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
@@ -100,12 +100,14 @@ const kindLabel = (kind: string) => (kind === 'manual' ? t('world.manual') : t('
 /** A backup that is only in the copies: it can be fetched back, checked again there or deleted there. */
 export function CopyRow({ server: s, row, state = 'staying', place, onRestore, onChanged }: { server: ServerStatus; row: Extract<StoredRow, { kind: 'there' }>; state?: Presence; place: string; onRestore: () => void; onChanged: () => void }) {
   const ws = useWorkspace()
+  const { offline } = useServerMachine(s)
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
   const c = row.copy
   const when = formatDay(c.createdAt)
   const path = `/offsite/copies/${encodeURIComponent(c.name)}`
-  const cantRun = whyNot(s, 'change', ws.stale)
+  const cantRun = whyNot(s, 'change', offline)
+  const cantRestore = whyNot(s, 'restore', offline)
   const cantDelete = can(ws.me, 'backups.copies.manage') ? cantRun : t('world.copyHoldersOnly', { place })
   const mayRestore = can(ws.me, 'backups.restore')
   const mayCheck = can(ws.me, 'backups.make')
@@ -148,7 +150,7 @@ export function CopyRow({ server: s, row, state = 'staying', place, onRestore, o
       <td className="px-3">
         <span className="flex items-center justify-end gap-1">
           {mayRestore && (
-            <Button size="sm" variant="outline" onClick={onRestore}>
+            <Button size="sm" variant="outline" disabledReason={cantRestore} onClick={onRestore}>
               <RotateCcwIcon />
               {t('world.restoreCopy')}
             </Button>
@@ -159,7 +161,7 @@ export function CopyRow({ server: s, row, state = 'staying', place, onRestore, o
             </MenuTrigger>
             <MenuPopup align="end" className="min-w-60">
               {mayRestore && (
-                <MenuItem onClick={onRestore} className="items-start py-1.5">
+                <MenuItem disabled={!!cantRestore} title={cantRestore} onClick={onRestore} className={cn('items-start py-1.5', cantRestore && 'data-disabled:pointer-events-auto')}>
                   <HistoryIcon className="mt-0.5" />
                   <span>
                     <span className="block">{t('world.restoreThis')}</span>
@@ -224,7 +226,7 @@ export function CopyRow({ server: s, row, state = 'staying', place, onRestore, o
  * is never missed; the top bar's job pill covers the rest.
  */
 export function useCopyRestore(s: ServerStatus, onStaged: (p: RestorePreview) => void) {
-  const ws = useWorkspace()
+  const { machine } = useServerMachine(s)
   const [job, setJob] = useState<Operation>()
   const [started, setStarted] = useState<{ id: string; name: string }>()
   const [hidden, setHidden] = useState<string>()
@@ -245,7 +247,7 @@ export function useCopyRestore(s: ServerStatus, onStaged: (p: RestorePreview) =>
   const name = typeof op?.detail?.name === 'string' ? op.detail.name : started && started.id === op?.id ? started.name : undefined
   const open = !!op && hidden !== `${op.id}:${op.status}`
   const restoreId = op?.status === 'succeeded' && typeof op.detail?.restoreId === 'string' ? op.detail.restoreId : undefined
-  const mid = ws.machine?.id
+  const mid = machine?.id
 
   useEffect(() => {
     if (back) navigate(window.location.pathname, true)

@@ -431,6 +431,31 @@ func (e *agentEnv) countRows(q string, args ...any) int {
 	return n
 }
 
+// Whoever sees an operation finished finds it audited: its audit entry is
+// stored with its end, and first. The trigger notes every operation that
+// was stored as finished while its audit entry was missing.
+func TestAFinishedOperationIsAlreadyAudited(t *testing.T) {
+	e := newAgentEnv(t)
+	for _, q := range []string{
+		`CREATE TABLE unaudited(id TEXT)`,
+		`CREATE TRIGGER finished_unaudited AFTER UPDATE OF status ON operations
+			WHEN NEW.status != 'running' AND NOT EXISTS (
+				SELECT 1 FROM audit WHERE action = NEW.kind AND result = NEW.status AND server_id = NEW.server_id)
+			BEGIN INSERT INTO unaudited VALUES (NEW.id); END`,
+	} {
+		if _, err := e.a.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.create()
+	if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE status != 'running'`); n == 0 {
+		t.Fatal("no operation finished")
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM unaudited`); n != 0 {
+		t.Fatalf("%d operations were stored as finished before their audit entry", n)
+	}
+}
+
 func TestEULAGateRefusesAndDownloadsNothing(t *testing.T) {
 	e := newAgentEnv(t)
 	code, out := e.call("POST", "/v1/servers", map[string]any{"acceptEula": false, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin"})
@@ -1866,6 +1891,35 @@ func TestFailedRestoreDeletesItsStageAndStartPrunesLeftovers(t *testing.T) {
 	if left, _ := os.ReadDir(e.cfg.StagingDir()); len(left) != 0 {
 		t.Fatalf("stages from before the agent started were not pruned: %v", left)
 	}
+}
+
+// A restore preview says once that its backup was made on this host,
+// however often it is read again, whether it came from a backup here or
+// from an uploaded archive.
+func TestRestorePreviewSaysOnceTheBackupWasMadeHere(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	readTwice := func(id, want string) {
+		t.Helper()
+		for range 2 {
+			if code, p := e.call("GET", "/v1/restore/"+id, nil); code != 200 || p["source"] != want {
+				t.Fatalf("preview %s: %d, source %q, want %q", id, code, p["source"], want)
+			}
+		}
+	}
+	id, _ := e.backupAndStage()
+	list, _ := e.srv().listBackups(`kind = 'manual'`)
+	readTwice(id, "backup "+list[0].ID+" (made on this host)")
+
+	archive, err := os.ReadFile(filepath.Join(e.cfg.BackupsDir(), list[0].FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, uploaded := e.upload(archive)
+	if code != 200 || uploaded["source"] != "upload (made on this host)" {
+		t.Fatalf("upload: %d %v", code, uploaded)
+	}
+	readTwice(uploaded["id"].(string), "upload (made on this host)")
 }
 
 // When a restore fails after the swap and putting the previous world back

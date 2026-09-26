@@ -211,7 +211,7 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
   // Installs and updates wait for the server's current job; the line under
   // the button says which.
   const caption = (restart: boolean) => {
-    const text = op ? opLabel(op, a.server.name) : restart ? t('addons.loadsAfterRestart') : ''
+    const text = op ? opLabel(op, a.server) : restart ? t('addons.loadsAfterRestart') : ''
     return text ? <p className="text-center text-xs text-muted-foreground">{text}</p> : null
   }
 

@@ -3,11 +3,13 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -16,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/agent"
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/config"
 )
@@ -48,6 +51,11 @@ type fakeAgent struct {
 	statuses map[string]int
 	// headers are the last request headers by "METHOD /path".
 	headers map[string]http.Header
+	// lastBody is the last request body by "METHOD /path".
+	lastBody map[string]string
+	// gates hold requests to "METHOD /path" until closed, or until the
+	// request is cancelled.
+	gates map[string]chan struct{}
 }
 
 type agentRequest struct {
@@ -63,7 +71,7 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fa := &fakeAgent{replies: map[string]string{}, statuses: map[string]int{}, headers: map[string]http.Header{}}
+	fa := &fakeAgent{replies: map[string]string{}, statuses: map[string]int{}, headers: map[string]http.Header{}, lastBody: map[string]string{}, gates: map[string]chan struct{}{}}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		var body map[string]any
@@ -76,9 +84,18 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 		fa.bodies = append(fa.bodies, r.URL.RawQuery+string(raw))
 		fa.reqs = append(fa.reqs, agentRequest{r.Method, r.URL.Path, r.URL.Query(), body})
 		fa.headers[key] = r.Header.Clone()
+		fa.lastBody[key] = string(raw)
 		reply, ok := fa.replies[key]
 		status := fa.statuses[key]
+		gate := fa.gates[key]
 		fa.mu.Unlock()
+		if gate != nil {
+			select {
+			case <-gate:
+			case <-r.Context().Done():
+				return
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if !ok {
 			reply = `{"ok":true}`
@@ -99,6 +116,31 @@ type env struct {
 	clock *clock
 	agent *fakeAgent
 	cfg   config.Config
+	names *fakeResolver
+	logs  *syncBuffer
+}
+
+// fakeResolver answers name lookups from a map; unknown names don't exist.
+type fakeResolver struct {
+	mu    sync.Mutex
+	addrs map[string][]netip.Addr
+}
+
+func (f *fakeResolver) set(host string, addrs ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, a := range addrs {
+		f.addrs[host] = append(f.addrs[host], netip.MustParseAddr(a))
+	}
+}
+
+func (f *fakeResolver) lookup(_ context.Context, host string) ([]netip.Addr, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if a, ok := f.addrs[host]; ok {
+		return a, nil
+	}
+	return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
 }
 
 func newEnv(t *testing.T) *env {
@@ -110,13 +152,26 @@ func newEnv(t *testing.T) *env {
 // faces and name lookups at local fakes.
 func newEnvWith(t *testing.T, tweak func(*Options)) *env {
 	t.Helper()
+	return newEnvConfig(t, nil, tweak)
+}
+
+// newEnvConfig is newEnvWith with the install's configuration changed by
+// mod first.
+func newEnvConfig(t *testing.T, mod func(*config.Config), tweak func(*Options)) *env {
+	t.Helper()
 	dir := t.TempDir()
 	sock, fa := startFakeAgent(t, dir)
 	cfg := config.Default()
 	cfg.DataDir = filepath.Join(dir, "data")
 	cfg.SocketPath = sock
+	if mod != nil {
+		mod(&cfg)
+	}
 	clk := &clock{t: time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)}
-	opts := Options{Config: cfg, Now: clk.now, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Agent: agentclient.New(sock), IdleTimeout: time.Hour, AbsoluteTimeout: 24 * time.Hour}
+	names := &fakeResolver{addrs: map[string][]netip.Addr{}}
+	logs := &syncBuffer{}
+	opts := Options{Config: cfg, Now: clk.now, Logger: slog.New(slog.NewTextHandler(logs, nil)), Agent: agentclient.New(sock), IdleTimeout: time.Hour, AbsoluteTimeout: 24 * time.Hour,
+		LinkRoutes: agent.LinkRoutes(), LookupIP: names.lookup}
 	if tweak != nil {
 		tweak(&opts)
 		cfg = opts.Config
@@ -128,7 +183,7 @@ func newEnvWith(t *testing.T, tweak func(*Options)) *env {
 	t.Cleanup(func() { s.Close() })
 	ts := httptest.NewTLSServer(s.Handler())
 	t.Cleanup(ts.Close)
-	return &env{srv: s, ts: ts, clock: clk, agent: fa, cfg: cfg}
+	return &env{srv: s, ts: ts, clock: clk, agent: fa, cfg: cfg, names: names, logs: logs}
 }
 
 type resp struct {
@@ -207,7 +262,7 @@ const sampleCode = "AbCdEfGhJkMnPqRsTuVwXy"
 
 func samplePath(p string) string {
 	return strings.NewReplacer("{id}", sampleServer, "{mid}", "mnpqrstuvw", "{bid}", "20260924-120000-abcdef", "{rid}", "0123456789abcdef",
-		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{sid}", "qrstuvwxyz", "{source}", "modrinth", "{project}", "AANobbMI", "{version}", "TPV00001",
+		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{sid}", "qrstuvwxyz", "{cid}", "cdefghjkmn", "{tid}", "tokenidabc", "{source}", "modrinth", "{project}", "AANobbMI", "{version}", "TPV00001",
 		"{invite}", "qrstuvwxyz", "{request}", "zyxwvutsrq", "{uid}", "2", "{code}", sampleCode).Replace(p)
 }
 
@@ -578,4 +633,57 @@ func TestSelfSignedCertIsStable(t *testing.T) {
 		t.Fatalf("private key mode %v", st.Mode().Perm())
 	}
 	_ = context.Background()
+}
+
+func TestTheAuditLogKeepsAYearAndBoundedRows(t *testing.T) {
+	e := newEnv(t)
+	s := e.srv
+	actions := func() string {
+		rows, err := s.db.Query(`SELECT action FROM audit ORDER BY id`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var a string
+			rows.Scan(&a)
+			out = append(out, a)
+		}
+		return strings.Join(out, " ")
+	}
+	s.maxAudit = 4
+	s.audit("admin", "old", "", "succeeded", "")
+	e.clock.add(366 * 24 * time.Hour)
+	for i := range 6 {
+		s.audit("admin", fmt.Sprint("a", i), "", "succeeded", "")
+	}
+	s.pruneAudit()
+	if got := actions(); got != "a2 a3 a4 a5" {
+		t.Fatalf("kept %q", got)
+	}
+
+	// Writing prunes every pruneAuditEvery rows.
+	for range pruneAuditEvery - int(s.audits.Load()%pruneAuditEvery) {
+		s.audit("admin", "flood", "", "refused", "")
+	}
+	if got := actions(); got != "flood flood flood flood" {
+		t.Fatalf("after a flood: %q", got)
+	}
+
+	// Opening the database prunes too.
+	s.maxAudit = 100_000
+	s.audit("admin", "b", "", "succeeded", "")
+	e.clock.add(366 * 24 * time.Hour)
+	s.Close()
+	again, err := New(Options{Config: e.cfg, Now: e.clock.now, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Agent: agentclient.New(e.cfg.SocketPath)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	var n int
+	again.db.QueryRow(`SELECT COUNT(*) FROM audit`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("a year later %d rows are left", n)
+	}
 }

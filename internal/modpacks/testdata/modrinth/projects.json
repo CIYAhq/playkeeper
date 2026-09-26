@@ -367,5 +367,58 @@
     "color": 8375147,
     "thread_id": "ch7UHY2J",
     "monetization_status": "monetized"
+  },
+  {
+    "client_side": "required",
+    "server_side": "optional",
+    "game_versions": [
+      "1.21.11"
+    ],
+    "environment": [
+      "client_only_server_optional"
+    ],
+    "id": "UiL974Yk",
+    "slug": "the-respect-my-rights-modpack",
+    "project_type": "modpack",
+    "team": "tA7HtVYV",
+    "organization": null,
+    "title": "The Respect My Rights Modpack",
+    "description": "Companies and governments continue to insist that our rights as humans don't matter. Mojang has recently followed this trend thanks to the UK government's \"\"\"Online Safety Act\"\"\" This modpack includes mods that give you your rights (and performance) back.",
+    "body_url": null,
+    "published": "2026-02-20T05:35:39.161436Z",
+    "updated": "2026-02-20T06:06:03.376317Z",
+    "approved": "2026-03-17T19:09:12.596029Z",
+    "queued": "2026-02-20T06:10:53.442070Z",
+    "status": "approved",
+    "requested_status": "approved",
+    "moderator_message": null,
+    "license": {
+      "id": "Apache-2.0",
+      "name": "Apache License 2.0",
+      "url": null
+    },
+    "downloads": 88,
+    "followers": 0,
+    "categories": [
+      "lightweight",
+      "optimization"
+    ],
+    "additional_categories": [],
+    "loaders": [
+      "forge"
+    ],
+    "versions": [
+      "orK5UWpS"
+    ],
+    "icon_url": "https://cdn.modrinth.com/data/UiL974Yk/a7710d5884e7d534e25988bf8cb8f3a04e6517ac_96.webp",
+    "raw_icon_url": "https://cdn.modrinth.com/data/UiL974Yk/a7710d5884e7d534e25988bf8cb8f3a04e6517ac.png",
+    "issues_url": null,
+    "source_url": null,
+    "wiki_url": null,
+    "discord_url": null,
+    "donation_urls": [],
+    "color": 8158332,
+    "thread_id": "d02jhLjB",
+    "monetization_status": "monetized"
   }
 ]

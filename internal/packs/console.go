@@ -150,7 +150,7 @@ func (c Console) prefix() (string, error) {
 	switch c.ServerType {
 	case "paper", "purpur":
 		return "minecraft:", nil
-	case "vanilla", "fabric", "quilt", "neoforge":
+	case "vanilla", "fabric", "quilt", "neoforge", "forge":
 		return "", nil
 	}
 	what := "this server"

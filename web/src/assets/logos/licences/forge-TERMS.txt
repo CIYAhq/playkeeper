@@ -1,0 +1,16 @@
+Forge logo: how Playkeeper uses it
+
+Source: https://files.minecraftforge.net/static/images/apple-touch-icon.png
+(Forge's own website; fetched 26 Sep 2026, 180 x 180 px, last modified
+20 Apr 2021, SHA-256
+ee51461b4dca5203d4e23d124abd0434700a4463d6022f481d27e7c0dbe0c594)
+
+Forge logo, Forge Development LLC, used to identify the server software;
+removed on request.
+
+Forge publishes no terms for its logo. Playkeeper shows the file unaltered,
+in its server type picker and next to servers that run Forge, only to name
+the Forge server software. It implies no endorsement by Forge Development
+LLC. The logo remains Forge Development LLC's and is not covered by
+Playkeeper's licence. Ask at https://github.com/CIYAhq/playkeeper/issues to
+have it removed.

@@ -68,7 +68,7 @@ func TestRestoreInterruptedUnder030IsRecovered(t *testing.T) {
 			err: "The Playkeeper agent stopped before the restored world's settings were saved." + runningAgain},
 		{name: "dies with the restored settings saved", step: "settings_saved", kept: true},
 		{name: "dies with the restored settings saved, and the restored world does not start", step: "settings_saved", failsAfter: true, failedCopy: true,
-			err: "The restored world did not start (The server stopped while starting (exit code 1)."},
+			err: "The restored world did not start (The server stopped while starting (exit code 1))."},
 		{name: "dies while deleting the previous world's copy", step: "removing_aside", kept: true},
 		{name: "dies while putting the previous world back", step: "reverting_moved", failsUnder030: true, failedCopy: true,
 			err: "The restored world did not start, and the Playkeeper agent stopped while the previous world was being put back." + runningAgain},
