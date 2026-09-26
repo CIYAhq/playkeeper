@@ -101,7 +101,7 @@ export function MemoryCrashNotice({ server: s, crash: c, onDismiss, className }:
       className={className}
       title={t('overview.memoryCrash', { server: s.name, time })}
       action={
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-2 max-sm:basis-full">
           {fix && (
             <Button variant="outline" size="sm" loading={busy} disabledReason={whyNot(s, 'restart', ws.stale)} onClick={apply}>
               <MemoryStickIcon />
