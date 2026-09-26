@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Addon, AddonBrowse, AddonCard, AddonChecks, AddonDetails, AddonPlan, AddonRemovePreview, AddonStep, Addons, MachineView, Me, Operation, ServerConfig, ServerStatus } from '@/api/types'
+import type { Addon, AddonBrowse, AddonCard, AddonChecks, AddonDetails, AddonPlan, AddonRemovePreview, AddonStep, Addons, MachineView, Me, Operation, PackShare, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import type { ServerSub } from '@/lib/router'
 import { PluginsPage } from '.'
@@ -134,6 +134,21 @@ const updated = [
   { source: 'modrinth', projectId: 'coreprotect' },
 ]
 const updatePlan: AddonPlan = { steps: [step('Chunky', '1.4.40', '1.4.36'), step('CoreProtect', '23.2', '23.1')], manual: [], blockers: [], warnings: [], ready: true, fingerprint: 'fp1' }
+
+const packShare: PackShare = {
+  public: false,
+  file: 'survival.mrpack',
+  size: 2048,
+  loaderName: 'Fabric',
+  share: {
+    server: 'Survival',
+    type: 'fabric',
+    minecraftVersion: '26.1.2',
+    loaderVersion: '0.17.2',
+    notice: { key: 'share.notice.one', params: { mod: 'Waystones' }, text: 'Friends need Waystones' },
+    mods: [],
+  },
+}
 
 let root: Root | undefined
 
@@ -335,6 +350,40 @@ describe('Plugins tab', () => {
     const text = await render(server({ type: 'fabric' }), 'mods')
     expect(text).toContain('No mods yet')
     expect(text).toContain('Browse mods')
+  })
+
+  it('offers Share with friends above a mod server’s mods, on desktop and phone', async () => {
+    answer([
+      ['/mods/share', packShare],
+      ['/addons/checks', checks],
+      ['/addons', { ...installed, target: { ...target, kind: 'mod', folder: 'mods' } }],
+    ])
+    let text = await render(server({ type: 'fabric' }), 'mods')
+    expect(text).toContain('Friends need Waystones')
+    expect(text).toContain('Send them one link to set it all up.')
+    expect(text.indexOf('Friends need Waystones')).toBeLessThan(text.indexOf('Mods on Survival'))
+    expect(button('Share with friends').tagName).toBe('BUTTON')
+
+    await act(async () => root?.unmount())
+    const media = vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) => ({ matches: query.includes('max-width: 639px'), media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList,
+    )
+    text = await render(server({ type: 'fabric' }), 'mods')
+    media.mockRestore()
+    expect(text).toContain('Send them one link.')
+    expect(button('Share with friends').tagName).toBe('BUTTON')
+  })
+
+  it('doesn’t offer Share with friends on a plugin server', async () => {
+    answer([
+      ['/mods/share', packShare],
+      ['/addons/checks', checks],
+      ['/addons', installed],
+    ])
+    const text = await render(server())
+    expect(text).toContain('Plugins on Survival')
+    expect(text).not.toContain('Share with friends')
+    expect(vi.mocked(client.get).mock.calls.some(([path]) => String(path).includes('/mods/share'))).toBe(false)
   })
 
   it('shows an installed add-on’s details with Update and Remove', async () => {

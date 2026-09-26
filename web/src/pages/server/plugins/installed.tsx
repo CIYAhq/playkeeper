@@ -4,6 +4,7 @@ import { useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Marker, Notice, SectionLabel } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { PackShareNotice } from '@/components/app/pack-share'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -71,6 +72,7 @@ function DesktopList({ browse, browseLabel }: { browse: Route; browseLabel: stri
   const { updatable, restartLine, restart, updateAll, busy, busyOp } = useListActions()
   return (
     <section className="flex flex-col gap-4" aria-labelledby="addons-title">
+      {a.kind === 'mod' && <PackShareNotice server={a.server} />}
       <div className="flex flex-wrap items-center gap-2">
         <h2 id="addons-title" className="mr-auto text-lg font-bold tracking-[-0.01em]">
           {a.kind === 'mod' ? t('addons.titleMods', { server: a.server.name }) : t('addons.title', { server: a.server.name })}
@@ -268,6 +270,7 @@ function PhoneList({ browse, browseLabel }: { browse: Route; browseLabel: string
   const { updatable, restartLine, restart, updateAll, busy, busyOp } = useListActions()
   return (
     <div className="flex flex-col gap-4 pb-20">
+      {a.kind === 'mod' && <PackShareNotice server={a.server} />}
       {restartLine && (
         <div className={cn('flex items-center gap-3', motion.enter)} role="status">
           <p className="min-w-0 flex-1 text-[15px] leading-5 font-semibold">{restartLine}</p>
