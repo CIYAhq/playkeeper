@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -968,6 +969,108 @@ func TestStaleUploadsMakeWayForNewOnes(t *testing.T) {
 				if forgotten := c.want == 201; exists(filepath.Join(e.cfg.StagingDir(), "import-"+imp)) == forgotten {
 					t.Fatalf("upload %s idle for %s: forgotten is %v, but its files say otherwise", imp, c.idle, forgotten)
 				}
+			}
+		})
+	}
+}
+
+// An imported world that did not start is swapped back out only once the
+// server has stopped: the imported world may still be running, and would
+// write into the previous one. When stopping it fails, or the agent itself
+// is stopping, nothing moves back, and the error says where both worlds are.
+func TestAnImportedWorldMovesBackOnlyOnceTheServerStopped(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		// start makes the imported world's start fail, with ready closed
+		// once its container starts; after runs once the import has begun
+		// and returns the operation as it ended.
+		start func(e *agentEnv, ready chan struct{})
+		after func(e *agentEnv, op string, ready chan struct{}) *api.Operation
+		says  string
+	}{
+		{
+			name: "the start fails and so does the stop",
+			start: func(e *agentEnv, ready chan struct{}) {
+				e.fd.mu.Lock()
+				e.fd.bootExit = 1
+				e.fd.started = func(c *fakeContainer) {
+					// From here on Docker doesn't answer about the server by its name.
+					e.fd.mu.Lock()
+					e.fd.down = "/containers/" + c.name + "/json"
+					e.fd.mu.Unlock()
+				}
+				e.fd.mu.Unlock()
+			},
+			after: func(e *agentEnv, op string, _ chan struct{}) *api.Operation { return e.waitOp(op) },
+			says:  "Stopping it failed",
+		},
+		{
+			name: "the agent stops while the imported world starts",
+			start: func(e *agentEnv, ready chan struct{}) {
+				e.fd.mu.Lock()
+				e.fd.bootDelay = time.Minute
+				var once sync.Once
+				e.fd.started = func(*fakeContainer) { once.Do(func() { close(ready) }) }
+				e.fd.mu.Unlock()
+			},
+			after: func(e *agentEnv, op string, ready chan struct{}) *api.Operation {
+				select {
+				case <-ready:
+				case <-time.After(20 * time.Second):
+					e.t.Fatal("the imported world never started")
+				}
+				time.Sleep(200 * time.Millisecond)
+				e.stop()
+				e.fd.mu.Lock()
+				e.fd.bootDelay = 30 * time.Millisecond
+				e.fd.mu.Unlock()
+				e.start()
+				got, err := e.a.loadOperation(op)
+				if err != nil {
+					e.t.Fatal(err)
+				}
+				return got
+			},
+			says: "The Playkeeper agent stopped while the imported world was starting",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.create()
+			live := e.dataDir()
+			if err := os.WriteFile(filepath.Join(live, "world", "marker.txt"), []byte("nonce-before"), 0o640); err != nil {
+				t.Fatal(err)
+			}
+			archive, level := paperServerUpload(t)
+			imp := e.uploadWorld(e.sp("/world-imports"), "paper-server.zip", archive)
+			phrase := e.importPreview(imp, map[string]any{}).ConfirmPhrase
+			ready := make(chan struct{})
+			c.start(e, ready)
+			t.Cleanup(func() {
+				e.fd.mu.Lock()
+				e.fd.bootExit, e.fd.bootDelay, e.fd.started, e.fd.down = 0, 30*time.Millisecond, nil, ""
+				e.fd.mu.Unlock()
+			})
+			code, out := e.call("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
+			if code != 202 {
+				t.Fatalf("apply: %d %v", code, out)
+			}
+			op := c.after(e, out["id"].(string), ready)
+			aside, _ := filepath.Glob(live + ".import-aside-*")
+			if len(aside) != 1 {
+				t.Fatalf("the previous world's copy: %v", aside)
+			}
+			if op.Status != api.OpFailed || !strings.Contains(op.Error, c.says) || !strings.Contains(op.Error, live+" ") || !strings.Contains(op.Error, aside[0]) {
+				t.Fatalf("the import must fail naming where both worlds are: %+v", op)
+			}
+			if readFile(t, filepath.Join(live, "world", "level.dat")) != level {
+				t.Fatal("the imported world was moved out while it may still run")
+			}
+			if readFile(t, filepath.Join(aside[0], "world", "marker.txt")) != "nonce-before" {
+				t.Fatal("the previous world's copy changed")
+			}
+			if failed, _ := filepath.Glob(live + ".failed-import-*"); len(failed) != 0 {
+				t.Fatalf("the import was swapped back out: %v", failed)
 			}
 		})
 	}

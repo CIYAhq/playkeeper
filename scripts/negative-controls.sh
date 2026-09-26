@@ -2759,6 +2759,18 @@ control "the upload being added to is never forgotten as stale" internal/agent/w
   'stale := a.staleImports(a.now(), imp)' \
   'stale := a.staleImports(a.now(), nil)' \
   ./internal/agent '^TestStaleUploadsMakeWayForNewOnes$'
+control "an imported world moves back only once the server stopped" internal/agent/worldimports.go \
+  '	if err := s.stopServer(ctx, h); err != nil {
+		if s.stopping() {' \
+  '	if err := s.stopServer(ctx, h); false && err != nil {
+		if s.stopping() {' \
+  ./internal/agent '^TestAnImportedWorldMovesBackOnlyOnceTheServerStopped$'
+control "an import the agent stopped during says so" internal/agent/worldimports.go \
+  '		if s.stopping() {
+			return false, &apiError{' \
+  '		if false {
+			return false, &apiError{' \
+  ./internal/agent '^TestAnImportedWorldMovesBackOnlyOnceTheServerStopped$'
 webcontrol() { # NAME FILE FROM TO TEST-FILE
   local name=$1 file=$2 test=$5
   ln -sfn "$root/web/node_modules" web/node_modules

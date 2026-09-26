@@ -1491,17 +1491,9 @@ func (s *server) importWorldOp(ctx context.Context, h *opHandle, imp *worldImpor
 	}
 	_ = s.setDesired(api.DesiredRunning)
 	if startErr := s.startServer(ctx, h, sc); startErr != nil {
-		h.phase("reverting")
-		_ = s.stopServer(ctx, h)
-		if err := sw.undo(fmt.Errorf("the imported world did not start: %w", startErr)); err != nil {
-			return err
-		}
-		worldSafe = true
-		_ = s.saveServerConfig(*prev)
-		if err := s.startServer(ctx, h, *prev); err != nil {
-			return &apiError{Msg: "The imported world did not start (" + startErr.Error() + "). Your previous world was put back but did not start either: " + err.Error(), Hint: "Press Start on the Overview. The failed import was kept at " + sw.failedDir + " for inspection."}
-		}
-		return &apiError{Msg: "The imported world did not start (" + startErr.Error() + "). Your previous world was put back and is running.", Hint: "The failed import was kept at " + sw.failedDir + " for inspection."}
+		var err error
+		worldSafe, err = s.revertImport(h, sw, *prev, startErr)
+		return err
 	}
 	worldSafe = true
 	os.RemoveAll(sw.asideDir)
@@ -1512,4 +1504,39 @@ func (s *server) importWorldOp(ctx context.Context, h *opHandle, imp *worldImpor
 	}
 	s.importRecord(h, imp, p, actor, extra)
 	return nil
+}
+
+// revertImport puts the previous world back after the imported world did
+// not start, and starts it again, as revertRestore does for a restore. It
+// reports whether the previous world is back. It moves nothing while the
+// agent is stopping, or when stopping the server fails: the imported world
+// may still be running and would write into the previous one. Both copies
+// then stay where they are, and the error says where. It has its own time
+// limit, as the import's may be used up by then.
+func (s *server) revertImport(h *opHandle, sw *worldSwap, prev api.ServerConfig, startErr error) (bool, error) {
+	why := "The imported world did not start (" + startErr.Error() + ")."
+	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Minute)
+	defer cancel()
+	h.phase("reverting")
+	if err := s.stopServer(ctx, h); err != nil {
+		if s.stopping() {
+			return false, &apiError{
+				Msg:  "The Playkeeper agent stopped while the imported world was starting, so nothing was moved back: the imported world is in " + sw.live + " and the previous world at " + sw.asideDir + ".",
+				Hint: "Once the agent runs again, check the server. If the imported world is as it should be, delete " + sw.asideDir + ".",
+			}
+		}
+		return false, fmt.Errorf("%s Stopping it failed (%v), so nothing was moved: the imported world is in %s and the previous world at %s.", why, err, sw.live, sw.asideDir)
+	}
+	if err := sw.undo(fmt.Errorf("the imported world did not start: %w", startErr)); err != nil {
+		return false, err
+	}
+	_ = s.saveServerConfig(prev)
+	hint := "The failed import was kept at " + sw.failedDir + " for inspection."
+	if err := s.startServer(ctx, h, prev); err != nil {
+		if s.stopping() {
+			return true, &apiError{Msg: why + " Your previous world was put back and starts when the Playkeeper agent runs again.", Hint: hint}
+		}
+		return true, &apiError{Msg: why + " Your previous world was put back but did not start either: " + err.Error(), Hint: "Press Start on the Overview. " + hint}
+	}
+	return true, &apiError{Msg: why + " Your previous world was put back and is running.", Hint: hint}
 }
