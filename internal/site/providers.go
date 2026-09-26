@@ -34,12 +34,14 @@ func (p Provider) Fit(memoryGB, cores int) Plan {
 }
 
 // providers were picked for fast cores and many regions (docs/marketing,
-// plan.md). Their plans were checked on each provider's own pricing page;
-// see checkedProviders.
+// plan.md). Their plans and regions were checked on each provider's own
+// pricing page, or Vultr's public API, on checkedProviders: Hostinger's KVM
+// plans, DigitalOcean's Basic and General Purpose Droplets, Vultr's Cloud
+// Compute.
 var providers = []Provider{
 	{
 		Name:    "Hostinger",
-		Regions: "Many regions in Europe, the Americas and Asia",
+		Regions: "Regions in the Americas, Europe and Asia",
 		URL:     "https://www.hostinger.com/vps-hosting",
 		Plans: []Plan{
 			{"KVM 1", 1, 4}, {"KVM 2", 2, 8}, {"KVM 4", 4, 16}, {"KVM 8", 8, 32},
@@ -55,7 +57,7 @@ var providers = []Provider{
 	},
 	{
 		Name:    "Vultr",
-		Regions: "32 regions",
+		Regions: "Regions on six continents",
 		URL:     "https://www.vultr.com/pricing/",
 		Plans: []Plan{
 			{"Cloud Compute", 2, 4}, {"Cloud Compute", 4, 8}, {"Cloud Compute", 6, 16}, {"Cloud Compute", 8, 32},
