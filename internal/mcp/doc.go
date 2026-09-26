@@ -62,7 +62,7 @@
 //	get_operation          read    read-only    GET /v1/operations/{id}, progress of the calls above
 //	get_lag_report         read    read-only    wave 3 lag helper, GET /v1/servers/{id}/metrics
 //	explain_crash          read    read-only    wave 3 crash helper, GET /v1/servers/{id}/events
-//	search_addons          read    read-only    GET /v1/servers/{id}/addons/search, by relevance (open world)
+//	search_addons          read    read-only    GET /v1/servers/{id}/addons/search (open world)
 //	install_addon          owner   additive     GET /v1/servers/{id}/addons/project/{source}/{project} for the plan, then
 //	                                            POST /v1/servers/{id}/addons/install with its fingerprint (open world)
 //	remove_addon           owner   destructive  GET /v1/servers/{id}/addons to find it, its .../removal preview, then

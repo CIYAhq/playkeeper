@@ -119,7 +119,7 @@ func toolSpecs() []spec {
 			props: map[string]*mcp.Schema{"query": {Type: "string", MinLength: new(1), MaxLength: new(100), Pattern: patPrintable,
 				Description: "What to look for, in a few words. For example: pre-generate chunks"}},
 			required: []string{"query"},
-			desc: "Searches Modrinth and Hangar for plugins or mods made for a server's software and Minecraft version, best matches first, " +
+			desc: "Searches Modrinth and Hangar for plugins or mods made for a server's software and Minecraft version, the most downloaded first, " +
 				"and says which the server already has. Each result has the source and project that install_addon takes.",
 			run: searchAddons,
 		},
