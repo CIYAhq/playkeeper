@@ -647,6 +647,58 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 		e.t.Helper()
 		return e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": false, "idleMinutes": 5})
 	}
+	holdServerOp := func(kind string) func(e *agentEnv) func() {
+		return func(e *agentEnv) func() { return e.holdOp(kind) }
+	}
+	holdMachineOp := func(kind string) func(e *agentEnv) func() {
+		return func(e *agentEnv) func() {
+			e.t.Helper()
+			done := make(chan struct{})
+			if _, err := e.a.beginMachineOp(kind, "admin", func(context.Context, *opHandle) error {
+				<-done
+				return nil
+			}); err != nil {
+				e.t.Fatalf("%s: %v", kind, err)
+			}
+			var once sync.Once
+			release := func() { once.Do(func() { close(done) }) }
+			e.t.Cleanup(release)
+			return release
+		}
+	}
+	// joinsDuring has a listed player join the stand-in every 3 minutes
+	// while the operation hold starts runs, twice as often in the hour as
+	// the stand-in wakes the server, then lets the operation end.
+	joinsDuring := func(hold func(e *agentEnv) func()) func(e *agentEnv) {
+		return func(e *agentEnv) {
+			if err := os.WriteFile(filepath.Join(e.dataDir(), "whitelist.json"), []byte(`[{"name":"Alex","uuid":"00000000-0000-0000-0000-00000000a1e7"}]`), 0o644); err != nil {
+				e.t.Fatal(err)
+			}
+			release := hold(e)
+			s := e.srv()
+			s.auto.mu.Lock()
+			addr := s.auto.standIn.Addr()
+			s.auto.mu.Unlock()
+			for i := range 12 {
+				if got := joinStandIn(e.t, addr, "Alex"); !strings.Contains(got, "waking up") {
+					e.t.Fatalf("join %d while the operation runs: %q", i+1, got)
+				}
+				e.waitFor("the wake to wait", func() bool {
+					s.auto.mu.Lock()
+					defer s.auto.mu.Unlock()
+					return s.auto.wakePending
+				})
+				e.skew.Add(int64(3 * time.Minute))
+			}
+			if s.desired() != api.DesiredSleeping {
+				e.t.Fatal("the server woke while the operation ran")
+			}
+			release()
+			e.waitFor("the wake", func() bool {
+				return e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'wake' AND actor = 'wake:Alex' AND status = 'succeeded'`) == 1
+			})
+		}
+	}
 	cases := []struct {
 		name  string
 		steps func(e *agentEnv)
@@ -720,6 +772,10 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 				e.t.Fatalf("%d wakes for Alex", n)
 			}
 		}, want: awake},
+		{name: "players keep joining during a restore of a copy", steps: joinsDuring(holdServerOp("offsite-restore")), want: awake},
+		{name: "players keep joining during a check of a copy", steps: joinsDuring(holdServerOp("offsite-check")), want: awake},
+		{name: "players keep joining during a Playkeeper update", steps: joinsDuring(holdMachineOp("update")), want: awake},
+		{name: "players keep joining during a Disk space clean-up", steps: joinsDuring(holdMachineOp("disk-cleanup")), want: awake},
 		{name: "started outside Playkeeper", steps: func(e *agentEnv) {
 			e.fd.mu.Lock()
 			c := e.fd.server()
