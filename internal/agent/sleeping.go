@@ -262,10 +262,20 @@ func (s *server) sleepOp(ctx context.Context, h *opHandle, m *sleep.Manager, set
 }
 
 // wakeFor starts the wake operation for a player who tried to join. While
-// another operation runs, such as a scheduled backup, the wake waits for it
-// however long it takes, and starts once it ends, unless the server stopped
-// being meant to sleep meanwhile. One join's wake waits at a time.
+// another operation runs on the server or the machine, such as a scheduled
+// backup, restoring or checking a copy, a Playkeeper update or a Disk space
+// clean-up, the wake waits for it however long it takes, and starts once it
+// ends, unless the server stopped being meant to sleep meanwhile. One join's
+// wake waits at a time. A join whose wake doesn't start gives back the wake
+// the stand-in counted for it, so waiting joins don't use up the wakes an
+// hour allows.
 func (s *server) wakeFor(player string) {
+	began := false
+	defer func() {
+		if !began {
+			s.wakeCalledOff()
+		}
+	}()
 	s.auto.mu.Lock()
 	if s.auto.wakePending {
 		s.auto.mu.Unlock()
@@ -284,6 +294,7 @@ func (s *server) wakeFor(player string) {
 		}
 		_, err := s.beginOp("wake", "wake:"+player, s.wakeOp(player))
 		if err == nil {
+			began = true
 			return
 		}
 		var ae *apiError
@@ -296,6 +307,17 @@ func (s *server) wakeFor(player string) {
 			return
 		case <-time.After(wakeRetry):
 		}
+	}
+}
+
+// wakeCalledOff gives the stand-in back the wake it counted for a join
+// whose wake didn't start.
+func (s *server) wakeCalledOff() {
+	s.auto.mu.Lock()
+	m := s.auto.standIn
+	s.auto.mu.Unlock()
+	if m != nil {
+		m.WakeCalledOff()
 	}
 }
 

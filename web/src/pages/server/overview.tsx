@@ -187,7 +187,7 @@ function JoinCard({ server: s }: { server: ServerStatus }) {
         ) : online && s.reachable ? (
           <>
             <span className="size-2 rounded-full bg-success" aria-hidden="true" />
-            {phone || s.joinAddress ? t('overview.answeringPhone', { time: relativeTime(s.reachableAt) }) : t('overview.answering', { port: s.gamePort, time: relativeTime(s.reachableAt) })}
+            {phone || s.joinAddress?.endsWith(`:${s.gamePort}`) ? t('overview.answeringPhone', { time: relativeTime(s.reachableAt) }) : t('overview.answering', { port: s.gamePort, time: relativeTime(s.reachableAt) })}
           </>
         ) : online ? (
           <>
@@ -710,13 +710,14 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
 /** A machine's agent doesn't answer: the dashboard's own, or a joined machine's while its link is up. since is when it was last heard. */
 function AgentDownView({ machine, since }: { machine?: MachineView; since?: string }) {
   const ws = useWorkspace()
+  const phone = useIsPhone()
   const [busy, setBusy] = useState(false)
   const command = t('agentDown.command')
   const name = machineLabel(machine) || ws.machineName
   return (
     <div className="flex flex-1 flex-col items-center py-8 text-center max-sm:py-2">
-      <Pip pose="search" size={96} />
-      <h2 className="mt-4 text-xl font-bold max-sm:text-lg">{t('agentDown.title')}</h2>
+      <Pip pose="search" size={phone ? 96 : 116} />
+      <h2 className="mt-4 text-2xl font-bold text-balance max-sm:text-lg">{t('agentDown.title')}</h2>
       <p className="mt-2 max-w-[520px] text-sm text-muted-foreground">
         {since ? t('agentDown.bodySince', { machine: name, time: relativeTime(since) }) : t('agentDown.body', { machine: name })}
       </p>
@@ -737,11 +738,11 @@ function AgentDownView({ machine, since }: { machine?: MachineView; since?: stri
           <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
         </a>
       </div>
-      <Card className="mt-8 w-full max-w-[460px] text-left">
+      <Card className="mt-8 w-full max-w-[640px] text-left">
         <CardTitle>{machine?.kind === 'remote' ? t('machines.agentDown.fixOn', { name }) : t('agentDown.fix')}</CardTitle>
         <p className="mt-1 text-xs text-muted-foreground">{t('agentDown.fixBody')}</p>
         <div className="mt-3 flex items-center gap-2">
-          <code className="min-w-0 flex-1 truncate rounded-lg bg-console px-3 py-2 text-xs text-[#e8e8e0]">{command}</code>
+          <code className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-console px-3 py-2 text-xs whitespace-nowrap text-[#e8e8e0]">{command}</code>
           <CopyButton text={command} />
         </div>
         <p className="mt-3 text-xs text-muted-foreground">{t('agentDown.note')}</p>

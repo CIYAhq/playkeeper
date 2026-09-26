@@ -224,7 +224,7 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
   return (
     <>
       {back}
-      <Card className="flex-row flex-wrap items-center gap-4 p-4">
+      <Card className="flex-row flex-wrap items-center gap-4 p-5">
         <PlayerFace name={p.name} uuid={p.uuid} size={64} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2.5">
@@ -289,7 +289,7 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
         <Stat label={t('players.col.playtime')} value={p.playtimeUncertain ? t('players.approx', { time: formatDuration(p.playtimeSeconds) }) : formatDuration(p.playtimeSeconds)} />
         <Stat label={t('profile.longest')} value={formatDuration(p.longestSeconds)} />
       </div>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.27fr)_minmax(0,1fr)]">
         <PlaytimeChart profile={p} />
         <Card>
           <CardTitle id="recent-sessions">{t('profile.recent')}</CardTitle>
@@ -303,7 +303,7 @@ export function PlayerProfilePage({ server: s, name }: { server: ServerStatus; n
 
 function Stat({ label, value, phone }: { label: string; value: ReactNode; phone?: boolean }) {
   return (
-    <Card className={cn('gap-1', phone ? 'p-4' : 'px-4 py-3.5')}>
+    <Card className={cn('gap-1', phone ? 'p-4' : 'px-4 py-4')}>
       <span className={cn('text-muted-foreground', phone ? 'text-[13px]' : 'text-xs')}>{label}</span>
       <span className={cn('font-bold tabular-nums', phone ? 'text-[20px] leading-6' : 'text-lg leading-6')}>{value}</span>
     </Card>
@@ -359,7 +359,7 @@ function RecentSessions({ profile: p, now, phone }: { profile: PlayerProfile; no
       <>
         <ul className="mt-2 overflow-hidden rounded-3xl border border-border bg-white">
           {list.map((x) => (
-            <li key={x.id} className="border-b border-border px-4 py-2.5 last:border-b-0">
+            <li key={x.id} className="border-b border-border px-4 py-1.5 last:border-b-0">
               <span className="block text-base">{dayName(x.start, today)}</span>
               <span className="block text-[13px] text-muted-foreground tabular-nums">
                 {sessionRange(x)}
@@ -403,7 +403,7 @@ function RecentSessions({ profile: p, now, phone }: { profile: PlayerProfile; no
 function ProfileSkeleton({ phone }: { phone: boolean }) {
   return (
     <div className="flex flex-col gap-4" aria-busy="true">
-      <Card className="flex-row items-center gap-4 p-4">
+      <Card className={cn('flex-row items-center gap-4', phone ? 'p-4' : 'p-5')}>
         <Skeleton className={cn('shrink-0 rounded-xl', phone ? 'size-14' : 'size-16')} />
         <span className="flex flex-1 flex-col gap-2">
           <Skeleton className="h-5 w-36" />

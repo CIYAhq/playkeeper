@@ -215,13 +215,13 @@ const toneDot: Record<MachineTone, string> = { good: 'bg-success', warn: 'bg-war
 function MachineRow({ machine: m, route }: { machine: MachineView; route: Route }) {
   const ws = useWorkspace()
   const state = machineState(m, ws)
-  const active = (route.name === 'machine' || route.name === 'machine-details' || route.name === 'machine-settings') && route.id === m.id
+  const active = (route.name === 'machine' || route.name === 'machine-settings') && route.id === m.id
   return (
     <a
       {...linkProps(machineRoute(m))}
       aria-current={active ? (route.name === 'machine-settings' ? 'true' : 'page') : undefined}
       className={cn(
-        'mt-3 flex h-7 items-center gap-2 rounded-lg border border-transparent px-2 text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+        'mt-1.5 flex h-7 items-center gap-2 rounded-lg border border-transparent px-2 text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
         active && 'border-border bg-white text-foreground shadow-outline',
       )}
     >
@@ -257,7 +257,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
     )
   }
   return (
-    <aside className="sticky top-0 flex h-dvh w-64 shrink-0 flex-col px-3 pt-3 pb-2">
+    <aside className="sticky top-0 flex h-dvh w-64 shrink-0 flex-col px-3 pt-5 pb-2">
       <a {...linkProps({ name: 'home' })} className="flex h-9 items-center gap-2 rounded-lg px-1.5 text-[15px] font-bold outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <BrandMark size={24} />
         {t('brand.name')}
@@ -266,13 +266,13 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
       <button
         type="button"
         onClick={onSearch}
-        className="mt-3 flex h-8 items-center gap-2 rounded-lg border border-border bg-white px-2.5 text-[13px] text-muted-foreground shadow-outline outline-none hover:border-input focus-visible:ring-2 focus-visible:ring-ring"
+        className="mt-4 flex h-8 items-center gap-2 rounded-lg border border-border bg-white px-2.5 text-[13px] text-muted-foreground shadow-outline outline-none hover:border-input focus-visible:ring-2 focus-visible:ring-ring"
       >
         <SearchIcon className="size-4" aria-hidden="true" />
         <span className="flex-1 text-left">{t('nav.search')}</span>
         <Kbd>{t('nav.searchShortcut')}</Kbd>
       </button>
-      <nav aria-label={t('nav.main')} className="mt-3 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
+      <nav aria-label={t('nav.main')} className="mt-4 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
         <SideItem to={{ name: 'home' }} active={route.name === 'home'} icon={<HouseIcon />}>
           {t('nav.home')}
         </SideItem>
@@ -290,12 +290,14 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
           </div>
         )}
         {can(ws.me, 'servers.create') && (
-          <SideItem to={{ name: 'new-server' }} active={route.name === 'new-server'} icon={<PlusIcon />} muted>
-            {t('nav.newServer')}
-          </SideItem>
+          <div className={cn('flex flex-col', shared && 'mt-3')}>
+            <SideItem to={{ name: 'new-server' }} active={route.name === 'new-server'} icon={<PlusIcon />} muted>
+              {t('nav.newServer')}
+            </SideItem>
+          </div>
         )}
         {shared && can(ws.me, 'machine.manage') && (
-          <SideItem to={{ name: 'machines' }} active={route.name === 'machines'} icon={<PlugIcon />} muted>
+          <SideItem to={{ name: 'machines' }} icon={<PlugIcon />} muted>
             {t('machines.connectNav')}
           </SideItem>
         )}
@@ -422,9 +424,9 @@ export function PageHeader({ title, subtitle, actions, breadcrumb, phoneAction }
     )
   }
   return (
-    <header className="border-b border-border px-7 pt-4 pb-5">
+    <header className={cn('border-b border-border px-7 pt-4', breadcrumb ? 'pb-5' : 'pb-[18px]')}>
       {breadcrumb && <div className="mb-3 text-[13px] text-muted-foreground">{breadcrumb}</div>}
-      <div className={cn('flex flex-wrap items-end gap-4', !breadcrumb && 'pt-5')}>
+      <div className={cn('flex flex-wrap items-end gap-4', !breadcrumb && 'pt-[38px]')}>
         <div className="min-w-0 flex-1">
           <h1 className="text-title font-bold tracking-[-0.015em]">{title}</h1>
           {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}

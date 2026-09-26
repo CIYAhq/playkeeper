@@ -411,7 +411,8 @@ type DeleteServerRequest struct {
 	// ForgetKey confirms deleting the server, and its recovery key with
 	// it, while copies only that key opens are kept somewhere else and it
 	// was never downloaded, as the refusal with reason
-	// recovery_key_not_saved asked.
+	// recovery_key_not_saved asked, or while that can't be told, as
+	// recovery_key_unknown asked.
 	ForgetKey bool `json:"forgetKey,omitempty"`
 }
 

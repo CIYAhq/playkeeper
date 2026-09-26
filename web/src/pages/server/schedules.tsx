@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { ArchiveIcon, ChevronRightIcon, EllipsisIcon, MessageSquareIcon, PencilIcon, PlusIcon, RotateCwIcon, SquareTerminalIcon, Trash2Icon } from 'lucide-react'
 import { ApiError, del, get, post } from '@/api/client'
 import type { Schedule, ScheduleKind, SchedulePayload, SchedulePreview, ScheduleRun, SchedulesResponse, ScheduleTiming, ServerStatus, Weekday } from '@/api/types'
-import { errorText, serverApi, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, SectionLabel } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, ChoiceSelect, useIsPhone, type Choice } from '@/components/app/controls'
 import { PhoneBackHeader } from '@/components/app/shell'
@@ -281,15 +281,15 @@ function RowsSkeleton({ phone }: { phone: boolean }) {
   return <ListSkeleton rowClassName={rowClass(phone)} face="size-4 rounded" trailing={<Skeleton className="h-5 w-9 rounded-full" />} />
 }
 
-/** Why New schedule can't be pressed yet. */
-function newReason(stale: boolean, items: Schedule[] | undefined): string | undefined {
-  if (stale) return t('reason.noAgent')
+/** Why New schedule can't be pressed yet: offline is why the server's machine can't be asked. */
+function newReason(offline: string | undefined, items: Schedule[] | undefined): string | undefined {
+  if (offline) return offline
   return items ? undefined : t('common.loading')
 }
 
 /** Server settings' Schedules section, then Recent runs. */
 export function SchedulesSection({ server }: { server: ServerStatus }) {
-  const ws = useWorkspace()
+  const { offline } = useServerMachine(server)
   const list = useSchedules(server.id)
   const runs = usePoll(() => get<{ runs: ScheduleRun[] }>(serverApi(server.id, '/schedules/runs?limit=6')), 30_000, server.id)
   const [editing, setEditing] = useState<Schedule | 'new'>()
@@ -304,7 +304,7 @@ export function SchedulesSection({ server }: { server: ServerStatus }) {
             <CardTitle id="schedules-title">{t('schedules.title')}</CardTitle>
             <CardHint>{t('schedules.zone', { zone: zoneLabel() })}</CardHint>
           </div>
-          <Button onClick={() => setEditing('new')} disabledReason={newReason(ws.stale, items)}>
+          <Button onClick={() => setEditing('new')} disabledReason={newReason(offline, items)}>
             <PlusIcon />
             {t('schedules.new')}
           </Button>
@@ -402,7 +402,7 @@ function RecentRuns({ runs }: { runs: ScheduleRun[] | undefined }) {
 
 /** The phone's Schedules page, under Settings. */
 export function SchedulesPhonePage({ server }: { server: ServerStatus }) {
-  const ws = useWorkspace()
+  const { offline } = useServerMachine(server)
   const list = useSchedules(server.id)
   const [editing, setEditing] = useState<Schedule | 'new'>()
   const items = list.data?.schedules
@@ -430,7 +430,7 @@ export function SchedulesPhonePage({ server }: { server: ServerStatus }) {
         <p className="px-1 text-[13px] text-muted-foreground">{t('schedules.zone', { zone: zoneLabel() })}</p>
       </div>
       <div className="fixed inset-x-4 bottom-[calc(76px+env(safe-area-inset-bottom))] z-20">
-        <Button size="touch" className="w-full" onClick={() => setEditing('new')} disabledReason={newReason(ws.stale, items)}>
+        <Button size="touch" className="w-full" onClick={() => setEditing('new')} disabledReason={newReason(offline, items)}>
           <PlusIcon />
           {t('schedules.new')}
         </Button>
@@ -572,7 +572,7 @@ function oftenChoices(current: string): Choice<string>[] {
 }
 
 function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerStatus; editing: Schedule | 'new' | undefined; onClose: () => void; onSaved: () => void }) {
-  const ws = useWorkspace()
+  const { offline } = useServerMachine(server)
   const phone = useIsPhone()
   const [form, setForm] = useState<Form>(() => newForm(server))
   const [opened, setOpened] = useState<Form>()
@@ -653,11 +653,11 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
   const problem = preview && !preview.valid ? preview.error : undefined
   const toggleWarn = (w: number, on: boolean) => set('warn', on ? [...form.warn, w].sort((a, b) => b - a) : form.warn.filter((x) => x !== w))
   const noWarnings = form.warn.length + form.otherWarn.length === 0
-  const cantSave = ws.stale ? t('reason.noAgent') : !form.at ? t('schedules.pickTime') : problem?.error
+  const cantSave = offline ?? (!form.at ? t('schedules.pickTime') : problem?.error)
   const label = 'text-[13px] font-medium'
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogPopup className="sm:max-w-[560px]">
+      <DialogPopup className="sm:max-w-[560px]" showCloseButton={phone}>
         <div className="px-6 pt-6 pb-1 max-sm:px-5">
           <DialogTitle className="text-lg leading-6 font-bold">{existing ? t('schedules.editTitle') : t('schedules.newTitle', { server: server.name })}</DialogTitle>
         </div>
@@ -682,7 +682,7 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
                 {form.often.startsWith('interval:') ? t('schedules.from') : t('schedules.at')}
               </label>
               {/* Left to its own width, a time field fits its locale's format, 12- or 24-hour. */}
-              <Input id="schedule-at" type="time" value={form.at} onChange={(e) => set('at', e.target.value)} className="mt-1.5 w-auto sm:min-w-40" required />
+              <Input id="schedule-at" type="time" value={form.at} onChange={(e) => set('at', e.target.value)} className="mt-1.5 w-auto max-sm:h-11 max-sm:[&>input]:h-full sm:min-w-40" required />
             </div>
           </div>
           {form.kind === 'restart' && (
@@ -705,7 +705,7 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
           )}
           {form.kind === 'backup' && (
             <>
-              <SwitchRow checked={form.onlyIfPlayed} onChange={(c) => set('onlyIfPlayed', c)} title={t('schedules.onlyIfPlayed')} hint={t('schedules.onlyIfPlayedHint')} />
+              <SwitchRow checked={form.onlyIfPlayed} onChange={(c) => set('onlyIfPlayed', c)} title={t('schedules.onlyIfPlayed')} />
               <SwitchRow checked={form.skipIfPlaying} onChange={(c) => set('skipIfPlaying', c)} title={t('schedules.skip')} hint={t('schedules.skipBackupHint')} />
             </>
           )}
@@ -715,7 +715,6 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
                 {t('schedules.command')}
               </label>
               <Input id="schedule-command" value={form.command} onChange={(e) => set('command', e.target.value)} maxLength={256} placeholder={t('schedules.commandPlaceholder')} spellCheck={false} autoComplete="off" className="mt-1.5 font-mono" />
-              <p className="mt-1 text-xs text-muted-foreground">{t('schedules.commandHint')}</p>
             </div>
           )}
         </DialogPanel>
@@ -752,13 +751,13 @@ function ScheduleDialog({ server, editing, onClose, onSaved }: { server: ServerS
   )
 }
 
-function SwitchRow({ checked, onChange, title, hint }: { checked: boolean; onChange: (v: boolean) => void; title: string; hint: string }) {
+function SwitchRow({ checked, onChange, title, hint }: { checked: boolean; onChange: (v: boolean) => void; title: string; hint?: string }) {
   return (
     <label className="flex items-start gap-3 border-t border-border pt-4">
       <Switch checked={checked} onCheckedChange={onChange} className="mt-0.5" />
       <span>
         <span className="block text-[13px] font-semibold">{title}</span>
-        <span className="block text-xs text-muted-foreground">{hint}</span>
+        {hint && <span className="block text-xs text-muted-foreground">{hint}</span>}
       </span>
     </label>
   )

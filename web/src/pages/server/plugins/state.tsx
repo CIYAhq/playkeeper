@@ -7,6 +7,7 @@ import { errorText, machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { footerFor, isAddonOp, keyFrom, keyOf, mergeRows, sameKey, voiceChatProject, type AddonKind, type AddonRow } from '@/lib/addons'
+import { externalLink } from '@/lib/links'
 import { shareText } from '@/lib/packs'
 import { navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
@@ -297,7 +298,8 @@ export function AddonsProvider({ server, kind, children }: { server: ServerStatu
       if (w) w.opener = null
       get<AddonDetails>(detailsPath(id, key))
         .then((d) => {
-          if (w && d.card.pageUrl) w.location.href = d.card.pageUrl
+          const link = externalLink(d.card.pageUrl)
+          if (w && link) w.location.href = link
           else w?.close()
         })
         .catch((e) => {

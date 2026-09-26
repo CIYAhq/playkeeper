@@ -95,8 +95,12 @@ func relayJSON(w http.ResponseWriter, resp *http.Response, limit int64) {
 		writeErr(w, http.StatusBadGateway, api.CodeInternal, "The agent's answer could not be read.", "")
 		return
 	}
+	status := resp.StatusCode
+	if status >= 400 {
+		status = relayStatus(status)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(resp.StatusCode)
+	w.WriteHeader(status)
 	w.Write(b)
 }

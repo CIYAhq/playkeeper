@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
 import { certState, type CertState } from '@/lib/address'
-import { formatBytes, formatLongDate, formatMB, formatPercent } from '@/lib/format'
+import { formatBytes, formatLongDate, formatMB, formatMBOf, formatPercent } from '@/lib/format'
 import { isStale, machineOf } from '@/lib/machines'
 import { statusLabel, statusTone } from '@/lib/phase'
 import { linkProps, navigate } from '@/lib/router'
@@ -85,7 +85,7 @@ export function MachinePage({ id }: { id: string }) {
           {live ? (
             <div className="mt-4 flex flex-col gap-4">
               <MeterRow label={t('machine.cpu')} value={formatPercent(live.cpuPercent)} percent={live.cpuPercent} />
-              <MeterRow label={t('machine.memory')} value={t('home.ofTotal', { used: formatMB(reserved), total: formatMB(live.memoryTotalMB) })} percent={live.memoryTotalMB ? (reserved / live.memoryTotalMB) * 100 : 0} />
+              <MeterRow label={t('machine.memory')} value={formatMBOf(reserved, live.memoryTotalMB)} percent={live.memoryTotalMB ? (reserved / live.memoryTotalMB) * 100 : 0} />
               {/* The Disk space page lists every server. */}
               {ws.me.access.servers.all ? (
                 <a {...linkProps({ name: 'machine', id: m.id, sub: 'disk' })} className="group -mx-2 -my-1.5 rounded-xl px-2 py-1.5 outline-none transition-colors duration-(--motion-fast) ease-standard hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring active:bg-accent">

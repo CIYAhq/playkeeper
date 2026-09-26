@@ -8,8 +8,8 @@ export interface DemoParts {
   homeSubtitle: () => string
   /** Home's main action, in place of New server. */
   HomeAction: ComponentType
-  /** The card after the server cards, in place of the New server card. */
-  HomeCard: ComponentType
+  /** The card after the server cards, in place of the New server card; `wide` when it has the row to itself. */
+  HomeCard: ComponentType<{ wide?: boolean }>
   /** Whether a server can start from a modpack or a template and be shared as one: the demo has no machine to fetch or plan them. */
   templates: boolean
   /** A way to start from a world without a world file at hand, under the upload box. */

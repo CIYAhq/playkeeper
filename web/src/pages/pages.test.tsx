@@ -57,6 +57,7 @@ import { AppShell } from '@/components/app/shell'
 import { TemplateDialog } from '@/components/app/templates'
 import { toastManager } from '@/components/ui/toast'
 import { formatClock, formatDate, formatDuration, formatLongDate } from '@/lib/format'
+import { parse } from '@/lib/router'
 import { AiAgentsSection } from './ai-agents'
 import { DiscordSettingsSection } from './discord'
 import { HomePage } from './home'
@@ -327,19 +328,24 @@ describe('Home', () => {
     expect(text).toContain('1 server on my-vps · 3 playing')
   })
 
-  it('groups servers by machine, with activity from every machine that answers', async () => {
-    const home: MachineView = {
-      id: 'h2345abcde',
-      projectId: machine.projectId,
-      name: 'home-server',
-      kind: 'remote',
-      live: { ...machine.live!, hostname: 'home-server', memoryTotalMB: 32768 },
-      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
-    }
-    const away: MachineView = { ...home, id: 'a2345abcde', name: 'attic', live: undefined, link: { ...home.link!, machineId: 'a2345abcde', name: 'attic', state: 'offline' } }
+  const home: MachineView = {
+    id: 'h2345abcde',
+    projectId: machine.projectId,
+    name: 'home-server',
+    kind: 'remote',
+    live: { ...machine.live!, hostname: 'home-server', memoryTotalMB: 32768 },
+    link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+  }
+  const away: MachineView = { ...home, id: 'a2345abcde', name: 'attic', live: undefined, link: { ...home.link!, machineId: 'a2345abcde', name: 'attic', state: 'offline' } }
+  const activityAsked = () => vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes('/activity'))
+
+  it('groups servers by machine, and asks no machine for activity', async () => {
     vi.mocked(client.get).mockImplementation(((path: string) => {
-      if (path.includes(`/${machine.id}/activity`)) return Promise.resolve([{ ts: '2026-09-25T10:00:00Z', serverId: 'abcdefghjk', kind: 'backup', actor: 'siya' }])
-      if (path.includes(`/${home.id}/activity`)) return Promise.resolve([{ ts: '2026-09-25T11:00:00Z', serverId: 'cobblemon1', kind: 'restarted', actor: 'siya' }])
+      if (path === '/api/activity?limit=5')
+        return Promise.resolve([
+          { ts: '2026-09-25T11:00:00Z', serverId: 'cobblemon1', kind: 'restarted', actor: 'siya' },
+          { ts: '2026-09-25T10:00:00Z', serverId: 'abcdefghjk', kind: 'backup', actor: 'siya' },
+        ])
       if (path.includes(`/${away.id}/`)) return Promise.reject(new client.ApiError(503, { error: 'offline', code: 'machine_offline' }))
       return new Promise(() => {})
     }) as typeof client.get)
@@ -355,11 +361,32 @@ describe('Home', () => {
     const atticCard = [...document.querySelectorAll('article')].find((a) => a.textContent?.includes('Attic'))?.textContent ?? ''
     expect(atticCard).toContain('No live status')
     expect(atticCard).toContain('Can’t reach attic')
-    const activity = [...document.querySelectorAll('li')].map((li) => li.textContent ?? '')
-    const at = (line: string) => activity.findIndex((l) => l.includes(line))
-    expect(at('Cobblemon restarted')).toBeGreaterThan(-1)
-    expect(at('Cobblemon restarted')).toBeLessThan(at('You backed up Survival'))
+    // As designed, the machine groups end the page: no activity or one machine's meters after them.
+    expect(text).not.toContain('Across your servers')
+    expect(text).not.toContain('Memory reserved')
+    expect(activityAsked()).toEqual([])
     expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/${away.id}/`))).toBe(false)
+  })
+
+  // The dashboard merges every machine's activity and adds each team join once, so Home asks it once. Home grouped by machine has no activity card (above).
+  it('shows a team join once', async () => {
+    answer({ '/api/activity': [{ ts: hoursAgo(1), kind: 'team_joined', actor: 'alex', detail: 'moderator' }] })
+    vi.mocked(client.get).mockClear()
+    const text = await render(<HomePage />, workspace({ machines: [machine], servers: [server({ machineId: machine.id })] }))
+    expect(text.split('alex joined the team as Moderator').length - 1).toBe(1)
+    expect(activityAsked()).toEqual(['/api/activity?limit=5'])
+  })
+
+  // Activity that is slow to come holds up only its card, which waits in place.
+  it('shows the servers while the activity is still on its way', async () => {
+    answer({})
+    const text = await render(<HomePage />, workspace({ machines: [machine], servers: [server({ machineId: machine.id })] }))
+    expect(activityAsked()).toEqual(['/api/activity?limit=5'])
+    expect(text).toContain('Survival')
+    expect(text).toContain('1 server on my-vps')
+    const card = [...document.querySelectorAll('section, article, div')].find((el) => el.firstElementChild?.textContent === 'Across your servers')
+    expect(card?.querySelector('[data-slot="skeleton"]')).not.toBeNull()
+    expect(text).not.toContain('Nothing yet. What happens on your servers shows up here.')
   })
 
   it('says when the agent stopped answering, keeping names but not numbers', async () => {
@@ -1055,7 +1082,8 @@ describe('Backups with players online', () => {
   it('makes the first backup without a warning in chat', async () => {
     answer({ '/backups': [] })
     const text = await render(<WorldPage server={server({ players: { online: 2, max: 10, names: ['mara_k', 'tobi2009'], source: 'rcon list', at: '' } })} />)
-    expect(text).toContain('About 15 seconds. Players stay online.')
+    expect(text).toContain('About 15 seconds.')
+    expect(text).not.toContain('About 15 seconds. Players stay online.')
     expect(text).not.toContain('heads-up')
     expect(await render(<Overview server={server()} />)).toContain('Make your first backupTakes about 15 s.')
   })
@@ -1599,12 +1627,21 @@ describe('Add-on sources', () => {
     answer({ '/addon-sources': none })
     await render(<GlobalSettingsPage page={{ name: 'addon-sources' }} />)
     const nav = document.querySelector('nav[aria-label="Settings sections"]')
-    expect([...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent)).toEqual(['Team', 'Add-on sources', 'Discord', 'AI agents', 'Machines'])
+    expect([...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent)).toEqual(['Team', 'Add-on sources', 'Discord', 'AI agents', 'Machines', 'Playkeeper'])
     expect(nav?.querySelector('[aria-current="page"]')?.getAttribute('href')).toBe('/settings/addon-sources')
     expect(document.getElementById('addon-sources')).not.toBeNull()
     const moderator = await render(<GlobalSettingsPage page={{ name: 'addon-sources' }} />, workspace({ me: member('moderator', moderatorCan) }))
     expect(moderator).not.toContain('CurseForge')
     window.history.replaceState(null, '', '/')
+  })
+
+  it('lists the general page as Playkeeper, last in the Settings sections', async () => {
+    await render(<GlobalSettingsPage page={{ name: 'settings' }} />)
+    const nav = document.querySelector('nav[aria-label="Settings sections"]')
+    const current = nav?.querySelector('[aria-current="page"]')
+    expect(current?.textContent).toBe('Playkeeper')
+    expect(current?.getAttribute('href')).toBe('/settings')
+    expect(document.querySelector('h1')?.textContent).toBe('Settings')
   })
 
   it('lands on its own section, with Modrinth and Hangar built in and CurseForge asking for a key', async () => {
@@ -1666,6 +1703,41 @@ describe('Add-on sources', () => {
       expect(button(label)?.disabled).toBe(true)
       expect(button(label)?.title).toBe('Only the owner can change this.')
     }
+  })
+
+  // Each machine keeps its own key, so the card names the one it shows and saves the key there.
+  const home: MachineView = {
+    id: 'h2345abcde',
+    projectId: machine.projectId,
+    name: 'home-server',
+    kind: 'remote',
+    link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+  }
+  it.each([
+    { name: 'the dashboard’s machine when none is chosen', machine: undefined, want: machine.id, label: 'my-vps' },
+    { name: 'the joined machine New server linked to', machine: home.id, want: home.id, label: 'home-server' },
+  ])('shows and saves the key of $name', async ({ machine: chosen, want, label }) => {
+    answer({ '/addon-sources': none })
+    vi.mocked(client.get).mockClear()
+    const text = await render(<GlobalSettingsPage page={{ name: 'addon-sources', machine: chosen }} />, workspace({ machines: [machine, home] }))
+    expect(vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes('/addon-sources'))).toEqual([`/api/machines/${want}/addon-sources`])
+    expect(text).toContain(`The key stays on ${label}.`)
+    vi.mocked(client.post).mockResolvedValueOnce({ curseforge: { key: 'file', ending: 'c3f9' } })
+    await paste('pasted-key-0123456789abc3f9a')
+    await act(async () => button('Save key')?.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith(`/api/machines/${want}/addon-sources/curseforge`, { key: 'pasted-key-0123456789abc3f9a' })
+    expect(document.body.textContent).toContain('Key ending c3f9')
+    await render(<GlobalSettingsPage page={{ name: 'addon-sources', machine: chosen }} />, workspace({ machines: [machine, home], me: { ...me, user: { username: 'friend', role: 'member' } } }))
+    expect(button('Save key')?.disabled).toBe(true)
+    expect(button('Save key')?.title).toBe('Only the owner can change this.')
+  })
+
+  it('says so when the chosen machine isn’t connected to this dashboard, and asks no other', async () => {
+    vi.mocked(client.get).mockClear()
+    const text = await render(<GlobalSettingsPage page={{ name: 'addon-sources', machine: 'z2345abcde' }} />, workspace({ machines: [machine, home] }))
+    expect(text).toContain('That machine isn’t connected to this dashboard')
+    expect(keyField()).toBeNull()
+    expect(vi.mocked(client.get).mock.calls.filter(([p]) => String(p).includes('/addon-sources'))).toEqual([])
   })
 })
 
@@ -1779,6 +1851,42 @@ describe('Modpacks', () => {
     await render(<NewServerPage />)
     await act(async () => {})
     expect(cards().some((c) => c.classList.contains('col-span-full'))).toBe(false)
+  })
+
+  // Each row asks another machine, as the picker keeps what it loaded for a while.
+  it.each([
+    { name: 'its page on Modrinth', pageUrl: 'https://modrinth.com/modpack/smoothserver', machineId: 'm2345abcdf', shown: true },
+    { name: 'a path on the dashboard', pageUrl: '/api/servers/abcdefghjk/offsite/recovery-key', machineId: 'm2345abcdg', shown: false },
+    { name: 'a script', pageUrl: 'javascript:alert(document.cookie)', machineId: 'm2345abcdh', shown: false },
+  ])('links a pack to $name only when it is another site', async ({ pageUrl, machineId, shown }) => {
+    const card = results.cards[0]
+    if (!card) throw new Error('no card')
+    const detail: ModpackDetail = { ...card, pageUrl, versions: [{ id: 'SMV00012', number: '1.2', channel: 'release', published: '2026-09-01T00:00:00Z', size: 16_000_000, type: 'fabric', minecraftVersion: '26.2', mods: 17 }], newest: 'SMV00012' }
+    answer({
+      '/preview': { type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', files: 17, downloadSize: 16_000_000, ready: true, blockers: [], warnings: [], manual: [] },
+      '/modpacks/modrinth/SMTH0001': detail,
+      '/modpacks?': { ...results, cards: [{ ...card, pageUrl }] },
+    })
+    await render(<ModpackPicker machineId={machineId} onChange={() => {}} onUse={() => {}} phone={false} />)
+    const row = [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Smooth Server'))
+    await act(async () => row?.click())
+    await act(async () => {})
+    await act(async () => {})
+    expect(document.body.textContent).toContain('What friends do')
+    expect(document.body.textContent?.includes('Open on Modrinth')).toBe(shown)
+    expect(document.querySelector(`a[href="${pageUrl}"]`) !== null).toBe(shown)
+  })
+
+  // The key goes on the machine the server is made on, so the link to it chooses that machine.
+  it.each([
+    { name: 'the dashboard’s machine', machineId: 'm2345abcde' },
+    { name: 'a joined machine', machineId: 'h2345abcde' },
+  ])('sends whoever needs a CurseForge key to the key of $name', async ({ machineId }) => {
+    answer({ '/modpacks?': results })
+    await render(<ModpackPicker machineId={machineId} onChange={() => {}} onUse={() => {}} phone={false} />)
+    const link = [...document.querySelectorAll('a')].find((a) => a.getAttribute('href')?.startsWith('/settings/addon-sources'))
+    expect(link?.getAttribute('href')).toBe(`/settings/addon-sources?machine=${machineId}`)
+    expect(parse('/settings/addon-sources', `?machine=${machineId}`)).toEqual({ name: 'addon-sources', machine: machineId })
   })
 
   it('says what a pack’s server downloads, not Paper', () => {
@@ -2334,6 +2442,29 @@ describe('Discord', () => {
     await click(players)
     expect(client.put).toHaveBeenCalledWith('/api/discord', { alerts: [...connected.alerts, 'player_joined', 'player_left'], liveStatus: true })
   })
+
+  // The dashboard's agent posts the message with its own machine's servers, so the preview shows only those.
+  const home: MachineView = {
+    id: 'h2345abcde',
+    projectId: machine.projectId,
+    name: 'home-server',
+    kind: 'remote',
+    link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+  }
+  const survival = server({ machineId: machine.id, gamePort: 25566 })
+  const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id, gamePort: 25570 })
+  it.each([
+    { name: 'the dashboard’s servers only', servers: [survival], note: false },
+    { name: 'the same and a joined machine’s server that is first online', servers: [cobblemon, survival], note: true },
+  ])('previews the live status with $name', async ({ servers, note }) => {
+    answer({ '/api/discord': { connected: true, webhookName: 'Playkeeper alerts', connectedAt: hoursAgo(1), alerts: [], liveStatus: true, delivery: {}, kinds } satisfies DiscordSettings })
+    const text = await render(<DiscordSettingsSection />, workspace({ machines: [machine, home], servers }))
+    const preview = document.querySelector('[role="img"][aria-label="How it looks in the channel"]')
+    expect([...(preview?.querySelectorAll('li') ?? [])].map((li) => li.textContent?.split('Online')[0])).toEqual(['Survival'])
+    expect(preview?.textContent).toContain(`Join: ${window.location.hostname}:25566`)
+    expect(preview?.textContent).not.toContain('25570')
+    expect(text.includes('Servers on your other machines aren’t posted yet.')).toBe(note)
+  })
 })
 
 describe('Player profile', () => {
@@ -2760,6 +2891,21 @@ describe('World backups with copies', () => {
     expect(vi.mocked(client.del)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite/copies/survival-b1.tar.zst.age')
   })
 
+  it('cancels a check of a backup kept only somewhere else from its menu while the check runs', async () => {
+    answer({ '/offsite/copies': { copies: [copy('b1', '2026-09-20T18:47:00Z', false)] }, '/offsite': b2, '/backups': [backup('b3', '2026-09-25T18:47:00Z')] })
+    const checking: Operation = { ...started, id: 'op-check', kind: 'offsite-check' }
+    await render(<WorldPage server={server({ operation: checking })} />)
+    const row = [...document.querySelectorAll('tr')].find((r) => r.textContent?.includes('Only on Backblaze B2'))
+    const trigger = row?.querySelector<HTMLButtonElement>('button[aria-label^="Actions for the backup from"]')
+    if (!trigger) throw new Error('no menu on the row kept only on Backblaze B2')
+    await act(async () => trigger.click())
+    await act(async () => {})
+    const item = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent?.includes(label))
+    expect(item('Check it again')).toBeUndefined()
+    await act(async () => item('Cancel the check')?.click())
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/offsite/check/cancel', { operationId: 'op-check' })
+  })
+
   it('shows each role only the backup controls it may use', async () => {
     const viewer = member('viewer', ['view', 'account.manage'])
     const { row, item } = await openCopyMenu(copy('b1', '2026-09-20T18:47:00Z', false), workspace({ me: viewer }))
@@ -3022,7 +3168,8 @@ describe('Machines and AI agents', () => {
     vi.mocked(client.get).mockClear()
     await render(<HomePage />, ws)
     expect(asked(), 'Home asks home-server for its activity').toEqual([])
-    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/${machine.id}/activity`))).toBe(true)
+    // Home grouped by machine shows no activity, so it asks no machine for it.
+    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes('/activity'))).toBe(false)
   })
 
   it('asks a joined machine, not the dashboard’s, about the servers it runs', async () => {

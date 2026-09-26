@@ -107,7 +107,7 @@ const worldCopyName = /^data\.(replaced|failed-restore)-[0-9]{8}-[0-9]{6}$/
 const maxAddonKeys = 200
 
 function invalid(error: string): Reply {
-  return { status: 400, body: { error, code: 'invalid' } }
+  return { status: 400, body: { error, code: 'invalid_request' } }
 }
 
 function refuse(status: number, code: string, error: string, hint?: string): Reply {
@@ -182,7 +182,7 @@ interface PlaceBody {
 }
 
 function missing(field: string, error: string, hint?: string): Reply {
-  return { status: 400, body: { error, hint, field, code: 'invalid' }, expected: true }
+  return { status: 400, body: { error, hint, field, code: 'invalid_request' }, expected: true }
 }
 
 /**
@@ -891,7 +891,7 @@ const routes: [string, RegExp, Handler][] = [
     /^\/api\/servers\/(\w+)\/backup-rules$/,
     (r, state) => {
       const b = (r.body ?? {}) as { automatic?: { everyHours?: unknown }; rules?: unknown; timeZone?: unknown }
-      if (b.timeZone !== undefined && b.timeZone !== '' && !knownZone(b.timeZone)) return { status: 400, body: { error: 'Unknown time zone.', code: 'invalid', field: 'timeZone' } }
+      if (b.timeZone !== undefined && b.timeZone !== '' && !knownZone(b.timeZone)) return { status: 400, body: { error: 'Unknown time zone.', code: 'invalid_request', field: 'timeZone' } }
       if (b.rules !== undefined && (typeof b.rules !== 'object' || b.rules === null)) return invalid('Send the rules as an object.')
       if (b.automatic && !automaticEvery.includes(Number(b.automatic.everyHours))) {
         return invalid(`Automatic backups can run every 1, 2, 3, 4, 6, 8 or 12 hours, or once a day, not every ${String(b.automatic.everyHours)} hours.`)
@@ -955,7 +955,7 @@ const routes: [string, RegExp, Handler][] = [
     /^\/api\/servers\/(\w+)\/offsite\/restore$/,
     (r, state) => {
       const n = (r.body as PlaceBody | null)?.name
-      return typeof n === 'string' && n ? op(state, 'offsite-restore', r.params[0], { name: n }) : { status: 400, body: { error: "That is not the name of a backup's copy.", code: 'invalid', field: 'name' } }
+      return typeof n === 'string' && n ? op(state, 'offsite-restore', r.params[0], { name: n }) : { status: 400, body: { error: "That is not the name of a backup's copy.", code: 'invalid_request', field: 'name' } }
     },
   ],
   [
@@ -990,7 +990,7 @@ const routes: [string, RegExp, Handler][] = [
     (r, state) => {
       const b = (r.body ?? {}) as PlaceBody
       if (!b.recoveryKey) return missing('recoveryKey', 'Choose the recovery key file.')
-      return typeof b.name === 'string' && b.name ? op(state, 'offsite-recover', undefined, { name: b.name }) : { status: 400, body: { error: 'Pick a copy to restore.', code: 'invalid', field: 'name' } }
+      return typeof b.name === 'string' && b.name ? op(state, 'offsite-recover', undefined, { name: b.name }) : { status: 400, body: { error: 'Pick a copy to restore.', code: 'invalid_request', field: 'name' } }
     },
   ],
   [
@@ -1000,10 +1000,10 @@ const routes: [string, RegExp, Handler][] = [
       const b = (r.body ?? {}) as { ids?: unknown; ways?: unknown; timeZone?: unknown }
       const ids = Array.isArray(b.ids) ? b.ids : []
       const ways = Array.isArray(b.ways) ? b.ways : []
-      if (b.timeZone !== undefined && !knownZone(b.timeZone)) return { status: 400, body: { error: 'Unknown time zone.', code: 'invalid', field: 'timeZone' } }
-      if (!ids.length && !ways.length) return { status: 400, body: { error: 'Choose what to delete.', code: 'invalid', field: 'ids' } }
-      if (ids.some((id) => typeof id !== 'string' || !diskID.test(id))) return { status: 400, body: { error: 'One of the chosen items is not valid.', hint: 'Scan again and choose from the new list.', code: 'invalid', field: 'ids' } }
-      if (ways.some((w) => typeof w !== 'string' || !diskWays.includes(w))) return { status: 400, body: { error: 'Unknown way to free space.', code: 'invalid', field: 'ways' } }
+      if (b.timeZone !== undefined && !knownZone(b.timeZone)) return { status: 400, body: { error: 'Unknown time zone.', code: 'invalid_request', field: 'timeZone' } }
+      if (!ids.length && !ways.length) return { status: 400, body: { error: 'Choose what to delete.', code: 'invalid_request', field: 'ids' } }
+      if (ids.some((id) => typeof id !== 'string' || !diskID.test(id))) return { status: 400, body: { error: 'One of the chosen items is not valid.', hint: 'Scan again and choose from the new list.', code: 'invalid_request', field: 'ids' } }
+      if (ways.some((w) => typeof w !== 'string' || !diskWays.includes(w))) return { status: 400, body: { error: 'Unknown way to free space.', code: 'invalid_request', field: 'ways' } }
       return op(state, 'disk-cleanup')
     },
   ],

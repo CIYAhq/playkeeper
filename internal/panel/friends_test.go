@@ -191,7 +191,7 @@ func TestFriendInviteLetsFriendsIn(t *testing.T) {
 	e := newJoinEnv(t)
 	own := owner(t, e.env)
 	id, code := friendInvite(t, e.env, own, `{"label":"Discord crew","expiry":"7d","maxUses":2,"approval":"right_away"}`)
-	if rows := e.auditRows(t, "invite.create"); len(rows) != 1 || strings.Contains(rows[0], code) || !strings.Contains(rows[0], "Survival; works 7d; 2 friends; right_away") {
+	if rows := e.auditRows(t, "invite.create"); len(rows) != 1 || strings.Contains(rows[0], code) || !strings.Contains(rows[0], "Survival; works 7 days; 2 friends; right away") {
 		t.Fatalf("audit: %v", rows)
 	}
 
@@ -686,5 +686,54 @@ func TestInvitePagesArePublicAndNothingElse(t *testing.T) {
 	}
 	if !limited {
 		t.Fatal("the join page is not limited per address by the public group")
+	}
+}
+
+// A server has at most invites.MaxWorkingPlayerInvites friend links that
+// work at once: one more is refused, saying why and what to do, and makes
+// nothing. A link that stops working, turned off, used up or expired, makes
+// room for one more.
+func TestFriendLinksThatWorkAreCappedPerServer(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// first is the first link's options; stop stops it working.
+		first string
+		stop  func(t *testing.T, e joinEnv, own member, id, code string)
+	}{
+		{"turned off", `{"expiry":"7d","maxUses":5}`, func(t *testing.T, e joinEnv, own member, id, _ string) {
+			if r := e.do(t, "DELETE", "/api/servers/"+sampleServer+"/invites/"+id, "", own.auth()); r.status != http.StatusNoContent {
+				t.Fatalf("turn off: %d %v", r.status, r.body)
+			}
+		}},
+		{"used up", `{"expiry":"7d","maxUses":1,"approval":"right_away"}`, func(t *testing.T, e joinEnv, _ member, _, code string) {
+			if r := e.public(t, "redeem", codeBody(code, "name", "pixelpia")); r.status != http.StatusOK {
+				t.Fatalf("redeem: %d %v", r.status, r.body)
+			}
+		}},
+		{"expired", `{"expiry":"1d","maxUses":5}`, func(t *testing.T, e joinEnv, _ member, id, _ string) {
+			if _, err := e.srv.db.Exec(`UPDATE invites SET expires_at = ? WHERE id = ?`, e.clock.now().Add(-time.Minute).UnixMilli(), id); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newJoinEnv(t)
+			own := owner(t, e.env)
+			id, code := friendInvite(t, e.env, own, tc.first)
+			for range invites.MaxWorkingPlayerInvites - 1 {
+				friendInvite(t, e.env, own, `{"expiry":"30d","maxUses":5}`)
+			}
+			r := e.do(t, "POST", "/api/servers/"+sampleServer+"/invites", `{"expiry":"7d","maxUses":5}`, own.auth())
+			if r.status != http.StatusConflict || r.body["code"] != invites.CodeInvitesFull ||
+				r.body["error"] != "This server already has 20 friend links that work." || r.body["hint"] != "Turn one off on the Players tab, then make the new one." {
+				t.Fatalf("one link more than the cap: %d %v", r.status, r.body)
+			}
+			var n int
+			if err := e.srv.db.QueryRow(`SELECT COUNT(*) FROM invites WHERE kind = 'player'`).Scan(&n); err != nil || n != invites.MaxWorkingPlayerInvites {
+				t.Fatalf("the refused link was stored: %d links (%v)", n, err)
+			}
+			tc.stop(t, e, own, id, code)
+			friendInvite(t, e.env, own, `{"expiry":"7d","maxUses":5}`)
+		})
 	}
 }

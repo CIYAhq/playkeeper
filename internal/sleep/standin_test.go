@@ -214,6 +214,26 @@ func TestWakesAreRateLimited(t *testing.T) {
 	expectWake(t, wakes, "Steve")
 }
 
+// Joins whose wakes the agent calls off, because another wake is waiting
+// for a long operation, don't use up the wakes an hour allows.
+func TestWakesCalledOffAreGivenBack(t *testing.T) {
+	clock := &testClock{t: t0}
+	m, wakes := newManager(t, func(c *Config) { c.Now = clock.Now })
+	if got := mustJoin(t, m.Addr(), "Alex"); got != wakingMsg {
+		t.Fatalf("the wake that waits: %q", got)
+	}
+	expectWake(t, wakes, "Alex")
+	for i := range 2 * maxWakesPerHour {
+		clock.add(3 * time.Minute)
+		name := fmt.Sprintf("Player%d", i)
+		if got := mustJoin(t, m.Addr(), name); got != wakingMsg {
+			t.Fatalf("join %d while a wake waits: %q", i+1, got)
+		}
+		expectWake(t, wakes, name)
+		m.WakeCalledOff()
+	}
+}
+
 func TestLegacyPings(t *testing.T) {
 	m, _ := newManager(t, nil)
 	modern := "§1\x00127\x00Paper 26.2\x00Survival - Asleep · join to wake it\x000\x0020"

@@ -213,93 +213,105 @@ function SetupSteps({ pending, onCodes, onClose, onDone }: { pending: boolean; o
   const passwordId = useId()
   const labelId = useId()
   const { stage } = s
-  switch (stage.step) {
-    case 'loading':
-      return (
-        <div className="px-6 pt-6 pb-6 sm:w-[600px]">
-          <DialogTitle className="text-lg leading-6 font-bold">{t('twofa.setupTitle')}</DialogTitle>
-          <LoadingLabel />
-          <Skeleton className="mt-1.5 h-2.5 w-20" />
-          <div className="mt-4 flex items-start gap-5">
-            <Skeleton className="size-44 shrink-0 rounded-2xl" />
-            <div className="min-w-0 flex-1 pt-5">
-              <Skeleton className="h-3 w-3/5" />
-              <Skeleton className="mt-6 h-3 w-2/5" />
-              <Skeleton className="mt-2 h-11 rounded-xl" />
+  const body = (() => {
+    switch (stage.step) {
+      case 'loading':
+        return (
+          <div className="px-6 pt-6 pb-6">
+            <DialogTitle className="text-lg leading-6 font-bold">{t('twofa.setupTitle')}</DialogTitle>
+            <LoadingLabel />
+            <Skeleton className="mt-1.5 h-2.5 w-20" />
+            <div className="mt-4 flex items-start gap-5">
+              <Skeleton className="size-44 shrink-0 rounded-2xl" />
+              <div className="min-w-0 flex-1 pt-5">
+                <Skeleton className="h-3 w-3/5" />
+                <Skeleton className="mt-6 h-3 w-2/5" />
+                <Skeleton className="mt-2 h-11 rounded-xl" />
+              </div>
             </div>
+            <Skeleton className="mt-5 h-3 w-40" />
+            <Skeleton className="mt-2 h-[52px] w-80 max-w-full rounded-[10px]" />
           </div>
-          <Skeleton className="mt-5 h-3 w-40" />
-          <Skeleton className="mt-2 h-[52px] w-80 max-w-full rounded-[10px]" />
-        </div>
-      )
-    case 'password':
-      return (
-        <form onSubmit={s.start} noValidate className="px-6 pt-6 sm:w-[480px]">
-          <SetupHeading n={1} />
-          <div className="mt-4">
-            <PasswordField id={passwordId} label={t('twofa.passwordLabel')} value={s.password} onChange={s.setPassword} autoComplete="current-password" autoFocus error={s.passwordError} />
-          </div>
-          <ErrorLine text={s.error} />
-          <DialogButtons>
-            <Button type="button" variant="ghost" onClick={onClose}>
-              {t('common.cancel')}
-            </Button>
-            <Button type="submit" loading={s.busy} disabledReason={s.password ? undefined : t('reason.passwordFirst')}>
-              {t('common.continue')}
-              <ArrowRightIcon />
-            </Button>
-          </DialogButtons>
-        </form>
-      )
-    case 'scan':
-      return (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            void s.confirm(s.code)
-          }}
-          noValidate
-          className="px-6 pt-6 sm:w-[600px]"
-        >
-          <SetupHeading n={2} />
-          <div className="mt-4 flex items-start gap-5">
-            <QrImage svg={stage.setup.qrCodeSvg} className="size-44 shrink-0 rounded-2xl border border-border bg-white p-2" />
-            <div className="min-w-0 flex-1 pt-5">
-              <p className="text-[13px] font-semibold">{t('twofa.scan')}</p>
-              <p className="mt-5 text-xs font-semibold">{t('twofa.cantScan')}</p>
-              <KeyBox value={stage.setup.manualKey} className="mt-2" />
+        )
+      case 'password':
+        return (
+          <form onSubmit={s.start} noValidate className="px-6 pt-6">
+            <SetupHeading n={1} />
+            <div className="mt-4">
+              <PasswordField id={passwordId} label={t('twofa.passwordLabel')} value={s.password} onChange={s.setPassword} autoComplete="current-password" autoFocus error={s.passwordError} />
             </div>
-          </div>
-          <p id={labelId} className="mt-5 text-[13px] font-semibold">
-            {t('twofa.typeCode')}
-          </p>
-          <CodeField value={s.code} onChange={s.setCode} onComplete={(v) => void s.confirm(v)} invalid={s.wrong} autoFocus labelledBy={labelId} className="mt-2 justify-start" />
-          <ErrorLine text={s.wrong ? t('signin.wrong') : s.error} />
-          <DialogButtons>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                s.discard()
-                onClose()
-              }}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button type="submit" loading={s.busy} disabledReason={s.code.length < 6 ? t('reason.sixDigits') : undefined}>
-              {t('twofa.confirm')}
-            </Button>
-          </DialogButtons>
-        </form>
-      )
-    case 'codes':
-      return <CodesView codes={stage.codes} name={ws.me.user.username} step inDialog onSaved={onDone} className="px-6 pt-6 sm:w-[560px]" />
-    default: {
-      const unreachable: never = stage
-      return unreachable
+            <ErrorLine text={s.error} />
+            <DialogButtons>
+              <Button type="button" variant="ghost" onClick={onClose}>
+                {t('common.cancel')}
+              </Button>
+              <Button type="submit" loading={s.busy} disabledReason={s.password ? undefined : t('reason.passwordFirst')}>
+                {t('common.continue')}
+                <ArrowRightIcon />
+              </Button>
+            </DialogButtons>
+          </form>
+        )
+      case 'scan':
+        return (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              void s.confirm(s.code)
+            }}
+            noValidate
+            className="px-6 pt-6"
+          >
+            <SetupHeading n={2} />
+            <div className="mt-4 flex items-start gap-5">
+              <QrImage svg={stage.setup.qrCodeSvg} className="size-44 shrink-0 rounded-2xl border border-border bg-white p-2" />
+              <div className="min-w-0 flex-1 pt-5">
+                <p className="text-[13px] font-semibold">{t('twofa.scan')}</p>
+                <p className="mt-5 text-xs font-semibold">{t('twofa.cantScan')}</p>
+                <KeyBox value={stage.setup.manualKey} className="mt-2" />
+              </div>
+            </div>
+            <p id={labelId} className="mt-5 text-[13px] font-semibold">
+              {t('twofa.typeCode')}
+            </p>
+            <CodeField value={s.code} onChange={s.setCode} onComplete={(v) => void s.confirm(v)} invalid={s.wrong} autoFocus labelledBy={labelId} className="mt-2 justify-start" />
+            <ErrorLine text={s.wrong ? t('signin.wrong') : s.error} />
+            <DialogButtons>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  s.discard()
+                  onClose()
+                }}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button type="submit" loading={s.busy} disabledReason={s.code.length < 6 ? t('reason.sixDigits') : undefined}>
+                {t('twofa.confirm')}
+              </Button>
+            </DialogButtons>
+          </form>
+        )
+      case 'codes':
+        return <CodesView codes={stage.codes} name={ws.me.user.username} step inDialog onSaved={onDone} className="px-6 pt-6" />
+      default: {
+        const unreachable: never = stage
+        return unreachable
+      }
     }
-  }
+  })()
+  // Each step has its designed width; the dialog eases between them while the new step fades in.
+  return (
+    <div className={cn('overflow-x-clip transition-[width] duration-(--motion-standard) ease-standard', setupWidth[stage.step])}>
+      <div key={stage.step} className="animate-fade">
+        {body}
+      </div>
+    </div>
+  )
 }
+
+const setupWidth: Record<'loading' | 'password' | 'scan' | 'codes', string> = { loading: 'sm:w-[600px]', password: 'sm:w-[480px]', scan: 'sm:w-[600px]', codes: 'sm:w-[560px]' }
 
 /** Turning two-factor on, on a phone: a page of its own under Account. */
 export function SetupPage({ pending, onDone }: { pending: boolean; onDone: () => void }) {

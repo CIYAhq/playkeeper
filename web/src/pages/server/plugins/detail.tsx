@@ -9,6 +9,7 @@ import { Sheet, SheetDescription, SheetPanel, SheetPopup, SheetTitle } from '@/c
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { alsoInstalls, compactCount, footerFor, keyFrom, libraryMatch, searchPath, sourceNames, updatedAgo, versionPage } from '@/lib/addons'
+import { externalLink } from '@/lib/links'
 import { busyReason, opLabel } from '@/lib/phase'
 import { navigate } from '@/lib/router'
 import { softwareLabel } from '@/lib/servers'
@@ -90,7 +91,8 @@ function DetailBody({ detail }: { detail: Detail }) {
   const byHand = detail.adoptFile ? a.rows.find((r) => r.fileName === detail.adoptFile) : undefined
   const update = d.updateAvailable ? d.latest : undefined
   const also = byHand ? [] : alsoInstalls(d)
-  const whatsNew = inst && update ? versionPage(d.card, update) : undefined
+  const whatsNew = inst && update ? externalLink(versionPage(d.card, update)) : undefined
+  const pageLink = externalLink(d.card.pageUrl)
   const rows: [string, ReactNode][] = []
   if (d.card.license && !(phone && (inst || byHand))) rows.push([t('addons.licence'), d.card.license])
   if (inst) {
@@ -142,10 +144,10 @@ function DetailBody({ detail }: { detail: Detail }) {
             ))}
           </ul>
         )}
-        {!phone && (whatsNew || d.card.pageUrl) && (
+        {!phone && (whatsNew || pageLink) && (
           <div className="mt-4 flex flex-col items-start gap-3">
             {whatsNew && update && <SourceLink href={whatsNew}>{t('addons.whatsNew', { version: update.versionNumber })}</SourceLink>}
-            {d.card.pageUrl && <SourceLink href={d.card.pageUrl}>{t('addons.openSourcePage')}</SourceLink>}
+            {pageLink && <SourceLink href={pageLink}>{t('addons.openSourcePage')}</SourceLink>}
           </div>
         )}
       </SheetPanel>
@@ -154,9 +156,12 @@ function DetailBody({ detail }: { detail: Detail }) {
   )
 }
 
-function SourceLink({ href, children }: { href: string; children: string }) {
+/** A link to an add-on's page on its site; one that isn't an https: link to another site isn't shown. */
+export function SourceLink({ href, children }: { href: string; children: string }) {
+  const link = externalLink(href)
+  if (!link) return null
   return (
-    <a href={href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[13px] font-medium text-success-strong hover:underline" aria-label={t('common.external', { label: children })}>
+    <a href={link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[13px] font-medium text-success-strong hover:underline" aria-label={t('common.external', { label: children })}>
       {children}
       <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
     </a>
@@ -238,8 +243,8 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
       case 'external':
         body = (
           <Blocked title={t('addons.onlyAuthorSite')} body={a.kind === 'mod' ? t('addons.onlyAuthorSiteBodyMods') : t('addons.onlyAuthorSiteBody')}>
-            {f.url && (
-              <Button variant="outline" size={size} className="w-full" render={<a href={f.url} target="_blank" rel="noreferrer" aria-label={t('common.external', { label: t('addons.downloadFromAuthor') })} />}>
+            {externalLink(f.url) && (
+              <Button variant="outline" size={size} className="w-full" render={<a href={externalLink(f.url)} target="_blank" rel="noreferrer" aria-label={t('common.external', { label: t('addons.downloadFromAuthor') })} />}>
                 {t('addons.downloadFromAuthor')}
                 <ExternalLinkIcon />
               </Button>
@@ -269,12 +274,12 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
           <Blocked title={t('addons.needsTitle', { dependency: f.dependency })} />
         ) : (
           <Blocked title={t('addons.needsTitle', { dependency: f.dependency })} body={t('addons.needsBody', { dependency: f.dependency })}>
-            {f.url && (
+            {externalLink(f.url) && (
               <Button
                 variant="outline"
                 size={size}
                 className="w-full"
-                render={<a href={f.url} target="_blank" rel="noreferrer" aria-label={t('common.external', { label: t('addons.getFromAuthor', { dependency: f.dependency }) })} />}
+                render={<a href={externalLink(f.url)} target="_blank" rel="noreferrer" aria-label={t('common.external', { label: t('addons.getFromAuthor', { dependency: f.dependency }) })} />}
               >
                 <span className="truncate">{t('addons.getFromAuthor', { dependency: f.dependency })}</span>
                 <ExternalLinkIcon />

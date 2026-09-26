@@ -58,6 +58,15 @@ func (l *wakeLimit) try(now time.Time) (answer, time.Duration) {
 	return a, wait
 }
 
+// refund gives back the last wake try recorded, which never started the
+// server, and ends its waking window: the next join attempt may wake it.
+func (l *wakeLimit) refund() {
+	if n := len(l.recent); n > 0 {
+		l.recent = l.recent[:n-1]
+	}
+	l.wakingUntil = time.Time{}
+}
+
 func (l *wakeLimit) forget(now time.Time) {
 	cut := now.Add(-time.Hour)
 	i := 0

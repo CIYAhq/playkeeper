@@ -160,7 +160,7 @@ export function PlayersChart({ server, className }: { server: ServerStatus; clas
           <span className="size-2.5 rounded-[3px] bg-border" aria-hidden="true" />
           {t('overview.legendNoData')}
         </span>
-        <button type="button" className="font-medium text-primary hover:underline" onClick={() => setTable((v) => !v)}>
+        <button type="button" className={cn('font-medium text-primary hover:underline', !table && 'sr-only focus-visible:not-sr-only')} onClick={() => setTable((v) => !v)}>
           {table ? t('overview.chartTableHide') : t('overview.chartTable')}
         </button>
       </div>

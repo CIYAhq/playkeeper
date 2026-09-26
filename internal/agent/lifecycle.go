@@ -199,9 +199,9 @@ var opTimeout = 45 * time.Minute
 
 // noDeadline are the operations a fixed deadline would cut short: a copy
 // can take hours to download over a slow link. The download's stall timeout
-// stops them when the copy stops coming, and a restore from a copy can be
-// cancelled.
-var noDeadline = map[string]bool{"offsite-restore": true, "offsite-recover": true}
+// stops them when the copy stops coming, and restoring or checking a copy
+// can be cancelled.
+var noDeadline = map[string]bool{"offsite-restore": true, "offsite-check": true, "offsite-recover": true}
 
 // opContext is the context an operation of kind runs in.
 func opContext(parent context.Context, kind string) (context.Context, context.CancelFunc) {
@@ -457,9 +457,15 @@ func (a *Agent) ensureNetwork(ctx context.Context) error {
 func (s *server) ensureDirs(then string) error {
 	data := s.dataDir()
 	// A server started without its world directory generates a new world, so
-	// never recreate one a restore moved aside and could not put back.
+	// never recreate one a restore moved aside and could not put back, nor
+	// make one while a restored world is still only in its stage.
 	if m := s.worldMissing(); m != nil {
 		return errWorldMissing(m, then)
+	}
+	if !dirExists(data) {
+		if staged := s.stagedRestoredWorld(); staged != "" {
+			return errRestoredWorldStaged(staged, data, then)
+		}
 	}
 	if err := os.MkdirAll(data, 0o750); err != nil {
 		return err

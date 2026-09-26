@@ -5,6 +5,7 @@ import { useServer, useServerMachine, useWorkspace } from '@/api/workspace'
 import { Emblem, Pip } from '@/components/app/art'
 import { copyText, Dot, JobPill, StatusPill } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { LoadBoundary } from '@/components/app/load-boundary'
 import { serverAction } from '@/components/app/server-action'
 import { serverTabsFor } from '@/components/app/server-tabs'
 import { PageBody, PhoneBackHeader, useShell } from '@/components/app/shell'
@@ -28,22 +29,41 @@ import { Overview } from './overview'
 import { PluginsPhoneHeader } from './plugins/header'
 
 // The Overview comes with the server page; each other tab's code loads the
-// first time it shows.
-const BackupRulesPage = lazy(() => import('./backups').then((m) => ({ default: m.BackupRulesPage })))
-const BackupRulesPhonePage = lazy(() => import('./backups').then((m) => ({ default: m.BackupRulesPhonePage })))
-const ConsolePage = lazy(() => import('./console').then((m) => ({ default: m.ConsolePage })))
-const CopiesCard = lazy(() => import('./copies').then((m) => ({ default: m.CopiesCard })))
-const CopiesPhonePage = lazy(() => import('./copies').then((m) => ({ default: m.CopiesPhonePage })))
-const MapPage = lazy(() => import('./map').then((m) => ({ default: m.MapPage })))
-const PlayersPage = lazy(() => import('./players').then((m) => ({ default: m.PlayersPage })))
-const PlayerProfilePage = lazy(() => import('./profile').then((m) => ({ default: m.PlayerProfilePage })))
-const PluginsPage = lazy(() => import('./plugins').then((m) => ({ default: m.PluginsPage })))
-const RunningPage = lazy(() => import('./running').then((m) => ({ default: m.RunningPage })))
-const SchedulesPhonePage = lazy(() => import('./schedules').then((m) => ({ default: m.SchedulesPhonePage })))
-const ServerSettingsPage = lazy(() => import('./settings').then((m) => ({ default: m.ServerSettingsPage })))
-const WorldPage = lazy(() => import('./world').then((m) => ({ default: m.WorldPage })))
-const PacksPage = lazy(() => import('./world-packs').then((m) => ({ default: m.PacksPage })))
-const PregenPage = lazy(() => import('./world-pregen').then((m) => ({ default: m.PregenPage })))
+// first time it shows, or while the browser is idle after sign-in.
+const tabs = {
+  backups: () => import('./backups'),
+  console: () => import('./console'),
+  copies: () => import('./copies'),
+  map: () => import('./map'),
+  players: () => import('./players'),
+  profile: () => import('./profile'),
+  plugins: () => import('./plugins'),
+  running: () => import('./running'),
+  schedules: () => import('./schedules'),
+  settings: () => import('./settings'),
+  world: () => import('./world'),
+  worldPacks: () => import('./world-packs'),
+  worldPregen: () => import('./world-pregen'),
+}
+const BackupRulesPage = lazy(() => tabs.backups().then((m) => ({ default: m.BackupRulesPage })))
+const BackupRulesPhonePage = lazy(() => tabs.backups().then((m) => ({ default: m.BackupRulesPhonePage })))
+const ConsolePage = lazy(() => tabs.console().then((m) => ({ default: m.ConsolePage })))
+const CopiesCard = lazy(() => tabs.copies().then((m) => ({ default: m.CopiesCard })))
+const CopiesPhonePage = lazy(() => tabs.copies().then((m) => ({ default: m.CopiesPhonePage })))
+const MapPage = lazy(() => tabs.map().then((m) => ({ default: m.MapPage })))
+const PlayersPage = lazy(() => tabs.players().then((m) => ({ default: m.PlayersPage })))
+const PlayerProfilePage = lazy(() => tabs.profile().then((m) => ({ default: m.PlayerProfilePage })))
+const PluginsPage = lazy(() => tabs.plugins().then((m) => ({ default: m.PluginsPage })))
+const RunningPage = lazy(() => tabs.running().then((m) => ({ default: m.RunningPage })))
+const SchedulesPhonePage = lazy(() => tabs.schedules().then((m) => ({ default: m.SchedulesPhonePage })))
+const ServerSettingsPage = lazy(() => tabs.settings().then((m) => ({ default: m.ServerSettingsPage })))
+const WorldPage = lazy(() => tabs.world().then((m) => ({ default: m.WorldPage })))
+const PacksPage = lazy(() => tabs.worldPacks().then((m) => ({ default: m.PacksPage })))
+const PregenPage = lazy(() => tabs.worldPregen().then((m) => ({ default: m.PregenPage })))
+
+export function preloadTabs() {
+  for (const load of Object.values(tabs)) void load().catch(() => {})
+}
 
 export { serverAction }
 
@@ -134,7 +154,9 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
         <ServerHeader server={server} tab={tab} settingUp={settingUp} />
       )}
       <PageBody key={view} className="flex flex-1 animate-page flex-col gap-4">
-        <Suspense fallback={<TabSkeleton />}>{body}</Suspense>
+        <LoadBoundary>
+          <Suspense fallback={<TabSkeleton />}>{body}</Suspense>
+        </LoadBoundary>
       </PageBody>
     </>
   )
@@ -324,7 +346,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
         )}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-3">
-        <Emblem size={44} stopped={place.stale || phaseTone(s.phase) !== 'online'} icon={iconURL(s)} name={s.name} />
+        <Emblem size={44} stopped={place.stale || (phaseTone(s.phase) !== 'online' && s.phase !== 'asleep')} icon={iconURL(s)} name={s.name} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
             <h1 className="truncate text-title font-bold tracking-[-0.015em]">{s.name}</h1>
@@ -439,7 +461,7 @@ export function SwitcherSheet({ open, onOpenChange, current, tab }: { open: bool
           {(ws.servers ?? []).map((s) => (
             <li key={s.id} className="border-b border-border last:border-b-0">
               <button type="button" onClick={() => go({ name: 'server', slug: s.slug, tab: tab === 'settings' ? 'overview' : tab })} className="flex min-h-16 w-full items-center gap-3 px-3 py-2 text-left" aria-current={s.id === current?.id ? 'true' : undefined}>
-                <Emblem size={44} stopped={staleOf(s) || phaseTone(s.phase) !== 'online'} icon={iconURL(s)} name={s.name} />
+                <Emblem size={44} stopped={staleOf(s) || (phaseTone(s.phase) !== 'online' && s.phase !== 'asleep')} icon={iconURL(s)} name={s.name} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-base font-semibold">{s.name}</span>
                   <span className="block truncate text-[13px] text-muted-foreground">{line(s)}</span>

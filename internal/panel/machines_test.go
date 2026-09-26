@@ -13,9 +13,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +30,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/machinelink"
 	"github.com/CIYAhq/playkeeper/internal/mcp"
+	"github.com/CIYAhq/playkeeper/internal/modpacks/share"
 	"github.com/CIYAhq/playkeeper/internal/mojang"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
@@ -711,6 +714,97 @@ func TestServerRecordsFollowWhichMachinesAreStillJoined(t *testing.T) {
 			alpha := e.addRemote(t, "alphaalpha", "alpha")
 			e.srv.claimServers(alpha, serverList("xxxxxxxxxx"))
 			tc.check(t, e, cookie, csrf, alpha)
+		})
+	}
+}
+
+// A machine that is removed or leaves takes its servers' friend invites,
+// join requests and origins nowhere: its servers keep them, as they keep
+// their records, so they work again when the same host joins again. A
+// server deleted on a machine that is still joined loses them.
+func TestARemovedMachinesServersKeepTheirInvites(t *testing.T) {
+	type joinedMachine struct {
+		d        machinelink.Dashboard
+		identity *machinelink.Identity
+		agent    *remoteAgent
+	}
+	remove := func(t *testing.T, e *env, cookie, csrf string, j joinedMachine) {
+		t.Helper()
+		if r := e.do(t, "DELETE", "/api/machines/"+j.d.MachineID, "", auth(cookie, csrf)); r.status != http.StatusNoContent {
+			t.Fatalf("remove: %d %v", r.status, r.body)
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		then func(t *testing.T, e *env, cookie, csrf string, j joinedMachine)
+		kept bool
+	}{
+		{"the machine is removed", remove, true},
+		{"the machine leaves", func(t *testing.T, e *env, cookie, csrf string, j joinedMachine) {
+			if err := machinelink.Leave(context.Background(), machinelink.LeaveOptions{Dashboard: j.d, Identity: j.identity}); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+		{"the same host joins again", func(t *testing.T, e *env, cookie, csrf string, j joinedMachine) {
+			remove(t, e, cookie, csrf, j)
+			e.get(t, "/api/servers", cookie, nil)
+			again, _ := e.joined(t, cookie, csrf, j.agent)
+			var list []map[string]any
+			if e.get(t, "/api/servers", cookie, &list); ids(list) != "abcdefghjk rstuvwxyzq" || list[1]["machineId"] != again {
+				t.Fatalf("servers once it joined again: %v", list)
+			}
+		}, true},
+		{"the server is deleted on a machine that is still joined", func(t *testing.T, e *env, cookie, csrf string, j joinedMachine) {
+			j.agent.reply("GET /v1/servers", `[]`)
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnvConfig(t, withDomain, nil)
+			cookie, csrf := e.setup(t)
+			e.reply("GET", "/v1/machine", `{"hostname":"my-vps","agentVersion":"0.4.0"}`)
+			e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+			ra := newRemoteAgent()
+			d, identity, _ := e.joinedAs(t, cookie, csrf, ra)
+			var list []map[string]any
+			if e.get(t, "/api/servers", cookie, &list); ids(list) != "abcdefghjk rstuvwxyzq" {
+				t.Fatalf("servers: %v", list)
+			}
+			var project string
+			if err := e.srv.db.QueryRow(`SELECT id FROM projects LIMIT 1`).Scan(&project); err != nil {
+				t.Fatal(err)
+			}
+			now := millis(e.clock.now())
+			for _, server := range []string{"abcdefghjk", "rstuvwxyzq"} {
+				for _, q := range []struct {
+					sql  string
+					args []any
+				}{
+					{`INSERT INTO invites(id, kind, code_hash, project_id, server_id, created_by, created_at, expires_at, max_uses) VALUES(?, 'player', ?, ?, ?, 1, ?, 0, 0)`,
+						[]any{"inv-" + server, "hash-" + server, project, server, now}},
+					{`INSERT INTO join_requests(id, invite_id, server_id, player_uuid, player_name, state, created_at) VALUES(?, ?, ?, 'uuid-steve', 'Steve', 'pending', ?)`,
+						[]any{"req-" + server, "inv-" + server, server, now}},
+					{`INSERT INTO player_origins(server_id, player_uuid, player_name, invite_id, joined_at) VALUES(?, 'uuid-alex', 'Alex', ?, ?)`,
+						[]any{server, "inv-" + server, now}},
+				} {
+					if _, err := e.srv.db.Exec(q.sql, q.args...); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			tc.then(t, e, cookie, csrf, joinedMachine{d: d, identity: identity, agent: ra})
+			e.get(t, "/api/servers", cookie, nil)
+			for _, server := range []string{"abcdefghjk", "rstuvwxyzq"} {
+				want := 1
+				if server == "rstuvwxyzq" && !tc.kept {
+					want = 0
+				}
+				for _, table := range []string{"invites", "join_requests", "player_origins"} {
+					var n int
+					if err := e.srv.db.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE server_id = ?`, server).Scan(&n); err != nil || n != want {
+						t.Errorf("%s of %s: %d, want %d (%v)", table, server, n, want, err)
+					}
+				}
+			}
 		})
 	}
 }
@@ -1504,6 +1598,14 @@ func TestFailuresOfJoinedMachines(t *testing.T) {
 // joined joins a machine whose agent is h and waits until it's connected.
 func (e *env) joined(t *testing.T, cookie, csrf string, h http.Handler) (string, *runningLink) {
 	t.Helper()
+	d, _, link := e.joinedAs(t, cookie, csrf, h)
+	return d.MachineID, link
+}
+
+// joinedAs is joined, returning what the machine joined with too, so that
+// it can leave as `playkeeper leave` does.
+func (e *env) joinedAs(t *testing.T, cookie, csrf string, h http.Handler) (machinelink.Dashboard, *machinelink.Identity, *runningLink) {
+	t.Helper()
 	addr := e.sharePort(t)
 	fp, _ := e.linkInfo(t, cookie)["fingerprint"].(string)
 	code, _ := e.joinCode(t, cookie, csrf, `{"name":"home-server"}`)["code"].(string)
@@ -1515,7 +1617,7 @@ func (e *env) joined(t *testing.T, cookie, csrf string, h http.Handler) (string,
 	}
 	link := e.runLink(t, d, id, h)
 	eventually(t, "the machine is connected", func() bool { return linkState(e.machineView(t, cookie, d.MachineID)) == "connected" })
-	return d.MachineID, link
+	return d, id, link
 }
 
 // fetch sends a request as the browser would and returns the answer with
@@ -1722,6 +1824,122 @@ func TestEveryServerInTheListHasItsOwnSlug(t *testing.T) {
 			}
 			if strings.Join(got, " ") != tc.want {
 				t.Fatalf("servers %q, want %q", strings.Join(got, " "), tc.want)
+			}
+		})
+	}
+}
+
+// A server keeps the slug it was shown with, which its pages, bookmarks and
+// AI agents find it by. A server that comes later on any machine gets the
+// number, the dashboard's machine keeps its own slugs and hears of the
+// others', and neither removing a machine nor deleting the first of two
+// servers named alike moves a slug.
+func TestAServerKeepsTheSlugItWasShownWith(t *testing.T) {
+	server := func(id, slug string) string {
+		return `{"id":"` + id + `","slug":"` + slug + `","name":"Survival","phase":"online"}`
+	}
+	shown := func(t *testing.T, e *env, cookie string) string {
+		t.Helper()
+		var list []map[string]any
+		if r := e.get(t, "/api/servers", cookie, &list); r != http.StatusOK {
+			t.Fatalf("servers: %d", r)
+		}
+		var out []string
+		for _, sv := range list {
+			out = append(out, fmt.Sprintf("%v=%v", sv["id"], sv["slug"]))
+		}
+		return strings.Join(out, " ")
+	}
+	twoJoined := func(t *testing.T, e *env, cookie, csrf string, alpha, beta *remoteAgent) string {
+		t.Helper()
+		alpha.reply("GET /v1/servers", "["+server("aaaaaaaaaa", "survival")+"]")
+		a, _ := e.joined(t, cookie, csrf, alpha)
+		e.clock.add(time.Minute)
+		beta.reply("GET /v1/servers", "["+server("bbbbbbbbbb", "survival")+"]")
+		e.joined(t, cookie, csrf, beta)
+		if got := shown(t, e, cookie); got != "aaaaaaaaaa=survival bbbbbbbbbb=survival-2" {
+			t.Fatalf("two joined servers named alike: %s", got)
+		}
+		return a
+	}
+	for _, tc := range []struct {
+		name      string
+		run       func(t *testing.T, e *env, cookie, csrf string, alpha, beta *remoteAgent)
+		want      string // id=slug, in the list's order
+		elsewhere string // what the dashboard's machine last heard
+	}{
+		{"a joined machine has survival, then the dashboard's machine makes Survival", func(t *testing.T, e *env, cookie, csrf string, alpha, beta *remoteAgent) {
+			alpha.reply("GET /v1/servers", "["+server("aaaaaaaaaa", "survival")+"]")
+			e.joined(t, cookie, csrf, alpha)
+			shown(t, e, cookie)
+			// Its agent heard survival is taken, so it names the new one
+			// survival-2 (see TestANewServerSkipsTheSlugsOfServersElsewhere).
+			e.reply("GET", "/v1/servers", "["+server("abcdefghjk", "survival-2")+"]")
+		}, "abcdefghjk=survival-2 aaaaaaaaaa=survival", `{"slugs":["survival"]}`},
+		{"the dashboard's machine lists a slug a joined server has", func(t *testing.T, e *env, cookie, csrf string, alpha, beta *remoteAgent) {
+			alpha.reply("GET /v1/servers", "["+server("aaaaaaaaaa", "survival")+"]")
+			e.joined(t, cookie, csrf, alpha)
+			shown(t, e, cookie)
+			e.reply("GET", "/v1/servers", "["+server("abcdefghjk", "survival")+"]")
+		}, "abcdefghjk=survival aaaaaaaaaa=survival-2", `{"slugs":["survival-2"]}`},
+		{"of two joined machines, the earlier makes a duplicate", func(t *testing.T, e *env, cookie, csrf string, alpha, beta *remoteAgent) {
+			alpha.reply("GET /v1/servers", "["+server("aaaaaaaaaa", "cobblemon")+"]")
+			e.joined(t, cookie, csrf, alpha)
+			e.clock.add(time.Minute)
+			beta.reply("GET /v1/servers", "["+server("bbbbbbbbbb", "survival")+"]")
+			e.joined(t, cookie, csrf, beta)
+			shown(t, e, cookie)
+			alpha.reply("GET /v1/servers", "["+server("aaaaaaaaaa", "cobblemon")+","+server("cccccccccc", "survival")+"]")
+		}, "aaaaaaaaaa=cobblemon cccccccccc=survival-2 bbbbbbbbbb=survival", `{"slugs":["cobblemon","survival","survival-2"]}`},
+		{"a machine is removed and joins again", func(t *testing.T, e *env, cookie, csrf string, alpha, beta *remoteAgent) {
+			a := twoJoined(t, e, cookie, csrf, alpha, beta)
+			if r := e.do(t, "DELETE", "/api/machines/"+a, "", auth(cookie, csrf)); r.status != http.StatusNoContent {
+				t.Fatalf("remove: %d %v", r.status, r.body)
+			}
+			beta.reply("GET /v1/servers", "["+server("bbbbbbbbbb", "survival")+","+server("dddddddddd", "survival")+"]")
+			if got := shown(t, e, cookie); got != "bbbbbbbbbb=survival-2 dddddddddd=survival-3" {
+				t.Fatalf("with the first machine removed: %s", got)
+			}
+			e.agent.mu.Lock()
+			told := e.agent.lastBody["PUT /v1/slugs/elsewhere"]
+			e.agent.mu.Unlock()
+			if told != `{"slugs":["survival","survival-2","survival-3"]}` {
+				t.Fatalf("with the first machine removed, the dashboard's machine heard %s", told)
+			}
+			e.clock.add(time.Minute)
+			e.joined(t, cookie, csrf, alpha)
+		}, "bbbbbbbbbb=survival-2 dddddddddd=survival-3 aaaaaaaaaa=survival", `{"slugs":["survival","survival-2","survival-3"]}`},
+		{"the first of two servers named alike is deleted", func(t *testing.T, e *env, cookie, csrf string, alpha, beta *remoteAgent) {
+			twoJoined(t, e, cookie, csrf, alpha, beta)
+			alpha.reply("GET /v1/servers", `[]`)
+		}, "bbbbbbbbbb=survival-2", `{"slugs":["survival-2"]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnvConfig(t, withDomain, nil)
+			cookie, csrf := e.setup(t)
+			e.reply("GET", "/v1/machine", `{"hostname":"my-vps","agentVersion":"0.4.0"}`)
+			e.reply("GET", "/v1/servers", `[]`)
+			alpha, beta := newRemoteAgent(), newRemoteAgent()
+			tc.run(t, e, cookie, csrf, alpha, beta)
+			if got := shown(t, e, cookie); got != tc.want {
+				t.Fatalf("servers %q, want %q", got, tc.want)
+			}
+			e.agent.mu.Lock()
+			told := e.agent.lastBody["PUT /v1/slugs/elsewhere"]
+			e.agent.mu.Unlock()
+			if told != tc.elsewhere {
+				t.Errorf("the dashboard's machine heard %s, want %s", told, tc.elsewhere)
+			}
+			_, token := e.newToken(t, cookie, csrf, `{"name":"Claude","role":"admin","allServers":true}`)
+			for _, pair := range strings.Fields(tc.want) {
+				id, slug, _ := strings.Cut(pair, "=")
+				key := "GET /v1/servers/" + id
+				e.callTool(t, token, "get_server_status", map[string]any{"server": slug})
+				_, byAlpha := alpha.saw(key)
+				_, byBeta := beta.saw(key)
+				if !e.sawLocally(key) && !byAlpha && !byBeta {
+					t.Errorf("AI agents' %q isn't %s", slug, id)
+				}
 			}
 		})
 	}
@@ -1986,5 +2204,216 @@ func TestJoinPathsSayWhyAServerCantBeReached(t *testing.T) {
 				t.Errorf("the failed approval left the request %q (%v)", state, err)
 			}
 		})
+	}
+}
+
+// The join page answers a friend invite whose server can't be asked as the
+// dashboard's routes do, in a friend's words: a server no machine runs is a
+// link that doesn't work, one two machines list is a link that doesn't work
+// for now, and a lookup that failed or a machine that can't be reached is a
+// moment to try again. Each is logged by its own reason.
+func TestTheJoinPageSaysWhyAServerCantBeReached(t *testing.T) {
+	record := func(t *testing.T, e *env, owner machine, disputedBy string) {
+		t.Helper()
+		if _, err := e.srv.db.Exec(`INSERT INTO server_machines(server_id, machine_id, seen_at, disputed_by) VALUES(?, ?, 0, ?)
+			ON CONFLICT(server_id) DO UPDATE SET machine_id = excluded.machine_id, disputed_by = excluded.disputed_by`, sampleServer, owner.ID, disputedBy); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name   string
+		reach  func(t *testing.T, e *env, alpha, beta machine)
+		status int
+		code   string
+		reason string
+	}{
+		{"a server whose machine was removed", func(t *testing.T, e *env, alpha, beta machine) {
+			e.srv.listings.note(e.localMachine(t), nil)
+			record(t, e, alpha, "")
+			e.removeMachine(t, alpha)
+		}, http.StatusNotFound, invites.CodeNotWorking, "no machine runs the invite's server"},
+		{"a server its machine's agent doesn't know", func(t *testing.T, e *env, alpha, beta machine) {
+			e.replyStatus("GET", "/v1/servers/"+sampleServer, http.StatusNotFound, `{"error":"Server not found.","code":"not_found"}`)
+		}, http.StatusNotFound, invites.CodeNotWorking, "no machine runs the invite's server"},
+		{"a server two machines list", func(t *testing.T, e *env, alpha, beta machine) {
+			record(t, e, alpha, beta.ID)
+		}, http.StatusConflict, codeServerDisputed, "two machines list the invite's server"},
+		{"a server whose machine can't be looked up", func(t *testing.T, e *env, alpha, beta machine) {
+			e.srv.listings.note(e.localMachine(t), nil)
+			e.srv.listings.note(alpha.ID, serverList(sampleServer))
+			if _, err := e.srv.db.Exec(`DELETE FROM server_machines WHERE server_id = ?`, sampleServer); err != nil {
+				t.Fatal(err)
+			}
+		}, http.StatusServiceUnavailable, api.CodeInternal, "could not look up the machine that runs the invite's server"},
+		{"a server whose machine can't be reached", func(t *testing.T, e *env, alpha, beta machine) {
+			record(t, e, alpha, "")
+		}, http.StatusServiceUnavailable, api.CodeAgentUnavailable, "the agent did not answer"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newJoinEnv(t)
+			own := owner(t, e.env)
+			_, code := friendInvite(t, e.env, own, `{"label":"School friends","expiry":"30d","maxUses":3,"approval":"after_yes"}`)
+			alpha, beta := e.addRemote(t, "alphaalpha", "alpha"), e.addRemote(t, "betabetabe", "beta")
+			tc.reach(t, e.env, alpha, beta)
+			for _, call := range []struct{ route, body string }{
+				{"preview", codeBody(code)},
+				{"redeem", codeBody(code, "name", "PixelPia")},
+			} {
+				before := len(e.log.String())
+				r := e.public(t, call.route, call.body)
+				logged := e.log.String()[before:]
+				if r.status != tc.status || r.body["code"] != tc.code || strings.Contains(fmt.Sprint(r.body), "Survival") {
+					t.Errorf("%s: %d %v, want %d %s", call.route, r.status, r.body, tc.status, tc.code)
+				}
+				if !strings.Contains(logged, "refusal="+tc.code) || !strings.Contains(logged, `reason="`+tc.reason+`"`) {
+					t.Errorf("%s logged %q, want %s for %q", call.route, logged, tc.code, tc.reason)
+				}
+			}
+		})
+	}
+}
+
+// A machine's download reaches the browser as a file to save, whatever the
+// machine says it is: never a page or a script on the dashboard's origin,
+// and never with a status that would sign the browser out.
+func TestAMachinesDownloadsAreFilesToSaveNeverAPage(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	e.reply("GET", "/v1/machine", `{"hostname":"my-vps","agentVersion":"0.4.0"}`)
+	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+	ra := newRemoteAgent()
+	e.joinMachine(t, cookie, csrf, ra)
+	var list []map[string]any
+	if e.get(t, "/api/servers", cookie, &list); ids(list) != "abcdefghjk rstuvwxyzq" {
+		t.Fatalf("servers: %v", list)
+	}
+	answer := func(status int, contentType, disposition, body string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", contentType)
+			if disposition != "" {
+				w.Header().Set("Content-Disposition", disposition)
+			}
+			w.WriteHeader(status)
+			io.WriteString(w, body)
+		}
+	}
+	for _, route := range []struct {
+		name, path, contentType, goodName, badName, fallback string
+	}{
+		{"the recovery key", "/offsite/recovery-key", "application/octet-stream", "playkeeper-recovery-key-survival.txt", "playkeeper-recovery-key-Survival World.txt", "playkeeper-recovery-key.txt"},
+		{"the friends' pack", "/mods/share.mrpack", share.ContentType, "survival.mrpack", "Survival World.mrpack", "server.mrpack"},
+	} {
+		answers := []struct {
+			name string
+			h    http.HandlerFunc
+			good bool // whether the machine named the file as its agent does
+		}{
+			{"a page", answer(200, "text/html; charset=utf-8", "inline", `<script src="/api/servers/rstuvwxyzq/offsite/recovery-key"></script>`), false},
+			{"a script", answer(200, "text/javascript", "", `fetch("/api/tokens", {method: "POST"})`), false},
+			{"a file its agent wouldn't name so", answer(200, "application/octet-stream", `attachment; filename="`+route.badName+`"`, "the file"), false},
+			{"a file", nil, true},
+		}
+		for _, server := range []string{"abcdefghjk", "rstuvwxyzq"} {
+			key := "GET /v1/servers/" + server + route.path
+			set := func(h http.HandlerFunc) {
+				if server == "abcdefghjk" {
+					e.agent.mu.Lock()
+					e.agent.answers[key] = h
+					e.agent.mu.Unlock()
+				} else {
+					ra.handle(key, h)
+				}
+			}
+			for _, a := range answers {
+				t.Run(route.name+" on "+server+", answered as "+a.name, func(t *testing.T) {
+					h := a.h
+					if h == nil {
+						h = answer(200, "application/octet-stream", `attachment; filename="`+route.goodName+`"`, "the file")
+					}
+					set(h)
+					resp, _ := e.raw(t, "GET", "/api/servers/"+server+route.path, "", auth(cookie, csrf))
+					want := route.fallback
+					if a.good {
+						want = route.goodName
+					}
+					if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != route.contentType || resp.Header.Get("Content-Security-Policy") != "sandbox" ||
+						resp.Header.Get("Content-Disposition") != `attachment; filename=`+strconv.Quote(want) && resp.Header.Get("Content-Disposition") != `attachment; filename=`+want {
+						t.Fatalf("%d %q, %q, %q", resp.StatusCode, resp.Header.Get("Content-Type"), resp.Header.Get("Content-Disposition"), resp.Header.Get("Content-Security-Policy"))
+					}
+				})
+			}
+			t.Run(route.name+" on "+server+", refused as unauthorized", func(t *testing.T) {
+				set(answer(http.StatusUnauthorized, "application/json", "", `{"error":"No.","code":"unauthorized"}`))
+				if resp, _ := e.raw(t, "GET", "/api/servers/"+server+route.path, "", auth(cookie, csrf)); resp.StatusCode != http.StatusBadGateway {
+					t.Fatalf("a machine's 401 comes out as %d", resp.StatusCode)
+				}
+			})
+		}
+	}
+}
+
+// A machine's refusal on a route that passes its answer on keeps its
+// status, except the two that would sign the browser out or ask it for a
+// proxy's password, which come out as a bad gateway.
+func TestAMachinesRefusalNeverSignsTheBrowserOut(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	e.reply("GET", "/v1/machine", `{"hostname":"my-vps","agentVersion":"0.4.0"}`)
+	e.reply("GET", "/v1/servers", `[{"id":"abcdefghjk","name":"Survival","phase":"online"}]`)
+	ra := newRemoteAgent()
+	joined, _ := e.joinMachine(t, cookie, csrf, ra)
+	var servers []map[string]any
+	if e.get(t, "/api/servers", cookie, &servers); ids(servers) != "abcdefghjk rstuvwxyzq" {
+		t.Fatalf("servers: %v", servers)
+	}
+	list, err := e.srv.machines()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var local string
+	for _, m := range list {
+		if m.Kind != remoteKind {
+			local = m.ID
+		}
+	}
+	icon := "?url=" + url.QueryEscape("https://cdn.modrinth.com/data/AANobbMI/icon.png")
+	for _, route := range []struct {
+		name, method, path, agentPath, body string
+	}{
+		{"a plugin's icon", "GET", "/api/servers/{id}/addons/icon" + icon, "/v1/addons/icon", ""},
+		{"a modpack's icon", "GET", "/api/machines/{mid}/modpacks/icon" + icon, "/v1/addons/icon", ""},
+		{"the map's worlds", "GET", "/api/servers/{id}/map/worlds", "/v1/servers/{id}/map/worlds", ""},
+		{"a map tile", "GET", "/api/servers/{id}/map/tiles/minecraft_overworld/3/0_-1.png", "/v1/servers/{id}/map/tiles/minecraft_overworld/3/0_-1.png", ""},
+		{"a world's upload", "PUT", "/api/machines/{mid}/world-imports/0123456789abcdef/files/0?offset=0", "/v1/world-imports/0123456789abcdef/files/0", "world bytes"},
+		{"checking a world", "POST", "/api/machines/{mid}/world-imports/0123456789abcdef/inspect", "/v1/world-imports/0123456789abcdef/inspect", "{}"},
+	} {
+		for _, m := range []struct{ name, server, machine string }{{"the dashboard's machine", "abcdefghjk", local}, {"a joined machine", "rstuvwxyzq", joined}} {
+			path := strings.NewReplacer("{id}", m.server, "{mid}", m.machine).Replace(route.path)
+			key := route.method + " " + strings.ReplaceAll(route.agentPath, "{id}", m.server)
+			for _, c := range []struct{ status, want int }{
+				{http.StatusUnauthorized, http.StatusBadGateway},
+				{http.StatusProxyAuthRequired, http.StatusBadGateway},
+				{http.StatusNotFound, http.StatusNotFound},
+				{http.StatusConflict, http.StatusConflict},
+			} {
+				t.Run(fmt.Sprintf("%s on %s, refused with %d", route.name, m.name, c.status), func(t *testing.T) {
+					h := func(w http.ResponseWriter, r *http.Request) {
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(c.status)
+						io.WriteString(w, `{"error":"No.","code":"refused"}`)
+					}
+					if m.server == "abcdefghjk" {
+						e.agent.mu.Lock()
+						e.agent.answers[key] = h
+						e.agent.mu.Unlock()
+					} else {
+						ra.handle(key, h)
+					}
+					if resp, body := e.raw(t, route.method, path, route.body, auth(cookie, csrf)); resp.StatusCode != c.want {
+						t.Fatalf("the machine's %d comes out as %d: %s", c.status, resp.StatusCode, body)
+					}
+				})
+			}
+		}
 	}
 }

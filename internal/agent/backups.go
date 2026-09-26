@@ -688,6 +688,9 @@ type swapJournal struct {
 	State        swapState       `json:"state"`
 	// Why is what made the restore undo itself, for its operation's error.
 	Why string `json:"why,omitempty"`
+	// MovedBack is set once Playkeeper has moved the previous world back
+	// into place, so a settle tried again still says it did.
+	MovedBack bool `json:"movedBack,omitempty"`
 }
 
 // swapState is how far a restore's world swap got.
@@ -787,18 +790,22 @@ func (a *Agent) settleSwap(stageDir string, atStart bool) error {
 		return nil
 	case swapMoving, swapReverting:
 		if !j.HadLive || j.Previous == nil {
-			if !dirExists(s.dataDir()) && dirExists(filepath.Join(stageDir, "data")) {
-				return fmt.Errorf("the restored world is only in the stage, and the world directory %s is missing", s.dataDir())
+			staged := filepath.Join(stageDir, "data")
+			switch {
+			case !dirExists(staged):
+				return nil
+			case !dirExists(s.dataDir()):
+				return fmt.Errorf("the restored world is only in the stage at %s, and the world directory %s is missing", staged, s.dataDir())
 			}
-			return nil
+			return fmt.Errorf("the restored world is only in the stage at %s, not in the world directory %s", staged, s.dataDir())
 		}
 		ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
 		defer cancel()
 		if _, running, err := s.containerRunning(ctx); err != nil || running {
 			return fmt.Errorf("the server must be stopped to put the previous world back (running %v, %v)", running, err)
 		}
-		movedBack := dirExists(s.copyPath(j.Aside))
-		if err := s.putPreviousBack(j); err != nil {
+		movedBack := j.MovedBack || dirExists(s.copyPath(j.Aside))
+		if err := s.putPreviousBack(stageDir, j); err != nil {
 			return err
 		}
 		s.restoreSettled(j, movedBack, atStart)
@@ -851,8 +858,9 @@ func (s *server) restoreSettled(j *swapJournal, movedBack, atStart bool) {
 // putPreviousBack moves the previous world back into the live directory, a
 // restored world in the way to the failed-restore copy, and saves the
 // previous settings. Run again after an interruption, it finishes the job:
-// the previous world's copy is gone only once it is back in place.
-func (s *server) putPreviousBack(j *swapJournal) error {
+// the previous world's copy is gone only once it is back in place, which
+// the journal in stageDir records.
+func (s *server) putPreviousBack(stageDir string, j *swapJournal) error {
 	live, aside, failed := s.dataDir(), s.copyPath(j.Aside), s.copyPath(j.Failed)
 	if dirExists(aside) {
 		if dirExists(live) {
@@ -866,6 +874,10 @@ func (s *server) putPreviousBack(j *swapJournal) error {
 				where = " and the restored world at " + failed
 			}
 			return fmt.Errorf("putting the previous world back failed (%v), so nothing was deleted: the previous world is at %s%s", err, aside, where)
+		}
+		j.MovedBack = true
+		if err := writeSwapJournal(stageDir, j); err != nil {
+			s.log.Warn("could not save the restore's progress file", "server", s.id, "err", err)
 		}
 	}
 	if !dirExists(live) {
@@ -964,6 +976,27 @@ func (s *server) startRefusal(h *opHandle) error {
 		}
 	}
 	return nil
+}
+
+// stagedRestoredWorld is where a restore of the server that isn't settled
+// still keeps its restored world in its stage, or "". The caller holds the
+// operation lock.
+func (s *server) stagedRestoredWorld() string {
+	for _, stage := range s.keptStages("") {
+		if staged := filepath.Join(s.stageDir(stage), "data"); !s.settled[stage] && dirExists(staged) {
+			return staged
+		}
+	}
+	return ""
+}
+
+// errRestoredWorldStaged refuses to make the world folder while a restore
+// that isn't settled keeps its restored world in its stage: the server would
+// start a new, empty world instead. then is what to do once it's in place.
+func errRestoredWorldStaged(staged, data, then string) error {
+	return &apiError{Status: http.StatusConflict, Code: codeRestoreUnsettled,
+		Msg:  "The world folder is missing because a restore did not finish; the restored world is only at " + staged + ".",
+		Hint: "Move that folder to " + data + ", then " + then + "."}
 }
 
 // keptStages names the restore stages whose swap journal is of a restore of
@@ -1680,7 +1713,7 @@ func (s *server) revertRestore(h *opHandle, stageDir string, j *swapJournal) err
 		}
 		return fmt.Errorf("%s Stopping it failed (%s), so nothing was moved: the restored world is at %s and the previous world at %s.", j.Why, clause(err), live, aside)
 	}
-	if err := s.putPreviousBack(j); err != nil {
+	if err := s.putPreviousBack(stageDir, j); err != nil {
 		_ = s.setDesired(api.DesiredStopped)
 		return fmt.Errorf("%s %s", j.Why, sentence(err.Error()))
 	}

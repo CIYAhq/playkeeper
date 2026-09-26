@@ -13,16 +13,20 @@ import (
 	"strings"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
+	"github.com/CIYAhq/playkeeper/internal/sizing"
 )
 
 // Catalog is what this Playkeeper can create: the create-server flow's
 // server types, each type's versions, and the memory a new server may have
 // on the machine.
 type Catalog struct {
-	Types               []CatalogType
-	MemoryOptionsMB     []int
-	RecommendedMemoryMB int
+	Types           []CatalogType
+	MemoryOptionsMB []int
 }
+
+// defaultPlayers is how many players at once a server lets in when the
+// template doesn't say, as a create request without a number does.
+const defaultPlayers = 10
 
 // CatalogType is one server type of the registry.
 type CatalogType struct {
@@ -132,7 +136,7 @@ func PlanImport(t *Template, c Catalog) (*Plan, error) {
 	if ct := p.chooseType(t, c.Types); ct != nil {
 		p.chooseVersion(t, *ct)
 	}
-	p.chooseMemory(t.Settings.MemoryMB, c)
+	p.chooseMemory(t, c)
 	p.planAddons(t)
 	p.planPacks(t)
 	p.Ready = len(p.Blockers) == 0 && p.Version != nil
@@ -378,7 +382,8 @@ func nearest(vs []CatalogVersion, want string, build map[string]string) (Catalog
 	return pool[0].v, false
 }
 
-func (p *Plan) chooseMemory(want int, c Catalog) {
+func (p *Plan) chooseMemory(t *Template, c Catalog) {
+	want := t.Settings.MemoryMB
 	var opts []int
 	for _, mb := range c.MemoryOptionsMB {
 		if mb > 0 {
@@ -394,10 +399,8 @@ func (p *Plan) chooseMemory(want int, c Catalog) {
 	}
 	largest := opts[len(opts)-1]
 	switch {
-	case want == 0 && slices.Contains(opts, c.RecommendedMemoryMB):
-		p.MemoryMB = c.RecommendedMemoryMB
 	case want == 0:
-		p.MemoryMB = opts[0]
+		p.MemoryMB = fitting(opts, suggestedMemory(t, p.Type.ID))
 	case want > largest:
 		p.MemoryMB = largest
 		p.warn(notice(KindMemoryReduced, kv("suggested", strconv.Itoa(want), "max", strconv.Itoa(largest)),
@@ -407,6 +410,44 @@ func (p *Plan) chooseMemory(want int, c Catalog) {
 		i, _ := slices.BinarySearch(opts, want)
 		p.MemoryMB = opts[i]
 	}
+}
+
+// suggestedMemory is the sizing guide's memory for a server of type typ
+// made from the template: for what it runs and its players at once.
+func suggestedMemory(t *Template, typ string) int {
+	mb, err := sizing.SuggestMemory(workload(t, typ), cmp.Or(t.Settings.MaxPlayers, defaultPlayers))
+	if err != nil {
+		return 0
+	}
+	return mb
+}
+
+// workload is what a server of type typ made from the template runs, for
+// the sizing guide: the template's add-ons, as the plugins or mods the type
+// installs. A modpack's own mods aren't in the template, so a modpack
+// counts as at least a few mods, as a pack that doesn't say does.
+func workload(t *Template, typ string) sizing.Workload {
+	target, err := addons.TargetFor(typ)
+	n := len(t.Addons)
+	switch {
+	case err != nil:
+		return sizing.Vanilla
+	case target.Kind == "plugin":
+		return sizing.WorkloadFor(0, n)
+	case t.Modpack != nil:
+		return sizing.WorkloadFor(max(n, 1), 0)
+	}
+	return sizing.WorkloadFor(n, 0)
+}
+
+// fitting is the largest of opts no bigger than mb, or the smallest when
+// all are bigger. opts is sorted and not empty.
+func fitting(opts []int, mb int) int {
+	i, found := slices.BinarySearch(opts, mb)
+	if found || i == 0 {
+		return opts[i]
+	}
+	return opts[i-1]
 }
 
 func memory(mb int) string {

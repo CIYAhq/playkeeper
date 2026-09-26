@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"strconv"
@@ -295,16 +296,24 @@ func (s *Server) hPackShareFile(w http.ResponseWriter, r *http.Request, _ *sessi
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+		s.agentFailure(w, agentclient.DecodeError(resp))
 		return
 	}
 	h := w.Header()
 	h.Set("Content-Type", share.ContentType)
-	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
-		h.Set("Content-Disposition", cd)
-	}
+	h.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": packFileName(resp.Header.Get("Content-Disposition"))}))
+	h.Set("Content-Security-Policy", "sandbox")
 	h.Set("Cache-Control", "no-store")
 	io.Copy(w, io.LimitReader(resp.Body, maxFriendsPackFile))
+}
+
+// packFileName is the name a friends' pack downloads as: the machine's when
+// it is a slug's, as share.FileName makes it, else share.FileName's own.
+func packFileName(disposition string) string {
+	if _, params, err := mime.ParseMediaType(disposition); err == nil {
+		if slug, ok := strings.CutSuffix(params["filename"], ".mrpack"); ok && share.ValidSlug(slug) {
+			return params["filename"]
+		}
+	}
+	return share.FileName("")
 }

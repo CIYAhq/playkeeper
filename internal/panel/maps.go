@@ -81,9 +81,13 @@ func (s *Server) mapProxy(pattern string) func(http.ResponseWriter, *http.Reques
 		if resp.StatusCode == http.StatusOK && mediaType(resp.Header.Get("Content-Type")) == "image/png" {
 			ct = "image/png"
 		}
+		status := resp.StatusCode
+		if status >= 400 {
+			status = relayStatus(status)
+		}
 		h.Set("Content-Type", ct)
 		h.Set("Content-Length", strconv.Itoa(len(body)))
-		w.WriteHeader(resp.StatusCode)
+		w.WriteHeader(status)
 		w.Write(body)
 	}
 }

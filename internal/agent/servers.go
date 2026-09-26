@@ -310,17 +310,84 @@ func slugFor(name string) string {
 }
 
 // uniqueSlug and uniqueName pick a slug or name not used by another server.
+// A slug is not used by a server the dashboard shows from another machine
+// either (see hSlugsElsewhere).
 func (a *Agent) uniqueSlug(base string) string {
+	elsewhere := a.slugsElsewhere()
 	for i := 1; ; i++ {
 		s := base
 		if i > 1 {
 			s = fmt.Sprintf("%s-%d", base, i)
+		}
+		if elsewhere[s] {
+			continue
 		}
 		var n int
 		if a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE slug = ?`, s).Scan(&n) == nil && n == 0 {
 			return s
 		}
 	}
+}
+
+// kvSlugsElsewhere holds the slugs of the servers the dashboard shows from
+// its other machines.
+const kvSlugsElsewhere = "slugs_elsewhere"
+
+// maxSlugsElsewhere bounds them: every joined machine's servers, with room.
+const maxSlugsElsewhere = 10000
+
+var reSlug = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,99}$`)
+
+// hSlugsElsewhere keeps the slugs the dashboard shows for servers on its
+// other machines, replacing those it sent before. The dashboard finds a
+// server by its slug and never changes this machine's, so a server made
+// here gets one none of those has.
+func (a *Agent) hSlugsElsewhere(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Slugs []string `json:"slugs"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if len(req.Slugs) > maxSlugsElsewhere {
+		writeError(w, errInvalid("At most %d slugs.", maxSlugsElsewhere))
+		return
+	}
+	for _, s := range req.Slugs {
+		if !reSlug.MatchString(s) {
+			writeError(w, errInvalid("Invalid slug %q.", s))
+			return
+		}
+	}
+	b, err := json.Marshal(req.Slugs)
+	if err == nil {
+		a.createMu.Lock()
+		err = a.kvSet(kvSlugsElsewhere, string(b))
+		a.createMu.Unlock()
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// slugsElsewhere is what hSlugsElsewhere kept, or none when it can't be read.
+func (a *Agent) slugsElsewhere() map[string]bool {
+	out := map[string]bool{}
+	raw, ok, err := a.kvGet(kvSlugsElsewhere)
+	if err != nil || !ok {
+		return out
+	}
+	var list []string
+	if json.Unmarshal([]byte(raw), &list) != nil {
+		return out
+	}
+	for _, s := range list {
+		out[s] = true
+	}
+	return out
 }
 
 func (a *Agent) nameTaken(name, except string) bool {
