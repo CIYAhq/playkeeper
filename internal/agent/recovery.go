@@ -77,66 +77,10 @@ func (a *Agent) resuming(dir string) bool {
 	return false
 }
 
-// pendingVersionChange is a version change a previous agent process left
-// running, with its journal.
-type pendingVersionChange struct {
-	op      *api.Operation
-	journal *versionJournal
-}
-
-// findInterruptedVersionChanges finds the version changes a previous agent
-// process left running with a journal, for their servers to finish when the
-// agent starts, and returns their operations' IDs. One without a journal had
-// changed nothing yet, and is marked interrupted.
-func (a *Agent) findInterruptedVersionChanges() []string {
-	rows, err := a.db.Query(`SELECT id FROM operations WHERE status = 'running' AND kind = 'update-version'`)
-	if err != nil {
-		a.log.Error("find interrupted version changes", "err", err)
-		return nil
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err == nil {
-			ids = append(ids, id)
-		}
-	}
-	rows.Close()
-	var found []string
-	for _, id := range ids {
-		op, err := a.loadOperation(id)
-		if err != nil {
-			continue
-		}
-		s := a.serverByID(op.ServerID)
-		if s == nil || s.recovery != nil || s.versionRecovery != nil {
-			continue
-		}
-		j, err := s.readVersionJournal()
-		if err != nil || j != nil && j.OpID != op.ID {
-			a.log.Warn("an interrupted version change's journal is unreadable or not its own, so it is not finished", "server", s.id, "operation", op.ID, "err", err)
-			continue
-		}
-		if j == nil {
-			continue
-		}
-		s.versionRecovery = &pendingVersionChange{op: op, journal: j}
-		found = append(found, op.ID)
-	}
-	return found
-}
-
-// recoverAtStart finishes, as its own operation, the restore or version
-// change a previous agent process left running on the server. Without one,
-// it deals with a restore Playkeeper 0.3.0 undid only because the agent was
-// stopping.
+// recoverAtStart finishes, as its own operation, the restore a previous
+// agent process left running on the server. Without one, it deals with a
+// restore Playkeeper 0.3.0 undid only because the agent was stopping.
 func (s *server) recoverAtStart() {
-	if v := s.versionRecovery; v != nil {
-		s.versionRecovery = nil
-		s.opLock <- struct{}{}
-		s.launchOp(v.op, func(ctx context.Context, h *opHandle) error { return s.recoverVersionChange(ctx, h, v.journal) })
-		return
-	}
 	p := s.recovery
 	s.recovery = nil
 	if p == nil {
@@ -145,23 +89,6 @@ func (s *server) recoverAtStart() {
 	}
 	s.opLock <- struct{}{}
 	s.launchOp(p.op, func(ctx context.Context, h *opHandle) error { return s.recoverRestore(ctx, h, p) })
-}
-
-// recoverVersionChange finishes a version change a previous agent process
-// was in the middle of: one starting its new version saves the new settings,
-// which it may not have got to, checks the new version again and keeps it
-// once it is online; one being rolled back is rolled back.
-func (s *server) recoverVersionChange(ctx context.Context, h *opHandle, j *versionJournal) error {
-	h.set("resumedAfterRestart", true)
-	if j.State == versionReverting {
-		return s.revertVersionChange(h, j)
-	}
-	if err := s.saveServerConfig(j.Next); err != nil {
-		j.Why = "its settings could not be saved after the Playkeeper agent restarted: " + err.Error()
-		return s.revertVersionChange(h, j)
-	}
-	_ = s.setDesired(api.DesiredRunning)
-	return s.finishVersionChange(ctx, h, j)
 }
 
 // recoverRestore finishes a restore a previous agent process was in the
