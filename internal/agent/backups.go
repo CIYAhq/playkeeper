@@ -94,6 +94,9 @@ func (s *server) createArchive(sc api.ServerConfig, kind, actor, note string) (*
 		},
 		Consistency: "server stopped during archive",
 	}
+	if sc.VoiceChatPort > 0 {
+		meta.Settings[manifestVoiceChatPort] = strconv.Itoa(sc.VoiceChatPort)
+	}
 	m, err := backup.Create(io.MultiWriter(f, h), s.dataDir(), meta, archiveLimits())
 	if err == nil {
 		err = f.Sync()
@@ -1010,6 +1013,10 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		prevPack = prev.ResourcePack
 	}
 	j.Restored.ResourcePack = restoredPackOffer(prevPack, st.data)
+	if err := s.restoredVoiceChat(&j.Restored, prev, m, st.data); err != nil {
+		s.startPrevious(ctx, h, prev, wasRunning)
+		return fmt.Errorf("could not give the restored voice chat its port, so nothing was replaced: %w", err)
+	}
 	if rollback != nil {
 		j.Detail += "; rollback archive " + rollback.ID
 	}

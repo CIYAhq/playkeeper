@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -13,7 +14,9 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/backup"
 	"github.com/CIYAhq/playkeeper/internal/curated"
+	"github.com/CIYAhq/playkeeper/internal/templates"
 )
 
 // Curated add-ons: the library's "Picked by Playkeeper", and the UDP port
@@ -144,21 +147,25 @@ func (s *server) voiceChatPort() (int, error) {
 	return curated.PickPort(curated.VoiceChatPort, s.portTaken())
 }
 
-// portTaken reports the ports voice chat on this server can't have: any
-// server's game port, the voice chat port of another, the dashboard's, and
-// any UDP port something on the machine already uses.
-func (s *server) portTaken() func(int) bool {
-	used := map[int]bool{s.cfg.PanelPort: true}
-	for _, o := range s.serverList() {
+// portTaken reports the ports voice chat on this server can't have.
+func (s *server) portTaken() func(int) bool { return s.voicePortTaken(s.id) }
+
+// voicePortTaken reports the ports voice chat can't have on the server with
+// id, or on a new server when id is empty: any server's game port, the voice
+// chat port of another, the dashboard's, and any UDP port something on the
+// machine already uses.
+func (a *Agent) voicePortTaken(id string) func(int) bool {
+	used := map[int]bool{a.cfg.PanelPort: true}
+	for _, o := range a.serverList() {
 		used[o.gamePort] = true
-		if o.id == s.id {
+		if o.id == id {
 			continue
 		}
 		if sc, err := o.serverConfig(); err == nil && sc != nil && sc.VoiceChatPort > 0 {
 			used[sc.VoiceChatPort] = true
 		}
 	}
-	return func(p int) bool { return used[p] || s.opts.UDPPortInUse(p) }
+	return func(p int) bool { return used[p] || a.opts.UDPPortInUse(p) }
 }
 
 // udpPortInUse reports whether something on the machine already listens on
@@ -181,6 +188,26 @@ func (s *server) openVoiceChat(ctx context.Context, h *opHandle, actor string) e
 		return err
 	}
 	h.phase("opening_port")
+	if err := s.setUpVoiceChat(h, sc, srv, actor); err != nil {
+		return err
+	}
+	if _, running, _ := s.containerRunning(ctx); !running {
+		return nil
+	}
+	if err := s.stopServer(ctx, h); err != nil {
+		return err
+	}
+	if err := s.startServer(ctx, h, *sc); err != nil {
+		s.startFailed(ctx)
+		return err
+	}
+	h.set("restartNeeded", false)
+	return nil
+}
+
+// setUpVoiceChat gives voice chat its UDP port: written into the add-on's
+// settings in srv, and recorded in sc, which it saves.
+func (s *server) setUpVoiceChat(h *opHandle, sc *api.ServerConfig, srv addons.Server, actor string) error {
 	port, err := s.voiceChatPort()
 	if err == nil {
 		_, err = curated.SetUpVoiceChat(srv, port)
@@ -198,18 +225,89 @@ func (s *server) openVoiceChat(ctx context.Context, h *opHandle, actor string) e
 	}
 	h.set("voiceChatPort", port)
 	s.audit(actor, "addon.port_opened", string(addons.Modrinth)+":"+curatedVoiceChatProject(), "succeeded", fmt.Sprintf("voice chat on UDP %d", port))
-	if _, running, _ := s.containerRunning(ctx); !running {
+	return nil
+}
+
+// templateVoiceChat opens voice chat's UDP port when a template brought the
+// add-on, as the plan the user confirmed said (voiceChatNotice), before the
+// server's container is made.
+func (s *server) templateVoiceChat(h *opHandle, sc *api.ServerConfig, planned []templates.PlannedAddon) error {
+	if sc.VoiceChatPort > 0 || !slices.ContainsFunc(planned, func(pa templates.PlannedAddon) bool { return voiceChat(pa.Key()) }) {
 		return nil
 	}
-	if err := s.stopServer(ctx, h); err != nil {
+	installed, err := s.installedAddons()
+	if err != nil {
 		return err
 	}
-	if err := s.startServer(ctx, h, *sc); err != nil {
-		s.startFailed(ctx)
+	if !slices.ContainsFunc(installed, func(i addons.Installed) bool { return voiceChat(i.Key()) }) {
+		return nil
+	}
+	_, srv, _, err := s.addonContext()
+	if err != nil {
 		return err
 	}
-	h.set("restartNeeded", false)
+	h.phase("opening_port")
+	return s.setUpVoiceChat(h, sc, srv, h.op.Actor)
+}
+
+// voiceChatNotice tells whoever imports a template with voice chat that the
+// new server opens a UDP port for it, and which one it would be now.
+func (a *Agent) voiceChatNotice(planned []templates.PlannedAddon) *addons.Notice {
+	if !slices.ContainsFunc(planned, func(pa templates.PlannedAddon) bool { return voiceChat(pa.Key()) }) {
+		return nil
+	}
+	port, err := curated.PickPort(curated.VoiceChatPort, a.voicePortTaken(""))
+	if err != nil {
+		return nil
+	}
+	p := strconv.Itoa(port)
+	return &addons.Notice{Kind: kindTemplateVoiceChat, Params: map[string]string{"port": p},
+		Msg:  "Voice chat travels on its own port: Playkeeper opens UDP " + p + " on this machine for it.",
+		Hint: "Open UDP " + p + " in your provider's firewall too. Friends add the Simple Voice Chat mod to talk."}
+}
+
+// manifestVoiceChatPort is the backup manifest setting that records voice
+// chat's UDP port, when the server had it open.
+const manifestVoiceChatPort = "voiceChatPort"
+
+// restoredVoiceChat gives a restored server voice chat's UDP port when its
+// backup was made with the port open: the port the server has, or else the
+// backup's or the next free one. The restored add-on settings in dataDir get
+// that port, so voice chat listens where the container publishes it. A
+// backup made without the port leaves the server without one.
+func (s *server) restoredVoiceChat(sc, prev *api.ServerConfig, m backup.Manifest, dataDir string) error {
+	sc.VoiceChatPort = 0
+	from, _ := strconv.Atoi(m.Settings[manifestVoiceChatPort])
+	typ := cmp.Or(sc.Type, api.TypePaper)
+	if _, err := addons.TargetFor(typ); from <= 0 || err != nil {
+		return nil
+	}
+	port := 0
+	if prev != nil {
+		port = prev.VoiceChatPort
+	}
+	if port == 0 {
+		p, err := curated.PickPort(from, s.portTaken())
+		if err != nil {
+			p, err = curated.PickPort(curated.VoiceChatPort, s.portTaken())
+		}
+		if err != nil {
+			return voiceChatError(err)
+		}
+		port = p
+	}
+	if _, err := curated.SetUpVoiceChat(addons.Server{Dir: dataDir, Type: typ, Owner: s.gameOwner()}, port); err != nil {
+		return voiceChatError(err)
+	}
+	sc.VoiceChatPort = port
 	return nil
+}
+
+func voiceChatError(err error) error {
+	if n := noticeOf(err); n != nil {
+		return &apiError{Msg: n.Message, Hint: n.Hint}
+	}
+	return err
 }
 
 // closeVoiceChat stops publishing voice chat's port once the add-on is

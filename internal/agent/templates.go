@@ -29,6 +29,9 @@ const templateBuildKey = "build"
 // leaves out: offering it to players is a setting of its own.
 const kindTemplatePacks addons.Kind = "template_packs_left_out"
 
+// kindTemplateVoiceChat warns that a template's voice chat opens a UDP port.
+const kindTemplateVoiceChat addons.Kind = "template_voice_chat_port"
+
 // templateSubstitutes are the types whose versions an import lists when the
 // template's own type can't be created here, as the templates package
 // substitutes them.
@@ -240,6 +243,9 @@ func (a *Agent) planTemplate(ctx context.Context, t *templates.Template) (*templ
 		p.Skipped = append(p.Skipped, addons.Notice{Kind: kindTemplatePacks, Params: map[string]string{"count": strconv.Itoa(n)},
 			Msg: "The template's resource pack is left out.", Hint: "Add it on the World tab once the server exists."})
 	}
+	if n := a.voiceChatNotice(p.Addons); n != nil {
+		p.Warnings = append(p.Warnings, *n)
+	}
 	return p, nil
 }
 
@@ -397,6 +403,9 @@ func (s *server) installPendingTemplate(ctx context.Context, h *opHandle, sc *ap
 		}
 	}
 	if err := s.linkTemplateDependencies(planned); err != nil {
+		return err
+	}
+	if err := s.templateVoiceChat(h, sc, planned); err != nil {
 		return err
 	}
 	packSkips, err := s.installTemplatePacks(ctx, h, sc, dataPacks, skips)
