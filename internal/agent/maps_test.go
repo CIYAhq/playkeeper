@@ -12,6 +12,7 @@ import (
 	"image/color"
 	"image/png"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -73,6 +74,7 @@ func startFakeMapSource(t *testing.T) *fakeMapSource {
 			"filename": squaremapFile, "primary": true, "size": len(data),
 		}},
 	}
+	hashes := map[string]bool{hex.EncodeToString(s512[:]): true, hex.EncodeToString(s1[:]): true}
 	f.api = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -83,7 +85,18 @@ func startFakeMapSource(t *testing.T) *fakeMapSource {
 		case "/v2/projects":
 			json.NewEncoder(w).Encode([]any{project})
 		case "/v2/version_files":
-			io.WriteString(w, "{}")
+			// Modrinth knows squaremap's jar by its hash, like any file on it.
+			var req struct {
+				Hashes []string `json:"hashes"`
+			}
+			json.NewDecoder(r.Body).Decode(&req)
+			out := map[string]any{}
+			for _, h := range req.Hashes {
+				if hashes[h] {
+					out[h] = version
+				}
+			}
+			json.NewEncoder(w).Encode(out)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			io.WriteString(w, `{"error":"not_found","description":"fake"}`)
@@ -316,6 +329,135 @@ func TestMapTurnsOnDrawsOnceAndTurnsOff(t *testing.T) {
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM events WHERE kind IN ('map_enabled', 'map_disabled')`); n != 4 {
 		t.Fatalf("map events = %d", n)
+	}
+}
+
+// The Plugins tab lists the map's squaremap as the Map's rather than as a
+// file added by hand: it is never offered to manage, and installing,
+// updating, removing or forgetting it there is refused. Only turning the
+// map off removes it.
+func TestPluginsTabLeavesTheMapsSquaremapToTheMap(t *testing.T) {
+	e, _, _ := newMapEnv(t)
+	e.create()
+	if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
+		t.Fatalf("enable: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+
+	list := e.addonList()
+	if len(list.Files) != 1 || len(list.Missing) != 0 {
+		t.Fatalf("list: %+v", list)
+	}
+	if f := list.Files[0]; f.FileName != squaremapFile || f.Status != "managed" || f.Addon == nil || f.Addon.UsedBy != api.UsedByMap || f.Addon.Name != "squaremap" || f.Pending {
+		t.Fatalf("the map's squaremap shows as %+v (addon %+v)", f, f.Addon)
+	}
+	var checks api.AddonChecks
+	e.decode("GET", e.sp("/addons/checks"), &checks)
+	if len(checks.Identified) != 0 || len(checks.Updates) != 0 {
+		t.Fatalf("the checks offer the map's squaremap: %+v", checks)
+	}
+	var d api.AddonDetails
+	e.decode("GET", e.sp("/addons/project/modrinth/"+webmap.ModrinthProjectID), &d)
+	if d.Installed == nil || d.Installed.UsedBy != api.UsedByMap || !d.Card.Installed || d.UpdateAvailable || d.Plan != nil {
+		t.Fatalf("details: %+v, installed %+v", d, d.Installed)
+	}
+
+	key := map[string]any{"source": "modrinth", "projectId": webmap.ModrinthProjectID}
+	for _, c := range []struct {
+		method, path string
+		body         map[string]any
+	}{
+		{"POST", "/addons/adopt", map[string]any{"fileName": squaremapFile}},
+		{"GET", "/addons/project/modrinth/" + webmap.ModrinthProjectID + "/removal", nil},
+		{"POST", "/addons/remove", key},
+		{"POST", "/addons/update/plan", map[string]any{"addons": []any{key}}},
+		{"POST", "/addons/update", map[string]any{"addons": []any{key}, "fingerprint": otherPlan}},
+		{"POST", "/addons/install", map[string]any{"source": "modrinth", "projectId": webmap.ModrinthProjectID, "fingerprint": otherPlan}},
+		{"POST", "/addons/forget", key},
+	} {
+		body := map[string]any{"actor": "admin"}
+		maps.Copy(body, c.body)
+		if c.method == "GET" {
+			body = nil
+		}
+		if code, out := e.call(c.method, e.sp(c.path), body); code != http.StatusConflict || out["error"] != "squaremap is part of the Map." {
+			t.Errorf("%s %s: %d %v", c.method, c.path, code, out)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(e.dataDir(), "plugins", squaremapFile)); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM addons`); n != 0 {
+		t.Fatalf("the Plugins tab took over %d of the map's add-ons", n)
+	}
+
+	if op := e.mapOp("/map/disable", map[string]any{"deleteMap": false}); op.Status != api.OpSucceeded {
+		t.Fatalf("disable: %+v", op)
+	}
+	if list := e.addonList(); len(list.Files) != 0 || len(list.Missing) != 0 {
+		t.Fatalf("after turning the map off: %+v", list)
+	}
+}
+
+// A map whose squaremap was deleted by hand counts as off: the Map tab says
+// the plugin is gone, the shared link stops working and nothing can be
+// shared, and turning the map on installs squaremap again, unshared, and
+// draws the explored land again.
+func TestTurningOnTheMapInstallsAMissingSquaremapAgain(t *testing.T) {
+	e, src, _ := newMapEnv(t)
+	e.create()
+	if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
+		t.Fatalf("enable: %+v", op)
+	}
+	e.waitFor("the first render to be recorded", func() bool {
+		return e.countRows(`SELECT COUNT(*) FROM maps WHERE first_render_at IS NOT NULL`) == 1
+	})
+	e.waitFor("online", e.onlineIdle)
+	code, out := e.call("POST", e.sp("/map/share"), map[string]any{"public": true, "actor": "admin"})
+	path, _ := out["path"].(string)
+	token := strings.TrimPrefix(path, "/map/")
+	if code != 200 || !webmap.ValidShareToken(token) {
+		t.Fatalf("share: %d %v", code, out)
+	}
+	if code, _, _ := e.get("/v1/public-maps/" + token); code != 200 {
+		t.Fatalf("shared map before: %d", code)
+	}
+
+	jar := filepath.Join(e.dataDir(), "plugins", squaremapFile)
+	if err := os.Remove(jar); err != nil {
+		t.Fatal(err)
+	}
+	m := e.mapInfo()
+	if m.Enabled || !m.Missing || m.State != string(webmap.StateNotInstalled) || m.Public || m.Path != "" || m.PluginVersion != "" {
+		t.Fatalf("with squaremap deleted: %+v", m)
+	}
+	if code, _, _ := e.get("/v1/public-maps/" + token); code != 404 {
+		t.Fatalf("the shared link answers %d without squaremap", code)
+	}
+	if code, out := e.call("POST", e.sp("/map/share"), map[string]any{"players": true, "actor": "admin"}); code != http.StatusConflict {
+		t.Fatalf("sharing a map without squaremap: %d %v", code, out)
+	}
+	if list := e.addonList(); len(list.Files) != 0 || len(list.Missing) != 0 {
+		t.Fatalf("the Plugins tab offers what the map lost: %+v", list)
+	}
+
+	op := e.mapOp("/map/enable", map[string]any{})
+	if op.Status != api.OpSucceeded || op.Detail["reinstalled"] != true {
+		t.Fatalf("turning the map on again: %+v", op)
+	}
+	if _, err := os.Stat(jar); err != nil || src.downloads.Load() != 2 {
+		t.Fatalf("squaremap after turning the map on again: %v, %d downloads", err, src.downloads.Load())
+	}
+	e.waitFor("the explored land to be drawn again", func() bool { return e.rcon.count("squaremap fullrender minecraft:overworld") == 2 })
+	e.waitFor("online", e.onlineIdle)
+	if m := e.mapInfo(); !m.Enabled || m.Missing || m.Public || m.Path != "" || m.PluginVersion != "1.3.9" {
+		t.Fatalf("after turning it on again: %+v", m)
+	}
+	if code, _, _ := e.get("/v1/public-maps/" + token); code != 404 {
+		t.Fatalf("the old link answers %d after the map was turned on again", code)
+	}
+	if code, out := e.call("POST", e.sp("/map/enable"), map[string]any{"actor": "admin"}); code != http.StatusConflict || out["error"] != "The map is already on." {
+		t.Fatalf("turning it on twice: %d %v", code, out)
 	}
 }
 

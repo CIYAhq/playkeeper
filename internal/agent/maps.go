@@ -70,9 +70,11 @@ type progressMark struct {
 	at          time.Time
 }
 
-// mapRecord is a server's row in the maps table, which exists while the map
-// is on. shareToken is the shared map's link token, from the last time
-// sharing was switched on; it opens the map only while public is set.
+// mapRecord is a server's row in the maps table, which exists from turning
+// the map on until turning it off; the map is on only while the files it
+// installed are still there (activeMap). shareToken is the shared map's
+// link token, from the last time sharing was switched on; it opens the map
+// only while public is set.
 type mapRecord struct {
 	addons           []addons.Installed
 	installedAt      time.Time
@@ -128,6 +130,87 @@ func (m *mapRecord) sharePath() string {
 		return ""
 	}
 	return "/map/" + m.shareToken
+}
+
+// mapFilesPresent reports whether every add-on file the map installed is
+// still in the server's plugins or mods folder.
+func (s *server) mapFilesPresent(rec *mapRecord) bool {
+	l, err := webmap.LayoutFor(s.serverType(nil))
+	if err != nil || len(rec.addons) == 0 {
+		return false
+	}
+	root, err := os.OpenRoot(s.dataDir())
+	if err != nil {
+		return false
+	}
+	defer root.Close()
+	for _, a := range rec.addons {
+		if a.FileName == "" || a.FileName == "." || a.FileName == ".." || strings.ContainsAny(a.FileName, `/\`) {
+			return false
+		}
+		if fi, err := root.Lstat(l.Folder + "/" + a.FileName); err != nil || !fi.Mode().IsRegular() {
+			return false
+		}
+	}
+	return true
+}
+
+// activeMap is the server's map record while the map is on. A map whose
+// files are gone, deleted by hand or by a restore, counts as off, so that
+// turning it on installs them again.
+func (s *server) activeMap() (*mapRecord, error) {
+	rec, err := s.loadMap()
+	if err != nil || rec == nil || !s.mapFilesPresent(rec) {
+		return nil, err
+	}
+	return rec, nil
+}
+
+// mapAddons are the records of what the map installed, squaremap and what it
+// needed, less any the Plugins or Mods tab manages itself. That tab shows
+// them as the Map's and leaves them to it: only turning the map off
+// removes them.
+func (s *server) mapAddons(installed []addons.Installed) []addons.Installed {
+	rec, err := s.loadMap()
+	if err != nil || rec == nil {
+		return nil
+	}
+	var out []addons.Installed
+	for _, a := range rec.addons {
+		if !slices.ContainsFunc(installed, func(o addons.Installed) bool { return o.Key() == a.Key() }) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func isMapAddon(recs []addons.Installed, key addons.Key) bool {
+	return slices.ContainsFunc(recs, func(a addons.Installed) bool { return a.Key() == key })
+}
+
+// refuseMapAddons refuses to install, update, remove or forget an add-on the
+// map installed from the Plugins or Mods tab.
+func (s *server) refuseMapAddons(installed []addons.Installed, keys ...addons.Key) error {
+	for _, a := range s.mapAddons(installed) {
+		if slices.Contains(keys, a.Key()) {
+			return errMapAddon(a.Name)
+		}
+	}
+	return nil
+}
+
+// refuseMapKeys is refuseMapAddons for a request that hasn't read the
+// Plugins tab's records.
+func (s *server) refuseMapKeys(keys ...addons.Key) error {
+	installed, err := s.installedAddons()
+	if err != nil {
+		return err
+	}
+	return s.refuseMapAddons(installed, keys...)
+}
+
+func errMapAddon(name string) error {
+	return errConflict(name+" is part of the Map.", "Turn the map on or off on the Map tab instead.")
 }
 
 func (s *server) gameOwned() bool { return os.Geteuid() == 0 }
@@ -195,7 +278,7 @@ func (rec *mapRecord) pendingRestart(l mapLive) bool {
 
 // mapNeedsRestart is ServerStatus.PendingRestart's part for the map.
 func (s *server) mapNeedsRestart(c docker.ContainerJSON) bool {
-	rec, err := s.loadMap()
+	rec, err := s.activeMap()
 	if err != nil || rec == nil {
 		return false
 	}
@@ -223,10 +306,15 @@ func (s *server) mapInfo(ctx context.Context) (api.MapInfo, error) {
 	info := api.MapInfo{Plugin: webmap.PluginName, EstimatedMinutes: webmap.EstimatedMinutes, EstimatedMegabytes: webmap.EstimatedMegabytes}
 	_, lerr := webmap.LayoutFor(typ)
 	info.Supported = lerr == nil
-	rec, err := s.loadMap()
+	saved, err := s.loadMap()
 	if err != nil {
 		return info, err
 	}
+	var rec *mapRecord
+	if saved != nil && s.mapFilesPresent(saved) {
+		rec = saved
+	}
+	info.Missing = saved != nil && rec == nil
 	l := s.mapLive(ctx, true)
 	st := s.webMap(typ, l.addr).Status(ctx, webmap.Check{Installed: rec != nil, Running: l.online, PendingRestart: rec.pendingRestart(l)})
 	info.State, info.Params, info.Message, info.Hint = string(st.State), st.Params, st.Msg, st.Hint
@@ -307,7 +395,7 @@ func addonErr(err error) error {
 // hand edit may have changed it. A config that cannot be written stops the
 // start, so squaremap never runs with its own defaults.
 func (s *server) writeMapConfig() error {
-	rec, err := s.loadMap()
+	rec, err := s.activeMap()
 	if err != nil || rec == nil {
 		return err
 	}
@@ -324,7 +412,7 @@ func (s *server) writeMapConfig() error {
 // mapStarted runs after every successful start: a restart put off until
 // nobody plays is done, and a map that was never drawn gets drawn.
 func (s *server) mapStarted() {
-	rec, err := s.loadMap()
+	rec, err := s.activeMap()
 	if err != nil || rec == nil {
 		return
 	}
@@ -397,7 +485,7 @@ func (s *server) restartMapWhenEmpty(online bool, snap *api.PlayerSnapshot) {
 	if !online || snap == nil || snap.Online > 0 {
 		return
 	}
-	rec, err := s.loadMap()
+	rec, err := s.activeMap()
 	if err != nil || rec == nil || rec.restartWhenEmpty == "" || s.busy() {
 		return
 	}
@@ -430,7 +518,7 @@ func (s *server) hMap(w http.ResponseWriter, r *http.Request) {
 // hMapProxy passes the map page's read-only requests to squaremap in the
 // server's container: worlds, players and tiles, nothing else.
 func (s *server) hMapProxy(w http.ResponseWriter, r *http.Request) {
-	rec, err := s.loadMap()
+	rec, err := s.activeMap()
 	if err != nil {
 		writeError(w, err)
 		return
@@ -464,7 +552,7 @@ func (s *server) hMapEnable(w http.ResponseWriter, r *http.Request) {
 		writeError(w, mapErr(err, http.StatusBadRequest))
 		return
 	}
-	if rec, err := s.loadMap(); err != nil {
+	if rec, err := s.activeMap(); err != nil {
 		writeError(w, err)
 		return
 	} else if rec != nil {
@@ -482,11 +570,15 @@ func (s *server) hMapEnable(w http.ResponseWriter, r *http.Request) {
 }
 
 // enableMap installs squaremap, then restarts a running server to load it
-// unless people are playing, who get to choose when.
+// unless people are playing, who get to choose when. A map whose files are
+// gone is turned on afresh: what is left of them comes out first, and the
+// new record starts unshared and draws the explored land again.
 func (s *server) enableMap(ctx context.Context, h *opHandle, typ string, l webmap.Layout) error {
-	if rec, err := s.loadMap(); err != nil {
+	old, err := s.loadMap()
+	if err != nil {
 		return err
-	} else if rec != nil {
+	}
+	if old != nil && s.mapFilesPresent(old) {
 		return errConflict("The map is already on.", "")
 	}
 	sc, err := s.serverConfig()
@@ -498,6 +590,11 @@ func (s *server) enableMap(ctx context.Context, h *opHandle, typ string, l webma
 	}
 	h.phase("installing")
 	srv := s.addonServer(typ, *sc)
+	if old != nil {
+		if err := s.removeMapAddons(ctx, srv, old.addons, false); err != nil {
+			return err
+		}
+	}
 	res, err := s.lib().Install(ctx, srv, nil, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})
 	if err != nil {
 		return addonErr(err)
@@ -514,7 +611,12 @@ func (s *server) enableMap(ctx context.Context, h *opHandle, typ string, l webma
 	ver := pluginVersion(res.Installed)
 	h.set("plugin", webmap.PluginName)
 	h.set("version", ver)
-	s.recordEvent(now, "map_enabled", "", "playkeeper", strings.TrimSpace(webmap.PluginName+" "+ver))
+	detail := strings.TrimSpace(webmap.PluginName + " " + ver)
+	if old != nil {
+		h.set("reinstalled", true)
+		detail += ", installed again after its files were removed"
+	}
+	s.recordEvent(now, "map_enabled", "", "playkeeper", detail)
 	_, running, err := s.containerRunning(ctx)
 	if err != nil || !running || s.playersOnline() > 0 {
 		return nil
@@ -663,6 +765,13 @@ func (s *server) hMapShare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Say which switch to change."))
 		return
 	}
+	if rec, err := s.activeMap(); err != nil {
+		writeError(w, err)
+		return
+	} else if rec == nil {
+		writeError(w, errConflict("Turn on the map first.", ""))
+		return
+	}
 	// Switching sharing on makes a new link token, so a link from an earlier
 	// time it was on stops working; a map that is already shared keeps its
 	// link.
@@ -701,6 +810,13 @@ func (s *server) hMapRestartLater(w http.ResponseWriter, r *http.Request) {
 	actor, err := actionActor(r)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	if rec, err := s.activeMap(); err != nil {
+		writeError(w, err)
+		return
+	} else if rec == nil {
+		writeError(w, errConflict("Turn on the map first.", ""))
 		return
 	}
 	res, err := s.db.Exec(`UPDATE maps SET restart_when_empty = ? WHERE server_id = ?`, actor, s.id)
@@ -760,7 +876,7 @@ func (a *Agent) sharedMap(ctx context.Context, token string) (*server, *mapRecor
 	if s == nil {
 		return nil, nil, mapLive{}, false
 	}
-	rec, err := s.loadMap()
+	rec, err := s.activeMap()
 	if err != nil || rec == nil || !rec.public {
 		return nil, nil, mapLive{}, false
 	}

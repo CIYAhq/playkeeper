@@ -679,7 +679,14 @@ type Addon struct {
 	// was installed for.
 	DependencyOf string    `json:"dependencyOf,omitempty"`
 	InstalledAt  time.Time `json:"installedAt"`
+	// UsedBy is the part of Playkeeper that installed the add-on and alone
+	// removes it: UsedByMap for the Map's squaremap and what it needs.
+	// Empty for add-ons installed from the Plugins or Mods tab.
+	UsedBy string `json:"usedBy,omitempty"`
 }
+
+// UsedByMap marks the add-ons the Map installed.
+const UsedByMap = "map"
 
 // AddonKey names an installed add-on.
 type AddonKey struct {
@@ -1072,8 +1079,13 @@ const (
 type MapInfo struct {
 	// Supported is false for server types that cannot run a map plugin.
 	Supported bool `json:"supported"`
-	// Enabled: Playkeeper installed the map plugin on the server.
+	// Enabled: Playkeeper installed the map plugin on the server, and its
+	// files are still there.
 	Enabled bool `json:"enabled"`
+	// Missing: the map was turned on, but the files it installed are gone,
+	// for example deleted by hand. The map counts as off, and turning it on
+	// installs them again.
+	Missing bool `json:"missing,omitempty"`
 	// State is unsupported, not_installed, server_stopped, needs_restart,
 	// not_answering, drawing or ready.
 	State     string            `json:"state"`

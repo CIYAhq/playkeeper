@@ -397,15 +397,23 @@ func (s *server) hAddons(w http.ResponseWriter, r *http.Request) {
 	out := api.Addons{Target: apiTarget(t, sc.MinecraftVersion), Files: []api.AddonFile{}, Missing: []api.Addon{}, Warnings: []api.AddonNotice{}}
 	started, running := s.startedAt(r.Context())
 	if s.hasDataDir() {
-		res, err := s.lib().Scan(r.Context(), srv, installed, false)
+		mapRecs := s.mapAddons(installed)
+		res, err := s.lib().Scan(r.Context(), srv, append(slices.Clone(installed), mapRecs...), false)
 		if err != nil {
 			writeError(w, addonError(err))
 			return
 		}
 		for _, e := range res.Entries {
-			out.Files = append(out.Files, apiFile(e, running, started))
+			f := apiFile(e, running, started)
+			if e.Installed != nil && isMapAddon(mapRecs, e.Installed.Key()) {
+				// The Map tab asks for the restart that loads it.
+				f.Addon.UsedBy, f.Pending = api.UsedByMap, false
+			}
+			out.Files = append(out.Files, f)
 		}
-		out.Missing, out.Warnings = apiAddons(res.Missing), apiNotices(res.Warnings)
+		// The Map tab says when the map's own files are gone.
+		missing := slices.DeleteFunc(res.Missing, func(rec addons.Installed) bool { return isMapAddon(mapRecs, rec.Key()) })
+		out.Missing, out.Warnings = apiAddons(missing), apiNotices(res.Warnings)
 	} else {
 		out.Missing = apiAddons(installed)
 	}
@@ -443,7 +451,10 @@ func (s *server) hAddonChecks(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, out)
 		return
 	}
-	res, err := s.lib().Scan(r.Context(), srv, installed, false)
+	// The map's files count as known, so none is offered to manage; their
+	// updates are the map's.
+	withMap := append(slices.Clone(installed), s.mapAddons(installed)...)
+	res, err := s.lib().Scan(r.Context(), srv, withMap, false)
 	if err != nil {
 		writeError(w, addonError(err))
 		return
@@ -493,7 +504,7 @@ func (s *server) hAddonChecks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if unknown {
-		ident, err := s.lib().Scan(r.Context(), srv, installed, true)
+		ident, err := s.lib().Scan(r.Context(), srv, withMap, true)
 		if err != nil {
 			writeError(w, addonError(err))
 			return
@@ -604,9 +615,10 @@ func (s *server) hAddonSearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	withMap := append(slices.Clone(installed), s.mapAddons(installed)...)
 	out := api.AddonBrowse{Cards: []api.AddonCard{}, More: res.More, Unanswered: apiNotices(res.Unanswered)}
 	for _, c := range res.Cards {
-		out.Cards = append(out.Cards, apiCard(c, installed))
+		out.Cards = append(out.Cards, apiCard(c, withMap))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -630,13 +642,15 @@ func (s *server) hAddonDetails(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	mapRecs := s.mapAddons(installed)
+	withMap := append(slices.Clone(installed), mapRecs...)
 	lib := s.lib()
 	d, err := lib.Details(r.Context(), srv, key.Source, key.ProjectID)
 	if err != nil {
 		writeError(w, addonError(err))
 		return
 	}
-	rec := addons.InstalledRecord(d.Card, installed)
+	rec := addons.InstalledRecord(d.Card, withMap)
 	if rec != nil && rec.Key() != (addons.Key{Source: d.Card.Source, ProjectID: d.Card.ProjectID}) {
 		// The same add-on, installed from its listing on the other source:
 		// that listing's versions are the ones that matter.
@@ -644,12 +658,16 @@ func (s *server) hAddonDetails(w http.ResponseWriter, r *http.Request) {
 			d = other
 		}
 	}
-	out := api.AddonDetails{Card: apiCard(d.Card, installed), Latest: apiVersion(d.Latest), Notes: d.Notes}
+	out := api.AddonDetails{Card: apiCard(d.Card, withMap), Latest: apiVersion(d.Latest), Notes: d.Notes}
 	if d.Notice != nil {
 		n := apiNotice(*d.Notice)
 		out.Notice = &n
 	}
 	switch {
+	case rec != nil && isMapAddon(mapRecs, rec.Key()):
+		a := apiAddon(*rec)
+		a.UsedBy = api.UsedByMap
+		out.Installed = &a
 	case rec != nil:
 		a := apiAddon(*rec)
 		out.Installed = &a
@@ -691,6 +709,10 @@ func (s *server) hAddonRemovePreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if err := s.refuseMapAddons(installed, key); err != nil {
+		writeError(w, err)
+		return
+	}
 	p, err := s.lib().PreviewUninstall(r.Context(), srv, installed, key)
 	if err != nil {
 		writeError(w, addonError(err))
@@ -725,6 +747,10 @@ func (s *server) hAddonInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, _, _, err := s.addonContext(); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.refuseMapKeys(key); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -766,6 +792,10 @@ func (s *server) hAddonUpdatePlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if err := s.refuseMapAddons(installed, keys...); err != nil {
+		writeError(w, err)
+		return
+	}
 	p, err := s.lib().PlanUpdate(r.Context(), srv, installed, addons.UpdateRequest{Keys: keys, Changed: req.Changed})
 	if err != nil {
 		writeError(w, addonError(err))
@@ -795,6 +825,10 @@ func (s *server) hAddonUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, _, _, err := s.addonContext(); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.refuseMapKeys(keys...); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -981,6 +1015,10 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if err := s.refuseMapAddons(installed, append([]addons.Key{key}, extra...)...); err != nil {
+		writeError(w, err)
+		return
+	}
 	lib := s.lib()
 	preview, err := lib.PreviewUninstall(r.Context(), srv, installed, key)
 	if err != nil {
@@ -1068,7 +1106,8 @@ func (s *server) hAddonAdopt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	res, err := s.lib().Scan(r.Context(), srv, installed, true)
+	mapRecs := s.mapAddons(installed)
+	res, err := s.lib().Scan(r.Context(), srv, append(slices.Clone(installed), mapRecs...), true)
 	if err != nil {
 		writeError(w, addonError(err))
 		return
@@ -1078,6 +1117,9 @@ func (s *server) hAddonAdopt(w http.ResponseWriter, r *http.Request) {
 	case i < 0:
 		writeError(w, &apiError{Status: http.StatusNotFound, Code: api.CodeNotFound, Msg: req.FileName + " is not in the " + t.Folder + " folder."})
 		return
+	case res.Entries[i].Installed != nil && isMapAddon(mapRecs, res.Entries[i].Installed.Key()):
+		writeError(w, errMapAddon(res.Entries[i].Installed.Name))
+		return
 	case res.Entries[i].Installed != nil:
 		writeError(w, errConflict("Playkeeper already manages "+req.FileName+".", ""))
 		return
@@ -1086,6 +1128,10 @@ func (s *server) hAddonAdopt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rec := *res.Entries[i].Identified
+	if isMapAddon(mapRecs, rec.Key()) {
+		writeError(w, errMapAddon(rec.Name))
+		return
+	}
 	if slices.ContainsFunc(installed, func(o addons.Installed) bool { return o.Key() == rec.Key() }) {
 		writeError(w, errConflict(rec.Name+" is already managed by Playkeeper as another file.", "Remove one of the two copies first."))
 		return
@@ -1136,6 +1182,10 @@ func (s *server) hAddonForget(w http.ResponseWriter, r *http.Request) {
 	}
 	installed, err := s.installedAddons()
 	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.refuseMapAddons(installed, key); err != nil {
 		writeError(w, err)
 		return
 	}
