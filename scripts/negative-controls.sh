@@ -140,6 +140,22 @@ control "the reconciler turns saving back on" internal/agent/backups.go \
   'due := !s.now().Before(s.nextResume)' \
   'due := false && !s.now().Before(s.nextResume)' \
   ./internal/agent '^TestReconcilerTurnsSavingBackOn$'
+control "the reconciler's save-on refuses no action" internal/agent/backups.go \
+  'release, ok := s.trySavingLock()' \
+  'release, ok := s.holdOpLock()' \
+  ./internal/agent '^TestSaveOnRetryRefusesNoAction$'
+control "a save-on without an answer holds a backup up for seconds only" internal/agent/backups.go \
+  'const resumeWait = 5 * time.Second' \
+  'const resumeWait = 30 * time.Second' \
+  ./internal/agent '^TestSaveOnRetryRefusesNoAction$'
+control "an online backup waits for a save-on before it pauses saving" internal/agent/backups.go \
+  'if o.Console != nil {' \
+  'if false && o.Console != nil {' \
+  ./internal/agent '^TestSavingLockKeepsSaveOnOutOfABackup$'
+control "the reconciler's save-on waits for an online backup" internal/agent/backups.go \
+  'release, ok := s.trySavingLock()' \
+  'release, ok := func() {}, true' \
+  ./internal/agent '^TestSavingLockKeepsSaveOnOutOfABackup$'
 control "the GC log flag stays out of the container definition's hash" internal/agent/lifecycle.go \
   'b, _ := json.Marshal(cfg)' \
   'cfg.Env = append(cfg.Env, "JVM_OPTS="+gcLogFlag)
@@ -921,6 +937,10 @@ control "packs cannot suggest operator or function permission levels" internal/m
   '"force-gamemode", "gamemode",' \
   '"force-gamemode", "function-permission-level", "op-permission-level", "gamemode",' \
   ./internal/modpacks '^TestPacksCannotSuggestPermissionLevels$'
+control "a pack file's path with an invisible character is refused before any download" internal/modpacks/mrpack/mrpack.go \
+  'if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) || r == utf8.RuneError {' \
+  'if unicode.IsControl(r) || r == utf8.RuneError {' \
+  ./internal/modpacks '^TestUnsafeIndexPathsAreRefused$'
 control "a pack's settings are read and written without following a link" internal/agent/modpacks.go \
   'cur, err := d.ReadProperties()
 	if errors.Is(err, fs.ErrNotExist) {
@@ -1531,6 +1551,10 @@ control "alert failures never show the webhook URL" internal/names/service/alert
   'if errors.As(err, &ue) {' \
   'if false && errors.As(err, &ue) {' \
   ./internal/names/service '^TestAlertWebhookFailuresAreLoggedWithoutItsURL$'
+control "an alert the webhook hangs up on is logged" internal/names/service/alert.go \
+  'a.log.Warn("Could not send an alert to "+EnvAlertWebhook, "error", err)' \
+  '_ = err' \
+  ./internal/names/service '^TestAlertWebhookFailuresAreLoggedWithoutItsURL$'
 control "each kind of alert goes out at most every 6 hours" internal/names/service/alert.go \
   'if t, ok := a.last[kind]; ok && now.Sub(t) < alertEvery {' \
   'if t, ok := a.last[kind]; false && ok && now.Sub(t) < alertEvery {' \
@@ -1757,6 +1781,37 @@ control "a password change ends pending sign-ins" internal/panel/server.go \
   'DELETE FROM pending_logins WHERE user_id = ?`, sess.User.ID)' \
   'DELETE FROM pending_logins WHERE 0 AND user_id = ?`, sess.User.ID)' \
   ./internal/panel '^TestSecondStepExpiresAndCanBeCancelled$'
+control "second step: a request that finds the sign-in passed checks no code" internal/panel/twofactor.go \
+  'if n, err := res.RowsAffected(); err != nil || n == 1 {' \
+  'if n, err := res.RowsAffected(); err != nil || n >= 0 {' \
+  ./internal/panel '^TestConcurrentRightCodesSpendOneCode$'
+control "second step: the sign-in is claimed in the transaction that checks the code" internal/panel/twofactor.go \
+  '	if s.beforeCodeCheck != nil {
+		s.beforeCodeCheck()
+	}
+	after, err := s.changeFactorWith(p.User.ID, p.IDHash, func(ctx context.Context, q querier) error {
+		return usePendingAttempt(ctx, q, p.IDHash)
+	}, func(' \
+  '	claimed := usePendingAttempt(context.Background(), s.db, p.IDHash)
+	if s.beforeCodeCheck != nil {
+		s.beforeCodeCheck()
+	}
+	after, err := s.changeFactorWith(p.User.ID, p.IDHash, func(context.Context, querier) error {
+		return claimed
+	}, func(' \
+  ./internal/panel '^TestConcurrentRightCodesSpendOneCode$'
+control "second step: the request that passes ends the pending sign-in" internal/panel/twofactor.go \
+  'DELETE FROM pending_logins WHERE id_hash = ?`, p.IDHash)' \
+  'DELETE FROM pending_logins WHERE 0 AND id_hash = ?`, p.IDHash)' \
+  ./internal/panel '^TestConcurrentRightCodesSpendOneCode$'
+control "second step: a session that cannot be stored undoes the code check" internal/panel/twofactor.go \
+  'if err := passed(ctx, conn); err != nil {' \
+  'if err := passed(ctx, conn); false && err != nil {' \
+  ./internal/panel '^TestASessionThatCannotStartSpendsNoCode$'
+control "second step: a wrong code keeps the pending sign-in" internal/panel/twofactor.go \
+  'if stepErr == nil && passed != nil {' \
+  'if passed != nil {' \
+  ./internal/panel '^TestOnePasswordBuysTenCodes$'
 
 # Wave 2: the names service's liveness check.
 control "the liveness check answers only for the machine's name" internal/agent/address.go \
@@ -1911,6 +1966,18 @@ control "a name the machine stops using loses its kept certificate order" intern
   'if err := certs.Forget(a.cfg.CertsDir(), name); err != nil {' \
   'if err := os.Remove(filepath.Join(a.cfg.CertsDir(), name+".pem")); err != nil {' \
   ./internal/agent '^TestOwnDomainChecksTheNameBeforeHTTP01$'
+control "DNS-01: a record the names service stored but has not published is waited for" internal/certs/dns01.go \
+  'err != nil && !pending(err) {' \
+  'err != nil {' \
+  ./internal/certs '^TestDNS01WaitsForAChallengeTheNamesServiceStored$'
+control "DNS-01: only a record that is pending is waited for after SetTXT fails" internal/certs/dns01.go \
+  'return errors.As(err, &p) && p.Pending()' \
+  'return errors.As(err, &p)' \
+  ./internal/certs '^TestDNS01WaitsForAChallengeTheNamesServiceStored$/^refused$'
+control "names client: a challenge Cloudflare has not published yet is pending" internal/names/errors.go \
+  'func (e *Error) Pending() bool { return e.Code == CodeDNSPending }' \
+  'func (e *Error) Pending() bool { return false }' \
+  ./internal/certs '^TestDNS01WaitsForAChallengeTheNamesServiceStored$'
 control "resource pack links: back to plain HTTP a week before the certificate runs out" internal/agent/packs.go \
   'const packCertMargin = 7 * 24 * time.Hour' \
   'const packCertMargin = 0' \
@@ -2181,6 +2248,10 @@ control "operations: an address operation stores its end with its audit entry" i
   'a.saveOperation(&done)
 		a.audit(actor, kind, "machine", done.Status, done.Error)' \
   ./internal/agent '^TestAFinishedAddressOperationIsAlreadyAudited$'
+control "free address: publishing waits only for the servers it synced" internal/agent/address.go \
+  'for !freePublished(a.address(), synced) && time.Since(start) < publishWait {' \
+  'for !freePublished(a.address(), a.joinServers()) && len(synced) >= 0 && time.Since(start) < publishWait {' \
+  ./internal/agent '^TestFreeAddressPublishingSkipsServersAddedMeanwhile$'
 # Wave 5: roles and server scopes, the team, invite links and Discord.
 control "an account uses only its own servers" internal/panel/workspace.go \
   'case serverID != "" && !a.covers(serverID):' \

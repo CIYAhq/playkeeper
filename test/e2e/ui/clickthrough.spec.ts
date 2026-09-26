@@ -3,11 +3,12 @@ import fs from 'node:fs'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import path from 'node:path'
-import { answerRead, installJob, isAddonRead, recordedFolder, type World } from './addon-fixtures'
+import { answerRead, installJob, isAddonRead, recordedFolder, updateJob, type World } from './addon-fixtures'
 import { Crawler, failing, failureList, where, type CrawlReport, type Result, type Status } from './crawl'
 import { installPageHelpers } from './crawl-page'
 import type { View } from './fakes'
 import { login, outDir } from './helpers'
+import { answerModpackRead, isModpackRead, type PackWorld } from './modpack-fixtures'
 
 // Every control works. The click-through opens every page of the seeded
 // dashboard at desktop and phone sizes, finds every button, link, switch, tab,
@@ -26,9 +27,11 @@ import { login, outDir } from './helpers'
 // /welcome), a Playkeeper update to install, and first-run setup.
 //
 // Writes go to realistic fakes (fakes.ts), so nothing is restarted, deleted or
-// downloaded, and a server's add-on reads (its folder, the library, details,
-// plans and icons) to recorded fixtures (addon-fixtures.ts), so the crawl
-// never waits on Modrinth or Hangar. There is no list of exceptions: a control
+// downloaded. A server's add-on reads (its folder, the library and its picks,
+// details, plans and icons) and the create flow's modpack reads (the library,
+// a pack's details and versions, a version's preview and icons) go to
+// recorded fixtures (addon-fixtures.ts, modpack-fixtures.ts), so the crawl
+// never waits on Modrinth, Hangar or CurseForge. There is no list of exceptions: a control
 // that should do nothing right now must be disabled and say why
 // (aria-describedby or a title). The selected tab or option of a group may
 // stay selected. A link another app opens (an authenticator's otpauth:,
@@ -38,8 +41,8 @@ import { login, outDir } from './helpers'
 //
 // It fails when a control does nothing visible, answers with an error, is
 // disabled without a reason or has no name; when it can't get back to a state
-// it found; when a page has fewer controls than its minimum; when an add-on
-// read reaches the panel or has no recorded answer; and when it didn't press
+// it found; when a page has fewer controls than its minimum; when an add-on or
+// modpack read reaches the panel or has no recorded answer; and when it didn't press
 // the control of one of `places`. For each place, a negative control then
 // breaks that control and presses it again: the crawl must report it.
 
@@ -257,14 +260,14 @@ function found(results: Result[], place: Place): Result | undefined {
 }
 
 /**
- * The add-on reads of a crawler's whole run, page loads included: a note of
- * how many the recorded fixtures answered, and a problem for each that
- * reached the panel or had no recorded answer.
+ * The add-on and modpack reads of a crawler's whole run, page loads
+ * included: a note of how many the recorded fixtures answered, and a problem
+ * for each that reached the panel or had no recorded answer.
  */
-function addonReadCheck(crawler: Crawler, who: string): { note: string; problems: string[] } {
-  const reads = crawler.addonReads()
-  const note = `${who}: ${reads.answered} add-on reads answered from recorded fixtures, ${reads.live.length} reached the panel, ${reads.unrecorded.length} had no recorded answer`
-  const live = [...new Set(reads.live)].map((r) => `${who}: ${r} reached the panel; add-on reads come from the recorded fixtures`)
+function fixtureReadCheck(crawler: Crawler, who: string): { note: string; problems: string[] } {
+  const reads = crawler.fixtureReads()
+  const note = `${who}: ${reads.answered.addons} add-on and ${reads.answered.modpacks} modpack reads answered from recorded fixtures, ${reads.live.length} reached the panel, ${reads.unrecorded.length} had no recorded answer`
+  const live = [...new Set(reads.live)].map((r) => `${who}: ${r} reached the panel; add-on and modpack reads come from the recorded fixtures`)
   return { note, problems: [...live, ...[...new Set(reads.unrecorded)].map((r) => `${who}: no recorded answer for ${r}`)] }
 }
 
@@ -315,7 +318,7 @@ for (const [name, size] of Object.entries(sizes)) {
     report.results.push(...outCrawler.results)
     report.notes.push(...outCrawler.notes)
     report.unreached.push(...outCrawler.unreached)
-    const addonReads = [addonReadCheck(outCrawler, `[${name}] signed out`)]
+    const fixtureReads = [fixtureReadCheck(outCrawler, `[${name}] signed out`)]
     await signedOut.close()
 
     const context = await browser.newContext(options)
@@ -332,8 +335,8 @@ for (const [name, size] of Object.entries(sizes)) {
     report.results.push(...crawler.results)
     report.notes.push(...crawler.notes)
     report.unreached.push(...crawler.unreached)
-    addonReads.push(addonReadCheck(crawler, `[${name}] signed in`))
-    report.notes.push(...addonReads.map((a) => a.note))
+    fixtureReads.push(fixtureReadCheck(crawler, `[${name}] signed in`))
+    report.notes.push(...fixtureReads.map((a) => a.note))
     await context.close()
 
     fs.mkdirSync(outDir, { recursive: true })
@@ -343,7 +346,7 @@ for (const [name, size] of Object.entries(sizes)) {
     for (const n of negatives) console.log(`negative control: ${n.caught ? 'caught' : 'MISSED'} ${n.place}: ${n.key} broken → ${n.verdict}`)
     const problems = passBar(name as Size, report, [...new Set(pages)])
     for (const n of negatives) if (!n.caught) problems.push(`${name}: with ${n.place} broken, the crawl said "${n.verdict}" (${n.key})`)
-    for (const a of addonReads) problems.push(...a.problems)
+    for (const a of fixtureReads) problems.push(...a.problems)
     expect(problems, problems.join('\n')).toEqual([])
   })
 }
@@ -406,6 +409,39 @@ test('a download that starts late still counts, and a download link that does no
   }
 })
 
+test('a modpack read is answered from the fixtures or breaks the control that made it, and never reaches the panel', async ({ browser }) => {
+  let reached = 0
+  const server = http.createServer((req, res) => {
+    if (req.url?.startsWith('/api/')) {
+      reached++
+      res.writeHead(500)
+      res.end()
+      return
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html' })
+    res.end(`<!doctype html><title>New server</title><div id="root"><h1>New server</h1><p id="out"></p>
+      <button onclick="fetch('/api/machines/m1/modpacks?source=modrinth&sort=downloads&limit=12').then((r) => r.json()).then((j) => { out.textContent = j.cards[0].name })">Browse</button>
+      <button onclick="fetch('/api/machines/m1/modpacks/modrinth/AAAAAAAA').then((r) => { out.textContent = 'Answered ' + r.status })">Open</button></div>`)
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const context = await browser.newContext({ baseURL: base })
+  try {
+    const crawler = new Crawler(await context.newPage(), 'desktop', base)
+    await crawler.init()
+    await crawler.crawl('/')
+    expect(crawler.results.find((r) => r.key === 'button "Browse"')?.status).toBe('works')
+    const open = crawler.results.find((r) => r.key === 'button "Open"')
+    expect(failing).toContain(open?.status)
+    expect(open?.problems.join('\n')).toContain('no recorded answer for GET /api/machines/m1/modpacks/modrinth/AAAAAAAA')
+    expect(crawler.fixtureReads()).toEqual({ answered: { addons: 0, modpacks: 1 }, live: [], unrecorded: ['GET /api/machines/m1/modpacks/modrinth/AAAAAAAA'] })
+    expect(reached).toBe(0)
+  } finally {
+    await context.close()
+    server.close()
+  }
+})
+
 test('the pass bar fails a failing control, a state it could not get back to, a page under its minimum and a place it missed', () => {
   const works = (route: string, key: string): Result => ({ viewport: 'desktop', route, via: [], key, status: 'works', effects: ['changed the page'], problems: [] })
   const rules: Rules = { minimums: { '/': 2, '/servers/* (stopped)': 1 }, places: [{ what: 'a slider', sizes: ['desktop'], key: /^slider / }] }
@@ -462,7 +498,104 @@ test('the add-on fixtures answer as the panel would, work out plans against the 
   expect(get(`/icon?url=${encodeURIComponent('https://example.com/icon.png')}`)).toMatchObject({ status: 400, body: { code: 'host_not_allowed' } })
 
   expect(get('/project/modrinth/AAAAAAAA')).toBeUndefined()
-  expect(get('/curated')).toBeUndefined()
   expect(isAddonRead('GET', '/api/servers/abc/addons/curated')).toBe(true)
   expect(isAddonRead('POST', '/api/servers/abc/addons/install')).toBe(false)
+})
+
+test("the add-on fixtures list Playkeeper's picks, and installs take Wave 3's start and Wave 4's openPorts", () => {
+  const stopped: World = { addons: recordedFolder(), running: false }
+  const viaVersion = { source: 'modrinth', projectId: 'P1OZGk5p', name: 'ViaVersion', versionId: 'FaishMnD', versionNumber: '5.12.0', published: '2026-09-18T15:01:59.741758Z', fileName: 'ViaVersion-5.12.0.jar' }
+  const withVia: World = { addons: { ...recordedFolder(), files: [{ fileName: viaVersion.fileName, size: 6_503_775, status: 'managed', addon: viaVersion }] }, running: true }
+  const get = (rest: string, world = stopped) => answerRead('GET', new URL(`https://panel/api/servers/abc/addons${rest}`), undefined, world)
+
+  type Picks = { picks: { id: string; card: { name: string; installed: boolean }; permission?: string; ports?: { protocol: string; port: number }[] }[] }
+  const picks = get('/curated')?.body as Picks
+  expect(picks.picks.map((p) => p.id)).toEqual(['voice-chat', 'rollback', 'pregenerate', 'newer-clients', 'essentials', 'permissions'])
+  expect(picks.picks[0]).toMatchObject({ card: { name: 'Simple Voice Chat', installed: false }, permission: 'https://modrepo.de/minecraft/voicechat/faq', ports: [{ protocol: 'udp', port: 24454 }] })
+  expect((get('/curated', withVia)?.body as Picks).picks.filter((p) => p.card.installed).map((p) => p.id)).toEqual(['newer-clients'])
+  const voice = get('/project/modrinth/9eGKb6K1')?.body as { ports?: unknown; plan: { fingerprint: string } }
+  expect(voice.ports).toEqual([{ protocol: 'udp', port: 24454 }])
+  expect((get('/project/modrinth/P1OZGk5p')?.body as { ports?: unknown }).ports).toBeUndefined()
+
+  // Voice chat installs only with leave to open its port, which its job opens before restarting the server.
+  const install = (body: Record<string, unknown>, world = stopped) => installJob({ source: 'modrinth', projectId: '9eGKb6K1', fingerprint: voice.plan.fingerprint, ...body }, world)
+  expect(install({})).toMatchObject({ refused: { status: 400, body: { error: 'Voice chat needs a UDP port of its own, so Playkeeper installs it only when it may open that port too.' } } })
+  expect(install({ openPorts: false })).toMatchObject({ refused: { status: 400 } })
+  expect(install({ openPorts: true }, withVia)).toMatchObject({ ends: { status: 'succeeded', detail: { voiceChatPort: 24454, restartNeeded: false, files: [{ name: 'Simple Voice Chat' }] } } })
+  expect(install({ openPorts: 'yes' })).toMatchObject({ refused: { status: 400, body: { error: 'Invalid request body.' } } })
+  // The crash screen's fix installs with start: a stopped server starts instead of waiting for a restart.
+  const essentials = get('/project/modrinth/hXiIvTyT')?.body as { plan: { fingerprint: string } }
+  const withStart = installJob({ source: 'modrinth', projectId: 'hXiIvTyT', fingerprint: essentials.plan.fingerprint, start: true }, stopped)
+  expect(withStart).toMatchObject({ ends: { status: 'succeeded' } })
+  expect((withStart as { ends: { detail: Record<string, unknown> } }).ends.detail.restartNeeded).toBeUndefined()
+  expect(installJob({ source: 'modrinth', projectId: 'hXiIvTyT', fingerprint: essentials.plan.fingerprint, start: 1 }, stopped)).toMatchObject({ refused: { status: 400 } })
+  expect(installJob({ source: 'modrinth', projectId: 'hXiIvTyT', fingerprint: essentials.plan.fingerprint, keepConfig: true }, stopped)).toMatchObject({ refused: { body: { error: 'Invalid request body: json: unknown field "keepConfig"' } } })
+
+  // An update takes start too, and what it would do doesn't.
+  const outdated: World = { addons: { ...recordedFolder(), files: [{ fileName: 'ViaVersion-5.11.0.jar', size: 6_400_000, status: 'managed', addon: { ...viaVersion, versionId: 'older', versionNumber: '5.11.0', published: '2026-08-01T00:00:00Z', fileName: 'ViaVersion-5.11.0.jar' } }] }, running: false }
+  const plan = answerRead('POST', new URL('https://panel/api/servers/abc/addons/update/plan'), {}, outdated)?.body as { fingerprint: string; steps: unknown[] }
+  expect(plan.steps).toHaveLength(1)
+  expect(updateJob({ fingerprint: plan.fingerprint, start: true }, outdated)).toMatchObject({ ends: { status: 'succeeded', detail: { files: [{ name: 'ViaVersion', was: '5.11.0' }] } } })
+  expect(answerRead('POST', new URL('https://panel/api/servers/abc/addons/update/plan'), { start: true }, outdated)).toMatchObject({ status: 400, body: { error: 'Invalid request body: json: unknown field "start"' } })
+})
+
+test('the modpack fixtures answer every pack the library lists, from Modrinth and from CurseForge once there is a key', () => {
+  const noKey: PackWorld = { curseforge: false }
+  const keyed: PackWorld = { curseforge: true }
+  const read = (rest: string, world = noKey) => answerModpackRead(new URL(`https://panel/api/machines/m1/modpacks${rest}`), world)
+  type Results = { cards: { source: string; projectId: string; name: string }[]; total: number; limit: number; sources: string[] }
+  type Detail = { projectId: string; newest?: string; versions: { id: string }[] }
+
+  // What the picker asks: each sort's first page, then each pack's details and its newest version's preview.
+  for (const source of ['modrinth', 'curseforge']) {
+    for (const sort of ['downloads', 'relevance', 'updated', 'newest']) {
+      const res = read(`?${new URLSearchParams({ source, sort, limit: '12' }).toString()}`, keyed)?.body as Results
+      expect(res.cards.length, `${source} ${sort}`).toBeGreaterThan(0)
+      expect(res.sources).toEqual(['modrinth', 'curseforge'])
+      for (const c of res.cards) {
+        expect(c.source).toBe(source)
+        const d = read(`/${source}/${c.projectId}`, keyed)
+        expect(d?.status, `${c.name}'s details`).toBe(200)
+        const { newest, versions } = d?.body as Detail
+        expect(versions.some((v) => v.id === newest), `${c.name}'s newest version is listed`).toBe(true)
+        expect(read(`/${source}/${c.projectId}/versions/${newest}/preview`, keyed)?.status, `${c.name}'s preview`).toBe(200)
+      }
+    }
+  }
+  expect((read('?source=modrinth&sort=downloads&limit=12')?.body as Results).sources).toEqual(['modrinth'])
+  expect((read('?sort=downloads&limit=12')?.body as Results).cards.map((c) => c.name)).toContain('Vanilla Perfected')
+  const cobblemon = read('?q=cobblemon')?.body as Results
+  expect(cobblemon.cards.map((c) => c.name)).toContain('Cobblemon Official Modpack [Fabric]')
+  expect(cobblemon.cards.map((c) => c.name)).not.toContain('Vanilla Perfected')
+  expect(cobblemon.total).toBe(cobblemon.cards.length)
+
+  // CurseForge takes a key, which this machine may not have.
+  const unavailable = { status: 409, body: { code: 'curseforge_unavailable' } }
+  expect(read('?source=curseforge')).toMatchObject(unavailable)
+  expect(read('/curseforge/9100001')).toMatchObject(unavailable)
+  expect(read('/curseforge/9100001/versions/9200002/preview')).toMatchObject(unavailable)
+  expect(read('/curseforge/9100001/versions/9200002/preview', keyed)).toMatchObject({ status: 200, body: { type: 'fabric', minecraftVersion: '26.2', ready: true } })
+  expect(read('/curseforge/example-fabric-pack', keyed)).toMatchObject({ status: 400, body: { error: "The pack's project is not valid." } })
+
+  // The agent's checks.
+  expect(read('?source=hangar')).toMatchObject({ status: 400, body: { error: 'Packs come from Modrinth or CurseForge, not "hangar".' } })
+  expect(read('?sort=popular')).toMatchObject({ status: 400, body: { code: 'invalid_request' } })
+  expect(read('?limit=26')).toMatchObject({ status: 400, body: { error: 'That page of results is out of range.' } })
+  expect(read('?offset=x')).toMatchObject({ status: 400, body: { error: 'offset must be a number.' } })
+  expect(read('?type=paper')).toMatchObject({ status: 400 })
+  expect(read('?version=1.20.1')).toMatchObject({ status: 400 })
+  expect(read('/hangar/abc')).toMatchObject({ status: 400, body: { error: 'Modpacks come from Modrinth or CurseForge.' } })
+  expect(read('/modrinth/bad!id')).toMatchObject({ status: 400, body: { error: 'That is not a valid modpack id.' } })
+
+  // Icons are drawn, and a CurseForge pack's is refused as the proxy refuses it.
+  const icon = read(`/icon?url=${encodeURIComponent('https://cdn.modrinth.com/data/1ocGzRHv/icon.png')}`)
+  expect(icon?.headers['Content-Type']).toBe('image/png')
+  expect(read(`/icon?url=${encodeURIComponent('https://media.forgecdn.net/avatars/thumbnails/900/1/256/256/logo.png')}`)).toMatchObject({ status: 400, body: { code: 'host_not_allowed' } })
+
+  // Nothing recorded, no answer.
+  expect(read('/modrinth/AAAAAAAA')).toBeUndefined()
+  expect(read('/modrinth/1ocGzRHv/versions/AAAAAAAA/preview')).toBeUndefined()
+  expect(isModpackRead('GET', '/api/machines/m1/modpacks/modrinth/1ocGzRHv')).toBe(true)
+  expect(isModpackRead('POST', '/api/machines/m1/modpacks')).toBe(false)
+  expect(isModpackRead('GET', '/api/machines/m1/templates')).toBe(false)
 })

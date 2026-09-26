@@ -75,6 +75,11 @@ type Server struct {
 	// joinGuard limits attempts on the public invite pages.
 	joinGuard *invites.Guard
 
+	// beforeCodeCheck, when set, runs in each second sign-in step just
+	// before the transaction that claims the sign-in and checks its code;
+	// tests line up concurrent requests with it.
+	beforeCodeCheck func()
+
 	public      *publicGroup
 	activePacks *activePacks
 }

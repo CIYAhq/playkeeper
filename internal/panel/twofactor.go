@@ -33,8 +33,8 @@ const (
 
 var errFactorRace = errors.New("two-factor sign-in changed during this request")
 
-// querier is what loadFactor and storeFactor need: the database, or the one
-// connection that holds changeFactor's write transaction.
+// querier is the database, or the one connection that holds
+// changeFactor's write transaction.
 type querier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
@@ -155,6 +155,14 @@ func (s *Server) factorFor(userID int64, idHash string) (twofactor.Factor, error
 // checked is counted. step's own error comes back after the store, since a
 // wrong code counts even though the step failed.
 func (s *Server) changeFactor(userID int64, idHash string, step func(f twofactor.Factor, exists bool) (twofactor.Factor, error)) (twofactor.Factor, error) {
+	return s.changeFactorWith(userID, idHash, nil, step, nil)
+}
+
+// changeFactorWith is changeFactor with more work in its transaction: claim
+// runs first, and its error ends the transaction before the factor is read;
+// passed runs once step succeeded and what it returned is stored, and its
+// error undoes all of it.
+func (s *Server) changeFactorWith(userID int64, idHash string, claim func(ctx context.Context, q querier) error, step func(f twofactor.Factor, exists bool) (twofactor.Factor, error), passed func(ctx context.Context, q querier) error) (twofactor.Factor, error) {
 	// Not the request's context: a client that goes away must not cut the
 	// transaction short and hand the connection back inside it.
 	ctx := context.Background()
@@ -172,6 +180,11 @@ func (s *Server) changeFactor(userID int64, idHash string, step func(f twofactor
 			_, _ = conn.ExecContext(ctx, `ROLLBACK`)
 		}
 	}()
+	if claim != nil {
+		if err := claim(ctx, conn); err != nil {
+			return twofactor.Factor{}, err
+		}
+	}
 	stored, setupSession, exists, err := loadFactor(ctx, conn, userID)
 	if err != nil {
 		return twofactor.Factor{}, err
@@ -180,6 +193,11 @@ func (s *Server) changeFactor(userID int64, idHash string, step func(f twofactor
 	next, stepErr := step(f, exists)
 	if next.Revision != f.Revision || (exists && next.Secret.IsZero() && !f.Secret.IsZero()) {
 		if err := storeFactor(ctx, conn, userID, stored.Revision, exists, next, idHash); err != nil {
+			return f, err
+		}
+	}
+	if stepErr == nil && passed != nil {
+		if err := passed(ctx, conn); err != nil {
 			return f, err
 		}
 	}
@@ -293,26 +311,44 @@ func (s *Server) pendingFrom(r *http.Request) (session, error) {
 	return sess, nil
 }
 
-// usePendingAttempt spends one of the codes the pending sign-in may try;
-// false means none are left.
-func (s *Server) usePendingAttempt(idHash string) bool {
-	res, err := s.db.Exec(`UPDATE pending_logins SET attempts = attempts + 1 WHERE id_hash = ? AND attempts < ?`, idHash, pendingAttempts)
+var (
+	errPendingGone   = errors.New("the sign-in no longer waits for its second step")
+	errPendingUsedUp = errors.New("the sign-in tried all the codes it may")
+)
+
+// usePendingAttempt claims the pending sign-in for one code and counts the
+// code against the ones it may try. errPendingGone means another request
+// passed or ended it first, errPendingUsedUp that no codes are left.
+func usePendingAttempt(ctx context.Context, q querier, idHash string) error {
+	res, err := q.ExecContext(ctx, `UPDATE pending_logins SET attempts = attempts + 1 WHERE id_hash = ? AND attempts < ?`, idHash, pendingAttempts)
 	if err != nil {
-		return false
+		return err
 	}
-	n, err := res.RowsAffected()
-	return err == nil && n == 1
+	if n, err := res.RowsAffected(); err != nil || n == 1 {
+		return err
+	}
+	var exists bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pending_logins WHERE id_hash = ?)`, idHash).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errPendingGone
+	}
+	return errPendingUsedUp
 }
 
-// endPendingLogin deletes the pending sign-in; false means it was gone
-// already, so another request passed or ended it first.
-func (s *Server) endPendingLogin(idHash string) bool {
-	res, err := s.db.Exec(`DELETE FROM pending_logins WHERE id_hash = ?`, idHash)
-	if err != nil {
-		return false
+// passPendingLogin ends the pending sign-in p and starts the session it
+// earned, in the transaction that checked its code.
+func (s *Server) passPendingLogin(ctx context.Context, q querier, p *session) (string, session, error) {
+	if _, err := q.ExecContext(ctx, `DELETE FROM pending_logins WHERE id_hash = ?`, p.IDHash); err != nil {
+		return "", session{}, err
 	}
-	n, err := res.RowsAffected()
-	return err == nil && n == 1
+	return s.newSessionIn(ctx, q, p.User)
+}
+
+// endPendingLogin deletes the pending sign-in.
+func (s *Server) endPendingLogin(idHash string) {
+	_, _ = s.db.Exec(`DELETE FROM pending_logins WHERE id_hash = ?`, idHash)
 }
 
 func setPendingCookie(w http.ResponseWriter, token string) {
@@ -355,43 +391,55 @@ func (s *Server) hSecondFactor(w http.ResponseWriter, r *http.Request, p *sessio
 		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid request.", "")
 		return
 	}
-	if !s.usePendingAttempt(p.IDHash) {
+	// One transaction claims the pending sign-in, checks the code and
+	// starts the session: of two requests with right codes, the one that
+	// comes second finds the sign-in gone before its code is spent.
+	var before twofactor.Factor
+	var res twofactor.Result
+	var token string
+	var sess session
+	sessionFailed := false
+	now := s.now()
+	if s.beforeCodeCheck != nil {
+		s.beforeCodeCheck()
+	}
+	after, err := s.changeFactorWith(p.User.ID, p.IDHash, func(ctx context.Context, q querier) error {
+		return usePendingAttempt(ctx, q, p.IDHash)
+	}, func(f twofactor.Factor, _ bool) (twofactor.Factor, error) {
+		before = f
+		next, result, err := twofactor.SignIn(f, req.Code, now)
+		res = result
+		return next, err
+	}, func(ctx context.Context, q querier) error {
+		var err error
+		token, sess, err = s.passPendingLogin(ctx, q, p)
+		sessionFailed = err != nil
+		return err
+	})
+	switch {
+	case errors.Is(err, errPendingUsedUp):
 		s.endPendingLogin(p.IDHash)
 		s.audit(p.User.Username, "login.second_factor", "panel", "refused", fmt.Sprintf("%d codes tried, password needed again", pendingAttempts))
 		clearPendingCookie(w)
 		writeErr(w, http.StatusUnauthorized, api.CodeUnauthorized, "Too many codes for one sign-in. Enter your password again.", "")
 		return
-	}
-	var before twofactor.Factor
-	var res twofactor.Result
-	now := s.now()
-	after, err := s.changeFactor(p.User.ID, p.IDHash, func(f twofactor.Factor, _ bool) (twofactor.Factor, error) {
-		before = f
-		next, result, err := twofactor.SignIn(f, req.Code, now)
-		res = result
-		return next, err
-	})
-	switch {
+	case errors.Is(err, errPendingGone):
+		clearPendingCookie(w)
+		writeErr(w, http.StatusUnauthorized, api.CodeUnauthorized, "Please sign in again.", "")
+		return
 	case twofactor.KindOf(err) == twofactor.KindOff:
 		s.endPendingLogin(p.IDHash)
 		clearPendingCookie(w)
 		writeErr(w, http.StatusUnauthorized, api.CodeUnauthorized, "Please sign in again.", "")
+		return
+	case sessionFailed:
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Could not start a session.", "")
 		return
 	case err != nil:
 		if twofactor.KindOf(err) != "" {
 			s.audit(p.User.Username, "login.second_factor", "panel", "failed", failureDetail(err, before, after))
 		}
 		factorError(w, err, true)
-		return
-	}
-	if !s.endPendingLogin(p.IDHash) {
-		clearPendingCookie(w)
-		writeErr(w, http.StatusUnauthorized, api.CodeUnauthorized, "Please sign in again.", "")
-		return
-	}
-	token, sess, err := s.newSession(p.User)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Could not start a session.", "")
 		return
 	}
 	detail := string(res.Method)

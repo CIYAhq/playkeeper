@@ -385,7 +385,14 @@ func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string, 
 			return err
 		}
 	}
+	release := func() {}
+	if o.Console != nil {
+		if release, err = s.holdSavingLock(ctx); err != nil {
+			return err
+		}
+	}
 	res, err := backup.Take(ctx, o)
+	release()
 	var b *api.Backup
 	if err == nil {
 		b, err = s.recordBackup(id, fileName, actor, note, now, res)
@@ -501,16 +508,45 @@ func (s *server) savingPausedSince() *time.Time {
 	return &t
 }
 
+// trySavingLock takes the saving lock if it is free.
+func (s *server) trySavingLock() (release func(), ok bool) {
+	select {
+	case s.savingLock <- struct{}{}:
+		return func() { <-s.savingLock }, true
+	default:
+		return nil, false
+	}
+}
+
+// holdSavingLock waits for the saving lock, for at most savingLockWait: its
+// holders give it up once their save-on is answered or times out.
+func (s *server) holdSavingLock(ctx context.Context) (release func(), err error) {
+	t := time.NewTimer(savingLockWait)
+	defer t.Stop()
+	select {
+	case s.savingLock <- struct{}{}:
+		return func() { <-s.savingLock }, nil
+	case <-t.C:
+		return nil, errConflict(s.name()+" is turning world saving back on.", "Try again in a moment.")
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// savingLockWait is longer than the longest save-on, hSavingResume's.
+const savingLockWait = 30 * time.Second
+
 // resumeSaving turns world saving back on after a backup left it off. A
 // container that stopped or started since then saves again by itself, so
 // only an online server that has run all along gets save-on. It holds the
-// operation lock, so save-on can't land in the middle of a new backup.
+// saving lock, so save-on can't land in the middle of a new backup, and
+// gives save-on resumeWait: a backup waits for the lock meanwhile.
 func (s *server) resumeSaving(ctx context.Context, c docker.ContainerJSON, running bool) {
 	since := s.savingPausedSince()
 	if since == nil {
 		return
 	}
-	release, ok := s.holdOpLock()
+	release, ok := s.trySavingLock()
 	if !ok {
 		return
 	}
@@ -525,7 +561,7 @@ func (s *server) resumeSaving(ctx context.Context, c docker.ContainerJSON, runni
 	if !due || !s.online(ctx) {
 		return
 	}
-	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, resumeWait)
 	defer cancel()
 	if err := backup.ResumeSaving(cctx, rconConsole{s}); err != nil {
 		s.log.Warn("could not turn world saving back on", "server", s.id, "err", err)
@@ -540,6 +576,9 @@ func (s *server) resumeSaving(ctx context.Context, c docker.ContainerJSON, runni
 
 // resumeRetry is how long the reconciler waits after save-on failed.
 const resumeRetry = 30 * time.Second
+
+// resumeWait bounds the reconciler's save-on.
+const resumeWait = 5 * time.Second
 
 func humanBytes(n int64) string {
 	const unit = 1024
