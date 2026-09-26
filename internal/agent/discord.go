@@ -88,6 +88,7 @@ func (a *Agent) initDiscord() error {
 	a.disc.settings = s
 	a.disc.n = discord.New(discord.Options{
 		Settings: s, Server: a.discordDashboard(), Client: a.disc.client, Now: a.now, Logger: a.log,
+		StatusGap: a.opts.DiscordStatusGap,
 		OnStatusMessage: func(id string) {
 			if _, err := a.db.Exec(`UPDATE discord SET status_message_id = ? WHERE id = 1`, id); err != nil {
 				a.log.Error("save the Discord status message", "err", err)
