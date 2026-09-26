@@ -4,33 +4,19 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/CIYAhq/playkeeper/internal/api/apitest"
 	"github.com/CIYAhq/playkeeper/internal/backup/retention"
 	"github.com/CIYAhq/playkeeper/internal/diskusage"
+	"github.com/CIYAhq/playkeeper/internal/offsite"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 )
 
 const webSrc = "../../web/src"
-
-func jsonNames(t reflect.Type) map[string]bool {
-	names := map[string]bool{}
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
-		switch {
-		case !f.IsExported() || name == "-":
-		case name == "":
-			names[f.Name] = true
-		default:
-			names[name] = true
-		}
-	}
-	return names
-}
 
 // A field the dashboard declares that the API never sends is always
 // undefined in the browser.
@@ -39,6 +25,9 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The agent's own types, and those of packages that import this one, are
+	// checked by TestTheDashboardDeclaresOnlyFieldsTheAgentSends in
+	// internal/agent.
 	sent := map[string]any{
 		"Activity": Activity{}, "AuditEntry": AuditEntry{}, "Backup": Backup{}, "Catalog": Catalog{}, "CatalogEntry": CatalogEntry{},
 		"DailyActivity": DailyActivity{}, "FirstSteps": FirstSteps{}, "Gameplay": Gameplay{}, "Gap": Gap{}, "LogLine": LogLine{},
@@ -53,25 +42,41 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"AddonRemovePreview": AddonRemovePreview{}, "AddonRemoval": AddonRemoval{}, "Addons": Addons{}, "AddonStep": AddonStep{},
 		"AddonTarget": AddonTarget{}, "AddonUpdate": AddonUpdate{}, "AddonVersion": AddonVersion{}, "DataPack": DataPack{}, "DataPacks": DataPacks{},
 		"Pregen": Pregen{}, "PregenPreset": PregenPreset{}, "ResourcePack": ResourcePack{}, "ResourcePackOffer": ResourcePackOffer{},
+		"ApiErrorBody": Error{}, "SleepStatus": SleepStatus{}, "RetentionEstimate": retention.Estimate{}, "RetentionRules": retention.Rules{},
+		"RetentionSettings": retention.Settings{}, "RetentionText": retention.Text{}, "OffsiteCheck": offsite.Check{}, "OffsiteProvider": offsite.Provider{},
+		"OffsiteTestResult": offsite.TestResult{}, "DiskCandidate": diskusage.Candidate{}, "DiskReport": diskusage.Report{},
+		"DiskServer": diskusage.ServerUsage{}, "DiskUsage": diskusage.Usage{}, "DiskWay": diskusage.Way{},
 	}
 	addedByPanel := map[string]bool{"ServerStatus.machineId": true, "AuditEntry.source": true}
-	field := regexp.MustCompile(`(?m)^  (\w+)\??:`)
-	found := 0
-	for _, m := range regexp.MustCompile(`(?ms)^export interface (\w+) \{\n(.*?)^\}`).FindAllStringSubmatch(string(src), -1) {
-		v, ok := sent[m[1]]
-		if !ok {
-			continue
-		}
-		found++
-		names := jsonNames(reflect.TypeOf(v))
-		for _, f := range field.FindAllStringSubmatch(m[2], -1) {
-			if !names[f[1]] && !addedByPanel[m[1]+"."+f[1]] {
-				t.Errorf("web/src/api/types.ts: %s.%s is not a JSON field of api.%s", m[1], f[1], m[1])
-			}
-		}
+	for _, p := range apitest.Undeclared(string(src), sent, addedByPanel) {
+		t.Error(p)
 	}
-	if found != len(sent) {
-		t.Fatalf("found %d of the %d interfaces in web/src/api/types.ts", found, len(sent))
+}
+
+// The dashboard shows an operation by its status, so it must know each one
+// the API sends, a cancelled operation too.
+func TestTheDashboardKnowsEveryOperationStatus(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join(webSrc, "api", "types.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := regexp.MustCompile(`(?ms)^export interface Operation \{\n(.*?)^\}`).FindSubmatch(src)
+	if op == nil {
+		t.Fatal("web/src/api/types.ts has no interface Operation")
+	}
+	status := regexp.MustCompile(`(?m)^  status: (.*)$`).FindSubmatch(op[1])
+	if status == nil {
+		t.Fatal("web/src/api/types.ts: Operation has no status")
+	}
+	var declared []string
+	for _, m := range regexp.MustCompile(`'(\w+)'`).FindAllSubmatch(status[1], -1) {
+		declared = append(declared, string(m[1]))
+	}
+	sent := []string{OpRunning, OpSucceeded, OpFailed, OpCancelled}
+	slices.Sort(declared)
+	slices.Sort(sent)
+	if !slices.Equal(declared, sent) {
+		t.Errorf("web/src/api/types.ts: Operation.status is %s, but the API sends %q", status[1], sent)
 	}
 }
 
