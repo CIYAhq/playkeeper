@@ -50,11 +50,17 @@ var docPages = []DocPage{
 // DocEntry is one entry point on the docs landing and in the docs nav.
 type DocEntry struct {
 	Label, Blurb string
-	// Page and Anchor say where it goes: /docs/<Page>#<Anchor>.
+	// Page and Anchor say where it goes: /docs/<Page>#<Anchor>. Or lists
+	// where else the same thing is written, tried in order when Page isn't
+	// built, as when README.md covers it inside another section.
 	Page, Anchor string
-	// Icon names a card's icon, for the landing's groups.
+	Or           []DocTarget
+	// URL is where it went, once built.
 	URL string
 }
+
+// DocTarget is a docs page and, optionally, an anchor on it.
+type DocTarget struct{ Page, Anchor string }
 
 // DocGroup is a group of entries, like "Get started".
 type DocGroup struct {
@@ -67,20 +73,20 @@ var docGroups = []DocGroup{
 		{Label: "Requirements", Blurb: "Ubuntu 24.04 on x86_64, 2 CPU cores, 3 GB of memory, 5 GB of disk.", Page: "install", Anchor: "you-need"},
 		{Label: "Install", Blurb: "One command, and every change it makes.", Page: "install"},
 		{Label: "Open the ports", Blurb: "8443, 25565 and the rest, in your provider's firewall.", Page: "troubleshooting", Anchor: "friends-cant-join"},
-		{Label: "Your first server", Blurb: "New server picks a version and memory for you.", Page: "servers"},
+		{Label: "Your first server", Blurb: "New server picks a version and memory for you.", Page: "servers", Or: []DocTarget{{"install", "more-servers"}}},
 	}},
 	{Title: "Everyday", Icon: "everyday", Entries: []DocEntry{
-		{Label: "Addresses", Blurb: "The free name, your own domain, join addresses", Page: "addresses"},
-		{Label: "Add-ons", Blurb: "Plugins, mods and modpacks", Page: "add-ons"},
-		{Label: "Backups and recovery", Blurb: "Backup rules, off-site copies, the recovery key", Page: "keep-it-running", Anchor: "backups"},
+		{Label: "Addresses", Blurb: "The free name, your own domain, join addresses", Page: "addresses", Or: []DocTarget{{"install", "a-name-instead-of-the-ip"}}},
+		{Label: "Add-ons", Blurb: "Plugins, mods and modpacks", Page: "add-ons", Or: []DocTarget{{"install", "plugins-and-mods"}}},
+		{Label: "Backups and recovery", Blurb: "Backup rules, off-site copies, the recovery key", Page: "keep-it-running", Anchor: "backups", Or: []DocTarget{{"install", "backups"}}},
 		{Label: "Team and Discord", Blurb: "Roles, invites and alerts", Page: "friends-and-team"},
 		{Label: "Schedules and sleep", Blurb: "Restarts, backups and sleeping when nobody plays", Page: "keep-it-running", Anchor: "schedules"},
 	}},
 	{Title: "Advanced", Icon: "advanced", Entries: []DocEntry{
 		{Label: "More machines", Blurb: "A second VPS or a home server", Page: "machines-and-ai-agents", Anchor: "servers-on-more-machines"},
 		{Label: "AI agents", Blurb: "Claude, Cursor or any MCP client", Page: "machines-and-ai-agents", Anchor: "ai-agents"},
-		{Label: "Updates", Blurb: "Signed, and they roll back if they fail", Page: "updates", Anchor: "update-playkeeper"},
-		{Label: "Uninstall", Blurb: "Remove Playkeeper, keep your worlds", Page: "updates", Anchor: "uninstall"},
+		{Label: "Updates", Blurb: "Signed, and they roll back if they fail", Page: "updates", Anchor: "update-playkeeper", Or: []DocTarget{{"install", "update-playkeeper"}}},
+		{Label: "Uninstall", Blurb: "Remove Playkeeper, keep your worlds", Page: "updates", Anchor: "uninstall", Or: []DocTarget{{"install", "uninstall"}}},
 		{Label: "Commands", Blurb: "The playkeeper command line", Page: "updates", Anchor: "other-commands"},
 	}},
 	{Title: "Troubleshooting", Icon: "troubleshooting", Entries: []DocEntry{
@@ -196,18 +202,21 @@ func buildDocs(root fs.FS, s Settings) (*docsBuild, error) {
 		kept := g
 		kept.Entries = nil
 		for _, e := range g.Entries {
-			p, ok := built[e.Page]
-			if !ok {
-				continue
+			for _, t := range append([]DocTarget{{e.Page, e.Anchor}}, e.Or...) {
+				p, ok := built[t.Page]
+				if !ok {
+					continue
+				}
+				if t.Anchor != "" && !strings.Contains(string(p.body), ` id="`+t.Anchor+`"`) {
+					return nil, fmt.Errorf("the docs entry %q points at #%s, which %s no longer has; update docGroups in internal/site/docs.go", e.Label, t.Anchor, p.docs.Source)
+				}
+				e.URL = p.Path
+				if t.Anchor != "" {
+					e.URL += "#" + t.Anchor
+				}
+				kept.Entries = append(kept.Entries, e)
+				break
 			}
-			if e.Anchor != "" && !strings.Contains(string(p.body), ` id="`+e.Anchor+`"`) {
-				return nil, fmt.Errorf("the docs entry %q points at #%s, which %s no longer has; update docGroups in internal/site/docs.go", e.Label, e.Anchor, p.docs.Source)
-			}
-			e.URL = p.Path
-			if e.Anchor != "" {
-				e.URL += "#" + e.Anchor
-			}
-			kept.Entries = append(kept.Entries, e)
 		}
 		if len(kept.Entries) > 0 {
 			out.groups = append(out.groups, kept)

@@ -3,12 +3,14 @@ package site
 import (
 	"encoding/json"
 	"html/template"
+	"io/fs"
 	"os"
 	"path"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
@@ -388,8 +390,13 @@ func TestDocsComeFromTheRepository(t *testing.T) {
 	docs := built["/docs"]
 	for _, g := range docGroups {
 		for _, e := range g.Entries {
-			if _, ok := built["/docs/"+e.Page]; ok && !strings.Contains(docs, ">"+template.HTMLEscapeString(e.Label)+"<") {
-				t.Errorf("the docs landing doesn't list %q", e.Label)
+			for _, target := range append([]DocTarget{{e.Page, e.Anchor}}, e.Or...) {
+				if _, ok := built["/docs/"+target.Page]; ok {
+					if !strings.Contains(docs, ">"+template.HTMLEscapeString(e.Label)+"<") {
+						t.Errorf("the docs landing doesn't list %q", e.Label)
+					}
+					break
+				}
 			}
 		}
 	}
@@ -410,5 +417,42 @@ func TestDocsComeFromTheRepository(t *testing.T) {
 	}
 	if !strings.Contains(built["/docs/install"], "curl -fsSL https://playkeeper.io/install | sudo sh") {
 		t.Error("the install docs don't have the one-line install")
+	}
+}
+
+// readme is this repository with README.md replaced.
+type readme struct {
+	fs.FS
+	md string
+}
+
+func (r readme) Open(name string) (fs.File, error) {
+	if name == "README.md" {
+		return fstest.MapFS{name: {Data: []byte(r.md)}}.Open(name)
+	}
+	return r.FS.Open(name)
+}
+
+// A docs entry that README.md covers inside another section points there,
+// and at its own page once README.md gives it a section.
+func TestDocsEntriesFollowTheReadme(t *testing.T) {
+	md, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(md), "\n## Addresses\n") {
+		t.Skip("README.md has its own Addresses section")
+	}
+	for _, c := range []struct{ md, want string }{
+		{string(md), `href="/docs/install#a-name-instead-of-the-ip"`},
+		{string(md) + "\n## Addresses\n\nA free name or your own domain.\n", `href="/docs/addresses"`},
+	} {
+		o, err := Build(Options{Root: readme{os.DirFS("../.."), c.md}, Settings: Default, Now: time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if docs := pages(o)["/docs"]; !strings.Contains(docs, c.want) {
+			t.Errorf("the docs landing's Addresses doesn't link %s", c.want)
+		}
 	}
 }
