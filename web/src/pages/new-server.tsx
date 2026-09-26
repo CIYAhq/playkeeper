@@ -53,7 +53,7 @@ const allStartFroms: { value: StartFrom; long: MessageKey; short: MessageKey }[]
   { value: 'template', long: 'new.from.template', short: 'new.from.templateShort' },
   { value: 'world', long: 'new.from.world', short: 'new.from.worldShort' },
 ]
-const startFroms = allStartFroms.filter((f) => f.value === 'type' || demo?.templates !== false)
+const startFroms = allStartFroms.filter((f) => f.value === 'type' || f.value === 'world' || demo?.templates !== false)
 
 /** A server made from a pack runs the type, version and game settings the pack names; the play style step is skipped. */
 export function packRequest(c: CreateChoices, pack: ModpackChoice) {

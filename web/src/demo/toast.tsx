@@ -2,7 +2,7 @@ import { Pip } from '@/components/app/art'
 import { toastManager } from '@/components/ui/toast'
 import { dt, type DemoKey } from './messages'
 
-export type DemoAction = 'start' | 'stop' | 'restart' | 'backup' | 'restore' | 'version' | 'create' | 'delete' | 'download' | 'signOut'
+export type DemoAction = 'start' | 'stop' | 'restart' | 'backup' | 'restore' | 'version' | 'create' | 'delete' | 'download' | 'recoveryKey' | 'signOut'
 
 const words: Record<DemoAction, [DemoKey, DemoKey]> = {
   start: ['demo.start', 'demo.startBody'],
@@ -14,6 +14,7 @@ const words: Record<DemoAction, [DemoKey, DemoKey]> = {
   create: ['demo.create', 'demo.createBody'],
   delete: ['demo.delete', 'demo.deleteBody'],
   download: ['demo.download', 'demo.downloadBody'],
+  recoveryKey: ['demo.recoveryKey', 'demo.recoveryKeyBody'],
   signOut: ['demo.signOut', 'demo.signOutBody'],
 }
 

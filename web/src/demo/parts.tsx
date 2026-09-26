@@ -42,5 +42,23 @@ function HomeCard() {
   )
 }
 
+/** The sample world: a file with a world's name and size, and no bytes, which the demo's upload never sends. */
+function sampleWorldFile(): File {
+  const file = new File([], dt('demo.sampleWorldFile'), { type: 'application/zip' })
+  Object.defineProperty(file, 'size', { value: 412 * 1024 * 1024 })
+  return file
+}
+
+function SampleWorld({ onPick }: { onPick: (files: File[]) => void }) {
+  return (
+    <p className="mt-2 text-xs text-muted-foreground max-sm:text-[13px]">
+      {dt('demo.noWorldFile')}{' '}
+      <button type="button" className="font-semibold text-primary hover:underline" onClick={() => onPick([sampleWorldFile()])}>
+        {dt('demo.sampleWorld')}
+      </button>
+    </p>
+  )
+}
+
 /** What the live demo adds to the dashboard; the demo build puts this in place of lib/demo. */
-export const demo: DemoParts = { BrandLine, homeSubtitle: () => dt('demo.subtitle'), HomeAction, HomeCard, templates: false }
+export const demo: DemoParts = { BrandLine, homeSubtitle: () => dt('demo.subtitle'), HomeAction, HomeCard, templates: false, SampleWorld }

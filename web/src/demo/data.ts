@@ -1,10 +1,12 @@
 // The live demo's sample data: a made-up VPS with two Paper servers and a
 // Fabric one, their players, console, backups, plugins and mods, map
 // pre-generation, packs, address, health and history.
-// Every GET the dashboard makes is answered from `reads` at the bottom; a
-// path that isn't there gets "no sample data" and its screen shows its empty
-// state. To give a screen sample data, add what it needs to DemoState and
-// sample(), and its path to reads.
+// Every GET the dashboard makes is answered from `reads` at the bottom, or
+// from the reads of people.ts (the team, invites, Discord, profiles),
+// automation.ts (sleep, schedules, backup rules, copies, disk space) and
+// worlds.ts (world imports); a path that isn't in any of them gets "no sample
+// data" and its screen shows its empty state. To give a screen sample data,
+// add what it needs to DemoState and sample(), and its path to reads.
 
 import { ApiError } from '@/api/client'
 import type {
@@ -42,6 +44,7 @@ import type {
   MemoryFit,
   MetricsBucket,
   MetricsResponse,
+  OffsiteCopy,
   OperatorEntry,
   PackShare,
   Phase,
@@ -53,7 +56,9 @@ import type {
   PregenPresetId,
   ResourcePack,
   ResourcePackOffer,
+  RetentionRules,
   Running,
+  ScheduleRun,
   ServerConfig,
   ServerStatus,
   Session,
@@ -65,6 +70,7 @@ import type {
   TwoFactorStatus,
   UpdateInfo,
   WhitelistEntry,
+  WorldImport,
 } from '@/api/types'
 import { t } from '@/i18n'
 import { typeName } from '@/lib/servers'
@@ -72,7 +78,7 @@ import { addonKind } from '@/lib/software'
 import { faceCount, faceIndex } from './faces'
 
 /** Bump when DemoState changes shape, so sessions saved by an older demo start over. */
-export const sampleVersion = 3
+export const sampleVersion = 4
 export const demoVersion = '0.4.0'
 export const demoUser = 'siya'
 export const machineId = 'q7m2vk9xpd'
@@ -149,6 +155,12 @@ export interface DemoState {
   addons: Record<string, ServerAddons>
   pregen: Record<string, PregenTask>
   packs: Record<string, ServerPacks>
+  /** Copies of each server's backups somewhere else, newest first. */
+  copies: Record<string, OffsiteCopy[]>
+  /** Each server's schedule runs, newest first. */
+  runs: Record<string, ScheduleRun[]>
+  /** World uploads for new servers, by id. */
+  imports: Record<string, WorldImport>
 }
 
 /** A library plugin on a server, at the version Playkeeper installed. */
@@ -234,14 +246,14 @@ export const chatter = [
 ]
 
 // The shape of an evening: most players online per local hour of the day.
-const busy = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 1, 2, 2, 3, 4, 5, 6, 5, 4, 2, 1]
+export const busy = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 1, 2, 2, 3, 4, 5, 6, 5, 4, 2, 1]
 
-const survivalId = 'h4k8v2m9qa'
-const creativeId = 'c6t3w8n2rb'
-const cobblemonId = 'k9p4f7x2ne'
+export const survivalId = 'h4k8v2m9qa'
+export const creativeId = 'c6t3w8n2rb'
+export const cobblemonId = 'k9p4f7x2ne'
 
 /** The machine's free name; playkeeper.io reserves "demo", so it leads to nobody's server. */
-const freeName = 'demo'
+export const freeName = 'demo'
 const machineIP = '203.0.113.10'
 
 export function config(over: Partial<ServerConfig> & Pick<ServerConfig, 'minecraftVersion' | 'memoryMB' | 'motd' | 'createdAt'>): ServerConfig {
@@ -294,17 +306,162 @@ function stat(name: string, lastSeen: number, sessions: number, hours: number, o
   return { name, lastSeen: iso(lastSeen), online, sessions, playtimeSeconds: Math.round(hours * 3600) }
 }
 
+/** Survival's automatic backups: every 6 hours from midnight, when somebody played since the last one. */
+export const survivalEvery = 6
+/** The day Survival's copies to Backblaze B2 began, and its recovery key was made. */
+export const copiesSince = (now: number) => now - 30 * day
+/** Survival moved from 26.1.1 to 26.1.2 four days ago. */
+const survivalUpdated = (now: number) => now - 4 * day
+
+/** Whether anyone played between two moments, from the shape of an evening. */
+export function played(from: number, to: number): boolean {
+  for (let at = from; at < to; at += hour) if ((busy[new Date(at).getHours()] ?? 0) > 0) return true
+  return false
+}
+
+/** Survival's world at a moment: it grew from a new world to 1.24 GB now. */
+export function survivalWorld(now: number, created: number, at: number): number {
+  return Math.round((0.06 + 1.18 * Math.max(0, at - created) / (now - created)) * gb)
+}
+
+/** When each automatic backup was due since the server was made, and whether somebody had played since the last one. Oldest first. */
+export function automaticDue(now: number, created: number, everyHours: number): { due: number; played: boolean }[] {
+  const out: { due: number; played: boolean }[] = []
+  let last = created
+  for (let d = new Date(created); d.getTime() <= now; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+    for (let h = 0; h < 24; h += everyHours) {
+      const due = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h).getTime()
+      if (due <= created || due > now) continue
+      const p = played(last, due)
+      out.push({ due, played: p })
+      if (p) last = due
+    }
+  }
+  return out
+}
+
+/** Every automatic backup Survival made, newest first, whether or not the rules kept it. */
+export function survivalMade(now: number, created: number): Backup[] {
+  return automaticDue(now, created, survivalEvery)
+    .filter((x) => x.played)
+    .map(({ due }, n) => backup(survivalId, 100 + n, due + 40_000, Math.round(survivalWorld(now, created, due) * 0.97), { kind: 'scheduled', createdBy: 'schedule:scsurvbk', minecraftVersion: due < survivalUpdated(now) ? '26.1.1' : '26.1.2' }))
+    .reverse()
+}
+
+function weekOf(d: Date): string {
+  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7))
+  return monday.toDateString()
+}
+
+/**
+ * The backups rules keep in one place, newest first, as internal/backup/retention
+ * counts them: the newest, every one from the last hours back from the newest,
+ * the newest few, and the newest of each of the last days, weeks and months
+ * that have one.
+ */
+export function kept<T extends { createdAt: string }>(list: T[], r: RetentionRules): T[] {
+  const sorted = [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  const newest = sorted[0]
+  if (!newest || r.keepAll) return sorted
+  const keep = new Set<T>([newest, ...sorted.slice(0, r.last ?? 0)])
+  const top = Date.parse(newest.createdAt)
+  for (const b of sorted) if (top - Date.parse(b.createdAt) < (r.hours ?? 0) * hour) keep.add(b)
+  const each = (n: number | undefined, key: (d: Date) => string) => {
+    const seen = new Set<string>()
+    for (const b of sorted) {
+      const k = key(new Date(b.createdAt))
+      if (seen.has(k)) continue
+      if (seen.size >= (n ?? 0)) break
+      seen.add(k)
+      keep.add(b)
+    }
+  }
+  each(r.daily, (d) => d.toDateString())
+  each(r.weekly, weekOf)
+  each(r.monthly, (d) => `${d.getFullYear()}-${d.getMonth()}`)
+  return sorted.filter((b) => keep.has(b))
+}
+
+/** The rules Playkeeper starts with, as internal/backup/retention's DefaultSettings. */
+export const defaultRules = { onHost: { hours: 24, daily: 7, weekly: 4 }, offSite: { daily: 14, weekly: 8, monthly: 12 } }
+
+/** A backup's copy at the destination, made a few minutes after the backup and checked since. */
+function copyOf(b: Backup, onHost: boolean, now: number): OffsiteCopy {
+  const made = Date.parse(b.createdAt)
+  const copied = made + 3 * minute + (made % 120_000)
+  return {
+    backupId: b.id,
+    kind: b.kind,
+    createdAt: b.createdAt,
+    fileName: b.fileName,
+    name: `${b.fileName}.age`,
+    sizeBytes: b.sizeBytes,
+    copySizeBytes: b.sizeBytes + 4096,
+    minecraftVersion: b.minecraftVersion,
+    levelName: b.levelName,
+    copiedAt: iso(copied),
+    checked: iso(Math.min(now - 2 * hour, copied + day)),
+    onHost,
+    sha256: b.sha256,
+  }
+}
+
+/** Survival's copies on Backblaze B2: every backup since copies began, as the rules there keep them. */
+function survivalCopies(now: number, made: Backup[], manual: Backup[], onHost: Backup[]): OffsiteCopy[] {
+  const since = copiesSince(now)
+  const here = new Set(onHost.map((b) => b.id))
+  const there = [...kept(made.filter((b) => Date.parse(b.createdAt) > since), defaultRules.offSite), ...manual.filter((b) => Date.parse(b.createdAt) > since)]
+  return there.map((b) => copyOf(b, here.has(b.id), now)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
+/** Survival's recent schedule runs: its automatic backups, those skipped because nobody played, and Friday's build night. */
+function survivalRuns(now: number, created: number, made: Backup[]): ScheduleRun[] {
+  const byDue = new Map(made.map((b) => [Math.floor((Date.parse(b.createdAt) - 40_000) / 1000), b]))
+  const runs: ScheduleRun[] = automaticDue(now, created, survivalEvery)
+    .slice(-8)
+    .map(({ due, played: p }) => {
+      const b = byDue.get(Math.floor(due / 1000))
+      if (!p || !b) return { scheduleId: 'scsurvbk', kind: 'backup', due: iso(due), result: 'skipped', reason: 'nobody_played' }
+      return { scheduleId: 'scsurvbk', kind: 'backup', due: iso(due), startedAt: iso(due), finishedAt: iso(due + 40_000), result: 'succeeded', backup: { id: b.id, sizeBytes: b.sizeBytes, verified: true, downtimeMs: 0 } }
+    })
+  const friday = lastWeekday(now, 5, 19, 30)
+  runs.push({ scheduleId: 'scsurvbn', kind: 'announcement', due: iso(friday), startedAt: iso(friday), finishedAt: iso(friday + 1000), result: 'succeeded', players: 4 })
+  return runs.sort((a, b) => b.due.localeCompare(a.due))
+}
+
+/** The last time it was this weekday (0 is Sunday) and time of day, before now. */
+function lastWeekday(now: number, weekday: number, h: number, m: number): number {
+  const d = new Date(now)
+  const at = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() - weekday + 7) % 7), h, m)
+  return at.getTime() > now ? new Date(at.getFullYear(), at.getMonth(), at.getDate() - 7, h, m).getTime() : at.getTime()
+}
+
+/** The last time the clock showed this time of day, before now. */
+function lastClock(now: number, h: number, m: number): number {
+  const d = new Date(now)
+  const at = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m)
+  return at.getTime() > now ? new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1, h, m).getTime() : at.getTime()
+}
+
 /** The demo as it starts: a fresh copy every hour and on every new visit. */
 export function sample(now: number): DemoState {
   const created = now - 41 * day
   const creativeCreated = now - 19 * day
-  const stoppedAt = now - 2 * day - 3 * hour
-  const survivalBackups = [
+  // Creative fell asleep half an hour after PixelPia's late build session, and has slept since.
+  const stoppedAt = lastClock(now - hour, 0, 40)
+  const survivalManual = [
     backup(survivalId, 3, now - 62 * minute, 1.21 * gb, { note: 'Before the nether hub' }),
     backup(survivalId, 2, now - day - 5 * hour, 1.18 * gb),
-    backup(survivalId, 1, now - 4 * day, 1.09 * gb, { kind: 'rollback', note: undefined, downtimeMs: 4200 }),
+    backup(survivalId, 1, now - 4 * day, 1.09 * gb, { kind: 'rollback', note: undefined, downtimeMs: 4200, minecraftVersion: '26.1.1' }),
   ]
-  const creativeBackups = [backup(creativeId, 1, stoppedAt - 20 * minute, 0.37 * gb)]
+  const survivalAll = survivalMade(now, created)
+  const survivalBackups = [...survivalManual, ...kept(survivalAll, defaultRules.onHost)].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  // Its nightly backup runs after PixelPia's visit, then has nothing new to save while it sleeps.
+  const creativeNight = lastClock(stoppedAt + day, 4, 0)
+  const creativeBackups = [
+    ...(creativeNight < now ? [backup(creativeId, 2, creativeNight + 25_000, 0.37 * gb, { kind: 'scheduled', createdBy: 'schedule:sccrebk', method: 'stopped', savingPausedMs: 0 })] : []),
+    backup(creativeId, 1, stoppedAt - 50 * minute, 0.36 * gb),
+  ]
   const online = [
     { name: 'JunoFox', since: now - 12 * minute },
     { name: 'tobi2009', since: now - 48 * minute },
@@ -337,6 +494,7 @@ export function sample(now: number): DemoState {
     collectingSince: iso(created),
     firstSteps: { invited: 'JunoFox', friendJoined: 'JunoFox', friendJoinedAt: iso(created + day), backedUp: true, downloaded: true },
     joinAddress: `survival.${freeName}.playkeeper.io`,
+    sleep: { enabled: false, idleMinutes: 15, listening: false },
   }
   const creative: ServerStatus = {
     id: creativeId,
@@ -347,8 +505,8 @@ export function sample(now: number): DemoState {
     createdAt: iso(creativeCreated),
     machineId,
     exists: true,
-    desired: 'stopped',
-    phase: 'stopped',
+    desired: 'running',
+    phase: 'asleep',
     reachable: false,
     stoppedAt: iso(stoppedAt),
     config: config({ minecraftVersion: '26.2.1', paperBuild: 12, memoryMB: 3072, motd: 'Build anything', createdAt: iso(creativeCreated), playStyle: 'creative', maxPlayers: 8 }),
@@ -362,6 +520,7 @@ export function sample(now: number): DemoState {
     collectingSince: iso(creativeCreated),
     firstSteps: { invited: 'PixelPia', friendJoined: 'PixelPia', friendJoinedAt: iso(creativeCreated + hour), backedUp: true, downloaded: true },
     joinAddress: `creative.${freeName}.playkeeper.io`,
+    sleep: { enabled: true, idleMinutes: 30, asleepSince: iso(stoppedAt), listening: true },
   }
   const cobblemonCreated = now - 9 * day
   const crashedAt = now - 34 * minute
@@ -399,6 +558,7 @@ export function sample(now: number): DemoState {
     collectingSince: iso(cobblemonCreated),
     firstSteps: { invited: 'Brickbert', friendJoined: 'Brickbert', friendJoinedAt: iso(cobblemonCreated + 2 * hour), backedUp: true, downloaded: true },
     joinAddress: `cobblemon.${freeName}.playkeeper.io`,
+    sleep: { enabled: false, idleMinutes: 15, listening: false },
   }
   return {
     sample: sampleVersion,
@@ -427,6 +587,7 @@ export function sample(now: number): DemoState {
         defaultGamePort: 25565,
         offlineModeTest: false,
         servers: 3,
+        sleepingMemoryMB: 3072,
       },
     },
     servers: [survival, creative, cobblemon],
@@ -438,7 +599,7 @@ export function sample(now: number): DemoState {
     backups: { [survivalId]: survivalBackups, [creativeId]: creativeBackups, [cobblemonId]: cobblemonBackups },
     logs: { [survivalId]: survivalLog(now, online), [creativeId]: creativeLog(stoppedAt), [cobblemonId]: cobblemonLog(crashedAt) },
     whitelist: {
-      [survivalId]: samplePlayers.map((name) => ({ name })),
+      [survivalId]: samplePlayers.map((name) => (name === 'Kestrel_7' ? { name, joined: { key: 'invite.origin.link', params: { link: 'School friends' }, text: 'Joined with the School friends link', at: iso(now - 6 * day - 2 * hour) } } : { name })),
       [creativeId]: ['PixelPia', 'Brickbert', 'JunoFox'].map((name) => ({ name })),
       [cobblemonId]: ['Brickbert', 'Kestrel_7', 'mara_k', 'tobi2009'].map((name) => ({ name })),
     },
@@ -452,7 +613,7 @@ export function sample(now: number): DemoState {
         stat('Brickbert', now - day - 3 * hour, 12, 14.1),
         stat('Kestrel_7', now - 6 * day, 4, 3.2),
       ],
-      [creativeId]: [stat('PixelPia', stoppedAt - 2 * hour, 19, 31), stat('Brickbert', stoppedAt - day, 8, 9.5), stat('JunoFox', stoppedAt - 4 * day, 3, 2.1)],
+      [creativeId]: [stat('PixelPia', stoppedAt - 30 * minute, 19, 31), stat('Brickbert', stoppedAt - day, 8, 9.5), stat('JunoFox', stoppedAt - 4 * day, 3, 2.1)],
       [cobblemonId]: [
         stat('Brickbert', crashedAt, 14, 22.5),
         stat('Kestrel_7', crashedAt, 9, 13.1),
@@ -465,13 +626,13 @@ export function sample(now: number): DemoState {
       { ts: iso(now - 48 * minute), serverId: survivalId, kind: 'joined', player: 'tobi2009' },
       { ts: iso(now - 62 * minute), serverId: survivalId, kind: 'backup', actor: demoUser },
       { ts: iso(crashedAt), serverId: cobblemonId, kind: 'crashed' },
-      { ts: iso(stoppedAt), serverId: creativeId, kind: 'stopped' },
+      { ts: iso(stoppedAt), serverId: creativeId, kind: 'fell_asleep', actor: 'playkeeper', detail: '30' },
     ],
     audit: [
       { id: 6, ts: iso(now - 62 * minute), actor: demoUser, action: 'backup.created', target: 'Survival', serverId: survivalId, result: 'succeeded', source: 'agent', machineId },
       { id: 5, ts: iso(now - 70 * minute), actor: demoUser, action: 'login', target: 'panel', result: 'succeeded', source: 'panel' },
-      { id: 4, ts: iso(stoppedAt), actor: demoUser, action: 'stop', target: 'Creative', serverId: creativeId, result: 'succeeded', source: 'agent', machineId },
-      { id: 3, ts: iso(now - 4 * day), actor: demoUser, action: 'server.version', target: 'Survival', serverId: survivalId, result: 'succeeded', detail: '26.1.1 → 26.1.2', source: 'agent', machineId },
+      { id: 4, ts: iso(now - 4 * day), actor: demoUser, action: 'server.version', target: 'Survival', serverId: survivalId, result: 'succeeded', detail: '26.1.1 → 26.1.2', source: 'agent', machineId },
+      { id: 3, ts: iso(creativeCreated + 2 * day), actor: demoUser, action: 'sleep.changed', target: 'Creative', serverId: creativeId, result: 'succeeded', detail: 'on, after 30 minutes', source: 'agent', machineId },
       { id: 2, ts: iso(creativeCreated), actor: demoUser, action: 'server.create', target: 'Creative', serverId: creativeId, result: 'succeeded', source: 'agent', machineId },
       { id: 1, ts: iso(created), actor: demoUser, action: 'setup', target: 'admin', result: 'succeeded', detail: 'first admin account created', source: 'panel' },
     ],
@@ -517,7 +678,28 @@ export function sample(now: number): DemoState {
       [creativeId]: { data: [] },
       [cobblemonId]: { data: [] },
     },
+    copies: { [survivalId]: survivalCopies(now, survivalAll, survivalManual, survivalBackups), [creativeId]: [], [cobblemonId]: [] },
+    runs: { [survivalId]: survivalRuns(now, created, survivalAll), [creativeId]: creativeRuns(now, creativeBackups.find((b) => b.kind === 'scheduled')), [cobblemonId]: cobblemonRuns(crashedAt) },
+    imports: {},
   }
+}
+
+/** Creative's nightly backup: the one after PixelPia's last visit, then skipped while it sleeps and nobody plays. */
+function creativeRuns(now: number, made: Backup | undefined): ScheduleRun[] {
+  const runs: ScheduleRun[] = []
+  const first = made ? Date.parse(made.createdAt) - 25_000 : now
+  for (let due = lastClock(now, 4, 0); due > first; due = lastClock(due - 1, 4, 0)) runs.push({ scheduleId: 'sccrebk', kind: 'backup', due: iso(due), result: 'skipped', reason: 'nobody_played' })
+  if (made) runs.push({ scheduleId: 'sccrebk', kind: 'backup', due: iso(first), startedAt: iso(first), finishedAt: iso(first + 25_000), result: 'succeeded', backup: { id: made.id, sizeBytes: made.sizeBytes, verified: true, downtimeMs: 0 } })
+  return runs
+}
+
+/** Cobblemon's early-morning restart, which ran today before the crash. */
+function cobblemonRuns(crashed: number): ScheduleRun[] {
+  const runs: ScheduleRun[] = []
+  for (let due = lastClock(crashed, 5, 0), n = 0; n < 3; due = lastClock(due - 1, 5, 0), n++) {
+    runs.push({ scheduleId: 'sccobrs', kind: 'restart', due: iso(due), startedAt: iso(due), finishedAt: iso(due + 38_000 + n * 1500), result: 'succeeded', players: 0 })
+  }
+  return runs
 }
 
 /** Cobblemon's crash: out of memory with four players on, and room on the machine for more. */
@@ -559,9 +741,14 @@ function survivalLog(now: number, online: { name: string; since: number }[]): Lo
   return lines.sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? '')).map(([ts, text], i) => ({ seq: i + 1, ts: ts ?? '', text: text ?? '' }))
 }
 
+/** Creative's last lines: PixelPia leaves, and half an hour later it stops to sleep. */
 function creativeLog(stoppedAt: number): LogLine[] {
-  const texts = ['PixelPia left the game', 'Stopping the server', 'Saving players', 'Saving worlds', "Saving chunks for level 'ServerLevel[world]'/minecraft:overworld", 'ThreadedAnvilChunkStorage: All dimensions are saved']
-  return texts.map((text, i) => ({ seq: i + 1, ts: iso(stoppedAt - 60_000 + i * 400), text: logText(stoppedAt - 60_000 + i * 400, text) }))
+  const lines: [number, string][] = [
+    [stoppedAt - 30 * minute, 'PixelPia lost connection: Disconnected'],
+    [stoppedAt - 30 * minute, 'PixelPia left the game'],
+    ...['Stopping the server', 'Saving players', 'Saving worlds', "Saving chunks for level 'ServerLevel[world]'/minecraft:overworld", 'ThreadedAnvilChunkStorage: All dimensions are saved'].map((text, i): [number, string] => [stoppedAt + i * 400, text]),
+  ]
+  return lines.map(([at, text], i) => ({ seq: i + 1, ts: iso(at), text: logText(at, text) }))
 }
 
 function cobblemonLog(crashedAt: number): LogLine[] {

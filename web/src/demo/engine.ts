@@ -8,10 +8,13 @@ import { ApiError } from '@/api/client'
 import type { Activity, ActivityKind, ApiToken, Backup, Gameplay, NewToken, Operation, PlayStyle, PlayerStat, RestorePreview, ServerStatus, TokenRole } from '@/api/types'
 import { t } from '@/i18n'
 import { opLabel } from '@/lib/phase'
+import { automationReads, copyNewBackup } from './automation'
 import { chatter, config, demoUser, demoVersion, fakeSha, fill, iso, logText, machineId, me, noise, reads, sample, sampleVersion, serverOf, update, versionsOf, buildsFor, pinOf, type DemoState, type Job, type JobKind, type Live, type Request, type Routes, type Step } from './data'
 import { demoMarker } from './marker'
 import { dt } from './messages'
+import { peopleReads } from './people'
 import { demoToast, type DemoAction } from './toast'
+import { fromUpload, worldRoutes } from './worlds'
 
 const second = 1000
 const minute = 60 * second
@@ -217,6 +220,7 @@ function finish(s: DemoState, srv: ServerStatus, live: Live, job: Job, at: numbe
       if (srv.lastOperation) srv.lastOperation.detail = { downtimeMs: 0, backupId: b.id }
       note(s, at, srv.id, 'backup', actor)
       audit(s, at, 'backup.created', srv, b.fileName)
+      copyNewBackup(s, srv.id, b, at)
       break
     }
     case 'update-version': {
@@ -251,6 +255,7 @@ function up(srv: ServerStatus, live: Live, at: number) {
   srv.startedAt = iso(at)
   srv.stoppedAt = undefined
   srv.crash = undefined
+  if (srv.sleep) srv.sleep = { ...srv.sleep, asleepSince: undefined, listening: false }
   live.away.forEach((name, i) => live.joins.push({ name, at: at + 6 * second + i * 7 * second + Math.round(noise(at + i) * 4 * second) }))
   live.away = []
   live.nextLine = at + 8 * second
@@ -330,6 +335,7 @@ function tick(s: DemoState, now: number) {
     m.serversMemoryMB = s.servers.reduce((n, x) => n + (x.config?.memoryMB ?? 0), 0)
     m.memoryFreeMB = m.memoryTotalMB - m.systemReserveMB - m.serversMemoryMB
     m.servers = s.servers.length
+    m.sleepingMemoryMB = s.servers.reduce((n, x) => n + (x.phase === 'asleep' ? (x.config?.memoryMB ?? 0) : 0), 0)
     m.cpuPercent = Math.round(5 + s.servers.reduce((n, x) => n + (x.phase === 'online' ? (x.resources?.cpuPercent ?? 0) : 0), 0) * 1.2)
   }
 }
@@ -613,7 +619,7 @@ const writes: Routes = {
     if (srv.operation) throw busy(srv)
     s.servers = s.servers.filter((x) => x !== srv)
     s.activity = s.activity.filter((a) => a.serverId !== srv.id)
-    for (const table of [s.live, s.backups, s.logs, s.whitelist, s.operators, s.roster, s.jobs, s.addons, s.pregen, s.packs] as Record<string, unknown>[]) delete table[srv.id]
+    for (const table of [s.live, s.backups, s.logs, s.whitelist, s.operators, s.roster, s.jobs, s.addons, s.pregen, s.packs, s.copies, s.runs] as Record<string, unknown>[]) delete table[srv.id]
     audit(s, r.now, 'server.deleted', srv)
     demoToast('delete')
     return {}
@@ -670,6 +676,13 @@ const writes: Routes = {
     return { message: `Kicked ${name}` }
   },
   'POST /api/machines/:machine/servers': create,
+  'POST /api/machines/:machine/world-imports/:imp/create': (s, r) => {
+    const { body, worldBytes } = fromUpload(s, r)
+    const op = create(s, { ...r, body })
+    const srv = s.servers.find((x) => x.id === op.serverId)
+    if (srv) srv.worldBytes = worldBytes
+    return op
+  },
   'POST /api/machines/:machine/update/check': (_, r) => update(r.now),
   'POST /api/join-codes': () => {
     throw new ApiError(400, { error: dt('demo.noJoin'), code: 'demo' })
@@ -690,7 +703,7 @@ const writes: Routes = {
   },
 }
 
-const routes = Object.entries({ ...reads, ...writes }).map(([key, handler]) => {
+const routes = Object.entries({ ...reads, ...peopleReads, ...automationReads, ...worldRoutes, ...writes }).map(([key, handler]) => {
   const [method = '', pattern = ''] = key.split(' ')
   const names: string[] = []
   const re = new RegExp(`^${pattern.replace(/:(\w+)/g, (_, name: string) => (names.push(name), '([^/]+)'))}$`)

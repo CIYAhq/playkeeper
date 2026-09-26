@@ -194,7 +194,8 @@ test('the live demo’s address, two-factor, health, crash help, server types an
   await page.goto(`${demoUrl}servers/new`)
   await expect(page.getByRole('heading', { name: 'A server type' })).toBeVisible()
   await expect(page.getByText('Fabric', { exact: true }).first()).toBeVisible()
-  await expect(page.getByRole('radiogroup', { name: 'Start from' })).toHaveCount(0)
+  // A world, but no modpack or template: the demo has no machine to fetch or plan those.
+  await expect(page.getByRole('group', { name: 'Start from' }).getByRole('button')).toHaveText(['A server type', 'A world'])
   await expect(page.getByText('The demo has no sample data for this.')).toHaveCount(0)
   expect(problems).toEqual([])
 })

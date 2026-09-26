@@ -9,6 +9,7 @@ const demoDir = here('.')
 const swaps = new Map([
   [here('../api/client.ts'), here('./client.ts')],
   [here('../lib/demo.ts'), here('./parts.tsx')],
+  [here('../lib/upload.ts'), here('./upload.ts')],
 ])
 
 // The pictures the demo draws itself: the folder, how many, and number n.
@@ -18,10 +19,10 @@ const drawings: [string, number, (n: number) => string][] = [
 ]
 
 /**
- * `vite build --mode demo`: every import of the API client and of lib/demo
- * gets the demo's own, and the players' faces and plugins' icons are written
- * to faces/ and icons/. The demo's modules themselves still reach the real
- * client, for ApiError.
+ * `vite build --mode demo`: every import of the API client, of lib/demo and
+ * of lib/upload gets the demo's own, and the players' faces and plugins'
+ * icons are written to faces/ and icons/. The demo's modules themselves still
+ * reach the real ones, for ApiError and the upload's steps.
  */
 export function demoBuild(): Plugin {
   return {

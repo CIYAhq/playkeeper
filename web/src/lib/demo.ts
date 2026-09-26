@@ -12,6 +12,8 @@ export interface DemoParts {
   HomeCard: ComponentType
   /** Whether a server can start from a modpack or a template and be shared as one: the demo has no machine to fetch or plan them. */
   templates: boolean
+  /** A way to start from a world without a world file at hand, under the upload box. */
+  SampleWorld?: ComponentType<{ onPick: (files: File[]) => void }>
 }
 
 /**
