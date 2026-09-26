@@ -150,6 +150,16 @@ control "a restore the next start put back says so" internal/agent/backups.go \
   's.restoreSettled(j, movedBack, atStart)' \
   '_, _ = movedBack, atStart' \
   ./internal/agent '^TestARestoreSettledAtStartSaysSo$'
+control "a settle tried again says Playkeeper put the world back" internal/agent/backups.go \
+  'movedBack := j.MovedBack || dirExists(s.copyPath(j.Aside))' \
+  'movedBack := dirExists(s.copyPath(j.Aside))' \
+  ./internal/agent '^TestASettleTriedAgainSaysPlaykeeperPutTheWorldBack$'
+control "the journal records that Playkeeper moved the world back" internal/agent/backups.go \
+  '		j.MovedBack = true
+		if err := writeSwapJournal(stageDir, j); err != nil {' \
+  '		j.MovedBack = true
+		if err := error(nil); err != nil {' \
+  ./internal/agent '^TestASettleTriedAgainSaysPlaykeeperPutTheWorldBack$'
 control "a restore finished after a restart has its own activity line" internal/agent/backups.go \
   'kind = "world_restored_after_restart"' \
   'kind = "world_restored"' \
