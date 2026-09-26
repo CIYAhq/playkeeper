@@ -67,10 +67,19 @@
     product.classList.add('is-moving');
     Object.keys(moments).forEach(function (k) { if (moments[k]) moments[k].classList.add('is-out'); });
     if ('IntersectionObserver' in window) {
+      // It starts once 15% of it shows and pauses once none does: crossing
+      // 15% on the way in or out mustn't start it over.
+      var running = false;
       new IntersectionObserver(function (entries) {
-        if (entries[0].isIntersecting) run();
-        else stop();
-      }, { threshold: 0.15 }).observe(product);
+        var e = entries[entries.length - 1];
+        if (!e.isIntersecting) {
+          running = false;
+          stop();
+        } else if (e.intersectionRatio >= 0.15 && !running) {
+          running = true;
+          run();
+        }
+      }, { threshold: [0, 0.15] }).observe(product);
     } else {
       run();
     }
@@ -109,7 +118,7 @@
     var text = cmd.textContent.replace(/^\$ /, '');
     var lines = $$('[data-line]', term);
     var io = new IntersectionObserver(function (entries) {
-      if (!entries[0].isIntersecting) return;
+      if (entries[entries.length - 1].intersectionRatio < 0.6) return;
       io.disconnect();
       term.classList.add('is-typing');
       cmd.textContent = '';

@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Browser, type Page } from '@playwright/test'
 import fs from 'node:fs'
 
 // Every page of playkeeper.io, from its sitemap, plus the share page, its
@@ -130,3 +130,128 @@ for (const size of sizes) {
     await ctx.close()
   })
 }
+
+/**
+ * The landing page's product loop, which shows a new frame 2.6 s, 3.9 s and
+ * 5.2 s into each 9 s run: its frame once it's on its second and scrolled
+ * until 8% of it shows, then scrolled off and 3 s later, then scrolled back.
+ */
+async function loopAcrossScrolls(page: Page) {
+  const loop = page.locator('[data-loop]')
+  const frame = () => loop.getAttribute('data-frame')
+  // Scrolls down until the given share of the loop shows at the top; less than none puts it off screen.
+  const showing = (share: number) =>
+    page.evaluate((share) => {
+      const r = document.querySelector('[data-product]')!.getBoundingClientRect()
+      window.scrollBy({ top: r.bottom - r.height * share, behavior: 'instant' })
+    }, share)
+  await expect(loop).toHaveAttribute('data-frame', '2', { timeout: 10_000 })
+  await showing(0.08)
+  await page.waitForTimeout(400)
+  const partly = await frame()
+  await showing(-0.5)
+  await page.waitForTimeout(300)
+  const off = await frame()
+  await page.waitForTimeout(3000)
+  const offLater = await frame()
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }))
+  await page.waitForTimeout(400)
+  return { partly, off, offLater, back: await frame() }
+}
+
+/** The loop kept going while some of it showed, paused off screen and started over when it came back. */
+function keptGoing(o: Awaited<ReturnType<typeof loopAcrossScrolls>>): boolean {
+  return ['2', '3'].includes(o.partly ?? '') && o.off === o.offLater && o.back === '1'
+}
+
+/** Whether the landing page's terminal is typing once 30% of it shows at the bottom of the screen, then once all of it does. */
+async function terminalAcrossScrolls(page: Page) {
+  const typing = () => page.locator('[data-terminal]').evaluate((el) => el.classList.contains('is-typing'))
+  const showing = (share: number) =>
+    page.evaluate((share) => {
+      const r = document.querySelector('[data-terminal]')!.getBoundingClientRect()
+      window.scrollBy({ top: r.top - (window.innerHeight - r.height * share), behavior: 'instant' })
+    }, share)
+  await showing(0.3)
+  await page.waitForTimeout(400)
+  const partly = await typing()
+  await showing(1)
+  await page.waitForTimeout(400)
+  return { partly, whole: await typing() }
+}
+
+// IntersectionObserver as the spec, Firefox and Safari have it: an element
+// counts as intersecting while any of it shows, and coming into or out of
+// view is reported whatever the thresholds. Chromium does both only from the
+// lowest threshold, which hid the loop starting over; a threshold at 0 makes
+// it behave as the spec does.
+function specIntersecting() {
+  const Native = window.IntersectionObserver
+  window.IntersectionObserver = class extends Native {
+    constructor(callback: IntersectionObserverCallback, options: IntersectionObserverInit = {}) {
+      const asked = options.threshold ?? 0
+      super(callback, { ...options, threshold: [...new Set([0, ...(Array.isArray(asked) ? asked : [asked])])] })
+    }
+  }
+}
+
+/** The landing page at desktop size with motion; spec makes observers behave as the spec has it, and old puts old code back into landing.js. */
+async function openLanding(browser: Browser, baseURL: string | undefined, spec: boolean, old?: [RegExp, string]) {
+  const ctx = await browser.newContext({ baseURL, viewport: { width: 1440, height: 900 }, reducedMotion: 'no-preference' })
+  if (spec) await ctx.addInitScript(specIntersecting)
+  let swapped = false
+  if (old) {
+    await ctx.route(/\/assets\/js\/landing\.[0-9a-f]+\.js$/, async (route) => {
+      const response = await route.fetch()
+      const js = await response.text()
+      const body = js.replace(old[0], old[1])
+      swapped = body !== js
+      await route.fulfill({ response, body })
+    })
+  }
+  const page = await ctx.newPage()
+  await page.goto('/', { waitUntil: 'networkidle' })
+  expect(swapped, 'the old code was put back').toBe(!!old)
+  return { page, close: () => ctx.close() }
+}
+
+const as = (spec: boolean) => (spec ? 'as the spec has it' : 'as Chromium has it')
+
+test("the landing page's product loop keeps going while some of it shows, and pauses off screen", async ({ browser, baseURL }) => {
+  const watch = async (spec: boolean, old?: [RegExp, string]) => {
+    const { page, close } = await openLanding(browser, baseURL, spec, old)
+    const o = await loopAcrossScrolls(page)
+    await close()
+    return o
+  }
+  for (const spec of [false, true]) {
+    const now = await watch(spec)
+    expect(keptGoing(now), `${as(spec)}, the loop's frames: ${JSON.stringify(now)}`).toBe(true)
+  }
+  // Negative control, the observer before it kept track of whether the loop
+  // runs: as the spec has it, crossing 15% on the way out started it over.
+  const old = await watch(true, [
+    /var running = false;\s*new IntersectionObserver[\s\S]*?\.observe\(product\);/,
+    `new IntersectionObserver(function (entries) {
+        if (entries[0].isIntersecting) run();
+        else stop();
+      }, { threshold: 0.15 }).observe(product);`,
+  ])
+  expect(old.partly, 'the old observer starts the loop over at 15% on the way out').toBe('1')
+  expect(keptGoing(old), 'the check catches the old observer').toBe(false)
+})
+
+test("the landing page's terminal starts typing once most of it shows", async ({ browser, baseURL }) => {
+  const watch = async (spec: boolean, old?: [RegExp, string]) => {
+    const { page, close } = await openLanding(browser, baseURL, spec, old)
+    const o = await terminalAcrossScrolls(page)
+    await close()
+    return o
+  }
+  for (const spec of [false, true]) {
+    expect(await watch(spec), as(spec)).toEqual({ partly: false, whole: true })
+  }
+  // Negative control, the old observer: as the spec has it, it started typing as soon as any of the terminal showed.
+  const old = await watch(true, [/if \(entries\[entries\.length - 1\]\.intersectionRatio < 0\.6\) return;/, 'if (!entries[0].isIntersecting) return;'])
+  expect(old.partly, 'the old observer starts typing once any of the terminal shows').toBe(true)
+})
