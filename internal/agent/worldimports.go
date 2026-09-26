@@ -1383,6 +1383,14 @@ func (s *server) importWorldOp(ctx context.Context, h *opHandle, imp *worldImpor
 		s.startPrevious(ctx, h, prev, wasRunning)
 		return importErr(err)
 	}
+	// The server's own server.properties goes in with the world, so one that
+	// can't be read stops the import before the rollback archive, which
+	// refuses it too, only less plainly.
+	props, err := s.currentProperties()
+	if err != nil {
+		s.startPrevious(ctx, h, prev, wasRunning)
+		return gameFileError(err, "The world was not imported, so nothing was replaced.")
+	}
 	var rollback *api.Backup
 	if len(folders) > 0 {
 		h.phase("saving_rollback")
@@ -1395,11 +1403,6 @@ func (s *server) importWorldOp(ctx context.Context, h *opHandle, imp *worldImpor
 		h.set("rollbackBackupId", rb.ID)
 	}
 	h.phase("replacing_world")
-	props, err := s.currentProperties()
-	if err != nil {
-		s.startPrevious(ctx, h, prev, wasRunning)
-		return gameFileError(err, "The world was not imported, so nothing was replaced.")
-	}
 	if err := writeImportedProperties(staged, props, p.Settings); err != nil {
 		s.startPrevious(ctx, h, prev, wasRunning)
 		return err
