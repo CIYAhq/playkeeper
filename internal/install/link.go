@@ -14,6 +14,19 @@ import (
 // ErrNotJoined means the machine is not connected to another dashboard.
 var ErrNotJoined = errors.New("this machine isn't connected to another dashboard")
 
+// LinkNotStartedError is a join the dashboard accepted whose link then
+// didn't start: the machine is joined, and joining again can't help.
+type LinkNotStartedError struct {
+	Dashboard machinelink.Dashboard
+	Err       error
+}
+
+func (e *LinkNotStartedError) Error() string {
+	return fmt.Sprintf("this machine joined the dashboard as %s, but its link did not start: %v (start it with: sudo systemctl enable --now %s)", e.Dashboard.Name, e.Err, LinkUnit)
+}
+
+func (e *LinkNotStartedError) Unwrap() error { return e.Err }
+
 // JoinOptions are the parts of a join command and what the machine tells
 // the dashboard about itself.
 type JoinOptions struct {
@@ -89,7 +102,7 @@ func Join(ctx context.Context, sys System, cfg config.Config, o JoinOptions) (ma
 		return d, nil
 	}
 	if err := enableLink(sys, cfg); err != nil {
-		return d, fmt.Errorf("this machine joined the dashboard as %s, but its link did not start: %w (start it with: sudo systemctl enable --now %s)", d.Name, err, LinkUnit)
+		return d, &LinkNotStartedError{Dashboard: d, Err: err}
 	}
 	return d, nil
 }

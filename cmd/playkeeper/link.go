@@ -82,18 +82,41 @@ func runJoin(args []string) error {
 	}
 	ctx, cancel := signalContext()
 	defer cancel()
-	return linkError(join(ctx, os.Stdout, cfg, j))
+	return linkError(join(ctx, os.Stdout, install.Real(), cfg, j))
+}
+
+// joinAfterInstall joins the dashboard that playkeeper install --join names.
+// A machine already connected to it, as when the same command runs again to
+// upgrade Playkeeper, stays as it is.
+func joinAfterInstall(ctx context.Context, w io.Writer, sys install.System, cfg config.Config, j joinArgs) error {
+	if d, err := machinelink.LoadDashboard(sys.P(cfg.LinkDashboardPath())); err == nil {
+		if fp, _ := machinelink.ParseFingerprint(j.fingerprint); fp == d.Fingerprint() {
+			fmt.Fprintf(w, "\nThis machine is already connected to the dashboard at %s as %s.\n", d.Address, d.Name)
+			return nil
+		}
+		return fmt.Errorf("Playkeeper is installed, but this machine is connected to another dashboard, at %s as %s, so it didn't join the one at %s.\n"+
+			"To move it there: sudo playkeeper leave, then make a new code there (Settings › Machines › Connect a machine),\nswitch to the command for a machine that already runs Playkeeper, and run it here.", d.Address, d.Name, j.address)
+	}
+	err := join(ctx, w, sys, cfg, j)
+	var down *install.LinkNotStartedError
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, &down):
+		return fmt.Errorf("Playkeeper is installed and this machine joined the dashboard at %s as %s, but its link didn't start: %v\nStart it with: sudo systemctl enable --now %s", down.Dashboard.Address, down.Dashboard.Name, down.Err, install.LinkUnit)
+	}
+	return fmt.Errorf("%v\nPlaykeeper is installed, but this machine didn't join the dashboard. Once that's fixed, make a new code there\n(Settings › Machines › Connect a machine), switch to the command for a machine that already runs Playkeeper, and run it here.", linkError(err))
 }
 
 // join connects this machine to the dashboard and says what happened.
-func join(ctx context.Context, w io.Writer, cfg config.Config, j joinArgs) error {
+func join(ctx context.Context, w io.Writer, sys install.System, cfg config.Config, j joinArgs) error {
 	fmt.Fprintf(w, "Connecting to the dashboard at %s…\n", j.address)
-	d, err := install.Join(ctx, install.Real(), cfg, install.JoinOptions{Address: j.address, Code: j.code, Fingerprint: j.fingerprint, Name: j.name, Version: version.Version})
+	d, err := install.Join(ctx, sys, cfg, install.JoinOptions{Address: j.address, Code: j.code, Fingerprint: j.fingerprint, Name: j.name, Version: version.Version})
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(w, "\nThis machine joined the dashboard at %s as %s.\n", d.Address, d.Name)
-	if id, err := machinelink.LoadIdentity(cfg.LinkKeyPath()); err == nil {
+	if id, err := machinelink.LoadIdentity(sys.P(cfg.LinkKeyPath())); err == nil {
 		fmt.Fprintf(w, "Its fingerprint is %s; the dashboard shows the same in Settings › Machines › %s.\n", groupFingerprint(id.Fingerprint()), d.Name)
 	}
 	if cfg.Dev {

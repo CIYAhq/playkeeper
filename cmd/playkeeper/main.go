@@ -290,14 +290,7 @@ func runInstall(args []string) error {
 	if err != nil {
 		return err
 	}
-	err = join(ctx, os.Stdout, cfg, j)
-	switch {
-	case err == nil:
-		return nil
-	case machinelink.CodeOf(err) == machinelink.CodeMachineAlreadyJoined:
-		return linkError(err)
-	}
-	return fmt.Errorf("%v\nPlaykeeper is installed, but this machine didn't join the dashboard. Once that's fixed, make a new code there\n(Settings › Machines › Connect a machine), switch to the command for a machine that already runs Playkeeper, and run it here.", linkError(err))
+	return joinAfterInstall(ctx, os.Stdout, install.Real(), cfg, j)
 }
 
 func writeUpgradeSummary(w io.Writer, res *install.Result) {

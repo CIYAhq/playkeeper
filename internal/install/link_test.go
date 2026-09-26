@@ -287,6 +287,29 @@ func TestJoiningStartsTheLinkAndLeavingTellsTheDashboardFirst(t *testing.T) {
 	}
 }
 
+// A join the dashboard accepted stays a join when the link's service then
+// doesn't start: the machine keeps its key and the dashboard, and the error
+// says it joined and how to start the link rather than to join again.
+func TestAJoinWhoseLinkDoesNotStartStaysJoined(t *testing.T) {
+	ctx := context.Background()
+	h := newFakeHost(t)
+	cfg := noPanelAt(t, h, "0.4.0")
+	sys := h.system(t)
+	d := startDashboard(t)
+	h.failCmd = "systemctl enable --now " + LinkUnit
+	joined, err := Join(ctx, sys, cfg, d.command(t))
+	var down *LinkNotStartedError
+	if !errors.As(err, &down) || down.Dashboard.Name != "home-server" || joined.MachineID != d.machine(t).ID {
+		t.Fatalf("join: %+v, %v", joined, err)
+	}
+	if !strings.Contains(err.Error(), "joined the dashboard as home-server") || !strings.Contains(err.Error(), "sudo systemctl enable --now "+LinkUnit) {
+		t.Fatalf("the error doesn't say it joined and how to start the link: %v", err)
+	}
+	if !Joined(cfg, h.root) || read(t, h, cfg.LinkKeyPath()) == "<missing>" {
+		t.Fatal("the machine forgot a dashboard that accepted it")
+	}
+}
+
 func TestAJoinThatFailsLeavesNothingBehind(t *testing.T) {
 	ctx := context.Background()
 	h := newFakeHost(t)

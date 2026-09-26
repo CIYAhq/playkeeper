@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -45,6 +47,124 @@ func TestJoinTakesTheDashboardsCommandEitherWay(t *testing.T) {
 	}
 	if got := groupFingerprint(fp); got != "Z287 KN4C DZD0 Z8A4 XXJA 514N KG" {
 		t.Errorf("grouped fingerprint %q", got)
+	}
+}
+
+// testHub is another Playkeeper's dashboard, accepting machines on loopback.
+type testHub struct {
+	*machinelink.Hub
+	store  *machinelink.MemoryStore
+	addr   string
+	mu     sync.Mutex
+	events []machinelink.EventKind
+}
+
+func startTestHub(t *testing.T) *testHub {
+	t.Helper()
+	id, err := machinelink.NewIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &testHub{store: machinelink.NewMemoryStore()}
+	hub, err := machinelink.NewHub(machinelink.HubOptions{Identity: id, Store: h.store, Routes: agent.LinkRoutes(), Version: "0.4.0", OnEvent: func(e machinelink.Event) {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.events = append(h.events, e.Kind)
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go hub.Serve(ln)
+	t.Cleanup(func() { hub.Close() })
+	h.Hub, h.addr = hub, ln.Addr().String()
+	return h
+}
+
+// command is the dashboard's join command, with a new code.
+func (h *testHub) command(t *testing.T) joinArgs {
+	t.Helper()
+	code, _, err := h.NewJoinCode(context.Background(), "alex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	j, err := parseJoinArgs([]string{h.addr, "--code", code, "--fingerprint", h.Fingerprint(), "--name", "home-server"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return j
+}
+
+// heard is how many joins, refused or not, the dashboard has had.
+func (h *testHub) heard() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.events)
+}
+
+// installedSystem is a machine Playkeeper is installed on, in a temporary
+// directory, whose systemctl fails with systemctl when it isn't nil.
+func installedSystem(t *testing.T, systemctl error) install.System {
+	t.Helper()
+	sys := install.Real()
+	sys.Root = t.TempDir()
+	sys.IsRoot = func() bool { return false }
+	sys.Run = func(string, ...string) (string, error) { return "", systemctl }
+	if err := os.MkdirAll(sys.P(install.UnitDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return sys
+}
+
+// Running the install command with --join again, as upgrading Playkeeper
+// does, leaves a machine connected to that dashboard as it is: it says so
+// and asks nothing of the dashboard, whose code is spent by then. Another
+// dashboard's command says the install went fine and how to move it.
+func TestInstallingToJoinAgainLeavesTheMachineJoined(t *testing.T) {
+	ctx := context.Background()
+	h := startTestHub(t)
+	sys, cfg := installedSystem(t, nil), config.Default()
+	j := h.command(t)
+	var out bytes.Buffer
+	if err := joinAfterInstall(ctx, &out, sys, cfg, j); err != nil || !strings.Contains(out.String(), "This machine joined the dashboard at "+h.addr+" as home-server.") {
+		t.Fatalf("installing to join: %v\n%s", err, out.String())
+	}
+	heard := h.heard()
+
+	out.Reset()
+	if err := joinAfterInstall(ctx, &out, sys, cfg, j); err != nil || !strings.Contains(out.String(), "This machine is already connected to the dashboard at "+h.addr+" as home-server.") {
+		t.Fatalf("the same command again: %v\n%s", err, out.String())
+	}
+	if machines, _ := h.store.Machines(ctx); len(machines) != 1 || h.heard() != heard {
+		t.Fatalf("the dashboard was asked again: %d machines, %d joins heard", len(machines), h.heard()-heard)
+	}
+
+	other := startTestHub(t)
+	err := joinAfterInstall(ctx, &out, sys, cfg, other.command(t))
+	if err == nil || !strings.Contains(err.Error(), "Playkeeper is installed, but this machine is connected to another dashboard, at "+h.addr+" as home-server") ||
+		!strings.Contains(err.Error(), "sudo playkeeper leave") || other.heard() != 0 {
+		t.Fatalf("another dashboard's command: %v", err)
+	}
+}
+
+// A join the dashboard accepted whose link didn't start is reported as a
+// join: the machine is connected, and the way on is starting the link, not
+// a new code.
+func TestInstallingToJoinSaysAJoinWhoseLinkDidNotStartJoined(t *testing.T) {
+	ctx := context.Background()
+	h := startTestHub(t)
+	sys, cfg := installedSystem(t, errors.New("Failed to enable unit")), config.Default()
+	var out bytes.Buffer
+	err := joinAfterInstall(ctx, &out, sys, cfg, h.command(t))
+	if err == nil || !strings.Contains(err.Error(), "this machine joined the dashboard at "+h.addr+" as home-server, but its link didn't start") ||
+		!strings.Contains(err.Error(), "sudo systemctl enable --now "+install.LinkUnit) || strings.Contains(err.Error(), "didn't join") || strings.Contains(err.Error(), "new code") {
+		t.Fatalf("a join whose link didn't start: %v", err)
+	}
+	if machines, _ := h.store.Machines(ctx); len(machines) != 1 || !install.Joined(cfg, sys.Root) {
+		t.Fatalf("the machine isn't joined: %d machines on the dashboard", len(machines))
 	}
 }
 
@@ -94,7 +214,7 @@ func TestADevMachineJoinsServesTheDashboardAndForgetsItWhenRemoved(t *testing.T)
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := join(ctx, &out, cfg, j); err != nil {
+	if err := join(ctx, &out, install.Real(), cfg, j); err != nil {
 		t.Fatalf("join: %v", err)
 	}
 	machines, _ := store.Machines(ctx)
