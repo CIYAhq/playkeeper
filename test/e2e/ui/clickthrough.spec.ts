@@ -240,10 +240,11 @@ interface Place {
 }
 
 /**
- * Places the click-through didn't reach before 0.3.1's audit, and the Disk
- * space page's clean-up. In each, one control must come out as `status`,
- * and a negative control breaks it and presses it again (a disabled one
- * loses its reason instead): the crawl must then report it.
+ * Places the click-through didn't reach before 0.3.1's audit, the Disk
+ * space page's clean-up, and a select whose choices differ only in a number.
+ * In each, one control must come out as `status`, and a negative control
+ * breaks it and presses it again (a disabled one loses its reason instead):
+ * the crawl must then report it.
  */
 const places: Place[] = [
   { what: '"Restore this backup?", a dialog that replaces the menu or sheet it opens from', sizes: ['desktop', 'phone'], key: /^button "Cancel" in dialog "Restore this backup\?"$/ },
@@ -260,6 +261,7 @@ const places: Place[] = [
   { what: 'the empty World page', sizes: ['desktop', 'phone'], view: 'empty lists', key: /^button "Make my first backup"$/ },
   { what: 'Home with no servers', sizes: ['desktop', 'phone'], view: 'no servers', key: /^link "(Next: )?Create your first server"$/ },
   { what: 'the end of onboarding (/welcome)', sizes: ['desktop', 'phone'], view: 'no servers', key: /^button "Create my server"$/ },
+  { what: 'a memory choice in onboarding’s "Change the details", which changes only a number', sizes: ['desktop'], view: 'no servers', key: /^option "# GB" in listbox ""( #\d+)?$/ },
   { what: 'installing a Playkeeper update', sizes: ['desktop', 'phone'], view: 'update available', key: /^button "Update( now)?" in dialog "Update Playkeeper to .+"$/ },
   { what: 'deleting old backups on the Disk space page', sizes: ['desktop', 'phone'], view: 'space to free', key: /^button "Delete # · .+" in dialog "Backups beyond your keep rules"$/ },
   { what: 'first-run setup', sizes: ['desktop', 'phone'], view: 'first run', key: /^button "Create account and continue"$/ },
