@@ -329,6 +329,41 @@ func TestListsShowOnlyTheAccountsServers(t *testing.T) {
 	}
 }
 
+// A world import's routes name only the import, so, as for a restore, the
+// server it is for decides: an admin of some servers can't read, fill,
+// check, apply or discard another server's import, nor one that makes a new
+// server.
+func TestAWorldImportChecksTheServerItIsFor(t *testing.T) {
+	e := newEnv(t)
+	e.setup(t)
+	mid := machineID(t, e)
+	adm := addAdmin(t, e, "tobi", otherServer)
+	imp := "/api/machines/" + mid + "/world-imports/0123456789abcdef"
+	steps := [][2]string{{"GET", imp}, {"POST", imp + "/files"}, {"PUT", imp + "/files/0?offset=0"}, {"POST", imp + "/inspect"},
+		{"POST", imp + "/preview"}, {"POST", imp + "/apply"}, {"DELETE", imp}}
+	for serverID, want := range map[string]string{sampleServer: errNoServer.Msg, "": errAllServers.Msg} {
+		e.reply("GET", "/v1/world-imports/0123456789abcdef", `{"id":"0123456789abcdef","serverId":"`+serverID+`","files":[]}`)
+		for _, c := range steps {
+			e.clock.add(2 * time.Second)
+			if r := e.do(t, c[0], c[1], `{}`, adm.auth()); r.status != http.StatusForbidden || r.body["error"] != want {
+				t.Errorf("an import for %q, %s %s: %d %v", serverID, c[0], c[1], r.status, r.body)
+			}
+		}
+		if r := e.do(t, "POST", imp+"/create", `{}`, adm.auth()); r.status != http.StatusForbidden || r.body["error"] != errAllServers.Msg {
+			t.Errorf("a server made from an import for %q: %d %v", serverID, r.status, r.body)
+		}
+	}
+	for _, hit := range e.agentHits() {
+		if hit != "GET /v1/world-imports/0123456789abcdef" {
+			t.Fatalf("a refused step reached the agent: %s", hit)
+		}
+	}
+	e.reply("GET", "/v1/world-imports/0123456789abcdef", `{"id":"0123456789abcdef","serverId":"`+otherServer+`","files":[]}`)
+	if r := e.do(t, "POST", imp+"/apply", `{}`, adm.auth()); r.status != http.StatusOK || !contains(e.agentHits(), "POST /v1/world-imports/0123456789abcdef/apply") {
+		t.Errorf("an import into their own server: %d %v", r.status, r.body)
+	}
+}
+
 // Home's activity says when someone joined the team and as what. Who is on
 // the team is for those who manage it, so a moderator sees only their own
 // join.
