@@ -134,7 +134,7 @@ export interface Job {
 
 export interface DemoState {
   sample: number
-  /** The hour this state was made in; the demo starts over when it changes. */
+  /** The hour this state was made in; a page that loads in a later hour starts over. */
   hour: number
   seq: number
   machine: MachineView
@@ -443,7 +443,7 @@ function lastClock(now: number, h: number, m: number): number {
   return at.getTime() > now ? new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1, h, m).getTime() : at.getTime()
 }
 
-/** The demo as it starts: a fresh copy every hour and on every new visit. */
+/** The demo as it starts: a fresh copy on every new visit, and on a reload in a later hour. */
 export function sample(now: number): DemoState {
   const created = now - 41 * day
   const creativeCreated = now - 19 * day

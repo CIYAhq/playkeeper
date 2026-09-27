@@ -45,10 +45,10 @@ function watch(page: Page): string[] {
 }
 
 /**
- * The demo starts over on the hour (engine.ts), and takes along whatever a
- * walk was in the middle of, such as an upload. Each test's clock starts ten
- * minutes into the hour it runs in and goes on from there, so no walk crosses
- * one.
+ * A page of the demo that loads in a later hour starts over (engine.ts), so a
+ * walk that reloads across one would find a fresh demo. Each test's clock
+ * starts ten minutes into the hour it runs in and goes on from there, so none
+ * crosses one unless it means to.
  */
 async function midHour(target: Page | BrowserContext) {
   const at = new Date()
@@ -305,12 +305,16 @@ for (const [size, viewport] of [
   })
 }
 
-test('the live demo makes a server from its sample world', async ({ page }) => {
+test('the live demo makes a server from its sample world, with its upload running across the hour', async ({ page }) => {
   const problems = watch(page)
   const events = await record(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`${demoUrl}servers/survival/world`)
   await page.getByRole('link', { name: /Start from your own world/ }).click()
+  // An open page keeps its demo past the hour: the upload, three seconds before it, finishes after it.
+  const hour = new Date(await page.evaluate(() => Date.now()))
+  hour.setUTCMinutes(60, 0, 0)
+  await page.clock.setSystemTime(hour.getTime() - 3_000)
   await page.getByRole('button', { name: 'Try a sample world' }).click()
   // Check the world opens when the upload says it's done, however long a
   // slow runner takes to get there.
