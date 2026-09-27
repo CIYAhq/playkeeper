@@ -47,7 +47,7 @@ async function openMap(page) {
       await page.keyboard.press('-')
       await page.waitForTimeout(400)
     }
-    await page.mouse.move(0, 0)
+    await page.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined))
   }
   await page.waitForTimeout(Number(process.env.PK_WAIT ?? 4000))
 }
