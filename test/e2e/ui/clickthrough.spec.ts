@@ -3,8 +3,11 @@ import fs from 'node:fs'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { answerRead, installJob, isAddonRead, recordedFolder, updateJob, type World } from './addon-fixtures'
-import { Crawler, failing, failureList, where, type CrawlReport, type Result, type Status } from './crawl'
+import { affected, closure, costOf, importGraph, named, pageMapProblems, pageOf, partition, preludesOf, selects, shardsFor, type Costs, type CrawlerName, type Selection, type Size, type Unit } from './clickthrough-plan'
+import { at, found, gate, ownProblems, places, type Negative, type Pressed, type Rules, type ShardReport } from './clickthrough-rules'
+import { Crawler, failing, type Result } from './crawl'
 import { installPageHelpers } from './crawl-page'
 import { addonJobMs, addonOpAt, lay, type View } from './fakes'
 import { login, outDir } from './helpers'
@@ -55,8 +58,17 @@ import { answerModpackRead, isModpackRead, type PackWorld } from './modpack-fixt
 // modpack read reaches the panel or has no recorded answer; and when it didn't press
 // the control of one of `places`. For each place, a negative control then
 // breaks that control and presses it again: the crawl must report it.
+//
+// CI splits a run between runners (PK_SHARD=k/n): each works out the run's
+// pages from the panel alike, crawls its share (clickthrough-plan.ts keeps a
+// page's faked states with it) and writes its report, and the gate
+// (clickthrough-gate.spec.ts) checks that together they crawled every page,
+// counting each page's controls in the order of a run on one runner. On pull
+// requests PK_SELECTION names the pages a change touches (plan.ts). Run on one
+// runner, as locally, it checks the gate itself.
 
 test.describe.configure({ mode: 'parallel' })
+
 
 const sizes = {
   desktop: { viewport: { width: 1440, height: 900 } },
@@ -126,14 +138,6 @@ async function seedAiToken(page: Page) {
   expect([201, 409], `POST /api/tokens answered ${res.status()}`).toContain(res.status())
 }
 
-function summary(report: CrawlReport): string {
-  const counts = new Map<string, number>()
-  for (const r of report.results) counts.set(r.status, (counts.get(r.status) ?? 0) + 1)
-  return [...counts].map(([s, n]) => `${n} ${s}`).join(', ')
-}
-
-type Size = keyof typeof sizes
-
 interface Crawl {
   route: string
   view: View
@@ -167,237 +171,8 @@ function fakedCrawls(live: string[], phone: boolean): Crawl[] {
   return byView.flatMap(([view, pages]) => pages.map((route) => ({ route, view })))
 }
 
-/**
- * The fewest controls a page must have pressed, a little under what it has
- * now, so a page that stops showing its controls fails even when nothing on
- * it is broken. A page's count leaves out controls pressed on an earlier
- * page, such as the sidebar. A page that isn't listed needs one. A dev build
- * (make dev) can't update itself, so its /settings has no "Check for updates"
- * and one control fewer than an installed panel's. The add-on library shows
- * the recorded fixtures' cards (addon-fixtures.ts), so its count doesn't move
- * with what Modrinth and Hangar list. A fresh install has nothing to free on
- * the Disk space page, whose way back to the machine is pressed on the
- * machine's other pages first, so its controls count in the space to free
- * view.
- */
-const minimums: Record<Size, Record<string, number>> = {
-  desktop: {
-    '/login': 3,
-    '/setup (first run)': 1,
-    '/': 26,
-    '/servers/*': 21,
-    '/servers/*/console': 12,
-    '/servers/*/players': 9,
-    '/servers/*/world': 14,
-    '/servers/*/plugins': 1,
-    '/servers/*/settings': 36,
-    '/servers/new': 36,
-    '/servers/*/plugins/browse': 107,
-    '/machines/*': 3,
-    '/machines/*/settings': 6,
-    '/machines/*/disk': 0,
-    '/settings': 2,
-    '/account': 7,
-    '/account/two-factor': 7,
-    '/servers/*/world/pregen': 5,
-    '/login (second step)': 8,
-    '/servers/*/plugins (in use)': 40,
-    '/servers/*/world (in use)': 2,
-    '/servers/*/world/packs (in use)': 6,
-    '/servers/*/world/pregen (in use)': 2,
-    '/servers/*/world/pregen (paused)': 1,
-    '/servers/*/players (friends and team)': 5,
-    '/settings/team (friends and team)': 10,
-    '/settings/discord (friends and team)': 5,
-    '/servers/*/map (map on)': 6,
-    '/ (stopped)': 3,
-    '/servers/* (stopped)': 1,
-    '/servers/*/console (stopped)': 3,
-    '/servers/*/settings (stopped)': 1,
-    '/ (crashed)': 1,
-    '/servers/* (crashed)': 3,
-    '/servers/* (busy)': 2,
-    '/servers/*/world (busy)': 1,
-    '/servers/*/players (empty lists)': 1,
-    '/servers/*/world (empty lists)': 1,
-    '/ (no servers)': 1,
-    '/welcome (no servers)': 11,
-    '/settings (update available)': 5,
-    '/machines/*/disk (space to free)': 11,
-  },
-  phone: {
-    '/login': 3,
-    '/setup (first run)': 1,
-    '/': 5,
-    '/servers/*': 26,
-    '/servers/*/console': 9,
-    '/servers/*/players': 5,
-    '/servers/*/world': 9,
-    '/servers/*/plugins': 1,
-    '/servers/*/settings': 34,
-    '/servers/new': 29,
-    '/servers/*/plugins/browse': 81,
-    '/machines/*': 1,
-    '/machines/*/settings': 6,
-    '/machines/*/disk': 0,
-    '/settings': 1,
-    '/account': 6,
-    '/account/two-factor': 8,
-    '/more': 5,
-    '/servers/*/world/pregen': 4,
-    '/login (second step)': 8,
-    '/servers/*/plugins (in use)': 20,
-    '/servers/*/world/packs (in use)': 6,
-    '/servers/*/world/pregen (in use)': 2,
-    '/servers/*/world/pregen (paused)': 1,
-    '/servers/*/players (friends and team)': 5,
-    '/settings/team (friends and team)': 10,
-    '/settings/discord (friends and team)': 5,
-    '/servers/*/map (map on)': 6,
-    '/ (stopped)': 1,
-    '/servers/* (stopped)': 2,
-    '/servers/*/console (stopped)': 3,
-    '/servers/*/settings (stopped)': 1,
-    '/ (crashed)': 1,
-    '/servers/* (crashed)': 3,
-    '/servers/*/world (busy)': 1,
-    '/servers/*/players (empty lists)': 1,
-    '/servers/*/world (empty lists)': 1,
-    '/ (no servers)': 1,
-    '/welcome (no servers)': 15,
-    '/settings (update available)': 3,
-    '/more (update available)': 1,
-    '/machines/*/disk (space to free)': 14,
-  },
-}
-
-interface Place {
-  /** What it is, for the report. */
-  what: string
-  sizes: Size[]
-  view?: View
-  /** The pages it's pressed on, named by crawlName; a crawl CRAWL_ROUTES limits asks for it only on those. */
-  pages: string[]
-  /** The control that must be pressed there. */
-  key: RegExp
-  /** How it must come out; the default is that it works. */
-  status?: Status
-}
-
-/**
- * Places the click-through didn't reach before 0.3.1's audit, the Disk
- * space page's clean-up, and a select whose choices differ only in a number.
- * In each, one control must come out as `status`, and a negative control
- * breaks it and presses it again (a disabled one loses its reason instead):
- * the crawl must then report it.
- */
-const places: Place[] = [
-  { what: '"Restore this backup?", a dialog that replaces the menu or sheet it opens from', sizes: ['desktop', 'phone'], pages: ['/servers/*/world'], key: /^button "Cancel" in dialog "Restore this backup\?"$/ },
-  { what: 'the typed confirmation in "Restore this backup?"', sizes: ['desktop', 'phone'], pages: ['/servers/*/world'], key: /^button "Replace the world and restore" in dialog "Restore this backup\?"$/ },
-  { what: '"Delete this backup?", which replaces its menu', sizes: ['desktop'], pages: ['/servers/*/world'], key: /^button "Delete backup" in dialog "Delete this backup\?"$/ },
-  { what: 'the phone’s "Update to" sheet, which replaces its dialog', sizes: ['phone'], pages: ['/servers/*/settings'], key: /^option ".+" in listbox "Update to"$/ },
-  { what: 'the view distance slider', sizes: ['desktop'], pages: ['/servers/*/settings'], key: /^slider "View distance"/ },
-  { what: 'the memory slider in New server', sizes: ['desktop', 'phone'], pages: ['/servers/new'], key: /^slider "Memory for this server"/ },
-  { what: 'the last step of New server', sizes: ['desktop', 'phone'], pages: ['/servers/new'], key: /^button "Create and start / },
-  { what: 'Start on a stopped server', sizes: ['desktop', 'phone'], view: 'stopped', pages: ['/ (stopped)'], key: /^button "Start"$/ },
-  // On a phone the fix's button is pinned above the tabs, outside "How to fix it".
-  { what: 'the fix on a crashed server', sizes: ['desktop', 'phone'], view: 'crashed', pages: ['/servers/* (crashed)'], key: /^button "Save and start .+"( in "How to fix it")?$/ },
-  { what: 'Restart while a backup runs', sizes: ['desktop'], view: 'busy', pages: ['/servers/* (busy)'], key: /^button "Restart" \[disabled\]$/, status: 'disabled with a reason' },
-  { what: 'the empty Players page', sizes: ['desktop', 'phone'], view: 'empty lists', pages: ['/servers/*/players (empty lists)'], key: /^button "Add player"$/ },
-  { what: 'the empty World page', sizes: ['desktop', 'phone'], view: 'empty lists', pages: ['/servers/*/world (empty lists)'], key: /^button "Make my first backup"$/ },
-  { what: 'Home with no servers', sizes: ['desktop', 'phone'], view: 'no servers', pages: ['/ (no servers)'], key: /^link "(Next: )?Create your first server"$/ },
-  { what: 'the end of onboarding (/welcome)', sizes: ['desktop', 'phone'], view: 'no servers', pages: ['/welcome (no servers)'], key: /^button "Create my server"$/ },
-  { what: 'a memory choice in onboarding’s "Change the details", which changes only a number', sizes: ['desktop'], view: 'no servers', pages: ['/welcome (no servers)'], key: /^option "# GB" in listbox ""( #\d+)?$/ },
-  { what: 'installing a Playkeeper update', sizes: ['desktop', 'phone'], view: 'update available', pages: ['/settings (update available)'], key: /^button "Update( now)?" in dialog "Update Playkeeper to .+"$/ },
-  { what: 'waking a sleeping server', sizes: ['desktop', 'phone'], view: 'asleep', pages: ['/servers/* (asleep)'], key: /^button "Wake up now" in ".+ is asleep"$/ },
-  { what: 'a new recovery key for the copies somewhere else', sizes: ['desktop', 'phone'], view: 'looks after itself', pages: ['/servers/*/world/backup-rules (looks after itself)', '/servers/*/world/backup-rules/copies (looks after itself)'], key: /^button "Download new key" in dialog "New recovery key made"$/ },
-  { what: 'pausing a schedule', sizes: ['phone'], view: 'looks after itself', pages: ['/servers/*/settings/schedules (looks after itself)'], key: /^switch "Run “Restart every day at #:#”" in row "Restart every day at #:#"$/ },
-  // A phone's review sheet has the design's shorter title.
-  { what: 'deleting old backups on the Disk space page', sizes: ['desktop'], view: 'space to free', pages: ['/machines/*/disk (space to free)'], key: /^button "Delete # · .+" in dialog "Backups beyond your keep rules"$/ },
-  { what: 'deleting old backups on the Disk space page', sizes: ['phone'], view: 'space to free', pages: ['/machines/*/disk (space to free)'], key: /^button "Delete # · .+" in dialog "Old backups"$/ },
-  { what: 'first-run setup', sizes: ['desktop', 'phone'], view: 'first run', pages: ['/setup (first run)'], key: /^button "Create account and continue"$/ },
-  { what: 'two-factor sign-in’s second step', sizes: ['desktop', 'phone'], view: 'second step', pages: ['/login (second step)'], key: /^button "Sign in" in "Enter your code"$/ },
-  { what: 'finishing two-factor setup', sizes: ['desktop', 'phone'], pages: ['/account/two-factor'], key: /^button "I’ve saved them"/ },
-  { what: 'updating every plugin at once', sizes: ['desktop', 'phone'], view: 'in use', pages: ['/servers/*/plugins (in use)'], key: /^button "Update all"/ },
-  { what: 'managing a plugin added by hand', sizes: ['desktop', 'phone'], view: 'in use', pages: ['/servers/*/plugins (in use)'], key: /^button "Let Playkeeper manage it"/ },
-  { what: 'forgetting a plugin whose file is gone', sizes: ['desktop', 'phone'], view: 'in use', pages: ['/servers/*/plugins (in use)'], key: /^button "Forget"/ },
-  { what: 'a data pack’s switch', sizes: ['desktop', 'phone'], view: 'in use', pages: ['/servers/*/world/packs (in use)'], key: /^switch "more-mob-heads"/ },
-  { what: 'the resource pack’s "must accept" switch', sizes: ['desktop', 'phone'], view: 'in use', pages: ['/servers/*/world/packs (in use)'], key: /^switch "(Players must accept it to join|Must accept to join)"/ },
-  { what: 'pausing pre-generation', sizes: ['desktop', 'phone'], view: 'in use', pages: ['/servers/*/world/pregen (in use)'], key: /^button "Pause"/ },
-  { what: 'resuming pre-generation', sizes: ['desktop', 'phone'], view: 'paused', pages: ['/servers/*/world/pregen (paused)'], key: /^button "Resume"/ },
-  { what: 'starting pre-generation (the phone’s action bar)', sizes: ['phone'], pages: ['/servers/*/world/pregen'], key: /^button "Start" in group "Pre-generate"$/ },
-  { what: 'letting a friend in from a join request', sizes: ['desktop', 'phone'], view: 'friends and team', pages: ['/servers/*/players (friends and team)'], key: /^button "Let in"$/ },
-  { what: 'turning off a friend link', sizes: ['desktop', 'phone'], view: 'friends and team', pages: ['/servers/*/players (friends and team)'], key: /^menuitem "Turn off" in menu ""$/ },
-  { what: 'turning off an unused team invite', sizes: ['desktop', 'phone'], view: 'friends and team', pages: ['/settings/team (friends and team)'], key: /^(menuitem|button) "Turn off link"/ },
-  { what: 'saving a team member’s role and servers', sizes: ['desktop', 'phone'], view: 'friends and team', pages: ['/settings/team (friends and team)'], key: /^button "Save" in dialog "alex’s role and servers"/ },
-  { what: 'Discord’s test message', sizes: ['desktop', 'phone'], view: 'friends and team', pages: ['/settings/discord (friends and team)'], key: /^button "Send test message"/ },
-  { what: 'sharing the map with a link', sizes: ['desktop', 'phone'], view: 'map on', pages: ['/servers/*/map (map on)'], key: /^switch "Share with a link"/ },
-  { what: 'another world on the map', sizes: ['desktop', 'phone'], view: 'map on', pages: ['/servers/*/map (map on)'], key: /^button "Nether" in group "Worlds"$/ },
-  { what: 'a player’s marker on the map', sizes: ['desktop', 'phone'], view: 'map on', pages: ['/servers/*/map (map on)'], key: /^button "Show Pixel_Pia on the map"$/ },
-  { what: 'the restart that starts the map', sizes: ['desktop', 'phone'], view: 'map restart', pages: ['/servers/*/map (map restart)'], key: /^button "Restart now" in "One restart/ },
-]
-
 /** Views crawled signed out, with a crawler of their own. */
 const signedOutViews = new Set<View | undefined>(['first run', 'second step'])
-
-interface Rules {
-  minimums: Record<string, number>
-  places: Place[]
-}
-
-// CRAWL_ROUTES limits the crawl to the pages it names, separated by semicolons
-// or new lines, each as crawlName writes it: /servers/* is every server's
-// Overview, /servers/new New server, and /machines/*/disk (space to free) the
-// Disk space page in that view. Unset or empty, every page is crawled.
-function routeFilter(value: string | undefined): string[] | undefined {
-  const names = (value ?? '')
-    .split(/[;\n]/)
-    .map((p) => p.trim())
-    .filter(Boolean)
-  return names.length > 0 ? names : undefined
-}
-
-/**
- * A page as CRAWL_ROUTES, the minimums, the places and the pass bar name it:
- * its route with each server, machine and shared link as *, and its view in
- * brackets. New server and its steps aren't a server.
- */
-function crawlName(c: { route: string; view?: View }): string {
-  const route = c.route
-    .replace(/^\/servers\/(?!new(?:$|#))[^/]+/, '/servers/*')
-    .replace(/^\/(machines|settings\/machines|map|packs)\/[^/]+/, '/$1/*')
-    .replace(/#template=.+$/, '#template=*')
-  return where(route, c.view)
-}
-
-/**
- * Everything that fails a run: failing controls, states it couldn't get back
- * to, pages under their minimum and places it didn't reach. With `only`, the
- * pages a CRAWL_ROUTES crawl went through, minimums and places count only
- * there.
- */
-function passBar(size: Size, report: CrawlReport, pages: string[], rules: Rules = { minimums: minimums[size], places }, only?: Set<string>): string[] {
-  const problems: string[] = []
-  const failures = failureList(report.results)
-  if (failures) problems.push(failures)
-  problems.push(...report.unreached)
-  const counts = new Map<string, number>(pages.map((p) => [p, 0]))
-  for (const r of report.results) counts.set(crawlName(r), (counts.get(crawlName(r)) ?? 0) + 1)
-  for (const [p, n] of counts) {
-    const min = rules.minimums[p] ?? 1
-    if (n < min) problems.push(`${size} ${p}: ${n} control${n === 1 ? '' : 's'} pressed, fewer than its minimum of ${min}`)
-  }
-  for (const [p, min] of Object.entries(rules.minimums)) if (!counts.has(p) && !only) problems.push(`${size} ${p}: not crawled (its minimum is ${min})`)
-  for (const place of rules.places) {
-    if (!place.sizes.includes(size) || (only && !place.pages.some((p) => only.has(p)))) continue
-    if (!found(report.results, place)) problems.push(`${size}: never pressed ${place.what} (${place.key})`)
-  }
-  return problems
-}
-
-function found(results: Result[], place: Place): Result | undefined {
-  return results.find((r) => (r.view ?? 'live') === (place.view ?? 'live') && place.key.test(r.key) && r.status === (place.status ?? 'works'))
-}
 
 /**
  * The add-on and modpack reads of a crawler's whole run, page loads
@@ -411,128 +186,147 @@ function fixtureReadCheck(crawler: Crawler, who: string): { note: string; proble
   return { note, problems: [...live, ...[...new Set(reads.unrecorded)].map((r) => `${who}: no recorded answer for ${r}`)] }
 }
 
-interface Negative {
-  place: string
-  /** Where the broken control was, and its key. */
-  key: string
-  /** What the crawl said about it once broken. */
-  verdict: string
-  caught: boolean
-}
-
-/** Breaks the control of each place this crawler reached and presses it again. */
-async function negativeControls(crawler: Crawler, size: Size, signedIn: boolean): Promise<Negative[]> {
+/**
+ * Breaks the control of each place this crawler reached and presses it
+ * again. `unitOf` names the page each of the crawler's results was pressed
+ * on, which is charged the seconds its negative control takes.
+ */
+async function negativeControls(crawler: Crawler, size: Size, signedIn: boolean, unitOf: string[], charge: (unit: string, seconds: number) => void): Promise<Negative[]> {
   const out: Negative[] = []
   for (const place of places) {
     if (!place.sizes.includes(size) || signedOutViews.has(place.view) === signedIn) continue
-    const hit = found(crawler.results, place)
+    const hit = found(crawler.results, place, size)
     if (!hit) continue
+    const started = Date.now()
     const r = await crawler.breakAndPress(hit, hit.status === 'disabled with a reason' ? 'unexplained' : 'does nothing')
+    charge(unitOf[crawler.results.indexOf(hit)] ?? '', (Date.now() - started) / 1000)
     const verdict = typeof r === 'string' ? r : r.status
-    out.push({ place: place.what, key: `${where(hit.route, hit.view)}${hit.via.length ? ` › ${hit.via.join(' › ')}` : ''} › ${hit.key}`, verdict, caught: typeof r !== 'string' && failing.includes(r.status) })
+    out.push({ place: place.what, key: at(hit), verdict, caught: typeof r !== 'string' && failing.includes(r.status) })
   }
   return out
 }
 
+/** The seconds each page took in the last full run, which split the pages between runners. */
+const costs = JSON.parse(fs.readFileSync(fileURLToPath(new URL('./clickthrough-costs.json', import.meta.url)), 'utf8')) as Costs
+
+/** This runner, of how many (PK_SHARD, k/n), and the pages the run crawls (PK_SELECTION, every page when unset). */
+function thisRun(): { shard: number; of: number; selection: Selection } {
+  const m = /^(\d+)\/(\d+)$/.exec(process.env.PK_SHARD ?? '1/1')
+  const shard = Number(m?.[1])
+  const of = Number(m?.[2])
+  if (!m || shard < 1 || shard > of) throw new Error(`PK_SHARD is "${process.env.PK_SHARD}", not k/n with 1 ≤ k ≤ n`)
+  const selection = process.env.PK_SELECTION ? (JSON.parse(process.env.PK_SELECTION) as Selection) : 'all'
+  return { shard, of, selection }
+}
+
+function summary(results: Result[]): string {
+  const counts = new Map<string, number>()
+  for (const r of results) counts.set(r.status, (counts.get(r.status) ?? 0) + 1)
+  return [...counts].map(([s, n]) => `${n} ${s}`).join(', ')
+}
+
 for (const [name, size] of Object.entries(sizes)) {
   test(`every control does something on ${name}`, async ({ browser, baseURL }) => {
+    const sz = name as Size
     const base = baseURL ?? ''
     const options = { ...size, ignoreHTTPSErrors: true, locale: 'en-GB', timezoneId: 'UTC' }
-    const report: CrawlReport = { results: [], notes: [], unreached: [] }
     const log = (line: string) => console.log(line)
-    const pages: string[] = []
-    const negatives: Negative[] = []
-    const fixtureReads: { note: string; problems: string[] }[] = []
-    const filter = routeFilter(process.env.CRAWL_ROUTES)
-    const named = new Set<string>()
-    const wanted = (c: { route: string; view?: View }) => {
-      if (!filter) return true
-      const name = crawlName(c)
-      if (!filter.includes(name)) return false
-      named.add(name)
-      return true
-    }
+    const { shard, of, selection } = thisRun()
 
-    const outCrawls = ([{ route: '/login', view: 'live' }, { route: '/setup', view: 'first run' }] satisfies Crawl[]).filter(wanted)
-    // A friends' pack link and a map link that open nothing: the page every unavailable
-    // link gets. They have no controls, so they aren't pages with a minimum.
-    const nothingThere = [unknownPackLink, unknownMapLink].filter((route) => wanted({ route }))
-    if (outCrawls.length > 0 || nothingThere.length > 0) {
-      const signedOut = await browser.newContext(options)
-      const outPage = await signedOut.newPage()
-      const outCrawler = new Crawler(outPage, name, base, log)
-      await outCrawler.init()
-      for (const c of outCrawls) {
-        await outCrawler.crawl(c.route, c.view)
-        pages.push(crawlName(c))
-      }
-      for (const route of nothingThere) await outCrawler.crawl(route)
-      negatives.push(...(await negativeControls(outCrawler, name as Size, false)))
-      report.results.push(...outCrawler.results)
-      report.notes.push(...outCrawler.notes)
-      report.unreached.push(...outCrawler.unreached)
-      fixtureReads.push(fixtureReadCheck(outCrawler, `[${name}] signed out`))
-      await signedOut.close()
-    }
-
-    // Two-factor sign-in's second step, with a crawler of its own: the one above
-    // already pressed Sign in, where the fake answers that the password is wrong.
-    const second: Crawl = { route: '/login', view: 'second step' }
-    if (wanted(second)) {
-      const secondStep = await browser.newContext(options)
-      const stepCrawler = new Crawler(await secondStep.newPage(), name, base, log)
-      await stepCrawler.init()
-      await stepCrawler.crawl(second.route, second.view)
-      pages.push(crawlName(second))
-      negatives.push(...(await negativeControls(stepCrawler, name as Size, false)))
-      report.results.push(...stepCrawler.results)
-      report.notes.push(...stepCrawler.notes)
-      report.unreached.push(...stepCrawler.unreached)
-      await secondStep.close()
-    }
-
+    // The signed-in pages come from the panel's answers, so every runner signs in first and works out the run's pages alike.
     const context = await browser.newContext(options)
     const page = await context.newPage()
     await login(page)
-    await seedAiToken(page)
-    const crawler = new Crawler(page, name, base, log)
-    await crawler.init()
-    const { live, shared } = await routes(page, name === 'phone')
-    for (const c of [...live.map((route): Crawl => ({ route, view: 'live' })), ...fakedCrawls(live, name === 'phone')].filter(wanted)) {
-      await crawler.crawl(c.route, c.view)
-      pages.push(crawlName(c))
+    const { live, shared } = await routes(page, sz === 'phone')
+    const every = named([
+      { crawler: 'signed out', route: '/login', view: 'live', counted: true },
+      { crawler: 'signed out', route: '/setup', view: 'first run', counted: true },
+      // A friends' pack link and a map link that open nothing: the page every unavailable
+      // link gets. They have no controls, so they aren't pages with a minimum.
+      { crawler: 'signed out', route: unknownPackLink, view: 'live', counted: false },
+      { crawler: 'signed out', route: unknownMapLink, view: 'live', counted: false },
+      // Two-factor sign-in's second step, with a crawler of its own: the signed-out one
+      // presses Sign in, where the fake answers that the password is wrong.
+      { crawler: 'second step', route: '/login', view: 'second step', counted: true },
+      ...[...live.map((route): Crawl => ({ route, view: 'live' })), ...fakedCrawls(live, sz === 'phone')].map((c) => ({ crawler: 'signed in' as const, ...c, counted: true })),
+      // Shared maps open signed out; the signed-in pages said which there are.
+      ...shared.map((route) => ({ crawler: 'shared maps' as const, route, view: 'live', counted: false })),
+    ])
+    const chosen = every.filter((u) => selects(selection, u))
+    const shardOf = partition(chosen, costOf(costs, sz), of)
+    const mine = chosen.filter((_, i) => shardOf[i] === shard)
+    const report: ShardReport = {
+      size: sz,
+      shard,
+      of,
+      selection,
+      plan: chosen.map((u, i) => ({ name: u.name, crawler: u.crawler, counted: u.counted, shard: shardOf[i] ?? 0 })),
+      crawled: [],
+      results: [],
+      notes: [],
+      unreached: [],
+      negatives: [],
+      fixtureProblems: [],
     }
-    negatives.push(...(await negativeControls(crawler, name as Size, true)))
-    report.results.push(...crawler.results)
-    report.notes.push(...crawler.notes)
-    report.unreached.push(...crawler.unreached)
-    fixtureReads.push(fixtureReadCheck(crawler, `[${name}] signed in`))
-    report.notes.push(...fixtureReads.map((a) => a.note))
-    await context.close()
-
-    // Shared maps open signed out; the signed-in pages said which there are.
-    const maps = shared.filter((route) => wanted({ route }))
-    if (maps.length > 0) {
-      const mapContext = await browser.newContext(options)
-      const mapCrawler = new Crawler(await mapContext.newPage(), name, base, log)
-      await mapCrawler.init()
-      for (const route of maps) await mapCrawler.crawl(route)
-      report.results.push(...mapCrawler.results)
-      report.notes.push(...mapCrawler.notes)
-      report.unreached.push(...mapCrawler.unreached)
-      await mapContext.close()
+    const charge = (unit: string, seconds: number) => {
+      const c = report.crawled.find((x) => x.name === unit)
+      if (c) c.seconds += seconds
     }
-    if (filter) report.notes.push(`[${name}] only the pages CRAWL_ROUTES names: ${filter.join('; ')}`)
+    console.log(`${name}: runner ${shard} of ${of} crawls ${mine.length} of the run's ${chosen.length} pages`)
 
-    fs.mkdirSync(outDir, { recursive: true })
-    fs.writeFileSync(path.join(outDir, `clickthrough-${name}.json`), JSON.stringify({ ...report, negatives }, null, 2))
-    console.log(`${name}: ${report.results.length} controls: ${summary(report)}`)
+    /** Crawls a crawler's pages of this runner in the run's order, then breaks its places' controls on purpose. */
+    const crawlAll = async (crawler: Crawler, units: Unit[], signedIn: boolean | undefined) => {
+      await crawler.init()
+      const unitOf: string[] = []
+      for (const u of units) {
+        const started = Date.now()
+        const before = crawler.results.length
+        await crawler.crawl(u.route, u.view as View)
+        for (let i = before; i < crawler.results.length; i++) unitOf[i] = u.name
+        report.crawled.push({ name: u.name, seconds: (Date.now() - started) / 1000 })
+      }
+      if (signedIn !== undefined) report.negatives.push(...(await negativeControls(crawler, sz, signedIn, unitOf, charge)))
+      report.results.push(...crawler.results.map((r, i): Pressed => ({ ...r, unit: unitOf[i] ?? '' })))
+      report.notes.push(...crawler.notes)
+      report.unreached.push(...crawler.unreached)
+    }
+    const fixtureChecks: { note: string; problems: string[] }[] = []
+    /** A crawler of its own, signed out, in a browser context of its own. */
+    const signedOut = async (units: Unit[], negatives: boolean, check?: string) => {
+      if (!units.length) return
+      const ctx = await browser.newContext(options)
+      try {
+        const crawler = new Crawler(await ctx.newPage(), name, base, log)
+        await crawlAll(crawler, units, negatives ? false : undefined)
+        if (check) fixtureChecks.push(fixtureReadCheck(crawler, check))
+      } finally {
+        await ctx.close()
+      }
+    }
+    const unitsOf = (crawler: CrawlerName) => mine.filter((u) => u.crawler === crawler)
+    try {
+      await signedOut(unitsOf('signed out'), true, `[${name}] signed out`)
+      await signedOut(unitsOf('second step'), true)
+      if (unitsOf('signed in').length) {
+        await seedAiToken(page)
+        const crawler = new Crawler(page, name, base, log)
+        await crawlAll(crawler, unitsOf('signed in'), true)
+        fixtureChecks.push(fixtureReadCheck(crawler, `[${name}] signed in`))
+      }
+      await signedOut(unitsOf('shared maps'), false)
+    } finally {
+      await context.close()
+      report.notes.push(...fixtureChecks.map((a) => a.note))
+      report.fixtureProblems.push(...fixtureChecks.flatMap((a) => a.problems))
+      fs.mkdirSync(outDir, { recursive: true })
+      fs.writeFileSync(path.join(outDir, of > 1 ? `clickthrough-${name}-${shard}of${of}.json` : `clickthrough-${name}.json`), JSON.stringify(report, null, 2))
+    }
+
+    console.log(`${name}: ${report.results.length} controls: ${summary(report.results)}`)
     for (const n of report.notes) console.log(`note: ${n}`)
-    for (const n of negatives) console.log(`negative control: ${n.caught ? 'caught' : 'MISSED'} ${n.place}: ${n.key} broken → ${n.verdict}`)
-    const problems = passBar(name as Size, report, [...new Set(pages)], undefined, filter ? new Set(pages) : undefined)
-    for (const p of filter ?? []) if (!named.has(p)) problems.push(`${name}: CRAWL_ROUTES names ${p}, which is no page here`)
-    for (const n of negatives) if (!n.caught) problems.push(`${name}: with ${n.place} broken, the crawl said "${n.verdict}" (${n.key})`)
-    for (const a of fixtureReads) problems.push(...a.problems)
+    for (const n of report.negatives) console.log(`negative control: ${n.caught ? 'caught' : 'MISSED'} ${n.place}: ${n.key} broken → ${n.verdict}`)
+    // On one runner this is the whole run, so it answers to the gate too; split, the gate job does.
+    const problems = of === 1 ? gate(sz, [report], 1).problems : ownProblems(report)
     expect(problems, problems.join('\n')).toEqual([])
   })
 }
@@ -628,76 +422,174 @@ test('a modpack read is answered from the fixtures or breaks the control that ma
   }
 })
 
-test('the pass bar fails a failing control, a state it could not get back to, a page under its minimum and a place it missed', () => {
-  const works = (route: string, key: string): Result => ({ viewport: 'desktop', route, via: [], key, status: 'works', effects: ['changed the page'], problems: [] })
-  const rules: Rules = { minimums: { '/': 2, '/servers/* (stopped)': 1 }, places: [{ what: 'a slider', sizes: ['desktop'], pages: ['/'], key: /^slider / }] }
-  const pages = ['/', '/servers/* (stopped)', '/settings']
-  const good: CrawlReport = { results: [works('/', 'button "Home"'), works('/', 'slider "Memory"'), { ...works('/servers/survival', 'button "Start"'), view: 'stopped' }, works('/settings', 'button "Sign out"')], notes: [], unreached: [] }
-  expect(passBar('desktop', good, pages, rules)).toEqual([])
+/** A control that worked, on the unit of a run named after its route and view. */
+const pressed = (route: string, key: string, view?: View): Pressed => ({ viewport: 'desktop', route, view, via: [], key, status: 'works', effects: ['changed the page'], problems: [], unit: named([{ crawler: 'signed in', route, view: view ?? 'live', counted: true }])[0]?.name ?? '' })
 
-  const dead: Result = { ...works('/settings', 'button "Check now"'), status: 'dead' }
-  expect(passBar('desktop', { ...good, results: [...good.results, dead] }, pages, rules).join('\n')).toContain('button "Check now": pressing it did nothing visible')
-  expect(passBar('desktop', { ...good, unreached: ['[desktop] /: could not reach button "Menu" again'] }, pages, rules)).toEqual(['[desktop] /: could not reach button "Menu" again'])
-  expect(passBar('desktop', { ...good, results: good.results.filter((r) => r.key !== 'button "Home"') }, pages, rules)).toEqual(['desktop /: 1 control pressed, fewer than its minimum of 2'])
-  expect(passBar('desktop', { ...good, results: good.results.filter((r) => r.view !== 'stopped') }, ['/', '/settings'], rules)).toEqual(['desktop /servers/* (stopped): not crawled (its minimum is 1)'])
-  expect(passBar('desktop', { ...good, results: good.results.filter((r) => r.key !== 'button "Sign out"') }, pages, rules)).toEqual(['desktop /settings: 0 controls pressed, fewer than its minimum of 1'])
-  expect(passBar('desktop', { ...good, results: [...good.results.filter((r) => !r.key.startsWith('slider')), works('/', 'button "More"')] }, pages, rules)).toEqual(['desktop: never pressed a slider (/^slider /)'])
+/** A runner's report of a run at desktop size, crawling the units of `plan` given to `shard`. */
+function shardReport(shard: number, of: number, plan: [string, number][], results: Pressed[], more: Partial<ShardReport> = {}): ShardReport {
+  const units = plan.map(([name, k]) => ({ name, crawler: 'signed in' as const, counted: true, shard: k }))
+  return { size: 'desktop', shard, of, selection: 'all', plan: units, crawled: units.filter((u) => u.shard === shard).map((u) => ({ name: u.name, seconds: 1 })), results, notes: [], unreached: [], negatives: [], fixtureProblems: [], ...more }
+}
+
+test('the gate fails a failing control, a state it could not get back to, a page under its minimum and a place it missed', () => {
+  const rules: Rules = { minimums: { '/': 2, '/servers/* (stopped)': 1 }, places: [{ what: 'a slider', sizes: ['desktop'], page: '/', key: /^slider / }] }
+  const plan: [string, number][] = [
+    ['/', 1],
+    ['/servers/* (stopped)', 1],
+    ['/settings', 1],
+  ]
+  const results = [pressed('/', 'button "Home"'), pressed('/', 'slider "Memory"'), pressed('/servers/survival', 'button "Start"', 'stopped'), pressed('/settings', 'button "Sign out"')]
+  const negatives: Negative[] = [{ place: 'a slider', key: '/ › slider "Memory"', verdict: 'dead', caught: true }]
+  const run = (r: Pressed[], more: Partial<ShardReport> = {}, units = plan) => gate('desktop', [shardReport(1, 1, units, r, { negatives, ...more })], 1, rules).problems
+  expect(run(results)).toEqual([])
+
+  const dead: Pressed = { ...pressed('/settings', 'button "Check now"'), status: 'dead' }
+  expect(run([...results, dead]).join('\n')).toContain('button "Check now": pressing it did nothing visible')
+  expect(run(results, { unreached: ['[desktop] /: could not reach button "Menu" again'] })).toEqual(['[desktop] /: could not reach button "Menu" again'])
+  expect(run(results.filter((r) => r.key !== 'button "Home"'))).toEqual(['desktop /: 1 control pressed, fewer than its minimum of 2'])
+  expect(
+    run(
+      results.filter((r) => r.view !== 'stopped'),
+      {},
+      plan.filter(([n]) => n !== '/servers/* (stopped)'),
+    ),
+  ).toEqual(['desktop /servers/* (stopped): not crawled (its minimum is 1)'])
+  expect(run(results.filter((r) => r.key !== 'button "Sign out"'))).toEqual(['desktop /settings: 0 controls pressed, fewer than its minimum of 1'])
+  expect(run([...results.filter((r) => !r.key.startsWith('slider')), pressed('/', 'button "More"')], { negatives: [] })).toEqual(['desktop: never pressed a slider on / (/^slider /)'])
+  expect(run(results, { negatives: [] })).toEqual(['desktop: pressed a slider but didn\'t break it on purpose to check the crawl notices'])
+  expect(run(results, { negatives: [{ ...negatives[0]!, verdict: 'works', caught: false }] })).toEqual(['desktop: with a slider broken, the crawl said "works" (/ › slider "Memory")'])
 })
 
-test('CRAWL_ROUTES names pages with each server, machine and link as *, and the pass bar then counts only on the pages crawled', () => {
-  expect(routeFilter(undefined)).toBeUndefined()
-  expect(routeFilter(' ; \n ')).toBeUndefined()
-  expect(routeFilter('/; /servers/* ;/machines/*/disk (space to free)\n/servers/*/plugins (in use)')).toEqual(['/', '/servers/*', '/machines/*/disk (space to free)', '/servers/*/plugins (in use)'])
-  expect(crawlName({ route: '/', view: 'live' })).toBe('/')
-  expect(crawlName({ route: '/', view: 'stopped' })).toBe('/ (stopped)')
-  expect(crawlName({ route: '/servers/survival', view: 'live' })).toBe('/servers/*')
-  expect(crawlName({ route: '/servers/survival/plugins/browse', view: 'live' })).toBe('/servers/*/plugins/browse')
-  expect(crawlName({ route: '/servers/survival/plugins', view: 'in use' })).toBe('/servers/*/plugins (in use)')
-  expect(crawlName({ route: '/machines/ad9fc4ybkz/disk', view: 'space to free' })).toBe('/machines/*/disk (space to free)')
-  expect(crawlName({ route: '/settings/machines/ad9fc4ybkz', view: 'live' })).toBe('/settings/machines/*')
-  // New server and its steps aren't a server.
-  expect(crawlName({ route: '/servers/new', view: 'live' })).toBe('/servers/new')
-  expect(crawlName({ route: '/servers/new#world', view: 'live' })).toBe('/servers/new#world')
-  expect(crawlName({ route: '/servers/new#template=eyJ2IjoxfQ', view: 'live' })).toBe('/servers/new#template=*')
-  expect(crawlName({ route: '/map/Zz9xWv8uTs7rQp6oNm5lKj' })).toBe('/map/*')
-  expect(crawlName({ route: '/packs/Pk0Unknown0Link0Abcdef' })).toBe('/packs/*')
+test('split between runners, the gate counts controls in the order of one runner and fails a runner that went missing, a page nobody crawled and runners that disagree', () => {
+  const rules: Rules = { minimums: { '/': 2, '/servers/*': 1, '/servers/* (stopped)': 1 }, places: [] }
+  const plan: [string, number][] = [
+    ['/', 1],
+    ['/servers/*', 2],
+    ['/servers/* (stopped)', 2],
+  ]
+  // The second runner presses the sidebar's link again, since it didn't crawl Home; it counts on Home, as on one runner.
+  const one = shardReport(1, 2, plan, [pressed('/', 'button "Home"'), pressed('/', 'link "Settings"')])
+  const two = shardReport(2, 2, plan, [pressed('/servers/survival', 'link "Settings"'), pressed('/servers/survival', 'button "Restart"'), pressed('/servers/survival', 'button "Start"', 'stopped')])
+  const verdict = gate('desktop', [one, two], 2, rules)
+  expect(verdict.problems).toEqual([])
+  expect(Object.fromEntries(verdict.counts)).toEqual({ '/': 2, '/servers/*': 1, '/servers/* (stopped)': 1 })
+  expect(gate('desktop', [one, two], 2, { ...rules, minimums: { ...rules.minimums, '/servers/*': 2 } }).problems).toEqual(['desktop /servers/*: 1 control pressed, fewer than its minimum of 2'])
 
-  // Only the pages crawled have minimums and places.
-  const works = (route: string, key: string, view?: View): Result => ({ viewport: 'desktop', route, view, via: [], key, status: 'works', effects: ['changed the page'], problems: [] })
+  expect(gate('desktop', [one], 2, rules).problems).toContain('desktop: runner 2 of 2 sent no report, so its pages weren\'t all crawled')
+  expect(gate('desktop', [one, { ...two, crawled: two.crawled.slice(0, 1) }], 2, rules).problems).toContain('desktop: runner 2 of 2 didn\'t crawl /servers/* (stopped)')
+  const other = { ...two, plan: two.plan.map((p) => (p.name === '/servers/*' ? { ...p, shard: 1 } : p)) }
+  expect(gate('desktop', [one, other], 2, rules).problems.join('\n')).toContain('runner 2 worked out other pages than runner 1')
+})
+
+test('a run of the pages a change touches holds those pages to their minimums and places, and only those', () => {
+  const selection: Selection = { pages: ['/servers/*'], preludes: ['/'] }
   const rules: Rules = {
-    minimums: { '/': 2, '/settings': 3, '/machines/*/disk (space to free)': 1 },
+    minimums: { '/': 1, '/servers/*': 1, '/servers/* (stopped)': 1, '/settings': 3 },
     places: [
-      { what: 'a slider', sizes: ['desktop'], pages: ['/settings'], key: /^slider / },
-      { what: 'deleting old backups', sizes: ['desktop'], view: 'space to free', pages: ['/machines/*/disk (space to free)'], key: /^button "Delete # · .+"/ },
+      { what: 'Start on a stopped server', sizes: ['desktop'], view: 'stopped', page: '/servers/*', key: /^button "Start"$/ },
+      { what: 'a switch in Settings', sizes: ['desktop'], page: '/settings', key: /^switch / },
     ],
   }
-  const crawled = ['/', '/machines/*/disk (space to free)']
-  const results = [works('/', 'button "Home"'), works('/', 'button "More"'), works('/machines/m1/disk', 'button "Delete # · # MB" in dialog "Old backups"', 'space to free')]
-  expect(passBar('desktop', { results, notes: [], unreached: [] }, crawled, rules, new Set(crawled))).toEqual([])
-  expect(passBar('desktop', { results, notes: [], unreached: [] }, crawled, rules)).toEqual(['desktop /settings: not crawled (its minimum is 3)', 'desktop: never pressed a slider (/^slider /)'])
-  const missed = results.filter((r) => !r.key.startsWith('button "Delete'))
-  expect(passBar('desktop', { results: missed, notes: [], unreached: [] }, crawled, rules, new Set(crawled))).toEqual(['desktop /machines/*/disk (space to free): 0 controls pressed, fewer than its minimum of 1', 'desktop: never pressed deleting old backups (/^button "Delete # · .+"/)'])
-  expect(passBar('desktop', { results: results.slice(1), notes: [], unreached: [] }, crawled, rules, new Set(crawled))).toEqual(['desktop /: 1 control pressed, fewer than its minimum of 2'])
+  const plan: [string, number][] = [
+    ['/', 1],
+    ['/servers/*', 1],
+    ['/servers/* (stopped)', 1],
+  ]
+  const start = pressed('/servers/survival', 'button "Start"', 'stopped')
+  const results = [pressed('/', 'button "Home"'), pressed('/servers/survival', 'button "Restart"'), start]
+  const negatives: Negative[] = [{ place: 'Start on a stopped server', key: at(start), verdict: 'dead', caught: true }]
+  expect(gate('desktop', [shardReport(1, 1, plan, results, { selection, negatives })], 1, rules).problems).toEqual([])
+  expect(gate('desktop', [shardReport(1, 1, plan, results.slice(0, 2), { selection })], 1, rules).problems).toEqual(['desktop /servers/* (stopped): 0 controls pressed, fewer than its minimum of 1', 'desktop: never pressed Start on a stopped server on /servers/* (stopped) (/^button "Start"$/)'])
+  // Pressed only on another page, a place isn't reached, and breaking it there would prove nothing.
+  const elsewhere = { ...start, route: '/servers/survival/console', unit: '/servers/*/console (stopped)' }
+  expect(gate('desktop', [shardReport(1, 1, plan, [...results.slice(0, 2), elsewhere], { selection })], 1, rules).problems).toEqual([
+    'desktop /servers/* (stopped): 0 controls pressed, fewer than its minimum of 1',
+    'desktop: never pressed Start on a stopped server on /servers/* (stopped) (/^button "Start"$/), only on /servers/*/console (stopped): if it moved, change its page in clickthrough-rules.ts',
+  ])
+  expect(selects(selection, { route: '/servers/survival/console', view: 'live' })).toBe(false)
+  expect(selects(selection, { route: '/', view: 'stopped' })).toBe(false)
+  expect(selects(selection, { route: '/servers/survival', view: 'crashed' })).toBe(true)
 })
 
-test('a CRAWL_ROUTES crawl of New server’s world step counts on that page, not on the Overview', () => {
-  const works = (route: string, key: string): Result => ({ viewport: 'desktop', route, view: 'live', via: [], key, status: 'works', effects: ['changed the page'], problems: [] })
+test('a run of New server’s world step counts on that page, not on the Overview', () => {
+  const selection: Selection = { pages: ['/servers/new#world'], preludes: [] }
   const rules: Rules = { minimums: { '/servers/*': 21, '/servers/new': 36 }, places: [] }
-  const filter = routeFilter('/servers/new#world') ?? []
-  const crawls: Crawl[] = [{ route: '/servers/survival', view: 'live' }, { route: '/servers/new', view: 'live' }, { route: '/servers/new#world', view: 'live' }]
-  // As the crawl does: the filter picks pages by crawlName, and the pass bar is given them and counts by it.
-  const pages = crawls.filter((c) => filter.includes(crawlName(c))).map(crawlName)
-  expect(pages).toEqual(['/servers/new#world'])
-  const results = [works('/servers/new#world', 'button "Choose a world file"')]
-  expect(passBar('desktop', { results, notes: [], unreached: [] }, pages, rules, new Set(pages))).toEqual([])
-  expect(passBar('desktop', { results: [], notes: [], unreached: [] }, pages, rules, new Set(pages))).toEqual(['desktop /servers/new#world: 0 controls pressed, fewer than its minimum of 1'])
-  // Negative control, the pass bar's old name for a page, which filed New
-  // server's steps under the Overview: the Overview's minimum then applies.
-  const old = (c: { route: string; view?: View }) => where(c.route.replace(/^\/servers\/(?!new$)[^/]+/, '/servers/*'), c.view)
-  const oldPages = crawls.filter((c) => filter.includes(crawlName(c))).map(old)
-  expect(oldPages).toEqual(['/servers/*'])
-  const oldResults = results.map((r) => ({ ...r, route: old(r) }))
-  expect(passBar('desktop', { results: oldResults, notes: [], unreached: [] }, oldPages, rules, new Set(oldPages))).toEqual(['desktop /servers/*: 1 control pressed, fewer than its minimum of 21'])
+  const every = named([
+    { crawler: 'signed in', route: '/servers/survival', view: 'live', counted: true },
+    { crawler: 'signed in', route: '/servers/new', view: 'live', counted: true },
+    { crawler: 'signed in', route: '/servers/new#world', view: 'live', counted: true },
+  ])
+  const chosen = every.filter((u) => selects(selection, u))
+  expect(chosen.map((u) => u.name)).toEqual(['/servers/new#world'])
+  const plan = chosen.map((u): [string, number] => [u.name, 1])
+  const world = pressed('/servers/new#world', 'button "Choose a world file"')
+  expect(world.unit).toBe('/servers/new#world')
+  const verdict = gate('desktop', [shardReport(1, 1, plan, [world], { selection })], 1, rules)
+  expect(verdict.problems).toEqual([])
+  expect(Object.fromEntries(verdict.counts)).toEqual({ '/servers/new#world': 1 })
+  expect(gate('desktop', [shardReport(1, 1, plan, [], { selection })], 1, rules).problems).toEqual(['desktop /servers/new#world: 0 controls pressed, fewer than its minimum of 1'])
+})
+
+test('runners get whole groups of pages, a page with its faked states, the costliest first, alike on every runner', () => {
+  const units = named([
+    { crawler: 'signed out', route: '/login', view: 'live', counted: true },
+    { crawler: 'signed out', route: '/setup', view: 'first run', counted: true },
+    { crawler: 'second step', route: '/login', view: 'second step', counted: true },
+    { crawler: 'signed in', route: '/', view: 'live', counted: true },
+    { crawler: 'signed in', route: '/servers/survival', view: 'live', counted: true },
+    { crawler: 'signed in', route: '/servers/new', view: 'live', counted: true },
+    { crawler: 'signed in', route: '/servers/new#world', view: 'live', counted: true },
+    { crawler: 'signed in', route: '/settings', view: 'live', counted: true },
+    { crawler: 'signed in', route: '/', view: 'stopped', counted: true },
+    { crawler: 'signed in', route: '/servers/survival', view: 'stopped', counted: true },
+  ])
+  const seconds: Record<string, number> = { '/servers/new': 500, '/servers/new#world': 100, '/servers/*': 300, '/servers/* (stopped)': 50, '/': 80, '/ (stopped)': 40 }
+  const cost = (u: Unit) => seconds[u.name] ?? 10
+  const shards = partition(units, cost, 3)
+  const shardOf = (name: string) => shards[units.findIndex((u) => u.name === name)]
+  expect(shards.every((k) => k >= 1 && k <= 3)).toBe(true)
+  expect(shardOf('/servers/new#world')).toBe(shardOf('/servers/new'))
+  expect(shardOf('/servers/* (stopped)')).toBe(shardOf('/servers/*'))
+  expect(shardOf('/ (stopped)')).toBe(shardOf('/'))
+  expect(shardOf('/setup (first run)')).toBe(shardOf('/login'))
+  expect(new Set([shardOf('/servers/new'), shardOf('/servers/*'), shardOf('/')]).size).toBe(3)
+  expect(partition(units, cost, 3)).toEqual(shards)
+  expect(partition(units, cost, 1).every((k) => k === 1)).toBe(true)
+  expect(pageOf('/servers/new#world')).toBe('/servers/new#world')
+  expect(pageOf('/servers/new#template=eyJhIjoxfQ')).toBe('/servers/new#template=*')
+  expect(pageOf('/servers/survival/players/PkBotFriend')).toBe('/servers/*/players/*')
+  expect(pageOf('/machines/rmk4ybqrck/disk')).toBe('/machines/*/disk')
+  expect(pageOf('/map/Zz9xWv8uTs7rQp6oNm5lKj')).toBe('/map/*')
+})
+
+test('a change to a shared layer or the crawler crawls every page; a change to a page crawls the pages its modules draw, after the pages before them', () => {
+  const graph = importGraph(fileURLToPath(new URL('../../../web/src', import.meta.url)))
+  expect(pageMapProblems(graph)).toEqual([])
+  expect(affected(['web/src/components/ui/button.tsx'], graph).mode).toBe('full')
+  expect(affected(['web/src/i18n/en.ts'], graph).mode).toBe('full')
+  expect(affected(['test/e2e/ui/crawl.ts'], graph).mode).toBe('full')
+  expect(affected(['web/vite.config.ts'], graph).mode).toBe('full')
+  expect(affected(['web/src/pages/server/console.tsx'], graph)).toMatchObject({ mode: 'pages', pages: ['/servers/*/console'], preludes: ['/', '/servers/*'] })
+  // The World tab shows pre-generation's row too.
+  expect(affected(['web/src/pages/server/world-pregen.tsx'], graph)).toMatchObject({ mode: 'pages', pages: ['/servers/*/world', '/servers/*/world/pregen'], preludes: ['/', '/servers/*'] })
+  const twoFactor = affected(['web/src/pages/two-factor.tsx'], graph)
+  expect(twoFactor.pages).toEqual(expect.arrayContaining(['/account', '/account/two-factor']))
+  expect(twoFactor.pages).not.toContain('/servers/*')
+  expect(affected(['web/src/pages/server/map.test.tsx', 'internal/panel/server.go', 'docs/ARCHITECTURE.md'], graph).mode).toBe('none')
+  expect(affected(['web/src/pages/join.tsx'], graph).mode).toBe('none')
+  expect(affected(['web/src/pages/a-new-page.tsx'], graph).mode).toBe('full')
+  expect([...closure(graph, ['pages/server/index.tsx'])]).not.toContain('pages/server/console.tsx')
+  expect(preludesOf('/servers/*/world/pregen')).toEqual(['/', '/servers/*'])
+  expect(preludesOf('/login')).toEqual([])
+
+  const costs: Costs = { desktop: { '/': 100, '/servers/*': 900, '/servers/* (stopped)': 900 }, phone: { '/': 100, '/more': 60 } }
+  expect(shardsFor(costs, 'all')).toEqual([
+    { size: 'desktop', shard: 1, of: 3 },
+    { size: 'desktop', shard: 2, of: 3 },
+    { size: 'desktop', shard: 3, of: 3 },
+    { size: 'phone', shard: 1, of: 1 },
+  ])
+  expect(shardsFor(costs, { pages: ['/more'], preludes: ['/'] })).toEqual([{ size: 'phone', shard: 1, of: 1 }])
 })
 
 test('the add-on fixtures answer as the panel would, work out plans against the folder and have no answer for what was never recorded', () => {
