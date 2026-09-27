@@ -598,6 +598,10 @@ control "the GC log cursor is stored with the pauses it read" internal/agent/run
   'UPDATE servers SET gc_cursor = ? WHERE id = ?`, string(b), s.id)' \
   'UPDATE servers SET gc_cursor = ? WHERE id = ?`, string(b), "")' \
   ./internal/agent '^TestGCLogIsReadOnce$'
+control "storing GC pauses waits for a write in progress" internal/agent/state.go \
+  'c.ExecContext(ctx, `BEGIN IMMEDIATE`)' \
+  'c.ExecContext(ctx, `BEGIN`)' \
+  ./internal/agent '^TestStoringGCWaitsForAWriteInProgress$'
 control "the GC log is read through the game-file helper" internal/agent/running.go \
   'buf, st, err := d.ReadRange(gcLogRel, cur.Offset, gcReadLimit)' \
   'f, err := http.Dir(s.dataDir()).Open(gcLogRel)

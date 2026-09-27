@@ -312,31 +312,26 @@ func pausesSince(events []diagnose.GCEvent, start time.Time) []diagnose.GCEvent 
 // storeGC adds events to their windows and moves the cursor past them, in
 // one transaction so an agent restart neither loses nor counts them twice.
 func (s *server) storeGC(events []diagnose.GCEvent, cur gcCursor) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	for _, w := range diagnose.SummarizeGC(events, gcWindow) {
-		var old diagnose.GCWindow
-		err := tx.QueryRow(`SELECT collections, min_after_mb, max_after_mb, heap_mb, full_gcs, evacuation_failures, pause_ms, max_pause_ms FROM gc_windows WHERE server_id = ? AND start = ?`,
-			s.id, w.Start.UnixMilli()).Scan(&old.Collections, &old.MinAfterMB, &old.MaxAfterMB, &old.HeapMB, &old.FullGCs, &old.EvacuationFailures, &old.PauseMS, &old.MaxPauseMS)
-		switch {
-		case err == nil:
-			w = mergeGCWindows(old, w)
-		case !errors.Is(err, sql.ErrNoRows):
-			return err
+	return s.writeTx(func(tx lockedTx) error {
+		for _, w := range diagnose.SummarizeGC(events, gcWindow) {
+			var old diagnose.GCWindow
+			err := tx.QueryRow(`SELECT collections, min_after_mb, max_after_mb, heap_mb, full_gcs, evacuation_failures, pause_ms, max_pause_ms FROM gc_windows WHERE server_id = ? AND start = ?`,
+				s.id, w.Start.UnixMilli()).Scan(&old.Collections, &old.MinAfterMB, &old.MaxAfterMB, &old.HeapMB, &old.FullGCs, &old.EvacuationFailures, &old.PauseMS, &old.MaxPauseMS)
+			switch {
+			case err == nil:
+				w = mergeGCWindows(old, w)
+			case !errors.Is(err, sql.ErrNoRows):
+				return err
+			}
+			if _, err := tx.Exec(`INSERT OR REPLACE INTO gc_windows(server_id, start, collections, min_after_mb, max_after_mb, heap_mb, full_gcs, evacuation_failures, pause_ms, max_pause_ms) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+				s.id, w.Start.UnixMilli(), w.Collections, w.MinAfterMB, w.MaxAfterMB, w.HeapMB, w.FullGCs, w.EvacuationFailures, w.PauseMS, w.MaxPauseMS); err != nil {
+				return err
+			}
 		}
-		if _, err := tx.Exec(`INSERT OR REPLACE INTO gc_windows(server_id, start, collections, min_after_mb, max_after_mb, heap_mb, full_gcs, evacuation_failures, pause_ms, max_pause_ms) VALUES(?,?,?,?,?,?,?,?,?,?)`,
-			s.id, w.Start.UnixMilli(), w.Collections, w.MinAfterMB, w.MaxAfterMB, w.HeapMB, w.FullGCs, w.EvacuationFailures, w.PauseMS, w.MaxPauseMS); err != nil {
-			return err
-		}
-	}
-	b, _ := json.Marshal(cur)
-	if _, err := tx.Exec(`UPDATE servers SET gc_cursor = ? WHERE id = ?`, string(b), s.id); err != nil {
+		b, _ := json.Marshal(cur)
+		_, err := tx.Exec(`UPDATE servers SET gc_cursor = ? WHERE id = ?`, string(b), s.id)
 		return err
-	}
-	return tx.Commit()
+	})
 }
 
 // mergeGCWindows adds window b's pauses to a, as GCWindow.Add would have.
