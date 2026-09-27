@@ -525,6 +525,7 @@ describe('What New server sizes memory for', () => {
     expect(text()).toContain('Not enough memory on my-vps')
     expect(text()).toContain('All the Mods 10 needs about 12 GB, and 8 GB is the most it can get here, so it may run out of memory.')
     expect(slider()?.getAttribute('aria-valuetext')).toBe('8 GB')
+    expect(text()).not.toContain('Recommended')
   })
 
   it.each([

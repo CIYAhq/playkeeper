@@ -672,7 +672,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
                       }}
                     />
                     <div className="md:border-l md:border-border md:pl-5">
-                      <MemoryReadout memoryMB={c.memoryMB} sizing={catalog?.sizing} type={runsType} mods={runsMods} recommended={c.memoryMB === suggested} style={world ? undefined : c.style} />
+                      <MemoryReadout memoryMB={c.memoryMB} sizing={catalog?.sizing} type={runsType} mods={runsMods} recommended={c.memoryMB === suggested && !short} style={world ? undefined : c.style} />
                     </div>
                   </div>
                   {largest !== undefined && (
