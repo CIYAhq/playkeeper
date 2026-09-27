@@ -97,6 +97,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 it('fails soft where it has nothing to show or change', async () => {
@@ -340,6 +341,17 @@ it('offers every server type, with its builds, and makes a Fabric server as aske
   const version = fabric.versions.find((v) => v.recommended)
   await ask('POST', `/api/machines/${m?.id}/servers`, { name: 'Skyblock', type: 'fabric', versionId: version?.id, memoryMB: 2048 })
   expect(await server('skyblock')).toMatchObject({ type: 'fabric', config: { software: { type: 'fabric' } } })
+})
+
+it('tells playkeeper.io’s analytics about a server New server made, and not about one it refused', async () => {
+  const track = vi.fn()
+  vi.stubGlobal('oa', { track })
+  vi.stubGlobal('location', { pathname: '/demo/servers/new' })
+  const [m] = await ask<{ id: string }[]>('GET', '/api/machines')
+  await expect(ask('POST', `/api/machines/${m?.id}/servers`, { name: 'Survival', memoryMB: 2048 })).rejects.toMatchObject({ code: 'name_taken' })
+  expect(track).not.toHaveBeenCalled()
+  await ask('POST', `/api/machines/${m?.id}/servers`, { name: 'Skyblock', type: 'fabric', memoryMB: 2048 })
+  expect(track.mock.calls).toEqual([['demo_server_created', { type: 'fabric', where: '/demo/servers/new' }]])
 })
 
 it('has room for New server’s suggested memory, so its default creates a server', async () => {

@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Browser, type Page } from '@playwright/test'
+import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import fs from 'node:fs'
 
 // Every page of playkeeper.io, from its sitemap, plus the share page, its
@@ -64,6 +64,86 @@ test("the modded guide's Copy copies the whole script of the tab that's showing"
   await expect(copy).toHaveAttribute('data-copy', await script('code-neoforge'))
   await page.getByRole('tab', { name: 'Fabric' }).click()
   await expect(copy).toHaveAttribute('data-copy', await script('code-fabric'))
+  await ctx.close()
+})
+
+/**
+ * Serves, in place of the analytics' oa.js, one that hands each custom event
+ * (and each flush) to the test, and answers for the sites links go out to, so
+ * nothing leaves the machine and no visit is counted. oa.js waits for
+ * release().
+ */
+async function recordEvents(ctx: BrowserContext) {
+  const events: unknown[][] = []
+  let release = () => {}
+  const released = new Promise<void>((resolve) => (release = resolve))
+  await ctx.exposeFunction('recordEvent', (...event: unknown[]) => void events.push(event))
+  await ctx.route('https://analytics-c.ciya.so/oa.js', async (route) => {
+    await released
+    await route.fulfill({ contentType: 'text/javascript', body: 'window.oa = { track: function (name, props) { recordEvent(name, props) }, flush: function () { recordEvent("flush") } }' })
+  })
+  await ctx.route(/^https:\/\/(github\.com|www\.hostinger\.com|www\.digitalocean\.com|www\.vultr\.com)\//, (route) => route.fulfill({ contentType: 'text/html', body: '' }))
+  return { events, release }
+}
+
+test('the analytics’ custom events: the install command copied, links out to GitHub, a VPS provider and Watch releases, and none from /t', async ({ browser, baseURL }) => {
+  const ctx = await browser.newContext({ baseURL, viewport: { width: 1440, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] })
+  const { events, release } = await recordEvents(ctx)
+  const page = await ctx.newPage()
+  const open = (path: string) => page.goto(path, { waitUntil: 'networkidle' })
+  /** The events sent since the last call are these, in order. */
+  const sent = async (...want: unknown[][]) => {
+    await expect.poll(() => [...events]).toEqual(want)
+    events.length = 0
+  }
+
+  // A copy before oa.js has loaded waits for it.
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
+  await page.locator('#install .install-copy').click()
+  await page.waitForTimeout(300)
+  expect(events, 'nothing is sent before oa.js loads').toEqual([])
+  release()
+  await sent(['install_copied', { spot: 'box', where: '/' }])
+  await page.locator('[data-closing] .install-copy').click()
+  await page.locator('#install .install-line').selectText()
+  await page.keyboard.press('ControlOrMeta+C')
+  await page.locator('header .btn-star').click()
+  await sent(['install_copied', { spot: 'closing', where: '/' }], ['install_copied', { spot: 'selection', where: '/' }], ['github_clicked', { link: 'repo', where: '/' }], ['flush'])
+
+  await open('/pricing')
+  await page.getByRole('link', { name: 'Copy the install command' }).click()
+  await page.getByRole('link', { name: 'Watch releases on GitHub' }).first().click()
+  await sent(['install_copied', { spot: 'button', where: '/pricing' }], ['github_clicked', { link: 'repo', where: '/pricing' }], ['flush'], ['watch_releases_clicked', { plan: 'storage', where: '/pricing' }], ['flush'])
+
+  await open('/sizing#friends=11-20&run=modpack')
+  await page.locator('[data-provider="Hostinger"] a').click()
+  await sent(['provider_clicked', { provider: 'Hostinger', plan: 'KVM 8 · 8 vCPU · 32 GB', where: '/sizing' }], ['flush'])
+
+  // Both install commands in the docs, and a middle-click, which opens its link in a new tab.
+  await open('/docs/install')
+  await page.locator('.prose pre', { hasText: 'https://playkeeper.io/install | sudo sh' }).locator('.code-copy').click()
+  await page.locator('.prose pre', { hasText: 'download/get.sh | sudo sh' }).locator('.code-copy').click()
+  const tab = ctx.waitForEvent('page')
+  await page.locator('.prose').getByRole('link', { name: 'latest release' }).first().click({ button: 'middle' })
+  await (await tab).close()
+  await page.locator('.docs-main .meta a').click()
+  await sent(['install_copied', { spot: 'code', where: '/docs/install' }], ['install_copied', { spot: 'code', where: '/docs/install' }], ['github_clicked', { link: 'releases', where: '/docs/install' }], ['flush'], ['github_clicked', { link: 'file', where: '/docs/install' }], ['flush'])
+
+  // A script that isn't the install command sends nothing; the guide's own Copy the install command does.
+  await open('/guides/modded-minecraft-server')
+  await page.locator('.codeblock .code-copy').click()
+  await page.locator('.side-install a').click()
+  await sent(['install_copied', { spot: 'button', where: '/guides/modded-minecraft-server' }])
+
+  // The share page has no analytics: its Copy and its links send nothing.
+  const link = fs.readFileSync('../../../internal/templates/testdata/share-link.txt', 'utf8').trim()
+  await open('/t#' + link.split('#')[1])
+  expect(await page.evaluate(() => 'oa' in window), '/t loads no analytics').toBe(false)
+  await page.locator('#install .install-copy').click()
+  await expect(page.locator('#install .install-copy')).toHaveClass(/is-copied/)
+  await page.locator('header .btn-star').click()
+  await page.waitForURL(/github\.com/)
+  expect(events, 'events from /t').toEqual([])
   await ctx.close()
 })
 
