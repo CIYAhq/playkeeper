@@ -40,8 +40,8 @@ type System struct {
 	Chown      func(path string, uid, gid int) error
 	Now        func() time.Time
 	Sleep      func(time.Duration)
-	// PackageLockHeld reports whether another program (apt, dpkg,
-	// unattended-upgrades) holds apt's or dpkg's lock.
+	// PackageLockHeld reports whether another program holds the package
+	// manager's lock: apt's or dpkg's, or rpm's or dnf's.
 	PackageLockHeld func() bool
 	// WaitHealthy blocks until the agent socket and panel HTTPS answer; a
 	// panelPort of 0 means the machine has no panel.
@@ -57,6 +57,9 @@ type System struct {
 type DockerInfo struct {
 	Version    string
 	Containers []docker.ContainerSummary
+	// Podman is set when Podman's Docker-compatible API answered on the
+	// Docker socket instead of Docker Engine.
+	Podman bool
 }
 
 // P maps an absolute host path into the system root.
@@ -112,20 +115,25 @@ func Real() System {
 			if err != nil {
 				return DockerInfo{}, err
 			}
+			if v.Podman() {
+				return DockerInfo{Version: v.Version, Podman: true}, nil
+			}
 			list, err := c.ContainerList(ctx, true)
 			if err != nil {
 				return DockerInfo{}, err
 			}
 			return DockerInfo{Version: v.Version, Containers: list}, nil
 		},
-		Executable:      os.Executable,
-		Chown:           os.Lchown,
-		Now:             time.Now,
-		Sleep:           time.Sleep,
-		PackageLockHeld: func() bool { return lockHeld(aptLocks) },
-		WaitHealthy:     waitHealthy,
-		WaitVersion:     waitVersion,
-		Version:         binaryVersion,
+		Executable: os.Executable,
+		Chown:      os.Lchown,
+		Now:        time.Now,
+		Sleep:      time.Sleep,
+		PackageLockHeld: func() bool {
+			return lockHeld(aptLocks) || lockHeld(rpmLocks) || pidLockHeld("/", dnfLocks)
+		},
+		WaitHealthy: waitHealthy,
+		WaitVersion: waitVersion,
+		Version:     binaryVersion,
 	}
 }
 

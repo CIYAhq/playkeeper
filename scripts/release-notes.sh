@@ -28,7 +28,7 @@ $changes
 
 ## Install or update
 
-On an x86_64 or 64-bit ARM server with Ubuntu 20.04 or later, or Debian 12 or later:
+On an x86_64 or 64-bit ARM server with Ubuntu 20.04 or later, Debian 12 or later, the RHEL family 9 or later (AlmaLinux, Rocky Linux, Oracle Linux, RHEL and CentOS Stream), or Amazon Linux 2023 or later:
 
 \`\`\`bash
 curl -fsSL $install_url | sudo sh

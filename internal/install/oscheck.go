@@ -8,14 +8,18 @@ import (
 )
 
 // osCheck is the preflight's verdict on the operating system: a supported
-// release passes, a newer release of a supported distribution only warns,
-// and anything else needs --allow-untested-os.
+// release passes, as does RHEL as the family AlmaLinux and Rocky Linux are
+// tested for, a newer release of a supported distribution only warns, and
+// anything else needs --allow-untested-os.
 func osCheck(o platform.OS, allowUntested bool) Check {
 	c := Check{ID: "os", Label: "Operating system"}
 	v := platform.Check(o)
 	switch {
 	case v.Support == platform.Tested && v.Release.SecurityEnded == "":
 		c.Status, c.Detail = "pass", v.Release.Name+", which every release is tested on."
+	case v.Support == platform.Family:
+		c.Status = "pass"
+		c.Detail = fmt.Sprintf("%s isn't tested itself, but it's the same family as AlmaLinux and Rocky Linux %s, which every release is tested on.", v.Release.Name, v.Release.Version)
 	case v.Support == platform.Tested:
 		c.Status = "warn"
 		c.Detail = fmt.Sprintf("%s: Playkeeper is tested on it, but its standard security updates ended in %s.", v.Release.Name, v.Release.SecurityEnded)
@@ -47,17 +51,6 @@ func archiveName(o platform.OS) string {
 		return n + "'s"
 	}
 	return "the distribution's"
-}
-
-// dockerPackages are the packages that give this machine Docker: docker.io,
-// and the docker command where the distribution packages it on its own,
-// as Debian 13 does with docker-cli, which docker.io only recommends.
-func dockerPackages(sys System) []string {
-	pkgs := []string{"docker.io"}
-	if aptCandidate(sys, "docker-cli") {
-		pkgs = append(pkgs, "docker-cli")
-	}
-	return pkgs
 }
 
 // aptCandidate reports whether apt can install pkg itself, not only as a

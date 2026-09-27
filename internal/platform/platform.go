@@ -2,7 +2,8 @@
 // decides how the installer treats the one it runs on. Each supported
 // release is installed on, played on and uninstalled from in a fresh copy of
 // its official cloud image before every release
-// (.github/workflows/os-matrix.yml). A release of a supported distribution
+// (.github/workflows/os-matrix.yml), except the few the installer accepts as
+// their family (Release.Untested). A release of a supported distribution
 // that came out later is newer than every tested one: the installer warns
 // and continues, so a new Ubuntu or Debian works before the list names it.
 package platform
@@ -24,12 +25,18 @@ type Release struct {
 	// like "May 2025". Playkeeper still runs on it, and the installer says
 	// that the system itself no longer gets them.
 	SecurityEnded string
+	// Untested marks a release the OS matrix doesn't boot that the installer
+	// accepts as its family: RHEL, which AlmaLinux, Rocky Linux and Oracle
+	// Linux rebuild (its images need a subscription), and CentOS Stream 10,
+	// where RHEL 10 is developed.
+	Untested bool
 }
 
 // Supported lists the supported releases, each distribution's oldest first.
 // Debian 11 isn't one: since its long-term support ended in August 2026,
 // Debian's archive no longer has the docker.io and containerd builds its
-// package lists point to, so Docker can't be installed from it.
+// package lists point to, so Docker can't be installed from it. A version
+// without a dot stands for every minor release of it: 9 is 9.6 too.
 var Supported = []Release{
 	{Distro: "ubuntu", Version: "20.04", Name: "Ubuntu 20.04 LTS", SecurityEnded: "May 2025"},
 	{Distro: "ubuntu", Version: "22.04", Name: "Ubuntu 22.04 LTS"},
@@ -37,6 +44,16 @@ var Supported = []Release{
 	{Distro: "ubuntu", Version: "26.04", Name: "Ubuntu 26.04 LTS"},
 	{Distro: "debian", Version: "12", Name: "Debian 12"},
 	{Distro: "debian", Version: "13", Name: "Debian 13"},
+	{Distro: "almalinux", Version: "9", Name: "AlmaLinux 9"},
+	{Distro: "almalinux", Version: "10", Name: "AlmaLinux 10"},
+	{Distro: "rocky", Version: "9", Name: "Rocky Linux 9"},
+	{Distro: "rocky", Version: "10", Name: "Rocky Linux 10"},
+	{Distro: "ol", Version: "9", Name: "Oracle Linux 9"},
+	{Distro: "rhel", Version: "9", Name: "RHEL 9", Untested: true},
+	{Distro: "rhel", Version: "10", Name: "RHEL 10", Untested: true},
+	{Distro: "centos", Version: "9", Name: "CentOS Stream 9"},
+	{Distro: "centos", Version: "10", Name: "CentOS Stream 10", Untested: true},
+	{Distro: "amzn", Version: "2023", Name: "Amazon Linux 2023"},
 }
 
 // Distro is a supported distribution with its supported releases, oldest
@@ -51,7 +68,14 @@ type Distro struct {
 func (d Distro) Oldest() Release { return d.Releases[0] }
 func (d Distro) Newest() Release { return d.Releases[len(d.Releases)-1] }
 
-var distroNames = map[string]string{"ubuntu": "Ubuntu", "debian": "Debian"}
+var distroNames = map[string]string{
+	"ubuntu": "Ubuntu", "debian": "Debian",
+	"almalinux": "AlmaLinux", "rocky": "Rocky Linux", "ol": "Oracle Linux", "rhel": "RHEL", "centos": "CentOS Stream", "amzn": "Amazon Linux",
+}
+
+// familyNames group distributions for a short list: AlmaLinux, Rocky Linux,
+// Oracle Linux and CentOS Stream are RHEL, rebuilt or ahead of it.
+var familyNames = map[string]string{"almalinux": "the RHEL family", "rocky": "the RHEL family", "ol": "the RHEL family", "rhel": "the RHEL family", "centos": "the RHEL family"}
 
 // Distros lists the supported distributions in the order Supported first
 // names them.
@@ -77,14 +101,56 @@ func indexOf(ds []Distro, id string) int {
 	return -1
 }
 
+// A Group is one item of a short list of the supported systems: a
+// distribution, or a family of them with its members' names.
+type Group struct {
+	Name, Version string
+	Members       []string
+}
+
+// Groups lists the supported distributions with each family as one item,
+// in the order Supported first names them. A family's version is its
+// members' oldest.
+func Groups() []Group {
+	var out []Group
+	for _, d := range Distros() {
+		fam := familyNames[d.ID]
+		if n := len(out); fam != "" && n > 0 && out[n-1].Name == fam {
+			out[n-1].Members = append(out[n-1].Members, d.Name)
+			if compareVersions(d.Oldest().Version, out[n-1].Version) < 0 {
+				out[n-1].Version = d.Oldest().Version
+			}
+			continue
+		}
+		g := Group{Name: d.Name, Version: d.Oldest().Version}
+		if fam != "" {
+			g = Group{Name: fam, Version: d.Oldest().Version, Members: []string{d.Name}}
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
 // Summary names what Playkeeper runs on in one phrase: "Ubuntu 20.04 or
-// later, or Debian 12 or later".
+// later, Debian 12 or later, the RHEL family 9 or later (AlmaLinux, …), or
+// Amazon Linux 2023 or later".
 func Summary() string {
 	var parts []string
-	for _, d := range Distros() {
-		parts = append(parts, d.Name+" "+d.Oldest().Version+" or later")
+	for _, g := range Groups() {
+		part := g.Name + " " + g.Version + " or later"
+		if len(g.Members) > 0 {
+			part += " (" + joinAnd(g.Members) + ")"
+		}
+		parts = append(parts, part)
 	}
 	return joinOr(parts)
+}
+
+func joinAnd(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
 }
 
 // joinOr lists items as "a, b, or c", or "a, or b" for two, so that each
@@ -96,12 +162,12 @@ func joinOr(items []string) string {
 	return strings.Join(items[:len(items)-1], ", ") + ", or " + items[len(items)-1]
 }
 
-// Short is Summary for a line with little room: "Ubuntu 20.04+ or Debian
-// 12+".
+// Short is Summary for a line with little room: "Ubuntu 20.04+, Debian
+// 12+, the RHEL family 9+ or Amazon Linux 2023+".
 func Short() string {
 	var parts []string
-	for _, d := range Distros() {
-		parts = append(parts, d.Name+" "+d.Oldest().Version+"+")
+	for _, g := range Groups() {
+		parts = append(parts, g.Name+" "+g.Version+"+")
 	}
 	if len(parts) < 2 {
 		return strings.Join(parts, "")
@@ -109,9 +175,10 @@ func Short() string {
 	return strings.Join(parts[:len(parts)-1], ", ") + " or " + parts[len(parts)-1]
 }
 
-// OS is what /etc/os-release says about a system.
+// OS is what /etc/os-release says about a system. IDLike is its ID_LIKE,
+// the distributions it is like: "rhel centos fedora".
 type OS struct {
-	ID, VersionID, Name, PrettyName, Codename string
+	ID, VersionID, Name, PrettyName, Codename, IDLike string
 }
 
 // ReadOS reads an os-release file; a missing one gives an empty OS.
@@ -143,6 +210,8 @@ func ParseOS(s string) OS {
 			o.PrettyName = v
 		case "VERSION_CODENAME":
 			o.Codename = v
+		case "ID_LIKE":
+			o.IDLike = v
 		}
 	}
 	return o
@@ -187,6 +256,9 @@ const (
 	// came out after this version of Playkeeper, an interim Ubuntu, or
 	// Debian testing. It should work.
 	Newer
+	// Family is a supported release the OS matrix doesn't boot, accepted as
+	// its family (Release.Untested).
+	Family
 )
 
 // Verdict is what Check found.
@@ -194,8 +266,8 @@ type Verdict struct {
 	Support Support
 	// Distro is the system's distribution when it is supported.
 	Distro *Distro
-	// Release is the supported release the system is (Tested), or the
-	// newest supported release older than it (Newer).
+	// Release is the supported release the system is (Tested or Family), or
+	// the newest supported release older than it (Newer).
 	Release Release
 }
 
@@ -218,7 +290,14 @@ func Check(o OS) Verdict {
 		return v
 	}
 	for _, r := range d.Releases {
-		switch c := compareVersions(o.VersionID, r.Version); {
+		version := o.VersionID
+		if !strings.Contains(r.Version, ".") {
+			version, _, _ = strings.Cut(version, ".")
+		}
+		switch c := compareVersions(version, r.Version); {
+		case c == 0 && r.Untested:
+			v.Support, v.Release = Family, r
+			return v
 		case c == 0:
 			v.Support, v.Release = Tested, r
 			return v

@@ -83,7 +83,13 @@ type Facts struct {
 	OS            platform.OS
 	DockerPresent bool
 	DockerVersion string
-	UFWActive     bool
+	// Docker is where the install gets Docker Engine from, when it isn't
+	// present; Firewall is the active ufw or firewalld, if any.
+	Docker   *dockerSource
+	Firewall hostFirewall
+	// SudoLink is set when the install links the binary into SudoLink, so
+	// sudo finds it.
+	SudoLink      bool
 	ReuseData     bool
 	ExistingAdmin bool
 	PanelURLHost  string
@@ -116,6 +122,10 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 	}
 	f.OS = platform.ReadOS(sys.P("/etc/os-release"))
 	f.Checks = append(f.Checks, osCheck(f.OS, o.AllowUntestedOS))
+	fam := familyOf(f.OS)
+	if _, err := os.Stat(sys.P("/usr/bin/apt-get")); err == nil && fam == nil {
+		fam = debianFamily
+	}
 	switch arch := sys.Arch(); {
 	case archNames[arch] != "" && userland32(sys):
 		add("arch", "CPU architecture", "fail", "This is a 32-bit system on a 64-bit CPU. Playkeeper and its Minecraft images need the 64-bit system.",
@@ -131,7 +141,7 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 	if st, err := os.Stat(sys.P("/run/systemd/system")); err == nil && st.IsDir() {
 		add("systemd", "Service manager", "pass", "systemd is running.", "")
 	} else {
-		add("systemd", "Service manager", "fail", "systemd is not running; Playkeeper's services need it.", "Use a server or virtual machine that runs systemd, such as a standard Ubuntu or Debian server, not a container.")
+		add("systemd", "Service manager", "fail", "systemd is not running; Playkeeper's services need it.", "Use a server or virtual machine that runs systemd, such as a standard Ubuntu, Debian or AlmaLinux server, not a container.")
 	}
 	mem := sys.MemTotalMB()
 	switch {
@@ -149,7 +159,11 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 	case free >= MinDiskBytes:
 		add("disk", "Disk space", "warn", fmt.Sprintf("%.1f GB free under /var/lib; worlds and backups grow over time.", gb(free)), "Keep at least 5 GB free.")
 	default:
-		add("disk", "Disk space", "fail", fmt.Sprintf("Only %.1f GB free under /var/lib; at least 3 GB is needed.", gb(free)), "Free disk space (for example: sudo apt-get clean; sudo journalctl --vacuum-size=200M) or use a larger disk.")
+		clean := ""
+		if fam != nil {
+			clean = fam.pm.cleanHint() + "; "
+		}
+		add("disk", "Disk space", "fail", fmt.Sprintf("Only %.1f GB free under /var/lib; at least 3 GB is needed.", gb(free)), "Free disk space (for example: "+clean+"sudo journalctl --vacuum-size=200M) or use a larger disk.")
 	}
 	for _, p := range []struct {
 		port int
@@ -167,13 +181,16 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 		}
 	}
 	var existing []string
+	// /lib is /usr/lib on the RHEL family and on newer Ubuntu and Debian.
+	units := map[string]bool{}
 	for _, dir := range []string{"/etc/systemd/system", "/lib/systemd/system", "/usr/lib/systemd/system"} {
 		entries, _ := os.ReadDir(sys.P(dir))
 		for _, e := range entries {
-			if strings.HasPrefix(e.Name(), "playkeeper-") {
+			if strings.HasPrefix(e.Name(), "playkeeper-") || units[e.Name()] {
 				continue
 			}
 			if strings.HasSuffix(e.Name(), ".service") && unitPattern.MatchString(e.Name()) {
+				units[e.Name()] = true
 				existing = append(existing, "service "+e.Name())
 			}
 		}
@@ -189,6 +206,10 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 		}
 	}
 	di, derr := sys.Docker(ctx)
+	podman := derr == nil && di.Podman
+	if podman {
+		derr = errors.New("the Docker socket is Podman's")
+	}
 	if derr == nil {
 		f.DockerPresent, f.DockerVersion = true, di.Version
 		for _, c := range di.Containers {
@@ -217,23 +238,52 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 		f.ExistingAdmin = hasAdmin(sys.P(filepath.Join(config.DefaultDataDir, "panel", "panel.db")))
 		add("reuse", "Previous Playkeeper data", "info", "Found worlds and backups from an earlier Playkeeper install in /var/lib/playkeeper; they will be reused, not changed.", "")
 	}
-	if derr == nil {
+	switch {
+	case podman:
+		how := ""
+		if fam != nil {
+			how = " (" + fam.pm.uninstallHint("podman-docker") + ")"
+		}
+		add("docker", "Docker", "fail", "The Docker socket is Podman's ("+nonEmpty(di.Version, "Podman")+", through podman-docker), not Docker Engine's.",
+			"Playkeeper needs Docker Engine. Turn off Podman's Docker socket (sudo systemctl disable --now podman.socket) and remove podman-docker"+how+"; Podman and its containers keep working. Then run the installer again.")
+	case derr == nil:
 		add("docker", "Docker", "pass", "Docker "+di.Version+" is running; Playkeeper only manages its own container.", "")
-	} else if _, err := os.Stat(sys.P("/usr/bin/apt-get")); err == nil {
-		add("docker", "Docker", "info", "Docker is not installed. The installer will install "+archiveName(f.OS)+" docker.io package.", "")
-	} else {
-		add("docker", "Docker", "fail", "Docker is not installed and apt-get is unavailable.", "Install Docker Engine, then run the installer again.")
+	case fam != nil && fam.docker(f.OS) != nil:
+		f.Docker = fam.docker(f.OS).forHost(sys)
+		var blockers []blocker
+		if len(f.Docker.blockers) > 0 {
+			installed, err := f.Docker.pm.installed(sys)
+			if err != nil {
+				add("docker", "Docker", "fail", "Docker is not installed, and the installed packages can't be listed: "+err.Error(), "Install Docker Engine (https://docs.docker.com/engine/install/), then run the installer again.")
+				break
+			}
+			blockers = dockerBlockers(f.Docker, installed)
+		}
+		for _, b := range blockers {
+			add("docker", "Docker", "fail", "Docker is not installed. "+b.why, b.fix)
+		}
+		if len(blockers) == 0 {
+			add("docker", "Docker", "info", "Docker is not installed. The installer will install "+f.Docker.what+".", "")
+		}
+	default:
+		add("docker", "Docker", "fail", "Docker is not installed, and Playkeeper doesn't install it on "+f.OS.Display()+".", "Install Docker Engine (https://docs.docker.com/engine/install/), then run the installer again.")
+	}
+	if mode := selinuxMode(sys); mode != "" {
+		add("selinux", "SELinux", "pass", "SELinux is "+mode+"; Playkeeper works with it as it is.", "")
+	}
+	if _, err := os.Lstat(sys.P(SudoLink)); errors.Is(err, os.ErrNotExist) {
+		f.SudoLink = sudoMissesBin(sys)
 	}
 	ports := joinAnd(firewallRules(o))
 	why := ""
 	if o.Join == "" {
 		why = " " + port80Why
 	}
-	if ufwActive(sys) {
-		f.UFWActive = true
-		add("firewall", "Firewall (ufw)", "info", "ufw is active; the installer will allow "+ports+". If your provider has a cloud firewall, allow them there too."+why, "")
-	} else if fw, allow := dropFirewall(sys, firewallRules(o)); fw != "" {
-		add("firewall", "Firewall ("+fw+")", "warn", fw+" drops incoming connections that no rule allows, and the installer opens ports only in ufw. Allow "+ports+" in "+fw+" unless a rule already does, and in your provider's cloud firewall if it has one."+why,
+	if fw := activeFirewall(sys); fw != nil {
+		f.Firewall = fw
+		add("firewall", "Firewall ("+fw.short()+")", "info", fw.short()+" is active; the installer will allow "+ports+fw.where()+". If your provider has a cloud firewall, allow them there too."+why, "")
+	} else if name, allow := dropFirewall(sys, firewallRules(o)); name != "" {
+		add("firewall", "Firewall ("+name+")", "warn", name+" drops incoming connections that no rule allows, and the installer opens ports only in ufw and firewalld. Allow "+ports+" in "+name+" unless a rule already does, and in your provider's cloud firewall if it has one."+why,
 			"For example: "+allow)
 	} else {
 		add("firewall", "Firewall", "info", "Found no firewall on this server that blocks incoming connections. If your provider has a cloud firewall, allow "+ports+" there."+why, "")
@@ -296,8 +346,12 @@ func PrintChecks(w io.Writer, f Facts) {
 // Plan describes every change the installer will make.
 func Plan(f Facts, o Options) []string {
 	var p []string
-	if !f.DockerPresent {
-		p = append(p, "Packages:  install docker.io and the docker command from "+archiveName(f.OS)+" archive (with the packages they depend on)")
+	if !f.DockerPresent && f.Docker != nil {
+		p = append(p, "Packages:  install "+f.Docker.plan)
+		if r := f.Docker.repo; r != nil {
+			p = append(p, "           after adding that repository ("+r.file+") and Docker's signing key,",
+				"           which Playkeeper carries ("+r.keyFile+"); both go with Docker")
+		}
 	}
 	runs, second := "runs the web panel", PanelUnit
 	if o.Join != "" {
@@ -307,6 +361,11 @@ func Plan(f Facts, o Options) []string {
 		"Users:     create 'playkeeper' ("+runs+"; no login shell; not in the docker group)",
 		"           create 'playkeeper-mc' (owns world files; the Minecraft container runs as this user)",
 		"Files:     "+BinPath,
+	)
+	if f.SudoLink {
+		p = append(p, "           "+SudoLink+", a link to it, since sudo here leaves "+filepath.Dir(BinPath)+" out of its path")
+	}
+	p = append(p,
 		"           "+ConfigDir+"/config.json",
 		"           "+UnitDir+"/"+AgentUnit+" and "+UnitDir+"/"+second,
 	)
@@ -333,14 +392,19 @@ func Plan(f Facts, o Options) []string {
 		p = append(p,
 			"Network:   when Docker starts it turns on IP forwarding, sets the iptables FORWARD policy to DROP,",
 			"           adds its DOCKER chains and NAT (masquerade) rules, and creates the docker0 bridge;",
+		)
+		if _, ok := f.Firewall.(firewalld); ok {
+			p = append(p, "           it also adds a 'docker' zone and a 'docker-forwarding' policy to firewalld;")
+		}
+		p = append(p,
 			"           uninstall puts these back as they were when it removes Docker",
 			fmt.Sprintf("           the server gets its own Docker network, 'playkeeper' (a bridge), and Docker forwards %d/tcp to it", o.GamePort),
 		)
 	} else {
 		p = append(p, fmt.Sprintf("Network:   the server gets its own Docker network, 'playkeeper' (a bridge), and Docker forwards %d/tcp to it", o.GamePort))
 	}
-	if f.UFWActive {
-		p = append(p, "Firewall:  ufw allow "+joinAnd(firewallRules(o))+" (rules that already exist stay yours)")
+	if f.Firewall != nil {
+		p = append(p, f.Firewall.planLine(joinAnd(firewallRules(o))))
 	}
 	p = append(p, "Untouched: your other services, existing Docker containers, SSH, and your own firewall rules")
 	return p
@@ -360,8 +424,18 @@ type Manifest struct {
 	DirsCreated       []string  `json:"dirsCreated"`
 	Units             []string  `json:"units"`
 	FirewallRules     []string  `json:"firewallRules"`
-	ReusedData        bool      `json:"reusedData"`
-	KeptOnUninstall   []string  `json:"keptOnUninstall"`
+	// Firewall is the firewall FirewallRules are in: "firewalld", in
+	// FirewallZone, or "" for ufw. FirewallZoneFiles are the zone's files
+	// firewalld didn't have before the install changed it, and
+	// FirewallZoneBefore its saved settings then.
+	Firewall           string   `json:"firewall,omitempty"`
+	FirewallZone       string   `json:"firewallZone,omitempty"`
+	FirewallZoneFiles  []string `json:"firewallZoneFiles,omitempty"`
+	FirewallZoneBefore string   `json:"firewallZoneBefore,omitempty"`
+	ReusedData         bool     `json:"reusedData"`
+	KeptOnUninstall    []string `json:"keptOnUninstall"`
+	// PackageManager installed PackagesInstalled: "dnf", or "" for apt.
+	PackageManager string `json:"packageManager,omitempty"`
 	// NetBeforeDocker is the host network as it was before Playkeeper
 	// installed Docker, so removing Docker can put it back.
 	NetBeforeDocker *NetSettings `json:"netBeforeDocker,omitempty"`
@@ -369,6 +443,11 @@ type Manifest struct {
 	// created them; removing Docker removes them too.
 	DockerGroupCreated bool     `json:"dockerGroupCreated,omitempty"`
 	DockerDirsCreated  []string `json:"dockerDirsCreated,omitempty"`
+	// DockerRepoFiles are the repository and signing key added to install
+	// Docker, and DockerFirewalld the zone and policy Docker added to
+	// firewalld; they go with Docker.
+	DockerRepoFiles []string `json:"dockerRepoFiles,omitempty"`
+	DockerFirewalld []string `json:"dockerFirewalld,omitempty"`
 }
 
 type step struct {
@@ -496,6 +575,10 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 	fmt.Fprintln(in.out, "\nInstalling:")
 
 	if !in.f.DockerPresent {
+		src := in.f.Docker
+		if src == nil {
+			return nil, errors.New("Docker is not installed, and Playkeeper doesn't install it on " + in.f.OS.Display())
+		}
 		var before map[string]bool
 		dockerGroupExisted := groupExists(sys, "docker")
 		stateDirs := []string{"/var/lib/docker", "/var/lib/containerd", "/etc/docker", "/etc/containerd"}
@@ -505,19 +588,28 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 				newDirs = append(newDirs, d)
 			}
 		}
-		if err := in.exec(step{name: "install Docker (docker.io)", do: func() error {
+		if err := in.exec(step{name: "install Docker (" + strings.Join(src.pkgs, ", ") + ")", do: func() error {
 			var err error
-			if before, err = installedPackages(sys); err != nil {
+			if before, err = src.pm.installed(sys); err != nil {
 				return err
 			}
 			net := readNetSettings(sys)
 			in.m.NetBeforeDocker = &net
 			in.m.DockerGroupCreated, in.m.DockerDirsCreated = !dockerGroupExisted, newDirs
-			if _, err := aptGet(sys, in.out, "update"); err != nil {
-				return err
+			in.m.PackageManager = src.pm.id()
+			// Docker adds its zone and policy to a firewalld that runs, whichever
+			// firewall the ports go in.
+			var zonesBefore map[string]bool
+			if firewalldActive(sys) {
+				zonesBefore = firewalldHas(sys)
 			}
-			_, err = aptGet(sys, in.out, append([]string{"install", "-y", "--no-install-recommends"}, dockerPackages(sys)...)...)
-			after, perr := installedPackages(sys)
+			if src.repo != nil {
+				if err := in.addRepo(src.repo); err != nil {
+					return err
+				}
+			}
+			err = src.pm.install(sys, in.out, src.packages())
+			after, perr := src.pm.installed(sys)
 			if perr == nil {
 				for p := range after {
 					if !before[p] {
@@ -529,15 +621,24 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 			if err != nil {
 				return err
 			}
-			if _, err := sys.Run("systemctl", "enable", "--now", "docker.service"); err != nil {
-				return err
+			if _, err = sys.Run("systemctl", "enable", "--now", "docker.service"); err == nil {
+				err = waitFor(ctx, 60*time.Second, func() bool { _, err := sys.Docker(ctx); return err == nil })
 			}
-			return waitFor(ctx, 60*time.Second, func() bool { _, err := sys.Docker(ctx); return err == nil })
+			// A Docker that fails to start may have added them first.
+			if zonesBefore != nil {
+				now := firewalldHas(sys)
+				for _, o := range dockerFirewalld {
+					if now[o] && !zonesBefore[o] {
+						in.m.DockerFirewalld = append(in.m.DockerFirewalld, o)
+					}
+				}
+			}
+			return err
 		}, undo: func() error {
 			if len(in.m.PackagesInstalled) == 0 {
-				return nil
+				return removeFiles(sys, in.m.DockerRepoFiles)
 			}
-			left, err := purgeDocker(sys, in.out, in.m.PackagesInstalled, in.m.NetBeforeDocker)
+			left, err := purgeDocker(sys, in.out, &in.m)
 			if err == nil {
 				err = removeDockerLeftovers(sys, &in.m)
 			}
@@ -662,6 +763,23 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		return nil, err
 	}
 
+	if in.f.SudoLink {
+		if err := in.exec(step{name: "link " + SudoLink + " to it, for sudo", do: func() error {
+			if err := os.Symlink(BinPath, sys.P(SudoLink)); err != nil {
+				return err
+			}
+			in.m.FilesCreated = append(in.m.FilesCreated, SudoLink)
+			return nil
+		}, undo: func() error {
+			if !contains(in.m.FilesCreated, SudoLink) {
+				return nil
+			}
+			return removeIfExists(sys.P(SudoLink))
+		}}); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := in.exec(step{name: "write " + ConfigDir + "/config.json", do: func() error {
 		if err := cfg.Save(sys.P(ConfigDir + "/config.json")); err != nil {
 			return err
@@ -760,30 +878,29 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		return nil, err
 	}
 
-	if in.f.UFWActive {
-		name := "allow the panel, game and Let's Encrypt ports in ufw"
+	if fw := in.f.Firewall; fw != nil {
+		name := "allow the panel, game and Let's Encrypt ports in " + fw.short()
 		if cfg.NoPanel {
-			name = "allow the game port in ufw"
+			name = "allow the game port in " + fw.short()
 		}
+		fw.record(sys, &in.m)
 		if err := in.exec(step{name: name, do: func() error {
 			for _, rule := range firewallRules(in.o) {
-				added, err := ufwAllow(sys, rule)
-				if err != nil {
-					return err
-				}
+				added, err := fw.allow(sys, rule)
 				if added {
 					in.m.FirewallRules = append(in.m.FirewallRules, rule)
+				}
+				if err != nil {
+					return err
 				}
 			}
 			return nil
 		}, undo: func() error {
 			var errs []error
 			for _, r := range in.m.FirewallRules {
-				if _, err := sys.Run("ufw", "delete", "allow", r); err != nil {
-					errs = append(errs, err)
-				}
+				errs = append(errs, fw.remove(sys, r))
 			}
-			return errors.Join(errs...)
+			return errors.Join(append(errs, fw.tidy(sys, in.m))...)
 		}}); err != nil {
 			return nil, err
 		}
@@ -803,14 +920,14 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 // Playkeeper installed. Purging while docker.socket is active leaves a dead
 // socket unit behind, and a later reinstall's docker.service then fails to
 // start. It returns what it could not put back, with how to do it by hand.
-func purgeDocker(sys System, out io.Writer, pkgs []string, before *NetSettings) ([]string, error) {
+func purgeDocker(sys System, out io.Writer, m *Manifest) ([]string, error) {
 	_, _ = sys.Run("systemctl", "stop", "docker.service", "docker.socket", "containerd.service")
 	var nb NetSettings
-	if before != nil {
-		nb = *before
+	if m.NetBeforeDocker != nil {
+		nb = *m.NetBeforeDocker
 	}
 	left := revertDockerNetwork(sys, nb)
-	_, err := aptGet(sys, out, append([]string{"purge", "-y"}, pkgs...)...)
+	err := packageManagerOf(*m).remove(sys, out, m.PackagesInstalled)
 	_, _ = sys.Run("systemctl", "daemon-reload")
 	_, _ = sys.Run("systemctl", "reset-failed")
 	for _, p := range []string{"/run/docker.sock", "/run/docker", "/run/containerd"} {
@@ -820,7 +937,8 @@ func purgeDocker(sys System, out io.Writer, pkgs []string, before *NetSettings) 
 }
 
 // removeDockerLeftovers deletes, once Docker is purged, the docker group and
-// the state directories that installing Docker created.
+// the state directories that installing Docker created, the repository it
+// came from, and what it added to firewalld.
 func removeDockerLeftovers(sys System, m *Manifest) error {
 	var errs []error
 	if m.DockerGroupCreated && groupExists(sys, "docker") {
@@ -833,48 +951,35 @@ func removeDockerLeftovers(sys System, m *Manifest) error {
 			errs = append(errs, err)
 		}
 	}
+	errs = append(errs, removeFiles(sys, m.DockerRepoFiles), removeFirewalld(sys, m.DockerFirewalld))
 	return errors.Join(errs...)
 }
 
-// lockWait bounds how long install and uninstall wait for another package
-// manager to finish; on a new server unattended-upgrades often runs first.
-const lockWait = 15 * time.Minute
-
-// aptGet runs apt-get once no other package manager holds apt's lock, and
-// waits again if another one takes it first.
-func aptGet(sys System, out io.Writer, args ...string) (string, error) {
-	deadline := sys.Now().Add(lockWait)
-	args = append([]string{"-o", "DPkg::Lock::Timeout=60"}, args...)
-	for {
-		if err := waitForPackageLock(sys, out, deadline); err != nil {
-			return "", err
+// addRepo adds the package repository Docker is installed from, with the key
+// its packages are signed with, and records both for uninstall first.
+func (in *installer) addRepo(r *rpmRepo) error {
+	for _, f := range []struct {
+		path    string
+		content []byte
+	}{{r.keyFile, r.key}, {r.file, []byte(r.content())}} {
+		in.m.DockerRepoFiles = append(in.m.DockerRepoFiles, f.path)
+		p := in.sys.P(f.path)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
 		}
-		o, err := sys.Run("apt-get", args...)
-		if err == nil || !aptLockError(o, err) || !sys.Now().Before(deadline) {
-			return o, err
+		if err := writeFileAtomic(p, f.content, 0o644); err != nil {
+			return err
 		}
-		sys.Sleep(5 * time.Second)
-	}
-}
-
-func waitForPackageLock(sys System, out io.Writer, deadline time.Time) error {
-	told := false
-	for sys.PackageLockHeld() {
-		if !sys.Now().Before(deadline) {
-			return fmt.Errorf("another package manager has held apt's lock for over %s (on a new server this is usually unattended-upgrades); run this again when `ps -C apt,apt-get,dpkg,unattended-upgr` shows nothing", lockWait)
-		}
-		if !told {
-			fmt.Fprintln(out, "    waiting for another package manager to finish (on a new server this is usually unattended-upgrades)...")
-			told = true
-		}
-		sys.Sleep(5 * time.Second)
 	}
 	return nil
 }
 
-func aptLockError(out string, err error) bool {
-	s := out + " " + err.Error()
-	return strings.Contains(s, "Could not get lock") || strings.Contains(s, "Unable to acquire the dpkg frontend lock") || strings.Contains(s, "Unable to lock directory")
+func removeFiles(sys System, paths []string) error {
+	var errs []error
+	for _, p := range paths {
+		errs = append(errs, removeIfExists(sys.P(p)))
+	}
+	return errors.Join(errs...)
 }
 
 func groupExists(sys System, name string) bool {
@@ -888,20 +993,6 @@ func groupExists(sys System, name string) bool {
 		}
 	}
 	return false
-}
-
-func installedPackages(sys System) (map[string]bool, error) {
-	out, err := sys.Run("dpkg-query", "-W", "-f", "${Package}\\n")
-	if err != nil {
-		return nil, err
-	}
-	m := map[string]bool{}
-	for _, l := range strings.Split(out, "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			m[l] = true
-		}
-	}
-	return m, nil
 }
 
 func contains(list []string, s string) bool {
@@ -919,9 +1010,10 @@ const acmeRule = "80/tcp"
 
 const port80Why = "Port 80 is only for Let's Encrypt's checks of your own domain; nothing answers on it otherwise."
 
-// firewallRules are the ufw rules the installer adds: the panel, the first
-// server and Let's Encrypt's checks. A machine that joins another dashboard
-// runs no dashboard of its own, so it gets only the first server's.
+// firewallRules are the rules the installer adds to ufw or firewalld: the
+// panel, the first server and Let's Encrypt's checks. A machine that joins
+// another dashboard runs no dashboard of its own, so it gets only the first
+// server's.
 func firewallRules(o Options) []string {
 	var out []string
 	add := func(r string) {
@@ -944,21 +1036,6 @@ func joinAnd(items []string) string {
 		return strings.Join(items, "")
 	}
 	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
-}
-
-func ufwActive(sys System) bool {
-	out, err := sys.Run("ufw", "status")
-	return err == nil && strings.Contains(out, "Status: active")
-}
-
-// ufwAllow allows rule in ufw and reports whether that added it. A rule
-// that was already there is the admin's, so uninstall must leave it.
-func ufwAllow(sys System, rule string) (added bool, err error) {
-	out, err := sys.Run("ufw", "allow", rule)
-	if err != nil {
-		return false, err
-	}
-	return !strings.Contains(out, "Skipping adding existing rule"), nil
 }
 
 func waitFor(ctx context.Context, d time.Duration, ok func() bool) error {
