@@ -1145,6 +1145,8 @@ export const en = {
   'new.maxNoteAlone': '{memory} is the most that fits on {machine}.',
   'new.noMemory': 'There isn’t enough memory left on {machine} for another server. Give another server less memory in its Settings, or delete one you no longer need.',
   'new.noMemoryTitle': 'No memory left',
+  'new.packShortTitle': 'Not enough memory on {machine}',
+  'new.packShort': '{pack} needs about {need}, and {max} is the most it can get here, so it may run out of memory.',
   'new.nextName': 'Next: name it and start',
   'new.continueName': 'Continue to name',
   'new.nameTitle': 'Name it and start',

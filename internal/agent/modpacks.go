@@ -80,6 +80,19 @@ func packMemoryMB(n int) int {
 	return 8192
 }
 
+// packNeedMB is the memory a server needs for a pack of type typ that puts
+// mods mods on it and whose own settings ask for heapMB of Java heap (0
+// when they don't say): packMemoryMB's suggestion, or more when the heap
+// the server would give Java for those mods is less than the pack asks for,
+// rounded up to half a gigabyte.
+func packNeedMB(typ string, mods, heapMB int) int {
+	need := packMemoryMB(mods)
+	if heapMB > 0 {
+		need = max(need, (minecraft.BudgetFor(heapMB, typ, mods)+511)/512*512)
+	}
+	return need
+}
+
 var rePackID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 // parsePackRef checks a pack's source, project and version as they come
@@ -249,15 +262,20 @@ func (a *Agent) hModpackPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := &api.ModpackPreview{Type: pl.Requirements.Type, MinecraftVersion: pl.Requirements.MinecraftVersion, LoaderVersion: pl.Requirements.LoaderVersion,
-		DownloadSize: pl.DownloadSize, Ready: pl.Ready, Blockers: apiNotices(pl.Blockers), Warnings: apiNotices(pl.Warnings), Manual: []api.AddonNotice{}}
+		DownloadSize: pl.DownloadSize, Ready: pl.Ready, Blockers: apiNotices(pl.Blockers), Warnings: apiNotices(pl.Warnings), Manual: []api.AddonNotice{},
+		HeapMB: pl.HeapMB}
 	if java := minecraft.JavaFor(out.MinecraftVersion); out.MinecraftVersion != "" && java != minecraft.NewestJava {
 		out.Java = java
 	}
 	for _, c := range pl.Changes {
 		if c.Action == modpacks.ActionAdd {
 			out.Files++
+			if name, ok := strings.CutPrefix(c.Path, "mods/"); ok && strings.HasSuffix(name, ".jar") && !strings.Contains(name, "/") {
+				out.Mods++
+			}
 		}
 	}
+	out.MemoryMB = packNeedMB(out.Type, out.Mods, out.HeapMB)
 	for _, m := range pl.Manual {
 		out.Manual = append(out.Manual, apiManual(m))
 	}

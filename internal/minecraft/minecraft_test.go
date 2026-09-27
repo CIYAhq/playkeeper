@@ -262,6 +262,24 @@ func TestHeapForModLoaders(t *testing.T) {
 	}
 }
 
+// BudgetFor is the least budget giving a heap: All the Mods 10 asks for
+// 8 GB of heap with 460 mods on NeoForge, which takes almost 12 GB.
+func TestBudgetFor(t *testing.T) {
+	if got := BudgetFor(8196, "neoforge", 460); got != 8196+1024+6*460 {
+		t.Errorf("ATM10: budget %d", got)
+	}
+	for _, typ := range []string{"neoforge", "fabric", "paper", ""} {
+		for _, mods := range []int{0, 17, 460} {
+			for heap := 0; heap <= 20000; heap += 97 {
+				b := BudgetFor(heap, typ, mods)
+				if HeapFor(b, typ, mods) < heap || b > 0 && HeapFor(b-1, typ, mods) >= heap {
+					t.Fatalf("%s with %d mods, heap %d: budget %d gives %d, one less gives %d", typ, mods, heap, b, HeapFor(b, typ, mods), HeapFor(b-1, typ, mods))
+				}
+			}
+		}
+	}
+}
+
 func TestImageAndKnownBuildsArePinned(t *testing.T) {
 	if !strings.Contains(Image, "@sha256:") {
 		t.Fatalf("image must be pinned by digest: %s", Image)

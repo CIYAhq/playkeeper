@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
 import * as templates from '@/api/templates'
-import type { Action, Catalog, MachineView, Me, Operation, TemplatePlan, WorldImport, WorldImportPreview } from '@/api/types'
+import type { Action, Catalog, MachineView, Me, ModpackCard, ModpackDetail, ModpackPreview, Operation, TemplatePlan, WorldImport, WorldImportPreview } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import type { ModpackChoice } from '@/components/app/modpacks'
 import type { TemplateChoice } from '@/components/app/templates'
@@ -481,6 +481,71 @@ describe('What New server sizes memory for', () => {
     { name: 'a type, when a pack was chosen before', from: 'type', pack: pack('fabric', 40), want: { type: 'paper' } },
   ])('asks the catalog for $name', ({ from, pack, tpl, want }) => {
     expect(catalogFor(from, 'paper', pack, tpl, types)).toEqual(want)
+  })
+
+  // All the Mods 10 as its plan reads it: 460 mods and 8 GB of heap in its manifest, which takes 12 GB.
+  const atm10: ModpackPreview = {
+    type: 'neoforge', minecraftVersion: '1.21.1', loaderVersion: '21.1.251', files: 3904, downloadSize: 1_361_589_811, ready: true,
+    blockers: [], warnings: [], manual: [], mods: 460, memoryMB: 12 << 10, heapMB: 8196,
+  }
+  const atm10Card: ModpackCard = {
+    source: 'modrinth', projectId: 'ATM10AAA', slug: 'atm10', name: 'All the Mods 10', summary: '', downloads: 1, updated: '2026-09-22T00:00:00Z',
+    pageUrl: 'https://modrinth.com/modpack/atm10', types: ['neoforge'], minecraftVersions: ['1.21.1'],
+  }
+  /** Picks All the Mods 10 in New server and goes on to memory, on a machine with these memory options; the plan answers when plan resolves. */
+  async function packMemoryStep(options: number[], plan: Promise<ModpackPreview>) {
+    window.history.replaceState(null, '', '/servers/new')
+    const neoforge: Catalog = { ...catalog, types, memoryOptionsMB: options, maxMemoryMB: options[options.length - 1] ?? 0 }
+    const detail: ModpackDetail = { ...atm10Card, versions: [{ id: 'ATMV0001', number: '8.2', channel: 'release', published: '2026-09-22T00:00:00Z', size: 1, type: 'neoforge', minecraftVersion: '1.21.1' }], newest: 'ATMV0001' }
+    vi.mocked(client.get).mockImplementation(((path: string) => {
+      if (path.includes('/catalog')) return Promise.resolve({ ...neoforge, type: new URLSearchParams(path.split('?')[1]).get('type') ?? 'paper' })
+      if (path.includes('/preview')) return plan
+      if (path.includes('/modpacks?')) return Promise.resolve({ cards: [atm10Card], total: 1, offset: 0, limit: 12, sources: ['modrinth'] })
+      if (path.includes('/modpacks/modrinth/ATM10AAA')) return Promise.resolve(detail)
+      return new Promise(() => {})
+    }) as typeof client.get)
+    await render()
+    await click(button('A modpack'))
+    await click(button('Pick All the Mods 10'))
+    await click(button('Continue with this modpack'))
+    await act(settle)
+  }
+  const slider = () => document.querySelector('input[type="range"][aria-label="Memory for this server"]')
+
+  it('suggests the memory a pack needs, from its mods and its own Java heap', async () => {
+    await packMemoryStep([2048, 4096, 6144, 8192, 12288], Promise.resolve(atm10))
+    expect(text()).toContain('All the Mods 10 needs about 12 GB.')
+    expect(slider()?.getAttribute('aria-valuetext')).toBe('12 GB')
+    expect(text()).not.toContain('Not enough memory')
+    expect(client.get).toHaveBeenCalledWith(`/api/machines/${machine.id}/catalog?type=neoforge&mods=460`)
+  })
+
+  it('says so when the machine can’t give a pack the memory it needs', async () => {
+    await packMemoryStep([2048, 4096, 6144, 8192], Promise.resolve(atm10))
+    expect(text()).toContain('Not enough memory on my-vps')
+    expect(text()).toContain('All the Mods 10 needs about 12 GB, and 8 GB is the most it can get here, so it may run out of memory.')
+    expect(slider()?.getAttribute('aria-valuetext')).toBe('8 GB')
+  })
+
+  it.each([
+    { name: 'follows a plan that answers late', pick: false, want: '12 GB' },
+    { name: 'keeps a memory picked before the plan', pick: true, want: '6 GB' },
+  ])('$name', async ({ pick, want }) => {
+    let answer: (p: ModpackPreview) => void = () => {}
+    await packMemoryStep([2048, 4096, 6144, 8192, 12288], new Promise((r) => (answer = r)))
+    expect(slider()?.getAttribute('aria-valuetext')).toBe('4 GB')
+    if (pick) {
+      await act(async () => {
+        slider()?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+        await settle()
+      })
+      expect(slider()?.getAttribute('aria-valuetext')).toBe('6 GB')
+    }
+    await act(async () => {
+      answer(atm10)
+      await settle()
+    })
+    expect(slider()?.getAttribute('aria-valuetext')).toBe(want)
   })
 
   it('sizes a shared template by its type and mods', async () => {

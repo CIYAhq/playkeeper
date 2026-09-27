@@ -271,6 +271,28 @@ func TestCurseForgeModsInThePack(t *testing.T) {
 	wantTree(t, l.TempDir)
 }
 
+// The heap a CurseForge manifest recommends is the one the pack asks for,
+// unless its user_jvm_args.txt says otherwise.
+func TestCurseForgePackHeap(t *testing.T) {
+	f := newFakes(t)
+	l := f.library()
+	srv := newServer(t, "fabric", "26.2")
+	ram := func(mb int) func(m obj) { return func(m obj) { m["minecraft"].(obj)["recommendedRam"] = mb } }
+	for _, c := range []struct {
+		name string
+		id   int64
+		want int
+	}{
+		{"recommended", f.cfAddFile(ram(8196)), 8196},
+		{"user_jvm_args.txt wins", f.cfAddFile(ram(8196), entry{name: "overrides/user_jvm_args.txt", data: []byte("-Xms2G\n-Xmx6G\n")}), 6 << 10},
+		{"not a heap", f.cfAddFile(ram(64)), 0},
+	} {
+		if p := mustPlan(t, l, srv, InstallRequest{Ref: cfRef(strconv.FormatInt(c.id, 10))}); p.HeapMB != c.want {
+			t.Errorf("%s: heap %d MB, want %d", c.name, p.HeapMB, c.want)
+		}
+	}
+}
+
 // CurseForge's optional mods are off unless the user turns them on.
 func TestOptionalCurseForgeMods(t *testing.T) {
 	f := newFakes(t)

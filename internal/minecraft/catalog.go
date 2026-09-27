@@ -125,3 +125,18 @@ func HeapFor(budgetMB int, typ string, mods int) int {
 	}
 	return budgetMB - overhead
 }
+
+// BudgetFor is the least memory budget at which HeapFor gives a server of
+// type typ with mods jars at least heapMB of heap.
+func BudgetFor(heapMB int, typ string, mods int) int {
+	lo, hi := max(heapMB, 0), 2*max(heapMB, 0)+4096
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		if HeapFor(mid, typ, mods) >= heapMB {
+			hi = mid
+		} else {
+			lo = mid + 1
+		}
+	}
+	return lo
+}

@@ -29,6 +29,9 @@ type Manifest struct {
 type ManifestMinecraft struct {
 	Version    string      `json:"version"`
 	ModLoaders []ModLoader `json:"modLoaders"`
+	// RecommendedRAM is the Java heap, in MB, the pack's author recommends;
+	// 0 when the manifest doesn't say.
+	RecommendedRAM int `json:"recommendedRam"`
 }
 
 // ModLoader is a loader id such as "fabric-0.19.5" or "neoforge-21.1.77".
