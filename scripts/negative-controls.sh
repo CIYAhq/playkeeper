@@ -5324,7 +5324,7 @@ control "choosing the map's area takes an admin" internal/panel/server.go \
   ./internal/panel '^TestOnlyAdminsChooseTheMapArea$'
 control "a world border that isn't a square is refused" internal/pregen/controller.go \
   '	case sized && size.Kind == EventRadiiSet, reshaped && shape.Shape != string(Square):' \
-  '	case false:' \
+  '	case false && (sized && size.Kind == EventRadiiSet || reshaped && shape.Shape != string(Square)):' \
   ./internal/pregen '^TestStartOnBorderRefused$'
 control "a world border further out than Playkeeper pre-generates is refused" internal/pregen/controller.go \
   '	case r > MaxRadius:' \
