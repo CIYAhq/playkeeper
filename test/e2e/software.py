@@ -8,11 +8,13 @@ For each type (Paper, Purpur, Vanilla, Fabric, Quilt, NeoForge, Forge) it
 creates a server on the catalog's recommended version, waits until it is
 online and answers the console, and checks that its container and Java run as
 this machine's CPU, on the Java the catalog names. On Paper and Fabric it also
-installs every hand-picked add-on, turns on the map and fetches a drawn tile,
-checks that voice chat listens on its UDP port inside the container, and
-pre-generates until Chunky has made chunks. A Modrinth modpack (Adrenaline for
-Minecraft 1.21.11, which runs on Java 21) must install and come online. Each
-server is deleted after its checks, so one runner fits them all.
+installs the hand-picked add-ons that have a version for the server, turns on
+the map and fetches a drawn tile, pre-generates until Chunky has made chunks,
+and, where Simple Voice Chat is among them, checks that it listens on its UDP
+port inside the container. A Modrinth modpack (Adrenaline for Minecraft
+1.21.11, a Fabric pack that runs on Java 21) must install and come online, and
+gets voice chat too. Each server is deleted after its checks, so one runner
+fits them all.
 
 Usage: software.py --url URL --cacert CERT --code SETUP_CODE --out DIR
                    [--types paper,fabric,...] [--no-modpack]
@@ -124,20 +126,36 @@ def check_runs_here(c, st, label, java, cpu):
     return {"container": name, "java": version.splitlines()[0] if version else "", "image": st["config"]["image"], "imagePlatform": arch}
 
 
-def install_curated(c, label):
+def install_picks(c, label, rec, only=None):
+    """Installs the hand-picked add-ons (those in only, when given) and returns
+    the ids of the picks installed. Playkeeper offers only the picks with a
+    version for the server's type and Minecraft version, so each must
+    install."""
     picks = c.ok("GET", c.sp("/addons/curated"))["picks"]
-    check(picks, f"{label}: Playkeeper picks add-ons for it ({', '.join(p['id'] for p in picks)})")
-    names = []
+    print(f"  picks for {label}: {', '.join(p['id'] for p in picks)}", flush=True)
+    installed = []
     for p in picks:
+        if only is not None and p["id"] not in only:
+            continue
         card = p["card"]
         d = c.ok("GET", c.sp(f"/addons/project/{card['source']}/{card['projectId']}"))
         plan = d.get("plan") or {}
-        check(plan.get("ready") and plan.get("fingerprint"), f"{label}: {card['name']} can be installed ({json.dumps(d.get('planError') or plan.get('blockers'))})")
+        why = json.dumps(d.get("planError") or plan.get("blockers"))
+        check(plan.get("ready") and plan.get("fingerprint"), f"{label}: {card['name']} can be installed ({why})")
         op = c.ok("POST", c.sp("/addons/install"), {"source": card["source"], "projectId": card["projectId"], "fingerprint": plan["fingerprint"], "openPorts": bool(p.get("ports"))})
         op = c.wait_op(op["id"], timeout=900)
         check(op["status"] == "succeeded", f"{label}: {card['name']} installed, every file checked ({op.get('error', '')})")
-        names.append(card["name"])
-    return names
+        installed.append(p["id"])
+        rec.setdefault("addons", []).append(card["name"])
+    return installed
+
+
+def restart(c, label, what):
+    op = c.ok("POST", c.sp("/restart"), {})
+    check(c.wait_op(op["id"], timeout=900)["status"] == "succeeded", f"{label}: restarted with {what}")
+    st = c.wait_online(timeout=900)
+    check(not st.get("crash") and st["phase"] == "online", f"{label}: online with {what}")
+    return st
 
 
 def check_voice_chat(c, st, label):
@@ -161,6 +179,7 @@ def check_map(c, label):
         return m if m["state"] == "ready" and m.get("areas", 0) > 0 else None
     m = wait_for(f"{label}: the map drawn", drawn, 900, every=10)
     worlds = c.ok("GET", c.sp("/map/worlds"))
+    check(worlds["worlds"], f"{label}: the map lists its worlds")
     world = next((w for w in worlds["worlds"] if w["dimension"] == "overworld"), worlds["worlds"][0])
     size, top = worlds["tileSize"], world["zoom"]["max"]
     x, z = world["spawn"]["x"] // size, world["spawn"]["z"] // size
@@ -207,19 +226,20 @@ def one_type(c, typ, cpu):
     results["servers"].append(rec)
     rec.update(check_runs_here(c, st, label, entry["java"], cpu))
     if typ in WITH_ADDONS:
-        step(f"{label}: every hand-picked add-on, the map, voice chat and pre-generation")
-        rec["addons"] = install_curated(c, label)
+        step(f"{label}: every hand-picked add-on, the map, pre-generation and voice chat")
+        picked = install_picks(c, label, rec)
+        check("pregenerate" in picked, f"{label}: Chunky is among the add-ons installed ({', '.join(picked)})")
         op = c.ok("POST", c.sp("/map/enable"), {})
         op = c.wait_op(op["id"], timeout=900)
         check(op["status"] == "succeeded", f"{label}: the map turned on, squaremap installed ({op.get('error', '')})")
-        op = c.ok("POST", c.sp("/restart"), {})
-        check(c.wait_op(op["id"], timeout=900)["status"] == "succeeded", f"{label}: restarted with the add-ons")
-        st = c.wait_online(timeout=900)
-        check(not st.get("crash") and st["phase"] == "online", f"{label}: online with {len(rec['addons'])} add-ons and the map")
-        rec["voiceChatPort"] = check_voice_chat(c, st, label)
+        st = restart(c, label, f"{len(picked)} add-ons and the map")
         rec["map"] = check_map(c, label)
         rec["pregen"] = check_pregen(c, label)
-        c.wait_online(timeout=600)
+        st = c.wait_online(timeout=600)
+        if "voice-chat" in picked:
+            rec["voiceChatPort"] = check_voice_chat(c, st, label)
+        else:
+            print(f"  {label}: Playkeeper doesn't offer Simple Voice Chat, which has no version for it yet; the modpack's server checks voice chat on Fabric", flush=True)
     rec["ok"] = True
     delete(c, st)
 
@@ -242,6 +262,10 @@ def modpack(c, cpu):
     files = c.ok("GET", c.sp("/addons"))["files"]
     from_pack = [f["fileName"] for f in files if f["status"] == "pack"]
     check(from_pack, f"{label}: {len(from_pack)} mods from the pack are in place")
+    step(f"{label}: voice chat, the Fabric mod, next to the pack's mods")
+    check(install_picks(c, label, rec, only={"voice-chat"}) == ["voice-chat"], f"{label}: Simple Voice Chat installed next to the pack")
+    st = restart(c, label, "voice chat and the pack")
+    rec["voiceChatPort"] = check_voice_chat(c, st, label)
     rec["ok"] = True
     delete(c, st)
 
@@ -272,8 +296,8 @@ def main():
         for name, job in jobs:
             try:
                 job()
-            except (Failed, SystemExit) as e:
-                failures.append(f"{name}: {e}")
+            except (Exception, SystemExit) as e:
+                failures.append(f"{name}: {type(e).__name__}: {e}")
                 print(f"  {name} failed: {e}", flush=True)
                 traceback.print_exc()
                 try:
@@ -282,7 +306,7 @@ def main():
                     lines = c.ok("GET", c.sp("/logs?limit=80"))["lines"]
                     print("\n".join("    " + ln["text"] for ln in lines), flush=True)
                     delete(c, st)
-                except (Failed, SystemExit, KeyError) as e2:
+                except (Exception, SystemExit) as e2:
                     print(f"  could not clean up after {name}: {e2}", flush=True)
                 c.state.pop("server", None)
     finally:
