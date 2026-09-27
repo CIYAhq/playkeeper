@@ -71,7 +71,7 @@ main() {
     *) die "this server's CPU is $(uname -m); Playkeeper runs on x86_64 (amd64) and 64-bit ARM (aarch64) servers." "Use an x86_64 or 64-bit ARM server. On a Raspberry Pi 4 or 5, install a 64-bit system." ;;
   esac
   [ "$(id -u)" -eq 0 ] || die "the installer needs root." "Pipe into sudo: curl -fsSL <this script's URL> | sudo sh (without sudo, as on a Debian with a root password, run it as root after su -)"
-  command -v curl >/dev/null 2>&1 || die "curl is not installed." "sudo apt-get install -y curl"
+  command -v curl >/dev/null 2>&1 || die "curl is not installed." "sudo apt-get install -y curl, or on the RHEL family and Amazon Linux: sudo dnf install -y curl"
   case $base in
     https://*) proto='=https' ;;
     http://*)

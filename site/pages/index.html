@@ -1,7 +1,7 @@
 {{/*
 path: /
 title: Playkeeper: a free Minecraft server panel for your own VPS
-description: Turn an Ubuntu or Debian VPS into a Minecraft: Java Edition server host with one command: mods, modpacks, backups and a free address. Free and open source.
+description: Turn a Linux VPS into a Minecraft: Java Edition server host with one command: mods, modpacks, backups and a free address. Free and open source.
 label: Playkeeper
 layout: landing
 og: landing
@@ -21,7 +21,7 @@ scripts: js/landing.js, js/sizing-data.js, js/sizing.js
     <div class="hero-text">
       {{with page "/blog/playkeeper-0-4-0"}}<a class="release-pill hero-rise" href="{{.Path}}"><span class="dot" aria-hidden="true"></span>Playkeeper {{$.Site.Version}} is out <strong>What's new{{template "icon" "arrow-right"}}</strong></a>{{end}}
       <h1 id="hero-title" class="h1-hero"><span class="line hero-rise">Your VPS.</span> <span class="line hero-rise">Your Minecraft servers.</span> <span class="line line-green hero-rise">Your worlds.</span></h1>
-      <p class="hero-sub hero-after">Playkeeper turns an Ubuntu or Debian VPS into a Minecraft: Java Edition server host. One command installs it. Free and open source.</p>
+      <p class="hero-sub hero-after">Playkeeper turns a Linux VPS into a Minecraft: Java Edition server host. One command installs it. Free and open source.</p>
       <div class="hero-after">{{template "install" (dict "ID" true)}}</div>
       <div class="hero-actions hero-after">
         <a class="btn btn-outline btn-lg" href="/demo/">Try the live demo{{template "icon" "arrow-right"}}</a>
