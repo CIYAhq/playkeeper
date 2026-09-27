@@ -120,11 +120,17 @@ func checkLabel(s string, minLen, maxLen int, code, what string) error {
 }
 
 // NormalizeName turns what someone typed into a name candidate: it trims
-// spaces, lowercases, and drops a trailing ".playkeeper.me" (or other base)
-// so pasting the whole address works. The result still needs CheckName.
-func NormalizeName(input, base string) string {
+// spaces, lowercases, and drops a trailing ".playkeeper.me" (the first of
+// bases it ends with) so pasting the whole address works. The result still
+// needs CheckName.
+func NormalizeName(input string, bases ...string) string {
 	s := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(input)), ".")
-	return strings.TrimSuffix(s, "."+strings.ToLower(base))
+	for _, base := range bases {
+		if name, ok := strings.CutSuffix(s, "."+strings.ToLower(base)); ok {
+			return name
+		}
+	}
+	return s
 }
 
 // Address is the host name of name under base: alice.playkeeper.me.

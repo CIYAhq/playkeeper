@@ -70,6 +70,20 @@ func TestNormalizeNameTakesPastedAddresses(t *testing.T) {
 			t.Errorf("NormalizeName(%q) = %q, want %q", in, got, want)
 		}
 	}
+	for in, want := range map[string]string{
+		"alice.playkeeper.me":          "alice",
+		" Alice.PlayKeeper.IO. ":       "alice",
+		"alice.playkeeper.io.me":       "alice.playkeeper.io.me",
+		"alice.example.com":            "alice.example.com",
+		"survival.alice.playkeeper.io": "survival.alice",
+	} {
+		if got := NormalizeName(in, DefaultBase, PreviousBase); got != want {
+			t.Errorf("NormalizeName(%q) with the previous base = %q, want %q", in, got, want)
+		}
+	}
+	if got := NormalizeName("alice.playkeeper.io", DefaultBase); got != "alice.playkeeper.io" {
+		t.Errorf("NormalizeName without the previous base = %q", got)
+	}
 }
 
 func TestAddressHelpers(t *testing.T) {

@@ -216,6 +216,30 @@ func TestGivingUpAMovedAddressForgetsBothCertificates(t *testing.T) {
 	}
 }
 
+// A whole address pasted from before the move names the same name.
+func TestAnAddressPastedFromBeforeTheMoveNamesTheName(t *testing.T) {
+	e := newAddressEnv(t, nil)
+	var av api.NameAvailability
+	if code := e.callInto("GET", "/v1/address/available?name=Siya.PlayKeeper.IO.", nil, &av); code != http.StatusOK || !av.Available || av.Name != "siya" || av.Address != "siya."+names.DefaultBase {
+		t.Fatalf("availability of a pasted old address: %d %+v", code, av)
+	}
+	var v api.Address
+	if code := e.callInto("POST", "/v1/address/claim", map[string]any{"name": "siya." + names.PreviousBase, "actor": "admin"}, &v); code != http.StatusOK || v.Host != "siya."+names.DefaultBase {
+		t.Fatalf("claiming a pasted old address: %d %+v", code, v)
+	}
+	if v.Operation != nil {
+		if op := e.waitOp(v.Operation.ID); op.Status != api.OpSucceeded {
+			t.Fatalf("publishing: %+v", op)
+		}
+	}
+	if n, owner := e.names.name("siya"); n.State != names.StateActive || owner == "" {
+		t.Errorf("the names service has %+v", n)
+	}
+	if v := e.address(); v.Base != names.DefaultBase || v.PreviousBase != names.PreviousBase {
+		t.Errorf("the address names the bases %q and %q", v.Base, v.PreviousBase)
+	}
+}
+
 func TestOwnDomainsUnderEitherFreeBaseAreRefused(t *testing.T) {
 	for _, d := range []string{"play.playkeeper.me", "PlayKeeper.ME", "play.playkeeper.io", "playkeeper.io"} {
 		if _, err := ownDomain(d); err == nil {
