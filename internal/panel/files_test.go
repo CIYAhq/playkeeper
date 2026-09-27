@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -228,6 +229,63 @@ func TestUploadPiecesHaveTheirOwnRateLimit(t *testing.T) {
 		if r := e.do(t, "PUT", up+bad, "x", auth(cookie, csrf)); r.status != http.StatusBadRequest {
 			t.Errorf("PUT %s: %d %v", bad, r.status, r.body)
 		}
+	}
+}
+
+// A server on a joined machine has a Files tab too: its requests go through
+// the machine's link, with the account that made them. An upload's pieces
+// and the editor's saves are larger than the link's other request bodies,
+// and a download larger than its other answers, so all three are streamed,
+// and the panel still names and types what the machine sends.
+func TestAJoinedMachinesFilesGoThroughItsLink(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	ra := newRemoteAgent()
+	e.joined(t, cookie, csrf, ra)
+	e.get(t, "/api/servers", cookie, nil)
+	const srv = "/api/servers/rstuvwxyzq/files"
+	received := func(w http.ResponseWriter, r *http.Request) {
+		n, err := io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		if err != nil {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			io.WriteString(w, `{"error":"The body didn't arrive.","code":"invalid"}`)
+			return
+		}
+		fmt.Fprintf(w, `{"bytes":%d}`, n)
+	}
+
+	piece := strings.Repeat("p", 3<<20)
+	ra.handle("PUT /v1/servers/rstuvwxyzq/files/uploads/0123456789abcdef/files/0", received)
+	if r, body := e.fetch(t, "PUT", srv+"/uploads/0123456789abcdef/files/0?offset=0", "application/octet-stream", piece, auth(cookie, csrf)); r.StatusCode != 200 || strings.TrimSpace(body) != fmt.Sprintf(`{"bytes":%d}`, len(piece)) {
+		t.Fatalf("a 3 MB upload piece: %d %s", r.StatusCode, body)
+	}
+	if actor, _ := ra.saw("PUT /v1/servers/rstuvwxyzq/files/uploads/0123456789abcdef/files/0"); actor != "admin" {
+		t.Fatalf("the piece carries the actor: %q", actor)
+	}
+
+	text := strings.Repeat("# a long comment line in a plugin's settings\n", 50_000)[:maxSaveBytes]
+	ra.handle("PUT /v1/servers/rstuvwxyzq/files/content", received)
+	if r, body := e.fetch(t, "PUT", srv+"/content?path=plugins/Essentials/config.yml", "text/plain; charset=utf-8", text, auth(cookie, csrf)); r.StatusCode != 200 || strings.TrimSpace(body) != fmt.Sprintf(`{"bytes":%d}`, len(text)) {
+		t.Fatalf("a 2 MB save: %d %s", r.StatusCode, body)
+	}
+
+	world := strings.Repeat("r", 20<<20)
+	ra.handle("GET /v1/servers/rstuvwxyzq/files/download", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Content-Disposition", "inline")
+		io.WriteString(w, world)
+	})
+	r, body := e.fetch(t, "GET", srv+"/download?path=world/region/r.0.0.mca", "", "", auth(cookie, ""))
+	if h := r.Header; r.StatusCode != 200 || len(body) != len(world) || h.Get("Content-Type") != "application/octet-stream" || h.Get("Content-Security-Policy") != "sandbox" ||
+		h.Get("Content-Disposition") != `attachment; filename=r.0.0.mca` {
+		t.Fatalf("a 20 MB download: %d %d bytes %v", r.StatusCode, len(body), h)
+	}
+	if actor, _ := ra.saw("GET /v1/servers/rstuvwxyzq/files/download"); actor != "admin" {
+		t.Fatalf("the download carries the actor: %q", actor)
+	}
+	if e.sawLocally("GET /v1/servers/rstuvwxyzq/files/download") {
+		t.Fatal("the download went to the dashboard's own agent")
 	}
 }
 
