@@ -65,7 +65,7 @@ type DocGroup struct {
 
 var docGroups = []DocGroup{
 	{Title: "Get started", Entries: []DocEntry{
-		{Label: "Requirements", Blurb: platform.Short() + " on x86_64, 2 CPU cores, 3 GB of memory, 5 GB of disk.", Page: "install", Anchor: "you-need"},
+		{Label: "Requirements", Blurb: platform.Short() + " on x86_64 or 64-bit ARM, 2 CPU cores, 3 GB of memory, 5 GB of disk.", Page: "install", Anchor: "you-need"},
 		{Label: "Install", Blurb: "One command, and every change it makes.", Page: "install"},
 		{Label: "Open the ports", Blurb: "8443, 25565 and the rest, in your provider's firewall.", Page: "troubleshooting", Anchor: "friends-cant-join"},
 		{Label: "Your first server", Blurb: "New server picks a version and memory for you.", Page: "servers"},
