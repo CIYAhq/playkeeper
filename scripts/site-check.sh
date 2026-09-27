@@ -17,7 +17,7 @@
 # shows; and it opens /t with the template links in
 # internal/templates/testdata, and checks what the page shows and that the
 # template never reaches the server. Needs Docker. The image stays, as
-# playkeeper-site:check, for test/e2e/ui/demo.spec.ts.
+# playkeeper-site:check, for test/e2e/ui/demo.spec.ts and demo-iphone.spec.ts.
 # Usage: scripts/site-check.sh   (SITE_CHECK_PORT picks the local port, default 8080;
 #                                 CHROME picks the browser)
 set -euo pipefail
