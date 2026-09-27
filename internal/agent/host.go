@@ -101,12 +101,43 @@ func (a *Agent) hostLoop(ctx context.Context) {
 			a.dockerVersion = v.Version
 		}
 		a.mu.Unlock()
+		if err == nil {
+			a.refreshSELinux(ctx)
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 		}
 	}
+}
+
+// selinuxLabels reports whether Docker runs containers under SELinux labels
+// ("selinux-enabled" in its configuration, which RHEL-family admins may
+// turn on): what a server's container bind-mounts must then be relabelled
+// for containers (":z"), or the server can't read its own world. hostLoop
+// keeps it current; until Docker first answers it is asked here.
+func (a *Agent) selinuxLabels() bool {
+	a.mu.Lock()
+	known, on := a.selinuxKnown, a.selinux
+	a.mu.Unlock()
+	if known || a.docker == nil || a.ctx == nil {
+		return on
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 5*time.Second)
+	defer cancel()
+	return a.refreshSELinux(ctx)
+}
+
+func (a *Agent) refreshSELinux(ctx context.Context) bool {
+	info, err := a.docker.Info(ctx)
+	if err != nil {
+		return false
+	}
+	a.mu.Lock()
+	a.selinuxKnown, a.selinux = true, info.SELinux()
+	a.mu.Unlock()
+	return info.SELinux()
 }
 
 // osName is the distribution's name and version, like "Ubuntu 24.04" or
