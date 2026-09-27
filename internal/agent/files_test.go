@@ -905,6 +905,56 @@ func TestAZipOfTooManyFilesIsRefusedBeforeItStarts(t *testing.T) {
 	}
 }
 
+// The game can name files as Linux allows. A zip names them so that no
+// unpacker can write outside the folder it unpacks into, one on Windows
+// that takes a backslash for a folder and a colon for a drive neither.
+func TestZipNamesUnpackSafelyAnywhere(t *testing.T) {
+	e, _ := idleFilesServer(t)
+	e.putData(`plugins/Essentials/..\..\..\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\evil.bat`, "echo planted\r\n")
+	e.putData(`C:\Users\Public\evil.bat`, "echo planted\r\n")
+	e.putData("plugins/Essentials/NUL.txt", "x")
+	e.putData("plugins/Essentials/trailing. ", "x")
+	e.putData(`plugins/Essentials/D:\Games/start.bat`, "x")
+	code, b, _ := e.fileRequest("GET", e.sp("/files/download?path=plugins/Essentials"), nil)
+	want := "Essentials/ Essentials/.._.._.._AppData_Roaming_Microsoft_Windows_Start Menu_Programs_Startup_evil.bat Essentials/D__Games/ Essentials/D__Games/start.bat Essentials/_NUL.txt Essentials/config.yml Essentials/trailing__"
+	if got := zipNames(t, b); code != 200 || got != want {
+		t.Fatalf("a folder with planted names: %d %s", code, got)
+	}
+	code, b, _ = e.fileRequest("GET", e.sp("/files/download?path="), nil)
+	if code != 200 {
+		t.Fatalf("the server's folder: %d", code)
+	}
+	for name := range strings.SplitSeq(zipNames(t, b), " ") {
+		if strings.ContainsAny(name, `\:`) || slices.Contains(strings.Split(name, "/"), "..") {
+			t.Errorf("an unsafe name in the zip: %q", name)
+		}
+	}
+	if !strings.Contains(zipNames(t, b), "C__Users_Public_evil.bat") {
+		t.Errorf("the file at the top is missing: %s", zipNames(t, b))
+	}
+	for in, out := range map[string]string{"config.yml": "config.yml", "a\tb|c?.yml": "a_b_c_.yml", "con .txt": "_con .txt", "COM1": "_COM1", "lpt².log": "_lpt².log", "console.log": "console.log", "folder/NUL": "folder/_NUL"} {
+		if got := zipName(in); got != out {
+			t.Errorf("zipName(%q) = %q, want %q", in, got, out)
+		}
+	}
+}
+
+// A file the game makes shorter while a download reads it stops the
+// download, rather than leave it cut short in a zip that looks whole.
+func TestADownloadStopsAtAFileThatGotShorter(t *testing.T) {
+	var out bytes.Buffer
+	if err := copyWhole(&out, strings.NewReader("motd=x\n"), 7, "server.properties"); err != nil || out.String() != "motd=x\n" {
+		t.Fatalf("a whole file: %v %q", err, out.String())
+	}
+	if err := copyWhole(io.Discard, strings.NewReader("motd"), 7, "server.properties"); err == nil || !strings.Contains(err.Error(), "shorter") {
+		t.Fatalf("a file that got shorter: %v", err)
+	}
+	out.Reset()
+	if err := copyWhole(&out, strings.NewReader("motd=x\nmore"), 7, "server.properties"); err != nil || out.String() != "motd=x\n" {
+		t.Fatalf("a file that grew: %v %q", err, out.String())
+	}
+}
+
 // Every change is in the audit log and in the server's recent activity, and
 // a run of uploads into one folder shows as one line.
 func TestFileChangesAreAuditedAndShownAsActivity(t *testing.T) {

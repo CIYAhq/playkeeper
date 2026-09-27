@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -842,7 +843,7 @@ func (s *server) hFileDownload(w http.ResponseWriter, r *http.Request) {
 				return errors.New("more files than the zip was counted for")
 			}
 			if e.Mode.IsDir() {
-				_, err := zw.CreateHeader(&zip.FileHeader{Name: rel + "/", Modified: e.ModTime, Method: zip.Store})
+				_, err := zw.CreateHeader(&zip.FileHeader{Name: zipName(rel) + "/", Modified: e.ModTime, Method: zip.Store})
 				return err
 			}
 			return zipFile(zw, d, fp, rel)
@@ -905,14 +906,26 @@ func (s *server) sendFile(w http.ResponseWriter, d *gamefiles.Dir, p, actor stri
 	w.Header().Set("Content-Length", strconv.FormatInt(st.Size(), 10))
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	if n, err := io.Copy(w, io.LimitReader(f, st.Size())); err != nil || n != st.Size() {
+	if err := copyWhole(w, f, st.Size(), p); err != nil {
 		abortDownload()
 	}
 	s.audit(actor, "files.downloaded", p, "succeeded", p)
 }
 
+// copyWhole copies the size bytes p had when it was opened from r to w, and
+// fails when fewer come, as from a file the game made shorter meanwhile.
+func copyWhole(w io.Writer, r io.Reader, size int64, p string) error {
+	n, err := io.Copy(w, io.LimitReader(r, size))
+	if err == nil && n != size {
+		err = fmt.Errorf("%s got shorter while it was read", quotePath(p))
+	}
+	return err
+}
+
 // zipFile adds the regular file p to a download as rel, as it was when
-// opened. A file the game swapped for a link or deleted meanwhile stays out.
+// opened. A file the game swapped for a link or deleted meanwhile stays out;
+// one it made shorter while it was read stops the download, which would
+// otherwise hold it cut short.
 func zipFile(zw *zip.Writer, d *gamefiles.Dir, p, rel string) error {
 	f, st, err := d.OpenFile(p)
 	if gamefiles.KindOf(err) != "" || errors.Is(err, fs.ErrNotExist) {
@@ -926,10 +939,40 @@ func zipFile(zw *zip.Writer, d *gamefiles.Dir, p, rel string) error {
 	if stored[strings.ToLower(path.Ext(rel))] {
 		method = zip.Store
 	}
-	out, err := zw.CreateHeader(&zip.FileHeader{Name: rel, Modified: st.ModTime(), Method: method})
+	out, err := zw.CreateHeader(&zip.FileHeader{Name: zipName(rel), Modified: st.ModTime(), Method: method})
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(out, io.LimitReader(f, st.Size()))
-	return err
+	return copyWhole(out, f, st.Size(), p)
+}
+
+// reDevice matches the names Windows keeps for devices, whatever follows
+// the first dot.
+var reDevice = regexp.MustCompile(`(?i)^(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|lpt[0-9¹²³]) *$`)
+
+// zipName is a path in the server's files as a zip names it, safe to unpack
+// on any computer. The game can name files as Linux allows, but some
+// unpackers take a backslash for a folder and a colon for a drive, which
+// could write outside the folder unpacked into. Those, the other
+// characters Windows refuses in a name, and a name's trailing dots and
+// spaces become _, and a device's name such as NUL gets one in front.
+func zipName(rel string) string {
+	parts := strings.Split(rel, "/")
+	for i, name := range parts {
+		b := []rune(name)
+		for j, c := range b {
+			if c < 0x20 || c == 0x7f || strings.ContainsRune(`\:*?"<>|`, c) {
+				b[j] = '_'
+			}
+		}
+		for j := len(b) - 1; j >= 0 && (b[j] == '.' || b[j] == ' '); j-- {
+			b[j] = '_'
+		}
+		name = string(b)
+		if stem, _, _ := strings.Cut(name, "."); reDevice.MatchString(stem) {
+			name = "_" + name
+		}
+		parts[i] = name
+	}
+	return strings.Join(parts, "/")
 }
