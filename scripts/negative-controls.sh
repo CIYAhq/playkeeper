@@ -229,6 +229,19 @@ webcontrol "Home says a server's world folder is missing instead of napping" web
   'if (s.worldMissing && false)
         return (' \
   web/src/pages/pages.test.tsx 'lets only a stopped server nap'
+webcontrol "New server suggests the memory a pack needs" web/src/pages/new-server.tsx \
+  'if (step === 3 && packMemory > 0 && !memoryPicked)' \
+  'if (false && step === 3 && packMemory > 0 && !memoryPicked)' \
+  web/src/pages/new-server.test.tsx 'suggests the memory a pack needs'
+webcontrol "New server warns when the machine can't give a pack the memory it needs" web/src/pages/new-server.tsx \
+  'packMB > largest ? pack : undefined' \
+  'packMB > largest && false ? pack : undefined' \
+  web/src/pages/new-server.test.tsx 'give a pack the memory it needs'
+webcontrol "a memory the user picked stays when the pack's plan answers later" web/src/pages/new-server.tsx \
+  '                        setMemoryPicked(true)
+' \
+  '' \
+  web/src/pages/new-server.test.tsx 'keeps a memory picked before the plan'
 webcontrol "the activity says a restore was finished after Playkeeper restarted" web/src/components/app/activity.tsx \
   "return t('activity.restoredAfterRestart', { server })" \
   "return t('activity.restored', { server })" \
@@ -261,19 +274,6 @@ webcontrol "a pack's plan names the voice chat port the agent works out now" web
   'if (hit && !fresh && Date.now() - hit.at < maxAge && tick === 0) {' \
   'if (hit && Date.now() - hit.at < maxAge && tick === 0) {' \
   web/src/api/modpacks.test.tsx 'asked for again'
-webcontrol "New server suggests the memory a pack needs" web/src/pages/new-server.tsx \
-  'if (step === 3 && packMemory > 0 && !memoryPicked)' \
-  'if (false && step === 3 && packMemory > 0 && !memoryPicked)' \
-  web/src/pages/new-server.test.tsx 'suggests the memory a pack needs'
-webcontrol "New server warns when the machine can't give a pack the memory it needs" web/src/pages/new-server.tsx \
-  'packMB > largest ? pack : undefined' \
-  'packMB > largest && false ? pack : undefined' \
-  web/src/pages/new-server.test.tsx 'give a pack the memory it needs'
-webcontrol "a memory the user picked stays when the pack's plan answers later" web/src/pages/new-server.tsx \
-  '                        setMemoryPicked(true)
-' \
-  '' \
-  web/src/pages/new-server.test.tsx 'keeps a memory picked before the plan'
 webcontrol "a page whose code doesn't load keeps the dashboard on screen" web/src/App.tsx \
   '      <LoadBoundary resetKey={JSON.stringify(route)}>
         <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>
@@ -1589,22 +1589,6 @@ control "a pack file's path with an invisible character is refused before any do
   'if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) || r == utf8.RuneError {' \
   'if unicode.IsControl(r) || r == utf8.RuneError {' \
   ./internal/modpacks '^TestUnsafeIndexPathsAreRefused$'
-control "the Java heap a pack's user_jvm_args.txt asks for is read" internal/modpacks/resolve.go \
-  '			case "user_jvm_args.txt":
-				p.readJVMArgs(e)
-' \
-  '' \
-  ./internal/modpacks '^TestPackHeapFromItsServerSettings$'
-control "the Java heap a CurseForge manifest recommends is read" internal/modpacks/resolve.go \
-  'p.heapMB = plausibleHeap(m.Minecraft.RecommendedRAM)' \
-  'p.heapMB = 0' \
-  ./internal/modpacks '^TestCurseForgePackHeap$'
-control "a pack's memory need covers the Java heap it asks for" internal/agent/modpacks.go \
-  '	if heapMB > 0 {
-		need = max(need,' \
-  '	if false && heapMB > 0 {
-		need = max(need,' \
-  ./internal/agent '^TestModpackPreviewSizesMemory$'
 control "a pack's settings are read and written without following a link" internal/agent/modpacks.go \
   'cur, err := d.ReadProperties()
 	if errors.Is(err, fs.ErrNotExist) {
@@ -1625,6 +1609,22 @@ control "a CurseForge key is saved only once CurseForge accepts it" internal/age
   'if err := modpacks.CheckKey(ctx, a.opts.UpstreamClient, key); err != nil {' \
   'if err := modpacks.CheckKey(ctx, a.opts.UpstreamClient, key); false && err != nil {' \
   ./internal/agent '^TestCurseForgeKeyIsCheckedSavedAndRemoved$'
+control "the Java heap a pack's user_jvm_args.txt asks for is read" internal/modpacks/resolve.go \
+  '			case "user_jvm_args.txt":
+				p.readJVMArgs(e)
+' \
+  '' \
+  ./internal/modpacks '^TestPackHeapFromItsServerSettings$'
+control "the Java heap a CurseForge manifest recommends is read" internal/modpacks/resolve.go \
+  'p.heapMB = plausibleHeap(m.Minecraft.RecommendedRAM)' \
+  'p.heapMB = 0' \
+  ./internal/modpacks '^TestCurseForgePackHeap$'
+control "a pack's memory need covers the Java heap it asks for" internal/agent/modpacks.go \
+  '	if heapMB > 0 {
+		need = max(need,' \
+  '	if false && heapMB > 0 {
+		need = max(need,' \
+  ./internal/agent '^TestModpackPreviewSizesMemory$'
 control "the CurseForge key file is readable by root only" internal/agent/addonsources.go \
   'os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
   'os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)' \
