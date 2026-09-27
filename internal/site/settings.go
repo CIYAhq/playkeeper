@@ -20,6 +20,11 @@ type Settings struct {
 	// lets its script and collector in; empty turns it off. The live demo
 	// loads the same script (web/src/demo/vite.ts).
 	Analytics Analytics
+	// Channels are where visitors come from, each with a code: /go/<code>
+	// sends them to the landing page with the channel's UTM tags, and the
+	// landing page then shows the channel's own install command,
+	// /install/<code>, which the site's install log counts (nginx.conf).
+	Channels []Channel
 }
 
 // Analytics is an OpenAnalytics site: the script pages load, the collector it
@@ -62,4 +67,5 @@ var Default = Settings{
 		Collector: "https://analytics-c.ciya.so",
 		Key:       "oa_pk_tyJHnpyD4m-pl_XrUbi3maHu2Iqq87Uf",
 	},
+	Channels: channels,
 }

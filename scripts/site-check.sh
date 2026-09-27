@@ -10,8 +10,10 @@
 # guide's table at /sizing, the live demo at /demo/ (its page, its files, the
 # players' faces and the plugins' icons, deep links answered by the app, a
 # missing file still a 404, and that it is the demo build), /community,
-# /healthz, the /install redirect to get.sh of the latest release, cache and
-# security headers, and the container's own health check. With Chrome or
+# /healthz, the /install redirect to get.sh of the latest release and the same
+# for /install/<code>, the install log they go to (the visitor's address, 30
+# days), the channels' links under /go/, cache and security headers, and the
+# container's own health check. With Chrome or
 # Chromium installed, it also opens /sizing in headless Chrome with an answer
 # in its address, and with one it can't read, and checks the answer the page
 # shows; and it opens /t with the template links in
@@ -87,6 +89,41 @@ health=$(curl -fsS "$base/healthz") || fail "/healthz does not answer"
 read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/install")
 [ "$code" = 302 ] || fail "/install answered $code, not 302"
 [ "$location" = "$want" ] || fail "/install redirects to '$location', not $want"
+# A channel's install command (internal/site/channels.go) is the same
+# redirect, and so is any other code in any case, so a typo still installs.
+# Each goes to the install log with the address the proxy says it's from.
+for p in /install/cygnus /install/HN /install/not-a-channel; do
+  read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' -H 'X-Forwarded-For: 203.0.113.9' "$base$p")
+  [ "$code" = 302 ] && [ "$location" = "$want" ] || fail "$p answered $code to '$location', not 302 to $want"
+done
+code=$(curl -sS -o /dev/null -w '%{http_code}' "$base/install/a/b")
+[ "$code" = 404 ] || fail "/install/a/b answered $code, not 404"
+log=$(docker exec "$name" sh -c 'cat /var/log/playkeeper/installs-*.log') || fail "there is no install log"
+for p in /install/cygnus /install/HN; do
+  grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^ ]+ 203\.0\.113\.9 GET $p 302 \"curl/" <<<"$log" || fail "the install log has no line for $p from 203.0.113.9: $log"
+done
+grep -qE ' GET /install 302 "curl/' <<<"$log" || fail "the install log has no line for /install"
+if grep -vE ' GET /install(/[A-Za-z0-9-]+)? 302 ' <<<"$log" | grep -q .; then fail "the install log has more than installs: $log"; fi
+# It keeps 30 days: a file older than that goes when the container starts,
+# and the rest stay.
+docker exec "$name" touch -d 2000-01-01 /var/log/playkeeper/installs-2000-01-01.log
+docker restart "$name" >/dev/null
+for _ in $(seq 30); do
+  curl -fsS -o /dev/null "$base/healthz" 2>/dev/null && break
+  sleep 1
+done
+docker exec "$name" test ! -e /var/log/playkeeper/installs-2000-01-01.log || fail "the install log keeps a file older than 30 days"
+docker exec "$name" sh -c 'cat /var/log/playkeeper/installs-*.log' | grep -qF '203.0.113.9 GET /install/cygnus 302' || fail "the install log lost today's lines when the container restarted"
+# A channel's link is the landing page with its tags, in any case and with a
+# trailing slash; any other code is the landing page.
+for c in cygnus:youtube:sponsor:creators-oct26:/go/cygnus hn:hackernews:community:launch-sep26:/go/HN/ x:x:social:launch-sep26:/go/x; do
+  IFS=: read -r channel source medium campaign p <<<"$c"
+  read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base$p")
+  tagged="$base/?utm_source=$source&utm_medium=$medium&utm_campaign=$campaign&utm_content=$channel"
+  [ "$code" = 302 ] && [ "$location" = "$tagged" ] || fail "$p answered $code to '$location', not 302 to $tagged"
+done
+read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/go/nope")
+[ "$code" = 302 ] && [ "$location" = "$base/" ] || fail "/go/nope answered $code to '$location', not 302 to /"
 read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/community")
 [ "$code" = 302 ] || fail "/community answered $code, not 302"
 [ "$location" = "$community" ] || fail "/community redirects to '$location', not $community"
@@ -308,4 +345,4 @@ for _ in $(seq 30); do
 done
 [ "$status" = healthy ] || fail "the container's health check reports '$status'"
 
-echo "Site image checks out: $checked pages from the sitemap answer with their title, description, canonical address, social preview and files; robots.txt, the sitemap and the feed; /t is the share page and kept out of search engines; a missing page is a 404; /pricing/ redirects; /community, /install and /healthz answer; cache and security headers set; container healthy. $browser."
+echo "Site image checks out: $checked pages from the sitemap answer with their title, description, canonical address, social preview and files; robots.txt, the sitemap and the feed; /t is the share page and kept out of search engines; a missing page is a 404; /pricing/ redirects; /community, /install, /install/<code> (in the install log, with the visitor's address, for 30 days), /go/<code> and /healthz answer; cache and security headers set; container healthy. $browser."

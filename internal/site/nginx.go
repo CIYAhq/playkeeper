@@ -7,7 +7,8 @@ import (
 )
 
 // nginxInclude is the part of nginx.conf that follows the settings: the
-// Content-Security-Policy, and /community, which the live demo links to.
+// Content-Security-Policy, /community, which the live demo links to, and the
+// channels' links.
 func nginxInclude(s Settings) []byte {
 	csp := strings.Join([]string{
 		"default-src 'none'",
@@ -30,7 +31,10 @@ add_header Content-Security-Policy "%s" always;
 location = /community {
     return 302 %s;
 }
-`, csp, s.Community.URL))
+
+# Channel links (Settings.Channels): the landing page with the channel's UTM
+# tags, where it shows the channel's install command.
+%s`, csp, s.Community.URL, channelLinks(s.Channels)))
 }
 
 // origin is an address's scheme and host, as a Content-Security-Policy source;

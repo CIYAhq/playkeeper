@@ -441,6 +441,53 @@ func TestAnalyticsIsOneSetting(t *testing.T) {
 	}
 }
 
+// Each channel's link is the landing page with its UTM tags, and any other
+// /go/ address the landing page. Only the landing page lists the codes it
+// shows an install command for. nginx.conf's /install/<code> takes every code
+// the settings can have, and a code it wouldn't take fails the build.
+func TestChannels(t *testing.T) {
+	o := build(t, Default)
+	for _, c := range Default.Channels {
+		want := fmt.Sprintf("location ~* ^/go/%s/?$ {\n    return 302 /?utm_source=%s&utm_medium=%s&utm_campaign=%s&utm_content=%s;\n}\n", c.Code, c.Source, c.Medium, c.Campaign, c.Code)
+		if !strings.Contains(string(o.Nginx), want) {
+			t.Errorf("nginx's include has no\n%s", want)
+		}
+	}
+	if !strings.HasSuffix(string(o.Nginx), "location /go/ {\n    return 302 /;\n}\n") {
+		t.Error("nginx's include doesn't end with /go/ for any other code, after the channels")
+	}
+	listed := `data-channels="cygnus madhu kasai doopa lth nicx linuxbtw hn selfhosted ph x"`
+	for p, html := range pages(o) {
+		want := 0
+		if p == "/" {
+			want = 1
+		}
+		if got := strings.Count(html, listed); got != want {
+			t.Errorf("%s lists the channels %d times, want %d", p, got, want)
+		}
+	}
+	conf, err := os.ReadFile("../../site/nginx.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := strings.TrimSuffix(strings.TrimPrefix(channelCode.String(), "^"), "$")
+	if !strings.Contains(string(conf), `location ~* "^/install(/`+code+`)?$" {`) {
+		t.Errorf("site/nginx.conf's /install/<code> doesn't take %s", code)
+	}
+	for _, bad := range []Channel{
+		{"Cygnus", "youtube", "sponsor", "creators-oct26"},
+		{"hn; }", "hackernews", "community", "launch-sep26"},
+		{"hn", "hackernews", "community", "launch-sep26"},
+		{"new", "", "community", "launch-sep26"},
+	} {
+		s := Default
+		s.Channels = append(slices.Clone(Default.Channels), bad)
+		if _, err := Build(Options{Root: os.DirFS("../.."), Settings: s, Now: time.Now()}); err == nil {
+			t.Errorf("the site builds with the channel %+v", bad)
+		}
+	}
+}
+
 func TestTemplateCardsOpenValidTemplates(t *testing.T) {
 	o := build(t, Default)
 	landing := pages(o)["/"]

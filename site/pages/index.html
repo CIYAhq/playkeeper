@@ -13,7 +13,7 @@ preload: loop-overview
 */}}
 
 {{define "main"}}
-<section class="hero band-chalk" aria-labelledby="hero-title">
+<section class="hero band-chalk" aria-labelledby="hero-title" data-channels="{{channelCodes}}">
   <div class="container hero-row">
     <div class="hero-text">
       {{with page "/blog/playkeeper-0-4-0"}}<a class="release-pill hero-rise" href="{{.Path}}"><span class="dot" aria-hidden="true"></span>Playkeeper {{$.Site.Version}} is out <strong>What's new{{template "icon" "arrow-right"}}</strong></a>{{end}}

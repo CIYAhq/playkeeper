@@ -147,6 +147,49 @@ test('the analytics’ custom events: the install command copied, links out to G
   await ctx.close()
 })
 
+test('the landing page shows the install command of the channel a visitor came from, for the codes it lists', async ({ browser, baseURL }) => {
+  const ctx = await browser.newContext({ baseURL, viewport: { width: 1440, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] })
+  const { events, release } = await recordEvents(ctx)
+  release()
+  const page = await ctx.newPage()
+  const plain = 'curl -fsSL https://playkeeper.io/install | sudo sh'
+  const cygnus = 'curl -fsSL https://playkeeper.io/install/cygnus | sudo sh'
+  /** The install commands the page shows and copies: each box's line and Copy, its phone lines, and the terminal. */
+  const shown = () =>
+    page.evaluate(() => {
+      const text = (sel: string) => [...document.querySelectorAll(sel)].map((el) => (el.textContent ?? '').replace(/\s+/g, ' ').trim())
+      return {
+        lines: text('[data-install] .install-line'),
+        copies: [...document.querySelectorAll('[data-install] [data-copy]')].map((el) => el.getAttribute('data-copy')),
+        phone: text('[data-install] .install-lines'),
+        terminal: text('[data-terminal] [data-type]'),
+      }
+    })
+
+  // Where /go/cygnus sends a visitor: the hero's box, the closing band's and the terminal all show the channel's command.
+  await page.goto('/?utm_source=youtube&utm_medium=sponsor&utm_campaign=creators-oct26&utm_content=cygnus', { waitUntil: 'networkidle' })
+  expect(await shown()).toEqual({
+    lines: [cygnus, cygnus],
+    copies: [cygnus, cygnus],
+    phone: ['curl -fsSL \\ https://playkeeper.io/install/cygnus \\ | sudo sh', 'curl -fsSL \\ https://playkeeper.io/install/cygnus \\ | sudo sh'],
+    terminal: ['$ curl -fsSL https://playkeeper.io/install/cygnus \\ | sudo sh'],
+  })
+  await page.locator('#install .install-copy').click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(cygnus)
+  await expect.poll(() => [...events]).toEqual([['install_copied', { spot: 'box', channel: 'cygnus', where: '/' }]])
+
+  // A code it doesn't list, one that tries to change the command, and any other page: the usual command.
+  for (const path of ['/?utm_content=nope', '/?utm_content=cygnus%20%7C%20sh%20x', '/?utm_content=CYGNUS']) {
+    await page.goto(path, { waitUntil: 'networkidle' })
+    const o = await shown()
+    expect([...o.lines, ...o.copies], path).toEqual([plain, plain, plain, plain])
+    expect(o.terminal.join(), path).not.toContain('/install/')
+  }
+  await page.goto('/pricing?utm_content=cygnus', { waitUntil: 'networkidle' })
+  await expect(page.getByRole('link', { name: 'Copy the install command' })).toHaveAttribute('data-copy', plain)
+  await ctx.close()
+})
+
 test("the Pterodactyl page's hero on a phone: its terminal under the words, and no browser frame", async ({ browser, baseURL }) => {
   const ctx = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
   const page = await ctx.newPage()

@@ -59,6 +59,9 @@ type Site struct {
 // Build builds the whole site.
 func Build(o Options) (*Output, error) {
 	s := &Site{opts: o, byPath: map[string]*Page{}}
+	if err := checkChannels(o.Settings.Channels); err != nil {
+		return nil, err
+	}
 	var err error
 	if s.Version, err = releaseVersion(o.Root); err != nil {
 		return nil, err
@@ -574,6 +577,8 @@ func (s *Site) funcs() template.FuncMap {
 		},
 		"providers": func() []Provider { return providers },
 		"sizing":    func() SizingGuide { return s.sizing },
+		// The codes the landing page shows a channel's install command for.
+		"channelCodes": func() string { return channelCodes(s.opts.Settings.Channels) },
 		// The one-line installer (Settings.InstallCommand), on one line, in
 		// the three a phone shows, and wrapped before its pipe for a terminal.
 		"installCommand": func() string { return s.opts.Settings.InstallCommand },
