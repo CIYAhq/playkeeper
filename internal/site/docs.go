@@ -88,6 +88,7 @@ var docGroups = []DocGroup{
 		{Label: "Friends can't join", Page: "troubleshooting", Anchor: "friends-cant-join"},
 		{Label: "Certificate warning", Page: "troubleshooting", Anchor: "certificate-warning"},
 		{Label: "Out of memory", Page: "troubleshooting", Anchor: "out-of-memory"},
+		{Label: "Recover or move a world", Page: "recovery"},
 	}},
 	{Title: "Project", Entries: []DocEntry{
 		{Label: "Contributing", Blurb: "Build it, run the tests, send a pull request.", Page: "contributing"},

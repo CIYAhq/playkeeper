@@ -72,6 +72,7 @@ func footerColumns(s Settings) []FooterColumn {
 			{Label: "About", Path: "/about"},
 			{Label: "Brand", Path: "/brand"},
 			{Label: "Privacy", Path: "/privacy"},
+			{Label: "Security", Path: "/docs/security"},
 			{Label: "Logo credits", URL: s.Repo + "/blob/main/web/src/assets/logos/NOTICE.md"},
 			{Label: "Licence: AGPL-3.0", URL: s.Repo + "/blob/main/LICENSE"},
 		}},

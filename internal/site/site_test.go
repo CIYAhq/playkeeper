@@ -293,6 +293,38 @@ func TestSitemapAndRobots(t *testing.T) {
 	}
 }
 
+// Every page search engines index is linked from at least two others they
+// index, so none hangs off a single link: a docs page needs its entry in
+// docGroups or the footer, not only a mention on another page.
+func TestEveryPageIsLinkedFromTwoOthers(t *testing.T) {
+	built := pages(build(t, Default))
+	indexed := func(p string) bool {
+		html, ok := built[p]
+		return ok && !strings.Contains(html, `content="noindex"`)
+	}
+	from := map[string]map[string]bool{}
+	for p, html := range built {
+		if !indexed(p) {
+			continue
+		}
+		for _, m := range reHref.FindAllStringSubmatch(html, -1) {
+			addr, _, _ := strings.Cut(m[1], "#")
+			if addr == p || !indexed(addr) {
+				continue
+			}
+			if from[addr] == nil {
+				from[addr] = map[string]bool{}
+			}
+			from[addr][p] = true
+		}
+	}
+	for p := range built {
+		if indexed(p) && len(from[p]) < 2 {
+			t.Errorf("%s is linked from %d other pages, want at least 2", p, len(from[p]))
+		}
+	}
+}
+
 // The server types, their count and every line about Forge follow
 // minecraft.Types, the list the dashboard offers.
 func TestServerTypesFollowTheProduct(t *testing.T) {
