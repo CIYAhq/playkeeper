@@ -210,9 +210,12 @@ type Agent struct {
 
 	// mopLock and mop are the machine-wide operation (a Playkeeper update).
 	// It runs only while every server is idle, and servers wait for it.
+	// sop is one that only writes to staging (a restore from a recovery
+	// key): it holds mopLock too, but no server waits for it.
 	mopLock chan struct{}
 	mopMu   sync.Mutex
 	mop     *api.Operation
+	sop     *api.Operation
 
 	srvMu   sync.Mutex
 	servers map[string]*server
@@ -268,6 +271,17 @@ type Agent struct {
 	maps      mapState
 	mapClient *http.Client
 	imports   importRegistry
+
+	// Wave 7 (0.4.0): the Disk space page's last scan.
+	disk diskCache
+	// unreadableSwaps is the error last logged for each stage whose swap
+	// journal can't be read, and under "" for the staging folder itself, so
+	// each is logged once.
+	unreadableSwaps sync.Map
+	// copyReads keeps the backup rules from deleting copies while one is
+	// downloaded: a restore, a check or a recovery holds it for reading while
+	// it downloads, and pruning deletes only when it can hold it alone.
+	copyReads sync.RWMutex
 }
 
 func New(opts Options) (*Agent, error) {
@@ -505,6 +519,22 @@ func (a *Agent) machineOp() *api.Operation {
 	return copyOp(a.mop)
 }
 
+// stagingOp is the machine-wide operation writing to staging, if any.
+func (a *Agent) stagingOp() *api.Operation {
+	a.mopMu.Lock()
+	defer a.mopMu.Unlock()
+	return copyOp(a.sop)
+}
+
+// mopBusy refuses a machine-wide operation while another runs.
+func (a *Agent) mopBusy() error {
+	cur := a.machineOp()
+	if cur == nil {
+		cur = a.stagingOp()
+	}
+	return &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is busy with " + opLabels[opKind(cur, "update")] + ".", Hint: "Wait for it to finish, then try again.", Op: cur}
+}
+
 // currentOp is the machine-wide operation, or else the first server
 // operation in progress (tests and the update refusal message use it).
 func (a *Agent) currentOp() *api.Operation {
@@ -522,14 +552,21 @@ func (a *Agent) currentOp() *api.Operation {
 // busy is true while any server or the machine runs an operation.
 func (a *Agent) busy() bool { return a.currentOp() != nil || a.installingUpdate() != "" }
 
+// stagingOps are the machine-wide operations that only write to staging.
+var stagingOps = map[string]bool{"offsite-recover": true}
+
 // beginMachineOp runs fn as the machine-wide operation. It needs every
 // server idle, and holds their operation locks until fn returns, so no server
-// operation starts meanwhile.
+// operation starts meanwhile; one in stagingOps holds none, as
+// beginStagingOp says.
 func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, h *opHandle) error) (*api.Operation, error) {
+	if stagingOps[kind] {
+		return a.beginStagingOp(kind, actor, fn)
+	}
 	select {
 	case a.mopLock <- struct{}{}:
 	default:
-		return nil, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is busy with " + opLabels[opKind(a.machineOp(), "update")] + ".", Hint: "Wait for it to finish, then try again.", Op: a.machineOp()}
+		return nil, a.mopBusy()
 	}
 	if v := a.installingUpdate(); v != "" {
 		<-a.mopLock
@@ -573,12 +610,54 @@ func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, 
 		defer a.wg.Done()
 		defer func() { <-a.mopLock }()
 		defer release()
-		ctx, cancel := context.WithTimeout(a.ctx, 45*time.Minute)
+		ctx, cancel := opContext(a.ctx, kind)
 		defer cancel()
 		err := runOp(ctx, h, fn)
 		a.mopMu.Lock()
 		done := finishOp(op, h, err, a.now().UTC())
 		a.mop = nil
+		a.mopMu.Unlock()
+		a.finishOperation("", "machine", &done)
+		if err != nil {
+			a.log.Warn("operation failed", "kind", kind, "err", err)
+		}
+	}()
+	return snap, nil
+}
+
+// beginStagingOp runs fn as a machine-wide operation that only writes to
+// staging, such as a restore from a recovery key downloading and checking a
+// copy. It waits for, and keeps out, the other machine-wide operations, but
+// holds no server's operation lock: the servers go on starting, waking and
+// backing up meanwhile, and a server made from what it staged gets an
+// operation of its own.
+func (a *Agent) beginStagingOp(kind, actor string, fn func(ctx context.Context, h *opHandle) error) (*api.Operation, error) {
+	select {
+	case a.mopLock <- struct{}{}:
+	default:
+		return nil, a.mopBusy()
+	}
+	if v := a.installingUpdate(); v != "" {
+		<-a.mopLock
+		return nil, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: "Playkeeper is installing update " + v + ".", Hint: "The dashboard reconnects when it is done; try again then."}
+	}
+	op := &api.Operation{ID: newID(), Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: a.now().UTC(), Detail: map[string]any{}}
+	a.mopMu.Lock()
+	a.sop = op
+	snap := copyOp(op)
+	a.mopMu.Unlock()
+	a.saveOperation(snap)
+	h := &opHandle{save: a.saveOperation, op: op, mu: func() func() { a.mopMu.Lock(); return a.mopMu.Unlock }}
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		defer func() { <-a.mopLock }()
+		ctx, cancel := opContext(a.ctx, kind)
+		defer cancel()
+		err := runOp(ctx, h, fn)
+		a.mopMu.Lock()
+		done := finishOp(op, h, err, a.now().UTC())
+		a.sop = nil
 		a.mopMu.Unlock()
 		a.finishOperation("", "machine", &done)
 		if err != nil {
@@ -689,7 +768,7 @@ type Route struct {
 
 func (a *Agent) routeTable() []Route {
 	srv := a.withServer
-	return []Route{
+	return append([]Route{
 		{"GET", "/v1/health", a.hHealth},
 		{"GET", "/v1/machine", a.hMachine},
 		{"GET", "/v1/preflight", a.hPreflight},
@@ -835,7 +914,7 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/world-imports/{imp}/preview", a.hWorldImportPreview},
 		{"POST", "/v1/world-imports/{imp}/apply", a.hWorldImportApply},
 		{"POST", "/v1/world-imports/{imp}/create", a.hWorldImportCreate},
-	}
+	}, a.automationRoutes()...)
 }
 
 // Routes exposes the route table so tests can iterate every allowlisted verb.

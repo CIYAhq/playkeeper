@@ -185,6 +185,17 @@ func (c *pregenCache) latest(now time.Time, fresh time.Duration) *pregen.Status 
 	return &st
 }
 
+// lastState is the state Chunky reported last for the unfinished task, if
+// it reported since Playkeeper last started, paused or continued the task.
+func (c *pregenCache) lastState() (pregen.State, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.status == nil {
+		return "", false
+	}
+	return c.status.State, true
+}
+
 // pregenLogLine notes a "Task finished" line from Chunky in the server log.
 func (s *server) pregenLogLine(ts time.Time, line string) {
 	if !strings.Contains(line, "[Chunky] Task finished for ") {
@@ -478,6 +489,24 @@ func (s *server) pregenCheck(ctx context.Context, p pregen.Platform) (*pregenTas
 	s.pg.status, s.pg.at = &st, now
 	s.pg.mu.Unlock()
 	return task, &st
+}
+
+// pregenRunning is true while Chunky pre-generates the map, which keeps an
+// empty server awake. It goes by what Chunky reported last about the
+// unfinished task; until Chunky reports, the task runs unless someone or
+// the players policy paused it. When Playkeeper can't tell, the task runs.
+func (s *server) pregenRunning() bool {
+	task, err := s.lastPregen()
+	if err != nil {
+		return true
+	}
+	if !task.unfinished() {
+		return false
+	}
+	if st, ok := s.pg.lastState(); ok {
+		return st == pregen.StateRunning
+	}
+	return !task.PausedByUser && !task.PausedByPolicy
 }
 
 // pregenPolicy pauses the task while people play and continues it once the

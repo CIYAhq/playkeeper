@@ -194,6 +194,8 @@ func (c *Client) Info(ctx context.Context) (Info, error) {
 type ImageInfo struct {
 	ID          string   `json:"Id"`
 	RepoDigests []string `json:"RepoDigests"`
+	// Wave 7 (0.4.0): the Disk space page counts the image.
+	Size int64 `json:"Size"`
 }
 
 func (c *Client) ImageInspect(ctx context.Context, ref string) (ImageInfo, error) {

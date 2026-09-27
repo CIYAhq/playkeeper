@@ -9,6 +9,8 @@ export class ApiError extends Error {
   params?: Record<string, unknown>
   /** Seconds from the Retry-After header. */
   retryAfter?: number
+  field?: string
+  reason?: string
 
   constructor(status: number, body: ApiErrorBody, retryAfter?: number) {
     super(body.error)
@@ -18,6 +20,8 @@ export class ApiError extends Error {
     this.operation = body.operation
     this.params = body.params
     this.retryAfter = retryAfter
+    this.field = body.field
+    this.reason = body.reason
   }
 }
 
@@ -99,4 +103,26 @@ export function responseError(status: number, text: string): ApiError {
     // Non-JSON error bodies keep the generic message.
   }
   return new ApiError(status, { error: t('error.http', { status: String(status) }), code: 'internal' })
+}
+
+/** Saves a file the API sends as an attachment, failing like api() so the error can be shown. */
+export async function download(path: string, fallbackName: string): Promise<string> {
+  let res: Response
+  try {
+    res = await fetch(path, { headers: { 'X-Requested-With': 'playkeeper' }, credentials: 'same-origin', cache: 'no-store' })
+  } catch {
+    throw new ApiError(0, { error: t('error.network'), code: 'network' })
+  }
+  if (res.status === 401) unauthorizedListeners.forEach((fn) => fn())
+  if (!res.ok) throw await parseError(res)
+  const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? fallbackName
+  const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.append(a)
+  a.click()
+  a.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  return name
 }

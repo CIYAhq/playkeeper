@@ -10,6 +10,7 @@ import { t } from '@/i18n'
 import { navigate, useRoute, type Route } from '@/lib/router'
 import { afterSignIn, signInPath } from '@/lib/templates'
 import { AccountPage } from '@/pages/account'
+import { DiskPage } from '@/pages/disk'
 import { HomePage } from '@/pages/home'
 import { JoinPage } from '@/pages/join'
 import { LoginPage } from '@/pages/login'
@@ -17,6 +18,7 @@ import { MachinePage } from '@/pages/machine'
 import { MachineSettingsPage } from '@/pages/machine-settings'
 import { MorePage } from '@/pages/more'
 import { NewServerPage } from '@/pages/new-server'
+import { RecoverPage } from '@/pages/recover'
 import { AccountStep, Onboarding } from '@/pages/onboarding'
 import { PackPage } from '@/pages/pack'
 import { ServerPage } from '@/pages/server'
@@ -173,7 +175,7 @@ function page(route: Route) {
     case 'player':
       return <ServerPage slug={route.slug} tab="players" player={route.player} />
     case 'machine':
-      return <MachinePage id={route.id} />
+      return route.sub === 'disk' ? <DiskPage id={route.id} /> : <MachinePage id={route.id} />
     case 'machine-settings':
       return <MachineSettingsPage id={route.id} />
     case 'settings':
@@ -190,6 +192,8 @@ function page(route: Route) {
       return <MorePage />
     case 'pack':
       return <PackPage token={route.token} />
+    case 'recover':
+      return <RecoverPage />
     default: {
       const unreachable: never = route
       return unreachable

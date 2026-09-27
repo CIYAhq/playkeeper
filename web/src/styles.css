@@ -56,6 +56,9 @@
   --motion-ease-enter: cubic-bezier(0, 0, 0.2, 1);
   --motion-ease-exit: cubic-bezier(0.4, 0, 1, 1);
   --motion-press-scale: 0.98;
+  /* Wave 7: the Disk space bar's worlds and other files */
+  --disk-worlds: #4cb871;
+  --disk-other: #9a9e94;
 }
 
 @theme inline {
@@ -99,6 +102,8 @@
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-disk-worlds: var(--disk-worlds);
+  --color-disk-other: var(--disk-other);
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 10px;
@@ -258,5 +263,25 @@
   .animate-skeleton,
   .confetti {
     animation: none !important;
+  }
+}
+
+/* A bar for work that can't say how far along it is. */
+@keyframes progress-indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.progress-indeterminate {
+  animation: progress-indeterminate 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-indeterminate {
+    animation: none !important;
+    width: 100%;
+    opacity: 0.5;
   }
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/discord"
 	"github.com/CIYAhq/playkeeper/internal/docker"
+	"github.com/CIYAhq/playkeeper/internal/schedule"
 )
 
 // sentAlert is an alert as Discord got it.
@@ -286,6 +287,21 @@ func TestDiscordAlertSequences(t *testing.T) {
 			op(e, "restart", nil)
 			e.waitFor("online again", e.onlineIdle)
 		}, want: []sentAlert{stopped, started}, status: discord.StateOnline},
+		{name: "a scheduled restart", steps: func(e *agentEnv) {
+			restart := schedule.Operation{Kind: schedule.OpRestart, Actor: schedule.Actor("qrstuvwxyz"), ScheduleID: "qrstuvwxyz"}
+			if _, err := (scheduleServer{e.srv()}).Run(context.Background(), restart); err != nil {
+				e.t.Fatalf("scheduled restart: %v", err)
+			}
+			e.waitFor("online again", e.onlineIdle)
+		}, want: []sentAlert{stopped, started}, status: discord.StateOnline},
+		// A server falls asleep whenever it's empty, so that isn't news; a
+		// player waking it starts it as usual.
+		{name: "falling asleep", steps: func(e *agentEnv) { e.putToSleep() }, status: discord.StateOffline},
+		{name: "falling asleep, then a player wakes it", steps: func(e *agentEnv) {
+			e.putToSleep()
+			e.srv().wakeFor("Alex")
+			e.waitFor("online again", e.onlineIdle)
+		}, want: []sentAlert{started}, status: discord.StateOnline},
 		{name: "a clean stop outside Playkeeper", steps: func(e *agentEnv) {
 			e.fd.externalStop()
 			e.waitFor("the stop seen", func() bool {

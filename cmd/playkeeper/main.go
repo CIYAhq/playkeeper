@@ -18,6 +18,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	// Schedules run in the owner's time zone, and a host may have no zoneinfo.
+	_ "time/tzdata"
 
 	"github.com/CIYAhq/playkeeper/internal/agent"
 	"github.com/CIYAhq/playkeeper/internal/agentclient"

@@ -46,6 +46,8 @@ type fakeAgent struct {
 	// statuses are the replies' HTTP statuses by "METHOD /path"; others
 	// are 200.
 	statuses map[string]int
+	// headers are the last request headers by "METHOD /path".
+	headers map[string]http.Header
 	// before run, by "METHOD /path", ahead of the reply: a test's way to act
 	// while the panel waits for the agent.
 	before map[string]func()
@@ -64,7 +66,7 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fa := &fakeAgent{replies: map[string]string{}, statuses: map[string]int{}, before: map[string]func(){}}
+	fa := &fakeAgent{replies: map[string]string{}, statuses: map[string]int{}, headers: map[string]http.Header{}, before: map[string]func(){}}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		var body map[string]any
@@ -76,6 +78,7 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 		fa.hits = append(fa.hits, key)
 		fa.bodies = append(fa.bodies, r.URL.RawQuery+string(raw))
 		fa.reqs = append(fa.reqs, agentRequest{r.Method, r.URL.Path, r.URL.Query(), body})
+		fa.headers[key] = r.Header.Clone()
 		reply, ok := fa.replies[key]
 		status := fa.statuses[key]
 		hook := fa.before[key]
@@ -211,7 +214,7 @@ const sampleCode = "AbCdEfGhJkMnPqRsTuVwXy"
 
 func samplePath(p string) string {
 	return strings.NewReplacer("{id}", sampleServer, "{mid}", "mnpqrstuvw", "{bid}", "20260924-120000-abcdef", "{rid}", "0123456789abcdef",
-		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{source}", "modrinth", "{project}", "AANobbMI", "{version}", "TPV00001",
+		"{op}", "0123456789abcdef", "{name}", "PkBotFriend", "{sid}", "qrstuvwxyz", "{source}", "modrinth", "{project}", "AANobbMI", "{version}", "TPV00001",
 		"{invite}", "qrstuvwxyz", "{request}", "zyxwvutsrq", "{uid}", "2", "{code}", sampleCode).Replace(p)
 }
 

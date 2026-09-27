@@ -130,7 +130,7 @@ export const me = {
     role: 'admin',
     servers: { all: true },
     twoFactor: true,
-    can: ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view'],
+    can: ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover'],
   },
 }
 
@@ -207,6 +207,7 @@ export function server() {
 const update = { current: '0.3.0', supported: true, available: false, latest: '0.3.0', checkedAt: '2026-09-25T12:00:00Z' }
 
 const pregen = { state: 'idle', world: 'world', chunks: 0, total: 0, percent: 0, etaSeconds: -1, pauseForPlayers: true, installed: false, presets: [] }
+const offsite = { enabled: false, configured: false, type: '', place: '', copies: 0, copiesBytes: 0, queued: 0, providers: [] }
 
 function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
@@ -251,6 +252,8 @@ export async function fakePanel(page: Page, log: FakeConsole) {
         return json(route, { pending: false })
       case `GET /api/servers/${s.id}/datapacks`:
         return json(route, { packs: [], live: true })
+      case `GET /api/servers/${s.id}/offsite`:
+        return json(route, offsite)
       case `POST /api/servers/${s.id}/command`: {
         const { command } = req.postDataJSON() as { command: string }
         log.append([`[${new Date().toISOString().slice(11, 19)} INFO]: ${me.user.username} issued server command: /${command.replace(/^\//, '')}`])
