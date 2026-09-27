@@ -181,6 +181,16 @@
     transition-duration: var(--motion-fast);
     transition-timing-function: var(--motion-ease-standard);
   }
+  /* Everything that can be pressed shows a pointer, a label that toggles its
+     checkbox, radio or switch included; a disabled control shows it can't be.
+     Both rules weigh nothing, so a part's own cursor class still wins. */
+  :where(a[href], button, summary, [role="button"], [role="link"], [role="tab"], [role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="switch"], [role="checkbox"], [role="radio"], input:is([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="button"], [type="submit"], [type="reset"]), label:has(input:is([type="checkbox"], [type="radio"]), [role="checkbox"], [role="radio"], [role="switch"])) {
+    cursor: pointer;
+  }
+  :where(a[href], button, summary, input, [role="button"], [role="link"], [role="tab"], [role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="switch"], [role="checkbox"], [role="radio"]):where(:disabled, [aria-disabled="true"], [data-disabled]),
+  :where(label:has(input:is([type="checkbox"], [type="radio"]):disabled, :is([role="checkbox"], [role="radio"], [role="switch"]):is([data-disabled], [aria-disabled="true"]))) {
+    cursor: not-allowed;
+  }
   /* Hand-made controls dim a little while pressed; coss ui parts (data-slot) press in their own way. */
   :where(a[href], button, summary, [role="button"]):not(:disabled, [aria-disabled="true"], [data-disabled], [data-slot]):active {
     opacity: 0.72;
