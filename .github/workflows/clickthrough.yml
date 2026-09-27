@@ -1,0 +1,153 @@
+name: Click-through
+
+# Every control on the pages a run selects does something, at desktop and
+# phone sizes (test/e2e/ui/clickthrough.spec.ts), split between runners:
+# each installs the release on a fresh runner, sets it up as the other
+# end-to-end jobs do (keyboard onboarding, then the protocol bots' scenario)
+# and crawls its share; the gate then checks that together they crawled
+# every page and pressed every page's controls. CI calls it with the pages a
+# change touches, or every page (plan.ts); the Release check and the Release
+# workflow with every page.
+
+on:
+  workflow_call:
+    inputs:
+      artifact:
+        description: The artifact with the release tarball and its .sha256
+        type: string
+        required: true
+      assets:
+        description: The folder in that artifact the tarball is in
+        type: string
+        default: ""
+      selection:
+        description: What to crawl, from plan.ts ("all", or the pages a change touches)
+        type: string
+        default: '"all"'
+      matrix:
+        description: The runners, from plan.ts ({"include":[{"size","shard","of"}...]})
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  FORCE_COLOR: "0"
+
+jobs:
+  crawl:
+    name: ${{ matrix.size }} ${{ matrix.shard }} of ${{ matrix.of }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(inputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.artifact }}
+          path: /tmp/release
+      - name: Test tools (Node for the protocol bots and the browser tests)
+        run: |
+          ./scripts/setup.sh
+          echo "$PWD/.tools/node/bin" >> "$GITHUB_PATH"
+          (cd test/e2e/bot && ../../../.tools/node/bin/npm ci --no-audit --no-fund)
+          cd test/e2e/ui
+          ../../../.tools/node/bin/npm ci --no-audit --no-fund
+          sudo env "PATH=$PWD/../../../.tools/node/bin:$PATH" npx playwright install-deps chromium
+          PATH="$PWD/../../../.tools/node/bin:$PATH" npx playwright install chromium
+      - name: Install from the release tarball (outside the checkout)
+        env:
+          ASSETS: /tmp/release/${{ inputs.assets }}
+        run: |
+          mkdir -p /tmp/evidence /tmp/install
+          (cd "$ASSETS" && sha256sum -c playkeeper-linux-amd64.tar.gz.sha256)
+          tar -xzf "$ASSETS/playkeeper-linux-amd64.tar.gz" -C /tmp/install
+          cd /tmp/install/playkeeper-*-linux-amd64
+          sudo ./install.sh --yes | tee /tmp/evidence/install.txt
+          sudo cat /var/lib/playkeeper/panel/tls/cert.pem > /tmp/evidence/cert.pem
+          grep -o 'setup code: [a-z0-9-]*' /tmp/evidence/install.txt | awk '{print $3}' > /tmp/evidence/code
+      - name: Enable the offline test harness (protocol bots have no Mojang accounts)
+        run: |
+          sudo mkdir -p /etc/systemd/system/playkeeper-agent.service.d
+          printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf
+          sudo systemctl daemon-reload
+          sudo systemctl restart playkeeper-agent
+      - name: The state the pages are crawled in — keyboard onboarding, then the protocol bots' scenario
+        env:
+          PK_URL: https://127.0.0.1:8443
+          PK_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+          PK_ADMIN_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+          PK_SHOTS: /tmp/evidence/screenshots
+          PK_OUT: /tmp/evidence/ui
+        run: |
+          PK_SETUP_CODE=$(cat /tmp/evidence/code)
+          export PK_SETUP_CODE
+          (cd test/e2e/ui && npx playwright test onboarding.spec.ts --reporter=list)
+          python3 test/e2e/scenario.py host-a --existing --url "$PK_URL" --cacert /tmp/evidence/cert.pem \
+            --code "$PK_SETUP_CODE" --game-host "$(cat /tmp/evidence/ui/join-address.txt)" --out /tmp/evidence/a
+      - name: Every control does something (this runner's pages, changes go to fakes)
+        env:
+          PK_URL: https://127.0.0.1:8443
+          PK_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+          PK_OUT: /tmp/evidence/ui
+          PK_SHARD: ${{ matrix.shard }}/${{ matrix.of }}
+          PK_SELECTION: ${{ inputs.selection }}
+          SIZE: ${{ matrix.size }}
+        run: cd test/e2e/ui && npx playwright test clickthrough.spec.ts --reporter=list -g "every control does something on $SIZE\$"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: clickthrough-report-${{ matrix.size }}-${{ matrix.shard }}of${{ matrix.of }}
+          path: /tmp/evidence/ui/clickthrough-*.json
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Collect evidence
+        if: failure()
+        run: |
+          sudo journalctl -u playkeeper-agent -u playkeeper-panel --no-pager > /tmp/evidence/journal.txt || true
+          rm -f /tmp/evidence/code /tmp/evidence/ui/browser-session.json /tmp/evidence/a/state-a.json
+          sudo chown -R "$(id -u)" /tmp/evidence
+          sed -i -E 's/(setup code: |#code=)[a-z0-9-]+/\1<redacted>/g' /tmp/evidence/install.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: clickthrough-evidence-${{ matrix.size }}-${{ matrix.shard }}of${{ matrix.of }}
+          path: /tmp/evidence
+          retention-days: 7
+
+  gate:
+    name: Gate — together the runners pressed every control of every page
+    needs: crawl
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: clickthrough-report-*
+          path: /tmp/reports
+      - name: Test tools (Node)
+        run: |
+          ./scripts/setup.sh
+          cd test/e2e/ui && ../../../.tools/node/bin/npm ci --no-audit --no-fund
+      - name: Every page crawled, every control pressed, every page's minimum and every place reached
+        env:
+          PK_REPORTS: /tmp/reports
+          PK_MATRIX: ${{ inputs.matrix }}
+          PK_OUT: /tmp/gate
+        run: cd test/e2e/ui && PATH="$PWD/../../../.tools/node/bin:$PATH" npx playwright test clickthrough-gate.spec.ts --reporter=list
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: clickthrough-gate
+          path: /tmp/gate
+          if-no-files-found: ignore
+          retention-days: 7
