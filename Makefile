@@ -46,9 +46,10 @@ test-go:
 test-go-other: ## Go unit tests of every package but the agent's
 	go test -count=1 -timeout 30m $$(go list $(GO_PKGS) | grep -v '/internal/agent$$')
 
-# The agent's tests mostly wait on timers, so CI splits them between runners.
-test-agent: ## The agent's unit tests; SHARD=k/n runs every nth of them, as CI does
-	./scripts/go-test-shard.sh ./internal/agent $(or $(SHARD),1/1) $(OUT)
+# The agent's tests mostly wait on timers, so they run in shards side by
+# side, balanced by the times in scripts/agent-test-times.txt.
+test-agent: ## The agent's unit tests in 16 shards side by side (JOBS=n for another number, SHARD=k/n for one shard)
+	$(if $(SHARD),./scripts/go-test-shard.sh ./internal/agent $(SHARD) $(OUT),./scripts/go-test-shard.sh --jobs $(or $(JOBS),16) ./internal/agent $(or $(OUT),$$(mktemp -d)) scripts/agent-test-times.txt)
 
 test-web:
 	cd web && npx vitest run
