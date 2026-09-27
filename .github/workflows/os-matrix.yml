@@ -1,0 +1,193 @@
+name: OS matrix
+
+# Every supported release of Ubuntu and Debian (internal/platform), each in a
+# fresh KVM guest built from its official cloud image: preflight, the
+# one-line install, onboarding in the browser, two protocol bots, a backup
+# and a restore, an update from the dashboard, a reboot and the uninstall
+# (scripts/e2e/vm-os.sh). It runs on pull requests that change the installer
+# or what Playkeeper assumes about the system, and before each release: start
+# it from the Actions tab on the commit to tag, or call it from another
+# workflow.
+on:
+  pull_request:
+    paths:
+      - internal/install/**
+      - internal/platform/**
+      - internal/docker/**
+      - internal/agent/host.go
+      - packaging/**
+      - scripts/package.sh
+      - scripts/e2e/vm-lab.sh
+      - scripts/e2e/vm-os.sh
+      - scripts/e2e/update-releases.sh
+      - .github/workflows/os-matrix.yml
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to rehearse (empty for the branch it runs from)
+        required: false
+        default: ""
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch, tag or commit to rehearse (empty for the caller's)
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: os-matrix-${{ github.event.pull_request.number || github.ref }}-${{ inputs.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "0"
+
+jobs:
+  releases:
+    name: Two builds of this commit, the second signed for the first to update to
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
+      - name: Build 0.0.1-os.1 and 0.0.1-os.2 (a signing key made for this run only)
+        run: |
+          scripts/e2e/update-releases.sh /tmp/releases key
+          scripts/e2e/update-releases.sh /tmp/releases build a 0.0.1-os.1
+          scripts/e2e/update-releases.sh /tmp/releases build b 0.0.1-os.2
+          rm /tmp/releases/signing.key
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: os-matrix-releases
+          path: |
+            /tmp/releases/a
+            /tmp/releases/b
+          retention-days: 3
+
+  rehearsal:
+    name: ${{ matrix.os }}
+    needs: releases
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-11, debian-12, debian-13]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Switch on KVM for the runner's user (the udev rule used for Android emulators)
+        timeout-minutes: 3
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          scripts/e2e/vm-rehearsal.sh kvm-check
+      - name: Lab tools, pinned toolchains, the protocol bots and the test browser
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-system-x86 qemu-utils cloud-image-utils >/dev/null
+          ./scripts/setup.sh
+          (cd test/e2e/bot && ../../../.tools/node/bin/npm ci --no-audit --no-fund)
+          cd test/e2e/ui
+          ../../../.tools/node/bin/npm ci --no-audit --no-fund
+          sudo env "PATH=$PWD/../../../.tools/node/bin:$PATH" npx playwright install-deps chromium
+          PATH="$PWD/../../../.tools/node/bin:$PATH" npx playwright install chromium
+      - name: Keep the guest's disk on the runner's larger disk
+        run: |
+          avail() { df --output=avail -B1 "$1" | tail -1; }
+          if [ -d /mnt ] && [ "$(avail /mnt)" -gt "$(avail /tmp)" ]; then
+            sudo install -d -o "$(id -u)" -g "$(id -g)" /mnt/pk-lab
+            echo "LAB_DIR=/mnt/pk-lab" >> "$GITHUB_ENV"
+          fi
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: os-matrix-releases
+          path: /tmp/releases
+      - name: Install, play, back up, restore, update, reboot and uninstall on ${{ matrix.os }}
+        env:
+          KEEP_ON_FAIL: "1"
+          OUT: test/e2e/out/os-${{ matrix.os }}
+        run: scripts/e2e/vm-os.sh "${{ matrix.os }}" /tmp/releases
+      - name: The guest's logs after a failure
+        if: failure()
+        run: |
+          lab=${LAB_DIR:-/tmp/pk-lab}
+          out=test/e2e/out/os-${{ matrix.os }}
+          mkdir -p "$out"
+          cp "$lab/os/console.log" "$out/guest-console.log" 2>/dev/null || true
+          kill -0 "$(cat "$lab/os/qemu.pid" 2>/dev/null)" 2>/dev/null || exit 0
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 -i "$lab/id_ed25519" pk@198.51.100.20 \
+            'set +e; sudo playkeeper status; sudo journalctl -b --no-pager -u docker -u playkeeper-agent -u playkeeper-panel -u playkeeper-update; sudo docker ps -a; for c in $(sudo docker ps -aq --filter label=io.playkeeper.managed=true); do echo "## docker logs $c"; sudo docker logs --tail 300 "$c"; done' \
+            >"$out/guest.txt" 2>&1 || true
+      - name: Results
+        if: always()
+        run: |
+          out=test/e2e/out/os-${{ matrix.os }}
+          [ -f "$out/results.tsv" ] || exit 0
+          {
+            echo "### ${{ matrix.os }}"
+            echo
+            echo "| Step | Result | Detail |"
+            echo "| --- | --- | --- |"
+            awk -F'\t' '{printf "| %s | %s | %s |\n", $1, $2, $3}' "$out/results.tsv"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Collect evidence
+        if: always()
+        run: |
+          [ -d test/e2e/out ] || exit 0
+          find test/e2e/out \( -name 'state*.json' -o -name browser-session.json \) -delete
+          scripts/e2e/vm-rehearsal.sh redact test/e2e/out
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: os-matrix-${{ matrix.os }}
+          path: |
+            test/e2e/out
+            test/e2e/ui/test-results
+          if-no-files-found: ignore
+          retention-days: 14
+
+  summary:
+    name: Every supported system passed
+    needs: rehearsal
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: os-matrix-*-*
+          path: evidence
+      - name: One row per system
+        run: |
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import glob, os, sys
+          systems = ["ubuntu-20.04", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "debian-11", "debian-12", "debian-13"]
+          print("| System | Result | Kernel | systemd | cgroups | Docker | Memory in use with a server running |")
+          print("| --- | --- | --- | --- | --- | --- | --- |")
+          bad = False
+          for s in systems:
+              base = glob.glob(f"evidence/os-matrix-{s}/**/os-{s}", recursive=True)
+              facts, steps = {}, []
+              if base:
+                  for line in open(os.path.join(base[0], "facts.txt"), errors="replace") if os.path.exists(os.path.join(base[0], "facts.txt")) else []:
+                      k, _, v = line.partition(": ")
+                      facts[k.strip()] = v.strip()
+                  if os.path.exists(os.path.join(base[0], "results.tsv")):
+                      steps = [l.rstrip("\n").split("\t") for l in open(os.path.join(base[0], "results.tsv")) if l.strip()]
+              failed = [x for x in steps if len(x) > 1 and x[1] != "pass"]
+              ok = bool(base) and os.path.exists(os.path.join(base[0], "passed")) and not failed
+              bad |= not ok
+              result = "pass" if ok else ("FAIL: " + failed[0][0] if failed else "FAIL: no results")
+              docker = next((x[2].split("with Docker ")[1].split(";")[0] for x in steps if len(x) > 2 and "with Docker " in x[2]), "")
+              print(f"| {facts.get('system', s)} | {result} | {facts.get('kernel', '')} | {facts.get('systemd', '').split(' (')[0]} | {facts.get('cgroups', '')} | {docker} | {facts.get('in use with the server running', '')} |")
+          sys.exit(1 if bad else 0)
+          PY
