@@ -997,6 +997,11 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		StartedAt: start.UTC(), Previous: prev, Restored: s.restoredConfig(m, entry, mem, prev, actor), SHA256: st.preview.SHA256,
 		Detail: fmt.Sprintf("restored %s (sha256 %s)", m.LevelName, st.preview.SHA256), State: swapMoving,
 	}
+	var prevPack *api.ResourcePackOffer
+	if prev != nil {
+		prevPack = prev.ResourcePack
+	}
+	j.Restored.ResourcePack = restoredPackOffer(prevPack, st.data)
 	if rollback != nil {
 		j.Detail += "; rollback archive " + rollback.ID
 	}
@@ -1097,6 +1102,7 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 // journal as it is, and the next start checks the restored world again.
 func (s *server) finishRestore(ctx context.Context, h *opHandle, stageDir string, j *swapJournal) error {
 	_ = s.setDesired(api.DesiredRunning)
+	s.holdRestoredPregen(j.Restored)
 	err := s.startServer(ctx, h, j.Restored)
 	if err == nil {
 		err = s.waitOnline(ctx, h)
@@ -1108,6 +1114,7 @@ func (s *server) finishRestore(ctx context.Context, h *opHandle, stageDir string
 	if err != nil {
 		if !j.HadLive || j.Previous == nil {
 			j.State = swapDone
+			s.forgetPregen()
 			return err
 		}
 		j.Why = "The restored world did not start (" + err.Error() + ")."
@@ -1177,6 +1184,7 @@ func (s *server) keepRestore(h *opHandle, j *swapJournal, keepCopy bool) error {
 			s.log.Warn("could not remove the previous world's copy", "server", s.id, "err", err)
 		}
 	}
+	s.forgetPregen()
 	j.State = swapDone
 	detail := j.Detail
 	if h.get("resumedAfterRestart") == true {

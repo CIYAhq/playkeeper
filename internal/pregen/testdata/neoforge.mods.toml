@@ -1,0 +1,26 @@
+modLoader="javafml"
+loaderVersion="[3,)"
+license="GNU GPLv3"
+issueTrackerURL="https://github.com/pop4959/Chunky/issues"
+[[mods]]
+modId="chunky"
+version="1.5.4"
+displayName="Chunky"
+displayURL="https://github.com/pop4959/Chunky"
+logoFile="icon.png"
+authors="pop4959"
+description="Pre-generates chunks, quickly, efficiently, and safely"
+[[mixins]]
+config="chunky.mixins.json"
+[[dependencies.chunky]]
+   modId="neoforge"
+   type="required"
+   versionRange="[26.1.0.0-beta,)"
+   ordering="NONE"
+   side="BOTH"
+[[dependencies.chunky]]
+   modId="minecraft"
+   type="required"
+   versionRange="[26.1,)"
+   ordering="NONE"
+   side="BOTH"

@@ -13,7 +13,10 @@ cd "$root"
 export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH"
 
 commit=$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
-version=${VERSION:-0.3.1-dev+$commit}
+# A build that isn't a release is named after the next version: named after a
+# published one, it sorts below it, so an installed test build offers that
+# release as an update.
+version=${VERSION:-0.4.0-dev+$commit}
 epoch=${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || date +%s)}
 date=$(date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ)
 name="playkeeper-$version-linux-amd64"

@@ -1,0 +1,91 @@
+{
+ "client_side": "optional",
+ "server_side": "optional",
+ "game_versions": [
+  "1.21",
+  "1.21.1",
+  "1.21.2",
+  "1.21.3",
+  "1.21.4",
+  "1.21.5",
+  "1.21.6",
+  "1.21.7",
+  "1.21.8",
+  "1.21.9",
+  "1.21.10",
+  "1.21.11",
+  "26.1",
+  "26.1.1",
+  "26.1.2",
+  "26.2",
+  "26.3"
+ ],
+ "environment": [
+  "client_or_server_prefers_both"
+ ],
+ "id": "Eldc1g37",
+ "slug": "tcdcommons",
+ "project_type": "mod",
+ "team": "fSrnBcEq",
+ "organization": null,
+ "title": "TCDCommons API",
+ "description": "TheCSDev's personal library mod for the Minecraft modding environment.",
+ "body": "<h1 align=\"center\">\n\t<img alt=\"image\" src=\"https://cdn.modrinth.com/data/cached_images/663d4878a39f2e43636e752402ffd3d8735f9fd4.png\"/>\n</h1>\n\n<p align=\"center\">\n\t<a href=\"https://github.com/sponsors/TheCSDev/\" target=\"_blank\">\n\t\t<img alt=\"S",
+ "body_url": null,
+ "published": "2022-11-25T11:45:51.025251Z",
+ "updated": "2026-09-17T17:33:20.199899Z",
+ "approved": "2022-11-25T16:31:42.662134Z",
+ "queued": null,
+ "status": "approved",
+ "requested_status": null,
+ "moderator_message": null,
+ "license": {
+  "id": "LicenseRef-TCDCommons-API-License",
+  "name": "",
+  "url": "https://github.com/TheCSDev/tcdcommons/blob/main/LICENSE.md"
+ },
+ "downloads": 16499555,
+ "followers": 1279,
+ "categories": [
+  "utility"
+ ],
+ "additional_categories": [],
+ "loaders": [
+  "fabric",
+  "forge",
+  "neoforge",
+  "quilt"
+ ],
+ "versions": [
+  "E3obAdZc",
+  "NM3aWYRR",
+  "WukH01sC"
+ ],
+ "icon_url": "https://cdn.modrinth.com/data/Eldc1g37/36f2c7c76a7fc63e827bc20657853b7f1d9e4060.png",
+ "raw_icon_url": "https://cdn.modrinth.com/data/Eldc1g37/36f2c7c76a7fc63e827bc20657853b7f1d9e4060.png",
+ "issues_url": "https://github.com/TheCSDev/tcdcommons/issues",
+ "source_url": "https://github.com/TheCSDev/tcdcommons",
+ "wiki_url": "https://thecsdev.com/docs/tcdcommons/",
+ "discord_url": null,
+ "donation_urls": [
+  {
+   "id": "other",
+   "platform": "Other",
+   "url": "https://thecsdev.com/fwd/support-me/"
+  }
+ ],
+ "gallery": [
+  {
+   "url": "https://cdn.modrinth.com/data/Eldc1g37/images/5e203ea63da484fbf1d45a02286093d31f000f08_350.webp",
+   "raw_url": "https://cdn.modrinth.com/data/Eldc1g37/images/5e203ea63da484fbf1d45a02286093d31f000f08.webp",
+   "featured": true,
+   "title": "Thumbnail",
+   "description": "Main thumbnail image for this mod.",
+   "created": "2026-02-08T12:11:49.558205Z",
+   "ordering": 0
+  }
+ ],
+ "color": 7095718,
+ "thread_id": "Eldc1g37",
+ "monetization_status": "monetized"
+}

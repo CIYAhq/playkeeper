@@ -1,0 +1,117 @@
+{
+ "createdAt": "2022-12-23T23:21:00.76682Z",
+ "publishedAt": "2022-12-23T23:26:25.893212Z",
+ "id": 14,
+ "name": "Geyser",
+ "namespace": {
+  "owner": "GeyserMC",
+  "slug": "Geyser"
+ },
+ "stats": {
+  "views": 307283,
+  "downloads": 82080,
+  "recentViews": 7776,
+  "recentDownloads": 2511,
+  "stars": 350,
+  "watchers": 177
+ },
+ "category": "misc",
+ "description": "A bridge/proxy allowing you to connect to Minecraft: Java Edition servers with Minecraft: Bedrock Edition.",
+ "lastUpdated": "2023-03-19T20:49:50.933106Z",
+ "visibility": "public",
+ "userActions": {
+  "starred": false,
+  "watching": false,
+  "flagged": false
+ },
+ "settings": {
+  "links": [
+   {
+    "id": 0,
+    "type": "top",
+    "title": "top",
+    "links": [
+     {
+      "id": 0,
+      "name": "Homepage",
+      "url": "https://geysermc.org"
+     },
+     {
+      "id": 1,
+      "name": "Issues",
+      "url": "https://github.com/GeyserMC/Geyser/issues"
+     },
+     {
+      "id": 2,
+      "name": "Source",
+      "url": "https://github.com/GeyserMC/Geyser"
+     },
+     {
+      "id": 3,
+      "name": "Support",
+      "url": "https://discord.gg/GeyserMC"
+     },
+     {
+      "id": 4,
+      "name": "Wiki",
+      "url": "https://wiki.geysermc.org"
+     }
+    ]
+   }
+  ],
+  "tags": [
+   "SUPPORTS_FOLIA"
+  ],
+  "license": {
+   "name": "MIT",
+   "url": "https://github.com/GeyserMC/Geyser/blob/master/LICENSE",
+   "type": "MIT"
+  },
+  "keywords": [
+   "java",
+   "bedrock",
+   "translator",
+   "proxy",
+   "protocol"
+  ],
+  "sponsors": "Thanks to all the donors over at [Open Collective](https://opencollective.com/geysermc) and [GitHub Sponsors](https://gi",
+  "unlisted": false,
+  "donation": {
+   "subject": "",
+   "enable": false
+  }
+ },
+ "supportedPlatforms": {
+  "PAPER": [
+   "1.21",
+   "1.21.1",
+   "1.21.10",
+   "1.21.11",
+   "1.21.2",
+   "1.21.3",
+   "1.21.4",
+   "1.21.5",
+   "1.21.6",
+   "1.21.7",
+   "1.21.8",
+   "1.21.9",
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2"
+  ],
+  "WATERFALL": [
+   "1.19",
+   "1.20",
+   "1.21"
+  ],
+  "VELOCITY": [
+   "4.0.0",
+   "4.1.0",
+   "4.1.1"
+  ]
+ },
+ "mainPageContent": null,
+ "memberNames": null,
+ "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/14.webp?v=1"
+}

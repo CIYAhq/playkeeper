@@ -1,0 +1,221 @@
+[
+ {
+  "game_versions": [
+   "1.21",
+   "1.21.1",
+   "1.21.2",
+   "1.21.3",
+   "1.21.4",
+   "1.21.5",
+   "1.21.6",
+   "1.21.7",
+   "1.21.8",
+   "1.21.9",
+   "1.21.10",
+   "1.21.11",
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "fabric",
+   "folia",
+   "paper",
+   "velocity"
+  ],
+  "environment": "client_or_server",
+  "id": "EPLCoxMK",
+  "project_id": "TbHIxhx5",
+  "author_id": "rwEkdtka",
+  "featured": false,
+  "name": "4.2.0",
+  "version_number": "4.2.0",
+  "changelog_url": null,
+  "date_published": "2026-09-18T15:08:24.612555Z",
+  "downloads": 13437,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "k70DqGl0",
+    "hashes": {
+     "sha1": "b83bfbe592e74a6b87adc0fd4a1766cb7666516b",
+     "sha512": "7f3a2a972a3fe45f9c16b48a2e2b08fca6aa70da77eb8e47644726f19a43dc24116c2f7e126434f9f9388fa1b987a014efe287e3980f773b6e261313e7e939b2"
+    },
+    "url": "https://cdn.modrinth.com/data/TbHIxhx5/versions/EPLCoxMK/ViaRewind-4.2.0.jar",
+    "filename": "ViaRewind-4.2.0.jar",
+    "primary": true,
+    "size": 408809,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "NpvuJQoq",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "P1OZGk5p",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "YlKdE5VK",
+    "file_name": null,
+    "dependency_type": "optional"
+   }
+  ]
+ },
+ {
+  "game_versions": [
+   "1.21",
+   "1.21.1",
+   "1.21.2",
+   "1.21.3",
+   "1.21.4",
+   "1.21.5",
+   "1.21.6",
+   "1.21.7",
+   "1.21.8",
+   "1.21.9",
+   "1.21.10",
+   "1.21.11",
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "folia",
+   "paper",
+   "velocity"
+  ],
+  "environment": "client_or_server",
+  "id": "NWTPe8Ah",
+  "project_id": "TbHIxhx5",
+  "author_id": "rwEkdtka",
+  "featured": false,
+  "name": "4.1.4-SNAPSHOT+391",
+  "version_number": "4.1.4-SNAPSHOT+391",
+  "changelog_url": null,
+  "date_published": "2026-09-16T16:30:19.694997Z",
+  "downloads": 1681,
+  "version_type": "beta",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "2ORchP37",
+    "hashes": {
+     "sha512": "50ac65c63f42942d1bc59c283e4ee7acb3c1a0d534d606bf077ae52656b000205b6a5dddce2b4f833acb5780e09723b2551ee2c3437b848cca891a1838a2e22f",
+     "sha1": "739fc013ea26bc059e7642c52b33919407273188"
+    },
+    "url": "https://cdn.modrinth.com/data/TbHIxhx5/versions/NWTPe8Ah/ViaRewind-4.1.4-SNAPSHOT.jar",
+    "filename": "ViaRewind-4.1.4-SNAPSHOT.jar",
+    "primary": true,
+    "size": 408866,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "NpvuJQoq",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "P1OZGk5p",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "YlKdE5VK",
+    "file_name": null,
+    "dependency_type": "optional"
+   }
+  ]
+ },
+ {
+  "game_versions": [
+   "1.21",
+   "1.21.1",
+   "1.21.2",
+   "1.21.3",
+   "1.21.4",
+   "1.21.5",
+   "1.21.6",
+   "1.21.7",
+   "1.21.8",
+   "1.21.9",
+   "1.21.10",
+   "1.21.11",
+   "26.1",
+   "26.1.1",
+   "26.1.2"
+  ],
+  "loaders": [
+   "fabric",
+   "folia",
+   "paper",
+   "velocity"
+  ],
+  "environment": "client_or_server",
+  "id": "cOg14EE7",
+  "project_id": "TbHIxhx5",
+  "author_id": "rwEkdtka",
+  "featured": false,
+  "name": "4.1.1",
+  "version_number": "4.1.1",
+  "changelog_url": null,
+  "date_published": "2026-05-05T18:43:57.886148Z",
+  "downloads": 43506,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "3gYNPsOj",
+    "hashes": {
+     "sha512": "1c1f4db775d9dfbe288776bdbd2e0b2f4910643b9034607d813ee509da25fc45e84cfb0183cdfc30560b2632f24c75dcc51a4a9bb0de8ff29ac9e24bd89efc94",
+     "sha1": "e2c06fa7faadc12cf185847cebdba6763e1b5cd7"
+    },
+    "url": "https://cdn.modrinth.com/data/TbHIxhx5/versions/cOg14EE7/ViaRewind-4.1.1.jar",
+    "filename": "ViaRewind-4.1.1.jar",
+    "primary": true,
+    "size": 387152,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "NpvuJQoq",
+    "file_name": null,
+    "dependency_type": "required"
+   },
+   {
+    "version_id": null,
+    "project_id": "YlKdE5VK",
+    "file_name": null,
+    "dependency_type": "optional"
+   },
+   {
+    "version_id": null,
+    "project_id": "P1OZGk5p",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ }
+]

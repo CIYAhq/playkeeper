@@ -25,6 +25,7 @@ test('every page, desktop and narrow, with no serious accessibility violations',
     { route: `/servers/${s.slug}/console`, name: 'console', heading: s.name },
     { route: `/servers/${s.slug}/players`, name: 'players', heading: s.name },
     { route: `/servers/${s.slug}/world`, name: 'world', heading: s.name },
+    { route: `/servers/${s.slug}/plugins`, name: 'plugins', heading: s.name },
     { route: `/servers/${s.slug}/settings`, name: 'server-settings', heading: s.name },
     { route: '/servers/new', name: 'new-server', heading: 'New server' },
     { route: `/machines/${machine?.id}`, name: 'machine', heading: machine?.name ?? '' },
@@ -34,15 +35,18 @@ test('every page, desktop and narrow, with no serious accessibility violations',
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`/servers/${s.slug}`)
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: new RegExp(`^${s.name}`) })).toBeVisible()
-  await expect(page.getByRole('navigation', { name: 'Server pages' }).getByRole('link')).toHaveText(['Overview', 'Console', 'Players', 'World', 'Settings'])
+  await expect(page.getByRole('navigation', { name: 'Server pages' }).getByRole('link')).toHaveText(['Overview', 'Console', 'Players', 'World', 'Plugins', 'Settings'])
 
   for (const vp of viewports) {
     await page.setViewportSize({ width: vp.width, height: vp.height })
     const list = vp.name === 'narrow' ? [...pages, { route: '/more', name: 'more', heading: 'More' }] : pages
     for (const v of list) {
       await page.goto(v.route)
-      // On phones a server's Settings open from More with a plain header.
-      const heading = vp.name === 'narrow' && v.name === 'server-settings' ? page.getByRole('heading', { name: 'In the game' }).or(page.getByText('In the game')).first() : page.getByRole('heading', { name: v.heading, level: 1 })
+      // On phones a server's Settings and Plugins open from More with a plain header.
+      const heading =
+        vp.name === 'narrow' && v.name === 'server-settings'
+          ? page.getByRole('heading', { name: 'In the game' }).or(page.getByText('In the game')).first()
+          : page.getByRole('heading', { name: vp.name === 'narrow' && v.name === 'plugins' ? 'Plugins' : v.heading, level: 1 })
       await expect(heading).toBeVisible()
       await page.waitForTimeout(2500)
       await shot(page, `${prefix}-${v.name}-${vp.name}`)

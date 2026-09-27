@@ -1,0 +1,70 @@
+{
+ "client_side": "optional",
+ "server_side": "optional",
+ "game_versions": [
+  "1.21",
+  "1.21.1",
+  "1.21.3",
+  "1.21.4",
+  "1.21.5",
+  "1.21.6",
+  "1.21.7",
+  "1.21.8",
+  "1.21.9",
+  "1.21.10",
+  "1.21.11",
+  "26.1",
+  "26.1.1",
+  "26.1.2",
+  "26.2"
+ ],
+ "environment": [
+  "client_or_server_prefers_both"
+ ],
+ "id": "KOHu7RCS",
+ "slug": "moonrise-opt",
+ "project_type": "mod",
+ "team": "iZJqzkSV",
+ "organization": null,
+ "title": "Moonrise",
+ "description": "Optimisation mod for the dedicated/integrated server.",
+ "body": "Moonrise\n==\n[![Modrinth](https://img.shields.io/badge/Modrinth-gray?logo=modrinth)](https://modrinth.com/mod/moonrise-opt)\n[![CurseForge](https://img.shields.io/badge/CurseForge-gray?logo=curseforge)](https://www.curseforge.com/minecraft/mc",
+ "body_url": null,
+ "published": "2024-09-03T17:28:34.336528Z",
+ "updated": "2026-08-23T22:32:00.705189Z",
+ "approved": "2024-09-13T19:14:34.988019Z",
+ "queued": "2024-09-03T19:02:57.070557Z",
+ "status": "approved",
+ "requested_status": "approved",
+ "moderator_message": null,
+ "license": {
+  "id": "GPL-3.0-only",
+  "name": "GNU General Public License v3.0 only",
+  "url": null
+ },
+ "downloads": 228610,
+ "followers": 444,
+ "categories": [
+  "optimization"
+ ],
+ "additional_categories": [],
+ "loaders": [
+  "fabric",
+  "neoforge"
+ ],
+ "versions": [
+  "Qgdb48eq",
+  "72EQ5QZf"
+ ],
+ "icon_url": "https://cdn.modrinth.com/data/KOHu7RCS/98af0394452604fc05adf4f851f1216204e03a40_96.webp",
+ "raw_icon_url": "https://cdn.modrinth.com/data/KOHu7RCS/98af0394452604fc05adf4f851f1216204e03a40.png",
+ "issues_url": "https://github.com/Tuinity/Moonrise/issues",
+ "source_url": "https://github.com/Tuinity/Moonrise",
+ "wiki_url": null,
+ "discord_url": "https://discord.gg/tuinity",
+ "donation_urls": [],
+ "gallery": [],
+ "color": 1744303,
+ "thread_id": "rToO40u8",
+ "monetization_status": "monetized"
+}

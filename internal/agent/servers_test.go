@@ -35,16 +35,16 @@ func TestMigratedServerKeepsItsExactContainerDefinition(t *testing.T) {
 	a := &Agent{cfg: cfg, opts: Options{StopTimeout: 90 * time.Second}}
 	sc := api.ServerConfig{VersionID: "paper-26.1.2", MinecraftVersion: "26.1.2", PaperBuild: 74, MemoryMB: 3072, HeapMB: 2304, LevelName: "world", MOTD: "Playkeeper update test", MaxPlayers: 7, Whitelist: true}
 	v1 := &server{Agent: a, id: "abcdefghij", layout: layoutV1, gamePort: cfg.GamePort}
-	if _, hash := v1.containerSpec(sc, false); hash != "e9b31f7ea2587808" {
+	if _, hash := v1.containerSpec(sc, false, nil); hash != "e9b31f7ea2587808" {
 		t.Fatalf("a v1 server's definition changed: hash %s, 0.2.0 made e9b31f7ea2587808", hash)
 	}
 	hard := sc
 	hard.Gameplay = api.Gameplay{Difficulty: "hard"}
-	if spec, hash := v1.containerSpec(hard, false); hash == "e9b31f7ea2587808" || env(spec, "DIFFICULTY") != "hard" {
+	if spec, hash := v1.containerSpec(hard, false, nil); hash == "e9b31f7ea2587808" || env(spec, "DIFFICULTY") != "hard" {
 		t.Fatal("a setting chosen in Playkeeper must change the definition, so the server restarts to use it")
 	}
 	v2 := &server{Agent: a, id: "abcdefghij", layout: layoutV2, gamePort: 25566}
-	spec, _ := v2.containerSpec(sc, false)
+	spec, _ := v2.containerSpec(sc, false, nil)
 	if spec.Labels[labelServer] != "abcdefghij" || !strings.HasPrefix(spec.HostConfig.Binds[0], "/var/lib/playkeeper/servers/abcdefghij/data:") ||
 		spec.HostConfig.PortBindings["25565/tcp"][0].HostPort != "25566" || v2.containerName() != "playkeeper-mc-abcdefghij" {
 		t.Fatalf("a new server gets its own directory, label, port and container: %+v", spec)
@@ -101,7 +101,7 @@ func TestSingleServerInstallMigratesWithoutRestarting(t *testing.T) {
 	os.WriteFile(filepath.Join(filepath.Dir(e.cfg.ServerDataDir()), "rcon_password"), []byte("legacysecret"), 0o400)
 	// The running container, made by 0.2.0's definition.
 	legacy := &server{Agent: &Agent{cfg: e.cfg, opts: Options{StopTimeout: 5 * time.Second}}, layout: layoutV1, gamePort: e.cfg.GamePort}
-	spec, hash := legacy.containerSpec(sc, false)
+	spec, hash := legacy.containerSpec(sc, false, nil)
 	e.fd.mu.Lock()
 	e.fd.images[minecraft.Image] = true
 	e.fd.mu.Unlock()

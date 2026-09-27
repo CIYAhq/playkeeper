@@ -1,0 +1,29 @@
+{
+	"pack": {
+		"pack_format": 15,
+		"min_format": 15,
+		"max_format": 200,
+		"supported_formats": {"min_inclusive": 15, "max_inclusive": 200},
+		"description": [
+			{"text": " H", "color": "#e05400"},
+			{"text": "a", "color": "#e35b00"},
+			{"text": "n", "color": "#e66200"},
+			{"text": "d", "color": "#ec6f00"},
+			{"text": "l", "color": "#f07a00"},
+			{"text": "e", "color": "#f79300"},
+			{"text": " ", "color": "#ffa600"},
+			{"text": "t", "color": "#ffb900"},
+			{"text": "h", "color": "#ffc500"},
+			{"text": "e", "color": "#ffd70f"},
+			{"text": " ", "color": "#ffe038"},
+			{"text": "h", "color": "#fff04f"},
+			{"text": "e", "color": "#fff66a"},
+			{"text": "a", "color": "#fff66a"},
+			{"text": "t!", "color": "#fff66a"},
+			"\n",
+			{"text": " §7by"},
+			{"text": " Haikis", "color": "#f4d345"},
+			{"text":" §f\uDBA3\uDF26"}
+		]
+	}
+}

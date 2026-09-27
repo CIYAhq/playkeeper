@@ -1,0 +1,102 @@
+{
+ "createdAt": "2023-02-16T15:38:38.719409Z",
+ "publishedAt": "2023-03-14T09:46:31.215551Z",
+ "id": 112,
+ "name": "ViaRewind",
+ "namespace": {
+  "owner": "ViaVersion",
+  "slug": "ViaRewind"
+ },
+ "stats": {
+  "views": 455740,
+  "downloads": 248487,
+  "recentViews": 10762,
+  "recentDownloads": 3118,
+  "stars": 73,
+  "watchers": 47
+ },
+ "category": "misc",
+ "description": "ViaVersion addon to allow 1.8.x and 1.7.x clients on newer server versions.",
+ "lastUpdated": "2026-09-18T15:08:16.539019Z",
+ "visibility": "public",
+ "userActions": {
+  "starred": false,
+  "watching": false,
+  "flagged": false
+ },
+ "settings": {
+  "links": [
+   {
+    "id": 0,
+    "type": "top",
+    "title": "top",
+    "links": [
+     {
+      "id": 1,
+      "name": "Issues",
+      "url": "https://github.com/ViaVersion/ViaRewind/issues"
+     },
+     {
+      "id": 2,
+      "name": "Source",
+      "url": "https://github.com/ViaVersion/ViaRewind"
+     },
+     {
+      "id": 3,
+      "name": "Support",
+      "url": "http://viaversion.com/discord"
+     }
+    ]
+   }
+  ],
+  "tags": [
+   "ADDON",
+   "SUPPORTS_FOLIA"
+  ],
+  "license": {
+   "name": "GPL",
+   "url": "https://github.com/ViaVersion/ViaRewind/blob/master/LICENSE",
+   "type": "GPL"
+  },
+  "keywords": [],
+  "sponsors": "",
+  "unlisted": false,
+  "donation": {
+   "subject": "",
+   "enable": false
+  }
+ },
+ "supportedPlatforms": {
+  "PAPER": [
+   "1.21",
+   "1.21.1",
+   "1.21.10",
+   "1.21.11",
+   "1.21.2",
+   "1.21.3",
+   "1.21.4",
+   "1.21.5",
+   "1.21.6",
+   "1.21.7",
+   "1.21.8",
+   "1.21.9",
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "WATERFALL": [
+   "1.19",
+   "1.20"
+  ],
+  "VELOCITY": [
+   "3.4",
+   "3.4.0",
+   "3.5"
+  ]
+ },
+ "mainPageContent": null,
+ "memberNames": null,
+ "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/112.webp?v=1"
+}

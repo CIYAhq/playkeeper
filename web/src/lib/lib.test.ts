@@ -46,6 +46,11 @@ describe('router', () => {
       { name: 'new-server' },
       { name: 'server', slug: 'survival', tab: 'overview' },
       { name: 'server', slug: 'my-world-2', tab: 'players' },
+      { name: 'server', slug: 'survival', tab: 'plugins' },
+      { name: 'server', slug: 'survival', tab: 'plugins', sub: 'browse' },
+      { name: 'server', slug: 'cobblemon', tab: 'mods', sub: 'browse' },
+      { name: 'server', slug: 'survival', tab: 'world', sub: 'pregen' },
+      { name: 'server', slug: 'survival', tab: 'world', sub: 'packs' },
       { name: 'machine', id: 'm2345abcde' },
       { name: 'settings' },
       { name: 'more' },
@@ -58,6 +63,9 @@ describe('router', () => {
     expect(parse('/console')).toEqual({ name: 'legacy', tab: 'console' })
     expect(parse('/world/')).toEqual({ name: 'legacy', tab: 'world' })
     expect(parse('/servers/survival/nope')).toEqual({ name: 'home' })
+    expect(parse('/servers/survival/world/browse')).toEqual({ name: 'home' })
+    expect(parse('/servers/survival/overview/pregen')).toEqual({ name: 'home' })
+    expect(parse('/servers/survival/world/pregen/more')).toEqual({ name: 'home' })
     expect(parse('/servers/Bad Slug')).toEqual({ name: 'home' })
     expect(parse('/whatever')).toEqual({ name: 'home' })
   })

@@ -1,0 +1,92 @@
+{
+ "client_side": "required",
+ "server_side": "optional",
+ "game_versions": [
+  "1.21",
+  "1.21.1",
+  "1.21.2",
+  "1.21.3",
+  "1.21.4",
+  "1.21.5",
+  "1.21.6",
+  "1.21.7",
+  "1.21.8",
+  "1.21.9",
+  "1.21.10",
+  "1.21.11",
+  "26.1",
+  "26.1.1",
+  "26.1.2",
+  "26.2",
+  "26.3"
+ ],
+ "environment": [
+  "client_only_server_optional"
+ ],
+ "id": "n6PXGAoM",
+ "slug": "better-stats",
+ "project_type": "mod",
+ "team": "6Y0z3ceK",
+ "organization": null,
+ "title": "Better Statistics Screen",
+ "description": "A Minecraft mod that improves the statistics screen and makes it more useful.",
+ "body": "<h1 align=\"center\">\n\t<img alt=\"thumbnail\" src=\"https://cdn.modrinth.com/data/cached_images/2e90c9e7c0c56d6bc34cdfdf6e53766ce1328ebd_0.webp\"/>\n</h1>\n\n<p align=\"center\">\n\t<a href=\"https://github.com/sponsors/TheCSDev/\" target=\"_blank\">\n\t\t<img",
+ "body_url": null,
+ "published": "2022-09-02T19:38:08.030776Z",
+ "updated": "2026-09-17T17:34:20.656616Z",
+ "approved": null,
+ "queued": null,
+ "status": "approved",
+ "requested_status": null,
+ "moderator_message": null,
+ "license": {
+  "id": "LicenseRef-Better-Statistics-Screen-License",
+  "name": "",
+  "url": "https://github.com/TheCSDev/betterstats/blob/main/LICENSE.md"
+ },
+ "downloads": 19315126,
+ "followers": 3888,
+ "categories": [
+  "utility"
+ ],
+ "additional_categories": [],
+ "loaders": [
+  "fabric",
+  "forge",
+  "neoforge",
+  "quilt"
+ ],
+ "versions": [
+  "UDcubpko",
+  "ga3HGfK0",
+  "LqOH9k7B",
+  "2oDU8MV5"
+ ],
+ "icon_url": "https://cdn.modrinth.com/data/n6PXGAoM/c5a85914f01be35575abe61c2d19d48e08581034_96.webp",
+ "raw_icon_url": "https://cdn.modrinth.com/data/n6PXGAoM/icon.png",
+ "issues_url": "https://github.com/TheCSDev/betterstats/issues",
+ "source_url": "https://github.com/TheCSDev/betterstats",
+ "wiki_url": "https://thecsdev.com/docs/betterstats/",
+ "discord_url": null,
+ "donation_urls": [
+  {
+   "id": "other",
+   "platform": "Other",
+   "url": "https://thecsdev.com/fwd/support-me/"
+  }
+ ],
+ "gallery": [
+  {
+   "url": "https://cdn.modrinth.com/data/n6PXGAoM/images/5f6601d6e2b874b0d38d3022725a3a0007de3cd7_350.webp",
+   "raw_url": "https://cdn.modrinth.com/data/n6PXGAoM/images/5f6601d6e2b874b0d38d3022725a3a0007de3cd7.webp",
+   "featured": true,
+   "title": "(v5.0) Thumbnail",
+   "description": "Main thumbnail image for this mod.",
+   "created": "2026-02-08T12:14:41.674911Z",
+   "ordering": 0
+  }
+ ],
+ "color": 5379209,
+ "thread_id": "n6PXGAoM",
+ "monetization_status": "monetized"
+}

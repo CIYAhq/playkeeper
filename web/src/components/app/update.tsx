@@ -107,7 +107,7 @@ export function JobSteps({ steps }: { steps: { title: ReactNode; hint?: ReactNod
             {s.hint && <div className="mt-0.5 text-xs text-muted-foreground">{s.hint}</div>}
             {s.state === 'current' && s.progress !== undefined && (
               <div className="mt-2 h-1.5 max-w-[280px] overflow-hidden rounded-full bg-foreground/8" role="progressbar" aria-labelledby={`${id}-${i}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(s.progress)}>
-                <div className="h-full rounded-full bg-info transition-[width]" style={{ width: `${s.progress}%` }} />
+                <div className="h-full rounded-full bg-info transition-[width] duration-(--motion-slow) ease-standard" style={{ width: `${s.progress}%` }} />
               </div>
             )}
           </div>

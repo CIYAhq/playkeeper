@@ -1,0 +1,982 @@
+{
+  "modrinth:OhduvhIc": {
+    "card": {
+      "source": "modrinth",
+      "projectId": "OhduvhIc",
+      "slug": "veinminer",
+      "name": "VeinMiner",
+      "author": "Miraculixx",
+      "summary": "Mine the whole vein on mining a single ore/block. Make the tedious mining experience to something satisfying and fun!",
+      "categories": [
+        "equipment",
+        "game-mechanics",
+        "utility"
+      ],
+      "license": "AGPL-3.0-only",
+      "downloads": 86537058,
+      "iconUrl": "https://cdn.modrinth.com/data/OhduvhIc/5ea1f538e66ee4d4e5e571ad952cba0e06e0bd5c.png",
+      "updated": "2026-09-23T21:28:18.813418Z",
+      "pageUrl": "https://modrinth.com/plugin/veinminer",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "oqCXaEfq",
+      "versionNumber": "2.12.2",
+      "channel": "release",
+      "published": "2026-09-23T21:28:07.002101Z",
+      "fileName": "veinminer-paper-2.12.2.jar",
+      "size": 713652
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "modrinth",
+          "projectId": "OhduvhIc",
+          "name": "VeinMiner",
+          "versionNumber": "2.12.2",
+          "channel": "release",
+          "fileName": "veinminer-paper-2.12.2.jar",
+          "size": 713652
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "91f15ab8bc8c985edf0bcd006732ed87"
+    }
+  },
+  "modrinth:9eGKb6K1": {
+    "card": {
+      "source": "modrinth",
+      "projectId": "9eGKb6K1",
+      "slug": "simple-voice-chat",
+      "name": "Simple Voice Chat",
+      "author": "henkelmax",
+      "summary": "A working voice chat in Minecraft!",
+      "categories": [
+        "adventure",
+        "social",
+        "utility"
+      ],
+      "license": "All Rights Reserved",
+      "downloads": 70096566,
+      "iconUrl": "https://cdn.modrinth.com/data/9eGKb6K1/icon.png",
+      "updated": "2026-09-23T06:25:58.853866Z",
+      "pageUrl": "https://modrinth.com/plugin/simple-voice-chat",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "EJth3OAr",
+      "versionNumber": "bukkit-2.6.24",
+      "channel": "release",
+      "published": "2026-09-20T07:57:47.681341Z",
+      "fileName": "voicechat-bukkit-2.6.24.jar",
+      "size": 939426
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "modrinth",
+          "projectId": "9eGKb6K1",
+          "name": "Simple Voice Chat",
+          "versionNumber": "bukkit-2.6.24",
+          "channel": "release",
+          "fileName": "voicechat-bukkit-2.6.24.jar",
+          "size": 939426
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "c54107796b4523c3a13dd7ba31ef070d"
+    }
+  },
+  "modrinth:fALzjamp": {
+    "card": {
+      "source": "modrinth",
+      "projectId": "fALzjamp",
+      "slug": "chunky",
+      "name": "Chunky",
+      "author": "pop4959",
+      "summary": "Pre-generates chunks, quickly and efficiently",
+      "categories": [
+        "optimization",
+        "utility",
+        "worldgen"
+      ],
+      "license": "GPL-3.0-only",
+      "downloads": 18282878,
+      "iconUrl": "https://cdn.modrinth.com/data/fALzjamp/e1954413665e57b7bae1feef44eda530270c7d47_96.webp",
+      "updated": "2026-07-23T04:22:28.142267Z",
+      "pageUrl": "https://modrinth.com/plugin/chunky",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "MdY6JATr",
+      "versionNumber": "1.5.3",
+      "channel": "release",
+      "published": "2026-05-04T05:46:08.712785Z",
+      "fileName": "Chunky-Bukkit-1.5.3.jar",
+      "size": 304616
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "modrinth",
+          "projectId": "fALzjamp",
+          "name": "Chunky",
+          "versionNumber": "1.5.3",
+          "channel": "release",
+          "fileName": "Chunky-Bukkit-1.5.3.jar",
+          "size": 304616
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "548ec6d1d02bf01310373c5a0153a28b"
+    }
+  },
+  "modrinth:4sP0LXxp": {
+    "card": {
+      "source": "modrinth",
+      "projectId": "4sP0LXxp",
+      "slug": "veinminer-enchantment",
+      "name": "VeinMiner Enchantment",
+      "author": "Miraculixx",
+      "summary": "Veinminer Addon - Adds vineminer enchantment to enchanting tables. Only tools with the enchantment can veinmine",
+      "categories": [
+        "equipment",
+        "game-mechanics",
+        "utility"
+      ],
+      "license": "LGPL-3.0-only",
+      "downloads": 17170656,
+      "iconUrl": "https://cdn.modrinth.com/data/4sP0LXxp/1e37ba60062cf9455fc75d61c653a75d11825783.png",
+      "updated": "2026-07-26T12:20:02.245875Z",
+      "pageUrl": "https://modrinth.com/plugin/veinminer-enchantment",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "9C8zH5YI",
+      "versionNumber": "2.11.2",
+      "channel": "release",
+      "published": "2026-07-26T11:39:07.074705Z",
+      "fileName": "veinminer-enchant-2.11.2.jar",
+      "size": 27450
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "modrinth",
+          "projectId": "4sP0LXxp",
+          "name": "VeinMiner Enchantment",
+          "versionNumber": "2.11.2",
+          "channel": "release",
+          "fileName": "veinminer-enchant-2.11.2.jar",
+          "size": 27450
+        },
+        {
+          "action": "install",
+          "source": "modrinth",
+          "projectId": "OhduvhIc",
+          "name": "VeinMiner",
+          "versionNumber": "2.12.2",
+          "channel": "release",
+          "fileName": "veinminer-paper-2.12.2.jar",
+          "size": 713652,
+          "neededBy": "VeinMiner Enchantment"
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "cae31e79c2149253b7f57735d466d1eb"
+    }
+  },
+  "modrinth:lfHFW1mp": {
+    "card": {
+      "source": "modrinth",
+      "projectId": "lfHFW1mp",
+      "slug": "journeymap",
+      "name": "JourneyMap",
+      "author": "mysticdrew",
+      "summary": "Real-time map used for mapping in-game or your browser as you explore.",
+      "categories": [
+        "adventure",
+        "utility"
+      ],
+      "license": "All Rights Reserved",
+      "downloads": 14613104,
+      "iconUrl": "https://cdn.modrinth.com/data/lfHFW1mp/a1c571a21a88f6fa59eab67829f216f65ab393ee_96.webp",
+      "updated": "2026-09-19T18:47:35.638378Z",
+      "pageUrl": "https://modrinth.com/plugin/journeymap",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "XwMqT5Sm",
+      "versionNumber": "26.1.2-6.0.9+paper",
+      "channel": "release",
+      "published": "2026-09-19T18:44:12.040335Z",
+      "fileName": "journeymap-paper-26.1.2-6.0.9.jar",
+      "size": 2740343
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "modrinth",
+          "projectId": "lfHFW1mp",
+          "name": "JourneyMap",
+          "versionNumber": "26.1.2-6.0.9+paper",
+          "channel": "release",
+          "fileName": "journeymap-paper-26.1.2-6.0.9.jar",
+          "size": 2740343
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "a9d3392f00573f64f854cb4d45260782"
+    }
+  },
+  "modrinth:1u6JkXh5": {
+    "card": {
+      "source": "modrinth",
+      "projectId": "1u6JkXh5",
+      "slug": "worldedit",
+      "name": "WorldEdit",
+      "author": "me4502",
+      "summary": "A Minecraft Map Editor... that runs in-game!\nWith selections, schematics, copy and paste, brushes, and scripting.\nUse it in creative, or use it temporarily in survival.",
+      "categories": [
+        "library",
+        "management",
+        "utility"
+      ],
+      "license": "GPL-3.0-only",
+      "downloads": 10856574,
+      "iconUrl": "https://cdn.modrinth.com/data/1u6JkXh5/30698991048ced77e60c4e8284007d3782f2e6a3_96.webp",
+      "updated": "2026-09-24T10:26:36.893577Z",
+      "pageUrl": "https://modrinth.com/plugin/worldedit",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "F5ea2ov3",
+      "versionNumber": "7.4.5",
+      "channel": "release",
+      "published": "2026-08-09T07:18:23.599011Z",
+      "fileName": "worldedit-bukkit-7.4.5.jar",
+      "size": 7708742
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "modrinth",
+          "projectId": "1u6JkXh5",
+          "name": "WorldEdit",
+          "versionNumber": "7.4.5",
+          "channel": "release",
+          "fileName": "worldedit-bukkit-7.4.5.jar",
+          "size": 7708742
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "dd03c3574622c50cc613ec3004608ab4"
+    }
+  },
+  "modrinth:pZ2wrerK": {
+    "card": {
+      "source": "modrinth",
+      "projectId": "pZ2wrerK",
+      "slug": "emotecraft",
+      "name": "Emotecraft",
+      "author": "KosmX",
+      "summary": "Create your own emotes in Minecraft.",
+      "categories": [
+        "decoration",
+        "social"
+      ],
+      "license": "GPL-3.0-or-later",
+      "downloads": 7504106,
+      "iconUrl": "https://cdn.modrinth.com/data/pZ2wrerK/eed7e2c9851392e5879c7d7cb763f142f124e6d2_96.webp",
+      "updated": "2026-09-24T19:51:57.886092Z",
+      "pageUrl": "https://modrinth.com/plugin/emotecraft",
+      "installed": false
+    },
+    "notice": {
+      "kind": "only_prerelease",
+      "params": {
+        "channel": "beta",
+        "minecraft": "26.1.2",
+        "name": "Emotecraft",
+        "version": "3.3.0-b.build.164-paper"
+      },
+      "message": "Emotecraft has only pre-release versions for Minecraft 26.1.2 (newest: 3.3.0-b.build.164-paper, a beta).",
+      "hint": "Playkeeper installs releases only, so this waits for a release that runs on this Minecraft version."
+    }
+  },
+  "modrinth:1bZhdhsH": {
+    "card": {
+      "source": "modrinth",
+      "projectId": "1bZhdhsH",
+      "slug": "plasmo-voice",
+      "name": "Plasmo Voice",
+      "author": "kpids",
+      "summary": "A proximity voice chat mod with audio positioning and lots of features",
+      "categories": [
+        "adventure",
+        "social",
+        "utility"
+      ],
+      "license": "LGPL-3.0-only",
+      "downloads": 3970572,
+      "iconUrl": "https://cdn.modrinth.com/data/1bZhdhsH/72c1641d4af92d93546958a2c87e0b5fd1c3f650_96.webp",
+      "updated": "2026-09-15T20:50:54.071752Z",
+      "pageUrl": "https://modrinth.com/plugin/plasmo-voice",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "DySKquus",
+      "versionNumber": "spigot-2.1.17",
+      "channel": "release",
+      "published": "2026-09-15T20:49:15.473297Z",
+      "fileName": "PlasmoVoice-Paper-2.1.17.jar",
+      "size": 9117397
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "modrinth",
+          "projectId": "1bZhdhsH",
+          "name": "Plasmo Voice",
+          "versionNumber": "spigot-2.1.17",
+          "channel": "release",
+          "fileName": "PlasmoVoice-Paper-2.1.17.jar",
+          "size": 9117397
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "74287c869d8df0b5da619abdd2678b3d"
+    }
+  },
+  "modrinth:HIuqnQpi": {
+    "card": {
+      "source": "modrinth",
+      "projectId": "HIuqnQpi",
+      "slug": "common-network",
+      "name": "Common Network",
+      "author": "mysticdrew",
+      "summary": "Forge and Fabric Unified Networking Solution",
+      "categories": [
+        "library",
+        "utility"
+      ],
+      "license": "MIT",
+      "downloads": 3911231,
+      "iconUrl": "https://cdn.modrinth.com/data/HIuqnQpi/a869c47caa01fa0e63c88ee156c86f51ab49be74_96.webp",
+      "updated": "2026-09-19T17:56:47.180617Z",
+      "pageUrl": "https://modrinth.com/plugin/common-network",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "7o0SC43b",
+      "versionNumber": "1.0.23-26.1.2",
+      "channel": "release",
+      "published": "2026-05-13T21:44:02.407278Z",
+      "fileName": "common-networking-paper-1.0.23-26.1.2.jar",
+      "size": 27760
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "modrinth",
+          "projectId": "HIuqnQpi",
+          "name": "Common Network",
+          "versionNumber": "1.0.23-26.1.2",
+          "channel": "release",
+          "fileName": "common-networking-paper-1.0.23-26.1.2.jar",
+          "size": 27760
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "9bb8cd00bd60c837427e5fbdf19aa4c3"
+    }
+  },
+  "modrinth:XoHTb2Ap": {
+    "card": {
+      "source": "modrinth",
+      "projectId": "XoHTb2Ap",
+      "slug": "calcmod",
+      "name": "CalcMod",
+      "author": "js802025",
+      "summary": "A calculator in your chat with shortcuts designed for Minecraft",
+      "categories": [
+        "utility"
+      ],
+      "license": "MIT",
+      "downloads": 3298640,
+      "iconUrl": "https://cdn.modrinth.com/data/XoHTb2Ap/fe87f9fb4d48afbe539314b17e1be68ba242e58a.gif",
+      "updated": "2026-09-17T02:21:27.199589Z",
+      "pageUrl": "https://modrinth.com/plugin/calcmod",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "oOXqn6vP",
+      "versionNumber": "1.5.1+paper.26.1",
+      "channel": "release",
+      "published": "2026-05-17T20:46:58.537084Z",
+      "fileName": "calcmod-1.5.1+paper.26.1.2.jar",
+      "size": 422800
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "modrinth",
+          "projectId": "XoHTb2Ap",
+          "name": "CalcMod",
+          "versionNumber": "1.5.1+paper.26.1",
+          "channel": "release",
+          "fileName": "calcmod-1.5.1+paper.26.1.2.jar",
+          "size": 422800
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "6c5d2982eafc93956835f359b5bc2e89"
+    }
+  },
+  "modrinth:P1OZGk5p": {
+    "card": {
+      "source": "modrinth",
+      "projectId": "P1OZGk5p",
+      "slug": "viaversion",
+      "name": "ViaVersion",
+      "author": "kennytv",
+      "summary": "Allow newer Java Edition clients to connect to older servers.",
+      "categories": [
+        "utility"
+      ],
+      "license": "GPL-3.0-or-later",
+      "downloads": 3090819,
+      "iconUrl": "https://cdn.modrinth.com/data/P1OZGk5p/ad14260a7308dc9e4c3385f3f6b5bdabfe17f295_96.webp",
+      "updated": "2026-09-20T12:56:49.379302Z",
+      "pageUrl": "https://modrinth.com/plugin/viaversion",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "FaishMnD",
+      "versionNumber": "5.12.0",
+      "channel": "release",
+      "published": "2026-09-18T15:01:59.741758Z",
+      "fileName": "ViaVersion-5.12.0.jar",
+      "size": 6503775
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "modrinth",
+          "projectId": "P1OZGk5p",
+          "name": "ViaVersion",
+          "versionNumber": "5.12.0",
+          "channel": "release",
+          "fileName": "ViaVersion-5.12.0.jar",
+          "size": 6503775
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "f83dee424631b8d1ae862df7139063b9"
+    }
+  },
+  "hangar:12": {
+    "card": {
+      "source": "hangar",
+      "projectId": "12",
+      "slug": "ViaBackwards",
+      "name": "ViaBackwards",
+      "author": "ViaVersion",
+      "summary": "Allow Java Edition clients with older versions to connect to your Minecraft server",
+      "categories": [
+        "misc"
+      ],
+      "license": "GPL",
+      "downloads": 743236,
+      "iconUrl": "https://hangarcdn.papermc.io/avatars/project/12.webp?v=1",
+      "updated": "2026-09-25T13:03:10.227632Z",
+      "pageUrl": "https://hangar.papermc.io/ViaVersion/ViaBackwards",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "30417",
+      "versionNumber": "5.12.0",
+      "channel": "release",
+      "published": "2026-09-18T15:04:43.033289Z",
+      "fileName": "ViaBackwards-5.12.0.jar",
+      "size": 1430897
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "hangar",
+          "projectId": "12",
+          "name": "ViaBackwards",
+          "versionNumber": "5.12.0",
+          "channel": "release",
+          "fileName": "ViaBackwards-5.12.0.jar",
+          "size": 1430897
+        },
+        {
+          "action": "install",
+          "source": "hangar",
+          "projectId": "31",
+          "name": "ViaVersion",
+          "versionNumber": "5.12.0",
+          "channel": "release",
+          "fileName": "ViaVersion-5.12.0.jar",
+          "size": 6503775,
+          "neededBy": "ViaBackwards"
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "afb80b0ec13af30a45e1cbc09d1cc0c6"
+    }
+  },
+  "hangar:112": {
+    "card": {
+      "source": "hangar",
+      "projectId": "112",
+      "slug": "ViaRewind",
+      "name": "ViaRewind",
+      "author": "ViaVersion",
+      "summary": "ViaVersion addon to allow 1.8.x and 1.7.x clients on newer server versions.",
+      "categories": [
+        "misc"
+      ],
+      "license": "GPL",
+      "downloads": 248617,
+      "iconUrl": "https://hangarcdn.papermc.io/avatars/project/112.webp?v=1",
+      "updated": "2026-09-18T15:08:16.539019Z",
+      "pageUrl": "https://hangar.papermc.io/ViaVersion/ViaRewind",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "30418",
+      "versionNumber": "4.2.0",
+      "channel": "release",
+      "published": "2026-09-18T15:08:16.539019Z",
+      "fileName": "ViaRewind-4.2.0.jar",
+      "size": 408809
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "hangar",
+          "projectId": "112",
+          "name": "ViaRewind",
+          "versionNumber": "4.2.0",
+          "channel": "release",
+          "fileName": "ViaRewind-4.2.0.jar",
+          "size": 408809
+        },
+        {
+          "action": "install",
+          "source": "hangar",
+          "projectId": "12",
+          "name": "ViaBackwards",
+          "versionNumber": "5.12.0",
+          "channel": "release",
+          "fileName": "ViaBackwards-5.12.0.jar",
+          "size": 1430897,
+          "neededBy": "ViaRewind"
+        },
+        {
+          "action": "install",
+          "source": "hangar",
+          "projectId": "31",
+          "name": "ViaVersion",
+          "versionNumber": "5.12.0",
+          "channel": "release",
+          "fileName": "ViaVersion-5.12.0.jar",
+          "size": 6503775,
+          "neededBy": "ViaRewind"
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "7a079a0b9d249fa3167cf6b5df80a435"
+    }
+  },
+  "hangar:23": {
+    "card": {
+      "source": "hangar",
+      "projectId": "23",
+      "slug": "Essentials",
+      "name": "Essentials",
+      "author": "EssentialsX",
+      "summary": "The essential plugin suite for Paper! (and Spigot)",
+      "categories": [
+        "admin_tools"
+      ],
+      "license": "GPL",
+      "downloads": 111043,
+      "iconUrl": "https://hangarcdn.papermc.io/avatars/project/23.webp?v=3",
+      "updated": "2026-05-31T15:48:54.559387Z",
+      "pageUrl": "https://hangar.papermc.io/EssentialsX/Essentials",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "25952",
+      "versionNumber": "2.22.0",
+      "channel": "release",
+      "published": "2026-05-31T15:48:54.559387Z",
+      "externalUrl": "https://github.com/EssentialsX/Essentials/releases/tag/2.22.0"
+    }
+  },
+  "hangar:14": {
+    "card": {
+      "source": "hangar",
+      "projectId": "14",
+      "slug": "Geyser",
+      "name": "Geyser",
+      "author": "GeyserMC",
+      "summary": "A bridge/proxy allowing you to connect to Minecraft: Java Edition servers with Minecraft: Bedrock Edition.",
+      "categories": [
+        "misc"
+      ],
+      "license": "MIT",
+      "downloads": 82169,
+      "iconUrl": "https://hangarcdn.papermc.io/avatars/project/14.webp?v=1",
+      "updated": "2023-03-19T20:49:50.933106Z",
+      "pageUrl": "https://hangar.papermc.io/GeyserMC/Geyser",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "238",
+      "versionNumber": "Geyser",
+      "channel": "release",
+      "published": "2023-03-19T20:49:50.933106Z",
+      "externalUrl": "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot"
+    }
+  },
+  "hangar:17": {
+    "card": {
+      "source": "hangar",
+      "projectId": "17",
+      "slug": "Floodgate",
+      "name": "Floodgate",
+      "author": "GeyserMC",
+      "summary": "Hybrid mode plugin to allow for connections from Geyser to join online mode servers.",
+      "categories": [
+        "misc"
+      ],
+      "license": "MIT",
+      "downloads": 68470,
+      "iconUrl": "https://hangarcdn.papermc.io/avatars/project/17.webp?v=1",
+      "updated": "2023-03-19T20:57:26.630238Z",
+      "pageUrl": "https://hangar.papermc.io/GeyserMC/Floodgate",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "239",
+      "versionNumber": "Floodgate",
+      "channel": "release",
+      "published": "2023-03-19T20:57:26.630238Z",
+      "externalUrl": "https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot"
+    }
+  },
+  "hangar:678": {
+    "card": {
+      "source": "hangar",
+      "projectId": "678",
+      "slug": "GSit",
+      "name": "GSit",
+      "author": "Gecolay",
+      "summary": "✨ Relax with other players on nice seats! ✨",
+      "categories": [
+        "gameplay"
+      ],
+      "license": "GPL",
+      "downloads": 50422,
+      "iconUrl": "https://hangarcdn.papermc.io/avatars/project/678.webp?v=1",
+      "updated": "2026-09-20T11:05:39.521334Z",
+      "pageUrl": "https://hangar.papermc.io/Gecolay/GSit",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "30556",
+      "versionNumber": "3.7.0",
+      "channel": "release",
+      "published": "2026-09-20T11:05:39.521334Z",
+      "fileName": "GSit-3.7.0.jar",
+      "size": 811798
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "hangar",
+          "projectId": "678",
+          "name": "GSit",
+          "versionNumber": "3.7.0",
+          "channel": "release",
+          "fileName": "GSit-3.7.0.jar",
+          "size": 811798
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "4016654482ee5df95f4310c7323400d2"
+    }
+  },
+  "hangar:10": {
+    "card": {
+      "source": "hangar",
+      "projectId": "10",
+      "slug": "CoreProtect",
+      "name": "CoreProtect",
+      "author": "CORE",
+      "summary": "CoreProtect is a fast, efficient, data logging and anti-griefing tool. Rollback and restore any amount of damage.",
+      "categories": [
+        "admin_tools"
+      ],
+      "license": "Artistic License 2.0",
+      "downloads": 38568,
+      "iconUrl": "https://hangarcdn.papermc.io/avatars/project/10.webp?v=1",
+      "updated": "2026-09-24T01:26:34.113678Z",
+      "pageUrl": "https://hangar.papermc.io/CORE/CoreProtect",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "30731",
+      "versionNumber": "24.1",
+      "channel": "release",
+      "published": "2026-09-24T01:26:34.113678Z",
+      "externalUrl": "https://www.patreon.com/coreprotect/posts/170398122"
+    }
+  },
+  "hangar:245": {
+    "card": {
+      "source": "hangar",
+      "projectId": "245",
+      "slug": "BlueMap",
+      "name": "BlueMap",
+      "author": "Blue",
+      "summary": "A mapping tool that creates 3D models of your Minecraft worlds and displays them in a web viewer",
+      "categories": [
+        "misc"
+      ],
+      "license": "MIT",
+      "downloads": 34647,
+      "iconUrl": "https://hangarcdn.papermc.io/avatars/project/245.webp?v=3",
+      "updated": "2026-09-25T17:19:50.968281Z",
+      "pageUrl": "https://hangar.papermc.io/Blue/BlueMap",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "30829",
+      "versionNumber": "5.28",
+      "channel": "release",
+      "published": "2026-09-25T17:19:50.968281Z",
+      "fileName": "bluemap-5.28-paper.jar",
+      "size": 6285353
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "hangar",
+          "projectId": "245",
+          "name": "BlueMap",
+          "versionNumber": "5.28",
+          "channel": "release",
+          "fileName": "bluemap-5.28-paper.jar",
+          "size": 6285353
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "a2d3f7b9736073e3f4b15b71a8a1b005"
+    }
+  },
+  "modrinth:Lu3KuzdV": {
+    "card": {
+      "source": "modrinth",
+      "projectId": "Lu3KuzdV",
+      "slug": "coreprotect",
+      "name": "CoreProtect",
+      "author": "Intelli",
+      "summary": "CoreProtect is a fast, efficient, data logging and anti-griefing tool. Rollback and restore any amount of damage. Designed with large servers in mind, CoreProtect will record and manage data without impacting your server performance.",
+      "categories": [
+        "management",
+        "storage",
+        "utility"
+      ],
+      "license": "Artistic-2.0",
+      "downloads": 523888,
+      "iconUrl": "https://cdn.modrinth.com/data/Lu3KuzdV/b2c4b7b0033ab09cc166f2848003ef3a02c70a83.png",
+      "updated": "2026-09-24T01:10:14.616365Z",
+      "pageUrl": "https://modrinth.com/plugin/coreprotect",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "3sehX6Sg",
+      "versionNumber": "24.1",
+      "channel": "release",
+      "published": "2026-09-24T01:10:14.616365Z",
+      "fileName": "CoreProtect-CE-24.1.jar",
+      "size": 1113283
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "modrinth",
+          "projectId": "Lu3KuzdV",
+          "name": "CoreProtect",
+          "versionNumber": "24.1",
+          "channel": "release",
+          "fileName": "CoreProtect-CE-24.1.jar",
+          "size": 1113283
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "2270f8ce8f1ff179e399a93f8968ff57"
+    }
+  },
+  "modrinth:hXiIvTyT": {
+    "card": {
+      "source": "modrinth",
+      "projectId": "hXiIvTyT",
+      "slug": "essentialsx",
+      "name": "EssentialsX",
+      "author": "mdcfe",
+      "summary": "The essential plugin suite for Paper and Spigot servers.",
+      "categories": [
+        "economy",
+        "social",
+        "utility"
+      ],
+      "license": "GPL-3.0-only",
+      "downloads": 826261,
+      "iconUrl": "https://cdn.modrinth.com/data/hXiIvTyT/e621675be1d0421b43b65ab8082507532d937009_96.webp",
+      "updated": "2026-05-31T15:05:35.376401Z",
+      "pageUrl": "https://modrinth.com/plugin/essentialsx",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "nY6VN1XH",
+      "versionNumber": "2.22.0",
+      "channel": "release",
+      "published": "2026-05-31T15:05:35.376401Z",
+      "fileName": "EssentialsX-2.22.0.jar",
+      "size": 4861125
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "modrinth",
+          "projectId": "hXiIvTyT",
+          "name": "EssentialsX",
+          "versionNumber": "2.22.0",
+          "channel": "release",
+          "fileName": "EssentialsX-2.22.0.jar",
+          "size": 4861125
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "3cd41d64e3540d5bf7bd5e874dc244c9"
+    }
+  },
+  "modrinth:Vebnzrzj": {
+    "card": {
+      "source": "modrinth",
+      "projectId": "Vebnzrzj",
+      "slug": "luckperms",
+      "name": "LuckPerms",
+      "author": "lucko",
+      "summary": "A permissions plugin/mod for Minecraft servers.",
+      "categories": [
+        "management",
+        "utility"
+      ],
+      "license": "MIT",
+      "downloads": 2764839,
+      "iconUrl": "https://cdn.modrinth.com/data/Vebnzrzj/90943902cc650e95b167265b8f2d7c893f82c8f4_96.webp",
+      "updated": "2026-09-19T07:45:35.628116Z",
+      "pageUrl": "https://modrinth.com/plugin/luckperms",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "b0mk8uS6",
+      "versionNumber": "v5.5.71-bukkit",
+      "channel": "release",
+      "published": "2026-08-06T19:40:10.637955Z",
+      "fileName": "LuckPerms-Bukkit-5.5.71.jar",
+      "size": 1501521
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "modrinth",
+          "projectId": "Vebnzrzj",
+          "name": "LuckPerms",
+          "versionNumber": "v5.5.71-bukkit",
+          "channel": "release",
+          "fileName": "LuckPerms-Bukkit-5.5.71.jar",
+          "size": 1501521
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "77fcf56fb7c883da3678016ea076caf0"
+    }
+  }
+}

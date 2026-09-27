@@ -1,0 +1,501 @@
+{
+ "pagination": {
+  "count": 4,
+  "limit": 25,
+  "offset": 0
+ },
+ "result": [
+  {
+   "createdAt": "2026-09-18T15:08:16.539019Z",
+   "id": 30418,
+   "projectId": 112,
+   "name": "4.2.0",
+   "visibility": "public",
+   "description": "**Adds compatibility with ViaVersion and ViaBackwards 5.12.0**\n\n**Other changes**\n- Fixed and improve sound mappings in 1.9->1.8. (Also thanks @Beaness)\n- Fixed potion spawn's velocity not being appli",
+   "stats": {
+    "totalDownloads": 961,
+    "platformDownloads": {
+     "PAPER": 839,
+     "VELOCITY": 122
+    }
+   },
+   "author": "EnZaXD",
+   "reviewState": "reviewed",
+   "channel": {
+    "createdAt": "2023-02-16T15:38:38.794253Z",
+    "name": "Release",
+    "description": null,
+    "color": "#14b8a6",
+    "flags": [
+     "PINNED",
+     "FROZEN",
+     "SENDS_NOTIFICATIONS"
+    ]
+   },
+   "pinnedStatus": "CHANNEL",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaRewind-4.2.0.jar",
+      "sizeBytes": 408809,
+      "sha256Hash": "f5113ea939353fec6170e6d1b7d2326fab76fa8d0cee594f689796995fc96720"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaRewind/versions/4.2.0/PAPER/ViaRewind-4.2.0.jar"
+    },
+    "VELOCITY": {
+     "fileInfo": {
+      "name": "ViaRewind-4.2.0.jar",
+      "sizeBytes": 408809,
+      "sha256Hash": "f5113ea939353fec6170e6d1b7d2326fab76fa8d0cee594f689796995fc96720"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaRewind/versions/4.2.0/PAPER/ViaRewind-4.2.0.jar"
+    }
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaBackwards",
+      "projectId": 12,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ],
+    "VELOCITY": [
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     },
+     {
+      "name": "ViaBackwards",
+      "projectId": 12,
+      "required": true,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ],
+    "VELOCITY": [
+     "3.4",
+     "3.4.0",
+     "3.5"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.8-26.3"
+    ],
+    "VELOCITY": [
+     "3.4-3.5"
+    ]
+   },
+   "memberNames": [
+    "kennytv",
+    "viaversion",
+    "formallymyles",
+    "jo0001",
+    "enzaxd",
+    "rk_01"
+   ]
+  },
+  {
+   "createdAt": "2026-09-16T16:30:13.166971Z",
+   "id": 30327,
+   "projectId": 112,
+   "name": "4.1.4-SNAPSHOT+391",
+   "visibility": "public",
+   "description": "[82a3ee8](https://github.com/ViaVersion/ViaRewind/commit/82a3ee8) Replace 1.9.4 mappings with 1.9 mappings, fixes invalid sound (#689)\n\nSigned-off-by: Florian Reuth <git@florianreuth.de>\nCo-authored-b",
+   "stats": {
+    "totalDownloads": 38,
+    "platformDownloads": {
+     "PAPER": 35,
+     "VELOCITY": 3
+    }
+   },
+   "author": "EnZaXD",
+   "reviewState": "reviewed",
+   "channel": {
+    "createdAt": "2023-08-22T01:27:58.9792Z",
+    "name": "Snapshot",
+    "description": null,
+    "color": "#eab308",
+    "flags": [
+     "PINNED",
+     "SENDS_NOTIFICATIONS"
+    ]
+   },
+   "pinnedStatus": "CHANNEL",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaRewind-4.1.4-SNAPSHOT.jar",
+      "sizeBytes": 408866,
+      "sha256Hash": "ff1fcf7aa605e9019de4e9371af04f3ac9900d14be73aa4730303a9c4aa37204"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaRewind/versions/4.1.4-SNAPSHOT%2B391/PAPER/ViaRewind-4.1.4-SNAPSHOT.jar"
+    },
+    "VELOCITY": {
+     "fileInfo": {
+      "name": "ViaRewind-4.1.4-SNAPSHOT.jar",
+      "sizeBytes": 408866,
+      "sha256Hash": "ff1fcf7aa605e9019de4e9371af04f3ac9900d14be73aa4730303a9c4aa37204"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaRewind/versions/4.1.4-SNAPSHOT%2B391/PAPER/ViaRewind-4.1.4-SNAPSHOT.jar"
+    }
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaBackwards",
+      "projectId": 12,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ],
+    "VELOCITY": [
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     },
+     {
+      "name": "ViaBackwards",
+      "projectId": 12,
+      "required": true,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2"
+    ],
+    "VELOCITY": [
+     "3.4",
+     "3.4.0",
+     "3.5"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.8-26.2"
+    ],
+    "VELOCITY": [
+     "3.4-3.5"
+    ]
+   },
+   "memberNames": [
+    "kennytv",
+    "viaversion",
+    "formallymyles",
+    "jo0001",
+    "enzaxd",
+    "rk_01"
+   ]
+  },
+  {
+   "createdAt": "2026-09-16T15:32:03.066062Z",
+   "id": 30324,
+   "projectId": 112,
+   "name": "4.1.4-SNAPSHOT+390",
+   "visibility": "public",
+   "description": "[9df4d11](https://github.com/ViaVersion/ViaRewind/commit/9df4d11) Implement 1.9->1.8 command block translation (#692)\n\n* Implement 1.9->1.8 command block translation\n\n* Inline methods",
+   "stats": {
+    "totalDownloads": 0,
+    "platformDownloads": {}
+   },
+   "author": "EnZaXD",
+   "reviewState": "reviewed",
+   "channel": {
+    "createdAt": "2023-08-22T01:27:58.9792Z",
+    "name": "Snapshot",
+    "description": null,
+    "color": "#eab308",
+    "flags": [
+     "PINNED",
+     "SENDS_NOTIFICATIONS"
+    ]
+   },
+   "pinnedStatus": "CHANNEL",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaRewind-4.1.4-SNAPSHOT.jar",
+      "sizeBytes": 408853,
+      "sha256Hash": "e93f3b35c6d69823f8dd7f3038972ec26040a8a55fca5d9cc020632e242eec36"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaRewind/versions/4.1.4-SNAPSHOT%2B390/PAPER/ViaRewind-4.1.4-SNAPSHOT.jar"
+    },
+    "VELOCITY": {
+     "fileInfo": {
+      "name": "ViaRewind-4.1.4-SNAPSHOT.jar",
+      "sizeBytes": 408853,
+      "sha256Hash": "e93f3b35c6d69823f8dd7f3038972ec26040a8a55fca5d9cc020632e242eec36"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaRewind/versions/4.1.4-SNAPSHOT%2B390/PAPER/ViaRewind-4.1.4-SNAPSHOT.jar"
+    }
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaBackwards",
+      "projectId": 12,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ],
+    "VELOCITY": [
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     },
+     {
+      "name": "ViaBackwards",
+      "projectId": 12,
+      "required": true,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2"
+    ],
+    "VELOCITY": [
+     "3.4",
+     "3.4.0",
+     "3.5"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.8-26.2"
+    ],
+    "VELOCITY": [
+     "3.4-3.5"
+    ]
+   },
+   "memberNames": [
+    "kennytv",
+    "viaversion",
+    "formallymyles",
+    "jo0001",
+    "enzaxd",
+    "rk_01"
+   ]
+  },
+  {
+   "createdAt": "2026-07-12T18:15:53.896134Z",
+   "id": 27695,
+   "projectId": 112,
+   "name": "4.1.3",
+   "visibility": "public",
+   "description": "**Adds compatibility with ViaVersion and ViaBackwards 5.11.0**\n\n**Other changes**\n- Fixed custom sound handling in 1.9->1.8. (Thanks @Beaness)\n- Improved newline chat message handling in 1.8->1.7. (Th",
+   "stats": {
+    "totalDownloads": 6540,
+    "platformDownloads": {
+     "PAPER": 5743,
+     "VELOCITY": 797
+    }
+   },
+   "author": "EnZaXD",
+   "reviewState": "reviewed",
+   "channel": {
+    "createdAt": "2023-02-16T15:38:38.794253Z",
+    "name": "Release",
+    "description": null,
+    "color": "#14b8a6",
+    "flags": [
+     "PINNED",
+     "FROZEN",
+     "SENDS_NOTIFICATIONS"
+    ]
+   },
+   "pinnedStatus": "CHANNEL",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaRewind-4.1.3.jar",
+      "sizeBytes": 389535,
+      "sha256Hash": "24ee7045d538287bb206e57fda071eb486c52b7a0ba452d06c582d36b5a1f8e8"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaRewind/versions/4.1.3/PAPER/ViaRewind-4.1.3.jar"
+    },
+    "VELOCITY": {
+     "fileInfo": {
+      "name": "ViaRewind-4.1.3.jar",
+      "sizeBytes": 389535,
+      "sha256Hash": "24ee7045d538287bb206e57fda071eb486c52b7a0ba452d06c582d36b5a1f8e8"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaRewind/versions/4.1.3/PAPER/ViaRewind-4.1.3.jar"
+    }
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaBackwards",
+      "projectId": 12,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ],
+    "VELOCITY": [
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     },
+     {
+      "name": "ViaBackwards",
+      "projectId": 12,
+      "required": true,
+      "externalUrl": null,
+      "platform": "VELOCITY"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2"
+    ],
+    "VELOCITY": [
+     "3.4",
+     "3.4.0",
+     "3.5"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.8-26.2"
+    ],
+    "VELOCITY": [
+     "3.4-3.5"
+    ]
+   },
+   "memberNames": [
+    "kennytv",
+    "viaversion",
+    "formallymyles",
+    "jo0001",
+    "enzaxd",
+    "rk_01"
+   ]
+  }
+ ]
+}

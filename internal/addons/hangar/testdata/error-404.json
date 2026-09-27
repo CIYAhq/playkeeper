@@ -1,0 +1,8 @@
+{
+ "message": "Unknown value 'this-project-does-not-exist-xyz' for path variable 'slugOrId'",
+ "messageArgs": [],
+ "isHangarApiException": true,
+ "httpError": {
+  "statusCode": 404
+ }
+}

@@ -1,0 +1,180 @@
+[
+ {
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "neoforge"
+  ],
+  "environment": "client_only_server_optional",
+  "id": "ga3HGfK0",
+  "project_id": "n6PXGAoM",
+  "author_id": "j0Ha6a2h",
+  "featured": false,
+  "name": "5.5.6+fn-26.2",
+  "version_number": "5.5.6+fn-26.2",
+  "changelog_url": null,
+  "date_published": "2026-08-10T15:46:54.237439Z",
+  "downloads": 251569,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "nqgrAMhH",
+    "hashes": {
+     "sha1": "fdd65659abdfa9a765221b7ae59b1bb30577acdb",
+     "sha512": "aa57b6f8893ff0f1dda8b79ce08e9cb369d245fad0ba26e65eb5a67f299172b3073f0e23080f8e648b32d27a0d68566516efb83498138754eef7544967f159a1"
+    },
+    "url": "https://cdn.modrinth.com/data/n6PXGAoM/versions/ga3HGfK0/betterstats-5.5.6%2Bfn-26.2.jar",
+    "filename": "betterstats-5.5.6+fn-26.2.jar",
+    "primary": true,
+    "size": 405494,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": "NM3aWYRR",
+    "project_id": "Eldc1g37",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "game_versions": [
+   "26.2"
+  ],
+  "loaders": [
+   "fabric",
+   "neoforge"
+  ],
+  "environment": "client_only_server_optional",
+  "id": "UDcubpko",
+  "project_id": "n6PXGAoM",
+  "author_id": "j0Ha6a2h",
+  "featured": false,
+  "name": "5.5.5+fn-26.2",
+  "version_number": "5.5.5+fn-26.2",
+  "changelog_url": null,
+  "date_published": "2026-07-30T13:02:35.066539Z",
+  "downloads": 54142,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "vDbSaVJv",
+    "hashes": {
+     "sha512": "81b3da7230f1754c5e8186831544227237d734f38e5a9e7c2c4dbdcbbbdc838512220c2749e6518d71749ee3ddb2050c722e46db2bdc1161494fe14b5165ae34",
+     "sha1": "536c6d25706dd9d873360a18e7b1d70895dc7643"
+    },
+    "url": "https://cdn.modrinth.com/data/n6PXGAoM/versions/UDcubpko/betterstats-5.5.5%2Bfn-26.2.jar",
+    "filename": "betterstats-5.5.5+fn-26.2.jar",
+    "primary": true,
+    "size": 405499,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": "E3obAdZc",
+    "project_id": "Eldc1g37",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "game_versions": [
+   "26.3"
+  ],
+  "loaders": [
+   "fabric",
+   "neoforge"
+  ],
+  "environment": "client_only_server_optional",
+  "id": "2oDU8MV5",
+  "project_id": "n6PXGAoM",
+  "author_id": "j0Ha6a2h",
+  "featured": false,
+  "name": "5.6.0-beta.1+fn-26.3",
+  "version_number": "5.6.0-beta.1+fn-26.3",
+  "changelog_url": null,
+  "date_published": "2026-09-17T17:34:20.656616Z",
+  "downloads": 25518,
+  "version_type": "beta",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "7odjgeMX",
+    "hashes": {
+     "sha512": "651d544a8f622852183a35327298235626ad8c757849288689c52dbe1dc7e205b03a4d187a949a1b4a783ce6d01b12a6444b78ffd5c7aab610ca0f4399d66652",
+     "sha1": "7a3086595eeb8500079d72d933d08c8c710a39a8"
+    },
+    "url": "https://cdn.modrinth.com/data/n6PXGAoM/versions/2oDU8MV5/betterstats-5.6.0-beta.1%2Bfn-26.3.jar",
+    "filename": "betterstats-5.6.0-beta.1+fn-26.3.jar",
+    "primary": true,
+    "size": 405529,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": "WukH01sC",
+    "project_id": "Eldc1g37",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "game_versions": [
+   "26.1",
+   "26.1.1",
+   "26.1.2"
+  ],
+  "loaders": [
+   "fabric",
+   "neoforge"
+  ],
+  "environment": "client_only_server_optional",
+  "id": "LqOH9k7B",
+  "project_id": "n6PXGAoM",
+  "author_id": "j0Ha6a2h",
+  "featured": false,
+  "name": "5.5.6+fn-26.1",
+  "version_number": "5.5.6+fn-26.1",
+  "changelog_url": null,
+  "date_published": "2026-08-11T11:27:58.722064Z",
+  "downloads": 50224,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "ENopX3gs",
+    "hashes": {
+     "sha512": "015a6dbef0375dec01287afa23ba37490a0f1637a379414a274f85ddf4ec51a13318b57e06871806c4573a5cf854a7da18839bf38d66c332a0bf0da40a1661d6",
+     "sha1": "0fdbcc0a80ff1ef3291f12b8e0c5d1b315064359"
+    },
+    "url": "https://cdn.modrinth.com/data/n6PXGAoM/versions/LqOH9k7B/betterstats-5.5.6%2Bfn-26.1.jar",
+    "filename": "betterstats-5.5.6+fn-26.1.jar",
+    "primary": true,
+    "size": 405131,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": "uSpV2sxA",
+    "project_id": "Eldc1g37",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ }
+]

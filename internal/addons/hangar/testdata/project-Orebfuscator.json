@@ -1,0 +1,98 @@
+{
+ "createdAt": "2023-04-22T21:56:27.278735Z",
+ "publishedAt": "2023-10-06T22:42:24.644923Z",
+ "id": 487,
+ "name": "Orebfuscator",
+ "namespace": {
+  "owner": "Imprex-Development",
+  "slug": "Orebfuscator"
+ },
+ "stats": {
+  "views": 55218,
+  "downloads": 11400,
+  "recentViews": 1914,
+  "recentDownloads": 378,
+  "stars": 51,
+  "watchers": 20
+ },
+ "category": "admin_tools",
+ "description": "High-Performance Anti X-Ray plugin",
+ "lastUpdated": "2026-09-19T17:49:07.067716Z",
+ "visibility": "public",
+ "userActions": {
+  "starred": false,
+  "watching": false,
+  "flagged": false
+ },
+ "settings": {
+  "links": [
+   {
+    "id": 0,
+    "type": "top",
+    "title": "Useful Links",
+    "links": [
+     {
+      "id": 0,
+      "name": "Issues",
+      "url": "https://github.com/Imprex-Development/orebfuscator/issues"
+     },
+     {
+      "id": 2,
+      "name": "Wiki",
+      "url": "https://github.com/Imprex-Development/orebfuscator/wiki"
+     },
+     {
+      "id": 1,
+      "name": "Source",
+      "url": "https://github.com/Imprex-Development/orebfuscator"
+     }
+    ]
+   }
+  ],
+  "tags": [
+   "SUPPORTS_FOLIA"
+  ],
+  "license": {
+   "name": "GPL",
+   "url": "https://raw.githubusercontent.com/Imprex-Development/orebfuscator/master/LICENSE",
+   "type": "GPL"
+  },
+  "keywords": [
+   "Xray",
+   "Cheat",
+   "Anti",
+   "Anti-Xray",
+   "Anti-Cheat"
+  ],
+  "sponsors": "",
+  "unlisted": false,
+  "donation": {
+   "subject": "",
+   "enable": false
+  }
+ },
+ "supportedPlatforms": {
+  "PAPER": [
+   "1.21",
+   "1.21.1",
+   "1.21.10",
+   "1.21.11",
+   "1.21.2",
+   "1.21.3",
+   "1.21.4",
+   "1.21.5",
+   "1.21.6",
+   "1.21.7",
+   "1.21.8",
+   "1.21.9",
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ]
+ },
+ "mainPageContent": null,
+ "memberNames": null,
+ "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/487.webp?v=2"
+}

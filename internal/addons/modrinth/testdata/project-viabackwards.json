@@ -1,0 +1,84 @@
+{
+ "client_side": "optional",
+ "server_side": "optional",
+ "game_versions": [
+  "1.21",
+  "1.21.1",
+  "1.21.2",
+  "1.21.3",
+  "1.21.4",
+  "1.21.5",
+  "1.21.6",
+  "1.21.7",
+  "1.21.8",
+  "1.21.9",
+  "1.21.10",
+  "1.21.11",
+  "26.1",
+  "26.1.1",
+  "26.1.2",
+  "26.2",
+  "26.3"
+ ],
+ "environment": [
+  "client_or_server"
+ ],
+ "id": "NpvuJQoq",
+ "slug": "viabackwards",
+ "project_type": "mod",
+ "team": "ZnAFwlvJ",
+ "organization": null,
+ "title": "ViaBackwards",
+ "description": "Allow older Java Edition clients to connect to newer servers.",
+ "body": "# ViaBackwards\n\n**On Fabric, use either [ViaFabric](https://modrinth.com/mod/viafabric) or [ViaFabricPlus](https://modrinth.com/mod/viafabricplus). To override the included version**\n- in **ViaFabric**, put ViaBackwards into the `mods` fold",
+ "body_url": null,
+ "published": "2023-08-10T08:24:07.988560Z",
+ "updated": "2026-09-22T20:00:13.415091Z",
+ "approved": "2023-08-10T20:05:44.126439Z",
+ "queued": "2023-08-10T08:55:41.696555Z",
+ "status": "approved",
+ "requested_status": "approved",
+ "moderator_message": null,
+ "license": {
+  "id": "GPL-3.0-only",
+  "name": "GNU General Public License v3.0 only",
+  "url": "https://github.com/ViaVersion/ViaBackwards/blob/master/LICENSE"
+ },
+ "downloads": 2065395,
+ "followers": 832,
+ "categories": [
+  "utility"
+ ],
+ "additional_categories": [],
+ "loaders": [
+  "bungeecord",
+  "fabric",
+  "folia",
+  "paper",
+  "sponge",
+  "velocity"
+ ],
+ "versions": [
+  "hYhg2QBT",
+  "SxGhdsPK",
+  "15H0TnQR",
+  "w6P38zDf"
+ ],
+ "icon_url": "https://cdn.modrinth.com/data/NpvuJQoq/c9fd86f343657c62206d5b82fee1d2b24f0b278d_96.webp",
+ "raw_icon_url": "https://cdn.modrinth.com/data/NpvuJQoq/1b0ac36a9b4b1af781afa7f1485c487a2d945fbd.png",
+ "issues_url": "https://github.com/ViaVersion/ViaBackwards/issues",
+ "source_url": "https://github.com/ViaVersion/ViaBackwards",
+ "wiki_url": null,
+ "discord_url": "https://discord.gg/viaversion",
+ "donation_urls": [
+  {
+   "id": "github",
+   "platform": "Github",
+   "url": "https://github.com/sponsors/kennytv"
+  }
+ ],
+ "gallery": [],
+ "color": 14476775,
+ "thread_id": "rSCKb1CM",
+ "monetization_status": "monetized"
+}

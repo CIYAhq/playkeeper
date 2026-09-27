@@ -1,0 +1,103 @@
+{
+ "client_side": "unsupported",
+ "server_side": "required",
+ "game_versions": [
+  "1.21",
+  "1.21.1",
+  "1.21.2-rc2",
+  "1.21.2",
+  "1.21.3",
+  "1.21.4",
+  "1.21.5-pre2",
+  "1.21.5-rc1",
+  "1.21.5-rc2",
+  "1.21.5",
+  "1.21.6-rc1",
+  "1.21.6",
+  "1.21.7",
+  "1.21.8",
+  "1.21.9",
+  "1.21.10",
+  "1.21.11-rc2",
+  "1.21.11",
+  "26.1-rc-1",
+  "26.1",
+  "26.1.1",
+  "26.1.2",
+  "26.2-rc-2",
+  "26.2",
+  "26.3"
+ ],
+ "environment": [
+  "server_only"
+ ],
+ "id": "sml2FMaA",
+ "slug": "anti-xray",
+ "project_type": "mod",
+ "team": "CItGKDVW",
+ "organization": null,
+ "title": "AntiXray",
+ "description": "A lightweight mod that allows server owners to combat xrayers.",
+ "body": "# Anti Xray\n\nAnti Xray is a lightweight fabric mod that allows server owners to combat xrayers.\n\n## Config\n\n```toml\n# Default values\nenabled = false\n\n# World specific values\n[overworld]\nenabled = true\nengineMode = 3\nmaxBlockHeight = 256\nupd",
+ "body_url": null,
+ "published": "2021-08-10T16:37:08.593052Z",
+ "updated": "2026-09-19T21:23:19.183494Z",
+ "approved": "2021-08-10T16:37:08.593052Z",
+ "queued": null,
+ "status": "approved",
+ "requested_status": null,
+ "moderator_message": null,
+ "license": {
+  "id": "MIT",
+  "name": "MIT License",
+  "url": null
+ },
+ "downloads": 586627,
+ "followers": 684,
+ "categories": [
+  "management",
+  "technology",
+  "utility"
+ ],
+ "additional_categories": [
+  "worldgen"
+ ],
+ "loaders": [
+  "fabric",
+  "forge",
+  "neoforge",
+  "quilt"
+ ],
+ "versions": [
+  "AK313N9m",
+  "8CvHIf1r",
+  "ETqF9yGq"
+ ],
+ "icon_url": "https://cdn.modrinth.com/data/sml2FMaA/icon.png",
+ "raw_icon_url": "https://cdn.modrinth.com/data/sml2FMaA/icon.png",
+ "issues_url": "https://github.com/DrexHD/FabricAntiXray/issues",
+ "source_url": "https://github.com/DrexHD/FabricAntiXray",
+ "wiki_url": null,
+ "discord_url": "https://discord.gg/HeZayd6SxF",
+ "donation_urls": [
+  {
+   "id": "ko-fi",
+   "platform": "Ko-fi",
+   "url": "https://ko-fi.com/drexhd"
+  }
+ ],
+ "gallery": [
+  {
+   "url": "https://cdn.modrinth.com/data/sml2FMaA/images/47eefd6c11046b4ac53377ede2ac64131d93c14e_350.webp",
+   "raw_url": "https://cdn.modrinth.com/data/sml2FMaA/images/477a03344a2ccdcf8723d1258d5035b74fa0b911.png",
+   "featured": true,
+   "title": "Engine Mode 2",
+   "description": "This mode will replace all blocks from hiddenBlocks and replacementBlocks with random blocks from hiddenBlocks",
+   "created": "2023-08-13T19:54:39.924986Z",
+   "ordering": 0
+  }
+ ],
+ "color": 5280142,
+ "thread_id": "sml2FMaA",
+ "monetization_status": "monetized"
+}

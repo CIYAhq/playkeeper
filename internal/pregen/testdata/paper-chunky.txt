@@ -1,0 +1,13 @@
+[22:25:55 INFO]: [Chunky] Loading server plugin Chunky v1.5.3
+[22:26:01 INFO]: [Chunky] Enabling Chunky v1.5.3
+[22:26:28 INFO]: [Chunky] Task running for world. Processed: 2 chunks (0.03%), ETA: 1:13:47, Rate: 1.5 cps, Current: 1, 1
+[22:26:30 INFO]: [Chunky] Task running for world. Processed: 34 chunks (0.52%), ETA: 0:08:32, Rate: 12.7 cps, Current: 3, 2
+[22:26:31 INFO]: [Chunky] Task running for world. Processed: 68 chunks (1.04%), ETA: 0:05:53, Rate: 18.4 cps, Current: 10, 2
+[22:27:02 INFO]: [Chunky] Task running for world. Processed: 1313 chunks (20.01%), ETA: 0:02:13, Rate: 39.4 cps, Current: 32, -1
+[22:27:03 INFO]: [Chunky] Task running for world. Processed: 1314 chunks (20.03%), ETA: 0:02:17, Rate: 38.1 cps, Current: 32, -2
+[22:27:04 INFO]: [Chunky] Task running for world. Processed: 1316 chunks (20.06%), ETA: 0:02:24, Rate: 36.3 cps, Current: 32, -4
+[22:28:56 INFO]: [Chunky] Task running for world. Processed: 6236 chunks (95.05%), ETA: 0:00:08, Rate: 39.8 cps, Current: -39, 1
+[22:28:58 INFO]: [Chunky] Task running for world. Processed: 6240 chunks (95.11%), ETA: 0:00:08, Rate: 38.2 cps, Current: -39, 3
+[22:28:59 INFO]: [Chunky] Task running for world. Processed: 6319 chunks (96.31%), ETA: 0:00:06, Rate: 38.9 cps, Current: -38, 20
+[22:29:00 INFO]: [Chunky] Task running for world. Processed: 6490 chunks (98.92%), ETA: 0:00:01, Rate: 41.5 cps, Current: -40, 32
+[22:29:01 INFO]: [Chunky] Task finished for world. Processed: 6561 chunks (100.00%), Total time: 0:02:34

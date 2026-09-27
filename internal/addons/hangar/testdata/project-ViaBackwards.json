@@ -1,0 +1,123 @@
+{
+ "createdAt": "2022-12-23T20:47:00.582094Z",
+ "publishedAt": "2022-12-23T20:57:21.569868Z",
+ "id": 12,
+ "name": "ViaBackwards",
+ "namespace": {
+  "owner": "ViaVersion",
+  "slug": "ViaBackwards"
+ },
+ "stats": {
+  "views": 1232147,
+  "downloads": 742470,
+  "recentViews": 38834,
+  "recentDownloads": 20283,
+  "stars": 282,
+  "watchers": 165
+ },
+ "category": "misc",
+ "description": "Allow Java Edition clients with older versions to connect to your Minecraft server",
+ "lastUpdated": "2026-09-25T13:03:10.227632Z",
+ "visibility": "public",
+ "userActions": {
+  "starred": false,
+  "watching": false,
+  "flagged": false
+ },
+ "settings": {
+  "links": [
+   {
+    "id": 0,
+    "type": "top",
+    "title": "top",
+    "links": [
+     {
+      "id": 4,
+      "name": "Donate",
+      "url": "https://github.com/sponsors/kennytv"
+     },
+     {
+      "id": 1,
+      "name": "Issues",
+      "url": "https://github.com/ViaVersion/ViaBackwards/issues"
+     },
+     {
+      "id": 2,
+      "name": "Source",
+      "url": "https://github.com/ViaVersion/ViaBackwards/"
+     },
+     {
+      "id": 3,
+      "name": "Support",
+      "url": "https://discord.gg/viaversion"
+     }
+    ]
+   },
+   {
+    "id": 1,
+    "type": "sidebar",
+    "title": "Early-Access builds",
+    "links": [
+     {
+      "id": 0,
+      "name": "GitHub Sponsors",
+      "url": "https://github.com/sponsors/kennytv/sponsorships?sponsor=kennytv&tier_id=385613&preview=false"
+     }
+    ]
+   }
+  ],
+  "tags": [
+   "SUPPORTS_FOLIA",
+   "ADDON"
+  ],
+  "license": {
+   "name": "GPL",
+   "url": "https://github.com/ViaVersion/ViaBackwards/blob/master/LICENSE",
+   "type": "GPL"
+  },
+  "keywords": [
+   "viaversion",
+   "viabackwards",
+   "protocolhack"
+  ],
+  "sponsors": "![https://www.yourkit.com/images/yklogo.png](https://www.yourkit.com/images/yklogo.png)\nYourKit supports open source pro",
+  "unlisted": false,
+  "donation": {
+   "subject": "",
+   "enable": false
+  }
+ },
+ "supportedPlatforms": {
+  "PAPER": [
+   "1.21",
+   "1.21.1",
+   "1.21.10",
+   "1.21.11",
+   "1.21.2",
+   "1.21.3",
+   "1.21.4",
+   "1.21.5",
+   "1.21.6",
+   "1.21.7",
+   "1.21.8",
+   "1.21.9",
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "WATERFALL": [
+   "1.19",
+   "1.20"
+  ],
+  "VELOCITY": [
+   "4.1.0",
+   "4.1.1",
+   "4.2.0"
+  ]
+ },
+ "mainPageContent": null,
+ "memberNames": null,
+ "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/12.webp?v=1"
+}

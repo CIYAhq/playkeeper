@@ -1,0 +1,46 @@
+{
+ "6d4b119596514666f8dfd44c151ad89f71c2cd6a57cf830602eb31b90f1107b428d6fd5273420496696dbd8b57012297fa163b06617697b095c6c8236642e1bd": {
+  "game_versions": [
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "bukkit",
+   "folia",
+   "paper",
+   "spigot"
+  ],
+  "environment": "unknown",
+  "id": "MdY6JATr",
+  "project_id": "fALzjamp",
+  "author_id": "nfBsvT1J",
+  "featured": false,
+  "name": "Chunky 1.5.3",
+  "version_number": "1.5.3",
+  "changelog": "",
+  "changelog_url": null,
+  "date_published": "2026-05-04T05:46:08.712785Z",
+  "downloads": 185800,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "57JYqjxs",
+    "hashes": {
+     "sha512": "43ffecc6e6a734b752da41575bbb316526c124c3f878942437d5133c377bfbd9b78bda975520dc074d7158c15dade58a444ccd0fd8d8a25d165b6fc450140422",
+     "sha1": "7ff47ee3afec89a1725e6eef393f373c549eff3b"
+    },
+    "url": "https://cdn.modrinth.com/data/fALzjamp/versions/MdY6JATr/Chunky-Bukkit-1.5.3.jar",
+    "filename": "Chunky-Bukkit-1.5.3.jar",
+    "primary": true,
+    "size": 304616,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ }
+}
