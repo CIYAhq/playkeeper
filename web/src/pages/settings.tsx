@@ -119,11 +119,12 @@ function SettingsSection({ current, phoneBack, children }: { current: SettingsSe
 function GeneralSettings() {
   const ws = useWorkspace()
   const phone = useIsPhone()
-  const hash = window.location.hash
+  // Opening the page at a section jumps straight to it; a link to a section of
+  // the page already open scrolls there by itself (navigate in router.ts).
   useEffect(() => {
-    if (!hash) return
-    document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' })
-  }, [hash])
+    const hash = window.location.hash
+    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' })
+  }, [])
   return (
     <SettingsSection current="settings">
       <PlaykeeperCard />

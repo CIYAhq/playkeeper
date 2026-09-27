@@ -989,39 +989,28 @@ describe('Settings › Memory', () => {
     expect(text).toContain('Suggests a size after 3 days of play. Until then, 4 GB suits up to 4 friends.')
   })
 
-  it('keeps the section in the address current in the nav while the one above it is still in view', async () => {
-    const observers: { cb: IntersectionObserverCallback; els: Element[] }[] = []
-    vi.stubGlobal(
-      'IntersectionObserver',
-      class {
-        els: Element[] = []
-        constructor(cb: IntersectionObserverCallback) {
-          observers.push({ cb, els: this.els })
-        }
-        observe(el: Element) {
-          this.els.push(el)
-        }
-        disconnect() {}
-      },
-    )
+  it('opens at the section in the address, and glides to a section pressed in the list', async () => {
+    const scrolled = vi.fn()
+    const scrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = function (this: Element, arg?: boolean | ScrollIntoViewOptions) {
+      scrolled(this.id, arg)
+    }
     at('/servers/survival/settings#memory')
     answer({ '/memory': keep })
     await render(<ServerSettingsPage server={server()} />)
     const current = () => document.querySelector('nav [aria-current="location"]')?.textContent
-    const inView = async (...ids: string[]) => {
-      const o = observers.at(-1)
-      if (!o) throw new Error('no IntersectionObserver')
-      const entries = o.els.map((target) => ({ target, isIntersecting: ids.includes(target.id) }) as unknown as IntersectionObserverEntry)
-      await act(async () => o.cb(entries, {} as IntersectionObserver))
-    }
-    await inView('list', 'memory')
     expect(current()).toBe('Memory')
-    await inView('game', 'list')
-    expect(current()).toBe('In the game')
-    at('/servers/survival/settings#version')
-    await act(async () => window.dispatchEvent(new HashChangeEvent('hashchange')))
+    expect(scrolled).toHaveBeenLastCalledWith('memory', { block: 'start' })
+    const entry = [...document.querySelectorAll('nav a')].find((a) => a.textContent === 'Minecraft version')
+    await click(entry as HTMLElement)
+    expect(scrolled).toHaveBeenLastCalledWith('version', { block: 'start', behavior: 'smooth' })
     expect(current()).toBe('Minecraft version')
-    vi.unstubAllGlobals()
+    expect(window.location.hash).toBe('#version')
+    expect(document.activeElement?.id).toBe('version')
+    // Typing afterwards doesn't pull the page back to the section it opened at.
+    await typeInto('#server-name', 'Survival 2')
+    expect(scrolled).toHaveBeenCalledTimes(2)
+    Element.prototype.scrollIntoView = scrollIntoView
   })
 
   it('takes the fixes How it’s running links to as unsaved changes', async () => {
