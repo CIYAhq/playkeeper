@@ -112,6 +112,14 @@ export const minimums: Record<Size, Record<string, number>> = {
   },
 }
 
+/**
+ * What a page needs instead when the build carries CurseForge's key, as the
+ * Release check's does, since it's the release: Settings › Add-on sources
+ * then says the key is built in, with nothing to press, so on a phone, where
+ * it's a page of its own, it has no controls of its own.
+ */
+export const keyMinimums: Record<Size, Record<string, number>> = { desktop: {}, phone: { '/settings/addon-sources': 0 } }
+
 export interface Place {
   /** What it is, for the report. */
   what: string
@@ -189,6 +197,8 @@ export const places: Place[] = [
 
 export interface Rules {
   minimums: Record<string, number>
+  /** What a build that carries CurseForge's key needs instead (keyMinimums). */
+  keyMinimums?: Record<string, number>
   places: Place[]
 }
 
@@ -236,6 +246,8 @@ export interface ShardReport {
   negatives: Negative[]
   /** Add-on and modpack reads that reached the panel or had no recorded answer. */
   fixtureProblems: string[]
+  /** Where the machine's CurseForge key comes from, as Settings › Add-on sources reads it: "build" when the build carries one. */
+  curseforge?: string
 }
 
 /** What fails a runner on its own: failing controls, states it couldn't get back to, reads that reached the panel, negative controls it didn't catch. */
@@ -263,7 +275,7 @@ export interface Verdict {
  * that crawls it, there or on a page it crawled before (crawl.ts), so a run
  * that passes pressed every control of every page it plans.
  */
-export function gate(size: Size, reports: ShardReport[], of: number, rules: Rules = { minimums: minimums[size], places }): Verdict {
+export function gate(size: Size, reports: ShardReport[], of: number, rules: Rules = { minimums: minimums[size], keyMinimums: keyMinimums[size], places }): Verdict {
   const problems: string[] = []
   const byShard = new Map<number, ShardReport>()
   for (const r of reports) {
@@ -310,8 +322,9 @@ export function gate(size: Size, reports: ShardReport[], of: number, rules: Rule
       counts.set(pageName(p.name), (counts.get(pageName(p.name)) ?? 0) + 1)
     }
   }
+  const keyBuiltIn = shards.some((r) => r.curseforge === 'build')
   for (const [page, n] of counts) {
-    const min = rules.minimums[page] ?? 1
+    const min = (keyBuiltIn ? rules.keyMinimums?.[page] : undefined) ?? rules.minimums[page] ?? 1
     if (n < min) problems.push(`${size} ${page}: ${n} control${n === 1 ? '' : 's'} pressed, fewer than its minimum of ${min}`)
   }
   const selection = first.selection
