@@ -65,6 +65,8 @@ async function placeOn (bot, below, item) {
       await bot.placeBlock(bot.blockAt(below), new Vec3(0, 1, 0))
       return
     } catch (e) {
+      const near = Object.values(bot.entities).filter(n => n !== bot.entity && n.position.distanceTo(target.offset(0.5, 0, 0.5)) < 1.5)
+      if (near.length) log(`next to ${target}:`, near.map(n => n.name).join(', '))
       if (attempt >= 4) throw e
       log(`placing ${item} at ${target} failed (${e.message}); trying again`)
       await bot.waitForTicks(20)
@@ -81,6 +83,9 @@ async function place () {
   for (const cmd of [
     `fill ${x - 1} ${y - 1} ${z - 1} ${x + 3} ${y - 1} ${z + 1} minecraft:stone`,
     `fill ${x - 1} ${y} ${z - 1} ${x + 3} ${y + 3} ${z + 1} minecraft:air`,
+    // The server refuses a block where an animal stands, and a new world has
+    // animals near its spawn.
+    `kill @e[type=!player,x=${x - 1},y=${y},z=${z - 1},dx=4,dy=3,dz=2]`,
     `tp ${a.name} ${x}.5 ${y} ${z}.5 -90 30`,
     `give ${a.name} minecraft:gold_block 1`,
     `give ${a.name} minecraft:oak_sign 1`

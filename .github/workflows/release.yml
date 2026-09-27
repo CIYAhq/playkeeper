@@ -1,21 +1,21 @@
 name: Release
 
-# A v* tag builds the release with `make package`, signs its manifest with the
+# A v* tag publishes the release its commit's Release check built and checked
+# (release-check.yml, release-build.yml): the same assets, byte for byte, that
+# were installed on fresh runners and clicked through on every page, so what
+# is published is what was checked. It needs a green CI run and a green
+# Release check of the tag's version on the tagged commit, and otherwise fails
+# at once, saying which is missing. It signs the manifest with the
 # PLAYKEEPER_RELEASE_SIGNING_KEY secret (the key must match
 # internal/update/release.pub, which installed versions check updates
-# against), installs the built assets on a fresh runner through get.sh,
-# publishes them as the latest (normal, not pre-release) GitHub release, then
-# checks the live addresses: the GitHub release URLs and the one-line install
-# from them must work, and https://playkeeper.io/install should redirect to
-# the new get.sh (a warning only, since that site runs on its own server).
-# A tag is published only after the full click-through: a green Release check
-# (release-check.yml) on the tagged commit, or else the same click-through,
-# run here on the built assets first.
+# against), checks the assets again, publishes them as the latest (normal,
+# not pre-release) GitHub release, then checks the live addresses: the GitHub
+# release URLs and the one-line install from them must work, and
+# https://playkeeper.io/install should redirect to the new get.sh (a warning
+# only, since that site runs on its own server).
 # Pull requests that touch the release path, and manual runs, are dry runs:
-# the same build and install check, signed with a throwaway key, with the
-# assets uploaded as a workflow artifact instead of released.
-# The optional CURSEFORGE_API_KEY secret is CurseForge's API key for owners
-# without their own; only tag pushes build it into the binary.
+# the same build, install and signing, without CurseForge's key and with a
+# throwaway signing key, and nothing is released.
 
 on:
   push:
@@ -23,6 +23,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/release.yml
+      - .github/workflows/release-build.yml
       - CHANGELOG.md
       - cmd/release-sign/**
       - scripts/package.sh
@@ -56,216 +57,148 @@ defaults:
 
 jobs:
   build:
-    name: Build and check the release assets
+    name: Dry run
+    if: github.event_name != 'push'
+    uses: ./.github/workflows/release-build.yml
+    with:
+      version: ${{ inputs.tag || 'v0.0.0-dryrun' }}
+
+  checked:
+    name: The tagged commit passed CI and its Release check
+    needs: build
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.build.result == 'success') }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
     outputs:
-      tag: ${{ steps.version.outputs.tag }}
-      version: ${{ steps.version.outputs.version }}
-      title: ${{ steps.version.outputs.title }}
+      tag: ${{ steps.find.outputs.tag }}
+      version: ${{ steps.find.outputs.version }}
+      title: ${{ steps.find.outputs.title }}
+      run: ${{ steps.find.outputs.run }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Version from the tag
-        id: version
+      - name: A green CI run and a green Release check of this version on this commit
+        id: find
         env:
-          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag || 'v0.0.0-dryrun' }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TAGGED: ${{ github.event_name == 'push' }}
+          TAG: ${{ github.event_name == 'push' && github.ref_name || needs.build.outputs.tag }}
+          THIS_RUN: ${{ github.run_id }}
         run: |
           if [[ ! $TAG =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::'$TAG' is not a release tag. Use vMAJOR.MINOR.PATCH, optionally with a -suffix."
             exit 1
           fi
           version=${TAG#v}
-          if [[ $GITHUB_EVENT_NAME == push ]] && ! grep -q "^## ${version} *\$" CHANGELOG.md; then
-            echo "::error::CHANGELOG.md has no '## $version' section. Add what changed in $TAG: the dashboard shows it when it offers the update."
-            exit 1
-          fi
           title="Playkeeper $TAG"
           if [[ $version == 0.* ]]; then title+=" (early release)"; fi
-          { echo "tag=$TAG"; echo "version=$version"; echo "title=$title"; } >>"$GITHUB_OUTPUT"
-      - name: Set up pinned toolchains
-        run: ./scripts/setup.sh
-      - name: make check
-        run: make check
-      - name: make lint-sh
-        run: make lint-sh
-      - name: make package
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          CURSEFORGE_API_KEY: ${{ github.event_name == 'push' && secrets.CURSEFORGE_API_KEY || '' }}
-        run: make package
-      - name: Sign the release manifest
-        env:
-          DRY_RUN: ${{ github.event_name != 'push' }}
-          PLAYKEEPER_RELEASE_SIGNING_KEY: ${{ github.event_name == 'push' && secrets.PLAYKEEPER_RELEASE_SIGNING_KEY || '' }}
-        run: scripts/sign-release.sh dist "$RUNNER_TEMP/release-keys.pub"
-      - name: Collect and check the release assets and notes
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          mkdir -p out/assets
-          cp dist/get.sh dist/playkeeper-linux-amd64.tar.gz dist/playkeeper-linux-amd64.tar.gz.sha256 dist/playkeeper-release.json dist/playkeeper-release.json.sig out/assets/
-          cmp dist/playkeeper-linux-amd64.tar.gz "dist/playkeeper-$VERSION-linux-amd64.tar.gz"
-          cmp dist/get.sh packaging/get.sh
-          scripts/release-check.sh out/assets "$VERSION" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/release-keys.pub"
-          scripts/release-notes.sh "$VERSION" "$GITHUB_REPOSITORY" "$INSTALL_URL" out/assets >out/release-notes.md
-      - name: Summary
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-          TITLE: ${{ steps.version.outputs.title }}
-          DRY_RUN: ${{ github.event_name != 'push' }}
-        run: |
-          {
-            echo "## $TITLE"
-            if [ "$DRY_RUN" = true ]; then
-              echo "Dry run: nothing is tagged or released. The assets and the notes are in the \`release-$TAG\` artifact."
-            fi
-            echo
-            echo "| Release asset | SHA-256 |"
-            echo "| --- | --- |"
-            for f in out/assets/*; do echo "| \`${f##*/}\` | \`$(sha256sum "$f" | cut -d' ' -f1)\` |"; done
-            echo
-            echo "### Release notes"
-            echo
-            cat out/release-notes.md
-          } >>"$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release-${{ steps.version.outputs.tag }}
-          path: out/
-          if-no-files-found: error
-          retention-days: 7
+          # lookup WORKFLOW prints the id of its latest green run on this commit, or nothing.
+          lookup() {
+            gh run list --workflow "$1" --commit "$SHA" --status success --limit 1 --json databaseId --jq '.[0].databaseId // ""' ||
+              echo "::warning::$1 couldn't be looked up (not on the default branch yet, or GitHub didn't answer), so it counts as not run." >&2
+          }
+          missing=() how=()
+          ci=$(lookup ci.yml)
+          if [ -n "$ci" ]; then
+            echo "CI passed on $SHA: $GITHUB_SERVER_URL/$GH_REPO/actions/runs/$ci" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            missing+=("green CI run")
+            how+=("gh workflow run ci.yml --ref $TAG")
+          fi
+          check=$(lookup release-check.yml)
+          built=
+          if [ -n "$check" ]; then
+            built=$(gh api "repos/$GH_REPO/actions/runs/$check/artifacts" \
+              --jq '[.artifacts[] | select(.expired | not) | .name | select(startswith("release-")) | ltrimstr("release-")] | join(", ")') || built=
+          fi
+          if [[ ", $built, " == *", $TAG, "* ]]; then
+            echo "The Release check built and checked $TAG on $SHA: $GITHUB_SERVER_URL/$GH_REPO/actions/runs/$check" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            missing+=("green Release check of $TAG${check:+ (the last green one on it built ${built:-no release assets})}")
+            how+=("gh workflow run release-check.yml --ref $TAG -f version=$version")
+          fi
+          if [ "${#missing[@]}" -gt 0 ] && [ "$TAGGED" = true ]; then
+            for i in "${!missing[@]}"; do echo "::error::$SHA has no ${missing[i]}. Run it: ${how[i]}"; done
+            echo "A tag publishes only the release its commit's Release check built and checked. When what's missing has passed, re-run this workflow."
+            exit 1
+          fi
+          for m in "${missing[@]}"; do echo "Dry run: $SHA has no $m; this goes on with this run's own build." | tee -a "$GITHUB_STEP_SUMMARY"; done
+          run=$THIS_RUN
+          if [ "$TAGGED" = true ]; then run=$check; fi
+          { echo "tag=$TAG"; echo "version=$version"; echo "title=$title"; echo "run=$run"; } >>"$GITHUB_OUTPUT"
 
-  smoke:
-    name: Fresh runner — install the built assets through get.sh, then uninstall
-    needs: build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: release-${{ needs.build.outputs.tag }}
-          path: /tmp/release
-      - name: One-line install from a local copy of the release assets
-        env:
-          VERSION: ${{ needs.build.outputs.version }}
-          PLAYKEEPER_BASE_URL: http://127.0.0.1:8765
-          PLAYKEEPER_ALLOW_HTTP: "1"
-        run: |
-          python3 -m http.server 8765 --bind 127.0.0.1 --directory /tmp/release/assets >/tmp/mirror.log 2>&1 &
-          sleep 1
-          scripts/smoke-install.sh http://127.0.0.1:8765/get.sh "$VERSION"
-
-  release-check:
-    name: Release check — a green full click-through of this commit, or one now
+  publish:
+    name: Sign and publish the checked assets
+    needs: checked
+    if: ${{ !cancelled() && needs.checked.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       actions: read
-      contents: read
-    outputs:
-      green: ${{ steps.find.outputs.green }}
-      matrix: ${{ steps.plan.outputs.matrix }}
-    steps:
-      - name: A green Release check on this commit
-        id: find
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-        run: |
-          if ! url=$(gh run list --workflow release-check.yml --commit "$SHA" --status success --limit 1 --json url --jq '.[0].url // ""'); then
-            echo "::warning::The Release check couldn't be looked up (not on the default branch yet, or GitHub didn't answer), so it counts as not run."
-            url=
-          fi
-          if [ -n "$url" ]; then
-            echo "green=true" >>"$GITHUB_OUTPUT"
-            echo "The Release check passed on $SHA: $url" | tee -a "$GITHUB_STEP_SUMMARY"
-          else
-            echo "green=false" >>"$GITHUB_OUTPUT"
-            echo "No green Release check on $SHA: a tag runs the full click-through here before it publishes." | tee -a "$GITHUB_STEP_SUMMARY"
-          fi
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: github.event_name == 'push' && steps.find.outputs.green != 'true'
-        with:
-          persist-credentials: false
-      - name: Set up pinned toolchains
-        if: github.event_name == 'push' && steps.find.outputs.green != 'true'
-        run: ./scripts/setup.sh
-      - name: The runners for every page at each size
-        id: plan
-        if: github.event_name == 'push' && steps.find.outputs.green != 'true'
-        run: .tools/node/bin/node test/e2e/ui/plan.ts --full
-
-  clickthrough:
-    name: Click-through
-    needs: [build, release-check]
-    if: github.event_name == 'push' && needs.release-check.outputs.green != 'true'
-    permissions:
-      contents: read
-    uses: ./.github/workflows/clickthrough.yml
-    with:
-      artifact: release-${{ needs.build.outputs.tag }}
-      assets: assets
-      matrix: ${{ needs.release-check.outputs.matrix }}
-
-  publish:
-    name: Publish the GitHub release
-    needs: [build, smoke, release-check, clickthrough]
-    # The click-through is skipped when the tagged commit already passed the Release check.
-    if: >-
-      github.event_name == 'push' && !cancelled() && needs.build.result == 'success' && needs.smoke.result == 'success' &&
-      needs.release-check.result == 'success' && (needs.release-check.outputs.green == 'true' || needs.clickthrough.result == 'success')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      TAG: ${{ needs.build.outputs.tag }}
-      TITLE: ${{ needs.build.outputs.title }}
+      TAG: ${{ needs.checked.outputs.tag }}
+      VERSION: ${{ needs.checked.outputs.version }}
+      TITLE: ${{ needs.checked.outputs.title }}
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: release-${{ needs.build.outputs.tag }}
+          persist-credentials: false
+      - name: The assets the Release check built and checked (a dry run's own)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ needs.checked.outputs.tag }}
           path: release
+          run-id: ${{ needs.checked.outputs.run }}
+          github-token: ${{ github.token }}
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
+      - name: Sign the manifest with the release key, and check the assets again
+        env:
+          DRY_RUN: ${{ github.event_name != 'push' }}
+          PLAYKEEPER_RELEASE_SIGNING_KEY: ${{ github.event_name == 'push' && secrets.PLAYKEEPER_RELEASE_SIGNING_KEY || '' }}
+        run: |
+          scripts/sign-release.sh release/assets "$RUNNER_TEMP/release-keys.pub"
+          scripts/release-check.sh release/assets "$VERSION" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/release-keys.pub"
       - name: Create a draft release with the five assets
+        if: github.event_name == 'push'
         working-directory: release/assets
         run: |
-          sha256sum -c playkeeper-linux-amd64.tar.gz.sha256
           gh release create "$TAG" --verify-tag --draft --title "$TITLE" --notes-file ../release-notes.md \
             get.sh playkeeper-linux-amd64.tar.gz playkeeper-linux-amd64.tar.gz.sha256 playkeeper-release.json playkeeper-release.json.sig
-      - name: Check the draft carries exactly the built assets
+      - name: Check the draft carries exactly these assets
+        if: github.event_name == 'push'
         run: |
           gh release download "$TAG" --dir draft
           diff <(ls release/assets) <(ls draft)
           for f in release/assets/*; do cmp "$f" "draft/${f##*/}"; done
       - name: Publish it as the latest release, not a pre-release
+        if: github.event_name == 'push'
         run: gh release edit "$TAG" --draft=false --prerelease=false --latest
 
   verify:
     name: Live addresses — one-line install on a fresh runner
-    needs: [build, publish]
+    needs: [checked, publish]
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      VERSION: ${{ needs.build.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.checked.outputs.tag }}
+      VERSION: ${{ needs.checked.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: release-${{ needs.build.outputs.tag }}
-          path: /tmp/release
-      - name: releases/latest/download serves the published assets
+      - name: releases/latest/download serves this release's assets
         run: |
+          gh release download "$TAG" --dir /tmp/release
           latest=https://github.com/$GITHUB_REPOSITORY/releases/latest/download
           mkdir -p /tmp/latest
           for f in get.sh playkeeper-linux-amd64.tar.gz playkeeper-linux-amd64.tar.gz.sha256 playkeeper-release.json playkeeper-release.json.sig; do
@@ -273,12 +206,12 @@ jobs:
               echo "::error::$latest/$f cannot be downloaded without signing in. Is the repository public?"
               exit 1
             fi
-            cmp "/tmp/latest/$f" "/tmp/release/assets/$f"
+            cmp "/tmp/latest/$f" "/tmp/release/$f"
           done
       - name: playkeeper.io/install resolves to this release's get.sh (warning only)
         run: |
           if curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o /tmp/install "$INSTALL_URL" &&
-            cmp -s /tmp/install /tmp/release/assets/get.sh; then
+            cmp -s /tmp/install /tmp/release/get.sh; then
             echo "$INSTALL_URL resolves to this release's get.sh"
           else
             answer=$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' "$INSTALL_URL" 2>&1 || true)

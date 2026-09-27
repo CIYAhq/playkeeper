@@ -1064,11 +1064,12 @@ func TestSleepWaitsForAScheduledRestartsCountdown(t *testing.T) {
 			}
 			sid := ""
 			if c.restart {
-				// The countdown lasts 10 seconds on the wall clock, however
-				// far the agent's clock skips.
-				due := e.clockBefore(12 * time.Second)
+				// The countdown lasts an hour on the agent's clock, longer
+				// than the skips below, so no wall clock can end it early:
+				// the test skips past it and wakes the runner itself.
+				due := e.clockBefore(time.Hour + 12*time.Second)
 				code, out := e.call("POST", e.sp("/schedules"), map[string]any{"actor": "admin", "kind": "restart", "timing": onceAt(due),
-					"payload": map[string]any{"warnSeconds": []int{10}, "message": "Survival restarts in {minutes} minutes."}})
+					"payload": map[string]any{"warnSeconds": []int{3600}, "message": "Survival restarts in {minutes} minutes."}})
 				if code != http.StatusCreated {
 					t.Fatalf("create: %d %v", code, out)
 				}
@@ -1109,6 +1110,8 @@ func TestSleepWaitsForAScheduledRestartsCountdown(t *testing.T) {
 			if fell() || !counting() || hold != sleep.HoldBusy {
 				t.Fatalf("during the countdown, the server fell asleep %v, the countdown runs %v, sleep holds for %q", fell(), counting(), hold)
 			}
+			e.skew.Add(int64(time.Hour))
+			s.reloadSchedules()
 			e.waitUpTo(30*time.Second, "the scheduled restart", func() bool {
 				return e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'restart' AND actor = ? AND status = 'succeeded'`, schedule.Actor(sid)) == 1
 			})

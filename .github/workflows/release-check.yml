@@ -1,15 +1,22 @@
 name: Release check
 
-# The full click-through before a release: every control on every page, at
-# desktop and phone sizes, split between runners, and the gate that proves
-# together they pressed every page's controls (clickthrough.yml). Pull
-# requests crawl only the pages they touch. Run this on the commit you are
-# about to tag (CONTRIBUTING.md, Releases): the Release workflow publishes a
-# tag only after a green Release check on its commit, and otherwise runs the
-# same click-through first.
+# Builds the release exactly as it will be published (release-build.yml: the
+# version from CHANGELOG.md's newest section, or the one given, with
+# CurseForge's key built in), installs it on a fresh runner, and clicks
+# through every control on every page of those assets at desktop and phone
+# sizes, split between runners, with the gate that proves together they
+# pressed every page's controls (clickthrough.yml). Pull requests crawl only
+# the pages they touch. Run this on the commit you are about to tag
+# (CONTRIBUTING.md, Releases): the tag publishes these assets, byte for byte,
+# once this and CI have passed on its commit.
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: The version you will tag, without the v (empty for CHANGELOG.md's newest section)
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -38,30 +45,21 @@ jobs:
         id: plan
         run: .tools/node/bin/node test/e2e/ui/plan.ts --full
 
-  package:
-    name: Package — the release tarball the click-through installs
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up pinned toolchains
-        run: ./scripts/setup.sh
-      - name: make package
-        run: make package
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release
-          path: |
-            dist/playkeeper-linux-amd64.tar.gz*
-            dist/get.sh
-          retention-days: 7
+  build:
+    name: Release
+    uses: ./.github/workflows/release-build.yml
+    with:
+      version: ${{ inputs.version }}
+      release: true
+      retention-days: 30
+    secrets:
+      CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
 
   clickthrough:
     name: Click-through
-    needs: [plan, package]
+    needs: [plan, build]
     uses: ./.github/workflows/clickthrough.yml
     with:
-      artifact: release
+      artifact: release-${{ needs.build.outputs.tag }}
+      assets: assets
       matrix: ${{ needs.plan.outputs.matrix }}

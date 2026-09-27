@@ -18,10 +18,34 @@ async function axe(page: Page, where: string) {
   expect.soft(bad.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`), where).toEqual([])
 }
 
+/**
+ * Waits until the page has settled: no skeleton showing, no animation that
+ * ends running, and nothing on the page changed for 300 ms. A page that keeps
+ * changing, like a console that streams, gets the 2.5 s it always had.
+ */
+async function settled(page: Page) {
+  await page
+    .waitForFunction(
+      () => {
+        const w = window as unknown as { __pkQuietSince?: number }
+        if (w.__pkQuietSince === undefined) {
+          w.__pkQuietSince = performance.now()
+          new MutationObserver(() => (w.__pkQuietSince = performance.now())).observe(document, { subtree: true, childList: true, attributes: true, characterData: true })
+        }
+        const skeleton = [...document.querySelectorAll('[data-slot=skeleton]')].some((s) => (s as HTMLElement).checkVisibility())
+        const animating = document.getAnimations().some((a) => a.playState === 'running' && a.effect?.getComputedTiming().iterations !== Infinity)
+        return !skeleton && !animating && performance.now() - w.__pkQuietSince >= 300
+      },
+      null,
+      { timeout: 2500, polling: 100 },
+    )
+    .catch(() => {})
+}
+
 /** Waits for a page's heading, then shoots it, runs axe and checks it doesn't scroll sideways. */
 async function scan(page: Page, heading: Locator, where: string, shotName: string, width: number) {
   await expect(heading).toBeVisible()
-  await page.waitForTimeout(2500)
+  await settled(page)
   await shot(page, shotName)
   await axe(page, where)
   // A page that scrolls sideways on a phone puts controls under others.

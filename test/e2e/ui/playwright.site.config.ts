@@ -10,7 +10,8 @@ export default defineConfig({
   testDir: '.',
   testMatch: ['site.spec.ts'],
   timeout: 3 * 60_000,
-  workers: 1,
+  fullyParallel: true,
+  workers: 4,
   reporter: [['list']],
   use: {
     baseURL: `http://127.0.0.1:${port}`,
