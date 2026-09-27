@@ -20,19 +20,21 @@ type Release struct {
 	Distro, Version string
 	// Name is what people call it, like "Ubuntu 24.04 LTS".
 	Name string
-	// SecurityEnded, when set, is when its free security updates ended,
+	// SecurityEnded, when set, is when its standard security updates ended,
 	// like "May 2025". Playkeeper still runs on it, and the installer says
-	// that the system itself no longer gets fixes.
+	// that the system itself no longer gets them.
 	SecurityEnded string
 }
 
 // Supported lists the supported releases, each distribution's oldest first.
+// Debian 11 isn't one: since its long-term support ended in August 2026,
+// Debian's archive no longer has the docker.io and containerd builds its
+// package lists point to, so Docker can't be installed from it.
 var Supported = []Release{
 	{Distro: "ubuntu", Version: "20.04", Name: "Ubuntu 20.04 LTS", SecurityEnded: "May 2025"},
 	{Distro: "ubuntu", Version: "22.04", Name: "Ubuntu 22.04 LTS"},
 	{Distro: "ubuntu", Version: "24.04", Name: "Ubuntu 24.04 LTS"},
 	{Distro: "ubuntu", Version: "26.04", Name: "Ubuntu 26.04 LTS"},
-	{Distro: "debian", Version: "11", Name: "Debian 11", SecurityEnded: "August 2026"},
 	{Distro: "debian", Version: "12", Name: "Debian 12"},
 	{Distro: "debian", Version: "13", Name: "Debian 13"},
 }
@@ -76,7 +78,7 @@ func indexOf(ds []Distro, id string) int {
 }
 
 // Summary names what Playkeeper runs on in one phrase: "Ubuntu 20.04 or
-// later, or Debian 11 or later".
+// later, or Debian 12 or later".
 func Summary() string {
 	var parts []string
 	for _, d := range Distros() {
@@ -95,7 +97,7 @@ func joinOr(items []string) string {
 }
 
 // Short is Summary for a line with little room: "Ubuntu 20.04+ or Debian
-// 11+".
+// 12+".
 func Short() string {
 	var parts []string
 	for _, d := range Distros() {

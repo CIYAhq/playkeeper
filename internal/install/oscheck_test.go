@@ -67,7 +67,7 @@ func TestPreflightWarnsButContinuesOnANewerRelease(t *testing.T) {
 func TestPreflightRefusesOlderReleasesAndOtherSystemsUnlessAllowed(t *testing.T) {
 	for _, c := range []struct{ id, version, names string }{
 		{"ubuntu", "18.04", "Ubuntu 20.04 LTS or later"},
-		{"debian", "10", "Debian 11 or later"},
+		{"debian", "11", "Debian 12 or later"},
 		{"alpine", "3.20", platform.Summary()},
 	} {
 		h := newFakeHost(t)

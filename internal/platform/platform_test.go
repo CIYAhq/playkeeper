@@ -87,7 +87,7 @@ func TestLaterReleasesOfASupportedDistributionAreNewerNotRefused(t *testing.T) {
 }
 
 func TestOlderReleasesAndOtherSystemsAreUnsupported(t *testing.T) {
-	for _, o := range []OS{{ID: "ubuntu", VersionID: "18.04"}, {ID: "debian", VersionID: "10"}} {
+	for _, o := range []OS{{ID: "ubuntu", VersionID: "18.04"}, {ID: "debian", VersionID: "11"}} {
 		if v := Check(o); v.Support != Unsupported || v.Distro == nil || v.Distro.ID != o.ID {
 			t.Errorf("%s: %+v, want unsupported, naming its distribution", o.Display(), v)
 		}
@@ -114,10 +114,10 @@ func TestCompareVersions(t *testing.T) {
 }
 
 func TestSummaryNamesEachDistributionsOldestRelease(t *testing.T) {
-	if got, want := Summary(), "Ubuntu 20.04 or later, or Debian 11 or later"; got != want {
+	if got, want := Summary(), "Ubuntu 20.04 or later, or Debian 12 or later"; got != want {
 		t.Errorf("Summary() = %q, want %q", got, want)
 	}
-	if got, want := Short(), "Ubuntu 20.04+ or Debian 11+"; got != want {
+	if got, want := Short(), "Ubuntu 20.04+ or Debian 12+"; got != want {
 		t.Errorf("Short() = %q, want %q", got, want)
 	}
 	for _, d := range Distros() {

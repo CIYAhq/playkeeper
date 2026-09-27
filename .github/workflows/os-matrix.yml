@@ -78,7 +78,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-11, debian-12, debian-13]
+        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -170,7 +170,7 @@ jobs:
         run: |
           python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
           import glob, os, sys
-          systems = ["ubuntu-20.04", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "debian-11", "debian-12", "debian-13"]
+          systems = ["ubuntu-20.04", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "debian-12", "debian-13"]
           print("| System | Result | Kernel | systemd | cgroups | Docker | Memory in use with a server running |")
           print("| --- | --- | --- | --- | --- | --- | --- |")
           bad = False

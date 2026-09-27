@@ -1002,7 +1002,7 @@ const link: MachineLinkInfo = {
     { kind: 'name', address: 'demo.playkeeper.me:8443' },
     { kind: 'ip', address: '203.0.113.10:8443' },
   ],
-  minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }, { name: 'Debian', version: '11' }] },
+  minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }, { name: 'Debian', version: '12' }] },
   sizingUrl: 'https://playkeeper.io/sizing',
   available: true,
   fingerprint: 'Z287KN4CDZD0Z8A4XXJA514NKG',

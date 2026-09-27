@@ -15,7 +15,7 @@
 #
 # Usage: scripts/e2e/vm-os.sh OS RELEASES
 #   OS        ubuntu-20.04, ubuntu-22.04, ubuntu-24.04, ubuntu-26.04,
-#             debian-11, debian-12 or debian-13 (lab_os_url in vm-lab.sh)
+#             debian-12 or debian-13 (lab_os_url in vm-lab.sh)
 #   RELEASES  a folder with a/, the build to install, and b/, a newer build
 #             signed with a key a/ trusts, as scripts/e2e/update-releases.sh
 #             makes them
@@ -33,6 +33,7 @@ lab_os_url "$os" >/dev/null
 
 OUT=${OUT:-$root/test/e2e/out/os-$os-$(date -u +%Y%m%dT%H%M%SZ)}
 mkdir -p "$OUT"
+OUT=$(cd "$OUT" && pwd)
 exec > >(tee -a "$OUT/run.log") 2>&1
 G=$LAB_NET.20
 SITE=http://$LAB_NET.1:8765

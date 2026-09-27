@@ -1,7 +1,7 @@
 Playkeeper — install on your own Linux VPS
 ==========================================
 
-Runs on: Ubuntu 20.04 or later, or Debian 11 or later, on x86_64 with
+Runs on: Ubuntu 20.04 or later, or Debian 12 or later, on x86_64 with
 systemd and 3 GB RAM or more (see the project README for exactly how and
 where it is tested).
 

@@ -18,7 +18,7 @@ func osCheck(o platform.OS, allowUntested bool) Check {
 		c.Status, c.Detail = "pass", v.Release.Name+", which every release is tested on."
 	case v.Support == platform.Tested:
 		c.Status = "warn"
-		c.Detail = fmt.Sprintf("%s: Playkeeper is tested on it, but its free security updates ended in %s.", v.Release.Name, v.Release.SecurityEnded)
+		c.Detail = fmt.Sprintf("%s: Playkeeper is tested on it, but its standard security updates ended in %s.", v.Release.Name, v.Release.SecurityEnded)
 		c.Fix = fmt.Sprintf("Move to %s when you can.", v.Distro.Newest().Name)
 	case v.Support == platform.Newer && v.Release == v.Distro.Newest():
 		c.Status = "warn"

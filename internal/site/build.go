@@ -587,7 +587,7 @@ func (s *Site) funcs() template.FuncMap {
 		"channelCodes": func() string { return channelCodes(s.opts.Settings.Channels) },
 		"installFor":   func(code string) (string, error) { return installFor(s.opts.Settings.InstallCommand, code) },
 		// What Playkeeper runs on (internal/platform): "Ubuntu 20.04 or
-		// later, or Debian 11 or later", or "Ubuntu 20.04+ or Debian 11+".
+		// later, or Debian 12 or later", or "Ubuntu 20.04+ or Debian 12+".
 		"systems":      platform.Summary,
 		"systemsShort": platform.Short,
 		// The one-line installer (Settings.InstallCommand), on one line, in
