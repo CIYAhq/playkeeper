@@ -230,8 +230,8 @@ webcontrol "Home says a server's world folder is missing instead of napping" web
         return (' \
   web/src/pages/pages.test.tsx 'lets only a stopped server nap'
 webcontrol "New server suggests the memory a pack needs" web/src/pages/new-server.tsx \
-  'if (step === 3 && packMemory > 0 && !memoryPicked)' \
-  'if (false && step === 3 && packMemory > 0 && !memoryPicked)' \
+  'if (step >= 3 && packMemory > 0 && !memoryPicked)' \
+  'if (false && step >= 3 && packMemory > 0 && !memoryPicked)' \
   web/src/pages/new-server.test.tsx 'suggests the memory a pack needs'
 webcontrol "New server warns when the machine can't give a pack the memory it needs" web/src/pages/new-server.tsx \
   'packMB > largest ? pack : undefined' \
@@ -242,6 +242,14 @@ webcontrol "a memory the user picked stays when the pack's plan answers later" w
 ' \
   '' \
   web/src/pages/new-server.test.tsx 'keeps a memory picked before the plan'
+webcontrol "New server's memory step waits for the pack's plan before going on" web/src/pages/new-server.tsx \
+  "machineName }) : planPending ? t('reason.checkingPack') : undefined" \
+  "machineName }) : undefined" \
+  web/src/pages/new-server.test.tsx 'holds Next on memory until'
+webcontrol "a pack only picked on the first step doesn't size a server type" web/src/pages/new-server.tsx \
+  'if (step >= 3 && packMemory > 0 && !memoryPicked)' \
+  'if (packMemory > 0 && !memoryPicked)' \
+  web/src/pages/new-server.test.tsx 'after a pack was only picked'
 webcontrol "the activity says a restore was finished after Playkeeper restarted" web/src/components/app/activity.tsx \
   "return t('activity.restoredAfterRestart', { server })" \
   "return t('activity.restored', { server })" \

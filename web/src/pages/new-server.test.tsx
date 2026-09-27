@@ -492,8 +492,8 @@ describe('What New server sizes memory for', () => {
     source: 'modrinth', projectId: 'ATM10AAA', slug: 'atm10', name: 'All the Mods 10', summary: '', downloads: 1, updated: '2026-09-22T00:00:00Z',
     pageUrl: 'https://modrinth.com/modpack/atm10', types: ['neoforge'], minecraftVersions: ['1.21.1'],
   }
-  /** Picks All the Mods 10 in New server and goes on to memory, on a machine with these memory options; the plan answers when plan resolves. */
-  async function packMemoryStep(options: number[], plan: Promise<ModpackPreview>) {
+  /** Picks All the Mods 10 in New server, on a machine with these memory options; the plan answers when plan resolves. */
+  async function pickPack(options: number[], plan: Promise<ModpackPreview>) {
     window.history.replaceState(null, '', '/servers/new')
     const neoforge: Catalog = { ...catalog, types, memoryOptionsMB: options, maxMemoryMB: options[options.length - 1] ?? 0 }
     const detail: ModpackDetail = { ...atm10Card, versions: [{ id: 'ATMV0001', number: '8.2', channel: 'release', published: '2026-09-22T00:00:00Z', size: 1, type: 'neoforge', minecraftVersion: '1.21.1' }], newest: 'ATMV0001' }
@@ -507,6 +507,10 @@ describe('What New server sizes memory for', () => {
     await render()
     await click(button('A modpack'))
     await click(button('Pick All the Mods 10'))
+  }
+  /** Picks All the Mods 10 and goes on to memory. */
+  async function packMemoryStep(options: number[], plan: Promise<ModpackPreview>) {
+    await pickPack(options, plan)
     await click(button('Continue with this modpack'))
     await act(settle)
   }
@@ -547,6 +551,36 @@ describe('What New server sizes memory for', () => {
       await settle()
     })
     expect(slider()?.getAttribute('aria-valuetext')).toBe(want)
+  })
+
+  it('holds Next on memory until the pack’s plan answers, then creates with the memory it needs', async () => {
+    let answer: (p: ModpackPreview) => void = () => {}
+    await packMemoryStep([2048, 4096, 6144, 8192, 12288], new Promise((r) => (answer = r)))
+    expect(button('Continue to name').disabled).toBe(true)
+    expect(button('Continue to name').title).toBe('Checking the pack…')
+    await click(button('Continue to name'))
+    await act(async () => {
+      answer(atm10)
+      await settle()
+    })
+    expect(slider()?.getAttribute('aria-valuetext')).toBe('12 GB')
+    await click(button('Continue to name'))
+    const eula = document.querySelector('input[type="checkbox"]')
+    if (!eula) throw new Error('no EULA checkbox')
+    await click(eula)
+    await click(button('Create and start All the Mods 10'))
+    expect(client.post).toHaveBeenCalledWith(`/api/machines/${machine.id}/servers`, expect.objectContaining({ memoryMB: 12 << 10 }))
+  })
+
+  it('sizes a server type as usual after a pack was only picked', async () => {
+    await pickPack([2048, 4096, 6144, 8192, 12288], Promise.resolve(atm10))
+    await act(settle)
+    await act(settle)
+    await click(button('A server type'))
+    await click(button('Continue to version'))
+    await click(button('Continue to play style'))
+    await click(button('Continue to memory'))
+    expect(slider()?.getAttribute('aria-valuetext')).toBe('4 GB')
   })
 
   it('sizes a shared template by its type and mods', async () => {

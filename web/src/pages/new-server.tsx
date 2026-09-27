@@ -184,7 +184,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
   // What the pack needs, from its plan once read (the mods it adds and its own server settings), else what its source says.
   const packMods = packed ? packPlan.data?.mods || pack?.mods || 0 : 0
   const packNeed = packed ? packPlan.data?.memoryMB || pack?.memoryMB || 0 : 0
-  // The memory step follows what the pack needs until the user moves the slider.
+  // From the memory step on (not while a pack is only picked), memory follows what the pack needs, even when its plan answers late, until the user moves the slider.
   const [memoryPicked, setMemoryPicked] = useState(false)
   const [tpl, setTpl] = useState<TemplateChoice>()
   const [tplProblem, setTplProblem] = useState<string>()
@@ -239,7 +239,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const fitMemory = (mb: number) => options.find((o) => o >= mb) ?? options[options.length - 1] ?? 0
   const packMemory = packed && catalog && !noMemory ? (packNeed ? fitMemory(packNeed) : styleMemory(catalog, c?.style ?? 'friends')) : 0
   useEffect(() => {
-    if (step === 3 && packMemory > 0 && !memoryPicked) setC((prev) => (prev && prev.memoryMB !== packMemory ? { ...prev, memoryMB: packMemory } : prev))
+    if (step >= 3 && packMemory > 0 && !memoryPicked) setC((prev) => (prev && prev.memoryMB !== packMemory ? { ...prev, memoryMB: packMemory } : prev))
   }, [step, packMemory, memoryPicked])
 
   function blocked(): string | undefined {
@@ -271,7 +271,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
       case 2:
         return undefined
       case 3:
-        return noMemory || c.memoryMB <= 0 ? t('home.newServerFull', { machine: machineName }) : undefined
+        return noMemory || c.memoryMB <= 0 ? t('home.newServerFull', { machine: machineName }) : planPending ? t('reason.checkingPack') : undefined
       default:
         return (packed || templated ? nameBlocked(c) : createBlocked(c, version)) ?? (planPending ? t('reason.checkingPack') : undefined)
     }
