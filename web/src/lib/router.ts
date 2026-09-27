@@ -26,10 +26,18 @@ export type Route =
   | { name: 'more' }
   // The pages of 0.2.0's single server; they open the first server's tab.
   | { name: 'legacy'; tab: ServerTab }
+  // Wave 5: invite links, player profiles and the Settings sections.
+  | { name: 'join'; code: string }
+  | { name: 'player'; slug: string; player: string }
+  | { name: 'team' }
+  | { name: 'addon-sources' }
+  | { name: 'discord' }
   // A friends' pack page, public; token is "" for a link that can't be one.
   | { name: 'pack'; token: string }
 
 const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
+const reCode = /^[A-Za-z0-9]{1,64}$/
+export const rePlayerName = /^[A-Za-z0-9_]{3,16}$/
 const rePackToken = /^[A-Za-z0-9]{22}$/
 
 export function parse(pathname: string): Route {
@@ -44,7 +52,12 @@ export function parse(pathname: string): Route {
       return { name: 'setup' }
     case 'welcome':
       return { name: 'welcome' }
+    case 'join':
+      return { name: 'join', code: second && reCode.test(second) && !third ? second : '' }
     case 'settings':
+      if (second === 'team' && !third) return { name: 'team' }
+      if (second === 'addon-sources' && !third) return { name: 'addon-sources' }
+      if (second === 'discord' && !third) return { name: 'discord' }
       return { name: 'settings' }
     case 'account':
       return second === 'two-factor' && !third ? { name: 'account', section: 'two-factor' } : { name: 'account' }
@@ -60,6 +73,9 @@ export function parse(pathname: string): Route {
         if (third === 'running' && parts.length === 3) return { name: 'server', slug: second, tab: 'overview', page: 'running' }
         const tab = (third ?? 'overview') as ServerTab
         if (serverTabs.includes(tab) && parts.length <= 3) return { name: 'server', slug: second, tab }
+        if (third === 'players' && fourth && rePlayerName.test(fourth) && parts.length === 4) {
+          return { name: 'player', slug: second, player: fourth }
+        }
         const sub = fourth as ServerSub
         if (parts.length === 4 && serverSubs[tab]?.includes(sub)) return { name: 'server', slug: second, tab, sub }
       }
@@ -105,6 +121,16 @@ export function href(route: Route): string {
       return '/more'
     case 'legacy':
       return `/${route.tab}`
+    case 'join':
+      return route.code ? `/join/${route.code}` : '/join'
+    case 'player':
+      return `/servers/${route.slug}/players/${route.player}`
+    case 'team':
+      return '/settings/team'
+    case 'addon-sources':
+      return '/settings/addon-sources'
+    case 'discord':
+      return '/settings/discord'
     case 'pack':
       return `/packs/${route.token}`
     default: {

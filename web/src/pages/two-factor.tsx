@@ -55,11 +55,13 @@ type Stage = { step: 'loading' } | { step: 'password' } | { step: 'scan'; setup:
 /**
  * Turning two-factor on: the password, then the QR code and a code from the
  * app, then the recovery codes. A setup started earlier and not finished
- * picks up at the QR code; only Cancel throws it away.
+ * picks up at the QR code; only Cancel throws it away. Given the password an
+ * account was just made with, the setup starts with it at the QR code.
  */
-function useSetup(pending: boolean, onCodes?: () => void) {
+export function useSetup(pending: boolean, onCodes?: () => void, chosen?: string) {
   const [resume] = useState(pending)
-  const [stage, setStage] = useState<Stage>({ step: resume ? 'loading' : 'password' })
+  const [first] = useState(chosen)
+  const [stage, setStage] = useState<Stage>({ step: resume || first ? 'loading' : 'password' })
   const [password, setPasswordValue] = useState('')
   const [passwordError, setPasswordError] = useState<string>()
   const [code, setCodeValue] = useState('')
@@ -84,6 +86,24 @@ function useSetup(pending: boolean, onCodes?: () => void) {
       cancelled = true
     }
   }, [resume])
+
+  useEffect(() => {
+    if (!first) return
+    let cancelled = false
+    post<TwoFactorSetup>('/api/auth/2fa/setup', { password: first }).then(
+      (setup) => {
+        if (!cancelled) setStage({ step: 'scan', setup })
+      },
+      (err: unknown) => {
+        if (cancelled) return
+        setStage({ step: 'password' })
+        setError(refusal(err))
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [first])
 
   async function start(e: FormEvent) {
     e.preventDefault()
@@ -188,6 +208,7 @@ function SetupHeading({ n }: { n: number }) {
 }
 
 function SetupSteps({ pending, onCodes, onClose, onDone }: { pending: boolean; onCodes: () => void; onClose: () => void; onDone: () => void }) {
+  const ws = useWorkspace()
   const s = useSetup(pending, onCodes)
   const passwordId = useId()
   const labelId = useId()
@@ -272,7 +293,7 @@ function SetupSteps({ pending, onCodes, onClose, onDone }: { pending: boolean; o
         </form>
       )
     case 'codes':
-      return <CodesView codes={stage.codes} step inDialog onSaved={onDone} className="px-6 pt-6 sm:w-[560px]" />
+      return <CodesView codes={stage.codes} name={ws.me.user.username} step inDialog onSaved={onDone} className="px-6 pt-6 sm:w-[560px]" />
     default: {
       const unreachable: never = stage
       return unreachable
@@ -282,6 +303,7 @@ function SetupSteps({ pending, onCodes, onClose, onDone }: { pending: boolean; o
 
 /** Turning two-factor on, on a phone: a page of its own under Account. */
 export function SetupPage({ pending, onDone }: { pending: boolean; onDone: () => void }) {
+  const ws = useWorkspace()
   const s = useSetup(pending)
   const [qr, setQr] = useState(false)
   const passwordId = useId()
@@ -291,7 +313,7 @@ export function SetupPage({ pending, onDone }: { pending: boolean; onDone: () =>
     return (
       <div className="flex flex-1 flex-col pb-4">
         <h1 className="py-3 text-center text-[17px] font-semibold">{t('twofa.codesHeader')}</h1>
-        <CodesView codes={stage.codes} step onSaved={onDone} className="flex-1" />
+        <CodesView codes={stage.codes} name={ws.me.user.username} step onSaved={onDone} className="flex-1" />
       </div>
     )
   }
@@ -391,11 +413,11 @@ function SetupPageSkeleton() {
   )
 }
 
-function QrImage({ svg, className }: { svg: string; className?: string }) {
+export function QrImage({ svg, className }: { svg: string; className?: string }) {
   return <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`} alt={t('twofa.qrLabel')} className={className} draggable={false} />
 }
 
-function KeyBox({ value, className }: { value: string; className?: string }) {
+export function KeyBox({ value, className }: { value: string; className?: string }) {
   return (
     <div className={cn('flex items-center gap-3 rounded-xl bg-muted py-2.5 pr-2.5 pl-3.5', className)}>
       <code className="min-w-0 flex-1 font-mono text-[13px] leading-5 font-semibold tracking-wide break-words max-sm:text-sm">{value}</code>
@@ -404,9 +426,8 @@ function KeyBox({ value, className }: { value: string; className?: string }) {
   )
 }
 
-/** The new recovery codes, shown once: copy or download them, then say they're saved. */
-function CodesView({ codes, step, inDialog, onSaved, className }: { codes: string[]; step?: boolean; inDialog?: boolean; onSaved: () => void; className?: string }) {
-  const ws = useWorkspace()
+/** The new recovery codes, shown once: copy or download them, then say they're saved. name is the account's, for the file. */
+export function CodesView({ codes, name, step, inDialog, onSaved, className }: { codes: string[]; name: string; step?: boolean; inDialog?: boolean; onSaved: () => void; className?: string }) {
   const phone = useIsPhone()
   const title = phone ? t('twofa.codesTitleShort') : t('twofa.codesTitle')
   const titleClass = 'text-lg leading-6 font-bold max-sm:text-xl'
@@ -433,7 +454,7 @@ function CodesView({ codes, step, inDialog, onSaved, className }: { codes: strin
       </ol>
       <div className="mt-3 flex gap-2 max-sm:grid max-sm:grid-cols-2">
         <CopyButton text={codes.join('\n')} label={t('twofa.copyAll')} size={phone ? 'touch' : 'sm'} className="bg-white" />
-        <Button variant="outline" size={phone ? 'touch' : 'sm'} className="bg-white" onClick={() => download(codes, ws.me.user.username)}>
+        <Button variant="outline" size={phone ? 'touch' : 'sm'} className="bg-white" onClick={() => download(codes, name)}>
           <DownloadIcon />
           {phone ? t('twofa.downloadShort') : t('twofa.download')}
         </Button>
@@ -590,6 +611,7 @@ const proofBody = 'overflow-y-auto px-6 pt-6 max-sm:px-5 max-sm:pt-4'
 
 /** New recovery codes, after the password and a code. The old ones stop working. */
 export function NewCodesDialog({ open, onOpenChange, left, onChanged }: { open: boolean; onOpenChange: (open: boolean) => void; left: number; onChanged: () => void }) {
+  const ws = useWorkspace()
   const phone = useIsPhone()
   const [codes, setCodes] = useState<string[]>()
   return (
@@ -604,7 +626,7 @@ export function NewCodesDialog({ open, onOpenChange, left, onChanged }: { open: 
     >
       <DialogPopup className={codes ? 'sm:max-w-[560px]' : 'sm:max-w-[480px]'} showCloseButton={phone && !codes}>
         {codes ? (
-          <CodesView codes={codes} inDialog onSaved={() => onOpenChange(false)} className={proofBody} />
+          <CodesView codes={codes} name={ws.me.user.username} inDialog onSaved={() => onOpenChange(false)} className={proofBody} />
         ) : (
           <div className={proofBody}>
             <DialogHeading title={t('twofa.newCodesTitle')}>{t('twofa.newCodesBody', { count: left })}</DialogHeading>

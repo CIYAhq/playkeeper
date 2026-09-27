@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -609,6 +610,8 @@ type fakeRCON struct {
 	mu       sync.Mutex
 	commands []string
 	online   []string
+	// listed are the names whitelist add was given, lower case.
+	listed map[string]bool
 	// savingOff holds the servers, by RCON password, whose automatic saving
 	// is turned off.
 	savingOff map[string]bool
@@ -668,6 +671,13 @@ func startFakeRCON(t *testing.T, accept func(string) bool) *fakeRCON {
 func (fr *fakeRCON) setOnline(names ...string) {
 	fr.mu.Lock()
 	fr.online = names
+	fr.mu.Unlock()
+}
+
+// letGo takes a kicked or banned player off the list of who is online.
+func (fr *fakeRCON) letGo(name string) {
+	fr.mu.Lock()
+	fr.online = slices.DeleteFunc(slices.Clone(fr.online), func(n string) bool { return strings.EqualFold(n, name) })
 	fr.mu.Unlock()
 }
 
@@ -770,11 +780,36 @@ func (fr *fakeRCON) handle(c net.Conn) {
 			case body == "mspt":
 				out = mspt
 			case strings.HasPrefix(body, "whitelist add "):
-				out = "Added " + strings.TrimPrefix(body, "whitelist add ") + " to the whitelist"
+				name := strings.TrimPrefix(body, "whitelist add ")
+				fr.mu.Lock()
+				already := fr.listed[strings.ToLower(name)]
+				if fr.listed == nil {
+					fr.listed = map[string]bool{}
+				}
+				fr.listed[strings.ToLower(name)] = true
+				fr.mu.Unlock()
+				out = "Added " + name + " to the whitelist"
+				if already {
+					out = "Player is already whitelisted"
+				}
+			case strings.HasPrefix(body, "tellraw "):
+				name, _, _ := strings.Cut(strings.TrimPrefix(body, "tellraw "), " ")
+				if !slices.ContainsFunc(online, func(n string) bool { return strings.EqualFold(n, name) }) {
+					out = "No player was found"
+				}
+			case strings.HasPrefix(body, "ban "):
+				name, reason, _ := strings.Cut(strings.TrimPrefix(body, "ban "), " ")
+				fr.letGo(name)
+				out = "Banned " + name + ": " + reason
 			case strings.HasPrefix(body, "op "):
 				out = "Made " + strings.TrimPrefix(body, "op ") + " a server operator"
 			case strings.HasPrefix(body, "kick "):
+				name, reason, _ := strings.Cut(strings.TrimPrefix(body, "kick "), " ")
 				out = "No player was found"
+				if slices.ContainsFunc(online, func(n string) bool { return strings.EqualFold(n, name) }) {
+					fr.letGo(name)
+					out = "Kicked " + name + ": " + reason
+				}
 			case strings.HasPrefix(body, "say "):
 			default:
 				out = "Unknown or incomplete command. See below for error\n" + body + "<--[HERE]"

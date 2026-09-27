@@ -11,6 +11,7 @@ import { navigate, useRoute, type Route } from '@/lib/router'
 import { afterSignIn, signInPath } from '@/lib/templates'
 import { AccountPage } from '@/pages/account'
 import { HomePage } from '@/pages/home'
+import { JoinPage } from '@/pages/join'
 import { LoginPage } from '@/pages/login'
 import { MachinePage } from '@/pages/machine'
 import { MachineSettingsPage } from '@/pages/machine-settings'
@@ -41,7 +42,11 @@ export function App() {
     navigate(signInPath(window.location), true)
   }, [])
 
+  // The invite page works without an account, so it skips signing in.
+  const onJoin = route.name === 'join'
+
   useEffect(() => {
+    if (onJoin) return
     let cancelled = false
     async function boot() {
       try {
@@ -67,7 +72,19 @@ export function App() {
       cancelled = true
       off()
     }
-  }, [signedIn, signedOut])
+  }, [signedIn, signedOut, onJoin])
+
+  if (route.name === 'join') {
+    return (
+      <JoinPage
+        code={route.code}
+        onSignedIn={(m, to) => {
+          signedIn(m)
+          navigate(to ?? '/', true)
+        }}
+      />
+    )
+  }
 
   switch (state) {
     case 'loading':
@@ -147,17 +164,26 @@ function page(route: Route) {
     case 'setup':
     case 'welcome':
     case 'legacy':
+    case 'join':
       return <HomePage />
     case 'new-server':
       return <NewServerPage />
     case 'server':
       return <ServerPage slug={route.slug} tab={route.tab} sub={route.sub} page={route.page} />
+    case 'player':
+      return <ServerPage slug={route.slug} tab="players" player={route.player} />
     case 'machine':
       return <MachinePage id={route.id} />
     case 'machine-settings':
       return <MachineSettingsPage id={route.id} />
     case 'settings':
-      return <GlobalSettingsPage />
+      return <GlobalSettingsPage section="general" />
+    case 'team':
+      return <GlobalSettingsPage section="team" />
+    case 'addon-sources':
+      return <GlobalSettingsPage section="addon-sources" />
+    case 'discord':
+      return <GlobalSettingsPage section="discord" />
     case 'account':
       return <AccountPage section={route.section} />
     case 'more':

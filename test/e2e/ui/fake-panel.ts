@@ -125,6 +125,13 @@ export const me = {
   expiresAt: '2026-09-26T18:00:00Z',
   idleTimeoutSeconds: 43200,
   version: '0.3.0',
+  access: {
+    projectId: 'p2345abcde',
+    role: 'admin',
+    servers: { all: true },
+    twoFactor: true,
+    can: ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view'],
+  },
 }
 
 export const machine = {

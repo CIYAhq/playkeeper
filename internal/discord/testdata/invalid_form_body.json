@@ -1,0 +1,18 @@
+{
+  "code": 50035,
+  "errors": {
+    "embeds": {
+      "0": {
+        "description": {
+          "_errors": [
+            {
+              "code": "BASE_TYPE_MAX_LENGTH",
+              "message": "Must be 4096 or fewer in length."
+            }
+          ]
+        }
+      }
+    }
+  },
+  "message": "Invalid Form Body"
+}

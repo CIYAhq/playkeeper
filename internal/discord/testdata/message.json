@@ -1,0 +1,25 @@
+{
+  "type": 0,
+  "content": "",
+  "mentions": [],
+  "mention_roles": [],
+  "attachments": [],
+  "embeds": [],
+  "timestamp": "2026-09-25T14:00:00.000000+00:00",
+  "edited_timestamp": null,
+  "flags": 0,
+  "components": [],
+  "id": "1289345999000000001",
+  "channel_id": "290926798999357250",
+  "author": {
+    "bot": true,
+    "id": "1289345123456789012",
+    "username": "Playkeeper",
+    "avatar": null,
+    "discriminator": "0000"
+  },
+  "pinned": false,
+  "mention_everyone": false,
+  "tts": false,
+  "webhook_id": "1289345123456789012"
+}

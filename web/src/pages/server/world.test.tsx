@@ -3,7 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { DataPacks, MachineView, Me, Pregen, PregenPreset, ResourcePack, ResourcePackOffer, ServerConfig, ServerStatus } from '@/api/types'
+import type { Action, DataPacks, MachineView, Me, Pregen, PregenPreset, ResourcePack, ResourcePackOffer, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { WorldTools } from './world-links'
 import { isLocalHost, otherHost, packsLine, PacksPage, packTitle, zipProblem } from './world-packs'
@@ -17,7 +17,15 @@ vi.mock('@/api/client', async (importOriginal) => ({
   api: vi.fn(() => Promise.resolve({})),
 }))
 
-const me: Me = { user: { username: 'siya', role: 'owner' }, csrfToken: 't', expiresAt: '2026-09-26T00:00:00Z', idleTimeoutSeconds: 43200, version: '0.3.0' }
+const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view']
+const me: Me = {
+  user: { username: 'siya', role: 'owner' },
+  csrfToken: 't',
+  expiresAt: '2026-09-26T00:00:00Z',
+  idleTimeoutSeconds: 43200,
+  version: '0.3.0',
+  access: { projectId: 'p2345abcde', role: 'admin', servers: { all: true }, twoFactor: false, can: everything },
+}
 const machine = { id: 'm2345abcde', projectId: 'p2345abcde', name: 'my-vps', kind: 'local' } as MachineView
 const config = { versionId: 'paper-26.1.2', minecraftVersion: '26.1.2', paperBuild: 74, memoryMB: 1536, heapMB: 1024, levelName: 'world', motd: 'Hi', maxPlayers: 10, whitelist: true, playStyle: 'friends' } as ServerConfig
 

@@ -82,6 +82,8 @@ type server struct {
 	prevCPU         *docker.Stats
 	crashes         []time.Time
 	crashed         bool
+	runCrashed      bool // a run crashed and the server hasn't been online since; a failed automatic start sets only crashed
+	runReady        bool // this agent has taken the current run's "Done" line
 	crash           *api.Crash
 	handledExit     map[string]time.Time
 	exitSeen        map[string]seenExit
@@ -93,6 +95,9 @@ type server struct {
 	nextAutoRestart time.Time
 	worldBytes      int64
 	worldAt         time.Time
+	// sampled is the state the latest sample recorded (online, starting,
+	// stopped, crashed…), for the Discord live status.
+	sampled string
 	// nextResume is when the reconciler may try save-on again after it
 	// failed to turn saving back on.
 	nextResume time.Time

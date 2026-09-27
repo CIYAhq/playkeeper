@@ -205,6 +205,12 @@ func (s *server) Sessions(from, to, now time.Time, limit int) ([]api.Session, er
 	if err != nil {
 		return nil, err
 	}
+	return scanSessions(rows, now)
+}
+
+// scanSessions reads rows of id, player, uuid, start_ts, end_ts, end_reason,
+// start_uncertain, end_uncertain, source; open sessions last until now.
+func scanSessions(rows *sql.Rows, now time.Time) ([]api.Session, error) {
 	defer rows.Close()
 	out := []api.Session{}
 	for rows.Next() {

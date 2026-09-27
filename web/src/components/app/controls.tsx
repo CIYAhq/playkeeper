@@ -14,10 +14,17 @@ export interface Choice<T extends string> {
   hint?: string
   marker?: ReactNode
   disabled?: boolean
+  /** Why a disabled option can't be chosen. */
+  reason?: string
 }
 
 export function useIsPhone(): boolean {
   return useMediaQuery('max-sm')
+}
+
+/** An option's second line: why it can't be chosen, else its hint. Disabled options take no pointer, so a title alone would go unseen. */
+function secondLine<T extends string>(o: Choice<T>): string | undefined {
+  return (o.disabled && o.reason) || o.hint
 }
 
 /**
@@ -46,7 +53,7 @@ export function ChoiceSelect<T extends string>({
   const hintId = useId()
   const current = options.find((o) => o.value === value)
   // A disabled option's hint is why it can't be picked.
-  const why = (o: Choice<T>, i: number) => (o.disabled && o.hint ? `${hintId}-${i}` : undefined)
+  const why = (o: Choice<T>, i: number) => (o.disabled && secondLine(o) ? `${hintId}-${i}` : undefined)
   if (phone) {
     return (
       <>
@@ -75,6 +82,7 @@ export function ChoiceSelect<T extends string>({
                   aria-selected={o.value === value}
                   key={o.value}
                   disabled={o.disabled}
+                  title={o.disabled ? o.reason : undefined}
                   aria-describedby={why(o, i)}
                   onClick={() => {
                     onChange(o.value)
@@ -84,9 +92,9 @@ export function ChoiceSelect<T extends string>({
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block text-base">{o.label}</span>
-                    {o.hint && (
+                    {secondLine(o) && (
                       <span id={why(o, i)} className="block text-[13px] text-muted-foreground">
-                        {o.hint}
+                        {secondLine(o)}
                       </span>
                     )}
                   </span>
@@ -106,15 +114,15 @@ export function ChoiceSelect<T extends string>({
       </SelectTrigger>
       <SelectPopup alignItemWithTrigger={false}>
         {options.map((o, i) => (
-          <SelectItem key={o.value} value={o.value} disabled={o.disabled} aria-describedby={why(o, i)} className="py-1.5">
+          <SelectItem key={o.value} value={o.value} disabled={o.disabled} title={o.disabled ? o.reason : undefined} aria-describedby={why(o, i)} className="py-1.5">
             <span className="flex flex-col">
               <span className="flex items-center gap-2">
                 {o.label}
                 {o.marker}
               </span>
-              {o.hint && (
+              {secondLine(o) && (
                 <span id={why(o, i)} className="text-xs text-muted-foreground">
-                  {o.hint}
+                  {secondLine(o)}
                 </span>
               )}
             </span>
