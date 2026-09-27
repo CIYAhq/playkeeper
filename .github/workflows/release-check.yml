@@ -5,11 +5,12 @@ name: Release check
 # CurseForge's key built in), installs it on a fresh runner, and clicks
 # through every control on every page of those assets at desktop and phone
 # sizes, split between runners, with the gate that proves together they
-# pressed every page's controls (clickthrough.yml). It also installs, plays
-# on, backs up, restores, updates and uninstalls this commit on every
-# supported Ubuntu and Debian release (os-matrix.yml). Pull requests crawl
-# only the pages they touch, and run the OS matrix only when they change the
-# installer. Run this on the commit you are about to tag (CONTRIBUTING.md,
+# pressed every page's controls (clickthrough.yml), and runs the ARM64
+# workflow on those assets on GitHub's ARM runners (arm64.yml). It also
+# installs, plays on, backs up, restores, updates and uninstalls this commit
+# on every supported Ubuntu and Debian release (os-matrix.yml). Pull requests
+# crawl only the pages they touch, and run the OS matrix only when they change
+# the installer. Run this on the commit you are about to tag (CONTRIBUTING.md,
 # Releases): the tag publishes these assets, byte for byte, once this and CI
 # have passed on its commit.
 
@@ -76,3 +77,10 @@ jobs:
   os-matrix:
     name: OS matrix
     uses: ./.github/workflows/os-matrix.yml
+
+  arm64:
+    name: ARM64
+    needs: build
+    uses: ./.github/workflows/arm64.yml
+    with:
+      artifact: release-${{ needs.build.outputs.tag }}

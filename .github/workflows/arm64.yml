@@ -9,10 +9,11 @@ name: ARM64
 # hand-picked add-ons, the map, pre-generation and a modpack, and uninstall.
 # It takes about 40 minutes, so it runs on pull requests that change how
 # Playkeeper is installed or updated or which runtime images it pins, when
-# started by hand, and in the release workflow on the assets it built
-# (artifact): before each release, which publishes only if it passes, and in
-# its dry run on pull requests that change the release path (the packaging,
-# the release scripts, the Makefile), which is why those aren't listed here.
+# started by hand, and on the assets a release build made (artifact): in the
+# Release check on the release it builds (release-check.yml), whose success a
+# tag needs to publish those assets, and in the Release workflow's dry run on
+# pull requests that change the release path (the packaging, the release
+# scripts, the Makefile), which is why those aren't listed here.
 
 on:
   pull_request:
