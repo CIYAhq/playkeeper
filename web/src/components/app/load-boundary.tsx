@@ -37,20 +37,41 @@ export class LoadBoundary extends Component<{ children: ReactNode; resetKey?: st
 
 const reloadedAt = 'playkeeper.reloadedForCode'
 
+/** The script a page starts from, as its index.html names it. */
+function entryScript(doc: Document) {
+  return doc.querySelector('script[type="module"][src]')?.getAttribute('src') ?? undefined
+}
+
+/** Whether an update replaced this page's code: the page the server sends now starts from another script. */
+async function codeReplaced() {
+  const res = await fetch(import.meta.env.BASE_URL, { cache: 'no-store' })
+  if (!res.ok) return false
+  const now = entryScript(new DOMParser().parseFromString(await res.text(), 'text/html'))
+  return now !== undefined && now !== entryScript(document)
+}
+
 /**
- * Reloads the page when Vite can't load a page's code, as after an update
- * replaced it. A page that still can't load within a minute of that reload
- * shows LoadBoundary's Reload instead of reloading again.
+ * Reloads the page when Vite can't load a page's code because an update
+ * replaced it. Code that didn't load for another reason shows LoadBoundary's
+ * Reload instead: a phone lost its connection, or Safari stopped loading the
+ * code of a page you're leaving, where a reload would win over the link you
+ * pressed. A page that still can't load within a minute of that reload shows
+ * the Reload too, instead of reloading again.
  */
 export function reloadWhenCodeIsStale() {
-  window.addEventListener('vite:preloadError', (e) => {
-    try {
-      if (Date.now() - Number(sessionStorage.getItem(reloadedAt) ?? 0) < 60_000) return
-      sessionStorage.setItem(reloadedAt, String(Date.now()))
-    } catch {
-      return
-    }
-    e.preventDefault()
-    window.location.reload()
+  let checking = false
+  window.addEventListener('vite:preloadError', () => {
+    if (checking) return
+    checking = true
+    void codeReplaced()
+      .then((replaced) => {
+        if (!replaced || Date.now() - Number(sessionStorage.getItem(reloadedAt) ?? 0) < 60_000) return
+        sessionStorage.setItem(reloadedAt, String(Date.now()))
+        window.location.reload()
+      })
+      .catch(() => {})
+      .finally(() => {
+        checking = false
+      })
   })
 }

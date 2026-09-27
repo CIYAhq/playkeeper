@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeAll, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import * as client from '@/api/client'
 import type { Action, MachineView, Me, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
@@ -119,22 +119,70 @@ it.each([
   expect(reload).toHaveBeenCalledOnce()
 })
 
-// Code Vite can't load, as after an update replaced it, reloads the page; a
-// page that still can't load right after that shows its Reload instead of
-// reloading over and over.
-it('reloads the page when a page’s code can’t load, at most once a minute', () => {
-  const reload = vi.spyOn(window.location, 'reload').mockImplementation(() => {})
-  const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
-  sessionStorage.clear()
-  reloadWhenCodeIsStale()
-  const failed = () => {
-    const e = new Event('vite:preloadError', { cancelable: true })
-    window.dispatchEvent(e)
-    return e.defaultPrevented
+describe('code Vite can’t load', () => {
+  const pageStartingFrom = (entry: string) => `<!doctype html><html><head><script type="module" crossorigin src="${entry}"></script></head><body><div id="root"></div></body></html>`
+  let answer: () => Promise<{ ok: boolean; text: () => Promise<string> }>
+  const fetchPage = vi.fn(() => answer())
+  let reload: MockInstance<() => void>
+  let now: MockInstance<() => number>
+
+  /** index.html as the server sends it now, an error status, or a request that fails. */
+  function serving(page: string | number | Error) {
+    answer = async () => {
+      if (page instanceof Error) throw page
+      return typeof page === 'string' ? { ok: true, text: async () => page } : { ok: false, text: async () => 'Service Unavailable' }
+    }
   }
-  expect([failed(), reload.mock.calls.length]).toEqual([true, 1])
-  now.mockReturnValue(1_030_000)
-  expect([failed(), reload.mock.calls.length]).toEqual([false, 1])
-  now.mockReturnValue(1_061_000)
-  expect([failed(), reload.mock.calls.length]).toEqual([true, 2])
+
+  /** Vite couldn't load code this many times at once; says whether the error went on to LoadBoundary, once the page has checked. */
+  async function failed(times = 1) {
+    const events = Array.from({ length: times }, () => new Event('vite:preloadError', { cancelable: true }))
+    for (const e of events) window.dispatchEvent(e)
+    await new Promise((r) => setTimeout(r))
+    return events.every((e) => !e.defaultPrevented)
+  }
+
+  beforeAll(() => reloadWhenCodeIsStale())
+
+  beforeEach(() => {
+    // The open page's index.html, parsed as the browser did: happy-dom would load a script set with innerHTML.
+    document.head.replaceChildren(...new DOMParser().parseFromString(pageStartingFrom('/assets/index-Bx4k2mQa.js'), 'text/html').head.childNodes)
+    vi.stubGlobal('fetch', fetchPage)
+    fetchPage.mockClear()
+    reload = vi.spyOn(window.location, 'reload').mockImplementation(() => {})
+    now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    sessionStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    document.head.replaceChildren()
+  })
+
+  // An update replaced the code when the page the server sends now starts
+  // from another script. A page that still can't load right after that
+  // reload shows its Reload instead of reloading over and over.
+  it('reloads the page when an update replaced it, at most once a minute', async () => {
+    serving(pageStartingFrom('/assets/index-7Dw9nPcE.js'))
+    expect([await failed(3), reload.mock.calls.length], 'a page’s files that all fail at once reload it once').toEqual([true, 1])
+    expect(fetchPage).toHaveBeenCalledOnce()
+    expect(fetchPage).toHaveBeenCalledWith('/', { cache: 'no-store' })
+    now.mockReturnValue(1_030_000)
+    expect([await failed(), reload.mock.calls.length]).toEqual([true, 1])
+    now.mockReturnValue(1_061_000)
+    expect([await failed(), reload.mock.calls.length]).toEqual([true, 2])
+  })
+
+  // The error goes on to the page's Reload. Safari stops loading the code of
+  // a page you leave, and a reload then would win over the link you pressed.
+  it.each([
+    ['the server sends the same page, as after a dropped connection', pageStartingFrom('/assets/index-Bx4k2mQa.js')],
+    ['the server can’t be asked, as while Safari leaves the page or offline', new TypeError('Load failed')],
+    ['the server answers with an error', 503],
+    ['the server sends a page that isn’t the dashboard', '<!doctype html><title>Sign in to the Wi-Fi</title>'],
+  ])('code that didn’t load for another reason, when %s, shows its Reload instead of reloading', async (_, page) => {
+    serving(page)
+    expect([await failed(3), reload.mock.calls.length]).toEqual([true, 0])
+    expect(fetchPage).toHaveBeenCalledOnce()
+  })
 })

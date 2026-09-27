@@ -278,15 +278,19 @@ webcontrol "every server tab's code loads after sign-in" web/src/App.tsx \
 ' \
   '' \
   web/src/pages/server/preload.test.tsx 'every server tab'
-webcontrol "code that can't load reloads the page" web/src/components/app/load-boundary.tsx \
-  '    e.preventDefault()
-    window.location.reload()' \
-  '    e.preventDefault()' \
+webcontrol "code an update replaced reloads the page" web/src/components/app/load-boundary.tsx \
+  '        sessionStorage.setItem(reloadedAt, String(Date.now()))
+        window.location.reload()' \
+  '        sessionStorage.setItem(reloadedAt, String(Date.now()))' \
   web/src/components/app/load-boundary.test.tsx 'at most once a minute'
 webcontrol "a page that still can't load doesn't reload over and over" web/src/components/app/load-boundary.tsx \
-  'if (Date.now() - Number(sessionStorage.getItem(reloadedAt) ?? 0) < 60_000) return' \
-  'if (Date.now() < 0) return' \
+  'if (!replaced || Date.now() - Number(sessionStorage.getItem(reloadedAt) ?? 0) < 60_000) return' \
+  'if (!replaced) return' \
   web/src/components/app/load-boundary.test.tsx 'at most once a minute'
+webcontrol "code that didn't load for another reason, as when Safari leaves the page, doesn't reload it" web/src/components/app/load-boundary.tsx \
+  'void codeReplaced()' \
+  'void Promise.resolve(true)' \
+  web/src/components/app/load-boundary.test.tsx 'for another reason'
 control "the data pack list waits for the missing world folder" internal/agent/packs.go \
   'if m := s.worldMissing(); m != nil {
 		return nil, errWorldMissing(m, "try again")' \
