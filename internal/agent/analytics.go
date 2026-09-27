@@ -478,7 +478,7 @@ func (a *Agent) Activity(serverID string, limit int) ([]api.Activity, error) {
 	// lines asked for, and more again while the runs leave too few lines,
 	// as a folder of a thousand files uploaded does.
 	var out []api.Activity
-	for n := min(limit*4, 1000); ; n *= 4 {
+	for n := min(limit*4, 1000, maxActivityRows); ; n = min(n*4, maxActivityRows) {
 		rows, err := a.activityRows(q, append(args, n))
 		if err != nil {
 			return nil, err
@@ -495,7 +495,7 @@ func (a *Agent) Activity(serverID string, limit int) ([]api.Activity, error) {
 }
 
 // maxActivityRows caps the rows one look at the recent activity reads.
-const maxActivityRows = 16_000
+var maxActivityRows = 16_000
 
 // activityRows reads the rows of Activity's query q, newest first.
 func (a *Agent) activityRows(q string, args []any) ([]api.Activity, error) {

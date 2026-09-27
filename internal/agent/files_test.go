@@ -1094,6 +1094,29 @@ func TestABigUploadDoesntHideOlderActivity(t *testing.T) {
 	}
 }
 
+// However many uploads it takes to fill its lines, a look at the recent
+// activity reads no more rows than its cap.
+func TestRecentActivityReadsNoMoreThanItsRows(t *testing.T) {
+	orig := maxActivityRows
+	maxActivityRows = 50
+	t.Cleanup(func() { maxActivityRows = orig })
+	e, _ := idleFilesServer(t)
+	s := e.srv()
+	s.audit("admin", "files.saved", "server.properties", "succeeded", "server.properties")
+	time.Sleep(3 * time.Millisecond)
+	for i := range 100 {
+		p := fmt.Sprintf("plugins/Big/%03d.yml", i)
+		s.audit("admin", "files.uploaded", p, "succeeded", p)
+	}
+	list, err := e.a.Activity(e.sid, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].Count != 50 {
+		t.Fatalf("activity read past its 50 rows: %+v", list)
+	}
+}
+
 // Every change is in the audit log and in the server's recent activity, and
 // a run of uploads into one folder shows as one line.
 func TestFileChangesAreAuditedAndShownAsActivity(t *testing.T) {
