@@ -60,7 +60,10 @@
     "/settings/team (friends and team)": 164,
     "/settings/discord (friends and team)": 31,
     "/servers/*/map (map on)": 142,
-    "/servers/*/map (map restart)": 25
+    "/servers/*/map (map restart)": 25,
+    "/servers/*/file/server.properties": 45,
+    "/servers/*/files (a few files)": 374,
+    "/servers/*/files/plugins (a few files)": 245
   },
   "phone": {
     "/login": 8,
@@ -129,6 +132,9 @@
     "/settings/team (friends and team)": 239,
     "/settings/discord (friends and team)": 28,
     "/servers/*/map (map on)": 100,
-    "/servers/*/map (map restart)": 13
+    "/servers/*/map (map restart)": 13,
+    "/servers/*/file/server.properties": 6,
+    "/servers/*/files (a few files)": 378,
+    "/servers/*/files/plugins (a few files)": 190
   }
 }
