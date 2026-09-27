@@ -197,6 +197,8 @@ type File struct {
 	Dependencies     []FileDependency `json:"dependencies"`
 	IsServerPack     bool             `json:"isServerPack"`
 	ServerPackFileID *int64           `json:"serverPackFileId"`
+	// ParentProjectFileID is, for a server pack, the pack's file it is for.
+	ParentProjectFileID *int64 `json:"parentProjectFileId"`
 }
 
 // SHA1 is the file's sha1 hash in lower case, or "".

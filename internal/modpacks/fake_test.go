@@ -587,6 +587,23 @@ func (f *fakes) cfAddFile(edit func(m obj), extra ...entry) int64 {
 	return id
 }
 
+// cfAddServerFiles serves server files with entries for the pack's file
+// pack, linked to it as CurseForge links them, and returns their id.
+func (f *fakes) cfAddServerFiles(pack int64, entries ...entry) int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id := int64(9200100 + len(f.cfFiles))
+	name := fmt.Sprintf("ServerFiles-%d", id)
+	file := obj{
+		"id": id, "gameId": curseforge.GameMinecraft, "modId": 9100001, "isAvailable": true, "displayName": name,
+		"fileName": name + ".zip", "releaseType": curseforge.Release, "fileStatus": curseforge.StatusApproved,
+		"fileDate": testNow.Add(-time.Hour).Format(time.RFC3339), "gameVersions": []any{}, "isServerPack": true, "parentProjectFileId": pack,
+	}
+	f.cfFile(file, zipOf(f.t, entries...), true)
+	f.cfFiles[pack]["serverPackFileId"] = id
+	return id
+}
+
 // cfFile fills in a CurseForge file record's hashes, size and download
 // address for data and serves data from the fake forgecdn.
 func (f *fakes) cfFile(file obj, data []byte, downloadable bool) {

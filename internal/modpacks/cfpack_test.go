@@ -271,6 +271,117 @@ func TestCurseForgeModsInThePack(t *testing.T) {
 	wantTree(t, l.TempDir)
 }
 
+// Mods CurseForge doesn't let Playkeeper download come from the pack's
+// server files, each checked against the SHA-1 CurseForge lists for it:
+// FerriteCore, whose author only allows CurseForge's app, and Fabric API
+// once CurseForge no longer offers its file.
+func TestCurseForgeModsFromServerFiles(t *testing.T) {
+	const ferrite, fabricAPI = "mods/ferritecore-9.0.0-fabric.jar", "mods/fabric-api-0.141.0+26.3.jar"
+	gone := string(KindUnavailable) + ": Fabric API, which Example Fabric Pack uses, is no longer available on CurseForge. (https://www.curseforge.com/minecraft/mc-mods/fabric-api)"
+	serverFiles := func(ferriteJar []byte) []entry {
+		return []entry{
+			{name: ferrite, data: ferriteJar},
+			{name: fabricAPI, data: generated("fabric-api-0.141.0+26.3.jar")},
+			{name: "config/server-only.json", data: []byte("{}\n")},
+			{name: "startserver.sh", data: []byte("#!/bin/sh\njava -jar installer.jar\n")},
+		}
+	}
+	setUp := func(t *testing.T, change func(f *fakes, l *Library, pack, server int64), entries []entry) (*fakes, *Library, Server, Ref, int64) {
+		f := newFakes(t)
+		l := f.library()
+		srv := newServer(t, "fabric", "26.2")
+		pack := f.cfAddFile(nil)
+		server := f.cfAddServerFiles(pack, entries...)
+		f.cfChange(8913512, func(file obj) { file["isAvailable"], file["fileStatus"] = false, curseforge.StatusDeleted })
+		if change != nil {
+			change(f, l, pack, server)
+		}
+		return f, l, srv, cfRef(strconv.FormatInt(pack, 10)), server
+	}
+	fetched := func(f *fakes, server int64) bool {
+		return slices.ContainsFunc(f.served("forgecdn"), func(r string) bool { return strings.Contains(r, fmt.Sprintf("ServerFiles-%d", server)) })
+	}
+
+	f, l, srv, ref, server := setUp(t, nil, serverFiles(generated("ferritecore-9.0.0-fabric.jar")))
+	pl := mustPlan(t, l, srv, InstallRequest{Ref: ref})
+	wantList(t, "manual", manualList(pl.Manual))
+	wantList(t, "changes", changeList(pl.Changes),
+		"add config/example.json",
+		"add mods/cloth-config-26.3.155-fabric.jar",
+		"add "+fabricAPI,
+		"add "+ferrite,
+		"add mods/lithium-fabric-0.25.3+mc26.3.jar",
+		"add mods/placeholder-api-3.1.0+26.3.jar")
+	res := mustInstall(t, l, srv, InstallRequest{Ref: ref})
+	if readFile(t, srv, ferrite) != string(generated("ferritecore-9.0.0-fabric.jar")) || readFile(t, srv, fabricAPI) != string(generated("fabric-api-0.141.0+26.3.jar")) {
+		t.Error("the mods written are not the server files'")
+	}
+	files := recordFiles(roundTrip(t, res.Record))
+	if fc := files[ferrite]; fc.Project != "459857" || fc.Origin != Override || fc.HashAlgo != "sha512" || fc.Size != int64(len(generated("ferritecore-9.0.0-fabric.jar"))) {
+		t.Errorf("FerriteCore's record: %+v", fc)
+	}
+	if _, ok := files["startserver.sh"]; ok || len(files) != 6 {
+		t.Errorf("record files: %+v", res.Record.Files)
+	}
+	wantList(t, "manual after installing", manualList(res.Manual))
+	if !fetched(f, server) || slices.ContainsFunc(f.served("forgecdn"), func(r string) bool { return strings.Contains(r, "ferritecore") }) {
+		t.Errorf("forgecdn served %q", f.served("forgecdn"))
+	}
+	wantTree(t, l.TempDir)
+
+	// Otherwise the steps stay, and nothing comes from the server files.
+	for _, c := range []struct {
+		name    string
+		change  func(f *fakes, l *Library, pack, server int64)
+		entries []entry
+		fetched bool
+		manual  []string
+	}{
+		{name: "their copy isn't the file CurseForge lists", entries: serverFiles([]byte("another ferritecore")), fetched: true, manual: []string{ferriteCoreStep}},
+		{name: "they don't have the mod", entries: serverFiles(nil)[1:], fetched: true, manual: []string{ferriteCoreStep}},
+		{name: "CurseForge doesn't let Playkeeper download them", change: func(f *fakes, _ *Library, _, server int64) {
+			f.cfChange(server, func(file obj) { file["downloadUrl"] = nil })
+		}, manual: []string{gone, ferriteCoreStep}},
+		{name: "they are for another version of the pack", change: func(f *fakes, _ *Library, _, server int64) {
+			f.cfChange(server, func(file obj) { file["parentProjectFileId"] = 9200001 })
+		}, manual: []string{gone, ferriteCoreStep}},
+		{name: "they are larger than Playkeeper accepts", change: func(_ *fakes, l *Library, _, _ int64) { l.Limits.ServerFiles = 100 }, manual: []string{gone, ferriteCoreStep}},
+		{name: "CurseForge no longer knows the gone file", change: func(f *fakes, _ *Library, _, _ int64) {
+			f.mu.Lock()
+			delete(f.cfFiles, 8913512)
+			f.mu.Unlock()
+		}, fetched: true, manual: []string{gone}},
+	} {
+		entries := c.entries
+		if entries == nil {
+			entries = serverFiles(generated("ferritecore-9.0.0-fabric.jar"))
+		}
+		f, l, srv, ref, server := setUp(t, c.change, entries)
+		pl := mustPlan(t, l, srv, InstallRequest{Ref: ref})
+		wantList(t, c.name+": manual", manualList(pl.Manual), c.manual...)
+		if slices.Contains(manualList(pl.Manual), ferriteCoreStep) == slices.Contains(changeList(pl.Changes), "add "+ferrite) ||
+			slices.ContainsFunc(changeList(pl.Changes), func(s string) bool { return strings.Contains(s, "server-only") || strings.Contains(s, "startserver") }) {
+			t.Errorf("%s: changes %q", c.name, changeList(pl.Changes))
+		}
+		if fetched(f, server) != c.fetched {
+			t.Errorf("%s: server files fetched %v, want %v", c.name, !c.fetched, c.fetched)
+		}
+		wantTree(t, srv.Dir)
+	}
+
+	// Server files that don't match CurseForge's hash stop the install.
+	f, l, srv, ref, server = setUp(t, nil, serverFiles(generated("ferritecore-9.0.0-fabric.jar")))
+	var n int
+	f.cfChange(server, func(file obj) { n = int(num(file["fileLength"])) })
+	f.cfServe(server, bytes.Repeat([]byte("x"), n))
+	_, err := l.PlanInstall(context.Background(), srv, nil, InstallRequest{Ref: ref})
+	if e := wantKind(t, err, addons.KindHashMismatch); e.Msg != fmt.Sprintf("The download of ServerFiles-%d.zip does not match the sha1 hash CurseForge lists, so Playkeeper did not install Example Fabric Pack.", server) {
+		t.Errorf("message %q", e.Msg)
+	}
+	wantTree(t, srv.Dir)
+	wantTree(t, l.TempDir)
+}
+
 // CurseForge's optional mods are off unless the user turns them on.
 func TestOptionalCurseForgeMods(t *testing.T) {
 	f := newFakes(t)
