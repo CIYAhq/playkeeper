@@ -58,7 +58,7 @@ const lines = [
   plan.mode === 'none' ? 'Click-through: none, no page of the dashboard changed.' : plan.mode === 'full' ? 'Click-through: every page.' : `Click-through: ${plan.pages.length} page${plan.pages.length === 1 ? '' : 's'} the change touches, after ${plan.preludes.join(' and ') || 'nothing'} as they are.`,
   ...(plan.mode === 'pages' ? plan.pages.map((p) => `  ${p}`) : []),
   ...(shards.length ? [`Runners: ${runners('desktop')}, ${runners('phone')}.`] : []),
-  ...(shards.length ? [fresh ? `Setup: the onboarding and the bots on every runner, since ${fresh}.` : 'Setup: the played state saved on main, where one fits this commit, else the onboarding and the bots.'] : []),
+  ...(shards.length ? [fresh ? `Setup: the onboarding and the bots on every runner, since ${fresh}.` : 'Setup: the newest played state an ancestor of this commit saved, else the onboarding and the bots.'] : []),
   'Why:',
   ...plan.why.map((w) => `  ${w}`),
 ]

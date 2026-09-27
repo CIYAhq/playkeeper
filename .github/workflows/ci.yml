@@ -317,18 +317,20 @@ jobs:
           sudo docker inspect "$container" --format 'Privileged={{.HostConfig.Privileged}} CapAdd={{.HostConfig.CapAdd}} CapDrop={{.HostConfig.CapDrop}} Memory={{.HostConfig.Memory}} User={{.Config.User}} Ports={{json .HostConfig.PortBindings}}'
           sudo sh -c "grep -E '^(online-mode|white-list|enforce-whitelist|log-ips)=' /var/lib/playkeeper/servers/*/data/server.properties"
           curl -sS -i http://127.0.0.1:8443/ | head -1
-      # On main, the state after the onboarding and the bots is saved for the
-      # click-through and views runners to start from (the played state).
+      # The state after the onboarding and the bots, for the click-through and
+      # views runners to start from: main's for every pull request, and a pull
+      # request's own for its later pushes. It names the commit it was made
+      # on, a pull request's head rather than its merge commit, so later
+      # commits can tell they contain it.
       - name: Save the played state
-        if: github.event_name != 'pull_request'
         env:
           PK_ADMIN_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
-        run: scripts/e2e/played-state.sh save /tmp/played "$PK_ADMIN_PASSWORD"
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: scripts/e2e/played-state.sh save /tmp/played "$PK_ADMIN_PASSWORD" "$COMMIT"
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: github.event_name != 'pull_request'
         with:
           path: /tmp/played
-          key: played-state-${{ github.sha }}-${{ github.run_attempt }}
+          key: played-state-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
       - name: Uninstall keeps the world and backups
         run: |
           worlds() { sudo sh -c 'find /var/lib/playkeeper/servers/*/data/world /var/lib/playkeeper/backups -type f -exec sha256sum {} +' | sort -k2; }

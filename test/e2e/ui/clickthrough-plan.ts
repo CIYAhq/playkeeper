@@ -246,16 +246,14 @@ const crawlerFiles = [
   /^\.github\/workflows\/clickthrough\.yml$/,
 ]
 
-/** What makes the state the pages are crawled in, which the played state saved on main was made by. */
-const setupFiles = [
-  /^test\/e2e\/ui\/onboarding\.spec\.ts$/,
-  /^test\/e2e\/(scenario|pkclient)\.py$/,
-  /^test\/e2e\/bot\//,
-  /^scripts\/e2e\/played-state\.sh$/,
-  /^\.github\/actions\/played-install\//,
-]
+/**
+ * What makes the state the pages are crawled in, which a saved played state
+ * was made by. A change to how it's saved or restored isn't here: the crawl
+ * then starts from a saved state, which tries it.
+ */
+const setupFiles = [/^test\/e2e\/ui\/onboarding\.spec\.ts$/, /^test\/e2e\/(scenario|pkclient)\.py$/, /^test\/e2e\/bot\//]
 
-/** Why a change has to be crawled after the onboarding and the bots instead of the played state saved on main, or undefined. */
+/** Why a change has to be crawled after the onboarding and the bots instead of a saved played state, or undefined. */
 export function freshSetup(changed: string[]): string | undefined {
   const file = changed.find((f) => setupFiles.some((re) => re.test(f)))
   return file && `${file} changes how the state the pages are crawled in is made`

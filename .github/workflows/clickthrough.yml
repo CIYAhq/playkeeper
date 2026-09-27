@@ -3,12 +3,12 @@ name: Click-through
 # Every control on the pages a run selects does something, at desktop and
 # phone sizes (test/e2e/ui/clickthrough.spec.ts), split between runners:
 # each installs the release on a fresh runner, gives it the state the pages
-# are crawled in (the played state saved on main, or the keyboard onboarding
-# and the protocol bots' scenario: .github/actions/played-install) and crawls
-# its share; the gate then checks that together they crawled every page and
-# pressed every page's controls. CI calls it with the pages a change touches,
-# or every page (plan.ts); the Release check with every page, on the release
-# it built, after the onboarding and the bots.
+# are crawled in (a played state an earlier run saved, or the keyboard
+# onboarding and the protocol bots' scenario: .github/actions/played-install)
+# and crawls its share; the gate then checks that together they crawled every
+# page and pressed every page's controls. CI calls it with the pages a change
+# touches, or every page (plan.ts); the Release check with every page, on the
+# release it built, after the onboarding and the bots.
 
 on:
   workflow_call:
@@ -30,7 +30,7 @@ on:
         type: string
         required: true
       setup:
-        description: What the pages are crawled after, from plan.ts ("saved", the played state saved on main when one fits, or "fresh", the onboarding and the bots)
+        description: What the pages are crawled after, from plan.ts ("saved", a saved played state when one fits, or "fresh", the onboarding and the bots)
         type: string
         default: fresh
 
