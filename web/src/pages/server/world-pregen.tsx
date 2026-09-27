@@ -20,7 +20,7 @@ import { usePoll, type Poll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { PhoneActionBar, WorldSubHeader } from './world-sub'
 
-const presetNames: Record<PregenPresetId, MessageKey> = { small: 'pregen.small', medium: 'pregen.medium', large: 'pregen.large', huge: 'pregen.huge' }
+const presetNames: Record<PregenPresetId, MessageKey> = { small: 'pregen.small', medium: 'pregen.medium', large: 'pregen.large', huge: 'pregen.huge', border: 'mapArea.borderShort' }
 const actingKeys: Record<'pause' | 'continue' | 'cancel', MessageKey> = { pause: 'pregen.pausing', continue: 'pregen.resuming', cancel: 'pregen.cancelling' }
 const modServers = new Set(['fabric', 'quilt', 'neoforge', 'forge'])
 
@@ -74,7 +74,8 @@ function percent(pg: Pregen): string {
   return formatPercent(Math.floor(pg.percent))
 }
 
-function stepText(pg: Pregen, server: string): string {
+/** What a starting task is doing, such as "Installing Chunky…". */
+export function stepText(pg: Pregen, server: string): string {
   switch (pg.step) {
     case 'installing':
       return t('pregen.installing')
@@ -377,7 +378,7 @@ function Running({ server: s, pregen: pg, onChanged }: { server: ServerStatus; p
     }
   }
 
-  const presetLine = pg.preset && pg.radius ? t('pregen.presetLine', { preset: t(presetNames[pg.preset]), radius: pg.radius }) : undefined
+  const presetLine = pg.preset === 'border' ? t('mapArea.border') : pg.preset && pg.radius ? t('pregen.presetLine', { preset: t(presetNames[pg.preset]), radius: pg.radius }) : undefined
   const status = paused ? pausedText(pg, s.name) : pg.etaSeconds >= 0 ? t('pregen.left', { time: longTime(pg.etaSeconds) }) : undefined
   const resume = paused && pg.pausedBy !== 'server'
   const size = phone ? 'touch' : 'default'

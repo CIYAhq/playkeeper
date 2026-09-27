@@ -1248,7 +1248,8 @@ export interface AddonRemoval {
   warnings: AddonNotice[]
 }
 
-export type PregenPresetId = 'small' | 'medium' | 'large' | 'huge'
+/** A size around spawn, or 'border' for a task the Map tab started up to the world border. */
+export type PregenPresetId = 'small' | 'medium' | 'large' | 'huge' | 'border'
 
 export interface PregenPreset {
   id: PregenPresetId
@@ -1998,6 +1999,32 @@ export interface MapPlayers {
 export interface PublicMap {
   name: string
   players: boolean
+}
+
+/** How much of the world the map shows: the explored land, or an area pre-generated for it. */
+export type MapAreaId = 'explored' | PregenPresetId
+
+/** A bigger area for the map, and what filling it in is expected to take. */
+export interface MapAreaOption {
+  id: PregenPresetId
+  radius: number
+  chunks: number
+  seconds: number
+  diskBytes: number
+  fits: boolean
+  /** The map has it already. */
+  done?: boolean
+  /** It reaches past the world border. */
+  pastBorder?: boolean
+}
+
+export interface MapArea {
+  area: MapAreaId
+  radius?: number
+  /** Smallest first, then the world border when one is set. */
+  options: MapAreaOption[]
+  /** The pre-generation that fills the area in. */
+  fill: Pregen
 }
 
 export interface ImportMessage {
