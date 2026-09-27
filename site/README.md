@@ -109,7 +109,7 @@ DNS changes can take a while to spread; carry on with the next steps meanwhile. 
    ```
 
    Both addresses, separated by a comma, each starting with `https://`.
-2. Optional: set **Direction** to **Redirect to non-www**, so `www.playkeeper.io` sends visitors to `playkeeper.io`.
+2. Leave **Direction** at **Allow www & non-www**, or set **Redirect to non-www**: the site sends `www.playkeeper.io` to `playkeeper.io` itself (`nginx.conf`). Never choose **Redirect to www**, which would send visitors round in a loop.
 3. Select **Save**, then **Deploy**, and wait until the deployment log says it has finished.
 
 HTTPS is automatic: once DNS points at the server, the Coolify proxy fetches the certificate by itself. Until it has one, browsers may show a certificate warning for a few minutes.
@@ -121,6 +121,7 @@ On your computer:
 ```bash
 curl -sI https://playkeeper.io/install   # a 302, with location: https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh
 curl -s https://playkeeper.io/healthz    # ok
+curl -sI https://www.playkeeper.io/docs  # a 301, with location: https://playkeeper.io/docs
 ```
 
 Then open `https://playkeeper.io` in a browser. `https://playkeeper.io/t` should say that the link has no template in it, and `https://playkeeper.io/sizing` should suggest a VPS with 6 GB of memory for 5–10 friends on Vanilla or Paper. Open `https://playkeeper.io/demo/` too: on a first visit it says it's the live demo, then shows the dashboard with its sample servers and the amber "Live demo · resets every hour" line under the brand.

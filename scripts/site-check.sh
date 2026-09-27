@@ -6,7 +6,8 @@
 # script or style, and every file it uses served with the content type
 # nosniff needs), /robots.txt, /sitemap.xml and the blog's feed, the share
 # page for server templates at /t (kept out of search engines), a missing
-# page's 404, an address ending in / sent to the page without it, the sizing
+# page's 404, an address ending in / sent to the page without it and one on
+# www.playkeeper.io sent to playkeeper.io, the sizing
 # guide's table at /sizing, the live demo at /demo/ (its page, its files, the
 # players' faces and the plugins' icons, deep links answered by the app, a
 # missing file still a 404, and that it is the demo build), /community,
@@ -187,6 +188,9 @@ grep -qi '^cache-control: max-age=31536000' <<<"$headers" || fail "$asset is not
 read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/pricing/")
 [ "$code" = 301 ] || fail "/pricing/ answered $code, not 301"
 [ "$location" = "$base/pricing" ] || fail "/pricing/ redirects to '$location', not /pricing"
+read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' -H 'Host: www.playkeeper.io' "$base/pricing?from=www")
+[ "$code" = 301 ] || fail "www.playkeeper.io/pricing answered $code, not 301"
+[ "$location" = "$site/pricing?from=www" ] || fail "www.playkeeper.io/pricing redirects to '$location', not $site/pricing?from=www"
 code=$(curl -sS -o "$page" -w '%{http_code}' "$base/no-such-page")
 [ "$code" = 404 ] || fail "a missing page answered $code, not 404"
 grep -qF "This page isn't here" "$page" || fail "a missing page does not show the 404 page"
