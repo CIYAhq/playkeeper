@@ -35,7 +35,7 @@ A page that isn't built yet can already be linked: the header's menus, the foote
 
 ### Settings
 
-`internal/site/settings.go` holds the switches that change several pages at once. `Community` is where "Ask a question" links go: the repository's GitHub Discussions. Set it to `issues` if Discussions is ever off, and every link, its words and `/community` follow. Nothing on the site collects an email address.
+`internal/site/settings.go` holds the switches that change several pages at once. `Community` is where "Ask a question" links go: the repository's GitHub Discussions. Set it to `issues` if Discussions is ever off, and every link, its words and `/community` follow. Nothing on the site collects an email address. `Analytics` is the visit counter ([OpenAnalytics](https://github.com/OpenLabs-so/openanalytics), cookieless) that every page but the share page `/t` loads, and the Content-Security-Policy lets its script and collector in; the live demo loads the same script (`web/src/demo/vite.ts`). The site sends `Referrer-Policy: strict-origin-when-cross-origin` because under `no-referrer` Firefox and Safari send the counter's beacons with `Origin: null`, which its collector refuses.
 
 ## Host it with Coolify
 

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { shotsDir } from './helpers'
@@ -12,12 +12,20 @@ import { shotsDir } from './helpers'
 // PK_DEMO_URL picks another address, PK_SHOTS the screenshots' folder.
 const demoUrl = process.env.PK_DEMO_URL ?? 'http://127.0.0.1:8460/demo/'
 const origin = new URL(demoUrl).origin
+/** playkeeper.io's analytics, the one other site the demo loads a script from. */
+const analytics = 'https://analytics-c.ciya.so'
 
-/** Collects what must not happen: a request to anywhere else, a script error, a console error (where the CSP reports what it blocks). */
+/** Answers the analytics' script with nothing, so no visit is counted from a test run. */
+function quiet(target: Page | BrowserContext) {
+  return target.route(`${analytics}/**`, (route) => route.fulfill({ contentType: 'text/javascript', body: '' }))
+}
+
+/** Collects what must not happen: a request to anywhere else but the analytics, a script error, a console error (where the CSP reports what it blocks). */
 function watch(page: Page): string[] {
   const problems: string[] = []
   page.on('request', (r) => {
-    if (new URL(r.url()).origin !== origin) problems.push(`request to ${r.url()}`)
+    const to = new URL(r.url()).origin
+    if (to !== origin && to !== analytics) problems.push(`request to ${r.url()}`)
   })
   page.on('pageerror', (e) => problems.push(`page error: ${e.message}`))
   page.on('console', (m) => {
@@ -35,6 +43,7 @@ async function still(page: Page, name: string, { fullPage = false } = {}) {
 // The demo's own sheet on a first visit, and its quiet prompt after a few
 // actions, would sit over the walks below; the test after them has both.
 test.beforeEach(async ({ page }) => {
+  await quiet(page)
   await page.addInitScript(() => {
     localStorage.setItem('playkeeper-demo-welcomed', '1')
     localStorage.setItem('playkeeper-demo-prompted', '1')
@@ -48,6 +57,7 @@ test('the live demo: Home, a server’s pages, Settings and a restart, without l
 
   const main = page.getByRole('navigation', { name: 'Main' })
   await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible()
+  await expect(page.locator(`script[src="${analytics}/oa.js"]`)).toHaveCount(1)
   await expect(page.getByText('Live demo · resets every hour')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Install on your VPS' })).toHaveAttribute('href', '/#install')
   await expect(page.getByText('Like what you see?')).toBeVisible()
@@ -315,6 +325,7 @@ test('the live demo on a phone: the brand line and the install card', async ({ p
 
 test('the live demo’s first visit says it’s sample data, once, and a few actions in it asks quietly', async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  await quiet(context)
   const page = await context.newPage()
   const problems = watch(page)
   await page.goto(demoUrl)

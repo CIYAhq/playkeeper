@@ -2,6 +2,7 @@ package site
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -10,13 +11,13 @@ import (
 func nginxInclude(s Settings) []byte {
 	csp := strings.Join([]string{
 		"default-src 'none'",
-		"script-src 'self'",
+		strings.TrimSpace("script-src 'self' " + origin(s.Analytics.Script)),
 		"style-src 'self'",
 		"img-src 'self'",
 		// The header's star count, once there are enough stars to show, and
 		// this site, where audits like Lighthouse read robots.txt from the
 		// page. img-src already lets a page ask this site for things.
-		"connect-src 'self' https://api.github.com",
+		strings.TrimSpace("connect-src 'self' https://api.github.com " + origin(s.Analytics.Collector)),
 		"base-uri 'none'",
 		"form-action 'none'",
 		"frame-ancestors 'none'",
@@ -30,4 +31,14 @@ location = /community {
     return 302 %s;
 }
 `, csp, s.Community.URL))
+}
+
+// origin is an address's scheme and host, as a Content-Security-Policy source;
+// empty for an empty address.
+func origin(addr string) string {
+	u, err := url.Parse(addr)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
 }

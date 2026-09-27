@@ -30,6 +30,9 @@ base=http://127.0.0.1:$port
 site=https://playkeeper.io
 want=https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh
 community=https://github.com/CIYAhq/playkeeper/discussions
+# The one script from another site: the analytics (internal/site/settings.go),
+# on every page but /t.
+analytics='<script src="https://analytics-c.ciya.so/oa.js" async data-key="oa_pk_tyJHnpyD4m-pl_XrUbi3maHu2Iqq87Uf" data-collector="https://analytics-c.ciya.so"></script>'
 # The pages the launch needs, whether or not the sitemap lists them.
 needed=(/ /features/mods-and-modpacks /alternatives/aternos /alternatives/pterodactyl /guides/modded-minecraft-server
   /sizing /docs /docs/install /pricing /blog /blog/playkeeper-0-4-0)
@@ -41,7 +44,7 @@ fail() {
 headers_ok() { # PATH HEADERS
   local h
   for h in "content-security-policy: default-src 'none'" 'x-content-type-options: nosniff' 'x-frame-options: DENY' \
-    'referrer-policy: no-referrer' 'strict-transport-security: max-age='; do
+    'referrer-policy: strict-origin-when-cross-origin' 'strict-transport-security: max-age='; do
     grep -qiF "$h" <<<"$2" || fail "$1 does not send '$h'"
   done
   if grep -qi '^server: nginx/' <<<"$2"; then fail "$1 shows the nginx version"; fi
@@ -128,7 +131,8 @@ for p in "${listed[@]}"; do
   if sed 's|<script type="application/ld+json">[^<]*</script>||g' "$page" | grep -qE '<script>|<script [^s]|<style|[[:space:]](style|on[a-z]+)='; then
     fail "$p has inline script or style, which the Content-Security-Policy blocks"
   fi
-  if grep -qE '<script src="https?:' "$page"; then fail "$p loads a script from another site"; fi
+  grep -qF "$analytics" "$page" || fail "$p does not load the analytics"
+  if grep -vF "$analytics" "$page" | grep -qE '<script src="https?:'; then fail "$p loads a script from another site"; fi
   check_files "$p" "$page"
   checked=$((checked + 1))
 done
@@ -173,6 +177,8 @@ script=$(grep -oE 'src="/demo/assets/index-[^"]+\.js"' "$page" | head -1 | cut -
 if grep -qE '<script>|<style|[[:space:]](style|on[a-z]+)=' "$page"; then
   fail "/demo/ has inline script or style, which the Content-Security-Policy blocks"
 fi
+grep -qF '<script src="https://analytics-c.ciya.so/oa.js" async' "$page" || fail "/demo/ does not load the analytics"
+grep -qF '<meta name="referrer" content="strict-origin-when-cross-origin"' "$page" || fail "/demo/ keeps no-referrer, which makes Firefox and Safari send the analytics' beacons from origin null"
 check_files /demo/ "$page"
 # The pages load in chunks, so the demo's code can be in any chunk the entry reaches.
 "$root/scripts/demo-marker.sh" "$base" "$script" >/dev/null 2>"$work/marker.err" || fail "$(cat "$work/marker.err")"
@@ -218,9 +224,11 @@ if [ -n "$chrome" ]; then
   # open_sizing opens /sizing with the given address after # and leaves the
   # page, once its scripts have run, in $dom. Chrome only opens this site's
   # page here, so it runs without its sandbox, which containers and some CI
-  # runners refuse.
+  # runners refuse; the analytics' host doesn't resolve, so no visit is
+  # counted from here.
   open_sizing() {
     $limit "$chrome" --headless=new --no-sandbox --disable-gpu --no-first-run --no-default-browser-check \
+      --host-resolver-rules='MAP analytics-c.ciya.so ~NOTFOUND' \
       --user-data-dir="$work/chrome" --virtual-time-budget=5000 --dump-dom "$base/sizing#$1" >"$dom" 2>/dev/null ||
       fail "headless Chrome ($chrome) could not open /sizing"
   }
