@@ -27,21 +27,23 @@ import (
 // and in the staging folder, which the agent clears when it starts.
 
 const (
-	// maxFileUploads is how many uploads into servers' folders a machine
-	// keeps open.
-	maxFileUploads = 8
+	// maxFileUploads is how many unfinished uploads into servers' folders a
+	// machine keeps open, and maxServerUploads how many of them one server
+	// does, so that the admins of one server can't take them all.
+	maxFileUploads   = 8
+	maxServerUploads = 4
 	// maxUploadFiles caps the files one upload announces.
 	maxUploadFiles = 1000
 	// fileUploadIdle is how long an upload nobody touches is kept.
 	fileUploadIdle = time.Hour
 )
 
+// fileUploads holds the uploads into servers' folders. Announcing a file
+// takes the world imports' announce lock, so that uploads of both kinds see
+// the space the others left.
 type fileUploads struct {
 	mu   sync.Mutex
 	byID map[string]*fileUpload
-	// announce makes announcing files take turns, so each sees the space
-	// the others left. It is taken before mu and the uploads' locks.
-	announce sync.Mutex
 }
 
 // fileUpload is one upload into a folder. The lock order is the registry's,
@@ -66,12 +68,28 @@ type uploadFile struct {
 	size     int64
 	received int64
 	replace  bool
-	placed   bool
-	err      string
+	// placing is set while a request puts the file in place, so that
+	// another skips it rather than try too.
+	placing bool
+	placed  bool
+	err     string
 }
 
 func (up *fileUpload) stagedPath(n int) string {
 	return filepath.Join(up.dir, strconv.Itoa(n)+".bin")
+}
+
+// unfinished reports whether the upload has a file to put in place, or none
+// announced yet; a finished one doesn't count against the limits.
+func (up *fileUpload) unfinished() bool {
+	up.mu.Lock()
+	defer up.mu.Unlock()
+	for _, f := range up.files {
+		if !f.placed {
+			return true
+		}
+	}
+	return len(up.files) == 0
 }
 
 var errUploadGone = &apiError{Status: http.StatusNotFound, Code: api.CodeNotFound, Msg: "This upload isn't here anymore.", Hint: "Choose the files again."}
@@ -218,17 +236,29 @@ func (s *server) hFileUploadNew(w http.ResponseWriter, r *http.Request) {
 		s.uploads.byID = map[string]*fileUpload{}
 	}
 	stale := s.staleFileUploads(now, nil)
-	full := len(s.uploads.byID) >= maxFileUploads
+	all, mine := 0, 0
+	for _, up := range s.uploads.byID {
+		if up.unfinished() {
+			all++
+			if up.serverID == s.id {
+				mine++
+			}
+		}
+	}
 	var up *fileUpload
-	if !full {
+	if all < maxFileUploads && mine < maxServerUploads {
 		id := randomSecret(8)
 		up = &fileUpload{id: id, serverID: s.id, folder: folder, createdAt: now.UTC(), dir: filepath.Join(s.cfg.StagingDir(), "files-"+id), touched: now}
 		s.uploads.byID[id] = up
 	}
 	s.uploads.mu.Unlock()
 	removeFileUploads(stale)
-	if full {
+	switch {
+	case all >= maxFileUploads:
 		writeError(w, errConflict("Too many uploads are open on this machine.", "Wait for one to finish, or cancel it, then try again."))
+		return
+	case up == nil:
+		writeError(w, errConflict(s.name()+" has too many uploads open.", "Wait for one to finish, or cancel it, then try again."))
 		return
 	}
 	if err := os.MkdirAll(up.dir, 0o700); err != nil {
@@ -295,17 +325,15 @@ func (s *server) hFileUploadFile(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		err = s.uploadRefusal(r.Context(), dest, req.Replace)
 	}
+	n := 0
 	if err == nil {
-		err = s.announceUpload(up, name, req.Size, req.Replace)
+		n, err = s.announceUpload(up, name, req.Size, req.Replace)
 	}
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	if req.Size == 0 {
-		up.mu.Lock()
-		n := len(up.files) - 1
-		up.mu.Unlock()
 		s.placeUpload(r.Context(), up, n, actor)
 	}
 	writeJSON(w, http.StatusCreated, s.fileUploadView(up))
@@ -346,38 +374,39 @@ func (s *server) uploadRefusal(ctx context.Context, dest string, replace bool) e
 }
 
 // announceUpload adds a file to an upload if the space open uploads may use
-// has room for it.
-func (s *server) announceUpload(up *fileUpload, name string, size int64, replace bool) error {
-	s.uploads.announce.Lock()
-	defer s.uploads.announce.Unlock()
+// has room for it, and returns its index.
+func (s *server) announceUpload(up *fileUpload, name string, size int64, replace bool) (int, error) {
+	s.imports.announce.Lock()
+	defer s.imports.announce.Unlock()
 	s.uploads.mu.Lock()
 	stale := s.staleFileUploads(s.now(), up)
 	s.uploads.mu.Unlock()
 	removeFileUploads(stale)
 	if size > s.uploadAllowance() {
-		return &apiError{Status: http.StatusRequestEntityTooLarge, Code: api.CodeInsufficientSpace, Msg: quotePath(name) + " is larger than the free disk space allows.", Hint: "Free disk space and try again."}
+		return 0, &apiError{Status: http.StatusRequestEntityTooLarge, Code: api.CodeInsufficientSpace, Msg: quotePath(name) + " is larger than the free disk space allows.", Hint: "Free disk space and try again."}
 	}
 	up.mu.Lock()
 	defer up.mu.Unlock()
 	switch {
 	case up.gone:
-		return errUploadGone
+		return 0, errUploadGone
 	case len(up.files) >= maxUploadFiles:
-		return errConflict(fmt.Sprintf("One upload takes at most %d files.", maxUploadFiles), "Upload the rest in another one.")
+		return 0, errConflict(fmt.Sprintf("One upload takes at most %d files.", maxUploadFiles), "Upload the rest in another one.")
 	}
 	for _, f := range up.files {
 		if f.name == name {
-			return errConflict(quotePath(name)+" is in this upload already.", "")
+			return 0, errConflict(quotePath(name)+" is in this upload already.", "")
 		}
 	}
-	f, err := os.OpenFile(up.stagedPath(len(up.files)), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	n := len(up.files)
+	f, err := os.OpenFile(up.stagedPath(n), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	f.Close()
 	up.files = append(up.files, &uploadFile{name: name, size: size, replace: replace})
 	up.touched = s.now()
-	return nil
+	return n, nil
 }
 
 // placeUpload puts file n of an upload in place once all of it has arrived.
@@ -386,15 +415,16 @@ func (s *server) announceUpload(up *fileUpload, name string, size int64, replace
 func (s *server) placeUpload(ctx context.Context, up *fileUpload, n int, actor string) {
 	up.mu.Lock()
 	f := up.files[n]
-	name, replace, done := f.name, f.replace, f.placed || f.received < f.size
+	name, replace, skip := f.name, f.replace, f.placed || f.placing || f.received < f.size
+	f.placing = !skip
 	up.mu.Unlock()
-	if done {
+	if skip {
 		return
 	}
 	dest := join(up.folder, name)
 	err := s.place(ctx, dest, up.stagedPath(n), replace)
 	up.mu.Lock()
-	f.placed, f.err = err == nil, ""
+	f.placing, f.placed, f.err = false, err == nil, ""
 	if err != nil {
 		f.err = filesError(err, "It could not be put in place.", dest).Error()
 	}

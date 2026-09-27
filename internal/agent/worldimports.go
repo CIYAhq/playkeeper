@@ -56,10 +56,10 @@ const (
 type importRegistry struct {
 	mu   sync.Mutex
 	byID map[string]*worldImport
-	// announce makes announcing files take turns, so each announce sees the
-	// allowance the others left, and space makes imports claim disk space
-	// in turn. Both are taken before mu and the imports' locks, never while
-	// holding one.
+	// announce makes announcing files take turns, those of uploads into
+	// servers' folders too, so each announce sees the allowance the others
+	// left, and space makes imports claim disk space in turn. Both are taken
+	// before mu and the uploads' and imports' locks, never while holding one.
 	announce sync.Mutex
 	space    sync.Mutex
 }

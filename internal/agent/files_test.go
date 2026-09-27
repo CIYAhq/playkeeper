@@ -955,6 +955,65 @@ func TestADownloadStopsAtAFileThatGotShorter(t *testing.T) {
 	}
 }
 
+// One server's uploads can't take every upload the machine keeps open, and
+// one whose files are all in place doesn't count.
+func TestUploadsAreSharedOutBetweenServers(t *testing.T) {
+	e, _ := idleFilesServer(t)
+	var ups []string
+	for range maxServerUploads {
+		ups = append(ups, e.openUpload("config"))
+	}
+	code, out := e.call("POST", e.sp("/files/uploads"), map[string]any{"actor": "admin", "folder": "config"})
+	if code != 409 || !strings.Contains(out["error"].(string), "has too many uploads open") {
+		t.Fatalf("one upload too many for the server: %d %v", code, out)
+	}
+	first := e.sid
+	e.addIdleServer()
+	for range maxFileUploads - maxServerUploads {
+		e.openUpload("")
+	}
+	code, out = e.call("POST", e.sp("/files/uploads"), map[string]any{"actor": "admin", "folder": ""})
+	if code != 409 || !strings.Contains(out["error"].(string), "on this machine") {
+		t.Fatalf("one upload too many for the machine: %d %v", code, out)
+	}
+	e.sid = first
+	if code, out := e.announceFile(ups[0], "empty.yml", 0, false); code != 201 {
+		t.Fatalf("an empty file: %d %v", code, out)
+	}
+	e.openUpload("config")
+}
+
+// A file two requests put in place at once, such as an empty one announced
+// from two tabs, is placed once, and the other request leaves it be rather
+// than mark it failed.
+func TestAFileIsPutInPlaceOnce(t *testing.T) {
+	e, _ := idleFilesServer(t)
+	s := e.srv()
+	up := e.openUpload("config")
+	if code, out := e.announceFile(up, "paper-global.yml", 5, false); code != 201 {
+		t.Fatalf("announce: %d %v", code, out)
+	}
+	held, resume := holdChange(t, "config/paper-global.yml")
+	placed := make(chan api.FileUpload, 1)
+	go func() {
+		_, v, _ := e.uploadPiece(up, 0, 0, strings.NewReader("x: 1\n"))
+		placed <- v
+	}()
+	<-held
+	fu, err := s.fileUpload(up)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.placeUpload(t.Context(), fu, 0, "admin")
+	resume()
+	if v := <-placed; len(v.Files) != 1 || !v.Files[0].Placed || v.Files[0].Error != "" {
+		t.Fatalf("the file: %+v", v.Files)
+	}
+	if readFile(t, e.data("config/paper-global.yml")) != "x: 1\n" {
+		t.Fatal("not in place")
+	}
+}
+
 // Every change is in the audit log and in the server's recent activity, and
 // a run of uploads into one folder shows as one line.
 func TestFileChangesAreAuditedAndShownAsActivity(t *testing.T) {
