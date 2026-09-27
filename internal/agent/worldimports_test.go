@@ -267,9 +267,16 @@ func archiveHas(t *testing.T, path, rel string) bool {
 	}
 }
 
-type droppedConnection struct{}
+// droppedConnection drops once arrived says the bytes before it reached the
+// agent: dropped at once, a busy machine can lose them all in the socket.
+type droppedConnection struct{ arrived func() bool }
 
-func (droppedConnection) Read([]byte) (int, error) { return 0, errors.New("the connection dropped") }
+func (d droppedConnection) Read([]byte) (int, error) {
+	for deadline := time.Now().Add(10 * time.Second); !d.arrived() && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	return 0, errors.New("the connection dropped")
+}
 
 type stalledConnection struct{ until chan struct{} }
 
@@ -321,7 +328,12 @@ func TestWorldUploadCarriesOnAfterTheConnectionDrops(t *testing.T) {
 		if code, out := e.announce(imp, "Survival-2024.zip", len(archive)); code != 201 {
 			t.Fatalf("announce: %d %v", code, out)
 		}
-		if _, _, err := sendBytes(e.ts.URL, imp, 0, 0, io.MultiReader(bytes.NewReader(archive[:cut]), droppedConnection{})); err == nil {
+		part := filepath.Join(e.cfg.StagingDir(), "import-"+imp, "uploads", "0.bin")
+		arrived := func() bool {
+			fi, err := os.Stat(part)
+			return err == nil && fi.Size() >= int64(cut-8<<10)
+		}
+		if _, _, err := sendBytes(e.ts.URL, imp, 0, 0, io.MultiReader(bytes.NewReader(archive[:cut]), droppedConnection{arrived})); err == nil {
 			t.Fatal("the upload whose connection dropped should fail")
 		}
 		from := resume(t, imp)
