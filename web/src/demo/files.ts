@@ -286,7 +286,7 @@ function remove(s: DemoState, r: Request) {
   return { deleted: paths.length }
 }
 
-/** A download link was clicked: there are no bytes to send, so say so and count it as downloaded. */
+/** A download link was clicked: there are no bytes to send, so say so and count it as downloaded. A check only says it would start. */
 function download(s: DemoState, r: Request) {
   const srv = serverOf(s, r)
   const raw = r.query.getAll('path')
@@ -298,6 +298,7 @@ function download(s: DemoState, r: Request) {
   const tree = treeOf(s, srv, r.now)
   const missing = paths.find((p) => p && !tree[p])
   if (missing !== undefined) throw gone('The download could not start.', missing)
+  if (r.query.get('check') === '1') return {}
   const shown = paths.map((p) => p || '.')
   audit(s, r.now, 'files.downloaded', srv, paths.length > 1 ? base || '.' : shown[0], listed(shown))
   demoToast('fileDownload')

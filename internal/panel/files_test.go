@@ -183,8 +183,8 @@ func TestFileDownloadsAreNamedAndTypedByThePanel(t *testing.T) {
 		}
 	}
 	req := e.agentRequest(t, "GET", agentPath)
-	if strings.Join(req.query["path"], " ") != "a.jar b.jar" {
-		t.Fatalf("the agent was asked for %v", req.query["path"])
+	if strings.Join(req.query["path"], " ") != "a.jar b.jar" || req.query.Has("check") {
+		t.Fatalf("the agent was asked for %v", req.query)
 	}
 	e.agent.mu.Lock()
 	actor := e.agent.headers["GET "+agentPath].Get("X-Playkeeper-Actor")
@@ -192,6 +192,24 @@ func TestFileDownloadsAreNamedAndTypedByThePanel(t *testing.T) {
 	e.agent.mu.Unlock()
 	if actor != "admin" {
 		t.Fatalf("the agent was told %q downloaded it", actor)
+	}
+
+	// A check asks the machine whether the download would start, and
+	// answers without a file.
+	e.replyStatus("GET", agentPath, http.StatusNoContent, "")
+	if resp, body := download(t, e, cookie, base+"plugins&check=1"); resp.StatusCode != http.StatusNoContent || body != "" || resp.Header.Get("Content-Disposition") != "" {
+		t.Fatalf("a check: %d %q %v", resp.StatusCode, body, resp.Header)
+	}
+	if req := e.agentRequest(t, "GET", agentPath); req.query.Get("check") != "1" || req.query.Get("path") != "plugins" {
+		t.Fatalf("the agent was asked for %v", req.query)
+	}
+	e.replyStatus("GET", agentPath, http.StatusOK, "<script>alert(1)</script>")
+	if resp, _ := download(t, e, cookie, base+"plugins&check=1"); resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("a check answered with a file: %d", resp.StatusCode)
+	}
+	e.replyStatus("GET", agentPath, http.StatusConflict, `{"error":"\"plugins\" holds more than 100,000 files and folders, too many for one download.","code":"too_many_entries"}`)
+	if resp, body := download(t, e, cookie, base+"plugins&check=1"); resp.StatusCode != http.StatusConflict || !strings.Contains(body, "too many for one download") {
+		t.Fatalf("a refused check: %d %s", resp.StatusCode, body)
 	}
 	e.replyStatus("GET", agentPath, http.StatusConflict, `{"error":"evil.yml in the server's files is a link, which Playkeeper does not follow.","code":"link"}`)
 	if resp, body := download(t, e, cookie, base+"evil.yml"); resp.StatusCode != http.StatusConflict || !strings.Contains(body, `"code":"link"`) || resp.Header.Get("Content-Disposition") != "" {

@@ -853,6 +853,58 @@ func TestDownloadsSendAFileOrAZip(t *testing.T) {
 	}
 }
 
+// A zip keeps a record of each file in memory until it ends, so a download
+// of more files and folders than the agent can keep track of is refused
+// before it starts, and so is its check, which the dashboard asks first
+// because a link can't show why a download failed.
+func TestAZipOfTooManyFilesIsRefusedBeforeItStarts(t *testing.T) {
+	e, _ := idleFilesServer(t)
+	orig := maxZipped
+	maxZipped = 5
+	t.Cleanup(func() { maxZipped = orig })
+	for i := range 3 {
+		e.putData(fmt.Sprintf("plugins/Extra/%d.yml", i), "a: 1\n")
+	}
+	tooMany := func(what, query, says string) {
+		t.Helper()
+		for _, q := range []string{query, query + "&check=1"} {
+			code, b, h := e.fileRequest("GET", e.sp("/files/download?"+q), nil)
+			var out map[string]any
+			json.Unmarshal(b, &out)
+			if code != 409 || codeOf(out) != "too_many_entries" || !strings.HasPrefix(out["error"].(string), says+" more than 5 files and folders") || h.Get("Content-Type") == "application/zip" {
+				t.Errorf("%s (%s): %d %v", what, q, code, out)
+			}
+		}
+	}
+	tooMany("a folder", "path=plugins", `"plugins" holds`)
+	tooMany("the server's folder", "path=", "The server's folder holds")
+	tooMany("several", "path=plugins/Essentials&path=plugins/Extra", "The files you chose hold")
+	if code, b, _ := e.fileRequest("GET", e.sp("/files/download?path=plugins/Extra&check=1"), nil); code != 204 || len(b) != 0 {
+		t.Fatalf("checking a folder that fits: %d %q", code, b)
+	}
+	if code, b, _ := e.fileRequest("GET", e.sp("/files/download?path=plugins/Extra"), nil); code != 200 || zipNames(t, b) != "Extra/ Extra/0.yml Extra/1.yml Extra/2.yml" {
+		t.Fatalf("a folder that fits: %d", code)
+	}
+	if code, _, _ := e.fileRequest("GET", e.sp("/files/download?path=server.properties&check=1"), nil); code != 204 {
+		t.Fatalf("checking a file: %d", code)
+	}
+	if err := os.Symlink(filepath.Join(e.cfg.DataDir, "canary.txt"), e.data("plugins/canary.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if code, b, _ := e.fileRequest("GET", e.sp("/files/download?path=plugins/canary.txt&check=1"), nil); code != 409 || !strings.Contains(string(b), `"link"`) {
+		t.Fatalf("checking a link: %d %s", code, b)
+	}
+	list, err := e.a.listAudit(100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range list {
+		if a.Action == "files.downloaded" && a.Target != "plugins/Extra" {
+			t.Errorf("audited as downloaded: %+v", a)
+		}
+	}
+}
+
 // Every change is in the audit log and in the server's recent activity, and
 // a run of uploads into one folder shows as one line.
 func TestFileChangesAreAuditedAndShownAsActivity(t *testing.T) {

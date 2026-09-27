@@ -2082,9 +2082,11 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
       if (/^\/api\/servers\/\w+\/files\/download$/.test(path)) {
         const paths = url.searchParams.getAll('path')
         const problem = paths.length === 0 ? 'Say which files to download.' : paths.map((p) => (p === '' ? undefined : filePathProblem(p))).find(Boolean)
-        const status = problem ? 400 : 200
+        const check = url.searchParams.get('check') === '1'
+        const status = problem ? 400 : check ? 204 : 200
         calls.push({ method, path, status, faked: true, error: problem, at })
         if (problem) await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ error: problem, code: 'invalid_request' }) })
+        else if (check) await route.fulfill({ status, headers: { 'Cache-Control': 'no-store' } })
         else await route.fulfill({ status, headers: { 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="download"' }, body: 'fake file' })
         return
       }

@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react'
 import { ChevronRightIcon, CornerLeftUpIcon, DownloadIcon, FolderIcon, FolderInputIcon, PencilLineIcon, Trash2Icon } from 'lucide-react'
-import { deleteFiles, downloadHref, listFiles, moveFiles } from '@/api/files'
+import { ApiError } from '@/api/client'
+import { checkDownload, deleteFiles, downloadHref, listFiles, moveFiles } from '@/api/files'
 import type { FileEntry, Files, ServerStatus } from '@/api/types'
 import { errorText } from '@/api/workspace'
 import { ListSkeleton } from '@/components/app/skeletons'
@@ -399,8 +400,36 @@ export interface RowAction {
   run?: () => void
   href?: string
   download?: string
+  /** For a link: runs before it's followed, and may follow it later itself. */
+  onLink?: (e: MouseEvent<HTMLAnchorElement>) => void
   danger?: boolean
   disabledReason?: string
+}
+
+/**
+ * A zip's download link checks with the machine before it's followed, since a
+ * link can't show why a download failed, such as a folder of too many files;
+ * the download starts once the machine says it would. A click something else
+ * answered already, as the live demo does, is left to it.
+ */
+export function checkedDownload(serverId: string, paths: string[]) {
+  return (e: MouseEvent<HTMLAnchorElement>) => {
+    if (e.defaultPrevented) return
+    e.preventDefault()
+    const { href } = e.currentTarget
+    const name = e.currentTarget.getAttribute('download') ?? ''
+    checkDownload(serverId, paths).then(
+      () => {
+        const a = document.createElement('a')
+        a.href = href
+        a.download = name
+        document.body.append(a)
+        a.click()
+        a.remove()
+      },
+      (err: unknown) => toastManager.add({ title: errorText(err), description: err instanceof ApiError ? err.hint : undefined, type: 'error' }),
+    )
+  }
 }
 
 /** The phone's actions for a file or folder, as a bottom sheet. */
@@ -417,7 +446,15 @@ export function ActionSheet({ title, actions, open, onOpenChange }: { title: str
           {actions.map((a) => (
             <li key={a.key} className="border-b border-border last:border-b-0">
               {a.href ? (
-                <a href={a.href} download={a.download} className={row} onClick={() => onOpenChange(false)}>
+                <a
+                  href={a.href}
+                  download={a.download}
+                  className={row}
+                  onClick={(e) => {
+                    a.onLink?.(e)
+                    onOpenChange(false)
+                  }}
+                >
                   <span className="text-muted-foreground">{a.icon}</span>
                   {a.label}
                 </a>

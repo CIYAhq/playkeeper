@@ -21,7 +21,7 @@ import { busyReason } from '@/lib/phase'
 import { linkProps, navigate, type Route } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
-import { ActionSheet, actionIcons, DeleteDialog, folderName, InfoDialog, MoveDialog, NameDialog, ReplaceDialog, type RowAction } from './dialogs'
+import { ActionSheet, actionIcons, checkedDownload, DeleteDialog, folderName, InfoDialog, MoveDialog, NameDialog, ReplaceDialog, type RowAction } from './dialogs'
 import { EntryIcon } from './entry'
 import { UploadPanel } from './uploads'
 import type { FileUploads } from './uploads-state'
@@ -98,7 +98,8 @@ export function FolderView({ server, path, uploads, bump, changed, onChanged }: 
     const reason = changeReason(e)
     const out: RowAction[] = []
     if (e.type === 'folder' || (e.type === 'file' && opensAsText(e))) out.push({ key: 'open', label: t('files.open'), icon: <FolderOpenIcon />, run: () => open(e) })
-    if (e.type === 'file' || e.type === 'folder') out.push({ key: 'download', label: t('files.download'), icon: actionIcons.download, href: downloadHref(server.id, [p]), download: e.type === 'file' ? e.name : '' })
+    if (e.type === 'file') out.push({ key: 'download', label: t('files.download'), icon: actionIcons.download, href: downloadHref(server.id, [p]), download: e.name })
+    if (e.type === 'folder') out.push({ key: 'download', label: t('files.download'), icon: actionIcons.download, href: downloadHref(server.id, [p]), download: '', onLink: checkedDownload(server.id, [p]) })
     if (canEdit) {
       out.push({ key: 'rename', label: t('files.rename'), icon: actionIcons.rename, run: () => setDialog({ kind: 'rename', entry: e }), disabledReason: reason })
       out.push({ key: 'move', label: t('files.move'), icon: actionIcons.move, run: () => setDialog({ kind: 'move', paths: [p] }), disabledReason: reason })
@@ -381,7 +382,7 @@ export function FolderView({ server, path, uploads, bump, changed, onChanged }: 
           {selecting ? (
             <div className="flex items-center gap-2" role="group" aria-label={t('files.selected', { count: selected.size })}>
               <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{t('files.selected', { count: selected.size })}</span>
-              <Button variant="outline" size="lg" className="h-11 bg-white" disabled={selected.size === 0} title={selected.size === 0 ? t('files.reason.selectInFolder') : undefined} render={selected.size ? <a href={downloadHref(server.id, selectedPaths)} download /> : undefined}>
+              <Button variant="outline" size="lg" className="h-11 bg-white" disabled={selected.size === 0} title={selected.size === 0 ? t('files.reason.selectInFolder') : undefined} render={selected.size ? <a href={downloadHref(server.id, selectedPaths)} download onClick={checkedDownload(server.id, selectedPaths)} /> : undefined}>
                 {actionIcons.download}
                 <span className="sr-only">{t('files.download')}</span>
               </Button>
@@ -433,7 +434,7 @@ export function FolderView({ server, path, uploads, bump, changed, onChanged }: 
           {selected.size > 0 ? (
             <>
               <span className="text-[13px] font-medium tabular-nums">{t('files.selected', { count: selected.size })}</span>
-              <Button variant="outline" size="sm" render={<a href={downloadHref(server.id, selectedPaths)} download />}>
+              <Button variant="outline" size="sm" render={<a href={downloadHref(server.id, selectedPaths)} download onClick={checkedDownload(server.id, selectedPaths)} />}>
                 {actionIcons.download}
                 {t('files.download')}
               </Button>
@@ -622,7 +623,7 @@ function RowMenu({ name, actions }: { name: string; actions: RowAction[] }) {
           <span key={a.key} className="contents">
             {i === last && i > 0 && <MenuSeparator />}
             {a.href ? (
-              <MenuLinkItem href={a.href} download={a.download}>
+              <MenuLinkItem href={a.href} download={a.download} onClick={a.onLink}>
                 {a.icon}
                 {a.label}
               </MenuLinkItem>

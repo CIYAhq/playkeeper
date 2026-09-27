@@ -40,8 +40,6 @@ const (
 	maxListed = 10_000
 	// maxEditBytes is the largest file the editor opens and saves.
 	maxEditBytes = 2 << 20
-	// maxWalked caps the entries of each folder a download packs.
-	maxWalked = 200_000
 	// maxPathBytes and maxNameBytes bound a path and each name in it.
 	maxPathBytes = 4096
 	maxNameBytes = 255
@@ -50,6 +48,10 @@ const (
 )
 
 var (
+	// maxZipped caps the files and folders one download packs: the zip
+	// keeps a record of each in memory until it ends, about 260 bytes, and
+	// the agent has a few hundred megabytes for everything it does.
+	maxZipped = 100_000
 	// deleteAnswerAfter is how long a delete runs before its answer says
 	// it carries on: a folder of millions of small files, such as a map's
 	// tiles, takes minutes, longer than the panel waits for an answer.
@@ -733,13 +735,16 @@ func abortDownload() { panic(http.ErrAbortHandler) }
 // hFileDownload sends a file as it is, or folders and several files as one
 // zip: each ?path= names one, and several must share a folder. The zip holds
 // the regular files and folders in them; links and special files stay out.
-// While the game runs, a file it writes can change as it is read.
+// While the game runs, a file it writes can change as it is read. With
+// ?check=1 it answers 204 for a download that would start, or the error it
+// would give, which a link in the browser can't show.
 func (s *server) hFileDownload(w http.ResponseWriter, r *http.Request) {
 	actor := actorFromHeader(r)
 	if actor == "unknown" {
 		writeError(w, errInvalid("X-Playkeeper-Actor header is required"))
 		return
 	}
+	check := r.URL.Query().Get("check") == "1"
 	raw := r.URL.Query()["path"]
 	if len(raw) == 0 || len(raw) > maxBatch {
 		writeError(w, errInvalid("Download between 1 and %d files at once.", maxBatch))
@@ -774,6 +779,10 @@ func (s *server) hFileDownload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !fi.IsDir() {
+			if check {
+				s.checkFile(w, d, p)
+				return
+			}
 			s.sendFile(w, d, p, actor)
 			return
 		}
@@ -781,6 +790,10 @@ func (s *server) hFileDownload(w http.ResponseWriter, r *http.Request) {
 	// Entries are named from the folder the paths are in, so a folder's zip
 	// unpacks into a folder of its name.
 	base := path.Dir(paths[0])
+	target := paths[0]
+	if len(paths) > 1 {
+		target = base
+	}
 	for _, p := range paths {
 		if p == "." {
 			continue
@@ -790,13 +803,30 @@ func (s *server) hFileDownload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	total := 0
+	for _, p := range paths {
+		n, err := d.Count(r.Context(), p, maxZipped-total)
+		if err != nil {
+			writeError(w, filesError(err, couldNot, p))
+			return
+		}
+		if total += n; total > maxZipped {
+			writeError(w, tooManyToZip(target, len(paths) > 1))
+			return
+		}
+	}
+	if check {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	zw := zip.NewWriter(w)
 	zw.RegisterCompressor(zip.Deflate, func(out io.Writer) (io.WriteCloser, error) { return flate.NewWriter(out, flate.BestSpeed) })
+	zipped := 0
 	for _, p := range paths {
-		err := d.Walk(r.Context(), p, maxWalked, func(fp string, e gamefiles.Entry) error {
+		err := d.Walk(r.Context(), p, maxZipped, func(fp string, e gamefiles.Entry) error {
 			rel := fp
 			switch {
 			case fp == ".":
@@ -804,16 +834,18 @@ func (s *server) hFileDownload(w http.ResponseWriter, r *http.Request) {
 			case base != ".":
 				rel = strings.TrimPrefix(fp, base+"/")
 			}
-			switch {
-			case rel == "":
+			if rel == "" || !e.Mode.IsDir() && !e.Mode.IsRegular() {
 				return nil
-			case e.Mode.IsDir():
+			}
+			// Files the game made since the count can't take the zip past it.
+			if zipped++; zipped > maxZipped {
+				return errors.New("more files than the zip was counted for")
+			}
+			if e.Mode.IsDir() {
 				_, err := zw.CreateHeader(&zip.FileHeader{Name: rel + "/", Modified: e.ModTime, Method: zip.Store})
 				return err
-			case e.Mode.IsRegular():
-				return zipFile(zw, d, fp, rel)
 			}
-			return nil
+			return zipFile(zw, d, fp, rel)
 		})
 		if err != nil {
 			s.log.Warn("a download of the server's files stopped", "server", s.id, "path", p, "err", err)
@@ -823,11 +855,42 @@ func (s *server) hFileDownload(w http.ResponseWriter, r *http.Request) {
 	if err := zw.Close(); err != nil {
 		abortDownload()
 	}
-	target := paths[0]
-	if len(paths) > 1 {
-		target = base
-	}
 	s.audit(actor, "files.downloaded", target, "succeeded", listed(paths))
+}
+
+// tooManyToZip refuses a download of p, or of several files in it, that
+// would pack more than maxZipped files and folders.
+func tooManyToZip(p string, several bool) error {
+	what := quotePath(p) + " holds"
+	switch {
+	case several:
+		what = "The files you chose hold"
+	case p == ".":
+		what = "The server's folder holds"
+	}
+	return &apiError{Status: http.StatusConflict, Code: string(gamefiles.KindTooMany), Params: map[string]any{"path": shown(p), "limit": strconv.Itoa(maxZipped)},
+		Msg:  what + " more than " + thousands(maxZipped) + " files and folders, too many for one download.",
+		Hint: "Download a smaller folder, or make a backup to keep a copy of the whole server."}
+}
+
+// thousands writes n with a comma between each three digits.
+func thousands(n int) string {
+	s := strconv.Itoa(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
+}
+
+// checkFile answers a check of a file's download: 204 if it would start.
+func (s *server) checkFile(w http.ResponseWriter, d *gamefiles.Dir, p string) {
+	f, _, err := d.OpenFile(p)
+	if err != nil {
+		writeError(w, filesError(err, "The download could not start.", p))
+		return
+	}
+	f.Close()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // sendFile sends one regular file as it was when opened.

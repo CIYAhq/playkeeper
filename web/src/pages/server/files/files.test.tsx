@@ -322,6 +322,44 @@ describe('the Files tab', () => {
     expect(items[1]?.getAttribute('href')).toBe(`${api}/download?path=bukkit.yml`)
   })
 
+  it('checks a folder’s download first, and says why one won’t start instead of starting it', async () => {
+    const check = `${api}/download?path=plugins&check=1`
+    let refusal: client.ApiError | undefined = new client.ApiError(409, {
+      error: '"plugins" holds more than 100,000 files and folders, too many for one download.',
+      code: 'too_many_entries',
+      hint: 'Download a smaller folder, or make a backup to keep a copy of the whole server.',
+    })
+    vi.mocked(client.get).mockImplementation(((path: string) => {
+      if (path === list('')) return Promise.resolve(top(false))
+      if (path === check) return refusal ? Promise.reject(refusal) : Promise.resolve(undefined)
+      return new Promise(() => {})
+    }) as typeof client.get)
+    const toasts = vi.spyOn(toastManager, 'add')
+    const original = HTMLAnchorElement.prototype.click
+    const followed: string[] = []
+    const anchors = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      if (this.parentElement === document.body) followed.push(`${this.getAttribute('href')} [${this.download}]`)
+      else original.call(this)
+    })
+    try {
+      await render({ s: server({ phase: 'stopped' }) })
+      const download = async () => {
+        const items = await openMenu('plugins')
+        await click(items.find((el) => el.textContent === 'Download') as HTMLElement)
+      }
+      await download()
+      expect(vi.mocked(client.get)).toHaveBeenCalledWith(check)
+      expect(toasts).toHaveBeenCalledWith({ title: '"plugins" holds more than 100,000 files and folders, too many for one download.', description: 'Download a smaller folder, or make a backup to keep a copy of the whole server.', type: 'error' })
+      expect(followed).toEqual([])
+      refusal = undefined
+      await download()
+      expect(followed).toEqual([`${new URL(`${api}/download?path=plugins`, window.location.href).href} []`])
+    } finally {
+      anchors.mockRestore()
+      toasts.mockRestore()
+    }
+  })
+
   it('says a delete of very many files carries on, rather than that it’s done', async () => {
     answer({ [list('')]: top(false) })
     vi.mocked(client.post).mockImplementation(((path: string) => Promise.resolve(path.endsWith('/files/delete') ? { deleted: 0, continuing: true } : {})) as typeof client.post)

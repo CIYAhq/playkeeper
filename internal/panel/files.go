@@ -117,7 +117,9 @@ var reUploadFile = regexp.MustCompile(`^[0-9]{1,4}$`)
 
 // hFileDownload streams a file, or a zip of folders and files, as a download
 // the panel describes itself: the machine chooses the bytes, but not their
-// type or name, so nothing it sends can render on the panel's origin.
+// type or name, so nothing it sends can render on the panel's origin. With
+// ?check=1 the machine only says whether the download would start: 204, or
+// the error, which the dashboard shows before it follows the link.
 func (s *Server) hFileDownload(w http.ResponseWriter, r *http.Request, sess *session) {
 	paths := r.URL.Query()["path"]
 	if len(paths) == 0 || len(paths) > maxDownloadPaths {
@@ -128,19 +130,32 @@ func (s *Server) hFileDownload(w http.ResponseWriter, r *http.Request, sess *ses
 	if !ok {
 		return
 	}
-	resp, err := m.agent.Raw(r.Context(), "GET", agentPath("/v1/servers/{id}/files/download", r), url.Values{"path": paths}, nil,
+	q := url.Values{"path": paths}
+	check := r.URL.Query().Get("check") == "1"
+	if check {
+		q.Set("check", "1")
+	}
+	resp, err := m.agent.Raw(r.Context(), "GET", agentPath("/v1/servers/{id}/files/download", r), q, nil,
 		map[string]string{"X-Playkeeper-Actor": sess.User.Username}, true)
 	if err != nil {
 		s.agentFailure(w, err)
 		return
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
+	want := http.StatusOK
+	if check {
+		want = http.StatusNoContent
+	}
+	switch {
+	case resp.StatusCode >= 400:
 		s.agentFailure(w, agentclient.DecodeError(resp))
 		return
-	}
-	if resp.StatusCode != http.StatusOK {
+	case resp.StatusCode != want:
 		s.agentFailure(w, agentclient.ErrBadAnswer)
+		return
+	case check:
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	zipped := resp.Header.Get("Content-Type") == "application/zip"

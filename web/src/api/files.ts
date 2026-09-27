@@ -50,5 +50,10 @@ export function downloadHref(serverId: string, paths: string[]): string {
   return filesApi(serverId, `/download?${paths.map((p) => `path=${encodeURIComponent(p)}`).join('&')}`)
 }
 
+/** Asks whether a download would start, or why not, such as a zip of too many files: a link can't show why it failed. */
+export function checkDownload(serverId: string, paths: string[]): Promise<unknown> {
+  return get(`${downloadHref(serverId, paths)}&check=1`)
+}
+
 /** Where the server's uploads open. */
 export const uploadsApi = (serverId: string) => filesApi(serverId, '/uploads')
