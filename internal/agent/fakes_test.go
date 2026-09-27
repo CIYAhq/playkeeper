@@ -43,7 +43,7 @@ type fakeDocker struct {
 	holdImages   bool          // image inspects wait until the caller gives up
 	down         string        // requests whose path starts with it fail, as when Docker stops answering
 	versionDown  bool          // version requests fail too, as when the daemon itself stops answering
-	stopDelay    time.Duration // before a container stop takes effect
+	beforeStop   func()        // when set, runs before a container stop takes effect
 	setupHangs   bool          // setup containers end their log streams but keep running
 	// bootFailsOn names a Minecraft version whose server rewrites the world's
 	// level.dat, as an upgrade would, then exits while starting.
@@ -428,9 +428,11 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 		w.WriteHeader(204)
 	case r.Method == "POST" && action == "stop":
 		fd.mu.Lock()
-		delay := fd.stopDelay
+		before := fd.beforeStop
 		fd.mu.Unlock()
-		time.Sleep(delay)
+		if before != nil {
+			before()
+		}
 		fd.mu.Lock()
 		wasRunning, stopped := c.running, fd.stopped
 		if c.running {

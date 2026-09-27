@@ -726,12 +726,25 @@ func TestDownloadsArePinnedAndTelemetryIsOff(t *testing.T) {
 func TestConcurrentOperationsAreSerialized(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	// Each operation outlasts the requests racing it, even on a loaded
-	// machine: a stop that finished first would turn the restart into "not
-	// running" instead of "busy".
+	// The operation that wins holds the server until every request racing it
+	// has its answer: a stop that finished first would turn the restart into
+	// "not running" instead of "busy". A stop or restart waits in Docker's
+	// stop, a backup for the reply to its save-off.
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	let := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(let)
 	e.fd.mu.Lock()
-	e.fd.bootDelay, e.fd.stopDelay = 300*time.Millisecond, 300*time.Millisecond
+	e.fd.beforeStop = func() { <-release }
 	e.fd.mu.Unlock()
+	e.rcon.mu.Lock()
+	e.rcon.answer = func(cmd string) (string, bool) {
+		if cmd == "save-off" {
+			<-release
+		}
+		return "", false
+	}
+	e.rcon.mu.Unlock()
 	type res struct {
 		path string
 		code int
@@ -752,6 +765,7 @@ func TestConcurrentOperationsAreSerialized(t *testing.T) {
 	}
 	close(start)
 	wg.Wait()
+	let()
 	close(results)
 	var winner *res
 	busy := 0
