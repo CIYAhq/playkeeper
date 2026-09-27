@@ -6,6 +6,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 - Free addresses now end in `.playkeeper.me`, a domain used for nothing else. Updating moves yours by itself: `siya.playkeeper.io` becomes `siya.playkeeper.me`, with a new certificate a few minutes later. The old address keeps working for two months, and links you shared with it open without a warning until its certificate runs out. Machines connected to your dashboard at its free address follow it.
 - Playkeeper installs on Ubuntu 20.04, 22.04, 24.04 and 26.04 LTS and on Debian 12 and 13, not only on Ubuntu 24.04. A newer release of either only warns instead of stopping the install.
+- Playkeeper installs on AlmaLinux and Rocky Linux 9 and 10, Oracle Linux 9, Amazon Linux 2023, and RHEL and CentOS Stream 9 and 10. Docker comes from Docker's repository (or Amazon Linux's), firewalld gets the ports opened, and uninstall leaves the host as it was, Podman included.
 - Playkeeper runs on 64-bit ARM servers, such as Oracle Cloud's Ampere A1, Hetzner's and AWS's ARM machines and a Raspberry Pi 4 or 5 with a 64-bit OS: the one-line installer picks the build for the server's CPU.
 - On a phone, the Map tab's header stays at the top as the page scrolls, like the other tabs' headers.
 
