@@ -2004,6 +2004,7 @@ export const en = {
   'addons.install': 'Install {name}',
   'addons.installed': 'Installed',
   'addons.nothingMatches': 'Nothing matches “{q}”',
+  'addons.packHint': 'Modpacks are chosen when you <link>create a server</link>.',
   'addons.clearSearch': 'Clear the search',
   'addons.unreachable': 'Can’t reach the plugin library',
   'addons.unreachableMods': 'Can’t reach the mod library',

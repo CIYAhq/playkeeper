@@ -1970,6 +1970,16 @@ describe('Modpacks', () => {
     expect(page()).not.toContain('0 mods')
   })
 
+  it('opens on the modpack list when a link asks for it', async () => {
+    window.history.replaceState(null, '', '/servers/new#modpack')
+    answer({ '/modpacks?': results })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    expect([...document.querySelectorAll('[aria-label="Start from"] button')].find((b) => b.hasAttribute('data-pressed'))?.textContent).toBe('A modpack')
+    expect(searchField()).toBe('Search Modrinth modpacks')
+    window.history.replaceState(null, '', '/servers/new')
+  })
+
   it('keeps one source’s packs while the other fails, and says why', async () => {
     answer({ 'source=curseforge': new client.ApiError(409, { error: 'CurseForge refused Playkeeper’s API key.', code: 'curseforge_key_refused' }), 'source=modrinth': keyed })
     await render(<ModpackPicker machineId="c2345abcdg" onChange={() => {}} onUse={() => {}} phone={false} />)

@@ -729,6 +729,39 @@ describe('Plugins tab', () => {
     expect(vi.mocked(client.get).mock.calls.some(([path]) => path === '/api/servers/abcdefghjk/addons/search')).toBe(true)
   })
 
+  // A modpack is never an add-on: it's chosen when the server is made, on the server's own machine.
+  it.each([
+    { name: 'a Paper server’s plugins', s: server(), tab: 'plugins' as const, target, href: '/servers/new#modpack' },
+    { name: 'the mods of a NeoForge server on a joined machine', s: server({ type: 'neoforge', machineId: 'h2345abcde' }), tab: 'mods' as const, target: { ...target, kind: 'mod' as const, folder: 'mods' }, href: '/servers/new?machine=h2345abcde#modpack' },
+  ])('sends a search for a modpack in $name to New server', async ({ s, tab, target, href }) => {
+    answer([
+      ['/addons/checks', checks],
+      ['/addons/search?q=ATM10', { cards: [], more: false, unanswered: [] }],
+      ['/addons/search', { cards: [card('BlueMap')], more: false, unanswered: [] }],
+      ['/addons', { ...installed, target }],
+    ])
+    const search = async (ws?: Workspace) => {
+      await render(s, tab, 'browse', ws)
+      const input = document.querySelector<HTMLInputElement>('input[type="search"]')
+      if (!input) throw new Error('no search field')
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'ATM10')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        await new Promise((r) => setTimeout(r, 350))
+      })
+      await act(async () => {})
+      return document.body.textContent ?? ''
+    }
+    const text = await search()
+    expect(text).toContain('Nothing matches “ATM10”')
+    expect(text).toContain('Modpacks are chosen when you create a server.')
+    expect([...document.querySelectorAll('a')].find((a) => a.textContent === 'create a server')?.getAttribute('href')).toBe(href)
+    // Someone who can't create servers isn't sent there.
+    const viewer = await search(workspace({ me: { ...me, access: { ...me.access, can: everything.filter((a) => a !== 'servers.create') } } }))
+    expect(viewer).toContain('Nothing matches “ATM10”')
+    expect(viewer).not.toContain('Modpacks are chosen')
+  })
+
   const orebfuscator: AddonDetails = {
     card: card('Orebfuscator', { source: 'hangar', projectId: 'Orebfuscator' }),
     latest: version('5.6.2'),
