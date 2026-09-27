@@ -292,9 +292,13 @@ webcontrol "a search the add-on library finds nothing for says where modpacks ar
   web/src/pages/server/plugins/plugins.test.tsx 'sends a search for a modpack'
 webcontrol "a page whose code doesn't load keeps the dashboard on screen" web/src/App.tsx \
   '      <LoadBoundary resetKey={JSON.stringify(route)}>
-        <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>
+        <Suspense fallback={<PageSkeleton />}>
+          <Appear>{page(route)}</Appear>
+        </Suspense>
       </LoadBoundary>' \
-  '      <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>' \
+  '      <Suspense fallback={<PageSkeleton />}>
+        <Appear>{page(route)}</Appear>
+      </Suspense>' \
   web/src/components/app/load-boundary.test.tsx 'page whose code never loads'
 webcontrol "a server tab whose code doesn't load keeps the server page on screen" web/src/pages/server/index.tsx \
   '        <LoadBoundary>
