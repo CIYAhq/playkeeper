@@ -374,3 +374,19 @@ describe('The map’s area', () => {
     }
   })
 })
+
+describe('The phone’s Map header', () => {
+  it('stays at the top like the other phone headers, with the way back, the title and the map’s settings', async () => {
+    const phone = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+    try {
+      await renderMap(mapInfo({}))
+      const header = document.querySelector('header[data-sticky-header]')
+      expect(header?.className.split(' ')).toEqual(expect.arrayContaining(['sticky', 'top-0']))
+      expect(header?.querySelector('a')?.textContent).toBe(t('nav.more'))
+      expect(header?.querySelector('h1')?.textContent).toBe(t('tab.map'))
+      expect(header?.querySelector(`button[aria-label="${t('map.settings')}"]`)).not.toBeNull()
+    } finally {
+      phone.mockRestore()
+    }
+  })
+})
