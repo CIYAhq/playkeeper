@@ -208,6 +208,12 @@ type neoforgeVersionFile struct {
 
 const neoforgeLibrarySource = "the library list inside the verified NeoForge installer"
 
+// neoforgeLibraryExts are the files a NeoForge installer lists as libraries:
+// jars, and NeoForm's data, which the processors read to build the patched
+// Minecraft jar: a .zip for Minecraft 1.21 to 1.21.8 and mappings in a
+// .tsrg.lzma for 1.21.10 and 1.21.11. Each is checked like the jars.
+var neoforgeLibraryExts = []string{".jar", ".zip", ".tsrg.lzma"}
+
 // neoforgeInstallerChecks reads the verified installer: every library it
 // installs under into with its SHA-1 and size, the launch arguments it
 // extracts, and the files its processors build, which have no published
@@ -240,7 +246,7 @@ func neoforgeInstallerChecks(root *os.Root, installer, into string, pin Pin) ([]
 	for _, l := range append(prof.Libraries, ver.Libraries...) {
 		a := l.Downloads.Artifact
 		h, ok := parseHash(SHA1, a.SHA1)
-		if !ok || a.Size <= 0 || !cleanRel(a.Path, ".jar") {
+		if !ok || a.Size <= 0 || !cleanRel(a.Path, neoforgeLibraryExts...) {
 			return nil, nil, jarError(installer, fmt.Sprintf("its library %q has no valid path, SHA-1 or size", l.Name), nil)
 		}
 		checks = append(checks, Check{Path: into + "/" + a.Path, Hash: h, Size: a.Size, Origin: Derived, Source: neoforgeLibrarySource})
