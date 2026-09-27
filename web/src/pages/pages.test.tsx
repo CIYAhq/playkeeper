@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, type ReactNode } from 'react'
+import { act, useState, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
@@ -3581,5 +3581,59 @@ describe('A restore that didn’t finish', () => {
     const line = [...document.querySelectorAll('li > span')].find((el) => el.textContent === 'Survival restored after Playkeeper restarted')
     // happy-dom has no layout. A line with no width of its own can't push its card past a phone's screen.
     expect(line?.className.split(' ')).toContain('w-0')
+  })
+})
+
+describe('Sticky headers and switching pages', () => {
+  const onPhone = () => vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+
+  it('keeps a server’s name, status, actions and tabs in the header that stays at the top on a computer', async () => {
+    await render(<ServerPage slug="survival" tab="overview" />)
+    const header = document.querySelector('header[data-sticky-header]')
+    expect(header?.className.split(' ')).toEqual(expect.arrayContaining(['sticky', 'top-2']))
+    expect(header?.querySelector('h1')?.textContent).toBe('Survival')
+    expect(header?.textContent).toContain('Copy join address')
+    expect(header?.querySelector('nav[aria-label="Server pages"]')?.textContent).toContain('Settings')
+    expect(document.querySelectorAll('header[data-sticky-header]')).toHaveLength(1)
+  })
+
+  it('keeps a compact bar with the name and search at the top on a phone, and lets the status scroll away', async () => {
+    const phone = onPhone()
+    await render(<ServerPage slug="survival" tab="overview" />)
+    const header = document.querySelector('header[data-sticky-header]')
+    expect(header?.className.split(' ')).toEqual(expect.arrayContaining(['sticky', 'top-0']))
+    expect(header?.querySelector('h1 button')?.textContent).toBe('Survival')
+    expect(header?.querySelector('button[aria-label="Search or jump to…"]')).not.toBeNull()
+    expect(header?.textContent).not.toContain('Online')
+    expect(page()).toContain('Online')
+    phone.mockRestore()
+  })
+
+  it('keeps the Settings header, and its list of pages beside the content, at the top on a computer', async () => {
+    await render(<GlobalSettingsPage page={{ name: 'team' }} />)
+    expect(document.querySelector('header[data-sticky-header] h1')?.textContent).toBe('Settings')
+    expect(document.querySelector('nav[aria-label="Settings sections"]')?.className).toMatch(/\bsticky\b/)
+  })
+
+  it('shows a new page or tab at once, with what fades in on it already in place', async () => {
+    const fade = { animationName: 'fade', finish: vi.fn(), effect: { getComputedTiming: () => ({ endTime: 200 }) } }
+    ;(document as { getAnimations?: () => unknown[] }).getAnimations = () => [fade]
+    function Tabs() {
+      const [tab, setTab] = useState<'overview' | 'console'>('overview')
+      return (
+        <AppShell route={{ name: 'server', slug: 'survival', tab }}>
+          <button type="button" onClick={() => setTab('console')}>
+            {tab}
+          </button>
+        </AppShell>
+      )
+    }
+    await render(<Tabs />)
+    fade.finish.mockClear()
+    await click('overview')
+    expect(page()).toContain('console')
+    expect(fade.finish).toHaveBeenCalled()
+    expect(document.querySelector('main [class*="animate-"]')).toBeNull()
+    delete (document as { getAnimations?: () => unknown[] }).getAnimations
   })
 })
