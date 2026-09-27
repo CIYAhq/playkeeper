@@ -81,7 +81,7 @@ git add internal/update/release.pub && git commit -m "Add the release signing ke
 | `internal/invites`, `internal/mojang` | invite links for friends and team members; Minecraft account lookups by name |
 | `internal/discord` | Discord alerts and the live status message |
 | `internal/certs` | the machine's certificates: Let's Encrypt (ACME) with HTTP-01 and DNS-01 checks, DNS checks of an own domain, join addresses and their records, renewal |
-| `internal/names`, `cmd/playkeeper-names`, `services/names` | the client for free `playkeeper.io` names and its signed requests; the names service, its image and how to run it (not part of the release) |
+| `internal/names`, `cmd/playkeeper-names`, `services/names` | the client for free `playkeeper.me` names and its signed requests; the names service, its image and how to run it (not part of the release) |
 | `internal/twofactor`, `internal/totp`, `internal/qrcode` | two-factor sign-in rules and recovery codes, authenticator codes, the setup QR code |
 | `internal/machinelink` | connecting other machines to one dashboard: join codes, the link each machine dials, and requests through it |
 | `internal/mcp`, `internal/mcptools` | the MCP server (JSON-RPC over HTTP and stdio) and Playkeeper's tools for AI agents |
