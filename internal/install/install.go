@@ -608,7 +608,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 					return err
 				}
 			}
-			err = src.pm.install(sys, in.out, src.packages())
+			err = src.pm.install(sys, in.out, src.packages(), src.optional)
 			after, perr := src.pm.installed(sys)
 			if perr == nil {
 				for p := range after {

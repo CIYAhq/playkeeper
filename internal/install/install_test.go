@@ -45,9 +45,12 @@ type fakeHost struct {
 	ufwActive bool
 	ufwRules  map[string]bool
 	// nftChains is what `nft list chains` prints; empty means nftables
-	// isn't installed. aptPolicy is what `apt-cache policy PKG` prints.
+	// isn't installed. aptPolicy is what `apt-cache policy PKG` prints, and
+	// with aptListsEmpty only after apt-get update, as on a new server.
 	nftChains     string
 	aptPolicy     map[string]string
+	aptListsEmpty bool
+	aptUpdated    bool
 	clock         time.Time
 	lockPolls     int  // the package lock is reported held this many more times
 	lockForever   bool // the package lock is never released
@@ -164,7 +167,12 @@ func (h *fakeHost) system(t *testing.T) System {
 				}
 				return h.nftChains, nil
 			case name == "apt-cache" && len(args) == 2 && args[0] == "policy":
+				if h.aptListsEmpty && !h.aptUpdated {
+					return args[1] + ":\n  Installed: (none)\n  Candidate: (none)\n", nil
+				}
 				return h.aptPolicy[args[1]], nil
+			case name == "apt-get" && len(apt) > 0 && apt[0] == "update":
+				h.aptUpdated = true
 			case name == "iptables":
 				return h.fw4.run(args)
 			case name == "ip6tables":

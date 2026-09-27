@@ -81,17 +81,11 @@ type family struct {
 var (
 	debianFamily = &family{pm: apt{}, docker: func(o platform.OS) *dockerSource {
 		archive := archiveName(o)
-		return &dockerSource{pm: apt{}, pkgs: []string{"docker.io"},
+		// The docker command, where the distribution packages it on its own,
+		// as Debian 13 does with docker-cli, which docker.io only recommends.
+		return &dockerSource{pm: apt{}, pkgs: []string{"docker.io"}, optional: []string{"docker-cli"},
 			what: archive + " docker.io package",
-			plan: "docker.io and the docker command from " + archive + " archive (with the packages they depend on)",
-			more: func(sys System, s *dockerSource) {
-				// The docker command, where the distribution packages it on
-				// its own, as Debian 13 does with docker-cli, which docker.io
-				// only recommends.
-				if aptCandidate(sys, "docker-cli") {
-					s.extra = append(s.extra, "docker-cli")
-				}
-			}}
+			plan: "docker.io and the docker command from " + archive + " archive (with the packages they depend on)"}
 	}}
 	rhelFamily = &family{pm: dnf{}, docker: rhelDocker}
 )
@@ -125,6 +119,8 @@ type dockerSource struct {
 	// what says what the install installs, for preflight, and plan says it
 	// for the plan.
 	what, plan string
+	// optional are installed too where the package manager has them.
+	optional []string
 	// repo, when set, is added before the install and removed with Docker.
 	repo *rpmRepo
 	// blockers are installed packages that stop the install, with why.

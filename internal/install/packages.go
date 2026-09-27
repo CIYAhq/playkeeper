@@ -20,8 +20,9 @@ type packageManager interface {
 	// installed lists the installed packages by name.
 	installed(sys System) (map[string]bool, error)
 	// install installs pkgs with the packages they need, and nothing they
-	// only recommend.
-	install(sys System, out io.Writer, pkgs []string) error
+	// only recommend, and each of optional that the package manager has once
+	// its lists are fresh; dnf's sources name none.
+	install(sys System, out io.Writer, pkgs, optional []string) error
 	// removable splits pkgs into those that can go and those that other
 	// installed software needs, saying which needs what.
 	removable(sys System, pkgs []string) (remove, keep []string, why string)
@@ -54,9 +55,16 @@ func (apt) id() string { return "" }
 
 func (apt) installed(sys System) (map[string]bool, error) { return installedPackages(sys) }
 
-func (apt) install(sys System, out io.Writer, pkgs []string) error {
+// install asks about optional only after apt-get update: a new server's
+// package lists are empty until then, so apt has no candidate for anything.
+func (apt) install(sys System, out io.Writer, pkgs, optional []string) error {
 	if _, err := aptGet(sys, out, "update"); err != nil {
 		return err
+	}
+	for _, p := range optional {
+		if aptCandidate(sys, p) {
+			pkgs = append(slices.Clone(pkgs), p)
+		}
 	}
 	_, err := aptGet(sys, out, append([]string{"install", "-y", "--no-install-recommends"}, pkgs...)...)
 	return err
@@ -108,7 +116,7 @@ func (dnf) installed(sys System) (map[string]bool, error) {
 
 // install waits for another dnf or rpm first; dnf also waits for them
 // itself, but silently.
-func (dnf) install(sys System, out io.Writer, pkgs []string) error {
+func (dnf) install(sys System, out io.Writer, pkgs, _ []string) error {
 	if err := waitForPackageLock(sys, out, dnf{}, sys.Now().Add(lockWait)); err != nil {
 		return err
 	}

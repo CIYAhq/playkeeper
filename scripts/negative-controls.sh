@@ -816,9 +816,26 @@ control "the preflight refuses a release older than the oldest supported one" in
   '	case v.Distro != nil:
 		c.Status = "warn"' \
   ./internal/install '^TestPreflightRefusesOlderReleasesAndOtherSystemsUnlessAllowed$'
-control "Debian 13 gets the docker command, which it packages on its own" internal/install/distro.go \
-  'if aptCandidate(sys, "docker-cli") {' \
-  'if false && aptCandidate(sys, "docker-cli") {' \
+control "Debian 13 gets the docker command, which it packages on its own" internal/install/packages.go \
+  'if aptCandidate(sys, p) {' \
+  'if false && aptCandidate(sys, p) {' \
+  ./internal/install '^TestDebianGetsDockerFromItsOwnArchiveWithTheDockerCommand$'
+# After the OS matrix's Debian 13 run on 6a8b8a11: apt is asked for the docker
+# command only once its lists are fresh, as a new server's are empty.
+control "apt is asked about the docker command after apt-get update" internal/install/packages.go \
+  '	if _, err := aptGet(sys, out, "update"); err != nil {
+		return err
+	}
+	for _, p := range optional {' \
+  '	for _, p := range optional {
+		if aptCandidate(sys, p) {
+			pkgs = append(slices.Clone(pkgs), p)
+		}
+	}
+	if _, err := aptGet(sys, out, "update"); err != nil {
+		return err
+	}
+	for _, p := range optional[:0] {' \
   ./internal/install '^TestDebianGetsDockerFromItsOwnArchiveWithTheDockerCommand$'
 control "a package that is only a name docker.io provides isn't installed" internal/install/oscheck.go \
   'return v != "" && v != "(none)"' \

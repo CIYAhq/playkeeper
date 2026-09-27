@@ -90,6 +90,8 @@ func TestDebianGetsDockerFromItsOwnArchiveWithTheDockerCommand(t *testing.T) {
 	h := newFakeHost(t)
 	osRelease(t, h, "debian", "13")
 	h.aptPolicy = map[string]string{"docker-cli": "docker-cli:\n  Installed: (none)\n  Candidate: 26.1.5+dfsg1-9+deb13u1\n"}
+	// A new server's package lists are empty until apt-get update.
+	h.aptListsEmpty = true
 	out := &bytes.Buffer{}
 	o := opts("")
 	o.Yes, o.Out = true, out
