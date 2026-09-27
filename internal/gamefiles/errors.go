@@ -19,6 +19,10 @@ const (
 	KindTooMany   Kind = "too_many_entries"
 	KindChanged   Kind = "changed"
 	KindBadName   Kind = "bad_name"
+	// KindExists and KindIntoItself refuse what the file browser asks for:
+	// a name something already has, and moving a folder into itself.
+	KindExists     Kind = "exists"
+	KindIntoItself Kind = "into_itself"
 )
 
 // Error is a refusal: Msg and Hint in English, Kind and Params for
@@ -107,6 +111,14 @@ func changedError(p string) error {
 
 func badNameError(p string) error {
 	return refuse(KindBadName, p, strconv.Quote(p)+" is not a path inside the server's files.", "")
+}
+
+func existsError(p string) error {
+	return refuse(KindExists, p, where(p)+" already exists.", "Choose another name, or move or delete what is there first.")
+}
+
+func intoItselfError(from, to string) error {
+	return refuse(KindIntoItself, from, where(from)+" can't be moved into itself.", "Choose a folder outside it.", "to", to)
 }
 
 // sizeText writes a limit the way the dashboard does, like "64 KB".
