@@ -12,6 +12,15 @@ const swaps = new Map([
   [here('../lib/upload.ts'), here('./upload.ts')],
 ])
 
+/** playkeeper.io's analytics (internal/site/settings.go), which counts the demo's visits too. */
+const analytics = {
+  src: 'https://analytics-c.ciya.so/oa.js',
+  async: true,
+  'data-key': 'oa_pk_tyJHnpyD4m-pl_XrUbi3maHu2Iqq87Uf',
+  'data-collector': 'https://analytics-c.ciya.so',
+}
+const noReferrer = '<meta name="referrer" content="no-referrer" />'
+
 // The pictures the demo draws itself: the folder, how many, and number n.
 const drawings: [string, number, (n: number) => string][] = [
   ['faces', faceCount, faceSvg],
@@ -22,7 +31,10 @@ const drawings: [string, number, (n: number) => string][] = [
  * `vite build --mode demo`: every import of the API client, of lib/demo and
  * of lib/upload gets the demo's own, and the players' faces and plugins'
  * icons are written to faces/ and icons/. The demo's modules themselves still
- * reach the real ones, for ApiError and the upload's steps.
+ * reach the real ones, for ApiError and the upload's steps. The built page
+ * loads the site's analytics, with the site's referrer policy: under
+ * no-referrer, Firefox and Safari send its beacons with "Origin: null", which
+ * its collector refuses.
  */
 export function demoBuild(): Plugin {
   return {
@@ -38,6 +50,17 @@ export function demoBuild(): Plugin {
       for (const [folder, count, svg] of drawings) {
         for (let n = 0; n < count; n++) this.emitFile({ type: 'asset', fileName: `${folder}/${n}.svg`, source: svg(n) })
       }
+    },
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        if (ctx.server) return html
+        if (!html.includes(noReferrer)) throw new Error(`index.html has no ${noReferrer} for the demo to replace`)
+        return {
+          html: html.replace(noReferrer, '<meta name="referrer" content="strict-origin-when-cross-origin" />'),
+          tags: [{ tag: 'script', attrs: analytics, injectTo: 'head' }],
+        }
+      },
     },
     configureServer(server) {
       for (const [folder, count, svg] of drawings) {

@@ -12,7 +12,14 @@ export default defineConfig({
   timeout: 3 * 60_000,
   workers: 1,
   reporter: [['list']],
-  use: { baseURL: `http://127.0.0.1:${port}`, locale: 'en-GB', timezoneId: 'UTC', trace: 'retain-on-failure' },
+  use: {
+    baseURL: `http://127.0.0.1:${port}`,
+    locale: 'en-GB',
+    timezoneId: 'UTC',
+    trace: 'retain-on-failure',
+    // The analytics' host doesn't resolve here, so no visit is counted from a test run.
+    launchOptions: { args: ['--host-resolver-rules=MAP analytics-c.ciya.so ~NOTFOUND'] },
+  },
   webServer: {
     command: `sh -c 'PATH="$PWD/.tools/go/bin:$PATH" exec go run ./cmd/site -serve 127.0.0.1:${port}'`,
     cwd: '../../..',
