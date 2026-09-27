@@ -265,9 +265,10 @@ func (d *Dir) Walk(ctx context.Context, name string, limit int, fn func(p string
 // Count counts name and everything in it, links and special files too, as
 // Walk would pass them, but not the data directory itself. It stops once
 // there are more than limit and returns limit+1, and refuses folders more
-// than maxDepth down, as Walk does. Folders are read as they list their
-// entries, without describing each one, so counting a tree costs little
-// more than listing its folders.
+// than maxDepth down, as Walk does. A folder opened in the root describes
+// each entry relative to its own handle, whether or not the file system
+// lists types, so an entry costs one call rather than List's look-up of
+// it from the top.
 func (d *Dir) Count(ctx context.Context, name string, limit int) (int, error) {
 	var fi fs.FileInfo
 	var err error
