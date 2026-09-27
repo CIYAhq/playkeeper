@@ -418,6 +418,135 @@ test("the landing page's product loop keeps going while some of it shows, and pa
   expect(keptGoing(old), 'the check catches the old observer').toBe(false)
 })
 
+/** The screens the site's screenshots are checked on: the designs' sizes, at the pixel ratios of a sharp laptop and phone. */
+const sharp = [
+  { name: 'desktop', width: 1440, height: 900, dpr: 2, mobile: false },
+  { name: 'phone', width: 390, height: 844, dpr: 3, mobile: true },
+]
+
+/**
+ * Every screenshot the page shows, once each has loaded: the file the
+ * browser picked, how many pixels wide it is (its name says, as
+ * site/tools/shots.py writes it), and how many screen pixels its picture
+ * covers, object-fit included.
+ */
+async function screenshots(page: Page) {
+  await page.evaluate(async () => {
+    for (let y = 0; y < document.body.scrollHeight; y += 400) { window.scrollTo(0, y); await new Promise((r) => setTimeout(r, 60)) }
+    window.scrollTo(0, 0)
+  })
+  await page.waitForFunction(() => [...document.querySelectorAll<HTMLImageElement>('img.shot-img')].every((i) => !i.getClientRects().length || i.complete))
+  return page.evaluate(() =>
+    [...document.querySelectorAll<HTMLImageElement>('img.shot-img')].flatMap((img) => {
+      const box = img.getBoundingClientRect()
+      if (!box.width || !img.naturalWidth) return []
+      const cover = getComputedStyle(img).objectFit === 'cover'
+      const shown = cover ? Math.max(box.width, (box.height * img.naturalWidth) / img.naturalHeight) : box.width
+      const file = img.currentSrc.replace(/^.*\/shots\//, '')
+      return [{ file, pixels: Number(/-(\d+)w\.[0-9a-f]+\.(?:avif|webp)$/.exec(file)?.[1] ?? 0), needed: Math.round(shown * devicePixelRatio) }]
+    }),
+  )
+}
+
+for (const size of sharp) {
+  test(`screenshots are never enlarged: each shows at least one pixel of its file per screen pixel, at ${size.name} size`, async ({ browser, baseURL }) => {
+    const ctx = await browser.newContext({ baseURL, viewport: { width: size.width, height: size.height }, deviceScaleFactor: size.dpr, isMobile: size.mobile, hasTouch: size.mobile, reducedMotion: 'reduce' })
+    const page = await ctx.newPage()
+    let checked = 0
+    for (const path of await pagesToVisit(page)) {
+      await page.goto(path, { waitUntil: 'networkidle' })
+      for (const s of await screenshots(page)) {
+        checked++
+        expect.soft(s.file, `${path}: the browser takes AVIF`).toMatch(/\.avif$/)
+        expect.soft(s.pixels, `${path}: ${s.file} is ${s.pixels} pixels wide, shown across ${s.needed}`).toBeGreaterThanOrEqual(s.needed * 0.99)
+      }
+    }
+    expect(checked, 'screenshots checked').toBeGreaterThan(30)
+    // Negative control: offered only its narrowest file, a screenshot is enlarged, and the check says so.
+    await ctx.route(/\/features\/mods-and-modpacks$/, async (route) => {
+      const response = await route.fetch()
+      const html = (await response.text()).replace(/(srcset="[^",]+?) \d+w,[^"]*"/g, '$1 1w"')
+      await route.fulfill({ response, body: html })
+    })
+    await page.goto('/features/mods-and-modpacks', { waitUntil: 'networkidle' })
+    const narrow = await screenshots(page)
+    expect(narrow.some((s) => s.pixels < s.needed * 0.99), 'the check catches a screenshot shown larger than its file').toBe(true)
+    await ctx.close()
+  })
+}
+
+/**
+ * How the page's screenshot frames sit: each phone's screen, with the top of
+ * its screenshot against the status bar and its bottom against the screen's
+ * edge; each step picture against its box; the modded guide's pair of pictures.
+ */
+async function frames(page: Page) {
+  return page.evaluate(() => {
+    const rect = (el: Element | null) => el?.getBoundingClientRect()
+    const phones = [...document.querySelectorAll('.phone')].flatMap((p) => {
+      const screen = rect(p.querySelector('.phone-screen'))
+      const status = rect(p.querySelector('.phone-status'))
+      const img = p.querySelector<HTMLImageElement>('img.shot-img')
+      if (!screen?.width || !status || !img) return []
+      const shot = img.getBoundingClientRect()
+      const card = rect(p.closest('.feature-card'))
+      return [{ cardTop: card ? Math.round(card.top + scrollY) : undefined, screenTop: screen.top + scrollY, gapAbove: shot.top - status.bottom, gapBelow: screen.bottom - shot.bottom, position: getComputedStyle(img).objectPosition }]
+    })
+    const steps = [...document.querySelectorAll('.step-card-art .cardshot img')].map((img) => {
+      const art = img.closest('.step-card-art')!
+      const box = art.getBoundingClientRect()
+      const inset = art.clientTop + parseFloat(getComputedStyle(art).paddingTop)
+      const shot = img.getBoundingClientRect()
+      return { top: shot.top - box.top - inset, bottom: box.bottom - inset - shot.bottom }
+    })
+    const pair = [...document.querySelectorAll('.figure-pair img')].map((img) => img.getBoundingClientRect().height)
+    return { phones, steps, pair }
+  })
+}
+
+type Frames = Awaited<ReturnType<typeof frames>>
+
+/** What's wrong with the frames: a phone's screenshot not starting at the top of its screen or not filling it, feature cards' phones out of line, a step picture not filling its box, or the pair's pictures of different heights. */
+function frameProblems({ phones, steps, pair }: Frames): string[] {
+  const out: string[] = []
+  for (const p of phones) {
+    if (Math.abs(p.gapAbove) > 0.5) out.push(`a phone's screenshot starts ${p.gapAbove}px from its status bar`)
+    if (Math.abs(p.gapBelow) > 0.5) out.push(`a phone's screenshot ends ${p.gapBelow}px from its screen's edge`)
+    if (!p.position.endsWith(' 0%')) out.push(`a phone's screenshot is placed at ${p.position}, not from its top`)
+  }
+  const rows = new Map<number, number[]>()
+  for (const p of phones) if (p.cardTop !== undefined) rows.set(p.cardTop, [...(rows.get(p.cardTop) ?? []), p.screenTop])
+  for (const tops of rows.values()) if (Math.max(...tops) - Math.min(...tops) > 0.5) out.push(`feature cards' phones in a row start at ${tops.join(', ')}`)
+  for (const s of steps) if (Math.abs(s.top) > 0.5 || Math.abs(s.bottom) > 0.5) out.push(`a step picture is ${s.top}px from its box's top and ${s.bottom}px from its bottom`)
+  if (pair.length && Math.max(...pair) - Math.min(...pair) > 0.5) out.push(`the pair's pictures are ${pair.join(' and ')}px tall`)
+  return out
+}
+
+for (const size of sharp) {
+  test(`screenshots start at the top of their screens and fill their frames, and cards in a row line up, at ${size.name} size`, async ({ browser, baseURL }) => {
+    const ctx = await browser.newContext({ baseURL, viewport: { width: size.width, height: size.height }, deviceScaleFactor: size.dpr, isMobile: size.mobile, hasTouch: size.mobile, reducedMotion: 'reduce' })
+    const page = await ctx.newPage()
+    const seen = { phones: 0, steps: 0, pair: 0 }
+    for (const path of ['/', '/features/mods-and-modpacks', '/guides/modded-minecraft-server']) {
+      await page.goto(path, { waitUntil: 'networkidle' })
+      await page.evaluate(async () => {
+        for (let y = 0; y < document.body.scrollHeight; y += 400) { window.scrollTo(0, y); await new Promise((r) => setTimeout(r, 60)) }
+      })
+      const f = await frames(page)
+      seen.phones += f.phones.length
+      seen.steps += f.steps.length
+      seen.pair += f.pair.length
+      expect.soft(frameProblems(f), path).toEqual([])
+    }
+    expect(seen, 'frames checked').toEqual({ phones: 9, steps: 4, pair: 2 })
+    // Negative control: a phone screen that isn't a grid leaves its screenshot as tall as the screen, pushed down by the status bar and cut off below.
+    await page.goto('/', { waitUntil: 'networkidle' })
+    await page.addStyleTag({ content: '.phone-screen { display: block !important; }' })
+    expect(frameProblems(await frames(page)).some((p) => p.includes('from its screen')), 'the check catches a screenshot that overflows its screen').toBe(true)
+    await ctx.close()
+  })
+}
+
 test("the landing page's terminal starts typing once most of it shows", async ({ browser, baseURL }) => {
   const watch = async (spec: boolean, old?: [RegExp, string]) => {
     const { page, close } = await openLanding(browser, baseURL, spec, old)

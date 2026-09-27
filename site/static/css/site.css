@@ -48,6 +48,8 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; scroll-padding-to
 body { margin: 0; background: var(--chalk); color: var(--ink); font: 400 17px/1.6 var(--sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 img, svg { display: block; max-width: 100%; }
 img { height: auto; }
+picture { display: contents; }
+source { display: none; }
 a { color: var(--green-text); text-decoration: none; }
 a:hover { text-decoration: underline; text-underline-offset: 3px; }
 p { margin: 0 0 1em; }
@@ -270,7 +272,8 @@ main:focus { outline: none; }
 .loop-frame { opacity: 0; }
 .loop-frame.f3 { opacity: 1; }
 .phone { position: relative; width: 250px; padding: 9px; border-radius: 42px; background: #1d211c; box-shadow: var(--shadow-lg); }
-.phone-screen { position: relative; overflow: hidden; border-radius: 34px; background: var(--chalk); }
+.phone-screen { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border-radius: 34px; background: var(--chalk); }
+.phone .shot-img { height: 100%; object-fit: cover; object-position: center top; }
 .phone-status { display: flex; align-items: center; justify-content: space-between; height: 34px; padding: 0 22px 0 26px; font-size: 13px; font-weight: 600; }
 .phone-status .icon { width: 15px; height: 15px; }
 .product-phone { position: absolute; left: 0; top: 379px; z-index: 2; width: 212px; padding: 7px; border-radius: 36px; }
@@ -331,10 +334,11 @@ main:focus { outline: none; }
 
 /* Three steps, each over its own crop. */
 .step-card { display: flex; flex-direction: column; }
-.step-card-art { display: grid; place-items: center; height: 176px; padding: 12px; margin-bottom: 18px; border: 1px solid var(--twine); border-radius: var(--radius); background: var(--white); overflow: hidden; }
+.step-card-art { display: grid; grid-template-rows: minmax(0, 1fr); place-items: center; height: 176px; padding: 12px; margin-bottom: 18px; border: 1px solid var(--twine); border-radius: var(--radius); background: var(--white); overflow: hidden; }
 .step-card-art > * { width: 100%; min-width: 0; max-width: 100%; }
 @media (max-width: 639.98px) { .step-card-art .terminal { padding: 12px 14px; } .step-card-art .terminal pre { font-size: 11px; } }
-.step-card-art .cardshot img { border-radius: 10px; box-shadow: var(--shadow); }
+.step-card-art .cardshot { height: 100%; }
+.step-card-art .cardshot img { height: 100%; object-fit: cover; object-position: left top; border-radius: 10px; box-shadow: var(--shadow); }
 .step-card h3 { display: flex; align-items: center; gap: 12px; font-size: 21px; letter-spacing: -0.03em; }
 .num { display: inline-grid; place-items: center; flex: none; width: 26px; height: 26px; border: 1.5px solid var(--green); border-radius: 50%; color: var(--green-text); font-size: 13px; font-weight: 700; letter-spacing: 0; }
 .step-card p { margin: 10px 0 0; color: var(--sage); font-size: 15.5px; line-height: 1.55; }
@@ -769,6 +773,7 @@ main:focus { outline: none; }
 .error-card p { display: flex; gap: 8px; margin: 12px 0 0; font-size: 15.5px; color: var(--ink); }
 .error-card p .icon { flex: none; width: 15px; height: 15px; margin-top: 4px; color: var(--green); }
 .figure-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 20px 0; }
+.figure-pair .cardshot img { aspect-ratio: 3 / 2; object-fit: cover; object-position: left top; }
 .shot-step { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 24px; align-items: start; }
 .article .cardshot img { border: 1px solid var(--twine); border-radius: 14px; box-shadow: var(--shadow-lg); }
 .article .cardshot { margin: 18px 0 8px; }
