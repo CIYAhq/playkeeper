@@ -318,19 +318,34 @@ jobs:
           sudo sh -c "grep -E '^(online-mode|white-list|enforce-whitelist|log-ips)=' /var/lib/playkeeper/servers/*/data/server.properties"
           curl -sS -i http://127.0.0.1:8443/ | head -1
       # The state after the onboarding and the bots, for the click-through and
-      # views runners to start from: main's for every pull request, and a pull
-      # request's own for its later pushes. It names the commit it was made
-      # on, a pull request's head rather than its merge commit, so later
-      # commits can tell they contain it.
+      # views runners to start from: each commit of main saves one for pull
+      # requests, and a pull request's first run one for its later pushes (a
+      # key is saved once, and a state is a few hundred MB). It names the
+      # commit it was made on, a pull request's head rather than its merge
+      # commit, so later commits can tell they contain it.
+      - name: The key of this run's played state
+        id: played
+        env:
+          KEY: played-state-${{ github.event.pull_request.number && format('pr{0}', github.event.pull_request.number) || format('{0}-{1}', github.sha, github.run_attempt) }}
+        run: echo "key=$KEY" >> "$GITHUB_OUTPUT"
+      - name: Whether it's saved already
+        id: saved
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/played
+          key: ${{ steps.played.outputs.key }}
+          lookup-only: true
       - name: Save the played state
+        if: steps.saved.outputs.cache-hit != 'true'
         env:
           PK_ADMIN_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
           COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: scripts/e2e/played-state.sh save /tmp/played "$PK_ADMIN_PASSWORD" "$COMMIT"
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.saved.outputs.cache-hit != 'true'
         with:
           path: /tmp/played
-          key: played-state-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          key: ${{ steps.played.outputs.key }}
       - name: Uninstall keeps the world and backups
         run: |
           worlds() { sudo sh -c 'find /var/lib/playkeeper/servers/*/data/world /var/lib/playkeeper/backups -type f -exec sha256sum {} +' | sort -k2; }
