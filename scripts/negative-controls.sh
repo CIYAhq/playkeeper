@@ -4037,7 +4037,8 @@ control "a backup dropped from a full copy queue discards what it left at the de
   ./internal/agent '^TestABackupDroppedFromAFullQueueDiscardsWhatItLeftAtTheDestination$'
 control "only the dropped backups' unfinished copies are discarded" internal/agent/offsite.go \
   's.discardUploads(dropped)' \
-  's.discardUploads(append(s.queuedStates(), dropped...))' \
+  'all, _ := s.queuedStates()
+	s.discardUploads(append(all, dropped...))' \
   ./internal/agent '^TestABackupDroppedFromAFullQueueDiscardsWhatItLeftAtTheDestination$/^S3$'
 
 # Wave 7 after Bugbot's finding on ee0e519: the uploader claims the copy it
@@ -4067,8 +4068,8 @@ control "turning copies off stops the copy the uploader claimed" internal/agent/
 # Wave 7 before Bugbot: a schedule lists the retry after a run skipped for
 # players exactly while the runner plans it.
 control "every change to a schedule drops its retry, as the planner does" internal/agent/schedules.go \
-  'if sc.LastRun != nil && !sc.LastRun.RetryAt.IsZero() {' \
-  'if !onlySwitch && sc.LastRun != nil && !sc.LastRun.RetryAt.IsZero() {' \
+  "THEN json_remove(last_run, '\$.retryAt') ELSE" \
+  'THEN last_run ELSE' \
   ./internal/agent '^TestAScheduleListsItsRetryOnlyWhileTheRunnerPlansIt$'
 webcontrol "the schedule list promises a retry only while it is the next run" web/src/pages/server/schedules.tsx \
   'if (!at || !s.nextRun || new Date(s.nextRun).getTime() !== new Date(at).getTime()) return undefined' \
@@ -4112,13 +4113,17 @@ control "a new key starts the uploader again" internal/agent/offsite.go \
 	s.audit(actor, "offsite.key_rotated"' \
   ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy_that_saved_where_it_stopped$'
 control "a copy picked after a new key isn't encrypted to the old one" internal/agent/offsite.go \
-  'if row, err := s.loadOffsite(); err != nil || row.keys.Current.Recipient != at.keys.Current.Recipient {' \
-  'if row, err := s.loadOffsite(); err != nil || false && row.keys.Current.Recipient != at.keys.Current.Recipient {' \
+  'err != nil || !row.enabled || row.keys.Current.Recipient != at.keys.Current.Recipient || !sameConnection(row, at) {' \
+  'err != nil || !row.enabled || false && row.keys.Current.Recipient != at.keys.Current.Recipient || !sameConnection(row, at) {' \
   ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^while_the_next_copy_is_picked$'
-control "a copy stopped for a new key isn't a failed try" internal/agent/offsite.go \
-  's.uploadFailed(job.ctx, b, job, err)' \
-  's.uploadFailed(ctx, b, job, err)' \
-  ./internal/agent '^TestANewKeyReachesTheCopyBeingMade$/^during_a_copy_that_saved_where_it_stopped$'
+# A new key is also a save of the settings since the claim, which a failed
+# try doesn't count either; the agent stopping reaches this guard alone.
+control "a copy stopped as the agent stops isn't a failed try" internal/agent/offsite.go \
+  '	if ctx.Err() != nil {
+		// Playkeeper is stopping' \
+  '	if false {
+		// Playkeeper is stopping' \
+  ./internal/agent '^TestACopyTheAgentStoppedInResumesFromItsSavedPart$'
 
 # Wave 7 before Bugbot: restoring a copy takes as long as the copy takes to
 # come, and every other operation keeps its deadline.
@@ -5116,6 +5121,141 @@ func (l *wakeLimit) forget' \
 
 func (l *wakeLimit) forget' \
   ./internal/sleep '^TestWakeLimitGivesBackAWakeThatNeverStarted$'
+
+# Wave 7, from the second bug hunt: only a backup that is gone leaves the
+# copy queue, the stale-upload clean-up waits for a queue that was read, new
+# credentials stop the upload, scheduled work waits for a busy server as long
+# as it may, automatic backups that can't be read are refused, and an edit
+# keeps the run the runner saved.
+control "a backup whose record can't be read stays queued" internal/agent/offsite.go \
+  "		s.uploadFailed(job.ctx, job, fmt.Errorf(\"the backup's record can't be read: %w\", err))
+		return false" \
+  '		return gone()' \
+  ./internal/agent '^TestOnlyABackupThatIsGoneLeavesTheCopyQueue$/^its_record_can.t_be_read$'
+control "a backup whose archive can't be opened stays queued" internal/agent/offsite.go \
+  "		s.uploadFailed(job.ctx, job, fmt.Errorf(\"the backup's archive can't be opened: %w\", err))
+		return false" \
+  '		return gone()' \
+  ./internal/agent '^TestOnlyABackupThatIsGoneLeavesTheCopyQueue$/^its_archive_can.t_be_opened$'
+control "a backup with no record leaves the queue" internal/agent/offsite.go \
+  'return errors.As(err, &ae) && (ae.Code == api.CodeNotFound || ae.Code == api.CodeInvalid)' \
+  'return errors.As(err, &ae) && ae.Code == api.CodeInvalid' \
+  ./internal/agent '^TestOnlyABackupThatIsGoneLeavesTheCopyQueue$/^its_record_deleted$'
+control "a backup whose archive doesn't exist leaves the queue" internal/agent/offsite.go \
+  '	case errors.Is(err, fs.ErrNotExist):' \
+  '	case false && errors.Is(err, fs.ErrNotExist):' \
+  ./internal/agent '^TestOnlyABackupThatIsGoneLeavesTheCopyQueue$/^its_archive_deleted$'
+control "a backup is queued when whether copies are on can't be read" internal/agent/offsite.go \
+  "		s.log.Warn(\"whether copies somewhere else are on can't be read, so the backup is queued for its copy anyway\", \"server\", s.id, \"backup\", backupID, \"err\", err)" \
+  '		return' \
+  ./internal/agent '^TestABackupIsQueuedWhenWhetherCopiesAreOnCantBeRead$/^copies_on$'
+control "a backup queued while copies were never on leaves the queue" internal/agent/offsite.go \
+  '		if row.exists && !row.enabled {' \
+  '		if false {' \
+  ./internal/agent '^TestABackupIsQueuedWhenWhetherCopiesAreOnCantBeRead$/^copies_never_turned_on$'
+control "unfinished uploads are cleaned up only from a queue that was read" internal/agent/offsite.go \
+  '		if keep, err := s.queuedStates(); err != nil {' \
+  '		if keep, _ := s.queuedStates(); false {' \
+  ./internal/agent '^TestUnfinishedUploadsAreCleanedUpOnlyFromAQueueThatWasRead$/^the_queue_can.t_be_read$'
+control "a copy queue that can't be read is an error, not empty" internal/agent/offsite.go \
+  '	if err != nil {
+		return nil, err
+	}
+	states, _, err := scanStates(rows)' \
+  '	if err != nil {
+		return nil, nil
+	}
+	states, _, err := scanStates(rows)' \
+  ./internal/agent '^TestUnfinishedUploadsAreCleanedUpOnlyFromAQueueThatWasRead$/^the_queue_can.t_be_read$'
+control "a copy queue that fails part way is an error" internal/agent/offsite.go \
+  '	return states, n, rows.Err()' \
+  '	return states, n, nil' \
+  ./internal/agent '^TestUnfinishedUploadsAreCleanedUpOnlyFromAQueueThatWasRead$/^the_queue_fails_part_way$'
+control "new credentials stop the upload still using the old ones" internal/agent/offsite.go \
+  '	if moved || !next.enabled || !sameConnection(row, next) {' \
+  '	if moved || !next.enabled {' \
+  ./internal/agent '^TestNewCredentialsStopTheUploadStillUsingTheOldOnes$/^the_S3_secret_changed$'
+control "a new S3 secret is new credentials" internal/agent/offsite.go \
+  ' && a.secret == b.secret' \
+  '' \
+  ./internal/agent '^TestNewCredentialsStopTheUploadStillUsingTheOldOnes$/^the_S3_secret_changed$'
+control "a new SFTP password is new credentials" internal/agent/offsite.go \
+  ' && a.password == b.password' \
+  '' \
+  ./internal/agent '^TestNewCredentialsStopTheUploadStillUsingTheOldOnes$/^the_SFTP_password_changed$'
+control "a round whose settings changed before the claim uploads nothing more" internal/agent/offsite.go \
+  'at.keys.Current.Recipient || !sameConnection(row, at) {' \
+  'at.keys.Current.Recipient {' \
+  ./internal/agent '^TestARoundWhoseSettingsChangedUploadsNothingMore$'
+control "copies turned off between two copies stop the next one" internal/agent/offsite.go \
+  'err != nil || !row.enabled || row.keys' \
+  'err != nil || row.keys' \
+  ./internal/agent '^TestCopiesTurnedOffBetweenTwoCopiesStopTheNext$'
+control "a try that fails once the settings were saved since the claim doesn't count" internal/agent/offsite.go \
+  'AND updated_at >= ?)' \
+  'AND updated_at >= ? AND 0)' \
+  ./internal/agent '^TestNewCredentialsStopTheUploadStillUsingTheOldOnes$/^the_try_fails_after_a_save$'
+control "a failed try counts from the queue's count" internal/agent/offsite.go \
+  'attempts = attempts + 1, next_attempt' \
+  'attempts = 1, next_attempt' \
+  ./internal/agent '^TestAFailedTryCountsFromTheQueue$/^the_third_try$'
+control "the wait after a failed try doubles with each one before it" internal/agent/offsite.go \
+  'MIN(? << MIN(attempts, 8), ?)' \
+  'MIN(? << 0, ?)' \
+  ./internal/agent '^TestAFailedTryCountsFromTheQueue$/^the_third_try$'
+control "a scheduled backup waits for a busy server until its grace ends" internal/schedule/runner.go \
+  ', j.Due.Add(j.Schedule.Grace()))' \
+  ', r.cfg.Now().Add(r.cfg.BusyGiveUp))' \
+  ./internal/schedule '^TestRunnerWaitsForABusyServer$/^a_backup,_busy_for_40_minutes$'
+control "a restart says it restarts now only once the server isn't busy" internal/schedule/runner.go \
+  '	if res, stop := r.waitIdle(ctx, j, warned, giveUp); stop {
+		return res
+	}' \
+  '' \
+  ./internal/schedule '^TestRunnerWaitsForABusyServer$/^a_restart,_busy_for_40_minutes$'
+control "a restart waiting for a busy server gives up" internal/schedule/runner.go \
+  '		if !r.cfg.Now().Before(giveUp) {
+			if warned {' \
+  '		if false {
+			if warned {' \
+  ./internal/schedule '^TestRunnerWaitsForABusyServer$/^a_restart,_busy_for_40_minutes$'
+control "the runner hears when another operation holds the server" internal/agent/schedules.go \
+  'st := schedule.ServerState{Running: online, Busy: s.busy()}' \
+  'st := schedule.ServerState{Running: online}' \
+  ./internal/agent '^TestTheRunnerHearsWhenAnotherOperationHoldsTheServer$'
+control "backup schedules that can't be read are an error, not none" internal/agent/backuprules.go \
+  '		return scheduleRow{}, false, fmt.Errorf("the backup schedules could not be read: %w", err)' \
+  '		return scheduleRow{}, false, nil' \
+  ./internal/agent '^TestAutomaticBackupsThatCantBeReadAreNeitherShownNorSaved$/^turned_on$'
+control "saving automatic backups that can't be read is refused" internal/agent/backuprules.go \
+  '	row, ok, err := s.automaticSchedule(ctx)
+	if err != nil {' \
+  '	row, ok, err := s.automaticSchedule(ctx)
+	if err != nil && false {' \
+  ./internal/agent '^TestAutomaticBackupsThatCantBeReadAreNeitherShownNorSaved$/^every_few_hours_instead$'
+control "the Backup rules page isn't shown while the automatic backups can't be read" internal/agent/backuprules.go \
+  '	auto, err := s.automaticBackups(ctx)
+	if err != nil {
+		return backupRulesView{}, errAutomaticUnread(err)
+	}' \
+  '	auto, _ := s.automaticBackups(ctx)' \
+  ./internal/agent '^TestAutomaticBackupsThatCantBeReadAreNeitherShownNorSaved$/^turned_off$'
+control "the rules estimate isn't made while the automatic backups can't be read" internal/agent/backuprules.go \
+  '	auto, err := s.automaticBackups(r.Context())
+	if err != nil {
+		writeError(w, errAutomaticUnread(err))
+		return
+	}' \
+  '	auto, _ := s.automaticBackups(r.Context())' \
+  ./internal/agent '^TestAutomaticBackupsThatCantBeReadAreNeitherShownNorSaved$/^turned_on$'
+control "an edit of a schedule never writes back the run it read" internal/agent/schedules.go \
+  "			last_run = CASE WHEN json_valid(last_run) THEN json_remove(last_run, '\$.retryAt') ELSE last_run END
+		WHERE id = ? AND server_id = ?\`,
+		sc.Name, string(sc.Kind), string(timing), string(payload), boolInt(sc.Enabled), now.UnixMilli(), actor, sc.ID, s.id)" \
+  "			last_run = ?
+		WHERE id = ? AND server_id = ?\`,
+		sc.Name, string(sc.Kind), string(timing), string(payload), boolInt(sc.Enabled), now.UnixMilli(), actor, func() string { b, _ := json.Marshal(sc.LastRun); return string(b) }(), sc.ID, s.id)" \
+  ./internal/agent '^TestEditingAScheduleKeepsTheRunTheRunnerSaved$/^renamed_as_its_run_finishes$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
