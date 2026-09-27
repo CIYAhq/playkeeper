@@ -18,6 +18,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/install"
 	"github.com/CIYAhq/playkeeper/internal/machinelink"
+	"github.com/CIYAhq/playkeeper/internal/names"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
 
@@ -199,8 +200,11 @@ func serveLink(ctx context.Context, cfg config.Config, log *slog.Logger, tick ti
 	if err != nil {
 		return linkError(err)
 	}
+	addrs, follow := linkAddresses(&d, cfg.LinkDashboardPath(), log)
 	l, err := machinelink.NewLink(machinelink.LinkOptions{
 		Dashboard: d,
+		Addresses: addrs,
+		OnAddress: follow,
 		Identity:  id,
 		Handler:   machinelink.AgentProxy(cfg.SocketPath),
 		Routes:    agent.LinkRoutes(),
@@ -233,6 +237,43 @@ func serveLink(ctx context.Context, cfg config.Config, log *slog.Logger, tick ti
 		return nil
 	}
 	return err
+}
+
+// linkAddresses are where this machine looks for its dashboard: at the
+// address it joined, and before that at the same free name under
+// names.DefaultBase when it joined one under names.PreviousBase, where the
+// dashboard's name moves. follow keeps an address the link connected at in
+// the dashboard's file at path, so the machine no longer needs the old
+// name's record, which goes a while after the move.
+func linkAddresses(d *machinelink.Dashboard, path string, log *slog.Logger) (addrs []string, follow func(machinelink.Address)) {
+	addrs = []string{d.Address}
+	if moved, ok := movedDashboard(d.Address); ok {
+		addrs = []string{moved, d.Address}
+	}
+	return addrs, func(a machinelink.Address) {
+		was := d.Address
+		d.Address = a.String()
+		if err := d.Save(path); err != nil {
+			log.Warn("could not save the dashboard's new address", "address", d.Address, "err", err)
+			return
+		}
+		log.Info("the dashboard's free address moved; this machine follows it", "from", was, "to", d.Address)
+	}
+}
+
+// movedDashboard is a dashboard address at a free name under
+// names.PreviousBase, moved to names.DefaultBase.
+func movedDashboard(addr string) (string, bool) {
+	a, err := machinelink.ParseAddress(addr)
+	if err != nil {
+		return "", false
+	}
+	name, ok := strings.CutSuffix(a.Host, "."+names.PreviousBase)
+	if !ok || names.CheckName(name) != nil {
+		return "", false
+	}
+	a.Host = names.Address(name, names.DefaultBase)
+	return a.String(), true
 }
 
 // publishStatus writes the link's state to path whenever it changes, until

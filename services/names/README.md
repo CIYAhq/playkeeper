@@ -218,6 +218,7 @@ What each install sees after the switch:
 | Updated | Moves to the same name under `playkeeper.me` by itself, with a new certificate, and keeps its old certificate until it expires, so links shared before the move still open without a warning. The old address keeps reaching it for the 60 days. |
 | From before the move | Its old address keeps working at its current IP address for the 60 days, and its certificate until it expires. Claims, address changes and renewals are refused with "Update Playkeeper". Its dashboard can't answer checks for the new domain, so a week after its last answer its records in the new zone go (it never used them), and the name is held for its key for 60 days (7 if its dashboard never answered): updating within them keeps the name. |
 | New | Claims its name under `playkeeper.me`. |
+| A machine joined to a dashboard at its old name | Once it runs the release, looks for the dashboard at the new name first, and keeps the new address once it connects there. Until then it uses the old one, so update it within the 60 days. |
 
 ### If the service is down
 
