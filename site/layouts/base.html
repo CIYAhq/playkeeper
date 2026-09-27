@@ -27,7 +27,7 @@
 <link rel="stylesheet" href="{{asset "css/site.css"}}">
 {{range .Page.Styles}}<link rel="stylesheet" href="{{asset .}}">
 {{end}}{{with .Page.NoScript}}<noscript><link rel="stylesheet" href="{{asset .}}"></noscript>
-{{end}}{{with .Page.Preload}}{{$s := shot .}}<link rel="preload" as="image" href="{{$s.Src}}"{{with $s.Srcset}} {{imageSrcset .}}{{end}} fetchpriority="high">
+{{end}}{{range .Preloads}}<link rel="preload" as="image" type="image/avif" {{imageSrcset .Avif}} imagesizes="{{.Sizes}}"{{with .Media}} media="{{.}}"{{end}} fetchpriority="high">
 {{end}}<script src="{{asset "js/site.js"}}" defer></script>
 {{range .Page.Scripts}}<script src="{{asset .}}" defer></script>
 {{end}}{{template "analytics" .}}{{with .Head}}<script type="application/ld+json">{{.}}</script>

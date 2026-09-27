@@ -8,10 +8,12 @@ kind: Feature
 section: features
 crumb: Features
 og: mods-and-modpacks
-preload: feature-mods
 */}}
 
 {{define "main"}}
+{{/* A step's picture fills a box 152 pixels tall, so it's at least 340 wide. */}}
+{{$step := "(max-width: 405.98px) 340px, (max-width: 639.98px) calc(100vw - 66px), (max-width: 811.98px) 340px, (max-width: 1023.98px) calc(50vw - 66px), 363px"}}
+{{$detail := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 564px"}}
 <section class="band-chalk page-hero page-hero-center" aria-labelledby="page-title">
   <div class="container">
     {{template "crumbs" .}}
@@ -23,7 +25,7 @@ preload: feature-mods
     </div>
     {{template "logos" (dict "Class" "hero-after")}}
     <div class="hero-shot hero-after">
-      {{template "browser" (dict "Name" "feature-mods" "URL" "alex.playkeeper.io:8443/servers/cobblemon/mods" "Eager" true "Alt" "The Mods tab of a Fabric server: the mods added by hand, what friends need of each, and Share with friends.")}}
+      {{template "browser" (dict "Name" "feature-mods" "URL" "alex.playkeeper.io:8443/servers/cobblemon/mods" "Eager" true "Alt" "The Mods tab of a Fabric server: the mods added by hand, what friends need of each, and Share with friends." "Sizes" "(max-width: 639.98px) calc(100vw - 42px), (max-width: 1063.98px) calc(100vw - 66px), 998px")}}
     </div>
   </div>
 </section>
@@ -33,17 +35,17 @@ preload: feature-mods
     <h2 id="three-title" class="section-title reveal">From zero to modded in three steps.</h2>
     <div class="grid-3 steps-row">
       <div class="step-card reveal">
-        <div class="step-card-art">{{template "cardshot" (dict "Name" "step-type" "Alt" "New server's first step: the server types, with what each runs.")}}</div>
+        <div class="step-card-art">{{template "cardshot" (dict "Name" "step-type" "Alt" "New server's first step: the server types, with what each runs." "Sizes" $step)}}</div>
         <h3><span class="num">1</span>Pick a server type</h3>
         <p>Paper and Purpur run plugins; {{loaderNames}} run mods.</p>
       </div>
       <div class="step-card reveal">
-        <div class="step-card-art">{{template "cardshot" (dict "Name" "step-modpack" "Alt" "A modpack's details: its Minecraft version, loader, number of mods and the memory it needs.")}}</div>
+        <div class="step-card-art">{{template "cardshot" (dict "Name" "step-modpack" "Alt" "New server's modpacks: each pack's loader, Minecraft version, number of mods and the memory it needs." "Sizes" $step)}}</div>
         <h3><span class="num">2</span>Add a modpack or add-ons</h3>
         <p>See what's inside and how much memory it needs, first.</p>
       </div>
       <div class="step-card reveal">
-        <div class="step-card-art">{{template "cardshot" (dict "Name" "step-share" "Alt" "Share with friends: one link to a page with the server's mods.")}}</div>
+        <div class="step-card-art">{{template "cardshot" (dict "Name" "step-share" "Alt" "Share with friends: one link to a page with the server's mods." "Sizes" $step)}}</div>
         <h3><span class="num">3</span>Send friends the pack</h3>
         <p>One link gives them a file for the Modrinth App or Prism Launcher.</p>
       </div>
@@ -58,35 +60,35 @@ preload: feature-mods
         <h2 class="reveal">One search across Modrinth and Hangar</h2>
         <p class="reveal">Picked by Playkeeper shows a few favourites before you type.</p>
       </div>
-      <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-browse" "Alt" "The add-on library: Picked by Playkeeper, then the most downloaded plugins that work on the server.")}}</div>
+      <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-browse" "Alt" "The add-on library: Picked by Playkeeper, then the most downloaded plugins that work on the server." "Sizes" $detail)}}</div>
     </div>
     <div class="detail flip reveal-group">
       <div class="detail-text">
         <h2 class="reveal">Modpacks show what's inside first</h2>
         <p class="reveal">Memory, mods and what friends do, before anything installs.</p>
       </div>
-      <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-modpack" "Alt" "A modpack's details over New server: what's inside and what friends do.")}}</div>
+      <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-modpack" "Alt" "A modpack's details over New server: what's inside and what friends do." "Sizes" $detail)}}</div>
     </div>
     <div class="detail reveal-group">
       <div class="detail-text">
         <h2 class="reveal">Voice chat, maps and pre-generation</h2>
         <p class="reveal">Curated add-ons set up their own ports and settings.</p>
       </div>
-      <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-voice" "Alt" "Adding proximity voice chat: Playkeeper opens its UDP port and says to open it in the provider's firewall too.")}}</div>
+      <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-voice" "Alt" "Adding proximity voice chat: Playkeeper opens its UDP port and says to open it in the provider's firewall too." "Sizes" $detail)}}</div>
     </div>
     <div class="detail flip reveal-group">
       <div class="detail-text">
         <h2 class="reveal">Friends get the same mods</h2>
         <p class="reveal">A page lists what they need, with steps for their launcher.</p>
       </div>
-      <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-pack" "Alt" "The page friends open: the pack file and steps for the Modrinth App and Prism Launcher.")}}</div>
+      <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-pack" "Alt" "The page friends open: the pack file and steps for the Modrinth App and Prism Launcher." "Sizes" $detail)}}</div>
     </div>
     <div class="detail reveal-group">
       <div class="detail-text">
         <h2 class="reveal">Updates you can trust</h2>
         <p class="reveal">Every file must match its published checksum. Updates wait for a restart you choose.</p>
       </div>
-      <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-updates" "Alt" "Updating two plugins: each download checked against its checksum, then a restart to load them.")}}</div>
+      <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-updates" "Alt" "The Plugins tab: where each plugin comes from and whether it's up to date, with an update waiting for LuckPerms." "Sizes" $detail)}}</div>
     </div>
   </div>
 </section>

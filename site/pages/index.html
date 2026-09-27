@@ -9,10 +9,13 @@ schema: software
 styles: css/sizing.css
 noscript: css/sizing-nojs.css
 scripts: js/landing.js, js/sizing-data.js, js/sizing.js
-preload: loop-overview
 */}}
 
 {{define "main"}}
+{{/* The product loop is hidden on phones: 1px gets them its smallest file. A
+  step's picture fills a box 152 pixels tall, so it's at least 340 wide. */}}
+{{$loop := "(max-width: 639.98px) 1px, (max-width: 1023.98px) calc(100vw - 184px), 858px"}}
+{{$step := "(max-width: 405.98px) 340px, (max-width: 639.98px) calc(100vw - 66px), (max-width: 811.98px) 340px, (max-width: 1023.98px) calc(50vw - 66px), 363px"}}
 <section class="hero band-chalk" aria-labelledby="hero-title" data-channels="{{channelCodes}}">
   <div class="container hero-row">
     <div class="hero-text">
@@ -30,14 +33,14 @@ preload: loop-overview
         <figure class="browser product-browser" data-loop>
           <div class="browser-bar" aria-hidden="true"><span class="browser-dots"><i></i><i></i><i></i></span><span class="browser-url">{{template "icon" "lock"}}<span class="browser-url-text">alex.playkeeper.io:8443</span></span></div>
           <div class="browser-view">
-            {{template "shot" (dict "Name" "loop-new-server" "Alt" "" "Class" "loop-frame f1")}}
-            {{template "shot" (dict "Name" "loop-setting-up" "Alt" "" "Class" "loop-frame f2")}}
-            {{template "shot" (dict "Name" "loop-setting-up-2" "Alt" "" "Class" "loop-frame f2b")}}
-            {{template "shot" (dict "Name" "loop-overview" "Alt" "The Survival server's Overview in the Playkeeper dashboard: its join address, who's playing, how it's running and the players over the last day." "Class" "loop-frame f3" "Eager" true)}}
+            {{template "shot" (dict "Name" "loop-new-server" "Alt" "" "Class" "loop-frame f1" "Sizes" $loop)}}
+            {{template "shot" (dict "Name" "loop-setting-up" "Alt" "" "Class" "loop-frame f2" "Sizes" $loop)}}
+            {{template "shot" (dict "Name" "loop-setting-up-2" "Alt" "" "Class" "loop-frame f2b" "Sizes" $loop)}}
+            {{template "shot" (dict "Name" "loop-overview" "Alt" "The Survival server's Overview in the Playkeeper dashboard: its join address, who's playing, how it's running and the players over the last day." "Class" "loop-frame f3" "Eager" true "Sizes" $loop "Media" "(min-width: 640px)")}}
             <span class="loop-cursor" aria-hidden="true"></span>
           </div>
         </figure>
-        {{template "phone" (dict "Name" "hero-map-phone" "Alt" "The Map tab on a phone: the world from above, with three players' positions." "Class" "product-phone" "Eager" true)}}
+        {{template "phone" (dict "Name" "hero-map-phone" "Alt" "The Map tab on a phone: the world from above, with three players' positions." "Class" "product-phone" "Eager" true "Sizes" "(max-width: 639.98px) 272px, 198px")}}
         <img class="product-pip" src="{{asset "app/pip/pip-wave.svg"}}" alt="" width="84" height="84" data-pip>
         <div class="moment moment-copied" data-moment="copied" aria-hidden="true"><span class="moment-icon">{{template "icon" "check"}}</span><span>Join address copied<small>survival.alex.playkeeper.io</small></span></div>
         <div class="moment moment-joined" data-moment="joined" aria-hidden="true"><img src="{{asset "img/face-mara.svg"}}" alt="" width="32" height="32"><span>mara_k joined Survival<small>just now</small></span></div>
@@ -52,7 +55,7 @@ preload: loop-overview
     <h2 id="steps-title" class="section-title reveal">Three steps to an always-on server.</h2>
     <div class="grid-3 steps-row">
       <div class="step-card reveal">
-        <div class="step-card-art">{{template "cardshot" (dict "Name" "step-size" "Alt" "The sizing guide's answer: a VPS with 6 GB of memory, 2 fast cores and 40 GB of disk for 5 to 10 friends on Vanilla or Paper.")}}</div>
+        <div class="step-card-art">{{template "cardshot" (dict "Name" "step-size" "Alt" "The sizing guide's answer: a VPS with 6 GB of memory, 2 fast cores and 40 GB of disk for 5 to 10 friends on Vanilla or Paper." "Sizes" $step)}}</div>
         <h3><span class="num">1</span>Rent a VPS</h3>
         <p>Ubuntu 24.04 with at least {{sizing.Min.MemoryGB}} GB of memory.</p>
         <a class="link-arrow" href="/sizing">Which VPS?{{template "icon" "arrow-right"}}</a>
@@ -121,21 +124,21 @@ preload: loop-overview
     </div>
     <div class="grid-4 feature-grid">
       {{range $f := list
-        (dict "Page" "/features/mods-and-modpacks" "Demo" "/demo/servers/cobblemon/mods" "Title" "Plugins, mods and modpacks" "Text" (printf "%s server types, add-ons in one click." (countWord typeCount)) "Shot" "feat-types" "Alt" "New server on a phone: picking what the server runs.")
+        (dict "Page" "/features/mods-and-modpacks" "Demo" "/demo/servers/cobblemon/mods" "Title" "Plugins, mods and modpacks" "Text" (printf "%s server types, add-ons in one click." (title (countWord typeCount))) "Shot" "feat-types" "Alt" "New server on a phone: picking what the server runs.")
         (dict "Page" "/features/free-address" "Demo" "/demo/machines/q7m2vk9xpd/settings" "Title" "A free address" "Text" "Friends join at yourname.playkeeper.io." "Shot" "feat-address" "Alt" "Machine settings on a phone, picking a free playkeeper.io name.")
         (dict "Page" "/features/backups" "Demo" "/demo/servers/survival/world" "Title" "Backups" "Text" "Players stay online while it copies." "Shot" "feat-backups" "Alt" "A server's World tab on a phone, with Back up now and its backups.")
         (dict "Page" "/features/crash-and-lag-help" "Demo" "/demo/servers/cobblemon" "Title" "Crash and lag help" "Text" "What went wrong, and what to do." "Shot" "feat-crash" "Alt" "A crashed server's Overview on a phone, explaining it ran out of memory.")
         (dict "Page" "/features/friends-and-team" "Demo" "/demo/servers/survival/players" "Title" "Friends and team" "Text" "Invite links, roles and Discord." "Shot" "feat-friends" "Alt" "A server's Players tab on a phone.")
         (dict "Page" "/features/worlds-and-map" "Demo" "/demo/servers/survival/map" "Title" "Worlds and live map" "Text" "Bring your world, watch it live." "Shot" "feat-map" "Alt" "The live map on a phone.")
-        (dict "Page" "/features/automation" "Demo" "/demo/servers/survival/settings" "Title" "Automation" "Text" "Schedules, and sleep when nobody plays." "Shot" "feat-automation" "Alt" "A server's settings on a phone.")
-        (dict "Page" "/features/ai-agents" "Demo" "/demo/settings" "Title" "AI agents and more machines" "Text" "Claude, Cursor or a second VPS." "Shot" "feat-agents" "Alt" "Settings on a phone, with AI agents and machines.")
+        (dict "Page" "/features/automation" "Demo" "/demo/servers/survival/settings" "Title" "Automation" "Text" "Schedules, and sleep when nobody plays." "Shot" "feat-automation" "Alt" "A server's schedules on a phone: a backup every 6 hours and a message every Friday.")
+        (dict "Page" "/features/ai-agents" "Demo" "/demo/settings" "Title" "AI agents and more machines" "Text" "Claude, Cursor or a second VPS." "Shot" "feat-agents" "Alt" "AI agents on a phone: the address agents connect to, and a token for Claude.")
       }}
       {{$href := $f.Demo}}{{with page $f.Page}}{{$href = .Path}}{{end}}
       <a class="feature-card reveal" href="{{$href}}">
         <h3>{{$f.Title}}</h3>
         <p>{{$f.Text}}</p>
         <span class="corner">{{template "icon" "arrow-up-right"}}</span>
-        {{template "phone" (dict "Name" $f.Shot "Alt" $f.Alt)}}
+        {{template "phone" (dict "Name" $f.Shot "Alt" $f.Alt "Sizes" "(max-width: 639.98px) 126px, 182px")}}
       </a>
       {{end}}
     </div>
@@ -150,7 +153,7 @@ preload: loop-overview
       <a class="btn btn-primary btn-lg reveal" href="/demo/">Open the live demo{{template "icon" "arrow-right"}}</a>
     </div>
     <div class="demo-window reveal" data-parallax>
-      {{template "browser" (dict "Name" "demo-home" "URL" "playkeeper.io/demo" "Alt" "The live demo's Home: two sample servers, recent activity across them and the machine's memory, processor and disk.")}}
+      {{template "browser" (dict "Name" "demo-home" "URL" "playkeeper.io/demo" "Alt" "The live demo's Home: three sample servers, recent activity across them and the machine's memory, processor and disk." "Sizes" "(max-width: 639.98px) calc(100vw - 42px), (max-width: 1023.98px) calc(100vw - 66px), 706px")}}
     </div>
   </div>
 </section>

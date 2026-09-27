@@ -48,8 +48,6 @@ type Page struct {
 	// don't run.
 	Scripts, Styles []string
 	NoScript        string
-	// Preload is an image the page shows first, fetched early.
-	Preload string
 	// Blog posts: Tags, Author, Summary and Cover.
 	Tags            []string
 	Author, Summary string
@@ -194,8 +192,6 @@ func parsePage(src string) (*Page, error) {
 			p.Styles = fields(value)
 		case "noscript":
 			p.NoScript = value
-		case "preload":
-			p.Preload = value
 		case "tags":
 			p.Tags = fields(value)
 		case "author":

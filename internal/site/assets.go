@@ -112,6 +112,8 @@ func newAsset(key string, b []byte) (*asset, error) {
 		x.Width, x.Height = c.Width, c.Height
 	case ".webp":
 		x.Width, x.Height, err = webpSize(b)
+	case ".avif":
+		x.Width, x.Height, err = avifSize(b)
 	}
 	return x, err
 }
@@ -177,4 +179,48 @@ func webpSize(b []byte) (int, int, error) {
 		return w + 1, h + 1, nil
 	}
 	return 0, 0, fmt.Errorf("an unknown WebP chunk %q", b[12:16])
+}
+
+// avifSize reads an AVIF image's size from its image spatial extents
+// (ispe), in meta › iprp › ipco.
+func avifSize(b []byte) (int, int, error) {
+	ftyp := box(b, "ftyp")
+	if ftyp == nil || !bytes.Contains(ftyp, []byte("avif")) {
+		return 0, 0, fmt.Errorf("not an AVIF image")
+	}
+	// meta is a full box: its version and flags come first.
+	meta := box(b, "meta")
+	if len(meta) < 4 {
+		return 0, 0, fmt.Errorf("an AVIF image without its meta box")
+	}
+	ispe := box(box(box(meta[4:], "iprp"), "ipco"), "ispe")
+	if len(ispe) < 12 {
+		return 0, 0, fmt.Errorf("an AVIF image without its size (ispe)")
+	}
+	return int(binary.BigEndian.Uint32(ispe[4:8])), int(binary.BigEndian.Uint32(ispe[8:12])), nil
+}
+
+// box is what's in the first ISO media file box of type typ among the boxes
+// in b, or nil.
+func box(b []byte, typ string) []byte {
+	for len(b) >= 8 {
+		size, head := uint64(binary.BigEndian.Uint32(b[0:4])), uint64(8)
+		switch size {
+		case 0:
+			size = uint64(len(b))
+		case 1:
+			if len(b) < 16 {
+				return nil
+			}
+			size, head = binary.BigEndian.Uint64(b[8:16]), 16
+		}
+		if size < head || size > uint64(len(b)) {
+			return nil
+		}
+		if string(b[4:8]) == typ {
+			return b[head:size]
+		}
+		b = b[size:]
+	}
+	return nil
 }

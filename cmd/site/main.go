@@ -95,6 +95,8 @@ func mimeType(name string) string {
 		return "image/png"
 	case ".webp":
 		return "image/webp"
+	case ".avif":
+		return "image/avif"
 	case ".xml":
 		return "application/xml"
 	case ".txt":

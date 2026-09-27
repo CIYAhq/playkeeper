@@ -13,6 +13,9 @@ type ServerType struct {
 	Logo string
 	// Mods is whether it runs mods and modpacks rather than plugins.
 	Mods bool
+	// Pixel is whether its logo is pixel art in a small image, drawn pixel
+	// by pixel when it's scaled up, as the dashboard draws it.
+	Pixel bool
 }
 
 // The site shows each type with the dashboard's logo for it (web/src/assets,
@@ -26,6 +29,10 @@ var typeLogos = map[string]string{
 	"neoforge": "app/logos/neoforged-logo.svg",
 	"forge":    "app/logos/forge-apple-touch-icon.png",
 }
+
+// pixelLogos are the logos drawn as pixel art in small images: Fabric's is
+// 32 × 32.
+var pixelLogos = []string{"fabric"}
 
 // modLoaders are the types that run mods and modpacks.
 var modLoaders = []string{"fabric", "quilt", "neoforge", "forge"}
@@ -46,7 +53,7 @@ func serverTypes(order []string) []ServerType {
 		if !t.Available {
 			continue
 		}
-		out = append(out, ServerType{ID: t.ID, Name: t.Name, Logo: typeLogos[t.ID], Mods: slices.Contains(modLoaders, t.ID)})
+		out = append(out, ServerType{ID: t.ID, Name: t.Name, Logo: typeLogos[t.ID], Mods: slices.Contains(modLoaders, t.ID), Pixel: slices.Contains(pixelLogos, t.ID)})
 	}
 	rank := func(id string) int {
 		if i := slices.Index(order, id); i >= 0 {
