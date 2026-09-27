@@ -72,7 +72,7 @@ async function panel(page: Page) {
 
 /** Where the page's sticky header is: its top and bottom edges. */
 async function headerEdges(page: Page) {
-  const box = await page.locator('header[data-sticky-header]').boundingBox()
+  const box = await page.locator('header[data-sticky-header]').boundingBox({ timeout: 10_000 })
   if (!box) throw new Error('no sticky header')
   return { top: box.y, bottom: box.y + box.height }
 }
