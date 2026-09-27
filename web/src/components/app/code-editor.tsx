@@ -224,7 +224,8 @@ export const CodeEditor = forwardRef<
         theme,
         phone ? phoneTheme : [],
         editable.current.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
-        EditorView.contentAttributes.of({ 'aria-label': label, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' }),
+        // A read-only file isn't contenteditable, so without a tabindex the keyboard couldn't reach it to scroll.
+        EditorView.contentAttributes.of({ 'aria-label': label, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', tabindex: '0' }),
         keymap.of([
           {
             key: 'Mod-s',
