@@ -1,7 +1,10 @@
 // Social previews for playkeeper.io (site/static/og): 1200 × 630 PNGs with
 // the page's title and Pip on pixel ground, drawn from the site's own art.
-// The 0.4.0 post's preview is its cover. Run from test/e2e/ui:
+// The 0.4.0 post's preview is its cover; the live demo's goes with the demo,
+// which serves it itself (web/src/demo/vite.ts). The titles are Inter
+// ExtraBold, so draw them where Inter has that weight. Run from test/e2e/ui:
 //   node site-og.mjs            (writes ../../../site/static/og/*.png)
+//   node site-og.mjs demo docs  (draws only those)
 import { chromium } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -23,10 +26,13 @@ const previews = {
   pricing: { eyebrow: 'Pricing', title: 'Free and open source. You only pay for your VPS.', pip: 'pip-box' },
   blog: { eyebrow: 'Blog', title: 'Releases, guides and building Playkeeper in public', pip: 'pip-letter' },
   t: { eyebrow: 'Server template', title: 'A Minecraft server setup, shared from Playkeeper', pip: 'pip-search' },
+  demo: { eyebrow: 'Live demo', title: 'Try the dashboard in your browser', pip: 'pip-wave', file: 'web/src/demo/social.png' },
 }
+const only = process.argv.slice(2)
+const wanted = (name) => only.length === 0 || only.includes(name)
 
 const page = (p) => `<!doctype html><html><head><style>
-  body { margin: 0; width: 1200px; height: 630px; background: #f2f2ec; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1d211c; overflow: hidden; position: relative; }
+  body { margin: 0; width: 1200px; height: 630px; background: #f2f2ec; font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1d211c; overflow: hidden; position: relative; }
   .brand { position: absolute; left: 72px; top: 64px; display: flex; align-items: center; gap: 14px; font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
   .brand img { width: 48px; height: 48px; border-radius: 12px; }
   .eyebrow { position: absolute; left: 72px; top: 196px; font-size: 22px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #166534; }
@@ -52,11 +58,14 @@ const browser = await chromium.launch()
 const ctx = await browser.newContext({ viewport: { width: 1200, height: 630 }, deviceScaleFactor: 1 })
 const tab = await ctx.newPage()
 for (const [name, p] of Object.entries(previews)) {
+  if (!wanted(name)) continue
   await tab.setContent(page(p), { waitUntil: 'load' })
-  await tab.screenshot({ path: path.join(out, `${name}.png`) })
+  await tab.screenshot({ path: p.file ? path.join(repo, p.file) : path.join(out, `${name}.png`) })
   console.log(name)
 }
-await tab.setContent(cover, { waitUntil: 'load' })
-await tab.screenshot({ path: path.join(out, 'playkeeper-0-4-0.png') })
-console.log('playkeeper-0-4-0')
+if (wanted('playkeeper-0-4-0')) {
+  await tab.setContent(cover, { waitUntil: 'load' })
+  await tab.screenshot({ path: path.join(out, 'playkeeper-0-4-0.png') })
+  console.log('playkeeper-0-4-0')
+}
 await browser.close()

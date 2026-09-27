@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import type { Plugin } from 'vite'
+import type { HtmlTagDescriptor, Plugin } from 'vite'
 import { faceCount, faceSvg } from './faces.ts'
 import { iconCount, iconSvg } from './icons.ts'
 import { demoMarker } from './marker.ts'
@@ -21,6 +23,59 @@ const analytics = {
 }
 const noReferrer = '<meta name="referrer" content="no-referrer" />'
 
+/**
+ * playkeeper.io/demo/ as search engines and link previews see it: the one page
+ * of the demo in the site's sitemap (internal/site/seo.go). Its preview,
+ * social.png, is drawn like the site's (test/e2e/ui/site-og.mjs) and served
+ * from /demo/assets/, which robots.txt leaves open.
+ */
+const page = {
+  url: 'https://playkeeper.io/demo/',
+  title: "Live demo: Playkeeper's Minecraft server dashboard",
+  name: 'Playkeeper live demo',
+  description:
+    "Try Playkeeper's Minecraft server dashboard in your browser, with sample servers and players. Click anything: nothing is real, and it resets every hour.",
+  imageAlt: "Pip, Playkeeper's mascot, with the words Live demo: try the dashboard in your browser",
+}
+const shellTitle = '<title>Playkeeper</title>'
+
+function pageTags(image: string): HtmlTagDescriptor[] {
+  const meta = (key: 'name' | 'property', name: string, content: string): HtmlTagDescriptor => ({
+    tag: 'meta',
+    attrs: { [key]: name, content },
+    injectTo: 'head',
+  })
+  return [
+    meta('name', 'description', page.description),
+    { tag: 'link', attrs: { rel: 'canonical', href: page.url }, injectTo: 'head' },
+    meta('property', 'og:type', 'website'),
+    meta('property', 'og:site_name', 'Playkeeper'),
+    meta('property', 'og:title', page.name),
+    meta('property', 'og:description', page.description),
+    meta('property', 'og:url', page.url),
+    meta('property', 'og:image', image),
+    meta('property', 'og:image:width', '1200'),
+    meta('property', 'og:image:height', '630'),
+    meta('property', 'og:image:alt', page.imageAlt),
+    meta('name', 'twitter:card', 'summary_large_image'),
+    meta('name', 'twitter:title', page.name),
+    meta('name', 'twitter:description', page.description),
+    meta('name', 'twitter:image', image),
+    {
+      tag: 'noscript',
+      injectTo: 'body-prepend',
+      children: [
+        { tag: 'h1', children: page.name },
+        {
+          tag: 'p',
+          children:
+            'Playkeeper\'s dashboard with sample servers, running in your browser, so it needs JavaScript. <a href="/">Read about Playkeeper</a> or <a href="/docs">the docs</a>.',
+        },
+      ],
+    },
+  ]
+}
+
 // The pictures the demo draws itself: the folder, how many, and number n.
 const drawings: [string, number, (n: number) => string][] = [
   ['faces', faceCount, faceSvg],
@@ -34,9 +89,12 @@ const drawings: [string, number, (n: number) => string][] = [
  * reach the real ones, for ApiError and the upload's steps. The built page
  * loads the site's analytics, with the site's referrer policy: under
  * no-referrer, Firefox and Safari send its beacons with "Origin: null", which
- * its collector refuses.
+ * its collector refuses. It also gets its own title, description, address
+ * and link preview (page above).
  */
 export function demoBuild(): Plugin {
+  const preview = readFileSync(here('./social.png'))
+  const previewFile = `assets/social-${createHash('sha256').update(preview).digest('hex').slice(0, 8)}.png`
   return {
     name: 'playkeeper-demo',
     enforce: 'pre',
@@ -50,15 +108,20 @@ export function demoBuild(): Plugin {
       for (const [folder, count, svg] of drawings) {
         for (let n = 0; n < count; n++) this.emitFile({ type: 'asset', fileName: `${folder}/${n}.svg`, source: svg(n) })
       }
+      this.emitFile({ type: 'asset', fileName: previewFile, source: preview })
     },
     transformIndexHtml: {
       order: 'post',
       handler(html, ctx) {
         if (ctx.server) return html
-        if (!html.includes(noReferrer)) throw new Error(`index.html has no ${noReferrer} for the demo to replace`)
+        for (const want of [noReferrer, shellTitle]) {
+          if (!html.includes(want)) throw new Error(`index.html has no ${want} for the demo to replace`)
+        }
         return {
-          html: html.replace(noReferrer, '<meta name="referrer" content="strict-origin-when-cross-origin" />'),
-          tags: [{ tag: 'script', attrs: analytics, injectTo: 'head' }],
+          html: html
+            .replace(noReferrer, '<meta name="referrer" content="strict-origin-when-cross-origin" />')
+            .replace(shellTitle, `<title>${page.title}</title>`),
+          tags: [{ tag: 'script', attrs: analytics, injectTo: 'head' }, ...pageTags(page.url + previewFile)],
         }
       },
     },

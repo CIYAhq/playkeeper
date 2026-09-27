@@ -132,7 +132,7 @@ read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}
 
 read -r code type < <(curl -sS -o "$work/robots.txt" -w '%{http_code} %{content_type}\n' "$base/robots.txt")
 [ "$code" = 200 ] || fail "/robots.txt answered $code"
-for text in "Sitemap: $site/sitemap.xml" 'Allow: /demo/$' 'Disallow: /demo/'; do
+for text in "Sitemap: $site/sitemap.xml" 'Allow: /demo/$' 'Allow: /demo/assets/' 'Disallow: /demo/'; do
   grep -qxF "$text" "$work/robots.txt" || fail "/robots.txt does not say '$text'"
 done
 read -r code type < <(curl -sS -o "$work/sitemap.xml" -w '%{http_code} %{content_type}\n' "$base/sitemap.xml")
@@ -218,6 +218,23 @@ if grep -qE '<script>|<style|[[:space:]](style|on[a-z]+)=' "$page"; then
 fi
 grep -qF '<script src="https://analytics-c.ciya.so/oa.js" async' "$page" || fail "/demo/ does not load the analytics"
 grep -qF '<meta name="referrer" content="strict-origin-when-cross-origin"' "$page" || fail "/demo/ keeps no-referrer, which makes Firefox and Safari send the analytics' beacons from origin null"
+# Search engines index /demo/ and link previews show it, so it has a title,
+# description and address of its own, a preview image in /demo/assets/, which
+# robots.txt opens to them, and a heading and links without JavaScript.
+sed "s/&#39;/'/g; s/&amp;/\&/g" "$page" >"$work/text.html"
+grep -qE '<title>[^<]{10,70}</title>' "$work/text.html" || fail "/demo/ has no title of 10 to 70 characters"
+if grep -qF '<title>Playkeeper</title>' "$page"; then fail "/demo/ has the dashboard's title, not its own"; fi
+grep -qE '<meta name="description" content="[^"]{100,160}">' "$work/text.html" || fail "/demo/ has no description of 100 to 160 characters"
+grep -qF "<link rel=\"canonical\" href=\"$site/demo/\">" "$page" || fail "/demo/ does not name $site/demo/ as its canonical address"
+for tag in 'property="og:title"' 'property="og:description"' "property=\"og:url\" content=\"$site/demo/\"" 'name="twitter:card" content="summary_large_image"'; do
+  grep -qF "<meta $tag" "$page" || fail "/demo/ has no <meta $tag"
+done
+og=$(sed -n 's|.*<meta property="og:image" content="'"$site"'\(/demo/assets/[^"]*\.png\)">.*|\1|p' "$page")
+[ -n "$og" ] || fail "/demo/ has no social preview in /demo/assets/"
+read -r code type < <(curl -sS -o /dev/null -w '%{http_code} %{content_type}\n' "$base$og")
+[ "$code" = 200 ] || fail "/demo/'s social preview $og answered $code, not 200"
+[[ $type == image/png* ]] || fail "/demo/'s social preview $og is served as '$type'"
+grep -qF '<h1>Playkeeper live demo</h1>' "$page" || fail "/demo/ has no heading for when JavaScript doesn't run"
 check_files /demo/ "$page"
 # The pages load in chunks, so the demo's code can be in any chunk the entry reaches.
 "$root/scripts/demo-marker.sh" "$base" "$script" >/dev/null 2>"$work/marker.err" || fail "$(cat "$work/marker.err")"

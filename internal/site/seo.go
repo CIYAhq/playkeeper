@@ -49,9 +49,11 @@ func sitemap(base string, pages []*Page, today string) []byte {
 }
 
 // robots lets crawlers in, except the live demo's app pages: /demo/ itself is
-// indexed, every page under it is the same app with other sample data.
+// indexed, every page under it is the same app with other sample data. Its
+// files in /demo/assets/ stay open, since /demo/ is blank to a search engine
+// that can't load its scripts, and a link preview needs its image.
 func robots(base string) []byte {
-	return []byte("User-agent: *\nAllow: /demo/$\nDisallow: /demo/\n\nSitemap: " + base + "/sitemap.xml\n")
+	return []byte("User-agent: *\nAllow: /demo/$\nAllow: /demo/assets/\nDisallow: /demo/\n\nSitemap: " + base + "/sitemap.xml\n")
 }
 
 // feed is the blog's Atom feed.

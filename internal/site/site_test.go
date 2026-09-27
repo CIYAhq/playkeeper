@@ -283,7 +283,7 @@ func TestSitemapAndRobots(t *testing.T) {
 		t.Error("the sitemap doesn't list the live demo")
 	}
 	robots := string(o.Files["robots.txt"])
-	for _, line := range []string{"Allow: /demo/$", "Disallow: /demo/", "Sitemap: https://playkeeper.io/sitemap.xml"} {
+	for _, line := range []string{"Allow: /demo/$", "Allow: /demo/assets/", "Disallow: /demo/", "Sitemap: https://playkeeper.io/sitemap.xml"} {
 		if !strings.Contains(robots, line+"\n") {
 			t.Errorf("robots.txt doesn't say %q", line)
 		}
