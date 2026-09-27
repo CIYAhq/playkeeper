@@ -337,6 +337,48 @@ func TestChangesNeverReplaceWhatAppearsMeanwhile(t *testing.T) {
 	})
 }
 
+// Count counts a tree, links as themselves, and stops once it is past the
+// limit, without reading the rest.
+func TestCountStopsPastTheLimit(t *testing.T) {
+	e := newEnv(t)
+	e.put("world/level.dat", []byte("nbt"))
+	e.put("world/region/r.0.0.mca", []byte("region"))
+	e.put("world/region/r.0.1.mca", []byte("region"))
+	e.put("world/data/raids.dat", []byte("nbt"))
+	e.plant("world/panel", filepath.Join(e.outside, "panel"))
+	e.node("world/pipe", syscall.S_IFIFO)
+	check := e.watch()
+	var n int
+	err := e.noBlock(e.path("world/pipe"), func() error {
+		var err error
+		n, err = e.d.Count(context.Background(), "world", 100)
+		return err
+	})
+	if err != nil || n != 9 {
+		t.Fatalf("Count(world) = %d %v, want 9", n, err)
+	}
+	check()
+	for limit, want := range map[int]int{9: 9, 8: 9, 3: 4, 0: 1} {
+		if n, err := e.d.Count(context.Background(), "world", limit); err != nil || n != want {
+			t.Errorf("Count(world, %d) = %d %v, want %d", limit, n, err, want)
+		}
+	}
+	if n, err := e.d.Count(context.Background(), ".", 100); err != nil || n != 11 {
+		t.Fatalf("Count(.) = %d %v, want 11", n, err)
+	}
+	if n, err := e.d.Count(context.Background(), "world/level.dat", 100); err != nil || n != 1 {
+		t.Fatalf("Count of a file = %d %v", n, err)
+	}
+	if _, err := e.d.Count(context.Background(), "world/panel/tls", 100); KindOf(err) != KindLink {
+		t.Fatalf("Count through a link: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := e.d.Count(ctx, "world", 100); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Count with a cancelled context: %v", err)
+	}
+}
+
 func TestMoveRefusesAMissingDestinationFolder(t *testing.T) {
 	e := newEnv(t)
 	e.put("plugins/keep.yml", []byte("keep\n"))

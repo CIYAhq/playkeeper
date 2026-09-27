@@ -254,6 +254,59 @@ func (d *Dir) Walk(ctx context.Context, name string, limit int, fn func(p string
 	return d.walk(ctx, name, Entry{Name: path.Base(name), Mode: fi.Mode(), Size: fi.Size(), ModTime: fi.ModTime()}, limit, fn)
 }
 
+// Count counts name and everything in it, links and special files too, as
+// Walk would pass them, but not the data directory itself. It stops once
+// there are more than limit and returns limit+1. Folders are read as they
+// list their entries, without describing each one, so counting a tree
+// costs little more than listing its folders.
+func (d *Dir) Count(ctx context.Context, name string, limit int) (int, error) {
+	var fi fs.FileInfo
+	var err error
+	n := 0
+	if name == "." {
+		fi, err = d.root.Lstat(".")
+	} else {
+		fi, err = d.Lstat(name)
+		n = 1
+	}
+	switch {
+	case err != nil:
+		return 0, err
+	case n > limit:
+		return limit + 1, nil
+	case !fi.IsDir():
+		return n, nil
+	}
+	if err := d.count(ctx, name, limit, &n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+func (d *Dir) count(ctx context.Context, p string, limit int, n *int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	es, err := d.ReadDir(p, limit-*n)
+	if KindOf(err) == KindTooMany {
+		*n = limit + 1
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	*n += len(es)
+	for _, e := range es {
+		if !e.IsDir() {
+			continue
+		}
+		if err := d.count(ctx, join(p, e.Name()), limit, n); err != nil || *n > limit {
+			return err
+		}
+	}
+	return nil
+}
+
 func (d *Dir) walk(ctx context.Context, p string, e Entry, limit int, fn func(p string, e Entry) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
