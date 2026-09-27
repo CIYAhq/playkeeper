@@ -7,26 +7,21 @@ name: ARM64
 # onboarding, play with protocol bots, back up, restore on a second runner
 # installed with the one-line installer, start every server type with the
 # hand-picked add-ons, the map, pre-generation and a modpack, and uninstall.
-# It takes about an hour, so it runs on pull requests that change how
-# Playkeeper is built, installed or updated or which runtime images it pins,
-# when started by hand, and before each release: the release workflow runs it
-# on the assets it built (artifact) and publishes only if it passes.
+# It takes about 40 minutes, so it runs on pull requests that change how
+# Playkeeper is installed or updated or which runtime images it pins, when
+# started by hand, and in the release workflow on the assets it built
+# (artifact): before each release, which publishes only if it passes, and in
+# its dry run on pull requests that change the release path (the packaging,
+# the release scripts, the Makefile), which is why those aren't listed here.
 
 on:
   pull_request:
     paths:
       - .github/workflows/arm64.yml
-      - Makefile
       - go.mod
       - go.sum
-      - packaging/**
-      - scripts/package.sh
-      - scripts/release-*.sh
       - scripts/setup.sh
-      - scripts/sign-release.sh
-      - scripts/smoke-install.sh
       - scripts/toolchains.txt
-      - cmd/release-sign/**
       - internal/install/**
       - internal/update/**
       - internal/docker/**
@@ -52,6 +47,10 @@ concurrency:
 
 env:
   FORCE_COLOR: "0"
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   check:
@@ -327,8 +326,11 @@ jobs:
           PK_ADMIN_PASSWORD: ci-s-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           python3 test/e2e/software.py --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem --code "$(cat /tmp/evidence/code)" --out /tmp/evidence/software
-      - name: Uninstall
-        run: sudo playkeeper uninstall --yes | tee /tmp/evidence/uninstall.txt
+      - name: Uninstall leaves no services or listeners
+        run: |
+          sudo playkeeper uninstall --yes | tee /tmp/evidence/uninstall.txt
+          if systemctl list-unit-files | grep playkeeper; then echo "units left behind"; exit 1; fi
+          if sudo ss -ltnH | grep -E ':(8443|25565) '; then echo "listeners left behind"; exit 1; fi
       - name: Collect evidence
         if: always()
         run: |
