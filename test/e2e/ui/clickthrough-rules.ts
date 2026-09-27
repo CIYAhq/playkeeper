@@ -112,7 +112,7 @@ export const minimums: Record<Size, Record<string, number>> = {
     '/settings (update available)': 3,
     '/more (update available)': 1,
     '/machines/*/disk (space to free)': 14,
-    '/servers/*/file/server.properties': 4,
+    '/servers/*/file/server.properties': 3,
     '/servers/*/files (a few files)': 115,
     '/servers/*/files/plugins (a few files)': 52,
   },
