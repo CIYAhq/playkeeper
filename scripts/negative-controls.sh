@@ -780,6 +780,16 @@ control "start/stop no-op under the operation lock" internal/agent/handlers.go \
 	if err == nil && !running {
 		time.Sleep(50 * time.Millisecond)' \
   ./internal/agent '^TestConcurrentStartAndStopLeaveDesiredMatchingContainer$' 8
+# Asked before the backup looks at the server, busy misses a stop or restart
+# that begins meanwhile and is why it isn't online; the sleep holds that gap
+# open.
+control "a backup racing a stop or restart answers busy" internal/agent/handlers.go \
+  'if !req.Stopped {
+		if _, running, err := s.containerRunning(r.Context()); err == nil && running && !s.online(r.Context()) && !s.busy() {' \
+  'if !req.Stopped && !s.busy() {
+		time.Sleep(50 * time.Millisecond)
+		if _, running, err := s.containerRunning(r.Context()); err == nil && running && !s.online(r.Context()) {' \
+  ./internal/agent '^TestConcurrentOperationsAreSerialized$' 3
 
 control "release manifest signature" internal/update/manifest.go \
   'if !verified {' \
