@@ -32,7 +32,7 @@ schema: article
       <tbody>
         {{range types}}{{if .Mods}}{{$i := img .Logo}}
         <tr>
-          <th scope="row"><span class="loader-cell"><img src="{{$i.URL}}" alt="" width="34" height="34" loading="lazy">{{.Name}}</span></th>
+          <th scope="row"><span class="loader-cell"><img src="{{$i.URL}}" alt="" width="34" height="34"{{if .Pixel}} class="pixel"{{end}} loading="lazy">{{.Name}}</span></th>
           {{if eq .ID "fabric"}}<td>Light and quick to update. Most performance mods.</td><td>Cobblemon, Better MC</td>
           {{else if eq .ID "neoforge"}}<td>Big tech and magic packs.</td><td>All the Mods 10, Create packs</td>
           {{else if eq .ID "quilt"}}<td>Runs most Fabric mods too.</td><td>Most Fabric packs</td>

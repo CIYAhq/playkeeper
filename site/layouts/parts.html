@@ -98,7 +98,7 @@
 <div class="logos{{with .Class}} {{.}}{{end}}">
   <p class="eyebrow">Runs on</p>
   <ul class="logo-row">
-    {{range types}}{{$i := img .Logo}}<li><span class="logo-tile"><img src="{{$i.URL}}" alt="" width="28" height="28" loading="lazy" decoding="async"></span><span>{{.Name}}</span></li>{{end}}
+    {{range types}}{{$i := img .Logo}}<li><span class="logo-tile"><img src="{{$i.URL}}" alt="" width="28" height="28"{{if .Pixel}} class="pixel"{{end}} loading="lazy" decoding="async"></span><span>{{.Name}}</span></li>{{end}}
   </ul>
 </div>
 {{end}}
