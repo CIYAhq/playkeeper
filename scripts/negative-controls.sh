@@ -5266,14 +5266,10 @@ webcontrol "an add-on job's Close becomes Later, not Restart now, when it finish
               {t('"'"'common.later'"'"')}' \
   web/src/pages/server/plugins/plugins.test.tsx 'keeps focus on Close as the job finishes and a restart is needed'
 webcontrol "an add-on job's Close becomes Done when it finishes with nothing to restart" web/src/pages/server/plugins/dialogs.tsx \
-  '<>
-            <Button key="dismiss" size={size} onClick={a.closeJob}>
-              {t('"'"'common.done'"'"')}
-            </Button>
-          </>' \
   '<Button key="dismiss" size={size} onClick={a.closeJob}>
-              {t('"'"'common.done'"'"')}
-            </Button>' \
+            {t('"'"'common.done'"'"')}' \
+  '<Button size={size} onClick={a.closeJob}>
+            {t('"'"'common.done'"'"')}' \
   web/src/pages/server/plugins/plugins.test.tsx 'keeps focus on Close as the job finishes with nothing to restart'
 
 if [ "$bad" != 0 ]; then

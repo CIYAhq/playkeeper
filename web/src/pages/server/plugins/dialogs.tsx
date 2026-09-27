@@ -196,11 +196,9 @@ function JobBody({ job }: { job: Job }) {
             </Button>
           </>
         ) : (
-          <>
-            <Button key="dismiss" size={size} onClick={a.closeJob}>
-              {t('common.done')}
-            </Button>
-          </>
+          <Button key="dismiss" size={size} onClick={a.closeJob}>
+            {t('common.done')}
+          </Button>
         )}
       </DialogFooter>
     </>
