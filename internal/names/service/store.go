@@ -66,6 +66,15 @@ CREATE TABLE cert_sets (
 ) STRICT;
 CREATE INDEX cert_sets_by_name ON cert_sets (name, started_at);
 CREATE INDEX cert_sets_by_start ON cert_sets (started_at);
+`, `
+CREATE TABLE settings (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+) STRICT;
+` +
+	// Names from before this table were published under the service's
+	// first base domain, the only one it had run for.
+	`INSERT INTO settings (key, value) SELECT '` + settingBase + `', '` + DefaultBase + `' WHERE EXISTS (SELECT 1 FROM names);
 `}
 
 type queryer interface {

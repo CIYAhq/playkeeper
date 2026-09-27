@@ -124,6 +124,9 @@ func (s *Service) signed(h handler) http.HandlerFunc {
 		}
 		signer, err := names.VerifyRequest(r.Header, r.Method, r.URL.RequestURI(), body, s.base, s.now())
 		if err != nil {
+			if s.signedForPrevious(r, body, err) {
+				return s.updateRequired()
+			}
 			return err
 		}
 		res, err := s.db.ExecContext(r.Context(), `INSERT INTO nonces (key, nonce, expires_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`,
