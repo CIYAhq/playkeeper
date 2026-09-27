@@ -2,6 +2,17 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.1
+
+- **New server** lists CurseForge modpacks, like All the Mods 10, next to Modrinth's, with the key built into the release. In 0.4.0 its modpack search only ever showed Modrinth packs.
+- Mods that CurseForge lets only its own app download come from the pack's own server files when the pack publishes them, each checked against the checksum CurseForge lists, so packs like All the Mods 10 install with nothing to do by hand.
+- New server suggests the memory a modpack needs, from the pack's own settings and its mods: 12 GB for All the Mods 10, which ran out of memory with the 4 GB it got before. When the machine can't give that much, it says so.
+- Fixed: NeoForge servers for Minecraft 1.21 to 1.21.11, and modpacks built on them like All the Mods 10, stopped at the install step with "its library … has no valid path, SHA-1 or size".
+- **Map area**, in the Map tab's options: fill in more of the world, from 1,000 to 10,000 blocks around spawn or up to the world border, so the map shows more than the land players explored. Each size shows its time and disk space before it starts, and filling in can pause while people play.
+- Headers with tabs stay at the top while the page scrolls, pages and tabs switch without fading, Settings' section list glides to each section, and everything you can click shows a pointer.
+- A search on the Plugins or Mods tab that finds nothing says that modpacks are chosen when you create a server, with a link there.
+- Fixed: on an iPhone, tapping a link while the dashboard or the live demo was still loading reloaded the page instead of following the link.
+
 ## 0.4.0
 
 - A Plugins tab, called Mods on Fabric, Quilt, NeoForge and Forge servers: search Modrinth and Hangar in one list that only shows what works on your server, install with the dependencies it needs, update one or all, and remove with or without its settings. Every download is checked against the checksum its library publishes before it goes in the folder. Plugins you added by hand are listed too, and Playkeeper can take over the ones the library recognises.
