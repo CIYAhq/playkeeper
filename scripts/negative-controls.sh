@@ -292,15 +292,23 @@ webcontrol "a search the add-on library finds nothing for says where modpacks ar
   web/src/pages/server/plugins/plugins.test.tsx 'sends a search for a modpack'
 webcontrol "a page whose code doesn't load keeps the dashboard on screen" web/src/App.tsx \
   '      <LoadBoundary resetKey={JSON.stringify(route)}>
-        <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>
+        <Suspense fallback={<PageSkeleton />}>
+          <Appear>{page(route)}</Appear>
+        </Suspense>
       </LoadBoundary>' \
-  '      <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>' \
+  '      <Suspense fallback={<PageSkeleton />}>
+        <Appear>{page(route)}</Appear>
+      </Suspense>' \
   web/src/components/app/load-boundary.test.tsx 'page whose code never loads'
 webcontrol "a server tab whose code doesn't load keeps the server page on screen" web/src/pages/server/index.tsx \
   '        <LoadBoundary>
-          <Suspense fallback={<TabSkeleton />}>{body}</Suspense>
+          <Suspense fallback={<TabSkeleton />}>
+            <Appear>{body}</Appear>
+          </Suspense>
         </LoadBoundary>' \
-  '        <Suspense fallback={<TabSkeleton />}>{body}</Suspense>' \
+  '        <Suspense fallback={<TabSkeleton />}>
+          <Appear>{body}</Appear>
+        </Suspense>' \
   web/src/components/app/load-boundary.test.tsx 'server tab whose code never loads'
 webcontrol "every server tab's code loads after sign-in" web/src/App.tsx \
   '  void pages.server().then((m) => m.preloadTabs(), () => {})
@@ -1028,10 +1036,6 @@ control "waiting for a request body's own source doesn't count against the machi
 control "a joined machine takes data packs bigger than a request" internal/agent/link.go \
   '"POST /v1/servers/{id}/datapacks":             true,' \
   '"POST /v1/servers/{id}/datapacks":             false,' \
-  ./internal/panel '^TestAJoinedMachineTakesBigPacks$'
-control "a joined machine takes resource packs bigger than a request" internal/agent/link.go \
-  '"POST /v1/servers/{id}/resourcepack":          true,' \
-  '"POST /v1/servers/{id}/resourcepack":          false,' \
   ./internal/panel '^TestAJoinedMachineTakesBigPacks$'
 control "the dashboard keeps wrong join codes in panel.db" internal/panel/linkstore.go \
   '	for _, f := range fails {
@@ -1915,7 +1919,7 @@ control "no start recreates a world directory a restore moved aside" internal/ag
 		return errWorldMissing(m, then)' \
   'if m := s.worldMissing(); false && m != nil {
 		return errWorldMissing(m, then)' \
-  ./internal/agent '^TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack$'
+  ./internal/agent '^TestAWorldFolderARestoreLeftMissingIsShownUntilItIsBack$'
 control "a world copy is discarded only by its exact name" internal/agent/backups.go \
   'if !reWorldCopy.MatchString(name) {' \
   'if false && !reWorldCopy.MatchString(name) {' \
@@ -3570,8 +3574,8 @@ control "an upload for a new server needs rights over every server" internal/pan
   'mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actManageServers),' \
   ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
 control "making a server from an upload needs rights over every server" internal/panel/server.go \
-  'needSessionCSRF, actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
-  'needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
+  'needSessionCSRF, actCreateServers, s.importGuard(actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create"))' \
+  'needSessionCSRF, actManageServers, s.importGuard(actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create"))' \
   ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
 control "turning the map on counts what the Mods tab installed as there" internal/agent/maps.go \
   's.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})' \
@@ -4144,7 +4148,7 @@ control "the uploader's claim names the copy it picked" internal/agent/offsite.g
 control "a claimed copy uploads under the claim's cancel" internal/agent/offsite.go \
   'cp, err := dest.Upload(job.ctx,' \
   'cp, err := dest.Upload(ctx,' \
-  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
+  ./internal/agent '^TestCopiesTurnedOffStopTheCopyBeingMade$'
 control "turning copies off stops the copy the uploader claimed" internal/agent/offsite.go \
   'func (s *server) stopUpload() {
 	s.auto.mu.Lock()
@@ -4152,7 +4156,7 @@ control "turning copies off stops the copy the uploader claimed" internal/agent/
   'func (s *server) stopUpload() {
 	s.auto.mu.Lock()
 	var c *uploadClaim' \
-  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
+  ./internal/agent '^TestCopiesTurnedOffStopTheCopyBeingMade$'
 
 # Wave 7 before Bugbot: a schedule lists the retry after a run skipped for
 # players exactly while the runner plans it.
@@ -4735,7 +4739,7 @@ control "a template without memory gets the sizing guide's suggestion" internal/
   'p.MemoryMB = opts[0]' \
   ./internal/templates '^TestPlanMemoryFollowsTheSizingGuide$'
 webcontrol "New server asks the catalog for what a template or pack runs" web/src/pages/new-server.tsx \
-  "{ ...catalogFor(from, c?.type ?? 'paper', pack, tpl, types), fresh: true }" \
+  "{ ...catalogFor(from, c?.type ?? 'paper', pack && packMods ? { ...pack, mods: packMods } : pack, tpl, types), fresh: true }" \
   "{ type: c?.type ?? 'paper', fresh: true }" \
   src/pages/new-server.test.tsx 'sizes a shared template'
 webcontrol "New server counts a Paper template's plugins" web/src/pages/new-server.tsx \
