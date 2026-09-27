@@ -1592,6 +1592,10 @@ control "file browser: a cancelled upload puts nothing more in place" internal/a
   'up.gone || f.placed' \
   'f.placed' \
   ./internal/agent '^TestACancelledUploadPutsNothingInPlace$'
+control "recent activity reads on past a big upload" internal/agent/analytics.go \
+  'if len(out) > limit || len(rows) < n || n >= maxActivityRows {' \
+  'if true || len(out) > limit || len(rows) < n || n >= maxActivityRows {' \
+  ./internal/agent '^TestABigUploadDoesntHideOlderActivity$'
 control "recent activity names the server's folder as the file browser does" internal/agent/analytics.go \
   'folder := shown(path.Dir(e.Detail))' \
   'folder := path.Dir(e.Detail)' \

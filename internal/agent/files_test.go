@@ -1070,6 +1070,30 @@ func TestAFileIsPutInPlaceOnce(t *testing.T) {
 	}
 }
 
+// A folder uploaded with more files than the recent activity reads rows for
+// its lines is one line, and what happened before it still shows.
+func TestABigUploadDoesntHideOlderActivity(t *testing.T) {
+	e, _ := idleFilesServer(t)
+	s := e.srv()
+	s.audit("admin", "files.saved", "server.properties", "succeeded", "server.properties")
+	time.Sleep(3 * time.Millisecond)
+	for i := range 100 {
+		p := fmt.Sprintf("plugins/Big/%03d.yml", i)
+		s.audit("admin", "files.uploaded", p, "succeeded", p)
+	}
+	list, err := e.a.Activity(e.sid, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, a := range list {
+		got = append(got, fmt.Sprintf("%s %s %d", a.Kind, a.Detail, a.Count))
+	}
+	if want := "file_uploaded plugins/Big 100\nfile_saved server.properties 0"; strings.Join(got, "\n") != want {
+		t.Fatalf("activity:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
+
 // Every change is in the audit log and in the server's recent activity, and
 // a run of uploads into one folder shows as one line.
 func TestFileChangesAreAuditedAndShownAsActivity(t *testing.T) {

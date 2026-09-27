@@ -473,9 +473,32 @@ func (a *Agent) Activity(serverID string, limit int) ([]api.Activity, error) {
 	for _, k := range auKinds {
 		args = append(args, k)
 	}
-	// Runs of uploads become one line each, so more rows are read than
-	// the lines asked for.
-	args = append(args, serverID, serverID, min(limit*4, 1000))
+	args = append(args, serverID, serverID)
+	// Runs of uploads become one line each, so more rows are read than the
+	// lines asked for, and more again while the runs leave too few lines,
+	// as a folder of a thousand files uploaded does.
+	var out []api.Activity
+	for n := min(limit*4, 1000); ; n *= 4 {
+		rows, err := a.activityRows(q, append(args, n))
+		if err != nil {
+			return nil, err
+		}
+		out = mergeUploads(rows)
+		if len(out) > limit || len(rows) < n || n >= maxActivityRows {
+			break
+		}
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// maxActivityRows caps the rows one look at the recent activity reads.
+const maxActivityRows = 16_000
+
+// activityRows reads the rows of Activity's query q, newest first.
+func (a *Agent) activityRows(q string, args []any) ([]api.Activity, error) {
 	rows, err := a.db.Query(q, args...)
 	if err != nil {
 		return nil, err
@@ -500,14 +523,7 @@ func (a *Agent) Activity(serverID string, limit int) ([]api.Activity, error) {
 		}
 		out = append(out, e)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	out = mergeUploads(out)
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out, nil
+	return out, rows.Err()
 }
 
 func keys(m map[string]string) []string {
