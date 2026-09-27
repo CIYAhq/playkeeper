@@ -1,0 +1,47 @@
+{{/*
+path: /docs
+title: Playkeeper docs: install, run and fix your Minecraft server
+description: Playkeeper's docs, built from the repository: requirements and install, addresses, add-ons, backups, your team, more machines, AI agents and troubleshooting.
+label: Docs
+h1: Playkeeper docs
+kind: Docs
+section: docs
+layout: docs
+og: docs
+closing: none
+scripts: js/docs-search.js
+*/}}
+
+{{define "main"}}
+<h1 class="h1-docs hero-rise">Playkeeper docs</h1>
+<p class="lead hero-after">From the first command to friends playing, and what to do when something breaks.</p>
+<p class="meta hero-after">For Playkeeper {{.Site.Version}} · built from the repository's own docs</p>
+
+<div class="docs-search hero-after" role="search" data-search data-index="{{asset "js/docs-index.js"}}">
+  <label for="docs-q">{{template "icon" "search"}}<span class="visually-hidden">Search the docs</span></label>
+  <input id="docs-q" type="search" placeholder="Search the docs" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false" aria-controls="docs-results" aria-autocomplete="list">
+  <kbd aria-hidden="true" data-kbd>⌘K</kbd>
+  <ul class="docs-results" id="docs-results" role="listbox" aria-label="Results" hidden></ul>
+</div>
+
+{{$groups := docGroups}}
+{{range $groups}}{{if eq .Title "Get started"}}
+<h2 class="docs-h2 reveal">Start here</h2>
+<div class="start-grid">
+  {{range $i, $e := .Entries}}<a class="start-card reveal" href="{{$e.URL}}"><span class="num">{{add $i 1}}</span><span><strong>{{$e.Label}}</strong><span>{{$e.Blurb}}</span></span>{{template "icon" "arrow-right"}}</a>{{end}}
+</div>
+{{end}}{{end}}
+
+<h2 class="docs-h2 reveal">Everything else</h2>
+<div class="else-grid">
+  {{range $groups}}{{if and (ne .Title "Get started") (ne .Title "Project")}}
+  <section class="else-card reveal" aria-label="{{.Title}}">
+    <h3><span class="badge-icon" aria-hidden="true">{{if eq .Title "Everyday"}}{{template "icon" "sparkles"}}{{else if eq .Title "Advanced"}}{{template "icon" "server"}}{{else}}{{template "icon" "info"}}{{end}}</span>{{.Title}}</h3>
+    <ul>{{range .Entries}}<li><a href="{{.URL}}"><span><strong>{{.Label}}</strong>{{with .Blurb}}<span>{{.}}</span>{{end}}</span>{{template "icon" "chevron-right"}}</a></li>{{end}}</ul>
+  </section>
+  {{end}}{{end}}
+</div>
+{{range $groups}}{{if eq .Title "Project"}}{{range .Entries}}
+<a class="contrib-card reveal" href="{{.URL}}"><span class="badge-icon" aria-hidden="true">{{template "icon" "users"}}</span><span><strong>{{.Label}}</strong><span>{{.Blurb}}</span></span><span class="link-arrow">Read the guide{{template "icon" "arrow-right"}}</span></a>
+{{end}}{{end}}{{end}}
+{{end}}

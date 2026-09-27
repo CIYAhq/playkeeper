@@ -49,6 +49,7 @@ export function AppShell({ route, children }: { route: Route; children: ReactNod
     <>
       <CommandPalette open={palette.open} serversOnly={palette.servers} onOpenChange={(open) => setPalette({ open })} route={route} onShortcuts={() => setShortcuts(true)} />
       <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
+      {demo?.Overlay && <demo.Overlay />}
     </>
   )
 

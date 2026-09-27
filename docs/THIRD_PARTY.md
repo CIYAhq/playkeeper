@@ -67,6 +67,10 @@ Spigot, Bukkit and Folia are not offered. Add-on sources (Modrinth, Hangar, Curs
 
 Build and test tools (Vite, TypeScript, ESLint, Vitest, happy-dom [MIT], Playwright [Apache-2.0], axe-core [MPL-2.0], mineflayer [MIT]) are development dependencies and are not shipped, apart from the two small pieces of Vite and Rolldown code listed above that the bundler puts into the UI.
 
+## The website
+
+playkeeper.io (`site/`) is built by `cmd/site`, which renders the docs' Markdown with [goldmark](https://github.com/yuin/goldmark) v1.8.6 (MIT); goldmark runs only while the site is built and is not in the binary or the pages. The pages carry a few icon paths from [Lucide](https://lucide.dev) (ISC), like the dashboard, and show the same server software logos, Pip and pixel art from `web/src/assets`, under the terms above.
+
 ## Downloaded at runtime on the user's server (not redistributed)
 
 | Component | How it is obtained | Terms |

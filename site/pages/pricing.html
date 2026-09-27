@@ -1,0 +1,56 @@
+{{/*
+path: /pricing
+title: Pricing: Playkeeper is free and open source
+description: Playkeeper is free and open source (AGPL-3.0): every feature, as many servers as your VPS fits. You only pay for the VPS. Storage and partner hosting come later.
+label: Pricing
+kind: Pricing
+section: pricing
+og: pricing
+*/}}
+
+{{define "main"}}
+<section class="band-chalk page-hero page-hero-center pricing-hero" aria-labelledby="page-title">
+  <div class="container">
+    <h1 id="page-title" class="h1-page hero-rise">Free and open source. You only pay for your VPS.</h1>
+    <p class="lead hero-after">Every feature is free, on as many servers as your VPS can run.</p>
+    <div class="pricing-grid">
+      <article class="price-card is-now hero-after" aria-labelledby="plan-self">
+        <div class="price-card-head"><h2 id="plan-self">Self-hosted</h2><span class="badge badge-now">Available now</span></div>
+        <p class="price">Free</p>
+        <p class="price-note">AGPL-3.0 · on your own VPS</p>
+        <ul class="checks">
+          <li>{{template "icon" "check"}}Every feature, no limits</li>
+          <li>{{template "icon" "check"}}As many servers as your VPS fits</li>
+          <li>{{template "icon" "check"}}Your worlds stay on your server</li>
+          <li>{{template "icon" "check"}}Signed updates that roll back</li>
+        </ul>
+        <div class="foot"><a class="btn btn-primary" href="#install" data-copy="{{.Settings.InstallCommand}}" data-copy-toast>{{template "icon" "copy"}}<span data-copy-label>Copy the install command</span></a></div>
+      </article>
+      <article class="price-card hero-after" aria-labelledby="plan-storage">
+        <div class="price-card-head"><h2 id="plan-storage">Off-site backup storage</h2><span class="badge badge-later">Coming later</span></div>
+        <img class="pip" src="{{asset "app/pip/pip-letter.svg"}}" alt="" width="48" height="48">
+        <p class="body">Encrypted copies of your worlds, kept off your VPS and inside your backup rules.</p>
+        <p class="note">Every feature stays free. This is only storage.</p>
+        <div class="foot"><a class="btn btn-outline" href="{{.Settings.Repo}}">Watch releases on GitHub{{template "icon" "arrow-up-right"}}</a></div>
+      </article>
+      <article class="price-card hero-after" aria-labelledby="plan-partner">
+        <div class="price-card-head"><h2 id="plan-partner">Run by a partner</h2><span class="badge badge-later">Coming later</span></div>
+        <img class="pip" src="{{asset "app/pip/pip-box.svg"}}" alt="" width="48" height="48">
+        <p class="body">A hosting company installs Playkeeper and looks after it for you.</p>
+        <p class="note">For groups who'd rather not run a server at all.</p>
+        <div class="foot"><a class="btn btn-outline" href="{{.Settings.Repo}}">Watch releases on GitHub{{template "icon" "arrow-up-right"}}</a></div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="band band-white">
+  <div class="container">
+    {{template "faq" (dict "ID" "questions" "Items" (list
+      (qa "Why is it free?" "Playkeeper is open source (AGPL-3.0), and every feature stays free. A paid add-on will only ever be storage you'd otherwise rent yourself.")
+      (qa "What's the catch?" "There's none in the software: no ads, limits or trial. You pay your VPS provider, and Playkeeper does the setup, backups and updates.")
+      (qa "What does a VPS cost?" `From a few dollars a month for a small group, more for big modpacks. <a href="/sizing">The sizing guide</a> suggests a size, and each provider lists today's price.`)
+    ))}}
+  </div>
+</section>
+{{end}}

@@ -73,7 +73,7 @@ A token can use 20 tools, each checked against its rights and servers. A Viewer 
 
 **Supply chain.** The runtime images (one per Java version) are pinned by digest; every Paper jar is checked before its first run against the SHA-256 that PaperMC's Fill API publishes for the build (servers created by 0.1.0 keep the checksums pinned in that release), and the other server types, add-ons, modpacks and a template's data packs against the hashes their sources publish (see **Server types, modpacks and templates**); releases are signed as described above; contributor toolchains are pinned by checksum; CI actions are pinned by commit SHA. Nothing proprietary is shipped (see [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)).
 
-**Scans (2026-09-24).** `govulncheck` v1.8.0 (Go 1.27.1): 0 vulnerabilities affecting Playkeeper (one advisory for the unmaintained `golang.org/x/crypto/openpgp`, which is not imported). `npm audit` for the UI: 0 vulnerabilities.
+**Scans (2026-09-26).** `govulncheck` v1.8.0 (Go 1.27.1): 0 vulnerabilities affecting Playkeeper (one advisory for the unmaintained `golang.org/x/crypto/openpgp`, which is not imported). `npm audit` for the UI: 0 vulnerabilities.
 
 **Known limitations.**
 - At the IP address the certificate is self-signed; users must compare the fingerprint printed by the installer on first visit. Only a name (a free one or an own domain, from 0.4.0) gets a publicly trusted certificate.

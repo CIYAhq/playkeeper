@@ -14,6 +14,8 @@ export interface DemoParts {
   templates: boolean
   /** A way to start from a world without a world file at hand, under the upload box. */
   SampleWorld?: ComponentType<{ onPick: (files: File[]) => void }>
+  /** What the demo shows over every page: the first-visit sheet and, after a few actions, the quiet prompt. */
+  Overlay?: ComponentType
 }
 
 /**

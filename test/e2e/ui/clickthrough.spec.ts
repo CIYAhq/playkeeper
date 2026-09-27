@@ -167,15 +167,6 @@ function fakedCrawls(live: string[], phone: boolean): Crawl[] {
   return byView.flatMap(([view, pages]) => pages.map((route) => ({ route, view })))
 }
 
-/** A page as the minimums name it: its route without a server's slug or a machine's id, and its view. */
-function pageOf(c: { route: string; view?: View }): string {
-  const route = c.route
-    .replace(/^\/servers\/(?!new$)[^/]+/, '/servers/*')
-    .replace(/^\/machines\/[^/]+/, '/machines/*')
-    .replace(/^\/settings\/machines\/[^/]+/, '/settings/machines/*')
-  return where(route, c.view)
-}
-
 /**
  * The fewest controls a page must have pressed, a little under what it has
  * now, so a page that stops showing its controls fails even when nothing on
@@ -285,7 +276,7 @@ interface Place {
   what: string
   sizes: Size[]
   view?: View
-  /** The pages it's pressed on, named as the minimums name them; a crawl CRAWL_ROUTES limits asks for it only on those. */
+  /** The pages it's pressed on, named by crawlName; a crawl CRAWL_ROUTES limits asks for it only on those. */
   pages: string[]
   /** The control that must be pressed there. */
   key: RegExp
@@ -366,7 +357,11 @@ function routeFilter(value: string | undefined): string[] | undefined {
   return names.length > 0 ? names : undefined
 }
 
-/** A page as CRAWL_ROUTES names it: its route with each server, machine and shared link as *, and its view in brackets. */
+/**
+ * A page as CRAWL_ROUTES, the minimums, the places and the pass bar name it:
+ * its route with each server, machine and shared link as *, and its view in
+ * brackets. New server and its steps aren't a server.
+ */
 function crawlName(c: { route: string; view?: View }): string {
   const route = c.route
     .replace(/^\/servers\/(?!new(?:$|#))[^/]+/, '/servers/*')
@@ -387,7 +382,7 @@ function passBar(size: Size, report: CrawlReport, pages: string[], rules: Rules 
   if (failures) problems.push(failures)
   problems.push(...report.unreached)
   const counts = new Map<string, number>(pages.map((p) => [p, 0]))
-  for (const r of report.results) counts.set(pageOf(r), (counts.get(pageOf(r)) ?? 0) + 1)
+  for (const r of report.results) counts.set(crawlName(r), (counts.get(crawlName(r)) ?? 0) + 1)
   for (const [p, n] of counts) {
     const min = rules.minimums[p] ?? 1
     if (n < min) problems.push(`${size} ${p}: ${n} control${n === 1 ? '' : 's'} pressed, fewer than its minimum of ${min}`)
@@ -469,7 +464,7 @@ for (const [name, size] of Object.entries(sizes)) {
       await outCrawler.init()
       for (const c of outCrawls) {
         await outCrawler.crawl(c.route, c.view)
-        pages.push(pageOf(c))
+        pages.push(crawlName(c))
       }
       for (const route of nothingThere) await outCrawler.crawl(route)
       negatives.push(...(await negativeControls(outCrawler, name as Size, false)))
@@ -488,7 +483,7 @@ for (const [name, size] of Object.entries(sizes)) {
       const stepCrawler = new Crawler(await secondStep.newPage(), name, base, log)
       await stepCrawler.init()
       await stepCrawler.crawl(second.route, second.view)
-      pages.push(pageOf(second))
+      pages.push(crawlName(second))
       negatives.push(...(await negativeControls(stepCrawler, name as Size, false)))
       report.results.push(...stepCrawler.results)
       report.notes.push(...stepCrawler.notes)
@@ -505,7 +500,7 @@ for (const [name, size] of Object.entries(sizes)) {
     const { live, shared } = await routes(page, name === 'phone')
     for (const c of [...live.map((route): Crawl => ({ route, view: 'live' })), ...fakedCrawls(live, name === 'phone')].filter(wanted)) {
       await crawler.crawl(c.route, c.view)
-      pages.push(pageOf(c))
+      pages.push(crawlName(c))
     }
     negatives.push(...(await negativeControls(crawler, name as Size, true)))
     report.results.push(...crawler.results)
@@ -683,6 +678,26 @@ test('CRAWL_ROUTES names pages with each server, machine and link as *, and the 
   const missed = results.filter((r) => !r.key.startsWith('button "Delete'))
   expect(passBar('desktop', { results: missed, notes: [], unreached: [] }, crawled, rules, new Set(crawled))).toEqual(['desktop /machines/*/disk (space to free): 0 controls pressed, fewer than its minimum of 1', 'desktop: never pressed deleting old backups (/^button "Delete # · .+"/)'])
   expect(passBar('desktop', { results: results.slice(1), notes: [], unreached: [] }, crawled, rules, new Set(crawled))).toEqual(['desktop /: 1 control pressed, fewer than its minimum of 2'])
+})
+
+test('a CRAWL_ROUTES crawl of New server’s world step counts on that page, not on the Overview', () => {
+  const works = (route: string, key: string): Result => ({ viewport: 'desktop', route, view: 'live', via: [], key, status: 'works', effects: ['changed the page'], problems: [] })
+  const rules: Rules = { minimums: { '/servers/*': 21, '/servers/new': 36 }, places: [] }
+  const filter = routeFilter('/servers/new#world') ?? []
+  const crawls: Crawl[] = [{ route: '/servers/survival', view: 'live' }, { route: '/servers/new', view: 'live' }, { route: '/servers/new#world', view: 'live' }]
+  // As the crawl does: the filter picks pages by crawlName, and the pass bar is given them and counts by it.
+  const pages = crawls.filter((c) => filter.includes(crawlName(c))).map(crawlName)
+  expect(pages).toEqual(['/servers/new#world'])
+  const results = [works('/servers/new#world', 'button "Choose a world file"')]
+  expect(passBar('desktop', { results, notes: [], unreached: [] }, pages, rules, new Set(pages))).toEqual([])
+  expect(passBar('desktop', { results: [], notes: [], unreached: [] }, pages, rules, new Set(pages))).toEqual(['desktop /servers/new#world: 0 controls pressed, fewer than its minimum of 1'])
+  // Negative control, the pass bar's old name for a page, which filed New
+  // server's steps under the Overview: the Overview's minimum then applies.
+  const old = (c: { route: string; view?: View }) => where(c.route.replace(/^\/servers\/(?!new$)[^/]+/, '/servers/*'), c.view)
+  const oldPages = crawls.filter((c) => filter.includes(crawlName(c))).map(old)
+  expect(oldPages).toEqual(['/servers/*'])
+  const oldResults = results.map((r) => ({ ...r, route: old(r) }))
+  expect(passBar('desktop', { results: oldResults, notes: [], unreached: [] }, oldPages, rules, new Set(oldPages))).toEqual(['desktop /servers/*: 1 control pressed, fewer than its minimum of 21'])
 })
 
 test('the add-on fixtures answer as the panel would, work out plans against the folder and have no answer for what was never recorded', () => {

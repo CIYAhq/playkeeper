@@ -1,9 +1,20 @@
-# site/Dockerfile builds from the repository root; it only needs site/ and
-# web/, without anything installed or built in them.
+# site/Dockerfile builds from the repository root; it needs the site, the
+# code cmd/site reads, the docs and the dashboard in web/ for the live demo
+# (whose art the site uses too), without anything installed or built.
 *
+!go.mod
+!go.sum
+!cmd/site/
+!internal/
 !site/
 !web/
 web/node_modules/
 web/dist/
 web/dist-demo/
+!README.md
+!CHANGELOG.md
+!CONTRIBUTING.md
+!SECURITY.md
+!docs/
+site/dist/
 **/.DS_Store

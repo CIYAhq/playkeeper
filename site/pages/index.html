@@ -1,0 +1,216 @@
+{{/*
+path: /
+title: Playkeeper: a free Minecraft server panel for your own VPS
+description: Playkeeper turns an Ubuntu VPS into a Minecraft: Java Edition server host with one command: mods, modpacks, backups and a free address. Free and open source.
+label: Playkeeper
+layout: landing
+og: landing
+schema: software
+styles: css/sizing.css
+noscript: css/sizing-nojs.css
+scripts: js/landing.js, js/sizing-data.js, js/sizing.js
+preload: loop-overview
+*/}}
+
+{{define "main"}}
+<section class="hero band-chalk" aria-labelledby="hero-title">
+  <div class="container hero-row">
+    <div class="hero-text">
+      {{with page "/blog/playkeeper-0-4-0"}}<a class="release-pill hero-rise" href="{{.Path}}"><span class="dot" aria-hidden="true"></span>Playkeeper {{$.Site.Version}} is out <strong>What's new{{template "icon" "arrow-right"}}</strong></a>{{end}}
+      <h1 id="hero-title" class="h1-hero"><span class="line hero-rise">Your VPS.</span> <span class="line hero-rise">Your Minecraft servers.</span> <span class="line line-green hero-rise">Your worlds.</span></h1>
+      <p class="hero-sub hero-after">Playkeeper turns an Ubuntu VPS into a Minecraft: Java Edition server host. One command installs it. Free and open source.</p>
+      <div class="hero-after">{{template "install" (dict "ID" true)}}</div>
+      <div class="hero-actions hero-after">
+        <a class="btn btn-outline btn-lg" href="/demo/">Try the live demo{{template "icon" "arrow-right"}}</a>
+        <a class="btn btn-outline btn-lg" href="{{.Settings.Repo}}">{{template "icon" "star"}}Star on GitHub</a>
+      </div>
+    </div>
+    <div class="hero-art">
+      <div class="product" data-product>
+        <figure class="browser product-browser" data-loop>
+          <div class="browser-bar" aria-hidden="true"><span class="browser-dots"><i></i><i></i><i></i></span><span class="browser-url">{{template "icon" "lock"}}<span class="browser-url-text">alex.playkeeper.io:8443</span></span></div>
+          <div class="browser-view">
+            {{template "shot" (dict "Name" "loop-new-server" "Alt" "" "Class" "loop-frame f1")}}
+            {{template "shot" (dict "Name" "loop-setting-up" "Alt" "" "Class" "loop-frame f2")}}
+            {{template "shot" (dict "Name" "loop-setting-up-2" "Alt" "" "Class" "loop-frame f2b")}}
+            {{template "shot" (dict "Name" "loop-overview" "Alt" "The Survival server's Overview in the Playkeeper dashboard: its join address, who's playing, how it's running and the players over the last day." "Class" "loop-frame f3" "Eager" true)}}
+            <span class="loop-cursor" aria-hidden="true"></span>
+          </div>
+        </figure>
+        {{template "phone" (dict "Name" "hero-map-phone" "Alt" "The Map tab on a phone: the world from above, with three players' positions." "Class" "product-phone" "Eager" true)}}
+        <img class="product-pip" src="{{asset "app/pip/pip-wave.svg"}}" alt="" width="84" height="84" data-pip>
+        <div class="moment moment-copied" data-moment="copied" aria-hidden="true"><span class="moment-icon">{{template "icon" "check"}}</span><span>Join address copied<small>survival.alex.playkeeper.io</small></span></div>
+        <div class="moment moment-joined" data-moment="joined" aria-hidden="true"><img src="{{asset "img/face-mara.svg"}}" alt="" width="32" height="32"><span>mara_k joined Survival<small>just now</small></span></div>
+      </div>
+    </div>
+  </div>
+  <div class="ground" aria-hidden="true"></div>
+</section>
+
+<section class="band band-chalk" aria-labelledby="steps-title">
+  <div class="container">
+    <h2 id="steps-title" class="section-title reveal">Three steps to an always-on server.</h2>
+    <div class="grid-3 steps-row">
+      <div class="step-card reveal">
+        <div class="step-card-art">{{template "cardshot" (dict "Name" "step-size" "Alt" "The sizing guide's answer: a VPS with 6 GB of memory, 2 fast cores and 40 GB of disk for 5 to 10 friends on Vanilla or Paper.")}}</div>
+        <h3><span class="num">1</span>Rent a VPS</h3>
+        <p>Ubuntu 24.04 with at least {{sizing.Min.MemoryGB}} GB of memory.</p>
+        <a class="link-arrow" href="/sizing">Which VPS?{{template "icon" "arrow-right"}}</a>
+      </div>
+      <div class="step-card reveal">
+        <div class="step-card-art">
+          {{template "terminal" (dict "Lines" (list (dict "Cmd" (installWrapped)) (dict "Ok" "Download matches its SHA-256") (dict "Ok" "Ubuntu 24.04 · x86_64 · 4 vCPU · 8 GB") (dict "Go" "Open https://203.0.113.7:8443/setup#code=…")))}}
+        </div>
+        <h3><span class="num">2</span>Run one command</h3>
+        <p>It checks the machine and asks before it changes anything.</p>
+      </div>
+      <div class="step-card reveal">
+        <div class="step-card-art">
+          <div class="mini-card" aria-hidden="true">
+            <div class="mini-card-head">Join address <span class="chip-copy">{{template "icon" "copy"}}Copy</span></div>
+            <p class="addr">survival.alex.playkeeper.io</p>
+            <p class="hint">In Minecraft: Multiplayer → Add Server, then paste it.</p>
+            <p class="answering">Answering · checked 12 s ago</p>
+          </div>
+        </div>
+        <h3><span class="num">3</span>Share your address</h3>
+        <p>Friends join at survival.yourname.playkeeper.io.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="why-title">
+  <div class="container">
+    <h2 id="why-title" class="section-title reveal">Why run your own server?</h2>
+    <div class="grid-3 why-row">
+      {{$aternos := first "/alternatives/aternos"}}{{$realms := first "/alternatives/realms" "/features/mods-and-modpacks"}}{{$ptero := first "/alternatives/pterodactyl"}}
+      <article class="why-card reveal">
+        <div class="why-art"><img src="{{asset "app/pixel-art/empty-no-players.svg"}}" alt="" width="300" height="180" loading="lazy" decoding="async"></div>
+        <div>
+          <h3>Outgrown a free host?</h3>
+          <p>No queue, no ads, and it doesn't stop when everyone leaves.</p>
+          <a class="link-arrow" href="{{$aternos.Path}}">{{$aternos.Card}}{{template "icon" "arrow-right"}}</a>
+        </div>
+      </article>
+      <article class="why-card reveal">
+        <div class="why-art"><img src="{{asset "app/pixel-art/play-creative.svg"}}" alt="" width="300" height="180" loading="lazy" decoding="async"></div>
+        <div>
+          <h3>Coming from Realms?</h3>
+          <p>Mods, plugins and as many players as your VPS can take.</p>
+          <a class="link-arrow" href="{{$realms.Path}}">{{if eq $realms.Kind "Compare"}}{{$realms.Card}}{{else}}{{$realms.Label}}{{end}}{{template "icon" "arrow-right"}}</a>
+        </div>
+      </article>
+      <article class="why-card reveal">
+        <div class="why-art"><img src="{{asset "app/pixel-art/empty-no-backups.svg"}}" alt="" width="300" height="180" loading="lazy" decoding="async"></div>
+        <div>
+          <h3>Tried other panels?</h3>
+          <p>No daemon, database or eggs to set up. One command, one dashboard.</p>
+          <a class="link-arrow" href="{{$ptero.Path}}">{{$ptero.Card}}{{template "icon" "arrow-right"}}</a>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk" id="features" aria-labelledby="features-title">
+  <div class="container">
+    <div class="section-head">
+      <h2 id="features-title" class="section-title reveal">Everything a small server needs.</h2>
+      <p class="section-sub reveal">Each card opens its page or the live demo.</p>
+    </div>
+    <div class="grid-4 feature-grid">
+      {{range $f := list
+        (dict "Page" "/features/mods-and-modpacks" "Demo" "/demo/servers/cobblemon/mods" "Title" "Plugins, mods and modpacks" "Text" (printf "%s server types, add-ons in one click." (countWord typeCount)) "Shot" "feat-types" "Alt" "New server on a phone: picking what the server runs.")
+        (dict "Page" "/features/free-address" "Demo" "/demo/machines/q7m2vk9xpd/settings" "Title" "A free address" "Text" "Friends join at yourname.playkeeper.io." "Shot" "feat-address" "Alt" "Machine settings on a phone, picking a free playkeeper.io name.")
+        (dict "Page" "/features/backups" "Demo" "/demo/servers/survival/world" "Title" "Backups" "Text" "Players stay online while it copies." "Shot" "feat-backups" "Alt" "A server's World tab on a phone, with Back up now and its backups.")
+        (dict "Page" "/features/crash-and-lag-help" "Demo" "/demo/servers/cobblemon" "Title" "Crash and lag help" "Text" "What went wrong, and what to do." "Shot" "feat-crash" "Alt" "A crashed server's Overview on a phone, explaining it ran out of memory.")
+        (dict "Page" "/features/friends-and-team" "Demo" "/demo/servers/survival/players" "Title" "Friends and team" "Text" "Invite links, roles and Discord." "Shot" "feat-friends" "Alt" "A server's Players tab on a phone.")
+        (dict "Page" "/features/worlds-and-map" "Demo" "/demo/servers/survival/map" "Title" "Worlds and live map" "Text" "Bring your world, watch it live." "Shot" "feat-map" "Alt" "The live map on a phone.")
+        (dict "Page" "/features/automation" "Demo" "/demo/servers/survival/settings" "Title" "Automation" "Text" "Schedules, and sleep when nobody plays." "Shot" "feat-automation" "Alt" "A server's settings on a phone.")
+        (dict "Page" "/features/ai-agents" "Demo" "/demo/settings" "Title" "AI agents and more machines" "Text" "Claude, Cursor or a second VPS." "Shot" "feat-agents" "Alt" "Settings on a phone, with AI agents and machines.")
+      }}
+      {{$href := $f.Demo}}{{with page $f.Page}}{{$href = .Path}}{{end}}
+      <a class="feature-card reveal" href="{{$href}}">
+        <h3>{{$f.Title}}</h3>
+        <p>{{$f.Text}}</p>
+        <span class="corner">{{template "icon" "arrow-up-right"}}</span>
+        {{template "phone" (dict "Name" $f.Shot "Alt" $f.Alt)}}
+      </a>
+      {{end}}
+    </div>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="demo-title">
+  <div class="container demo-row">
+    <div>
+      <h2 id="demo-title" class="section-title reveal">Click around first.</h2>
+      <p class="section-sub reveal"><span class="wide-only">The live demo is the real dashboard with sample servers. Nothing to install, and it resets every hour.</span><span class="phone-only">The real dashboard with sample servers. Nothing to install.</span></p>
+      <a class="btn btn-primary btn-lg reveal" href="/demo/">Open the live demo{{template "icon" "arrow-right"}}</a>
+    </div>
+    <div class="demo-window reveal" data-parallax>
+      {{template "browser" (dict "Name" "demo-home" "URL" "playkeeper.io/demo" "Alt" "The live demo's Home: two sample servers, recent activity across them and the machine's memory, processor and disk.")}}
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk" id="templates" aria-labelledby="templates-title">
+  <div class="container">
+    <div class="section-head section-head-row">
+      <div>
+        <h2 id="templates-title" class="section-title reveal">Start from a template.</h2>
+        <p class="section-sub reveal">Setups that work, ready to open in your own dashboard.</p>
+      </div>
+      {{with page "/templates"}}<a class="link-arrow reveal" href="{{.Path}}">All templates{{template "icon" "arrow-right"}}</a>{{end}}
+    </div>
+    <div class="grid-4 tpl-grid">
+      {{template "template-card" (dict "ID" "survival-with-friends")}}
+      {{template "template-card" (dict "ID" "creative")}}
+      {{template "template-card" (dict "ID" "cobblemon")}}
+      {{template "template-card" (dict "ID" "better-mc")}}
+    </div>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="size-title">
+  <div class="container size-row">
+    <div>
+      <h2 id="size-title" class="section-title reveal">How big a VPS?</h2>
+      <p class="section-sub reveal"><span class="wide-only">Answer two questions and get a size, with the reasons.</span><span class="phone-only">Answer two questions and get a size.</span></p>
+      <a class="link-arrow reveal" href="/sizing">Open the sizing guide{{template "icon" "arrow-right"}}</a>
+    </div>
+    <div class="reveal">{{template "sizing-guide" (dict "Compact" true)}}</div>
+  </div>
+</section>
+
+<section class="band band-chalk" aria-labelledby="trust-title">
+  <div class="container">
+    <div class="card trust reveal">
+      <h2 id="trust-title" class="section-title">Yours to keep.<img src="{{asset "app/pip/pip-box.svg"}}" alt="" width="64" height="64" loading="lazy" decoding="async"></h2>
+      <div class="trust-row">
+        <img src="{{asset "app/pip/pip-box.svg"}}" alt="" width="116" height="116" loading="lazy" decoding="async">
+        <div class="trust-grid">
+          <div class="trust-item"><h3>Open source</h3><p>AGPL-3.0. Read every line on GitHub, or help build it.</p></div>
+          <div class="trust-item"><h3>Signed updates</h3><p>Every update is signed, and a failed one rolls back by itself.</p></div>
+          <div class="trust-item"><h3>Checked downloads</h3><p>Server software, plugins and mods must match their published checksums.</p></div>
+          <div class="trust-item"><h3>Your worlds stay yours</h3><p>Worlds and backups live on your VPS, and copies go where you choose.</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk faq-band">
+  <div class="container">
+    {{template "faq" (dict "ID" "questions" "Aside" (printf "Anything else? %s." .Settings.Community.Ask) "AsideLink" (list .Settings.Community.URL "Ask a question") "Items" (list
+      (qa "Is it free?" "Yes. Playkeeper is free and open source (AGPL-3.0). You only pay for your VPS.")
+      (qa "Which VPS do I need?" (printf `Ubuntu 24.04 on x86_64, with at least %d CPU cores, %d GB of memory and %d GB of free disk for Playkeeper, plus room for your servers. <a href="/sizing">The sizing guide</a> suggests a size.` sizing.Min.Cores sizing.Min.MemoryGB sizing.Min.DiskGB))
+      (qa "Java or Bedrock?" "Minecraft: Java Edition only. Bedrock players can't join.")
+      (qa "Can I bring my Aternos or Realms world?" "Yes. New server › A world takes your singleplayer world, or one from Aternos, Minehut, Realms or another host, with steps for getting it out. It shows what's inside before anything changes.")
+      (qa "Do friends need a port number?" "Not with a free yourname.playkeeper.io name: from three days after you claim it, each server joins at its own address without a port. On the IP address, the first server needs no port and the others add theirs.")
+      (qa "How do updates work?" "Update available appears in the dashboard. Each update is signed and checked before it runs, your servers keep running, and a failed update rolls back by itself.")
+    ))}}
+  </div>
+</section>
+{{end}}

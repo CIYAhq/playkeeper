@@ -1,0 +1,6 @@
+{
+  "survival-with-friends": { "art": "app/pixel-art/play-with-friends.svg" },
+  "creative": { "art": "app/pixel-art/play-creative.svg" },
+  "cobblemon": { "art": "app/pixel-art/world-normal.svg", "mods": 75 },
+  "better-mc": { "art": "app/pixel-art/world-amplified.svg", "mods": 261 }
+}

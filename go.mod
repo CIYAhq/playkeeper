@@ -6,6 +6,7 @@ require (
 	filippo.io/age v1.3.2
 	github.com/makiuchi-d/gozxing v0.1.1
 	github.com/pkg/sftp v1.13.11
+	github.com/yuin/goldmark v1.8.6
 	golang.org/x/crypto v0.57.0
 	modernc.org/sqlite v1.59.0
 )

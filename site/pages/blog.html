@@ -1,0 +1,52 @@
+{{/*
+path: /blog
+title: Blog: Playkeeper releases, guides and building in public
+description: Releases, guides and building Playkeeper in public: a free, open-source Minecraft server dashboard for your own VPS.
+label: Blog
+kind: Blog
+section: blog
+og: blog
+*/}}
+
+{{define "main"}}
+{{$posts := posts}}
+<section class="band-chalk page-hero blog-index" aria-labelledby="page-title">
+  <div class="container">
+    <div class="blog-head">
+      <div>
+        <h1 id="page-title" class="h1-blog hero-rise">Blog</h1>
+        <p class="lead hero-after">Releases, guides and building Playkeeper in public.</p>
+      </div>
+      <p class="blog-links hero-after"><a href="/blog/feed.xml">RSS feed</a></p>
+    </div>
+    {{with index $posts 0}}{{$c := img .Cover}}
+    <a class="featured hero-after" href="{{.Path}}">
+      <div class="featured-art"><img src="{{$c.URL}}" alt="" width="{{$c.Width}}" height="{{$c.Height}}" fetchpriority="high" decoding="async"></div>
+      <div>
+        {{range .Tags}}<span class="tag">{{.}}</span> {{end}}
+        <h2>{{.Label}}</h2>
+        <p>{{.Summary}}</p>
+        <p class="meta">{{day .Published}} · {{.Author}} · {{.Minutes}} min read</p>
+        <span class="link-arrow">Read the post{{template "icon" "arrow-right"}}</span>
+      </div>
+    </a>
+    {{end}}
+    {{if gt (len $posts) 1}}
+    <section class="more-posts" aria-labelledby="more-title">
+      <h2 id="more-title" class="eyebrow">More posts</h2>
+      <div class="post-grid">
+        {{range $i, $p := $posts}}{{if $i}}{{$c := img $p.Cover}}
+        <a class="post-card reveal" href="{{$p.Path}}">
+          <div class="featured-art"><img src="{{$c.URL}}" alt="" width="{{$c.Width}}" height="{{$c.Height}}" loading="lazy" decoding="async"></div>
+          {{range $p.Tags}}<span class="tag">{{.}}</span> {{end}}
+          <h3>{{$p.Label}}</h3>
+          <p>{{$p.Summary}}</p>
+          <p class="meta">{{day $p.Published}} · {{$p.Minutes}} min read</p>
+        </a>
+        {{end}}{{end}}
+      </div>
+    </section>
+    {{end}}
+  </div>
+</section>
+{{end}}

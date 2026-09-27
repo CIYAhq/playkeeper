@@ -501,14 +501,14 @@ func (s *Server) Routes() []Route {
 		sm("POST", "/api/servers/{id}/map/restart-later", "/v1/servers/{id}/map/restart-later"),
 		sm("POST", "/api/servers/{id}/world-imports", "/v1/servers/{id}/world-imports"),
 		mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actCreateServers),
-		mg("/api/machines/{mid}/world-imports/{imp}", "/v1/world-imports/{imp}"),
-		mm("DELETE", "/api/machines/{mid}/world-imports/{imp}", "/v1/world-imports/{imp}", actManageServers),
-		mm("POST", "/api/machines/{mid}/world-imports/{imp}/files", "/v1/world-imports/{imp}/files", actManageServers),
-		{"PUT", "/api/machines/{mid}/world-imports/{imp}/files/{n}", needSessionCSRF, actManageServers, s.hWorldUpload},
-		{"POST", "/api/machines/{mid}/world-imports/{imp}/inspect", needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/inspect")},
-		{"POST", "/api/machines/{mid}/world-imports/{imp}/preview", needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/preview")},
-		{"POST", "/api/machines/{mid}/world-imports/{imp}/apply", needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/apply")},
-		{"POST", "/api/machines/{mid}/world-imports/{imp}/create", needSessionCSRF, actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create")},
+		{"GET", "/api/machines/{mid}/world-imports/{imp}", needSession, actView, s.importGuard(actView, s.machineProxy("GET", "/v1/world-imports/{imp}"))},
+		{"DELETE", "/api/machines/{mid}/world-imports/{imp}", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.machineProxy("DELETE", "/v1/world-imports/{imp}"))},
+		{"POST", "/api/machines/{mid}/world-imports/{imp}/files", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.machineProxy("POST", "/v1/world-imports/{imp}/files"))},
+		{"PUT", "/api/machines/{mid}/world-imports/{imp}/files/{n}", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.hWorldUpload)},
+		{"POST", "/api/machines/{mid}/world-imports/{imp}/inspect", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.forwardLong("/v1/world-imports/{imp}/inspect"))},
+		{"POST", "/api/machines/{mid}/world-imports/{imp}/preview", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.forwardLong("/v1/world-imports/{imp}/preview"))},
+		{"POST", "/api/machines/{mid}/world-imports/{imp}/apply", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.forwardLong("/v1/world-imports/{imp}/apply"))},
+		{"POST", "/api/machines/{mid}/world-imports/{imp}/create", needSessionCSRF, actCreateServers, s.importGuard(actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create"))},
 	}...)
 	return routes
 }

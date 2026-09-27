@@ -1,0 +1,18 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Creative",
+  "description": "Paper in creative mode, with WorldEdit for big builds and Multiverse for extra worlds.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "26.2" },
+  "settings": {
+    "difficulty": "peaceful",
+    "gameMode": "creative",
+    "maxPlayers": 10,
+    "playStyle": "creative",
+    "memoryMB": 3072
+  },
+  "addons": [
+    { "source": "modrinth", "project": "1u6JkXh5", "slug": "worldedit", "name": "WorldEdit", "latest": true },
+    { "source": "modrinth", "project": "3wmN97b8", "slug": "multiverse-core", "name": "Multiverse-Core", "latest": true }
+  ]
+}

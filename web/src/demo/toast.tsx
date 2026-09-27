@@ -1,6 +1,7 @@
 import { Pip } from '@/components/app/art'
 import { toastManager } from '@/components/ui/toast'
 import { dt, type DemoKey } from './messages'
+import { countDemoAction } from './welcome'
 
 export type DemoAction = 'start' | 'stop' | 'restart' | 'backup' | 'restore' | 'version' | 'create' | 'delete' | 'download' | 'recoveryKey' | 'signOut'
 
@@ -33,4 +34,5 @@ export function demoToast(action: DemoAction) {
     ),
     timeout: 8000,
   })
+  countDemoAction()
 }

@@ -1,0 +1,156 @@
+{{/* The blocks pages are built from. Each takes a dict; see the page
+     templates in site/pages for how they're used. */}}
+
+{{/* install: the install command with Copy. ID: "install" for the page's
+     first one, which the header's Install links to. Dark: on the closing
+     band. On phones it breaks onto three lines. */}}
+{{define "install"}}
+<div class="install{{if .Dark}} install-dark{{end}}{{with .Class}} {{.}}{{end}}"{{if .ID}} id="install"{{end}} data-install>
+  <code class="install-cmd" tabindex="0"><span class="install-prompt" aria-hidden="true">$</span><span class="install-line">{{installCommand}}</span><span class="install-lines" aria-hidden="true">{{range $i, $l := installLines}}{{if $i}} \<br>  {{end}}{{$l}}{{end}}</span></code>
+  <button type="button" class="install-copy" data-copy="{{installCommand}}" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span class="install-copy-label">Copy</span><span class="visually-hidden"> the install command</span></button>
+</div>
+{{end}}
+
+{{/* crumbs: the page's breadcrumb, from its section. */}}
+{{define "crumbs"}}{{with .Crumbs}}
+<nav class="crumbs" aria-label="Breadcrumb">
+  <ol>
+    {{range $i, $c := .}}{{if $i}}<li aria-hidden="true" class="crumb-sep">{{template "icon" "chevron-right"}}</li>{{end}}
+    <li>{{if eq $i 1}}<span aria-current="page">{{$c.Label}}</span>{{else if $c.Path}}<a href="{{$c.Path}}">{{$c.Label}}</a>{{else}}<span>{{$c.Label}}</span>{{end}}</li>
+    {{end}}
+  </ol>
+</nav>
+{{if (index . 0).Path}}<script type="application/ld+json">{{crumbSchema .}}</script>{{end}}
+{{end}}{{end}}
+
+{{/* faq: questions that open one at a time. ID names the group; Items are
+     made with qa. Aside: the landing's column beside it. */}}
+{{define "faq"}}
+<section class="faq{{if .Aside}} faq-aside{{end}}" id="{{.ID}}" aria-labelledby="{{.ID}}-title">
+  <div class="faq-head">
+    <h2 id="{{.ID}}-title" class="reveal">{{or .Title "Questions"}}</h2>
+    {{with .Aside}}<p class="faq-note reveal">{{.}}</p>{{end}}
+    {{with .AsideLink}}<a class="link-arrow reveal" href="{{index . 0}}">{{index . 1}}{{template "icon" "arrow-right"}}</a>{{end}}
+  </div>
+  <div class="faq-list">
+    {{range $i, $q := .Items}}
+    <details class="faq-item reveal" name="{{$.ID}}"{{if eq $i 0}} open{{end}}>
+      <summary><span class="faq-q">{{$q.Q}}</span><span class="faq-icon" aria-hidden="true"></span></summary>
+      <div class="faq-a"><p>{{$q.A}}</p></div>
+    </details>
+    {{end}}
+  </div>
+  <script type="application/ld+json">{{faqSchema .Items}}</script>
+</section>
+{{end}}
+
+{{/* related: "Keep reading", up to three pages made with related. */}}
+{{define "related"}}{{with .}}
+<section class="band band-chalk related" aria-labelledby="related-title">
+  <div class="container">
+    <h2 id="related-title" class="h3 reveal">Keep reading</h2>
+    <div class="related-grid">
+      {{range .}}<a class="related-card reveal" href="{{.Path}}"><span class="eyebrow">{{.Kind}}</span><span class="related-title">{{.Card}}</span><span class="link-arrow">Read{{template "icon" "arrow-right"}}</span></a>{{end}}
+    </div>
+  </div>
+</section>
+{{end}}{{end}}
+
+{{/* shot: a screenshot. Name is shots/<Name>.webp; Alt describes it;
+     Eager for the first thing a page shows. */}}
+{{define "shot"}}{{$s := shot .Name}}<img class="shot-img{{with .Class}} {{.}}{{end}}" src="{{$s.Src}}"{{with $s.Srcset}} srcset="{{.}}"{{end}} width="{{$s.Width}}" height="{{$s.Height}}" alt="{{.Alt}}"{{if .Eager}} fetchpriority="high"{{else}} loading="lazy"{{end}} decoding="async">{{end}}
+
+{{/* browser: a screenshot in a browser window. URL is what its address bar
+     shows. */}}
+{{define "browser"}}
+<figure class="browser{{with .Class}} {{.}}{{end}}">
+  <div class="browser-bar" aria-hidden="true"><span class="browser-dots"><i></i><i></i><i></i></span><span class="browser-url">{{template "icon" "lock"}}<span class="browser-url-text">{{.URL}}</span></span></div>
+  <div class="browser-view">{{template "shot" (dict "Name" .Name "Alt" .Alt "Eager" .Eager)}}</div>
+  {{with .Caption}}<figcaption>{{.}}</figcaption>{{end}}
+</figure>
+{{end}}
+
+{{/* phone: a screenshot in a phone. */}}
+{{define "phone"}}
+<div class="phone{{with .Class}} {{.}}{{end}}">
+  <div class="phone-screen">
+    <div class="phone-status" aria-hidden="true"><span>9:41</span>{{template "icon" "status"}}</div>
+    {{template "shot" (dict "Name" .Name "Alt" .Alt "Eager" .Eager)}}
+  </div>
+</div>
+{{end}}
+
+{{/* card: a screenshot crop in a white card, cropped to one readable part. */}}
+{{define "cardshot"}}
+<figure class="cardshot{{with .Class}} {{.}}{{end}}">
+  {{template "shot" (dict "Name" .Name "Alt" .Alt "Eager" .Eager)}}
+  {{with .Caption}}<figcaption>{{.}}</figcaption>{{end}}
+</figure>
+{{end}}
+
+{{/* logos: the server types the release runs, from minecraft.Types. */}}
+{{define "logos"}}
+<div class="logos{{with .Class}} {{.}}{{end}}">
+  <p class="eyebrow">Runs on</p>
+  <ul class="logo-row">
+    {{range types}}{{$i := img .Logo}}<li><span class="logo-tile"><img src="{{$i.URL}}" alt="" width="28" height="28" loading="lazy" decoding="async"></span><span>{{.Name}}</span></li>{{end}}
+  </ul>
+</div>
+{{end}}
+
+{{/* template-card: a server template, opened in the visitor's own
+     dashboard through /t. */}}
+{{define "template-card"}}{{$c := card .ID}}{{$a := img $c.Art}}
+<article class="tpl-card reveal">
+  <div class="tpl-art"><img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}" loading="lazy" decoding="async"></div>
+  <div class="tpl-body">
+    <h3 class="tpl-name">{{$c.Name}}</h3>
+    <p class="tpl-facts"><span class="wide-only">{{$c.Facts}}</span><span class="phone-only">{{$c.Short}}</span></p>
+    <p class="tpl-holds wide-only">{{$c.Holds}}</p>
+    <a class="link-arrow tpl-open" href="{{$c.Link}}"><span class="wide-only">Open in my dashboard</span><span class="phone-only">Open</span>{{template "icon" "arrow-right"}}<span class="visually-hidden"> the {{$c.Name}} template</span></a>
+  </div>
+</article>
+{{end}}
+
+{{/* providers: three VPS that fit a size, with plan names and "See today's
+     price", never prices, and the disclosure. Need: the memory and cores. */}}
+{{define "providers"}}
+<div class="providers" data-providers>
+  <p class="providers-fit"><strong data-fit-label>{{.Label}}</strong></p>
+  <div class="provider-grid">
+    {{range $p := providers}}{{$plan := $p.Fit $.MemoryGB $.Cores}}
+    <article class="provider reveal" data-provider="{{$p.Name}}">
+      <h3>{{$p.Name}}</h3>
+      <p class="provider-plan" data-plan>{{$plan.Name}} · {{$plan.CPUs}} vCPU · {{$plan.MemoryGB}} GB</p>
+      <p class="provider-regions">{{$p.Regions}}</p>
+      <a class="btn btn-outline btn-sm" href="{{$p.URL}}"{{if $p.Referral}} rel="sponsored noopener"{{else}} rel="noopener"{{end}}>See today's price{{template "icon" "arrow-up-right"}}<span class="visually-hidden"> at {{$p.Name}}</span></a>
+    </article>
+    {{end}}
+  </div>
+  <p class="fine">{{if referral}}Partner links: we may earn a commission. It never changes which providers we list or how we rank them.{{else}}No partner links: we earn nothing from these. Plans checked {{checked}}.{{end}}</p>
+</div>
+{{end}}
+
+{{/* h2n: a guide's numbered section heading; the contents list is made
+     from these, with Toc in place of Text when it's given. */}}
+{{define "h2n"}}<h2 id="{{.ID}}" class="h2n reveal"{{with .Toc}} data-toc="{{.}}"{{end}}><span class="n">{{.N}}</span>{{.Text}}</h2>{{end}}
+
+{{/* steps: numbered steps; Items are dicts with Title and Text. */}}
+{{define "steps"}}
+<ol class="steps{{with .Class}} {{.}}{{end}}">
+  {{range $i, $s := .Items}}<li class="step reveal"><span class="step-n" aria-hidden="true">{{add $i 1}}</span><div><h3 class="step-title">{{$s.Title}}</h3>{{with $s.Text}}<p>{{.}}</p>{{end}}</div></li>{{end}}
+</ol>
+{{end}}
+
+{{/* terminal: a console. Lines are dicts: Cmd (typed), Ok, Note, Go. Decor is
+   for one inside a picture hidden from screen readers: it neither scrolls nor
+   takes focus. */}}
+{{define "terminal"}}
+<div class="terminal{{with .Class}} {{.}}{{end}}{{if .Decor}} terminal-decor{{end}}" data-terminal>
+  <pre{{if not .Decor}} tabindex="0"{{end}}>{{range .Lines}}{{if .Cmd}}<span class="t-cmd" data-type><span class="t-prompt">$ </span>{{.Cmd}}</span>
+{{else if .Ok}}<span class="t-ok" data-line>✓ {{.Ok}}</span>
+{{else if .Go}}<span class="t-go" data-line>→ {{.Go}}</span>
+{{else}}<span class="t-note" data-line>  {{.Note}}</span>
+{{end}}{{end}}</pre>
+</div>
+{{end}}

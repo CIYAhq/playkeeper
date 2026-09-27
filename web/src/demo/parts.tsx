@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import type { DemoParts } from '@/lib/demo'
 import { cn } from '@/lib/utils'
 import { dt } from './messages'
+import { Overlay } from './welcome'
 
 const installCommand = 'curl -fsSL https://playkeeper.io/install | sudo sh'
 
@@ -64,4 +65,4 @@ function SampleWorld({ onPick }: { onPick: (files: File[]) => void }) {
 }
 
 /** What the live demo adds to the dashboard; the demo build puts this in place of lib/demo. */
-export const demo: DemoParts = { BrandLine, homeSubtitle: () => dt('demo.subtitle'), HomeAction, HomeCard, templates: false, SampleWorld }
+export const demo: DemoParts = { BrandLine, homeSubtitle: () => dt('demo.subtitle'), HomeAction, HomeCard, templates: false, SampleWorld, Overlay }
