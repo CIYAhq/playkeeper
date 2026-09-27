@@ -5,8 +5,7 @@ name: Release check
 # together they pressed every page's controls (clickthrough.yml). Pull
 # requests crawl only the pages they touch. Run this on the commit you are
 # about to tag (CONTRIBUTING.md, Releases): the Release workflow publishes a
-# tag only after a green Release check on its commit, and otherwise runs the
-# same click-through first.
+# tag only after a green Release check and a green CI run on its commit.
 
 on:
   workflow_dispatch:

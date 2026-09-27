@@ -8,9 +8,11 @@ name: Release
 # checks the live addresses: the GitHub release URLs and the one-line install
 # from them must work, and https://playkeeper.io/install should redirect to
 # the new get.sh (a warning only, since that site runs on its own server).
-# A tag is published only after the full click-through: a green Release check
-# (release-check.yml) on the tagged commit, or else the same click-through,
-# run here on the built assets first.
+# A tag doesn't repeat the checks its commit already passed: it is published
+# only when that exact commit has a green CI run (lint, typecheck, unit and
+# end-to-end tests) and a green Release check (release-check.yml, every page
+# of the click-through), and fails at once, saying which is missing,
+# otherwise.
 # Pull requests that touch the release path, and manual runs, are dry runs:
 # the same build and install check, signed with a throwaway key, with the
 # assets uploaded as a workflow artifact instead of released.
@@ -58,7 +60,7 @@ jobs:
   build:
     name: Build and check the release assets
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 15
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
@@ -86,10 +88,6 @@ jobs:
           { echo "tag=$TAG"; echo "version=$version"; echo "title=$title"; } >>"$GITHUB_OUTPUT"
       - name: Set up pinned toolchains
         run: ./scripts/setup.sh
-      - name: make check
-        run: make check
-      - name: make lint-sh
-        run: make lint-sh
       - name: make package
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -160,66 +158,45 @@ jobs:
           sleep 1
           scripts/smoke-install.sh http://127.0.0.1:8765/get.sh "$VERSION"
 
-  release-check:
-    name: Release check — a green full click-through of this commit, or one now
+  checked:
+    name: The tagged commit passed CI and the Release check
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       actions: read
       contents: read
-    outputs:
-      green: ${{ steps.find.outputs.green }}
-      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
-      - name: A green Release check on this commit
-        id: find
+      - name: A green CI run and a green Release check on this commit
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
+          TAGGED: ${{ github.event_name == 'push' }}
         run: |
-          if ! url=$(gh run list --workflow release-check.yml --commit "$SHA" --status success --limit 1 --json url --jq '.[0].url // ""'); then
-            echo "::warning::The Release check couldn't be looked up (not on the default branch yet, or GitHub didn't answer), so it counts as not run."
-            url=
+          missing=
+          for workflow in ci.yml release-check.yml; do
+            if ! url=$(gh run list --workflow "$workflow" --commit "$SHA" --status success --limit 1 --json url --jq '.[0].url // ""'); then
+              echo "::warning::$workflow couldn't be looked up (not on the default branch yet, or GitHub didn't answer), so it counts as not run."
+              url=
+            fi
+            if [ -n "$url" ]; then
+              echo "$workflow passed on $SHA: $url" | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              missing+=" $workflow"
+            fi
+          done
+          if [ -n "$missing" ] && [ "$TAGGED" = true ]; then
+            echo "::error::$SHA has no green run of:$missing. Run it on this commit (gh workflow run <workflow> --ref $GITHUB_REF_NAME), then re-run this workflow. A tag publishes only what its commit already passed."
+            exit 1
           fi
-          if [ -n "$url" ]; then
-            echo "green=true" >>"$GITHUB_OUTPUT"
-            echo "The Release check passed on $SHA: $url" | tee -a "$GITHUB_STEP_SUMMARY"
-          else
-            echo "green=false" >>"$GITHUB_OUTPUT"
-            echo "No green Release check on $SHA: a tag runs the full click-through here before it publishes." | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ -n "$missing" ]; then
+            echo "No green run of$missing on $SHA; as a dry run, this goes on." | tee -a "$GITHUB_STEP_SUMMARY"
           fi
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: github.event_name == 'push' && steps.find.outputs.green != 'true'
-        with:
-          persist-credentials: false
-      - name: Set up pinned toolchains
-        if: github.event_name == 'push' && steps.find.outputs.green != 'true'
-        run: ./scripts/setup.sh
-      - name: The runners for every page at each size
-        id: plan
-        if: github.event_name == 'push' && steps.find.outputs.green != 'true'
-        run: .tools/node/bin/node test/e2e/ui/plan.ts --full
-
-  clickthrough:
-    name: Click-through
-    needs: [build, release-check]
-    if: github.event_name == 'push' && needs.release-check.outputs.green != 'true'
-    permissions:
-      contents: read
-    uses: ./.github/workflows/clickthrough.yml
-    with:
-      artifact: release-${{ needs.build.outputs.tag }}
-      assets: assets
-      matrix: ${{ needs.release-check.outputs.matrix }}
 
   publish:
     name: Publish the GitHub release
-    needs: [build, smoke, release-check, clickthrough]
-    # The click-through is skipped when the tagged commit already passed the Release check.
-    if: >-
-      github.event_name == 'push' && !cancelled() && needs.build.result == 'success' && needs.smoke.result == 'success' &&
-      needs.release-check.result == 'success' && (needs.release-check.outputs.green == 'true' || needs.clickthrough.result == 'success')
+    needs: [checked, build, smoke]
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
