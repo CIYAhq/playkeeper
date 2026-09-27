@@ -219,9 +219,18 @@ step "reboot: Playkeeper and the server come back by themselves"
 g 'sudo systemctl reboot' || true
 sleep 20
 lab_wait_ssh "$G"
-wait_online || fail "the server did not come back online after the reboot"
+wait_online || fail "the dashboard did not come back after the reboot"
+pk wait-online --timeout 600 >/dev/null || fail "the server did not come back online and reachable after the reboot"
 g 'systemctl is-active docker playkeeper-agent playkeeper-panel' | tee "$OUT/reboot.txt"
-ok "online again $(server | python3 -c 'import json, sys; print("since " + json.load(sys.stdin)["startedAt"])')"
+booted=$(g 'awk "/^btime/ {print \$2}" /proc/stat')
+since=$(server | python3 -c '
+import datetime, json, re, sys
+s = re.sub(r"(\.\d{6})\d*", r"\1", json.load(sys.stdin).get("startedAt", "")).replace("Z", "+00:00")
+started = datetime.datetime.fromisoformat(s)
+if started.timestamp() < int(sys.argv[1]):
+    raise SystemExit(f"the server last started at {s}, before this boot")
+print(s[:19].replace("T", " "))' "$booted") || fail "the server was not started again after the reboot: $since"
+ok "online and reachable again, started at $since UTC after the reboot"
 
 step "uninstall keeps the world and backups and leaves the system as it was"
 world_sums >"$OUT/world-before-uninstall.txt"
