@@ -1538,10 +1538,11 @@ function mapRead(view: 'map on' | 'map restart', body: Json): Json {
   return { ...on, state: 'ready', message: 'The map is up to date', progress: undefined, areas: 4800, bytes: 190_000_000, lastDrawn: ago(10 * 60), public: true, publicPlayers: true, path: '/map/Fk3dEf6hIj9lMn2pQr5tUv', link: undefined }
 }
 
-/** The map's area in the 'map on' view: 2,500 blocks being filled in, beside the sizes and estimates the panel worked out. */
+/** The map's area in the 'map on' view: 2,500 blocks being filled in, in a world without a border, beside the sizes and estimates the panel worked out. */
 function mapAreaRead(body: Json): Json {
   const fill = { ...(body.fill as Json), state: 'running', step: undefined, preset: 'medium', radius: 2500, chunks: 41_675, total: 99_225, percent: 42, rate: 11.6, etaSeconds: 4_980, pausedBy: undefined, pauseForPlayers: true, installed: true, startedAt: ago(3600), error: undefined }
-  return { ...body, area: 'medium', radius: 2500, fill }
+  const options = ((body.options ?? []) as Json[]).filter((o) => o.id !== 'border').map((o) => ({ ...o, done: undefined, pastBorder: undefined }))
+  return { ...body, area: 'medium', radius: 2500, options, fill }
 }
 
 /** The map's worlds, players and tiles in the 'map on' view, which the real panel refuses while its map is off, and on the shared map of the 'shared links' view. */

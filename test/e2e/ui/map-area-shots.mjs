@@ -39,6 +39,16 @@ async function signIn(ctx, page) {
 async function openMap(page) {
   await page.goto(`${process.env.PK_URL}/servers/${slug}/map`)
   await page.waitForFunction(() => ![...document.querySelectorAll('[data-slot=skeleton]')].some((s) => s.checkVisibility()), null, { timeout: 30_000 }).catch(() => {})
+  // PK_ZOOM_OUT zooms the map out that many steps, with its keyboard shortcut.
+  const out = Number(process.env.PK_ZOOM_OUT ?? 0)
+  if (out > 0) {
+    await page.getByLabel(/^Map of /).first().focus()
+    for (let i = 0; i < out; i++) {
+      await page.keyboard.press('-')
+      await page.waitForTimeout(400)
+    }
+    await page.mouse.move(0, 0)
+  }
   await page.waitForTimeout(Number(process.env.PK_WAIT ?? 4000))
 }
 
