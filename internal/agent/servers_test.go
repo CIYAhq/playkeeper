@@ -270,10 +270,18 @@ func TestServersRunSideBySide(t *testing.T) {
 		t.Fatalf("a server's own settings may use its share: %+v", cat)
 	}
 
-	// One server backs up while the other restarts; the same server stays exclusive.
-	e.fd.mu.Lock()
-	e.fd.bootDelay = 300 * time.Millisecond
-	e.fd.mu.Unlock()
+	// One server backs up while the other restarts; the same server stays
+	// exclusive. The backup waits for the reply to its save-off until the stop
+	// has its answer.
+	wait, let := gate(t)
+	e.rcon.mu.Lock()
+	e.rcon.answer = func(cmd string) (string, bool) {
+		if cmd == "save-off" {
+			wait()
+		}
+		return "", false
+	}
+	e.rcon.mu.Unlock()
 	code, backup := e.call("POST", "/v1/servers/"+survival+"/backups", map[string]any{"actor": "admin", "note": "side by side"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, backup)
@@ -285,6 +293,7 @@ func TestServersRunSideBySide(t *testing.T) {
 	if code, out := e.call("POST", "/v1/servers/"+survival+"/stop", map[string]any{"actor": "admin"}); code != 409 || !strings.Contains(out["error"].(string), "Survival is busy with a backup") {
 		t.Fatalf("the server backing up is busy: %d %v", code, out)
 	}
+	let()
 	for _, id := range []string{backup["id"].(string), restart["id"].(string)} {
 		if op := e.waitOp(id); op.Status != api.OpSucceeded {
 			t.Fatalf("op: %+v", op)
@@ -579,8 +588,10 @@ func TestBackupRestoresAsANewServer(t *testing.T) {
 func TestUpdateWaitsForEveryServer(t *testing.T) {
 	e, _, _ := updateEnv(t)
 	e.create()
+	// The restart waits in Docker's stop until the update has its answer.
+	wait, let := gate(t)
 	e.fd.mu.Lock()
-	e.fd.bootDelay = 400 * time.Millisecond
+	e.fd.beforeStop = wait
 	e.fd.mu.Unlock()
 	code, out := e.call("POST", e.sp("/restart"), map[string]any{"actor": "admin"})
 	if code != 202 {
@@ -589,6 +600,7 @@ func TestUpdateWaitsForEveryServer(t *testing.T) {
 	if code, out := e.call("POST", "/v1/update/apply", map[string]any{"version": "0.2.1", "actor": "admin"}); code != 409 || !strings.Contains(out["error"].(string), "is busy with restarting") {
 		t.Fatalf("an update while a server restarts: %d %v", code, out)
 	}
+	let()
 	e.waitOp(out["id"].(string))
 	e.waitFor("idle", e.onlineIdle)
 	op := e.applyUpdate("0.2.1")
