@@ -163,7 +163,7 @@ jobs:
   clickthrough:
     name: Click-through
     needs: [plan, package]
-    if: needs.plan.outputs.mode != 'none'
+    if: needs.plan.result == 'success' && needs.plan.outputs.mode != 'none'
     uses: ./.github/workflows/clickthrough.yml
     with:
       artifact: release
