@@ -5257,6 +5257,25 @@ control "an edit of a schedule never writes back the run it read" internal/agent
 		sc.Name, string(sc.Kind), string(timing), string(payload), boolInt(sc.Enabled), now.UnixMilli(), actor, func() string { b, _ := json.Marshal(sc.LastRun); return string(b) }(), sc.ID, s.id)" \
   ./internal/agent '^TestEditingAScheduleKeepsTheRunTheRunnerSaved$/^renamed_as_its_run_finishes$'
 
+# Wave 9 after 8462e667's click-through: as an add-on job finishes, the
+# dialog's Close stays the button someone focused or is pressing.
+webcontrol "an add-on job's Close becomes Later, not Restart now, when it finishes" web/src/pages/server/plugins/dialogs.tsx \
+  '<Button key="dismiss" variant="ghost" size={size} className="sm:mr-auto" onClick={a.closeJob}>
+              {t('"'"'common.later'"'"')}' \
+  '<Button variant="ghost" size={size} className="sm:mr-auto" onClick={a.closeJob}>
+              {t('"'"'common.later'"'"')}' \
+  web/src/pages/server/plugins/plugins.test.tsx 'keeps focus on Close as the job finishes and a restart is needed'
+webcontrol "an add-on job's Close becomes Done when it finishes with nothing to restart" web/src/pages/server/plugins/dialogs.tsx \
+  '<>
+            <Button key="dismiss" size={size} onClick={a.closeJob}>
+              {t('"'"'common.done'"'"')}
+            </Button>
+          </>' \
+  '<Button key="dismiss" size={size} onClick={a.closeJob}>
+              {t('"'"'common.done'"'"')}
+            </Button>' \
+  web/src/pages/server/plugins/plugins.test.tsx 'keeps focus on Close as the job finishes with nothing to restart'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

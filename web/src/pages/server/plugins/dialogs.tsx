@@ -135,15 +135,19 @@ function JobBody({ job }: { job: Job }) {
           </ul>
         )}
       </DialogPanel>
+      {/* Keyed by what each button does: as the job moves on, the button someone has focused or is pressing stays that
+          button, so Close turns into Later or Done and never into Restart now. */}
       <DialogFooter variant="bare" className="border-t border-border pt-4 sm:items-center">
         {running ? (
           <>
-            <p className="text-xs text-muted-foreground max-sm:text-center sm:mr-auto">{t('addons.keepsGoing')}</p>
-            <Button variant="ghost" size={size} onClick={a.closeJob}>
+            <p key="keeps-going" className="text-xs text-muted-foreground max-sm:text-center sm:mr-auto">
+              {t('addons.keepsGoing')}
+            </p>
+            <Button key="dismiss" variant="ghost" size={size} onClick={a.closeJob}>
               {t('common.close')}
             </Button>
             {online && (
-              <Button size={size} disabledReason={t('reason.busy', { what: job.title })}>
+              <Button key="restart" size={size} disabledReason={t('reason.busy', { what: job.title })}>
                 <RotateCwIcon />
                 {t('addons.restartNow')}
               </Button>
@@ -152,20 +156,20 @@ function JobBody({ job }: { job: Job }) {
         ) : failed ? (
           <>
             {checksumFailed(notice) && (
-              <a href={t('addons.learnMoreUrl')} target="_blank" rel="noreferrer" className="text-xs font-medium text-success-strong hover:underline max-sm:text-center sm:mr-auto" aria-label={t('common.external', { label: t('addons.learnMore') })}>
+              <a key="learn-more" href={t('addons.learnMoreUrl')} target="_blank" rel="noreferrer" className="text-xs font-medium text-success-strong hover:underline max-sm:text-center sm:mr-auto" aria-label={t('common.external', { label: t('addons.learnMore') })}>
                 {t('addons.learnMore')}
               </a>
             )}
-            <Button variant="ghost" size={size} onClick={a.closeJob}>
+            <Button key="dismiss" variant="ghost" size={size} onClick={a.closeJob}>
               {t('common.close')}
             </Button>
             {notice?.kind === 'plan_changed' && job.lookAgain ? (
-              <Button size={size} onClick={job.lookAgain}>
+              <Button key="look-again" size={size} onClick={job.lookAgain}>
                 <RefreshCwIcon />
                 {t('addons.lookAgain')}
               </Button>
             ) : (
-              <Button size={size} onClick={job.retry}>
+              <Button key="retry" size={size} onClick={job.retry}>
                 <RefreshCwIcon />
                 {t('common.tryAgain')}
               </Button>
@@ -173,28 +177,30 @@ function JobBody({ job }: { job: Job }) {
           </>
         ) : waiting ? (
           <>
-            <Button variant="ghost" size={size} className="sm:mr-auto" onClick={a.closeJob}>
+            <Button key="dismiss" variant="ghost" size={size} className="sm:mr-auto" onClick={a.closeJob}>
               {t('common.close')}
             </Button>
-            <Button size={size} onClick={() => void confirm()} loading={confirming} disabledReason={busyReason(a.server)}>
+            <Button key="update" size={size} onClick={() => void confirm()} loading={confirming} disabledReason={busyReason(a.server)}>
               <CircleArrowUpIcon />
               {t('addons.update')}
             </Button>
           </>
         ) : restartNeeded ? (
           <>
-            <Button variant="ghost" size={size} className="sm:mr-auto" onClick={a.closeJob}>
+            <Button key="dismiss" variant="ghost" size={size} className="sm:mr-auto" onClick={a.closeJob}>
               {t('common.later')}
             </Button>
-            <Button size={size} onClick={() => void restart()} loading={restarting} disabledReason={a.server.operation && a.server.operation.id !== op?.id ? busyReason(a.server) : undefined}>
+            <Button key="restart" size={size} onClick={() => void restart()} loading={restarting} disabledReason={a.server.operation && a.server.operation.id !== op?.id ? busyReason(a.server) : undefined}>
               <RotateCwIcon />
               {t('addons.restartNow')}
             </Button>
           </>
         ) : (
-          <Button size={size} onClick={a.closeJob}>
-            {t('common.done')}
-          </Button>
+          <>
+            <Button key="dismiss" size={size} onClick={a.closeJob}>
+              {t('common.done')}
+            </Button>
+          </>
         )}
       </DialogFooter>
     </>
