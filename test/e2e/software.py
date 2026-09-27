@@ -229,10 +229,14 @@ def one_type(c, typ, cpu):
         step(f"{label}: every hand-picked add-on, the map, pre-generation and voice chat")
         picked = install_picks(c, label, rec)
         check("pregenerate" in picked, f"{label}: Chunky is among the add-ons installed ({', '.join(picked)})")
+        # Turning the map on restarts the server, which loads the add-ons
+        # too. Another restart right away could interrupt squaremap's first
+        # full render, which Playkeeper asks for only once.
         op = c.ok("POST", c.sp("/map/enable"), {})
         op = c.wait_op(op["id"], timeout=900)
-        check(op["status"] == "succeeded", f"{label}: the map turned on, squaremap installed ({op.get('error', '')})")
-        st = restart(c, label, f"{len(picked)} add-ons and the map")
+        check(op["status"] == "succeeded", f"{label}: the map turned on, squaremap installed, the server restarted ({op.get('error', '')})")
+        st = c.wait_online(timeout=900)
+        check(not st.get("crash") and st["phase"] == "online", f"{label}: online with {len(picked)} add-ons and the map")
         rec["map"] = check_map(c, label)
         rec["pregen"] = check_pregen(c, label)
         st = c.wait_online(timeout=600)
