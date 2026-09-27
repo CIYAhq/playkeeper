@@ -164,6 +164,11 @@
     @apply bg-sidebar text-foreground antialiased;
     font-family: var(--font-sans);
   }
+  /* A sticky page header sets --header-h to where its bottom edge stays, so a
+     jump to a section, a focused control or a found word lands below it. */
+  html {
+    scroll-padding-top: var(--header-h, 0px);
+  }
   code,
   kbd,
   samp,

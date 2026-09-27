@@ -95,9 +95,9 @@ function SettingsSection({ current, phoneBack, children }: { current: SettingsSe
   }
   return (
     <>
-      <PageHeader title={t('global.title')} />
+      <PageHeader title={t('global.title')} sticky />
       <PageBody className="grid max-w-[1240px] grid-cols-[200px_minmax(0,1fr)] items-start gap-7">
-        <nav aria-label={t('global.nav.label')} className="flex flex-col gap-0.5">
+        <nav aria-label={t('global.nav.label')} className="sticky top-[calc(var(--header-h,0px)+24px)] flex flex-col gap-0.5">
           {sections.map((s) => (
             <a key={s.route.name} {...linkProps(s.route)} aria-current={s === here ? 'page' : undefined} className={item(s === here)}>
               {t(s.label)}

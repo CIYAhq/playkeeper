@@ -8,6 +8,7 @@ import { GetStartedCard } from '@/components/app/checklist'
 import { CommandPalette, ShortcutsDialog } from '@/components/app/command-palette'
 import { useIsPhone } from '@/components/app/controls'
 import { useJobToasts } from '@/components/app/jobs'
+import { StickyHeader } from '@/components/app/sticky-header'
 import { UpdateRow } from '@/components/app/update'
 import { t } from '@/i18n'
 import { can, inSettings, roleName, settingsHome } from '@/lib/access'
@@ -410,8 +411,12 @@ function PhoneShell({ route, overlays, children }: { route: Route; overlays: Rea
   )
 }
 
-/** A page's title row: title, a line under it and actions on the right. */
-export function PageHeader({ title, subtitle, actions, breadcrumb, phoneAction }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; breadcrumb?: ReactNode; phoneAction?: ReactNode }) {
+/**
+ * A page's title row: title, a line under it and actions on the right. A page
+ * with its own list of pages beside it passes `sticky`, so on desktop the
+ * header stays while the content scrolls; a phone's large title scrolls away.
+ */
+export function PageHeader({ title, subtitle, actions, breadcrumb, phoneAction, sticky }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; breadcrumb?: ReactNode; phoneAction?: ReactNode; sticky?: boolean }) {
   const phone = useIsPhone()
   if (phone) {
     return (
@@ -424,8 +429,9 @@ export function PageHeader({ title, subtitle, actions, breadcrumb, phoneAction }
       </header>
     )
   }
+  const Header = sticky ? StickyHeader : 'header'
   return (
-    <header className={cn('border-b border-border px-7 pt-4', breadcrumb ? 'pb-5' : 'pb-[18px]')}>
+    <Header className={cn('border-b border-border px-7 pt-4', breadcrumb ? 'pb-5' : 'pb-[18px]')}>
       {breadcrumb && <div className="mb-3 text-[13px] text-muted-foreground">{breadcrumb}</div>}
       <div className={cn('flex flex-wrap items-end gap-4', !breadcrumb && 'pt-[38px]')}>
         <div className="min-w-0 flex-1">
@@ -434,7 +440,7 @@ export function PageHeader({ title, subtitle, actions, breadcrumb, phoneAction }
         </div>
         {actions && <div className="flex items-center gap-2">{actions}</div>}
       </div>
-    </header>
+    </Header>
   )
 }
 
@@ -447,16 +453,16 @@ export function PhoneMoreButton() {
   )
 }
 
-/** The phone header of pages opened from another: a back link and a title. */
+/** The phone header of pages opened from another: a back link and a title, staying at the top like a native navigation bar. */
 export function PhoneBackHeader({ to, label, title }: { to: Route; label: string; title?: ReactNode }) {
   return (
-    <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-2 pb-2">
+    <StickyHeader className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-2 pb-2">
       <a {...linkProps(to)} className="-ml-2 inline-flex min-h-11 min-w-0 items-center gap-0.5 justify-self-start rounded-lg px-1 text-[15px] font-medium text-success-strong">
         <ChevronLeftIcon className="size-5 shrink-0" aria-hidden="true" />
         <span className="truncate">{label}</span>
       </a>
       {title && <h1 className="truncate text-[17px] font-semibold">{title}</h1>}
-    </header>
+    </StickyHeader>
   )
 }
 
