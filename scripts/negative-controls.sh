@@ -5311,14 +5311,22 @@ control "Explored only can't be chosen once an area is filled in" internal/agent
   '		case cur.Fill.State == "finished":' \
   '		case false && cur.Fill.State == "finished":' \
   ./internal/agent '^TestTheMapAreaFillsInABiggerAreaThatSquaremapThenDraws$'
-control "a replacement area is checked before the one being filled in stops" internal/agent/maparea.go \
-  '	if _, err := s.pregenRefusal(sc, p, plan); err != nil {
-		writeError(w, err)
-		return
-	}
-	if filling {' \
-  '	if filling {' \
-  ./internal/agent '^TestMapAreaRefusals$'
+control "a replaced area carries on as it was when the new one doesn't start" internal/agent/pregen.go \
+  '			s.keepPregen(ctx, ctrl, old, paused)' \
+  '			_ = paused' \
+  ./internal/agent '^TestReplacingTheMapAreaKeepsTheOldOneUntilTheNewOneStarts$'
+control "a finished area stays done after a bigger one is stopped" internal/agent/pregen.go \
+  '	if err == nil && how == pregenFinished {' \
+  '	if false && err == nil && how == pregenFinished {' \
+  ./internal/agent '^TestTheLargestFinishedAreaStaysDone$'
+control "the largest finished area is done, not the latest" internal/agent/pregen.go \
+  'done_radius = MAX(done_radius, radius),' \
+  'done_radius = radius,' \
+  ./internal/agent '^TestTheLargestFinishedAreaStaysDone$'
+control "the world border is done only as far as it was filled" internal/agent/maparea.go \
+  '			done = c.Radius <= doneBorder' \
+  '			done = doneBorder > 0' \
+  ./internal/agent '^TestTheMapAreaFillsUpToTheWorldBorder$'
 control "squaremap draws a finished pre-generation" internal/agent/pregen.go \
   '		s.drawPregenerated(ctx)
 		return nil, nil' \

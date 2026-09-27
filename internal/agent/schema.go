@@ -410,4 +410,13 @@ ALTER TABLE offsite ADD COLUMN copies_made INTEGER NOT NULL DEFAULT 0;
 	`
 ALTER TABLE servers ADD COLUMN backup_refused TEXT NOT NULL DEFAULT '';
 `,
+	// The map's area: the radius of the largest area a pre-generation
+	// finished, and of the largest up to the world border, which stay
+	// generated whatever later tasks do. Tasks that finished before count.
+	`
+ALTER TABLE pregen ADD COLUMN done_radius INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE pregen ADD COLUMN done_border INTEGER NOT NULL DEFAULT 0;
+UPDATE pregen SET done_radius = radius WHERE ended = 'finished';
+UPDATE pregen SET done_border = radius WHERE ended = 'finished' AND preset = 'border';
+`,
 }

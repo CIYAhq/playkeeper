@@ -61,12 +61,16 @@ type pregenTask struct {
 	Total       int64
 	Elapsed     int64
 	Rate        float64
+	// DoneRadius and DoneBorder are the radii of the largest area any task
+	// finished, and of the largest one up to the world border.
+	DoneRadius int
+	DoneBorder int
 }
 
 func (t *pregenTask) unfinished() bool { return t != nil && t.Ended == "" }
 
 const pregenColumns = `world, preset, radius, pause_for_players, paused_by_user, paused_by_policy, paused_for,
-	started_at, ended, ended_at, world_bytes_before, world_bytes_after, chunks, total, elapsed_secs, rate`
+	started_at, ended, ended_at, world_bytes_before, world_bytes_after, chunks, total, elapsed_secs, rate, done_radius, done_border`
 
 // lastPregen is the task Playkeeper started last on the server, or nil.
 func (s *server) lastPregen() (*pregenTask, error) {
@@ -75,7 +79,7 @@ func (s *server) lastPregen() (*pregenTask, error) {
 	var ended sql.NullInt64
 	err := s.db.QueryRow(`SELECT `+pregenColumns+` FROM pregen WHERE server_id = ?`, s.id).Scan(&t.World, &t.Preset, &t.Radius,
 		&t.PauseForPlayers, &t.PausedByUser, &t.PausedByPolicy, &t.PausedFor, &started, &t.Ended, &ended, &t.BytesBefore, &t.BytesAfter,
-		&t.Chunks, &t.Total, &t.Elapsed, &t.Rate)
+		&t.Chunks, &t.Total, &t.Elapsed, &t.Rate, &t.DoneRadius, &t.DoneBorder)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -107,6 +111,10 @@ func (s *server) endPregen(t *pregenTask, how string, saved *pregen.Task, bytesA
 	}
 	err := s.updatePregen(`ended = ?, ended_at = ?, chunks = ?, elapsed_secs = ?, rate = ?, world_bytes_after = ?,
 		paused_by_user = 0, paused_by_policy = 0, paused_for = ''`, how, s.now().UnixMilli(), chunks, elapsed, rate, bytesAfter)
+	if err == nil && how == pregenFinished {
+		err = s.updatePregen(`done_radius = MAX(done_radius, radius),
+			done_border = CASE WHEN preset = ? THEN MAX(done_border, radius) ELSE done_border END`, api.MapAreaBorder)
+	}
 	s.pg.reset()
 	return err
 }
@@ -608,7 +616,7 @@ func (s *server) hPregenStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Choose one of the sizes: small, medium, large or huge."))
 		return
 	}
-	op, err := s.beginPregen(actor, sc, p, plan, req.Preset, req.PauseForPlayers)
+	op, err := s.beginPregen(actor, sc, p, plan, req.Preset, req.PauseForPlayers, false)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -617,8 +625,9 @@ func (s *server) hPregenStart(w http.ResponseWriter, r *http.Request) {
 }
 
 // beginPregen starts pre-generating plan's area, preset being the size
-// it's shown as, once nothing else is being pre-generated.
-func (s *server) beginPregen(actor string, sc *api.ServerConfig, p pregen.Platform, plan pregen.Plan, preset string, pauseForPlayers bool) (*api.Operation, error) {
+// it's shown as, once nothing else is being pre-generated. forMap is a
+// choice of the map's area, which replaces a task under way.
+func (s *server) beginPregen(actor string, sc *api.ServerConfig, p pregen.Platform, plan pregen.Plan, preset string, pauseForPlayers, forMap bool) (*api.Operation, error) {
 	est, err := s.pregenRefusal(sc, p, plan)
 	if err != nil {
 		return nil, err
@@ -627,11 +636,11 @@ func (s *server) beginPregen(actor string, sc *api.ServerConfig, p pregen.Platfo
 	if err != nil {
 		return nil, err
 	}
-	if task.unfinished() {
+	if task.unfinished() && !forMap {
 		return nil, pregenBusy()
 	}
 	return s.beginOp("pregen-start", actor, func(ctx context.Context, h *opHandle) error {
-		return s.startPregen(ctx, h, actor, p, plan, preset, pauseForPlayers, est.Total)
+		return s.startPregen(ctx, h, actor, p, plan, preset, pauseForPlayers, forMap, est.Total)
 	})
 }
 
@@ -655,15 +664,21 @@ func pregenBusy() *apiError {
 }
 
 // startPregen installs Chunky if the server doesn't have it, restarts or
-// starts the server if Chunky isn't loaded, then starts the task.
-func (s *server) startPregen(ctx context.Context, h *opHandle, actor string, p pregen.Platform, plan pregen.Plan, preset string, pauseForPlayers bool, total int64) error {
+// starts the server if Chunky isn't loaded, then starts the task. For the
+// map, an unfinished task gives way only once the new one has started, and
+// is left as it was if the new one doesn't start.
+func (s *server) startPregen(ctx context.Context, h *opHandle, actor string, p pregen.Platform, plan pregen.Plan, preset string, pauseForPlayers, forMap bool, total int64) error {
 	h.set("preset", preset)
 	h.set("radius", plan.Radius)
 	h.set("pauseForPlayers", pauseForPlayers)
 	h.phase("checking")
-	if task, err := s.lastPregen(); err != nil {
+	old, err := s.lastPregen()
+	if err != nil {
 		return err
-	} else if task.unfinished() {
+	}
+	if !old.unfinished() {
+		old = nil
+	} else if !forMap {
 		return pregenBusy()
 	}
 	if err := s.installChunky(ctx, h, actor, p); err != nil {
@@ -718,12 +733,28 @@ func (s *server) startPregen(ctx context.Context, h *opHandle, actor string, p p
 	}
 	h.set("step", "starting_task")
 	h.phase("starting_task")
-	if err := ctrl.Configure(ctx, pregen.Config{ContinueOnRestart: true, UpdateInterval: pregenUpdateInterval}); err != nil {
-		return pregenError(err)
+	// Chunky runs one task per world, so a running one is paused for the
+	// new one to replace.
+	paused := false
+	if old != nil {
+		switch err := ctrl.Pause(ctx, old.World); {
+		case err == nil:
+			paused = true
+		case !errors.Is(err, pregen.ErrNotRunning):
+			return pregenError(err)
+		}
 	}
 	before := s.worldSize(s.levelName(*sc))
-	started, err := ctrl.Start(ctx, plan, pregen.StartOptions{ContinueOnRestart: true, Replace: true})
+	started, err := func() (pregen.Started, error) {
+		if err := ctrl.Configure(ctx, pregen.Config{ContinueOnRestart: true, UpdateInterval: pregenUpdateInterval}); err != nil {
+			return pregen.Started{}, err
+		}
+		return ctrl.Start(ctx, plan, pregen.StartOptions{ContinueOnRestart: true, Replace: true})
+	}()
 	if err != nil {
+		if old != nil {
+			s.keepPregen(ctx, ctrl, old, paused)
+		}
 		return pregenError(err)
 	}
 	if plan.OnBorder {
@@ -747,8 +778,30 @@ func (s *server) startPregen(ctx context.Context, h *opHandle, actor string, p p
 		return err
 	}
 	s.pg.reset()
+	if old != nil {
+		s.audit(actor, "pregen.cancelled", old.World, "succeeded", "replaced by "+preset)
+	}
 	s.audit(actor, "pregen.started", plan.World, "succeeded", fmt.Sprintf("%s: %d blocks around %d, %d", preset, plan.Radius, started.CenterX, started.CenterZ))
+	if forMap {
+		s.audit(actor, "map.area", "map", "changed", areaText(preset, plan.Radius))
+	}
 	return nil
+}
+
+// keepPregen leaves the task a new one was to replace as it was, when the
+// new one didn't start: going on if it was paused for it, and resuming
+// after a restart unless somebody paused it.
+func (s *server) keepPregen(ctx context.Context, ctrl *pregen.Controller, old *pregenTask, paused bool) {
+	if old.PausedByUser {
+		if err := ctrl.Configure(ctx, pregen.Config{ContinueOnRestart: false, UpdateInterval: pregenUpdateInterval}); err != nil {
+			s.log.Warn("could not keep the paused map pre-generation from resuming", "server", s.id, "err", err)
+		}
+	}
+	if paused {
+		if err := ctrl.Continue(ctx, old.World); err != nil {
+			s.log.Warn("could not continue the map pre-generation a new one was to replace", "server", s.id, "err", err)
+		}
+	}
 }
 
 // installChunky installs Chunky from Modrinth unless the server has it. A

@@ -40,6 +40,8 @@ type fakeChunky struct {
 	// borderX, borderZ and borderRadius are the world border, which starts
 	// at the edge of the world.
 	borderX, borderZ, borderRadius int
+	// limit is the radius the host caps new tasks at, or 0 for none.
+	limit int
 }
 
 type fakeChunkyTask struct {
@@ -101,13 +103,16 @@ func (fc *fakeChunky) answer(cmd string) (string, bool) {
 	case cmd == "chunky worldborder":
 		return fmt.Sprintf("[Chunky] Center changed to %d, %d.\n[Chunky] Radius changed to %d.", fc.borderX, fc.borderZ, fc.borderRadius), true
 	case reChunkyStart.MatchString(cmd):
-		if fc.running {
-			return "[Chunky] Task already started for world!", true
-		}
 		m := reChunkyStart.FindStringSubmatch(cmd)
 		x, _ := strconv.Atoi(m[1])
 		z, _ := strconv.Atoi(m[2])
 		r, _ := strconv.Atoi(m[3])
+		if fc.limit > 0 && r > fc.limit {
+			return fmt.Sprintf("[Chunky] Your host has limited the maximum pre-generation radius to %d to avoid excessive disk space usage.", fc.limit), true
+		}
+		if fc.running {
+			return "[Chunky] Task already started for world!", true
+		}
 		start := func() string {
 			side := 2*int64(math.Ceil(float64(r)/16)) + 1
 			fc.task, fc.running = &fakeChunkyTask{centerX: x, centerZ: z, radius: r, total: side * side}, true

@@ -104,9 +104,9 @@ func (s *server) mapArea(ctx context.Context) (api.MapArea, error) {
 	if err != nil {
 		return api.MapArea{}, err
 	}
-	rate, free := 0.0, int64(-1)
+	rate, free, doneRadius, doneBorder := 0.0, int64(-1), 0, 0
 	if task != nil {
-		rate = task.Rate
+		rate, doneRadius, doneBorder = task.Rate, task.DoneRadius, task.DoneBorder
 	}
 	if fill.DiskFreeBytes != nil {
 		free = *fill.DiskFreeBytes
@@ -121,10 +121,15 @@ func (s *server) mapArea(ctx context.Context) (api.MapArea, error) {
 		costs = append(costs, pregenCost(api.MapAreaBorder, pregen.BorderPlan(world, border), pregen.DimensionOf(p, s.levelName(*sc), world), rate, free))
 	}
 	for _, c := range costs {
+		// An area stays generated whatever later tasks do, and filling up
+		// to the border also fills every size inside it.
+		done := c.Radius <= doneRadius
+		if c.ID == api.MapAreaBorder {
+			done = c.Radius <= doneBorder
+		}
 		out.Options = append(out.Options, api.MapAreaOption{
 			ID: c.ID, Radius: c.Radius, Chunks: c.Chunks, Seconds: c.Seconds, DiskBytes: c.DiskBytes, Fits: c.Fits,
-			// Filling up to the border also fills every size inside it.
-			Done:       fill.State == "finished" && (c.ID == fill.Preset || (c.ID != api.MapAreaBorder && c.Radius <= fill.Radius)),
+			Done:       done,
 			PastBorder: border > 0 && c.ID != api.MapAreaBorder && c.Radius > border,
 		})
 	}
@@ -142,8 +147,9 @@ func (s *server) hMapArea(w http.ResponseWriter, r *http.Request) {
 
 // hMapAreaSet chooses the map's area while the map is on. Explored only
 // stops the area being filled in; a bigger area starts filling it in, in
-// place of one under way. What was generated stays, so an area the map
-// has can't be chosen again, and Explored only can't be once one is done.
+// place of one under way once it has started. What was generated stays,
+// so an area the map has can't be chosen again, and Explored only can't
+// be once one is done.
 func (s *server) hMapAreaSet(w http.ResponseWriter, r *http.Request) {
 	var req api.MapAreaRequest
 	if err := decode(r, &req); err != nil {
@@ -220,22 +226,11 @@ func (s *server) hMapAreaSet(w http.ResponseWriter, r *http.Request) {
 	if req.Area == api.MapAreaBorder {
 		plan = pregen.BorderPlan(world, opt.Radius)
 	}
-	if _, err := s.pregenRefusal(sc, p, plan); err != nil {
-		writeError(w, err)
-		return
-	}
-	if filling {
-		if err := s.stopFill(r.Context(), actor, cur.Fill.State); err != nil {
-			writeError(w, err)
-			return
-		}
-	}
-	op, err := s.beginPregen(actor, sc, p, plan, req.Area, req.PauseForPlayers)
+	op, err := s.beginPregen(actor, sc, p, plan, req.Area, req.PauseForPlayers, true)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	s.audit(actor, "map.area", "map", "changed", areaText(req.Area, opt.Radius))
 	writeJSON(w, http.StatusAccepted, op)
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
+	"github.com/CIYAhq/playkeeper/internal/store"
 )
 
 // chunkyJar puts Chunky among the server's plugins, as the Plugins tab
@@ -163,8 +164,8 @@ func TestTheMapAreaStopsOrReplacesTheOneBeingFilledIn(t *testing.T) {
 	if running, task := fc.state(); !running || task.radius != 1000 {
 		t.Fatalf("after choosing small, Chunky runs %v: %+v", running, task)
 	}
-	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND actor = 'admin' AND action = 'pregen.cancelled'`, e.sid); n != 1 {
-		t.Errorf("%d audit entries for stopping large", n)
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND actor = 'admin' AND action = 'pregen.cancelled' AND detail = 'replaced by small'`, e.sid); n != 1 {
+		t.Errorf("%d audit entries for replacing large", n)
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM pregen WHERE server_id = ? AND preset = 'small' AND radius = 1000 AND pause_for_players = 0 AND ended = ''`, e.sid); n != 1 {
 		t.Error("small was not recorded as the area being filled in")
@@ -188,6 +189,153 @@ func TestTheMapAreaStopsOrReplacesTheOneBeingFilledIn(t *testing.T) {
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND action = 'map.area' AND detail = 'explored only'`, e.sid); n != 1 {
 		t.Errorf("%d audit entries for explored only", n)
+	}
+}
+
+// A different area takes over from the one being filled in only once
+// Chunky has started it. While something else holds the server, or when
+// Chunky won't start it, the old one carries on as it was: running, or
+// paused and not resuming by itself.
+func TestReplacingTheMapAreaKeepsTheOldOneUntilTheNewOneStarts(t *testing.T) {
+	e, _, _ := newMapEnv(t)
+	e.create()
+	e.mapOn()
+	e.chunkyJar()
+	fc := e.chunky()
+	e.fillMapArea("large", true)
+	fc.advance(3000)
+	kept := func(when string, running, pausedByUser bool) {
+		t.Helper()
+		if r, task := fc.state(); r != running || task.radius != 5000 || task.cancelled || task.chunks != 3000 {
+			t.Errorf("%s, Chunky runs %v: %+v", when, r, task)
+		}
+		if a := e.mapArea(); a.Area != "large" || a.Radius != 5000 {
+			t.Errorf("%s, the area: %+v", when, a)
+		}
+		if n := e.countRows(`SELECT COUNT(*) FROM pregen WHERE server_id = ? AND preset = 'large' AND ended = '' AND paused_by_user = ?`, e.sid, pausedByUser); n != 1 {
+			t.Errorf("%s, large is no longer the area being filled in", when)
+		}
+		if e.resumesOnRestart() == pausedByUser {
+			t.Errorf("%s, Chunky resumes after a restart: %v", when, !pausedByUser)
+		}
+		if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND action IN ('pregen.cancelled', 'map.area') AND detail != 'large: 5000 blocks around spawn'`, e.sid); n != 0 {
+			t.Errorf("%s, %d audit entries for replacing large", when, n)
+		}
+	}
+
+	release, ok := e.srv().holdOpLock()
+	if !ok {
+		t.Fatal("could not hold the server")
+	}
+	if code, out := e.setMapArea("small", true); code != 409 {
+		t.Errorf("replacing large while the server is busy: %d %v", code, out)
+	}
+	release()
+	kept("after the server was busy", true, false)
+
+	fc.mu.Lock()
+	fc.limit = 500
+	fc.mu.Unlock()
+	refused := func() {
+		t.Helper()
+		code, out := e.setMapArea("small", true)
+		if code != 202 {
+			t.Fatalf("replacing large: %d %v", code, out)
+		}
+		if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed || op.Error != "Chunky on this server is limited to a radius of 500 blocks." {
+			t.Fatalf("replacing large with an area Chunky won't start: %+v", op)
+		}
+	}
+	refused()
+	if e.rcon.count("chunky pause world") != 1 || e.rcon.count("chunky continue world") != 1 {
+		t.Error("large was not paused for small, then continued")
+	}
+	kept("after Chunky refused small", true, false)
+
+	e.pregenAct("pause")
+	refused()
+	if e.rcon.count("chunky continue world") != 1 {
+		t.Error("large carried on though it was paused")
+	}
+	kept("after Chunky refused small in place of large paused", false, true)
+}
+
+// What a task finished stays done after a bigger one is stopped or
+// replaced, or a smaller one finishes.
+func TestTheLargestFinishedAreaStaysDone(t *testing.T) {
+	e, _, _ := newMapEnv(t)
+	e.create()
+	e.mapOn()
+	e.chunkyJar()
+	fc := e.chunky()
+	done := func(when string, want ...string) {
+		t.Helper()
+		if got := optionIDs(e.mapArea(), func(o api.MapAreaOption) bool { return o.Done }); !slices.Equal(got, want) {
+			t.Errorf("done %s: %v, want %v", when, got, want)
+		}
+	}
+	e.fillMapArea("small", true)
+	fc.finish(5 * time.Minute)
+	e.waitFor("small to be filled in", func() bool { return e.mapArea().Fill.State == "finished" })
+
+	e.fillMapArea("medium", true)
+	done("while medium is filled in", "small")
+	fc.advance(1000)
+	if code, out := e.setMapArea(api.MapAreaExplored, true); code != 200 {
+		t.Fatalf("stopping medium: %d %v", code, out)
+	}
+	done("once medium was stopped", "small")
+	if code, out := e.setMapArea("small", true); code != 409 || out["code"] != api.CodeAreaOnMap {
+		t.Errorf("small once medium was stopped: %d %v", code, out)
+	}
+
+	e.fillMapArea("large", true)
+	e.fillMapArea("medium", true)
+	done("once large was replaced by medium", "small")
+	fc.finish(10 * time.Minute)
+	e.waitFor("medium to be filled in", func() bool { return e.mapArea().Fill.State == "finished" })
+	done("once medium is filled in", "small", "medium")
+
+	e.startPregen("small", true)
+	fc.finish(time.Minute)
+	e.waitFor("small to be filled in again", func() bool { return e.pregen().State == "finished" })
+	done("once small is filled in again", "small", "medium")
+}
+
+// Pre-generations that finished before the map's area was recorded count
+// as done.
+func TestPregenerationsFinishedBeforeCountAsDone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.db")
+	db, err := store.Open(path, migrations[:len(migrations)-1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO pregen(server_id, world, preset, radius, started_at, ended) VALUES
+		('finished', 'world', 'medium', 2500, 1, 'finished'), ('cancelled', 'world', 'large', 5000, 1, 'cancelled'),
+		('running', 'world', 'huge', 10000, 1, ''), ('border', 'world', 'border', 3000, 1, 'finished')`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	if db, err = store.Open(path, migrations); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	got := map[string][2]int{}
+	rows, err := db.Query(`SELECT server_id, done_radius, done_border FROM pregen`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var r, b int
+		if err := rows.Scan(&id, &r, &b); err != nil {
+			t.Fatal(err)
+		}
+		got[id] = [2]int{r, b}
+	}
+	if want := map[string][2]int{"finished": {2500, 0}, "cancelled": {0, 0}, "running": {0, 0}, "border": {3000, 3000}}; !maps.Equal(got, want) {
+		t.Errorf("done after the upgrade: %v, want %v", got, want)
 	}
 }
 
@@ -231,8 +379,15 @@ func TestTheMapAreaFillsUpToTheWorldBorder(t *testing.T) {
 	}
 	fc.finish(time.Hour)
 	e.waitFor("the border to be filled in", func() bool { return e.mapArea().Fill.State == "finished" })
+	e.srv().forgetMapLive()
+	e.withBorder(fc, 100, -200, 5000)
 	if done := optionIDs(e.mapArea(), func(o api.MapAreaOption) bool { return o.Done }); !slices.Equal(done, []string{"small", "medium", "border"}) {
 		t.Errorf("done once the border is filled in: %v", done)
+	}
+	e.srv().forgetMapLive()
+	e.withBorder(fc, 100, -200, 7000)
+	if done := optionIDs(e.mapArea(), func(o api.MapAreaOption) bool { return o.Done }); !slices.Equal(done, []string{"small", "medium"}) {
+		t.Errorf("done once the border moved out: %v", done)
 	}
 }
 
