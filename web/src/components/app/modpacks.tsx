@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import { ArrowUpRightIcon, PackageIcon, RefreshCwIcon, SearchIcon } from 'lucide-react'
-import { modpackIcon, useModpackDetail, useModpackPreview, useModpacks, type ModpackSort } from '@/api/modpacks'
+import { modpackIcon, useModpackDetail, useModpackPreview, usePackLibrary, type ModpackSort } from '@/api/modpacks'
 import type { ModpackCard, ModpackDetail, ModpackPreview, ModpackSource } from '@/api/types'
 import { TypeLogo } from '@/components/app/art'
 import { Notice } from '@/components/app/bits'
@@ -85,9 +85,11 @@ export function ModpackPicker({ machineId, value, onChange, onUse, phone }: { ma
   const [sort, setSort] = useState<ModpackSort>('downloads')
   const [open, setOpen] = useState<ModpackCard>()
   const [typed, setTyped] = useState('')
-  const list = useModpacks(machineId, query, sort)
-  const cards = (list.data?.cards ?? []).slice(0, 4)
-  const curseforge = !!list.data && !list.data.sources.includes('curseforge')
+  const list = usePackLibrary(machineId, query, sort)
+  const cards = (list.cards ?? []).slice(0, 4)
+  const both = !!list.sources?.includes('curseforge')
+  const needsKey = !!list.sources && !both
+  const searchLabel = t(both ? 'modpacks.searchBoth' : 'modpacks.search')
 
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery(typed.trim()), 300)
@@ -113,8 +115,8 @@ export function ModpackPicker({ machineId, value, onChange, onUse, phone }: { ma
             <InputGroupInput
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
-              placeholder={t('modpacks.search')}
-              aria-label={t('modpacks.search')}
+              placeholder={searchLabel}
+              aria-label={searchLabel}
               type="search"
               enterKeyHint="search"
               maxLength={100}
@@ -150,6 +152,7 @@ export function ModpackPicker({ machineId, value, onChange, onUse, phone }: { ma
               card={card}
               selected={value?.source === card.source && value.projectId === card.projectId}
               phone={phone}
+              mixed={both}
               onPick={() => onChange(choiceOf(card))}
               onOpen={() => {
                 onChange(choiceOf(card))
@@ -159,7 +162,8 @@ export function ModpackPicker({ machineId, value, onChange, onUse, phone }: { ma
           ))}
         </div>
       )}
-      {curseforge && !phone && (
+      {list.unanswered.length > 0 && <p className="animate-fade text-xs text-muted-foreground">{list.unanswered.join(' ')}</p>}
+      {needsKey && !phone && (
         <p className="text-xs text-muted-foreground">
           {rich('modpacks.curseforge', {
             link: (chunk) => (
@@ -185,13 +189,15 @@ export function ModpackPicker({ machineId, value, onChange, onUse, phone }: { ma
   )
 }
 
-function PackRow({ machineId, card, selected, phone, onPick, onOpen }: { machineId: string; card: ModpackCard; selected: boolean; phone: boolean; onPick: () => void; onOpen: () => void }) {
+/** `mixed`: the list has packs from both sources, so each row names its own. */
+function PackRow({ machineId, card, selected, phone, mixed, onPick, onOpen }: { machineId: string; card: ModpackCard; selected: boolean; phone: boolean; mixed: boolean; onPick: () => void; onOpen: () => void }) {
   const lineId = useId()
   const type = card.types[0] ?? ''
   const version = card.minecraftVersions[0] ?? ''
   const memory = card.memoryMB ? formatMB(card.memoryMB) : ''
+  const count = compactCount(card.downloads)
   const facts = phone
-    ? [[typeName(type), version].filter(Boolean).join(' '), memory && t('modpacks.needsPhone', { memory }), compactCount(card.downloads)]
+    ? [[typeName(type), version].filter(Boolean).join(' '), memory && t('modpacks.needsPhone', { memory }), mixed ? t('modpacks.countOn', { count, source: sourceName(card.source) }) : count]
     : [version && t('server.minecraft', { version }), card.mods ? t('modpacks.mods', { count: card.mods }) : '']
   return (
     <div className={cn('flex items-center rounded-2xl border transition-[box-shadow,border-color,background-color]', selected ? 'border-primary/55 bg-selected shadow-selected' : 'border-border bg-card hover:border-input', card.unavailable && 'opacity-60')}>
@@ -215,7 +221,7 @@ function PackRow({ machineId, card, selected, phone, onPick, onOpen }: { machine
         {!phone && (
           <span className="shrink-0 pl-3 text-right">
             {memory && <span className="block text-[13px] font-semibold">{t('modpacks.needs', { memory })}</span>}
-            <span className="block text-xs text-muted-foreground">{t('modpacks.downloads', { count: compactCount(card.downloads) })}</span>
+            <span className="block text-xs text-muted-foreground">{mixed ? t('modpacks.downloadsOn', { count, source: sourceName(card.source) }) : t('modpacks.downloads', { count })}</span>
           </span>
         )}
       </button>
@@ -291,10 +297,13 @@ function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: stri
                   {(unavailable ?? blocker)?.hint && <span className="mt-1 block">{(unavailable ?? blocker)?.hint}</span>}
                 </Notice>
               )}
-              <section>
-                <h3 className="text-sm font-semibold">{t('modpacks.inside')}</h3>
-                <p className="mt-1 text-[13px] text-muted-foreground">{!d ? <InlineSkeleton className="w-48" /> : d.headline && mods > 1 ? t('modpacks.insideHeadline', { headline: d.headline, count: mods - 1 }) : t('modpacks.insideCount', { count: mods })}</p>
-              </section>
+              {/* CurseForge doesn't list a pack's mods, so its packs have no count to show. */}
+              {(!d || mods > 0) && (
+                <section>
+                  <h3 className="text-sm font-semibold">{t('modpacks.inside')}</h3>
+                  <p className="mt-1 text-[13px] text-muted-foreground">{!d ? <InlineSkeleton className="w-48" /> : d.headline && mods > 1 ? t('modpacks.insideHeadline', { headline: d.headline, count: mods - 1 }) : t('modpacks.insideCount', { count: mods })}</p>
+                </section>
+              )}
               <section>
                 <h3 className="text-sm font-semibold">{t('modpacks.friends')}</h3>
                 <p className="mt-1 text-[13px] text-muted-foreground">{t('modpacks.friendsBody')}</p>

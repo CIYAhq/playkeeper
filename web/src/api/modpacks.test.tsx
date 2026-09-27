@@ -3,8 +3,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import { useModpackPreview } from '@/api/modpacks'
-import type { ModpackPreview } from '@/api/types'
+import { mergePacks, useModpackPreview } from '@/api/modpacks'
+import type { ModpackCard, ModpackPreview } from '@/api/types'
 import { packVoicePort } from '@/components/app/modpacks'
 
 vi.mock('@/api/client', async (importOriginal) => ({
@@ -62,4 +62,18 @@ it.each([
   expect(await show()).toBe('24454')
   expect(await show()).toBe(want)
   expect(client.get).toHaveBeenCalledTimes(2)
+})
+
+it('merges Modrinth’s and CurseForge’s packs in the order asked for', () => {
+  const pack = (source: ModpackCard['source'], projectId: string, downloads: number, updated: string): ModpackCard => ({
+    source, projectId, slug: projectId, name: projectId, summary: '', downloads, updated, pageUrl: '', types: ['fabric'], minecraftVersions: ['26.2'],
+  })
+  const modrinth = [pack('modrinth', 'm1', 10, '2026-09-01T00:00:00Z'), pack('modrinth', 'm2', 5, '2026-09-03T00:00:00Z'), pack('modrinth', 'm3', 1, '2026-09-05T00:00:00Z')]
+  const curseforge = [pack('curseforge', 'c1', 100, '2026-09-02T00:00:00Z'), pack('curseforge', 'c2', 2, '2026-09-04T00:00:00Z')]
+  const ids = (sort: Parameters<typeof mergePacks>[1]) => mergePacks([modrinth, curseforge], sort).map((c) => c.projectId)
+  expect(ids('relevance')).toEqual(['m1', 'c1', 'm2', 'c2', 'm3'])
+  expect(ids('newest')).toEqual(['m1', 'c1', 'm2', 'c2', 'm3'])
+  expect(ids('downloads')).toEqual(['c1', 'm1', 'm2', 'c2', 'm3'])
+  expect(ids('updated')).toEqual(['m3', 'c2', 'm2', 'c1', 'm1'])
+  expect(mergePacks([modrinth], 'downloads')).toEqual(modrinth)
 })

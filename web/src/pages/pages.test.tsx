@@ -1889,6 +1889,101 @@ describe('Modpacks', () => {
     expect(parse('/settings/addon-sources', `?machine=${machineId}`)).toEqual({ name: 'addon-sources', machine: machineId })
   })
 
+  // All the Mods 10 is on CurseForge only, as CurseForge listed it on 27 Sep.
+  const atm10: ModpackCard = {
+    source: 'curseforge',
+    projectId: '925200',
+    slug: 'all-the-mods-10',
+    name: 'All the Mods 10 - ATM10',
+    author: 'ATMTeam',
+    summary: 'All the Mods started out as a private modpack.',
+    downloads: 21_947_994,
+    updated: '2026-09-22T09:34:09Z',
+    pageUrl: 'https://www.curseforge.com/minecraft/modpacks/all-the-mods-10',
+    types: ['neoforge'],
+    minecraftVersions: ['1.21.1'],
+  }
+  const keyed: ModpackResults = { ...results, sources: ['modrinth', 'curseforge'] }
+
+  /** Types text into the picker's search and presses Enter. */
+  async function searchPacks(text: string) {
+    const form = document.querySelector('form[role="search"]')
+    const input = form?.querySelector('input')
+    if (!form || !input) throw new Error('no search form')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, text)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    for (let i = 0; i < 3; i++) await act(async () => {})
+  }
+  const packRows = () => [...document.querySelectorAll('[role="radiogroup"] > div')].map((r) => r.textContent ?? '')
+  const packSearches = () => vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes('/modpacks?'))
+  const searchField = () => document.querySelector('form[role="search"] input')?.getAttribute('placeholder')
+
+  it('lists CurseForge’s packs with Modrinth’s once the machine offers CurseForge', async () => {
+    answer({ 'source=curseforge': { ...keyed, cards: [atm10] }, 'source=modrinth': keyed })
+    await render(<ModpackPicker machineId="c2345abcde" onChange={() => {}} onUse={() => {}} phone={false} />)
+    await searchPacks('All the Mods 10')
+    expect(packSearches().filter((p) => p.includes('q=All+the+Mods+10'))).toEqual([
+      '/api/machines/c2345abcde/modpacks?source=modrinth&sort=downloads&limit=12&q=All+the+Mods+10',
+      '/api/machines/c2345abcde/modpacks?source=curseforge&sort=downloads&limit=12&q=All+the+Mods+10',
+    ])
+    const rows = packRows()
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toContain('All the Mods 10 - ATM10')
+    expect(rows[0]).toContain('21.9M downloads on CurseForge')
+    expect(rows[1]).toContain('Smooth Server')
+    expect(rows[1]).toContain('1.2k downloads on Modrinth')
+    expect(searchField()).toBe('Search Modrinth and CurseForge modpacks')
+    expect(page()).not.toContain('need a free key')
+  })
+
+  it('asks only Modrinth on a machine without a CurseForge key, and says how to get one', async () => {
+    answer({ 'source=curseforge': { ...keyed, cards: [atm10] }, 'source=modrinth': results })
+    await render(<ModpackPicker machineId="c2345abcdf" onChange={() => {}} onUse={() => {}} phone={false} />)
+    await searchPacks('All the Mods 10')
+    expect(packSearches().some((p) => p.includes('source=curseforge'))).toBe(false)
+    expect(packRows()).toEqual([expect.stringContaining('Smooth Server')])
+    expect(packRows()[0]).toContain('1.2k downloads')
+    expect(packRows()[0]).not.toContain('on Modrinth')
+    expect(searchField()).toBe('Search Modrinth modpacks')
+    expect(page()).toContain('CurseForge modpacks need a free key.')
+  })
+
+  it('says nothing about the mods of a CurseForge pack, which CurseForge doesn’t list', async () => {
+    const detail: ModpackDetail = { ...atm10, versions: [{ id: '8945086', number: 'All the Mods 10-8.2', channel: 'release', published: '2026-09-22T09:34:09Z', size: 199_005_126, type: 'neoforge', minecraftVersion: '1.21.1' }], newest: '8945086' }
+    answer({
+      '/preview': { type: 'neoforge', minecraftVersion: '1.21.1', loaderVersion: '21.1.251', files: 3904, downloadSize: 1_361_589_811, ready: true, blockers: [], warnings: [], manual: [] },
+      '/modpacks/curseforge/925200': detail,
+      'source=curseforge': { ...keyed, cards: [atm10] },
+      'source=modrinth': keyed,
+    })
+    await render(<ModpackPicker machineId="c2345abcdh" onChange={() => {}} onUse={() => {}} phone={false} />)
+    await act(async () => {})
+    const row = [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith('All the Mods 10 - ATM10'))
+    await act(async () => row?.click())
+    for (let i = 0; i < 4; i++) await act(async () => {})
+    expect(page()).toContain('by ATMTeam · CurseForge')
+    expect(page()).toContain('NeoForge 21.1.251')
+    expect(page()).not.toContain('What’s inside')
+    expect(page()).not.toContain('0 mods')
+  })
+
+  it('keeps one source’s packs while the other fails, and says why', async () => {
+    answer({ 'source=curseforge': new client.ApiError(409, { error: 'CurseForge refused Playkeeper’s API key.', code: 'curseforge_key_refused' }), 'source=modrinth': keyed })
+    await render(<ModpackPicker machineId="c2345abcdg" onChange={() => {}} onUse={() => {}} phone={false} />)
+    await act(async () => {})
+    expect(packRows()).toEqual([expect.stringContaining('Smooth Server')])
+    expect(page()).toContain('CurseForge refused Playkeeper’s API key.')
+    // The machine said it offers CurseForge, so a search Modrinth fails still lists CurseForge's packs.
+    answer({ 'source=curseforge': { ...keyed, cards: [atm10] }, 'source=modrinth': new client.ApiError(502, { error: 'Playkeeper could not reach Modrinth.', code: 'unreachable' }) })
+    await searchPacks('ATM10')
+    expect(packRows()).toEqual([expect.stringContaining('All the Mods 10 - ATM10')])
+    expect(page()).toContain('Playkeeper could not reach Modrinth.')
+    expect(page()).not.toContain('Couldn’t load modpacks')
+  })
+
   it('says what a pack’s server downloads, not Paper', () => {
     expect(createNote(4, 'modpack', 'fabric')).toBe('After you start it, Playkeeper downloads Fabric and the pack’s mods, checks each file, and tells you when friends can join.')
     expect(createNote(4, 'template', 'neoforge')).toContain('downloads NeoForge and the template’s add-ons')

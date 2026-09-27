@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { get } from './client'
-import type { ModpackDetail, ModpackPreview, ModpackResults, ModpackSource } from './types'
+import type { ModpackCard, ModpackDetail, ModpackPreview, ModpackResults, ModpackSource } from './types'
 import { errorText, machineApi } from './workspace'
 
 export type ModpackSort = 'downloads' | 'relevance' | 'updated' | 'newest'
@@ -41,6 +41,62 @@ export function useModpacks(machineId: string | undefined, q: string, sort: Modp
   const params = new URLSearchParams({ source, sort, limit: '12' })
   if (q.trim()) params.set('q', q.trim())
   return useCached<ModpackResults>(machineId ? machineApi(machineId, `/modpacks?${params.toString()}`) : '')
+}
+
+/**
+ * The create flow's packs: Modrinth's, and CurseForge's as well once the
+ * machine offers CurseForge, which every answer says in `sources`. CurseForge
+ * is asked only then, as it answers an error without a key. While one source
+ * fails the other's packs still show, with its error in `unanswered`.
+ */
+export function usePackLibrary(machineId: string | undefined, q: string, sort: ModpackSort) {
+  const modrinth = useModpacks(machineId, q, sort)
+  const [offered, setOffered] = useState<{ machineId: string; sources: ModpackSource[] }>()
+  useEffect(() => {
+    if (machineId && modrinth.data) setOffered({ machineId, sources: modrinth.data.sources })
+  }, [machineId, modrinth.data])
+  const sources = modrinth.data?.sources ?? (offered && offered.machineId === machineId ? offered.sources : undefined)
+  const curseforge = useModpacks(sources?.includes('curseforge') ? machineId : undefined, q, sort, 'curseforge')
+  const lists = sources?.includes('curseforge') ? [modrinth, curseforge] : [modrinth]
+  const loading = lists.some((l) => l.loading)
+  const answered = lists.flatMap((l) => (l.data ? [l.data.cards] : []))
+  const failed = lists.flatMap((l) => (l.error ? [l.error] : []))
+  return {
+    cards: loading || answered.length === 0 ? undefined : mergePacks(answered, sort),
+    sources,
+    loading,
+    error: loading || answered.length > 0 ? undefined : failed[0],
+    unanswered: loading || answered.length === 0 ? [] : failed,
+    reload: () => lists.forEach((l) => l.reload()),
+  }
+}
+
+/**
+ * Both sources' packs in one list, as the add-on library merges its sources:
+ * relevance takes the sources in turns, and so does newest, as a card doesn't
+ * say when its pack was first published; the other orders sort the lot.
+ */
+export function mergePacks(lists: ModpackCard[][], sort: ModpackSort): ModpackCard[] {
+  const all: ModpackCard[] = []
+  for (let i = 0; lists.some((l) => i < l.length); i++) {
+    for (const l of lists) {
+      const c = l[i]
+      if (c) all.push(c)
+    }
+  }
+  switch (sort) {
+    case 'downloads':
+      return all.sort((a, b) => b.downloads - a.downloads)
+    case 'updated':
+      return all.sort((a, b) => Date.parse(b.updated) - Date.parse(a.updated))
+    case 'relevance':
+    case 'newest':
+      return all
+    default: {
+      const unreachable: never = sort
+      return unreachable
+    }
+  }
 }
 
 export function useModpackDetail(machineId: string | undefined, source: ModpackSource | undefined, project: string | undefined) {

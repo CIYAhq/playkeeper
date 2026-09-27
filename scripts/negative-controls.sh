@@ -261,6 +261,10 @@ webcontrol "a pack's plan names the voice chat port the agent works out now" web
   'if (hit && !fresh && Date.now() - hit.at < maxAge && tick === 0) {' \
   'if (hit && Date.now() - hit.at < maxAge && tick === 0) {' \
   web/src/api/modpacks.test.tsx 'asked for again'
+webcontrol "New server's modpack search asks CurseForge once the machine offers it" web/src/api/modpacks.ts \
+  "const curseforge = useModpacks(sources?.includes('curseforge') ? machineId : undefined, q, sort, 'curseforge')" \
+  "const curseforge = useModpacks(undefined, q, sort, 'curseforge')" \
+  web/src/pages/pages.test.tsx 'once the machine offers CurseForge'
 webcontrol "a page whose code doesn't load keeps the dashboard on screen" web/src/App.tsx \
   '      <LoadBoundary resetKey={JSON.stringify(route)}>
         <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>
