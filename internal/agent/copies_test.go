@@ -425,8 +425,12 @@ func TestBackupRulesThatCantBeReadDeleteNothing(t *testing.T) {
 				ids = append(ids, id)
 			}
 			// Three backups, all copied: two made on one day 100 days ago,
-			// which the defaults no longer keep here, and the newest.
-			old := time.Now().Add(-100 * 24 * time.Hour)
+			// which the defaults no longer keep here, and the newest. The
+			// defaults keep the newest backup of each of the last 7 days with
+			// one, so the two start at noon in UTC, the rules' zone here: an
+			// hour later is the same day whenever the test runs.
+			now := time.Now().UTC()
+			old := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, time.UTC).Add(-100 * 24 * time.Hour)
 			for i, id := range ids[:2] {
 				at := old.Add(time.Duration(i) * time.Hour).UnixMilli()
 				if _, err := e.a.db.Exec(`UPDATE backups SET created_at = ? WHERE id = ?`, at, id); err != nil {
