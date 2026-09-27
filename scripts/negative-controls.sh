@@ -1496,6 +1496,14 @@ control "file browser: a download runs sandboxed if a browser shows it anyway" i
   'h.Set("Content-Security-Policy", "sandbox")' \
   'h.Set("X-Sandbox", "off")' \
   ./internal/panel '^TestFileDownloadsAreNamedAndTypedByThePanel$'
+control "file browser: a joined machine's upload pieces aren't held to the link's smaller bodies" internal/agent/link.go \
+  '"PUT /v1/servers/{id}/files/uploads/{up}/files/{n}": true,' \
+  '"PUT /v1/servers/{id}/files/uploads/{up}/files/{n}": false,' \
+  ./internal/panel '^TestAJoinedMachinesFilesGoThroughItsLink$'
+control "file browser: a joined machine's downloads aren't held to the link's smaller answers" internal/agent/link.go \
+  '"GET /v1/servers/{id}/files/download":               true,' \
+  '"GET /v1/servers/{id}/files/download":               false,' \
+  ./internal/panel '^TestAJoinedMachinesFilesGoThroughItsLink$'
 webcontrol "the Files tab shows only to those who may see a server's files" web/src/components/app/server-tabs.tsx \
   "(x.tab === 'files' ? can(me, 'files.view') :" \
   "(x.tab === 'files' ? true :" \
