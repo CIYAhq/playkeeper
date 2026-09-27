@@ -891,7 +891,7 @@ export interface JoinAddress {
   serverId: string
   name: string
   port: number
-  /** The server's part of the address: "survival" in survival.alex.playkeeper.io. */
+  /** The server's part of the address: "survival" in survival.alex.playkeeper.me. */
   label: string
   address?: string
   /** The IP address with the port, which always works. */

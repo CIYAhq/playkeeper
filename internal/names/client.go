@@ -328,7 +328,7 @@ func serverPath(label string) (string, error) {
 }
 
 // SetServer gives a Minecraft server its own address under the name
-// (label "survival" gives survival.alice.playkeeper.io; "" the name
+// (label "survival" gives survival.alice.playkeeper.me; "" the name
 // itself) with an SRV record pointing at the name and port.
 func (c *Client) SetServer(ctx context.Context, label string, port int) (Server, error) {
 	sp, err := serverPath(label)

@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-const keyFileHeader = "# Playkeeper names key: proves this install owns its playkeeper.io address.\n# Keep it secret and keep it with the backups; without it the address cannot be moved or renewed.\n"
+const keyFileHeader = "# Playkeeper names key: proves this install owns its free address.\n# Keep it secret and keep it with the backups; without it the address cannot be moved or renewed.\n"
 
 // maxKeyFile bounds what LoadOrCreateKey reads.
 const maxKeyFile = 4 << 10

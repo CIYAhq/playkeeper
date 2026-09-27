@@ -29,7 +29,7 @@ func newDashboardHarness(t *testing.T, s Settings) *harness {
 
 func threeServers() Board {
 	return Board{Servers: []BoardServer{
-		{Server: ServerInfo{ID: "srv1", Name: "Survival", Address: "survival.alex.playkeeper.io"}, Status: Status{State: StateOnline, PlayersOnline: 3, MaxPlayers: 10, Players: []string{"tobi2009", "mara_k", "JunoFox"}}},
+		{Server: ServerInfo{ID: "srv1", Name: "Survival", Address: "survival.alex.playkeeper.me"}, Status: Status{State: StateOnline, PlayersOnline: 3, MaxPlayers: 10, Players: []string{"tobi2009", "mara_k", "JunoFox"}}},
 		{Server: ServerInfo{ID: "srv2", Name: "Creative", Address: "203.0.113.10:25566"}, Status: Status{State: StateOffline}},
 		{Server: ServerInfo{ID: "srv3", Name: "Cobblemon", Address: "203.0.113.10:25567"}, Status: Status{State: StateOnline, PlayersOnline: 2, MaxPlayers: 10, Players: []string{"lena", "PixelPia"}}},
 	}}
@@ -51,7 +51,7 @@ func TestBoardListsEveryServerInOneMessage(t *testing.T) {
 	if e.Description != want {
 		t.Errorf("description:\n%s\nwant:\n%s", e.Description, want)
 	}
-	if e.Footer == nil || e.Footer.Text != "Join: survival.alex.playkeeper.io" || e.Color != colorGreen || e.Timestamp == "" || e.Author != nil {
+	if e.Footer == nil || e.Footer.Text != "Join: survival.alex.playkeeper.me" || e.Color != colorGreen || e.Timestamp == "" || e.Author != nil {
 		t.Errorf("embed: %+v footer %+v", e, e.Footer)
 	}
 

@@ -1,16 +1,18 @@
 # names.playkeeper.io
 
-This folder deploys the names service behind free `yourname.playkeeper.io` addresses for Playkeeper servers. A Playkeeper install claims a name with a request signed by its own key, and the service points the name at the public IP address the request came from, by managing DNS records in the `playkeeper.io` zone at Cloudflare. Players join at `yourname.playkeeper.io`, and the server's dashboard gets a real certificate for the same address. The code is in `cmd/playkeeper-names` and `internal/names/service`; it is not part of the Playkeeper release.
+This folder deploys the names service behind free `yourname.playkeeper.me` addresses for Playkeeper servers. A Playkeeper install claims a name with a request signed by its own key, and the service points the name at the public IP address the request came from, by managing DNS records in the `playkeeper.me` zone at Cloudflare, a domain used for nothing else. Players join at `yourname.playkeeper.me`, and the server's dashboard gets a real certificate for the same address. The service itself answers at `names.playkeeper.io`. The code is in `cmd/playkeeper-names` and `internal/names/service`; it is not part of the Playkeeper release.
+
+Free names lived under `playkeeper.io` until they moved to `playkeeper.me`. [Moving names to another domain](#moving-names-to-another-domain) explains the switch and what installs from before the move see.
 
 For a name like `alice`, the service manages these records:
 
 | Record | Type | What it is for |
 | --- | --- | --- |
-| `alice.playkeeper.io` | A, and AAAA for servers on IPv6 | the server's public address: the join address and the dashboard address |
-| `_acme-challenge.alice.playkeeper.io` | TXT | a few minutes while the server gets its dashboard certificate from Let's Encrypt; removed after an hour at the latest |
-| `_minecraft._tcp.alice.playkeeper.io`, `_minecraft._tcp.survival.alice.playkeeper.io` | SRV | lets players join a server on another port without typing the port; at most 5 per install, from 3 days after the claim and once the dashboard has answered (see [Names must answer](#names-must-answer)) |
+| `alice.playkeeper.me` | A, and AAAA for servers on IPv6 | the server's public address: the join address and the dashboard address |
+| `_acme-challenge.alice.playkeeper.me` | TXT | a few minutes while the server gets its dashboard certificate from Let's Encrypt; removed after an hour at the latest |
+| `_minecraft._tcp.alice.playkeeper.me`, `_minecraft._tcp.survival.alice.playkeeper.me` | SRV | lets players join a server on another port without typing the port; at most 5 per install, from 3 days after the claim and once the dashboard has answered (see [Names must answer](#names-must-answer)) |
 
-Each of them is **DNS only**, has a 60-second TTL and carries the comment `playkeeper-names alice`. The service only ever changes or removes a record that has one of these forms under a claimed name **and** carries that name's comment. It never touches `playkeeper.io` itself, `www`, `names`, mail records, reserved names or records you add by hand. CI tests this on every pull request.
+Each of them is **DNS only**, has a 60-second TTL and carries the comment `playkeeper-names alice`. The service only ever changes or removes a record that has one of these forms under a claimed name **and** carries that name's comment. It never touches `playkeeper.me` itself, reserved names such as `www` and `names`, or records you add by hand. CI tests this on every pull request.
 
 | Path | Answer |
 | --- | --- |
@@ -26,42 +28,36 @@ The service also connects out: every 6 hours it asks each name's dashboard on po
 
 ## Set it up
 
-You need the Coolify server that hosts playkeeper.io (see `site/README.md`), a free Cloudflare account and your Namecheap login. Do the steps in order: the service only starts once the zone is at Cloudflare.
+You need the Coolify server that hosts playkeeper.io (see `site/README.md`) and a Cloudflare account with the `playkeeper.me` domain. Do the steps in order: the service only starts once its zone is at Cloudflare.
 
-### 1. Move playkeeper.io's DNS to Cloudflare
+### 1. Set up the zone for free names
 
-The domain stays registered at Namecheap; only its DNS moves to Cloudflare.
+Free names have a domain of their own, so the service's token can never touch the website or the `/install` address. `playkeeper.me` is registered at Cloudflare Registrar, which created its zone on Cloudflare's nameservers. A domain from another registrar needs adding in Cloudflare first (**Domains** → **Onboard a domain**, **Free** plan), its two Cloudflare nameservers set at the registrar, and a wait until Cloudflare shows it as **Active**.
 
-1. At Namecheap, open **Domain List** → **Manage** → **Advanced DNS** and keep the page open: it lists every record the domain has now. If **DNSSEC** is on there, turn it off, and do not change the nameservers (step 4) until `dig +short DS playkeeper.io` prints nothing, usually a day or two later. Otherwise the domain stops working for many visitors.
-2. In Cloudflare, open **Domains** → **Onboard a domain**, enter `playkeeper.io`, keep the quick scan for DNS records, and choose the **Free** plan.
-3. Cloudflare shows the records it found. Make them match the Namecheap page:
-   - Add any record Cloudflare missed, and delete any that Namecheap does not have, such as a `*` record.
-   - Set **Proxy status** to **DNS only** (grey cloud) on the `@` and `www` records, so the site keeps working exactly as now: straight to your server, with Coolify's certificate.
-   - Keep the email records (MX, and TXT records starting with `v=spf1`) if there are any. Namecheap's free Email Forwarding only works while the domain uses Namecheap's DNS; if you use it, set up Cloudflare's **Email Routing** after step 5 instead.
-4. Cloudflare then shows two nameservers, such as `ada.ns.cloudflare.com` and `bob.ns.cloudflare.com`. At Namecheap, open **Domain List** → **Manage**, set **Nameservers** to **Custom DNS**, enter the two names exactly, and select the green check mark.
-5. Wait until Cloudflare shows the domain as **Active**; it also sends an email. This usually takes less than an hour and can take a day. Then check that the site still works:
+1. Open **playkeeper.me** → **DNS** → **Records** and add these two, so nobody can send email as the domain:
 
-   ```bash
-   dig +short NS playkeeper.io              # the two Cloudflare nameservers
-   curl -sI https://playkeeper.io/install   # still a 302 to get.sh
-   ```
+   | Type | Name | Content |
+   | --- | --- | --- |
+   | TXT | `@` | `v=spf1 -all` |
+   | TXT | `_dmarc` | `v=DMARC1; p=reject` |
 
-6. If you turned DNSSEC off in step 1: in Cloudflare, open **DNS** → **Settings**, select **Enable DNSSEC**, and add the DS record it shows at Namecheap under **Advanced DNS** → **DNSSEC**.
+2. Open **DNS** → **Settings** and select **Enable DNSSEC** (one click for a domain registered at Cloudflare).
+3. Add nothing else: no `names`, no `*`, no CAA. The service adds the records of each name.
 
 ### 2. Create the API token and copy the zone ID
 
-1. In Cloudflare, open playkeeper.io's **Overview** page and copy the **Zone ID** from the **API** section: 32 characters, `0-9` and `a-f`.
-2. Open **My Profile** → **API Tokens** → **Create Token**, and select **Use template** next to **Edit zone DNS**.
+1. In Cloudflare, open playkeeper.me's **Overview** page and copy the **Zone ID** from the **API** section: 32 characters, `0-9` and `a-f`.
+2. Open **My Profile** → **API Tokens** → **Create Token**, and select **Use template** next to **Edit zone DNS**. Name it `playkeeper-names playkeeper.me`.
 3. Set:
    - **Permissions**: keep **Zone** · **DNS** · **Edit**, then select **+ Add more** and add **Zone** · **Zone** · **Read**.
-   - **Zone Resources**: **Include** · **Specific zone** · **playkeeper.io**.
+   - **Zone Resources**: **Include** · **Specific zone** · **playkeeper.me**. Not playkeeper.io, and not **All zones**.
    - **Client IP Address Filtering**: **Is in**, your server's public IPv4 address, plus its IPv6 network (such as `2001:db8:1:2::/64`) if it has IPv6. The token then only works from your server.
    - **TTL**: leave it empty.
-4. Select **Continue to summary**, then **Create Token**, and copy the token. Cloudflare shows it only once. Put it only into Coolify (step 4), never into files, chats or tickets.
+4. Select **Continue to summary**, check that it lists only playkeeper.me, then select **Create Token** and copy the token. Cloudflare shows it only once. Put it only into Coolify (step 4), never into files, chats or tickets.
 
 ### 3. Add the names record
 
-In Cloudflare, open **DNS** → **Records** → **Add record** and add:
+The service answers at `names.playkeeper.io`, in playkeeper.io's zone, which the service never changes. In Cloudflare, open **playkeeper.io** → **DNS** → **Records** → **Add record** and add:
 
 | Type | Name | IPv4 address | Proxy status |
 | --- | --- | --- | --- |
@@ -87,12 +83,14 @@ It must be **DNS only**: the service has to see each Playkeeper server's own add
    ```
 
    It prints something like `10.0.1.5`. The service believes only this address when a request says which visitor it passes on, so other containers on the server cannot pretend to be Playkeeper servers somewhere else.
-6. In **Environment Variables**, add these three. On each, untick **Available at Buildtime** (older Coolify versions call it **Build Variable?**): the service reads them only when it runs, and build variables can end up in the image.
+6. In **Environment Variables**, add these five. On each, untick **Available at Buildtime** (older Coolify versions call it **Build Variable?**): the service reads them only when it runs, and build variables can end up in the image.
 
    | Name | Value |
    | --- | --- |
+   | `NAMES_BASE_DOMAIN` | `playkeeper.me` |
    | `NAMES_CLOUDFLARE_API_TOKEN` | the token from step 2 |
    | `NAMES_CLOUDFLARE_ZONE_ID` | the zone ID from step 2 |
+   | `NAMES_NEW_CERTIFICATES_PER_WEEK` | `48` (see [Let's Encrypt limits](#lets-encrypt-limits)) |
    | `NAMES_TRUSTED_PROXIES` | the address the command in step 5 printed |
 
 7. Select **Deploy** and wait until the deployment log says it has finished. The first build takes a minute or two and needs about 1 GB of free memory.
@@ -106,10 +104,10 @@ The image has its own health check, so Coolify's **Healthcheck** can stay off; i
 | `NAMES_CLAIMS_PER_DAY` | `30` | new names per day, everyone together (1 to 100000) |
 | `NAMES_RECORD_RESERVE` | `10` | DNS records the service always leaves free in the zone for you (0 to 100000; see [Zone full](#zone-full)) |
 | `NAMES_RECORD_QUOTA` | `200` | the most DNS records the zone may hold; Cloudflare's own quota wins when it is lower (1 to 1000000) |
-| `NAMES_NEW_CERTIFICATES_PER_WEEK` | `40` | names that may get their first certificate in 7 days, everyone together (1 to 50; see [Let's Encrypt limits](#lets-encrypt-limits)) |
+| `NAMES_NEW_CERTIFICATES_PER_WEEK` | `40` | names that may get their first certificate in 7 days, everyone together; 48 on a domain of its own, more once Let's Encrypt raised its limit (see [Let's Encrypt limits](#lets-encrypt-limits)) |
 | `NAMES_ALERT_WEBHOOK_URL` | none | a Discord webhook that gets the service's alerts (see [Alerts](#alerts)) |
 | `NAMES_BLOCKLIST_FILE` | none | a file of names nobody may have (see [Blocking names](#blocking-names)) |
-| `NAMES_BASE_DOMAIN` | `playkeeper.io` | the zone names live in; Playkeeper installs use `playkeeper.io` |
+| `NAMES_BASE_DOMAIN` | `playkeeper.io` | the zone names live in: set it to `playkeeper.me`, which Playkeeper installs use. The default is the service's first zone, so a deploy never moves names by itself (see [Moving names to another domain](#moving-names-to-another-domain)) |
 
 Leave `NAMES_DATA_DIR` (`/data`) and `NAMES_LISTEN` (`:8080`) at their defaults; the image is built around them.
 
@@ -119,8 +117,9 @@ On your computer:
 
 ```bash
 curl -s https://names.playkeeper.io/healthz        # ok
+curl -s https://names.playkeeper.io/               # playkeeper-names: free yourname.playkeeper.me addresses ...
 curl -s https://names.playkeeper.io/v1/ip          # {"ip":"<your public IPv4 address>","family":"ipv4","public":true}
-curl -s https://names.playkeeper.io/v1/names/www   # ... "available":false,"code":"name_reserved" ...
+curl -s https://names.playkeeper.io/v1/names/www   # ... "address":"www.playkeeper.me","available":false,"code":"name_reserved" ...
 ```
 
 `/v1/ip` must show your own public address with `"public":true`. An address starting with `10.`, `172.` or `192.168.` means the service sees Coolify's proxy instead of you: check `NAMES_TRUSTED_PROXIES`. Any other address that is not yours means the `names` record is proxied: make it **DNS only**.
@@ -146,13 +145,13 @@ curl -s -6 --resolve 'names.playkeeper.io:443:[2001:db8:1:2::10]' https://names.
 
 If it shows your computer's IPv6 address with `"public":true`, add an AAAA record for `names` (**DNS only**) with the server's IPv6 address. If it shows anything else, or fails, leave it out: Docker then hands IPv6 visitors to the proxy from an internal address, so the service could not see who is asking. Without the AAAA record, names get IPv4 addresses only, which is what nearly every player uses.
 
-Once a Playkeeper version with free addresses is out, claim a name from its dashboard: the record appears under **DNS** → **Records** in Cloudflare with the comment `playkeeper-names <name>`.
+Claim a name from a Playkeeper dashboard: the record appears under playkeeper.me's **DNS** → **Records** in Cloudflare with the comment `playkeeper-names <name>`.
 
 ## Running it
 
 ### Updating
 
-When a change to the service is on `main`, select **Deploy** again in Coolify; an application added by repository URL is not redeployed on its own. Names and their records survive a deploy. For new Go or Alpine versions, change the tag and the digest on both `FROM` lines of `Dockerfile`, then check and redeploy.
+When a change to the service is on `main`, select **Deploy** again in Coolify; an application added by repository URL is not redeployed on its own. Names and their records survive a deploy, and a deploy never moves them to another domain: only a new `NAMES_BASE_DOMAIN` does. For new Go or Alpine versions, change the tag and the digest on both `FROM` lines of `Dockerfile`, then check and redeploy.
 
 ### Backups
 
@@ -175,6 +174,52 @@ Names claimed after that snapshot are unknown to the service again; their server
 
 Create a new token as in step 2, replace the value of `NAMES_CLOUDFLARE_API_TOKEN` in Coolify, select **Redeploy** and check the log. Then delete the old token under **My Profile** → **API Tokens**. If the token may have leaked, delete it first: names that already work keep working while the service waits for the new token.
 
+### Moving names to another domain
+
+The same application, address and database move every name to a new domain: only the domain, its zone and its token change, and every name keeps its owner. This is how free names move from `playkeeper.io` to `playkeeper.me`. Installs sign their requests for one domain, so installs from before the move (0.4.1 and earlier) only work with a service for the old domain, and installs from 0.4.2 on, the first release that uses the new domain, only with one for the new domain. Switch when 0.4.2 comes out.
+
+When the service starts with a new `NAMES_BASE_DOMAIN`, it:
+
+- publishes every active name's records in the new zone within minutes;
+- forgets pending certificate challenges and which names had certificates, since every certificate under the new domain is new to Let's Encrypt;
+- answers every signed request from an install from before the move with "Free addresses now end in .playkeeper.me." and "Update Playkeeper to get one or keep yours." (`410 update_required`), which its dashboard shows as it is;
+- never touches the old zone. Its token can't reach it, and the old records keep pointing where they last did.
+
+If the zone ID or the token is wrong, the service stops at start, names the setting to fix, and changes nothing.
+
+1. Set up the new zone and its token as in steps 1 and 2.
+2. In Coolify, open the names application → **Environment Variables** and set these, each with **Available at Buildtime** unticked:
+
+   | Name | Value |
+   | --- | --- |
+   | `NAMES_BASE_DOMAIN` | `playkeeper.me` |
+   | `NAMES_CLOUDFLARE_ZONE_ID` | playkeeper.me's zone ID |
+   | `NAMES_CLOUDFLARE_API_TOKEN` | the new token |
+   | `NAMES_NEW_CERTIFICATES_PER_WEEK` | `48` |
+
+   Keep `NAMES_TRUSTED_PROXIES` and `NAMES_ALERT_WEBHOOK_URL` as they are.
+3. Select **Save**, then **Deploy**. The log should say `The base domain changed` once, with `from=playkeeper.io to=playkeeper.me`, then `playkeeper-names is listening` with `base=playkeeper.me`, and no line with `level=ERROR`.
+4. Check on your computer, with your own name for `siya`:
+
+   ```bash
+   curl -s https://names.playkeeper.io/                # playkeeper-names: free yourname.playkeeper.me addresses ...
+   curl -s https://names.playkeeper.io/v1/names/siya   # ... "address":"siya.playkeeper.me" ... "code":"name_taken" ...
+   dig +short siya.playkeeper.me                       # your server's IP address, within a few minutes
+   ```
+
+5. Publish the release and update your own server from its dashboard. **Machine settings** › **Address** then shows `siya.playkeeper.me`, with its certificate a few minutes later. Updates are installed by hand, so it doesn't matter much whether you switch before or after the release: an updated install that reaches the service before the switch waits for it, and answers the service's checks for both addresses meanwhile.
+6. Right after, delete the old token: **My Profile** → **API Tokens**, the token for playkeeper.io's zone the service used, **⋯** → **Delete**. From then on only you can change playkeeper.io's records.
+7. Leave the old zone's `playkeeper-names …` records for 60 days: old addresses keep reaching the IP address they last had, for installs that have not updated and for links shared before the move. If you like, replace your own name's old A record with a CNAME to its new address (**DNS only**), so the old address also follows a new IP address. After the 60 days, open the old zone's **DNS** → **Records**, search `playkeeper-names`, and delete what is left.
+
+What each install sees after the switch:
+
+| Install | After the switch |
+| --- | --- |
+| Updated to 0.4.2 or later | Moves to the same name under `playkeeper.me` by itself, with a new certificate, and keeps its old certificate until it expires, so links shared before the move still open without a warning. The old address keeps reaching it for the 60 days. |
+| From before the move (0.4.1 and earlier) | Its old address keeps working at its current IP address for the 60 days, and its certificate until it expires. Claims, address changes and renewals are refused with "Update Playkeeper". Its dashboard can't answer checks for the new domain, so a week after its last answer its records in the new zone go (it never used them), and the name is held for its key for 60 days (7 if its dashboard never answered): updating within them keeps the name. |
+| New | Claims its name under `playkeeper.me`. |
+| A machine joined to a dashboard at its old name | Once it runs the release, looks for the dashboard at the new name first, and keeps the new address once it connects there. Until then it uses the old one, so update it within the 60 days. |
+
 ### If the service is down
 
 Names that already work keep working: their records live at Cloudflare. Meanwhile, installs cannot claim names, move a name to a new address, or get and renew dashboard certificates; certificates are renewed weeks before they expire, so an outage of a few days does no harm. A name lapses only after 30 days without a refresh, or when its dashboard fails 4 checks in a row after a week without answering, and only a running service lapses it. When Cloudflare is down or rate-limits the service, changes are retried: after a minute at first, then less often, down to once an hour.
@@ -184,7 +229,7 @@ Names that already work keep working: their records live at Cloudflare. Meanwhil
 A name stays only while a Playkeeper dashboard answers for it. Every 6 hours the service connects to port 8443 of the name's address (IPv4 first, then IPv6) and asks for
 
 ```text
-GET https://alice.playkeeper.io:8443/.well-known/playkeeper-names/<random value>
+GET https://alice.playkeeper.me:8443/.well-known/playkeeper-names/<random value>
 ```
 
 The dashboard must answer with that value signed by the key that claimed the name. The service does not check the dashboard's certificate: the signature is the proof. This way names cannot be claimed in bulk and parked, since every name needs a machine that answers for its key.
@@ -220,7 +265,7 @@ The URL is a secret: anyone who has it can post in the channel. The service acce
 
 ### Records made by hand
 
-Add your own records anywhere except under a claimed name (`alice.playkeeper.io`, or anything ending in `.alice.playkeeper.io`). The service never touches them, and a name that has records of your own cannot be claimed. If a hand-made record sits at a claimed name's own address or at one of its server addresses, the service leaves that address alone and logs `has a hand-made … record` until you delete it. Never put the comment `playkeeper-names …` on records of your own.
+Add your own records anywhere except under a claimed name (`alice.playkeeper.me`, or anything ending in `.alice.playkeeper.me`). The service never touches them, and a name that has records of your own cannot be claimed. If a hand-made record sits at a claimed name's own address or at one of its server addresses, the service leaves that address alone and logs `has a hand-made … record` until you delete it. Never put the comment `playkeeper-names …` on records of your own.
 
 ### Blocking names
 
@@ -236,39 +281,38 @@ Cloudflare's Free plan allows 200 DNS records in the zone, your own and Email Ro
 | a new name | the reserve, and 10 more for certificate challenges |
 | a server address | the reserve, 10 for challenges, and 40 more for new names |
 
-So a filling zone refuses server addresses first, then new names, and certificate challenges last, and the service alerts you at each step (`zone_nearly_full`, `zone_full`, `challenges_refused`; see [Alerts](#alerts)). Records of released and lapsed names are removed on their own, and names whose dashboard stopped answering lapse after a week. For more room, move the zone to Cloudflare's Pro plan (3,500 records) and set `NAMES_RECORD_QUOTA` to `3500`, or give free names a [domain of their own](#a-domain-of-its-own-for-free-names).
+So a filling zone refuses server addresses first, then new names, and certificate challenges last, and the service alerts you at each step (`zone_nearly_full`, `zone_full`, `challenges_refused`; see [Alerts](#alerts)). Records of released and lapsed names are removed on their own, and names whose dashboard stopped answering lapse after a week.
+
+For more room, move the zone to Cloudflare's Pro plan, with 3,500 records, when `zone_nearly_full` arrives: on the Free plan it comes about a day before new names are refused. Open **playkeeper.me** → **Overview** → **Plan** and choose **Pro** ($25 a month, or $240 a year). Then set `NAMES_RECORD_QUOTA` to `3500` in Coolify and redeploy. If new names come faster than `NAMES_CLAIMS_PER_DAY` allows, raise that too, for example to `100`.
 
 ### Let's Encrypt limits
 
-Each dashboard at a name gets its own certificate, and Let's Encrypt counts them all against playkeeper.io, the registered domain: at most 50 new certificates in 7 days for the whole domain, the website's own included. A renewal for exactly the same names does not count. The service keeps within that as far as it can see:
+Each dashboard at a name gets its own certificate, and Let's Encrypt counts them all against playkeeper.me, the registered domain: at most 50 new certificates in 7 days for the whole domain. Free names have the domain to themselves, so set `NAMES_NEW_CERTIFICATES_PER_WEEK` to `48`. A renewal for exactly the same names does not count. The service keeps within that as far as it can see:
 
 - A dashboard proves it holds its name with a TXT record. The values a name publishes within an hour of the first, up to 4, count as one attempt at a certificate, and a name may make 3 attempts in 7 days. Further attempts are refused with `certificate_limit` and the time to try again.
-- A name's first attempt since its claim, or in 90 days, is a new certificate. At most `NAMES_NEW_CERTIFICATES_PER_WEEK` (40) of those start in any 7 days. When they are used up, new dashboards wait and you get the `certificate_budget` alert. Names that already have a certificate keep renewing meanwhile: their later attempts count as renewals, separately. Each attempt is logged with `kind=new` or `kind=renewal` and the week's counts (`new_this_week`, `renewals_this_week`).
+- A name's first attempt since its claim, or in 90 days, is a new certificate. At most `NAMES_NEW_CERTIFICATES_PER_WEEK` (48) of those start in any 7 days. When they are used up, new dashboards wait and you get the `certificate_budget` alert. Names that already have a certificate keep renewing meanwhile: their later attempts count as renewals, separately. Each attempt is logged with `kind=new` or `kind=renewal` and the week's counts (`new_this_week`, `renewals_this_week`).
 
-This covers a rush of new names and a dashboard stuck retrying. It cannot stop someone who holds several names on purpose. Let's Encrypt also lets them prove a name over HTTP, since its address points at their machine, and reuses a proven name for a while, so they can order certificates for many combinations of their names without new TXT records. Six names make 63 combinations, more than a week's 50, and then every new dashboard shows a browser warning until the week is over. Only a [domain of its own](#a-domain-of-its-own-for-free-names) on the Public Suffix List fixes that. Let's Encrypt's [rate limit form](https://isrg.formstack.com/forms/rate_limit_adjustment_request) can raise the limit for playkeeper.io, which helps with volume but not against that. If you ever add CAA records to the zone, include `letsencrypt.org`.
+This covers a rush of new names and a dashboard stuck retrying. It cannot stop someone who holds several names on purpose. Let's Encrypt also lets them prove a name over HTTP, since its address points at their machine, and reuses a proven name for a while, so they can order certificates for many combinations of their names without new TXT records. Six names make 63 combinations, more than a week's 50, and then every new dashboard shows a browser warning until the week is over. Only the [Public Suffix List](#the-public-suffix-list) fixes that. Let's Encrypt's [rate limit form](https://isrg.formstack.com/forms/rate_limit_adjustment_request) can raise the limit for playkeeper.me, which helps with volume but not against that: once Let's Encrypt approves a higher limit, set `NAMES_NEW_CERTIFICATES_PER_WEEK` a little below it and redeploy. If you ever add CAA records to the zone, include `letsencrypt.org`.
 
 ### The token can edit the whole zone
 
-Cloudflare cannot limit a token to some of a zone's records, so this token can change every playkeeper.io record, including `@` and `www`: the website and the `/install` address the one-line installer downloads from. The service's guard keeps the service itself away from them; the risk is someone else getting the token, for example through a flaw in the service, which faces the internet. That is why the token only works from your server (step 2), lives only in Coolify's environment variables and not in the image, and never appears in the service's log. Cloudflare's **Audit Log** (**Manage Account** → **Audit Log**) lists every change made with it. The IP filter does not help against a flaw in the service, since the service runs on that server; only a [domain of its own](#a-domain-of-its-own-for-free-names) rules the risk out.
+Cloudflare cannot limit a token to some of a zone's records, so this token can change every playkeeper.me record. That zone holds nothing but free names and your two email records: the website, `names.playkeeper.io` and the `/install` address the one-line installer downloads from are in playkeeper.io, which the token cannot reach. The service's guard keeps the service itself away from records it did not make; the risk is someone else getting the token, for example through a flaw in the service, which faces the internet. That is why the token only works from your server (step 2), lives only in Coolify's environment variables and not in the image, and never appears in the service's log. Cloudflare's **Audit Log** (**Manage Account** → **Audit Log**) lists every change made with it.
 
-### A domain of its own for free names
+### The Public Suffix List
 
-Free names live in the playkeeper.io zone for now. Moving them to a domain used for nothing else, in its own Cloudflare zone and on the private section of the [Public Suffix List](https://publicsuffix.org/), fixes three things at once:
+Free names moved from playkeeper.io to playkeeper.me, a domain used for nothing else, so their token can't touch the website and their dashboards are no longer the same site as playkeeper.io in browsers. Putting playkeeper.me on the private section of the [Public Suffix List](https://publicsuffix.org/) would go further:
 
-- The token can then edit only that zone, so it can no longer touch the website or `/install`.
 - Each name becomes a registered domain of its own, so each gets Let's Encrypt's 50 a week to itself, and nobody can use up everyone's.
-- Browsers treat each name as a separate site, so one dashboard cannot make same-site requests to another, or to playkeeper.io.
+- Browsers treat each name as a separate site, so one dashboard cannot make same-site requests to another.
 
-This is your decision. It is easiest before the first Playkeeper release with free names, because names claimed under playkeeper.io do not move on their own. It takes:
+The list turns down small and pre-launch projects, so apply once there are thousands of installs. It takes:
 
-1. A new domain, registered for at least two more years (the list requires it).
-2. A Cloudflare zone for it, set up as in steps 1 and 3, and a token as in step 2 for that zone only.
-3. A pull request to the private section of the list, following its [guidelines](https://github.com/publicsuffix/list/wiki/Guidelines), including the `_psl` TXT record they ask for. Give site isolation as the reason: independent people run their own servers and dashboards under the domain and must be kept apart, as with duckdns.org or github.io. The list turns down requests made only to get around Let's Encrypt's limits. Review takes weeks, and browsers and Let's Encrypt pick up the change in their next updates.
-4. A Playkeeper release with the new domain as `names.DefaultBase`, and in Coolify, `NAMES_BASE_DOMAIN`, `NAMES_CLOUDFLARE_ZONE_ID` and `NAMES_CLOUDFLARE_API_TOKEN` for the new zone.
+1. More than two years of registration left, and the promise to keep more than a year.
+2. A pull request that adds `playkeeper.me` to the list's private section under "Playkeeper", following its [guidelines](https://github.com/publicsuffix/list/wiki/Guidelines) and its request template word for word, and a TXT record `_psl.playkeeper.me` with the request's URL, kept for good. Give site isolation as the reason: independent people run their own servers and dashboards under the domain and must be kept apart, as with duckdns.org or github.io. The list turns down requests made only to get around Let's Encrypt's limits. Review takes weeks, and browsers and Let's Encrypt pick up the change in their next updates.
 
 ## Limits
 
-These keep one install, one network or a flood of claims from using up the zone or playkeeper.io's certificates. The ones with a setting can be changed in Coolify (step 4).
+These keep one install, one network or a flood of claims from using up the zone or playkeeper.me's certificates. The ones with a setting can be changed in Coolify (step 4).
 
 | What | Limit | Setting |
 | --- | --- | --- |
@@ -284,7 +328,7 @@ These keep one install, one network or a flood of claims from using up the zone 
 | DNS records kept free in the zone | 10 for you; new names leave 10 more for certificates, and server addresses 40 more for new names | `NAMES_RECORD_RESERVE` |
 | Certificate challenge records per name | 2 at a time (a name and its wildcard), each removed after an hour at the latest | |
 | Certificate attempts per name | 3 in 7 days: a certificate and two retries. An attempt is the challenge values published within an hour, up to 4: one order for a name and its wildcard, retried once | |
-| New certificates, everyone together | 40 in 7 days, 10 below Let's Encrypt's 50 for playkeeper.io, leaving room for the website's own certificates. A name's first attempt since its claim or in 90 days counts; later ones are renewals and do not | `NAMES_NEW_CERTIFICATES_PER_WEEK` |
+| New certificates, everyone together | 48 in 7 days, 2 below Let's Encrypt's 50 for playkeeper.me (the default, 40, left room for the website's certificates while names shared its domain). A name's first attempt since its claim or in 90 days counts; later ones are renewals and do not | `NAMES_NEW_CERTIFICATES_PER_WEEK` |
 | Liveness checks | every 6 hours per name; at most 20 a minute, 8 at once, one per address | |
 | A name whose dashboard does not answer | records removed after 7 days without an answer and 4 failed checks in a row; free for others 7 days later if it never answered, else 60 days later | |
 | Checks when a lapsed name is refreshed | right away, 3 at once, then 6 an hour per name | |

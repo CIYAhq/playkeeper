@@ -11,7 +11,7 @@ func TestNormalizeName(t *testing.T) {
 	ok := []struct{ in, want string }{
 		{"mc.example.com", "mc.example.com"},
 		{"  MC.Example.COM.  ", "mc.example.com"},
-		{"alex.playkeeper.io", "alex.playkeeper.io"},
+		{"alex.playkeeper.me", "alex.playkeeper.me"},
 		{"a-b.c-d.co.uk", "a-b.c-d.co.uk"},
 		{"xn--bcher-kva.de", "xn--bcher-kva.de"},
 		{"1.2.3.example.io", "1.2.3.example.io"},

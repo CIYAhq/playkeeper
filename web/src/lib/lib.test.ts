@@ -260,7 +260,7 @@ describe('formatting', () => {
 
   it('prefers the friendly join address once it works', () => {
     expect(serverJoinAddress({ gamePort: 25566 }, '198.51.100.10')).toBe('198.51.100.10:25566')
-    expect(serverJoinAddress({ gamePort: 25566, joinAddress: 'creative.alex.playkeeper.io' }, '198.51.100.10')).toBe('creative.alex.playkeeper.io')
+    expect(serverJoinAddress({ gamePort: 25566, joinAddress: 'creative.alex.playkeeper.me' }, '198.51.100.10')).toBe('creative.alex.playkeeper.me')
   })
 
   it('gives a recent row the time today, yesterday, or its date', () => {
@@ -275,15 +275,15 @@ describe('formatting', () => {
 
 describe('AI agents', () => {
   it('connects agents to the dashboard’s name when it has one', () => {
-    expect(mcpAddress([{ kind: 'ip', address: '203.0.113.10:8443' }, { kind: 'name', address: 'alex.playkeeper.io:8443' }], 'https://203.0.113.10:8443')).toBe('https://alex.playkeeper.io:8443/mcp')
+    expect(mcpAddress([{ kind: 'ip', address: '203.0.113.10:8443' }, { kind: 'name', address: 'alex.playkeeper.me:8443' }], 'https://203.0.113.10:8443')).toBe('https://alex.playkeeper.me:8443/mcp')
     expect(mcpAddress([{ kind: 'ip', address: '203.0.113.10:8443' }], 'https://203.0.113.10:8443')).toBe('https://203.0.113.10:8443/mcp')
     expect(mcpAddress(undefined, 'https://localhost:8448')).toBe('https://localhost:8448/mcp')
   })
 
   it('writes MCP settings an AI tool can read, and shows the secret cut short', () => {
     const secret = 'pk_mcp_abcdefghijklmnopqrstuvwxyz'
-    const snippet = mcpSnippet('https://alex.playkeeper.io:8443/mcp', secret)
-    expect(JSON.parse(snippet)).toEqual({ mcpServers: { playkeeper: { url: 'https://alex.playkeeper.io:8443/mcp', headers: { Authorization: `Bearer ${secret}` } } } })
+    const snippet = mcpSnippet('https://alex.playkeeper.me:8443/mcp', secret)
+    expect(JSON.parse(snippet)).toEqual({ mcpServers: { playkeeper: { url: 'https://alex.playkeeper.me:8443/mcp', headers: { Authorization: `Bearer ${secret}` } } } })
     expect(elideSecret(secret)).toBe('pk_mcp_abcd…')
     expect(elideSecret('pk_mcp_ab')).toBe('pk_mcp_ab')
   })
@@ -737,7 +737,7 @@ describe('join addresses', () => {
     kind: 'remote',
     link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', address: '203.0.113.20', problems: [] },
   } as MachineView
-  const server = (over: Partial<ServerStatus>) => ({ name: 'Survival', gamePort: 25566, joinAddress: 'survival.alex.playkeeper.io', ...over }) as ServerStatus
+  const server = (over: Partial<ServerStatus>) => ({ name: 'Survival', gamePort: 25566, joinAddress: 'survival.alex.playkeeper.me', ...over }) as ServerStatus
 
   it('give a joined machine’s servers only its known IP and their port, and say why when it isn’t known', () => {
     const onHome = server({ machineId: home.id })
@@ -750,7 +750,7 @@ describe('join addresses', () => {
   })
 
   it('give the dashboard’s own servers their name once it works, else the dashboard’s host', () => {
-    expect(joinOf(server({ machineId: local.id }), local, 'panel.example.com')).toEqual({ address: 'survival.alex.playkeeper.io' })
+    expect(joinOf(server({ machineId: local.id }), local, 'panel.example.com')).toEqual({ address: 'survival.alex.playkeeper.me' })
     expect(joinOf(server({ machineId: local.id, joinAddress: undefined }), local, 'panel.example.com')).toEqual({ address: 'panel.example.com:25566' })
     expect(joinOf(server({ joinAddress: undefined }), undefined, 'panel.example.com')).toEqual({ address: 'panel.example.com:25566' })
   })
@@ -988,20 +988,20 @@ describe('address', () => {
   const op = (over: Partial<Operation>): Operation => ({ id: 'op1', kind: 'address.publish', status: 'running', phase: 'pointing', actor: 'siya', startedAt: claimedAt, ...over })
   const address = (over: Partial<Address> = {}): Address => ({
     kind: 'playkeeper',
-    host: 'alex.playkeeper.io',
+    host: 'alex.playkeeper.me',
     ip: '198.51.100.10',
     panelPort: 8443,
-    base: 'playkeeper.io',
-    servers: [join({ label: 'survival', address: 'survival.alex.playkeeper.io', published: true })],
+    base: 'playkeeper.me',
+    servers: [join({ label: 'survival', address: 'survival.alex.playkeeper.me', published: true })],
     free: { name: 'alex', state: 'active', dns: 'ok', claimedAt, refreshedAt: claimedAt, checkedAt: claimedAt, holdDays: 30 },
     names: { url: 'https://names.playkeeper.io' },
     ...over,
   })
 
   it('reads a typed name the way the agent does', () => {
-    expect(normalizeName('  Alex.PlayKeeper.io. ', 'playkeeper.io')).toBe('alex')
-    expect(normalizeName('alex-mc', 'playkeeper.io')).toBe('alex-mc')
-    expect(normalizeName('alex.example.com', 'playkeeper.io')).toBe('alex.example.com')
+    expect(normalizeName('  Alex.PlayKeeper.ME. ', 'playkeeper.me')).toBe('alex')
+    expect(normalizeName('alex-mc', 'playkeeper.me')).toBe('alex-mc')
+    expect(normalizeName('alex.example.com', 'playkeeper.me')).toBe('alex.example.com')
   })
 
   it('holds names to the service rule: 3 to 32 letters, digits and single inner dashes', () => {
@@ -1019,7 +1019,7 @@ describe('address', () => {
   })
 
   it('keeps the dashboard port in its address unless it is 443', () => {
-    expect(dashboardURL('alex.playkeeper.io', 8443)).toBe('https://alex.playkeeper.io:8443')
+    expect(dashboardURL('alex.playkeeper.me', 8443)).toBe('https://alex.playkeeper.me:8443')
     expect(dashboardURL('play.example.com', 443)).toBe('https://play.example.com')
   })
 
@@ -1038,7 +1038,7 @@ describe('address', () => {
     expect(freeStage(address({ operation: op({ startedAt: '2026-11-04T10:00:00Z' }) }))).toBe('publishing')
     expect(freeStage(address({ operation: op({ status: 'succeeded' }) }))).toBe('done')
     expect(freeStage(address())).toBe('done')
-    expect(freeStage(address({ servers: [join({ address: 'survival.alex.playkeeper.io', published: false })] }))).toBe('publishing')
+    expect(freeStage(address({ servers: [join({ address: 'survival.alex.playkeeper.me', published: false })] }))).toBe('publishing')
     expect(freeStage(address({ free: { ...address().free!, dns: 'pending' } }))).toBe('publishing')
     expect(freeStage(address({ free: { ...address().free!, state: 'lapsed' } }))).toBe('lapsed')
   })
@@ -1051,7 +1051,7 @@ describe('address', () => {
   })
 
   it('reads the certificate: getting it, a problem, active or none', () => {
-    const valid = { names: ['alex.playkeeper.io'], challenge: 'dns-01', notAfter: '2026-12-24T10:00:00Z' }
+    const valid = { names: ['alex.playkeeper.me'], challenge: 'dns-01', notAfter: '2026-12-24T10:00:00Z' }
     expect(certState(address({ operation: op({ kind: 'certificate.issue', phase: 'checking' }) }), now)).toBe('getting')
     expect(certState(address({ operation: op({ phase: 'certificate' }) }), now)).toBe('getting')
     expect(certState(address({ certificate: { ...valid, problem: { code: 'rate_limited', message: 'Too many.' } } }), now)).toBe('problem')

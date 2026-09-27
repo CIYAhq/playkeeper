@@ -280,6 +280,12 @@ func Leave(ctx context.Context, o LeaveOptions) error {
 // LinkOptions configure a machine's side of the link.
 type LinkOptions struct {
 	Dashboard Dashboard
+	// Addresses are where to reach the dashboard, tried in turn at every
+	// attempt; empty means Dashboard.Address. OnAddress, when set, is told
+	// when a connection is made at another address than the last one, so
+	// the machine can keep it.
+	Addresses []string
+	OnAddress func(Address)
 	Identity  *Identity
 	// Handler answers the dashboard's requests: the agent's API, usually
 	// through AgentProxy. Only the allowed routes reach it.
@@ -352,8 +358,11 @@ type LinkStatus struct {
 // Link is a machine's connection to its dashboard: it dials out, proves
 // who it is, and answers the dashboard's requests until stopped.
 type Link struct {
-	o        LinkOptions
+	o LinkOptions
+	// addr is where the last connection was made (at first
+	// Dashboard.Address), and addrs where to try, in turn.
 	addr     Address
+	addrs    []Address
 	allow    *allowlist
 	now      func() time.Time
 	log      *slog.Logger
@@ -377,6 +386,17 @@ func NewLink(o LinkOptions) (*Link, error) {
 	allow, err := newAllowlist(o.Routes)
 	if err != nil {
 		return nil, err
+	}
+	addrs := []Address{a}
+	if len(o.Addresses) > 0 {
+		addrs = nil
+		for _, s := range o.Addresses {
+			x, err := ParseAddress(s)
+			if err != nil {
+				return nil, err
+			}
+			addrs = append(addrs, x)
+		}
 	}
 	setDefault(&o.MinBackoff, time.Second)
 	setDefault(&o.MaxBackoff, time.Minute)
@@ -402,7 +422,7 @@ func NewLink(o LinkOptions) (*Link, error) {
 	var inst [8]byte
 	rand.Read(inst[:])
 	o.Version = cleanVersion(o.Version)
-	l := &Link{o: o, addr: a, allow: allow, now: o.Now, log: o.Logger, dial: dial, instance: hex.EncodeToString(inst[:])}
+	l := &Link{o: o, addr: a, addrs: addrs, allow: allow, now: o.Now, log: o.Logger, dial: dial, instance: hex.EncodeToString(inst[:])}
 	l.status = LinkStatus{State: LinkStopped, Dashboard: a.String(), MachineID: o.Dashboard.MachineID, Name: o.Dashboard.Name}
 	return l, nil
 }
@@ -509,13 +529,45 @@ func problemOf(err error) *Problem {
 	return &Problem{Code: p.Code, Message: p.Msg, Hint: p.Hint}
 }
 
+// dialAny connects at the first of the dashboard's addresses that leads to
+// it. An address that reaches nothing, or something without the
+// dashboard's key, gives way to the next; any answer from the dashboard,
+// a refusal too, ends the attempt. When every address failed, the error is
+// the last one's.
+func (l *Link) dialAny(ctx context.Context) (*tls.Conn, welcome, error) {
+	var err error
+	for _, a := range l.addrs {
+		hctx, cancel := context.WithTimeout(ctx, l.o.HandshakeTimeout)
+		var tc *tls.Conn
+		var w welcome
+		tc, w, err = dialDashboard(hctx, l.dial, a, l.o.Identity, pin{key: l.o.Dashboard.Key}, true,
+			hello{V: protocolVersion, Mode: modeLink, Version: l.o.Version, Instance: l.instance})
+		cancel()
+		if err == nil {
+			if a != l.addr {
+				l.addr = a
+				l.update(func(s *LinkStatus) { s.Dashboard = a.String() })
+				if l.o.OnAddress != nil {
+					l.o.OnAddress(a)
+				}
+			}
+			return tc, w, nil
+		}
+		switch CodeOf(err) {
+		case CodeDashboardUnreachable, CodeNotADashboard, CodeDashboardKeyMismatch:
+			if ctx.Err() == nil {
+				continue
+			}
+		}
+		return nil, welcome{}, err
+	}
+	return nil, welcome{}, err
+}
+
 // connect makes one connection and serves it until it ends. It reports
 // how long the connection was up.
 func (l *Link) connect(ctx context.Context) (time.Duration, error) {
-	hctx, cancel := context.WithTimeout(ctx, l.o.HandshakeTimeout)
-	tc, w, err := dialDashboard(hctx, l.dial, l.addr, l.o.Identity, pin{key: l.o.Dashboard.Key}, true,
-		hello{V: protocolVersion, Mode: modeLink, Version: l.o.Version, Instance: l.instance})
-	cancel()
+	tc, w, err := l.dialAny(ctx)
 	if err != nil {
 		return 0, err
 	}

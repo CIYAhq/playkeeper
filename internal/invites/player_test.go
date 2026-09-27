@@ -21,7 +21,7 @@ var (
 	jeb   = mojang.Profile{ID: "853c80ef-3c37-49fd-aa49-938b674adae6", Name: "jeb_"}
 )
 
-var survival = Server{Name: " Survival ", Address: "survival.alex.playkeeper.io", Version: "26.1.2", Online: true, Playing: 3}
+var survival = Server{Name: " Survival ", Address: "survival.alex.playkeeper.me", Version: "26.1.2", Online: true, Playing: 3}
 
 type fakeLookup struct {
 	mu       sync.Mutex
@@ -440,7 +440,7 @@ func TestJoin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Player != "Notch" || info.Server != "Survival" || info.Address != "survival.alex.playkeeper.io" || info.Version != "26.1.2" || info.Waiting {
+	if info.Player != "Notch" || info.Server != "Survival" || info.Address != "survival.alex.playkeeper.me" || info.Version != "26.1.2" || info.Waiting {
 		t.Errorf("info %+v", info)
 	}
 	sameSteps(t, info.Steps, joinSteps)
@@ -470,7 +470,7 @@ func TestWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !info.Waiting || info.Player != "Notch" || info.Address != "survival.alex.playkeeper.io" {
+	if !info.Waiting || info.Player != "Notch" || info.Address != "survival.alex.playkeeper.me" {
 		t.Errorf("info %+v", info)
 	}
 	wait := Step{Key: "invite.join.wait", Params: map[string]string{"inviter": "siya"}, Text: "Wait for siya to let you in."}

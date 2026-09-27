@@ -13,7 +13,7 @@ import (
 
 // DNSChallenger publishes the TXT records of DNS-01 checks. fqdn is the
 // record's name without a trailing dot, such as
-// _acme-challenge.alex.playkeeper.io. Errors are shown to the admin, so they
+// _acme-challenge.alex.playkeeper.me. Errors are shown to the admin, so they
 // must not contain secrets; a *Problem from SetTXT is kept as it is. An
 // error from SetTXT with a Pending method that reports true means the record
 // was stored but is not published yet: it is waited for like a published

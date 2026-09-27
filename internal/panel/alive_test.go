@@ -45,24 +45,24 @@ func TestLivenessCheckIsPassedToTheAgentWithoutSignIn(t *testing.T) {
 	e.agent.statuses["GET /v1/address/alive/"+aliveNonce+"x"] = http.StatusNotFound
 	e.agent.mu.Unlock()
 
-	code, h, body := askAlive(t, e.ts.Client(), e.ts.URL, names.AlivePath+aliveNonce, "alex.playkeeper.io:8443")
+	code, h, body := askAlive(t, e.ts.Client(), e.ts.URL, names.AlivePath+aliveNonce, "alex.playkeeper.me:8443")
 	if code != http.StatusOK || body != signed || h.Get("Content-Type") != "application/json" || h.Get("Cache-Control") != "no-store" {
 		t.Fatalf("held name: %d %q %v", code, body, h)
 	}
 	req := e.agentRequest(t, "GET", "/v1/address/alive/"+aliveNonce)
-	if req.query.Get("host") != "alex.playkeeper.io:8443" {
+	if req.query.Get("host") != "alex.playkeeper.me:8443" {
 		t.Fatalf("the agent was not told the Host: %v", req.query)
 	}
-	if code, _, body := askAlive(t, e.ts.Client(), e.ts.URL, names.AlivePath+aliveNonce+"x", "steve.playkeeper.io:8443"); code != http.StatusNotFound || body == signed {
+	if code, _, body := askAlive(t, e.ts.Client(), e.ts.URL, names.AlivePath+aliveNonce+"x", "steve.playkeeper.me:8443"); code != http.StatusNotFound || body == signed {
 		t.Fatalf("name held elsewhere: %d %q", code, body)
 	}
 	for _, p := range []string{names.AlivePath, names.AlivePath + aliveNonce + "/more"} {
-		if code, _, _ := askAlive(t, e.ts.Client(), e.ts.URL, p, "alex.playkeeper.io:8443"); code != http.StatusNotFound {
+		if code, _, _ := askAlive(t, e.ts.Client(), e.ts.URL, p, "alex.playkeeper.me:8443"); code != http.StatusNotFound {
 			t.Errorf("%s: %d", p, code)
 		}
 	}
 	post, _ := http.NewRequest("POST", e.ts.URL+names.AlivePath+aliveNonce, nil)
-	post.Host = "alex.playkeeper.io:8443"
+	post.Host = "alex.playkeeper.me:8443"
 	if r, err := e.ts.Client().Do(post); err != nil || r.StatusCode != http.StatusNotFound {
 		t.Fatalf("POST: %v %v", r, err)
 	} else {
@@ -72,11 +72,11 @@ func TestLivenessCheckIsPassedToTheAgentWithoutSignIn(t *testing.T) {
 	// On its own listener, for panels on another port, it is all there is.
 	only := httptest.NewTLSServer(e.srv.aliveHandler())
 	defer only.Close()
-	if code, _, body := askAlive(t, only.Client(), only.URL, names.AlivePath+aliveNonce, "alex.playkeeper.io:8443"); code != http.StatusOK || body != signed {
+	if code, _, body := askAlive(t, only.Client(), only.URL, names.AlivePath+aliveNonce, "alex.playkeeper.me:8443"); code != http.StatusOK || body != signed {
 		t.Fatalf("alive listener: %d %q", code, body)
 	}
 	for _, p := range []string{"/api/health", "/api/setup/status", "/", "/setup"} {
-		if code, _, _ := askAlive(t, only.Client(), only.URL, p, "alex.playkeeper.io:8443"); code != http.StatusNotFound {
+		if code, _, _ := askAlive(t, only.Client(), only.URL, p, "alex.playkeeper.me:8443"); code != http.StatusNotFound {
 			t.Errorf("alive listener serves %s: %d", p, code)
 		}
 	}
@@ -86,26 +86,26 @@ func TestLivenessChecksAreLimitedPerAddress(t *testing.T) {
 	e := newEnv(t)
 	path := names.AlivePath + aliveNonce
 	for i := range 20 {
-		if code, _, _ := askAlive(t, e.ts.Client(), e.ts.URL, path, "alex.playkeeper.io:8443"); code != http.StatusOK {
+		if code, _, _ := askAlive(t, e.ts.Client(), e.ts.URL, path, "alex.playkeeper.me:8443"); code != http.StatusOK {
 			t.Fatalf("check %d: %d", i+1, code)
 		}
 	}
-	code, h, _ := askAlive(t, e.ts.Client(), e.ts.URL, path, "alex.playkeeper.io:8443")
+	code, h, _ := askAlive(t, e.ts.Client(), e.ts.URL, path, "alex.playkeeper.me:8443")
 	if code != http.StatusTooManyRequests || h.Get("Retry-After") == "" {
 		t.Fatalf("check past the limit: %d %v", code, h)
 	}
 	only := httptest.NewTLSServer(e.srv.aliveHandler())
 	defer only.Close()
-	if code, _, _ := askAlive(t, only.Client(), only.URL, path, "alex.playkeeper.io:8443"); code != http.StatusTooManyRequests {
+	if code, _, _ := askAlive(t, only.Client(), only.URL, path, "alex.playkeeper.me:8443"); code != http.StatusTooManyRequests {
 		t.Fatalf("the port-8443 listener past the limit: %d", code)
 	}
 	e.clock.add(time.Minute)
-	if code, _, _ := askAlive(t, e.ts.Client(), e.ts.URL, path, "alex.playkeeper.io:8443"); code != http.StatusOK {
+	if code, _, _ := askAlive(t, e.ts.Client(), e.ts.URL, path, "alex.playkeeper.me:8443"); code != http.StatusOK {
 		t.Fatalf("a minute later: %d", code)
 	}
 
 	e.srv.agent = agentclient.New(filepath.Join(t.TempDir(), "gone.sock"))
-	if code, h, _ := askAlive(t, e.ts.Client(), e.ts.URL, path, "alex.playkeeper.io:8443"); code != http.StatusNotFound || h.Get("Cache-Control") != "no-store" {
+	if code, h, _ := askAlive(t, e.ts.Client(), e.ts.URL, path, "alex.playkeeper.me:8443"); code != http.StatusNotFound || h.Get("Cache-Control") != "no-store" {
 		t.Fatalf("agent down: %d %v", code, h)
 	}
 }
@@ -141,9 +141,9 @@ func TestTheNamesServiceGetsItsSignedAnswerOnThePanelsPort(t *testing.T) {
 	c := &http.Client{
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		Transport: &http.Transport{DisableKeepAlives: true,
-			TLSClientConfig: &tls.Config{ServerName: "alex.playkeeper.io", InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}},
+			TLSClientConfig: &tls.Config{ServerName: "alex.playkeeper.me", InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}},
 	}
-	code, _, body := askAlive(t, c, "https://"+ln.Addr().String(), names.AlivePath+aliveNonce, "alex.playkeeper.io:8443")
+	code, _, body := askAlive(t, c, "https://"+ln.Addr().String(), names.AlivePath+aliveNonce, "alex.playkeeper.me:8443")
 	var a names.Alive
 	if code != http.StatusOK || json.Unmarshal([]byte(body), &a) != nil || a.Name != "alex" || !names.VerifyAlive(pub, names.DefaultBase, "alex", aliveNonce, a.Signature) {
 		t.Fatalf("the names service would not accept the answer: %d %q", code, body)

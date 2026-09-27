@@ -14,8 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/CIYAhq/playkeeper/internal/names"
 )
 
 // Environment variables the service reads; services/names/README.md
@@ -39,6 +37,11 @@ const (
 
 // Defaults of the settings that have one.
 const (
+	// DefaultBase is the service's first base domain, kept as the default
+	// so that a deploy never moves names by itself: installs use
+	// names.DefaultBase once the owner sets NAMES_BASE_DOMAIN to it
+	// ("Moving names to another domain" in services/names/README.md).
+	DefaultBase               = "playkeeper.io"
 	DefaultDataDir            = "/data"
 	DefaultListen             = ":8080"
 	DefaultMaxNamesPerKey     = 1
@@ -48,10 +51,6 @@ const (
 	DefaultRecordQuota        = 200
 	DefaultNewCertificates    = 40
 )
-
-// letsEncryptWeekly is how many new certificates Let's Encrypt issues for
-// one registered domain in 7 days.
-const letsEncryptWeekly = 50
 
 // Config is what the service needs to run.
 type Config struct {
@@ -82,7 +81,7 @@ type Config struct {
 	RecordQuota int
 	// NewCertificates bounds the names that start their first certificate
 	// (see certSetWindow) in any 7 days, below Let's Encrypt's limit for
-	// the base domain.
+	// the base domain: 50, unless Let's Encrypt raised it.
 	NewCertificates int
 	// BlocklistFile optionally lists names nobody may claim, one per line;
 	// claimed names on it are taken away.
@@ -117,7 +116,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		return def
 	}
 	cfg := Config{
-		Base:            strings.ToLower(strings.TrimSuffix(get(EnvBase, names.DefaultBase), ".")),
+		Base:            strings.ToLower(strings.TrimSuffix(get(EnvBase, DefaultBase), ".")),
 		CloudflareToken: get(EnvToken, ""),
 		CloudflareZone:  strings.ToLower(get(EnvZone, "")),
 		DataDir:         get(EnvDataDir, DefaultDataDir),
@@ -160,7 +159,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	cfg.ClaimsPerDay = number(EnvClaimsPerDay, DefaultClaimsPerDay, 1, 100000)
 	cfg.RecordReserve = number(EnvRecordReserve, DefaultRecordReserve, 0, 100000)
 	cfg.RecordQuota = number(EnvRecordQuota, DefaultRecordQuota, 1, 1000000)
-	cfg.NewCertificates = number(EnvNewCertificates, DefaultNewCertificates, 1, letsEncryptWeekly)
+	cfg.NewCertificates = number(EnvNewCertificates, DefaultNewCertificates, 1, 100000)
 	return cfg, errors.Join(errs...)
 }
 
@@ -181,11 +180,11 @@ func checkWebhook(raw string) error {
 func checkBase(base string) error {
 	labels := strings.Split(base, ".")
 	if len(base) > 200 || len(labels) < 2 {
-		return fmt.Errorf("%s must be a domain like playkeeper.io", EnvBase)
+		return fmt.Errorf("%s must be a domain like playkeeper.me", EnvBase)
 	}
 	for _, l := range labels {
 		if l == "" || len(l) > 63 || strings.Trim(l, "abcdefghijklmnopqrstuvwxyz0123456789-") != "" || l[0] == '-' || l[len(l)-1] == '-' {
-			return fmt.Errorf("%s must be a domain like playkeeper.io", EnvBase)
+			return fmt.Errorf("%s must be a domain like playkeeper.me", EnvBase)
 		}
 	}
 	return nil

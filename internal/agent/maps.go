@@ -322,7 +322,7 @@ func (s *server) mapNeedsRestart(c docker.ContainerJSON) bool {
 	return ok && rec.installedAt.After(t)
 }
 
-// namedHost is the machine's name (its free playkeeper.io name or its own
+// namedHost is the machine's name (its free playkeeper.me name or its own
 // domain, Machine settings › Address) once others can open the dashboard
 // there: the name points at the machine and has a certificate that hasn't
 // expired, as the dashboard's namedDashboard decides. "" until then.

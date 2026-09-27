@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.2
+
+- Free addresses now end in `.playkeeper.me`, a domain used for nothing else. Updating moves yours by itself: `siya.playkeeper.io` becomes `siya.playkeeper.me`, with a new certificate a few minutes later. The old address keeps working for two months, and links you shared with it open without a warning until its certificate runs out. Machines connected to your dashboard at its free address follow it.
+
 ## 0.4.1
 
 - **New server** lists CurseForge modpacks, like All the Mods 10, next to Modrinth's, with the key built into the release. In 0.4.0 its modpack search only ever showed Modrinth packs.

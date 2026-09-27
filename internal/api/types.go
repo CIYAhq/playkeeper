@@ -68,7 +68,7 @@ type ServerStatus struct {
 	Resources       *Resources      `json:"resources,omitempty"`
 	LastBackup      *Backup         `json:"lastBackup,omitempty"`
 	// JoinAddress is the server's address under the machine's name, such as
-	// survival.alex.playkeeper.io, once its DNS records work; empty until
+	// survival.alex.playkeeper.me, once its DNS records work; empty until
 	// then, when players use the IP address and port.
 	JoinAddress string `json:"joinAddress,omitempty"`
 	// WorldBytes is the world's size on disk (all its dimensions), measured
@@ -1420,12 +1420,12 @@ const (
 )
 
 // Address is how people reach a machine by name instead of its IP address:
-// a free playkeeper.io address or the admin's own domain. Each server's join
+// a free playkeeper.me address or the admin's own domain. Each server's join
 // address and the dashboard's certificate follow from it.
 type Address struct {
 	// Kind is AddressNone, AddressPlaykeeper or AddressOwn.
 	Kind string `json:"kind"`
-	// Host is the machine's name, such as alex.playkeeper.io or
+	// Host is the machine's name, such as alex.playkeeper.me or
 	// play.example.com.
 	Host  string     `json:"host,omitempty"`
 	Since *time.Time `json:"since,omitempty"`
@@ -1460,7 +1460,7 @@ type JoinAddress struct {
 	Name     string `json:"name"`
 	Port     int    `json:"port"`
 	// Label is the server's part of its address: "survival" in
-	// survival.alex.playkeeper.io.
+	// survival.alex.playkeeper.me.
 	Label string `json:"label"`
 	// Address is the friendly address, empty without a machine name. Direct
 	// is the IP address with the port, which always works.
@@ -1471,7 +1471,7 @@ type JoinAddress struct {
 	Published bool `json:"published"`
 }
 
-// FreeAddress is a free playkeeper.io address at the names service.
+// FreeAddress is a free playkeeper.me address at the names service.
 type FreeAddress struct {
 	Name string `json:"name"`
 	// State is "active", "lapsed" (its records were removed, for the

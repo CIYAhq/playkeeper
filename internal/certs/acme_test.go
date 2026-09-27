@@ -746,7 +746,7 @@ func TestIssueDNS01(t *testing.T) {
 	base := t.TempDir()
 	h := &HTTP01Responder{}
 	req := Request{
-		Names:  []string{"alex.playkeeper.io"},
+		Names:  []string{"alex.playkeeper.me"},
 		HTTP01: h,
 		DNS01:  &DNS01{Challenger: ch, LookupTXT: ch.lookup, Interval: time.Millisecond},
 		Dir:    filepath.Join(base, "certs"),
@@ -755,7 +755,7 @@ func TestIssueDNS01(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(c.Names, []string{"alex.playkeeper.io"}) {
+	if !slices.Equal(c.Names, []string{"alex.playkeeper.me"}) {
 		t.Errorf("names = %q", c.Names)
 	}
 	if f.count("validate dns-01") != 1 || f.count("validate http-01") != 0 {

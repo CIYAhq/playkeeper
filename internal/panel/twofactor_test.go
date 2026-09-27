@@ -735,7 +735,7 @@ func TestTwoFactorSecretsStayOutOfTheAuditLog(t *testing.T) {
 func TestAccountNameForTheAuthenticatorApp(t *testing.T) {
 	for host, want := range map[string]string{
 		"198.51.100.10:8443":        "siya@198.51.100.10",
-		"alex.playkeeper.io:8443":   "siya@alex.playkeeper.io",
+		"alex.playkeeper.me:8443":   "siya@alex.playkeeper.me",
 		"Play.Example.com":          "siya@play.example.com",
 		"[2001:db8::1]:8443":        "siya",
 		"":                          "siya",

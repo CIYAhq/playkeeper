@@ -121,7 +121,7 @@ function Loading({ phone }: { phone: boolean }) {
   )
 }
 
-/** The address as it is: none yet, a free playkeeper.io name, or an own domain. */
+/** The address as it is: none yet, a free playkeeper.me name, or an own domain. */
 function AddressSettings(props: AddressProps) {
   // Held here so a claim that fails while the address changes under it still shows why.
   const claim = useClaim(props.id, props.refresh)

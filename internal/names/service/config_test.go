@@ -39,7 +39,7 @@ func TestFromEnvReadsSettingsAndDefaults(t *testing.T) {
 		EnvClaimsPerDay:       "500",
 		EnvRecordReserve:      "0",
 		EnvRecordQuota:        "1000",
-		EnvNewCertificates:    "50",
+		EnvNewCertificates:    "195",
 		EnvBlocklist:          "/data/blocklist.txt",
 		EnvAlertWebhook:       "https://discord.com/api/webhooks/123/abc",
 	}))
@@ -50,7 +50,7 @@ func TestFromEnvReadsSettingsAndDefaults(t *testing.T) {
 	if cfg.Base != "example.com" || cfg.DataDir != "/srv/names" || cfg.Listen != "127.0.0.1:9000" || !slices.Equal(cfg.TrustedProxies, want) ||
 		cfg.MaxNamesPerKey != 3 || cfg.ClaimsPerDay != 500 || cfg.RecordReserve != 0 || cfg.BlocklistFile != "/data/blocklist.txt" ||
 		cfg.MaxNamesPerNetwork != 5 || cfg.RecordQuota != 1000 || cfg.AlertWebhook != "https://discord.com/api/webhooks/123/abc" ||
-		cfg.NewCertificates != 50 {
+		cfg.NewCertificates != 195 {
 		t.Errorf("settings: %+v", cfg)
 	}
 }
@@ -87,7 +87,7 @@ func TestFromEnvNamesTheVariableButNeverTheValue(t *testing.T) {
 		{valid(map[string]string{EnvRecordReserve: "1e3"}), []string{EnvRecordReserve}},
 		{valid(map[string]string{EnvMaxNamesPerNetwork: "0"}), []string{EnvMaxNamesPerNetwork, "1 to 10000"}},
 		{valid(map[string]string{EnvRecordQuota: "0"}), []string{EnvRecordQuota}},
-		{valid(map[string]string{EnvNewCertificates: "51"}), []string{EnvNewCertificates, "1 to 50"}},
+		{valid(map[string]string{EnvNewCertificates: "100001"}), []string{EnvNewCertificates, "1 to 100000"}},
 		{valid(map[string]string{EnvNewCertificates: "0"}), []string{EnvNewCertificates}},
 		{valid(map[string]string{EnvAlertWebhook: "http://discord.com/api/webhooks/123/secret-part"}), []string{EnvAlertWebhook, "https://"}},
 		{valid(map[string]string{EnvAlertWebhook: "https://user:secret-part@discord.com/api/webhooks/123"}), []string{EnvAlertWebhook}},

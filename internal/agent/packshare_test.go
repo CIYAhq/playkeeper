@@ -138,7 +138,7 @@ func TestPackLinkGivesTheServersNamedAddress(t *testing.T) {
 	}
 	e.claim("alex")
 	e.decode("GET", "/v1/packs/"+tok, &link)
-	if link.JoinAddress != "survival.alex.playkeeper.io" {
+	if link.JoinAddress != "survival.alex.playkeeper.me" {
 		t.Fatalf("with a name: %q", link.JoinAddress)
 	}
 }
