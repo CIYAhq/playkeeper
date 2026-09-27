@@ -60,9 +60,10 @@ for (const [name, size] of Object.entries(sizes)) {
       await expect(card.getByText('Online', { exact: true })).toBeVisible({ timeout: 15 * 60_000 })
       await shot(page, `smoke-online-${name}`)
 
+      // The World tab shows the job itself, so no toast says it finished: the backup's row does.
       await page.goto(`/servers/${made?.slug}/world`)
       await page.getByRole('button', { name: 'Make my first backup' }).click()
-      await expect(page.getByText('Backup finished').first()).toBeVisible({ timeout: 10 * 60_000 })
+      await expect(page.getByRole('region', { name: 'Backups' }).getByRole('link', { name: 'Download' }).first()).toBeVisible({ timeout: 10 * 60_000 })
       await expect
         .poll(async () => ((await (await page.request.get(`/api/servers/${made?.id}/backups`)).json()) as { verified?: boolean }[]).some((b) => b.verified), { timeout: 120_000 })
         .toBe(true)
