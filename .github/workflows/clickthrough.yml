@@ -6,8 +6,8 @@ name: Click-through
 # end-to-end jobs do (keyboard onboarding, then the protocol bots' scenario)
 # and crawls its share; the gate then checks that together they crawled
 # every page and pressed every page's controls. CI calls it with the pages a
-# change touches, or every page (plan.ts); the Release check and the Release
-# workflow with every page.
+# change touches, or every page (plan.ts); the Release check with every page,
+# on the release it built.
 
 on:
   workflow_call:

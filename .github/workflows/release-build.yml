@@ -1,0 +1,151 @@
+name: Release build
+
+# Builds a release's assets as they are published, and installs them on a
+# fresh runner through get.sh: make package with the version stamped in,
+# CURSEFORGE_API_KEY built in for a release, the manifest signed with a
+# throwaway key (a tag signs these same assets with the release key when it
+# publishes them), the assets checked, and the release notes. The Release
+# check builds with it the release it then clicks through (release-check.yml),
+# and the Release workflow's dry runs rehearse it (release.yml).
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The version to build (MAJOR.MINOR.PATCH, optionally with a -suffix and a leading v); empty for CHANGELOG.md's newest section
+        type: string
+        default: ""
+      release:
+        description: A build to release, with CURSEFORGE_API_KEY built in; its version must have a CHANGELOG.md section
+        type: boolean
+        default: false
+      retention-days:
+        description: How long the release-TAG artifact is kept
+        type: number
+        default: 7
+    outputs:
+      tag:
+        value: ${{ jobs.build.outputs.tag }}
+      version:
+        value: ${{ jobs.build.outputs.version }}
+      title:
+        value: ${{ jobs.build.outputs.title }}
+    secrets:
+      CURSEFORGE_API_KEY:
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  FORCE_COLOR: "0"
+  INSTALL_URL: https://playkeeper.io/install
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build and check the release assets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      title: ${{ steps.version.outputs.title }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The version
+        id: version
+        env:
+          GIVEN: ${{ inputs.version }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          version=${GIVEN#v}
+          if [ -z "$version" ]; then version=$(awk '/^## / { print $2; exit }' CHANGELOG.md); fi
+          if [[ ! $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$version' is not a release version. Use MAJOR.MINOR.PATCH, optionally with a -suffix."
+            exit 1
+          fi
+          if [ "$RELEASE" = true ] && ! grep -q "^## ${version} *\$" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## $version' section. Add what changed in v$version: the dashboard shows it when it offers the update."
+            exit 1
+          fi
+          title="Playkeeper v$version"
+          if [[ $version == 0.* ]]; then title+=" (early release)"; fi
+          { echo "tag=v$version"; echo "version=$version"; echo "title=$title"; } >>"$GITHUB_OUTPUT"
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
+      - name: make package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          CURSEFORGE_API_KEY: ${{ inputs.release && secrets.CURSEFORGE_API_KEY || '' }}
+        run: make package
+      - name: Sign the release manifest with a throwaway key (a tag signs these assets with the release key)
+        env:
+          DRY_RUN: "true"
+        run: scripts/sign-release.sh dist "$RUNNER_TEMP/release-keys.pub"
+      - name: Collect and check the release assets and notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p out/assets
+          cp dist/get.sh dist/playkeeper-linux-amd64.tar.gz dist/playkeeper-linux-amd64.tar.gz.sha256 dist/playkeeper-release.json dist/playkeeper-release.json.sig out/assets/
+          cmp dist/playkeeper-linux-amd64.tar.gz "dist/playkeeper-$VERSION-linux-amd64.tar.gz"
+          cmp dist/get.sh packaging/get.sh
+          scripts/release-check.sh out/assets "$VERSION" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/release-keys.pub"
+          scripts/release-notes.sh "$VERSION" "$GITHUB_REPOSITORY" "$INSTALL_URL" out/assets >out/release-notes.md
+      - name: Summary
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          TITLE: ${{ steps.version.outputs.title }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          {
+            echo "## $TITLE"
+            if [ "$RELEASE" = true ]; then
+              echo "Built as $TAG is released, with CurseForge's key. Once this run passes, pushing the tag $TAG on this commit publishes these assets from the \`release-$TAG\` artifact, byte for byte, with the manifest signed by the release key."
+            else
+              echo "Dry run: nothing is tagged or released. The assets and the notes are in the \`release-$TAG\` artifact."
+            fi
+            echo
+            echo "| Release asset | SHA-256 |"
+            echo "| --- | --- |"
+            for f in out/assets/*; do echo "| \`${f##*/}\` | \`$(sha256sum "$f" | cut -d' ' -f1)\` |"; done
+            echo
+            echo "### Release notes"
+            echo
+            cat out/release-notes.md
+          } >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ steps.version.outputs.tag }}
+          path: out/
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}
+
+  smoke:
+    name: Fresh runner — install the built assets through get.sh, then uninstall
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ needs.build.outputs.tag }}
+          path: /tmp/release
+      - name: One-line install from a local copy of the release assets
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          PLAYKEEPER_BASE_URL: http://127.0.0.1:8765
+          PLAYKEEPER_ALLOW_HTTP: "1"
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory /tmp/release/assets >/tmp/mirror.log 2>&1 &
+          sleep 1
+          scripts/smoke-install.sh http://127.0.0.1:8765/get.sh "$VERSION"
