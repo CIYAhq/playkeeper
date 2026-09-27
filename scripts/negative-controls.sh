@@ -298,9 +298,13 @@ webcontrol "a page whose code doesn't load keeps the dashboard on screen" web/sr
   web/src/components/app/load-boundary.test.tsx 'page whose code never loads'
 webcontrol "a server tab whose code doesn't load keeps the server page on screen" web/src/pages/server/index.tsx \
   '        <LoadBoundary>
-          <Suspense fallback={<TabSkeleton />}>{body}</Suspense>
+          <Suspense fallback={<TabSkeleton />}>
+            <Appear>{body}</Appear>
+          </Suspense>
         </LoadBoundary>' \
-  '        <Suspense fallback={<TabSkeleton />}>{body}</Suspense>' \
+  '        <Suspense fallback={<TabSkeleton />}>
+          <Appear>{body}</Appear>
+        </Suspense>' \
   web/src/components/app/load-boundary.test.tsx 'server tab whose code never loads'
 webcontrol "every server tab's code loads after sign-in" web/src/App.tsx \
   '  void pages.server().then((m) => m.preloadTabs(), () => {})
@@ -4731,7 +4735,7 @@ control "a template without memory gets the sizing guide's suggestion" internal/
   'p.MemoryMB = opts[0]' \
   ./internal/templates '^TestPlanMemoryFollowsTheSizingGuide$'
 webcontrol "New server asks the catalog for what a template or pack runs" web/src/pages/new-server.tsx \
-  "{ ...catalogFor(from, c?.type ?? 'paper', pack, tpl, types), fresh: true }" \
+  "{ ...catalogFor(from, c?.type ?? 'paper', pack && packMods ? { ...pack, mods: packMods } : pack, tpl, types), fresh: true }" \
   "{ type: c?.type ?? 'paper', fresh: true }" \
   src/pages/new-server.test.tsx 'sizes a shared template'
 webcontrol "New server counts a Paper template's plugins" web/src/pages/new-server.tsx \
