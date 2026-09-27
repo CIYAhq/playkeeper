@@ -1911,7 +1911,7 @@ control "no start recreates a world directory a restore moved aside" internal/ag
 		return errWorldMissing(m, then)' \
   'if m := s.worldMissing(); false && m != nil {
 		return errWorldMissing(m, then)' \
-  ./internal/agent '^TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack$'
+  ./internal/agent '^TestAWorldFolderARestoreLeftMissingIsShownUntilItIsBack$'
 control "a world copy is discarded only by its exact name" internal/agent/backups.go \
   'if !reWorldCopy.MatchString(name) {' \
   'if false && !reWorldCopy.MatchString(name) {' \
