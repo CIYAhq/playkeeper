@@ -8,6 +8,7 @@ import { Card, CardTitle, copyText, PlayerFace, Progress, useNow } from '@/compo
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
 import { CoordsReadout, MapCoords, MapView, WorldSwitch, type MapFocus } from '@/components/app/map-view'
 import { ListSkeleton, LoadingLabel } from '@/components/app/skeletons'
+import { StickyHeader } from '@/components/app/sticky-header'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
@@ -133,10 +134,10 @@ export function MapPage({ server }: { server: ServerStatus }) {
   )
 }
 
-/** The phone's Map header: back to More, the title in the middle, and the map's settings. */
+/** The phone's Map header, staying at the top: back to More, the title in the middle, and the map's settings. */
 function PhoneMapHeader({ onMenu }: { onMenu?: () => void }) {
   return (
-    <header className="grid grid-cols-[1fr_auto_1fr] items-center pt-2 pb-2">
+    <StickyHeader className="grid grid-cols-[1fr_auto_1fr] items-center pt-2 pb-2">
       <a {...linkProps({ name: 'more' })} className="-ml-2 inline-flex min-h-11 items-center gap-0.5 justify-self-start rounded-lg px-1 text-[15px] font-medium text-success-strong">
         <ChevronLeftIcon className="size-5" aria-hidden="true" />
         {t('nav.more')}
@@ -149,7 +150,7 @@ function PhoneMapHeader({ onMenu }: { onMenu?: () => void }) {
           </Button>
         )}
       </div>
-    </header>
+    </StickyHeader>
   )
 }
 
