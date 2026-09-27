@@ -21,7 +21,7 @@ commit=$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 # before and after the next one: named after a published one, it sorts below
 # it, and an installed test build offers that release as an update. After
 # each release this names the next version.
-version=${VERSION:-0.5.0-dev+$commit}
+version=${VERSION:-0.6.0-dev+$commit}
 epoch=${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || date +%s)}
 date=$(date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ)
 name="playkeeper-$version-linux-amd64"

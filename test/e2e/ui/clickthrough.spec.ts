@@ -83,6 +83,15 @@ const unknownMapLink = '/map/Zz9xWv8uTs7rQp6oNm5lKj'
 // A friends' pack link that opens nothing: the page every unavailable link gets.
 const unknownPackLink = '/packs/Pk0Unknown0Link0Abcdef'
 
+/** Where the dashboard machine's CurseForge key comes from, as Settings › Add-on sources reads it: "build" when the build carries one. */
+async function curseForgeKey(page: Page): Promise<string | undefined> {
+  const machines = (await (await page.request.get('/api/machines')).json()) as { id: string; kind: string }[]
+  const local = machines.find((m) => m.kind === 'local')
+  if (!local) return undefined
+  const res = await page.request.get(`/api/machines/${local.id}/addon-sources`)
+  return res.ok() ? ((await res.json()) as { curseforge?: { key?: string } }).curseforge?.key : undefined
+}
+
 /** The pages to open signed in, and the shared maps anyone can open without signing in. */
 async function routes(page: Page, phone: boolean): Promise<{ live: string[]; shared: string[] }> {
   const servers = (await (await page.request.get('/api/servers')).json()) as { id: string; slug: string; type?: string }[]
@@ -267,6 +276,7 @@ for (const [name, size] of Object.entries(sizes)) {
       unreached: [],
       negatives: [],
       fixtureProblems: [],
+      curseforge: await curseForgeKey(page),
     }
     const charge = (unit: string, seconds: number) => {
       const c = report.crawled.find((x) => x.name === unit)
@@ -461,6 +471,20 @@ test('the gate fails a failing control, a state it could not get back to, a page
   expect(run([...results.filter((r) => !r.key.startsWith('slider')), pressed('/', 'button "More"')], { negatives: [] })).toEqual(['desktop: never pressed a slider on / (/^slider /)'])
   expect(run(results, { negatives: [] })).toEqual(['desktop: pressed a slider but didn\'t break it on purpose to check the crawl notices'])
   expect(run(results, { negatives: [{ ...negatives[0]!, verdict: 'works', caught: false }] })).toEqual(['desktop: with a slider broken, the crawl said "works" (/ › slider "Memory")'])
+})
+
+test("a build that carries CurseForge's key may press nothing of its own on a page that then has nothing to press; any other build must", () => {
+  const rules: Rules = { minimums: { '/settings': 1 }, keyMinimums: { '/settings/addon-sources': 0 }, places: [] }
+  const plan: [string, number][] = [
+    ['/settings', 1],
+    ['/settings/addon-sources', 1],
+  ]
+  const results = [pressed('/settings', 'button "Sign out"')]
+  const run = (curseforge?: string) => gate('desktop', [shardReport(1, 1, plan, results, { curseforge })], 1, rules).problems
+  expect(run('build')).toEqual([])
+  expect(run('none')).toEqual(['desktop /settings/addon-sources: 0 controls pressed, fewer than its minimum of 1'])
+  expect(run(undefined)).toEqual(['desktop /settings/addon-sources: 0 controls pressed, fewer than its minimum of 1'])
+  expect(gate('phone', [{ ...shardReport(1, 1, plan, results, { curseforge: 'build' }), size: 'phone' }], 1).problems).not.toContainEqual(expect.stringContaining('/settings/addon-sources'))
 })
 
 test('split between runners, the gate counts controls in the order of one runner and fails a runner that went missing, a page nobody crawled and runners that disagree', () => {

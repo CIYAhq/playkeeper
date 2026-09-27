@@ -10,8 +10,10 @@
 # guide's table at /sizing, the live demo at /demo/ (its page, its files, the
 # players' faces and the plugins' icons, deep links answered by the app, a
 # missing file still a 404, and that it is the demo build), /community,
-# /healthz, the /install redirect to get.sh of the latest release, cache and
-# security headers, and the container's own health check. With Chrome or
+# /healthz, the /install redirect to get.sh of the latest release and the same
+# for /install/<code>, the install log they go to (the visitor's address, 30
+# days), the channels' links under /go/, cache and security headers, and the
+# container's own health check. With Chrome or
 # Chromium installed, it also opens /sizing in headless Chrome with an answer
 # in its address, and with one it can't read, and checks the answer the page
 # shows; and it opens /t with the template links in
@@ -63,6 +65,7 @@ check_files() {
       *.svg) want_type=image/svg+xml ;;
       *.webp) want_type=image/webp ;;
       *.png) want_type=image/png ;;
+      *.mp4) want_type=video/mp4 ;;
       *.xml) want_type=xml ;;
       *) continue ;;
     esac
@@ -87,6 +90,42 @@ health=$(curl -fsS "$base/healthz") || fail "/healthz does not answer"
 read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/install")
 [ "$code" = 302 ] || fail "/install answered $code, not 302"
 [ "$location" = "$want" ] || fail "/install redirects to '$location', not $want"
+# A channel's install command (internal/site/channels.go) is the same
+# redirect, and so is any other code in any case, so a typo still installs.
+# Each goes to the install log with the address the proxy says it's from.
+for p in /install/cygnus /install/HN /install/not-a-channel; do
+  read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' -H 'X-Forwarded-For: 203.0.113.9' "$base$p")
+  if [ "$code" != 302 ] || [ "$location" != "$want" ]; then fail "$p answered $code to '$location', not 302 to $want"; fi
+done
+code=$(curl -sS -o /dev/null -w '%{http_code}' "$base/install/a/b")
+[ "$code" = 404 ] || fail "/install/a/b answered $code, not 404"
+log=$(docker exec "$name" sh -c 'cat /var/log/playkeeper/installs-*.log') || fail "there is no install log"
+for p in /install/cygnus /install/HN; do
+  grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^ ]+ 203\.0\.113\.9 GET $p 302 \"curl/" <<<"$log" || fail "the install log has no line for $p from 203.0.113.9: $log"
+done
+grep -qE ' GET /install 302 "curl/' <<<"$log" || fail "the install log has no line for /install"
+if grep -vE ' GET /install(/[A-Za-z0-9-]+)? 302 ' <<<"$log" | grep -q .; then fail "the install log has more than installs: $log"; fi
+# It keeps 30 days: a file older than that goes when the container starts,
+# and the rest stay.
+docker exec "$name" touch -d 2000-01-01 /var/log/playkeeper/installs-2000-01-01.log
+docker restart "$name" >/dev/null
+for _ in $(seq 30); do
+  curl -fsS -o /dev/null "$base/healthz" 2>/dev/null && break
+  sleep 1
+done
+docker exec "$name" test ! -e /var/log/playkeeper/installs-2000-01-01.log || fail "the install log keeps a file older than 30 days"
+docker exec "$name" sh -c 'cat /var/log/playkeeper/installs-*.log' | grep -qF '203.0.113.9 GET /install/cygnus 302' || fail "the install log lost today's lines when the container restarted"
+# A channel's link is the landing page with its tags, in any case and with a
+# trailing slash; any other code is the landing page.
+for c in cygnus:youtube:sponsor:creators-oct26:/go/cygnus hn:hackernews:community:launch-sep26:/go/HN/ x:x:social:launch-sep26:/go/x \
+  whop:whop:paid:pk01-launch:/go/whop; do
+  IFS=: read -r channel source medium campaign p <<<"$c"
+  read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base$p")
+  tagged="$base/?utm_source=$source&utm_medium=$medium&utm_campaign=$campaign&utm_content=$channel"
+  if [ "$code" != 302 ] || [ "$location" != "$tagged" ]; then fail "$p answered $code to '$location', not 302 to $tagged"; fi
+done
+read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/go/nope")
+if [ "$code" != 302 ] || [ "$location" != "$base/" ]; then fail "/go/nope answered $code to '$location', not 302 to /"; fi
 read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/community")
 [ "$code" = 302 ] || fail "/community answered $code, not 302"
 [ "$location" = "$community" ] || fail "/community redirects to '$location', not $community"
@@ -107,7 +146,7 @@ mapfile -t listed < <(sed -n 's|.*<loc>'"$site"'\(/[^<]*\)</loc>.*|\1|p' "$work/
 for p in "${needed[@]}"; do
   printf '%s\n' "${listed[@]}" | grep -qxF "$p" || fail "the sitemap does not list $p"
 done
-if printf '%s\n' "${listed[@]}" | grep -qxE '/t|/404'; then fail "the sitemap lists /t or /404, which stay out of search engines"; fi
+if printf '%s\n' "${listed[@]}" | grep -qxE '/t|/404|/start'; then fail "the sitemap lists /t, /404 or /start, which stay out of search engines"; fi
 
 page=$work/page.html
 checked=0
@@ -209,6 +248,28 @@ grep -qE '<script src="/assets/js/t\.[0-9a-f]{8}\.js" defer></script>' "$page" |
 if grep -qF 'data-stars' "$page"; then fail "/t asks GitHub for the star count; the share page makes no requests"; fi
 check_files /t "$page"
 
+# /start, where the Meta ads land: only its policy lets Whop's ad pixel, the
+# worker it starts and the film in, it's kept out of search engines, and it
+# answers with its query string, where the pixel reads the ad's IDs.
+start=$work/start.html
+code=$(curl -sS -o "$start" -w '%{http_code}' "$base/start?utm_campaign=pk01-launch&wacid=1")
+[ "$code" = 200 ] || fail "/start?utm_campaign=… answered $code, not 200"
+headers=$(curl -sS -D - -o /dev/null "$base/start?utm_campaign=pk01-launch")
+headers_ok /start "$headers"
+for h in "script-src 'self' https://analytics-c.ciya.so https://t.whop.tw;" "media-src 'self';" "worker-src blob:;" \
+  "connect-src 'self' https://api.github.com https://analytics-c.ciya.so https://t.whop.tw;" 'x-robots-tag: noindex'; do
+  grep -qiF "$h" <<<"$headers" || fail "/start does not send '$h'"
+done
+if curl -sS -D - -o /dev/null "$base/" | grep -qiE 't\.whop\.tw|worker-src|media-src|^x-robots-tag'; then fail "/ lets in or says what only /start should"; fi
+for text in '<meta name="robots" content="noindex">' 'curl -fsSL https://playkeeper.io/install/start | sudo sh' "$analytics"; do
+  grep -qF "$text" "$start" || fail "/start does not have '$text'"
+done
+if sed 's|<script type="application/ld+json">[^<]*</script>||g' "$start" | grep -qE '<script>|<script [^s]|<style|[[:space:]](style|on[a-z]+)='; then
+  fail "/start has inline script or style, which the Content-Security-Policy blocks"
+fi
+if grep -vF "$analytics" "$start" | grep -qE '<script src="https?:'; then fail "/start loads a script from another site in its HTML"; fi
+check_files /start "$start"
+
 for path in / /pricing /t /install /robots.txt /no-such-page "$asset"; do
   headers_ok "$path" "$(curl -sS -D - -o /dev/null "$base$path")"
 done
@@ -308,4 +369,4 @@ for _ in $(seq 30); do
 done
 [ "$status" = healthy ] || fail "the container's health check reports '$status'"
 
-echo "Site image checks out: $checked pages from the sitemap answer with their title, description, canonical address, social preview and files; robots.txt, the sitemap and the feed; /t is the share page and kept out of search engines; a missing page is a 404; /pricing/ redirects; /community, /install and /healthz answer; cache and security headers set; container healthy. $browser."
+echo "Site image checks out: $checked pages from the sitemap answer with their title, description, canonical address, social preview and files; robots.txt, the sitemap and the feed; /t is the share page and kept out of search engines; a missing page is a 404; /pricing/ redirects; /community, /install, /install/<code> (in the install log, with the visitor's address, for 30 days), /go/<code> and /healthz answer; cache and security headers set; container healthy. $browser."

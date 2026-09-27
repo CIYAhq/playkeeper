@@ -201,6 +201,9 @@ main:focus { outline: none; }
 .install-dark .install-copy { border-color: rgb(255 255 255 / 0.16); background: rgb(255 255 255 / 0.08); color: var(--white); }
 .install-dark .install-copy:hover { background: rgb(255 255 255 / 0.16); }
 .install-dark .install-copy.is-copied .icon-check { color: #86d46a; }
+/* A channel's command, /install/<code>, is longer: its box is wider, and on
+   phones Copy goes under it, and a line wraps rather than hide behind Copy. */
+.install-tagged { max-width: 660px; }
 @media (max-width: 579.98px) {
   .install { align-items: center; padding: 14px 12px 14px 16px; }
   .install-cmd { font-size: 13px; white-space: normal; overflow: visible; display: flex; }
@@ -209,6 +212,11 @@ main:focus { outline: none; }
   .install-copy { width: 44px; height: 44px; padding: 0; justify-content: center; }
   .install-copy-label { display: none; }
   .install-copy .icon { width: 18px; height: 18px; }
+  .install-tagged { flex-wrap: wrap; }
+  .install-tagged .install-cmd { font-size: 12px; }
+  .install-tagged .install-lines { white-space: pre-wrap; word-break: break-all; }
+  .install-tagged .install-copy { width: 100%; gap: 8px; }
+  .install-tagged .install-copy-label { display: inline; }
 }
 
 /* A toast, for "Command copied" on phones. */

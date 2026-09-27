@@ -101,6 +101,8 @@ func mimeType(name string) string {
 		return "text/plain; charset=utf-8"
 	case ".woff2":
 		return "font/woff2"
+	case ".mp4":
+		return "video/mp4"
 	}
 	return ""
 }

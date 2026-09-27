@@ -12,6 +12,8 @@ This folder is the website at [playkeeper.io](https://playkeeper.io): the landin
 | `/sitemap.xml`, `/robots.txt`, `/blog/feed.xml` | for search engines and feed readers |
 | `/community` | `302` to where questions go (see Settings below) |
 | `/install` | `302` to the latest release's `get.sh` |
+| `/install/<code>` | the same `302`, with a channel's code, which the install log counts (see Channels below) |
+| `/go/<code>` | `302` to the landing page with a channel's UTM tags (see Channels below) |
 | `/healthz` | `200` with `ok`, for health checks |
 
 ## How it's built
@@ -41,11 +43,32 @@ Funnels in the analytics are built from pages and these custom events. Each also
 
 | Event | When | Properties |
 | --- | --- | --- |
-| `install_copied` | The install command is copied, with a Copy or selected and copied by hand | `spot`: `box` (the page's install command), `closing` (the dark band at the bottom), `button` (Copy the install command on `/pricing` and beside guides), `code` (a code block in the docs), `selection` (by hand) or `card` (the live demo's) |
+| `install_copied` | The install command is copied, with a Copy or selected and copied by hand | `spot`: `box` (the page's install command), `closing` (the dark band at the bottom), `button` (Copy the install command on `/pricing` and beside guides), `code` (a code block in the docs), `selection` (by hand) or `card` (the live demo's); `channel`: the code, for a channel's command (see Channels below) |
 | `github_clicked` | A link to the repository on GitHub, or to `/community` | `link`: `repo`, `releases`, `file`, `discussions`, `community` and so on |
 | `provider_clicked` | See today's price at a VPS provider (`/sizing`, `/alternatives/aternos`) | `provider`, and the `plan` it showed |
 | `watch_releases_clicked` | Watch releases on GitHub on `/pricing`, which is also a `github_clicked` | `plan`: `storage` or `partner` |
 | `demo_server_created` | New server finished in the live demo | `type`: the server type, such as `paper` |
+
+### Channels
+
+`Channels` in `internal/site/channels.go` are where visitors come from, such as a creator's sponsored video or a launch post, each with a code. `playkeeper.io/go/<code>` sends a visitor to the landing page with the channel's UTM tags (`utm_content` is the code), and the landing page then shows them that channel's install command, `curl -fsSL https://playkeeper.io/install/<code> | sudo sh`. It does this only for the codes it lists, reads the code from the address and stores nothing, so the site stays cookieless. Other pages, and other visitors, see the usual command. `install_copied` says which channel's command was copied in `channel`. To add a channel, add it to the list and redeploy.
+
+Every `/install/<code>`, with any code, is the same redirect as `/install`, so a typo in a command still installs. nginx writes each request for `/install` or `/install/<code>` to the install log, and nowhere else: one file a day, `/var/log/playkeeper/installs-YYYY-MM-DD.log`, with the time, the visitor's address (from the Coolify proxy's `X-Forwarded-For`), the method, the path, the status and the user agent. `install-logs.sh` deletes each file after 30 days. For the log to survive redeploys, that folder is a volume in Coolify (step 5 below). Install runs per code, counting each address once and leaving out browsers, from a terminal in the site's container:
+
+```bash
+awk '$3 == "GET" && $5 == 302 && $6 !~ /^"Mozilla/ { print tolower($4), $2 }' /var/log/playkeeper/installs-*.log | sort -u | awk '{ print $1 }' | uniq -c
+```
+
+The release workflow's check of `/install` after each release counts as one there.
+
+### /start
+
+`/start` is where the Meta ads land (`pages/start.html`). It's kept out of search engines and the sitemap, and it answers with no redirect, so its query string stays: Whop's pixel reads the ad's IDs from it.
+
+- **Install command:** the page's `channel: start` setting makes every install command on it `curl -fsSL https://playkeeper.io/install/start | sudo sh`.
+- **The film:** `static/film/launch.mp4` is a 10.8-second, 720-pixel cut of the launch film, stopping before its "0.4.0 is out" card. It plays muted while it's in view, and not with reduced motion.
+- **Whop's ad pixel:** `WhopPixel` in the settings names the Whop business. `js/start.js` loads the pixel with Whop's own snippet, on this page only. It sends a page view, and `install_copied` with one `event_id` per visit whenever site.js counts a copy (the `playkeeper:count` event). It doesn't load when the browser sends Global Privacy Control or Do Not Track.
+- **Content-Security-Policy:** only `/start`'s policy, set in its nginx location, lets in `https://t.whop.tw`, the pixel's `blob:` worker and the film. The page ends with a note that says plainly what the pixel stores and sends. Keep forms, iframes and links to whop.com off the page: the pixel reads forms, posts to frames and tags those links.
 
 ## Host it with Coolify
 
@@ -102,6 +125,21 @@ curl -s https://playkeeper.io/healthz    # ok
 
 Then open `https://playkeeper.io` in a browser. `https://playkeeper.io/t` should say that the link has no template in it, and `https://playkeeper.io/sizing` should suggest a VPS with 6 GB of memory for 5–10 friends on Vanilla or Paper. Open `https://playkeeper.io/demo/` too: on a first visit it says it's the live demo, then shows the dashboard with its sample servers and the amber "Live demo · resets every hour" line under the brand.
 
+### 5. Keep the install log
+
+The install log (see Channels above) is written inside the container, and each deploy replaces the container. A volume keeps it. Once, in Coolify:
+
+1. Open the application, then **Configuration** → **Persistent Storage**.
+2. Select **Add** → **Volume Mount**.
+3. Fill in:
+   - **Name**: `install-log`
+   - **Source Path**: leave it empty, so Docker keeps the log in a named volume
+   - **Destination Path**: `/var/log/playkeeper`
+4. Select **Add**, then **Redeploy**, and wait until the deployment log says it has finished.
+5. Check it. On your computer, `curl -s -o /dev/null -w '%{http_code}\n' https://playkeeper.io/install/check` prints `302`. Then, in Coolify, open the application's **Terminal** (or **Terminal** in the sidebar), choose the site's running container, select **Connect** and run `tail -n 1 /var/log/playkeeper/installs-*.log`: the line has today's date, your computer's address and `GET /install/check 302`. After the next deploy, the same command still shows it.
+
+Keep **Delete Unused Volumes** off in the server's Docker cleanup settings, or a cleanup can delete the log.
+
 ### Already hosting the site? Switch it to the repository root
 
 Before 0.4.0, Coolify built the image from the `site` folder alone. The image now needs the whole repository: one stage builds the live demo from `web/`, another builds the site with `cmd/site`, which reads `go.mod`, `internal/`, the docs and the dashboard's art. An application set up the old way fails to build, with errors such as `"/web/package-lock.json": not found` or `"/go.mod": not found`. Once, in Coolify:
@@ -126,6 +164,6 @@ With Go (`./scripts/setup.sh` installs it) or Docker, from the repository root:
 ```bash
 make site                                     # builds the site into site/dist
 go run ./cmd/site -serve 127.0.0.1:8080       # serves it as nginx would, at http://127.0.0.1:8080
-scripts/site-check.sh                         # builds the image and checks every page, /sizing, /demo/, /t, /healthz, /install and the headers; with Chrome installed, opens /sizing and /t in it
+scripts/site-check.sh                         # builds the image and checks every page, /sizing, /demo/, /t, /healthz, /install and its log, /go/ and the headers; with Chrome installed, opens /sizing and /t in it
 docker build -f site/Dockerfile -t playkeeper-site . && docker run --rm -p 8080:80 playkeeper-site   # then open http://localhost:8080 and http://localhost:8080/demo/
 ```
