@@ -7,7 +7,7 @@ import { javascript } from '@codemirror/legacy-modes/mode/javascript'
 import { properties } from '@codemirror/legacy-modes/mode/properties'
 import { shell } from '@codemirror/legacy-modes/mode/shell'
 import { toml } from '@codemirror/legacy-modes/mode/toml'
-import { linter, lintGutter, type Diagnostic } from '@codemirror/lint'
+import { forceLinting, linter, lintGutter, type Diagnostic } from '@codemirror/lint'
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search'
 import { Compartment, EditorSelection, EditorState, type Extension } from '@codemirror/state'
 import { drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view'
@@ -250,6 +250,8 @@ export const CodeEditor = forwardRef<
       ],
     })
     view.current = new EditorView({ state, parent: mount, root })
+    // The marks and problems show as the file opens; edits are checked after a pause.
+    forceLinting(view.current)
     return () => {
       view.current?.destroy()
       view.current = undefined
