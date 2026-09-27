@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { onNavigate } from '@/lib/router'
 import { currentSection, scrollToSection } from '@/lib/scroll'
 import { cn } from '@/lib/utils'
 
@@ -14,9 +15,9 @@ function askedIn(ids: readonly string[]): string | undefined {
 
 /**
  * Which of the page's sections a section list marks current, following the
- * scroll. A section pressed in the list is current from the press until the
- * page has stopped moving; the section in the address counts as asked for
- * until you scroll yourself.
+ * scroll. A section pressed in the list, or named by the address after a link
+ * to it, Back or Forward, is current from then until the page has stopped
+ * moving; the section asked for last stays asked for until you scroll yourself.
  */
 export function useSectionSpy(ids: readonly string[]) {
   const [active, setActive] = useState(() => askedIn(ids) ?? ids[0])
@@ -86,6 +87,21 @@ export function useSectionSpy(ids: readonly string[]) {
     window.clearTimeout(hold.current)
     hold.current = window.setTimeout(() => update.current(), stillMs)
   }, [])
+
+  useEffect(() => {
+    const addressed = () => {
+      const id = askedIn(ids)
+      if (id) follow(id)
+    }
+    const stop = onNavigate(addressed)
+    window.addEventListener('popstate', addressed)
+    window.addEventListener('hashchange', addressed)
+    return () => {
+      stop()
+      window.removeEventListener('popstate', addressed)
+      window.removeEventListener('hashchange', addressed)
+    }
+  }, [ids, follow])
 
   return { active, follow }
 }

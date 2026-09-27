@@ -218,6 +218,14 @@ export function navigate(to: Route | string, replace = false) {
   else if (!(samePage && hash !== undefined)) window.scrollTo(0, 0)
 }
 
+/** Calls fn after each navigation inside the app, before the page scrolls; returns what stops it. */
+export function onNavigate(fn: () => void): () => void {
+  listeners.add(fn)
+  return () => {
+    listeners.delete(fn)
+  }
+}
+
 export function useRoute(): Route {
   const [route, setRoute] = useState<Route>(() => parse(appPath(window.location.pathname), window.location.search))
   useEffect(() => {

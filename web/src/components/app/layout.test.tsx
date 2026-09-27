@@ -17,6 +17,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
 import { Toggle } from '@/components/ui/toggle'
 import { appearAtOnce } from '@/lib/presence'
+import { navigate } from '@/lib/router'
 
 const styles = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../styles.css'), 'utf8')
 
@@ -195,6 +196,30 @@ describe('a section list', () => {
       await frame()
     })
     expect(current()).toBe('Danger zone')
+  })
+
+  it('follows a link elsewhere on the page to one of its sections, and Back, over the one pressed before', async () => {
+    media({})
+    layout({ game: 124, list: 440, danger: 760 })
+    await page()
+    await act(async () => entry('Server list').click())
+    expect(current()).toBe('Server list')
+
+    // Like the server menu's Delete, which goes to the Danger zone of the Settings already open.
+    await act(async () => navigate('/#danger'))
+    expect(current()).toBe('Danger zone')
+    vi.spyOn(document.documentElement, 'scrollHeight', 'get').mockReturnValue(1668)
+    layout({ game: -500, list: 150, danger: 460 })
+    await act(async () => {
+      scrollTo(900)
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      await frame()
+    })
+    expect(current(), 'the section pressed before is still on screen at the end of the page').toBe('Danger zone')
+
+    window.history.replaceState(null, '', '/#game')
+    await act(async () => window.dispatchEvent(new PopStateEvent('popstate')))
+    expect(current()).toBe('In the game')
   })
 })
 
