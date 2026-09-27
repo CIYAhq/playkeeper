@@ -43,6 +43,7 @@ type fakeDocker struct {
 	holdImages   bool          // image inspects wait until the caller gives up
 	down         string        // requests whose path starts with it fail, as when Docker stops answering
 	versionDown  bool          // version requests fail too, as when the daemon itself stops answering
+	selinux      bool          // the daemon runs containers under SELinux labels ("selinux-enabled")
 	beforeStop   func()        // when set, runs before a container stop takes effect
 	setupHangs   bool          // setup containers end their log streams but keep running
 	// bootFailsOn names a Minecraft version whose server rewrites the world's
@@ -256,6 +257,16 @@ func (fd *fakeDocker) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path = strings.TrimPrefix(path, "/v1.52")
+	if path == "/info" {
+		fd.mu.Lock()
+		opts := []string{"name=seccomp,profile=builtin", "name=cgroupns"}
+		if fd.selinux {
+			opts = append(opts, "name=selinux")
+		}
+		fd.mu.Unlock()
+		jsonOut(w, 200, map[string]any{"ServerVersion": "29.0.0-fake", "SecurityOptions": opts})
+		return
+	}
 	fd.mu.Lock()
 	fd.calls = append(fd.calls, r.Method+" "+path)
 	down := fd.down != "" && strings.HasPrefix(path, fd.down)
@@ -486,7 +497,7 @@ func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 	}
 	if setup {
 		for _, b := range c.cfg.HostConfig.Binds {
-			if host, dst, _ := strings.Cut(b, ":"); strings.HasPrefix(dst, "/data") {
+			if host, dst := bindParts(b); dst == "/data" {
 				name := fmt.Sprintf("paper-%s-%s.jar", env(c.cfg, "VERSION"), env(c.cfg, "PAPER_BUILD"))
 				os.MkdirAll(host, 0o750)
 				os.WriteFile(filepath.Join(host, name), fd.jarContent, 0o644)
@@ -503,7 +514,7 @@ func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 	fd.log(c, "[12:00:00 INFO]: Starting minecraft server version "+version)
 	if fd.bootFailsOn != "" && strings.HasPrefix(version, fd.bootFailsOn+"-") {
 		for _, b := range c.cfg.HostConfig.Binds {
-			if host, dst, _ := strings.Cut(b, ":"); dst == "/data" {
+			if host, dst := bindParts(b); dst == "/data" {
 				os.WriteFile(filepath.Join(host, "world", "level.dat"), []byte("upgraded by "+version), 0o644)
 			}
 		}
@@ -532,7 +543,7 @@ func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 		return
 	}
 	for _, b := range c.cfg.HostConfig.Binds {
-		if host, dst, _ := strings.Cut(b, ":"); dst == "/data" {
+		if host, dst := bindParts(b); dst == "/data" {
 			level := filepath.Join(host, "world", "level.dat")
 			if _, err := os.Stat(level); err != nil {
 				os.MkdirAll(filepath.Dir(level), 0o750)
@@ -900,4 +911,12 @@ func varint(v int) []byte {
 		out = append(out, byte(u&0x7F|0x80))
 		u >>= 7
 	}
+}
+
+// bindParts splits a bind like "/host:/data:z" into its host path and the
+// path in the container.
+func bindParts(b string) (host, dst string) {
+	host, rest, _ := strings.Cut(b, ":")
+	dst, _, _ = strings.Cut(rest, ":")
+	return host, dst
 }

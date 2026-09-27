@@ -41,6 +41,10 @@ func TestParseOSReadsTheFieldsTheInstallerUses(t *testing.T) {
 	if d := ParseOS(debianSid).Display(); d != "Debian forky/sid" {
 		t.Errorf("Debian unstable is shown as %q", d)
 	}
+	alma := ParseOS("NAME=\"AlmaLinux\"\nVERSION=\"9.6 (Sage Margay)\"\nID=\"almalinux\"\nID_LIKE=\"rhel centos fedora\"\nVERSION_ID=\"9.6\"\n")
+	if alma.IDLike != "rhel centos fedora" || alma.Display() != "AlmaLinux 9.6" {
+		t.Errorf("AlmaLinux 9.6: %+v, shown as %q", alma, alma.Display())
+	}
 	if d := ParseOS("NAME='Fedora Linux'\nID=fedora\nVERSION_ID=42\n").Display(); d != "Fedora Linux 42" {
 		t.Errorf("Fedora is shown as %q", d)
 	}
@@ -57,11 +61,39 @@ func TestParseOSReadsTheFieldsTheInstallerUses(t *testing.T) {
 	}
 }
 
-func TestEverySupportedReleaseIsTested(t *testing.T) {
+func TestEverySupportedReleaseIsTestedOrAcceptedAsItsFamily(t *testing.T) {
 	for _, r := range Supported {
+		want := Tested
+		if r.Untested {
+			want = Family
+		}
 		v := Check(OS{ID: r.Distro, VersionID: r.Version})
-		if v.Support != Tested || v.Release != r {
+		if v.Support != want || v.Release != r {
 			t.Errorf("%s: %+v", r.Name, v)
+		}
+	}
+}
+
+// A release given by its major version stands for its minor releases, the
+// VERSION_ID the RHEL family's os-release has.
+func TestAMinorReleaseIsItsMajorRelease(t *testing.T) {
+	for _, c := range []struct {
+		os      OS
+		support Support
+		release string
+	}{
+		{OS{ID: "almalinux", VersionID: "9.6"}, Tested, "9"},
+		{OS{ID: "rocky", VersionID: "10.0"}, Tested, "10"},
+		{OS{ID: "ol", VersionID: "9.8"}, Tested, "9"},
+		{OS{ID: "centos", VersionID: "9"}, Tested, "9"},
+		{OS{ID: "amzn", VersionID: "2023"}, Tested, "2023"},
+		{OS{ID: "rhel", VersionID: "9.4"}, Family, "9"},
+		{OS{ID: "centos", VersionID: "10"}, Family, "10"},
+		{OS{ID: "almalinux", VersionID: "11.0"}, Newer, "10"},
+		{OS{ID: "ol", VersionID: "10.1"}, Newer, "9"},
+	} {
+		if v := Check(c.os); v.Support != c.support || v.Release.Version != c.release {
+			t.Errorf("%s: %+v, want support %d as %s", c.os.Display(), v, c.support, c.release)
 		}
 	}
 }
@@ -87,12 +119,12 @@ func TestLaterReleasesOfASupportedDistributionAreNewerNotRefused(t *testing.T) {
 }
 
 func TestOlderReleasesAndOtherSystemsAreUnsupported(t *testing.T) {
-	for _, o := range []OS{{ID: "ubuntu", VersionID: "18.04"}, {ID: "debian", VersionID: "11"}} {
+	for _, o := range []OS{{ID: "ubuntu", VersionID: "18.04"}, {ID: "debian", VersionID: "11"}, {ID: "almalinux", VersionID: "8.10"}, {ID: "amzn", VersionID: "2"}} {
 		if v := Check(o); v.Support != Unsupported || v.Distro == nil || v.Distro.ID != o.ID {
 			t.Errorf("%s: %+v, want unsupported, naming its distribution", o.Display(), v)
 		}
 	}
-	for _, o := range []OS{{ID: "alpine", VersionID: "3.20"}, {}} {
+	for _, o := range []OS{{ID: "alpine", VersionID: "3.20"}, {ID: "fedora", VersionID: "42", IDLike: ""}, {}} {
 		if v := Check(o); v.Support != Unsupported || v.Distro != nil {
 			t.Errorf("%s: %+v, want unsupported", o.Display(), v)
 		}
@@ -114,10 +146,10 @@ func TestCompareVersions(t *testing.T) {
 }
 
 func TestSummaryNamesEachDistributionsOldestRelease(t *testing.T) {
-	if got, want := Summary(), "Ubuntu 20.04 or later, or Debian 12 or later"; got != want {
+	if got, want := Summary(), "Ubuntu 20.04 or later, Debian 12 or later, the RHEL family 9 or later (AlmaLinux, Rocky Linux, Oracle Linux, RHEL and CentOS Stream), or Amazon Linux 2023 or later"; got != want {
 		t.Errorf("Summary() = %q, want %q", got, want)
 	}
-	if got, want := Short(), "Ubuntu 20.04+ or Debian 12+"; got != want {
+	if got, want := Short(), "Ubuntu 20.04+, Debian 12+, the RHEL family 9+ or Amazon Linux 2023+"; got != want {
 		t.Errorf("Short() = %q, want %q", got, want)
 	}
 	for _, d := range Distros() {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/CIYAhq/playkeeper/internal/config"
@@ -29,6 +30,10 @@ type UninstallOptions struct {
 }
 
 const PurgePhrase = "delete my worlds"
+
+// dockerEngines are the packages that are Docker itself; the others it came
+// with may stay for software that needs them without keeping Docker.
+var dockerEngines = []string{"docker.io", "docker-ce", "docker"}
 
 func loadManifest(sys System) (*Manifest, error) {
 	b, err := os.ReadFile(sys.P(filepath.Join(config.DefaultDataDir, "install-manifest.json")))
@@ -70,8 +75,9 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 	if len(m.UsersCreated) > 0 {
 		fmt.Fprintln(out, "  • users: "+strings.Join(m.UsersCreated, ", "))
 	}
+	fw, pm := firewallOf(*m), packageManagerOf(*m)
 	if len(m.FirewallRules) > 0 {
-		fmt.Fprintln(out, "  • ufw rules: "+strings.Join(m.FirewallRules, ", "))
+		fmt.Fprintln(out, "  • "+fw.short()+" rules"+fw.where()+": "+strings.Join(m.FirewallRules, ", "))
 	}
 	removeDocker := len(m.PackagesInstalled) > 0 && !o.KeepDocker
 	if removeDocker {
@@ -79,6 +85,12 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 		fmt.Fprintln(out, "    and with them Docker's firewall rules and bridges; IP forwarding and the FORWARD policy go back to how they were")
 		if len(m.DockerDirsCreated) > 0 {
 			fmt.Fprintln(out, "    and the folders installing Docker created, with everything in them: "+strings.Join(m.DockerDirsCreated, ", "))
+		}
+		if len(m.DockerRepoFiles) > 0 {
+			fmt.Fprintln(out, "    and the repository and signing key Docker came from: "+strings.Join(m.DockerRepoFiles, ", "))
+		}
+		if len(m.DockerFirewalld) > 0 {
+			fmt.Fprintln(out, "    and what Docker added to firewalld: "+strings.Join(m.DockerFirewalld, ", "))
 		}
 	}
 	if o.Purge {
@@ -101,7 +113,7 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 		}
 	}
 	if removeDocker {
-		if err := waitForPackageLock(sys, out, sys.Now().Add(lockWait)); err != nil {
+		if err := waitForPackageLock(sys, out, pm, sys.Now().Add(lockWait)); err != nil {
 			return fmt.Errorf("%w. Nothing was changed", err)
 		}
 	}
@@ -142,11 +154,12 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 	}
 	foreign := removeDockerObjects(ctx, sys, note)
 	for _, r := range m.FirewallRules {
-		_, err := sys.Run("ufw", "delete", "allow", r)
-		note(err)
+		note(fw.remove(sys, r))
 	}
+	note(fw.tidy(sys, *m))
+	// The binary, and the link sudo finds it by, stay until Docker is gone.
 	for _, f := range m.FilesCreated {
-		if f != BinPath {
+		if f != BinPath && f != SudoLink {
 			note(removeIfExists(sys.P(f)))
 		}
 	}
@@ -165,14 +178,29 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 			note(err)
 		}
 	}
+	keptRepo := ""
+	if len(m.DockerRepoFiles) > 0 {
+		keptRepo = " Docker keeps getting updates from " + m.DockerRepoFiles[len(m.DockerRepoFiles)-1] + ", which stays as well."
+	}
 	switch {
 	case len(m.PackagesInstalled) == 0:
+		// The Docker that was there already doesn't need the repository.
+		note(removeFiles(sys, m.DockerRepoFiles))
 	case o.KeepDocker:
-		fmt.Fprintln(out, "Keeping Docker (--keep-docker), and with it its firewall rules and docker0 bridge.")
+		fmt.Fprintln(out, "Keeping Docker (--keep-docker), and with it its firewall rules and docker0 bridge."+keptRepo)
 	case foreign > 0:
-		fmt.Fprintf(out, "Keeping Docker: %d other container(s) still use it, so its firewall rules and docker0 bridge stay too.\n", foreign)
+		fmt.Fprintf(out, "Keeping Docker: %d other container(s) still use it, so its firewall rules and docker0 bridge stay too.%s\n", foreign, keptRepo)
 	default:
-		left, err := purgeDocker(sys, out, m.PackagesInstalled, m.NetBeforeDocker)
+		remove, kept, why := pm.removable(sys, m.PackagesInstalled)
+		if slices.ContainsFunc(kept, func(p string) bool { return slices.Contains(dockerEngines, p) }) {
+			fmt.Fprintf(out, "Keeping Docker: other software needs it (%s), so its firewall rules and docker0 bridge stay too.%s\n", why, keptRepo)
+			break
+		}
+		if len(kept) > 0 {
+			fmt.Fprintf(out, "Keeping %s, which Docker came with: %s.\n", strings.Join(kept, ", "), why)
+			m.PackagesInstalled = remove
+		}
+		left, err := purgeDocker(sys, out, m)
 		problems = append(problems, left...)
 		if err == nil {
 			note(removeDockerLeftovers(sys, m))
@@ -181,20 +209,24 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 			// Keep what a second run needs: this binary and a manifest that
 			// now lists only Docker.
 			rest := Manifest{Version: m.Version, InstalledAt: m.InstalledAt, InstallID: m.InstallID, PanelPort: m.PanelPort, GamePort: m.GamePort,
-				PackagesInstalled: m.PackagesInstalled, NetBeforeDocker: m.NetBeforeDocker, KeptOnUninstall: m.KeptOnUninstall,
-				DockerGroupCreated: m.DockerGroupCreated, DockerDirsCreated: m.DockerDirsCreated}
-			if contains(m.FilesCreated, BinPath) {
-				rest.FilesCreated = []string{BinPath}
+				PackagesInstalled: m.PackagesInstalled, PackageManager: m.PackageManager, NetBeforeDocker: m.NetBeforeDocker, KeptOnUninstall: m.KeptOnUninstall,
+				DockerGroupCreated: m.DockerGroupCreated, DockerDirsCreated: m.DockerDirsCreated, DockerRepoFiles: m.DockerRepoFiles, DockerFirewalld: m.DockerFirewalld}
+			for _, f := range []string{BinPath, SudoLink} {
+				if contains(m.FilesCreated, f) {
+					rest.FilesCreated = append(rest.FilesCreated, f)
+				}
 			}
 			b, _ := json.MarshalIndent(rest, "", "  ")
 			note(os.WriteFile(sys.P(filepath.Join(config.DefaultDataDir, "install-manifest.json")), append(b, '\n'), 0o600))
 			problems = append(problems, fmt.Sprintf("Docker was not removed: %v", err),
-				"everything else was removed; run `sudo playkeeper uninstall` again to finish, or remove Docker by hand: sudo apt-get purge -y "+strings.Join(m.PackagesInstalled, " "))
+				"everything else was removed; run `sudo playkeeper uninstall` again to finish, or remove Docker by hand: "+pm.removeHint(m.PackagesInstalled))
 			return fmt.Errorf("uninstall finished with problems:\n  - %s", strings.Join(problems, "\n  - "))
 		}
 	}
-	if contains(m.FilesCreated, BinPath) {
-		note(removeIfExists(sys.P(BinPath)))
+	for _, f := range []string{SudoLink, BinPath} {
+		if contains(m.FilesCreated, f) {
+			note(removeIfExists(sys.P(f)))
+		}
 	}
 	note(removeIfExists(sys.P(ConfigDir)))
 	note(removeIfExists(sys.P(filepath.Join(config.DefaultDataDir, "install-manifest.json"))))

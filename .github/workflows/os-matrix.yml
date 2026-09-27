@@ -1,9 +1,11 @@
 name: OS matrix
 
-# Every supported release of Ubuntu and Debian (internal/platform), each in a
-# fresh KVM guest built from its official cloud image: preflight, the
-# one-line install, onboarding in the browser, two protocol bots, a backup
-# and a restore, an update from the dashboard, a reboot and the uninstall
+# Every supported release of Ubuntu, Debian, the RHEL family and Amazon Linux
+# (internal/platform) that has an official cloud image, each in a fresh KVM
+# guest built from it: preflight, the one-line install, onboarding in the
+# browser, two protocol bots, a backup and a restore, an update from the
+# dashboard, a reboot and the uninstall, and on the RHEL family and Amazon
+# Linux a declined plan, a rollback, firewalld and SELinux too
 # (scripts/e2e/vm-os.sh). It runs on pull requests that change the installer
 # or what Playkeeper assumes about the system, by hand, and before each
 # release as part of the Release check (release-check.yml).
@@ -37,8 +39,10 @@ on:
 permissions:
   contents: read
 
+# Called from another workflow, github.workflow is the caller's name, so a run
+# by hand doesn't cancel the Release check's.
 concurrency:
-  group: os-matrix-${{ github.event.pull_request.number || github.ref }}-${{ inputs.ref }}
+  group: os-matrix-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.ref }}
   cancel-in-progress: true
 
 env:
@@ -70,14 +74,21 @@ jobs:
           retention-days: 3
 
   rehearsal:
-    name: ${{ matrix.os }}
+    name: ${{ matrix.os }}${{ matrix.prep && format(', with {0}', matrix.prep) || '' }}
     needs: releases
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]
+        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13,
+          almalinux-9, almalinux-10, rocky-9, rocky-10, oraclelinux-9, centos-stream-9, amazonlinux-2023]
+        # What the system has before Playkeeper (OS_PREP in vm-os.sh). Oracle
+        # Linux 9's image already runs firewalld, as on Oracle Cloud.
+        include:
+          - { os: almalinux-9, prep: podman }
+          - { os: rocky-9, prep: docker-selinux }
+          - { os: rocky-10, prep: firewalld }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -113,6 +124,7 @@ jobs:
       - name: Install, play, back up, restore, update, reboot and uninstall on ${{ matrix.os }}
         env:
           KEEP_ON_FAIL: "1"
+          OS_PREP: ${{ matrix.prep }}
           OUT: test/e2e/out/os-${{ matrix.os }}
         run: scripts/e2e/vm-os.sh "${{ matrix.os }}" /tmp/releases
       - name: The guest's logs after a failure
@@ -169,7 +181,8 @@ jobs:
         run: |
           python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
           import glob, os, sys
-          systems = ["ubuntu-20.04", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "debian-12", "debian-13"]
+          systems = ["ubuntu-20.04", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "debian-12", "debian-13",
+                     "almalinux-9", "almalinux-10", "rocky-9", "rocky-10", "oraclelinux-9", "centos-stream-9", "amazonlinux-2023"]
           print("| System | Result | Kernel | systemd | cgroups | Docker | Memory in use with a server running |")
           print("| --- | --- | --- | --- | --- | --- | --- |")
           bad = False

@@ -816,9 +816,26 @@ control "the preflight refuses a release older than the oldest supported one" in
   '	case v.Distro != nil:
 		c.Status = "warn"' \
   ./internal/install '^TestPreflightRefusesOlderReleasesAndOtherSystemsUnlessAllowed$'
-control "Debian 13 gets the docker command, which it packages on its own" internal/install/oscheck.go \
-  'if aptCandidate(sys, "docker-cli") {' \
-  'if false && aptCandidate(sys, "docker-cli") {' \
+control "Debian 13 gets the docker command, which it packages on its own" internal/install/packages.go \
+  'if aptCandidate(sys, p) {' \
+  'if false && aptCandidate(sys, p) {' \
+  ./internal/install '^TestDebianGetsDockerFromItsOwnArchiveWithTheDockerCommand$'
+# After the OS matrix's Debian 13 run on 6a8b8a11: apt is asked for the docker
+# command only once its lists are fresh, as a new server's are empty.
+control "apt is asked about the docker command after apt-get update" internal/install/packages.go \
+  '	if _, err := aptGet(sys, out, "update"); err != nil {
+		return err
+	}
+	for _, p := range optional {' \
+  '	for _, p := range optional {
+		if aptCandidate(sys, p) {
+			pkgs = append(slices.Clone(pkgs), p)
+		}
+	}
+	if _, err := aptGet(sys, out, "update"); err != nil {
+		return err
+	}
+	for _, p := range optional[:0] {' \
   ./internal/install '^TestDebianGetsDockerFromItsOwnArchiveWithTheDockerCommand$'
 control "a package that is only a name docker.io provides isn't installed" internal/install/oscheck.go \
   'return v != "" && v != "(none)"' \
@@ -832,6 +849,84 @@ control "the sizing guide leaves out the memory Ubuntu sets aside for crash dump
   'return min(mb*reportedPercent/100, mb*kernelPercent/100-crashKernelMB(memoryGB))' \
   'return mb * reportedPercent / 100' \
   ./internal/sizing '^TestReportedMemoryLeavesOutUbuntusCrashDumpMemory$'
+control "preflight refuses what installing Docker CE would replace" internal/install/distro.go \
+  'if installed[name] {' \
+  'if false && installed[name] {' \
+  ./internal/install '^TestPreflightRefusesWhatInstallingDockerCEWouldBreak$'
+control "preflight refuses a Docker socket that answers as Podman" internal/install/install.go \
+  'podman := derr == nil && di.Podman' \
+  'podman := false' \
+  ./internal/install '^TestPreflightRefusesWhatInstallingDockerCEWouldBreak$'
+# After Bugbot's finding on b1557e2e: the fix for Podman's Docker socket names
+# the host's package manager, not dnf on every system.
+control "the Podman socket's fix names the host's package manager" internal/install/install.go \
+  'how = " (" + fam.pm.uninstallHint("podman-docker") + ")"' \
+  'how = " (" + dnf{}.uninstallHint("podman-docker") + ")"' \
+  ./internal/install '^TestThePodmanSocketFixUsesTheHostsPackageManager$'
+control "the RHEL family trusts only the Docker key Playkeeper carries" internal/install/distro.go \
+  'gpgcheck=1\ngpgkey=file://%s\n' \
+  'gpgcheck=0\ngpgkey=file://%s\n' \
+  ./internal/install '^TestDockerCEInstallsFromDockersRepositoryAndLeavesWithIt$'
+control "uninstall keeps the packages of Docker's that other software needs" internal/install/uninstall.go \
+  'if len(kept) > 0 {' \
+  'if false && len(kept) > 0 {' \
+  ./internal/install '^TestUninstallKeepsWhatOtherSoftwareNeedsOfDocker$'
+control "uninstall keeps a Docker that other software needs" internal/install/uninstall.go \
+  'if slices.ContainsFunc(kept, func(p string) bool { return slices.Contains(dockerEngines, p) }) {' \
+  'if false && slices.ContainsFunc(kept, func(p string) bool { return slices.Contains(dockerEngines, p) }) {' \
+  ./internal/install '^TestUninstallKeepsDockerWhenOtherSoftwareNeedsIt$'
+control "dnf removes only what rpm says nothing else needs" internal/install/packages.go \
+  '	if o, err := sys.Run("rpm", append([]string{"-e", "--test"}, pkgs...)...); err != nil {
+		if n := needs(o + "\n" + err.Error()); len(n) > 0 {' \
+  '	if o, err := sys.Run("rpm", append([]string{"-e", "--test"}, pkgs...)...); false && err != nil {
+		if n := needs(o + "\n" + err.Error()); len(n) > 0 {' \
+  ./internal/install '^TestDNFRemoveRefusesWhatOtherSoftwareNeeds$'
+control "firewalld: uninstall leaves the rules the admin had" internal/install/firewall.go \
+  'added := strings.TrimSpace(out) != "yes"' \
+  'added := strings.TrimSpace(out) != "yes" || true' \
+  ./internal/install '^TestFirewalldOpensPortsInTheZoneAndUninstallLeavesTheAdminsRules$'
+control "firewalld: Docker's zone and policy go with Docker" internal/install/install.go \
+  'errs = append(errs, removeFiles(sys, m.DockerRepoFiles), removeFirewalld(sys, m.DockerFirewalld))' \
+  'errs = append(errs, removeFiles(sys, m.DockerRepoFiles))' \
+  ./internal/install '^TestFirewalldOpensPortsInTheZoneAndUninstallLeavesTheAdminsRules$'
+control "sudo finds playkeeper where its path leaves out /usr/local/bin" internal/install/install.go \
+  'f.SudoLink = sudoMissesBin(sys)' \
+  'f.SudoLink = false && sudoMissesBin(sys)' \
+  ./internal/install '^TestDockerCEInstallsFromDockersRepositoryAndLeavesWithIt$'
+control "RHEL 10 gets the running kernel's netfilter modules for Docker" internal/install/distro.go \
+  'if major == "10" {' \
+  'if false && major == "10" {' \
+  ./internal/install '^TestEL10GetsTheRunningKernelsNetfilterModulesForDocker$'
+control "what Docker added to firewalld is recorded when it then fails to start" internal/install/install.go \
+  '			if zonesBefore != nil {
+				now := firewalldHas(sys)' \
+  '			if err == nil && zonesBefore != nil {
+				now := firewalldHas(sys)' \
+  ./internal/install '^TestADockerThatFailsToStartLeavesFirewalldAsItWas$'
+control "uninstall leaves firewalld's zone as it was" internal/install/uninstall.go \
+  '	note(fw.tidy(sys, *m))' \
+  '' \
+  ./internal/install '^TestAZoneFirewalldReadFromItsDefaultsIsLeftAsItWas$'
+control "a zone the admin changed after the install keeps its settings" internal/install/firewall.go \
+  'err == nil && now == m.FirewallZoneBefore {' \
+  'err == nil && (now == m.FirewallZoneBefore || true) {' \
+  ./internal/install '^TestAZoneFirewalldReadFromItsDefaultsIsLeftAsItWas$'
+control "firewalld's backups of Docker's zone and policy go too" internal/install/firewall.go \
+  'removeIfExists(sys.P(dir+"/"+name+".xml.old"))' \
+  'removeIfExists(sys.P(dir+"/"+name+".xml.missing"))' \
+  ./internal/install '^TestFirewalldOpensPortsInTheZoneAndUninstallLeavesTheAdminsRules$'
+control "a failed Docker install removes the repository it added" internal/install/install.go \
+  '				return removeFiles(sys, in.m.DockerRepoFiles)' \
+  '				return nil' \
+  ./internal/install '^TestAFailedDockerInstallRemovesTheRepositoryItAdded$'
+control "Docker's repository and key go with Docker" internal/install/install.go \
+  'errs = append(errs, removeFiles(sys, m.DockerRepoFiles), removeFirewalld(sys, m.DockerFirewalld))' \
+  'errs = append(errs, removeFirewalld(sys, m.DockerFirewalld))' \
+  ./internal/install '^TestDockerCEInstallsFromDockersRepositoryAndLeavesWithIt$'
+control "a Docker that labels containers for SELinux relabels a server's binds" internal/agent/lifecycle.go \
+  'if s.selinuxLabels() {' \
+  'if false && s.selinuxLabels() {' \
+  ./internal/agent '^TestBindsAreRelabelledOnlyForADockerThatUsesSELinux$'
 # Without the lock a start can slip in between the check and the write; the
 # sleep holds that gap open so the race shows in most runs, not one in three.
 control "start/stop no-op under the operation lock" internal/agent/handlers.go \

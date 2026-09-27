@@ -8,11 +8,11 @@ name: Release check
 # pressed every page's controls (clickthrough.yml), and runs the ARM64
 # workflow on those assets on GitHub's ARM runners (arm64.yml). It also
 # installs, plays on, backs up, restores, updates and uninstalls this commit
-# on every supported Ubuntu and Debian release (os-matrix.yml). Pull requests
-# crawl only the pages they touch, and run the OS matrix only when they change
-# the installer. Run this on the commit you are about to tag (CONTRIBUTING.md,
-# Releases): the tag publishes these assets, byte for byte, once this and CI
-# have passed on its commit.
+# on every supported release of Ubuntu, Debian, the RHEL family and Amazon
+# Linux (os-matrix.yml). Pull requests crawl only the pages they touch, and
+# run the OS matrix only when they change the installer. Run this on the
+# commit you are about to tag (CONTRIBUTING.md, Releases): the tag publishes
+# these assets, byte for byte, once this and CI have passed on its commit.
 
 on:
   workflow_dispatch:

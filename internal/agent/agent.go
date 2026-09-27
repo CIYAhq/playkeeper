@@ -231,6 +231,10 @@ type Agent struct {
 	hostCPU       *float64
 	hostTimes     []cpuSnapshot
 
+	// selinux is set when Docker labels containers for SELinux, once
+	// selinuxKnown; mu guards both.
+	selinux, selinuxKnown bool
+
 	allowed map[uint32]bool
 
 	upd     updateState

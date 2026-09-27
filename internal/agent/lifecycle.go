@@ -366,6 +366,12 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool,
 	limit := int64(sc.MemoryMB) << 20
 	pids := int64(2048)
 	stop := int(s.opts.StopTimeout.Seconds())
+	data, secret := s.dataDir()+":/data", s.containerSecret()+":/run/secrets/rcon_password:ro"
+	if s.selinuxLabels() {
+		// Docker relabels both for containers at every start, so a world a
+		// restore moved in is readable too.
+		data, secret = data+":z", secret+",z"
+	}
 	cfg := docker.ContainerConfig{
 		Image:       runtimeImage(sc.MinecraftVersion),
 		Env:         env,
@@ -374,7 +380,7 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool,
 		StopTimeout: &stop,
 		Labels:      s.labels(),
 		HostConfig: docker.HostConfig{
-			Binds:         []string{s.dataDir() + ":/data", s.containerSecret() + ":/run/secrets/rcon_password:ro"},
+			Binds:         []string{data, secret},
 			RestartPolicy: docker.RestartPolicy{Name: "no"},
 			Memory:        limit,
 			MemorySwap:    limit,

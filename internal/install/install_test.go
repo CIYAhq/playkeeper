@@ -23,7 +23,8 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/docker"
 )
 
-// fakeHost is an in-memory Ubuntu 24.04 host rooted in a temp directory.
+// fakeHost is an in-memory Ubuntu 24.04 host rooted in a temp directory;
+// newELHost makes it a RHEL-family one.
 type fakeHost struct {
 	mu            sync.Mutex
 	root          string
@@ -44,9 +45,12 @@ type fakeHost struct {
 	ufwActive bool
 	ufwRules  map[string]bool
 	// nftChains is what `nft list chains` prints; empty means nftables
-	// isn't installed. aptPolicy is what `apt-cache policy PKG` prints.
+	// isn't installed. aptPolicy is what `apt-cache policy PKG` prints, and
+	// with aptListsEmpty only after apt-get update, as on a new server.
 	nftChains     string
 	aptPolicy     map[string]string
+	aptListsEmpty bool
+	aptUpdated    bool
 	clock         time.Time
 	lockPolls     int  // the package lock is reported held this many more times
 	lockForever   bool // the package lock is never released
@@ -64,6 +68,18 @@ type fakeHost struct {
 	// a playkeeper binary's `units` command prints (default: this version's).
 	onStart   func()
 	unitsJSON string
+	// A RHEL-family host (newELHost) has rpm packages, what needs each one
+	// besides Playkeeper's (rpmNeeds), what dnf installs for Docker, and
+	// firewalld when it runs.
+	rpmNeeds   map[string]string
+	dnfDocker  []string
+	firewalld  *fakeFirewalld
+	podmanSock bool
+	// noNetfilterModules leaves out the kernel's modules for iptables rules
+	// like Docker's, as RHEL 10's cloud images do; dockerFailsToStart makes
+	// Docker's daemon fail after it changed the network.
+	noNetfilterModules bool
+	dockerFailsToStart bool
 }
 
 func newFakeHost(t *testing.T) *fakeHost {
@@ -106,6 +122,8 @@ func (h *fakeHost) system(t *testing.T) System {
 				return msg, errors.New("exit status 100: " + msg)
 			}
 			switch {
+			case name == "rpm" || name == "dnf" || name == "firewall-cmd" || name == "modinfo" || name == "uname":
+				return h.runEL(name, args)
 			case name == "systemctl" && len(args) > 1 && args[0] == "start" && args[1] == AgentUnit:
 				if h.onStart != nil {
 					h.onStart()
@@ -149,7 +167,12 @@ func (h *fakeHost) system(t *testing.T) System {
 				}
 				return h.nftChains, nil
 			case name == "apt-cache" && len(args) == 2 && args[0] == "policy":
+				if h.aptListsEmpty && !h.aptUpdated {
+					return args[1] + ":\n  Installed: (none)\n  Candidate: (none)\n", nil
+				}
 				return h.aptPolicy[args[1]], nil
+			case name == "apt-get" && len(apt) > 0 && apt[0] == "update":
+				h.aptUpdated = true
 			case name == "iptables":
 				return h.fw4.run(args)
 			case name == "ip6tables":
@@ -164,6 +187,12 @@ func (h *fakeHost) system(t *testing.T) System {
 				h.fw6.merge(dockerRulesV6)
 				os.WriteFile(filepath.Join(h.root, "/proc/sys/net/ipv4/ip_forward"), []byte("1\n"), 0o644)
 				os.MkdirAll(filepath.Join(h.root, "/sys/class/net/docker0"), 0o755)
+				if h.firewalld != nil {
+					h.firewalld.dockerStarted()
+				}
+				if h.dockerFailsToStart {
+					return "", errors.New("exit status 1: Job for docker.service failed because the control process exited with error code.")
+				}
 			case name == "apt-get" && len(apt) > 0 && apt[0] == "install":
 				for _, p := range append([]string{"containerd", "runc", "pigz"}, apt[1:]...) {
 					if !strings.HasPrefix(p, "-") {
@@ -206,6 +235,9 @@ func (h *fakeHost) system(t *testing.T) System {
 		Docker: func(context.Context) (DockerInfo, error) {
 			h.mu.Lock()
 			defer h.mu.Unlock()
+			if h.podmanSock {
+				return DockerInfo{Version: "5.8.2", Podman: true}, nil
+			}
 			if !h.dockerPresent {
 				return DockerInfo{}, errors.New("no docker")
 			}
@@ -412,12 +444,13 @@ func TestPreflightRefusesEachCollisionWithAFix(t *testing.T) {
 // readOnly reports whether cmd is one of the preflight's questions, which
 // change nothing.
 func readOnly(cmd string) bool {
-	for _, q := range []string{"ufw status", "nft list chains", "iptables -S INPUT", "ip6tables -S INPUT"} {
+	for _, q := range []string{"ufw status", "nft list chains", "iptables -S INPUT", "ip6tables -S INPUT", "apt-cache policy docker-cli",
+		"firewall-cmd --state", "modinfo -F filename xt_addrtype", "uname -r"} {
 		if cmd == q {
 			return true
 		}
 	}
-	return false
+	return strings.HasPrefix(cmd, "rpm -qa ") || strings.HasPrefix(cmd, "firewall-cmd --get-")
 }
 
 func TestExistingMinecraftCanBeAllowedButIsNeverTouched(t *testing.T) {

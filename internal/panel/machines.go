@@ -414,8 +414,8 @@ type minimumView struct {
 	Cores      int `json:"cores"`
 	MemoryGB   int `json:"memoryGB"`
 	FreeDiskGB int `json:"freeDiskGB"`
-	// Systems are the supported distributions, each with its oldest
-	// supported release: later releases work too.
+	// Systems are the supported distributions, a family of them as one,
+	// each with its oldest supported release: later releases work too.
 	Systems []systemView `json:"systems"`
 }
 
@@ -426,8 +426,8 @@ type systemView struct {
 
 func minimum() minimumView {
 	m := minimumView{Cores: sizing.MinCores, MemoryGB: sizing.MinMemoryGB, FreeDiskGB: sizing.MinFreeDiskGB}
-	for _, d := range platform.Distros() {
-		m.Systems = append(m.Systems, systemView{Name: d.Name, Version: d.Oldest().Version})
+	for _, g := range platform.Groups() {
+		m.Systems = append(m.Systems, systemView{Name: g.Name, Version: g.Version})
 	}
 	return m
 }
