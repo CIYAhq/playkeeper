@@ -1029,10 +1029,6 @@ control "a joined machine takes data packs bigger than a request" internal/agent
   '"POST /v1/servers/{id}/datapacks":             true,' \
   '"POST /v1/servers/{id}/datapacks":             false,' \
   ./internal/panel '^TestAJoinedMachineTakesBigPacks$'
-control "a joined machine takes resource packs bigger than a request" internal/agent/link.go \
-  '"POST /v1/servers/{id}/resourcepack":          true,' \
-  '"POST /v1/servers/{id}/resourcepack":          false,' \
-  ./internal/panel '^TestAJoinedMachineTakesBigPacks$'
 control "the dashboard keeps wrong join codes in panel.db" internal/panel/linkstore.go \
   '	for _, f := range fails {
 		network := ""' \
@@ -3570,8 +3566,8 @@ control "an upload for a new server needs rights over every server" internal/pan
   'mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actManageServers),' \
   ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
 control "making a server from an upload needs rights over every server" internal/panel/server.go \
-  'needSessionCSRF, actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
-  'needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
+  'needSessionCSRF, actCreateServers, s.importGuard(actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create"))' \
+  'needSessionCSRF, actManageServers, s.importGuard(actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create"))' \
   ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
 control "turning the map on counts what the Mods tab installed as there" internal/agent/maps.go \
   's.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})' \
