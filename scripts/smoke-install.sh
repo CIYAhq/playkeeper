@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Installs Playkeeper through the one-line installer at URL, checks the
-# installed version and that the panel answers over HTTPS with the
-# certificate the installer made, then uninstalls and checks nothing is left
-# listening. It changes the machine it runs on, so it only runs in CI.
+# installed version, that it is the build for this machine's CPU and that the
+# panel answers over HTTPS with the certificate the installer made, then
+# uninstalls and checks nothing is left listening. It changes the machine it
+# runs on, so it only runs in CI.
 # PLAYKEEPER_BASE_URL and PLAYKEEPER_ALLOW_HTTP are passed on to get.sh when
 # set (for a local copy of the release assets).
 # Usage: scripts/smoke-install.sh URL VERSION
@@ -26,6 +27,12 @@ curl -fsSL "$url" | sudo env "${pass[@]}" sh -s -- --yes 2>&1 |
 
 installed=$(playkeeper version)
 [[ $installed == "playkeeper $version ("* ]] || fail "installed '$installed', expected version $version"
+case $(uname -m) in
+  x86_64) cpu=x86-64 ;;
+  aarch64) cpu='ARM aarch64' ;;
+  *) fail "no Playkeeper build for this runner's CPU, $(uname -m)" ;;
+esac
+file -L "$(command -v playkeeper)" | grep -q "$cpu" || fail "the installed playkeeper is not the $(uname -m) build: $(file -L "$(command -v playkeeper)")"
 cert=$(mktemp)
 sudo install -m 0644 -o "$(id -u)" /var/lib/playkeeper/panel/tls/cert.pem "$cert"
 health=$(curl -fsS --retry 10 --retry-delay 2 --retry-all-errors --cacert "$cert" https://127.0.0.1:8443/healthz) ||

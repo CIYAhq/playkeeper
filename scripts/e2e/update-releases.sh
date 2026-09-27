@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Builds the signed test releases the CI update job serves from a local
 # mirror. Each goes to OUT_DIR/NAME/ with the assets a GitHub release has:
-# get.sh, playkeeper-linux-amd64.tar.gz and its .sha256, and
-# playkeeper-release.json and its .sig.
+# get.sh, playkeeper-linux-amd64.tar.gz and playkeeper-linux-arm64.tar.gz with
+# their .sha256, and playkeeper-release.json and its .sig.
 #
 #   key                        makes a signing key for this run only
 #                              (OUT_DIR/signing.key) and adds its public key to
@@ -42,33 +42,40 @@ case $cmd in
     name=$3 version=$4
     VERSION=$version ./scripts/package.sh
     rm -rf "${out:?}/$name" && mkdir -p "$out/$name"
-    cp dist/get.sh dist/playkeeper-linux-amd64.tar.gz dist/playkeeper-linux-amd64.tar.gz.sha256 dist/playkeeper-release.json "$out/$name/"
+    cp dist/get.sh dist/playkeeper-linux-{amd64,arm64}.tar.gz{,.sha256} dist/playkeeper-release.json "$out/$name/"
     sign "$out/$name"
     ;;
   broken)
     name=$3 version=$4 units=$5
     python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$units"
     dir=$out/$name
-    top=playkeeper-$version-linux-amd64
-    rm -rf "${dir:?}" && mkdir -p "$dir/stage/$top"
-    # shellcheck disable=SC2016 # the script's own $1
-    {
-      echo '#!/bin/sh'
-      echo '# A Playkeeper test release that never comes up healthy (CI update job).'
-      echo 'case "$1" in'
-      echo "  version) echo 'playkeeper $version (broken on purpose, 1970-01-01T00:00:00Z)' ;;"
-      echo "  units) cat <<'UNITS'"
-      cat "$units"
-      echo 'UNITS'
-      echo '    ;;'
-      echo '  *) echo "This Playkeeper test release is broken on purpose." >&2; exit 1 ;;'
-      echo 'esac'
-    } >"$dir/stage/$top/playkeeper"
-    chmod 0755 "$dir/stage/$top/playkeeper"
-    tar --sort=name --owner=0 --group=0 --numeric-owner -C "$dir/stage" -czf "$dir/playkeeper-linux-amd64.tar.gz" "$top"
+    rm -rf "${dir:?}" && mkdir -p "$dir"
+    tarballs=()
+    # The broken playkeeper is a shell script, so the same one serves as
+    # every CPU's build.
+    for arch in amd64 arm64; do
+      top=playkeeper-$version-linux-$arch
+      mkdir -p "$dir/stage/$top"
+      # shellcheck disable=SC2016 # the script's own $1
+      {
+        echo '#!/bin/sh'
+        echo '# A Playkeeper test release that never comes up healthy (CI update job).'
+        echo 'case "$1" in'
+        echo "  version) echo 'playkeeper $version (broken on purpose, 1970-01-01T00:00:00Z)' ;;"
+        echo "  units) cat <<'UNITS'"
+        cat "$units"
+        echo 'UNITS'
+        echo '    ;;'
+        echo '  *) echo "This Playkeeper test release is broken on purpose." >&2; exit 1 ;;'
+        echo 'esac'
+      } >"$dir/stage/$top/playkeeper"
+      chmod 0755 "$dir/stage/$top/playkeeper"
+      tar --sort=name --owner=0 --group=0 --numeric-owner -C "$dir/stage" -czf "$dir/playkeeper-linux-$arch.tar.gz" "$top"
+      (cd "$dir" && sha256sum "playkeeper-linux-$arch.tar.gz" >"playkeeper-linux-$arch.tar.gz.sha256")
+      tarballs+=(--tarball "$dir/playkeeper-linux-$arch.tar.gz")
+    done
     rm -rf "$dir/stage"
-    (cd "$dir" && sha256sum playkeeper-linux-amd64.tar.gz >playkeeper-linux-amd64.tar.gz.sha256)
-    go run ./cmd/release-sign manifest --version "$version" --tarball "$dir/playkeeper-linux-amd64.tar.gz" \
+    go run ./cmd/release-sign manifest --version "$version" "${tarballs[@]}" \
       --notes "A test release that never comes up healthy, to prove the automatic rollback." >"$dir/playkeeper-release.json"
     sign "$dir"
     ;;

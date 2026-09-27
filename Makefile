@@ -68,7 +68,7 @@ web: ## Build the browser UI into web/dist
 build: web ## Build ./dist/playkeeper for this machine
 	go build -trimpath -o dist/playkeeper ./cmd/playkeeper
 
-package: ## Build dist/playkeeper-<version>-linux-amd64.tar.gz and the one-line installer assets
+package: ## Build dist/playkeeper-<version>-linux-{amd64,arm64}.tar.gz and the one-line installer assets
 	./scripts/package.sh
 
 notices: ## Regenerate THIRD_PARTY_NOTICES after changing Go or npm dependencies
