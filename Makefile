@@ -9,7 +9,7 @@ export CGO_ENABLED ?= 0
 GO_PKGS := ./cmd/... ./internal/... ./web
 SH_FILES := $(wildcard scripts/*.sh scripts/e2e/*.sh packaging/*.sh)
 
-.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-web test-sh web build package notices site dev e2e-vm clean
+.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-go-other test-agent test-web test-sh web build package notices site dev e2e-vm clean
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-z0-9-]+:.*## /{printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -42,6 +42,13 @@ test: test-go test-web test-sh ## Go, web and installer-script unit tests
 # The agent's tests take longer than go test's default ten minutes on CI runners.
 test-go:
 	go test -count=1 -timeout 30m $(GO_PKGS)
+
+test-go-other: ## Go unit tests of every package but the agent's
+	go test -count=1 -timeout 30m $$(go list $(GO_PKGS) | grep -v '/internal/agent$$')
+
+# The agent's tests mostly wait on timers, so CI splits them between runners.
+test-agent: ## The agent's unit tests; SHARD=k/n runs every nth of them, as CI does
+	./scripts/go-test-shard.sh ./internal/agent $(or $(SHARD),1/1) $(OUT)
 
 test-web:
 	cd web && npx vitest run
