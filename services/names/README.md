@@ -176,7 +176,7 @@ Create a new token as in step 2, replace the value of `NAMES_CLOUDFLARE_API_TOKE
 
 ### Moving names to another domain
 
-The same application, address and database move every name to a new domain: only the domain, its zone and its token change, and every name keeps its owner. This is how free names move from `playkeeper.io` to `playkeeper.me`. Installs sign their requests for one domain, so installs from before the move only work with a service for the old domain, and installs from the first release that uses the new domain only with one for the new domain. Switch when that release comes out.
+The same application, address and database move every name to a new domain: only the domain, its zone and its token change, and every name keeps its owner. This is how free names move from `playkeeper.io` to `playkeeper.me`. Installs sign their requests for one domain, so installs from before the move (0.4.1 and earlier) only work with a service for the old domain, and installs from 0.4.2 on, the first release that uses the new domain, only with one for the new domain. Switch when 0.4.2 comes out.
 
 When the service starts with a new `NAMES_BASE_DOMAIN`, it:
 
@@ -215,8 +215,8 @@ What each install sees after the switch:
 
 | Install | After the switch |
 | --- | --- |
-| Updated | Moves to the same name under `playkeeper.me` by itself, with a new certificate, and keeps its old certificate until it expires, so links shared before the move still open without a warning. The old address keeps reaching it for the 60 days. |
-| From before the move | Its old address keeps working at its current IP address for the 60 days, and its certificate until it expires. Claims, address changes and renewals are refused with "Update Playkeeper". Its dashboard can't answer checks for the new domain, so a week after its last answer its records in the new zone go (it never used them), and the name is held for its key for 60 days (7 if its dashboard never answered): updating within them keeps the name. |
+| Updated to 0.4.2 or later | Moves to the same name under `playkeeper.me` by itself, with a new certificate, and keeps its old certificate until it expires, so links shared before the move still open without a warning. The old address keeps reaching it for the 60 days. |
+| From before the move (0.4.1 and earlier) | Its old address keeps working at its current IP address for the 60 days, and its certificate until it expires. Claims, address changes and renewals are refused with "Update Playkeeper". Its dashboard can't answer checks for the new domain, so a week after its last answer its records in the new zone go (it never used them), and the name is held for its key for 60 days (7 if its dashboard never answered): updating within them keeps the name. |
 | New | Claims its name under `playkeeper.me`. |
 | A machine joined to a dashboard at its old name | Once it runs the release, looks for the dashboard at the new name first, and keeps the new address once it connects there. Until then it uses the old one, so update it within the 60 days. |
 
