@@ -157,9 +157,11 @@ for p in "${listed[@]}"; do
   [ "$code" = 200 ] || fail "$p answered $code, not 200"
   [[ $type == text/html* ]] || fail "$p is served as '$type'"
   # internal/site's TestEveryPageIsWellFormed reads these two lengths from here
-  # and holds every built page to them, so keep each rule on one line.
+  # and holds every built page to them, so keep each rule on one line. A
+  # description counts as search engines count it: &#39; is one character.
   grep -qE '<title>[^<]{10,70}</title>' "$page" || fail "$p has no title of 10 to 70 characters"
-  grep -qE '<meta name="description" content="[^"]{50,170}">' "$page" || fail "$p has no description of 50 to 170 characters"
+  sed "s/&#39;/'/g; s/&amp;/\&/g" "$page" >"$work/text.html"
+  grep -qE '<meta name="description" content="[^"]{100,160}">' "$work/text.html" || fail "$p has no description of 100 to 160 characters"
   grep -qF "<link rel=\"canonical\" href=\"$site$p\">" "$page" || fail "$p does not name $site$p as its canonical address"
   for tag in 'property="og:title"' 'property="og:description"' "property=\"og:url\" content=\"$site$p\"" 'name="twitter:card" content="summary_large_image"'; do
     grep -qF "<meta $tag" "$page" || fail "$p has no <meta $tag"

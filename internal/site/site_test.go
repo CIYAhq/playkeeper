@@ -146,7 +146,7 @@ func TestEveryPageIsWellFormed(t *testing.T) {
 			t.Errorf("%s has no <main> or no language", p)
 		}
 		title := between(html, "<title>", "</title>")
-		desc := between(html, `<meta name="description" content="`, `"`)
+		desc := unescape(between(html, `<meta name="description" content="`, `"`))
 		if !within(title, titleLen) {
 			t.Errorf("%s: title %q is %d characters, want %d to %d", p, title, utf8.RuneCountInString(title), titleLen[0], titleLen[1])
 		}
