@@ -78,6 +78,7 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"DiskServer": diskusage.ServerUsage{}, "DiskUsage": diskusage.Usage{}, "DiskWay": diskusage.Way{},
 		"MemoryBudget": MemoryBudget{}, "MemorySizing": MemorySizing{}, "MemorySuggestion": MemorySuggestion{},
 		"LinkProblem": machinelink.Problem{}, "MachineLink": machinelink.Status{},
+		"Files": Files{}, "FileEntry": FileEntry{}, "FileInfo": FileInfo{}, "FileContent": FileContent{}, "FileUpload": FileUpload{}, "FileUploadFile": FileUploadFile{},
 	}
 	// Fields the panel adds to what the agent sends, and rttMs, which
 	// machinelink.Status's MarshalJSON adds.
@@ -132,8 +133,9 @@ func TestErrorCodesTheDashboardChecksForExist(t *testing.T) {
 		CodeNamesUnreachable, CodeRetryLater, names.CodeInvalidName, names.CodeNotAnswering, certs.CodePort80Unreachable, certs.CodeCertificateLimit,
 		string(twofactor.KindPasswordWrong), CodePlanChanged, CodeKeyRefused, CodeAdminUnconfirmed,
 		diskusage.CodeDiskSpace, diskusage.CodeRestoresUnknown, retention.CodeEstimateOff,
-		machinelink.ProblemVersion, machinelink.CodeDropped, machinelink.CodeHeartbeatTimeout}
-	for _, k := range []gamefiles.Kind{gamefiles.KindLink, gamefiles.KindSpecial, gamefiles.KindNotFile, gamefiles.KindNotFolder, gamefiles.KindTooLarge, gamefiles.KindTooMany, gamefiles.KindChanged, gamefiles.KindBadName} {
+		machinelink.ProblemVersion, machinelink.CodeDropped, machinelink.CodeHeartbeatTimeout, CodeWorldInUse, CodeFileChanged}
+	for _, k := range []gamefiles.Kind{gamefiles.KindLink, gamefiles.KindSpecial, gamefiles.KindNotFile, gamefiles.KindNotFolder, gamefiles.KindTooLarge, gamefiles.KindTooMany, gamefiles.KindChanged, gamefiles.KindBadName,
+		gamefiles.KindExists, gamefiles.KindIntoItself} {
 		sent = append(sent, string(k))
 	}
 	for _, c := range sent {
