@@ -178,7 +178,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
         run: |
-          url=$(gh run list --workflow release-check.yml --commit "$SHA" --status success --limit 1 --json url --jq '.[0].url // ""')
+          if ! url=$(gh run list --workflow release-check.yml --commit "$SHA" --status success --limit 1 --json url --jq '.[0].url // ""'); then
+            echo "::warning::The Release check couldn't be looked up (not on the default branch yet, or GitHub didn't answer), so it counts as not run."
+            url=
+          fi
           if [ -n "$url" ]; then
             echo "green=true" >>"$GITHUB_OUTPUT"
             echo "The Release check passed on $SHA: $url" | tee -a "$GITHUB_STEP_SUMMARY"
