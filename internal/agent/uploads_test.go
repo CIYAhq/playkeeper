@@ -572,3 +572,49 @@ func TestCopiesTurnedOffBetweenTwoCopiesStopTheNext(t *testing.T) {
 		t.Fatalf("%d copies recorded after copies were turned off, want none", n)
 	}
 }
+
+// Copies turned off while a copy is being made stop its upload there:
+// nothing more is sent, nothing is recorded, and the queue empties.
+func TestCopiesTurnedOffStopTheCopyBeingMade(t *testing.T) {
+	store := &credStore{fakeDest: fakeDest{stored: map[string]offsite.Copy{}}, secret: "the-secret", hold: map[string]chan struct{}{},
+		waiting: make(chan string, 4), stopped: make(chan string, 4)}
+	prev := openOffsite
+	openOffsite = func(cfg offsite.Config, _ offsite.Keys, _ offsite.Options) (offsiteDest, error) {
+		return credDest{credStore: store, secret: cfg.S3.SecretKey.Reveal()}, nil
+	}
+	t.Cleanup(func() { openOffsite = prev })
+	e := newAgentEnv(t)
+	e.create()
+	b, err := e.srv().getBackup(e.backup())
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	store.mu.Lock()
+	store.hold[b.FileName] = release
+	store.mu.Unlock()
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": true, "config": map[string]any{"type": "s3", "s3": testS3}, "secretKey": "the-secret"}); code != http.StatusOK {
+		t.Fatalf("turn on: %d %v", code, out)
+	}
+	select {
+	case <-store.waiting:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the copy was never started")
+	}
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": false}); code != http.StatusOK {
+		t.Fatalf("turn off: %d %v", code, out)
+	}
+	select {
+	case <-store.stopped:
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatal("turning copies off didn't stop the copy being made")
+	}
+	e.waitFor("the queue emptied", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_uploads`) == 0 })
+	if got := store.secrets(); len(got) != 1 {
+		t.Fatalf("%d uploads, want only the one that was stopped", len(got))
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM offsite_copies`); n != 0 {
+		t.Fatalf("%d copies recorded after copies were turned off, want none", n)
+	}
+}

@@ -4140,7 +4140,7 @@ control "the uploader's claim names the copy it picked" internal/agent/offsite.g
 control "a claimed copy uploads under the claim's cancel" internal/agent/offsite.go \
   'cp, err := dest.Upload(job.ctx,' \
   'cp, err := dest.Upload(ctx,' \
-  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
+  ./internal/agent '^TestCopiesTurnedOffStopTheCopyBeingMade$'
 control "turning copies off stops the copy the uploader claimed" internal/agent/offsite.go \
   'func (s *server) stopUpload() {
 	s.auto.mu.Lock()
@@ -4148,7 +4148,7 @@ control "turning copies off stops the copy the uploader claimed" internal/agent/
   'func (s *server) stopUpload() {
 	s.auto.mu.Lock()
 	var c *uploadClaim' \
-  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
+  ./internal/agent '^TestCopiesTurnedOffStopTheCopyBeingMade$'
 
 # Wave 7 before Bugbot: a schedule lists the retry after a run skipped for
 # players exactly while the runner plans it.
