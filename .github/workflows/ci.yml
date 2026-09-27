@@ -424,20 +424,30 @@ jobs:
           playkeeper version | tee /tmp/evidence/release-version.txt
           sudo cat /var/lib/playkeeper/panel/tls/cert.pem > /tmp/evidence/cert.pem
           grep -o 'setup code: [a-z0-9-]*' /tmp/evidence/install-release.txt | awk '{print $3}' > /tmp/evidence/code
-      - name: Give the current release data to keep (settings, world marker, backup)
-        run: |
-          python3 test/e2e/update.py prepare --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem --out /tmp/evidence/update \
-            --code "$(cat /tmp/evidence/code)"
-          sudo find /var/lib/playkeeper/backups -type f -exec sha256sum {} + | sort -k2 > /tmp/evidence/backups-before.txt
-      - name: Build this commit as signed test releases (a signing key made for this run only)
+      - name: Start building this commit as signed test releases (a signing key made for this run only)
         run: |
           current=$(playkeeper version | awk '{print $2}')
           IFS=. read -r major minor patch <<<"${current%%[-+]*}"
           base="$major.$minor.$((patch + 1))"
           { echo "PK_A=$base-ci.1"; echo "PK_B=$base-ci.2"; echo "PK_C=$base-ci.3"; } >> "$GITHUB_ENV"
-          scripts/e2e/update-releases.sh /tmp/releases key
-          scripts/e2e/update-releases.sh /tmp/releases build a "$base-ci.1"
-          scripts/e2e/update-releases.sh /tmp/releases build b "$base-ci.2"
+          # They build while the next step gives the current release its data.
+          # shellcheck disable=SC2016 # the inner script's own $BASE
+          BASE=$base nohup bash -c '
+            scripts/e2e/update-releases.sh /tmp/releases key &&
+              scripts/e2e/update-releases.sh /tmp/releases build a "$BASE-ci.1" &&
+              scripts/e2e/update-releases.sh /tmp/releases build b "$BASE-ci.2"
+            echo $? > /tmp/releases-built' > /tmp/evidence/build-releases.txt 2>&1 &
+      - name: Give the current release data to keep (settings, world marker, backup)
+        run: |
+          python3 test/e2e/update.py prepare --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem --out /tmp/evidence/update \
+            --code "$(cat /tmp/evidence/code)"
+          sudo find /var/lib/playkeeper/backups -type f -exec sha256sum {} + | sort -k2 > /tmp/evidence/backups-before.txt
+      - name: The signed test releases are built
+        timeout-minutes: 8
+        run: |
+          until [ -e /tmp/releases-built ]; do sleep 2; done
+          cat /tmp/evidence/build-releases.txt
+          test "$(cat /tmp/releases-built)" = 0
       - name: Serve the test releases on 127.0.0.1:8765 (a/ for the one-line installer, latest/ for update checks)
         run: |
           mkdir -p /tmp/mirror/latest
