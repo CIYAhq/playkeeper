@@ -30,7 +30,7 @@
 {{end}}{{with .Page.Preload}}{{$s := shot .}}<link rel="preload" as="image" href="{{$s.Src}}"{{with $s.Srcset}} {{imageSrcset .}}{{end}} fetchpriority="high">
 {{end}}<script src="{{asset "js/site.js"}}" defer></script>
 {{range .Page.Scripts}}<script src="{{asset .}}" defer></script>
-{{end}}{{with .Head}}<script type="application/ld+json">{{.}}</script>
+{{end}}{{template "analytics" .}}{{with .Head}}<script type="application/ld+json">{{.}}</script>
 {{end}}</head>
 <body class="layout-{{.Page.Layout}}">
 <a class="skip" href="#main">Skip to content</a>
@@ -44,6 +44,11 @@
 </body>
 </html>
 {{end}}
+
+{{/* Visit counting (Settings.Analytics), on every page but the share page:
+     its template is in the address after #, and stays in the browser. */}}
+{{define "analytics"}}{{with .Settings.Analytics}}{{if and .Script (ne $.Page.Path "/t")}}<script src="{{.Script}}" async data-key="{{.Key}}" data-collector="{{.Collector}}"></script>
+{{end}}{{end}}{{end}}
 
 {{/* Where the header's Install goes: the page's own install command when it
      has one, else the install docs. The share page's address holds its

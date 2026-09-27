@@ -406,6 +406,41 @@ func TestSharePageLoadsOnlyItsScripts(t *testing.T) {
 	}
 }
 
+// Every page but the share page counts its visit, and the
+// Content-Security-Policy lets the analytics' script and collector in; with
+// the setting empty, nothing loads and the policy names neither.
+func TestAnalyticsIsOneSetting(t *testing.T) {
+	tag := `<script src="https://analytics-c.ciya.so/oa.js" async data-key="oa_pk_tyJHnpyD4m-pl_XrUbi3maHu2Iqq87Uf" data-collector="https://analytics-c.ciya.so"></script>`
+	o := build(t, Default)
+	for p, html := range pages(o) {
+		want := 1
+		if p == "/t" {
+			want = 0
+		}
+		if got := strings.Count(html, tag); got != want {
+			t.Errorf("%s loads the analytics %d times, want %d", p, got, want)
+		}
+	}
+	for _, want := range []string{"script-src 'self' https://analytics-c.ciya.so;", "connect-src 'self' https://api.github.com https://analytics-c.ciya.so;"} {
+		if !strings.Contains(string(o.Nginx), want) {
+			t.Errorf("the Content-Security-Policy doesn't say %s", want)
+		}
+	}
+	off := Default
+	off.Analytics = Analytics{}
+	o = build(t, off)
+	for p, html := range pages(o) {
+		if strings.Contains(html, "analytics-c.ciya.so") {
+			t.Errorf("%s loads the analytics while it's off", p)
+		}
+	}
+	for _, want := range []string{"script-src 'self';", "connect-src 'self' https://api.github.com;"} {
+		if !strings.Contains(string(o.Nginx), want) {
+			t.Errorf("with the analytics off, the Content-Security-Policy doesn't say %s", want)
+		}
+	}
+}
+
 func TestTemplateCardsOpenValidTemplates(t *testing.T) {
 	o := build(t, Default)
 	landing := pages(o)["/"]

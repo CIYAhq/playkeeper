@@ -35,7 +35,17 @@ A page that isn't built yet can already be linked: the header's menus, the foote
 
 ### Settings
 
-`internal/site/settings.go` holds the switches that change several pages at once. `Community` is where "Ask a question" links go: the repository's GitHub Discussions. Set it to `issues` if Discussions is ever off, and every link, its words and `/community` follow. Nothing on the site collects an email address.
+`internal/site/settings.go` holds the switches that change several pages at once. `Community` is where "Ask a question" links go: the repository's GitHub Discussions. Set it to `issues` if Discussions is ever off, and every link, its words and `/community` follow. Nothing on the site collects an email address. `Analytics` is the visit counter ([OpenAnalytics](https://github.com/OpenLabs-so/openanalytics), cookieless) that every page but the share page `/t` loads, and the Content-Security-Policy lets its script and collector in; the live demo loads the same script (`web/src/demo/vite.ts`). The site sends `Referrer-Policy: strict-origin-when-cross-origin` because under `no-referrer` Firefox and Safari send the counter's beacons with `Origin: null`, which its collector refuses.
+
+Funnels in the analytics are built from pages and these custom events. Each also has `where`, the page it happened on. `static/js/site.js` sends them from the site's pages and `web/src/demo/analytics.ts` from the live demo; the browser checks answer the analytics' script with one that sends nothing.
+
+| Event | When | Properties |
+| --- | --- | --- |
+| `install_copied` | The install command is copied, with a Copy or selected and copied by hand | `spot`: `box` (the page's install command), `closing` (the dark band at the bottom), `button` (Copy the install command on `/pricing` and beside guides), `code` (a code block in the docs), `selection` (by hand) or `card` (the live demo's) |
+| `github_clicked` | A link to the repository on GitHub, or to `/community` | `link`: `repo`, `releases`, `file`, `discussions`, `community` and so on |
+| `provider_clicked` | See today's price at a VPS provider (`/sizing`, `/alternatives/aternos`) | `provider`, and the `plan` it showed |
+| `watch_releases_clicked` | Watch releases on GitHub on `/pricing`, which is also a `github_clicked` | `plan`: `storage` or `partner` |
+| `demo_server_created` | New server finished in the live demo | `type`: the server type, such as `paper` |
 
 ## Host it with Coolify
 

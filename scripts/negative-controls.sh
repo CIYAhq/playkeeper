@@ -2039,6 +2039,20 @@ shcontrol "the site check goes on past a chunk that loads no other chunk" script
   ' | sort -u) || true' \
   ' | sort -u)' \
   scripts/demo-marker_test.sh
+shcontrol "each CI shard of a package's tests runs its own share" scripts/go-test-shard.sh \
+  "'NR % n == k % n'" \
+  "'NR % n == 1'" \
+  scripts/go-test-shard_test.sh
+# shellcheck disable=SC2016
+shcontrol "the shards' check fails when no shard ran a test" scripts/go-test-shard.sh \
+  'missed=$(comm -23 <(sort -u "$dir/all-1.txt") <(sort -u "$dir"/ran-*.txt))' \
+  'missed=' \
+  scripts/go-test-shard_test.sh
+# shellcheck disable=SC2016
+shcontrol "the shards' check fails when shards listed other tests" scripts/go-test-shard.sh \
+  'if ! cmp -s "$dir/all-1.txt" "$dir/all-$k.txt"; then' \
+  'if false; then' \
+  scripts/go-test-shard_test.sh
 
 control "names service owns only records with the name's marker" internal/names/service/dns.go \
   'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \

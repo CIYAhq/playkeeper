@@ -17,18 +17,125 @@ env:
   FORCE_COLOR: "0"
 
 jobs:
-  check:
-    name: Lint, typecheck, unit tests and package
+  plan:
+    name: Pages to click through — the ones this change touches, or every page
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 10
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      selection: ${{ steps.plan.outputs.selection }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
+      - name: The pages the change touches (every page when a shared layer, the crawler or the build changes)
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base=
+          case "$EVENT" in
+            pull_request) base=$(git rev-parse HEAD^1) ;;
+            push) if git fetch -q --depth=1 origin "$BEFORE"; then base=$BEFORE; fi ;;
+          esac
+          if [ -n "$base" ]; then
+            .tools/node/bin/node test/e2e/ui/plan.ts --base "$base"
+          else
+            .tools/node/bin/node test/e2e/ui/plan.ts --full
+          fi
+
+  lint:
+    name: Lint — gofmt, go vet, ESLint, TypeScript, THIRD_PARTY_NOTICES, shellcheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up pinned toolchains (same command contributors run)
         run: ./scripts/setup.sh
-      - name: make check
-        run: make check
+      - name: make lint typecheck
+        run: make lint typecheck
       - name: make lint-sh
         run: make lint-sh
+
+  go-tests:
+    name: Go unit tests, every package but the agent's
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
+      - name: make test-go-other
+        run: make test-go-other
+
+  agent-tests:
+    name: Agent unit tests ${{ matrix.shard }} of 4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
+      - name: make test-agent SHARD=${{ matrix.shard }}/4
+        run: make test-agent SHARD=${{ matrix.shard }}/4 OUT=/tmp/agent-tests
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: agent-tests-${{ matrix.shard }}
+          path: /tmp/agent-tests/*.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+  web-tests:
+    name: Web and installer-script unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
+      - name: make test-web test-sh
+        run: make test-web test-sh
+
+  check:
+    name: Lint, typecheck and unit tests — every job passed and the agent's shards ran every test
+    needs: [lint, go-tests, agent-tests, web-tests]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$NEEDS" | jq -e 'to_entries | all(.value.result == "success")' >/dev/null
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: agent-tests-*
+          merge-multiple: true
+          path: /tmp/agent-tests
+      - name: Together the agent's shards ran every one of its tests
+        run: scripts/go-test-shard.sh --check /tmp/agent-tests 4
+
+  package:
+    name: Package — the release tarball the end-to-end jobs install
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
       - name: make package
         run: make package
       - name: Inspect the artifact outside the checkout
@@ -53,8 +160,18 @@ jobs:
             dist/get.sh
           retention-days: 7
 
+  clickthrough:
+    name: Click-through
+    needs: [plan, package]
+    if: needs.plan.result == 'success' && needs.plan.outputs.mode != 'none'
+    uses: ./.github/workflows/clickthrough.yml
+    with:
+      artifact: release
+      selection: ${{ needs.plan.outputs.selection }}
+      matrix: ${{ needs.plan.outputs.matrix }}
+
   ui-fake-panel:
-    name: Browser checks against a faked panel — the Console with a long log, desktop and phone
+    name: Browser checks against a faked panel — the Console with a long log, desktop and phone; the click-through's own checks
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -72,6 +189,8 @@ jobs:
         run: cd test/e2e/ui && npx playwright test -c playwright.fake-panel.config.ts
       - name: playkeeper.io on desktop and phone — nothing wider than the screen, no serious accessibility violations
         run: cd test/e2e/ui && npx playwright test -c playwright.site.config.ts
+      - name: The click-through's own checks — its verdicts, the recorded fixtures, which pages a change touches, the split and the gate
+        run: cd test/e2e/ui && npx playwright test clickthrough.spec.ts --grep-invert "every control does something on" --reporter=list
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
@@ -142,10 +261,10 @@ jobs:
         run: scripts/names-check.sh
 
   install-and-play:
-    name: Fresh runner — install, onboarding, two bots, backup, uninstall
-    needs: check
+    name: Fresh runner — install, onboarding, two bots, backup, every page, core flows, uninstall
+    needs: package
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -202,14 +321,12 @@ jobs:
           PK_SHOTS: /tmp/evidence/screenshots
           PK_OUT: /tmp/evidence/ui
         run: cd test/e2e/ui && npx playwright test views.spec.ts --reporter=list
-      - name: Every control does something (click-through at desktop and phone sizes, changes go to fakes)
+      - name: Core flows at desktop and phone sizes — sign in, create a server, start it, back it up
         env:
           PK_URL: https://127.0.0.1:8443
           PK_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
-          PK_OUT: /tmp/evidence/ui
-          # Temporary for the v0.4.0 fix push: only what failed on 8462e667 plus a smoke, and the Map tab with its area; the CI speed-up PR (bc-944eeef1) replaces it with changed-pages detection and a full crawl before releases.
-          CRAWL_ROUTES: "/; /servers/*; /servers/*/plugins/browse; /servers/*/plugins (in use); /machines/*/disk (space to free); /servers/*/map (map on)"
-        run: cd test/e2e/ui && npx playwright test clickthrough.spec.ts --reporter=list --workers=2
+          PK_SHOTS: /tmp/evidence/screenshots
+        run: cd test/e2e/ui && npx playwright test smoke.spec.ts --reporter=list
       - name: Exposure and privilege checks
         run: |
           set -x
