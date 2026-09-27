@@ -39,7 +39,7 @@ jobs:
   crawl:
     name: ${{ matrix.size }} ${{ matrix.shard }} of ${{ matrix.of }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(inputs.matrix) }}
@@ -77,19 +77,26 @@ jobs:
           printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf
           sudo systemctl daemon-reload
           sudo systemctl restart playkeeper-agent
-      - name: The state the pages are crawled in — keyboard onboarding, then the protocol bots' scenario
+      # The state the pages are crawled in. Each step has a time limit, so a hung
+      # onboarding or bot fails the runner in minutes instead of holding it.
+      - name: Keyboard onboarding (the admin, and a server to crawl)
+        timeout-minutes: 10
         env:
           PK_URL: https://127.0.0.1:8443
           PK_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
-          PK_ADMIN_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
           PK_SHOTS: /tmp/evidence/screenshots
           PK_OUT: /tmp/evidence/ui
         run: |
           PK_SETUP_CODE=$(cat /tmp/evidence/code)
           export PK_SETUP_CODE
-          (cd test/e2e/ui && npx playwright test onboarding.spec.ts --reporter=list)
-          python3 test/e2e/scenario.py host-a --existing --url "$PK_URL" --cacert /tmp/evidence/cert.pem \
-            --code "$PK_SETUP_CODE" --game-host "$(cat /tmp/evidence/ui/join-address.txt)" --out /tmp/evidence/a
+          cd test/e2e/ui && npx playwright test onboarding.spec.ts --reporter=list
+      - name: The protocol bots' scenario (players, sessions, backups)
+        timeout-minutes: 10
+        env:
+          PK_ADMIN_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python3 test/e2e/scenario.py host-a --existing --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem \
+            --code "$(cat /tmp/evidence/code)" --game-host "$(cat /tmp/evidence/ui/join-address.txt)" --out /tmp/evidence/a
       - name: Every control does something (this runner's pages, changes go to fakes)
         env:
           PK_URL: https://127.0.0.1:8443
