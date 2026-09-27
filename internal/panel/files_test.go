@@ -231,6 +231,26 @@ func TestUploadPiecesHaveTheirOwnRateLimit(t *testing.T) {
 	}
 }
 
+// A file open in the Files tab has its path in the page's address, so a
+// reload or a shared link loads the dashboard, whatever the file's
+// extension. Any other address with an extension and no built file behind it
+// stays missing, so a script left over from an older build fails plainly.
+func TestFilesPagesLoadTheDashboard(t *testing.T) {
+	e, _ := newScriptedEnv(t, func(w http.ResponseWriter, r *http.Request) {})
+	for _, p := range []string{"/servers/survival/files", "/servers/survival/files/plugins/LuckPerms", "/servers/survival/files/config.d",
+		"/servers/survival/file/server.properties", "/servers/survival/file/plugins/BlueMap/web/index.html"} {
+		r, body := e.stream(t, "GET", p, nil, nil)
+		if r.StatusCode != 200 || string(body) != indexPage {
+			t.Errorf("%s: %d %q", p, r.StatusCode, body)
+		}
+	}
+	for _, p := range []string{"/assets/gone.js", "/gone.js", "/servers/survival/gone.txt", "/servers/files/x.js"} {
+		if r, _ := e.stream(t, "GET", p, nil, nil); r.StatusCode != 404 {
+			t.Errorf("%s: %d, want 404", p, r.StatusCode)
+		}
+	}
+}
+
 func TestEveryUploadRouteIsACheckedRoute(t *testing.T) {
 	e := newEnv(t)
 	routes := map[string]Route{}

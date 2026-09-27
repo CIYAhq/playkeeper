@@ -1503,13 +1503,18 @@ func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
 			http.ServeFileFS(w, r, s.static, p)
 			return
 		}
-		if strings.HasPrefix(p, "assets/") || path.Ext(p) != "" {
+		if strings.HasPrefix(p, "assets/") || (path.Ext(p) != "" && !reFilesPage.MatchString(p)) {
 			http.NotFound(w, r)
 			return
 		}
 	}
 	s.writeIndex(w, cache)
 }
+
+// reFilesPage matches the pages of a server's Files tab, whose addresses end
+// in the path of a file or folder, often with an extension: they are pages,
+// not built files.
+var reFilesPage = regexp.MustCompile(`^servers/[^/]+/files?/`)
 
 // writeIndex answers with the UI's index.html.
 func (s *Server) writeIndex(w http.ResponseWriter, cacheControl string) {
