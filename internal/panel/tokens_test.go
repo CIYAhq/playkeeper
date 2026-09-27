@@ -620,7 +620,7 @@ func (e *env) toolOutcome(t *testing.T, token, tool string) string {
 		}
 		for _, name := range tl.InputSchema.Required {
 			args[name] = map[string]any{"server": "survival", "message": "Back in five", "command": "time set day", "player": "Steve_1",
-				"operation": "0123456789abcdef", "source": "modrinth", "project": "chunky"}[name]
+				"operation": "0123456789abcdef", "source": "modrinth", "project": "chunky", "query": "chunky"}[name]
 		}
 	}
 	r := e.mcpRequest(t, token, "tools/call", map[string]any{"name": tool, "arguments": args})
@@ -656,10 +656,10 @@ func TestATokenFollowsItsAccountsRole(t *testing.T) {
 		t.Helper()
 		return e.newToken(t, m.cookie, m.csrf, fmt.Sprintf(`{"name":"%s %d","role":"%s","allServers":true}`, role, m.id, role))
 	}
-	read := []string{"list_servers", "get_server_status", "read_console", "list_online_players", "list_whitelist", "list_backups", "get_operation", "get_lag_report", "explain_crash"}
+	read := []string{"list_servers", "get_server_status", "read_console", "list_online_players", "list_whitelist", "list_backups", "get_operation", "get_lag_report", "explain_crash", "search_addons"}
 	run := []string{"start_server", "stop_server", "restart_server", "send_chat_message", "add_to_whitelist", "remove_from_whitelist", "create_backup"}
 	outcomes := func(reads, runs, console, install string) map[string]string {
-		out := map[string]string{"run_console_command": console, "install_addon": install}
+		out := map[string]string{"run_console_command": console, "install_addon": install, "remove_addon": install}
 		for _, tool := range read {
 			out[tool] = reads
 		}
@@ -813,7 +813,9 @@ func TestEveryToolTakesTheActionOfItsDashboardRoute(t *testing.T) {
 		"get_operation":         "GET /api/machines/{mid}/operations/{op}",
 		"get_lag_report":        "GET /api/servers/{id}/metrics",
 		"explain_crash":         "GET /api/servers/{id}/events",
+		"search_addons":         "GET /api/servers/{id}/addons/search",
 		"install_addon":         "POST /api/servers/{id}/addons/install",
+		"remove_addon":          "POST /api/servers/{id}/addons/remove",
 	}
 	acts := map[string]action{}
 	for _, rt := range newEnv(t).srv.Routes() {

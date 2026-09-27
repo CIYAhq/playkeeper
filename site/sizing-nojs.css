@@ -5,7 +5,7 @@
 @media (max-width: 640px) {
   .top { flex-wrap: wrap; row-gap: 0; }
   /* The links' own padding would push the first one's text past the brand's 16 px. */
-  .site-nav { position: static; display: flex; flex-direction: row; flex-wrap: wrap; width: calc(100% + 8px); margin-left: -8px; padding: 0; background: none; border: 0; box-shadow: none; }
+  .site-nav { position: static; display: flex; flex-direction: row; flex-wrap: wrap; width: calc(100% + 8px); margin-left: -8px; padding: 0; background: none; border: 0; box-shadow: none; opacity: 1; translate: none; }
   .site-nav a { padding: 0 8px; }
   .site-nav a.button { margin: 0 0 0 auto; }
   .lead { margin-bottom: 6px; }

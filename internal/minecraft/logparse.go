@@ -36,8 +36,8 @@ type Parsed struct {
 }
 
 // The prefix matches Paper ("[12:00:00 INFO]: "), vanilla, Fabric and Quilt
-// ("[12:00:00] [Server thread/INFO]: ") and NeoForge, which names the logger
-// too ("[12:00:00] [Server thread/INFO] [minecraft/MinecraftServer]: ").
+// ("[12:00:00] [Server thread/INFO]: ") and NeoForge and Forge, which name
+// the logger too ("[12:00:00] [Server thread/INFO] [minecraft/MinecraftServer]: ").
 // Player-controlled text (chat, /say, /me) always follows this prefix with
 // "<", "[" or "*", and player names cannot contain spaces, so anchored
 // patterns below cannot be forged from chat.
@@ -54,8 +54,13 @@ var (
 	reBind      = regexp.MustCompile(`FAILED TO BIND TO PORT`)
 	// Only ERROR and FATAL entries, which players cannot write.
 	reCrashed = regexp.MustCompile(`^\[\d{2}:\d{2}:\d{2}(?: (?:ERROR|FATAL)\]|\] \[[^\]]{1,64}/(?:ERROR|FATAL)\])(?: \[[^\]]{1,120}\])?: ` +
-		`(?:Encountered an unexpected exception|This crash report has been saved to: |The server has stopped responding!|Failed to start the minecraft server|A single server tick took )`)
-	reOOM       = regexp.MustCompile(`java\.lang\.OutOfMemoryError`)
+		`(?:Encountered an unexpected exception|This crash report has been saved to: |Crash report saved to |The server has stopped responding!|Failed to start the minecraft server|A single server tick took )`)
+	// Only raw JVM output, which has no log prefix, and WARN, ERROR and FATAL
+	// entries whose message is the error: players write it in chat and
+	// commands, which are INFO entries, and plugins log what players typed in
+	// the messages of other exceptions.
+	reOOM = regexp.MustCompile(`^(?:\[\d{2}:\d{2}:\d{2}(?: (?:WARN|ERROR|FATAL)\]|\] \[[^\]]{1,64}/(?:WARN|ERROR|FATAL)\])(?: \[[^\]]{1,120}\])?: )?` +
+		`(?:Exception in thread "[^"]{1,120}" |Exception: |Caused by: |Terminating due to )?java\.lang\.OutOfMemoryError\b`)
 	reANSI      = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]|\[[0-9;]{1,8}m`)
 	reIPv4      = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
 	rePort      = regexp.MustCompile(`^:\d{1,5}\b`)

@@ -115,6 +115,8 @@ export class Crawler {
   private readonly signatures = new Set<string>()
   /** Set while a negative control presses a control it broke, whose failure isn't the crawl's. */
   private quiet = false
+  /** Set while exploring presses a control again in a state it led to; only its first press counts. */
+  private again = false
   private calls: ApiCall[] = []
   private unfaked: string[] = []
   private unrecorded: string[] = []
@@ -248,7 +250,8 @@ export class Crawler {
   }
 
   private async ready() {
-    const headed = await this.page.waitForFunction(() => !!window.__pk && !!document.querySelector('h1'), null, { timeout: 20_000 }).then(
+    // A heading in a placeholder that's still loading (aria-busy) doesn't count: the page's code is on its way.
+    const headed = await this.page.waitForFunction(() => !!window.__pk && [...document.querySelectorAll('h1')].some((h) => !h.closest('[aria-busy="true"]')), null, { timeout: 20_000 }).then(
       () => true,
       () => false,
     )
@@ -315,12 +318,14 @@ export class Crawler {
         const label = labels.map((l) => l.textContent).join(' ')
         // A typed confirmation says what to type in bold: "Type <b>replace world</b> to confirm."
         const phrase = /confirm/i.test(label) ? (labels.map((l) => l.querySelector('strong, b')?.textContent?.trim()).find(Boolean) ?? '') : ''
-        return { type: i.type, text: `${i.name} ${i.id} ${i.placeholder} ${i.getAttribute('aria-label') ?? ''} ${label}`.toLowerCase(), min: i.min, max: i.max, phrase }
+        return { type: i.type, numeric: i.inputMode === 'numeric', text: `${i.name} ${i.id} ${i.placeholder} ${i.getAttribute('aria-label') ?? ''} ${label}`.toLowerCase(), min: i.min, max: i.max, phrase }
       })
       let value = 'Sample'
       if (hint.phrase) value = hint.phrase
       else if (hint.type === 'password') value = 'sample-password-2026'
       else if (hint.type === 'number') value = hint.min || '1'
+      // A code's boxes drop anything but digits; the first takes the whole code.
+      else if (hint.numeric) value = '123456'
       else if (/webhook/.test(hint.text)) value = `https://discord.com/api/webhooks/123456789012345678/${'sample_token_'.repeat(6)}`
       else if (/minecraft|player|username|friend/.test(hint.text)) value = 'Pixel_Pia'
       else if (/command/.test(hint.text)) value = 'list'
@@ -418,7 +423,9 @@ export class Crawler {
   private record(route: string, via: string[], c: ControlInfo, status: Status, effects: string[] = [], problems: string[] = [], reason?: string): Result {
     const r: Result = { viewport: this.viewport, route, view: this.view === 'live' ? undefined : this.view, via, key: c.key, status, effects, problems, reason }
     this.results.push(r)
-    if (!this.quiet) this.log(`${failing.includes(status) ? '✗' : '✓'} [${this.viewport}] ${where(route, this.view)}${via.length ? ` › ${via.join(' › ')}` : ''} › ${c.key}: ${status}${effects.length ? ` — ${effects[0]}` : ''}${problems.length ? ` — ${problems[0]}` : ''}`)
+    const mark = this.again ? '·' : failing.includes(status) ? '✗' : '✓'
+    const note = this.again ? ' (pressed again in a state it led to; only its first press counts)' : ''
+    if (!this.quiet) this.log(`${mark} [${this.viewport}] ${where(route, this.view)}${via.length ? ` › ${via.join(' › ')}` : ''} › ${c.key}: ${status}${effects.length ? ` — ${effects[0]}` : ''}${problems.length ? ` — ${problems[0]}` : ''}${note}`)
     return r
   }
 
@@ -451,8 +458,8 @@ export class Crawler {
     this.pressed = pressed
     const failed = await this.press(h, c)
     if (failed) return { result: this.record(route, via, c, 'could not press', [], [failed]), opened: false, revealed: false }
-    let effects: string[] = []
-    let after: Snapshot | null = null
+    let effects: string[]
+    let after: Snapshot | null
     for (;;) {
       await this.page.waitForTimeout(120)
       after = await this.snap(true)
@@ -609,7 +616,8 @@ export class Crawler {
           if (!done) this.notes.push(`[${this.viewport}] ${where(route, this.view)}${path.length ? ` › ${path.join(' › ')}` : ''}: ${c.key} went away before it was pressed`)
           continue
         }
-        const t = await this.test(route, path, fresh, state)
+        this.again = !!done
+        const t = await this.test(route, path, fresh, state).finally(() => (this.again = false))
         if (done) this.results.pop()
         else this.tested.set(c.key, t)
         if (t.opened) {

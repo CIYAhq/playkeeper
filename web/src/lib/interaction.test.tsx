@@ -3,6 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { CardsSkeleton, lineWidth, ListSkeleton, TableSkeleton } from '@/components/app/skeletons'
+import { ToastProvider, toastManager } from '@/components/ui/toast'
 import { mergePrefs, undoPrefs, usePending, withChanges } from './optimistic'
 import { presence, presenceProps, settle, useListPresence } from './presence'
 import { navigate } from './router'
@@ -205,5 +206,24 @@ describe('skeletons', () => {
     expect(visibleShapes()).toHaveLength(0)
     expect(new Set([0, 1, 2, 3, 4, 5].map(lineWidth)).size).toBe(6)
     expect(lineWidth(6)).toBe(lineWidth(0))
+  })
+})
+
+describe('toasts', () => {
+  it('wrap a long path instead of cutting it off', async () => {
+    await render(
+      <ToastProvider>
+        <p>page</p>
+      </ToastProvider>,
+    )
+    let id = ''
+    await act(async () => {
+      id = toastManager.add({ title: 'The world folder is missing because a restore did not finish; the previous world is at /var/lib/playkeeper/servers/abcdefghjk/data.replaced-20260926-103028.', description: 'Move that folder back to /var/lib/playkeeper/servers/abcdefghjk/data, then upload the icon again.', type: 'error' })
+    })
+    const text = document.querySelector('[data-slot="toast-title"]')?.parentElement
+    // happy-dom has no layout: a path breaks only where overflow-wrap lets it, and only in a column that can shrink.
+    expect(text?.className.split(' ')).toEqual(expect.arrayContaining(['min-w-0', 'wrap-anywhere']))
+    expect(text?.parentElement?.className.split(' ')).toContain('min-w-0')
+    await act(async () => toastManager.close(id))
   })
 })

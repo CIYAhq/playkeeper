@@ -91,6 +91,46 @@
    "26.3"
   ],
   "loaders": [
+   "forge"
+  ],
+  "environment": "client_or_server_prefers_both",
+  "id": "A9NbdnLA",
+  "project_id": "fALzjamp",
+  "author_id": "nfBsvT1J",
+  "featured": false,
+  "name": "Chunky 1.5.4",
+  "version_number": "1.5.4",
+  "changelog_url": null,
+  "date_published": "2026-07-23T04:22:12.163425Z",
+  "downloads": 10313,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "3mw2E5K8",
+    "hashes": {
+     "sha1": "7146c551c12f3e044fdf46a7ff30709ee19417d6",
+     "sha512": "23e36c247bf4a628393839cd31e0786806843e039eef3b00c7a74e87d787d437d1e4459959065be72a530371d21d306389e8c77ef4ecc1b2d392f0701b971d4e"
+    },
+    "url": "https://cdn.modrinth.com/data/fALzjamp/versions/A9NbdnLA/Chunky-Forge-1.5.4.jar",
+    "filename": "Chunky-Forge-1.5.4.jar",
+    "primary": true,
+    "size": 352914,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "game_versions": [
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
    "fabric"
   ],
   "environment": "client_or_server_prefers_both",

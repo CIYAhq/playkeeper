@@ -2,7 +2,7 @@ import type { CatalogEntry, ServerConfig, SoftwareCheck, SoftwarePin } from '@/a
 import { formatLocale, t, type MessageKey } from '@/i18n'
 
 /** The server types in the order the dashboard offers them. */
-export const serverTypeIds = ['paper', 'vanilla', 'purpur', 'fabric', 'quilt', 'neoforge'] as const
+export const serverTypeIds = ['paper', 'vanilla', 'purpur', 'fabric', 'quilt', 'neoforge', 'forge'] as const
 
 /** What a server type can add: plugins, mods, or neither (data packs only). */
 export type AddonKind = 'plugins' | 'mods' | 'none'
@@ -15,6 +15,7 @@ export function addonKind(type: string | undefined): AddonKind {
     case 'fabric':
     case 'quilt':
     case 'neoforge':
+    case 'forge':
       return 'mods'
     default:
       return 'none'
@@ -23,7 +24,7 @@ export function addonKind(type: string | undefined): AddonKind {
 
 /** Types with a build to pick besides the Minecraft version. */
 export function hasBuilds(type: string): boolean {
-  return type === 'purpur' || type === 'fabric' || type === 'quilt' || type === 'neoforge'
+  return type === 'purpur' || type === 'fabric' || type === 'quilt' || type === 'neoforge' || type === 'forge'
 }
 
 /** The server type a catalog entry installs. */
@@ -31,11 +32,11 @@ export function entryType(e: CatalogEntry): string {
   return e.software?.type ?? 'paper'
 }
 
-/** The build a pin names: a Purpur build, a loader, or a NeoForge version. */
+/** The build a pin names: a Purpur build, a loader, or a NeoForge or Forge version. */
 export function pinBuild(p: SoftwarePin | undefined): string {
   if (!p) return ''
   if (p.purpurBuild) return String(p.purpurBuild)
-  return p.fabricLoader ?? p.quiltLoader ?? p.neoforgeVersion ?? ''
+  return p.fabricLoader ?? p.quiltLoader ?? p.neoforgeVersion ?? p.forgeVersion ?? ''
 }
 
 /** A server's build as people say it: "build 41", "loader 0.17.2", or nothing for Vanilla. */
@@ -50,6 +51,8 @@ export function buildLabel(type: string, build: string | number): string {
       return t('soft.loader', { build })
     case 'neoforge':
       return t('soft.neoforge', { build })
+    case 'forge':
+      return t('soft.forge', { build })
     default:
       return ''
   }
@@ -104,6 +107,7 @@ const typeText: Record<string, TypeText> = {
   fabric: { runs: 'types.runs.mods', goodFor: 'types.goodFor.fabric', addons: 'types.runs.mods', addonsShort: 'types.addons.mods', check: 'types.checkLine.fabric' },
   quilt: { runs: 'types.runs.quilt', goodFor: 'types.goodFor.quilt', addons: 'types.runs.quilt', addonsShort: 'types.addons.quilt', check: 'types.checkLine.quilt' },
   neoforge: { runs: 'types.runs.mods', goodFor: 'types.goodFor.neoforge', addons: 'types.runs.mods', addonsShort: 'types.addons.mods', check: 'types.checkLine.neoforge' },
+  forge: { runs: 'types.runs.mods', goodFor: 'types.goodFor.forge', addons: 'types.runs.mods', addonsShort: 'types.addons.mods', check: 'types.checkLine.forge' },
 }
 
 export function typeTexts(type: string): TypeText | undefined {

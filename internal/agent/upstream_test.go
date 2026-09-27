@@ -151,6 +151,14 @@ func (f *fakeUpstream) serverJarURL(mc string) string {
 	return "https://piston-data.mojang.com/v1/objects/" + sha1Hex(f.serverJar[mc]) + "/server.jar"
 }
 
+// serveForgeLists serves Forge's Maven metadata and its recommended builds.
+func (f *fakeUpstream) serveForgeLists() {
+	f.serve("https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml", []byte(`<metadata><versioning><versions>
+<version>26.2-65.0.1</version><version>26.1.2-64.1.3</version><version>26.2-65.1.0</version><version>1.20.1-47.4.23</version><version>26.2-65.1.3</version>
+</versions></versioning></metadata>`))
+	f.serve("https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json", []byte(`{"promos":{"26.2-recommended":"65.1.0","26.2-latest":"65.1.3","26.1.2-recommended":"64.1.3","1.20.1-recommended":"47.4.23"}}`))
+}
+
 // serveFabricLists serves Fabric's lists of Minecraft versions and loaders.
 func (f *fakeUpstream) serveFabricLists() {
 	f.serve("https://meta.fabricmc.net/v2/versions/game", []byte(`[{"version":"26.2","stable":true},{"version":"26.1.2","stable":true},{"version":"26.3-snapshot-2","stable":false}]`))

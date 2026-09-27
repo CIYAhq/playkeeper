@@ -34,10 +34,12 @@ func TargetFor(serverType string) (Target, error) {
 		return Target{Type: serverType, Kind: "mod", Folder: "mods", Loaders: []string{"quilt", "fabric"}}, nil
 	case "neoforge":
 		return Target{Type: serverType, Kind: "mod", Folder: "mods", Loaders: []string{"neoforge"}}, nil
+	case "forge":
+		return Target{Type: serverType, Kind: "mod", Folder: "mods", Loaders: []string{"forge"}}, nil
 	case "vanilla":
 		return Target{}, fail(KindNoAddons, kv("type", serverType),
 			"Vanilla servers cannot load plugins or mods.",
-			"Switch the server to Paper for plugins, or to Fabric, Quilt or NeoForge for mods.")
+			"Switch the server to Paper for plugins, or to Fabric, Quilt, NeoForge or Forge for mods.")
 	}
 	return Target{}, fail(KindUnknownServerType, kv("type", serverType),
 		"Playkeeper does not know the server type \""+printable(serverType)+"\", so it cannot tell which add-ons fit.",
@@ -57,6 +59,8 @@ func (t Target) Name() string {
 		return "Quilt"
 	case "neoforge":
 		return "NeoForge"
+	case "forge":
+		return "Forge"
 	}
 	return t.Type
 }

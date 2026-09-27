@@ -436,7 +436,7 @@ function Console({ server: s }: { server: ServerStatus }) {
   }
 
   return (
-    <div className="grid flex-1 gap-4 xl:grid-cols-[1fr_280px]">
+    <div className="grid flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
       <div className="flex min-w-0 flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <Segmented value={filter} onChange={show} options={filters} label={t('console.filter')} />
@@ -460,7 +460,7 @@ function Console({ server: s }: { server: ServerStatus }) {
         {form}
         <p className="text-xs text-muted-foreground">{t('console.help')}</p>
       </div>
-      <Card className="self-start max-xl:hidden">
+      <Card className="max-xl:hidden">
         <CardTitle>{t('console.quick')}</CardTitle>
         <ul className="mt-3 flex flex-col gap-2">
           {quick.map((q) => (

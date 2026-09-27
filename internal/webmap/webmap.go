@@ -75,7 +75,8 @@ type Layout struct {
 // LayoutFor tells where squaremap goes on a server type (the ids in the
 // server type registry). Modrinth has squaremap builds for Paper, Fabric
 // and NeoForge; Purpur runs the Paper build, and Quilt the Fabric one with
-// Fabric API, which the add-on library adds as a dependency.
+// Fabric API, which the add-on library adds as a dependency. Its Forge
+// builds stop at Minecraft 1.20.1.
 func LayoutFor(serverType string) (Layout, error) {
 	l := Layout{Type: serverType, Source: "modrinth", ProjectID: ModrinthProjectID}
 	switch serverType {
@@ -87,6 +88,10 @@ func LayoutFor(serverType string) (Layout, error) {
 		return Layout{}, fail(KindUnsupported, kv("type", serverType),
 			"Vanilla servers cannot show a live map.",
 			"The map needs a plugin or mod. Switch the server to Paper, Fabric, Quilt or NeoForge to use it.")
+	case "forge":
+		return Layout{}, fail(KindUnsupported, kv("type", serverType),
+			"Forge servers cannot show a live map: the map mod has no Forge version for current Minecraft.",
+			"Switch the server to Paper, Fabric, Quilt or NeoForge to use it.")
 	default:
 		return Layout{}, fail(KindUnknownType, kv("type", printable(serverType)),
 			fmt.Sprintf("Playkeeper does not know the server type \"%s\", so it cannot set up a map for it.", printable(serverType)),
@@ -104,8 +109,8 @@ type Owner struct{ UID, GID int }
 type Map struct {
 	// Dir is the server's data directory on this machine.
 	Dir string
-	// Type is the server type: paper, purpur, fabric, quilt, neoforge or
-	// vanilla.
+	// Type is the server type: paper, purpur, fabric, quilt, neoforge,
+	// forge or vanilla.
 	Type string
 	// Addr is squaremap's web server: the container's address on the
 	// private network, and Port. Empty while the server is stopped.

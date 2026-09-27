@@ -1,0 +1,91 @@
+name: VM rehearsal
+
+# `make e2e-vm` (scripts/e2e/vm-e2e.sh) on a GitHub-hosted runner: fresh KVM
+# guests for the tarball and one-line installs, refusals and rollbacks, a
+# restore on a second host, reboot, uninstall and purge. Run it by hand before
+# a release.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to rehearse (empty for the branch it runs from)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  FORCE_COLOR: "0"
+
+jobs:
+  rehearsal:
+    name: make e2e-vm — fresh KVM guests, from install to uninstall
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Switch on KVM for the runner's user (the udev rule used for Android emulators)
+        timeout-minutes: 3
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+          scripts/e2e/vm-rehearsal.sh kvm-check
+      - name: Lab tools, pinned toolchains and the test browser
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-system-x86 qemu-utils cloud-image-utils nmap tcpdump >/dev/null
+          ./scripts/setup.sh
+          cd test/e2e/ui
+          ../../../.tools/node/bin/npm ci --no-audit --no-fund
+          sudo env "PATH=$PWD/../../../.tools/node/bin:$PATH" npx playwright install-deps chromium
+          PATH="$PWD/../../../.tools/node/bin:$PATH" npx playwright install chromium
+      - name: Keep the guests' disks on the runner's larger disk
+        run: |
+          df -h / /mnt 2>/dev/null || df -h /
+          avail() { df --output=avail -B1 "$1" | tail -1; }
+          if [ -d /mnt ] && [ "$(avail /mnt)" -gt "$(avail /tmp)" ]; then
+            sudo install -d -o "$(id -u)" -g "$(id -g)" /mnt/pk-lab
+            echo "LAB_DIR=/mnt/pk-lab" >> "$GITHUB_ENV"
+          fi
+      - name: make e2e-vm
+        env:
+          KEEP_ON_FAIL: "1"
+        run: make e2e-vm
+      - name: Logs from the guests still running after a failure
+        if: failure()
+        run: |
+          lab=${LAB_DIR:-/tmp/pk-lab}
+          for out in test/e2e/out/vm-*/; do :; done
+          if [ ! -d "$out" ] || [ ! -d "$lab" ]; then exit 0; fi
+          mkdir -p "$out/guests"
+          for dir in "$lab"/*/; do
+            name=$(basename "$dir")
+            cp "$dir/console.log" "$out/guests/$name-console.log" 2>/dev/null || true
+            kill -0 "$(cat "$dir/qemu.pid" 2>/dev/null)" 2>/dev/null || continue
+            ip=$(grep -oE '198\.51\.100\.[0-9]+' "$dir/network-config" | head -1)
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 -i "$lab/id_ed25519" "pk@$ip" \
+              'set +e; sudo playkeeper status; sudo journalctl -b --no-pager -u playkeeper-agent -u playkeeper-panel -u playkeeper-update; sudo docker ps -a; for c in $(sudo docker ps -aq --filter label=io.playkeeper.managed=true); do echo "## docker logs $c"; sudo docker logs --tail 300 "$c"; done' \
+              >"$out/guests/$name.txt" 2>&1 || true
+          done
+      - name: Collect evidence
+        if: always()
+        run: |
+          for out in test/e2e/out/vm-*/; do :; done
+          if [ ! -d "$out" ]; then exit 0; fi
+          sudo dmesg | tee "$out/runner-dmesg.txt" >/dev/null || true
+          sudo chown -R "$(id -u)" test/e2e/out
+          find test/e2e/out \( -name 'state*.json' -o -name browser-session.json \) -delete
+          scripts/e2e/vm-rehearsal.sh redact test/e2e/out
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: vm-rehearsal-evidence
+          path: |
+            test/e2e/out
+            test/e2e/ui/test-results
+          retention-days: 14

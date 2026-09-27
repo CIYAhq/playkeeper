@@ -3,6 +3,7 @@ package diagnose
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -18,16 +19,24 @@ var (
 	reMixinConfig  = regexp.MustCompile(`Mixin \[\S{1,200}?(?: from mod ([a-z][a-z0-9_-]{0,63}))?\] from phase \[\w{1,20}\] in config \[([^\]\s]{1,200})\] FAILED during \w{1,20}`)
 	reMixinGeneric = regexp.MustCompile(`org\.spongepowered\.asm\.mixin\.\S{1,200}(?:Error|Exception)\b`)
 
-	// NeoForge: FancyModLoader's issue messages and ModSorter's log.
-	reNeoRequires   = regexp.MustCompile(`^\s*(?:- )?Mod ([a-z][a-z0-9_]{1,63}) (requires|only supports|is incompatible with) ([a-z][a-z0-9_]{1,63}) (.{1,100})$`)
+	// NeoForge and Forge: FancyModLoader's and FML's issue messages, as a
+	// loading error, a Forge crash report's failure message or the
+	// exception Forge prints, and ModSorter's log.
+	reNeoRequires   = regexp.MustCompile(`^\s*(?:- |Failure message: |net\.minecraftforge\.fml\.ModLoadingException: )?Mod ([a-z][a-z0-9_]{1,63}) (requires|only supports|is incompatible with) ([a-z][a-z0-9_]{1,63}) (.{1,100})$`)
 	reNeoCurrently  = regexp.MustCompile(`^\s*Currently, ([a-z][a-z0-9_]{1,63}) is (.{1,100})$`)
 	reNeoSorter     = regexp.MustCompile(`^\s*Mod ID: '([a-z][a-z0-9_]{1,63})', Requested by: '([a-z][a-z0-9_]{1,63})', Expected range: '([^']{1,100})', Actual version: '([^']{1,100})'`)
 	reNeoBrokenFile = regexp.MustCompile(`^\s*(?:- |Skipping jar\. )?File (.{1,300}?) (is not a valid mod file|is not a jar file|is for .{1,80} and cannot be loaded|is an? .{1,100} and cannot be loaded|is an incompatible version of OptiFine|has an unrecognized FML mod-type.{0,80})$`)
 	reNeoSection    = regexp.MustCompile(`Loading (errors|warnings) encountered:$`)
 	reNeoMixin      = regexp.MustCompile(`^\s*(?:- )?Mixin application of (\S{1,200}) from (.{1,100}?) \(([a-z][a-z0-9_]{1,63})\) has failed$`)
+	// Forge can't open a jar in the mods folder at all.
+	reForgeBrokenJar = regexp.MustCompile(`^\s*(?:Failure message: |net\.minecraftforge\.fml\.ModLoadingException: )?Failed to create secure jar for "(.{1,300}?)" - (.{1,200})$`)
+	// A mod's setup failing on Forge, which names only the mod's id; the
+	// stack trace after it names the jar ("~[wthit-26.1-forge-19.0.1.jar!/:?]").
+	reForgeDeferred = regexp.MustCompile(`^Mod '([a-z][a-z0-9_]{1,63})' encountered an error in a deferred task:$`)
+	reForgeFrameJar = regexp.MustCompile(`\[([A-Za-z0-9][A-Za-z0-9_.+-]{0,120}\.jar)!/`)
 	// Not anchored, so only lines players can't write are searched: the line
 	// starts with the mod's name, which chat could imitate.
-	reNeoModFailed = regexp.MustCompile(`\s*(?:- |Issue: )?(.{1,100}?) \(([a-z][a-z0-9_]{1,63})\) (has failed to load correctly|has class loading errors|encountered an error while dispatching the .{1,100} event|encountered an error processing deferred work)$`)
+	reNeoModFailed = regexp.MustCompile(`\s*(?:- |Issue: |Failure message: )?(.{1,100}?) \(([a-z][a-z0-9_]{1,63})\) (has failed to load correctly|has class loading errors|encountered an error while dispatching the .{1,100} event|encountered an error during the .{1,60} event phase|encountered an error processing deferred work)$`)
 
 	// Paper and Spigot plugin loading.
 	rePluginCouldNotLoad = regexp.MustCompile(`Could not load (?:plugin )?'([^']{1,300})' in (?:folder )?'[^']{1,300}'`)
@@ -51,6 +60,9 @@ func (c *crashCtx) modLoader() (CrashDiagnosis, bool) {
 		return d, true
 	}
 	if d, ok := c.neoBrokenFile(true); ok {
+		return d, true
+	}
+	if d, ok := c.forgeBrokenJar(); ok {
 		return d, true
 	}
 	if !c.pluginServer() {
@@ -140,10 +152,16 @@ func (c *crashCtx) fabricDependency() (CrashDiagnosis, bool) {
 }
 
 func (c *crashCtx) neoDependency() (CrashDiagnosis, bool) {
-	if f, ok := c.firstIn(reNeoRequires, 0, len(c.split)); ok {
+	f, ok := c.firstIn(reNeoRequires, 0, len(c.split))
+	var cur found
+	if ok {
+		cur, _ = c.firstIn(reNeoCurrently, f.idx+1, f.idx+3)
+	} else {
+		f, cur, ok = c.reportPair(reNeoRequires, reNeoCurrently)
+	}
+	if ok {
 		current := ""
-		cur, ok := c.firstIn(reNeoCurrently, f.idx+1, f.idx+3)
-		if ok && cur.groups[1] == f.groups[3] {
+		if cur.groups != nil && cur.groups[1] == f.groups[3] {
 			current = strings.TrimSpace(cur.groups[2])
 		} else {
 			cur = found{}
@@ -170,7 +188,7 @@ func (c *crashCtx) neoDiagnosis(mod, verb, dep, want, current string, ev []Evide
 	case verb == "is incompatible with":
 		d.Kind = CrashIncompatibleAddon
 		d.Title = fmt.Sprintf("%s doesn't work together with %s", mod, dep)
-		d.Explanation = fmt.Sprintf("NeoForge refused to start because %s is marked as incompatible with %s %s, and both are installed. Remove one of them.", mod, dep, want)
+		d.Explanation = fmt.Sprintf("%s refused to start because %s is marked as incompatible with %s %s, and both are installed. Remove one of them.", c.fmlName(), mod, dep, want)
 		if other := c.modJar(dep, ""); other != "" {
 			d.Fixes = append(d.Fixes, removeFix(other, true))
 		}
@@ -180,26 +198,23 @@ func (c *crashCtx) neoDiagnosis(mod, verb, dep, want, current string, ev []Evide
 	case current == "" || strings.HasPrefix(current, "not installed"):
 		d.Kind = CrashMissingDependency
 		d.Title = fmt.Sprintf("%s needs %s, which isn't installed", mod, dep)
-		d.Explanation = fmt.Sprintf("NeoForge refused to start because %s %s %s %s, and it isn't installed.", mod, verb, dep, want)
+		d.Explanation = fmt.Sprintf("%s refused to start because %s %s %s %s, and it isn't installed.", c.fmlName(), mod, verb, dep, want)
 		d.Fixes = append(d.Fixes, installFix(dep))
 		if jar != "" {
 			d.Fixes = append(d.Fixes, removeFix(jar, false))
 		}
-	case dep == "minecraft" || dep == "neoforge":
-		product := "Minecraft"
-		if dep == "neoforge" {
-			product = "NeoForge"
-		}
+	case dep == "minecraft" || dep == "neoforge" || dep == "forge":
+		product := map[string]string{"minecraft": "Minecraft", "neoforge": "NeoForge", "forge": "Forge"}[dep]
 		d.Kind = CrashIncompatibleAddon
 		d.Title = fmt.Sprintf("%s is made for a different %s version", mod, product)
-		d.Explanation = fmt.Sprintf("NeoForge refused to start because %s %s %s %s, but this server has %s.", mod, verb, product, want, current)
+		d.Explanation = fmt.Sprintf("%s refused to start because %s %s %s %s, but this server has %s.", c.fmlName(), mod, verb, product, want, current)
 		if jar != "" {
 			d.Fixes = addonFixes(jar)
 		}
 	default:
 		d.Kind = CrashIncompatibleAddon
 		d.Title = fmt.Sprintf("%s needs a different version of %s", mod, dep)
-		d.Explanation = fmt.Sprintf("NeoForge refused to start because %s %s %s %s, but %s %s is installed.", mod, verb, dep, want, dep, current)
+		d.Explanation = fmt.Sprintf("%s refused to start because %s %s %s %s, but %s %s is installed.", c.fmlName(), mod, verb, dep, want, dep, current)
 		if other := c.modJar(dep, ""); other != "" {
 			d.Fixes = append(d.Fixes, updateFix(other, true))
 		}
@@ -247,6 +262,63 @@ func (c *crashCtx) neoBrokenFile(fatal bool) (CrashDiagnosis, bool) {
 }
 
 func (c *crashCtx) skippedMod() (CrashDiagnosis, bool) { return c.neoBrokenFile(false) }
+
+// forgeBrokenJar explains a jar in the mods folder Forge can't open, which
+// stops it before any mod loads.
+func (c *crashCtx) forgeBrokenJar() (CrashDiagnosis, bool) {
+	f, ok := c.firstIn(reForgeBrokenJar, 0, len(c.split))
+	if !ok {
+		if f, ok = c.crashReport(reForgeBrokenJar); !ok {
+			return CrashDiagnosis{}, false
+		}
+	}
+	file := jarName(f.groups[1])
+	if file == "" {
+		file = truncate(strings.TrimSpace(f.groups[1]), 100)
+	}
+	d := CrashDiagnosis{
+		Kind: CrashIncompatibleAddon, Params: map[string]any{"jar": file, "reason": "invalid"},
+		Title:       "Forge can't load " + file,
+		Explanation: fmt.Sprintf("Forge refused to start because it can't open %s, so it may be damaged or only partly downloaded.", file),
+		Evidence:    c.evidenceOf(f),
+	}
+	if jar, ok := c.installed(file); ok {
+		d.Params["jar"] = jar
+		d.Fixes = addonFixes(jar)
+	}
+	return d, true
+}
+
+// reportPair finds the first crash report line matching re and, on one of
+// the two lines after it, a line matching next, as a Forge crash report
+// puts "Currently, … is not installed" under its failure message.
+func (c *crashCtx) reportPair(re, next *regexp.Regexp) (found, found, bool) {
+	for i, l := range c.report {
+		l = strings.TrimSpace(l)
+		m := re.FindStringSubmatch(l)
+		if m == nil {
+			continue
+		}
+		f := found{idx: -1, line: l, groups: m}
+		for _, n := range c.report[i+1 : min(i+3, len(c.report))] {
+			n = strings.TrimSpace(n)
+			if g := next.FindStringSubmatch(n); g != nil {
+				return f, found{idx: -1, line: n, groups: g}, true
+			}
+		}
+		return f, found{}, true
+	}
+	return found{}, found{}, false
+}
+
+// fmlName names the loader of a server whose mod loading errors read like
+// FML's: Forge, or NeoForge, which grew out of it.
+func (c *crashCtx) fmlName() string {
+	if c.in.ServerType == "forge" {
+		return "Forge"
+	}
+	return "NeoForge"
+}
 
 // neoFileReason turns FancyModLoader's reason for not loading a file into a
 // stable key and plain words.
@@ -395,8 +467,12 @@ func (c *crashCtx) modFailed() (CrashDiagnosis, bool) {
 	f, ok := c.firstIn(reNeoModFailed, 0, len(c.split))
 	switch {
 	case ok:
-		name, id, loader = f.groups[1], f.groups[2], "NeoForge"
+		name, id, loader = f.groups[1], f.groups[2], c.fmlName()
 	default:
+		if f, ok = c.firstIn(reForgeDeferred, 0, len(c.split)); ok {
+			id, loader = f.groups[1], c.fmlName()
+			break
+		}
 		if f, ok = c.find(reFabricEntrypoint); !ok {
 			return CrashDiagnosis{}, false
 		}
@@ -412,11 +488,32 @@ func (c *crashCtx) modFailed() (CrashDiagnosis, bool) {
 	if !f.inReport() {
 		d.Evidence = append(d.Evidence, c.evidenceOf(c.rootCause(f.idx, c.stackEnd(f.idx)))...)
 	}
-	if jar := c.modJar(id, name); jar != "" {
+	jar := c.modJar(id, name)
+	if jar == "" && !f.inReport() {
+		jar = c.frameAddon(f.idx+1, c.stackEnd(f.idx))
+	}
+	if jar != "" {
 		d.Params["jar"] = jar
 		d.Fixes = addonFixes(jar)
 	}
 	return d, true
+}
+
+// frameAddon is the one installed add-on that Forge's stack frames in lines
+// [from, to) name, if exactly one is.
+func (c *crashCtx) frameAddon(from, to int) string {
+	var jars []string
+	for i := max(from, 0); i < min(to, len(c.split)); i++ {
+		for _, m := range reForgeFrameJar.FindAllStringSubmatch(c.split[i].msg, -1) {
+			if jar, ok := c.installed(m[1]); ok && !slices.Contains(jars, jar) {
+				jars = append(jars, jar)
+			}
+		}
+	}
+	if len(jars) == 1 {
+		return jars[0]
+	}
+	return ""
 }
 
 // modJar finds a mod's installed jar from the paths Fabric printed, or else

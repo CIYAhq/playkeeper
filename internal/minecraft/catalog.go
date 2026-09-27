@@ -92,12 +92,36 @@ func ValidBudget(mb, hostMB int) bool {
 	return false
 }
 
-// HeapMB is the Java heap (-Xms/-Xmx) for a memory budget. The container
-// limit equals the budget; the JVM needs non-heap memory inside it.
-func HeapMB(budgetMB int) int {
-	overhead := budgetMB / 4
-	if overhead < 512 {
-		overhead = 512
+// HeapMB is the Java heap (-Xms/-Xmx) for a memory budget on a server
+// without a mod loader. The container limit equals the budget; the JVM
+// needs non-heap memory inside it.
+func HeapMB(budgetMB int) int { return HeapFor(budgetMB, "", 0) }
+
+// loaderOverheadMB is the least memory a mod loader's JVM needs outside the
+// heap, before its mods: Fabric API alone is some forty mods, and NeoForge
+// and Forge patch far more of the game.
+var loaderOverheadMB = map[string]int{"fabric": 768, "quilt": 768, "neoforge": 1024, "forge": 1024}
+
+// modOverheadMB is what each mod jar adds outside the heap: its classes,
+// mixins and JIT code.
+const modOverheadMB = 6
+
+// ModLoader reports whether typ loads mods, whose number sizes its heap.
+func ModLoader(typ string) bool {
+	_, ok := loaderOverheadMB[typ]
+	return ok
+}
+
+// HeapFor is the Java heap for a server of type typ (a registry id) with
+// mods jars in its mods folder and budgetMB of memory. Paper, Purpur and
+// Vanilla keep a quarter of the budget, at least 512 MB, outside the heap. A
+// mod loader keeps at least its own share plus modOverheadMB per mod, never
+// more than half the budget: a Quilt server with Chunky at 2 GB had 1.5 GB of
+// heap and was killed at 2.09 GB when a player joined.
+func HeapFor(budgetMB int, typ string, mods int) int {
+	overhead := max(budgetMB/4, 512)
+	if base, ok := loaderOverheadMB[typ]; ok {
+		overhead = max(overhead, min(base+modOverheadMB*max(mods, 0), budgetMB/2))
 	}
 	return budgetMB - overhead
 }

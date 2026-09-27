@@ -45,7 +45,6 @@ func sourceName(s addons.Source) string {
 
 // Kinds this package adds to the add-on library's.
 const (
-	KindForge           addons.Kind = "forge_unsupported"
 	KindUnknownLoader   addons.Kind = "unknown_loader"
 	KindTypeUnavailable addons.Kind = "server_type_unavailable"
 	KindMinecraft       addons.Kind = "minecraft_unsupported"
@@ -260,7 +259,7 @@ type Library struct {
 	// CurseForgeFiles the hosts of CurseForge's files.
 	ModrinthFiles, CurseForgeFiles fetch.Hosts
 	// Types are the server types Playkeeper can run packs on: fabric,
-	// quilt, neoforge and vanilla when empty.
+	// quilt, neoforge, forge and vanilla when empty.
 	Types []string
 	// MinMinecraft is the oldest Minecraft version packs may need;
 	// DefaultMinMinecraft when empty.
@@ -343,7 +342,7 @@ func (l *Library) types() []string {
 	if len(l.Types) > 0 {
 		return l.Types
 	}
-	return []string{"fabric", "quilt", "neoforge", "vanilla"}
+	return []string{"fabric", "quilt", "neoforge", "forge", "vanilla"}
 }
 
 func (l *Library) minMinecraft() string {

@@ -1,0 +1,11 @@
+[13:10:48] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forge_server]
+[13:10:48] [main/ERROR] [ne.mi.fm.lo.ModDirTransformerDiscoverer/]: Error during early discovery
+java.util.zip.ZipException: zip END header not found
+[13:10:48] [main/INFO] [ne.mi.fm.lo.ImmediateWindowHandler/]: ImmediateWindowProvider not loading because launch target is forge_server
+[13:10:48] [main/INFO] [mixin/]: SpongePowered MIXIN Subsystem Version=0.8.7 Source=jar:file:///data/libraries/org/spongepowered/mixin/0.8.7/mixin-0.8.7.jar!/ Service=ModLauncher Env=SERVER
+[13:10:48] [main/INFO] [ne.mi.fm.lo.mo.JarInJarDependencyLocator/]: No dependencies to load found. Skipping!
+[13:10:48] [main/INFO] [cp.mo.mo.LaunchServiceHandler/MODLAUNCHER]: Launching target 'forge_server' with arguments []
+[13:10:51] [main/FATAL] [ne.mi.fm.ModLoader/CORE]: Error during pre-loading phase
+net.minecraftforge.fml.ModLoadingException: Failed to create secure jar for "/data/mods/Jade-26.2-Forge-21.0.1.jar" - zip END header not found
+[13:10:51] [main/ERROR] [minecraft/CrashReport]: Negative index in crash report handler (21/23)
+[13:10:51] [main/FATAL] [ne.mi.se.lo.ServerModLoader/]: Crash report saved to ./crash-reports/crash-2026-09-26_13.10.51-fml.txt

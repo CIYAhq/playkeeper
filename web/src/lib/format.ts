@@ -15,6 +15,12 @@ export function formatMB(mb: number): string {
   return t('unit.mb', { value: num(mb) })
 }
 
+/** "8.5 of 16 GB": the unit once when both are gigabytes, else "512 MB of 16 GB". */
+export function formatMBOf(used: number, total: number): string {
+  if (used >= 1024 && total >= 1024) return t('home.ofTotalGb', { used: num(used / 1024, 1), total: num(total / 1024, 1) })
+  return t('home.ofTotal', { used: formatMB(used), total: formatMB(total) })
+}
+
 export function formatBytes(n: number | undefined | null): string {
   if (n === undefined || n === null || !Number.isFinite(n)) return '—'
   const keys = ['unit.bytes', 'unit.kb', 'unit.mb', 'unit.gb', 'unit.tb'] as const
@@ -101,18 +107,21 @@ export function formatTime(iso: string): string {
   return clock(iso, true)
 }
 
+// en-GB's short month for September is "Sept" in newer ICU data; every other month is three letters.
+const sep = (date: string) => date.replace(/\bSept\b/, 'Sep')
+
 export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(formatLocale(), { day: 'numeric', month: 'short' })
+  return sep(new Date(iso).toLocaleDateString(formatLocale(), { day: 'numeric', month: 'short' }))
 }
 
 /** A date with its year, like "24 Dec 2026". */
 export function formatLongDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(formatLocale(), { day: 'numeric', month: 'short', year: 'numeric' })
+  return sep(new Date(iso).toLocaleDateString(formatLocale(), { day: 'numeric', month: 'short', year: 'numeric' }))
 }
 
 export function formatDateTime(iso: string | undefined): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleString(formatLocale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+  return sep(new Date(iso).toLocaleString(formatLocale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }))
 }
 
 export function sameDay(a: Date, b: Date): boolean {
@@ -173,9 +182,4 @@ export function relativeAge(iso: string | undefined, now: number = Date.now()): 
   if (days < 60) return t('time.weeksAgo', { count: Math.floor(days / 7) })
   if (days < 730) return t('time.monthsAgo', { count: Math.floor(days / 30) })
   return t('time.yearsAgo', { count: Math.floor(days / 365) })
-}
-
-/** A big count for lists: "3.1M", "640K". */
-export function formatCompact(n: number): string {
-  return new Intl.NumberFormat(formatLocale(), { notation: 'compact', maximumFractionDigits: 1 }).format(n)
 }

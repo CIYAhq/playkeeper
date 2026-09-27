@@ -78,7 +78,9 @@ func portInUse(port int) bool {
 	return false
 }
 
-// hostLoop samples the machine's CPU use and whether Docker answers, and its version.
+// hostLoop samples the machine's CPU use and whether Docker answers, with
+// its version. Docker's health is the machine's, so it is known before the
+// first server exists.
 func (a *Agent) hostLoop(ctx context.Context) {
 	t := time.NewTicker(a.opts.SampleInterval)
 	defer t.Stop()
@@ -89,6 +91,9 @@ func (a *Agent) hostLoop(ctx context.Context) {
 			}
 		}
 		v, err := a.docker.Negotiate(ctx)
+		if ctx.Err() != nil {
+			return
+		}
 		a.mu.Lock()
 		a.dockerOK = err == nil
 		if err == nil {

@@ -1279,7 +1279,7 @@ func (s *server) createFromWorld(ctx context.Context, h *opHandle, imp *worldImp
 		}
 	}
 	h.phase("installing_world")
-	err := s.ensureDirs()
+	err := s.ensureDirs("try again")
 	if err == nil {
 		var names []string
 		if names, err = dirNames(imp.stagedDir()); err == nil {

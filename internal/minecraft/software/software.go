@@ -8,8 +8,9 @@
 // turns those into downloads, container env and checks without touching the
 // network. Download fetches each artifact and keeps it only if it matches;
 // Prepare writes the code-free launch jar Fabric and Quilt servers start
-// from; a setup-only container runs NeoForge's installer; Finish verifies
-// the result and returns the Manifest that every later start checks.
+// from; a setup-only container runs NeoForge's or Forge's installer; Finish
+// verifies the result and returns the Manifest that every later start
+// checks.
 //
 // Nothing here keeps state between calls or knows where servers live: the
 // data directory, the HTTP client and the pin are always inputs.
@@ -30,6 +31,7 @@ const (
 	Fabric   = "fabric"
 	Quilt    = "quilt"
 	NeoForge = "neoforge"
+	Forge    = "forge"
 )
 
 // Supported reports whether this package installs the given server type.
@@ -47,13 +49,15 @@ func typeName(typeID string) string {
 		return "Quilt"
 	case NeoForge:
 		return "NeoForge"
+	case Forge:
+		return "Forge"
 	}
 	return ""
 }
 
 func unsupportedType(typeID string) error {
 	return &Error{Kind: KindUnsupported, Msg: fmt.Sprintf("Playkeeper does not install %q servers this way.", typeID),
-		Hint: "Choose Vanilla, Purpur, Fabric, Quilt or NeoForge.", Params: map[string]string{"type": typeID}}
+		Hint: "Choose Vanilla, Purpur, Fabric, Quilt, NeoForge or Forge.", Params: map[string]string{"type": typeID}}
 }
 
 // Pin is the exact software a server runs. It is stored in the server's
@@ -65,6 +69,7 @@ type Pin struct {
 	FabricLoader     string `json:"fabricLoader,omitempty"`
 	QuiltLoader      string `json:"quiltLoader,omitempty"`
 	NeoForgeVersion  string `json:"neoforgeVersion,omitempty"`
+	ForgeVersion     string `json:"forgeVersion,omitempty"`
 }
 
 // Validate checks a pin before it goes anywhere near a URL, a path or a
@@ -105,6 +110,11 @@ func (p Pin) Validate() error {
 			return bad(p.NeoForgeVersion, "is not a NeoForge version for Minecraft "+p.MinecraftVersion)
 		}
 		extra.NeoForgeVersion = p.NeoForgeVersion
+	case Forge:
+		if !reForgeVersion.MatchString(p.ForgeVersion) {
+			return bad(p.ForgeVersion, "is not a Forge version")
+		}
+		extra.ForgeVersion = p.ForgeVersion
 	}
 	if extra != p {
 		return &Error{Kind: KindUnsupported, Msg: fmt.Sprintf("The version chosen for this %s server carries build details of another server type.", typeName(p.Type)),
@@ -156,6 +166,9 @@ func AssuranceOf(typeID string) (Assurance, bool) {
 	case NeoForge:
 		return Assurance{Level: LevelRecorded, Algorithms: []Algorithm{SHA512, SHA256, SHA1},
 			Summary: "The installer is checked against the SHA-512 in NeoForge's Maven repository, every library it installs against the SHA-1 listed inside the verified installer, and Minecraft's own libraries against the SHA-256 list inside Mojang's verified server jar. The installer then builds the patched Minecraft jar on this host. Nobody publishes a hash for that jar, so Playkeeper records its hash right after the verified install and checks it before every start."}, true
+	case Forge:
+		return Assurance{Level: LevelFull, Algorithms: []Algorithm{SHA512, SHA256, SHA1},
+			Summary: "The installer is checked against the SHA-512 in Forge's Maven repository, every library it installs and the shim jar the server starts from against the SHA-1 listed inside the verified installer, and Minecraft's own libraries against the SHA-256 list inside Mojang's verified server jar. The installer then builds the patched Minecraft jar on this host, which must match the SHA-1 Forge publishes inside the installer, before its first start and every start after."}, true
 	}
 	return Assurance{}, false
 }
@@ -179,13 +192,15 @@ func (s Sources) Catalog(ctx context.Context, typeID string) ([]Release, error) 
 		return quiltCatalog(ctx, s.Client)
 	case NeoForge:
 		return neoforgeCatalog(ctx, s.Client)
+	case Forge:
+		return forgeCatalog(ctx, s.Client)
 	}
 	return nil, unsupportedType(typeID)
 }
 
 // Builds lists the builds of a type's software for one Minecraft version,
 // newest first, with the newest stable one recommended: Purpur builds,
-// Fabric or Quilt loaders, or NeoForge versions. Vanilla has none.
+// Fabric or Quilt loaders, or NeoForge or Forge versions. Vanilla has none.
 func (s Sources) Builds(ctx context.Context, typeID, mc string) ([]Build, error) {
 	if !offeredFamily(mc) {
 		return nil, (Pin{Type: typeID, MinecraftVersion: mc}).Validate()
@@ -201,6 +216,8 @@ func (s Sources) Builds(ctx context.Context, typeID, mc string) ([]Build, error)
 		return quiltLoaderList(ctx, s.Client, mc)
 	case NeoForge:
 		return neoforgeVersionList(ctx, s.Client, mc)
+	case Forge:
+		return forgeVersionList(ctx, s.Client, mc)
 	}
 	return nil, unsupportedType(typeID)
 }
@@ -214,8 +231,8 @@ type Resolved struct {
 	Java int `json:"java"`
 	// Server is Mojang's server jar for the Minecraft version.
 	Server Artifact `json:"server"`
-	// Software is the type's own download: the Purpur jar or the NeoForge
-	// installer.
+	// Software is the type's own download: the Purpur jar, or the NeoForge
+	// or Forge installer.
 	Software *Artifact `json:"software,omitempty"`
 	// Libraries are Fabric's or Quilt's libraries in class path order, and
 	// Loader is the loader jar's path among them.
@@ -248,6 +265,8 @@ func (s Sources) Resolve(ctx context.Context, pin Pin) (Resolved, error) {
 		err = quiltResolve(ctx, s.Client, &r)
 	case NeoForge:
 		err = neoforgeResolve(ctx, s.Client, &r)
+	case Forge:
+		err = forgeResolve(ctx, s.Client, &r)
 	}
 	if err != nil {
 		return Resolved{}, err
@@ -275,6 +294,8 @@ func (r Resolved) Plan() (Plan, error) {
 		p, err = quiltPlan(r)
 	case NeoForge:
 		p, err = neoforgePlan(r)
+	case Forge:
+		p, err = forgePlan(r)
 	}
 	if err != nil {
 		return Plan{}, err

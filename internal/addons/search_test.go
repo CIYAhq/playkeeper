@@ -132,8 +132,9 @@ func TestSearchRefusals(t *testing.T) {
 		kind    Kind
 	}{
 		{"vanilla", "vanilla", "26.2", Query{Source: Modrinth}, KindNoAddons},
-		{"unknown server type", "forge", "26.2", Query{Source: Modrinth}, KindUnknownServerType},
+		{"unknown server type", "folia", "26.2", Query{Source: Modrinth}, KindUnknownServerType},
 		{"Hangar for mods", "fabric", "26.2", Query{Source: Hangar}, KindSourceUnsupported},
+		{"Hangar for Forge mods", "forge", "26.2", Query{Source: Hangar}, KindSourceUnsupported},
 		{"unknown source", "paper", "26.2", Query{Source: "curseforge"}, KindInvalid},
 		{"no Minecraft version", "paper", "", Query{Source: Modrinth}, KindInvalid},
 		{"odd Minecraft version", "paper", `26.2"],["x`, Query{Source: Modrinth}, KindInvalid},

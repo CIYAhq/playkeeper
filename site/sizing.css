@@ -21,6 +21,13 @@
   --sheet: 0 -12px 40px -12px rgba(29, 33, 28, .35);
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* The dashboard's motion tokens. */
+  --motion-fast: 120ms;
+  --motion-standard: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-enter: cubic-bezier(0, 0, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --press-scale: .98;
 }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
@@ -32,6 +39,12 @@ a { color: var(--primary-hover); }
 .phone-only, .nojs-note, .specs, .run-button, .menu-button, .grabber, .sheet-head, .check { display: none; }
 .skip { position: absolute; left: 12px; top: -60px; z-index: 50; padding: 10px 14px; background: var(--card); border-radius: 10px; box-shadow: var(--popup); }
 .skip:focus { top: 12px; }
+.site-nav a, .segments label, .run-options label, .cmd button, .run-button, .menu-button, .sheet-close {
+  transition-property: color, background-color, border-color, box-shadow, scale;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--ease-standard);
+}
+.site-nav a.button:active, .segments label:active, .cmd button:active, .run-button:active, .menu-button:active, .sheet-close:active { scale: var(--press-scale); }
 
 /* Site header */
 .top { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 40px; }
@@ -114,7 +127,13 @@ td.current { background: var(--selected); box-shadow: inset 0 0 0 1px var(--sele
 .install .status { margin: 0; color: var(--muted); font-size: 12px; }
 .install .status:not(:empty) { margin-bottom: 8px; }
 footer { max-width: 1168px; margin: 0 auto; padding: 0 24px 48px; color: var(--muted); font-size: 12px; line-height: 16px; }
-.backdrop { position: fixed; inset: 0; z-index: 30; background: rgba(29, 33, 28, .4); }
+/* The sheet's backdrop and the phone menu stay shown while they fade out; @starting-style fades them in. */
+.backdrop {
+  position: fixed; inset: 0; z-index: 30; display: none; background: rgba(29, 33, 28, .4); opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-exit), display var(--motion-fast) allow-discrete;
+}
+.backdrop.open { display: block; opacity: 1; transition-duration: var(--motion-standard); transition-timing-function: var(--ease-enter); }
+@starting-style { .backdrop.open { opacity: 0; } }
 
 /* Tablets: the answer goes under the questions. */
 @media (max-width: 900px) {
@@ -132,8 +151,13 @@ footer { max-width: 1168px; margin: 0 auto; padding: 0 24px 48px; color: var(--m
   .menu-button[aria-expanded="true"] { background: var(--accent); }
   .menu-button .icon-close, .menu-button[aria-expanded="true"] .icon-menu { display: none; }
   .menu-button[aria-expanded="true"] .icon-close { display: block; }
-  .site-nav { position: absolute; top: 60px; right: 12px; left: 12px; z-index: 20; display: none; flex-direction: column; align-items: stretch; padding: 6px; background: var(--card); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--popup); }
-  .site-nav.open { display: flex; }
+  .site-nav {
+    position: absolute; top: 60px; right: 12px; left: 12px; z-index: 20; display: none; flex-direction: column; align-items: stretch; padding: 6px; background: var(--card); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--popup);
+    opacity: 0; translate: 0 -4px;
+    transition: opacity var(--motion-fast) var(--ease-exit), translate var(--motion-fast) var(--ease-exit), display var(--motion-fast) allow-discrete;
+  }
+  .site-nav.open { display: flex; opacity: 1; translate: none; transition-duration: var(--motion-standard); transition-timing-function: var(--ease-enter); }
+  @starting-style { .site-nav.open { opacity: 0; translate: 0 -4px; } }
   .site-nav a { min-height: 44px; padding: 0 12px; color: var(--text); font-size: 15px; }
   .site-nav a.button { justify-content: center; margin: 6px 0 0; }
   main { padding: 0 16px 24px; }
@@ -149,8 +173,13 @@ footer { max-width: 1168px; margin: 0 auto; padding: 0 24px 48px; color: var(--m
   .run { margin: 14px 0; }
   .run-button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 44px; padding: 0 12px 0 11px; color: var(--text); background: var(--card); border: 1px solid var(--input); border-radius: 10px; box-shadow: var(--shadow-outline); font: inherit; font-size: 15px; text-align: left; cursor: pointer; }
   .run-button svg { flex: none; color: var(--muted); }
-  .run-options { display: none; }
-  .run.open .run-options { position: fixed; right: 0; bottom: 0; left: 0; z-index: 40; display: block; max-height: 85vh; overflow-y: auto; padding-bottom: calc(16px + env(safe-area-inset-bottom)); background: var(--card); border-radius: 22px 22px 0 0; box-shadow: var(--sheet); }
+  .run-options {
+    position: fixed; right: 0; bottom: 0; left: 0; z-index: 40; display: none; max-height: 85vh; overflow-y: auto; padding-bottom: calc(16px + env(safe-area-inset-bottom)); background: var(--card); border-radius: 22px 22px 0 0; box-shadow: var(--sheet);
+    opacity: 0; translate: 0 32px;
+    transition: opacity var(--motion-fast) var(--ease-exit), translate var(--motion-fast) var(--ease-exit), display var(--motion-fast) allow-discrete;
+  }
+  .run.open .run-options { display: block; opacity: 1; translate: none; transition-duration: var(--motion-standard); transition-timing-function: var(--ease-enter); }
+  @starting-style { .run.open .run-options { opacity: 0; translate: 0 32px; } }
   .grabber { display: block; width: 40px; height: 5px; margin: 8px auto 0; border-radius: 9999px; background: var(--input); }
   .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 8px 4px 20px; }
   .sheet-title { margin: 0; font-size: 18px; line-height: 24px; font-weight: 700; }
@@ -192,4 +221,9 @@ footer { max-width: 1168px; margin: 0 auto; padding: 0 24px 48px; color: var(--m
   .cmd { flex-direction: column; }
   .cmd button { min-height: 44px; }
   footer { padding-right: 16px; padding-left: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --press-scale: 1; }
+  *, ::before, ::after { transition-duration: .01ms !important; }
 }

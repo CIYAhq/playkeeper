@@ -348,7 +348,7 @@ func (s *server) addToStoppedWhitelist(r *http.Request, name, uuid, actor string
 	} else if running {
 		return api.WhitelistChange{}, errConflict("The server is starting or stopping. Try again in a minute.", "")
 	}
-	if err := s.ensureDirs(); err != nil {
+	if err := s.ensureDirs("try again"); err != nil {
 		return api.WhitelistChange{}, err
 	}
 	d, err := s.gameFiles()

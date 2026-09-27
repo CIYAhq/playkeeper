@@ -145,7 +145,7 @@ function plan(kind: JobKind, srv: ServerStatus, args: Record<string, string>): S
 }
 
 function busy(srv: ServerStatus): ApiError {
-  return new ApiError(409, { error: dt('demo.busy', { what: srv.operation ? opLabel(srv.operation, srv.name) : srv.name }), code: 'busy' })
+  return new ApiError(409, { error: dt('demo.busy', { what: srv.operation ? opLabel(srv.operation, srv) : srv.name }), code: 'busy' })
 }
 
 function begin(s: DemoState, srv: ServerStatus, kind: JobKind, now: number, args: Record<string, string> = {}): Operation {

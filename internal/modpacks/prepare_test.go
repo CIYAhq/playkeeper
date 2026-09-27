@@ -190,7 +190,7 @@ func TestDetailNamesTheHeadlineMod(t *testing.T) {
 }
 
 func TestNewestPrefersReleases(t *testing.T) {
-	no := &addons.Notice{Kind: KindForge}
+	no := &addons.Notice{Kind: KindTypeUnavailable}
 	vs := []Version{{ID: "a", Channel: "release", Unsupported: no}, {ID: "b", Channel: "beta"}, {ID: "c", Channel: "release"}, {ID: "d", Channel: "release"}}
 	if v := Newest(vs); v == nil || v.ID != "c" {
 		t.Errorf("newest = %+v, want c", v)

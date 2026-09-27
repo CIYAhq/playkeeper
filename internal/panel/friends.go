@@ -49,11 +49,16 @@ func scanInvite(row rowScanner) (invites.Invite, error) {
 }
 
 func (s *Server) insertInvite(inv invites.Invite) error {
+	return s.insertInviteOn(context.Background(), s.db, inv)
+}
+
+// insertInviteOn stores inv with db, which may be a transaction's connection.
+func (s *Server) insertInviteOn(ctx context.Context, db querier, inv invites.Invite) error {
 	servers := ""
 	if inv.Kind == invites.KindMember {
 		servers = inv.Servers.String()
 	}
-	_, err := s.db.Exec(`INSERT INTO invites(`+inviteColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := db.ExecContext(ctx, `INSERT INTO invites(`+inviteColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		inv.ID, string(inv.Kind), inv.CodeHash, inv.Code, inv.ProjectID, inv.ServerID, inv.Role, servers, string(inv.Approval), inv.Label,
 		inv.CreatedBy, invites.Millis(inv.CreatedAt), invites.Millis(inv.ExpiresAt), inv.MaxUses, inv.Uses, invites.Millis(inv.RevokedAt))
 	return err
@@ -311,7 +316,22 @@ func (s *Server) hInviteCreate(w http.ResponseWriter, r *http.Request, sess *ses
 		writeRefusal(w, err)
 		return
 	}
-	if err := s.insertInvite(c.Invite); err != nil {
+	err = s.immediate(r.Context(), func(conn *sql.Conn) error {
+		var working int
+		if err := conn.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM invites WHERE kind = 'player' AND server_id = ? AND revoked_at = 0
+			AND (expires_at = 0 OR expires_at > ?) AND (max_uses = 0 OR uses < max_uses)`, id, s.now().UnixMilli()).Scan(&working); err != nil {
+			return err
+		}
+		if working >= invites.MaxWorkingPlayerInvites {
+			return invites.InvitesFull()
+		}
+		return s.insertInviteOn(r.Context(), conn, c.Invite)
+	})
+	if invites.CodeOf(err) == invites.CodeInvitesFull {
+		writeRefusal(w, err)
+		return
+	}
+	if err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
@@ -320,18 +340,38 @@ func (s *Server) hInviteCreate(w http.ResponseWriter, r *http.Request, sess *ses
 		uses = fmt.Sprintf("%d friends", c.Invite.MaxUses)
 	}
 	s.audit(sess.User.Username, "invite.create", c.Invite.Actor(), "succeeded",
-		fmt.Sprintf("friend invite for %s; %s; %s; %s", st.Name, expiryText(req.Expiry), uses, c.Invite.Approval))
+		fmt.Sprintf("friend invite for %s; %s; %s; %s", st.Name, expiryText(req.Expiry), uses, approvalText(c.Invite.Approval)))
 	writeJSON(w, http.StatusCreated, c.Invite.Summarize(s.now()))
 }
 
+// expiryText and approvalText word an invite for the audit log, which people read.
 func expiryText(e invites.Expiry) string {
 	if e == "" {
 		e = invites.DefaultExpiry
 	}
-	if e == invites.ExpiryUntilTurnedOff {
+	switch e {
+	case invites.ExpiryOneDay:
+		return "works 1 day"
+	case invites.ExpirySevenDays:
+		return "works 7 days"
+	case invites.ExpiryThirtyDays:
+		return "works 30 days"
+	case invites.ExpiryUntilTurnedOff:
 		return "until turned off"
+	default:
+		return "works " + string(e)
 	}
-	return "works " + string(e)
+}
+
+func approvalText(a invites.Approval) string {
+	switch a {
+	case invites.RightAway:
+		return "right away"
+	case invites.AfterYes:
+		return "after you say yes"
+	default:
+		return string(a)
+	}
 }
 
 // hInviteRevoke turns a friend invite off and declines what it let people

@@ -21,7 +21,7 @@ import (
 
 const (
 	// ModrinthProjectID and ModrinthSlug identify Chunky on Modrinth, which
-	// hosts its Paper, Fabric and NeoForge builds.
+	// hosts its Paper, Fabric, NeoForge and Forge builds.
 	ModrinthProjectID = "fALzjamp"
 	ModrinthSlug      = "chunky"
 	// HangarProject is Chunky on PaperMC's Hangar, which hosts its Paper
@@ -42,6 +42,8 @@ const (
 	Fabric Platform = "fabric"
 	// NeoForge is like Fabric, with NeoForge's mod metadata.
 	NeoForge Platform = "neoforge"
+	// Forge is like NeoForge, with Forge's mod metadata.
+	Forge Platform = "forge"
 )
 
 // PlatformFor maps a Playkeeper server type to the platform Chunky runs on.
@@ -54,6 +56,8 @@ func PlatformFor(serverType string) (Platform, error) {
 		return Fabric, nil
 	case "neoforge":
 		return NeoForge, nil
+	case "forge":
+		return Forge, nil
 	}
 	what := "this server"
 	if serverType != "" {
@@ -63,7 +67,7 @@ func PlatformFor(serverType string) (Platform, error) {
 		Code:   CodeUnsupportedServer,
 		Params: map[string]any{"type": serverType},
 		Msg:    fmt.Sprintf("Map pre-generation needs Chunky, a plugin or mod that %s can't load.", what),
-		Hint:   "Switch the server to Paper, Fabric or NeoForge to pre-generate its map.",
+		Hint:   "Switch the server to Paper, Fabric, NeoForge or Forge to pre-generate its map.",
 	}
 }
 
@@ -76,11 +80,13 @@ func (p Platform) ModrinthLoader() string {
 		return "fabric"
 	case NeoForge:
 		return "neoforge"
+	case Forge:
+		return "forge"
 	}
 	return ""
 }
 
-func (p Platform) valid() bool { return p == Bukkit || p == Fabric || p == NeoForge }
+func (p Platform) valid() bool { return p == Bukkit || p == Fabric || p == NeoForge || p == Forge }
 
 // Dimension is the kind of a world, which decides how much disk its chunks
 // take.
@@ -113,8 +119,8 @@ var (
 	// Bukkit world names are folder names. Chunky splits its arguments on
 	// spaces, so names with spaces or symbols can't be selected at all.
 	reBukkitWorld = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.\-]{0,63}$`)
-	// Fabric and NeoForge take a dimension ID, parsed by the game's command
-	// parser as a resource location.
+	// Fabric, NeoForge and Forge take a dimension ID, parsed by the game's
+	// command parser as a resource location.
 	reDimension = regexp.MustCompile(`^[a-z0-9_.\-]{1,64}:[a-z0-9_.\-/]{1,128}$`)
 )
 
@@ -125,7 +131,7 @@ func (p Platform) CheckWorld(world string) error {
 	switch p {
 	case Bukkit:
 		ok = reBukkitWorld.MatchString(world)
-	case Fabric, NeoForge:
+	case Fabric, NeoForge, Forge:
 		ok = reDimension.MatchString(world)
 		if ok {
 			_, path, _ := strings.Cut(world, ":")
@@ -200,7 +206,7 @@ type Plan struct {
 // Check reports the first thing wrong with the plan for a server on p.
 func (pl Plan) Check(p Platform) error {
 	if !p.valid() {
-		return &Error{Code: CodeUnsupportedServer, Params: map[string]any{"type": string(p)}, Msg: "This server type can't run Chunky.", Hint: "Switch the server to Paper, Fabric or NeoForge to pre-generate its map."}
+		return &Error{Code: CodeUnsupportedServer, Params: map[string]any{"type": string(p)}, Msg: "This server type can't run Chunky.", Hint: "Switch the server to Paper, Fabric, NeoForge or Forge to pre-generate its map."}
 	}
 	if err := p.CheckWorld(pl.World); err != nil {
 		return err

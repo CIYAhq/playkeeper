@@ -303,7 +303,7 @@ func TestRestoredWorldThatDoesNotStartIsSwappedBackOut(t *testing.T) {
 				e.start()
 			}
 			op := e.waitOp(opID)
-			if op.Status != api.OpFailed || !strings.HasPrefix(op.Error, "The restored world did not start (The server stopped while starting (exit code 1).") ||
+			if op.Status != api.OpFailed || !strings.HasPrefix(op.Error, "The restored world did not start (The server stopped while starting (exit code 1)).") ||
 				!strings.HasSuffix(op.Error, "). Your previous world was put back and is running.") {
 				t.Fatalf("the restore must say its world did not start and the previous one is back: %+v", op)
 			}
@@ -338,5 +338,25 @@ func TestRestoredWorldThatDoesNotStartIsSwappedBackOut(t *testing.T) {
 			}
 			e.waitFor("the previous world running again", e.onlineIdle)
 		})
+	}
+}
+
+// Why a restored world was swapped back out reads as one sentence, even when
+// the reason is a sentence of its own ("… (exit code 1).").
+func TestAnUndoneRestoreSaysWhyInOneSentence(t *testing.T) {
+	e := newAgentEnv(t)
+	id, phrase, _, _ := e.restoreScenario()
+	e.fd.mu.Lock()
+	e.fd.failBoots = 1
+	e.fd.mu.Unlock()
+	op := e.waitOp(e.startRestore(id, phrase))
+	if op.Status != api.OpFailed || !strings.HasPrefix(op.Error, "The restored world did not start (") {
+		t.Fatalf("want the restored world swapped back out: %+v", op)
+	}
+	if strings.Contains(op.Error, ".).") {
+		t.Fatalf("the reason's own full stop is doubled: %q", op.Error)
+	}
+	if !strings.Contains(op.Error, "(exit code 1)).") {
+		t.Fatalf("the reason is missing from the error: %q", op.Error)
 	}
 }

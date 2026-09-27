@@ -108,7 +108,7 @@ function JoinShell({ step, children }: { step?: number; children: ReactNode }) {
         {t('nav.skip')}
       </a>
       {!phone && (
-        <header className={cn('flex h-14 shrink-0 items-center gap-4 px-6', step !== undefined && 'grid grid-cols-[1fr_minmax(0,420px)_1fr]')}>
+        <header className={cn('flex h-14 shrink-0 items-center gap-4 px-8', step !== undefined && 'grid grid-cols-[1fr_minmax(0,420px)_1fr]')}>
           <span className="flex items-center gap-2 text-[15px] font-bold">
             <BrandMark size={24} />
             {t('brand.name')}
@@ -129,7 +129,7 @@ function JoinShell({ step, children }: { step?: number; children: ReactNode }) {
       <main id="main" tabIndex={-1} className="flex flex-1 flex-col items-center justify-center px-6 py-8 outline-none max-sm:justify-start max-sm:px-4 max-sm:pt-7 max-sm:pb-8">
         {children}
       </main>
-      <footer className="flex shrink-0 items-center justify-between gap-6 px-6 py-4 text-xs text-muted-foreground max-sm:flex-col max-sm:gap-1.5 max-sm:px-8 max-sm:pt-4 max-sm:pb-[max(env(safe-area-inset-bottom),40px)] max-sm:text-center">
+      <footer className="flex shrink-0 items-center justify-between gap-6 px-8 py-4 text-xs text-muted-foreground max-sm:flex-col max-sm:gap-1.5 max-sm:px-8 max-sm:pt-4 max-sm:pb-[max(env(safe-area-inset-bottom),40px)] max-sm:text-center">
         <span className="max-sm:order-2 max-sm:text-[11px] max-sm:leading-[15px]">{t('footer.notOfficial')}</span>
         <span className="inline-flex items-center gap-1.5 max-sm:order-1 max-sm:text-[13px]">
           <BrandMark size={16} />
@@ -143,7 +143,7 @@ function JoinShell({ step, children }: { step?: number; children: ReactNode }) {
 function JoinCard({ className, children, ...rest }: { className?: string; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('w-full max-w-[460px] animate-page rounded-4xl border border-border bg-card p-6 shadow-popup max-sm:rounded-3xl max-sm:p-4 max-sm:pt-5 max-sm:shadow-none', className)}
+      className={cn('w-full max-w-[460px] animate-page rounded-4xl border border-border bg-card p-8 shadow-popup max-sm:rounded-3xl max-sm:p-4 max-sm:pt-5 max-sm:shadow-none', className)}
       {...rest}
     >
       {children}
@@ -155,7 +155,7 @@ function JoinSkeleton() {
   return (
     <JoinCard aria-busy="true" aria-label={t('common.loading')} className="animate-none">
       <div className="flex items-center gap-3.5">
-        <Skeleton className="size-12 rounded-[22%]" />
+        <Skeleton className="size-14 rounded-[22%] max-sm:size-12" />
         <div className="flex-1">
           <Skeleton className="h-5 w-3/4" />
           <Skeleton className="mt-2 h-3.5 w-1/2" />
@@ -259,7 +259,7 @@ function FriendJoin({ code, preview, onRefused }: { code: string; preview: Playe
   return (
     <JoinCard>
       <div className="flex items-center gap-3.5">
-        <Emblem size={48} stopped={!preview.online} name={preview.server} />
+        <Emblem size={phone ? 48 : 56} stopped={!preview.online} name={preview.server} />
         <div className="min-w-0">
           <h1 className="text-[22px] leading-7 font-bold tracking-[-0.01em] max-sm:text-xl max-sm:leading-6">{title}</h1>
           <p className="mt-1 flex items-center gap-1.5 text-[13px] text-muted-foreground max-sm:text-sm">
@@ -413,7 +413,7 @@ function TeamJoin({ code, preview, onRefused, onJoined }: { code: string; previe
           <p className="mt-1 text-[13px] text-muted-foreground max-sm:text-sm">{preview.inviter ? t('join.teamFrom', { inviter: preview.inviter }) : t('join.teamFromAnyone')}</p>
         </div>
       </div>
-      <dl className="mt-5 grid grid-cols-[100px_1fr] gap-x-4 gap-y-2.5 rounded-2xl border border-border bg-warm p-3.5 text-[13px] max-sm:grid-cols-[96px_1fr] max-sm:text-[15px]">
+      <dl className="mt-5 grid grid-cols-[124px_1fr] gap-x-4 gap-y-2.5 rounded-2xl border border-border bg-warm p-4 text-[13px] max-sm:grid-cols-[96px_1fr] max-sm:p-3.5 max-sm:text-[15px]">
         <dt className="text-muted-foreground">{t('join.yourRole')}</dt>
         <dd className="font-semibold">
           {role}

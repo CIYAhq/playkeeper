@@ -12,6 +12,7 @@ const typeNames: Record<string, string> = {
   fabric: 'Fabric',
   quilt: 'Quilt',
   neoforge: 'NeoForge',
+  forge: 'Forge',
 }
 
 export function typeName(id: string | undefined): string {

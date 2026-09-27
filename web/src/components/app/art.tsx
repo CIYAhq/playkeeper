@@ -1,5 +1,6 @@
 import mark from '@/assets/brand/playkeeper-mark.svg'
 import fabric from '@/assets/logos/fabric-icon.png'
+import forge from '@/assets/logos/forge-apple-touch-icon.png'
 import neoforge from '@/assets/logos/neoforged-logo.svg'
 import paper from '@/assets/logos/papermc_logo.min.svg'
 import purpur from '@/assets/logos/purpur.svg'
@@ -77,12 +78,12 @@ export function Emblem({ size = 44, stopped, icon, name, className }: { size?: n
   )
 }
 
-/** Minecraft: Java Edition, as a game to pick: the grass block in the logo tile. */
+/** Minecraft: Java Edition, as a game to pick: the grass block art filling its tile, like a server's emblem. */
 export function GameIcon({ size = 40, className }: { size?: number; className?: string }) {
-  const scale = Math.max(1, Math.floor((size * 0.64) / 12))
+  const px = Math.max(1, Math.round(size / 12)) * 12
   return (
-    <span className={cn('inline-flex shrink-0 items-center justify-center overflow-hidden border border-border bg-white', className)} style={{ width: size, height: size, borderRadius: Math.round(size * 0.26) }}>
-      <img src={emblem} width={12 * scale} height={12 * scale} alt="" className="pixelated" draggable={false} />
+    <span className={cn('inline-flex shrink-0 overflow-hidden rounded-[22%] border border-black/10', className)} style={{ width: px, height: px }}>
+      <img src={emblem} width={px} height={px} alt="" className="pixelated" draggable={false} />
     </span>
   )
 }
@@ -94,6 +95,7 @@ const logos: Record<string, { src: string; pixel?: boolean }> = {
   fabric: { src: fabric, pixel: true },
   quilt: { src: quilt },
   neoforge: { src: neoforge },
+  forge: { src: forge },
 }
 
 /** A server software logo in the shared white tile. Logo files are never altered. */

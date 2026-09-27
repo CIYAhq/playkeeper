@@ -4,6 +4,7 @@ import { get } from '@/api/client'
 import type { AddonCard, AddonDetails, CuratedAddon, CuratedAddons } from '@/api/types'
 import { serverApi } from '@/api/workspace'
 import { Marker, SectionLabel } from '@/components/app/bits'
+import { CardsSkeleton, ListSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { t, type MessageKey } from '@/i18n'
 import { alsoInstalls, footerFor, keyFrom, sourceNames } from '@/lib/addons'
@@ -32,7 +33,8 @@ function lines(p: CuratedAddon): [string, string] {
 
 /**
  * "Picked by Playkeeper": the curated add-ons that fit the server, before a
- * search. Nothing shows when none fit or the list can't be had.
+ * search. Nothing shows when none fit or the list can't be had; while it
+ * loads, placeholders hold its space so the results below don't jump.
  */
 export function CuratedPicks({ phone, installed }: { phone: boolean; installed: (c: AddonCard) => boolean }) {
   const a = useAddons()
@@ -47,7 +49,8 @@ export function CuratedPicks({ phone, installed }: { phone: boolean; installed: 
       stale = true
     }
   }, [serverId])
-  if (!picks?.length) return null
+  if (!picks) return <PicksSkeleton phone={phone} />
+  if (!picks.length) return null
 
   if (phone) {
     return (
@@ -116,7 +119,7 @@ function PickCard({ pick: p, installed }: { pick: CuratedAddon; installed: boole
     }
   }
   return (
-    <li className="flex min-h-[152px] flex-col rounded-2xl border border-border bg-card p-4 shadow-card">
+    <li className="flex min-h-[152px] flex-col rounded-2xl border border-border bg-card p-4 shadow-card transition-shadow duration-(--motion-fast) ease-standard hover:shadow-[0_2px_8px_rgba(29,33,28,0.08)]">
       <button type="button" onClick={() => a.openDetail({ key })} className="-m-1 flex min-w-0 items-center gap-3 rounded-lg p-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <AddonIcon url={p.card.iconUrl} />
         <span className="min-w-0">
@@ -139,5 +142,22 @@ function PickCard({ pick: p, installed }: { pick: CuratedAddon; installed: boole
         )}
       </div>
     </li>
+  )
+}
+
+function PicksSkeleton({ phone }: { phone: boolean }) {
+  if (phone) {
+    return (
+      <section>
+        <SectionLabel className="px-4 pb-2">{t('curated.title')}</SectionLabel>
+        <ListSkeleton rows={shown} face="size-10 rounded-[10px]" rowClassName="flex min-h-16 items-center gap-3 border-b border-border px-3 py-2 last:border-b-0" className="overflow-hidden rounded-3xl border border-border bg-white" />
+      </section>
+    )
+  }
+  return (
+    <section className="flex flex-col gap-3">
+      <h3 className="text-[15px] font-semibold">{t('curated.title')}</h3>
+      <CardsSkeleton count={shown} card="min-h-[152px]" className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4" />
+    </section>
   )
 }

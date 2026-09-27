@@ -208,7 +208,7 @@ func ParseTickQuery(reply string) (q TickQuery, ok bool) {
 }
 
 // Overload is a "Can't keep up!" warning: the server fell Behind, skipping
-// Ticks ticks to catch up. Vanilla, Fabric and NeoForge log it; current Paper
+// Ticks ticks to catch up. Vanilla, Fabric, NeoForge and Forge log it; current Paper
 // does not.
 type Overload struct {
 	At     time.Time

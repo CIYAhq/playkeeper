@@ -8,6 +8,8 @@
 # components copied into the web UI's source, and the server software logos
 # it shows.
 # Needs the Go module cache and web/node_modules (scripts/setup.sh fills both).
+# --check also fails while docs/THIRD_PARTY.md leaves out a Go module or npm
+# package that THIRD_PARTY_NOTICES lists, or gives it another version.
 # Usage: scripts/third-party-notices.sh [--check]
 set -euo pipefail
 export LC_ALL=C
@@ -16,6 +18,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH"
 target=THIRD_PARTY_NOTICES
+inventory=docs/THIRD_PARTY.md
 rule=$(printf '=%.0s' {1..80})
 fail() {
   echo "third-party notices: $*" >&2
@@ -102,6 +105,58 @@ EOF
     "$dir/NOTICE.md" "$dir"/licences/*
 }
 
+# listed prints "name version" for each Go module and npm package the notices
+# on stdin have a section for, read from the titles generate gives them.
+listed() {
+  awk -v rule="$rule" '
+    prev == rule && /^[^ ]+ [^ ]+ \((Go module\)|npm package, |its [^;)]* bundled in the web UI)/ { print $1, $2 }
+    { prev = $0 }'
+}
+
+# documented prints "name version" for each package named in the first column
+# of the tables under the inventory's "Compiled into" and "Bundled in the web
+# UI" headings. A row may name several, with their versions in the same order;
+# what a parenthesis says about a package, and names with spaces (the Go
+# standard library) or rows without a version (coss ui), are left out.
+documented() {
+  awk -F'|' '
+    function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    /^#/ { on = /^## (Compiled into|Bundled in the web UI)/; next }
+    !on || NF < 4 { next }
+    {
+      names = $2
+      versions = trim($3)
+      gsub(/ \([^)]*\)|`/, "", names)
+      if (versions ~ /^(Version|-+|—)$/) next
+      n = split(names, name, ",")
+      m = split(versions, version, ",")
+      for (i = 1; i <= n; i++) {
+        if ((p = trim(name[i])) ~ / /) continue
+        print p, (n == m ? trim(version[i]) : "(one version for each name is needed)")
+      }
+    }' "$inventory"
+}
+
+# check_inventory fails unless the inventory lists every Go module and npm
+# package in the notices file NOTICES at its version. A Go pseudo-version may
+# be given as its commit, as the inventory does.
+check_inventory() { # NOTICES
+  local gaps
+  gaps=$(awk '
+    NR == FNR { versions[$1] = versions[$1] " " $2; next }
+    {
+      short = $2
+      if ($2 ~ /-[0-9]+-[0-9a-f]+$/) short = substr($2, match($2, /[0-9a-f]+$/))
+    }
+    !($1 in versions) { printf "  %s %s is missing\n", $1, $2; next }
+    index(versions[$1] " ", " " $2 " ") == 0 && index(versions[$1] " ", " " short " ") == 0 {
+      printf "  %s has%s there, not %s\n", $1, versions[$1], $2
+    }' <(documented) <(listed <"$1"))
+  [ -z "$gaps" ] || fail "$inventory doesn't list everything $1 does:
+$gaps
+Give each its own row with its version and licence (or add it to the row of the package that brings it in)."
+}
+
 case ${1:-} in
   --check)
     fresh=$(mktemp)
@@ -112,6 +167,8 @@ case ${1:-} in
       fail "$target is out of date; run scripts/third-party-notices.sh (or make notices) and commit the result"
     fi
     echo "$target is up to date"
+    check_inventory "$target"
+    echo "$inventory lists every Go module and npm package in it"
     ;;
   '')
     generate >"$target"

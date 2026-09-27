@@ -23,7 +23,7 @@ import (
 
 // templateBuildKey is the one key of a template's Server.Build Playkeeper
 // writes and reads: the build the create flow pins (a Paper or Purpur
-// build, a Fabric or Quilt loader, a NeoForge version).
+// build, a Fabric or Quilt loader, a NeoForge or Forge version).
 const templateBuildKey = "build"
 
 // kindTemplatePacks reports a template's resource pack, which an import
@@ -544,7 +544,7 @@ func (s *server) installTemplatePacks(ctx context.Context, h *opHandle, sc *api.
 	if len(list) == 0 {
 		return nil, nil
 	}
-	if err := s.ensureDirs(); err != nil {
+	if err := s.ensureDirs("press Start"); err != nil {
 		return nil, err
 	}
 	h.phase("installing_addons")

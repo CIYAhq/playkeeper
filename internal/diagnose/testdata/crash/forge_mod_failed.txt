@@ -1,0 +1,33 @@
+[13:14:09] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forge_server]
+[13:14:12] [main/INFO] [mc.mo.wa.pl.PluginLoader/]: [WTHIT] Initializing common plugin waila:core at mcp.mobius.waila.plugin.core.CoreCommonPlugin
+[13:14:12] [main/INFO] [mc.mo.wa.pl.PluginLoader/]: [WTHIT] Initializing common plugin waila:vanilla at mcp.mobius.waila.plugin.vanilla.VanillaCommonPlugin
+[13:14:12] [main/ERROR] [ne.mi.fm.DeferredWorkQueue/]: Mod 'waila' encountered an error in a deferred task:
+java.lang.NoSuchFieldError: Class net.minecraft.world.entity.EntityType does not have member field 'net.minecraft.world.entity.EntityType AREA_EFFECT_CLOUD'
+	at TRANSFORMER/wthit@19.0.1/mcp.mobius.waila.plugin.vanilla.VanillaCommonPlugin.register(VanillaCommonPlugin.java:153) ~[wthit-26.1-forge-19.0.1.jar!/:?]
+Transformer Audit:
+  mcp.mobius.waila.forge.ForgeWaila
+    REASON: classloading
+  mcp.mobius.waila.plugin.PluginLoader
+    REASON: classloading
+  mcp.mobius.waila.plugin.vanilla.VanillaCommonPlugin
+    REASON: classloading
+  net.minecraft.server.Main
+    REASON: classloading
+  net.minecraftforge.fml.core.ParallelTransition
+    REASON: classloading
+  net.minecraftforge.server.loading.ServerModLoader
+    REASON: classloading
+[13:14:12] [main/FATAL] [ne.mi.fm.DeferredWorkQueue/LOADING]: Synchronous work queue completed exceptionally in 42.05 ms, see suppressed exceptions for details:
+java.lang.RuntimeException: null
+	at LAYER PLUGIN/net.minecraftforge.fmlcore@26.2-65.1.0/net.minecraftforge.fml.DeferredWorkQueue.runTasks(DeferredWorkQueue.java:58) [fmlcore-26.2-65.1.0.jar!/:1.0]
+	Suppressed: java.lang.NoSuchFieldError: Class net.minecraft.world.entity.EntityType does not have member field 'net.minecraft.world.entity.EntityType AREA_EFFECT_CLOUD'
+		at TRANSFORMER/wthit@19.0.1/mcp.mobius.waila.plugin.vanilla.VanillaCommonPlugin.register(VanillaCommonPlugin.java:153) ~[wthit-26.1-forge-19.0.1.jar!/:?]
+[13:14:12] [main/FATAL] [ne.mi.fm.ModLoader/]: Encountered non-modloading exceptions!
+java.util.concurrent.CompletionException: java.lang.RuntimeException
+	at java.base/java.util.concurrent.CompletableFuture.wrapInCompletionException(Unknown Source) ~[?:?]
+Caused by: java.lang.RuntimeException
+	at LAYER PLUGIN/net.minecraftforge.fmlcore@26.2-65.1.0/net.minecraftforge.fml.DeferredWorkQueue.runTasks(DeferredWorkQueue.java:58) ~[fmlcore-26.2-65.1.0.jar!/:1.0]
+	... 27 more
+	Suppressed: java.lang.NoSuchFieldError: Class net.minecraft.world.entity.EntityType does not have member field 'net.minecraft.world.entity.EntityType AREA_EFFECT_CLOUD'
+		at TRANSFORMER/wthit@19.0.1/mcp.mobius.waila.plugin.vanilla.VanillaCommonPlugin.register(VanillaCommonPlugin.java:153) ~[wthit-26.1-forge-19.0.1.jar!/:?]
+[13:14:12] [main/ERROR] [minecraft/Main]: Failed to start the minecraft server

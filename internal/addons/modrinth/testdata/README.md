@@ -17,6 +17,6 @@ Trimming:
 
 - Search hits: `versions` and project `game_versions` keep 1.21 and later; `gallery` keeps at most one image.
 - Projects: `body` is cut to 240 characters, `gallery` to one image, `versions` to the version ids kept in `versions-<slug>.json`.
-- Version lists keep a handful of versions per project, chosen to cover releases and pre-releases, several loaders (Paper, Fabric, NeoForge), other Minecraft versions, and every dependency type (required, optional, incompatible, a pinned `version_id`). `game_versions` keeps 1.21 and later.
+- Version lists keep a handful of versions per project, chosen to cover releases and pre-releases, several loaders (Paper, Fabric, NeoForge, Forge), other Minecraft versions, and every dependency type (required, optional, incompatible, a pinned `version_id`). `game_versions` keeps 1.21 and later.
 
 Project ids used across files: `P1OZGk5p` viaversion, `NpvuJQoq` viabackwards, `fALzjamp` chunky, `4qmvXRB9` zconfig, `sml2FMaA` anti-xray, `KOHu7RCS` moonrise-opt, `P7dR8mSH` fabric-api, `Eldc1g37` tcdcommons.

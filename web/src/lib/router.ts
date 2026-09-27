@@ -51,6 +51,12 @@ export const rePlayerName = /^[A-Za-z0-9_]{3,16}$/
 const rePackToken = /^[A-Za-z0-9]{22}$/
 const reMachineId = /^[a-z2-9]{10}$/
 
+/** The link token of the shared map at /map/<token>, or undefined on any other page. */
+export function publicMapToken(pathname: string): string | undefined {
+  const m = /^\/map\/([^/]*)\/?$/.exec(pathname)
+  return m ? (m[1] ?? '') : undefined
+}
+
 /** The machine a page is about, from ?machine= in the address: where a new server goes, or whose add-on sources show. */
 function targetMachine(search: string): { machine?: string } {
   const id = new URLSearchParams(search).get('machine')
@@ -201,10 +207,12 @@ export function navigate(to: Route | string, replace = false) {
     revisit(path)
     return
   }
+  // Only a #section on the page you're on keeps the scroll; another page starts at its top and scrolls to its own section.
+  const samePage = path.split('#')[0] === window.location.pathname
   if (replace) window.history.replaceState(null, '', path)
   else window.history.pushState(null, '', path)
   listeners.forEach((fn) => fn())
-  if (!path.includes('#')) window.scrollTo(0, 0)
+  if (!(samePage && path.includes('#'))) window.scrollTo(0, 0)
 }
 
 export function useRoute(): Route {

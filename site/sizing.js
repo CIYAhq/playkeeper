@@ -74,7 +74,7 @@
     options.setAttribute('role', 'dialog');
     options.setAttribute('aria-modal', 'true');
     options.setAttribute('aria-labelledby', 'sheet-title');
-    backdrop.hidden = false;
+    backdrop.classList.add('open');
     (before || radios('run')[0]).focus();
   }
   // closeSheet keeps the software picked in the sheet, or puts back the one
@@ -86,7 +86,7 @@
     options.removeAttribute('role');
     options.removeAttribute('aria-modal');
     options.removeAttribute('aria-labelledby');
-    backdrop.hidden = true;
+    backdrop.classList.remove('open');
     if (!keep && before) before.checked = true;
     before = null;
     choose();

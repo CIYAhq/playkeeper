@@ -833,3 +833,33 @@ func TestTakeRefusesBadOptions(t *testing.T) {
 		})
 	}
 }
+
+// A server folder without its world, before a new server's first start or
+// once the world folder is gone, is refused with what happened instead of a
+// hint to check the disk, before anything is paused.
+func TestABackupWithoutAWorldSaysSo(t *testing.T) {
+	for _, state := range []State{ServerRunning, ServerStopped} {
+		h := newHarness(t)
+		h.opts.State = state
+		if err := os.RemoveAll(filepath.Join(h.opts.DataDir, "world")); err != nil {
+			t.Fatal(err)
+		}
+		_, err := h.take()
+		var e *Error
+		if !errors.As(err, &e) || e.Kind != KindNoWorld {
+			t.Fatalf("state %v: want a no_world error, got %v", state, err)
+		}
+		if !strings.Contains(e.Msg, `no world named "world"`) || strings.Contains(e.Hint, "disk") {
+			t.Errorf("state %v: %q / %q", state, e.Msg, e.Hint)
+		}
+		if len(h.server.sent()) > 0 || len(h.pauses) > 0 {
+			t.Errorf("state %v: sent %q, pause changes %v", state, h.server.sent(), h.pauses)
+		}
+		if left := h.leftovers(); len(left) > 0 {
+			t.Errorf("state %v: left behind %q", state, left)
+		}
+		if err := CheckSpace(h.ctx, h.opts); !errors.As(err, &e) || e.Kind != KindNoWorld {
+			t.Errorf("state %v: the space check says %v", state, err)
+		}
+	}
+}

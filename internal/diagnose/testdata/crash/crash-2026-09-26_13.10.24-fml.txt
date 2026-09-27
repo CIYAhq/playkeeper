@@ -1,0 +1,35 @@
+---- Minecraft Crash Report ----
+// Quite honestly, I wouldn't worry myself about that.
+
+Time: 2026-09-26 13:10:24
+Description: Mod loading error has occurred
+
+java.lang.Exception: Mod Loading has failed
+
+
+A detailed walkthrough of the error, its code path and all known details is as follows:
+---------------------------------------------------------------------------------------
+
+-- Head --
+Thread: main
+Suspected Mods: NONE
+Stacktrace:
+-- MOD biomesoplenty --
+Details:
+	Mod File: /data/mods/BiomesOPlenty-forge-26.2-26.2.0.0.28.jar
+	Failure message: Mod biomesoplenty requires terrablender 26.2.0.0.1 or above
+		Currently, terrablender is not installed
+	Mod Version: 26.2.0.0.28
+	Mod Issue URL: https://github.com/Glitchfiend/BiomesOPlenty/issues
+	Exception message: MISSING EXCEPTION MESSAGE
+Stacktrace:
+
+
+-- MOD biomesoplenty --
+Details:
+	Mod File: /data/mods/BiomesOPlenty-forge-26.2-26.2.0.0.28.jar
+	Failure message: Mod biomesoplenty requires glitchcore 26.2.0.0.0 or above
+		Currently, glitchcore is not installed
+	Mod Version: 26.2.0.0.28
+	Mod Issue URL: https://github.com/Glitchfiend/BiomesOPlenty/issues
+	Exception message: MISSING EXCEPTION MESSAGE

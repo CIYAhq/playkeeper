@@ -1,11 +1,11 @@
 import { useEffect, useId, useState, type FormEvent } from 'react'
-import { KeyRoundIcon, LogInIcon, UserRoundIcon } from 'lucide-react'
+import { KeyRoundIcon, UserRoundIcon } from 'lucide-react'
 import { ApiError, post } from '@/api/client'
 import type { Challenge, LoginAnswer, Me } from '@/api/types'
-import { Pip } from '@/components/app/art'
 import { CodeField } from '@/components/app/code-field'
 import { useIsPhone } from '@/components/app/controls'
 import { Frame, FrameCard } from '@/components/app/frame'
+import { PasswordField } from '@/components/app/password-field'
 import { Avatar } from '@/components/app/shell'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
@@ -13,7 +13,6 @@ import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { formatCountdown } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { PasswordField } from './onboarding'
 
 const phoneCard = 'max-sm:mt-6 max-sm:rounded-3xl max-sm:border max-sm:bg-white max-sm:p-5'
 
@@ -74,13 +73,10 @@ function PasswordStep({ machine, username, setUsername, error, setError, onAnswe
   }
 
   return (
-    <FrameCard className={phoneCard}>
-      <div className="flex items-center gap-3">
-        <Pip pose="wave" size={48} />
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold">{t('login.title')}</h1>
-          {machine && <p className="mt-0.5 text-[13px] break-words text-muted-foreground max-sm:text-[15px]">{t('login.subtitle', { machine })}</p>}
-        </div>
+    <FrameCard className={cn('max-w-[418px]', phoneCard)}>
+      <div className="min-w-0">
+        <h1 className="text-xl font-bold">{t('login.title')}</h1>
+        {machine && <p className="mt-0.5 text-[13px] break-words text-muted-foreground max-sm:text-[15px]">{t('login.subtitle', { machine })}</p>}
       </div>
       <form className="mt-5 flex flex-col gap-4" onSubmit={submit}>
         <div className="flex flex-col gap-1.5">
@@ -101,12 +97,29 @@ function PasswordStep({ machine, username, setUsername, error, setError, onAnswe
           </p>
         )}
         <Button type="submit" size={phone ? 'touch' : 'lg'} loading={busy} disabledReason={username.trim() && password ? undefined : t('reason.fillIn')}>
-          <LogInIcon />
           {busy ? t('login.submitting') : t('login.submit')}
         </Button>
-        <p className="text-xs text-muted-foreground">{rich('login.forgot', { code: (chunk) => <code className="rounded bg-muted px-1 py-0.5 text-[11px]">{chunk}</code> }, { command: 'sudo playkeeper reset-password <username>' })}</p>
+        <ForgotPassword />
       </form>
     </FrameCard>
+  )
+}
+
+/** "Forgot your password?", opening the one command that resets it: the design keeps the card to the form. */
+function ForgotPassword() {
+  const [open, setOpen] = useState(false)
+  const id = useId()
+  return (
+    <div className="-mt-1 text-xs text-muted-foreground max-sm:text-[13px]">
+      <button type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)} className="rounded font-medium outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+        {t('login.forgotLink')}
+      </button>
+      {open && (
+        <p id={id} className="mt-1.5 animate-fade">
+          {rich('login.forgot', { code: (chunk) => <code className="rounded bg-muted px-1 py-0.5 text-[11px]">{chunk}</code> }, { command: 'sudo playkeeper reset-password <username>' })}
+        </p>
+      )}
+    </div>
   )
 }
 

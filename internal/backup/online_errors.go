@@ -43,6 +43,9 @@ const (
 	KindDiskFull ErrorKind = "disk_full"
 	// KindCancelled: ctx was cancelled or ran out of time; Err is ctx's error.
 	KindCancelled ErrorKind = "cancelled"
+	// KindNoWorld: the server folder has no world to back up; Err is the
+	// *NoWorldError.
+	KindNoWorld ErrorKind = "no_world"
 	// KindFailed: anything else.
 	KindFailed ErrorKind = "failed"
 )
@@ -80,6 +83,12 @@ func errMisuse(what string) *Error {
 func errFailed(what string, err error) *Error {
 	return &Error{Kind: KindFailed, Msg: what + ": " + err.Error() + ".",
 		Hint: "Try again. If it keeps failing, check the disk for errors.", Err: err}
+}
+
+func errNoWorld(e *NoWorldError) *Error {
+	return &Error{Kind: KindNoWorld, Err: e,
+		Msg:  fmt.Sprintf("There is no world named %q in %s, so nothing was backed up.", e.Level, e.DataDir),
+		Hint: "Start the server once so it makes its world, then back it up."}
 }
 
 func errInsufficientSpace(free, need int64) *Error {

@@ -133,7 +133,7 @@ func (s *server) shareSetup() (share.Setup, error) {
 }
 
 // loaderVersion is the version of the loader friends need: Fabric Loader,
-// Quilt Loader or NeoForge.
+// Quilt Loader, NeoForge or Forge.
 func loaderVersion(sc *api.ServerConfig) string {
 	if p := sc.Software; p != nil {
 		switch p.Type {
@@ -143,6 +143,8 @@ func loaderVersion(sc *api.ServerConfig) string {
 			return p.QuiltLoader
 		case software.NeoForge:
 			return p.NeoForgeVersion
+		case software.Forge:
+			return p.ForgeVersion
 		}
 	}
 	return ""

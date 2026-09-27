@@ -49,21 +49,6 @@ export function tokenRoleText(role: TokenRole): string {
   }
 }
 
-export function tokenRoleHint(role: TokenRole): string {
-  switch (role) {
-    case 'viewer':
-      return t('ai.role.viewerHint')
-    case 'moderator':
-      return t('ai.role.moderatorHint')
-    case 'admin':
-      return t('ai.role.adminHint')
-    default: {
-      const unreachable: never = role
-      return unreachable
-    }
-  }
-}
-
 /** "All servers", "Survival", "Survival and Creative" or "5 servers"; servers since deleted count without a name. */
 export function tokenServersText(token: Pick<ApiToken, 'allServers' | 'servers'>, servers: { id: string; name: string }[]): string {
   if (token.allServers) return t('ai.allServers')
@@ -102,7 +87,9 @@ const toolPhrases: Record<string, MessageKey> = {
   create_backup: 'ai.did.create_backup',
   get_lag_report: 'ai.did.get_lag_report',
   explain_crash: 'ai.did.explain_crash',
+  search_addons: 'ai.did.search_addons',
   install_addon: 'ai.did.install_addon',
+  remove_addon: 'ai.did.remove_addon',
 }
 
 /** What an agent did, in lower case after its name: "made a backup of Survival". */

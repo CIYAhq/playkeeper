@@ -381,7 +381,7 @@ func (s *server) saveIcon(b []byte) error {
 	if sc == nil {
 		return errNotCreated()
 	}
-	if err := s.ensureDirs(); err != nil {
+	if err := s.ensureDirs("upload the icon again"); err != nil {
 		return err
 	}
 	d, err := s.gameFiles()

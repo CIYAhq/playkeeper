@@ -758,7 +758,7 @@ func TestServersWithoutModsToShare(t *testing.T) {
 	if log := f.log(); len(log) != 0 {
 		t.Errorf("Modrinth was asked: %q", log)
 	}
-	for typ, want := range map[string]string{"fabric": "fabric-loader", "quilt": "quilt-loader", "neoforge": "neoforge"} {
+	for typ, want := range map[string]string{"fabric": "fabric-loader", "quilt": "quilt-loader", "neoforge": "neoforge", "forge": "forge"} {
 		if got := loaderID(typ); got != want {
 			t.Errorf("%s: %s", typ, got)
 		}

@@ -33,8 +33,7 @@ type Note struct {
 
 // Guides returns the guides in the order the UI offers them.
 func Guides() []Guide {
-	return []Guide{singleplayerGuide(), realmsGuide(), aternosGuide(), minehutGuide(),
-		apexGuide(), bisectGuide(), shockbyteGuide(), otherHostGuide()}
+	return []Guide{singleplayerGuide(), realmsGuide(), aternosGuide(), minehutGuide(), otherHostGuide()}
 }
 
 // GuideByID returns the guide with the given ID.
@@ -183,81 +182,6 @@ func minehutGuide() Guide {
 			k.tip("names", "Minehut warns that spaces and special characters in a world's name cause problems when downloading it. Rename the world first if its name has any."),
 			k.tip("sftp", "For big worlds, SFTP with a program such as FileZilla is easier, but Minehut offers it only on paid plans."),
 			k.warning("deletion", "If Minehut has marked a free server for deletion, its files stay downloadable for 30 days after the email."),
-		},
-	}
-}
-
-// Steps from Apex Hosting's guides, checked 2026-09-25:
-// https://apexminecrafthosting.com/guides/minecraft/control-panel/how-to-download-your-world/
-// and https://apexminecrafthosting.com/guides/minecraft/control-panel/how-to-connect-via-ftp/
-func apexGuide() Guide {
-	k := guideKeys("apexhosting")
-	return Guide{
-		ID:       "apexhosting",
-		Name:     k.text("name", "Apex Hosting"),
-		HelpURL:  "https://apexminecrafthosting.com/guides/minecraft/control-panel/how-to-download-your-world/",
-		Download: k.text("download", "A .zip file you make in Apex's FTP File Access from the world folders you select."),
-		Steps: []Text{
-			k.step("stop", "Stop the server in your Apex panel."),
-			k.step("name", "Scroll to the World section at the bottom of the panel and note the world name in the text box there."),
-			k.step("ftp", "Click FTP File Access at the top left and log in with your panel password."),
-			k.step("compress", "Select the world folder, and for Paper or Spigot also the folders ending in _nether and _the_end (Ctrl or Cmd + click selects several). Right-click them and choose Compress."),
-			k.step("archive", "Enter a name for the .zip file and click Create Archive."),
-			k.step("download", "Right-click the new .zip file and choose Download."),
-			k.step("upload", "Upload the .zip file here."),
-		},
-		Notes: []Note{
-			k.warning("large", "Downloads from the panel can time out for worlds over about 100 MB. Download the .zip file with an FTP program such as FileZilla instead, using the details on the FTP File Access login page."),
-			k.tip("folder_names", "World folders on Apex can have generated names such as {example}. The World section tells you which one the server uses.",
-				"example", "paper_1_21_5_3537378"),
-		},
-	}
-}
-
-// Steps from BisectHosting's help center, checked 2026-09-25:
-// https://help.bisecthosting.com/hc/en-us/articles/40115637712411 (download)
-// and https://help.bisecthosting.com/hc/en-us/articles/40272519686939 (Files
-// tab, downloading several files).
-func bisectGuide() Guide {
-	k := guideKeys("bisecthosting")
-	return Guide{
-		ID:       "bisecthosting",
-		Name:     k.text("name", "BisectHosting"),
-		HelpURL:  "https://help.bisecthosting.com/hc/en-us/articles/40115637712411-How-to-Download-a-World-File-and-Upload-to-Singleplayer",
-		Download: k.text("download", "A .tar.gz file when you download one folder, or a .zip file when you download several at once."),
-		Steps: []Text{
-			k.step("stop", "Log in to the BisectHosting Starbase panel and stop the server."),
-			k.step("name", "Note the current World Name."),
-			k.step("files", "Go to the Files tab."),
-			k.step("download", "Right-click the world folder and choose Download."),
-			k.step("dimensions", "For Paper or Spigot, tick the world folder and the folders ending in _nether and _the_end instead, then select Download in the Actions bar. They download as one .zip file."),
-			k.step("upload", "Upload the downloaded file here as it is; there's no need to extract it."),
-		},
-		Notes: []Note{
-			k.tip("old_worlds", "The Files tab can also hold world folders from earlier level names. Download the one that matches the World Name."),
-			k.tip("click_here", "If a download of several files doesn't start by itself, press the Click Here button."),
-		},
-	}
-}
-
-// Steps from Shockbyte's knowledgebase, checked 2026-09-25:
-// https://shockbyte.com/help/knowledgebase/articles/how-to-download-your-minecraft-server-world
-// and https://shockbyte.com/help/knowledgebase/articles/how-to-use-filezilla-for-ftp-file-management
-func shockbyteGuide() Guide {
-	k := guideKeys("shockbyte")
-	return Guide{
-		ID:       "shockbyte",
-		Name:     k.text("name", "Shockbyte"),
-		HelpURL:  "https://shockbyte.com/help/knowledgebase/articles/how-to-download-your-minecraft-server-world",
-		Download: k.text("download", "One .zip file with all the folders you selected."),
-		Steps: []Text{
-			k.step("stop", "Open your Shockbyte control panel and shut down the server."),
-			k.step("select", "Open the Files tab and select each world folder you want. On Spigot and Paper servers the Nether and the End have their own folders, such as world_nether and world_the_end; select them too."),
-			k.step("download", "Click Download. The selected folders arrive as one .zip file in your downloads folder."),
-			k.step("upload", "Upload the .zip file here."),
-		},
-		Notes: []Note{
-			k.tip("ftp", "For big worlds, Shockbyte recommends an FTP program such as FileZilla. The connection details are under Files > SFTP Connect in the control panel."),
 		},
 	}
 }

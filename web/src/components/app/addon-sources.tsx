@@ -48,7 +48,9 @@ export function AddonSourcesCard({ machine }: { machine?: string }) {
   return (
     <Card as="section" aria-labelledby="sources-title" id="addon-sources" className="scroll-mt-4">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <CardTitle id="sources-title">{t('sources.title')}</CardTitle>
+        <CardTitle id="sources-title" className="max-sm:sr-only">
+          {t('sources.title')}
+        </CardTitle>
         {many && target && (
           <label className="flex items-center gap-2 text-[13px] text-muted-foreground">
             {t('sources.machine')}
@@ -93,13 +95,13 @@ export function AddonSourcesCard({ machine }: { machine?: string }) {
 
 function SourceRow({ name, state, action, children }: { name: string; state?: ReactNode; action?: ReactNode; children: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3.5">
       <div className="min-w-0 flex-1">
         <p className="flex items-baseline gap-2 text-[13px] leading-5 font-semibold">
           {name}
           {state}
         </p>
-        <div className="text-xs text-muted-foreground">{children}</div>
+        <div className="mt-1 text-xs text-muted-foreground">{children}</div>
       </div>
       {action}
     </div>
@@ -213,8 +215,8 @@ function KeyForm({ machineId, machineName, locked, onSaved, onCancel }: { machin
 
   return (
     <form onSubmit={save} className="mt-3">
-      <div className="flex flex-wrap gap-2">
-        <InputGroup className="min-w-[240px] flex-1">
+      <div className="flex gap-2 max-sm:flex-col sm:flex-wrap">
+        <InputGroup className="max-sm:h-11 sm:min-w-[240px] sm:flex-1">
           <InputGroupAddon>
             <KeyRoundIcon aria-hidden="true" />
           </InputGroupAddon>
@@ -235,11 +237,11 @@ function KeyForm({ machineId, machineName, locked, onSaved, onCancel }: { machin
           />
         </InputGroup>
         {onCancel && (
-          <Button type="button" variant="ghost" onClick={onCancel}>
+          <Button type="button" variant="ghost" onClick={onCancel} className="max-sm:h-11">
             {t('common.cancel')}
           </Button>
         )}
-        <Button type="submit" loading={busy} disabledReason={locked ?? (key.trim() ? undefined : t('reason.pasteKey'))}>
+        <Button type="submit" loading={busy} disabledReason={locked ?? (key.trim() ? undefined : t('reason.pasteKey'))} className="max-sm:h-11">
           {t('sources.save')}
         </Button>
       </div>

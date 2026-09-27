@@ -40,7 +40,7 @@ const en = {
   'demo.noWorldFile': 'No world file at hand?',
   'demo.sampleWorld': 'Try a sample world',
   'demo.sampleWorldFile': 'Our old survival world.zip',
-  'demo.noJoin': 'The demo has just this one machine. To connect another, install Playkeeper on a VPS of your own first.',
+  'demo.noJoin': 'The demo has just this one machine.',
   'demo.busy': 'One thing at a time: {what}.',
   'demo.taken': 'There’s already a server called {name}.',
   'demo.noMemory': 'There isn’t enough memory left on {machine} for that.',

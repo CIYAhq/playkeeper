@@ -8,14 +8,14 @@ export type ModpackSort = 'downloads' | 'relevance' | 'updated' | 'newest'
 const cache = new Map<string, { at: number; data: unknown }>()
 const maxAge = 5 * 60_000
 
-/** GETs path once per five minutes; an empty path loads nothing. */
-function useCached<T>(path: string) {
+/** GETs path once per five minutes, or each time with fresh; an empty path loads nothing. */
+function useCached<T>(path: string, fresh = false) {
   const [data, setData] = useState<{ path: string; value?: T; error?: string }>({ path: '' })
   const [tick, setTick] = useState(0)
   useEffect(() => {
     if (!path) return
     const hit = cache.get(path)
-    if (hit && Date.now() - hit.at < maxAge && tick === 0) {
+    if (hit && !fresh && Date.now() - hit.at < maxAge && tick === 0) {
       setData({ path, value: hit.data as T })
       return
     }
@@ -30,7 +30,7 @@ function useCached<T>(path: string) {
     return () => {
       cancelled = true
     }
-  }, [path, tick])
+  }, [path, tick, fresh])
   const current = data.path === path ? data : { path, value: undefined, error: undefined }
   return { data: current.value, error: current.error, loading: !!path && !current.value && !current.error, reload: () => setTick((n) => n + 1) }
 }
@@ -47,9 +47,13 @@ export function useModpackDetail(machineId: string | undefined, source: ModpackS
   return useCached<ModpackDetail>(machineId && source && project ? machineApi(machineId, `/modpacks/${source}/${encodeURIComponent(project)}`) : '')
 }
 
-/** What a pack version needs and puts on the server, read from the pack itself. */
+/**
+ * What a pack version needs and puts on the server, read from the pack itself.
+ * It's asked for each time: the agent keeps the pack's plan, but works out the
+ * ports its add-ons would get as other servers take them.
+ */
 export function useModpackPreview(machineId: string | undefined, source: ModpackSource | undefined, project: string | undefined, version: string | undefined) {
-  return useCached<ModpackPreview>(machineId && source && project && version ? machineApi(machineId, `/modpacks/${source}/${encodeURIComponent(project)}/versions/${encodeURIComponent(version)}/preview`) : '')
+  return useCached<ModpackPreview>(machineId && source && project && version ? machineApi(machineId, `/modpacks/${source}/${encodeURIComponent(project)}/versions/${encodeURIComponent(version)}/preview`) : '', true)
 }
 
 /** The dashboard's copy of a pack's icon from Modrinth's file host. */

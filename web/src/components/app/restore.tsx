@@ -42,12 +42,14 @@ export function RestoreDropZone({
   onPreview,
   className,
   compact,
+  disabledReason,
 }: {
   server?: ServerStatus
   machine?: string
   onPreview: (p: RestorePreview) => void
   className?: string
   compact?: boolean
+  disabledReason?: string
 }) {
   const mid = useRestoreMachine(server, machine)
   const [over, setOver] = useState(false)
@@ -74,18 +76,21 @@ export function RestoreDropZone({
   function drop(e: DragEvent) {
     e.preventDefault()
     setOver(false)
-    void take(e.dataTransfer.files[0])
+    if (!disabledReason) void take(e.dataTransfer.files[0])
   }
 
   return (
     <div
       onDragOver={(e) => {
         e.preventDefault()
-        setOver(true)
+        if (disabledReason) e.dataTransfer.dropEffect = 'none'
+        else setOver(true)
       }}
       onDragLeave={() => setOver(false)}
       onDrop={drop}
-      className={cn('flex flex-col items-center justify-center rounded-2xl border border-dashed border-input bg-warm px-6 text-center transition-colors', compact ? 'py-6' : 'min-h-[150px] py-8', over && 'border-primary bg-selected', className)}
+      title={disabledReason}
+      aria-disabled={disabledReason ? true : undefined}
+      className={cn('flex flex-col items-center justify-center rounded-2xl border border-dashed border-input bg-warm px-6 text-center transition-colors', compact ? 'py-6' : 'min-h-[150px] py-8', over && 'border-primary bg-selected', disabledReason && 'cursor-not-allowed opacity-64', className)}
     >
       {busy ? (
         <>
@@ -99,7 +104,7 @@ export function RestoreDropZone({
           <p className="mt-1 text-xs text-muted-foreground">
             {rich('world.chooseFile', {
               choose: (chunk) => (
-                <button type="button" className="font-semibold text-primary hover:underline" onClick={() => input.current?.click()}>
+                <button type="button" disabled={!!disabledReason} title={disabledReason} className="font-semibold text-primary not-disabled:hover:underline disabled:cursor-not-allowed" onClick={() => input.current?.click()}>
                   {chunk}
                 </button>
               ),
@@ -107,7 +112,7 @@ export function RestoreDropZone({
           </p>
         </>
       )}
-      <input ref={input} type="file" accept=".tar.gz,.tgz,application/gzip" className="sr-only" tabIndex={-1} aria-label={t('world.drop')} onChange={(e) => void take(e.target.files?.[0])} />
+      <input ref={input} type="file" accept=".tar.gz,.tgz,application/gzip" className="sr-only" tabIndex={-1} aria-label={t('world.drop')} disabled={!!disabledReason} onChange={(e) => void take(e.target.files?.[0])} />
     </div>
   )
 }

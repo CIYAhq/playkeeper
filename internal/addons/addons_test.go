@@ -26,6 +26,7 @@ func TestTargetFor(t *testing.T) {
 		{"fabric", "Fabric", "mod", "mods", []string{"fabric"}, []Source{Modrinth}},
 		{"quilt", "Quilt", "mod", "mods", []string{"quilt", "fabric"}, []Source{Modrinth}},
 		{"neoforge", "NeoForge", "mod", "mods", []string{"neoforge"}, []Source{Modrinth}},
+		{"forge", "Forge", "mod", "mods", []string{"forge"}, []Source{Modrinth}},
 	} {
 		tg, err := TargetFor(tc.typ)
 		if err != nil {
@@ -41,7 +42,7 @@ func TestTargetFor(t *testing.T) {
 	if e := wantKind(t, err, KindNoAddons); e.Msg != "Vanilla servers cannot load plugins or mods." || e.Hint == "" {
 		t.Errorf("vanilla: %q, hint %q", e.Msg, e.Hint)
 	}
-	for _, typ := range []string{"forge", "velocity", "", "PAPER"} {
+	for _, typ := range []string{"folia", "velocity", "", "PAPER"} {
 		_, err := TargetFor(typ)
 		wantKind(t, err, KindUnknownServerType)
 	}

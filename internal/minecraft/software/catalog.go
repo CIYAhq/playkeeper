@@ -14,7 +14,8 @@ import (
 )
 
 // Channel says how finished a build is. Purpur calls its unfinished builds
-// experimental; Fabric, Quilt and NeoForge call them beta.
+// experimental; Fabric, Quilt and NeoForge call them beta, and so does
+// Playkeeper for Forge builds from before Forge's recommended one.
 type Channel string
 
 const (
@@ -50,7 +51,7 @@ type Release struct {
 }
 
 // Build is one build of a type's software for a Minecraft version: a Purpur
-// build, a Fabric or Quilt loader, or a NeoForge version.
+// build, a Fabric or Quilt loader, or a NeoForge or Forge version.
 type Build struct {
 	Version     string  `json:"version"`
 	Channel     Channel `json:"channel"`

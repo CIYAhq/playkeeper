@@ -207,10 +207,10 @@ func TestSFTPConnectionTest(t *testing.T) {
 	}{
 		{name: "everything works", disk: &memDisk{free: 1 << 40, room: -1}, ok: allSteps},
 		{name: "little space left", disk: &memDisk{free: 500 << 20, room: -1}, ok: allSteps,
-			warning: "The other machine has only 524 MB free in that folder, which may not be enough for the copies."},
+			warning: "Only 524 MB free on {host}"},
 		{name: "the disk is full", disk: &memDisk{}, ok: "connect folder", failed: "write", kind: KindStorageFull,
 			msg:     "The other machine's disk has no room for " + probePrefix,
-			warning: "The other machine has only 0 bytes free in that folder, which may not be enough for the copies."},
+			warning: "Only 0 bytes free on {host}"},
 		{name: "the disk keeps other bytes", disk: &memDisk{free: 1 << 40, room: -1, corrupt: true},
 			ok: "connect folder write rename list delete", failed: "read", kind: KindVerifyFailed,
 			msg: "The test file came back different from what was written."},
@@ -218,7 +218,7 @@ func TestSFTPConnectionTest(t *testing.T) {
 			ok: "connect folder", failed: "write", kind: KindPermission,
 			msg: "The user playkeeper may not use files in the folder backups/survival on the other machine."},
 		{name: "no folder", server: func(s *sshServer) { removeAll(s.t, s.folder()) }, ok: "connect", failed: "folder",
-			kind: KindNoSuchFolder, msg: "There is no folder backups/survival on the other machine."},
+			kind: KindNoSuchFolder, msg: "No folder backups/survival on "},
 		{name: "a file instead of the folder", server: func(s *sshServer) {
 			removeAll(s.t, s.folder())
 			place(s.t, s.folder(), []byte("not a folder"), time.Time{})
@@ -246,8 +246,8 @@ func TestSFTPConnectionTest(t *testing.T) {
 			if res.HostKey == nil || res.HostKey.Fingerprint != fingerprint("ed25519") {
 				t.Errorf("host key %+v", res.HostKey)
 			}
-			if res.Warning != tc.warning {
-				t.Errorf("warning %q, want %q", res.Warning, tc.warning)
+			if want := strings.ReplaceAll(tc.warning, "{host}", srv.settings().Host); res.Warning != want {
+				t.Errorf("warning %q, want %q", res.Warning, want)
 			}
 			for _, ch := range res.Checks {
 				switch {
@@ -676,7 +676,7 @@ func TestSFTPUploadFailures(t *testing.T) {
 		_, err := d.Upload(ctx, newTestFile(10<<10, 30).upload(testName))
 		e := wantKind(t, err, KindNoSuchFolder)
 		kept(t, d, e, 0)
-		if e.Msg != "There is no folder backups/survival on the other machine." || e.Field != "folder" || e.Folder != testFolder || !strings.HasPrefix(e.Hint, "Create it there first.") {
+		if e.Msg != "No folder backups/survival on "+srv.settings().Host || e.Field != "folder" || e.Folder != testFolder || e.Hint != "Create it there first. Without a leading slash, it's inside playkeeper's home folder." {
 			t.Errorf("error %+v", e)
 		}
 	})
@@ -958,7 +958,7 @@ func TestSFTPList(t *testing.T) {
 	removeAll(t, srv.folder())
 	_, err = d.List(ctx)
 	// Copies are listed to be read back, and a folder made now holds none.
-	if e := wantKind(t, err, KindNoSuchFolder); e.Op != opList || e.Field != "folder" || e.Msg != "There is no folder backups/survival on the other machine." ||
+	if e := wantKind(t, err, KindNoSuchFolder); e.Op != opList || e.Field != "folder" || !strings.HasPrefix(e.Msg, "No folder backups/survival on ") ||
 		!strings.HasPrefix(e.Hint, "Check the folder's name.") {
 		t.Errorf("error %+v", e)
 	}

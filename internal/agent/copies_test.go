@@ -425,8 +425,12 @@ func TestBackupRulesThatCantBeReadDeleteNothing(t *testing.T) {
 				ids = append(ids, id)
 			}
 			// Three backups, all copied: two made on one day 100 days ago,
-			// which the defaults no longer keep here, and the newest.
-			old := time.Now().Add(-100 * 24 * time.Hour)
+			// which the defaults no longer keep here, and the newest. The
+			// defaults keep the newest backup of each of the last 7 days with
+			// one, so the two start at noon in UTC, the rules' zone here: an
+			// hour later is the same day whenever the test runs.
+			now := time.Now().UTC()
+			old := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, time.UTC).Add(-100 * 24 * time.Hour)
 			for i, id := range ids[:2] {
 				at := old.Add(time.Duration(i) * time.Hour).UnixMilli()
 				if _, err := e.a.db.Exec(`UPDATE backups SET created_at = ? WHERE id = ?`, at, id); err != nil {
@@ -1067,10 +1071,10 @@ func TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver(t *testing.T) {
 		}
 		return e.call("DELETE", "/v1/servers/"+sv.id+"/world-copies/"+name+"?actor=admin", nil)
 	}
-	refused := func(what string, sv *server) {
+	refused := func(what string, sv *server, hint string) {
 		t.Helper()
 		code, out := discard(sv)
-		if code != http.StatusConflict || !strings.Contains(fmt.Sprint(out["error"]), "restore isn't finished") || !strings.Contains(fmt.Sprint(out["hint"]), "systemctl restart playkeeper-agent") {
+		if code != http.StatusConflict || !strings.Contains(fmt.Sprint(out["error"]), "restore isn't finished") || !strings.HasPrefix(fmt.Sprint(out["hint"]), hint) {
 			t.Fatalf("%s: discarding %s's world copy: %d %v", what, sv.name(), code, out)
 		}
 		if !dirExists(filepath.Join(sv.dir(), name)) {
@@ -1094,15 +1098,16 @@ func TestTheWorldTabKeepsTheWorldCopiesOfARestoreThatIsNotOver(t *testing.T) {
 	if err := writeSwapJournal(dir, j); err != nil {
 		t.Fatal(err)
 	}
-	refused("with its swap journal", s)
+	refused("with its swap journal", s, "Playkeeper finishes it once the server is stopped, then try again.")
 	discarded("with another server's swap journal", other)
 
 	journal := filepath.Join(dir, swapJournalFile)
 	if err := os.WriteFile(journal, []byte(`{"serverId":"`+s.id+`","opId":`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	refused("with a swap journal that can't be read", s)
-	refused("with a swap journal that can't be read", other)
+	unreadable := "Playkeeper couldn't finish it: the swap journal in " + dir + " can't be read ("
+	refused("with a swap journal that can't be read", s, unreadable)
+	refused("with a swap journal that can't be read", other, unreadable)
 
 	if err := os.Remove(journal); err != nil {
 		t.Fatal(err)

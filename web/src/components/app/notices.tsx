@@ -1,13 +1,15 @@
 import { useState } from 'react'
-import { ArchiveIcon, SquareTerminalIcon } from 'lucide-react'
+import { ArchiveIcon, MemoryStickIcon, SquareTerminalIcon } from 'lucide-react'
 import { post } from '@/api/client'
-import type { Operation, ServerStatus } from '@/api/types'
+import type { Crash, Operation, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Notice } from '@/components/app/bits'
 import { Button } from '@/components/ui/button'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { formatClock, formatDate, sameDay } from '@/lib/format'
+import { crashFixes } from '@/lib/crash'
+import { formatClock, formatDate, formatMB, sameDay } from '@/lib/format'
+import { num } from '@/lib/params'
 import { opLabel, whyNot } from '@/lib/phase'
 import { linkProps } from '@/lib/router'
 
@@ -52,9 +54,9 @@ export function FailedJobNotice({ server: s, op, onDismiss, className }: { serve
     <Notice
       tone="error"
       className={className}
-      title={`${t('op.failed', { what: opLabel(op, s.name) })}: ${op.error ?? ''}`}
+      title={`${t('op.failed', { what: opLabel(op, s) })}: ${op.error ?? ''}`}
       action={
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-2 max-sm:basis-full">
           {stoppedBackupHelps(op) && s.phase === 'online' && <BackUpStoppedButton server={s} />}
           <Button variant="ghost" size="sm" onClick={onDismiss}>
             {t('common.dismiss')}
@@ -63,6 +65,56 @@ export function FailedJobNotice({ server: s, op, onDismiss, className }: { serve
       }
     >
       {op.hint}
+    </Notice>
+  )
+}
+
+/**
+ * A server that ran out of memory and came back on its own: when, the limit
+ * it hit, and the fix that gives it room, saved with a restart.
+ */
+export function MemoryCrashNotice({ server: s, crash: c, onDismiss, className }: { server: ServerStatus; crash: Crash; onDismiss: () => void; className?: string }) {
+  const ws = useWorkspace()
+  const [busy, setBusy] = useState(false)
+  const fix = crashFixes(c, s.name, ws.machineName, false).find((o) => o.recommended && o.plan?.kind === 'settings')
+  const time = sameDay(new Date(c.at), new Date()) ? formatClock(c.at) : `${formatDate(c.at)} ${formatClock(c.at)}`
+  const memory = formatMB(num(c.params, 'budget_mb') ?? s.config?.memoryMB ?? 0)
+  const room = c.fixes.some((f) => f.kind === 'raise_memory' && num(f.params, 'to_mb'))
+  async function apply() {
+    const plan = fix?.plan
+    if (plan?.kind !== 'settings') return
+    setBusy(true)
+    try {
+      const restart = s.phase === 'online'
+      await post(serverApi(s.id, '/settings'), { ...plan.body, ...(restart ? { restart: true } : {}) })
+      toastManager.add({ title: restart ? t('settings.savedRestartToast', { server: s.name }) : t('settings.savedToast'), type: 'success' })
+      await ws.refresh()
+    } catch (e) {
+      toastManager.add({ title: errorText(e), type: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Notice
+      tone="warning"
+      className={className}
+      title={t('overview.memoryCrash', { server: s.name, time })}
+      action={
+        <span className="flex items-center gap-2 max-sm:basis-full">
+          {fix && (
+            <Button variant="outline" size="sm" loading={busy} disabledReason={whyNot(s, 'restart', ws.stale)} onClick={apply}>
+              <MemoryStickIcon />
+              {fix.title}
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={onDismiss}>
+            {t('common.dismiss')}
+          </Button>
+        </span>
+      }
+    >
+      {room ? t('overview.memoryCrashBody', { memory }) : t('overview.memoryCrashNoRoom', { memory, machine: ws.machineName })}
     </Notice>
   )
 }
@@ -93,7 +145,7 @@ export function SavingPausedNotice({ server: s, className }: { server: ServerSta
       className={className}
       title={t('backup.savingPaused')}
       action={
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-2 max-sm:basis-full">
           <Button variant="ghost" size="sm" render={<a {...linkProps({ name: 'server', slug: s.slug, tab: 'console' })} />}>
             <SquareTerminalIcon />
             {t('backup.openConsole')}

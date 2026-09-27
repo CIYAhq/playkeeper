@@ -115,6 +115,15 @@ func toolSpecs() []spec {
 			run:  explainCrash,
 		},
 		{
+			name: "search_addons", title: "Search plugins and mods", scope: mcp.ScopeRead, act: ActView, effect: mcp.ReadOnly, openWorld: true, perServer: true,
+			props: map[string]*mcp.Schema{"query": {Type: "string", MinLength: new(1), MaxLength: new(100), Pattern: patPrintable,
+				Description: "What to look for, in a few words. For example: pre-generate chunks"}},
+			required: []string{"query"},
+			desc: "Searches Modrinth and Hangar for plugins or mods made for a server's software and Minecraft version, the most downloaded first, " +
+				"and says which the server already has. Each result has the source and project that install_addon takes.",
+			run: searchAddons,
+		},
+		{
 			name: "install_addon", title: "Install a plugin or mod", scope: mcp.ScopeOwner, act: ActManageServers, effect: mcp.Additive, openWorld: true, perServer: true,
 			props: map[string]*mcp.Schema{
 				"source": {Type: "string", Enum: []any{"modrinth", "hangar"}, Description: "The site that lists the add-on."},
@@ -126,6 +135,20 @@ func toolSpecs() []spec {
 				"Playkeeper works out what the install does and installs exactly that, or says why it can't. It runs in the background " +
 				"(see get_operation), and a running server loads it when it restarts.",
 			run: installAddon,
+		},
+		{
+			name: "remove_addon", title: "Remove a plugin or mod", scope: mcp.ScopeOwner, act: ActManageServers, effect: mcp.Destructive, perServer: true,
+			props: map[string]*mcp.Schema{
+				"project": {Type: "string", MinLength: new(1), MaxLength: new(100), Pattern: patPrintable,
+					Description: "The add-on's project id or slug, or its name as the dashboard shows it. For example: chunky"},
+				"source": {Type: "string", Enum: []any{"modrinth", "hangar"},
+					Description: "The site it came from, when two installed add-ons have the same name."},
+			},
+			required: []string{"project"},
+			desc: "Removes a plugin or mod that Playkeeper installed on a server. Its settings folder stays, and so do the add-ons it needed; " +
+				"a running server stops using it when it restarts. It leaves an add-on that others need, or whose file changed since it " +
+				"was installed, and says why.",
+			run: removeAddon,
 		},
 	}
 }

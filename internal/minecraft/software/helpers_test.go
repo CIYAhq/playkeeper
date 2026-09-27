@@ -330,6 +330,11 @@ func serveNeoForgeMetadata(t *testing.T, f *fakeNet) {
 	f.serve(neoforgeMaven+"/maven-metadata.xml", readFixture(t, "neoforge/maven-metadata.xml"))
 }
 
+func serveForgeMetadata(t *testing.T, f *fakeNet) {
+	f.serve(forgeMaven+"/maven-metadata.xml", readFixture(t, "forge/maven-metadata.xml"))
+	f.serve(forgePromotions, readFixture(t, "forge/promotions_slim.json"))
+}
+
 // fakeLibrary is the content the fake Maven repositories serve for a
 // library: a small jar, with a manifest for the loaders.
 func fakeLibrary(t *testing.T, coord string) []byte {

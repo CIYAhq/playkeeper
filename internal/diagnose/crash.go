@@ -38,7 +38,7 @@ const (
 // CrashInput is what the agent knows about a run that ended unexpectedly: a
 // crash, or a start that failed.
 type CrashInput struct {
-	ServerType  string // registry id: paper, purpur, vanilla, fabric, neoforge…
+	ServerType  string // registry id: paper, purpur, vanilla, fabric, neoforge, forge…
 	MCVersion   string
 	JavaVersion int // Java major version of the image, e.g. 25
 

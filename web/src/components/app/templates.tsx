@@ -6,7 +6,7 @@ import type { AddonNotice, ServerStatus, TemplatePlan } from '@/api/types'
 import { errorText } from '@/api/workspace'
 import { Emblem, GameIcon, TypeLogo } from '@/components/app/art'
 import { copyText, Notice } from '@/components/app/bits'
-import { CardGroup, ChoiceCard } from '@/components/app/controls'
+import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
 import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -250,6 +250,7 @@ export function TemplatePicker({
   acceptExperimental: boolean
   onAcceptExperimental: (v: boolean) => void
 }) {
+  const phone = useIsPhone()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [over, setOver] = useState(false)
@@ -314,32 +315,39 @@ export function TemplatePicker({
             {error}
           </Notice>
         )}
-        <div
-          onDragOver={(e) => {
-            e.preventDefault()
-            setOver(true)
-          }}
-          onDragLeave={() => setOver(false)}
-          onDrop={(e: DragEvent) => {
-            e.preventDefault()
-            setOver(false)
-            void take(e.dataTransfer.files[0])
-          }}
-          className={cn('flex min-h-[150px] flex-col items-center justify-center rounded-2xl border border-dashed border-input bg-warm px-6 py-8 text-center transition-colors duration-(--motion-fast) ease-standard', over && 'border-primary bg-selected')}
-        >
-          <FileUpIcon className="size-5 text-primary" aria-hidden="true" />
-          <p className="mt-3 text-sm font-semibold">{t('template.drop')}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {rich('world.chooseFile', {
-              choose: (chunk) => (
-                <button type="button" className="font-semibold text-primary hover:underline" onClick={choose}>
-                  {chunk}
-                </button>
-              ),
-            })}
-          </p>
-          {fileInput}
-        </div>
+        {phone ? (
+          <Button variant="outline" size="touch" className="w-full" onClick={choose}>
+            <FileUpIcon />
+            {t('template.chooseFile')}
+          </Button>
+        ) : (
+          <div
+            onDragOver={(e) => {
+              e.preventDefault()
+              setOver(true)
+            }}
+            onDragLeave={() => setOver(false)}
+            onDrop={(e: DragEvent) => {
+              e.preventDefault()
+              setOver(false)
+              void take(e.dataTransfer.files[0])
+            }}
+            className={cn('flex min-h-[150px] flex-col items-center justify-center rounded-2xl border border-dashed border-input bg-warm px-6 py-8 text-center transition-colors duration-(--motion-fast) ease-standard', over && 'border-primary bg-selected')}
+          >
+            <FileUpIcon className="size-5 text-primary" aria-hidden="true" />
+            <p className="mt-3 text-sm font-semibold">{t('template.drop')}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {rich('world.chooseFile', {
+                choose: (chunk) => (
+                  <button type="button" className="font-semibold text-primary hover:underline" onClick={choose}>
+                    {chunk}
+                  </button>
+                ),
+              })}
+            </p>
+          </div>
+        )}
+        {fileInput}
       </div>
     )
   }

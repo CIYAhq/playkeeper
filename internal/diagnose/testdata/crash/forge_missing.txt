@@ -1,0 +1,10 @@
+[13:10:21] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forge_server]
+[13:10:21] [main/ERROR] [ne.mi.fm.lo.ModSorter/LOADING]: Missing or unsupported mandatory dependencies:
+	Mod ID: 'terrablender', Requested by: 'biomesoplenty', Expected range: '[26.2.0.0.1,)', Actual version: '[MISSING]'
+	Mod ID: 'glitchcore', Requested by: 'biomesoplenty', Expected range: '[26.2.0.0.0,)', Actual version: '[MISSING]'
+[13:10:21] [main/INFO] [cp.mo.mo.LaunchServiceHandler/MODLAUNCHER]: Launching target 'forge_server' with arguments []
+[13:10:24] [main/FATAL] [ne.mi.fm.ModLoader/CORE]: Error during pre-loading phase
+net.minecraftforge.fml.ModLoadingException: Mod biomesoplenty requires terrablender 26.2.0.0.1 or above
+Currently, terrablender is not installed
+[13:10:24] [main/ERROR] [minecraft/CrashReport]: Negative index in crash report handler (21/23)
+[13:10:24] [main/FATAL] [ne.mi.se.lo.ServerModLoader/]: Crash report saved to ./crash-reports/crash-2026-09-26_13.10.24-fml.txt

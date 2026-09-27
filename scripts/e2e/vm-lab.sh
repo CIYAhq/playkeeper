@@ -12,6 +12,7 @@ LAB_JAMMY_URL=${LAB_JAMMY_URL:-https://cloud-images.ubuntu.com/minimal/releases/
 LAB_BRIDGE=pkbr0
 LAB_NET=198.51.100
 LAB_KEY="$LAB_DIR/id_ed25519"
+LAB_QEMU_START_TIMEOUT=${LAB_QEMU_START_TIMEOUT:-60}
 
 lab_log() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
 
@@ -96,10 +97,22 @@ EOF
   sudo ip tuntap add dev "$tap" mode tap user "$(id -un)"
   sudo ip link set "$tap" master "$LAB_BRIDGE"
   sudo ip link set "$tap" up
-  qemu-system-x86_64 -enable-kvm -cpu host -smp 2 -m "$mem" -name "pk-$name" \
+  # -daemonize returns once the virtual machine is set up, in seconds. Where
+  # KVM can't create a virtual CPU (the kernel oopses), qemu never returns.
+  local st=0
+  timeout --kill-after=10 "$LAB_QEMU_START_TIMEOUT" qemu-system-x86_64 -enable-kvm -cpu host -smp 2 -m "$mem" -name "pk-$name" \
     -drive "file=$dir/disk.qcow2,if=virtio" -drive "file=$dir/seed.iso,if=virtio,format=raw" \
     -netdev "tap,id=n0,ifname=$tap,script=no,downscript=no" -device "virtio-net-pci,netdev=n0,mac=52:54:00:98:51:$octet" \
-    -display none -serial "file:$dir/console.log" -daemonize -pidfile "$dir/qemu.pid"
+    -display none -serial "file:$dir/console.log" -daemonize -pidfile "$dir/qemu.pid" || st=$?
+  if [ "$st" != 0 ]; then
+    case $st in
+      124 | 137) lab_log "qemu did not finish starting $name within $LAB_QEMU_START_TIMEOUT s, so KVM is probably unusable on this machine: look for a KVM oops in 'sudo dmesg'. Serial log: $dir/console.log" ;;
+      *) lab_log "qemu could not start $name (exit status $st)" ;;
+    esac
+    { [ -f "$dir/qemu.pid" ] && kill -9 "$(cat "$dir/qemu.pid")"; } 2>/dev/null || true
+    lab_shutdown "$name"
+    return 1
+  fi
   lab_log "booted $name at $LAB_NET.$octet ($mem MB RAM, 2 vCPU, 20 GB disk)"
   lab_wait_ssh "$LAB_NET.$octet"
 }

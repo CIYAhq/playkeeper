@@ -104,8 +104,8 @@ type ConsoleLine struct {
 }
 
 // logPrefix matches the log4j prefix of Paper ("[12:00:00 WARN]: "), vanilla
-// and Fabric ("[12:00:00] [Server thread/WARN]: ") and NeoForge, which adds
-// the logger ("[12:00:00] [main/ERROR] [ne.ne.fm.ModLoader/LOADING]: ").
+// and Fabric ("[12:00:00] [Server thread/WARN]: ") and NeoForge and Forge,
+// which add the logger ("[12:00:00] [main/ERROR] [ne.ne.fm.ModLoader/LOADING]: ").
 var logPrefix = regexp.MustCompile(`^\[\d{2}:\d{2}:\d{2}(?: (INFO|WARN|ERROR|FATAL))?\](?: \[[^\]]{1,64}/(INFO|WARN|ERROR|FATAL)\])?(?: \[[^\]]{1,120}\])?: `)
 
 // logLine is a console line split into its level and message. Lines without

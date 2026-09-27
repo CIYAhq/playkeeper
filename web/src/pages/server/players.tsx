@@ -353,7 +353,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
           </section>
         )}
         {manage && <InviteLinks server={s} data={invites.data} onNew={() => setNewOpen(true)} onChanged={invites.refresh} fresh={fresh} />}
-        <div className="flex items-center gap-3 pt-2">
+        <div className="mt-auto flex items-center gap-3 pt-2">
           <p className="min-w-0 flex-1 text-[13px] text-muted-foreground">{address ? t('players.tellPhone', { address }) : join.reason}</p>
           {address && <CopyButton text={t('players.inviteMessage', { address })} size="lg" toast={t('toast.copied')} />}
         </div>
@@ -362,7 +362,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
   } else {
     body = (
       <>
-        <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr]">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
           <Card>
             <div className="flex items-baseline justify-between gap-3">
               <CardTitle>{t('players.whoCanJoin')}</CardTitle>
@@ -396,7 +396,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
               </a>
             </div>
             <CardHint>{online ? t('players.playingMeta', { online: onlineNames.length, max: s.players?.max ?? 0, server: s.name }) : t('players.playingOffline', { server: s.name })}</CardHint>
-            <ul className="mt-3 flex flex-col gap-3">
+            <ul className="mt-3 mb-4 flex flex-col gap-3">
               {playing.map(({ key, item: n, state }) => (
                 <li key={key} {...presenceProps(state)} className="flex items-center gap-3">
                   <PlayerFace name={n} size={28} />
@@ -522,7 +522,7 @@ function PlayersSkeleton({ phone }: { phone: boolean }) {
     )
   }
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr]" aria-busy="true">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]" aria-busy="true">
       <Card>
         <Skeleton className="h-4 w-32" />
         <Skeleton className="mt-2 h-3 w-56" />
@@ -551,7 +551,7 @@ function EmptyPlayers({ server: s, join, form, phone, manage, onNewLink }: { ser
       <p className="mt-2 max-w-[520px] text-sm text-muted-foreground max-sm:text-[15px]">{t('players.emptyBody')}</p>
       {manage && (
         <div className="mt-5 w-full max-w-[420px] text-left">
-          <AddPlayer server={s} form={form} placeholder={t('players.emptyPlaceholder')} big />
+          <AddPlayer server={s} form={form} placeholder={phone ? t('players.namePlaceholderShort') : t('players.emptyPlaceholder')} iconButton={phone} big />
         </div>
       )}
       {join.address ? (

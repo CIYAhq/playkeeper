@@ -2,7 +2,7 @@
 
 Checked 2026-09-26 against the pinned versions in `go.mod`, `web/package-lock.json` and `internal/minecraft/catalog.go`. This is an inventory, not legal advice. Playkeeper itself is licensed under AGPL-3.0-only (see [LICENSING.md](LICENSING.md)).
 
-The full licence texts of everything below that is compiled into the binary, and the terms of the logos the web UI shows, are in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES), which every release tarball includes and the dashboard links to from Settings. That covers the extra notices some modules carry: modernc.org/libc's third-party notices, SQLite's public-domain dedication and sqlite-vec's licence in modernc.org/sqlite, and the Go and mmap-go licences in modernc.org/memory. `scripts/third-party-notices.sh` generates it (`make notices`), `make check` fails while it is out of date, and `make package` refuses to package a binary that links a module missing from it.
+The full licence texts of everything below that is compiled into the binary, and the terms of the logos the web UI shows, are in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES), which every release tarball includes and the dashboard links to from Settings. That covers the extra notices some modules carry: modernc.org/libc's third-party notices, SQLite's public-domain dedication and sqlite-vec's licence in modernc.org/sqlite, and the Go and mmap-go licences in modernc.org/memory. `scripts/third-party-notices.sh` generates it (`make notices`), `make check` fails while it is out of date or while the tables below leave out a Go module or npm package it lists, or give it another version, and `make package` refuses to package a binary that links a module missing from it.
 
 ## Compiled into the `playkeeper` binary
 
@@ -33,7 +33,8 @@ List exactly what is compiled in with `go version -m dist/playkeeper-*-linux-amd
 | react-dom | 19.3.0 | MIT |
 | scheduler | 0.28.0 | MIT |
 | @base-ui/react, @base-ui/utils | 1.8.0, 0.4.0 | MIT |
-| @floating-ui/core, dom, react-dom, utils | 1.8.0, 1.8.0, 2.1.9, 0.2.12 | MIT |
+| @types/react, csstype (type definitions Base UI names; no code in the bundle) | 19.3.0, 3.2.3 | MIT |
+| @floating-ui/core, @floating-ui/dom, @floating-ui/react-dom, @floating-ui/utils | 1.8.0, 1.8.0, 2.1.9, 0.2.12 | MIT |
 | reselect | 5.3.0 | MIT |
 | use-sync-external-store | 1.7.0 | MIT |
 | @babel/runtime | 7.29.7 | MIT |
@@ -60,8 +61,9 @@ The New server wizard shows these projects' own logos, unaltered, only to name t
 | Quilt | QuiltMC/art `quilt_logo_dark.svg` (849d6df) | CC0 1.0 | Quilt logo by the QuiltMC community (courtesy) |
 | NeoForge | neoforged/Documentation `logo.svg` (2924fdb) | MIT; the branding art is CC BY 4.0 | NeoForge logo © the NeoForged team, created by @Ridanisaurus, CC BY 4.0 |
 | Fabric | FabricMC/fabric `icon.png` (ba0d6c0) | Apache-2.0 (no NOTICE file) | — |
+| Forge | files.minecraftforge.net `static/images/apple-touch-icon.png` (Forge's own website, fetched 2026-09-26) | Forge logo, Forge Development LLC, used to identify the server software; removed on request | Forge logo, Forge Development LLC |
 
-Spigot, Bukkit and Folia are not offered, and Forge stays out until its team allows its logo to be shown. Add-on sources (Modrinth, Hangar, CurseForge) are named in text only.
+Spigot, Bukkit and Folia are not offered. Add-on sources (Modrinth, Hangar, CurseForge) are named in text only.
 
 Build and test tools (Vite, TypeScript, ESLint, Vitest, happy-dom [MIT], Playwright [Apache-2.0], axe-core [MPL-2.0], mineflayer [MIT]) are development dependencies and are not shipped, apart from the two small pieces of Vite and Rolldown code listed above that the bundler puts into the UI.
 

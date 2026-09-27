@@ -149,6 +149,7 @@ func packFolders() map[string]string {
 		"BSg2ZS8u": "create-plus-6.0.0-alpha-f",
 		"OirSzesD": "create-plus-5.2.1b",
 		"ck8SrkA4": "csmp-1.5",
+		"orK5UWpS": "the-respect-my-rights-modpack-1.1",
 	}
 }
 

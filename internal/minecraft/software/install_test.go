@@ -20,7 +20,7 @@ func TestSupportedTypes(t *testing.T) {
 			t.Errorf("%s: supported %v, assurance %+v", typeID, Supported(typeID), a)
 		}
 	}
-	for _, typeID := range []string{"paper", "forge", "spigot", "", "Vanilla"} {
+	for _, typeID := range []string{"paper", "folia", "spigot", "", "Vanilla"} {
 		if _, ok := AssuranceOf(typeID); Supported(typeID) || ok {
 			t.Errorf("%q is supported", typeID)
 		}
@@ -38,6 +38,8 @@ func TestPinValidate(t *testing.T) {
 		{Type: NeoForge, MinecraftVersion: "26.2", NeoForgeVersion: "26.2.0.88"},
 		{Type: NeoForge, MinecraftVersion: "1.21.1", NeoForgeVersion: "21.1.251"},
 		{Type: NeoForge, MinecraftVersion: "1.21", NeoForgeVersion: "21.0.0-beta"},
+		{Type: Forge, MinecraftVersion: "26.2", ForgeVersion: "65.1.3"},
+		{Type: Forge, MinecraftVersion: "1.21.1", ForgeVersion: "52.1.0"},
 	} {
 		if err := p.Validate(); err != nil {
 			t.Errorf("%+v: %v", p, err)
@@ -48,7 +50,7 @@ func TestPinValidate(t *testing.T) {
 		msg string
 	}{
 		{Pin{Type: "paper", MinecraftVersion: "26.2"}, `Playkeeper does not install "paper" servers this way.`},
-		{Pin{Type: "forge", MinecraftVersion: "1.21.1"}, `Playkeeper does not install "forge" servers this way.`},
+		{Pin{Type: "spigot", MinecraftVersion: "1.21.1"}, `Playkeeper does not install "spigot" servers this way.`},
 		{Pin{Type: Vanilla, MinecraftVersion: "1.20.6"}, `Playkeeper runs Minecraft releases from 1.21 on, not "1.20.6".`},
 		{Pin{Type: Vanilla, MinecraftVersion: "26.4-snapshot-1"}, `not "26.4-snapshot-1".`},
 		{Pin{Type: Vanilla, MinecraftVersion: "../../etc"}, `not "../../etc".`},
@@ -64,6 +66,11 @@ func TestPinValidate(t *testing.T) {
 		{Pin{Type: NeoForge, MinecraftVersion: "26.2", NeoForgeVersion: "26.1.2.109"}, `"26.1.2.109" is not a NeoForge version for Minecraft 26.2.`},
 		{Pin{Type: NeoForge, MinecraftVersion: "1.21.1", NeoForgeVersion: "21.1.251.1"}, "is not a NeoForge version for Minecraft 1.21.1"},
 		{Pin{Type: NeoForge, MinecraftVersion: "26.2", NeoForgeVersion: "26.2.0.88\n"}, "is not a NeoForge version for Minecraft 26.2"},
+		{Pin{Type: Forge, MinecraftVersion: "26.2"}, `"" is not a Forge version.`},
+		{Pin{Type: Forge, MinecraftVersion: "26.2", ForgeVersion: "26.2-65.1.3"}, `"26.2-65.1.3" is not a Forge version.`},
+		{Pin{Type: Forge, MinecraftVersion: "26.2", ForgeVersion: "65.1.3/../../x"}, "is not a Forge version"},
+		{Pin{Type: Forge, MinecraftVersion: "26.2", ForgeVersion: "65.1"}, "is not a Forge version"},
+		{Pin{Type: Forge, MinecraftVersion: "26.2", ForgeVersion: "65.1.3", NeoForgeVersion: "26.2.0.88"}, "carries build details of another server type"},
 	} {
 		if e := wantKind(t, tt.pin.Validate(), KindUnsupported); !strings.Contains(e.Msg, tt.msg) {
 			t.Errorf("%+v: got %q, want %q", tt.pin, e.Msg, tt.msg)
@@ -88,7 +95,8 @@ func copyPlan(t *testing.T, p Plan) Plan {
 func TestPlanValidation(t *testing.T) {
 	_, fabric := resolve(t, resolveFake(t, Fabric), Pin{Type: Fabric, MinecraftVersion: "1.21.8", FabricLoader: "0.19.5"})
 	_, neoforge := resolve(t, resolveFake(t, NeoForge), Pin{Type: NeoForge, MinecraftVersion: "26.2", NeoForgeVersion: "26.2.0.88"})
-	if !reflect.DeepEqual(copyPlan(t, fabric), fabric) || !reflect.DeepEqual(copyPlan(t, neoforge), neoforge) {
+	_, forge := resolve(t, resolveFake(t, Forge), Pin{Type: Forge, MinecraftVersion: "26.2", ForgeVersion: "65.1.0"})
+	if !reflect.DeepEqual(copyPlan(t, fabric), fabric) || !reflect.DeepEqual(copyPlan(t, neoforge), neoforge) || !reflect.DeepEqual(copyPlan(t, forge), forge) {
 		t.Fatal("a plan changes when it is stored as JSON")
 	}
 	tests := []struct {
@@ -120,6 +128,13 @@ func TestPlanValidation(t *testing.T) {
 		{"setup container that downloads the installer", neoforge, func(p *Plan) {
 			p.Setup.Env[1] = "NEOFORGE_INSTALLER_URL=https://evil.example.com/installer.jar"
 		}, KindMalformed},
+		{"Forge setup container that starts the server", forge, func(p *Plan) { p.Setup.Env = p.Setup.Env[:3] }, KindMalformed},
+		{"Forge setup container that installs a file not downloaded", forge, func(p *Plan) { p.Setup.Env[1] = "FORGE_INSTALLER=/data/other-installer.jar" }, KindMalformed},
+		{"Forge setup container that downloads the installer", forge, func(p *Plan) {
+			p.Setup.Env[1] = "FORGE_INSTALLER_URL=https://evil.example.com/installer.jar"
+		}, KindMalformed},
+		{"Forge setup container that picks its own version", forge, func(p *Plan) { p.Setup.Env[1] = "FORGE_VERSION=latest" }, KindMalformed},
+		{"Forge server container that runs the installer's run.sh", forge, func(p *Plan) { p.Run.Env = []string{"TYPE=FORGE"} }, KindMalformed},
 		{"setting with a line break", fabric, func(p *Plan) { p.Run.Env = append(p.Run.Env, "MOTD=hi\nRCON_PASSWORD=x") }, KindMalformed},
 		{"setting with a lowercase name", fabric, func(p *Plan) { p.Run.Env = append(p.Run.Env, "motd=hi") }, KindMalformed},
 		{"setting Playkeeper does not allow", fabric, func(p *Plan) { p.Run.Env = append(p.Run.Env, "JVM_OPTS=-javaagent:/data/agent.jar") }, KindMalformed},
@@ -701,5 +716,294 @@ func TestFinishRefusesToStartUncheckedFiles(t *testing.T) {
 	}
 	if !exists(in.dir, "neoforge-26.2.0.88-installer.jar") {
 		t.Error("the installer was removed although the install failed")
+	}
+}
+
+// forgeInstaller builds a stand-in Forge installer from the fixtures of
+// build id, its install profile changed by edit and its launch arguments by
+// args. Every library's SHA-1 and size, and every SHA-1 the profile
+// publishes for a file it builds, are set for the content the stand-in
+// install writes, which it returns by path in the data directory.
+func forgeInstaller(t *testing.T, id string, edit func(profile map[string]any), args func(string) string) ([]byte, map[string]string) {
+	t.Helper()
+	files := map[string]string{}
+	fakeLibs := func(doc any) any {
+		for _, l := range obj(doc)["libraries"].([]any) {
+			a := obj(l, "downloads", "artifact")
+			if a["url"] == "" {
+				continue
+			}
+			p := a["path"].(string)
+			files["libraries/"+p] = "library " + p
+			a["sha1"], a["size"] = hexSum(SHA1, []byte(files["libraries/"+p])), len(files["libraries/"+p])
+		}
+		return doc
+	}
+	profile := editJSON(t, readFixture(t, "forge/install_profile-"+id+".json"), func(doc any) any {
+		fakeLibs(doc)
+		data := obj(doc, "data")
+		for k, v := range data {
+			sha, ok := data[k+"_SHA"]
+			if !ok {
+				continue
+			}
+			coord := v.(map[string]any)["server"].(string)
+			p, _ := mavenPath(strings.Trim(coord, "[]"))
+			files["libraries/"+p] = "built on this host: " + p
+			sha.(map[string]any)["server"] = "'" + hexSum(SHA1, []byte(files["libraries/"+p])) + "'"
+		}
+		if edit != nil {
+			edit(obj(doc))
+		}
+		return doc
+	})
+	version := editJSON(t, readFixture(t, "forge/version-"+id+".json"), fakeLibs)
+	shim := "net/minecraftforge/forge/" + id + "/forge-" + id + "-shim.jar"
+	files["forge-"+id+"-shim.jar"] = files["libraries/"+shim]
+	launch := string(readFixture(t, "forge/unix_args-"+id+".txt"))
+	if args != nil {
+		launch = args(launch)
+	}
+	files["libraries/net/minecraftforge/forge/"+id+"/unix_args.txt"] = launch
+	return zipOf(t, "install_profile.json", string(profile), "version.json", string(version), "data/unix_args.txt", launch), files
+}
+
+type forgeInstall struct {
+	dir   string
+	plan  Plan
+	files map[string]string
+	mc    string
+}
+
+// newForgeInstall downloads the plan for Forge v for Minecraft mc, whose
+// installer is built from the fixtures of build fixture.
+func newForgeInstall(t *testing.T, mc, v, fixture string, edit func(profile map[string]any), args func(string) string) *forgeInstall {
+	t.Helper()
+	f, _ := installFake(t, mc)
+	installer, files := forgeInstaller(t, fixture, edit, args)
+	f.serve(forgeInstallerURL(mc+"-"+v), installer)
+	f.serve(forgeInstallerURL(mc+"-"+v)+".sha512", []byte(hexSum(SHA512, installer)))
+	_, p := resolve(t, f, Pin{Type: Forge, MinecraftVersion: mc, ForgeVersion: v})
+	in := &forgeInstall{dir: t.TempDir(), plan: p, files: files, mc: mc}
+	downloadAll(t, f, in.dir, p)
+	if err := Prepare(in.dir, p); err != nil {
+		t.Fatal(err)
+	}
+	return in
+}
+
+// runInstaller does on disk what Forge's installer does in the setup
+// container: it installs the libraries and the shim jar, extracts the launch
+// arguments and Minecraft's own libraries, and writes the files it builds,
+// except those named in skip.
+func (in *forgeInstall) runInstaller(t *testing.T, skip ...string) {
+	t.Helper()
+	for p, body := range in.files {
+		if !slices.Contains(skip, p) {
+			writeData(t, in.dir, p, []byte(body))
+		}
+	}
+	for p, body := range bundledLibs(in.mc) {
+		writeData(t, in.dir, "libraries/"+p, []byte(body))
+	}
+}
+
+const (
+	forgePatched = "libraries/net/minecraftforge/forge/26.2-65.1.0/forge-26.2-65.1.0-server.jar"
+	forgeArgs    = "libraries/net/minecraftforge/forge/26.2-65.1.0/unix_args.txt"
+)
+
+func TestInstallForge(t *testing.T) {
+	in := newForgeInstall(t, "26.2", "65.1.0", "26.2-65.1.0", nil, nil)
+	in.runInstaller(t)
+	m, err := Finish(in.dir, in.plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, gone := range in.plan.Remove {
+		if exists(in.dir, gone) {
+			t.Errorf("%s was not removed", gone)
+		}
+	}
+	if got := origins(m); got[Recorded] != 0 || got[Pinned] != 1 || got[Derived] < len(in.files)+len(bundledLibs("26.2")) {
+		t.Errorf("got checks by origin %v for %d files the install writes", got, len(in.files))
+	}
+	byPath := map[string]Check{}
+	for _, c := range m.Checks {
+		if _, dup := byPath[c.Path]; dup {
+			t.Errorf("%s is checked twice", c.Path)
+		}
+		byPath[c.Path] = c
+	}
+	for p := range in.files {
+		if _, ok := byPath[p]; !ok {
+			t.Errorf("%s is not checked", p)
+		}
+	}
+	server := byPath["libraries/net/minecraft/server/26.2/server-26.2-bundled.jar"]
+	args := byPath[forgeArgs]
+	patched := byPath[forgePatched]
+	shim := byPath["forge-26.2-65.1.0-shim.jar"]
+	brigadier := byPath["libraries/com/mojang/brigadier/1.3.10/brigadier-1.3.10.jar"]
+	fml := byPath["libraries/net/minecraftforge/fmlloader/26.2-65.1.0/fmlloader-26.2-65.1.0.jar"]
+	if server.Origin != Pinned || server.Hash.Algorithm != SHA1 ||
+		args.Origin != Derived || args.Hash.Value != hexSum(SHA256, readFixture(t, "forge/unix_args-26.2-65.1.0.txt")) ||
+		patched.Origin != Derived || patched.Hash.Value != hexSum(SHA1, []byte(in.files[forgePatched])) || patched.Source != forgeOutputSource ||
+		shim.Origin != Derived || shim.Hash != byPath["libraries/net/minecraftforge/forge/26.2-65.1.0/forge-26.2-65.1.0-shim.jar"].Hash || shim.Size == 0 ||
+		brigadier.Origin != Derived || brigadier.Source != "the library list inside Mojang's verified server jar" ||
+		fml.Hash.Algorithm != SHA1 || fml.Size == 0 || fml.Source != forgeLibrarySource {
+		t.Errorf("got server %+v\nargs %+v\npatched %+v\nshim %+v\nbrigadier %+v\nfml %+v", server, args, patched, shim, brigadier, fml)
+	}
+	if _, ok := byPath["libraries/net/minecraftforge/forge/26.2-65.1.0/forge-26.2-65.1.0-client.jar"]; ok {
+		t.Error("the client's patched jar is checked on a server")
+	}
+	if _, ok := byPath["forge-26.2-65.1.0-installer.jar"]; ok {
+		t.Error("the removed installer is still checked")
+	}
+	if m.Assurance.Level != LevelFull {
+		t.Errorf("got assurance %s, want full", m.Assurance.Level)
+	}
+	wantStrings(t, "run env", m.Run.Env, []string{"TYPE=CUSTOM", "CUSTOM_JAR_EXEC=@" + forgeArgs})
+	if err := m.Verify(in.dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{forgePatched, "forge-26.2-65.1.0-shim.jar"} {
+		tamper(t, in.dir, rel)
+		if e := wantKind(t, m.Verify(in.dir), KindHashMismatch); e.Params["file"] != rel || e.Params["origin"] != string(Derived) {
+			t.Errorf("got params %v", e.Params)
+		}
+		tamper(t, in.dir, rel)
+	}
+}
+
+func TestInstallForgeForMinecraft1211(t *testing.T) {
+	in := newForgeInstall(t, "1.21.1", "52.1.0", "1.21.1-52.1.0", nil, nil)
+	in.runInstaller(t)
+	m, err := Finish(in.dir, in.plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var built []string
+	for _, c := range m.Checks {
+		if c.Source == forgeOutputSource {
+			built = append(built, c.Path)
+		}
+	}
+	wantStrings(t, "built", built, []string{
+		"libraries/net/minecraft/server/1.21.1/server-1.21.1-official.jar",
+		"libraries/net/minecraft/server/1.21.1/server-1.21.1-unpacked.jar",
+		"libraries/net/minecraft/server/1.21.1/server-1.21.1-mappings.tsrg",
+		"libraries/net/minecraftforge/forge/1.21.1-52.1.0/forge-1.21.1-52.1.0-server.jar",
+	})
+	wantStrings(t, "run env", m.Run.Env, []string{"TYPE=CUSTOM", "CUSTOM_JAR_EXEC=@libraries/net/minecraftforge/forge/1.21.1-52.1.0/unix_args.txt"})
+	if err := m.Verify(in.dir); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInstallForgeRefuses(t *testing.T) {
+	run := func(t *testing.T, in *forgeInstall) { in.runInstaller(t) }
+	runThen := func(change func(t *testing.T, dir string)) func(t *testing.T, in *forgeInstall) {
+		return func(t *testing.T, in *forgeInstall) {
+			run(t, in)
+			change(t, in.dir)
+		}
+	}
+	tamperWith := func(rel string) func(t *testing.T, in *forgeInstall) {
+		return runThen(func(t *testing.T, dir string) { tamper(t, dir, rel) })
+	}
+	processorArgs := func(edit func(args []any)) func(p map[string]any) {
+		return func(p map[string]any) {
+			for _, pr := range p["processors"].([]any) {
+				edit(pr.(map[string]any)["args"].([]any))
+			}
+		}
+	}
+	tests := []struct {
+		name    string
+		fixture string
+		edit    func(profile map[string]any)
+		install func(t *testing.T, in *forgeInstall)
+		kind    Kind
+		msg     string
+	}{
+		{"a library is missing", "26.2-65.1.0", nil, runThen(func(t *testing.T, dir string) {
+			if err := os.Remove(filepath.Join(dir, "libraries/net/minecraftforge/eventbus/7.0.5/eventbus-7.0.5.jar")); err != nil {
+				t.Fatal(err)
+			}
+		}), KindMissingFile, "The server software file libraries/net/minecraftforge/eventbus/7.0.5/eventbus-7.0.5.jar is missing."},
+		{"a library was changed", "26.2-65.1.0", nil, tamperWith("libraries/net/minecraftforge/fmlloader/26.2-65.1.0/fmlloader-26.2-65.1.0.jar"),
+			KindHashMismatch, "does not match the SHA-1 from the library list inside the verified Forge installer"},
+		{"the shim jar the server starts was changed", "26.2-65.1.0", nil, tamperWith("forge-26.2-65.1.0-shim.jar"),
+			KindHashMismatch, "The file forge-26.2-65.1.0-shim.jar does not match the SHA-1 from the library list inside the verified Forge installer"},
+		{"one of Minecraft's libraries was changed", "26.2-65.1.0", nil, tamperWith("libraries/com/mojang/brigadier/1.3.10/brigadier-1.3.10.jar"),
+			KindHashMismatch, "does not match the SHA-256 from the library list inside Mojang's verified server jar"},
+		{"the launch arguments were changed", "26.2-65.1.0", nil, tamperWith(forgeArgs),
+			KindHashMismatch, "does not match the SHA-256 from the launch arguments inside the verified Forge installer"},
+		{"the patched jar does not match Forge's hash", "26.2-65.1.0", nil, tamperWith(forgePatched),
+			KindHashMismatch, "The file " + forgePatched + " does not match the SHA-1 from the install profile inside the verified Forge installer"},
+		{"the patched jar was not built", "26.2-65.1.0", nil, func(t *testing.T, in *forgeInstall) { in.runInstaller(t, forgePatched) },
+			KindMissingFile, "The server software file " + forgePatched + " is missing."},
+		{"the installer is for another version", "1.21.1-52.1.0", nil, nil,
+			KindMalformed, `it installs "1.21.1-forge-52.1.0" for Minecraft "1.21.1", not Forge 65.1.0 for Minecraft 26.2.`},
+		{"the installer expects Mojang's jar elsewhere", "26.2-65.1.0", func(p map[string]any) {
+			p["serverJarPath"] = "{LIBRARY_DIR}/net/minecraft/server/{MINECRAFT_VERSION}/server-{MINECRAFT_VERSION}.jar"
+		}, run, KindMalformed, "it expects Mojang's server jar somewhere other than libraries/net/minecraft/server/26.2/server-26.2-bundled.jar."},
+		{"the installer puts its launch arguments elsewhere", "26.2-65.1.0", processorArgs(func(args []any) {
+			for i, a := range args {
+				if a == "{ROOT}/"+forgeArgs {
+					args[i] = "{ROOT}/unix_args.txt"
+				}
+			}
+		}), run, KindMalformed, "it does not put its launch arguments at " + forgeArgs + "."},
+		{"the installer starts another jar than its shim", "26.2-65.1.0", func(p map[string]any) { p["path"] = "net.minecraftforge:forge:26.2-65.1.0:universal" }, run,
+			KindMalformed, "it does not start the server from its shim jar, forge-26.2-65.1.0-shim.jar."},
+		{"the installer lists a library outside the libraries folder", "26.2-65.1.0", func(p map[string]any) {
+			obj(p["libraries"].([]any)[0], "downloads", "artifact")["path"] = "../../../etc/cron.d/evil.jar"
+		}, run, KindMalformed, `its library "com.github.jponge:lzma-java:1.3" has no valid path, SHA-1 or size.`},
+		{"the installer publishes no hash for the patched jar", "26.2-65.1.0", func(p map[string]any) { delete(obj(p, "data"), "PATCHED_SHA") }, run,
+			KindMalformed, "its install profile publishes no SHA-1 for the patched Minecraft jar."},
+		{"the installer names an unsafe output", "26.2-65.1.0", func(p map[string]any) { obj(p, "data", "PATCHED")["server"] = "[../../x:y:z]" }, run,
+			KindMalformed, "its install profile names an invalid file or SHA-1 for PATCHED."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := newForgeInstall(t, "26.2", "65.1.0", tt.fixture, tt.edit, nil)
+			if tt.install != nil {
+				tt.install(t, in)
+			}
+			_, err := Finish(in.dir, in.plan)
+			if e := wantKind(t, err, tt.kind); !strings.Contains(e.Msg, tt.msg) {
+				t.Errorf("got %q, want %q", e.Msg, tt.msg)
+			}
+			if !exists(in.dir, "forge-26.2-65.1.0-installer.jar") {
+				t.Error("the installer was removed although the install failed")
+			}
+		})
+	}
+	t.Run("the installer's launch arguments start another jar than its shim", func(t *testing.T) {
+		in := newForgeInstall(t, "26.2", "65.1.0", "26.2-65.1.0", nil, func(args string) string {
+			return strings.Replace(args, "-jar forge-26.2-65.1.0-shim.jar", "-jar libraries/net/minecraftforge/forge/26.2-65.1.0/forge-26.2-65.1.0-server.jar", 1)
+		})
+		in.runInstaller(t)
+		_, err := Finish(in.dir, in.plan)
+		if e := wantKind(t, err, KindMalformed); !strings.Contains(e.Msg, "its launch arguments do not start forge-26.2-65.1.0-shim.jar.") {
+			t.Errorf("got %q", e.Msg)
+		}
+	})
+}
+
+func TestStartsJar(t *testing.T) {
+	for args, want := range map[string]bool{
+		"-Djava.net.preferIPv6Addresses=system -jar forge-shim.jar": true,
+		"-XX:+UseCompactObjectHeaders\n-jar\tforge-shim.jar\n":      true,
+		"-jar other.jar":                     false,
+		"-jar forge-shim.jar -jar other.jar": false,
+		"-cp libraries/a.jar net.minecraftforge.bootstrap.ForgeBootstrap": false,
+		"-jar": false,
+	} {
+		if got := startsJar(args, "forge-shim.jar"); got != want {
+			t.Errorf("startsJar(%q) = %v, want %v", args, got, want)
+		}
 	}
 }

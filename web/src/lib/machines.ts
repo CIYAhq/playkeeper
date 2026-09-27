@@ -40,8 +40,8 @@ export function machineState(m: MachineView, own: { agentDown: boolean; updating
   switch (state) {
     case 'connected':
       if (m.live?.updateInstalling) return { tone: 'good', label: t('nav.updating') }
-      if (m.error || !m.live) return { tone: 'warn', label: t('nav.notAnswering') }
-      return m.live.docker ? { tone: 'good', label: t('nav.healthy') } : { tone: 'warn', label: t('status.docker') }
+      if (agentSilent(m)) return { tone: 'warn', label: t('nav.notAnswering') }
+      return m.live?.docker ? { tone: 'good', label: t('nav.healthy') } : { tone: 'warn', label: t('status.docker') }
     case 'waiting':
       return { tone: 'off', label: t('machines.waiting') }
     case 'offline':
@@ -53,6 +53,11 @@ export function machineState(m: MachineView, own: { agentDown: boolean; updating
       return unreachable
     }
   }
+}
+
+/** Whether a joined machine is connected but its agent doesn't answer, which the sidebar calls Not answering. */
+export function agentSilent(m: MachineView): boolean {
+  return m.kind === 'remote' && m.link?.state === 'connected' && !m.live?.updateInstalling && (!!m.error || !m.live)
 }
 
 /** Whether the dashboard can't reach a joined machine right now; its own machine never counts. */

@@ -30,7 +30,7 @@ const (
 )
 
 // Detect looks for Chunky among the server's plugins (Bukkit) or mods
-// (Fabric, NeoForge) by reading the metadata inside each jar, so a renamed
+// (Fabric, NeoForge, Forge) by reading the metadata inside each jar, so a renamed
 // jar is still found. A server without it gets ErrNotInstalled. The folder
 // is read through internal/gamefiles, and links in it are skipped.
 func Detect(dataDir string, p Platform) (Installed, error) {
@@ -127,6 +127,10 @@ func chunkyVersion(files *gamefiles.Dir, name string, p Platform) (string, bool)
 		if b, ok := read("META-INF/neoforge.mods.toml"); ok {
 			return tomlMod(string(b), "chunky")
 		}
+	case Forge:
+		if b, ok := read("META-INF/mods.toml"); ok {
+			return tomlMod(string(b), "chunky")
+		}
 	}
 	return "", false
 }
@@ -153,7 +157,7 @@ func yamlTopLevel(s string) map[string]string {
 var reTOMLKey = regexp.MustCompile(`^\s*([A-Za-z]+)\s*=\s*("[^"]*"|'[^']*')`)
 
 // tomlMod finds the [[mods]] table with modId id in a neoforge.mods.toml
-// and returns its version.
+// or Forge's mods.toml and returns its version.
 func tomlMod(s, id string) (string, bool) {
 	inMods, found, version := false, false, ""
 	for _, line := range strings.Split(s, "\n") {

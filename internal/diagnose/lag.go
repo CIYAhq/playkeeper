@@ -42,7 +42,7 @@ type LagInput struct {
 	Now    time.Time
 	Window time.Duration // the period the measurements cover; 10 minutes when zero
 
-	ServerType string // registry id: paper, purpur, vanilla, fabric, neoforge…
+	ServerType string // registry id: paper, purpur, vanilla, fabric, neoforge, forge…
 
 	Ticks   *TickStats    // from ReadTicks
 	Console []ConsoleLine // recent console lines, for "Can't keep up!" warnings

@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { templateQuery } from '@/api/templates'
 import type { Address, Catalog, CatalogEntry, Me, ProjectRole, Crash, DNSRecord, FileRefusal, JoinAddress, LagCause, MachineEvent, MachineView, MemoryAdvice, MemorySizing, MetricsBucket, Operation, Running, ServerConfig, ServerStatus, TemplateContents } from '@/api/types'
-import { budgetAdvice, createRequest, freeName, styleMemory, versionCards, versionLine } from '@/components/app/create'
+import { budgetAdvice, createRequest, freeName, heapMB, styleMemory, versionCards, versionLine } from '@/components/app/create'
+import { activityText } from '@/components/app/activity'
 import { lineRuns } from '@/components/app/line-chart'
+import { axisLabel } from '@/components/app/players-chart'
 import { packRequest } from '@/pages/new-server'
-import { passwordStrength } from '@/pages/onboarding'
+import { passwordStrength } from '@/components/app/password-field'
 import { tokenRoles } from './access'
 import { certState, claimStep, dashboardURL, freeServers, freeStage, nameProblem, normalizeName, ownDone, recordFor, zoneOf } from './address'
 import { niceMax, regroup, ticks } from './chart'
@@ -13,7 +15,7 @@ import { behindSeconds, parseLine } from './console'
 import { crashDetail, crashFixes, crashSummary, failureLine, lookupKey, phoneLines, preselect, refusalFixes, refusalLine } from './crash'
 import { formatBytes, formatClock, formatCountdown, formatDate, formatDuration, formatList, formatMB, formatWhen, joinAddress, relativeAge, relativeTime, serverJoinAddress } from './format'
 import { joinOf, machineEventText } from './machines'
-import { memoryAdviceLine, memoryOffers, memoryOptionHint, memoryProgress, memorySegments } from './memory'
+import { memoryAdviceLine, memoryOffers, memoryOptionHint, memoryProgress, memorySegments, playersFor } from './memory'
 import { busyReason, controls, createStepOf, isCreating, isSettingUp, packStepOf, phaseTone, statusLabel, statusTone, templateStepOf, whyNot } from './phase'
 import { href, parse, type Route } from './router'
 import { causeAction, causeText, cpuAxis, headlineTPS, memoryAxis, runningHeadline, tickRateAxis, tickTimeAxis, timeLabels } from './running'
@@ -182,6 +184,33 @@ describe('memory', () => {
     expect(styleMemory(older, 'friends')).toBe(3072)
     expect(budgetAdvice(older, 4096)).toBeUndefined()
   })
+
+  it('matches the agent on how much of it Java gets', () => {
+    expect(heapMB(4096)).toBe(3072)
+    expect(heapMB(1536)).toBe(1024)
+    expect(heapMB(2048, 'purpur', 40)).toBe(1536)
+    // The Quilt server a player's join got killed: 2 GB, Chunky and Fabric API.
+    expect(heapMB(2048, 'quilt', 2)).toBe(2048 - 780)
+    expect(heapMB(2048, 'fabric', 17)).toBe(2048 - 870)
+    expect(heapMB(2048, 'neoforge')).toBe(1024)
+    expect(heapMB(3072, 'neoforge', 1)).toBe(3072 - 1030)
+    expect(heapMB(4096, 'fabric', 12)).toBe(3072)
+    expect(heapMB(6144, 'neoforge', 150)).toBe(6144 - 1924)
+    expect(heapMB(3072, 'forge')).toBe(2048)
+    expect(heapMB(6144, 'forge', 150)).toBe(6144 - 1924)
+  })
+
+  it('counts fewer players on a mod loader, whose mods take memory first', () => {
+    expect([1536, 2048, 3072, 4096, 6144, 8192].map((mb) => playersFor(mb))).toEqual([2, 4, 6, 10, 20, 30])
+    expect([1536, 2048, 3072, 4096, 6144, 8192].map((mb) => playersFor(mb, undefined, 'vanilla'))).toEqual([2, 4, 6, 10, 20, 30])
+    expect([1536, 2048, 3072, 4096, 6144, 8192].map((mb) => playersFor(mb, undefined, 'quilt'))).toEqual([1, 2, 4, 6, 10, 20])
+    expect([1536, 2048, 3072, 4096, 6144, 8192].map((mb) => playersFor(mb, undefined, 'neoforge'))).toEqual([1, 1, 2, 4, 10, 20])
+    expect([1536, 2048, 3072, 4096, 6144, 8192].map((mb) => playersFor(mb, undefined, 'forge'))).toEqual([1, 1, 2, 4, 10, 20])
+    // With the machine's sizing guide, the guide's count for what the loader leaves.
+    expect(playersFor(4096, sizing)).toBe(10)
+    expect(playersFor(4096, sizing, 'quilt')).toBe(4)
+    expect(playersFor(1536, sizing)).toBe(0)
+  })
 })
 
 describe('formatting', () => {
@@ -284,6 +313,8 @@ describe('AI agents', () => {
     expect(agentPhrase({ tool: 'create_backup', serverName: 'Survival' })).toBe('made a backup of Survival')
     expect(agentPhrase({ tool: 'list_online_players', serverName: 'Survival' })).toBe('checked who’s online on Survival')
     expect(agentPhrase({ tool: 'install_addon', serverName: 'Survival' })).toBe('installed a plugin or mod on Survival')
+    expect(agentPhrase({ tool: 'remove_addon', serverName: 'Survival' })).toBe('removed a plugin or mod from Survival')
+    expect(agentPhrase({ tool: 'search_addons', serverName: 'Survival' })).toBe('searched plugins and mods for Survival')
     expect(agentPhrase({ tool: 'future_tool', serverName: 'Survival' })).toBe('used future_tool on Survival')
     expect(agentPhrase({ tool: 'future_tool' })).toBe('used future_tool')
     expect(agentPhrase({ tool: 'toString', serverName: 'Survival' })).toBe('used toString on Survival')
@@ -366,6 +397,12 @@ describe('server state', () => {
     expect(busyReason(server({ operation: backup }))).toBe('Backing up Survival. Try again when it’s done.')
   })
 
+  it('says a mod, not a plugin, is being removed from a mod loader', () => {
+    const removing: Operation = { id: '1', kind: 'remove-addon', status: 'running', phase: '', actor: 'a', startedAt: '2026-09-25T10:00:00Z' }
+    expect(busyReason(server({ operation: removing }))).toBe('Removing a plugin from Survival. Try again when it’s done.')
+    for (const type of ['fabric', 'quilt', 'neoforge', 'forge']) expect(busyReason(server({ type, operation: removing })), type).toBe('Removing a mod from Survival. Try again when it’s done.')
+  })
+
   it('maps phases to tones and setup steps', () => {
     expect(phaseTone('preparing_world')).toBe('busy')
     expect(phaseTone('not_created')).toBe('stopped')
@@ -400,6 +437,36 @@ describe('console', () => {
     expect(parseLine('plain output').kind).toBe('info')
   })
 
+  // Real lines from Vanilla 26.1.2, Fabric 26.3, Quilt 26.1.2, NeoForge 26.2 and 26.1.2, and Forge 65.1.0 for 26.2 servers, as the log API gives them.
+  it.each([
+    ['[08:36:29] [Server thread/INFO]: pkbotfriend joined the game', '08:36:29', 'INFO', 'players', 'pkbotfriend joined the game'],
+    ['[08:36:30] [Server thread/INFO]: [Not Secure] <pkbotfriend> hello from the Playkeeper check bot', '08:36:30', 'INFO', 'chat', '[Not Secure] <pkbotfriend> hello from the Playkeeper check bot'],
+    ['[08:36:55] [Server thread/INFO]: pkbotfriend lost connection: Disconnected', '08:36:55', 'INFO', 'players', 'pkbotfriend lost connection: Disconnected'],
+    ['[08:35:40] [Server thread/WARN]: handleDisconnection() called twice', '08:35:40', 'WARN', 'problem', 'handleDisconnection() called twice'],
+    ['[00:28:35] [main/INFO]: Loading Minecraft 26.3 with Fabric Loader 0.19.5', '00:28:35', 'INFO', 'info', 'Loading Minecraft 26.3 with Fabric Loader 0.19.5'],
+    ["[00:45:44] [main/WARN]: Option 'mixin.perf.release_protochunks' overriden (by mods [c2me]) to 'false'", '00:45:44', 'WARN', 'problem', "Option 'mixin.perf.release_protochunks' overriden (by mods [c2me]) to 'false'"],
+    ['[08:41:09] [Server thread/INFO]: pkbotfriend joined the game', '08:41:09', 'INFO', 'players', 'pkbotfriend joined the game'],
+    ['[08:41:10] [Server thread/INFO]: [Not Secure] <pkbotfriend> hello Quilt', '08:41:10', 'INFO', 'chat', '[Not Secure] <pkbotfriend> hello Quilt'],
+    ['[08:39:22] [main/INFO]: Loading Minecraft 26.1.2 with Quilt Loader 0.30.1', '08:39:22', 'INFO', 'info', 'Loading Minecraft 26.1.2 with Quilt Loader 0.30.1'],
+    ['[00:32:41] [Server thread/INFO] [minecraft/DedicatedServer]: Done (2.863s)! For help, type "help"', '00:32:41', 'INFO', 'info', 'Done (2.863s)! For help, type "help"'],
+    ['[00:32:37] [modloading-worker-0/INFO] [ne.ne.ne.co.NeoForgeMod/NEOFORGE-MOD]: NeoForge mod loading, version 26.2.0.88, for MC 26.2', '00:32:37', 'INFO', 'info', 'NeoForge mod loading, version 26.2.0.88, for MC 26.2'],
+    ['[00:34:26] [RCON Client /[ip redacted] #3/INFO] [minecraft/RconClient]: Thread RCON Client /[ip redacted] shutting down', '00:34:26', 'INFO', 'info', 'Thread RCON Client /[ip redacted] shutting down'],
+    ['[09:43:11] [Server thread/INFO] [minecraft/MinecraftServer]: pkbotfriend joined the game', '09:43:11', 'INFO', 'players', 'pkbotfriend joined the game'],
+    ['[09:43:12] [Server thread/INFO] [minecraft/MinecraftServer]: [Not Secure] <pkbotfriend> hello NeoForge 1', '09:43:12', 'INFO', 'chat', '[Not Secure] <pkbotfriend> hello NeoForge 1'],
+    ['[09:43:42] [Server thread/INFO] [minecraft/ServerGamePacketListenerImpl]: pkbotfriend lost connection: Disconnected', '09:43:42', 'INFO', 'players', 'pkbotfriend lost connection: Disconnected'],
+    ['[09:42:59] [Server thread/WARN] [mojang/YggdrasilGameProfileRepository]: Couldn\'t find profile with name: pkbotfriend', '09:42:59', 'WARN', 'problem', "Couldn't find profile with name: pkbotfriend"],
+    ['[13:43:58] [Server thread/INFO] [minecraft/MinecraftServer]: pkbotfriend joined the game', '13:43:58', 'INFO', 'players', 'pkbotfriend joined the game'],
+    ['[13:43:59] [Server thread/INFO] [minecraft/MinecraftServer]: <pkbotfriend> hello from the Playkeeper check bot on Forge', '13:43:59', 'INFO', 'chat', '<pkbotfriend> hello from the Playkeeper check bot on Forge'],
+    ['[13:44:29] [Server thread/INFO] [minecraft/ServerGamePacketListenerImpl]: pkbotfriend lost connection: Disconnected', '13:44:29', 'INFO', 'players', 'pkbotfriend lost connection: Disconnected'],
+    ['[12:50:06] [modloading-worker-0/INFO] [ne.mi.co.ForgeMod/FORGEMOD]: Forge mod loading, version 65.1.0, for MC 26.2 with MCP 20260616.103818', '12:50:06', 'INFO', 'info', 'Forge mod loading, version 65.1.0, for MC 26.2 with MCP 20260616.103818'],
+    ['[12:50:08] [Server thread/WARN] [ne.mi.co.ForgeConfigSpec/CORE]: Configuration file ./world/serverconfig/forge-server.toml is not correct. Correcting', '12:50:08', 'WARN', 'problem', 'Configuration file ./world/serverconfig/forge-server.toml is not correct. Correcting'],
+    ['[12:50:11] [Server thread/INFO] [minecraft/DedicatedServer]: Done (2.885s)! For help, type "help"', '12:50:11', 'INFO', 'info', 'Done (2.885s)! For help, type "help"'],
+    ['[13:10:21] [main/ERROR] [ne.mi.fm.lo.ModSorter/LOADING]: Missing or unsupported mandatory dependencies:', '13:10:21', 'ERROR', 'problem', 'Missing or unsupported mandatory dependencies:'],
+    ['[13:10:24] [main/FATAL] [ne.mi.se.lo.ServerModLoader/]: Crash report saved to ./crash-reports/crash-2026-09-26_13.10.24-fml.txt', '13:10:24', 'FATAL', 'problem', 'Crash report saved to ./crash-reports/crash-2026-09-26_13.10.24-fml.txt'],
+  ])('reads a line from a server that is not Paper: %s', (raw, time, level, kind, text) => {
+    expect(parseLine(raw)).toEqual({ time, level, kind, text })
+  })
+
   it('reads how far behind a lagging server is', () => {
     expect(behindSeconds('Running 2143ms or 42 ticks behind')).toBeCloseTo(2.143)
   })
@@ -408,6 +475,11 @@ describe('console', () => {
 describe('crash helper', () => {
   const crash = (over: Partial<Crash>): Crash => ({ at: '2026-09-25T18:53:00Z', start: false, kind: 'unknown', certain: true, title: '', explanation: 'The agent’s words.', evidence: [], fixes: [], lines: [], roomMB: 3584, ...over })
   const titles = (c: Crash, phone = false) => crashFixes(c, 'Survival', 'my-vps', phone).map((o) => [o.title, o.plan?.kind ?? o.reason])
+
+  it('says in the activity when a server ran out of memory', () => {
+    expect(activityText({ ts: '2026-09-25T18:53:00Z', kind: 'crashed_memory', detail: 'The server ran out of memory and was killed.' }, 'Survival', 'admin')).toBe('Survival ran out of memory')
+    expect(activityText({ ts: '2026-09-25T18:53:00Z', kind: 'crashed' }, 'Survival', 'admin')).toBe('Survival crashed')
+  })
 
   it('calls a stopped server whose start failed one that couldn’t start', () => {
     expect(statusTone(server({ phase: 'stopped', crash: crash({ start: true }) }))).toBe('crashed')
@@ -479,6 +551,12 @@ describe('crash helper', () => {
     const byHand = crashFixes(plugin, 'Survival', 'my-vps', false, new Date(), { 'update:Multiverse-Portals-5.0.2.jar': { state: 'unavailable', reason: 'Added by hand, so Playkeeper can’t update it' } })
     expect(byHand[0]).toMatchObject({ title: 'Update Multiverse-Portals', reason: 'Added by hand, so Playkeeper can’t update it' })
     expect(preselect(byHand)?.title).toBe('Remove Multiverse-Portals')
+
+    // With an update made for its Minecraft, the summary says what the design says.
+    const update = { state: 'ready', key: portals, name: 'Multiverse-Portals', version: '5.1.0', fingerprint: 'a'.repeat(32), madeFor: '26.1.2', installed: '5.0.2' } as const
+    expect(crashSummary(plugin, 'Survival', 'my-vps', { 'update:Multiverse-Portals-5.0.2.jar': update })).toBe('Multiverse-Portals 5.0.2 doesn’t work with Minecraft 26.1.2.')
+    expect(crashSummary(plugin, 'Survival', 'my-vps')).toBe('Multiverse-Portals hit an error while starting.')
+    expect(crashSummary(plugin, 'Survival', 'my-vps', { 'update:Multiverse-Portals-5.0.2.jar': { state: 'unavailable', reason: 'Added by hand, so Playkeeper can’t update it' } })).toBe('Multiverse-Portals hit an error while starting.')
   })
 
   it('says where the memory would come from on a phone', () => {
@@ -604,12 +682,16 @@ describe('creating a server', () => {
     const c = { type: 'paper', versionId: 'paper-26.2', acceptExperimental: true, style: 'friends' as const, hardcore: false, levelType: 'flat' as const, memoryMB: 4096, name: 'Cobblemon', motd: '', eula: true, build: '41' }
     const pack = { source: 'modrinth' as const, projectId: 'TPK00001', versionId: 'TPV00001', name: 'Cobblemon Modpack', type: 'fabric', minecraftVersion: '1.21.1', memoryMB: 6144 }
     expect(packRequest(c, pack)).toEqual({ name: 'Cobblemon', acceptEula: true, memoryMB: 4096, motd: 'Cobblemon', maxPlayers: 10, acceptExperimental: false, modpack: { source: 'modrinth', projectId: 'TPK00001', versionId: 'TPV00001' } })
+    // Once the pack's plan named voice chat's port, creating it agrees to open it.
+    expect(packRequest(c, pack, true).modpack).toEqual({ source: 'modrinth', projectId: 'TPK00001', versionId: 'TPV00001', openPorts: true })
   })
 
   it('names each type’s build the way people say it', () => {
     expect(softwareName('paper', 41)).toBe('Paper build 41')
     expect(softwareName('fabric', '0.17.2')).toBe('Fabric loader 0.17.2')
     expect(softwareName('neoforge', '26.2.1.7')).toBe('NeoForge version 26.2.1.7')
+    expect(softwareName('forge', '65.1.3')).toBe('Forge version 65.1.3')
+    expect(addonKind('forge')).toBe('mods')
     expect(softwareName('vanilla', 0)).toBe('Vanilla')
     expect(addonKind('purpur')).toBe('plugins')
     expect(addonKind('quilt')).toBe('mods')
@@ -817,6 +899,17 @@ describe('how it’s running', () => {
     expect(cpuAxis([22, 61])).toEqual({ max: 100, labels: ['100%', '50', '0'] })
   })
 
+  it('keeps the players chart’s labels clear of now', () => {
+    const hourly = (from: string, n: number, hours: number) => Array.from({ length: n }, (_, i) => ({ start: new Date(Date.parse(from) + i * hours * 3_600_000).toISOString(), players: 1, state: 'online' as const, coverage: 1 }))
+    const labels = (bars: ReturnType<typeof hourly>, range: '24h' | '7d' | '30d') => bars.map((b, i) => axisLabel(b, range, i, bars.length)).filter(Boolean)
+    // 12:00 is the bar before now, then 06:00 three before it: both hidden. Five before it, 06:00 has room.
+    expect(labels(hourly('2026-09-25T14:00:00', 24, 1), '24h')).toEqual(['18:00', '00:00', '06:00', 'now'])
+    expect(labels(hourly('2026-09-25T09:00:00', 24, 1), '24h')).toEqual(['12:00', '18:00', '00:00', 'now'])
+    expect(labels(hourly('2026-09-25T11:00:00', 24, 1), '24h')).toEqual(['12:00', '18:00', '00:00', '06:00', 'now'])
+    // Saturday's first bar is three before now: hidden.
+    expect(labels(hourly('2026-09-19T09:00:00', 56, 3), '7d')).toEqual(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'now'])
+  })
+
   it('labels the hour at quarters, ending with now', () => {
     const start = Date.parse('2026-09-25T17:52:00')
     const buckets: MetricsBucket[] = Array.from({ length: 61 }, (_, i) => ({ start: new Date(start + i * 60_000).toISOString(), playersMax: 3, cpuAvg: null, memAvg: null, tpsAvg: 20, msptAvg: 30, coverage: 1, state: 'online' }))
@@ -849,6 +942,8 @@ describe('memory advice', () => {
     expect(memoryAdviceLine(early({ days: 1 }), 'my-vps')).toBe('Suggests a size after 3 days of play. Until then, 4 GB suits up to 10 friends.')
     expect(memoryAdviceLine(early({ days: 4 }), 'my-vps')).toBe('Suggests a size after a week. Until then, 4 GB suits up to 10 friends.')
     expect(memoryAdviceLine(early({ days: 0 }, { fromNextStart: true, budgetMB: 2048 }), 'my-vps')).toBe('Starts measuring at its next restart. Until then, 2 GB suits up to 4 friends.')
+    expect(memoryAdviceLine(early({ days: 0 }, { fromNextStart: true, budgetMB: 2048 }), 'my-vps', undefined, 'neoforge')).toBe('Starts measuring at its next restart. Until then, 2 GB suits 1 friend.')
+    expect(memoryAdviceLine(early({ days: 4 }), 'my-vps', undefined, 'fabric')).toBe('Suggests a size after a week. Until then, 4 GB suits up to 6 friends.')
   })
 
   it('counts friends the sizing guide’s way when the machine sends it', () => {
@@ -870,6 +965,7 @@ describe('memory advice', () => {
     expect(hint({ memoryMB: 6144, fit: 'more_than_needed' })).toBe('More than it uses')
     expect(hint({ memoryMB: 8192, fit: 'more_than_needed', fits: false })).toBe('Not enough free on my-vps')
     expect(hint({ memoryMB: 6144 }, undefined)).toBe('Up to 20 friends')
+    expect(memoryOptionHint({ memoryMB: 6144, heapMB: 0, fits: true }, undefined, 'my-vps', undefined, 'neoforge')).toBe('Up to 10 friends')
   })
 
   it('always offers the budget the server has', () => {
@@ -991,5 +1087,42 @@ describe('token roles', () => {
     expect(tokenRoles(me('viewer'))).toEqual(['viewer'])
     expect(tokenRoles(me('moderator'))).toEqual(['viewer', 'moderator'])
     expect(tokenRoles(me('admin'))).toEqual(['viewer', 'moderator', 'admin'])
+  })
+})
+
+// Found checking the restore path on a real server.
+describe('a restore that didn’t finish', () => {
+  it('says in the activity what Playkeeper did after it restarted', () => {
+    expect(activityText({ ts: '', kind: 'restored_after_restart' }, 'Survival', 'siya')).toBe('Survival restored after Playkeeper restarted')
+    expect(activityText({ ts: '', kind: 'put_back' }, 'Survival', 'siya')).toBe('Survival’s previous world put back')
+  })
+
+  it('won’t start a server whose world folder a restore left missing, and says why', () => {
+    const missing = { previous: '/var/lib/playkeeper/servers/a/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/a/data', setAsideAt: '2026-09-26T10:30:28Z' }
+    expect(whyNot(server({ phase: 'stopped', worldMissing: missing }), 'start', false)).toBe('Its world folder is missing. Move the previous world back first.')
+    expect(whyNot(server({ phase: 'stopped' }), 'start', false)).toBeUndefined()
+  })
+
+  it('won’t back up a server whose world folder a restore left missing, and says why', () => {
+    const missing = { previous: '/var/lib/playkeeper/servers/a/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/a/data', setAsideAt: '2026-09-26T10:30:28Z' }
+    expect(whyNot(server({ phase: 'stopped', worldMissing: missing }), 'backup', false)).toBe('Its world folder is missing. Move the previous world back first.')
+    expect(whyNot(server({ phase: 'online' }), 'backup', false)).toBeUndefined()
+    expect(whyNot(server({ phase: 'online' }), 'backup', true)).toBe(whyNot(server({ phase: 'online' }), 'change', true))
+  })
+
+  it('won’t restore while another restore isn’t finished, and says why', () => {
+    const missing = { previous: '/var/lib/playkeeper/servers/a/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/a/data', setAsideAt: '2026-09-26T10:30:28Z' }
+    expect(whyNot(server({ phase: 'stopped', restoreUnsettled: {} }), 'restore', false)).toBe('A restore isn’t finished. Playkeeper finishes it once the server is stopped.')
+    expect(whyNot(server({ phase: 'stopped', restoreUnsettled: { problem: 'Saving the settings failed: disk I/O error.' } }), 'restore', false)).toBe('A restore isn’t finished, and Playkeeper couldn’t finish it.')
+    expect(whyNot(server({ phase: 'stopped', restoreUnsettled: {}, worldMissing: missing }), 'restore', false)).toBe('Its world folder is missing. Move the previous world back first.')
+    for (const action of ['start', 'backup', 'pregen'] as const) expect(whyNot(server({ phase: 'stopped', restoreUnsettled: {} }), action, false)).toBeUndefined()
+  })
+
+  it('won’t pre-generate or restore while a restore left the world folder missing, and says why', () => {
+    const missing = { previous: '/var/lib/playkeeper/servers/a/data.replaced-20260926-103028', dataDir: '/var/lib/playkeeper/servers/a/data', setAsideAt: '2026-09-26T10:30:28Z' }
+    for (const action of ['pregen', 'restore'] as const) {
+      expect(whyNot(server({ phase: 'stopped', worldMissing: missing }), action, false)).toBe('Its world folder is missing. Move the previous world back first.')
+      expect(whyNot(server({ phase: 'stopped' }), action, false)).toBeUndefined()
+    }
   })
 })

@@ -98,3 +98,26 @@ export function MeterSkeleton({ rows = 3, className }: { rows?: number; classNam
     </div>
   )
 }
+
+/** A page whose code is still loading: its title and two cards, in the page's own padding. */
+export function PageSkeleton() {
+  return (
+    <div className="flex flex-col gap-5 px-7 py-6 max-sm:px-4 max-sm:py-4">
+      <LoadingLabel />
+      <Skeleton className="h-8 w-56 max-w-full" />
+      <Skeleton className="h-36 rounded-2xl" />
+      <Skeleton className="h-56 rounded-2xl" />
+    </div>
+  )
+}
+
+/** A server tab whose code is still loading, under the server's header. */
+export function TabSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <LoadingLabel />
+      <Skeleton className="h-36 rounded-2xl" />
+      <Skeleton className="h-56 rounded-2xl" />
+    </div>
+  )
+}

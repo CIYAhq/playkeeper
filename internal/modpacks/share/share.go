@@ -52,7 +52,7 @@ type Setup struct {
 	// Name is the server's name; friends' launchers name the instance after
 	// it.
 	Name             string
-	Type             string // fabric, quilt or neoforge
+	Type             string // fabric, quilt, neoforge or forge
 	MinecraftVersion string
 	LoaderVersion    string
 	// Pack is the modpack's record, or nil without one.
@@ -197,11 +197,11 @@ type Yourself struct {
 	Reason Text   `json:"reason"`
 }
 
-// Supported reports whether a server type has mods to share: Fabric, Quilt
-// and NeoForge.
+// Supported reports whether a server type has mods to share: Fabric, Quilt,
+// NeoForge and Forge.
 func Supported(serverType string) bool {
 	switch serverType {
-	case "fabric", "quilt", "neoforge":
+	case "fabric", "quilt", "neoforge", "forge":
 		return true
 	}
 	return false
@@ -216,7 +216,7 @@ const hashBatch = 100
 func (b *Builder) Build(ctx context.Context, s Setup) (*Share, error) {
 	if !Supported(s.Type) {
 		return nil, fail(KindUnsupported, kv("type", printable(s.Type)),
-			"Only Fabric, Quilt and NeoForge servers have mods to share with friends.",
+			"Only Fabric, Quilt, NeoForge and Forge servers have mods to share with friends.",
 			"Friends join Paper, Purpur and vanilla servers with the plain game.")
 	}
 	if !mrpack.ValidToken(s.MinecraftVersion) || !mrpack.ValidToken(s.LoaderVersion) {
@@ -741,6 +741,8 @@ func loaderID(serverType string) string {
 		return mrpack.QuiltLoader
 	case "neoforge":
 		return mrpack.NeoForge
+	case "forge":
+		return mrpack.Forge
 	}
 	return mrpack.FabricLoader
 }

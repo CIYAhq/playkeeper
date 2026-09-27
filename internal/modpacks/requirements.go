@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
@@ -14,8 +15,7 @@ import (
 var releaseVersion = regexp.MustCompile(`^[0-9]{1,3}\.[0-9]{1,3}(\.[0-9]{1,3})?$`)
 
 // typeForLoader maps a loader, as Modrinth's dependency ids and CurseForge's
-// loader names spell it, to a server type. Forge maps to "forge", which no
-// server type is.
+// loader names spell it, to a server type.
 func typeForLoader(loader string) (string, bool) {
 	switch loader {
 	case "":
@@ -60,8 +60,6 @@ func (l *Library) requirements(name, loader, loaderVersion, mc string) (Requirem
 		return Requirements{}, fail(KindUnknownLoader, kv("pack", name, "loader", printable(loader)),
 			fmt.Sprintf("%s needs a mod loader Playkeeper does not know (%s).", name, printable(loader)),
 			"Choose another pack.")
-	case t == "forge":
-		return Requirements{}, forge(name)
 	}
 	if n := l.minecraftUnsupported(name, mc); n != nil {
 		return Requirements{}, &addons.Error{Notice: *n}
@@ -75,13 +73,12 @@ func (l *Library) requirements(name, loader, loaderVersion, mc string) (Requirem
 	if t != "vanilla" {
 		r.LoaderVersion = loaderVersion
 	}
+	// Some packs name a Forge build the way Forge's Maven does, with its
+	// Minecraft version first: "26.2-65.1.3" is Forge 65.1.3.
+	if t == "forge" {
+		r.LoaderVersion = strings.TrimPrefix(r.LoaderVersion, mc+"-")
+	}
 	return r, nil
-}
-
-func forge(name string) *addons.Error {
-	return fail(KindForge, kv("pack", name),
-		fmt.Sprintf("%s runs on Forge, and Playkeeper does not run Forge servers.", name),
-		"Look for a NeoForge or Fabric version of the pack, or another pack.")
 }
 
 // minecraftUnsupported explains why Playkeeper cannot run Minecraft mc for

@@ -35,8 +35,8 @@ func FilePath(token, slug string) string {
 type Page struct {
 	Server           string `json:"server"`
 	MinecraftVersion string `json:"minecraftVersion"`
-	Loader           string `json:"loader"`     // fabric, quilt or neoforge
-	LoaderName       string `json:"loaderName"` // Fabric, Quilt or NeoForge
+	Loader           string `json:"loader"`     // fabric, quilt, neoforge or forge
+	LoaderName       string `json:"loaderName"` // Fabric, Quilt, NeoForge or Forge
 	LoaderVersion    string `json:"loaderVersion"`
 	Pack             *Pack  `json:"pack,omitempty"`
 	Notice           Text   `json:"notice"`

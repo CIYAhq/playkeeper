@@ -91,7 +91,7 @@ func List() []Entry {
 			ID: VoiceChatID, Name: "Voice chat",
 			Purpose: "Players talk with their microphones to the players near them in the game, or in groups.",
 			Projects: []Project{
-				modrinth([]string{"paper", "purpur", "fabric", "quilt", "neoforge"}, "9eGKb6K1", "simple-voice-chat", "Simple Voice Chat", "henkelmax", "LicenseRef-All-Rights-Reserved").
+				modrinth([]string{"paper", "purpur", "fabric", "quilt", "neoforge", "forge"}, "9eGKb6K1", "simple-voice-chat", "Simple Voice Chat", "henkelmax", "LicenseRef-All-Rights-Reserved").
 					permitted("https://modrepo.de/minecraft/voicechat/faq"),
 			},
 			Setup: &Setup{
@@ -111,7 +111,7 @@ func List() []Entry {
 			ID: "pregenerate", Name: "World pre-generation",
 			Purpose: "Generates the land around spawn ahead of time, so exploring does not make the server lag.",
 			Projects: []Project{
-				modrinth([]string{"paper", "purpur", "fabric", "neoforge"}, "fALzjamp", "chunky", "Chunky", "pop4959", "GPL-3.0-only"),
+				modrinth([]string{"paper", "purpur", "fabric", "neoforge", "forge"}, "fALzjamp", "chunky", "Chunky", "pop4959", "GPL-3.0-only"),
 			},
 		},
 		{
@@ -132,7 +132,7 @@ func List() []Entry {
 			ID: "permissions", Name: "Permissions",
 			Purpose: "Puts players into groups and decides which commands each group may use.",
 			Projects: []Project{
-				modrinth([]string{"paper", "purpur", "fabric", "neoforge"}, "Vebnzrzj", "luckperms", "LuckPerms", "lucko", "MIT"),
+				modrinth([]string{"paper", "purpur", "fabric", "neoforge", "forge"}, "Vebnzrzj", "luckperms", "LuckPerms", "lucko", "MIT"),
 			},
 		},
 		{
@@ -140,7 +140,7 @@ func List() []Entry {
 			ID: "lag-finder", Name: "Lag finder",
 			Purpose: "Measures what the server spends its time on, to find what makes it lag.",
 			Projects: []Project{
-				modrinth([]string{"fabric", "quilt", "neoforge"}, "l6YH9Als", "spark", "spark", "lucko", "GPL-3.0-only"),
+				modrinth([]string{"fabric", "quilt", "neoforge", "forge"}, "l6YH9Als", "spark", "spark", "lucko", "GPL-3.0-only"),
 			},
 		},
 	}

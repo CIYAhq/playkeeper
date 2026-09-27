@@ -168,7 +168,7 @@ func (l *Library) modrinthPack(ctx context.Context, idOrSlug string) (*modrinth.
 // The pack's index has the final say.
 func (l *Library) modrinthTarget(name string, v *modrinth.Version) (string, string, *addons.Notice) {
 	typ := ""
-	for _, t := range []string{"fabric", "quilt", "neoforge"} {
+	for _, t := range []string{"fabric", "quilt", "neoforge", "forge"} {
 		if slices.Contains(v.Loaders, t) && slices.Contains(l.types(), t) {
 			typ = t
 			break
@@ -176,14 +176,12 @@ func (l *Library) modrinthTarget(name string, v *modrinth.Version) (string, stri
 	}
 	switch {
 	case typ != "":
-	case slices.Contains(v.Loaders, "forge"):
-		return "forge", "", &forge(name).Notice
 	case len(v.Loaders) == 0 || slices.Contains(v.Loaders, "minecraft") || slices.Contains(v.Loaders, "vanilla"):
 		typ = "vanilla"
 	default:
 		n := notice(KindTypeUnavailable, kv("pack", name, "type", printable(strings.Join(v.Loaders, ", "))),
 			fmt.Sprintf("This version of %s needs a server type Playkeeper cannot run (%s).", name, printable(strings.Join(v.Loaders, ", "))),
-			"Choose a version for Fabric, Quilt or NeoForge.")
+			"Choose a version for Fabric, Quilt, NeoForge or Forge.")
 		return "", "", &n
 	}
 	if !slices.Contains(l.types(), typ) {
@@ -206,15 +204,12 @@ func (l *Library) modrinthTarget(name string, v *modrinth.Version) (string, stri
 // pickModrinth chooses the newest version Playkeeper can run, a release
 // unless allowPre, optionally for one Minecraft version and server type.
 func (l *Library) pickModrinth(name string, vs []modrinth.Version, allowPre bool, mc, typ string) (*modrinth.Version, error) {
-	var pre, forgeOnly *modrinth.Version
+	var pre *modrinth.Version
 	var firstWhy *addons.Notice
 	for i := range vs {
 		v := &vs[i]
 		t, m, why := l.modrinthTarget(name, v)
 		if why != nil {
-			if why.Kind == KindForge && forgeOnly == nil {
-				forgeOnly = v
-			}
 			if firstWhy == nil {
 				firstWhy = why
 			}
@@ -641,6 +636,8 @@ func (l *Library) curseForgeTarget(name string, f *curseforge.File) (string, str
 	typ, mc := "", ""
 	for _, g := range f.GameVersions {
 		switch strings.ToLower(g) {
+		// Tagged for Forge and another loader, the file counts as the
+		// other one; the pack's manifest has the final say.
 		case "fabric", "quilt", "neoforge":
 			if typ == "" || typ == "forge" {
 				typ = strings.ToLower(g)
@@ -654,9 +651,6 @@ func (l *Library) curseForgeTarget(name string, f *curseforge.File) (string, str
 				mc = g
 			}
 		}
-	}
-	if typ == "forge" {
-		return typ, mc, &forge(name).Notice
 	}
 	if typ != "" && !slices.Contains(l.types(), typ) {
 		n := notice(KindTypeUnavailable, kv("pack", name, "type", typ), fmt.Sprintf("%s needs a %s server, and Playkeeper cannot run %s servers yet.", name, typeName(typ), typeName(typ)), "")

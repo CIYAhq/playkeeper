@@ -224,6 +224,18 @@ func serve(a *fakeAgent, st api.ServerStatus, op string) {
 	a.on("GET", p+"/events", http.StatusOK, []api.Event{{ID: 1, TS: t0.Add(-2 * time.Hour), Kind: "server_crashed", Detail: "The server stopped unexpectedly."}})
 	a.on("GET", p+"/addons/project/modrinth/chunky", http.StatusOK, chunky())
 	a.on("POST", p+"/addons/install", http.StatusAccepted, started("addon-install"))
+	a.on("GET", p+"/addons/search", http.StatusOK, api.AddonBrowse{Cards: []api.AddonCard{chunky().Card}, Unanswered: []api.AddonNotice{}})
+	a.on("GET", p+"/addons", http.StatusOK, api.Addons{Files: []api.AddonFile{{FileName: "Chunky-1.4.40.jar", Status: "managed", Addon: installedChunky()}},
+		Missing: []api.Addon{}, Warnings: []api.AddonNotice{}})
+	a.on("GET", p+"/addons/project/modrinth/fALzjamp/removal", http.StatusOK, api.AddonRemovePreview{Addon: *installedChunky(),
+		NeededBy: []string{}, Orphans: []api.Addon{}, ConfigFolder: "Chunky"})
+	a.on("POST", p+"/addons/remove", http.StatusOK, api.AddonRemoval{Removed: []string{"Chunky"}, Warnings: []api.AddonNotice{}})
+}
+
+// installedChunky is Chunky as Playkeeper installed it.
+func installedChunky() *api.Addon {
+	return &api.Addon{Source: "modrinth", ProjectID: "fALzjamp", Slug: "chunky", Name: "Chunky", VersionID: "dPliWter", VersionNumber: "1.4.40",
+		Channel: "release", FileName: "Chunky-1.4.40.jar", InstalledAt: t0.Add(-24 * time.Hour)}
 }
 
 // chunky is Chunky's detail sheet on a server without it, looked up by its
@@ -285,6 +297,8 @@ func sampleArgs(t *testing.T, tool mcp.Tool, server string) map[string]any {
 			args[name] = "modrinth"
 		case "project":
 			args[name] = "chunky"
+		case "query":
+			args[name] = "pre-generate chunks"
 		default:
 			t.Fatalf("%s: no sample value for its required argument %q; add one to sampleArgs", tool.Name, name)
 		}
