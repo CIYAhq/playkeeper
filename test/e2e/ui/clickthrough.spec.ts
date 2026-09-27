@@ -355,23 +355,24 @@ interface Rules {
 }
 
 // CRAWL_ROUTES limits the crawl to the pages it names, separated by semicolons
-// or new lines: a route with its view in brackets, as the minimums name pages,
-// where * stands for one part of a route, so /servers/* is every server's
-// Overview, /servers/survival one, and /machines/*/disk (space to free) the
+// or new lines, each as crawlName writes it: /servers/* is every server's
+// Overview, /servers/new New server, and /machines/*/disk (space to free) the
 // Disk space page in that view. Unset or empty, every page is crawled.
-function routeFilter(value: string | undefined): { pattern: string; re: RegExp }[] | undefined {
-  const patterns = (value ?? '')
+function routeFilter(value: string | undefined): string[] | undefined {
+  const names = (value ?? '')
     .split(/[;\n]/)
     .map((p) => p.trim())
     .filter(Boolean)
-  if (patterns.length === 0) return undefined
-  return patterns.map((pattern) => ({ pattern, re: new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/ ]+')}$`) }))
+  return names.length > 0 ? names : undefined
 }
 
-/** The filter's patterns that name a page, by its route or as the minimums name it. */
-function matching(filter: { pattern: string; re: RegExp }[], c: { route: string; view?: View }): string[] {
-  const names = [where(c.route, c.view), pageOf(c)]
-  return filter.filter((f) => names.some((n) => f.re.test(n))).map((f) => f.pattern)
+/** A page as CRAWL_ROUTES names it: its route with each server, machine and shared link as *, and its view in brackets. */
+function crawlName(c: { route: string; view?: View }): string {
+  const route = c.route
+    .replace(/^\/servers\/(?!new(?:$|#))[^/]+/, '/servers/*')
+    .replace(/^\/(machines|settings\/machines|map|packs)\/[^/]+/, '/$1/*')
+    .replace(/#template=.+$/, '#template=*')
+  return where(route, c.view)
 }
 
 /**
@@ -451,9 +452,10 @@ for (const [name, size] of Object.entries(sizes)) {
     const named = new Set<string>()
     const wanted = (c: { route: string; view?: View }) => {
       if (!filter) return true
-      const hits = matching(filter, c)
-      for (const h of hits) named.add(h)
-      return hits.length > 0
+      const name = crawlName(c)
+      if (!filter.includes(name)) return false
+      named.add(name)
+      return true
     }
 
     const outCrawls = ([{ route: '/login', view: 'live' }, { route: '/setup', view: 'first run' }] satisfies Crawl[]).filter(wanted)
@@ -525,7 +527,7 @@ for (const [name, size] of Object.entries(sizes)) {
       report.unreached.push(...mapCrawler.unreached)
       await mapContext.close()
     }
-    if (filter) report.notes.push(`[${name}] only the pages CRAWL_ROUTES names: ${filter.map((f) => f.pattern).join('; ')}`)
+    if (filter) report.notes.push(`[${name}] only the pages CRAWL_ROUTES names: ${filter.join('; ')}`)
 
     fs.mkdirSync(outDir, { recursive: true })
     fs.writeFileSync(path.join(outDir, `clickthrough-${name}.json`), JSON.stringify({ ...report, negatives }, null, 2))
@@ -533,7 +535,7 @@ for (const [name, size] of Object.entries(sizes)) {
     for (const n of report.notes) console.log(`note: ${n}`)
     for (const n of negatives) console.log(`negative control: ${n.caught ? 'caught' : 'MISSED'} ${n.place}: ${n.key} broken → ${n.verdict}`)
     const problems = passBar(name as Size, report, [...new Set(pages)], undefined, filter ? new Set(pages) : undefined)
-    for (const f of filter ?? []) if (!named.has(f.pattern)) problems.push(`${name}: CRAWL_ROUTES names ${f.pattern}, which is no page here`)
+    for (const p of filter ?? []) if (!named.has(p)) problems.push(`${name}: CRAWL_ROUTES names ${p}, which is no page here`)
     for (const n of negatives) if (!n.caught) problems.push(`${name}: with ${n.place} broken, the crawl said "${n.verdict}" (${n.key})`)
     for (const a of fixtureReads) problems.push(...a.problems)
     expect(problems, problems.join('\n')).toEqual([])
@@ -647,22 +649,23 @@ test('the pass bar fails a failing control, a state it could not get back to, a 
   expect(passBar('desktop', { ...good, results: [...good.results.filter((r) => !r.key.startsWith('slider')), works('/', 'button "More"')] }, pages, rules)).toEqual(['desktop: never pressed a slider (/^slider /)'])
 })
 
-test('CRAWL_ROUTES names pages as the minimums do, and the pass bar then counts only on the pages crawled', () => {
+test('CRAWL_ROUTES names pages with each server, machine and link as *, and the pass bar then counts only on the pages crawled', () => {
   expect(routeFilter(undefined)).toBeUndefined()
   expect(routeFilter(' ; \n ')).toBeUndefined()
-  const filter = routeFilter('/; /servers/survival ;/machines/*/disk (space to free)\n/servers/*/plugins (in use)') ?? []
-  expect(filter.map((f) => f.pattern)).toEqual(['/', '/servers/survival', '/machines/*/disk (space to free)', '/servers/*/plugins (in use)'])
-  const names = (c: { route: string; view?: View }) => matching(filter, c)
-  expect(names({ route: '/', view: 'live' })).toEqual(['/'])
-  expect(names({ route: '/', view: 'stopped' })).toEqual([])
-  expect(names({ route: '/servers/survival', view: 'live' })).toEqual(['/servers/survival'])
-  expect(names({ route: '/servers/creative', view: 'live' })).toEqual([])
-  expect(names({ route: '/servers/survival/console', view: 'live' })).toEqual([])
-  expect(names({ route: '/machines/ad9fc4ybkz/disk', view: 'space to free' })).toEqual(['/machines/*/disk (space to free)'])
-  expect(names({ route: '/machines/ad9fc4ybkz/disk', view: 'live' })).toEqual([])
-  expect(names({ route: '/servers/survival/plugins', view: 'in use' })).toEqual(['/servers/*/plugins (in use)'])
-  expect(names({ route: '/servers/survival/plugins/browse', view: 'live' })).toEqual([])
-  expect(matching(routeFilter('/map/*') ?? [], { route: '/map/Zz9xWv8uTs7rQp6oNm5lKj' })).toEqual(['/map/*'])
+  expect(routeFilter('/; /servers/* ;/machines/*/disk (space to free)\n/servers/*/plugins (in use)')).toEqual(['/', '/servers/*', '/machines/*/disk (space to free)', '/servers/*/plugins (in use)'])
+  expect(crawlName({ route: '/', view: 'live' })).toBe('/')
+  expect(crawlName({ route: '/', view: 'stopped' })).toBe('/ (stopped)')
+  expect(crawlName({ route: '/servers/survival', view: 'live' })).toBe('/servers/*')
+  expect(crawlName({ route: '/servers/survival/plugins/browse', view: 'live' })).toBe('/servers/*/plugins/browse')
+  expect(crawlName({ route: '/servers/survival/plugins', view: 'in use' })).toBe('/servers/*/plugins (in use)')
+  expect(crawlName({ route: '/machines/ad9fc4ybkz/disk', view: 'space to free' })).toBe('/machines/*/disk (space to free)')
+  expect(crawlName({ route: '/settings/machines/ad9fc4ybkz', view: 'live' })).toBe('/settings/machines/*')
+  // New server and its steps aren't a server.
+  expect(crawlName({ route: '/servers/new', view: 'live' })).toBe('/servers/new')
+  expect(crawlName({ route: '/servers/new#world', view: 'live' })).toBe('/servers/new#world')
+  expect(crawlName({ route: '/servers/new#template=eyJ2IjoxfQ', view: 'live' })).toBe('/servers/new#template=*')
+  expect(crawlName({ route: '/map/Zz9xWv8uTs7rQp6oNm5lKj' })).toBe('/map/*')
+  expect(crawlName({ route: '/packs/Pk0Unknown0Link0Abcdef' })).toBe('/packs/*')
 
   // Only the pages crawled have minimums and places.
   const works = (route: string, key: string, view?: View): Result => ({ viewport: 'desktop', route, view, via: [], key, status: 'works', effects: ['changed the page'], problems: [] })
