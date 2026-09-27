@@ -224,6 +224,8 @@ describe('the Files tab', () => {
   it('says inside the world that it’s read-only while the game runs, with a way to stop it', async () => {
     answer({ [list('world')]: { path: 'world', running: true, worlds, entries: [entry('level.dat', 'file', 5212), entry('region', 'folder')] } satisfies Files })
     const shown = await render({ path: 'world' })
+    // The notice says it once; the folders in the world aren't each marked in use.
+    expect(rows()).toEqual(['region', 'level.dat'])
     expect(shown).toContain('Survival is running, so its world is read-only.')
     expect(shown).toContain('Stop it to change world files.')
     expect(button('Stop Survival')).toBeTruthy()

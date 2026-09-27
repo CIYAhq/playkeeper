@@ -81,6 +81,8 @@ export function FolderView({ server, path, uploads, bump, changed, onChanged }: 
   }
 
   const worldEntry = (e: FileEntry) => running && inWorld(joinPath(path, e.name), worlds)
+  // Only the world folders say they're in use; inside one, the notice above says it for all.
+  const worldFolder = (e: FileEntry) => running && worlds.includes(joinPath(path, e.name))
   const changeReason = (e?: FileEntry) => editReason ?? (e && worldEntry(e) ? t('files.reason.readOnly', { server: server.name }) : undefined)
   const selectionReason = editReason ?? (selectedEntries.some(worldEntry) ? t('files.reason.readOnly', { server: server.name }) : undefined)
 
@@ -364,7 +366,7 @@ export function FolderView({ server, path, uploads, bump, changed, onChanged }: 
                     entry={e}
                     selecting={selecting}
                     selected={selected.has(e.name)}
-                    inUse={worldEntry(e)}
+                    inUse={worldFolder(e)}
                     onOpen={() => (selecting ? toggle(e.name, !selected.has(e.name)) : open(e))}
                     onActions={() => setDialog({ kind: 'actions', entry: e })}
                   />
@@ -519,7 +521,7 @@ export function FolderView({ server, path, uploads, bump, changed, onChanged }: 
                   selected={selected.has(e.name)}
                   onSelect={(on) => toggle(e.name, on)}
                   onOpen={() => open(e)}
-                  inUse={worldEntry(e)}
+                  inUse={worldFolder(e)}
                   menu={<RowMenu name={e.name} actions={actionsFor(e)} />}
                 />
               ))}
