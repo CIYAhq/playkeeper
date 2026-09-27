@@ -96,11 +96,11 @@ export const unknownCost = 60
 export type Costs = Partial<Record<Size, Record<string, number>>>
 
 /**
- * A shard's share, in seconds of the costs: with a runner's setup (install,
- * onboarding and the bots' scenario) it keeps each shard well under half an
- * hour.
+ * A runner's share, in seconds of the costs: with its setup (the install,
+ * onboarding and the bots' scenario take about 6 minutes), the package before
+ * it and the gate after, every page takes about half an hour.
  */
-export const shardSeconds = 840
+export const shardSeconds = 1080
 
 /** The group a unit is crawled with: its crawler's pages, or a signed-in route's pages in all their states. */
 function groupOf(u: Unit): string {

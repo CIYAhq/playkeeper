@@ -278,17 +278,20 @@ for (const [name, size] of Object.entries(sizes)) {
     const crawlAll = async (crawler: Crawler, units: Unit[], signedIn: boolean | undefined) => {
       await crawler.init()
       const unitOf: string[] = []
-      for (const u of units) {
-        const started = Date.now()
-        const before = crawler.results.length
-        await crawler.crawl(u.route, u.view as View)
-        for (let i = before; i < crawler.results.length; i++) unitOf[i] = u.name
-        report.crawled.push({ name: u.name, seconds: (Date.now() - started) / 1000 })
+      try {
+        for (const u of units) {
+          const started = Date.now()
+          const before = crawler.results.length
+          await crawler.crawl(u.route, u.view as View)
+          for (let i = before; i < crawler.results.length; i++) unitOf[i] = u.name
+          report.results.push(...crawler.results.slice(before).map((r): Pressed => ({ ...r, unit: u.name })))
+          report.crawled.push({ name: u.name, seconds: (Date.now() - started) / 1000 })
+        }
+        if (signedIn !== undefined) report.negatives.push(...(await negativeControls(crawler, sz, signedIn, unitOf, charge)))
+      } finally {
+        report.notes.push(...crawler.notes)
+        report.unreached.push(...crawler.unreached)
       }
-      if (signedIn !== undefined) report.negatives.push(...(await negativeControls(crawler, sz, signedIn, unitOf, charge)))
-      report.results.push(...crawler.results.map((r, i): Pressed => ({ ...r, unit: unitOf[i] ?? '' })))
-      report.notes.push(...crawler.notes)
-      report.unreached.push(...crawler.unreached)
     }
     const fixtureChecks: { note: string; problems: string[] }[] = []
     /** A crawler of its own, signed out, in a browser context of its own. */
@@ -582,7 +585,7 @@ test('a change to a shared layer or the crawler crawls every page; a change to a
   expect(preludesOf('/servers/*/world/pregen')).toEqual(['/', '/servers/*'])
   expect(preludesOf('/login')).toEqual([])
 
-  const costs: Costs = { desktop: { '/': 100, '/servers/*': 900, '/servers/* (stopped)': 900 }, phone: { '/': 100, '/more': 60 } }
+  const costs: Costs = { desktop: { '/': 100, '/servers/*': 1100, '/servers/* (stopped)': 1100 }, phone: { '/': 100, '/more': 60 } }
   expect(shardsFor(costs, 'all')).toEqual([
     { size: 'desktop', shard: 1, of: 3 },
     { size: 'desktop', shard: 2, of: 3 },
