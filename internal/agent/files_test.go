@@ -424,9 +424,16 @@ func TestTheWorldIsReadOnlyWhileTheGameRuns(t *testing.T) {
 	refused("delete the world", code, out)
 	code, out = e.call("POST", e.sp("/files/move"), map[string]any{"actor": "admin", "items": []any{map[string]any{"from": "world/region/r.0.0.mca", "to": "r.0.0.mca"}}})
 	refused("move out of the world", code, out)
-	e.putData("old_world/level.dat", "old")
+	e.putData("old_world/region/r.0.0.mca", "old")
 	code, out = e.call("POST", e.sp("/files/move"), map[string]any{"actor": "admin", "items": []any{map[string]any{"from": "old_world", "to": "world_nether"}}})
 	refused("move into a world folder", code, out)
+	// A world a plugin like Multiverse keeps beside the server's own.
+	e.putData("survival_games/level.dat", "\x0a\x00\x00level")
+	if f := e.filesAt(""); !slices.Contains(f.Worlds, "survival_games") || slices.Contains(f.Worlds, "old_world") {
+		t.Fatalf("the worlds: %v", f.Worlds)
+	}
+	code, out = e.call("POST", e.sp("/files/delete"), map[string]any{"actor": "admin", "paths": []string{"survival_games/level.dat"}})
+	refused("delete in a plugin's world", code, out)
 	code, out = e.call("POST", e.sp("/files/uploads"), map[string]any{"actor": "admin", "folder": "world"})
 	if code != 201 {
 		t.Fatalf("open an upload: %d %v", code, out)

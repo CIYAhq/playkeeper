@@ -151,14 +151,29 @@ func (s *server) openFiles() (*gamefiles.Dir, error) {
 	return d, err
 }
 
-// worldFolders are the folders the game keeps its world in: the level's
-// own, and the Nether and the End beside it as Paper keeps them.
+// worldFolders are the folders the game keeps worlds in: the level's own,
+// the Nether and the End beside it as Paper keeps them, and any other
+// folder at the top with a level.dat in it, such as a world a plugin like
+// Multiverse made.
 func (s *server) worldFolders(d *gamefiles.Dir) []string {
 	level := "world"
 	if sc, err := s.serverConfig(); err == nil && sc != nil {
 		level = s.levelName(*sc)
 	}
-	return []string{level, level + "_nether", level + "_the_end"}
+	out := []string{level, level + "_nether", level + "_the_end"}
+	top, _, err := d.List(".", maxListed)
+	if err != nil {
+		return out
+	}
+	for _, e := range top {
+		if !e.Mode.IsDir() || slices.Contains(out, e.Name) {
+			continue
+		}
+		if fi, err := d.Lstat(e.Name + "/level.dat"); err == nil && fi.Mode().IsRegular() {
+			out = append(out, e.Name)
+		}
+	}
+	return out
 }
 
 func inWorld(p string, worlds []string) bool {
