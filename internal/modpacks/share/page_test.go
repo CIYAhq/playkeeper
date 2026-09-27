@@ -295,11 +295,11 @@ func TestPageRefusesBadSlugs(t *testing.T) {
 
 func TestSteps(t *testing.T) {
 	var got []string
-	for _, s := range Steps("cobblemon.mrpack", "cobblemon.alex.playkeeper.io", true) {
+	for _, s := range Steps("cobblemon.mrpack", "cobblemon.alex.playkeeper.me", true) {
 		got = append(got, s.Text)
 	}
 	if want := []string{"Open the link and download the file.", "Import it in the Modrinth App or Prism Launcher.",
-		"Press Play, then join cobblemon.alex.playkeeper.io."}; !slices.Equal(got, want) {
+		"Press Play, then join cobblemon.alex.playkeeper.me."}; !slices.Equal(got, want) {
 		t.Errorf("share dialog: %q", got)
 	}
 }
@@ -308,8 +308,8 @@ func TestJoinAddress(t *testing.T) {
 	for in, want := range map[string]string{
 		"203.0.113.10":                       "203.0.113.10",
 		"203.0.113.10:25565":                 "203.0.113.10:25565",
-		" cobblemon.alex.playkeeper.io ":     "cobblemon.alex.playkeeper.io",
-		"cobblemon.alex.playkeeper.io:25566": "cobblemon.alex.playkeeper.io:25566",
+		" cobblemon.alex.playkeeper.me ":     "cobblemon.alex.playkeeper.me",
+		"cobblemon.alex.playkeeper.me:25566": "cobblemon.alex.playkeeper.me:25566",
 		"[2001:db8::1]:25565":                "[2001:db8::1]:25565",
 		"2001:db8::1":                        "2001:db8::1",
 		"":                                   "",

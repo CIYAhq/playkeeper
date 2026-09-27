@@ -102,11 +102,28 @@ func toMillis(t time.Time) any {
 }
 
 // forgetCertificate deletes the certificate of a name the machine no longer
-// uses, so the panel stops serving it.
+// uses, so the panel stops serving it. For a free address, the certificate
+// kept from before it moved to names.DefaultBase goes too (see moveFree).
 func (a *Agent) forgetCertificate(name string) {
 	if name == "" {
 		return
 	}
+	a.deleteCertificate(name)
+	if free, ok := strings.CutSuffix(name, "."+names.DefaultBase); ok && names.CheckName(free) == nil {
+		a.deleteCertificate(names.Address(free, names.PreviousBase))
+	}
+}
+
+// forgetMovedCertificate forgets the certificate kept for the free name
+// under names.PreviousBase once it has expired.
+func (a *Agent) forgetMovedCertificate(name string) {
+	old := names.Address(name, names.PreviousBase)
+	if row := a.loadCertificate(old); row != nil && (row.status.Certificate == nil || !row.status.Certificate.NotAfter.After(a.now())) {
+		a.deleteCertificate(old)
+	}
+}
+
+func (a *Agent) deleteCertificate(name string) {
 	if _, err := a.db.Exec(`DELETE FROM certificates WHERE name = ?`, name); err != nil {
 		a.log.Warn("could not forget a certificate", "name", name, "err", err)
 	}

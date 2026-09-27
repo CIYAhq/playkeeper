@@ -98,11 +98,11 @@ func TestPebble(t *testing.T) {
 
 	t.Run("dns-01", func(t *testing.T) {
 		d := &DNS01{Challenger: challtestsrvDNS{env}, LookupTXT: DNSServer(env.dns).LookupTXT, Interval: 100 * time.Millisecond, Timeout: 10 * time.Second}
-		c, err := is.Issue(ctx, Request{Names: []string{"alex.playkeeper.io"}, DNS01: d, Dir: dir})
+		c, err := is.Issue(ctx, Request{Names: []string{"alex.playkeeper.me"}, DNS01: d, Dir: dir})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !slices.Equal(c.Names, []string{"alex.playkeeper.io"}) {
+		if !slices.Equal(c.Names, []string{"alex.playkeeper.me"}) {
 			t.Errorf("names = %q", c.Names)
 		}
 		// challtestsrv answers for a name without records without the
@@ -114,8 +114,8 @@ func TestPebble(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := handshake(t, st.GetCertificate, &tls.Config{ServerName: "alex.playkeeper.io", RootCAs: env.roots}); err != nil {
-			t.Errorf("a client that trusts Pebble rejects alex.playkeeper.io: %v", err)
+		if _, err := handshake(t, st.GetCertificate, &tls.Config{ServerName: "alex.playkeeper.me", RootCAs: env.roots}); err != nil {
+			t.Errorf("a client that trusts Pebble rejects alex.playkeeper.me: %v", err)
 		}
 	})
 
@@ -142,11 +142,11 @@ func TestPebble(t *testing.T) {
 	})
 
 	t.Run("dns-01 servers failing", func(t *testing.T) {
-		fqdn := "_acme-challenge.servfail.playkeeper.io."
+		fqdn := "_acme-challenge.servfail.playkeeper.me."
 		env.manage(t, "/set-servfail", map[string]any{"host": fqdn})
 		defer env.manage(t, "/clear-servfail", map[string]any{"host": fqdn})
 		d := &DNS01{Challenger: challtestsrvDNS{env}, LookupTXT: DNSServer(env.dns).LookupTXT, Interval: 100 * time.Millisecond, Timeout: time.Second}
-		_, err := is.Issue(ctx, Request{Names: []string{"servfail.playkeeper.io"}, DNS01: d, Dir: dir})
+		_, err := is.Issue(ctx, Request{Names: []string{"servfail.playkeeper.me"}, DNS01: d, Dir: dir})
 		wantProblem(t, err, CodeDNSServersFailing, "")
 	})
 
@@ -380,7 +380,7 @@ func (e *pebbleEnv) manage(t *testing.T, path string, body any) {
 }
 
 // challtestsrvDNS publishes DNS-01 records in pebble-challtestsrv, as the
-// playkeeper.io DNS service will in its zone.
+// names service does in its zone.
 type challtestsrvDNS struct{ env *pebbleEnv }
 
 func (c challtestsrvDNS) SetTXT(ctx context.Context, fqdn, value string) error {

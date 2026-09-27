@@ -1206,15 +1206,15 @@ func TestSharedMapLinkWaitsForAWorkingName(t *testing.T) {
 		{"an own domain without a certificate", addressState{Kind: api.AddressOwn, Host: "play.example.com", Check: own(true)}, time.Time{}, ""},
 		{"an own domain whose certificate expired", addressState{Kind: api.AddressOwn, Host: "play.example.com", Check: own(true)}, earlier, ""},
 		{"a working own domain", addressState{Kind: api.AddressOwn, Host: "play.example.com", Check: own(true)}, later, "https://play.example.com:8443/map/" + token},
-		{"a free name being claimed", addressState{Kind: api.AddressPlaykeeper, Host: "alex.playkeeper.io"}, later, ""},
-		{"a free name still publishing", addressState{Kind: api.AddressPlaykeeper, Host: "alex.playkeeper.io", Free: active(names.DNSPending)}, later, ""},
-		{"a lapsed free name", addressState{Kind: api.AddressPlaykeeper, Host: "alex.playkeeper.io", Free: &freeState{Name: names.Name{Name: "alex", State: names.StateLapsed, DNS: names.DNSOK}}}, later, ""},
-		{"a free name without a certificate", addressState{Kind: api.AddressPlaykeeper, Host: "alex.playkeeper.io", Free: active(names.DNSOK)}, time.Time{}, ""},
-		{"a working free name", addressState{Kind: api.AddressPlaykeeper, Host: "alex.playkeeper.io", Free: active(names.DNSOK)}, later, "https://alex.playkeeper.io:8443/map/" + token},
+		{"a free name being claimed", addressState{Kind: api.AddressPlaykeeper, Host: "alex.playkeeper.me"}, later, ""},
+		{"a free name still publishing", addressState{Kind: api.AddressPlaykeeper, Host: "alex.playkeeper.me", Free: active(names.DNSPending)}, later, ""},
+		{"a lapsed free name", addressState{Kind: api.AddressPlaykeeper, Host: "alex.playkeeper.me", Free: &freeState{Name: names.Name{Name: "alex", State: names.StateLapsed, DNS: names.DNSOK}}}, later, ""},
+		{"a free name without a certificate", addressState{Kind: api.AddressPlaykeeper, Host: "alex.playkeeper.me", Free: active(names.DNSOK)}, time.Time{}, ""},
+		{"a working free name", addressState{Kind: api.AddressPlaykeeper, Host: "alex.playkeeper.me", Free: active(names.DNSOK)}, later, "https://alex.playkeeper.me:8443/map/" + token},
 	}
 	for _, c := range cases {
 		e.a.forgetCertificate("play.example.com")
-		e.a.forgetCertificate("alex.playkeeper.io")
+		e.a.forgetCertificate("alex.playkeeper.me")
 		if err := e.a.setAddress(c.st); err != nil {
 			t.Fatal(err)
 		}
