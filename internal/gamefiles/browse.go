@@ -102,7 +102,9 @@ func (d *Dir) MakeFolder(name string) error {
 // Move renames from to to. Whatever is at from moves as it is, without being
 // followed, a link or a special file too, so that it can be put out of the
 // way. The folders on the way to both must be real folders, to must not
-// exist, and a folder can't move into itself.
+// exist, and a folder can't move into itself. Something that appears at to
+// meanwhile, such as a file a plugin writes, is refused rather than
+// replaced, where the file system can tell in the same step.
 func (d *Dir) Move(from, to string) error {
 	fps, err := split(from)
 	if err != nil {
@@ -115,10 +117,12 @@ func (d *Dir) Move(from, to string) error {
 	if to == from || strings.HasPrefix(to, from+"/") {
 		return intoItselfError(from, to)
 	}
-	if _, err := d.folders(fps[:len(fps)-1], false); err != nil {
+	ffi, err := d.folders(fps[:len(fps)-1], false)
+	if err != nil {
 		return err
 	}
-	if _, err := d.folders(tps[:len(tps)-1], false); err != nil {
+	tfi, err := d.folders(tps[:len(tps)-1], false)
+	if err != nil {
 		return err
 	}
 	if _, err := d.root.Lstat(from); err != nil {
@@ -128,7 +132,11 @@ func (d *Dir) Move(from, to string) error {
 		return err
 	}
 	d.step("move", from)
-	return d.root.Rename(from, to)
+	err = d.renameNew(from, ffi, to, tfi)
+	if errors.Is(err, errNoReplace) {
+		return d.root.Rename(from, to)
+	}
+	return err
 }
 
 // Delete removes name: a file, a link or a special file itself (never what a
@@ -157,10 +165,12 @@ func (d *Dir) Delete(name string) error {
 // Place moves staged, a file of Playkeeper's own outside the data directory,
 // to name: the folders missing on the way are made for the game's user, and
 // the file is given to it with perm. What is at name is replaced only when
-// replace is set, and only if it is a regular file. The file is renamed into
-// a handle on its folder, checked to be that folder, so a link swapped in on
-// the way can't take it anywhere else; where the two folders are on
-// different file systems it is copied the way WriteFrom writes.
+// replace is set, and only if it is a regular file; without replace,
+// something that appears at name meanwhile is refused, as Move refuses it.
+// The file is renamed into a handle on its folder, checked to be that
+// folder, so a link swapped in on the way can't take it anywhere else;
+// where the two folders are on different file systems it is copied the way
+// WriteFrom writes.
 func (d *Dir) Place(name, staged string, perm fs.FileMode, replace bool) error {
 	ps, err := split(name)
 	if err != nil {
@@ -205,11 +215,14 @@ func (d *Dir) Place(name, staged string, perm fs.FileMode, replace bool) error {
 		return err
 	}
 	defer pf.Close()
-	err = renameInto(staged, pf, path.Base(name))
+	err = renameInto(staged, pf, path.Base(name), replace)
+	if errors.Is(err, fs.ErrExist) {
+		return existsError(name)
+	}
 	if !errors.Is(err, errOtherFileSystem) {
 		return err
 	}
-	if err := d.WriteFrom(name, perm, func(w io.Writer) error {
+	if err := d.writeFrom(name, perm, !replace, func(w io.Writer) error {
 		_, err := io.Copy(w, src)
 		return err
 	}); err != nil {

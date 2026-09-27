@@ -279,6 +279,64 @@ func TestMoveRenamesAndRefusesWhatItWouldLose(t *testing.T) {
 	refused(t, e.d.Move("plugins/new.yml", "plugins/keep.yml/inside"), KindNotFolder, "plugins/keep.yml")
 }
 
+// A file that appears at the name a move, an upload or a new file takes,
+// between the check and the rename, such as one a plugin writes, is kept:
+// the change is refused as if it had been there all along. Where the file
+// system can't refuse in the same step, the changes still go through as
+// they did, checked just before.
+func TestChangesNeverReplaceWhatAppearsMeanwhile(t *testing.T) {
+	for _, c := range []struct {
+		what, step, at string
+		run            func(d *Dir) error
+		kept           string
+	}{
+		{"moving a file", "move", "plugins/b.yml", func(d *Dir) error { return d.Move("plugins/a.yml", "plugins/b.yml") }, "plugins/a.yml"},
+		{"moving a file to the top", "move", "b.yml", func(d *Dir) error { return d.Move("plugins/a.yml", "b.yml") }, "plugins/a.yml"},
+		{"moving a folder", "move", "plugins/moved", func(d *Dir) error { return d.Move("plugins/folder", "plugins/moved") }, "plugins/folder/in.yml"},
+		{"placing an upload", "place", "plugins/new.yml", func(d *Dir) error { return placeStaged(d, "plugins/new.yml", false) }, ""},
+		{"making a new file", "rename", "plugins/new.yml", func(d *Dir) error { return d.CreateFile("plugins/new.yml", []byte("mine\n"), 0o640) }, ""},
+	} {
+		t.Run(c.what, func(t *testing.T) {
+			e := newEnv(t)
+			e.put("plugins/a.yml", []byte("mine\n"))
+			e.put("plugins/folder/in.yml", []byte("mine\n"))
+			e.d.hook = func(step, _ string) {
+				if step == c.step {
+					e.d.hook = nil
+					e.put(c.at, []byte("the plugin's\n"))
+				}
+			}
+			refused(t, c.run(e.d), KindExists, c.at)
+			if got := e.read(c.at); got != "the plugin's\n" {
+				t.Fatalf("%s = %q: replaced", c.at, got)
+			}
+			if c.kept != "" && e.read(c.kept) != "mine\n" {
+				t.Fatalf("%s is gone", c.kept)
+			}
+			if left, _ := filepath.Glob(e.path("plugins/.*")); len(left) != 0 {
+				t.Fatalf("left behind %v", left)
+			}
+		})
+	}
+	t.Run("where the file system can't refuse", func(t *testing.T) {
+		orig := renameNoReplace
+		renameNoReplace = func(*os.File, string, *os.File, string) error { return errNoReplace }
+		t.Cleanup(func() { renameNoReplace = orig })
+		e := newEnv(t)
+		e.put("plugins/a.yml", []byte("mine\n"))
+		if err := e.d.Move("plugins/a.yml", "b.yml"); err != nil || e.read("b.yml") != "mine\n" {
+			t.Fatalf("Move: %v", err)
+		}
+		if err := placeStaged(e.d, "plugins/new.yml", false); err != nil || e.read("plugins/new.yml") != "uploaded\n" {
+			t.Fatalf("Place: %v", err)
+		}
+		if err := e.d.CreateFile("plugins/made.yml", []byte("made\n"), 0o640); err != nil || e.read("plugins/made.yml") != "made\n" {
+			t.Fatalf("CreateFile: %v", err)
+		}
+		refused(t, e.d.CreateFile("plugins/made.yml", []byte("again\n"), 0o640), KindExists, "plugins/made.yml")
+	})
+}
+
 func TestMoveRefusesAMissingDestinationFolder(t *testing.T) {
 	e := newEnv(t)
 	e.put("plugins/keep.yml", []byte("keep\n"))
@@ -314,6 +372,20 @@ func TestDeleteRemovesFoldersWithoutFollowingLinksInThem(t *testing.T) {
 	}
 }
 
+// A name as long as a file system keeps can be saved and created: the
+// hidden file written first is named shorter then.
+func TestLongNamesCanBeWritten(t *testing.T) {
+	e := newEnv(t)
+	long := "plugins/" + strings.Repeat("n", 250) + ".yml"
+	if err := e.d.WriteFile(long, []byte("a: 1\n"), 0o640); err != nil || e.read(long) != "a: 1\n" {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	other := "plugins/" + strings.Repeat("o", 250) + ".yml"
+	if err := e.d.CreateFile(other, []byte("b: 2\n"), 0o640); err != nil || e.read(other) != "b: 2\n" {
+		t.Fatalf("CreateFile: %v", err)
+	}
+}
+
 func TestPlaceMovesTheUploadInForTheGame(t *testing.T) {
 	e := newEnv(t)
 	if err := placeStaged(e.d, "plugins/Essentials/config.yml", false); err != nil {
@@ -345,7 +417,7 @@ func TestPlaceMovesTheUploadInForTheGame(t *testing.T) {
 func TestPlaceCopiesAcrossFileSystems(t *testing.T) {
 	e := newEnv(t)
 	orig := renameInto
-	renameInto = func(string, *os.File, string) error { return errOtherFileSystem }
+	renameInto = func(string, *os.File, string, bool) error { return errOtherFileSystem }
 	t.Cleanup(func() { renameInto = orig })
 	dir := t.TempDir()
 	staged := filepath.Join(dir, "0.bin")
