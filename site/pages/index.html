@@ -1,7 +1,7 @@
 {{/*
 path: /
 title: Playkeeper: a free Minecraft server panel for your own VPS
-description: Playkeeper turns an Ubuntu VPS into a Minecraft: Java Edition server host with one command: mods, modpacks, backups and a free address. Free and open source.
+description: Playkeeper turns an Ubuntu or Debian VPS into a Minecraft: Java Edition server host with one command: mods, modpacks, backups and a free address. Free and open source.
 label: Playkeeper
 layout: landing
 og: landing
@@ -21,7 +21,7 @@ scripts: js/landing.js, js/sizing-data.js, js/sizing.js
     <div class="hero-text">
       {{with page "/blog/playkeeper-0-4-0"}}<a class="release-pill hero-rise" href="{{.Path}}"><span class="dot" aria-hidden="true"></span>Playkeeper {{$.Site.Version}} is out <strong>What's new{{template "icon" "arrow-right"}}</strong></a>{{end}}
       <h1 id="hero-title" class="h1-hero"><span class="line hero-rise">Your VPS.</span> <span class="line hero-rise">Your Minecraft servers.</span> <span class="line line-green hero-rise">Your worlds.</span></h1>
-      <p class="hero-sub hero-after">Playkeeper turns an Ubuntu VPS into a Minecraft: Java Edition server host. One command installs it. Free and open source.</p>
+      <p class="hero-sub hero-after">Playkeeper turns an Ubuntu or Debian VPS into a Minecraft: Java Edition server host. One command installs it. Free and open source.</p>
       <div class="hero-after">{{template "install" (dict "ID" true)}}</div>
       <div class="hero-actions hero-after">
         <a class="btn btn-outline btn-lg" href="/demo/">Try the live demo{{template "icon" "arrow-right"}}</a>
@@ -57,12 +57,12 @@ scripts: js/landing.js, js/sizing-data.js, js/sizing.js
       <div class="step-card reveal">
         <div class="step-card-art">{{template "cardshot" (dict "Name" "step-size" "Alt" "The sizing guide's answer: a VPS with 6 GB of memory, 2 fast cores and 40 GB of disk for 5 to 10 friends on Vanilla or Paper." "Sizes" $step)}}</div>
         <h3><span class="num">1</span>Rent a VPS</h3>
-        <p>Ubuntu 24.04 with at least {{sizing.Min.MemoryGB}} GB of memory.</p>
+        <p>{{systemsShort}} with at least {{sizing.Min.MemoryGB}} GB of memory.</p>
         <a class="link-arrow" href="/sizing">Which VPS?{{template "icon" "arrow-right"}}</a>
       </div>
       <div class="step-card reveal">
         <div class="step-card-art">
-          {{template "terminal" (dict "Lines" (list (dict "Cmd" (installWrapped)) (dict "Ok" "Download matches its SHA-256") (dict "Ok" "Ubuntu 24.04 · x86_64 · 4 vCPU · 8 GB") (dict "Go" "Open https://203.0.113.7:8443/setup#code=…")))}}
+          {{template "terminal" (dict "Lines" (list (dict "Cmd" (installWrapped)) (dict "Ok" "Download matches its SHA-256") (dict "Ok" "Ubuntu 26.04 · x86_64 · 4 vCPU · 8 GB") (dict "Go" "Open https://203.0.113.7:8443/setup#code=…")))}}
         </div>
         <h3><span class="num">2</span>Run one command</h3>
         <p>It checks the machine and asks before it changes anything.</p>
@@ -208,7 +208,7 @@ scripts: js/landing.js, js/sizing-data.js, js/sizing.js
   <div class="container">
     {{template "faq" (dict "ID" "questions" "Aside" (printf "Anything else? %s." .Settings.Community.Ask) "AsideLink" (list .Settings.Community.URL "Ask a question") "Items" (list
       (qa "Is it free?" "Yes. Playkeeper is free and open source (AGPL-3.0). You only pay for your VPS.")
-      (qa "Which VPS do I need?" (printf `Ubuntu 24.04 on x86_64, with at least %d CPU cores, %d GB of memory and %d GB of free disk for Playkeeper, plus room for your servers. <a href="/sizing">The sizing guide</a> suggests a size.` sizing.Min.Cores sizing.Min.MemoryGB sizing.Min.DiskGB))
+      (qa "Which VPS do I need?" (printf `%s, on x86_64, with at least %d CPU cores, %d GB of memory and %d GB of free disk for Playkeeper, plus room for your servers. <a href="/sizing">The sizing guide</a> suggests a size.` systems sizing.Min.Cores sizing.Min.MemoryGB sizing.Min.DiskGB))
       (qa "Java or Bedrock?" "Minecraft: Java Edition only. Bedrock players can't join.")
       (qa "Can I bring my Aternos or Realms world?" "Yes. New server › A world takes your singleplayer world, or one from Aternos, Minehut, Realms or another host, with steps for getting it out. It shows what's inside before anything changes.")
       (qa "Do friends need a port number?" "Not with a free yourname.playkeeper.me name: from three days after you claim it, each server joins at its own address without a port. On the IP address, the first server needs no port and the others add theirs.")

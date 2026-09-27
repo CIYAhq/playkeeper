@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/platform"
 )
 
 // sitemap lists every page search engines may index, and the live demo.
@@ -155,7 +157,7 @@ func pageSchema(s Settings, p *Page, version, image string) (map[string]any, err
 			"image":                  image,
 			"applicationCategory":    "GameApplication",
 			"applicationSubCategory": "Minecraft server dashboard",
-			"operatingSystem":        "Ubuntu 24.04 (x86_64)",
+			"operatingSystem":        platform.Short() + " (x86_64)",
 			"softwareVersion":        version,
 			"license":                "https://www.gnu.org/licenses/agpl-3.0.html",
 			"isAccessibleForFree":    true,

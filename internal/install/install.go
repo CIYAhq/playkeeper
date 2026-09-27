@@ -26,20 +26,19 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/panel"
+	"github.com/CIYAhq/playkeeper/internal/platform"
 	_ "modernc.org/sqlite"
 )
 
 const (
-	BinPath          = "/usr/local/bin/playkeeper"
-	ConfigDir        = "/etc/playkeeper"
-	UnitDir          = "/etc/systemd/system"
-	AgentUnit        = "playkeeper-agent.service"
-	PanelUnit        = "playkeeper-panel.service"
-	MinMemoryMB      = 2304
-	MinDiskBytes     = 3 << 30
-	RecommendedDisk  = 5 << 30
-	SupportedOS      = "ubuntu"
-	SupportedVersion = "24.04"
+	BinPath         = "/usr/local/bin/playkeeper"
+	ConfigDir       = "/etc/playkeeper"
+	UnitDir         = "/etc/systemd/system"
+	AgentUnit       = "playkeeper-agent.service"
+	PanelUnit       = "playkeeper-panel.service"
+	MinMemoryMB     = 2304
+	MinDiskBytes    = 3 << 30
+	RecommendedDisk = 5 << 30
 	// FailStepEnv makes the named step fail after it ran, to exercise rollback
 	// in integration tests. It has no other effect.
 	FailStepEnv = "PLAYKEEPER_TEST_FAIL_INSTALL_STEP"
@@ -81,6 +80,7 @@ type Check struct {
 // Facts are what preflight learned; the plan and steps depend on them.
 type Facts struct {
 	Checks        []Check
+	OS            platform.OS
 	DockerPresent bool
 	DockerVersion string
 	UFWActive     bool
@@ -114,16 +114,8 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 	} else {
 		add("root", "Administrator rights", "fail", "The installer must run as root.", "Re-run the command with sudo.")
 	}
-	id, ver := osRelease(sys)
-	switch {
-	case id == SupportedOS && ver == SupportedVersion:
-		add("os", "Operating system", "pass", "Ubuntu 24.04 LTS (the tested platform).", "")
-	case o.AllowUntestedOS:
-		add("os", "Operating system", "warn", fmt.Sprintf("%s %s is not tested; continuing because --allow-untested-os was given.", nonEmpty(id, "unknown"), ver), "")
-	default:
-		add("os", "Operating system", "fail", fmt.Sprintf("Found %s %s. Playkeeper is only tested on Ubuntu 24.04 LTS.", nonEmpty(id, "an unknown system"), ver),
-			"Use an Ubuntu 24.04 LTS server, or pass --allow-untested-os to try anyway (unsupported).")
-	}
+	f.OS = platform.ReadOS(sys.P("/etc/os-release"))
+	f.Checks = append(f.Checks, osCheck(f.OS, o.AllowUntestedOS))
 	switch arch := sys.Arch(); {
 	case arch == "amd64":
 		add("arch", "CPU architecture", "pass", "x86_64 (amd64).", "")
@@ -135,7 +127,7 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 	if st, err := os.Stat(sys.P("/run/systemd/system")); err == nil && st.IsDir() {
 		add("systemd", "Service manager", "pass", "systemd is running.", "")
 	} else {
-		add("systemd", "Service manager", "fail", "systemd is not running; Playkeeper's services need it.", "Use a standard Ubuntu 24.04 server (not a container) with systemd.")
+		add("systemd", "Service manager", "fail", "systemd is not running; Playkeeper's services need it.", "Use a server or virtual machine that runs systemd, such as a standard Ubuntu or Debian server, not a container.")
 	}
 	mem := sys.MemTotalMB()
 	switch {
@@ -224,7 +216,7 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 	if derr == nil {
 		add("docker", "Docker", "pass", "Docker "+di.Version+" is running; Playkeeper only manages its own container.", "")
 	} else if _, err := os.Stat(sys.P("/usr/bin/apt-get")); err == nil {
-		add("docker", "Docker", "info", "Docker is not installed. The installer will install Ubuntu's docker.io package.", "")
+		add("docker", "Docker", "info", "Docker is not installed. The installer will install "+archiveName(f.OS)+" docker.io package.", "")
 	} else {
 		add("docker", "Docker", "fail", "Docker is not installed and apt-get is unavailable.", "Install Docker Engine, then run the installer again.")
 	}
@@ -236,8 +228,11 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 	if ufwActive(sys) {
 		f.UFWActive = true
 		add("firewall", "Firewall (ufw)", "info", "ufw is active; the installer will allow "+ports+". If your provider has a cloud firewall, allow them there too."+why, "")
+	} else if fw, allow := dropFirewall(sys, firewallRules(o)); fw != "" {
+		add("firewall", "Firewall ("+fw+")", "warn", fw+" drops incoming connections that no rule allows, and the installer opens ports only in ufw. Allow "+ports+" in "+fw+" unless a rule already does, and in your provider's cloud firewall if it has one."+why,
+			"For example: "+allow)
 	} else {
-		add("firewall", "Firewall", "info", "No active ufw firewall. If your provider has a cloud firewall, allow "+ports+" there."+why, "")
+		add("firewall", "Firewall", "info", "Found no firewall on this server that blocks incoming connections. If your provider has a cloud firewall, allow "+ports+" there."+why, "")
 	}
 	f.PanelURLHost = primaryIP()
 	if o.Join != "" {
@@ -261,27 +256,6 @@ func hasAdmin(dbPath string) bool {
 	return db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n) == nil && n > 0
 }
 
-func osRelease(sys System) (id, version string) {
-	b, err := os.ReadFile(sys.P("/etc/os-release"))
-	if err != nil {
-		return "", ""
-	}
-	for _, line := range strings.Split(string(b), "\n") {
-		k, v, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		v = strings.Trim(v, `"`)
-		switch k {
-		case "ID":
-			id = v
-		case "VERSION_ID":
-			version = v
-		}
-	}
-	return id, version
-}
-
 func primaryIP() string {
 	ips := panel.HostIPs()
 	for _, ip := range ips {
@@ -296,13 +270,6 @@ func primaryIP() string {
 }
 
 func gb(n int64) float64 { return float64(n) / (1 << 30) }
-
-func nonEmpty(s, d string) string {
-	if s == "" {
-		return d
-	}
-	return s
-}
 
 func truncate(s string, n int) string {
 	if len(s) > n {
@@ -326,7 +293,7 @@ func PrintChecks(w io.Writer, f Facts) {
 func Plan(f Facts, o Options) []string {
 	var p []string
 	if !f.DockerPresent {
-		p = append(p, "Packages:  install docker.io from Ubuntu's archive (with the packages it depends on)")
+		p = append(p, "Packages:  install docker.io and the docker command from "+archiveName(f.OS)+" archive (with the packages they depend on)")
 	}
 	runs, second := "runs the web panel", PanelUnit
 	if o.Join != "" {
@@ -545,7 +512,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 			if _, err := aptGet(sys, in.out, "update"); err != nil {
 				return err
 			}
-			_, err = aptGet(sys, in.out, "install", "-y", "--no-install-recommends", "docker.io")
+			_, err = aptGet(sys, in.out, append([]string{"install", "-y", "--no-install-recommends"}, dockerPackages(sys)...)...)
 			after, perr := installedPackages(sys)
 			if perr == nil {
 				for p := range after {

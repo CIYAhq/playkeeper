@@ -69,7 +69,7 @@ main() {
     x86_64 | amd64) ;;
     *) die "this server's CPU is $(uname -m); Playkeeper is built for x86_64 (amd64) only." "Use an x86_64 VPS." ;;
   esac
-  [ "$(id -u)" -eq 0 ] || die "the installer needs root." "Pipe into sudo: curl -fsSL <this script's URL> | sudo sh"
+  [ "$(id -u)" -eq 0 ] || die "the installer needs root." "Pipe into sudo: curl -fsSL <this script's URL> | sudo sh (without sudo, as on a Debian with a root password, run it as root after su -)"
   command -v curl >/dev/null 2>&1 || die "curl is not installed." "sudo apt-get install -y curl"
   case $base in
     https://*) proto='=https' ;;

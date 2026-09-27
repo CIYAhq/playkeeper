@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/diagnose"
+	"github.com/CIYAhq/playkeeper/internal/platform"
 )
 
 // hostMemoryMB reads MemTotal from /proc/meminfo.
@@ -108,25 +109,14 @@ func (a *Agent) hostLoop(ctx context.Context) {
 	}
 }
 
-// osName is the distribution's name and version, like "Ubuntu 24.04".
+// osName is the distribution's name and version, like "Ubuntu 24.04" or
+// "Debian 12".
 func osName() string {
-	b, err := os.ReadFile("/etc/os-release")
-	if err != nil {
+	o := platform.ReadOS("/etc/os-release")
+	if o == (platform.OS{}) {
 		return runtime.GOOS
 	}
-	vals := map[string]string{}
-	for _, line := range strings.Split(string(b), "\n") {
-		if k, v, ok := strings.Cut(line, "="); ok {
-			vals[k] = strings.Trim(v, `"`)
-		}
-	}
-	if vals["NAME"] != "" && vals["VERSION_ID"] != "" {
-		return vals["NAME"] + " " + vals["VERSION_ID"]
-	}
-	if vals["PRETTY_NAME"] != "" {
-		return vals["PRETTY_NAME"]
-	}
-	return runtime.GOOS
+	return o.Display()
 }
 
 func archName() string {

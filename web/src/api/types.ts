@@ -466,7 +466,8 @@ export interface JoinCommand extends JoinCode {
 /** What connecting a machine needs: where it dials, the smallest machine that works and the codes. */
 export interface MachineLinkInfo {
   addresses: DialAddress[]
-  minimum: { cores: number; memoryGB: number; freeDiskGB: number }
+  /** systems: each supported distribution with its oldest supported release; later ones work too. */
+  minimum: { cores: number; memoryGB: number; freeDiskGB: number; systems: { name: string; version: string }[] }
   sizingUrl: string
   available: boolean
   fingerprint?: string

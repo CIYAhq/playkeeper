@@ -256,7 +256,7 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
       <CardHint>{t('machines.connect.lead')}</CardHint>
       <ol className="mt-4 flex flex-col gap-5">
         <Step n={1} title={t('machines.connect.step1')}>
-          <p className="text-[13px] text-muted-foreground">{t('machines.connect.minimum', { cores: link.minimum.cores, memory: link.minimum.memoryGB, disk: link.minimum.freeDiskGB })}</p>
+          <p className="text-[13px] text-muted-foreground">{t('machines.connect.minimum', { systems: formatList(link.minimum.systems.map((s) => t('machines.connect.system', { name: s.name, version: s.version })), 'or'), cores: link.minimum.cores, memory: link.minimum.memoryGB, disk: link.minimum.freeDiskGB })}</p>
           <a href={link.sizingUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[13px] font-medium text-primary hover:underline">
             {t('machines.connect.sizing')}
             <ExternalLinkIcon className="size-3.5" aria-hidden="true" />

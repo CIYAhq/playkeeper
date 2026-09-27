@@ -81,7 +81,7 @@ func memoryReason(m Machine, budgetMB int) Reason {
 		Topic:  Memory,
 		Value:  fmt.Sprintf("%d GB", m.MemoryGB),
 		Code:   "memory_split",
-		Text:   fmt.Sprintf("%s for the world, %s for Ubuntu, Docker and Playkeeper", gbText(budgetMB), gbText(systemMB)),
+		Text:   fmt.Sprintf("%s for the world, %s for the system, Docker and Playkeeper", gbText(budgetMB), gbText(systemMB)),
 		Params: map[string]int{"memoryGB": m.MemoryGB, "budgetMB": budgetMB, "heapMB": minecraft.HeapMB(budgetMB), "systemMB": systemMB},
 	}
 	if spareMB := m.MemoryGB*1024 - budgetMB - systemMB; spareMB >= 1024 {

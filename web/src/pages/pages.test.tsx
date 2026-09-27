@@ -3377,14 +3377,15 @@ describe('Machines and AI agents', () => {
   it('says how to get a command when the dashboard has no address another machine can dial', async () => {
     forgetJoinCode()
     vi.mocked(client.post).mockClear()
-    answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5 }, sizingUrl: 'https://playkeeper.io/sizing', available: true, codes: [] } })
+    answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }, { name: 'Debian', version: '11' }] }, sizingUrl: 'https://playkeeper.io/sizing', available: true, codes: [] } })
     const text = await render(<MachinesSection />)
     expect(text).toContain('Open this dashboard at its IP address or domain name, not localhost, to get the command.')
+    expect(text).toContain('Ubuntu 20.04+ or Debian 11+, at least 2 CPU cores, 3 GB of memory and 5 GB of free disk.')
     expect(vi.mocked(client.post).mock.calls.some(([p]) => String(p).includes('/join-codes'))).toBe(false)
   })
 
   it('says why a token can’t be made yet', async () => {
-    answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5 }, sizingUrl: '', available: true }, '/api/tokens': [] })
+    answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }, { name: 'Debian', version: '11' }] }, sizingUrl: '', available: true }, '/api/tokens': [] })
     await render(<AiAgentsSection />)
     const open = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New token'))
     await act(async () => open?.click())

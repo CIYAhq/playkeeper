@@ -149,10 +149,11 @@ export function formatWhen(iso: string, now: Date = new Date()): string {
 }
 
 /** "a", "a and b", "a, b and c". */
-export function formatList(items: string[]): string {
+export function formatList(items: string[], conjunction: 'and' | 'or' = 'and'): string {
   if (items.length <= 1) return items[0] ?? ''
-  if (items.length === 2) return t('common.list', { a: items[0] ?? '', b: items[1] ?? '' })
-  return t('common.listMore', { items: items.slice(0, -1).join(', '), last: items[items.length - 1] ?? '' })
+  const or = conjunction === 'or'
+  if (items.length === 2) return t(or ? 'common.listOr' : 'common.list', { a: items[0] ?? '', b: items[1] ?? '' })
+  return t(or ? 'common.listOrMore' : 'common.listMore', { items: items.slice(0, -1).join(', '), last: items[items.length - 1] ?? '' })
 }
 
 /** Join address shown to players: the host the admin used to open the panel. */

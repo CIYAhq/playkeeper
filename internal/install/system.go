@@ -14,6 +14,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -62,6 +63,9 @@ type DockerInfo struct {
 func (s System) P(path string) string { return filepath.Join(s.Root, path) }
 
 func Real() System {
+	// Debian's su, without -, keeps the user's PATH, which lacks the sbin
+	// directories useradd, iptables and ufw live in.
+	os.Setenv("PATH", withSbin(os.Getenv("PATH")))
 	return System{
 		Root: "/",
 		Run: func(name string, args ...string) (string, error) {
@@ -123,6 +127,17 @@ func Real() System {
 		WaitVersion:     waitVersion,
 		Version:         binaryVersion,
 	}
+}
+
+// withSbin is path with the sbin directories added where they are missing.
+func withSbin(path string) string {
+	dirs := filepath.SplitList(path)
+	for _, d := range []string{"/usr/local/sbin", "/usr/sbin", "/sbin"} {
+		if !slices.Contains(dirs, d) {
+			dirs = append(dirs, d)
+		}
+	}
+	return strings.Join(dirs, string(filepath.ListSeparator))
 }
 
 // binaryVersion runs `<binary> version`, which prints

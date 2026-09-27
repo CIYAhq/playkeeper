@@ -806,6 +806,32 @@ control "preflight existing Minecraft setups" internal/install/install.go \
   'case len(existing) == 0:' \
   'case true:' \
   ./internal/install '^TestPreflightRefusesEachCollisionWithAFix$'
+control "a later release of a supported distribution counts as newer, not unsupported" internal/platform/platform.go \
+  'case c > 0:' \
+  'case false:' \
+  ./internal/platform '^TestLaterReleasesOfASupportedDistributionAreNewerNotRefused$'
+control "the preflight refuses a release older than the oldest supported one" internal/install/oscheck.go \
+  '	case v.Distro != nil:
+		c.Status = "fail"' \
+  '	case v.Distro != nil:
+		c.Status = "warn"' \
+  ./internal/install '^TestPreflightRefusesOlderReleasesAndOtherSystemsUnlessAllowed$'
+control "Debian 13 gets the docker command, which it packages on its own" internal/install/oscheck.go \
+  'if aptCandidate(sys, "docker-cli") {' \
+  'if false && aptCandidate(sys, "docker-cli") {' \
+  ./internal/install '^TestDebianGetsDockerFromItsOwnArchiveWithTheDockerCommand$'
+control "a package that is only a name docker.io provides isn't installed" internal/install/oscheck.go \
+  'return v != "" && v != "(none)"' \
+  'return v != ""' \
+  ./internal/install '^TestUbuntuDockerIOAlreadyHasTheDockerCommand$'
+control "the preflight names an nftables firewall that drops incoming connections" internal/install/firewall.go \
+  'strings.Contains(line, "policy drop")' \
+  'strings.Contains(line, "policy dropped")' \
+  ./internal/install '^TestPreflightNamesAFirewallOtherThanUFWThatDropsIncomingConnections$'
+control "the sizing guide leaves out the memory Ubuntu sets aside for crash dumps" internal/sizing/numbers.go \
+  'return min(mb*reportedPercent/100, mb*kernelPercent/100-crashKernelMB(memoryGB))' \
+  'return mb * reportedPercent / 100' \
+  ./internal/sizing '^TestReportedMemoryLeavesOutUbuntusCrashDumpMemory$'
 # Without the lock a start can slip in between the check and the write; the
 # sleep holds that gap open so the race shows in most runs, not one in three.
 control "start/stop no-op under the operation lock" internal/agent/handlers.go \
@@ -4637,6 +4663,10 @@ webcontrol "a joined machine's details say its agent stopped answering" web/src/
   ": agentSilent(m) ? { title: t('machines.problem.agentDown', { name })" \
   ": false ? { title: t('machines.problem.agentDown', { name })" \
   web/src/pages/pages.test.tsx 'stopped answering, as the sidebar'
+webcontrol "a machine to connect may run either supported system" web/src/pages/machines.tsx \
+  "version: s.version })), 'or')" \
+  "version: s.version })), 'and')" \
+  web/src/pages/pages.test.tsx 'says how to get a command'
 webcontrol "a World tab without backups links to backup rules" web/src/pages/server/world-links.tsx \
   '      <DesktopLink server={server} sub="backup-rules" icon={<SlidersHorizontalIcon />} title={t('"'"'world.rules'"'"')} line={t('"'"'world.rulesLine'"'"')} />
 ' \

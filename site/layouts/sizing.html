@@ -82,7 +82,7 @@
 {{/* sizing-several: several servers on one VPS add up. */}}
 {{define "sizing-several"}}{{$g := sizing}}
 <dl class="rules">
-  <div><dt>Memory</dt><dd>Add up what each server gets for the world, then {{$g.SystemGB}} GB for Ubuntu, Docker and Playkeeper once, and pick the next size up.</dd></div>
+  <div><dt>Memory</dt><dd>Add up what each server gets for the world, then {{$g.SystemGB}} GB for the system, Docker and Playkeeper once, and pick the next size up.</dd></div>
   <div><dt>CPU</dt><dd>The busiest server's cores, plus one for each other server.</dd></div>
   <div><dt>Disk</dt><dd>Add up each server's.</dd></div>
 </dl>

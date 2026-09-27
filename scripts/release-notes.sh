@@ -27,7 +27,7 @@ $changes
 
 ## Install or update
 
-On an Ubuntu 24.04 LTS x86_64 server:
+On an x86_64 server with Ubuntu 20.04 or later, or Debian 11 or later:
 
 \`\`\`bash
 curl -fsSL $install_url | sudo sh

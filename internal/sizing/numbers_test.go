@@ -37,6 +37,19 @@ func TestMachinesAreTheSmallestThatFit(t *testing.T) {
 	}
 }
 
+func TestReportedMemoryLeavesOutUbuntusCrashDumpMemory(t *testing.T) {
+	for _, c := range []struct{ gb, want int }{
+		{3, 2918},   // 95%: no crash dump memory below 6 GB
+		{6, 5447},   // 97% less 512 MB
+		{16, 15380}, // 97% less 512 MB
+		{48, 46653}, // 97% less 1 GB
+	} {
+		if got := ReportedMemoryMB(c.gb); got != c.want {
+			t.Errorf("ReportedMemoryMB(%d) = %d, want %d", c.gb, got, c.want)
+		}
+	}
+}
+
 func TestSizesGoPastTheLastCommonOne(t *testing.T) {
 	for _, c := range []struct {
 		need float64
