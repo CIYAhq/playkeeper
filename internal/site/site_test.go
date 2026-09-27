@@ -313,8 +313,10 @@ func TestServerTypesFollowTheProduct(t *testing.T) {
 		n := len(serverTypes(textOrder))
 		built := pages(build(t, Default))
 		landing, feature, guide := built["/"], built["/features/mods-and-modpacks"], built["/guides/modded-minecraft-server"]
-		if !strings.Contains(landing, countWord(n)+" server types, add-ons in one click.") {
-			t.Errorf("forge %v: the landing page doesn't say %s server types", forge, countWord(n))
+		// The card's sentence starts with the count, capitalised.
+		count := countWord(n)
+		if card := "<p>" + strings.ToUpper(count[:1]) + count[1:] + " server types, add-ons in one click.</p>"; !strings.Contains(landing, card) {
+			t.Errorf("forge %v: the landing page doesn't say %s", forge, card)
 		}
 		if got := strings.Count(feature, `<span class="logo-tile">`); got != n {
 			t.Errorf("forge %v: the logo row has %d logos, want %d", forge, got, n)
