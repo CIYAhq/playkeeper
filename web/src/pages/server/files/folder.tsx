@@ -8,6 +8,7 @@ import { Marker, Notice } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { serverAction } from '@/components/app/server-action'
 import { ListSkeleton, TableSkeleton } from '@/components/app/skeletons'
+import { StickyHeader } from '@/components/app/sticky-header'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -329,7 +330,7 @@ export function FolderView({ server, path, uploads, bump, changed, onChanged }: 
     const parent = path ? parentOf(path) : undefined
     return (
       <div className="flex flex-col gap-3 pb-24">
-        <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-2 pb-1">
+        <StickyHeader className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-2 pb-2">
           <a {...linkProps(parent === undefined ? { name: 'more' } : folderRoute(server, parent))} className="-ml-2 inline-flex min-h-11 min-w-0 items-center gap-0.5 justify-self-start rounded-lg px-1 text-[15px] font-medium text-success-strong">
             <ChevronLeftIcon className="size-5 shrink-0" aria-hidden="true" />
             <span className="truncate">{parent === undefined ? t('nav.more') : parent ? baseName(parent) : t('files.title')}</span>
@@ -349,7 +350,7 @@ export function FolderView({ server, path, uploads, bump, changed, onChanged }: 
               </Button>
             )}
           </span>
-        </header>
+        </StickyHeader>
         {notice && <div className="px-1">{notice}</div>}
         {failed}
         {files && files.entries.length > 12 && (

@@ -10,6 +10,7 @@ import type { CodeEditorHandle, EditorProblem } from '@/components/app/code-edit
 import { useIsPhone } from '@/components/app/controls'
 import { serverAction } from '@/components/app/server-action'
 import { LoadingLabel } from '@/components/app/skeletons'
+import { StickyHeader } from '@/components/app/sticky-header'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -129,7 +130,7 @@ export function FileView({ server, path, onDirty, onChanged }: { server: ServerS
   const back = folderRoute(server, folder)
   const download = downloadHref(server.id, [path])
   const header = phone ? (
-    <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-2 pb-1">
+    <StickyHeader className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-2 pb-2">
       <a {...linkProps(back)} className="-ml-2 inline-flex min-h-11 min-w-0 items-center gap-0.5 justify-self-start rounded-lg px-1 text-[15px] font-medium text-success-strong">
         <ChevronLeftIcon className="size-5 shrink-0" aria-hidden="true" />
         <span className="truncate">{folder ? baseName(folder) : t('files.title')}</span>
@@ -142,7 +143,7 @@ export function FileView({ server, path, onDirty, onChanged }: { server: ServerS
           </Button>
         )}
       </span>
-    </header>
+    </StickyHeader>
   ) : (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <FileCrumbs server={server} path={path} />
