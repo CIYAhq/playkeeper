@@ -70,12 +70,6 @@ main() {
     aarch64 | arm64) arch=arm64 ;;
     *) die "this server's CPU is $(uname -m); Playkeeper runs on x86_64 (amd64) and 64-bit ARM (aarch64) servers." "Use an x86_64 or 64-bit ARM server. On a Raspberry Pi 4 or 5, install a 64-bit system." ;;
   esac
-  # A 32-bit system on a 64-bit CPU, such as a 32-bit Raspberry Pi OS, says
-  # aarch64 too, but its Docker pulls 32-bit images the newer Java runtimes
-  # don't have.
-  [ "$(getconf LONG_BIT 2>/dev/null || echo 64)" = 64 ] ||
-    die "this is a 32-bit system on a 64-bit CPU; Playkeeper needs the 64-bit system." "Install the 64-bit version of the operating system, then run this again."
-  asset=playkeeper-linux-$arch.tar.gz
   [ "$(id -u)" -eq 0 ] || die "the installer needs root." "Pipe into sudo: curl -fsSL <this script's URL> | sudo sh (without sudo, as on a Debian with a root password, run it as root after su -)"
   command -v curl >/dev/null 2>&1 || die "curl is not installed." "sudo apt-get install -y curl"
   case $base in
@@ -87,6 +81,12 @@ main() {
       ;;
     *) die "the release location must be an https:// URL, got: $base" ;;
   esac
+  # A 32-bit system on a 64-bit CPU, such as a 32-bit Raspberry Pi OS, says
+  # aarch64 too, but its Docker pulls 32-bit images the newer Java runtimes
+  # don't have.
+  [ "$(getconf LONG_BIT 2>/dev/null || echo 64)" = 64 ] ||
+    die "this is a 32-bit system on a 64-bit CPU; Playkeeper needs the 64-bit system." "Install the 64-bit version of the operating system, then run this again."
+  asset=playkeeper-linux-$arch.tar.gz
   # The installer asks for confirmation; with "curl | sh" its input would be
   # this script, so the answer is read from the terminal instead.
   if [ "$assume_yes" = 0 ] && ! (true </dev/tty) 2>/dev/null; then
