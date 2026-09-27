@@ -253,7 +253,7 @@ func TestPruningLeavesACopyThatIsBeingDownloaded(t *testing.T) {
 				<-ctx.Done()
 				return offsite.Archive{}, &offsite.Error{Kind: offsite.KindCanceled, Msg: "The download stopped."}
 			})
-			code, out := e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
+			code, out := e.callWhenFree("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
 			if code != http.StatusAccepted {
 				e.t.Fatalf("restore: %d %v", code, out)
 			}
@@ -277,7 +277,7 @@ func TestPruningLeavesACopyThatIsBeingDownloaded(t *testing.T) {
 				<-ctx.Done()
 				return offsite.Archive{}, &offsite.Error{Kind: offsite.KindCanceled, Msg: "The download stopped."}
 			})
-			code, out := e.call("POST", e.sp("/offsite/copies/"+name+"/check"), map[string]any{"actor": "admin"})
+			code, out := e.callWhenFree("POST", e.sp("/offsite/copies/"+name+"/check"), map[string]any{"actor": "admin"})
 			if code != http.StatusAccepted {
 				e.t.Fatalf("check: %d %v", code, out)
 			}
@@ -548,7 +548,7 @@ func TestACopyIsCheckedAgainOrDeletedFromItsRow(t *testing.T) {
 	}
 	check := func() *api.Operation {
 		t.Helper()
-		code, out := e.call("POST", e.sp("/offsite/copies/"+url.PathEscape(name)+"/check"), map[string]any{"actor": "admin"})
+		code, out := e.callWhenFree("POST", e.sp("/offsite/copies/"+url.PathEscape(name)+"/check"), map[string]any{"actor": "admin"})
 		if code != http.StatusAccepted {
 			t.Fatalf("check: %d %v", code, out)
 		}
@@ -597,7 +597,7 @@ func TestACopyIsCheckedAgainOrDeletedFromItsRow(t *testing.T) {
 	if code, _ := e.call("DELETE", e.sp("/offsite/copies/"+url.PathEscape(file))+"?actor=admin", nil); code != http.StatusBadRequest {
 		t.Fatalf("deleting something that isn't a copy: %d", code)
 	}
-	code, out := e.call("DELETE", copyPath+"?actor=admin", nil)
+	code, out := e.callWhenFree("DELETE", copyPath+"?actor=admin", nil)
 	if code != http.StatusOK || out["deleted"] != name {
 		t.Fatalf("delete: %d %v", code, out)
 	}
@@ -648,7 +648,7 @@ func TestCancellingARestoreFromACopyLeavesTheServerAsItWas(t *testing.T) {
 		<-ctx.Done()
 		return offsite.Archive{}, &offsite.Error{Kind: offsite.KindCanceled, Msg: "The download stopped."}
 	})
-	code, out := e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
+	code, out := e.callWhenFree("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
 	if code != http.StatusAccepted {
 		t.Fatalf("restore: %d %v", code, out)
 	}
@@ -718,7 +718,7 @@ func TestCancellingARestoreFromACopyLeavesTheServerAsItWas(t *testing.T) {
 
 	// The next restore runs to the end; once it has, there's nothing to cancel.
 	dest.answer(fromBackup(e.a.backupPath(file)))
-	code, out = e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
+	code, out = e.callWhenFree("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
 	if code != http.StatusAccepted {
 		t.Fatalf("restore again: %d %v", code, out)
 	}
@@ -756,7 +756,7 @@ func TestARestoreFromACopyTheAgentStoppedInIsSettledAtTheNextStart(t *testing.T)
 		<-ctx.Done()
 		return offsite.Archive{}, &offsite.Error{Kind: offsite.KindCanceled, Msg: "The download stopped."}
 	})
-	code, out := e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
+	code, out := e.callWhenFree("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
 	if code != http.StatusAccepted {
 		t.Fatalf("restore: %d %v", code, out)
 	}
@@ -794,7 +794,7 @@ func TestARestoreFromACopyTheAgentStoppedInIsSettledAtTheNextStart(t *testing.T)
 	}
 
 	dest.answer(fromBackup(e.a.backupPath(file)))
-	code, out = e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
+	code, out = e.callWhenFree("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": name})
 	if code != http.StatusAccepted {
 		t.Fatalf("restore again: %d %v", code, out)
 	}

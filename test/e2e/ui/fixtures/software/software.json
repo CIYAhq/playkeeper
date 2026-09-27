@@ -1,0 +1,1911 @@
+{
+  "neoforge": {
+    "catalog": {
+      "versions": [
+        {
+          "id": "neoforge-26.3",
+          "label": "NeoForge 26.3",
+          "minecraftVersion": "26.3",
+          "paperBuild": 0,
+          "jarSha256": "",
+          "java": 25,
+          "recommended": false,
+          "notes": "Experimental: NeoForge only has beta builds for Minecraft 26.3 so far. It may crash or damage your world, and a world opened with it cannot go back to an older version.",
+          "channel": "beta",
+          "experimental": true,
+          "supported": true,
+          "releasedAt": "2026-09-15T11:23:02Z",
+          "software": {
+            "type": "neoforge",
+            "minecraftVersion": "26.3",
+            "neoforgeVersion": "26.3.0.26-beta"
+          },
+          "build": "26.3.0.26-beta"
+        },
+        {
+          "id": "neoforge-26.2",
+          "label": "NeoForge 26.2",
+          "minecraftVersion": "26.2",
+          "paperBuild": 0,
+          "jarSha256": "",
+          "java": 25,
+          "recommended": true,
+          "notes": "Recommended: the newest stable NeoForge release. Java Edition 26.2 clients can join.",
+          "channel": "stable",
+          "experimental": false,
+          "supported": true,
+          "releasedAt": "2026-06-16T12:03:33Z",
+          "software": {
+            "type": "neoforge",
+            "minecraftVersion": "26.2",
+            "neoforgeVersion": "26.2.0.88"
+          },
+          "build": "26.2.0.88"
+        },
+        {
+          "id": "neoforge-26.1.2",
+          "label": "NeoForge 26.1.2",
+          "minecraftVersion": "26.1.2",
+          "paperBuild": 0,
+          "jarSha256": "",
+          "java": 25,
+          "recommended": false,
+          "notes": "Stable. Java Edition 26.1.2 clients can join.",
+          "channel": "stable",
+          "experimental": false,
+          "supported": true,
+          "releasedAt": "2026-04-09T10:12:23Z",
+          "software": {
+            "type": "neoforge",
+            "minecraftVersion": "26.1.2",
+            "neoforgeVersion": "26.1.2.112"
+          },
+          "build": "26.1.2.112"
+        },
+        {
+          "id": "neoforge-1.21.11",
+          "label": "NeoForge 1.21.11",
+          "minecraftVersion": "1.21.11",
+          "paperBuild": 0,
+          "jarSha256": "",
+          "java": 21,
+          "recommended": false,
+          "notes": "Stable. Java Edition 1.21.11 clients can join.",
+          "channel": "stable",
+          "experimental": false,
+          "supported": true,
+          "releasedAt": "2025-12-09T12:23:30Z",
+          "software": {
+            "type": "neoforge",
+            "minecraftVersion": "1.21.11",
+            "neoforgeVersion": "21.11.45"
+          },
+          "build": "21.11.45"
+        }
+      ],
+      "versionsCheckedAt": "2026-09-27T22:14:05.416396587Z"
+    },
+    "builds": {
+      "26.3": {
+        "type": "neoforge",
+        "minecraftVersion": "26.3",
+        "builds": [
+          {
+            "version": "26.3.0.26-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.25-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.24-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.23-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.22-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.21-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.20-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.19-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.18-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.17-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.16-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.14-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.13-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.12-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.11-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.10-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.9-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.8-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.7-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.6-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.5-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.4-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.3-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.2-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.1-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.3.0.0-beta",
+            "channel": "beta",
+            "recommended": false
+          }
+        ],
+        "checkedAt": "2026-09-27T22:14:14.759073045Z"
+      },
+      "26.2": {
+        "type": "neoforge",
+        "minecraftVersion": "26.2",
+        "builds": [
+          {
+            "version": "26.2.0.88",
+            "channel": "stable",
+            "recommended": true
+          },
+          {
+            "version": "26.2.0.87",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.86",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.85",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.84",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.83",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.82",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.81",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.80",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.79",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.78",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.77",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.76",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.75",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.74",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.73",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.72",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.71",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.70",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.69",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.68",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.67",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.66",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.65",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.64",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.63",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.62",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.61",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.60",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.59",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.58",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.57",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.56-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.55-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.54-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.53-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.52-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.51-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.50-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.49-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.48-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.47-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.46-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.45-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.44-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.43-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.41-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.40-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.38-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.37-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.36-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.35-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.34-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.33-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.32-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.31-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.30-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.29-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.28-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.26-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.25-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.24-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.23-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.22-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.21-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.20-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.19-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.18-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.17-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.16-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.15-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.13-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.12-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.11-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.10-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.9-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.8-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.7-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.6-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.3-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.2-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.1-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.2.0.0-beta",
+            "channel": "beta",
+            "recommended": false
+          }
+        ],
+        "checkedAt": "2026-09-27T22:14:15.265152609Z"
+      },
+      "26.1.2": {
+        "type": "neoforge",
+        "minecraftVersion": "26.1.2",
+        "builds": [
+          {
+            "version": "26.1.2.112",
+            "channel": "stable",
+            "recommended": true
+          },
+          {
+            "version": "26.1.2.111",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.110",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.109",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.108",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.107",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.106",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.105",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.104",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.103",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.102",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.101",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.100",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.99",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.98",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.97",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.96",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.95",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.94",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.93",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.92",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.90",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.89",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.88",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.87",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.86",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.84",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.82",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.81",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.80",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.79",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.78",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.77",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.76",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.75",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.74",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.73",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.72",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.71",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.70-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.69-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.68-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.67-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.66-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.65-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.64-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.63-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.62-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.61-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.60-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.59-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.58-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.57-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.56-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.55-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.54-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.53-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.52-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.51-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.50-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.49-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.48-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.47-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.46-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.45-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.44-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.43-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.42-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.41-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.40-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.39-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.38-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.37-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.36-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.35-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.34-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.33-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.31-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.30-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.29-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.28-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.27-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.26-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.25-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.24-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.23-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.22-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.21-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.20-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.19-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.18-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.17-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.16-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.15-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.14-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.13-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.12-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.11-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.10-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.9-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.8-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.7-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.6-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.5-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.4-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.3-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.2-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.1-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "26.1.2.0-beta",
+            "channel": "beta",
+            "recommended": false
+          }
+        ],
+        "checkedAt": "2026-09-27T22:14:15.768353432Z"
+      },
+      "1.21.11": {
+        "type": "neoforge",
+        "minecraftVersion": "1.21.11",
+        "builds": [
+          {
+            "version": "21.11.45",
+            "channel": "stable",
+            "recommended": true
+          },
+          {
+            "version": "21.11.44",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "21.11.42",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "21.11.41-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.40-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.39-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.38-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.37-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.36-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.35-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.34-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.33-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.32-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.31-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.30-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.29-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.28-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.27-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.26-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.25-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.24-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.23-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.22-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.21-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.20-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.19-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.18-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.17-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.16-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.15-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.14-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.13-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.12-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.11-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.10-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.9-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.8-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.7-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.6-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.5-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.4-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.3-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.2-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.1-beta",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "21.11.0-beta",
+            "channel": "beta",
+            "recommended": false
+          }
+        ],
+        "checkedAt": "2026-09-27T22:14:16.816345943Z"
+      }
+    }
+  },
+  "forge": {
+    "catalog": {
+      "versions": [
+        {
+          "id": "forge-26.3",
+          "label": "Forge 26.3",
+          "minecraftVersion": "26.3",
+          "paperBuild": 0,
+          "jarSha256": "",
+          "java": 25,
+          "recommended": false,
+          "notes": "Experimental: Forge only has beta builds for Minecraft 26.3 so far. It may crash or damage your world, and a world opened with it cannot go back to an older version.",
+          "channel": "beta",
+          "experimental": true,
+          "supported": true,
+          "releasedAt": "2026-09-15T11:23:02Z",
+          "software": {
+            "type": "forge",
+            "minecraftVersion": "26.3",
+            "forgeVersion": "66.0.6"
+          },
+          "build": "66.0.6"
+        },
+        {
+          "id": "forge-26.2",
+          "label": "Forge 26.2",
+          "minecraftVersion": "26.2",
+          "paperBuild": 0,
+          "jarSha256": "",
+          "java": 25,
+          "recommended": true,
+          "notes": "Recommended: the newest stable Forge release. Java Edition 26.2 clients can join.",
+          "channel": "stable",
+          "experimental": false,
+          "supported": true,
+          "releasedAt": "2026-06-16T12:03:33Z",
+          "software": {
+            "type": "forge",
+            "minecraftVersion": "26.2",
+            "forgeVersion": "65.1.3"
+          },
+          "build": "65.1.3"
+        },
+        {
+          "id": "forge-26.1.2",
+          "label": "Forge 26.1.2",
+          "minecraftVersion": "26.1.2",
+          "paperBuild": 0,
+          "jarSha256": "",
+          "java": 25,
+          "recommended": false,
+          "notes": "Stable. Java Edition 26.1.2 clients can join.",
+          "channel": "stable",
+          "experimental": false,
+          "supported": true,
+          "releasedAt": "2026-04-09T10:12:23Z",
+          "software": {
+            "type": "forge",
+            "minecraftVersion": "26.1.2",
+            "forgeVersion": "64.1.3"
+          },
+          "build": "64.1.3"
+        },
+        {
+          "id": "forge-1.21.11",
+          "label": "Forge 1.21.11",
+          "minecraftVersion": "1.21.11",
+          "paperBuild": 0,
+          "jarSha256": "",
+          "java": 21,
+          "recommended": false,
+          "notes": "Stable. Java Edition 1.21.11 clients can join.",
+          "channel": "stable",
+          "experimental": false,
+          "supported": true,
+          "releasedAt": "2025-12-09T12:23:30Z",
+          "software": {
+            "type": "forge",
+            "minecraftVersion": "1.21.11",
+            "forgeVersion": "61.2.1"
+          },
+          "build": "61.2.1"
+        }
+      ],
+      "versionsCheckedAt": "2026-09-27T22:14:59.640592321Z"
+    },
+    "builds": {
+      "26.3": {
+        "type": "forge",
+        "minecraftVersion": "26.3",
+        "builds": [
+          {
+            "version": "66.0.6",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "66.0.5",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "66.0.4",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "66.0.3",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "66.0.2",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "66.0.0",
+            "channel": "beta",
+            "recommended": false
+          }
+        ],
+        "checkedAt": "2026-09-27T22:14:59.811312433Z"
+      },
+      "26.2": {
+        "type": "forge",
+        "minecraftVersion": "26.2",
+        "builds": [
+          {
+            "version": "65.1.3",
+            "channel": "stable",
+            "recommended": true
+          },
+          {
+            "version": "65.1.2",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "65.1.1",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "65.1.0",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "65.0.9",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "65.0.8",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "65.0.7",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "65.0.6",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "65.0.5",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "65.0.4",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "65.0.3",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "65.0.2",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "65.0.1",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "65.0.0",
+            "channel": "beta",
+            "recommended": false
+          }
+        ],
+        "checkedAt": "2026-09-27T22:14:59.98410808Z"
+      },
+      "26.1.2": {
+        "type": "forge",
+        "minecraftVersion": "26.1.2",
+        "builds": [
+          {
+            "version": "64.1.3",
+            "channel": "stable",
+            "recommended": true
+          },
+          {
+            "version": "64.1.2",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "64.1.1",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "64.1.0",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "64.0.16",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.15",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.14",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.13",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.12",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.11",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.10",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.9",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.8",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.7",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.6",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.5",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.4",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.3",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.2",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.1",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "64.0.0",
+            "channel": "beta",
+            "recommended": false
+          }
+        ],
+        "checkedAt": "2026-09-27T22:15:00.16275832Z"
+      },
+      "1.21.11": {
+        "type": "forge",
+        "minecraftVersion": "1.21.11",
+        "builds": [
+          {
+            "version": "61.2.1",
+            "channel": "stable",
+            "recommended": true
+          },
+          {
+            "version": "61.2.0",
+            "channel": "stable",
+            "recommended": false
+          },
+          {
+            "version": "61.1.16",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.1.15",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.1.14",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.1.13",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.1.12",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.1.11",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.1.10",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.1.9",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.1.8",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.1.7",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.1.5",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.1.4",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.1.3",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.1.1",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.1.0",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.0.14",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.0.13",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.0.12",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.0.11",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.0.10",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.0.8",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.0.7",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.0.6",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.0.5",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.0.4",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.0.3",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.0.2",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.0.1",
+            "channel": "beta",
+            "recommended": false
+          },
+          {
+            "version": "61.0.0",
+            "channel": "beta",
+            "recommended": false
+          }
+        ],
+        "checkedAt": "2026-09-27T22:15:00.344145366Z"
+      }
+    }
+  }
+}

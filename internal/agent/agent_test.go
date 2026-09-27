@@ -271,6 +271,22 @@ func (e *agentEnv) call(method, path string, body any) (int, map[string]any) {
 	return resp.StatusCode, out
 }
 
+// callWhenFree is call, asked again while the server answers that it's busy
+// with another operation, as the dashboard does: once a copy is recorded, or
+// an operation has ended, the server can hold its operation lock a moment
+// longer.
+func (e *agentEnv) callWhenFree(method, path string, body any) (int, map[string]any) {
+	e.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		code, out := e.call(method, path, body)
+		if code != http.StatusConflict || out["code"] != api.CodeBusy || time.Now().After(deadline) {
+			return code, out
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func (e *agentEnv) status() api.ServerStatus {
 	e.t.Helper()
 	return e.srv().Status(context.Background())

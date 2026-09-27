@@ -235,7 +235,7 @@ const routers = new Set(['main.tsx', 'App.tsx', 'pages/server/index.tsx'])
 
 /** The files of the click-through and the state it crawls in (onboarding, the bots' scenario), and its workflow. */
 const crawlerFiles = [
-  /^test\/e2e\/ui\/(crawl|crawl-page|fakes|addon-fixtures|modpack-fixtures|helpers|clickthrough-plan|clickthrough-rules|plan)\.ts$/,
+  /^test\/e2e\/ui\/(crawl|crawl-page|fakes|addon-fixtures|modpack-fixtures|software-fixtures|helpers|clickthrough-plan|clickthrough-rules|plan)\.ts$/,
   /^test\/e2e\/ui\/(clickthrough|clickthrough-gate|onboarding)\.spec\.ts$/,
   /^test\/e2e\/ui\/(clickthrough-costs\.json|playwright\.config\.ts|package\.json|package-lock\.json)$/,
   /^test\/e2e\/ui\/fixtures\//,
