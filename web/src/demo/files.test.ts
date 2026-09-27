@@ -161,6 +161,14 @@ it('refuses any path outside the server’s folder', async () => {
   expect(names(await list(id))).toContain('eula.txt')
 })
 
+it('names the server’s folder as the agent does when several files go up to its top', async () => {
+  const { id } = await server('survival')
+  const upload = uploadFiles({ base: files(id, '/uploads'), folder: '', files: [new File(['a\n'], 'notes-a.txt'), new File(['b\n'], 'notes-b.txt')], signal: new AbortController().signal })
+  await vi.advanceTimersByTimeAsync(10_000)
+  await upload
+  expect((await activity(id))[0]).toMatchObject({ kind: 'file_uploaded', count: 2, detail: '' })
+})
+
 it('uploads files without sending a byte: a small text file opens in the editor, and a name in use needs replacing', async () => {
   const { id } = await server('survival')
   const base = files(id, '/uploads')

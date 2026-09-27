@@ -1592,6 +1592,10 @@ control "file browser: a cancelled upload puts nothing more in place" internal/a
   'up.gone || f.placed' \
   'f.placed' \
   ./internal/agent '^TestACancelledUploadPutsNothingInPlace$'
+control "recent activity names the server's folder as the file browser does" internal/agent/analytics.go \
+  'folder := shown(path.Dir(e.Detail))' \
+  'folder := path.Dir(e.Detail)' \
+  ./internal/agent '^TestFileChangesAreAuditedAndShownAsActivity$'
 control "file browser: only admins see a server's files" internal/panel/workspace.go \
   'actViewFiles:      invites.RoleAdmin,' \
   'actViewFiles:      invites.RoleViewer,' \

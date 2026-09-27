@@ -398,8 +398,8 @@ function place(s: DemoState, srv: ServerStatus, up: DemoUpload, n: number, now: 
   audit(s, now, 'files.uploaded', srv, dest, dest)
   // Uploads into one folder close together make one line, as the agent merges them.
   const last = s.activity[0]
-  const folder = parentOf(dest) || '.'
-  const lastFolder = last?.count ? last.detail : parentOf(last?.detail ?? '') || '.'
+  const folder = parentOf(dest)
+  const lastFolder = last?.count ? (last.detail ?? '') : parentOf(last?.detail ?? '')
   if (last?.kind === 'file_uploaded' && last.serverId === srv.id && last.actor === demoUser && lastFolder === folder && now - Date.parse(last.ts) <= uploadsTogether) {
     Object.assign(last, { count: Math.max(last.count ?? 0, 1) + 1, detail: folder, ts: iso(now) })
     return

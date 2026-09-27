@@ -429,16 +429,18 @@ const uploadsTogether = 15 * time.Minute
 
 // mergeUploads makes each run of uploads into one folder, by one actor on
 // one server, one line that says how many files it was, as a page of
-// uploads would otherwise fill the recent activity. list is newest first.
+// uploads would otherwise fill the recent activity. The line names the
+// folder as the file browser does: "" for the server's folder. list is
+// newest first.
 func mergeUploads(list []api.Activity) []api.Activity {
 	out := list[:0:0]
 	for _, e := range list {
 		if n := len(out); n > 0 && e.Kind == "file_uploaded" {
 			last := &out[n-1]
-			folder := path.Dir(e.Detail)
+			folder := shown(path.Dir(e.Detail))
 			lastFolder := last.Detail
 			if last.Count == 0 {
-				lastFolder = path.Dir(last.Detail)
+				lastFolder = shown(path.Dir(last.Detail))
 			}
 			if last.Kind == e.Kind && last.ServerID == e.ServerID && last.Actor == e.Actor && lastFolder == folder && last.TS.Sub(e.TS) <= uploadsTogether {
 				last.Count = max(last.Count, 1) + 1

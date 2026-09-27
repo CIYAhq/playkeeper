@@ -1098,14 +1098,17 @@ func TestFileChangesAreAuditedAndShownAsActivity(t *testing.T) {
 		// Activity is ordered by the millisecond.
 		time.Sleep(3 * time.Millisecond)
 	}
-	up := e.openUpload("config")
-	for i := range 3 {
-		name := fmt.Sprintf("file-%d.yml", i)
-		if code, out := e.announceFile(up, name, 2, false); code != 201 {
-			t.Fatalf("announce %s: %d %v", name, code, out)
-		}
-		if code, _, out := e.uploadPiece(up, i, 0, strings.NewReader("x\n")); code != 200 {
-			t.Fatalf("upload %s: %d %v", name, code, out)
+	for _, folder := range []string{"config", ""} {
+		up := e.openUpload(folder)
+		for i := range 3 {
+			name := fmt.Sprintf("file-%d.yml", i)
+			if code, out := e.announceFile(up, name, 2, false); code != 201 {
+				t.Fatalf("announce %s in %q: %d %v", name, folder, code, out)
+			}
+			if code, _, out := e.uploadPiece(up, i, 0, strings.NewReader("x\n")); code != 200 {
+				t.Fatalf("upload %s in %q: %d %v", name, folder, code, out)
+			}
+			time.Sleep(3 * time.Millisecond)
 		}
 	}
 	list, err := e.a.Activity(e.sid, 20)
@@ -1116,7 +1119,7 @@ func TestFileChangesAreAuditedAndShownAsActivity(t *testing.T) {
 	for _, a := range list {
 		got = append(got, fmt.Sprintf("%s %s %d", a.Kind, a.Detail, a.Count))
 	}
-	want := []string{"file_uploaded config 3", "file_deleted plugins/old 0", "file_moved plugins/renamed.yml → plugins/old/renamed.yml 0",
+	want := []string{"file_uploaded  3", "file_uploaded config 3", "file_deleted plugins/old 0", "file_moved plugins/renamed.yml → plugins/old/renamed.yml 0",
 		"file_renamed plugins/new.yml → plugins/renamed.yml 0", "folder_made plugins/old 0", "file_created plugins/new.yml 0", "file_saved server.properties 0"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("activity:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
