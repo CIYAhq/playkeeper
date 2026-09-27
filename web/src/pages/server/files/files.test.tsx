@@ -197,6 +197,17 @@ describe('the Files tab', () => {
     expect(button('New')).toBeTruthy()
   })
 
+  it('sorts by a column, folders first, and says which way pressing it again sorts', async () => {
+    answer({ [list('')]: top() })
+    await render()
+    await click(button('Sort by Name, descending'))
+    expect(rows()).toEqual(['world_netherIn use', 'worldIn use', 'plugins', 'server.properties', 'server-icon.png', 'evil.ymlLink', 'bukkit.yml'])
+    await click(button('Sort by Size'))
+    expect(rows()).toEqual(['world_netherIn use', 'worldIn use', 'plugins', 'server-icon.png', 'server.properties', 'bukkit.yml', 'evil.ymlLink'])
+    expect(button('Sort by Size, ascending').closest('th')?.getAttribute('aria-sort')).toBe('descending')
+    expect(button('Sort by Name').closest('th')?.getAttribute('aria-sort')).toBe('none')
+  })
+
   it('keeps the world’s rows from changing while the game runs, and says why', async () => {
     answer({ [list('')]: top() })
     await render()

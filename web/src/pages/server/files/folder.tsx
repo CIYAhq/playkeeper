@@ -416,7 +416,7 @@ export function FolderView({ server, path, uploads, bump, changed, onChanged }: 
       <button
         type="button"
         onClick={() => setSort((s) => ({ key, desc: s.key === key ? !s.desc : key !== 'name' }))}
-        aria-label={t('files.sortBy', { column: label })}
+        aria-label={sort.key !== key ? t('files.sortBy', { column: label }) : sort.desc ? t('files.sortAscending', { column: label }) : t('files.sortDescending', { column: label })}
         className={cn('inline-flex items-center gap-1 rounded-md py-1 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring', sort.key === key && 'text-foreground')}
       >
         {label}

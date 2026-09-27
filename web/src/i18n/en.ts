@@ -3464,6 +3464,8 @@ export const en = {
   'files.col.size': 'Size',
   'files.col.modified': 'Changed',
   'files.sortBy': 'Sort by {column}',
+  'files.sortAscending': 'Sort by {column}, ascending',
+  'files.sortDescending': 'Sort by {column}, descending',
   'files.list': 'Files in {folder}',
   'files.selectAll': 'Select everything in this folder',
   'files.select': 'Select {name}',
