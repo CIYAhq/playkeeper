@@ -6,7 +6,7 @@ import path from 'node:path'
 import { answerRead, installJob, isAddonRead, recordedFolder, updateJob, type World } from './addon-fixtures'
 import { Crawler, failing, failureList, where, type CrawlReport, type Result, type Status } from './crawl'
 import { installPageHelpers } from './crawl-page'
-import { lay, type View } from './fakes'
+import { addonJobMs, addonOpAt, lay, type View } from './fakes'
 import { login, outDir } from './helpers'
 import { answerModpackRead, isModpackRead, type PackWorld } from './modpack-fixtures'
 
@@ -747,4 +747,17 @@ test('the view that looks after itself names each copy somewhere else the same o
   expect(first).toHaveLength(3)
   await new Promise((resolve) => setTimeout(resolve, 1100))
   expect(names()).toEqual(first)
+})
+
+test('a faked add-on job downloads for a few seconds before it ends as the fixtures say, and other faked jobs have ended at once', () => {
+  // The dialog polls once a second; a job that had ended by the first poll swapped its buttons under the crawl's press.
+  const start = Date.parse('2026-09-27T00:00:00Z')
+  const started = { id: 'fake-op-1', kind: 'addon-install', status: 'running', startedAt: new Date(start).toISOString() }
+  const ends = { ...started, status: 'succeeded', detail: { files: [], restartNeeded: false } }
+  for (const after of [0, 1000, 3000, addonJobMs - 1]) expect(addonOpAt(started, ends, start + after)?.status, `${after} ms in`).toBe('running')
+  expect(addonOpAt(started, ends, start + addonJobMs)).toBe(ends)
+  expect(addonJobMs).toBeGreaterThanOrEqual(3000)
+  const backup = { id: 'fake-op-2', kind: 'backup', status: 'running', startedAt: new Date(start).toISOString() }
+  expect(addonOpAt(backup, undefined, start)).toMatchObject({ status: 'succeeded' })
+  expect(addonOpAt(undefined, undefined, start)).toBeUndefined()
 })
