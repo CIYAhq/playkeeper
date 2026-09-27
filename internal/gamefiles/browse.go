@@ -265,10 +265,8 @@ func (d *Dir) Walk(ctx context.Context, name string, limit int, fn func(p string
 // Count counts name and everything in it, links and special files too, as
 // Walk would pass them, but not the data directory itself. It stops once
 // there are more than limit and returns limit+1, and refuses folders more
-// than maxDepth down, as Walk does. A folder opened in the root describes
-// each entry relative to its own handle, whether or not the file system
-// lists types, so an entry costs one call rather than List's look-up of
-// it from the top.
+// than maxDepth down, as Walk does. It lists folders as Walk does, so the
+// two agree on which entries are folders.
 func (d *Dir) Count(ctx context.Context, name string, limit int) (int, error) {
 	var fi fs.FileInfo
 	var err error
@@ -300,20 +298,20 @@ func (d *Dir) count(ctx context.Context, start, p string, depth, limit int, n *i
 	if depth > maxDepth {
 		return tooDeepError(start, maxDepth)
 	}
-	es, err := d.ReadDir(p, limit-*n)
-	if KindOf(err) == KindTooMany {
-		*n = limit + 1
-		return nil
-	}
+	entries, more, err := d.List(p, limit-*n)
 	if err != nil {
 		return err
 	}
-	*n += len(es)
-	for _, e := range es {
-		if !e.IsDir() {
+	if more {
+		*n = limit + 1
+		return nil
+	}
+	*n += len(entries)
+	for _, e := range entries {
+		if !e.Mode.IsDir() {
 			continue
 		}
-		if err := d.count(ctx, start, join(p, e.Name()), depth+1, limit, n); err != nil || *n > limit {
+		if err := d.count(ctx, start, join(p, e.Name), depth+1, limit, n); err != nil || *n > limit {
 			return err
 		}
 	}

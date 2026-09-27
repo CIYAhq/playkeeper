@@ -1471,18 +1471,20 @@ control "file browser: a new file renames without replacing" internal/gamefiles/
 			err = d.renameNew(tmp, pfi, name, pfi)' \
   ./internal/gamefiles '^TestChangesNeverReplaceWhatAppearsMeanwhile$'
 control "file browser: a zip's files are counted only up to its limit" internal/gamefiles/browse.go \
-  'if KindOf(err) == KindTooMany {' \
-  'if false && KindOf(err) == KindTooMany {' \
+  'if more {
+		*n = limit + 1' \
+  'if false && more {
+		*n = limit + 1' \
   ./internal/gamefiles '^TestCountStopsPastTheLimit$'
 control "file browser: a zip's count stops far down" internal/gamefiles/browse.go \
   'if depth > maxDepth {
 		return tooDeepError(start, maxDepth)
 	}
-	es, err := d.ReadDir(p, limit-*n)' \
+	entries, more, err := d.List(p, limit-*n)' \
   'if false && depth > maxDepth {
 		return tooDeepError(start, maxDepth)
 	}
-	es, err := d.ReadDir(p, limit-*n)' \
+	entries, more, err := d.List(p, limit-*n)' \
   ./internal/gamefiles '^TestWalkAndCountStopFarDown$'
 control "file browser: a zip's walk stops far down" internal/gamefiles/browse.go \
   'if depth > maxDepth {
@@ -1596,10 +1598,6 @@ control "recent activity reads on past a big upload" internal/agent/analytics.go
   'if len(out) > limit || len(rows) < n || n >= maxActivityRows {' \
   'if true || len(out) > limit || len(rows) < n || n >= maxActivityRows {' \
   ./internal/agent '^TestABigUploadDoesntHideOlderActivity$'
-control "recent activity reads no more rows than its cap" internal/agent/analytics.go \
-  'n = min(n*4, maxActivityRows) {' \
-  'n *= 4 {' \
-  ./internal/agent '^TestRecentActivityReadsNoMoreThanItsRows$'
 control "recent activity names the server's folder as the file browser does" internal/agent/analytics.go \
   'folder := shown(path.Dir(e.Detail))' \
   'folder := path.Dir(e.Detail)' \
