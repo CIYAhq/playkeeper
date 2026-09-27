@@ -57,26 +57,30 @@
 </section>
 {{end}}{{end}}
 
-{{/* shot: a screenshot. Name is shots/<Name>.webp; Alt describes it;
-     Eager for the first thing a page shows. */}}
-{{define "shot"}}{{$s := shot .Name}}<img class="shot-img{{with .Class}} {{.}}{{end}}" src="{{$s.Src}}"{{with $s.Srcset}} srcset="{{.}}"{{end}} width="{{$s.Width}}" height="{{$s.Height}}" alt="{{.Alt}}"{{if .Eager}} fetchpriority="high"{{else}} loading="lazy"{{end}} decoding="async">{{end}}
+{{/* shot: a screenshot, AVIF where the browser takes it and WebP otherwise,
+     at the widths site/tools/shots.py makes. Name is shots/<Name>-<width>w;
+     Alt describes it; Sizes is how wide the page shows it, as in the sizes
+     attribute. Eager for the first thing a page shows, which the page's
+     head asks for early; Media, when only some screens show it, says which. */}}
+{{define "shot"}}{{$s := shot .Name (or .Sizes "")}}{{if .Eager}}{{preload $s (or .Media "")}}{{end}}<picture><source type="image/avif" srcset="{{$s.Avif}}" sizes="{{$s.Sizes}}"><img class="shot-img{{with .Class}} {{.}}{{end}}" src="{{$s.Src}}" srcset="{{$s.Srcset}}" sizes="{{$s.Sizes}}" width="{{$s.Width}}" height="{{$s.Height}}" alt="{{.Alt}}"{{if .Eager}} fetchpriority="high"{{else}} loading="lazy"{{end}} decoding="async"></picture>{{end}}
 
 {{/* browser: a screenshot in a browser window. URL is what its address bar
      shows. */}}
 {{define "browser"}}
 <figure class="browser{{with .Class}} {{.}}{{end}}">
   <div class="browser-bar" aria-hidden="true"><span class="browser-dots"><i></i><i></i><i></i></span><span class="browser-url">{{template "icon" "lock"}}<span class="browser-url-text">{{.URL}}</span></span></div>
-  <div class="browser-view">{{template "shot" (dict "Name" .Name "Alt" .Alt "Eager" .Eager)}}</div>
+  <div class="browser-view">{{template "shot" (dict "Name" .Name "Alt" .Alt "Eager" .Eager "Sizes" .Sizes "Media" .Media)}}</div>
   {{with .Caption}}<figcaption>{{.}}</figcaption>{{end}}
 </figure>
 {{end}}
 
-{{/* phone: a screenshot in a phone. */}}
+{{/* phone: a screen in a phone, from its top: the screenshot fills the
+     screen below the status bar. */}}
 {{define "phone"}}
 <div class="phone{{with .Class}} {{.}}{{end}}">
   <div class="phone-screen">
     <div class="phone-status" aria-hidden="true"><span>9:41</span>{{template "icon" "status"}}</div>
-    {{template "shot" (dict "Name" .Name "Alt" .Alt "Eager" .Eager)}}
+    {{template "shot" (dict "Name" .Name "Alt" .Alt "Eager" .Eager "Sizes" .Sizes "Media" .Media)}}
   </div>
 </div>
 {{end}}
@@ -84,7 +88,7 @@
 {{/* card: a screenshot crop in a white card, cropped to one readable part. */}}
 {{define "cardshot"}}
 <figure class="cardshot{{with .Class}} {{.}}{{end}}">
-  {{template "shot" (dict "Name" .Name "Alt" .Alt "Eager" .Eager)}}
+  {{template "shot" (dict "Name" .Name "Alt" .Alt "Eager" .Eager "Sizes" .Sizes "Media" .Media)}}
   {{with .Caption}}<figcaption>{{.}}</figcaption>{{end}}
 </figure>
 {{end}}

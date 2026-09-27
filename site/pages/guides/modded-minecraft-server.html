@@ -21,6 +21,8 @@ schema: article
 {{define "closing-sub"}}Free and open source. Pick a pack, then send friends the link.{{end}}
 
 {{define "article"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+{{$pair := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(50vw - 40px), 372px"}}
 <section aria-labelledby="loader">
   {{template "h2n" (dict "ID" "loader" "N" 1 "Text" "Pick a loader")}}
   <p>Mods are built for one loader. Pick the one your pack or mods use, then the Minecraft version they ask for.</p>
@@ -94,25 +96,25 @@ sudo ufw allow 25565/tcp
   <ol class="steps shot-steps">
     <li class="step reveal"><span class="step-n" aria-hidden="true">1</span><div><h3 class="step-title">Start a server from a modpack</h3><p>New server › A modpack, from Modrinth or CurseForge. Each shows the memory it needs.</p></div></li>
   </ol>
-  {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs.")}}
+  {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs." "Sizes" $article)}}
   <div class="shot-step">
     <ol class="steps" start="2">
       <li class="step reveal"><span class="step-n" aria-hidden="true">2</span><div><h3 class="step-title">See what's inside first</h3><p>The loader, the version, the mods and the memory it needs, before anything installs.</p></div></li>
     </ol>
-    {{template "cardshot" (dict "Name" "guide-modpack-details" "Alt" "A modpack's details: Minecraft version, loader, mods, memory, when it was updated and how big the download is.")}}
+    {{template "cardshot" (dict "Name" "guide-modpack-details" "Alt" "A modpack's details: Minecraft version, loader, mods, memory, when it was updated and how big the download is." "Sizes" "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px")}}
   </div>
   <ol class="steps" start="3">
     <li class="step reveal"><span class="step-n" aria-hidden="true">3</span><div><h3 class="step-title">Or add mods one at a time</h3><p>Start a {{loaders "or"}} server, then browse mods. What a mod needs comes with it.</p></div></li>
   </ol>
-  {{template "cardshot" (dict "Name" "guide-mods-tab" "Alt" "The Mods tab: mods added by hand, with what friends need of each, and the modpack's own mods.")}}
+  {{template "cardshot" (dict "Name" "guide-mods-tab" "Alt" "The Mods tab: mods added by hand, with what friends need of each, and the modpack's own mods." "Sizes" $article)}}
 </section>
 
 <section aria-labelledby="friends">
   {{template "h2n" (dict "ID" "friends" "N" 4 "Text" "Give friends the same mods" "Toc" "Friends get the same mods")}}
   <p>Everyone needs the same loader, version and mods. Playkeeper makes one link: friends download a file, import it in the Modrinth App or Prism Launcher, and join.</p>
   <div class="figure-pair">
-    {{template "cardshot" (dict "Name" "guide-share" "Alt" "Share with friends: the link, what friends do, and what they get themselves." "Caption" "What you send: one link.")}}
-    {{template "cardshot" (dict "Name" "guide-pack-page" "Alt" "The page friends open: the pack file, steps for their launcher and the address to join." "Caption" "What friends see: steps for their launcher.")}}
+    {{template "cardshot" (dict "Name" "guide-share" "Alt" "Share with friends: the link to send and what friends do with it." "Caption" "What you send: one link." "Sizes" $pair)}}
+    {{template "cardshot" (dict "Name" "guide-pack-page" "Alt" "The page friends open: the server's versions, the pack file to download and their launcher's steps." "Caption" "What friends see: steps for their launcher." "Sizes" $pair)}}
   </div>
 </section>
 
@@ -139,7 +141,7 @@ sudo ufw allow 25565/tcp
     <code class="err">Attempted to load class net/minecraft/client/Minecraft for invalid dist DEDICATED_SERVER</code>
     <p>{{template "icon" "arrow-right"}}Minimaps, shaders and menus belong in players' games. Take them off the server.</p>
   </div>
-  {{template "cardshot" (dict "Name" "guide-crash" "Alt" "A crashed server's Overview: what happened, the last lines of the log, and how to fix it." "Caption" "Playkeeper reads the log and offers the fix.")}}
+  {{template "cardshot" (dict "Name" "guide-crash" "Alt" "A crashed server's Overview: what happened, the last lines of the log, and how to fix it." "Caption" "Playkeeper reads the log and offers the fix." "Sizes" $article)}}
 </section>
 {{end}}
 

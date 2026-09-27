@@ -577,11 +577,100 @@ func TestImageSizes(t *testing.T) {
 	if _, _, err := webpSize([]byte("RIFF....WEBPVP9 ................")); err == nil {
 		t.Error("an unknown WebP chunk has a size")
 	}
+	if _, _, err := avifSize([]byte("\x00\x00\x00\x10ftypmif1\x00\x00\x00\x00")); err == nil {
+		t.Error("an image without the avif brand has an AVIF size")
+	}
 	for name, a := range build(t, Default).Files {
-		if strings.HasPrefix(name, "assets/shots/") && path.Ext(name) == ".webp" {
-			if _, _, err := webpSize(a); err != nil {
-				t.Errorf("%s: %v", name, err)
+		if !strings.HasPrefix(name, "assets/shots/") {
+			continue
+		}
+		size := webpSize
+		if path.Ext(name) == ".avif" {
+			size = avifSize
+		}
+		if w, h, err := size(a); err != nil || w == 0 || h == 0 {
+			t.Errorf("%s: %d × %d, %v", name, w, h, err)
+		}
+	}
+}
+
+var (
+	rePicture = regexp.MustCompile(`<picture><source type="image/avif" srcset="([^"]+)" sizes="([^"]+)"><img class="shot-img[^"]*" src="([^"]+)" srcset="([^"]+)" sizes="([^"]+)" width="\d+" height="\d+" alt="[^"]*"( fetchpriority="high"| loading="lazy") decoding="async"></picture>`)
+	rePreload = regexp.MustCompile(`<link rel="preload" as="image" type="image/avif" imagesrcset="([^"]+)" imagesizes="([^"]+)"(?: media="[^"]+")? fetchpriority="high">`)
+)
+
+// srcsetFiles are a srcset's files and their widths.
+func srcsetFiles(srcset string) (files, widths []string) {
+	for _, c := range strings.Split(srcset, ",") {
+		f := strings.Fields(c)
+		if len(f) != 2 || !strings.HasSuffix(f[1], "w") {
+			return nil, nil
+		}
+		files, widths = append(files, f[0]), append(widths, f[1])
+	}
+	return files, widths
+}
+
+// Every screenshot is a <picture>: the same widths in AVIF and in WebP, with
+// the page's sizes, fetched lazily unless it's the first thing the page
+// shows, which the head asks for early with the same files and sizes. Every
+// file in site/static/shots is shown, and none is heavy.
+func TestScreenshotsArePicturesWithSizes(t *testing.T) {
+	o := build(t, Default)
+	shown := map[string]bool{}
+	for p, html := range pages(o) {
+		pictures := rePicture.FindAllStringSubmatch(html, -1)
+		if n := strings.Count(html, `class="shot-img`); n != len(pictures) {
+			t.Errorf("%s has %d screenshots, %d of them in a <picture> with an AVIF source and sizes", p, n, len(pictures))
+		}
+		preloads := map[string]string{}
+		for _, m := range rePreload.FindAllStringSubmatch(html, -1) {
+			preloads[m[1]] = m[2]
+		}
+		eager := 0
+		for _, m := range pictures {
+			avif, avifSizes, src, webp, sizes, loading := m[1], m[2], m[3], m[4], m[5], m[6]
+			avifFiles, avifWidths := srcsetFiles(avif)
+			webpFiles, webpWidths := srcsetFiles(webp)
+			switch {
+			case avifSizes != sizes:
+				t.Errorf("%s: a screenshot's AVIF and WebP have different sizes: %q and %q", p, avifSizes, sizes)
+			case len(avifWidths) == 0 || !slices.Equal(avifWidths, webpWidths):
+				t.Errorf("%s: a screenshot's AVIF and WebP widths differ: %q and %q", p, avif, webp)
+			case !slices.Contains(webpFiles, src):
+				t.Errorf("%s: a screenshot's src %s isn't one of its files", p, src)
 			}
+			for _, f := range append(avifFiles, webpFiles...) {
+				shown[f] = true
+			}
+			if loading == ` fetchpriority="high"` {
+				eager++
+				if got, ok := preloads[avif]; !ok || got != sizes {
+					t.Errorf("%s shows %s first but its head doesn't ask for it with the same sizes (%q)", p, avifFiles[0], got)
+				}
+			}
+		}
+		if eager != len(preloads) {
+			t.Errorf("%s shows %d screenshots first but asks for %d early", p, eager, len(preloads))
+		}
+	}
+	entries, err := os.ReadDir("../../site/static/shots")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Site{}
+	if s.assets, err = loadAssets(os.DirFS("../.."), map[string]string{"": "site/static"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		a := s.assets["shots/"+e.Name()]
+		if a == nil || !shown[a.URL] {
+			t.Errorf("site/static/shots/%s isn't shown on any page", e.Name())
+			continue
+		}
+		// Enough for a 2x screenshot of a whole screen at AVIF's or WebP's high quality.
+		if len(a.data) > 200_000 {
+			t.Errorf("site/static/shots/%s is %d kB; screenshots stay under 200 kB", e.Name(), len(a.data)/1000)
 		}
 	}
 }

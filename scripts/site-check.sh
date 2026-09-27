@@ -64,14 +64,18 @@ check_files() {
       *.css) want_type=text/css ;;
       *.svg) want_type=image/svg+xml ;;
       *.webp) want_type=image/webp ;;
+      *.avif) want_type=image/avif ;;
       *.png) want_type=image/png ;;
       *.mp4) want_type=video/mp4 ;;
       *.xml) want_type=xml ;;
       *) continue ;;
     esac
     [[ $type == *"$want_type"* ]] || fail "$f is served as '$type'; with nosniff, browsers only use it as $want_type"
-  done < <(grep -oE '(src|href|srcset|imagesrcset)="/[^"#?]*' "$file" | sed -E 's/^[a-z]+="//' | grep -vE '^/($|install$|community$|t$)' |
-    grep -E '\.[a-z0-9]+$' | sort -u)
+  done < <({
+    grep -oE '(src|href)="/[^"#?]*' "$file" | sed -E 's/^[a-z]+="//'
+    # Each file of a srcset: "file 364w, file 546w".
+    grep -oE '(srcset|imagesrcset)="[^"]*' "$file" | sed -E 's/^[a-z]+="//' | tr ',' '\n' | awk '{ print $1 }'
+  } | grep -vE '^/($|install$|community$|t$)' | grep -E '^/.*\.[a-z0-9]+$' | sort -u)
 }
 
 docker build -f "$root/site/Dockerfile" -t "$image" "$root"

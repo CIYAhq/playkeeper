@@ -250,6 +250,8 @@ type View struct {
 	HasQuestions bool
 	Year         int
 	Crumbs       []Crumb
+	// Preloads are the screenshots the page shows first, for its head.
+	Preloads []Preload
 }
 
 func (s *Site) render(p *Page) ([]byte, error) {
@@ -263,6 +265,12 @@ func (s *Site) render(p *Page) ([]byte, error) {
 		}
 	}
 	v := &View{Site: s, Page: p, Settings: s.opts.Settings, Canonical: p.URL(s.opts.Settings.BaseURL), Year: s.opts.Now.Year()}
+	// The page's parts are rendered before the page around them, so its
+	// head knows which screenshots they show first.
+	t.Funcs(template.FuncMap{"preload": func(sh *Shot, media string) string {
+		v.Preloads = append(v.Preloads, Preload{Avif: sh.Avif, Sizes: sh.Sizes, Media: media})
+		return ""
+	}})
 	og := firstOf(p.OG, "default")
 	img, ok := s.assets["og/"+og+".png"]
 	if !ok {
@@ -483,20 +491,12 @@ func (s *Site) funcs() template.FuncMap {
 		"imageSrcset": func(v any) template.HTMLAttr {
 			return template.HTMLAttr(`imagesrcset="` + template.HTMLEscapeString(fmt.Sprint(v)) + `"`)
 		},
-		// shot is a screenshot: shots/<name>.webp, and @2x beside it for
-		// sharp screens when there is one.
-		"shot": func(name string) (map[string]any, error) {
-			a, ok := s.assets["shots/"+name+".webp"]
-			if !ok {
-				return nil, fmt.Errorf("no screenshot shots/%s.webp", name)
-			}
-			m := map[string]any{"Src": a.URL, "Width": a.Width, "Height": a.Height}
-			if x2, ok := s.assets["shots/"+name+"@2x.webp"]; ok {
-				m["Srcset"] = a.URL + " 1x, " + x2.URL + " 2x"
-			}
-			return m, nil
-		},
-		"page": func(path string) *Page { return s.byPath[path] },
+		// shot is a screenshot's files, for a page that shows it at sizes.
+		"shot": s.shot,
+		// preload notes a screenshot the page shows first, for its head; each
+		// page's own is set as it's rendered (render).
+		"preload": func(*Shot, string) string { return "" },
+		"page":    func(path string) *Page { return s.byPath[path] },
 		// first is the first of the pages that exists: a link to a page
 		// that's planned can name what stands in for it until then.
 		"first": func(paths ...string) (*Page, error) {
