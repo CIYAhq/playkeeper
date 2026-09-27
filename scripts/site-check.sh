@@ -72,7 +72,7 @@ check_files() {
     esac
     [[ $type == *"$want_type"* ]] || fail "$f is served as '$type'; with nosniff, browsers only use it as $want_type"
   done < <({
-    grep -oE '(src|href)="/[^"#?]*' "$file" | sed -E 's/^[a-z]+="//'
+    grep -oE '(src|href|poster)="/[^"#?]*' "$file" | sed -E 's/^[a-z]+="//'
     # Each file of a srcset: "file 364w, file 546w".
     grep -oE '(srcset|imagesrcset)="[^"]*' "$file" | sed -E 's/^[a-z]+="//' | tr ',' '\n' | awk '{ print $1 }'
   } | grep -vE '^/($|install$|community$|t$)' | grep -E '^/.*\.[a-z0-9]+$' | sort -u)
