@@ -1,0 +1,39 @@
+{
+  "id": "PFb7ZqK6",
+  "slug": "squaremap",
+  "title": "squaremap",
+  "project_type": "mod",
+  "license": {
+    "id": "MIT",
+    "name": "MIT License",
+    "url": "https://github.com/jpenilla/squaremap/blob/master/README.md"
+  },
+  "loaders": [
+    "fabric",
+    "folia",
+    "forge",
+    "neoforge",
+    "paper",
+    "sponge"
+  ],
+  "game_versions": [
+    "1.19.3",
+    "1.19.4",
+    "1.20.1",
+    "1.20.2",
+    "1.20.4",
+    "1.20.6",
+    "1.21",
+    "1.21.1",
+    "1.21.3",
+    "1.21.4",
+    "1.21.5",
+    "1.21.7",
+    "1.21.8",
+    "1.21.10",
+    "1.21.11",
+    "26.1.2",
+    "26.2",
+    "26.3"
+  ]
+}

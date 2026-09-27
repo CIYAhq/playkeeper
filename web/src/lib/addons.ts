@@ -33,8 +33,9 @@ export const keyFrom = (a: AddonKey): AddonKey => ({ source: a.source, projectId
  * managed: installed by Playkeeper and unchanged. changed: installed by
  * Playkeeper, then edited. missing: installed by Playkeeper, file gone.
  * identified: added by hand, and Modrinth knows it. unknown: added by hand.
+ * map: installed by the Map, which alone removes it.
  */
-export type RowState = 'managed' | 'changed' | 'missing' | 'identified' | 'unknown'
+export type RowState = 'managed' | 'changed' | 'missing' | 'identified' | 'unknown' | 'map'
 
 export interface AddonRow {
   id: string
@@ -64,7 +65,9 @@ export function mergeRows(addons: Addons, checks?: AddonChecks): AddonRow[] {
   for (const f of addons.files) {
     if (f.status === 'pack') continue
     const known = f.status === 'unknown' ? identified.get(f.fileName) : f.addon
-    if ((f.status === 'managed' || f.status === 'modified') && f.addon) {
+    if (f.addon?.usedBy === 'map') {
+      rows.push({ id: keyOf(f.addon), state: 'map', name: f.addon.name, version: f.addon.versionNumber, addon: f.addon, fileName: f.fileName, pending: false })
+    } else if ((f.status === 'managed' || f.status === 'modified') && f.addon) {
       rows.push({ id: keyOf(f.addon), state: f.status === 'managed' ? 'managed' : 'changed', name: f.addon.name, version: f.addon.versionNumber, addon: f.addon, fileName: f.fileName, pending: !!f.pending, update: updates.get(keyOf(f.addon)) })
     } else if (known) {
       rows.push({ id: `file:${f.fileName}`, state: 'identified', name: known.name, version: known.versionNumber, addon: known, fileName: f.fileName, pending: false })
@@ -119,9 +122,11 @@ export type Footer =
       external: boolean
     }
   | { kind: 'installed'; update?: AddonVersion; changed: boolean; missing: boolean }
+  | { kind: 'map' }
   | { kind: 'blocked'; notice?: AddonNotice }
 
 export function footerFor(d: AddonDetails): Footer {
+  if (d.installed?.usedBy === 'map') return { kind: 'map' }
   if (d.installed) return { kind: 'installed', update: d.updateAvailable ? d.latest : undefined, changed: !!d.changed, missing: !!d.missing }
   if (d.latest?.externalUrl) return { kind: 'external', url: d.latest.externalUrl }
   const p = d.plan

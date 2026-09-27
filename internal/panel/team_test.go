@@ -223,6 +223,8 @@ func TestMachineWideActionsNeedEveryServer(t *testing.T) {
 		{"POST", "/api/machines/" + mid + "/update/check"},
 		{"POST", "/api/machines/" + mid + "/update/apply"},
 		{"POST", "/api/machines/" + mid + "/restore/upload"},
+		{"POST", "/api/machines/" + mid + "/world-imports"},
+		{"POST", "/api/machines/" + mid + "/world-imports/w234567890/create"},
 		{"GET", "/api/audit"},
 		{"GET", "/api/discord"},
 		{"POST", "/api/discord/connect"},

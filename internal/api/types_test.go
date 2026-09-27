@@ -18,6 +18,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/names"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 	"github.com/CIYAhq/playkeeper/internal/twofactor"
+	"github.com/CIYAhq/playkeeper/internal/worldimport"
 )
 
 const webSrc = "../../web/src"
@@ -79,8 +80,20 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"PackShare": PackShare{}, "ModpackDetail": ModpackDetail{},
 		"ApiErrorBody": Error{}, "DiscordDelivery": DiscordDelivery{}, "DiscordSettings": DiscordSettings{}, "Phrase": Phrase{},
 		"PlayerDay": PlayerDay{}, "PlayerProfile": PlayerProfile{},
+		"MapInfo": MapInfo{}, "MapProgress": MapProgress{}, "PublicMap": PublicMap{}, "WorldImport": WorldImport{}, "WorldImportFile": WorldImportFile{},
+		"WorldImportPreview": WorldImportPreview{}, "WorldImportVersion": WorldImportVersion{}, "ImportMessage": worldimport.Message{},
+		"ImportLevel": worldimport.Level{}, "ImportWorld": worldimport.World{}, "ImportPreview": worldimport.Preview{},
 	}
 	addedByPanel := map[string]bool{"ServerStatus.machineId": true, "AuditEntry.source": true}
+	CheckDashboardFields(t, string(src), sent, addedByPanel)
+}
+
+// CheckDashboardFields checks that each field of the interfaces of
+// web/src/api/types.ts named in sent is a JSON field of the Go value sent
+// has for it, or listed in addedByPanel as "Interface.field". It is also
+// used by the external test for types whose packages import this one.
+func CheckDashboardFields(t *testing.T, src string, sent map[string]any, addedByPanel map[string]bool) {
+	t.Helper()
 	field := regexp.MustCompile(`(?m)^  (\w+)\??:`)
 	// An interface may be declared more than once: TypeScript merges the
 	// declarations, and each one's fields are checked.

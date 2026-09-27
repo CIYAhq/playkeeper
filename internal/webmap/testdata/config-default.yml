@@ -1,0 +1,48 @@
+# Written by Playkeeper before every start; changes made here are replaced.
+# squaremap's web server only answers inside the server's container, and
+# Playkeeper shows the map in its own pages.
+config-version: 2
+settings:
+  update-checker: false
+  web-address: ''
+  web-directory:
+    path: web
+    auto-update: true
+  internal-webserver:
+    enabled: true
+    bind: 0.0.0.0
+    port: 25580
+    flush-json-immediately: false
+  commands:
+    main-command-label: squaremap
+  render-progress-logging:
+    enabled: true
+    interval-seconds: 60
+world-settings:
+  default:
+    map:
+      enabled: true
+      max-render-threads: 1
+      zoom:
+        maximum: 3
+        default: 3
+        extra: 2
+      background-render:
+        enabled: true
+        max-chunks-per-interval: 256
+        interval-seconds: 30
+        max-render-threads: 1
+    player-tracker:
+      enabled: true
+      update-interval-seconds: 1
+      nameplate:
+        enabled: true
+        show-head: false
+        heads-url: ''
+        show-armor: false
+        show-health: false
+      hide:
+        invisible: true
+        spectators: true
+        map-invisibility-equipment: true
+      use-display-names: false

@@ -20,6 +20,7 @@ import { t } from '@/i18n'
 import { formatBytes, formatDate, formatDay, formatMs, relativeTime } from '@/lib/format'
 import { busyReason, failedJob, whyNot } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
+import { linkPath } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { phoneRow, PhoneWorldLinks, WorldLinks, WorldTools } from './world-links'
@@ -282,9 +283,6 @@ function MakeBackup({ server: s, backups, phone, onDone }: { server: ServerStatu
 }
 
 function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Backup[] | undefined }) {
-  const later = [
-    { icon: <UploadIcon />, title: t('world.ownWorld'), hint: t('world.ownWorldHint') },
-  ]
   return (
     <Card>
       <CardTitle>{t('world.info')}</CardTitle>
@@ -305,16 +303,19 @@ function WorldInfo({ server: s, backups }: { server: ServerStatus; backups: Back
       </dl>
       <ul className="mt-3 flex flex-col">
         <WorldLinks server={s} />
-        {later.map((l) => (
-          <li key={l.title} className="flex items-center gap-3 py-1 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground">
-            {l.icon}
+        <li>
+          <a
+            {...linkPath('/servers/new#world')}
+            className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-1 outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring active:bg-accent [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+          >
+            <UploadIcon />
             <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-semibold">{l.title}</span>
-              <span className="block text-xs text-muted-foreground">{l.hint}</span>
+              <span className="block text-[13px] font-semibold">{t('world.ownWorld')}</span>
+              <span className="block text-xs text-muted-foreground">{t('world.ownWorldHint')}</span>
             </span>
-            <span className="text-xs text-muted-foreground">{t('common.later')}</span>
-          </li>
-        ))}
+            <ChevronRightIcon className="transition-transform duration-(--motion-fast) ease-standard group-hover:translate-x-0.5" aria-hidden="true" />
+          </a>
+        </li>
       </ul>
     </Card>
   )

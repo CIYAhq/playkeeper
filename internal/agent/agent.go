@@ -34,6 +34,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/templates"
+	"github.com/CIYAhq/playkeeper/internal/webmap"
 )
 
 const (
@@ -165,6 +166,10 @@ type Options struct {
 	// public host but only over HTTPS to public addresses (default
 	// templates.PackClient); tests swap it.
 	PackClient *http.Client
+
+	// Wave 6: the live map.
+	// MapAddr maps the container address to squaremap's address (tests).
+	MapAddr func(containerIP string) string
 }
 
 // Retention bounds stored analytics and audit data.
@@ -258,6 +263,11 @@ type Agent struct {
 
 	// Wave 4: each server's friends' share, built on the first ask.
 	shares friendsShares
+
+	// Wave 6: the live map, and servers started from a world.
+	maps      mapState
+	mapClient *http.Client
+	imports   importRegistry
 }
 
 func New(opts Options) (*Agent, error) {
@@ -357,6 +367,9 @@ func New(opts Options) (*Agent, error) {
 	if opts.PackClient == nil {
 		opts.PackClient = templates.PackClient()
 	}
+	if opts.MapAddr == nil {
+		opts.MapAddr = func(ip string) string { return net.JoinHostPort(ip, strconv.Itoa(webmap.Port)) }
+	}
 	cfg := opts.Config
 	for _, d := range []string{cfg.AgentDir(), cfg.BackupsDir(), cfg.StagingDir()} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
@@ -406,6 +419,8 @@ func New(opts Options) (*Agent, error) {
 		packPreviewSlots: make(chan struct{}, 2),
 		templatePlans:    newTTLCache[*templates.Template](time.Hour, 32),
 		curatedPicks:     newTTLCache[[]curatedPick](curatedTTL, 32),
+
+		mapClient: webmap.NewClient(),
 	}
 	a.loadPacks()
 	a.ctx, a.cancel = context.WithCancel(context.Background())
@@ -799,6 +814,27 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/addon-sources", a.hAddonSources},
 		{"POST", "/v1/addon-sources/curseforge", a.hCurseForgeKeySet},
 		{"DELETE", "/v1/addon-sources/curseforge", a.hCurseForgeKeyRemove},
+
+		// Wave 6: the live map and the shared map.
+		{"GET", "/v1/servers/{id}/map", srv((*server).hMap)},
+		{"GET", "/v1/servers/{id}/map/{rest...}", srv((*server).hMapProxy)},
+		{"POST", "/v1/servers/{id}/map/enable", srv((*server).hMapEnable)},
+		{"POST", "/v1/servers/{id}/map/disable", srv((*server).hMapDisable)},
+		{"POST", "/v1/servers/{id}/map/share", srv((*server).hMapShare)},
+		{"POST", "/v1/servers/{id}/map/restart-later", srv((*server).hMapRestartLater)},
+		{"GET", "/v1/public-maps/{token}", a.hPublicMap},
+		{"GET", "/v1/public-maps/{token}/{rest...}", a.hPublicMapProxy},
+		// Wave 6: worlds people upload, for a new server or to replace one's world.
+		{"POST", "/v1/servers/{id}/world-imports", srv((*server).hWorldImportNew)},
+		{"POST", "/v1/world-imports", a.hWorldImportNewServer},
+		{"GET", "/v1/world-imports/{imp}", a.hWorldImport},
+		{"DELETE", "/v1/world-imports/{imp}", a.hWorldImportDelete},
+		{"POST", "/v1/world-imports/{imp}/files", a.hWorldImportFile},
+		{"PUT", "/v1/world-imports/{imp}/files/{n}", a.hWorldImportUpload},
+		{"POST", "/v1/world-imports/{imp}/inspect", a.hWorldImportInspect},
+		{"POST", "/v1/world-imports/{imp}/preview", a.hWorldImportPreview},
+		{"POST", "/v1/world-imports/{imp}/apply", a.hWorldImportApply},
+		{"POST", "/v1/world-imports/{imp}/create", a.hWorldImportCreate},
 	}
 }
 

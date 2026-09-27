@@ -4,6 +4,7 @@ import (
 	"maps"
 	"net/http"
 	"net/netip"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,6 +35,9 @@ func (s *Server) publicRoutes() []publicRoute {
 		// Wave 5: the page an invite link opens and the calls it makes.
 		{prefix: invites.JoinPath + "/", limits: joinPageLimits, ownRefusals: true, handler: join},
 		{prefix: joinCallPrefix, limits: joinCallLimits, ownRefusals: true, handler: join},
+		// Wave 6: the shared map's page and the calls it makes.
+		{prefix: mapPagePrefix, limits: mapPageLimits, handler: s.mapPage()},
+		{prefix: mapDataPrefix, limits: mapDataLimits, handler: s.mapData()},
 	}
 }
 
@@ -114,10 +118,13 @@ func (g *publicGroup) handler(prefix string) http.Handler {
 }
 
 // logPath is p, or only its route's prefix when p is a public route's:
-// public paths may hold codes that work without a sign-in.
+// public paths may hold codes that work without a sign-in. p is cleaned
+// first, since a path like /api/public//map/<code> reaches the route after
+// a redirect.
 func (g *publicGroup) logPath(p string) string {
+	c := path.Clean("/" + p)
 	for _, rt := range g.routes {
-		if strings.HasPrefix(p, rt.prefix) {
+		if strings.HasPrefix(c, rt.prefix) {
 			return rt.prefix + "…"
 		}
 	}

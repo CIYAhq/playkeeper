@@ -369,6 +369,41 @@ describe('Plugins tab', () => {
     expect(text).not.toContain('Was 5.4.150')
   })
 
+  it('shows what the Map installed as the Map’s, linked to it, with nothing to manage', async () => {
+    const squaremap = addon('squaremap', { projectId: 'PFb7ZqK6', versionNumber: '1.3.13.2', usedBy: 'map' })
+    answer([
+      ['/addons/checks', { updates: [], identified: [], checkedAt: '2026-09-25T00:00:00Z' }],
+      ['/addons', { ...installed, files: [{ fileName: squaremap.fileName, size: 1, status: 'managed', addon: squaremap, pending: true }], missing: [], restartNeeded: false }],
+    ])
+    const text = await render(server())
+    expect(text).toContain('squaremap1.3.13.2')
+    expect(text).toContain('Used by the Map')
+    expect(text).toContain('Modrinth')
+    for (const hidden of ['By hand', 'Added by hand', 'Let Playkeeper manage it', 'Restart Survival', 'Remove']) expect(text).not.toContain(hidden)
+    expect(document.querySelector('[aria-label="More actions for squaremap"]')).toBeNull()
+    expect([...document.querySelectorAll('button')].some((b) => b.textContent?.includes('squaremap'))).toBe(false)
+    expect(button('Used by the Map').getAttribute('href')).toBe('/servers/survival/map')
+  })
+
+  it('points to the Map from what it installed, without Remove or Update', async () => {
+    const squaremap = addon('squaremap', { projectId: 'PFb7ZqK6', versionNumber: '1.3.13.2', usedBy: 'map' })
+    const details: AddonDetails = { card: card('squaremap', { projectId: 'PFb7ZqK6', installed: true }), latest: version('1.3.14'), installed: squaremap }
+    answer([
+      ['/addons/checks', checks],
+      ['/addons/search', { cards: [details.card], more: false, unanswered: [] }],
+      ['/addons/project/', details],
+      ['/addons', installed],
+    ])
+    await render(server(), 'plugins', 'browse')
+    const text = await click('squaremap')
+    expect(text).toContain('Used by the Map')
+    expect(text).toContain('Turning off the map removes it.')
+    expect(text).not.toContain('Update to 1.3.14')
+    expect([...document.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Remove')).toBe(false)
+    await click('Open the Map')
+    expect(window.location.pathname).toBe('/servers/survival/map')
+  })
+
   it('says nothing is installed yet', async () => {
     answer([['/addons', { ...installed, files: [], missing: [], restartNeeded: false }]])
     const text = await render(server())

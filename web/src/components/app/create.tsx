@@ -454,7 +454,7 @@ export function heapMB(budgetMB: number): number {
   return budgetMB - Math.max(512, Math.floor(budgetMB / 4))
 }
 
-export function MemoryReadout({ memoryMB, recommended, style }: { memoryMB: number; recommended: boolean; style: PlayStyle }) {
+export function MemoryReadout({ memoryMB, recommended, style }: { memoryMB: number; recommended: boolean; style?: PlayStyle }) {
   const heap = heapMB(memoryMB)
   return (
     <div>
@@ -464,7 +464,7 @@ export function MemoryReadout({ memoryMB, recommended, style }: { memoryMB: numb
       </div>
       <p className="mt-1 text-[13px] font-medium">{t('new.roomFor', { players: playersFor(memoryMB) })}</p>
       <p className="mt-0.5 text-xs text-muted-foreground">{t('new.javaGets', { heap: formatMB(heap) })}</p>
-      <span className="sr-only">{t(preset(style)?.title ?? 'style.friends.title')}</span>
+      {style && <span className="sr-only">{t(preset(style)?.title ?? 'style.friends.title')}</span>}
     </div>
   )
 }

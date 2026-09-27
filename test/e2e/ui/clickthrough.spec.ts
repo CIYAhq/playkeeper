@@ -26,6 +26,11 @@ import { answerModpackRead, isModpackRead, type PackWorld } from './modpack-fixt
 // busy, no players or backups, no servers at all (Home's empty page and
 // /welcome), a Playkeeper update to install, and first-run setup.
 //
+// The sign-in page, first-run setup, a friends' pack link that opens nothing
+// and the shared map pages (a shared map, and a link no map has) are opened
+// signed out. A world file picker gets a small archive, so the world upload's
+// later steps are pressed too.
+//
 // Writes go to realistic fakes (fakes.ts), so nothing is restarted, deleted or
 // downloaded. A server's add-on reads (its folder, the library and its picks,
 // details, plans and icons) and the create flow's modpack reads (the library,
@@ -56,18 +61,28 @@ const sizes = {
 // The add-on tab each server type has (web/src/lib/addons.ts); Vanilla has none.
 const addonTabs: Record<string, string> = { paper: '/plugins', purpur: '/plugins', fabric: '/mods', quilt: '/mods', neoforge: '/mods' }
 
-async function routes(page: Page, phone: boolean): Promise<string[]> {
+// A well-formed share link that no map has, for the "isn't available" page.
+const unknownMapLink = '/map/Zz9xWv8uTs7rQp6oNm5lKj'
+// A friends' pack link that opens nothing: the page every unavailable link gets.
+const unknownPackLink = '/packs/Pk0Unknown0Link0Abcdef'
+
+/** The pages to open signed in, and the shared maps anyone can open without signing in. */
+async function routes(page: Page, phone: boolean): Promise<{ live: string[]; shared: string[] }> {
   const servers = (await (await page.request.get('/api/servers')).json()) as { id: string; slug: string; type?: string }[]
   const machines = (await (await page.request.get('/api/machines')).json()) as { id: string }[]
   const out = ['/']
+  const shared: string[] = []
   for (const s of servers) {
+    const res = await page.request.get(`/api/servers/${s.id}/map`)
+    const map = (res.ok() ? await res.json() : {}) as { supported?: boolean; public?: boolean; path?: string }
+    if (map.public && map.path) shared.push(map.path)
     const addons = addonTabs[s.type ?? '']
-    for (const tab of ['', '/console', '/players', '/world', ...(addons ? [addons] : []), '/settings']) out.push(`/servers/${s.slug}${tab}`)
+    for (const tab of ['', '/console', '/players', '/world', ...(map.supported ? ['/map'] : []), ...(addons ? [addons] : []), '/settings']) out.push(`/servers/${s.slug}${tab}`)
     const listed: unknown = await (await page.request.get(`/api/servers/${s.id}/whitelist`)).json().catch(() => [])
     const player = Array.isArray(listed) ? (listed[0] as { name?: string } | undefined)?.name : undefined
     if (player) out.push(`/servers/${s.slug}/players/${encodeURIComponent(player)}`)
   }
-  out.push('/servers/new')
+  out.push('/servers/new', '/servers/new#world')
   // The add-on library with Playkeeper's picks, for the first server that
   // has one (each library takes minutes), and a template someone shared.
   const library = servers.find((s) => addonTabs[s.type ?? ''])
@@ -81,7 +96,7 @@ async function routes(page: Page, phone: boolean): Promise<string[]> {
   for (const m of machines) out.push(`/machines/${m.id}`, `/machines/${m.id}/settings`)
   out.push('/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/account', '/account/two-factor')
   if (phone) out.push('/more')
-  return out
+  return { live: out, shared }
 }
 
 function summary(report: CrawlReport): string {
@@ -311,9 +326,10 @@ for (const [name, size] of Object.entries(sizes)) {
       await outCrawler.crawl(c.route, c.view)
       pages.push(pageOf(c))
     }
-    // A friends' pack link that opens nothing: the page every unavailable link gets. It has
-    // no controls, so it isn't one of the pages with a minimum.
-    await outCrawler.crawl('/packs/Pk0Unknown0Link0Abcdef')
+    // A friends' pack link and a map link that open nothing: the page every unavailable
+    // link gets. They have no controls, so they aren't pages with a minimum.
+    await outCrawler.crawl(unknownPackLink)
+    await outCrawler.crawl(unknownMapLink)
     negatives.push(...(await negativeControls(outCrawler, name as Size, false)))
     report.results.push(...outCrawler.results)
     report.notes.push(...outCrawler.notes)
@@ -326,7 +342,7 @@ for (const [name, size] of Object.entries(sizes)) {
     await login(page)
     const crawler = new Crawler(page, name, base, log)
     await crawler.init()
-    const live = await routes(page, name === 'phone')
+    const { live, shared } = await routes(page, name === 'phone')
     for (const c of [...live.map((route): Crawl => ({ route, view: 'live' })), ...fakedCrawls(live, name === 'phone')]) {
       await crawler.crawl(c.route, c.view)
       pages.push(pageOf(c))
@@ -338,6 +354,18 @@ for (const [name, size] of Object.entries(sizes)) {
     fixtureReads.push(fixtureReadCheck(crawler, `[${name}] signed in`))
     report.notes.push(...fixtureReads.map((a) => a.note))
     await context.close()
+
+    // Shared maps open signed out; the signed-in pages said which there are.
+    if (shared.length > 0) {
+      const mapContext = await browser.newContext(options)
+      const mapCrawler = new Crawler(await mapContext.newPage(), name, base, log)
+      await mapCrawler.init()
+      for (const route of shared) await mapCrawler.crawl(route)
+      report.results.push(...mapCrawler.results)
+      report.notes.push(...mapCrawler.notes)
+      report.unreached.push(...mapCrawler.unreached)
+      await mapContext.close()
+    }
 
     fs.mkdirSync(outDir, { recursive: true })
     fs.writeFileSync(path.join(outDir, `clickthrough-${name}.json`), JSON.stringify({ ...report, negatives }, null, 2))
