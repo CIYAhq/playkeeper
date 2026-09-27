@@ -788,6 +788,28 @@ const routes: [string, RegExp, Handler][] = [
     },
   ],
   ['POST', /^\/api\/servers\/(\w+)\/map\/restart-later$/, (r, state) => ({ status: 200, body: { ...state.maps.get(r.params[0] ?? ''), restartWhenEmpty: true } })],
+  // The map's area: choosing one starts, replaces or stops filling it in, as the agent decides from the area the panel last showed.
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/map\/area$/,
+    (r, state) => {
+      const b = (r.body ?? {}) as { area?: unknown; pauseForPlayers?: unknown }
+      if (typeof b.area !== 'string' || typeof b.pauseForPlayers !== 'boolean') return invalid('Invalid request body.')
+      const read = lastRead(state, r.params[0], 'map/area')
+      const fill = (read.fill ?? {}) as Record<string, unknown>
+      if (b.area === 'explored') {
+        if (fill.state === 'finished') return refuse(409, 'area_on_map', 'The land generated so far stays on the map.', 'Choose a bigger area to see more of the world.')
+        return { status: 200, body: { ...read, area: 'explored', radius: undefined, fill: { ...fill, state: 'idle', preset: undefined, radius: undefined } } }
+      }
+      const opt = ((read.options ?? []) as Record<string, unknown>[]).find((o) => o.id === b.area)
+      if (!opt) return b.area === 'border' ? refuse(409, 'no_border', 'This world has no border to fill up to.', 'Choose a size around spawn.') : invalid('Choose Explored only, a size or the world border.')
+      if (opt.pastBorder) return refuse(409, 'past_border', 'That area reaches past the world border.', 'Fill up to the border instead.')
+      if (opt.done) return refuse(409, 'area_on_map', 'The map has that area already.', 'Choose a bigger one to see more of the world.')
+      if (!opt.fits) return refuse(409, 'not_enough_disk', 'This area could take more disk than is free.', 'Pick a smaller area, or free up disk space.')
+      if (pregenUnfinished(fill) && read.area === b.area) return refuse(409, 'already_running', 'The map is already being filled in to that area.', 'It pauses while people play and carries on by itself.')
+      return op(state, 'pregen-start', r.params[0])
+    },
+  ],
   [
     'POST',
     /^\/api\/machines\/(\w+)\/world-imports$/,
@@ -1516,6 +1538,12 @@ function mapRead(view: 'map on' | 'map restart', body: Json): Json {
   return { ...on, state: 'ready', message: 'The map is up to date', progress: undefined, areas: 4800, bytes: 190_000_000, lastDrawn: ago(10 * 60), public: true, publicPlayers: true, path: '/map/Fk3dEf6hIj9lMn2pQr5tUv', link: undefined }
 }
 
+/** The map's area in the 'map on' view: 2,500 blocks being filled in, beside the sizes and estimates the panel worked out. */
+function mapAreaRead(body: Json): Json {
+  const fill = { ...(body.fill as Json), state: 'running', step: undefined, preset: 'medium', radius: 2500, chunks: 41_675, total: 99_225, percent: 42, rate: 11.6, etaSeconds: 4_980, pausedBy: undefined, pauseForPlayers: true, installed: true, startedAt: ago(3600), error: undefined }
+  return { ...body, area: 'medium', radius: 2500, fill }
+}
+
 /** The map's worlds, players and tiles in the 'map on' view, which the real panel refuses while its map is off, and on the shared map of the 'shared links' view. */
 function mapAnswer(path: string): Reply | undefined {
   const rest = /^\/api\/(?:servers\/\w+\/map|public\/map\/\w+)\/(.+)$/.exec(path)?.[1] ?? ''
@@ -1699,6 +1727,7 @@ function selfCareRead(path: string, body: Json): unknown {
 export function lay(view: View, path: string, body: unknown, host: string): unknown {
   if (view === 'live' || body === undefined) return undefined
   if ((view === 'map on' || view === 'map restart') && /^\/api\/servers\/\w+\/map$/.test(path)) return mapRead(view, body as Json)
+  if (view === 'map on' && /^\/api\/servers\/\w+\/map\/area$/.test(path)) return mapAreaRead(body as Json)
   if (view === 'friends and team') return friendsRead(path, body as Json)
   if (view === 'looks after itself') return selfCareRead(path, body as Json)
   if ((view === 'in use' || view === 'paused') && /^\/api\/servers\/\w+\/pregen$/.test(path)) return pregenIn(view, body as Json)
@@ -1941,7 +1970,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         calls.push({ method, path, status: res.status(), faked: true, at })
         const b = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (b?.[1]) state.backups.set(b[1], laid as Record<string, unknown>[])
-        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen|mods\/share)$/.test(path)) state.reads.set(path, laid as Record<string, unknown>)
+        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen|mods\/share|map\/area)$/.test(path)) state.reads.set(path, laid as Record<string, unknown>)
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = laid as Record<string, unknown>
         if (path === '/api/discord') state.discord = laid as Record<string, unknown>
         const laidMap = /^\/api\/servers\/(\w+)\/map$/.exec(path)
@@ -1967,7 +1996,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (path === '/api/me/prefs') Object.assign(state.prefs, await res.json().catch(() => ({})))
         const m = /^\/api\/servers\/(\w+)\/backups$/.exec(path)
         if (m?.[1]) state.backups.set(m[1], await res.json().catch(() => []))
-        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen|mods\/share)$|^\/api\/machines\/\w+\/addon-sources$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
+        if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen|mods\/share|map\/area)$|^\/api\/machines\/\w+\/addon-sources$/.test(path)) state.reads.set(path, await res.json().catch(() => ({})))
         const map = /^\/api\/servers\/(\w+)\/map$/.exec(path)
         if (map?.[1]) state.maps.set(map[1], await res.json().catch(() => ({})))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))

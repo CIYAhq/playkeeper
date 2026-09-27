@@ -209,7 +209,7 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/*/players (friends and team)': 5,
     '/settings/team (friends and team)': 10,
     '/settings/discord (friends and team)': 5,
-    '/servers/*/map (map on)': 6,
+    '/servers/*/map (map on)': 12,
     '/ (stopped)': 3,
     '/servers/* (stopped)': 1,
     '/servers/*/console (stopped)': 3,
@@ -253,7 +253,7 @@ const minimums: Record<Size, Record<string, number>> = {
     '/servers/*/players (friends and team)': 5,
     '/settings/team (friends and team)': 10,
     '/settings/discord (friends and team)': 5,
-    '/servers/*/map (map on)': 6,
+    '/servers/*/map (map on)': 12,
     '/ (stopped)': 1,
     '/servers/* (stopped)': 2,
     '/servers/*/console (stopped)': 3,
@@ -335,6 +335,13 @@ const places: Place[] = [
   { what: 'another world on the map', sizes: ['desktop', 'phone'], view: 'map on', pages: ['/servers/*/map (map on)'], key: /^button "Nether" in group "Worlds"$/ },
   { what: 'a player’s marker on the map', sizes: ['desktop', 'phone'], view: 'map on', pages: ['/servers/*/map (map on)'], key: /^button "Show Pixel_Pia on the map"$/ },
   { what: 'the restart that starts the map', sizes: ['desktop', 'phone'], view: 'map restart', pages: ['/servers/*/map (map restart)'], key: /^button "Restart now" in "One restart/ },
+  // The map's area, while 2,500 blocks are being filled in: its place in the map's options, a bigger area with its pause switch and Start, and Explored only's Stop.
+  { what: 'the map’s area in its options', sizes: ['desktop'], view: 'map on', pages: ['/servers/*/map (map on)'], key: /^menuitem "Map area…" in menu ""$/ },
+  { what: 'the map’s area in the phone’s Map settings', sizes: ['phone'], view: 'map on', pages: ['/servers/*/map (map on)'], key: /^button "Map area .+" in dialog "Map settings"$/ },
+  { what: 'a bigger map area', sizes: ['desktop', 'phone'], view: 'map on', pages: ['/servers/*/map (map on)'], key: /^radio "#,# blocks about .+" in dialog "Map area" > radiogroup "Map area"$/ },
+  { what: 'pausing a map area while people play', sizes: ['desktop', 'phone'], view: 'map on', pages: ['/servers/*/map (map on)'], key: /^switch "Pause while people (are playing|play)" in dialog "Map area"$/ },
+  { what: 'filling in a bigger map area', sizes: ['desktop', 'phone'], view: 'map on', pages: ['/servers/*/map (map on)'], key: /^button "Start" in dialog "Map area"$/ },
+  { what: 'stopping the map area being filled in', sizes: ['desktop', 'phone'], view: 'map on', pages: ['/servers/*/map (map on)'], key: /^button "Stop" in dialog "Map area"$/ },
 ]
 
 /** Views crawled signed out, with a crawler of their own. */
