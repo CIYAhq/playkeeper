@@ -116,7 +116,8 @@ docker exec "$name" test ! -e /var/log/playkeeper/installs-2000-01-01.log || fai
 docker exec "$name" sh -c 'cat /var/log/playkeeper/installs-*.log' | grep -qF '203.0.113.9 GET /install/cygnus 302' || fail "the install log lost today's lines when the container restarted"
 # A channel's link is the landing page with its tags, in any case and with a
 # trailing slash; any other code is the landing page.
-for c in cygnus:youtube:sponsor:creators-oct26:/go/cygnus hn:hackernews:community:launch-sep26:/go/HN/ x:x:social:launch-sep26:/go/x; do
+for c in cygnus:youtube:sponsor:creators-oct26:/go/cygnus hn:hackernews:community:launch-sep26:/go/HN/ x:x:social:launch-sep26:/go/x \
+  whop:whop:paid:pk01-launch:/go/whop; do
   IFS=: read -r channel source medium campaign p <<<"$c"
   read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base$p")
   tagged="$base/?utm_source=$source&utm_medium=$medium&utm_campaign=$campaign&utm_content=$channel"

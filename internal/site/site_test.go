@@ -456,7 +456,7 @@ func TestChannels(t *testing.T) {
 	if !strings.HasSuffix(string(o.Nginx), "location /go/ {\n    return 302 /;\n}\n") {
 		t.Error("nginx's include doesn't end with /go/ for any other code, after the channels")
 	}
-	listed := `data-channels="cygnus madhu kasai doopa lth nicx linuxbtw hn selfhosted ph x"`
+	listed := `data-channels="cygnus madhu kasai doopa lth nicx linuxbtw hn selfhosted ph x whop"`
 	for p, html := range pages(o) {
 		want := 0
 		if p == "/" {

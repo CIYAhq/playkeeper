@@ -19,7 +19,8 @@ type Channel struct {
 // installs.
 var channelCode = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
 
-// channels are the creators asked for a sponsored video and the launch posts.
+// channels are the creators asked for a sponsored video, the launch posts, and
+// the Whop page a Meta ad test sends people through.
 var channels = []Channel{
 	{"cygnus", "youtube", "sponsor", "creators-oct26"},
 	{"madhu", "youtube", "sponsor", "creators-oct26"},
@@ -32,6 +33,7 @@ var channels = []Channel{
 	{"selfhosted", "reddit", "community", "launch-sep26"},
 	{"ph", "producthunt", "community", "launch-sep26"},
 	{"x", "x", "social", "launch-sep26"},
+	{"whop", "whop", "paid", "pk01-launch"},
 }
 
 func checkChannels(cs []Channel) error {
