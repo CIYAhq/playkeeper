@@ -736,12 +736,26 @@ func TestRestoringOrCheckingACopyOutlastsTheOperationDeadline(t *testing.T) {
 		}
 		e.waitFor("the copy", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE file_name = ?`, file) == 1 })
 	}
+	// Once a copy is recorded, the copier holds the server's operation lock
+	// a moment to apply the backup rules, and a request in that moment is
+	// answered busy: it's asked again, as the dashboard would.
+	whenFree := func(t *testing.T, e *agentEnv, path string, body any) (int, map[string]any) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			code, out := e.call("POST", path, body)
+			if code != http.StatusConflict || out["code"] != api.CodeBusy || time.Now().After(deadline) {
+				return code, out
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
 
 	t.Run("restoring a copy", func(t *testing.T) {
 		e, _, file := withSlow(t)
 		copied(t, e, file)
 		shortDeadline(t)
-		code, out := e.call("POST", e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": offsite.CopyName(file)})
+		code, out := whenFree(t, e, e.sp("/offsite/restore"), map[string]any{"actor": "admin", "name": offsite.CopyName(file)})
 		if code != http.StatusAccepted {
 			t.Fatalf("restore: %d %v", code, out)
 		}
@@ -753,7 +767,7 @@ func TestRestoringOrCheckingACopyOutlastsTheOperationDeadline(t *testing.T) {
 		copied(t, e, file)
 		shortDeadline(t)
 		began := time.Now()
-		code, out := e.call("POST", e.sp("/offsite/copies/"+offsite.CopyName(file)+"/check"), map[string]any{"actor": "admin"})
+		code, out := whenFree(t, e, e.sp("/offsite/copies/"+offsite.CopyName(file)+"/check"), map[string]any{"actor": "admin"})
 		if code != http.StatusAccepted {
 			t.Fatalf("check: %d %v", code, out)
 		}
@@ -771,7 +785,7 @@ func TestRestoringOrCheckingACopyOutlastsTheOperationDeadline(t *testing.T) {
 		shortDeadline(t)
 		name := offsite.CopyName(file)
 		before, _ := e.srv().copyRecord(file)
-		code, out := e.call("POST", e.sp("/offsite/copies/"+name+"/check"), map[string]any{"actor": "admin"})
+		code, out := whenFree(t, e, e.sp("/offsite/copies/"+name+"/check"), map[string]any{"actor": "admin"})
 		if code != http.StatusAccepted {
 			t.Fatalf("check: %d %v", code, out)
 		}
@@ -813,7 +827,7 @@ func TestRestoringOrCheckingACopyOutlastsTheOperationDeadline(t *testing.T) {
 		}
 		dest.path = e.a.backupPath(b.FileName)
 		copied(t, e, b.FileName)
-		code, out := e.call("POST", e.sp("/offsite/copies/"+offsite.CopyName(b.FileName)+"/check"), map[string]any{"actor": "admin"})
+		code, out := whenFree(t, e, e.sp("/offsite/copies/"+offsite.CopyName(b.FileName)+"/check"), map[string]any{"actor": "admin"})
 		if code != http.StatusAccepted {
 			t.Fatalf("check: %d %v", code, out)
 		}
