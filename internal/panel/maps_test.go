@@ -16,6 +16,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/config"
+	"github.com/CIYAhq/playkeeper/internal/invites"
 )
 
 const indexPage = "<!doctype html><title>Playkeeper</title><div id=root></div>"
@@ -535,5 +536,43 @@ func TestOnlyThePublicGroupAnswersWithoutSignIn(t *testing.T) {
 		if !group[p] {
 			t.Errorf("%s is not in the public route group", p)
 		}
+	}
+}
+
+// Anyone who sees a server sees its map's area, but choosing one, which
+// pre-generates land on the server, takes an admin: a moderator's or a
+// viewer's choice never reaches the agent.
+func TestOnlyAdminsChooseTheMapArea(t *testing.T) {
+	e := newEnv(t)
+	cookie, csrf := e.setup(t)
+	area := "/api/servers/" + sampleServer + "/map/area"
+	e.reply("GET", "/v1/servers/"+sampleServer+"/map/area", `{"area":"explored","options":[],"fill":{"state":"idle"}}`)
+	e.replyStatus("POST", "/v1/servers/"+sampleServer+"/map/area", http.StatusAccepted, `{"id":"op1","kind":"pregen-start","status":"running"}`)
+	for _, role := range []string{invites.RoleModerator, invites.RoleViewer} {
+		m := addMember(t, e, role+"-friend", role, "*")
+		if r := e.do(t, "GET", area, "", m.auth()); r.status != http.StatusOK || r.body["area"] != "explored" {
+			t.Errorf("a %s looking at the map's area: %d %v", role, r.status, r.body)
+		}
+		if r := e.do(t, "POST", area, `{"area":"medium","pauseForPlayers":true}`, m.auth()); r.status != http.StatusForbidden {
+			t.Errorf("a %s choosing the map's area: %d %v", role, r.status, r.body)
+		}
+	}
+	e.agent.mu.Lock()
+	for _, hit := range e.agent.hits {
+		if strings.HasPrefix(hit, "POST ") {
+			t.Errorf("a member's choice reached the agent: %s", hit)
+		}
+	}
+	e.agent.mu.Unlock()
+
+	r := e.do(t, "POST", area, `{"area":"medium","pauseForPlayers":true}`, auth(cookie, csrf))
+	if r.status != http.StatusAccepted || r.body["kind"] != "pregen-start" {
+		t.Fatalf("the admin choosing the map's area: %d %v", r.status, r.body)
+	}
+	e.agent.mu.Lock()
+	defer e.agent.mu.Unlock()
+	body := e.agent.lastBody["POST /v1/servers/"+sampleServer+"/map/area"]
+	if got := jsonBody([]byte(body)); got["area"] != "medium" || got["pauseForPlayers"] != true || got["actor"] != "admin" {
+		t.Errorf("the agent was asked %s", body)
 	}
 }
