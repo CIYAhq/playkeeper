@@ -14,8 +14,9 @@ migrations     the dashboard's and agent's databases as db_state.py read them
                on the guest (--db) pass SQLite's integrity and foreign key
                checks. --phase before also records them and each server's
                address (slug) in OUT/migrations-before.json; --phase after
-               compares: each schema moved on, nothing in it is gone, and no
-               server's address changed.
+               compares: each schema moved on (or, for a release without
+               migrations, stayed exactly as it was), nothing in it is gone,
+               and no server's address changed.
 owner-after    after the update: the players from before are still listed, a
                player joins and stays through a backup, and a backup the
                previous release made is restored.
@@ -245,7 +246,10 @@ def migrations(a):
     before = update.load(a, "migrations-before.json")
     for name in ("panel", "agent"):
         old, new = before["databases"][name], dbs[name]
-        check(new["userVersion"] > old["userVersion"], f"{name}.db moved from schema {old['userVersion']} to {new['userVersion']}")
+        if new["userVersion"] == old["userVersion"]:
+            check(new["schema"] == old["schema"], f"{name}.db stayed at schema {old['userVersion']}, every table and index as it was")
+        else:
+            check(new["userVersion"] > old["userVersion"], f"{name}.db moved from schema {old['userVersion']} to {new['userVersion']}")
         tables = sorted(set(new["tables"]) - set(old["tables"]))
         columns = [f"{t}.{c}" for t, cols in new["tables"].items() if t in old["tables"] for c in cols if c not in old["tables"][t]]
         print(f"  {name}.db has {len(tables)} new tables ({', '.join(tables) or 'none'}) "

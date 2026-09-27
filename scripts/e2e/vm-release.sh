@@ -4,7 +4,7 @@
 #   fresh  install the release tarball, keyboard-only onboarding in the
 #          browser, two protocol bots, backups with a player online and a
 #          same-host restore (scenario.py host-a)
-#   owner  install the previous release (FROM, default v0.3.1) from its GitHub
+#   owner  install the previous release (FROM, default v0.4.0) from its GitHub
 #          release, give it a server with settings, a world marker, players
 #          and two backups, then update to this build from the dashboard,
 #          offered by a release server on the guest; everything must survive,
@@ -42,7 +42,7 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 # shellcheck source=scripts/e2e/vm-lab.sh
 . "$root/scripts/e2e/vm-lab.sh"
 export PATH="$root/.tools/go/bin:$root/.tools/node/bin:$PATH"
-FROM=${FROM:-v0.3.1}
+FROM=${FROM:-v0.4.0}
 version=${VERSION:-$(awk '$1 == "##" && $2 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ {print $2; exit}' "$root/CHANGELOG.md")}
 OUT=${OUT:-$root/test/e2e/out/release-$path-$(date -u +%Y%m%dT%H%M%SZ)}
 mkdir -p "$OUT"

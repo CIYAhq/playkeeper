@@ -16,7 +16,7 @@ on:
       from:
         description: The release the owner's path updates from
         required: false
-        default: v0.3.1
+        default: v0.4.0
 
 permissions:
   contents: read
@@ -66,7 +66,7 @@ jobs:
       - name: scripts/e2e/vm-release.sh ${{ matrix.path }}
         env:
           KEEP_ON_FAIL: "1"
-          FROM: ${{ inputs.from || 'v0.3.1' }}
+          FROM: ${{ inputs.from || 'v0.4.0' }}
         run: scripts/e2e/vm-release.sh "${{ matrix.path }}"
       - name: Logs from the guest still running after a failure
         if: failure()
