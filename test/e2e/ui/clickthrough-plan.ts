@@ -241,8 +241,25 @@ const crawlerFiles = [
   /^test\/e2e\/ui\/fixtures\//,
   /^test\/e2e\/(scenario|pkclient)\.py$/,
   /^test\/e2e\/bot\//,
+  /^scripts\/e2e\/played-state\.sh$/,
+  /^\.github\/actions\/played-install\//,
   /^\.github\/workflows\/clickthrough\.yml$/,
 ]
+
+/** What makes the state the pages are crawled in, which the played state saved on main was made by. */
+const setupFiles = [
+  /^test\/e2e\/ui\/onboarding\.spec\.ts$/,
+  /^test\/e2e\/(scenario|pkclient)\.py$/,
+  /^test\/e2e\/bot\//,
+  /^scripts\/e2e\/played-state\.sh$/,
+  /^\.github\/actions\/played-install\//,
+]
+
+/** Why a change has to be crawled after the onboarding and the bots instead of the played state saved on main, or undefined. */
+export function freshSetup(changed: string[]): string | undefined {
+  const file = changed.find((f) => setupFiles.some((re) => re.test(f)))
+  return file && `${file} changes how the state the pages are crawled in is made`
+}
 
 /** How the dashboard is built and served: a change to any of these can change every page. */
 const buildFiles = [/^web\/(index\.html|vite\.config\.ts|package\.json|package-lock\.json|tsconfig\.json|embed\.go)$/, /^web\/public\//]

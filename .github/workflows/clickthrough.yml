@@ -2,12 +2,13 @@ name: Click-through
 
 # Every control on the pages a run selects does something, at desktop and
 # phone sizes (test/e2e/ui/clickthrough.spec.ts), split between runners:
-# each installs the release on a fresh runner, sets it up as the other
-# end-to-end jobs do (keyboard onboarding, then the protocol bots' scenario)
-# and crawls its share; the gate then checks that together they crawled
-# every page and pressed every page's controls. CI calls it with the pages a
-# change touches, or every page (plan.ts); the Release check with every page,
-# on the release it built.
+# each installs the release on a fresh runner, gives it the state the pages
+# are crawled in (the played state saved on main, or the keyboard onboarding
+# and the protocol bots' scenario: .github/actions/played-install) and crawls
+# its share; the gate then checks that together they crawled every page and
+# pressed every page's controls. CI calls it with the pages a change touches,
+# or every page (plan.ts); the Release check with every page, on the release
+# it built, after the onboarding and the bots.
 
 on:
   workflow_call:
@@ -28,6 +29,10 @@ on:
         description: The runners, from plan.ts ({"include":[{"size","shard","of"}...]})
         type: string
         required: true
+      setup:
+        description: What the pages are crawled after, from plan.ts ("saved", the played state saved on main when one fits, or "fresh", the onboarding and the bots)
+        type: string
+        default: fresh
 
 permissions:
   contents: read
@@ -60,47 +65,17 @@ jobs:
           ../../../.tools/node/bin/npm ci --no-audit --no-fund
           sudo env "PATH=$PWD/../../../.tools/node/bin:$PATH" npx playwright install-deps chromium
           PATH="$PWD/../../../.tools/node/bin:$PATH" npx playwright install chromium
-      - name: Install from the release tarball (outside the checkout)
-        env:
-          ASSETS: /tmp/release/${{ inputs.assets }}
-        run: |
-          mkdir -p /tmp/evidence /tmp/install
-          (cd "$ASSETS" && sha256sum -c playkeeper-linux-amd64.tar.gz.sha256)
-          tar -xzf "$ASSETS/playkeeper-linux-amd64.tar.gz" -C /tmp/install
-          cd /tmp/install/playkeeper-*-linux-amd64
-          sudo ./install.sh --yes | tee /tmp/evidence/install.txt
-          sudo cat /var/lib/playkeeper/panel/tls/cert.pem > /tmp/evidence/cert.pem
-          grep -o 'setup code: [a-z0-9-]*' /tmp/evidence/install.txt | awk '{print $3}' > /tmp/evidence/code
-      - name: Enable the offline test harness (protocol bots have no Mojang accounts)
-        run: |
-          sudo mkdir -p /etc/systemd/system/playkeeper-agent.service.d
-          printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf
-          sudo systemctl daemon-reload
-          sudo systemctl restart playkeeper-agent
-      # The state the pages are crawled in. Each step has a time limit, so a hung
-      # onboarding or bot fails the runner in minutes instead of holding it.
-      - name: Keyboard onboarding (the admin, and a server to crawl)
-        timeout-minutes: 10
-        env:
-          PK_URL: https://127.0.0.1:8443
-          PK_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
-          PK_SHOTS: /tmp/evidence/screenshots
-          PK_OUT: /tmp/evidence/ui
-        run: |
-          PK_SETUP_CODE=$(cat /tmp/evidence/code)
-          export PK_SETUP_CODE
-          cd test/e2e/ui && npx playwright test onboarding.spec.ts --reporter=list
-      - name: The protocol bots' scenario (players, sessions, backups)
-        timeout-minutes: 10
-        env:
-          PK_ADMIN_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          python3 test/e2e/scenario.py host-a --existing --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem \
-            --code "$(cat /tmp/evidence/code)" --game-host "$(cat /tmp/evidence/ui/join-address.txt)" --out /tmp/evidence/a
+      # The state the pages are crawled in, with time limits on each step, so a
+      # hung onboarding or bot fails the runner in minutes instead of holding it.
+      - name: A played install of the build under test
+        uses: ./.github/actions/played-install
+        with:
+          assets: /tmp/release/${{ inputs.assets }}
+          setup: ${{ inputs.setup }}
+          password: ci-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Every control does something (this runner's pages, changes go to fakes)
         env:
           PK_URL: https://127.0.0.1:8443
-          PK_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
           PK_OUT: /tmp/evidence/ui
           PK_SHARD: ${{ matrix.shard }}/${{ matrix.of }}
           PK_SELECTION: ${{ inputs.selection }}

@@ -1,0 +1,101 @@
+name: A played install
+description: >-
+  Installs the build under test from its release tarball, then gives it the
+  state the click-through and the views check start from: the played state
+  saved on main (scripts/e2e/played-state.sh) when one was saved by an
+  ancestor of this commit, otherwise the keyboard onboarding and the protocol
+  bots' scenario. Sets PK_PASSWORD, the admin's password, for the steps after.
+
+inputs:
+  assets:
+    description: The folder with playkeeper-linux-amd64.tar.gz and its .sha256
+    required: true
+  setup:
+    description: saved (the played state saved on main when one fits, else the onboarding and the bots) or fresh (always the onboarding and the bots)
+    default: saved
+  password:
+    description: The admin's password when the onboarding makes the admin
+    required: true
+
+outputs:
+  setup:
+    description: What this runner did, saved or fresh
+    value: ${{ steps.pick.outputs.setup }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install from the release tarball (outside the checkout)
+      shell: bash
+      env:
+        ASSETS: ${{ inputs.assets }}
+      run: |
+        mkdir -p /tmp/evidence /tmp/install
+        (cd "$ASSETS" && sha256sum -c playkeeper-linux-amd64.tar.gz.sha256)
+        tar -xzf "$ASSETS/playkeeper-linux-amd64.tar.gz" -C /tmp/install
+        cd /tmp/install/playkeeper-*-linux-amd64
+        sudo ./install.sh --yes | tee /tmp/evidence/install.txt
+        sudo install -m 0644 -o "$(id -u)" /var/lib/playkeeper/panel/tls/cert.pem /tmp/evidence/cert.pem
+        grep -o 'setup code: [a-z0-9-]*' /tmp/evidence/install.txt | awk '{print $3}' > /tmp/evidence/code
+    - name: Enable the offline test harness (protocol bots have no Mojang accounts)
+      shell: bash
+      run: |
+        sudo mkdir -p /etc/systemd/system/playkeeper-agent.service.d
+        printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf
+        sudo systemctl daemon-reload
+        sudo systemctl restart playkeeper-agent
+    - name: The played state saved on main
+      id: cache
+      if: inputs.setup == 'saved'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: /tmp/played
+        key: played-state-none
+        restore-keys: played-state-
+    - name: Whether an ancestor of this commit saved it
+      id: pick
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        MATCHED: ${{ steps.cache.outputs.cache-matched-key }}
+      run: |
+        setup=fresh
+        if [ -n "$MATCHED" ] && [ -s /tmp/played/state.tar.gz ] && [ -s /tmp/played/commit ]; then
+          saved=$(cat /tmp/played/commit)
+          # A state saved by a newer build than this one may not load in it.
+          status=$(gh api "repos/$GH_REPO/compare/$saved...$GITHUB_SHA" --jq .status) || status="not known"
+          case $status in
+            ahead | identical) setup=saved ;;
+            *) echo "The played state was saved on $saved, which this commit doesn't contain ($status), so this runner makes its own." ;;
+          esac
+        fi
+        echo "setup=$setup" >> "$GITHUB_OUTPUT"
+        echo "Setup: $setup${MATCHED:+ (found $MATCHED)}"
+    - name: Start from the played state saved on main
+      if: steps.pick.outputs.setup == 'saved'
+      shell: bash
+      run: |
+        timeout 8m scripts/e2e/played-state.sh restore /tmp/played
+        echo "PK_PASSWORD=$(cat /tmp/played/password)" >> "$GITHUB_ENV"
+    - name: Keyboard onboarding (the admin, and a server)
+      if: steps.pick.outputs.setup == 'fresh'
+      shell: bash
+      env:
+        PK_URL: https://127.0.0.1:8443
+        PK_PASSWORD: ${{ inputs.password }}
+        PK_SHOTS: /tmp/evidence/screenshots
+        PK_OUT: /tmp/evidence/ui
+      run: |
+        PK_SETUP_CODE=$(cat /tmp/evidence/code)
+        export PK_SETUP_CODE
+        cd test/e2e/ui && timeout 10m npx playwright test onboarding.spec.ts --reporter=list
+    - name: The protocol bots' scenario (players, sessions, backups)
+      if: steps.pick.outputs.setup == 'fresh'
+      shell: bash
+      env:
+        PK_ADMIN_PASSWORD: ${{ inputs.password }}
+      run: |
+        timeout 10m python3 test/e2e/scenario.py host-a --existing --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem \
+          --code "$(cat /tmp/evidence/code)" --game-host "$(cat /tmp/evidence/ui/join-address.txt)" --out /tmp/evidence/a
+        echo "PK_PASSWORD=$PK_ADMIN_PASSWORD" >> "$GITHUB_ENV"
