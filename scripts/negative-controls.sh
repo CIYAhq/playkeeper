@@ -1421,6 +1421,101 @@ control "the agent reads no game file through a link" internal/gamefiles/gamefil
 	if err == nil {
 		err = nil' \
   ./internal/agent '^TestGameFilesAreReadWithoutFollowingLinks$'
+# The Files tab: every path stays inside the server's folder, nothing is
+# reached through a link or special file on the way, the world waits for the
+# game to stop, and only admins get in.
+control "file browser: a folder is listed only through real folders" internal/gamefiles/browse.go \
+  'fi, err := d.folder(name)' \
+  'fi, err := d.root.Lstat(name)' \
+  ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
+control "file browser: a new folder is made only through real folders" internal/gamefiles/browse.go \
+  'if _, err := d.folders(ps[:len(ps)-1], true); err != nil {' \
+  'if _, err := d.folders(ps[:len(ps)-1], true); false && err != nil {' \
+  ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
+control "file browser: a move starts only from behind real folders" internal/gamefiles/browse.go \
+  'if _, err := d.folders(fps[:len(fps)-1], false); err != nil {' \
+  'if _, err := d.folders(fps[:len(fps)-1], false); false && err != nil {' \
+  ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
+control "file browser: a move goes only into real folders" internal/gamefiles/browse.go \
+  'if _, err := d.folders(tps[:len(tps)-1], false); err != nil {' \
+  'if _, err := d.folders(tps[:len(tps)-1], false); false && err != nil {' \
+  ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
+control "file browser: a delete reaches only through real folders" internal/gamefiles/browse.go \
+  'if _, err := d.folders(ps[:len(ps)-1], false); err != nil {' \
+  'if _, err := d.folders(ps[:len(ps)-1], false); false && err != nil {' \
+  ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
+control "file browser: an upload goes in only through real folders" internal/gamefiles/browse.go \
+  'pfi, err := d.folders(ps[:len(ps)-1], true)' \
+  'pfi, err := d.root.Lstat(path.Join(ps[:len(ps)-1]...))' \
+  ./internal/gamefiles '^TestLinksAreRefusedAtEveryStep$'
+control "file browser: an upload never replaces a link or special file" internal/gamefiles/browse.go \
+  'if err := fileError(name, fi); err != nil {' \
+  'if err := fileError(name, fi); false && err != nil {' \
+  ./internal/gamefiles '^TestLinksAreRefusedAtEveryStep$'
+control "file browser: a path from the dashboard is relative and has no dot segments" internal/agent/files.go \
+  'case len(raw) > maxPathBytes || !fs.ValidPath(raw) || strings.ContainsRune(raw, 0):' \
+  'case len(raw) > maxPathBytes || strings.ContainsRune(raw, 0):' \
+  ./internal/agent '^TestFileBrowserPathsStayInsideTheServersFolder$'
+control "file browser: the world can't change while the game runs" internal/agent/files.go \
+  'if inWorld(p, worlds) && s.gameRunning(ctx) {' \
+  'if false && inWorld(p, worlds) && s.gameRunning(ctx) {' \
+  ./internal/agent '^TestTheWorldIsReadOnlyWhileTheGameRuns$'
+control "file browser: the editor opens world files read-only while the game runs" internal/agent/files.go \
+  'if running && inWorld(p, s.worldFolders()) {' \
+  'if false && running && inWorld(p, s.worldFolders()) {' \
+  ./internal/agent '^TestTheWorldIsReadOnlyWhileTheGameRuns$'
+control "file browser: nothing changes while the server is busy" internal/agent/files.go \
+  'if s.busy() {' \
+  'if false && s.busy() {' \
+  ./internal/agent '^TestFileBrowserWaitsForTheServersOperation$'
+control "file browser: the editor saves only over the version it opened" internal/agent/files.go \
+  'if expect != "" && contentVersion(cur) != expect {' \
+  'if false && expect != "" && contentVersion(cur) != expect {' \
+  ./internal/agent '^TestFileBrowserListsOpensAndSavesTheServersFiles$'
+control "file browser: an upload replaces a file only when asked" internal/agent/fileuploads.go \
+  'case !replace:' \
+  'case false && !replace:' \
+  ./internal/agent '^(TestFileUploadsCarryOnAfterADroppedConnection|TestAnUploadThatCantBePutInPlaceCanBeTriedAgain)$'
+control "file browser: an upload carries on only from the byte it has" internal/agent/fileuploads.go \
+  'if offset != f.received {' \
+  'if false && offset != f.received {' \
+  ./internal/agent '^TestFileUploadsCarryOnAfterADroppedConnection$'
+control "file browser: only admins see a server's files" internal/panel/workspace.go \
+  'actViewFiles:      invites.RoleAdmin,' \
+  'actViewFiles:      invites.RoleViewer,' \
+  ./internal/panel '^TestTheFileBrowserIsForAdmins$'
+control "file browser: only admins change a server's files" internal/panel/workspace.go \
+  'actEditFiles:      invites.RoleAdmin,' \
+  'actEditFiles:      invites.RoleModerator,' \
+  ./internal/panel '^TestTheFileBrowserIsForAdmins$'
+control "file browser: a download can't render as a page of the panel" internal/panel/files.go \
+  'h.Set("Content-Type", "application/octet-stream")' \
+  'h.Set("Content-Type", resp.Header.Get("Content-Type"))' \
+  ./internal/panel '^TestFileDownloadsAreNamedAndTypedByThePanel$'
+control "file browser: a download runs sandboxed if a browser shows it anyway" internal/panel/files.go \
+  'h.Set("Content-Security-Policy", "sandbox")' \
+  'h.Set("X-Sandbox", "off")' \
+  ./internal/panel '^TestFileDownloadsAreNamedAndTypedByThePanel$'
+webcontrol "the Files tab shows only to those who may see a server's files" web/src/components/app/server-tabs.tsx \
+  "(x.tab === 'files' ? can(me, 'files.view') :" \
+  "(x.tab === 'files' ? true :" \
+  web/src/pages/server/files/files.test.tsx 'shows only to those who may see'
+webcontrol "the Files tab offers no change to someone who may only look" web/src/pages/server/files/folder.tsx \
+  "const canEdit = can(ws.me, 'files.edit')" \
+  "const canEdit = can(ws.me, 'files.view')" \
+  web/src/pages/server/files/files.test.tsx 'may only look'
+webcontrol "the Files tab keeps the world's rows from changing while the game runs" web/src/pages/server/files/folder.tsx \
+  'const worldEntry = (e: FileEntry) => running && inWorld(joinPath(path, e.name), worlds)' \
+  'const worldEntry = (e: FileEntry) => false && running && inWorld(joinPath(path, e.name), worlds)' \
+  web/src/pages/server/files/files.test.tsx 'keeps the world'
+webcontrol "the editor saves over the version it opened" web/src/pages/server/files/editor.tsx \
+  "const info = await saveFile(server.id, path, sent, force ? '' : version)" \
+  "const info = await saveFile(server.id, path, sent, '')" \
+  web/src/pages/server/files/files.test.tsx 'saves over the version it opened'
+webcontrol "an address that climbs out of a server's files opens the Files tab's top" web/src/lib/router.ts \
+  "if (name === '' || name === '.' || name === '..' || name.includes('/') || name.includes('\\0')) return undefined" \
+  "if (name === '' || name === '.' || name.includes('/') || name.includes('\\0')) return undefined" \
+  web/src/lib/lib.test.ts 'names no path inside the server'
 control "a start that fails before the server's files keeps the refusal" internal/agent/gamefiles.go \
   'if !refused && !pastFiles {' \
   'if false {' \
