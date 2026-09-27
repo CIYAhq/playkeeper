@@ -1,0 +1,83 @@
+{
+ "id": "neoforge-21.11.45",
+ "time": "2026-07-29T06:16:59.579499732",
+ "releaseTime": "2026-07-29T06:16:59.579499732",
+ "type": "release",
+ "mainClass": "net.neoforged.fml.startup.Client",
+ "inheritsFrom": "1.21.11",
+ "arguments": {
+  "game": [
+   "--fml.neoForgeVersion",
+   "21.11.45",
+   "--fml.mcVersion",
+   "1.21.11",
+   "--fml.neoFormVersion",
+   "20251209.172050"
+  ],
+  "jvm": [
+   "-Djava.net.preferIPv6Addresses=system",
+   "-DlibraryDirectory=${library_directory}",
+   "--add-opens",
+   "java.base/java.lang.invoke=ALL-UNNAMED",
+   "--add-exports",
+   "jdk.naming.dns/com.sun.jndi.dns=java.naming"
+  ]
+ },
+ "libraries": [
+  {
+   "name": "net.neoforged.fancymodloader:earlydisplay:10.0.36",
+   "downloads": {
+    "artifact": {
+     "sha1": "dbd0e11d545443f602addede111c39d9639708f9",
+     "size": 360483,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/fancymodloader/earlydisplay/10.0.36/earlydisplay-10.0.36.jar",
+     "path": "net/neoforged/fancymodloader/earlydisplay/10.0.36/earlydisplay-10.0.36.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged.fancymodloader:loader:10.0.36",
+   "downloads": {
+    "artifact": {
+     "sha1": "0f72ab4d3e755fe736829883d90430a281527aca",
+     "size": 660602,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/fancymodloader/loader/10.0.36/loader-10.0.36.jar",
+     "path": "net/neoforged/fancymodloader/loader/10.0.36/loader-10.0.36.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged:accesstransformers:11.0.2",
+   "downloads": {
+    "artifact": {
+     "sha1": "25dcb69c78b16669935f0ab91dff830ce192379d",
+     "size": 20292,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/accesstransformers/11.0.2/accesstransformers-11.0.2.jar",
+     "path": "net/neoforged/accesstransformers/11.0.2/accesstransformers-11.0.2.jar"
+    }
+   }
+  },
+  {
+   "name": "org.ow2.asm:asm-commons:9.8",
+   "downloads": {
+    "artifact": {
+     "sha1": "36e4d212970388e5bd2c5180292012502df461bb",
+     "size": 73498,
+     "url": "https://maven.neoforged.net/releases/org/ow2/asm/asm-commons/9.8/asm-commons-9.8.jar",
+     "path": "org/ow2/asm/asm-commons/9.8/asm-commons-9.8.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged:mergetool:2.0.0:api",
+   "downloads": {
+    "artifact": {
+     "sha1": "52fe1949be64e3303aabaaa21e315f551db9c9f4",
+     "size": 2550,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/mergetool/2.0.0/mergetool-2.0.0-api.jar",
+     "path": "net/neoforged/mergetool/2.0.0/mergetool-2.0.0-api.jar"
+    }
+   }
+  }
+ ]
+}

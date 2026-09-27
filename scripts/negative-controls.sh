@@ -4372,6 +4372,14 @@ control "Forge's installer looks for Mojang's jar where Playkeeper verified it" 
   '; prof.ServerJarPath != want {' \
   '; false && prof.ServerJarPath != want {' \
   ./internal/minecraft/software '^TestInstallForgeRefuses$'
+control "NeoForge's installers for Minecraft 1.21 to 1.21.11 install, NeoForm's data checked like the libraries" internal/minecraft/software/neoforge.go \
+  'var neoforgeLibraryExts = []string{".jar", ".zip", ".tsrg.lzma"}' \
+  'var neoforgeLibraryExts = []string{".jar"}' \
+  ./internal/minecraft/software '^TestInstallNeoForgeForMinecraft121'
+control "a NeoForge library that is neither a jar nor NeoForm's data is refused" internal/minecraft/software/neoforge.go \
+  '!cleanRel(a.Path, neoforgeLibraryExts...)' \
+  '!cleanRel(a.Path)' \
+  ./internal/minecraft/software '^TestInstallNeoForgeRefuses$'
 control "every Forge library has a plain path, a SHA-1 and a size" internal/minecraft/software/forge.go \
   'if !ok || a.Size <= 0 || !cleanRel(a.Path, ".jar", ".zip") {' \
   'if false && (!ok || a.Size <= 0 || !cleanRel(a.Path, ".jar", ".zip")) {' \

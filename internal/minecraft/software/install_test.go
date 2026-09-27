@@ -631,6 +631,47 @@ func TestInstallNeoForgeForMinecraft1211(t *testing.T) {
 	if err := m.Verify(in.dir); err != nil {
 		t.Fatal(err)
 	}
+	wantNeoFormChecked(t, in, m, "libraries/net/neoforged/neoform/1.21.1-20240808.144430/neoform-1.21.1-20240808.144430.zip")
+}
+
+func TestInstallNeoForgeForMinecraft12111(t *testing.T) {
+	in := newNeoForgeInstall(t, "21.11.45", "1.21.11", "21.11.45", nil)
+	patched := "libraries/net/neoforged/minecraft-server-patched/21.11.45/minecraft-server-patched-21.11.45.jar"
+	mojmaps := "libraries/net/minecraft/server/1.21.11/server-1.21.11-mappings.txt"
+	in.runInstaller(t, patched, mojmaps)
+	m, err := Finish(in.dir, in.plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recorded []string
+	for _, c := range m.Checks {
+		if c.Origin == Recorded {
+			recorded = append(recorded, c.Path)
+		}
+	}
+	wantStrings(t, "recorded", recorded, []string{mojmaps, patched})
+	wantStrings(t, "run env", m.Run.Env, []string{"TYPE=CUSTOM", "CUSTOM_JAR_EXEC=@libraries/net/neoforged/neoforge/21.11.45/unix_args.txt"})
+	if err := m.Verify(in.dir); err != nil {
+		t.Fatal(err)
+	}
+	wantNeoFormChecked(t, in, m, "libraries/net/neoforged/neoform/1.21.11-20251209.172050/neoform-1.21.11-20251209.172050-mappings.tsrg.lzma")
+}
+
+// wantNeoFormChecked checks that NeoForm's data, which the installer lists
+// with its libraries, is checked like them, before every start too.
+func wantNeoFormChecked(t *testing.T, in *neoforgeInstall, m Manifest, rel string) {
+	t.Helper()
+	i := slices.IndexFunc(m.Checks, func(c Check) bool { return c.Path == rel })
+	if i < 0 {
+		t.Fatalf("%s is not checked", rel)
+	}
+	if c := m.Checks[i]; c.Origin != Derived || c.Hash.Algorithm != SHA1 || c.Size != int64(len(in.libs[strings.TrimPrefix(rel, "libraries/")])) || c.Source != neoforgeLibrarySource {
+		t.Errorf("got %+v", c)
+	}
+	tamper(t, in.dir, rel)
+	if e := wantKind(t, m.Verify(in.dir), KindHashMismatch); !strings.Contains(e.Msg, "does not match the SHA-1 from the library list inside the verified NeoForge installer") {
+		t.Errorf("got %q", e.Msg)
+	}
 }
 
 func TestInstallNeoForgeRefuses(t *testing.T) {
@@ -684,6 +725,13 @@ func TestInstallNeoForgeRefuses(t *testing.T) {
 		{"the installer lists a library outside the libraries folder", "26.2.0.88", func(p map[string]any) {
 			obj(p["libraries"].([]any)[0], "downloads", "artifact")["path"] = "../../../etc/cron.d/evil.jar"
 		}, run, KindMalformed, `its library "net.neoforged.fancymodloader:earlydisplay:11.0.16" has no valid path, SHA-1 or size.`},
+		{"the installer lists a library that is neither a jar nor NeoForm's data", "26.2.0.88", func(p map[string]any) {
+			obj(p["libraries"].([]any)[0], "downloads", "artifact")["path"] = "net/neoforged/fancymodloader/earlydisplay/11.0.16/earlydisplay-11.0.16.sh"
+		}, run, KindMalformed, `its library "net.neoforged.fancymodloader:earlydisplay:11.0.16" has no valid path, SHA-1 or size.`},
+		{"the installer lists NeoForm's data without a SHA-1", "26.2.0.88", func(p map[string]any) {
+			p["libraries"] = append(p["libraries"].([]any), map[string]any{"name": "net.neoforged:neoform:26.2-20260101.000000@zip",
+				"downloads": map[string]any{"artifact": map[string]any{"path": "net/neoforged/neoform/26.2-20260101.000000/neoform-26.2-20260101.000000.zip", "size": 10}}})
+		}, run, KindMalformed, `its library "net.neoforged:neoform:26.2-20260101.000000@zip" has no valid path, SHA-1 or size.`},
 		{"the installer does not name the patched jar", "26.2.0.88", func(p map[string]any) { delete(obj(p, "data"), "PATCHED") }, run,
 			KindMalformed, "its install profile does not name the patched Minecraft jar."},
 		{"the installer names an unsafe output", "26.2.0.88", func(p map[string]any) { obj(p, "data", "PATCHED")["server"] = "[../../x:y:z]" }, run,
