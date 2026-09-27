@@ -40,6 +40,9 @@ const (
 	CodeNoName           = "no_name"
 	CodeUnavailable      = "service_unavailable"
 	CodeInternal         = "internal"
+	// CodeUpdateRequired: the request is signed for the service's previous
+	// base domain, which only installs from before the move still use.
+	CodeUpdateRequired = "update_required"
 )
 
 // Error is a request the names service (or this client, before sending)
