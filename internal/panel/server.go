@@ -510,6 +510,12 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/machines/{mid}/world-imports/{imp}/apply", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.forwardLong("/v1/world-imports/{imp}/apply"))},
 		{"POST", "/api/machines/{mid}/world-imports/{imp}/create", needSessionCSRF, actCreateServers, s.importGuard(actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create"))},
 	}...)
+	// The map's area: anyone who sees the server sees it; choosing one, which
+	// pre-generates land, needs the rights to change the map.
+	routes = append(routes, []Route{
+		sg("/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
+		sm("POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
+	}...)
 	return routes
 }
 

@@ -184,6 +184,75 @@ func TestStartOnSpawnRefused(t *testing.T) {
 	wantCode(t, err, CodeOutsideWorld)
 }
 
+// "chunky worldborder" as Chunky 1.5.3 answers it: the border's center and
+// radius, and its shape when a border plugin draws another one.
+func TestStartOnBorder(t *testing.T) {
+	c := newController(t, Bukkit, prelude(
+		step{"chunky world world", "[Chunky] World changed to world.\n", nil},
+		step{"chunky worldborder", "[Chunky] Center changed to 100, -200.\n[Chunky] Radius changed to 3000.\n", nil},
+		step{"chunky start world square 100 -200 3000", "[Chunky] Task started in world for the square region centered at 100, -200 with radius 3000.\n", nil},
+	)...)
+	got, err := c.Start(context.Background(), BorderPlan("world", 3000), StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Started{World: "world", Shape: Square, CenterX: 100, CenterZ: -200, Radius: 3000}); got != want {
+		t.Errorf("Start = %+v, want %+v", got, want)
+	}
+
+	// Fabric runs the messages together, and a server in another locale
+	// writes a decimal comma; the border moved since it was seen.
+	c = newController(t, Fabric, prelude(
+		step{"chunky world minecraft:overworld", "[Chunky] World changed to minecraft:overworld.", nil},
+		step{"chunky worldborder", "[Chunky] Center changed to 0,5, -0,5.[Chunky] Radius changed to 2499,5.", nil},
+		step{"chunky start minecraft:overworld square 0 -1 2500", "[Chunky] Task started in minecraft:overworld for the square region centered at 0, -1 with radius 2500.", nil},
+	)...)
+	got, err = c.Start(context.Background(), BorderPlan("minecraft:overworld", 3000), StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CenterX != 0 || got.CenterZ != -1 || got.Radius != 2500 {
+		t.Errorf("Start = %+v", got)
+	}
+}
+
+func TestStartOnBorderRefused(t *testing.T) {
+	cases := []struct {
+		name, reply, code string
+	}{
+		{"round", "[Chunky] Center changed to 0, 0.\n[Chunky] Radius changed to 3000.\n[Chunky] Shape changed to circle.\n", CodeBorderShape},
+		{"oblong", "[Chunky] Center changed to 0, 0.\n[Chunky] Radius changed for x to 3000, and for z to 2000.\n", CodeBorderShape},
+		{"none set", "[Chunky] Center changed to 0, 0.\n[Chunky] Radius changed to 29999984.\n", CodeRadiusTooLarge},
+		{"tiny", "[Chunky] Center changed to 0, 0.\n[Chunky] Radius changed to 8.\n", CodeRadiusTooSmall},
+		{"past the edge", "[Chunky] Center changed to 29990000, 0.\n[Chunky] Radius changed to 20000.\n", CodeOutsideWorld},
+		{"no radius", "[Chunky] Center changed to 0, 0.\n", CodeUnexpectedReply},
+		{"other language", "[Chunky] Mittelpunkt geändert.\n", CodeUnexpectedReply},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newController(t, Bukkit, prelude(
+				step{"chunky world world", "[Chunky] World changed to world.\n", nil},
+				step{"chunky worldborder", tc.reply, nil},
+			)...)
+			_, err := c.Start(context.Background(), BorderPlan("world", 3000), StartOptions{})
+			wantCode(t, err, tc.code)
+		})
+	}
+
+	for _, pl := range []Plan{
+		{World: "world", OnBorder: true, CenterOnSpawn: true, Radius: 3000, Shape: Square},
+		{World: "world", OnBorder: true, Radius: 3000, Shape: Circle},
+	} {
+		if err := pl.Check(Bukkit); err == nil {
+			t.Errorf("Check(%+v) = nil, want a refusal", pl)
+		}
+	}
+	wantCode(t, BorderPlan("world", MaxRadius+1).Check(Bukkit), CodeRadiusTooLarge)
+	if err := BorderPlan("world", WorldLimit/1000).Check(Bukkit); err != nil {
+		t.Errorf("a border plan's center is Chunky's to find: %v", err)
+	}
+}
+
 func TestStartChecksFirst(t *testing.T) {
 	c := newController(t, Bukkit)
 	_, err := c.Start(context.Background(), Plan{World: "world\nop Steve", Radius: 1000, Shape: Square}, StartOptions{})

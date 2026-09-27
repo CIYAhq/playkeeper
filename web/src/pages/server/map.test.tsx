@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Action, MachineView, MapInfo, MapPlayers, ServerStatus } from '@/api/types'
+import type { Action, MachineView, MapArea, MapAreaOption, MapInfo, MapPlayers, Pregen, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { t } from '@/i18n'
 import { PublicMapPage } from '../public-map'
@@ -89,6 +89,10 @@ function mapInfo(over: Partial<MapInfo>): MapInfo {
 let root: Root | undefined
 const writeText = vi.fn<(text: string) => Promise<void>>(() => Promise.resolve())
 
+beforeAll(() => {
+  ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+})
+
 beforeEach(() => {
   Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
 })
@@ -99,15 +103,21 @@ afterEach(async () => {
   writeText.mockClear()
 })
 
-/** Renders the Map tab with the agent's answer about the map, and who's playing once that loads. */
-async function renderMap(info: MapInfo, players?: MapPlayers) {
+/** Renders the Map tab with the agent's answer about the map, and who's playing and the map's area once they load. */
+async function renderMap(info: MapInfo, players?: MapPlayers, area?: MapArea, ws: Workspace = workspace) {
   vi.mocked(client.get).mockImplementation(((path: string) =>
-    path.endsWith('/map') ? Promise.resolve(info) : players && path.endsWith('/map/players') ? Promise.resolve(players) : new Promise(() => {})) as typeof client.get)
+    path.endsWith('/map')
+      ? Promise.resolve(info)
+      : players && path.endsWith('/map/players')
+        ? Promise.resolve(players)
+        : area && path.endsWith('/map/area')
+          ? Promise.resolve(area)
+          : new Promise(() => {})) as typeof client.get)
   if (root) await act(async () => root?.unmount())
   document.body.innerHTML = ''
   const r = createRoot(document.body.appendChild(document.createElement('div')))
   root = r
-  await act(async () => r.render(<WorkspaceContext.Provider value={workspace}>{<MapPage server={server} />}</WorkspaceContext.Provider>))
+  await act(async () => r.render(<WorkspaceContext.Provider value={ws}>{<MapPage server={server} />}</WorkspaceContext.Provider>))
   await act(async () => {})
 }
 
@@ -211,5 +221,156 @@ describe('Who is playing', () => {
     await renderMap(mapInfo({}), { players: [], updatedAt: '2026-09-25T22:00:00Z' })
     expect(playingCard()?.querySelector('[data-slot="skeleton"]')).toBeNull()
     expect(playingCard()?.textContent).toContain(t('map.nobody'))
+  })
+})
+
+const sizes: MapAreaOption[] = [
+  { id: 'small', radius: 1000, chunks: 16_129, seconds: 720, diskBytes: 157_286_400, fits: true },
+  { id: 'medium', radius: 2500, chunks: 99_225, seconds: 5400, diskBytes: 996_147_200, fits: true },
+  { id: 'large', radius: 5000, chunks: 393_129, seconds: 21_600, diskBytes: 3_972_844_749, fits: true },
+  { id: 'huge', radius: 10_000, chunks: 1_565_001, seconds: 86_400, diskBytes: 15_891_378_995, fits: false },
+]
+
+function mapArea(over: Partial<MapArea> = {}, fill: Partial<Pregen> = {}): MapArea {
+  return {
+    area: 'explored',
+    options: sizes,
+    fill: { state: 'idle', world: 'world', chunks: 0, total: 0, percent: 0, etaSeconds: -1, pauseForPlayers: true, installed: false, presets: [], ...fill },
+    ...over,
+  }
+}
+
+const running = mapArea({ area: 'medium', radius: 2500 }, { state: 'running', preset: 'medium', radius: 2500, chunks: 41_675, total: 99_225, percent: 42.6, etaSeconds: 5400, installed: true })
+
+async function click(el: Element | null | undefined) {
+  if (!(el instanceof HTMLElement)) throw new Error('nothing to click')
+  await act(async () => el.click())
+  await act(async () => {})
+}
+
+const within = () => document.querySelector('[role="dialog"]') ?? document.body
+const buttonNamed = (label: string, scope: ParentNode = document) => [...scope.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === label || b.getAttribute('aria-label') === label)
+const menuItem = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((m) => m.textContent?.trim() === label)
+const choice = (label: string) => [...within().querySelectorAll('label')].find((l) => l.textContent?.startsWith(label))
+const checked = () => within().querySelector('[role="radio"][aria-checked="true"]')?.closest('label')?.textContent ?? ''
+const fillCard = () => [...document.querySelectorAll('section')].find((c) => c.textContent?.startsWith(t('mapArea.filling')))
+
+async function openArea() {
+  await click(buttonNamed(t('map.options')))
+  await click(menuItem(t('mapArea.menu')))
+}
+
+describe('The map’s area', () => {
+  it('starts filling in a bigger area from the options menu, with what it takes shown first', async () => {
+    await renderMap(mapInfo({}), undefined, mapArea())
+    await openArea()
+    const text = within().textContent ?? ''
+    expect(text).toContain(t('mapArea.lead'))
+    expect(text).toContain('Explored only Where players have been')
+    expect(text).toContain('1,000 blocks about 12 min · 150 MB')
+    expect(text).toContain('2,500 blocks Recommended about 1.5 h · 950 MB')
+    expect(text).toContain('10,000 blocks Not enough free disk')
+    expect(choice('10,000 blocks')?.getAttribute('title')).toBe(t('pregen.noRoom'))
+    expect(checked()).toContain('Explored only')
+    const start = () => buttonNamed(t('pregen.start'), within())
+    expect(start()?.disabled).toBe(true)
+    expect(start()?.title).toBe(t('mapArea.unchanged'))
+    expect(within().querySelector('[role="switch"]')).toBeNull()
+
+    await click(choice('2,500 blocks')?.querySelector('[role="radio"]'))
+    expect(start()?.disabled).toBe(false)
+    expect(within().textContent).toContain(t('mapArea.load', { server: 'Survival' }))
+    expect(within().textContent).toContain('Installs the Chunky plugin the first time.')
+    expect(within().querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('true')
+    await click(start())
+    expect(client.post).toHaveBeenCalledWith(`/api/servers/${server.id}/map/area`, { area: 'medium', pauseForPlayers: true })
+  })
+
+  it('shows the area being filled in beside the map, and Explored only stops it', async () => {
+    vi.mocked(client.post).mockClear()
+    await renderMap(mapInfo({}), undefined, running)
+    const card = fillCard()?.textContent ?? ''
+    expect(card).toContain('Out to 2,500 blocks')
+    expect(card).toContain('42%')
+    expect(card).toContain('41,675 of 99,225 chunks')
+    expect(card).toContain('About 1.5 hours left')
+    expect(card).toContain(t('pregen.pausesForPlayers'))
+    expect(fillCard()?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('43')
+
+    await openArea()
+    expect(checked()).toContain('2,500 blocks Filling in · 42%')
+    await click(choice('Explored only')?.querySelector('[role="radio"]'))
+    expect(within().textContent).toContain(t('mapArea.stopNote'))
+    await click(choice('5,000 blocks')?.querySelector('[role="radio"]'))
+    expect(within().textContent).toContain(t('mapArea.replaceNote'))
+    await click(choice('Explored only')?.querySelector('[role="radio"]'))
+    await click(buttonNamed(t('mapArea.stop'), within()))
+    expect(client.post).toHaveBeenCalledWith(`/api/servers/${server.id}/map/area`, { area: 'explored', pauseForPlayers: true })
+  })
+
+  it('says why a paused fill waits', async () => {
+    await renderMap(mapInfo({}), undefined, { ...running, fill: { ...running.fill, state: 'paused', pausedBy: 'players', pausedFor: 'mara_k' } })
+    const card = fillCard()
+    expect(card?.textContent).toContain('Paused while mara_k plays')
+    expect(card?.textContent).not.toContain(t('pregen.pausesForPlayers'))
+  })
+
+  it('offers the world border, and keeps what the map has and sizes past the border out of reach', async () => {
+    const border: MapAreaOption = { id: 'border', radius: 3000, chunks: 142_129, seconds: 7200, diskBytes: 1_395_864_371, fits: true }
+    const options = [...sizes.slice(0, 2), ...sizes.slice(2).map((o) => ({ ...o, pastBorder: true })), border]
+    await renderMap(mapInfo({}), undefined, mapArea({ options }))
+    await openArea()
+    expect(within().textContent).toContain('Up to the world border 3,000 blocks · about 2 h · 1.3 GB')
+    expect(choice('5,000 blocks')?.getAttribute('title')).toBe(t('mapArea.pastBorder'))
+    expect(choice('5,000 blocks')?.querySelector('[role="radio"]')?.hasAttribute('data-disabled')).toBe(true)
+    await click(choice('Up to the world border')?.querySelector('[role="radio"]'))
+    await click(buttonNamed(t('pregen.start'), within()))
+    expect(client.post).toHaveBeenCalledWith(`/api/servers/${server.id}/map/area`, { area: 'border', pauseForPlayers: true })
+
+    const done = [...sizes.slice(0, 2).map((o) => ({ ...o, done: true })), ...sizes.slice(2).map((o) => ({ ...o, pastBorder: true })), { ...border, done: true }]
+    await renderMap(mapInfo({}), undefined, mapArea({ area: 'border', radius: 3000, options: done }, { state: 'finished', preset: 'border', radius: 3000, percent: 100, installed: true }))
+    expect(fillCard()).toBeUndefined()
+    await openArea()
+    expect(checked()).toContain('Up to the world border')
+    expect(choice('Explored only')?.textContent).toContain(t('mapArea.stays'))
+    expect(choice('Explored only')?.querySelector('[role="radio"]')?.hasAttribute('data-disabled')).toBe(true)
+    expect(choice('1,000 blocks')?.getAttribute('title')).toBe(t('mapArea.onMap'))
+    expect(buttonNamed(t('pregen.start'), within())?.disabled).toBe(true)
+  })
+
+  it('is left out for those who can’t change the map, who still see an area being filled in', async () => {
+    const can = everything.filter((a) => a !== 'servers.manage')
+    const moderator: Workspace = { ...workspace, me: { ...workspace.me, access: { ...workspace.me.access, role: 'moderator', can } } }
+    await renderMap(mapInfo({}), undefined, running, moderator)
+    await click(buttonNamed(t('map.options')))
+    expect(menuItem(t('map.turnOffMenu'))).toBeDefined()
+    expect(menuItem(t('mapArea.menu'))).toBeUndefined()
+    expect(fillCard()).toBeDefined()
+
+    const phone = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+    try {
+      await renderMap(mapInfo({}), undefined, running, moderator)
+      await click(buttonNamed(t('map.settings')))
+      expect(document.body.textContent).toContain(t('map.turnOffMenu'))
+      expect(buttonNamed(`${t('mapArea.row')}2,500 blocks`)).toBeUndefined()
+    } finally {
+      phone.mockRestore()
+    }
+  })
+
+  it('opens from the phone’s Map settings, which say what the area is', async () => {
+    const phone = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+    try {
+      await renderMap(mapInfo({}), undefined, running)
+      expect(fillCard()?.textContent).toContain('41,675 of 99,225 chunks')
+      await click(buttonNamed(t('map.settings')))
+      const row = buttonNamed(`${t('mapArea.row')}2,500 blocks`)
+      expect(row).toBeDefined()
+      await click(row)
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain(t('mapArea.title'))
+      expect(checked()).toContain('2,500 blocks')
+    } finally {
+      phone.mockRestore()
+    }
   })
 })

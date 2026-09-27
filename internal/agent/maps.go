@@ -57,6 +57,7 @@ type mapState struct {
 	live      map[string]mapLive
 	progress  map[string]progressMark
 	rendering map[string]*renderWait
+	border    map[string]borderLook
 }
 
 // renderWait is a run's wait for squaremap to answer before the first
@@ -301,6 +302,7 @@ func (s *server) forgetMapLive() {
 	s.maps.mu.Lock()
 	delete(s.maps.live, s.id)
 	delete(s.maps.progress, s.id)
+	delete(s.maps.border, s.id)
 	s.maps.mu.Unlock()
 }
 

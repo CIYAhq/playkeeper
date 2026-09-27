@@ -37,6 +37,11 @@ type fakeChunky struct {
 	confirm func() string
 	// strange are the chunky commands the fake doesn't know.
 	strange []string
+	// borderX, borderZ and borderRadius are the world border, which starts
+	// at the edge of the world.
+	borderX, borderZ, borderRadius int
+	// limit is the radius the host caps new tasks at, or 0 for none.
+	limit int
 }
 
 type fakeChunkyTask struct {
@@ -51,7 +56,7 @@ var reChunkyStart = regexp.MustCompile(`^chunky start world square (-?[0-9]+) (-
 // time the server starts with its jar in the plugins folder.
 func (e *agentEnv) chunky() *fakeChunky {
 	e.t.Helper()
-	fc := &fakeChunky{dataDir: e.dataDir()}
+	fc := &fakeChunky{dataDir: e.dataDir(), borderRadius: pregen.WorldLimit}
 	e.rcon.mu.Lock()
 	e.rcon.answer = fc.answer
 	e.rcon.mu.Unlock()
@@ -95,14 +100,19 @@ func (fc *fakeChunky) answer(cmd string) (string, bool) {
 		return "[Chunky] World changed to world.", true
 	case cmd == "chunky spawn":
 		return "[Chunky] Center changed to 16, -32.", true
+	case cmd == "chunky worldborder":
+		return fmt.Sprintf("[Chunky] Center changed to %d, %d.\n[Chunky] Radius changed to %d.", fc.borderX, fc.borderZ, fc.borderRadius), true
 	case reChunkyStart.MatchString(cmd):
-		if fc.running {
-			return "[Chunky] Task already started for world!", true
-		}
 		m := reChunkyStart.FindStringSubmatch(cmd)
 		x, _ := strconv.Atoi(m[1])
 		z, _ := strconv.Atoi(m[2])
 		r, _ := strconv.Atoi(m[3])
+		if fc.limit > 0 && r > fc.limit {
+			return fmt.Sprintf("[Chunky] Your host has limited the maximum pre-generation radius to %d to avoid excessive disk space usage.", fc.limit), true
+		}
+		if fc.running {
+			return "[Chunky] Task already started for world!", true
+		}
 		start := func() string {
 			side := 2*int64(math.Ceil(float64(r)/16)) + 1
 			fc.task, fc.running = &fakeChunkyTask{centerX: x, centerZ: z, radius: r, total: side * side}, true

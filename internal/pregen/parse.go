@@ -36,8 +36,17 @@ const (
 	EventRadiusLimit EventKind = "radius_limit"
 	EventWorldSet    EventKind = "world_set"
 	EventCenterSet   EventKind = "center_set"
-	EventPatternSet  EventKind = "pattern_set"
-	EventReloaded    EventKind = "reloaded"
+	// EventRadiusSet means the selection's radius changed to Radius, as
+	// "chunky worldborder" reports a square border; EventRadiiSet means it
+	// changed to Radius along x and RadiusZ along z, a border of another
+	// shape.
+	EventRadiusSet EventKind = "radius_set"
+	EventRadiiSet  EventKind = "radii_set"
+	// EventShapeSet carries the selection's new Shape, such as a round
+	// border's.
+	EventShapeSet   EventKind = "shape_set"
+	EventPatternSet EventKind = "pattern_set"
+	EventReloaded   EventKind = "reloaded"
 	// EventUsage is a command's usage line, which Chunky prints when it
 	// rejects the arguments (such as a world it doesn't know).
 	EventUsage EventKind = "usage"
@@ -52,12 +61,14 @@ type Event struct {
 	World string    `json:"world,omitempty"`
 	// Progress is set for EventProgress and EventFinished.
 	Progress *Progress `json:"progress,omitempty"`
-	// Shape and Radius are set for EventStarted, CenterX and CenterZ for
-	// EventStarted and EventCenterSet.
+	// Shape is set for EventStarted and EventShapeSet, CenterX and CenterZ
+	// for EventStarted and EventCenterSet, Radius for EventStarted,
+	// EventRadiusSet and EventRadiiSet, and RadiusZ for EventRadiiSet.
 	Shape   string  `json:"shape,omitempty"`
 	CenterX float64 `json:"centerX,omitempty"`
 	CenterZ float64 `json:"centerZ,omitempty"`
 	Radius  float64 `json:"radius,omitempty"`
+	RadiusZ float64 `json:"radiusZ,omitempty"`
 	// Limit is the host's radius cap in blocks, for EventRadiusLimit.
 	Limit float64 `json:"limit,omitempty"`
 	// Text is the message without Chunky's prefix and colors.
@@ -120,6 +131,9 @@ var (
 	reLimit            = regexp.MustCompile(`^Your host has limited the maximum pre-generation radius to ` + unum + ` `)
 	reWorldSet         = regexp.MustCompile(`^World changed to (.+)\.$`)
 	reCenterSet        = regexp.MustCompile(`^Center changed to ` + num + `, ` + num + `\.$`)
+	reRadiusSet        = regexp.MustCompile(`^Radius changed to ` + unum + `\.$`)
+	reRadiiSet         = regexp.MustCompile(`^Radius changed for x to ` + unum + `, and for z to ` + unum + `\.$`)
+	reShapeSet         = regexp.MustCompile(`^Shape changed to ([a-z_]+)\.$`)
 	rePatternSet       = regexp.MustCompile(`^Pattern changed to ([a-z]+)\.$`)
 	reUsage            = regexp.MustCompile(`^chunky [a-z]+(?: \S.*)? - \S.*$`)
 	reUnknownCommand   = regexp.MustCompile(`^Unknown (?:or incomplete )?command`)
@@ -216,6 +230,18 @@ func parseMessage(msg string) Event {
 	}
 	if m := reCenterSet.FindStringSubmatch(msg); m != nil {
 		e.Kind, e.CenterX, e.CenterZ = EventCenterSet, atof(m[1]), atof(m[2])
+		return e
+	}
+	if m := reRadiusSet.FindStringSubmatch(msg); m != nil {
+		e.Kind, e.Radius = EventRadiusSet, atof(m[1])
+		return e
+	}
+	if m := reRadiiSet.FindStringSubmatch(msg); m != nil {
+		e.Kind, e.Radius, e.RadiusZ = EventRadiiSet, atof(m[1]), atof(m[2])
+		return e
+	}
+	if m := reShapeSet.FindStringSubmatch(msg); m != nil {
+		e.Kind, e.Shape = EventShapeSet, m[1]
 		return e
 	}
 	if m := reNoTasks.FindStringSubmatch(msg); m != nil {

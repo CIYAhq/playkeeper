@@ -17,6 +17,7 @@ import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
+import { can } from '@/lib/access'
 import { formatBytes, formatClock, formatDate, formatPercent, formatSpan, relativeTime } from '@/lib/format'
 import { coord, hasMap, sortWorlds, worldLabel } from '@/lib/map'
 import { phaseTone, whyNot } from '@/lib/phase'
@@ -25,6 +26,7 @@ import { linkProps, navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { serverAction } from '.'
+import { FillCard, filling, MapAreaDialog, MapAreaRow, useMapArea } from './map-area'
 
 function tilePath(id: string) {
   return (world: string, zoom: number, x: number, z: number) => serverApi(id, `/map/tiles/${encodeURIComponent(world)}/${zoom}/${x}_${z}.png`)
@@ -344,6 +346,10 @@ function MapSkeleton({ phone }: { phone: boolean }) {
 
 function LiveMap({ server, info, onChange, onTurnOff, menuOpen, onMenuOpenChange }: { server: ServerStatus; info: MapInfo; onChange: () => Promise<void>; onTurnOff: () => void; menuOpen: boolean; onMenuOpenChange: (open: boolean) => void }) {
   const phone = useIsPhone()
+  const ws = useWorkspace()
+  const changes = can(ws.me, 'servers.manage')
+  const area = useMapArea(server)
+  const [areaOpen, setAreaOpen] = useState(false)
   const drawing = info.state === 'drawing'
   const worlds = usePoll(() => get<MapWorlds>(serverApi(server.id, '/map/worlds')), 60_000, `${server.id}:${info.state}`)
   const players = usePoll(() => get<MapPlayers>(serverApi(server.id, '/map/players')), 3000, server.id)
@@ -371,12 +377,15 @@ function LiveMap({ server, info, onChange, onTurnOff, menuOpen, onMenuOpenChange
       <Skeleton className={cn('rounded-2xl', phone ? (drawing ? 'aspect-square w-full' : 'min-h-[360px] flex-1') : 'min-h-[356px]')} />
     )
   const toggle = sorted.length > 1 && world && <WorldSwitch worlds={sorted} value={world.name} onChange={setPicked} serverName={server.name} serverType={server.type || 'paper'} levelName={levelName} large={phone} />
+  const fill = area.data && filling(area.data) ? <FillCard server={server} area={area.data} /> : null
+  const areaDialog = changes && <MapAreaDialog open={areaOpen} onOpenChange={setAreaOpen} server={server} area={area} />
 
   if (phone) {
     return (
       <div className="flex flex-1 flex-col gap-3 pb-4">
         {!drawing && toggle}
         {map}
+        {fill}
         {drawing ? <DrawingCard info={info} /> : <PhonePlaying players={list} onFind={find} />}
         <Sheet open={menuOpen} onOpenChange={onMenuOpenChange}>
           <SheetPopup side="bottom" className="px-5">
@@ -385,6 +394,18 @@ function LiveMap({ server, info, onChange, onTurnOff, menuOpen, onMenuOpenChange
             </div>
             <SharingControls server={server} info={info} onChange={onChange} large />
             <div className="my-4 h-px bg-border" aria-hidden="true" />
+            {changes && (
+              <>
+                <MapAreaRow
+                  area={area.data}
+                  onOpen={() => {
+                    onMenuOpenChange(false)
+                    setAreaOpen(true)
+                  }}
+                />
+                <div className="my-4 h-px bg-border" aria-hidden="true" />
+              </>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -397,6 +418,7 @@ function LiveMap({ server, info, onChange, onTurnOff, menuOpen, onMenuOpenChange
             </button>
           </SheetPopup>
         </Sheet>
+        {areaDialog}
       </div>
     )
   }
@@ -412,6 +434,7 @@ function LiveMap({ server, info, onChange, onTurnOff, menuOpen, onMenuOpenChange
               <EllipsisIcon />
             </MenuTrigger>
             <MenuPopup align="end" className="min-w-48">
+              {changes && <MenuItem onClick={() => setAreaOpen(true)}>{t('mapArea.menu')}</MenuItem>}
               <MenuItem variant="destructive" onClick={onTurnOff}>
                 {t('map.turnOffMenu')}
               </MenuItem>
@@ -423,6 +446,7 @@ function LiveMap({ server, info, onChange, onTurnOff, menuOpen, onMenuOpenChange
         {map}
         <div className="flex flex-col gap-3.5">
           {drawing && <DrawingCard info={info} />}
+          {fill}
           <PlayingCard players={list} world={world} worlds={sorted} levelName={levelName} onFind={find} />
           {!drawing && (
             <Card className="gap-0 rounded-2xl p-4">
@@ -431,6 +455,7 @@ function LiveMap({ server, info, onChange, onTurnOff, menuOpen, onMenuOpenChange
           )}
         </div>
       </div>
+      {areaDialog}
     </div>
   )
 }

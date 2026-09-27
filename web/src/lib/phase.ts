@@ -185,6 +185,8 @@ const opKeys: Record<string, MessageKey> = {
   'disk-cleanup': 'op.disk-cleanup',
   'offsite-restore': 'op.offsite-restore',
   'offsite-check': 'op.offsite-check',
+  // The map's area, and the World tab's pre-generation.
+  'pregen-start': 'op.pregen-start',
 }
 
 /** "Backing up Survival", for the job pill and busy notes. */

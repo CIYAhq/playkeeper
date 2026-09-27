@@ -921,6 +921,9 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/world-imports/{imp}/preview", a.hWorldImportPreview},
 		{"POST", "/v1/world-imports/{imp}/apply", a.hWorldImportApply},
 		{"POST", "/v1/world-imports/{imp}/create", a.hWorldImportCreate},
+		// The map's area: the explored land, or a bigger area pre-generated for it.
+		{"GET", "/v1/servers/{id}/map/area", srv((*server).hMapArea)},
+		{"POST", "/v1/servers/{id}/map/area", srv((*server).hMapAreaSet)},
 	}, a.automationRoutes()...)
 }
 

@@ -5369,6 +5369,97 @@ webcontrol "an add-on job's Close becomes Done when it finishes with nothing to 
             {t('"'"'common.done'"'"')}' \
   web/src/pages/server/plugins/plugins.test.tsx 'keeps focus on Close as the job finishes with nothing to restart'
 
+# The map's area: choosing it takes the map on and an admin, and what was
+# generated stays; squaremap draws a finished pre-generation while the map
+# is on; the world border is filled where Chunky finds it.
+control "choosing the map's area needs the map on" internal/agent/maparea.go \
+  '	} else if rec == nil {
+		writeError(w, errConflict("Turn on the map first.", ""))' \
+  '	} else if false && rec == nil {
+		writeError(w, errConflict("Turn on the map first.", ""))' \
+  ./internal/agent '^TestMapAreaRefusals$'
+control "a map area past the world border is refused" internal/agent/maparea.go \
+  '	case opt.PastBorder:' \
+  '	case false && opt.PastBorder:' \
+  ./internal/agent '^TestTheMapAreaFillsUpToTheWorldBorder$'
+control "sizes bigger than the world border count as past it" internal/agent/maparea.go \
+  'PastBorder: border > 0 && c.ID != api.MapAreaBorder && c.Radius > border,' \
+  'PastBorder: false,' \
+  ./internal/agent '^TestTheMapAreaFillsUpToTheWorldBorder$'
+control "an area the map has can't be chosen again" internal/agent/maparea.go \
+  '	case opt.Done:' \
+  '	case false && opt.Done:' \
+  ./internal/agent '^TestTheMapAreaFillsInABiggerAreaThatSquaremapThenDraws$'
+control "Explored only can't be chosen once an area is filled in" internal/agent/maparea.go \
+  '		case cur.Fill.State == "finished":' \
+  '		case false && cur.Fill.State == "finished":' \
+  ./internal/agent '^TestTheMapAreaFillsInABiggerAreaThatSquaremapThenDraws$'
+control "a replaced area carries on as it was when the new one doesn't start" internal/agent/pregen.go \
+  '			s.keepPregen(ctx, ctrl, old, paused)' \
+  '			_ = paused' \
+  ./internal/agent '^TestReplacingTheMapAreaKeepsTheOldOneUntilTheNewOneStarts$'
+control "a replacement that can't be recorded ends the old area" internal/agent/pregen.go \
+  '			if eerr := s.endPregen(old, pregenCancelled, nil, nil); eerr != nil {' \
+  '			if eerr := error(nil); eerr != nil {' \
+  ./internal/agent '^TestAReplacementThatCantBeRecordedEndsTheOldArea$'
+control "a finished area stays done after a bigger one is stopped" internal/agent/pregen.go \
+  '	if err == nil && how == pregenFinished {' \
+  '	if false && err == nil && how == pregenFinished {' \
+  ./internal/agent '^TestTheLargestFinishedAreaStaysDone$'
+control "the largest finished area is done, not the latest" internal/agent/pregen.go \
+  'done_radius = MAX(done_radius, radius),' \
+  'done_radius = radius,' \
+  ./internal/agent '^TestTheLargestFinishedAreaStaysDone$'
+control "the world border is done only as far as it was filled" internal/agent/maparea.go \
+  '			done = c.Radius <= doneBorder' \
+  '			done = doneBorder > 0' \
+  ./internal/agent '^TestTheMapAreaFillsUpToTheWorldBorder$'
+control "squaremap draws a finished pre-generation" internal/agent/pregen.go \
+  '		s.drawPregenerated(ctx)
+		return nil, nil' \
+  '		return nil, nil' \
+  ./internal/agent '^TestTheMapAreaFillsInABiggerAreaThatSquaremapThenDraws$'
+control "squaremap is asked to draw only while the map is on" internal/agent/maparea.go \
+  'if err != nil || rec == nil || rec.pendingRestart(s.mapLive(ctx, true)) {' \
+  'if err != nil || rec.pendingRestart(s.mapLive(ctx, true)) {' \
+  ./internal/agent '^TestPreGeneratingOnTheWorldTabGrowsTheMap$'
+control "the world border is filled where Chunky finds it" internal/agent/pregen.go \
+  '		plan.Radius = started.Radius' \
+  '		_ = started.Radius' \
+  ./internal/agent '^TestTheMapAreaFillsUpToTheWorldBorder$'
+control "choosing the map's area takes an admin" internal/panel/server.go \
+  'sm("POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),' \
+  'smAs(actView, "POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),' \
+  ./internal/panel '^TestOnlyAdminsChooseTheMapArea$'
+control "a world border that isn't a square is refused" internal/pregen/controller.go \
+  '	case sized && size.Kind == EventRadiiSet, reshaped && shape.Shape != string(Square):' \
+  '	case false && (sized && size.Kind == EventRadiiSet || reshaped && shape.Shape != string(Square)):' \
+  ./internal/pregen '^TestStartOnBorderRefused$'
+control "a world border further out than Playkeeper pre-generates is refused" internal/pregen/controller.go \
+  '	case r > MaxRadius:' \
+  '	case false && r > MaxRadius:' \
+  ./internal/pregen '^TestStartOnBorderRefused$'
+webcontrol "the Map area is left out for those who can't change the map" web/src/pages/server/map.tsx \
+  "{changes && <MenuItem onClick={() => setAreaOpen(true)}>{t('mapArea.menu')}</MenuItem>}" \
+  "<MenuItem onClick={() => setAreaOpen(true)}>{t('mapArea.menu')}</MenuItem>" \
+  web/src/pages/server/map.test.tsx 'is left out for those who can'
+webcontrol "the phone's Map area row is left out for those who can't change the map" web/src/pages/server/map.tsx \
+  '            {changes && (
+              <>
+                <MapAreaRow' \
+  '            {true && (
+              <>
+                <MapAreaRow' \
+  web/src/pages/server/map.test.tsx 'is left out for those who can'
+webcontrol "Explored only is out of reach once an area is filled in" web/src/pages/server/map-area.tsx \
+  '<ChoiceCard value="explored" disabled={locked}' \
+  '<ChoiceCard value="explored" disabled={false}' \
+  web/src/pages/server/map.test.tsx 'keeps what the map has and sizes past the border out of reach'
+webcontrol "Start waits for another area to be chosen" web/src/pages/server/map-area.tsx \
+  "(unchanged ? t('mapArea.unchanged') : undefined)" \
+  "(undefined)" \
+  web/src/pages/server/map.test.tsx 'with what it takes shown first'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
