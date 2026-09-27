@@ -346,6 +346,16 @@ describe('The map’s area', () => {
     expect(menuItem(t('map.turnOffMenu'))).toBeDefined()
     expect(menuItem(t('mapArea.menu'))).toBeUndefined()
     expect(fillCard()).toBeDefined()
+
+    const phone = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+    try {
+      await renderMap(mapInfo({}), undefined, running, moderator)
+      await click(buttonNamed(t('map.settings')))
+      expect(document.body.textContent).toContain(t('map.turnOffMenu'))
+      expect(buttonNamed(`${t('mapArea.row')}2,500 blocks`)).toBeUndefined()
+    } finally {
+      phone.mockRestore()
+    }
   })
 
   it('opens from the phone’s Map settings, which say what the area is', async () => {
