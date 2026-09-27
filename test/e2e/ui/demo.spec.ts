@@ -44,6 +44,18 @@ function watch(page: Page): string[] {
   return problems
 }
 
+/**
+ * The demo starts over on the hour (engine.ts), and takes along whatever a
+ * walk was in the middle of, such as an upload. Each test's clock starts ten
+ * minutes into the hour it runs in and goes on from there, so no walk crosses
+ * one.
+ */
+async function midHour(target: Page | BrowserContext) {
+  const at = new Date()
+  at.setUTCMinutes(10, 0, 0)
+  await target.clock.install({ time: at })
+}
+
 /** A screenshot once transitions have finished, such as a toast sliding in. */
 async function still(page: Page, name: string, { fullPage = false } = {}) {
   fs.mkdirSync(shotsDir, { recursive: true })
@@ -53,6 +65,7 @@ async function still(page: Page, name: string, { fullPage = false } = {}) {
 // The demo's own sheet on a first visit, and its quiet prompt after a few
 // actions, would sit over the walks below; the test after them has both.
 test.beforeEach(async ({ page }) => {
+  await midHour(page)
   await quiet(page)
   await page.addInitScript(() => {
     localStorage.setItem('playkeeper-demo-welcomed', '1')
@@ -344,6 +357,7 @@ test('the live demo on a phone: the brand line and the install card', async ({ p
 
 test('the live demo’s first visit says it’s sample data, once, and a few actions in it asks quietly', async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  await midHour(context)
   await quiet(context)
   const events = await record(context)
   await context.route('https://github.com/**', (route) => route.fulfill({ contentType: 'text/html', body: '' }))
