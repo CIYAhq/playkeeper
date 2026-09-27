@@ -1,10 +1,11 @@
 import { ApiError, get, post, responseError, writeHeaders } from '@/api/client'
-import type { WorldImport } from '@/api/types'
+import type { FileUpload, WorldImport } from '@/api/types'
 import { t } from '@/i18n'
 
-// Resumable world uploads. Each file is announced, then sent in pieces from
-// the byte the machine says it has. After a dropped connection the upload
-// asks where it stands and carries on from there.
+// Resumable uploads of worlds and of files into a server's folder. Each file
+// is announced, then sent in pieces from the byte the machine says it has.
+// After a dropped connection the upload asks where it stands and carries on
+// from there.
 
 /** One request's share of a file: below the 100 MB common proxies accept. */
 export const pieceBytes = 64 << 20
@@ -46,27 +47,48 @@ export interface UploadOptions {
   piece?: number
 }
 
+/** An upload as its machine describes it: the files announced so far and how much of each arrived. */
+interface Session {
+  id: string
+  files: { name: string; size: number; received: number }[]
+}
+
+/** What a kind of upload adds to resumable's steps: how it opens, and each file's name and announcement. */
+interface Kind<T extends Session> {
+  open: () => Promise<T>
+  nameOf: (f: File, n: number) => string
+  announce: (f: File, n: number) => unknown
+  onSession?: (s: T) => void
+  /** What to say when the machine has other files for the upload being carried on. */
+  otherFiles: string
+}
+
 /**
- * Uploads files into a world import and returns it once the machine has every byte.
+ * Uploads files and returns the upload once the machine has every byte.
  * Carrying on with an upload asks the machine which files it has first and announces only the rest.
  */
-export async function uploadWorld(o: UploadOptions): Promise<WorldImport> {
+async function resumable<T extends Session>(o: Omit<UploadOptions, 'onImport' | 'resume'> & { resume?: Session }, kind: Kind<T>): Promise<T> {
   const put = o.put ?? xhrPut
   const wait = o.wait ?? sleep
   const piece = o.piece ?? pieceBytes
   const total = o.files.reduce((n, f) => n + f.size, 0)
-  const seen = (imp: WorldImport) => {
-    o.onImport?.(imp)
+  const seen = (imp: T) => {
+    kind.onSession?.(imp)
     return imp
   }
-  let imp = seen(o.resume ? await get<WorldImport>(`${o.base}/${o.resume.id}`) : await post<WorldImport>(o.base, {}))
+  let imp = seen(o.resume ? await get<T>(`${o.base}/${o.resume.id}`) : await kind.open())
   const path = `${o.base}/${imp.id}`
-  if (imp.files.length > o.files.length || imp.files.some((f, n) => f.name !== o.files[n]?.name || f.size !== o.files[n]?.size)) {
-    throw new ApiError(409, { error: t('import.otherFiles'), code: 'conflict' })
+  const differs = (f: Session['files'][number], n: number) => {
+    const want = o.files[n]
+    return !want || f.name !== kind.nameOf(want, n) || f.size !== want.size
   }
-  for (const f of o.files.slice(imp.files.length)) {
+  if (imp.files.length > o.files.length || imp.files.some(differs)) {
+    throw new ApiError(409, { error: kind.otherFiles, code: 'conflict' })
+  }
+  for (const [n, f] of o.files.entries()) {
+    if (n < imp.files.length) continue
     o.signal.throwIfAborted()
-    imp = seen(await post<WorldImport>(`${path}/files`, { name: f.name, size: f.size }))
+    imp = seen(await post<T>(`${path}/files`, kind.announce(f, n)))
   }
 
   let before = 0
@@ -81,7 +103,7 @@ export async function uploadWorld(o: UploadOptions): Promise<WorldImport> {
       const res = await put(`${path}/files/${n}?offset=${from}`, f.slice(from, Math.min(f.size, from + piece)), (bytes) => report(from + bytes), o.signal)
       let err: ApiError
       if (res.status >= 200 && res.status < 300) {
-        imp = seen(JSON.parse(res.text) as WorldImport)
+        imp = seen(JSON.parse(res.text) as T)
         at = imp.files[n]?.received ?? 0
         report(at)
         if (at > from) {
@@ -101,7 +123,7 @@ export async function uploadWorld(o: UploadOptions): Promise<WorldImport> {
         await wait(backoffMs(tries), o.signal)
       }
       try {
-        imp = seen(await get<WorldImport>(path))
+        imp = seen(await get<T>(path))
         at = imp.files[n]?.received ?? at
         if (at > from) tries = 0
       } catch (e) {
@@ -112,6 +134,46 @@ export async function uploadWorld(o: UploadOptions): Promise<WorldImport> {
     before += f.size
   }
   return imp
+}
+
+/** Uploads world archives into a world import and returns it once the machine has every byte. */
+export function uploadWorld(o: UploadOptions): Promise<WorldImport> {
+  return resumable<WorldImport>(o, {
+    open: () => post<WorldImport>(o.base, {}),
+    nameOf: (f) => f.name,
+    announce: (f) => ({ name: f.name, size: f.size }),
+    onSession: o.onImport,
+    otherFiles: t('import.otherFiles'),
+  })
+}
+
+export interface FileUploadOptions extends Omit<UploadOptions, 'resume' | 'onImport'> {
+  /** The server's uploads, /api/servers/{id}/files/uploads. */
+  base: string
+  /** The folder the files go into, '' for the server's folder. */
+  folder: string
+  /** Each file's path in that folder, which may name folders a dropped folder makes; its name when missing. */
+  paths?: string[]
+  /** Replace files of the same names. */
+  replace?: boolean
+  resume?: FileUpload
+  onUpload?: (up: FileUpload) => void
+}
+
+/**
+ * Uploads files into a server's folder and returns the upload once the
+ * machine has every byte. The machine puts each file in place once it is
+ * whole; a file it couldn't put in place says why in its error.
+ */
+export function uploadFiles(o: FileUploadOptions): Promise<FileUpload> {
+  const nameOf = (f: File, n: number) => o.paths?.[n] ?? f.name
+  return resumable<FileUpload>(o, {
+    open: () => post<FileUpload>(o.base, { folder: o.folder }),
+    nameOf,
+    announce: (f, n) => ({ name: nameOf(f, n), size: f.size, replace: !!o.replace }),
+    onSession: o.onUpload,
+    otherFiles: t('files.upload.otherFiles'),
+  })
 }
 
 /** Can a failed request work later? Refusals such as a full disk or a gone upload can't. */

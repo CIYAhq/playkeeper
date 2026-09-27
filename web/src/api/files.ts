@@ -1,0 +1,48 @@
+import { api, get, post } from './client'
+import type { FileContent, FileInfo, Files } from './types'
+import { serverApi } from './workspace'
+
+// Each server's file browser, through the panel to the machine that runs it.
+
+const filesApi = (serverId: string, rest = '') => serverApi(serverId, `/files${rest}`)
+
+/** The most paths one move or delete sends; a larger selection goes in turns. */
+const batch = 200
+
+export function listFiles(serverId: string, path: string): Promise<Files> {
+  return get<Files>(filesApi(serverId, `?path=${encodeURIComponent(path)}`))
+}
+
+export function openFile(serverId: string, path: string): Promise<FileContent> {
+  return get<FileContent>(filesApi(serverId, `/content?path=${encodeURIComponent(path)}`))
+}
+
+/**
+ * Saves text over a file. expect is the version it was opened with, so a
+ * file that changed since is refused; 'new' makes a file that must not exist
+ * yet; '' saves over whatever is there.
+ */
+export function saveFile(serverId: string, path: string, text: string, expect: string): Promise<FileInfo> {
+  const q = `?path=${encodeURIComponent(path)}${expect ? `&expect=${encodeURIComponent(expect)}` : ''}`
+  return api<FileInfo>('PUT', filesApi(serverId, `/content${q}`), undefined, new Blob([text], { type: 'text/plain; charset=utf-8' }))
+}
+
+export function makeFolder(serverId: string, path: string): Promise<unknown> {
+  return post(filesApi(serverId, '/folder'), { path })
+}
+
+export async function moveFiles(serverId: string, items: { from: string; to: string }[]): Promise<void> {
+  for (let i = 0; i < items.length; i += batch) await post(filesApi(serverId, '/move'), { items: items.slice(i, i + batch) })
+}
+
+export async function deleteFiles(serverId: string, paths: string[]): Promise<void> {
+  for (let i = 0; i < paths.length; i += batch) await post(filesApi(serverId, '/delete'), { paths: paths.slice(i, i + batch) })
+}
+
+/** A link that downloads a file, or a zip of folders or of several files in one folder. */
+export function downloadHref(serverId: string, paths: string[]): string {
+  return filesApi(serverId, `/download?${paths.map((p) => `path=${encodeURIComponent(p)}`).join('&')}`)
+}
+
+/** Where the server's uploads open. */
+export const uploadsApi = (serverId: string) => filesApi(serverId, '/uploads')

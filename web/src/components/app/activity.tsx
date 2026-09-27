@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { ArchiveIcon, ArchiveXIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, HistoryIcon, LogInIcon, MemoryStickIcon, MoonIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, SunIcon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
+import { ArchiveIcon, ArchiveXIcon, CircleAlertIcon, CircleArrowUpIcon, DownloadIcon, FilePenIcon, FilePlusIcon, FileUpIcon, FolderInputIcon, FolderPlusIcon, HistoryIcon, LogInIcon, MemoryStickIcon, MoonIcon, PencilLineIcon, PlayIcon, PowerIcon, RotateCwIcon, ShieldCheckIcon, ShieldOffIcon, SlidersHorizontalIcon, SproutIcon, SquareIcon, SunIcon, Trash2Icon, UserMinusIcon, UserPlusIcon, UserXIcon } from 'lucide-react'
 import type { Activity, ActivityKind, ProjectRole, ServerStatus } from '@/api/types'
 import { useWorkspace } from '@/api/workspace'
 import { ListSkeleton } from '@/components/app/skeletons'
@@ -57,11 +57,30 @@ function icon(kind: ActivityKind): ReactNode {
       return <SunIcon />
     case 'backup_refused':
       return <ArchiveXIcon />
+    case 'file_saved':
+      return <FilePenIcon />
+    case 'file_created':
+      return <FilePlusIcon />
+    case 'file_uploaded':
+      return <FileUpIcon />
+    case 'folder_made':
+      return <FolderPlusIcon />
+    case 'file_renamed':
+      return <PencilLineIcon />
+    case 'file_moved':
+      return <FolderInputIcon />
+    case 'file_deleted':
+      return <Trash2Icon />
     default: {
       const unreachable: never = kind
       return unreachable
     }
   }
+}
+
+/** A folder in a sentence: its path, or the server's folder. */
+function folderText(folder: string | undefined): string {
+  return !folder || folder === '.' ? t('files.rootName') : folder
 }
 
 const refusalReasons: Record<string, MessageKey> = {
@@ -98,6 +117,7 @@ export function activityText(a: Activity, server: string, me: string, here = fal
   const named = !!a.actorKind && !!a.actorName
   const actor = named ? (a.actorName ?? '') : actorText(a.actor, me)
   const player = a.player ?? ''
+  const path = a.detail ?? ''
   switch (a.kind) {
     case 'joined':
       return here ? t('activity.joinedHere', { player }) : t('activity.joined', { player, server })
@@ -149,6 +169,24 @@ export function activityText(a: Activity, server: string, me: string, here = fal
       return player ? t('activity.wokeUp', { server, player }) : t('activity.wokeUpPlain', { server })
     case 'backup_refused':
       return t('activity.backupRefused', { server, reason: refusalReason(a.detail) })
+    case 'file_saved':
+      return here ? t('activity.fileSavedHere', { actor, path }) : t('activity.fileSaved', { actor, path, server })
+    case 'file_created':
+      return here ? t('activity.fileCreatedHere', { actor, path }) : t('activity.fileCreated', { actor, path, server })
+    case 'file_uploaded':
+      if (a.count && a.count > 1) {
+        const folder = folderText(a.detail)
+        return here ? t('activity.filesUploadedHere', { actor, folder, count: a.count }) : t('activity.filesUploaded', { actor, folder, count: a.count, server })
+      }
+      return here ? t('activity.fileUploadedHere', { actor, path }) : t('activity.fileUploaded', { actor, path, server })
+    case 'folder_made':
+      return here ? t('activity.folderMadeHere', { actor, path }) : t('activity.folderMade', { actor, path, server })
+    case 'file_renamed':
+      return here ? t('activity.fileRenamedHere', { actor, path }) : t('activity.fileRenamed', { actor, path, server })
+    case 'file_moved':
+      return here ? t('activity.fileMovedHere', { actor, path }) : t('activity.fileMoved', { actor, path, server })
+    case 'file_deleted':
+      return here ? t('activity.fileDeletedHere', { actor, path }) : t('activity.fileDeleted', { actor, path, server })
     default: {
       const unreachable: never = a.kind
       return unreachable

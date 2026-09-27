@@ -38,6 +38,7 @@ const abilities: { key: MessageKey; role: ProjectRole }[] = [
   { key: 'team.can.backup', role: 'moderator' },
   { key: 'team.can.restore', role: 'admin' },
   { key: 'team.can.settings', role: 'admin' },
+  { key: 'team.can.files', role: 'admin' },
   { key: 'team.can.servers', role: 'admin' },
   { key: 'team.can.team', role: 'admin' },
 ]
