@@ -1099,8 +1099,10 @@ func (s *server) hBackupCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Notes can be at most 200 characters."))
 		return
 	}
-	if !req.Stopped && !s.busy() {
-		if _, running, err := s.containerRunning(r.Context()); err == nil && running && !s.online(r.Context()) {
+	// A server another operation holds answers busy. That is asked last: a
+	// stop or restart that began meanwhile may be why it isn't online.
+	if !req.Stopped {
+		if _, running, err := s.containerRunning(r.Context()); err == nil && running && !s.online(r.Context()) && !s.busy() {
 			writeError(w, s.errNotOnlineForBackup())
 			return
 		}
