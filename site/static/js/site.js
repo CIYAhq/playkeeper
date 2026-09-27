@@ -125,6 +125,7 @@
   if (channel && listed.getAttribute('data-channels').split(' ').indexOf(channel) !== -1) {
     var tagged = function (s) { return s.replace(/(playkeeper\.io\/install)\b(?!\/)/g, '$1/' + channel); };
     $$('[data-install], [data-terminal]').forEach(function (box) {
+      if (box.hasAttribute('data-install')) box.classList.add('install-tagged');
       var walk = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
       for (var t = walk.nextNode(); t; t = walk.nextNode()) t.nodeValue = tagged(t.nodeValue);
       $$('[data-copy]', box).forEach(function (el) { el.setAttribute('data-copy', tagged(el.getAttribute('data-copy'))); });
