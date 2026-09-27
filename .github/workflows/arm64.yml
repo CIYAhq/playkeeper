@@ -7,7 +7,7 @@ name: ARM64
 # onboarding, play with protocol bots, back up, restore on a second runner
 # installed with the one-line installer, start every server type with the
 # hand-picked add-ons, the map, pre-generation and a modpack, and uninstall.
-# It takes about 40 minutes, so it runs on pull requests that change how
+# It uses six ARM runners, so it runs on pull requests that change how
 # Playkeeper is installed or updated or which runtime images it pins, when
 # started by hand, and on the assets a release build made (artifact): in the
 # Release check on the release it builds (release-check.yml), whose success a
@@ -54,20 +54,27 @@ defaults:
     shell: bash
 
 jobs:
+  # What make check and make lint-sh cover, run as CI runs them: the agent's
+  # tests in shards side by side, which check that together they ran every
+  # test.
   check:
     name: ARM — lint, typecheck and unit tests
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up pinned toolchains (the arm64 Go and Node)
         run: ./scripts/setup.sh
-      - name: make check
-        run: make check
-      - name: make lint-sh
-        run: make lint-sh
+      - name: make lint typecheck lint-sh
+        run: make lint typecheck lint-sh
+      - name: make test-go-other
+        run: make test-go-other
+      - name: make test-agent
+        run: make test-agent OUT=/tmp/agent-tests
+      - name: make test-web test-sh
+        run: make test-web test-sh
 
   package:
     name: ARM — the release assets, built and checked on ARM
