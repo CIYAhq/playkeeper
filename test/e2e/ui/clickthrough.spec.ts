@@ -104,7 +104,7 @@ async function routes(page: Page, phone: boolean): Promise<{ live: string[]; sha
     const map = (res.ok() ? await res.json() : {}) as { supported?: boolean; public?: boolean; path?: string }
     if (map.public && map.path) shared.push(map.path)
     const addons = addonTabs[s.type ?? '']
-    for (const tab of ['', '/console', '/players', '/world', ...(map.supported ? ['/map'] : []), ...(addons ? [addons] : []), '/files', '/settings']) out.push(`/servers/${s.slug}${tab}`)
+    for (const tab of ['', '/console', '/players', '/world', ...(map.supported ? ['/map'] : []), ...(addons ? [addons] : []), '/settings']) out.push(`/servers/${s.slug}${tab}`)
     // On desktop, copies are part of the backup rules page and Schedules is a section of Settings.
     out.push(`/servers/${s.slug}/world/backup-rules`)
     if (phone) out.push(`/servers/${s.slug}/world/backup-rules/copies`, `/servers/${s.slug}/settings/schedules`)
@@ -114,12 +114,9 @@ async function routes(page: Page, phone: boolean): Promise<{ live: string[]; sha
   }
   // The World tab's pages of their own, as a fresh install has them.
   if (servers[0]) out.push(`/servers/${servers[0].slug}/world/pregen`, `/servers/${servers[0].slug}/world/packs`)
-  // A folder of the first server's files, and its server.properties in the editor.
-  if (servers[0]) {
-    const { id, slug } = servers[0]
-    if ((await page.request.get(`/api/servers/${id}/files?path=config`)).ok()) out.push(`/servers/${slug}/files/config`)
-    out.push(`/servers/${slug}/file/server.properties`)
-  }
+  // The first server's server.properties in the editor. Its folders are crawled with a few files (fakedCrawls):
+  // a fresh server's folder has dozens, each with a menu of dialogs, and a move dialog opens every folder in it.
+  if (servers[0]) out.push(`/servers/${servers[0].slug}/file/server.properties`)
   out.push('/servers/new', '/servers/new#world')
   // The add-on library with Playkeeper's picks, for the first server that
   // has one (each library takes minutes), and a template someone shared.
@@ -183,6 +180,7 @@ function fakedCrawls(live: string[], phone: boolean): Crawl[] {
     ['friends and team', [...(first ? [`${first}/players`] : []), '/settings/team', '/settings/discord']],
     ['map on', map ? [map] : []],
     ['map restart', map ? [map] : []],
+    ['a few files', first ? [`${first}/files`, `${first}/files/plugins`] : []],
   ]
   return byView.flatMap(([view, pages]) => pages.map((route) => ({ route, view })))
 }

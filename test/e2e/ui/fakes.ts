@@ -1438,6 +1438,9 @@ export type View =
   | 'map restart'
   | 'second step'
   | 'shared links'
+  // The Files tab with a few files of each kind, one folder deep, instead of a fresh server's folder: a
+  // world in use, a jar, a link, and folders the move dialog can open without crawling a real tree.
+  | 'a few files'
 
 type Json = Record<string, unknown>
 
@@ -1506,6 +1509,7 @@ function server(view: View, s: Json): Json {
     case 'map restart':
     case 'second step':
     case 'shared links':
+    case 'a few files':
       return s
     default: {
       const unreachable: never = view
@@ -1888,6 +1892,34 @@ export function lay(view: View, path: string, body: unknown, host: string): unkn
   return undefined
 }
 
+/** What each folder holds in the view with a few files, while the server runs. */
+const fewFiles: Record<string, [string, string, number][]> = {
+  '': [
+    ['plugins', 'folder', 0],
+    ['world', 'folder', 0],
+    ['paper-26.1.2-74.jar', 'file', 51_380_224],
+    ['server.properties', 'file', 1_210],
+    ['uploads', 'link', 0],
+  ],
+  plugins: [
+    ['Essentials', 'folder', 0],
+    ['EssentialsX-2.21.2.jar', 'file', 3_210_000],
+  ],
+  'plugins/Essentials': [['config.yml', 'file', 4_096]],
+  world: [
+    ['region', 'folder', 0],
+    ['level.dat', 'file', 5_212],
+  ],
+}
+
+/** A folder's listing in the view with a few files: every folder the page or the move dialog opens is one of them, or empty. */
+function fewFilesAnswer(url: URL): Reply | undefined {
+  if (!/^\/api\/servers\/\w+\/files$/.test(url.pathname)) return undefined
+  const folder = url.searchParams.get('path') ?? ''
+  const entries = (fewFiles[folder] ?? []).map(([name, type, size], i) => ({ name, type, size, modifiedAt: ago(600 + i * 3_600) }))
+  return { status: 200, body: { path: folder, entries, running: true, worlds: ['world', 'world_nether', 'world_the_end'] } }
+}
+
 /** A generated 8×8 face, so tests never fetch or show a real player's skin. */
 export function standInFace(player: string): string {
   let h = 2166136261
@@ -2028,7 +2060,9 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
             ? mapAnswer(path)
             : view() === 'shared links'
               ? sharedAnswer(method, path, planning ? posted(request) : undefined)
-              : undefined
+              : view() === 'a few files' && method === 'GET'
+                ? fewFilesAnswer(url)
+                : undefined
       if (made) {
         calls.push({ method, path, status: made.status, faked: true, expected: made.expected, at })
         await route.fulfill({ status: made.status, contentType: 'application/json', body: JSON.stringify(made.body) })
