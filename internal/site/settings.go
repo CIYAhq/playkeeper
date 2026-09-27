@@ -15,6 +15,17 @@ type Settings struct {
 	// StarsFrom is the star count the header starts showing next to Star on
 	// GitHub; below it the button shows no number.
 	StarsFrom int
+	// Analytics counts visits on every page but the share page, whose
+	// template must never leave the browser. The Content-Security-Policy
+	// lets its script and collector in; empty turns it off. The live demo
+	// loads the same script (web/src/demo/vite.ts).
+	Analytics Analytics
+}
+
+// Analytics is an OpenAnalytics site: the script pages load, the collector it
+// reports to and the site's key.
+type Analytics struct {
+	Script, Collector, Key string
 }
 
 // Community is a place people can ask about Playkeeper.
@@ -46,4 +57,9 @@ var Default = Settings{
 	Community:      discussions,
 	InstallCommand: "curl -fsSL https://playkeeper.io/install | sudo sh",
 	StarsFrom:      50,
+	Analytics: Analytics{
+		Script:    "https://analytics-c.ciya.so/oa.js",
+		Collector: "https://analytics-c.ciya.so",
+		Key:       "oa_pk_tyJHnpyD4m-pl_XrUbi3maHu2Iqq87Uf",
+	},
 }
