@@ -573,8 +573,8 @@ test('a change to a shared layer or the crawler crawls every page; a change to a
   expect(affected(['test/e2e/ui/crawl.ts'], graph).mode).toBe('full')
   expect(affected(['web/vite.config.ts'], graph).mode).toBe('full')
   expect(affected(['web/src/pages/server/console.tsx'], graph)).toMatchObject({ mode: 'pages', pages: ['/servers/*/console'], preludes: ['/', '/servers/*'] })
-  // The World tab shows pre-generation's row too.
-  expect(affected(['web/src/pages/server/world-pregen.tsx'], graph)).toMatchObject({ mode: 'pages', pages: ['/servers/*/world', '/servers/*/world/pregen'], preludes: ['/', '/servers/*'] })
+  // The World tab shows pre-generation's row too, and the Map area uses its texts.
+  expect(affected(['web/src/pages/server/world-pregen.tsx'], graph)).toMatchObject({ mode: 'pages', pages: ['/servers/*/world', '/servers/*/world/pregen', '/servers/*/map'], preludes: ['/', '/servers/*'] })
   const twoFactor = affected(['web/src/pages/two-factor.tsx'], graph)
   expect(twoFactor.pages).toEqual(expect.arrayContaining(['/account', '/account/two-factor']))
   expect(twoFactor.pages).not.toContain('/servers/*')
