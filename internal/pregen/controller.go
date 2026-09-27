@@ -84,6 +84,11 @@ func (c *Controller) Start(ctx context.Context, pl Plan, opt StartOptions) (Star
 			return Started{}, &Error{Code: CodeOutsideWorld, Params: map[string]any{"centerX": s.CenterX, "centerZ": s.CenterZ, "radius": s.Radius, "limit": WorldLimit}, Msg: "This area around the world spawn reaches past the edge of the Minecraft world.", Hint: "Use a smaller radius."}
 		}
 	}
+	if pl.OnBorder {
+		if s.CenterX, s.CenterZ, s.Radius, err = c.border(ctx, pl.World); err != nil {
+			return Started{}, err
+		}
+	}
 	cmd := fmt.Sprintf("chunky start %s %s %d %d %d", s.World, s.Shape, s.CenterX, s.CenterZ, s.Radius)
 	if evs, err = c.run(ctx, cmd); err != nil {
 		return Started{}, err
@@ -115,27 +120,67 @@ func (c *Controller) Start(ctx context.Context, pl Plan, opt StartOptions) (Star
 	return Started{}, unexpected(cmd, evs)
 }
 
-// spawn asks Chunky for world's spawn point, the block to center on.
-func (c *Controller) spawn(ctx context.Context, world string) (int, int, error) {
+// selectWorld makes world the one Chunky's next commands are about.
+func (c *Controller) selectWorld(ctx context.Context, world string) error {
 	evs, err := c.run(ctx, "chunky world "+world)
 	if err != nil {
-		return 0, 0, err
+		return err
 	}
 	e, ok := find(evs, EventWorldSet, EventUsage)
 	switch {
 	case ok && e.Kind == EventUsage:
-		return 0, 0, unknownWorld(world)
+		return unknownWorld(world)
 	case !ok || e.World != world:
-		return 0, 0, unexpected("chunky world", evs)
+		return unexpected("chunky world", evs)
 	}
-	if evs, err = c.run(ctx, "chunky spawn"); err != nil {
+	return nil
+}
+
+// spawn asks Chunky for world's spawn point, the block to center on.
+func (c *Controller) spawn(ctx context.Context, world string) (int, int, error) {
+	if err := c.selectWorld(ctx, world); err != nil {
 		return 0, 0, err
 	}
-	e, ok = find(evs, EventCenterSet)
+	evs, err := c.run(ctx, "chunky spawn")
+	if err != nil {
+		return 0, 0, err
+	}
+	e, ok := find(evs, EventCenterSet)
 	if !ok || math.Abs(e.CenterX) > WorldLimit || math.Abs(e.CenterZ) > WorldLimit {
 		return 0, 0, unexpected("chunky spawn", evs)
 	}
 	return int(math.Floor(e.CenterX)), int(math.Floor(e.CenterZ)), nil
+}
+
+// border asks Chunky for world's border: the block it is centered on and
+// its radius in blocks, rounded out to whole blocks.
+func (c *Controller) border(ctx context.Context, world string) (int, int, int, error) {
+	if err := c.selectWorld(ctx, world); err != nil {
+		return 0, 0, 0, err
+	}
+	evs, err := c.run(ctx, "chunky worldborder")
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	center, ok := find(evs, EventCenterSet)
+	size, sized := find(evs, EventRadiusSet, EventRadiiSet)
+	shape, reshaped := find(evs, EventShapeSet)
+	switch {
+	case sized && size.Kind == EventRadiiSet, reshaped && shape.Shape != string(Square):
+		return 0, 0, 0, &Error{Code: CodeBorderShape, Params: map[string]any{"world": world}, Msg: fmt.Sprintf("The world border of %s isn't a square, so Playkeeper can't fill up to it.", shortQuote(world)), Hint: "Choose a size around spawn instead."}
+	case !ok || !sized || math.Abs(center.CenterX) > WorldLimit || math.Abs(center.CenterZ) > WorldLimit:
+		return 0, 0, 0, unexpected("chunky worldborder", evs)
+	}
+	x, z, r := int(math.Floor(center.CenterX)), int(math.Floor(center.CenterZ)), int(math.Ceil(size.Radius))
+	switch {
+	case r > MaxRadius:
+		return 0, 0, 0, &Error{Code: CodeRadiusTooLarge, Params: map[string]any{"radius": r, "max": MaxRadius}, Msg: fmt.Sprintf("The world border is %d blocks from its center, further than Playkeeper pre-generates (at most %d).", r, MaxRadius), Hint: "Choose a size around spawn, or bring the world border in."}
+	case r < MinRadius:
+		return 0, 0, 0, &Error{Code: CodeRadiusTooSmall, Params: map[string]any{"radius": r, "min": MinRadius}, Msg: fmt.Sprintf("The world border is only %d blocks from its center, too close to pre-generate; the smallest is %d.", r, MinRadius), Hint: "Choose a size around spawn instead."}
+	case abs(x)+r > WorldLimit || abs(z)+r > WorldLimit:
+		return 0, 0, 0, &Error{Code: CodeOutsideWorld, Params: map[string]any{"centerX": x, "centerZ": z, "radius": r, "limit": WorldLimit}, Msg: "The world border reaches past the edge of the Minecraft world.", Hint: "Choose a size around spawn instead."}
+	}
+	return x, z, r, nil
 }
 
 // Pause stops the task in world and saves it so Continue can resume it.

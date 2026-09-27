@@ -197,10 +197,21 @@ type Plan struct {
 	// CenterOnSpawn centers the area on the world's spawn point, where new
 	// players appear; the controller asks Chunky where that is.
 	CenterOnSpawn bool `json:"centerOnSpawn"`
+	// OnBorder fills the world up to its border: the controller asks Chunky
+	// for the border's center and radius, which replace CenterX, CenterZ
+	// and Radius. Radius is then the radius the border was seen to have,
+	// for the estimate.
+	OnBorder bool `json:"onBorder,omitempty"`
 	// Radius is the distance in blocks from the center to the edge: half
 	// the width of a square, or a circle's radius.
 	Radius int   `json:"radius"`
 	Shape  Shape `json:"shape"`
+}
+
+// BorderPlan fills world up to its border, a square seen to reach radius
+// blocks from its center.
+func BorderPlan(world string, radius int) Plan {
+	return Plan{World: world, OnBorder: true, Radius: radius, Shape: Square}
 }
 
 // Check reports the first thing wrong with the plan for a server on p.
@@ -214,13 +225,16 @@ func (pl Plan) Check(p Platform) error {
 	if pl.Shape != Square && pl.Shape != Circle {
 		return &Error{Code: CodeInvalidShape, Params: map[string]any{"shape": string(pl.Shape)}, Msg: fmt.Sprintf("%s is not a shape Playkeeper can pre-generate.", shortQuote(string(pl.Shape))), Hint: `Choose "square" or "circle".`}
 	}
+	if pl.OnBorder && (pl.CenterOnSpawn || pl.Shape != Square) {
+		return &Error{Code: CodeInvalidShape, Params: map[string]any{"shape": string(pl.Shape)}, Msg: "The world border is a square around its own center.", Hint: "Fill up to the border, or choose a size around spawn."}
+	}
 	if pl.Radius < MinRadius {
 		return &Error{Code: CodeRadiusTooSmall, Params: map[string]any{"radius": pl.Radius, "min": MinRadius}, Msg: fmt.Sprintf("A radius of %d blocks is too small to pre-generate; the smallest is %d.", pl.Radius, MinRadius), Hint: "Pick a preset or a radius of at least a few hundred blocks."}
 	}
 	if pl.Radius > MaxRadius {
 		return &Error{Code: CodeRadiusTooLarge, Params: map[string]any{"radius": pl.Radius, "max": MaxRadius}, Msg: fmt.Sprintf("A radius of %d blocks is larger than Playkeeper pre-generates (at most %d).", pl.Radius, MaxRadius), Hint: "Players rarely travel that far; a radius of 5,000 to 10,000 blocks covers most worlds."}
 	}
-	if !pl.CenterOnSpawn && (abs(pl.CenterX)+pl.Radius > WorldLimit || abs(pl.CenterZ)+pl.Radius > WorldLimit) {
+	if !pl.CenterOnSpawn && !pl.OnBorder && (abs(pl.CenterX)+pl.Radius > WorldLimit || abs(pl.CenterZ)+pl.Radius > WorldLimit) {
 		return &Error{Code: CodeOutsideWorld, Params: map[string]any{"centerX": pl.CenterX, "centerZ": pl.CenterZ, "radius": pl.Radius, "limit": WorldLimit}, Msg: "This area reaches past the edge of the Minecraft world.", Hint: "Move the center closer to 0, 0 or use a smaller radius."}
 	}
 	return nil
@@ -274,9 +288,12 @@ const (
 	CodeNotRunning        = "not_running"
 	CodeNothingToContinue = "nothing_to_continue"
 	CodeRadiusLimit       = "radius_limit"
-	CodeUnexpectedReply   = "unexpected_reply"
-	CodeConsole           = "console_failed"
-	CodeConfig            = "config_failed"
+	// CodeBorderShape is a world border that isn't a square, such as a
+	// round one a border plugin draws.
+	CodeBorderShape     = "border_shape"
+	CodeUnexpectedReply = "unexpected_reply"
+	CodeConsole         = "console_failed"
+	CodeConfig          = "config_failed"
 	// CodeFileRefused is a file in the server's folder that Playkeeper
 	// refused, such as a link; see internal/gamefiles.
 	CodeFileRefused = "file_refused"
