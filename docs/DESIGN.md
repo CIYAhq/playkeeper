@@ -8,6 +8,9 @@ Playkeeper 2 is playful and guided: every screen says what to do next. It is bui
 - **Nothing generic.** No default blue or yellow alert boxes, sparkle icons, tinted pill badges with icons, icons in front of helper text, badges that repeat a heading, filler gradients or coloured left-border stripes. A recommendation is plain text or a preselected option.
 - **One notice at a time, quietly.** Non-urgent notices, like an available update, sit in the sidebar or inline, never in a full-width banner.
 - **Native on phones.** A bottom tab bar (Overview, Players, Console, World, More) and bottom sheets for menus, selects and dialogs; touch targets of 44 px or more.
+- **Headers stay, content scrolls.** A page header with tabs, or with a list of pages beside it, stays at the top while only the content below it scrolls: on desktop it is the top of the page's card, rounded corners and all; on phones it is a compact bar (a server's name and search, or a back link and a title) that takes a blurred background and a hairline once the page scrolls under it. Phones keep one scroll area, the page itself, and the bottom tab bar. `StickyHeader` in `web/src/components/app/sticky-header.tsx` sets `--header-h`, the page's scroll padding, so jumps, focused controls and found words land below it.
+- **Section lists glide.** Pressing a section in a page's list of sections (`SectionNav` in `web/src/components/app/section-nav.tsx`) scrolls smoothly to it, in one jump when the system asks for reduced motion, and puts it in the address. The pressed section is current at once, and the current section follows the scroll after that.
+- **A pointer on everything that can be pressed.** Buttons, links, tabs, rows that open something, switches, checkboxes, segmented controls, menu items, options and the labels that toggle a control show a pointer; a disabled control shows `not-allowed` or takes no pointer. One base rule in `web/src/styles.css` covers them by element and role, and the coss ui parts don't override it.
 - **No browser-default controls.** Selects, menus, checkboxes, radios, switches, sliders and number fields are all custom components.
 - **Only what's needed at a glance.** Details live on the item's own page.
 - **Recognisable visuals.** Real server software logos in one consistent tile, original pixel art for anything Minecraft, and real player faces. Never Mojang's logo, textures or art.
@@ -21,16 +24,16 @@ Motion shows what changed, quickly and plainly: no bounce, no overshoot, nothing
 | --- | --- | --- |
 | `--motion-fast` | 120 ms | hover, press, focus, checkboxes, menus, closing overlays |
 | `--motion-standard` | 200 ms | opening dialogs and sheets, switches, list rows, status changes |
-| `--motion-slow` | 280 ms | page and tab changes, progress bars and meters |
+| `--motion-slow` | 280 ms | progress bars and meters |
 | `--motion-ease-standard` | `cubic-bezier(0.2, 0, 0, 1)` | things that change in place |
 | `--motion-ease-enter` | `cubic-bezier(0, 0, 0.2, 1)` | things that appear |
 | `--motion-ease-exit` | `cubic-bezier(0.4, 0, 1, 1)` | things that go away |
 | `--motion-press-scale` | `0.98` | how far a pressed button shrinks |
 
-In Tailwind they are `duration-(--motion-fast)`, `ease-standard`, `ease-enter`, `ease-exit`, `scale-(--motion-press-scale)` and the `animate-page`, `animate-enter` and `animate-fade` animations.
+In Tailwind they are `duration-(--motion-fast)`, `ease-standard`, `ease-enter`, `ease-exit`, `scale-(--motion-press-scale)` and the `animate-enter` and `animate-fade` animations.
 
 - **Press and hover.** Buttons shade on hover and shrink to `--motion-press-scale` while pressed. Links and hand-made controls dim while pressed; cards that wrap a radio, checkbox or switch dim a little less. Disabled controls don't react.
-- **Pages and tabs.** A new page or server tab fades in while rising 6 px; the server header stays put between tabs.
+- **Pages and tabs.** A new page, server tab or step of a flow appears at once, without fading in, and everything on it is already in place: `appearAtOnce` in `web/src/lib/presence.ts` finishes the entrance animations of whatever came with it, including a page whose code was still loading. What changes after that, like a status or a row joining a list, still animates. The server header stays put between tabs.
 - **Overlays.** Dialogs, sheets, menus and selects animate through Base UI's `data-starting-style` and `data-ending-style`: dialogs fade in from 98% size, sheets slide in from their edge, menus and selects fade in from 97%. Menus and selects open fast; everything closes fast with the exit easing.
 - **Lists.** Rows added after a list first shows fade in from 4 px above (`data-entering`); removed rows fade out where they were before the list closes up (`data-leaving`). `useListPresence` in `web/src/lib/presence.ts` handles both.
 - **State changes.** Switch thumbs slide, status dots and labels fade to their new state, and progress bars ease to their new value.

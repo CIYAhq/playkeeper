@@ -400,7 +400,7 @@ function OfferDetails({ server: s, offer, res, gate }: { server: ServerStatus; o
           {t('common.remove')}
         </Button>
       </div>
-      <label className="mt-4 flex cursor-pointer items-center gap-3 self-start text-[13px] font-semibold" title={gate.blocked}>
+      <label className="mt-4 flex items-center gap-3 self-start text-[13px] font-semibold" title={gate.blocked}>
         <Switch checked={res.draft?.required ?? offer.required} onCheckedChange={(on) => res.change(offer, { required: on })} disabled={!!gate.blocked} />
         {t('packs.mustAccept')}
       </label>
@@ -567,7 +567,7 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
                   </span>
                 </li>
                 <li>
-                  <label className={cn(row, 'min-h-[52px] cursor-pointer')} title={gate.blocked}>
+                  <label className={cn(row, 'min-h-[52px]')} title={gate.blocked}>
                     <span className="min-w-0 flex-1 text-base">{t('packs.mustAcceptShort')}</span>
                     <Switch checked={res.draft?.required ?? offer.required} onCheckedChange={(on) => res.change(offer, { required: on })} disabled={!!gate.blocked} />
                   </label>

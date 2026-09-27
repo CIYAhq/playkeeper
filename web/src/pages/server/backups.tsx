@@ -153,7 +153,7 @@ function AutomaticCard({ server: s, view, onSaved }: { server: ServerStatus; vie
             disabledReason={locked}
             options={everyChoices.map((h) => ({ value: String(h), label: h === 24 ? t('backupRules.daily') : t('backupRules.every', { count: h }) }))}
           />
-          <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-[13px]" title={locked}>
+          <label className="mt-3 flex items-center gap-2.5 text-[13px]" title={locked}>
             <Checkbox checked={auto.onlyIfPlayed} onCheckedChange={(c) => void save({ ...auto, onlyIfPlayed: c === true })} disabled={!!locked} />
             {t('backupRules.onlyIfPlayed')}
           </label>
@@ -320,7 +320,7 @@ function RulesDialog({ server: s, view, onClose, onSaved }: { server: ServerStat
 
 function SwitchLine({ checked, onChange, title, hint, phone, disabled }: { checked: boolean; onChange: (v: boolean) => void; title: string; hint: string; phone?: boolean; disabled?: boolean }) {
   return (
-    <label className={cn('flex cursor-pointer items-start gap-3', phone && 'min-h-[60px] flex-row-reverse items-center justify-between border-b border-border py-2 last:border-b-0')}>
+    <label className={cn('flex items-start gap-3', phone && 'min-h-[60px] flex-row-reverse items-center justify-between border-b border-border py-2 last:border-b-0')}>
       <Switch checked={checked} onCheckedChange={onChange} className={phone ? '' : 'mt-0.5'} disabled={disabled} />
       <span className="min-w-0">
         <span className={cn('block font-semibold', phone ? 'text-base font-normal' : 'text-[13px]')}>{title}</span>

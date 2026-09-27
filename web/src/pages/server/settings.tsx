@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArchiveIcon, CircleArrowUpIcon, RotateCwIcon, SaveIcon, SquareIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { api, ApiError, get, post } from '@/api/client'
@@ -8,6 +8,7 @@ import { Emblem } from '@/components/app/art'
 import { DeleteServerDialog } from '@/components/app/delete-server'
 import { Card, CardHint, CardTitle, Progress, SectionLabel } from '@/components/app/bits'
 import { ChoiceSelect, SettingRow, useIsPhone, type Choice } from '@/components/app/controls'
+import { SectionNav } from '@/components/app/section-nav'
 import { InlineSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -65,8 +66,6 @@ const sections = [
   { id: 'danger', key: 'settings.danger' },
 ] as const
 
-const sectionIds = sections.map((x) => x.id)
-
 /**
  * A change another page asked for, like "Give it 6 GB" on How it's running:
  * ?memory=6144 or ?view=10. It shows as an unsaved change, never saved by itself.
@@ -79,49 +78,6 @@ function askedFor(): { memoryMB?: number; viewDistance?: number } {
     memoryMB: Number.isInteger(memory) && memory > 0 ? memory : undefined,
     viewDistance: Number.isInteger(view) && view >= 3 && view <= 32 ? view : undefined,
   }
-}
-
-/**
- * The section at the top of the screen, for the settings nav. The section in
- * the address wins while it is near the top: near the end of the page it
- * can't scroll all the way up, so the one above it is still in view.
- */
-function useActiveSection(ids: readonly string[]): string | undefined {
-  const asked = useCallback(() => {
-    const hash = window.location.hash.slice(1)
-    return ids.includes(hash) ? hash : undefined
-  }, [ids])
-  const [active, setActive] = useState<string | undefined>(() => asked() ?? ids[0])
-  useEffect(() => {
-    if (typeof IntersectionObserver === 'undefined') return
-    const visible = new Set<string>()
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting) visible.add(e.target.id)
-          else visible.delete(e.target.id)
-        }
-        const want = asked()
-        const next = want && visible.has(want) ? want : ids.find((id) => visible.has(id))
-        if (next) setActive(next)
-      },
-      { rootMargin: '0px 0px -65% 0px' },
-    )
-    for (const id of ids) {
-      const el = document.getElementById(id)
-      if (el) io.observe(el)
-    }
-    const onHash = () => {
-      const want = asked()
-      if (want) setActive(want)
-    }
-    window.addEventListener('hashchange', onHash)
-    return () => {
-      io.disconnect()
-      window.removeEventListener('hashchange', onHash)
-    }
-  }, [ids, asked])
-  return active
 }
 
 export function difficultyChoices(): Choice<Difficulty>[] {
@@ -185,11 +141,12 @@ export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus;
     setDraft({})
     setAsked({})
   }
-  const active = useActiveSection(sectionIds)
-  const target = focus ?? window.location.hash.slice(1)
+  // Opening Settings at a section jumps straight to it; the section list and
+  // links to a section of the page already open scroll there themselves.
   useEffect(() => {
+    const target = focus ?? window.location.hash.slice(1)
     if (target) document.getElementById(target)?.scrollIntoView({ block: 'start' })
-  }, [target])
+  }, [focus])
 
   async function save() {
     setSaving(true)
@@ -352,18 +309,7 @@ export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus;
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[160px_minmax(0,1fr)]">
-      <nav aria-label={t('settings.sections')} className="sticky top-4 hidden flex-col gap-0.5 self-start lg:flex">
-        {sections.map((x) => (
-          <a
-            key={x.id}
-            href={`#${x.id}`}
-            aria-current={active === x.id ? 'location' : undefined}
-            className="rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground aria-[current=location]:bg-accent aria-[current=location]:font-semibold aria-[current=location]:text-foreground"
-          >
-            {t(x.key)}
-          </a>
-        ))}
-      </nav>
+      <SectionNav label={t('settings.sections')} sections={sections.map((x) => ({ id: x.id, label: t(x.key) }))} className="sticky top-[calc(var(--header-h,0px)+24px)] hidden self-start lg:flex" />
       <div className="flex min-w-0 flex-col gap-4 pb-20">
         <Section id="game" title={t('settings.game')}>
           {game}
@@ -389,7 +335,7 @@ export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus;
 
 function Section({ id, title, hint, children }: { id: string; title: string; hint?: string; children: ReactNode }) {
   return (
-    <Card as="section" id={id} aria-labelledby={`${id}-title`} className="scroll-mt-4 pb-2">
+    <Card as="section" id={id} aria-labelledby={`${id}-title`} tabIndex={-1} className="scroll-mt-6 pb-2 outline-none">
       <CardTitle id={`${id}-title`}>{title}</CardTitle>
       {hint && <CardHint>{hint}</CardHint>}
       <div className="mt-2">{children}</div>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { scrollBehavior, scrollToSection } from './scroll'
 
 export type ServerTab = 'overview' | 'console' | 'players' | 'world' | 'map' | 'plugins' | 'mods' | 'settings'
 export const serverTabs: ServerTab[] = ['overview', 'console', 'players', 'world', 'map', 'plugins', 'mods', 'settings']
@@ -189,14 +190,16 @@ function appPath(pathname: string): string {
 }
 
 const listeners = new Set<() => void>()
+// Told of every navigation, a link to the page you're on included; listeners only when the address changes.
+const watchers = new Set<() => void>()
 
 /** Pressing a link to the page you're on takes you back to its top, or to its section. */
 function revisit(path: string) {
+  watchers.forEach((fn) => fn())
   const hash = path.split('#')[1]
   const section = hash ? document.getElementById(hash) : null
-  const behavior = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
-  if (section) section.scrollIntoView({ block: 'start', behavior })
-  else window.scrollTo({ top: 0, behavior })
+  if (section) section.scrollIntoView({ block: 'start', behavior: scrollBehavior() })
+  else window.scrollTo({ top: 0, behavior: scrollBehavior() })
   const focus = section?.matches('input, textarea, select, button, a[href], [tabindex]') ? section : document.getElementById('main')
   focus?.focus({ preventScroll: true })
 }
@@ -207,12 +210,24 @@ export function navigate(to: Route | string, replace = false) {
     revisit(path)
     return
   }
-  // Only a #section on the page you're on keeps the scroll; another page starts at its top and scrolls to its own section.
-  const samePage = path.split('#')[0] === window.location.pathname
+  // A #section of the page you're on scrolls there; another page starts at its top and jumps to its own section.
+  const [pathname, hash] = path.split('#')
+  const samePage = pathname === window.location.pathname
+  const section = samePage && hash ? document.getElementById(hash) : null
   if (replace) window.history.replaceState(null, '', path)
   else window.history.pushState(null, '', path)
   listeners.forEach((fn) => fn())
-  if (!(samePage && path.includes('#'))) window.scrollTo(0, 0)
+  watchers.forEach((fn) => fn())
+  if (section) scrollToSection(section)
+  else if (!(samePage && hash !== undefined)) window.scrollTo(0, 0)
+}
+
+/** Calls fn after each navigation inside the app, a link to the page you're on included, before the page scrolls; returns what stops it. */
+export function onNavigate(fn: () => void): () => void {
+  watchers.add(fn)
+  return () => {
+    watchers.delete(fn)
+  }
 }
 
 export function useRoute(): Route {

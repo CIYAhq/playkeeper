@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react'
 
 export type Presence = 'entering' | 'staying' | 'leaving'
 
@@ -81,4 +81,31 @@ export function presenceProps(state: Presence) {
     'data-leaving': state === 'leaving' ? '' : undefined,
     inert: state === 'leaving' || undefined,
   }
+}
+
+/** The keyframes things come in with: animate-fade, animate-enter and rows joining a list. */
+const entrances = new Set(['fade', 'enter'])
+
+/**
+ * Puts whatever is fading or sliding in right now straight in place. A new
+ * page, tab or step of a flow calls it as it commits, so it shows at once with
+ * everything on it; what changes after that, like a status or a row joining a
+ * list, still animates.
+ */
+export function appearAtOnce() {
+  for (const a of document.getAnimations?.() ?? []) {
+    const name = (a as Partial<CSSAnimation>).animationName
+    if (name && entrances.has(name) && a.effect?.getComputedTiming().endTime !== Infinity) a.finish()
+  }
+}
+
+/** Calls appearAtOnce whenever `key` changes, before the browser paints. */
+export function useAppearAtOnce(key: unknown) {
+  useLayoutEffect(() => appearAtOnce(), [key])
+}
+
+/** Content that may arrive after its page or tab opened, like a page whose code was still loading, shows at once too. */
+export function Appear({ children }: { children: ReactNode }) {
+  useLayoutEffect(() => appearAtOnce(), [])
+  return children
 }

@@ -95,9 +95,9 @@ function SettingsSection({ current, phoneBack, children }: { current: SettingsSe
   }
   return (
     <>
-      <PageHeader title={t('global.title')} />
+      <PageHeader title={t('global.title')} sticky />
       <PageBody className="grid max-w-[1240px] grid-cols-[200px_minmax(0,1fr)] items-start gap-7">
-        <nav aria-label={t('global.nav.label')} className="flex flex-col gap-0.5">
+        <nav aria-label={t('global.nav.label')} className="sticky top-[calc(var(--header-h,0px)+24px)] flex flex-col gap-0.5">
           {sections.map((s) => (
             <a key={s.route.name} {...linkProps(s.route)} aria-current={s === here ? 'page' : undefined} className={item(s === here)}>
               {t(s.label)}
@@ -107,7 +107,7 @@ function SettingsSection({ current, phoneBack, children }: { current: SettingsSe
             {t('global.playkeeper')}
           </a>
         </nav>
-        <div key={current} className="flex min-w-0 animate-page flex-col gap-4">
+        <div key={current} className="flex min-w-0 flex-col gap-4">
           {children}
         </div>
       </PageBody>
@@ -119,11 +119,12 @@ function SettingsSection({ current, phoneBack, children }: { current: SettingsSe
 function GeneralSettings() {
   const ws = useWorkspace()
   const phone = useIsPhone()
-  const hash = window.location.hash
+  // Opening the page at a section jumps straight to it; a link to a section of
+  // the page already open scrolls there by itself (navigate in router.ts).
   useEffect(() => {
-    if (!hash) return
-    document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' })
-  }, [hash])
+    const hash = window.location.hash
+    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' })
+  }, [])
   return (
     <SettingsSection current="settings">
       <PlaykeeperCard />

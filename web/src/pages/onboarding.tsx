@@ -21,6 +21,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, formatMB, serverJoinAddress } from '@/lib/format'
 import { createStepOf, isSettingUp } from '@/lib/phase'
+import { useAppearAtOnce } from '@/lib/presence'
 import { navigate } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { preset } from '@/lib/styles'
@@ -150,10 +151,10 @@ export function Onboarding() {
   }, [stage, server])
 
   const step = stage === 'check' ? 1 : 2
+  useAppearAtOnce(stage)
   return (
     <Frame step={step} version={ws.me.version}>
-      {/* The check comes in with the frame; each later stage animates in itself. */}
-      <div key={stage} className={cn('flex w-full flex-col items-center', stage !== 'check' && 'animate-page')}>
+      <div key={stage} className="flex w-full flex-col items-center">
         {stage === 'check' && <CheckStage onNext={() => setStage('first')} />}
         {stage === 'first' && <FirstStage onCreate={() => setStage('style')} />}
         {stage === 'style' && (

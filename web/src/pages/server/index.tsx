@@ -10,6 +10,7 @@ import { serverAction } from '@/components/app/server-action'
 import { serverTabsFor } from '@/components/app/server-tabs'
 import { PageBody, PhoneBackHeader, useShell } from '@/components/app/shell'
 import { LoadingLabel, TabSkeleton } from '@/components/app/skeletons'
+import { StickyHeader } from '@/components/app/sticky-header'
 import { TemplateDialog, TemplateMenuItem } from '@/components/app/templates'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
@@ -22,6 +23,7 @@ import { demo } from '@/lib/demo'
 import { formatMB, relativeTime } from '@/lib/format'
 import { awayOf, isStale, outOfReach, reachOf } from '@/lib/machines'
 import { controls, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from '@/lib/phase'
+import { Appear } from '@/lib/presence'
 import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
@@ -123,10 +125,9 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
   const offline = reach.state !== 'live' && outOfReach(reach.machine)
   if (offline && (page || tab !== 'overview')) body = <Overview server={server} />
   const ownView = !locked && !offline
-  // A page inside a tab animates in like a tab of its own. On desktop, both
+  // A page inside a tab starts afresh like a tab of its own. On desktop, both
   // backup pages are one page and Schedules is a section of Settings. The
-  // Plugins tab keeps its running job and highlighted file across its views,
-  // and animates switching between them itself.
+  // Plugins tab keeps its running job and highlighted file across its views.
   const inner = sub ?? page
   let view = inner ? `${tab}/${inner}` : tab
   if (tab === 'plugins' || tab === 'mods') view = tab
@@ -153,9 +154,11 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
       ) : (
         <ServerHeader server={server} tab={tab} settingUp={settingUp} />
       )}
-      <PageBody key={view} className="flex flex-1 animate-page flex-col gap-4">
+      <PageBody key={view} className="flex flex-1 flex-col gap-4">
         <LoadBoundary>
-          <Suspense fallback={<TabSkeleton />}>{body}</Suspense>
+          <Suspense fallback={<TabSkeleton />}>
+            <Appear>{body}</Appear>
+          </Suspense>
         </LoadBoundary>
       </PageBody>
     </>
@@ -294,7 +297,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
   const lastSeen = place.reach.state === 'away' ? undefined : place.reach.state === 'agentDown' ? place.reach.since : ws.stale && ws.lastSeenAt ? new Date(ws.lastSeenAt).toISOString() : undefined
   const locked = (t2: ServerTab) => settingUp && t2 !== 'overview' && t2 !== 'console'
   return (
-    <header className="border-b border-border px-7 pt-3.5">
+    <StickyHeader className="border-b border-border px-7 pt-3.5">
       <div className="flex h-8 items-center gap-2 text-[13px]">
         <nav aria-label={t('nav.breadcrumb')} className="flex min-w-0 items-center gap-1.5">
           {place.route && (
@@ -386,18 +389,19 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
           )
         })}
       </nav>
-    </header>
+    </StickyHeader>
   )
 }
 
+/** The phone's server header: a compact bar with the name, which opens the switcher, and search stays at the top; the status under it scrolls away. */
 function PhoneServerHeader({ server: s, tab }: { server: ServerStatus; tab: ServerTab }) {
   const shell = useShell()
   const [open, setOpen] = useState(false)
   const hint = useId()
   return (
-    <header className="flex items-start gap-2 pt-4 pb-3">
-      <div className="min-w-0 flex-1">
-        <h1 className="text-[22px] leading-7 font-bold tracking-[-0.015em]">
+    <>
+      <StickyHeader className="flex items-center gap-2 pt-2.5 pb-1.5">
+        <h1 className="min-w-0 flex-1 text-[22px] leading-7 font-bold tracking-[-0.015em]">
           <button type="button" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-describedby={hint} className="-ml-1 inline-flex max-w-full items-center gap-1 rounded-lg px-1 text-left">
             <span className="truncate">{s.name}</span>
             <ChevronDownIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -406,20 +410,20 @@ function PhoneServerHeader({ server: s, tab }: { server: ServerStatus; tab: Serv
         <span id={hint} className="sr-only">
           {t('nav.switchServer')}
         </span>
-        <PhoneStatus server={s} />
-      </div>
-      <Button variant="ghost" size="icon-lg" aria-label={t('nav.search')} onClick={shell.openPalette}>
-        <SearchIcon className="size-5" />
-      </Button>
+        <Button variant="ghost" size="icon-lg" aria-label={t('nav.search')} onClick={shell.openPalette}>
+          <SearchIcon className="size-5" />
+        </Button>
+      </StickyHeader>
+      <PhoneStatus server={s} />
       <SwitcherSheet open={open} onOpenChange={setOpen} current={s} tab={tab} />
-    </header>
+    </>
   )
 }
 
 function PhoneStatus({ server }: { server: ServerStatus }) {
   const place = useServerMachine(server)
   return (
-    <div className="mt-0.5 flex items-center">
+    <div className="-mt-2.5 flex items-center pb-3">
       <StatusPill server={server} agentDown={place.stale} away={awayOf(place.reach)} onChalk className="h-auto border-0 bg-transparent px-0 text-[13px] font-medium" />
     </div>
   )

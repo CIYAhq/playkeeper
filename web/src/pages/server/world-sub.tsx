@@ -4,6 +4,7 @@ import { ChevronLeftIcon, UploadIcon } from 'lucide-react'
 import type { ServerStatus } from '@/api/types'
 import { Spinner } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { StickyHeader } from '@/components/app/sticky-header'
 import { t } from '@/i18n'
 import { linkProps } from '@/lib/router'
 import { cn } from '@/lib/utils'
@@ -18,13 +19,13 @@ export function WorldSubHeader({ server, title }: { server: ServerStatus; title:
   const back = linkProps({ name: 'server', slug: server.slug, tab: 'world' })
   if (phone) {
     return (
-      <header className="-mb-2 grid grid-cols-[1fr_auto_1fr] items-center pt-2">
+      <StickyHeader className="-mb-2 grid grid-cols-[1fr_auto_1fr] items-center pt-2">
         <a {...back} className="-ml-2 inline-flex min-h-11 items-center gap-0.5 justify-self-start rounded-lg px-1 text-[17px] text-success-strong transition-opacity active:opacity-60">
           <ChevronLeftIcon className="size-5" aria-hidden="true" />
           {t('tab.world')}
         </a>
         <h1 className="text-[17px] font-semibold">{title}</h1>
-      </header>
+      </StickyHeader>
     )
   }
   return (
@@ -102,9 +103,8 @@ export function ZipDropZone({ label, onFile, busy, disabledReason, tall, classNa
 
 /**
  * Pins a page's main action above the phone's tabs; the spacer keeps the
- * content clear of it. The bar lives in the document body because the page
- * rises in with a transform, which would pin a fixed bar to the moving page
- * instead of the screen.
+ * content clear of it. The bar lives in the document body, so nothing on the
+ * page can become what it's fixed to instead of the screen.
  */
 export function PhoneActionBar({ label, children }: { label: string; children: ReactNode }) {
   return (

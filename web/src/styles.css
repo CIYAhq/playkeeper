@@ -135,7 +135,6 @@
   --ease-exit: var(--motion-ease-exit);
   --animate-skeleton: skeleton 1.6s ease-in-out infinite;
   --animate-enter: enter var(--motion-standard) var(--motion-ease-enter);
-  --animate-page: page var(--motion-slow) var(--motion-ease-enter);
   --animate-fade: fade var(--motion-standard) var(--motion-ease-standard);
 }
 
@@ -155,19 +154,6 @@
     opacity: 0;
   }
 }
-@keyframes page {
-  from {
-    opacity: 0;
-    top: 6px;
-  }
-}
-/* Pages rise with `top`, not `translate`: a translated page is the containing
-   block of the phone's fixed action bar, which would then sit at the page's
-   bottom edge until the animation ends and jump into place. */
-.animate-page {
-  position: relative;
-  top: 0;
-}
 
 @layer base {
   * {
@@ -177,6 +163,11 @@
   body {
     @apply bg-sidebar text-foreground antialiased;
     font-family: var(--font-sans);
+  }
+  /* A sticky page header sets --header-h to where its bottom edge stays, so a
+     jump to a section, a focused control or a found word lands below it. */
+  html {
+    scroll-padding-top: var(--header-h, 0px);
   }
   code,
   kbd,
@@ -189,6 +180,16 @@
     transition-property: color, background-color, border-color, text-decoration-color, box-shadow, opacity, scale;
     transition-duration: var(--motion-fast);
     transition-timing-function: var(--motion-ease-standard);
+  }
+  /* Everything that can be pressed shows a pointer, a label that toggles its
+     checkbox, radio or switch included; a disabled control shows it can't be.
+     Both rules weigh nothing, so a part's own cursor class still wins. */
+  :where(a[href], button, summary, [role="button"], [role="link"], [role="tab"], [role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="switch"], [role="checkbox"], [role="radio"], input:is([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="button"], [type="submit"], [type="reset"]), label:has(input:is([type="checkbox"], [type="radio"]), [role="checkbox"], [role="radio"], [role="switch"])) {
+    cursor: pointer;
+  }
+  :where(a[href], button, summary, input, [role="button"], [role="link"], [role="tab"], [role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="switch"], [role="checkbox"], [role="radio"]):where(:disabled, [aria-disabled="true"], [data-disabled]),
+  :where(label:has(input:is([type="checkbox"], [type="radio"]):disabled, :is([role="checkbox"], [role="radio"], [role="switch"]):is([data-disabled], [aria-disabled="true"]))) {
+    cursor: not-allowed;
   }
   /* Hand-made controls dim a little while pressed; coss ui parts (data-slot) press in their own way. */
   :where(a[href], button, summary, [role="button"]):not(:disabled, [aria-disabled="true"], [data-disabled], [data-slot]):active {

@@ -298,7 +298,7 @@ export function SchedulesSection({ server }: { server: ServerStatus }) {
   const rows = useListPresence(items, (s) => s.id)
   return (
     <>
-      <Card as="section" id="schedules" aria-labelledby="schedules-title" className="scroll-mt-4 pb-2">
+      <Card as="section" id="schedules" aria-labelledby="schedules-title" tabIndex={-1} className="scroll-mt-6 pb-2 outline-none">
         <div className="flex items-start gap-4">
           <div className="min-w-0 flex-1">
             <CardTitle id="schedules-title">{t('schedules.title')}</CardTitle>

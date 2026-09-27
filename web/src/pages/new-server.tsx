@@ -30,6 +30,7 @@ import { demo } from '@/lib/demo'
 import { formatList, formatMB } from '@/lib/format'
 import { playersFor } from '@/lib/memory'
 import { isAway, machineLabel } from '@/lib/machines'
+import { useAppearAtOnce } from '@/lib/presence'
 import { linkProps, navigate } from '@/lib/router'
 import { typeName } from '@/lib/servers'
 import { addonKind, hasBuilds, typeTexts } from '@/lib/software'
@@ -160,8 +161,8 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const machineName = target?.kind === 'remote' || (machine && !target) ? machineLabel(target) : ws.machineName
   const [c, setC] = useState<CreateChoices>()
   const [step, setStep] = useState(0)
-  // The first step comes in with the page; later ones animate in themselves.
-  const [stepped, setStepped] = useState(false)
+  // Each step shows at once, like a page of its own.
+  useAppearAtOnce(step)
   const [nameEdited, setNameEdited] = useState(false)
   const [busy, setBusy] = useState(false)
   const [createError, setCreateError] = useState<string>()
@@ -318,10 +319,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
     }
   }
 
-  const go = (to: number) => {
-    setStepped(true)
-    setStep(to)
-  }
+  const go = (to: number) => setStep(to)
   // A pack decides the version and comes with its own mods, so it skips to memory, which follows what the pack needs.
   function startWithPack(p: ModpackChoice) {
     setMemoryPicked(false)
@@ -735,7 +733,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const note = createNote(step, from, runsType)
   const worldSummary = world ? { from: sourceFrom(source), name: upload.state.phase === 'idle' ? '' : uploadName(upload.state.files), upload: upload.state, version: inspected ? versionChange(inspected.preview) : '' } : undefined
   const stepBody = (
-    <div key={step} className={cn(stepped && 'animate-page')}>
+    <div key={step}>
       {awayNotice}
       {body}
     </div>
