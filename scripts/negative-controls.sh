@@ -1167,8 +1167,8 @@ control "waiting for a request body's own source doesn't count against the machi
   'n, err := b.rc.Read(p)' \
   ./internal/machinelink '^TestLinkTimeLimitsCountOnlyWaitingOnTheMachine$'
 control "a joined machine takes data packs bigger than a request" internal/agent/link.go \
-  '"POST /v1/servers/{id}/datapacks":             true,' \
-  '"POST /v1/servers/{id}/datapacks":             false,' \
+  '"POST /v1/servers/{id}/datapacks":                   true,' \
+  '"POST /v1/servers/{id}/datapacks":                   false,' \
   ./internal/panel '^TestAJoinedMachineTakesBigPacks$'
 control "the dashboard keeps wrong join codes in panel.db" internal/panel/linkstore.go \
   '	for _, f := range fails {
@@ -1433,12 +1433,16 @@ control "file browser: a new folder is made only through real folders" internal/
   'if _, err := d.folders(ps[:len(ps)-1], true); false && err != nil {' \
   ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
 control "file browser: a move starts only from behind real folders" internal/gamefiles/browse.go \
-  'if _, err := d.folders(fps[:len(fps)-1], false); err != nil {' \
-  'if _, err := d.folders(fps[:len(fps)-1], false); false && err != nil {' \
+  'ffi, err := d.folders(fps[:len(fps)-1], false)
+	if err != nil {' \
+  'ffi, err := d.folders(fps[:len(fps)-1], false)
+	if false && err != nil {' \
   ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
 control "file browser: a move goes only into real folders" internal/gamefiles/browse.go \
-  'if _, err := d.folders(tps[:len(tps)-1], false); err != nil {' \
-  'if _, err := d.folders(tps[:len(tps)-1], false); false && err != nil {' \
+  'tfi, err := d.folders(tps[:len(tps)-1], false)
+	if err != nil {' \
+  'tfi, err := d.folders(tps[:len(tps)-1], false)
+	if false && err != nil {' \
   ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
 control "file browser: a delete reaches only through real folders" internal/gamefiles/browse.go \
   'if _, err := d.folders(ps[:len(ps)-1], false); err != nil {' \
@@ -1461,8 +1465,8 @@ control "file browser: the world can't change while the game runs" internal/agen
   'if false && inWorld(p, worlds) && s.gameRunning(ctx) {' \
   ./internal/agent '^TestTheWorldIsReadOnlyWhileTheGameRuns$'
 control "file browser: the editor opens world files read-only while the game runs" internal/agent/files.go \
-  'if running && inWorld(p, s.worldFolders()) {' \
-  'if false && running && inWorld(p, s.worldFolders()) {' \
+  'if running && inWorld(p, s.worldFolders(d)) {' \
+  'if false && running && inWorld(p, s.worldFolders(d)) {' \
   ./internal/agent '^TestTheWorldIsReadOnlyWhileTheGameRuns$'
 control "file browser: nothing changes while the server is busy" internal/agent/files.go \
   'if s.busy() {' \
@@ -4095,11 +4099,11 @@ webcontrol "leaving the page keeps an upload a server was made from" web/src/com
   web/src/pages/new-server.test.tsx
 # shellcheck disable=SC2016
 webcontrol "carrying on with an upload asks the machine which files it has" web/src/lib/upload.ts \
-  'let imp = seen(o.resume ? await get<WorldImport>(`${o.base}/${o.resume.id}`) : await post<WorldImport>(o.base, {}))' \
-  'let imp = seen(o.resume ?? (await post<WorldImport>(o.base, {})))' \
+  'let imp = seen(o.resume ? await get<T>(`${o.base}/${o.resume.id}`) : await kind.open())' \
+  'let imp = seen((o.resume as T | undefined) ?? (await kind.open()))' \
   web/src/lib/upload.test.ts
 webcontrol "carrying on refuses an upload whose files differ" web/src/lib/upload.ts \
-  ' || imp.files.some((f, n) => f.name !== o.files[n]?.name || f.size !== o.files[n]?.size)' \
+  ' || imp.files.some(differs)' \
   '' \
   web/src/lib/upload.test.ts
 webcontrol "Try again carries on with the upload as the machine last described it" web/src/components/app/world-import.tsx \
