@@ -39,6 +39,7 @@ const en = {
   'demo.deleteBody': 'Nothing was really deleted.',
   'demo.download': 'That was a demo download',
   'demo.downloadBody': 'There’s no world here to download.',
+  'demo.fileDownloadBody': 'The sample files stay in the demo.',
   'demo.recoveryKey': 'That was a demo recovery key',
   'demo.recoveryKeyBody': 'There’s no key here to save.',
   'demo.signOut': 'That was a demo sign-out',

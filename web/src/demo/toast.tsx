@@ -3,7 +3,7 @@ import { toastManager } from '@/components/ui/toast'
 import { dt, type DemoKey } from './messages'
 import { countDemoAction } from './welcome'
 
-export type DemoAction = 'start' | 'stop' | 'restart' | 'backup' | 'restore' | 'version' | 'create' | 'delete' | 'download' | 'recoveryKey' | 'signOut'
+export type DemoAction = 'start' | 'stop' | 'restart' | 'backup' | 'restore' | 'version' | 'create' | 'delete' | 'download' | 'fileDownload' | 'recoveryKey' | 'signOut'
 
 const words: Record<DemoAction, [DemoKey, DemoKey]> = {
   start: ['demo.start', 'demo.startBody'],
@@ -15,6 +15,7 @@ const words: Record<DemoAction, [DemoKey, DemoKey]> = {
   create: ['demo.create', 'demo.createBody'],
   delete: ['demo.delete', 'demo.deleteBody'],
   download: ['demo.download', 'demo.downloadBody'],
+  fileDownload: ['demo.download', 'demo.fileDownloadBody'],
   recoveryKey: ['demo.recoveryKey', 'demo.recoveryKeyBody'],
   signOut: ['demo.signOut', 'demo.signOutBody'],
 }

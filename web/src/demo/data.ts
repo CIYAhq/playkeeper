@@ -3,9 +3,10 @@
 // pre-generation, packs, address, health and history.
 // Every GET the dashboard makes is answered from `reads` at the bottom, or
 // from the reads of people.ts (the team, invites, Discord, profiles),
-// automation.ts (sleep, schedules, backup rules, copies, disk space) and
-// worlds.ts (world imports); a path that isn't in any of them gets "no sample
-// data" and its screen shows its empty state. To give a screen sample data,
+// automation.ts (sleep, schedules, backup rules, copies, disk space),
+// worlds.ts (world imports) and files.ts (each server's files); a path that
+// isn't in any of them gets "no sample data" and its screen shows its empty
+// state. To give a screen sample data,
 // add what it needs to DemoState and sample(), and its path to reads.
 
 import { ApiError } from '@/api/client'
@@ -35,6 +36,7 @@ import type {
   DailyActivity,
   DataPack,
   DataPacks,
+  FileUpload,
   LogLine,
   LogsResponse,
   MachineLinkInfo,
@@ -78,7 +80,7 @@ import { addonKind } from '@/lib/software'
 import { faceCount, faceIndex } from './faces'
 
 /** Bump when DemoState changes shape, so sessions saved by an older demo start over. */
-export const sampleVersion = 4
+export const sampleVersion = 5
 export const demoVersion = '0.4.0'
 export const demoUser = 'siya'
 export const machineId = 'q7m2vk9xpd'
@@ -161,6 +163,26 @@ export interface DemoState {
   runs: Record<string, ScheduleRun[]>
   /** World uploads for new servers, by id. */
   imports: Record<string, WorldImport>
+  /** Each server's files by path, made the first time its Files tab opens (files.ts). */
+  files: Record<string, Record<string, DemoFile>>
+  /** Uploads into servers' folders, by id. */
+  fileUploads: Record<string, DemoUpload>
+}
+
+/** A file or folder in a server's folder. A text file keeps its text; any other file only its size. */
+export interface DemoFile {
+  folder?: true
+  text?: string
+  size?: number
+  modified: number
+}
+
+/** An upload into a server's folder: what the dashboard sees, whether each file may replace one of its name, and a small file's text. */
+export interface DemoUpload {
+  serverId: string
+  view: FileUpload
+  replace: boolean[]
+  text: (string | null)[]
 }
 
 /** A library plugin on a server, at the version Playkeeper installed. */
@@ -681,6 +703,8 @@ export function sample(now: number): DemoState {
     copies: { [survivalId]: survivalCopies(now, survivalAll, survivalManual, survivalBackups), [creativeId]: [], [cobblemonId]: [] },
     runs: { [survivalId]: survivalRuns(now, created, survivalAll), [creativeId]: creativeRuns(now, creativeBackups.find((b) => b.kind === 'scheduled')), [cobblemonId]: cobblemonRuns(crashedAt) },
     imports: {},
+    files: {},
+    fileUploads: {},
   }
 }
 
@@ -772,6 +796,8 @@ export interface Request {
   params: Record<string, string>
   query: URLSearchParams
   body: unknown
+  /** The text a request sends as its body, for the routes that take one (files.ts). */
+  text?: string
   now: number
 }
 export type Handler = (s: DemoState, r: Request) => unknown
@@ -787,7 +813,7 @@ export function serverOf(s: DemoState, r: Request): ServerStatus {
 const limit = (r: Request, fallback: number) => Number(r.query.get('limit') ?? fallback) || fallback
 
 /** Everything an owner may do, as the panel's permit lists it for them. */
-const ownerCan: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover']
+const ownerCan: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover', 'files.view', 'files.edit']
 
 export function me(now: number): Me {
   return {
