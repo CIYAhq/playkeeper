@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/diagnose"
 	"github.com/CIYAhq/playkeeper/internal/docker"
+	"github.com/CIYAhq/playkeeper/internal/store"
 )
 
 // gcLine is one pause as the JVM logs it with Playkeeper's GC log flag.
@@ -383,6 +385,64 @@ func TestGCLogIsReadOnce(t *testing.T) {
 	e.a.prune()
 	if n := e.gcCollections(); n != 5 {
 		t.Fatalf("pruning keeps the last two weeks: %d", n)
+	}
+}
+
+// Other writes go on while the GC pauses are stored, the sampler's among
+// them. Storing reads a window before it adds to it, so it takes the write
+// lock first and waits for a write in progress: a transaction that has read
+// can't wait for the lock, and SQLite fails its first write with "database is
+// locked".
+func TestStoringGCWaitsForAWriteInProgress(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "agent.db"), migrations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	s := &server{Agent: &Agent{db: db}, id: "abcdefghij"}
+	if _, err := db.Exec(`INSERT INTO servers(id, name, slug, game, type, layout, game_port, config, created_at) VALUES(?, 'My server', 'my-server', ?, ?, ?, 25566, '{}', 0)`,
+		s.id, api.GameMinecraftJava, api.TypePaper, layoutV2); err != nil {
+		t.Fatal(err)
+	}
+	window := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	pause := func(minute int) diagnose.GCEvent {
+		return diagnose.GCEvent{At: window.Add(time.Duration(minute) * time.Minute), Kind: diagnose.GCYoung, BeforeMB: 900, AfterMB: 500, HeapMB: 1024, Pause: 20 * time.Millisecond}
+	}
+	if err := s.storeGC([]diagnose.GCEvent{pause(1), pause(2)}, gcCursor{Inode: 7, Offset: 100}); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	sampler, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sampler.Close()
+	if _, err := sampler.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sampler.ExecContext(ctx, `INSERT INTO samples(server_id, ts, state) VALUES(?, ?, 'online')`, s.id, window.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	stored := make(chan error, 1)
+	go func() { stored <- s.storeGC([]diagnose.GCEvent{pause(3)}, gcCursor{Inode: 7, Offset: 200}) }()
+	select {
+	case err := <-stored:
+		t.Fatalf("storing GC pauses gave up on a write in progress instead of waiting for it: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if _, err := sampler.ExecContext(ctx, `COMMIT`); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-stored; err != nil {
+		t.Fatalf("storing GC pauses once the other write is done: %v", err)
+	}
+	var collections, samples int
+	if err := db.QueryRow(`SELECT (SELECT SUM(collections) FROM gc_windows WHERE server_id = ?), (SELECT COUNT(*) FROM samples WHERE server_id = ?)`, s.id, s.id).Scan(&collections, &samples); err != nil {
+		t.Fatal(err)
+	}
+	if cur := s.loadGCCursor(); collections != 3 || samples != 1 || cur != (gcCursor{Inode: 7, Offset: 200}) {
+		t.Fatalf("both writes are kept: %d pauses, %d samples, cursor %+v", collections, samples, cur)
 	}
 }
 

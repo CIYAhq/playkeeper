@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -57,6 +59,45 @@ func (s *server) saveServerConfig(sc api.ServerConfig) error { return saveConfig
 // of.
 type execer interface {
 	Exec(query string, args ...any) (sql.Result, error)
+}
+
+// writeTx runs f in a transaction that takes the write lock first (BEGIN
+// IMMEDIATE), and commits it when f returns nil. A transaction that reads
+// before it writes needs it: begun deferred, it cannot wait for the lock, and
+// SQLite fails its first write with "database is locked" when another
+// connection is writing or has written since it read.
+func (a *Agent) writeTx(f func(tx lockedTx) error) error {
+	ctx := context.Background()
+	c, err := a.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if _, err := c.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return err
+	}
+	if err = f(lockedTx{c}); err == nil {
+		_, err = c.ExecContext(ctx, `COMMIT`)
+	}
+	if err != nil {
+		if _, rbErr := c.ExecContext(ctx, `ROLLBACK`); rbErr != nil {
+			// A connection still inside a transaction must not go back to
+			// the pool.
+			_ = c.Raw(func(any) error { return driver.ErrBadConn })
+		}
+	}
+	return err
+}
+
+// lockedTx runs statements in the transaction writeTx began.
+type lockedTx struct{ c *sql.Conn }
+
+func (t lockedTx) Exec(query string, args ...any) (sql.Result, error) {
+	return t.c.ExecContext(context.Background(), query, args...)
+}
+
+func (t lockedTx) QueryRow(query string, args ...any) *sql.Row {
+	return t.c.QueryRowContext(context.Background(), query, args...)
 }
 
 // saveConfig saves the settings of the server with id through ex.

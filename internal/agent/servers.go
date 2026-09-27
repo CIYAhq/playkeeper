@@ -552,71 +552,66 @@ func (a *Agent) addServer(spec newServerSpec, kind string, first func(s *server)
 // 0.2.0 into a v1 server, in one transaction, without touching its files or
 // container. It does nothing once any server is recorded.
 func (a *Agent) migrateSingleServer() error {
-	tx, err := a.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	var n int
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM servers`).Scan(&n); err != nil {
-		return err
-	}
-	if n > 0 {
-		return nil
-	}
-	kv := func(key string) (string, bool) {
-		var v string
-		err := tx.QueryRow(`SELECT value FROM kv WHERE key = ?`, key).Scan(&v)
-		return v, err == nil
-	}
-	raw, ok := kv(kvServerConfig)
-	if !ok {
-		// No server was ever created; samples without a server say nothing.
-		if _, err := tx.Exec(`DELETE FROM samples WHERE server_id = ''`); err != nil {
+	var id string
+	err := a.writeTx(func(tx lockedTx) error {
+		var n int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM servers`).Scan(&n); err != nil {
 			return err
 		}
-		return tx.Commit()
-	}
-	var sc api.ServerConfig
-	if err := json.Unmarshal([]byte(raw), &sc); err != nil {
-		return fmt.Errorf("the server's settings cannot be read: %w", err)
-	}
-	desired, ok := kv(kvDesired)
-	if !ok {
-		desired = api.DesiredStopped
-	}
-	var since any
-	if v, ok := kv(kvCollectingSince); ok {
-		if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
-			since = t.UnixMilli()
+		if n > 0 {
+			return nil
 		}
-	}
-	cursor, _ := kv(kvLogCursor)
-	created := sc.CreatedAt
-	if created.IsZero() {
-		created = a.now()
-	}
-	id := newServerID()
-	if _, err := tx.Exec(`INSERT INTO servers(id, name, slug, game, type, layout, game_port, config, desired, position, created_at, collecting_since, log_cursor)
-		VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?)`, id, "My server", "my-server", api.GameMinecraftJava, api.TypePaper, layoutV1, a.cfg.GamePort, raw, desired, created.UnixMilli(), since, cursor); err != nil {
-		return err
-	}
-	for _, q := range []string{
-		`UPDATE operations SET server_id = ? WHERE server_id = '' AND kind != 'update'`,
-		`UPDATE events SET server_id = ? WHERE server_id = ''`,
-		`UPDATE sessions SET server_id = ? WHERE server_id = ''`,
-		`UPDATE backups SET server_id = ? WHERE server_id = ''`,
-		`UPDATE samples SET server_id = ? WHERE server_id = ''`,
-		`UPDATE audit SET server_id = ? WHERE server_id = '' AND action NOT LIKE 'update.%'`,
-	} {
-		if _, err := tx.Exec(q, id); err != nil {
+		kv := func(key string) (string, bool) {
+			var v string
+			err := tx.QueryRow(`SELECT value FROM kv WHERE key = ?`, key).Scan(&v)
+			return v, err == nil
+		}
+		raw, ok := kv(kvServerConfig)
+		if !ok {
+			// No server was ever created; samples without a server say nothing.
+			_, err := tx.Exec(`DELETE FROM samples WHERE server_id = ''`)
 			return err
 		}
-	}
-	if _, err := tx.Exec(`DELETE FROM kv WHERE key IN (?, ?, ?, ?, 'pending_recreate')`, kvServerConfig, kvDesired, kvCollectingSince, kvLogCursor); err != nil {
+		var sc api.ServerConfig
+		if err := json.Unmarshal([]byte(raw), &sc); err != nil {
+			return fmt.Errorf("the server's settings cannot be read: %w", err)
+		}
+		desired, ok := kv(kvDesired)
+		if !ok {
+			desired = api.DesiredStopped
+		}
+		var since any
+		if v, ok := kv(kvCollectingSince); ok {
+			if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
+				since = t.UnixMilli()
+			}
+		}
+		cursor, _ := kv(kvLogCursor)
+		created := sc.CreatedAt
+		if created.IsZero() {
+			created = a.now()
+		}
+		id = newServerID()
+		if _, err := tx.Exec(`INSERT INTO servers(id, name, slug, game, type, layout, game_port, config, desired, position, created_at, collecting_since, log_cursor)
+			VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?)`, id, "My server", "my-server", api.GameMinecraftJava, api.TypePaper, layoutV1, a.cfg.GamePort, raw, desired, created.UnixMilli(), since, cursor); err != nil {
+			return err
+		}
+		for _, q := range []string{
+			`UPDATE operations SET server_id = ? WHERE server_id = '' AND kind != 'update'`,
+			`UPDATE events SET server_id = ? WHERE server_id = ''`,
+			`UPDATE sessions SET server_id = ? WHERE server_id = ''`,
+			`UPDATE backups SET server_id = ? WHERE server_id = ''`,
+			`UPDATE samples SET server_id = ? WHERE server_id = ''`,
+			`UPDATE audit SET server_id = ? WHERE server_id = '' AND action NOT LIKE 'update.%'`,
+		} {
+			if _, err := tx.Exec(q, id); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(`DELETE FROM kv WHERE key IN (?, ?, ?, ?, 'pending_recreate')`, kvServerConfig, kvDesired, kvCollectingSince, kvLogCursor)
 		return err
-	}
-	if err := tx.Commit(); err != nil {
+	})
+	if err != nil || id == "" {
 		return err
 	}
 	a.log.Info("the existing server now runs as one of several", "server", id, "layout", layoutV1)
