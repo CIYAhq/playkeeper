@@ -250,7 +250,7 @@ func between(s, a, b string) string {
 func TestTheLaunchPagesExist(t *testing.T) {
 	built := pages(build(t, Default))
 	for _, p := range []string{"/", "/features/mods-and-modpacks", "/alternatives/aternos", "/alternatives/pterodactyl",
-		"/guides/modded-minecraft-server", "/sizing", "/docs", "/pricing", "/blog", "/blog/playkeeper-0-4-0", "/t", "/404"} {
+		"/guides/modded-minecraft-server", "/sizing", "/docs", "/pricing", "/blog", "/blog/playkeeper-0-4-0", "/t", "/404", "/start"} {
 		if _, ok := built[p]; !ok {
 			t.Errorf("there is no %s", p)
 		}
@@ -259,7 +259,11 @@ func TestTheLaunchPagesExist(t *testing.T) {
 		if p == "/404" || strings.HasPrefix(p, "/docs") || p == "/t" {
 			continue
 		}
-		if !strings.Contains(html, "curl -fsSL https://playkeeper.io/install | sudo sh") {
+		want := "curl -fsSL https://playkeeper.io/install | sudo sh"
+		if p == "/start" {
+			want = "curl -fsSL https://playkeeper.io/install/start | sudo sh"
+		}
+		if !strings.Contains(html, want) {
 			t.Errorf("%s doesn't show the install command", p)
 		}
 	}
@@ -456,7 +460,7 @@ func TestChannels(t *testing.T) {
 	if !strings.HasSuffix(string(o.Nginx), "location /go/ {\n    return 302 /;\n}\n") {
 		t.Error("nginx's include doesn't end with /go/ for any other code, after the channels")
 	}
-	listed := `data-channels="cygnus madhu kasai doopa lth nicx linuxbtw hn selfhosted ph x whop"`
+	listed := `data-channels="cygnus madhu kasai doopa lth nicx linuxbtw hn selfhosted ph x whop start"`
 	for p, html := range pages(o) {
 		want := 0
 		if p == "/" {
@@ -485,6 +489,55 @@ func TestChannels(t *testing.T) {
 		if _, err := Build(Options{Root: os.DirFS("../.."), Settings: s, Now: time.Now()}); err == nil {
 			t.Errorf("the site builds with the channel %+v", bad)
 		}
+	}
+}
+
+// Whop's ad pixel is on /start alone: only its page names the Whop business
+// and loads start.js, and only its location's Content-Security-Policy lets
+// Whop's origin, the pixel's blob worker and the film in. /start stays out of
+// search engines and the sitemap. With no pixel set, no policy names Whop.
+// A page's channel must be one of the settings'.
+func TestStartPage(t *testing.T) {
+	o := build(t, Default)
+	for p, html := range pages(o) {
+		has := strings.Contains(html, `data-whop-pixel="biz_bbmk63HMB3yZ4c"`) && strings.Contains(html, "/assets/js/start.")
+		if has != (p == "/start") {
+			t.Errorf("%s: carries the ad pixel %v, want %v", p, has, p == "/start")
+		}
+		if strings.Contains(html, "t.whop.tw") {
+			t.Errorf("%s names t.whop.tw in its HTML; start.js loads it", p)
+		}
+	}
+	start := pages(o)["/start"]
+	if !strings.Contains(start, `<meta name="robots" content="noindex">`) || strings.Contains(string(o.Files["sitemap.xml"]), "/start") {
+		t.Error("/start isn't kept out of search engines and the sitemap")
+	}
+	nginx := string(o.Nginx)
+	site := between(nginx, `set $csp "`, `";`)
+	own := between(between(nginx, "location = /start {", "}"), `set $csp "`, `";`)
+	if strings.Contains(site, "whop") || strings.Contains(site, "worker-src") || strings.Contains(site, "media-src") {
+		t.Errorf("the site's policy lets in what only /start needs: %s", site)
+	}
+	for _, want := range []string{"script-src 'self' https://analytics-c.ciya.so https://t.whop.tw;", "media-src 'self';", "worker-src blob:;",
+		"connect-src 'self' https://api.github.com https://analytics-c.ciya.so https://t.whop.tw;"} {
+		if !strings.Contains(own, want) {
+			t.Errorf("/start's policy doesn't say %s: %s", want, own)
+		}
+	}
+	for _, want := range []string{"set $robots noindex;", "try_files /start.html =404;", "add_header X-Robots-Tag $robots always;"} {
+		if !strings.Contains(nginx, want) {
+			t.Errorf("nginx's include doesn't say %s", want)
+		}
+	}
+	off := Default
+	off.WhopPixel = ""
+	if own := between(between(string(build(t, off).Nginx), "location = /start {", "}"), `set $csp "`, `";`); strings.Contains(own, "whop") || strings.Contains(own, "worker-src") {
+		t.Errorf("with no pixel set, /start's policy still lets it in: %s", own)
+	}
+	noStart := Default
+	noStart.Channels = slices.DeleteFunc(slices.Clone(Default.Channels), func(c Channel) bool { return c.Code == "start" })
+	if _, err := Build(Options{Root: os.DirFS("../.."), Settings: noStart, Now: time.Now()}); err == nil {
+		t.Error("the site builds while /start's channel isn't in Settings.Channels")
 	}
 }
 
@@ -790,18 +843,24 @@ const installBox = " data-install>"
 
 // The install command is one setting: every page shows the same one, in its
 // install boxes, Copy buttons and terminals, and follows the setting when it
-// changes. Docs pages say what the repository's Markdown says.
+// changes. A page with a channel, /start, shows that channel's everywhere.
+// Docs pages say what the repository's Markdown says.
 func TestInstallCommandIsOneSetting(t *testing.T) {
+	channelOf := map[string]string{"/start": "start"}
 	for p, html := range pages(build(t, Default)) {
+		want, err := installFor(Default.InstallCommand, channelOf[p])
+		if err != nil {
+			t.Fatal(err)
+		}
 		shown := 0
 		for _, m := range reInstallLine.FindAllStringSubmatch(html, -1) {
 			shown++
-			if got := unescape(m[1]); got != Default.InstallCommand {
+			if got := unescape(m[1]); got != want {
 				t.Errorf("%s shows the install command as %q", p, got)
 			}
 		}
 		for _, m := range reCopy.FindAllStringSubmatch(html, -1) {
-			if got := unescape(m[1]); strings.HasPrefix(got, "curl ") && got != Default.InstallCommand {
+			if got := unescape(m[1]); strings.HasPrefix(got, "curl ") && got != want {
 				t.Errorf("%s copies %q as the install command", p, got)
 			}
 		}
@@ -810,7 +869,7 @@ func TestInstallCommandIsOneSetting(t *testing.T) {
 		}
 	}
 	other := Default
-	other.InstallCommand = "curl -fsSL https://example.test/get.sh | sudo bash"
+	other.InstallCommand = "curl -fsSL https://example.test/install | sudo bash"
 	for p, html := range pages(build(t, other)) {
 		if strings.HasPrefix(p, "/docs/") {
 			continue
@@ -818,11 +877,15 @@ func TestInstallCommandIsOneSetting(t *testing.T) {
 		if strings.Contains(html, "playkeeper.io/install") {
 			t.Errorf("%s still shows playkeeper.io/install with another install command set", p)
 		}
-		if strings.Contains(html, installBox) && !strings.Contains(html, `<span class="install-line">`+template.HTMLEscapeString(other.InstallCommand)+`</span>`) {
+		want, err := installFor(other.InstallCommand, channelOf[p])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(html, installBox) && !strings.Contains(html, `<span class="install-line">`+template.HTMLEscapeString(want)+`</span>`) {
 			t.Errorf("%s doesn't show the install command that's set", p)
 		}
 	}
-	for _, want := range []string{"curl -fsSL", "https://example.test/get.sh", "| sudo bash"} {
+	for _, want := range []string{"curl -fsSL", "https://example.test/install", "| sudo bash"} {
 		if lines := installLines(other.InstallCommand); !slices.Contains(lines, want) {
 			t.Errorf("a phone's install lines %q lack %q", lines, want)
 		}

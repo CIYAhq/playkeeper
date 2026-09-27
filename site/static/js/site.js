@@ -61,15 +61,17 @@
   // Custom events for the analytics (Settings.Analytics), which its funnels
   // are built from, each with the page it happened on. oa.js loads async, so
   // an event before it has loaded waits for it. Pages without the analytics,
-  // like the share page /t, send nothing.
+  // like the share page /t, send nothing. A page's own script hears each one
+  // as playkeeper:count on document, as /start's ad pixel does.
   var counter = $('script[data-collector]');
   var waiting = [];
   var tracker = function () { return window.oa && typeof window.oa.track === 'function' ? window.oa : null; };
   // leaving: the event's link leaves the page, so it goes at once rather than
   // with oa.js's next batch, which a page on its way out can miss.
   function count(name, props, leaving) {
-    if (!counter) return;
     props.where = location.pathname;
+    document.dispatchEvent(new CustomEvent('playkeeper:count', { detail: { name: name, props: props } }));
+    if (!counter) return;
     var oa = tracker();
     if (!oa) { waiting.push([name, props]); return; }
     oa.track(name, props);
@@ -110,11 +112,9 @@
     var provider = a.closest('[data-provider]');
     if (provider) count('provider_clicked', { provider: provider.getAttribute('data-provider'), plan: $('[data-plan]', provider).textContent }, true);
   }
-  if (counter) {
-    document.addEventListener('copy', function () { copied(String(document.getSelection()), null); });
-    document.addEventListener('click', followed, true);
-    document.addEventListener('auxclick', followed, true);
-  }
+  document.addEventListener('copy', function () { copied(String(document.getSelection()), null); });
+  document.addEventListener('click', followed, true);
+  document.addEventListener('auxclick', followed, true);
 
   // The landing page shows a visitor who came through a channel's link
   // (/go/<code>, which adds utm_content=<code>) that channel's install

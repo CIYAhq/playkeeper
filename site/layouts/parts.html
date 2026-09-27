@@ -3,11 +3,12 @@
 
 {{/* install: the install command with Copy. ID: "install" for the page's
      first one, which the header's Install links to. Dark: on the closing
-     band. On phones it breaks onto three lines. */}}
-{{define "install"}}
-<div class="install{{if .Dark}} install-dark{{end}}{{with .Class}} {{.}}{{end}}"{{if .ID}} id="install"{{end}} data-install>
-  <code class="install-cmd" tabindex="0"><span class="install-prompt" aria-hidden="true">$</span><span class="install-line">{{installCommand}}</span><span class="install-lines" aria-hidden="true">{{range $i, $l := installLines}}{{if $i}} \<br>  {{end}}{{$l}}{{end}}</span></code>
-  <button type="button" class="install-copy" data-copy="{{installCommand}}" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span class="install-copy-label">Copy</span><span class="visually-hidden"> the install command</span></button>
+     band. Cmd: a channel's command (installFor) instead of the usual one.
+     On phones it breaks onto three lines. */}}
+{{define "install"}}{{$cmd := or .Cmd installCommand}}
+<div class="install{{if .Dark}} install-dark{{end}}{{if ne $cmd installCommand}} install-tagged{{end}}{{with .Class}} {{.}}{{end}}"{{if .ID}} id="install"{{end}} data-install>
+  <code class="install-cmd" tabindex="0"><span class="install-prompt" aria-hidden="true">$</span><span class="install-line">{{$cmd}}</span><span class="install-lines" aria-hidden="true">{{range $i, $l := installLines $cmd}}{{if $i}} \<br>  {{end}}{{$l}}{{end}}</span></code>
+  <button type="button" class="install-copy" data-copy="{{$cmd}}" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span class="install-copy-label">Copy</span><span class="visually-hidden"> the install command</span></button>
 </div>
 {{end}}
 

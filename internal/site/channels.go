@@ -19,8 +19,9 @@ type Channel struct {
 // installs.
 var channelCode = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
 
-// channels are the creators asked for a sponsored video, the launch posts, and
-// the Whop page a Meta ad test sends people through.
+// channels are the creators asked for a sponsored video, the launch posts, the
+// Whop page a Meta ad test sends people through, and /start, where the Meta
+// ads themselves land (the page shows its command).
 var channels = []Channel{
 	{"cygnus", "youtube", "sponsor", "creators-oct26"},
 	{"madhu", "youtube", "sponsor", "creators-oct26"},
@@ -34,6 +35,7 @@ var channels = []Channel{
 	{"ph", "producthunt", "community", "launch-sep26"},
 	{"x", "x", "social", "launch-sep26"},
 	{"whop", "whop", "paid", "pk01-launch"},
+	{"start", "whop", "paid", "pk01-launch"},
 }
 
 func checkChannels(cs []Channel) error {
@@ -66,6 +68,19 @@ func channelLinks(cs []Channel) string {
 	}
 	b.WriteString("location /go/ {\n    return 302 /;\n}\n")
 	return b.String()
+}
+
+// installFor is the install command for a channel's code, /install/<code>,
+// and the usual one for none.
+func installFor(cmd, code string) (string, error) {
+	if code == "" {
+		return cmd, nil
+	}
+	before, after, ok := strings.Cut(cmd, "/install")
+	if !ok {
+		return "", fmt.Errorf("the install command %q has no /install to add the channel %s to", cmd, code)
+	}
+	return before + "/install/" + code + after, nil
 }
 
 // channelCodes is the codes the landing page shows an install command for.

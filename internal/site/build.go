@@ -90,6 +90,9 @@ func Build(o Options) (*Output, error) {
 		if _, dup := s.byPath[p.Path]; dup {
 			return nil, fmt.Errorf("two pages are at %s", p.Path)
 		}
+		if p.Channel != "" && !slices.ContainsFunc(o.Settings.Channels, func(c Channel) bool { return c.Code == p.Channel }) {
+			return nil, fmt.Errorf("%s: the channel %q isn't in Settings.Channels", p.Path, p.Channel)
+		}
 		s.byPath[p.Path] = p
 		if p.Layout == "post" {
 			s.posts = append(s.posts, p)
@@ -577,12 +580,14 @@ func (s *Site) funcs() template.FuncMap {
 		},
 		"providers": func() []Provider { return providers },
 		"sizing":    func() SizingGuide { return s.sizing },
-		// The codes the landing page shows a channel's install command for.
+		// The codes the landing page shows a channel's install command for,
+		// and the command a page with a channel shows.
 		"channelCodes": func() string { return channelCodes(s.opts.Settings.Channels) },
+		"installFor":   func(code string) (string, error) { return installFor(s.opts.Settings.InstallCommand, code) },
 		// The one-line installer (Settings.InstallCommand), on one line, in
 		// the three a phone shows, and wrapped before its pipe for a terminal.
 		"installCommand": func() string { return s.opts.Settings.InstallCommand },
-		"installLines":   func() []string { return installLines(s.opts.Settings.InstallCommand) },
+		"installLines":   installLines,
 		"installWrapped": func() string {
 			before, after, ok := strings.Cut(s.opts.Settings.InstallCommand, " | ")
 			if !ok {

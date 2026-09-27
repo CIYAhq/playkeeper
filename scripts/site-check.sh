@@ -65,6 +65,7 @@ check_files() {
       *.svg) want_type=image/svg+xml ;;
       *.webp) want_type=image/webp ;;
       *.png) want_type=image/png ;;
+      *.mp4) want_type=video/mp4 ;;
       *.xml) want_type=xml ;;
       *) continue ;;
     esac
@@ -145,7 +146,7 @@ mapfile -t listed < <(sed -n 's|.*<loc>'"$site"'\(/[^<]*\)</loc>.*|\1|p' "$work/
 for p in "${needed[@]}"; do
   printf '%s\n' "${listed[@]}" | grep -qxF "$p" || fail "the sitemap does not list $p"
 done
-if printf '%s\n' "${listed[@]}" | grep -qxE '/t|/404'; then fail "the sitemap lists /t or /404, which stay out of search engines"; fi
+if printf '%s\n' "${listed[@]}" | grep -qxE '/t|/404|/start'; then fail "the sitemap lists /t, /404 or /start, which stay out of search engines"; fi
 
 page=$work/page.html
 checked=0
@@ -246,6 +247,28 @@ grep -qE '<script src="/assets/js/t\.[0-9a-f]{8}\.js" defer></script>' "$page" |
 [ "$(grep -o '<script src=' "$page" | wc -l)" = 2 ] || fail "/t loads more than site.js and t.js"
 if grep -qF 'data-stars' "$page"; then fail "/t asks GitHub for the star count; the share page makes no requests"; fi
 check_files /t "$page"
+
+# /start, where the Meta ads land: only its policy lets Whop's ad pixel, the
+# worker it starts and the film in, it's kept out of search engines, and it
+# answers with its query string, where the pixel reads the ad's IDs.
+start=$work/start.html
+code=$(curl -sS -o "$start" -w '%{http_code}' "$base/start?utm_campaign=pk01-launch&wacid=1")
+[ "$code" = 200 ] || fail "/start?utm_campaign=… answered $code, not 200"
+headers=$(curl -sS -D - -o /dev/null "$base/start?utm_campaign=pk01-launch")
+headers_ok /start "$headers"
+for h in "script-src 'self' https://analytics-c.ciya.so https://t.whop.tw;" "media-src 'self';" "worker-src blob:;" \
+  "connect-src 'self' https://api.github.com https://analytics-c.ciya.so https://t.whop.tw;" 'x-robots-tag: noindex'; do
+  grep -qiF "$h" <<<"$headers" || fail "/start does not send '$h'"
+done
+if curl -sS -D - -o /dev/null "$base/" | grep -qiE 't\.whop\.tw|worker-src|media-src|^x-robots-tag'; then fail "/ lets in or says what only /start should"; fi
+for text in '<meta name="robots" content="noindex">' 'curl -fsSL https://playkeeper.io/install/start | sudo sh' "$analytics"; do
+  grep -qF "$text" "$start" || fail "/start does not have '$text'"
+done
+if sed 's|<script type="application/ld+json">[^<]*</script>||g' "$start" | grep -qE '<script>|<script [^s]|<style|[[:space:]](style|on[a-z]+)='; then
+  fail "/start has inline script or style, which the Content-Security-Policy blocks"
+fi
+if grep -vF "$analytics" "$start" | grep -qE '<script src="https?:'; then fail "/start loads a script from another site in its HTML"; fi
+check_files /start "$start"
 
 for path in / /pricing /t /install /robots.txt /no-such-page "$asset"; do
   headers_ok "$path" "$(curl -sS -D - -o /dev/null "$base$path")"

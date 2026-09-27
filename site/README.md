@@ -61,6 +61,15 @@ awk '$3 == "GET" && $5 == 302 && $6 !~ /^"Mozilla/ { print tolower($4), $2 }' /v
 
 The release workflow's check of `/install` after each release counts as one there.
 
+### /start
+
+`/start` is where the Meta ads land (`pages/start.html`). It's kept out of search engines and the sitemap, and it answers with no redirect, so its query string stays: Whop's pixel reads the ad's IDs from it.
+
+- **Install command:** the page's `channel: start` setting makes every install command on it `curl -fsSL https://playkeeper.io/install/start | sudo sh`.
+- **The film:** `static/film/launch.mp4` is a 10.8-second, 720-pixel cut of the launch film, stopping before its "0.4.0 is out" card. It plays muted while it's in view, and not with reduced motion.
+- **Whop's ad pixel:** `WhopPixel` in the settings names the Whop business. `js/start.js` loads the pixel with Whop's own snippet, on this page only. It sends a page view, and `install_copied` with one `event_id` per visit whenever site.js counts a copy (the `playkeeper:count` event). It doesn't load when the browser sends Global Privacy Control or Do Not Track.
+- **Content-Security-Policy:** only `/start`'s policy, set in its nginx location, lets in `https://t.whop.tw`, the pixel's `blob:` worker and the film. The page ends with a note that says plainly what the pixel stores and sends. Keep forms, iframes and links to whop.com off the page: the pixel reads forms, posts to frames and tags those links.
+
 ## Host it with Coolify
 
 You need a server with Coolify on it, the Coolify proxy running (it is by default), and inbound TCP ports **80** and **443** open in the server's firewall. Coolify gets the HTTPS certificate from Let's Encrypt, which checks the domain through those ports.

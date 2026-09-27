@@ -147,6 +147,60 @@ test('the analytics’ custom events: the install command copied, links out to G
   await ctx.close()
 })
 
+test('/start: the start channel’s command, Whop’s ad pixel on this page alone and not under Global Privacy Control, and our events too', async ({ browser, baseURL }) => {
+  const phone = { baseURL, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, permissions: ['clipboard-read', 'clipboard-write'] }
+  const ctx = await browser.newContext(phone)
+  const { events, release } = await recordEvents(ctx)
+  release()
+  // Whop's s.js answered with nothing, so the stub keeps every call queued for the test to read.
+  const whop: string[] = []
+  await ctx.route('https://t.whop.tw/**', (route) => {
+    whop.push(route.request().url())
+    return route.fulfill({ contentType: 'text/javascript', body: '' })
+  })
+  const queued = (page: Page) => page.evaluate(() => (window as unknown as { whop?: { q: unknown[][] } }).whop?.q.map(([, ...call]) => call))
+  const page = await ctx.newPage()
+  const ad = '/start?utm_campaign=pk01-launch&utm_source=fb&wacid=1'
+  await page.goto(ad, { waitUntil: 'networkidle' })
+  expect(page.url(), 'the query string stays, for the pixel to read the ad’s IDs').toBe(baseURL + ad)
+  const start = 'curl -fsSL https://playkeeper.io/install/start | sudo sh'
+  await expect(page.locator('#install .install-line')).toHaveText(start)
+  await expect(page.locator('[data-closing] .install-copy')).toHaveAttribute('data-copy', start)
+  expect(whop).toEqual(['https://t.whop.tw/s.js'])
+  await page.locator('#install .install-copy').click()
+  await page.locator('[data-closing] .install-copy').click()
+  await expect.poll(() => [...events]).toEqual([
+    ['install_copied', { spot: 'box', channel: 'start', where: '/start' }],
+    ['install_copied', { spot: 'closing', channel: 'start', where: '/start' }],
+  ])
+  const calls = await queued(page)
+  expect(calls?.slice(0, 2)).toEqual([['setScope', 'biz_bbmk63HMB3yZ4c'], ['page']])
+  const copies = calls?.slice(2) as [string, { event_id: string }][]
+  expect(copies.map(([name]) => name)).toEqual(['install_copied', 'install_copied'])
+  expect(copies[0]?.[1].event_id, 'one id for every copy in a visit').toMatch(/^[0-9a-f-]{36}$/)
+  expect(copies[1]?.[1].event_id).toBe(copies[0]?.[1].event_id)
+
+  // No other page loads it.
+  await page.goto('/', { waitUntil: 'networkidle' })
+  expect(await queued(page), 'the landing page has no ad pixel').toBeUndefined()
+  expect(whop).toHaveLength(1)
+  await ctx.close()
+
+  // With Global Privacy Control, /start doesn't load it either.
+  const gpc = await browser.newContext(phone)
+  await recordEvents(gpc).then((r) => r.release())
+  await gpc.route('https://t.whop.tw/**', (route) => {
+    whop.push(route.request().url())
+    return route.fulfill({ contentType: 'text/javascript', body: '' })
+  })
+  await gpc.addInitScript(() => Object.defineProperty(Navigator.prototype, 'globalPrivacyControl', { get: () => true }))
+  const private_ = await gpc.newPage()
+  await private_.goto('/start', { waitUntil: 'networkidle' })
+  expect(await queued(private_), 'no pixel under Global Privacy Control').toBeUndefined()
+  expect(whop).toHaveLength(1)
+  await gpc.close()
+})
+
 test('the landing page shows the install command of the channel a visitor came from, for the codes it lists', async ({ browser, baseURL }) => {
   const ctx = await browser.newContext({ baseURL, viewport: { width: 1440, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] })
   const { events, release } = await recordEvents(ctx)
