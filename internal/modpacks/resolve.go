@@ -44,6 +44,8 @@ type pack struct {
 	blockers   []addons.Notice
 	warnings   []addons.Notice
 	properties map[string]string
+	// heapMB is the Java heap the pack's own settings ask for (Plan.HeapMB).
+	heapMB     int
 	unknownEnv []string
 	arch       *archive
 	// server is a CurseForge pack's server files, when mods were taken
@@ -456,8 +458,11 @@ func (l *Library) addOverrides(p *pack, entries map[string]*zip.File, world stri
 			p.skip(rel, KindClientContent)
 			continue
 		case classProtected:
-			if rel == "server.properties" {
+			switch rel {
+			case "server.properties":
 				l.readProperties(p, e)
+			case "user_jvm_args.txt":
+				p.readJVMArgs(e)
 			}
 			p.skip(rel, KindProtected)
 			continue
@@ -547,6 +552,69 @@ func (l *Library) readProperties(p *pack, e *zip.File) {
 			fmt.Sprintf("%s ships server settings that Playkeeper does not take from packs: %s.", p.info.Name, strings.Join(dropped, ", ")),
 			"Set them in the server's settings if you want them."))
 	}
+}
+
+// readJVMArgs takes the heap a pack's user_jvm_args.txt asks for: its last
+// -Xmx, as Java reads it. The file itself never goes on the server.
+func (p *pack) readJVMArgs(e *zip.File) {
+	r, err := e.Open()
+	if err != nil {
+		return
+	}
+	defer r.Close()
+	b, err := io.ReadAll(io.LimitReader(r, 64<<10))
+	if err != nil {
+		return
+	}
+	heap := 0
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		for _, arg := range strings.Fields(line) {
+			if mb := xmxMB(arg); mb > 0 {
+				heap = mb
+			}
+		}
+	}
+	if heap > 0 {
+		p.heapMB = heap
+	}
+}
+
+// xmxMB reads -Xmx8G, -Xmx8192m or -Xmx8589934592 as megabytes; 0 for any
+// other argument or a heap no server would ask for.
+func xmxMB(arg string) int {
+	v, ok := strings.CutPrefix(arg, "-Xmx")
+	if !ok || v == "" {
+		return 0
+	}
+	unit := int64(1)
+	switch v[len(v)-1] {
+	case 'k', 'K':
+		unit = 1 << 10
+	case 'm', 'M':
+		unit = 1 << 20
+	case 'g', 'G':
+		unit = 1 << 30
+	}
+	if unit != 1 {
+		v = v[:len(v)-1]
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n <= 0 || n > (1<<50)/unit {
+		return 0
+	}
+	return plausibleHeap(int(n * unit >> 20))
+}
+
+// plausibleHeap passes on a heap between 512 MB and 64 GB, the range a pack
+// may ask a server for, and 0 for any other.
+func plausibleHeap(mb int) int {
+	if mb < 512 || mb > 64<<10 {
+		return 0
+	}
+	return mb
 }
 
 // finishPack checks the pack's files against the limits.
@@ -791,6 +859,7 @@ func (l *Library) readManifest(ctx context.Context, p *pack, mod *curseforge.Mod
 	if p.reqs, err = l.requirements(p.info.Name, loader, loaderVersion, m.Minecraft.Version); err != nil {
 		return err
 	}
+	p.heapMB = plausibleHeap(m.Minecraft.RecommendedRAM)
 	if len(m.Files) > lim.Files {
 		return fail(KindTooManyFiles, kv("pack", p.info.Name, "limit", strconv.Itoa(lim.Files)),
 			fmt.Sprintf("%s would put more than %d files on the server, more than Playkeeper accepts.", p.info.Name, lim.Files),

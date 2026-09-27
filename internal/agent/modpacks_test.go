@@ -216,6 +216,38 @@ func TestModpackPreviewReadsThePack(t *testing.T) {
 	}
 }
 
+// The preview says what memory the pack needs: packMemoryMB's for the mods it
+// adds, or more when its own settings ask for a bigger Java heap than the
+// server would give it with that memory.
+func TestModpackPreviewSizesMemory(t *testing.T) {
+	path := "/v1/modpacks/modrinth/" + fakePackID + "/versions/" + fakePackVersion + "/preview"
+	e := newAgentEnv(t)
+	e.up.servePack()
+	if code, out := e.call("GET", path, nil); code != 200 || out["mods"] != float64(2) || out["memoryMB"] != float64(4096) || out["heapMB"] != nil {
+		t.Fatalf("preview: %d %v", code, out)
+	}
+	e = newAgentEnv(t)
+	e.up.servePackWith(map[string][]byte{"overrides/user_jvm_args.txt": []byte("-Xms2G\n-Xmx6G\n")})
+	if code, out := e.call("GET", path, nil); code != 200 || out["mods"] != float64(2) || out["heapMB"] != float64(6144) || out["memoryMB"] != float64(8192) {
+		t.Fatalf("preview of a pack asking for 6 GB of heap: %d %v", code, out)
+	}
+	// All the Mods 10: 460 mods on NeoForge, and 8196 MB of heap in its manifest.
+	for _, c := range []struct {
+		typ        string
+		mods, heap int
+		want       int
+	}{
+		{"neoforge", 460, 8196, 12 << 10},
+		{"neoforge", 460, 0, 8192},
+		{"fabric", 30, 2048, 4096},
+		{"vanilla", 0, 0, 0},
+	} {
+		if got := packNeedMB(c.typ, c.mods, c.heap); got != c.want {
+			t.Errorf("%s, %d mods, %d MB heap: %d MB, want %d", c.typ, c.mods, c.heap, got, c.want)
+		}
+	}
+}
+
 func TestCreateFromModpack(t *testing.T) {
 	e := newAgentEnv(t)
 	p := e.up.servePack()

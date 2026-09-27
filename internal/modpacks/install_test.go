@@ -334,6 +334,34 @@ func TestServerOverridesWin(t *testing.T) {
 	}
 }
 
+// A pack's own server settings say how much Java heap it wants: the last
+// -Xmx in its user_jvm_args.txt, the server's copy over the shared one. The
+// file itself stays off the server.
+func TestPackHeapFromItsServerSettings(t *testing.T) {
+	f := newFakes(t)
+	l := f.library()
+	srv := newServer(t, "fabric", "26.2")
+	args := func(folder, body string) entry { return entry{name: folder + "/user_jvm_args.txt", data: []byte(body)} }
+	for _, c := range []struct {
+		name    string
+		entries []entry
+		want    int
+	}{
+		{"no settings", nil, 0},
+		{"gigabytes", []entry{args("overrides", "# Xmx sets the most memory Java may use.\n-Xms4G\n-Xmx8G\n")}, 8192},
+		{"the last -Xmx, in megabytes", []entry{args("overrides", "-Xmx4G -XX:+UseG1GC\n-Xmx6144m\n")}, 6144},
+		{"the server's copy wins", []entry{args("overrides", "-Xmx4G\n"), args("server-overrides", "-Xmx10G\n")}, 10 << 10},
+		{"a comment", []entry{args("overrides", "# -Xmx32G\n")}, 0},
+		{"a heap no server asks for", []entry{args("overrides", "-Xmx200M\n")}, 0},
+		{"not a number", []entry{args("overrides", "-Xmx8GB\n")}, 0},
+	} {
+		p := mustPlan(t, l, srv, InstallRequest{Ref: testRef(f.addPack(testIndex(), c.entries...))})
+		if p.HeapMB != c.want || slices.ContainsFunc(p.Changes, func(ch Change) bool { return ch.Path == "user_jvm_args.txt" }) {
+			t.Errorf("%s: heap %d MB, want %d; changes %q", c.name, p.HeapMB, c.want, changeList(p.Changes))
+		}
+	}
+}
+
 func TestServerEnvironmentAndOptionalFiles(t *testing.T) {
 	f := newFakes(t)
 	l := f.library()

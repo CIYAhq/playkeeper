@@ -75,10 +75,14 @@ type Plan struct {
 	// Properties are server.properties settings the pack suggests.
 	// Playkeeper never writes server.properties for a pack; the caller may
 	// offer them.
-	Properties   map[string]string `json:"properties,omitempty"`
-	Blockers     []addons.Notice   `json:"blockers"`
-	Warnings     []addons.Notice   `json:"warnings"`
-	DownloadSize int64             `json:"downloadSize"`
+	Properties map[string]string `json:"properties,omitempty"`
+	// HeapMB is the Java heap the pack's own settings ask for: the -Xmx in
+	// its user_jvm_args.txt, else the heap a CurseForge manifest
+	// recommends; 0 when the pack doesn't say.
+	HeapMB       int             `json:"heapMB,omitempty"`
+	Blockers     []addons.Notice `json:"blockers"`
+	Warnings     []addons.Notice `json:"warnings"`
+	DownloadSize int64           `json:"downloadSize"`
 	// Ready is true when nothing blocks the plan.
 	Ready       bool   `json:"ready"`
 	Fingerprint string `json:"fingerprint"`
@@ -306,7 +310,7 @@ func inspect(root *os.Root, p string, algos ...string) (state, error) {
 func (l *Library) plan(root *os.Root, srv Server, p *pack, old *Record, include map[string]bool, keep []string) (*Plan, error) {
 	pl := &Plan{
 		Pack: p.info, Requirements: p.reqs, Changes: []Change{}, Optional: []Optional{}, Skipped: slices.Clone(p.skipped),
-		Manual: append([]addons.ManualStep{}, p.manual...), Properties: p.properties,
+		Manual: append([]addons.ManualStep{}, p.manual...), Properties: p.properties, HeapMB: p.heapMB,
 		Blockers: append([]addons.Notice{}, p.blockers...), Warnings: append([]addons.Notice{}, p.warnings...), pk: p,
 	}
 	if pl.Skipped == nil {

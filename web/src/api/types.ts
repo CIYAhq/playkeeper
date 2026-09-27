@@ -1437,6 +1437,10 @@ export interface ModpackPreview {
   blockers: AddonNotice[]
   warnings: AddonNotice[]
   manual: AddonNotice[]
+  /** The mods the pack puts in the mods folder, and the memory the server needs for them and for the Java heap the pack's own settings ask for (heapMB). */
+  mods?: number
+  memoryMB?: number
+  heapMB?: number
   /** Voice chat's UDP port, when the pack brings it: a server created with openPorts opens it. */
   ports?: AddonPort[]
 }

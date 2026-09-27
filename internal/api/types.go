@@ -1819,6 +1819,12 @@ type ModpackPreview struct {
 	Blockers     []AddonNotice `json:"blockers"`
 	Warnings     []AddonNotice `json:"warnings"`
 	Manual       []AddonNotice `json:"manual"`
+	// Mods counts the mods the pack puts in the mods folder. MemoryMB is
+	// the memory the server needs for them and for the Java heap the pack's
+	// own settings ask for (HeapMB, 0 when they don't say).
+	Mods     int `json:"mods,omitempty"`
+	MemoryMB int `json:"memoryMB,omitempty"`
+	HeapMB   int `json:"heapMB,omitempty"`
 	// Ports are the ports the pack's add-ons need of their own, as a new
 	// server made from it would get them now: voice chat's UDP port when
 	// the pack brings Simple Voice Chat. A server created with OpenPorts

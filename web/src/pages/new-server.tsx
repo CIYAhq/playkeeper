@@ -183,12 +183,17 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const packPlan = useModpackPreview(packed ? target?.id : undefined, pack?.source, pack?.projectId, pack?.versionId || packDetail.data?.newest)
   const voicePort = packed ? packVoicePort(packPlan.data) : undefined
   const planPending = packed && !packPlan.data && !packPlan.error && !packDetail.error
+  // What the pack needs, from its plan once read (the mods it adds and its own server settings), else what its source says.
+  const packMods = packed ? packPlan.data?.mods || pack?.mods || 0 : 0
+  const packNeed = packed ? packPlan.data?.memoryMB || pack?.memoryMB || 0 : 0
+  // From the memory step on (not while a pack is only picked), memory follows what the pack needs, even when its plan answers late, until the user moves the slider.
+  const [memoryPicked, setMemoryPicked] = useState(false)
   const [tpl, setTpl] = useState<TemplateChoice>()
   const [tplProblem, setTplProblem] = useState<string>()
   const templated = from === 'template' && !!tpl
   // What a pack or template runs sizes its memory options. Every catalog lists the same types, so the last one says which a pack or template may ask for.
   const [types, setTypes] = useState<ServerType[]>()
-  const { catalog, error, reload } = useCatalog(target?.id, { ...catalogFor(from, c?.type ?? 'paper', pack, tpl, types), fresh: true })
+  const { catalog, error, reload } = useCatalog(target?.id, { ...catalogFor(from, c?.type ?? 'paper', pack && packMods ? { ...pack, mods: packMods } : pack, tpl, types), fresh: true })
   useEffect(() => {
     if (catalog) setTypes(catalog.types)
   }, [catalog])
@@ -231,7 +236,13 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const options = memoryOptions(catalog)
   const noMemory = !!catalog && options.length === 0
   const runsType = from === 'modpack' ? pack?.type : from === 'template' ? tpl?.plan.type || tpl?.plan.contents.type : c?.type
-  const runsMods = from === 'modpack' ? (pack?.mods ?? 0) : from === 'template' ? (tpl?.plan.contents.addons.length ?? 0) : 0
+  const runsMods = from === 'modpack' ? packMods : from === 'template' ? (tpl?.plan.contents.addons.length ?? 0) : 0
+  /** The smallest memory option that holds mb, or the largest there is. */
+  const fitMemory = (mb: number) => options.find((o) => o >= mb) ?? options[options.length - 1] ?? 0
+  const packMemory = packed && catalog && !noMemory ? (packNeed ? fitMemory(packNeed) : styleMemory(catalog, c?.style ?? 'friends')) : 0
+  useEffect(() => {
+    if (step >= 3 && packMemory > 0 && !memoryPicked) setC((prev) => (prev && prev.memoryMB !== packMemory ? { ...prev, memoryMB: packMemory } : prev))
+  }, [step, packMemory, memoryPicked])
 
   function blocked(): string | undefined {
     if (away) return away
@@ -262,7 +273,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
       case 2:
         return undefined
       case 3:
-        return noMemory || c.memoryMB <= 0 ? t('home.newServerFull', { machine: machineName }) : undefined
+        return noMemory || c.memoryMB <= 0 ? t('home.newServerFull', { machine: machineName }) : planPending ? t('reason.checkingPack') : undefined
       default:
         return (packed || templated ? nameBlocked(c) : createBlocked(c, version)) ?? (planPending ? t('reason.checkingPack') : undefined)
     }
@@ -311,11 +322,10 @@ export function NewServerPage({ machine }: { machine?: string }) {
     setStepped(true)
     setStep(to)
   }
-  // A pack decides the version and comes with its own mods, so it skips to memory.
+  // A pack decides the version and comes with its own mods, so it skips to memory, which follows what the pack needs.
   function startWithPack(p: ModpackChoice) {
-    const opts = memoryOptions(catalog)
-    const memoryMB = p.memoryMB ? (opts.find((mb) => mb >= p.memoryMB) ?? opts[opts.length - 1]) : undefined
-    update({ ...(memoryMB ? { memoryMB } : {}), ...(nameEdited ? {} : { name: freeName(packServerName(p.name), ws.servers) }) })
+    setMemoryPicked(false)
+    if (!nameEdited) update({ name: freeName(packServerName(p.name), ws.servers) })
     go(3)
   }
   // A template decides the type, version and settings, so it skips to memory too.
@@ -615,10 +625,11 @@ export function NewServerPage({ machine }: { machine?: string }) {
         )
         break
       case 3: {
-        const packMB = templated ? (tpl?.plan.memoryMB ?? 0) : packed ? (pack?.memoryMB ?? 0) : 0
-        const suggested = world ? worldMemory(inspected?.preview) : packMB ? (options.find((mb) => mb >= packMB) ?? options[options.length - 1] ?? 0) : styleMemory(catalog, c.style)
+        const packMB = templated ? (tpl?.plan.memoryMB ?? 0) : packed ? packNeed : 0
+        const suggested = world ? worldMemory(inspected?.preview) : packMB ? fitMemory(packMB) : styleMemory(catalog, c.style)
         const largest = options[options.length - 1]
         const others = catalog.servers.filter((x) => !x.running)
+        const short = packed && pack && largest !== undefined && packMB > largest ? pack : undefined
         body = (
           <div className="flex flex-col gap-4">
             <div>
@@ -641,6 +652,11 @@ export function NewServerPage({ machine }: { machine?: string }) {
               </Notice>
             ) : (
               <>
+                {short && largest !== undefined && (
+                  <Notice tone="warning" title={t('new.packShortTitle', { machine: machineName })}>
+                    {t('new.packShort', { pack: short.name, need: formatMB(packMB), max: formatMB(largest) })}
+                  </Notice>
+                )}
                 <Card className="p-4">
                   <h3 className="text-sm font-semibold">{t('new.machineHas', { machine: machineName, total: formatMB(catalog.hostMemoryMB) })}</h3>
                   <p className="mt-0.5 mb-3 text-xs text-muted-foreground">{others[0] ? t('new.shareHintStopped', { server: others[0].name }) : t('new.shareHint')}</p>
@@ -649,9 +665,16 @@ export function NewServerPage({ machine }: { machine?: string }) {
                 <Card className="p-4">
                   <h3 className="text-sm font-semibold">{t('new.memoryFor')}</h3>
                   <div className="mt-5 grid items-center gap-6 md:grid-cols-[1fr_200px]">
-                    <MemorySlider options={options} value={c.memoryMB} onChange={(memoryMB) => update({ memoryMB })} />
+                    <MemorySlider
+                      options={options}
+                      value={c.memoryMB}
+                      onChange={(memoryMB) => {
+                        setMemoryPicked(true)
+                        update({ memoryMB })
+                      }}
+                    />
                     <div className="md:border-l md:border-border md:pl-5">
-                      <MemoryReadout memoryMB={c.memoryMB} sizing={catalog?.sizing} type={runsType} mods={runsMods} recommended={c.memoryMB === suggested} style={world ? undefined : c.style} />
+                      <MemoryReadout memoryMB={c.memoryMB} sizing={catalog?.sizing} type={runsType} mods={runsMods} recommended={c.memoryMB === suggested && !short} style={world ? undefined : c.style} />
                     </div>
                   </div>
                   {largest !== undefined && (

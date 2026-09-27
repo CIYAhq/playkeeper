@@ -34,7 +34,8 @@ export interface ModpackChoice {
   mods?: number
 }
 
-function choiceOf(card: ModpackCard, detail?: ModpackDetail): ModpackChoice {
+/** plan is the newest version's preview, which reads the pack itself: its memory need wins over its source's estimate. */
+function choiceOf(card: ModpackCard, detail?: ModpackDetail, plan?: ModpackPreview): ModpackChoice {
   const newest = detail?.versions.find((v) => v.id === detail.newest)
   return {
     source: card.source,
@@ -43,8 +44,8 @@ function choiceOf(card: ModpackCard, detail?: ModpackDetail): ModpackChoice {
     name: card.name,
     type: newest?.type ?? card.types[0] ?? '',
     minecraftVersion: newest?.minecraftVersion ?? card.minecraftVersions[0] ?? '',
-    memoryMB: detail?.memoryMB ?? card.memoryMB ?? 0,
-    mods: newest?.mods || detail?.mods || card.mods || undefined,
+    memoryMB: plan?.memoryMB || detail?.memoryMB || card.memoryMB || 0,
+    mods: newest?.mods || detail?.mods || plan?.mods || card.mods || undefined,
   }
 }
 
@@ -253,7 +254,8 @@ function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: stri
   const source = card ? sourceName(card.source) : ''
   const blocker = p && !p.ready ? p.blockers[0] : undefined
   const unavailable = d?.unavailable ?? (d && !d.newest ? d.versions[0]?.unsupported : undefined)
-  const mods = d?.mods ?? card?.mods ?? 0
+  const mods = d?.mods || p?.mods || card?.mods || 0
+  const needs = p?.memoryMB || d?.memoryMB
   const fact = (label: string, value: string | undefined, loading?: boolean, detail?: string) => (
     <div>
       <dt className="text-xs text-muted-foreground">{label}</dt>
@@ -286,7 +288,7 @@ function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: stri
                   {fact(t('modpacks.fact.minecraft'), p?.minecraftVersion || newest?.minecraftVersion, !d)}
                   {fact(t('modpacks.fact.runsOn'), p ? loaderLabel(p.type, p.loaderVersion) : preview.error ? loaderLabel(newest?.type ?? '') : undefined, !p && !preview.error, p?.java ? t('modpacks.java', { java: p.java, version: p.minecraftVersion }) : undefined)}
                   {fact(t('modpacks.fact.mods'), mods ? String(mods) : undefined, !d)}
-                  {fact(t('modpacks.fact.needs'), d?.memoryMB ? t('modpacks.needsMemory', { memory: formatMB(d.memoryMB) }) : undefined, !d)}
+                  {fact(t('modpacks.fact.needs'), needs ? t('modpacks.needsMemory', { memory: formatMB(needs) }) : undefined, !d)}
                   {fact(t('modpacks.fact.updated'), relativeTime(card.updated))}
                   {fact(t('modpacks.fact.download'), p ? formatBytes(p.downloadSize) : undefined, !p && !preview.error)}
                 </dl>
@@ -322,7 +324,7 @@ function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: stri
               )}
             </SheetPanel>
             <div className="px-6 pt-4 pb-5">
-              <Button className="w-full" size={phone ? 'touch' : 'default'} disabledReason={why} onClick={() => onUse(choiceOf(card, d))}>
+              <Button className="w-full" size={phone ? 'touch' : 'default'} disabledReason={why} onClick={() => onUse(choiceOf(card, d, p))}>
                 {t('modpacks.use')}
               </Button>
               <p className="mt-2 text-center text-xs text-muted-foreground">{t('modpacks.checked', { source })}</p>
