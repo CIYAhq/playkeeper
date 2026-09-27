@@ -108,6 +108,28 @@ describe('router', () => {
     expect(parse('/machines/m2345abcde/nope')).toEqual({ name: 'home' })
     expect(parse('/whatever')).toEqual({ name: 'home' })
   })
+
+  it('puts a server’s folders and files in the Files tab’s address, each name encoded', () => {
+    const routes: Route[] = [
+      { name: 'server', slug: 'survival', tab: 'files' },
+      { name: 'server', slug: 'survival', tab: 'files', path: 'plugins' },
+      { name: 'server', slug: 'survival', tab: 'files', path: 'plugins/LuckPerms' },
+      { name: 'server', slug: 'survival', tab: 'files', path: 'server.properties', file: true },
+      { name: 'server', slug: 'survival', tab: 'files', path: 'plugins/My Plugin #2/config?.yml', file: true },
+      { name: 'server', slug: 'survival', tab: 'files', path: 'world/üblich %20.txt', file: true },
+    ]
+    for (const r of routes) expect(parse(href(r))).toEqual(r)
+    expect(href({ name: 'server', slug: 'survival', tab: 'files', path: 'plugins/My Plugin #2', file: false })).toBe('/servers/survival/files/plugins/My%20Plugin%20%232')
+    expect(href({ name: 'server', slug: 'survival', tab: 'files', path: '', file: true })).toBe('/servers/survival/files')
+    expect(parse('/servers/survival/files/')).toEqual({ name: 'server', slug: 'survival', tab: 'files' })
+  })
+
+  it('opens the Files tab’s top for an address that names no path inside the server', () => {
+    const top: Route = { name: 'server', slug: 'survival', tab: 'files' }
+    for (const p of ['/servers/survival/files/..', '/servers/survival/files/plugins/../..', '/servers/survival/file/%2E%2E/panel.db', '/servers/survival/files/a%2Fb', '/servers/survival/file', '/servers/survival/files/%E0%A4%A', '/servers/survival/file/x%00y']) {
+      expect(parse(p), p).toEqual(top)
+    }
+  })
 })
 
 describe('first steps', () => {
