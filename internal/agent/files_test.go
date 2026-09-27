@@ -912,6 +912,21 @@ func TestAZipOfTooManyFilesIsRefusedBeforeItStarts(t *testing.T) {
 	}
 }
 
+// A chain of folders far deeper than the game's own, which each step down
+// checks again from the top, is refused before a zip of it starts.
+func TestAZipOfFoldersFarDownIsRefused(t *testing.T) {
+	e, _ := idleFilesServer(t)
+	e.putData("plugins/Deep/"+strings.Repeat("d/", 70)+"end.txt", "x")
+	for _, q := range []string{"path=plugins", "path=plugins&check=1"} {
+		code, b, h := e.fileRequest("GET", e.sp("/files/download?"+q), nil)
+		var out map[string]any
+		json.Unmarshal(b, &out)
+		if code != 409 || codeOf(out) != "too_deep" || h.Get("Content-Type") == "application/zip" {
+			t.Errorf("%s: %d %v", q, code, out)
+		}
+	}
+}
+
 // The game can name files as Linux allows. A zip names them so that no
 // unpacker can write outside the folder it unpacks into, one on Windows
 // that takes a backslash for a folder and a colon for a drive neither.

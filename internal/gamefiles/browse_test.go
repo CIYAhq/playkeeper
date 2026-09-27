@@ -379,6 +379,36 @@ func TestCountStopsPastTheLimit(t *testing.T) {
 	}
 }
 
+// A chain of folders far deeper than the game's own, which each step down
+// checks again from the top, is refused rather than walked or counted.
+func TestWalkAndCountStopFarDown(t *testing.T) {
+	e := newEnv(t)
+	deep := "plugins/" + strings.Repeat("d/", maxDepth-1) + "d"
+	if err := os.MkdirAll(e.path(deep), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	walk := func(name string) error {
+		return e.d.Walk(context.Background(), name, 100, func(string, Entry) error { return nil })
+	}
+	if n, err := e.d.Count(context.Background(), "plugins", 1000); err != nil || n != maxDepth+1 {
+		t.Fatalf("Count of %d folders down = %d %v", maxDepth, n, err)
+	}
+	if err := walk("plugins"); err != nil {
+		t.Fatalf("Walk of %d folders down: %v", maxDepth, err)
+	}
+	if err := os.Mkdir(e.path(deep+"/d"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	_, err := e.d.Count(context.Background(), "plugins", 1000)
+	refused(t, err, KindTooDeep, "plugins")
+	refused(t, walk("plugins"), KindTooDeep, "plugins")
+	_, err = e.d.Count(context.Background(), ".", 1000)
+	refused(t, err, KindTooDeep, ".")
+	if n, err := e.d.Count(context.Background(), "plugins/d", 1000); err != nil || n != maxDepth+1 {
+		t.Fatalf("Count from one folder down = %d %v", n, err)
+	}
+}
+
 func TestMoveRefusesAMissingDestinationFolder(t *testing.T) {
 	e := newEnv(t)
 	e.put("plugins/keep.yml", []byte("keep\n"))

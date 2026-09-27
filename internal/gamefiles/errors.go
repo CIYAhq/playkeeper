@@ -17,6 +17,7 @@ const (
 	KindNotFolder Kind = "not_a_folder"
 	KindTooLarge  Kind = "too_large"
 	KindTooMany   Kind = "too_many_entries"
+	KindTooDeep   Kind = "too_deep"
 	KindChanged   Kind = "changed"
 	KindBadName   Kind = "bad_name"
 	// KindExists and KindIntoItself refuse what the file browser asks for:
@@ -103,6 +104,11 @@ func tooLargeError(p string, limit int64) error {
 func tooManyError(p string, limit int) error {
 	return refuse(KindTooMany, p, where(p)+" has more than "+strconv.Itoa(limit)+" entries, the most Playkeeper lists.",
 		"Delete what the server does not need from it, then try again.", "limit", strconv.Itoa(limit))
+}
+
+func tooDeepError(p string, limit int) error {
+	return refuse(KindTooDeep, p, where(p)+" has folders more than "+strconv.Itoa(limit)+" deep in it, deeper than Playkeeper goes.",
+		"Delete what the server does not need from it, then try again. "+hintPlanted, "limit", strconv.Itoa(limit))
 }
 
 func changedError(p string) error {

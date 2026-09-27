@@ -235,11 +235,19 @@ func (d *Dir) Place(name, staged string, perm fs.FileMode, replace bool) error {
 // folder are on different file systems.
 var errOtherFileSystem = errors.New("the file is on another file system")
 
+// maxDepth is how many folders down Walk and Count go from where they
+// start. The game and its plugins keep files a dozen or so folders deep, as
+// a map keeps its tiles, and each folder on the way is checked again for
+// each one below it, so a far deeper chain, which only something planting
+// it makes, is refused rather than walked.
+const maxDepth = 64
+
 // Walk calls fn for name and, when it is a folder, everything in it, depth
 // first in name order: each folder before what is in it. Links and special
 // files are passed too, for fn to skip; Walk never follows or opens them. A
-// folder with more than limit entries is refused. Walk stops at the first
-// error fn returns, and when ctx ends.
+// folder with more than limit entries is refused, and so are folders more
+// than maxDepth down. Walk stops at the first error fn returns, and when
+// ctx ends.
 func (d *Dir) Walk(ctx context.Context, name string, limit int, fn func(p string, e Entry) error) error {
 	var fi fs.FileInfo
 	var err error
@@ -251,14 +259,15 @@ func (d *Dir) Walk(ctx context.Context, name string, limit int, fn func(p string
 	if err != nil {
 		return err
 	}
-	return d.walk(ctx, name, Entry{Name: path.Base(name), Mode: fi.Mode(), Size: fi.Size(), ModTime: fi.ModTime()}, limit, fn)
+	return d.walk(ctx, name, name, 0, Entry{Name: path.Base(name), Mode: fi.Mode(), Size: fi.Size(), ModTime: fi.ModTime()}, limit, fn)
 }
 
 // Count counts name and everything in it, links and special files too, as
 // Walk would pass them, but not the data directory itself. It stops once
-// there are more than limit and returns limit+1. Folders are read as they
-// list their entries, without describing each one, so counting a tree
-// costs little more than listing its folders.
+// there are more than limit and returns limit+1, and refuses folders more
+// than maxDepth down, as Walk does. Folders are read as they list their
+// entries, without describing each one, so counting a tree costs little
+// more than listing its folders.
 func (d *Dir) Count(ctx context.Context, name string, limit int) (int, error) {
 	var fi fs.FileInfo
 	var err error
@@ -277,15 +286,18 @@ func (d *Dir) Count(ctx context.Context, name string, limit int) (int, error) {
 	case !fi.IsDir():
 		return n, nil
 	}
-	if err := d.count(ctx, name, limit, &n); err != nil {
+	if err := d.count(ctx, name, name, 0, limit, &n); err != nil {
 		return 0, err
 	}
 	return n, nil
 }
 
-func (d *Dir) count(ctx context.Context, p string, limit int, n *int) error {
+func (d *Dir) count(ctx context.Context, start, p string, depth, limit int, n *int) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if depth > maxDepth {
+		return tooDeepError(start, maxDepth)
 	}
 	es, err := d.ReadDir(p, limit-*n)
 	if KindOf(err) == KindTooMany {
@@ -300,19 +312,22 @@ func (d *Dir) count(ctx context.Context, p string, limit int, n *int) error {
 		if !e.IsDir() {
 			continue
 		}
-		if err := d.count(ctx, join(p, e.Name()), limit, n); err != nil || *n > limit {
+		if err := d.count(ctx, start, join(p, e.Name()), depth+1, limit, n); err != nil || *n > limit {
 			return err
 		}
 	}
 	return nil
 }
 
-func (d *Dir) walk(ctx context.Context, p string, e Entry, limit int, fn func(p string, e Entry) error) error {
+func (d *Dir) walk(ctx context.Context, start, p string, depth int, e Entry, limit int, fn func(p string, e Entry) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := fn(p, e); err != nil || !e.Mode.IsDir() {
 		return err
+	}
+	if depth > maxDepth {
+		return tooDeepError(start, maxDepth)
 	}
 	entries, more, err := d.List(p, limit)
 	if err != nil {
@@ -322,7 +337,7 @@ func (d *Dir) walk(ctx context.Context, p string, e Entry, limit int, fn func(p 
 		return tooManyError(p, limit)
 	}
 	for _, c := range entries {
-		if err := d.walk(ctx, join(p, c.Name), c, limit, fn); err != nil {
+		if err := d.walk(ctx, start, join(p, c.Name), depth+1, c, limit, fn); err != nil {
 			return err
 		}
 	}
