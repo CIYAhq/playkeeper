@@ -260,6 +260,57 @@ func TestReplacingTheMapAreaKeepsTheOldOneUntilTheNewOneStarts(t *testing.T) {
 	kept("after Chunky refused small in place of large paused", false, true)
 }
 
+// When the new area can't be recorded once Chunky has started it, Chunky
+// has dropped the old one: the new one is cancelled and the old one ends
+// too, rather than looking like it carries on.
+func TestAReplacementThatCantBeRecordedEndsTheOldArea(t *testing.T) {
+	e, _, _ := newMapEnv(t)
+	e.create()
+	e.mapOn()
+	e.chunkyJar()
+	fc := e.chunky()
+	e.fillMapArea("large", true)
+	fc.advance(3000)
+	for _, q := range []string{
+		`CREATE TRIGGER busy_insert BEFORE INSERT ON pregen WHEN NEW.preset = 'small' BEGIN SELECT RAISE(ABORT, 'database is locked'); END`,
+		`CREATE TRIGGER busy_update BEFORE UPDATE OF preset ON pregen WHEN NEW.preset = 'small' BEGIN SELECT RAISE(ABORT, 'database is locked'); END`,
+	} {
+		if _, err := e.a.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, out := e.setMapArea("small", true)
+	if code != 202 {
+		t.Fatalf("replacing large: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed {
+		t.Fatalf("replacing large with an area that can't be recorded: %+v", op)
+	}
+	if running, task := fc.state(); running || task.radius != 1000 || !task.cancelled {
+		t.Errorf("Chunky runs %v: %+v", running, task)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM pregen WHERE server_id = ? AND preset = 'large' AND ended = 'cancelled'`, e.sid); n != 1 {
+		t.Error("large was not recorded as ended")
+	}
+	if a := e.mapArea(); a.Area != api.MapAreaExplored || a.Fill.State != "idle" {
+		t.Errorf("the area: %+v", a)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND action = 'pregen.cancelled' AND result = 'failed' AND detail = 'replaced by small, which could not be recorded'`, e.sid); n != 1 {
+		t.Errorf("%d audit entries for losing large", n)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND (action = 'pregen.started' OR action = 'map.area') AND detail LIKE 'small:%'`, e.sid); n != 0 {
+		t.Errorf("%d audit entries for starting small", n)
+	}
+
+	if _, err := e.a.db.Exec(`DROP TRIGGER busy_insert; DROP TRIGGER busy_update`); err != nil {
+		t.Fatal(err)
+	}
+	e.fillMapArea("small", true)
+	if running, task := fc.state(); !running || task.radius != 1000 || task.cancelled {
+		t.Errorf("choosing small again, Chunky runs %v: %+v", running, task)
+	}
+}
+
 // What a task finished stays done after a bigger one is stopped or
 // replaced, or a smaller one finishes.
 func TestTheLargestFinishedAreaStaysDone(t *testing.T) {

@@ -5315,6 +5315,10 @@ control "a replaced area carries on as it was when the new one doesn't start" in
   '			s.keepPregen(ctx, ctrl, old, paused)' \
   '			_ = paused' \
   ./internal/agent '^TestReplacingTheMapAreaKeepsTheOldOneUntilTheNewOneStarts$'
+control "a replacement that can't be recorded ends the old area" internal/agent/pregen.go \
+  '			if eerr := s.endPregen(old, pregenCancelled, nil, nil); eerr != nil {' \
+  '			if eerr := error(nil); eerr != nil {' \
+  ./internal/agent '^TestAReplacementThatCantBeRecordedEndsTheOldArea$'
 control "a finished area stays done after a bigger one is stopped" internal/agent/pregen.go \
   '	if err == nil && how == pregenFinished {' \
   '	if false && err == nil && how == pregenFinished {' \

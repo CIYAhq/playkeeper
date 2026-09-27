@@ -775,6 +775,15 @@ func (s *server) startPregen(ctx context.Context, h *opHandle, actor string, p p
 		if cerr := ctrl.Cancel(ctx, plan.World); cerr != nil {
 			s.log.Warn("could not cancel an unrecorded map pre-generation", "server", s.id, "err", cerr)
 		}
+		if old != nil {
+			// Chunky dropped the old task when the new one started. Should
+			// this write fail too, pregenCheck finds the task gone.
+			if eerr := s.endPregen(old, pregenCancelled, nil, nil); eerr != nil {
+				s.log.Warn("could not record the replaced map pre-generation as cancelled", "server", s.id, "err", eerr)
+			} else {
+				s.audit(actor, "pregen.cancelled", old.World, "failed", "replaced by "+preset+", which could not be recorded")
+			}
+		}
 		return err
 	}
 	s.pg.reset()
