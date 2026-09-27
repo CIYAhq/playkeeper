@@ -59,6 +59,8 @@ type server struct {
 	opMu   sync.Mutex
 	op     *api.Operation
 	opH    *opHandle
+	// fileHold is the file browser's share of opLock.
+	fileHold fileHold
 	// savingLock is held by an online backup while it may pause world saving
 	// and by whatever sends save-on to end a pause, so a save-on can't land in
 	// the middle of a backup's copy. Unlike opLock it refuses no one.

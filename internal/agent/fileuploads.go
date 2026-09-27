@@ -293,10 +293,7 @@ func (s *server) hFileUploadFile(w http.ResponseWriter, r *http.Request) {
 		dest, err = filePath(join(up.folder, name), false)
 	}
 	if err == nil {
-		err = s.changeRefusal(r.Context(), dest)
-	}
-	if err == nil {
-		err = s.freeFor(dest, req.Replace)
+		err = s.uploadRefusal(r.Context(), dest, req.Replace)
 	}
 	if err == nil {
 		err = s.announceUpload(up, name, req.Size, req.Replace)
@@ -322,14 +319,18 @@ func join(folder, name string) string {
 	return folder + "/" + name
 }
 
-// freeFor refuses to upload to dest when something is there that the upload
-// may not replace: anything but a regular file, or one it wasn't asked to.
-func (s *server) freeFor(dest string, replace bool) error {
+// uploadRefusal is why a file can't be uploaded to dest, said before its
+// bytes are sent: what changeRefusal says, or something at dest the upload
+// may not replace, anything but a regular file or one it wasn't asked to.
+func (s *server) uploadRefusal(ctx context.Context, dest string, replace bool) error {
 	d, err := s.openFiles()
 	if err != nil {
 		return err
 	}
 	defer d.Close()
+	if err := s.changeRefusal(ctx, d, dest); err != nil {
+		return err
+	}
 	fi, err := d.Lstat(dest)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -391,10 +392,7 @@ func (s *server) placeUpload(ctx context.Context, up *fileUpload, n int, actor s
 		return
 	}
 	dest := join(up.folder, name)
-	err := s.changeRefusal(ctx, dest)
-	if err == nil {
-		err = s.place(dest, up.stagedPath(n), replace)
-	}
+	err := s.place(ctx, dest, up.stagedPath(n), replace)
 	up.mu.Lock()
 	f.placed, f.err = err == nil, ""
 	if err != nil {
@@ -409,12 +407,18 @@ func (s *server) placeUpload(ctx context.Context, up *fileUpload, n int, actor s
 	s.audit(actor, "files.uploaded", dest, "succeeded", dest)
 }
 
-func (s *server) place(dest, staged string, replace bool) error {
+func (s *server) place(ctx context.Context, dest, staged string, replace bool) error {
 	d, err := s.openFiles()
 	if err != nil {
 		return err
 	}
 	defer d.Close()
+	release, err := s.holdFiles(ctx, d, dest)
+	if err != nil {
+		return err
+	}
+	defer release()
+	beforeChange(dest)
 	return d.Place(dest, staged, 0o640, replace)
 }
 

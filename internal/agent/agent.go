@@ -602,11 +602,7 @@ func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, 
 			a.createMu.Unlock()
 			<-a.mopLock
 			cur := s.currentOp()
-			what := "an operation"
-			if cur != nil {
-				what = opLabels[cur.Kind]
-			}
-			return nil, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: s.name() + " is busy with " + what + ".", Hint: "Wait for it to finish, then try again.", Op: cur}
+			return nil, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: s.name() + " is busy with " + s.busyWith(cur, "an operation") + ".", Hint: "Wait for it to finish, then try again.", Op: cur}
 		}
 	}
 	op := &api.Operation{ID: newID(), Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: a.now().UTC(), Detail: map[string]any{}}

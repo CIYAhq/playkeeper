@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"unicode"
 	"unicode/utf8"
@@ -45,6 +46,10 @@ const (
 	// maxBatch caps the files one move, delete or download names.
 	maxBatch = 1000
 )
+
+// beforeChange runs before each path a change touches, for a test to hold
+// the change there.
+var beforeChange = func(p string) {}
 
 var reVersion = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
@@ -137,7 +142,7 @@ func (s *server) openFiles() (*gamefiles.Dir, error) {
 
 // worldFolders are the folders the game keeps its world in: the level's
 // own, and the Nether and the End beside it as Paper keeps them.
-func (s *server) worldFolders() []string {
+func (s *server) worldFolders(d *gamefiles.Dir) []string {
 	level := "world"
 	if sc, err := s.serverConfig(); err == nil && sc != nil {
 		level = s.levelName(*sc)
@@ -170,17 +175,70 @@ func (s *server) errWorldInUse(p string) error {
 // changeRefusal is why the file browser may not change paths now: the
 // server is busy with an operation, such as a backup or a restore, or a path
 // is in a world folder while the game runs.
-func (s *server) changeRefusal(ctx context.Context, paths ...string) error {
+func (s *server) changeRefusal(ctx context.Context, d *gamefiles.Dir, paths ...string) error {
 	if s.busy() {
 		return s.busyError()
 	}
-	worlds := s.worldFolders()
+	worlds := s.worldFolders(d)
 	for _, p := range paths {
 		if inWorld(p, worlds) && s.gameRunning(ctx) {
 			return s.errWorldInUse(p)
 		}
 	}
 	return nil
+}
+
+// fileHold is the file browser's share of the server's operation lock. The
+// first change to the server's files takes the lock and the last one to
+// finish gives it back, so no start, backup or restore begins while one
+// runs, such as a wake for a player who joins during a long delete, and
+// changes don't refuse each other.
+type fileHold struct {
+	mu      sync.Mutex
+	n       int
+	release func()
+	// save makes the editor's version check and its write one step, so
+	// that of two saves of the same version the second is refused.
+	save sync.Mutex
+}
+
+// holdFiles lets a change to paths go ahead, and holds off operations until
+// release is called. It refuses while an operation holds the server, and
+// when a path is in a world folder while the game runs; holding off starts
+// keeps that true until the change is done.
+func (s *server) holdFiles(ctx context.Context, d *gamefiles.Dir, paths ...string) (release func(), err error) {
+	h := &s.fileHold
+	h.mu.Lock()
+	if h.n == 0 {
+		rel, ok := s.holdOpLock()
+		if !ok {
+			h.mu.Unlock()
+			return nil, s.busyError()
+		}
+		h.release = rel
+	}
+	h.n++
+	h.mu.Unlock()
+	release = sync.OnceFunc(func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if h.n--; h.n == 0 {
+			h.release()
+			h.release = nil
+		}
+	})
+	if err := s.changeRefusal(ctx, d, paths...); err != nil {
+		release()
+		return nil, err
+	}
+	return release, nil
+}
+
+// changingFiles reports whether the file browser holds the operation lock.
+func (s *server) changingFiles() bool {
+	s.fileHold.mu.Lock()
+	defer s.fileHold.mu.Unlock()
+	return s.fileHold.n > 0
 }
 
 // envProperties are the server.properties keys the image writes from its
@@ -236,7 +294,7 @@ func (s *server) hFiles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, filesError(err, "The folder could not be opened.", p))
 		return
 	}
-	out := api.Files{Path: shown(p), Entries: make([]api.FileEntry, 0, len(entries)), More: more, Running: s.gameRunning(r.Context()), Worlds: s.worldFolders()}
+	out := api.Files{Path: shown(p), Entries: make([]api.FileEntry, 0, len(entries)), More: more, Running: s.gameRunning(r.Context()), Worlds: s.worldFolders(d)}
 	for _, e := range entries {
 		fe := api.FileEntry{Name: e.Name, Type: fileType(e.Mode), ModifiedAt: e.ModTime.UTC()}
 		if fe.Type == api.FileTypeFile {
@@ -298,7 +356,7 @@ func (s *server) hFileContent(w http.ResponseWriter, r *http.Request) {
 	} else {
 		out.Binary = true
 	}
-	if running && inWorld(p, s.worldFolders()) {
+	if running && inWorld(p, s.worldFolders(d)) {
 		out.ReadOnly = api.CodeWorldInUse
 	}
 	if p == "server.properties" {
@@ -361,56 +419,20 @@ func (s *server) hFileSave(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Only text can be saved in the editor."))
 		return
 	}
-	if err := s.changeRefusal(r.Context(), p); err != nil {
-		writeError(w, err)
-		return
-	}
 	d, err := s.openFiles()
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	defer d.Close()
-	const couldNot = "The file could not be saved."
-	perm := fs.FileMode(0o640)
-	if expect == "new" {
-		if _, err := d.Lstat(p); err == nil {
-			writeError(w, existsAlready(p))
-			return
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			writeError(w, filesError(err, couldNot, p))
-			return
-		}
-	} else {
-		f, st, err := d.OpenFile(p)
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			if expect != "" {
-				writeError(w, fileChanged(p, true))
-				return
-			}
-		case err != nil:
-			writeError(w, filesError(err, couldNot, p))
-			return
-		default:
-			perm = st.Mode().Perm()
-			var cur []byte
-			if expect != "" {
-				cur, err = io.ReadAll(io.LimitReader(f, maxEditBytes+1))
-			}
-			f.Close()
-			if err != nil {
-				writeError(w, err)
-				return
-			}
-			if expect != "" && contentVersion(cur) != expect {
-				writeError(w, fileChanged(p, false))
-				return
-			}
-		}
+	release, err := s.holdFiles(r.Context(), d, p)
+	if err != nil {
+		writeError(w, err)
+		return
 	}
-	if err := d.WriteFile(p, body, perm); err != nil {
-		writeError(w, filesError(err, couldNot, p))
+	defer release()
+	if err := s.saveText(d, p, body, expect); err != nil {
+		writeError(w, filesError(err, "The file could not be saved.", p))
 		return
 	}
 	out := api.FileInfo{Path: p, Size: int64(len(body)), ModifiedAt: s.now().UTC(), Version: contentVersion(body)}
@@ -423,6 +445,54 @@ func (s *server) hFileSave(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(actor, action, p, "succeeded", p)
 	writeJSON(w, http.StatusOK, out)
+}
+
+// saveText writes body to p as hFileSave describes, keeping the mode of the
+// file it replaces.
+func (s *server) saveText(d *gamefiles.Dir, p string, body []byte, expect string) error {
+	perm := fs.FileMode(0o640)
+	if expect == "new" {
+		_, err := d.Lstat(p)
+		if err == nil {
+			return existsAlready(p)
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		beforeChange(p)
+		if err := d.CreateFile(p, body, perm); gamefiles.KindOf(err) != gamefiles.KindExists {
+			return err
+		}
+		return existsAlready(p)
+	}
+	if expect != "" {
+		s.fileHold.save.Lock()
+		defer s.fileHold.save.Unlock()
+	}
+	f, st, err := d.OpenFile(p)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		if expect != "" {
+			return fileChanged(p, true)
+		}
+	case err != nil:
+		return err
+	default:
+		perm = st.Mode().Perm()
+		var cur []byte
+		if expect != "" {
+			cur, err = io.ReadAll(io.LimitReader(f, maxEditBytes+1))
+		}
+		f.Close()
+		if err != nil {
+			return err
+		}
+		if expect != "" && contentVersion(cur) != expect {
+			return fileChanged(p, false)
+		}
+	}
+	beforeChange(p)
+	return d.WriteFile(p, body, perm)
 }
 
 func (s *server) hFileFolder(w http.ResponseWriter, r *http.Request) {
@@ -440,9 +510,6 @@ func (s *server) hFileFolder(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		err = newName(p)
 	}
-	if err == nil {
-		err = s.changeRefusal(r.Context(), p)
-	}
 	if err != nil {
 		writeError(w, err)
 		return
@@ -453,6 +520,13 @@ func (s *server) hFileFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer d.Close()
+	release, err := s.holdFiles(r.Context(), d, p)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer release()
+	beforeChange(p)
 	if err := d.MakeFolder(p); err != nil {
 		writeError(w, filesError(err, "The folder could not be made.", p))
 		return
@@ -512,19 +586,22 @@ func (s *server) hFileMove(w http.ResponseWriter, r *http.Request) {
 		items[i] = api.FileMove{From: from, To: to}
 		all = append(all, from, to)
 	}
-	if err := s.changeRefusal(r.Context(), all...); err != nil {
-		writeError(w, err)
-		return
-	}
 	d, err := s.openFiles()
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	defer d.Close()
+	release, err := s.holdFiles(r.Context(), d, all...)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer release()
 	var moved []api.FileMove
 	var failed error
 	for _, it := range items {
+		beforeChange(it.From)
 		if err := d.Move(it.From, it.To); err != nil {
 			failed = filesError(err, "Could not move "+quotePath(path.Base(it.From))+".", it.From)
 			break
@@ -572,19 +649,22 @@ func (s *server) hFileDelete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.changeRefusal(r.Context(), paths...); err != nil {
-		writeError(w, err)
-		return
-	}
 	d, err := s.openFiles()
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	defer d.Close()
+	release, err := s.holdFiles(r.Context(), d, paths...)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer release()
 	var deleted []string
 	var failed error
 	for _, p := range paths {
+		beforeChange(p)
 		err := d.Delete(p)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			failed = filesError(err, "Could not delete "+quotePath(path.Base(p))+".", p)

@@ -3,6 +3,7 @@ package agent
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -94,6 +97,19 @@ func entryNames(f api.Files) string {
 }
 
 func codeOf(out map[string]any) string { s, _ := out["code"].(string); return s }
+
+// waitIdle waits for the server's operation lock to be free, which an
+// operation gives back a moment after it is recorded as ended.
+func (e *agentEnv) waitIdle() {
+	e.t.Helper()
+	e.waitFor("the operation lock free", func() bool {
+		release, ok := e.srv().holdOpLock()
+		if ok {
+			release()
+		}
+		return ok
+	})
+}
 
 // idleFilesServer is a stopped server with a few files, and a canary
 // outside its folder: Playkeeper's own files, which nothing may reach.
@@ -428,6 +444,7 @@ func TestTheWorldIsReadOnlyWhileTheGameRuns(t *testing.T) {
 		t.Fatalf("stop: %d %v", code, out)
 	}
 	e.waitFor("stopped", func() bool { return !e.srv().gameRunning(t.Context()) && !e.a.busy() })
+	e.waitIdle()
 	if code, out := e.saveFile("world/level.dat", "", "edited\n"); code != 200 {
 		t.Fatalf("the world once the game stopped: %d %v", code, out)
 	}
@@ -450,12 +467,132 @@ func TestFileBrowserWaitsForTheServersOperation(t *testing.T) {
 	busy("make a folder", code, out)
 	code, out = e.call("POST", e.sp("/files/delete"), map[string]any{"actor": "admin", "paths": []string{"plugins"}})
 	busy("delete", code, out)
+	code, out = e.announceFile(e.openUpload("config"), "paper-global.yml", 5, false)
+	busy("announce an upload", code, out)
 	e.filesAt("plugins")
 	e.openFile("server.properties")
 	release()
-	e.waitFor("the backup to end", func() bool { return !e.a.busy() })
+	e.waitIdle()
 	if code, out := e.saveFile("server.properties", "", "motd=x\n"); code != 200 {
 		t.Fatalf("save after the backup: %d %v", code, out)
+	}
+}
+
+// holdChange makes the next change to reach path wait there until resume is
+// called; held is closed once it waits.
+func holdChange(t *testing.T, path string) (held <-chan struct{}, resume func()) {
+	t.Helper()
+	h, r := make(chan struct{}), make(chan struct{})
+	var first atomic.Bool
+	beforeChange = func(p string) {
+		if p == path && first.CompareAndSwap(false, true) {
+			close(h)
+			<-r
+		}
+	}
+	resume = sync.OnceFunc(func() { close(r) })
+	t.Cleanup(func() {
+		resume()
+		beforeChange = func(string) {}
+	})
+	return h, resume
+}
+
+// A change to the server's files holds off operations until it is done, so
+// that a start, such as a wake for a player who joins during a long delete,
+// a backup or a restore can't begin in the middle of it. Changes don't hold
+// off each other.
+func TestFileChangesHoldOffOperations(t *testing.T) {
+	for _, c := range []struct {
+		what, path string
+		run        func(e *agentEnv) (int, map[string]any)
+	}{
+		{"a save", "server.properties", func(e *agentEnv) (int, map[string]any) { return e.saveFile("server.properties", "", "motd=x\n") }},
+		{"a new file", "config/new.yml", func(e *agentEnv) (int, map[string]any) { return e.saveFile("config/new.yml", "new", "a: 1\n") }},
+		{"a new folder", "config", func(e *agentEnv) (int, map[string]any) {
+			return e.call("POST", e.sp("/files/folder"), map[string]any{"actor": "admin", "path": "config"})
+		}},
+		{"a move", "plugins/EssentialsX.jar", func(e *agentEnv) (int, map[string]any) {
+			return e.call("POST", e.sp("/files/move"), map[string]any{"actor": "admin", "items": []any{map[string]any{"from": "plugins/EssentialsX.jar", "to": "EssentialsX.jar"}}})
+		}},
+		{"a delete", "plugins/Essentials", func(e *agentEnv) (int, map[string]any) {
+			return e.call("POST", e.sp("/files/delete"), map[string]any{"actor": "admin", "paths": []string{"plugins/Essentials"}})
+		}},
+		{"an upload put in place", "config/paper-global.yml", func(e *agentEnv) (int, map[string]any) {
+			up := e.openUpload("config")
+			if code, out := e.announceFile(up, "paper-global.yml", 5, false); code != 201 {
+				return code, out
+			}
+			code, _, out := e.uploadPiece(up, 0, 0, strings.NewReader("x: 1\n"))
+			return code, out
+		}},
+	} {
+		t.Run(c.what, func(t *testing.T) {
+			e, _ := idleFilesServer(t)
+			s := e.srv()
+			held, resume := holdChange(t, c.path)
+			answered := make(chan string, 1)
+			go func() {
+				code, out := c.run(e)
+				answered <- fmt.Sprint(code, " ", out)
+			}()
+			select {
+			case <-held:
+			case a := <-answered:
+				t.Fatalf("%s didn't reach its change: %s", c.what, a)
+			}
+			noop := func(context.Context, *opHandle) error { return nil }
+			if _, err := s.beginOp("backup", "admin", noop); err == nil || !strings.Contains(err.Error(), "busy with a change to its files") {
+				t.Fatalf("a backup during %s: %v", c.what, err)
+			}
+			if code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"}); code != 409 || codeOf(out) != api.CodeBusy {
+				t.Fatalf("a start during %s: %d %v", c.what, code, out)
+			}
+			if code, out := e.saveFile("plugins/other.yml", "new", "b: 2\n"); code != 200 {
+				t.Fatalf("another change during %s: %d %v", c.what, code, out)
+			}
+			resume()
+			if a := <-answered; !strings.HasPrefix(a, "20") {
+				t.Fatalf("%s: %s", c.what, a)
+			}
+			e.waitIdle()
+			op, err := s.beginOp("backup", "admin", noop)
+			if err != nil {
+				t.Fatalf("a backup after %s: %v", c.what, err)
+			}
+			e.waitOp(op.ID)
+		})
+	}
+}
+
+// Of two saves of the same version, such as by two admins at once, the
+// second is refused as changed, never lost.
+func TestTwoSavesOfOneVersionCantBothWin(t *testing.T) {
+	e, _ := idleFilesServer(t)
+	v := e.openFile("server.properties").Version
+	held, resume := holdChange(t, "server.properties")
+	first := make(chan int, 1)
+	go func() {
+		code, _ := e.saveFile("server.properties", v, "motd=First\n")
+		first <- code
+	}()
+	<-held
+	second := make(chan map[string]any, 1)
+	go func() {
+		code, out := e.saveFile("server.properties", v, "motd=Second\n")
+		out["status"] = code
+		second <- out
+	}()
+	time.Sleep(50 * time.Millisecond)
+	resume()
+	if code := <-first; code != 200 {
+		t.Fatalf("the first save: %d", code)
+	}
+	if out := <-second; out["status"] != 409 || codeOf(out) != api.CodeFileChanged {
+		t.Fatalf("the second save: %v", out)
+	}
+	if got := readFile(t, e.data("server.properties")); got != "motd=First\n" {
+		t.Fatalf("server.properties = %q", got)
 	}
 }
 
@@ -633,7 +770,7 @@ func TestAnUploadThatCantBePutInPlaceCanBeTriedAgain(t *testing.T) {
 		t.Fatalf("placing during a backup: %d %v", code, out)
 	}
 	release()
-	e.waitFor("the backup to end", func() bool { return !e.a.busy() })
+	e.waitIdle()
 	if code, v, out := e.uploadPiece(up, 0, 6, nil); code != 200 || !v.Files[0].Placed || v.Files[0].Error != "" {
 		t.Fatalf("trying again: %d %v", code, out)
 	}
