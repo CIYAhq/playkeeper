@@ -5333,7 +5333,7 @@ control "a world border further out than Playkeeper pre-generates is refused" in
 webcontrol "the Map area is left out for those who can't change the map" web/src/pages/server/map.tsx \
   "{changes && <MenuItem onClick={() => setAreaOpen(true)}>{t('mapArea.menu')}</MenuItem>}" \
   "<MenuItem onClick={() => setAreaOpen(true)}>{t('mapArea.menu')}</MenuItem>" \
-  web/src/pages/server/map.test.tsx 'is left out for those who can’t change the map'
+  web/src/pages/server/map.test.tsx 'is left out for those who can'
 webcontrol "the phone's Map area row is left out for those who can't change the map" web/src/pages/server/map.tsx \
   '            {changes && (
               <>
@@ -5341,7 +5341,7 @@ webcontrol "the phone's Map area row is left out for those who can't change the 
   '            {true && (
               <>
                 <MapAreaRow' \
-  web/src/pages/server/map.test.tsx 'is left out for those who can’t change the map'
+  web/src/pages/server/map.test.tsx 'is left out for those who can'
 webcontrol "Explored only is out of reach once an area is filled in" web/src/pages/server/map-area.tsx \
   '<ChoiceCard value="explored" disabled={locked}' \
   '<ChoiceCard value="explored" disabled={false}' \
