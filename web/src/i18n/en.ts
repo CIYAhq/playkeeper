@@ -3433,4 +3433,5 @@ export const en = {
   'mapArea.stop': 'Stop',
   'mapArea.filling': 'Filling in the map',
   'mapArea.to': 'Out to {radius} blocks',
+  'op.pregen-start': 'Starting to pre-generate {server}’s map',
 } as const satisfies Record<string, string | { zero?: string; one?: string; two?: string; few?: string; many?: string; other: string }>
