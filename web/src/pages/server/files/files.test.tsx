@@ -281,6 +281,8 @@ describe('the Files tab', () => {
   it('makes a folder with a name the machine takes, and says what’s wrong with one it wouldn’t', async () => {
     answer({ [list('plugins')]: { path: 'plugins', running: true, worlds, entries: [entry('LuckPerms', 'folder'), entry('LuckPerms.jar')] } satisfies Files })
     await render({ path: 'plugins' })
+    // The breadcrumb names the folder's section, its names apart.
+    expect(document.getElementById('files-folder')?.textContent).toBe('Files plugins')
     await click(button('New'))
     await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === 'New folder') as HTMLElement)
     const input = document.querySelector<HTMLInputElement>('#files-name') as HTMLInputElement

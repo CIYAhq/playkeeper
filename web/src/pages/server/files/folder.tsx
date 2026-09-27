@@ -562,6 +562,8 @@ function Breadcrumb({ server, path }: { server: ServerStatus; path: string }) {
         )}
         {all.map((c, i) => (
           <span key={c.path} className="flex min-w-0 items-center gap-1">
+            {/* A space keeps the names apart in the heading's text, which names the folder's section. */}
+            {' '}
             <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             {i === all.length - 1 ? (
               <span className="max-w-64 truncate px-1 font-bold" aria-current="page">
