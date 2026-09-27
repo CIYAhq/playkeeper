@@ -88,7 +88,7 @@ export function NameDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup className="sm:max-w-[440px]">
-        <form onSubmit={go} noValidate>
+        <form onSubmit={go} className="contents" noValidate>
           <div className="px-6 pt-6">
             <DialogTitle className="text-lg font-bold">{title}</DialogTitle>
             {hint && <DialogDescription className="mt-1 truncate text-[13px]">{hint}</DialogDescription>}
@@ -247,14 +247,17 @@ export function MoveDialog({ server, paths, open, onOpenChange, onMoved, worlds,
   )
 }
 
+/** A folder on the way in the move dialog; the folder it shows now is only named. */
 function CrumbButton({ current, onClick, children }: { current: boolean; onClick: () => void; children: ReactNode }) {
+  if (current) {
+    return (
+      <span aria-current="location" className="max-w-40 truncate px-1 py-0.5 font-semibold text-foreground">
+        {children}
+      </span>
+    )
+  }
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-current={current ? 'location' : undefined}
-      className={cn('max-w-40 truncate rounded-md px-1 py-0.5 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring', current ? 'font-semibold text-foreground' : 'text-muted-foreground')}
-    >
+    <button type="button" onClick={onClick} className="max-w-40 truncate rounded-md px-1 py-0.5 text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">
       {children}
     </button>
   )
