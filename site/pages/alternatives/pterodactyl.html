@@ -22,7 +22,7 @@ og: pterodactyl
     </div>
     <div class="alt-art alt-art-ptero hero-after">
       {{template "browser" (dict "Name" "ptero-hero" "URL" "alex.playkeeper.me:8443" "Eager" true "Alt" "A server's Overview in the dashboard: its join address, who's playing, how it's running and the players over the last day." "Sizes" "(max-width: 639.98px) 1px, 558px" "Media" "(min-width: 640px)")}}
-      <div aria-hidden="true">{{template "terminal" (dict "Class" "art-terminal" "Decor" true "Lines" (list (dict "Cmd" (installCommand)) (dict "Ok" "Ubuntu 24.04 · x86_64 · 4 vCPU · 8 GB") (dict "Go" "https://203.0.113.7:8443/setup#code=…")))}}</div>
+      <div aria-hidden="true">{{template "terminal" (dict "Class" "art-terminal" "Decor" true "Lines" (list (dict "Cmd" (installCommand)) (dict "Ok" "Ubuntu 26.04 · x86_64 · 4 vCPU · 8 GB") (dict "Go" "https://203.0.113.7:8443/setup#code=…")))}}</div>
     </div>
   </div>
 </section>
@@ -68,13 +68,13 @@ og: pterodactyl
         {{template "terminal" (dict "Lines" (list
           (dict "Cmd" (installCommand))
           (dict "Ok" "Download matches its SHA-256")
-          (dict "Ok" "Ubuntu 24.04 · x86_64 · 4 vCPU · 8 GB · 71 GB free")
+          (dict "Ok" "Ubuntu 26.04 · x86_64 · 4 vCPU · 8 GB · 71 GB free")
           (dict "Ok" "Ports 8443 and 25565 are free")
           (dict "Note" "It will install Docker (docker.io) and the Playkeeper services.")
           (dict "Note" "Continue? [y/N] y")
           (dict "Go" "Open https://203.0.113.7:8443/setup#code=…")
         ))}}
-        <p class="fine">It checks the server, lists every change and asks first. Docker comes from Ubuntu's archive if it's missing.</p>
+        <p class="fine">It checks the server, lists every change and asks first. Docker comes from Ubuntu's or Debian's archive if it's missing.</p>
       </div>
     </div>
   </div>

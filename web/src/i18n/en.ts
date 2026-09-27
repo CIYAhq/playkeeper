@@ -38,6 +38,8 @@ export const en = {
   'common.none': '—',
   'common.list': '{a} and {b}',
   'common.listMore': '{items} and {last}',
+  'common.listOr': '{a} or {b}',
+  'common.listOrMore': '{items} or {last}',
 
   'footer.notOfficial': 'Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.',
   'footer.version': 'Playkeeper {version}',
@@ -1735,7 +1737,8 @@ export const en = {
   'machines.connect.title': 'Connect another machine',
   'machines.connect.lead': 'Add a second VPS or a home server.',
   'machines.connect.step1': 'Get a machine',
-  'machines.connect.minimum': 'Ubuntu 24.04, at least {cores} CPU cores, {memory} GB of memory and {disk} GB of free disk.',
+  'machines.connect.minimum': '{systems}, at least {cores} CPU cores, {memory} GB of memory and {disk} GB of free disk.',
+  'machines.connect.system': '{name} {version}+',
   'machines.connect.sizing': 'How big? See the sizing guide',
   'machines.connect.step2': 'Name it',
   'machines.connect.name': 'Machine name',

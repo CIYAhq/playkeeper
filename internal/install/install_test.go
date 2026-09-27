@@ -41,8 +41,12 @@ type fakeHost struct {
 	fw4, fw6      *fakeFirewall
 	// ufwActive turns ufw on; ufwRules are its rules, set up front for
 	// rules the admin added.
-	ufwActive     bool
-	ufwRules      map[string]bool
+	ufwActive bool
+	ufwRules  map[string]bool
+	// nftChains is what `nft list chains` prints; empty means nftables
+	// isn't installed. aptPolicy is what `apt-cache policy PKG` prints.
+	nftChains     string
+	aptPolicy     map[string]string
 	clock         time.Time
 	lockPolls     int  // the package lock is reported held this many more times
 	lockForever   bool // the package lock is never released
@@ -139,6 +143,13 @@ func (h *fakeHost) system(t *testing.T) System {
 				return h.fw4.save(), nil
 			case name == "ip6tables-save":
 				return h.fw6.save(), nil
+			case name == "nft" && line == "nft list chains":
+				if h.nftChains == "" {
+					return "", errors.New(`exec: "nft": executable file not found in $PATH`)
+				}
+				return h.nftChains, nil
+			case name == "apt-cache" && len(args) == 2 && args[0] == "policy":
+				return h.aptPolicy[args[1]], nil
 			case name == "iptables":
 				return h.fw4.run(args)
 			case name == "ip6tables":
@@ -154,8 +165,10 @@ func (h *fakeHost) system(t *testing.T) System {
 				os.WriteFile(filepath.Join(h.root, "/proc/sys/net/ipv4/ip_forward"), []byte("1\n"), 0o644)
 				os.MkdirAll(filepath.Join(h.root, "/sys/class/net/docker0"), 0o755)
 			case name == "apt-get" && len(apt) > 0 && apt[0] == "install":
-				for _, p := range []string{"docker.io", "containerd", "runc", "pigz"} {
-					h.packages[p] = true
+				for _, p := range append([]string{"containerd", "runc", "pigz"}, apt[1:]...) {
+					if !strings.HasPrefix(p, "-") {
+						h.packages[p] = true
+					}
 				}
 				h.dockerPresent = true
 				appendLine(filepath.Join(h.root, "/etc/group"), "docker:x:999:")
@@ -355,7 +368,10 @@ func TestPreflightRefusesEachCollisionWithAFix(t *testing.T) {
 		"low disk":   {func(h *fakeHost) { h.freeBytes = 1 << 30 }, "disk"},
 		"low memory": {func(h *fakeHost) { h.memMB = 1900 }, "memory"},
 		"unsupported distro": {func(h *fakeHost) {
-			os.WriteFile(filepath.Join(h.root, "/etc/os-release"), []byte("ID=debian\nVERSION_ID=\"12\"\n"), 0o644)
+			os.WriteFile(filepath.Join(h.root, "/etc/os-release"), []byte("ID=alpine\nVERSION_ID=\"3.20\"\n"), 0o644)
+		}, "os"},
+		"release older than the oldest supported": {func(h *fakeHost) {
+			os.WriteFile(filepath.Join(h.root, "/etc/os-release"), []byte("ID=ubuntu\nVERSION_ID=\"18.04\"\n"), 0o644)
 		}, "os"},
 		"no systemd": {func(h *fakeHost) { os.RemoveAll(filepath.Join(h.root, "/run/systemd/system")) }, "systemd"},
 		"already installed": {func(h *fakeHost) {
@@ -385,12 +401,23 @@ func TestPreflightRefusesEachCollisionWithAFix(t *testing.T) {
 				t.Fatalf("refused install changed the host: %v", d)
 			}
 			for _, cmd := range h.cmds {
-				if !strings.HasPrefix(cmd, "ufw status") {
+				if !readOnly(cmd) {
 					t.Fatalf("refused install ran %q", cmd)
 				}
 			}
 		})
 	}
+}
+
+// readOnly reports whether cmd is one of the preflight's questions, which
+// change nothing.
+func readOnly(cmd string) bool {
+	for _, q := range []string{"ufw status", "nft list chains", "iptables -S INPUT", "ip6tables -S INPUT"} {
+		if cmd == q {
+			return true
+		}
+	}
+	return false
 }
 
 func TestExistingMinecraftCanBeAllowedButIsNeverTouched(t *testing.T) {

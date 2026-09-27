@@ -216,4 +216,22 @@ for old in '' 1; do
 done
 ok "a tarball over 200 MB or a .sha256 over 1 MB refused before anything is installed, also when curl cannot stop it early"
 
+# In a terminal, install.sh takes get.sh's place (the same process), so that
+# it is sudo's own child when it asks, and deletes the download itself.
+mkdir -p "$t/asks/$rel"
+cat >"$t/asks/$rel/install.sh" <<EOF
+#!/bin/sh
+{ echo "pid \$\$"; echo "dir \$PLAYKEEPER_GET_DIR"; [ -t 0 ] && echo "stdin is a terminal"; } >"$t/asks.txt"
+case \$PLAYKEEPER_GET_DIR in "$t"/tmp/playkeeper-get.*) rm -rf "\$PLAYKEEPER_GET_DIR" ;; esac
+EOF
+cp "$t/rel/$rel/playkeeper" "$t/asks/$rel/"
+chmod +x "$t/asks/$rel/install.sh"
+publish asks "$t/asks" "$rel"
+status=0
+out=$(script -qec "sh -c 'echo \$\$ >\"$t/get.pid\"; exec env PATH=\"$t/bin:$PATH\" SITE=\"$t/site\" TMPDIR=\"$t/tmp\" PLAYKEEPER_BASE_URL=https://example.test/asks sh \"$root/packaging/get.sh\"'" /dev/null 2>&1) || status=$?
+[ "$status" = 0 ] && grep -qx "pid $(cat "$t/get.pid")" "$t/asks.txt" && grep -qx "stdin is a terminal" "$t/asks.txt" &&
+  grep -qx "dir $t/tmp/playkeeper-get\..*" "$t/asks.txt" && [ -z "$(ls -A "$t/tmp")" ] ||
+  fail "in a terminal, install.sh must replace get.sh, read the terminal and get the download to delete ($status): $out $(cat "$t/asks.txt" 2>/dev/null)"
+ok "in a terminal, install.sh takes get.sh's place, asks on the terminal and deletes the download"
+
 echo "get.sh and install.sh: $checks checks passed"

@@ -266,13 +266,20 @@ func installFlags(fs *flag.FlagSet) *install.Options {
 }
 
 func runInstall(args []string) error {
-	fs := flag.NewFlagSet("install", flag.ExitOnError)
+	defer removeGetDir()
+	// A mistyped flag returns, rather than exits, so the download goes too.
+	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	o := installFlags(fs)
 	j := joinArgs{config: config.DefaultPath}
 	fs.StringVar(&j.code, "code", "", "with --join: the join code from the dashboard's command")
 	fs.StringVar(&j.fingerprint, "fingerprint", "", "with --join: the dashboard's fingerprint from its command")
 	fs.StringVar(&j.name, "name", "", "with --join: what the dashboard calls this machine (default: its host name)")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
 	if o.PanelPort == o.GamePort {
 		return errors.New("--panel-port and --game-port must differ")
 	}
@@ -315,6 +322,28 @@ func runInstall(args []string) error {
 		return err
 	}
 	return joinAfterInstall(ctx, os.Stdout, install.Real(), cfg, j)
+}
+
+// removeGetDir deletes the folder the one-line installer (get.sh)
+// downloaded this installer into, when it did: get.sh hands over to the
+// installer, so its own cleanup doesn't run.
+var removeGetDir = func() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	if dir := getDir(os.Getenv("PLAYKEEPER_GET_DIR"), exe); dir != "" {
+		os.RemoveAll(dir)
+	}
+}
+
+// getDir is dir when it is the kind of folder get.sh makes and holds exe,
+// or "".
+func getDir(dir, exe string) string {
+	if !filepath.IsAbs(dir) || !strings.HasPrefix(filepath.Base(dir), "playkeeper-get.") || !strings.HasPrefix(exe, filepath.Clean(dir)+"/") {
+		return ""
+	}
+	return filepath.Clean(dir)
 }
 
 func writeUpgradeSummary(w io.Writer, res *install.Result) {

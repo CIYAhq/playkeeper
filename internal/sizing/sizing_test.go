@@ -202,7 +202,7 @@ func TestDefaultAnswerMatchesTheDesign(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkAnswer(t, r, "A VPS with 6 GB of memory", "For 5–10 friends on Vanilla or Paper, with room for backups.", []answer{
-		{"6 GB", "4 GB for the world, 2 GB for Ubuntu, Docker and Playkeeper."},
+		{"6 GB", "4 GB for the world, 2 GB for the system, Docker and Playkeeper."},
 		{"2 fast cores", "Minecraft runs the world on one core, so fast beats many."},
 		{"40 GB SSD", "Worlds, a week of backups and room to explore."},
 		{"Any VPS will do", "Each player uses well under 1 Mbit/s."},
@@ -212,7 +212,7 @@ func TestDefaultAnswerMatchesTheDesign(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkAnswer(t, r, "A VPS with 24 GB of memory", "For 5–10 friends on a big modpack, with room for backups and a second small server.", []answer{
-		{"24 GB", "16 GB for the world, 2 GB for Ubuntu, Docker and Playkeeper, and 6 GB to spare."},
+		{"24 GB", "16 GB for the world, 2 GB for the system, Docker and Playkeeper, and 6 GB to spare."},
 		{"4 fast cores", "Mods keep extra cores busy, but the world still runs on one, so fast beats many. Prefer dedicated (not shared) cores."},
 		{"80 GB SSD", "Worlds, a week of backups and room to explore."},
 	})

@@ -11,6 +11,45 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/names"
 )
 
+func TestTheInstallerDeletesOnlyTheFolderGetShDownloadedItInto(t *testing.T) {
+	const exe = "/tmp/playkeeper-get.AbC123/x/playkeeper-0.5.0-linux-amd64/playkeeper"
+	for _, c := range []struct{ dir, want string }{
+		{"/tmp/playkeeper-get.AbC123", "/tmp/playkeeper-get.AbC123"},
+		{"/tmp/playkeeper-get.AbC123/", "/tmp/playkeeper-get.AbC123"},
+		{"", ""},
+		{"/tmp/playkeeper-get.Other", ""},
+		{"/tmp", ""},
+		{"/", ""},
+		{"tmp/playkeeper-get.AbC123", ""},
+		{"/tmp/playkeeper-get.AbC", ""},
+	} {
+		if got := getDir(c.dir, exe); got != c.want {
+			t.Errorf("getDir(%q) = %q, want %q", c.dir, got, c.want)
+		}
+	}
+}
+
+func TestTheInstallerDeletesGetShsDownloadWhenItStopsEarly(t *testing.T) {
+	removed := 0
+	prev := removeGetDir
+	removeGetDir = func() { removed++ }
+	t.Cleanup(func() { removeGetDir = prev })
+	for _, args := range [][]string{
+		{"--no-such-flag"},
+		{"--panel-port", "25565"},
+		{"--release-url", "http://example.test/latest"},
+		{"--join", "203.0.113.5:8443"},
+	} {
+		before := removed
+		if err := runInstall(args); err == nil {
+			t.Errorf("install %v was accepted", args)
+		}
+		if removed != before+1 {
+			t.Errorf("install %v stopped without deleting get.sh's download", args)
+		}
+	}
+}
+
 // Regression for 1e19a0a: a reinstall that kept the admin account printed
 // "sign in with your existing admin account" and then "Create your admin account".
 func TestInstallSummaryForFirstInstallAndReinstall(t *testing.T) {

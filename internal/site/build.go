@@ -20,6 +20,8 @@ import (
 	"strings"
 	texttemplate "text/template"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/platform"
 )
 
 // Options say what to build the site from.
@@ -584,6 +586,10 @@ func (s *Site) funcs() template.FuncMap {
 		// and the command a page with a channel shows.
 		"channelCodes": func() string { return channelCodes(s.opts.Settings.Channels) },
 		"installFor":   func(code string) (string, error) { return installFor(s.opts.Settings.InstallCommand, code) },
+		// What Playkeeper runs on (internal/platform): "Ubuntu 20.04 or
+		// later, or Debian 12 or later", or "Ubuntu 20.04+ or Debian 12+".
+		"systems":      platform.Summary,
+		"systemsShort": platform.Short,
 		// The one-line installer (Settings.InstallCommand), on one line, in
 		// the three a phone shows, and wrapped before its pipe for a terminal.
 		"installCommand": func() string { return s.opts.Settings.InstallCommand },

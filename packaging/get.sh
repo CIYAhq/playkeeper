@@ -69,7 +69,7 @@ main() {
     x86_64 | amd64) ;;
     *) die "this server's CPU is $(uname -m); Playkeeper is built for x86_64 (amd64) only." "Use an x86_64 VPS." ;;
   esac
-  [ "$(id -u)" -eq 0 ] || die "the installer needs root." "Pipe into sudo: curl -fsSL <this script's URL> | sudo sh"
+  [ "$(id -u)" -eq 0 ] || die "the installer needs root." "Pipe into sudo: curl -fsSL <this script's URL> | sudo sh (without sudo, as on a Debian with a root password, run it as root after su -)"
   command -v curl >/dev/null 2>&1 || die "curl is not installed." "sudo apt-get install -y curl"
   case $base in
     https://*) proto='=https' ;;
@@ -121,13 +121,18 @@ main() {
     die "cannot run programs from $tmp (is it mounted noexec?)." "Run again with TMPDIR set to a directory that allows it, for example: ... | sudo TMPDIR=/root sh"
 
   say "Starting the installer from ${dir##*/}"
-  status=0
   if [ "$assume_yes" = 1 ]; then
+    status=0
     "$dir/install.sh" "$@" </dev/null || status=$?
-  else
-    "$dir/install.sh" "$@" </dev/tty || status=$?
+    exit "$status"
   fi
-  exit "$status"
+  # The installer asks on the terminal, so it takes this script's place as
+  # sudo's own child: a process that reads the terminal before sudo hands it
+  # over is stopped, and sudo-rs (Ubuntu 26.04's sudo) resumes only its own
+  # child. The installer deletes the download when it is done.
+  PLAYKEEPER_GET_DIR=$tmp
+  export PLAYKEEPER_GET_DIR
+  exec "$dir/install.sh" "$@" </dev/tty
 }
 
 main "$@"

@@ -5,20 +5,44 @@ import "github.com/CIYAhq/playkeeper/internal/minecraft"
 const (
 	// systemMB is the part of a VPS's memory the guide leaves to everything
 	// but Minecraft: what Linux keeps for itself, minecraft.HostReserveMB for
-	// Ubuntu, Docker and Playkeeper, and room for the page cache and backups.
+	// the operating system, Docker and Playkeeper, and room for the page
+	// cache and backups.
 	systemMB = 2048
 
 	// reportedPercent is the share of a VPS's memory that Linux reports
 	// (MemTotal), which Playkeeper's memory options are based on. The kernel
-	// keeps a little for itself; Ubuntu 24.04 sets none aside for crash dumps
-	// unless asked to, only 24.10 and later do by default
-	// (https://ubuntu.com/server/docs/how-to/software/kernel-crash-dump/).
+	// keeps kernelPercent for itself (a 3 GB KVM guest reports 2971 MB, 96.7%,
+	// and bigger machines a larger share); the rest is room for providers
+	// that hold back a little more.
 	reportedPercent = 95
+	kernelPercent   = 97
 )
+
+// crashKernelMB is the memory Ubuntu 24.10 and later, so 26.04 LTS, set
+// aside for crash dumps: its installer turns them on for machines with at
+// least 6 GB and 4 CPU threads, with the reservation below, which Linux
+// then doesn't report
+// (https://ubuntu.com/server/docs/how-to/software/kernel-crash-dump/).
+// Cloud images, Debian and Ubuntu 24.04 and older set none aside unless
+// asked to.
+func crashKernelMB(memoryGB int) int {
+	switch {
+	case memoryGB < 6:
+		return 0
+	case memoryGB < 32:
+		return 512
+	case memoryGB < 64:
+		return 1024
+	case memoryGB < 128:
+		return 2048
+	}
+	return 4096
+}
 
 // memorySizesGB, coreSizes and diskSizesGB are common VPS sizes, smallest
 // first. Ubuntu suggests at least 25 GB of disk for a server that does more
-// than boot (https://ubuntu.com/server/docs/reference/installation/system-requirements/).
+// than boot (https://ubuntu.com/server/docs/reference/installation/system-requirements/);
+// Debian needs less.
 var (
 	memorySizesGB = []int{3, 4, 6, 8, 12, 16, 24, 32, 48, 64}
 	coreSizes     = []int{2, 4, 6, 8, 12, 16}
@@ -26,8 +50,9 @@ var (
 )
 
 const (
-	// systemDiskGB is Ubuntu's own 5 GB (system requirements, above) plus
-	// Docker, Playkeeper's Minecraft image, logs and updates.
+	// systemDiskGB is Ubuntu's own 5 GB (system requirements, above; Debian
+	// takes less) plus Docker, Playkeeper's Minecraft image, logs and
+	// updates.
 	systemDiskGB = 10
 	// backupCopies is a week of daily backups.
 	backupCopies = 7
@@ -142,9 +167,13 @@ func smallServerMB() int {
 	return p.budgetsMB[0]
 }
 
-// ReportedMemoryMB is the memory Linux reports, as the guide assumes, on a
-// VPS sold with memoryGB.
-func ReportedMemoryMB(memoryGB int) int { return memoryGB * 1024 * reportedPercent / 100 }
+// ReportedMemoryMB is the least memory Linux reports, as the guide assumes,
+// on a VPS sold with memoryGB, whichever supported system it runs: with
+// Ubuntu's crash dump memory set aside, too.
+func ReportedMemoryMB(memoryGB int) int {
+	mb := memoryGB * 1024
+	return min(mb*reportedPercent/100, mb*kernelPercent/100-crashKernelMB(memoryGB))
+}
 
 // fits reports whether a VPS sold with memoryGB holds servers whose budgets
 // add up to budgetMB: systemMB is left over, and Playkeeper offers them on
