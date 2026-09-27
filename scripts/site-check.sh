@@ -6,7 +6,8 @@
 # script or style, and every file it uses served with the content type
 # nosniff needs), /robots.txt, /sitemap.xml and the blog's feed, the share
 # page for server templates at /t (kept out of search engines), a missing
-# page's 404, an address ending in / sent to the page without it, the sizing
+# page's 404, an address ending in / sent to the page without it and one on
+# www.playkeeper.io sent to playkeeper.io, the sizing
 # guide's table at /sizing, the live demo at /demo/ (its page, its files, the
 # players' faces and the plugins' icons, deep links answered by the app, a
 # missing file still a 404, and that it is the demo build), /community,
@@ -64,14 +65,18 @@ check_files() {
       *.css) want_type=text/css ;;
       *.svg) want_type=image/svg+xml ;;
       *.webp) want_type=image/webp ;;
+      *.avif) want_type=image/avif ;;
       *.png) want_type=image/png ;;
       *.mp4) want_type=video/mp4 ;;
       *.xml) want_type=xml ;;
       *) continue ;;
     esac
     [[ $type == *"$want_type"* ]] || fail "$f is served as '$type'; with nosniff, browsers only use it as $want_type"
-  done < <(grep -oE '(src|href|srcset|imagesrcset)="/[^"#?]*' "$file" | sed -E 's/^[a-z]+="//' | grep -vE '^/($|install$|community$|t$)' |
-    grep -E '\.[a-z0-9]+$' | sort -u)
+  done < <({
+    grep -oE '(src|href|poster)="/[^"#?]*' "$file" | sed -E 's/^[a-z]+="//'
+    # Each file of a srcset: "file 364w, file 546w".
+    grep -oE '(srcset|imagesrcset)="[^"]*' "$file" | sed -E 's/^[a-z]+="//' | tr ',' '\n' | awk '{ print $1 }'
+  } | grep -vE '^/($|install$|community$|t$)' | grep -E '^/.*\.[a-z0-9]+$' | sort -u)
 }
 
 docker build -f "$root/site/Dockerfile" -t "$image" "$root"
@@ -132,7 +137,7 @@ read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}
 
 read -r code type < <(curl -sS -o "$work/robots.txt" -w '%{http_code} %{content_type}\n' "$base/robots.txt")
 [ "$code" = 200 ] || fail "/robots.txt answered $code"
-for text in "Sitemap: $site/sitemap.xml" 'Allow: /demo/$' 'Disallow: /demo/'; do
+for text in "Sitemap: $site/sitemap.xml" 'Allow: /demo/$' 'Allow: /demo/assets/' 'Disallow: /demo/'; do
   grep -qxF "$text" "$work/robots.txt" || fail "/robots.txt does not say '$text'"
 done
 read -r code type < <(curl -sS -o "$work/sitemap.xml" -w '%{http_code} %{content_type}\n' "$base/sitemap.xml")
@@ -156,9 +161,11 @@ for p in "${listed[@]}"; do
   [ "$code" = 200 ] || fail "$p answered $code, not 200"
   [[ $type == text/html* ]] || fail "$p is served as '$type'"
   # internal/site's TestEveryPageIsWellFormed reads these two lengths from here
-  # and holds every built page to them, so keep each rule on one line.
+  # and holds every built page to them, so keep each rule on one line. A
+  # description counts as search engines count it: &#39; is one character.
   grep -qE '<title>[^<]{10,70}</title>' "$page" || fail "$p has no title of 10 to 70 characters"
-  grep -qE '<meta name="description" content="[^"]{50,170}">' "$page" || fail "$p has no description of 50 to 170 characters"
+  sed "s/&#39;/'/g; s/&amp;/\&/g" "$page" >"$work/text.html"
+  grep -qE '<meta name="description" content="[^"]{100,160}">' "$work/text.html" || fail "$p has no description of 100 to 160 characters"
   grep -qF "<link rel=\"canonical\" href=\"$site$p\">" "$page" || fail "$p does not name $site$p as its canonical address"
   for tag in 'property="og:title"' 'property="og:description"' "property=\"og:url\" content=\"$site$p\"" 'name="twitter:card" content="summary_large_image"'; do
     grep -qF "<meta $tag" "$page" || fail "$p has no <meta $tag"
@@ -187,6 +194,9 @@ grep -qi '^cache-control: max-age=31536000' <<<"$headers" || fail "$asset is not
 read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/pricing/")
 [ "$code" = 301 ] || fail "/pricing/ answered $code, not 301"
 [ "$location" = "$base/pricing" ] || fail "/pricing/ redirects to '$location', not /pricing"
+read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' -H 'Host: www.playkeeper.io' "$base/pricing?from=www")
+[ "$code" = 301 ] || fail "www.playkeeper.io/pricing answered $code, not 301"
+[ "$location" = "$site/pricing?from=www" ] || fail "www.playkeeper.io/pricing redirects to '$location', not $site/pricing?from=www"
 code=$(curl -sS -o "$page" -w '%{http_code}' "$base/no-such-page")
 [ "$code" = 404 ] || fail "a missing page answered $code, not 404"
 grep -qF "This page isn't here" "$page" || fail "a missing page does not show the 404 page"
@@ -218,6 +228,23 @@ if grep -qE '<script>|<style|[[:space:]](style|on[a-z]+)=' "$page"; then
 fi
 grep -qF '<script src="https://analytics-c.ciya.so/oa.js" async' "$page" || fail "/demo/ does not load the analytics"
 grep -qF '<meta name="referrer" content="strict-origin-when-cross-origin"' "$page" || fail "/demo/ keeps no-referrer, which makes Firefox and Safari send the analytics' beacons from origin null"
+# Search engines index /demo/ and link previews show it, so it has a title,
+# description and address of its own, a preview image in /demo/assets/, which
+# robots.txt opens to them, and a heading and links without JavaScript.
+sed "s/&#39;/'/g; s/&amp;/\&/g" "$page" >"$work/text.html"
+grep -qE '<title>[^<]{10,70}</title>' "$work/text.html" || fail "/demo/ has no title of 10 to 70 characters"
+if grep -qF '<title>Playkeeper</title>' "$page"; then fail "/demo/ has the dashboard's title, not its own"; fi
+grep -qE '<meta name="description" content="[^"]{100,160}">' "$work/text.html" || fail "/demo/ has no description of 100 to 160 characters"
+grep -qF "<link rel=\"canonical\" href=\"$site/demo/\">" "$page" || fail "/demo/ does not name $site/demo/ as its canonical address"
+for tag in 'property="og:title"' 'property="og:description"' "property=\"og:url\" content=\"$site/demo/\"" 'name="twitter:card" content="summary_large_image"'; do
+  grep -qF "<meta $tag" "$page" || fail "/demo/ has no <meta $tag"
+done
+og=$(sed -n 's|.*<meta property="og:image" content="'"$site"'\(/demo/assets/[^"]*\.png\)">.*|\1|p' "$page")
+[ -n "$og" ] || fail "/demo/ has no social preview in /demo/assets/"
+read -r code type < <(curl -sS -o /dev/null -w '%{http_code} %{content_type}\n' "$base$og")
+[ "$code" = 200 ] || fail "/demo/'s social preview $og answered $code, not 200"
+[[ $type == image/png* ]] || fail "/demo/'s social preview $og is served as '$type'"
+grep -qF '<h1>Playkeeper live demo</h1>' "$page" || fail "/demo/ has no heading for when JavaScript doesn't run"
 check_files /demo/ "$page"
 # The pages load in chunks, so the demo's code can be in any chunk the entry reaches.
 "$root/scripts/demo-marker.sh" "$base" "$script" >/dev/null 2>"$work/marker.err" || fail "$(cat "$work/marker.err")"

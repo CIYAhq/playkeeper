@@ -1,84 +1,121 @@
 #!/usr/bin/env python3
 """Makes the site's screenshots in site/static/shots.
 
-From the live demo: test/e2e/ui/site-captures.mjs takes them at twice the
-pixels, and this writes each as <name>@2x.webp and, at half the size,
-<name>.webp.
+test/e2e/ui/site-captures.mjs takes them from the dashboard, at 2 to 4 times
+their pixels. This writes each at the widths the pages' srcset offers, as AVIF
+and, for browsers without AVIF, WebP: <name>-<width>w.avif and .webp.
 
-The demo has no sample data yet for a few screens (modpacks, sharing a pack,
-importing a world, the map, schedules and AI agents), so those come from the
-approved design frames (docs/marketing/designs.md in the project's store,
-exported at 1x from Paper), at 1x only. Retake them from the demo once it has
-them, and drop them from DESIGN_CROPS.
+SLOTS says how wide the site shows each screenshot, in CSS pixels: on a
+desktop, at most in any layout (the pages' sizes attributes say the same), and
+on a phone 390 pixels wide. The widths are those at 1 and 2 times the desktop
+size, 3 times the phone size and 2 times the largest, less any within 15% of
+a larger one; screenshots in a phone frame get 1, 2 and 3 times the largest.
+A capture narrower than the widest of them is an error: nothing is ever
+enlarged.
 
-Usage: python3 site/tools/shots.py <captures-dir> [<designs-dir>]
-Needs Pillow."""
-import io
+Usage: python3 site/tools/shots.py <captures-dir>
+Needs Pillow 11.3 or newer, for AVIF."""
 import os
+import re
 import sys
 
-from PIL import Image, ImageCms
+from PIL import Image
 
 OUT = "site/static/shots"
 
-# name: (design file, box as left, top, right, bottom in the file's pixels)
-DESIGN_CROPS = {
-    "hero-map-phone": ("landing-desktop.png", (778, 474, 991, 905)),
-    "step-size": ("landing-desktop.png", (142, 1198, 481, 1395)),
-    "size-picker": ("landing-desktop.png", (605, 4776, 1319, 5057)),
-    "feat-map": ("landing-desktop.png", (472, 3231, 663, 3336)),
-    "feat-automation": ("landing-desktop.png", (776, 3231, 967, 3336)),
-    "feat-agents": ("landing-desktop.png", (1080, 3231, 1271, 3336)),
-    "step-modpack": ("feature-mods-and-modpacks-desktop.png", (553, 1448, 889, 1642)),
-    "step-share": ("feature-mods-and-modpacks-desktop.png", (960, 1448, 1297, 1642)),
-    "detail-modpack": ("feature-mods-and-modpacks-desktop.png", (121, 2447, 759, 2801)),
-    "detail-voice": ("feature-mods-and-modpacks-desktop.png", (681, 2900, 1319, 3255)),
-    "detail-pack": ("feature-mods-and-modpacks-desktop.png", (121, 3354, 759, 3710)),
-    "move-aternos": ("alternative-aternos-desktop.png", (681, 2022, 1319, 2454)),
-    "move-aternos-phone": ("alternative-aternos-phone.png", (20, 2400, 370, 2700)),
-    "move-inside": ("alternative-pterodactyl-desktop.png", (681, 3406, 1319, 3839)),
-    "guide-modpacks": ("guide-modded-minecraft-server-desktop.png", (520, 2416, 1280, 2838)),
-    "guide-modpack-details": ("guide-modded-minecraft-server-desktop.png", (889, 2865, 1280, 3316)),
-    "guide-share": ("guide-modded-minecraft-server-desktop.png", (520, 3949, 892, 4295)),
-    "guide-pack-page": ("guide-modded-minecraft-server-desktop.png", (908, 3949, 1280, 4295)),
+# In a phone frame, on every screen.
+PHONES = {"hero-map-phone", "feat-types", "feat-address", "feat-backups", "feat-crash", "feat-friends", "feat-map", "feat-automation", "feat-agents"}
+
+# name: (desktop, largest, phone); None where the page hides it.
+SLOTS = {
+    # The landing page: its product loop, phones, steps and live demo window.
+    "loop-overview": (858, 858, None),
+    "loop-new-server": (858, 858, None),
+    "loop-setting-up": (858, 858, None),
+    "loop-setting-up-2": (858, 858, None),
+    "hero-map-phone": (198, 272, 272),
+    "step-size": (363, 574, 340),
+    "feat-types": (182, 182, 126),
+    "feat-address": (182, 182, 126),
+    "feat-backups": (182, 182, 126),
+    "feat-crash": (182, 182, 126),
+    "feat-friends": (182, 182, 126),
+    "feat-map": (182, 182, 126),
+    "feat-automation": (182, 182, 126),
+    "feat-agents": (182, 182, 126),
+    "demo-home": (706, 958, 348),
+    # Mods and modpacks.
+    "feature-mods": (998, 998, 348),
+    "step-type": (363, 574, 340),
+    "step-modpack": (363, 574, 340),
+    "step-share": (363, 574, 340),
+    "detail-browse": (564, 960, 350),
+    "detail-modpack": (564, 960, 350),
+    "detail-voice": (564, 960, 350),
+    "detail-pack": (564, 960, 350),
+    "detail-updates": (564, 960, 350),
+    # The alternatives.
+    "move-aternos": (708, 960, None),
+    "move-aternos-phone": (None, 600, 350),
+    "ptero-hero": (558, 558, None),
+    "ptero-world": (672, 958, 348),
+    "move-inside": (708, 960, 350),
+    # The modded server guide and the 0.4.0 post.
+    "guide-modpacks": (760, 960, 350),
+    "guide-modpack-details": (402, 600, 350),
+    "guide-mods-tab": (760, 960, 350),
+    "guide-share": (372, 600, 350),
+    "guide-pack-page": (372, 600, 350),
+    "guide-crash": (760, 960, 350),
+    "post-mods": (730, 730, 350),
+    "post-address": (730, 730, 350),
+    "post-backups": (730, 730, 350),
 }
 
 
-def srgb(path):
-    """The design PNGs carry a Display P3 profile; the site is sRGB."""
-    im = Image.open(path)
-    icc = im.info.get("icc_profile")
-    rgb = im.convert("RGB")
-    if icc:
-        rgb = ImageCms.profileToProfile(rgb, ImageCms.ImageCmsProfile(io.BytesIO(icc)), ImageCms.createProfile("sRGB"), outputMode="RGB")
-    return rgb
-
-
-def save(im, name):
-    im.save(os.path.join(OUT, name + ".webp"), "WEBP", quality=84, method=6)
+def widths(name):
+    desktop, largest, phone = SLOTS[name]
+    if name in PHONES:
+        return [largest, 2 * largest, 3 * largest]
+    want = {2 * largest}
+    if desktop:
+        want |= {desktop, 2 * desktop}
+    if phone:
+        want |= {3 * phone} if desktop else {2 * phone, 3 * phone}
+    out = []
+    for w in sorted(want, reverse=True):
+        if not out or w * 1.15 <= out[-1]:
+            out.append(w)
+    return sorted(out)
 
 
 def main():
     captures = sys.argv[1]
-    designs = sys.argv[2] if len(sys.argv) > 2 else ""
     os.makedirs(OUT, exist_ok=True)
+    made = []
     for f in sorted(os.listdir(captures)):
         if not f.endswith(".png") or f.startswith("_"):
             continue
         name = f[:-4]
+        if name not in SLOTS:
+            sys.exit(f"{f}: add how wide the site shows it to SLOTS")
         im = Image.open(os.path.join(captures, f)).convert("RGB")
-        save(im, name + "@2x")
-        save(im.resize((im.width // 2, im.height // 2), Image.LANCZOS), name)
-        print(name, "from the demo")
-    if designs:
-        for name, (file, box) in DESIGN_CROPS.items():
-            if os.path.exists(os.path.join(captures, name + ".png")):
-                continue
-            stale = os.path.join(OUT, name + "@2x.webp")
-            if os.path.exists(stale):
-                os.remove(stale)
-            save(srgb(os.path.join(designs, file)).crop(box), name)
-            print(name, "from the design frames")
+        want = widths(name)
+        if im.width < want[-1]:
+            sys.exit(f"{f} is {im.width} pixels wide; the site needs {want[-1]}. Take it at a higher pixel ratio.")
+        for old in os.listdir(OUT):
+            if re.fullmatch(re.escape(name) + r"(@2x|-\d+w)?\.(webp|avif)", old):
+                os.remove(os.path.join(OUT, old))
+        for w in want:
+            small = im if w == im.width else im.resize((w, round(im.height * w / im.width)), Image.LANCZOS)
+            base = os.path.join(OUT, f"{name}-{w}w")
+            small.save(base + ".avif", "AVIF", quality=80, subsampling="4:4:4", speed=4)
+            small.save(base + ".webp", "WEBP", quality=90, method=6)
+        made.append(name)
+        print(name, " ".join(f"{w}w" for w in want))
+    missing = sorted(set(SLOTS) - set(made))
+    if missing:
+        print("not in the captures, left as they were:", ", ".join(missing))
 
 
 if __name__ == "__main__":
