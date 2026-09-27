@@ -190,9 +190,12 @@ function appPath(pathname: string): string {
 }
 
 const listeners = new Set<() => void>()
+// Told of every navigation, a link to the page you're on included; listeners only when the address changes.
+const watchers = new Set<() => void>()
 
 /** Pressing a link to the page you're on takes you back to its top, or to its section. */
 function revisit(path: string) {
+  watchers.forEach((fn) => fn())
   const hash = path.split('#')[1]
   const section = hash ? document.getElementById(hash) : null
   if (section) section.scrollIntoView({ block: 'start', behavior: scrollBehavior() })
@@ -214,15 +217,16 @@ export function navigate(to: Route | string, replace = false) {
   if (replace) window.history.replaceState(null, '', path)
   else window.history.pushState(null, '', path)
   listeners.forEach((fn) => fn())
+  watchers.forEach((fn) => fn())
   if (section) scrollToSection(section)
   else if (!(samePage && hash !== undefined)) window.scrollTo(0, 0)
 }
 
-/** Calls fn after each navigation inside the app, before the page scrolls; returns what stops it. */
+/** Calls fn after each navigation inside the app, a link to the page you're on included, before the page scrolls; returns what stops it. */
 export function onNavigate(fn: () => void): () => void {
-  listeners.add(fn)
+  watchers.add(fn)
   return () => {
-    listeners.delete(fn)
+    watchers.delete(fn)
   }
 }
 

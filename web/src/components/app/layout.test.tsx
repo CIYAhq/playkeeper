@@ -217,6 +217,17 @@ describe('a section list', () => {
     })
     expect(current(), 'the section pressed before is still on screen at the end of the page').toBe('Danger zone')
 
+    // Scrolled back up by hand, the same link again goes to the section the address already names.
+    layout({ game: 124, list: 440, danger: 760 })
+    await act(async () => {
+      window.dispatchEvent(new Event('wheel'))
+      scrollTo(0)
+      await frame()
+    })
+    expect(current()).toBe('In the game')
+    await act(async () => navigate('/#danger'))
+    expect(current()).toBe('Danger zone')
+
     window.history.replaceState(null, '', '/#game')
     await act(async () => window.dispatchEvent(new PopStateEvent('popstate')))
     expect(current()).toBe('In the game')
