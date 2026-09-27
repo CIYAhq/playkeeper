@@ -1474,6 +1474,26 @@ control "file browser: a zip's files are counted only up to its limit" internal/
   'if KindOf(err) == KindTooMany {' \
   'if false && KindOf(err) == KindTooMany {' \
   ./internal/gamefiles '^TestCountStopsPastTheLimit$'
+control "file browser: a zip's count stops far down" internal/gamefiles/browse.go \
+  'if depth > maxDepth {
+		return tooDeepError(start, maxDepth)
+	}
+	es, err := d.ReadDir(p, limit-*n)' \
+  'if false && depth > maxDepth {
+		return tooDeepError(start, maxDepth)
+	}
+	es, err := d.ReadDir(p, limit-*n)' \
+  ./internal/gamefiles '^TestWalkAndCountStopFarDown$'
+control "file browser: a zip's walk stops far down" internal/gamefiles/browse.go \
+  'if depth > maxDepth {
+		return tooDeepError(start, maxDepth)
+	}
+	entries, more, err := d.List(p, limit)' \
+  'if false && depth > maxDepth {
+		return tooDeepError(start, maxDepth)
+	}
+	entries, more, err := d.List(p, limit)' \
+  ./internal/gamefiles '^TestWalkAndCountStopFarDown$'
 control "game files: the hidden file a write goes through fits the longest name" internal/gamefiles/gamefiles.go \
   'if len(tmp) > maxNameBytes {' \
   'if false && len(tmp) > maxNameBytes {' \
