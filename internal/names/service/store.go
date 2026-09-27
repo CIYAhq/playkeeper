@@ -72,9 +72,9 @@ CREATE TABLE settings (
 	value TEXT NOT NULL
 ) STRICT;
 ` +
-	// Names from before this table were published under the service's
-	// first base domain, the only one it had run for.
-	`INSERT INTO settings (key, value) SELECT '` + settingBase + `', '` + DefaultBase + `' WHERE EXISTS (SELECT 1 FROM names);
+	// Names from before this table were published under playkeeper.io, the
+	// only base domain the service had run for.
+	`INSERT INTO settings (key, value) SELECT '` + settingBase + `', 'playkeeper.io' WHERE EXISTS (SELECT 1 FROM names);
 `}
 
 type queryer interface {
