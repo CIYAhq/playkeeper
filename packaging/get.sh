@@ -121,13 +121,18 @@ main() {
     die "cannot run programs from $tmp (is it mounted noexec?)." "Run again with TMPDIR set to a directory that allows it, for example: ... | sudo TMPDIR=/root sh"
 
   say "Starting the installer from ${dir##*/}"
-  status=0
   if [ "$assume_yes" = 1 ]; then
+    status=0
     "$dir/install.sh" "$@" </dev/null || status=$?
-  else
-    "$dir/install.sh" "$@" </dev/tty || status=$?
+    exit "$status"
   fi
-  exit "$status"
+  # The installer asks on the terminal, so it takes this script's place as
+  # sudo's own child: a process that reads the terminal before sudo hands it
+  # over is stopped, and sudo-rs (Ubuntu 26.04's sudo) resumes only its own
+  # child. The installer deletes the download when it is done.
+  PLAYKEEPER_GET_DIR=$tmp
+  export PLAYKEEPER_GET_DIR
+  exec "$dir/install.sh" "$@" </dev/tty
 }
 
 main "$@"

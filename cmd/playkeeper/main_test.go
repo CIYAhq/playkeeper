@@ -11,6 +11,24 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/names"
 )
 
+func TestTheInstallerDeletesOnlyTheFolderGetShDownloadedItInto(t *testing.T) {
+	const exe = "/tmp/playkeeper-get.AbC123/x/playkeeper-0.5.0-linux-amd64/playkeeper"
+	for _, c := range []struct{ dir, want string }{
+		{"/tmp/playkeeper-get.AbC123", "/tmp/playkeeper-get.AbC123"},
+		{"/tmp/playkeeper-get.AbC123/", "/tmp/playkeeper-get.AbC123"},
+		{"", ""},
+		{"/tmp/playkeeper-get.Other", ""},
+		{"/tmp", ""},
+		{"/", ""},
+		{"tmp/playkeeper-get.AbC123", ""},
+		{"/tmp/playkeeper-get.AbC", ""},
+	} {
+		if got := getDir(c.dir, exe); got != c.want {
+			t.Errorf("getDir(%q) = %q, want %q", c.dir, got, c.want)
+		}
+	}
+}
+
 // Regression for 1e19a0a: a reinstall that kept the admin account printed
 // "sign in with your existing admin account" and then "Create your admin account".
 func TestInstallSummaryForFirstInstallAndReinstall(t *testing.T) {

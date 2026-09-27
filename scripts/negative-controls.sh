@@ -2097,6 +2097,11 @@ shcontrol() { # NAME FILE FROM TO TEST-SCRIPT
   git checkout -q -- "$file"
 }
 # shellcheck disable=SC2016
+shcontrol "get.sh hands over to the installer, so sudo-rs resumes it when it asks" packaging/get.sh \
+  'exec "$dir/install.sh" "$@" </dev/tty' \
+  '"$dir/install.sh" "$@" </dev/tty' \
+  packaging/get_test.sh
+# shellcheck disable=SC2016
 shcontrol "every get.sh download is size-limited" packaging/get.sh \
   '--max-filesize "$3" ' \
   '' \

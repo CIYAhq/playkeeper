@@ -292,6 +292,11 @@ func runInstall(args []string) error {
 		}
 		j.address = o.Join
 	}
+	if exe, err := os.Executable(); err == nil {
+		if dir := getDir(os.Getenv("PLAYKEEPER_GET_DIR"), exe); dir != "" {
+			defer os.RemoveAll(dir)
+		}
+	}
 	ctx, cancel := signalContext()
 	defer cancel()
 	res, err := install.Run(ctx, install.Real(), *o, version.Version)
@@ -315,6 +320,17 @@ func runInstall(args []string) error {
 		return err
 	}
 	return joinAfterInstall(ctx, os.Stdout, install.Real(), cfg, j)
+}
+
+// getDir is the folder the one-line installer (get.sh) downloaded this
+// installer into, which the installer deletes when it is done, since get.sh
+// hands over to it: dir, when it is the kind of folder get.sh makes and holds
+// exe, or "".
+func getDir(dir, exe string) string {
+	if !filepath.IsAbs(dir) || !strings.HasPrefix(filepath.Base(dir), "playkeeper-get.") || !strings.HasPrefix(exe, filepath.Clean(dir)+"/") {
+		return ""
+	}
+	return filepath.Clean(dir)
 }
 
 func writeUpgradeSummary(w io.Writer, res *install.Result) {
