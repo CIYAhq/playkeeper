@@ -285,6 +285,8 @@ interface Place {
   what: string
   sizes: Size[]
   view?: View
+  /** The pages it's pressed on, named as the minimums name them; a crawl CRAWL_ROUTES limits asks for it only on those. */
+  pages: string[]
   /** The control that must be pressed there. */
   key: RegExp
   /** How it must come out; the default is that it works. */
@@ -299,49 +301,49 @@ interface Place {
  * the crawl must then report it.
  */
 const places: Place[] = [
-  { what: '"Restore this backup?", a dialog that replaces the menu or sheet it opens from', sizes: ['desktop', 'phone'], key: /^button "Cancel" in dialog "Restore this backup\?"$/ },
-  { what: 'the typed confirmation in "Restore this backup?"', sizes: ['desktop', 'phone'], key: /^button "Replace the world and restore" in dialog "Restore this backup\?"$/ },
-  { what: '"Delete this backup?", which replaces its menu', sizes: ['desktop'], key: /^button "Delete backup" in dialog "Delete this backup\?"$/ },
-  { what: 'the phone’s "Update to" sheet, which replaces its dialog', sizes: ['phone'], key: /^option ".+" in listbox "Update to"$/ },
-  { what: 'the view distance slider', sizes: ['desktop'], key: /^slider "View distance"/ },
-  { what: 'the memory slider in New server', sizes: ['desktop', 'phone'], key: /^slider "Memory for this server"/ },
-  { what: 'the last step of New server', sizes: ['desktop', 'phone'], key: /^button "Create and start / },
-  { what: 'Start on a stopped server', sizes: ['desktop', 'phone'], view: 'stopped', key: /^button "Start"$/ },
+  { what: '"Restore this backup?", a dialog that replaces the menu or sheet it opens from', sizes: ['desktop', 'phone'], pages: ['/servers/*/world'], key: /^button "Cancel" in dialog "Restore this backup\?"$/ },
+  { what: 'the typed confirmation in "Restore this backup?"', sizes: ['desktop', 'phone'], pages: ['/servers/*/world'], key: /^button "Replace the world and restore" in dialog "Restore this backup\?"$/ },
+  { what: '"Delete this backup?", which replaces its menu', sizes: ['desktop'], pages: ['/servers/*/world'], key: /^button "Delete backup" in dialog "Delete this backup\?"$/ },
+  { what: 'the phone’s "Update to" sheet, which replaces its dialog', sizes: ['phone'], pages: ['/servers/*/settings'], key: /^option ".+" in listbox "Update to"$/ },
+  { what: 'the view distance slider', sizes: ['desktop'], pages: ['/servers/*/settings'], key: /^slider "View distance"/ },
+  { what: 'the memory slider in New server', sizes: ['desktop', 'phone'], pages: ['/servers/new'], key: /^slider "Memory for this server"/ },
+  { what: 'the last step of New server', sizes: ['desktop', 'phone'], pages: ['/servers/new'], key: /^button "Create and start / },
+  { what: 'Start on a stopped server', sizes: ['desktop', 'phone'], view: 'stopped', pages: ['/ (stopped)'], key: /^button "Start"$/ },
   // On a phone the fix's button is pinned above the tabs, outside "How to fix it".
-  { what: 'the fix on a crashed server', sizes: ['desktop', 'phone'], view: 'crashed', key: /^button "Save and start .+"( in "How to fix it")?$/ },
-  { what: 'Restart while a backup runs', sizes: ['desktop'], view: 'busy', key: /^button "Restart" \[disabled\]$/, status: 'disabled with a reason' },
-  { what: 'the empty Players page', sizes: ['desktop', 'phone'], view: 'empty lists', key: /^button "Add player"$/ },
-  { what: 'the empty World page', sizes: ['desktop', 'phone'], view: 'empty lists', key: /^button "Make my first backup"$/ },
-  { what: 'Home with no servers', sizes: ['desktop', 'phone'], view: 'no servers', key: /^link "(Next: )?Create your first server"$/ },
-  { what: 'the end of onboarding (/welcome)', sizes: ['desktop', 'phone'], view: 'no servers', key: /^button "Create my server"$/ },
-  { what: 'a memory choice in onboarding’s "Change the details", which changes only a number', sizes: ['desktop'], view: 'no servers', key: /^option "# GB" in listbox ""( #\d+)?$/ },
-  { what: 'installing a Playkeeper update', sizes: ['desktop', 'phone'], view: 'update available', key: /^button "Update( now)?" in dialog "Update Playkeeper to .+"$/ },
-  { what: 'waking a sleeping server', sizes: ['desktop', 'phone'], view: 'asleep', key: /^button "Wake up now" in ".+ is asleep"$/ },
-  { what: 'a new recovery key for the copies somewhere else', sizes: ['desktop', 'phone'], view: 'looks after itself', key: /^button "Download new key" in dialog "New recovery key made"$/ },
-  { what: 'pausing a schedule', sizes: ['phone'], view: 'looks after itself', key: /^switch "Run “Restart every day at #:#”" in row "Restart every day at #:#"$/ },
+  { what: 'the fix on a crashed server', sizes: ['desktop', 'phone'], view: 'crashed', pages: ['/servers/* (crashed)'], key: /^button "Save and start .+"( in "How to fix it")?$/ },
+  { what: 'Restart while a backup runs', sizes: ['desktop'], view: 'busy', pages: ['/servers/* (busy)'], key: /^button "Restart" \[disabled\]$/, status: 'disabled with a reason' },
+  { what: 'the empty Players page', sizes: ['desktop', 'phone'], view: 'empty lists', pages: ['/servers/*/players (empty lists)'], key: /^button "Add player"$/ },
+  { what: 'the empty World page', sizes: ['desktop', 'phone'], view: 'empty lists', pages: ['/servers/*/world (empty lists)'], key: /^button "Make my first backup"$/ },
+  { what: 'Home with no servers', sizes: ['desktop', 'phone'], view: 'no servers', pages: ['/ (no servers)'], key: /^link "(Next: )?Create your first server"$/ },
+  { what: 'the end of onboarding (/welcome)', sizes: ['desktop', 'phone'], view: 'no servers', pages: ['/welcome (no servers)'], key: /^button "Create my server"$/ },
+  { what: 'a memory choice in onboarding’s "Change the details", which changes only a number', sizes: ['desktop'], view: 'no servers', pages: ['/welcome (no servers)'], key: /^option "# GB" in listbox ""( #\d+)?$/ },
+  { what: 'installing a Playkeeper update', sizes: ['desktop', 'phone'], view: 'update available', pages: ['/settings (update available)'], key: /^button "Update( now)?" in dialog "Update Playkeeper to .+"$/ },
+  { what: 'waking a sleeping server', sizes: ['desktop', 'phone'], view: 'asleep', pages: ['/servers/* (asleep)'], key: /^button "Wake up now" in ".+ is asleep"$/ },
+  { what: 'a new recovery key for the copies somewhere else', sizes: ['desktop', 'phone'], view: 'looks after itself', pages: ['/servers/*/world/backup-rules (looks after itself)', '/servers/*/world/backup-rules/copies (looks after itself)'], key: /^button "Download new key" in dialog "New recovery key made"$/ },
+  { what: 'pausing a schedule', sizes: ['phone'], view: 'looks after itself', pages: ['/servers/*/settings/schedules (looks after itself)'], key: /^switch "Run “Restart every day at #:#”" in row "Restart every day at #:#"$/ },
   // A phone's review sheet has the design's shorter title.
-  { what: 'deleting old backups on the Disk space page', sizes: ['desktop'], view: 'space to free', key: /^button "Delete # · .+" in dialog "Backups beyond your keep rules"$/ },
-  { what: 'deleting old backups on the Disk space page', sizes: ['phone'], view: 'space to free', key: /^button "Delete # · .+" in dialog "Old backups"$/ },
-  { what: 'first-run setup', sizes: ['desktop', 'phone'], view: 'first run', key: /^button "Create account and continue"$/ },
-  { what: 'two-factor sign-in’s second step', sizes: ['desktop', 'phone'], view: 'second step', key: /^button "Sign in" in "Enter your code"$/ },
-  { what: 'finishing two-factor setup', sizes: ['desktop', 'phone'], key: /^button "I’ve saved them"/ },
-  { what: 'updating every plugin at once', sizes: ['desktop', 'phone'], view: 'in use', key: /^button "Update all"/ },
-  { what: 'managing a plugin added by hand', sizes: ['desktop', 'phone'], view: 'in use', key: /^button "Let Playkeeper manage it"/ },
-  { what: 'forgetting a plugin whose file is gone', sizes: ['desktop', 'phone'], view: 'in use', key: /^button "Forget"/ },
-  { what: 'a data pack’s switch', sizes: ['desktop', 'phone'], view: 'in use', key: /^switch "more-mob-heads"/ },
-  { what: 'the resource pack’s "must accept" switch', sizes: ['desktop', 'phone'], view: 'in use', key: /^switch "(Players must accept it to join|Must accept to join)"/ },
-  { what: 'pausing pre-generation', sizes: ['desktop', 'phone'], view: 'in use', key: /^button "Pause"/ },
-  { what: 'resuming pre-generation', sizes: ['desktop', 'phone'], view: 'paused', key: /^button "Resume"/ },
-  { what: 'starting pre-generation (the phone’s action bar)', sizes: ['phone'], key: /^button "Start" in group "Pre-generate"$/ },
-  { what: 'letting a friend in from a join request', sizes: ['desktop', 'phone'], view: 'friends and team', key: /^button "Let in"$/ },
-  { what: 'turning off a friend link', sizes: ['desktop', 'phone'], view: 'friends and team', key: /^menuitem "Turn off" in menu ""$/ },
-  { what: 'turning off an unused team invite', sizes: ['desktop', 'phone'], view: 'friends and team', key: /^(menuitem|button) "Turn off link"/ },
-  { what: 'saving a team member’s role and servers', sizes: ['desktop', 'phone'], view: 'friends and team', key: /^button "Save" in dialog "alex’s role and servers"/ },
-  { what: 'Discord’s test message', sizes: ['desktop', 'phone'], view: 'friends and team', key: /^button "Send test message"/ },
-  { what: 'sharing the map with a link', sizes: ['desktop', 'phone'], view: 'map on', key: /^switch "Share with a link"/ },
-  { what: 'another world on the map', sizes: ['desktop', 'phone'], view: 'map on', key: /^button "Nether" in group "Worlds"$/ },
-  { what: 'a player’s marker on the map', sizes: ['desktop', 'phone'], view: 'map on', key: /^button "Show Pixel_Pia on the map"$/ },
-  { what: 'the restart that starts the map', sizes: ['desktop', 'phone'], view: 'map restart', key: /^button "Restart now" in "One restart/ },
+  { what: 'deleting old backups on the Disk space page', sizes: ['desktop'], view: 'space to free', pages: ['/machines/*/disk (space to free)'], key: /^button "Delete # · .+" in dialog "Backups beyond your keep rules"$/ },
+  { what: 'deleting old backups on the Disk space page', sizes: ['phone'], view: 'space to free', pages: ['/machines/*/disk (space to free)'], key: /^button "Delete # · .+" in dialog "Old backups"$/ },
+  { what: 'first-run setup', sizes: ['desktop', 'phone'], view: 'first run', pages: ['/setup (first run)'], key: /^button "Create account and continue"$/ },
+  { what: 'two-factor sign-in’s second step', sizes: ['desktop', 'phone'], view: 'second step', pages: ['/login (second step)'], key: /^button "Sign in" in "Enter your code"$/ },
+  { what: 'finishing two-factor setup', sizes: ['desktop', 'phone'], pages: ['/account/two-factor'], key: /^button "I’ve saved them"/ },
+  { what: 'updating every plugin at once', sizes: ['desktop', 'phone'], view: 'in use', pages: ['/servers/*/plugins (in use)'], key: /^button "Update all"/ },
+  { what: 'managing a plugin added by hand', sizes: ['desktop', 'phone'], view: 'in use', pages: ['/servers/*/plugins (in use)'], key: /^button "Let Playkeeper manage it"/ },
+  { what: 'forgetting a plugin whose file is gone', sizes: ['desktop', 'phone'], view: 'in use', pages: ['/servers/*/plugins (in use)'], key: /^button "Forget"/ },
+  { what: 'a data pack’s switch', sizes: ['desktop', 'phone'], view: 'in use', pages: ['/servers/*/world/packs (in use)'], key: /^switch "more-mob-heads"/ },
+  { what: 'the resource pack’s "must accept" switch', sizes: ['desktop', 'phone'], view: 'in use', pages: ['/servers/*/world/packs (in use)'], key: /^switch "(Players must accept it to join|Must accept to join)"/ },
+  { what: 'pausing pre-generation', sizes: ['desktop', 'phone'], view: 'in use', pages: ['/servers/*/world/pregen (in use)'], key: /^button "Pause"/ },
+  { what: 'resuming pre-generation', sizes: ['desktop', 'phone'], view: 'paused', pages: ['/servers/*/world/pregen (paused)'], key: /^button "Resume"/ },
+  { what: 'starting pre-generation (the phone’s action bar)', sizes: ['phone'], pages: ['/servers/*/world/pregen'], key: /^button "Start" in group "Pre-generate"$/ },
+  { what: 'letting a friend in from a join request', sizes: ['desktop', 'phone'], view: 'friends and team', pages: ['/servers/*/players (friends and team)'], key: /^button "Let in"$/ },
+  { what: 'turning off a friend link', sizes: ['desktop', 'phone'], view: 'friends and team', pages: ['/servers/*/players (friends and team)'], key: /^menuitem "Turn off" in menu ""$/ },
+  { what: 'turning off an unused team invite', sizes: ['desktop', 'phone'], view: 'friends and team', pages: ['/settings/team (friends and team)'], key: /^(menuitem|button) "Turn off link"/ },
+  { what: 'saving a team member’s role and servers', sizes: ['desktop', 'phone'], view: 'friends and team', pages: ['/settings/team (friends and team)'], key: /^button "Save" in dialog "alex’s role and servers"/ },
+  { what: 'Discord’s test message', sizes: ['desktop', 'phone'], view: 'friends and team', pages: ['/settings/discord (friends and team)'], key: /^button "Send test message"/ },
+  { what: 'sharing the map with a link', sizes: ['desktop', 'phone'], view: 'map on', pages: ['/servers/*/map (map on)'], key: /^switch "Share with a link"/ },
+  { what: 'another world on the map', sizes: ['desktop', 'phone'], view: 'map on', pages: ['/servers/*/map (map on)'], key: /^button "Nether" in group "Worlds"$/ },
+  { what: 'a player’s marker on the map', sizes: ['desktop', 'phone'], view: 'map on', pages: ['/servers/*/map (map on)'], key: /^button "Show Pixel_Pia on the map"$/ },
+  { what: 'the restart that starts the map', sizes: ['desktop', 'phone'], view: 'map restart', pages: ['/servers/*/map (map restart)'], key: /^button "Restart now" in "One restart/ },
 ]
 
 /** Views crawled signed out, with a crawler of their own. */
@@ -352,8 +354,33 @@ interface Rules {
   places: Place[]
 }
 
-/** Everything that fails a run: failing controls, states it couldn't get back to, pages under their minimum and places it didn't reach. */
-function passBar(size: Size, report: CrawlReport, pages: string[], rules: Rules = { minimums: minimums[size], places }): string[] {
+// CRAWL_ROUTES limits the crawl to the pages it names, separated by semicolons
+// or new lines: a route with its view in brackets, as the minimums name pages,
+// where * stands for one part of a route, so /servers/* is every server's
+// Overview, /servers/survival one, and /machines/*/disk (space to free) the
+// Disk space page in that view. Unset or empty, every page is crawled.
+function routeFilter(value: string | undefined): { pattern: string; re: RegExp }[] | undefined {
+  const patterns = (value ?? '')
+    .split(/[;\n]/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+  if (patterns.length === 0) return undefined
+  return patterns.map((pattern) => ({ pattern, re: new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/ ]+')}$`) }))
+}
+
+/** The filter's patterns that name a page, by its route or as the minimums name it. */
+function matching(filter: { pattern: string; re: RegExp }[], c: { route: string; view?: View }): string[] {
+  const names = [where(c.route, c.view), pageOf(c)]
+  return filter.filter((f) => names.some((n) => f.re.test(n))).map((f) => f.pattern)
+}
+
+/**
+ * Everything that fails a run: failing controls, states it couldn't get back
+ * to, pages under their minimum and places it didn't reach. With `only`, the
+ * pages a CRAWL_ROUTES crawl went through, minimums and places count only
+ * there.
+ */
+function passBar(size: Size, report: CrawlReport, pages: string[], rules: Rules = { minimums: minimums[size], places }, only?: Set<string>): string[] {
   const problems: string[] = []
   const failures = failureList(report.results)
   if (failures) problems.push(failures)
@@ -364,8 +391,11 @@ function passBar(size: Size, report: CrawlReport, pages: string[], rules: Rules 
     const min = rules.minimums[p] ?? 1
     if (n < min) problems.push(`${size} ${p}: ${n} control${n === 1 ? '' : 's'} pressed, fewer than its minimum of ${min}`)
   }
-  for (const [p, min] of Object.entries(rules.minimums)) if (!counts.has(p)) problems.push(`${size} ${p}: not crawled (its minimum is ${min})`)
-  for (const place of rules.places) if (place.sizes.includes(size) && !found(report.results, place)) problems.push(`${size}: never pressed ${place.what} (${place.key})`)
+  for (const [p, min] of Object.entries(rules.minimums)) if (!counts.has(p) && !only) problems.push(`${size} ${p}: not crawled (its minimum is ${min})`)
+  for (const place of rules.places) {
+    if (!place.sizes.includes(size) || (only && !place.pages.some((p) => only.has(p)))) continue
+    if (!found(report.results, place)) problems.push(`${size}: never pressed ${place.what} (${place.key})`)
+  }
   return problems
 }
 
@@ -416,38 +446,53 @@ for (const [name, size] of Object.entries(sizes)) {
     const log = (line: string) => console.log(line)
     const pages: string[] = []
     const negatives: Negative[] = []
-
-    const signedOut = await browser.newContext(options)
-    const outPage = await signedOut.newPage()
-    const outCrawler = new Crawler(outPage, name, base, log)
-    await outCrawler.init()
-    for (const c of [{ route: '/login', view: 'live' }, { route: '/setup', view: 'first run' }] satisfies Crawl[]) {
-      await outCrawler.crawl(c.route, c.view)
-      pages.push(pageOf(c))
+    const fixtureReads: { note: string; problems: string[] }[] = []
+    const filter = routeFilter(process.env.CRAWL_ROUTES)
+    const named = new Set<string>()
+    const wanted = (c: { route: string; view?: View }) => {
+      if (!filter) return true
+      const hits = matching(filter, c)
+      for (const h of hits) named.add(h)
+      return hits.length > 0
     }
+
+    const outCrawls = ([{ route: '/login', view: 'live' }, { route: '/setup', view: 'first run' }] satisfies Crawl[]).filter(wanted)
     // A friends' pack link and a map link that open nothing: the page every unavailable
     // link gets. They have no controls, so they aren't pages with a minimum.
-    await outCrawler.crawl(unknownPackLink)
-    await outCrawler.crawl(unknownMapLink)
-    negatives.push(...(await negativeControls(outCrawler, name as Size, false)))
-    report.results.push(...outCrawler.results)
-    report.notes.push(...outCrawler.notes)
-    report.unreached.push(...outCrawler.unreached)
-    const fixtureReads = [fixtureReadCheck(outCrawler, `[${name}] signed out`)]
-    await signedOut.close()
+    const nothingThere = [unknownPackLink, unknownMapLink].filter((route) => wanted({ route }))
+    if (outCrawls.length > 0 || nothingThere.length > 0) {
+      const signedOut = await browser.newContext(options)
+      const outPage = await signedOut.newPage()
+      const outCrawler = new Crawler(outPage, name, base, log)
+      await outCrawler.init()
+      for (const c of outCrawls) {
+        await outCrawler.crawl(c.route, c.view)
+        pages.push(pageOf(c))
+      }
+      for (const route of nothingThere) await outCrawler.crawl(route)
+      negatives.push(...(await negativeControls(outCrawler, name as Size, false)))
+      report.results.push(...outCrawler.results)
+      report.notes.push(...outCrawler.notes)
+      report.unreached.push(...outCrawler.unreached)
+      fixtureReads.push(fixtureReadCheck(outCrawler, `[${name}] signed out`))
+      await signedOut.close()
+    }
 
     // Two-factor sign-in's second step, with a crawler of its own: the one above
     // already pressed Sign in, where the fake answers that the password is wrong.
-    const secondStep = await browser.newContext(options)
-    const stepCrawler = new Crawler(await secondStep.newPage(), name, base, log)
-    await stepCrawler.init()
-    await stepCrawler.crawl('/login', 'second step')
-    pages.push(pageOf({ route: '/login', view: 'second step' }))
-    negatives.push(...(await negativeControls(stepCrawler, name as Size, false)))
-    report.results.push(...stepCrawler.results)
-    report.notes.push(...stepCrawler.notes)
-    report.unreached.push(...stepCrawler.unreached)
-    await secondStep.close()
+    const second: Crawl = { route: '/login', view: 'second step' }
+    if (wanted(second)) {
+      const secondStep = await browser.newContext(options)
+      const stepCrawler = new Crawler(await secondStep.newPage(), name, base, log)
+      await stepCrawler.init()
+      await stepCrawler.crawl(second.route, second.view)
+      pages.push(pageOf(second))
+      negatives.push(...(await negativeControls(stepCrawler, name as Size, false)))
+      report.results.push(...stepCrawler.results)
+      report.notes.push(...stepCrawler.notes)
+      report.unreached.push(...stepCrawler.unreached)
+      await secondStep.close()
+    }
 
     const context = await browser.newContext(options)
     const page = await context.newPage()
@@ -456,7 +501,7 @@ for (const [name, size] of Object.entries(sizes)) {
     const crawler = new Crawler(page, name, base, log)
     await crawler.init()
     const { live, shared } = await routes(page, name === 'phone')
-    for (const c of [...live.map((route): Crawl => ({ route, view: 'live' })), ...fakedCrawls(live, name === 'phone')]) {
+    for (const c of [...live.map((route): Crawl => ({ route, view: 'live' })), ...fakedCrawls(live, name === 'phone')].filter(wanted)) {
       await crawler.crawl(c.route, c.view)
       pages.push(pageOf(c))
     }
@@ -469,23 +514,26 @@ for (const [name, size] of Object.entries(sizes)) {
     await context.close()
 
     // Shared maps open signed out; the signed-in pages said which there are.
-    if (shared.length > 0) {
+    const maps = shared.filter((route) => wanted({ route }))
+    if (maps.length > 0) {
       const mapContext = await browser.newContext(options)
       const mapCrawler = new Crawler(await mapContext.newPage(), name, base, log)
       await mapCrawler.init()
-      for (const route of shared) await mapCrawler.crawl(route)
+      for (const route of maps) await mapCrawler.crawl(route)
       report.results.push(...mapCrawler.results)
       report.notes.push(...mapCrawler.notes)
       report.unreached.push(...mapCrawler.unreached)
       await mapContext.close()
     }
+    if (filter) report.notes.push(`[${name}] only the pages CRAWL_ROUTES names: ${filter.map((f) => f.pattern).join('; ')}`)
 
     fs.mkdirSync(outDir, { recursive: true })
     fs.writeFileSync(path.join(outDir, `clickthrough-${name}.json`), JSON.stringify({ ...report, negatives }, null, 2))
     console.log(`${name}: ${report.results.length} controls: ${summary(report)}`)
     for (const n of report.notes) console.log(`note: ${n}`)
     for (const n of negatives) console.log(`negative control: ${n.caught ? 'caught' : 'MISSED'} ${n.place}: ${n.key} broken → ${n.verdict}`)
-    const problems = passBar(name as Size, report, [...new Set(pages)])
+    const problems = passBar(name as Size, report, [...new Set(pages)], undefined, filter ? new Set(pages) : undefined)
+    for (const f of filter ?? []) if (!named.has(f.pattern)) problems.push(`${name}: CRAWL_ROUTES names ${f.pattern}, which is no page here`)
     for (const n of negatives) if (!n.caught) problems.push(`${name}: with ${n.place} broken, the crawl said "${n.verdict}" (${n.key})`)
     for (const a of fixtureReads) problems.push(...a.problems)
     expect(problems, problems.join('\n')).toEqual([])
@@ -585,7 +633,7 @@ test('a modpack read is answered from the fixtures or breaks the control that ma
 
 test('the pass bar fails a failing control, a state it could not get back to, a page under its minimum and a place it missed', () => {
   const works = (route: string, key: string): Result => ({ viewport: 'desktop', route, via: [], key, status: 'works', effects: ['changed the page'], problems: [] })
-  const rules: Rules = { minimums: { '/': 2, '/servers/* (stopped)': 1 }, places: [{ what: 'a slider', sizes: ['desktop'], key: /^slider / }] }
+  const rules: Rules = { minimums: { '/': 2, '/servers/* (stopped)': 1 }, places: [{ what: 'a slider', sizes: ['desktop'], pages: ['/'], key: /^slider / }] }
   const pages = ['/', '/servers/* (stopped)', '/settings']
   const good: CrawlReport = { results: [works('/', 'button "Home"'), works('/', 'slider "Memory"'), { ...works('/servers/survival', 'button "Start"'), view: 'stopped' }, works('/settings', 'button "Sign out"')], notes: [], unreached: [] }
   expect(passBar('desktop', good, pages, rules)).toEqual([])
@@ -597,6 +645,41 @@ test('the pass bar fails a failing control, a state it could not get back to, a 
   expect(passBar('desktop', { ...good, results: good.results.filter((r) => r.view !== 'stopped') }, ['/', '/settings'], rules)).toEqual(['desktop /servers/* (stopped): not crawled (its minimum is 1)'])
   expect(passBar('desktop', { ...good, results: good.results.filter((r) => r.key !== 'button "Sign out"') }, pages, rules)).toEqual(['desktop /settings: 0 controls pressed, fewer than its minimum of 1'])
   expect(passBar('desktop', { ...good, results: [...good.results.filter((r) => !r.key.startsWith('slider')), works('/', 'button "More"')] }, pages, rules)).toEqual(['desktop: never pressed a slider (/^slider /)'])
+})
+
+test('CRAWL_ROUTES names pages as the minimums do, and the pass bar then counts only on the pages crawled', () => {
+  expect(routeFilter(undefined)).toBeUndefined()
+  expect(routeFilter(' ; \n ')).toBeUndefined()
+  const filter = routeFilter('/; /servers/survival ;/machines/*/disk (space to free)\n/servers/*/plugins (in use)') ?? []
+  expect(filter.map((f) => f.pattern)).toEqual(['/', '/servers/survival', '/machines/*/disk (space to free)', '/servers/*/plugins (in use)'])
+  const names = (c: { route: string; view?: View }) => matching(filter, c)
+  expect(names({ route: '/', view: 'live' })).toEqual(['/'])
+  expect(names({ route: '/', view: 'stopped' })).toEqual([])
+  expect(names({ route: '/servers/survival', view: 'live' })).toEqual(['/servers/survival'])
+  expect(names({ route: '/servers/creative', view: 'live' })).toEqual([])
+  expect(names({ route: '/servers/survival/console', view: 'live' })).toEqual([])
+  expect(names({ route: '/machines/ad9fc4ybkz/disk', view: 'space to free' })).toEqual(['/machines/*/disk (space to free)'])
+  expect(names({ route: '/machines/ad9fc4ybkz/disk', view: 'live' })).toEqual([])
+  expect(names({ route: '/servers/survival/plugins', view: 'in use' })).toEqual(['/servers/*/plugins (in use)'])
+  expect(names({ route: '/servers/survival/plugins/browse', view: 'live' })).toEqual([])
+  expect(matching(routeFilter('/map/*') ?? [], { route: '/map/Zz9xWv8uTs7rQp6oNm5lKj' })).toEqual(['/map/*'])
+
+  // Only the pages crawled have minimums and places.
+  const works = (route: string, key: string, view?: View): Result => ({ viewport: 'desktop', route, view, via: [], key, status: 'works', effects: ['changed the page'], problems: [] })
+  const rules: Rules = {
+    minimums: { '/': 2, '/settings': 3, '/machines/*/disk (space to free)': 1 },
+    places: [
+      { what: 'a slider', sizes: ['desktop'], pages: ['/settings'], key: /^slider / },
+      { what: 'deleting old backups', sizes: ['desktop'], view: 'space to free', pages: ['/machines/*/disk (space to free)'], key: /^button "Delete # · .+"/ },
+    ],
+  }
+  const crawled = ['/', '/machines/*/disk (space to free)']
+  const results = [works('/', 'button "Home"'), works('/', 'button "More"'), works('/machines/m1/disk', 'button "Delete # · # MB" in dialog "Old backups"', 'space to free')]
+  expect(passBar('desktop', { results, notes: [], unreached: [] }, crawled, rules, new Set(crawled))).toEqual([])
+  expect(passBar('desktop', { results, notes: [], unreached: [] }, crawled, rules)).toEqual(['desktop /settings: not crawled (its minimum is 3)', 'desktop: never pressed a slider (/^slider /)'])
+  const missed = results.filter((r) => !r.key.startsWith('button "Delete'))
+  expect(passBar('desktop', { results: missed, notes: [], unreached: [] }, crawled, rules, new Set(crawled))).toEqual(['desktop /machines/*/disk (space to free): 0 controls pressed, fewer than its minimum of 1', 'desktop: never pressed deleting old backups (/^button "Delete # · .+"/)'])
+  expect(passBar('desktop', { results: results.slice(1), notes: [], unreached: [] }, crawled, rules, new Set(crawled))).toEqual(['desktop /: 1 control pressed, fewer than its minimum of 2'])
 })
 
 test('the add-on fixtures answer as the panel would, work out plans against the folder and have no answer for what was never recorded', () => {
