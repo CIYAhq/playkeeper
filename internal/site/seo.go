@@ -160,7 +160,7 @@ func pageSchema(s Settings, p *Page, version, image string) (map[string]any, err
 			"license":                "https://www.gnu.org/licenses/agpl-3.0.html",
 			"isAccessibleForFree":    true,
 			"downloadUrl":            s.Repo + "/releases/latest",
-			"codeRepository":         s.Repo,
+			"sameAs":                 s.Repo,
 			"offers":                 map[string]any{"@type": "Offer", "price": "0", "priceCurrency": "USD"},
 		}, nil
 	case "article", "posting":

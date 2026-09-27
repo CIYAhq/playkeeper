@@ -846,6 +846,17 @@ func TestStructuredDataIsJSON(t *testing.T) {
 			}
 		}
 	}
+	// Validators check each property against the type: codeRepository, say,
+	// is SoftwareSourceCode's, not SoftwareApplication's.
+	softwareProperties := []string{"@context", "@type", "name", "description", "url", "image", "sameAs",
+		"applicationCategory", "applicationSubCategory", "operatingSystem", "processorRequirements", "memoryRequirements",
+		"storageRequirements", "softwareVersion", "softwareRequirements", "downloadUrl", "installUrl", "featureList",
+		"screenshot", "releaseNotes", "license", "isAccessibleForFree", "offers", "author", "publisher", "aggregateRating", "review"}
+	for property := range blocks("/")["SoftwareApplication"] {
+		if !slices.Contains(softwareProperties, property) {
+			t.Errorf("the landing page's SoftwareApplication has %q, which schema.org doesn't give that type", property)
+		}
+	}
 	faq := blocks("/")["FAQPage"]
 	questions, _ := faq["mainEntity"].([]any)
 	if len(questions) == 0 {
