@@ -76,7 +76,7 @@ const page: PackPageData = {
   ],
   yourself,
   download: { url: `/packs/${token}/cobblemon.mrpack`, name: 'cobblemon.mrpack', size: 38_912, type: 'application/x-modrinth-modpack+zip' },
-  address: 'cobblemon.alex.playkeeper.io',
+  address: 'cobblemon.alex.playkeeper.me',
   hasIcon: true,
 }
 
@@ -215,7 +215,7 @@ describe('the friends’ pack page', () => {
       'modrinth.com/app',
       'prismlauncher.org',
       'Then join',
-      'cobblemon.alex.playkeeper.io',
+      'cobblemon.alex.playkeeper.me',
       '3 mods',
       'Needed by Waystones',
       'Optional for friends',

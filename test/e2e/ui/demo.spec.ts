@@ -213,7 +213,7 @@ test('the live demo’s address, two-factor, health, crash help, server types an
   const problems = watch(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`${demoUrl}servers/survival`)
-  await expect(page.getByText('survival.demo.playkeeper.io').first()).toBeVisible()
+  await expect(page.getByText('survival.demo.playkeeper.me').first()).toBeVisible()
   await page.getByRole('link', { name: 'How it’s running' }).click()
   await expect(page).toHaveURL(`${demoUrl}servers/survival/running`)
   await expect(page.getByText(/^Running smoothly/).first()).toBeVisible()
@@ -221,7 +221,7 @@ test('the live demo’s address, two-factor, health, crash help, server types an
   await expect(page.getByText('It never needed more than 2.5 GB in the last 14 days, so 4 GB is plenty.')).toBeVisible()
 
   await page.goto(`${demoUrl}machines/q7m2vk9xpd/settings`)
-  await expect(page.getByText('cobblemon.demo.playkeeper.io').first()).toBeVisible()
+  await expect(page.getByText('cobblemon.demo.playkeeper.me').first()).toBeVisible()
   await page.goto(`${demoUrl}account`)
   await expect(page.getByRole('region', { name: 'Signing in' }).getByRole('link', { name: 'Turn on' })).toHaveAttribute('href', '/demo/account/two-factor')
 

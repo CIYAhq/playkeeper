@@ -73,7 +73,7 @@ function links(s: DemoState, serverId: string): Invite[] {
 }
 
 function invites(s: DemoState, r: Request): InvitesResponse {
-  return { invites: links(s, serverOf(s, r).id), expiries: ['1d', '7d', '30d', 'until_turned_off'], link: { base: `https://${freeName}.playkeeper.io:8443`, friendly: true } }
+  return { invites: links(s, serverOf(s, r).id), expiries: ['1d', '7d', '30d', 'until_turned_off'], link: { base: `https://${freeName}.playkeeper.me:8443`, friendly: true } }
 }
 
 /** Someone who found Survival's Discord crew link, which needs a yes. */

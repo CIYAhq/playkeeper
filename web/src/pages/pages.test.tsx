@@ -2208,10 +2208,10 @@ describe('Onboarding', () => {
 })
 
 describe('Machine page', () => {
-  const none: Address = { kind: '', ip: '198.51.100.10', panelPort: 8443, base: 'playkeeper.io', servers: [], names: { url: 'https://names.playkeeper.io' } }
+  const none: Address = { kind: '', ip: '198.51.100.10', panelPort: 8443, base: 'playkeeper.me', servers: [], names: { url: 'https://names.playkeeper.io' } }
   const day = 24 * 3600_000
-  const certificate = { names: ['alex.playkeeper.io'], challenge: 'dns-01', notBefore: new Date(Date.now() - 30 * day).toISOString(), notAfter: new Date(Date.now() + 60 * day).toISOString() }
-  const free: Address = { ...none, kind: 'playkeeper', host: 'alex.playkeeper.io', certificate }
+  const certificate = { names: ['alex.playkeeper.me'], challenge: 'dns-01', notBefore: new Date(Date.now() - 30 * day).toISOString(), notAfter: new Date(Date.now() + 60 * day).toISOString() }
+  const free: Address = { ...none, kind: 'playkeeper', host: 'alex.playkeeper.me', certificate }
 
   const health = async (address: Address) => {
     answer({ '/address': address })
@@ -3294,16 +3294,16 @@ describe('Machines and AI agents', () => {
       live: { ...machine.live!, hostname: 'home-server' },
       link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), address: '203.0.113.20', problems: [] },
     }
-    const survival = server({ machineId: machine.id, joinAddress: 'survival.alex.playkeeper.io' })
-    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id, gamePort: 25566, joinAddress: 'cobblemon.home.playkeeper.io' })
+    const survival = server({ machineId: machine.id, joinAddress: 'survival.alex.playkeeper.me' })
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id, gamePort: 25566, joinAddress: 'cobblemon.home.playkeeper.me' })
     const ws = workspace({ machines: [machine, home], servers: [survival, cobblemon] })
     let text = await render(<HomePage />, ws)
-    expect(text).toContain('survival.alex.playkeeper.io')
+    expect(text).toContain('survival.alex.playkeeper.me')
     expect(text).toContain('203.0.113.20:25566')
-    expect(text).not.toContain('cobblemon.home.playkeeper.io')
+    expect(text).not.toContain('cobblemon.home.playkeeper.me')
     text = await render(<Overview server={cobblemon} />, ws)
     expect(text).toContain('203.0.113.20:25566')
-    expect(text).not.toContain('cobblemon.home.playkeeper.io')
+    expect(text).not.toContain('cobblemon.home.playkeeper.me')
   })
 
   it('says why a joined machine’s server has no address yet, and never gives the dashboard’s host or a reported name', async () => {
@@ -3315,14 +3315,14 @@ describe('Machines and AI agents', () => {
       live: { ...machine.live!, hostname: 'attic' },
       link: { machineId: 'a2345abcde', name: 'attic', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
     }
-    const box = server({ id: 'atticsrv01', name: 'Attic', slug: 'attic', machineId: attic.id, gamePort: 25567, joinAddress: 'attic.old.playkeeper.io' })
+    const box = server({ id: 'atticsrv01', name: 'Attic', slug: 'attic', machineId: attic.id, gamePort: 25567, joinAddress: 'attic.old.playkeeper.me' })
     const ws = workspace({ machines: [machine, attic], servers: [server({ machineId: machine.id }), box] })
     const reason = 'No address yet: the dashboard hasn’t seen attic’s IP.'
     for (const node of [<HomePage key="home" />, <Overview key="overview" server={box} />]) {
       const text = await render(node, ws)
       expect(text).toContain(reason)
       expect(text).not.toContain(`${window.location.hostname}:25567`)
-      expect(text).not.toContain('attic.old.playkeeper.io')
+      expect(text).not.toContain('attic.old.playkeeper.me')
     }
     await render(<ServerPage slug="attic" tab="overview" />, ws)
     const copy = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Copy join address'))

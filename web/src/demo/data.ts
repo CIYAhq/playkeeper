@@ -252,7 +252,7 @@ export const survivalId = 'h4k8v2m9qa'
 export const creativeId = 'c6t3w8n2rb'
 export const cobblemonId = 'k9p4f7x2ne'
 
-/** The machine's free name; playkeeper.io reserves "demo", so it leads to nobody's server. */
+/** The machine's free name; the names service reserves "demo", so it leads to nobody's server. */
 export const freeName = 'demo'
 const machineIP = '203.0.113.10'
 
@@ -493,7 +493,7 @@ export function sample(now: number): DemoState {
     pendingRestart: false,
     collectingSince: iso(created),
     firstSteps: { invited: 'JunoFox', friendJoined: 'JunoFox', friendJoinedAt: iso(created + day), backedUp: true, downloaded: true },
-    joinAddress: `survival.${freeName}.playkeeper.io`,
+    joinAddress: `survival.${freeName}.playkeeper.me`,
     sleep: { enabled: false, idleMinutes: 15, listening: false },
   }
   const creative: ServerStatus = {
@@ -519,7 +519,7 @@ export function sample(now: number): DemoState {
     pendingRestart: false,
     collectingSince: iso(creativeCreated),
     firstSteps: { invited: 'PixelPia', friendJoined: 'PixelPia', friendJoinedAt: iso(creativeCreated + hour), backedUp: true, downloaded: true },
-    joinAddress: `creative.${freeName}.playkeeper.io`,
+    joinAddress: `creative.${freeName}.playkeeper.me`,
     sleep: { enabled: true, idleMinutes: 30, asleepSince: iso(stoppedAt), listening: true },
   }
   const cobblemonCreated = now - 9 * day
@@ -557,7 +557,7 @@ export function sample(now: number): DemoState {
     pendingRestart: false,
     collectingSince: iso(cobblemonCreated),
     firstSteps: { invited: 'Brickbert', friendJoined: 'Brickbert', friendJoinedAt: iso(cobblemonCreated + 2 * hour), backedUp: true, downloaded: true },
-    joinAddress: `cobblemon.${freeName}.playkeeper.io`,
+    joinAddress: `cobblemon.${freeName}.playkeeper.me`,
     sleep: { enabled: false, idleMinutes: 15, listening: false },
   }
   return {
@@ -999,7 +999,7 @@ function preflight(s: DemoState): Preflight {
 
 const link: MachineLinkInfo = {
   addresses: [
-    { kind: 'name', address: 'demo.playkeeper.io:8443' },
+    { kind: 'name', address: 'demo.playkeeper.me:8443' },
     { kind: 'ip', address: '203.0.113.10:8443' },
   ],
   minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5 },
@@ -1233,8 +1233,8 @@ function resourcePack(s: DemoState, r: Request): ResourcePack {
   const offer = s.packs[serverOf(s, r).id]?.resource
   if (!offer) return { pending: false }
   // Players' games download the pack from the address the dashboard is open at,
-  // which the demo build names demo.playkeeper.io, as it does game addresses.
-  const host = typeof window === 'undefined' ? 'demo.playkeeper.io' : window.location.hostname
+  // which the demo build names demo.playkeeper.me, as it does game addresses.
+  const host = typeof window === 'undefined' ? 'demo.playkeeper.me' : window.location.hostname
   return { offer: { ...offer, url: `http://${host}:8443/resource-packs/${offer.sha1}.zip` }, pending: false }
 }
 
@@ -1251,14 +1251,14 @@ function dataPacks(s: DemoState, r: Request): DataPacks {
 
 function address(s: DemoState, r: Request): Address {
   const claimed = r.now - 32 * day
-  const host = `${freeName}.playkeeper.io`
+  const host = `${freeName}.playkeeper.me`
   return {
     kind: 'playkeeper',
     host,
     since: iso(claimed),
     ip: machineIP,
     panelPort: 8443,
-    base: 'playkeeper.io',
+    base: 'playkeeper.me',
     servers: s.servers.map((x) => ({ serverId: x.id, name: x.name, port: x.gamePort, label: x.slug, address: `${x.slug}.${host}`, direct: `${machineIP}:${x.gamePort}`, published: true })),
     free: { name: freeName, state: 'active', dns: 'ok', ipv4: machineIP, claimedAt: iso(claimed), refreshedAt: iso(r.now - 3 * hour), checkedAt: iso(r.now - 2 * hour), holdDays: 30 },
     certificate: { names: [host], challenge: 'dns-01', notBefore: iso(r.now - 20 * day), notAfter: iso(r.now + 70 * day), renewAt: iso(r.now + 40 * day), issuer: 'Let’s Encrypt' },

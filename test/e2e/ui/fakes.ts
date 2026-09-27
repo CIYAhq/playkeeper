@@ -463,7 +463,7 @@ function twoFactorSetup(): Record<string, unknown> {
 /** The names service's answer for a free name, without asking it: every well-formed name is free. */
 function nameAvailability(name: string, address: Record<string, unknown> | undefined): Reply {
   if (!freeName.test(name)) return { ...invalid('Use a–z, 0–9 and single dashes, like alex-mc.'), expected: true }
-  return { status: 200, body: { name, address: `${name}.${String(address?.base ?? 'playkeeper.io')}`, available: true } }
+  return { status: 200, body: { name, address: `${name}.${String(address?.base ?? 'playkeeper.me')}`, available: true } }
 }
 
 function addressAnswer(state: FakeState, machineId: string): Reply {
@@ -1595,7 +1595,7 @@ function sharedPackPage(): Json {
       { name: 'Trainer HUD', path: 'mods/trainer-hud.jar', page: 'https://modrinth.com/modpack/cobblemon-fabric', need: 'required', reason: text('share.yourself.inside_pack', 'Trainer HUD only comes inside the pack.', { name: 'Trainer HUD', pack: 'Cobblemon Modpack', folder: 'mods' }) },
     ],
     download: { url: `/packs/${sharedLinks.pack}/${file}`, name: file, size: 38_912, type: 'application/x-modrinth-modpack+zip' },
-    address: 'cobblemon.example.playkeeper.io',
+    address: 'cobblemon.example.playkeeper.me',
     hasIcon: false,
   }
 }

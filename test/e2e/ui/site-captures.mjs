@@ -11,7 +11,7 @@
 // Each is taken at 2 to 4 times its pixels, wide enough for the widest file
 // site/tools/shots.py makes of it. What only the demo shows (its line "Live
 // demo · resets every hour", its sample world) is hidden, and its made-up
-// address reads as the site's example, alex.playkeeper.io. The sizing
+// address reads as the site's example, alex.playkeeper.me. The sizing
 // guide's answer comes from the site itself, at <site-url>.
 //
 // Usage, from test/e2e/ui:
@@ -217,7 +217,7 @@ function packPage() {
     ],
     yourself: [],
     download: { url: `/packs/${packToken}/${file}`, name: file, size: 38_912, type: 'application/x-modrinth-modpack+zip' },
-    address: 'cobblemon.alex.playkeeper.io',
+    address: 'cobblemon.alex.playkeeper.me',
     hasIcon: false,
   }
 }
@@ -486,6 +486,10 @@ async function areaClip(page, [text, width, height, dx = 0, dy = 0]) {
 async function dress(page, keepDemo, plain) {
   await page.evaluate(({ keep, plain }) => {
     if (plain) for (const el of document.querySelectorAll('[data-slot=dialog-backdrop]')) el.style.background = getComputedStyle(document.body).backgroundColor
+    // A release from before free names moved to playkeeper.me names the demo
+    // under playkeeper.io.
+    const demoAddress = /demo\.playkeeper\.(io|me)/
+    const demoAddresses = new RegExp(demoAddress.source, 'g')
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
     const texts = []
     while (walker.nextNode()) texts.push(walker.currentNode)
@@ -495,10 +499,10 @@ async function dress(page, keepDemo, plain) {
         const line = t.parentElement.closest('p, div')
         if (line) line.style.display = 'none'
       }
-      if (t.textContent.includes('demo.playkeeper.io')) t.textContent = t.textContent.replaceAll('demo.playkeeper.io', 'alex.playkeeper.io')
+      if (demoAddress.test(t.textContent)) t.textContent = t.textContent.replace(demoAddresses, 'alex.playkeeper.me')
     }
     for (const input of document.querySelectorAll('input')) {
-      if (input.value.includes('demo.playkeeper.io')) input.value = input.value.replaceAll('demo.playkeeper.io', 'alex.playkeeper.io')
+      if (demoAddress.test(input.value)) input.value = input.value.replace(demoAddresses, 'alex.playkeeper.me')
     }
     // The demo's own toasts ("That was a demo start") stay out of the shots.
     for (const el of document.querySelectorAll('[data-demo-toast]')) {

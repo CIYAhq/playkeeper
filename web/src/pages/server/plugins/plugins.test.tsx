@@ -498,12 +498,12 @@ describe('Plugins tab', () => {
     const mods = { ...installed, target: { ...target, kind: 'mod' as const, folder: 'mods' } }
     const named = {
       kind: 'playkeeper',
-      host: 'alex.playkeeper.io',
+      host: 'alex.playkeeper.me',
       panelPort: 8443,
       free: { name: 'alex', state: 'active', dns: 'ok', claimedAt: '2026-09-20T10:00:00Z', refreshedAt: '2026-09-25T10:00:00Z' },
       certificate: { notAfter: '2099-01-01T00:00:00Z' },
     } as Address
-    const modded = server({ type: 'fabric', machineId: machine.id, joinAddress: 'survival.alex.playkeeper.io' })
+    const modded = server({ type: 'fabric', machineId: machine.id, joinAddress: 'survival.alex.playkeeper.me' })
     const link = () => [...document.querySelectorAll('input')].find((i) => i.value.includes('/packs/'))?.value
     answer([
       ['/mods/share', shared],
@@ -513,8 +513,8 @@ describe('Plugins tab', () => {
     ])
     await render(modded, 'mods')
     let text = await click('Share with friends')
-    expect(link()).toBe('https://alex.playkeeper.io:8443/packs/Fake0Share0Token0Abcde')
-    expect(text).toContain('Press Play, then join survival.alex.playkeeper.io.')
+    expect(link()).toBe('https://alex.playkeeper.me:8443/packs/Fake0Share0Token0Abcde')
+    expect(text).toContain('Press Play, then join survival.alex.playkeeper.me.')
     expect(text).not.toContain('Set up an address first')
 
     await act(async () => root?.unmount())
@@ -541,7 +541,7 @@ describe('Plugins tab', () => {
       link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', address: '203.0.113.20', problems: [] },
     } as MachineView
     const shared: PackShare = { ...packShare, public: true, token: 'Fake0Share0Token0Abcde' }
-    const cobblemon = server({ type: 'fabric', machineId: home.id, gamePort: 25566, joinAddress: 'cobblemon.home.playkeeper.io' })
+    const cobblemon = server({ type: 'fabric', machineId: home.id, gamePort: 25566, joinAddress: 'cobblemon.home.playkeeper.me' })
     const link = () => [...document.querySelectorAll('input')].find((i) => i.value.includes('/packs/'))?.value
     answer([
       ['/mods/share', shared],
@@ -554,7 +554,7 @@ describe('Plugins tab', () => {
     const text = await click('Share with friends')
     expect(link()).toBe(`${window.location.origin}/packs/Fake0Share0Token0Abcde`)
     expect(text).toContain('Press Play, then join 203.0.113.20:25566.')
-    expect(text).not.toContain('cobblemon.home.playkeeper.io')
+    expect(text).not.toContain('cobblemon.home.playkeeper.me')
     expect(text).toContain('Set up an address first so the link keeps working if the dashboard’s IP changes.')
     expect(button('Machine settings').getAttribute('href')).toBe(`/machines/${machine.id}/settings`)
     expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/machines/${home.id}/address`))).toBe(false)
