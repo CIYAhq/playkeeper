@@ -1,8 +1,9 @@
 // The live demo's make-believe panel. It answers the dashboard's requests from
 // DemoState, plays jobs out over a few seconds the way an agent reports them,
 // and keeps players and the console moving. The state lives in
-// sessionStorage: a reload keeps it, and it starts over on the hour and in
-// every new tab.
+// sessionStorage: a reload in the same hour keeps it, and a page that loads
+// in a later hour, or in a new tab, starts over. An open page keeps its demo
+// for as long as it stays open, so nobody loses what they're in the middle of.
 
 import { ApiError } from '@/api/client'
 import type { Activity, ActivityKind, ApiToken, Backup, Gameplay, NewToken, Operation, PlayStyle, PlayerStat, RestorePreview, ServerStatus, TokenRole } from '@/api/types'
@@ -26,9 +27,11 @@ const keepLines = 500
 
 let state: DemoState | undefined
 
+/** The open page's demo: on its first request, what sessionStorage kept if it was made this hour, else a fresh one. */
 function load(now: number): DemoState {
-  state ??= saved()
-  if (!state || state.sample !== sampleVersion || state.hour !== Math.floor(now / hour)) state = sample(now)
+  if (state) return state
+  const kept = saved()
+  state = kept && kept.sample === sampleVersion && kept.hour === Math.floor(now / hour) ? kept : sample(now)
   return state
 }
 
@@ -47,6 +50,11 @@ function save(s: DemoState) {
   } catch {
     // Storage can be off or full; the demo then lasts as long as the page.
   }
+}
+
+/** Forgets the open page's demo but not what sessionStorage kept, as a reload does. */
+export function reloadDemo() {
+  state = undefined
 }
 
 /** Forgets this tab's demo, as a new visit would. */

@@ -6,7 +6,7 @@ import type { Address, AddonBrowse, AddonChecks, AddonDetails, AddonRemovePrevie
 import { addonIconOf, faceOf, library, samplePlayers } from './data'
 import { hasBuilds, pinBuild } from '@/lib/software'
 import { upgradeTargets } from '@/lib/versions'
-import { answer, resetDemo } from './engine'
+import { answer, reloadDemo, resetDemo } from './engine'
 import { faceCount } from './faces'
 import { iconCount, iconSvg } from './icons'
 import { demoMarker } from './marker'
@@ -139,13 +139,24 @@ it('keeps console lines arriving', async () => {
   expect(more.lines.every((l) => l.seq > first.next)).toBe(true)
 })
 
-it('starts over on the hour', async () => {
+it('keeps an open page’s demo past the hour, and a reload’s until a later hour, when it starts over', async () => {
+  // A tab's sessionStorage, which a reload keeps.
+  const kept = new Map<string, string>()
+  vi.stubGlobal('sessionStorage', {
+    getItem: (key: string) => kept.get(key) ?? null,
+    setItem: (key: string, value: string) => void kept.set(key, value),
+    removeItem: (key: string) => void kept.delete(key),
+  })
   const { id } = await survival()
   await ask('POST', `/api/servers/${id}/stop`)
   await vi.advanceTimersByTimeAsync(20_000)
   expect((await survival()).phase).toBe('stopped')
+  reloadDemo()
+  expect((await survival()).phase).toBe('stopped')
 
   vi.setSystemTime(new Date('2026-09-25T13:00:05Z'))
+  expect((await survival()).phase).toBe('stopped')
+  reloadDemo()
   expect((await survival()).phase).toBe('online')
 })
 
