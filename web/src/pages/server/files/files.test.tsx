@@ -159,6 +159,7 @@ async function type(el: HTMLInputElement | HTMLTextAreaElement, value: string) {
 }
 
 const rows = () => [...document.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('td:nth-child(2)')?.textContent ?? '')
+const happyDOM = (window as unknown as { happyDOM: { setViewport(v: { width: number; height: number }): void } }).happyDOM
 const posts = (end: string) => vi.mocked(client.post).mock.calls.filter(([path]) => String(path).endsWith(end)).map(([, body]) => body)
 
 beforeAll(() => {
@@ -222,6 +223,25 @@ describe('the Files tab', () => {
     await settle()
     const file = await openMenu('bukkit.yml')
     expect(file.find((el) => el.textContent === 'Delete')?.getAttribute('aria-disabled')).not.toBe('true')
+  })
+
+  it('says on a phone why a world file can’t change while the game runs', async () => {
+    happyDOM.setViewport({ width: 390, height: 844 })
+    try {
+      answer({ [list('world')]: { path: 'world', running: true, worlds, entries: [entry('level.dat', 'file', 5212)] } satisfies Files })
+      await render({ path: 'world' })
+      await click(button('More for level.dat'))
+      const sheet = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
+      for (const label of ['Rename', 'Move', 'Delete']) {
+        const b = sheet.find((el) => el.getAttribute('aria-label') === label)
+        expect(b?.disabled, label).toBe(true)
+        expect(document.getElementById(b?.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Survival is running, so its world is read-only.')
+      }
+      expect(sheet.find((el) => el.textContent === 'Download')).toBeUndefined()
+      expect(document.querySelector('[role="dialog"] a')?.textContent).toBe('Download')
+    } finally {
+      happyDOM.setViewport({ width: 1024, height: 768 })
+    }
   })
 
   it('makes a stopped server’s world changeable', async () => {

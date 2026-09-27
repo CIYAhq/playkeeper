@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { ChevronRightIcon, CornerLeftUpIcon, DownloadIcon, FolderIcon, FolderInputIcon, PencilLineIcon, Trash2Icon } from 'lucide-react'
 import { deleteFiles, downloadHref, listFiles, moveFiles } from '@/api/files'
 import type { FileEntry, Files, ServerStatus } from '@/api/types'
@@ -404,6 +404,7 @@ export interface RowAction {
 
 /** The phone's actions for a file or folder, as a bottom sheet. */
 export function ActionSheet({ title, actions, open, onOpenChange }: { title: string; actions: RowAction[]; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const id = useId()
   const row = 'flex min-h-14 w-full items-center gap-3.5 px-4 text-left text-base disabled:cursor-not-allowed disabled:opacity-64 [&_svg]:size-5'
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -425,6 +426,8 @@ export function ActionSheet({ title, actions, open, onOpenChange }: { title: str
                   className={cn(row, a.danger && 'text-destructive-foreground')}
                   disabled={!!a.disabledReason}
                   title={a.disabledReason}
+                  aria-label={a.label}
+                  aria-describedby={a.disabledReason ? `${id}-${a.key}` : undefined}
                   onClick={() => {
                     onOpenChange(false)
                     a.run?.()
@@ -433,7 +436,11 @@ export function ActionSheet({ title, actions, open, onOpenChange }: { title: str
                   <span className={a.danger ? 'text-destructive-foreground' : 'text-muted-foreground'}>{a.icon}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block">{a.label}</span>
-                    {a.disabledReason && <span className="block truncate text-[13px] text-muted-foreground">{a.disabledReason}</span>}
+                    {a.disabledReason && (
+                      <span id={`${id}-${a.key}`} className="block truncate text-[13px] text-muted-foreground">
+                        {a.disabledReason}
+                      </span>
+                    )}
                   </span>
                 </button>
               )}
