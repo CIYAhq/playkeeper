@@ -236,6 +236,12 @@ func TestEditingAScheduleKeepsTheRunTheRunnerSaved(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			e := newAgentEnv(t)
 			e.addIdleServer()
+			s := e.srv()
+			// The hook below plays the runner, so the server's loops stop
+			// first: the real runner closes a run left running as
+			// interrupted when it first reads the schedules, whenever that is.
+			s.cancel()
+			s.loops.Wait()
 			at := time.Now().UTC().Add(12 * time.Hour).Format("15:04")
 			code, out := e.call("POST", e.sp("/schedules"), map[string]any{"actor": "admin", "kind": "backup",
 				"timing": map[string]any{"kind": "daily", "at": at, "timeZone": "UTC"}})
@@ -243,7 +249,6 @@ func TestEditingAScheduleKeepsTheRunTheRunnerSaved(t *testing.T) {
 				t.Fatalf("create: %d %v", code, out)
 			}
 			id := out["id"].(string)
-			s := e.srv()
 			if err := s.saveScheduleRun(context.Background(), id, c.read); err != nil {
 				t.Fatal(err)
 			}
@@ -266,19 +271,13 @@ func TestEditingAScheduleKeepsTheRunTheRunnerSaved(t *testing.T) {
 			if err := e.a.db.QueryRow(`SELECT last_run, `+c.column+` FROM schedules WHERE id = ?`, id).Scan(&raw, &changed); err != nil {
 				t.Fatal(err)
 			}
-			// The runner closes a run left running when it first reads the
-			// schedules, which may be after the edit here: that is still the
-			// runner's run.
-			runners := func(result schedule.Result, reason schedule.Reason) bool {
-				return result == c.saved.Result || c.saved.Result == schedule.ResultRunning && result == schedule.ResultFailed && reason == schedule.ReasonInterrupted
-			}
 			var last schedule.Run
-			if err := json.Unmarshal([]byte(raw), &last); err != nil || !runners(last.Result, last.Reason) || !last.Due.Equal(c.saved.Due) || changed != c.value {
+			if err := json.Unmarshal([]byte(raw), &last); err != nil || !sameJSON(last, c.saved) || changed != c.value {
 				t.Fatalf("after the edit: last run %s (%v), %s %v; want the runner's %s run due %s, and %v", raw, err, c.column, changed, c.saved.Result, c.saved.Due, c.value)
 			}
 			var result, reason string
 			if err := e.a.db.QueryRow(`SELECT result, reason FROM schedule_runs WHERE schedule_id = ? AND due = ?`, id, c.saved.Due.UnixMilli()).Scan(&result, &reason); err != nil ||
-				!runners(schedule.Result(result), schedule.Reason(reason)) {
+				result != string(c.saved.Result) || reason != string(c.saved.Reason) {
 				t.Fatalf("Recent runs lost the runner's run: %s %s (%v)", result, reason, err)
 			}
 		})

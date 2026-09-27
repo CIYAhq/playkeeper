@@ -304,6 +304,16 @@ func (e *agentEnv) waitFor(what string, cond func() bool) {
 	e.t.Fatalf("timed out waiting for %s", what)
 }
 
+// gate returns wait, which blocks until let is called, and let. Whatever
+// still waits when the test ends is let go then.
+func gate(t *testing.T) (wait, let func()) {
+	ch := make(chan struct{})
+	var once sync.Once
+	let = func() { once.Do(func() { close(ch) }) }
+	t.Cleanup(let)
+	return func() { <-ch }, let
+}
+
 // create makes a server with the defaults and waits until it is online; it
 // becomes the current server.
 func (e *agentEnv) create() {
@@ -726,12 +736,22 @@ func TestDownloadsArePinnedAndTelemetryIsOff(t *testing.T) {
 func TestConcurrentOperationsAreSerialized(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	// Each operation outlasts the requests racing it, even on a loaded
-	// machine: a stop that finished first would turn the restart into "not
-	// running" instead of "busy".
+	// The operation that wins holds the server until every request racing it
+	// has its answer: a stop that finished first would turn the restart into
+	// "not running" instead of "busy". A stop or restart waits in Docker's
+	// stop, a backup for the reply to its save-off.
+	wait, let := gate(t)
 	e.fd.mu.Lock()
-	e.fd.bootDelay, e.fd.stopDelay = 300*time.Millisecond, 300*time.Millisecond
+	e.fd.beforeStop = wait
 	e.fd.mu.Unlock()
+	e.rcon.mu.Lock()
+	e.rcon.answer = func(cmd string) (string, bool) {
+		if cmd == "save-off" {
+			wait()
+		}
+		return "", false
+	}
+	e.rcon.mu.Unlock()
 	type res struct {
 		path string
 		code int
@@ -752,6 +772,7 @@ func TestConcurrentOperationsAreSerialized(t *testing.T) {
 	}
 	close(start)
 	wg.Wait()
+	let()
 	close(results)
 	var winner *res
 	busy := 0
