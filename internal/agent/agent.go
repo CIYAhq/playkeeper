@@ -278,6 +278,8 @@ type Agent struct {
 	maps      mapState
 	mapClient *http.Client
 	imports   importRegistry
+	// uploads are the uploads into servers' folders from the file browser.
+	uploads fileUploads
 
 	// Wave 7 (0.4.0): the Disk space page's last scan.
 	disk diskCache
@@ -928,6 +930,19 @@ func (a *Agent) routeTable() []Route {
 		// The map's area: the explored land, or a bigger area pre-generated for it.
 		{"GET", "/v1/servers/{id}/map/area", srv((*server).hMapArea)},
 		{"POST", "/v1/servers/{id}/map/area", srv((*server).hMapAreaSet)},
+		// Each server's file browser.
+		{"GET", "/v1/servers/{id}/files", srv((*server).hFiles)},
+		{"GET", "/v1/servers/{id}/files/content", srv((*server).hFileContent)},
+		{"PUT", "/v1/servers/{id}/files/content", srv((*server).hFileSave)},
+		{"POST", "/v1/servers/{id}/files/folder", srv((*server).hFileFolder)},
+		{"POST", "/v1/servers/{id}/files/move", srv((*server).hFileMove)},
+		{"POST", "/v1/servers/{id}/files/delete", srv((*server).hFileDelete)},
+		{"GET", "/v1/servers/{id}/files/download", srv((*server).hFileDownload)},
+		{"POST", "/v1/servers/{id}/files/uploads", srv((*server).hFileUploadNew)},
+		{"GET", "/v1/servers/{id}/files/uploads/{up}", srv((*server).hFileUpload)},
+		{"DELETE", "/v1/servers/{id}/files/uploads/{up}", srv((*server).hFileUploadDelete)},
+		{"POST", "/v1/servers/{id}/files/uploads/{up}/files", srv((*server).hFileUploadFile)},
+		{"PUT", "/v1/servers/{id}/files/uploads/{up}/files/{n}", srv((*server).hFileUploadPut)},
 	}, a.automationRoutes()...)
 }
 

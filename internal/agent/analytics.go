@@ -3,6 +3,7 @@ package agent
 import (
 	"database/sql"
 	"math"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -416,8 +417,39 @@ var (
 		"whitelist.add": "allowlisted", "whitelist.remove": "unlisted", "operator.add": "operator", "operator.remove": "deoperator",
 		"player.kicked": "kicked", "backup.created": "backup", "backup.downloaded": "downloaded", "start": "started", "stop": "stopped",
 		"restart": "restarted", "settings.changed": "settings",
+		// Changes in the file browser; the detail names what changed.
+		"files.saved": "file_saved", "files.created": "file_created", "files.uploaded": "file_uploaded", "files.folder_made": "folder_made",
+		"files.renamed": "file_renamed", "files.moved": "file_moved", "files.deleted": "file_deleted",
 	}
 )
+
+// uploadsTogether is how far apart uploads into one folder may be to show
+// as one line.
+const uploadsTogether = 15 * time.Minute
+
+// mergeUploads makes each run of uploads into one folder, by one actor on
+// one server, one line that says how many files it was, as a page of
+// uploads would otherwise fill the recent activity. list is newest first.
+func mergeUploads(list []api.Activity) []api.Activity {
+	out := list[:0:0]
+	for _, e := range list {
+		if n := len(out); n > 0 && e.Kind == "file_uploaded" {
+			last := &out[n-1]
+			folder := path.Dir(e.Detail)
+			lastFolder := last.Detail
+			if last.Count == 0 {
+				lastFolder = path.Dir(last.Detail)
+			}
+			if last.Kind == e.Kind && last.ServerID == e.ServerID && last.Actor == e.Actor && lastFolder == folder && last.TS.Sub(e.TS) <= uploadsTogether {
+				last.Count = max(last.Count, 1) + 1
+				last.Detail = folder
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	return out
+}
 
 // Activity is the recent activity of one server, or of every server when
 // serverID is empty: joins, crashes and restores from the event log, and what
@@ -439,7 +471,9 @@ func (a *Agent) Activity(serverID string, limit int) ([]api.Activity, error) {
 	for _, k := range auKinds {
 		args = append(args, k)
 	}
-	args = append(args, serverID, serverID, limit)
+	// Runs of uploads become one line each, so more rows are read than
+	// the lines asked for.
+	args = append(args, serverID, serverID, min(limit*4, 1000))
 	rows, err := a.db.Query(q, args...)
 	if err != nil {
 		return nil, err
@@ -464,7 +498,14 @@ func (a *Agent) Activity(serverID string, limit int) ([]api.Activity, error) {
 		}
 		out = append(out, e)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out = mergeUploads(out)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 func keys(m map[string]string) []string {

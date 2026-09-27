@@ -436,6 +436,9 @@ type Activity struct {
 	Player   string    `json:"player,omitempty"`
 	Actor    string    `json:"actor,omitempty"`
 	Detail   string    `json:"detail,omitempty"`
+	// Count is how many files an upload line stands for; Detail is then
+	// their folder.
+	Count int `json:"count,omitempty"`
 }
 
 type ActionRequest struct {
@@ -2351,4 +2354,136 @@ type WorldImportCreateRequest struct {
 	MemoryMB   int                 `json:"memoryMB"`
 	AcceptEULA bool                `json:"acceptEula"`
 	Actor      string              `json:"actor"`
+}
+
+// Each server's file browser: its folders, text files opened in the editor,
+// and resumable uploads into a folder.
+
+// CodeWorldInUse refuses a change to a world folder while the game runs, and
+// CodeFileChanged a save over a file that changed since it was opened.
+const (
+	CodeWorldInUse  = "world_in_use"
+	CodeFileChanged = "file_changed"
+)
+
+// FileEntry types.
+const (
+	FileTypeFile    = "file"
+	FileTypeFolder  = "folder"
+	FileTypeLink    = "link"
+	FileTypeSpecial = "special"
+)
+
+// Files is a folder of a server's files.
+type Files struct {
+	// Path is the folder, "" for the server's folder itself.
+	Path    string      `json:"path"`
+	Entries []FileEntry `json:"entries"`
+	// More says the folder has more entries than those listed.
+	More bool `json:"more,omitempty"`
+	// Running says the game runs now: its world folders are read-only, and
+	// a change to any other file applies when it restarts.
+	Running bool `json:"running"`
+	// Worlds are the server's world folders.
+	Worlds []string `json:"worlds"`
+}
+
+// FileEntry is one thing in a folder. A link or a special file is listed as
+// what it is: Playkeeper never follows or opens it, but can move or delete
+// it.
+type FileEntry struct {
+	Name       string    `json:"name"`
+	Type       string    `json:"type"`
+	Size       int64     `json:"size"`
+	ModifiedAt time.Time `json:"modifiedAt"`
+}
+
+// FileInfo is a file as the editor last saw it.
+type FileInfo struct {
+	Path       string    `json:"path"`
+	Size       int64     `json:"size"`
+	ModifiedAt time.Time `json:"modifiedAt"`
+	// Version is the SHA-256 of the file; a save that names it is refused
+	// once the file changed.
+	Version string `json:"version"`
+}
+
+// FileContent is a file opened in the editor.
+type FileContent struct {
+	FileInfo
+	// Binary is set for a file that isn't UTF-8 text, which is only offered
+	// for download; Text is then empty.
+	Binary bool   `json:"binary,omitempty"`
+	Text   string `json:"text"`
+	// ReadOnly says why the file can't be changed now: "world_in_use" for a
+	// file in a world folder while the game runs.
+	ReadOnly string `json:"readOnly,omitempty"`
+	Running  bool   `json:"running"`
+	// Managed are the keys of server.properties that Playkeeper sets from
+	// the server's settings each time it starts.
+	Managed []string `json:"managed,omitempty"`
+}
+
+// FileFolderRequest makes a folder.
+type FileFolderRequest struct {
+	Path  string `json:"path"`
+	Actor string `json:"actor"`
+}
+
+// FileMove moves or renames one file or folder.
+type FileMove struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// FileMoveRequest moves or renames files and folders, in order.
+type FileMoveRequest struct {
+	Items []FileMove `json:"items"`
+	Actor string     `json:"actor"`
+}
+
+// FileDeleteRequest deletes files and folders.
+type FileDeleteRequest struct {
+	Paths []string `json:"paths"`
+	Actor string   `json:"actor"`
+}
+
+// FileUpload is an upload of files into a folder. Each file's bytes arrive
+// in pieces from the byte the machine says it has, and the file is put in
+// place once all of them have.
+type FileUpload struct {
+	ID        string           `json:"id"`
+	Folder    string           `json:"folder"`
+	CreatedAt time.Time        `json:"createdAt"`
+	Files     []FileUploadFile `json:"files"`
+	// LimitBytes is how many more bytes uploads on this machine may announce.
+	LimitBytes int64 `json:"limitBytes"`
+}
+
+// FileUploadFile is one file of an upload.
+type FileUploadFile struct {
+	Index int `json:"index"`
+	// Name is its path in the upload's folder, which may name folders the
+	// upload makes.
+	Name     string `json:"name"`
+	Size     int64  `json:"size"`
+	Received int64  `json:"received"`
+	Placed   bool   `json:"placed,omitempty"`
+	// Error says why a file that arrived could not be put in place.
+	Error string `json:"error,omitempty"`
+}
+
+// FileUploadRequest opens an upload into a folder.
+type FileUploadRequest struct {
+	Folder string `json:"folder"`
+	Actor  string `json:"actor"`
+}
+
+// FileUploadFileRequest announces a file before its bytes arrive. Replace
+// lets it replace a file of the same name.
+type FileUploadFileRequest struct {
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	Replace bool   `json:"replace,omitempty"`
+	Actor   string `json:"actor"`
 }
