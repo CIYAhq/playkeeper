@@ -20,6 +20,16 @@ function quiet(target: Page | BrowserContext) {
   return target.route(`${analytics}/**`, (route) => route.fulfill({ contentType: 'text/javascript', body: '' }))
 }
 
+/** Answers the analytics' script with one that hands each custom event (and each flush) to the test instead, so none is sent. */
+async function record(target: Page | BrowserContext) {
+  const events: unknown[][] = []
+  await target.exposeFunction('recordEvent', (...event: unknown[]) => void events.push(event))
+  await target.route(`${analytics}/oa.js`, (route) =>
+    route.fulfill({ contentType: 'text/javascript', body: 'window.oa = { track: function (name, props) { recordEvent(name, props) }, flush: function () { recordEvent("flush") } }' }),
+  )
+  return events
+}
+
 /** Collects what must not happen: a request to anywhere else but the analytics, a script error, a console error (where the CSP reports what it blocks). */
 function watch(page: Page): string[] {
   const problems: string[] = []
@@ -52,6 +62,8 @@ test.beforeEach(async ({ page }) => {
 
 test('the live demo: Home, a server’s pages, Settings and a restart, without leaving the page', async ({ page }) => {
   const problems = watch(page)
+  const events = await record(page)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(demoUrl)
 
@@ -62,6 +74,8 @@ test('the live demo: Home, a server’s pages, Settings and a restart, without l
   await expect(page.getByRole('link', { name: 'Install on your VPS' })).toHaveAttribute('href', '/#install')
   await expect(page.getByText('Like what you see?')).toBeVisible()
   await expect(page.getByText('curl -fsSL https://playkeeper.io/install')).toBeVisible()
+  await page.getByRole('button', { name: 'Copy the install command' }).click()
+  await expect.poll(() => events).toEqual([['install_copied', { spot: 'card', where: '/demo/' }]])
   await expect(main.getByRole('link', { name: /Survival/ })).toBeVisible()
   await expect(main.getByRole('link', { name: /Creative/ })).toBeVisible()
   await expect(page.getByText('JunoFox joined Survival')).toBeVisible()
@@ -222,14 +236,17 @@ test('the live demo’s address, two-factor, health, crash help, server types an
 
 test('the live demo’s New server, to the end on its defaults, and a Fabric server’s versions', async ({ page }) => {
   const problems = watch(page)
+  const events = await record(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`${demoUrl}servers/new`)
   for (const step of ['Continue to version', 'Continue to play style', 'Continue to memory', 'Continue to name']) await page.getByRole('button', { name: step }).click()
   await page.getByLabel('Name', { exact: true }).fill('Skyblock')
   await page.getByRole('checkbox', { name: /I accept the Minecraft/ }).check()
+  expect(events, 'nothing is counted before the server is made').toEqual([])
   await page.getByRole('button', { name: 'Create and start Skyblock' }).click()
   await expect(page).toHaveURL(`${demoUrl}servers/skyblock`, { timeout: 30_000 })
   await expect(page.getByRole('heading', { name: 'Skyblock', level: 1 })).toBeVisible()
+  await expect.poll(() => events).toEqual([['demo_server_created', { type: 'paper', where: '/demo/servers/new' }]])
 
   await page.goto(`${demoUrl}servers/cobblemon/settings#version`)
   const version = page.locator('#version')
@@ -277,6 +294,7 @@ for (const [size, viewport] of [
 
 test('the live demo makes a server from its sample world', async ({ page }) => {
   const problems = watch(page)
+  const events = await record(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`${demoUrl}servers/survival/world`)
   await page.getByRole('link', { name: /Start from your own world/ }).click()
@@ -295,6 +313,7 @@ test('the live demo makes a server from its sample world', async ({ page }) => {
   await page.getByRole('button', { name: 'Create and start Our old survival world' }).click()
   await expect(page).toHaveURL(`${demoUrl}servers/our-old-survival-world`, { timeout: 30_000 })
   await expect(page.getByRole('heading', { name: 'Our old survival world', level: 1 })).toBeVisible()
+  await expect.poll(() => events.map(([name]) => name)).toEqual(['demo_server_created'])
   expect(problems).toEqual([])
 })
 
@@ -326,6 +345,8 @@ test('the live demo on a phone: the brand line and the install card', async ({ p
 test('the live demo’s first visit says it’s sample data, once, and a few actions in it asks quietly', async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   await quiet(context)
+  const events = await record(context)
+  await context.route('https://github.com/**', (route) => route.fulfill({ contentType: 'text/html', body: '' }))
   const page = await context.newPage()
   const problems = watch(page)
   await page.goto(demoUrl)
@@ -350,6 +371,11 @@ test('the live demo’s first visit says it’s sample data, once, and a few act
   await expect(prompt).toBeVisible()
   await expect(prompt.getByRole('link', { name: 'Star on GitHub' })).toHaveAttribute('href', 'https://github.com/CIYAhq/playkeeper')
   await still(page, 'demo-quiet-prompt-desktop')
+  // A middle-click opens it in a new tab, so the demo stays for the rest.
+  const tab = context.waitForEvent('page')
+  await prompt.getByRole('link', { name: 'Star on GitHub' }).click({ button: 'middle' })
+  await (await tab).close()
+  await expect.poll(() => events).toEqual([['github_clicked', { link: 'repo', where: '/demo/servers/survival/world' }], ['flush']])
   await prompt.getByRole('button', { name: 'Close' }).click()
   await expect(prompt).toHaveCount(0)
   expect(problems).toEqual([])

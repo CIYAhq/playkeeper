@@ -8,6 +8,7 @@ import { ApiError } from '@/api/client'
 import type { Activity, ActivityKind, ApiToken, Backup, Gameplay, NewToken, Operation, PlayStyle, PlayerStat, RestorePreview, ServerStatus, TokenRole } from '@/api/types'
 import { t } from '@/i18n'
 import { opLabel } from '@/lib/phase'
+import { count } from './analytics'
 import { automationReads, copyNewBackup } from './automation'
 import { chatter, config, demoUser, demoVersion, fakeSha, fill, iso, logText, machineId, me, noise, reads, sample, sampleVersion, serverOf, update, versionsOf, buildsFor, pinOf, type DemoState, type Job, type JobKind, type Live, type Request, type Routes, type Step } from './data'
 import { demoMarker } from './marker'
@@ -446,7 +447,9 @@ function create(s: DemoState, r: Request): Operation {
   s.whitelist[id] = []
   s.operators[id] = []
   s.roster[id] = []
-  return begin(s, srv, 'create', r.now)
+  const op = begin(s, srv, 'create', r.now)
+  count('demo_server_created', { type })
+  return op
 }
 
 interface SettingsBody {

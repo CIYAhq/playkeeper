@@ -1,7 +1,8 @@
-// playkeeper.io on every page: the header's scrolled look and menus, Copy,
-// the FAQ's animation where the browser has none, scroll reveals, the phone
-// footer's groups, a guide's contents, code tabs and the star count. Nothing
-// here is needed to read or use a page; without it, everything is shown.
+// playkeeper.io on every page: the header's scrolled look and menus, the
+// analytics' custom events, Copy, the FAQ's animation where the browser has
+// none, scroll reveals, the phone footer's groups, a guide's contents, code
+// tabs and the star count. Nothing here is needed to read or use a page;
+// without it, everything is shown.
 (function () {
   var doc = document.documentElement;
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -56,6 +57,61 @@
     }, 1600);
   }
 
+  // Custom events for the analytics (Settings.Analytics), which its funnels
+  // are built from, each with the page it happened on. oa.js loads async, so
+  // an event before it has loaded waits for it. Pages without the analytics,
+  // like the share page /t, send nothing.
+  var counter = $('script[data-collector]');
+  var waiting = [];
+  var tracker = function () { return window.oa && typeof window.oa.track === 'function' ? window.oa : null; };
+  // leaving: the event's link leaves the page, so it goes at once rather than
+  // with oa.js's next batch, which a page on its way out can miss.
+  function count(name, props, leaving) {
+    if (!counter) return;
+    props.where = location.pathname;
+    var oa = tracker();
+    if (!oa) { waiting.push([name, props]); return; }
+    oa.track(name, props);
+    if (leaving && oa.flush) oa.flush();
+  }
+  if (counter && !tracker()) {
+    counter.addEventListener('load', function () {
+      var oa = tracker();
+      if (oa) waiting.splice(0).forEach(function (w) { oa.track(w[0], w[1]); });
+    });
+  }
+
+  // The install command, the site's or the GitHub release's, with or without
+  // options, copied with a Copy (el) or by hand.
+  var installCommand = /(playkeeper\.io\/install|releases\/latest\/download\/get\.sh)[^|]*\|\s*sudo\s+sh/;
+  function copied(text, el) {
+    if (!installCommand.test(text)) return;
+    var spot = !el ? 'selection' : el.closest('[data-closing]') ? 'closing' : el.closest('[data-install]') ? 'box' : el.closest('pre, .codeblock') ? 'code' : 'button';
+    count('install_copied', { spot: spot });
+  }
+
+  // Links out: to the repository on GitHub, or /community, which sends people
+  // to its Discussions; Watch releases; and to a VPS provider. A middle-click
+  // opens one too.
+  function followed(e) {
+    if (e.type === 'auxclick' && e.button !== 1) return;
+    var a = e.target.closest && e.target.closest('a[href]');
+    if (!a) return;
+    var repo = a.hostname === 'github.com' && /^\/CIYAhq\/playkeeper(\/|$)/.test(a.pathname);
+    if (repo || (a.origin === location.origin && a.pathname === '/community')) {
+      var part = repo ? a.pathname.split('/')[3] || 'repo' : 'community';
+      count('github_clicked', { link: part === 'blob' || part === 'tree' ? 'file' : part }, true);
+    }
+    if (a.hasAttribute('data-watch-releases')) count('watch_releases_clicked', { plan: a.getAttribute('data-watch-releases') }, true);
+    var provider = a.closest('[data-provider]');
+    if (provider) count('provider_clicked', { provider: provider.getAttribute('data-provider'), plan: $('[data-plan]', provider).textContent }, true);
+  }
+  if (counter) {
+    document.addEventListener('copy', function () { copied(String(document.getSelection()), null); });
+    document.addEventListener('click', followed, true);
+    document.addEventListener('auxclick', followed, true);
+  }
+
   // Copy: buttons and links with data-copy copy it where the browser allows.
   if (navigator.clipboard && window.isSecureContext !== false) {
     $$('[data-copy]').forEach(function (el) {
@@ -66,6 +122,7 @@
       el.addEventListener('click', function (e) {
         e.preventDefault();
         navigator.clipboard.writeText(el.getAttribute('data-copy')).then(function () {
+          copied(el.getAttribute('data-copy'), el);
           el.classList.add('is-copied');
           if (label) label.textContent = 'Copied';
           if (phone.matches || el.hasAttribute('data-copy-toast')) toast('Command copied');
@@ -94,6 +151,7 @@
       pre.appendChild(b);
       b.addEventListener('click', function () {
         navigator.clipboard.writeText(b.getAttribute('data-copy')).then(function () {
+          copied(b.getAttribute('data-copy'), b);
           b.classList.add('is-copied');
           $('[data-copy-label]', b).textContent = 'Copied';
           setTimeout(function () { b.classList.remove('is-copied'); $('[data-copy-label]', b).textContent = 'Copy'; }, 1600);
