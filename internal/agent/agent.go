@@ -93,6 +93,9 @@ type Options struct {
 	ReconcileInterval time.Duration
 	// CrashBackoff is the wait before each automatic restart after a crash.
 	CrashBackoff []time.Duration
+	// PullBackoff is the wait before each further try of an image pull that
+	// failed (default 2s, 4s, 8s and 16s: five tries in all).
+	PullBackoff []time.Duration
 	// WarnDelay is how long players are warned in chat before a Minecraft
 	// update stops the server (default 1 minute); BackupWarnDelay before a
 	// backup does (default 3 seconds).
@@ -350,6 +353,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if len(opts.CrashBackoff) == 0 {
 		opts.CrashBackoff = []time.Duration{0, 30 * time.Second, 2 * time.Minute}
+	}
+	if len(opts.PullBackoff) == 0 {
+		opts.PullBackoff = []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second}
 	}
 	if opts.WarnDelay == 0 {
 		opts.WarnDelay = time.Minute

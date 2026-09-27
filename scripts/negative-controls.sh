@@ -5862,6 +5862,20 @@ webcontrol "Start waits for another area to be chosen" web/src/pages/server/map-
   "(undefined)" \
   web/src/pages/server/map.test.tsx 'with what it takes shown first'
 
+# Docker Hub now and then refuses or drops a pull it answers a moment later.
+control "a failed image pull is tried again" internal/agent/lifecycle.go \
+  '	for _, wait := range a.opts.PullBackoff {' \
+  '	for _, wait := range a.opts.PullBackoff[:0] {' \
+  ./internal/agent '^TestAnImagePullDockerHubRefusesOrDropsIsTriedAgain$'
+control "a pull of an image the registry doesn't have isn't tried again" internal/agent/lifecycle.go \
+  ' && !docker.IsNotFound(err) && ' \
+  ' && ' \
+  ./internal/agent '^TestAnImagePullDockerHubRefusesOrDropsIsTriedAgain$'
+control "a pull onto a full disk isn't tried again" internal/agent/lifecycle.go \
+  ' && !strings.Contains(err.Error(), "no space left on device")' \
+  '' \
+  ./internal/agent '^TestAnImagePullDockerHubRefusesOrDropsIsTriedAgain$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

@@ -201,7 +201,7 @@ func (e *agentEnv) start() {
 	}
 	opts := Options{
 		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(&e.warnings, &slog.HandlerOptions{Level: slog.LevelWarn})), Now: func() time.Time { return time.Now().Add(offset).Add(time.Duration(e.skew.Load())) },
-		SampleInterval: sample, ReconcileInterval: reconcile, CrashBackoff: backoff,
+		SampleInterval: sample, ReconcileInterval: reconcile, CrashBackoff: backoff, PullBackoff: []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond, time.Millisecond},
 		RCONAddr: func(string) string { return e.rcon.addr }, PingAddr: e.slp,
 		HostMemoryMB: func() int { return 4096 }, ProcStat: e.procStat, DiskUsage: func(string) (int64, int64, error) {
 			if free := e.diskFree.Load(); free > 0 {
@@ -525,6 +525,55 @@ func TestEULAGateRefusesAndDownloadsNothing(t *testing.T) {
 	}
 	if n := len(e.a.serverList()); n != 0 {
 		t.Fatalf("a refused create recorded %d server(s)", n)
+	}
+}
+
+// Docker Hub now and then refuses a pull, or drops it halfway, and answers
+// the same pull a moment later: the pull is asked again, five times in all.
+// One that can't work, of an image the registry doesn't have or onto a full
+// disk, fails at once.
+func TestAnImagePullDockerHubRefusesOrDropsIsTriedAgain(t *testing.T) {
+	refused := pullFail{http.StatusInternalServerError, "unauthorized: authentication required"}
+	dropped := pullFail{http.StatusOK, "unexpected EOF"}
+	cases := []struct {
+		name  string
+		fails []pullFail
+		pulls int
+		// failed is what the create's error says, or empty when it succeeds.
+		failed string
+	}{
+		{name: "refused, then dropped, then answered", fails: []pullFail{refused, dropped}, pulls: 3},
+		{name: "refused every time", fails: []pullFail{refused, refused, refused, refused, refused}, pulls: 5, failed: "docker: unauthorized: authentication required (HTTP 500)"},
+		{name: "not in the registry", fails: []pullFail{{http.StatusNotFound, "manifest unknown"}}, pulls: 1, failed: "docker: manifest unknown (HTTP 404)"},
+		{name: "onto a full disk", fails: []pullFail{{http.StatusOK, "write /var/lib/docker/tmp/GetImageBlob1: no space left on device"}}, pulls: 1, failed: "no space left on device"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.fd.mu.Lock()
+			e.fd.pullFails = c.fails
+			e.fd.mu.Unlock()
+			code, out := e.startCreate(map[string]any{"acceptEula": true, "versionId": "paper-26.1.2", "memoryMB": 1536, "actor": "admin"})
+			if code != http.StatusAccepted {
+				t.Fatalf("create: %d %v", code, out)
+			}
+			op := e.waitOp(out["id"].(string))
+			if c.failed == "" && op.Status != api.OpSucceeded {
+				t.Fatalf("the create: %+v", op)
+			}
+			if c.failed != "" && (op.Status != api.OpFailed || !strings.HasPrefix(op.Error, "Could not download the Minecraft runtime image: ") || !strings.Contains(op.Error, c.failed)) {
+				t.Fatalf("the create, which should fail with %q: %+v", c.failed, op)
+			}
+			e.fd.mu.Lock()
+			pulls := e.fd.pulls
+			e.fd.mu.Unlock()
+			if pulls != c.pulls {
+				t.Fatalf("pulled %d times, want %d", pulls, c.pulls)
+			}
+			if n := strings.Count(e.warnings.String(), "an image pull failed; trying again"); n != c.pulls-1 {
+				t.Fatalf("logged %d tries again, want %d:\n%s", n, c.pulls-1, e.warnings.String())
+			}
+		})
 	}
 }
 

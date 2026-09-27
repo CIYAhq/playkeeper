@@ -433,6 +433,9 @@ func runtimeImage(mc string) string {
 	return minecraft.Image
 }
 
+// ensureImage pulls image unless Docker has it. Docker Hub now and then
+// refuses or drops a pull it answers a moment later, so a failed pull is
+// tried again after each of the PullBackoff waits, as pullAgain allows.
 func (a *Agent) ensureImage(ctx context.Context, h *opHandle, image string) error {
 	if _, err := a.docker.ImageInspect(ctx, image); err == nil {
 		return nil
@@ -441,16 +444,36 @@ func (a *Agent) ensureImage(ctx context.Context, h *opHandle, image string) erro
 	}
 	h.phase(string(api.PhasePulling))
 	var last time.Time
-	err := a.docker.ImagePull(ctx, image, func(p docker.PullProgress) {
+	progress := func(p docker.PullProgress) {
 		if time.Since(last) > time.Second {
 			last = time.Now()
 			h.set("pull", p.Status)
 		}
-	})
+	}
+	err := a.docker.ImagePull(ctx, image, progress)
+	for _, wait := range a.opts.PullBackoff {
+		if !pullAgain(ctx, err) {
+			break
+		}
+		a.log.Warn("an image pull failed; trying again", "image", image, "in", wait, "err", err)
+		select {
+		case <-ctx.Done():
+			err = ctx.Err()
+		case <-time.After(wait):
+			err = a.docker.ImagePull(ctx, image, progress)
+		}
+	}
 	if err != nil {
 		return &apiError{Msg: "Could not download the Minecraft runtime image: " + err.Error(), Hint: "Check that this host can reach Docker Hub (registry-1.docker.io), then press Start again."}
 	}
 	return nil
+}
+
+// pullAgain reports whether a pull that failed with err may work if tried
+// again: not once the operation has stopped, when the registry doesn't have
+// the image, or when the disk is full.
+func pullAgain(ctx context.Context, err error) bool {
+	return err != nil && ctx.Err() == nil && !docker.IsNotFound(err) && !strings.Contains(err.Error(), "no space left on device")
 }
 
 func (a *Agent) ensureNetwork(ctx context.Context) error {
