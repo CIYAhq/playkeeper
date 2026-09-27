@@ -46,9 +46,23 @@ type pack struct {
 	properties map[string]string
 	unknownEnv []string
 	arch       *archive
-	dir        string
+	// server is a CurseForge pack's server files, when mods were taken
+	// from them (see fillFromServerFiles), and serverFills those mods.
+	server      *archive
+	serverFills []serverFill
+	dir         string
 	// hashed counts the bytes read out of the archive to hash them.
 	hashed int64
+}
+
+// serverFill is a mod a CurseForge pack names that Playkeeper cannot
+// download, because its author only allows CurseForge's app or CurseForge
+// no longer offers it: the user's step for it goes when the pack's server
+// files have the file with the SHA-1 CurseForge lists for it.
+type serverFill struct {
+	step                int // in pack.manual
+	path, project, name string
+	sha1                string
 }
 
 // packFile is one file the pack would put on the server.
@@ -78,6 +92,9 @@ func (f *packFile) algo() string {
 func (p *pack) close() {
 	if p.arch != nil {
 		p.arch.Close()
+	}
+	if p.server != nil {
+		p.server.Close()
 	}
 	if p.dir != "" {
 		os.RemoveAll(p.dir)
@@ -750,14 +767,14 @@ func (l *Library) readCurseForge(ctx context.Context, mod *curseforge.Mod, f *cu
 		p.close()
 		return nil, err
 	}
-	if err := l.readManifest(ctx, p, world, lim); err != nil {
+	if err := l.readManifest(ctx, p, mod, f, world, lim); err != nil {
 		p.close()
 		return nil, err
 	}
 	return p, nil
 }
 
-func (l *Library) readManifest(ctx context.Context, p *pack, world string, lim Limits) error {
+func (l *Library) readManifest(ctx context.Context, p *pack, mod *curseforge.Mod, file *curseforge.File, world string, lim Limits) error {
 	b, err := p.arch.read(curseforge.ManifestName, lim.Index)
 	if err != nil {
 		return indexError(p.info.Name, curseforge.ManifestName, err)
@@ -802,6 +819,9 @@ func (l *Library) readManifest(ctx context.Context, p *pack, world string, lim L
 	for _, mf := range m.Files {
 		l.addCurseForgeFile(p, mf, fileByID[mf.FileID], modByID[mf.ProjectID])
 	}
+	if err := l.fillFromServerFiles(ctx, p, mod, file, lim); err != nil {
+		return err
+	}
 	if err := l.addOverrides(p, p.arch.layer(m.Overrides), world, lim); err != nil {
 		return err
 	}
@@ -830,6 +850,10 @@ func (l *Library) addCurseForgeFile(p *pack, mf curseforge.ManifestFile, f *curs
 		p.manual = append(p.manual, addons.ManualStep{Notice: notice(KindUnavailable, kv("pack", p.info.Name, "name", display),
 			fmt.Sprintf("%s, which %s uses, is no longer available on CurseForge.", display, p.info.Name),
 			"The pack may not work without it. Look on its page for a replacement."), URL: page})
+		if f != nil && f.ModID == mf.ProjectID && m != nil && m.ClassID == curseforge.ClassMods && f.FileStatus != curseforge.StatusRejected &&
+			!f.ClientOnly() && plainJar(f.FileName) {
+			p.fromServerFiles(f, id, display)
+		}
 		return
 	}
 	switch m.ClassID {
@@ -866,6 +890,7 @@ func (l *Library) addCurseForgeFile(p *pack, mf curseforge.ManifestFile, f *curs
 			p.manual = append(p.manual, addons.ManualStep{Notice: notice(addons.KindExternal, kv("pack", p.info.Name, "name", display, "file", printable(f.FileName), "folder", "mods"),
 				fmt.Sprintf("%s's author only allows downloads through CurseForge's app, so Playkeeper cannot download %s for you.", display, printable(f.FileName)),
 				"Download it from that page and upload it to the mods folder."), URL: m.FilePage(f.ID)})
+			p.fromServerFiles(f, id, display)
 		}
 		return
 	case f.SHA1() == "":
@@ -892,6 +917,77 @@ func (l *Library) addCurseForgeFile(p *pack, mf curseforge.ManifestFile, f *curs
 		path: target, origin: Download, project: id, name: display, optional: !mf.Required, on: mf.Required,
 		size: f.FileLength, sums: map[string]string{"sha1": f.SHA1()}, urls: []string{f.DownloadURL}, hosts: l.curseForgeFiles(),
 	}
+}
+
+// fromServerFiles notes that the step just added for f goes when the pack's
+// server files have f.
+func (p *pack) fromServerFiles(f *curseforge.File, project, name string) {
+	if sum := f.SHA1(); sum != "" {
+		p.serverFills = append(p.serverFills, serverFill{step: len(p.manual) - 1, path: "mods/" + f.FileName, project: project, name: name, sha1: sum})
+	}
+}
+
+// fillFromServerFiles takes the mods of p.serverFills from the pack's server
+// files, which its authors publish with the mods a server needs, when
+// CurseForge lets Playkeeper download them. Each mod must be in their mods
+// folder with the SHA-1 CurseForge lists for it; the steps for the others
+// stay.
+func (l *Library) fillFromServerFiles(ctx context.Context, p *pack, mod *curseforge.Mod, file *curseforge.File, lim Limits) error {
+	if len(p.serverFills) == 0 || file.ServerPackFileID == nil {
+		return nil
+	}
+	sp, err := l.CurseForge.File(ctx, mod.ID, *file.ServerPackFileID)
+	switch {
+	case errors.Is(err, fetch.ErrNotFound):
+		return nil
+	case err != nil:
+		return Upstream(CurseForge, err)
+	case sp.ModID != mod.ID || !sp.IsServerPack || sp.ParentProjectFileID == nil || *sp.ParentProjectFileID != file.ID || !sp.IsAvailable,
+		sp.FileStatus == curseforge.StatusRejected || sp.FileStatus == curseforge.StatusMalwareDetected || sp.FileStatus == curseforge.StatusDeleted,
+		sp.DownloadURL == "" || sp.SHA1() == "" || sp.FileLength <= 0 || sp.FileLength > lim.ServerFiles:
+		return nil
+	}
+	if _, err := l.curseForgeFiles().Check(sp.DownloadURL); err != nil {
+		return nil
+	}
+	want := fetch.Want{Algo: "sha1", Hash: sp.SHA1(), Size: sp.FileLength, Max: lim.ServerFiles}
+	got, err := fetch.Download(ctx, l.HTTP, l.curseForgeFiles(), l.userAgent(), sp.DownloadURL, p.dir, want)
+	if err != nil {
+		return downloadError(p.info.Name, sp.FileName, "CurseForge", err, lim.ServerFiles)
+	}
+	if p.server, err = openArchive(got, p.info.Name, lim); err != nil {
+		return err
+	}
+	mods := p.server.layer("mods")
+	filled := map[int]bool{}
+	for _, s := range p.serverFills {
+		e := mods[path.Base(s.path)]
+		if e == nil || p.files[s.path] != nil || e.UncompressedSize64 > uint64(lim.File) {
+			continue
+		}
+		sums, n, err := copyEntry(e, io.Discard, lim.File)
+		if err != nil {
+			return fail(KindBadPack, kv("pack", p.info.Name, "reason", err.Error()),
+				fmt.Sprintf("%s cannot be installed: its server files are damaged at %q (%v).", p.info.Name, printable(e.Name), err),
+				"Choose another version of the pack. Nothing was installed.")
+		}
+		if p.hashed += n; p.hashed > lim.Unpacked {
+			return unpackedTooLarge(p.info.Name, lim)
+		}
+		if sums["sha1"] != s.sha1 {
+			continue
+		}
+		p.files[s.path] = &packFile{path: s.path, origin: Override, project: s.project, name: s.name, on: true, size: n, sums: sums, entry: e}
+		filled[s.step] = true
+	}
+	manual := p.manual[:0]
+	for i, m := range p.manual {
+		if !filled[i] {
+			manual = append(manual, m)
+		}
+	}
+	p.manual = manual
+	return nil
 }
 
 // clientCurseForge records a file of a CurseForge pack for players' games,

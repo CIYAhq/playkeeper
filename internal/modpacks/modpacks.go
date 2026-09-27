@@ -198,7 +198,8 @@ type Origin string
 const (
 	// Download files are fetched from the pack's file hosts.
 	Download Origin = "download"
-	// Override files are copied out of the pack's archive.
+	// Override files are copied out of the pack's archive, or out of its
+	// server files (see Limits.ServerFiles).
 	Override Origin = "override"
 )
 
@@ -216,19 +217,22 @@ func (r *Record) Owns(path string) bool {
 
 // Limits bound what a pack may make Playkeeper download and write.
 type Limits struct {
-	Pack      int64 // the pack's archive
-	Index     int64 // modrinth.index.json or manifest.json
-	Files     int   // files the pack puts on the server
-	File      int64 // each of them
-	Downloads int64 // the downloads together
-	Unpacked  int64 // the files copied out of the archive together
-	Entries   int   // entries in the archive
+	Pack int64 // the pack's archive
+	// ServerFiles bounds a CurseForge pack's server files, which are
+	// fetched only for mods CurseForge doesn't let Playkeeper download.
+	ServerFiles int64
+	Index       int64 // modrinth.index.json or manifest.json
+	Files       int   // files the pack puts on the server
+	File        int64 // each of them
+	Downloads   int64 // the downloads together
+	Unpacked    int64 // the files copied out of the archive together
+	Entries     int   // entries in the archive
 }
 
 // DefaultLimits returns the limits used for every limit left at zero.
 func DefaultLimits() Limits {
 	return Limits{
-		Pack: 1 << 30, Index: 16 << 20, Files: 5000, File: 256 << 20,
+		Pack: 1 << 30, ServerFiles: 2 << 30, Index: 16 << 20, Files: 5000, File: 256 << 20,
 		Downloads: 4 << 30, Unpacked: 2 << 30, Entries: 20000,
 	}
 }
@@ -360,7 +364,7 @@ func (l *Library) limits() Limits {
 		}
 		return def
 	}
-	lim.Pack, lim.Index, lim.File = pick(lim.Pack, d.Pack), pick(lim.Index, d.Index), pick(lim.File, d.File)
+	lim.Pack, lim.ServerFiles, lim.Index, lim.File = pick(lim.Pack, d.Pack), pick(lim.ServerFiles, d.ServerFiles), pick(lim.Index, d.Index), pick(lim.File, d.File)
 	lim.Downloads, lim.Unpacked = pick(lim.Downloads, d.Downloads), pick(lim.Unpacked, d.Unpacked)
 	if lim.Files <= 0 {
 		lim.Files = d.Files

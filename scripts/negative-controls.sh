@@ -1584,6 +1584,18 @@ control "a pack file's path with an invisible character is refused before any do
   'if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) || r == utf8.RuneError {' \
   'if unicode.IsControl(r) || r == utf8.RuneError {' \
   ./internal/modpacks '^TestUnsafeIndexPathsAreRefused$'
+control "mods CurseForge won't let Playkeeper download come from the pack's server files" internal/modpacks/resolve.go \
+  'if err := l.fillFromServerFiles(ctx, p, mod, file, lim); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "a mod from the server files must have the SHA-1 CurseForge lists" internal/modpacks/resolve.go \
+  'if sums["sha1"] != s.sha1 {' \
+  'if false && sums["sha1"] != s.sha1 {' \
+  ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "only the server files of the pack's own version are used" internal/modpacks/resolve.go \
+  'sp.ParentProjectFileID == nil || *sp.ParentProjectFileID != file.ID || ' \
+  '' \
+  ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
 control "a pack's settings are read and written without following a link" internal/agent/modpacks.go \
   'cur, err := d.ReadProperties()
 	if errors.Is(err, fs.ErrNotExist) {
