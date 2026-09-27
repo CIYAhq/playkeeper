@@ -5,9 +5,8 @@ name: OS matrix
 # one-line install, onboarding in the browser, two protocol bots, a backup
 # and a restore, an update from the dashboard, a reboot and the uninstall
 # (scripts/e2e/vm-os.sh). It runs on pull requests that change the installer
-# or what Playkeeper assumes about the system, and before each release: start
-# it from the Actions tab on the commit to tag, or call it from another
-# workflow.
+# or what Playkeeper assumes about the system, by hand, and before each
+# release as part of the Release check (release-check.yml).
 on:
   pull_request:
     paths:
