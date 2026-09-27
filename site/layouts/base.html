@@ -149,7 +149,7 @@
     <p class="closing-sub reveal">Free and open source. Friends can be playing tonight.</p>
     {{end}}
     <div class="closing-actions reveal">
-      {{template "install" (dict "ID" (not .HasInstall) "Dark" true)}}
+      {{template "install" (dict "ID" (not .HasInstall) "Dark" true "Cmd" (installFor .Page.Channel))}}
       {{if eq .Page.Closing "guide"}}<a class="btn btn-ghost-dark" href="/sizing">Work out your size{{template "icon" "arrow-right"}}</a>
       {{else}}<a class="btn btn-ghost-dark" href="/demo/">Try the live demo{{template "icon" "arrow-right"}}</a>{{end}}
     </div>

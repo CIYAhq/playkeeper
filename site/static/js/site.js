@@ -1,8 +1,9 @@
 // playkeeper.io on every page: the header's scrolled look and menus, the
-// analytics' custom events, Copy, the FAQ's animation where the browser has
-// none, scroll reveals, the phone footer's groups, a guide's contents, code
-// tabs and the star count. Nothing here is needed to read or use a page;
-// without it, everything is shown.
+// analytics' custom events, the landing page's install command for the
+// channel a visitor came from, Copy, the FAQ's animation where the browser
+// has none, scroll reveals, the phone footer's groups, a guide's contents,
+// code tabs and the star count. Nothing here is needed to read or use a
+// page; without it, everything is shown.
 (function () {
   var doc = document.documentElement;
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -60,15 +61,17 @@
   // Custom events for the analytics (Settings.Analytics), which its funnels
   // are built from, each with the page it happened on. oa.js loads async, so
   // an event before it has loaded waits for it. Pages without the analytics,
-  // like the share page /t, send nothing.
+  // like the share page /t, send nothing. A page's own script hears each one
+  // as playkeeper:count on document, as /start's ad pixel does.
   var counter = $('script[data-collector]');
   var waiting = [];
   var tracker = function () { return window.oa && typeof window.oa.track === 'function' ? window.oa : null; };
   // leaving: the event's link leaves the page, so it goes at once rather than
   // with oa.js's next batch, which a page on its way out can miss.
   function count(name, props, leaving) {
-    if (!counter) return;
     props.where = location.pathname;
+    document.dispatchEvent(new CustomEvent('playkeeper:count', { detail: { name: name, props: props } }));
+    if (!counter) return;
     var oa = tracker();
     if (!oa) { waiting.push([name, props]); return; }
     oa.track(name, props);
@@ -82,12 +85,15 @@
   }
 
   // The install command, the site's or the GitHub release's, with or without
-  // options, copied with a Copy (el) or by hand.
+  // options, copied with a Copy (el) or by hand; a channel's, /install/<code>,
+  // says which.
   var installCommand = /(playkeeper\.io\/install|releases\/latest\/download\/get\.sh)[^|]*\|\s*sudo\s+sh/;
   function copied(text, el) {
     if (!installCommand.test(text)) return;
-    var spot = !el ? 'selection' : el.closest('[data-closing]') ? 'closing' : el.closest('[data-install]') ? 'box' : el.closest('pre, .codeblock') ? 'code' : 'button';
-    count('install_copied', { spot: spot });
+    var props = { spot: !el ? 'selection' : el.closest('[data-closing]') ? 'closing' : el.closest('[data-install]') ? 'box' : el.closest('pre, .codeblock') ? 'code' : 'button' };
+    var tag = /playkeeper\.io\/install\/([a-z0-9-]+)/i.exec(text);
+    if (tag) props.channel = tag[1].toLowerCase();
+    count('install_copied', props);
   }
 
   // Links out: to the repository on GitHub, or /community, which sends people
@@ -106,10 +112,24 @@
     var provider = a.closest('[data-provider]');
     if (provider) count('provider_clicked', { provider: provider.getAttribute('data-provider'), plan: $('[data-plan]', provider).textContent }, true);
   }
-  if (counter) {
-    document.addEventListener('copy', function () { copied(String(document.getSelection()), null); });
-    document.addEventListener('click', followed, true);
-    document.addEventListener('auxclick', followed, true);
+  document.addEventListener('copy', function () { copied(String(document.getSelection()), null); });
+  document.addEventListener('click', followed, true);
+  document.addEventListener('auxclick', followed, true);
+
+  // The landing page shows a visitor who came through a channel's link
+  // (/go/<code>, which adds utm_content=<code>) that channel's install
+  // command, /install/<code>, for the codes it lists. It's read from the
+  // address; nothing is stored.
+  var listed = $('[data-channels]');
+  var channel = listed && new URLSearchParams(location.search).get('utm_content');
+  if (channel && listed.getAttribute('data-channels').split(' ').indexOf(channel) !== -1) {
+    var tagged = function (s) { return s.replace(/(playkeeper\.io\/install)\b(?!\/)/g, '$1/' + channel); };
+    $$('[data-install], [data-terminal]').forEach(function (box) {
+      if (box.hasAttribute('data-install')) box.classList.add('install-tagged');
+      var walk = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+      for (var t = walk.nextNode(); t; t = walk.nextNode()) t.nodeValue = tagged(t.nodeValue);
+      $$('[data-copy]', box).forEach(function (el) { el.setAttribute('data-copy', tagged(el.getAttribute('data-copy'))); });
+    });
   }
 
   // Copy: buttons and links with data-copy copy it where the browser allows.

@@ -1,0 +1,73 @@
+{{/*
+path: /start
+title: Playkeeper: your own Minecraft server on a VPS you rent
+description: Rent a VPS, paste one command, and Playkeeper sets up your Minecraft: Java Edition server, then everything happens in your browser. Free and open source.
+label: One command. Your Minecraft server.
+noindex: true
+og: landing
+channel: start
+styles: css/start.css
+scripts: js/start.js
+*/}}
+
+{{/* Where the Meta ads land: the ads' headlines, the start channel's command,
+     the film, and plain answers, each true for the current release. Whop's ad
+     pixel loads here and on no other page (js/start.js, Settings.WhopPixel),
+     and the note at the end says what it does. The pixel reads the fields of
+     any form, tags links to whop.com and posts to every frame, so keep all
+     three off this page. */}}
+{{define "main"}}{{$poster := img "film/launch-poster.webp"}}
+<section class="band-chalk start-hero" aria-labelledby="page-title" data-whop-pixel="{{.Settings.WhopPixel}}">
+  <div class="container start-row">
+    <div class="start-text">
+      <h1 id="page-title" class="h1-hero start-h1"><span class="line hero-rise">One command.</span> <span class="line line-green hero-rise">Your Minecraft server.</span></h1>
+      <p class="hero-sub hero-after">Rent a VPS, paste one command, and Playkeeper sets up your Minecraft: Java Edition server. Then everything happens in your browser, and friends can be playing tonight.</p>
+      <div class="hero-after">{{template "install" (dict "ID" true "Cmd" (installFor .Page.Channel))}}</div>
+      <p class="start-how hero-after">Paste it into the VPS over SSH. It checks the machine and asks before it changes anything.</p>
+      <div class="hero-actions hero-after">
+        <a class="btn btn-outline btn-lg" href="/demo/">Try the live demo{{template "icon" "arrow-right"}}</a>
+      </div>
+      <p class="start-how hero-after">The real dashboard with sample servers, in your browser. No sign-up.</p>
+    </div>
+    <figure class="start-film hero-after">
+      <video data-film muted loop playsinline controls preload="none" width="{{$poster.Width}}" height="{{$poster.Height}}" poster="{{$poster.URL}}" aria-label="Playkeeper's launch film: one command, a free address, modpacks in one click, and friends playing tonight.">
+        <source src="{{asset "film/launch.mp4"}}" type="video/mp4">
+      </video>
+    </figure>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="need-title">
+  <div class="container">
+    <h2 id="need-title" class="section-title">What you need</h2>
+    <dl class="start-need">
+      <div><dt>A VPS, which costs money</dt><dd>Playkeeper is free, but you rent the server it runs on: from a few dollars a month for a few friends, more for big modpacks. <a href="/sizing">Which size?</a></dd></div>
+      <div><dt>Ubuntu 24.04, for now</dt><dd>On an x86_64 machine with at least {{sizing.Min.Cores}} CPU cores, {{sizing.Min.MemoryGB}} GB of memory and {{sizing.Min.DiskGB}} GB of free disk. Other Linux systems and ARM machines aren't supported yet.</dd></div>
+      <div><dt>A computer for one step</dt><dd>You paste the command into the VPS from a terminal. After that, everything happens in the browser, on your phone too.</dd></div>
+      <div><dt>Minecraft: Java Edition</dt><dd>Paper, Purpur, Vanilla, Fabric, Quilt, NeoForge and Forge servers, as many as the VPS fits.</dd></div>
+      <div><dt>Nothing else to pay for</dt><dd>Free and open source (AGPL-3.0): every feature, with no ads, limits or trial.</dd></div>
+    </dl>
+  </div>
+</section>
+
+<section class="band band-chalk" aria-labelledby="get-title">
+  <div class="container">
+    <h2 id="get-title" class="section-title">Then, in your browser</h2>
+    <ul class="checks start-get">
+      <li>{{template "icon" "check"}}<span>New servers in a few clicks: pick the type and version, and Playkeeper downloads it and checks its checksum.</span></li>
+      <li>{{template "icon" "check"}}<span>Modpacks from Modrinth and CurseForge, like All the Mods 10, with the memory each one needs.</span></li>
+      <li>{{template "icon" "check"}}<span>Backups while friends stay online, and a free address to join instead of an IP and port.</span></li>
+      <li>{{template "icon" "check"}}<span>Invite links that put friends on the allowlist, and co-admins with their own sign-in.</span></li>
+      <li>{{template "icon" "check"}}<span>Updates that are signed and roll back if something goes wrong.</span></li>
+    </ul>
+  </div>
+</section>
+
+<section class="band band-white start-note" aria-labelledby="note-title">
+  <div class="container container-narrow">
+    <h2 id="note-title">About this page</h2>
+    <p>This page, and no other on playkeeper.io, loads Whop's ad pixel, so our ads on Facebook and Instagram can tell who visits and who copies the install command. It sets a cookie, <code>_wuid</code>, on playkeeper.io for two years, and your browser then sends it with every request to playkeeper.io and the addresses under it: the rest of this site, and dashboards with a free name under playkeeper.io. It also keeps a fingerprint of your device in your browser, and sends Whop this visit with your browser's details, the ad's IDs from this page's address, how long you stay and whether you copy the command. Whop passes that on to Meta.</p>
+    <p>The pixel doesn't load if your browser sends Global Privacy Control or Do Not Track. To remove what it stored, clear playkeeper.io's cookies and site data in your browser. The rest of playkeeper.io counts visits without cookies.</p>
+  </div>
+</section>
+{{end}}

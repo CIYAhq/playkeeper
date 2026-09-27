@@ -39,6 +39,10 @@ type Page struct {
 	NoIndex bool
 	// Closing picks the closing band: default, guide, sizing or none.
 	Closing string
+	// Channel is the channel (Settings.Channels) whose install command,
+	// /install/<code>, the page shows everywhere, as /start does; empty shows
+	// the usual one.
+	Channel string
 	// Scripts are the page's own scripts, after site.js; Styles its own
 	// stylesheets, after site.css; NoScript a stylesheet for when scripts
 	// don't run.
@@ -182,6 +186,8 @@ func parsePage(src string) (*Page, error) {
 			p.NoIndex = b
 		case "closing":
 			p.Closing = value
+		case "channel":
+			p.Channel = value
 		case "scripts":
 			p.Scripts = fields(value)
 		case "styles":

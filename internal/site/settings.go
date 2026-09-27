@@ -20,6 +20,15 @@ type Settings struct {
 	// lets its script and collector in; empty turns it off. The live demo
 	// loads the same script (web/src/demo/vite.ts).
 	Analytics Analytics
+	// Channels are where visitors come from, each with a code: /go/<code>
+	// sends them to the landing page with the channel's UTM tags, and the
+	// landing page then shows the channel's own install command,
+	// /install/<code>, which the site's install log counts (nginx.conf).
+	Channels []Channel
+	// WhopPixel is the Whop business (biz_…) whose ad pixel /start, the Meta
+	// ads' landing page, loads. No other page loads it, and only /start's
+	// Content-Security-Policy lets it in; empty loads none.
+	WhopPixel string
 }
 
 // Analytics is an OpenAnalytics site: the script pages load, the collector it
@@ -62,4 +71,6 @@ var Default = Settings{
 		Collector: "https://analytics-c.ciya.so",
 		Key:       "oa_pk_tyJHnpyD4m-pl_XrUbi3maHu2Iqq87Uf",
 	},
+	Channels:  channels,
+	WhopPixel: "biz_bbmk63HMB3yZ4c",
 }

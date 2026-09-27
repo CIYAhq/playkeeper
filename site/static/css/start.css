@@ -1,0 +1,32 @@
+/* /start, where the Meta ads land: the hero with the film beside it, or
+   under it on phones, what you need, what you get, and the note on the ad
+   pixel. */
+.start-hero { padding: 56px 0 88px; }
+.start-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 460px); gap: 56px; align-items: center; }
+.start-h1 { font-size: 64px; }
+.start-how { margin: 10px 0 0; font-size: 14px; color: var(--sage); }
+.start-film { margin: 0; }
+.start-film video { display: block; width: 100%; height: auto; aspect-ratio: 1; border-radius: var(--radius); background: #243152; box-shadow: var(--shadow-lg); }
+
+.start-need { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 48px; margin: 0; }
+.start-need dt { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+.start-need dd { margin: 6px 0 0; color: var(--sage); line-height: 1.55; }
+.start-need a { color: var(--green-text); font-weight: 600; }
+.start-get { max-width: 720px; }
+.start-get li { font-size: 17px; margin-bottom: 12px; }
+
+.start-note h2 { font-size: 20px; letter-spacing: -0.02em; margin-bottom: 12px; }
+.start-note p { margin: 0 0 12px; font-size: 14px; line-height: 1.6; color: var(--sage); }
+
+/* Side by side only where the command fits on one line beside the film. */
+@media (max-width: 1279.98px) {
+  .start-row { grid-template-columns: minmax(0, 1fr); gap: 36px; }
+  .start-film { max-width: 460px; }
+}
+@media (max-width: 639.98px) {
+  .start-hero { padding: 16px 0 48px; }
+  .start-h1 { font-size: 40px; }
+  .start-hero .hero-actions .btn { width: 100%; }
+  .start-need { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .start-get li { font-size: 16px; }
+}
