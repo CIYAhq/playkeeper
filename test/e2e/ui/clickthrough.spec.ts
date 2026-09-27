@@ -319,7 +319,9 @@ const places: Place[] = [
   { what: 'waking a sleeping server', sizes: ['desktop', 'phone'], view: 'asleep', key: /^button "Wake up now" in ".+ is asleep"$/ },
   { what: 'a new recovery key for the copies somewhere else', sizes: ['desktop', 'phone'], view: 'looks after itself', key: /^button "Download new key" in dialog "New recovery key made"$/ },
   { what: 'pausing a schedule', sizes: ['phone'], view: 'looks after itself', key: /^switch "Run “Restart every day at #:#”" in row "Restart every day at #:#"$/ },
-  { what: 'deleting old backups on the Disk space page', sizes: ['desktop', 'phone'], view: 'space to free', key: /^button "Delete # · .+" in dialog "Backups beyond your keep rules"$/ },
+  // A phone's review sheet has the design's shorter title.
+  { what: 'deleting old backups on the Disk space page', sizes: ['desktop'], view: 'space to free', key: /^button "Delete # · .+" in dialog "Backups beyond your keep rules"$/ },
+  { what: 'deleting old backups on the Disk space page', sizes: ['phone'], view: 'space to free', key: /^button "Delete # · .+" in dialog "Old backups"$/ },
   { what: 'first-run setup', sizes: ['desktop', 'phone'], view: 'first run', key: /^button "Create account and continue"$/ },
   { what: 'two-factor sign-in’s second step', sizes: ['desktop', 'phone'], view: 'second step', key: /^button "Sign in" in "Enter your code"$/ },
   { what: 'finishing two-factor setup', sizes: ['desktop', 'phone'], key: /^button "I’ve saved them"/ },
