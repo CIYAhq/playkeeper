@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArchiveIcon, ArrowRightIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, DownloadIcon, EllipsisIcon, HistoryIcon, PencilIcon, RotateCcwIcon, ShieldCheckIcon, SlidersHorizontalIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { ApiError, del, get, post } from '@/api/client'
 import type { Backup, RestorePreview, ServerStatus, WorldCopy } from '@/api/types'
-import { errorText, serverApi, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { EmptyArt, Pip } from '@/components/app/art'
 import { BackupRefusedNotice } from '@/components/app/backup-refused'
 import { Card, CardHint, CardTitle, copyText, Notice, SectionLabel } from '@/components/app/bits'
@@ -55,7 +55,7 @@ function onlineBody(backups: Backup[]): string {
  * Refused scheduled backups stay until a backup succeeds.
  */
 function WorldNotice({ server: s, className }: { server: ServerStatus; className?: string }) {
-  const { stale } = useWorkspace()
+  const { stale } = useServerMachine(s)
   const [dismissed, setDismissed] = useState<string>()
   if (stale) return null
   const refused = s.backupRefused
@@ -89,6 +89,7 @@ function useReloadAfterJobs(s: ServerStatus, reload: () => Promise<void>) {
 
 export function WorldPage({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
+  const { stale } = useServerMachine(s)
   const phone = useIsPhone()
   const backups = usePoll(() => get<Backup[]>(serverApi(s.id, '/backups')), 10_000, s.id)
   useReloadAfterJobs(s, backups.refresh)
@@ -293,19 +294,20 @@ export function WorldPage({ server: s }: { server: ServerStatus }) {
           <p className="text-[13px] text-muted-foreground">{t('world.restoreNote')}</p>
         </div>
       </Card>
-      {ws.stale ? null : dialog}
-      {ws.stale ? null : jobDialog}
+      {stale ? null : dialog}
+      {stale ? null : jobDialog}
     </>
   )
 }
 
 function MakeBackup({ server: s, backups, phone, onDone }: { server: ServerStatus; backups: Backup[]; phone?: boolean; onDone: () => void }) {
   const ws = useWorkspace()
+  const { offline } = useServerMachine(s)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
   const online = s.phase === 'online'
-  const blocked = whyNot(s, 'change', ws.stale)
+  const blocked = whyNot(s, 'change', offline)
   if (!can(ws.me, 'backups.make')) return null
 
   async function backup() {
@@ -530,6 +532,7 @@ function BackupRow({ server: s, backup: b, state, newest, copiesOn, stored, onRe
 
 function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boolean }) {
   const ws = useWorkspace()
+  const { offline } = useServerMachine(s)
   const [busy, setBusy] = useState(false)
   const running = s.operation?.kind === 'backup'
   const online = s.phase === 'online'
@@ -548,7 +551,7 @@ function EmptyBackups({ server: s, phone }: { server: ServerStatus; phone: boole
           size={phone ? 'touch' : 'lg'}
           className="mt-5 max-sm:w-full"
           loading={busy || running}
-          disabledReason={whyNot(s, 'change', ws.stale)}
+          disabledReason={whyNot(s, 'change', offline)}
           onClick={async () => {
             setBusy(true)
             try {
@@ -596,10 +599,10 @@ function leftoverTitle(c: WorldCopy): string {
 
 /** The newest world folder a restore left next to the live one, until it's discarded. */
 function LeftoverCopy({ server: s, className }: { server: ServerStatus; className?: string }) {
-  const ws = useWorkspace()
+  const { stale } = useServerMachine(s)
   const copies = usePoll(() => get<WorldCopy[]>(serverApi(s.id, '/world-copies')), 30_000, s.id)
   const newest = useListPresence(copies.data?.slice(0, 1), (c) => c.name)
-  if (ws.stale) return null
+  if (stale) return null
   return (
     <>
       {newest.map(({ key, item, state }) => (

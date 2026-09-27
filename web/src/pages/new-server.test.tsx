@@ -3,16 +3,24 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Action, Catalog, MachineView, Me, Operation, WorldImport, WorldImportPreview } from '@/api/types'
+import * as templates from '@/api/templates'
+import type { Action, Catalog, MachineView, Me, Operation, TemplatePlan, WorldImport, WorldImportPreview } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
+import type { ModpackChoice } from '@/components/app/modpacks'
+import type { TemplateChoice } from '@/components/app/templates'
 import * as upload from '@/lib/upload'
-import { NewServerPage } from './new-server'
+import { catalogFor, NewServerPage, type StartFrom } from './new-server'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
   get: vi.fn(() => new Promise(() => {})),
   post: vi.fn(() => Promise.resolve({})),
   del: vi.fn(() => Promise.resolve(undefined)),
+}))
+
+vi.mock('@/api/templates', async (importOriginal) => ({
+  ...(await importOriginal<typeof templates>()),
+  planTemplate: vi.fn(() => new Promise(() => {})),
 }))
 
 vi.mock('@/lib/upload', async (importOriginal) => ({
@@ -333,5 +341,156 @@ describe('New server from a world', () => {
     expect(vi.mocked(upload.uploadWorld).mock.calls[1]?.[0].resume?.files).toEqual([{ index: 0, name: 'Survival-2024.zip', size: 1, received: 0 }])
     expect(files).toEqual([{ name: 'Survival-2024.zip', size: 1, received: 1 }])
     expect(text()).toContain('1 B · uploaded')
+  })
+})
+
+describe('New server on a joined machine', () => {
+  const remote = { id: 'r2345abcde', projectId: 'p2345abcde', name: 'home-server', kind: 'remote' } as MachineView
+  const on = (state: 'connected' | 'offline'): Workspace => ({ ...workspace, machines: [machine, { ...remote, link: { machineId: remote.id, name: remote.name, fingerprint: '', state, problems: [] } }] })
+  const unreachable = new client.ApiError(503, { error: 'home-server is not connected.', code: 'machine_not_connected' })
+
+  /** Renders the page for home-server, or renders it again with the workspace changed. */
+  async function renderOn(ws: Workspace) {
+    const r = root ?? createRoot(document.body.appendChild(document.createElement('div')))
+    root = r
+    await act(async () => r.render(<WorkspaceContext.Provider value={ws}>{<NewServerPage key={remote.id} machine={remote.id} />}</WorkspaceContext.Provider>))
+    await act(settle)
+  }
+
+  function continueButton(): HTMLButtonElement {
+    const b = [...document.querySelectorAll('button')].find((x) => /^(Continue to|Create and start)/.test(x.textContent?.trim() ?? ''))
+    if (!b) throw new Error(`no Continue button in: ${text()}`)
+    return b
+  }
+
+  async function next(times = 1) {
+    for (let i = 0; i < times; i++) await click(continueButton())
+  }
+
+  async function acceptEula() {
+    const eula = document.querySelector('input[type="checkbox"]')
+    if (!eula) throw new Error('no EULA checkbox')
+    await click(eula)
+  }
+
+  const posted = () => vi.mocked(client.post).mock.calls.map(([path]) => path)
+  const asked = () => vi.mocked(client.get).mock.calls.map(([path]) => path)
+
+  beforeEach(() => {
+    window.history.replaceState(null, '', `/servers/new?machine=${remote.id}`)
+    vi.mocked(client.get).mockClear()
+    vi.mocked(client.post).mockImplementation((() => Promise.resolve({ id: 'op1', kind: 'create', status: 'running', serverId: 's2345abcde' } as Operation)) as typeof client.post)
+  })
+
+  for (const tc of [
+    {
+      name: 'makes the server there while it’s connected, and keeps the machine once the flow starts',
+      steps: async () => {
+        await renderOn(on('connected'))
+        expect(text()).toContain('New server on')
+        await next()
+        expect(text()).not.toContain('New server on')
+        await next(3)
+        await acceptEula()
+        await next()
+      },
+      posts: ['/api/machines/r2345abcde/servers'],
+    },
+    {
+      name: 'says it’s away and holds Create back when it’s away as the page opens',
+      steps: async () => {
+        vi.mocked(client.get).mockImplementation(((path: string) => (path.includes('/catalog') ? (path.includes(remote.id) ? Promise.reject(unreachable) : Promise.resolve(catalog)) : new Promise(() => {}))) as typeof client.get)
+        await renderOn(on('offline'))
+        expect(text()).toContain('Can’t reach home-server Create waits until it’s back.')
+        expect(text()).not.toContain('Couldn’t load the versions')
+        expect(continueButton().disabled).toBe(true)
+        expect(continueButton().title).toBe('Can’t reach home-server')
+        await click(continueButton())
+      },
+      posts: [],
+    },
+    {
+      name: 'keeps the machine when it goes away after step 2, and goes on once it’s back',
+      steps: async () => {
+        await renderOn(on('connected'))
+        await next(2)
+        await renderOn(on('offline'))
+        expect(text()).toContain('Can’t reach home-server')
+        expect(continueButton().title).toBe('Can’t reach home-server')
+        await click(continueButton())
+        expect(continueButton().textContent).toContain('Continue to memory')
+        await renderOn(on('connected'))
+        expect(text()).not.toContain('Can’t reach home-server')
+        await next(2)
+        await acceptEula()
+        await next()
+      },
+      posts: ['/api/machines/r2345abcde/servers'],
+    },
+  ]) {
+    it(tc.name, async () => {
+      await tc.steps()
+      expect(posted()).toEqual(tc.posts)
+      expect(asked().filter((p) => p.includes(machine.id))).toEqual([])
+    })
+  }
+})
+
+describe('What New server sizes memory for', () => {
+  const types = [
+    { id: 'paper', name: 'Paper', available: true },
+    { id: 'fabric', name: 'Fabric', available: true },
+    { id: 'neoforge', name: 'NeoForge', available: true },
+    { id: 'forge', name: 'Forge', available: false },
+  ]
+  const plan = (type: string, addons: number, modpack = false): TemplatePlan => ({
+    contents: {
+      name: 'Fast SMP',
+      type,
+      minecraftVersion: '1.21.1',
+      settings: {},
+      addons: Array.from({ length: addons }, (_, i) => ({ source: 'modrinth', name: `Add-on ${i}` })),
+      ...(modpack ? { modpack: { source: 'modrinth', name: 'Adrenaserver' } } : {}),
+      resourcePacks: 0,
+      dataPacks: 0,
+      packs: [],
+    },
+    type,
+    minecraftVersion: '1.21.1',
+    memoryMB: 0,
+    skipped: [],
+    warnings: [],
+    blockers: [],
+    ready: true,
+    fingerprint: 'f0f0f0f0',
+  })
+  const tpl = (p: TemplatePlan): TemplateChoice => ({ plan: p, fileName: '', text: 'template' })
+  const pack = (type: string, mods?: number): ModpackChoice => ({ source: 'modrinth', projectId: 'H9OFWiay', versionId: '', name: 'Pack', type, minecraftVersion: '1.21.1', memoryMB: 0, mods })
+
+  it.each<{ name: string; from: StartFrom; pack?: ModpackChoice; tpl?: TemplateChoice; want: object }>([
+    { name: 'a Paper template with 3 plugins', from: 'template', tpl: tpl(plan('paper', 3)), want: { type: 'paper', plugins: 3 } },
+    { name: 'a Paper template with 30 plugins', from: 'template', tpl: tpl(plan('paper', 30)), want: { type: 'paper', plugins: 30 } },
+    { name: 'a Fabric template with 5 mods', from: 'template', tpl: tpl(plan('fabric', 5)), want: { type: 'fabric', mods: 5 } },
+    { name: 'a Fabric template with 60 mods', from: 'template', tpl: tpl(plan('fabric', 60)), want: { type: 'fabric', mods: 60 } },
+    { name: 'a modpack template, as at least a few mods', from: 'template', tpl: tpl(plan('fabric', 0, true)), want: { type: 'fabric', mods: 1 } },
+    { name: 'a modpack template with 60 mods on top', from: 'template', tpl: tpl(plan('fabric', 60, true)), want: { type: 'fabric', mods: 60 } },
+    { name: 'a template of a type this machine can’t create', from: 'template', tpl: tpl(plan('forge', 5)), want: { type: 'paper' } },
+    { name: 'a pack that says its mods', from: 'modpack', pack: pack('neoforge', 180), want: { type: 'neoforge', mods: 180 } },
+    { name: 'a pack that doesn’t say its mods, by its type', from: 'modpack', pack: pack('fabric'), want: { type: 'fabric' } },
+    { name: 'a pack of a type this machine can’t create', from: 'modpack', pack: pack('forge', 40), want: { type: 'paper', mods: 40 } },
+    { name: 'a type, when a pack was chosen before', from: 'type', pack: pack('fabric', 40), want: { type: 'paper' } },
+  ])('asks the catalog for $name', ({ from, pack, tpl, want }) => {
+    expect(catalogFor(from, 'paper', pack, tpl, types)).toEqual(want)
+  })
+
+  it('sizes a shared template by its type and mods', async () => {
+    window.history.replaceState(null, '', '/servers/new#template=shared')
+    const fabric: Catalog = { ...catalog, types }
+    vi.mocked(client.get).mockImplementation(((path: string) => (path.includes('/catalog') ? Promise.resolve({ ...fabric, type: new URLSearchParams(path.split('?')[1]).get('type') ?? 'paper' }) : new Promise(() => {}))) as typeof client.get)
+    vi.mocked(templates.planTemplate).mockResolvedValue(plan('fabric', 60))
+    await render()
+    await act(settle)
+    expect(templates.planTemplate).toHaveBeenCalledWith(machine.id, 'shared')
+    expect(client.get).toHaveBeenCalledWith(`/api/machines/${machine.id}/catalog?type=fabric&mods=60`)
   })
 })

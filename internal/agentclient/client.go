@@ -1,5 +1,6 @@
-// Package agentclient talks to the local agent over its Unix socket. It is
-// used by the web panel (as the panel service user) and by root CLI commands.
+// Package agentclient talks to an agent: the local one over its Unix socket,
+// or a joined machine's over its link. It is used by the web panel (as the
+// panel service user) and by root CLI commands.
 package agentclient
 
 import (
@@ -18,7 +19,6 @@ import (
 )
 
 type Client struct {
-	socket string
 	hc     *http.Client
 	stream *http.Client
 }
@@ -29,9 +29,18 @@ func New(socket string) *Client {
 		return d.DialContext(ctx, "unix", socket)
 	}
 	return &Client{
-		socket: socket,
 		hc:     &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{DialContext: dial, MaxIdleConns: 8}},
 		stream: &http.Client{Transport: &http.Transport{DialContext: dial, DisableKeepAlives: true}},
+	}
+}
+
+// Via returns a client whose requests go through rt, such as a machine
+// link's transport. The link's own errors stay in the chain of the
+// ErrUnavailable it returns.
+func Via(rt http.RoundTripper) *Client {
+	return &Client{
+		hc:     &http.Client{Timeout: 60 * time.Second, Transport: rt},
+		stream: &http.Client{Transport: rt},
 	}
 }
 
@@ -44,6 +53,10 @@ type Error struct {
 func (e *Error) Error() string { return e.Body.Error }
 
 var ErrUnavailable = errors.New("the Playkeeper agent is not reachable")
+
+// ErrBadAnswer is an answer no agent gives: a status other than 2xx, 4xx or
+// 5xx, or a body that isn't the JSON asked for.
+var ErrBadAnswer = errors.New("the agent's answer was not valid")
 
 // Do sends a JSON request and decodes a JSON response into out (if non-nil).
 // It returns the HTTP status for successful calls.
@@ -62,11 +75,14 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return resp.StatusCode, decodeErr(resp)
+		return resp.StatusCode, DecodeError(resp)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return resp.StatusCode, ErrBadAnswer
 	}
 	if out != nil && resp.StatusCode != http.StatusNoContent {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return resp.StatusCode, err
+			return resp.StatusCode, fmt.Errorf("%w: %w", ErrBadAnswer, err)
 		}
 	}
 	return resp.StatusCode, nil
@@ -92,16 +108,13 @@ func (c *Client) Raw(ctx context.Context, method, path string, q url.Values, bod
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
-		var ne net.Error
-		if errors.As(err, &ne) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
-		}
-		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 	return resp, nil
 }
 
-func decodeErr(resp *http.Response) error {
+// DecodeError reads an error response (status 400 or more) into an *Error.
+func DecodeError(resp *http.Response) error {
 	e := &Error{Status: resp.StatusCode}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if json.Unmarshal(b, &e.Body) != nil || e.Body.Error == "" {

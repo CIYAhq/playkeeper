@@ -74,7 +74,7 @@ func (s *Server) forwardLong(pattern string) func(http.ResponseWriter, *http.Req
 			writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid request body.", "")
 			return
 		}
-		resp, err := m.agent.Raw(r.Context(), "POST", agentPath(pattern, r), nil, bytes.NewReader(out), map[string]string{"Content-Type": "application/json"}, true)
+		resp, err := m.agent.Raw(asActor(r.Context(), sess.User.Username), "POST", agentPath(pattern, r), nil, bytes.NewReader(out), map[string]string{"Content-Type": "application/json"}, true)
 		if err != nil {
 			s.agentFailure(w, err)
 			return
@@ -95,8 +95,12 @@ func relayJSON(w http.ResponseWriter, resp *http.Response, limit int64) {
 		writeErr(w, http.StatusBadGateway, api.CodeInternal, "The agent's answer could not be read.", "")
 		return
 	}
+	status := resp.StatusCode
+	if status >= 400 {
+		status = relayStatus(status)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(resp.StatusCode)
+	w.WriteHeader(status)
 	w.Write(b)
 }

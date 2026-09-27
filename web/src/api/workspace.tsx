@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ApiError, get, post } from './client'
 import type { MachineView, Me, ServerStatus, SignInNotice } from './types'
+import { t } from '@/i18n'
+import { isStale, joinOf, machineLabel, machineOf, machineRoute, reachOf } from '@/lib/machines'
 import { mergePrefs, undoPrefs } from '@/lib/optimistic'
 import { usePoll } from '@/lib/usePoll'
 
@@ -8,8 +10,9 @@ export interface Workspace {
   me: Me
   servers: ServerStatus[] | undefined
   serversError: ApiError | undefined
-  /** The machine this dashboard runs on (the only one for now). */
+  /** The machine this dashboard runs on. */
   machine: MachineView | undefined
+  /** Every machine, the dashboard's own first. */
   machines: MachineView[]
   prefs: Record<string, string>
   /** Shows the change at once; if it can't be saved it's put back and the promise rejects. */
@@ -131,7 +134,7 @@ export function WorkspaceProvider({ me, onMe, onSignedOut, children }: { me: Me;
     })
   }, [])
 
-  const machine = machines.data?.[0]
+  const machine = machines.data?.find((m) => m.kind === 'local') ?? machines.data?.[0]
   const live = machine?.live
   // While Playkeeper installs an update the agent and panel restart; the
   // failed polls in between are expected, not an outage.
@@ -145,9 +148,10 @@ export function WorkspaceProvider({ me, onMe, onSignedOut, children }: { me: Me;
   if (servers.data) known.current = { list: servers.data, at: Date.now() }
   const stale = !servers.data && (agentDown || !!updating) && !!known.current
   const serverList = servers.data ?? (stale ? known.current?.list : undefined)
-  const knownMachine = useRef<MachineView | undefined>(undefined)
-  if (machine) knownMachine.current = machine
-  const shownMachine = useMemo(() => machine ?? (stale && knownMachine.current ? { ...knownMachine.current, live: undefined } : undefined), [machine, stale])
+  const knownMachines = useRef<MachineView[]>([])
+  if (machines.data) knownMachines.current = machines.data
+  const machineList = useMemo(() => machines.data ?? (stale ? knownMachines.current.map((m) => ({ ...m, live: undefined })) : []), [machines.data, stale])
+  const shownMachine = machine ?? machineList.find((m) => m.kind === 'local')
 
   // After an update the page still runs the previous version's code; load
   // the new one once the new version answers.
@@ -166,7 +170,7 @@ export function WorkspaceProvider({ me, onMe, onSignedOut, children }: { me: Me;
       servers: serverList,
       serversError: servers.error,
       machine: shownMachine,
-      machines: machines.data ?? [],
+      machines: machineList,
       prefs,
       setPrefs,
       refresh,
@@ -183,7 +187,7 @@ export function WorkspaceProvider({ me, onMe, onSignedOut, children }: { me: Me;
       signInNotice,
       dismissSignInNotice,
     }),
-    [me, serverList, servers.error, shownMachine, machines.data, prefs, setPrefs, refresh, updating, updatingSince, agentDown, stale, lastSeenAt, live?.hostname, lastSlug, setLastSlug, signOut, reloadMe, signInNotice, dismissSignInNotice],
+    [me, serverList, servers.error, shownMachine, machineList, prefs, setPrefs, refresh, updating, updatingSince, agentDown, stale, lastSeenAt, live?.hostname, lastSlug, setLastSlug, signOut, reloadMe, signInNotice, dismissSignInNotice],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
@@ -198,6 +202,30 @@ export function useServer(slug: string | undefined): ServerStatus | undefined {
 export function usePhoneServer(): ServerStatus | undefined {
   const { servers, lastSlug } = useWorkspace()
   return servers?.find((s) => s.slug === lastSlug) ?? servers?.[0]
+}
+
+/**
+ * The machine a server runs on and whether the dashboard sees the server
+ * live: stale when the machine is away, its agent doesn't answer, or the
+ * status is the last one heard. offline says why controls are off then.
+ * shared is whether there's more than one machine, so pages name the
+ * server's. join is where players join it, or why there's no address.
+ */
+export function useServerMachine(s: ServerStatus) {
+  const ws = useWorkspace()
+  const machine = machineOf(s, ws.machines)
+  const reach = reachOf(s, ws)
+  const stale = isStale(s, ws.stale) || reach.state !== 'live'
+  return {
+    machine,
+    reach,
+    stale,
+    offline: reach.state === 'away' ? t('machines.away.pill', { name: machineLabel(reach.machine) }) : stale ? t('reason.noAgent') : undefined,
+    shared: ws.machines.length > 1,
+    name: machineLabel(machine) || ws.machineName,
+    route: machine ? machineRoute(machine) : undefined,
+    join: joinOf(s, machine),
+  }
 }
 
 export const serverApi = (id: string, rest = '') => `/api/servers/${id}${rest}`

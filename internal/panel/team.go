@@ -2,14 +2,17 @@ package panel
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -136,10 +139,19 @@ type grantBody struct {
 func (s *Server) existingServers(w http.ResponseWriter, r *http.Request) ([]serverRef, bool) {
 	servers, err := s.listServers(r.Context())
 	if err != nil {
-		s.agentFailure(w, err)
+		s.listFailure(w, err)
 		return nil, false
 	}
 	return servers, true
+}
+
+// listFailure answers a request that needed the list of servers.
+func (s *Server) listFailure(w http.ResponseWriter, err error) {
+	if errors.Is(err, errDB) {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	s.agentFailure(w, err)
 }
 
 // hTeamInviteCreate makes a team invite link. The link is shown once: only
@@ -296,12 +308,17 @@ func (s *Server) hTeamMemberEdit(w http.ResponseWriter, r *http.Request, sess *s
 		writeRefusal(w, err)
 		return
 	}
-	servers, ok := s.existingServers(w, r)
-	if !ok {
-		return
-	}
-	if err := s.checkGrant(sess.Access, req, servers); err != nil {
-		writeRefusal(w, err)
+	// Taking rights away never waits for a machine: the servers a member
+	// keeps are ones they had.
+	servers, err := s.listServers(r.Context())
+	switch {
+	case err == nil:
+		if err := s.checkGrant(sess.Access, req, servers); err != nil {
+			writeRefusal(w, err)
+			return
+		}
+	case !invites.Narrows(t.Account, req.Role, req.Servers):
+		s.listFailure(w, err)
 		return
 	}
 	// Only the owner makes admins, so making someone an admin confirms the
@@ -322,6 +339,7 @@ func (s *Server) hTeamMemberEdit(w http.ResponseWriter, r *http.Request, sess *s
 		return
 	}
 	s.turnOffLinks(r, sess.User, after.Account, "creator's role changed")
+	s.checkAccountTokens(t.UserID)
 	s.answerMember(w, r, sess, t.UserID)
 }
 
@@ -402,6 +420,7 @@ func (s *Server) hTeamMemberRemove(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	s.turnOffLinks(r, sess.User, invites.Account{UserID: t.UserID}, "creator removed")
+	s.revokeAccountTokens(t.UserID, sess.User.Username, "its account was removed from the team")
 	if _, err := s.db.Exec(`DELETE FROM users WHERE id = ? AND role = ?`, t.UserID, roleMember); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
@@ -457,41 +476,111 @@ func (s *Server) turnOffLinks(r *http.Request, by user, creator invites.Account,
 // --- routes scoped to the servers an account can use ---
 
 // hMachineActivity is a machine's recent activity, for the servers the
-// account can use. Lines about the whole machine need all servers.
+// account can use. The team's joins are the dashboard's, not any machine's,
+// so only the dashboard's own machine lists them.
 func (s *Server) hMachineActivity(w http.ResponseWriter, r *http.Request, sess *session) {
 	m, ok := s.machineFromPath(w, r)
 	if !ok {
 		return
 	}
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 || limit > 200 {
-		limit = 20
-	}
-	ask := limit
-	if !sess.Access.Servers.All {
-		ask = 200
-	}
-	var list []api.Activity
-	status, err := m.agent.Do(r.Context(), "GET", "/v1/activity", url.Values{"limit": {strconv.Itoa(ask)}}, nil, &list)
+	limit := activityLimit(r)
+	out, status, err := machineActivity(r.Context(), m, sess.Access, limit)
 	if err != nil {
 		s.agentFailure(w, err)
 		return
 	}
+	if m.Kind == localKind {
+		out = s.withTeamJoins(out, sess.Access, limit)
+	}
+	writeJSON(w, status, s.withActorNames(out))
+}
+
+// activityTimeout bounds how long Home's activity waits for each machine.
+// One that doesn't answer in time is left out of that refresh, so a joined
+// machine whose agent hangs holds up neither the other machines' lines nor
+// the team's joins.
+var activityTimeout = 3 * time.Second
+
+// hActivity is Home's recent activity: every machine's that answers within
+// activityTimeout, for the servers the account can use, and the team's
+// joins once, whichever machines answer. It fails only when no machine
+// does.
+func (s *Server) hActivity(w http.ResponseWriter, r *http.Request, sess *session) {
+	limit := activityLimit(r)
+	machines, err := s.machines()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	lists := make([][]api.Activity, len(machines))
+	errs := make([]error, len(machines))
+	var wg sync.WaitGroup
+	for i, m := range machines {
+		wg.Go(func() {
+			ctx, cancel := context.WithTimeout(r.Context(), activityTimeout)
+			defer cancel()
+			lists[i], _, errs[i] = machineActivity(ctx, m, sess.Access, limit)
+		})
+	}
+	wg.Wait()
 	out := []api.Activity{}
-	for _, a := range list {
+	answered := false
+	for i := range machines {
+		if errs[i] == nil {
+			answered = true
+			out = append(out, lists[i]...)
+		}
+	}
+	if !answered && len(machines) > 0 {
+		s.agentFailure(w, errs[0])
+		return
+	}
+	writeJSON(w, http.StatusOK, s.withActorNames(s.withTeamJoins(out, sess.Access, limit)))
+}
+
+// activityLimit is how many lines of activity a request asks for: 1 to
+// 200, 20 when it doesn't say.
+func activityLimit(r *http.Request) int {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 200 {
+		return 20
+	}
+	return limit
+}
+
+// machineActivity is a machine's latest activity, up to limit lines, for
+// the servers a can use. Lines about the whole machine need all servers.
+func machineActivity(ctx context.Context, m machine, a access, limit int) ([]api.Activity, int, error) {
+	ask := limit
+	if !a.Servers.All {
+		ask = 200
+	}
+	var list []api.Activity
+	status, err := m.agent.Do(ctx, "GET", "/v1/activity", url.Values{"limit": {strconv.Itoa(ask)}}, nil, &list)
+	if err != nil {
+		return nil, 0, err
+	}
+	out := []api.Activity{}
+	for _, x := range list {
 		if len(out) == limit {
 			break
 		}
-		if a.ServerID == "" && sess.Access.Servers.All || a.ServerID != "" && sess.Access.covers(a.ServerID) {
-			out = append(out, a)
+		if x.ServerID == "" && a.Servers.All || x.ServerID != "" && a.covers(x.ServerID) {
+			out = append(out, x)
 		}
 	}
-	out = append(out, s.teamJoins(sess.Access, limit)...)
-	slices.SortStableFunc(out, func(a, b api.Activity) int { return b.TS.Compare(a.TS) })
+	return out, status, nil
+}
+
+// withTeamJoins is activity with the team's joins added, newest first, up
+// to limit lines.
+func (s *Server) withTeamJoins(activity []api.Activity, a access, limit int) []api.Activity {
+	out := append(activity, s.teamJoins(a, limit)...)
+	slices.SortStableFunc(out, func(x, y api.Activity) int { return y.TS.Compare(x.TS) })
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	writeJSON(w, status, out)
+	return out
 }
 
 // teamJoins are members joining the team, as activity with their role.
@@ -539,9 +628,9 @@ func (s *Server) hOperation(w http.ResponseWriter, r *http.Request, sess *sessio
 
 // restoreProxy forwards a restore step once the account may restore into its
 // target: an existing server it can use, or a new server, which needs all
-// servers.
-func (s *Server) restoreProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
-	fwd := s.forward(method, pattern)
+// servers. then, when set, hears of a step that succeeded (see forwardThen).
+func (s *Server) restoreProxy(method, pattern string, then func(machine, *session, json.RawMessage)) func(http.ResponseWriter, *http.Request, *session) {
+	fwd := s.forwardTo(method, pattern, false, then)
 	return func(w http.ResponseWriter, r *http.Request, sess *session) {
 		m, ok := s.machineFromPath(w, r)
 		if !ok {

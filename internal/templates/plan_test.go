@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
+	"github.com/CIYAhq/playkeeper/internal/sizing"
 )
 
 // paperCatalog is what the create-server flow offers on a machine with
@@ -29,8 +30,7 @@ func paperCatalog() Catalog {
 			{ID: "quilt", Name: "Quilt"},
 			{ID: "neoforge", Name: "NeoForge"},
 		},
-		MemoryOptionsMB:     []int{1536, 2048, 3072, 4096, 6144},
-		RecommendedMemoryMB: 4096,
+		MemoryOptionsMB: []int{1536, 2048, 3072, 4096, 6144},
 	}
 }
 
@@ -357,24 +357,21 @@ func TestPlanModpack(t *testing.T) {
 func TestPlanMemory(t *testing.T) {
 	eightGB := []int{1536, 2048, 3072, 4096, 6144}
 	cases := []struct {
-		name        string
-		suggested   int
-		options     []int
-		recommended int
-		want        int
-		warning     string
-		blocked     bool
+		name      string
+		suggested int
+		options   []int
+		want      int
+		warning   string
+		blocked   bool
 	}{
-		{name: "the template's suggestion", suggested: 4096, options: eightGB, recommended: 4096, want: 4096},
-		{name: "between two budgets", suggested: 3000, options: eightGB, recommended: 4096, want: 3072},
-		{name: "below every budget", suggested: 1024, options: eightGB, recommended: 4096, want: 1536},
-		{name: "no suggestion", options: eightGB, recommended: 4096, want: 4096},
-		{name: "no suggestion or recommendation", options: eightGB, want: 1536},
-		{name: "more than this machine has", suggested: 8192, options: eightGB, recommended: 4096, want: 6144,
+		{name: "the template's suggestion", suggested: 4096, options: eightGB, want: 4096},
+		{name: "between two budgets", suggested: 3000, options: eightGB, want: 3072},
+		{name: "below every budget", suggested: 1024, options: eightGB, want: 1536},
+		{name: "more than this machine has", suggested: 8192, options: eightGB, want: 6144,
 			warning: "The template suggests 8 GB of memory, but this machine can give a new server at most 6 GB."},
-		{name: "more than a small machine has", suggested: 2560, options: []int{1536, 2048}, recommended: 1536, want: 2048,
+		{name: "more than a small machine has", suggested: 2560, options: []int{1536, 2048}, want: 2048,
 			warning: "The template suggests 2.5 GB of memory, but this machine can give a new server at most 2 GB."},
-		{name: "options out of order", suggested: 1800, options: []int{0, 2048, 1536, 2048}, recommended: 2048, want: 2048},
+		{name: "options out of order", suggested: 1800, options: []int{0, 2048, 1536, 2048}, want: 2048},
 		{name: "no memory left", suggested: 4096, blocked: true},
 	}
 	for _, c := range cases {
@@ -382,7 +379,7 @@ func TestPlanMemory(t *testing.T) {
 			tp := paperTemplate(t)
 			tp.Settings.MemoryMB = c.suggested
 			cat := paperCatalog()
-			cat.MemoryOptionsMB, cat.RecommendedMemoryMB = c.options, c.recommended
+			cat.MemoryOptionsMB = c.options
 			p := planOf(t, tp, cat)
 			if p.MemoryMB != c.want || p.Settings.MemoryMB != 0 {
 				t.Errorf("got %d MB (settings %d), want %d", p.MemoryMB, p.Settings.MemoryMB, c.want)
@@ -403,6 +400,61 @@ func TestPlanMemory(t *testing.T) {
 	}
 }
 
+// A template that names no memory gets the sizing guide's suggestion for
+// what the server runs and its players at once, as the catalog sizes it: its
+// add-ons as plugins or mods, a modpack as at least a few mods.
+func TestPlanMemoryFollowsTheSizingGuide(t *testing.T) {
+	sixteenGB := []int{1536, 2048, 3072, 4096, 6144, 8192, 12288, 16384}
+	withAddons := func(tp *Template, n int) *Template {
+		tp.Addons = nil
+		for i := range n {
+			tp.Addons = append(tp.Addons, Addon{Source: addons.Modrinth, Project: fmt.Sprintf("AAAA%04d", i), Name: fmt.Sprintf("Add-on %d", i), Latest: true})
+		}
+		return tp
+	}
+	paper := func(plugins, players int) *Template {
+		tp := withAddons(paperTemplate(t), plugins)
+		tp.Settings.MaxPlayers = players
+		return tp
+	}
+	fabric := func(mods int) *Template {
+		tp := withAddons(fixture(t, "fabric-modpack.json"), mods)
+		tp.Modpack, tp.Settings.MaxPlayers = nil, 0
+		return tp
+	}
+	modpack := func(mods int) *Template { return withAddons(fixture(t, "fabric-modpack.json"), mods) }
+	for _, tc := range []struct {
+		name    string
+		tp      *Template
+		options []int
+		want    sizing.Workload
+		wantMB  int
+	}{
+		{"a Paper template with 3 plugins", paper(3, 10), sixteenGB, sizing.Vanilla, 4096},
+		{"a Paper template with 30 plugins", paper(30, 10), sixteenGB, sizing.AddOns, 6144},
+		{"a Paper template with 3 plugins for 4 players", paper(3, 4), sixteenGB, sizing.Vanilla, 2048},
+		{"a Fabric template without mods, for the default 10 players", fabric(0), sixteenGB, sizing.Vanilla, 4096},
+		{"a Fabric template with 5 mods", fabric(5), sixteenGB, sizing.AddOns, 6144},
+		{"a Fabric template with 60 mods", fabric(60), sixteenGB, sizing.Modpack, 16384},
+		{"a Fabric template with 60 mods on a small machine", fabric(60), []int{1536, 2048, 3072}, sizing.Modpack, 3072},
+		{"a modpack template for 20 players", modpack(0), sixteenGB, sizing.AddOns, 8192},
+		{"a modpack template with 60 mods on top", modpack(60), sixteenGB, sizing.Modpack, 16384},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.tp.Settings.MemoryMB = 0
+			cat := withType(paperCatalog(), "fabric", "1.21.1")
+			cat.MemoryOptionsMB = tc.options
+			p := planOf(t, tc.tp, cat)
+			if got := workload(tc.tp, p.Type.ID); got != tc.want {
+				t.Errorf("sized as %q, want %q", got, tc.want)
+			}
+			if p.MemoryMB != tc.wantMB {
+				t.Errorf("preselected %d MB, want %d", p.MemoryMB, tc.wantMB)
+			}
+		})
+	}
+}
+
 func TestPlanFingerprint(t *testing.T) {
 	p := planOf(t, fixture(t, "paper-server.json"), paperCatalog())
 	if again := planOf(t, fixture(t, "paper-server.json"), paperCatalog()); again.Fingerprint != p.Fingerprint {
@@ -414,7 +466,7 @@ func TestPlanFingerprint(t *testing.T) {
 	tp := fixture(t, "paper-server.json")
 	tp.Name, tp.Settings.MemoryMB = "Our server", 2048
 	small := paperCatalog()
-	small.MemoryOptionsMB, small.RecommendedMemoryMB = []int{1536, 2048}, 1536
+	small.MemoryOptionsMB = []int{1536, 2048}
 	if err := planOf(t, tp, small).Confirm(p.Fingerprint); err != nil {
 		t.Errorf("with another name and memory: %v", err)
 	}

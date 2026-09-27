@@ -42,10 +42,11 @@ type System struct {
 	// PackageLockHeld reports whether another program (apt, dpkg,
 	// unattended-upgrades) holds apt's or dpkg's lock.
 	PackageLockHeld func() bool
-	// WaitHealthy blocks until the agent socket and panel HTTPS answer.
+	// WaitHealthy blocks until the agent socket and panel HTTPS answer; a
+	// panelPort of 0 means the machine has no panel.
 	WaitHealthy func(ctx context.Context, socket, certPath string, panelPort int) error
 	// WaitVersion blocks until the agent and the panel both answer and report
-	// version want.
+	// version want (only the agent when panelPort is 0).
 	WaitVersion func(ctx context.Context, socket, certPath string, panelPort int, want string) error
 	// Version runs a playkeeper binary's `version` command and returns the
 	// version it reports.

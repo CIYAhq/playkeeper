@@ -447,8 +447,8 @@ control "upgrade waits for the new version to be healthy" internal/install/upgra
   'func() error { return nil }' \
   ./internal/install '^(TestUnhealthyUpgradePutsTheOldVersionBack|TestUpdaterRollsBackAnUnhealthyReleaseAndFinishesAnInterruptedOne)$'
 control "upgrade checks the new version again after it answers" internal/install/upgrade.go \
-  'if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.cfg.PanelPort, version); err != nil {' \
-  'if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.cfg.PanelPort, version); false && err != nil {' \
+  'if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.panelPort, version); err != nil {' \
+  'if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.panelPort, version); false && err != nil {' \
   ./internal/install '^TestUpgradeRollsBackAVersionThatStopsRightAfterAnswering$'
 control "rollback puts the databases back" internal/install/upgrade.go \
   'errs = append(errs, u.restoreDatabases())' \
@@ -504,9 +504,155 @@ control "an install manifest problem does not fail a finished update" internal/i
   'return u.updateManifest(o.NewVersion)' \
   ./internal/install '^TestAnUpdateThatCannotRecordItsVersionIsStillAnUpdate$'
 control "uninstall disables the updater even if the manifest misses it" internal/install/uninstall.go \
-  'if contains(m.Units, u) || updater[u] {' \
+  'if contains(m.Units, u) || extra[u] {' \
   'if contains(m.Units, u) {' \
   ./internal/install '^TestUninstallRemovesTheUpdaterEvenIfTheManifestMissesIt$'
+control "a machine joins one dashboard at a time" internal/install/link.go \
+  'if d, err := machinelink.LoadDashboard(sys.P(cfg.LinkDashboardPath())); err == nil {' \
+  'if d, err := machinelink.LoadDashboard(sys.P(cfg.LinkDashboardPath())); false && err == nil {' \
+  ./internal/install '^TestJoiningStartsTheLinkAndLeavingTellsTheDashboardFirst$'
+control "leaving changes nothing unless the dashboard was told or --force is set" internal/install/link.go \
+  'if err != nil && !force {' \
+  'if false && err != nil && !force {' \
+  ./internal/install '^TestLeavingADashboardThatIsGoneNeedsForce$'
+control "a machine installed to join opens only the game port" internal/install/install.go \
+  'return []int{o.GamePort}' \
+  'return []int{o.PanelPort, o.GamePort}' \
+  ./internal/install '^TestInstallingToJoinRunsNoDashboardAndOpensOnlyTheGamePort$'
+control "services that don't come up on a machine without a panel point only at the agent's journal" internal/install/install.go \
+  'journals = "-u playkeeper-agent"' \
+  'journals = "-u playkeeper-agent -u playkeeper-panel"' \
+  ./internal/install '^TestAHealthTimeoutNamesOnlyTheUnitsTheMachineRuns$'
+control "the hub keeps the wrong join codes it counts" internal/machinelink/hub.go \
+  'if err := h.store.SetJoinFailures(ctx, h.guard.fail(now, from)); err != nil {' \
+  'if err := h.store.SetJoinFailures(ctx, nil); h.guard.fail(now, from) == nil && err != nil {' \
+  ./internal/machinelink '^TestJoinPauseOutlastsARestart$'
+control "a restarted hub starts from the wrong join codes kept" internal/machinelink/hub.go \
+  'guard: newGuard(o.Limits, kept, o.Now())' \
+  'guard: newGuard(o.Limits, kept[:0], o.Now())' \
+  ./internal/machinelink '^TestJoinPauseOutlastsARestart$'
+control "a wrong code kept from a wrong clock pauses joining no longer than the window" internal/machinelink/code.go \
+  '			g.fails[i].At = now' \
+  '			_ = now' \
+  ./internal/machinelink '^TestGuardStartsFromTheFailuresKept$'
+control "a join without a usable answer is told apart from a refusal" internal/machinelink/link.go \
+  'err = errJoinUnanswered(a, err)' \
+  '_ = errJoinUnanswered(a, err)' \
+  ./internal/machinelink '^TestAJoinWhoseAnswerIsLostFinishesWhenSentAgain$'
+control "making a join code waits for a join redeeming one" internal/machinelink/hub.go \
+  'h.joinMu.Lock()
+	defer h.joinMu.Unlock()
+	now := h.now()
+	codes, err := h.store.JoinCodes(ctx)' \
+  'now := h.now()
+	codes, err := h.store.JoinCodes(ctx)' \
+  ./internal/machinelink '^TestMakingACodeNeverDropsOneBeingRedeemed$'
+control "a join the dashboard may have accepted keeps its key" internal/install/link.go \
+  'if kept || machinelink.MayHaveJoined(err) {' \
+  'if false && (kept || machinelink.MayHaveJoined(err)) {' \
+  ./internal/install '^TestAJoinWhoseAnswerIsLostFinishesWhenRunAgain$'
+control "a key kept from an earlier join stays when a later one is refused" internal/install/link.go \
+  'if kept || machinelink.MayHaveJoined(err) {' \
+  'if machinelink.MayHaveJoined(err) || false && kept {' \
+  ./internal/install '^TestAJoinWhoseAnswerIsLostFinishesWhenRunAgain$'
+control "a join runs again with the key it kept" internal/install/link.go \
+  'if id, err := machinelink.LoadIdentity(path); err == nil {' \
+  'if id, err := machinelink.LoadIdentity(path + ".none"); err == nil {' \
+  ./internal/install '^TestAJoinWhoseAnswerIsLostFinishesWhenRunAgain$'
+control "a refused join leaves no key behind" internal/install/link.go \
+  'os.Remove(keyPath)' \
+  '_ = keyPath' \
+  ./internal/install '^TestAJoinThatFailsLeavesNothingBehind$'
+control "a join whose dashboard can't be saved fails" internal/install/link.go \
+  'if err = d.Save(dashPath); err == nil {' \
+  'if err := d.Save(dashPath); err == nil {' \
+  ./internal/install '^TestAJoinThatCantSaveTheDashboardFinishesWhenRunAgain$'
+control "a join whose dashboard can't be saved keeps its key" internal/install/link.go \
+  'os.Remove(dashPath)' \
+  'os.Remove(dashPath); os.Remove(keyPath)' \
+  ./internal/install '^TestAJoinThatCantSaveTheDashboardFinishesWhenRunAgain$'
+control "install --join says only the join is left after a lost answer" cmd/playkeeper/link.go \
+  'case errors.As(err, &unfinished):' \
+  'case false && errors.As(err, &unfinished):' \
+  ./cmd/playkeeper '^TestInstallingToJoinWithoutAnAnswerSaysOnlyTheJoinIsLeft$'
+control "a reply that keeps coming may outlast the link's time limit" internal/machinelink/hub.go \
+  'func (w *waitLimit) leave() {
+	if w == nil {' \
+  'func (w *waitLimit) leave() {
+	if true {' \
+  ./internal/machinelink '^TestLinkTimeLimitsCountOnlyWaitingOnTheMachine$'
+control "a reply that stops coming still ends at the link's time limit" internal/machinelink/hub.go \
+  'if w.away--; w.away == 0 && !w.ended {' \
+  'if w.away--; false && !w.ended {' \
+  ./internal/machinelink '^TestLinkTimeLimitsCountOnlyWaitingOnTheMachine$'
+control "waiting for a request body's own source doesn't count against the machine" internal/machinelink/hub.go \
+  'b.wait.leave()
+	n, err := b.rc.Read(p)
+	b.wait.back()' \
+  'n, err := b.rc.Read(p)' \
+  ./internal/machinelink '^TestLinkTimeLimitsCountOnlyWaitingOnTheMachine$'
+control "a joined machine takes data packs bigger than a request" internal/agent/link.go \
+  '"POST /v1/servers/{id}/datapacks":             true,' \
+  '"POST /v1/servers/{id}/datapacks":             false,' \
+  ./internal/panel '^TestAJoinedMachineTakesBigPacks$'
+control "a joined machine takes resource packs bigger than a request" internal/agent/link.go \
+  '"POST /v1/servers/{id}/resourcepack":          true,' \
+  '"POST /v1/servers/{id}/resourcepack":          false,' \
+  ./internal/panel '^TestAJoinedMachineTakesBigPacks$'
+control "the dashboard keeps wrong join codes in panel.db" internal/panel/linkstore.go \
+  '	for _, f := range fails {
+		network := ""' \
+  '	for _, f := range fails[:0] {
+		network := ""' \
+  ./internal/panel '^(TestTooManyWrongCodesPauseJoining|TestLinkStoreKeepsJoinFailures)$'
+control "a joined machine never gets the dashboard's host as its address" internal/panel/server.go \
+  'if withHost && m.Kind != remoteKind {' \
+  'if withHost {' \
+  ./internal/panel '^TestAJoinedMachinesAddressRoutesCarryNoDashboardHost$'
+control "a joined machine never gets the browser's panelHost" internal/panel/server.go \
+  '				q.Del("panelHost")' \
+  '				_ = q' \
+  ./internal/panel '^TestAJoinedMachinesAddressRoutesCarryNoDashboardHost$'
+control "a joined machine gets no free name or own domain" internal/panel/server.go \
+  'an("/api/machines/{mid}/address/claim", "/v1/address/claim"),' \
+  'am("/api/machines/{mid}/address/claim", "/v1/address/claim"),' \
+  ./internal/panel '^TestAJoinedMachineGetsNoFreeName$'
+control "a friend's invite to a joined machine's server gives its IP and port" internal/panel/friends.go \
+  'if m.Kind == remoteKind {
+		addr = s.joinedAddress(r.Context(), m, port)' \
+  'if false {
+		addr = s.joinedAddress(r.Context(), m, port)' \
+  ./internal/panel '^TestAnInviteToAJoinedMachinesServerGivesItsIPAndPort$'
+# API tokens under Wave 5's team roles.
+control "a tool asks whether its caller's account may take its action" internal/mcptools/tools.go \
+  'if !access.mayTake(s.act) {' \
+  'if false && !access.mayTake(s.act) {' \
+  ./internal/mcptools '^TestEveryToolChecksItsActionWithTheCallersAccount$'
+control "a token's tools ask permit about its account as it is now" internal/panel/mcp.go \
+  'May: func(act string) bool { return permit(account, action(act), "") == nil }}, nil' \
+  'May: func(act string) bool { return permit(account, action(act), "") == nil || true }}, nil' \
+  ./internal/panel '^TestATokenFollowsItsAccountsRole$'
+control "a token stops once its account holds a lower role than when it was made" internal/panel/tokens.go \
+  'if grantRank(accountGrant(a)) < grantRank(t.MadeAs) {' \
+  'if false && grantRank(accountGrant(a)) < grantRank(t.MadeAs) {' \
+  ./internal/panel '^TestATokenFollowsItsAccountsRole$'
+control "a lower role on the Team page stops the account's tokens at once" internal/panel/team.go \
+  '	s.checkAccountTokens(t.UserID)
+' \
+  '' \
+  ./internal/panel '^TestATokenFollowsItsAccountsRole$'
+control "taking someone off the team revokes their tokens" internal/panel/team.go \
+  'revokeAccountTokens(t.UserID, sess.User.Username, "its account was removed from the team")' \
+  'closeTokenSessions("")' \
+  ./internal/panel '^TestATokenFollowsItsAccountsRole$'
+control "each tool takes the action of its dashboard route" internal/mcptools/specs.go \
+  'name: "create_backup", title: "Make a backup", scope: mcp.ScopeManage, act: ActMakeBackups,' \
+  'name: "create_backup", title: "Make a backup", scope: mcp.ScopeManage, act: ActView,' \
+  ./internal/panel '^TestEveryToolTakesTheActionOfItsDashboardRoute$'
+control "a joined machine's pack page gives its IP and port" internal/panel/packshare.go \
+  'case fp.m.Kind == remoteKind:' \
+  'case false:' \
+  ./internal/panel '^TestAJoinedMachinesPackPageGivesItsIPAndPort$'
 control "RCON finds a closed connection before writing" internal/minecraft/rcon.go \
   'if err := r.stale(); err != nil {' \
   'if err := r.stale(); false && err != nil {' \
@@ -1022,10 +1168,27 @@ control "the CurseForge key file is readable by root only" internal/agent/addons
   'os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)' \
   'os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)' \
   ./internal/agent '^TestCurseForgeKeyIsCheckedSavedAndRemoved$'
-control "only who manages the machine changes its CurseForge key" internal/panel/server.go \
-  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \
+control "a member can't change the CurseForge key" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageAddonSources),' \
   'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actView),' \
-  ./internal/panel '^TestOnlyWhoManagesTheMachineChangesItsCurseForgeKey$'
+  ./internal/panel '^TestOnlyTheOwnerChangesTheCurseForgeKey$'
+control "only the owner changes the CurseForge key, not an admin of all servers" internal/panel/server.go \
+  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageAddonSources),' \
+  'mm("POST", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \
+  ./internal/panel '^TestOnlyTheOwnerChangesTheCurseForgeKey$'
+control "Home's activity waits only so long for a machine that hangs" internal/panel/team.go \
+  'ctx, cancel := context.WithTimeout(r.Context(), activityTimeout)' \
+  'ctx, cancel := context.WithTimeout(r.Context(), machineTimeout)' \
+  ./internal/panel '^TestHomesActivityWaitsOnlySoLongForAMachineThatHangs$'
+webcontrol "Home shows every machine's servers while the activity is on its way" web/src/pages/home.tsx \
+  'const activity = usePoll(recentActivity, 10000)' \
+  'const activity = usePoll(recentActivity, 10000)
+  if (!activity.data) return null' \
+  web/src/pages/pages.test.tsx 'still on its way'
+control "only the owner removes any machine's CurseForge key, not an admin of all servers" internal/panel/server.go \
+  'mm("DELETE", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageAddonSources),' \
+  'mm("DELETE", "/api/machines/{mid}/addon-sources/curseforge", "/v1/addon-sources/curseforge", actManageMachine),' \
+  ./internal/panel '^TestOnlyTheOwnerChanges(TheCurseForgeKey|AJoinedMachinesCurseForgeKey)$'
 control "an exported template names no one" internal/agent/templates.go \
   '	file, err := templates.MarshalFile(t)' \
   '	t.Author = q.Get("author")
@@ -1215,6 +1378,10 @@ control "a restore stage is kept while its swap is not settled" internal/agent/b
   'if err := a.settleSwap(dir); err != nil {' \
   'if err := a.settleSwap(dir); false && err != nil {' \
   ./internal/agent '^TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack$'
+control "a restore preview read again keeps its staged source" internal/agent/backups.go \
+  'st.preview.Source, st.preview.ReceivedAt = s.Preview.Source, s.Preview.ReceivedAt' \
+  'st.preview.ReceivedAt = s.Preview.ReceivedAt' \
+  ./internal/agent '^TestRestorePreviewSaysOnceTheBackupWasMadeHere$'
 control "no start recreates a world directory a restore moved aside" internal/agent/lifecycle.go \
   'if prev := s.newestPreviousWorld(); prev != "" {' \
   'if prev := s.newestPreviousWorld(); false && prev != "" {' \
@@ -2976,7 +3143,7 @@ control "the Disk space page needs every server to look at" internal/panel/serve
   'actView, s.machineProxy("GET", "/v1/disk")},' \
   ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
 control "the panel never caches the recovery key" internal/panel/automation.go \
-  'w.Header().Set("Cache-Control", "no-store")' \
+  'h.Set("Cache-Control", "no-store")' \
   '_ = 0' \
   ./internal/panel '^TestRecoveryKeyIsNeverCachedAndNamesWhoTookIt$'
 control "the agent never caches the recovery key" internal/agent/offsite.go \
@@ -3411,6 +3578,241 @@ control "a server.properties that can't be read keeps the allowlist rule" intern
   'return props != nil && !strings.EqualFold' \
   'return !strings.EqualFold' \
   ./internal/agent '^TestWhoMayWakeASleepingServer$/^no_server.properties$'
+control "a failed lookup of a server's machine sends its requests to no machine, not the dashboard's own" internal/panel/workspace.go \
+  'Scan(&owner, &disputedBy)
+	if err != nil && !isNoRows(err) {' \
+  'Scan(&owner, &disputedBy)
+	if false && err != nil && !isNoRows(err) {' \
+  ./internal/panel '^TestAServersRequestsGoNowhereWhenItsMachineCantBeLookedUp$'
+control "a joined machine's servers still show when their record can't be written" internal/panel/machines.go \
+  'return s.unsavedServers(m, servers)' \
+  'return nil' \
+  ./internal/panel '^TestAJoinedMachinesServersShowWhenTheirRecordCantBeWritten$'
+control "a joined machine's server whose record isn't saved goes to no machine, not the dashboard's own" internal/panel/workspace.go \
+  'case joinedListed:
+		return machine{}, errServerMachine' \
+  'case false && joinedListed:
+		return machine{}, errServerMachine' \
+  ./internal/panel '^TestAFailedClaimShowsNoOtherMachinesServerAndSendsUnsavedOnesNowhere$'
+control "a failed claim never shows another machine's server" internal/panel/machines.go \
+  'case rec.machineID != m.ID:
+			continue' \
+  'case false && rec.machineID != m.ID:
+			continue' \
+  ./internal/panel '^TestAFailedClaimShowsNoOtherMachinesServerAndSendsUnsavedOnesNowhere$'
+control "every change on a joined machine names who makes it" internal/panel/server.go \
+  'return machinelink.WithActor(ctx, actor)' \
+  'return ctx' \
+  ./internal/panel '^TestEveryChangeOnAMachineNamesWhoMakesIt$'
+control "a join request's alert names its server for the dashboard's agent" internal/panel/friends.go \
+  'ServerName: serverName,' \
+  '' \
+  ./internal/panel '^TestEveryChangeOnAMachineNamesWhoMakesIt$'
+control "the dashboard's agent posts a joined machine's join request" internal/agent/discord.go \
+  'if err != nil || !reServerID.MatchString(req.ServerID) {' \
+  'if true || err != nil || !reServerID.MatchString(req.ServerID) {' \
+  ./internal/agent '^TestDiscordNotifyPostsAJoinedMachinesJoinRequestUnderItsName$'
+control "a joined machine's server name is checked before it's posted" internal/agent/discord.go \
+  'name, err := validName(req.ServerName)' \
+  'name, err := req.ServerName, error(nil)' \
+  ./internal/agent '^TestDiscordNotifyPostsAJoinedMachinesJoinRequestUnderItsName$'
+control "a listing claimed after its machine was removed changes nothing" internal/panel/machines.go \
+  'case revoked != 0:
+			return errMachineGone' \
+  'case false && revoked != 0:
+			return errMachineGone' \
+  ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
+control "a server made while a listing was on its way keeps its record" internal/panel/machines.go \
+  'WHERE machine_id = ? AND seen_at <= ?' \
+  'WHERE machine_id = ? AND seen_at <= ? + 1e15' \
+  ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
+control "a removed machine's server goes to no machine, not the dashboard's own" internal/panel/workspace.go \
+  'case recorded:
+		return machine{}, errUnknownServer' \
+  'case false && recorded:
+		return machine{}, errUnknownServer' \
+  ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
+control "a machine that lists a removed machine's server takes it over" internal/panel/machines.go \
+  'case owner != m.ID && !ownerActive:' \
+  'case false && owner != m.ID && !ownerActive:' \
+  ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
+control "every server in the list has its own slug" internal/panel/workspace.go \
+  's.stableSlugs(ctx, out, list)' \
+  '' \
+  ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
+control "a duplicate's number skips slugs another server has" internal/panel/workspace.go \
+  'if next := fmt.Sprintf("%s-%d", base, i); !taken[next] && !avoid[next] {' \
+  'if next := fmt.Sprintf("%s-%d", base, i); true {' \
+  ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
+control "a joined machine that can't answer holds up no team change" internal/panel/join.go \
+  'all, _, err := s.allServers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]serverRef, 0, len(all))
+	for _, sv := range all {
+		id, _ := sv["id"].(string)
+		name, _ := sv["name"].(string)
+		out = append(out, serverRef{ID: id, Name: name})
+	}
+	return out, nil' \
+  'list, err := s.machines()
+	if err != nil {
+		return nil, err
+	}
+	var out []serverRef
+	for _, m := range list {
+		var servers []serverRef
+		if _, err := m.agent.Do(ctx, "GET", "/v1/servers", nil, nil, &servers); err != nil {
+			return nil, err
+		}
+		out = append(out, servers...)
+	}
+	return out, nil' \
+  ./internal/panel '^TestAMachineThatCantAnswerHoldsUpNoTeamChange$'
+control "taking a member's rights away never waits for a machine" internal/panel/team.go \
+  'case !invites.Narrows(t.Account, req.Role, req.Servers):' \
+  'case true:' \
+  ./internal/panel '^TestAMachineThatCantAnswerHoldsUpNoTeamChange$'
+control "an away machine's servers are never shown as none when they can't be read" internal/panel/workspace.go \
+  'known, err := s.lastKnownServers(m)
+			if err != nil {' \
+  'known, err := s.lastKnownServers(m)
+			if false && err != nil {' \
+  ./internal/panel '^TestAnAwayMachinesServersAreNeverShownAsNone$'
+control "a removed machine's servers show nowhere as servers" internal/panel/workspace.go \
+  'WHERE revoked_at = 0 ORDER BY kind != ?, created_at, id' \
+  'WHERE revoked_at >= 0 ORDER BY kind != ?, created_at, id' \
+  ./internal/panel '^TestARemovedMachinesServersShowNowhere$'
+control "a server made on a machine doesn't take a removed machine's server" internal/panel/machines.go \
+  'INSERT OR IGNORE INTO server_machines(server_id, machine_id, seen_at) VALUES(?,?,?)' \
+  'INSERT OR REPLACE INTO server_machines(server_id, machine_id, seen_at) VALUES(?,?,?)' \
+  ./internal/panel '^TestARemovedMachinesServersShowNowhere$'
+
+# Wave 8 after the joined-machine bug hunt on 1062eae9: friends' pack links
+# and shared maps go to the machine that made them, resource packs stay with
+# the dashboard's machine, New server never falls back to it, and each
+# machine's audit rows are its own.
+control "a recorded friends' pack link is asked only of the machine that made it" internal/panel/packshare.go \
+  'm, serverID, err := s.linkMachine(packLink, token)' \
+  'm, serverID, err := machine{}, "", errNoLinkRecord' \
+  ./internal/panel '^TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt$'
+control "sharing a server's pack records its link" internal/panel/packshare.go \
+  's.recordLink(packLink, ps.Token, serverID, m)' \
+  '_ = ps.Token' \
+  ./internal/panel '^TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt$'
+control "a recorded link opens only its own server's pack" internal/panel/packshare.go \
+  'case fp.link.Server != serverID:' \
+  'case false && fp.link.Server != serverID:' \
+  ./internal/panel '^TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt$/answers_for_another_server$'
+control "a link with no record that two machines open opens on neither" internal/panel/packshare.go \
+  'case len(found) > 1:' \
+  'case false && len(found) > 1:' \
+  ./internal/panel '^TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt$/two_machines_open'
+control "a link with no record opens on none while a machine can't answer" internal/panel/packshare.go \
+  'case failed != nil:' \
+  'case false && failed != nil:' \
+  ./internal/panel '^TestAFriendsPackLinkOpensOnlyOnTheMachineThatMadeIt$/a_machine_can.t_answer$'
+control "a shared map is asked of the machine that shared it" internal/panel/maps.go \
+  'agent, ok := s.mapAgent(token)' \
+  'agent, ok := s.agent, true' \
+  ./internal/panel '^TestASharedMapOpensOnTheMachineThatSharedIt$/joined_machine'
+control "sharing a map records its link" internal/panel/maps.go \
+  's.recordLink(mapLink, token, serverID, m)' \
+  '_ = token' \
+  ./internal/panel '^TestASharedMapOpensOnTheMachineThatSharedIt$/joined_machine'
+control "a joined machine's server refuses a resource pack" internal/panel/packs.go \
+  'if m.Kind == remoteKind {' \
+  'if false && m.Kind == remoteKind {' \
+  ./internal/panel '^TestResourcePacksAreForTheDashboardsMachine$'
+control "a machine installed to join a dashboard refuses a resource pack" internal/agent/packs.go \
+  'if s.cfg.NoPanel {' \
+  'if false && s.cfg.NoPanel {' \
+  ./internal/agent '^TestAMachineWithoutADashboardRefusesResourcePacks$'
+webcontrol "the Packs page holds resource packs back on a joined machine's server" web/src/pages/server/world-packs.tsx \
+  'resource: joined ?' \
+  'resource: joined && false ?' \
+  src/pages/server/world.test.tsx 'holds resource pack uploads back'
+webcontrol "New server never swaps a machine that's away for the dashboard's" web/src/pages/new-server.tsx \
+  'const target = machine ? ws.machines.find((m) => m.id === machine) : ws.machine' \
+  'const target = ws.machines.filter((m) => !isAway(m)).find((m) => m.id === machine) ?? ws.machine' \
+  src/pages/new-server.test.tsx 'New server on a joined machine'
+webcontrol "New server holds Create back while its machine is away" web/src/pages/new-server.tsx \
+  'if (away) return away' \
+  'if (false) return away' \
+  src/pages/new-server.test.tsx 'New server on a joined machine'
+webcontrol "New server keeps its machine once the flow starts" web/src/pages/new-server.tsx \
+  'const choices = started ?' \
+  'const choices = started && false ?' \
+  src/pages/new-server.test.tsx 'keeps the machine once the flow starts'
+control "the audit log takes at most 200 rows from each machine" internal/panel/server.go \
+  'if len(out) == maxMachineAudit {' \
+  'if false && len(out) == maxMachineAudit {' \
+  ./internal/panel '^TestTheAuditLogKeepsEachMachineToItsShare$/500_rows'
+control "the audit log dates no machine's row after now" internal/panel/server.go \
+  'if a.TS.After(now) {' \
+  'if false && a.TS.After(now) {' \
+  ./internal/panel '^TestTheAuditLogKeepsEachMachineToItsShare$/500_rows'
+control "the audit log takes each of a machine's rows once" internal/panel/server.go \
+  'if seen[a.ID] {' \
+  'if false && seen[a.ID] {' \
+  ./internal/panel '^TestTheAuditLogKeepsEachMachineToItsShare$/again_and_again'
+webcontrol "the audit log keys each row by its machine" web/src/pages/settings.tsx \
+  "e.machineId ?? ''}" \
+  "''}" \
+  src/pages/settings.test.tsx 'numbered alike'
+webcontrol "the audit log names the machine of an agent's row" web/src/pages/settings.tsx \
+  'ws.machines.length > 1 ?' \
+  'ws.machines.length > 99 ?' \
+  src/pages/settings.test.tsx 'numbered alike'
+
+# Wave 8, second bug hunt: New server sizes templates and packs by what they
+# run, a team join shows once on Home, the CurseForge key goes to the machine
+# the card names, and Discord's preview lists only what the message posts.
+control "the catalog sizes a new server by the plugins its template brings" internal/agent/handlers.go \
+  'if mods >= 0 || plugins >= 0 {' \
+  'if mods >= 0 {' \
+  ./internal/agent '^TestTheCatalogSizesMemoryForWhatTheServerRuns$'
+control "a template without memory gets the sizing guide's suggestion" internal/templates/plan.go \
+  'p.MemoryMB = fitting(opts, suggestedMemory(t, p.Type.ID))' \
+  'p.MemoryMB = opts[0]' \
+  ./internal/templates '^TestPlanMemoryFollowsTheSizingGuide$'
+webcontrol "New server asks the catalog for what a template or pack runs" web/src/pages/new-server.tsx \
+  "{ ...catalogFor(from, c?.type ?? 'paper', pack, tpl, types), fresh: true }" \
+  "{ type: c?.type ?? 'paper', fresh: true }" \
+  src/pages/new-server.test.tsx 'sizes a shared template'
+webcontrol "New server counts a Paper template's plugins" web/src/pages/new-server.tsx \
+  "return { type: plan.type, plugins: n }" \
+  "return { type: plan.type }" \
+  src/pages/new-server.test.tsx 'asks the catalog for'
+control "only the dashboard's machine lists the team's joins" internal/panel/team.go \
+  'if m.Kind == localKind {' \
+  'if true {' \
+  ./internal/panel '^TestHomeShowsEachTeamJoinOnce$'
+control "Home's activity carries on while the dashboard's agent is down" internal/panel/team.go \
+  'if !answered && len(machines) > 0 {' \
+  'if errs[0] != nil || !answered && len(machines) > 0 {' \
+  ./internal/panel '^TestHomeShowsEachTeamJoinOnce$'
+webcontrol "the add-on sources card shows the machine it was opened for" web/src/components/app/addon-sources.tsx \
+  'const target = machine ? ws.machines.find((m) => m.id === machine) : ws.machine' \
+  'const target = ws.machine' \
+  src/pages/pages.test.tsx 'shows and saves the key of'
+webcontrol "the CurseForge key is saved on the machine the card shows" web/src/components/app/addon-sources.tsx \
+  "post<AddonSources>(machineApi(machineId, '/addon-sources/curseforge')" \
+  "post<AddonSources>(machineApi('m2345abcde', '/addon-sources/curseforge')" \
+  src/pages/pages.test.tsx 'shows and saves the key of'
+webcontrol "only the owner changes a machine's CurseForge key" web/src/components/app/addon-sources.tsx \
+  "const locked = ws.me.user.role === 'owner' ? undefined : t('reason.ownerOnly')" \
+  'const locked = undefined' \
+  src/pages/pages.test.tsx 'shows and saves the key of'
+webcontrol "New server's CurseForge link chooses its machine" web/src/components/app/modpacks.tsx \
+  "linkProps({ name: 'addon-sources', machine: machineId })" \
+  "linkProps({ name: 'addon-sources' })" \
+  src/pages/pages.test.tsx 'sends whoever needs a CurseForge key'
+webcontrol "Discord's preview lists only the dashboard machine's servers" web/src/pages/discord.tsx \
+  "return servers.filter((x) => machineOf(x, machines)?.kind !== 'remote')" \
+  'return servers' \
+  src/pages/pages.test.tsx 'previews the live status'
 
 # Wave 7: the sleep operation looks again right before it stops the server,
 # and saving the sleep setting takes the operation lock.
@@ -3545,6 +3947,203 @@ control "a copy queue that can't be read is an error" internal/agent/backuprules
 	}
 	defer rows.Close()' \
   ./internal/agent '^TestBackupRulesThatCantBeReadDeleteNothing$/^the_copy_queue_can.t_be_read$'
+control "the catalog sizes memory for what the server runs, not always vanilla" internal/agent/handlers.go \
+  'Sizing: memorySizing(a.catalogWorkload(forServer, typ, mods, plugins), opts),' \
+  'Sizing: memorySizing(sizing.Vanilla, opts),' \
+  ./internal/agent '^TestTheCatalogSizesMemoryForWhatTheServerRuns$'
+control "a new server from a pack is sized by the pack's mods" internal/agent/handlers.go \
+  'if mods >= 0 || plugins >= 0 {
+		return sizing.WorkloadFor(max(mods, 0), max(plugins, 0))' \
+  'if false && (mods >= 0 || plugins >= 0) {
+		return sizing.WorkloadFor(max(mods, 0), max(plugins, 0))' \
+  ./internal/agent '^TestTheCatalogSizesMemoryForWhatTheServerRuns$'
+control "an existing server's plugins count as plugins and its mods as mods" internal/agent/handlers.go \
+  'if addonDir(*sc) == "plugins" {' \
+  'if addonDir(*sc) != "plugins" {' \
+  ./internal/agent '^TestTheCatalogSizesMemoryForWhatTheServerRuns$'
+control "a disputed server is answered as disputed, not as an agent that's down" internal/panel/machines.go \
+  'if errors.Is(err, errDisputed) {' \
+  'if false && errors.Is(err, errDisputed) {' \
+  ./internal/panel '^TestJoinPathsSayWhyAServerCantBeReached$'
+control "a server no machine runs is answered as not found, not as an agent that's down" internal/panel/machines.go \
+  'if errors.Is(err, errUnknownServer) {' \
+  'if false && errors.Is(err, errUnknownServer) {' \
+  ./internal/panel '^TestJoinPathsSayWhyAServerCantBeReached$'
+
+# Wave 8, second bug hunt: what a machine sends reaches the browser as a file
+# to save, a refusal never signs it out, and the web follows a machine's link
+# only when it is an https: link to another site. A removed machine's servers
+# keep their invites, the join page says why a server can't be asked, and a
+# server keeps the slug it was shown with.
+control "the recovery key downloads as bytes, whatever type its machine gives" internal/panel/automation.go \
+  'h.Set("Content-Type", "application/octet-stream")' \
+  'h.Set("Content-Type", resp.Header.Get("Content-Type"))' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+# shellcheck disable=SC2016
+control "the recovery key is a file to save, never shown in the tab" internal/panel/automation.go \
+  'h.Set("Content-Disposition", `attachment; filename="`+recoveryKeyFileName' \
+  'h.Set("Content-Disposition", `inline; filename="`+recoveryKeyFileName' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "the recovery key runs no script, even when opened" internal/panel/automation.go \
+  'h.Set("Content-Security-Policy", "sandbox")
+	h.Set("X-Content-Type-Options", "nosniff")' \
+  'h.Set("X-Content-Type-Options", "nosniff")' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "the recovery key keeps only a name its agent would give" internal/panel/automation.go \
+  'err == nil && reRecoveryKeyFile.MatchString(params["filename"]) {' \
+  'err == nil && params["filename"] != "" {' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "a machine's refusal of the recovery key never signs the browser out" internal/panel/automation.go \
+  'if resp.StatusCode >= 400 {
+		s.agentFailure(w, agentclient.DecodeError(resp))' \
+  'if resp.StatusCode >= 400 {
+		w.WriteHeader(resp.StatusCode)' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "the friends' pack file is a file to save, never shown in the tab" internal/panel/packshare.go \
+  'mime.FormatMediaType("attachment", map[string]string{"filename": packFileName(' \
+  'mime.FormatMediaType("inline", map[string]string{"filename": packFileName(' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "the friends' pack file runs no script, even when opened" internal/panel/packshare.go \
+  'h.Set("Content-Security-Policy", "sandbox")
+	h.Set("Cache-Control", "no-store")
+	io.Copy(w, io.LimitReader(resp.Body, maxFriendsPackFile))' \
+  'h.Set("Cache-Control", "no-store")
+	io.Copy(w, io.LimitReader(resp.Body, maxFriendsPackFile))' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "the friends' pack file keeps only a slug's name" internal/panel/packshare.go \
+  'ok && share.ValidSlug(slug) {' \
+  'ok && slug != "" {' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "a machine's refusal of the friends' pack file never signs the browser out" internal/panel/packshare.go \
+  'if resp.StatusCode >= 400 {
+		s.agentFailure(w, agentclient.DecodeError(resp))
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", share.ContentType)' \
+  'if resp.StatusCode >= 400 {
+		w.WriteHeader(resp.StatusCode)
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", share.ContentType)' \
+  ./internal/panel '^TestAMachinesDownloadsAreFilesToSaveNeverAPage$'
+control "a machine's refusal of an add-on's icon never signs the browser out" internal/panel/addons.go \
+  'w.Header().Set("Cache-Control", "no-store")
+		s.agentFailure(w, agentclient.DecodeError(resp))' \
+  'w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(resp.StatusCode)
+		_ = agentclient.DecodeError' \
+  ./internal/panel '^TestAMachinesRefusalNeverSignsTheBrowserOut$'
+control "a machine's refusal of its map never signs the browser out" internal/panel/maps.go \
+  'status := resp.StatusCode
+		if status >= 400 {' \
+  'status := resp.StatusCode
+		if false && status >= 400 {' \
+  ./internal/panel '^TestAMachinesRefusalNeverSignsTheBrowserOut$'
+control "a machine's refusal of a world import never signs the browser out" internal/panel/worldimports.go \
+  'status := resp.StatusCode
+	if status >= 400 {' \
+  'status := resp.StatusCode
+	if false && status >= 400 {' \
+  ./internal/panel '^TestAMachinesRefusalNeverSignsTheBrowserOut$'
+webcontrol "a machine's link is followed only to another site" web/src/lib/links.ts \
+  "u.protocol === 'https:' && u.origin !== window.location.origin ? u.href : undefined" \
+  "u.protocol === 'https:' ? u.href : undefined" \
+  web/src/lib/links.test.ts
+webcontrol "a machine's link is followed only when it is https:" web/src/lib/links.ts \
+  "u.protocol === 'https:' && u.origin !== window.location.origin" \
+  "u.origin !== window.location.origin" \
+  web/src/lib/links.test.ts
+webcontrol "an add-on's source link shows only for another site" web/src/pages/server/plugins/detail.tsx \
+  'const link = externalLink(href)' \
+  'const link = href' \
+  web/src/pages/server/plugins/detail.test.tsx
+webcontrol "an add-on only on its author's site links only to another site" web/src/pages/server/plugins/detail.tsx \
+  '{externalLink(f.url) && (
+              <Button variant="outline" size={size} className="w-full" render={<a href={externalLink(f.url)}' \
+  '{f.url && (
+              <Button variant="outline" size={size} className="w-full" render={<a href={f.url}' \
+  web/src/pages/server/plugins/plugins.test.tsx 'sends people to the author.s site at'
+webcontrol "a dependency from another site links only to another site" web/src/pages/server/plugins/detail.tsx \
+  '{externalLink(f.url) && (
+              <Button
+                variant="outline"
+                size={size}
+                className="w-full"
+                render={<a href={externalLink(f.url)}' \
+  '{f.url && (
+              <Button
+                variant="outline"
+                size={size}
+                className="w-full"
+                render={<a href={f.url}' \
+  web/src/pages/server/plugins/plugins.test.tsx 'links a dependency another site names to'
+webcontrol "an installed add-on's source page opens only on another site" web/src/pages/server/plugins/state.tsx \
+  'const link = externalLink(d.card.pageUrl)' \
+  'const link = d.card.pageUrl' \
+  web/src/pages/server/plugins/plugins.test.tsx 'opens an installed add-on.s source page at'
+webcontrol "a modpack links only to its page on another site" web/src/components/app/modpacks.tsx \
+  '{externalLink(card.pageUrl) && (
+                <a href={externalLink(card.pageUrl)}' \
+  '{card.pageUrl && (
+                <a href={card.pageUrl}' \
+  web/src/pages/pages.test.tsx 'links a pack to'
+control "a removed machine's servers keep their invites for when it joins again" internal/panel/workspace.go \
+  'm.revoked_at = 0))`' \
+  'm.revoked_at >= 0))`' \
+  ./internal/panel '^TestARemovedMachinesServersKeepTheirInvites$'
+control "a server deleted on a machine that is still joined loses its invites" internal/panel/workspace.go \
+  'if everyMachine && len(ids) > 0 {' \
+  'if false && everyMachine && len(ids) > 0 {' \
+  ./internal/panel '^TestARemovedMachinesServersKeepTheirInvites$'
+control "the join page answers a server two machines list as a link that doesn't work for now" internal/panel/join.go \
+  'case errors.Is(err, errDisputed):' \
+  'case false && errors.Is(err, errDisputed):' \
+  ./internal/panel '^TestTheJoinPageSaysWhyAServerCantBeReached$'
+control "the join page answers a failed machine lookup as one, not as an agent that's down" internal/panel/join.go \
+  'case errors.Is(err, errServerMachine):' \
+  'case false && errors.Is(err, errServerMachine):' \
+  ./internal/panel '^TestTheJoinPageSaysWhyAServerCantBeReached$'
+control "the join page logs a server no machine runs by its own reason" internal/panel/join.go \
+  'e.Reason = "no machine runs the invite'"'"'s server"' \
+  '_ = "no machine runs the invite'"'"'s server"' \
+  ./internal/panel '^TestTheJoinPageSaysWhyAServerCantBeReached$'
+control "the dashboard's machine keeps its own slugs, which its Discord links use" internal/panel/workspace.go \
+  'case local.ID != "" && sv["machineId"] == local.ID:' \
+  'case false && sv["machineId"] == local.ID:' \
+  ./internal/panel '^TestAServerKeepsTheSlugItWasShownWith$'
+control "a server keeps the slug it was shown with" internal/panel/workspace.go \
+  'choose(e, e.kept)' \
+  'choose(e, e.agentSlug)' \
+  ./internal/panel '^TestAServerKeepsTheSlugItWasShownWith$'
+control "servers new at once get slugs in the order the dashboard first saw them" internal/panel/workspace.go \
+  'SELECT server_id, machine_id, slug, status FROM server_machines ORDER BY rowid`' \
+  'SELECT server_id, machine_id, slug, status FROM server_machines ORDER BY rowid DESC`' \
+  ./internal/panel '^TestAServerKeepsTheSlugItWasShownWith$'
+control "a removed machine's servers keep their slugs while it's away" internal/panel/workspace.go \
+  'e := &entry{id: id, kept: kept, recorded: true, sv: elsewhere[id]}' \
+  'e := &entry{id: id, kept: kept, recorded: true, sv: elsewhere[id]}
+			if e.sv == nil {
+				continue
+			}' \
+  ./internal/panel '^TestAServerKeepsTheSlugItWasShownWith$'
+control "a numbered slug skips every slug a server has or its agent gave it" internal/panel/workspace.go \
+  '!taken[next] && !avoid[next]' \
+  '!taken[next]' \
+  ./internal/panel '^TestEveryServerInTheListHasItsOwnSlug$'
+control "the dashboard's machine hears the slugs shown for other machines' servers" internal/panel/workspace.go \
+  'if list == s.toldSlugs.list {' \
+  'if list == s.toldSlugs.list || true {' \
+  ./internal/panel '^TestAServerKeepsTheSlugItWasShownWith$'
+control "a new server gets none of the slugs shown for other machines' servers" internal/agent/servers.go \
+  'if elsewhere[s] {' \
+  'if false && elsewhere[s] {' \
+  ./internal/agent '^TestANewServerSkipsTheSlugsOfServersElsewhere$'
+control "the dashboard can only hold back slugs a server could have" internal/agent/servers.go \
+  'if !reSlug.MatchString(s) {' \
+  'if false && !reSlug.MatchString(s) {' \
+  ./internal/agent '^TestANewServerSkipsTheSlugsOfServersElsewhere$'
 
 # Wave 7 second bug hunt and Bugbot on eb3d7540: deleting a server asks
 # whenever keys exist and the recovery key was never downloaded, a copy

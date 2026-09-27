@@ -46,6 +46,7 @@ import type {
   TwoFactorSetup,
 } from '@/api/types'
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
+import { activityText } from '@/components/app/activity'
 import { AddonSourcesCard } from '@/components/app/addon-sources'
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
@@ -55,13 +56,18 @@ import { AppShell } from '@/components/app/shell'
 import { TemplateDialog } from '@/components/app/templates'
 import { toastManager } from '@/components/ui/toast'
 import { formatDate, formatDuration, formatLongDate } from '@/lib/format'
+import { parse } from '@/lib/router'
+import { AiAgentsSection } from './ai-agents'
 import { DiscordSettingsSection } from './discord'
 import { HomePage } from './home'
 import { JoinPage } from './join'
-import { MachinePage } from './machine'
+import { DashboardMachineOnly, MachinePage } from './machine'
+import { MachineSettingsPage } from './machine-settings'
+import { forgetJoinCode, MachinesSection } from './machines'
 import { createNote, NewServerPage } from './new-server'
 import { Onboarding } from './onboarding'
 import { RecoverPage } from './recover'
+import { ServerPage } from './server'
 import { BackupRulesPage } from './server/backups'
 import { CopiesCard } from './server/copies'
 import { Overview } from './server/overview'
@@ -311,6 +317,75 @@ describe('Home', () => {
     expect(text).toContain('1 server on my-vps · 3 playing')
   })
 
+  const home: MachineView = {
+    id: 'h2345abcde',
+    projectId: machine.projectId,
+    name: 'home-server',
+    kind: 'remote',
+    live: { ...machine.live!, hostname: 'home-server', memoryTotalMB: 32768 },
+    link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+  }
+  const away: MachineView = { ...home, id: 'a2345abcde', name: 'attic', live: undefined, link: { ...home.link!, machineId: 'a2345abcde', name: 'attic', state: 'offline' } }
+  const activityAsked = () => vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes('/activity'))
+
+  it('groups servers by machine, with activity from every machine that answers', async () => {
+    vi.mocked(client.get).mockImplementation(((path: string) => {
+      if (path === '/api/activity?limit=5')
+        return Promise.resolve([
+          { ts: '2026-09-25T11:00:00Z', serverId: 'cobblemon1', kind: 'restarted', actor: 'siya' },
+          { ts: '2026-09-25T10:00:00Z', serverId: 'abcdefghjk', kind: 'backup', actor: 'siya' },
+        ])
+      if (path.includes(`/${away.id}/`)) return Promise.reject(new client.ApiError(503, { error: 'offline', code: 'machine_offline' }))
+      return new Promise(() => {})
+    }) as typeof client.get)
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id })
+    const attic = server({ id: 'atticsrv01', name: 'Attic', slug: 'attic', machineId: away.id, lastKnownAt: new Date().toISOString() })
+    const text = await render(<HomePage />, workspace({ machines: [machine, home, away], servers: [server({ machineId: machine.id }), cobblemon, attic] }))
+    expect(text).toContain('On my-vps')
+    expect(text).toContain('On home-server')
+    expect(text).toContain('On attic')
+    expect(text).toContain('3 servers on 3 machines')
+    const heading = (id: string) => document.querySelector(`#on-${id} a`)?.getAttribute('href')
+    expect([machine.id, home.id].map(heading)).toEqual([`/machines/${machine.id}`, `/settings/machines/${home.id}`])
+    const atticCard = [...document.querySelectorAll('article')].find((a) => a.textContent?.includes('Attic'))?.textContent ?? ''
+    expect(atticCard).toContain('No live status')
+    expect(atticCard).toContain('Can’t reach attic')
+    const activity = [...document.querySelectorAll('li')].map((li) => li.textContent ?? '')
+    const at = (line: string) => activity.findIndex((l) => l.includes(line))
+    expect(at('Cobblemon restarted')).toBeGreaterThan(-1)
+    expect(at('Cobblemon restarted')).toBeLessThan(at('You backed up Survival'))
+    expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes(`/${away.id}/`))).toBe(false)
+    expect(activityAsked()).toEqual(['/api/activity?limit=5'])
+  })
+
+  // The dashboard merges every machine's activity and adds each team join once, so Home asks it once however many machines there are.
+  it.each([
+    { name: 'the dashboard’s machine', machines: [machine] },
+    { name: 'two machines', machines: [machine, home] },
+    { name: 'three machines, one away', machines: [machine, home, away] },
+  ])('shows a team join once with $name', async ({ machines }) => {
+    answer({ '/api/activity': [{ ts: hoursAgo(1), kind: 'team_joined', actor: 'alex', detail: 'moderator' }] })
+    vi.mocked(client.get).mockClear()
+    const text = await render(<HomePage />, workspace({ machines, servers: [server({ machineId: machine.id })] }))
+    expect(text.split('alex joined the team as Moderator').length - 1).toBe(1)
+    expect(activityAsked()).toEqual(['/api/activity?limit=5'])
+  })
+
+  // A machine that is slow to answer holds up only the activity card, which waits in place.
+  it('shows every machine’s servers while the activity is still on its way', async () => {
+    answer({})
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id })
+    const text = await render(<HomePage />, workspace({ machines: [machine, home], servers: [server({ machineId: machine.id }), cobblemon] }))
+    expect(activityAsked()).toEqual(['/api/activity?limit=5'])
+    expect(text).toContain('On my-vps')
+    expect(text).toContain('On home-server')
+    expect(text).toContain('Cobblemon')
+    expect(text).toContain('2 servers on 2 machines')
+    const card = [...document.querySelectorAll('section, article, div')].find((el) => el.firstElementChild?.textContent === 'Across your servers')
+    expect(card?.querySelector('[data-slot="skeleton"]')).not.toBeNull()
+    expect(text).not.toContain('Nothing yet. What happens on your servers shows up here.')
+  })
+
   it('says when the agent stopped answering, keeping names but not numbers', async () => {
     const text = await render(<HomePage />, workspace({ agentDown: true, stale: true, servers: [server({ players: { online: 3, max: 10, names: [], source: '', at: '' } })] }))
     expect(text).toContain('Playkeeper can’t see your servers right now')
@@ -412,6 +487,17 @@ describe('Home for team members', () => {
   })
 })
 
+describe('Activity', () => {
+  it('names the AI agent or command-line user that acted, never its token id', () => {
+    const token = { actor: 'token:t2345abcde', actorKind: 'token' as const, actorName: 'Claude on my laptop' }
+    expect(activityText({ ts: '', kind: 'backup', ...token }, 'Survival', 'siya')).toBe('Claude on my laptop backed up Survival')
+    expect(activityText({ ts: '', kind: 'restarted', ...token }, 'Survival', 'siya')).toBe('Claude on my laptop restarted Survival')
+    expect(activityText({ ts: '', kind: 'stopped', actor: 'cli:alice', actorKind: 'cli', actorName: 'alice' }, 'Survival', 'siya')).toBe('alice stopped Survival')
+    expect(activityText({ ts: '', kind: 'restarted', actor: 'siya' }, 'Survival', 'siya')).toBe('Survival restarted')
+    expect(activityText({ ts: '', kind: 'backup', actor: 'siya' }, 'Survival', 'siya')).toBe('You backed up Survival')
+  })
+})
+
 describe('The notice after signing in', () => {
   const wrongCodes: SignInNotice = { kind: 'failed_attempts', count: 3, text: '' }
   const codesLow: SignInNotice = { kind: 'recovery_codes_low', count: 2, text: '' }
@@ -506,7 +592,8 @@ describe('Overview notices', () => {
 
   it('warns about low disk space with the preflight advice', async () => {
     const diskWarning = { id: 'disk', label: 'Disk space', status: 'fail' as const, detail: 'Only 0.4 GB free.', fix: 'Free at least 5 GB of disk space, then check again.' }
-    const text = await render(<Overview server={server()} />, workspace({ machine: { ...machine, live: machine.live && { ...machine.live, diskWarning } } }))
+    const local = { ...machine, live: machine.live && { ...machine.live, diskWarning } }
+    const text = await render(<Overview server={server()} />, workspace({ machine: local, machines: [local] }))
     expect(text).toContain('Low disk space: Only 0.4 GB free.')
     expect(text).toContain('Free at least 5 GB of disk space')
   })
@@ -1449,12 +1536,12 @@ describe('Add-on sources', () => {
 
   it('is the Settings section between Team and Discord, for who manages the machine', async () => {
     answer({ '/addon-sources': none })
-    await render(<GlobalSettingsPage section="addon-sources" />)
+    await render(<GlobalSettingsPage page={{ name: 'addon-sources' }} />)
     const nav = document.querySelector('nav[aria-label="Settings sections"]')
-    expect([...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent)).toEqual(['Team', 'Add-on sources', 'Discord'])
+    expect([...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent)).toEqual(['Team', 'Add-on sources', 'Discord', 'AI agents', 'Machines'])
     expect(nav?.querySelector('[aria-current="page"]')?.getAttribute('href')).toBe('/settings/addon-sources')
     expect(document.getElementById('addon-sources')).not.toBeNull()
-    const moderator = await render(<GlobalSettingsPage section="addon-sources" />, workspace({ me: member('moderator', moderatorCan) }))
+    const moderator = await render(<GlobalSettingsPage page={{ name: 'addon-sources' }} />, workspace({ me: member('moderator', moderatorCan) }))
     expect(moderator).not.toContain('CurseForge')
     window.history.replaceState(null, '', '/')
   })
@@ -1518,6 +1605,41 @@ describe('Add-on sources', () => {
       expect(button(label)?.disabled).toBe(true)
       expect(button(label)?.title).toBe('Only the owner can change this.')
     }
+  })
+
+  // Each machine keeps its own key, so the card names the one it shows and saves the key there.
+  const home: MachineView = {
+    id: 'h2345abcde',
+    projectId: machine.projectId,
+    name: 'home-server',
+    kind: 'remote',
+    link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+  }
+  it.each([
+    { name: 'the dashboard’s machine when none is chosen', machine: undefined, want: machine.id, label: 'my-vps' },
+    { name: 'the joined machine New server linked to', machine: home.id, want: home.id, label: 'home-server' },
+  ])('shows and saves the key of $name', async ({ machine: chosen, want, label }) => {
+    answer({ '/addon-sources': none })
+    vi.mocked(client.get).mockClear()
+    const text = await render(<GlobalSettingsPage page={{ name: 'addon-sources', machine: chosen }} />, workspace({ machines: [machine, home] }))
+    expect(vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes('/addon-sources'))).toEqual([`/api/machines/${want}/addon-sources`])
+    expect(text).toContain(`The key stays on ${label}.`)
+    vi.mocked(client.post).mockResolvedValueOnce({ curseforge: { key: 'file', ending: 'c3f9' } })
+    await paste('pasted-key-0123456789abc3f9a')
+    await act(async () => button('Save key')?.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith(`/api/machines/${want}/addon-sources/curseforge`, { key: 'pasted-key-0123456789abc3f9a' })
+    expect(document.body.textContent).toContain('Key ending c3f9')
+    await render(<GlobalSettingsPage page={{ name: 'addon-sources', machine: chosen }} />, workspace({ machines: [machine, home], me: { ...me, user: { username: 'friend', role: 'member' } } }))
+    expect(button('Save key')?.disabled).toBe(true)
+    expect(button('Save key')?.title).toBe('Only the owner can change this.')
+  })
+
+  it('says so when the chosen machine isn’t connected to this dashboard, and asks no other', async () => {
+    vi.mocked(client.get).mockClear()
+    const text = await render(<GlobalSettingsPage page={{ name: 'addon-sources', machine: 'z2345abcde' }} />, workspace({ machines: [machine, home] }))
+    expect(text).toContain('That machine isn’t connected to this dashboard')
+    expect(keyField()).toBeNull()
+    expect(vi.mocked(client.get).mock.calls.filter(([p]) => String(p).includes('/addon-sources'))).toEqual([])
   })
 })
 
@@ -1585,6 +1707,42 @@ describe('Modpacks', () => {
     expect(use?.disabled).toBe(true)
     expect(use?.title).toBe(blocker.message)
     expect(document.body.textContent).toContain('Playkeeper can’t set up this pack')
+  })
+
+  // Each row asks another machine, as the picker keeps what it loaded for a while.
+  it.each([
+    { name: 'its page on Modrinth', pageUrl: 'https://modrinth.com/modpack/smoothserver', machineId: 'm2345abcdf', shown: true },
+    { name: 'a path on the dashboard', pageUrl: '/api/servers/abcdefghjk/offsite/recovery-key', machineId: 'm2345abcdg', shown: false },
+    { name: 'a script', pageUrl: 'javascript:alert(document.cookie)', machineId: 'm2345abcdh', shown: false },
+  ])('links a pack to $name only when it is another site', async ({ pageUrl, machineId, shown }) => {
+    const card = results.cards[0]
+    if (!card) throw new Error('no card')
+    const detail: ModpackDetail = { ...card, pageUrl, versions: [{ id: 'SMV00012', number: '1.2', channel: 'release', published: '2026-09-01T00:00:00Z', size: 16_000_000, type: 'fabric', minecraftVersion: '26.2', mods: 17 }], newest: 'SMV00012' }
+    answer({
+      '/preview': { type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', files: 17, downloadSize: 16_000_000, ready: true, blockers: [], warnings: [], manual: [] },
+      '/modpacks/modrinth/SMTH0001': detail,
+      '/modpacks?': { ...results, cards: [{ ...card, pageUrl }] },
+    })
+    await render(<ModpackPicker machineId={machineId} onChange={() => {}} onUse={() => {}} phone={false} />)
+    const row = [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Smooth Server'))
+    await act(async () => row?.click())
+    await act(async () => {})
+    await act(async () => {})
+    expect(document.body.textContent).toContain('What friends do')
+    expect(document.body.textContent?.includes('Open on Modrinth')).toBe(shown)
+    expect(document.querySelector(`a[href="${pageUrl}"]`) !== null).toBe(shown)
+  })
+
+  // The key goes on the machine the server is made on, so the link to it chooses that machine.
+  it.each([
+    { name: 'the dashboard’s machine', machineId: 'm2345abcde' },
+    { name: 'a joined machine', machineId: 'h2345abcde' },
+  ])('sends whoever needs a CurseForge key to the key of $name', async ({ machineId }) => {
+    answer({ '/modpacks?': results })
+    await render(<ModpackPicker machineId={machineId} onChange={() => {}} onUse={() => {}} phone={false} />)
+    const link = [...document.querySelectorAll('a')].find((a) => a.getAttribute('href')?.startsWith('/settings/addon-sources'))
+    expect(link?.getAttribute('href')).toBe(`/settings/addon-sources?machine=${machineId}`)
+    expect(parse('/settings/addon-sources', `?machine=${machineId}`)).toEqual({ name: 'addon-sources', machine: machineId })
   })
 
   it('says what a pack’s server downloads, not Paper', () => {
@@ -2138,6 +2296,29 @@ describe('Discord', () => {
     if (!players) throw new Error('no switch for players joining')
     await click(players)
     expect(client.put).toHaveBeenCalledWith('/api/discord', { alerts: [...connected.alerts, 'player_joined', 'player_left'], liveStatus: true })
+  })
+
+  // The dashboard's agent posts the message with its own machine's servers, so the preview shows only those.
+  const home: MachineView = {
+    id: 'h2345abcde',
+    projectId: machine.projectId,
+    name: 'home-server',
+    kind: 'remote',
+    link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+  }
+  const survival = server({ machineId: machine.id, gamePort: 25566 })
+  const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id, gamePort: 25570 })
+  it.each([
+    { name: 'the dashboard’s servers only', servers: [survival], note: false },
+    { name: 'the same and a joined machine’s server that is first online', servers: [cobblemon, survival], note: true },
+  ])('previews the live status with $name', async ({ servers, note }) => {
+    answer({ '/api/discord': { connected: true, webhookName: 'Playkeeper alerts', connectedAt: hoursAgo(1), alerts: [], liveStatus: true, delivery: {}, kinds } satisfies DiscordSettings })
+    const text = await render(<DiscordSettingsSection />, workspace({ machines: [machine, home], servers }))
+    const preview = document.querySelector('[role="img"][aria-label="How it looks in the channel"]')
+    expect([...(preview?.querySelectorAll('li') ?? [])].map((li) => li.textContent?.split('Online')[0])).toEqual(['Survival'])
+    expect(preview?.textContent).toContain(`Join: ${window.location.hostname}:25566`)
+    expect(preview?.textContent).not.toContain('25570')
+    expect(text.includes('Servers on your other machines aren’t posted yet.')).toBe(note)
   })
 })
 
@@ -2712,6 +2893,205 @@ describe('Restore from a recovery key', () => {
     expect(document.querySelector('input[type=file]')).toBeNull()
     await render(<RecoverPage />, workspace({ servers: [], me: member('admin', [...moderatorCan, ...keys, 'backups.recover'], { twoFactor: true, servers: { all: true } }) }))
     expect(document.querySelector('input[type=file]')).not.toBeNull()
+  })
+})
+
+describe('Backups and copies on a joined machine', () => {
+  const attic: MachineView = {
+    id: 'a2345abcde',
+    projectId: machine.projectId,
+    name: 'attic',
+    kind: 'remote',
+    link: { machineId: 'a2345abcde', name: 'attic', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), address: '203.0.113.7:48211', problems: [] },
+    live: { ...machine.live!, hostname: 'attic' },
+  }
+  const onAttic = server({ id: 'atticsrv01', name: 'Attic', slug: 'attic', machineId: attic.id })
+  const joined = workspace({ machines: [machine, attic], servers: [server({ machineId: machine.id }), onAttic] })
+  const estimate = (where: RetentionEstimate['where']): RetentionEstimate => ({ where, rows: [], count: 12, bytes: 3 * 2 ** 30, summary: { code: 'kept', text: 'Keeps 12 backups.' } })
+  const rules: BackupRulesView = {
+    automatic: { enabled: true, everyHours: 6, onlyIfPlayed: false },
+    rules: { onHost: { last: 12 }, offSite: {} },
+    custom: false,
+    describe: [],
+    onHost: estimate('on-host'),
+    offSite: estimate('off-site'),
+    limits: { hours: 168, last: 100, daily: 60, weekly: 104, monthly: 120 },
+  }
+
+  it('says the backups are on the machine that runs the server', async () => {
+    answer({ '/backup-rules': rules })
+    const text = await render(<BackupRulesPage server={onAttic} />, joined)
+    expect(text).toContain('About 12 backups · roughly 3 GB on attic')
+    expect(text).not.toContain('my-vps')
+  })
+
+  it('reads a copy it fetched back from the machine that runs the server', async () => {
+    const started: Operation = { id: 'op-copy', serverId: onAttic.id, kind: 'offsite-restore', status: 'running', phase: 'downloading', actor: 'siya', startedAt: '2026-09-25T18:50:00Z', detail: { name: 'attic-b1.tar.zst.age' } }
+    answer({ '/offsite/copies': { copies: [] }, '/offsite': { enabled: true, configured: true, type: 's3', place: 'Backblaze B2', copies: 0, copiesBytes: 0, queued: 0, providers: [] }, '/backups': [] })
+    await render(<WorldPage server={{ ...onAttic, operation: started }} />, joined)
+    await act(async () => root?.render(<WorkspaceContext.Provider value={joined}>{<WorldPage server={{ ...onAttic, lastOperation: { ...started, status: 'succeeded', detail: { name: 'attic-b1.tar.zst.age', restoreId: 'r1' } } }} />}</WorkspaceContext.Provider>))
+    await act(async () => {})
+    expect(vi.mocked(client.get)).toHaveBeenCalledWith(`/api/machines/${attic.id}/restore/r1`)
+    expect(vi.mocked(client.get)).not.toHaveBeenCalledWith(`/api/machines/${machine.id}/restore/r1`)
+  })
+})
+
+describe('Machines and AI agents', () => {
+  it('says a server’s controls wait for its machine while that machine is away', async () => {
+    const away: MachineView = {
+      id: 'a2345abcde',
+      projectId: machine.projectId,
+      name: 'attic',
+      kind: 'remote',
+      link: { machineId: 'a2345abcde', name: 'attic', fingerprint: 'X'.repeat(26), state: 'offline', lastSeen: new Date(Date.now() - 600_000).toISOString(), problems: [] },
+    }
+    const attic = server({ id: 'atticsrv01', name: 'Attic', slug: 'attic', machineId: away.id, lastKnownAt: new Date().toISOString() })
+    const text = await render(<ServerPage slug="attic" tab="overview" />, workspace({ machines: [machine, away], servers: [server({ machineId: machine.id }), attic] }))
+    expect(text).toContain('attic hasn’t called in for 10 minutes')
+    const restart = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Restart'))
+    expect(restart?.disabled).toBe(true)
+    expect(restart?.title).toBe('Can’t reach attic')
+    for (const tab of ['console', 'players', 'world', 'settings'] as const) {
+      vi.mocked(client.get).mockClear()
+      expect(await render(<ServerPage slug="attic" tab={tab} />, workspace({ machines: [machine, away], servers: [server({ machineId: machine.id }), attic] }))).toContain('attic hasn’t called in for 10 minutes')
+      expect(vi.mocked(client.get).mock.calls.filter(([p]) => String(p).includes(attic.id)), `${tab} asks the away machine`).toEqual([])
+    }
+  })
+
+  it('shows the not-answering view on every tab while a joined machine’s agent doesn’t answer, and asks it nothing', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      error: { error: 'The agent on home-server isn’t answering.', code: 'agent_unavailable' },
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id, lastKnownAt: new Date(Date.now() - 120_000).toISOString() })
+    const ws = workspace({ machines: [machine, home], servers: [server({ machineId: machine.id }), cobblemon] })
+    const asked = () => vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes(cobblemon.id) || p.includes(home.id))
+    for (const tab of ['overview', 'console', 'players', 'world', 'settings'] as const) {
+      vi.mocked(client.get).mockClear()
+      const text = await render(<ServerPage slug="cobblemon" tab={tab} />, ws)
+      expect(text, tab).toContain('Playkeeper can’t see your servers right now')
+      expect(text, tab).toContain('Fix it on home-server')
+      expect(asked(), `${tab} asks home-server`).toEqual([])
+    }
+    vi.mocked(client.get).mockClear()
+    await render(<HomePage />, ws)
+    expect(asked(), 'Home asks home-server for its activity').toEqual([])
+    expect(vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes('/activity'))).toEqual(['/api/activity?limit=5'])
+  })
+
+  it('asks a joined machine, not the dashboard’s, about the servers it runs', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      live: { ...machine.live!, hostname: 'home-server', memoryTotalMB: 32768 },
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id })
+    const ws = workspace({ machines: [machine, home], servers: [server({ machineId: machine.id }), cobblemon] })
+    const asked = () => vi.mocked(client.get).mock.calls.map(([p]) => String(p))
+    vi.mocked(client.get).mockClear()
+    await render(<ServerSettingsPage server={cobblemon} />, ws)
+    await render(<Overview server={{ ...cobblemon, phase: 'crashed', stoppedAt: new Date().toISOString() }} />, ws)
+    expect(asked().some((p) => p.startsWith(`/api/machines/${home.id}/catalog`))).toBe(true)
+    expect(asked().filter((p) => p.startsWith(`/api/machines/${machine.id}/`))).toEqual([])
+  })
+
+  it('joins a joined machine’s servers at its IP and port, whatever name its agent reports', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      live: { ...machine.live!, hostname: 'home-server' },
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), address: '203.0.113.20', problems: [] },
+    }
+    const survival = server({ machineId: machine.id, joinAddress: 'survival.alex.playkeeper.io' })
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id, gamePort: 25566, joinAddress: 'cobblemon.home.playkeeper.io' })
+    const ws = workspace({ machines: [machine, home], servers: [survival, cobblemon] })
+    let text = await render(<HomePage />, ws)
+    expect(text).toContain('survival.alex.playkeeper.io')
+    expect(text).toContain('203.0.113.20:25566')
+    expect(text).not.toContain('cobblemon.home.playkeeper.io')
+    text = await render(<Overview server={cobblemon} />, ws)
+    expect(text).toContain('203.0.113.20:25566')
+    expect(text).not.toContain('cobblemon.home.playkeeper.io')
+  })
+
+  it('says why a joined machine’s server has no address yet, and never gives the dashboard’s host or a reported name', async () => {
+    const attic: MachineView = {
+      id: 'a2345abcde',
+      projectId: machine.projectId,
+      name: 'attic',
+      kind: 'remote',
+      live: { ...machine.live!, hostname: 'attic' },
+      link: { machineId: 'a2345abcde', name: 'attic', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const box = server({ id: 'atticsrv01', name: 'Attic', slug: 'attic', machineId: attic.id, gamePort: 25567, joinAddress: 'attic.old.playkeeper.io' })
+    const ws = workspace({ machines: [machine, attic], servers: [server({ machineId: machine.id }), box] })
+    const reason = 'No address yet: the dashboard hasn’t seen attic’s IP.'
+    for (const node of [<HomePage key="home" />, <Overview key="overview" server={box} />]) {
+      const text = await render(node, ws)
+      expect(text).toContain(reason)
+      expect(text).not.toContain(`${window.location.hostname}:25567`)
+      expect(text).not.toContain('attic.old.playkeeper.io')
+    }
+    await render(<ServerPage slug="attic" tab="overview" />, ws)
+    const copy = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Copy join address'))
+    expect(copy?.disabled).toBe(true)
+    expect(copy?.title).toBe(reason)
+  })
+
+  it('opens a joined machine’s details for its machine page and Machine settings, and never asks it for an address', async () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const ws = workspace({ machines: [machine, home] })
+    for (const page of [<MachinePage key="page" id={home.id} />, <MachineSettingsPage key="settings" id={home.id} />]) {
+      window.history.replaceState(null, '', '/')
+      vi.mocked(client.get).mockClear()
+      const text = await render(<DashboardMachineOnly id={home.id}>{page}</DashboardMachineOnly>, ws)
+      expect(window.location.pathname).toBe(`/settings/machines/${home.id}`)
+      expect(text).not.toContain('Machine settings')
+      expect(vi.mocked(client.get).mock.calls.some(([p]) => String(p).includes('/address'))).toBe(false)
+    }
+    window.history.replaceState(null, '', '/')
+    const text = await render(
+      <DashboardMachineOnly id={machine.id}>
+        <MachinePage id={machine.id} />
+      </DashboardMachineOnly>,
+      ws,
+    )
+    expect(window.location.pathname).toBe('/')
+    expect(text).toContain('Machine settings')
+  })
+
+  it('says how to get a command when the dashboard has no address another machine can dial', async () => {
+    forgetJoinCode()
+    vi.mocked(client.post).mockClear()
+    answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5 }, sizingUrl: 'https://playkeeper.io/sizing', available: true, codes: [] } })
+    const text = await render(<MachinesSection />)
+    expect(text).toContain('Open this dashboard at its IP address or domain name, not localhost, to get the command.')
+    expect(vi.mocked(client.post).mock.calls.some(([p]) => String(p).includes('/join-codes'))).toBe(false)
+  })
+
+  it('says why a token can’t be made yet', async () => {
+    answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5 }, sizingUrl: '', available: true }, '/api/tokens': [] })
+    await render(<AiAgentsSection />)
+    const open = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New token'))
+    await act(async () => open?.click())
+    const make = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Make token')
+    expect(make?.disabled).toBe(true)
+    expect(make?.title).toBe('Give the token a name first.')
   })
 })
 

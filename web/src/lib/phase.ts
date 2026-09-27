@@ -110,9 +110,13 @@ export function busyReason(st: ServerStatus): string | undefined {
 
 export type ServerAction = 'start' | 'stop' | 'restart' | 'command' | 'change'
 
-/** Why an action can't run on a server right now, in a few plain words; undefined when it can. */
-export function whyNot(st: ServerStatus, action: ServerAction, stale: boolean): string | undefined {
-  if (stale) return t('reason.noAgent')
+/**
+ * Why an action can't run on a server right now, in a few plain words;
+ * undefined when it can. stale is set while the status isn't live, as a
+ * reason when there's a better one than the agent not answering.
+ */
+export function whyNot(st: ServerStatus, action: ServerAction, stale: boolean | string | undefined): string | undefined {
+  if (stale) return typeof stale === 'string' ? stale : t('reason.noAgent')
   if (st.phase === 'docker_unavailable') return t('status.docker')
   if (!st.exists) return t('reason.notCreated', { server: st.name })
   const busy = busyReason(st)

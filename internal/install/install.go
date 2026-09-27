@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -53,8 +54,20 @@ type Options struct {
 	// ReleaseURL, when set, is where the installed agent looks for updates
 	// (get.sh passes the location it downloaded from, if not the default).
 	ReleaseURL string
-	In         io.Reader
-	Out        io.Writer
+	// Join, when set, is the address of the dashboard this machine joins
+	// once installed. It then runs no dashboard of its own.
+	Join string
+	In   io.Reader
+	Out  io.Writer
+}
+
+// ports are the ports the install opens: the panel's and the game's, or
+// only the game's on a machine that joins another dashboard.
+func (o Options) ports() []int {
+	if o.Join != "" {
+		return []int{o.GamePort}
+	}
+	return []int{o.PanelPort, o.GamePort}
 }
 
 type Check struct {
@@ -147,6 +160,9 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 		what string
 		flag string
 	}{{o.PanelPort, "web panel (HTTPS)", "--panel-port"}, {o.GamePort, "Minecraft players", "--game-port"}} {
+		if !slices.Contains(o.ports(), p.port) {
+			continue
+		}
 		if sys.Listening(p.port) {
 			add("port-"+strconv.Itoa(p.port), fmt.Sprintf("Port %d", p.port), "fail", fmt.Sprintf("Port %d (for the %s) is already used by another program.", p.port, p.what),
 				fmt.Sprintf("See what uses it with: sudo ss -ltnp 'sport = :%d'. Stop that program, or choose another port with %s.", p.port, p.flag))
@@ -212,15 +228,23 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 	} else {
 		add("docker", "Docker", "fail", "Docker is not installed and apt-get is unavailable.", "Install Docker Engine, then run the installer again.")
 	}
-	ports := joinAnd(firewallRules(o.PanelPort, o.GamePort))
+	ports := joinAnd(firewallRules(o))
+	why := ""
+	if o.Join == "" {
+		why = " " + port80Why
+	}
 	if ufwActive(sys) {
 		f.UFWActive = true
-		add("firewall", "Firewall (ufw)", "info", "ufw is active; the installer will allow "+ports+". If your provider has a cloud firewall, allow them there too. "+port80Why, "")
+		add("firewall", "Firewall (ufw)", "info", "ufw is active; the installer will allow "+ports+". If your provider has a cloud firewall, allow them there too."+why, "")
 	} else {
-		add("firewall", "Firewall", "info", "No active ufw firewall. If your provider has a cloud firewall, allow "+ports+" there. "+port80Why, "")
+		add("firewall", "Firewall", "info", "No active ufw firewall. If your provider has a cloud firewall, allow "+ports+" there."+why, "")
 	}
 	f.PanelURLHost = primaryIP()
-	add("tls", "HTTPS", "info", "A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.", "")
+	if o.Join != "" {
+		add("join", "Dashboard", "info", "Once installed, this machine joins the dashboard at "+o.Join+". It dials out to it, so no port opens for it here.", "")
+	} else {
+		add("tls", "HTTPS", "info", "A self-signed certificate will be generated on this server. Your browser will ask you to trust it; compare the fingerprint the installer prints.", "")
+	}
 	return f
 }
 
@@ -304,24 +328,36 @@ func Plan(f Facts, o Options) []string {
 	if !f.DockerPresent {
 		p = append(p, "Packages:  install docker.io from Ubuntu's archive (with the packages it depends on)")
 	}
+	runs, second := "runs the web panel", PanelUnit
+	if o.Join != "" {
+		runs, second = "runs the link to your dashboard", LinkUnit
+	}
 	p = append(p,
-		"Users:     create 'playkeeper' (runs the web panel; no login shell; not in the docker group)",
+		"Users:     create 'playkeeper' ("+runs+"; no login shell; not in the docker group)",
 		"           create 'playkeeper-mc' (owns world files; the Minecraft container runs as this user)",
 		"Files:     "+BinPath,
 		"           "+ConfigDir+"/config.json",
-		"           "+UnitDir+"/"+AgentUnit+" and "+UnitDir+"/"+PanelUnit,
+		"           "+UnitDir+"/"+AgentUnit+" and "+UnitDir+"/"+second,
 	)
 	if f.ReuseData {
 		p = append(p, "Data:      reuse /var/lib/playkeeper (existing worlds and backups are kept as they are)")
 	} else {
 		p = append(p, "Data:      /var/lib/playkeeper (worlds, backups, settings)")
 	}
-	p = append(p,
-		"Services:  playkeeper-agent (root; local Unix socket only, no network port)",
-		fmt.Sprintf("           playkeeper-panel (HTTPS on port %d)", o.PanelPort),
-		fmt.Sprintf("Ports:     %d/tcp web panel now; %d/tcp Minecraft once you create a server;", o.PanelPort, o.GamePort),
-		"           80/tcp only while Let's Encrypt checks your own domain",
-	)
+	p = append(p, "Services:  playkeeper-agent (root; local Unix socket only, no network port)")
+	if o.Join != "" {
+		p = append(p,
+			"           playkeeper-link (dials your dashboard at "+o.Join+"; no port opens for it here)",
+			fmt.Sprintf("Ports:     %d/tcp Minecraft once you create a server; no dashboard runs here", o.GamePort),
+			"Then:      join your dashboard, after checking that its key matches the fingerprint in the command",
+		)
+	} else {
+		p = append(p,
+			fmt.Sprintf("           playkeeper-panel (HTTPS on port %d)", o.PanelPort),
+			fmt.Sprintf("Ports:     %d/tcp web panel now; %d/tcp Minecraft once you create a server;", o.PanelPort, o.GamePort),
+			"           80/tcp only while Let's Encrypt checks your own domain",
+		)
+	}
 	if !f.DockerPresent {
 		p = append(p,
 			"Network:   when Docker starts it turns on IP forwarding, sets the iptables FORWARD policy to DROP,",
@@ -333,7 +369,7 @@ func Plan(f Facts, o Options) []string {
 		p = append(p, fmt.Sprintf("Network:   the server gets its own Docker network, 'playkeeper' (a bridge), and Docker forwards %d/tcp to it", o.GamePort))
 	}
 	if f.UFWActive {
-		p = append(p, "Firewall:  ufw allow "+joinAnd(firewallRules(o.PanelPort, o.GamePort))+" (rules that already exist stay yours)")
+		p = append(p, "Firewall:  ufw allow "+joinAnd(firewallRules(o))+" (rules that already exist stay yours)")
 	}
 	p = append(p, "Untouched: your other services, existing Docker containers, SSH, and your own firewall rules")
 	return p
@@ -392,6 +428,8 @@ type Result struct {
 	Upgraded    bool
 	UpToDate    bool
 	FromVersion string
+	// NoPanel is set on a machine installed to join another dashboard.
+	NoPanel bool
 }
 
 // Run installs Playkeeper, or upgrades an existing install in place. On any
@@ -481,6 +519,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 	cfg := config.Default()
 	cfg.PanelPort, cfg.GamePort = in.o.PanelPort, in.o.GamePort
 	cfg.ReleaseURL = in.o.ReleaseURL
+	cfg.NoPanel = in.o.Join != ""
 	cfg.InstallID = randomHex(16)
 	in.m.InstallID = cfg.InstallID
 	fmt.Fprintln(in.out, "\nInstalling:")
@@ -583,11 +622,17 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		mode     os.FileMode
 		uid, gid int
 	}
+	// The 'playkeeper' user's directory: the panel's, or the link's on a
+	// machine that joins another dashboard.
+	own := cfg.PanelDir()
+	if cfg.NoPanel {
+		own = cfg.LinkDir()
+	}
 	dirs := []dir{
 		{ConfigDir, 0o755, 0, 0},
 		{cfg.DataDir, 0o755, 0, 0},
 		{cfg.AgentDir(), 0o700, 0, 0},
-		{cfg.PanelDir(), 0o700, puid, pgid},
+		{own, 0o700, puid, pgid},
 		{filepath.Join(cfg.DataDir, "servers"), 0o755, 0, 0},
 		{cfg.BackupsDir(), 0o700, 0, 0},
 		{cfg.StagingDir(), 0o700, 0, 0},
@@ -605,7 +650,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 				return err
 			}
 			if sys.IsRoot() {
-				if err := chownR(sys, p, d.uid, d.gid, d.path == cfg.PanelDir()); err != nil {
+				if err := chownR(sys, p, d.uid, d.gid, d.path == own); err != nil {
 					return err
 				}
 			}
@@ -656,39 +701,46 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		return nil, err
 	}
 
-	res := &Result{URL: fmt.Sprintf("https://%s:%d", in.f.PanelURLHost, cfg.PanelPort), ExistingAdm: in.f.ExistingAdmin}
-	if err := in.exec(step{name: "generate HTTPS certificate and first-run setup code", do: func() error {
-		tlsDir := sys.P(cfg.TLSDir())
-		fp, err := panel.EnsureSelfSignedCert(tlsDir, sys.Now())
-		if err != nil {
-			return err
-		}
-		res.Fingerprint = fp
-		if !in.f.ExistingAdmin {
-			code, err := panel.NewSetupToken(sys.P(cfg.SetupTokenPath()), 24*time.Hour, sys.Now())
+	res := &Result{NoPanel: cfg.NoPanel}
+	if !cfg.NoPanel {
+		res.URL, res.ExistingAdm = fmt.Sprintf("https://%s:%d", in.f.PanelURLHost, cfg.PanelPort), in.f.ExistingAdmin
+		if err := in.exec(step{name: "generate HTTPS certificate and first-run setup code", do: func() error {
+			tlsDir := sys.P(cfg.TLSDir())
+			fp, err := panel.EnsureSelfSignedCert(tlsDir, sys.Now())
 			if err != nil {
 				return err
 			}
-			res.SetupCode = code
-		}
-		if sys.IsRoot() {
-			return chownR(sys, sys.P(cfg.PanelDir()), puid, pgid, true)
-		}
-		return nil
-	}, undo: func() error {
-		if in.f.ReuseData {
+			res.Fingerprint = fp
+			if !in.f.ExistingAdmin {
+				code, err := panel.NewSetupToken(sys.P(cfg.SetupTokenPath()), 24*time.Hour, sys.Now())
+				if err != nil {
+					return err
+				}
+				res.SetupCode = code
+			}
+			if sys.IsRoot() {
+				return chownR(sys, sys.P(cfg.PanelDir()), puid, pgid, true)
+			}
 			return nil
+		}, undo: func() error {
+			if in.f.ReuseData {
+				return nil
+			}
+			os.Remove(sys.P(cfg.SetupTokenPath()))
+			return os.RemoveAll(sys.P(cfg.TLSDir()))
+		}}); err != nil {
+			return nil, err
 		}
-		os.Remove(sys.P(cfg.SetupTokenPath()))
-		return os.RemoveAll(sys.P(cfg.TLSDir()))
-	}}); err != nil {
-		return nil, err
 	}
 
 	if err := in.exec(step{name: "install and start systemd services", do: func() error {
-		units := Units(cfg)
+		units := Units(cfg, false)
 		for _, name := range unitNames {
-			if err := os.WriteFile(sys.P(UnitDir+"/"+name), []byte(units[name]), 0o644); err != nil {
+			content, ok := units[name]
+			if !ok {
+				continue
+			}
+			if err := os.WriteFile(sys.P(UnitDir+"/"+name), []byte(content), 0o644); err != nil {
 				return err
 			}
 			in.m.FilesCreated = append(in.m.FilesCreated, UnitDir+"/"+name)
@@ -697,14 +749,18 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		if _, err := sys.Run("systemctl", "daemon-reload"); err != nil {
 			return err
 		}
-		for _, name := range []string{AgentUnit, PanelUnit, UpdatePathUnit} {
+		start, panelPort := []string{AgentUnit, PanelUnit, UpdatePathUnit}, cfg.PanelPort
+		if cfg.NoPanel {
+			start, panelPort = []string{AgentUnit, UpdatePathUnit}, 0
+		}
+		for _, name := range start {
 			if _, err := sys.Run("systemctl", "enable", "--now", name); err != nil {
 				return err
 			}
 		}
 		hctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
-		return sys.WaitHealthy(hctx, cfg.SocketPath, sys.P(filepath.Join(cfg.TLSDir(), "cert.pem")), cfg.PanelPort)
+		return sys.WaitHealthy(hctx, cfg.SocketPath, sys.P(filepath.Join(cfg.TLSDir(), "cert.pem")), panelPort)
 	}, undo: func() error {
 		var errs []error
 		for _, name := range []string{UpdatePathUnit, PanelUnit, AgentUnit, UpdateServiceUnit} {
@@ -734,8 +790,12 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 	}
 
 	if in.f.UFWActive {
-		if err := in.exec(step{name: "allow the panel, game and Let's Encrypt ports in ufw", do: func() error {
-			for _, rule := range firewallRules(cfg.PanelPort, cfg.GamePort) {
+		name := "allow the panel, game and Let's Encrypt ports in ufw"
+		if cfg.NoPanel {
+			name = "allow the game port in ufw"
+		}
+		if err := in.exec(step{name: name, do: func() error {
+			for _, rule := range firewallRules(in.o) {
 				added, err := ufwAllow(sys, rule)
 				if err != nil {
 					return err
@@ -889,13 +949,20 @@ const acmeRule = "80/tcp"
 const port80Why = "Port 80 is only for Let's Encrypt's checks of your own domain; nothing answers on it otherwise."
 
 // firewallRules are the ufw rules the installer adds: the panel, the first
-// server and Let's Encrypt's checks.
-func firewallRules(panelPort, gamePort int) []string {
+// server and Let's Encrypt's checks. A machine that joins another dashboard
+// runs no dashboard of its own, so it gets only the first server's.
+func firewallRules(o Options) []string {
 	var out []string
-	for _, r := range []string{strconv.Itoa(panelPort) + "/tcp", strconv.Itoa(gamePort) + "/tcp", acmeRule} {
+	add := func(r string) {
 		if !contains(out, r) {
 			out = append(out, r)
 		}
+	}
+	for _, p := range o.ports() {
+		add(strconv.Itoa(p) + "/tcp")
+	}
+	if o.Join == "" {
+		add(acmeRule)
 	}
 	return out
 }
@@ -987,24 +1054,33 @@ func chownR(sys System, root string, uid, gid int, recursive bool) error {
 }
 
 // waitHealthy checks the agent socket and the panel's HTTPS endpoint. The
-// panel certificate is pinned (loaded from disk), never skipped.
+// panel certificate is pinned (loaded from disk), never skipped. Port 0
+// means the machine has no panel, so a timeout names only the agent's
+// journal.
 func waitHealthy(ctx context.Context, socket, certPath string, port int) error {
 	ac := agentclient.New(socket)
+	journals := "-u playkeeper-agent -u playkeeper-panel"
+	if port == 0 {
+		journals = "-u playkeeper-agent"
+	}
 	var lastErr error
 	for {
 		var h api.Health
 		_, err := ac.Do(ctx, "GET", "/v1/health", nil, nil, &h)
-		if err == nil {
+		switch {
+		case err != nil:
+			lastErr = err
+		case port == 0:
+			return nil
+		default:
 			lastErr = panelHealth(ctx, certPath, port)
 			if lastErr == nil {
 				return nil
 			}
-		} else {
-			lastErr = err
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("services did not become healthy: %v (see: sudo journalctl -u playkeeper-agent -u playkeeper-panel)", lastErr)
+			return fmt.Errorf("services did not become healthy: %v (see: sudo journalctl %s)", lastErr, journals)
 		case <-time.After(time.Second):
 		}
 	}
@@ -1024,6 +1100,8 @@ func waitVersion(ctx context.Context, socket, certPath string, port int, want st
 			lastErr = err
 		case h.Version != want:
 			lastErr = fmt.Errorf("the agent reports version %s", h.Version)
+		case port == 0:
+			return nil
 		default:
 			lastErr = panelVersion(ctx, certPath, port, want)
 			if lastErr == nil {

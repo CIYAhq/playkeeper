@@ -578,6 +578,38 @@ func (e *agentEnv) storedPacks() []string {
 	return names
 }
 
+// Players' games download resource packs from the dashboard on the pack's
+// machine. A machine installed to join another dashboard has none, so it
+// refuses a pack rather than offer players one they can't download.
+func TestAMachineWithoutADashboardRefusesResourcePacks(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		noPanel bool
+		code    int
+	}{
+		{"a machine with its own dashboard", false, 200},
+		{"a machine installed to join another dashboard", true, 409},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnvWith(t, func(e *agentEnv) { e.cfg.NoPanel = tc.noPanel })
+			e.create()
+			code, out := e.uploadTo(e.sp("/resourcepack?host=203.0.113.10&port=8443&name=Faithful.zip"), resourcePackZip(t, "Faithful 32x", true))
+			if code != tc.code {
+				t.Fatalf("upload: %d %v", code, out)
+			}
+			if tc.code == 200 {
+				return
+			}
+			if out["code"] != api.CodeConflict || out["error"] != "Resource packs work only on the dashboard's machine for now." {
+				t.Fatalf("the refusal: %v", out)
+			}
+			if got := e.storedPacks(); len(got) != 0 || e.resourcePack().Offer != nil || e.audits("resourcepack.offered") != 0 {
+				t.Fatalf("a refused pack was kept: %v", got)
+			}
+		})
+	}
+}
+
 // A resource pack is stored by its hash and offered to players from the
 // next start, with the owner's settings; the machine keeps each pack while
 // a server or its running container still offers it.

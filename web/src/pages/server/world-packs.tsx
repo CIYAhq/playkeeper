@@ -16,6 +16,7 @@ import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { formatBytes, relativeTime } from '@/lib/format'
+import { machineOf } from '@/lib/machines'
 import { opLabel, whyNot } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { usePoll, type Poll } from '@/lib/usePoll'
@@ -244,14 +245,16 @@ interface Gate {
   /** Why nothing can change right now, such as the agent being out of reach or another job running. */
   blocked?: string
   here: string
-  /** Why players' games couldn't download a pack from the address this page is open at. */
-  local?: string
+  /** Why players' games couldn't download a resource pack uploaded from here: the server runs on a joined machine, or this page is open at an address only this machine reaches. */
+  resource?: string
 }
 
 function useGate(s: ServerStatus): Gate {
   const ws = useWorkspace()
   const here = window.location.hostname
-  return { blocked: whyNot(s, 'change', ws.stale), here, local: isLocalHost(here) ? t('packs.localHost', { host: here }) : undefined }
+  // Players download resource packs from the dashboard, which can't pass on a joined machine's yet.
+  const joined = machineOf(s, ws.machines)?.kind === 'remote'
+  return { blocked: whyNot(s, 'change', ws.stale), here, resource: joined ? t('packs.joinedMachine') : isLocalHost(here) ? t('packs.localHost', { host: here }) : undefined }
 }
 
 interface PacksProps {
@@ -367,10 +370,10 @@ function ResourcePackCard({ server: s, rp, res }: PacksProps) {
         )}
         {view === 'error' && rp.error && <LoadError className="mt-4" error={rp.error} onRetry={rp.refresh} />}
         {offer && <OfferDetails server={s} offer={offer} res={res} gate={gate} />}
-        {view === 'empty' && <ZipDropZone tall label={t('packs.drop')} onFile={(f) => void res.upload(f)} busy={res.uploading} disabledReason={gate.blocked ?? gate.local} className="mt-4" />}
+        {view === 'empty' && <ZipDropZone tall label={t('packs.drop')} onFile={(f) => void res.upload(f)} busy={res.uploading} disabledReason={gate.blocked ?? gate.resource} className="mt-4" />}
       </div>
       <OfferProblem server={s} problem={rp.data?.problem} className="mt-4" />
-      {gate.local && rp.data && <p className="mt-3 text-xs text-warning-foreground">{gate.local}</p>}
+      {gate.resource && rp.data && <p className="mt-3 text-xs text-warning-foreground">{gate.resource}</p>}
       <Footnote server={s} className="mt-auto pt-4 text-xs text-muted-foreground">
         {resourceFootnote(s, rp.data)}
       </Footnote>
@@ -403,7 +406,7 @@ function OfferDetails({ server: s, offer, res, gate }: { server: ServerStatus; o
         {t('packs.prompt')}
       </label>
       <PromptInput key={`${offer.sha1}:${offer.prompt ?? ''}`} id={promptId} offer={offer} onSave={(prompt) => res.change(offer, { prompt })} disabled={!!gate.blocked} className="mt-1.5" />
-      <ZipDropZone label={t('packs.replaceDrop')} onFile={(f) => void res.upload(f)} busy={res.uploading} disabledReason={gate.blocked ?? gate.local} className="mt-4" />
+      <ZipDropZone label={t('packs.replaceDrop')} onFile={(f) => void res.upload(f)} busy={res.uploading} disabledReason={gate.blocked ?? gate.resource} className="mt-4" />
     </>
   )
 }
@@ -521,7 +524,7 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
   const prompt = res.draft?.prompt ?? offer?.prompt ?? ''
   const row = 'flex w-full items-center gap-3 px-4 text-left active:bg-accent/60 disabled:opacity-64 [&>svg]:size-5 [&>svg]:shrink-0'
   const card = 'mt-2 overflow-hidden rounded-3xl border border-border bg-white'
-  const uploadBlocked = gate.blocked ?? gate.local
+  const uploadBlocked = gate.blocked ?? gate.resource
 
   const upload = (
     <button type="button" className={cn(row, 'min-h-[52px] text-primary')} disabled={!!uploadBlocked || res.uploading} title={uploadBlocked} onClick={resPicker.open}>
@@ -595,7 +598,7 @@ function PhonePacks({ server: s, rp, dp, res, data }: PacksProps) {
           </ul>
         )}
         <OfferProblem server={s} problem={rp.data?.problem} className="px-4 pt-2" />
-        {gate.local && rp.data && <p className="px-4 pt-2 text-[13px] text-warning-foreground">{gate.local}</p>}
+        {gate.resource && rp.data && <p className="px-4 pt-2 text-[13px] text-warning-foreground">{gate.resource}</p>}
         <Footnote server={s} className="px-4 pt-2 text-[13px] text-muted-foreground">
           {resourceFootnote(s, rp.data)}
         </Footnote>

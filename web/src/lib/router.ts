@@ -19,7 +19,7 @@ export type Route =
   | { name: 'login' }
   | { name: 'setup' }
   | { name: 'welcome' }
-  | { name: 'new-server' }
+  | { name: 'new-server'; machine?: string }
   // page is a page under Overview: "How it's running".
   | { name: 'server'; slug: string; tab: ServerTab; sub?: ServerSub; page?: 'running' }
   | { name: 'machine'; id: string; sub?: MachineSub }
@@ -35,17 +35,29 @@ export type Route =
   | { name: 'join'; code: string }
   | { name: 'player'; slug: string; player: string }
   | { name: 'team' }
-  | { name: 'addon-sources' }
+  // machine is the one whose CurseForge key the page shows, from ?machine=; the dashboard's own when missing.
+  | { name: 'addon-sources'; machine?: string }
   | { name: 'discord' }
   // A friends' pack page, public; token is "" for a link that can't be one.
   | { name: 'pack'; token: string }
+  // Wave 8: AI agents, and the machines beyond the dashboard's own.
+  | { name: 'ai-agents' }
+  | { name: 'machines' }
+  | { name: 'machine-details'; id: string }
 
 const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
 const reCode = /^[A-Za-z0-9]{1,64}$/
 export const rePlayerName = /^[A-Za-z0-9_]{3,16}$/
 const rePackToken = /^[A-Za-z0-9]{22}$/
+const reMachineId = /^[a-z2-9]{10}$/
 
-export function parse(pathname: string): Route {
+/** The machine a page is about, from ?machine= in the address: where a new server goes, or whose add-on sources show. */
+function targetMachine(search: string): { machine?: string } {
+  const id = new URLSearchParams(search).get('machine')
+  return id && reMachineId.test(id) ? { machine: id } : {}
+}
+
+export function parse(pathname: string, search = ''): Route {
   const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean)
   const [first, second, third, fourth] = parts
   switch (first) {
@@ -61,8 +73,11 @@ export function parse(pathname: string): Route {
       return { name: 'join', code: second && reCode.test(second) && !third ? second : '' }
     case 'settings':
       if (second === 'team' && !third) return { name: 'team' }
-      if (second === 'addon-sources' && !third) return { name: 'addon-sources' }
+      if (second === 'addon-sources' && !third) return { name: 'addon-sources', ...targetMachine(search) }
       if (second === 'discord' && !third) return { name: 'discord' }
+      if (second === 'ai-agents' && !third) return { name: 'ai-agents' }
+      if (second === 'machines' && !third) return { name: 'machines' }
+      if (second === 'machines' && third && reMachineId.test(third) && parts.length === 3) return { name: 'machine-details', id: third }
       return { name: 'settings' }
     case 'account':
       return second === 'two-factor' && !third ? { name: 'account', section: 'two-factor' } : { name: 'account' }
@@ -75,7 +90,7 @@ export function parse(pathname: string): Route {
     case 'world':
       return { name: 'legacy', tab: first }
     case 'servers':
-      if (second === 'new' && !third) return { name: 'new-server' }
+      if (second === 'new' && !third) return { name: 'new-server', ...targetMachine(search) }
       if (second && reSlug.test(second)) {
         if (third === 'running' && parts.length === 3) return { name: 'server', slug: second, tab: 'overview', page: 'running' }
         const tab = (third ?? 'overview') as ServerTab
@@ -90,7 +105,7 @@ export function parse(pathname: string): Route {
       }
       return { name: 'home' }
     case 'machines':
-      if (second && /^[a-z2-9]{10}$/.test(second)) {
+      if (second && reMachineId.test(second)) {
         if (!third) return { name: 'machine', id: second }
         if (third === 'settings' && parts.length === 3) return { name: 'machine-settings', id: second }
         if (third === 'disk' && parts.length === 3) return { name: 'machine', id: second, sub: 'disk' }
@@ -113,7 +128,7 @@ export function href(route: Route): string {
     case 'welcome':
       return '/welcome'
     case 'new-server':
-      return '/servers/new'
+      return route.machine ? `/servers/new?machine=${route.machine}` : '/servers/new'
     case 'server': {
       if (route.page === 'running') return `/servers/${route.slug}/running`
       const path = route.tab === 'overview' ? `/servers/${route.slug}` : `/servers/${route.slug}/${route.tab}`
@@ -141,16 +156,30 @@ export function href(route: Route): string {
     case 'team':
       return '/settings/team'
     case 'addon-sources':
-      return '/settings/addon-sources'
+      return route.machine ? `/settings/addon-sources?machine=${route.machine}` : '/settings/addon-sources'
     case 'discord':
       return '/settings/discord'
     case 'pack':
       return `/packs/${route.token}`
+    case 'ai-agents':
+      return '/settings/ai-agents'
+    case 'machines':
+      return '/settings/machines'
+    case 'machine-details':
+      return `/settings/machines/${route.id}`
     default: {
       const unreachable: never = route
       return unreachable
     }
   }
+}
+
+// Where the dashboard is served from: '' normally, '/demo' for the live demo.
+// Routes and hrefs above are without it.
+const base = import.meta.env.BASE_URL.replace(/\/$/, '')
+
+function appPath(pathname: string): string {
+  return base && pathname.startsWith(base) ? pathname.slice(base.length) || '/' : pathname
 }
 
 const listeners = new Set<() => void>()
@@ -167,7 +196,7 @@ function revisit(path: string) {
 }
 
 export function navigate(to: Route | string, replace = false) {
-  const path = typeof to === 'string' ? to : href(to)
+  const path = base + (typeof to === 'string' ? to : href(to))
   if (path === window.location.pathname + window.location.hash && !replace) {
     revisit(path)
     return
@@ -179,9 +208,9 @@ export function navigate(to: Route | string, replace = false) {
 }
 
 export function useRoute(): Route {
-  const [route, setRoute] = useState<Route>(() => parse(window.location.pathname))
+  const [route, setRoute] = useState<Route>(() => parse(appPath(window.location.pathname), window.location.search))
   useEffect(() => {
-    const update = () => setRoute(parse(window.location.pathname))
+    const update = () => setRoute(parse(appPath(window.location.pathname), window.location.search))
     listeners.add(update)
     window.addEventListener('popstate', update)
     return () => {
@@ -200,7 +229,7 @@ export function linkProps(to: Route) {
 /** linkProps for a path, which may carry a #section. */
 export function linkPath(path: string) {
   return {
-    href: path,
+    href: base + path,
     onClick: (e: React.MouseEvent<HTMLAnchorElement>) => {
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
       e.preventDefault()

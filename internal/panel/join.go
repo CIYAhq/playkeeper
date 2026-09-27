@@ -141,18 +141,38 @@ func (s *Server) creator(inv invites.Invite) invites.Account {
 }
 
 // joinServer is what the public page may say about a friend invite's server,
-// and the machine that runs it. A server that is gone reads like a link that
-// doesn't work.
+// and the machine that runs it.
 func (s *Server) joinServer(r *http.Request, serverID string) (invites.Server, machine, error) {
 	m, st, err := s.serverStatus(r, serverID)
+	if err != nil {
+		return invites.Server{}, machine{}, joinFailure(err)
+	}
+	return s.inviteServer(r, m, st), m, nil
+}
+
+// joinFailure is the public page's refusal for a friend invite's server that
+// couldn't be asked, sorted as failureOf sorts the dashboard's: a server no
+// machine runs reads like a link that doesn't work, one two machines list
+// like a link that doesn't work for now, and a failed lookup or a machine
+// that can't answer like a moment to try again. None names the server, and
+// each is logged by its own reason.
+func joinFailure(err error) *invites.Error {
 	var ae *agentclient.Error
 	switch {
 	case errors.As(err, &ae) && ae.Status == http.StatusNotFound, errors.Is(err, errNotFound):
-		return invites.Server{}, machine{}, invites.NotFound()
-	case err != nil:
-		return invites.Server{}, machine{}, errJoinUnavailable
+		e := invites.NotFound()
+		e.Reason = "no machine runs the invite's server"
+		return e
+	case errors.Is(err, errDisputed):
+		return &invites.Error{Code: codeServerDisputed, Status: http.StatusConflict,
+			Msg: "This invite link doesn't work right now.", Hint: "Ask the person who sent it to check their Playkeeper dashboard.",
+			Reason: "two machines list the invite's server"}
+	case errors.Is(err, errServerMachine):
+		return &invites.Error{Code: api.CodeInternal, Status: http.StatusServiceUnavailable,
+			Msg: "Playkeeper can't open this invite right now.", Hint: "Try again in a few minutes.",
+			Reason: "could not look up the machine that runs the invite's server"}
 	}
-	return s.inviteServer(r, st), m, nil
+	return errJoinUnavailable
 }
 
 // serverRef is a server's id and name.
@@ -161,20 +181,20 @@ type serverRef struct {
 	Name string `json:"name"`
 }
 
-// listServers lists every server on every machine. It fails when a machine
-// doesn't answer, since team invites narrow to the servers that exist.
+// listServers lists every server on every machine, as allServers does: a
+// joined machine that doesn't answer gives its servers as it last listed
+// them, so it can't hold up team changes and invites. Only the dashboard's
+// own machine has to answer, and only when it's the only one.
 func (s *Server) listServers(ctx context.Context) ([]serverRef, error) {
-	list, err := s.machines()
+	all, _, err := s.allServers(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var out []serverRef
-	for _, m := range list {
-		var servers []serverRef
-		if _, err := m.agent.Do(ctx, "GET", "/v1/servers", nil, nil, &servers); err != nil {
-			return nil, err
-		}
-		out = append(out, servers...)
+	out := make([]serverRef, 0, len(all))
+	for _, sv := range all {
+		id, _ := sv["id"].(string)
+		name, _ := sv["name"].(string)
+		out = append(out, serverRef{ID: id, Name: name})
 	}
 	return out, nil
 }
@@ -429,7 +449,7 @@ func (s *Server) askToJoin(w http.ResponseWriter, r *http.Request, c joinCall, i
 	}
 	if asked {
 		s.audit(inv.Actor(), "invite.redeem", p.Name, "succeeded", "asked to join")
-		s.notifyJoinRequest(r.Context(), m, jr, inv.Actor())
+		s.notifyJoinRequest(r.Context(), srv.Name, jr, inv.Actor())
 	}
 	info, err := invites.Wait(srv, p, "")
 	s.answerJoin(w, info, err)

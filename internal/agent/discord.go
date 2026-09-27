@@ -585,12 +585,23 @@ func (a *Agent) hDiscordNotify(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Minecraft usernames are 3–16 letters, numbers or underscores."))
 		return
 	}
-	s := a.serverByID(req.ServerID)
-	if s == nil {
+	if s := a.serverByID(req.ServerID); s != nil {
+		s.alert(discord.JoinRequested(req.Player))
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	// A server on a joined machine: this agent holds the dashboard's Discord
+	// settings, so the panel sends the server's name along.
+	name, err := validName(req.ServerName)
+	if err != nil || !reServerID.MatchString(req.ServerID) {
 		writeError(w, errNotFound("Server"))
 		return
 	}
-	s.alert(discord.JoinRequested(req.Player))
+	if a.discordConnected() {
+		e := discord.JoinRequested(req.Player)
+		e.Server = discord.ServerInfo{ID: req.ServerID, Name: name}
+		a.disc.n.Notify(e)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

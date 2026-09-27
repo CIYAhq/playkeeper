@@ -105,6 +105,12 @@ export function responseError(status: number, text: string): ApiError {
   return new ApiError(status, { error: t('error.http', { status: String(status) }), code: 'internal' })
 }
 
+/** A player's face, which the panel draws from their own skin. */
+export const playerHeadUrl = (name: string, uuid?: string) => `/api/players/${encodeURIComponent(name)}/head${uuid ? `?uuid=${encodeURIComponent(uuid)}` : ''}`
+
+/** An add-on's icon, which the panel fetches from its library; undefined when there is none to show. */
+export const addonIconUrl = (serverId: string, url: string): string | undefined => `/api/servers/${serverId}/addons/icon?url=${encodeURIComponent(url)}`
+
 /** Saves a file the API sends as an attachment, failing like api() so the error can be shown. */
 export async function download(path: string, fallbackName: string): Promise<string> {
   let res: Response

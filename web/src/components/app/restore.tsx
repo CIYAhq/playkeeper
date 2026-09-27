@@ -13,6 +13,7 @@ import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { formatBytes, formatDateTime, formatMB } from '@/lib/format'
+import { machineOf } from '@/lib/machines'
 import { navigate } from '@/lib/router'
 import { softwareName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
@@ -25,22 +26,43 @@ export async function uploadBackup(file: File, machineId: string, server?: Serve
   return api<RestorePreview>('POST', path, undefined, file)
 }
 
-/** A drop zone for a backup file; the preview opens once it's checked. */
-export function RestoreDropZone({ server, onPreview, className, compact }: { server?: ServerStatus; onPreview: (p: RestorePreview) => void; className?: string; compact?: boolean }) {
+/**
+ * The machine a restore happens on: the server's, or for a new server the
+ * machine given, else the dashboard's own.
+ */
+function useRestoreMachine(server: ServerStatus | undefined, machine: string | undefined): string | undefined {
   const ws = useWorkspace()
+  return (server ? machineOf(server, ws.machines)?.id : machine) ?? ws.machine?.id
+}
+
+/** A drop zone for a backup file; the preview opens once it's checked. */
+export function RestoreDropZone({
+  server,
+  machine,
+  onPreview,
+  className,
+  compact,
+}: {
+  server?: ServerStatus
+  machine?: string
+  onPreview: (p: RestorePreview) => void
+  className?: string
+  compact?: boolean
+}) {
+  const mid = useRestoreMachine(server, machine)
   const [over, setOver] = useState(false)
   const [busy, setBusy] = useState(false)
   const input = useRef<HTMLInputElement>(null)
 
   async function take(file: File | undefined) {
-    if (!file || !ws.machine) return
+    if (!file || !mid) return
     if (file.size > maxUpload) {
       toastManager.add({ title: t('restore.tooBig'), type: 'error' })
       return
     }
     setBusy(true)
     try {
-      onPreview(await uploadBackup(file, ws.machine.id, server))
+      onPreview(await uploadBackup(file, mid, server))
     } catch (e) {
       toastManager.add({ title: errorText(e), type: 'error' })
     } finally {
@@ -100,8 +122,9 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 /** What a backup holds and what restoring it does, before anything changes. */
-export function RestoreDialog({ preview, server, onClose }: { preview: RestorePreview | undefined; server?: ServerStatus; onClose: () => void }) {
+export function RestoreDialog({ preview, server, machine, onClose }: { preview: RestorePreview | undefined; server?: ServerStatus; machine?: string; onClose: () => void }) {
   const ws = useWorkspace()
+  const mid = useRestoreMachine(server, machine)
   const [phrase, setPhrase] = useState('')
   const [name, setName] = useState('')
   const [eula, setEula] = useState(false)
@@ -110,16 +133,16 @@ export function RestoreDialog({ preview, server, onClose }: { preview: RestorePr
   const m = preview?.manifest
 
   async function discard() {
-    if (preview && ws.machine) await del(machineApi(ws.machine.id, `/restore/${preview.id}`)).catch(() => undefined)
+    if (preview && mid) await del(machineApi(mid, `/restore/${preview.id}`)).catch(() => undefined)
     setPhrase('')
     onClose()
   }
 
   async function apply() {
-    if (!preview || !ws.machine) return
+    if (!preview || !mid) return
     setBusy(true)
     try {
-      await post(machineApi(ws.machine.id, `/restore/${preview.id}/apply`), creating ? { confirm: preview.confirmPhrase, acceptEula: eula, name: name.trim() } : { confirm: phrase.trim() })
+      await post(machineApi(mid, `/restore/${preview.id}/apply`), creating ? { confirm: preview.confirmPhrase, acceptEula: eula, name: name.trim() } : { confirm: phrase.trim() })
       toastManager.add({ title: creating ? t('restore.startedNew') : t('restore.started', { server: server?.name ?? '' }), type: 'success' })
       setPhrase('')
       onClose()

@@ -14,11 +14,13 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/backup"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
+	"github.com/CIYAhq/playkeeper/internal/sizing"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
 
@@ -73,12 +75,37 @@ func (a *Agent) hMachine(w http.ResponseWriter, r *http.Request) {
 // catalogInfo is what a server can choose: for a new server when forServer
 // is empty, or for an existing one's settings.
 func (a *Agent) catalogInfo(ctx context.Context, forServer string) api.Catalog {
-	return a.catalogFor(ctx, forServer, "")
+	return a.catalogFor(ctx, forServer, "", -1, -1)
+}
+
+// catalogWorkload is what the sizing guide sizes a catalog's memory options
+// for, by sizing.WorkloadFor: an existing server by the plugins or mods in
+// its folder, a new server from a pack or template by the mods and plugins
+// it brings (each -1 when there's none or it didn't say), and any other new
+// server by what its type runs, a mod loader as a handful of mods.
+func (a *Agent) catalogWorkload(forServer, typ string, mods, plugins int) sizing.Workload {
+	if s := a.serverByID(forServer); s != nil {
+		if sc, _ := s.serverConfig(); sc != nil {
+			n := len(s.addons(*sc))
+			if addonDir(*sc) == "plugins" {
+				return sizing.WorkloadFor(0, n)
+			}
+			return sizing.WorkloadFor(n, 0)
+		}
+	}
+	if mods >= 0 || plugins >= 0 {
+		return sizing.WorkloadFor(max(mods, 0), max(plugins, 0))
+	}
+	if t, err := addons.TargetFor(typ); err == nil && t.Kind == "mod" {
+		return sizing.AddOns
+	}
+	return sizing.Vanilla
 }
 
 // catalogFor is catalogInfo with the versions of one server type: typ, or
-// the server's own type, or Paper.
-func (a *Agent) catalogFor(ctx context.Context, forServer, typ string) api.Catalog {
+// the server's own type, or Paper. mods and plugins are the numbers a new
+// server's pack or template brings, or -1.
+func (a *Agent) catalogFor(ctx context.Context, forServer, typ string, mods, plugins int) api.Catalog {
 	if typ == "" {
 		typ = api.TypePaper
 		if s := a.serverByID(forServer); s != nil {
@@ -96,6 +123,7 @@ func (a *Agent) catalogFor(ctx context.Context, forServer, typ string) api.Catal
 		Type: typ, Types: serverTypes(), Versions: []api.CatalogEntry{},
 		MemoryOptionsMB: opts, RecommendedMemoryMB: rec, HostMemoryMB: host, MaxMemoryMB: max,
 		SystemReserveMB: minecraft.HostReserveMB, MemoryFreeMB: max, Servers: []api.ServerMemory{}, Image: minecraft.ImageTag,
+		Sizing: memorySizing(a.catalogWorkload(forServer, typ, mods, plugins), opts),
 	}
 	for _, s := range a.serverList() {
 		sc, _ := s.serverConfig()
@@ -130,6 +158,27 @@ func (a *Agent) catalogFor(ctx context.Context, forServer, typ string) api.Catal
 	return c
 }
 
+// memorySizing is the sizing guide's advice on the memory options for a
+// server running w.
+func memorySizing(w sizing.Workload, opts []int) api.MemorySizing {
+	s := api.MemorySizing{Workload: string(w), Budgets: []api.MemoryBudget{}, Suggestions: []api.MemorySuggestion{}}
+	for _, mb := range opts {
+		players, err := sizing.PlayersFor(w, mb)
+		if err != nil {
+			return api.MemorySizing{Budgets: []api.MemoryBudget{}, Suggestions: []api.MemorySuggestion{}}
+		}
+		s.Budgets = append(s.Budgets, api.MemoryBudget{MemoryMB: mb, HeapMB: minecraft.HeapMB(mb), Players: players})
+	}
+	for _, b := range sizing.Bands() {
+		mb, err := sizing.SuggestMemory(w, b.Max)
+		if err != nil {
+			return api.MemorySizing{Budgets: []api.MemoryBudget{}, Suggestions: []api.MemorySuggestion{}}
+		}
+		s.Suggestions = append(s.Suggestions, api.MemorySuggestion{Players: b.Max, MemoryMB: mb})
+	}
+	return s
+}
+
 func (a *Agent) hCatalog(w http.ResponseWriter, r *http.Request) {
 	forServer := r.URL.Query().Get("server")
 	if forServer != "" && a.serverByID(forServer) == nil {
@@ -141,7 +190,19 @@ func (a *Agent) hCatalog(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("%s servers can't be created.", typeName(typ)))
 		return
 	}
-	writeJSON(w, http.StatusOK, a.catalogFor(r.Context(), forServer, typ))
+	var counts [2]int
+	for i, name := range []string{"mods", "plugins"} {
+		counts[i] = -1
+		if v := r.URL.Query().Get(name); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 0 || n > 100000 {
+				writeError(w, errInvalid("The number of %s must be a whole number.", name))
+				return
+			}
+			counts[i] = n
+		}
+	}
+	writeJSON(w, http.StatusOK, a.catalogFor(r.Context(), forServer, typ, counts[0], counts[1]))
 }
 
 // Status assembles the server's desired and observed state. Nothing here is

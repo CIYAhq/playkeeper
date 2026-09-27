@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"time"
 
@@ -73,10 +74,20 @@ type upgrader struct {
 	out     io.Writer
 	prev    string
 	timeout time.Duration
+	// services are the units an upgrade stops and starts, in starting
+	// order, and what describes them; panelPort is where the panel's health
+	// is checked, 0 on a machine without a panel.
+	services  []string
+	what      string
+	panelPort int
 }
 
 func newUpgrader(sys System, cfg config.Config, o UpgradeOptions) *upgrader {
-	u := &upgrader{sys: sys, cfg: cfg, o: o, out: o.Out, prev: sys.P(PreviousDir(cfg)), timeout: o.HealthTimeout}
+	u := &upgrader{sys: sys, cfg: cfg, o: o, out: o.Out, prev: sys.P(PreviousDir(cfg)), timeout: o.HealthTimeout,
+		services: []string{AgentUnit, PanelUnit}, what: "the agent and panel", panelPort: cfg.PanelPort}
+	if cfg.NoPanel {
+		u.services, u.what, u.panelPort = []string{AgentUnit}, "the agent", 0
+	}
 	if u.out == nil {
 		u.out = io.Discard
 	}
@@ -86,9 +97,20 @@ func newUpgrader(sys System, cfg config.Config, o UpgradeOptions) *upgrader {
 	return u
 }
 
-// checkUnits refuses a unit set that misses the agent or panel or names a
-// file Playkeeper does not own.
-func checkUnits(units map[string]string) error {
+// systemctl runs a systemctl verb on the services: stop and reset-failed
+// in the reverse of their starting order.
+func (u *upgrader) systemctl(verb string) error {
+	units := slices.Clone(u.services)
+	if verb != "start" {
+		slices.Reverse(units)
+	}
+	_, err := u.sys.Run("systemctl", append([]string{verb}, units...)...)
+	return err
+}
+
+// checkUnits refuses a unit set that misses the agent, or the panel on a
+// machine that has one, or that names a file Playkeeper does not own.
+func checkUnits(units map[string]string, noPanel bool) error {
 	allowed := map[string]bool{}
 	for _, n := range unitNames {
 		allowed[n] = true
@@ -101,7 +123,7 @@ func checkUnits(units map[string]string) error {
 			return fmt.Errorf("the new version's %s is empty", name)
 		}
 	}
-	if units[AgentUnit] == "" || units[PanelUnit] == "" {
+	if units[AgentUnit] == "" || (units[PanelUnit] == "" && !noPanel) {
 		return errors.New("the new version does not provide the agent and panel units")
 	}
 	return nil
@@ -112,7 +134,7 @@ func checkUnits(units map[string]string) error {
 // restart. The binary, units, config and databases are copied first and put
 // back if the new version does not come up healthy.
 func Upgrade(ctx context.Context, sys System, cfg config.Config, o UpgradeOptions) error {
-	if err := checkUnits(o.Units); err != nil {
+	if err := checkUnits(o.Units, cfg.NoPanel); err != nil {
 		return &NothingChangedError{err}
 	}
 	u := newUpgrader(sys, cfg, o)
@@ -166,10 +188,7 @@ func (u *upgrader) apply(ctx context.Context) error {
 		name string
 		do   func() error
 	}{
-		{"stop the agent and panel (the Minecraft server keeps running)", func() error {
-			_, err := u.sys.Run("systemctl", "stop", PanelUnit, AgentUnit)
-			return err
-		}},
+		{"stop " + u.what + " (the Minecraft server keeps running)", func() error { return u.systemctl("stop") }},
 		{"save a copy of the databases", u.saveDatabases},
 		{"install Playkeeper " + u.o.NewVersion, func() error { return copyFile(u.o.NewBinary, u.sys.P(BinPath), 0o755) }},
 		{"write the config", func() error {
@@ -179,10 +198,7 @@ func (u *upgrader) apply(ctx context.Context) error {
 			return u.o.Config.Save(u.sys.P(ConfigDir + "/config.json"))
 		}},
 		{"install the systemd services", u.writeUnits},
-		{"start Playkeeper " + u.o.NewVersion, func() error {
-			_, err := u.sys.Run("systemctl", "start", AgentUnit, PanelUnit)
-			return err
-		}},
+		{"start Playkeeper " + u.o.NewVersion, func() error { return u.systemctl("start") }},
 		{"wait until Playkeeper " + u.o.NewVersion + " is healthy", func() error { return u.waitHealthy(ctx, u.o.NewVersion) }},
 	}
 	for _, s := range steps {
@@ -191,7 +207,22 @@ func (u *upgrader) apply(ctx context.Context) error {
 			return fmt.Errorf("%s: %w", s.name, err)
 		}
 	}
+	u.restartLink()
 	return nil
+}
+
+// restartLink restarts a joined machine's link so that it runs the version
+// now installed. A link left on the previous version still works, and the
+// dashboard says which version it runs, so a failure is reported, not
+// returned.
+func (u *upgrader) restartLink() {
+	if _, err := os.Stat(u.sys.P(UnitDir + "/" + LinkUnit)); err != nil {
+		return
+	}
+	u.step("restart the link to the dashboard")
+	if _, err := u.sys.Run("systemctl", "try-restart", LinkUnit); err != nil {
+		fmt.Fprintf(u.out, "  ! the link did not restart (%v); restart it with: sudo systemctl restart %s\n", err, LinkUnit)
+	}
 }
 
 func (u *upgrader) writeUnits() error {
@@ -219,13 +250,13 @@ func (u *upgrader) waitHealthy(ctx context.Context, version string) error {
 	cert := u.sys.P(filepath.Join(u.cfg.TLSDir(), "cert.pem"))
 	hctx, cancel := context.WithTimeout(ctx, u.timeout)
 	defer cancel()
-	if err := u.sys.WaitVersion(hctx, u.cfg.SocketPath, cert, u.cfg.PanelPort, version); err != nil {
+	if err := u.sys.WaitVersion(hctx, u.cfg.SocketPath, cert, u.panelPort, version); err != nil {
 		return err
 	}
 	u.sys.Sleep(stableAfter)
 	hctx2, cancel2 := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel2()
-	if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.cfg.PanelPort, version); err != nil {
+	if err := u.sys.WaitVersion(hctx2, u.cfg.SocketPath, cert, u.panelPort, version); err != nil {
 		return fmt.Errorf("Playkeeper %s answered, then stopped: %w", version, err)
 	}
 	return nil
@@ -275,11 +306,11 @@ func (u *upgrader) restore(ctx context.Context, version string) error {
 		has[n] = true
 	}
 	var errs []error
-	u.step("stop the agent and panel")
-	_, _ = u.sys.Run("systemctl", "stop", PanelUnit, AgentUnit)
+	u.step("stop " + u.what)
+	_ = u.systemctl("stop")
 	// A version that kept crashing may have hit systemd's start limit, which
 	// would refuse the start below.
-	_, _ = u.sys.Run("systemctl", "reset-failed", PanelUnit, AgentUnit)
+	_ = u.systemctl("reset-failed")
 	u.step("put back Playkeeper " + version + ", its services and config")
 	errs = append(errs, copyFile(filepath.Join(u.prev, "playkeeper"), u.sys.P(BinPath), 0o755))
 	errs = append(errs, u.copyPreserving(filepath.Join(u.prev, "config.json"), u.sys.P(ConfigDir+"/config.json")))
@@ -306,14 +337,18 @@ func (u *upgrader) restore(ctx context.Context, version string) error {
 		errs = append(errs, err)
 	}
 	u.step("start Playkeeper " + version)
-	if _, err := u.sys.Run("systemctl", "start", AgentUnit, PanelUnit); err != nil {
+	if err := u.systemctl("start"); err != nil {
 		errs = append(errs, err)
 	}
 	if err := errors.Join(errs...); err != nil {
 		return err
 	}
 	u.step("wait until Playkeeper " + version + " is healthy")
-	return u.waitHealthy(ctx, version)
+	if err := u.waitHealthy(ctx, version); err != nil {
+		return err
+	}
+	u.restartLink()
+	return nil
 }
 
 // recordVersion records the running version and its units in the install
@@ -334,7 +369,9 @@ func (u *upgrader) updateManifest(version string) error {
 	m.Version = version
 	for _, name := range unitNames {
 		f := UnitDir + "/" + name
-		if _, err := os.Stat(u.sys.P(f)); err != nil {
+		// The link's unit belongs to joining a dashboard, and leaving it
+		// removes the unit before uninstall gets to the manifest's units.
+		if _, err := os.Stat(u.sys.P(f)); err != nil || name == LinkUnit {
 			continue
 		}
 		if !contains(m.Units, name) {
@@ -362,11 +399,12 @@ func Recover(ctx context.Context, sys System, cfg config.Config, want string, ou
 	case want:
 		if u.waitHealthy(ctx, want) == nil {
 			u.recordVersion(want)
+			u.restartLink()
 			return true, nil
 		}
 	case snap.Version:
 		// The new version was never installed; make sure the old one runs.
-		if _, err := sys.Run("systemctl", "start", AgentUnit, PanelUnit); err != nil {
+		if err := u.systemctl("start"); err != nil {
 			return false, err
 		}
 		return false, u.waitHealthy(ctx, snap.Version)

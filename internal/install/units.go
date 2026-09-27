@@ -2,6 +2,7 @@ package install
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/CIYAhq/playkeeper/internal/config"
@@ -10,20 +11,86 @@ import (
 const (
 	UpdatePathUnit    = "playkeeper-update.path"
 	UpdateServiceUnit = "playkeeper-update.service"
+	LinkUnit          = "playkeeper-link.service"
 )
 
 // unitNames are the only systemd units Playkeeper installs; an update may
 // write no other file into /etc/systemd/system.
-var unitNames = []string{AgentUnit, PanelUnit, UpdatePathUnit, UpdateServiceUnit}
+var unitNames = []string{AgentUnit, PanelUnit, UpdatePathUnit, UpdateServiceUnit, LinkUnit}
 
-// Units returns every systemd unit this version installs, by name.
-func Units(cfg config.Config) map[string]string {
-	return map[string]string{
+// Units returns the systemd units this version installs on a machine, by
+// name. A machine installed to join another dashboard has no panel, and
+// only a joined machine has the link: an older version's updater refuses
+// units it doesn't know, and it only ever runs on machines that never
+// joined.
+func Units(cfg config.Config, joined bool) map[string]string {
+	units := map[string]string{
 		AgentUnit:         agentUnit(),
-		PanelUnit:         panelUnit(cfg.PanelPort),
 		UpdatePathUnit:    updatePathUnit(cfg),
 		UpdateServiceUnit: updateServiceUnit(),
 	}
+	if !cfg.NoPanel {
+		units[PanelUnit] = panelUnit(cfg.PanelPort)
+	}
+	if joined {
+		units[LinkUnit] = LinkUnitFile(cfg)
+	}
+	return units
+}
+
+// Joined reports whether the machine under root has joined a dashboard.
+func Joined(cfg config.Config, root string) bool {
+	_, err := os.Stat(filepath.Join(root, cfg.LinkDashboardPath()))
+	return err == nil
+}
+
+// LinkUnitFile keeps a joined machine's link to its dashboard, as the
+// unprivileged 'playkeeper' user: it dials out and answers the dashboard
+// through the agent's socket, so no port opens on the machine. It starts
+// only while the machine is joined; when the dashboard removes the machine,
+// the link deletes the file that says so and stays stopped.
+func LinkUnitFile(cfg config.Config) string {
+	return fmt.Sprintf(`[Unit]
+Description=Playkeeper machine link (dials the dashboard this machine joined)
+After=network-online.target playkeeper-agent.service
+Wants=network-online.target
+ConditionPathExists=%s
+
+[Service]
+Type=simple
+User=playkeeper
+Group=playkeeper
+ExecStart=/usr/local/bin/playkeeper link --config /etc/playkeeper/config.json
+Restart=always
+RestartSec=5
+RuntimeDirectory=playkeeper-link
+RuntimeDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=%s
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
+`, cfg.LinkDashboardPath(), cfg.LinkDir())
 }
 
 // UpdateDir holds a verified update the agent staged, the updater's

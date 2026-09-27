@@ -827,6 +827,28 @@ func TestDiscordNotifyTakesJoinRequestsOnly(t *testing.T) {
 	f.waitMessage(e, "Join request", `mara\\_k`, "wants to join")
 }
 
+// The dashboard's agent posts a join request for a joined machine's server,
+// which it doesn't run, under the name the panel sends.
+func TestDiscordNotifyPostsAJoinedMachinesJoinRequestUnderItsName(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	for _, c := range []struct {
+		name   string
+		body   map[string]any
+		status int
+	}{
+		{"no name", map[string]any{"kind": "join_requested", "serverId": "zzzzzzzzzz", "player": "mara_k", "actor": "invite:abc"}, 404},
+		{"a name with formatting", map[string]any{"kind": "join_requested", "serverId": "zzzzzzzzzz", "serverName": "§cCobblemon", "player": "mara_k", "actor": "invite:abc"}, 404},
+		{"not a server id", map[string]any{"kind": "join_requested", "serverId": "../etc", "serverName": "Cobblemon", "player": "mara_k", "actor": "invite:abc"}, 404},
+		{"a joined machine's server", map[string]any{"kind": "join_requested", "serverId": "zzzzzzzzzz", "serverName": "Cobblemon", "player": "mara_k", "actor": "invite:abc"}, 204},
+	} {
+		if code, out := e.call("POST", "/v1/discord/notify", c.body); code != c.status {
+			t.Errorf("%s: %d %v", c.name, code, out)
+		}
+	}
+	f.waitMessage(e, "Join request", "Cobblemon", `mara\\_k`, "wants to join")
+}
+
 func TestDiscordNotifyTakesTwoFactorChangesWithEveryAlertOff(t *testing.T) {
 	e, f := newDiscordEnv(t)
 	e.connectDiscord()

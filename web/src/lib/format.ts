@@ -129,6 +129,16 @@ export function formatDay(iso: string, now: Date = new Date()): string {
   return `${formatDate(iso)} ${formatClock(iso)}`
 }
 
+/** "18:02" today, "yesterday", or "12 Sep": the short time of a row in a recent list. */
+export function formatWhen(iso: string, now: Date = new Date()): string {
+  const d = new Date(iso)
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  if (sameDay(d, now)) return formatClock(iso)
+  if (sameDay(d, yesterday)) return t('time.yesterdayWord')
+  return formatDate(iso)
+}
+
 /** "a", "a and b", "a, b and c". */
 export function formatList(items: string[]): string {
   if (items.length <= 1) return items[0] ?? ''

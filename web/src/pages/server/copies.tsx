@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { BookOpenIcon, ChevronRightIcon, CircleCheckIcon, CircleXIcon, CopyIcon, DownloadIcon, EllipsisIcon, ExternalLinkIcon, FileDownIcon, HardDriveIcon, HourglassIcon, KeyRoundIcon, PowerOffIcon, RefreshCwIcon, ServerIcon, ShieldCheckIcon, TriangleAlertIcon } from 'lucide-react'
 import { ApiError, download, get, post } from '@/api/client'
 import type { OffsiteCheck, OffsiteCopy, OffsiteNewKey, OffsitePending, OffsiteTestResult, OffsiteView, ServerStatus } from '@/api/types'
-import { errorText, serverApi, useWorkspace } from '@/api/workspace'
+import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { Card, CardTitle, CopyButton, Marker, Progress, SectionLabel, Spinner, copyText } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, ChoiceSelect, Segmented } from '@/components/app/controls'
 import { PhoneBackHeader } from '@/components/app/shell'
@@ -1049,7 +1049,7 @@ export function CopiesCard({ server: s, onChangeRules }: { server: ServerStatus;
 }
 
 function DesktopCopies({ server: s, view: v, refresh, onChangeRules }: { server: ServerStatus; view: OffsiteView; refresh: () => Promise<void>; onChangeRules: () => void }) {
-  const ws = useWorkspace()
+  const { name: machine } = useServerMachine(s)
   const c = useCopies(s, v, refresh)
   const d = c.draft
   const r = c.test?.result
@@ -1100,12 +1100,12 @@ function DesktopCopies({ server: s, view: v, refresh, onChangeRules }: { server:
   } else if (state.kind === 'idle') {
     footer = (
       <div className="flex items-center justify-between gap-3">
-        <CopyStatus state={state} v={v} c={c} machine={ws.machineName} onChangeRules={onChangeRules} />
+        <CopyStatus state={state} v={v} c={c} machine={machine} onChangeRules={onChangeRules} />
         {testButton(false)}
       </div>
     )
   } else {
-    footer = <CopyStatus state={state} v={v} c={c} machine={ws.machineName} onChangeRules={onChangeRules} />
+    footer = <CopyStatus state={state} v={v} c={c} machine={machine} onChangeRules={onChangeRules} />
   }
   return (
     <Card className="flex flex-col">
@@ -1144,7 +1144,7 @@ function DesktopCopies({ server: s, view: v, refresh, onChangeRules }: { server:
         <div className="mt-3 flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
           {v.key && (
             <div className="min-w-64 flex-1">
-              <KeyRow v={v} c={c} machine={ws.machineName} />
+              <KeyRow v={v} c={c} machine={machine} />
             </div>
           )}
           {testWhileStopped && testButton(false)}
@@ -1156,7 +1156,7 @@ function DesktopCopies({ server: s, view: v, refresh, onChangeRules }: { server:
           <p className="mt-1.5 mb-2.5 text-[13px] font-semibold">{d.type === 's3' ? `${placeOf(d, v)} · ${d.bucket.trim()}` : placeOf(d, v)}</p>
           <TestChecks result={r} type={d.type} user={d.user.trim()} />
           <div className="mt-3 empty:hidden">
-            <TestWarning result={r} machine={ws.machineName} />
+            <TestWarning result={r} machine={machine} />
           </div>
         </div>
       )}
@@ -1166,7 +1166,7 @@ function DesktopCopies({ server: s, view: v, refresh, onChangeRules }: { server:
         </div>
       )}
       <div className="mt-4 border-t border-border pt-4">{footer}</div>
-      <CopiesDialogs c={c} v={v} server={s} machine={ws.machineName} phone={false} />
+      <CopiesDialogs c={c} v={v} server={s} machine={machine} phone={false} />
     </Card>
   )
 }
@@ -1192,7 +1192,7 @@ export function CopiesPhonePage({ server: s }: { server: ServerStatus }) {
 }
 
 function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; view: OffsiteView; refresh: () => Promise<void> }) {
-  const ws = useWorkspace()
+  const { name: machine } = useServerMachine(s)
   const c = useCopies(s, v, refresh)
   const [editing, setEditing] = useState(false)
   const d = c.draft
@@ -1306,7 +1306,7 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
             <TestChecks result={r} type={d.type} user={d.user.trim()} />
           </div>
           <div className="px-1 pt-2 empty:hidden">
-            <TestWarning result={r} machine={ws.machineName} phone />
+            <TestWarning result={r} machine={machine} phone />
           </div>
         </>
       ) : (
@@ -1315,7 +1315,7 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
           <>
             <SectionLabel className="mt-2 px-4">{t('offsite.lastCopyLabel')}</SectionLabel>
             <div className="rounded-3xl border border-border bg-white p-4">
-              <CopyStatus state={state} v={v} c={c} machine={ws.machineName} onChangeRules={changeRules} phone />
+              <CopyStatus state={state} v={v} c={c} machine={machine} onChangeRules={changeRules} phone />
             </div>
           </>
         )
@@ -1346,7 +1346,7 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
                   <KeyRoundIcon className="mt-0.5 size-5 shrink-0 text-warning-foreground" aria-hidden="true" />
                   <span className="min-w-0">
                     <span className="block text-base font-semibold text-warning-foreground">{t(k.oldKeys > 0 ? 'offsite.key.newNotDownloaded' : 'offsite.key.notDownloaded')}</span>
-                    <span className="block text-[13px] text-muted-foreground">{k.oldKeys > 0 ? t('offsite.key.newNotDownloadedHint') : t('offsite.key.notDownloadedHint', { machine: ws.machineName })}</span>
+                    <span className="block text-[13px] text-muted-foreground">{k.oldKeys > 0 ? t('offsite.key.newNotDownloadedHint') : t('offsite.key.notDownloadedHint', { machine: machine })}</span>
                   </span>
                 </div>
               )}
@@ -1367,7 +1367,7 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
         {primary}
         {secondary}
       </div>
-      <CopiesDialogs c={c} v={v} server={s} machine={ws.machineName} phone />
+      <CopiesDialogs c={c} v={v} server={s} machine={machine} phone />
     </div>
   )
 }
