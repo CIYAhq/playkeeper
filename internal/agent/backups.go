@@ -85,14 +85,21 @@ func (s *server) archiveName(now time.Time) (id, fileName string) {
 // archiveMeta describes the server in a backup's manifest. How the archive
 // was made (Consistency) and its files are added when it is written.
 func (s *server) archiveMeta(sc api.ServerConfig, now time.Time) backup.Manifest {
-	return backup.Manifest{
+	m := backup.Manifest{
 		CreatedAt: now, PlaykeeperVersion: version.Version, SourceInstall: shortID(s.cfg.InstallID),
-		Type: sc.Type, VersionID: sc.VersionID, MinecraftVersion: sc.MinecraftVersion, PaperBuild: sc.PaperBuild, Image: minecraft.Image,
+		Type: sc.Type, VersionID: sc.VersionID, MinecraftVersion: sc.MinecraftVersion, PaperBuild: sc.PaperBuild, Build: configBuild(sc), Image: runtimeImage(sc.MinecraftVersion),
 		Settings: map[string]string{
 			"motd": sc.MOTD, "maxPlayers": strconv.Itoa(sc.MaxPlayers), "memoryMB": strconv.Itoa(sc.MemoryMB), "whitelist": "true",
 			"name": s.name(),
 		},
 	}
+	if sc.VoiceChatPort > 0 {
+		m.Settings[manifestVoiceChatPort] = strconv.Itoa(sc.VoiceChatPort)
+	}
+	if v := s.packSetting(sc); v != "" {
+		m.Settings[manifestModpack] = v
+	}
+	return m
 }
 
 // createArchive writes a verified archive of the (stopped) server's data.
@@ -658,9 +665,14 @@ type swapJournal struct {
 	StartedAt time.Time         `json:"startedAt"`
 	Previous  *api.ServerConfig `json:"previous,omitempty"`
 	Restored  api.ServerConfig  `json:"restored"`
-	SHA256    string            `json:"sha256"`
-	Detail    string            `json:"detail"`
-	State     swapState         `json:"state"`
+	// PreviousPack and RestoredPack are the records of the modpack files the
+	// previous and the restored world have, saved with their settings; none
+	// means no pack.
+	PreviousPack json.RawMessage `json:"previousPack,omitempty"`
+	RestoredPack json.RawMessage `json:"restoredPack,omitempty"`
+	SHA256       string          `json:"sha256"`
+	Detail       string          `json:"detail"`
+	State        swapState       `json:"state"`
 	// Why is what made the restore undo itself, for its operation's error.
 	Why string `json:"why,omitempty"`
 }
@@ -805,7 +817,7 @@ func (s *server) putPreviousBack(j *swapJournal) error {
 		return fmt.Errorf("the world directory %s is missing", live)
 	}
 	if j.Previous != nil {
-		return s.saveServerConfig(*j.Previous)
+		return s.saveWithPack(*j.Previous, j.PreviousPack)
 	}
 	return nil
 }
@@ -991,16 +1003,29 @@ func (a *Agent) buildPreview(id, source string, size int64, sum string, m backup
 			"The RCON password (this host generates its own)",
 		},
 	}
-	entry, err := a.restoreBuild(a.ctx, m.MinecraftVersion, m.PaperBuild)
+	rt, err := a.restoreTargetFor(a.ctx, m)
+	entry := rt.entry
+	if m.Type != "" && m.Type != api.TypePaper {
+		p.Manifest.Type, p.Manifest.Build = m.Type, m.Build
+		p.NotRestored[2] = "Server jar and libraries (downloaded again and checked against their published checksums)"
+	}
 	switch {
 	case err != nil:
 		p.Compatible = false
 		p.Problems = append(p.Problems, fmt.Sprintf("This backup is from Minecraft %s, which cannot be restored here: %v.", m.MinecraftVersion, err))
+	case rt.typ != api.TypePaper:
+		if rt.warning != "" {
+			p.Warnings = append(p.Warnings, rt.warning)
+		}
 	case entry.PaperBuild != m.PaperBuild:
 		p.Warnings = append(p.Warnings, fmt.Sprintf("The backup used Paper build %d; this host will run build %d of the same Minecraft version, the latest stable one.", m.PaperBuild, entry.PaperBuild))
 	}
-	if entry.Experimental {
+	switch {
+	case !entry.Experimental:
+	case rt.typ == api.TypePaper:
 		p.Warnings = append(p.Warnings, fmt.Sprintf("Paper %s build %d is experimental (%s), like the build the backup was made with.", entry.MinecraftVersion, entry.PaperBuild, strings.ToLower(entry.Channel)))
+	default:
+		p.Warnings = append(p.Warnings, fmt.Sprintf("%s %s is experimental (%s), like the build the backup was made with.", typeName(rt.typ), entry.Build, entry.Channel))
 	}
 	if m.SourceInstall != "" && m.SourceInstall == shortID(a.cfg.InstallID) {
 		p.Source += " (made on this host)"
@@ -1081,7 +1106,7 @@ func (a *Agent) loadStage(id string) (*stage, error) {
 // the backup's settings, and starts the restore that puts its world in place.
 func (a *Agent) restoreAsNewServer(st *stage, req api.RestoreApplyRequest, name, actor string, restore func(s *server) func(ctx context.Context, h *opHandle) error) (*api.Operation, error) {
 	m := st.manifest
-	entry, err := a.restoreBuild(a.ctx, m.MinecraftVersion, m.PaperBuild)
+	rt, err := a.restoreTargetFor(a.ctx, m)
 	if err != nil {
 		return nil, errInvalid("This backup cannot be restored: %v.", err)
 	}
@@ -1094,22 +1119,29 @@ func (a *Agent) restoreAsNewServer(st *stage, req api.RestoreApplyRequest, name,
 			name = a.uniqueName(n)
 		}
 	}
-	sc := a.restoredConfig(m, entry, mem, nil, actor)
-	_, op, err := a.addServer(newServerSpec{name: name, typ: api.TypePaper, config: sc, desired: api.DesiredStopped, actor: actor}, "restore", restore)
+	sc := a.restoredConfigFor(m, rt, mem, nil, actor)
+	_, op, err := a.addServer(newServerSpec{name: name, typ: rt.typ, config: sc, desired: api.DesiredStopped, actor: actor}, "restore", restore)
 	return op, err
 }
 
-// restoredConfig is a server's settings after restoring the backup with
-// manifest m: the backup's world, version and game settings, and from prev
-// what belongs to the server rather than its world. The restored
-// server.properties carries the backup's game settings, so none chosen since
-// override them.
+// restoredConfig is restoredConfigFor on the Paper build entry, the only
+// software Playkeeper 0.3.0 ran.
 func (a *Agent) restoredConfig(m backup.Manifest, entry api.CatalogEntry, mem int, prev *api.ServerConfig, actor string) api.ServerConfig {
+	return a.restoredConfigFor(m, restoreTarget{typ: api.TypePaper, entry: entry}, mem, prev, actor)
+}
+
+// restoredConfigFor is a server's settings after restoring the backup with
+// manifest m on rt's software: the backup's world, version and game
+// settings, and from prev what belongs to the server rather than its world.
+// A modpack comes with the world: the restore takes it from the backup
+// (restoredModpack). The restored server.properties carries the backup's
+// game settings, so none chosen since override them.
+func (a *Agent) restoredConfigFor(m backup.Manifest, rt restoreTarget, mem int, prev *api.ServerConfig, actor string) api.ServerConfig {
 	now := a.now().UTC()
-	sc := withBuild(api.ServerConfig{
-		Type: api.TypePaper, MemoryMB: mem, HeapMB: minecraft.HeapMB(mem), LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]),
+	sc := rt.config(api.ServerConfig{
+		MemoryMB: mem, HeapMB: minecraft.HeapMB(mem), LevelName: m.LevelName, MOTD: validMOTDOr(m.Settings["motd"]),
 		MaxPlayers: manifestMaxPlayers(m), Whitelist: true, CreatedAt: now, EULAAcceptedAt: now, EULAAcceptedBy: actor,
-	}, entry)
+	})
 	if prev != nil {
 		sc.EULAAcceptedAt, sc.EULAAcceptedBy, sc.CreatedAt, sc.PlayStyle = prev.EULAAcceptedAt, prev.EULAAcceptedBy, prev.CreatedAt, prev.PlayStyle
 	}
@@ -1162,7 +1194,7 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	}()
 	m := st.manifest
 	h.set("stage", st.preview.ID)
-	entry, err := s.restoreBuild(ctx, m.MinecraftVersion, m.PaperBuild)
+	rt, err := s.restoreTargetFor(ctx, m)
 	if err != nil {
 		return errInvalid("This backup cannot be restored: %v.", err)
 	}
@@ -1206,7 +1238,7 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	stamp := s.now().UTC().Format("20060102-150405")
 	j := &swapJournal{
 		ServerID: s.id, OpID: h.op.ID, Actor: actor, Aside: "data.replaced-" + stamp, Failed: "data.failed-restore-" + stamp,
-		StartedAt: start.UTC(), Previous: prev, Restored: s.restoredConfig(m, entry, mem, prev, actor), SHA256: st.preview.SHA256,
+		StartedAt: start.UTC(), Previous: prev, Restored: s.restoredConfigFor(m, rt, mem, prev, actor), SHA256: st.preview.SHA256,
 		Detail: fmt.Sprintf("restored %s (sha256 %s)", m.LevelName, st.preview.SHA256), State: swapMoving,
 	}
 	var prevPack *api.ResourcePackOffer
@@ -1214,6 +1246,18 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		prevPack = prev.ResourcePack
 	}
 	j.Restored.ResourcePack = restoredPackOffer(prevPack, st.data)
+	setting, recorded := m.Settings[manifestModpack]
+	j.RestoredPack = restoredModpack(&j.Restored, setting, recorded)
+	if j.PreviousPack, err = s.packRecordJSON(); err != nil {
+		s.startPrevious(ctx, h, prev, wasRunning)
+		return fmt.Errorf("could not read the server's modpack record, so nothing was replaced: %w", err)
+	}
+	releasePort, err := s.restoredVoiceChat(&j.Restored, prev, m, st.data)
+	if err != nil {
+		s.startPrevious(ctx, h, prev, wasRunning)
+		return fmt.Errorf("could not give the restored voice chat its port, so nothing was replaced: %w", err)
+	}
+	defer releasePort()
 	if rollback != nil {
 		j.Detail += "; rollback archive " + rollback.ID
 	}
@@ -1274,11 +1318,11 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	if err := chownTree(live, s.cfg.GameUID, s.cfg.GameGID); err != nil {
 		s.log.Warn("chown restored world", "err", err)
 	}
-	err = s.saveServerConfig(j.Restored)
+	err = s.saveWithPack(j.Restored, j.RestoredPack)
 	if err == nil {
 		j.State = swapChecking
 		if err = writeSwapJournal(st.dir, j); err != nil && prev != nil {
-			_ = s.saveServerConfig(*prev)
+			_ = s.saveWithPack(*prev, j.PreviousPack)
 		}
 	}
 	if err != nil {
@@ -1442,7 +1486,7 @@ func (s *server) rollForward(stageDir string, j *swapJournal) error {
 	if err := chownTree(live, s.cfg.GameUID, s.cfg.GameGID); err != nil {
 		s.log.Warn("chown restored world", "err", err)
 	}
-	if err := s.saveServerConfig(j.Restored); err != nil {
+	if err := s.saveWithPack(j.Restored, j.RestoredPack); err != nil {
 		return err
 	}
 	j.State = swapChecking

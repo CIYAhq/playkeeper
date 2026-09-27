@@ -1,0 +1,14 @@
+{
+  "copyDatapacks": false,
+  "shouldApplyRequiredPacksToExistingWorld": false,
+  "enableFeatures": true,
+  "globalFeatures": false,
+  "sendRestartWarning": false,
+  "requiredDatapacksPaths": [
+    "C:\\Users\\PC\\AppData\\Roaming\\ModrinthApp\\profiles\\Vanilla Perfected 1.0.2+26.1.2\\datapacks"
+  ],
+  "optionalDatapacksPaths": [
+    "datapacks",
+    "C:\\Users\\PC\\Downloads"
+  ]
+}

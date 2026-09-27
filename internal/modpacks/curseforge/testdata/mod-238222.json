@@ -1,0 +1,187 @@
+{
+  "data": {
+    "id": 238222,
+    "gameId": 432,
+    "name": "Just Enough Items (JEI)",
+    "slug": "jei",
+    "links": {
+      "websiteUrl": "https://www.curseforge.com/minecraft/mc-mods/jei",
+      "wikiUrl": "",
+      "issuesUrl": "https://github.com/mezz/JustEnoughItems/issues?q=is%3Aissue",
+      "sourceUrl": "https://github.com/mezz/JustEnoughItems"
+    },
+    "summary": "View Items and Recipes",
+    "status": 4,
+    "downloadCount": 364546645,
+    "isFeatured": false,
+    "primaryCategoryId": 423,
+    "categories": [
+      {
+        "id": 421,
+        "gameId": 432,
+        "name": "API and Library",
+        "slug": "library-api",
+        "url": "https://www.curseforge.com/minecraft/mc-mods/library-api",
+        "iconUrl": "https://media.forgecdn.net/avatars/6/36/635351496947765531.png",
+        "dateModified": "2014-05-23T03:21:44.06Z",
+        "isClass": false,
+        "classId": 6,
+        "parentCategoryId": 6
+      },
+      {
+        "id": 423,
+        "gameId": 432,
+        "name": "Map and Information",
+        "slug": "map-information",
+        "url": "https://www.curseforge.com/minecraft/mc-mods/map-information",
+        "iconUrl": "https://media.forgecdn.net/avatars/6/38/635351497437388438.png",
+        "dateModified": "2014-05-08T17:42:23.74Z",
+        "isClass": false,
+        "classId": 6,
+        "parentCategoryId": 6
+      }
+    ],
+    "classId": 6,
+    "authors": [
+      {
+        "id": 17072262,
+        "name": "mezz",
+        "url": "https://www.curseforge.com/members/mezz",
+        "avatarUrl": "https://static-cdn.jtvnw.net/jtv_user_pictures/ce4a8a5fe354959b-profile_image-150x150.png"
+      }
+    ],
+    "logo": {
+      "id": 29069,
+      "modId": 238222,
+      "title": "635838945588716414.jpeg",
+      "description": "",
+      "thumbnailUrl": "https://media.forgecdn.net/avatars/thumbnails/29/69/256/256/635838945588716414.jpeg",
+      "url": "https://media.forgecdn.net/avatars/29/69/635838945588716414.jpeg"
+    },
+    "screenshots": [],
+    "mainFileId": 5626488,
+    "latestFiles": [
+      {
+        "id": 3040523,
+        "gameId": 432,
+        "modId": 238222,
+        "isAvailable": true,
+        "displayName": "jei_1.12.2-4.16.1.301.jar",
+        "fileName": "jei_1.12.2-4.16.1.301.jar",
+        "releaseType": 1,
+        "fileStatus": 4,
+        "hashes": [
+          {
+            "value": "3045e8440ea44071d8b83c4e7b3c190348fdc527",
+            "algo": 1
+          },
+          {
+            "value": "1dee4be93d666e2228039c551e927b35",
+            "algo": 2
+          }
+        ],
+        "fileDate": "2020-08-24T01:01:39.123Z",
+        "fileLength": 653211,
+        "downloadCount": 26341234,
+        "downloadUrl": "https://edge.forgecdn.net/files/3040/523/jei_1.12.2-4.16.1.301.jar",
+        "gameVersions": [
+          "1.12.2"
+        ],
+        "sortableGameVersions": [
+          {
+            "gameVersionName": "1.12.2",
+            "gameVersionPadded": "0000000001.0000000012.0000000002",
+            "gameVersion": "1.12.2",
+            "gameVersionReleaseDate": "2017-09-18T05:00:00Z",
+            "gameVersionTypeId": 628
+          }
+        ],
+        "dependencies": [],
+        "alternateFileId": 0,
+        "isServerPack": false,
+        "fileFingerprint": 3089143260,
+        "modules": [
+          {
+            "name": "META-INF",
+            "fingerprint": 2236405288
+          },
+          {
+            "name": "mezz",
+            "fingerprint": 2222830911
+          },
+          {
+            "name": "pack.mcmeta",
+            "fingerprint": 1488642189
+          },
+          {
+            "name": "mcmod.info",
+            "fingerprint": 3528499262
+          },
+          {
+            "name": "assets",
+            "fingerprint": 9943101
+          }
+        ]
+      }
+    ],
+    "latestFilesIndexes": [
+      {
+        "gameVersion": "1.21",
+        "fileId": 5802637,
+        "filename": "jei-1.21.1-neoforge-19.21.0.246.jar",
+        "releaseType": 2,
+        "gameVersionTypeId": 77784,
+        "modLoader": 6
+      },
+      {
+        "gameVersion": "1.21.1",
+        "fileId": 5802637,
+        "filename": "jei-1.21.1-neoforge-19.21.0.246.jar",
+        "releaseType": 2,
+        "gameVersionTypeId": 77784,
+        "modLoader": 6
+      },
+      {
+        "gameVersion": "1.21",
+        "fileId": 5802636,
+        "filename": "jei-1.21.1-forge-19.21.0.246.jar",
+        "releaseType": 2,
+        "gameVersionTypeId": 77784,
+        "modLoader": 1
+      },
+      {
+        "gameVersion": "1.21.1",
+        "fileId": 5802636,
+        "filename": "jei-1.21.1-forge-19.21.0.246.jar",
+        "releaseType": 2,
+        "gameVersionTypeId": 77784,
+        "modLoader": 1
+      },
+      {
+        "gameVersion": "1.21",
+        "fileId": 5802635,
+        "filename": "jei-1.21.1-fabric-19.21.0.246.jar",
+        "releaseType": 2,
+        "gameVersionTypeId": 77784,
+        "modLoader": 4
+      },
+      {
+        "gameVersion": "1.21.1",
+        "fileId": 5802635,
+        "filename": "jei-1.21.1-fabric-19.21.0.246.jar",
+        "releaseType": 2,
+        "gameVersionTypeId": 77784,
+        "modLoader": 4
+      }
+    ],
+    "latestEarlyAccessFilesIndexes": [],
+    "dateCreated": "2015-11-23T22:55:58.84Z",
+    "dateModified": "2024-10-11T12:11:48.843Z",
+    "dateReleased": "2024-10-11T12:07:49.62Z",
+    "allowModDistribution": true,
+    "gamePopularityRank": 1,
+    "isAvailable": true,
+    "hasCommentsEnabled": false,
+    "thumbsUpCount": 1
+  }
+}

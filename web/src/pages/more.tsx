@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, PlusIcon, PuzzleIcon, ServerIcon, SettingsIcon, SlidersHorizontalIcon } from 'lucide-react'
+import { ChevronRightIcon, CircleHelpIcon, HouseIcon, ListChecksIcon, LogOutIcon, PlusIcon, PuzzleIcon, ServerIcon, SettingsIcon, Share2Icon, SlidersHorizontalIcon } from 'lucide-react'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { SectionLabel, Spinner } from '@/components/app/bits'
 import { stepRoute, stepTitle } from '@/components/app/checklist'
 import { useIsPhone } from '@/components/app/controls'
 import { Avatar, PageHeader, roleLabel } from '@/components/app/shell'
+import { TemplateDialog } from '@/components/app/templates'
 import { UpdateDialog } from '@/components/app/update'
 import { t } from '@/i18n'
 import { addonTab } from '@/lib/addons'
@@ -61,6 +62,7 @@ export function MorePage() {
   const phone = useIsPhone()
   const server = usePhoneServer()
   const [updateOpen, setUpdateOpen] = useState(false)
+  const [sharing, setSharing] = useState(false)
 
   useEffect(() => {
     if (!phone) navigate({ name: 'home' }, true)
@@ -96,6 +98,9 @@ export function MorePage() {
           )}
           <li>
             <Row icon={<SlidersHorizontalIcon />} title={t('tab.settings')} hint={t('more.settingsHint')} to={{ name: 'server', slug: server.slug, tab: 'settings' }} />
+          </li>
+          <li>
+            <Row icon={<Share2Icon />} title={t('template.menu')} hint={t('more.templateHint')} onClick={() => setSharing(true)} />
           </li>
           {!complete(steps) && p.next && (
             <li>
@@ -137,6 +142,7 @@ export function MorePage() {
         {t('footer.version', { version: ws.me.version })}
       </p>
       <UpdateDialog open={updateOpen} onOpenChange={setUpdateOpen} />
+      {server && <TemplateDialog server={server} open={sharing} onOpenChange={setSharing} />}
     </div>
   )
 }

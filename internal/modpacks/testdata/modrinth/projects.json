@@ -1,0 +1,371 @@
+[
+  {
+    "client_side": "required",
+    "server_side": "required",
+    "game_versions": [
+      "1.19.2"
+    ],
+    "environment": [
+      "client_and_server"
+    ],
+    "id": "lEzLZXS5",
+    "slug": "the-content-smp",
+    "project_type": "modpack",
+    "team": "3Ha16ZYJ",
+    "organization": null,
+    "title": "The Content Smp (Fan-Made)",
+    "description": "An Enhanced Vanilla Modpack wich focuses on adding more variety to the game and unique mechanics.",
+    "body_url": null,
+    "published": "2023-03-10T17:54:12.465002Z",
+    "updated": "2026-04-22T04:02:44.464968Z",
+    "approved": "2023-04-07T04:43:00.725411Z",
+    "queued": "2023-04-05T20:50:00.173624Z",
+    "status": "approved",
+    "requested_status": "approved",
+    "moderator_message": null,
+    "license": {
+      "id": "MIT",
+      "name": "MIT License",
+      "url": null
+    },
+    "downloads": 41496,
+    "followers": 97,
+    "categories": [
+      "adventure",
+      "combat",
+      "magic"
+    ],
+    "additional_categories": [
+      "multiplayer"
+    ],
+    "loaders": [
+      "quilt"
+    ],
+    "versions": [
+      "ck8SrkA4"
+    ],
+    "icon_url": "https://cdn.modrinth.com/data/lEzLZXS5/d0a0b76c87cef3b652ae8aef566ac95baf36c86e.jpeg",
+    "raw_icon_url": "https://cdn.modrinth.com/data/lEzLZXS5/d0a0b76c87cef3b652ae8aef566ac95baf36c86e.jpeg",
+    "issues_url": null,
+    "source_url": null,
+    "wiki_url": null,
+    "discord_url": null,
+    "donation_urls": [
+      {
+        "id": "ko-fi",
+        "platform": "Ko-fi",
+        "url": "https://ko-fi.com/doctor4t"
+      }
+    ],
+    "color": 12393812,
+    "thread_id": "lEzLZXS5",
+    "monetization_status": "monetized"
+  },
+  {
+    "client_side": "optional",
+    "server_side": "optional",
+    "game_versions": [
+      "1.16.5",
+      "1.17.1",
+      "1.18.2",
+      "1.19",
+      "1.19.1",
+      "1.19.2",
+      "1.19.3",
+      "1.19.4",
+      "1.20",
+      "1.20.1",
+      "1.20.2",
+      "1.20.4",
+      "1.20.6",
+      "1.21",
+      "1.21.1",
+      "1.21.3",
+      "1.21.4",
+      "1.21.5",
+      "1.21.7",
+      "1.21.8",
+      "1.21.10",
+      "1.21.11",
+      "26.1",
+      "26.1.1",
+      "26.1.2",
+      "26.2",
+      "26.3"
+    ],
+    "environment": [
+      "client_or_server"
+    ],
+    "id": "BYN9yKrV",
+    "slug": "adrenaline",
+    "project_type": "modpack",
+    "team": "xAPI1jNG",
+    "organization": "3yqhFahq",
+    "title": "Adrenaline",
+    "description": "26.3 beta! - A lightweight, open-source performance modpack for Fabric",
+    "body_url": null,
+    "published": "2022-05-23T03:44:14.529715Z",
+    "updated": "2026-09-21T21:06:16.445538Z",
+    "approved": "2022-05-23T03:44:14.529715Z",
+    "queued": null,
+    "status": "approved",
+    "requested_status": null,
+    "moderator_message": null,
+    "license": {
+      "id": "MIT",
+      "name": "MIT License",
+      "url": null
+    },
+    "downloads": 350971,
+    "followers": 380,
+    "categories": [
+      "lightweight",
+      "multiplayer",
+      "optimization"
+    ],
+    "additional_categories": [],
+    "loaders": [
+      "fabric",
+      "quilt"
+    ],
+    "versions": [
+      "bfCsmZsp",
+      "kGJzNcgO",
+      "M1OEpypF",
+      "zpjsnTrI",
+      "o2a2xrkj",
+      "1gXgZaYW",
+      "NfqfL5f0",
+      "x7z4X9C6"
+    ],
+    "icon_url": "https://cdn.modrinth.com/data/BYN9yKrV/98f14519960b17418d5ba5ebfdc46c85154ad87b_96.webp",
+    "raw_icon_url": "https://cdn.modrinth.com/data/BYN9yKrV/98f14519960b17418d5ba5ebfdc46c85154ad87b.png",
+    "issues_url": "https://github.com/skywardmc/adrenaline/issues",
+    "source_url": "https://github.com/skywardmc/adrenaline",
+    "wiki_url": "https://skywardmc.org/adrenaline",
+    "discord_url": "https://discord.gg/36Tv44cYte",
+    "donation_urls": [],
+    "color": 13434091,
+    "thread_id": "BYN9yKrV",
+    "monetization_status": "monetized"
+  },
+  {
+    "client_side": "required",
+    "server_side": "required",
+    "game_versions": [
+      "1.20.1",
+      "1.21",
+      "1.21.1",
+      "1.21.4",
+      "1.21.5",
+      "1.21.6",
+      "1.21.8",
+      "1.21.10",
+      "1.21.11",
+      "26.1.2",
+      "26.2"
+    ],
+    "environment": [
+      "client_and_server"
+    ],
+    "id": "1ocGzRHv",
+    "slug": "vanilla-perfected",
+    "project_type": "modpack",
+    "team": "9vYArrNH",
+    "organization": null,
+    "title": "Vanilla Perfected",
+    "description": "A compilation of Vanilla Plus mods & packs to perfect the Minecraft experience without drifting too far from the feel of the base game!",
+    "body_url": null,
+    "published": "2024-10-02T02:44:24.436219Z",
+    "updated": "2026-07-24T22:01:42.845192Z",
+    "approved": "2024-10-10T02:40:35.053953Z",
+    "queued": "2024-10-07T14:11:55.276107Z",
+    "status": "approved",
+    "requested_status": "approved",
+    "moderator_message": null,
+    "license": {
+      "id": "MIT",
+      "name": "MIT License",
+      "url": null
+    },
+    "downloads": 2504712,
+    "followers": 2494,
+    "categories": [
+      "adventure",
+      "lightweight",
+      "optimization"
+    ],
+    "additional_categories": [],
+    "loaders": [
+      "fabric"
+    ],
+    "versions": [
+      "WxPm8Cyl",
+      "vxt9LHzK",
+      "P5zFOUmG",
+      "CCnu380y",
+      "PXpjyGBU",
+      "WNVdOLRb",
+      "wjlHjpe2",
+      "ylv1FgFA"
+    ],
+    "icon_url": "https://cdn.modrinth.com/data/1ocGzRHv/ebec737126db7637001194ca5560ae58413d338f_96.webp",
+    "raw_icon_url": "https://cdn.modrinth.com/data/1ocGzRHv/ebec737126db7637001194ca5560ae58413d338f.png",
+    "issues_url": null,
+    "source_url": null,
+    "wiki_url": null,
+    "discord_url": null,
+    "donation_urls": [],
+    "color": 263172,
+    "thread_id": "mcVObKm6",
+    "monetization_status": "monetized"
+  },
+  {
+    "client_side": "required",
+    "server_side": "required",
+    "game_versions": [
+      "1.19.2",
+      "1.21.1"
+    ],
+    "environment": [
+      "client_and_server"
+    ],
+    "id": "t1tOiUHZ",
+    "slug": "create_plus",
+    "project_type": "modpack",
+    "team": "9Ftp3GTO",
+    "organization": null,
+    "title": "Create+",
+    "description": "A simple, optimized, vanilla+ pack, except for the inclusion of Create (and its addons). Now with Create: Aeronautics!",
+    "body_url": null,
+    "published": "2024-04-29T02:33:54.609163Z",
+    "updated": "2026-06-15T00:34:52.861465Z",
+    "approved": "2024-05-04T06:47:25.077272Z",
+    "queued": "2024-05-01T23:13:22.698804Z",
+    "status": "approved",
+    "requested_status": "approved",
+    "moderator_message": null,
+    "license": {
+      "id": "LGPL-3.0-only",
+      "name": "GNU Lesser General Public License v3.0 only",
+      "url": null
+    },
+    "downloads": 1325252,
+    "followers": 575,
+    "categories": [
+      "lightweight",
+      "multiplayer",
+      "technology"
+    ],
+    "additional_categories": [
+      "adventure",
+      "optimization"
+    ],
+    "loaders": [
+      "neoforge",
+      "forge"
+    ],
+    "versions": [
+      "cpvxBeKk",
+      "qBd4xCqV",
+      "PAqQAJM8",
+      "St0LKnVh",
+      "k1ofxjTs",
+      "fkhIORJR",
+      "OirSzesD",
+      "KcmBnLug"
+    ],
+    "icon_url": "https://cdn.modrinth.com/data/t1tOiUHZ/02e664d639c9ad8fed670148dbcc22a26d59e992_96.webp",
+    "raw_icon_url": "https://cdn.modrinth.com/data/t1tOiUHZ/02e664d639c9ad8fed670148dbcc22a26d59e992.webp",
+    "issues_url": "https://github.com/Sshmoob/Create-Plus/issues",
+    "source_url": null,
+    "wiki_url": null,
+    "discord_url": null,
+    "donation_urls": [],
+    "color": 6507106,
+    "thread_id": "gHHUJZL3",
+    "monetization_status": "monetized"
+  },
+  {
+    "client_side": "required",
+    "server_side": "unsupported",
+    "game_versions": [
+      "1.18.2",
+      "1.19",
+      "1.19.2",
+      "1.19.3",
+      "1.19.4",
+      "1.20",
+      "1.20.1",
+      "1.21",
+      "1.21.5",
+      "1.21.8",
+      "1.21.10",
+      "1.21.11",
+      "26.1.2",
+      "26.2"
+    ],
+    "environment": [
+      "client_only",
+      "dedicated_server_only"
+    ],
+    "id": "ch7UHY2J",
+    "slug": "sodiumplus",
+    "project_type": "modpack",
+    "team": "G6so7MvZ",
+    "organization": "FD7bdbvd",
+    "title": "Sodium Plus",
+    "description": "A client-side optimization modpack with a few extra tweaks.",
+    "body_url": null,
+    "published": "2022-05-19T02:57:12.389199Z",
+    "updated": "2026-09-19T00:39:28.793026Z",
+    "approved": "2022-05-19T02:57:12.389199Z",
+    "queued": null,
+    "status": "approved",
+    "requested_status": null,
+    "moderator_message": null,
+    "license": {
+      "id": "MIT",
+      "name": "MIT License",
+      "url": null
+    },
+    "downloads": 2721908,
+    "followers": 625,
+    "categories": [
+      "lightweight",
+      "multiplayer",
+      "optimization"
+    ],
+    "additional_categories": [],
+    "loaders": [
+      "fabric",
+      "quilt"
+    ],
+    "versions": [
+      "qZZJih9y",
+      "DdnfdzjY",
+      "dz3ysssN",
+      "yTiNu3TM",
+      "XyojC93k",
+      "Eft3fi2g",
+      "bHWRhDKj",
+      "GpRYtvFU"
+    ],
+    "icon_url": "https://cdn.modrinth.com/data/ch7UHY2J/cf0150ba8d6c01144974709a27b23bba93c0fc9e.png",
+    "raw_icon_url": "https://cdn.modrinth.com/data/ch7UHY2J/cf0150ba8d6c01144974709a27b23bba93c0fc9e.png",
+    "issues_url": "https://github.com/happyredstone/sodiumplus/issues",
+    "source_url": "https://github.com/happyredstone/sodiumplus",
+    "wiki_url": null,
+    "discord_url": "https://discord.gg/dsct28MQMC",
+    "donation_urls": [
+      {
+        "id": "bmac",
+        "platform": "Bmac",
+        "url": "https://buymeacoffee.com/sodiumplus"
+      }
+    ],
+    "color": 8375147,
+    "thread_id": "ch7UHY2J",
+    "monetization_status": "monetized"
+  }
+]

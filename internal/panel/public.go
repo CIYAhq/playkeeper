@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/modpacks/share"
 	"github.com/CIYAhq/playkeeper/internal/names"
 	"github.com/CIYAhq/playkeeper/internal/packs"
 )
@@ -25,6 +26,8 @@ func (s *Server) publicRoutes() []publicRoute {
 		{prefix: packs.PathPrefix, limits: packLimits, cache: packCache,
 			handler: packs.NewHandler(packs.Store{Dir: s.cfg.ResourcePacksDir()}, s.activePacks.has)},
 		{prefix: names.AlivePath, limits: aliveLimits, handler: s.aliveRoute()},
+		// Wave 4: the friends' pack pages, /packs/<token>.
+		{prefix: share.PathPrefix, limits: friendsPackLimits, handler: s.friendsPacks()},
 	}
 }
 

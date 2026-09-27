@@ -1,0 +1,357 @@
+{
+  "data": [
+    {
+      "id": 9100001,
+      "gameId": 432,
+      "name": "Example Fabric Pack",
+      "slug": "example-fabric-pack",
+      "links": {
+        "websiteUrl": "https://www.curseforge.com/minecraft/modpacks/example-fabric-pack",
+        "wikiUrl": "",
+        "issuesUrl": "",
+        "sourceUrl": ""
+      },
+      "summary": "Performance mods and a few friends for a small survival server.",
+      "status": 4,
+      "downloadCount": 152340,
+      "isFeatured": false,
+      "primaryCategoryId": 4471,
+      "categories": [
+        {
+          "id": 4487,
+          "gameId": 432,
+          "name": "Multiplayer",
+          "slug": "multiplayer",
+          "url": "https://www.curseforge.com/minecraft/modpacks/multiplayer",
+          "iconUrl": "https://media.forgecdn.net/avatars/14/486/635596815896417213.png",
+          "dateModified": "2014-05-08T17:44:02.1Z",
+          "isClass": false,
+          "classId": 4471,
+          "parentCategoryId": 4471
+        }
+      ],
+      "classId": 4471,
+      "authors": [
+        {
+          "id": 100001,
+          "name": "example-author",
+          "url": "https://www.curseforge.com/members/example-author"
+        }
+      ],
+      "logo": {
+        "id": 9100001,
+        "modId": 9100001,
+        "title": "logo.png",
+        "description": "",
+        "thumbnailUrl": "https://media.forgecdn.net/avatars/thumbnails/900/1/256/256/logo.png",
+        "url": "https://media.forgecdn.net/avatars/900/1/logo.png"
+      },
+      "screenshots": [],
+      "mainFileId": 9200003,
+      "latestFiles": [],
+      "latestFilesIndexes": [
+        {
+          "gameVersion": "26.3",
+          "fileId": 9200003,
+          "filename": "Example Fabric Pack 2.1.0-alpha.1.zip",
+          "releaseType": 3,
+          "gameVersionTypeId": 77784,
+          "modLoader": 4
+        },
+        {
+          "gameVersion": "26.2",
+          "fileId": 9200002,
+          "filename": "Example Fabric Pack 2.0.0.zip",
+          "releaseType": 1,
+          "gameVersionTypeId": 77784,
+          "modLoader": 4
+        }
+      ],
+      "latestEarlyAccessFilesIndexes": [],
+      "dateCreated": "2025-01-10T12:00:00.000Z",
+      "dateModified": "2026-09-20T10:00:00.000Z",
+      "dateReleased": "2026-09-20T10:00:00.000Z",
+      "allowModDistribution": true,
+      "gamePopularityRank": 100,
+      "isAvailable": true,
+      "thumbsUpCount": 0
+    },
+    {
+      "id": 9100002,
+      "gameId": 432,
+      "name": "Example Forge Pack",
+      "slug": "example-forge-pack",
+      "links": {
+        "websiteUrl": "https://www.curseforge.com/minecraft/modpacks/example-forge-pack",
+        "wikiUrl": "",
+        "issuesUrl": "",
+        "sourceUrl": ""
+      },
+      "summary": "Tech and magic on Forge.",
+      "status": 4,
+      "downloadCount": 98000,
+      "isFeatured": false,
+      "primaryCategoryId": 4471,
+      "categories": [
+        {
+          "id": 4487,
+          "gameId": 432,
+          "name": "Multiplayer",
+          "slug": "multiplayer",
+          "url": "https://www.curseforge.com/minecraft/modpacks/multiplayer",
+          "iconUrl": "https://media.forgecdn.net/avatars/14/486/635596815896417213.png",
+          "dateModified": "2014-05-08T17:44:02.1Z",
+          "isClass": false,
+          "classId": 4471,
+          "parentCategoryId": 4471
+        }
+      ],
+      "classId": 4471,
+      "authors": [
+        {
+          "id": 100002,
+          "name": "example-author",
+          "url": "https://www.curseforge.com/members/example-author"
+        }
+      ],
+      "logo": {
+        "id": 9100002,
+        "modId": 9100002,
+        "title": "logo.png",
+        "description": "",
+        "thumbnailUrl": "https://media.forgecdn.net/avatars/thumbnails/900/1/256/256/logo.png",
+        "url": "https://media.forgecdn.net/avatars/900/1/logo.png"
+      },
+      "screenshots": [],
+      "mainFileId": 9200011,
+      "latestFiles": [],
+      "latestFilesIndexes": [
+        {
+          "gameVersion": "1.20.1",
+          "fileId": 9200011,
+          "filename": "Example Forge Pack 1.4.zip",
+          "releaseType": 1,
+          "gameVersionTypeId": 77784,
+          "modLoader": 1
+        }
+      ],
+      "latestEarlyAccessFilesIndexes": [],
+      "dateCreated": "2025-01-10T12:00:00.000Z",
+      "dateModified": "2026-08-01T10:00:00.000Z",
+      "dateReleased": "2026-08-01T10:00:00.000Z",
+      "allowModDistribution": true,
+      "gamePopularityRank": 100,
+      "isAvailable": true,
+      "thumbsUpCount": 0
+    },
+    {
+      "id": 9100003,
+      "gameId": 432,
+      "name": "Example NeoForge Pack",
+      "slug": "example-neoforge-pack",
+      "links": {
+        "websiteUrl": "https://www.curseforge.com/minecraft/modpacks/example-neoforge-pack",
+        "wikiUrl": "",
+        "issuesUrl": "",
+        "sourceUrl": ""
+      },
+      "summary": "Create and friends on NeoForge.",
+      "status": 4,
+      "downloadCount": 65000,
+      "isFeatured": false,
+      "primaryCategoryId": 4471,
+      "categories": [
+        {
+          "id": 4487,
+          "gameId": 432,
+          "name": "Multiplayer",
+          "slug": "multiplayer",
+          "url": "https://www.curseforge.com/minecraft/modpacks/multiplayer",
+          "iconUrl": "https://media.forgecdn.net/avatars/14/486/635596815896417213.png",
+          "dateModified": "2014-05-08T17:44:02.1Z",
+          "isClass": false,
+          "classId": 4471,
+          "parentCategoryId": 4471
+        }
+      ],
+      "classId": 4471,
+      "authors": [
+        {
+          "id": 100003,
+          "name": "example-author",
+          "url": "https://www.curseforge.com/members/example-author"
+        }
+      ],
+      "logo": {
+        "id": 9100003,
+        "modId": 9100003,
+        "title": "logo.png",
+        "description": "",
+        "thumbnailUrl": "https://media.forgecdn.net/avatars/thumbnails/900/1/256/256/logo.png",
+        "url": "https://media.forgecdn.net/avatars/900/1/logo.png"
+      },
+      "screenshots": [],
+      "mainFileId": 9200021,
+      "latestFiles": [],
+      "latestFilesIndexes": [
+        {
+          "gameVersion": "1.21.1",
+          "fileId": 9200021,
+          "filename": "Example NeoForge Pack 3.2.zip",
+          "releaseType": 1,
+          "gameVersionTypeId": 77784,
+          "modLoader": 6
+        }
+      ],
+      "latestEarlyAccessFilesIndexes": [],
+      "dateCreated": "2025-01-10T12:00:00.000Z",
+      "dateModified": "2026-09-01T10:00:00.000Z",
+      "dateReleased": "2026-09-01T10:00:00.000Z",
+      "allowModDistribution": true,
+      "gamePopularityRank": 100,
+      "isAvailable": true,
+      "thumbsUpCount": 0
+    },
+    {
+      "id": 9100004,
+      "gameId": 432,
+      "name": "Example Old Quilt Pack",
+      "slug": "example-old-quilt-pack",
+      "links": {
+        "websiteUrl": "https://www.curseforge.com/minecraft/modpacks/example-old-quilt-pack",
+        "wikiUrl": "",
+        "issuesUrl": "",
+        "sourceUrl": ""
+      },
+      "summary": "A 1.19.2 pack.",
+      "status": 4,
+      "downloadCount": 1200,
+      "isFeatured": false,
+      "primaryCategoryId": 4471,
+      "categories": [
+        {
+          "id": 4487,
+          "gameId": 432,
+          "name": "Multiplayer",
+          "slug": "multiplayer",
+          "url": "https://www.curseforge.com/minecraft/modpacks/multiplayer",
+          "iconUrl": "https://media.forgecdn.net/avatars/14/486/635596815896417213.png",
+          "dateModified": "2014-05-08T17:44:02.1Z",
+          "isClass": false,
+          "classId": 4471,
+          "parentCategoryId": 4471
+        }
+      ],
+      "classId": 4471,
+      "authors": [
+        {
+          "id": 100004,
+          "name": "example-author",
+          "url": "https://www.curseforge.com/members/example-author"
+        }
+      ],
+      "logo": {
+        "id": 9100004,
+        "modId": 9100004,
+        "title": "logo.png",
+        "description": "",
+        "thumbnailUrl": "https://media.forgecdn.net/avatars/thumbnails/900/1/256/256/logo.png",
+        "url": "https://media.forgecdn.net/avatars/900/1/logo.png"
+      },
+      "screenshots": [],
+      "mainFileId": 9200031,
+      "latestFiles": [],
+      "latestFilesIndexes": [
+        {
+          "gameVersion": "1.19.2",
+          "fileId": 9200031,
+          "filename": "Example Old Quilt Pack 1.0.zip",
+          "releaseType": 1,
+          "gameVersionTypeId": 77784,
+          "modLoader": 5
+        }
+      ],
+      "latestEarlyAccessFilesIndexes": [],
+      "dateCreated": "2025-01-10T12:00:00.000Z",
+      "dateModified": "2023-02-01T10:00:00.000Z",
+      "dateReleased": "2023-02-01T10:00:00.000Z",
+      "allowModDistribution": true,
+      "gamePopularityRank": 100,
+      "isAvailable": true,
+      "thumbsUpCount": 0
+    },
+    {
+      "id": 9100005,
+      "gameId": 432,
+      "name": "Example Untagged Pack",
+      "slug": "example-untagged-pack",
+      "links": {
+        "websiteUrl": "https://www.curseforge.com/minecraft/modpacks/example-untagged-pack",
+        "wikiUrl": "",
+        "issuesUrl": "",
+        "sourceUrl": ""
+      },
+      "summary": "Its files don't name a loader.",
+      "status": 4,
+      "downloadCount": 300,
+      "isFeatured": false,
+      "primaryCategoryId": 4471,
+      "categories": [
+        {
+          "id": 4487,
+          "gameId": 432,
+          "name": "Multiplayer",
+          "slug": "multiplayer",
+          "url": "https://www.curseforge.com/minecraft/modpacks/multiplayer",
+          "iconUrl": "https://media.forgecdn.net/avatars/14/486/635596815896417213.png",
+          "dateModified": "2014-05-08T17:44:02.1Z",
+          "isClass": false,
+          "classId": 4471,
+          "parentCategoryId": 4471
+        }
+      ],
+      "classId": 4471,
+      "authors": [
+        {
+          "id": 100005,
+          "name": "example-author",
+          "url": "https://www.curseforge.com/members/example-author"
+        }
+      ],
+      "logo": {
+        "id": 9100005,
+        "modId": 9100005,
+        "title": "logo.png",
+        "description": "",
+        "thumbnailUrl": "https://media.forgecdn.net/avatars/thumbnails/900/1/256/256/logo.png",
+        "url": "https://media.forgecdn.net/avatars/900/1/logo.png"
+      },
+      "screenshots": [],
+      "mainFileId": 9200041,
+      "latestFiles": [],
+      "latestFilesIndexes": [
+        {
+          "gameVersion": "1.21.4",
+          "fileId": 9200041,
+          "filename": "Example Untagged Pack 1.0.zip",
+          "releaseType": 1,
+          "gameVersionTypeId": 77784
+        }
+      ],
+      "latestEarlyAccessFilesIndexes": [],
+      "dateCreated": "2025-01-10T12:00:00.000Z",
+      "dateModified": "2026-05-01T10:00:00.000Z",
+      "dateReleased": "2026-05-01T10:00:00.000Z",
+      "allowModDistribution": true,
+      "gamePopularityRank": 100,
+      "isAvailable": true,
+      "thumbsUpCount": 0
+    }
+  ],
+  "pagination": {
+    "index": 0,
+    "pageSize": 20,
+    "resultCount": 5,
+    "totalCount": 812
+  }
+}

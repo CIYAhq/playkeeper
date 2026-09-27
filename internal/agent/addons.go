@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -169,6 +170,15 @@ func (s *server) saveAddons(put []addons.Installed, drop []addons.Key, changed b
 		return err
 	}
 	defer tx.Rollback()
+	if err := s.writeAddons(tx, put, drop, changed); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// writeAddons stores put and removes drop in tx; changed notes when the
+// add-ons changed, for the restart they need.
+func (s *server) writeAddons(tx *sql.Tx, put []addons.Installed, drop []addons.Key, changed bool) error {
 	for _, k := range drop {
 		if _, err := tx.Exec(`DELETE FROM addons WHERE server_id = ? AND source = ? AND project_id = ?`, s.id, string(k.Source), k.ProjectID); err != nil {
 			return err
@@ -199,7 +209,7 @@ func (s *server) saveAddons(put []addons.Installed, drop []addons.Key, changed b
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (s *server) addonsChangedAt() (time.Time, bool) {
@@ -403,6 +413,15 @@ func (s *server) hAddons(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := api.Addons{Target: apiTarget(t, sc.MinecraftVersion), Files: []api.AddonFile{}, Missing: []api.Addon{}, Warnings: []api.AddonNotice{}}
+	if sc.Modpack != nil && !sc.Modpack.Pending {
+		m := *sc.Modpack
+		out.Modpack = &m
+	}
+	pack, err := s.packFiles(t.Folder)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	started, running := s.startedAt(r.Context())
 	if s.hasDataDir() {
 		res, err := s.lib().Scan(r.Context(), srv, installed, false)
@@ -411,7 +430,11 @@ func (s *server) hAddons(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, e := range res.Entries {
-			out.Files = append(out.Files, apiFile(e, running, started))
+			f := apiFile(e, running, started)
+			if e.Installed == nil && pack[e.FileName] {
+				f.Status = api.AddonFromPack
+			}
+			out.Files = append(out.Files, f)
 		}
 		out.Missing, out.Warnings = apiAddons(res.Missing), apiNotices(res.Warnings)
 	} else {
@@ -436,12 +459,17 @@ type addonChecks struct {
 // hAddonChecks asks the sources for newer versions of the installed add-ons,
 // and Modrinth which of the files added by hand it knows.
 func (s *server) hAddonChecks(w http.ResponseWriter, r *http.Request) {
-	_, srv, _, err := s.addonContext()
+	_, srv, t, err := s.addonContext()
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	installed, err := s.installedAddons()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	pack, err := s.packFiles(t.Folder)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -465,11 +493,13 @@ func (s *server) hAddonChecks(w http.ResponseWriter, r *http.Request) {
 	var state struct {
 		Files   []file
 		Records []record
+		Pack    []string
 	}
+	state.Pack = slices.Sorted(maps.Keys(pack))
 	unknown := false
 	for _, e := range res.Entries {
 		state.Files = append(state.Files, file{e.FileName, e.Size, e.Status})
-		unknown = unknown || e.Status == addons.FileUnknown
+		unknown = unknown || e.Status == addons.FileUnknown && !pack[e.FileName]
 	}
 	for _, rec := range installed {
 		state.Records = append(state.Records, record{string(rec.Source), rec.ProjectID, rec.VersionID, rec.FileName})
@@ -507,7 +537,7 @@ func (s *server) hAddonChecks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, e := range ident.Entries {
-			if e.Status == addons.FileIdentified {
+			if e.Status == addons.FileIdentified && !pack[e.FileName] {
 				out.Identified = append(out.Identified, apiFile(e, false, time.Time{}))
 			}
 		}
@@ -657,7 +687,7 @@ func (s *server) hAddonDetails(w http.ResponseWriter, r *http.Request) {
 		// pre-release, which installs and updates here never take.
 		d.Latest, d.Notes = nil, ""
 	}
-	out := api.AddonDetails{Card: apiCard(d.Card, installed), Latest: apiVersion(d.Latest), Notes: d.Notes}
+	out := api.AddonDetails{Card: apiCard(d.Card, installed), Latest: apiVersion(d.Latest), Notes: d.Notes, Ports: s.addonPorts(key)}
 	if d.Notice != nil {
 		n := apiNotice(*d.Notice)
 		out.Notice = &n
@@ -741,10 +771,19 @@ func (s *server) hAddonInstall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	voice := voiceChat(key)
+	if voice && !req.OpenPorts {
+		writeError(w, errInvalid("Voice chat needs a UDP port of its own, so Playkeeper installs it only when it may open that port too."))
+		return
+	}
 	op, err := s.beginOp("addon-install", actor, func(ctx context.Context, h *opHandle) error {
-		return s.addonJob(ctx, h, actor, req.Start, func(srv addons.Server, installed []addons.Installed, progress func(addons.Progress)) (*addons.Result, error) {
+		install := func(srv addons.Server, installed []addons.Installed, progress func(addons.Progress)) (*addons.Result, error) {
 			return s.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: key.Source, Project: key.ProjectID, Fingerprint: req.Fingerprint, OnProgress: progress})
-		})
+		}
+		if voice {
+			return s.installVoiceChat(ctx, h, actor, req.Start, install)
+		}
+		return s.addonJob(ctx, h, actor, req.Start, install)
 	})
 	if err != nil {
 		writeError(w, err)
@@ -1042,7 +1081,8 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 		warnings = append(warnings, orm.Warnings...)
 		rest = slices.DeleteFunc(rest, func(rec addons.Installed) bool { return rec.Key() == k })
 	}
-	if err := s.saveAddons(nil, drop, true); err != nil {
+	port, err := s.removeAddonRecords(drop)
+	if err != nil {
 		writeError(w, err)
 		return
 	}
@@ -1051,7 +1091,43 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 		out.Removed = append(out.Removed, rec.Name)
 		s.audit(actor, "addon.removed", string(rec.Source)+":"+rec.ProjectID, "succeeded", rec.Name+" "+rec.VersionNumber)
 	}
+	if port > 0 {
+		s.audit(actor, "addon.port_closed", string(addons.Modrinth)+":"+curatedVoiceChatProject(), "succeeded", fmt.Sprintf("voice chat's UDP %d", port))
+	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// removeAddonRecords drops the records of the add-ons a removal deleted, and
+// closes voice chat's port in the same transaction when voice chat was one of
+// them, so the records and the port never disagree: a removal that fails
+// before this, or here, leaves both as they were, and removing again finishes
+// it. It returns the port it closed.
+func (s *server) removeAddonRecords(drop []addons.Key) (int, error) {
+	sc, err := s.serverConfig()
+	if err != nil {
+		return 0, err
+	}
+	if sc == nil {
+		return 0, errNotCreated()
+	}
+	port := 0
+	if slices.ContainsFunc(drop, voiceChat) {
+		port, sc.VoiceChatPort = sc.VoiceChatPort, 0
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if port > 0 {
+		if err := saveConfig(tx, s.id, *sc); err != nil {
+			return 0, err
+		}
+	}
+	if err := s.writeAddons(tx, nil, drop, true); err != nil {
+		return 0, err
+	}
+	return port, tx.Commit()
 }
 
 // hAddonAdopt lets Playkeeper manage a file added by hand that Modrinth
@@ -1081,7 +1157,7 @@ func (s *server) hAddonAdopt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	_, srv, t, err := s.addonContext()
+	sc, srv, t, err := s.addonContext()
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1089,6 +1165,15 @@ func (s *server) hAddonAdopt(w http.ResponseWriter, r *http.Request) {
 	installed, err := s.installedAddons()
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	pack, err := s.packFiles(t.Folder)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if pack[req.FileName] && sc.Modpack != nil {
+		writeError(w, errConflict(req.FileName+" is part of "+sc.Modpack.Name+", so it stays with the pack.", ""))
 		return
 	}
 	res, err := s.lib().Scan(r.Context(), srv, installed, true)

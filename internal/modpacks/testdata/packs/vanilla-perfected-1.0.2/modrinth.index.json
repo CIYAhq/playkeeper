@@ -1,0 +1,163 @@
+{
+  "game": "minecraft",
+  "formatVersion": 1,
+  "versionId": "1.0.2+26.1.2",
+  "name": "Vanilla Perfected",
+  "summary": "",
+  "files": [
+    {
+      "path": "mods/cloth-config-26.1.154.jar",
+      "hashes": {
+        "sha512": "8bfb75f2cac0a9910316c6a368a228c0f8f1261ac6f03dec5fba594e1619ac04334a3df4fb29778d61d0b8290d55949371a523d722b35501bf9a2902956d3b17",
+        "sha1": "832f9047bc4af13587709c74f7c37e1c8579d1eb"
+      },
+      "env": {
+        "server": "required",
+        "client": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/9s6osm5g/versions/GFM8zh9J/cloth-config-26.1.154.jar"
+      ],
+      "fileSize": 1135373
+    },
+    {
+      "path": "mods/MouseTweaks-fabric-mc26.1-2.31.jar",
+      "hashes": {
+        "sha512": "4dd59950e1c249a9c5cae50beff86c5c59b19b0f2cdf72dea0315eeba93bced72a300eebfef435f3bf17532dc541d74e1e69cd577ab5b08067e34e7bcccddc97",
+        "sha1": "d81b34b76b8885f637e1a253810a78bee772a346"
+      },
+      "env": {
+        "client": "required",
+        "server": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/aC3cM3Vq/versions/EBIKCzuP/MouseTweaks-fabric-mc26.1-2.31.jar"
+      ],
+      "fileSize": 75833
+    },
+    {
+      "path": "mods/placeholder-api-3.0.0+26.1.jar",
+      "hashes": {
+        "sha512": "b559da0f13fef17967f2aff1d06b00995c7db21d9d5b7b580ab6eafdf2365e4ac86a7d094c2b481160a942f291bc2595f2cb8c91ce5e169f1c2f461782ecd2a8",
+        "sha1": "c1ce548549ec4517b9393985cefc65389e6f36d8"
+      },
+      "env": {
+        "client": "required",
+        "server": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/eXts2L7r/versions/b3IPAHgB/placeholder-api-3.0.0%2B26.1.jar"
+      ],
+      "fileSize": 254376
+    },
+    {
+      "path": "mods/fabric-api-0.150.0+26.1.2.jar",
+      "hashes": {
+        "sha1": "1389f2a2bf506996be33ae8633ee25472ad8d9c2",
+        "sha512": "238c793b720ed21d2d5b564eca88c714cf2188f7b0fb1fd30864660f80901e2b4dad273994b6f77de3c0aa365f930ed8aaccffac49b36c6456b153b52d5d21dc"
+      },
+      "env": {
+        "server": "required",
+        "client": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/P7dR8mSH/versions/E1mjhYMF/fabric-api-0.150.0%2B26.1.2.jar"
+      ],
+      "fileSize": 2496495
+    },
+    {
+      "path": "mods/lithium-fabric-0.24.3+mc26.1.2.jar",
+      "hashes": {
+        "sha1": "36b416c42e56713ba91e5a84f107712f742b2700",
+        "sha512": "b6f948576b062f83f1b13033c3f1121a3d4add8f8294415f8d283caeb91ca28acc1e19fb021a8807a034ff9875ef0dd9b6054734d552e072336aa060a106044f"
+      },
+      "env": {
+        "server": "required",
+        "client": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/gvQqBUqZ/versions/Nt50x0fz/lithium-fabric-0.24.3%2Bmc26.1.2.jar"
+      ],
+      "fileSize": 894287
+    },
+    {
+      "path": "mods/fabric-language-kotlin-1.13.11+kotlin.2.3.21.jar",
+      "hashes": {
+        "sha512": "fa5ed2613f7216999cc0c5ddc71906f082a32b52507d7160acbdcf0eb8de12993ba302e5afde6681d025008ecc66c7533fc0c21deb672ef681b2194fb9be4245",
+        "sha1": "b6190b247c557c493dc4204121744f289a1d1837"
+      },
+      "env": {
+        "client": "required",
+        "server": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/Ha28R6CL/versions/2i87JpYj/fabric-language-kotlin-1.13.11%2Bkotlin.2.3.21.jar"
+      ],
+      "fileSize": 7813444
+    },
+    {
+      "path": "mods/pickupnotifications-2.0.2+26.1.jar",
+      "hashes": {
+        "sha512": "369b421c8412b5f76222dfc638a49be38be8066e2ecfde626da8b3501e3da537854fc0576a08a3601b6d7cf208eb1d2c9a57fa73eb75b48d54915b680fed5485",
+        "sha1": "8928b938b05176fc78b3cb6a3f4968b4d805b262"
+      },
+      "env": {
+        "server": "required",
+        "client": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/wWiJfmyy/versions/SaVqgVC7/pickupnotifications-2.0.2%2B26.1.jar"
+      ],
+      "fileSize": 691914
+    },
+    {
+      "path": "shaderpacks/I Like Vanilla v1.4.0b.zip",
+      "hashes": {
+        "sha512": "7348eaedaae1bcb780faaa175cb2082db6f33da643f7e5d76c7b2a093d24cf20f85a6715c5ab29f32ce3d8a0e925382a9e85aaad43935975c91ed647abcac1d3",
+        "sha1": "b4ada53f3f58b635dfd2f826cd8155cedeb9e95e"
+      },
+      "env": {
+        "client": "required",
+        "server": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/DoODk4HD/versions/qf7yB73o/I%20Like%20Vanilla%20v1.4.0b.zip"
+      ],
+      "fileSize": 314056
+    },
+    {
+      "path": "resourcepacks/Almost Vanilla Potions.zip",
+      "hashes": {
+        "sha512": "41dbca37c7f2479f98e88a6aa1706f10c6ad41f77e3c379f24dbe27a3452de4adfc5ab4f2c31f1195267157ccdd3b1f2a944eac26bb688396ad96737e2b71f1e",
+        "sha1": "83265af87088c9cde2d1f8bf325be3db88d0b484"
+      },
+      "env": {
+        "client": "required",
+        "server": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/XsLCz9bM/versions/IeqDeS2Z/Almost%20Vanilla%20Potions.zip"
+      ],
+      "fileSize": 333587
+    },
+    {
+      "path": "datapacks/AllMobHeads_V11.zip",
+      "hashes": {
+        "sha512": "2639971bfba866dde46a3e0616b37c37b4512e41e20f2c9882ee007652ef30c1981065316351f0d92f533067eadd2224ac689e8728df8e3a706f41168087f7ca",
+        "sha1": "0eab83a6d46c1280945c8b01efd969eb79f71704"
+      },
+      "env": {
+        "server": "required",
+        "client": "required"
+      },
+      "downloads": [
+        "https://cdn.modrinth.com/data/WYMK8lIp/versions/YjpSzd1x/AllMobHeads_V11.zip"
+      ],
+      "fileSize": 1194120
+    }
+  ],
+  "dependencies": {
+    "minecraft": "26.1.2",
+    "fabric-loader": "0.19.2"
+  }
+}

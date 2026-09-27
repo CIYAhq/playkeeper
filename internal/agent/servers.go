@@ -21,6 +21,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
 )
 
 // Server layouts. v1 is the single server of 0.1.0 and 0.2.0, kept exactly as
@@ -105,6 +106,13 @@ type server struct {
 
 	checks addonChecks
 	pg     pregenCache
+
+	// softwareChanged is set, under mu, when a start found the server's
+	// software changed since Playkeeper installed it; a reinstall clears it.
+	// manifest caches the record of the installed software (types other
+	// than Paper), also under mu.
+	softwareChanged *api.SoftwareChange
+	manifest        *software.Manifest
 }
 
 func (a *Agent) newServerHandle(id, layout string, port int) *server {
@@ -379,6 +387,10 @@ type newServerSpec struct {
 	desired  string
 	actor    string
 	auditMsg string
+	// record writes what the server keeps besides its own row, in the
+	// transaction that records the server, so neither exists without the
+	// other.
+	record func(tx *sql.Tx, id string) error
 }
 
 // addServer records a new v2 server and starts its first operation, kind,
@@ -416,8 +428,21 @@ func (a *Agent) addServer(spec newServerSpec, kind string, first func(s *server)
 	now := a.now().UTC()
 	var pos int
 	_ = a.db.QueryRow(`SELECT COALESCE(MAX(position), 0) + 1 FROM servers`).Scan(&pos)
-	if _, err := a.db.Exec(`INSERT INTO servers(id, name, slug, game, type, layout, game_port, config, desired, position, created_at, collecting_since)
+	tx, err := a.db.Begin()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO servers(id, name, slug, game, type, layout, game_port, config, desired, position, created_at, collecting_since)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, id, name, slug, api.GameMinecraftJava, spec.typ, layoutV2, port, string(cfgJSON), spec.desired, pos, now.UnixMilli(), now.UnixMilli()); err != nil {
+		return nil, nil, err
+	}
+	if spec.record != nil {
+		if err := spec.record(tx, id); err != nil {
+			return nil, nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, nil, err
 	}
 	s := a.newServerHandle(id, layoutV2, port)
@@ -556,6 +581,7 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 		`DELETE FROM backups WHERE server_id = ?`, `DELETE FROM samples WHERE server_id = ?`,
 		`DELETE FROM events WHERE server_id = ?`, `DELETE FROM sessions WHERE server_id = ?`,
 		`DELETE FROM addons WHERE server_id = ?`, `DELETE FROM pregen WHERE server_id = ?`,
+		`DELETE FROM modpacks WHERE server_id = ?`, `DELETE FROM template_installs WHERE server_id = ?`,
 		`DELETE FROM gc_windows WHERE server_id = ?`, `DELETE FROM servers WHERE id = ?`,
 	} {
 		if _, err := tx.Exec(q, s.id); err != nil {

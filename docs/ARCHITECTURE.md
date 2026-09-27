@@ -12,6 +12,7 @@ All of it is one Go binary with the TypeScript/React UI compiled in; the process
 - The panel routes each request by server to the machine that runs it. Player faces are fetched from Mojang by the panel and cached in its database; browsers never contact Mojang.
 - A machine can have one address: a free `<name>.playkeeper.io` from the names service, which points it at the address the machine's signed requests come from, or its own domain, whose records the admin adds. The agent keeps the address and gets and renews its Let's Encrypt certificate (DNS-01 through the names service for a free name, HTTP-01 on port 80 for an own domain), saving it where the panel can read it; the panel serves it for that name and its self-signed certificate for the IP address and anything else. Servers share the machine's name and differ by port; an SRV record per server lets players join at `<server>.<name>` without the port.
 - Two-factor sign-in lives in the panel: `internal/twofactor` holds the rules (codes, recovery codes, pausing and blocking), and the panel stores each user's factor and runs the second sign-in step.
+- The few routes that work without a sign-in are all in the panel's public group (`publicRoutes()` in `internal/panel`), which limits what each address can do and logs only each route's prefix. The friends' pack page, `/packs/<token>` (from 0.4.0), is one: the panel asks its machines which server the token belongs to, and that server's agent answers only while sharing is on and the server is running.
 
 ## Pre-generation and packs
 

@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"context"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
@@ -263,6 +264,41 @@ func TestAPIRefusesRedirectsToOtherHosts(t *testing.T) {
 	}
 }
 
+func TestAPISendsItsHeaderOnlyToItsOwnHost(t *testing.T) {
+	other := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("the redirect target was contacted with key %q", r.Header.Get("X-Api-Key"))
+	}))
+	defer other.Close()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Api-Key") != "test-key-123" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if r.URL.Path == "/v1/away" {
+			http.Redirect(w, r, other.URL+"/v1/x", http.StatusFound)
+			return
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	h := http.Header{"X-Api-Key": {"test-key-123"}}
+	a := New("CurseForge", Options{BaseURL: srv.URL + "/v1", UserAgent: "ua", HTTP: srv.Client(), Header: h})
+	if err := a.Get(context.Background(), "/mods/1", nil, &map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(h) != 1 {
+		t.Errorf("the caller's header was changed: %v", h)
+	}
+	var re *RedirectError
+	err := a.Get(context.Background(), "/away", nil, nil)
+	if !errors.As(err, &re) {
+		t.Fatalf("err = %v, want RedirectError", err)
+	}
+	if strings.Contains(err.Error(), "test-key-123") {
+		t.Errorf("the key leaked into %q", err)
+	}
+}
+
 func TestAPIRequiresHTTPS(t *testing.T) {
 	a := New("Hangar", Options{BaseURL: "http://hangar.papermc.io/api/v1"})
 	var he *HostError
@@ -368,5 +404,31 @@ func TestDownloadRefusalsLeaveNothingBehind(t *testing.T) {
 	}
 	if _, err := Download(context.Background(), srv.Client(), hosts, "ua", srv.URL+"/x.jar", t.TempDir(), Want{Algo: "sha512", Max: 1 << 20}); err == nil {
 		t.Error("a download without a hash was accepted")
+	}
+}
+
+func TestDownloadChecksEveryListedHash(t *testing.T) {
+	body := []byte("PK\x03\x04 a jar")
+	s512, _ := sums(body)
+	s1 := sha1.Sum(body)
+	good := hex.EncodeToString(s1[:])
+	bad := strings.Repeat("0", 40)
+	srv, hosts := cdn(t, func(w http.ResponseWriter, r *http.Request) { w.Write(body) })
+	get := func(also ...Sum) (string, string, error) {
+		dir := t.TempDir()
+		p, err := Download(context.Background(), srv.Client(), hosts, "ua", srv.URL+"/x.jar", dir, Want{Algo: "sha512", Hash: s512, Also: also, Max: 1 << 20})
+		return dir, p, err
+	}
+	if _, _, err := get(Sum{"sha1", strings.ToUpper(good)}); err != nil {
+		t.Fatalf("both hashes match: %v", err)
+	}
+	dir, _, err := get(Sum{"sha1", bad})
+	var he *HashError
+	if !errors.As(err, &he) || he.Algo != "sha1" || he.Got != good {
+		t.Fatalf("err = %#v, want a sha1 HashError", err)
+	}
+	assertEmpty(t, dir)
+	if _, _, err := get(Sum{"sha1", "abc"}); err == nil {
+		t.Error("a malformed second hash was accepted")
 	}
 }

@@ -10,6 +10,7 @@ import { DetailSheet } from './detail'
 import { JobDialog, RemoveDialog, UpdateAskDialog } from './dialogs'
 import { InstalledView } from './installed'
 import { AddonsProvider } from './state'
+import { VoiceChatDialog } from './voice'
 
 type AddonTab = 'plugins' | 'mods'
 
@@ -39,6 +40,7 @@ export function PluginsPage({ server, tab, sub }: { server: ServerStatus; tab: A
       <JobDialog />
       <RemoveDialog />
       <UpdateAskDialog />
+      <VoiceChatDialog />
     </AddonsProvider>
   )
 }

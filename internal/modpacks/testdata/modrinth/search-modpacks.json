@@ -1,0 +1,372 @@
+{
+  "hits": [
+    {
+      "project_id": "5FFgwNNP",
+      "project_type": "modpack",
+      "all_project_types": [
+        "modpack"
+      ],
+      "slug": "cobblemon-fabric",
+      "author": "CobbledStudios",
+      "author_id": "TKyBPHpN",
+      "organization": "Cobbled Studios",
+      "organization_id": "xDVugH2u",
+      "title": "Cobblemon Official Modpack [Fabric]",
+      "description": "The official modpack of the Cobblemon mod, for Fabric!",
+      "categories": [
+        "adventure",
+        "fabric",
+        "lightweight",
+        "multiplayer",
+        "optimization"
+      ],
+      "display_categories": [
+        "adventure",
+        "lightweight",
+        "multiplayer"
+      ],
+      "versions": [
+        "1.20.1",
+        "1.21.1"
+      ],
+      "downloads": 10809757,
+      "follows": 2645,
+      "icon_url": "https://cdn.modrinth.com/data/5FFgwNNP/e7f9ee2e9d361623847853fe2ddce42f519ee64f.png",
+      "date_created": "2023-02-09T23:43:12.944222+00:00",
+      "date_modified": "2026-09-13T00:36:04.508365+00:00",
+      "latest_version": "Cqimd3JM",
+      "license": "MPL-2.0",
+      "client_side": "required",
+      "server_side": "required",
+      "environment": [
+        "client_and_server"
+      ],
+      "disclosure_types": [],
+      "gallery": [],
+      "featured_gallery": null,
+      "color": 3415591
+    },
+    {
+      "project_id": "ch7UHY2J",
+      "project_type": "modpack",
+      "all_project_types": [
+        "modpack"
+      ],
+      "slug": "sodiumplus",
+      "author": "NoSadBeHappy",
+      "author_id": "PAoQFxrm",
+      "organization": "HappyRedstone Modding",
+      "organization_id": "FD7bdbvd",
+      "title": "Sodium Plus",
+      "description": "A client-side optimization modpack with a few extra tweaks.",
+      "categories": [
+        "fabric",
+        "lightweight",
+        "multiplayer",
+        "optimization",
+        "quilt"
+      ],
+      "display_categories": [
+        "lightweight",
+        "multiplayer",
+        "optimization"
+      ],
+      "versions": [
+        "1.18.2",
+        "1.19",
+        "1.19.2",
+        "1.19.3",
+        "1.19.4",
+        "1.20",
+        "1.20.1",
+        "1.21",
+        "1.21.5",
+        "1.21.8",
+        "1.21.10",
+        "1.21.11",
+        "26.1.2",
+        "26.2"
+      ],
+      "downloads": 2718987,
+      "follows": 624,
+      "icon_url": "https://cdn.modrinth.com/data/ch7UHY2J/cf0150ba8d6c01144974709a27b23bba93c0fc9e.png",
+      "date_created": "2022-05-19T02:57:12.389199+00:00",
+      "date_modified": "2026-09-19T00:39:28.220857+00:00",
+      "latest_version": "PPhWUGkB",
+      "license": "MIT",
+      "client_side": "required",
+      "server_side": "unsupported",
+      "environment": [
+        "client_only",
+        "dedicated_server_only"
+      ],
+      "disclosure_types": [],
+      "gallery": [],
+      "featured_gallery": null,
+      "color": 8375147
+    },
+    {
+      "project_id": "1ocGzRHv",
+      "project_type": "modpack",
+      "all_project_types": [
+        "modpack"
+      ],
+      "slug": "vanilla-perfected",
+      "author": "demonjoeTV",
+      "author_id": "XaM7AEQa",
+      "organization": null,
+      "organization_id": null,
+      "title": "Vanilla Perfected",
+      "description": "A compilation of Vanilla Plus mods & packs to perfect the Minecraft experience without drifting too far from the feel of the base game!",
+      "categories": [
+        "adventure",
+        "fabric",
+        "lightweight",
+        "optimization"
+      ],
+      "display_categories": [
+        "adventure",
+        "lightweight",
+        "optimization"
+      ],
+      "versions": [
+        "1.20.1",
+        "1.21",
+        "1.21.1",
+        "1.21.4",
+        "1.21.5",
+        "1.21.6",
+        "1.21.8",
+        "1.21.10",
+        "1.21.11",
+        "26.1.2",
+        "26.2"
+      ],
+      "downloads": 2502113,
+      "follows": 2492,
+      "icon_url": "https://cdn.modrinth.com/data/1ocGzRHv/ebec737126db7637001194ca5560ae58413d338f_96.webp",
+      "date_created": "2024-10-10T02:40:35.053953+00:00",
+      "date_modified": "2026-07-24T22:01:41.662792+00:00",
+      "latest_version": "Bu8RKHri",
+      "license": "MIT",
+      "client_side": "required",
+      "server_side": "required",
+      "environment": [
+        "client_and_server"
+      ],
+      "disclosure_types": [],
+      "gallery": [],
+      "featured_gallery": null,
+      "color": 263172
+    },
+    {
+      "project_id": "vwgtbO0y",
+      "project_type": "modpack",
+      "all_project_types": [
+        "modpack"
+      ],
+      "slug": "the-pixelmon-modpack",
+      "author": "Pixelmon",
+      "author_id": "yDIJMMci",
+      "organization": null,
+      "organization_id": null,
+      "title": "The Pixelmon Modpack",
+      "description": "This Modpack includes everything you need as a pre-built Pixelmon exerience - The Pixelmon Mod, The Pixelmon OST, Journeymap, BYG, Natures/Explorers Compass.",
+      "categories": [
+        "adventure",
+        "forge",
+        "neoforge",
+        "quests"
+      ],
+      "display_categories": [
+        "adventure",
+        "quests"
+      ],
+      "versions": [
+        "1.16.5",
+        "1.20.1",
+        "1.20.2",
+        "1.21.1"
+      ],
+      "downloads": 2203252,
+      "follows": 328,
+      "icon_url": "https://cdn.modrinth.com/data/vwgtbO0y/e16493aab7b0a32a2c9920cb0d89ebe06c4b3726_96.webp",
+      "date_created": "2023-06-03T00:09:45.357230+00:00",
+      "date_modified": "2026-09-17T08:39:06.072455+00:00",
+      "latest_version": "IHtaie13",
+      "license": "LicenseRef-All-Rights-Reserved",
+      "client_side": "required",
+      "server_side": "optional",
+      "environment": [
+        "client_only_server_optional"
+      ],
+      "disclosure_types": [],
+      "gallery": [],
+      "featured_gallery": null,
+      "color": 2497818
+    },
+    {
+      "project_id": "i4XHCd7Q",
+      "project_type": "modpack",
+      "all_project_types": [
+        "modpack"
+      ],
+      "slug": "aged",
+      "author": "xR4YM0ND",
+      "author_id": "3bkdqpQI",
+      "organization": null,
+      "organization_id": null,
+      "title": "Aged",
+      "description": "realistic / medieval / progression based modpack for Fabric 1.20.1",
+      "categories": [
+        "adventure",
+        "challenging",
+        "combat",
+        "fabric",
+        "multiplayer",
+        "optimization"
+      ],
+      "display_categories": [
+        "adventure",
+        "challenging",
+        "combat"
+      ],
+      "versions": [
+        "1.19.2",
+        "1.20.1"
+      ],
+      "downloads": 1422720,
+      "follows": 2404,
+      "icon_url": "https://cdn.modrinth.com/data/i4XHCd7Q/08f0c63df56b34270bc77d39fa8e448de20b7c05.png",
+      "date_created": "2023-05-02T23:18:32.444304+00:00",
+      "date_modified": "2024-12-01T11:52:30.861017+00:00",
+      "latest_version": "7BgHWBWr",
+      "license": "MIT",
+      "client_side": "required",
+      "server_side": "required",
+      "environment": [
+        "client_and_server"
+      ],
+      "disclosure_types": [],
+      "gallery": [],
+      "featured_gallery": null,
+      "color": 1708562
+    },
+    {
+      "project_id": "t1tOiUHZ",
+      "project_type": "modpack",
+      "all_project_types": [
+        "modpack"
+      ],
+      "slug": "create_plus",
+      "author": "Sshmoob",
+      "author_id": "TxEqj3YD",
+      "organization": null,
+      "organization_id": null,
+      "title": "Create+",
+      "description": "A simple, optimized, vanilla+ pack, except for the inclusion of Create (and its addons). Now with Create: Aeronautics!",
+      "categories": [
+        "adventure",
+        "forge",
+        "lightweight",
+        "multiplayer",
+        "neoforge",
+        "optimization",
+        "technology"
+      ],
+      "display_categories": [
+        "lightweight",
+        "multiplayer",
+        "technology"
+      ],
+      "versions": [
+        "1.19.2",
+        "1.21.1"
+      ],
+      "downloads": 1321520,
+      "follows": 575,
+      "icon_url": "https://cdn.modrinth.com/data/t1tOiUHZ/02e664d639c9ad8fed670148dbcc22a26d59e992_96.webp",
+      "date_created": "2024-05-04T06:47:25.077272+00:00",
+      "date_modified": "2026-06-15T00:34:52.138582+00:00",
+      "latest_version": "BSg2ZS8u",
+      "license": "LGPL-3.0-only",
+      "client_side": "required",
+      "server_side": "required",
+      "environment": [
+        "client_and_server"
+      ],
+      "disclosure_types": [],
+      "gallery": [],
+      "featured_gallery": null,
+      "color": 6507106
+    },
+    {
+      "project_id": "1Fv3GHYS",
+      "project_type": "modpack",
+      "all_project_types": [
+        "modpack"
+      ],
+      "slug": "rso",
+      "author": "moonboss666",
+      "author_id": "FKbUp6KI",
+      "organization": null,
+      "organization_id": null,
+      "title": "红石生电优化【Redstone Survival Optimization】",
+      "description": "一个红石玩家必备的整合包，轻，快，小，是他的特点！A must-have integration package for a Redstone player, light, fast, and small, are his characteristics!",
+      "categories": [
+        "fabric",
+        "lightweight",
+        "multiplayer",
+        "optimization"
+      ],
+      "display_categories": [
+        "lightweight",
+        "multiplayer",
+        "optimization"
+      ],
+      "versions": [
+        "1.19.4",
+        "1.20.1",
+        "1.20.2",
+        "1.20.4",
+        "1.20.6",
+        "1.21",
+        "1.21.1",
+        "1.21.3",
+        "1.21.4",
+        "1.21.5",
+        "1.21.6",
+        "1.21.7",
+        "1.21.8",
+        "1.21.9",
+        "1.21.10",
+        "1.21.11",
+        "26.1",
+        "26.1.1",
+        "26.1.2",
+        "26.2",
+        "26.3"
+      ],
+      "downloads": 1257663,
+      "follows": 122,
+      "icon_url": "https://cdn.modrinth.com/data/1Fv3GHYS/858eb9b338685b41a68d6183ad6af7b4ae2da841_96.webp",
+      "date_created": "2022-09-15T19:07:25.034226+00:00",
+      "date_modified": "2026-09-22T06:10:03.525791+00:00",
+      "latest_version": "8uEoyuvc",
+      "license": "GPL-3.0-only",
+      "client_side": "optional",
+      "server_side": "optional",
+      "environment": [
+        "client_or_server_prefers_both",
+        "client_only_server_optional"
+      ],
+      "disclosure_types": [],
+      "gallery": [],
+      "featured_gallery": null,
+      "color": 16375993
+    }
+  ],
+  "offset": 0,
+  "limit": 20,
+  "total_hits": 10091
+}

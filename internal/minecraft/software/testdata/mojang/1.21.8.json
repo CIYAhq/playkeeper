@@ -1,0 +1,23 @@
+{
+ "id": "1.21.8",
+ "type": "release",
+ "time": "2025-07-17T12:04:02+00:00",
+ "releaseTime": "2025-07-17T12:04:02+00:00",
+ "javaVersion": {
+  "component": "java-runtime-delta",
+  "majorVersion": 21
+ },
+ "downloads": {
+  "server": {
+   "sha1": "6bce4ef400e4efaa63a13d5e6f6b500be969ef81",
+   "size": 57555044,
+   "url": "https://piston-data.mojang.com/v1/objects/6bce4ef400e4efaa63a13d5e6f6b500be969ef81/server.jar"
+  },
+  "server_mappings": {
+   "sha1": "eb1e1eb47cb740012fc82eacc394859463684132",
+   "size": 8186232,
+   "url": "https://piston-data.mojang.com/v1/objects/eb1e1eb47cb740012fc82eacc394859463684132/server.txt"
+  }
+ },
+ "mainClass": "net.minecraft.client.main.Main"
+}

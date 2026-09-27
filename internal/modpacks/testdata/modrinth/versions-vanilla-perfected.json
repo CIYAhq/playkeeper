@@ -1,0 +1,254 @@
+[
+  {
+    "game_versions": [
+      "26.2"
+    ],
+    "loaders": [
+      "fabric"
+    ],
+    "environment": "client_and_server",
+    "id": "Bu8RKHri",
+    "project_id": "1ocGzRHv",
+    "author_id": "XaM7AEQa",
+    "featured": false,
+    "name": "Chaos Cubed Hotfix 3.0",
+    "version_number": "1.0.3+26.2",
+    "changelog_url": null,
+    "date_published": "2026-07-24T22:01:42.845192Z",
+    "downloads": 278446,
+    "version_type": "beta",
+    "status": "listed",
+    "requested_status": null,
+    "files": [
+      {
+        "id": "E9VNkHvW",
+        "hashes": {
+          "sha1": "a864e3bcb9488df7984defef36c0f7c03f128b76",
+          "sha512": "f68794f3587c83939fd87e6df751ab269858bd2515bd33db43287f4b507fb75e83f2910b4f84cdcc978f2533314b45fdf70fc095664411cefb497e78d44f590a"
+        },
+        "url": "https://cdn.modrinth.com/data/1ocGzRHv/versions/Bu8RKHri/Vanilla%20Perfected%201.0.0%2B26.3.mrpack",
+        "filename": "Vanilla Perfected 1.0.0+26.3.mrpack",
+        "primary": true,
+        "size": 6337780,
+        "file_type": null
+      }
+    ],
+    "dependencies": []
+  },
+  {
+    "game_versions": [
+      "26.2"
+    ],
+    "loaders": [
+      "fabric"
+    ],
+    "environment": "client_and_server",
+    "id": "OIcK4sww",
+    "project_id": "1ocGzRHv",
+    "author_id": "XaM7AEQa",
+    "featured": false,
+    "name": "Chaos Cubed Hotfix 2.0",
+    "version_number": "1.0.2+26.2",
+    "changelog_url": null,
+    "date_published": "2026-07-24T05:36:42.092386Z",
+    "downloads": 6831,
+    "version_type": "beta",
+    "status": "listed",
+    "requested_status": null,
+    "files": [
+      {
+        "id": "gjgilTiS",
+        "hashes": {
+          "sha1": "4dd2abb4309b00f9a8af4d3bb27d6b78538ed222",
+          "sha512": "7d0cabf038f6c0a69576dc22e5e345ffcbb0314fbca43f4da12f5e4f29cb950cb452feb19af31bdedd58a672da3b0078b7287c0891dc1093dbfd99a968ce64cd"
+        },
+        "url": "https://cdn.modrinth.com/data/1ocGzRHv/versions/OIcK4sww/Vanilla%20Perfected%201.0.3%2B26.2.mrpack",
+        "filename": "Vanilla Perfected 1.0.3+26.2.mrpack",
+        "primary": true,
+        "size": 6335964,
+        "file_type": null
+      }
+    ],
+    "dependencies": []
+  },
+  {
+    "game_versions": [
+      "26.1.2"
+    ],
+    "loaders": [
+      "fabric"
+    ],
+    "environment": "client_and_server",
+    "id": "zCNpmrT6",
+    "project_id": "1ocGzRHv",
+    "author_id": "XaM7AEQa",
+    "featured": false,
+    "name": "Tiny Takeover Hotfix 3.0",
+    "version_number": "1.0.3+26.1.2",
+    "changelog_url": null,
+    "date_published": "2026-06-16T18:24:00.979747Z",
+    "downloads": 204634,
+    "version_type": "release",
+    "status": "listed",
+    "requested_status": null,
+    "files": [
+      {
+        "id": "8NM5hUba",
+        "hashes": {
+          "sha512": "f20cec48c545f424e5f1a10ee5ec3de370a798b3dd92eec13a0a5ce10ec67a24a999a1fbee02bdccd95f2e84354be5f407f67bdd0b236f0de2c60b0acde93a4f",
+          "sha1": "a1c744dfd302e58f7869402429a1dd973fb10932"
+        },
+        "url": "https://cdn.modrinth.com/data/1ocGzRHv/versions/zCNpmrT6/Vanilla%20Perfected%201.0.3%2B26.1.2.mrpack",
+        "filename": "Vanilla Perfected 1.0.3+26.1.2.mrpack",
+        "primary": true,
+        "size": 9526703,
+        "file_type": null
+      }
+    ],
+    "dependencies": []
+  },
+  {
+    "game_versions": [
+      "26.1.2"
+    ],
+    "loaders": [
+      "fabric"
+    ],
+    "environment": "client_and_server",
+    "id": "jmYEuzNA",
+    "project_id": "1ocGzRHv",
+    "author_id": "XaM7AEQa",
+    "featured": false,
+    "name": "Tiny Takeover Hotfix 2.0",
+    "version_number": "1.0.2+26.1.2",
+    "changelog_url": null,
+    "date_published": "2026-05-28T18:45:07.965876Z",
+    "downloads": 83198,
+    "version_type": "beta",
+    "status": "listed",
+    "requested_status": null,
+    "files": [
+      {
+        "id": "K2tv72R8",
+        "hashes": {
+          "sha512": "183c507511d9150c5a4e7b9c1f6f2cd4b273af50eb01a3d5e9798bf744bac6ce046cea62d6dd9ea73d7173fe03fdf0a0d90088a8d84790c019cd4b4efcb00661",
+          "sha1": "ae53355ad1cca3b9536d8529fbd0ab2839c385ea"
+        },
+        "url": "https://cdn.modrinth.com/data/1ocGzRHv/versions/jmYEuzNA/Vanilla%20Perfected%201.0.2%2B26.1.2.mrpack",
+        "filename": "Vanilla Perfected 1.0.2+26.1.2.mrpack",
+        "primary": true,
+        "size": 9526690,
+        "file_type": null
+      }
+    ],
+    "dependencies": []
+  },
+  {
+    "game_versions": [
+      "26.1.2"
+    ],
+    "loaders": [
+      "fabric"
+    ],
+    "environment": "client_and_server",
+    "id": "1nywXwlh",
+    "project_id": "1ocGzRHv",
+    "author_id": "XaM7AEQa",
+    "featured": false,
+    "name": "Tiny Takeover Hotfix",
+    "version_number": "1.0.1+26.1.2",
+    "changelog_url": null,
+    "date_published": "2026-05-09T18:39:12.748729Z",
+    "downloads": 75195,
+    "version_type": "beta",
+    "status": "listed",
+    "requested_status": null,
+    "files": [
+      {
+        "id": "sRWDAOwv",
+        "hashes": {
+          "sha512": "37e2e02e2299f5641c41f766da6719b6bcce2bc98762bade68482609e19b771abd9c00df576034f70eca812d3e85fce6e1470f38a7a3a891a5e06945f994c9ed",
+          "sha1": "18019ff93bf969322af35bc202969b57fa516692"
+        },
+        "url": "https://cdn.modrinth.com/data/1ocGzRHv/versions/1nywXwlh/Vanilla%20Perfected%201.0.1%2B26.1.2.mrpack",
+        "filename": "Vanilla Perfected 1.0.1+26.1.2.mrpack",
+        "primary": true,
+        "size": 9523840,
+        "file_type": null
+      }
+    ],
+    "dependencies": []
+  },
+  {
+    "game_versions": [
+      "1.21.11"
+    ],
+    "loaders": [
+      "fabric"
+    ],
+    "environment": "client_and_server",
+    "id": "oUYGqRIh",
+    "project_id": "1ocGzRHv",
+    "author_id": "XaM7AEQa",
+    "featured": false,
+    "name": "Mounts of Mayhem Hotfix",
+    "version_number": "1.0.1+1.21.11",
+    "changelog_url": null,
+    "date_published": "2026-01-12T19:27:10.737552Z",
+    "downloads": 488593,
+    "version_type": "release",
+    "status": "listed",
+    "requested_status": null,
+    "files": [
+      {
+        "id": "6UqbaqfQ",
+        "hashes": {
+          "sha512": "79dcf5afab7753c8d904830d11b5471868155f1e70842aa4593b0ff8b798da0cee71e193a9d651de6bab4455d25ff6a37ef8d42470d31ad160fe5cdd35954069",
+          "sha1": "1a5fb8a61d88590330c0bc61d76bc0b9b5e96655"
+        },
+        "url": "https://cdn.modrinth.com/data/1ocGzRHv/versions/oUYGqRIh/Vanilla%20Perfected%201.0.1.mrpack",
+        "filename": "Vanilla Perfected 1.0.1.mrpack",
+        "primary": true,
+        "size": 11149874,
+        "file_type": null
+      }
+    ],
+    "dependencies": []
+  },
+  {
+    "game_versions": [
+      "1.20.1"
+    ],
+    "loaders": [
+      "fabric"
+    ],
+    "environment": "client_and_server",
+    "id": "WNVdOLRb",
+    "project_id": "1ocGzRHv",
+    "author_id": "XaM7AEQa",
+    "featured": false,
+    "name": "Vanilla Perfected 1.20.1 Full Release",
+    "version_number": "1.0.0+1.20.1",
+    "changelog_url": null,
+    "date_published": "2024-10-18T11:28:47.397117Z",
+    "downloads": 245418,
+    "version_type": "release",
+    "status": "listed",
+    "requested_status": null,
+    "files": [
+      {
+        "id": "Mbli7a6j",
+        "hashes": {
+          "sha512": "9f9c74de5a3a1e78fd771e2a2a98e74e4c82249b79263e05f0909f5e54ca937eb5561aaa235ab59bf6447f182fb577f549d60ddc1d0dd157e60dc259f32704a8",
+          "sha1": "314a94135c529b02eb1439f2465e147a8b12fcdb"
+        },
+        "url": "https://cdn.modrinth.com/data/1ocGzRHv/versions/WNVdOLRb/Vanilla%20Perfected%201.0.0%2B1.20.1.mrpack",
+        "filename": "Vanilla Perfected 1.0.0+1.20.1.mrpack",
+        "primary": true,
+        "size": 278229,
+        "file_type": null
+      }
+    ],
+    "dependencies": []
+  }
+]

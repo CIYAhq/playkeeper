@@ -60,6 +60,10 @@ type Manifest struct {
 	Consistency      string            `json:"consistency"`
 	Files            []FileEntry       `json:"files"`
 	TotalBytes       int64             `json:"totalBytes"`
+
+	// Build is the build of a type other than Paper: a Purpur build, a
+	// Fabric or Quilt loader, or a NeoForge version.
+	Build string `json:"build,omitempty"`
 }
 
 // Limits bound what an (untrusted) archive may make the agent write. Create
@@ -137,7 +141,9 @@ var topFiles = []string{
 	"version_history.json", "server-icon.png",
 }
 
-var topDirs = []string{"config", "plugins"}
+// Mod servers keep their mods in mods, and modpacks their server settings
+// and scripts in defaultconfigs and kubejs.
+var topDirs = []string{"config", "plugins", "mods", "defaultconfigs", "kubejs"}
 
 var skipDirNames = map[string]bool{".paper-remapped": true}
 

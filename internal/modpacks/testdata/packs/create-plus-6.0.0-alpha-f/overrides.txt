@@ -1,0 +1,9 @@
+.qmenu_opened.marker
+.mixin.out/class/net/minecraft/world/effect/MobEffect.class
+cache/c2me-dfc/DfcCompiled_0.class
+config/ichunutil/themes/blue&black.json
+configureddefaults/options.txt
+data/fabricDefaultResourcePacks.dat
+emi.json
+mods/.connector/continuity-3.0.0+1.21.neoforge_mapped_moj_1.21.1.jar
+dynamic-resource-pack-cache/amendments-generated_pack/assets/amendments/models/block/signs/ecologics/sign_azalea_0.json

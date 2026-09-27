@@ -21,6 +21,9 @@ export function addonTab(serverType: string | undefined): 'plugins' | 'mods' | u
 /** The libraries' own names, which aren't translated. */
 export const sourceNames: Record<AddonSource, string> = { modrinth: 'Modrinth', hangar: 'Hangar' }
 
+/** Simple Voice Chat on Modrinth, whose install also opens its UDP port. */
+export const voiceChatProject: AddonKey = { source: 'modrinth', projectId: '9eGKb6K1' }
+
 export const keyOf = (a: AddonKey): string => `${a.source}:${a.projectId}`
 export const sameKey = (a: AddonKey, b: AddonKey): boolean => a.source === b.source && a.projectId === b.projectId
 /** Just the key: the agent refuses fields it doesn't know. */
@@ -59,6 +62,7 @@ export function mergeRows(addons: Addons, checks?: AddonChecks): AddonRow[] {
 
   const rows: AddonRow[] = []
   for (const f of addons.files) {
+    if (f.status === 'pack') continue
     const known = f.status === 'unknown' ? identified.get(f.fileName) : f.addon
     if ((f.status === 'managed' || f.status === 'modified') && f.addon) {
       rows.push({ id: keyOf(f.addon), state: f.status === 'managed' ? 'managed' : 'changed', name: f.addon.name, version: f.addon.versionNumber, addon: f.addon, fileName: f.fileName, pending: !!f.pending, update: updates.get(keyOf(f.addon)) })
@@ -72,6 +76,21 @@ export function mergeRows(addons: Addons, checks?: AddonChecks): AddonRow[] {
     rows.push({ id: keyOf(a), state: 'missing', name: a.name, version: a.versionNumber, addon: a, fileName: a.fileName, pending: false })
   }
   return rows.sort((a, b) => a.name.localeCompare(b.name, formatLocale(), { sensitivity: 'base' }) || a.fileName.localeCompare(b.fileName))
+}
+
+/** A file the server's modpack put in the add-on folder. */
+export interface PackFile {
+  fileName: string
+  name: string
+  version: string
+}
+
+/** The modpack's files, sorted by name; they're listed with the pack, not as rows of their own. */
+export function packFiles(addons: Addons | undefined): PackFile[] {
+  return (addons?.files ?? [])
+    .filter((f) => f.status === 'pack')
+    .map((f) => ({ fileName: f.fileName, name: f.name || f.fileName.replace(/\.jar$/i, ''), version: f.version ?? '' }))
+    .sort((a, b) => a.name.localeCompare(b.name, formatLocale(), { sensitivity: 'base' }) || a.fileName.localeCompare(b.fileName))
 }
 
 /** Rows "Update all" updates: files that changed since they were installed wait to be asked one by one. */

@@ -31,6 +31,10 @@ type Options struct {
 	MaxBody int64
 	// Sleep replaces the pause, for tests.
 	Sleep func(ctx context.Context, d time.Duration) error
+	// Header is sent with every request, such as an API key. It never
+	// appears in errors, and redirects to other hosts are refused before it
+	// could be sent there.
+	Header http.Header
 }
 
 // API is a JSON API on one HTTPS host. It is safe for concurrent use; share
@@ -102,6 +106,9 @@ func (a *API) do(ctx context.Context, method, path string, q url.Values, body []
 		req, err := http.NewRequestWithContext(ctx, method, u.String(), rd)
 		if err != nil {
 			return err
+		}
+		if a.o.Header != nil {
+			req.Header = a.o.Header.Clone()
 		}
 		req.Header.Set("User-Agent", a.o.UserAgent)
 		req.Header.Set("Accept", "application/json")

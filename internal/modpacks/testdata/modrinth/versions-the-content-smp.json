@@ -1,0 +1,38 @@
+[
+  {
+    "game_versions": [
+      "1.19.2"
+    ],
+    "loaders": [
+      "quilt"
+    ],
+    "environment": "client_and_server",
+    "id": "ck8SrkA4",
+    "project_id": "lEzLZXS5",
+    "author_id": "dc2MhPWu",
+    "featured": false,
+    "name": "CSMP 1.5 Release",
+    "version_number": "1.19.2",
+    "changelog_url": null,
+    "date_published": "2026-04-22T04:02:44.464968Z",
+    "downloads": 3506,
+    "version_type": "release",
+    "status": "listed",
+    "requested_status": null,
+    "files": [
+      {
+        "id": "jjaX2PE0",
+        "hashes": {
+          "sha1": "3db9cb05166d421ec241e820ba2cc5abbfc62955",
+          "sha512": "16adbeef910987374ae51e950f1368b9f911032914a3311fe39b4c2d9313ec7ccc6825c48d01ab6b8bcf491d03f6c34293922e93110792d67dee5c5ba37927b0"
+        },
+        "url": "https://cdn.modrinth.com/data/lEzLZXS5/versions/ck8SrkA4/CSMP%201.5%20Release%201.19.2.mrpack",
+        "filename": "CSMP 1.5 Release 1.19.2.mrpack",
+        "primary": true,
+        "size": 25302131,
+        "file_type": null
+      }
+    ],
+    "dependencies": []
+  }
+]

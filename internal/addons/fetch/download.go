@@ -19,7 +19,9 @@ import (
 type Want struct {
 	Algo string // sha512, sha256 or sha1
 	Hash string // hex
-	Size int64  // 0 when unknown
+	// Also are more hashes the publisher lists; each must match too.
+	Also []Sum
+	Size int64 // 0 when unknown
 	Max  int64
 	// Progress, when set, is told how many bytes have arrived each time
 	// more do.
@@ -35,6 +37,12 @@ func (p *progressWriter) Write(b []byte) (int, error) {
 	p.n += int64(len(b))
 	p.fn(p.n)
 	return len(b), nil
+}
+
+// Sum is one hash a publisher lists for a file.
+type Sum struct {
+	Algo string
+	Hash string // hex
 }
 
 // NewHash returns the hash function for a publisher's algorithm name.
@@ -57,12 +65,17 @@ func Download(ctx context.Context, c *http.Client, hosts Hosts, userAgent, rawUR
 	if err != nil {
 		return "", err
 	}
-	h, err := NewHash(want.Algo)
-	if err != nil {
-		return "", err
-	}
-	if len(want.Hash) != 2*h.Size() {
-		return "", fmt.Errorf("the publisher lists no usable %s hash for this file", want.Algo)
+	sums := append([]Sum{{want.Algo, want.Hash}}, want.Also...)
+	hs := make([]hash.Hash, len(sums))
+	for i, s := range sums {
+		h, err := NewHash(s.Algo)
+		if err != nil {
+			return "", err
+		}
+		if len(s.Hash) != 2*h.Size() {
+			return "", fmt.Errorf("the publisher lists no usable %s hash for this file", s.Algo)
+		}
+		hs[i] = h
 	}
 	limit := want.Max
 	if want.Size > 0 {
@@ -101,11 +114,14 @@ func Download(ctx context.Context, c *http.Client, hosts Hosts, userAgent, rawUR
 			os.Remove(f.Name())
 		}
 	}()
-	var w io.Writer = io.MultiWriter(f, h)
-	if want.Progress != nil {
-		w = io.MultiWriter(f, h, &progressWriter{fn: want.Progress})
+	ws := []io.Writer{f}
+	for _, h := range hs {
+		ws = append(ws, h)
 	}
-	n, err := io.Copy(w, io.LimitReader(resp.Body, limit+1))
+	if want.Progress != nil {
+		ws = append(ws, &progressWriter{fn: want.Progress})
+	}
+	n, err := io.Copy(io.MultiWriter(ws...), io.LimitReader(resp.Body, limit+1))
 	if err != nil {
 		return "", netError(u.Hostname(), err)
 	}
@@ -115,8 +131,10 @@ func Download(ctx context.Context, c *http.Client, hosts Hosts, userAgent, rawUR
 	case n > want.Max:
 		return "", &TooLargeError{What: "the file", Limit: want.Max}
 	}
-	if got := hex.EncodeToString(h.Sum(nil)); got != strings.ToLower(want.Hash) {
-		return "", &HashError{Algo: want.Algo, Want: strings.ToLower(want.Hash), Got: got}
+	for i, s := range sums {
+		if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {
+			return "", &HashError{Algo: s.Algo, Want: strings.ToLower(s.Hash), Got: got}
+		}
 	}
 	if err := f.Sync(); err != nil {
 		return "", err

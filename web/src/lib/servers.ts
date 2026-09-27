@@ -1,5 +1,6 @@
 import type { CatalogEntry, ServerConfig, ServerStatus } from '@/api/types'
 import { t } from '@/i18n'
+import { buildLabel, entryType } from '@/lib/software'
 import { preset } from '@/lib/styles'
 import { compareMinecraft } from '@/lib/versions'
 
@@ -23,16 +24,23 @@ export function softwareLabel(s: ServerStatus): string {
   return v ? `${typeName(s.type)} ${v}` : typeName(s.type)
 }
 
+/** "Paper build 41", "Fabric loader 0.17.2", or just "Vanilla". */
+export function softwareName(type: string | undefined, build: string | number): string {
+  const label = buildLabel(type || 'paper', build)
+  return label ? t('soft.typeBuild', { type: typeName(type), build: label }) : typeName(type)
+}
+
 /** "Survival with friends", or nothing for servers made before play styles. */
 export function styleTitle(cfg: ServerConfig | undefined): string | undefined {
   const p = preset(cfg?.playStyle)
   return p ? t(p.title) : undefined
 }
 
-/** The newest stable Minecraft version newer than the server's, if there is one. */
+/** The newest stable Minecraft version of the server's own type newer than its own, if there is one. */
 export function newerStable(cfg: ServerConfig | undefined, versions: CatalogEntry[] | undefined): CatalogEntry | undefined {
   if (!cfg || !versions) return undefined
-  return versions.filter((v) => !v.experimental && v.supported && compareMinecraft(v.minecraftVersion, cfg.minecraftVersion) > 0).sort((a, b) => compareMinecraft(b.minecraftVersion, a.minecraftVersion) || b.paperBuild - a.paperBuild)[0]
+  const type = cfg.type || 'paper'
+  return versions.filter((v) => entryType(v) === type && !v.experimental && v.supported && compareMinecraft(v.minecraftVersion, cfg.minecraftVersion) > 0).sort((a, b) => compareMinecraft(b.minecraftVersion, a.minecraftVersion) || b.paperBuild - a.paperBuild)[0]
 }
 
 /** The server's own icon, when one was uploaded. */

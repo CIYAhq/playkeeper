@@ -10,6 +10,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
 )
 
 // catalogTTL is how long PaperMC's version list is reused.
@@ -120,8 +121,8 @@ func jarChecksum(sc api.ServerConfig) (string, error) {
 // withBuild returns sc running the catalog entry's build.
 func withBuild(sc api.ServerConfig, e api.CatalogEntry) api.ServerConfig {
 	sc.VersionID, sc.MinecraftVersion, sc.PaperBuild, sc.JarSHA256 = e.ID, e.MinecraftVersion, e.PaperBuild, e.JarSHA256
-	sc.JarVerifiedAt = nil
-	sc.Image = minecraft.Image
+	sc.JarVerifiedAt, sc.Software = nil, nil
+	sc.Image = runtimeImage(sc.MinecraftVersion)
 	return sc
 }
 
@@ -132,10 +133,42 @@ func checkNewer(cur api.ServerConfig, e api.CatalogEntry) error {
 	case c < 0:
 		return errConflict(fmt.Sprintf("Minecraft cannot go back from %s to %s: this world has been opened with %s, and an older version could damage it or refuse to open it.", cur.MinecraftVersion, e.MinecraftVersion, cur.MinecraftVersion),
 			"To play on an older version, restore a backup that was made with it.")
-	case c == 0 && e.PaperBuild <= cur.PaperBuild:
+	case c == 0 && cur.Software == nil && e.PaperBuild <= cur.PaperBuild:
 		return errConflict(fmt.Sprintf("The server already runs Paper %s build %d, and this is not newer.", cur.MinecraftVersion, cur.PaperBuild), "")
+	case c == 0 && cur.Software != nil && e.Build == pinBuild(software.Pin(*cur.Software)):
+		return errConflict(fmt.Sprintf("The server already runs %s.", softwareLabel(cur)), "")
 	}
 	return nil
+}
+
+// configType is the server type a config runs.
+func configType(sc api.ServerConfig) string {
+	if sc.Software != nil {
+		return sc.Software.Type
+	}
+	return api.TypePaper
+}
+
+// nextConfig is cur moved to a catalog entry of its own type, with the
+// build the catalog recommends, and whether that build is experimental.
+func (a *Agent) nextConfig(ctx context.Context, cur api.ServerConfig, e api.CatalogEntry) (api.ServerConfig, bool, error) {
+	if cur.Software == nil {
+		return withBuild(cur, e), e.Experimental, nil
+	}
+	pin, channel, err := a.pinFor(ctx, e, "")
+	if err != nil {
+		return api.ServerConfig{}, false, err
+	}
+	return withPin(cur, e, pin), e.Experimental || channel != software.Stable, nil
+}
+
+// versionText is a config's version as the update flow shows it: "26.1.2
+// build 41" for Paper, the software's name for the others.
+func versionText(sc api.ServerConfig) string {
+	if sc.Software == nil {
+		return fmt.Sprintf("%s build %d", sc.MinecraftVersion, sc.PaperBuild)
+	}
+	return softwareLabel(sc)
 }
 
 func (s *server) hVersionChange(w http.ResponseWriter, r *http.Request) {
@@ -158,7 +191,7 @@ func (s *server) hVersionChange(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errNotCreated())
 		return
 	}
-	e, err := s.catalogEntry(r.Context(), req.VersionID)
+	e, err := s.typeEntry(r.Context(), configType(*cur), req.VersionID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -168,7 +201,12 @@ func (s *server) hVersionChange(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if e.Experimental && !req.AcceptExperimental {
+	_, experimental, err := s.nextConfig(r.Context(), *cur, e)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if experimental && !req.AcceptExperimental {
 		writeError(w, errInvalid("%s is experimental. Confirm that you accept the risk to your world to use it.", e.Label))
 		return
 	}
@@ -198,8 +236,13 @@ func (s *server) versionChangeOp(ctx context.Context, h *opHandle, e api.Catalog
 	if err := checkNewer(*prev, e); err != nil {
 		return err
 	}
-	h.set("from", prev.MinecraftVersion+" build "+fmt.Sprint(prev.PaperBuild))
-	h.set("to", e.MinecraftVersion+" build "+fmt.Sprint(e.PaperBuild))
+	next, _, err := s.nextConfig(ctx, *prev, e)
+	if err != nil {
+		return err
+	}
+	kind := typeName(configType(*prev))
+	h.set("from", versionText(*prev))
+	h.set("to", versionText(next))
 	need := allowlistedSize(s.dataDir())
 	if free, _, err := s.opts.DiskUsage(s.cfg.BackupsDir()); err == nil && free < 2*need+minFreeAfterBackup {
 		return &apiError{Code: api.CodeInsufficientSpace, Msg: fmt.Sprintf("Not enough disk space to update safely: %s free, about %s needed for the backup and a possible rollback.", humanBytes(free), humanBytes(2*need+minFreeAfterBackup)),
@@ -219,17 +262,16 @@ func (s *server) versionChangeOp(ctx context.Context, h *opHandle, e api.Catalog
 		return err
 	}
 	h.phase("backing_up")
-	b, err := s.saveVerifiedRollback(*prev, actor, fmt.Sprintf("Automatic backup before updating from Paper %s to %s", prev.MinecraftVersion, e.MinecraftVersion))
+	b, err := s.saveVerifiedRollback(*prev, actor, fmt.Sprintf("Automatic backup before updating from %s %s to %s", kind, prev.MinecraftVersion, e.MinecraftVersion))
 	if err != nil {
 		s.startPrevious(ctx, h, prev, wasRunning)
 		return s.withRefusalHint(fmt.Errorf("could not save a verified backup first, so nothing was changed: %w", err))
 	}
 	h.set("backupId", b.ID)
-	next := withBuild(*prev, e)
-	if err := s.ensureServerSoftware(ctx, h, &next); err != nil {
+	if err := s.ensureSoftware(ctx, h, &next); err != nil {
 		_ = s.saveServerConfig(*prev)
 		s.startPrevious(ctx, h, prev, wasRunning)
-		return &apiError{Msg: fmt.Sprintf("Paper %s could not be downloaded and verified (%s), so nothing was changed.", e.MinecraftVersion, err.Error()), Hint: "The server runs " + prev.MinecraftVersion + " as before. Try again later."}
+		return &apiError{Msg: fmt.Sprintf("%s %s could not be downloaded and verified (%s), so nothing was changed.", kind, e.MinecraftVersion, err.Error()), Hint: "The server runs " + prev.MinecraftVersion + " as before. Try again later."}
 	}
 	if err := s.saveServerConfig(next); err != nil {
 		s.startPrevious(ctx, h, prev, wasRunning)
@@ -239,8 +281,12 @@ func (s *server) versionChangeOp(ctx context.Context, h *opHandle, e api.Catalog
 	h.phase("starting")
 	startErr := s.startServer(ctx, h, next)
 	if startErr == nil {
-		s.audit(actor, "server.version", e.ID, "succeeded", fmt.Sprintf("Paper %s build %d → %s build %d; backup %s", prev.MinecraftVersion, prev.PaperBuild, e.MinecraftVersion, e.PaperBuild, b.ID))
-		s.recordEvent(s.now(), "server_version_changed", "", "playkeeper", fmt.Sprintf("%s build %d → %s build %d", prev.MinecraftVersion, prev.PaperBuild, e.MinecraftVersion, e.PaperBuild))
+		if prev.Software == nil {
+			s.audit(actor, "server.version", e.ID, "succeeded", fmt.Sprintf("Paper %s build %d → %s build %d; backup %s", prev.MinecraftVersion, prev.PaperBuild, e.MinecraftVersion, e.PaperBuild, b.ID))
+		} else {
+			s.audit(actor, "server.version", e.ID, "succeeded", fmt.Sprintf("%s → %s; backup %s", versionText(*prev), versionText(next), b.ID))
+		}
+		s.recordEvent(s.now(), "server_version_changed", "", "playkeeper", versionText(*prev)+" → "+versionText(next))
 		return nil
 	}
 	h.phase("reverting")
@@ -248,15 +294,15 @@ func (s *server) versionChangeOp(ctx context.Context, h *opHandle, e api.Catalog
 	_ = s.stopServer(ctx, h)
 	if err := s.putBackupBack(b); err != nil {
 		s.audit(actor, "server.version", e.ID, "failed", "rollback failed: "+err.Error())
-		return &apiError{Msg: fmt.Sprintf("Paper %s did not start (%s), and putting the backup back failed: %s", e.MinecraftVersion, startErr.Error(), err.Error()),
+		return &apiError{Msg: fmt.Sprintf("%s %s did not start (%s), and putting the backup back failed: %s", kind, e.MinecraftVersion, startErr.Error(), err.Error()),
 			Hint: "Your world is safe in backup " + b.ID + ". Restore it from the World page."}
 	}
 	_ = s.saveServerConfig(*prev)
 	if err := s.startServer(ctx, h, *prev); err != nil {
-		return &apiError{Msg: fmt.Sprintf("Paper %s did not start (%s). The backup was put back, but %s did not start either: %s", e.MinecraftVersion, startErr.Error(), prev.MinecraftVersion, err.Error()), Hint: "Press Start on the Overview."}
+		return &apiError{Msg: fmt.Sprintf("%s %s did not start (%s). The backup was put back, but %s did not start either: %s", kind, e.MinecraftVersion, startErr.Error(), prev.MinecraftVersion, err.Error()), Hint: "Press Start on the Overview."}
 	}
 	s.audit(actor, "server.version", e.ID, "rolled back", startErr.Error())
-	return &apiError{Msg: fmt.Sprintf("Paper %s did not start (%s), so Playkeeper put the backup from before the update back. The server runs %s again.", e.MinecraftVersion, startErr.Error(), prev.MinecraftVersion),
+	return &apiError{Msg: fmt.Sprintf("%s %s did not start (%s), so Playkeeper put the backup from before the update back. The server runs %s again.", kind, e.MinecraftVersion, startErr.Error(), prev.MinecraftVersion),
 		Hint: "Nothing was lost. Open the Console to see why the new version stopped."}
 }
 

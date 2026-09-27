@@ -1,0 +1,218 @@
+{
+  "data": [
+    {
+      "id": 9200004,
+      "gameId": 432,
+      "modId": 9100001,
+      "isAvailable": true,
+      "displayName": "Example Fabric Pack 2.1.0-alpha.1 Server",
+      "fileName": "Example Fabric Pack 2.1.0-alpha.1 Server.zip",
+      "releaseType": 3,
+      "fileStatus": 4,
+      "hashes": [
+        {
+          "value": "0000000000000000000000000000000000000000",
+          "algo": 1
+        },
+        {
+          "value": "00000000000000000000000000000000",
+          "algo": 2
+        }
+      ],
+      "fileDate": "2026-09-20T10:05:00.000Z",
+      "fileLength": 0,
+      "downloadCount": 0,
+      "downloadUrl": "https://edge.forgecdn.net/files/9200/4/Example Fabric Pack 2.1.0-alpha.1 Server.zip",
+      "gameVersions": [
+        "26.3",
+        "Fabric"
+      ],
+      "sortableGameVersions": [
+        {
+          "gameVersionName": "26.3",
+          "gameVersionPadded": "",
+          "gameVersion": "26.3",
+          "gameVersionReleaseDate": "2026-01-01T00:00:00Z",
+          "gameVersionTypeId": 77784
+        }
+      ],
+      "dependencies": [],
+      "alternateFileId": 0,
+      "isServerPack": true,
+      "serverPackFileId": null,
+      "fileFingerprint": 0,
+      "modules": [
+        {
+          "name": "manifest.json",
+          "fingerprint": 0
+        },
+        {
+          "name": "overrides",
+          "fingerprint": 0
+        }
+      ]
+    },
+    {
+      "id": 9200003,
+      "gameId": 432,
+      "modId": 9100001,
+      "isAvailable": true,
+      "displayName": "Example Fabric Pack 2.1.0-alpha.1",
+      "fileName": "Example Fabric Pack 2.1.0-alpha.1.zip",
+      "releaseType": 3,
+      "fileStatus": 4,
+      "hashes": [
+        {
+          "value": "0000000000000000000000000000000000000000",
+          "algo": 1
+        },
+        {
+          "value": "00000000000000000000000000000000",
+          "algo": 2
+        }
+      ],
+      "fileDate": "2026-09-20T10:00:00.000Z",
+      "fileLength": 0,
+      "downloadCount": 0,
+      "downloadUrl": "https://edge.forgecdn.net/files/9200/3/Example Fabric Pack 2.1.0-alpha.1.zip",
+      "gameVersions": [
+        "26.3",
+        "Fabric"
+      ],
+      "sortableGameVersions": [
+        {
+          "gameVersionName": "26.3",
+          "gameVersionPadded": "",
+          "gameVersion": "26.3",
+          "gameVersionReleaseDate": "2026-01-01T00:00:00Z",
+          "gameVersionTypeId": 77784
+        }
+      ],
+      "dependencies": [],
+      "alternateFileId": 0,
+      "isServerPack": false,
+      "serverPackFileId": 9200004,
+      "fileFingerprint": 0,
+      "modules": [
+        {
+          "name": "manifest.json",
+          "fingerprint": 0
+        },
+        {
+          "name": "overrides",
+          "fingerprint": 0
+        }
+      ]
+    },
+    {
+      "id": 9200002,
+      "gameId": 432,
+      "modId": 9100001,
+      "isAvailable": true,
+      "displayName": "Example Fabric Pack 2.0.0",
+      "fileName": "Example Fabric Pack 2.0.0.zip",
+      "releaseType": 1,
+      "fileStatus": 4,
+      "hashes": [
+        {
+          "value": "0000000000000000000000000000000000000000",
+          "algo": 1
+        },
+        {
+          "value": "00000000000000000000000000000000",
+          "algo": 2
+        }
+      ],
+      "fileDate": "2026-08-10T10:00:00.000Z",
+      "fileLength": 0,
+      "downloadCount": 0,
+      "downloadUrl": "https://edge.forgecdn.net/files/9200/2/Example Fabric Pack 2.0.0.zip",
+      "gameVersions": [
+        "26.2",
+        "Fabric"
+      ],
+      "sortableGameVersions": [
+        {
+          "gameVersionName": "26.2",
+          "gameVersionPadded": "",
+          "gameVersion": "26.2",
+          "gameVersionReleaseDate": "2026-01-01T00:00:00Z",
+          "gameVersionTypeId": 77784
+        }
+      ],
+      "dependencies": [],
+      "alternateFileId": 0,
+      "isServerPack": false,
+      "serverPackFileId": null,
+      "fileFingerprint": 0,
+      "modules": [
+        {
+          "name": "manifest.json",
+          "fingerprint": 0
+        },
+        {
+          "name": "overrides",
+          "fingerprint": 0
+        }
+      ]
+    },
+    {
+      "id": 9200001,
+      "gameId": 432,
+      "modId": 9100001,
+      "isAvailable": true,
+      "displayName": "Example Fabric Pack 1.9.0",
+      "fileName": "Example Fabric Pack 1.9.0.zip",
+      "releaseType": 1,
+      "fileStatus": 4,
+      "hashes": [
+        {
+          "value": "0000000000000000000000000000000000000000",
+          "algo": 1
+        },
+        {
+          "value": "00000000000000000000000000000000",
+          "algo": 2
+        }
+      ],
+      "fileDate": "2026-07-01T10:00:00.000Z",
+      "fileLength": 0,
+      "downloadCount": 0,
+      "downloadUrl": "https://edge.forgecdn.net/files/9200/1/Example Fabric Pack 1.9.0.zip",
+      "gameVersions": [
+        "26.2",
+        "Fabric"
+      ],
+      "sortableGameVersions": [
+        {
+          "gameVersionName": "26.2",
+          "gameVersionPadded": "",
+          "gameVersion": "26.2",
+          "gameVersionReleaseDate": "2026-01-01T00:00:00Z",
+          "gameVersionTypeId": 77784
+        }
+      ],
+      "dependencies": [],
+      "alternateFileId": 0,
+      "isServerPack": false,
+      "serverPackFileId": null,
+      "fileFingerprint": 0,
+      "modules": [
+        {
+          "name": "manifest.json",
+          "fingerprint": 0
+        },
+        {
+          "name": "overrides",
+          "fingerprint": 0
+        }
+      ]
+    }
+  ],
+  "pagination": {
+    "index": 0,
+    "pageSize": 50,
+    "resultCount": 4,
+    "totalCount": 4
+  }
+}

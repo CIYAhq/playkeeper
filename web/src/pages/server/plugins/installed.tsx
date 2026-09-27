@@ -4,17 +4,19 @@ import { useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Marker, Notice, SectionLabel } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
+import { PackModsSection } from '@/components/app/pack-mods'
+import { PackShareNotice } from '@/components/app/pack-share'
 import { ListSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { t } from '@/i18n'
-import { pendingCount, sourceNames, updatableRows, updateKeys, type AddonRow } from '@/lib/addons'
+import { packFiles, pendingCount, sourceNames, updatableRows, updateKeys, type AddonRow } from '@/lib/addons'
 import { formatList } from '@/lib/format'
 import { busyReason } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { linkProps, type Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
-import { AddonIcon, rowDomId, useAddons } from './state'
+import { AddonIcon, rowDomId, useAddons, type FriendsLabel } from './state'
 
 const rowId = (r: AddonRow) => r.id
 
@@ -32,7 +34,7 @@ export function InstalledView() {
       </Notice>
     )
   }
-  if (a.rows.length === 0) {
+  if (a.rows.length === 0 && !a.addons.modpack) {
     return (
       <div className="flex flex-1 animate-fade flex-col items-center justify-center py-16 text-center">
         <Pip pose="search" size={96} />
@@ -74,9 +76,12 @@ function DesktopHeading({ browse, browseLabel, children }: { browse: Route; brow
   const a = useAddons()
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <h2 id="addons-title" className="mr-auto text-lg font-bold tracking-[-0.01em]">
-        {a.kind === 'mod' ? t('addons.titleMods', { server: a.server.name }) : t('addons.title', { server: a.server.name })}
-      </h2>
+      <div className="mr-auto min-w-0">
+        <h2 id="addons-title" className="text-lg font-bold tracking-[-0.01em]">
+          {a.kind === 'mod' ? t('addons.titleMods', { server: a.server.name }) : t('addons.title', { server: a.server.name })}
+        </h2>
+        {a.kind === 'mod' && <p className="text-[13px] text-muted-foreground">{t('addons.changesLoad')}</p>}
+      </div>
       {children}
       <Button render={<a {...linkProps(browse)} />}>
         <SearchIcon />
@@ -92,6 +97,7 @@ function DesktopList({ browse, browseLabel }: { browse: Route; browseLabel: stri
   const rows = useListPresence(a.rows, rowId)
   return (
     <section className="flex flex-col gap-4" aria-labelledby="addons-title">
+      {a.kind === 'mod' && <PackShareNotice server={a.server} />}
       <DesktopHeading browse={browse} browseLabel={browseLabel}>
         {updatable.length >= 2 && (
           <Button variant="outline" className="animate-fade" onClick={() => void updateAll()} loading={busy === 'updates'} disabledReason={blocked}>
@@ -110,11 +116,15 @@ function DesktopList({ browse, browseLabel }: { browse: Route; browseLabel: stri
           </Button>
         </div>
       )}
-      <ul className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
-        {rows.map((p) => (
-          <DesktopRow key={p.key} row={p.item} presence={p.state} />
-        ))}
-      </ul>
+      {a.addons?.modpack && rows.length > 0 && <SectionLabel className="-mb-2">{t('packMods.addedByYou')}</SectionLabel>}
+      {rows.length > 0 && (
+        <ul className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
+          {rows.map((p) => (
+            <DesktopRow key={p.key} row={p.item} presence={p.state} />
+          ))}
+        </ul>
+      )}
+      {a.addons?.modpack && <PackModsSection server={a.server} pack={a.addons.modpack} files={packFiles(a.addons)} folder={a.addons.target.folder} phone={false} />}
     </section>
   )
 }
@@ -186,15 +196,19 @@ function RowStatus({ row: r }: { row: AddonRow }) {
   const waitFor = (what: NonNullable<typeof busy>) => (busy === what ? t('reason.busy', { what: what === 'forget' ? t('addons.forgetting', { name: r.name }) : t('addons.installing', { name: r.name }) }) : undefined)
   let body: ReactNode
   switch (r.state) {
-    case 'managed':
+    case 'managed': {
+      const friends = a.friends(r)
       body = r.update ? (
         <Marker tone="green">{t('addons.updateAvailable', { version: r.update.versionNumber })}</Marker>
       ) : r.pending ? (
         <Marker tone="amber">{t('addons.new')}</Marker>
+      ) : friends ? (
+        <Marker tone={friends.need === 'required' ? 'green' : 'muted'}>{friends.text}</Marker>
       ) : (
         <Marker>{t('addons.upToDate')}</Marker>
       )
       break
+    }
     case 'changed':
       body = <TwoLines first={t('addons.changed')} second={t('addons.asksFirst')} className="text-warning-foreground" />
       break
@@ -292,6 +306,7 @@ function PhoneList({ browse, browseLabel }: { browse: Route; browseLabel: string
   const rows = useListPresence(a.rows, rowId)
   return (
     <div className="flex flex-col gap-4 pb-20">
+      {a.kind === 'mod' && <PackShareNotice server={a.server} />}
       {restartLine && (
         <div className="flex animate-enter items-center gap-3" role="status">
           <p className="min-w-0 flex-1 text-[15px] leading-5 font-semibold">{restartLine}</p>
@@ -313,14 +328,17 @@ function PhoneList({ browse, browseLabel }: { browse: Route; browseLabel: string
           </Button>
         </div>
       )}
-      <section>
-        <SectionLabel className="px-4 pb-2">{t('addons.onServer', { server: a.server.name })}</SectionLabel>
-        <ul className={phoneListClass}>
-          {rows.map((p) => (
-            <PhoneRow key={p.key} row={p.item} presence={p.state} />
-          ))}
-        </ul>
-      </section>
+      {rows.length > 0 && (
+        <section>
+          <SectionLabel className="px-4 pb-2">{a.addons?.modpack ? t('packMods.addedByYou') : t('addons.onServer', { server: a.server.name })}</SectionLabel>
+          <ul className={phoneListClass}>
+            {rows.map((p) => (
+              <PhoneRow key={p.key} row={p.item} presence={p.state} />
+            ))}
+          </ul>
+        </section>
+      )}
+      {a.addons?.modpack && <PackModsSection server={a.server} pack={a.addons.modpack} files={packFiles(a.addons)} folder={a.addons.target.folder} phone />}
       <PhoneBrowse browse={browse} browseLabel={browseLabel} />
     </div>
   )
@@ -340,10 +358,10 @@ function PhoneBrowse({ browse, browseLabel }: { browse: Route; browseLabel: stri
   )
 }
 
-function phoneLine(r: AddonRow): string {
+function phoneLine(r: AddonRow, friends?: FriendsLabel): string {
   switch (r.state) {
     case 'managed':
-      return [r.version, r.addon ? sourceNames[r.addon.source] : ''].filter(Boolean).join(t('common.dot'))
+      return [r.version, friends?.text ?? (r.addon ? sourceNames[r.addon.source] : '')].filter(Boolean).join(t('common.dot'))
     case 'changed':
       return t('addons.changed')
     case 'missing':
@@ -376,7 +394,7 @@ function PhoneRow({ row: r, presence }: { row: AddonRow; presence: Presence }) {
       <AddonIcon url={r.addon?.iconUrl} dim={r.state === 'missing'} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-base leading-5">{r.name}</span>
-        <span className="block truncate text-[13px] text-muted-foreground">{phoneLine(r)}</span>
+        <span className="block truncate text-[13px] text-muted-foreground">{phoneLine(r, a.friends(r))}</span>
       </span>
     </>
   )

@@ -219,8 +219,10 @@ func removeDockerObjects(ctx context.Context, sys System, note func(error)) int 
 	if n, err := c.NetworkInspect(ctx, "playkeeper"); err == nil && n.Labels["io.playkeeper.managed"] == "true" {
 		note(c.NetworkRemove(ctx, "playkeeper"))
 	}
-	if err := c.ImageRemove(ctx, minecraft.Image); err != nil && !docker.IsNotFound(err) {
-		note(err)
+	for _, img := range minecraft.Runtimes() {
+		if err := c.ImageRemove(ctx, img); err != nil && !docker.IsNotFound(err) {
+			note(err)
+		}
 	}
 	return foreign
 }

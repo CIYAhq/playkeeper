@@ -1,0 +1,39 @@
+[
+  {
+    "id": "voice-chat",
+    "source": "modrinth",
+    "projectId": "9eGKb6K1",
+    "permission": "https://modrepo.de/minecraft/voicechat/faq",
+    "ports": [
+      {
+        "protocol": "udp",
+        "port": 24454
+      }
+    ]
+  },
+  {
+    "id": "rollback",
+    "source": "modrinth",
+    "projectId": "Lu3KuzdV"
+  },
+  {
+    "id": "pregenerate",
+    "source": "modrinth",
+    "projectId": "fALzjamp"
+  },
+  {
+    "id": "newer-clients",
+    "source": "modrinth",
+    "projectId": "P1OZGk5p"
+  },
+  {
+    "id": "essentials",
+    "source": "modrinth",
+    "projectId": "hXiIvTyT"
+  },
+  {
+    "id": "permissions",
+    "source": "modrinth",
+    "projectId": "Vebnzrzj"
+  }
+]

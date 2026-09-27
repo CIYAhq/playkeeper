@@ -1,0 +1,2658 @@
+{
+  "searches": {
+    "downloads": {
+      "total": 10103,
+      "cards": [
+        "5FFgwNNP",
+        "Jkb29YJU",
+        "1ocGzRHv",
+        "vwgtbO0y",
+        "8yKzGJOG",
+        "C9FChyZ3"
+      ]
+    },
+    "relevance": {
+      "total": 10103,
+      "cards": [
+        "5FFgwNNP",
+        "Jkb29YJU",
+        "1ocGzRHv",
+        "vwgtbO0y",
+        "8yKzGJOG",
+        "C9FChyZ3"
+      ]
+    },
+    "updated": {
+      "total": 10103,
+      "cards": [
+        "B5YZ2FKC",
+        "t0mtiuRo",
+        "RRCIm6eu",
+        "qMQpu0xl",
+        "q9aTk4Re",
+        "cu14tfSZ"
+      ]
+    },
+    "newest": {
+      "total": 10103,
+      "cards": [
+        "w4SHS2Zp",
+        "reqOgw8U",
+        "tzHmsnUK",
+        "C5YzQQgW",
+        "xQFbykzJ",
+        "yAkEipq1"
+      ]
+    }
+  },
+  "cards": {
+    "5FFgwNNP": {
+      "source": "modrinth",
+      "projectId": "5FFgwNNP",
+      "slug": "cobblemon-fabric",
+      "name": "Cobblemon Official Modpack [Fabric]",
+      "author": "CobbledStudios",
+      "summary": "The official modpack of the Cobblemon mod, for Fabric!",
+      "downloads": 10840622,
+      "iconUrl": "https://cdn.modrinth.com/data/5FFgwNNP/e7f9ee2e9d361623847853fe2ddce42f519ee64f.png",
+      "updated": "2026-09-13T00:36:04.508365Z",
+      "pageUrl": "https://modrinth.com/modpack/cobblemon-fabric",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 75,
+      "memoryMB": 6144
+    },
+    "Jkb29YJU": {
+      "source": "modrinth",
+      "projectId": "Jkb29YJU",
+      "slug": "cobbleverse",
+      "name": "COBBLEVERSE - Pokemon Adventure [Cobblemon]",
+      "author": "LUMYVERSE",
+      "summary": "Start a true Pokémon adventure in Minecraft: Cobblemon 1.7.3 | ALL 1025 Pokémon! | Mega Evolutions | Gyms & Badges | Starter Kit | Unique Structures | Custom Music | Shaders | Optimized | So much more! [1.21.1]",
+      "downloads": 6780740,
+      "iconUrl": "https://cdn.modrinth.com/data/Jkb29YJU/581ecf54530972afb18a04660afd820f2f24f6c7.png",
+      "updated": "2026-07-21T20:33:21.042977Z",
+      "pageUrl": "https://modrinth.com/modpack/cobbleverse",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 168,
+      "memoryMB": 6144
+    },
+    "1ocGzRHv": {
+      "source": "modrinth",
+      "projectId": "1ocGzRHv",
+      "slug": "vanilla-perfected",
+      "name": "Vanilla Perfected",
+      "author": "demonjoeTV",
+      "summary": "A compilation of Vanilla Plus mods & packs to perfect the Minecraft experience without drifting too far from the feel of the base game!",
+      "downloads": 2506049,
+      "iconUrl": "https://cdn.modrinth.com/data/1ocGzRHv/ebec737126db7637001194ca5560ae58413d338f_96.webp",
+      "updated": "2026-07-24T22:01:41.662792Z",
+      "pageUrl": "https://modrinth.com/modpack/vanilla-perfected",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "26.2",
+        "26.1.2",
+        "1.21.11",
+        "1.21.10",
+        "1.21.8",
+        "1.21.6",
+        "1.21.5",
+        "1.21.4",
+        "1.21.1",
+        "1.21"
+      ],
+      "mods": 112,
+      "memoryMB": 6144
+    },
+    "vwgtbO0y": {
+      "source": "modrinth",
+      "projectId": "vwgtbO0y",
+      "slug": "the-pixelmon-modpack",
+      "name": "The Pixelmon Modpack",
+      "author": "Pixelmon",
+      "summary": "This Modpack includes everything you need as a pre-built Pixelmon exerience - The Pixelmon Mod, The Pixelmon OST, Journeymap, BYG, Natures/Explorers Compass.",
+      "downloads": 2214743,
+      "iconUrl": "https://cdn.modrinth.com/data/vwgtbO0y/e16493aab7b0a32a2c9920cb0d89ebe06c4b3726_96.webp",
+      "updated": "2026-09-17T08:39:06.072455Z",
+      "pageUrl": "https://modrinth.com/modpack/the-pixelmon-modpack",
+      "types": [
+        "neoforge"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 14,
+      "memoryMB": 4096
+    },
+    "8yKzGJOG": {
+      "source": "modrinth",
+      "projectId": "8yKzGJOG",
+      "slug": "slimes-adventure",
+      "name": "Slimes Adventure",
+      "author": "NotWindx",
+      "summary": "Tensura: that time i got reincarnated as a slime modpack with many features",
+      "downloads": 1976610,
+      "iconUrl": "https://cdn.modrinth.com/data/8yKzGJOG/707a64c36eb8fc59be69538e619e81bca15c6b3a_96.webp",
+      "updated": "2026-09-11T07:27:35.682846Z",
+      "pageUrl": "https://modrinth.com/modpack/slimes-adventure",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 105,
+      "memoryMB": 6144
+    },
+    "C9FChyZ3": {
+      "source": "modrinth",
+      "projectId": "C9FChyZ3",
+      "slug": "cobblemondelta",
+      "name": "Cobblemon Delta",
+      "author": "ItsJustChris",
+      "summary": "Pokemon Cobblemon Pack - QoL and Performance mods! The server included in the pack has Mega Evolution, Paradox Pokemon, Area Zero, Real Player Gyms, Raids, Dungeons, Pokemon Fishing!",
+      "downloads": 1609760,
+      "iconUrl": "https://cdn.modrinth.com/data/C9FChyZ3/b4391701477ebf0f75458de085ce5c7deb6af199.png",
+      "updated": "2026-09-19T11:33:47.442376Z",
+      "pageUrl": "https://modrinth.com/modpack/cobblemondelta",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 58,
+      "memoryMB": 6144
+    },
+    "B5YZ2FKC": {
+      "source": "modrinth",
+      "projectId": "B5YZ2FKC",
+      "slug": "remarkably-plus",
+      "name": "Remarkably Plus",
+      "author": "Bilal_Hassan",
+      "summary": "Your Favourite Superheros now in minecraft.",
+      "downloads": 670,
+      "iconUrl": "https://cdn.modrinth.com/data/B5YZ2FKC/95994f69867f01d95b956e395b646f3fb4d34783_96.webp",
+      "updated": "2026-09-26T15:42:59.672373Z",
+      "pageUrl": "https://modrinth.com/modpack/remarkably-plus",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ]
+    },
+    "t0mtiuRo": {
+      "source": "modrinth",
+      "projectId": "t0mtiuRo",
+      "slug": "rsv",
+      "name": "红石生电极速版【Redstone speed version】",
+      "author": "moonboss666",
+      "summary": "An integrated package specifically for Redstone players, retaining the vanilla gameplay and greatly improving FPS!",
+      "downloads": 31379,
+      "iconUrl": "https://cdn.modrinth.com/data/t0mtiuRo/3483bb73c489a7fdf03c27a82daf2464a8ec0e03.png",
+      "updated": "2026-09-26T15:33:45.48061Z",
+      "pageUrl": "https://modrinth.com/modpack/rsv",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "26.3",
+        "26.1.2",
+        "1.21.11",
+        "1.21.10",
+        "1.21.5",
+        "1.21.4"
+      ],
+      "mods": 26,
+      "memoryMB": 4096
+    },
+    "RRCIm6eu": {
+      "source": "modrinth",
+      "projectId": "RRCIm6eu",
+      "slug": "gorgeous-optimisations",
+      "name": "Gorgeous Optimizations",
+      "author": "harleymoores127",
+      "summary": "This is a modpack filled with the perfect optimisation mods to get you from 30 FPS to 200+ FPS!",
+      "downloads": 425,
+      "iconUrl": "https://cdn.modrinth.com/data/RRCIm6eu/6b96fbecfc0fdbee3f34d244f765a4fff6d3cb82_96.webp",
+      "updated": "2026-09-26T15:32:06.743585Z",
+      "pageUrl": "https://modrinth.com/modpack/gorgeous-optimisations",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "1.21.8",
+        "1.21.5",
+        "1.21.1"
+      ],
+      "mods": 67,
+      "memoryMB": 6144
+    },
+    "qMQpu0xl": {
+      "source": "modrinth",
+      "projectId": "qMQpu0xl",
+      "slug": "endlesspixel-modpack",
+      "name": "EndlessPixel-Modpack",
+      "author": "EndlessPixel",
+      "summary": "An optimized and assisted server integration package for any original game and original server",
+      "downloads": 875,
+      "iconUrl": "https://cdn.modrinth.com/data/qMQpu0xl/5a782e1cad075758c3b212e7ae99599abbed5370.png",
+      "updated": "2026-09-26T15:10:15.638534Z",
+      "pageUrl": "https://modrinth.com/modpack/endlesspixel-modpack",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "26.3",
+        "26.2",
+        "26.1.2",
+        "26.1.1",
+        "26.1",
+        "1.21.11",
+        "1.21.10",
+        "1.21.9",
+        "1.21.8"
+      ],
+      "mods": 81,
+      "memoryMB": 6144
+    },
+    "q9aTk4Re": {
+      "source": "modrinth",
+      "projectId": "q9aTk4Re",
+      "slug": "echoes-of-kaepora",
+      "name": "Echoes: Second Harvest",
+      "author": "RuToZoRa",
+      "summary": "✨ Magic ⚔️ Combat 🧿 Relics 🌍 New Dimensions 🏰 Structures ⚙️ Tech 🐾 Creatures, Animals & Mobs🌱 Farming 🎒 Backpacks & Storage 🧭 Waystones 🗺️ Maps 🎨 Tons of Building Blocks 🚀 Performance 🛠️ QoL 🎧 Immersive",
+      "downloads": 1269,
+      "iconUrl": "https://cdn.modrinth.com/data/q9aTk4Re/a361c7e6261d5d1dddfd31958c7e101dac49ec7e_96.webp",
+      "updated": "2026-09-26T14:08:29.848939Z",
+      "pageUrl": "https://modrinth.com/modpack/echoes-of-kaepora",
+      "types": [
+        "neoforge"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 241,
+      "memoryMB": 6144
+    },
+    "cu14tfSZ": {
+      "source": "modrinth",
+      "projectId": "cu14tfSZ",
+      "slug": "everuncomplete",
+      "name": "EverUncomplete",
+      "author": "Mangutirrino",
+      "summary": "An uncomplete modpack (for now!) for me and my friends but anyone is free to use it :). This iteration of the modpack features mods for exploration, magic and engineering for Fabric 1.20.1.",
+      "downloads": 374,
+      "iconUrl": "https://cdn.modrinth.com/data/cu14tfSZ/0e5543a71d91cfeb26f209650f73c148b8b70142_96.webp",
+      "updated": "2026-09-26T13:59:58.08623Z",
+      "pageUrl": "https://modrinth.com/modpack/everuncomplete",
+      "types": [
+        "fabric",
+        "neoforge"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 92,
+      "memoryMB": 6144
+    },
+    "w4SHS2Zp": {
+      "source": "modrinth",
+      "projectId": "w4SHS2Zp",
+      "slug": "otv-tech-server-pack",
+      "name": "OTV Micheal Reeves Techpack",
+      "author": "eclipse_smp",
+      "summary": "Pack for the OTV Tech Server. Modlist provided by micheal reeves",
+      "downloads": 5,
+      "iconUrl": "https://cdn.modrinth.com/data/w4SHS2Zp/9c7395cdbd6b5cb8a5fed443990fdd909c8606c8_96.webp",
+      "updated": "2026-08-25T10:08:27.881433Z",
+      "pageUrl": "https://modrinth.com/modpack/otv-tech-server-pack",
+      "types": [
+        "neoforge"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 194,
+      "memoryMB": 6144
+    },
+    "reqOgw8U": {
+      "source": "modrinth",
+      "projectId": "reqOgw8U",
+      "slug": "luays-pvp-modpack",
+      "name": "luay's PvP Modpack",
+      "author": "luay.khanski",
+      "summary": "Edited version of fps+pvp. My way.",
+      "downloads": 4,
+      "iconUrl": "https://cdn.modrinth.com/data/reqOgw8U/73e879aeebe129e686ef3e69d269274bf851ab44_96.webp",
+      "updated": "2026-08-25T08:51:06.573688Z",
+      "pageUrl": "https://modrinth.com/modpack/luays-pvp-modpack",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "26.1.2"
+      ],
+      "mods": 51,
+      "memoryMB": 6144
+    },
+    "tzHmsnUK": {
+      "source": "modrinth",
+      "projectId": "tzHmsnUK",
+      "slug": "my-real-world-life",
+      "name": "my real-world life",
+      "author": "WAFERplayer",
+      "summary": "This is a modpack that transforms Minecraft into an incredibly realistic world, complete with physics systems, animations for creatures, 3D items, and more...",
+      "downloads": 3,
+      "iconUrl": "https://cdn.modrinth.com/data/tzHmsnUK/3f8419e6fa1de844b1c0df7ddce2811aed6ebdd0_96.webp",
+      "updated": "2026-08-25T05:45:34.875341Z",
+      "pageUrl": "https://modrinth.com/modpack/my-real-world-life",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "26.2"
+      ],
+      "mods": 75,
+      "memoryMB": 6144
+    },
+    "C5YzQQgW": {
+      "source": "modrinth",
+      "projectId": "C5YzQQgW",
+      "slug": "complexly-optimized",
+      "name": "Complexly Optimized",
+      "author": "RatchetStuff",
+      "summary": "Yet another optimization modpack based on my own philosophy. It's FOSS!",
+      "downloads": 29,
+      "iconUrl": "https://cdn.modrinth.com/data/C5YzQQgW/59a20beb2db28e163b1da242d3946c136fab1a19_96.webp",
+      "updated": "2026-09-09T10:59:59.987957Z",
+      "pageUrl": "https://modrinth.com/modpack/complexly-optimized",
+      "types": [
+        "fabric",
+        "quilt",
+        "neoforge"
+      ],
+      "minecraftVersions": [
+        "26.2",
+        "26.1.2",
+        "1.21.11",
+        "1.21.5",
+        "1.21.1"
+      ]
+    },
+    "xQFbykzJ": {
+      "source": "modrinth",
+      "projectId": "xQFbykzJ",
+      "slug": "the-cheese-smp",
+      "name": "Cheese SMP",
+      "author": "Wolf",
+      "summary": "Is a Minecraft SMP for the Cheese Community",
+      "downloads": 6,
+      "iconUrl": "https://cdn.modrinth.com/data/xQFbykzJ/9527c03280324a9088a6522e7923b09dc8bf0ffe.gif",
+      "updated": "2026-08-24T14:57:50.720154Z",
+      "pageUrl": "https://modrinth.com/modpack/the-cheese-smp",
+      "types": [
+        "neoforge"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 184,
+      "memoryMB": 6144
+    },
+    "yAkEipq1": {
+      "source": "modrinth",
+      "projectId": "yAkEipq1",
+      "slug": "nicemc",
+      "name": "NiceMC LTS",
+      "author": "TripleTeamsStudio",
+      "summary": "A vanilla‑like and optimized modpack designed for smooth gameplay.",
+      "downloads": 38,
+      "iconUrl": "https://cdn.modrinth.com/data/yAkEipq1/295d230fd2da238f5ec5b15ce63e1e285c5e48cc_96.webp",
+      "updated": "2026-09-11T19:01:35.411078Z",
+      "pageUrl": "https://modrinth.com/modpack/nicemc",
+      "types": [
+        "quilt"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 358,
+      "memoryMB": 8192
+    }
+  },
+  "details": {
+    "5FFgwNNP": {
+      "source": "modrinth",
+      "projectId": "5FFgwNNP",
+      "slug": "cobblemon-fabric",
+      "name": "Cobblemon Official Modpack [Fabric]",
+      "summary": "The official modpack of the Cobblemon mod, for Fabric!",
+      "downloads": 10868234,
+      "iconUrl": "https://cdn.modrinth.com/data/5FFgwNNP/e7f9ee2e9d361623847853fe2ddce42f519ee64f.png",
+      "updated": "2026-09-13T00:36:09.749124Z",
+      "pageUrl": "https://modrinth.com/modpack/cobblemon-fabric",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 75,
+      "memoryMB": 6144,
+      "sourceUrl": "https://gitlab.com/cable-mc/cobblemon",
+      "issuesUrl": "https://gitlab.com/cable-mc/cobblemon/-/issues",
+      "wikiUrl": "https://wiki.cobblemon.com/index.php/Main_Page",
+      "headline": "Cobblemon",
+      "versions": [
+        {
+          "id": "Cqimd3JM",
+          "number": "1.8.1",
+          "name": "Cobblemon Official Modpack [Fabric] 1.8.1",
+          "channel": "release",
+          "published": "2026-09-13T00:36:09.749124Z",
+          "size": 100909813,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 75
+        },
+        {
+          "id": "zsTAkftH",
+          "number": "1.8",
+          "name": "Cobblemon Official Modpack [Fabric] 1.8",
+          "channel": "release",
+          "published": "2026-09-06T04:05:40.647104Z",
+          "size": 100855648,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 75
+        },
+        {
+          "id": "Lydu1ZNo",
+          "number": "1.7.3",
+          "name": "Cobblemon Official Modpack [Fabric] 1.7.3",
+          "channel": "release",
+          "published": "2026-01-31T02:15:30.175458Z",
+          "size": 101013638,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 76
+        },
+        {
+          "id": "pVGZ9l8W",
+          "number": "1.7.2",
+          "name": "Cobblemon Official Modpack [Fabric] 1.7.2",
+          "channel": "release",
+          "published": "2026-01-25T04:33:26.572703Z",
+          "size": 100960500,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 76
+        },
+        {
+          "id": "DbQNxSJ0",
+          "number": "1.7.1",
+          "name": "Cobblemon Official Modpack [Fabric] 1.7.1",
+          "channel": "release",
+          "published": "2025-11-29T02:27:41.83952Z",
+          "size": 100951108,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 77
+        },
+        {
+          "id": "jMz7A3RO",
+          "number": "1.7",
+          "name": "Cobblemon Official Modpack [Fabric] 1.7",
+          "channel": "release",
+          "published": "2025-11-22T00:48:57.491974Z",
+          "size": 100937721,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 77
+        },
+        {
+          "id": "98odLiu9",
+          "number": "1.6.1.4",
+          "name": "Cobblemon Official Modpack [Fabric] 1.6.1.4",
+          "channel": "release",
+          "published": "2025-07-01T04:32:02.692075Z",
+          "size": 93771086,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 77
+        },
+        {
+          "id": "zqbIAux1",
+          "number": "1.6.1.2",
+          "name": "Cobblemon Official Modpack [Fabric] 1.6.1.2",
+          "channel": "release",
+          "published": "2025-06-15T10:06:33.430802Z",
+          "size": 93771055,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 77
+        },
+        {
+          "id": "ZGcN3At3",
+          "number": "1.6.1.1",
+          "name": "Cobblemon Official Modpack [Fabric] 1.6.1.1",
+          "channel": "release",
+          "published": "2025-06-11T01:10:12.921145Z",
+          "size": 93759900,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 77
+        },
+        {
+          "id": "cqaC80tF",
+          "number": "1.6.1",
+          "name": "Cobblemon Official Modpack [Fabric] 1.6.1",
+          "channel": "release",
+          "published": "2025-01-26T06:37:28.977532Z",
+          "size": 93744970,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 84
+        }
+      ],
+      "newest": "Cqimd3JM"
+    },
+    "Jkb29YJU": {
+      "source": "modrinth",
+      "projectId": "Jkb29YJU",
+      "slug": "cobbleverse",
+      "name": "COBBLEVERSE - Pokemon Adventure [Cobblemon]",
+      "summary": "Start a true Pokémon adventure in Minecraft: Cobblemon 1.7.3 | ALL 1025 Pokémon! | Mega Evolutions | Gyms & Badges | Starter Kit | Unique Structures | Custom Music | Shaders | Optimized | So much more! [1.21.1]",
+      "downloads": 6796113,
+      "iconUrl": "https://cdn.modrinth.com/data/Jkb29YJU/581ecf54530972afb18a04660afd820f2f24f6c7.png",
+      "updated": "2026-07-21T20:33:30.155458Z",
+      "pageUrl": "https://modrinth.com/modpack/cobbleverse",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 168,
+      "memoryMB": 6144,
+      "wikiUrl": "https://www.lumyverse.com/cobbleverse",
+      "headline": "Cobblemon",
+      "versions": [
+        {
+          "id": "4SKGla61",
+          "number": "1.7.42",
+          "name": "COBBLEVERSE 1.7.42",
+          "channel": "release",
+          "published": "2026-07-21T20:33:30.155458Z",
+          "size": 238975006,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 168
+        },
+        {
+          "id": "T9GJwPoJ",
+          "number": "1.7.41b",
+          "name": "COBBLEVERSE 1.7.41b",
+          "channel": "release",
+          "published": "2026-07-15T22:04:37.465668Z",
+          "size": 238928589,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 165
+        },
+        {
+          "id": "xTx3oAp2",
+          "number": "1.7.40",
+          "name": "COBBLEVERSE 1.7.40",
+          "channel": "beta",
+          "published": "2026-07-11T23:22:02.935764Z",
+          "size": 237850467,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 165
+        },
+        {
+          "id": "DN77rBht",
+          "number": "1.7.31",
+          "name": "COBBLEVERSE 1.7.31",
+          "channel": "release",
+          "published": "2026-04-04T00:50:52.05423Z",
+          "size": 213077334,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 166
+        },
+        {
+          "id": "jImAfjVc",
+          "number": "1.7.30",
+          "name": "COBBLEVERSE 1.7.30th Anniversary",
+          "channel": "release",
+          "published": "2026-02-27T23:44:27.776315Z",
+          "size": 206509291,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 161
+        },
+        {
+          "id": "Cg3gXABt",
+          "number": "1.7.3",
+          "name": "COBBLEVERSE 1.7.3",
+          "channel": "release",
+          "published": "2026-02-18T01:58:26.43609Z",
+          "size": 201667209,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 159
+        },
+        {
+          "id": "ERxm2is0",
+          "number": "1.7.2",
+          "name": "COBBLEVERSE 1.7.2",
+          "channel": "release",
+          "published": "2025-12-23T13:33:26.435785Z",
+          "size": 149104436,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 151
+        },
+        {
+          "id": "eKnDcfvF",
+          "number": "1.7.1",
+          "name": "COBBLEVERSE 1.7.1",
+          "channel": "release",
+          "published": "2025-12-21T18:39:53.047325Z",
+          "size": 149106338,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 151
+        },
+        {
+          "id": "hcGQ39uO",
+          "number": "1.7.0c",
+          "name": "COBBLEVERSE 1.7.0c",
+          "channel": "release",
+          "published": "2025-12-03T00:13:01.183159Z",
+          "size": 146893195,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 161
+        },
+        {
+          "id": "m89KLDwU",
+          "number": "1.7.0b",
+          "name": "COBBLEVERSE 1.7.0b",
+          "channel": "beta",
+          "published": "2025-12-01T02:58:51.537127Z",
+          "size": 150154459,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 160
+        }
+      ],
+      "newest": "4SKGla61"
+    },
+    "1ocGzRHv": {
+      "source": "modrinth",
+      "projectId": "1ocGzRHv",
+      "slug": "vanilla-perfected",
+      "name": "Vanilla Perfected",
+      "summary": "A compilation of Vanilla Plus mods & packs to perfect the Minecraft experience without drifting too far from the feel of the base game!",
+      "downloads": 2509785,
+      "iconUrl": "https://cdn.modrinth.com/data/1ocGzRHv/ebec737126db7637001194ca5560ae58413d338f_96.webp",
+      "updated": "2026-07-24T22:01:42.845192Z",
+      "pageUrl": "https://modrinth.com/modpack/vanilla-perfected",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "26.2",
+        "26.1.2",
+        "1.21.11",
+        "1.21.10",
+        "1.21.8",
+        "1.21.6",
+        "1.21.5",
+        "1.21.4",
+        "1.21.1",
+        "1.21"
+      ],
+      "mods": 111,
+      "memoryMB": 6144,
+      "versions": [
+        {
+          "id": "Bu8RKHri",
+          "number": "1.0.3+26.2",
+          "name": "Chaos Cubed Hotfix 3.0",
+          "channel": "beta",
+          "published": "2026-07-24T22:01:42.845192Z",
+          "size": 6337780,
+          "type": "fabric",
+          "minecraftVersion": "26.2",
+          "mods": 112
+        },
+        {
+          "id": "OIcK4sww",
+          "number": "1.0.2+26.2",
+          "name": "Chaos Cubed Hotfix 2.0",
+          "channel": "beta",
+          "published": "2026-07-24T05:36:42.092386Z",
+          "size": 6335964,
+          "type": "fabric",
+          "minecraftVersion": "26.2",
+          "mods": 112
+        },
+        {
+          "id": "5vNX8dDf",
+          "number": "1.0.1+26.2",
+          "name": "Chaos Cubed Hotfix 1.0",
+          "channel": "alpha",
+          "published": "2026-07-23T22:45:16.983873Z",
+          "size": 6343166,
+          "type": "fabric",
+          "minecraftVersion": "26.2",
+          "mods": 115
+        },
+        {
+          "id": "8mqtvGm7",
+          "number": "1.0.0+26.2",
+          "name": "Chaos Cubed Update 26.2",
+          "channel": "alpha",
+          "published": "2026-07-23T15:02:29.38825Z",
+          "size": 6342089,
+          "type": "fabric",
+          "minecraftVersion": "26.2",
+          "mods": 116
+        },
+        {
+          "id": "zCNpmrT6",
+          "number": "1.0.3+26.1.2",
+          "name": "Tiny Takeover Hotfix 3.0",
+          "channel": "release",
+          "published": "2026-06-16T18:24:00.979747Z",
+          "size": 9526703,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 111
+        },
+        {
+          "id": "jmYEuzNA",
+          "number": "1.0.2+26.1.2",
+          "name": "Tiny Takeover Hotfix 2.0",
+          "channel": "beta",
+          "published": "2026-05-28T18:45:07.965876Z",
+          "size": 9526690,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 111
+        },
+        {
+          "id": "1nywXwlh",
+          "number": "1.0.1+26.1.2",
+          "name": "Tiny Takeover Hotfix",
+          "channel": "beta",
+          "published": "2026-05-09T18:39:12.748729Z",
+          "size": 9523840,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 111
+        },
+        {
+          "id": "ShjQ64h0",
+          "number": "1.0.0+26.1.2",
+          "name": "Tiny Takeover Update 26.1.2",
+          "channel": "beta",
+          "published": "2026-05-09T04:14:44.335564Z",
+          "size": 9524166,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 111
+        },
+        {
+          "id": "oUYGqRIh",
+          "number": "1.0.1+1.21.11",
+          "name": "Mounts of Mayhem Hotfix",
+          "channel": "release",
+          "published": "2026-01-12T19:27:10.737552Z",
+          "size": 11149874,
+          "type": "fabric",
+          "minecraftVersion": "1.21.11",
+          "mods": 106
+        },
+        {
+          "id": "87o9XmXf",
+          "number": "1.0.0+1.21.11",
+          "name": "Mounts of Mayhem Update 1.21.11",
+          "channel": "beta",
+          "published": "2026-01-11T22:29:24.354084Z",
+          "size": 11146484,
+          "type": "fabric",
+          "minecraftVersion": "1.21.11",
+          "mods": 106
+        }
+      ],
+      "newest": "zCNpmrT6"
+    },
+    "vwgtbO0y": {
+      "source": "modrinth",
+      "projectId": "vwgtbO0y",
+      "slug": "the-pixelmon-modpack",
+      "name": "The Pixelmon Modpack",
+      "summary": "This Modpack includes everything you need as a pre-built Pixelmon exerience - The Pixelmon Mod, The Pixelmon OST, Journeymap, BYG, Natures/Explorers Compass.",
+      "downloads": 2224163,
+      "iconUrl": "https://cdn.modrinth.com/data/vwgtbO0y/e16493aab7b0a32a2c9920cb0d89ebe06c4b3726_96.webp",
+      "updated": "2026-09-17T08:39:08.637356Z",
+      "pageUrl": "https://modrinth.com/modpack/the-pixelmon-modpack",
+      "types": [
+        "neoforge"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 14,
+      "memoryMB": 4096,
+      "issuesUrl": "https://pixelmonmod.com/tracker.php",
+      "wikiUrl": "https://pixelmonmod.com/",
+      "headline": "Pixelmon",
+      "versions": [
+        {
+          "id": "IHtaie13",
+          "number": "9.4.1",
+          "name": "The Pixelmon Modpack 9.4.1",
+          "channel": "beta",
+          "published": "2026-09-17T08:39:08.637356Z",
+          "size": 46071671,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 14
+        },
+        {
+          "id": "mMpXU4hc",
+          "number": "9.4.0",
+          "name": "The Pixelmon Modpack 9.4.0",
+          "channel": "beta",
+          "published": "2026-08-17T16:04:26.513803Z",
+          "size": 46071672,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 14
+        },
+        {
+          "id": "qIbqsFsx",
+          "number": "9.3.16",
+          "name": "The Pixelmon Modpack 9.3.16",
+          "channel": "release",
+          "published": "2026-05-05T10:27:45.561523Z",
+          "size": 46063785,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 14
+        },
+        {
+          "id": "46Zay05i",
+          "number": "9.3.15",
+          "name": "The Pixelmon Modpack 9.3.15",
+          "channel": "beta",
+          "published": "2026-04-19T09:39:28.385152Z",
+          "size": 46117000,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 15
+        },
+        {
+          "id": "GWyc29FO",
+          "number": "9.3.14",
+          "name": "The Pixelmon Modpack 9.3.14",
+          "channel": "release",
+          "published": "2026-01-18T06:45:12.278432Z",
+          "size": 38516129,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 14
+        },
+        {
+          "id": "5F7FrNnX",
+          "number": "9.3.13",
+          "name": "The Pixelmon Modpack 9.3.13",
+          "channel": "release",
+          "published": "2025-12-21T19:46:24.422193Z",
+          "size": 45637640,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 14
+        },
+        {
+          "id": "gVQdjHGF",
+          "number": "9.3.12",
+          "name": "The Pixelmon Modpack 9.3.12",
+          "channel": "release",
+          "published": "2025-12-12T16:14:40.087479Z",
+          "size": 45637640,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 14
+        },
+        {
+          "id": "DGhwc8bW",
+          "number": "9.3.11",
+          "name": "The Pixelmon Modpack 9.3.11",
+          "channel": "beta",
+          "published": "2025-12-09T16:23:34.219323Z",
+          "size": 45637649,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 14
+        },
+        {
+          "id": "MGB4Dfmc",
+          "number": "9.3.10",
+          "name": "The Pixelmon Modpack 9.3.10",
+          "channel": "beta",
+          "published": "2025-11-23T14:59:08.49958Z",
+          "size": 45637650,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 14
+        },
+        {
+          "id": "VjT88DbG",
+          "number": "9.3.9",
+          "name": "The Pixelmon Modpack 9.3.9",
+          "channel": "release",
+          "published": "2025-09-23T17:40:49.787843Z",
+          "size": 45637651,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 14
+        }
+      ],
+      "newest": "qIbqsFsx"
+    },
+    "8yKzGJOG": {
+      "source": "modrinth",
+      "projectId": "8yKzGJOG",
+      "slug": "slimes-adventure",
+      "name": "Slimes Adventure",
+      "summary": "Tensura: that time i got reincarnated as a slime modpack with many features",
+      "downloads": 1982292,
+      "iconUrl": "https://cdn.modrinth.com/data/8yKzGJOG/707a64c36eb8fc59be69538e619e81bca15c6b3a_96.webp",
+      "updated": "2026-09-11T07:27:36.965052Z",
+      "pageUrl": "https://modrinth.com/modpack/slimes-adventure",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 105,
+      "memoryMB": 6144,
+      "issuesUrl": "https://github.com/NotWindx/Slimes-Adventure/issues",
+      "wikiUrl": "https://notwindx.net/#wiki",
+      "versions": [
+        {
+          "id": "ylSYr50H",
+          "number": "1.13.4",
+          "name": "Slimes Adventure: RE 1.13.4",
+          "channel": "release",
+          "published": "2026-09-11T07:27:36.965052Z",
+          "size": 17519018,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 105
+        },
+        {
+          "id": "GFPO7i7S",
+          "number": "1.13.3.1",
+          "name": "Slimes Adventure: RE 1.13.3.1",
+          "channel": "release",
+          "published": "2026-09-04T13:37:26.682539Z",
+          "size": 17169292,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 105
+        },
+        {
+          "id": "8EJRpynP",
+          "number": "1.13.3",
+          "name": "Slimes Adventure: RE 1.13.3",
+          "channel": "release",
+          "published": "2026-09-04T09:49:48.963697Z",
+          "size": 17169556,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 105
+        },
+        {
+          "id": "fS5Y80UJ",
+          "number": "1.13.2",
+          "name": "Slimes Adventure: RE 1.13.2",
+          "channel": "release",
+          "published": "2026-09-01T10:04:08.865328Z",
+          "size": 48495847,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 101
+        },
+        {
+          "id": "bMOhnusk",
+          "number": "1.13.1",
+          "name": "Slimes Adventure: RE 1.13.1",
+          "channel": "release",
+          "published": "2026-08-29T08:59:04.228185Z",
+          "size": 48431258,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 100
+        },
+        {
+          "id": "rnG7ByrT",
+          "number": "1.13.0",
+          "name": "Slimes Adventure: RE 1.13.0",
+          "channel": "release",
+          "published": "2026-08-28T09:30:35.647328Z",
+          "size": 48423099,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 101
+        },
+        {
+          "id": "PykeWXtT",
+          "number": "1.12.10.1",
+          "name": "Slimes Adventure 1.12.10.1",
+          "channel": "release",
+          "published": "2026-08-13T06:48:57.929615Z",
+          "size": 3603233,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 95
+        },
+        {
+          "id": "PzZwt2tj",
+          "number": "1.12.10",
+          "name": "Slimes Adventure: RE 1.12.10",
+          "channel": "release",
+          "published": "2026-08-13T06:24:52.51117Z",
+          "size": 3610384,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 95
+        },
+        {
+          "id": "BlZGwOv8",
+          "number": "1.12.9.10",
+          "name": "Slimes Adventure: RE 1.12.9.10",
+          "channel": "release",
+          "published": "2026-07-28T14:52:02.95096Z",
+          "size": 3592648,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 95
+        },
+        {
+          "id": "wQeKfFh0",
+          "number": "1.12.9.9",
+          "name": "Slimes Adventure: RE 1.12.9.9",
+          "channel": "release",
+          "published": "2026-07-11T02:16:57.993044Z",
+          "size": 3592644,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 95
+        }
+      ],
+      "newest": "ylSYr50H"
+    },
+    "C9FChyZ3": {
+      "source": "modrinth",
+      "projectId": "C9FChyZ3",
+      "slug": "cobblemondelta",
+      "name": "Cobblemon Delta",
+      "summary": "Pokemon Cobblemon Pack - QoL and Performance mods! The server included in the pack has Mega Evolution, Paradox Pokemon, Area Zero, Real Player Gyms, Raids, Dungeons, Pokemon Fishing!",
+      "downloads": 1612879,
+      "iconUrl": "https://cdn.modrinth.com/data/C9FChyZ3/b4391701477ebf0f75458de085ce5c7deb6af199.png",
+      "updated": "2026-09-19T11:33:50.916079Z",
+      "pageUrl": "https://modrinth.com/modpack/cobblemondelta",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 58,
+      "memoryMB": 6144,
+      "headline": "Cobblemon",
+      "versions": [
+        {
+          "id": "wnT0XqEG",
+          "number": "4.1.2",
+          "name": "Cobblemon Delta 4.1.2",
+          "channel": "release",
+          "published": "2026-09-19T11:33:50.916079Z",
+          "size": 127884526,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 58
+        },
+        {
+          "id": "Ff7ujBvJ",
+          "number": "4.1.1",
+          "name": "Cobblemon Delta 4.1.1",
+          "channel": "release",
+          "published": "2026-09-14T11:03:09.278613Z",
+          "size": 127751706,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 58
+        },
+        {
+          "id": "slrLCEQ5",
+          "number": "4.1.0",
+          "name": "Cobblemon Delta 4.1.0",
+          "channel": "release",
+          "published": "2026-09-14T10:30:19.586721Z",
+          "size": 127751255,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 58
+        },
+        {
+          "id": "Jq3pNui3",
+          "number": "4.0.2",
+          "name": "Cobblemon Delta 4.0.2",
+          "channel": "release",
+          "published": "2026-09-07T10:16:10.577775Z",
+          "size": 127351723,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 58
+        },
+        {
+          "id": "G1uTS9Gi",
+          "number": "4.0.1",
+          "name": "Cobblemon Delta 4.0.1",
+          "channel": "release",
+          "published": "2026-09-06T11:55:22.081235Z",
+          "size": 127337340,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 58
+        },
+        {
+          "id": "BRo9L60f",
+          "number": "4.0.0",
+          "name": "Cobblemon Delta 4.0.0",
+          "channel": "release",
+          "published": "2026-09-06T10:20:54.83128Z",
+          "size": 127337182,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 58
+        },
+        {
+          "id": "chnKVOLi",
+          "number": "3.6.5",
+          "name": "Cobblemon Delta 3.6.5",
+          "channel": "release",
+          "published": "2026-08-29T19:32:55.931925Z",
+          "size": 127313474,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 58
+        },
+        {
+          "id": "ADNqYgW9",
+          "number": "3.6.4",
+          "name": "Cobblemon Delta 3.6.4",
+          "channel": "release",
+          "published": "2026-08-25T10:10:26.947741Z",
+          "size": 127310775,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 58
+        },
+        {
+          "id": "hwvQgRMc",
+          "number": "3.6.3",
+          "name": "Cobblemon Delta 3.6.3",
+          "channel": "release",
+          "published": "2026-08-24T08:41:02.986335Z",
+          "size": 127304238,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 58
+        },
+        {
+          "id": "hUQg3I1Q",
+          "number": "3.6.2",
+          "name": "Cobblemon Delta 3.6.2",
+          "channel": "release",
+          "published": "2026-08-19T09:25:26.93744Z",
+          "size": 127111856,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 58
+        }
+      ],
+      "newest": "wnT0XqEG"
+    },
+    "B5YZ2FKC": {
+      "source": "modrinth",
+      "projectId": "B5YZ2FKC",
+      "slug": "remarkably-plus",
+      "name": "Remarkably Plus",
+      "summary": "Your Favourite Superheros now in minecraft.",
+      "downloads": 675,
+      "iconUrl": "https://cdn.modrinth.com/data/B5YZ2FKC/95994f69867f01d95b956e395b646f3fb4d34783_96.webp",
+      "updated": "2026-09-26T15:43:11.308168Z",
+      "pageUrl": "https://modrinth.com/modpack/remarkably-plus",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 26,
+      "memoryMB": 4096,
+      "versions": [
+        {
+          "id": "kPayoMlX",
+          "number": "26.9.26",
+          "name": "Remarkably Plus 26.9.26",
+          "channel": "release",
+          "published": "2026-09-26T15:43:11.308168Z",
+          "size": 207115929,
+          "type": "fabric",
+          "minecraftVersion": "1.20.1",
+          "mods": 27,
+          "unsupported": {
+            "kind": "minecraft_unsupported",
+            "params": {
+              "minecraft": "1.20.1",
+              "oldest": "1.21",
+              "pack": "Remarkably Plus"
+            },
+            "message": "Remarkably Plus is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer.",
+            "hint": "Choose a newer version of the pack."
+          }
+        },
+        {
+          "id": "cqsbUBnh",
+          "number": "26.9.17",
+          "name": "Remarkably Plus 26.9.17",
+          "channel": "release",
+          "published": "2026-09-17T14:11:51.529957Z",
+          "size": 153513283,
+          "type": "fabric",
+          "minecraftVersion": "1.20.1",
+          "mods": 27,
+          "unsupported": {
+            "kind": "minecraft_unsupported",
+            "params": {
+              "minecraft": "1.20.1",
+              "oldest": "1.21",
+              "pack": "Remarkably Plus"
+            },
+            "message": "Remarkably Plus is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer.",
+            "hint": "Choose a newer version of the pack."
+          }
+        },
+        {
+          "id": "x6jBvu1Z",
+          "number": "26.9.1",
+          "name": "Remarkably Plus 1.13",
+          "channel": "release",
+          "published": "2026-09-01T10:15:28.345568Z",
+          "size": 367674259,
+          "type": "fabric",
+          "minecraftVersion": "1.20.1",
+          "mods": 27,
+          "unsupported": {
+            "kind": "minecraft_unsupported",
+            "params": {
+              "minecraft": "1.20.1",
+              "oldest": "1.21",
+              "pack": "Remarkably Plus"
+            },
+            "message": "Remarkably Plus is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer.",
+            "hint": "Choose a newer version of the pack."
+          }
+        },
+        {
+          "id": "iq1nPI1P",
+          "number": "26.8.31",
+          "name": "SuperHero Pack",
+          "channel": "release",
+          "published": "2026-08-31T10:06:46.12873Z",
+          "size": 358043190,
+          "type": "fabric",
+          "minecraftVersion": "1.20.1",
+          "mods": 27,
+          "unsupported": {
+            "kind": "minecraft_unsupported",
+            "params": {
+              "minecraft": "1.20.1",
+              "oldest": "1.21",
+              "pack": "Remarkably Plus"
+            },
+            "message": "Remarkably Plus is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer.",
+            "hint": "Choose a newer version of the pack."
+          }
+        },
+        {
+          "id": "eMepJFb1",
+          "number": "26.8.30",
+          "name": "SUPER PACK",
+          "channel": "release",
+          "published": "2026-08-30T11:26:59.941628Z",
+          "size": 342933609,
+          "type": "fabric",
+          "minecraftVersion": "1.20.1",
+          "mods": 27,
+          "unsupported": {
+            "kind": "minecraft_unsupported",
+            "params": {
+              "minecraft": "1.20.1",
+              "oldest": "1.21",
+              "pack": "Remarkably Plus"
+            },
+            "message": "Remarkably Plus is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer.",
+            "hint": "Choose a newer version of the pack."
+          }
+        },
+        {
+          "id": "q4qxTw4e",
+          "number": "26.8.24",
+          "name": "Remarkably Plus 26.8.24",
+          "channel": "release",
+          "published": "2026-08-23T11:27:16.961244Z",
+          "size": 321819563,
+          "type": "fabric",
+          "minecraftVersion": "1.20.1",
+          "mods": 27,
+          "unsupported": {
+            "kind": "minecraft_unsupported",
+            "params": {
+              "minecraft": "1.20.1",
+              "oldest": "1.21",
+              "pack": "Remarkably Plus"
+            },
+            "message": "Remarkably Plus is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer.",
+            "hint": "Choose a newer version of the pack."
+          }
+        },
+        {
+          "id": "k0LyIBfo",
+          "number": "26.8.24",
+          "name": "Remarkably Plus",
+          "channel": "release",
+          "published": "2026-08-23T11:16:33.840264Z",
+          "size": 321819563,
+          "type": "fabric",
+          "minecraftVersion": "1.20.1",
+          "mods": 27,
+          "unsupported": {
+            "kind": "minecraft_unsupported",
+            "params": {
+              "minecraft": "1.20.1",
+              "oldest": "1.21",
+              "pack": "Remarkably Plus"
+            },
+            "message": "Remarkably Plus is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer.",
+            "hint": "Choose a newer version of the pack."
+          }
+        },
+        {
+          "id": "VHeFQpTN",
+          "number": "26.8.21",
+          "name": "26.8.21",
+          "channel": "release",
+          "published": "2026-08-21T11:12:51.519618Z",
+          "size": 214696832,
+          "type": "fabric",
+          "minecraftVersion": "1.20.1",
+          "mods": 27,
+          "unsupported": {
+            "kind": "minecraft_unsupported",
+            "params": {
+              "minecraft": "1.20.1",
+              "oldest": "1.21",
+              "pack": "Remarkably Plus"
+            },
+            "message": "Remarkably Plus is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer.",
+            "hint": "Choose a newer version of the pack."
+          }
+        },
+        {
+          "id": "MRKWxLcV",
+          "number": "3.21.1",
+          "name": "Remarkably Plus 3.21.1",
+          "channel": "release",
+          "published": "2025-12-23T08:35:23.633745Z",
+          "size": 351670517,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 26
+        },
+        {
+          "id": "OKtI9FB6",
+          "number": "2.21.1",
+          "name": "Remarkably Plus 2.21.1",
+          "channel": "release",
+          "published": "2025-10-14T05:17:24.943674Z",
+          "size": 201174140,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 26
+        }
+      ],
+      "newest": "MRKWxLcV"
+    },
+    "t0mtiuRo": {
+      "source": "modrinth",
+      "projectId": "t0mtiuRo",
+      "slug": "rsv",
+      "name": "红石生电极速版【Redstone speed version】",
+      "summary": "An integrated package specifically for Redstone players, retaining the vanilla gameplay and greatly improving FPS!",
+      "downloads": 31380,
+      "iconUrl": "https://cdn.modrinth.com/data/t0mtiuRo/3483bb73c489a7fdf03c27a82daf2464a8ec0e03.png",
+      "updated": "2026-09-26T15:33:45.878023Z",
+      "pageUrl": "https://modrinth.com/modpack/rsv",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "26.3",
+        "26.1.2",
+        "1.21.11",
+        "1.21.10",
+        "1.21.5",
+        "1.21.4"
+      ],
+      "mods": 62,
+      "memoryMB": 6144,
+      "versions": [
+        {
+          "id": "mDhHKglU",
+          "number": "26.3-1.0",
+          "name": "红石生电极速版【Redstone speed version】 26.3-1.0",
+          "channel": "beta",
+          "published": "2026-09-26T15:33:45.878023Z",
+          "size": 71936,
+          "type": "fabric",
+          "minecraftVersion": "26.3",
+          "mods": 26
+        },
+        {
+          "id": "wkURKInA",
+          "number": "26.1.2-3.0",
+          "name": "红石生电极速版【Redstone speed version】 26.1.2-3.0",
+          "channel": "release",
+          "published": "2026-09-03T08:24:54.506079Z",
+          "size": 76662,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 62
+        },
+        {
+          "id": "Nll60lpK",
+          "number": "26.1.2-2.9",
+          "name": "红石生电极速版【Redstone speed version】 26.1.2-2.9",
+          "channel": "beta",
+          "published": "2026-09-01T06:45:48.138578Z",
+          "size": 76483,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 61
+        },
+        {
+          "id": "alE5tSY2",
+          "number": "26.1.2-2.8",
+          "name": "红石生电极速版【Redstone speed version】 26.1.2-2.8",
+          "channel": "release",
+          "published": "2026-08-30T11:18:23.539679Z",
+          "size": 76508,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 61
+        },
+        {
+          "id": "QwGO9AbG",
+          "number": "26.1.2-2.7",
+          "name": "红石生电极速版【Redstone speed version】 26.1.2-2.7",
+          "channel": "beta",
+          "published": "2026-08-21T11:57:48.955916Z",
+          "size": 74856,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 61
+        },
+        {
+          "id": "rWvBqPqn",
+          "number": "26.1.2-2.6",
+          "name": "红石生电极速版【Redstone speed version】 26.1.2-2.6",
+          "channel": "beta",
+          "published": "2026-08-20T08:14:57.842423Z",
+          "size": 74859,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 61
+        },
+        {
+          "id": "iuUSDJZp",
+          "number": "26.1.2-2.5",
+          "name": "红石生电极速版【Redstone speed version】 26.1.2-2.5",
+          "channel": "release",
+          "published": "2026-08-15T11:57:22.421568Z",
+          "size": 76053,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 61
+        },
+        {
+          "id": "UFfqevkA",
+          "number": "26.1.2-2.4",
+          "name": "红石生电极速版【Redstone speed version】 26.1.2-2.4",
+          "channel": "release",
+          "published": "2026-08-14T10:28:58.532191Z",
+          "size": 74892,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 61
+        },
+        {
+          "id": "ZeKsH3IG",
+          "number": "26.1.2-2.4",
+          "name": "红石生电极速版【Redstone speed version】 26.1.2-2.4",
+          "channel": "release",
+          "published": "2026-08-13T12:11:08.83271Z",
+          "size": 78263,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 61
+        },
+        {
+          "id": "GZYf3ojS",
+          "number": "26.1.2-2.3",
+          "name": "红石生电极速版【Redstone speed version】 26.1.2-2.3",
+          "channel": "beta",
+          "published": "2026-07-28T09:36:10.20093Z",
+          "size": 76200,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 61
+        }
+      ],
+      "newest": "wkURKInA"
+    },
+    "RRCIm6eu": {
+      "source": "modrinth",
+      "projectId": "RRCIm6eu",
+      "slug": "gorgeous-optimisations",
+      "name": "Gorgeous Optimizations",
+      "summary": "This is a modpack filled with the perfect optimisation mods to get you from 30 FPS to 200+ FPS!",
+      "downloads": 426,
+      "iconUrl": "https://cdn.modrinth.com/data/RRCIm6eu/6b96fbecfc0fdbee3f34d244f765a4fff6d3cb82_96.webp",
+      "updated": "2026-09-26T15:32:07.186978Z",
+      "pageUrl": "https://modrinth.com/modpack/gorgeous-optimisations",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "1.21.8",
+        "1.21.5",
+        "1.21.1"
+      ],
+      "mods": 67,
+      "memoryMB": 6144,
+      "versions": [
+        {
+          "id": "qinCm3E6",
+          "number": "1.1.0",
+          "name": "Gorgeous Optimizations 1.1.0",
+          "channel": "release",
+          "published": "2026-09-26T15:32:07.186978Z",
+          "size": 84070,
+          "type": "fabric",
+          "minecraftVersion": "1.21.8",
+          "mods": 67
+        },
+        {
+          "id": "PIKesP66",
+          "number": "1.0.0",
+          "name": "Gorgeous Optimizations 0.0.1",
+          "channel": "release",
+          "published": "2025-10-28T21:18:48.754327Z",
+          "size": 48175,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 53
+        },
+        {
+          "id": "SKfdl9Fh",
+          "number": "1.1.0",
+          "name": "Gorgeous Optimisations 1.1.0",
+          "channel": "beta",
+          "published": "2025-10-26T10:14:56.70797Z",
+          "size": 84070,
+          "type": "fabric",
+          "minecraftVersion": "1.21.8",
+          "mods": 67
+        },
+        {
+          "id": "lZRd6nQF",
+          "number": "1.0.1",
+          "name": "Gorgeous Optimisations 1.0.1",
+          "channel": "release",
+          "published": "2025-10-26T09:46:23.688969Z",
+          "size": 77559,
+          "type": "fabric",
+          "minecraftVersion": "1.21.5",
+          "mods": 70
+        },
+        {
+          "id": "Jz7xT7il",
+          "number": "1.0.0",
+          "name": "Gorgeous Optimisations 1.0.0",
+          "channel": "beta",
+          "published": "2025-10-25T10:44:01.511396Z",
+          "size": 75426,
+          "type": "fabric",
+          "minecraftVersion": "1.21.5",
+          "mods": 72
+        }
+      ],
+      "newest": "qinCm3E6"
+    },
+    "qMQpu0xl": {
+      "source": "modrinth",
+      "projectId": "qMQpu0xl",
+      "slug": "endlesspixel-modpack",
+      "name": "EndlessPixel-Modpack",
+      "summary": "An optimized and assisted server integration package for any original game and original server",
+      "downloads": 876,
+      "iconUrl": "https://cdn.modrinth.com/data/qMQpu0xl/5a782e1cad075758c3b212e7ae99599abbed5370.png",
+      "updated": "2026-09-26T15:10:15.998076Z",
+      "pageUrl": "https://modrinth.com/modpack/endlesspixel-modpack",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "26.3",
+        "26.2",
+        "26.1.2",
+        "26.1.1",
+        "26.1",
+        "1.21.11",
+        "1.21.10",
+        "1.21.9",
+        "1.21.8"
+      ],
+      "mods": 77,
+      "memoryMB": 6144,
+      "sourceUrl": "https://github.com/EndlessPixel/EndlessPixel-Modpack",
+      "issuesUrl": "https://github.com/EndlessPixel/EndlessPixel-Modpack/issues",
+      "wikiUrl": "https://wiki.epmc.top",
+      "versions": [
+        {
+          "id": "jwY1tlyF",
+          "number": "26.3-a1",
+          "name": "EndlessPixel-Modpack 26.3-a1",
+          "channel": "alpha",
+          "published": "2026-09-26T15:10:15.998076Z",
+          "size": 85666,
+          "type": "fabric",
+          "minecraftVersion": "26.3",
+          "mods": 81
+        },
+        {
+          "id": "jqMLi4W6",
+          "number": "26.1.2-2.0",
+          "name": "EndlessPixel-Modpack 26.1.2-2.0",
+          "channel": "release",
+          "published": "2026-08-17T08:55:58.244872Z",
+          "size": 67792408,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 77
+        },
+        {
+          "id": "fQosgNdo",
+          "number": "26.1.2-1.9",
+          "name": "EndlessPixel-Modpack 26.1.2-1.9",
+          "channel": "release",
+          "published": "2026-07-11T01:10:18.419807Z",
+          "size": 170165,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 92
+        },
+        {
+          "id": "tjvYHyPH",
+          "number": "26.2-a5",
+          "name": "EndlessPixel-Modpack 26.2-a5",
+          "channel": "alpha",
+          "published": "2026-07-10T02:55:24.303359Z",
+          "size": 160570,
+          "type": "fabric",
+          "minecraftVersion": "26.2",
+          "mods": 72
+        },
+        {
+          "id": "wbXoDVFU",
+          "number": "26.1.2-1.8",
+          "name": "EndlessPixel-Modpack 26.1.2-1.8",
+          "channel": "release",
+          "published": "2026-07-09T12:02:51.876565Z",
+          "size": 169788,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 92
+        },
+        {
+          "id": "n6JV80Fn",
+          "number": "1.21.11-3.9",
+          "name": "EndlessPixel-Modpack 1.21.11-3.9",
+          "channel": "release",
+          "published": "2026-07-09T11:41:48.261386Z",
+          "size": 173058,
+          "type": "fabric",
+          "minecraftVersion": "1.21.11",
+          "mods": 99
+        },
+        {
+          "id": "G0tTZeGb",
+          "number": "26.1.2-1.7",
+          "name": "EndlessPixel-Modpack 26.1.2-1.7",
+          "channel": "release",
+          "published": "2026-06-24T15:53:36.135995Z",
+          "size": 165953,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 91
+        },
+        {
+          "id": "dRskTGro",
+          "number": "26.2-a4",
+          "name": "EndlessPixel-Modpack 26.2-a4",
+          "channel": "alpha",
+          "published": "2026-06-24T15:52:59.171231Z",
+          "size": 158351,
+          "type": "fabric",
+          "minecraftVersion": "26.2",
+          "mods": 70
+        },
+        {
+          "id": "lhPQoo4p",
+          "number": "26.1.2-1.6",
+          "name": "EndlessPixel-Modpack 26.1.2-1.6",
+          "channel": "release",
+          "published": "2026-06-20T03:34:34.988274Z",
+          "size": 162386,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 90
+        },
+        {
+          "id": "n9gvmpsS",
+          "number": "26.2-a3",
+          "name": "EndlessPixel-Modpack 26.2-a3",
+          "channel": "alpha",
+          "published": "2026-06-20T03:32:58.144676Z",
+          "size": 158354,
+          "type": "fabric",
+          "minecraftVersion": "26.2",
+          "mods": 70
+        }
+      ],
+      "newest": "jqMLi4W6"
+    },
+    "q9aTk4Re": {
+      "source": "modrinth",
+      "projectId": "q9aTk4Re",
+      "slug": "echoes-of-kaepora",
+      "name": "Echoes: Second Harvest",
+      "summary": "✨ Magic ⚔️ Combat 🧿 Relics 🌍 New Dimensions 🏰 Structures ⚙️ Tech 🐾 Creatures, Animals & Mobs🌱 Farming 🎒 Backpacks & Storage 🧭 Waystones 🗺️ Maps 🎨 Tons of Building Blocks 🚀 Performance 🛠️ QoL 🎧 Immersive",
+      "downloads": 1273,
+      "iconUrl": "https://cdn.modrinth.com/data/q9aTk4Re/a361c7e6261d5d1dddfd31958c7e101dac49ec7e_96.webp",
+      "updated": "2026-09-26T14:08:33.711688Z",
+      "pageUrl": "https://modrinth.com/modpack/echoes-of-kaepora",
+      "types": [
+        "neoforge"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 241,
+      "memoryMB": 6144,
+      "versions": [
+        {
+          "id": "vYnO9JuQ",
+          "number": "2.0",
+          "name": "Echoes: Second Harvest",
+          "channel": "release",
+          "published": "2026-09-26T14:08:33.711688Z",
+          "size": 50328493,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 241
+        },
+        {
+          "id": "dmUrGOjn",
+          "number": "1.8.2",
+          "name": "Echoes of Kaepora 1.8.2",
+          "channel": "release",
+          "published": "2026-09-20T08:59:29.39808Z",
+          "size": 17754978,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 292
+        },
+        {
+          "id": "ttfuDEPv",
+          "number": "1.8.1",
+          "name": "Echoes of Kaepora 1.8.1",
+          "channel": "release",
+          "published": "2026-09-19T08:27:36.357356Z",
+          "size": 14218911,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 297
+        },
+        {
+          "id": "j8rZ8mKT",
+          "number": "1.8.0",
+          "name": "Echoes of Kaepora 1.8.0",
+          "channel": "release",
+          "published": "2026-09-18T15:42:49.135024Z",
+          "size": 11262738,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 294
+        },
+        {
+          "id": "GvYGIF05",
+          "number": "1.7.3",
+          "name": "Echoes of Kaepora 1.7.3",
+          "channel": "release",
+          "published": "2026-09-16T17:15:12.909148Z",
+          "size": 11553226,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 300
+        },
+        {
+          "id": "yNzzVJDG",
+          "number": "1.7.2",
+          "name": "Echoes of Kaepora 1.7.2",
+          "channel": "release",
+          "published": "2026-09-14T18:05:53.889211Z",
+          "size": 5349325,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 298
+        },
+        {
+          "id": "T85xtCdw",
+          "number": "1.7.1",
+          "name": "Echoes of Kaepora 1.7.1",
+          "channel": "release",
+          "published": "2026-09-14T17:29:00.49044Z",
+          "size": 5349894,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 298
+        },
+        {
+          "id": "jcHF4uIl",
+          "number": "1.7.0",
+          "name": "Echoes of Kaepora 1.7.0",
+          "channel": "release",
+          "published": "2026-09-09T15:09:51.702409Z",
+          "size": 1285525,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 284
+        },
+        {
+          "id": "DRbD2URP",
+          "number": "1.6.4",
+          "name": "Echoes of Kaepora 1.6.4",
+          "channel": "release",
+          "published": "2026-09-02T05:58:42.897726Z",
+          "size": 1188496,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 237
+        },
+        {
+          "id": "2ZltpDhu",
+          "number": "1.6.3",
+          "name": "Echoes of Kaepora 1.6.3",
+          "channel": "release",
+          "published": "2026-08-31T21:02:12.017531Z",
+          "size": 1127024,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 233
+        }
+      ],
+      "newest": "vYnO9JuQ"
+    },
+    "cu14tfSZ": {
+      "source": "modrinth",
+      "projectId": "cu14tfSZ",
+      "slug": "everuncomplete",
+      "name": "EverUncomplete",
+      "summary": "An uncomplete modpack (for now!) for me and my friends but anyone is free to use it :). This iteration of the modpack features mods for exploration, magic and engineering for Fabric 1.20.1.",
+      "downloads": 378,
+      "iconUrl": "https://cdn.modrinth.com/data/cu14tfSZ/0e5543a71d91cfeb26f209650f73c148b8b70142_96.webp",
+      "updated": "2026-09-26T14:00:08.332924Z",
+      "pageUrl": "https://modrinth.com/modpack/everuncomplete",
+      "types": [
+        "fabric",
+        "neoforge"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 92,
+      "memoryMB": 6144,
+      "versions": [
+        {
+          "id": "JQroWxza",
+          "number": "2.2.0",
+          "name": "EverUncomplete 2.2.0",
+          "channel": "release",
+          "published": "2026-09-26T14:00:08.332924Z",
+          "size": 218644134,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 92
+        },
+        {
+          "id": "mVMjBWEL",
+          "number": "2.1.0",
+          "name": "EverUncomplete 2.1.0",
+          "channel": "release",
+          "published": "2026-09-18T21:16:22.161136Z",
+          "size": 55511364,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 86
+        },
+        {
+          "id": "bLS8hNVZ",
+          "number": "2.0.0.Client",
+          "name": "Client Version",
+          "channel": "release",
+          "published": "2026-09-18T17:29:10.489348Z",
+          "size": 14678,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 90
+        },
+        {
+          "id": "Ocj3X125",
+          "number": "1.1.6",
+          "name": "EverUncomplete 1.1.6",
+          "channel": "release",
+          "published": "2026-03-09T15:29:28.411457Z",
+          "size": 20839,
+          "type": "fabric",
+          "minecraftVersion": "1.20.1",
+          "mods": 110,
+          "unsupported": {
+            "kind": "minecraft_unsupported",
+            "params": {
+              "minecraft": "1.20.1",
+              "oldest": "1.21",
+              "pack": "EverUncomplete"
+            },
+            "message": "EverUncomplete is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer.",
+            "hint": "Choose a newer version of the pack."
+          }
+        },
+        {
+          "id": "TAKJ7v5O",
+          "number": "1.1.5",
+          "name": "EverUncomplete 1.1.5",
+          "channel": "release",
+          "published": "2026-01-19T16:54:08.587182Z",
+          "size": 20074,
+          "type": "fabric",
+          "minecraftVersion": "1.20.1",
+          "mods": 109,
+          "unsupported": {
+            "kind": "minecraft_unsupported",
+            "params": {
+              "minecraft": "1.20.1",
+              "oldest": "1.21",
+              "pack": "EverUncomplete"
+            },
+            "message": "EverUncomplete is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer.",
+            "hint": "Choose a newer version of the pack."
+          }
+        },
+        {
+          "id": "gBwVlJdm",
+          "number": "1.1.0",
+          "name": "EverUncomplete 1.1.0",
+          "channel": "release",
+          "published": "2025-04-30T16:35:53.652757Z",
+          "size": 3051590,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 107
+        },
+        {
+          "id": "jkYjDk2O",
+          "number": "1.0.0",
+          "name": "EverUncomplete 1.0.0",
+          "channel": "release",
+          "published": "2025-04-29T11:57:26.95639Z",
+          "size": 3050262,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 103
+        },
+        {
+          "id": "O9M7O6ug",
+          "number": "0.0.2",
+          "name": "EverUncomplete 0.0.2",
+          "channel": "release",
+          "published": "2025-04-29T07:50:09.320867Z",
+          "size": 2411478,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 131
+        },
+        {
+          "id": "UnDy94Al",
+          "number": "0.0.1",
+          "name": "EverUncomplete 0.0.1",
+          "channel": "release",
+          "published": "2025-04-28T07:41:16.817011Z",
+          "size": 2996544,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 102
+        },
+        {
+          "id": "kw2dUiQJ",
+          "number": "0.0.1",
+          "name": "ModPackDePanas 0.0.1",
+          "channel": "release",
+          "published": "2025-04-14T14:02:26.788924Z",
+          "size": 46960,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 55
+        }
+      ],
+      "newest": "JQroWxza"
+    },
+    "w4SHS2Zp": {
+      "source": "modrinth",
+      "projectId": "w4SHS2Zp",
+      "slug": "otv-tech-server-pack",
+      "name": "OTV Micheal Reeves Techpack",
+      "summary": "Pack for the OTV Tech Server. Modlist provided by micheal reeves",
+      "downloads": 17,
+      "iconUrl": "https://cdn.modrinth.com/data/w4SHS2Zp/9c7395cdbd6b5cb8a5fed443990fdd909c8606c8_96.webp",
+      "updated": "2026-08-25T10:08:28.256821Z",
+      "pageUrl": "https://modrinth.com/modpack/otv-tech-server-pack",
+      "types": [
+        "neoforge"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 194,
+      "memoryMB": 6144,
+      "versions": [
+        {
+          "id": "D02aeQJn",
+          "number": "1.0.1",
+          "name": "OTV Tech Server Pack 1.0.1",
+          "channel": "release",
+          "published": "2026-08-25T10:08:28.256821Z",
+          "size": 441516,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 194
+        }
+      ],
+      "newest": "D02aeQJn"
+    },
+    "reqOgw8U": {
+      "source": "modrinth",
+      "projectId": "reqOgw8U",
+      "slug": "luays-pvp-modpack",
+      "name": "luay's PvP Modpack",
+      "summary": "Edited version of fps+pvp. My way.",
+      "downloads": 13,
+      "iconUrl": "https://cdn.modrinth.com/data/reqOgw8U/73e879aeebe129e686ef3e69d269274bf851ab44_96.webp",
+      "updated": "2026-08-25T08:51:06.968683Z",
+      "pageUrl": "https://modrinth.com/modpack/luays-pvp-modpack",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "26.1.2"
+      ],
+      "mods": 51,
+      "memoryMB": 6144,
+      "versions": [
+        {
+          "id": "5j5gfnFm",
+          "number": "1.0.0",
+          "name": "luay's PvP Modpack 1.0.0",
+          "channel": "beta",
+          "published": "2026-08-25T08:51:06.968683Z",
+          "size": 58950,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 51
+        }
+      ],
+      "newest": "5j5gfnFm"
+    },
+    "tzHmsnUK": {
+      "source": "modrinth",
+      "projectId": "tzHmsnUK",
+      "slug": "my-real-world-life",
+      "name": "my real-world life",
+      "summary": "This is a modpack that transforms Minecraft into an incredibly realistic world, complete with physics systems, animations for creatures, 3D items, and more...",
+      "downloads": 22,
+      "iconUrl": "https://cdn.modrinth.com/data/tzHmsnUK/3f8419e6fa1de844b1c0df7ddce2811aed6ebdd0_96.webp",
+      "updated": "2026-08-25T05:45:35.250254Z",
+      "pageUrl": "https://modrinth.com/modpack/my-real-world-life",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "26.2"
+      ],
+      "mods": 75,
+      "memoryMB": 6144,
+      "versions": [
+        {
+          "id": "2vustQEN",
+          "number": "1.0.0",
+          "name": "my real-world life 1.0.0",
+          "channel": "release",
+          "published": "2026-08-25T05:45:35.250254Z",
+          "size": 12752,
+          "type": "fabric",
+          "minecraftVersion": "26.2",
+          "mods": 75
+        }
+      ],
+      "newest": "2vustQEN"
+    },
+    "C5YzQQgW": {
+      "source": "modrinth",
+      "projectId": "C5YzQQgW",
+      "slug": "complexly-optimized",
+      "name": "Complexly Optimized",
+      "summary": "Yet another optimization modpack based on my own philosophy. It's FOSS!",
+      "downloads": 36,
+      "iconUrl": "https://cdn.modrinth.com/data/C5YzQQgW/59a20beb2db28e163b1da242d3946c136fab1a19_96.webp",
+      "updated": "2026-09-09T11:00:00.389537Z",
+      "pageUrl": "https://modrinth.com/modpack/complexly-optimized",
+      "types": [
+        "fabric",
+        "quilt",
+        "neoforge"
+      ],
+      "minecraftVersions": [
+        "26.2",
+        "26.1.2",
+        "1.21.11",
+        "1.21.5",
+        "1.21.1"
+      ],
+      "mods": 36,
+      "memoryMB": 4096,
+      "sourceUrl": "https://github.com/RatchetStuff/complexly-optimized",
+      "issuesUrl": "https://github.com/RatchetStuff/complexly-optimized/issues",
+      "wikiUrl": "https://github.com/RatchetStuff/complexly-optimized/wiki",
+      "versions": [
+        {
+          "id": "T37OUseI",
+          "number": "26.9.17+mc1.21.1.fabric",
+          "name": "26.9.17+mc1.21.1.fabric",
+          "channel": "release",
+          "published": "2026-09-09T11:00:00.389537Z",
+          "size": 11901,
+          "type": "fabric",
+          "minecraftVersion": "1.21.1",
+          "mods": 35
+        },
+        {
+          "id": "6FHwVDJl",
+          "number": "26.9.17+mc26.2.fabric",
+          "name": "26.9.17+mc26.2.fabric",
+          "channel": "release",
+          "published": "2026-09-09T10:59:29.56832Z",
+          "size": 12025,
+          "type": "fabric",
+          "minecraftVersion": "26.2",
+          "mods": 36
+        },
+        {
+          "id": "WE8eJxTv",
+          "number": "26.9.17+mc26.2.neoforge",
+          "name": "26.9.17+mc26.2.neoforge",
+          "channel": "release",
+          "published": "2026-09-09T10:58:05.206018Z",
+          "size": 10478,
+          "type": "neoforge",
+          "minecraftVersion": "26.2",
+          "mods": 27
+        },
+        {
+          "id": "CsAxuFzY",
+          "number": "26.9.17+mc26.1.2.fabric",
+          "name": "26.9.17+mc26.1.2.fabric",
+          "channel": "release",
+          "published": "2026-09-09T10:57:39.322025Z",
+          "size": 11866,
+          "type": "fabric",
+          "minecraftVersion": "26.1.2",
+          "mods": 35
+        },
+        {
+          "id": "nIDw208I",
+          "number": "26.9.17+mc26.1.2.neoforge",
+          "name": "26.9.17+mc26.1.2.neoforge",
+          "channel": "release",
+          "published": "2026-09-09T10:57:13.382252Z",
+          "size": 10345,
+          "type": "neoforge",
+          "minecraftVersion": "26.1.2",
+          "mods": 26
+        },
+        {
+          "id": "fPpRJX88",
+          "number": "26.9.16+mc1.21.11.fabric",
+          "name": "26.9.16+mc1.21.11.fabric",
+          "channel": "release",
+          "published": "2026-09-09T10:56:39.91519Z",
+          "size": 11879,
+          "type": "fabric",
+          "minecraftVersion": "1.21.11",
+          "mods": 35
+        },
+        {
+          "id": "UWtlAGlR",
+          "number": "26.9.16+mc1.21.5.fabric",
+          "name": "26.9.16+mc1.21.5.fabric",
+          "channel": "release",
+          "published": "2026-09-09T10:56:04.573305Z",
+          "size": 11787,
+          "type": "fabric",
+          "minecraftVersion": "1.21.5",
+          "mods": 34
+        },
+        {
+          "id": "ZvSbEulJ",
+          "number": "26.9.17+mc1.21.1.neoforge",
+          "name": "26.9.17+mc1.21.1.neoforge",
+          "channel": "release",
+          "published": "2026-09-09T10:55:09.644601Z",
+          "size": 10352,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 26
+        },
+        {
+          "id": "omqOjdtS",
+          "number": "26.9.16+mc1.20.1.fabric",
+          "name": "26.9.16+mc1.20.1.fabric",
+          "channel": "release",
+          "published": "2026-09-09T10:54:28.523346Z",
+          "size": 11509,
+          "type": "fabric",
+          "minecraftVersion": "1.20.1",
+          "mods": 32,
+          "unsupported": {
+            "kind": "minecraft_unsupported",
+            "params": {
+              "minecraft": "1.20.1",
+              "oldest": "1.21",
+              "pack": "Complexly Optimized"
+            },
+            "message": "Complexly Optimized is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer.",
+            "hint": "Choose a newer version of the pack."
+          }
+        },
+        {
+          "id": "OwznTXwV",
+          "number": "26.9.17+mc1.19.2.quilt",
+          "name": "26.9.17+mc1.19.2.quilt",
+          "channel": "release",
+          "published": "2026-09-09T10:53:55.253887Z",
+          "size": 11603,
+          "type": "quilt",
+          "minecraftVersion": "1.19.2",
+          "mods": 31,
+          "unsupported": {
+            "kind": "minecraft_unsupported",
+            "params": {
+              "minecraft": "1.19.2",
+              "oldest": "1.21",
+              "pack": "Complexly Optimized"
+            },
+            "message": "Complexly Optimized is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.21 and newer.",
+            "hint": "Choose a newer version of the pack."
+          }
+        }
+      ],
+      "newest": "6FHwVDJl"
+    },
+    "xQFbykzJ": {
+      "source": "modrinth",
+      "projectId": "xQFbykzJ",
+      "slug": "the-cheese-smp",
+      "name": "Cheese SMP",
+      "summary": "Is a Minecraft SMP for the Cheese Community",
+      "downloads": 13,
+      "iconUrl": "https://cdn.modrinth.com/data/xQFbykzJ/9527c03280324a9088a6522e7923b09dc8bf0ffe.gif",
+      "updated": "2026-08-24T14:57:51.5357Z",
+      "pageUrl": "https://modrinth.com/modpack/the-cheese-smp",
+      "types": [
+        "neoforge"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 184,
+      "memoryMB": 6144,
+      "versions": [
+        {
+          "id": "Co5yAOvC",
+          "number": "1.0.1",
+          "name": "Cheese SMP 1.0.0",
+          "channel": "release",
+          "published": "2026-08-24T14:57:51.5357Z",
+          "size": 5796642,
+          "type": "neoforge",
+          "minecraftVersion": "1.21.1",
+          "mods": 184
+        }
+      ],
+      "newest": "Co5yAOvC"
+    },
+    "yAkEipq1": {
+      "source": "modrinth",
+      "projectId": "yAkEipq1",
+      "slug": "nicemc",
+      "name": "NiceMC LTS",
+      "summary": "A vanilla‑like and optimized modpack designed for smooth gameplay.",
+      "downloads": 43,
+      "iconUrl": "https://cdn.modrinth.com/data/yAkEipq1/295d230fd2da238f5ec5b15ce63e1e285c5e48cc_96.webp",
+      "updated": "2026-09-11T19:01:37.958085Z",
+      "pageUrl": "https://modrinth.com/modpack/nicemc",
+      "types": [
+        "quilt"
+      ],
+      "minecraftVersions": [
+        "1.21.1"
+      ],
+      "mods": 358,
+      "memoryMB": 8192,
+      "issuesUrl": "https://github.com/TripleTeamsStudio/NiceMC/issues",
+      "versions": [
+        {
+          "id": "keR9edrF",
+          "number": "R-C26.3-LTS",
+          "name": "NiceMC LTS R-C26.3",
+          "channel": "release",
+          "published": "2026-09-11T19:01:37.958085Z",
+          "size": 35441174,
+          "type": "quilt",
+          "minecraftVersion": "1.21.1",
+          "mods": 358
+        }
+      ],
+      "newest": "keR9edrF"
+    }
+  },
+  "previews": {
+    "5FFgwNNP/Cqimd3JM": {
+      "type": "fabric",
+      "minecraftVersion": "1.21.1",
+      "loaderVersion": "0.19.5",
+      "java": 21,
+      "files": 2468,
+      "downloadSize": 183804164,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "Jkb29YJU/4SKGla61": {
+      "type": "fabric",
+      "minecraftVersion": "1.21.1",
+      "loaderVersion": "0.18.4",
+      "java": 21,
+      "files": 530,
+      "downloadSize": 390089060,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "1ocGzRHv/zCNpmrT6": {
+      "type": "fabric",
+      "minecraftVersion": "26.1.2",
+      "loaderVersion": "0.19.2",
+      "files": 181,
+      "downloadSize": 363942742,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "vwgtbO0y/qIbqsFsx": {
+      "type": "neoforge",
+      "minecraftVersion": "1.21.1",
+      "loaderVersion": "21.1.172",
+      "java": 21,
+      "files": 571,
+      "downloadSize": 463881636,
+      "ready": false,
+      "blockers": [
+        {
+          "kind": "too_large",
+          "params": {
+            "file": "mods/Pixelmon-1.21.1-9.3.16-universal.jar",
+            "limit": "256 MiB",
+            "pack": "The Pixelmon Modpack"
+          },
+          "message": "The Pixelmon Modpack's file mods/Pixelmon-1.21.1-9.3.16-universal.jar is larger than the 256 MiB Playkeeper accepts for one file.",
+          "hint": "Choose another version of the pack."
+        }
+      ],
+      "warnings": [],
+      "manual": []
+    },
+    "8yKzGJOG/ylSYr50H": {
+      "type": "fabric",
+      "minecraftVersion": "1.21.1",
+      "loaderVersion": "0.19.5",
+      "java": 21,
+      "files": 649,
+      "downloadSize": 255819448,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "C9FChyZ3/wnT0XqEG": {
+      "type": "fabric",
+      "minecraftVersion": "1.21.1",
+      "loaderVersion": "0.19.3",
+      "java": 21,
+      "files": 33,
+      "downloadSize": 195390108,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "B5YZ2FKC/MRKWxLcV": {
+      "type": "fabric",
+      "minecraftVersion": "1.21.1",
+      "loaderVersion": "0.17.2",
+      "java": 21,
+      "files": 26,
+      "downloadSize": 30594458,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "t0mtiuRo/wkURKInA": {
+      "type": "fabric",
+      "minecraftVersion": "26.1.2",
+      "loaderVersion": "0.19.2",
+      "files": 111,
+      "downloadSize": 38496319,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "RRCIm6eu/qinCm3E6": {
+      "type": "fabric",
+      "minecraftVersion": "1.21.8",
+      "loaderVersion": "0.17.3",
+      "java": 21,
+      "files": 171,
+      "downloadSize": 115731474,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "qMQpu0xl/jqMLi4W6": {
+      "type": "fabric",
+      "minecraftVersion": "26.1.2",
+      "loaderVersion": "0.19.3",
+      "files": 396,
+      "downloadSize": 51888995,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "q9aTk4Re/vYnO9JuQ": {
+      "type": "neoforge",
+      "minecraftVersion": "1.21.1",
+      "loaderVersion": "21.1.249",
+      "java": 21,
+      "files": 1545,
+      "downloadSize": 712144076,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "cu14tfSZ/JQroWxza": {
+      "type": "neoforge",
+      "minecraftVersion": "1.21.1",
+      "loaderVersion": "21.1.250",
+      "java": 21,
+      "files": 1648,
+      "downloadSize": 245737513,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "w4SHS2Zp/D02aeQJn": {
+      "type": "neoforge",
+      "minecraftVersion": "1.21.1",
+      "loaderVersion": "21.1.248",
+      "java": 21,
+      "files": 678,
+      "downloadSize": 542369321,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "reqOgw8U/5j5gfnFm": {
+      "type": "fabric",
+      "minecraftVersion": "26.1.2",
+      "loaderVersion": "0.19.2",
+      "files": 109,
+      "downloadSize": 46825894,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "tzHmsnUK/2vustQEN": {
+      "type": "fabric",
+      "minecraftVersion": "26.2",
+      "loaderVersion": "0.19.3",
+      "files": 48,
+      "downloadSize": 78683026,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "C5YzQQgW/6FHwVDJl": {
+      "type": "fabric",
+      "minecraftVersion": "26.2",
+      "loaderVersion": "0.19.5",
+      "files": 29,
+      "downloadSize": 16131324,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "xQFbykzJ/Co5yAOvC": {
+      "type": "neoforge",
+      "minecraftVersion": "1.21.1",
+      "loaderVersion": "21.1.248",
+      "java": 21,
+      "files": 652,
+      "downloadSize": 671472177,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    },
+    "yAkEipq1/keR9edrF": {
+      "type": "quilt",
+      "minecraftVersion": "1.21.1",
+      "loaderVersion": "0.30.0",
+      "java": 21,
+      "files": 997,
+      "downloadSize": 697274698,
+      "ready": true,
+      "blockers": [],
+      "warnings": [],
+      "manual": []
+    }
+  }
+}

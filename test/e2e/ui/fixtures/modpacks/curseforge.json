@@ -1,0 +1,139 @@
+{
+  "searches": {
+    "relevance": {
+      "total": 812,
+      "cards": [
+        "9100001"
+      ]
+    },
+    "downloads": {
+      "total": 812,
+      "cards": [
+        "9100001"
+      ]
+    },
+    "updated": {
+      "total": 812,
+      "cards": [
+        "9100001"
+      ]
+    },
+    "newest": {
+      "total": 812,
+      "cards": [
+        "9100001"
+      ]
+    }
+  },
+  "cards": {
+    "9100001": {
+      "source": "curseforge",
+      "projectId": "9100001",
+      "slug": "example-fabric-pack",
+      "name": "Example Fabric Pack",
+      "author": "example-author",
+      "summary": "Performance mods and a few friends for a small survival server.",
+      "downloads": 152340,
+      "iconUrl": "https://media.forgecdn.net/avatars/thumbnails/900/1/256/256/logo.png",
+      "updated": "2026-09-20T10:00:00Z",
+      "pageUrl": "https://www.curseforge.com/minecraft/modpacks/example-fabric-pack",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "26.3",
+        "26.2"
+      ]
+    }
+  },
+  "details": {
+    "9100001": {
+      "source": "curseforge",
+      "projectId": "9100001",
+      "slug": "example-fabric-pack",
+      "name": "Example Fabric Pack",
+      "author": "example-author",
+      "summary": "Performance mods and a few friends for a small survival server.",
+      "downloads": 152340,
+      "iconUrl": "https://media.forgecdn.net/avatars/thumbnails/900/1/256/256/logo.png",
+      "updated": "2026-09-20T10:00:00Z",
+      "pageUrl": "https://www.curseforge.com/minecraft/modpacks/example-fabric-pack",
+      "types": [
+        "fabric"
+      ],
+      "minecraftVersions": [
+        "26.3",
+        "26.2"
+      ],
+      "versions": [
+        {
+          "id": "9200003",
+          "number": "Example Fabric Pack 2.1.0-alpha.1",
+          "name": "Example Fabric Pack 2.1.0-alpha.1.zip",
+          "channel": "alpha",
+          "published": "2026-09-20T10:00:00Z",
+          "size": 1380,
+          "type": "fabric",
+          "minecraftVersion": "26.3"
+        },
+        {
+          "id": "9200002",
+          "number": "Example Fabric Pack 2.0.0",
+          "name": "Example Fabric Pack 2.0.0.zip",
+          "channel": "release",
+          "published": "2026-08-10T10:00:00Z",
+          "size": 1365,
+          "type": "fabric",
+          "minecraftVersion": "26.2"
+        },
+        {
+          "id": "9200001",
+          "number": "Example Fabric Pack 1.9.0",
+          "name": "Example Fabric Pack 1.9.0.zip",
+          "channel": "release",
+          "published": "2026-07-01T10:00:00Z",
+          "size": 1367,
+          "type": "fabric",
+          "minecraftVersion": "26.2"
+        }
+      ],
+      "newest": "9200002"
+    }
+  },
+  "previews": {
+    "9100001/9200002": {
+      "type": "fabric",
+      "minecraftVersion": "26.2",
+      "loaderVersion": "0.19.5",
+      "files": 5,
+      "downloadSize": 543,
+      "ready": true,
+      "blockers": [],
+      "warnings": [
+        {
+          "kind": "server_properties",
+          "params": {
+            "pack": "Example Fabric Pack",
+            "settings": "motd, server-port"
+          },
+          "message": "Example Fabric Pack ships server settings that Playkeeper does not take from packs: motd, server-port.",
+          "hint": "Set them in the server's settings if you want them."
+        }
+      ],
+      "manual": [
+        {
+          "kind": "external_download",
+          "params": {
+            "file": "ferritecore-9.0.0-fabric.jar",
+            "folder": "mods",
+            "name": "FerriteCore",
+            "pack": "Example Fabric Pack"
+          },
+          "message": "FerriteCore's author only allows downloads through CurseForge's app, so Playkeeper cannot download ferritecore-9.0.0-fabric.jar for you.",
+          "hint": "Download it from that page and upload it to the mods folder.",
+          "url": "https://www.curseforge.com/minecraft/mc-mods/ferritecore/files/7806040"
+        }
+      ]
+    }
+  }
+}

@@ -71,6 +71,16 @@ export interface ServerConfig {
   playStyle?: PlayStyle | ''
   gameplay?: Gameplay
   iconUpdatedAt?: string
+  /** The exact software of a type other than Paper. */
+  software?: SoftwarePin
+  /** The pack the server was created from. */
+  modpack?: ServerModpack
+  /** Restored from a backup that doesn't record which modpack, if any, it ran: Playkeeper manages no pack on it. */
+  modpackUnknown?: boolean
+  /** The template the server was created from. */
+  template?: ServerTemplate
+  /** The UDP port voice chat has on this server. */
+  voiceChatPort?: number
 }
 
 export interface Operation {
@@ -163,6 +173,8 @@ export interface ServerStatus {
   savingPausedSince?: string
   /** Why the server last stopped unexpectedly or could not start. */
   crash?: Crash
+  /** Set when the server's software no longer matches what Playkeeper installed. */
+  softwareChanged?: SoftwareChange
 }
 
 /** A file in the server's folder that Playkeeper would not follow or change. */
@@ -404,12 +416,17 @@ export interface CatalogEntry {
   channel: string
   experimental: boolean
   supported: boolean
+  /** When Mojang released the Minecraft version. */
+  releasedAt?: string
+  software?: SoftwarePin
+  build?: string
 }
 
 export interface ServerType {
   id: string
   name: string
   available: boolean
+  check?: SoftwareCheck
 }
 
 export interface ServerMemory {
@@ -434,6 +451,8 @@ export interface Catalog {
   servers: ServerMemory[]
   suggestedPort?: number
   image: string
+  /** The newest Minecraft release Mojang lists, whether or not the type offers it yet. */
+  latestRelease?: string
 }
 
 export interface LogLine {
@@ -579,6 +598,8 @@ export interface ManifestSummary {
   totalBytes: number
   sourceInstall: string
   settings: Record<string, string>
+  type?: string
+  build?: string
 }
 
 export interface RestorePreview {
@@ -894,7 +915,8 @@ export interface AddonKey {
 export interface AddonFile {
   fileName: string
   size: number
-  status: 'managed' | 'modified' | 'identified' | 'unknown'
+  /** pack: the server's modpack put it there and keeps it. */
+  status: 'managed' | 'modified' | 'identified' | 'unknown' | 'pack'
   addon?: Addon
   name?: string
   version?: string
@@ -903,6 +925,8 @@ export interface AddonFile {
 
 export interface Addons {
   target: AddonTarget
+  /** The pack the server runs, once its files are in place. */
+  modpack?: ServerModpack
   files: AddonFile[]
   missing: Addon[]
   warnings: AddonNotice[]
@@ -978,6 +1002,27 @@ export interface AddonDetails {
   updateAvailable?: boolean
   plan?: AddonPlan
   planError?: AddonNotice
+  /** Ports the add-on needs of its own, with the numbers Playkeeper would open. */
+  ports?: AddonPort[]
+}
+
+/** A port an add-on listens on, such as voice chat's: opened when it's installed, closed when it's removed. */
+export interface AddonPort {
+  protocol: 'udp' | 'tcp'
+  port: number
+}
+
+/** The add-ons Playkeeper picked by hand that fit the server's type and version. */
+export interface CuratedAddons {
+  picks: CuratedAddon[]
+}
+
+export interface CuratedAddon {
+  /** Names the pick across releases: voice-chat, rollback, pregenerate… */
+  id: string
+  card: AddonCard
+  permission?: string
+  ports?: AddonPort[]
 }
 
 /** One file of an add-on install or update, from the operation's detail. */
@@ -1074,4 +1119,325 @@ export interface DataPacks {
   added?: string
   notEnabled?: boolean
   problem?: string
+}
+
+// Wave 4: every server type.
+
+/** How a type's downloads are verified. */
+export type SoftwareCheck = 'full' | 'weak_hash' | 'recorded_outputs'
+
+export interface SoftwarePin {
+  type: string
+  minecraftVersion: string
+  purpurBuild?: number
+  fabricLoader?: string
+  quiltLoader?: string
+  neoforgeVersion?: string
+}
+
+export interface SoftwareBuild {
+  version: string
+  channel: string
+  recommended: boolean
+}
+
+export interface SoftwareBuilds {
+  type: string
+  minecraftVersion: string
+  builds: SoftwareBuild[]
+  checkedAt: string
+}
+
+export interface SoftwareChange {
+  file: string
+  algorithm: string
+  recorded: string
+  found?: string
+  installedAt?: string
+  changedAt?: string
+  detectedAt: string
+  software: string
+}
+
+// Wave 4: modpacks.
+
+export type ModpackSource = 'modrinth' | 'curseforge'
+
+export interface ModpackCard {
+  source: ModpackSource
+  projectId: string
+  slug: string
+  name: string
+  author?: string
+  summary: string
+  downloads: number
+  iconUrl?: string
+  updated: string
+  pageUrl: string
+  types: string[]
+  minecraftVersions: string[]
+  /** The mods the newest version bundles, and the memory suggested for them; 0 when unknown. */
+  mods?: number
+  memoryMB?: number
+  unavailable?: AddonNotice
+}
+
+export interface ModpackResults {
+  cards: ModpackCard[]
+  total: number
+  offset: number
+  limit: number
+  sources: ModpackSource[]
+}
+
+/** Settings › Add-on sources. Modrinth and Hangar are built in and always on. */
+export interface AddonSources {
+  curseforge: CurseForgeSource
+}
+
+export interface CurseForgeSource {
+  /** Where the key in use comes from: the release's own (build), the owner's (file), an empty key file (disabled), or none. */
+  key: 'none' | 'build' | 'file' | 'disabled'
+  /** The last four characters of the owner's key. */
+  ending?: string
+  /** Why the owner's key file can't be used. */
+  problem?: string
+}
+
+export interface ModpackVersion {
+  id: string
+  number: string
+  name?: string
+  channel: string
+  published: string
+  size: number
+  type?: string
+  minecraftVersion?: string
+  mods?: number
+  unsupported?: AddonNotice
+}
+
+export interface ModpackDetail extends ModpackCard {
+  sourceUrl?: string
+  issuesUrl?: string
+  wikiUrl?: string
+  headline?: string
+  versions: ModpackVersion[]
+  newest?: string
+}
+
+export interface ModpackPreview {
+  type: string
+  minecraftVersion: string
+  loaderVersion?: string
+  /** Set when the pack's Minecraft version runs on an older Java than the newest versions. */
+  java?: number
+  files: number
+  downloadSize: number
+  ready: boolean
+  blockers: AddonNotice[]
+  warnings: AddonNotice[]
+  manual: AddonNotice[]
+}
+
+export interface ModpackRef {
+  source: ModpackSource
+  projectId: string
+  versionId: string
+}
+
+// Wave 4: sharing a modded server's pack with friends.
+
+/** Text from the share: key and params pick the wording, text is the English. */
+export interface ShareText {
+  key: string
+  params?: Record<string, string>
+  text: string
+}
+
+export type ShareNeed = 'required' | 'optional' | 'server_only' | 'unknown'
+
+export interface SharePack {
+  name: string
+  version: string
+  source: string
+  page?: string
+  need: ShareNeed
+  label: ShareText
+}
+
+export interface ShareMod {
+  name: string
+  version?: string
+  path: string
+  from: 'user' | 'pack'
+  source?: string
+  project?: string
+  dependencyOf?: string
+  page?: string
+  onServer: boolean
+  need: ShareNeed
+  label: ShareText
+  inFile: boolean
+  byHand?: boolean
+}
+
+/** A mod friends get by hand, because the file can't link it. */
+export interface ShareYourself {
+  name: string
+  path: string
+  page?: string
+  need: ShareNeed
+  reason: ShareText
+}
+
+/** What friends get from a server, server-only mods included. */
+export interface FriendsShare {
+  server: string
+  type: string
+  minecraftVersion: string
+  loaderVersion: string
+  pack?: SharePack
+  notice: ShareText
+  mods: ShareMod[]
+  yourself?: ShareYourself[]
+}
+
+/** A server's friends' pack; token is set while the page is shared. */
+export interface PackShare {
+  public: boolean
+  token?: string
+  file: string
+  size: number
+  loaderName: string
+  share: FriendsShare
+}
+
+export interface PackPageMod {
+  name: string
+  version?: string
+  from: 'user' | 'pack'
+  page?: string
+  need: ShareNeed
+  label: ShareText
+  inFile: boolean
+  neededBy?: string
+}
+
+export interface PackLauncher {
+  id: string
+  name: string
+  site: string
+  steps: ShareText[]
+}
+
+/** The public /packs/<token> page: only what friends get. */
+export interface PackPage {
+  server: string
+  minecraftVersion: string
+  loader: string
+  loaderName: string
+  loaderVersion: string
+  pack?: SharePack
+  notice: ShareText
+  steps: ShareText[]
+  launchers: PackLauncher[]
+  mods: PackPageMod[]
+  yourself?: ShareYourself[]
+  download: { url: string; name: string; size: number; type: string }
+  address?: string
+  hasIcon: boolean
+}
+
+export interface ServerModpack {
+  source: ModpackSource
+  projectId: string
+  versionId: string
+  name: string
+  versionNumber: string
+  pageUrl?: string
+  iconUrl?: string
+  mods?: number
+  pending?: boolean
+}
+
+// Wave 4: templates.
+
+export interface ServerTemplate {
+  name: string
+  /** Set until the template's add-ons are on the server; the next start installs the rest. */
+  pending?: boolean
+  /** The template's add-ons and data packs that couldn't be installed, each with params.name; Try again retries them. */
+  skipped?: AddonNotice[]
+  /** The record of what the template adds was gone by the time the server started, so none of it was installed. */
+  lost?: boolean
+}
+
+export interface TemplateSettings {
+  difficulty?: Difficulty
+  pvp?: boolean
+  gameMode?: GameMode
+  hardcore?: boolean
+  viewDistance?: number
+  levelType?: LevelType
+  maxPlayers?: number
+  motd?: string
+  playStyle?: PlayStyle
+  memoryMB?: number
+}
+
+export interface TemplateAddon {
+  source: string
+  name: string
+  /** The pinned version; missing means the newest that fits. */
+  versionNumber?: string
+}
+
+export interface TemplateContents {
+  name: string
+  /** The day the template was made (YYYY-MM-DD); older templates don't say. */
+  created?: string
+  type: string
+  minecraftVersion: string
+  build?: string
+  settings: TemplateSettings
+  addons: TemplateAddon[]
+  modpack?: TemplateAddon
+  resourcePacks: number
+  dataPacks: number
+  /** The packs' names, the resource pack first. */
+  packs: string[]
+}
+
+export interface TemplateExport {
+  fileName: string
+  /** The template file's text. */
+  file: string
+  /** Empty when the template is too large for a link. */
+  link: string
+  /** Set when some chats would cut the link. */
+  linkLong?: boolean
+  contents: TemplateContents
+  /** What the template carries with every part included. */
+  available: TemplateContents
+  /** The server's packs, counting those that can't travel. */
+  packsHere: number
+  leftOut: AddonNotice[]
+  notes: AddonNotice[]
+}
+
+export interface TemplatePlan {
+  contents: TemplateContents
+  /** What the new server runs, which can differ from what the template names. */
+  type: string
+  versionId?: string
+  minecraftVersion?: string
+  build?: string
+  experimental?: boolean
+  memoryMB: number
+  skipped: AddonNotice[]
+  warnings: AddonNotice[]
+  blockers: AddonNotice[]
+  ready: boolean
+  fingerprint: string
 }

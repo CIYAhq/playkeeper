@@ -3,15 +3,20 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Address, Backup, Crash, FileRefusal, MachineView, Me, MemoryAdvice, MetricsResponse, Operation, PlayersSummary, Preflight, RestorePreview, Running, ServerConfig, ServerStatus, SignInNotice } from '@/api/types'
+import type { AddonSources, Address, Backup, Catalog, Crash, FileRefusal, MachineView, Me, MemoryAdvice, MetricsResponse, ModpackDetail, ModpackResults, Operation, PlayersSummary, Preflight, RestorePreview, Running, ServerConfig, ServerStatus, SignInNotice, TemplateContents, TemplateExport, TemplatePlan } from '@/api/types'
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
+import { AddonSourcesCard } from '@/components/app/addon-sources'
 import { GetStartedCard, hiddenKey } from '@/components/app/checklist'
 import { CommandPalette } from '@/components/app/command-palette'
+import { ModpackPicker } from '@/components/app/modpacks'
 import { RestoreDialog, RestoreDropZone } from '@/components/app/restore'
+import { AppShell } from '@/components/app/shell'
+import { TemplateDialog } from '@/components/app/templates'
 import { toastManager } from '@/components/ui/toast'
 import { formatLongDate } from '@/lib/format'
 import { HomePage } from './home'
 import { MachinePage } from './machine'
+import { createNote, NewServerPage } from './new-server'
 import { Onboarding } from './onboarding'
 import { Overview } from './server/overview'
 import { PlayersPage } from './server/players'
@@ -21,10 +26,10 @@ import { WorldPage } from './server/world'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
+  api: vi.fn(() => new Promise(() => {})),
   get: vi.fn(() => new Promise(() => {})),
   post: vi.fn(() => Promise.resolve({})),
   del: vi.fn(() => Promise.resolve(undefined)),
-  api: vi.fn(() => Promise.resolve({})),
 }))
 
 const me: Me = { user: { username: 'siya', role: 'owner' }, csrfToken: 't', expiresAt: '2026-09-26T00:00:00Z', idleTimeoutSeconds: 43200, version: '0.3.0' }
@@ -153,7 +158,26 @@ afterEach(async () => {
   document.body.innerHTML = ''
   vi.mocked(client.get).mockReset()
   vi.mocked(client.get).mockImplementation(() => new Promise(() => {}))
+  vi.mocked(client.api).mockReset()
+  vi.mocked(client.api).mockImplementation(() => new Promise(() => {}))
+  window.history.replaceState(null, '', '/')
 })
+
+/** Ticks or unticks the checkbox whose label starts with the text. */
+async function toggle(label: string) {
+  const input = [...document.querySelectorAll('label')].find((l) => l.textContent?.startsWith(label))?.querySelector('input[type="checkbox"]')
+  if (!(input instanceof HTMLInputElement)) throw new Error(`no checkbox “${label}”`)
+  await act(async () => input.click())
+  await act(async () => {})
+}
+
+/** Clicks the button whose text is exactly the label. */
+async function click(label: string) {
+  const button = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)
+  if (!button) throw new Error(`no button “${label}”`)
+  await act(async () => button.click())
+  await act(async () => {})
+}
 
 describe('Home', () => {
   it('starts empty with the five first steps', async () => {
@@ -306,6 +330,94 @@ describe('Overview', () => {
     expect(steps[0]?.querySelector('.bg-primary')).not.toBeNull()
     expect(steps[1]?.querySelector('.text-destructive-foreground')?.textContent).toBe('Downloading Paper 26.1.2')
     expect(steps[2]?.querySelector('.text-destructive-foreground')).toBeNull()
+    expect(steps[1]?.textContent).not.toContain('Checksum matched')
+    expect(text).not.toContain('Checksum matched')
+  })
+
+  it('keeps a template’s skipped add-on on the Overview after setup, with Try again', async () => {
+    const skipped = [{ kind: 'plan_changed', params: { name: 'ViaRewind' }, message: 'What this would do has changed since you confirmed it.' }]
+    const s = server({ config: { ...config, template: { name: 'Paper check', skipped } } })
+    vi.mocked(client.post).mockClear()
+    const text = await render(<Overview server={s} />)
+    expect(text).toContain('ViaRewind from the template isn’t installed')
+    expect(text).toContain('What this would do has changed since you confirmed it.')
+    await click('Try again')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/servers/abcdefghjk/template/retry', {})
+
+    const busy = server({ config: s.config, operation: { id: 'op-1', kind: 'template-retry', status: 'running', phase: 'installing_addons', actor: 'siya', startedAt: new Date().toISOString() } })
+    await render(<Overview server={busy} />)
+    const retry = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Try again'))
+    expect(retry?.disabled).toBe(true)
+    expect(retry?.title).toBe('Installing Survival’s template add-ons. Try again when it’s done.')
+
+    const two = [...skipped, { kind: 'pack_hash_mismatch', params: { name: 'Terralith' }, message: 'Terralith doesn’t match.' }]
+    expect(await render(<Overview server={server({ config: { ...config, template: { name: 'Paper check', skipped: two } } })} />)).toContain('ViaRewind and Terralith from the template aren’t installed')
+  })
+
+  it('says when a restored backup doesn’t record which modpack the server ran', async () => {
+    const text = await render(<Overview server={server({ config: { ...config, modpackUnknown: true } })} />)
+    expect(text).toContain('The backup doesn’t say which modpack Survival ran')
+    expect(text).toContain('Playkeeper doesn’t manage a pack on it')
+  })
+
+  it('says when the list of what a template adds was lost, with nothing to try again', async () => {
+    const text = await render(<Overview server={server({ config: { ...config, template: { name: 'Paper check', lost: true } } })} />)
+    expect(text).toContain('Playkeeper lost the list of what Paper check adds')
+    expect(text).toContain('None of the template’s add-ons or data packs were installed.')
+    expect([...document.querySelectorAll('button')].some((b) => b.textContent?.includes('Try again'))).toBe(false)
+  })
+
+  it('counts a modpack’s files as each one is checked', async () => {
+    const at = new Date().toISOString()
+    const s = server({
+      name: 'Cobblemon',
+      type: 'fabric',
+      phase: 'downloading_server',
+      startedAt: undefined,
+      config: { ...config, minecraftVersion: '26.1.2', software: { type: 'fabric', minecraftVersion: '26.1.2', fabricLoader: '0.17.2' }, modpack: { source: 'modrinth', projectId: 'TPK00001', versionId: 'TPV00001', name: 'Cobblemon Modpack', versionNumber: '1.0.0', pending: true } },
+      operation: { id: 'create-1', kind: 'create', status: 'running', phase: 'installing_modpack', actor: 'siya', startedAt: at, detail: { packFiles: 71, packFilesTotal: 112 } },
+    })
+    const text = await render(<Overview server={s} />)
+    expect(text).toContain('About 5 minutes. You can leave this page.')
+    const steps = [...document.querySelectorAll('ol > li')].map((li) => li.textContent ?? '')
+    expect(steps).toHaveLength(5)
+    expect(steps[1]).toContain('Downloaded Fabric for 26.1.2 and Fabric Loader 0.17.2')
+    expect(steps[2]).toContain('Downloading the modpack’s mods')
+    expect(steps[2]).toContain('71 of 112 files · each one checked')
+    expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('63')
+  })
+
+  it('counts a template’s plugins and names the ones it skipped', async () => {
+    const at = new Date().toISOString()
+    const skipped = [{ kind: 'addon_unsupported', params: { name: 'Simple Voice Chat' }, message: 'Simple Voice Chat has no version for Paper 26.1.2.' }]
+    const s = server({
+      phase: 'downloading_server',
+      startedAt: undefined,
+      config: { ...config, template: { name: 'Survival with friends', pending: true } },
+      operation: { id: 'create-1', kind: 'create', status: 'running', phase: 'installing_addons', actor: 'siya', startedAt: at, detail: { addons: 2, addonsTotal: 5, skipped } },
+    })
+    await render(<Overview server={s} />)
+    const steps = [...document.querySelectorAll('ol > li')].map((li) => li.textContent ?? '')
+    expect(steps).toHaveLength(5)
+    expect(steps[1]).toContain('Downloaded Paper 26.1.2 and checked it')
+    expect(steps[2]).toContain('Downloading the template’s plugins')
+    expect(steps[2]).toContain('2 of 5 files · each one checked · 1 skipped: Simple Voice Chat')
+    expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('40')
+  })
+
+  it('names a template’s data packs when it brings no plugins', async () => {
+    const at = new Date().toISOString()
+    const skipped = [{ kind: 'pack_hash_mismatch', params: { name: 'Terralith' }, message: 'The data pack Terralith doesn’t match the template’s checksum, so it wasn’t used.' }]
+    const s = server({
+      phase: 'downloading_server',
+      startedAt: undefined,
+      config: { ...config, template: { name: 'Survival with friends', pending: true } },
+      operation: { id: 'create-1', kind: 'create', status: 'running', phase: 'installing_addons', actor: 'siya', startedAt: at, detail: { packs: 1, packsTotal: 2, skipped } },
+    })
+    await render(<Overview server={s} />)
+    const steps = [...document.querySelectorAll('ol > li')].map((li) => li.textContent ?? '')
+    expect(steps[2]).toContain('Downloading the template’s data packs')
+    expect(steps[2]).toContain('1 of 2 files · each one checked · 1 skipped: Terralith')
   })
 
   it('opens How it’s running from the whole card, with the tick rate behind in amber', async () => {
@@ -951,6 +1063,250 @@ describe('Server settings', () => {
     await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
     expect(document.querySelector('[role=alert]')?.textContent).toBe('Icons need to be 64 × 64 and under 64 KB.')
     expect(client.api).not.toHaveBeenCalled()
+  })
+})
+
+describe('Templates', () => {
+  const contents: TemplateContents = {
+    name: 'Survival with friends',
+    type: 'paper',
+    minecraftVersion: '26.1.2',
+    settings: { difficulty: 'normal', pvp: false, viewDistance: 10, maxPlayers: 10, memoryMB: 3072 },
+    addons: [
+      { source: 'modrinth', name: 'Chunky', versionNumber: '1.4.40' },
+      { source: 'hangar', name: 'LuckPerms', versionNumber: 'v5.5.0' },
+    ],
+    resourcePacks: 0,
+    dataPacks: 0,
+    packs: [],
+  }
+  const plan: TemplatePlan = { contents, type: 'paper', versionId: 'paper-26.1.2', minecraftVersion: '26.1.2', memoryMB: 3072, skipped: [], warnings: [], blockers: [], ready: true, fingerprint: 'fp-1' }
+  const catalog: Catalog = { type: 'paper', types: [], versions: [], memoryOptionsMB: [2048, 3072, 4096], recommendedMemoryMB: 2048, hostMemoryMB: 16384, maxMemoryMB: 4096, systemReserveMB: 1536, memoryFreeMB: 10752, servers: [], image: '' }
+
+  it('starts a server from a shared link, sending only the plan the user saw', async () => {
+    window.history.replaceState(null, '', '/servers/new#template=eyJ2IjoxfQ')
+    vi.mocked(client.api).mockResolvedValue(plan)
+    vi.mocked(client.post).mockClear()
+    answer({ '/catalog': catalog })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    const [method, path, , body] = vi.mocked(client.api).mock.calls[0] ?? []
+    expect([method, path]).toEqual(['POST', '/api/machines/m2345abcde/templates/plan'])
+    expect(await (body as Blob).text()).toBe('eyJ2IjoxfQ')
+    expect(window.location.hash).toBe('')
+    const text = document.body.textContent ?? ''
+    expect(text).not.toContain('· from')
+    for (const line of ['Survival with friends', 'From a link', 'Paper 26.1.2', '2, with the same versions', 'Chunky, LuckPerms', 'Normal difficulty · friends can’t hurt each other · view distance 10 · up to 10 players', 'The new server starts with fresh land', 'Paper, from the template', 'Type, version and plugins come from the template']) expect(text).toContain(line)
+
+    await click('Continue to memory')
+    expect(document.body.textContent).toContain('The template suggests 3 GB.')
+    await click('Continue to name')
+    await toggle('I accept the Minecraft End User License Agreement')
+    await click('Create and start Survival with friends')
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/machines/m2345abcde/servers', { name: 'Survival with friends', acceptEula: true, memoryMB: 3072, acceptExperimental: false, template: { fingerprint: 'fp-1' } })
+  })
+
+  it('says on which day a template was made, and never who made it', async () => {
+    window.history.replaceState(null, '', '/servers/new#template=eyJ2IjoxfQ')
+    vi.mocked(client.api).mockResolvedValue({ ...plan, contents: { ...contents, author: 'siya', created: '2026-09-25' } })
+    answer({ '/catalog': catalog })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    const text = document.body.textContent ?? ''
+    expect(text).toMatch(/Survival with friendsFrom a link · made (25 Sep|Sep 25)/)
+    expect(text).not.toContain('siya')
+  })
+
+  it('shows the new plan when the machine no longer has the one the user saw', async () => {
+    window.history.replaceState(null, '', '/servers/new#template=eyJ2IjoxfQ')
+    vi.mocked(client.api).mockResolvedValueOnce(plan).mockResolvedValueOnce({ ...plan, fingerprint: 'fp-2' })
+    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(409, { code: 'plan_changed', error: 'Playkeeper no longer has that template.', hint: 'Choose it again.' }))
+    answer({ '/catalog': catalog })
+    await render(<NewServerPage />)
+    await act(async () => {})
+    await click('Continue to memory')
+    await click('Continue to name')
+    await toggle('I accept the Minecraft End User License Agreement')
+    await click('Create and start Survival with friends')
+    expect(vi.mocked(client.api)).toHaveBeenCalledTimes(2)
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Playkeeper no longer has that template.')
+    expect(text).toContain('Check it again, then continue.')
+    expect(text).toContain('Chunky, LuckPerms')
+  })
+
+  it('says what a template carries and offers the file when the link is too long', async () => {
+    const link = `https://playkeeper.io/t#${'a'.repeat(2376)}`
+    const exported: TemplateExport = {
+      fileName: 'survival.playkeeper-template',
+      file: 'x'.repeat(6000),
+      link,
+      linkLong: true,
+      contents,
+      available: { ...contents, settings: { difficulty: 'normal', pvp: false, viewDistance: 10, motd: 'Hi', maxPlayers: 10 } },
+      packsHere: 1,
+      leftOut: [{ kind: 'left_out_addon_upload', params: { name: 'MyPlugin' }, message: 'MyPlugin was uploaded, so it stays here.' }],
+      notes: [],
+    }
+    answer({ '/template': exported })
+    await render(<TemplateDialog server={server()} open onOpenChange={() => {}} />)
+    const text = document.body.textContent ?? ''
+    for (const line of ['Share Survival as a template', 'Paper 26.1.2 · always included', '2 plugins', 'Left out: MyPlugin', 'Difficulty, PvP, view distance, server list message and 1 more', 'Uploaded packs stay on this server', 'Pin exact versions', 'The same versions Survival runs', 'This link is 2,400 characters, too long for some chats', 'Send the file instead.', 'Download file · 6 KB']) expect(text).toContain(line)
+    expect(vi.mocked(client.get)).toHaveBeenLastCalledWith('/api/servers/abcdefghjk/template')
+
+    await toggle('Plugins')
+    expect(vi.mocked(client.get)).toHaveBeenLastCalledWith('/api/servers/abcdefghjk/template?addons=off')
+    expect(document.body.textContent).not.toContain('Pin exact versions')
+  })
+})
+
+describe('Add-on sources', () => {
+  const none: AddonSources = { curseforge: { key: 'none' } }
+  const keyField = () => document.querySelector<HTMLInputElement>('input[aria-label="CurseForge API key"]')
+  async function paste(value: string) {
+    const input = keyField()
+    if (!input) throw new Error('no key field')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  const button = (label: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)
+
+  it('lands on its own section, with Modrinth and Hangar built in and CurseForge asking for a key', async () => {
+    answer({ '/addon-sources': none })
+    const text = await render(<AddonSourcesCard />)
+    expect(document.getElementById('addon-sources')).not.toBeNull()
+    expect(text).toContain('ModrinthOnBuilt in')
+    expect(text).toContain('HangarOnBuilt in')
+    expect(text).toContain('CurseForgeNeeds a key')
+    for (const step of ['Sign in at console.curseforge.com', 'Open API keys and copy yours', 'Paste it here', 'The key stays on this machine.']) expect(text).toContain(step)
+    expect(keyField()?.type).toBe('password')
+    expect(button('Save key')?.disabled).toBe(true)
+    expect(button('Save key')?.title).toBe('Paste a key first.')
+  })
+
+  it('says when CurseForge refuses the key, and keeps nothing', async () => {
+    answer({ '/addon-sources': none })
+    await render(<AddonSourcesCard />)
+    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(400, { code: 'curseforge_key_refused', error: "That key didn't work. Copy it again from console.curseforge.com." }))
+    await paste('made-up-key-000000000000')
+    await act(async () => button('Save key')?.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await act(async () => {})
+    expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/machines/m2345abcde/addon-sources/curseforge', { key: 'made-up-key-000000000000' })
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('That key didn’t work. Copy it again from console.curseforge.com.')
+    expect(keyField()?.getAttribute('aria-invalid')).toBe('true')
+    expect(document.body.textContent).not.toContain('Key ending')
+  })
+
+  it('shows a saved key by its ending, with Replace key and Remove', async () => {
+    answer({ '/addon-sources': none })
+    await render(<AddonSourcesCard />)
+    vi.mocked(client.post).mockResolvedValueOnce({ curseforge: { key: 'file', ending: '3f9a' } })
+    await paste(' pasted-key-0123456789abc3f9a ')
+    await act(async () => button('Save key')?.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await act(async () => {})
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('CurseForgeOnKey ending 3f9a')
+    expect(text).not.toContain('pasted-key')
+    expect(button('Replace key')).toBeDefined()
+    expect(button('Remove')).toBeDefined()
+    expect(keyField()).toBeNull()
+    await click('Replace key')
+    expect(keyField()).not.toBeNull()
+    expect(button('Cancel')).toBeDefined()
+  })
+
+  it('shows a key the release carries as on and built in, with nothing to change', async () => {
+    answer({ '/addon-sources': { curseforge: { key: 'build' } } })
+    const text = await render(<AddonSourcesCard />)
+    expect(text).toContain('CurseForgeOnBuilt in')
+    expect(keyField()).toBeNull()
+    expect(button('Remove')).toBeUndefined()
+  })
+
+  it('lets only the owner change the key', async () => {
+    answer({ '/addon-sources': { curseforge: { key: 'file', ending: '3f9a' } } })
+    await render(<AddonSourcesCard />, workspace({ me: { ...me, user: { username: 'friend', role: 'member' } } }))
+    for (const label of ['Replace key', 'Remove']) {
+      expect(button(label)?.disabled).toBe(true)
+      expect(button(label)?.title).toBe('Only the owner can change this.')
+    }
+  })
+})
+
+describe('Sidebar', () => {
+  it('stops saying Creating once a create failed, like the server’s page', async () => {
+    const failedCreate = failed('create', 'downloading_server', 'The server stopped while starting (exit code 1).')
+    const text = await render(<AppShell route={{ name: 'home' }}><p>page</p></AppShell>, workspace({ servers: [server({ name: 'Modpack check', phase: 'stopped', startedAt: undefined, lastOperation: failedCreate })] }))
+    const row = [...document.querySelectorAll('aside a')].find((a) => a.textContent?.includes('Modpack check'))
+    expect(row?.textContent).toContain('Stopped')
+    expect(text).not.toContain('Creating')
+    expect(row?.querySelector('[data-slot="spinner"], .animate-spin')).toBeNull()
+  })
+})
+
+describe('Modpacks', () => {
+  const results: ModpackResults = {
+    cards: [{ source: 'modrinth', projectId: 'SMTH0001', slug: 'smoothserver', name: 'Smooth Server', summary: 'Runs smoothly.', downloads: 1200, updated: '2026-09-01T00:00:00Z', pageUrl: 'https://modrinth.com/modpack/smoothserver', types: ['fabric'], minecraftVersions: ['26.2', '26.1'], mods: 17, memoryMB: 4096 }],
+    total: 1,
+    offset: 0,
+    limit: 12,
+    sources: ['modrinth'],
+  }
+
+  it('searches when Enter is pressed, and only then or after typing stops', async () => {
+    vi.useFakeTimers()
+    try {
+      answer({ '/modpacks?': results })
+      await render(<ModpackPicker machineId="m2345abcde" onChange={() => {}} onUse={() => {}} phone={false} />)
+      const form = document.querySelector('form')
+      const input = form?.querySelector('input')
+      if (!form || !input) throw new Error('no search form')
+      expect(form.querySelectorAll('input')).toHaveLength(1)
+      const searched = () => vi.mocked(client.get).mock.calls.filter(([p]) => String(p).includes('q=simply+optimized')).length
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'simply optimized')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      expect(searched()).toBe(0)
+      await act(async () => {
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      })
+      expect(searched()).toBe(1)
+      await act(async () => {
+        input.dispatchEvent(new FocusEvent('blur'))
+        vi.advanceTimersByTime(500)
+      })
+      expect(searched()).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('says why a pack can’t be used, on the button and above it', async () => {
+    const card = results.cards[0]
+    if (!card) throw new Error('no card')
+    const detail: ModpackDetail = { ...card, versions: [{ id: 'SMV00012', number: '1.2', channel: 'release', published: '2026-09-01T00:00:00Z', size: 16_000_000, type: 'fabric', minecraftVersion: '26.2', mods: 17 }], newest: 'SMV00012' }
+    const blocker = { kind: 'file_too_large', message: 'Smooth Server has a file larger than Playkeeper accepts.' }
+    answer({ '/preview': { type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', files: 17, downloadSize: 16_000_000, ready: false, blockers: [blocker], warnings: [], manual: [] }, '/modpacks/modrinth/SMTH0001': detail, '/modpacks?': results })
+    await render(<ModpackPicker machineId="m2345abcde" onChange={() => {}} onUse={() => {}} phone={false} />)
+    const row = [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Smooth Server'))
+    await act(async () => row?.click())
+    await act(async () => {})
+    await act(async () => {})
+    const use = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Use this modpack')
+    expect(use?.disabled).toBe(true)
+    expect(use?.title).toBe(blocker.message)
+    expect(document.body.textContent).toContain('Playkeeper can’t set up this pack')
+  })
+
+  it('says what a pack’s server downloads, not Paper', () => {
+    expect(createNote(4, 'modpack', 'fabric')).toBe('After you start it, Playkeeper downloads Fabric and the pack’s mods, checks each file, and tells you when friends can join.')
+    expect(createNote(4, 'template', 'neoforge')).toContain('downloads NeoForge and the template’s add-ons')
+    expect(createNote(4, 'modpack', '')).not.toContain('Paper')
+    expect(createNote(4, 'type', 'purpur')).toContain('downloads Purpur, checks it')
+    expect(createNote(0, 'modpack', 'fabric')).toBe('Friends install the same modpack. You get a link to send.')
   })
 })
 

@@ -1,0 +1,122 @@
+[
+  {
+    "game_versions": [
+      "1.21.1"
+    ],
+    "loaders": [
+      "neoforge"
+    ],
+    "environment": "client_and_server",
+    "id": "BSg2ZS8u",
+    "project_id": "t1tOiUHZ",
+    "author_id": "TxEqj3YD",
+    "featured": false,
+    "name": "Create+ 6.0.0 Alpha f",
+    "version_number": "6.0.0-alpha-f",
+    "changelog_url": null,
+    "date_published": "2026-06-15T00:34:52.861465Z",
+    "downloads": 536908,
+    "version_type": "alpha",
+    "status": "listed",
+    "requested_status": null,
+    "files": [
+      {
+        "id": "5wy0aj09",
+        "hashes": {
+          "sha1": "7849fc32ce67b03033ad6aad68665b9b62a8627e",
+          "sha512": "65be996d12959bfa20fab2fb5a3510b71daaf7f564711bae3b8579bb92af2d763eef67dd2064ad2be6edfa33cc4eab289258475b13c385a99e9631e43650bd4b"
+        },
+        "url": "https://cdn.modrinth.com/data/t1tOiUHZ/versions/BSg2ZS8u/Create%2B%206.0.0%20Alpha%20f.mrpack",
+        "filename": "Create+ 6.0.0 Alpha f.mrpack",
+        "primary": true,
+        "size": 3540285,
+        "file_type": null
+      }
+    ],
+    "dependencies": []
+  },
+  {
+    "game_versions": [
+      "1.21.1"
+    ],
+    "loaders": [
+      "neoforge"
+    ],
+    "environment": "client_and_server",
+    "id": "3XKDXorU",
+    "project_id": "t1tOiUHZ",
+    "author_id": "TxEqj3YD",
+    "featured": false,
+    "name": "Create+ 6.0.0 Alpha E",
+    "version_number": "6.0.0-alpha-e",
+    "changelog_url": null,
+    "date_published": "2026-05-16T23:04:46.050414Z",
+    "downloads": 116059,
+    "version_type": "alpha",
+    "status": "listed",
+    "requested_status": null,
+    "files": [
+      {
+        "id": "uiE3WaI8",
+        "hashes": {
+          "sha1": "00e111cee1e2181e7e65605a8188e0a3b79080b9",
+          "sha512": "b89e6c1dbb2c07744d7bc9942430c4caa97730f11e6fc59a4108788dabcc80b7711e55df2c2316737696073a1b9d0b51df941bad3cfe02fead9afd7b19fbb237"
+        },
+        "url": "https://cdn.modrinth.com/data/t1tOiUHZ/versions/3XKDXorU/Create%2B-6.0.0%20Alpha%20E.mrpack",
+        "filename": "Create+-6.0.0 Alpha E.mrpack",
+        "primary": true,
+        "size": 811506,
+        "file_type": null
+      }
+    ],
+    "dependencies": []
+  },
+  {
+    "game_versions": [
+      "1.19.2"
+    ],
+    "loaders": [
+      "forge"
+    ],
+    "environment": "client_and_server",
+    "id": "OirSzesD",
+    "project_id": "t1tOiUHZ",
+    "author_id": "TxEqj3YD",
+    "featured": false,
+    "name": "Create+ 5.2.1b",
+    "version_number": "5.2.1b",
+    "changelog_url": null,
+    "date_published": "2025-08-27T04:57:00.220468Z",
+    "downloads": 355272,
+    "version_type": "release",
+    "status": "listed",
+    "requested_status": null,
+    "files": [
+      {
+        "id": "yJl8CZFm",
+        "hashes": {
+          "sha512": "7126bf4f65065894441012ae4938b182ab5b9d6aee9e5729cc959186bbe415a9b53b01e1354518f76a871923f429d9776c3901895af9c5482e38f354bbf6e3b5",
+          "sha1": "597c5313e460ba6839ed4a84056fb2e8f825ad75"
+        },
+        "url": "https://cdn.modrinth.com/data/t1tOiUHZ/versions/OirSzesD/Create%2B%205.2.1b.mrpack",
+        "filename": "Create+ 5.2.1b.mrpack",
+        "primary": true,
+        "size": 27209112,
+        "file_type": null
+      },
+      {
+        "id": "jwWfxCJz",
+        "hashes": {
+          "sha512": "3fa17e917c68d6ea915959e2035b645bc4eb7cde5f4ba626f481cdfa36666fae23113cd8324589e375722a04fbde42c1380b9200aebe75459f55fd30a6f1d8e9",
+          "sha1": "56ea48bb5390aacbf5f27ccfc7d50ceb001464f6"
+        },
+        "url": "https://cdn.modrinth.com/data/t1tOiUHZ/versions/OirSzesD/Create%2B%205.2.1b%20%28Server%20Pack%29.mrpack",
+        "filename": "Create+ 5.2.1b (Server Pack).mrpack",
+        "primary": false,
+        "size": 20714395,
+        "file_type": null
+      }
+    ],
+    "dependencies": []
+  }
+]

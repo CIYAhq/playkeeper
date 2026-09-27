@@ -1,0 +1,129 @@
+{
+ "spec": 1,
+ "profile": "NeoForge",
+ "version": "neoforge-26.2.0.88",
+ "minecraft": "26.2",
+ "json": "/version.json",
+ "mirrorList": "https://mirrors.neoforged.net",
+ "data": {
+  "BINPATCH": {
+   "client": "/data/client.lzma",
+   "server": "/data/client.lzma"
+  },
+  "PATCHED": {
+   "client": "[net.neoforged:minecraft-client-patched:26.2.0.88]",
+   "server": "[net.neoforged:minecraft-server-patched:26.2.0.88]"
+  },
+  "MCP_VERSION": {
+   "client": "'26.2-2'",
+   "server": "'26.2-2'"
+  }
+ },
+ "serverJarPath": "{LIBRARY_DIR}/net/minecraft/server/{MINECRAFT_VERSION}/server-{MINECRAFT_VERSION}.jar",
+ "processors": [
+  {
+   "sides": [
+    "server"
+   ],
+   "jar": "net.neoforged.installertools:installertools:4.0.17:fatjar",
+   "classpath": [
+    "net.neoforged.installertools:installertools:4.0.17:fatjar"
+   ],
+   "args": [
+    "--task",
+    "EXTRACT_FILES",
+    "--archive",
+    "{INSTALLER}",
+    "--from",
+    "data/run.sh",
+    "--to",
+    "{ROOT}/run.sh",
+    "--exec",
+    "{ROOT}/run.sh",
+    "--from",
+    "data/run.bat",
+    "--to",
+    "{ROOT}/run.bat",
+    "--from",
+    "data/user_jvm_args.txt",
+    "--to",
+    "{ROOT}/user_jvm_args.txt",
+    "--optional",
+    "{ROOT}/user_jvm_args.txt",
+    "--from",
+    "data/win_args.txt",
+    "--to",
+    "{ROOT}/libraries/net/neoforged/neoforge/26.2.0.88/win_args.txt",
+    "--from",
+    "data/unix_args.txt",
+    "--to",
+    "{ROOT}/libraries/net/neoforged/neoforge/26.2.0.88/unix_args.txt"
+   ]
+  },
+  {
+   "jar": "net.neoforged.installertools:installertools:4.0.17:fatjar",
+   "classpath": [
+    "net.neoforged.installertools:installertools:4.0.17:fatjar"
+   ],
+   "args": [
+    "--task",
+    "PROCESS_MINECRAFT_JAR",
+    "--no-mod-manifest",
+    "--input",
+    "{MINECRAFT_JAR}",
+    "--output",
+    "{PATCHED}",
+    "--extract-libraries-to",
+    "{ROOT}/libraries/",
+    "--apply-patches",
+    "{BINPATCH}"
+   ]
+  }
+ ],
+ "libraries": [
+  {
+   "name": "net.neoforged.fancymodloader:earlydisplay:11.0.16",
+   "downloads": {
+    "artifact": {
+     "sha1": "2d357375a7ea94a1ca86042d48fa4f719a552894",
+     "size": 360749,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/fancymodloader/earlydisplay/11.0.16/earlydisplay-11.0.16.jar",
+     "path": "net/neoforged/fancymodloader/earlydisplay/11.0.16/earlydisplay-11.0.16.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged.fancymodloader:loader:11.0.16",
+   "downloads": {
+    "artifact": {
+     "sha1": "42d3bfead0ba3aa89c7d45ac29115defc9967219",
+     "size": 669160,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/fancymodloader/loader/11.0.16/loader-11.0.16.jar",
+     "path": "net/neoforged/fancymodloader/loader/11.0.16/loader-11.0.16.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged:accesstransformers:11.0.2",
+   "downloads": {
+    "artifact": {
+     "sha1": "25dcb69c78b16669935f0ab91dff830ce192379d",
+     "size": 20292,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/accesstransformers/11.0.2/accesstransformers-11.0.2.jar",
+     "path": "net/neoforged/accesstransformers/11.0.2/accesstransformers-11.0.2.jar"
+    }
+   }
+  },
+  {
+   "name": "org.ow2.asm:asm-commons:9.10.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "4229e4c55fd8e01c23f9fe9884075cc628aacc50",
+     "size": 74840,
+     "url": "https://maven.neoforged.net/releases/org/ow2/asm/asm-commons/9.10.1/asm-commons-9.10.1.jar",
+     "path": "org/ow2/asm/asm-commons/9.10.1/asm-commons-9.10.1.jar"
+    }
+   }
+  }
+ ]
+}

@@ -81,16 +81,26 @@ func TestAlertWebhookFailuresAreLoggedWithoutItsURL(t *testing.T) {
 		http.Redirect(w, r, other.URL+r.URL.Path, http.StatusTemporaryRedirect)
 	}))
 	defer redirecting.Close()
-	down := httptest.NewTLSServer(http.NotFoundHandler())
-	downURL, downTransport := down.URL, down.Client().Transport
-	down.Close()
+	// A webhook that hangs up without answering. A closed server's port
+	// won't do: another package's test, run in parallel, can take it and answer.
+	var hungUp atomic.Int32
+	hangsUp := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hungUp.Add(1)
+		conn, _, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			t.Errorf("the webhook could not hang up: %v", err)
+			return
+		}
+		conn.Close()
+	}))
+	defer hangsUp.Close()
 	for _, tc := range []struct {
 		name, url string
 		transport http.RoundTripper
 		want      []string
 	}{
 		{"a redirect", redirecting.URL + hookPath, redirecting.Client().Transport, []string{"refused an alert", "status=307"}},
-		{"no answer", downURL + hookPath, downTransport, []string{"Could not send an alert to " + EnvAlertWebhook, "error="}},
+		{"no answer", hangsUp.URL + hookPath, hangsUp.Client().Transport, []string{"Could not send an alert to " + EnvAlertWebhook, "error="}},
 	} {
 		e := newEnv(t, func(e *testEnv) {
 			e.cfg.ClaimsPerDay = 1
@@ -110,6 +120,9 @@ func TestAlertWebhookFailuresAreLoggedWithoutItsURL(t *testing.T) {
 	}
 	if n := elsewhere.Load(); n != 0 {
 		t.Errorf("the webhook's redirect was followed %d times", n)
+	}
+	if n := hungUp.Load(); n != 1 {
+		t.Errorf("the webhook that hangs up was sent %d alerts, want 1", n)
 	}
 }
 

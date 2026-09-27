@@ -3,7 +3,7 @@ import { ArrowLeftIcon, DownloadIcon, RefreshCwIcon, SearchIcon } from 'lucide-r
 import { ApiError, get } from '@/api/client'
 import type { AddonBrowse, AddonCard, AddonDetails, AddonNotice } from '@/api/types'
 import { Pip } from '@/components/app/art'
-import { Marker, Notice } from '@/components/app/bits'
+import { Marker, Notice, SectionLabel } from '@/components/app/bits'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
 import { ListSkeleton, LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,7 @@ import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
 import { softwareLabel } from '@/lib/servers'
 import { cn } from '@/lib/utils'
+import { CuratedPicks } from './curated'
 import { AddonIcon, detailsPath, useAddons } from './state'
 
 const categoryKeys: Record<string, MessageKey> = {
@@ -138,6 +139,8 @@ export function BrowseView() {
   const categoryOptions = [{ value: allCategories, label: t('addons.allCategories') }, ...categories.filter((c) => categoryKeys[c]).map((c) => ({ value: c, label: t(categoryKeys[c] ?? 'addons.allCategories') }))]
   const sortOptions = browseSorts.map((s) => ({ value: s, label: t(sortKeys[s]) }))
   const searchLabel = a.kind === 'mod' ? t('addons.searchMods') : t('addons.search')
+  // Before a search, Playkeeper's picks come first.
+  const picks = !text.trim() && category === allCategories
   const clear = () => {
     setQ('')
     setText('')
@@ -213,6 +216,8 @@ export function BrowseView() {
         </div>
       )}
       {filters}
+      {picks && <CuratedPicks phone={phone} installed={installed} />}
+      {picks && (phone ? <SectionLabel className="-mb-2 px-4">{t(sortKeys[sort])}</SectionLabel> : <h3 className="-mb-1 text-[15px] font-semibold">{t(sortKeys[sort])}</h3>)}
       {results}
     </section>
   )

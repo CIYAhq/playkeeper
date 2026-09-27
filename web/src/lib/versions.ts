@@ -1,4 +1,5 @@
 import type { CatalogEntry, ServerConfig } from '../api/types'
+import { configBuild, entryType } from './software'
 
 /** Compares Minecraft release versions ("26.2", "1.21.11") part by part. */
 export function compareMinecraft(a: string, b: string): number {
@@ -13,8 +14,12 @@ export function compareMinecraft(a: string, b: string): number {
 
 /** The versions a server can move to: a newer Minecraft version, or a newer build of its own. */
 export function upgradeTargets(cfg: ServerConfig, versions: CatalogEntry[]): CatalogEntry[] {
+  const type = cfg.type || 'paper'
   return versions.filter((v) => {
+    if (entryType(v) !== type) return false
     const c = compareMinecraft(v.minecraftVersion, cfg.minecraftVersion)
-    return c > 0 || (c === 0 && v.paperBuild > cfg.paperBuild)
+    if (c !== 0) return c > 0
+    if (type === 'paper') return v.paperBuild > cfg.paperBuild
+    return !!v.build && compareMinecraft(v.build, configBuild(cfg)) > 0
   })
 }

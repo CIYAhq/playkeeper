@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
@@ -28,8 +29,11 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/modpacks"
+	"github.com/CIYAhq/playkeeper/internal/modpacks/curseforge"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 	"github.com/CIYAhq/playkeeper/internal/store"
+	"github.com/CIYAhq/playkeeper/internal/templates"
 )
 
 const (
@@ -66,7 +70,10 @@ type Options struct {
 	DiskUsage   func(path string) (free, total int64, err error)
 	CheckEgress func(ctx context.Context) error
 	PortInUse   func(port int) bool
-	Retention   Retention
+	// UDPPortInUse reports a UDP port something on the machine listens on;
+	// add-ons such as voice chat get one no one uses.
+	UDPPortInUse func(port int) bool
+	Retention    Retention
 	// StopTimeout bounds a graceful server stop (default 90s).
 	StopTimeout time.Duration
 	// ReadyTimeout bounds waiting for "Done" after a start (default 10m).
@@ -132,6 +139,19 @@ type Options struct {
 	// start that failed over a taken port no Docker container publishes
 	// (default: read from /proc).
 	PortHolder func(port int) (name string, pid int, ok bool)
+	// UpstreamClient reads the server software and modpack upstreams
+	// (Mojang, Fabric, Quilt, NeoForge, Purpur, Modrinth, CurseForge) at
+	// their fixed HTTPS hosts; tests swap its transport. It defaults to
+	// HTTPClient.
+	UpstreamClient *http.Client
+	// Modpacks is the modpack library (tests). By default it reaches
+	// Modrinth, and CurseForge with the machine's key, through
+	// UpstreamClient, and is built again when the key changes.
+	Modpacks *modpacks.Library
+	// PackClient downloads the data packs a template names, from any
+	// public host but only over HTTPS to public addresses (default
+	// templates.PackClient); tests swap it.
+	PackClient *http.Client
 }
 
 // Retention bounds stored analytics and audit data.
@@ -192,13 +212,38 @@ type Agent struct {
 	upd     updateState
 	catalog catalogCache
 	browse  browseCache
-	icons   iconCache
+	// curatedPicks are the curated add-ons that fit a type and Minecraft
+	// version (wave 4).
+	curatedPicks *ttlCache[[]curatedPick]
+	voicePorts   voicePorts
+	icons        iconCache
 	// packMu serializes changes to the resource pack store with pruning it.
 	packMu sync.Mutex
 	addr   addressRuntime
 	// panelCerts are the certificates the panel serves, looked at afresh
 	// for every resource pack link.
 	panelCerts *certs.Store
+
+	software softwareCache
+
+	// Wave 4: the modpack library with the CurseForge key in effect, and
+	// answers from the pack sources kept for a little while.
+	packLib          atomic.Pointer[modpacks.Library]
+	packKeyMu        sync.Mutex
+	packKey          curseforge.Key
+	packKeyProblem   string
+	keyFileMu        sync.Mutex
+	packSearches     *ttlCache[*api.ModpackResults]
+	packDetails      *ttlCache[*api.ModpackDetail]
+	packPreviews     *ttlCache[*api.ModpackPreview]
+	packPreviewSlots chan struct{}
+
+	// Wave 4: templates planned on this machine, by their plan's
+	// fingerprint, until a server is created from one.
+	templatePlans *ttlCache[*templates.Template]
+
+	// Wave 4: each server's friends' share, built on the first ask.
+	shares friendsShares
 }
 
 func New(opts Options) (*Agent, error) {
@@ -231,6 +276,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.PortInUse == nil {
 		opts.PortInUse = portInUse
+	}
+	if opts.UDPPortInUse == nil {
+		opts.UDPPortInUse = udpPortInUse
 	}
 	if opts.RCONAddr == nil {
 		opts.RCONAddr = func(ip string) string { return net.JoinHostPort(ip, strconv.Itoa(rconPort)) }
@@ -283,6 +331,12 @@ func New(opts Options) (*Agent, error) {
 	if opts.PublicAddrs == nil {
 		opts.PublicAddrs = func() []netip.Addr { return certs.ExpectedAddrs() }
 	}
+	if opts.UpstreamClient == nil {
+		opts.UpstreamClient = opts.HTTPClient
+	}
+	if opts.PackClient == nil {
+		opts.PackClient = templates.PackClient()
+	}
 	cfg := opts.Config
 	for _, d := range []string{cfg.AgentDir(), cfg.BackupsDir(), cfg.StagingDir()} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
@@ -325,7 +379,15 @@ func New(opts Options) (*Agent, error) {
 		mopLock:    make(chan struct{}, 1),
 		servers:    map[string]*server{},
 		panelCerts: panelCerts,
+
+		packSearches:     newTTLCache[*api.ModpackResults](5*time.Minute, 64),
+		packDetails:      newTTLCache[*api.ModpackDetail](10*time.Minute, 64),
+		packPreviews:     newTTLCache[*api.ModpackPreview](30*time.Minute, 32),
+		packPreviewSlots: make(chan struct{}, 2),
+		templatePlans:    newTTLCache[*templates.Template](time.Hour, 32),
+		curatedPicks:     newTTLCache[[]curatedPick](curatedTTL, 32),
 	}
+	a.loadPacks()
 	a.ctx, a.cancel = context.WithCancel(context.Background())
 	if a.opts.Issue == nil {
 		a.opts.Issue = a.issue
@@ -678,6 +740,29 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/address/release", a.hAddressRelease},
 		{"POST", "/v1/address/check", a.hAddressCheck},
 		{"POST", "/v1/address/certificate", a.hAddressCertificate},
+
+		// Wave 4: every server type.
+		{"GET", "/v1/catalog/builds", a.hCatalogBuilds},
+		{"POST", "/v1/servers/{id}/software/reinstall", srv((*server).hSoftwareReinstall)},
+		// Wave 4: modpacks.
+		{"GET", "/v1/modpacks", a.hModpackSearch},
+		{"GET", "/v1/modpacks/{source}/{project}", a.hModpackDetail},
+		{"GET", "/v1/modpacks/{source}/{project}/versions/{version}/preview", a.hModpackPreview},
+		// Wave 4: templates.
+		{"GET", "/v1/servers/{id}/template", srv((*server).hTemplate)},
+		{"POST", "/v1/servers/{id}/template/retry", srv((*server).hTemplateRetry)},
+		{"POST", "/v1/templates/plan", a.hTemplatePlan},
+		// Wave 4: sharing the pack with friends.
+		{"GET", "/v1/servers/{id}/mods/share", srv((*server).hPackShare)},
+		{"POST", "/v1/servers/{id}/mods/share", srv((*server).hPackShareSet)},
+		{"GET", "/v1/servers/{id}/mods/share.mrpack", srv((*server).hPackShareFile)},
+		{"GET", "/v1/packs/{token}", a.hPackLink},
+		// Wave 4: curated add-ons.
+		{"GET", "/v1/servers/{id}/addons/curated", srv((*server).hAddonCurated)},
+		// Wave 4: add-on sources.
+		{"GET", "/v1/addon-sources", a.hAddonSources},
+		{"POST", "/v1/addon-sources/curseforge", a.hCurseForgeKeySet},
+		{"DELETE", "/v1/addon-sources/curseforge", a.hCurseForgeKeyRemove},
 	}
 }
 
