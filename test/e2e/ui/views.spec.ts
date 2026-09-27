@@ -76,6 +76,8 @@ test('every page, desktop and narrow, with no serious accessibility violations a
     { route: `/servers/${s.slug}/players`, name: 'players', heading: s.name },
     { route: `/servers/${s.slug}/world`, name: 'world', heading: s.name },
     { route: `/servers/${s.slug}/plugins`, name: 'plugins', heading: s.name },
+    { route: `/servers/${s.slug}/files`, name: 'files', heading: s.name, phone: 'Files' },
+    { route: `/servers/${s.slug}/file/server.properties`, name: 'file-editor', heading: s.name, phone: 'server.properties' },
     { route: `/servers/${s.slug}/settings`, name: 'server-settings', heading: s.name },
     { route: '/servers/new', name: 'new-server', heading: 'New server' },
     { route: `/machines/${machine?.id}`, name: 'machine', heading: machine?.name ?? '' },
@@ -114,7 +116,7 @@ test('every page, desktop and narrow, with no serious accessibility violations a
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`/servers/${s.slug}`)
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: new RegExp(`^${s.name}`) })).toBeVisible()
-  const tabs = ['Overview', 'Console', 'Players', 'World', ...(map ? ['Map'] : []), 'Plugins', 'Settings']
+  const tabs = ['Overview', 'Console', 'Players', 'World', ...(map ? ['Map'] : []), 'Plugins', 'Files', 'Settings']
   await expect(page.getByRole('navigation', { name: 'Server pages' }).getByRole('link')).toHaveText(tabs)
 
   // On phones a server's Settings open from More, and How it's running from
