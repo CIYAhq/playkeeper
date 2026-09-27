@@ -2096,6 +2096,11 @@ shcontrol() { # NAME FILE FROM TO TEST-SCRIPT
   fi
   git checkout -q -- "$file"
 }
+control "the installer deletes get.sh's download when it stops at its flags" cmd/playkeeper/main.go \
+  '	defer removeGetDir()
+' \
+  '' \
+  ./cmd/playkeeper '^TestTheInstallerDeletesGetShsDownloadWhenItStopsEarly$'
 # shellcheck disable=SC2016
 shcontrol "get.sh hands over to the installer, so sudo-rs resumes it when it asks" packaging/get.sh \
   'exec "$dir/install.sh" "$@" </dev/tty' \
