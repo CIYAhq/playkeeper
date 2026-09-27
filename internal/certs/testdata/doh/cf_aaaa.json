@@ -1,0 +1,1 @@
+{"Status":0,"TC":false,"RD":true,"RA":true,"AD":false,"CD":false,"Question":[{"name":"dns.google","type":28}],"Answer":[{"name":"dns.google","type":28,"TTL":137,"data":"2001:4860:4860::8844"},{"name":"dns.google","type":28,"TTL":137,"data":"2001:4860:4860::8888"}]}

@@ -37,6 +37,10 @@ type fakeHost struct {
 	healthErr     error
 	failCmd       string
 	fw4, fw6      *fakeFirewall
+	// ufwActive turns ufw on; ufwRules are its rules, set up front for
+	// rules the admin added.
+	ufwActive     bool
+	ufwRules      map[string]bool
 	clock         time.Time
 	lockPolls     int  // the package lock is reported held this many more times
 	lockForever   bool // the package lock is never released
@@ -59,7 +63,7 @@ func newFakeHost(t *testing.T) *fakeHost {
 	t.Helper()
 	root := t.TempDir()
 	h := &fakeHost{root: root, users: map[string]bool{}, packages: map[string]bool{"bash": true, "coreutils": true}, listening: map[int]bool{22: true}, memMB: 3900, freeBytes: 20 << 30,
-		fw4: parseSave(hostRulesV4), fw6: parseSave(hostRulesV6), clock: time.Now()}
+		fw4: parseSave(hostRulesV4), fw6: parseSave(hostRulesV6), ufwRules: map[string]bool{"22/tcp": true}, clock: time.Now()}
 	for _, d := range []string{"/etc/systemd/system", "/lib/systemd/system", "/run/systemd/system", "/usr/local/bin", "/usr/bin", "/var/lib", "/var/run", "/sys/class/net/lo", "/sys/class/net/eth0", "/proc/sys/net/ipv4", "/proc/sys/net/ipv6/conf/all"} {
 		os.MkdirAll(filepath.Join(root, d), 0o755)
 	}
@@ -105,6 +109,17 @@ func (h *fakeHost) system(t *testing.T) System {
 				}
 				b, _ := json.Marshal(Units(config.Default()))
 				return string(b), nil
+			case name == "ufw" && h.ufwActive && len(args) == 2 && args[0] == "allow":
+				if h.ufwRules[args[1]] {
+					return "Skipping adding existing rule\nSkipping adding existing rule (v6)\n", nil
+				}
+				h.ufwRules[args[1]] = true
+				return "Rule added\nRule added (v6)\n", nil
+			case name == "ufw" && h.ufwActive && len(args) == 3 && args[0] == "delete" && args[1] == "allow":
+				delete(h.ufwRules, args[2])
+				return "Rule deleted\nRule deleted (v6)\n", nil
+			case name == "ufw" && h.ufwActive:
+				return "Status: active\n\nTo                         Action      From\n--                         ------      ----\n22/tcp                     ALLOW       Anywhere\n", nil
 			case name == "ufw":
 				return "Status: inactive\n", nil
 			case name == "dpkg-query":

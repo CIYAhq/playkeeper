@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/names"
 	"github.com/CIYAhq/playkeeper/internal/packs"
 )
 
@@ -23,6 +24,7 @@ func (s *Server) publicRoutes() []publicRoute {
 	return []publicRoute{
 		{prefix: packs.PathPrefix, limits: packLimits, cache: packCache,
 			handler: packs.NewHandler(packs.Store{Dir: s.cfg.ResourcePacksDir()}, s.activePacks.has)},
+		{prefix: names.AlivePath, limits: aliveLimits, handler: s.aliveRoute()},
 	}
 }
 

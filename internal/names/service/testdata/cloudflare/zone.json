@@ -1,0 +1,67 @@
+{
+  "result": {
+    "id": "023e105f4ecef8ad9ca31a8372d0c353",
+    "name": "playkeeper.io",
+    "status": "active",
+    "paused": false,
+    "type": "full",
+    "development_mode": 0,
+    "name_servers": [
+      "ada.ns.cloudflare.com",
+      "rob.ns.cloudflare.com"
+    ],
+    "original_name_servers": [
+      "dns1.registrar-servers.com",
+      "dns2.registrar-servers.com"
+    ],
+    "original_registrar": "namecheap, inc. (id: 1068)",
+    "original_dnshost": null,
+    "modified_on": "2026-09-20T09:14:31.456789Z",
+    "created_on": "2026-09-20T09:02:11.123456Z",
+    "activated_on": "2026-09-20T09:14:31.456789Z",
+    "vanity_name_servers": [],
+    "vanity_name_servers_ips": null,
+    "meta": {
+      "step": 2,
+      "custom_certificate_quota": 0,
+      "page_rule_quota": 3,
+      "phishing_detected": false
+    },
+    "owner": {
+      "id": null,
+      "type": "user",
+      "email": null
+    },
+    "account": {
+      "id": "01a7362d577a6c3019a474fd6f485823",
+      "name": "Playkeeper"
+    },
+    "tenant": {
+      "id": null,
+      "name": null
+    },
+    "tenant_unit": {
+      "id": null
+    },
+    "permissions": [
+      "#dns_records:edit",
+      "#dns_records:read",
+      "#zone:read"
+    ],
+    "plan": {
+      "id": "0feeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "name": "Free Website",
+      "price": 0,
+      "currency": "USD",
+      "frequency": "",
+      "is_subscribed": false,
+      "can_subscribe": false,
+      "legacy_id": "free",
+      "legacy_discount": false,
+      "externally_managed": false
+    }
+  },
+  "success": true,
+  "errors": [],
+  "messages": []
+}

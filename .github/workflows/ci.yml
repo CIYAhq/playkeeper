@@ -86,6 +86,35 @@ jobs:
       - name: Build the playkeeper.io image and check what it serves
         run: scripts/site-check.sh
 
+  acme-pebble:
+    name: Certificates from Pebble, Let's Encrypt's test CA (HTTP-01 and DNS-01)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
+      - name: Install Pebble and pebble-challtestsrv v2.10.1 (module checksums verified against sum.golang.org)
+        run: |
+          GOBIN="$RUNNER_TEMP/pebble" .tools/go/bin/go install \
+            github.com/letsencrypt/pebble/v2/cmd/pebble@v2.10.1 \
+            github.com/letsencrypt/pebble/v2/cmd/pebble-challtestsrv@v2.10.1
+      - name: Get certificates from Pebble, and its problems explained
+        env:
+          PLAYKEEPER_PEBBLE_DIR: ${{ runner.temp }}/pebble
+        run: .tools/go/bin/go test -count=1 -run '^TestPebble$' -v ./internal/certs/
+
+  names:
+    name: Names service image — build it, check its API, health check and non-root user
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the names service image and check what it serves
+        run: scripts/names-check.sh
+
   install-and-play:
     name: Fresh runner — install, onboarding, two bots, backup, uninstall
     needs: check

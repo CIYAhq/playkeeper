@@ -14,7 +14,7 @@ import { Sheet, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
-import { formatMB, joinAddress, relativeTime } from '@/lib/format'
+import { formatMB, relativeTime, serverJoinAddress } from '@/lib/format'
 import { controls, isSettingUp, phaseTone, whyNot } from '@/lib/phase'
 import { addonTab } from '@/lib/addons'
 import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@/lib/router'
@@ -146,7 +146,7 @@ function metaLine(s: ServerStatus, settingUp: boolean, stale: boolean, lastSeenA
 
 function useCopyAddress(server: ServerStatus) {
   return async () => {
-    const ok = await copyText(joinAddress(window.location.hostname, server.gamePort))
+    const ok = await copyText(serverJoinAddress(server))
     toastManager.add(ok ? { title: t('toast.copied'), type: 'success' } : { title: t('toast.copyFailed'), type: 'error' })
   }
 }

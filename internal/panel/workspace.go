@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"regexp"
 	"sort"
 
@@ -201,6 +202,18 @@ func (s *Server) machineView(r *http.Request, m machine) machineView {
 		}
 	}
 	return v
+}
+
+// localMachineName is the name machineView gives this machine, for the
+// sign-in page. It reads the hostname here, as the self-signed certificate
+// does, so a page anyone can load costs the agent nothing.
+func (s *Server) localMachineName() string {
+	var name string
+	if err := s.db.QueryRow(`SELECT name FROM machines WHERE kind = ? ORDER BY created_at LIMIT 1`, localKind).Scan(&name); err == nil && name != "" {
+		return name
+	}
+	host, _ := os.Hostname()
+	return host
 }
 
 func (s *Server) hMachines(w http.ResponseWriter, r *http.Request, sess *session) {

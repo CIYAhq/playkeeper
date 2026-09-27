@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -81,6 +82,36 @@ CREATE TABLE player_heads (
   status     TEXT NOT NULL,
   png        BLOB,
   fetched_at INTEGER NOT NULL
+);
+`,
+	// 0.4.0, wave 2: two-factor sign-in. Each user's authenticator app, with
+	// the session that started a setup not yet confirmed; and sign-ins that
+	// passed the password but not yet the second step, kept apart from
+	// sessions so they can never be taken for one.
+	`
+CREATE TABLE user_factors (
+  user_id             INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind                TEXT NOT NULL DEFAULT 'totp',
+  secret              TEXT NOT NULL,
+  created_at          INTEGER NOT NULL,
+  setup_session       TEXT NOT NULL DEFAULT '',
+  confirmed_at        INTEGER,
+  last_step           INTEGER NOT NULL DEFAULT 0,
+  last_used_at        INTEGER,
+  recovery_hashes     TEXT NOT NULL DEFAULT '[]',
+  recovery_created_at INTEGER,
+  failures            INTEGER NOT NULL DEFAULT 0,
+  recovery_failures   INTEGER NOT NULL DEFAULT 0,
+  locked_until        INTEGER,
+  revision            INTEGER NOT NULL,
+  PRIMARY KEY (user_id, kind)
+);
+CREATE TABLE pending_logins (
+  id_hash    TEXT PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  attempts   INTEGER NOT NULL DEFAULT 0
 );
 `,
 }
@@ -241,10 +272,15 @@ func (s *Server) authenticate(username, password string) (user, bool) {
 }
 
 func (s *Server) newSession(u user) (token string, sess session, err error) {
+	return s.newSessionIn(context.Background(), s.db, u)
+}
+
+// newSessionIn is newSession through q, which may hold a transaction.
+func (s *Server) newSessionIn(ctx context.Context, q querier, u user) (token string, sess session, err error) {
 	token = randomToken(32)
 	now := s.now()
 	sess = session{IDHash: tokenHash(token), User: u, CSRF: randomToken(32), CreatedAt: now, LastSeen: now, ExpiresAt: now.Add(s.opts.AbsoluteTimeout)}
-	_, err = s.db.Exec(`INSERT INTO sessions(id_hash, user_id, csrf, created_at, last_seen, expires_at) VALUES(?,?,?,?,?,?)`,
+	_, err = q.ExecContext(ctx, `INSERT INTO sessions(id_hash, user_id, csrf, created_at, last_seen, expires_at) VALUES(?,?,?,?,?,?)`,
 		sess.IDHash, u.ID, sess.CSRF, now.UnixMilli(), now.UnixMilli(), sess.ExpiresAt.UnixMilli())
 	return token, sess, err
 }
@@ -283,8 +319,11 @@ func (s *Server) deleteSession(idHash string) {
 	_, _ = s.db.Exec(`DELETE FROM sessions WHERE id_hash = ?`, idHash)
 }
 
+// deleteUserSessions signs the user out everywhere, including sign-ins
+// waiting for their second step.
 func (s *Server) deleteUserSessions(userID int64) {
 	_, _ = s.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, userID)
+	_, _ = s.db.Exec(`DELETE FROM pending_logins WHERE user_id = ?`, userID)
 }
 
 func (s *Server) audit(actor, action, target, result, detail string) {

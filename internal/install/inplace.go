@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,8 +74,9 @@ func runUpgrade(ctx context.Context, sys System, o Options, newVersion string) (
 	if kind := busyWith(ctx, sys, cfg); kind != "" {
 		return nil, fmt.Errorf("Playkeeper is busy (%s). Nothing was changed; run the installer again when it has finished", kind)
 	}
+	allow80 := !contains(m.FirewallRules, acmeRule) && ufwActive(sys)
 	fmt.Fprintf(out, "Playkeeper %s is installed on this server. This upgrades it to %s in place:\n", old, newVersion)
-	for _, line := range upgradePlan(sys, cfg, old, newVersion) {
+	for _, line := range upgradePlan(sys, cfg, old, newVersion, allow80) {
 		fmt.Fprintf(out, "  %s\n", line)
 	}
 	fmt.Fprintln(out)
@@ -98,6 +100,9 @@ func runUpgrade(ctx context.Context, sys System, o Options, newVersion string) (
 	fmt.Fprintln(out, "Upgrading:")
 	if err := Upgrade(ctx, sys, cfg, UpgradeOptions{NewBinary: exe, NewVersion: newVersion, OldVersion: old, Units: Units(cfg), Config: newCfg, Out: out}); err != nil {
 		return nil, err
+	}
+	if allow80 {
+		allowACMEPort(sys, cfg, out)
 	}
 	res.Upgraded = true
 	res.Duration = sys.Now().Sub(start)
@@ -159,7 +164,7 @@ func busyWith(ctx context.Context, sys System, cfg config.Config) string {
 	return ""
 }
 
-func upgradePlan(sys System, cfg config.Config, old, newVersion string) []string {
+func upgradePlan(sys System, cfg config.Config, old, newVersion string, allow80 bool) []string {
 	p := []string{
 		"Keeps:     your worlds, backups, settings and admin account in " + cfg.DataDir + ", and " + ConfigDir + "/config.json",
 		"Keeps:     the Minecraft server running (only the Playkeeper agent and panel restart)",
@@ -169,5 +174,32 @@ func upgradePlan(sys System, cfg config.Config, old, newVersion string) []string
 	if _, err := os.Stat(sys.P(UnitDir + "/" + UpdatePathUnit)); err != nil {
 		p = append(p, "Adds:      "+UpdatePathUnit+" and "+UpdateServiceUnit+", which install later updates from the dashboard")
 	}
+	if allow80 {
+		p = append(p, "Firewall:  ufw allow "+acmeRule+" once "+newVersion+" is running. "+port80Why)
+	}
 	return append(p, "Saves:     a copy of Playkeeper "+old+" in "+PreviousDir(cfg)+"; it is put back automatically if "+newVersion+" does not come up healthy")
+}
+
+// allowACMEPort allows port 80 in ufw after an upgrade from a version that
+// did not use it, and records the rule for uninstall if that added it. The
+// upgrade has succeeded either way, so a failure is reported, not returned.
+func allowACMEPort(sys System, cfg config.Config, out io.Writer) {
+	fmt.Fprintln(out, "  • allow port 80 in ufw, for Let's Encrypt's checks of your own domain")
+	added, err := ufwAllow(sys, acmeRule)
+	if err != nil {
+		fmt.Fprintf(out, "  ! could not allow port 80 in ufw (%v). To use your own domain, run: sudo ufw allow %s\n", err, acmeRule)
+		return
+	}
+	if !added {
+		return
+	}
+	path := sys.P(cfg.ManifestPath())
+	var m Manifest
+	if err = readJSONFile(path, &m); err == nil {
+		m.FirewallRules = append(m.FirewallRules, acmeRule)
+		err = writeJSONFile(path, m)
+	}
+	if err != nil {
+		fmt.Fprintf(out, "  ! port 80 is allowed in ufw, but the install manifest could not record it (%v), so uninstall will leave the rule\n", err)
+	}
 }

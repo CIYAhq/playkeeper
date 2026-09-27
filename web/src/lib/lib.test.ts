@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { CatalogEntry, MetricsBucket, ServerConfig, ServerStatus } from '@/api/types'
+import type { Address, CatalogEntry, DNSRecord, JoinAddress, MetricsBucket, Operation, ServerConfig, ServerStatus } from '@/api/types'
 import { createRequest, freeName, heapMB, versionCards } from '@/components/app/create'
 import { passwordStrength } from '@/pages/onboarding'
+import { certState, claimStep, dashboardURL, freeServers, freeStage, nameProblem, normalizeName, ownDone, recordFor, zoneOf } from './address'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine, ranOutOfMemory } from './console'
-import { formatBytes, formatDuration, formatList, formatMB, joinAddress, relativeTime } from './format'
+import { formatBytes, formatCountdown, formatDuration, formatList, formatMB, joinAddress, relativeAge, relativeTime, serverJoinAddress } from './format'
 import { memorySegments } from './memory'
 import { busyReason, controls, createStepOf, isSettingUp, phaseTone, whyNot } from './phase'
 import { href, parse, type Route } from './router'
@@ -52,7 +53,10 @@ describe('router', () => {
       { name: 'server', slug: 'survival', tab: 'world', sub: 'pregen' },
       { name: 'server', slug: 'survival', tab: 'world', sub: 'packs' },
       { name: 'machine', id: 'm2345abcde' },
+      { name: 'machine-settings', id: 'm2345abcde' },
       { name: 'settings' },
+      { name: 'account' },
+      { name: 'account', section: 'two-factor' },
       { name: 'more' },
       { name: 'welcome' },
     ]
@@ -67,6 +71,9 @@ describe('router', () => {
     expect(parse('/servers/survival/overview/pregen')).toEqual({ name: 'home' })
     expect(parse('/servers/survival/world/pregen/more')).toEqual({ name: 'home' })
     expect(parse('/servers/Bad Slug')).toEqual({ name: 'home' })
+    expect(parse('/account/nope')).toEqual({ name: 'account' })
+    expect(parse('/machines/m2345abcde/settings/more')).toEqual({ name: 'home' })
+    expect(parse('/machines/m2345abcde/nope')).toEqual({ name: 'home' })
     expect(parse('/whatever')).toEqual({ name: 'home' })
   })
 })
@@ -139,10 +146,31 @@ describe('formatting', () => {
     expect(relativeTime(undefined, now)).toBe('never')
   })
 
+  it('says how long ago in weeks and months for rare changes', () => {
+    const now = Date.parse('2026-09-25T12:00:00Z')
+    expect(relativeAge('2026-09-20T12:00:00Z', now)).toBe('5 days ago')
+    expect(relativeAge('2026-09-04T12:00:00Z', now)).toBe('3 weeks ago')
+    expect(relativeAge('2026-05-25T12:00:00Z', now)).toBe('4 months ago')
+    expect(relativeAge('2023-09-25T12:00:00Z', now)).toBe('3 years ago')
+  })
+
+  it('counts down whole seconds, rounding up so it never says 0:00 early', () => {
+    expect(formatCountdown(48)).toBe('0:48')
+    expect(formatCountdown(0.2)).toBe('0:01')
+    expect(formatCountdown(960)).toBe('16:00')
+    expect(formatCountdown(3725)).toBe('1:02:05')
+    expect(formatCountdown(-5)).toBe('0:00')
+  })
+
   it('builds the join address players type', () => {
     expect(joinAddress('198.51.100.10', 25565)).toBe('198.51.100.10')
     expect(joinAddress('198.51.100.10', 25567)).toBe('198.51.100.10:25567')
     expect(joinAddress('2001:db8::1', 25566)).toBe('[2001:db8::1]:25566')
+  })
+
+  it('prefers the friendly join address once it works', () => {
+    expect(serverJoinAddress({ gamePort: 25566 }, '198.51.100.10')).toBe('198.51.100.10:25566')
+    expect(serverJoinAddress({ gamePort: 25566, joinAddress: 'creative.alex.playkeeper.io' }, '198.51.100.10')).toBe('creative.alex.playkeeper.io')
   })
 })
 
@@ -279,5 +307,105 @@ describe('creating a server', () => {
 
   it('labels the software', () => {
     expect(softwareLabel(server({ config: { minecraftVersion: '26.1.2' } as ServerConfig }))).toBe('Paper 26.1.2')
+  })
+})
+
+describe('address', () => {
+  const claimedAt = '2026-09-25T10:00:00Z'
+  const now = Date.parse('2026-09-25T10:05:00Z')
+  const join = (over: Partial<JoinAddress>): JoinAddress => ({ serverId: 's1', name: 'Survival', port: 25565, label: '', published: false, ...over })
+  const op = (over: Partial<Operation>): Operation => ({ id: 'op1', kind: 'address.publish', status: 'running', phase: 'pointing', actor: 'siya', startedAt: claimedAt, ...over })
+  const address = (over: Partial<Address> = {}): Address => ({
+    kind: 'playkeeper',
+    host: 'alex.playkeeper.io',
+    ip: '198.51.100.10',
+    panelPort: 8443,
+    base: 'playkeeper.io',
+    servers: [join({ label: 'survival', address: 'survival.alex.playkeeper.io', published: true })],
+    free: { name: 'alex', state: 'active', dns: 'ok', claimedAt, refreshedAt: claimedAt, checkedAt: claimedAt, holdDays: 30 },
+    names: { url: 'https://names.playkeeper.io' },
+    ...over,
+  })
+
+  it('reads a typed name the way the agent does', () => {
+    expect(normalizeName('  Alex.PlayKeeper.io. ', 'playkeeper.io')).toBe('alex')
+    expect(normalizeName('alex-mc', 'playkeeper.io')).toBe('alex-mc')
+    expect(normalizeName('alex.example.com', 'playkeeper.io')).toBe('alex.example.com')
+  })
+
+  it('holds names to the service rule: 3 to 32 letters, digits and single inner dashes', () => {
+    expect(nameProblem('')).toBe('empty')
+    expect(nameProblem('al')).toBe('short')
+    expect(nameProblem('a'.repeat(33))).toBe('long')
+    for (const bad of ['alex--mc', '-alex', 'alex-', 'alex_mc', 'Alex', 'alex.mc']) expect(nameProblem(bad), bad).toBe('characters')
+    for (const good of ['abc', 'alex-mc', 'a1-b2-c3', 'a'.repeat(32)]) expect(nameProblem(good), good).toBeUndefined()
+  })
+
+  it('gives free addresses to the first five servers whose slug can be a label', () => {
+    const servers = ['survival', 'bad_slug', 'creative', 'a', 'b', 'c', 'd'].map((slug) => ({ slug }))
+    expect(freeServers(servers).map((s) => s.slug)).toEqual(['survival', 'creative', 'a', 'b', 'c'])
+    expect(freeServers([{ slug: 'x'.repeat(33) }])).toEqual([])
+  })
+
+  it('keeps the dashboard port in its address unless it is 443', () => {
+    expect(dashboardURL('alex.playkeeper.io', 8443)).toBe('https://alex.playkeeper.io:8443')
+    expect(dashboardURL('play.example.com', 443)).toBe('https://play.example.com')
+  })
+
+  it('names the zone where records are managed', () => {
+    expect(zoneOf('play.example.com')).toBe('example.com')
+    expect(zoneOf('example.com')).toBe('example.com')
+    expect(zoneOf('play.example.co.uk')).toBe('example.co.uk')
+    expect(zoneOf('mc.abc.io')).toBe('abc.io')
+    expect(zoneOf('a.b.example.org')).toBe('example.org')
+  })
+
+  it('tells a claim from a refresh, and publishing, lapsed and done apart', () => {
+    expect(freeStage(address({ operation: op({ startedAt: '2026-09-25T10:00:02Z' }) }))).toBe('claiming')
+    expect(freeStage(address({ operation: op({ phase: 'certificate', startedAt: '2026-09-25T10:00:02Z' }) }))).toBe('claiming')
+    expect(freeStage(address({ operation: op({ phase: 'publishing', startedAt: '2026-09-25T10:00:02Z' }) }))).toBe('publishing')
+    expect(freeStage(address({ operation: op({ startedAt: '2026-11-04T10:00:00Z' }) }))).toBe('publishing')
+    expect(freeStage(address({ operation: op({ status: 'succeeded' }) }))).toBe('done')
+    expect(freeStage(address())).toBe('done')
+    expect(freeStage(address({ servers: [join({ address: 'survival.alex.playkeeper.io', published: false })] }))).toBe('publishing')
+    expect(freeStage(address({ free: { ...address().free!, dns: 'pending' } }))).toBe('publishing')
+    expect(freeStage(address({ free: { ...address().free!, state: 'lapsed' } }))).toBe('lapsed')
+  })
+
+  it('says which claim step runs', () => {
+    expect(claimStep(op({ phase: 'pointing' }))).toBe(1)
+    expect(claimStep(op({ phase: '' }))).toBe(1)
+    expect(claimStep(op({ phase: 'certificate' }))).toBe(2)
+    expect(claimStep(undefined)).toBe(1)
+  })
+
+  it('reads the certificate: getting it, a problem, active or none', () => {
+    const valid = { names: ['alex.playkeeper.io'], challenge: 'dns-01', notAfter: '2026-12-24T10:00:00Z' }
+    expect(certState(address({ operation: op({ kind: 'certificate.issue', phase: 'checking' }) }), now)).toBe('getting')
+    expect(certState(address({ operation: op({ phase: 'certificate' }) }), now)).toBe('getting')
+    expect(certState(address({ certificate: { ...valid, problem: { code: 'rate_limited', message: 'Too many.' } } }), now)).toBe('problem')
+    expect(certState(address({ certificate: valid }), now)).toBe('active')
+    expect(certState(address({ certificate: { ...valid, notAfter: '2026-09-01T00:00:00Z' } }), now)).toBe('none')
+    expect(certState(address(), now)).toBe('none')
+  })
+
+  it('calls an own domain done once its records check out and it has a certificate', () => {
+    const check = { at: claimedAt, name: { name: 'play.example.com', ok: true, code: 'name_ok', message: '' }, ready: true }
+    const certificate = { names: ['play.example.com'], challenge: 'http-01', notAfter: '2026-12-24T10:00:00Z' }
+    const own = address({ kind: 'own', host: 'play.example.com', free: undefined, check, certificate })
+    expect(ownDone(own, now)).toBe(true)
+    expect(ownDone({ ...own, check: { ...check, ready: false } }, now)).toBe(false)
+    expect(ownDone({ ...own, certificate: undefined }, now)).toBe(false)
+    expect(ownDone({ ...own, kind: 'playkeeper' }, now)).toBe(false)
+  })
+
+  it('says which servers each record serves', () => {
+    const servers = [join({}), join({ serverId: 's2', name: 'Creative', port: 25566, label: 'creative' })]
+    const a: DNSRecord = { type: 'A', name: 'play.example.com', value: '198.51.100.10', ttl: 300 }
+    const srv: DNSRecord = { serverId: 's2', type: 'SRV', name: '_minecraft._tcp.creative.play.example.com', value: '0 5 25566 play.example.com', ttl: 300, srv: { service: 'minecraft', protocol: 'tcp', host: 'creative.play.example.com', priority: 0, weight: 5, port: 25566, target: 'play.example.com' } }
+    expect(recordFor(a, servers)).toBe('Dashboard and Survival')
+    expect(recordFor(a, servers.slice(1))).toBe('Dashboard')
+    expect(recordFor(srv, servers)).toBe('Creative, on port 25566')
+    expect(recordFor(srv, servers, true)).toBe('Creative')
   })
 })

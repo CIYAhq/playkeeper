@@ -10,10 +10,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/version"
 )
 
 func (e *env) reply(method, path, body string) {
@@ -247,6 +250,36 @@ func TestPlayerFacesComeFromTheirOwnSkin(t *testing.T) {
 	}
 	if _, err := cropFace([]byte("not a png")); err == nil {
 		t.Error("a file that is not a skin must be refused")
+	}
+}
+
+func TestTheSignInPageGetsOnlyTheMachinesNameAndTheVersion(t *testing.T) {
+	e := newEnv(t)
+	var st map[string]any
+	if r := e.get(t, "/api/setup/status", "", &st); r != 200 || st["needsSetup"] != true {
+		t.Fatalf("before the first account: %d %v", r, st)
+	}
+	e.setup(t)
+	e.agent.mu.Lock()
+	hits := len(e.agent.hits)
+	e.agent.mu.Unlock()
+	host, _ := os.Hostname()
+	st = nil
+	if r := e.get(t, "/api/setup/status", "", &st); r != 200 || st["needsSetup"] != false || st["machine"] != host || st["version"] != version.Version {
+		t.Fatalf("a machine without a name of its own goes by its hostname, as in its certificate: %d %v", r, st)
+	}
+	if _, err := e.srv.db.Exec(`UPDATE machines SET name = 'my-vps' WHERE kind = ?`, localKind); err != nil {
+		t.Fatal(err)
+	}
+	st = nil
+	e.get(t, "/api/setup/status", "", &st)
+	if st["machine"] != "my-vps" || len(st) != 3 {
+		t.Fatalf("the sign-in page gets the name the dashboard shows, the version and nothing more: %v", st)
+	}
+	e.agent.mu.Lock()
+	defer e.agent.mu.Unlock()
+	if len(e.agent.hits) != hits {
+		t.Errorf("the sign-in page must not ask the agent: %v", e.agent.hits[hits:])
 	}
 }
 

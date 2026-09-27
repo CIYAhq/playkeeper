@@ -89,7 +89,7 @@ func TestAnErrorWithoutAUsableBodyGetsAPlainOne(t *testing.T) {
 			})
 			_, err := c.Do(context.Background(), "GET", "/v1/health", nil, nil, nil)
 			var e *Error
-			if !errors.As(err, &e) || e.Body != (api.Error{Error: "agent returned HTTP 502", Code: api.CodeInternal}) {
+			if !errors.As(err, &e) || !reflect.DeepEqual(e.Body, api.Error{Error: "agent returned HTTP 502", Code: api.CodeInternal}) {
 				t.Fatalf("%#v", err)
 			}
 		})

@@ -45,8 +45,8 @@ control "idle and absolute session expiry" internal/panel/auth.go \
   'if false && (!now.Before(sess.ExpiresAt) || now.Sub(sess.LastSeen) >= s.opts.IdleTimeout) {' \
   ./internal/panel '^TestSessionIdleAndAbsoluteExpiry$'
 control "per-address sign-in and setup rate limit" internal/panel/server.go \
-  'if ok, wait := s.loginIP.allow("ip:" + clientIP(r)); !ok {' \
-  'if ok, wait := s.loginIP.allow("ip:" + clientIP(r)); false && !ok {' \
+  'if ok, wait := s.loginIP.allow(limitKey(clientIP(r))); !ok {' \
+  'if ok, wait := s.loginIP.allow(limitKey(clientIP(r))); false && !ok {' \
   ./internal/panel '^TestSignInAndSetupAreRateLimitedPerAddress$'
 control "agent socket peer allowlist" internal/agent/agent.go \
   'if err != nil || !a.allowed[uid] {' \
@@ -800,6 +800,924 @@ shcontrol "get.sh says a download curl stopped is too large" packaging/get.sh \
   '[ "$rc" = 63 ] || ' \
   '' \
   packaging/get_test.sh
+
+control "names service owns only records with the name's marker" internal/names/service/dns.go \
+  'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
+  'if names.CheckName(name) != nil || reservedName(name) {' \
+  ./internal/names/service '^(TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns|TestTheGuardRefusesEveryChangeOutsideItsPatterns|TestRecordsTheServiceDoesNotManageAreNeverTouched)$'
+control "names service never owns records of reserved names" internal/names/service/dns.go \
+  'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
+  'if names.CheckName(name) != nil || r.Comment != marker(name) {' \
+  ./internal/names/service '^(TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns|TestTheGuardRefusesEveryChangeOutsideItsPatterns)$'
+control "names service owns address records only at the name itself" internal/names/service/dns.go \
+  'return rn == fqdn' \
+  'return strings.HasSuffix(rn, fqdn)' \
+  ./internal/names/service '^TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns$'
+control "names service owns challenge records only at _acme-challenge" internal/names/service/dns.go \
+  'return rn == names.ChallengeFQDN(name, s.base)' \
+  'return strings.HasSuffix(rn, fqdn)' \
+  ./internal/names/service '^(TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns|TestTheGuardRefusesEveryChangeOutsideItsPatterns)$'
+control "names service owns server records only with a valid label" internal/names/service/dns.go \
+  'return ok && names.CheckServerLabel(label) == nil' \
+  'return ok && label != ""' \
+  ./internal/names/service '^TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns$'
+control "names service creates only records it owns" internal/names/service/dns.go \
+  'return s.refuse("create", name, r)' \
+  'return s.cf.create(ctx, r)' \
+  ./internal/names/service '^TestTheGuardRefusesEveryChangeOutsideItsPatterns$'
+control "names service updates only records it made" internal/names/service/dns.go \
+  'if old.ID == "" || !s.owns(name, old) || !s.owns(name, r) ||' \
+  'if old.ID == "" || !s.owns(name, r) ||' \
+  ./internal/names/service '^TestTheGuardRefusesEveryChangeOutsideItsPatterns$'
+control "names service never moves a record to another type or name" internal/names/service/dns.go \
+  'old.Type != r.Type || !strings.EqualFold(old.Name, r.Name) {' \
+  'false {' \
+  ./internal/names/service '^TestTheGuardRefusesEveryChangeOutsideItsPatterns$'
+control "names service deletes only records it made" internal/names/service/dns.go \
+  'if old.ID == "" || !s.owns(name, old) {' \
+  'if old.ID == "" {' \
+  ./internal/names/service '^TestTheGuardRefusesEveryChangeOutsideItsPatterns$'
+control "a name with records made by hand cannot be claimed" internal/names/service/dns.go \
+  'if !s.owns(name, r) {
+			s.log.Info("Refused a claim' \
+  'if false && !s.owns(name, r) {
+			s.log.Info("Refused a claim' \
+  ./internal/names/service '^(TestRecordsTheServiceDoesNotManageAreNeverTouched|TestNewNamesPerDayAcrossEveryone)$'
+control "an address with a record made by hand is left alone" internal/names/service/dns.go \
+  'if !addrTaken {' \
+  'if !addrTaken || true {' \
+  ./internal/names/service '^TestHandMadeRecordsAtTheNamesAddressesBlockThemUntilRemoved$'
+control "a server address with a record made by hand is left alone" internal/names/service/dns.go \
+  'maps.Copy(done, taken)' \
+  'maps.Copy(done, map[string]bool{})' \
+  ./internal/names/service '^TestRecordsTheServiceDoesNotManageAreNeverTouched$'
+control "names service changes only its own domain's zone" internal/names/service/dns.go \
+  'if !strings.EqualFold(z.Name, s.base) {' \
+  'if false && !strings.EqualFold(z.Name, s.base) {' \
+  ./internal/names/service '^TestStartupRefusesARefusedTokenOrAnotherZone$'
+control "X-Forwarded-For is only believed from trusted proxies" internal/names/service/addr.go \
+  'if !s.trusted(addr) {
+		if r.Header.Get("X-Forwarded-For")' \
+  'if false && !s.trusted(addr) {
+		if r.Header.Get("X-Forwarded-For")' \
+  ./internal/names/service '^(TestForwardedForIsOnlyBelievedFromTrustedProxies|TestASpoofedForwardedForFromAnUntrustedPeerIsIgnored)$'
+control "the client is the rightmost X-Forwarded-For address that is not a proxy" internal/names/service/addr.go \
+  'for i := len(hops) - 1; i >= 0; i-- {' \
+  'for i := 0; i < len(hops); i++ {' \
+  ./internal/names/service '^TestForwardedForIsOnlyBelievedFromTrustedProxies$'
+control "a signed names request works only once" internal/names/service/handlers.go \
+  'if n, err := res.RowsAffected(); err != nil || n == 0 {' \
+  'if n, err := res.RowsAffected(); false && (err != nil || n == 0) {' \
+  ./internal/names/service '^TestSignaturesClockSkewAndReplaysAreRefused$'
+control "names point only at public addresses" internal/names/service/handlers.go \
+  'if !publicUnicast(a) {' \
+  'if false && !publicUnicast(a) {' \
+  ./internal/names/service '^TestNamesCannotPointAtPrivateReservedOrProxyAddresses$'
+control "requests through Cloudflare's proxy cannot claim names" internal/names/service/handlers.go \
+  'if inAny(cloudflareEdge, a) {' \
+  'if false && inAny(cloudflareEdge, a) {' \
+  ./internal/names/service '^TestNamesCannotPointAtPrivateReservedOrProxyAddresses$'
+control "reserved names cannot be claimed" internal/names/service/handlers.go \
+  'if reservedName(name) || s.block.has(name) {' \
+  'if s.block.has(name) {' \
+  ./internal/names/service '^TestReservedAndBlocklistedNamesCannotBeClaimed$'
+control "blocklisted names cannot be claimed" internal/names/service/handlers.go \
+  'if reservedName(name) || s.block.has(name) {' \
+  'if reservedName(name) {' \
+  ./internal/names/service '^TestReservedAndBlocklistedNamesCannotBeClaimed$'
+control "only the install that holds a name can change it" internal/names/service/handlers.go \
+  'case row.Key != key:' \
+  'case false:' \
+  ./internal/names/service '^TestClaimRefreshServersChallengesAndReleaseEndToEnd$'
+control "an install holds only as many names as allowed" internal/names/service/handlers.go \
+  'if n < s.cfg.MaxNamesPerKey {' \
+  'if n <= s.cfg.MaxNamesPerKey {' \
+  ./internal/names/service '^TestAnInstallHoldsOnlyAsManyNamesAsAllowed$'
+control "names service per-address rate limit" internal/names/service/handlers.go \
+  'if ok, wait := s.perIP.allow(addrBucket(addr, 64)); !ok {' \
+  'if ok, wait := s.perIP.allow(addrBucket(addr, 64)); false && !ok {' \
+  ./internal/names/service '^TestRateLimitsPerAddressPerKeyAndForNewNames$'
+control "names service per-install rate limit" internal/names/service/handlers.go \
+  'if ok, wait := s.perKey.allow(c.key); !ok {' \
+  'if ok, wait := s.perKey.allow(c.key); false && !ok {' \
+  ./internal/names/service '^TestRateLimitsPerAddressPerKeyAndForNewNames$'
+control "new names per address a day" internal/names/service/handlers.go \
+  'if ok, wait := s.claimsAddr.allow(addrBucket(c.addr, 56)); !ok {' \
+  'if ok, wait := s.claimsAddr.allow(addrBucket(c.addr, 56)); false && !ok {' \
+  ./internal/names/service '^TestRateLimitsPerAddressPerKeyAndForNewNames$'
+control "new names a day across everyone" internal/names/service/handlers.go \
+  'if ok, wait := s.claimsAll.allow("all"); !ok {' \
+  'if ok, wait := s.claimsAll.allow("all"); false && !ok {' \
+  ./internal/names/service '^TestNewNamesPerDayAcrossEveryone$'
+control "challenge records per name" internal/names/service/handlers.go \
+  'if others >= maxChallenges {' \
+  'if false && others >= maxChallenges {' \
+  ./internal/names/service '^TestClaimRefreshServersChallengesAndReleaseEndToEnd$'
+control "the zone keeps a reserve of free records" internal/names/service/dns.go \
+  'keep := s.cfg.RecordReserve' \
+  'keep := 0' \
+  ./internal/names/service '^TestAFullZoneRefusesServerAddressesThenNamesThenChallenges$'
+control "challenge records expire after an hour" internal/names/service/jobs.go \
+  'SELECT DISTINCT name FROM challenges WHERE expires_at <= ?' \
+  'SELECT DISTINCT name FROM challenges WHERE expires_at <= ? AND 0' \
+  ./internal/names/service '^TestNamesLapseAndAreFreedWhenNotRefreshed$'
+control "names lapse when they are not refreshed" internal/names/service/jobs.go \
+  'SELECT name FROM names WHERE state = ? AND refreshed_at <= ?' \
+  'SELECT name FROM names WHERE state = ? AND refreshed_at <= ? AND 0' \
+  ./internal/names/service '^TestNamesLapseAndAreFreedWhenNotRefreshed$'
+control "released names are held from others" internal/names/service/jobs.go \
+  'names.StateReleased, now.Add(-releaseHold).Unix())' \
+  'names.StateReleased, now.Unix())' \
+  ./internal/names/service '^TestReleasedNamesAreHeldThenFreed$'
+control "Cloudflare errors never show the token" internal/names/service/cloudflare.go \
+  'scrub(env.Errors, c.token)' \
+  'scrub(nil, c.token)' \
+  ./internal/names/service '^TestCloudflareErrorsNeverShowTheToken$'
+control "names service follows no redirects from Cloudflare" internal/names/service/service.go \
+  'CheckRedirect: noRedirects,' \
+  'CheckRedirect: nil,' \
+  ./internal/names/service '^TestTheServiceFollowsNoRedirects$'
+control "names claimed from one network are limited" internal/names/service/handlers.go \
+  'if n < s.cfg.MaxNamesPerNetwork {' \
+  'if n <= s.cfg.MaxNamesPerNetwork {' \
+  ./internal/names/service '^TestNamesPerNetworkAreLimited$'
+control "a name that moves counts against the network it moves to" internal/names/service/handlers.go \
+  'nw := nameNetwork(was, v4, v6)' \
+  'nw := was' \
+  ./internal/names/service '^TestNamesPerNetworkFollowTheirAddress$'
+control "a move into a full network is refused" internal/names/service/handlers.go \
+  'if nw != was {' \
+  'if false {' \
+  ./internal/names/service '^TestNamesPerNetworkFollowTheirAddress$'
+control "the network a name moves to is stored" internal/names/service/handlers.go \
+  'v4, v6, nw, names.StateActive, now, bump,' \
+  'v4, v6, row.Network, names.StateActive, now, bump,' \
+  ./internal/names/service '^TestNamesPerNetworkFollowTheirAddress$'
+control "a name from before networks were recorded counts against that of its address" internal/names/service/handlers.go \
+  'if was == "" {' \
+  'if false {' \
+  ./internal/names/service '^TestNamesFromBeforeNetworksGetOne$'
+control "a name counting in an IPv6 network keeps it when it gets an IPv4 address" internal/names/service/addr.go \
+  'err4 != nil || strings.Contains(current, ":")' \
+  'err4 != nil || false' \
+  ./internal/names/service '^TestANameCountsAgainstTheNetworkOfOneAddress$'
+control "a name counting in an IPv4 network keeps it when it gets an IPv6 address" internal/names/service/addr.go \
+  'err4 != nil || strings.Contains(current, ":")' \
+  'err4 != nil || true' \
+  ./internal/names/service '^TestANameCountsAgainstTheNetworkOfOneAddress$'
+control "a name that loses its address in one IP version counts against the other" internal/names/service/addr.go \
+  'err4 != nil || strings.Contains(current, ":")' \
+  'strings.Contains(current, ":")' \
+  ./internal/names/service '^TestANameCountsAgainstTheNetworkOfOneAddress$'
+control "two names can't both take a network's last place" internal/names/service/handlers.go \
+  'if err := s.writeTx(r.Context(), func(q queryer) error {
+		return s.setAddress(r.Context(), q, row, c.addr, req.ClearOther, answered)
+	}); err != nil {' \
+  'if err := func(q queryer) error {
+		return s.setAddress(r.Context(), q, row, c.addr, req.ClearOther, answered)
+	}(s.db); err != nil {' \
+  ./internal/names/service '^TestConcurrentMovesTakeANetworksLastPlaceOnce$' 20
+control "server addresses per install are limited" internal/names/service/handlers.go \
+  'case byKey >= serversPerKey:' \
+  'case false:' \
+  ./internal/names/service '^TestServerAddressesPerInstallAndPerNetworkAreLimited$'
+control "server addresses per network are limited" internal/names/service/handlers.go \
+  'case byNetwork >= serversPerNetwork:' \
+  'case false:' \
+  ./internal/names/service '^TestServerAddressesPerInstallAndPerNetworkAreLimited$'
+control "server addresses wait until the name is 3 days old" internal/names/service/handlers.go \
+  '.Add(serverAddressAge); s.now().Before(from) {' \
+  '.Add(serverAddressAge); false && s.now().Before(from) {' \
+  ./internal/names/service '^TestServerAddressesWaitUntilTheNameIsThreeDaysOld$'
+control "server addresses wait for the dashboard's first answer" internal/names/service/handlers.go \
+  'if row.AliveAt == 0 {' \
+  'if false && row.AliveAt == 0 {' \
+  ./internal/names/service '^TestServerAddressesWaitForTheFirstAnswer$'
+control "the zone holds no more records than the quota setting" internal/names/service/dns.go \
+  'quota := s.cfg.RecordQuota' \
+  'quota := 1 << 30' \
+  ./internal/names/service '^TestTheRecordQuotaSettingAppliesWhenCloudflareReportsNoneOrMore$'
+control "Cloudflare's record quota wins when it is lower" internal/names/service/dns.go \
+  'if u.Quota != nil && *u.Quota < quota {' \
+  'if false && u.Quota != nil && *u.Quota < quota {' \
+  ./internal/names/service '^TestAFullZoneRefusesServerAddressesThenNamesThenChallenges$'
+control "new names leave room for certificate challenges" internal/names/service/dns.go \
+  'keep += challengeRoom' \
+  'keep += 0' \
+  ./internal/names/service '^TestAFullZoneRefusesServerAddressesThenNamesThenChallenges$'
+control "server addresses leave room for new names" internal/names/service/dns.go \
+  'keep += nameRoom' \
+  'keep += 0' \
+  ./internal/names/service '^TestAFullZoneRefusesServerAddressesThenNamesThenChallenges$'
+control "the alert webhook must be HTTPS" internal/names/service/config.go \
+  'if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {' \
+  'if err != nil || u.Host == "" || u.User != nil {' \
+  ./internal/names/service '^TestNewRefusesAWebhookThatIsNotHTTPS$'
+control "alerts follow no redirects" internal/names/service/service.go \
+  'CheckRedirect: noRedirects, Transport: cfg.alertTransport' \
+  'Transport: cfg.alertTransport' \
+  ./internal/names/service '^TestAlertWebhookFailuresAreLoggedWithoutItsURL$'
+control "alert failures never show the webhook URL" internal/names/service/alert.go \
+  'if errors.As(err, &ue) {' \
+  'if false && errors.As(err, &ue) {' \
+  ./internal/names/service '^TestAlertWebhookFailuresAreLoggedWithoutItsURL$'
+control "each kind of alert goes out at most every 6 hours" internal/names/service/alert.go \
+  'if t, ok := a.last[kind]; ok && now.Sub(t) < alertEvery {' \
+  'if t, ok := a.last[kind]; false && ok && now.Sub(t) < alertEvery {' \
+  ./internal/names/service '^TestAlertsReachTheWebhookAtMostOncePerKindEverySixHours$'
+control "names lapse when their dashboard stops answering" internal/names/service/alive.go \
+  'SELECT name FROM names WHERE state = ? AND failed_checks >= ? AND max(alive_at, claimed_at) <= ?' \
+  'SELECT name FROM names WHERE state = ? AND failed_checks >= ? AND max(alive_at, claimed_at) <= ? AND 0' \
+  ./internal/names/service '^TestANameWhoseAddressStopsAnsweringLapsesAfterAWeekAndComesBackOnceItAnswers$'
+control "a name lapses only after a week without an answer" internal/names/service/alive.go \
+  'names.StateActive, minFailedChecks, now.Add(-unansweredAfter).Unix())' \
+  'names.StateActive, minFailedChecks, now.Unix())' \
+  ./internal/names/service '^TestANameWhoseAddressStopsAnsweringLapsesAfterAWeekAndComesBackOnceItAnswers$'
+control "a name lapses only after 4 failed checks" internal/names/service/alive.go \
+  'AND failed_checks >= ? AND' \
+  'AND (failed_checks >= ? OR 1) AND' \
+  ./internal/names/service '^TestANameLapsesOnlyAfterFourFailedChecksInARow$'
+control "an answer starts the failed checks again" internal/names/service/alive.go \
+  'UPDATE names SET checked_at = ?, alive_at = ?, failed_checks = 0' \
+  'UPDATE names SET checked_at = ?, alive_at = ?, failed_checks = failed_checks' \
+  ./internal/names/service '^TestANameLapsesOnlyAfterFourFailedChecksInARow$'
+control "names do not lapse while no address answers" internal/names/service/alive.go \
+  'return last > now.Add(-checkHealthy).Unix(), err' \
+  'return true, err' \
+  ./internal/names/service '^TestNamesDoNotLapseForNotAnsweringWhileNoAddressAnswers$'
+control "a lapsed name stays off until its dashboard answers" internal/names/service/handlers.go \
+  'WHERE name = ? AND key = ? AND (state != ? OR lapse_reason != ? OR ? > 0)' \
+  'WHERE name = ? AND key = ? AND (1 OR state != ? OR lapse_reason != ? OR ? > 0)' \
+  ./internal/names/service '^TestANameWhoseAddressStopsAnsweringLapsesAfterAWeekAndComesBackOnceItAnswers$'
+control "a name that answered before is held for 60 days" internal/names/service/jobs.go \
+  'lapse_reason = ? AND alive_at = 0 AND lapsed_at <= ?' \
+  'lapse_reason = ? AND lapsed_at <= ?' \
+  ./internal/names/service '^TestANameWhoseAddressStopsAnsweringLapsesAfterAWeekAndComesBackOnceItAnswers$'
+control "liveness answers must be signed with the name's key" internal/names/service/alive.go \
+  'if a.Name != name || !names.VerifyAlive(ed25519.PublicKey(pub), s.base, name, nonce, a.Signature) {' \
+  'if false {' \
+  ./internal/names/service '^TestLivenessAnswersMustBeFreshSignedAndSmall$'
+control "liveness checks follow no redirects" internal/names/service/alive.go \
+  'CheckRedirect: noRedirects,' \
+  'CheckRedirect: nil,' \
+  ./internal/names/service '^TestLivenessAnswersMustBeFreshSignedAndSmall$'
+control "liveness answers are limited to 1 KiB" internal/names/service/alive.go \
+  'if resp.ContentLength > maxAliveAnswer || len(body) > maxAliveAnswer {' \
+  'if false {' \
+  ./internal/names/service '^TestLivenessAnswersMustBeFreshSignedAndSmall$'
+control "liveness checks connect only to public addresses" internal/names/service/alive.go \
+  'if !publicUnicast(addr) || inAny(cloudflareEdge, addr) {' \
+  'if inAny(cloudflareEdge, addr) {' \
+  ./internal/names/service '^TestLivenessAnswersMustBeFreshSignedAndSmall$'
+control "liveness checks never connect to Cloudflare's proxy" internal/names/service/alive.go \
+  'if !publicUnicast(addr) || inAny(cloudflareEdge, addr) {' \
+  'if !publicUnicast(addr) {' \
+  ./internal/names/service '^TestLivenessAnswersMustBeFreshSignedAndSmall$'
+control "a lapsed name's address is rechecked at most 6 times an hour" internal/names/service/alive.go \
+  'if ok, wait := s.rechecks.allow(row.Name); !ok {' \
+  'if ok, wait := s.rechecks.allow(row.Name); false && !ok {' \
+  ./internal/names/service '^TestLivenessChecksAreRateLimited$'
+control "each name is checked every 6 hours, not more often" internal/names/service/alive.go \
+  'names.StateActive, now.Add(-checkEvery).Unix())' \
+  'names.StateActive, now.Unix())' \
+  ./internal/names/service '^TestLivenessChecksAreRateLimited$'
+control "at most 20 liveness checks a minute" internal/names/service/alive.go \
+  'for len(due) < checksPerTick && rows.Next() {' \
+  'for rows.Next() {' \
+  ./internal/names/service '^TestLivenessChecksAreRateLimited$'
+control "one liveness check per address at a time" internal/names/service/alive.go \
+  'if seen[first] {' \
+  'if false && seen[first] {' \
+  ./internal/names/service '^TestLivenessChecksAreRateLimited$'
+control "names crowding one address do not hold up the others' checks" internal/names/service/alive.go \
+  'ORDER BY checked_at, name`' \
+  'ORDER BY checked_at, name LIMIT 20`' \
+  ./internal/names/service '^TestLivenessChecksAreRateLimited$'
+control "certificate attempts per name are limited" internal/names/service/certs.go \
+  'if sets >= certSetsPerName {' \
+  'if false && sets >= certSetsPerName {' \
+  ./internal/names/service '^TestCertificateAttemptsPerNameAreLimited$'
+control "new certificates have a weekly budget" internal/names/service/certs.go \
+  'if budget := s.cfg.NewCertificates; used >= budget {' \
+  'if budget := s.cfg.NewCertificates; false && used >= budget {' \
+  ./internal/names/service '^TestNewCertificatesHaveAWeeklyBudgetThatRenewalsDoNotUse$'
+control "a challenge value joins an attempt only within its hour" internal/names/service/certs.go \
+  'row.Name, now.Add(-certSetWindow).Unix(), challengesPerSet)' \
+  'row.Name, now.Add(-100*certSetWindow).Unix(), challengesPerSet)' \
+  ./internal/names/service '^TestCertificateAttemptsPerNameAreLimited$'
+control "an attempt holds at most 4 challenge values" internal/names/service/certs.go \
+  'row.Name, now.Add(-certSetWindow).Unix(), challengesPerSet)' \
+  'row.Name, now.Add(-certSetWindow).Unix(), 1000)' \
+  ./internal/names/service '^TestCertificateAttemptsPerNameAreLimited$'
+control "a name's next holder renews none of the last holder's certificates" internal/names/service/certs.go \
+  'row.Name, row.ClaimedAt, now.Add(-renewalLookback).Unix()).Scan(&earlier)' \
+  'row.Name, 0, now.Add(-renewalLookback).Unix()).Scan(&earlier)' \
+  ./internal/names/service '^TestANamesFirstCertificateSinceItsClaimOrInNinetyDaysIsNew$'
+control "a certificate after 90 days without one is new" internal/names/service/certs.go \
+  'row.Name, row.ClaimedAt, now.Add(-renewalLookback).Unix()).Scan(&earlier)' \
+  'row.Name, row.ClaimedAt, 0).Scan(&earlier)' \
+  ./internal/names/service '^TestANamesFirstCertificateSinceItsClaimOrInNinetyDaysIsNew$'
+control "certificate attempts are forgotten after 90 days" internal/names/service/jobs.go \
+  'DELETE FROM cert_sets WHERE started_at <= ?' \
+  'DELETE FROM cert_sets WHERE started_at <= ? AND 0' \
+  ./internal/names/service '^TestANamesFirstCertificateSinceItsClaimOrInNinetyDaysIsNew$'
+control "trusting a whole network is warned about" internal/names/service/service.go \
+  'if p.Bits() < p.Addr().BitLen() {' \
+  'if false && p.Bits() < p.Addr().BitLen() {' \
+  ./internal/names/service '^TestTrustingAWholeNetworkIsWarnedAbout$'
+control "requests through an unlisted proxy alert the owner" internal/names/service/addr.go \
+  'if r.Header.Get("X-Forwarded-For") != "" && (addr.IsPrivate() || addr.IsLoopback()) {' \
+  'if false && r.Header.Get("X-Forwarded-For") != "" && (addr.IsPrivate() || addr.IsLoopback()) {' \
+  ./internal/names/service '^TestForwardedForIsOnlyBelievedFromTrustedProxies$'
+control "trusted proxies that would trust every address are refused" internal/names/service/config.go \
+  'if p.Bits() == 0 {' \
+  'if false && p.Bits() == 0 {' \
+  ./internal/names/service '^TestParsePrefixes$'
+control "names request signature" internal/names/sign.go \
+  'if !ed25519.Verify(' \
+  'if false && !ed25519.Verify(' \
+  ./internal/names '^TestTamperedRequestsAreRefused$'
+control "names requests with a clock more than 5 minutes off are refused" internal/names/sign.go \
+  'if skew := at.Sub(now); skew > MaxSkew || skew < -MaxSkew {' \
+  'if skew := at.Sub(now); false && (skew > MaxSkew || skew < -MaxSkew) {' \
+  ./internal/names '^TestClockSkewBeyondFiveMinutesIsRefusedWithTheServiceTime$'
+control "names client sends challenge records only for its own name" internal/names/client.go \
+  'if got := strings.TrimSuffix(strings.ToLower(fqdn), "."); got != want {' \
+  'if got := strings.TrimSuffix(strings.ToLower(fqdn), "."); false && got != want {' \
+  ./internal/names '^TestChallengesForOtherRecordsAreRefusedBeforeSending$'
+control "names key files others can read are refused" internal/names/key.go \
+  'if fi.Mode().Perm()&0o077 != 0 {' \
+  'if false && fi.Mode().Perm()&0o077 != 0 {' \
+  ./internal/names '^TestKeyFilesOthersCanReadOrThatAreNotRegularAreRefused$'
+control "names service location must be HTTPS unless it is this machine" internal/names/client.go \
+  'return nil, fmt.Errorf("the names service location %s must be an https:// address", u.Redacted())' \
+  'return u, nil' \
+  ./internal/names '^TestCheckServiceURLAllowsHTTPSAndLocalHTTPOnly$'
+control "names client follows no redirects" internal/names/client.go \
+  'CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },' \
+  'CheckRedirect: nil,' \
+  ./internal/names '^TestRedirectsAreNotFollowed$'
+control "names client believes a Retry-After of at most 8 days" internal/names/client.go \
+  ' && time.Duration(s) <= maxRetryAfter/time.Second {' \
+  ' {' \
+  ./internal/names '^TestServiceRefusalsKeepTheirCodeHintParamsAndRetryAfter$'
+control "liveness answers can never pass as signed requests" internal/names/alive.go \
+  'const aliveContext = "playkeeper-names-alive-v1"' \
+  'const aliveContext = signingContext' \
+  ./internal/names '^TestAliveAnswersCanNeverPassAsSignedRequests$'
+control "the dashboard signs only well-formed liveness nonces" internal/names/alive.go \
+  'if !reNonce.MatchString(nonce) {' \
+  'if false && !reNonce.MatchString(nonce) {' \
+  ./internal/names '^TestAliveHandlerAnswersOnlyForTheNamesItHolds$'
+
+# Wave 2: two-factor sign-in.
+control "a pending sign-in is not a session" internal/panel/auth.go \
+  'FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id_hash = ?`, tokenHash(token)).' \
+  'FROM (SELECT id_hash, user_id, csrf, created_at, last_seen, expires_at FROM sessions UNION ALL SELECT id_hash, user_id, id_hash, created_at, created_at, expires_at FROM pending_logins) s JOIN users u ON u.id = s.user_id WHERE s.id_hash = ?`, tokenHash(token)).' \
+  ./internal/panel '^TestPendingSignInIsNeverASession$'
+control "a correct password alone starts no session" internal/panel/twofactor.go \
+  'INSERT INTO pending_logins(id_hash, user_id, created_at, expires_at) VALUES(?,?,?,?)`,' \
+  'INSERT INTO sessions(id_hash, user_id, created_at, expires_at, csrf, last_seen) SELECT column1, column2, column3, column4, column1, column3 FROM (VALUES(?,?,?,?))`,' \
+  ./internal/panel '^TestPendingSignInIsNeverASession$'
+control "the second step waits for the code when two-factor sign-in is on" internal/panel/server.go \
+  '} else if started {' \
+  '} else if false && started {' \
+  ./internal/panel '^TestPendingSignInIsNeverASession$'
+control "one password may try only so many codes" internal/panel/twofactor.go \
+  'WHERE id_hash = ? AND attempts < ?`, idHash, pendingAttempts)' \
+  'WHERE id_hash = ? AND ? > 0`, idHash, pendingAttempts)' \
+  ./internal/panel '^TestOnePasswordBuysTenCodes$'
+control "the second step spends the per-address budget" internal/panel/twofactor.go \
+  'if !s.rateLimitIP(w, r) {' \
+  'if false && !s.rateLimitIP(w, r) {' \
+  ./internal/panel '^TestSecondStepIsRateLimitedPerAddress$'
+control "every second-factor code is counted under concurrency" internal/panel/twofactor.go \
+  'conn.ExecContext(ctx, `BEGIN IMMEDIATE' \
+  'conn.ExecContext(ctx, `BEGIN' \
+  ./internal/panel '^TestConcurrentWrongCodesAreAllCounted$'
+control "the sign-in limit counts IPv6 by /64" internal/panel/server.go \
+  'if p, err := a.Prefix(64); err == nil {' \
+  'if p, err := a.Prefix(128); err == nil {' \
+  ./internal/panel '^TestSignInLimiterCountsIPv6By64$'
+control "wrong recovery codes never lock app codes" internal/twofactor/twofactor.go \
+  'f.RecoveryFailures++' \
+  'f.Failures++' \
+  ./internal/twofactor '^TestWrongRecoveryCodesNeverLockAppCodes$'
+control "wrong recovery codes are stored" internal/panel/twofactor.go \
+  'next.Failures, next.RecoveryFailures, nullMS(next.LockedUntil), next.Revision}' \
+  'next.Failures, 0, nullMS(next.LockedUntil), next.Revision}' \
+  ./internal/panel '^TestWrongRecoveryCodesAreCountedWithoutLockingAppCodes$'
+control "an unfinished setup shows only to the session that started it" internal/panel/twofactor.go \
+  'if f.On() || setupSession == idHash {' \
+  'if true || f.On() || setupSession == idHash {' \
+  ./internal/panel '^TestAnUnfinishedSetupBelongsToTheSessionThatStartedIt$'
+control "only the session that started a setup cancels it" internal/panel/twofactor.go \
+  'confirmed_at IS NULL AND setup_session = ?`, sess.User.ID, sess.IDHash)' \
+  'confirmed_at IS NULL AND length(?) > 0`, sess.User.ID, sess.IDHash)' \
+  ./internal/panel '^TestAnUnfinishedSetupBelongsToTheSessionThatStartedIt$'
+control "an app code works once" internal/twofactor/twofactor.go \
+  'f.LastStep = step' \
+  '_ = step' \
+  ./internal/twofactor '^TestSignInWithAnAppCodeOnce$'
+control "wrong app codes lock app codes" internal/twofactor/twofactor.go \
+  'case f.Failures >= LockAfter:' \
+  'case false && f.Failures >= LockAfter:' \
+  ./internal/twofactor '^TestWrongCodesLockAppCodesForLongerEachTime$'
+control "turning two-factor sign-in on needs the password" internal/twofactor/twofactor.go \
+  'return f, Setup{}, &Error{Kind: KindPasswordWrong}' \
+  '_ = f' \
+  ./internal/twofactor '^TestTurningOnShowsTheSecretOnlyUntilConfirmed$'
+control "turning two-factor sign-in off needs a code" internal/twofactor/twofactor.go \
+  'if next, _, err := f.check(code, now); err != nil {' \
+  'if next, _, err := f.check(code, now); false && err != nil {' \
+  ./internal/twofactor '^TestTurningOffNeedsThePasswordAndACode$'
+control "turning two-factor sign-in on signs out other sessions" internal/panel/twofactor.go \
+  'DELETE FROM sessions WHERE user_id = ? AND id_hash != ?`, sess.User.ID, sess.IDHash)' \
+  'DELETE FROM sessions WHERE 0 AND user_id = ? AND id_hash != ?`, sess.User.ID, sess.IDHash)' \
+  ./internal/panel '^TestTwoFactorSignInNeedsACodeAfterThePassword$'
+control "resetting two-factor sign-in signs out every session" internal/panel/twofactor.go \
+  's.deleteUserSessions(u.ID)' \
+  '_ = u.ID' \
+  ./internal/panel '^TestResetTwoFactorFromTheCommandLine$'
+control "signing out everywhere ends pending sign-ins" internal/panel/auth.go \
+  'DELETE FROM pending_logins WHERE user_id = ?`, userID)' \
+  'DELETE FROM pending_logins WHERE 0 AND user_id = ?`, userID)' \
+  ./internal/panel '^TestSecondStepExpiresAndCanBeCancelled$'
+control "a password change ends pending sign-ins" internal/panel/server.go \
+  'DELETE FROM pending_logins WHERE user_id = ?`, sess.User.ID)' \
+  'DELETE FROM pending_logins WHERE 0 AND user_id = ?`, sess.User.ID)' \
+  ./internal/panel '^TestSecondStepExpiresAndCanBeCancelled$'
+control "second step: a request that finds the sign-in passed checks no code" internal/panel/twofactor.go \
+  'if n, err := res.RowsAffected(); err != nil || n == 1 {' \
+  'if n, err := res.RowsAffected(); err != nil || n >= 0 {' \
+  ./internal/panel '^TestConcurrentRightCodesSpendOneCode$'
+control "second step: the sign-in is claimed in the transaction that checks the code" internal/panel/twofactor.go \
+  '	if s.beforeCodeCheck != nil {
+		s.beforeCodeCheck()
+	}
+	after, err := s.changeFactorWith(p.User.ID, p.IDHash, func(ctx context.Context, q querier) error {
+		return usePendingAttempt(ctx, q, p.IDHash)
+	}, func(' \
+  '	claimed := usePendingAttempt(context.Background(), s.db, p.IDHash)
+	if s.beforeCodeCheck != nil {
+		s.beforeCodeCheck()
+	}
+	after, err := s.changeFactorWith(p.User.ID, p.IDHash, func(context.Context, querier) error {
+		return claimed
+	}, func(' \
+  ./internal/panel '^TestConcurrentRightCodesSpendOneCode$'
+control "second step: the request that passes ends the pending sign-in" internal/panel/twofactor.go \
+  'DELETE FROM pending_logins WHERE id_hash = ?`, p.IDHash)' \
+  'DELETE FROM pending_logins WHERE 0 AND id_hash = ?`, p.IDHash)' \
+  ./internal/panel '^TestConcurrentRightCodesSpendOneCode$'
+control "second step: a session that cannot be stored undoes the code check" internal/panel/twofactor.go \
+  'if err := passed(ctx, conn); err != nil {' \
+  'if err := passed(ctx, conn); false && err != nil {' \
+  ./internal/panel '^TestASessionThatCannotStartSpendsNoCode$'
+control "second step: a wrong code keeps the pending sign-in" internal/panel/twofactor.go \
+  'if stepErr == nil && passed != nil {' \
+  'if passed != nil {' \
+  ./internal/panel '^TestOnePasswordBuysTenCodes$'
+
+# Wave 2: the names service's liveness check.
+control "the liveness check answers only for the machine's name" internal/agent/address.go \
+  'st.Free != nil && st.Free.Name.Name == name && st.Free.Name.State' \
+  'st.Free != nil && st.Free.Name.State' \
+  ./internal/agent '^TestLivenessCheckIsAnsweredOnlyForTheMachinesName$'
+control "the liveness check does not answer for a released name" internal/agent/address.go \
+  ' && st.Free.Name.State != names.StateReleased' \
+  '' \
+  ./internal/agent '^TestLivenessCheckIsAnsweredOnlyForTheMachinesName$'
+control "the liveness check answers for the name being claimed" internal/agent/address.go \
+  'a.setClaiming(name)' \
+  'a.setClaiming("")' \
+  ./internal/agent '^TestLivenessCheckIsAnsweredOnlyForTheMachinesName$'
+control "the liveness check is a public route, answered without sign-in" internal/panel/public.go \
+  '{prefix: names.AlivePath, limits: aliveLimits, handler: s.aliveRoute()},' \
+  '{prefix: names.AlivePath + "off/", limits: aliveLimits, handler: s.aliveRoute()},' \
+  ./internal/panel '^TestLivenessCheckIsPassedToTheAgentWithoutSignIn$|^TestTheNamesServiceGetsItsSignedAnswerOnThePanelsPort$'
+control "the liveness check tells the agent the Host it asked" internal/panel/alive.go \
+  'url.Values{"host": {r.Host}}' \
+  'nil' \
+  ./internal/panel '^TestLivenessCheckIsPassedToTheAgentWithoutSignIn$'
+control "the port-8443 listener serves only the liveness check" internal/panel/alive.go \
+  'return s.securityHeaders(s.logRequests(mux))' \
+  'mux.Handle("/", s.Handler()); return s.securityHeaders(s.logRequests(mux))' \
+  ./internal/panel '^TestLivenessCheckIsPassedToTheAgentWithoutSignIn$'
+control "per-address liveness check limit" internal/panel/alive.go \
+  'var aliveLimits = publicLimits{perMinute: 20,' \
+  'var aliveLimits = publicLimits{perMinute: 1 << 20,' \
+  ./internal/panel '^TestLivenessChecksAreLimitedPerAddress$'
+control "the port-8443 listener goes through the public group" internal/panel/alive.go \
+  'mux.Handle(names.AlivePath, s.public.handler(names.AlivePath))' \
+  'mux.Handle(names.AlivePath, s.aliveRoute())' \
+  ./internal/panel '^TestLivenessChecksAreLimitedPerAddress$'
+control "a certificate limit waits for the names service's Retry-After" internal/agent/certificates.go \
+  'retry = now.Add(ne.RetryAfter)' \
+  'retry = now.Add(time.Hour)' \
+  ./internal/agent '^TestCertificateLimitWaitsForTheNamesService$'
+control "refused server addresses are asked for again only when due" internal/agent/address.go \
+  'if (st.Free.ServersWait != "" || st.Free.ServersFailed > 0) && !now.Before(st.Free.ServersRetry) {' \
+  'if st.Free.ServersFailed > 0 && !now.Before(st.Free.ServersRetry) || st.Free.ServersWait != "" {' \
+  ./internal/agent '^TestServerAddressesWaitForTheNamesService$'
+control "resource pack links: HTTPS only with a certificate players' games trust" internal/certs/store.go \
+  'if _, err := e.cert.Leaf.Verify(opts); err != nil {' \
+  'if _, err := e.cert.Leaf.Verify(opts); err != nil && at.IsZero() {' \
+  ./internal/certs '^TestStoreTrusted$'
+control "resource pack links: a look at the certificates in progress doesn't hide a new one" internal/certs/store.go \
+  'if every < 0 {' \
+  'if every < 0 && false {' \
+  ./internal/certs '^TestStoreCanLookEveryTime$'
+control "certificate issuance: a long Retry-After waits no longer than maxPollWait" internal/certs/acme.go \
+  'if resp.StatusCode < 300 && retryAfter(' \
+  'if false && retryAfter(' \
+  ./internal/certs '^TestIssueWaitsForTheCertificate$'
+control "certificate issuance: a look at the order that gets no answer is tried again" internal/certs/acme.go \
+  'case ctx.Err() != nil || !unreachable(err):' \
+  'case true:' \
+  ./internal/certs '^TestIssueWaitsForTheCertificate$'
+control "certificate issuance: running out of time waiting for the certificate is a timeout, not a refusal" internal/certs/acme.go \
+  'return nil, newProblem(err, CodeIssuanceTimeout, nil)' \
+  'return nil, explain(err, s, is.now())' \
+  ./internal/certs '^TestIssueTimesOutWaitingForTheCertificate$'
+control "certificate issuance: the finalize request waits validationWait at most for the certificate" internal/certs/acme.go \
+  'c.CreateOrderCert(wctx, ready.FinalizeURL, csr, true)' \
+  'c.CreateOrderCert(ctx, ready.FinalizeURL, csr, true)' \
+  ./internal/certs '^TestIssueTimesOutWaitingForTheCertificate$'
+control "certificate issuance: a finalize request that times out still gets the certificate issued just after" internal/certs/acme.go \
+  'issued, ferr := is.fetch(ctx, c, kept, order.URI, s)' \
+  'issued, ferr := is.fetch(wctx, c, kept, order.URI, s)' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^(a_slow_finalize_answer:_the_certificate_issued_meanwhile_is_fetched|the_wait_of_the_finalize_request_runs_out:_the_certificate_issued_meanwhile_is_fetched)$'
+control "certificate issuance: a finalize request that fails without a problem looks for the certificate" internal/certs/acme.go \
+  'if err != nil && !errors.As(err, &ae) && !errors.As(err, &oe) {' \
+  'if false && !errors.As(err, &ae) && !errors.As(err, &oe) {' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^a_slow_finalize_answer:_the_certificate_issued_meanwhile_is_fetched$'
+control "certificate issuance: the next attempt resumes the kept order rather than making a new one" internal/certs/acme.go \
+  'order, key, err := is.resume(ctx, c, kept, names, s)' \
+  'order, key, err := (*acme.Order)(nil), (*ecdsa.PrivateKey)(nil), error(nil)' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^(a_slow_finalize_answer_and_a_certificate_issued_later:_the_next_attempt_fetches_it|the_finalize_answer_is_lost_before_issuing:_the_next_attempt_finalizes_the_same_order)$'
+control "certificate issuance: the order is kept before it is finalized" internal/certs/acme.go \
+  'if err := kept.keep(order.URI, ready.Expires, key); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_finalize_answer_is_lost_before_issuing:_the_next_attempt_finalizes_the_same_order$'
+control "certificate issuance: an order that can't be kept is not finalized" internal/certs/acme.go \
+  '		if err := kept.keep(order.URI, ready.Expires, key); err != nil {
+			return nil, nil, newProblem(err, CodeSaveFailed, nil)
+		}' \
+  '		kept.keep(order.URI, ready.Expires, key)' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^keeping_the_order_fails:_it_is_not_finalized$'
+control "certificate issuance: the kept order is dropped once the certificate is saved" internal/certs/acme.go \
+  '		return nil, newProblem(err, CodeSaveFailed, nil)
+	}
+	kept.drop()' \
+  '		return nil, newProblem(err, CodeSaveFailed, nil)
+	}' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_finalize_answer_is_lost_before_issuing:_the_next_attempt_finalizes_the_same_order$'
+control "certificate issuance: a bad certificate drops the kept order" internal/certs/acme.go \
+  '		kept.drop()
+		return nil, newProblem(err, CodeBadCertificate, nil)' \
+  '		return nil, newProblem(err, CodeBadCertificate, nil)' \
+  ./internal/certs '^TestIssueBadChain$'
+control "certificate issuance: a finalized kept order gives its certificate without another finalize request" internal/certs/acme.go \
+  'if order != nil && (order.Status == acme.StatusProcessing || order.Status == acme.StatusValid) {' \
+  'if false {' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^saving_the_certificate_fails:_the_next_attempt_fetches_it_again$'
+control "certificate issuance: an invalid kept order is dropped for a new one" internal/certs/acme.go \
+  'case o.Status == acme.StatusInvalid || !forNames(o, names):' \
+  'case !forNames(o, names):' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_kept_order_turned_invalid:_the_next_attempt_makes_a_new_one$'
+control "certificate issuance: a kept order for other names is dropped for a new one" internal/certs/acme.go \
+  'case o.Status == acme.StatusInvalid || !forNames(o, names):' \
+  'case o.Status == acme.StatusInvalid:' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_kept_order_is_for_other_names:_the_next_attempt_makes_a_new_one$'
+control "certificate issuance: an expired kept order is dropped for a new one" internal/certs/acme.go \
+  'if err != nil || (!saved.Expires.IsZero() && !is.now().Before(saved.Expires)) {' \
+  'if err != nil {' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_kept_order_expired:_the_next_attempt_makes_a_new_one$'
+control "certificate issuance: a kept order the client refuses to look at is dropped for a new one" internal/certs/acme.go \
+  'case errors.As(err, &guard) || refused(err):' \
+  'case false && errors.As(err, &guard) || refused(err):' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_kept_order_is_at_another_certificate_authority:_a_new_one_is_made$'
+control "certificate issuance: a kept order the certificate authority refuses is dropped for a new one" internal/certs/acme.go \
+  'case errors.As(err, &guard) || refused(err):' \
+  'case errors.As(err, &guard):' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_certificate_authority_no_longer_knows_the_kept_order:_the_next_attempt_makes_a_new_one$'
+control "certificate issuance: the kept order outlasts a certificate authority that is unavailable" internal/certs/acme.go \
+  'case CodeRateLimited, CodePaused, CodeCAUnavailable:' \
+  'case CodeRateLimited, CodePaused:' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_certificate_authority_is_unavailable:_the_order_is_kept_for_the_attempt_after$'
+control "certificate issuance: the kept order outlasts a rate limit" internal/certs/acme.go \
+  'case CodeRateLimited, CodePaused, CodeCAUnavailable:' \
+  'case CodePaused, CodeCAUnavailable:' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^a_rate_limit_at_the_certificate_authority:_the_order_is_kept_for_the_attempt_after$'
+control "certificate issuance: a refused finalize request drops the order" internal/certs/acme.go \
+  '		return nil, nil, is.orderFailed(err, kept, s)
+	}
+	return der, key, nil' \
+  '		return nil, nil, explain(err, s, is.now())
+	}
+	return der, key, nil' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^the_certificate_authority_refuses_the_finalize_request:_the_next_attempt_makes_a_new_order$'
+control "certificate issuance: a finalize request that runs out of time and was never carried out is a timeout" internal/certs/acme.go \
+  '		if ctx.Err() == nil && errors.Is(wctx.Err(), context.DeadlineExceeded) {
+			return nil, nil, newProblem(err, CodeIssuanceTimeout, nil)' \
+  '		if false {
+			return nil, nil, newProblem(err, CodeIssuanceTimeout, nil)' \
+  ./internal/certs '^TestIssueKeepsTheOrder$/^a_slow_finalize_request_that_is_never_carried_out:_the_next_attempt_finalizes_the_same_order$'
+control "certificates: Forget deletes the kept order with the certificate" internal/certs/files.go \
+  'for _, file := range []string{n + ".pem", n + orderSuffix} {' \
+  'for _, file := range []string{n + ".pem"} {' \
+  ./internal/certs '^TestForget$'
+control "a name the machine stops using loses its kept certificate order" internal/agent/certificates.go \
+  'if err := certs.Forget(a.cfg.CertsDir(), name); err != nil {' \
+  'if err := os.Remove(filepath.Join(a.cfg.CertsDir(), name+".pem")); err != nil {' \
+  ./internal/agent '^TestOwnDomainChecksTheNameBeforeHTTP01$'
+control "DNS-01: a record the names service stored but has not published is waited for" internal/certs/dns01.go \
+  'err != nil && !pending(err) {' \
+  'err != nil {' \
+  ./internal/certs '^TestDNS01WaitsForAChallengeTheNamesServiceStored$'
+control "DNS-01: only a record that is pending is waited for after SetTXT fails" internal/certs/dns01.go \
+  'return errors.As(err, &p) && p.Pending()' \
+  'return errors.As(err, &p)' \
+  ./internal/certs '^TestDNS01WaitsForAChallengeTheNamesServiceStored$/^refused$'
+control "names client: a challenge Cloudflare has not published yet is pending" internal/names/errors.go \
+  'func (e *Error) Pending() bool { return e.Code == CodeDNSPending }' \
+  'func (e *Error) Pending() bool { return false }' \
+  ./internal/certs '^TestDNS01WaitsForAChallengeTheNamesServiceStored$'
+control "resource pack links: back to plain HTTP a week before the certificate runs out" internal/agent/packs.go \
+  'const packCertMargin = 7 * 24 * time.Hour' \
+  'const packCertMargin = 0' \
+  ./internal/agent '^TestResourcePackLinksUseHTTPSWithATrustedCertificate$'
+control "resource pack links: a start offers the link the certificate allows now" internal/agent/lifecycle.go \
+  'pack, err := resourcePackEnv(s.currentOffer(sc.ResourcePack))' \
+  'pack, err := resourcePackEnv(sc.ResourcePack)' \
+  ./internal/agent '^TestResourcePackLinksUseHTTPSWithATrustedCertificate$'
+control "free address refresh: a refused connection keeps the other IP version's record" internal/names/client.go \
+  'errors.Is(err, syscall.EADDRNOTAVAIL)' \
+  'errors.Is(err, syscall.EADDRNOTAVAIL) || errors.Is(err, syscall.ECONNREFUSED)' \
+  ./internal/names '^TestRefreshSetsBothVersionsAndClearsOnlyOneThatHasNoRoute$'
+control "names client: an answer is awaited longer than the service waits for Cloudflare" internal/names/client.go \
+  'ResponseHeaderTimeout: answerWait,' \
+  'ResponseHeaderTimeout: 20 * time.Second,' \
+  ./internal/names '^TestAnswersAreAwaitedLongerThanTheServiceWaitsForCloudflare$'
+control "names client: a request is not cut short while its answer is awaited" internal/names/client.go \
+  'Timeout:       answerWait + 30*time.Second,' \
+  'Timeout:       30 * time.Second,' \
+  ./internal/names '^TestAnswersAreAwaitedLongerThanTheServiceWaitsForCloudflare$'
+control "free address change: undone at the names service when it can't be saved" internal/agent/address.go \
+  'if _, rerr := c.Release(uctx); rerr != nil && !namesCode(rerr, names.CodeNotClaimed) {' \
+  'if rerr := error(nil); rerr != nil {' \
+  ./internal/agent '^TestFreeAddressChangeAndRelease$'
+control "free address change: the old name is claimed back only once the new one is released" internal/agent/address.go \
+  'if _, rerr := c.Release(uctx); rerr != nil && !namesCode(rerr, names.CodeNotClaimed) {' \
+  'if _, rerr := c.Release(uctx); false && rerr != nil {' \
+  ./internal/agent '^TestFreeAddressChangeAndRelease$'
+control "free address change: a claim without a clear answer is looked up at the names service" internal/agent/address.go \
+  'if maybeStored(err) {
+			l, listed, lerr := listedName(sctx, c, name)' \
+  'if false {
+			l, listed, lerr := listedName(sctx, c, name)' \
+  ./internal/agent '^TestFreeNameChangeWithALostAnswerFollowsTheService$'
+control "free address change: a 5xx doesn't say the claim wasn't stored" internal/agent/address.go \
+  'return !errors.As(err, &ne) || ne.Status >= 500' \
+  'return !errors.As(err, &ne)' \
+  ./internal/agent '^TestFreeNameChangeWithALostAnswerFollowsTheService$'
+control "free address change: the new name is taken only when the service lists it" internal/agent/address.go \
+  'listed && l.State != names.StateReleased' \
+  '(listed || true) && l.State != names.StateReleased' \
+  ./internal/agent '^TestFreeNameChangeThatFailedGivesTheOldNameBack$'
+control "free address change: a new name the service lists as released is not taken" internal/agent/address.go \
+  'listed && l.State != names.StateReleased' \
+  'listed' \
+  ./internal/agent '^TestFreeNameChangeThatFailedGivesTheOldNameBack$'
+control "free address change: the old name claimed back gets its servers' records again" internal/agent/address.go \
+  '	a.serversChanged()
+' \
+  '' \
+  ./internal/agent '^TestFreeNameChangeThatFailedGivesTheOldNameBack$'
+control "free address change: the old name is kept while the service holds it" internal/agent/address.go \
+  'if listed || !takenElsewhere(err) {' \
+  'if !takenElsewhere(err) {' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex_is_refused_as_held_elsewhere_but_listed_for_this_machine$'
+control "free address change: the old name is kept while the service can't say" internal/agent/address.go \
+  'if lerr != nil {
+		_ = a.namesError(lerr)' \
+  'if lerr != nil && false {
+		_ = a.namesError(lerr)' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^another_install_has_alex,_the_service_holds_bob_and_the_list_fails$'
+control "free address change: the old name is given up once the service no longer has it" internal/agent/address.go \
+  'if listed || !takenElsewhere(err) {' \
+  'if true {' \
+  ./internal/agent '^TestFreeNameIsKeptWhileTheServiceHoldsIt$'
+control "own domain: setting one keeps the released free name claimable" internal/agent/address.go \
+  'Since: a.now().UTC(), IP: st.IP, Released: st.Released}' \
+  'Since: a.now().UTC(), IP: st.IP}' \
+  ./internal/agent '^TestFreeAddressChangeAndRelease$'
+control "own domain: removing it keeps the released free name claimable" internal/agent/address.go \
+  'if err := a.setAddress(addressState{IP: st.IP, Released: st.Released}); err != nil {' \
+  'if err := a.setAddress(addressState{IP: st.IP}); err != nil {' \
+  ./internal/agent '^TestFreeAddressChangeAndRelease$'
+control "own domain: a certificate attempt that finds the name wrong brings the next look forward" internal/agent/certificates.go \
+  'if !saved || ready {' \
+  'if true || !saved || ready {' \
+  ./internal/agent '^TestOwnDomainChecksTheNameBeforeHTTP01$'
+control "free address: a server change the claim's publish covered doesn't make the loop ask again early" internal/agent/address.go \
+  'a.takeServersChanged()
+	want := freeServers(a.joinServers())' \
+  'want := freeServers(a.joinServers())' \
+  ./internal/agent '^TestServerAddressesCoveredByThePublishAreNotAskedAgain$'
+control "server addresses that failed are asked for again" internal/agent/address.go \
+  'if (st.Free.ServersWait != "" || st.Free.ServersFailed > 0) && !now.Before(st.Free.ServersRetry) {' \
+  'if st.Free.ServersWait != "" && !now.Before(st.Free.ServersRetry) {' \
+  ./internal/agent '^TestServerAddressesThatFailedAreAskedForAgain$'
+control "server addresses that failed are asked for again only when due" internal/agent/address.go \
+  'if (st.Free.ServersWait != "" || st.Free.ServersFailed > 0) && !now.Before(st.Free.ServersRetry) {' \
+  'if st.Free.ServersWait != "" && !now.Before(st.Free.ServersRetry) || st.Free.ServersFailed > 0 {' \
+  ./internal/agent '^TestServerAddressesThatFailedAreAskedForAgain$'
+control "server addresses that failed: a claim's publish doesn't wait for them" internal/agent/address.go \
+  '!st.Free.serverPublished(s) && st.Free.ServersWait == "" && st.Free.ServersFailed == 0' \
+  '!st.Free.serverPublished(s) && st.Free.ServersWait == ""' \
+  ./internal/agent '^TestServerAddressesThatFailedAreAskedForAgain$'
+control "server addresses that failed: a failed update is recorded" internal/agent/address.go \
+  'a.saveServersSync(wait, from, len(errs) > 0)' \
+  'a.saveServersSync(wait, from, false)' \
+  ./internal/agent '^TestServerAddressesFollowEveryAnswerOfTheNamesService$/^the_record_can.t_be_given$'
+control "server addresses that failed: a names key that can't be read is a failure" internal/agent/address.go \
+  '		a.saveServersSync("", time.Time{}, true)
+' \
+  '' \
+  ./internal/agent '^TestServerAddressesFollowEveryAnswerOfTheNamesService$/^the_machine.s_key_can.t_be_read$'
+control "server addresses that failed: nothing left to update ends the retries" internal/agent/address.go \
+  '		a.saveServersSync("", time.Time{}, false)
+' \
+  '' \
+  ./internal/agent '^TestServerAddressesFollowEveryAnswerOfTheNamesService$/^nothing_to_update_after_failures$'
+control "server addresses that failed: a first failure is recorded" internal/agent/address.go \
+  '(wait == "" && !failed && st.Free.ServersWait == "" && st.Free.ServersFailed == 0)' \
+  '(wait == "" && st.Free.ServersWait == "" && st.Free.ServersFailed == 0)' \
+  ./internal/agent '^TestServerAddressesFollowEveryAnswerOfTheNamesService$/^the_record_can.t_be_given$'
+control "server addresses that failed: an update that works ends the retries" internal/agent/address.go \
+  '(wait == "" && !failed && st.Free.ServersWait == "" && st.Free.ServersFailed == 0)' \
+  '(wait == "" && !failed && st.Free.ServersWait == "")' \
+  ./internal/agent '^TestServerAddressesFollowEveryAnswerOfTheNamesService$/^the_record_is_given_after_failures$'
+control "server addresses that failed: failures in a row are counted" internal/agent/address.go \
+  'f.ServersFailed = st.Free.ServersFailed + 1' \
+  'f.ServersFailed = 1' \
+  ./internal/agent '^TestServerAddressesFollowEveryAnswerOfTheNamesService$/^the_record_can.t_be_given_a_second_time$'
+control "server addresses that failed: asked for less often while they keep failing" internal/agent/address.go \
+  'd *= 2' \
+  'd *= 1' \
+  ./internal/agent '^TestServerAddressesFollowEveryAnswerOfTheNamesService$/^the_record_can.t_be_given_a_second_time$'
+control "server addresses that failed: asked for at least hourly" internal/agent/address.go \
+  'if d >= freeRetryEvery {' \
+  'if false {' \
+  ./internal/agent '^TestServerAddressesFollowEveryAnswerOfTheNamesService$/^the_record_can.t_be_given_a_fifth_time$'
+control "server addresses that failed: a failure doesn't end the service's wait" internal/agent/address.go \
+  'case !failed:' \
+  'case true:' \
+  ./internal/agent '^TestServerAddressesFollowEveryAnswerOfTheNamesService$/^the_record_can.t_be_given_during_the_service.s_wait$'
+control "server addresses that failed: a failure doesn't bring the service's wait forward" internal/agent/address.go \
+  '; retry.After(f.ServersRetry) {' \
+  '; true {' \
+  ./internal/agent '^TestServerAddressesFollowEveryAnswerOfTheNamesService$/^the_record_can.t_be_given_during_the_service.s_wait$'
+control "free address change: a release without a clear answer is undone with time of its own" internal/agent/address.go \
+  'rctx, cancel := context.WithTimeout(a.ctx, settleWait)' \
+  'rctx, cancel := context.WithTimeout(ctx, settleWait)' \
+  ./internal/agent '^TestFreeNameChangeIsUndoneAfterItsTimeRanOut$/^the_release_is_answered_too_late$'
+control "free address change: a claim without a clear answer is looked up with time of its own" internal/agent/address.go \
+  'sctx, cancel := context.WithTimeout(a.ctx, settleWait)' \
+  'sctx, cancel := context.WithTimeout(ctx, settleWait)' \
+  ./internal/agent '^TestFreeNameChangeIsUndoneAfterItsTimeRanOut$/^the_claim_is_answered_too_late_and_the_change_can.t_be_saved$'
+control "free address change: a change that can't be saved is undone with time of its own" internal/agent/address.go \
+  'uctx, cancel := context.WithTimeout(a.ctx, settleWait)' \
+  'uctx, cancel := context.WithTimeout(ctx, settleWait)' \
+  ./internal/agent '^TestFreeNameChangeIsUndoneAfterItsTimeRanOut$/^the_claim_is_answered_too_late_and_the_change_can.t_be_saved$'
+control "free address change: a release without a clear answer claims the old name back" internal/agent/address.go \
+  'if maybeStored(err) {
+				rctx' \
+  'if false {
+				rctx' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^the_release_is_carried_out_but_its_answer_is_lost$'
+control "free address change: a name the service doesn't hold for the key needs no release" internal/agent/address.go \
+  'err != nil && !namesCode(err, names.CodeNotClaimed) && !namesCode(err, names.CodeNotYourName) {' \
+  'err != nil && !namesCode(err, names.CodeNotYourName) {' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^the_service_had_alex_released$'
+control "free address change: a name another install has needs no release" internal/agent/address.go \
+  'err != nil && !namesCode(err, names.CodeNotClaimed) && !namesCode(err, names.CodeNotYourName) {' \
+  'err != nil && !namesCode(err, names.CodeNotClaimed) {' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^another_install_had_taken_alex$'
+control "free address change: a new name the service holds after all is the change done" internal/agent/address.go \
+  'if a.reclaim(sctx, c, old, actor) == name {' \
+  'if a.reclaim(sctx, c, old, actor) == name+"-" {' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^bob_is_claimed_but_the_answer_and_the_first_list_are_lost$'
+control "free address: a first name whose claim nothing settles is released again" internal/agent/address.go \
+  'unsure = lerr != nil' \
+  'unsure = lerr != nil && false' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^a_first_name_claimed_but_the_answer_and_the_list_are_lost$'
+control "free address: a first claim refused at the limit takes the name the key holds" internal/agent/address.go \
+  'case namesCode(err, names.CodeLimitReached):' \
+  'case false:' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^the_service_holds_a_name_this_machine_doesn.t_know_of$'
+control "free address: the name the service holds for the key becomes the machine's" internal/agent/address.go \
+  'if l.Name != old && !a.adoptFree(l, old, actor) {' \
+  'if l.Name != old {' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex_was_released_and_the_service_holds_bob$'
+control "free address: the name the machine leaves for the key's stays claimable" internal/agent/address.go \
+  '	released := old
+' \
+  '	released := ""
+' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex_was_released_and_the_service_holds_bob$'
+control "free address: a first name taken from the service keeps the released one claimable" internal/agent/address.go \
+  '	if released == "" {
+		released = was.Released
+	}
+' \
+  '' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^the_service_holds_a_name_this_machine_doesn.t_know_of$'
+control "free address: the old name's certificate goes when the machine takes the key's name" internal/agent/address.go \
+  '	a.forgetCertificate(was.Host)
+' \
+  '' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex_was_released_and_the_service_holds_bob$'
+control "free address: taking the name the key holds is recorded as a claim" internal/agent/address.go \
+  '"was", old)
+	a.audit(actor, "address.claim", host, "succeeded", "")
+' \
+  '"was", old)
+' \
+  ./internal/agent '^TestFreeNameChangeTheMachineCouldNotConfirmEndsOnTheNewName$'
+control "free address: the name the key holds gets its servers' records at once" internal/agent/address.go \
+  '	a.serversChanged()
+	return true
+' \
+  '	return true
+' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex_was_released,_the_service_holds_bob_and_bob.s_refresh_fails$'
+control "free address: the old name is refreshed within the hour while the service can't say" internal/agent/address.go \
+  '_ = a.namesError(lerr)
+		a.retryFree(old)' \
+  '_ = a.namesError(lerr)
+		_ = old' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex_can.t_be_claimed_back_and_the_lists_fail$'
+control "free address: a name the service still lists is refreshed within the hour" internal/agent/address.go \
+  'if listed || !takenElsewhere(err) {
+		a.retryFree(old)' \
+  'if listed || !takenElsewhere(err) {
+		_ = old' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex_can.t_be_claimed_back$'
+control "free address: only a name another key has is given up" internal/agent/address.go \
+  'return namesCode(err, names.CodeNameTaken) || namesCode(err, names.CodeNameHeld) || namesCode(err, names.CodeNotYourName)' \
+  'return err != nil' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex_was_given_back_to_everyone_and_claiming_it_again_fails$'
+control "free address: a name another key took is given up" internal/agent/address.go \
+  'return namesCode(err, names.CodeNameTaken) || ' \
+  'return ' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex_was_given_back_and_another_install_takes_it_meanwhile$'
+control "free address: a name another key holds is given up" internal/agent/address.go \
+  ' || namesCode(err, names.CodeNameHeld)' \
+  '' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex_was_given_back_and_another_install_holds_it_meanwhile$'
+control "free address: a name the service says isn't the key's is given up" internal/agent/address.go \
+  ' || namesCode(err, names.CodeNotYourName)' \
+  '' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^another_install_has_alex$'
+control "free address: a name claimed back and refreshed is next refreshed a day later" internal/agent/address.go \
+  'n, next = r, a.now().UTC().Add(freeRefreshEvery)' \
+  'n = r' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex,_due_for_a_refresh_soon,_is_claimed_back_and_refreshed$'
+control "free address: a refresh that fails asks the service which name the key holds" internal/agent/address.go \
+  'if err != nil {
+		if held, ok := a.followService(' \
+  'if false {
+		if held, ok := a.followService(' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^the_refresh_fails_and_the_service_holds_bob$'
+control "free address: a refresh without an answer asks the service too" internal/agent/address.go \
+  'if err != nil {
+		if held, ok := a.followService(' \
+  'if err != nil && !maybeStored(err) {
+		if held, ok := a.followService(' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^the_refresh_fails_and_the_service_lists_alex$'
+control "free address: a claim back that fails is what the service is asked about" internal/agent/address.go \
+  'if _, err = c.Claim(ctx, c.Name); err == nil {' \
+  'if _, cerr := c.Claim(ctx, c.Name); cerr == nil {' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex_was_given_back_and_another_install_takes_it_meanwhile$'
+control "free address: the name taken from the service is refreshed at once" internal/agent/address.go \
+  '			c.Name = held.Name
+			n, err = c.Refresh(ctx)
+' \
+  '			c.Name = held.Name
+' \
+  ./internal/agent '^TestFreeNameFollowsTheServiceOnEveryErrorPath$/^alex_was_released_and_the_service_holds_bob$'
+control "operations: an address operation stores its end with its audit entry" internal/agent/address.go \
+  'a.finishOperation("", "machine", &done)' \
+  'a.saveOperation(&done)
+		a.audit(actor, kind, "machine", done.Status, done.Error)' \
+  ./internal/agent '^TestAFinishedAddressOperationIsAlreadyAudited$'
+control "free address: publishing waits only for the servers it synced" internal/agent/address.go \
+  'for !freePublished(a.address(), synced) && time.Since(start) < publishWait {' \
+  'for !freePublished(a.address(), a.joinServers()) && len(synced) >= 0 && time.Since(start) < publishWait {' \
+  ./internal/agent '^TestFreeAddressPublishingSkipsServersAddedMeanwhile$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
