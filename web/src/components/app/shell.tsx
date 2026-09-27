@@ -14,7 +14,7 @@ import { can, inSettings, roleName, settingsHome } from '@/lib/access'
 import { demo } from '@/lib/demo'
 import { byMachine, isStale, machineLabel, machineRoute, machineState, reachOf, type MachineTone } from '@/lib/machines'
 import { isCreating, phaseLabel, statusLabel, statusTone } from '@/lib/phase'
-import { presenceProps, useListPresence } from '@/lib/presence'
+import { presenceProps, useAppearAtOnce, useListPresence } from '@/lib/presence'
 import { linkProps, navigate, type Route, type ServerTab } from '@/lib/router'
 import { cn } from '@/lib/utils'
 
@@ -121,10 +121,11 @@ function pageKey(route: Route): string {
   }
 }
 
-/** Fades each new page in; a new key starts the animation again. */
+/** A page, tab or page inside a tab shows at once, with everything on it in place. */
 function Page({ route, children }: { route: Route; children: ReactNode }) {
+  useAppearAtOnce(JSON.stringify(route))
   return (
-    <div key={pageKey(route)} className="flex min-w-0 flex-1 animate-page flex-col">
+    <div key={pageKey(route)} className="flex min-w-0 flex-1 flex-col">
       {children}
     </div>
   )

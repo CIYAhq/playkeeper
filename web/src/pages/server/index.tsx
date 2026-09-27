@@ -22,6 +22,7 @@ import { demo } from '@/lib/demo'
 import { formatMB, relativeTime } from '@/lib/format'
 import { awayOf, isStale, outOfReach, reachOf } from '@/lib/machines'
 import { controls, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from '@/lib/phase'
+import { Appear } from '@/lib/presence'
 import { linkPath, linkProps, navigate, type ServerSub, type ServerTab } from '@/lib/router'
 import { iconURL, softwareLabel, styleTitle, typeName } from '@/lib/servers'
 import { cn } from '@/lib/utils'
@@ -123,10 +124,9 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
   const offline = reach.state !== 'live' && outOfReach(reach.machine)
   if (offline && (page || tab !== 'overview')) body = <Overview server={server} />
   const ownView = !locked && !offline
-  // A page inside a tab animates in like a tab of its own. On desktop, both
+  // A page inside a tab starts afresh like a tab of its own. On desktop, both
   // backup pages are one page and Schedules is a section of Settings. The
-  // Plugins tab keeps its running job and highlighted file across its views,
-  // and animates switching between them itself.
+  // Plugins tab keeps its running job and highlighted file across its views.
   const inner = sub ?? page
   let view = inner ? `${tab}/${inner}` : tab
   if (tab === 'plugins' || tab === 'mods') view = tab
@@ -153,9 +153,11 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
       ) : (
         <ServerHeader server={server} tab={tab} settingUp={settingUp} />
       )}
-      <PageBody key={view} className="flex flex-1 animate-page flex-col gap-4">
+      <PageBody key={view} className="flex flex-1 flex-col gap-4">
         <LoadBoundary>
-          <Suspense fallback={<TabSkeleton />}>{body}</Suspense>
+          <Suspense fallback={<TabSkeleton />}>
+            <Appear>{body}</Appear>
+          </Suspense>
         </LoadBoundary>
       </PageBody>
     </>

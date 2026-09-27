@@ -9,6 +9,7 @@ import { PageSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { t } from '@/i18n'
+import { Appear } from '@/lib/presence'
 import { navigate, useRoute, type Route } from '@/lib/router'
 import { afterSignIn, signInPath } from '@/lib/templates'
 
@@ -221,7 +222,9 @@ export function Routes({ route }: { route: Route }) {
   return (
     <AppShell route={route}>
       <LoadBoundary resetKey={JSON.stringify(route)}>
-        <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>
+        <Suspense fallback={<PageSkeleton />}>
+          <Appear>{page(route)}</Appear>
+        </Suspense>
       </LoadBoundary>
     </AppShell>
   )

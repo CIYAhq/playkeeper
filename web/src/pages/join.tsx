@@ -143,7 +143,7 @@ function JoinShell({ step, children }: { step?: number; children: ReactNode }) {
 function JoinCard({ className, children, ...rest }: { className?: string; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('w-full max-w-[460px] animate-page rounded-4xl border border-border bg-card p-8 shadow-popup max-sm:rounded-3xl max-sm:p-4 max-sm:pt-5 max-sm:shadow-none', className)}
+      className={cn('w-full max-w-[460px] rounded-4xl border border-border bg-card p-8 shadow-popup max-sm:rounded-3xl max-sm:p-4 max-sm:pt-5 max-sm:shadow-none', className)}
       {...rest}
     >
       {children}

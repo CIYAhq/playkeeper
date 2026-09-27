@@ -135,7 +135,6 @@
   --ease-exit: var(--motion-ease-exit);
   --animate-skeleton: skeleton 1.6s ease-in-out infinite;
   --animate-enter: enter var(--motion-standard) var(--motion-ease-enter);
-  --animate-page: page var(--motion-slow) var(--motion-ease-enter);
   --animate-fade: fade var(--motion-standard) var(--motion-ease-standard);
 }
 
@@ -154,19 +153,6 @@
   from {
     opacity: 0;
   }
-}
-@keyframes page {
-  from {
-    opacity: 0;
-    top: 6px;
-  }
-}
-/* Pages rise with `top`, not `translate`: a translated page is the containing
-   block of the phone's fixed action bar, which would then sit at the page's
-   bottom edge until the animation ends and jump into place. */
-.animate-page {
-  position: relative;
-  top: 0;
 }
 
 @layer base {

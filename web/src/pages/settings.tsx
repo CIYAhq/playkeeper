@@ -107,7 +107,7 @@ function SettingsSection({ current, phoneBack, children }: { current: SettingsSe
             {t('global.playkeeper')}
           </a>
         </nav>
-        <div key={current} className="flex min-w-0 animate-page flex-col gap-4">
+        <div key={current} className="flex min-w-0 flex-col gap-4">
           {children}
         </div>
       </PageBody>

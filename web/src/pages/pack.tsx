@@ -89,7 +89,7 @@ function SharedPack({ page, token }: { page: PackPageData; token: string }) {
   )
   return (
     <PackFrame header={header}>
-      <div className="mx-auto flex w-full max-w-[760px] animate-page flex-col gap-4 max-sm:gap-3">
+      <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4 max-sm:gap-3">
         <div>
           <h1 className="text-[28px] leading-9 font-bold tracking-[-0.02em] max-sm:text-[22px] max-sm:leading-7">{t('packPage.title', { server: page.server })}</h1>
           <p className="mt-1 text-[15px] text-muted-foreground">{t('packPage.lead', { notice: shareText(page.notice) })}</p>

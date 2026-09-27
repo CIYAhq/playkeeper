@@ -102,9 +102,8 @@ export function ZipDropZone({ label, onFile, busy, disabledReason, tall, classNa
 
 /**
  * Pins a page's main action above the phone's tabs; the spacer keeps the
- * content clear of it. The bar lives in the document body because the page
- * rises in with a transform, which would pin a fixed bar to the moving page
- * instead of the screen.
+ * content clear of it. The bar lives in the document body, so nothing on the
+ * page can become what it's fixed to instead of the screen.
  */
 export function PhoneActionBar({ label, children }: { label: string; children: ReactNode }) {
   return (
