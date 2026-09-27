@@ -146,7 +146,7 @@ func TestEveryPageIsWellFormed(t *testing.T) {
 			t.Errorf("%s has no <main> or no language", p)
 		}
 		title := between(html, "<title>", "</title>")
-		desc := between(html, `<meta name="description" content="`, `"`)
+		desc := unescape(between(html, `<meta name="description" content="`, `"`))
 		if !within(title, titleLen) {
 			t.Errorf("%s: title %q is %d characters, want %d to %d", p, title, utf8.RuneCountInString(title), titleLen[0], titleLen[1])
 		}
@@ -283,13 +283,45 @@ func TestSitemapAndRobots(t *testing.T) {
 		t.Error("the sitemap doesn't list the live demo")
 	}
 	robots := string(o.Files["robots.txt"])
-	for _, line := range []string{"Allow: /demo/$", "Disallow: /demo/", "Sitemap: https://playkeeper.io/sitemap.xml"} {
+	for _, line := range []string{"Allow: /demo/$", "Allow: /demo/assets/", "Disallow: /demo/", "Sitemap: https://playkeeper.io/sitemap.xml"} {
 		if !strings.Contains(robots, line+"\n") {
 			t.Errorf("robots.txt doesn't say %q", line)
 		}
 	}
 	if !strings.Contains(string(o.Files["blog/feed.xml"]), "https://playkeeper.io/blog/playkeeper-0-4-0") {
 		t.Error("the blog's feed doesn't have the 0.4.0 post")
+	}
+}
+
+// Every page search engines index is linked from at least two others they
+// index, so none hangs off a single link: a docs page needs its entry in
+// docGroups or the footer, not only a mention on another page.
+func TestEveryPageIsLinkedFromTwoOthers(t *testing.T) {
+	built := pages(build(t, Default))
+	indexed := func(p string) bool {
+		html, ok := built[p]
+		return ok && !strings.Contains(html, `content="noindex"`)
+	}
+	from := map[string]map[string]bool{}
+	for p, html := range built {
+		if !indexed(p) {
+			continue
+		}
+		for _, m := range reHref.FindAllStringSubmatch(html, -1) {
+			addr, _, _ := strings.Cut(m[1], "#")
+			if addr == p || !indexed(addr) {
+				continue
+			}
+			if from[addr] == nil {
+				from[addr] = map[string]bool{}
+			}
+			from[addr][p] = true
+		}
+	}
+	for p := range built {
+		if indexed(p) && len(from[p]) < 2 {
+			t.Errorf("%s is linked from %d other pages, want at least 2", p, len(from[p]))
+		}
 	}
 }
 
@@ -903,6 +935,17 @@ func TestStructuredDataIsJSON(t *testing.T) {
 			if got[typ] == nil {
 				t.Errorf("%s has no %s structured data", p, typ)
 			}
+		}
+	}
+	// Validators check each property against the type: codeRepository, say,
+	// is SoftwareSourceCode's, not SoftwareApplication's.
+	softwareProperties := []string{"@context", "@type", "name", "description", "url", "image", "sameAs",
+		"applicationCategory", "applicationSubCategory", "operatingSystem", "processorRequirements", "memoryRequirements",
+		"storageRequirements", "softwareVersion", "softwareRequirements", "downloadUrl", "installUrl", "featureList",
+		"screenshot", "releaseNotes", "license", "isAccessibleForFree", "offers", "author", "publisher", "aggregateRating", "review"}
+	for property := range blocks("/")["SoftwareApplication"] {
+		if !slices.Contains(softwareProperties, property) {
+			t.Errorf("the landing page's SoftwareApplication has %q, which schema.org doesn't give that type", property)
 		}
 	}
 	faq := blocks("/")["FAQPage"]

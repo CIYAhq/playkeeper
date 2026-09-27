@@ -33,18 +33,18 @@ type DocPage struct {
 // sections are the manual; a section missing from README.md leaves its page
 // out, along with the docs landing's entries that point into it.
 var docPages = []DocPage{
-	{"install", "Install Playkeeper", "What your VPS needs, the one-line install and what it changes, and the setup link it prints.", "README.md", "Install on your VPS"},
-	{"servers", "Servers", "New servers, server types, modpacks, templates, your own world and Minecraft versions.", "README.md", "Servers"},
+	{"install", "Install Playkeeper", "What your VPS needs, the one-line install and every change it makes, the ports to open, and the setup link it prints.", "README.md", "Install on your VPS"},
+	{"servers", "Servers", "New servers with the version and memory picked for you: server types, modpacks, templates, your own world and Minecraft versions.", "README.md", "Servers"},
 	{"add-ons", "Plugins, mods and the world", "Plugins, mods, voice chat, friends' mod packs, pre-generation, resource and data packs and the live map.", "README.md", "Plugins, mods and the world"},
-	{"keep-it-running", "Keep it running", "Backups, backup rules, off-site copies, schedules, sleep, crash and lag help and disk space.", "README.md", "Keep it running"},
-	{"friends-and-team", "Friends and your team", "Invite links, player pages, team roles, Discord and two-factor sign-in.", "README.md", "Friends and your team"},
-	{"addresses", "A name for your VPS", "A free yourname.playkeeper.io name or your own domain, with a real certificate.", "README.md", "A name for your VPS"},
-	{"machines-and-ai-agents", "More machines and AI agents", "Servers on a second VPS or a home server, and running them from an AI agent over MCP.", "README.md", "More machines and AI agents"},
-	{"updates", "Update, upgrade and uninstall", "Signed updates that roll back, upgrading older versions, uninstalling, and the command line.", "README.md", "Update, upgrade and uninstall"},
-	{"recovery", "Recover or move a world", "Restore a backup on this machine or a new one, and move a world between machines.", "docs/RECOVERY.md", ""},
+	{"keep-it-running", "Keep it running", "Backups that keep players online, backup rules, off-site copies, schedules, sleep, crash and lag help, and freeing disk space.", "README.md", "Keep it running"},
+	{"friends-and-team", "Friends and your team", "Invite links that put friends on the allowlist, player pages, team roles for co-admins, Discord alerts and two-factor sign-in.", "README.md", "Friends and your team"},
+	{"addresses", "A name for your VPS", "A free name or your own domain for your VPS, with a Let's Encrypt certificate that renews by itself, and your servers' join addresses.", "README.md", "A name for your VPS"},
+	{"machines-and-ai-agents", "More machines and AI agents", "Servers on a second VPS or a home server, all in one dashboard, and AI tools such as Claude or Cursor managing them over MCP.", "README.md", "More machines and AI agents"},
+	{"updates", "Update, upgrade and uninstall", "Signed updates from the dashboard that roll back if they fail, upgrading older versions, uninstalling, and the command line.", "README.md", "Update, upgrade and uninstall"},
+	{"recovery", "Recover or move a world", "Restore a backup on this machine or a new one, move a world to another VPS, and restore off-site copies with the recovery key.", "docs/RECOVERY.md", ""},
 	{"troubleshooting", "Troubleshooting", "When the dashboard won't open, friends can't join, the browser warns or a server runs out of memory.", "docs/TROUBLESHOOTING.md", ""},
-	{"contributing", "Contributing", "Build Playkeeper, run the tests and send a pull request.", "CONTRIBUTING.md", ""},
-	{"security", "Security", "How Playkeeper protects your server, and how to report a problem privately.", "SECURITY.md", ""},
+	{"contributing", "Contributing", "Build and run Playkeeper, run its checks and tests, find where things live in the code, and send a focused pull request.", "CONTRIBUTING.md", ""},
+	{"security", "Security", "How Playkeeper protects your server and its dashboard, what it exposes and why, and how to report a vulnerability privately.", "SECURITY.md", ""},
 }
 
 // DocEntry is one entry point on the docs landing and in the docs nav.
@@ -88,6 +88,7 @@ var docGroups = []DocGroup{
 		{Label: "Friends can't join", Page: "troubleshooting", Anchor: "friends-cant-join"},
 		{Label: "Certificate warning", Page: "troubleshooting", Anchor: "certificate-warning"},
 		{Label: "Out of memory", Page: "troubleshooting", Anchor: "out-of-memory"},
+		{Label: "Recover or move a world", Page: "recovery"},
 	}},
 	{Title: "Project", Entries: []DocEntry{
 		{Label: "Contributing", Blurb: "Build it, run the tests, send a pull request.", Page: "contributing"},
