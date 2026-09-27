@@ -1,13 +1,16 @@
 import type { APIResponse, Page, Request, Route } from '@playwright/test'
 import { addonKeyProblem, answerRead, installJob, isAddonRead, recordedFolder, updateJob, type Answer, type JobStart, type World } from './addon-fixtures'
 import { answerModpackRead, isModpackRead, type PackWorld } from './modpack-fixtures'
+import { answerBuildsRead, isRecordedBuildsRead, layRecordedCatalog } from './software-fixtures'
 
 // Realistic stand-ins for every API call that changes something, so the
 // click-through can press every button without restarting, deleting or
 // downloading anything. Reads go to the real panel, and so do the POSTs that
-// only work something out (see plans), except a server's add-ons and a
-// machine's modpacks: those are answered from recorded fixtures
-// (addon-fixtures.ts, modpack-fixtures.ts) and never reach it. Each fake
+// only work something out (see plans), except a server's add-ons, a
+// machine's modpacks and NeoForge's and Forge's builds: those are answered
+// from recorded fixtures (addon-fixtures.ts, modpack-fixtures.ts,
+// software-fixtures.ts) and never reach it; those two types' catalogs get
+// their recorded versions laid over the panel's answer. Each fake
 // checks the request the way the panel does (CSRF and origin headers, body
 // shape, the preference key rule) and answers with the shape the real
 // handler returns.
@@ -1939,6 +1942,15 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         await route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify(reply.body) })
         return
       }
+      if (isRecordedBuildsRead(method, url)) {
+        const answer = answerBuildsRead(url)
+        const status = answer?.status ?? 501
+        const error = answer ? undefined : `No recorded answer for ${method} ${path}${url.search}.`
+        if (!answer) unrecorded.push(`${method} ${path}${url.search}`)
+        calls.push({ method, path, status, faked: true, error, at })
+        await route.fulfill({ status, headers: answer?.headers, contentType: 'application/json', body: JSON.stringify(answer ? answer.body : { error, code: 'internal' }) }).catch(() => {})
+        return
+      }
       const kind = fixtureRead(method, path)
       if (kind) {
         let answer: Answer | undefined
@@ -1966,7 +1978,9 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         await route.abort().catch(() => {})
         return
       }
-      const laid = res.ok() ? lay(view(), path, await res.json().catch(() => undefined), url.host) : undefined
+      const read = res.ok() ? await res.json().catch(() => undefined) : undefined
+      const software = layRecordedCatalog(url, read)
+      const laid = res.ok() ? (lay(view(), path, software ?? read, url.host) ?? software) : undefined
       if (laid !== undefined) {
         calls.push({ method, path, status: res.status(), faked: true, at })
         const b = /^\/api\/servers\/(\w+)\/backups$/.exec(path)

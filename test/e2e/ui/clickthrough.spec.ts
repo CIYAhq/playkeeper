@@ -12,6 +12,7 @@ import { installPageHelpers } from './crawl-page'
 import { addonJobMs, addonOpAt, lay, type View } from './fakes'
 import { login, outDir } from './helpers'
 import { answerModpackRead, isModpackRead, type PackWorld } from './modpack-fixtures'
+import { answerBuildsRead, isRecordedBuildsRead, layRecordedCatalog, recordedTypes } from './software-fixtures'
 
 // Every control works. The click-through opens every page of the seeded
 // dashboard at desktop and phone sizes, finds every button, link, switch, tab,
@@ -760,6 +761,29 @@ test('the modpack fixtures answer every pack the library lists, from Modrinth an
   expect(isModpackRead('GET', '/api/machines/m1/modpacks/modrinth/1ocGzRHv')).toBe(true)
   expect(isModpackRead('POST', '/api/machines/m1/modpacks')).toBe(false)
   expect(isModpackRead('GET', '/api/machines/m1/templates')).toBe(false)
+})
+
+test("the software fixtures answer NeoForge's and Forge's builds for every version they record, and lay those versions over the panel's catalog", () => {
+  const at = (p: string) => new URL(p, 'https://127.0.0.1:8443')
+  expect(recordedTypes).toEqual(['neoforge', 'forge'])
+  for (const type of recordedTypes) {
+    // As the panel answers when the type's Maven failed: its own memory, and no versions.
+    const panel = { type, memoryOptionsMB: [4096, 6144], versions: [], versionsError: 'The type’s Maven does not have its version list.' }
+    const catalog = layRecordedCatalog(at(`/api/machines/abcdefghjk/catalog?type=${type}&mods=3`), panel)
+    expect(catalog).toMatchObject({ type, memoryOptionsMB: [4096, 6144] })
+    expect(catalog).not.toHaveProperty('versionsError')
+    const versions = (catalog?.versions ?? []) as { minecraftVersion: string; recommended: boolean }[]
+    expect(versions.filter((v) => v.recommended), type).toHaveLength(1)
+    for (const { minecraftVersion } of versions) {
+      const read = at(`/api/machines/abcdefghjk/catalog/builds?type=${type}&version=${minecraftVersion}`)
+      expect(isRecordedBuildsRead('GET', read)).toBe(true)
+      expect(answerBuildsRead(read)).toMatchObject({ status: 200, body: { type, minecraftVersion } })
+    }
+  }
+  expect(answerBuildsRead(at('/api/machines/abcdefghjk/catalog/builds?type=neoforge&version=1.7.10'))).toBeUndefined()
+  expect(isRecordedBuildsRead('GET', at('/api/machines/abcdefghjk/catalog/builds?type=fabric&version=26.2'))).toBe(false)
+  expect(layRecordedCatalog(at('/api/machines/abcdefghjk/catalog?type=paper'), { type: 'paper', versions: [] })).toBeUndefined()
+  expect(layRecordedCatalog(at('/api/machines/abcdefghjk/catalog'), { type: 'paper', versions: [] })).toBeUndefined()
 })
 
 test('the view that looks after itself names each copy somewhere else the same on every read, as a real copy is', async () => {
