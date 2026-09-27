@@ -203,7 +203,7 @@ export const places: Place[] = [
   { what: 'making a folder in the Files tab', sizes: ['desktop', 'phone'], view: 'a few files', page: '/servers/*/files', key: /^button "Create folder" in dialog "New folder"/ },
   { what: 'uploading into a folder of the Files tab', sizes: ['desktop'], view: 'a few files', page: '/servers/*/files', key: /^button "Upload" in "Files"$/ },
   { what: 'uploading from the phone’s bar in the Files tab', sizes: ['phone'], view: 'a few files', page: '/servers/*/files', key: /^button "Upload files"$/ },
-  { what: 'the world folder’s Delete while the game runs', sizes: ['desktop'], view: 'a few files', page: '/servers/*/files', key: /^menuitem "Delete" in menu "" \[disabled\]$/, status: 'disabled with a reason' },
+  { what: 'deleting a selection with the world in it while the game runs', sizes: ['desktop'], view: 'a few files', page: '/servers/*/files', key: /^button "Delete" in "Files" \[disabled\]$/, status: 'disabled with a reason' },
   { what: 'the world folder’s Delete while the game runs, in the phone’s sheet', sizes: ['phone'], view: 'a few files', page: '/servers/*/files', key: /^button "Delete" in dialog "world"( > row "Delete")? \[disabled\]$/, status: 'disabled with a reason' },
   { what: 'the editor’s Save before anything changed', sizes: ['desktop', 'phone'], page: '/servers/*/file/server.properties', key: /^button "Save" \[disabled\]$/, status: 'disabled with a reason' },
 ]
