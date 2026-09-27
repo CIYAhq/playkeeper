@@ -39,7 +39,7 @@ func (r *fakeRelease) publish(t *testing.T, priv ed25519.PrivateKey, v string) {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-	tw.WriteHeader(&tar.Header{Name: "playkeeper-" + v + "-linux-amd64/playkeeper", Mode: 0o755, Size: int64(len(binary)), Typeflag: tar.TypeReg})
+	tw.WriteHeader(&tar.Header{Name: update.BinaryPath(v, update.Platform), Mode: 0o755, Size: int64(len(binary)), Typeflag: tar.TypeReg})
 	tw.Write(binary)
 	tw.Close()
 	gz.Close()

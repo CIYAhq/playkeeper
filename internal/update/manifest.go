@@ -12,16 +12,31 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"runtime"
+	"slices"
 	"strings"
 )
 
-// Asset names a release carries next to the tarball and get.sh.
+// Asset names a release carries next to the tarballs and get.sh. Platform is
+// the build this binary is, and TarballFile the tarball it updates from.
 const (
 	ManifestFile  = "playkeeper-release.json"
 	SignatureFile = "playkeeper-release.json.sig"
-	Platform      = "linux-amd64"
-	TarballFile   = "playkeeper-linux-amd64.tar.gz"
+	Platform      = "linux-" + runtime.GOARCH
+	TarballFile   = "playkeeper-" + Platform + ".tar.gz"
 )
+
+// Platforms are the builds every release carries, in the manifest's order.
+// Versions up to 0.4.0 know only linux-amd64 and skip the other entries.
+var Platforms = []string{"linux-amd64", "linux-arm64"}
+
+// TarballName is the name a release gives a platform's tarball.
+func TarballName(platform string) string { return "playkeeper-" + platform + ".tar.gz" }
+
+// BinaryPath is where a platform's tarball of a version keeps the binary.
+func BinaryPath(version, platform string) string {
+	return "playkeeper-" + version + "-" + platform + "/playkeeper"
+}
 
 // Manifest describes one release. The release workflow signs its exact bytes.
 // Fields added by later releases are ignored, so older installs can still
@@ -46,24 +61,40 @@ type Asset struct {
 }
 
 // Asset returns the build for this platform.
-func (m *Manifest) Asset() (Asset, error) {
+func (m *Manifest) Asset() (Asset, error) { return m.AssetFor(Platform) }
+
+// AssetFor returns the build for a platform, such as linux-arm64.
+func (m *Manifest) AssetFor(platform string) (Asset, error) {
 	for _, a := range m.Assets {
-		if a.Platform == Platform {
+		if a.Platform == platform {
 			return a, nil
 		}
 	}
-	return Asset{}, fmt.Errorf("release %s has no %s build", m.Version, Platform)
+	return Asset{}, fmt.Errorf("release %s has no %s build", m.Version, platform)
 }
 
 var (
 	reSHA256 = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	reBinary = regexp.MustCompile(`^playkeeper-[0-9A-Za-z.+-]+-linux-amd64/playkeeper$`)
+	reBinary = regexp.MustCompile(`^playkeeper-[0-9A-Za-z.+-]+-linux-[a-z0-9]+/playkeeper$`)
 )
 
 // maxNotes bounds the release notes an install shows.
 const maxNotes = 16 << 10
 
+// validate checks the manifest and this platform's build only, so a release
+// that adds a platform this version doesn't know still updates it.
 func (m *Manifest) validate() error {
+	if err := m.validateHeader(); err != nil {
+		return err
+	}
+	a, err := m.Asset()
+	if err != nil {
+		return err
+	}
+	return m.validateAsset(a, Platform)
+}
+
+func (m *Manifest) validateHeader() error {
 	if m.Schema != 1 {
 		return fmt.Errorf("release manifest schema %d is not supported by this Playkeeper; install the release with the one-line installer instead", m.Schema)
 	}
@@ -73,19 +104,42 @@ func (m *Manifest) validate() error {
 	if len(m.Notes) > maxNotes {
 		return errors.New("release manifest: notes are too long")
 	}
-	a, err := m.Asset()
-	if err != nil {
-		return err
-	}
+	return nil
+}
+
+func (m *Manifest) validateAsset(a Asset, platform string) error {
 	switch {
-	case a.File != TarballFile:
-		return fmt.Errorf("release manifest: unexpected file %q for %s", a.File, Platform)
+	case a.Platform != platform:
+		return fmt.Errorf("release manifest: a build for %q where %s was expected", a.Platform, platform)
+	case a.File != TarballName(platform):
+		return fmt.Errorf("release manifest: unexpected file %q for %s", a.File, platform)
 	case !reSHA256.MatchString(a.SHA256) || !reSHA256.MatchString(a.BinarySHA256):
 		return errors.New("release manifest: malformed SHA-256")
 	case a.Size <= 0 || a.Size > MaxTarballBytes:
 		return fmt.Errorf("release manifest: implausible tarball size %d", a.Size)
-	case !reBinary.MatchString(a.Binary) || a.Binary != "playkeeper-"+m.Version+"-linux-amd64/playkeeper":
+	case !reBinary.MatchString(a.Binary) || a.Binary != BinaryPath(m.Version, platform):
 		return fmt.Errorf("release manifest: unexpected binary path %q", a.Binary)
+	}
+	return nil
+}
+
+// CheckComplete checks what the release workflow publishes: one well-formed
+// build for each of Platforms, in that order, and nothing else.
+func (m *Manifest) CheckComplete() error {
+	if err := m.validateHeader(); err != nil {
+		return err
+	}
+	var got []string
+	for _, a := range m.Assets {
+		got = append(got, a.Platform)
+	}
+	if !slices.Equal(got, Platforms) {
+		return fmt.Errorf("release manifest: builds for %s, want %s", strings.Join(got, ", "), strings.Join(Platforms, ", "))
+	}
+	for _, a := range m.Assets {
+		if err := m.validateAsset(a, a.Platform); err != nil {
+			return err
+		}
 	}
 	return nil
 }
