@@ -210,7 +210,7 @@ type Excluded struct {
 }
 
 // Owns reports whether path is one of the pack's files on the server, for
-// labelling files in the add-on folder and the file manager.
+// labelling files in the add-on folder and on the Files tab.
 func (r *Record) Owns(path string) bool {
 	return slices.ContainsFunc(r.Files, func(f File) bool { return f.Path == path })
 }

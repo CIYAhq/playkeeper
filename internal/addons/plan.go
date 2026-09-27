@@ -709,7 +709,7 @@ func fileExists(s Step, t Target) Notice {
 func modified(rec Installed, verb string) Notice {
 	return notice(KindModified, kv("name", rec.Name, "file", rec.FileName),
 		fmt.Sprintf("%s has changed since Playkeeper installed it, so Playkeeper will not %s it.", rec.FileName, verb),
-		"If you changed it on purpose, manage it by hand in the file manager.")
+		"If you changed it on purpose, manage it by hand on the Files tab.")
 }
 
 func depGone(s Step, d dep) Notice {

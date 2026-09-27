@@ -445,7 +445,7 @@ function planUpdate(req: UpdateRequest, world: World): { plan: Plan } | { notice
     const params = { file: t.rec.fileName, name: t.rec.name }
     if (t.gone) add(plan.warnings, { kind: 'not_found', params, message: `${t.rec.fileName} is missing from the ${folder} folder, so this installs it again.` })
     else if (t.modified && req.changed) add(plan.warnings, { kind: 'modified', params, message: `${t.rec.fileName} has changed since Playkeeper installed it; this replaces it as you asked.` })
-    else if (t.modified) add(plan.blockers, { kind: 'modified', params, message: `${t.rec.fileName} has changed since Playkeeper installed it, so Playkeeper will not replace it.`, hint: 'If you changed it on purpose, manage it by hand in the file manager.' })
+    else if (t.modified) add(plan.blockers, { kind: 'modified', params, message: `${t.rec.fileName} has changed since Playkeeper installed it, so Playkeeper will not replace it.`, hint: 'If you changed it on purpose, manage it by hand on the Files tab.' })
   })
   return { plan: sealed(plan) }
 }
