@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeftIcon, DownloadIcon, RefreshCwIcon, SearchIcon } from 'lucide-react'
 import { ApiError, get } from '@/api/client'
 import type { AddonBrowse, AddonCard, AddonDetails, AddonNotice } from '@/api/types'
+import { useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Marker, Notice, SectionLabel } from '@/components/app/bits'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
@@ -10,10 +11,12 @@ import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t, type MessageKey } from '@/i18n'
+import { rich } from '@/i18n/rich'
+import { can } from '@/lib/access'
 import { alsoInstalls, appendCards, browseSorts, compactCount, footerFor, maxSearch, searchPath, sourceNames, type BrowseSort } from '@/lib/addons'
 import { busyReason } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
-import { linkProps } from '@/lib/router'
+import { href, linkPath, linkProps } from '@/lib/router'
 import { softwareLabel } from '@/lib/servers'
 import { cn } from '@/lib/utils'
 import { CuratedPicks } from './curated'
@@ -54,6 +57,7 @@ function unreachable(e: ApiError): boolean {
 
 export function BrowseView() {
   const a = useAddons()
+  const ws = useWorkspace()
   const phone = useIsPhone()
   const [q, setQ] = useState('')
   const [text, setText] = useState('')
@@ -186,6 +190,17 @@ export function BrowseView() {
       <div className="flex animate-fade flex-col items-center py-14 text-center">
         <Pip pose="search" size={88} />
         <h3 className="mt-4 text-lg font-bold">{text.trim() ? t('addons.nothingMatches', { q: text.trim() }) : t('cmd.emptyPlain')}</h3>
+        {text.trim() && can(ws.me, 'servers.create') && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            {rich('addons.packHint', {
+              link: (chunk) => (
+                <a {...linkPath(`${href({ name: 'new-server', machine: a.server.machineId })}#modpack`)} className="font-medium text-success-strong hover:underline">
+                  {chunk}
+                </a>
+              ),
+            })}
+          </p>
+        )}
         <button type="button" onClick={clear} className="mt-2 text-sm font-medium text-success-strong hover:underline">
           {t('addons.clearSearch')}
         </button>

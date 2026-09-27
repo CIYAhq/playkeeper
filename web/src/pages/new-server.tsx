@@ -173,7 +173,9 @@ export function NewServerPage({ machine }: { machine?: string }) {
     // Once read, a shared template's data stays out of the address bar and history.
     if (templateFromHash(window.location.hash)) window.history.replaceState(null, '', window.location.pathname)
   }, [])
-  const [from, setFrom] = useState<StartFrom>(() => (handoff ? 'template' : window.location.hash === '#world' ? 'world' : 'type'))
+  const [from, setFrom] = useState<StartFrom>(() =>
+    handoff ? 'template' : window.location.hash === '#world' ? 'world' : window.location.hash === '#modpack' && startFroms.some((f) => f.value === 'modpack') ? 'modpack' : 'type',
+  )
   const [pack, setPack] = useState<ModpackChoice>()
   const packed = from === 'modpack' && !!pack
   // The chosen pack's plan says whether it brings voice chat, whose port the last step names.
@@ -376,7 +378,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
     checkSeq.current++
     setCheckBusy(false)
     setFrom(v)
-    window.history.replaceState(null, '', v === 'world' ? '#world' : window.location.pathname)
+    window.history.replaceState(null, '', v === 'world' || v === 'modpack' ? `#${v}` : window.location.pathname)
   }
 
   function next() {
