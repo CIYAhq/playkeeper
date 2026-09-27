@@ -94,7 +94,7 @@ read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}
 # Each goes to the install log with the address the proxy says it's from.
 for p in /install/cygnus /install/HN /install/not-a-channel; do
   read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' -H 'X-Forwarded-For: 203.0.113.9' "$base$p")
-  [ "$code" = 302 ] && [ "$location" = "$want" ] || fail "$p answered $code to '$location', not 302 to $want"
+  if [ "$code" != 302 ] || [ "$location" != "$want" ]; then fail "$p answered $code to '$location', not 302 to $want"; fi
 done
 code=$(curl -sS -o /dev/null -w '%{http_code}' "$base/install/a/b")
 [ "$code" = 404 ] || fail "/install/a/b answered $code, not 404"
@@ -120,10 +120,10 @@ for c in cygnus:youtube:sponsor:creators-oct26:/go/cygnus hn:hackernews:communit
   IFS=: read -r channel source medium campaign p <<<"$c"
   read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base$p")
   tagged="$base/?utm_source=$source&utm_medium=$medium&utm_campaign=$campaign&utm_content=$channel"
-  [ "$code" = 302 ] && [ "$location" = "$tagged" ] || fail "$p answered $code to '$location', not 302 to $tagged"
+  if [ "$code" != 302 ] || [ "$location" != "$tagged" ]; then fail "$p answered $code to '$location', not 302 to $tagged"; fi
 done
 read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/go/nope")
-[ "$code" = 302 ] && [ "$location" = "$base/" ] || fail "/go/nope answered $code to '$location', not 302 to /"
+if [ "$code" != 302 ] || [ "$location" != "$base/" ]; then fail "/go/nope answered $code to '$location', not 302 to /"; fi
 read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/community")
 [ "$code" = 302 ] || fail "/community answered $code, not 302"
 [ "$location" = "$community" ] || fail "/community redirects to '$location', not $community"
