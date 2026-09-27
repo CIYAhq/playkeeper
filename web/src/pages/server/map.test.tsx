@@ -266,10 +266,10 @@ describe('The map’s area', () => {
     await openArea()
     const text = within().textContent ?? ''
     expect(text).toContain(t('mapArea.lead'))
-    expect(text).toContain('Explored onlyWhere players have been')
-    expect(text).toContain('1,000 blocksabout 12 min · 150 MB')
-    expect(text).toContain('2,500 blocksRecommendedabout 1.5 h · 950 MB')
-    expect(text).toContain('10,000 blocksNot enough free disk')
+    expect(text).toContain('Explored only Where players have been')
+    expect(text).toContain('1,000 blocks about 12 min · 150 MB')
+    expect(text).toContain('2,500 blocks Recommended about 1.5 h · 950 MB')
+    expect(text).toContain('10,000 blocks Not enough free disk')
     expect(choice('10,000 blocks')?.getAttribute('title')).toBe(t('pregen.noRoom'))
     expect(checked()).toContain('Explored only')
     const start = () => buttonNamed(t('pregen.start'), within())
@@ -298,7 +298,7 @@ describe('The map’s area', () => {
     expect(fillCard()?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('43')
 
     await openArea()
-    expect(checked()).toContain('2,500 blocksFilling in · 42%')
+    expect(checked()).toContain('2,500 blocks Filling in · 42%')
     await click(choice('Explored only')?.querySelector('[role="radio"]'))
     expect(within().textContent).toContain(t('mapArea.stopNote'))
     await click(choice('5,000 blocks')?.querySelector('[role="radio"]'))
@@ -320,7 +320,7 @@ describe('The map’s area', () => {
     const options = [...sizes.slice(0, 2), ...sizes.slice(2).map((o) => ({ ...o, pastBorder: true })), border]
     await renderMap(mapInfo({}), undefined, mapArea({ options }))
     await openArea()
-    expect(within().textContent).toContain('Up to the world border3,000 blocks · about 2 h · 1.3 GB')
+    expect(within().textContent).toContain('Up to the world border 3,000 blocks · about 2 h · 1.3 GB')
     expect(choice('5,000 blocks')?.getAttribute('title')).toBe(t('mapArea.pastBorder'))
     expect(choice('5,000 blocks')?.querySelector('[role="radio"]')?.hasAttribute('data-disabled')).toBe(true)
     await click(choice('Up to the world border')?.querySelector('[role="radio"]'))

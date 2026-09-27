@@ -68,8 +68,8 @@ function Choice({ title, hint, marker }: { title: string; hint: string; marker?:
     <span className="flex items-baseline justify-between gap-x-4 max-sm:flex-col max-sm:items-start max-sm:gap-0.5">
       <span className="flex items-center gap-2 text-sm font-semibold max-sm:text-[15px]">
         {title}
-        {marker}
-      </span>
+        {marker && <> {marker}</>}
+      </span>{' '}
       <span key={hint} className="animate-fade text-xs text-muted-foreground tabular-nums max-sm:text-[13px]">
         {hint}
       </span>
@@ -164,11 +164,12 @@ export function MapAreaDialog({ open, onOpenChange, server, area }: { open: bool
             {!data.fill.installed && (
               <p className={cn('text-muted-foreground', phone ? 'mt-1 text-[13px]' : 'mt-3 text-xs')}>
                 {rich(addonKind(server.type) === 'mod' ? 'pregen.installsMod' : 'pregen.installsPlugin', {
-                  link: (chunk) => (
-                    <a href={t('pregen.learnMoreUrl')} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline" aria-label={t('common.external', { label: chunk })}>
-                      {chunk}
-                    </a>
-                  ),
+                  link: (chunk) =>
+                    phone ? null : (
+                      <a href={t('pregen.learnMoreUrl')} target="_blank" rel="noreferrer" className="font-medium text-primary hover:underline" aria-label={t('common.external', { label: chunk })}>
+                        {chunk}
+                      </a>
+                    ),
                 })}
               </p>
             )}
@@ -210,7 +211,7 @@ export function MapAreaDialog({ open, onOpenChange, server, area }: { open: bool
         </DialogHeader>
         <DialogPanel className="max-sm:px-5">{body}</DialogPanel>
         {phone ? (
-          <div className="px-5 pt-4">
+          <div className="px-5 pt-1">
             {note && (
               <p key={note} className="mb-3 animate-fade text-[13px] text-muted-foreground">
                 {note}
