@@ -16,7 +16,7 @@ curl -fsSL https://playkeeper.io/install | sudo sh
 
 No `sudo`, as on a Debian installed with a root password? Run `su -`, then the same command without `sudo`.
 
-`https://playkeeper.io/install` redirects to `get.sh` from the [latest release](https://github.com/CIYAhq/playkeeper/releases/latest). The script downloads `playkeeper-linux-amd64.tar.gz` and its `.sha256` from that release, stops unless the SHA-256 matches, then runs the installer, which asks before changing anything. Installer options go after `sh -s --`, for example `… | sudo sh -s -- --yes --game-port 25566`. To read the script first: `curl -fsSL https://playkeeper.io/install | less`.
+`https://playkeeper.io/install` redirects to `get.sh` from the [latest release](https://github.com/CIYAhq/playkeeper/releases/latest). The script downloads the tarball for your VPS's CPU from that release, `playkeeper-linux-amd64.tar.gz` on x86_64 or `playkeeper-linux-arm64.tar.gz` on 64-bit ARM, and its `.sha256`, stops unless the SHA-256 matches, then runs the installer, which asks before changing anything. Installer options go after `sh -s --`, for example `… | sudo sh -s -- --yes --game-port 25566`. To read the script first: `curl -fsSL https://playkeeper.io/install | less`.
 
 If playkeeper.io is unreachable, the same script comes straight from GitHub:
 
@@ -24,18 +24,19 @@ If playkeeper.io is unreachable, the same script comes straight from GitHub:
 curl -fsSL https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh | sudo sh
 ```
 
-To skip the script, download `playkeeper-linux-amd64.tar.gz` and `playkeeper-linux-amd64.tar.gz.sha256` from the [releases page](https://github.com/CIYAhq/playkeeper/releases/latest) to the VPS, then:
+To skip the script, download the tarball for the VPS's CPU and its `.sha256` from the [releases page](https://github.com/CIYAhq/playkeeper/releases/latest) to the VPS: `playkeeper-linux-amd64.tar.gz` if `uname -m` says `x86_64`, `playkeeper-linux-arm64.tar.gz` if it says `aarch64`. Then:
 
 ```bash
-sha256sum -c playkeeper-linux-amd64.tar.gz.sha256 && tar -xzf playkeeper-linux-amd64.tar.gz
-sudo ./playkeeper-*-linux-amd64/install.sh
+ARCH=amd64   # arm64 on a 64-bit ARM VPS
+sha256sum -c playkeeper-linux-$ARCH.tar.gz.sha256 && tar -xzf playkeeper-linux-$ARCH.tar.gz
+sudo ./playkeeper-*-linux-$ARCH/install.sh
 ```
 
 **How big a VPS?** The [sizing guide](https://playkeeper.io/sizing) answers for how many friends play at once and what you'll run.
 
-**Runs on:** Ubuntu 20.04 or later, or Debian 12 or later, on x86_64 with systemd. Before every release it is installed, played on, backed up, restored, updated and uninstalled on Ubuntu 20.04, 22.04, 24.04 and 26.04 LTS and Debian 12 and 13, each in a fresh KVM guest built from its official cloud image (3 GB RAM, 2 vCPU, 20 GB disk); every change also runs on GitHub-hosted `ubuntu-24.04` runners, and the owner has installed it on a real provider VPS (see the status above). A newer Ubuntu or Debian release than these gets a warning, not a refusal. Ubuntu 20.04 still works, but its standard security updates ended in May 2025 (Ubuntu Pro has more), and the installer says so. Debian 11 isn't supported: since its long-term support ended in August 2026, Debian's archive no longer has the Docker packages its package lists point to, so Docker can't be installed from it. Other distributions and older releases need `--allow-untested-os`.
+**Runs on:** Ubuntu 20.04 or later, or Debian 12 or later, on x86_64 or 64-bit ARM with systemd. Before every release it is installed, played on, backed up, restored, updated and uninstalled on Ubuntu 20.04, 22.04, 24.04 and 26.04 LTS and Debian 12 and 13, each in a fresh KVM guest built from its official cloud image (3 GB RAM, 2 vCPU, 20 GB disk); every change also runs on GitHub-hosted `ubuntu-24.04` runners, and the owner has installed it on a real provider VPS (see the status above). On 64-bit ARM, before each release, it runs on Ubuntu 24.04 LTS on GitHub-hosted `ubuntu-24.04-arm` runners: install, onboarding, play with test bots, backup, restore on a second runner, every server type with the hand-picked add-ons, the map, pre-generation and a modpack, and uninstall. The other releases haven't been tried on ARM yet, nor have the ARM servers the arm64 build is for, such as Oracle Cloud's free Ampere A1, Hetzner's and AWS's (Graviton) ARM machines and a Raspberry Pi 4 or 5 with a 64-bit OS. A newer Ubuntu or Debian release than these gets a warning, not a refusal. Ubuntu 20.04 still works, but its standard security updates ended in May 2025 (Ubuntu Pro has more), and the installer says so. Debian 11 isn't supported: since its long-term support ended in August 2026, Debian's archive no longer has the Docker packages its package lists point to, so Docker can't be installed from it. The installer refuses a 32-bit system on a 64-bit CPU, and other distributions and older releases need `--allow-untested-os`.
 
-**You need:** root (sudo) on the VPS; at least 2 vCPUs (the size that was tested; the installer does not check the count); at least 3 GB RAM (2.3 GB is the hard minimum the installer accepts) and 5 GB free disk (3 GB minimum). Open these in your provider's firewall:
+**You need:** root (sudo) on the VPS; an x86_64 or 64-bit ARM CPU with a 64-bit OS; at least 2 vCPUs (the size that was tested; the installer does not check the count); at least 3 GB RAM (2.3 GB is the hard minimum the installer accepts) and 5 GB free disk (3 GB minimum). Open these in your provider's firewall:
 
 - TCP **8443** for the dashboard;
 - TCP **25565** for the first Minecraft server, plus one more from 25566 for each further server;
@@ -44,7 +45,9 @@ sudo ./playkeeper-*-linux-amd64/install.sh
 
 When ufw is on, the installer allows 8443, 25565 and 80 in it. Another firewall on the server, such as nftables on Debian, needs its own rules: the installer's check says which one it found and how to allow the ports.
 
-Outbound, Playkeeper needs your distribution's package archive if it installs Docker, and HTTPS to GitHub, Docker Hub, PaperMC and Mojang and, for the features you use, to Modrinth and Hangar (plugins, mods and modpacks; a Modrinth modpack may also fetch files from GitHub or GitLab), CurseForge, the download sites of Purpur, Fabric, Quilt, NeoForge and Forge, the websites a template's data packs come from, Discord, Let's Encrypt with Playkeeper's names service or public DNS-over-HTTPS (addresses), and your own storage (off-site copies). Docker is installed from Ubuntu's or Debian's `docker.io` package if missing (with `docker-cli` on Debian 13, which packages the `docker` command on its own); an existing Docker is used as it is. To check a server without changing it, extract the tarball as above and run `sudo ./playkeeper-*-linux-amd64/playkeeper preflight`.
+On Oracle Cloud, allow the dashboard's port in the VM's own firewall too: its Ubuntu images block every port but SSH with iptables ([Troubleshooting](docs/TROUBLESHOOTING.md#cant-reach-the-dashboard)).
+
+Outbound, Playkeeper needs your distribution's package archive if it installs Docker, and HTTPS to GitHub, Docker Hub, PaperMC and Mojang and, for the features you use, to Modrinth and Hangar (plugins, mods and modpacks; a Modrinth modpack may also fetch files from GitHub or GitLab), CurseForge, the download sites of Purpur, Fabric, Quilt, NeoForge and Forge, the websites a template's data packs come from, Discord, Let's Encrypt with Playkeeper's names service or public DNS-over-HTTPS (addresses), and your own storage (off-site copies). Docker is installed from Ubuntu's or Debian's `docker.io` package if missing (with `docker-cli` on Debian 13, which packages the `docker` command on its own); an existing Docker is used as it is. To check a server without changing it, extract the tarball as above and run `sudo ./playkeeper-*-linux-$ARCH/playkeeper preflight`.
 
 The installer checks the server first (changing nothing), lists every change it will make and how to undo it, and asks before continuing. It never takes over an existing Minecraft, Crafty or panel install. When it finishes it prints:
 
@@ -96,7 +99,7 @@ Everything else happens in the browser: create the admin account, pass the check
 
 ## More machines and AI agents
 
-- **Servers on more machines:** **Settings › Machines › Connect another machine** makes a one-line command for a second VPS or a home server (Ubuntu 20.04 or later, or Debian 12 or later, with at least 2 CPU cores, 3 GB of memory and 5 GB of free disk). On a new machine it installs Playkeeper without a dashboard of its own; on one that already runs Playkeeper, it's `sudo playkeeper join …`. The machine dials out to your dashboard's address and port and reconnects by itself, so no port opens on it for Playkeeper; its servers' game ports need opening there as usual. Its servers show up on Home and in the sidebar with the others. Each code works once, for 30 minutes, and the fingerprint in the command proves the machine found your dashboard. Open the dashboard at its IP address or domain name to get the command, and use `sudo playkeeper leave` on the machine to disconnect it.
+- **Servers on more machines:** **Settings › Machines › Connect another machine** makes a one-line command for a second VPS or a home server (Ubuntu 20.04 or later, or Debian 12 or later, with at least 2 CPU cores, 3 GB of memory and 5 GB of free disk). Its CPU needn't match the dashboard machine's: each machine, x86_64 or 64-bit ARM, installs and updates its own build. On a new machine it installs Playkeeper without a dashboard of its own; on one that already runs Playkeeper, it's `sudo playkeeper join …`. The machine dials out to your dashboard's address and port and reconnects by itself, so no port opens on it for Playkeeper; its servers' game ports need opening there as usual. Its servers show up on Home and in the sidebar with the others. Each code works once, for 30 minutes, and the fingerprint in the command proves the machine found your dashboard. Open the dashboard at its IP address or domain name to get the command, and use `sudo playkeeper leave` on the machine to disconnect it.
 - **AI agents:** **Settings › AI agents** shows the dashboard's MCP address and makes a token for each AI tool, such as Claude or Cursor, for 30, 60, 90 or 365 days and for all servers or some. A token has a Viewer's rights (status, players, the console and crashes, and searching for plugins and mods), a Moderator's (also start and stop, backups and the allowlist) or an Admin's (also console commands, and installing and removing plugins and mods), and never more than your own account: it stops working if you're removed from the team, your role is lowered or you lose a server it's for. What agents do shows up there and in the activity log. Over SSH, `sudo playkeeper mcp` serves the same tools with the owner's rights, for that machine's servers.
 
 ## Update, upgrade and uninstall
@@ -127,7 +130,7 @@ git clone https://github.com/CIYAhq/playkeeper.git && cd playkeeper
 ./scripts/setup.sh    # pinned Go and Node into .tools/, npm ci
 make check            # lint, typecheck, Go, web and installer-script unit tests (CI's check job)
 make dev              # agent + panel locally at https://localhost:8443 (uses your Docker)
-make package          # release tarball, get.sh, the stable-named copy and the (unsigned) release manifest in dist/
+make package          # release tarballs for x86_64 and 64-bit ARM, get.sh, the stable-named copies and the (unsigned) release manifest in dist/
 make e2e-vm           # the full KVM rehearsal: install, play, backup, restore, one-line install
 ```
 

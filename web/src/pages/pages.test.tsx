@@ -3380,7 +3380,7 @@ describe('Machines and AI agents', () => {
     answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }, { name: 'Debian', version: '12' }] }, sizingUrl: 'https://playkeeper.io/sizing', available: true, codes: [] } })
     const text = await render(<MachinesSection />)
     expect(text).toContain('Open this dashboard at its IP address or domain name, not localhost, to get the command.')
-    expect(text).toContain('Ubuntu 20.04+ or Debian 12+, at least 2 CPU cores, 3 GB of memory and 5 GB of free disk.')
+    expect(text).toContain('Ubuntu 20.04+ or Debian 12+ on x86-64 or ARM64, at least 2 CPU cores, 3 GB of memory and 5 GB of free disk.')
     expect(vi.mocked(client.post).mock.calls.some(([p]) => String(p).includes('/join-codes'))).toBe(false)
   })
 

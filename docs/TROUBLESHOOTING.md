@@ -6,12 +6,13 @@ The four problems people hit most, with what to check first. If none of this hel
 
 - Open it at `https://` and port 8443: `https://<your-vps-ip>:8443`. Plain `http://` or the address without the port doesn't answer.
 - Allow TCP 8443 in your provider's firewall, the one in its web console. The installer allows it in ufw when ufw is on, but a provider's cloud firewall sits in front of the VPS and needs its own rule. So does another firewall on the VPS itself, such as nftables on Debian: the installer's check names the one it found and the command that allows the port.
+- On Oracle Cloud, the VM's Ubuntu image also rejects every port but SSH with its own iptables rules, besides the security list in Oracle's console. Allow the dashboard there too: `sudo iptables -I INPUT -p tcp --dport 8443 -j ACCEPT && sudo netfilter-persistent save`, and the same with `--dport 80` if you give it your own domain.
 - On the VPS, `sudo playkeeper status` shows whether Playkeeper's services are running.
 - Lost the setup link before creating the admin account? `sudo playkeeper setup-code` makes a new one. Forgot the password? `sudo playkeeper reset-password <user>`.
 
 ## Friends can't join
 
-- Allow the game ports in your provider's firewall: TCP 25565 for the first server, and one more from 25566 for each further server. A server with voice chat also needs its UDP port, 24454 or the next free one.
+- Allow the game ports in your provider's firewall: TCP 25565 for the first server, and one more from 25566 for each further server. A server with voice chat also needs its UDP port, 24454 or the next free one. On Oracle Cloud that is the security list; if friends still can't connect, allow the ports in the VM's iptables as well, as for the dashboard above.
 - Friends need Minecraft: Java Edition. Bedrock can't join.
 - They must be on the server's allowlist: send them an invite link from the Players tab, or add their Minecraft name there.
 - Copy the join address from the server's Overview. With a free name, each server gets its own address without a port three days after the claim; until then, friends use `yourname.playkeeper.me` with the server's port.

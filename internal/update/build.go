@@ -10,33 +10,63 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
-// BuildManifest describes a release tarball: its size and SHA-256 and the
-// SHA-256 of the playkeeper binary inside it. The result is what the release
+// BuildManifest describes release tarballs, each named as TarballName names
+// its platform's: its size and SHA-256 and the SHA-256 of the playkeeper
+// binary inside it, in the order of Platforms. The result is what the release
 // workflow signs.
-func BuildManifest(version, date, notes, tarball string) ([]byte, error) {
+func BuildManifest(version, date, notes string, tarballs ...string) ([]byte, error) {
 	if _, err := ParseVersion(version); err != nil {
 		return nil, err
 	}
-	sum, err := FileSHA256(tarball)
-	if err != nil {
-		return nil, err
+	if len(tarballs) == 0 {
+		return nil, errors.New("a release needs at least one tarball")
 	}
-	st, err := os.Stat(tarball)
-	if err != nil {
-		return nil, err
+	byPlatform := map[string]string{}
+	for _, t := range tarballs {
+		platform := ""
+		for _, p := range Platforms {
+			if filepath.Base(t) == TarballName(p) {
+				platform = p
+			}
+		}
+		if platform == "" {
+			return nil, fmt.Errorf("%s is not named like a release tarball (%s)", filepath.Base(t), TarballName("linux-<arch>"))
+		}
+		if byPlatform[platform] != "" {
+			return nil, fmt.Errorf("two tarballs for %s", platform)
+		}
+		byPlatform[platform] = t
 	}
-	binary := "playkeeper-" + version + "-linux-amd64/playkeeper"
-	binSum, err := entrySHA256(tarball, binary)
-	if err != nil {
-		return nil, err
+	m := Manifest{Schema: 1, Version: version, Date: date, Notes: strings.TrimSpace(notes)}
+	for _, platform := range Platforms {
+		tarball := byPlatform[platform]
+		if tarball == "" {
+			continue
+		}
+		sum, err := FileSHA256(tarball)
+		if err != nil {
+			return nil, err
+		}
+		st, err := os.Stat(tarball)
+		if err != nil {
+			return nil, err
+		}
+		binary := BinaryPath(version, platform)
+		binSum, err := entrySHA256(tarball, binary)
+		if err != nil {
+			return nil, err
+		}
+		a := Asset{Platform: platform, File: TarballName(platform), SHA256: sum, Size: st.Size(), Binary: binary, BinarySHA256: binSum}
+		if err := m.validateAsset(a, platform); err != nil {
+			return nil, err
+		}
+		m.Assets = append(m.Assets, a)
 	}
-	m := Manifest{Schema: 1, Version: version, Date: date, Notes: strings.TrimSpace(notes), Assets: []Asset{{
-		Platform: Platform, File: TarballFile, SHA256: sum, Size: st.Size(), Binary: binary, BinarySHA256: binSum,
-	}}}
-	if err := m.validate(); err != nil {
+	if err := m.validateHeader(); err != nil {
 		return nil, err
 	}
 	b, err := json.MarshalIndent(m, "", "  ")

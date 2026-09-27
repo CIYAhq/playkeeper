@@ -1737,7 +1737,7 @@ export const en = {
   'machines.connect.title': 'Connect another machine',
   'machines.connect.lead': 'Add a second VPS or a home server.',
   'machines.connect.step1': 'Get a machine',
-  'machines.connect.minimum': '{systems}, at least {cores} CPU cores, {memory} GB of memory and {disk} GB of free disk.',
+  'machines.connect.minimum': '{systems} on x86-64 or ARM64, at least {cores} CPU cores, {memory} GB of memory and {disk} GB of free disk.',
   'machines.connect.system': '{name} {version}+',
   'machines.connect.sizing': 'How big? See the sizing guide',
   'machines.connect.step2': 'Name it',

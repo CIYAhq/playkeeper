@@ -10,7 +10,8 @@ repo=$2
 install_url=$3
 dir=$4
 tag=v$version
-tar_sha=$(awk 'NR == 1 {print $1}' "$dir/playkeeper-linux-amd64.tar.gz.sha256")
+amd64_sha=$(awk 'NR == 1 {print $1}' "$dir/playkeeper-linux-amd64.tar.gz.sha256")
+arm64_sha=$(awk 'NR == 1 {print $1}' "$dir/playkeeper-linux-arm64.tar.gz.sha256")
 get_sha=$(sha256sum "$dir/get.sh" | awk '{print $1}')
 changes=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['notes'])" "$dir/playkeeper-release.json")
 
@@ -27,7 +28,7 @@ $changes
 
 ## Install or update
 
-On an x86_64 server with Ubuntu 20.04 or later, or Debian 12 or later:
+On an x86_64 or 64-bit ARM server with Ubuntu 20.04 or later, or Debian 12 or later:
 
 \`\`\`bash
 curl -fsSL $install_url | sudo sh
@@ -39,11 +40,12 @@ The same installer, straight from GitHub:
 curl -fsSL https://github.com/$repo/releases/latest/download/get.sh | sudo sh
 \`\`\`
 
-Both download \`playkeeper-linux-amd64.tar.gz\` from the latest release, stop unless it matches its \`.sha256\`, and start the installer, which shows every change and asks before making it. On a server that already runs Playkeeper, the same command upgrades it in place and keeps worlds, backups and settings. From 0.2.0 on, Settings in the dashboard shows new versions and installs them; it only installs releases whose \`playkeeper-release.json\` is signed with the release key built into your installed version. Requirements, the manual steps and uninstalling: [README](https://github.com/$repo/blob/$tag/README.md#install-on-your-vps).
+Both download the tarball for the server's CPU from the latest release, \`playkeeper-linux-amd64.tar.gz\` or \`playkeeper-linux-arm64.tar.gz\`, stop unless it matches its \`.sha256\`, and start the installer, which shows every change and asks before making it. On a server that already runs Playkeeper, the same command upgrades it in place and keeps worlds, backups and settings. From 0.2.0 on, Settings in the dashboard shows new versions and installs them; it only installs releases whose \`playkeeper-release.json\` is signed with the release key built into your installed version. Requirements, the manual steps and uninstalling: [README](https://github.com/$repo/blob/$tag/README.md#install-on-your-vps).
 
 | File | SHA-256 |
 | --- | --- |
-| \`playkeeper-linux-amd64.tar.gz\` | \`$tar_sha\` |
+| \`playkeeper-linux-amd64.tar.gz\` (x86_64) | \`$amd64_sha\` |
+| \`playkeeper-linux-arm64.tar.gz\` (64-bit ARM) | \`$arm64_sha\` |
 | \`get.sh\` | \`$get_sha\` |
 
 Source code: [\`$tag\`](https://github.com/$repo/tree/$tag), under the GNU AGPL-3.0. Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.

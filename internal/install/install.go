@@ -117,12 +117,16 @@ func Preflight(ctx context.Context, sys System, o Options) Facts {
 	f.OS = platform.ReadOS(sys.P("/etc/os-release"))
 	f.Checks = append(f.Checks, osCheck(f.OS, o.AllowUntestedOS))
 	switch arch := sys.Arch(); {
-	case arch == "amd64":
-		add("arch", "CPU architecture", "pass", "x86_64 (amd64).", "")
+	case archNames[arch] != "" && userland32(sys):
+		add("arch", "CPU architecture", "fail", "This is a 32-bit system on a 64-bit CPU. Playkeeper and its Minecraft images need the 64-bit system.",
+			"Install the 64-bit version of the operating system (on a Raspberry Pi, a 64-bit image), then run the installer again.")
+	case archNames[arch] != "":
+		add("arch", "CPU architecture", "pass", archNames[arch]+".", "")
 	case o.AllowUntestedOS:
 		add("arch", "CPU architecture", "warn", arch+" is not tested.", "")
 	default:
-		add("arch", "CPU architecture", "fail", arch+" is not tested; only x86_64 (amd64) is supported.", "Use an x86_64 server, or pass --allow-untested-os (unsupported).")
+		add("arch", "CPU architecture", "fail", arch+" is not supported; Playkeeper runs on x86_64 (amd64) and 64-bit ARM (arm64) servers.",
+			"Use an x86_64 or 64-bit ARM server, or pass --allow-untested-os (unsupported).")
 	}
 	if st, err := os.Stat(sys.P("/run/systemd/system")); err == nil && st.IsDir() {
 		add("systemd", "Service manager", "pass", "systemd is running.", "")

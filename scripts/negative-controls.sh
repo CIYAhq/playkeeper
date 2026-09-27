@@ -866,6 +866,18 @@ control "release manifest signature" internal/update/manifest.go \
   'if !verified {' \
   'if false && !verified {' \
   ./internal/update '^TestOnlyManifestsSignedByATrustedKeyAreAccepted$'
+control "an update takes this platform's tarball" internal/update/manifest.go \
+  'case a.File != TarballName(platform):' \
+  'case false && a.File != TarballName(platform):' \
+  ./internal/update '^TestSignedButMalformedManifestsAreRefused$'
+control "a release names a build for every platform" internal/update/manifest.go \
+  'if !slices.Equal(got, Platforms) {' \
+  'if false && !slices.Equal(got, Platforms) {' \
+  ./internal/update '^TestManifestsFromLaterReleasesStillUpdateThisPlatform$'
+control "the preflight refuses a 32-bit system on a 64-bit CPU" internal/install/install.go \
+  'case archNames[arch] != "" && userland32(sys):' \
+  'case false && archNames[arch] != "" && userland32(sys):' \
+  ./internal/install '^TestPreflightRefusesA32BitSystemOnA64BitCPU$'
 control "update download size" internal/update/fetch.go \
   'if n != a.Size {' \
   'if false && n != a.Size {' \
@@ -2120,6 +2132,20 @@ shcontrol "get.sh refuses an oversized download curl let through" packaging/get.
 shcontrol "get.sh says a download curl stopped is too large" packaging/get.sh \
   '[ "$rc" = 63 ] || ' \
   '' \
+  packaging/get_test.sh
+shcontrol "get.sh downloads the arm64 tarball on 64-bit ARM" packaging/get.sh \
+  'aarch64 | arm64) arch=arm64 ;;' \
+  'aarch64 | arm64) arch=amd64 ;;' \
+  packaging/get_test.sh
+# shellcheck disable=SC2016
+shcontrol "get.sh refuses a 32-bit system on a 64-bit CPU" packaging/get.sh \
+  '[ "$(getconf LONG_BIT 2>/dev/null || echo 64)" = 64 ] ||' \
+  'true ||' \
+  packaging/get_test.sh
+# shellcheck disable=SC2016
+shcontrol "install.sh runs only the build for this CPU" packaging/install.sh \
+  '!= "$machine" ]; then' \
+  '= "never" ]; then' \
   packaging/get_test.sh
 # shellcheck disable=SC2016
 shcontrol "package.sh builds CURSEFORGE_API_KEY into the binary" scripts/package.sh \

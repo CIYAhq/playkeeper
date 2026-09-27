@@ -208,7 +208,7 @@ scripts: js/landing.js, js/sizing-data.js, js/sizing.js
   <div class="container">
     {{template "faq" (dict "ID" "questions" "Aside" (printf "Anything else? %s." .Settings.Community.Ask) "AsideLink" (list .Settings.Community.URL "Ask a question") "Items" (list
       (qa "Is it free?" "Yes. Playkeeper is free and open source (AGPL-3.0). You only pay for your VPS.")
-      (qa "Which VPS do I need?" (printf `%s, on x86_64, with at least %d CPU cores, %d GB of memory and %d GB of free disk for Playkeeper, plus room for your servers. <a href="/sizing">The sizing guide</a> suggests a size.` systems sizing.Min.Cores sizing.Min.MemoryGB sizing.Min.DiskGB))
+      (qa "Which VPS do I need?" (printf `%s, on x86_64 or 64-bit ARM, with at least %d CPU cores, %d GB of memory and %d GB of free disk for Playkeeper, plus room for your servers. <a href="/sizing">The sizing guide</a> suggests a size.` systems sizing.Min.Cores sizing.Min.MemoryGB sizing.Min.DiskGB))
       (qa "Java or Bedrock?" "Minecraft: Java Edition only. Bedrock players can't join.")
       (qa "Can I bring my Aternos or Realms world?" "Yes. New server › A world takes your singleplayer world, or one from Aternos, Minehut, Realms or another host, with steps for getting it out. It shows what's inside before anything changes.")
       (qa "Do friends need a port number?" "Not with a free yourname.playkeeper.me name: from three days after you claim it, each server joins at its own address without a port. On the IP address, the first server needs no port and the others add theirs.")

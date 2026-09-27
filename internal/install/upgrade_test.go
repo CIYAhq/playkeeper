@@ -267,7 +267,7 @@ func stage(t *testing.T, h *fakeHost, cfg config.Config, from, to string) *stage
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-	tw.WriteHeader(&tar.Header{Name: "playkeeper-" + to + "-linux-amd64/playkeeper", Mode: 0o755, Size: int64(len(binary)), Typeflag: tar.TypeReg})
+	tw.WriteHeader(&tar.Header{Name: update.BinaryPath(to, update.Platform), Mode: 0o755, Size: int64(len(binary)), Typeflag: tar.TypeReg})
 	tw.Write(binary)
 	tw.Close()
 	gz.Close()

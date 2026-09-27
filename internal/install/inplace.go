@@ -119,8 +119,8 @@ func upgradeChecks(sys System, o Options) error {
 	if st, err := os.Stat(sys.P("/run/systemd/system")); err != nil || !st.IsDir() {
 		return errors.New("systemd is not running; Playkeeper's services need it. Nothing was changed")
 	}
-	if arch := sys.Arch(); arch != "amd64" && !o.AllowUntestedOS {
-		return fmt.Errorf("this build is for x86_64 (amd64), not %s. Nothing was changed", arch)
+	if arch := sys.Arch(); archNames[arch] == "" && !o.AllowUntestedOS {
+		return fmt.Errorf("this build is for %s, which Playkeeper doesn't support; it runs on x86_64 (amd64) and 64-bit ARM (arm64). Nothing was changed", arch)
 	}
 	return nil
 }

@@ -1,7 +1,8 @@
 name: Release build
 
-# Builds a release's assets as they are published, and installs them on a
-# fresh runner through get.sh: make package with the version stamped in,
+# Builds a release's assets as they are published, and installs them through
+# get.sh on a fresh x86_64 runner and a fresh ARM one: make package (a tarball
+# for each CPU) with the version stamped in,
 # CURSEFORGE_API_KEY built in for a release, the manifest signed with a
 # throwaway key (a tag signs these same assets with the release key when it
 # publishes them), the assets checked, and the release notes. The Release
@@ -93,8 +94,8 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir -p out/assets
-          cp dist/get.sh dist/playkeeper-linux-amd64.tar.gz dist/playkeeper-linux-amd64.tar.gz.sha256 dist/playkeeper-release.json dist/playkeeper-release.json.sig out/assets/
-          cmp dist/playkeeper-linux-amd64.tar.gz "dist/playkeeper-$VERSION-linux-amd64.tar.gz"
+          cp dist/get.sh dist/playkeeper-linux-{amd64,arm64}.tar.gz{,.sha256} dist/playkeeper-release.json dist/playkeeper-release.json.sig out/assets/
+          for arch in amd64 arm64; do cmp "dist/playkeeper-linux-$arch.tar.gz" "dist/playkeeper-$VERSION-linux-$arch.tar.gz"; done
           cmp dist/get.sh packaging/get.sh
           scripts/release-check.sh out/assets "$VERSION" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/release-keys.pub"
           scripts/release-notes.sh "$VERSION" "$GITHUB_REPOSITORY" "$INSTALL_URL" out/assets >out/release-notes.md
@@ -128,9 +129,15 @@ jobs:
           retention-days: ${{ inputs.retention-days }}
 
   smoke:
-    name: Fresh runner — install the built assets through get.sh, then uninstall
+    name: Fresh ${{ matrix.cpu }} runner — install the built assets through get.sh, then uninstall
     needs: build
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, cpu: x86_64 }
+          - { runner: ubuntu-24.04-arm, cpu: ARM }
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
