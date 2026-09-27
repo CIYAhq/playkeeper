@@ -1015,6 +1015,8 @@ export interface Address {
   ip?: string
   panelPort: number
   base: string
+  /** Where free addresses lived before `base`: a pasted one names the same name. */
+  previousBase?: string
   servers: JoinAddress[] | null
   free?: FreeAddress
   records?: DNSRecord[] | null

@@ -146,7 +146,7 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
   const statusId = useId()
   // The picker is swapped out while claiming, so after a failed claim it starts from that name.
   const [raw, setRaw] = useState(() => (claim.state.status === 'failed' ? claim.state.name : current ? '' : startingName(ws.me.user.username, a.base)))
-  const name = normalizeName(raw, a.base)
+  const name = normalizeName(raw, a.base, a.previousBase)
   const problem = nameProblem(name)
   const mine = !!current && name === current
   const { answer, forget } = useLookup(problem || mine ? '' : name, (n) => get<NameAvailability>(machineApi(id, `/address/available?name=${encodeURIComponent(n)}`)), checkDelayMs)

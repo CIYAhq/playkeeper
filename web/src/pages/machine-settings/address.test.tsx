@@ -39,7 +39,7 @@ const survival = (over: Partial<JoinAddress> = {}): JoinAddress => ({ serverId: 
 const creative = (over: Partial<JoinAddress> = {}): JoinAddress => ({ serverId: 's2', name: 'Creative', port: 25566, label: '', direct: `${ip}:25566`, published: false, ...over })
 const op = (over: Partial<Operation>): Operation => ({ id: 'op1', kind: 'address.publish', status: 'running', phase: 'pointing', actor: 'siya', startedAt: ago(29_000), ...over })
 
-const none: Address = { kind: '', ip, panelPort: 8443, base: 'playkeeper.me', servers: [survival(), creative()], names: { url: 'https://names.playkeeper.io' } }
+const none: Address = { kind: '', ip, panelPort: 8443, base: 'playkeeper.me', previousBase: 'playkeeper.io', servers: [survival(), creative()], names: { url: 'https://names.playkeeper.io' } }
 
 function free(over: Partial<Address> = {}, name: Partial<FreeAddress> = {}): Address {
   return {
@@ -231,6 +231,10 @@ describe('choosing an address', () => {
     expect(text()).toContain('alex-mc.playkeeper.me is free')
 
     await type(field('Pick a name'), 'Steve-MC.playkeeper.me')
+    await settle()
+    expect(text()).toContain(`steve-mc.playkeeper.me is held until ${formatDate('2026-10-24T12:00:00Z')}.`)
+    // An address pasted from before free names moved gives the same name.
+    await type(field('Pick a name'), 'Steve-MC.playkeeper.io')
     await settle()
     expect(text()).toContain(`steve-mc.playkeeper.me is held until ${formatDate('2026-10-24T12:00:00Z')}.`)
     expect(link('Learn more').getAttribute('href')).toBe('https://github.com/CIYAhq/playkeeper#a-name-for-your-vps')

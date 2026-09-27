@@ -1210,7 +1210,7 @@ func (a *Agent) addressViewWith(op *api.Operation) api.Address {
 func (a *Agent) addressView() api.Address {
 	st := a.address()
 	servers := a.joinServers()
-	v := api.Address{Kind: st.Kind, Host: st.Host, PanelPort: a.cfg.PanelPort, Base: names.DefaultBase,
+	v := api.Address{Kind: st.Kind, Host: st.Host, PanelPort: a.cfg.PanelPort, Base: names.DefaultBase, PreviousBase: names.PreviousBase,
 		Servers: a.joinAddresses(st, servers), Operation: a.addressOp(), TermsAccepted: a.termsAccepted()}
 	if ip := a.machineIP(st); ip.IsValid() {
 		v.IP = ip.String()
@@ -1319,7 +1319,7 @@ func (a *Agent) setClaiming(name string) {
 }
 
 func (a *Agent) hAddressAvailable(w http.ResponseWriter, r *http.Request) {
-	name := names.NormalizeName(r.URL.Query().Get("name"), names.DefaultBase)
+	name := names.NormalizeName(r.URL.Query().Get("name"), names.DefaultBase, names.PreviousBase)
 	av, err := a.availability(r.Context(), name)
 	if err != nil {
 		writeError(w, err)
@@ -1339,7 +1339,7 @@ func (a *Agent) hAddressClaim(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	name := names.NormalizeName(req.Name, names.DefaultBase)
+	name := names.NormalizeName(req.Name, names.DefaultBase, names.PreviousBase)
 	if err := names.CheckName(name); err != nil {
 		writeError(w, a.namesError(err))
 		return

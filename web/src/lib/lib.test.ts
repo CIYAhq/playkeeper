@@ -1002,6 +1002,9 @@ describe('address', () => {
     expect(normalizeName('  Alex.PlayKeeper.ME. ', 'playkeeper.me')).toBe('alex')
     expect(normalizeName('alex-mc', 'playkeeper.me')).toBe('alex-mc')
     expect(normalizeName('alex.example.com', 'playkeeper.me')).toBe('alex.example.com')
+    expect(normalizeName(' Alex.PlayKeeper.io. ', 'playkeeper.me', 'playkeeper.io')).toBe('alex')
+    expect(normalizeName('alex.playkeeper.io', 'playkeeper.me')).toBe('alex.playkeeper.io')
+    expect(normalizeName('alex.playkeeper.io', 'playkeeper.me', undefined)).toBe('alex.playkeeper.io')
   })
 
   it('holds names to the service rule: 3 to 32 letters, digits and single inner dashes', () => {

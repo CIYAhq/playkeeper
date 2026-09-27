@@ -1434,8 +1434,10 @@ type Address struct {
 	// working next to any name.
 	IP        string `json:"ip,omitempty"`
 	PanelPort int    `json:"panelPort"`
-	// Base is the domain free addresses live under.
-	Base string `json:"base"`
+	// Base is the domain free addresses live under. PreviousBase is the one
+	// they lived under before, where a pasted address names the same name.
+	Base         string `json:"base"`
+	PreviousBase string `json:"previousBase,omitempty"`
 	// Servers are the servers' join addresses, in display order.
 	Servers []JoinAddress `json:"servers"`
 	// Free is the free address as the names service last described it.
