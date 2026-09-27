@@ -93,10 +93,10 @@ export function useFileUploads(serverId: string, onPlaced: (folder: string) => v
         (up) => {
           if (ctl.signal.aborted) return
           current.current = undefined
-          const failed = up.files.some((f) => !f.placed)
-          change(b.id, { state: 'done', upload: up, sent: b.total, retrying: false })
           // An upload whose files are all in place isn't needed anymore; one with a file to try again is kept.
-          if (!failed) forget(up)
+          const kept = up.files.some((f) => !f.placed)
+          if (!kept) forget(up)
+          change(b.id, { state: 'done', upload: kept ? up : undefined, sent: b.total, retrying: false })
           placed.current(b.folder)
         },
         (e: unknown) => {
@@ -149,8 +149,9 @@ export function useFileUploads(serverId: string, onPlaced: (folder: string) => v
       if (!b || !upload || !f) return
       try {
         const up = await api<FileUpload>('PUT', `${base}/${upload.id}/files/${index}?offset=${f.size}`, undefined, new Blob([], { type: 'application/octet-stream' }))
-        change(id, { upload: up })
-        if (up.files.every((x) => x.placed)) forget(up)
+        const kept = up.files.some((x) => !x.placed)
+        if (!kept) forget(up)
+        change(id, { upload: kept ? up : undefined })
         placed.current(b.folder)
       } catch (e) {
         change(id, { upload: { ...upload, files: upload.files.map((x) => (x.index === index ? { ...x, error: errorText(e) } : x)) } })
