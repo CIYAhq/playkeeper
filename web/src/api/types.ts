@@ -2533,6 +2533,12 @@ export interface FileContent extends FileInfo {
   managed?: string[]
 }
 
+/** What a delete did: continuing says it carries on after the answer, as deleting a folder of very many files does. */
+export interface FileDeleteResult {
+  deleted: number
+  continuing?: boolean
+}
+
 export interface FileUploadFile {
   index: number
   /** Its path in the upload's folder, which may name folders the upload makes. */

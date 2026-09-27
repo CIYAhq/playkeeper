@@ -1,5 +1,5 @@
 import { api, get, post } from './client'
-import type { FileContent, FileInfo, Files } from './types'
+import type { FileContent, FileDeleteResult, FileInfo, Files } from './types'
 import { serverApi } from './workspace'
 
 // Each server's file browser, through the panel to the machine that runs it.
@@ -35,8 +35,14 @@ export async function moveFiles(serverId: string, items: { from: string; to: str
   for (let i = 0; i < items.length; i += batch) await post(filesApi(serverId, '/move'), { items: items.slice(i, i + batch) })
 }
 
-export async function deleteFiles(serverId: string, paths: string[]): Promise<void> {
-  for (let i = 0; i < paths.length; i += batch) await post(filesApi(serverId, '/delete'), { paths: paths.slice(i, i + batch) })
+/** Deletes files and folders. continuing says the machine carries on after answering, as it does with a folder of very many files. */
+export async function deleteFiles(serverId: string, paths: string[]): Promise<{ continuing: boolean }> {
+  let continuing = false
+  for (let i = 0; i < paths.length; i += batch) {
+    const done = await post<FileDeleteResult | undefined>(filesApi(serverId, '/delete'), { paths: paths.slice(i, i + batch) })
+    if (done?.continuing) continuing = true
+  }
+  return { continuing }
 }
 
 /** A link that downloads a file, or a zip of folders or of several files in one folder. */

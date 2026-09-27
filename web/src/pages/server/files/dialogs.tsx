@@ -271,11 +271,12 @@ export function DeleteDialog({ server, items, open, onOpenChange, onDeleted }: {
   async function go() {
     setBusy(true)
     try {
-      await deleteFiles(
+      const { continuing } = await deleteFiles(
         server.id,
         items.map((i) => i.path),
       )
-      toastManager.add({ title: items.length === 1 ? t('files.deletedOne', { name: names[0] ?? '' }) : t('files.deletedMany', { count: items.length }), type: 'success' })
+      if (continuing) toastManager.add({ title: items.length === 1 ? t('files.stillDeletingOne', { name: names[0] ?? '' }) : t('files.stillDeletingMany', { count: items.length }), description: t('files.stillDeletingBody') })
+      else toastManager.add({ title: items.length === 1 ? t('files.deletedOne', { name: names[0] ?? '' }) : t('files.deletedMany', { count: items.length }), type: 'success' })
       onOpenChange(false)
     } catch (e) {
       toastManager.add({ title: errorText(e), type: 'error' })

@@ -17,7 +17,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -47,9 +49,15 @@ const (
 	maxBatch = 1000
 )
 
-// beforeChange runs before each path a change touches, for a test to hold
-// the change there.
-var beforeChange = func(p string) {}
+var (
+	// deleteAnswerAfter is how long a delete runs before its answer says
+	// it carries on: a folder of millions of small files, such as a map's
+	// tiles, takes minutes, longer than the panel waits for an answer.
+	deleteAnswerAfter = 30 * time.Second
+	// beforeChange runs before each path a change touches, for a test to
+	// hold the change there.
+	beforeChange = func(p string) {}
+)
 
 var reVersion = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
@@ -627,6 +635,9 @@ func (s *server) hFileMove(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]int{"moved": len(moved)})
 }
 
+// hFileDelete deletes files and folders. A delete still going after
+// deleteAnswerAfter carries on after the answer, which says so, and holds
+// off operations until it is done.
 func (s *server) hFileDelete(w http.ResponseWriter, r *http.Request) {
 	var req api.FileDeleteRequest
 	if err := decode(r, &req); err != nil {
@@ -654,13 +665,34 @@ func (s *server) hFileDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	defer d.Close()
 	release, err := s.holdFiles(r.Context(), d, paths...)
 	if err != nil {
+		d.Close()
 		writeError(w, err)
 		return
 	}
-	defer release()
+	var progress atomic.Int64
+	done := make(chan error, 1)
+	go func() {
+		defer d.Close()
+		defer release()
+		done <- s.deletePaths(d, paths, actor, &progress)
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, api.FileDeleteResult{Deleted: len(paths)})
+	case <-time.After(deleteAnswerAfter):
+		writeJSON(w, http.StatusAccepted, api.FileDeleteResult{Deleted: int(progress.Load()), Continuing: true})
+	}
+}
+
+// deletePaths deletes paths in turn, counting each in progress, until one
+// can't be, and audits what it deleted.
+func (s *server) deletePaths(d *gamefiles.Dir, paths []string, actor string, progress *atomic.Int64) error {
 	var deleted []string
 	var failed error
 	for _, p := range paths {
@@ -671,6 +703,7 @@ func (s *server) hFileDelete(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		deleted = append(deleted, p)
+		progress.Add(1)
 	}
 	switch len(deleted) {
 	case 0:
@@ -680,10 +713,9 @@ func (s *server) hFileDelete(w http.ResponseWriter, r *http.Request) {
 		s.audit(actor, "files.deleted", path.Dir(deleted[0]), "succeeded", listed(deleted))
 	}
 	if failed != nil {
-		writeError(w, failed)
-		return
+		s.log.Info("a delete in the server's files stopped", "server", s.id, "err", failed)
 	}
-	writeJSON(w, http.StatusOK, map[string]int{"deleted": len(deleted)})
+	return failed
 }
 
 // stored are the kinds of file that are compressed already, which a

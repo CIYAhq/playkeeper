@@ -6,6 +6,7 @@ import * as client from '@/api/client'
 import type { Action, FileContent, FileEntry, FileInfo, Files, MachineView, Me, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { serverTabsFor } from '@/components/app/server-tabs'
+import { toastManager } from '@/components/ui/toast'
 import { navigate } from '@/lib/router'
 import { FilesPage } from '.'
 
@@ -319,6 +320,23 @@ describe('the Files tab', () => {
     const items = await openMenu('bukkit.yml')
     expect(items.map((el) => el.textContent)).toEqual(['Open', 'Download'])
     expect(items[1]?.getAttribute('href')).toBe(`${api}/download?path=bukkit.yml`)
+  })
+
+  it('says a delete of very many files carries on, rather than that it’s done', async () => {
+    answer({ [list('')]: top(false) })
+    vi.mocked(client.post).mockImplementation(((path: string) => Promise.resolve(path.endsWith('/files/delete') ? { deleted: 0, continuing: true } : {})) as typeof client.post)
+    const toasts = vi.spyOn(toastManager, 'add')
+    try {
+      await render({ s: server({ phase: 'stopped' }) })
+      const items = await openMenu('plugins')
+      await click(items.find((el) => el.textContent === 'Delete') as HTMLElement)
+      const dialog = document.querySelector('[role="dialog"]') as HTMLElement
+      await click([...dialog.querySelectorAll<HTMLElement>('button')].find((b) => b.textContent?.trim() === 'Delete') as HTMLElement)
+      expect(posts('/files/delete')).toEqual([{ paths: ['plugins'] }])
+      expect(toasts).toHaveBeenCalledWith({ title: 'Still deleting plugins', description: 'The folder updates when it’s done.' })
+    } finally {
+      toasts.mockRestore()
+    }
   })
 
   it('asks before an upload replaces what has its name', async () => {

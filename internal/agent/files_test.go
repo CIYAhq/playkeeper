@@ -565,6 +565,34 @@ func TestFileChangesHoldOffOperations(t *testing.T) {
 	}
 }
 
+// Deleting a folder of millions of files takes minutes, longer than the
+// panel waits for an answer: the answer says the delete carries on, and it
+// holds off operations until it is done.
+func TestALongDeleteCarriesOnAfterItsAnswer(t *testing.T) {
+	e, _ := idleFilesServer(t)
+	orig := deleteAnswerAfter
+	deleteAnswerAfter = 50 * time.Millisecond
+	t.Cleanup(func() { deleteAnswerAfter = orig })
+	_, resume := holdChange(t, "plugins/Essentials")
+	code, out := e.call("POST", e.sp("/files/delete"), map[string]any{"actor": "admin", "paths": []string{"plugins/EssentialsX.jar", "plugins/Essentials"}})
+	if code != 202 || out["continuing"] != true || out["deleted"] != float64(1) {
+		t.Fatalf("a long delete: %d %v", code, out)
+	}
+	noop := func(context.Context, *opHandle) error { return nil }
+	if _, err := e.srv().beginOp("backup", "admin", noop); err == nil {
+		t.Fatal("a backup began while the delete carried on")
+	}
+	resume()
+	e.waitFor("the delete to finish", func() bool { return !exists(e.data("plugins/Essentials")) && !e.srv().changingFiles() })
+	if !e.auditHas("files.deleted", "succeeded", "plugins/EssentialsX.jar, plugins/Essentials") {
+		t.Fatal("the delete wasn't audited once done")
+	}
+	e.waitIdle()
+	if code, out := e.call("POST", e.sp("/files/delete"), map[string]any{"actor": "admin", "paths": []string{"server.properties"}}); code != 200 || out["continuing"] != nil || out["deleted"] != float64(1) {
+		t.Fatalf("a quick delete: %d %v", code, out)
+	}
+}
+
 // Of two saves of the same version, such as by two admins at once, the
 // second is refused as changed, never lost.
 func TestTwoSavesOfOneVersionCantBothWin(t *testing.T) {

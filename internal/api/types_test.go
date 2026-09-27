@@ -79,6 +79,7 @@ func TestTheDashboardDeclaresOnlyFieldsTheAPISends(t *testing.T) {
 		"MemoryBudget": MemoryBudget{}, "MemorySizing": MemorySizing{}, "MemorySuggestion": MemorySuggestion{},
 		"LinkProblem": machinelink.Problem{}, "MachineLink": machinelink.Status{},
 		"Files": Files{}, "FileEntry": FileEntry{}, "FileInfo": FileInfo{}, "FileContent": FileContent{}, "FileUpload": FileUpload{}, "FileUploadFile": FileUploadFile{},
+		"FileDeleteResult": FileDeleteResult{},
 	}
 	// Fields the panel adds to what the agent sends, and rttMs, which
 	// machinelink.Status's MarshalJSON adds.

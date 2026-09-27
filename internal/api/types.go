@@ -2448,6 +2448,14 @@ type FileDeleteRequest struct {
 	Actor string   `json:"actor"`
 }
 
+// FileDeleteResult is what a delete did. Continuing says it carries on after
+// the answer, as deleting a folder of very many files does; Deleted is how
+// many of the paths were gone by then.
+type FileDeleteResult struct {
+	Deleted    int  `json:"deleted"`
+	Continuing bool `json:"continuing,omitempty"`
+}
+
 // FileUpload is an upload of files into a folder. Each file's bytes arrive
 // in pieces from the byte the machine says it has, and the file is put in
 // place once all of them have.
