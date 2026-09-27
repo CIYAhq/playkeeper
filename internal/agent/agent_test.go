@@ -54,17 +54,25 @@ type agentEnv struct {
 	// stagedVersion is what a downloaded binary reports.
 	updateKeys    []ed25519.PublicKey
 	stagedVersion string
+	// procStat, when set, replaces reading /proc/stat.
+	procStat func() ([]byte, error)
 	// addons, when set, is the add-on library the agent uses.
 	addons *addons.Library
 	// pregenResumeAfter, when set, is how long the server must be empty
 	// before a task paused for players continues.
 	pregenResumeAfter time.Duration
+	// portHolder, when set, names the program on a taken port; otherwise
+	// none is found.
+	portHolder func(port int) (string, int, bool)
 	// sid is the server most helpers act on: the one create made last.
 	sid string
 	// live is the running agent, for the fake RCON's password check.
 	live atomic.Pointer[Agent]
 	// tweak changes the options each start builds.
 	tweak func(o *Options)
+	// skew moves the running agent's clock (nanoseconds), as time passing
+	// would.
+	skew atomic.Int64
 }
 
 // srv is the current server's runtime handle.
@@ -149,11 +157,15 @@ func (e *agentEnv) start() {
 	if backoff == nil {
 		backoff = []time.Duration{0}
 	}
+	holder := e.portHolder
+	if holder == nil {
+		holder = func(int) (string, int, bool) { return "", 0, false }
+	}
 	opts := Options{
-		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Now().Add(offset) },
+		Config: e.cfg, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Now().Add(offset).Add(time.Duration(e.skew.Load())) },
 		SampleInterval: 100 * time.Millisecond, ReconcileInterval: 50 * time.Millisecond, CrashBackoff: backoff,
 		RCONAddr: func(string) string { return e.rcon.addr }, PingAddr: e.slp,
-		HostMemoryMB: func() int { return 4096 }, DiskUsage: func(string) (int64, int64, error) {
+		HostMemoryMB: func() int { return 4096 }, ProcStat: e.procStat, DiskUsage: func(string) (int64, int64, error) {
 			if free := e.diskFree.Load(); free > 0 {
 				return free, 100 << 30, nil
 			}
@@ -166,6 +178,7 @@ func (e *agentEnv) start() {
 		// No public DNS and no certificate authority in these tests.
 		Resolver: &fakeResolver{}, Issue: noCA, AddressInterval: -1, PublishPoll: 10 * time.Millisecond,
 		PublicAddrs: func() []netip.Addr { return []netip.Addr{testIP} },
+		PortHolder:  holder,
 	}
 	if e.tweak != nil {
 		e.tweak(&opts)
@@ -301,6 +314,27 @@ func (e *agentEnv) waitExitRead() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		return err == nil && ok && !c.State.Running && !s.followEnded[c.ID].Before(fin)
+	})
+}
+
+// waitReread waits until the log follower has read the stopped container's
+// log once more after reaching its end, as it does every two seconds; Docker
+// sends the last line again each time.
+func (e *agentEnv) waitReread() {
+	e.t.Helper()
+	e.waitExitRead()
+	s := e.srv()
+	c, err := e.a.docker.ContainerInspect(context.Background(), s.containerName())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	s.mu.Lock()
+	first := s.followEnded[c.ID]
+	s.mu.Unlock()
+	e.waitFor("the follower to read the log again", func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.followEnded[c.ID].After(first)
 	})
 }
 
@@ -1495,7 +1529,13 @@ func TestConsoleBufferIsBounded(t *testing.T) {
 // restore, returning the restore id and its confirmation phrase.
 func (e *agentEnv) backupAndStage() (string, string) {
 	e.t.Helper()
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	return e.backupWithAndStage(map[string]any{"actor": "admin"})
+}
+
+// backupWithAndStage is backupAndStage with the backup request's body.
+func (e *agentEnv) backupWithAndStage(body map[string]any) (string, string) {
+	e.t.Helper()
+	code, out := e.call("POST", e.sp("/backups"), body)
 	if code != 202 {
 		e.t.Fatalf("backup: %d %v", code, out)
 	}
@@ -1643,6 +1683,21 @@ func TestBackupRefusesAServerPropertiesItWontReadBeforeStopping(t *testing.T) {
 	}
 	if n := e.dockerStops() - stops; n != 0 {
 		t.Fatalf("the server was stopped %d time(s) for a backup that was refused", n)
+	}
+
+	// A backup of a running server doesn't stop it, so the check before a
+	// stop is what a version update relies on: it backs the world up only
+	// after stopping the server.
+	code, out = e.changeVersion(map[string]any{"versionId": "paper-26.2"})
+	if code != 202 {
+		t.Fatalf("version update: %d %v", code, out)
+	}
+	op = e.waitOp(out["id"].(string))
+	if op.Status != api.OpFailed || !strings.Contains(op.Error, "could not be backed up") || !strings.HasPrefix(op.Hint, "Nothing was changed.") {
+		t.Fatalf("updating past a planted server.properties must fail before the server stops: %+v", op)
+	}
+	if n := e.dockerStops() - stops; n != 0 {
+		t.Fatalf("the server was stopped %d time(s) for an update that was refused", n)
 	}
 }
 
@@ -2221,6 +2276,27 @@ func TestWhitelistAndConsoleAreAudited(t *testing.T) {
 		if !v {
 			t.Errorf("missing audit row %s", k)
 		}
+	}
+}
+
+// A console command whose reply is lost may have run, so it is never sent
+// again; the next command gets a new connection.
+func TestLostConsoleRepliesAreNeverResent(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	const give = "give PkBotFriend diamond 64"
+	e.rcon.mu.Lock()
+	e.rcon.lose = func(cmd string) bool { return cmd == give }
+	e.rcon.mu.Unlock()
+	if code, out := e.call("POST", e.sp("/command"), map[string]any{"actor": "admin", "command": give}); code != 502 {
+		t.Fatalf("a lost reply must be reported: %d %v", code, out)
+	}
+	if n := e.rcon.count(give); n != 1 {
+		t.Fatalf("the command reached the server %d times, want once", n)
+	}
+	code, out := e.call("POST", e.sp("/command"), map[string]any{"actor": "admin", "command": "list"})
+	if code != 200 || !strings.Contains(out["output"].(string), "players online") {
+		t.Fatalf("the next command must work on a new connection: %d %v", code, out)
 	}
 }
 

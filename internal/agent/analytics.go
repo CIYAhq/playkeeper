@@ -26,10 +26,12 @@ type sample struct {
 	online sql.NullInt64
 	cpu    sql.NullFloat64
 	mem    sql.NullInt64
+	tps    sql.NullFloat64
+	mspt   sql.NullFloat64
 }
 
 func (s *server) samplesBetween(from, to time.Time) ([]sample, error) {
-	rows, err := s.db.Query(`SELECT ts, state, players_online, cpu_pct, mem_bytes FROM samples WHERE server_id = ? AND ts >= ? AND ts < ? ORDER BY ts`,
+	rows, err := s.db.Query(`SELECT ts, state, players_online, cpu_pct, mem_bytes, tps, mspt FROM samples WHERE server_id = ? AND ts >= ? AND ts < ? ORDER BY ts`,
 		s.id, from.UnixMilli(), to.UnixMilli())
 	if err != nil {
 		return nil, err
@@ -39,7 +41,7 @@ func (s *server) samplesBetween(from, to time.Time) ([]sample, error) {
 	for rows.Next() {
 		var s sample
 		var ts int64
-		if err := rows.Scan(&ts, &s.state, &s.online, &s.cpu, &s.mem); err != nil {
+		if err := rows.Scan(&ts, &s.state, &s.online, &s.cpu, &s.mem, &s.tps, &s.mspt); err != nil {
 			return nil, err
 		}
 		s.ts = time.UnixMilli(ts).UTC()
@@ -65,7 +67,7 @@ func (s *server) Metrics(rangeKey string, now time.Time) (api.MetricsResponse, e
 	}
 	resp := api.MetricsResponse{
 		From: from, To: to, BucketSeconds: int(rg.bucket.Seconds()), SampleIntervalSeconds: int(s.opts.SampleInterval.Seconds()),
-		CollectingSince: since, Source: "Playkeeper agent samples: Docker stats, Server List Ping and RCON list",
+		CollectingSince: since, Source: "Playkeeper agent samples: Docker stats, Server List Ping, RCON list and tick commands",
 		Buckets: []api.MetricsBucket{}, Gaps: []api.Gap{},
 	}
 	resp.Buckets = bucketize(samples, from, to, rg.bucket, s.opts.SampleInterval, since, now)
@@ -80,9 +82,9 @@ func bucketize(samples []sample, from, to time.Time, bucket, interval time.Durat
 		end := start.Add(bucket)
 		b := api.MetricsBucket{Start: start}
 		first := i
-		var n, onlineN, cpuN, memN int
+		var n, onlineN, cpuN, memN, tpsN, msptN int
 		var maxPlayers int
-		var cpuSum float64
+		var cpuSum, tpsSum, msptSum float64
 		var memSum int64
 		for i < len(samples) && samples[i].ts.Before(end) {
 			s := samples[i]
@@ -104,6 +106,14 @@ func bucketize(samples []sample, from, to time.Time, bucket, interval time.Durat
 			if s.mem.Valid {
 				memSum += s.mem.Int64
 				memN++
+			}
+			if s.tps.Valid {
+				tpsSum += s.tps.Float64
+				tpsN++
+			}
+			if s.mspt.Valid {
+				msptSum += s.mspt.Float64
+				msptN++
 			}
 		}
 		// Expected samples only count time that has passed since collection began.
@@ -136,6 +146,14 @@ func bucketize(samples []sample, from, to time.Time, bucket, interval time.Durat
 		if memN > 0 {
 			v := memSum / int64(memN)
 			b.MemAvg = &v
+		}
+		if tpsN > 0 {
+			v := tpsSum / float64(tpsN)
+			b.TPSAvg = &v
+		}
+		if msptN > 0 {
+			v := msptSum / float64(msptN)
+			b.MSPTAvg = &v
 		}
 		out = append(out, b)
 	}

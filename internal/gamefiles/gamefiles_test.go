@@ -214,6 +214,7 @@ type fileOp struct {
 var readOps = []fileOp{
 	{"ReadFile", func(d *Dir, name string) error { _, err := d.ReadFile(name, 1<<20); return err }},
 	{"ReadTail", func(d *Dir, name string) error { _, err := d.ReadTail(name, 1<<10); return err }},
+	{"ReadRange", func(d *Dir, name string) error { _, _, err := d.ReadRange(name, 0, 1<<10); return err }},
 	{"ReadJSON", func(d *Dir, name string) error { var v any; return d.ReadJSON(name, 1<<20, &v) }},
 	{"SHA256", func(d *Dir, name string) error { _, err := d.SHA256(context.Background(), name, 1<<20); return err }},
 	{"EnsureFile", func(d *Dir, name string) error { return d.EnsureFile(name, []byte("enabled: false\n"), 0o640, nil) }},
@@ -515,12 +516,38 @@ func TestHugeSparseFilesAreRefusedQuickly(t *testing.T) {
 	if b, err := e.d.ReadTail("logs/latest.log", 64<<10); err != nil || len(b) != 64<<10 {
 		t.Fatalf("ReadTail of a huge log: %d bytes, %v", len(b), err)
 	}
+	if b, _, err := e.d.ReadRange("logs/latest.log", 0, 64<<10); err != nil || len(b) != 64<<10 {
+		t.Fatalf("ReadRange of a huge log: %d bytes, %v", len(b), err)
+	}
 	want := []byte("enabled: false\n")
 	if err := e.d.EnsureFile("plugins/bStats/config.yml", want, 0o640, nil); err != nil {
 		t.Fatal(err)
 	}
 	if fi, err := os.Stat(e.path("plugins/bStats/config.yml")); err != nil || fi.Size() != int64(len(want)) {
 		t.Fatalf("a huge config was not replaced: %v %v", fi, err)
+	}
+}
+
+// A log is read on from where the last read stopped, and a crash report only
+// from its start. ReadRange says which file it read, so a log the game
+// replaced under the same name is read from its own start.
+func TestReadRangeReadsFromItsOffsetAndSaysWhichFile(t *testing.T) {
+	e := newEnv(t)
+	e.put("logs/gc.log", []byte("first line\nsecond line\n"))
+	b, fi, err := e.d.ReadRange("logs/gc.log", 11, 6)
+	if err != nil || string(b) != "second" || fi.Size() != 23 {
+		t.Fatalf("ReadRange = %q %v %v", b, fi, err)
+	}
+	if b, _, err := e.d.ReadRange("logs/gc.log", 23, 6); err != nil || len(b) != 0 {
+		t.Fatalf("ReadRange at the end = %q %v", b, err)
+	}
+	if err := os.Rename(e.path("logs/gc.log"), e.path("logs/gc.log.0")); err != nil {
+		t.Fatal(err)
+	}
+	e.put("logs/gc.log", []byte("new\n"))
+	b, next, err := e.d.ReadRange("logs/gc.log", 0, 64)
+	if err != nil || string(b) != "new\n" || os.SameFile(fi, next) {
+		t.Fatalf("ReadRange of the replaced log = %q %v, same file %v", b, err, os.SameFile(fi, next))
 	}
 }
 

@@ -1,0 +1,11 @@
+[12:00:01] [ServerMain/INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, name=PROD]
+[12:00:03] [Worker-Main-2/ERROR]: Registry loading errors:
+> Errors in registry minecraft:worldgen/biome:
+>> Errors in element terralith:alpine_grove:
+java.lang.IllegalStateException: Failed to parse terralith:worldgen/biome/alpine_grove.json from pack file/Terralith_1.21.x_v2.5.8.zip
+	at net.minecraft.resources.RegistryDataLoader.loadElementFromResource(RegistryDataLoader.java:274)
+Caused by: java.lang.IllegalStateException: No key carvers in MapLike[{"temperature":0.3,"downfall":0.5}]
+	at com.mojang.serialization.DataResult$Error.getOrThrow(DataResult.java:287)
+[12:00:03] [ServerMain/WARN]: Failed to load datapacks, can't proceed with server load. You can either fix your datapacks or reset to vanilla with --safeMode
+java.lang.IllegalStateException: Failed to load registries due to above errors
+	at net.minecraft.resources.RegistryDataLoader.load(RegistryDataLoader.java:145)

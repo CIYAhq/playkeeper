@@ -1,0 +1,11 @@
+[14:02:10 WARN]: Please note that this command is not supported and may cause issues when using some plugins.
+[14:02:10 WARN]: If you encounter any issues please use the /stop command to restart your server.
+[14:02:19 INFO]: Reload complete.
+[15:12:40 WARN]: Please note that this command is not supported and may cause issues when using some plugins.
+[15:12:40 WARN]: If you encounter any issues please use the /stop command to restart your server.
+[15:12:51 INFO]: Reload complete.
+[15:40:03 ERROR]: Could not pass event PlayerJoinEvent to LuckPerms v5.4.145
+java.lang.OutOfMemoryError: Metaspace
+[15:40:04 ERROR]: Encountered an unexpected exception
+java.lang.OutOfMemoryError: Metaspace
+[15:40:04 ERROR]: This crash report has been saved to: /data/./crash-reports/crash-2026-09-25_15.40.04-server.txt

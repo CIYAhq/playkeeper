@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -21,18 +20,27 @@ const (
 	rconChunk        = 4096
 	maxRCONPayload   = 1446
 	maxRCONReplySize = 1 << 20
-	// rconProbeWait is how long Exec listens for a hang-up before it
-	// writes: a closed connection answers at once, a live one stays silent.
-	rconProbeWait = time.Millisecond
+	// rconProbe is how long a command waits to see whether the server closed
+	// an idle connection before writing to it.
+	rconProbe = 5 * time.Millisecond
+	// rconDefaultTimeout bounds a command whose context has no deadline.
+	rconDefaultTimeout = 30 * time.Second
 )
 
 var ErrRCONAuth = errors.New("rcon: authentication failed")
 
-// ErrUnsent marks a failed command of which nothing was written: the
-// connection was already closed, or time ran out, before it went out. Only
-// such a command is safe to send again; any other failure may have come
-// after the server ran it.
-var ErrUnsent = errors.New("rcon: command not sent")
+// ErrNotSent marks a command that never reached the server: the connection
+// was found closed, or failed before any of the command was written. Only
+// such a command may be sent again, on a new connection. After any other
+// error the server may have run it.
+var ErrNotSent = errors.New("rcon: the command was not sent")
+
+type notSentError struct{ err error }
+
+func (e notSentError) Error() string   { return e.err.Error() }
+func (e notSentError) Unwrap() []error { return []error{ErrNotSent, e.err} }
+
+func notSent(err error) error { return notSentError{err} }
 
 // RCON is a minimal client for the Minecraft remote console protocol. It is
 // only ever dialled by the root agent over the private Docker bridge.
@@ -44,28 +52,30 @@ type RCON struct {
 }
 
 func DialRCON(addr, password string, timeout time.Duration) (*RCON, error) {
-	return DialRCONContext(context.Background(), addr, password, timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return DialRCONContext(ctx, addr, password)
 }
 
-// DialRCONContext is DialRCON giving up early when ctx ends.
-func DialRCONContext(ctx context.Context, addr, password string, timeout time.Duration) (*RCON, error) {
-	d := net.Dialer{Timeout: timeout}
+// DialRCONContext connects and authenticates within ctx's deadline.
+func DialRCONContext(ctx context.Context, addr, password string) (*RCON, error) {
+	var d net.Dialer
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, err
 	}
 	r := &RCON{conn: conn, br: bufio.NewReader(conn), nextID: 1}
-	release := r.bound(ctx, timeout)
-	defer release()
+	stop := r.bound(ctx)
+	defer stop()
 	if _, err := r.write(r.nextID, rconAuth, password); err != nil {
 		conn.Close()
-		return nil, err
+		return nil, r.ctxErr(ctx, err)
 	}
 	for {
 		id, typ, _, err := r.read()
 		if err != nil {
 			conn.Close()
-			return nil, err
+			return nil, r.ctxErr(ctx, err)
 		}
 		if id == -1 {
 			conn.Close()
@@ -81,33 +91,32 @@ func DialRCONContext(ctx context.Context, addr, password string, timeout time.Du
 
 func (r *RCON) Close() error { return r.conn.Close() }
 
-// Command runs one console command and returns the full (possibly multi-packet) reply.
+// Command runs one console command and returns the full (possibly
+// multi-packet) reply. See CommandContext.
 func (r *RCON) Command(cmd string, timeout time.Duration) (string, error) {
-	return r.Exec(context.Background(), cmd, timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return r.CommandContext(ctx, cmd)
 }
 
-// Exec runs one console command and returns the full (possibly
-// multi-packet) reply. It gives up after timeout or as soon as ctx is done,
-// whichever comes first. Errors wrap ErrUnsent only when nothing was
-// written; after any other error the connection is unusable and the
-// command must not be sent again.
-func (r *RCON) Exec(ctx context.Context, cmd string, timeout time.Duration) (string, error) {
+// CommandContext runs one console command within ctx's deadline and gives up
+// as soon as ctx is cancelled. The command is written at most once; an error
+// that does not wrap ErrNotSent means the server may have run it. A
+// connection that failed this way is out of step and must be closed.
+func (r *RCON) CommandContext(ctx context.Context, cmd string) (string, error) {
 	if len(cmd) > maxRCONPayload {
-		return "", fmt.Errorf("rcon: command longer than %d bytes", maxRCONPayload)
+		return "", notSent(fmt.Errorf("rcon: command longer than %d bytes", maxRCONPayload))
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := ctx.Err(); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrUnsent, err)
+		return "", notSent(err)
 	}
-	if err := r.probe(); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrUnsent, err)
+	if err := r.stale(); err != nil {
+		return "", notSent(err)
 	}
-	release := r.bound(ctx, timeout)
-	defer release()
-	if err := ctx.Err(); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrUnsent, err)
-	}
+	stop := r.bound(ctx)
+	defer stop()
 	id, marker := r.nextID, r.nextID+1
 	r.nextID += 2
 	// Paper closes the connection if a second packet arrives in the same read,
@@ -115,16 +124,16 @@ func (r *RCON) Exec(ctx context.Context, cmd string, timeout time.Duration) (str
 	// terminated by a marker request sent only after the first chunk arrived.
 	if n, err := r.write(id, rconExec, cmd); err != nil {
 		if n == 0 {
-			return "", fmt.Errorf("%w: %w", ErrUnsent, err)
+			return "", notSent(r.ctxErr(ctx, err))
 		}
-		return "", err
+		return "", r.ctxErr(ctx, err)
 	}
 	var sb strings.Builder
 	markerSent := false
 	for {
 		gotID, _, body, err := r.read()
 		if err != nil {
-			return "", err
+			return "", r.ctxErr(ctx, err)
 		}
 		switch gotID {
 		case id:
@@ -137,7 +146,7 @@ func (r *RCON) Exec(ctx context.Context, cmd string, timeout time.Duration) (str
 					return sb.String(), nil
 				}
 				if _, err := r.write(marker, rconMarkerType, ""); err != nil {
-					return "", err
+					return "", r.ctxErr(ctx, err)
 				}
 				markerSent = true
 			}
@@ -147,42 +156,64 @@ func (r *RCON) Exec(ctx context.Context, cmd string, timeout time.Duration) (str
 	}
 }
 
-// probe finds a connection the server has closed, or one holding bytes
-// nobody asked for, without writing to it.
-func (r *RCON) probe() error {
-	if r.br.Buffered() > 0 {
-		return errors.New("rcon: unexpected data on the connection")
+// bound applies ctx's deadline to the connection, and cuts it short when
+// ctx is cancelled, until the returned function is called.
+func (r *RCON) bound(ctx context.Context) (stop func()) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(rconDefaultTimeout)
 	}
-	_ = r.conn.SetReadDeadline(time.Now().Add(rconProbeWait))
-	_, err := r.br.Peek(1)
-	switch {
-	case err == nil:
-		return errors.New("rcon: unexpected data on the connection")
-	case errors.Is(err, os.ErrDeadlineExceeded):
-		return nil
-	default:
-		return err
-	}
-}
-
-// bound limits the connection's reads and writes to timeout and to ctx's
-// life. The returned func lifts the limit once the exchange is over.
-func (r *RCON) bound(ctx context.Context, timeout time.Duration) (release func()) {
-	_ = r.conn.SetDeadline(time.Now().Add(timeout))
-	cancelled := make(chan struct{})
-	stop := context.AfterFunc(ctx, func() {
-		_ = r.conn.SetDeadline(time.Unix(1, 0))
-		close(cancelled)
+	_ = r.conn.SetDeadline(deadline)
+	fired := make(chan struct{})
+	cancel := context.AfterFunc(ctx, func() {
+		_ = r.conn.SetDeadline(time.Now())
+		close(fired)
 	})
 	return func() {
-		if !stop() {
-			<-cancelled
+		if !cancel() {
+			<-fired
 		}
 		_ = r.conn.SetDeadline(time.Time{})
 	}
 }
 
-// write sends one packet and returns how many of its bytes went out.
+// ctxErr reports a cancelled or expired ctx instead of the I/O error it
+// caused. The connection's deadline is ctx's, and its timeout can arrive a
+// moment before ctx reports itself done, so a timeout at or after ctx's
+// deadline counts as the deadline too.
+func (r *RCON) ctxErr(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return fmt.Errorf("rcon: no reply in time: %w", ctx.Err())
+	}
+	var ne net.Error
+	if d, ok := ctx.Deadline(); ok && errors.As(err, &ne) && ne.Timeout() && !time.Now().Before(d) {
+		return fmt.Errorf("rcon: no reply in time: %w", context.DeadlineExceeded)
+	}
+	return err
+}
+
+// stale reports why an idle connection can't take a command: the server
+// closed it, or sent something no command asked for.
+func (r *RCON) stale() error {
+	if r.br.Buffered() > 0 {
+		return errors.New("rcon: the server sent data nobody asked for")
+	}
+	_ = r.conn.SetReadDeadline(time.Now().Add(rconProbe))
+	_, err := r.br.Peek(1)
+	_ = r.conn.SetReadDeadline(time.Time{})
+	var ne net.Error
+	switch {
+	case err == nil:
+		return errors.New("rcon: the server sent data nobody asked for")
+	case errors.As(err, &ne) && ne.Timeout():
+		return nil
+	case errors.Is(err, io.EOF):
+		return errors.New("rcon: the server closed the connection")
+	default:
+		return err
+	}
+}
+
 func (r *RCON) write(id, typ int32, body string) (int, error) {
 	n := 4 + 4 + len(body) + 2
 	buf := make([]byte, 4+n)

@@ -1,0 +1,8 @@
+[04:10:21 INFO]: Saving the game (this may take a moment!)
+[04:10:22 ERROR]: Failed to save chunk [3, 7]
+java.io.IOException: No space left on device
+	at java.base/sun.nio.ch.FileDispatcherImpl.write0(Native Method) ~[?:?]
+	at net.minecraft.world.level.chunk.storage.RegionFile.write(RegionFile.java:315) ~[paper-1.21.4.jar:1.21.4-232-12ab34c]
+[04:10:23 ERROR]: Encountered an unexpected exception
+java.io.UncheckedIOException: java.io.IOException: No space left on device
+[04:10:23 INFO]: Stopping server

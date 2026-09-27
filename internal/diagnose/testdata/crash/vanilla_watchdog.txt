@@ -1,0 +1,4 @@
+[03:20:44] [Server thread/INFO]: Alex fell from a high place
+[03:22:17] [Server Watchdog/ERROR]: A single server tick took 60.00 seconds (should be max 0.05)
+[03:22:17] [Server Watchdog/ERROR]: Considering it to be crashed, server will forcibly shutdown.
+[03:22:17] [Server Watchdog/ERROR]: This crash report has been saved to: /data/./crash-reports/crash-2026-09-25_03.22.17-server.txt

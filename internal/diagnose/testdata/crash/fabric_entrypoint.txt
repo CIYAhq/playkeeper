@@ -1,0 +1,9 @@
+[12:00:03] [main/INFO]: Loading Minecraft 1.21.4 with Fabric Loader 0.16.10
+[12:00:04] [main/ERROR]: A mod crashed on startup!
+net.fabricmc.loader.impl.FormattedException: java.lang.RuntimeException: Could not execute entrypoint stage 'main' due to errors, provided by 'chunky' at 'org.popcraft.chunky.ChunkyFabric'!
+	at net.fabricmc.loader.impl.FormattedException.ofLocalized(FormattedException.java:63) ~[fabric-loader-0.16.10.jar:?]
+	at net.fabricmc.loader.impl.launch.knot.Knot.launch(Knot.java:74) ~[fabric-loader-0.16.10.jar:?]
+Caused by: java.lang.RuntimeException: Could not execute entrypoint stage 'main' due to errors, provided by 'chunky' at 'org.popcraft.chunky.ChunkyFabric'!
+	at net.fabricmc.loader.impl.FabricLoaderImpl.lambda$invokeEntrypoints$2(FabricLoaderImpl.java:388) ~[fabric-loader-0.16.10.jar:?]
+Caused by: java.lang.NoClassDefFoundError: net/fabricmc/fabric/api/command/v2/CommandRegistrationCallback
+	at org.popcraft.chunky.ChunkyFabric.onInitialize(ChunkyFabric.java:61) ~[Chunky-Fabric-1.4.23.jar:?]

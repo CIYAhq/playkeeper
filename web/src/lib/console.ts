@@ -25,11 +25,6 @@ export function parseLine(raw: string): ParsedLine {
   return { time, level, text, kind }
 }
 
-/** Did the server run out of memory, going by how it stopped? */
-export function ranOutOfMemory(exitCode: number | undefined, lines: string[]): boolean {
-  return exitCode === 137 || lines.some((l) => /OutOfMemoryError|out of memory/i.test(l))
-}
-
 /** "Can't keep up! Is the server overloaded? Running 5210ms or 104 ticks behind" → 5.2 seconds. */
 export function behindSeconds(text: string): number | undefined {
   const m = /Running (\d+)ms or \d+ ticks behind/.exec(text)

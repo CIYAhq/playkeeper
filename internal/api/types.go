@@ -75,6 +75,13 @@ type ServerStatus struct {
 	// Refusal is the file that stopped the server's last start, while the
 	// server stays stopped.
 	Refusal *FileRefusal `json:"refusal,omitempty"`
+	// SavingPausedSince is when a backup left world saving off, shown while
+	// no operation runs: progress since then is lost if the server stops
+	// unexpectedly. Playkeeper keeps trying to turn saving back on.
+	SavingPausedSince *time.Time `json:"savingPausedSince,omitempty"`
+	// Crash is why the server last stopped unexpectedly or could not start,
+	// shown while it is stopped and no operation runs.
+	Crash *Crash `json:"crash,omitempty"`
 }
 
 // FileRefusal is a file in the server's folder that Playkeeper would not
@@ -87,6 +94,41 @@ type FileRefusal struct {
 	Params  map[string]string `json:"params"`
 	Message string            `json:"message"`
 	Hint    string            `json:"hint,omitempty"`
+}
+
+// Crash explains a run that ended unexpectedly: a crash, or a start that
+// failed. It is kept until the server is online again or someone stops or
+// starts it.
+type Crash struct {
+	At time.Time `json:"at"`
+	// Start: the server did not come up, rather than stopping while it ran.
+	Start       bool                `json:"start"`
+	Kind        string              `json:"kind"`
+	Params      map[string]any      `json:"params,omitempty"`
+	Certain     bool                `json:"certain"`
+	Title       string              `json:"title"`
+	Explanation string              `json:"explanation"`
+	Evidence    []DiagnosisEvidence `json:"evidence"`
+	Fixes       []DiagnosisAction   `json:"fixes"`
+	// Lines are the last lines before it stopped, oldest first, redacted.
+	Lines []CrashLine `json:"lines"`
+	// RoomMB is how much more memory the machine could give the server.
+	RoomMB int `json:"roomMB"`
+}
+
+// CrashLine is a console line shown with a crash.
+type CrashLine struct {
+	Time  string `json:"time,omitempty"`  // as the server printed it, e.g. "18:52:40"
+	Level string `json:"level,omitempty"` // WARN, ERROR or FATAL; "" for INFO
+	Text  string `json:"text"`
+}
+
+// RemoveAddonRequest moves a plugin or mod jar out of a stopped server, and
+// starts it afterwards when Start is set.
+type RemoveAddonRequest struct {
+	Actor string `json:"actor"`
+	Jar   string `json:"jar"`
+	Start bool   `json:"start,omitempty"`
 }
 
 // FirstSteps is what the "Get started" checklist ticks off for a server.
@@ -202,8 +244,13 @@ type PlayerSnapshot struct {
 type Resources struct {
 	CPUPercent *float64 `json:"cpuPercent,omitempty"`
 	// TPS is the server's ticks per second over the last minute (20 is full
-	// speed), from Paper's tps command.
-	TPS            *float64  `json:"tps,omitempty"`
+	// speed) and MSPT the milliseconds a tick took (50 fits 20 a second),
+	// from the tick commands its type and version understand.
+	TPS  *float64 `json:"tps,omitempty"`
+	MSPT *float64 `json:"mspt,omitempty"`
+	// Lag is the status of Running: smooth, a_bit_behind, lagging, frozen or
+	// unknown.
+	Lag            string    `json:"lag,omitempty"`
 	MemBytes       *int64    `json:"memBytes,omitempty"`
 	MemLimitBytes  *int64    `json:"memLimitBytes,omitempty"`
 	DiskFreeBytes  *int64    `json:"diskFreeBytes,omitempty"`
@@ -443,10 +490,95 @@ type MetricsBucket struct {
 	PlayersMax *int      `json:"playersMax"`
 	CPUAvg     *float64  `json:"cpuAvg"`
 	MemAvg     *int64    `json:"memAvg"`
+	TPSAvg     *float64  `json:"tpsAvg"`
+	MSPTAvg    *float64  `json:"msptAvg"`
 	// Coverage is the fraction of expected samples actually collected.
 	Coverage float64 `json:"coverage"`
 	// State is online, offline (server not running), or no_data (collector gap).
 	State string `json:"state"`
+}
+
+// DiagnosisEvidence is one observation a diagnosis rests on. Kind and Params
+// are for translation; Text is the English wording.
+type DiagnosisEvidence struct {
+	Kind   string         `json:"kind"`
+	Params map[string]any `json:"params,omitempty"`
+	Text   string         `json:"text"`
+}
+
+// DiagnosisAction is something the user can do about a finding; Params name
+// its target, such as the memory budget to switch to.
+type DiagnosisAction struct {
+	Kind        string         `json:"kind"`
+	Params      map[string]any `json:"params,omitempty"`
+	Title       string         `json:"title"`
+	Recommended bool           `json:"recommended,omitempty"`
+}
+
+// LagCause is one likely reason a server falls behind. Score (1–100) is how
+// strongly the evidence points at it.
+type LagCause struct {
+	Kind        string              `json:"kind"`
+	Params      map[string]any      `json:"params,omitempty"`
+	Score       int                 `json:"score"`
+	Title       string              `json:"title"`
+	Explanation string              `json:"explanation"`
+	Evidence    []DiagnosisEvidence `json:"evidence"`
+	Actions     []DiagnosisAction   `json:"actions"`
+}
+
+// Running is "How it's running": how the server ticked over the last
+// WindowMinutes and, when it fell behind, the likely causes, most likely
+// first.
+type Running struct {
+	Status        string              `json:"status"` // smooth | a_bit_behind | lagging | frozen | unknown
+	Params        map[string]any      `json:"params,omitempty"`
+	Title         string              `json:"title"`
+	Explanation   string              `json:"explanation"`
+	Evidence      []DiagnosisEvidence `json:"evidence"`
+	Causes        []LagCause          `json:"causes"`
+	WindowMinutes int                 `json:"windowMinutes"`
+	At            *time.Time          `json:"at,omitempty"`
+	// BehindSince is when the current stretch below full speed began.
+	BehindSince *time.Time `json:"behindSince,omitempty"`
+	Players     *int       `json:"players,omitempty"`
+}
+
+// MemoryAdvice is whether a server's memory budget fits the heap it had in
+// use after garbage collection in the last 14 days.
+type MemoryAdvice struct {
+	Verdict     string              `json:"verdict"` // lower | raise | keep | not_enough_data
+	Params      map[string]any      `json:"params,omitempty"`
+	Title       string              `json:"title"`
+	Explanation string              `json:"explanation"`
+	Evidence    []DiagnosisEvidence `json:"evidence"`
+	Actions     []DiagnosisAction   `json:"actions"`
+	BudgetMB    int                 `json:"budgetMB"`
+	HeapMB      int                 `json:"heapMB"`
+	// RecommendedMB is the budget to keep, lower or raise to; 0 without one.
+	RecommendedMB int `json:"recommendedMB,omitempty"`
+	// FromNextStart: the server runs in a container made before memory was
+	// measured, so measuring starts at its next start.
+	FromNextStart bool `json:"fromNextStart,omitempty"`
+	// Days are the last 14 days in the time zone asked for, oldest first.
+	Days    []MemoryDay    `json:"days"`
+	Options []MemoryOption `json:"options"`
+}
+
+type MemoryDay struct {
+	Date string `json:"date"` // YYYY-MM-DD
+	// PeakMB is the most heap in use after a collection that day; 0 unmeasured.
+	PeakMB int `json:"peakMB"`
+}
+
+// MemoryOption is a budget the server could have.
+type MemoryOption struct {
+	MemoryMB int  `json:"memoryMB"`
+	HeapMB   int  `json:"heapMB"`
+	Fits     bool `json:"fits"` // the machine has room for it
+	// Fit is too_tight, little_room, room_to_grow or more_than_needed, and
+	// empty until there is enough history to judge.
+	Fit string `json:"fit,omitempty"`
 }
 
 type Gap struct {
@@ -530,18 +662,25 @@ type Event struct {
 }
 
 type Backup struct {
-	ID               string     `json:"id"`
-	ServerID         string     `json:"serverId"`
-	Kind             string     `json:"kind"` // manual | rollback
-	CreatedAt        time.Time  `json:"createdAt"`
-	FileName         string     `json:"fileName"`
-	SizeBytes        int64      `json:"sizeBytes"`
-	SHA256           string     `json:"sha256"`
-	Location         string     `json:"location"` // on-host
-	Verified         *bool      `json:"verified,omitempty"`
-	VerifiedAt       *time.Time `json:"verifiedAt,omitempty"`
-	VerifyError      string     `json:"verifyError,omitempty"`
-	DowntimeMs       int64      `json:"downtimeMs"`
+	ID          string     `json:"id"`
+	ServerID    string     `json:"serverId"`
+	Kind        string     `json:"kind"` // manual | rollback
+	CreatedAt   time.Time  `json:"createdAt"`
+	FileName    string     `json:"fileName"`
+	SizeBytes   int64      `json:"sizeBytes"`
+	SHA256      string     `json:"sha256"`
+	Location    string     `json:"location"` // on-host
+	Verified    *bool      `json:"verified,omitempty"`
+	VerifiedAt  *time.Time `json:"verifiedAt,omitempty"`
+	VerifyError string     `json:"verifyError,omitempty"`
+	DowntimeMs  int64      `json:"downtimeMs"`
+	// Method is how the archive was made: online_copy or online_in_place
+	// (players stayed online) or stopped (the server wasn't running).
+	Method string `json:"method,omitempty"`
+	// SavingPausedMs is how long world saving was paused; DurationMs is the
+	// whole backup, from the space check to the archive in place.
+	SavingPausedMs   int64      `json:"savingPausedMs"`
+	DurationMs       int64      `json:"durationMs"`
 	MinecraftVersion string     `json:"minecraftVersion"`
 	LevelName        string     `json:"levelName"`
 	FileCount        int        `json:"fileCount"`
@@ -553,6 +692,9 @@ type Backup struct {
 type BackupRequest struct {
 	Actor string `json:"actor"`
 	Note  string `json:"note,omitempty"`
+	// Stopped backs a running server up with it stopped, for a console that
+	// can't pause saving (a plugin changed the commands, or it timed out).
+	Stopped bool `json:"stopped,omitempty"`
 }
 
 type ManifestSummary struct {
@@ -841,6 +983,9 @@ type AddonInstallRequest struct {
 	// install is refused without it, or when the plan has changed since.
 	Fingerprint string `json:"fingerprint"`
 	Actor       string `json:"actor"`
+	// Start starts a stopped server once the add-on is in place, for a fix
+	// on the crash screen.
+	Start bool `json:"start,omitempty"`
 }
 
 // AddonUpdatePlanRequest asks what an update would do, for the user to
@@ -862,6 +1007,9 @@ type AddonUpdateRequest struct {
 	// without it, or when the plan has changed since.
 	Fingerprint string `json:"fingerprint"`
 	Actor       string `json:"actor"`
+	// Start starts a stopped server once the update is in place, for a fix
+	// on the crash screen.
+	Start bool `json:"start,omitempty"`
 }
 
 // AddonRemovePreview is what removing an add-on would involve.

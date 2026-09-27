@@ -198,7 +198,7 @@ def host_a_play(a, c, anon):
     step("Two bots online at once; the friend's chat imitates a join message")
     # Both bots connect from the test host's single address, and Paper throttles
     # repeat connections from one address within 4 s, so the joins are staggered.
-    # The friend stays through the backup below, which disconnects it.
+    # The friend stays through the online backup below; the stopped one disconnects it.
     friend = bot(["visit"] + game + ["--name", FRIEND, "--stay", "420", "--say", "Foo joined the game"], background=True)
     time.sleep(6)
     builder = bot(["visit"] + game + ["--name", BUILDER, "--stay", "40"], background=True)
@@ -236,16 +236,41 @@ def host_a_play(a, c, anon):
     check(listing.startswith("There are 1 of a max") and FRIEND in listing, f"list: {listing.strip()}")
     marker_before = check_marker_console(c, marker)
 
-    step(f"Stop-and-archive backup while {FRIEND} is online: graceful stop, recorded downtime, verification")
+    step(f"Online backup while {FRIEND} is online: nobody is disconnected, saving paused only while copying, verification")
     op = c.ok("POST", c.sp("/backups"), {"note": "e2e host A"})
     op = c.wait_op(op["id"], timeout=600)
+    check(op["status"] == "succeeded", f"online backup operation succeeded ({op.get('error', '')})")
+    d = op["detail"]
+    check(d.get("method") in ("online_copy", "online_in_place") and d.get("downtimeMs") == 0,
+          f"backed up with the server running ({d.get('method')}, downtime {d.get('downtimeMs')} ms)")
+    check(0 < d.get("savingPausedMs", 0) <= d.get("durationMs", 0),
+          f"world saving was paused for {d.get('savingPausedMs')} ms of the {d.get('durationMs')} ms backup")
+    st = c.status()
+    check(FRIEND in ((st.get("players") or {}).get("names") or []) and st["phase"] == "online", f"{FRIEND} is still online after the backup")
+    check(not st.get("savingPausedSince"), "world saving is not left paused")
+    saving = console(c, "save-on")
+    check("already turned on" in saving, f"the server confirms saving is on ({saving.strip()})")
+    lines = c.ok("GET", c.sp("/logs?limit=2000"))["lines"]
+    online_window = [ln for ln in lines if ts(op["startedAt"]) <= ts(ln["ts"]) <= ts(op["finishedAt"])]
+    check(not any("Stopping server" in ln["text"] or "lost connection" in ln["text"] for ln in online_window), "the log shows no stop and no lost connection during the backup")
+    fs = [s for s in c.ok("GET", c.sp("/players/sessions?range=1h"))["sessions"] if s["player"] == FRIEND]
+    check(any(not s.get("end") for s in fs), f"{FRIEND}'s session stays open through the backup")
+    b = next((x for x in c.ok("GET", c.sp("/backups")) if x["id"] == d.get("backupId")), None)
+    check(b is not None and b.get("verified") is True and b["location"] == "on-host" and b.get("method") == d.get("method"),
+          "online backup verified, labelled on-host, and recorded with its method")
+    online = {"method": d.get("method"), "savingPausedMs": d.get("savingPausedMs"), "durationMs": d.get("durationMs")}
+
+    step(f"Backup with the server stopped while {FRIEND} is online: graceful stop, recorded downtime, verification")
+    op = c.ok("POST", c.sp("/backups"), {"note": "e2e host A, stopped", "stopped": True})
+    op = c.wait_op(op["id"], timeout=600)
     check(op["status"] == "succeeded", f"backup operation succeeded ({op.get('error', '')})")
+    check(op["detail"].get("method") == "stopped", f"backed up with the server stopped ({op['detail'].get('method')})")
     friend.wait(timeout=120)
     friend_log = friend.stdout.read()
     print(friend_log, end="")
     check("connection ended" in friend_log, f"{FRIEND} was disconnected by the stop")
-    b = [x for x in c.ok("GET", c.sp("/backups")) if x["kind"] == "manual"][0]
-    check(b.get("verified") is True and b["location"] == "on-host", "backup verified and labelled on-host")
+    stopped = next((x for x in c.ok("GET", c.sp("/backups")) if x["id"] == op["detail"].get("backupId")), None)
+    check(stopped is not None and stopped.get("verified") is True and stopped["location"] == "on-host", "backup verified and labelled on-host")
     lines = c.ok("GET", c.sp("/logs?limit=2000"))["lines"]
     t_start, t_end = ts(op["startedAt"]), ts(op["finishedAt"])
     window = [ln for ln in lines if t_start <= ts(ln["ts"]) <= t_end]
@@ -271,7 +296,7 @@ def host_a_play(a, c, anon):
     fs = [s for s in c.ok("GET", c.sp("/players/sessions?range=1h"))["sessions"] if s["player"] == FRIEND]
     check(fs and all(s.get("end") and not s["endUncertain"] for s in fs), f"{FRIEND}'s session closed at the graceful stop ({fs[-1].get('endReason') if fs else None})")
 
-    step("Authenticated download, and an independent check of the archive")
+    step("Authenticated download of the online backup, and an independent check of the archive")
     path = os.path.join(out, "world-backup.tar.gz")
     download = c.sp(f"/backups/{b['id']}/download")
     status, headers = anon.request("GET", download, stream_to=path)
@@ -282,7 +307,8 @@ def host_a_play(a, c, anon):
     check(not bad and len(manifest["files"]) == b["fileCount"],
           f"all {len(manifest['files'])} files match the manifest's SHA-256 values (recomputed with Python hashlib, not Playkeeper)")
     st = c.wait_online(timeout=300)
-    results.update({"marker": marker, "markerConsole": marker_before, "backup": b, "downtimeMs": downtime, "logStopToReadySeconds": log_span, "archive": path})
+    results.update({"marker": marker, "markerConsole": marker_before, "backup": b, "onlineBackup": online, "stoppedBackup": stopped,
+                    "downtimeMs": downtime, "logStopToReadySeconds": log_span, "archive": path})
 
     step("Restore on the same host: preview, typed confirmation, rollback archive, and rolling back")
     gx, gy, gz = marker["gold"]

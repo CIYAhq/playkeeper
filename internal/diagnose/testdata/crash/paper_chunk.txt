@@ -1,0 +1,11 @@
+[05:40:51 INFO]: Alex joined the game
+[05:41:09 ERROR]: Couldn't load chunk [12, -5]
+java.util.zip.ZipException: invalid distance too far back
+	at java.base/java.util.zip.InflaterInputStream.read(InflaterInputStream.java:165) ~[?:?]
+	at net.minecraft.nbt.NbtIo.readCompressed(NbtIo.java:66) ~[paper-1.21.4.jar:1.21.4-232-12ab34c]
+[05:41:10 ERROR]: Encountered an unexpected exception
+net.minecraft.ReportedException: Ticking entity
+	at net.minecraft.server.MinecraftServer.tickChildren(MinecraftServer.java:1760) ~[paper-1.21.4.jar:1.21.4-232-12ab34c]
+Caused by: java.lang.NullPointerException: Cannot invoke "net.minecraft.world.level.chunk.LevelChunk.getFluidState(net.minecraft.core.BlockPos)" because "chunk" is null
+	at net.minecraft.world.level.Level.getFluidState(Level.java:1102) ~[paper-1.21.4.jar:1.21.4-232-12ab34c]
+[05:41:10 ERROR]: This crash report has been saved to: /data/./crash-reports/crash-2026-09-25_05.41.10-server.txt

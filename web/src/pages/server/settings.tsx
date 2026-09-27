@@ -1,12 +1,13 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArchiveIcon, CircleArrowUpIcon, RotateCwIcon, SaveIcon, SquareIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { api, ApiError, get, post } from '@/api/client'
-import type { Backup, CatalogEntry, Difficulty, GameMode, Gameplay, ServerStatus } from '@/api/types'
+import type { Backup, CatalogEntry, Difficulty, GameMode, Gameplay, MemoryAdvice, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { Emblem, Pip } from '@/components/app/art'
-import { Card, CardHint, CardTitle, SectionLabel } from '@/components/app/bits'
+import { Card, CardHint, CardTitle, Progress, SectionLabel } from '@/components/app/bits'
 import { ChoiceSelect, SettingRow, useIsPhone, type Choice } from '@/components/app/controls'
+import { InlineSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogDescription, DialogFooter, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
@@ -18,7 +19,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
-import { formatBytes, formatMB } from '@/lib/format'
+import { formatDate, formatMB, localTimeZone } from '@/lib/format'
+import { memoryAdviceLine, memoryOffers, memoryOptionHint, memoryProgress } from '@/lib/memory'
 import { busyReason, whyNot } from '@/lib/phase'
 import { navigate } from '@/lib/router'
 import { iconURL, newerStable, typeName } from '@/lib/servers'
@@ -60,6 +62,65 @@ const sections = [
   { id: 'danger', key: 'settings.danger' },
 ] as const
 
+const sectionIds = sections.map((x) => x.id)
+
+/**
+ * A change another page asked for, like "Give it 6 GB" on How it's running:
+ * ?memory=6144 or ?view=10. It shows as an unsaved change, never saved by itself.
+ */
+function askedFor(): { memoryMB?: number; viewDistance?: number } {
+  const q = new URLSearchParams(window.location.search)
+  const memory = Number(q.get('memory'))
+  const view = Number(q.get('view'))
+  return {
+    memoryMB: Number.isInteger(memory) && memory > 0 ? memory : undefined,
+    viewDistance: Number.isInteger(view) && view >= 3 && view <= 32 ? view : undefined,
+  }
+}
+
+/**
+ * The section at the top of the screen, for the settings nav. The section in
+ * the address wins while it is near the top: near the end of the page it
+ * can't scroll all the way up, so the one above it is still in view.
+ */
+function useActiveSection(ids: readonly string[]): string | undefined {
+  const asked = useCallback(() => {
+    const hash = window.location.hash.slice(1)
+    return ids.includes(hash) ? hash : undefined
+  }, [ids])
+  const [active, setActive] = useState<string | undefined>(() => asked() ?? ids[0])
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return
+    const visible = new Set<string>()
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) visible.add(e.target.id)
+          else visible.delete(e.target.id)
+        }
+        const want = asked()
+        const next = want && visible.has(want) ? want : ids.find((id) => visible.has(id))
+        if (next) setActive(next)
+      },
+      { rootMargin: '0px 0px -65% 0px' },
+    )
+    for (const id of ids) {
+      const el = document.getElementById(id)
+      if (el) io.observe(el)
+    }
+    const onHash = () => {
+      const want = asked()
+      if (want) setActive(want)
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => {
+      io.disconnect()
+      window.removeEventListener('hashchange', onHash)
+    }
+  }, [ids, asked])
+  return active
+}
+
 export function difficultyChoices(): Choice<Difficulty>[] {
   return (['peaceful', 'easy', 'normal', 'hard'] as const).map((d) => ({ value: d, label: t(`settings.difficulty.${d}`), hint: t(`settings.difficulty.${d}.hint`) }))
 }
@@ -98,15 +159,33 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
   const base = useMemo(() => baseOf(s), [s])
+  const [asked, setAsked] = useState(askedFor)
   const [draft, setDraft] = useState<Partial<Draft>>({})
   const [saving, setSaving] = useState(false)
   const { catalog } = useCatalog(ws.machine?.id, { server: s.id, fresh: true })
-  const v = { ...base, ...draft }
-  const changed = (k: keyof Draft) => k in draft && draft[k] !== base[k]
-  const keys = (Object.keys(draft) as (keyof Draft)[]).filter(changed)
+  const memoryPoll = usePoll(() => get<MemoryAdvice>(serverApi(s.id, `/memory?tz=${encodeURIComponent(localTimeZone())}`)), 300_000, s.id)
+  const advice = memoryPoll.data
+  const offers = memoryOffers(base.memoryMB, advice, catalog)
+  const linked: Partial<Draft> = {}
+  if (asked.viewDistance !== undefined) linked.viewDistance = asked.viewDistance
+  const askedMB = asked.memoryMB
+  if (askedMB !== undefined && offers.some((o) => o.memoryMB === askedMB && o.fits)) linked.memoryMB = askedMB
+  const edits: Partial<Draft> = { ...linked, ...draft }
+  const v = { ...base, ...edits }
+  const changed = (k: keyof Draft) => k in edits && edits[k] !== base[k]
+  const keys = (Object.keys(edits) as (keyof Draft)[]).filter(changed)
   const restartNeeded = keys.some((k) => k !== 'name')
   const online = !ws.stale && s.phase === 'online'
   const set = <K extends keyof Draft>(k: K, value: Draft[K]) => setDraft((d) => ({ ...d, [k]: value }))
+  const discard = () => {
+    setDraft({})
+    setAsked({})
+  }
+  const active = useActiveSection(sectionIds)
+  const hash = window.location.hash
+  useEffect(() => {
+    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' })
+  }, [hash])
 
   async function save() {
     setSaving(true)
@@ -122,7 +201,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
     if (restart) body.restart = true
     try {
       await post(serverApi(s.id, '/settings'), body)
-      setDraft({})
+      discard()
       toastManager.add({ title: restart ? t('settings.savedRestartToast', { server: v.name }) : t('settings.savedToast'), type: 'success' })
       await ws.refresh()
     } catch (e) {
@@ -132,10 +211,24 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
     }
   }
 
-  const memoryOptions = (catalog?.memoryOptionsMB ?? [v.memoryMB]).filter((mb) => mb <= (catalog?.maxMemoryMB ?? Infinity) || mb === base.memoryMB)
-  const usedMB = s.resources?.memBytes ? s.resources.memBytes / (1024 * 1024) : undefined
-  const suggested = usedMB ? memoryOptions.find((mb) => mb >= Math.max(usedMB * 1.5, 2048)) : undefined
-  const memoryChoices: Choice<string>[] = memoryOptions.map((mb) => ({ value: String(mb), label: mb === suggested ? t('settings.memorySuggested', { memory: formatMB(mb) }) : formatMB(mb) }))
+  const memoryChoices: Choice<string>[] = offers.map((o) => ({ value: String(o.memoryMB), label: formatMB(o.memoryMB), hint: memoryOptionHint(o, advice, ws.machineName), disabled: !o.fits }))
+  const progress = advice && memoryProgress(advice)
+  const memoryHint = advice ? (
+    <>
+      {memoryAdviceLine(advice, ws.machineName)}
+      {advice.verdict !== 'not_enough_data' && advice.days.length > 0 && <MemoryDays advice={advice} />}
+      {progress && (
+        <div className="mt-2 flex items-center gap-3">
+          <Progress value={(progress.day / progress.of) * 100} className="w-[140px]" label={t('settings.memoryDay', progress)} />
+          <span className="text-xs font-medium text-foreground" aria-hidden="true">
+            {t('settings.memoryDay', progress)}
+          </span>
+        </div>
+      )}
+    </>
+  ) : memoryPoll.loading ? (
+    <InlineSkeleton className="w-72 max-w-full" />
+  ) : undefined
 
   const game = (
     <>
@@ -151,13 +244,14 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
           </label>
         }
       />
-      {!phone && (
+      {(!phone || 'viewDistance' in edits) && (
         <SettingRow
+          wide={phone}
           label={t('settings.view')}
           hint={t('settings.viewHint')}
           changed={changed('viewDistance')}
           control={
-            <div className="flex w-[296px] items-center gap-4">
+            <div className="flex w-[296px] items-center gap-4 max-sm:w-full">
               <Slider className="min-w-0 flex-1" value={v.viewDistance} onValueChange={(n) => set('viewDistance', Array.isArray(n) ? (n[0] ?? 10) : n)} min={3} max={32} step={1} aria-label={t('settings.view')} />
               <span className="w-[76px] shrink-0 text-right text-[13px] font-semibold tabular-nums">{t('unit.chunks', { count: v.viewDistance })}</span>
             </div>
@@ -206,7 +300,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
     <>
       <SettingRow
         label={t('settings.memoryRow')}
-        hint={usedMB && suggested ? t('settings.memoryRowHint', { used: formatBytes(s.resources?.memBytes), suggested: formatMB(suggested) }) : t('settings.memoryRowHintIdle')}
+        hint={memoryHint}
         changed={changed('memoryMB')}
         control={<ChoiceSelect value={String(v.memoryMB)} onChange={(mb) => set('memoryMB', Number(mb))} options={memoryChoices} label={t('settings.memoryRow')} />}
       />
@@ -220,7 +314,7 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
         <div className="text-[13px] font-semibold">{t('settings.unsaved', { count: keys.length })}</div>
         <div className="text-xs text-muted-foreground">{restartNeeded ? (online ? t('settings.unsavedRestart', { server: v.name }) : t('settings.unsavedStopped', { server: v.name })) : t('settings.unsavedNow')}</div>
       </div>
-      <Button variant="ghost" size="sm" onClick={() => setDraft({})}>
+      <Button variant="ghost" size="sm" onClick={discard}>
         {t('settings.discard')}
       </Button>
       <Button size="sm" onClick={save} loading={saving} disabledReason={v.name.trim() ? busyReason(s) : t('reason.nameFirst')}>
@@ -255,7 +349,12 @@ export function ServerSettingsPage({ server: s }: { server: ServerStatus }) {
     <div className="grid gap-6 lg:grid-cols-[160px_1fr]">
       <nav aria-label={t('settings.sections')} className="sticky top-4 hidden flex-col gap-0.5 self-start lg:flex">
         {sections.map((x) => (
-          <a key={x.id} href={`#${x.id}`} className="rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground">
+          <a
+            key={x.id}
+            href={`#${x.id}`}
+            aria-current={active === x.id ? 'location' : undefined}
+            className="rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground aria-[current=location]:bg-accent aria-[current=location]:font-semibold aria-[current=location]:text-foreground"
+          >
             {t(x.key)}
           </a>
         ))}
@@ -289,6 +388,44 @@ function Section({ id, title, hint, children }: { id: string; title: string; hin
       {hint && <CardHint>{hint}</CardHint>}
       <div className="mt-2">{children}</div>
     </Card>
+  )
+}
+
+/** A YYYY-MM-DD day from the agent, as a local date like "25 Sep". */
+function dayLabel(date: string): string {
+  const [y, m, d] = date.split('-').map(Number)
+  return formatDate(new Date(y ?? 0, (m ?? 1) - 1, d ?? 1).toISOString())
+}
+
+/** The most memory it needed each of the last 14 days, under its budget; today's bar is darker. */
+function MemoryDays({ advice: a }: { advice: MemoryAdvice }) {
+  const peak = Math.max(0, ...a.days.map((d) => d.peakMB))
+  const top = Math.max(a.budgetMB, peak, 1)
+  const last = a.days.length - 1
+  return (
+    <div className="mt-1.5 w-[288px] max-w-full" role="img" aria-label={t('settings.memoryChart', { count: a.days.length, peak: formatMB(peak), memory: formatMB(a.budgetMB) })}>
+      <div className="relative mt-2.5 h-8">
+        <div className="absolute inset-0 flex items-end gap-[5px]">
+          {a.days.map((d, i) => (
+            <div
+              key={d.date}
+              title={d.peakMB > 0 ? t('settings.memoryPeakOn', { date: dayLabel(d.date), peak: formatMB(d.peakMB) }) : t('settings.memoryNotMeasured', { date: dayLabel(d.date) })}
+              className={cn('min-w-0 flex-1 rounded-[3px] transition-[height] duration-(--motion-slow) ease-standard', d.peakMB <= 0 ? 'bg-foreground/8' : i === last ? 'bg-primary/75' : 'bg-primary/40')}
+              style={{ height: d.peakMB > 0 ? `${Math.max(8, (d.peakMB / top) * 100)}%` : 2 }}
+            />
+          ))}
+        </div>
+        <div className="pointer-events-none absolute inset-x-0 flex translate-y-1/2 items-center gap-1.5" style={{ bottom: `${(a.budgetMB / top) * 100}%` }}>
+          <span className="flex-1 border-t border-dashed border-muted-foreground/45" />
+          <span className="text-[10px] leading-none font-medium text-muted-foreground tabular-nums">{formatMB(a.budgetMB)}</span>
+        </div>
+      </div>
+      <div className="mt-1.5 flex justify-between text-[11px] leading-none text-muted-foreground" aria-hidden="true">
+        <span>{t('settings.memoryDaysAgo', { count: a.days.length })}</span>
+        <span className="font-medium text-foreground/70">{t('settings.memoryPeaks')}</span>
+        <span>{t('settings.memoryToday')}</span>
+      </div>
+    </div>
   )
 }
 

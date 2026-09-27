@@ -1,0 +1,7 @@
+[12:00:01] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forgeserver, --fml.neoForgeVersion, 21.1.172]
+[12:00:06] [main/ERROR] [ne.ne.fm.ModLoader/LOADING]: Failed to complete lifecycle event COMMON_SETUP, 1 errors found
+[12:00:06] [main/ERROR] [minecraft/Main/]: Failed to start the minecraft server
+net.neoforged.fml.ModLoadingException: Loading errors encountered:
+	- Farmer's Delight (farmersdelight) encountered an error while dispatching the net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent event
+	  java.lang.NullPointerException: Cannot invoke "net.minecraft.world.item.Item.getDefaultInstance()" because "item" is null
+	at MC-BOOTSTRAP/fml_loader@4.0.39/net.neoforged.fml.ModLoader.waitForTask(ModLoader.java:245)

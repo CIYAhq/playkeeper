@@ -1,0 +1,6 @@
+[2026-09-25T16:00:05.120+0000][7205.629s][info][gc] GC(212) Pause Young (Normal) (G1 Evacuation Pause) (Evacuation Failure: Pinned) 2710M->1104M(4608M) 21.337ms
+[2026-09-25T16:02:40.882+0000][7361.391s][info][gc] GC(213) Pause Young (Normal) (G1 Evacuation Pause) (Evacuation Failure: Allocation / Pinned) 4580M->4422M(4608M) 141.906ms
+[2026-09-25T16:02:43.310+0000][7363.819s][info][gc] GC(214) Pause Full (G1 Compaction Pause) 4600M->2890M(4608M) 2210.784ms
+[2026-09-25T16:05:12.004+0000][7512.513s][info][gc] GC(215) Pause Full (Heap Inspection Initiated GC) 3120M->1480M(4608M) 1203.551ms
+[2026-09-25T16:08:30.771+0000][7711.280s][info][gc] GC(216) Pause Full (Diagnostic Command) 1990M->1466M(4608M) 1188.020ms
+[2026-09-25T16:11:02.450+0000][7862.959s][info][gc] GC(217) Pause Young (Normal) (G1 Evacuation Pause) (Evacuation Failure: Allocation) 4570M->4501M(4608M) 150.113ms

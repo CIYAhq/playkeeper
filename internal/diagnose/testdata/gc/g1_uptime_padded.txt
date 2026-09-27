@@ -1,0 +1,6 @@
+[0.008s][info][gc,init] Version: 25+36-LTS (release)
+[0.009s][info][gc     ] Using G1
+[4.217s][info][gc,start    ] GC(0) Pause Young (Normal) (G1 Evacuation Pause)
+[4.221s][info][gc,heap     ] GC(0) Eden regions: 51->0(47)
+[4.230s][info][gc          ] GC(0) Pause Young (Normal) (G1 Evacuation Pause) 204M->18M(2048M) 13.114ms
+[4.230s][info][gc,cpu      ] GC(0) User=0.05s Sys=0.01s Real=0.01s

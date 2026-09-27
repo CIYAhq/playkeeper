@@ -1,0 +1,10 @@
+[22:15:31 INFO]: Alex joined the game
+[22:15:40 WARN]: [NetherPortals] Task #88213 for NetherPortals v1.4.2 generated an exception
+java.lang.OutOfMemoryError: unable to create native thread: possibly out of memory or process/resource limits reached
+	at java.base/java.lang.Thread.start0(Native Method) ~[?:?]
+	at java.base/java.lang.Thread.start(Thread.java:1553) ~[?:?]
+	at NetherPortals-1.4.2.jar//net.example.portals.PortalWorker.spawn(PortalWorker.java:52) ~[NetherPortals-1.4.2.jar:?]
+[22:15:41 ERROR]: Encountered an unexpected exception
+java.lang.OutOfMemoryError: unable to create native thread: possibly out of memory or process/resource limits reached
+	at java.base/java.lang.Thread.start0(Native Method) ~[?:?]
+[22:15:41 INFO]: Stopping server

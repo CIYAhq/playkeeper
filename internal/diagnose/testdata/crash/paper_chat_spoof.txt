@@ -1,0 +1,17 @@
+[20:01:02 INFO]: <Griefer> java.lang.OutOfMemoryError: Java heap space
+[20:01:05 INFO]: <Griefer> **** FAILED TO BIND TO PORT!
+[20:01:09 INFO]: [Server] No space left on device
+[20:01:12 INFO]: * Griefer net.minecraft.util.DirectoryLock$LockException: /data/./world/session.lock: already locked
+[20:01:15 INFO]: <Griefer> Could not load plugin 'EssentialsX-2.21.0.jar' in folder 'plugins'
+[20:01:18 INFO]: <Griefer> Farmer's Delight (farmersdelight) has failed to load correctly
+[20:01:21 INFO]: <Griefer> Mixin apply for mod betterend failed
+[20:01:24 INFO]: <Griefer> 	at EssentialsX-2.21.0.jar//com.earth2me.essentials.Essentials.onEnable(Essentials.java:1)
+[20:01:27 INFO]: Griefer: Unknown/missing dependency plugins: [Vault]. Please download and install these plugins to run 'Jobs'.
+[20:01:30 INFO]: Griefer » Failed to load datapacks, can't proceed with server load
+[20:01:33 INFO]: <Griefer> java.nio.file.AccessDeniedException: ./world/session.lock
+[20:01:36 INFO]: <Griefer> Couldn't load chunk [1, 2]
+[20:01:39 INFO]: <Griefer> de/oliver/X has been compiled by a more recent version of the Java Runtime (class file version 70.0), this version of the Java Runtime only recognizes class file versions up to 69.0
+[20:01:42 INFO]: Griefer: Error occurred while enabling Shopkeepers v2.23.3 (Is it up to date?)
+[20:01:45 INFO]: [Server] You need to agree to the EULA in order to run the server.
+[20:01:48 INFO]: Griefer lost connection: Disconnected
+[20:02:30 INFO]: Stopping server

@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import type { Address, CatalogEntry, DNSRecord, JoinAddress, MetricsBucket, Operation, ServerConfig, ServerStatus } from '@/api/types'
+import type { Address, CatalogEntry, Crash, DNSRecord, FileRefusal, JoinAddress, LagCause, MemoryAdvice, MetricsBucket, Operation, Running, ServerConfig, ServerStatus } from '@/api/types'
 import { createRequest, freeName, heapMB, versionCards } from '@/components/app/create'
+import { lineRuns } from '@/components/app/line-chart'
 import { passwordStrength } from '@/pages/onboarding'
 import { certState, claimStep, dashboardURL, freeServers, freeStage, nameProblem, normalizeName, ownDone, recordFor, zoneOf } from './address'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
-import { behindSeconds, parseLine, ranOutOfMemory } from './console'
+import { behindSeconds, parseLine } from './console'
+import { crashDetail, crashFixes, crashSummary, failureLine, lookupKey, phoneLines, preselect, refusalFixes, refusalLine } from './crash'
 import { formatBytes, formatCountdown, formatDuration, formatList, formatMB, joinAddress, relativeAge, relativeTime, serverJoinAddress } from './format'
-import { memorySegments } from './memory'
-import { busyReason, controls, createStepOf, isSettingUp, phaseTone, whyNot } from './phase'
+import { memoryAdviceLine, memoryOffers, memoryOptionHint, memoryProgress, memorySegments } from './memory'
+import { busyReason, controls, createStepOf, isSettingUp, phaseTone, statusLabel, statusTone, whyNot } from './phase'
 import { href, parse, type Route } from './router'
+import { causeAction, causeText, cpuAxis, headlineTPS, memoryAxis, runningHeadline, tickRateAxis, tickTimeAxis, timeLabels } from './running'
 import { newerStable, softwareLabel } from './servers'
 import { memoryForStyle } from './styles'
 import { upgradeTargets } from './versions'
@@ -52,6 +55,7 @@ describe('router', () => {
       { name: 'server', slug: 'cobblemon', tab: 'mods', sub: 'browse' },
       { name: 'server', slug: 'survival', tab: 'world', sub: 'pregen' },
       { name: 'server', slug: 'survival', tab: 'world', sub: 'packs' },
+      { name: 'server', slug: 'survival', tab: 'overview', page: 'running' },
       { name: 'machine', id: 'm2345abcde' },
       { name: 'machine-settings', id: 'm2345abcde' },
       { name: 'settings' },
@@ -70,6 +74,7 @@ describe('router', () => {
     expect(parse('/servers/survival/world/browse')).toEqual({ name: 'home' })
     expect(parse('/servers/survival/overview/pregen')).toEqual({ name: 'home' })
     expect(parse('/servers/survival/world/pregen/more')).toEqual({ name: 'home' })
+    expect(parse('/servers/survival/running/more')).toEqual({ name: 'home' })
     expect(parse('/servers/Bad Slug')).toEqual({ name: 'home' })
     expect(parse('/account/nope')).toEqual({ name: 'account' })
     expect(parse('/machines/m2345abcde/settings/more')).toEqual({ name: 'home' })
@@ -175,7 +180,7 @@ describe('formatting', () => {
 })
 
 describe('players chart', () => {
-  const b = (state: MetricsBucket['state'], players: number | null = null): MetricsBucket => ({ start: '2026-09-25T00:00:00Z', playersMax: players, cpuAvg: null, memAvg: null, coverage: 1, state })
+  const b = (state: MetricsBucket['state'], players: number | null = null): MetricsBucket => ({ start: '2026-09-25T00:00:00Z', playersMax: players, cpuAvg: null, memAvg: null, tpsAvg: null, msptAvg: null, coverage: 1, state })
 
   it('shows the most players in each bar, and a stop only when the server never ran', () => {
     const bars = regroup([b('online', 2), b('online', 5), b('offline'), b('offline'), b('offline'), b('no_data')], 3)
@@ -186,7 +191,7 @@ describe('players chart', () => {
   })
 
   it('lines bars up with the clock', () => {
-    const at = (minute: number, players: number): MetricsBucket => ({ start: new Date(Date.UTC(2026, 8, 25, 12, minute)).toISOString(), playersMax: players, cpuAvg: null, memAvg: null, coverage: 1, state: 'online' })
+    const at = (minute: number, players: number): MetricsBucket => ({ start: new Date(Date.UTC(2026, 8, 25, 12, minute)).toISOString(), playersMax: players, cpuAvg: null, memAvg: null, tpsAvg: null, msptAvg: null, coverage: 1, state: 'online' })
     const bars = regroup([at(30, 1), at(40, 2), at(50, 3), at(60, 4), at(70, 5)], 6, 600)
     expect(bars.map((x) => [x.start.slice(11, 16), x.players])).toEqual([
       ['12:30', 3],
@@ -252,11 +257,133 @@ describe('console', () => {
     expect(parseLine('plain output').kind).toBe('info')
   })
 
-  it('explains lag and out-of-memory crashes', () => {
+  it('reads how far behind a lagging server is', () => {
     expect(behindSeconds('Running 2143ms or 42 ticks behind')).toBeCloseTo(2.143)
-    expect(ranOutOfMemory(137, [])).toBe(true)
-    expect(ranOutOfMemory(1, ['java.lang.OutOfMemoryError: Java heap space'])).toBe(true)
-    expect(ranOutOfMemory(1, ['Stopping server'])).toBe(false)
+  })
+})
+
+describe('crash helper', () => {
+  const crash = (over: Partial<Crash>): Crash => ({ at: '2026-09-25T18:53:00Z', start: false, kind: 'unknown', certain: true, title: '', explanation: 'The agent’s words.', evidence: [], fixes: [], lines: [], roomMB: 3584, ...over })
+  const titles = (c: Crash, phone = false) => crashFixes(c, 'Survival', 'my-vps', phone).map((o) => [o.title, o.plan?.kind ?? o.reason])
+
+  it('calls a stopped server whose start failed one that couldn’t start', () => {
+    expect(statusTone(server({ phase: 'stopped', crash: crash({ start: true }) }))).toBe('crashed')
+    expect(statusLabel(server({ phase: 'stopped', crash: crash({ start: true }) }))).toBe('Couldn’t start')
+    expect(statusLabel(server({ phase: 'crashed' }))).toBe('Crashed')
+    expect(statusLabel(server({ phase: 'stopped' }))).toBe('Stopped')
+  })
+
+  it('tells a port taken on the machine from one taken inside the server', () => {
+    const port = crash({ kind: 'port_in_use', params: { port: 25565 }, fixes: [{ kind: 'change_port', params: { port: 25565 }, title: 'Change the port', recommended: true }, { kind: 'restart', title: 'Start again' }] })
+    expect(crashSummary(port, 'Survival', 'my-vps')).toBe('Another program on my-vps is using port 25565.')
+    expect(titles(port)).toEqual([
+      ['Move Survival to another port', 'Coming later'],
+      ['Start again on 25565', 'start'],
+    ])
+    expect(preselect(crashFixes(port, 'Survival', 'my-vps', false))?.title).toBe('Start again on 25565')
+    expect(crashDetail(port)).toBeUndefined()
+    expect(crashDetail({ ...port, params: { port: 25565, holder: 'java', holder_pid: 48211 } })).toBe('It’s java, process 48211, not started by Playkeeper.')
+    expect(crashDetail({ ...port, params: { port: 25565, holder: 'java' } })).toBeUndefined()
+    expect(crashDetail({ ...port, params: { port: 25565, holder_container: 'old-minecraft' } })).toBe('It’s the Docker container old-minecraft, not started by Playkeeper.')
+    expect(crashDetail({ ...port, kind: 'disk_full', params: { holder_container: 'old-minecraft' } })).toBeUndefined()
+    expect(crashSummary(crash({ kind: 'port_in_use', params: { port: 25565, reason: 'in_use' } }), 'Survival', 'my-vps')).toBe('Something inside Survival was already using its port.')
+    expect(crashSummary(crash({ kind: 'port_in_use' }), 'Survival', 'my-vps')).toBe('The agent’s words.')
+  })
+
+  it('names the missing add-ons and removes the one that needs them', () => {
+    const dep = crash({
+      kind: 'missing_dependency',
+      params: { addon: 'Multiverse-Portals', jar: 'Multiverse-Portals-5.0.2.jar', dependencies: ['Multiverse-Core', 'Vault'] },
+      fixes: [
+        { kind: 'install_addon', params: { name: 'Multiverse-Core' }, title: 'Install Multiverse-Core', recommended: true },
+        { kind: 'remove_addon', params: { jar: 'Multiverse-Portals-5.0.2.jar' }, title: 'Remove it' },
+      ],
+    })
+    expect(crashSummary(dep, 'Survival', 'my-vps')).toBe('Multiverse-Portals needs Multiverse-Core and Vault, which aren’t installed.')
+    expect(titles(dep)).toEqual([
+      ['Install Multiverse-Core', 'Checking the library…'],
+      ['Remove Multiverse-Portals', 'remove-addon'],
+    ])
+    expect(preselect(crashFixes(dep, 'Survival', 'my-vps', false))?.title).toBe('Remove Multiverse-Portals')
+    const core = { source: 'modrinth', projectId: 'mvcore00' } as const
+    const found = crashFixes(dep, 'Survival', 'my-vps', false, new Date(), { 'install:Multiverse-Core': { state: 'ready', key: core, name: 'Multiverse-Core', version: '5.1.2', fingerprint: 'f'.repeat(32), madeFor: '26.1.2' } })
+    expect(found[0]).toMatchObject({ title: 'Install Multiverse-Core 5.1.2', hint: 'The version it asks for', recommended: true, plan: { kind: 'install-addon', key: core, fingerprint: 'f'.repeat(32) }, button: 'Install and start Survival' })
+    expect(preselect(found)?.title).toBe('Install Multiverse-Core 5.1.2')
+    const missing = crashFixes(dep, 'Survival', 'my-vps', false, new Date(), { 'install:Multiverse-Core': { state: 'unavailable', reason: 'Not in the library' } })
+    expect(missing[0]).toMatchObject({ title: 'Install Multiverse-Core', reason: 'Not in the library' })
+    expect(missing[0]?.plan).toBeUndefined()
+  })
+
+  it('updates the add-on that failed through the library, or says why it can’t', () => {
+    const plugin = crash({
+      start: true,
+      kind: 'addon_failed',
+      params: { addon: 'Multiverse-Portals', jar: 'Multiverse-Portals-5.0.2.jar' },
+      fixes: [
+        { kind: 'update_addon', params: { jar: 'Multiverse-Portals-5.0.2.jar' }, title: 'Update it', recommended: true },
+        { kind: 'remove_addon', params: { jar: 'Multiverse-Portals-5.0.2.jar' }, title: 'Remove it' },
+      ],
+    })
+    expect(lookupKey(plugin.fixes[0]!)).toBe('update:Multiverse-Portals-5.0.2.jar')
+    expect(lookupKey(plugin.fixes[1]!)).toBeUndefined()
+    const portals = { source: 'modrinth', projectId: 'mvportal' } as const
+    const ready = crashFixes(plugin, 'Survival', 'my-vps', false, new Date(), { 'update:Multiverse-Portals-5.0.2.jar': { state: 'ready', key: portals, name: 'Multiverse-Portals', version: '5.1.0', fingerprint: 'a'.repeat(32), madeFor: '26.1.2' } })
+    expect(ready.map((o) => [o.title, o.hint, o.plan?.kind, o.button])).toEqual([
+      ['Update Multiverse-Portals to 5.1.0', 'Made for 26.1.2', 'update-addon', 'Update and start Survival'],
+      ['Remove Multiverse-Portals', 'Survival starts without it. The file is kept.', 'remove-addon', 'Remove and start Survival'],
+    ])
+    expect(preselect(ready)?.plan).toEqual({ kind: 'update-addon', key: portals, fingerprint: 'a'.repeat(32) })
+    const byHand = crashFixes(plugin, 'Survival', 'my-vps', false, new Date(), { 'update:Multiverse-Portals-5.0.2.jar': { state: 'unavailable', reason: 'Added by hand, so Playkeeper can’t update it' } })
+    expect(byHand[0]).toMatchObject({ title: 'Update Multiverse-Portals', reason: 'Added by hand, so Playkeeper can’t update it' })
+    expect(preselect(byHand)?.title).toBe('Remove Multiverse-Portals')
+  })
+
+  it('says where the memory would come from on a phone', () => {
+    const oom = crash({ kind: 'heap_out_of_memory', params: { budget_mb: 4096 }, fixes: [{ kind: 'raise_memory', params: { from_mb: 4096, to_mb: 6144 }, title: 'More memory', recommended: true }] })
+    const [more] = crashFixes(oom, 'Survival', 'my-vps', true)
+    expect(more).toMatchObject({ title: 'Give Survival 6 GB', hint: 'my-vps has 3.5 GB free', plan: { kind: 'settings', body: { memoryMB: 6144 } } })
+    expect(crashFixes({ ...oom, roomMB: 0 }, 'Survival', 'my-vps', false)[0]?.hint).toBeUndefined()
+  })
+
+  it('names a planted link or named pipe in one line, with one way on, wherever a refused start shows', () => {
+    const message = 'plugins/bStats/config.yml is not a normal file.'
+    const refused = (code: FileRefusal['code'], type?: string): FileRefusal => ({ code, params: { path: 'plugins/bStats/config.yml', type }, message, hint: 'Remove it.' })
+    const start: Operation = { id: 'op1', kind: 'start', status: 'failed', phase: '', actor: 'admin', startedAt: '2026-09-25T18:52:00Z', error: `Paper's bStats usage statistics could not be switched off, so the server was not started. ${message}` }
+    const lines = {
+      link: 'Playkeeper won’t start Survival while plugins/bStats/config.yml is a link. Delete it, or replace it with what it points to.',
+      pipe: 'Playkeeper won’t start Survival while plugins/bStats/config.yml isn’t a normal file. Delete it.',
+    }
+    for (const [r, line] of [
+      [refused('link'), lines.link],
+      [refused('special_file', 'named_pipe'), lines.pipe],
+    ] as const) {
+      const s = server({ phase: 'stopped', refusal: r })
+      expect(refusalLine(r, 'Survival')).toBe(line)
+      expect(failureLine(start, s, 'my-vps')).toBe(line)
+      expect(refusalFixes(r, 'Survival')).toEqual([{ id: 'again', recommended: true, title: 'Start Survival again', hint: 'Once it’s deleted', plan: { kind: 'start' }, button: 'Start Survival' }])
+      expect([statusTone(s), statusLabel(s)]).toEqual(['crashed', 'Couldn’t start'])
+    }
+    expect(refusalLine(refused('too_large'), 'Survival')).toBe(`${message} Remove it.`)
+    expect(refusalFixes(refused('too_large'), 'Survival')[0]?.hint).toBeUndefined()
+    const pulled = { ...start, error: 'The server software could not be downloaded.' }
+    expect(failureLine(pulled, server({ phase: 'stopped', refusal: refused('link') }), 'my-vps')).toBe(pulled.error)
+    expect(failureLine(start, server({ phase: 'stopped', crash: crash({ start: true, kind: 'eula' }) }), 'my-vps')).toBe('The Minecraft EULA hasn’t been accepted.')
+  })
+
+  it('always leaves a way to start again', () => {
+    const eula = crash({ kind: 'eula', fixes: [{ kind: 'accept_eula', title: 'Accept', recommended: true }] })
+    expect(titles(eula)).toEqual([
+      ['Accept the Minecraft EULA', 'Coming later'],
+      ['Start Survival again', 'start'],
+    ])
+    expect(titles(crash({}))).toEqual([['Start Survival again', 'start']])
+    expect(crashFixes(crash({}), 'Survival', 'my-vps', false)[0]?.recommended).toBe(true)
+  })
+
+  it('shows two short lines on a phone', () => {
+    const lines = [{ text: 'Done (4.2s)!' }, { text: 'Stopping server' }, { text: 'java.lang.OutOfMemoryError: Java heap space' }]
+    expect(phoneLines(lines).map((l) => l.text)).toEqual(['Stopping server', 'OutOfMemoryError: Java heap space'])
+    expect(phoneLines([{ text: 'at net.minecraft.server.Main.main(Main.java:1)' }])[0]?.text).toBe('at net.minecraft.server.Main.main(Main.java:1)')
   })
 })
 
@@ -307,6 +434,129 @@ describe('creating a server', () => {
 
   it('labels the software', () => {
     expect(softwareLabel(server({ config: { minecraftVersion: '26.1.2' } as ServerConfig }))).toBe('Paper 26.1.2')
+  })
+})
+
+describe('how it’s running', () => {
+  const ctx = { server: 'Survival', machine: 'my-vps', slug: 'survival', players: 3, minutes: 10 }
+  const cause = (over: Partial<LagCause>): LagCause => ({ kind: 'world_workload', score: 40, title: 'Agent title', explanation: 'Agent words.', evidence: [], actions: [], ...over })
+  const running = (over: Partial<Running>): Running => ({ status: 'smooth', title: '', explanation: '', evidence: [], causes: [], windowMinutes: 10, ...over })
+
+  it('never says 20 of 20 while it is behind', () => {
+    expect(headlineTPS(17.1, 20, true)).toBe(17)
+    expect(headlineTPS(19.6, 20, true)).toBe(19.6)
+    expect(headlineTPS(19.96, 20, false)).toBe(20)
+  })
+
+  it('says why it fell behind when there is no stretch to date it from', () => {
+    expect(runningHeadline(running({ status: 'lagging', params: { overloads: 5 } }), 'Survival').title).toBe('Lagging')
+    expect(runningHeadline(running({ status: 'lagging', params: { overloads: 5 } }), 'Survival').subtitle).toBe('It fell behind 5 times in the last 10 minutes.')
+    expect(runningHeadline(running({ status: 'smooth', params: { tps: 20, mspt: 44 }, players: 0 }), 'Survival').subtitle).toBe('Nobody is on, but Survival is close to its limit.')
+    expect(runningHeadline(running({ status: 'unknown', params: { sprinting: true } }), 'Survival').title).toBe('The game is sprinting')
+  })
+
+  it('offers the action Playkeeper can do now before one that is coming later', () => {
+    const distances = cause({
+      kind: 'high_distance',
+      params: { simulation_distance: 14, view_distance: 16 },
+      actions: [
+        { kind: 'lower_simulation_distance', params: { from: 14, to: 10 }, title: '', recommended: true },
+        { kind: 'lower_view_distance', params: { from: 16, to: 10 }, title: '' },
+      ],
+    })
+    expect(causeAction(distances, ctx)).toMatchObject({ mode: 'link', label: 'Lower view distance to 10', href: '/servers/survival/settings?view=10#game' })
+    expect(causeText(distances, ctx).body).toBe('View distance is 16 and simulation distance 14 chunks, a lot of land per player.')
+    const profiler = cause({ actions: [{ kind: 'run_profiler', title: '', recommended: true }] })
+    expect(causeAction(profiler, ctx)).toMatchObject({ mode: 'later', label: 'Run a profiler' })
+    const land = cause({ kind: 'chunk_generation', actions: [{ kind: 'pregenerate_world', title: '', recommended: true }] })
+    expect(causeAction(land, ctx)).toMatchObject({ mode: 'link', label: 'Pre-generate the map', href: '/servers/survival/world/pregen' })
+    const host = cause({ kind: 'host_cpu_busy', params: { busy_percent: 97 }, actions: [{ kind: 'upgrade_host', params: { resource: 'cpu' }, title: '', recommended: true }] })
+    expect(causeAction(host, ctx)).toMatchObject({ mode: 'advice', label: 'Move to a faster machine', note: 'At your hosting provider' })
+    expect(causeText(host, ctx)).toEqual({ title: 'The processor is fully busy', body: 'Playkeeper can’t tell how much of that is Survival.', evidence: 'Processor 97% busy' })
+  })
+
+  it('keeps the agent’s words for a cause without the numbers its text needs', () => {
+    expect(causeText(cause({ kind: 'cpu_steal' }), ctx)).toEqual({ title: 'Agent title', body: 'Agent words.', evidence: undefined })
+    expect(causeText(cause({ kind: 'world_workload', params: { server_cpu: 96 } }), ctx).evidence).toBe('Used 1 core on average')
+  })
+
+  it('draws bad stretches in amber, joined to the line, and breaks it at gaps', () => {
+    const bad = (v: number) => v < 19
+    expect(lineRuns([20, 20, 17, 17, 20, 20], bad)).toEqual([
+      { from: 0, values: [20, 20], bad: false },
+      { from: 1, values: [20, 17, 17, 20], bad: true },
+      { from: 4, values: [20, 20], bad: false },
+    ])
+    expect(lineRuns([20, null, 20, 20], bad)).toEqual([
+      { from: 0, values: [20], bad: false },
+      { from: 2, values: [20, 20], bad: false },
+    ])
+  })
+
+  it('scales each chart from zero, with room above the tick budget', () => {
+    expect(tickRateAxis(20)).toEqual({ max: 20, labels: ['20', '10', '0'] })
+    expect(tickTimeAxis(50, [31, 58, null])).toEqual({ max: 80, labels: ['80', '40', '0'] })
+    expect(tickTimeAxis(50, [240]).max).toBe(250)
+    expect(memoryAxis(4096)).toEqual({ max: 4, labels: ['4 GB', '2', '0'] })
+    expect(cpuAxis([22, 61])).toEqual({ max: 100, labels: ['100%', '50', '0'] })
+  })
+
+  it('labels the hour at quarters, ending with now', () => {
+    const start = Date.parse('2026-09-25T17:52:00')
+    const buckets: MetricsBucket[] = Array.from({ length: 61 }, (_, i) => ({ start: new Date(start + i * 60_000).toISOString(), playersMax: 3, cpuAvg: null, memAvg: null, tpsAvg: 20, msptAvg: 30, coverage: 1, state: 'online' }))
+    expect(timeLabels(buckets, '1h').map((l) => l.text)).toEqual(['17:52', '18:07', '18:22', '18:37', 'now'])
+    expect(timeLabels(buckets, '1h', true).map((l) => l.text)).toEqual(['17:52', '18:22', 'now'])
+  })
+})
+
+describe('memory advice', () => {
+  const advice = (over: Partial<MemoryAdvice>): MemoryAdvice => ({ verdict: 'keep', title: '', explanation: 'From the agent.', evidence: [], actions: [], budgetMB: 4096, heapMB: 3072, days: [], options: [], ...over })
+
+  it('words each verdict as one line about the budget', () => {
+    const line = (over: Partial<MemoryAdvice>) => memoryAdviceLine(advice(over), 'my-vps')
+    expect(line({ params: { peak_mb: 2560, days: 14, reason: 'fits' } })).toBe('It never needed more than 2.5 GB in the last 14 days, so 4 GB is plenty.')
+    expect(line({ params: { peak_mb: 2200, days: 1, reason: 'smallest' } })).toBe('It never needed more than 2.1 GB in the last day, so 4 GB is plenty.')
+    expect(line({ params: { peak_mb: 2400, days: 9, reason: 'tight' } })).toBe('It needed up to 2.3 GB in the last 9 days, so 4 GB is just enough.')
+    expect(line({ params: { peak_mb: 2400, days: 14, reason: 'ran_short_once' } })).toBe('It ran short of memory once in the last 14 days, so it shouldn’t have less than 4 GB.')
+    expect(line({ params: { days: 14, reason: 'fits' } })).toBe('From the agent.')
+    expect(line({ verdict: 'lower', params: { peak_mb: 1200, days: 14, to_mb: 3072 } })).toBe('It never needed more than 1.2 GB in the last 14 days, so 3 GB would be enough.')
+    expect(line({ verdict: 'raise', params: { days: 14, to_mb: 6144 } })).toBe('It ran short of memory in the last 14 days, so give it 6 GB.')
+    expect(line({ verdict: 'raise', params: { days: 3 } })).toBe('It ran short of memory in the last 3 days, and my-vps has none to spare.')
+  })
+
+  it('counts measured days, then a week, before suggesting a size', () => {
+    const early = (params: Record<string, unknown>, over: Partial<MemoryAdvice> = {}) => advice({ verdict: 'not_enough_data', params: { min_days: 3, min_span_days: 7, ...params }, ...over })
+    expect(memoryProgress(early({ days: 0 }))).toBeUndefined()
+    expect(memoryProgress(early({ days: 1, span_days: 1 }))).toEqual({ day: 1, of: 3 })
+    expect(memoryProgress(early({ days: 3, span_days: 5 }))).toEqual({ day: 5, of: 7 })
+    expect(memoryProgress(advice({ params: { days: 14 } }))).toBeUndefined()
+    expect(memoryAdviceLine(early({ days: 1 }), 'my-vps')).toBe('Suggests a size after 3 days of play. Until then, 4 GB suits up to 10 friends.')
+    expect(memoryAdviceLine(early({ days: 4 }), 'my-vps')).toBe('Suggests a size after a week. Until then, 4 GB suits up to 10 friends.')
+    expect(memoryAdviceLine(early({ days: 0 }, { fromNextStart: true, budgetMB: 2048 }), 'my-vps')).toBe('Starts measuring at its next restart. Until then, 2 GB suits up to 4 friends.')
+  })
+
+  it('says how each budget would fit, and which one it recommends', () => {
+    const keep = advice({ recommendedMB: 4096 })
+    const hint = (o: Partial<MemoryAdvice['options'][number]>, a: MemoryAdvice | undefined = keep) => memoryOptionHint({ memoryMB: 4096, heapMB: 3072, fits: true, ...o }, a, 'my-vps')
+    expect(hint({ fit: 'room_to_grow' })).toBe('Recommended · room to grow')
+    expect(hint({})).toBe('Recommended')
+    expect(hint({ memoryMB: 2048, fit: 'too_tight' })).toBe('Too tight')
+    expect(hint({ memoryMB: 3072, fit: 'little_room' })).toBe('Little room to spare')
+    expect(hint({ memoryMB: 6144, fit: 'more_than_needed' })).toBe('More than it uses')
+    expect(hint({ memoryMB: 8192, fit: 'more_than_needed', fits: false })).toBe('Not enough free on my-vps')
+    expect(hint({ memoryMB: 6144 }, undefined)).toBe('Up to 20 friends')
+  })
+
+  it('always offers the budget the server has', () => {
+    const catalog = { memoryOptionsMB: [2048, 4096, 8192], maxMemoryMB: 4096 }
+    expect(memoryOffers(5120, undefined, catalog).map((o) => [o.memoryMB, o.fits])).toEqual([
+      [2048, true],
+      [4096, true],
+      [5120, true],
+      [8192, false],
+    ])
+    expect(memoryOffers(4096, advice({ options: [{ memoryMB: 6144, heapMB: 4608, fits: true }] }), catalog).map((o) => o.memoryMB)).toEqual([4096, 6144])
+    expect(memoryOffers(4096, undefined, undefined).map((o) => o.memoryMB)).toEqual([4096])
   })
 })
 

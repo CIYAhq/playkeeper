@@ -1,0 +1,10 @@
+[12:00:01] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forgeserver, --fml.neoForgeVersion, 21.1.172]
+[12:00:02] [main/ERROR] [ne.ne.fm.lo.ModSorter/LOADING]: Missing or unsupported mandatory dependencies:
+	Mod ID: 'geckolib', Requested by: 'mowziesmobs', Expected range: '[4.7,)', Actual version: '[MISSING]'
+[12:00:03] [main/ERROR] [minecraft/Main/]: Failed to start the minecraft server
+net.neoforged.fml.ModLoadingException: Loading errors encountered:
+	- Mod mowziesmobs requires geckolib 4.7 or above
+	  Currently, geckolib is not installed
+	
+	at MC-BOOTSTRAP/fml_loader@4.0.39/net.neoforged.fml.ModLoader.waitForTask(ModLoader.java:245)
+	at MC-BOOTSTRAP/fml_loader@4.0.39/net.neoforged.fml.ModLoader.gatherAndInitializeMods(ModLoader.java:151)

@@ -1,0 +1,8 @@
+[12:00:02] [ServerMain/WARN]: Failed to load world data from /data/./world/level.dat
+java.util.zip.ZipException: Not in GZIP format
+	at java.base/java.util.zip.GZIPInputStream.readHeader(GZIPInputStream.java:176)
+[12:00:02] [ServerMain/INFO]: Attempting to use fallback
+[12:00:02] [ServerMain/ERROR]: Failed to load world data from /data/./world/level.dat_old
+java.io.EOFException: Unexpected end of ZLIB input stream
+	at java.base/java.util.zip.InflaterInputStream.fill(InflaterInputStream.java:245)
+[12:00:02] [ServerMain/ERROR]: Failed to load world data from /data/./world/level.dat and /data/./world/level.dat_old. World files may be corrupted. Shutting down.

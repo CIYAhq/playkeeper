@@ -108,6 +108,215 @@ control "restore from a backup compares the whole-archive SHA-256" internal/agen
   'if p.SHA256 != b.SHA256 {' \
   'if false && p.SHA256 != b.SHA256 {' \
   ./internal/agent '^TestRecompressedBackupFailsItsRecordedChecksum$'
+control "a console command that was written is never sent again" internal/agent/collector.go \
+  'if attempt > 0 || !errors.Is(err, minecraft.ErrNotSent) || ctx.Err() != nil {' \
+  'if attempt > 0 || ctx.Err() != nil {' \
+  ./internal/agent '^(TestLostConsoleRepliesAreNeverResent|TestLostSaveOnReplyKeepsTheBackup)$'
+control "a lost console reply says the command may have run" internal/minecraft/rcon.go \
+  'gotID, _, body, err := r.read()
+		if err != nil {
+			return "", r.ctxErr(ctx, err)' \
+  'gotID, _, body, err := r.read()
+		if err != nil {
+			return "", notSent(r.ctxErr(ctx, err))' \
+  ./internal/minecraft '^TestRCONCommandContextNeverResendsAndHonoursTheContext$'
+control "a failed online backup turns saving back on" internal/backup/online.go \
+  'if !r.paused || r.resumeTried {' \
+  'if !r.paused || r.resumeTried || true {' \
+  ./internal/backup '^(TestSavingIsTurnedBackOnAfterEveryFailure|TestSavingIsTurnedBackOnAfterAPanic)$'
+control "a failed online backup turns saving back on (agent)" internal/backup/online.go \
+  'if !r.paused || r.resumeTried {' \
+  'if !r.paused || r.resumeTried || true {' \
+  ./internal/agent '^TestFailedOnlineBackupTurnsSavingBackOn$'
+control "saving left paused by a backup is remembered" internal/agent/backups.go \
+  's.setSavingPaused(paused)' \
+  's.setSavingPaused(false)' \
+  ./internal/agent '^TestSavingLeftPausedIsShownAndTurnedBackOn$'
+control "a backup that can't fit never stops the server" internal/agent/backups.go \
+  'if err := backup.CheckSpace(ctx, o); err != nil {' \
+  'if err := backup.CheckSpace(ctx, o); false && err != nil {' \
+  ./internal/agent '^TestBackupWithoutRoomNeverTouchesTheServer$'
+control "the reconciler turns saving back on" internal/agent/backups.go \
+  'due := !s.now().Before(s.nextResume)' \
+  'due := false && !s.now().Before(s.nextResume)' \
+  ./internal/agent '^TestReconcilerTurnsSavingBackOn$'
+control "the reconciler's save-on refuses no action" internal/agent/backups.go \
+  'release, ok := s.trySavingLock()' \
+  'release, ok := s.holdOpLock()' \
+  ./internal/agent '^TestSaveOnRetryRefusesNoAction$'
+control "a save-on without an answer holds a backup up for seconds only" internal/agent/backups.go \
+  'const resumeWait = 5 * time.Second' \
+  'const resumeWait = 30 * time.Second' \
+  ./internal/agent '^TestSaveOnRetryRefusesNoAction$'
+control "an online backup waits for a save-on before it pauses saving" internal/agent/backups.go \
+  'if o.Console != nil {' \
+  'if false && o.Console != nil {' \
+  ./internal/agent '^TestSavingLockKeepsSaveOnOutOfABackup$'
+control "the reconciler's save-on waits for an online backup" internal/agent/backups.go \
+  'release, ok := s.trySavingLock()' \
+  'release, ok := func() {}, true' \
+  ./internal/agent '^TestSavingLockKeepsSaveOnOutOfABackup$'
+control "the GC log flag stays out of the container definition's hash" internal/agent/lifecycle.go \
+  'b, _ := json.Marshal(cfg)' \
+  'cfg.Env = append(cfg.Env, "JVM_OPTS="+gcLogFlag)
+	b, _ := json.Marshal(cfg)' \
+  ./internal/agent '^TestMigratedServerKeepsItsExactContainerDefinition$'
+control "a running server never needs a restart for the GC log" internal/agent/handlers.go \
+  'st.PendingRestart = c.Config.Labels[labelSpec] != hash' \
+  'st.PendingRestart = c.Config.Labels[labelSpec] != hash || c.Config.Labels[labelGCLog] != gcLogVersion' \
+  ./internal/agent '^TestGCLogFlagAppliesFromTheNextStart$'
+control "a stopped server gets the GC log at its next start" internal/agent/lifecycle.go \
+  'case err == nil && (c.Config.Labels[labelSpec] != hash || c.Config.Labels[labelGCLog] != gcLogVersion):' \
+  'case err == nil && c.Config.Labels[labelSpec] != hash:' \
+  ./internal/agent '^TestGCLogFlagAppliesFromTheNextStart$'
+control "a GC log line still being written is not read" internal/agent/running.go \
+  "end := bytes.LastIndexByte(buf, '\n')" \
+  "end := max(bytes.LastIndexByte(buf, '\n'), len(buf))" \
+  ./internal/agent '^TestGCLogIsReadOnce$'
+control "the GC log cursor is stored with the pauses it read" internal/agent/running.go \
+  'UPDATE servers SET gc_cursor = ? WHERE id = ?`, string(b), s.id)' \
+  'UPDATE servers SET gc_cursor = ? WHERE id = ?`, string(b), "")' \
+  ./internal/agent '^TestGCLogIsReadOnce$'
+control "the GC log is read through the game-file helper" internal/agent/running.go \
+  'buf, st, err := d.ReadRange(gcLogRel, cur.Offset, gcReadLimit)' \
+  'f, err := http.Dir(s.dataDir()).Open(gcLogRel)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	st, _ := f.Stat()
+	f.Seek(cur.Offset, 0)
+	buf := make([]byte, gcReadLimit)
+	n, _ := f.Read(buf)
+	buf = buf[:n]' \
+  ./internal/agent '^TestGCLogIsReadOnce$'
+control "lag is explained from the current run's GC pauses only" internal/agent/running.go \
+  'gc := pausesSince(s.lag.gc, s.runStartedAt)' \
+  'gc := slices.Clone(s.lag.gc)' \
+  ./internal/agent '^TestLagCountsOnlyTheCurrentRunsGC$'
+control "chunk counts read region folders only" internal/agent/running.go \
+  'e.Type().IsRegular() && path.Base(dir) == "region" && strings.HasSuffix(p, ".mca")' \
+  'e.Type().IsRegular() && path.Base(dir) != "" && strings.HasSuffix(p, ".mca")' \
+  ./internal/agent '^TestNewChunksComeFromRegionFiles$'
+control "a chunk count that can't list a folder is not kept" internal/agent/running.go \
+  'if !optional || !errors.Is(err, fs.ErrNotExist) {' \
+  'if false && (!optional || !errors.Is(err, fs.ErrNotExist)) {' \
+  ./internal/agent '^TestAChunkCountThatCannotListTheWorldIsNotKept$'
+control "nether and end folders missing beside the world don't void a chunk count" internal/agent/running.go \
+  'if !optional || !errors.Is(err, fs.ErrNotExist) {' \
+  'if true || !optional || !errors.Is(err, fs.ErrNotExist) {' \
+  ./internal/agent '^TestAChunkCountThatCannotListTheWorldIsNotKept$'
+control "running out of memory, then Stopping server, is still a crash" internal/agent/collector.go \
+  's.sawCrash, s.lastError = true, "Java ran out of memory."' \
+  's.sawCrash, s.lastError = false, "Java ran out of memory."' \
+  ./internal/agent '^TestAnOutOfMemoryErrorThenStoppingServerIsACrash$'
+control "the GC log's folder is given to the game user on every start" internal/agent/lifecycle.go \
+  'return f.Chown(uid, gid)' \
+  'return nil' \
+  ./internal/agent '^TestTheLogsFolderIsGivenToTheGameOnEveryStart$'
+control "giving the GC log's folder never follows a link at logs" internal/agent/lifecycle.go \
+  'os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK' \
+  'os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK' \
+  ./internal/agent '^TestTheLogsFolderIsGivenToTheGameOnEveryStart$'
+control "a crash that logs Stopping server is still a crash" internal/agent/lifecycle.go \
+  'graceful := s.sawStopping && !s.sawCrash' \
+  'graceful := s.sawStopping' \
+  ./internal/agent '^TestCrashIsExplainedFromTheRunsLog$'
+control "a log line Docker sends again changes nothing" internal/agent/collector.go \
+  'if mark.next(c.ID, runStart, l) {' \
+  'if mark.next(c.ID, runStart, l) || true {' \
+  ./internal/agent '^TestALineReadAgainKeepsTheGiveUpNotice$'
+control "a Done line from a run that has stopped is not a start" internal/agent/collector.go \
+  'if current && ended.IsZero() {' \
+  'if current {' \
+  ./internal/agent '^TestADoneLineReadAfterTheExitWasJudgedChangesNothing$'
+control "a Done line stamped after a stopped run's end is not a start" internal/agent/collector.go \
+  'if current && ended.IsZero() {' \
+  'if current && (ended.IsZero() || ts.After(ended)) {' \
+  ./internal/agent '^TestADoneLineStampedAfterTheRunEndedChangesNothing$'
+control "a stopped run's log is read without following" internal/agent/collector.go \
+  'docker.LogsOptions{Follow: c.State.Running, Since: since}' \
+  'docker.LogsOptions{Follow: true, Since: since}' \
+  ./internal/agent '^TestARunStartedAsTheFollowerAttachesIsReadAsItsOwn$'
+control "the crash helper reads the run's log from Docker" internal/agent/crash.go \
+  'in.Console = s.runLog(ctx, id, runStart)' \
+  'in.Console = s.runLog(ctx, id, runStart)[:0]' \
+  ./internal/agent '^TestCrashIsExplainedFromTheRunsLog$'
+control "a crash report from an earlier run explains nothing" internal/agent/crash.go \
+  'info.ModTime().Before(from) ||' \
+  'false ||' \
+  ./internal/agent '^TestCrashReportIsTheOneThisRunWrote$'
+control "a start that failed before the server ran reads no report" internal/agent/crash.go \
+  'if since.IsZero() {' \
+  'if false && since.IsZero() {' \
+  ./internal/agent '^TestCrashHelperReadsReportsWithoutFollowingLinksOrWaiting$'
+control "crash reports are read only up to their cap" internal/agent/crash.go \
+  'b, _, err := d.ReadRange(path.Join(r.dir, name), 0, crashReportLimit)' \
+  'b, err := os.ReadFile(s.dataDir() + "/" + path.Join(r.dir, name))' \
+  ./internal/agent '^TestCrashHelperReadsReportsWithoutFollowingLinksOrWaiting$'
+control "the crash helper lists add-ons without waiting on a pipe" internal/agent/crash.go \
+  'entries, err := d.ReadDir(addonDir(sc), maxDirEntries)' \
+  'f, err := os.Open(s.dataDir() + "/" + addonDir(sc))
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	entries, err := f.ReadDir(maxDirEntries)' \
+  ./internal/agent '^TestCrashHelperReadsReportsWithoutFollowingLinksOrWaiting$'
+control "add-on file names are validated" internal/agent/crash.go \
+  'return errInvalid("That is not the name of a plugin or mod file.")' \
+  'return nil' \
+  ./internal/agent '^TestRemoveAddonMovesOnlyThatJarAside$'
+control "add-on removal never follows a symlinked folder" internal/agent/crash.go \
+  'if st, err := root.Lstat(rel); err != nil || !st.Mode().IsRegular() {' \
+  'if st, err := os.Lstat(s.dataDir() + "/" + rel); err != nil || !st.Mode().IsRegular() {' \
+  ./internal/agent '^TestRemoveAddonMovesOnlyThatJarAside$'
+control "an add-on is not removed while the server runs" internal/agent/crash.go \
+  '} else if running {
+		writeError(w, errConflict(' \
+  '} else if false && running {
+		writeError(w, errConflict(' \
+  ./internal/agent '^TestRemoveAddonMovesOnlyThatJarAside$'
+control "members cannot turn saving back on" internal/panel/server.go \
+  'sm("POST", "/api/servers/{id}/saving/resume", "/v1/servers/{id}/saving/resume"),' \
+  '{"POST", "/api/servers/{id}/saving/resume", needSessionCSRF, actView, s.serverProxy("POST", "/v1/servers/{id}/saving/resume")},' \
+  ./internal/panel '^TestMembersCanLookButNotManage$'
+control "members cannot remove a plugin or mod" internal/panel/server.go \
+  'sm("POST", "/api/servers/{id}/addons/remove-file", "/v1/servers/{id}/addons/remove-file"),' \
+  '{"POST", "/api/servers/{id}/addons/remove-file", needSessionCSRF, actView, s.serverProxy("POST", "/v1/servers/{id}/addons/remove-file")},' \
+  ./internal/panel '^TestMembersCanLookButNotManage$'
+control "a port holder's name keeps only printable text" internal/agent/portholder.go \
+  'if r == unicode.ReplacementChar || !unicode.IsPrint(r) {' \
+  'if r == unicode.ReplacementChar && !unicode.IsPrint(r) {' \
+  ./internal/agent '^TestPortHolderKeepsOnlyAPlainName$'
+control "only the listening socket names a port's holder" internal/agent/portholder.go \
+  'if len(fields) < 10 || fields[3] != tcpListen {' \
+  'if len(fields) < 10 {' \
+  ./internal/agent '^TestPortHolderNeedsTheListeningSocketItself$'
+control "a container Playkeeper made isn't named as another program's" internal/agent/portholder.go \
+  'if c.Labels[labelManaged] == "true" {' \
+  'if false && c.Labels[labelManaged] == "true" {' \
+  ./internal/agent '^TestPortCrashNamesTheDockerContainerHoldingThePort$'
+control "only a container publishing the game port over TCP is named" internal/agent/portholder.go \
+  'if p.PublicPort == port && p.Type == "tcp" {' \
+  'if p.PublicPort == port {' \
+  ./internal/agent '^TestPortCrashNamesTheDockerContainerHoldingThePort$'
+control "a container is named only by a name Docker allows" internal/agent/portholder.go \
+  'if n = strings.TrimPrefix(n, "/"); reContainerName.MatchString(n) {' \
+  'if n = strings.TrimPrefix(n, "/"); n != "" {' \
+  ./internal/agent '^TestPortCrashNamesTheDockerContainerHoldingThePort$'
+control "a crash fix whose add-on can't be put in place doesn't start the server" internal/agent/addons.go \
+  'if err := s.installAddons(ctx, h, actor, run); err != nil {' \
+  'if err := s.installAddons(ctx, h, actor, run); err != nil && !start {' \
+  ./internal/agent '^TestAddonFixesStartTheStoppedServer$'
+control "a start that isn't accepted keeps the crash" internal/agent/handlers.go \
+  'op, err := s.beginOp("start", actor, s.startNow)' \
+  's.forgetCrashes(); op, err := s.beginOp("start", actor, s.startNow)' \
+  ./internal/agent '^TestAStartThatDoesNotGoAheadKeepsTheCrash$'
+control "a remove-and-start keeps the crash until its start goes ahead" internal/agent/crash.go \
+  'op, err := s.beginOp("remove-addon", actor, func(ctx context.Context, h *opHandle) error {' \
+  'if req.Start { s.forgetCrashes() }; op, err := s.beginOp("remove-addon", actor, func(ctx context.Context, h *opHandle) error {' \
+  ./internal/agent '^TestAStartThatDoesNotGoAheadKeepsTheCrash$'
 control "preflight port collision" internal/install/install.go \
   'if sys.Listening(p.port) {' \
   'if false && sys.Listening(p.port) {' \
@@ -250,17 +459,17 @@ control "uninstall disables the updater even if the manifest misses it" internal
   'if contains(m.Units, u) {' \
   ./internal/install '^TestUninstallRemovesTheUpdaterEvenIfTheManifestMissesIt$'
 control "RCON finds a closed connection before writing" internal/minecraft/rcon.go \
-  'if err := r.probe(); err != nil {' \
-  'if err := r.probe(); false && err != nil {' \
-  ./internal/minecraft '^TestRCONExecOnClosedConnectionIsUnsent$'
+  'if err := r.stale(); err != nil {' \
+  'if err := r.stale(); false && err != nil {' \
+  ./internal/minecraft '^TestRCONCommandOnClosedConnectionIsNotSent$'
 control "RCON stops when the caller's context ends" internal/minecraft/rcon.go \
-  '		_ = r.conn.SetDeadline(time.Unix(1, 0))
+  '		_ = r.conn.SetDeadline(time.Now())
 ' \
   '' \
-  ./internal/minecraft '^(TestRCONExecHonoursContextDeadline|TestRCONExecStopsWhenCancelled)$'
+  ./internal/minecraft '^(TestRCONCommandContextHonoursTheDeadline|TestRCONCommandContextStopsWhenCancelled)$'
 control "a console command that went out is never sent again" internal/agent/collector.go \
-  'if attempt == 1 || !errors.Is(err, minecraft.ErrUnsent) || ctx.Err() != nil {' \
-  'if attempt == 1 || ctx.Err() != nil {' \
+  'if attempt > 0 || !errors.Is(err, minecraft.ErrNotSent) || ctx.Err() != nil {' \
+  'if attempt > 0 || ctx.Err() != nil {' \
   ./internal/agent '^TestConsoleNeverSendsACommandTwice$'
 control "Paper versions are sorted newest first" internal/minecraft/fill.go \
   'return CompareMinecraft(b.Version.ID, a.Version.ID)' \
@@ -367,6 +576,12 @@ control "the status keeps the refusal while Docker isn't answering" internal/age
 		st.Refusal = refusal' \
   'st.LastErrorHint = "Check the Docker service: sudo systemctl status docker"' \
   ./internal/agent '^TestARefusalLastsUntilAStartGetsPastTheFiles$'
+control "a refused restart replaces the crash's explanation, so the status explains it once" internal/agent/gamefiles.go \
+  'if refused {
+		s.crash = nil
+	}' \
+  '' \
+  ./internal/agent '^TestARefusedRestartReplacesTheCrash$'
 control "the jar is hashed only up to a size no Paper jar reaches" internal/agent/lifecycle.go \
   'const maxJarBytes = 256 << 20' \
   'const maxJarBytes = 1 << 62' \
@@ -389,6 +604,14 @@ control "a backup refuses a server.properties Playkeeper won't read" internal/ba
 		return "world", nil
 	}' \
   ./internal/backup '^TestLevelNameDoesNotFollowALinkOrWaitOnAPipe$'
+control "an online backup refuses a server.properties Playkeeper won't read" internal/backup/staging.go \
+  'level, err := levelName(dataDir)' \
+  'level, err := LevelName(dataDir), error(nil)' \
+  ./internal/backup '^TestRefusedBeforeAnythingIsPaused$'
+control "a backup a file Playkeeper won't read stopped says what to do" internal/agent/backups.go \
+  'if errors.As(err, &ge) {' \
+  'if false && errors.As(err, &ge) {' \
+  ./internal/agent '^TestBackupRefusesAServerPropertiesItWontReadBeforeStopping$'
 control "the check before a backup stops for a file Playkeeper won't read" internal/agent/backups.go \
   'case gamefiles.KindOf(err) != "":
 		err = gameFileError(err, notBackedUp)' \

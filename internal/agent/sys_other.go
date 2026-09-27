@@ -5,7 +5,10 @@ package agent
 import (
 	"errors"
 	"net"
+	"os"
 )
+
+func fileInode(os.FileInfo) (uint64, bool) { return 0, false }
 
 // Playkeeper hosts are Linux; other platforms can build and unit test the code
 // but the agent refuses every peer because credentials cannot be checked.

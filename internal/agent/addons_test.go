@@ -550,3 +550,88 @@ func TestAddonIconsAreCachedAndChecked(t *testing.T) {
 		t.Fatalf("a missing icon: %d", resp.StatusCode)
 	}
 }
+
+// The crash screen's fixes update or install an add-on and then start the
+// stopped server, in one operation. A plan the user didn't confirm changes
+// nothing: the server stays stopped and keeps its crash explanation.
+func TestAddonFixesStartTheStoppedServer(t *testing.T) {
+	e := newAgentEnv(t)
+	e.stop()
+	e.crashBackoff = []time.Duration{time.Hour}
+	f := e.withSources()
+	e.create()
+	plugins := filepath.Join(e.dataDir(), "plugins")
+	var d api.AddonDetails
+	e.decode("GET", e.sp("/addons/project/modrinth/mvportal"), &d)
+	if op := e.addonOp("/addons/install", map[string]any{"source": "modrinth", "projectId": "mvportal", "fingerprint": d.Plan.Fingerprint, "actor": "admin"}); op.Status != api.OpSucceeded {
+		t.Fatalf("install: %+v", op)
+	}
+	e.fd.crash(1)
+	e.waitCrash()
+
+	f.publish("mvportal", "mvp-v2", "5.1.0", time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC), "mvcore00")
+	portals := []map[string]string{{"source": "modrinth", "projectId": "mvportal"}}
+	var plan api.AddonPlan
+	code, out := e.call("POST", e.sp("/addons/update/plan"), map[string]any{"addons": portals, "actor": "admin"})
+	if b, _ := json.Marshal(out); code != 200 || json.Unmarshal(b, &plan) != nil || !plan.Ready || len(plan.Steps) != 1 || plan.Steps[0].VersionNumber != "5.1.0" {
+		t.Fatalf("update plan: %d %v", code, out)
+	}
+	op := e.addonOp("/addons/update", map[string]any{"addons": portals, "fingerprint": otherPlan, "start": true, "actor": "admin"})
+	if op.Status != api.OpFailed || op.Error != planChanged {
+		t.Fatalf("an update of a plan the user didn't confirm: %+v", op)
+	}
+	if st := e.status(); st.Phase != api.PhaseCrashed || st.Crash == nil {
+		t.Fatalf("a refused update must leave the server as it was: phase %s, crash %v", st.Phase, st.Crash)
+	}
+
+	op = e.addonOp("/addons/update", map[string]any{"addons": portals, "fingerprint": plan.Fingerprint, "start": true, "actor": "admin"})
+	if op.Status != api.OpSucceeded || op.Kind != "addon-update" || op.Detail["restartNeeded"] != nil {
+		t.Fatalf("update and start: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	if st := e.status(); st.Crash != nil {
+		t.Fatalf("the crash is still shown after the fix started the server: %+v", st.Crash)
+	}
+	if _, err := os.Stat(filepath.Join(plugins, "Multiverse-Portals-5.1.0.jar")); err != nil {
+		t.Fatalf("the update is not in place: %v", err)
+	}
+
+	// Multiverse-Core goes, as when it's removed by hand; Portals then needs it.
+	code, out = e.call("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": "mvcore00", "force": true, "actor": "admin"})
+	if code != 200 {
+		t.Fatalf("remove: %d %v", code, out)
+	}
+	e.fd.crash(1)
+	e.waitCrash()
+	d = api.AddonDetails{}
+	e.decode("GET", e.sp("/addons/project/modrinth/mvcore00"), &d)
+	if d.Plan == nil || !d.Plan.Ready {
+		t.Fatalf("install plan: %+v", d)
+	}
+	op = e.addonOp("/addons/install", map[string]any{"source": "modrinth", "projectId": "mvcore00", "fingerprint": d.Plan.Fingerprint, "start": true, "actor": "admin"})
+	if op.Status != api.OpSucceeded || op.Kind != "addon-install" {
+		t.Fatalf("install and start: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	if _, err := os.Stat(filepath.Join(plugins, "Multiverse-Core-5.0.1.jar")); err != nil || e.status().Crash != nil {
+		t.Fatalf("after install and start: %v, crash %+v", err, e.status().Crash)
+	}
+
+	// On a running server, start changes nothing: the add-on loads at the
+	// next restart, as from the Plugins tab.
+	f.publish("mvcore00", "mvc-v2", "5.0.2", time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC))
+	core := []map[string]string{{"source": "modrinth", "projectId": "mvcore00"}}
+	plan = api.AddonPlan{}
+	code, out = e.call("POST", e.sp("/addons/update/plan"), map[string]any{"addons": core, "actor": "admin"})
+	if b, _ := json.Marshal(out); code != 200 || json.Unmarshal(b, &plan) != nil || !plan.Ready {
+		t.Fatalf("update plan: %d %v", code, out)
+	}
+	started := e.status().StartedAt
+	op = e.addonOp("/addons/update", map[string]any{"addons": core, "fingerprint": plan.Fingerprint, "start": true, "actor": "admin"})
+	if op.Status != api.OpSucceeded || op.Detail["restartNeeded"] != true {
+		t.Fatalf("update with start on a running server: %+v", op)
+	}
+	if st := e.status(); st.StartedAt == nil || started == nil || !st.StartedAt.Equal(*started) {
+		t.Fatalf("the running server was restarted: started %v, was %v", st.StartedAt, started)
+	}
+}

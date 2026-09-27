@@ -1,0 +1,19 @@
+[22:46:41 INFO]: Marked 256 chunks in minecraft:overworld from [9984, 9000] to [10239, 9255] to be force loaded
+[22:47:01 ERROR]: --- DO NOT REPORT THIS TO PAPER - THIS IS NOT A BUG OR A CRASH  - 26.1.2-74-e4e17fc (MC: 26.1.2) ---
+[22:47:01 ERROR]: The server has not responded for 35 seconds! Creating thread dump
+[22:47:01 ERROR]: ------------------------------
+[22:47:01 ERROR]: Server thread dump (Look for plugins here before reporting to Paper!):
+[22:47:01 ERROR]: ------------------------------
+[22:47:01 ERROR]: Current Thread: Server thread
+[22:47:01 ERROR]: 	PID: 43 | Suspended: false | Native: false | State: TIMED_WAITING
+[22:47:01 ERROR]: 	Stack:
+[22:47:01 ERROR]: 		net.minecraft.server.level.ServerLevel.setChunkForced(ServerLevel.java:2366)
+[22:47:01 ERROR]: 		net.minecraft.server.MinecraftServer.runServer(MinecraftServer.java:1380)
+[22:47:01 ERROR]: 		java.base@25.0.4/java.lang.Thread.run(Unknown Source)
+[22:47:01 ERROR]: ------------------------------
+[22:47:01 ERROR]: --- DO NOT REPORT THIS TO PAPER - THIS IS NOT A BUG OR A CRASH ---
+[22:47:01 ERROR]: ------------------------------
+
+Exception: java.lang.OutOfMemoryError thrown from the UncaughtExceptionHandler in thread "Paper Watchdog Thread"
+
+Exception: java.lang.OutOfMemoryError thrown from the UncaughtExceptionHandler in thread "RCON Listener #1"

@@ -1,0 +1,2 @@
+The game is sprintingTarget tick rate: 20.0 per second (ignored, reference only).
+Average time per tick: 3.1msPercentiles: P50: 2.9ms P95: 4.4ms P99: 6.0ms. Sample: 100
