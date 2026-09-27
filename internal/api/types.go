@@ -1257,8 +1257,9 @@ type Pregen struct {
 	State string `json:"state"`
 	// Step is where starting stands: installing (Chunky), restarting (the
 	// server, to load it), starting_server or starting_task.
-	Step   string `json:"step,omitempty"`
-	World  string `json:"world"`
+	Step  string `json:"step,omitempty"`
+	World string `json:"world"`
+	// Preset is a size or, for a task the Map tab started, "border".
 	Preset string `json:"preset,omitempty"`
 	Radius int    `json:"radius,omitempty"`
 	// Chunks of Total are done; ETASeconds is -1 while unknown.
@@ -2204,6 +2205,60 @@ type MapDisableRequest struct {
 type PublicMap struct {
 	Name    string `json:"name"`
 	Players bool   `json:"players"`
+}
+
+// Kinds of map area besides the pre-generation sizes.
+const (
+	MapAreaExplored = "explored"
+	MapAreaBorder   = "border"
+)
+
+// Why a map area can't be chosen: the map has it already, it reaches past
+// the world border, or the world has no border to fill up to.
+const (
+	CodeAreaOnMap  = "area_on_map"
+	CodePastBorder = "past_border"
+	CodeNoBorder   = "no_border"
+)
+
+// MapArea is how much of the world a server's map shows: the land players
+// explored, or an area Playkeeper pre-generates so the map can show it.
+// It follows the server's latest pre-generation, so a size chosen on the
+// World tab counts too.
+type MapArea struct {
+	// Area is "explored", a pre-generation size (small, medium, large or
+	// huge) around spawn, or "border", up to the world border. Radius is
+	// its distance in blocks from spawn, or from the border's center.
+	Area   string `json:"area"`
+	Radius int    `json:"radius,omitempty"`
+	// Options are the bigger areas, smallest first, then the world border
+	// when one is set that Playkeeper can fill.
+	Options []MapAreaOption `json:"options"`
+	// Fill is the pre-generation that fills the area in.
+	Fill Pregen `json:"fill"`
+}
+
+// MapAreaOption is a bigger area for the map and what filling it in is
+// expected to take on this machine.
+type MapAreaOption struct {
+	ID        string `json:"id"` // small | medium | large | huge | border
+	Radius    int    `json:"radius"`
+	Chunks    int64  `json:"chunks"`
+	Seconds   int64  `json:"seconds"`
+	DiskBytes int64  `json:"diskBytes"`
+	// Fits is false when the disk has no room for it, Done when the map
+	// has it already, and PastBorder when it reaches past the world border.
+	Fits       bool `json:"fits"`
+	Done       bool `json:"done,omitempty"`
+	PastBorder bool `json:"pastBorder,omitempty"`
+}
+
+// MapAreaRequest chooses the map's area: Area is "explored", which stops
+// filling one in, or an option's ID, which starts filling it in.
+type MapAreaRequest struct {
+	Area            string `json:"area"`
+	PauseForPlayers bool   `json:"pauseForPlayers"`
+	Actor           string `json:"actor"`
 }
 
 // WorldImport is an upload of world archives: for a new server when

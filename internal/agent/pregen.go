@@ -361,15 +361,21 @@ func pregenPresets(p pregen.Platform, level, world string, rate float64, free in
 	out := []api.PregenPreset{}
 	for _, pr := range pregen.Presets() {
 		plan, _ := pregen.PresetPlan(pr.ID, world)
-		est := plan.Estimate(dim, numCPU())
-		secs, ok := est.SecondsAt(rate)
-		if !ok {
-			secs = int64(math.Sqrt(float64(est.SecondsLow) * float64(est.SecondsHigh)))
-		}
-		out = append(out, api.PregenPreset{ID: pr.ID, Radius: pr.Radius, Chunks: est.Chunks, Seconds: secs,
-			DiskBytes: (est.DiskLow + est.DiskHigh) / 2, Fits: free < 0 || est.CheckDisk(free) == nil})
+		out = append(out, pregenCost(pr.ID, plan, dim, rate, free))
 	}
 	return out
+}
+
+// pregenCost is what pre-generating plan's area is expected to take, as
+// pregenPresets works it out.
+func pregenCost(id string, plan pregen.Plan, dim pregen.Dimension, rate float64, free int64) api.PregenPreset {
+	est := plan.Estimate(dim, numCPU())
+	secs, ok := est.SecondsAt(rate)
+	if !ok {
+		secs = int64(math.Sqrt(float64(est.SecondsLow) * float64(est.SecondsHigh)))
+	}
+	return api.PregenPreset{ID: id, Radius: plan.Radius, Chunks: est.Chunks, Seconds: secs,
+		DiskBytes: (est.DiskLow + est.DiskHigh) / 2, Fits: free < 0 || est.CheckDisk(free) == nil}
 }
 
 func detailInt(v any) int {
@@ -462,6 +468,7 @@ func (s *server) pregenCheck(ctx context.Context, p pregen.Platform) (*pregenTas
 			detail = fmt.Sprintf("%d chunks in %s", saved.Chunks, inWords(time.Duration(saved.ElapsedSeconds)*time.Second))
 		}
 		s.audit("playkeeper", "pregen.finished", task.World, "succeeded", detail)
+		s.drawPregenerated(ctx)
 		return nil, nil
 	case pregen.StateCancelled, pregen.StateIdle:
 		s.pg.mu.Lock()
@@ -601,34 +608,46 @@ func (s *server) hPregenStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("Choose one of the sizes: small, medium, large or huge."))
 		return
 	}
-	if err := plan.Check(p); err != nil {
-		writeError(w, pregenError(err))
-		return
-	}
-	task, err := s.lastPregen()
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	if task.unfinished() {
-		writeError(w, pregenBusy())
-		return
-	}
-	est := plan.Estimate(pregen.DimensionOf(p, s.levelName(*sc), world), numCPU())
-	if free, _, err := s.opts.DiskUsage(s.dataDir()); err == nil {
-		if err := est.CheckDisk(free); err != nil {
-			writeError(w, pregenError(err))
-			return
-		}
-	}
-	op, err := s.beginOp("pregen-start", actor, func(ctx context.Context, h *opHandle) error {
-		return s.startPregen(ctx, h, actor, p, plan, req.Preset, req.PauseForPlayers, est.Total)
-	})
+	op, err := s.beginPregen(actor, sc, p, plan, req.Preset, req.PauseForPlayers)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, op)
+}
+
+// beginPregen starts pre-generating plan's area, preset being the size
+// it's shown as, once nothing else is being pre-generated.
+func (s *server) beginPregen(actor string, sc *api.ServerConfig, p pregen.Platform, plan pregen.Plan, preset string, pauseForPlayers bool) (*api.Operation, error) {
+	est, err := s.pregenRefusal(sc, p, plan)
+	if err != nil {
+		return nil, err
+	}
+	task, err := s.lastPregen()
+	if err != nil {
+		return nil, err
+	}
+	if task.unfinished() {
+		return nil, pregenBusy()
+	}
+	return s.beginOp("pregen-start", actor, func(ctx context.Context, h *opHandle) error {
+		return s.startPregen(ctx, h, actor, p, plan, preset, pauseForPlayers, est.Total)
+	})
+}
+
+// pregenRefusal checks that plan can be pre-generated and that the disk has
+// room for it, and returns what it is expected to take.
+func (s *server) pregenRefusal(sc *api.ServerConfig, p pregen.Platform, plan pregen.Plan) (pregen.Estimate, error) {
+	if err := plan.Check(p); err != nil {
+		return pregen.Estimate{}, pregenError(err)
+	}
+	est := plan.Estimate(pregen.DimensionOf(p, s.levelName(*sc), plan.World), numCPU())
+	if free, _, err := s.opts.DiskUsage(s.dataDir()); err == nil {
+		if err := est.CheckDisk(free); err != nil {
+			return pregen.Estimate{}, pregenError(err)
+		}
+	}
+	return est, nil
 }
 
 func pregenBusy() *apiError {
@@ -706,6 +725,13 @@ func (s *server) startPregen(ctx context.Context, h *opHandle, actor string, p p
 	started, err := ctrl.Start(ctx, plan, pregen.StartOptions{ContinueOnRestart: true, Replace: true})
 	if err != nil {
 		return pregenError(err)
+	}
+	if plan.OnBorder {
+		// Chunky found the border where it is now, which may not be where
+		// it was when the area was chosen.
+		plan.Radius = started.Radius
+		total = plan.Estimate(pregen.Overworld, 1).Total
+		h.set("radius", plan.Radius)
 	}
 	_, err = s.db.Exec(`INSERT INTO pregen(server_id, world, preset, radius, pause_for_players, started_at, world_bytes_before, total)
 		VALUES(?,?,?,?,?,?,?,?)
