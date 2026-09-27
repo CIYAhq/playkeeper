@@ -142,6 +142,21 @@ function finished(o: Record<string, unknown>): Record<string, unknown> {
   return { ...o, status: 'succeeded', phase: '', finishedAt: new Date().toISOString(), detail }
 }
 
+/** How long a faked add-on job downloads, about as long as a real one's few files take. */
+export const addonJobMs = 5000
+
+/**
+ * A faked operation as the operations endpoint reports it: an add-on job runs
+ * for addonJobMs, so the crawl presses its dialog's controls while it runs,
+ * then ends the way the fixtures say; any other job has finished at once, for
+ * the dialogs that follow it.
+ */
+export function addonOpAt(started: Record<string, unknown> | undefined, ends: Record<string, unknown> | undefined, now = Date.now()): Record<string, unknown> | undefined {
+  if (!started) return ends
+  if (!ends) return finished(started)
+  return now - Date.parse(String(started.startedAt)) < addonJobMs ? started : ends
+}
+
 function knownZone(z: unknown): boolean {
   if (typeof z !== 'string' || z.length > 64) return false
   try {
@@ -1869,11 +1884,9 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         await route.fulfill({ status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Content-Disposition': `attachment; filename="${file}"`, 'Cache-Control': 'no-store' }, body: '# A stand-in recovery key from the click-through. It opens nothing.\n' })
         return
       }
-      // A faked job finishes at once, for the dialogs that follow it; an add-on job ends the way the fixtures say.
       const fakeOp = /^\/api\/(?:servers|machines)\/\w+\/operations\/(fake-op-\d+)$/.exec(path)
       if (fakeOp?.[1]) {
-        const started = state.ops.get(fakeOp[1])
-        const o = state.jobs.get(fakeOp[1]) ?? (started && finished(started))
+        const o = addonOpAt(state.ops.get(fakeOp[1]), state.jobs.get(fakeOp[1]))
         calls.push({ method, path, status: o ? 200 : 404, faked: true, at })
         await route.fulfill({ status: o ? 200 : 404, contentType: 'application/json', body: JSON.stringify(o ?? { error: 'Operation not found.', code: 'not_found' }) })
         return

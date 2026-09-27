@@ -370,6 +370,58 @@ describe('Plugins tab', () => {
     expect(text).not.toContain('Was 5.4.150')
   })
 
+  /** Reinstalls LuckPerms, focuses Close while the job runs, then lets the next poll find it finished. */
+  async function finishWithCloseFocused(restartNeeded: boolean): Promise<HTMLElement> {
+    let current: Operation = { id: 'op5', kind: 'addon-update', status: 'running', phase: 'downloading', actor: 'siya', startedAt: '' }
+    vi.mocked(client.get).mockImplementation(((path: string) => {
+      if (path.includes('/operations/op5')) return Promise.resolve(current)
+      if (path.includes('/addons/checks')) return Promise.resolve(checks)
+      if (path.includes('/addons')) return Promise.resolve(installed)
+      return new Promise(() => {})
+    }) as typeof client.get)
+    reply([
+      ['/addons/update/plan', () => ({ ...updatePlan, steps: [step('LuckPerms', '5.4.150', '5.4.150')], fingerprint: 'fp4' })],
+      ['/addons/update', () => current],
+    ])
+    await render(server())
+    await click('Reinstall')
+    const close = [...document.querySelectorAll<HTMLElement>('[role=dialog] button')].find((b) => b.textContent === 'Close')
+    if (!close) throw new Error('no Close while the job runs')
+    close.focus()
+    current = { ...current, status: 'succeeded', finishedAt: '', detail: { files: [{ name: 'LuckPerms', versionNumber: '5.4.150', was: '5.4.150', size: 1000, received: 1000, state: 'verified' }], restartNeeded } }
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+    for (let i = 0; i < 3; i++) await act(async () => {})
+    return close
+  }
+
+  it('keeps focus on Close as the job finishes and a restart is needed: it becomes Later, not Restart now', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const close = await finishWithCloseFocused(true)
+      expect(document.body.textContent).toContain('Restart Survival to load them')
+      expect(close.isConnected).toBe(true)
+      expect(document.activeElement).toBe(close)
+      expect(close.textContent).toBe('Later')
+      expect(button('Restart now')).not.toBe(close)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps focus on Close as the job finishes with nothing to restart: it becomes Done', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const close = await finishWithCloseFocused(false)
+      expect(close.isConnected).toBe(true)
+      expect(document.activeElement).toBe(close)
+      expect(close.textContent).toBe('Done')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('shows what the Map installed as the Map’s, linked to it, with nothing to manage', async () => {
     const squaremap = addon('squaremap', { projectId: 'PFb7ZqK6', versionNumber: '1.3.13.2', usedBy: 'map' })
     answer([
