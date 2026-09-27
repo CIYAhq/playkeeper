@@ -1005,6 +1005,40 @@ func TestUploadsAreSharedOutBetweenServers(t *testing.T) {
 	e.openUpload("config")
 }
 
+// A cancelled upload puts nothing more in place: a request that was still
+// sending a file's last bytes when the upload was cancelled leaves it be,
+// rather than replace what the admin cancelled replacing.
+func TestACancelledUploadPutsNothingInPlace(t *testing.T) {
+	e, _ := idleFilesServer(t)
+	s := e.srv()
+	e.putData("config/paper-global.yml", "mine\n")
+	up := e.openUpload("config")
+	if code, out := e.announceFile(up, "paper-global.yml", 5, true); code != 201 {
+		t.Fatalf("announce: %d %v", code, out)
+	}
+	release := e.holdOp("backup")
+	if code, v, out := e.uploadPiece(up, 0, 0, strings.NewReader("x: 1\n")); code != 200 || v.Files[0].Placed {
+		t.Fatalf("the bytes, during a backup: %d %v", code, out)
+	}
+	release()
+	e.waitIdle()
+	fu, err := s.fileUpload(up)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A cancel marks the upload gone before it deletes what arrived.
+	fu.mu.Lock()
+	fu.gone = true
+	fu.mu.Unlock()
+	s.placeUpload(t.Context(), fu, 0, "admin")
+	if got := readFile(t, e.data("config/paper-global.yml")); got != "mine\n" {
+		t.Fatalf("a cancelled upload replaced the file: %q", got)
+	}
+	if e.auditHas("files.uploaded", "succeeded", "config/paper-global.yml") {
+		t.Fatal("a cancelled upload was audited as put in place")
+	}
+}
+
 // A file two requests put in place at once, such as an empty one announced
 // from two tabs, is placed once, and the other request leaves it be rather
 // than mark it failed.

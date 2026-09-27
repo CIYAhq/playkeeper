@@ -411,11 +411,13 @@ func (s *server) announceUpload(up *fileUpload, name string, size int64, replace
 
 // placeUpload puts file n of an upload in place once all of it has arrived.
 // What stops it now, such as a backup running or the game using the world,
-// is kept as the file's error, and its bytes stay for another try.
+// is kept as the file's error, and its bytes stay for another try. Once the
+// upload is cancelled nothing more of it goes in place, even a file whose
+// last bytes a request was still sending.
 func (s *server) placeUpload(ctx context.Context, up *fileUpload, n int, actor string) {
 	up.mu.Lock()
 	f := up.files[n]
-	name, replace, skip := f.name, f.replace, f.placed || f.placing || f.received < f.size
+	name, replace, skip := f.name, f.replace, up.gone || f.placed || f.placing || f.received < f.size
 	f.placing = !skip
 	up.mu.Unlock()
 	if skip {

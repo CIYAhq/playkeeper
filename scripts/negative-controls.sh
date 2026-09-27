@@ -1588,6 +1588,10 @@ control "file browser: a file is put in place once" internal/agent/fileuploads.g
   'f.placed || f.placing || f.received < f.size' \
   'f.placed || f.received < f.size' \
   ./internal/agent '^TestAFileIsPutInPlaceOnce$'
+control "file browser: a cancelled upload puts nothing more in place" internal/agent/fileuploads.go \
+  'up.gone || f.placed' \
+  'f.placed' \
+  ./internal/agent '^TestACancelledUploadPutsNothingInPlace$'
 control "file browser: only admins see a server's files" internal/panel/workspace.go \
   'actViewFiles:      invites.RoleAdmin,' \
   'actViewFiles:      invites.RoleViewer,' \
