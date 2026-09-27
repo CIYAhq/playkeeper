@@ -8,9 +8,11 @@ import (
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/sizing"
@@ -96,8 +98,44 @@ func TestEveryLinkAndAnchorLands(t *testing.T) {
 	}
 }
 
+// siteCheckLengths are the title and description lengths, in characters as
+// grep counts them in a UTF-8 locale, that scripts/site-check.sh allows on
+// the pages it serves, read from its own rules so every built page is held
+// to the same ones.
+func siteCheckLengths(t *testing.T) (title, desc [2]int) {
+	t.Helper()
+	b, err := os.ReadFile("../../scripts/site-check.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range []struct {
+		re   string
+		into *[2]int
+	}{
+		{`<title>\[\^<\]\{(\d+),(\d+)\}</title>`, &title},
+		{`<meta name="description" content="\[\^"\]\{(\d+),(\d+)\}">`, &desc},
+	} {
+		m := regexp.MustCompile(rule.re).FindStringSubmatch(string(b))
+		if m == nil {
+			t.Fatalf("scripts/site-check.sh has no length rule like %s", rule.re)
+		}
+		rule.into[0], _ = strconv.Atoi(m[1])
+		rule.into[1], _ = strconv.Atoi(m[2])
+	}
+	return title, desc
+}
+
+func within(s string, n [2]int) bool {
+	c := utf8.RuneCountInString(s)
+	return c >= n[0] && c <= n[1]
+}
+
 func TestEveryPageIsWellFormed(t *testing.T) {
 	o := build(t, Default)
+	titleLen, descLen := siteCheckLengths(t)
+	if within(strings.Repeat("d", 40), descLen) {
+		t.Errorf("a 40-character description passes, but scripts/site-check.sh allows %d to %d", descLen[0], descLen[1])
+	}
 	titles := map[string]string{}
 	for p, html := range pages(o) {
 		// The share page has a heading for each of its states, and shows one.
@@ -109,11 +147,11 @@ func TestEveryPageIsWellFormed(t *testing.T) {
 		}
 		title := between(html, "<title>", "</title>")
 		desc := between(html, `<meta name="description" content="`, `"`)
-		if len(title) < 10 || len(title) > 70 {
-			t.Errorf("%s: title %q is %d characters, want 10 to 70", p, title, len(title))
+		if !within(title, titleLen) {
+			t.Errorf("%s: title %q is %d characters, want %d to %d", p, title, utf8.RuneCountInString(title), titleLen[0], titleLen[1])
 		}
-		if len(desc) < 30 || len(desc) > 170 {
-			t.Errorf("%s: description is %d characters, want 30 to 170", p, len(desc))
+		if !within(desc, descLen) {
+			t.Errorf("%s: description %q is %d characters, want %d to %d", p, desc, utf8.RuneCountInString(desc), descLen[0], descLen[1])
 		}
 		noindex := strings.Contains(html, `<meta name="robots" content="noindex">`)
 		if !noindex {

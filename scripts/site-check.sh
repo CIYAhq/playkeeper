@@ -113,6 +113,8 @@ for p in "${listed[@]}"; do
   read -r code type < <(curl -sS -o "$page" -w '%{http_code} %{content_type}\n' "$base$p")
   [ "$code" = 200 ] || fail "$p answered $code, not 200"
   [[ $type == text/html* ]] || fail "$p is served as '$type'"
+  # internal/site's TestEveryPageIsWellFormed reads these two lengths from here
+  # and holds every built page to them, so keep each rule on one line.
   grep -qE '<title>[^<]{10,70}</title>' "$page" || fail "$p has no title of 10 to 70 characters"
   grep -qE '<meta name="description" content="[^"]{50,170}">' "$page" || fail "$p has no description of 50 to 170 characters"
   grep -qF "<link rel=\"canonical\" href=\"$site$p\">" "$page" || fail "$p does not name $site$p as its canonical address"
