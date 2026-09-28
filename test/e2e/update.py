@@ -99,6 +99,15 @@ def prepare(a):
         op = c.wait_op(op["id"], timeout=1200)
     else:
         op = c.create(version["id"], cat["recommendedMemoryMB"], MOTD, max_players=MAX_PLAYERS)
+        # The current release's agent may pull the runtime image only once,
+        # and Docker Hub now and then refuses a pull it answers a moment
+        # later: Start is pressed again, as the error's hint says.
+        for wait in (5, 15, 30):
+            if op["status"] == "succeeded" or not op.get("error", "").startswith("Could not download the Minecraft runtime image"):
+                break
+            print(f"  {op['error']} Pressing Start again in {wait} s.", flush=True)
+            time.sleep(wait)
+            op = c.wait_op(c.ok("POST", c.sp("/start"), {})["id"], timeout=1200)
     check(op["status"] == "succeeded", f"server created ({op.get('error', '')})")
     c.wait_online(timeout=600)
     step("Set a world marker on the console, then take a backup")
