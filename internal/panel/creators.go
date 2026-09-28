@@ -330,8 +330,9 @@ func (s *Server) capCatalog(ctx context.Context, a access, m machine, server str
 	c["recommendedMemoryMB"], _ = json.Marshal(rec)
 	c["maxMemoryMB"], _ = json.Marshal(min(most, left))
 	c["memoryFreeMB"], _ = json.Marshal(min(free, left))
+	used := use.memoryMB + use.memory[server]
 	c["allowance"], _ = json.Marshal(map[string]int{"servers": a.Allowance.Servers, "memoryMB": a.Allowance.MemoryMB,
-		"serversUsed": use.servers, "memoryUsedMB": use.memoryMB})
+		"serversUsed": use.servers, "memoryUsedMB": used})
 	return nil
 }
 
