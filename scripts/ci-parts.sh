@@ -13,7 +13,7 @@ parts=(install-and-play restore views core-flows update site names stats certs f
 # checks PART: the changed files that part checks, as an extended regex.
 checks() {
   case $1 in
-    install-and-play) echo '^(test/e2e/(scenario|pkclient)\.py$|test/e2e/bot/|test/e2e/ui/onboarding\.spec\.ts$|scripts/e2e/played-state\.sh$|\.github/actions/played-install/)' ;;
+    install-and-play) echo '^(test/e2e/(scenario|pkclient)\.py$|test/e2e/bot/|test/e2e/ui/onboarding\.spec\.ts$|scripts/e2e/(played-state|guard-check)\.sh$|\.github/actions/played-install/)' ;;
     restore) echo '^(test/e2e/(scenario|pkclient)\.py$|test/e2e/bot/)' ;;
     views) echo '^(test/e2e/ui/views\.spec\.ts$|scripts/e2e/played-state\.sh$|\.github/actions/played-install/)' ;;
     core-flows) echo '^(test/e2e/(pkclient|stats_recorder)\.py$|test/e2e/ui/smoke\.spec\.ts$|internal/usage/)' ;;

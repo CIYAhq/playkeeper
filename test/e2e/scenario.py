@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """End-to-end scenario against an installed Playkeeper.
 
-host-a: first-run setup, EULA gate, create server, invite and join with two
-        protocol bots (offline-mode test harness), place a nonce marker,
-        check sessions/charts/console, back up with a player online, check
-        the archive independently, restore on the same host and roll back,
-        and exercise the controls, CSRF protection, settings and audit log.
+host-a: first-run setup, EULA gate, create server, check from inside it
+        that it can't reach the machine (when Playkeeper runs on this one),
+        invite and join with two protocol bots (offline-mode test harness),
+        place a nonce marker, check sessions/charts/console, back up with a
+        player online, check the archive independently, restore on the same
+        host and roll back, and exercise the controls, CSRF protection,
+        settings and audit log.
 host-b: on a fresh second host, restore the downloaded archive through the
         guarded restore flow and verify the marker by console and client;
         the "tamper" step feeds damaged archives to a host with a live world.
@@ -24,6 +26,7 @@ import tarfile
 import tempfile
 import threading
 import time
+import urllib.parse
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -31,6 +34,7 @@ from pkclient import Client  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BOT = os.path.join(HERE, "bot", "bot.js")
+GUARD_CHECK = os.path.join(HERE, "..", "..", "scripts", "e2e", "guard-check.sh")
 PASSWORD = os.environ.get("PK_ADMIN_PASSWORD") or os.environ.get("PK_PASSWORD") or "e2e-" + secrets.token_hex(8)
 BUILDER, FRIEND = "PkBotBuilder", "PkBotFriend"
 results = {"checks": []}
@@ -187,6 +191,13 @@ def host_a_play(a, c, anon):
     game = ["--host", a.game_host, "--port", str(a.game_port)]
     wl = {w["name"] for w in c.ok("GET", c.sp("/whitelist"))}
     check({BUILDER, FRIEND} <= wl, f"allowlist contains the bots ({sorted(wl)})")
+
+    # The check runs on the machine itself; the VM runs call it over ssh.
+    if urllib.parse.urlsplit(a.url).hostname in ("127.0.0.1", "::1", "localhost"):
+        step("From inside the server: this machine and link-local addresses are out of reach, the internet isn't")
+        r = subprocess.run(["sudo", "bash", GUARD_CHECK], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=300)
+        print(r.stdout, end="", flush=True)
+        check(r.returncode == 0, "the network guard keeps the server from this machine and link-local addresses, and the agent puts its rules back")
 
     step("Builder bot joins by the copied address and places the nonce marker")
     nonce = "pk-" + secrets.token_hex(6)

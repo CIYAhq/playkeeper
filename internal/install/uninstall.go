@@ -16,6 +16,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/machinelink"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/netguard"
 )
 
 type UninstallOptions struct {
@@ -68,7 +69,7 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 	if len(m.Units) > 0 {
 		fmt.Fprintln(out, "  • services: "+strings.Join(m.Units, ", "))
 	}
-	fmt.Fprintln(out, "  • Playkeeper's Minecraft containers, the 'playkeeper' Docker network and the pinned server image")
+	fmt.Fprintln(out, "  • Playkeeper's Minecraft containers, the 'playkeeper' Docker network with the firewall rules that keep its servers from this machine, and the pinned server image")
 	for _, f := range m.FilesCreated {
 		fmt.Fprintln(out, "  • "+f)
 	}
@@ -153,6 +154,9 @@ func Uninstall(ctx context.Context, sys System, o UninstallOptions) error {
 		note(removeIfExists(sys.P(UnitDir + "/" + u)))
 	}
 	foreign := removeDockerObjects(ctx, sys, note)
+	if sys.Firewall != nil {
+		note(netguard.Remove(ctx, sys.Firewall))
+	}
 	for _, r := range m.FirewallRules {
 		note(fw.remove(sys, r))
 	}

@@ -141,7 +141,10 @@ PrivateTmp=yes
 // own state directory and runtime socket directory, and with at most half the
 // memory minecraft.HostReserveMB keeps free for the host. CAP_NET_BIND_SERVICE
 // lets it answer Let's Encrypt's checks on port 80 for the seconds a
-// certificate for an own domain is being issued.
+// certificate for an own domain is being issued. CAP_NET_ADMIN, CAP_NET_RAW
+// and netlink sockets are what iptables needs, which the agent runs for the
+// network guard (internal/netguard); its Docker socket gives it more than
+// they do already.
 func agentUnit() string {
 	return `[Unit]
 Description=Playkeeper agent (local control of the Minecraft container)
@@ -174,8 +177,8 @@ RestrictRealtime=yes
 RestrictNamespaces=yes
 LockPersonality=yes
 SystemCallArchitectures=native
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_NET_BIND_SERVICE
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_NET_BIND_SERVICE CAP_NET_ADMIN CAP_NET_RAW
 # Playkeeper keeps 768 MB free for the system, Docker and itself. The agent
 # may use half of it, so if a file crafted by a plugin or mod makes it use
 # more, the agent is stopped and restarted instead of starving the game

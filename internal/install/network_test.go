@@ -15,6 +15,9 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/CIYAhq/playkeeper/internal/netguard"
+	"github.com/CIYAhq/playkeeper/internal/netguard/netguardtest"
 )
 
 // The host's own rules before Playkeeper: a VPN forward rule, a NAT rule for a
@@ -293,6 +296,36 @@ func TestUninstallPutsDockersNetworkChangesBack(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Docker's firewall rules and bridges") {
 		t.Fatalf("the uninstall plan must say it undoes Docker's network changes:\n%s", out)
+	}
+}
+
+// The network guard's rules go with Playkeeper, and the machine's own rules
+// stay.
+func TestUninstallTakesOutTheNetworkGuardsRules(t *testing.T) {
+	h := newFakeHost(t)
+	sys := h.system(t)
+	installed(t, h, sys)
+	fw := netguardtest.New()
+	if err := netguard.Apply(context.Background(), fw.Run, netguard.Network{Bridge: "br-0123456789ab", IPv6: true}, true); err != nil {
+		t.Fatal(err)
+	}
+	before := fw.Rules("iptables", "INPUT")
+	sys.Firewall = fw.Run
+	out := &bytes.Buffer{}
+	if err := Uninstall(context.Background(), sys, UninstallOptions{Yes: true, In: strings.NewReader(""), Out: out}); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, fam := range []string{"iptables", "ip6tables"} {
+		for _, chain := range []string{"INPUT", "FORWARD", "DOCKER-USER"} {
+			for _, r := range fw.Rules(fam, chain) {
+				if strings.Contains(r, netguard.Tag) {
+					t.Errorf("%s %s still has the guard's %q", fam, chain, r)
+				}
+			}
+		}
+	}
+	if got := fw.Rules("iptables", "INPUT"); len(got) != len(before)-2 {
+		t.Fatalf("INPUT lost more than the guard's two rules: %q, from %q", got, before)
 	}
 }
 
