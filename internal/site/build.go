@@ -3,7 +3,7 @@
 // the assets in site/static and web/src/assets under hashed names. Facts the
 // product owns come from the product: the server types from minecraft.Types,
 // the templates' links from internal/templates, the version from
-// CHANGELOG.md.
+// site/data/release.json, which names the latest published release.
 package site
 
 import (
@@ -173,18 +173,34 @@ func Build(o Options) (*Output, error) {
 
 var reRelease = regexp.MustCompile(`(?m)^## (\d+\.\d+\.\d+)\s*$`)
 
-// releaseVersion is the newest version CHANGELOG.md has a section for: the
-// release the site describes.
+// releaseVersion is the release the site describes: the latest published
+// one, which site/data/release.json names and a release's own commit
+// updates. CHANGELOG.md must have its section. A newer section there is a
+// release still being put together, so the site never says it's out.
 func releaseVersion(root fs.FS) (string, error) {
-	b, err := fs.ReadFile(root, "CHANGELOG.md")
+	b, err := fs.ReadFile(root, "site/data/release.json")
 	if err != nil {
 		return "", err
 	}
-	m := reRelease.FindSubmatch(b)
-	if m == nil {
-		return "", fmt.Errorf("CHANGELOG.md has no ## X.Y.Z section")
+	var r struct {
+		Version string `json:"version"`
 	}
-	return string(m[1]), nil
+	if err := json.Unmarshal(b, &r); err != nil {
+		return "", fmt.Errorf("site/data/release.json: %w", err)
+	}
+	if !reRelease3.MatchString(r.Version) {
+		return "", fmt.Errorf("site/data/release.json: version %q isn't MAJOR.MINOR.PATCH", r.Version)
+	}
+	c, err := fs.ReadFile(root, "CHANGELOG.md")
+	if err != nil {
+		return "", err
+	}
+	for _, m := range reRelease.FindAllSubmatch(c, -1) {
+		if string(m[1]) == r.Version {
+			return r.Version, nil
+		}
+	}
+	return "", fmt.Errorf("site/data/release.json names %s, but CHANGELOG.md has no ## %s section", r.Version, r.Version)
 }
 
 // expand runs a page setting that uses the templates' functions, like

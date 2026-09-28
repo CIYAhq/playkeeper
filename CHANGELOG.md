@@ -6,6 +6,8 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 - Picked by Playkeeper suggests Discord chat on Paper and Purpur servers: DiscordSRV links the game chat with a channel on your Discord server, both ways, once you paste your own Discord bot's token into its settings.
 - Fixed: plugins that publish a Paper and a Spigot build of each release, such as BlueMap, FastAsyncWorldEdit, CommandAPI and AuthMe, installed their Spigot build on Paper and Purpur, and mods with a Quilt build, such as Simple Voice Chat, their Fabric build on Quilt. Installs and updates now take the build for the server's own platform; one installed before moves over at its next update.
+- The Pixelmon Modpack installs, and the Pixelmon mod can be added on the Mods tab: one file of a modpack or mod may now be up to 512 MiB, up from 256 MiB. Each file is still checked against its published checksum before it reaches the server.
+- Big modpacks like FTB StoneBlock 4 and Craftoria install: a pack may now put up to 20,000 files on the server, up from 5,000.
 
 ## 0.4.2
 

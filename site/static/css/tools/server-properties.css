@@ -1,0 +1,57 @@
+/* The server.properties editor (/tools/server-properties), on css/tools.css. */
+
+.sp-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 440px); gap: 20px; align-items: start; }
+.sp-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+/* Finding a setting, changed ones only, and loading a file, in a bar that
+   stays under the header while the settings scroll. */
+.sp-bar { position: sticky; top: calc(var(--header) + 12px); z-index: 6; flex-direction: row; align-items: center; gap: 14px; padding: 12px; }
+.sp-find { flex: 1; min-width: 0; }
+.sp-only { flex: none; }
+.sp-load-button { flex: none; min-height: 44px; }
+.sp-load { gap: 10px; }
+.sp-paste { min-height: 132px; }
+.sp-load-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+.sp-load-actions .btn { min-height: 44px; }
+.sp-load-actions .tool-hint { flex-basis: 100%; }
+
+/* A group of settings, one to a row: what it is on the left and its control
+   on the right, or under it when the control needs the width. */
+.sp-group { padding-bottom: 4px; }
+.sp-group > .tool-card-title { margin-bottom: 2px; }
+.sp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 20px; padding: 14px 0; border-top: 1px solid var(--twine); scroll-margin-top: calc(var(--header) + 96px); }
+.sp-group > .sp-row:first-of-type { border-top: 0; }
+.sp-row-choice, .sp-row-text { grid-template-columns: minmax(0, 1fr); }
+.sp-row-int .sp-input { width: 140px; }
+.sp-key { margin: 0; }
+.sp-key code { color: var(--ink); font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; }
+.sp-key label { cursor: pointer; }
+.sp-row.is-changed .sp-key code { color: var(--green-text); }
+.sp-what { margin: 3px 0 0; color: var(--sage); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.sp-default { margin: 4px 0 0; color: var(--sage); font-size: 12.5px; line-height: 18px; }
+.sp-default code { color: var(--ink); font-size: 12px; overflow-wrap: anywhere; }
+.sp-reset { margin-left: 4px; padding: 0; border: 0; background: none; color: var(--green-text); font: 600 12.5px var(--sans); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.sp-reset:hover { color: var(--ink); }
+.sp-note { margin: 6px 0 0; color: #c2410c; font-size: 13px; line-height: 1.45; }
+.tool .sp-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 2px; }
+.tool .sp-choices label { flex: none; }
+.sp-empty { margin: 0; padding: 28px 20px; border: 1px dashed var(--input); border-radius: 16px; color: var(--sage); text-align: center; }
+
+/* The file, with the lines that differ from the defaults picked out. */
+.sp-out .tool-card-head { margin-bottom: 12px; }
+.sp-count { color: var(--sage); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sp-result-actions { display: flex; flex: none; gap: 6px; }
+.sp-result pre { max-height: min(64vh, 660px); overflow: auto; font-size: 12.5px; line-height: 1.6; word-break: normal; overflow-wrap: anywhere; }
+.sp-changed-line { color: #9be27f; }
+.sp-next { margin-top: 12px; }
+
+@media (max-width: 1023.98px) {
+  .sp-layout { grid-template-columns: minmax(0, 1fr); }
+  .sp-tool .tool-dock { display: flex; }
+}
+@media (max-width: 639.98px) {
+  .sp-bar { flex-wrap: wrap; top: calc(var(--header) + 8px); }
+  .sp-find { flex-basis: 100%; }
+  .sp-load-button { margin-left: auto; }
+  .sp-row-int { grid-template-columns: minmax(0, 1fr); }
+}
