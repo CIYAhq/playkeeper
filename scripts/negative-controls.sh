@@ -6264,8 +6264,8 @@ control "an HTTP-01 check goes ahead on a busy port only when its holder passes 
   'if errors.Is(err, syscall.EADDRINUSE) {' \
   ./internal/certs '^TestHTTP01GoesAheadOnlyWhenThePortsHolderPassesChecksOn$'
 control "the page's ports answer only the machine's address" internal/panel/serverpage.go \
-  'if !check && !pageHost(r.Host, s.page.hostNow()) {' \
-  'if false && !check && !pageHost(r.Host, s.page.hostNow()) {' \
+  'if !check && !s.page.answers(r.Host) {' \
+  'if false && !check && !s.page.answers(r.Host) {' \
   ./internal/panel '^TestThePagesPortsServeThePageAndNothingElse$'
 control "the page escapes what the owner typed" internal/panel/serverpage.go \
   'head := "<title>" + html.EscapeString(title) + "</title>"' \
@@ -6328,8 +6328,8 @@ control "the keeper never asks for a port it holds" internal/panel/pageports.go 
   'return !now.Before(p.next[i]) && port.Port != s.cfg.PanelPort' \
   ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
 control "Let's Encrypt's check for a new address passes port 80 before the page follows it" internal/panel/serverpage.go \
-  'if !check && !pageHost(r.Host, s.page.hostNow()) {' \
-  'if !pageHost(r.Host, s.page.hostNow()) {' \
+  'if !check && !s.page.answers(r.Host) {' \
+  'if !s.page.answers(r.Host) {' \
   ./internal/panel '^TestLetsEncryptsCheckForANewNameReachesTheAgentBeforeThePageCatchesUp$'
 control "a changed address has the page's keeper look again" internal/panel/server.go \
   'if method != http.MethodGet {
@@ -6609,6 +6609,42 @@ control "an install whose first report was lost started the day it ended" intern
 ' \
   '' \
   ./internal/usage/service '^TestSummaryCountsInstallsAndActiveInstallsByWindow$'
+
+# A server's own address under the machine's own domain.
+control "an own address is only for a machine with its own domain" internal/agent/ownaddress.go \
+  'if st.Kind != api.AddressOwn {
+		return "", errConflict(' \
+  'if false && st.Kind != api.AddressOwn {
+		return "", errConflict(' \
+  ./internal/agent '^TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain$'
+control "an own address is never the machine's name" internal/agent/ownaddress.go \
+  'if name == st.Host {' \
+  'if false && name == st.Host {' \
+  ./internal/agent '^TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain$'
+control "two servers never share an own address" internal/agent/ownaddress.go \
+  'case js.own == name:' \
+  'case false && js.own == name:' \
+  ./internal/agent '^TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain$'
+control "own addresses get a few certificates a day" internal/agent/ownaddress.go \
+  'if a.ownCertsToday(st) >= ownCertsPerDay {' \
+  'if false && a.ownCertsToday(st) >= ownCertsPerDay {' \
+  ./internal/agent '^TestOwnAddressesGetAFewCertificatesADay$'
+control "an own address's page shows only its server" internal/agent/publicpage.go \
+  'if only != nil && j.ServerID != only.id {' \
+  'if false && only != nil && j.ServerID != only.id {' \
+  ./internal/agent '^TestAnOwnAddressOpensOnlyItsServersPage$'
+control "an own address's page answers only while its server is on the page" internal/agent/ownaddress.go \
+  'if s := a.serverByID(js.id); s != nil && s.publicPageSettings().Enabled {
+			return s
+		}' \
+  'if s := a.serverByID(js.id); s != nil {
+			return s
+		}' \
+  ./internal/agent '^TestAnOwnAddressOpensOnlyItsServersPage$'
+control "giving a server its own address needs the right to manage the machine" internal/panel/server.go \
+  '{"POST", "/api/servers/{id}/own-address", needSessionCSRF, actManageMachine,' \
+  '{"POST", "/api/servers/{id}/own-address", needSessionCSRF, actManageServers,' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
