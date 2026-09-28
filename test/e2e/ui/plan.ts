@@ -2,12 +2,19 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { affected, estimate, freshSetup, importGraph, pageMapProblems, shardsFor, type Affected, type Costs, type Selection, type Size } from './clickthrough-plan.ts'
+import { estimate, forPullRequest, freshSetup, importGraph, keysChanged, pageMapProblems, pullRequestShardSeconds, shardsFor, type Affected, type Costs, type Selection, type Size } from './clickthrough-plan.ts'
 
 // What CI's click-through crawls, and on how many runners:
 //   node test/e2e/ui/plan.ts --full            every page (the release check)
-//   node test/e2e/ui/plan.ts --base REV        the pages the change from REV to HEAD touches
-//   node test/e2e/ui/plan.ts --files a b ...   the pages changing those files touches
+//   node test/e2e/ui/plan.ts --base REV        what a pull request from REV to HEAD crawls: the pages it
+//                                              changes, never every page (forPullRequest)
+//   node test/e2e/ui/plan.ts --files a b ...   the same for changing those files
+//   node test/e2e/ui/plan.ts --base REV --files a b ...
+//                                              the pages those of the files the change from REV
+//                                              changes touch (ci-since.sh's, for a push to a pull
+//                                              request that already passed): the string table's
+//                                              keys, and whether the played state is made fresh,
+//                                              still come from the whole change
 // With GITHUB_OUTPUT set it writes mode (none, pages or full), selection,
 // matrix and setup (saved or fresh) for .github/workflows/clickthrough.yml,
 // and a summary for the run.
@@ -26,29 +33,59 @@ if (problems.length) {
   process.exit(1)
 }
 
+const costs = JSON.parse(fs.readFileSync(path.join(root, 'test/e2e/ui/clickthrough-costs.json'), 'utf8')) as Costs
+const git = (...a: string[]) => execFileSync('git', a, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 })
+
+// The modules that name a key of the string table: as a string, or in a
+// template the key is built from, as t(`style.world.${level}.desc`).
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const sources = [...graph.keys()]
+  .filter((f) => f !== 'i18n/en.ts')
+  .map((f) => {
+    const text = fs.readFileSync(path.join(root, 'web/src', f), 'utf8')
+    const templates = [...text.matchAll(/`([\w.-]+\$\{[^}`]*\}(?:[\w.-]|\$\{[^}`]*\})*)`/g)].map((m) => new RegExp(`^${(m[1] ?? '').split(/\$\{[^}`]*\}/).map(escape).join('.+')}$`))
+    return { f, text, templates }
+  })
+const usesOf = (key: string) => {
+  const names = [`'${key}'`, `"${key}"`, `\`${key}\``]
+  return sources.filter(({ text, templates }) => names.some((n) => text.includes(n)) || templates.some((re) => re.test(key))).map(({ f }) => f)
+}
+
 let plan: Affected
-let changed: string[] = []
+let whole: string[] = []
 if (args.includes('--full')) {
   plan = { mode: 'full', pages: [], preludes: [], why: ['every page was asked for'] }
 } else {
   const files = args.indexOf('--files')
-  if (files >= 0) changed = args.slice(files + 1)
-  else {
-    const base = flag('--base')
-    if (!base) {
-      console.error('usage: plan.ts --full | --base REV [--head REV] | --files FILE...')
-      process.exit(2)
-    }
-    const out = execFileSync('git', ['diff', '--name-only', '--no-renames', base, flag('--head') ?? 'HEAD'], { cwd: root, encoding: 'utf8' })
-    changed = out.split('\n').filter(Boolean)
+  const base = flag('--base')
+  let changed: string[]
+  let keys: string[] | undefined
+  if (files < 0 && !base) {
+    console.error('usage: plan.ts --full | --base REV [--head REV] [--files FILE...] | --files FILE...')
+    process.exit(2)
   }
-  plan = affected(changed, graph)
+  if (!base) changed = whole = args.slice(files + 1)
+  else {
+    const head = flag('--head') ?? 'HEAD'
+    whole = git('diff', '--name-only', '--no-renames', base, head).split('\n').filter(Boolean)
+    const only = files >= 0 ? new Set(args.slice(files + 1)) : undefined
+    changed = only ? whole.filter((f) => only.has(f)) : whole
+    if (changed.includes('web/src/i18n/en.ts')) {
+      const text = (rev: string) => {
+        try {
+          return git('show', `${rev}:web/src/i18n/en.ts`)
+        } catch {
+          return ''
+        }
+      }
+      keys = keysChanged(git('diff', '-U0', '--no-renames', base, head, '--', 'web/src/i18n/en.ts'), text(base), text(head))
+    }
+  }
+  plan = forPullRequest(changed, graph, costs, keys, usesOf)
 }
-
-const costs = JSON.parse(fs.readFileSync(path.join(root, 'test/e2e/ui/clickthrough-costs.json'), 'utf8')) as Costs
 const selection: Selection = plan.mode === 'full' ? 'all' : { pages: plan.pages, preludes: plan.preludes }
-const shards = plan.mode === 'none' ? [] : shardsFor(costs, selection)
-const fresh = freshSetup(changed)
+const shards = plan.mode === 'none' ? [] : shardsFor(costs, selection, plan.mode === 'full' ? undefined : pullRequestShardSeconds)
+const fresh = freshSetup(whole)
 
 const runners = (size: Size) => {
   const n = shards.filter((s) => s.size === size).length

@@ -1,0 +1,25 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "All the Mods 10",
+  "description": "All the Mods 10 for NeoForge: over 450 mods, with the memory the pack asks for.",
+  "game": "minecraft-java",
+  "server": { "type": "neoforge", "minecraftVersion": "1.21.1" },
+  "settings": {
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 12288
+  },
+  "modpack": {
+    "source": "curseforge",
+    "project": "925200",
+    "slug": "all-the-mods-10",
+    "name": "All the Mods 10 - ATM10",
+    "pin": {
+      "versionId": "8945086",
+      "versionNumber": "8.2",
+      "channel": "release",
+      "hashAlgo": "sha1",
+      "hash": "68c1a22bff9a82c0e3dc60f3af9077391915e8fa"
+    }
+  }
+}

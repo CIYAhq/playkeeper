@@ -1,9 +1,9 @@
 {
   "status": "passing",
   "checked": "2026-09-28",
-  "release": "0.4.2",
+  "release": "0.4.4",
   "build": "129",
-  "doneSeconds": 17.252,
+  "doneSeconds": 17.366,
   "addons": [
     {
       "name": "VaultUnlocked",
@@ -11,7 +11,7 @@
       "slug": "vaultunlocked",
       "version": "2.20.3",
       "licence": "LGPL-3.0-or-later",
-      "downloads": 148786
+      "downloads": 149049
     },
     {
       "name": "WorldEdit",
@@ -19,7 +19,7 @@
       "slug": "worldedit",
       "version": "7.4.5",
       "licence": "GPL-3.0-only",
-      "downloads": 10915153
+      "downloads": 10922763
     },
     {
       "name": "Iridium Skyblock",
@@ -27,7 +27,8 @@
       "slug": "iridiumskyblock",
       "version": "4.1.5",
       "licence": "GPL-3.0-only",
-      "downloads": 18037
+      "downloads": 18057
     }
-  ]
+  ],
+  "crossplay": true
 }

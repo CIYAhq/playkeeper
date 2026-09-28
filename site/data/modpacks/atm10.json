@@ -12,7 +12,7 @@
   "loader": "21.1.251",
   "minecraft": "1.21.1",
   "mods": 464,
-  "downloadMB": 1360,
+  "downloadMB": 1326,
   "heapMB": 8192,
   "serverFiles": {
     "name": "ServerFiles-8.2.zip",
@@ -20,6 +20,7 @@
     "mb": 1219,
     "mods": 464
   },
-  "release": "0.4.2",
+  "template": "atm10",
+  "release": "0.4.4",
   "checked": "2026-09-28"
 }

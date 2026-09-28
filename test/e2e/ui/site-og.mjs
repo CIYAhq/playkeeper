@@ -23,6 +23,8 @@ const previews = {
   'modded-minecraft-server': { eyebrow: 'Guide', title: 'How to make a modded Minecraft server', pip: 'pip-hardhat' },
   'add-mods-to-minecraft-server': { eyebrow: 'Guide', title: 'How to add mods to a Minecraft server', pip: 'pip-box' },
   'play-minecraft-with-friends': { eyebrow: 'Guide', title: 'How to play Minecraft Java with friends', pip: 'pip-cheer' },
+  'can-java-and-bedrock-play-together': { eyebrow: 'Guide', title: 'Can Java and Bedrock play together?', pip: 'pip-search' },
+  'minecraft-crossplay-server': { eyebrow: 'Guide', title: 'How to make a Minecraft crossplay server', pip: 'pip-hardhat' },
   'minecraft-server-cost': { eyebrow: 'Guide', title: 'What a Minecraft server really costs', pip: 'pip-search' },
   'modded-minecraft-server-ram': { eyebrow: 'Guide', title: 'How much RAM modpack servers really use', pip: 'pip-search' },
   'popular-minecraft-plugins': { eyebrow: 'Guide', title: 'The plugins 188,000 Minecraft servers run', pip: 'pip-box' },

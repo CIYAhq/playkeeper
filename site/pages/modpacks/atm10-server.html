@@ -45,8 +45,9 @@ schema: article
   {{template "h2n" (dict "ID" "one-click" "N" 3 "Text" "The one-click way")}}
   <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
   {{template "install" (dict "ID" true)}}
+  {{$open := "Search New server › A modpack"}}{{$how := "Type All the Mods 10. It comes from CurseForge, with its loader and the memory it needs."}}{{if $m.OneClick}}{{$open = "Open the template below, or search New server › A modpack"}}{{$how = printf "Either way it's ATM10 %s from CurseForge, with its loader and the memory it needs." $m.Version}}{{end}}
   {{template "steps" (dict "Class" "shot-steps" "Items" (list
-    (dict "Title" "Search New server › A modpack" "Text" "Type All the Mods 10. It comes from CurseForge, with its loader and the memory it needs.")
+    (dict "Title" $open "Text" $how)
     (dict "Title" "Create and start it" "Text" (printf "The memory starts at %s. Playkeeper downloads the pack's %s from CurseForge, and ATM's %s server files for the five restricted mods, checking each file against CurseForge's hash." $m.Memory $m.DownloadSize (megabytes $m.ServerFiles.MB)))
     (dict "Title" "Wait for the first start" "Text" "About 80 seconds on the 27 Sep test machine, then the Overview shows it online.")
   ))}}
@@ -124,6 +125,12 @@ ATM10_RESTART=false sh startserver.sh   <span class="c"># installs {{$m.TypeName
     (qa "Where are the ATM10 server files?" (printf "On the pack's CurseForge page, under its files: %s, %s. Playkeeper doesn't need them from you." $m.ServerFiles.Name (megabytes $m.ServerFiles.MB)))
     (qa "How do I update an ATM10 server?" "Back up the world first, then move the server and every player to the new version together. Playkeeper's Back up now keeps players on while it copies.")
   ))}}
+  {{if $m.OneClick}}<section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
+    <div class="tpl-pair">
+      {{template "pack-card" (dict "Pack" $m)}}
+    </div>
+  </section>{{end}}
 </div>
 {{end}}
 

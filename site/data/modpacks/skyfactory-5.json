@@ -1,0 +1,24 @@
+{
+  "name": "SkyFactory 5",
+  "source": "curseforge",
+  "project": "392141",
+  "page": "https://www.curseforge.com/minecraft/modpacks/skyfactory-5",
+  "author": "darkosto",
+  "downloads": 1604220,
+  "version": "5.0.8",
+  "released": "2025-03-11",
+  "type": "forge",
+  "loader": "47.4.0",
+  "minecraft": "1.20.1",
+  "mods": 264,
+  "downloadMB": 305,
+  "serverFiles": {
+    "name": "SkyFactory_5_Server_5.0.8.zip",
+    "url": "https://www.curseforge.com/minecraft/modpacks/skyfactory-5/files/6290699",
+    "mb": 295,
+    "mods": 264
+  },
+  "template": "skyfactory-5",
+  "release": "0.4.4",
+  "checked": "2026-09-28"
+}

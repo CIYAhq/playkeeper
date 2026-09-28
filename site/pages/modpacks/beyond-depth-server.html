@@ -1,0 +1,96 @@
+{{/*
+path: /modpacks/beyond-depth-server
+title: How to make a Beyond Depth server (2026)
+description: Set up a Beyond Depth server: Forge 47.4.22 on Minecraft 1.20.1, Java 17, {{(modpack "beyond-depth").Memory}} of memory, and the 24 mods to add by hand, as the pack has no server files.
+label: Beyond Depth server
+h1: How to make a Beyond Depth server
+card: How to make a Beyond Depth server
+kind: Modpack
+section: guides
+layout: guide
+crumb: Modpacks
+og: modpack-beyond-depth
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$m := modpack "beyond-depth"}}A Beyond Depth server runs {{$m.TypeName}} {{$m.Loader}} on Minecraft {{$m.Minecraft}} with Java {{$m.Java}} and needs about {{$m.Memory}}, because the pack asks Java for {{$m.HeapGB}}. Playkeeper installs {{$m.Mods}} of its mods from version {{$m.Release}}. The pack publishes no server files, so 24 mods that only CurseForge's app may download are yours to add by hand.{{end}}
+
+{{define "closing-title"}}Beyond Depth on your own server.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper installs the rest and lists exactly what's left.{{end}}
+
+{{define "side-text"}}Playkeeper installs Beyond Depth's {{(modpack "beyond-depth").Mods}} mods and lists the 24 to add by hand.{{end}}
+
+{{define "article"}}{{$m := modpack "beyond-depth"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+<section aria-labelledby="needs">
+  {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What a Beyond Depth server needs" "Toc" "What it needs")}}
+  {{template "modpack-facts" (dict "Pack" $m)}}
+  <p>Beyond Depth updates often: {{$m.Version}} came out on {{day $m.Released}}, a few days after the one before it. The server and every player need the same version.</p>
+</section>
+
+<section aria-labelledby="by-hand">
+  {{template "h2n" (dict "ID" "by-hand" "N" 2 "Text" "The 24 mods you add by hand" "Toc" "24 mods by hand")}}
+  <p>Their authors let only CurseForge's own app download them. Packs like ATM10 put such mods in server files, where Playkeeper can take them from, but Beyond Depth publishes none. So its plan names each one, with a link to its page:</p>
+  <ul>
+    <li>Aggro Fix</li>
+    <li>Aquaculture Delight</li>
+    <li>Blaze Gear</li>
+    <li>Blossom Blade</li>
+    <li>Butcher's Delight</li>
+    <li>Create Recycle Everything</li>
+    <li>Create: Oxidized</li>
+    <li>Enchantment Blacklister</li>
+    <li>Ender Dragon Loot</li>
+    <li>Enhanced Boss Bars</li>
+    <li>Happy Ghast</li>
+    <li>Hero Proof</li>
+    <li>NoCube's Better Blast Furnace</li>
+    <li>NoCube's Better Fletching Table</li>
+    <li>NoCube's Better Grindstone</li>
+    <li>NoCube's Undergarden Delight</li>
+    <li>Plushie Buddies</li>
+    <li>Realm RPG: Dragon Wyrms</li>
+    <li>Realm RPG: Quests &amp; Rewards</li>
+    <li>ServerCore</li>
+    <li>Structory</li>
+    <li>Subtle Effects</li>
+    <li>The New Shutters</li>
+    <li>Villagers Sell Animals</li>
+  </ul>
+  <p>Download each from its CurseForge page, at the version the plan names, and upload them to the server's <code>mods</code> folder on the Files tab before the first start. Players' CurseForge app downloads them with the pack, so the server is the one that needs this.</p>
+</section>
+
+<section aria-labelledby="memory">
+  {{template "h2n" (dict "ID" "memory" "N" 3 "Text" "Why it needs so much memory" "Toc" "Memory")}}
+  <p>The pack's own settings ask Java for {{$m.HeapGB}}. Forge and its mods need memory beside that, so Playkeeper suggests {{$m.Memory}}, which gives Java {{$m.JavaHeap}}. On a machine with less, New server says so before anything installs.</p>
+  <p>It also brings Simple Voice Chat, whose UDP port 24454 Playkeeper opens for the server. Open it in your provider's firewall too, or players won't hear each other.</p>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 4 "Text" "With Playkeeper")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{template "steps" (dict "Class" "shot-steps" "Items" (list
+    (dict "Title" "Search New server › A modpack" "Text" (printf "Type Beyond Depth. It comes from CurseForge, with Forge, the %s it needs and the 24 mods it can't download." $m.Memory))
+    (dict "Title" "Create it" "Text" (printf "Playkeeper downloads %s and checks each file against CurseForge's hash." $m.DownloadSize))
+    (dict "Title" "Add the 24 mods, then start it" "Text" "Upload them to mods on the Files tab, then press Start.")
+  ))}}
+  {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs." "Sizes" $article)}}
+  <p>What we checked: Playkeeper {{$m.Release}}'s install plan for {{$m.Version}}, on {{day $m.Checked}}. We haven't started a Beyond Depth server yet, and there's no template for it, because a template can't carry the 24 mods.</p>
+</section>
+{{end}}
+
+{{define "after"}}{{$m := modpack "beyond-depth"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Is there a Beyond Depth server pack?" "No. The pack publishes only its client files, so tools that build the server from it can't download the 24 mods only CurseForge's app may fetch.")
+    (qa "How much RAM does a Beyond Depth server need?" (printf "About %s: the pack asks Java for %s, and %s with its mods needs memory beside it." $m.Memory $m.HeapGB $m.TypeName))
+    (qa "Is Beyond Depth Forge or Fabric?" (printf "%s. Version %s runs %s %s on Minecraft %s, with Java %d." $m.TypeName $m.Version $m.TypeName $m.Loader $m.Minecraft $m.Java))
+    (qa "Do my friends need the 24 mods too?" "The CurseForge app downloads them with the pack. Prism Launcher asks players to fetch them from their pages, as you do for the server.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/modpacks" "/modpacks/atm9-server" "/guides/modded-minecraft-server")}}{{end}}

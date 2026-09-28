@@ -11,9 +11,9 @@
   "type": "neoforge",
   "loader": "21.1.176",
   "minecraft": "1.21.1",
-  "mods": 268,
-  "downloadMB": 360,
+  "mods": 218,
+  "downloadMB": 339,
   "template": "better-mc",
-  "release": "0.4.2",
+  "release": "0.4.4",
   "checked": "2026-09-28"
 }

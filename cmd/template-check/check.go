@@ -174,6 +174,13 @@ func (c *checker) check(ctx context.Context, id string, f *templateFile, bump, p
 			m.Version, m.Mods = installed.Modpack.VersionNumber, installed.Modpack.Mods
 		}
 		m.Downloads = c.sources.project(ctx, string(pack.Source), pack.Project, pack.Slug).downloads
+		if m.Downloads == 0 {
+			// CurseForge answers only with a key, which the release has.
+			var d api.ModpackDetail
+			if _, err := c.agent.Do(ctx, "GET", "/v1/modpacks/"+url.PathEscape(string(pack.Source))+"/"+url.PathEscape(pack.Project), nil, nil, &d); err == nil {
+				m.Downloads = int(d.Downloads)
+			}
+		}
 		facts.Modpack = &m
 	}
 	if c.shots != "" {
