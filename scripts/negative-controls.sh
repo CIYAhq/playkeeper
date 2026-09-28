@@ -6639,6 +6639,38 @@ control "an own address's page answers only while its server is on the page" int
 			return s
 		}' \
   ./internal/agent '^TestAnOwnAddressOpensOnlyItsServersPage$'
+control "a server's own address doesn't hold the domain back" internal/certs/join.go \
+  '			rc.Own = true
+			pc.Records = append(pc.Records, rc)
+			continue' \
+  '			rc.Own = true
+			pc.Records = append(pc.Records, rc)
+			pc.Ready = pc.Ready && rc.OK
+			continue' \
+  ./internal/certs '^TestCheckPlanChecksAServersOwnAddress$'
+control "looking at the machine's name alone leaves own addresses out of Ready" internal/agent/certificates.go \
+  'return !r.OK && !r.Own' \
+  'return !r.OK' \
+  ./internal/agent '^TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain$'
+control "an own address works whatever the machine's name does" internal/agent/address.go \
+  'j.Published = st.Check != nil && ownOK(st.Check, s.id)' \
+  'j.Published = st.Check != nil && st.Check.Name.OK && ownOK(st.Check, s.id)' \
+  ./internal/agent '^TestAnOwnAddressWorksWithoutTheMachinesName$'
+control "an own address gets its certificate while the machine's name points elsewhere" internal/agent/address.go \
+  '			handed = a.startOwnCertificate(st)
+			return
+		}' \
+  '			return
+		}' \
+  ./internal/agent '^TestAnOwnAddressWorksWithoutTheMachinesName$'
+control "Bedrock players join a server at its working own address" internal/agent/publicpage.go \
+  'if j.OwnAddress != "" && j.Published {' \
+  'if false && j.OwnAddress != "" && j.Published {' \
+  ./internal/agent '^TestAnOwnAddressWorksWithoutTheMachinesName$'
+control "the machine's domain is never a server's own address" internal/agent/ownaddress.go \
+  'if js.own == domain {' \
+  'if false && js.own == domain {' \
+  ./internal/agent '^TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain$'
 control "giving a server its own address needs the right to manage the machine" internal/panel/server.go \
   '{"POST", "/api/servers/{id}/own-address", needSessionCSRF, actManageMachine,' \
   '{"POST", "/api/servers/{id}/own-address", needSessionCSRF, actManageServers,' \
