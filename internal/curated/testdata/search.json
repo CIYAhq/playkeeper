@@ -63,9 +63,17 @@
       "author": "Potatoboy9999",
       "license": "LGPL-3.0-only",
       "project_type": "mod"
+    },
+    {
+      "project_id": "UmLGoGij",
+      "slug": "discordsrv",
+      "title": "DiscordSRV",
+      "author": "Scarsz",
+      "license": "GPL-3.0-or-later",
+      "project_type": "mod"
     }
   ],
   "offset": 0,
   "limit": 20,
-  "total_hits": 8
+  "total_hits": 9
 }

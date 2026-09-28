@@ -868,6 +868,7 @@ describe('Plugins tab', () => {
     picks: [
       { id: 'voice-chat', card: svc, ports: [{ protocol: 'udp', port: 24454 }] },
       { id: 'rollback', card: card('CoreProtect', { projectId: 'Lu3KuzdV' }) },
+      { id: 'discord-chat', card: card('DiscordSRV', { projectId: 'UmLGoGij' }) },
       { id: 'pregenerate', card: card('Chunky', { source: 'hangar', projectId: '81', installed: true }) },
       { id: 'permissions', card: card('LuckPerms', { projectId: 'Vebnzrzj' }) },
       { id: 'essentials', card: card('EssentialsX', { projectId: 'hXiIvTyT' }) },
@@ -887,8 +888,8 @@ describe('Plugins tab', () => {
       ])
       const text = await render(server(), 'plugins', 'browse')
       expect(text).toContain('Picked by PlaykeeperHand-picked for Paper 26.1.2')
-      for (const line of ['Hear friends nearby, quieter as they walk away.', 'Needs one more port. Friends add the mod to talk.', 'Undo griefing, block by block.', 'Groups decide who can use which commands.']) expect(text).toContain(line)
-      expect(text).not.toContain('EssentialsX')
+      for (const line of ['Hear friends nearby, quieter as they walk away.', 'Needs one more port. Friends add the mod to talk.', 'Undo griefing, block by block.', 'Friends on Discord see the game chat and can reply.', 'Needs your own Discord bot. Paste its token on the Files tab.']) expect(text).toContain(line)
+      for (const name of ['LuckPerms', 'EssentialsX']) expect(text).not.toContain(name)
       const headings = [...document.querySelectorAll('h3')].map((h) => h.textContent)
       expect(headings).toEqual(['Picked by PlaykeeperHand-picked for Paper 26.1.2', 'Most downloaded'])
       expect(text.lastIndexOf('Most downloaded')).toBeLessThan(text.indexOf('BlueMap'))

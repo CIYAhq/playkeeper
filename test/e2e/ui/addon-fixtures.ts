@@ -9,14 +9,16 @@ import { deflateSync } from 'node:zlib'
 // on 2026-09-26, through a logging proxy, for a fresh Paper 26.1.2 server
 // with no add-ons: its folder and checks, the library's cards and each card's
 // details, trimmed to the fields the dashboard reads (release notes left
-// out). A search answers from those cards as though they were all each
-// source lists, so there is never a second page. The library's picks are
-// Playkeeper's list for Paper (curated.json, from internal/curated), each
-// with its recorded card, and voice chat's UDP port is the one the agent
-// offers on a machine where no server has it yet. Details, plans and the
-// jobs that follow them are worked out against the folder the Plugins tab
-// last showed, the way the agent does, and icons are drawn here. A read
-// nothing was recorded for gets no answer, and the harness reports it.
+// out). DiscordSRV's details came from the agent's library code, for the
+// same server, on 2026-09-28. A search answers from those cards as though
+// they were all each source lists, so there is never a second page. The
+// library's picks are Playkeeper's list for Paper (curated.json, from
+// internal/curated), each with its recorded card, and voice chat's UDP port
+// is the one the agent offers on a machine where no server has it yet.
+// Details, plans and the jobs that follow them are worked out against the
+// folder the Plugins tab last showed, the way the agent does, and icons are
+// drawn here. A read nothing was recorded for gets no answer, and the
+// harness reports it.
 
 type Json = Record<string, unknown>
 

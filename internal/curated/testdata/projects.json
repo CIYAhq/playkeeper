@@ -232,5 +232,33 @@
       "26.3"
     ],
     "updated": "2026-09-19T07:45:35.628116Z"
+  },
+  {
+    "id": "UmLGoGij",
+    "slug": "discordsrv",
+    "project_type": "mod",
+    "team": "ZgPb4r1S",
+    "title": "DiscordSRV",
+    "description": "The most powerful, configurable, open-source Discord to Minecraft bridging plugin available.",
+    "client_side": "unsupported",
+    "server_side": "required",
+    "license": {
+      "id": "GPL-3.0-or-later",
+      "name": "GNU General Public License v3.0 or later",
+      "url": null
+    },
+    "loaders": [
+      "bukkit",
+      "folia",
+      "paper",
+      "purpur",
+      "spigot"
+    ],
+    "game_versions": [
+      "26.1.2",
+      "26.2",
+      "26.3"
+    ],
+    "updated": "2026-04-24T12:01:20.640408Z"
   }
 ]
