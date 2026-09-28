@@ -1,13 +1,13 @@
 {
-  "survival-with-friends": { "art": "app/pixel-art/play-with-friends.svg" },
-  "creative": { "art": "app/pixel-art/play-creative.svg" },
-  "cobblemon": { "art": "app/pixel-art/world-normal.svg", "mods": 75, "opensFrom": "0.4.4" },
-  "better-mc": { "art": "app/pixel-art/world-amplified.svg", "mods": 261, "opensFrom": "0.4.4" },
-  "cobbleverse": { "art": "app/pixel-art/world-big-biomes.svg", "mods": 168, "opensFrom": "0.4.4" },
-  "lifesteal-smp": { "art": "app/pixel-art/world-amplified.svg" },
-  "hardcore-smp": { "art": "app/pixel-art/play-hardcore.svg" },
-  "towny": { "art": "app/pixel-art/world-big-biomes.svg" },
-  "skyblock": { "art": "app/pixel-art/world-flat.svg" },
-  "oneblock": { "art": "app/pixel-art/play-just-me.svg" },
-  "bedwars": { "art": "app/pixel-art/world-normal.svg" }
+  "survival-with-friends": { "art": "app/pixel-art/play-with-friends.svg", "categories": ["smp"], "added": "2026-09-26", "popularity": 750 },
+  "creative": { "art": "app/pixel-art/play-creative.svg", "categories": ["creative"], "added": "2026-09-26", "popularity": 0 },
+  "cobblemon": { "art": "app/pixel-art/world-normal.svg", "mods": 75, "opensFrom": "0.4.4", "categories": ["cobblemon"], "added": "2026-09-26", "popularity": 1550 },
+  "better-mc": { "art": "app/pixel-art/world-amplified.svg", "mods": 261, "opensFrom": "0.4.4", "categories": ["adventure"], "added": "2026-09-26", "popularity": 1000 },
+  "cobbleverse": { "art": "app/pixel-art/world-big-biomes.svg", "mods": 168, "opensFrom": "0.4.4", "categories": ["cobblemon", "adventure"], "added": "2026-09-28", "popularity": 3100 },
+  "lifesteal-smp": { "art": "app/pixel-art/world-amplified.svg", "categories": ["lifesteal-smp", "smp"], "tags": ["pvp"], "added": "2026-09-28", "popularity": 3500 },
+  "hardcore-smp": { "art": "app/pixel-art/play-hardcore.svg", "categories": ["hardcore-smp", "smp"], "added": "2026-09-28", "popularity": 950 },
+  "towny": { "art": "app/pixel-art/world-big-biomes.svg", "categories": ["towny"], "added": "2026-09-28", "popularity": 650 },
+  "skyblock": { "art": "app/pixel-art/world-flat.svg", "categories": ["skyblock"], "added": "2026-09-28", "popularity": 500 },
+  "oneblock": { "art": "app/pixel-art/play-just-me.svg", "categories": ["oneblock", "skyblock"], "added": "2026-09-28", "popularity": 500 },
+  "bedwars": { "art": "app/pixel-art/world-normal.svg", "categories": ["bedwars"], "tags": ["pvp", "minigame"], "added": "2026-09-28", "popularity": 400 }
 }

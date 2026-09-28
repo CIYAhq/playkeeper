@@ -1,0 +1,69 @@
+{
+  "categories": {
+    "adventure": {
+      "name": "Adventure",
+      "intro": "Modpacks that make the world bigger and stranger: new biomes, structures, dungeons and mobs to explore with friends.",
+      "description": "Adventure modpack server templates for Playkeeper: bigger worlds, new biomes and dungeons, each opened in your own dashboard in one click."
+    },
+    "bedwars": {
+      "name": "Bedwars",
+      "intro": "Teams guard their bed while they gather resources to break everyone else's. Lose your bed and you're out at your next death."
+    },
+    "cobblemon": {
+      "name": "Cobblemon",
+      "intro": "Pokémon-style creatures to catch, train and battle in Minecraft, from the Cobblemon mod and the modpacks built on it.",
+      "description": "Cobblemon server templates for Playkeeper: modpacks with Pokémon-style creatures to catch and battle, opened in your own dashboard in one click."
+    },
+    "creative": {
+      "name": "Creative",
+      "intro": "Endless blocks and flight for builders, with world editing and a separate world for each project.",
+      "description": "Minecraft creative server templates for Playkeeper: WorldEdit, a world for each project, and one click to open one in your own dashboard.",
+      "art": "app/pixel-art/play-creative.svg"
+    },
+    "hardcore-smp": {
+      "name": "Hardcore SMP",
+      "intro": "One life each: the difficulty stays on hard, and a player who dies watches the rest of the world as a spectator."
+    },
+    "lifesteal-smp": {
+      "name": "Lifesteal SMP",
+      "intro": "Survival with PvP, where a kill takes a heart from the loser and gives it to the winner, and running out of hearts puts you out."
+    },
+    "oneblock": {
+      "name": "OneBlock",
+      "intro": "Each player stands on one block that turns into the next when broken, from grass and trees to the Nether and the End."
+    },
+    "skyblock": {
+      "name": "Skyblock",
+      "intro": "Every player or team starts on a small island floating in the void, and builds out from almost nothing."
+    },
+    "smp": {
+      "name": "SMP",
+      "intro": "Survival multiplayer for a group of friends: one shared world that keeps going, with plugins that keep it fair and easy to run.",
+      "art": "app/pixel-art/play-with-friends.svg"
+    },
+    "towny": {
+      "name": "Towny",
+      "intro": "Players found towns, claim land chunk by chunk and join their towns into nations, with ranks and protection built in."
+    }
+  },
+  "tags": {
+    "grief-rollback": { "name": "Grief rollback" },
+    "land-claims": { "name": "Land claims" },
+    "minigame": { "name": "Minigame" },
+    "multiworld": { "name": "Multiworld" },
+    "pre-generation": { "name": "Pre-generation" },
+    "proximity-voice": { "name": "Proximity voice" },
+    "pvp": { "name": "PvP" },
+    "ranks": { "name": "Ranks" },
+    "world-editing": { "name": "World editing" }
+  },
+  "addonTags": {
+    "chunky": ["pre-generation"],
+    "coreprotect": ["grief-rollback"],
+    "luckperms": ["ranks"],
+    "multiverse-core": ["multiworld"],
+    "simple-voice-chat": ["proximity-voice"],
+    "towny": ["land-claims"],
+    "worldedit": ["world-editing"]
+  }
+}
