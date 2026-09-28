@@ -181,6 +181,18 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: none; box-
 .day { margin-top: 12px; padding: 10px 12px; background: var(--warm); border-radius: 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
 .day strong { font-weight: 600; }
 
+.funnel { list-style: none; padding: 0; margin: 4px 0 0; display: grid; gap: 12px; }
+.funnel li { display: grid; gap: 6px; }
+.funnel-head { display: flex; align-items: baseline; gap: 10px; font-size: 14px; }
+.funnel-name { flex: 1; min-width: 0; font-weight: 600; }
+.funnel-hint { font-weight: 400; color: var(--muted); font-size: 13px; }
+.funnel-share { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.funnel .num { font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; min-width: 3ch; text-align: right; }
+.funnel .track { height: 10px; background: var(--soft); border-radius: 99px; overflow: hidden; }
+.funnel .fill { display: block; height: 100%; border-radius: 99px; background: var(--primary); }
+.funnel .unknown-step .num, .funnel .unknown-step .funnel-name { color: var(--muted); }
+.funnel-note { margin-top: 14px; }
+
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 
 .bars { list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 10px; }
@@ -234,6 +246,9 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: none; box-
   .stat .value { font-size: 26px; line-height: 32px; }
   .stat .sub { font-size: 12px; }
   .pair, .breakdowns { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .funnel-head { flex-wrap: wrap; row-gap: 0; }
+  .funnel-name { flex-basis: 100%; }
+  .funnel-share { flex: 1; }
   .breakdowns { gap: 0; }
   .chart { gap: 2px; height: 160px; }
   .chart.small { height: 88px; }

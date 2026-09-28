@@ -57,6 +57,22 @@
       </article>
     </section>
 
+    <section class="card" aria-labelledby="funnel-title">
+      <div class="card-head">
+        <div>
+          <h2 id="funnel-title">From visitors to running installs</h2>
+          <p class="muted" id="funnel-sub"></p>
+        </div>
+        <div class="segmented" role="group" aria-label="Funnel over the last">
+          <button type="button" data-funnel="1d" aria-pressed="false">1 day</button>
+          <button type="button" data-funnel="7d" aria-pressed="true">7 days</button>
+          <button type="button" data-funnel="30d" aria-pressed="false">30 days</button>
+        </div>
+      </div>
+      <ol class="funnel" id="funnel"></ol>
+      <p class="muted funnel-note" id="funnel-note"></p>
+    </section>
+
     <section class="card" aria-labelledby="running-title">
       <div class="card-head">
         <div>
