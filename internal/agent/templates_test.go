@@ -18,6 +18,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/addons/modrinth"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/templates"
+	"github.com/CIYAhq/playkeeper/internal/templates/library"
 )
 
 // planTemplate posts a template file, link or link data to the plan route.
@@ -662,6 +663,32 @@ func TestTemplateRequestsAreChecked(t *testing.T) {
 	}
 	if e.countRows(`SELECT COUNT(*) FROM servers`) != before {
 		t.Fatal("no server is created")
+	}
+}
+
+// New server's library lists the templates this build opens, each with what
+// it holds and its file, which plans like any other. A development build
+// lists every one.
+func TestTemplateLibraryListsWhatThisBuildOpens(t *testing.T) {
+	e := newAgentEnv(t)
+	var lib api.TemplateLibrary
+	e.decode("GET", "/v1/templates/library", &lib)
+	all, err := library.All()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lib.Templates) != len(all) {
+		t.Fatalf("a development build lists %d of the library's %d templates", len(lib.Templates), len(all))
+	}
+	for i, l := range lib.Templates {
+		want := all[i]
+		if l.ID != want.ID || l.Art != want.Art || l.Page != want.Page || l.Contents.Name != want.Name || l.Contents.Type == "" || l.Contents.MinecraftVersion == "" {
+			t.Errorf("template %d is %+v, not the library's %s", i, l, want.ID)
+		}
+	}
+	code, plan, raw := e.planTemplate(lib.Templates[0].File)
+	if code != http.StatusOK || plan.Contents.Name != lib.Templates[0].Contents.Name {
+		t.Errorf("planning %s: %d %v", lib.Templates[0].ID, code, raw)
 	}
 }
 
