@@ -6979,6 +6979,18 @@ control "server addresses: a domain's certificates go while the switch is off to
   'for _, js := range serverAddresses(st.Host, true, a.joinServers()) {' \
   'for _, js := range serverAddresses(st.Host, st.ServerAddresses, a.joinServers()) {' \
   ./internal/agent '^TestStoppingTheDomainTakesTheWildcardsCertificatesWhileItsOff$'
+control "server addresses: each certificate request is logged for the day's count" internal/agent/ownaddress.go \
+  'a.noteOwnCertAttempt()' \
+  '_ = ctx' \
+  ./internal/agent '^TestTheDaysCertificatesCountWhateverBecameOfTheirNames$'
+control "server addresses: the day's count holds once the certificates are forgotten" internal/agent/ownaddress.go \
+  'return max(logged, kept)' \
+  'return kept' \
+  ./internal/agent '^TestTheDaysCertificatesCountWhateverBecameOfTheirNames$'
+control "server addresses: certificates asked before the log count too" internal/agent/ownaddress.go \
+  'name != st.Host && fromMillis(last).After(since)' \
+  'false && name != st.Host && fromMillis(last).After(since)' \
+  ./internal/agent '^TestOwnAddressesGetAFewCertificatesADay$'
 control "server addresses: a deleted server's certificate goes while the switch is off too" internal/agent/ownaddress.go \
   'for _, js := range serverAddresses(st.Host, true, s.joinServers()) {' \
   'for _, js := range serverAddresses(st.Host, st.ServerAddresses, s.joinServers()) {' \

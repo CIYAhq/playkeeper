@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"net/http"
 	"slices"
 	"strings"
@@ -269,20 +271,56 @@ func ownNameOK(st addressState, js joinServer) bool {
 	})
 }
 
+// kvOwnCertAttempts keeps when certificates for servers' own addresses
+// were asked for in the last day (Unix milliseconds), so the day's count
+// holds whatever became of their names since: an address for each server
+// turned off, an address changed or cleared, a server deleted, a domain
+// given up.
+const kvOwnCertAttempts = "own_cert_attempts"
+
+func (a *Agent) ownCertAttempts() []int64 {
+	var out []int64
+	if v, ok, err := a.kvGet(kvOwnCertAttempts); err == nil && ok {
+		_ = json.Unmarshal([]byte(v), &out)
+	}
+	return out
+}
+
+// noteOwnCertAttempt records that a certificate for a server's own address
+// is being asked for now, and drops the attempts over a day old.
+func (a *Agent) noteOwnCertAttempt() {
+	since := a.now().Add(-24 * time.Hour).UnixMilli()
+	keep := slices.DeleteFunc(a.ownCertAttempts(), func(t int64) bool { return t <= since })
+	b, _ := json.Marshal(append(keep, a.now().UnixMilli()))
+	if err := a.kvSet(kvOwnCertAttempts, string(b)); err != nil {
+		a.log.Warn("could not record a certificate request for a server's own address", "err", err)
+	}
+}
+
 // ownCertsToday counts the certificates asked for the servers' own
-// addresses in the last day, whether Let's Encrypt gave them or not.
+// addresses in the last day, whether Let's Encrypt gave them or not and
+// whether their names are still in use. The certificates the machine keeps
+// count too, for those asked before this agent kept the log.
 func (a *Agent) ownCertsToday(st addressState) int {
-	n := 0
 	since := a.now().Add(-24 * time.Hour)
-	for _, js := range a.ownAddresses(st) {
-		if js.own == st.Host {
-			continue
-		}
-		if row := a.loadCertificate(js.own); row != nil && row.status.LastAttempt.After(since) {
-			n++
+	logged := 0
+	for _, t := range a.ownCertAttempts() {
+		if time.UnixMilli(t).After(since) {
+			logged++
 		}
 	}
-	return n
+	kept := 0
+	if rows, err := a.db.Query(`SELECT name, last_attempt FROM certificates WHERE source = ?`, api.AddressOwn); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var name string
+			var last sql.NullInt64
+			if rows.Scan(&name, &last) == nil && name != st.Host && fromMillis(last).After(since) {
+				kept++
+			}
+		}
+	}
+	return max(logged, kept)
 }
 
 // noteOwnCertsHeld logs, at most once an hour, that the day's certificates
@@ -319,6 +357,7 @@ func (a *Agent) issueOwnCertificate(host string) func(ctx context.Context, h *op
 			row = &certRow{name: host, status: certs.Status{Names: []string{host}}}
 		}
 		row.source, row.challenge = api.AddressOwn, "http-01"
+		a.noteOwnCertAttempt()
 		cert, err := a.opts.Issue(ctx, a.issuer(), certs.Request{Names: []string{host}, Dir: a.cfg.CertsDir(), Owner: a.certOwner(), HTTP01: a.http01})
 		row.status.Record(a.now().UTC(), cert, err)
 		if serr := a.saveCertificate(row); serr != nil {

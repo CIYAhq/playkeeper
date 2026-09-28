@@ -267,6 +267,41 @@ func TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes(t *testing.T) 
 	}
 }
 
+// The day's few certificates count whatever became of their names: with
+// the switch turned off, an address given by hand gets none more that day,
+// and giving the domain up forgets the certificates but not the count.
+func TestTheDaysCertificatesCountWhateverBecameOfTheirNames(t *testing.T) {
+	e, _, creative, _ := ownDomainEnvWith(t, func(o *Options) { o.AddressInterval = 20 * time.Millisecond })
+	e.dns.set("*.play.example.com", testIP.String())
+	if code, _ := e.setServerAddresses(true); code != 200 {
+		t.Fatal("turning it on")
+	}
+	e.certified("survival.play.example.com", "creative.play.example.com", "test.play.example.com")
+	if code, _ := e.setServerAddresses(false); code != 200 {
+		t.Fatal("turning it off")
+	}
+	e.dns.set("alex.example.com", testIP.String())
+	e.dns.setSRV("alex.example.com", 25566, "alex.example.com")
+	if code, out := e.setOwn(creative, "alex.example.com"); code != 200 {
+		t.Fatalf("giving creative an address: %d %v", code, out)
+	}
+	if _, err := e.a.checkOwn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if host, held := e.a.ownCertificateDue(e.a.address()); host != "" || !held {
+		t.Fatalf("with the switch off and an address given by hand: %q, held %v", host, held)
+	}
+	if e.a.loadCertificate("alex.example.com") != nil {
+		t.Fatal("alex.example.com was asked for a certificate over the day's limit")
+	}
+	if code, out := e.call("DELETE", "/v1/address?actor=admin", nil); code != 200 {
+		t.Fatalf("giving the domain up: %d %v", code, out)
+	}
+	if n := e.a.ownCertsToday(e.a.address()); n != ownCertsPerDay {
+		t.Fatalf("with the certificates forgotten, %d of the day's count", n)
+	}
+}
+
 func TestStoppingTheDomainTakesTheWildcardsCertificatesWhileItsOff(t *testing.T) {
 	e, _, _, _ := ownDomainEnvWith(t, func(o *Options) { o.AddressInterval = 20 * time.Millisecond })
 	e.dns.set("*.play.example.com", testIP.String())
