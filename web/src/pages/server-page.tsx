@@ -128,7 +128,14 @@ function WatchCard({ stream, board }: { stream: PublicStream; board?: PublicBoar
       </div>
       <div className="relative mt-4 aspect-video overflow-hidden rounded-2xl bg-[#0e3b21] text-white">
         {playing ? (
-          <iframe src={streamEmbed(stream, window.location.hostname)} title={t('serverPage.playerTitle', { site, channel: stream.channel })} allow="autoplay; fullscreen" allowFullScreen className="absolute inset-0 size-full border-0" />
+          <iframe
+            src={streamEmbed(stream, window.location.hostname)}
+            title={t('serverPage.playerTitle', { site, channel: stream.channel })}
+            allow="autoplay; fullscreen"
+            allowFullScreen
+            referrerPolicy="origin"
+            className="absolute inset-0 size-full border-0"
+          />
         ) : next ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
             <p className="text-sm font-medium text-white/70">{t('serverPage.nextSession')}</p>

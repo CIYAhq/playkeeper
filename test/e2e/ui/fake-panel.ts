@@ -306,6 +306,6 @@ export function settingsReads(): Record<string, unknown> {
     [`/api/servers/${s.id}/activity`]: [{ ts: now, serverId: s.id, kind: 'player_joined', actor: 'mara_k' }],
     [`/api/servers/${s.id}/players/sessions`]: { range: '24h', sessions: [] },
     [`/api/servers/${s.id}/metrics`]: { from: new Date(Date.now() - 86_400_000).toISOString(), to: now, bucketSeconds: 3600, sampleIntervalSeconds: 60, buckets: [], gaps: [], source: 'agent' },
-    [`/api/servers/${s.id}/public-page`]: { enabled: true, players: false, host: 'alex.playkeeper.me', ports: { https: { port: 443, state: 'open' }, http: { port: 80, state: 'open' } } },
+    [`/api/servers/${s.id}/public-page`]: { enabled: true, players: false, about: '', stream: '', host: 'alex.playkeeper.me', ports: { https: { port: 443, state: 'open' }, http: { port: 80, state: 'open' } } },
   }
 }

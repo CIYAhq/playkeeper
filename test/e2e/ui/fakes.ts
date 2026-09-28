@@ -791,14 +791,20 @@ const routes: [string, RegExp, Handler][] = [
     'POST',
     /^\/api\/servers\/(\w+)\/public-page$/,
     ({ body, params }, state) => {
-      const b = body as { enabled?: unknown; players?: unknown } | null
-      if (b?.enabled === undefined && b?.players === undefined) return invalid('Say which switch to change.')
-      if ((b.enabled !== undefined && typeof b.enabled !== 'boolean') || (b.players !== undefined && typeof b.players !== 'boolean')) return invalid('Say which switch to change.')
+      const b = body as { enabled?: unknown; players?: unknown; about?: unknown; stream?: unknown } | null
+      if (b?.enabled === undefined && b?.players === undefined && b?.about === undefined && b?.stream === undefined) return invalid('Say what to change.')
+      if ((b.enabled !== undefined && typeof b.enabled !== 'boolean') || (b.players !== undefined && typeof b.players !== 'boolean')) return invalid('Say what to change.')
+      if (b.about !== undefined && (typeof b.about !== 'string' || b.about.length > 600)) return invalid('The page’s About text can be at most 600 characters.')
+      if (b.stream !== undefined && (typeof b.stream !== 'string' || (b.stream !== '' && !/^(https?:\/\/)?(www\.|m\.)?(twitch\.tv\/[A-Za-z0-9_]{4,25}|youtube\.com\/channel\/UC[A-Za-z0-9_-]{22})\/?$/.test(b.stream.trim())))) {
+        return { status: 400, body: { error: 'That isn’t a Twitch or YouTube channel link.', code: 'invalid_request', hint: 'Paste your Twitch channel (twitch.tv/yourname) or your YouTube channel’s link with its ID (youtube.com/channel/UC…).' }, expected: true }
+      }
       const read = lastRead(state, params[0], 'public-page')
-      return { status: 200, body: { ...read, enabled: b.enabled ?? read.enabled ?? true, players: b.players ?? read.players ?? false } }
+      return { status: 200, body: { ...read, enabled: b.enabled ?? read.enabled ?? true, players: b.players ?? read.players ?? false, about: b.about ?? read.about ?? '', stream: b.stream ?? read.stream ?? '' } }
     },
   ],
   ['POST', /^\/api\/servers\/(\w+)\/public-page\/retry$/, () => ({ status: 200, body: { ok: true } })],
+  ['PUT', /^\/api\/servers\/(\w+)\/public-page\/board$/, ({ body }) => ({ status: 200, body: { ...(body as Record<string, unknown> | null), updatedAt: new Date().toISOString() } })],
+  ['DELETE', /^\/api\/servers\/(\w+)\/public-page\/board$/, () => ({ status: 200, body: { cleared: true } })],
   // Wave 6: the map's switches, and worlds uploaded for a new server.
   ['POST', /^\/api\/servers\/(\w+)\/map\/enable$/, (r, state) => op(state, 'map_enable', r.params[0])],
   ['POST', /^\/api\/servers\/(\w+)\/map\/disable$/, (r, state) => (typeof (r.body as { deleteMap?: unknown } | null)?.deleteMap === 'boolean' ? op(state, 'map_disable', r.params[0]) : invalid('Say whether to keep the drawn map.'))],
