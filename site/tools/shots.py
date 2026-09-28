@@ -67,6 +67,10 @@ SLOTS = {
     "guide-share": (372, 600, 350),
     "guide-pack-page": (372, 600, 350),
     "guide-crash": (760, 960, 350),
+    # The play-with-friends and add-mods guides.
+    "guide-address": (760, 960, 350),
+    "guide-invite": (760, 960, 350),
+    "guide-files": (760, 960, 350),
     "post-mods": (730, 730, 350),
     "post-address": (730, 730, 350),
     "post-backups": (730, 730, 350),

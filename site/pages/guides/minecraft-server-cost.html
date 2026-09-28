@@ -1,0 +1,130 @@
+{{/*
+path: /guides/minecraft-server-cost
+title: Cheap Minecraft server hosting: what each option costs (2026)
+description: Cheap Minecraft server hosting compared: free hosts, Realms, game hosts by the GB and a VPS, with dated prices, monthly totals and the cheapest reliable setup.
+label: Server cost
+h1: Cheap Minecraft server hosting: what it costs (2026)
+card: What a Minecraft server costs
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: minecraft-server-cost
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+closing: guide
+*/}}
+
+{{define "short"}}{{$vps := vpsFrom}}A server for a few friends costs nothing on your own PC or a free host, $7.99 a month on Realms, $4 to $15 a month for 4 GB on a game host, or from {{usd $vps.USD}} a month for a VPS with {{$vps.MemoryGB}} GB. That VPS, with a free dashboard, is the cheapest way to a server that's always on and runs mods.{{end}}
+
+{{define "closing-title"}}The cheapest always-on server is one command away.{{end}}
+{{define "closing-sub"}}Free and open source. You pay only for your VPS.{{end}}
+
+{{define "side-title"}}Only the VPS to pay for{{end}}
+{{define "side-text"}}Playkeeper is free: it sets up the server, backups and updates on a VPS you rent.{{end}}
+
+{{/* vps-row: one group from the sizing guide (R, sizingFor's answer), what it
+     needs and the plan that fits it at each provider, with its price. */}}
+{{define "vps-row"}}{{$r := .R}}
+<tr><th scope="row">{{$r.Band.Label}} friends {{sizingPhrase $r}}</th><td data-col="Needs">{{$r.MemoryGB}} GB · {{$r.Cores}} cores</td>{{range providers}}{{$p := .Fit $r.MemoryGB $r.Cores}}<td data-col="{{.Name}}"><span>{{if $p.Name}}{{$p.Name}}, {{$p.MemoryGB}} GB: <strong>{{usd $p.USD}}</strong>{{with $p.Renews}}, then {{usd .}}{{end}}{{else}}None that big{{end}}</span></td>{{end}}</tr>
+{{end}}
+
+{{define "article"}}
+{{$vps := vpsFrom}}
+{{$small := sizingFor 4 "vanilla"}}{{$mod := sizingFor 4 "modpack"}}
+{{$a := cheapestFit $small.MemoryGB $small.Cores}}{{$b := cheapestFit $mod.MemoryGB $mod.Cores}}
+<section aria-labelledby="options">
+  {{template "h2n" (dict "ID" "options" "N" 1 "Text" "What each option costs")}}
+  <p>Six ways to run a server for friends. What changes is whether it stays on, whether mods run, and who looks after it.</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="compare stack">
+      <caption>US dollars a month before tax, checked {{day "2026-09-28"}}: Realms on minecraft.net, game hosts on PebbleHost's Budget and Apex Hosting's plans, VPS plans below. Power is for a PC drawing 100 W all month at the US average of 18.34¢ per kWh (EIA, June 2026).</caption>
+      <thead><tr><td></td><th scope="col">A month</th><th scope="col">Always on</th><th scope="col">Mods and plugins</th><th scope="col">The catch</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Your own PC</th><td data-col="A month">$0, plus about $13 of power</td><td data-col="Always on">While the PC is on</td><td data-col="Mods">Both</td><td data-col="Catch">The PC stays on, and you open a port on your router</td></tr>
+        <tr><th scope="row">A free host</th><td data-col="A month">$0</td><td data-col="Always on">Stops or sleeps when empty</td><td data-col="Mods">Depends on the host</td><td data-col="Catch">A queue at busy times, or 1 GB of memory</td></tr>
+        <tr><th scope="row">Oracle Cloud's free ARM server</th><td data-col="A month">$0</td><td data-col="Always on">Yes</td><td data-col="Mods">Both</td><td data-col="Catch">Only when a region has room, and sign-up needs a card</td></tr>
+        <tr><th scope="row">Realms for Java</th><td data-col="A month">$7.99</td><td data-col="Always on">Yes</td><td data-col="Mods">No</td><td data-col="Catch">You and 10 friends at once</td></tr>
+        <tr><th scope="row">A game host</th><td data-col="A month">$4 to $15 for 4 GB</td><td data-col="Always on">Yes</td><td data-col="Mods">Both</td><td data-col="Catch">The most per GB of memory</td></tr>
+        <tr><th scope="row">A VPS with Playkeeper</th><td data-col="A month">From {{usd $vps.USD}} for {{$vps.MemoryGB}} GB</td><td data-col="Always on">Yes</td><td data-col="Mods">Both</td><td data-col="Catch">You rent the VPS; Playkeeper runs the rest</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>A game host charges by memory: PebbleHost's Budget plans start at $1 per GB a month, and Apex Hosting's 4 GB plan costs $14.99 after a cheaper first month. Oracle Cloud's Always Free tier includes ARM servers, and Playkeeper runs on ARM.</p>
+</section>
+
+<section aria-labelledby="vps">
+  {{template "h2n" (dict "ID" "vps" "N" 2 "Text" "What a VPS costs, by size" "Toc" "A VPS by size")}}
+  <p>Memory decides what you rent. These are <a href="/sizing">the sizing guide's</a> answers for three groups, with the plan that fits at each provider.</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="compare stack">
+      <caption>Before tax, checked {{checked}} on each provider's pricing page. Hostinger's first price is for two years paid ahead; Vultr and DigitalOcean bill by the month.</caption>
+      <thead><tr><td></td><th scope="col">Needs</th>{{range providers}}<th scope="col">{{.Name}}</th>{{end}}</tr></thead>
+      <tbody>
+        {{template "vps-row" (dict "R" $small)}}
+        {{template "vps-row" (dict "R" (sizingFor 8 "add-ons"))}}
+        {{template "vps-row" (dict "R" $mod)}}
+      </tbody>
+    </table>
+  </div>
+  <p>Running several servers on one VPS? <a href="/sizing#several-title">Add up their memory</a>, then pick the next size up.</p>
+</section>
+
+<section aria-labelledby="cheapest">
+  {{template "h2n" (dict "ID" "cheapest" "N" 3 "Text" "The cheapest reliable setup" "Toc" "The cheapest reliable setup")}}
+  <p>For a group that plays most weeks, a small VPS with Playkeeper is the cheapest server that stays on and runs mods. Playkeeper is free and open source, so the VPS is the whole bill.</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><td></td><th scope="col">{{$small.Band.Label}} friends {{sizingPhrase $small}}</th><th scope="col">{{$mod.Band.Label}} friends {{sizingPhrase $mod}}</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">The VPS</th><td>{{$a.Provider}} {{$a.Name}}: {{usd $a.USD}}</td><td>{{$b.Provider}} {{$b.Name}}: {{usd $b.USD}}</td></tr>
+        <tr><th scope="row">Playkeeper</th><td>$0</td><td>$0</td></tr>
+        <tr><th scope="row">An address for friends</th><td>$0, a free playkeeper.me name</td><td>$0, a free playkeeper.me name</td></tr>
+        <tr><th scope="row">Backups off the VPS</th><td>$0 for the first 10 GB on Backblaze B2</td><td>$0 for the first 10 GB on Backblaze B2</td></tr>
+        <tr><th scope="row">A month</th><td><strong>{{usd $a.USD}}</strong></td><td><strong>{{usd $b.USD}}</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+  {{if and $a.Renews $b.Renews (eq $a.Provider $b.Provider)}}<p class="table-note">{{$a.Provider}}'s prices are for two years paid ahead, then {{usd $a.Renews}} and {{usd $b.Renews}} a month.</p>{{end}}
+  <p class="p-lead">Rent the VPS, then install Playkeeper with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Rent a VPS" "Text" (printf "%s, on x86_64 or ARM, sized by the sizing guide." systemsShort))
+    (dict "Title" "Run the command" "Text" "It installs Playkeeper and prints a one-time link to the dashboard's setup.")
+    (dict "Title" "Create a server and share its name" "Text" "Friends join at a free name like survival.alex.playkeeper.me, without a port from three days after you claim it.")
+  ))}}
+</section>
+
+<section aria-labelledby="hidden">
+  {{template "h2n" (dict "ID" "hidden" "N" 4 "Text" "Hidden costs")}}
+  <ul>
+    <li><strong>Renewals.</strong> A low first price often means a year or two paid ahead, then a higher one{{with $vps.Renews}}: {{$vps.Provider}}'s {{$vps.Name}} goes from {{usd $vps.USD}} to {{usd .}} a month{{end}}.</li>
+    <li><strong>Backups somewhere else.</strong> A copy off the VPS survives a dead server. Backblaze B2 stores the first 10 GB free, then $6.95 per TB a month, and Playkeeper encrypts copies before they leave.</li>
+    <li><strong>A domain.</strong> Optional: a free yourname.playkeeper.me name does the same job, and your own domain costs a fee every year.</li>
+    <li><strong>Power at home.</strong> A PC left on at 100 W uses about 72 kWh a month, $13 at the US average price.</li>
+    <li><strong>Tax.</strong> Prices here are before VAT or sales tax.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="game-host">
+  {{template "h2n" (dict "ID" "game-host" "N" 5 "Text" "When a game host is worth paying for" "Toc" "When a game host is worth it")}}
+  <p>A game host costs more per GB, and you get more done for you: support to ask, a ready panel and protection against attacks. It's worth it for a public server with strangers joining, or when nobody in the group wants a VPS at all.</p>
+  <p>Realms is enough for a vanilla world with up to 10 friends at a time. For mods, plugins or more players, a VPS costs about the same, and <a href="/guides/play-minecraft-with-friends">every way to play with friends</a> compares the rest.</p>
+</section>
+{{end}}
+
+{{define "after"}}{{$vps := vpsFrom}}{{$two := sizingFor 2 "vanilla"}}{{$mod := sizingFor 4 "modpack"}}{{$b := cheapestFit $mod.MemoryGB $mod.Cores}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "How much does a Minecraft server cost per month?" (printf "$0 on a free host or your own PC, $7.99 on Realms, about $4 to $15 for 4 GB on a game host, and from %s for a VPS you run with a free dashboard." (usd $vps.USD)))
+    (qa "How much does a Minecraft server cost for 2 players?" (printf "Two players need about %d GB of memory: free on your own PC or a free host, or from %s a month for a VPS that's always on." $two.MemoryGB (usd $vps.USD)))
+    (qa "Do you have to pay for a Minecraft server?" "No. Open to LAN, a server on your own PC and free hosts cost nothing. You pay once it has to stay on, grow or be looked after by someone else.")
+    (qa "Is Realms cheaper than a server?" (printf "For vanilla and 10 friends at a time, Realms at $7.99 a month is hard to beat. A VPS from %s costs about the same and runs mods, plugins and more players." (usd $vps.USD)))
+    (qa "Does a modded server cost more?" (printf "It needs more memory: a big modpack wants %d GB for a few friends, from %s a month on a VPS." $mod.MemoryGB (usd $b.USD)))
+    (qa "Is Playkeeper free?" "Yes: free and open source (AGPL-3.0). You pay only for the VPS.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/sizing" "/guides/play-minecraft-with-friends" "/alternatives/aternos" "/guides/modded-minecraft-server")}}{{end}}
