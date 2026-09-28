@@ -38,7 +38,9 @@ const SERVERS = { 0: 'No servers', 1: '1 server', 2: '2 servers', '3-5': '3 to 5
 const OUTCOMES = { succeeded: 'Succeeded', failed: 'Failed', refused: 'Refused', pending: 'No result that day' }
 const WINDOWS = { '1d': 'day', '7d': '7 days', '30d': '30 days' }
 
-const state = { summary: null, split: 'outcome', window: '30d', day: -1, last: 0, busy: false }
+// signins counts sign-ins and sign-outs, so counts that arrive after one are
+// dropped rather than shown.
+const state = { summary: null, split: 'outcome', window: '30d', day: -1, last: 0, busy: false, signins: 0 }
 
 // The token, where it's kept. memory holds it for this page alone when the
 // browser refuses storage.
@@ -145,6 +147,7 @@ async function refresh () {
   const token = stored()
   if (!token) return showSignIn()
   if (state.busy) return
+  const signin = state.signins
   state.busy = true
   $('refresh').disabled = true
   if (!state.summary) {
@@ -154,6 +157,7 @@ async function refresh () {
   const r = await fetchSummary(token)
   state.busy = false
   $('refresh').disabled = false
+  if (signin !== state.signins) return
   if (r.summary) return show(r.summary)
   if (r.status === 401) {
     forget()
@@ -346,12 +350,14 @@ $('signin-form').addEventListener('submit', async (e) => {
   const r = await fetchSummary(token)
   $('signin-button').disabled = false
   if (!r.summary) return showSignIn(r.problem)
+  state.signins++
   keep(token, $('remember').checked)
   input.value = ''
   show(r.summary)
 })
 $('refresh').addEventListener('click', () => refresh())
 $('signout').addEventListener('click', () => {
+  state.signins++
   forget()
   state.summary = null
   $('token').value = ''

@@ -90,8 +90,17 @@ test('signs in with the read token, keeps it in this browser alone and shows the
   expect(requests.filter((r) => r.origin !== origin), 'requests to anywhere but the service').toEqual([])
   expect([...new Set(requests.filter((r) => r.token).map((r) => r.path))], 'where the token went').toEqual(['/v1/summary'])
 
+  // Signing out while the counts are on their way keeps them from showing.
+  await page.route('**/v1/summary', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await route.continue()
+  })
+  await page.reload()
   await page.getByRole('button', { name: 'Sign out' }).click()
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible()
+  await page.waitForTimeout(1500)
+  await expect(page.getByRole('heading', { name: 'Sign in' }), 'counts that arrived after signing out').toBeVisible()
+  await expect(page.locator('#dashboard')).toBeHidden()
   expect(await kept(page), 'what signing out left behind').toEqual({ local: null, session: null, cookie: '' })
 })
 
