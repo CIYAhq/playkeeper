@@ -42,6 +42,7 @@ var docPages = []DocPage{
 	{"addresses", "A name for your VPS", "A free name or your own domain for your VPS, with a Let's Encrypt certificate that renews by itself, and your servers' join addresses.", "README.md", "A name for your VPS"},
 	{"machines-and-ai-agents", "More machines and AI agents", "Servers on a second VPS or a home server, all in one dashboard, and AI tools such as Claude or Cursor managing them over MCP.", "README.md", "More machines and AI agents"},
 	{"updates", "Update, upgrade and uninstall", "Signed updates from the dashboard that roll back if they fail, upgrading older versions, uninstalling, and the command line.", "README.md", "Update, upgrade and uninstall"},
+	{"usage-stats", "Usage stats", "What Playkeeper counts about each machine, when it sends it, what the stats service keeps, and the switch or variable that turns it off.", "README.md", "Usage stats"},
 	{"recovery", "Recover or move a world", "Restore a backup on this machine or a new one, move a world to another VPS, and restore off-site copies with the recovery key.", "docs/RECOVERY.md", ""},
 	{"troubleshooting", "Troubleshooting", "When the dashboard won't open, friends can't join, the browser warns or a server runs out of memory.", "docs/TROUBLESHOOTING.md", ""},
 	{"contributing", "Contributing", "Build and run Playkeeper, run its checks and tests, find where things live in the code, and send a focused pull request.", "CONTRIBUTING.md", ""},
@@ -93,6 +94,7 @@ var docGroups = []DocGroup{
 	}},
 	{Title: "Project", Entries: []DocEntry{
 		{Label: "Contributing", Blurb: "Build it, run the tests, send a pull request.", Page: "contributing"},
+		{Label: "Usage stats", Blurb: "What each machine sends, and the switch that turns it off.", Page: "usage-stats"},
 	}},
 }
 

@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -351,6 +353,49 @@ func TestTestInstallsAreThoseOfAnActionsJobOrMarked(t *testing.T) {
 	for v, want := range map[string]bool{"1": true, "true": true, "": false, "0": false, "no": false} {
 		if got := TestFromEnv(func(string) string { return v }); got != want {
 			t.Errorf("PLAYKEEPER_USAGE_TEST=%q: %v", v, got)
+		}
+	}
+}
+
+// README.md's "Usage stats" says what every report carries, field by field,
+// and the installer and Settings link people to it.
+func TestTheReadmeListsEveryFieldSent(t *testing.T) {
+	b, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rest, ok := strings.Cut(string(b), "\n## Usage stats\n")
+	if !ok {
+		t.Fatal("README.md has no \"## Usage stats\" section")
+	}
+	section, _, _ := strings.Cut(rest, "\n## ")
+	listed := map[string]bool{}
+	for _, line := range strings.Split(section, "\n") {
+		if !strings.HasPrefix(line, "| `") {
+			continue
+		}
+		first, _, _ := strings.Cut(strings.TrimPrefix(line, "| "), " |")
+		for _, f := range regexp.MustCompile("`([a-zA-Z]+)`").FindAllStringSubmatch(first, -1) {
+			listed[f[1]] = true
+		}
+	}
+	sent := map[string]bool{}
+	for _, f := range append(append([]string{}, heartbeatFields...), installFields...) {
+		sent[f] = true
+	}
+	for f := range sent {
+		if !listed[f] {
+			t.Errorf("README.md's usage stats don't list %s, which reports carry", f)
+		}
+	}
+	for f := range listed {
+		if !sent[f] {
+			t.Errorf("README.md's usage stats list %s, which no report carries", f)
+		}
+	}
+	for _, want := range []string{"DO_NOT_TRACK=1", "PLAYKEEPER_USAGE_STATS=off", "Settings › Playkeeper › Usage stats", "stats.playkeeper.io", "never an IP address"} {
+		if !strings.Contains(section, want) {
+			t.Errorf("README.md's usage stats don't say %q", want)
 		}
 	}
 }
