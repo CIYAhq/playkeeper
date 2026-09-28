@@ -345,15 +345,18 @@ describe('New server from a world', () => {
 })
 
 describe('New server for a creator', () => {
-  it('starts from a server type, a modpack or a template, never a world or a backup', async () => {
+  it('starts from a server type, a modpack or a template, never a world or a backup, and only on the dashboard’s machine', async () => {
     const creator: Me = { ...me, user: { username: 'alex', role: 'member' }, access: { ...me.access, servers: {}, twoFactor: true, can: ['view', 'account.manage', 'servers.run', 'servers.manage', 'servers.create_own'] } }
+    const remote = { id: 'r2345abcde', projectId: 'p2345abcde', name: 'home-server', kind: 'remote', link: { machineId: 'r2345abcde', name: 'home-server', fingerprint: '', state: 'connected', problems: [] } } as MachineView
     const r = createRoot(document.body.appendChild(document.createElement('div')))
     root = r
-    await act(async () => r.render(<WorkspaceContext.Provider value={{ ...workspace, me: creator }}>{<NewServerPage />}</WorkspaceContext.Provider>))
+    await act(async () => r.render(<WorkspaceContext.Provider value={{ ...workspace, me: creator, machines: [machine, remote] }}>{<NewServerPage machine={remote.id} />}</WorkspaceContext.Provider>))
     await act(settle)
     expect(text()).toContain('A server type')
     expect(text()).not.toContain('A world')
     expect(text()).not.toContain('Restore it as a new server')
+    expect(text()).not.toContain('New server on')
+    expect(text()).not.toContain('home-server')
   })
 })
 

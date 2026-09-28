@@ -13,6 +13,11 @@ export function canCreate(me: Me): boolean {
   return can(me, 'servers.create') || can(me, 'servers.create_own')
 }
 
+/** Whether the account may create a server on machine m: an admin of every server on any machine, a creator only on the dashboard's own. */
+export function canCreateOn(me: Me, m: { kind: string } | undefined): boolean {
+  return can(me, 'servers.create') || (can(me, 'servers.create_own') && (!m || m.kind === 'local'))
+}
+
 /** "Up to 1 server with 4 GB": what a creator may create. */
 export function allowanceText(al: Allowance): string {
   return t('team.allowance', { servers: t('unit.servers', { count: al.servers }), memory: formatMB(al.memoryMB) })

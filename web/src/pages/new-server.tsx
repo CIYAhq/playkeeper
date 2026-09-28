@@ -158,12 +158,13 @@ function unavailable(machine: string | undefined, target: MachineView | undefine
 export function NewServerPage({ machine }: { machine?: string }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
-  // A creator creates servers but doesn't import worlds or restore backups into new ones.
+  // A creator creates servers only on the dashboard's own machine, and doesn't import worlds or restore backups into new ones.
   const importer = can(ws.me, 'servers.create')
   const froms = importer ? startFroms : startFroms.filter((f) => f.value !== 'world')
-  const target = machine ? ws.machines.find((m) => m.id === machine) : ws.machine
-  const away = unavailable(machine, target, ws.machines)
-  const machineName = target?.kind === 'remote' || (machine && !target) ? machineLabel(target) : ws.machineName
+  const asked = importer ? machine : undefined
+  const target = asked ? ws.machines.find((m) => m.id === asked) : ws.machine
+  const away = unavailable(asked, target, ws.machines)
+  const machineName = target?.kind === 'remote' || (asked && !target) ? machineLabel(target) : ws.machineName
   const [c, setC] = useState<CreateChoices>()
   const [step, setStep] = useState(0)
   // Each step shows at once, like a page of its own.
@@ -745,7 +746,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
   )
   // The machine is picked before the flow starts, and stays the same after.
   const started = step > 0 || upload.state.phase !== 'idle'
-  const choices = started ? [] : ws.machines.filter((m) => m.id === target?.id || !isAway(m))
+  const choices = started || !importer ? [] : ws.machines.filter((m) => m.id === target?.id || !isAway(m))
   const summary = c && catalog && <Summary choices={c} step={step} port={catalog.suggestedPort} version={version?.minecraftVersion ?? ''} machine={machineName} from={from} pack={from === 'modpack' ? pack : undefined} plan={from === 'template' ? tpl?.plan : undefined} world={worldSummary} note={note} />
   const worldKeys = world ? worldStepKeys[step] : undefined
   const tplMods = addonKind(tpl?.plan.type || tpl?.plan.contents.type) === 'mods'
