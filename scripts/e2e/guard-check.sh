@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # The network guard (internal/netguard), checked from inside a running
-# Playkeeper server's container, as a plugin would try it:
+# Playkeeper server's container, as a plugin would try it.
+#
+# With Keep servers away from this machine on (Machine settings):
 #
 #   - the server can't open connections to the machine: the dashboard's port,
 #     on the bridge's gateway and on the machine's own address;
@@ -11,13 +13,19 @@
 #     checks can tell;
 #   - and the agent puts the rules back, first in their chains, by itself.
 #
+# With it off, as a machine starts (guard-check.sh default), the server
+# reaches the machine, as a plugin with a database there needs, but still no
+# link-local address, and the internet.
+#
 # The link-local address is 169.254.77.77, answered by a web server in a
 # network namespace of its own: not every machine has a metadata service, and
 # the real one stays untouched.
 #
 # It runs as root on the machine the server runs on and changes its firewall,
-# so it only runs in CI: sudo bash guard-check.sh, or bash -s over ssh.
+# so it only runs in CI: sudo bash guard-check.sh [default], or bash -s over
+# ssh.
 set -euo pipefail
+mode=${1:-kept}
 
 fail() {
   echo "  FAIL: network guard: $*" >&2
@@ -72,6 +80,16 @@ blocked() { # WHEN
   if reach "$self" "$port"; then fail "$1: the server reaches the dashboard's port $port on the machine's address $self"; fi
   if reach "$meta" 80; then fail "$1: the server reaches the link-local address $meta"; fi
 }
+
+if [ "$mode" = default ]; then
+  if iptables -S INPUT | grep -q playkeeper-guard; then fail "with servers free to reach the machine, INPUT has the guard's rules: $(iptables -S INPUT | grep playkeeper-guard | tr '\n' ' ')"; fi
+  first "$meta_chain" 1 || fail "the guard's rule isn't the first in $meta_chain: $(iptables -S "$meta_chain" | head -3 | tr '\n' ' ')"
+  reach "$gw" "$port" || fail "with servers free to reach the machine, the server can't reach port $port on the gateway $gw"
+  if reach "$meta" 80; then fail "the server reaches the link-local address $meta"; fi
+  reach sessionserver.mojang.com 443 || fail "the server can't reach sessionserver.mojang.com:443, which online mode needs"
+  ok "with Keep servers away from this machine off: port $port reached on the gateway $gw, $meta:80 refused, sessionserver.mojang.com:443 reached"
+  exit 0
+fi
 
 blocked "with the guard on"
 reach sessionserver.mojang.com 443 || fail "the server can't reach sessionserver.mojang.com:443, which online mode needs"
