@@ -202,7 +202,9 @@ func runDev(args []string) error {
 		return err
 	}
 	log := logger()
-	a, err := agent.New(agent.Options{Config: cfg, Logger: log, AllowedUIDs: []uint32{uint32(os.Getuid())}, UpdateKeys: update.TrustedKeys(), OfflineModeTest: os.Getenv(agent.OfflineModeEnv) == "1"})
+	// The public page answers on ports a user may open: http://localhost:8480.
+	a, err := agent.New(agent.Options{Config: cfg, Logger: log, AllowedUIDs: []uint32{uint32(os.Getuid())}, UpdateKeys: update.TrustedKeys(), OfflineModeTest: os.Getenv(agent.OfflineModeEnv) == "1",
+		PageHTTPSAddr: ":8444", PageHTTPAddr: ":8480"})
 	if err != nil {
 		return err
 	}
