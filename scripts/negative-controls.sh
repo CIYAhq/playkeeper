@@ -2138,6 +2138,10 @@ control "a caller that waited for a build list gets what the fetch found" intern
 	return c.builds[key].builds, c.builds[key].at, nil
 }' \
   ./internal/agent '^TestBuildListWaitersGetWhatTheFetchFound$'
+control "NeoForge's Maven is asked again after a 5xx" internal/minecraft/software/fetch.go \
+  '	case http.StatusNotFound, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:' \
+  '	case http.StatusNotFound:' \
+  ./internal/minecraft/software '^TestUpstreamAsksNeoForgeAgainAfterA404OrA5xx$'
 control "a template whose modpack runs on another type is blocked" internal/agent/templates.go \
   'p.Blockers, p.Ready = append(p.Blockers, *n), false' \
   '_ = n' \

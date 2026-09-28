@@ -89,18 +89,21 @@ func TestUpstreamFollowsRedirectsOnItsHosts(t *testing.T) {
 	}
 }
 
-// NeoForge's Maven sometimes answers 404 for files it has; other hosts'
-// 404s count the first time.
-func TestUpstreamAsksNeoForgeAgainAfterA404(t *testing.T) {
+// NeoForge's Maven sometimes answers 404 for files it has, or a 5xx; other
+// hosts' 404s count the first time, and so does any other answer.
+func TestUpstreamAsksNeoForgeAgainAfterA404OrA5xx(t *testing.T) {
 	defer func(w time.Duration) { flakyWait = w }(flakyWait)
 	flakyWait = time.Millisecond
 	f := newFakeNet(t)
 	metadata := neoforgeMaven + "/maven-metadata.xml"
-	misses := 0
+	misses := []int{http.StatusNotFound, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusInternalServerError}
+	if len(misses) != flakyRetries {
+		t.Fatalf("the test misses %d times, and NeoForge is asked again %d times", len(misses), flakyRetries)
+	}
 	f.handle(metadata, func(w http.ResponseWriter, r *http.Request) {
-		if misses < flakyRetries {
-			misses++
-			http.NotFound(w, r)
+		if len(misses) > 0 {
+			w.WriteHeader(misses[0])
+			misses = misses[1:]
 			return
 		}
 		_, _ = w.Write([]byte(`<metadata><versioning><versions><version>26.2.0.88</version></versions></versioning></metadata>`))
@@ -113,12 +116,22 @@ func TestUpstreamAsksNeoForgeAgainAfterA404(t *testing.T) {
 		t.Errorf("got %v after %d requests", got, f.hitCount(metadata))
 	}
 
-	f.status(metadata, http.StatusNotFound)
-	before := f.hitCount(metadata)
-	_, err = neoforgeVersions(context.Background(), f.client())
-	wantKind(t, err, KindNotFound)
-	if n := f.hitCount(metadata) - before; n != flakyRetries+1 {
-		t.Errorf("asked %d times, want %d", n, flakyRetries+1)
+	for _, c := range []struct {
+		status int
+		kind   Kind
+		asked  int
+	}{
+		{http.StatusNotFound, KindNotFound, flakyRetries + 1},
+		{http.StatusServiceUnavailable, KindUpstreamStatus, flakyRetries + 1},
+		{http.StatusForbidden, KindUpstreamStatus, 1},
+	} {
+		f.status(metadata, c.status)
+		before := f.hitCount(metadata)
+		_, err = neoforgeVersions(context.Background(), f.client())
+		wantKind(t, err, c.kind)
+		if n := f.hitCount(metadata) - before; n != c.asked {
+			t.Errorf("HTTP %d: asked %d times, want %d", c.status, n, c.asked)
+		}
 	}
 
 	f.status(mojangManifestURL, http.StatusNotFound)
