@@ -12,12 +12,17 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/config"
 )
 
-func TestTheAgentMayOpenPort80AndNothingMore(t *testing.T) {
+func TestTheAgentMayOpenPort80AndChangeTheFirewallAndNothingMore(t *testing.T) {
 	u := agentUnit()
-	if !strings.Contains(u, "\nCapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_NET_BIND_SERVICE\n") {
-		t.Fatalf("the agent needs CAP_NET_BIND_SERVICE for Let's Encrypt's checks:\n%s", u)
+	// CAP_NET_BIND_SERVICE for Let's Encrypt's checks, and CAP_NET_ADMIN,
+	// CAP_NET_RAW and netlink for the iptables the network guard runs.
+	if !strings.Contains(u, "\nCapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_NET_BIND_SERVICE CAP_NET_ADMIN CAP_NET_RAW\n") {
+		t.Fatalf("the agent's capabilities:\n%s", u)
 	}
-	for _, never := range []string{"AmbientCapabilities", "CAP_NET_ADMIN", "CAP_NET_RAW", "CAP_SYS_ADMIN"} {
+	if !strings.Contains(u, "\nRestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK\n") {
+		t.Fatalf("the agent's socket families:\n%s", u)
+	}
+	for _, never := range []string{"AmbientCapabilities", "CAP_SYS_ADMIN", "CAP_SYS_MODULE", "CAP_SYS_PTRACE", "CAP_SYS_RAWIO", "CAP_BPF", "CAP_SETUID"} {
 		if strings.Contains(u, never) {
 			t.Errorf("the agent unit grants %s", never)
 		}
