@@ -74,8 +74,10 @@ func (l *Library) requirements(name, loader, loaderVersion, mc string) (Requirem
 		r.LoaderVersion = loaderVersion
 	}
 	// Some packs name a Forge build the way Forge's Maven does, with its
-	// Minecraft version first: "26.2-65.1.3" is Forge 65.1.3.
-	if t == "forge" {
+	// Minecraft version first: "26.2-65.1.3" is Forge 65.1.3. CurseForge
+	// names NeoForge's builds for Minecraft 1.20.1 that way too:
+	// "1.20.1-47.1.99" is NeoForge 47.1.99.
+	if t == "forge" || t == "neoforge" {
 		r.LoaderVersion = strings.TrimPrefix(r.LoaderVersion, mc+"-")
 	}
 	return r, nil

@@ -17,8 +17,9 @@ var navSections = []NavSection{
 		"/features/mods-and-modpacks", "/features/free-address", "/features/backups", "/features/friends-and-team",
 		"/features/crash-and-lag-help", "/features/worlds-and-map", "/features/automation", "/features/ai-agents",
 	}},
+	{Key: "templates", Label: "Templates", Link: "/templates"},
 	{Key: "guides", Label: "Guides", Hub: "/guides/host-a-minecraft-server", HubLabel: "All guides", Items: []string{
-		"/guides/modded-minecraft-server", "/guides/add-mods-to-minecraft-server", "/modpacks", "/templates", "/sizing", "/guides/play-minecraft-with-friends", "/guides/minecraft-server-cost",
+		"/guides/modded-minecraft-server", "/guides/add-mods-to-minecraft-server", "/modpacks", "/sizing", "/guides/play-minecraft-with-friends", "/guides/minecraft-server-cost",
 	}},
 	{Key: "compare", Label: "Compare", Hub: "/compare/minecraft-server-panels", HubLabel: "All panels compared", Items: []string{
 		"/alternatives/aternos", "/alternatives/pterodactyl", "/alternatives/realms", "/alternatives/minehut",

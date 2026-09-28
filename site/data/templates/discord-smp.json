@@ -1,0 +1,22 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Survival with Discord chat",
+  "description": "Paper for friends whose game chat and Discord channel talk both ways through DiscordSRV, with pre-generation, block logging and proximity voice chat.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "26.2" },
+  "settings": {
+    "difficulty": "normal",
+    "pvp": false,
+    "gameMode": "survival",
+    "viewDistance": 10,
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 4096
+  },
+  "addons": [
+    { "source": "modrinth", "project": "UmLGoGij", "slug": "discordsrv", "name": "DiscordSRV", "pin": { "versionId": "ATlquwiT", "versionNumber": "1.30.5", "channel": "release", "hashAlgo": "sha512", "hash": "ef31c7dd8962c7f907bc37b6d762c0ebd1b52f20ff72bb2dd35edb0e354010c03d3eb4cafa8f7acec42aa5e91988814bd0c338a5bced06095c07a6b9b366505c" } },
+    { "source": "modrinth", "project": "fALzjamp", "slug": "chunky", "name": "Chunky", "pin": { "versionId": "MdY6JATr", "versionNumber": "1.5.3", "channel": "release", "hashAlgo": "sha512", "hash": "43ffecc6e6a734b752da41575bbb316526c124c3f878942437d5133c377bfbd9b78bda975520dc074d7158c15dade58a444ccd0fd8d8a25d165b6fc450140422" } },
+    { "source": "modrinth", "project": "Lu3KuzdV", "slug": "coreprotect", "name": "CoreProtect", "pin": { "versionId": "3sehX6Sg", "versionNumber": "24.1", "channel": "release", "hashAlgo": "sha512", "hash": "76aad727528ddb990bbee5069f8ef3fcd018ae0bcdea89b965be2485e828633eb068672e841be64e550c8474f901a24d8c15c7bd44c2bd6c96244e1e58de0c95" } },
+    { "source": "modrinth", "project": "9eGKb6K1", "slug": "simple-voice-chat", "name": "Simple Voice Chat", "pin": { "versionId": "EJth3OAr", "versionNumber": "bukkit-2.6.24", "channel": "release", "hashAlgo": "sha512", "hash": "7f1d5765e79cd42616f14f40322d1171a8505e1116dfff71c7bd0e59af9d255c06f70a68a5b622015c0407d40c80e70298c172992007ff339cedcef0116fec42" } }
+  ]
+}

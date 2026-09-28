@@ -16,6 +16,9 @@
 #
 # Another release location: --base-url URL or PLAYKEEPER_BASE_URL=URL.
 # Plain http:// is refused unless PLAYKEEPER_ALLOW_HTTP=1 (local test mirrors).
+#
+# The installer sends anonymous usage stats and says so first; DO_NOT_TRACK=1
+# turns them off: curl -fsSL .../get.sh | sudo DO_NOT_TRACK=1 sh
 set -eu
 
 default_base=https://github.com/CIYAhq/playkeeper/releases/latest/download
@@ -63,6 +66,14 @@ main() {
     esac
   done
   base=${base%/}
+  # How this copy was fetched, for the anonymous install count (README.md,
+  # "Usage stats"): playkeeper.io's command says so itself (site/install.sh);
+  # otherwise it came from GitHub's release, or runs from another location.
+  if [ -z "${PLAYKEEPER_INSTALL_SOURCE:-}" ]; then
+    PLAYKEEPER_INSTALL_SOURCE=mirror
+    [ "$base" != "$default_base" ] || PLAYKEEPER_INSTALL_SOURCE=github
+  fi
+  export PLAYKEEPER_INSTALL_SOURCE
 
   [ "$(uname -s)" = Linux ] || die "Playkeeper installs on Linux servers only."
   case $(uname -m) in

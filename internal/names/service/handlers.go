@@ -201,7 +201,7 @@ func (s *Service) usable(a netip.Addr) error {
 func (s *Service) claimable(row *nameRow, name, key string) error {
 	addr := names.Address(name, s.base)
 	params := map[string]any{"name": name}
-	if reservedName(name) || s.block.has(name) {
+	if names.Reserved(name) || s.block.has(name) {
 		return &names.Error{Status: http.StatusForbidden, Code: names.CodeNameReserved, Params: params,
 			Message: addr + " is reserved.", Hint: "Choose another name."}
 	}

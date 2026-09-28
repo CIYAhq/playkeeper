@@ -19,7 +19,7 @@ FROM golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3
 WORKDIR /src
 ENV CGO_ENABLED=0 GOFLAGS=-trimpath
 COPY go.mod go.sum ./
-RUN go mod download github.com/yuin/goldmark
+RUN go mod download github.com/yuin/goldmark golang.org/x/image
 COPY cmd/site/ cmd/site/
 COPY internal/ internal/
 COPY site/ site/
@@ -32,6 +32,8 @@ FROM nginx:1.30.5-alpine-slim@sha256:32463212baf0e7d91aded2e9b843a4f2b9e017804b8
 
 RUN rm -rf /usr/share/nginx/html/*
 COPY site/nginx.conf /etc/nginx/conf.d/default.conf
+# What /install answers: outside the web root, so nothing else serves it.
+COPY site/install.sh /usr/share/nginx/playkeeper/install.sh
 # The install log's folder, /var/log/playkeeper: nginx's workers own it and
 # files older than 30 days go (the image's entrypoint runs this first).
 COPY site/install-logs.sh /docker-entrypoint.d/40-install-logs.sh

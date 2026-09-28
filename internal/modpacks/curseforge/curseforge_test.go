@@ -319,6 +319,22 @@ func TestParseManifestRefusals(t *testing.T) {
 	}
 }
 
+// recommendedRam is only a hint, so a value that isn't a whole number of
+// megabytes reads as not saying rather than refusing the pack. Better MC
+// [FABRIC] BMC2 writes it as text.
+func TestRecommendedRAM(t *testing.T) {
+	for raw, want := range map[string]MB{`10112`: 10112, `"10000"`: 10000, `" 8192 "`: 8192, `"8G"`: 0, `-1`: 0, `8192.5`: 0, `null`: 0, `true`: 0, `{}`: 0} {
+		var m map[string]any
+		json.Unmarshal(fixture(t, "manifest.json"), &m)
+		b, _ := json.Marshal(m)
+		b = []byte(strings.Replace(string(b), `"minecraft":{`, `"minecraft":{"recommendedRam":`+raw+`,`, 1))
+		got, err := ParseManifest(b)
+		if err != nil || got.Minecraft.RecommendedRAM != want {
+			t.Errorf("recommendedRam %s: %v, %v; want %d", raw, got, err, want)
+		}
+	}
+}
+
 func TestLoaderPicksThePrimaryOne(t *testing.T) {
 	m := Manifest{Minecraft: ManifestMinecraft{ModLoaders: []ModLoader{{ID: "forge-47.2.0"}, {ID: "neoforge-1.20.1-47.1.99", Primary: true}}}}
 	name, version, err := m.Loader()

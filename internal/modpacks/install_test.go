@@ -3,6 +3,7 @@ package modpacks
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -226,10 +227,9 @@ func TestRefusedPacks(t *testing.T) {
 		kind addons.Kind
 		msg  string
 	}{
-		{Ref{addons.Modrinth, "create_plus", "OirSzesD"}, KindMinecraft, "Create+ is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.21 and newer."},
-		{Ref{addons.Modrinth, "the-content-smp", "ck8SrkA4"}, KindMinecraft, "The Content Smp (Fan-Made) is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.21 and newer."},
-		{Ref{addons.Modrinth, "the-content-smp", ""}, KindMinecraft, "The Content Smp (Fan-Made) is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.21 and newer."},
-		{Ref{addons.Modrinth, "adrenaline", "wGteoJrN"}, KindMinecraft, "Adrenaline is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer."},
+		{Ref{addons.Modrinth, "create_plus", "OirSzesD"}, KindMinecraft, "Create+ is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.20.1 and newer."},
+		{Ref{addons.Modrinth, "the-content-smp", "ck8SrkA4"}, KindMinecraft, "The Content Smp (Fan-Made) is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.20.1 and newer."},
+		{Ref{addons.Modrinth, "the-content-smp", ""}, KindMinecraft, "The Content Smp (Fan-Made) is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.20.1 and newer."},
 		{Ref{addons.Modrinth, "sodiumplus", ""}, addons.KindClientOnly, "Sodium Plus is for the game client only, not for servers."},
 		{Ref{addons.Modrinth, "fabric-api", ""}, KindNotModpack, "Fabric API is not a modpack on Modrinth."},
 		{Ref{addons.Modrinth, "adrenaline", "jmYEuzNA"}, addons.KindNotFound, `Adrenaline has no version "jmYEuzNA".`},
@@ -263,11 +263,15 @@ func TestPackDependenciesDecideTheServer(t *testing.T) {
 		{deps: obj{"minecraft": "1.21.4"}, want: Requirements{"vanilla", "1.21.4", ""}},
 		{deps: obj{"minecraft": "26.2", "forge": "65.1.3"}, want: Requirements{"forge", "26.2", "65.1.3"}},
 		{deps: obj{"minecraft": "26.2", "forge": "26.2-65.1.3"}, want: Requirements{"forge", "26.2", "65.1.3"}},
-		{deps: obj{"minecraft": "1.20.1", "forge": "47.4.0"}, kind: KindMinecraft},
+		{deps: obj{"minecraft": "1.20.1", "forge": "47.4.0"}, want: Requirements{"forge", "1.20.1", "47.4.0"}},
+		{deps: obj{"minecraft": "1.20.1", "neoforge": "47.1.79"}, want: Requirements{"neoforge", "1.20.1", "47.1.79"}},
+		{deps: obj{"minecraft": "1.20.1", "neoforge": "1.20.1-47.1.99"}, want: Requirements{"neoforge", "1.20.1", "47.1.99"}},
+		{deps: obj{"minecraft": "1.20.1", "fabric-loader": "0.18.4"}, want: Requirements{"fabric", "1.20.1", "0.18.4"}},
 		{deps: obj{"minecraft": "26.2", "liteloader": "1.0"}, kind: KindUnknownLoader},
 		{deps: obj{"minecraft": "26.2", "fabric-loader": "0.19.5", "quilt-loader": "0.29.1"}, kind: KindBadPack},
 		{deps: obj{"minecraft": "26.2-rc1", "fabric-loader": "0.19.5"}, kind: KindMinecraft},
-		{deps: obj{"minecraft": "1.20.4", "fabric-loader": "0.19.5"}, kind: KindMinecraft},
+		{deps: obj{"minecraft": "1.20", "fabric-loader": "0.19.5"}, kind: KindMinecraft},
+		{deps: obj{"minecraft": "1.19.2", "forge": "43.4.0"}, kind: KindMinecraft},
 		{deps: obj{"minecraft": "26.2", "fabric-loader": "0.19.5 && rm -rf /"}, kind: KindBadPack},
 	} {
 		f := newFakes(t)
@@ -393,6 +397,82 @@ func TestServerEnvironmentAndOptionalFiles(t *testing.T) {
 		if strings.Contains(r, "/client") || strings.Contains(r, "/opt-1.jar") {
 			t.Errorf("downloaded %s, which the server does not get", r)
 		}
+	}
+}
+
+// A Modrinth pack's index often says every file is for both sides. A mod
+// Modrinth lists as client-only stays off the server all the same, as Better
+// MC 5's Better Grassify stops a server's first start, unless the pack's own
+// data uses it (a mod's settings naming it don't count). A client-only mod that a mod on the server requires by
+// Modrinth's lists goes on, even one the index keeps off servers, as
+// Prominence II's Forge Config Screens needs Mod Menu; what such a mod
+// requires in turn stays off. When Modrinth can't be asked, the index
+// decides.
+func TestModrinthPackModsBySide(t *testing.T) {
+	f := newFakes(t)
+	grass, menu, screens, particular, lib := []byte("grass"), []byte("menu"), []byte("screens"), []byte("particular"), []byte("lib")
+	f.modrinthMod("GRASS001", "grass-1.jar", grass, "client_only", "unsupported")
+	f.modrinthMod("MENU0001", "menu-1.jar", menu, "client_only", "unsupported")
+	f.modrinthMod("SCREEN01", "screens-1.jar", screens, "client_or_server_prefers_both", "optional")
+	f.editVersion("SCREEN01v", func(v obj) {
+		v["dependencies"] = []any{obj{"project_id": "MENU0001", "dependency_type": "required"}, obj{"project_id": "GRASS001", "dependency_type": "optional"}}
+	})
+	f.editVersion("MENU0001v", func(v obj) {
+		v["dependencies"] = []any{obj{"project_id": "GRASS001", "dependency_type": "required"}}
+	})
+	f.modrinthMod("PARTIC01", "particular-1.jar", particular, "client_only", "unsupported")
+	id := f.addPack(testIndex(
+		f.indexFile("mods/grass-1.jar", grass, "required", "required"),
+		f.indexFile("mods/menu-1.jar", menu, "required", "unsupported"),
+		f.indexFile("mods/screens-1.jar", screens, "required", "required"),
+		f.indexFile("mods/particular-1.jar", particular, "required", "required"),
+		f.indexFile("mods/lib-1.jar", lib, "required", "required"),
+	), entry{name: "overrides/datapacks/spring/data/spring/worldgen/biome/spring.json", data: []byte(`{"effects": {"particle": {"options": {"type": "particular:firefly"}}}}`)},
+		entry{name: "overrides/config/resourcepackoverrides.json", data: []byte(`{"default_packs": ["grass:default"]}`)})
+	srv := newServer(t, "fabric", "26.2")
+	p := mustPlan(t, f.library(), srv, InstallRequest{Ref: testRef(id)})
+	wantList(t, "changes", changeList(p.Changes),
+		"add config/resourcepackoverrides.json", "add datapacks/spring/data/spring/worldgen/biome/spring.json",
+		"add mods/lib-1.jar", "add mods/menu-1.jar", "add mods/particular-1.jar", "add mods/screens-1.jar")
+	wantList(t, "skipped", skippedList(p.Skipped), "client_only mods/grass-1.jar")
+	wantList(t, "warnings", noticeList(p.Warnings))
+
+	f.hook("modrinth /v2/version_files", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadGateway) })
+	p = mustPlan(t, f.library(), srv, InstallRequest{Ref: testRef(id)})
+	wantList(t, "changes when Modrinth can't be asked", changeList(p.Changes),
+		"add config/resourcepackoverrides.json", "add datapacks/spring/data/spring/worldgen/biome/spring.json",
+		"add mods/grass-1.jar", "add mods/lib-1.jar", "add mods/particular-1.jar", "add mods/screens-1.jar")
+	wantList(t, "skipped when Modrinth can't be asked", skippedList(p.Skipped), "client_only mods/menu-1.jar")
+	wantList(t, "warnings when Modrinth can't be asked", noticeList(p.Warnings),
+		"environment_unknown: Playkeeper could not ask Modrinth which of Test Pack's mods are for the game client only, so it installs them all.")
+}
+
+// A pack's default-server.properties, which the Default Server Properties
+// mod puts in place of all of server.properties on the first start, never
+// goes on the server. Its settings are taken like server.properties' and
+// win over them, as they would with the mod; the console, the allowlist and
+// the other settings Playkeeper writes are never taken from it.
+func TestDefaultServerPropertiesStayOffTheServer(t *testing.T) {
+	f := newFakes(t)
+	l := f.library()
+	id := f.addPack(testIndex(),
+		entry{name: "overrides/server.properties", data: []byte("difficulty=easy\nallow-flight=false\n")},
+		entry{name: "overrides/default-server.properties", data: []byte("allow-flight=true\nallow-nether=false\nspawn-protection=512\n" +
+			"enable-rcon=false\nwhite-list=false\nmotd=A pack server\nbug-report-link=\n")},
+		entry{name: "overrides/config/ok.txt", data: []byte("ok")})
+	srv := newServer(t, "fabric", "26.2")
+	p := mustPlan(t, l, srv, InstallRequest{Ref: testRef(id)})
+	wantList(t, "changes", changeList(p.Changes), "add config/ok.txt")
+	wantList(t, "skipped", skippedList(p.Skipped), "protected_path default-server.properties", "protected_path server.properties")
+	sameJSON(t, "suggested settings", p.Properties, map[string]string{
+		"allow-flight": "true", "allow-nether": "false", "difficulty": "easy", "spawn-protection": "512",
+	})
+	wantList(t, "warnings", noticeList(p.Warnings),
+		"server_properties: Test Pack ships server settings that Playkeeper does not take from packs: bug-report-link, enable-rcon, motd, white-list.")
+	res := mustInstall(t, l, srv, InstallRequest{Ref: testRef(id)})
+	wantTree(t, srv.Dir, "config/", "config/ok.txt")
+	if res.Record.Owns(DefaultPropertiesName) {
+		t.Error("the record lists default-server.properties")
 	}
 }
 

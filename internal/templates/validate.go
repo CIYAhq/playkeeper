@@ -12,14 +12,18 @@ import (
 	"unicode/utf8"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
+	"github.com/CIYAhq/playkeeper/internal/modpacks"
 )
 
 var (
-	difficulties = []string{"peaceful", "easy", "normal", "hard"}
-	gameModes    = []string{"survival", "creative", "adventure", "spectator"}
-	levelTypes   = []string{"normal", "flat", "amplified", "large_biomes"}
-	playStyles   = []string{"friends", "creative", "hardcore", "solo"}
-	channels     = []string{"release", "beta", "alpha"}
+	// modpackSources are where a template's modpack may come from; its
+	// add-ons come from Modrinth and Hangar (checkRef).
+	modpackSources = []addons.Source{addons.Modrinth, modpacks.CurseForge}
+	difficulties   = []string{"peaceful", "easy", "normal", "hard"}
+	gameModes      = []string{"survival", "creative", "adventure", "spectator"}
+	levelTypes     = []string{"normal", "flat", "amplified", "large_biomes"}
+	playStyles     = []string{"friends", "creative", "hardcore", "solo"}
+	channels       = []string{"release", "beta", "alpha"}
 	// nonModTypes are the known types that cannot run a modpack; types
 	// this Playkeeper does not know yet may. Vanilla runs packs without a
 	// mod loader.
@@ -186,10 +190,10 @@ func (t *Template) validateModpack() *Error {
 	if m == nil {
 		return nil
 	}
-	if m.Source != addons.Modrinth {
-		return invalid("modpack.source", "value", "The template's modpack does not come from Modrinth.")
+	if !slices.Contains(modpackSources, m.Source) {
+		return invalid("modpack.source", "value", "The template's modpack comes from neither Modrinth nor CurseForge.")
 	}
-	if e := checkRef("modpack", "The template's modpack", m.Source, m.Project, m.Slug); e != nil {
+	if e := checkIDs("modpack", "The template's modpack", m.Source, m.Project, m.Slug); e != nil {
 		return e
 	}
 	if e := checkText("modpack.name", "The modpack's name", m.Name, maxLabel, true); e != nil {
@@ -258,11 +262,16 @@ func (t *Template) validatePacks() *Error {
 	return nil
 }
 
-// checkRef checks the source and ids of an add-on or modpack.
+// checkRef checks the source and ids of an add-on.
 func checkRef(field, what string, src addons.Source, project, slug string) *Error {
 	if src != addons.Modrinth && src != addons.Hangar {
 		return invalid(field+".source", "value", fmt.Sprintf("%s comes from \"%s\"; templates list add-ons from Modrinth and Hangar.", what, printable(string(src))))
 	}
+	return checkIDs(field, what, src, project, slug)
+}
+
+// checkIDs checks the project id and slug of an add-on or modpack from src.
+func checkIDs(field, what string, src addons.Source, project, slug string) *Error {
 	if !validID(src, project) {
 		return invalid(field+".project", "value", fmt.Sprintf("%s has no valid %s project id.", what, src.Name()))
 	}
@@ -355,8 +364,11 @@ func clearSetting(s *Settings, field string) {
 }
 
 func hashAlgo(src addons.Source) string {
-	if src == addons.Hangar {
+	switch src {
+	case addons.Hangar:
 		return "sha256"
+	case modpacks.CurseForge:
+		return "sha1"
 	}
 	return "sha512"
 }
@@ -405,12 +417,12 @@ func validBuildValue(s string) bool {
 }
 
 // validID checks a project or version id: base62 on Modrinth, a number on
-// Hangar.
+// Hangar and CurseForge.
 func validID(src addons.Source, s string) bool {
 	switch src {
 	case addons.Modrinth:
 		return s != "" && len(s) <= 64 && onlyRunes(s, isAlnum)
-	case addons.Hangar:
+	case addons.Hangar, modpacks.CurseForge:
 		if s == "" || len(s) > 18 || s[0] == '0' {
 			return false
 		}

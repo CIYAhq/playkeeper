@@ -17,7 +17,7 @@ closing: guide
 schema: article
 */}}
 
-{{define "short"}}{{$p := provider "Vultr"}}{{$g := sizing}}{{$plan := $p.Fit $g.Answer.MemoryGB $g.Answer.Cores}}For {{$g.FirstBand}} friends on {{$g.FirstRun}}, deploy a {{$plan.Name}} server ({{$plan.CPUs}} vCPU, {{$plan.MemoryGB}} GB) in the location nearest them, with Ubuntu 24.04. Then run one command: Playkeeper sets up the server, a free address and backups, and opens the dashboard's port and the first game port in the firewall Vultr's Ubuntu turns on. It's {{usd $plan.USD}} a month ({{checked}}).{{end}}
+{{define "short"}}{{$p := provider "Vultr"}}{{$g := sizing}}{{$plan := $p.Fit $g.Answer.MemoryGB $g.Answer.Cores}}For {{$g.FirstBand}} friends on {{$g.FirstRun}}, deploy a {{$plan.Name}} server ({{$plan.CPUs}} vCPU, {{$plan.MemoryGB}} GB) in the location nearest them, with Ubuntu 24.04. Then run one command: Playkeeper sets up the server, a free address and backups, and opens the dashboard's port and the first game port in the firewall Vultr's Ubuntu turns on. It's {{usd $plan.USD}} a month ({{checked}}).{{if $p.CoversMonth $plan}} New accounts get {{$p.Offered}} through our link, so the first month is free. {{$p.OfferTerms}}{{end}}{{end}}
 
 {{define "closing-title"}}Your Vultr server is one command away.{{end}}
 {{define "closing-sub"}}Free and open source. Friends can be playing tonight.{{end}}
@@ -70,7 +70,7 @@ schema: article
 
 <section aria-labelledby="cost">
   {{template "h2n" (dict "ID" "cost" "N" 7 "Text" "What it costs")}}
-  <p>Playkeeper and its playkeeper.me address are free; the server is the only bill. For {{$g.FirstBand}} friends on {{$g.FirstRun}}, a {{$plan.Name}} plan with {{$plan.CPUs}} vCPU and {{$plan.MemoryGB}} GB is {{usd $plan.USD}} a month, billed by the hour (prices on {{checked}}). Vultr's own automatic backups of the whole server are optional and cost extra.</p>
+  <p>Playkeeper and its playkeeper.me address are free; the server is the only bill. For {{$g.FirstBand}} friends on {{$g.FirstRun}}, a {{$plan.Name}} plan with {{$plan.CPUs}} vCPU and {{$plan.MemoryGB}} GB is {{usd $plan.USD}} a month, billed by the hour (prices on {{checked}}).{{if $p.CoversMonth $plan}} New accounts get {{$p.Offered}} through our link, enough for that plan's first month. {{$p.OfferTerms}}{{end}} Vultr's own automatic backups of the whole server are optional and cost extra.</p>
 </section>
 {{end}}
 

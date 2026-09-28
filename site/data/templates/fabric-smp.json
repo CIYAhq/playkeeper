@@ -1,0 +1,25 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Fabric SMP",
+  "description": "Fabric for friends: Lithium, FerriteCore, Krypton and ScalableLux keep the server light, with pre-generation and proximity voice chat.",
+  "game": "minecraft-java",
+  "server": { "type": "fabric", "minecraftVersion": "26.2" },
+  "settings": {
+    "difficulty": "normal",
+    "pvp": false,
+    "gameMode": "survival",
+    "viewDistance": 10,
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 4096
+  },
+  "addons": [
+    { "source": "modrinth", "project": "P7dR8mSH", "slug": "fabric-api", "name": "Fabric API", "pin": { "versionId": "ewUK83HI", "versionNumber": "0.161.0+26.2", "channel": "release", "hashAlgo": "sha512", "hash": "2502fa5ade78e9a120b3747bc1a9a2167d6671743bea45bf115d3174c94121aeda87c549446d1a604a9c11fb828de17a551e3514ce42f3e93069dd14bdaee55b" } },
+    { "source": "modrinth", "project": "gvQqBUqZ", "slug": "lithium", "name": "Lithium", "pin": { "versionId": "f7vZ0VWU", "versionNumber": "mc26.2-0.25.3-fabric", "channel": "release", "hashAlgo": "sha512", "hash": "148b638f3c6229fbaf487120a2344a0af5e411a5aa6533d5db9d75da0a8c0d8304f63eb4cca13f4d03b2c9b4c23d559dd74c1d832422ef8a3087bd005e62a8bd" } },
+    { "source": "modrinth", "project": "uXXizFIs", "slug": "ferrite-core", "name": "FerriteCore", "pin": { "versionId": "d5ddUdiB", "versionNumber": "9.0.0-fabric", "channel": "release", "hashAlgo": "sha512", "hash": "d81fa97e11784c19d42f89c2f433831d007603dd7193cee45fa177e4a6a9c52b384b198586e04a0f7f63cd996fed713322578bde9a8db57e1188854ae5cbe584" } },
+    { "source": "modrinth", "project": "fQEb0iXm", "slug": "krypton", "name": "Krypton", "pin": { "versionId": "5WeL0Nkz", "versionNumber": "0.3.1", "channel": "release", "hashAlgo": "sha512", "hash": "b8d9af34cd0050493afb8a6232cb8f785daa9d8887b7045f6e6a53c6bb9b5ffc4318fd9b0347a940eacfeba4773f10cb80ae0be1e79ce4c1888f96eda21e564e" } },
+    { "source": "modrinth", "project": "Ps1zyz6x", "slug": "scalablelux", "name": "ScalableLux", "pin": { "versionId": "FuGn0NlI", "versionNumber": "0.2.1+fabric.2b08348", "channel": "release", "hashAlgo": "sha512", "hash": "46cc3df58ad2723fb7f925da0e380e22481e15ceb0e61fbd7947f48d2902e7a67ae4d2d22df4faab4e3140ccf79aa9f59d91ec9959bd6e2afbf0fb90970a02fc" } },
+    { "source": "modrinth", "project": "fALzjamp", "slug": "chunky", "name": "Chunky", "pin": { "versionId": "4Eotm6ov", "versionNumber": "1.5.3", "channel": "release", "hashAlgo": "sha512", "hash": "b83bfe7b218d0aa6232af977ae741dc1f82b10e50cd12bb759f65cf416b8b62beccb543e587ef0b9670abe03815660f8e091bc6823624d65cf07300571573516" } },
+    { "source": "modrinth", "project": "9eGKb6K1", "slug": "simple-voice-chat", "name": "Simple Voice Chat", "pin": { "versionId": "DKSq5wO6", "versionNumber": "fabric-2.6.22+26.2", "channel": "release", "hashAlgo": "sha512", "hash": "eb45e75e8b031f3bb27e178ed44fd7b78ba681f077f5972e170726b4837146efd49c7b67d63a95ec4ce87e5672cf76bed85ac8fa7790a9e7ff7309a6c3f424ee" } }
+  ]
+}

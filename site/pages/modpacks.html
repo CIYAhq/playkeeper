@@ -34,6 +34,7 @@ schema: article
   {{template "h2n" (dict "ID" "memory" "N" 2 "Text" "How much memory a modpack needs" "Toc" "How much memory")}}
   <p>It follows the mods the server runs, not the pack's name. Playkeeper suggests memory for that number of mods, and more when a pack's own settings ask Java for a bigger heap: All the Mods 10 asks for {{(modpack "atm10").HeapGB}}, so it gets {{(modpack "atm10").Memory}}.</p>
   <p>Friends add to it. The <a href="/sizing">sizing guide</a> gives a big modpack {{(sizingFor 4 "modpack").MemoryGB}} GB for up to four friends and {{(sizingFor 8 "modpack").MemoryGB}} GB for more, so pick the larger of the two numbers.</p>
+  <p>On a test server, big packs used about 2 GB more than their Java heap: <a href="/guides/modded-minecraft-server-ram">what each pack used</a>.</p>
 </section>
 
 <section aria-labelledby="one-click">
@@ -42,12 +43,13 @@ schema: article
   {{template "install" (dict "ID" true)}}
   <p>Then pick New server › A modpack. Each pack shows its loader, Minecraft version, mods and the memory it needs before you create anything.</p>
   {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs." "Sizes" $article)}}
+  <p>One exception: Better MC's server stops at its first start until you delete two of its mods, which are for players' games. <a href="/modpacks/better-mc-server#one-click">Its page</a> says which.</p>
 </section>
 
 <section aria-labelledby="not-yet">
   {{template "h2n" (dict "ID" "not-yet" "N" 4 "Text" "Packs Playkeeper can't run yet" "Toc" "Not yet")}}
   <ul>
-    <li><strong>Packs for Minecraft older than 1.21,</strong> like RLCraft on 1.12.2, and SkyFactory 5, Prominence II and Better MC's Forge and Fabric editions on 1.20.1.</li>
+    <li><strong>Packs for Minecraft older than {{oldestMinecraft}},</strong> like RLCraft on 1.12.2.</li>
   </ul>
   <p>The <a href="/guides/modded-minecraft-server">modded server guide</a> covers setting up any pack by hand.</p>
 </section>
@@ -57,7 +59,7 @@ schema: article
 <div class="article-after">
   {{template "faq" (dict "ID" "questions" "Items" (list
     (qa "How much RAM does a modded Minecraft server need?" (printf "From %s for a pack with a few dozen mods, like the %s, to %s for a big one, like %s. Add more for more friends." (modpack "cobblemon").Memory (modpack "cobblemon").Name (modpack "atm10").Memory (modpack "atm10").Name))
-    (qa "Which Java does a modpack server need?" "The one its Minecraft version needs: Java 21 for 1.21, Java 25 for 26.1 and newer. Playkeeper picks it for you.")
+    (qa "Which Java does a modpack server need?" "The one its Minecraft version needs: Java 17 for 1.20.1, Java 21 for 1.21, Java 25 for 26.1 and newer. Playkeeper picks it for you.")
     (qa "Do friends need the same modpack?" "Yes: the same pack and version as the server. Playkeeper's Share with friends gives them a page with the pack and their launcher's steps.")
     (qa "Where do the numbers come from?" (printf "From each pack's own files on Modrinth or CurseForge, and from Playkeeper %s's install plan for the version shown, which counts what goes on the server." (modpack "atm10").Release))
   ))}}

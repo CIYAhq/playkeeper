@@ -6,9 +6,7 @@ label: Lifesteal SMP
 h1: How to make a lifesteal SMP server
 card: How to make a lifesteal SMP server
 kind: Template
-section: guides
-layout: guide
-crumb: Templates
+layout: category
 og: template-lifesteal-smp
 published: 2026-09-28
 updated: 2026-09-28
@@ -59,7 +57,7 @@ schema: article
   <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
   {{template "install" (dict "ID" true)}}
   {{template "steps" (dict "Items" (list
-    (dict "Title" "Open the template below" "Text" "Your dashboard shows PvP on and the three plugins before anything installs.")
+    (dict "Title" "Open the template above" "Text" "Your dashboard shows PvP on and the three plugins before anything installs.")
     (dict "Title" "Create and start it, then set the defaults above" "Text" "Edit them on the Files tab and restart once.")
     (dict "Title" "Pre-generate the world" "Text" "Pre-generate on the World tab runs Chunky, so fights in new land don't lag.")
   ))}}
@@ -80,13 +78,6 @@ schema: article
     (qa "What happens at zero hearts?" "The player is eliminated and banned. A revive beacon or an operator's /revive brings them back, or set disablePlayerBanOnElimination to true.")
     (qa "How much RAM does a lifesteal server need?" (printf "%s for a small group, as this template sets. The sizing guide gives 11 to 20 players with plugins %d GB." $l.Memory (sizingFor 20 "add-ons").MemoryGB))
   ))}}
-  <section class="tpl-section" aria-labelledby="tpl-title">
-    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
-    <div class="tpl-pair">
-      {{template "library-card" (dict "ID" $l.Template)}}
-      {{template "library-card" (dict "ID" "survival-with-friends" "Page" "/templates/smp")}}
-    </div>
-  </section>
 </div>
 {{end}}
 

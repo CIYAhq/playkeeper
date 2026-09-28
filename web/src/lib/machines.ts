@@ -146,6 +146,31 @@ export function joinOf(s: Pick<ServerStatus, 'name' | 'joinAddress' | 'gamePort'
   return ip ? { address: joinAddress(ip, s.gamePort) } : { address: '', reason: t('join.noIP', { machine: machineLabel(m) }) }
 }
 
+/** GeyserMC's guide to the ways console players get in. */
+export const bedrockConsolesUrl = 'https://geysermc.org/wiki/geyser/using-geyser-with-consoles/'
+
+/** Where Bedrock players join: an address and the port, which they type in two fields; reason says why there's no address. */
+export interface BedrockJoinAt {
+  host: string
+  port: number
+  reason?: string
+}
+
+/**
+ * Where Bedrock players join a server that has crossplay, or undefined
+ * without it. Bedrock doesn't follow the SRV records servers' own names
+ * use, so it's the machine's name once that works, else the host Java
+ * players fall back to, always with the port.
+ */
+export function bedrockOf(s: Pick<ServerStatus, 'name' | 'bedrock' | 'machineId'>, m: MachineView | undefined, dashboardHost: string = window.location.hostname): BedrockJoinAt | undefined {
+  const b = s.bedrock
+  if (!b) return undefined
+  if (s.machineId && m?.id !== s.machineId) return { host: '', port: b.port, reason: t('join.noMachine', { server: s.name }) }
+  if (m?.kind !== 'remote') return { host: b.host || dashboardHost, port: b.port }
+  const ip = joinedIP(m)
+  return ip ? { host: ip, port: b.port } : { host: '', port: b.port, reason: t('join.noIP', { machine: machineLabel(m) }) }
+}
+
 /** "10 min", "3 h" or "2 days" since a moment, for a status pill. */
 export function awayShort(since: string, now: number): string {
   const s = Math.max(0, (now - new Date(since).getTime()) / 1000)

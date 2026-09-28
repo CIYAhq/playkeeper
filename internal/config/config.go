@@ -58,6 +58,24 @@ type Config struct {
 	// ReleaseURL is where the agent looks for updates; empty means the latest
 	// GitHub release. Updates are only installed if they are signed.
 	ReleaseURL string `json:"releaseURL,omitempty"`
+	// UsageID is the random ID usage stats (internal/usage) report under,
+	// made by the installer when they are on. Installs from before 0.4.4,
+	// and ones that turned them on later, have none here: the agent keeps
+	// its own.
+	UsageID string `json:"usageID,omitempty"`
+	// UsageSource and UsageChannel are how Playkeeper got onto the machine
+	// (usage.SourceSite and the others) and the playkeeper.io channel code
+	// of its install command; empty on installs from before 0.4.4.
+	UsageSource  string `json:"usageSource,omitempty"`
+	UsageChannel string `json:"usageChannel,omitempty"`
+	// UsageStats is "off" or "on" when the install chose with DO_NOT_TRACK
+	// or PLAYKEEPER_USAGE_STATS; empty means usage.DefaultOn. The switch in
+	// Settings wins over it.
+	UsageStats string `json:"usageStats,omitempty"`
+	// UsageTest marks the project's own test installs (usage.System.Test).
+	UsageTest bool `json:"usageTest,omitempty"`
+	// StatsURL is where usage stats go; empty means usage.DefaultURL.
+	StatsURL string `json:"statsURL,omitempty"`
 	// Dev relaxes host checks for `playkeeper dev`; never set by the installer.
 	Dev bool `json:"dev,omitempty"`
 	// NoPanel is set on a machine installed to join another dashboard: it

@@ -14,8 +14,8 @@
     "memoryMB": 4096
   },
   "addons": [
-    { "source": "modrinth", "project": "fALzjamp", "slug": "chunky", "name": "Chunky", "latest": true },
-    { "source": "modrinth", "project": "Lu3KuzdV", "slug": "coreprotect", "name": "CoreProtect", "latest": true },
-    { "source": "modrinth", "project": "9eGKb6K1", "slug": "simple-voice-chat", "name": "Simple Voice Chat", "latest": true }
+    { "source": "modrinth", "project": "fALzjamp", "slug": "chunky", "name": "Chunky", "pin": { "versionId": "MdY6JATr", "versionNumber": "1.5.3", "channel": "release", "hashAlgo": "sha512", "hash": "43ffecc6e6a734b752da41575bbb316526c124c3f878942437d5133c377bfbd9b78bda975520dc074d7158c15dade58a444ccd0fd8d8a25d165b6fc450140422" } },
+    { "source": "modrinth", "project": "Lu3KuzdV", "slug": "coreprotect", "name": "CoreProtect", "pin": { "versionId": "3sehX6Sg", "versionNumber": "24.1", "channel": "release", "hashAlgo": "sha512", "hash": "76aad727528ddb990bbee5069f8ef3fcd018ae0bcdea89b965be2485e828633eb068672e841be64e550c8474f901a24d8c15c7bd44c2bd6c96244e1e58de0c95" } },
+    { "source": "modrinth", "project": "9eGKb6K1", "slug": "simple-voice-chat", "name": "Simple Voice Chat", "pin": { "versionId": "EJth3OAr", "versionNumber": "bukkit-2.6.24", "channel": "release", "hashAlgo": "sha512", "hash": "7f1d5765e79cd42616f14f40322d1171a8505e1116dfff71c7bd0e59af9d255c06f70a68a5b622015c0407d40c80e70298c172992007ff339cedcef0116fec42" } }
   ]
 }

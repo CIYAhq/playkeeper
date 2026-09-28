@@ -1,0 +1,33 @@
+{
+  "status": "passing",
+  "checked": "2026-09-28",
+  "release": "0.4.2",
+  "build": "129",
+  "doneSeconds": 14.715,
+  "addons": [
+    {
+      "name": "LuckPerms",
+      "source": "modrinth",
+      "slug": "luckperms",
+      "version": "v5.5.71-bukkit",
+      "licence": "MIT",
+      "downloads": 2779325
+    },
+    {
+      "name": "Towny",
+      "source": "modrinth",
+      "slug": "towny",
+      "version": "0.103.2.0",
+      "licence": "LicenseRef-CC-BY-NC-ND-3.0",
+      "downloads": 52106
+    },
+    {
+      "name": "Chunky",
+      "source": "modrinth",
+      "slug": "chunky",
+      "version": "1.5.3",
+      "licence": "GPL-3.0-only",
+      "downloads": 18377066
+    }
+  ]
+}

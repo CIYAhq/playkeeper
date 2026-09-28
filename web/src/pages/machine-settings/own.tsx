@@ -1,8 +1,8 @@
 import { useId, useState, type ReactNode } from 'react'
 import { ExternalLinkIcon, PencilIcon, RefreshCwIcon } from 'lucide-react'
 import { del, get, post } from '@/api/client'
-import type { Address, AddressPlan, DNSRecord, JoinAddress } from '@/api/types'
-import { machineApi } from '@/api/workspace'
+import type { Address, AddressCheck, AddressPlan, DNSRecord, JoinAddress } from '@/api/types'
+import { machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, SectionLabel, useNow } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,7 @@ import { InputGroup, InputGroupInput } from '@/components/ui/input-group'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { certState, dashboardURL, ownDone, recordFor, runningOp, zoneOf } from '@/lib/address'
 import { formatList, formatLongDate, relativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -307,7 +308,7 @@ function Results({ a, now, phone, checking, onCheck, certBusy, onCertificate }: 
         </ResultBlock>,
       )
   }
-  const wrong = n.ok ? (c.records ?? []).filter((r) => !r.ok) : []
+  const wrong = n.ok ? (c.records ?? []).filter((r) => !r.ok && !r.own) : []
   wrong.forEach((r, i) =>
     blocks.push(
       <ResultBlock key={`srv-${i}`} tone="amber" title={r.message} actions={i === wrong.length - 1 && again(t('address.checkAgain'))}>
@@ -361,6 +362,116 @@ function Results({ a, now, phone, checking, onCheck, certBusy, onCertificate }: 
     }
   }
   return <div className={cn('divide-y divide-border overflow-hidden border border-border', phone ? 'rounded-3xl bg-white' : 'mt-2 rounded-2xl')}>{blocks}</div>
+}
+
+/**
+ * Each server's own address under the domain, as the owner gives them, with
+ * the two records each needs and whether the last check found them.
+ */
+function OwnAddresses({ a, refresh }: { a: Address; refresh: () => Promise<void> }) {
+  const phone = useIsPhone()
+  const servers = a.servers ?? []
+  if (a.kind !== 'own' || !a.host || servers.length === 0) return null
+  const rows = servers.map((s) => <OwnAddressRow key={s.serverId} a={a} s={s} refresh={refresh} />)
+  if (phone) {
+    return (
+      <Group label={t('address.ownAddresses')}>
+        <div className="flex flex-col divide-y divide-border px-4">{rows}</div>
+      </Group>
+    )
+  }
+  return (
+    <Card>
+      <CardTitle>{t('address.ownAddresses')}</CardTitle>
+      <CardHint>{t('address.ownAddressesHint', { zone: zoneOf(a.host) })}</CardHint>
+      <div className="mt-2 flex flex-col divide-y divide-border">{rows}</div>
+    </Card>
+  )
+}
+
+function OwnAddressRow({ a, s, refresh }: { a: Address; s: JoinAddress; refresh: () => Promise<void> }) {
+  const ws = useWorkspace()
+  const inputId = useId()
+  const [draft, setDraft] = useState<string>()
+  const [busy, setBusy] = useState(false)
+  const [problem, setProblem] = useState<string>()
+  const saved = s.ownAddress ?? ''
+  const value = draft ?? saved
+  const locked = can(ws.me, 'machine.manage') ? undefined : t('address.ownNotAllowed')
+  async function save(address: string) {
+    setBusy(true)
+    setProblem(undefined)
+    try {
+      await post<Address>(serverApi(s.serverId, '/own-address'), { address })
+      setDraft(undefined)
+      await refresh()
+    } catch (e) {
+      setProblem(refusal(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const records = saved ? (a.records ?? []).filter((r) => r.serverId === s.serverId) : []
+  return (
+    <div className="flex flex-col gap-2 py-3">
+      <label htmlFor={inputId} className="text-[13px] leading-5 font-semibold">
+        {s.name}
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <InputGroup className="max-w-[300px] max-sm:h-11">
+          <InputGroupInput
+            id={inputId}
+            value={value}
+            onChange={(e) => {
+              setDraft(e.target.value)
+              setProblem(undefined)
+            }}
+            onBlur={() => draft !== undefined && setDraft(domainOf(draft))}
+            placeholder={t('address.ownPlaceholder', { zone: zoneOf(a.host ?? '') })}
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            inputMode="url"
+            disabled={!!locked}
+            aria-invalid={!!problem || undefined}
+            className="max-sm:text-[17px]"
+          />
+        </InputGroup>
+        <Button
+          size="sm"
+          variant="outline"
+          aria-label={t('address.ownSave', { server: s.name })}
+          loading={busy}
+          disabledReason={locked ?? (!domainOf(value) || domainOf(value) === saved ? t('address.ownUnchanged') : undefined)}
+          onClick={() => void save(domainOf(value))}
+        >
+          {t('common.save')}
+        </Button>
+        {saved && (
+          <Button size="sm" variant="ghost" aria-label={t('address.ownRemoveLabel', { server: s.name })} disabledReason={locked} onClick={() => void save('')}>
+            {t('address.ownRemove')}
+          </Button>
+        )}
+      </div>
+      <ErrorLine text={problem} className="mt-0" />
+      {records.map((r, i) => (
+        <OwnRecord key={`${r.type}-${r.name}-${i}`} r={r} check={a.check} />
+      ))}
+    </div>
+  )
+}
+
+/** One of an own address's records, and whether the last check found it right. */
+function OwnRecord({ r, check }: { r: DNSRecord; check?: AddressCheck }) {
+  const works = (check?.records ?? []).some((rc) => rc.ok && rc.record.serverId === r.serverId && rc.record.name === r.name && (rc.record.type === 'SRV') === (r.type === 'SRV'))
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
+      <span className="w-10 font-semibold">{r.type}</span>
+      <CopyCell value={r.name} />
+      <CopyCell value={r.value} />
+      <span className={cn('text-xs font-medium', works ? 'text-success-strong' : 'text-muted-foreground')}>{works ? t('address.recordWorks') : t('address.recordNotYet')}</span>
+    </div>
+  )
 }
 
 /** An own domain: its steps until it works, then what players type, with change and stop. */
@@ -438,6 +549,7 @@ export function OwnDomain(props: AddressProps) {
             </>
           }
         />
+        <OwnAddresses a={a} refresh={refresh} />
         {dialog}
       </>
     )
@@ -456,7 +568,10 @@ export function OwnDomain(props: AddressProps) {
   if (phone) {
     return (
       <>
-        <div className="flex flex-1 flex-col gap-5 pt-2 pb-6">{steps}</div>
+        <div className="flex flex-1 flex-col gap-5 pt-2 pb-6">
+          {steps}
+          {!editing && <OwnAddresses a={a} refresh={refresh} />}
+        </div>
         {dialog}
       </>
     )
@@ -468,6 +583,7 @@ export function OwnDomain(props: AddressProps) {
         {!editing && <CardHint>{a.ip ? t('address.lead', { ip: a.ip }) : t('address.leadNoIp')}</CardHint>}
         {steps}
       </Card>
+      {!editing && <OwnAddresses a={a} refresh={refresh} />}
       {dialog}
     </>
   )

@@ -1,0 +1,41 @@
+{
+  "status": "passing",
+  "checked": "2026-09-28",
+  "release": "0.4.2",
+  "build": "129",
+  "doneSeconds": 12.234,
+  "addons": [
+    {
+      "name": "GriefPrevention",
+      "source": "modrinth",
+      "slug": "griefprevention",
+      "version": "16.18.7",
+      "licence": "GPL-3.0-only",
+      "downloads": 205043
+    },
+    {
+      "name": "WorldGuard",
+      "source": "modrinth",
+      "slug": "worldguard",
+      "version": "7.0.19",
+      "licence": "LGPL-3.0-only",
+      "downloads": 875354
+    },
+    {
+      "name": "WorldEdit",
+      "source": "modrinth",
+      "slug": "worldedit",
+      "version": "7.4.5",
+      "licence": "GPL-3.0-only",
+      "downloads": 10915832
+    },
+    {
+      "name": "CoreProtect",
+      "source": "modrinth",
+      "slug": "coreprotect",
+      "version": "24.1",
+      "licence": "Artistic-2.0",
+      "downloads": 527744
+    }
+  ]
+}

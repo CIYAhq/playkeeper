@@ -1,57 +1,19 @@
-import { expect, test, type Page, type Route } from '@playwright/test'
-import { FakeConsole, fakePanel, machine, paperLines, server } from './fake-panel'
+import { expect, test, type Locator, type Page, type Route } from '@playwright/test'
+import { FakeConsole, fakePanel, paperLines, settingsReads } from './fake-panel'
 
 // A server's page at desktop and phone sizes: its header stays at the top
 // while only the content below it scrolls, a section pressed in Settings'
 // list glides into place below the header (in one jump with reduced motion),
-// a tab shows at once without fading in, and everything that can be pressed
-// shows a pointer.
+// a tab shows at once without fading in, everything that can be pressed
+// shows a pointer, and the Map tab's map takes the height the page has left.
 
 const sizes = {
   desktop: { viewport: { width: 1440, height: 900 } },
   phone: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
 } as const
 
-const s = server()
-const now = new Date().toISOString()
-
 // What the Settings tab and a phone's Overview read, on top of fake-panel.ts.
-const reads: Record<string, unknown> = {
-  [`/api/machines/${machine.id}/catalog`]: {
-    type: 'paper',
-    types: [{ id: 'paper', name: 'Paper', available: true }],
-    versions: [{ id: 'paper-26.1.2-74', label: '26.1.2', minecraftVersion: '26.1.2', paperBuild: 74, jarSha256: 'cd'.repeat(32), java: 25, recommended: true, notes: '', channel: 'STABLE', experimental: false, supported: true }],
-    memoryOptionsMB: [2048, 3072, 4096, 6144],
-    recommendedMemoryMB: 4096,
-    hostMemoryMB: machine.live.memoryTotalMB,
-    maxMemoryMB: 8192,
-    systemReserveMB: machine.live.systemReserveMB,
-    memoryFreeMB: machine.live.memoryFreeMB,
-    servers: [{ id: s.id, name: s.name, memoryMB: 4096, running: true }],
-    suggestedPort: 25566,
-    image: 'itzg/minecraft-server:2026.9.0-java25',
-  },
-  [`/api/servers/${s.id}/memory`]: {
-    verdict: 'keep',
-    params: { budget_mb: 4096, heap_mb: 3072, peak_mb: 2560, days: 14, reason: 'fits' },
-    title: 'Its memory fits',
-    explanation: 'It needed up to 2.5 GB in the last 14 days.',
-    evidence: [],
-    actions: [],
-    budgetMB: 4096,
-    heapMB: 3072,
-    recommendedMB: 4096,
-    days: Array.from({ length: 14 }, (_, i) => ({ date: `2026-09-${String(12 + i).padStart(2, '0')}`, peakMB: 2200 + i * 20 })),
-    options: [2048, 3072, 4096, 6144].map((memoryMB) => ({ memoryMB, heapMB: memoryMB * 0.75, fits: true })),
-  },
-  [`/api/servers/${s.id}/sleep`]: { enabled: false, idleMinutes: 15, listening: false, defaultIdleMinutes: 15, minIdleMinutes: 5, maxIdleMinutes: 240, today: { count: 0, seconds: 0 } },
-  [`/api/servers/${s.id}/schedules`]: { schedules: [] },
-  [`/api/servers/${s.id}/schedules/runs`]: { runs: [] },
-  [`/api/servers/${s.id}/backups`]: [],
-  [`/api/servers/${s.id}/activity`]: [{ ts: now, serverId: s.id, kind: 'player_joined', actor: 'mara_k' }],
-  [`/api/servers/${s.id}/players/sessions`]: { range: '24h', sessions: [] },
-  [`/api/servers/${s.id}/metrics`]: { from: new Date(Date.now() - 86_400_000).toISOString(), to: now, bucketSeconds: 3600, sampleIntervalSeconds: 60, buckets: [], gaps: [], source: 'agent' },
-}
+const reads = settingsReads()
 
 // A player's face: an 8 × 8 grey square.
 const face = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8" fill="#9a9e94"/></svg>`
@@ -69,6 +31,55 @@ async function panel(page: Page) {
   })
   return faked
 }
+
+/** The map turned on, drawn or still drawing (`map.state`, read at each request), its tiles not drawn yet. */
+async function mapPanel(page: Page) {
+  const faked = await panel(page)
+  const map = { state: 'ready' as 'ready' | 'drawing' }
+  const base = `/api/servers/${faked.server.id}/map`
+  const world = (name: string, dimension: string, label: string) => ({ name, dimension, label, spawn: { x: 0, z: 0 }, zoom: { max: 3, default: 3, extra: 2 }, refreshSeconds: 60 })
+  const player = (name: string, x: number, z: number) => ({ name, uuid: '', world: 'world', dimension: 'overworld', x, z })
+  const answers: Record<string, () => unknown> = {
+    [base]: () => ({
+      supported: true,
+      enabled: true,
+      state: map.state,
+      message: '',
+      areas: 4800,
+      bytes: 190_000_000,
+      lastDrawn: map.state === 'ready' ? new Date(Date.now() - 3_600_000).toISOString() : undefined,
+      progress: map.state === 'drawing' ? { done: 1200, total: 4800, percent: 25, secondsLeft: 420 } : undefined,
+      plugin: 'squaremap',
+      estimatedMinutes: 10,
+      estimatedMegabytes: 200,
+      public: true,
+      publicPlayers: false,
+      path: '/map/Pk7Map0Link0Token0Abcd',
+      restartWhenEmpty: false,
+      checkedAt: new Date().toISOString(),
+    }),
+    [`${base}/worlds`]: () => ({ worlds: [world('world', 'overworld', 'Overworld'), world('world_nether', 'nether', 'Nether'), world('world_the_end', 'end', 'The End')], tileSize: 512 }),
+    [`${base}/players`]: () => ({ players: [player('mara_k', 24, -10), player('tobi2009', 14, 25), player('JunoFox', -3, -47)], updatedAt: new Date().toISOString() }),
+    [`${base}/area`]: () => ({ area: 'explored', options: [], fill: { state: 'idle', world: 'world', chunks: 0, total: 0, percent: 0, etaSeconds: -1, pauseForPlayers: true, installed: true, presets: [] } }),
+  }
+  await page.route('**/api/**', (route: Route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.startsWith(`${base}/tiles/`)) return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"Not drawn yet.","code":"not_found"}' })
+    const answer = route.request().method() === 'GET' ? answers[url.pathname] : undefined
+    if (!answer) return route.fallback()
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(answer()) })
+  })
+  return { ...faked, map }
+}
+
+/** Where an element is on the screen: its edges. */
+async function edges(target: Locator) {
+  const box = await target.boundingBox({ timeout: 10_000 })
+  if (!box) throw new Error('not on the page')
+  return { top: box.y, bottom: box.y + box.height, left: box.x, right: box.x + box.width }
+}
+
+const pageScrolls = (page: Page) => page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight)
 
 /** Where the page's sticky header is: its top and bottom edges. */
 async function headerEdges(page: Page) {
@@ -192,6 +203,31 @@ test.describe('desktop', () => {
     await page.keyboard.press('Escape')
     expect(unexpected, 'API calls the fake panel does not answer').toEqual([])
   })
+
+  test('the Map tab’s map reaches down to the footer beside its panel, drawn or still drawing, in a window of any height', async ({ page }) => {
+    const { unexpected, map } = await mapPanel(page)
+    const canvas = page.getByRole('application', { name: /^Map of / })
+    const footer = page.getByText('Not an official Minecraft product')
+    for (const state of ['ready', 'drawing'] as const) {
+      map.state = state
+      // The panel's first card: who's playing, or how far the drawing is.
+      const card = page.getByText(state === 'ready' ? 'Playing now' : 'Drawing the map', { exact: true })
+      await page.setViewportSize(sizes.desktop.viewport)
+      await page.goto('/servers/survival/map')
+      await expect(card).toBeVisible()
+      await expect(page.getByText('Share with a link', { exact: true })).toBeVisible({ visible: state === 'ready' })
+      for (const height of [sizes.desktop.viewport.height, 1200]) {
+        await page.setViewportSize({ width: sizes.desktop.viewport.width, height })
+        // The page's own bottom padding is all that's between them.
+        await expect.poll(async () => Math.round((await edges(footer)).top - (await edges(canvas)).bottom), { message: `${state}, ${height} pixels high: the map ends just above the footer` }).toBe(24)
+        expect(await pageScrolls(page), 'the page fits the window').toBe(false)
+        const [box, side] = [await edges(canvas), await edges(card)]
+        expect(side.left, 'its panel stays beside it').toBeGreaterThan(box.right)
+        expect(side.top - box.top, 'at its top').toBeLessThan(24)
+      }
+    }
+    expect(unexpected, 'API calls the fake panel does not answer').toEqual([])
+  })
 })
 
 test.describe('phone', () => {
@@ -221,6 +257,21 @@ test.describe('phone', () => {
       }).length,
     )
     expect(scrollAreas, 'only the page scrolls').toBe(0)
+    expect(unexpected, 'API calls the fake panel does not answer').toEqual([])
+  })
+
+  test('the Map tab’s map takes the screen down to its line of players or its drawing card', async ({ page }) => {
+    const { unexpected, map } = await mapPanel(page)
+    for (const state of ['ready', 'drawing'] as const) {
+      map.state = state
+      await page.goto('/servers/survival/map')
+      const box = await edges(page.getByRole('application', { name: /^Map of / }))
+      const under = await edges(state === 'ready' ? page.getByText('3 playing', { exact: true }) : page.locator('[aria-live=polite]', { hasText: 'Drawing the map' }))
+      const tabBar = await edges(page.getByRole('navigation', { name: 'Server pages' }))
+      expect(under.top - box.bottom, `${state}: the line or card sits right under the map`).toBeLessThan(20)
+      expect(tabBar.top - under.bottom, `${state}: with no gap left above the tab bar`).toBeLessThan(40)
+      expect(await pageScrolls(page), 'the page fits the screen').toBe(false)
+    }
     expect(unexpected, 'API calls the fake panel does not answer').toEqual([])
   })
 })

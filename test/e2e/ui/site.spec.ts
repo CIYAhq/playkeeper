@@ -6,7 +6,10 @@ import fs from 'node:fs'
 // template state and the 404, at the designs' two sizes: nothing wider than
 // the screen, and no serious accessibility violations, with and without
 // reduced motion. Each page is checked even when one before it fails.
-// playwright.site.config.ts builds and serves the site.
+// playwright.site.config.ts builds and serves the site. The site gains pages
+// every week, so a check of every page is split into parts that run side by
+// side, and a test that visits every page has a time limit that grows with
+// the pages, instead of the config's three minutes.
 const sizes = [
   { name: 'desktop', width: 1440, height: 900, mobile: false },
   { name: 'phone', width: 390, height: 844, mobile: true },
@@ -20,6 +23,13 @@ async function pagesToVisit(page: Page) {
   return [...paths, '/t', '/t#' + link.split('#')[1], '/no-such-page']
 }
 
+/** A test's time limit for visiting `pages` pages at `perPage` ms each: over three times what a busy CI runner takes. */
+function allow(pages: number, perPage: number) {
+  test.setTimeout(60_000 + pages * perPage)
+}
+
+const parts = 3
+
 async function axe(page: Page, where: string) {
   const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()
   const bad = result.violations.filter((x) => x.impact === 'serious' || x.impact === 'critical')
@@ -28,29 +38,33 @@ async function axe(page: Page, where: string) {
 
 for (const size of sizes) {
   for (const motion of ['no-preference', 'reduce'] as const) {
-    test(`every page at ${size.name} size (${motion === 'reduce' ? 'reduced motion' : 'with motion'}): nothing wider than the screen, no serious accessibility violations`, async ({ browser, baseURL }) => {
-      const ctx = await browser.newContext({ baseURL, viewport: { width: size.width, height: size.height }, isMobile: size.mobile, hasTouch: size.mobile, reducedMotion: motion })
-      const page = await ctx.newPage()
-      const errors: string[] = []
-      page.on('pageerror', (e) => errors.push(e.message))
-      page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
-      for (const path of await pagesToVisit(page)) {
-        await page.goto(path, { waitUntil: 'networkidle' })
-        // Scroll through, so the parts that fade in are shown.
-        await page.evaluate(async () => {
-          for (let y = 0; y < document.body.scrollHeight; y += 500) { window.scrollTo(0, y); await new Promise((r) => setTimeout(r, 30)) }
-          window.scrollTo(0, 0)
-        })
-        await page.waitForTimeout(700)
-        const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
-        expect.soft(wide, `${path} at ${size.name} is wider than the screen by ${wide}px`).toBeLessThanOrEqual(0)
-        await axe(page, `${path} at ${size.name}`)
-      }
-      // The GitHub star count is fetched from api.github.com, which may be
-      // unreachable here; nothing else should log an error.
-      expect(errors.filter((e) => !/api\.github\.com|Failed to load resource/.test(e)), 'errors in the browser console').toEqual([])
-      await ctx.close()
-    })
+    for (let part = 0; part < parts; part++) {
+      test(`every page at ${size.name} size (${motion === 'reduce' ? 'reduced motion' : 'with motion'}), part ${part + 1} of ${parts}: nothing wider than the screen, no serious accessibility violations`, async ({ browser, baseURL }) => {
+        const ctx = await browser.newContext({ baseURL, viewport: { width: size.width, height: size.height }, isMobile: size.mobile, hasTouch: size.mobile, reducedMotion: motion })
+        const page = await ctx.newPage()
+        const errors: string[] = []
+        page.on('pageerror', (e) => errors.push(e.message))
+        page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+        const mine = (await pagesToVisit(page)).filter((_, i) => i % parts === part)
+        allow(mine.length, 10_000)
+        for (const path of mine) {
+          await page.goto(path, { waitUntil: 'networkidle' })
+          // Scroll through, so the parts that fade in are shown.
+          await page.evaluate(async () => {
+            for (let y = 0; y < document.body.scrollHeight; y += 500) { window.scrollTo(0, y); await new Promise((r) => setTimeout(r, 30)) }
+            window.scrollTo(0, 0)
+          })
+          await page.waitForTimeout(700)
+          const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+          expect.soft(wide, `${path} at ${size.name} is wider than the screen by ${wide}px`).toBeLessThanOrEqual(0)
+          await axe(page, `${path} at ${size.name}`)
+        }
+        // The GitHub star count is fetched from api.github.com, which may be
+        // unreachable here; nothing else should log an error.
+        expect(errors.filter((e) => !/api\.github\.com|Failed to load resource/.test(e)), 'errors in the browser console').toEqual([])
+        await ctx.close()
+      })
+    }
   }
 }
 
@@ -69,9 +83,9 @@ test("the modded guide's Copy copies the whole script of the tab that's showing"
 
 /**
  * Serves, in place of the analytics' oa.js, one that hands each custom event
- * (and each flush) to the test, and answers for the sites links go out to, so
- * nothing leaves the machine and no visit is counted. oa.js waits for
- * release().
+ * (and each flush) to the test, and answers for the sites links go out to and
+ * for the stats service, so nothing leaves the machine and no visit or copy
+ * is counted. oa.js waits for release().
  */
 async function recordEvents(ctx: BrowserContext) {
   const events: unknown[][] = []
@@ -83,6 +97,7 @@ async function recordEvents(ctx: BrowserContext) {
     await route.fulfill({ contentType: 'text/javascript', body: 'window.oa = { track: function (name, props) { recordEvent(name, props) }, flush: function () { recordEvent("flush") } }' })
   })
   await ctx.route(/^https:\/\/(github\.com|www\.hostinger\.com|www\.digitalocean\.com|www\.vultr\.com)\//, (route) => route.fulfill({ contentType: 'text/html', body: '' }))
+  await ctx.route('https://stats.playkeeper.io/**', (route) => route.fulfill({ status: 204 }))
   // The live demo isn't part of the site's build.
   await ctx.route(/^http:\/\/127\.0\.0\.1:\d+\/demo\//, (route) => route.fulfill({ contentType: 'text/html', body: '' }))
   return { events, release }
@@ -160,6 +175,65 @@ test('the analytics’ custom events: the install command copied, links out to G
   await page.waitForURL(/github\.com/)
   expect(events, 'events from /t').toEqual([])
   await ctx.close()
+})
+
+/** Answers, for the stats service, the copies of the install command pages send, and keeps each for the test. */
+async function recordCopies(ctx: BrowserContext) {
+  const copies: { body: string; origin?: string; contentType?: string; cookie?: string; referer?: string }[] = []
+  await ctx.route('https://stats.playkeeper.io/v1/site', async (route) => {
+    const r = route.request()
+    const h = r.headers()
+    copies.push({ body: r.postData() ?? '', origin: h.origin, contentType: h['content-type'], cookie: h.cookie, referer: h.referer })
+    await route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': h.origin ?? '' } })
+  })
+  return copies
+}
+
+test('a copy of the install command tells the stats service once a page view, with the channel’s code and nothing else, and never from /t or a browser that asks not to be tracked', async ({ browser, baseURL }) => {
+  const ctx = await browser.newContext({ baseURL, viewport: { width: 1440, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] })
+  ;(await recordEvents(ctx)).release()
+  const copies = await recordCopies(ctx)
+  const page = await ctx.newPage()
+  await page.goto('/', { waitUntil: 'networkidle' })
+  await page.locator('#install .install-copy').click()
+  await page.locator('[data-closing] .install-copy').click()
+  await page.locator('#install .install-line').selectText()
+  await page.keyboard.press('ControlOrMeta+C')
+  await expect.poll(() => copies.length).toBe(1)
+  await page.waitForTimeout(500)
+  expect(copies, 'the copies told from one page view').toHaveLength(1)
+  // It names the page's origin, which the stats service takes counts from, and nothing else about the visitor.
+  expect(copies[0]).toEqual({ body: '{"event":"install_copied","channel":""}', origin: new URL(baseURL!).origin, contentType: expect.stringMatching(/^text\/plain/), cookie: undefined, referer: undefined })
+
+  // Another page view is counted again; a channel's command says its code.
+  await page.goto('/?utm_source=youtube&utm_medium=sponsor&utm_campaign=creators-oct26&utm_content=cygnus', { waitUntil: 'networkidle' })
+  await page.locator('#install .install-copy').click()
+  await expect.poll(() => copies.length).toBe(2)
+  expect(JSON.parse(copies[1].body)).toEqual({ event: 'install_copied', channel: 'cygnus' })
+
+  // The share page tells nothing.
+  const link = fs.readFileSync('../../../internal/templates/testdata/share-link.txt', 'utf8').trim()
+  await page.goto('/t#' + link.split('#')[1], { waitUntil: 'networkidle' })
+  await page.locator('#install .install-copy').click()
+  await expect(page.locator('#install .install-copy')).toHaveClass(/is-copied/)
+  await page.waitForTimeout(500)
+  expect(copies, 'copies told from /t').toHaveLength(2)
+  await ctx.close()
+
+  // Nor does a browser with Global Privacy Control or Do Not Track.
+  for (const [flag, value] of [['globalPrivacyControl', true], ['doNotTrack', '1']] as const) {
+    const quiet = await browser.newContext({ baseURL, permissions: ['clipboard-read', 'clipboard-write'] })
+    ;(await recordEvents(quiet)).release()
+    const none = await recordCopies(quiet)
+    await quiet.addInitScript(([f, v]) => Object.defineProperty(Navigator.prototype, f, { get: () => v }), [flag, value] as const)
+    const p = await quiet.newPage()
+    await p.goto('/', { waitUntil: 'networkidle' })
+    await p.locator('#install .install-copy').click()
+    await expect(p.locator('#install .install-copy')).toHaveClass(/is-copied/)
+    await p.waitForTimeout(500)
+    expect(none, `copies told with ${flag}`).toEqual([])
+    await quiet.close()
+  }
 })
 
 /**
@@ -549,7 +623,9 @@ for (const size of sharp) {
     const ctx = await browser.newContext({ baseURL, viewport: { width: size.width, height: size.height }, deviceScaleFactor: size.dpr, isMobile: size.mobile, hasTouch: size.mobile, reducedMotion: 'reduce' })
     const page = await ctx.newPage()
     let checked = 0
-    for (const path of await pagesToVisit(page)) {
+    const paths = await pagesToVisit(page)
+    allow(paths.length, 6_000)
+    for (const path of paths) {
       await page.goto(path, { waitUntil: 'networkidle' })
       for (const s of await screenshots(page)) {
         checked++

@@ -17,8 +17,11 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
+	"github.com/CIYAhq/playkeeper/internal/modpacks"
 	"github.com/CIYAhq/playkeeper/internal/packs"
 	"github.com/CIYAhq/playkeeper/internal/templates"
+	"github.com/CIYAhq/playkeeper/internal/templates/library"
+	"github.com/CIYAhq/playkeeper/internal/version"
 )
 
 // templateBuildKey is the one key of a template's Server.Build Playkeeper
@@ -39,6 +42,10 @@ const kindTemplatePackType addons.Kind = "template_pack_type"
 // kindTemplatePackVersion blocks a template whose modpack is made for
 // another Minecraft version.
 const kindTemplatePackVersion addons.Kind = "template_pack_version"
+
+// kindTemplatePackMissing blocks a template whose modpack version isn't one
+// the pack's source lists, which a server can't be created from.
+const kindTemplatePackMissing addons.Kind = "template_pack_missing"
 
 // templateSubstitutes are the types whose versions an import lists when the
 // template's own type can't be created here, as the templates package
@@ -86,12 +93,20 @@ func (s *server) templateSetup(ctx context.Context) (templates.Setup, error) {
 		}
 		// Without identify the scan stays on this machine: add-ons whose
 		// file is gone are left out, and a pack's own mods, which have no
-		// rows, don't travel one by one next to the pack.
+		// rows, travel with the pack (ModpackSetup.Files), not one by one.
 		srv := addons.Server{Dir: s.dataDir(), Type: typ, MinecraftVersion: sc.MinecraftVersion, Owner: s.gameOwner()}
 		if lib := s.lib(); lib != nil {
 			if scan, err := lib.Scan(ctx, srv, st.Addons, false); err == nil {
 				st.Folder = scan
 			}
+		}
+		// Crossplay's plugins travel only with its port, which a template
+		// can't open (templateCrossplayLeftOut).
+		st.Addons = slices.DeleteFunc(st.Addons, func(rec addons.Installed) bool { return isCrossplay(rec.Key()) })
+		if st.Folder != nil {
+			st.Folder.Entries = slices.DeleteFunc(slices.Clone(st.Folder.Entries), func(e addons.ScanEntry) bool {
+				return e.Installed != nil && isCrossplay(e.Installed.Key()) || e.Identified != nil && isCrossplay(e.Identified.Key())
+			})
 		}
 	}
 	if m := sc.Modpack; m != nil && !m.Pending {
@@ -105,6 +120,11 @@ func (s *server) templateSetup(ctx context.Context) (templates.Setup, error) {
 				Source: p.Source, Project: p.ProjectID, Slug: p.Slug, Name: m.Name,
 				Pin: templates.Pin{VersionID: p.VersionID, VersionNumber: p.VersionNumber, Channel: p.Channel, HashAlgo: p.HashAlgo, Hash: p.Hash},
 			}}
+			if st.Folder != nil {
+				if st.Modpack.Files, err = s.packFiles(st.Folder.Folder); err != nil {
+					return templates.Setup{}, err
+				}
+			}
 		}
 	}
 	if o := sc.ResourcePack; o != nil && o.SHA1 != "" {
@@ -157,6 +177,9 @@ func (s *server) hTemplate(w http.ResponseWriter, r *http.Request) {
 		FileName: templates.FileName(t), File: string(file), Contents: templateContents(t), Available: templateContents(all),
 		PacksHere: len(st.Packs), LeftOut: apiNotices(rep.LeftOut), Notes: apiNotices(rep.Notes),
 	}
+	if sc, err := s.serverConfig(); err == nil && crossplayOn(sc) {
+		out.LeftOut = append(out.LeftOut, templateCrossplayLeftOut)
+	}
 	if l, err := templates.NewLink(t); err == nil {
 		out.Link, out.LinkLong = l.URL, l.Warning != nil
 	}
@@ -198,6 +221,29 @@ func templateContents(t *templates.Template) api.TemplateContents {
 		}
 	}
 	return c
+}
+
+// hTemplateLibrary lists the templates this release carries for New server ›
+// A template: the ones playkeeper.io offers that this version opens. New
+// server plans one like any file, so its file travels with it.
+func (a *Agent) hTemplateLibrary(w http.ResponseWriter, _ *http.Request) {
+	list, err := library.For(version.Version)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	out := api.TemplateLibrary{Templates: make([]api.LibraryTemplate, 0, len(list))}
+	for _, l := range list {
+		t, err := templates.Decode(l.File)
+		if err != nil {
+			writeError(w, fmt.Errorf("the library's %s template: %w", l.ID, err))
+			return
+		}
+		out.Templates = append(out.Templates, api.LibraryTemplate{
+			ID: l.ID, Art: l.Art, Page: l.Page, Checked: l.Checked, Release: l.Release, Contents: templateContents(t), File: string(l.File),
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // hTemplatePlan says what a template would create on this machine. The body
@@ -258,29 +304,69 @@ func (a *Agent) planTemplate(ctx context.Context, t *templates.Template) (*templ
 	return p, nil
 }
 
-// packFitNotice blocks a template whose modpack runs on another type or
-// Minecraft version than the template names: the new server would run the
-// pack's, not what the plan shows. When the pack's source can't be asked,
-// the create request checks again (templatePackFits).
+// packFitNotice blocks a template whose modpack the create request would
+// refuse, or would run other than the plan shows: a CurseForge pack on a
+// machine without a CurseForge API key, which a template never carries; a
+// pack or pinned version its source doesn't offer or Playkeeper can't
+// install (packCreateTarget refuses those); a pinned file that isn't the one
+// the source offers for that version; or a pack that runs on another type or
+// Minecraft version than the template names. When the pack's source can't
+// be asked, the plan goes ahead: the create request asks it again and
+// creates nothing it can't check (packFit).
 func (a *Agent) packFitNotice(ctx context.Context, p *templates.Plan) *addons.Notice {
+	n, _ := a.packFit(ctx, p)
+	return n
+}
+
+// packFit is packFitNotice's check, with the error when the pack's source
+// can't be asked.
+func (a *Agent) packFit(ctx context.Context, p *templates.Plan) (*addons.Notice, error) {
 	m := p.Modpack
 	if m == nil || !p.Ready || p.Version == nil {
-		return nil
+		return nil, nil
+	}
+	if m.Source == modpacks.CurseForge && !slices.Contains(a.packs().Sources(), modpacks.CurseForge) {
+		return &addons.Notice{Kind: modpacks.KindNoCurseForge, Params: map[string]string{"modpack": m.Name},
+			Msg:  fmt.Sprintf("The template's modpack %s comes from CurseForge, and this Playkeeper has no CurseForge API key.", m.Name),
+			Hint: "The owner can add a free key under Settings › Add-on sources, then open the template again."}, nil
 	}
 	ref, err := parsePackRef(string(m.Source), m.Project, m.Pin.VersionID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	d, err := a.packDetail(ctx, ref)
 	if err != nil {
-		return nil
+		return nil, err
 	}
+	return packVersionNotice(p, d), nil
+}
+
+// packVersionNotice is why the pack version d lists for a template's
+// modpack can't make the server the template's plan shows; nil when it can.
+func packVersionNotice(p *templates.Plan, d *api.ModpackDetail) *addons.Notice {
+	m := p.Modpack
+	hint := "Ask whoever shared the template for a new one."
 	i := slices.IndexFunc(d.Versions, func(v api.ModpackVersion) bool { return v.ID == m.Pin.VersionID })
-	if i < 0 {
-		return nil
+	var v api.ModpackVersion
+	if i >= 0 {
+		v = d.Versions[i]
 	}
-	v, hint := d.Versions[i], "Ask whoever shared the template for a new one."
 	switch {
+	case d.Unavailable != nil:
+		return packNotice(*d.Unavailable, hint)
+	case i < 0:
+		return &addons.Notice{Kind: kindTemplatePackMissing, Params: map[string]string{"modpack": m.Name, "version": m.Pin.VersionNumber, "source": m.Source.Name()},
+			Msg: fmt.Sprintf("Playkeeper can't install version %s of %s, which the template names.", m.Pin.VersionNumber, m.Name), Hint: hint}
+	case v.Unsupported != nil:
+		return packNotice(*v.Unsupported, hint)
+	case v.Hash != "" && (v.HashAlgo != m.Pin.HashAlgo || v.Hash != m.Pin.Hash):
+		source := m.Source.Name()
+		return &addons.Notice{Kind: templates.KindPinMismatch, Params: map[string]string{"modpack": m.Name, "version": m.Pin.VersionNumber, "source": source},
+			Msg:  fmt.Sprintf("The file %s offers for %s %s isn't the one the template names.", source, m.Name, m.Pin.VersionNumber),
+			Hint: "The template may be out of date or altered. " + hint}
+	case v.Type == "" || v.MinecraftVersion == "":
+		return &addons.Notice{Kind: kindTemplatePackType, Params: map[string]string{"type": p.Type.Name, "modpack": m.Name},
+			Msg: fmt.Sprintf("%s doesn't say which server it runs on, so Playkeeper can't create one for it.", m.Name), Hint: hint}
 	case v.Type != "" && v.Type != p.Type.ID:
 		packType := typeName(v.Type)
 		return &addons.Notice{Kind: kindTemplatePackType, Params: map[string]string{"type": p.Type.Name, "modpack": m.Name, "packType": packType},
@@ -291,6 +377,12 @@ func (a *Agent) packFitNotice(ctx context.Context, p *templates.Plan) *addons.No
 			Hint: hint}
 	}
 	return nil
+}
+
+// packNotice is a pack source's reason, with a hint for someone opening a
+// template.
+func packNotice(n api.AddonNotice, hint string) *addons.Notice {
+	return &addons.Notice{Kind: addons.Kind(n.Kind), Params: n.Params, Msg: n.Message, Hint: hint}
 }
 
 // templatePackFits reports whether the software a template's modpack runs
@@ -331,7 +423,10 @@ func (a *Agent) templateCatalog(ctx context.Context, t *templates.Template) temp
 // templateVersions are the versions of a type an import can pick, each with
 // the build the create flow would pin. A build the template names for its
 // own Minecraft version is a choice too when this machine can install it,
-// so a pinned template gets the same software.
+// so a pinned template gets the same software. So is the Minecraft version a
+// template's modpack is made for, which the create flow may not list, as it
+// offers each line's newest release: a server made from the pack runs it,
+// as one made from the pack in New server does.
 func (a *Agent) templateVersions(ctx context.Context, typ string, t *templates.Template) ([]templates.CatalogVersion, string) {
 	entries, _, err := a.typeCatalog(ctx, typ)
 	if err != nil {
@@ -348,6 +443,12 @@ func (a *Agent) templateVersions(ctx context.Context, typ string, t *templates.T
 		if same < 0 && e.MinecraftVersion == t.Server.MinecraftVersion {
 			same = i
 		}
+	}
+	if same < 0 && t.Modpack != nil && typ == t.Server.Type {
+		if rt, err := a.packTarget(ctx, typ, t.Server.MinecraftVersion, ""); err == nil {
+			vs = append(vs, templates.CatalogVersion{ID: rt.entry.ID, MinecraftVersion: rt.entry.MinecraftVersion, Build: entryBuild(rt.entry)})
+		}
+		return vs, ""
 	}
 	want := t.Server.Build[templateBuildKey]
 	if same < 0 || want == "" || typ != t.Server.Type || typ == api.TypePaper || !software.Supported(typ) || want == entries[same].Build {

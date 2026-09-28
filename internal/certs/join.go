@@ -40,11 +40,16 @@ type JoinServer struct {
 	// 25565), which needs no record of its own.
 	Host string `json:"host,omitempty"`
 	Port int    `json:"port"`
+	// Own means Host is the server's own address: it has A and AAAA records
+	// of its own, pointing at the machine like Name's, and its SRV record
+	// names Host itself, so players and browsers reach the server there.
+	Own bool `json:"own,omitempty"`
 }
 
 // Record is a DNS record to create at the DNS provider.
 type Record struct {
-	// ServerID is the server an SRV record is for.
+	// ServerID is the server an SRV record, or an own address's A or AAAA
+	// record, is for.
 	ServerID string `json:"serverId,omitempty"`
 	Type     string `json:"type"`
 	// Name is the record's full name, without a trailing dot.
@@ -117,6 +122,9 @@ func (p Plan) normalized() (Plan, error) {
 				return Plan{}, err
 			}
 		}
+		if s.Own && (s.Host == "" || s.Host == name) {
+			return Plan{}, newProblem(nil, CodeInvalidPlan, map[string]string{"kind": "duplicate_host", "host": name})
+		}
 		if a := out.bareAddress(s); a != "" {
 			if addresses[a] {
 				return Plan{}, newProblem(nil, CodeInvalidPlan, map[string]string{"kind": "duplicate_host", "host": a})
@@ -145,8 +153,16 @@ func (p Plan) needsSRV(s JoinServer) bool {
 	return s.Host != "" && !(s.Host == p.Name && s.Port == MinecraftPort)
 }
 
+// srvTarget is the name s's SRV record points to: Name, or s's own address.
+func (p Plan) srvTarget(s JoinServer) string {
+	if s.Own {
+		return s.Host
+	}
+	return p.Name
+}
+
 func (p Plan) srvRecord(s JoinServer) Record {
-	parts := &SRVParts{Service: "_minecraft", Protocol: "_tcp", Host: s.Host, Priority: 0, Weight: 5, Port: s.Port, Target: p.Name}
+	parts := &SRVParts{Service: "_minecraft", Protocol: "_tcp", Host: s.Host, Priority: 0, Weight: 5, Port: s.Port, Target: p.srvTarget(s)}
 	return Record{
 		ServerID: s.ID,
 		Type:     "SRV",
@@ -157,27 +173,36 @@ func (p Plan) srvRecord(s JoinServer) Record {
 	}
 }
 
-// Records lists the DNS records to create: A and AAAA for Name, then an SRV
-// record for every server with its own Host (or Host = Name on another port
-// than 25565).
+// Records lists the DNS records to create: A and AAAA for Name, then for
+// each server its own address's A and AAAA and an SRV record for every
+// server with its own Host (or Host = Name on another port than 25565).
 func (p Plan) Records() ([]Record, error) {
 	p, err := p.normalized()
 	if err != nil {
 		return nil, err
 	}
-	var out []Record
-	if p.IPv4.IsValid() {
-		out = append(out, Record{Type: "A", Name: p.Name, Value: p.IPv4.String(), TTL: srvTTL})
-	}
-	if p.IPv6.IsValid() {
-		out = append(out, Record{Type: "AAAA", Name: p.Name, Value: p.IPv6.String(), TTL: srvTTL})
-	}
+	out := p.addrRecords("", p.Name)
 	for _, s := range p.Servers {
+		if s.Own {
+			out = append(out, p.addrRecords(s.ID, s.Host)...)
+		}
 		if p.needsSRV(s) {
 			out = append(out, p.srvRecord(s))
 		}
 	}
 	return out, nil
+}
+
+// addrRecords are the A and AAAA records that point name at the machine.
+func (p Plan) addrRecords(serverID, name string) []Record {
+	var out []Record
+	if p.IPv4.IsValid() {
+		out = append(out, Record{ServerID: serverID, Type: "A", Name: name, Value: p.IPv4.String(), TTL: srvTTL})
+	}
+	if p.IPv6.IsValid() {
+		out = append(out, Record{ServerID: serverID, Type: "AAAA", Name: name, Value: p.IPv6.String(), TTL: srvTTL})
+	}
+	return out
 }
 
 // Join lists what players type to join each server.
@@ -205,23 +230,28 @@ func (p Plan) Join() ([]JoinAddress, error) {
 type PlanCheck struct {
 	Name    NameCheck     `json:"name"`
 	Records []RecordCheck `json:"records,omitempty"`
-	// Ready means Name points here and every SRV record is right.
+	// Ready means Name points here and every SRV record under it is right.
+	// Servers' own addresses are checked alongside and don't count: each
+	// works, or doesn't, on its own.
 	Ready bool `json:"ready"`
 }
 
-// RecordCheck is the state of one SRV record: one the plan needs, or one
-// that must go because it would send players elsewhere.
+// RecordCheck is the state of one SRV record, one the plan needs or one that
+// must go because it would send players elsewhere, or of a server's own
+// address, whose A and AAAA records CheckName looks at together.
 type RecordCheck struct {
 	Note
 	Record Record `json:"record"`
 	OK     bool   `json:"ok"`
 	// Found lists the SRV records found, as "priority weight port target.".
 	Found []string `json:"found,omitempty"`
+	// Own means the record is for a server's own address.
+	Own bool `json:"own,omitempty"`
 }
 
-// CheckPlan checks the plan's records: Name with CheckName, and every SRV
-// record, including that no SRV record redirects players who type Name for
-// the server on port 25565.
+// CheckPlan checks the plan's records: Name with CheckName, every server's
+// own address with CheckName too, and every SRV record, including that no
+// SRV record redirects players who type Name for the server on port 25565.
 func CheckPlan(ctx context.Context, r Resolver, p Plan, expected []netip.Addr) (PlanCheck, error) {
 	p, err := p.normalized()
 	if err != nil {
@@ -230,6 +260,13 @@ func CheckPlan(ctx context.Context, r Resolver, p Plan, expected []netip.Addr) (
 	pc := PlanCheck{Name: CheckName(ctx, r, p.Name, expected)}
 	pc.Ready = pc.Name.OK
 	for _, s := range p.Servers {
+		if s.Own {
+			pc.Records = append(pc.Records, p.checkOwnName(ctx, r, s, expected))
+			rc := p.checkSRV(ctx, r, s, p.srvRecord(s), false)
+			rc.Own = true
+			pc.Records = append(pc.Records, rc)
+			continue
+		}
 		var rc RecordCheck
 		switch {
 		case p.needsSRV(s):
@@ -248,12 +285,29 @@ func CheckPlan(ctx context.Context, r Resolver, p Plan, expected []netip.Addr) (
 	return pc, nil
 }
 
+// checkOwnName looks up s's own address as CheckName looks up Name: its
+// record is the first of its A and AAAA records, and Found what it points to.
+func (p Plan) checkOwnName(ctx context.Context, r Resolver, s JoinServer, expected []netip.Addr) RecordCheck {
+	nc := CheckName(ctx, r, s.Host, expected)
+	rc := RecordCheck{Note: nc.Note, OK: nc.OK, Own: true}
+	if recs := p.addrRecords(s.ID, s.Host); len(recs) > 0 {
+		rc.Record = recs[0]
+	} else {
+		rc.Record = Record{ServerID: s.ID, Type: "A", Name: s.Host, TTL: srvTTL}
+	}
+	for _, a := range nc.Records {
+		rc.Found = append(rc.Found, a.Addr.String())
+	}
+	return rc
+}
+
 // checkSRV compares the SRV records at rec.Name with s. With absentOK, no
 // record is right too: that is for the server players reach as Name on
 // port 25565, where only a record pointing elsewhere is wrong.
 func (p Plan) checkSRV(ctx context.Context, r Resolver, s JoinServer, rec Record, absentOK bool) RecordCheck {
 	host := strings.TrimPrefix(rec.Name, "_minecraft._tcp.")
-	params := map[string]string{"host": host, "port": strconv.Itoa(s.Port), "target": p.Name, "record": rec.Name}
+	want := p.srvTarget(s)
+	params := map[string]string{"host": host, "port": strconv.Itoa(s.Port), "target": want, "record": rec.Name}
 	rc := RecordCheck{Record: rec}
 	_, srvs, err := r.LookupSRV(ctx, "minecraft", "tcp", host+".")
 	var code string
@@ -270,7 +324,7 @@ func (p Plan) checkSRV(ctx context.Context, r Resolver, s JoinServer, rec Record
 		for _, v := range srvs {
 			target := strings.TrimSuffix(strings.ToLower(v.Target), ".")
 			rc.Found = append(rc.Found, fmt.Sprintf("%d %d %d %s.", v.Priority, v.Weight, v.Port, target))
-			if target == p.Name && int(v.Port) == s.Port {
+			if target == want && int(v.Port) == s.Port {
 				matches++
 			}
 		}

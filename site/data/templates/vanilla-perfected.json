@@ -1,0 +1,25 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Vanilla Perfected",
+  "description": "The Vanilla Perfected modpack for Fabric: Minecraft as it is, with performance mods and small quality-of-life touches.",
+  "game": "minecraft-java",
+  "server": { "type": "fabric", "minecraftVersion": "26.2" },
+  "settings": {
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 6144
+  },
+  "modpack": {
+    "source": "modrinth",
+    "project": "1ocGzRHv",
+    "slug": "vanilla-perfected",
+    "name": "Vanilla Perfected",
+    "pin": {
+      "versionId": "Bu8RKHri",
+      "versionNumber": "1.0.3+26.2",
+      "channel": "beta",
+      "hashAlgo": "sha512",
+      "hash": "f68794f3587c83939fd87e6df751ab269858bd2515bd33db43287f4b507fb75e83f2910b4f84cdcc978f2533314b45fdf70fc095664411cefb497e78d44f590a"
+    }
+  }
+}

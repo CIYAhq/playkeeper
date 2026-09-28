@@ -23,7 +23,11 @@ const previews = {
   'modded-minecraft-server': { eyebrow: 'Guide', title: 'How to make a modded Minecraft server', pip: 'pip-hardhat' },
   'add-mods-to-minecraft-server': { eyebrow: 'Guide', title: 'How to add mods to a Minecraft server', pip: 'pip-box' },
   'play-minecraft-with-friends': { eyebrow: 'Guide', title: 'How to play Minecraft Java with friends', pip: 'pip-cheer' },
+  'can-java-and-bedrock-play-together': { eyebrow: 'Guide', title: 'Can Java and Bedrock play together?', pip: 'pip-search' },
+  'minecraft-crossplay-server': { eyebrow: 'Guide', title: 'How to make a Minecraft crossplay server', pip: 'pip-hardhat' },
   'minecraft-server-cost': { eyebrow: 'Guide', title: 'What a Minecraft server really costs', pip: 'pip-search' },
+  'modded-minecraft-server-ram': { eyebrow: 'Guide', title: 'How much RAM modpack servers really use', pip: 'pip-search' },
+  'popular-minecraft-plugins': { eyebrow: 'Guide', title: 'The plugins 188,000 Minecraft servers run', pip: 'pip-box' },
   sizing: { eyebrow: 'Guide', title: 'How much RAM does a Minecraft server need?', pip: 'pip-search' },
   'hostinger-minecraft-server': { eyebrow: 'Guide', title: 'How to host a Minecraft server on Hostinger', pip: 'pip-hardhat' },
   'digitalocean-minecraft-server': { eyebrow: 'Guide', title: 'How to host a Minecraft server on DigitalOcean', pip: 'pip-hardhat' },
@@ -39,6 +43,9 @@ const previews = {
   motd: { eyebrow: 'Free tool', title: 'Minecraft MOTD generator', pip: 'pip-letter' },
   'jvm-flags': { eyebrow: 'Free tool', title: "Minecraft JVM arguments, with Aikar's flags", pip: 'pip-hardhat' },
   'server-properties': { eyebrow: 'Free tool', title: 'Every server.properties setting, explained', pip: 'pip-search' },
+  // The frame the site's build draws each category's and template's preview
+  // in (internal/site/previews.go): everything but the words and Pip.
+  frame: { frame: true, file: 'site/og/frame.png' },
 }
 const only = process.argv.slice(2)
 const wanted = (name) => only.length === 0 || only.includes(name)
@@ -55,9 +62,9 @@ const page = (p) => `<!doctype html><html><head><style>
 </style></head><body>
   <div class="brand"><img src="${art('web/src/assets/brand/playkeeper-mark.svg')}"><span>Playkeeper</span></div>
   <div class="url">playkeeper.io</div>
-  ${p.eyebrow ? `<div class="eyebrow">${p.eyebrow}</div>` : ''}
+  ${p.frame ? '' : `${p.eyebrow ? `<div class="eyebrow">${p.eyebrow}</div>` : ''}
   <h1${p.eyebrow ? '' : ' style="top:200px"'}>${p.title}</h1>
-  <img class="pip" src="${art(`web/src/assets/pip/${p.pip}.svg`)}">
+  <img class="pip" src="${art(`web/src/assets/pip/${p.pip}.svg`)}">`}
   <div class="ground"></div>
 </body></html>`
 

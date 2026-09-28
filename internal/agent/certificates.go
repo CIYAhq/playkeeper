@@ -205,7 +205,7 @@ func (a *Agent) issueCertificate(ctx context.Context, h *opHandle) error {
 		if !nc.OK {
 			return &apiError{Status: http.StatusConflict, Code: nc.Code, Msg: nc.Message, Hint: nc.Hint, Params: noteParams(nc.Params)}
 		}
-		req.HTTP01 = &certs.HTTP01Responder{Addr: a.opts.HTTP01Addr}
+		req.HTTP01 = a.http01
 		challenge = "http-01"
 	default:
 		return errConflict("This machine has no address to get a certificate for.", "")
@@ -244,7 +244,7 @@ func (a *Agent) saveNameCheck(host string, nc certs.NameCheck) {
 			c = *st.Check
 		}
 		c.At, c.Name = now, nameCheck(nc)
-		c.Ready = nc.OK && !slices.ContainsFunc(c.Records, func(r api.RecordCheck) bool { return !r.OK })
+		c.Ready = nc.OK && !slices.ContainsFunc(c.Records, func(r api.RecordCheck) bool { return !r.OK && !r.Own })
 		st.Check = &c
 		saved, ready = true, c.Ready
 	})
