@@ -29,6 +29,13 @@ type Provider struct {
 	// test/e2e/ui/site.spec.ts, or the analytics test follows it off the
 	// machine.
 	Partner, Program string
+	// OfferUSD and OfferDays are the credit a new account gets through
+	// Partner, as the program's promotion sets it, and how long it lasts;
+	// OfferTerms are its conditions. Pages show all three, and only beside
+	// the partner link.
+	OfferUSD   float64
+	OfferDays  int
+	OfferTerms string
 	// TermMonths is how many months a first price is paid upfront for, when
 	// the provider sells by the term rather than by the month.
 	TermMonths int
@@ -113,6 +120,21 @@ func (p Provider) LinkNote() string {
 	return kind + " link: Playkeeper earns a commission, at no extra cost to you."
 }
 
+// Offered is the new-account offer pages show, like "$300 of credit for 30
+// days": the provider's, while its partner link carries it, or "".
+func (p Provider) Offered() string {
+	if p.Partner == "" || p.OfferUSD <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s of credit for %d days", usd(p.OfferUSD), p.OfferDays)
+}
+
+// CoversMonth reports whether the offer pays for a month of the plan, so a
+// page may call that month free.
+func (p Provider) CoversMonth(pl Plan) bool {
+	return p.Offered() != "" && p.OfferDays >= 30 && p.OfferUSD >= pl.USD
+}
+
 // Link is where the provider's links go: the partner link when there is one.
 func (p Provider) Link() string {
 	if p.Partner != "" {
@@ -175,12 +197,15 @@ var providers = []Provider{
 		},
 	},
 	{
-		Name:    "Vultr",
-		Guide:   "/guides/vultr-minecraft-server",
-		Regions: "Regions on six continents",
-		URL:     "https://www.vultr.com/pricing/",
-		Partner: "https://www.vultr.com/?ref=9925286",
-		Program: "referral",
+		Name:       "Vultr",
+		Guide:      "/guides/vultr-minecraft-server",
+		Regions:    "Regions on six continents",
+		URL:        "https://www.vultr.com/pricing/",
+		Partner:    "https://www.vultr.com/?ref=9925287-9J",
+		Program:    "referral",
+		OfferUSD:   300,
+		OfferDays:  30,
+		OfferTerms: "A card or PayPal is needed, and unused credit expires.",
 		Plans: []Plan{
 			{"High Performance", 2, 4, 24, 0, 100}, {"High Performance", 4, 8, 48, 0, 180}, {"High Performance", 4, 12, 72, 0, 260},
 			{"High Performance", 8, 16, 96, 0, 350}, {"High Performance", 12, 24, 144, 0, 500},

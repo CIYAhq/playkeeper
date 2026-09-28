@@ -715,6 +715,8 @@ main:focus { outline: none; }
 .provider h3 { font-size: 18px; }
 .provider-plan { margin: 6px 0 2px; font-size: 14.5px; }
 .provider-regions { margin: 0 0 20px; color: var(--sage); font-size: 13.5px; }
+.provider-offer { margin: -10px 0 20px; color: var(--sage); font-size: 13px; line-height: 1.45; }
+.provider-offer strong { display: block; color: var(--green-text); font-size: 14.5px; }
 .provider-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: auto; }
 .provider-actions .link-arrow { font-size: 14px; }
 .provider .btn .icon { width: 13px; height: 13px; }
@@ -800,6 +802,8 @@ main:focus { outline: none; }
 .article .provider-cta-plan { color: var(--ink); font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
 .provider-cta .btn .icon { width: 14px; height: 14px; }
 .article .provider-cta-note { grid-column: 1 / -1; margin-top: 10px; font-size: 13px; }
+.article .provider-cta-offer { margin-top: 8px; font-size: 13.5px; line-height: 1.45; }
+.article .provider-cta-offer strong { display: block; color: var(--green-text); font-size: 15px; }
 .article .cardshot.shot-730 { max-width: 730px; }
 @media (max-width: 639.98px) {
   .provider-cta { grid-template-columns: minmax(0, 1fr); padding: 20px; }
