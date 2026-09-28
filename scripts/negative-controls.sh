@@ -6224,12 +6224,10 @@ control "a server turned off leaves the public page" internal/agent/publicpage.g
 	if false && !set.Enabled {' \
   ./internal/agent '^TestAServerTurnedOffLeavesThePageAndTheOthersStay$'
 control "the public page answers only for the machine's address" internal/agent/publicpage.go \
-  'st := a.publicPageState()
-	if !st.On || !sameHost(host, st.Host) {
-		return api.PublicPage{}, false' \
-  'st := a.publicPageState()
-	if !st.On {
-		return api.PublicPage{}, false' \
+  '	if !sameHost(host, st.Host) {
+		if only = a.ownPageServer(host); only == nil {' \
+  '	if false && !sameHost(host, st.Host) {
+		if only = a.ownPageServer(host); only == nil {' \
   ./internal/agent '^TestAPublicPageThatIsOffAnswersLikeAnUnknownAddress$'
 control "the page leaves ports 443 and 80 alone while the machine starts" internal/agent/pageports.go \
   'if a.opts.Uptime() < pageSettle {' \
