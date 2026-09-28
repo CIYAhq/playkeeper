@@ -81,6 +81,7 @@
 
 .dir-main { min-width: 0; }
 .dir-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; margin-bottom: 16px; }
+.dir-status { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; min-width: 0; }
 .dir-count { margin: 0; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .dir-count-page { color: var(--sage); font-weight: 500; }
 .dir-tools { display: flex; align-items: center; gap: 8px; }
@@ -298,6 +299,7 @@
 .tpage-tags li { display: inline-flex; align-items: center; height: 30px; padding: 0 10px; border-radius: 8px; background: var(--white); border: 1px solid var(--twine); color: #4e5349; font-size: 13.5px; font-weight: 600; }
 .tpage-tags a { color: var(--ink); }
 .tpage-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+.tpage-intro .dash-line { margin-top: 12px; }
 .tpage-proof { margin: 16px 0 0; color: var(--sage); font-size: 14.5px; line-height: 1.5; }
 
 .tpage-body { padding: 8px 0 96px; }

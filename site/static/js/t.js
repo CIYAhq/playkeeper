@@ -7,16 +7,36 @@
   var MAX_JSON = 131072; // templates.MaxFileSize
   var LINK_FORMAT = 1; // the first byte of a link's data
   var FORMAT = 1; // templates.Format
-  var STORE = 'playkeeper.dashboard';
   var HANDOFF = ['ready', 'newer', 'nopreview'];
   var TYPES = { paper: 'Paper', purpur: 'Purpur', vanilla: 'Vanilla', fabric: 'Fabric', quilt: 'Quilt', neoforge: 'NeoForge', forge: 'Forge' };
   // Play styles with their own picture (templates.Settings.PlayStyle).
   var ART = ['friends', 'creative', 'hardcore', 'solo'];
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  var form = document.getElementById('open');
+  // The dashboard's address, which site.js keeps in this browser only.
+  var dash = window.playkeeperSite.dashboard;
+
+  // The dashboard's Browse templates link, /t#dashboard=<its address>:
+  // this browser remembers the address and goes on to the directory. It
+  // comes here because this page has no analytics.
+  var handoff = /^#dashboard=([^&]*)/.exec(window.location.hash);
+  if (handoff) {
+    var from = '';
+    try {
+      from = dash.parse(decodeURIComponent(handoff[1]));
+    } catch (e) {
+      from = '';
+    }
+    if (from) dash.save(from);
+    window.location.replace('/templates');
+    return;
+  }
+
+  var form = document.getElementById('open-form');
   var input = document.getElementById('dashboard');
   var status = document.getElementById('open-status');
+  var saved = document.getElementById('open-saved');
+  var savedLink = document.getElementById('open-saved-link');
   var payload = '';
   var run = 0;
 
@@ -214,6 +234,7 @@
     var finish = function (state) {
       if (mine !== run) return;
       payload = HANDOFF.indexOf(state) >= 0 ? s : '';
+      offer(false);
       show(state);
     };
     payload = '';
@@ -223,53 +244,40 @@
     else state.then(finish);
   }
 
-  // dashboard turns what the visitor typed into their dashboard's origin, or
-  // '' when it is not an HTTPS address. An address typed without https://,
-  // such as 203.0.113.7, gets Playkeeper's default port unless it has one.
-  function dashboard(value) {
-    var typed = value.replace(/\s+/g, '');
-    var bare = !/^[a-z][a-z0-9+.-]*:\/\//i.test(typed);
-    var u;
-    try {
-      u = new URL(bare ? 'https://' + typed : typed);
-    } catch (e) {
-      return '';
+  // offer shows Open in <the dashboard this browser knows>, one click, or
+  // where there's none, or the visitor asks (other), the field to type one.
+  function offer(other) {
+    var origin = dash.saved();
+    var known = !!origin && !other;
+    saved.hidden = !known;
+    form.hidden = known;
+    if (known) {
+      document.getElementById('open-host').textContent = dash.host(origin);
+      savedLink.href = payload ? dash.url(origin, payload) : '/t';
     }
-    if (u.protocol !== 'https:' || !u.hostname || u.username || u.password) return '';
-    if (bare && !u.port && !/^[^\/?#]*:443(?:[\/?#]|$)/.test(typed)) u.port = '8443';
-    return u.origin;
+    input.value = origin ? dash.host(origin) : '';
+    status.textContent = '';
   }
 
-  function remembered() {
-    try {
-      return window.localStorage.getItem(STORE) || '';
-    } catch (e) {
-      return '';
-    }
-  }
-
-  function remember(origin) {
-    try {
-      window.localStorage.setItem(STORE, origin);
-    } catch (e) {
-      // Storage is off in this browser: the address is asked for again.
-    }
-  }
+  document.getElementById('open-other').addEventListener('click', function () {
+    offer(true);
+    input.select();
+    input.focus();
+  });
 
   form.addEventListener('submit', function (e) {
     e.preventDefault();
     if (!payload) return;
-    var origin = dashboard(input.value);
+    var origin = dash.parse(input.value);
     if (!origin) {
-      status.textContent = "Enter your dashboard's https:// address, such as https://203.0.113.7:8443.";
+      status.textContent = 'Type your name, like siya, or your dashboard\u2019s address, like 203.0.113.7.';
       input.focus();
       return;
     }
-    remember(origin);
-    status.textContent = 'Opening ' + origin + '…';
-    window.location.assign(origin + '/servers/new#template=' + payload);
+    dash.save(origin);
+    status.textContent = 'Opening ' + dash.host(origin) + '…';
+    window.location.assign(dash.url(origin, payload));
   });
-  input.value = remembered();
   window.addEventListener('hashchange', start);
   start();
 })();

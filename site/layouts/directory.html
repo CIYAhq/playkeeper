@@ -52,6 +52,7 @@
   <div class="container">
     <div class="dir-toolbar">
       <h2 id="results-title" class="dir-plain-title">{{with $v.Category}}{{.Name}} templates{{else}}Templates{{end}}<span class="dir-plain-n">{{len $v.List}}</span></h2>
+      {{template "dash-line"}}
     </div>
     <ul class="dir-grid dir-grid-plain">
       {{range $v.Cards}}<li class="dir-cell">{{template "dir-card" .}}</li>{{end}}
@@ -98,7 +99,10 @@
         <kbd class="dir-kbd" aria-hidden="true">/</kbd>
       </div>{{end}}
       <div class="dir-toolbar">
-        <p class="dir-count" data-dir-count aria-live="polite">{{plural (len $v.List) "template" "templates"}}{{if gt $v.Pages 1}}<span class="dir-count-page">, page {{$v.Page}} of {{$v.Pages}}</span>{{end}}</p>
+        <div class="dir-status">
+          <p class="dir-count" data-dir-count aria-live="polite">{{plural (len $v.List) "template" "templates"}}{{if gt $v.Pages 1}}<span class="dir-count-page">, page {{$v.Page}} of {{$v.Pages}}</span>{{end}}</p>
+          {{template "dash-line"}}
+        </div>
         <div class="dir-tools needs-js">
           <button type="button" class="dir-tool dir-filter-btn" data-open-filters aria-controls="dir-filters" aria-expanded="false">{{template "icon" "sliders"}}<span>Filters</span><span class="dir-filter-n" data-filter-n hidden></span></button>
           <div class="dir-sort" data-sort>
@@ -158,6 +162,10 @@
     <a class="dcard-open" href="/templates" data-slot="open"><span>Open in my dashboard</span>{{template "icon" "arrow-up-right"}}<span class="visually-hidden" data-slot="open-name"></span></a>
   </div>
 </article></li>{{end}}
+
+{{/* dash-line: where Open in my dashboard opens templates, once this
+     browser knows (site.js fills it in and shows it), with Change. */}}
+{{define "dash-line"}}<p class="dash-line" data-dashboard-line hidden>Opens in <b data-dashboard-host></b><button type="button" class="dash-change" data-dashboard-change>Change<span class="visually-hidden"> your dashboard</span></button></p>{{end}}
 
 {{/* dir-pages: a list's pages, as links to each. */}}
 {{define "dir-pages"}}
@@ -251,6 +259,7 @@
           <a class="btn btn-primary btn-lg" href="{{$t.Link}}" data-template-open="{{$t.ID}}"><span>Open in my dashboard</span>{{template "icon" "arrow-up-right"}}</a>
           <button type="button" class="btn btn-outline btn-lg" data-copy="{{abs $t.OpenPath}}" data-copy-toast="Link copied" hidden>{{template "icon" "link"}}<span data-copy-label>Copy link</span></button>
         </div>
+        {{template "dash-line"}}
         <p class="tpage-proof hero-rise">Created and started on Playkeeper {{$k.Release}} on {{day $k.Checked}}: ready in {{$k.Done}} seconds, with nothing failing to load.{{if $t.Crossplay}} Crossplay turned on too, with Geyser and Floodgate starting cleanly.{{end}}</p>
       </div>
     </div>

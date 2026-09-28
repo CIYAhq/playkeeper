@@ -2,8 +2,9 @@
 // analytics' custom events, the landing page's install command for the
 // channel a visitor came from, Copy and Send to my computer, the FAQ's
 // animation where the browser has none, scroll reveals, the phone footer's
-// groups, a guide's contents, code tabs and the star count. Nothing here is
-// needed to read or use a page; without it, everything is shown.
+// groups, a guide's contents, code tabs, the star count, and Open in my
+// dashboard on template links. Nothing here is needed to read or use a page;
+// without it, everything is shown, and template links go to the share page.
 (function () {
   var doc = document.documentElement;
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -398,11 +399,190 @@
     }
   }
 
+  // Open in my dashboard. The visitor's dashboard address stays in this
+  // browser (localStorage) and is never sent anywhere: once it's known, a
+  // template's Open goes straight to that dashboard's New server with the
+  // template, which shows everything and installs nothing until confirmed.
+  // The first time, a dialog asks where the dashboard is. A bare name like
+  // siya is siya.playkeeper.me, and an address without https:// gets
+  // Playkeeper's port, 8443, unless it has one. The share page (js/t.js)
+  // reads and saves the same address, and takes one from the dashboard's
+  // Browse templates link, /t#dashboard=<address>, where no analytics runs.
+  var DASHBOARD = 'playkeeper.dashboard';
+  // A free name, by names.CheckName's rules.
+  var reFreeName = /^(?=.{3,32}$)[a-z0-9]+(?:-[a-z0-9]+)*$/;
+  // A link to the share page with a template in it.
+  var reShared = /^\/t#(?:template=)?([A-Za-z0-9_-]+)$/;
+
+  // parseDashboard turns what someone typed into their dashboard's origin,
+  // or '' when it isn't an HTTPS address.
+  function parseDashboard(value) {
+    var typed = String(value || '').replace(/\s+/g, '');
+    if (!typed) return '';
+    if (reFreeName.test(typed.toLowerCase())) typed = typed.toLowerCase() + '.playkeeper.me';
+    var bare = !/^[a-z][a-z0-9+.-]*:\/\//i.test(typed);
+    var u;
+    try {
+      u = new URL(bare ? 'https://' + typed : typed);
+    } catch (err) {
+      return '';
+    }
+    if (u.protocol !== 'https:' || !u.hostname || u.username || u.password) return '';
+    // A server's own address, like survival.siya.playkeeper.me, is on the
+    // machine whose dashboard is at siya.playkeeper.me.
+    var server = /^(?:[a-z0-9-]+\.)+([a-z0-9-]+\.playkeeper\.me)$/.exec(u.hostname);
+    if (server) u.hostname = server[1];
+    if (bare && !u.port && !/^[^\/?#]*:443(?:[\/?#]|$)/.test(typed)) u.port = '8443';
+    return u.origin;
+  }
+  function savedDashboard() {
+    try {
+      return parseDashboard(localStorage.getItem(DASHBOARD));
+    } catch (err) {
+      return '';
+    }
+  }
+  function saveDashboard(origin) {
+    try {
+      if (origin) localStorage.setItem(DASHBOARD, origin);
+      else localStorage.removeItem(DASHBOARD);
+    } catch (err) {
+      // Storage is off in this browser: the dialog asks again next time.
+    }
+    pointTemplates();
+  }
+  function dashboardURL(origin, template) { return origin + '/servers/new#template=' + template; }
+  // hostOf is how an origin is shown: without https:// or the default port.
+  function hostOf(origin) { return origin.replace(/^https:\/\//, '').replace(/:8443$/, ''); }
+
+  // pointTemplates points every link with a template at the dashboard once
+  // it's known, so a middle-click or a copied link goes there too, and shows
+  // where templates open.
+  function pointTemplates() {
+    var origin = savedDashboard();
+    $$('a[href^="/t#"], a[data-template]').forEach(function (a) {
+      if (a.closest('.dash-dialog')) return;
+      var m = reShared.exec(a.getAttribute('href'));
+      var template = a.getAttribute('data-template') || (m && m[1]);
+      if (!template) return;
+      a.setAttribute('data-template', template);
+      a.setAttribute('href', origin ? dashboardURL(origin, template) : '/t#' + template);
+    });
+    $$('[data-dashboard-line]').forEach(function (line) {
+      $('[data-dashboard-host]', line).textContent = hostOf(origin);
+      line.hidden = !origin;
+    });
+  }
+
+  // openTemplate sends the visitor to origin with link's template. A card
+  // js/templates.js drew links /t/<id>, and that script finds its template
+  // (dashboard.find); without it, the link is followed.
+  function openTemplate(origin, link) {
+    var template = link.getAttribute('data-template');
+    if (template) {
+      location.assign(dashboardURL(origin, template));
+      return;
+    }
+    var follow = function () { location.assign(link.href); };
+    var find = window.playkeeperSite.dashboard.find;
+    if (!find) return follow();
+    find(link).then(function (t) {
+      if (t) location.assign(dashboardURL(origin, t));
+      else follow();
+    }, follow);
+  }
+
+  // The dialog asks where the dashboard is: before opening a template
+  // (link), or to change or forget the one saved (link null).
+  var dialog = null;
+  function dashboardDialog() {
+    var d = document.createElement('dialog');
+    d.className = 'dash-dialog';
+    d.setAttribute('aria-labelledby', 'dash-title');
+    d.innerHTML = '<div class="dash-body">' +
+      '<h2 class="dash-title" id="dash-title"></h2>' +
+      '<p class="dash-text">Type your free name, like <b>siya</b> for siya.playkeeper.me, or the address you open your dashboard at.</p>' +
+      '<label class="dash-label" for="dash-input">Your dashboard</label>' +
+      '<input class="dash-input" id="dash-input" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="siya">' +
+      '<p class="dash-status" role="status"></p>' +
+      '<p class="dash-note">This browser remembers it, and it never leaves your browser.</p>' +
+      '<div class="dash-actions">' +
+      '<button type="button" class="btn btn-outline dash-forget" data-dash-forget>Forget it</button>' +
+      '<button type="button" class="btn btn-outline" data-dash-cancel>Cancel</button>' +
+      '<button type="button" class="btn btn-primary" data-dash-go></button>' +
+      '</div></div>' +
+      '<p class="dash-foot">No dashboard yet? <a data-dash-share href="/t">See what the template sets up</a> and how to get one.</p>';
+    document.body.appendChild(d);
+    var input = $('.dash-input', d);
+    var go = function () {
+      var origin = parseDashboard(input.value);
+      if (!origin) {
+        $('.dash-status', d).textContent = 'Type your name, like siya, or your dashboard\u2019s address, like 203.0.113.7.';
+        input.focus();
+        return;
+      }
+      var link = d.link;
+      saveDashboard(origin);
+      d.close();
+      if (link) openTemplate(origin, link);
+      else toast('Templates open in ' + hostOf(origin), 2400);
+    };
+    $('[data-dash-go]', d).addEventListener('click', go);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); go(); }
+    });
+    $('[data-dash-cancel]', d).addEventListener('click', function () { d.close(); });
+    $('[data-dash-forget]', d).addEventListener('click', function () {
+      saveDashboard('');
+      d.close();
+      toast('Forgotten. Templates ask where your dashboard is again.', 2400);
+    });
+    return d;
+  }
+  function askDashboard(link) {
+    if (!window.HTMLDialogElement) {
+      if (link) location.assign(link.getAttribute('data-template') ? '/t#' + link.getAttribute('data-template') : link.href);
+      return;
+    }
+    dialog = dialog || dashboardDialog();
+    var saved = savedDashboard();
+    dialog.link = link;
+    $('.dash-title', dialog).textContent = link ? 'Where\u2019s your dashboard?' : 'Your dashboard';
+    $('[data-dash-go]', dialog).textContent = link ? 'Open' : 'Save';
+    $('[data-dash-forget]', dialog).hidden = !saved || !!link;
+    $('.dash-foot', dialog).hidden = !link;
+    if (link) $('[data-dash-share]', dialog).setAttribute('href', link.getAttribute('data-template') ? '/t#' + link.getAttribute('data-template') : link.getAttribute('href'));
+    $('.dash-status', dialog).textContent = '';
+    $('.dash-input', dialog).value = saved ? hostOf(saved) : '';
+    dialog.showModal();
+    $('.dash-input', dialog).focus();
+  }
+
+  document.addEventListener('click', function (e) {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    var change = e.target.closest && e.target.closest('[data-dashboard-change]');
+    if (change) {
+      askDashboard(null);
+      return;
+    }
+    var link = e.target.closest && e.target.closest('a[data-template], a[href^="/t/"]');
+    if (!link || link.closest('[data-share-page], .dash-dialog')) return;
+    e.preventDefault();
+    var origin = savedDashboard();
+    if (origin) openTemplate(origin, link);
+    else askDashboard(link);
+  });
+  window.addEventListener('storage', function (e) { if (e.key === DASHBOARD) pointTemplates(); });
+  pointTemplates();
+
   // A page's own script, like a free tool's, counts its events and shows the
-  // toast through these.
+  // toast through these, and the share page keeps the dashboard's address.
+  // dashboard.find, which the directory's script sets, finds the template a
+  // /t/<id> link opens.
   window.playkeeperSite = {
     toast: toast,
     count: function (name, props) { count(name, props || {}); },
+    dashboard: { parse: parseDashboard, saved: savedDashboard, save: saveDashboard, url: dashboardURL, host: hostOf, find: null },
   };
 
   doc.classList.add('has-js');

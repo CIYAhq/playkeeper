@@ -7,6 +7,18 @@
 (function () {
   var root = document.querySelector('[data-directory]');
   if (!root) return;
+  // Open in my dashboard (site.js) on a card this script drew, which links
+  // /t/<id>: that page's refresh has the template.
+  if (window.playkeeperSite && window.fetch) {
+    window.playkeeperSite.dashboard.find = function (link) {
+      return fetch(link.getAttribute('href'), { credentials: 'omit' })
+        .then(function (r) { return r.ok ? r.text() : ''; })
+        .then(function (html) {
+          var m = /url=\/t#([A-Za-z0-9_-]+)/.exec(html);
+          return m ? m[1] : '';
+        });
+    };
+  }
   var $ = function (sel, el) { return (el || document).querySelector(sel); };
   var $$ = function (sel, el) { return Array.prototype.slice.call((el || document).querySelectorAll(sel)); };
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
