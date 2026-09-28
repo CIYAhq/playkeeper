@@ -224,7 +224,7 @@ func TestReplacingTheMapAreaKeepsTheOldOneUntilTheNewOneStarts(t *testing.T) {
 	}
 
 	release := e.holdWhenFree(e.srv())
-	if code, out := e.setMapArea("small", true); code != 409 {
+	if code, out := e.call("POST", e.sp("/map/area"), map[string]any{"area": "small", "pauseForPlayers": true, "actor": "admin"}); code != 409 {
 		t.Errorf("replacing large while the server is busy: %d %v", code, out)
 	}
 	release()

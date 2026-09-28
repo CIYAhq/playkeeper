@@ -63,12 +63,16 @@ func (e *agentEnv) openFile(p string) api.FileContent {
 // opened ("" to save over whatever is there, "new" for a new file).
 func (e *agentEnv) saveFile(p, expect, text string) (int, map[string]any) {
 	e.t.Helper()
-	return e.whenFree(func() (int, map[string]any) {
-		code, b, _ := e.fileRequest("PUT", e.sp("/files/content?path="+url.QueryEscape(p)+"&expect="+expect), strings.NewReader(text))
-		out := map[string]any{}
-		json.Unmarshal(b, &out)
-		return code, out
-	})
+	return e.whenFree(func() (int, map[string]any) { return e.saveFileNow(p, expect, text) })
+}
+
+// saveFileNow is saveFile without asking again while the server is busy.
+func (e *agentEnv) saveFileNow(p, expect, text string) (int, map[string]any) {
+	e.t.Helper()
+	code, b, _ := e.fileRequest("PUT", e.sp("/files/content?path="+url.QueryEscape(p)+"&expect="+expect), strings.NewReader(text))
+	out := map[string]any{}
+	json.Unmarshal(b, &out)
+	return code, out
 }
 
 func (e *agentEnv) data(rel string) string {
@@ -470,7 +474,7 @@ func TestFileBrowserWaitsForTheServersOperation(t *testing.T) {
 			t.Errorf("%s during a backup: %d %v", what, code, out)
 		}
 	}
-	code, out := e.saveFile("server.properties", "", "motd=x\n")
+	code, out := e.saveFileNow("server.properties", "", "motd=x\n")
 	busy("save", code, out)
 	code, out = e.call("POST", e.sp("/files/folder"), map[string]any{"actor": "admin", "path": "config"})
 	busy("make a folder", code, out)

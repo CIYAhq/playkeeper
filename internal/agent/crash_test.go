@@ -674,7 +674,11 @@ func TestAStartForgetsTheCrashOnlyOnceItGoesAhead(t *testing.T) {
 			s.crash, s.crashes, s.crashed, s.nextAutoRestart = crash, []time.Time{time.Now()}, true, next
 			s.mu.Unlock()
 
-			code, out := e.callWhenFree("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+			start := e.callWhenFree
+			if !accepted {
+				start = e.call
+			}
+			code, out := start("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 			switch {
 			case accepted && code == 202:
 				op := e.waitOp(out["id"].(string))
