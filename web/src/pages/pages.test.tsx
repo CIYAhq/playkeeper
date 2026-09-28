@@ -628,15 +628,23 @@ describe('Overview notices', () => {
   }
 
   it('says a server that came back on its own had run out of memory, and gives it more with a restart', async () => {
-    vi.mocked(client.post).mockClear()
-    const recoveredCrash = memoryKill({})
-    const text = await render(<Overview server={server({ recoveredCrash })} />)
-    expect(text).toContain(`Survival ran out of memory at ${formatClock(recoveredCrash.at)}`)
-    expect(text).toContain('Docker stopped it at its 2 GB limit, and Playkeeper started it again.')
-    await press('Give Survival 3 GB')
-    expect(posts()).toEqual([['/settings', { memoryMB: 3072, restart: true }]])
-    await act(async () => noticeButton('Dismiss')?.click())
-    expect(document.body.textContent).not.toContain('ran out of memory')
+    // The notice gives the time alone for a crash today and adds the date
+    // for an older one, so a crash a minute before midnight isn't today.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 8, 27, 12, 0, 0))
+    try {
+      vi.mocked(client.post).mockClear()
+      const recoveredCrash = memoryKill({})
+      const text = await render(<Overview server={server({ recoveredCrash })} />)
+      expect(text).toContain(`Survival ran out of memory at ${formatClock(recoveredCrash.at)}`)
+      expect(text).toContain('Docker stopped it at its 2 GB limit, and Playkeeper started it again.')
+      await press('Give Survival 3 GB')
+      expect(posts()).toEqual([['/settings', { memoryMB: 3072, restart: true }]])
+      await act(async () => noticeButton('Dismiss')?.click())
+      expect(document.body.textContent).not.toContain('ran out of memory')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('says when the machine has no memory to give a server that ran out of it', async () => {
