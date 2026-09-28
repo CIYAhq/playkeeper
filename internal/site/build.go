@@ -36,6 +36,12 @@ type Options struct {
 	// Now dates the pages that don't carry a day of their own in the
 	// sitemap, and the footer's year.
 	Now time.Time
+	// Icons fetches the icons of what the templates install; without it,
+	// each shows its initial.
+	Icons IconFetcher
+	// Previews draws each category's and template's social preview; without
+	// them, those pages share og/templates.png.
+	Previews bool
 }
 
 // Output is the built site.
@@ -49,6 +55,9 @@ type Output struct {
 	// Policy is the Content-Security-Policy nginx sends with every page but
 	// /start, whose own is StartPolicy; cmd/site -serve sends them too.
 	Policy, StartPolicy string
+	// NoIcons are the projects that kept their initial though Options.Icons
+	// was set, with why.
+	NoIcons []string
 }
 
 // Site is the site being built, for the templates.
@@ -99,10 +108,20 @@ func Build(o Options) (*Output, error) {
 	if s.dir, err = loadDirectory(o.Root, "site/data/taxonomy.json", s.cards, checked, s.packs); err != nil {
 		return nil, err
 	}
+	if err := s.addThumbs(); err != nil {
+		return nil, err
+	}
+	noIcons, err := s.addIcons()
+	if err != nil {
+		return nil, err
+	}
 	if s.pages, err = loadPages(o.Root, "site/pages"); err != nil {
 		return nil, err
 	}
 	if err := s.addDirectory(); err != nil {
+		return nil, err
+	}
+	if err := s.addPreviews(); err != nil {
 		return nil, err
 	}
 	if s.docs, err = buildDocs(o.Root, o.Settings); err != nil {
@@ -146,7 +165,7 @@ func Build(o Options) (*Output, error) {
 		return nil, err
 	}
 
-	out := &Output{Files: map[string][]byte{}}
+	out := &Output{Files: map[string][]byte{}, NoIcons: noIcons}
 	// Articles first: rendering one works out its reading time and contents,
 	// which the blog index and the cards that list it show.
 	order := slices.Clone(s.pages)
@@ -376,12 +395,23 @@ func (s *Site) render(p *Page) ([]byte, error) {
 	}
 	v.HasInstall = strings.Contains(string(v.Main)+string(v.Article)+string(v.After), `id="install"`)
 	v.HasQuestions = strings.Contains(string(v.After), `id="questions"`)
+	// The directory's pages show template thumbnails, which the head asks
+	// for early, so their blocks render before the page around them too:
+	// last, since they show the parts above.
+	if block := dirBlocks[p.Layout]; block != "" {
+		if v.Main, err = part(block); err != nil {
+			return nil, err
+		}
+	}
 	var b bytes.Buffer
 	if err := t.ExecuteTemplate(&b, "layout", v); err != nil {
 		return nil, err
 	}
 	return b.Bytes(), nil
 }
+
+// dirBlocks are the directory's layouts' blocks in site/layouts/directory.html.
+var dirBlocks = map[string]string{"directory": "directory", "category": "category", "template": "template-page"}
 
 // crumbs is the page's breadcrumb: its section, then the page. A category of
 // the template directory is under Templates, and a template under its
@@ -797,6 +827,7 @@ func (s *Site) funcs() template.FuncMap {
 		// directory is the template directory: every listed template and
 		// its categories (site/data/templates/taxonomy.json).
 		"directory": func() *Directory { return s.dir },
+		"shareArts": s.shareArts,
 		// count as "1 template" or "12 templates".
 		"plural": func(n int, one, many string) string {
 			if n == 1 {

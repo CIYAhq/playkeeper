@@ -86,6 +86,15 @@ func (c *Category) Scene() string {
 	return c.Templates[0].Art
 }
 
+// Thumb is the thumbnail its picture comes from, its most popular
+// template's, or "" when that has none or taxonomy.json gives it art.
+func (c *Category) Thumb() string {
+	if c.Art != "" || len(c.Templates) == 0 {
+		return ""
+	}
+	return c.Templates[0].thumb
+}
+
 // Tag is something templates add, like block logging.
 type Tag struct {
 	ID   string `json:"-"`
@@ -323,6 +332,52 @@ func (d *Directory) Crossplay() []*TemplateCard {
 	return out
 }
 
+// Thumb is the template's thumbnail, a picture of its world, as a
+// screenshot's name (shots/<name>-<width>w.avif), or "" for its scene.
+func (c *TemplateCard) Thumb() string { return c.thumb }
+
+// Thumbnails, which Render real template thumbnails makes from each
+// template's own world: shots/templates/<id>-480w and -960w, in AVIF and
+// WebP, 16:10 (site/tools/shots.py). They show in place of a template's
+// pixel-art scene wherever it is, once they're there.
+var (
+	reThumb     = regexp.MustCompile(`^shots/templates/([a-z0-9]+(?:-[a-z0-9]+)*)-(\d+)w\.(avif|webp)$`)
+	thumbWidths = []int{480, 960}
+)
+
+// addThumbs gives each template its thumbnail, and refuses one for no
+// template, at another size, or missing a width or a format.
+func (s *Site) addThumbs() error {
+	have := map[string]int{}
+	for key, a := range s.assets {
+		if !strings.HasPrefix(key, "shots/templates/") {
+			continue
+		}
+		m := reThumb.FindStringSubmatch(key)
+		if m == nil {
+			return fmt.Errorf("site/static/%s isn't a template's thumbnail, <id>-480w or -960w, .avif or .webp", key)
+		}
+		if s.cards[m[1]] == nil {
+			return fmt.Errorf("site/static/%s is a thumbnail for %s, which isn't a template", key, m[1])
+		}
+		w, _ := strconv.Atoi(m[2])
+		if !slices.Contains(thumbWidths, w) || a.Height*16 != a.Width*10 {
+			return fmt.Errorf("site/static/%s is %d × %d; a thumbnail is 480 × 300 or 960 × 600", key, a.Width, a.Height)
+		}
+		have[m[1]]++
+	}
+	for id, n := range have {
+		if n != 2*len(thumbWidths) {
+			return fmt.Errorf("the thumbnail of %s has %d files; site/tools/shots.py makes four, 480w and 960w in AVIF and WebP", id, n)
+		}
+		if _, err := s.shot("templates/"+id, "100vw"); err != nil {
+			return err
+		}
+		s.cards[id].thumb = "templates/" + id
+	}
+	return nil
+}
+
 // Path is the template's page, under its first category.
 func (c *TemplateCard) Path() string {
 	if len(c.Categories) == 0 {
@@ -407,27 +462,6 @@ func (c *TemplateCard) ModCount() int { return c.modpackMods }
 
 // ModpackName is its modpack's name, or "".
 func (c *TemplateCard) ModpackName() string { return c.modpackTitle }
-
-// AddonNames are its add-ons' names, in its order.
-func (c *TemplateCard) AddonNames() []string {
-	var out []string
-	for _, a := range c.Template.Addons {
-		out = append(out, a.Name)
-	}
-	return out
-}
-
-// CardTags are the tags a card shows: up to three, leaving out Crossplay,
-// which the card shows on its picture instead.
-func (c *TemplateCard) CardTags() []*Tag {
-	var out []*Tag
-	for _, t := range c.Tags {
-		if t.ID != crossplayTag && len(out) < 3 {
-			out = append(out, t)
-		}
-	}
-	return out
-}
 
 // DirView is what a page of the directory shows, for its layout.
 type DirView struct {
@@ -792,7 +826,13 @@ type indexTemplate struct {
 	Kind       string   `json:"kind"`
 	Popularity int      `json:"pop"`
 	Added      string   `json:"added"`
-	Addons     []string `json:"addons"`
+	// Addons are what it installs, its add-ons or its modpack, and Icons
+	// their icons, as indexes into the index's icons (-1 for none).
+	Addons []string `json:"addons"`
+	Icons  []int    `json:"ai"`
+	// Thumb is its thumbnail's WebP files, 480 and 960 pixels wide, when it
+	// has one.
+	Thumb []string `json:"th,omitempty"`
 }
 
 type indexImage struct {
@@ -812,14 +852,15 @@ type indexLoader struct {
 func (s *Site) directoryIndex() ([]byte, error) {
 	idx := struct {
 		Arts       []indexImage           `json:"arts"`
+		Icons      []string               `json:"icons"`
 		Loaders    map[string]indexLoader `json:"loaders"`
 		Categories map[string]string      `json:"cats"`
 		Tags       map[string]string      `json:"tags"`
 		TagSearch  map[string]string      `json:"tagSearch"`
 		Kinds      map[string]string      `json:"kinds"`
 		Templates  []indexTemplate        `json:"templates"`
-	}{Loaders: map[string]indexLoader{}, Categories: map[string]string{}, Tags: map[string]string{}, TagSearch: map[string]string{}, Kinds: kindNames}
-	arts := map[string]int{}
+	}{Icons: []string{}, Loaders: map[string]indexLoader{}, Categories: map[string]string{}, Tags: map[string]string{}, TagSearch: map[string]string{}, Kinds: kindNames}
+	arts, icons := map[string]int{}, map[string]int{}
 	for _, t := range s.dir.Templates {
 		a, ok := s.assets[t.Art]
 		if !ok {
@@ -841,12 +882,23 @@ func (s *Site) directoryIndex() ([]byte, error) {
 		}
 		e := indexTemplate{ID: t.ID, Name: t.Name, Desc: t.Description(), Page: t.Path(), Open: t.OpenPath(), Art: i,
 			Loader: l.ID, Version: t.Version(), MemoryMB: t.MemoryMB, Kind: t.Kind(), Popularity: t.Popularity, Added: t.Added,
-			Categories: []string{}, Tags: []string{}, Addons: t.AddonNames()}
-		if e.Addons == nil {
-			e.Addons = []string{}
+			Categories: []string{}, Tags: []string{}, Addons: []string{}, Icons: []int{}}
+		for _, x := range t.Installs() {
+			n := -1
+			if x.Icon != nil {
+				var ok bool
+				if n, ok = icons[x.Icon.URL]; !ok {
+					n = len(idx.Icons)
+					icons[x.Icon.URL] = n
+					idx.Icons = append(idx.Icons, x.Icon.URL)
+				}
+			}
+			e.Addons, e.Icons = append(e.Addons, x.Name), append(e.Icons, n)
 		}
-		if t.ModpackName() != "" {
-			e.Addons = append(e.Addons, t.ModpackName())
+		if t.thumb != "" {
+			for _, w := range thumbWidths {
+				e.Thumb = append(e.Thumb, s.assets[fmt.Sprintf("shots/%s-%dw.webp", t.thumb, w)].URL)
+			}
 		}
 		for _, c := range t.Categories {
 			e.Categories = append(e.Categories, c.ID)

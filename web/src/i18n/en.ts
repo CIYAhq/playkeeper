@@ -2412,6 +2412,7 @@ export const en = {
   'template.library.sub': 'Ready-made setups from playkeeper.io. Nothing installs until you create the server.',
   'template.library.file': 'Or use a template file',
   'template.library.guide': 'Setup guide on playkeeper.io',
+  'template.library.browse': 'Browse templates',
   'template.newest': 'Newest version',
   'template.sameVersions': { one: '1, with the same version', other: '{count}, with the same versions' },
   'template.newestVersions': { one: '1, newest version', other: '{count}, newest versions' },

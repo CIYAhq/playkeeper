@@ -15,11 +15,14 @@ name: Release
 # since that site runs on its own server).
 # Pull requests that touch the release path, and manual runs, are dry runs:
 # the same build, install and signing, without CurseForge's key and with a
-# throwaway signing key, and nothing is released.
+# throwaway signing key, and nothing is released. A line added to
+# CHANGELOG.md isn't the release path: nearly every pull request adds one,
+# and the Release check builds the release from it before each release.
 # Each release carries a tarball for x86_64 and one for 64-bit ARM. The
-# Release check runs the ARM64 workflow (arm64.yml) on the assets it builds;
-# dry runs run it on theirs, so pull requests exercise it the same way, and
-# the live one-line install after publishing runs on both CPUs.
+# Release check runs the ARM64 workflow (arm64.yml) on the assets it builds,
+# and so do dry runs started by hand; a pull request's dry run doesn't, since
+# arm64.yml runs by itself on pull requests that change installer or OS code.
+# The live one-line install after publishing runs on both CPUs.
 
 on:
   push:
@@ -28,7 +31,6 @@ on:
     paths:
       - .github/workflows/release.yml
       - .github/workflows/release-build.yml
-      - CHANGELOG.md
       - cmd/release-sign/**
       - scripts/package.sh
       - scripts/release-*.sh
@@ -70,7 +72,7 @@ jobs:
   arm64:
     name: ARM64 (dry run)
     needs: build
-    if: github.event_name != 'push'
+    if: github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
     uses: ./.github/workflows/arm64.yml

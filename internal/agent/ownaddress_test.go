@@ -14,7 +14,12 @@ import (
 // here, with three servers: Survival on 25565, then Creative and Test.
 func ownDomainEnv(t *testing.T) (e *addressEnv, survival, creative, test string) {
 	t.Helper()
-	e = newAddressEnv(t, nil)
+	return ownDomainEnvWith(t, nil)
+}
+
+func ownDomainEnvWith(t *testing.T, tweak func(o *Options)) (e *addressEnv, survival, creative, test string) {
+	t.Helper()
+	e = newAddressEnv(t, tweak)
 	survival, creative, test = e.addServerNamed("Survival"), e.addServerNamed("Creative"), e.addServerNamed("Test")
 	e.dns.set("play.example.com", testIP.String())
 	e.dns.setSRV("creative.play.example.com", 25566, "play.example.com")
@@ -267,5 +272,99 @@ func TestAnOwnAddressWorksWithoutTheMachinesName(t *testing.T) {
 	_, page, _ := e.page("alex.example.com")
 	if len(page.Servers) != 1 || page.Servers[0].Address != "alex.example.com" || page.Servers[0].Bedrock == nil || page.Servers[0].Bedrock.Host != "alex.example.com" {
 		t.Fatalf("the own address's page: %+v", page.Servers)
+	}
+}
+
+// The managed beta's machine is beta.playkeeper.me, a name nobody can claim
+// whose record is made by hand, and each creator's server has a
+// playkeeper.me address of its own.
+func TestTheManagedBetaMachineCanBeBetaPlaykeeperMe(t *testing.T) {
+	e := newAddressEnv(t, nil)
+	alex := e.addServerNamed("Alex")
+	e.dns.set("beta.playkeeper.me", testIP.String())
+	var v api.Address
+	check := map[string]any{"domain": "beta.playkeeper.me", "acceptTerms": true, "panelHost": "203.0.113.10:8443", "actor": "admin"}
+	if code := e.callInto("POST", "/v1/address/check", check, &v); code != 200 || v.Host != "beta.playkeeper.me" || !v.Check.Ready || v.Operation == nil {
+		t.Fatalf("the machine's domain: %d %+v", code, v)
+	}
+	if op := e.waitOp(v.Operation.ID); op.Status != api.OpSucceeded {
+		t.Fatalf("the machine's certificate: %+v", op)
+	}
+	e.dns.set("alex.playkeeper.me", testIP.String())
+	e.dns.setSRV("alex.playkeeper.me", 25565, "alex.playkeeper.me")
+	if code, out := e.setOwn(alex, "alex.playkeeper.me"); code != 200 {
+		t.Fatalf("alex's own address: %d %v", code, out)
+	}
+	if _, err := e.a.checkOwn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	e.a.serversChanged()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if row := e.a.loadCertificate("alex.playkeeper.me"); row != nil && row.status.Certificate != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("alex.playkeeper.me got no certificate")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, page, _ := e.page("alex.playkeeper.me"); len(page.Servers) != 1 || page.Servers[0].Address != "alex.playkeeper.me" {
+		t.Fatalf("alex.playkeeper.me's page: %+v", page.Servers)
+	}
+}
+
+// Records added after Save are found within a minute: while an own
+// address's records don't work, they're looked at every minute, as the
+// domain's are, not at the working domain's look every six hours.
+func TestAnOwnAddressIsLookedAtEveryMinuteUntilItsRecordsWork(t *testing.T) {
+	e, _, creative, _ := ownDomainEnvWith(t, func(o *Options) { o.AddressInterval = 20 * time.Millisecond })
+	recheckIn := func() time.Duration {
+		e.a.addr.mu.Lock()
+		defer e.a.addr.mu.Unlock()
+		return e.a.addr.recheck.Sub(e.a.now())
+	}
+	ownRows := func() []api.RecordCheck {
+		var out []api.RecordCheck
+		if c := e.address().Check; c != nil {
+			for _, rc := range c.Records {
+				if rc.Own && rc.Record.ServerID == creative {
+					out = append(out, rc)
+				}
+			}
+		}
+		return out
+	}
+	if d := recheckIn(); d <= ownRecheckPending {
+		t.Fatalf("with the domain working, the next look is in %v", d)
+	}
+	if code, out := e.setOwn(creative, "alex.example.com"); code != 200 {
+		t.Fatalf("setting it: %d %v", code, out)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for len(ownRows()) == 0 || recheckIn() > ownRecheckPending {
+		if time.Now().After(deadline) {
+			t.Fatalf("with the own address's records missing, the next look is in %v: %+v", recheckIn(), ownRows())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	e.dns.set("alex.example.com", testIP.String())
+	e.dns.setSRV("alex.example.com", 25566, "alex.example.com")
+	e.skew.Add(int64(ownRecheckPending))
+	deadline = time.Now().Add(10 * time.Second)
+	for {
+		if row := e.a.loadCertificate("alex.example.com"); row != nil && row.status.Certificate != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the records added after Save weren't looked at again: %+v", ownRows())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if j := joinOf(e.address(), creative); !j.Published {
+		t.Fatalf("with its records in place: %+v", j)
+	}
+	if d := recheckIn(); d <= ownRecheckPending {
+		t.Fatalf("with every record working, the next look is in %v", d)
 	}
 }

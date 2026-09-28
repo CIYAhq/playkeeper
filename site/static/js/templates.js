@@ -7,6 +7,18 @@
 (function () {
   var root = document.querySelector('[data-directory]');
   if (!root) return;
+  // Open in my dashboard (site.js) on a card this script drew, which links
+  // /t/<id>: that page's refresh has the template.
+  if (window.playkeeperSite && window.fetch) {
+    window.playkeeperSite.dashboard.find = function (link) {
+      return fetch(link.getAttribute('href'), { credentials: 'omit' })
+        .then(function (r) { return r.ok ? r.text() : ''; })
+        .then(function (html) {
+          var m = /url=\/t#([A-Za-z0-9_-]+)/.exec(html);
+          return m ? m[1] : '';
+        });
+    };
+  }
   var $ = function (sel, el) { return (el || document).querySelector(sel); };
   var $$ = function (sel, el) { return Array.prototype.slice.call((el || document).querySelectorAll(sel)); };
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -190,11 +202,21 @@
   function card(t) {
     var d = index.data;
     var el = shell.content.firstElementChild.cloneNode(true);
-    var art = d.arts[t.art];
     var img = slot(el, 'art');
-    img.src = art.src;
-    img.width = art.w;
-    img.height = art.h;
+    if (t.th) {
+      // Its thumbnail, a picture of its world, 480 and 960 pixels wide.
+      img.src = t.th[0];
+      img.srcset = t.th[0] + ' 480w, ' + t.th[1] + ' 960w';
+      img.sizes = '(max-width: 639.98px) 100vw, (max-width: 1199.98px) 50vw, 300px';
+      img.width = 480;
+      img.height = 300;
+      img.parentNode.classList.add('is-photo');
+    } else {
+      var art = d.arts[t.art];
+      img.src = art.src;
+      img.width = art.w;
+      img.height = art.h;
+    }
     var name = slot(el, 'name');
     name.textContent = t.name;
     name.href = t.page;
@@ -209,16 +231,40 @@
     slot(el, 'loader').textContent = l.name + ' ' + t.version;
     slot(el, 'memory').textContent = gb(t.mb);
     slot(el, 'desc').textContent = t.desc;
-    // Crossplay shows on the card's picture rather than with its tags.
-    var shown = t.tags.filter(function (g) { return g !== 'crossplay'; }).slice(0, 3);
     if (t.tags.indexOf('crossplay') < 0) slot(el, 'crossplay').remove();
-    var tags = slot(el, 'tags');
-    shown.forEach(function (g) {
+    // What it installs, each with its icon or its initial: three, then how
+    // many more.
+    var installs = slot(el, 'installs');
+    t.addons.slice(0, 3).forEach(function (name, i) {
       var li = document.createElement('li');
-      li.textContent = d.tags[g];
-      tags.appendChild(li);
+      var icon = d.icons[t.ai[i]];
+      var mark = document.createElement(icon ? 'img' : 'span');
+      if (icon) {
+        mark.className = 'ai';
+        mark.src = icon;
+        mark.alt = '';
+        mark.width = 18;
+        mark.height = 18;
+        mark.loading = 'lazy';
+        mark.decoding = 'async';
+      } else {
+        mark.className = 'ai ai-initial';
+        mark.setAttribute('aria-hidden', 'true');
+        mark.textContent = name.charAt(0).toUpperCase();
+      }
+      var label = document.createElement('span');
+      label.textContent = name;
+      li.appendChild(mark);
+      li.appendChild(label);
+      installs.appendChild(li);
     });
-    if (!shown.length) tags.remove();
+    if (t.addons.length > 3) {
+      var more = document.createElement('li');
+      more.className = 'dcard-more';
+      more.textContent = '+' + (t.addons.length - 3) + ' more';
+      installs.appendChild(more);
+    }
+    if (!t.addons.length) installs.remove();
     var open = slot(el, 'open');
     open.href = t.open;
     open.setAttribute('data-template-open', t.id);

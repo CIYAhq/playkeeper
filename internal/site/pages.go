@@ -36,6 +36,8 @@ type Page struct {
 	// on it when they aren't the page's label, as on a page that shares its
 	// hub's image.
 	OG, OGWords string
+	// OGAlt describes a preview that isn't Pip and words, like a template's.
+	OGAlt string
 	// Published and Updated are days, YYYY-MM-DD.
 	Published, Updated string
 	// NoIndex keeps the page out of search engines and the sitemap.

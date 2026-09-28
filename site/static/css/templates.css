@@ -78,6 +78,7 @@
 
 .dir-main { min-width: 0; }
 .dir-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; margin-bottom: 16px; }
+.dir-status { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; min-width: 0; }
 .dir-count { margin: 0; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .dir-count-page { color: var(--sage); font-weight: 500; }
 .dir-tools { display: flex; align-items: center; gap: 8px; }
@@ -122,6 +123,10 @@
 .dcard-art { aspect-ratio: 16 / 10; overflow: hidden; background: #cfe6f7; }
 .dcard-art img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
 .dcard-body { display: flex; flex: 1; flex-direction: column; padding: 16px 18px 18px; }
+/* A template's thumbnail, a picture of its world, fills the same frame as
+   the scene it replaces, smoothly rather than pixelated. */
+.dcard-art picture, .tpage-art picture, .cat-scene picture, .fan-art picture, .mode-art picture { display: contents; }
+.dcard-art.is-photo img, .tpage-art.is-photo img, .cat-scene.is-photo img, .fan-art.is-photo img, .mode-art.is-photo img { image-rendering: auto; }
 .dcard-name { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; }
 .dcard-link { color: var(--ink); }
 .dcard-link::after { content: ""; position: absolute; inset: 0; z-index: 1; }
@@ -133,9 +138,13 @@
 .dcard-mem { color: var(--ink); font-weight: 700; }
 .dcard-mem::before { content: "·"; margin-right: 7px; color: #a3a79c; font-weight: 400; }
 .dcard-desc { display: -webkit-box; margin: 10px 0 0; overflow: hidden; color: var(--sage); font-size: 14.5px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; }
-.dcard-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; list-style: none; }
-.dcard-tags:empty { display: none; }
-.dcard-tags li { padding: 3px 8px; border-radius: 7px; background: var(--muted); color: #4e5349; font-size: 12.5px; font-weight: 600; line-height: 1.4; }
+.dcard-installs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; list-style: none; }
+.dcard-installs:empty { display: none; }
+.dcard-installs li { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; padding: 3px 9px 3px 3px; border-radius: 8px; background: var(--muted); color: #4e5349; font-size: 12.5px; font-weight: 600; line-height: 1.4; }
+.dcard-installs li > span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dcard-installs .dcard-more { padding: 3px 9px; }
+.ai { flex: none; width: 18px; height: 18px; border-radius: 5px; object-fit: cover; }
+.ai-initial { display: grid; place-items: center; background: var(--white); color: var(--ink); font-size: 11px; font-weight: 800; line-height: 1; }
 .dcard-open { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: 6px; height: 42px; margin-top: auto; border: 1px solid var(--twine); border-radius: 11px; background: var(--white); color: var(--green-text); font-size: 14.5px; font-weight: 700; transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 0.1s; }
 .dcard-body > :nth-last-child(2) { margin-bottom: 16px; }
 .dcard-open .icon { width: 15px; height: 15px; }
@@ -291,6 +300,7 @@
 .tpage-tags li { display: inline-flex; align-items: center; height: 30px; padding: 0 10px; border-radius: 8px; background: var(--white); border: 1px solid var(--twine); color: #4e5349; font-size: 13.5px; font-weight: 600; }
 .tpage-tags a { color: var(--ink); }
 .tpage-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+.tpage-intro .dash-line { margin-top: 12px; }
 .tpage-proof { margin: 16px 0 0; color: var(--sage); font-size: 14.5px; line-height: 1.5; }
 
 .tpage-body { padding: 8px 0 96px; }
@@ -303,6 +313,7 @@
 .addon { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 14px 18px 14px 14px; }
 .addon + .addon { border-top: 1px solid var(--twine); }
 .addon-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 11px; background: var(--chalk); color: var(--ink); font-size: 17px; font-weight: 800; }
+.addon-icon { object-fit: cover; }
 .addon-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
 .addon-name { color: var(--ink); font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
 a.addon-name:hover { color: var(--green-text); }

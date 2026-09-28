@@ -65,6 +65,10 @@ type TemplateCard struct {
 	tagIDs       []string
 	modpackMods  int
 	modpackTitle string
+	// thumb is its thumbnail's name, when it has one (Site.addThumbs).
+	thumb string
+	// icons are what it installs' icons, by Project.key (Site.addIcons).
+	icons map[string]*asset
 }
 
 // Held reports whether pages leave the template out: the release people

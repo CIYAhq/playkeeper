@@ -17,7 +17,7 @@
 <meta property="og:image" content="{{.Image}}">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Pip, Playkeeper's mascot, with the words {{or .Page.OGWords .Page.Label}}">
+<meta property="og:image:alt" content="{{with .Page.OGAlt}}{{.}}{{else}}Pip, Playkeeper's mascot, with the words {{or .Page.OGWords .Page.Label}}{{end}}">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{{.Page.Label}}">
 <meta name="twitter:description" content="{{.Page.Description}}">
@@ -37,7 +37,7 @@
 <a class="skip" href="#main">Skip to content</a>
 {{if not (or (eq .Page.Layout "bare") (eq .Page.Layout "open"))}}{{template "header" .}}{{end}}
 <main id="main" tabindex="-1">
-{{if eq .Page.Layout "guide"}}{{template "guide" .}}{{else if eq .Page.Layout "post"}}{{template "post" .}}{{else if eq .Page.Layout "docs"}}{{template "docs" .}}{{else if eq .Page.Layout "directory"}}{{template "directory" .}}{{else if eq .Page.Layout "category"}}{{template "category" .}}{{else if eq .Page.Layout "template"}}{{template "template-page" .}}{{else if eq .Page.Layout "open"}}{{template "open" .}}{{else}}{{.Main}}{{end}}
+{{if eq .Page.Layout "guide"}}{{template "guide" .}}{{else if eq .Page.Layout "post"}}{{template "post" .}}{{else if eq .Page.Layout "docs"}}{{template "docs" .}}{{else if eq .Page.Layout "open"}}{{template "open" .}}{{else}}{{.Main}}{{end}}
 </main>
 {{template "closing" .}}
 {{if not (or (eq .Page.Layout "bare") (eq .Page.Layout "open"))}}{{template "footer" .}}{{end}}
