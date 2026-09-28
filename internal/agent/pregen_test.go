@@ -526,6 +526,11 @@ func TestPregenAcrossServerStops(t *testing.T) {
 		t.Fatalf("after pausing: %+v", v)
 	}
 	e.serverOp("/restart")
+	// Each tick asks Chunky where the task stands before it acts on it, so
+	// by Chunky's third answer from here a whole tick begun after the
+	// restart has been through it.
+	asked := e.rcon.count("chunky progress")
+	e.waitFor("the agent to look at the task after the restart", func() bool { return e.rcon.count("chunky progress") >= asked+3 })
 	if running, _ := fc.state(); running {
 		t.Fatal("Chunky resumed a task the user paused")
 	}
