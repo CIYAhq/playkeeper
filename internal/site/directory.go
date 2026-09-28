@@ -90,7 +90,15 @@ func (c *Category) Scene() string {
 type Tag struct {
 	ID   string `json:"-"`
 	Name string `json:"name"`
+	// Search is more words the directory's search finds its templates by,
+	// like what people call it: "Bedrock GeyserMC" for Crossplay.
+	Search string `json:"search,omitempty"`
 }
+
+// crossplayTag is the tag of templates whose last check turned crossplay on
+// (TemplateCard.Crossplay): it comes from the check alone, never cards.json
+// or an add-on.
+const crossplayTag = "crossplay"
 
 // Directory is every template the directory lists, and its categories.
 type Directory struct {
@@ -150,6 +158,9 @@ func loadDirectory(src fs.FS, file string, cards map[string]*TemplateCard, check
 			if tax.Tags[t] == nil {
 				return nil, fmt.Errorf("%s: add-on %s brings tag %q, which isn't in tags", file, addon, t)
 			}
+			if t == crossplayTag {
+				return nil, fmt.Errorf("%s: add-on %s brings the crossplay tag, which only a template's check gives", file, addon)
+			}
 		}
 	}
 	packOf := map[string]*Modpack{}
@@ -200,12 +211,18 @@ func loadDirectory(src fs.FS, file string, cards map[string]*TemplateCard, check
 			}
 		}
 		for _, tid := range c.tagIDs {
+			if tid == crossplayTag {
+				return nil, fmt.Errorf("cards.json: %s has the crossplay tag, which only its check gives (site/data/checks)", id)
+			}
 			addTag(tid)
 		}
 		for _, a := range c.Template.Addons {
 			for _, tid := range tax.AddonTags[a.Slug] {
 				addTag(tid)
 			}
+		}
+		if c.Crossplay {
+			addTag(crossplayTag)
 		}
 		if tagErr != nil {
 			return nil, tagErr
@@ -290,6 +307,18 @@ func (d *Directory) Related(c *TemplateCard, n int) []*TemplateCard {
 	}
 	for _, x := range d.Templates {
 		add(x)
+	}
+	return out
+}
+
+// Crossplay are the listed templates whose last check turned crossplay on,
+// which their cards mark.
+func (d *Directory) Crossplay() []*TemplateCard {
+	var out []*TemplateCard
+	for _, c := range d.Templates {
+		if c.Crossplay {
+			out = append(out, c)
+		}
 	}
 	return out
 }
@@ -388,8 +417,17 @@ func (c *TemplateCard) AddonNames() []string {
 	return out
 }
 
-// CardTags are the tags a card shows: up to three.
-func (c *TemplateCard) CardTags() []*Tag { return c.Tags[:min(3, len(c.Tags))] }
+// CardTags are the tags a card shows: up to three, leaving out Crossplay,
+// which the card shows on its picture instead.
+func (c *TemplateCard) CardTags() []*Tag {
+	var out []*Tag
+	for _, t := range c.Tags {
+		if t.ID != crossplayTag && len(out) < 3 {
+			out = append(out, t)
+		}
+	}
+	return out
+}
 
 // DirView is what a page of the directory shows, for its layout.
 type DirView struct {
@@ -777,9 +815,10 @@ func (s *Site) directoryIndex() ([]byte, error) {
 		Loaders    map[string]indexLoader `json:"loaders"`
 		Categories map[string]string      `json:"cats"`
 		Tags       map[string]string      `json:"tags"`
+		TagSearch  map[string]string      `json:"tagSearch"`
 		Kinds      map[string]string      `json:"kinds"`
 		Templates  []indexTemplate        `json:"templates"`
-	}{Loaders: map[string]indexLoader{}, Categories: map[string]string{}, Tags: map[string]string{}, Kinds: kindNames}
+	}{Loaders: map[string]indexLoader{}, Categories: map[string]string{}, Tags: map[string]string{}, TagSearch: map[string]string{}, Kinds: kindNames}
 	arts := map[string]int{}
 	for _, t := range s.dir.Templates {
 		a, ok := s.assets[t.Art]
@@ -816,6 +855,9 @@ func (s *Site) directoryIndex() ([]byte, error) {
 		for _, g := range t.Tags {
 			e.Tags = append(e.Tags, g.ID)
 			idx.Tags[g.ID] = g.Name
+			if g.Search != "" {
+				idx.TagSearch[g.ID] = g.Search
+			}
 		}
 		idx.Templates = append(idx.Templates, e)
 	}
