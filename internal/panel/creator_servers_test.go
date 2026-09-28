@@ -106,6 +106,14 @@ func TestCreatorsCreateTheirOwnServersInsideTheirAllowance(t *testing.T) {
 	if opts := options(); !slices.Equal(opts, []any{float64(2048)}) {
 		t.Fatalf("memory choices with 2 GB of the allowance left: %v", opts)
 	}
+	var resize struct {
+		MemoryOptionsMB []int          `json:"memoryOptionsMB"`
+		Allowance       map[string]int `json:"allowance"`
+	}
+	e.get(t, "/api/machines/"+mid+"/catalog?server=cafebabe23", alex.cookie, &resize)
+	if !slices.Equal(resize.MemoryOptionsMB, []int{2048, 4096}) || resize.Allowance["memoryUsedMB"] != 4096 || resize.Allowance["serversUsed"] != 1 {
+		t.Fatalf("the catalog for resizing alex's server: %+v", resize)
+	}
 
 	if _, err := e.srv.db.Exec(`UPDATE project_members SET servers = ? WHERE user_id = ?`, sampleServer+",cafebabe23", alex.id); err != nil {
 		t.Fatal(err)
