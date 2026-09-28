@@ -331,8 +331,9 @@ it('picks a few plugins for Paper servers, and none for Fabric', async () => {
   const picks = await ask<CuratedAddons>('GET', `/api/servers/${(await survival()).id}/addons/curated`)
   expect(picks.picks.map((p) => [p.id, p.card.name, p.card.installed])).toEqual([
     ['rollback', 'CoreProtect', true],
-    ['pregenerate', 'Chunky', true],
+    ['discord-chat', 'DiscordSRV', false],
     ['newer-clients', 'ViaVersion', true],
+    ['pregenerate', 'Chunky', true],
     ['essentials', 'EssentialsX', false],
     ['permissions', 'LuckPerms', true],
     ['lag-finder', 'spark', false],

@@ -18,11 +18,12 @@ var navSections = []NavSection{
 		"/features/crash-and-lag-help", "/features/worlds-and-map", "/features/automation", "/features/ai-agents",
 	}},
 	{Key: "guides", Label: "Guides", Hub: "/guides/host-a-minecraft-server", HubLabel: "All guides", Items: []string{
-		"/guides/modded-minecraft-server", "/guides/add-mods-to-minecraft-server", "/sizing", "/guides/play-minecraft-with-friends", "/guides/minecraft-server-cost",
+		"/guides/modded-minecraft-server", "/guides/add-mods-to-minecraft-server", "/modpacks", "/sizing", "/guides/play-minecraft-with-friends", "/guides/minecraft-server-cost",
 	}},
 	{Key: "compare", Label: "Compare", Hub: "/compare/minecraft-server-panels", HubLabel: "All panels compared", Items: []string{
 		"/alternatives/aternos", "/alternatives/pterodactyl", "/alternatives/realms", "/alternatives/minehut",
 	}},
+	{Key: "tools", Label: "Tools", Hub: "/tools", HubLabel: "All free tools", Items: toolPaths()},
 	{Key: "docs", Label: "Docs", Link: "/docs"},
 	{Key: "pricing", Label: "Pricing", Link: "/pricing"},
 }
@@ -52,6 +53,7 @@ func footerColumns(s Settings) []FooterColumn {
 			{Label: "Host a server", Path: "/guides/host-a-minecraft-server"},
 			{Label: "Modded server", Path: "/guides/modded-minecraft-server"},
 			{Label: "Add mods", Path: "/guides/add-mods-to-minecraft-server"},
+			{Label: "Modpack servers", Path: "/modpacks"},
 			{Label: "Play with friends", Path: "/guides/play-minecraft-with-friends"},
 			{Label: "Server cost", Path: "/guides/minecraft-server-cost"},
 			{Label: "Sizing guide", Path: "/sizing"},

@@ -280,6 +280,27 @@ func TestBudgetFor(t *testing.T) {
 	}
 }
 
+// A pack's memory: PackMemoryMB's for its mods, or more when its own settings
+// ask for a bigger heap than that budget gives. All the Mods 10 has 460 mods
+// on NeoForge and 8196 MB of heap in its manifest.
+func TestPackNeedMB(t *testing.T) {
+	for _, c := range []struct {
+		typ        string
+		mods, heap int
+		want       int
+	}{
+		{"neoforge", 460, 8196, 12 << 10},
+		{"neoforge", 460, 0, 8192},
+		{"fabric", 30, 2048, 4096},
+		{"fabric", 136, 0, 6144},
+		{"vanilla", 0, 0, 0},
+	} {
+		if got := PackNeedMB(c.typ, c.mods, c.heap); got != c.want {
+			t.Errorf("%s, %d mods, %d MB heap: %d MB, want %d", c.typ, c.mods, c.heap, got, c.want)
+		}
+	}
+}
+
 func TestImageAndKnownBuildsArePinned(t *testing.T) {
 	if !strings.Contains(Image, "@sha256:") {
 		t.Fatalf("image must be pinned by digest: %s", Image)

@@ -1,0 +1,98 @@
+{{/*
+path: /modpacks/cobblemon-server
+title: How to make a Cobblemon server (2026)
+description: Set up a Cobblemon server with the official modpack: Fabric on Minecraft 1.21.1, Java 21, {{(modpack "cobblemon").Mods}} of its {{add (modpack "cobblemon").Mods (modpack "cobblemon").PlayerMods}} mods on the server and 4 to 6 GB of memory.
+label: Cobblemon server
+h1: How to make a Cobblemon server
+card: How to make a Cobblemon server
+kind: Modpack
+section: guides
+layout: guide
+crumb: Modpacks
+og: modpack-cobblemon
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$m := modpack "cobblemon"}}Start from the {{$m.Name}}: version {{$m.Version}} runs {{$m.TypeName}} Loader {{$m.Loader}} on Minecraft {{$m.Minecraft}} with Java {{$m.Java}}. Only {{$m.Mods}} of its {{add $m.Mods $m.PlayerMods}} mods go on the server; the other {{$m.PlayerMods}} are for players. Give it {{$m.Memory}} for a few friends and {{gb (card $m.Template).MemoryMB}} for up to ten.{{end}}
+
+{{define "closing-title"}}Your own Cobblemon server, in one click.{{end}}
+{{define "closing-sub"}}Free and open source. Friends get the same pack from one link.{{end}}
+
+{{define "side-text"}}Playkeeper sets up the official Cobblemon pack in one click.{{end}}
+
+{{define "article"}}{{$m := modpack "cobblemon"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+{{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
+<section aria-labelledby="needs">
+  {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What a Cobblemon server needs" "Toc" "What it needs")}}
+  {{template "modpack-facts" (dict "Pack" $m "Version" .Site.Version)}}
+  <p>The pack also comes in a NeoForge edition. The server and its players need the same edition and version.</p>
+</section>
+
+<section aria-labelledby="server-mods">
+  {{template "h2n" (dict "ID" "server-mods" "N" 2 "Text" (printf "Only %d of its mods run on the server" $m.Mods) "Toc" "Server mods")}}
+  <p>The pack marks each mod for players, the server or both, and marks these correctly:</p>
+  <ul>
+    <li><strong>{{$m.PlayerMods}} are for players only,</strong> like Sodium, Iris, Mod Menu and Entity Model Features, which change what they see. The server leaves them out.</li>
+    <li><strong>{{$m.Mods}} run on the server:</strong> Cobblemon itself, Fabric API, Lithium, Krypton and FerriteCore, which make the server lighter, JEI and EMI, Xaero's maps and more.</li>
+  </ul>
+  <p>Cobblemon's own jar is 137 MB, most of the {{$m.DownloadSize}} the server downloads.</p>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 3 "Text" "The one-click way")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{template "steps" (dict "Class" "shot-steps" "Items" (list
+    (dict "Title" "Open the template below, or search New server › A modpack" "Text" (printf "Either way it's the official pack, version %s. Your dashboard shows what it installs before anything happens." $m.Version))
+    (dict "Title" "Create and start it" "Text" (printf "Playkeeper downloads the %d server mods, checks each against Modrinth's hash and leaves the %d for players out." $m.Mods $m.PlayerMods))
+    (dict "Title" "Send friends the pack" "Text" "Share with friends on the Mods tab gives them the pack and their launcher's steps.")
+  ))}}
+  {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs." "Sizes" $article)}}
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 4 "Text" "By hand, from the pack" "Toc" "By hand")}}
+  <p>The itzg Docker image, which Playkeeper runs servers in too, and mrpack-install both build the server from the pack and leave the players' mods out.</p>
+  {{template "modpack-docker" (dict "Pack" $m "Slug" "cobblemon-fabric")}}
+  <p>Open TCP 25565 in your provider's firewall.</p>
+</section>
+
+<section aria-labelledby="join-one">
+  {{template "h2n" (dict "ID" "join-one" "N" 5 "Text" "Looking for a server to join instead?" "Toc" "Servers to join")}}
+  <p>Cobblemon's team keeps a list of public servers on <a href="https://cobblemon.com/en/servers">cobblemon.com</a>. A server of your own is for playing with the friends you choose, on your rules.</p>
+</section>
+
+<section aria-labelledby="friends">
+  {{template "h2n" (dict "ID" "friends" "N" 6 "Text" "Friends join with the same pack" "Toc" "Friends join")}}
+  <div class="shot-step">
+    <div>
+      <p>Players install the {{$m.Name}} {{$m.Version}} in the Modrinth App or Prism Launcher, then join your server's address. The pack gives them the {{$m.Mods}} mods the server runs and the {{$m.PlayerMods}} for players.</p>
+      <p>In Playkeeper, Share with friends on the Mods tab makes a page with the pack and their launcher's steps.</p>
+    </div>
+    {{template "cardshot" (dict "Name" "guide-pack-page" "Alt" "The page friends open: the server's versions, the pack file to download and their launcher's steps." "Sizes" $side)}}
+  </div>
+</section>
+{{end}}
+
+{{define "after"}}{{$m := modpack "cobblemon"}}{{$c := card $m.Template}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "How much RAM does a Cobblemon server need?" (printf "%s for a few friends, what Playkeeper suggests for its %d server mods, and %s for up to ten, as the template sets it." $m.Memory $m.Mods (gb $c.MemoryMB)))
+    (qa "Is Cobblemon Fabric or NeoForge?" (printf "Both. The official pack's main edition is %s, version %s on Minecraft %s; there's a NeoForge edition too. Playkeeper runs either." $m.TypeName $m.Version $m.Minecraft))
+    (qa "Do players need the same mods?" (printf "They need the same pack version. It gives them the %d mods the server runs, at the same versions, and %d more for players." $m.Mods $m.PlayerMods))
+    (qa "Can I play Cobblemon with friends without a server?" "Yes, in a world opened to LAN or through a tunnel, but only while your game runs. A server stays on when you log off.")
+  ))}}
+  <section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
+    <div class="tpl-pair">
+      {{template "pack-card" (dict "Pack" $m)}}
+      {{template "pack-card" (dict "Pack" (modpack "cobbleverse"))}}
+    </div>
+  </section>
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/modpacks" "/modpacks/cobbleverse-server" "/guides/play-minecraft-with-friends")}}{{end}}

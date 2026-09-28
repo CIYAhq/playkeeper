@@ -105,7 +105,18 @@ func (a *Agent) takePagePort(addr string, port int, claims map[int]string) (api.
 	if holder, ok := claims[port]; ok {
 		return api.PagePort{Port: port, State: api.PortClaimed, Holder: holder}, nil
 	}
-	ln, err := net.Listen("tcp", addr)
+	var ln net.Listener
+	var err error
+	listen := func() { ln, err = net.Listen("tcp", addr) }
+	// The agent's own HTTP-01 checks listen on port 80 for a few seconds;
+	// the port is asked for again after them, never counted as busy.
+	if port == addrPort(a.opts.HTTP01Addr) {
+		if !a.http01.Idle(listen) {
+			return api.PagePort{Port: port, State: api.PortWaiting}, nil
+		}
+	} else {
+		listen()
+	}
 	if err != nil {
 		p := api.PagePort{Port: port, State: api.PortBusy}
 		if errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM) {
