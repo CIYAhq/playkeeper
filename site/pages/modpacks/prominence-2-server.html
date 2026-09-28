@@ -36,7 +36,7 @@ schema: article
   <p>Prominence II is on both sites, and the two copies install differently on a server:</p>
   <ul>
     <li><strong>Modrinth, {{$m.DownloadCount}} downloads.</strong> 36 of its mods come inside the pack file itself, and 56 data packs sit in its config folder, where the Paxi mod loads them into every world. Playkeeper's plan for {{$m.Version}} has nothing to add by hand.</li>
-    <li><strong>CurseForge, 12.8M downloads.</strong> Six of its mods can only be downloaded by CurseForge's own app. Its server files would have them, but they're a zip inside a zip, which Playkeeper doesn't open, so its plan lists the six for you to add, and 27 data packs it doesn't put on the server.</li>
+    <li><strong>CurseForge, 12.8M downloads.</strong> Five of its mods can only be downloaded by CurseForge's own app. Its server files would have them, but they're a zip inside a zip, which Playkeeper doesn't open, so its plan lists the five for you to add, and 27 data packs it doesn't put on the server.</li>
   </ul>
   <p>Give friends the copy the server runs, at the same version, so their mods match it.</p>
 </section>
@@ -88,7 +88,7 @@ schema: article
   {{template "faq" (dict "ID" "questions" "Items" (list
     (qa "How much RAM does a Prominence II server need?" (printf "%s, what Playkeeper suggests for its %d server mods. Give it more as more friends join." $m.Memory $m.Mods))
     (qa "Is Prominence II Fabric or Forge?" (printf "Fabric. Version %s runs Fabric Loader %s on Minecraft %s, with Java %d." $m.Version $m.Loader $m.Minecraft $m.Java))
-    (qa "Should I host the Modrinth or the CurseForge copy?" "The Modrinth copy: it carries every mod and data pack a server needs. CurseForge's leaves six mods for you to add by hand.")
+    (qa "Should I host the Modrinth or the CurseForge copy?" "The Modrinth copy: it carries every mod and data pack a server needs. CurseForge's leaves five mods and 27 data packs for you to add by hand.")
     (qa "Why does the log show Lithium Class Analysis Error?" "Lithium can't read some of BCLib's block classes and skips its speed-ups for them. The server starts and runs normally.")
   ))}}
   {{if $m.OneClick}}<section class="tpl-section" aria-labelledby="tpl-title">
