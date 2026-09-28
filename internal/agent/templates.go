@@ -275,26 +275,40 @@ func (a *Agent) planTemplate(ctx context.Context, t *templates.Template) (*templ
 // install (packCreateTarget refuses those); a pinned file that isn't the one
 // the source offers for that version; or a pack that runs on another type or
 // Minecraft version than the template names. When the pack's source can't
-// be asked, the create request checks again (packCreateTarget,
-// templatePackFits).
+// be asked, the plan goes ahead: the create request asks it again and
+// creates nothing it can't check (packFit).
 func (a *Agent) packFitNotice(ctx context.Context, p *templates.Plan) *addons.Notice {
+	n, _ := a.packFit(ctx, p)
+	return n
+}
+
+// packFit is packFitNotice's check, with the error when the pack's source
+// can't be asked.
+func (a *Agent) packFit(ctx context.Context, p *templates.Plan) (*addons.Notice, error) {
 	m := p.Modpack
 	if m == nil || !p.Ready || p.Version == nil {
-		return nil
+		return nil, nil
 	}
 	if m.Source == modpacks.CurseForge && !slices.Contains(a.packs().Sources(), modpacks.CurseForge) {
 		return &addons.Notice{Kind: modpacks.KindNoCurseForge, Params: map[string]string{"modpack": m.Name},
 			Msg:  fmt.Sprintf("The template's modpack %s comes from CurseForge, and this Playkeeper has no CurseForge API key.", m.Name),
-			Hint: "The owner can add a free key under Settings › Add-on sources, then open the template again."}
+			Hint: "The owner can add a free key under Settings › Add-on sources, then open the template again."}, nil
 	}
 	ref, err := parsePackRef(string(m.Source), m.Project, m.Pin.VersionID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	d, err := a.packDetail(ctx, ref)
 	if err != nil {
-		return nil
+		return nil, err
 	}
+	return packVersionNotice(p, d), nil
+}
+
+// packVersionNotice is why the pack version d lists for a template's
+// modpack can't make the server the template's plan shows; nil when it can.
+func packVersionNotice(p *templates.Plan, d *api.ModpackDetail) *addons.Notice {
+	m := p.Modpack
 	hint := "Ask whoever shared the template for a new one."
 	i := slices.IndexFunc(d.Versions, func(v api.ModpackVersion) bool { return v.ID == m.Pin.VersionID })
 	var v api.ModpackVersion

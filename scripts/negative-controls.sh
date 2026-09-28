@@ -2231,6 +2231,12 @@ control "a template whose modpack version can't be installed is blocked" interna
   '	case false:
 		return packNotice(*v.Unsupported, hint)' \
   ./internal/agent '^TestTemplateCarriesACurseForgeModpack$'
+control "creating from a template checks its modpack's pin when the plan couldn't" internal/agent/handlers.go \
+  '		if tpl != nil {
+			n, err := a.packFit(r.Context(), tpl.p)' \
+  '		if false {
+			n, err := a.packFit(r.Context(), tpl.p)' \
+  ./internal/agent '^TestTemplateCreateChecksThePinThePlanCouldNot$'
 control "a template whose modpack isn't the file its source offers is blocked" internal/agent/templates.go \
   'case v.Hash != "" && (v.HashAlgo != m.Pin.HashAlgo || v.Hash != m.Pin.Hash):' \
   'case false:' \

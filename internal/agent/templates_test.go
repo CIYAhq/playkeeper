@@ -460,6 +460,47 @@ func TestTemplateModpackRunsOnTheTypeItNames(t *testing.T) {
 	}
 }
 
+// A plan goes ahead when the pack's source doesn't answer. If it answers
+// only when the server is created, the create request checks the template's
+// pin then, and creates nothing from a file the template doesn't name.
+func TestTemplateCreateChecksThePinThePlanCouldNot(t *testing.T) {
+	e := newAgentEnv(t)
+	e.up.servePack()
+	versions := "https://api.modrinth.com/v2/project/" + fakePackID + "/version"
+	e.up.mu.Lock()
+	list := e.up.routes[e.up.key(versions)]
+	e.up.mu.Unlock()
+	var asked atomic.Int32
+	e.up.handle(versions, func(w http.ResponseWriter, r *http.Request) {
+		// The plan asks first, then the create request's own plan.
+		if asked.Add(1) <= 2 {
+			http.Error(w, "Modrinth is down", http.StatusServiceUnavailable)
+			return
+		}
+		w.Write(list)
+	})
+	file, err := templates.MarshalFile(&templates.Template{Format: templates.Format, Name: "Waystones", Game: templates.Game,
+		Server: templates.Server{Type: "vanilla", MinecraftVersion: "26.2"},
+		Modpack: &templates.Modpack{Source: addons.Modrinth, Project: fakePackID, Slug: "testpack", Name: "Waystones Pack",
+			Pin: templates.Pin{VersionID: fakePackVersion, VersionNumber: "1.0.0", Channel: "release", HashAlgo: "sha512", Hash: strings.Repeat("a", 128)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, p, raw := e.planTemplate(string(file))
+	if code != 200 || !p.Ready {
+		t.Fatalf("a plan while Modrinth doesn't answer: %d %v", code, raw)
+	}
+	before := e.countRows(`SELECT COUNT(*) FROM servers`)
+	code, out := e.createFromTemplate(p.Fingerprint, nil)
+	if code != http.StatusConflict || out["code"] != string(templates.KindPinMismatch) ||
+		out["error"] != "The file Modrinth offers for Waystones Pack 1.0.0 isn't the one the template names." {
+		t.Fatalf("creating once Modrinth answers: %d %v", code, out)
+	}
+	if n := asked.Load(); n < 3 || e.countRows(`SELECT COUNT(*) FROM servers`) != before {
+		t.Fatalf("Modrinth was asked %d times, and no server may be created", n)
+	}
+}
+
 // A modpack runs the Minecraft version it is made for, which the create
 // flow may not list: it offers each line's newest release, 26.1.2 here and
 // not 26.1.1. A template of such a pack plans and creates a server on the
