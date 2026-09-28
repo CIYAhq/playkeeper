@@ -675,7 +675,7 @@ func uploadNames(imp *worldImport) (names []string, sums []map[string]any) {
 
 // importVersions are the versions a new server from world w can run: the
 // recommended version first, then the world's own where Playkeeper runs it
-// (1.21 and newer on the image's Java) and it differs. A world newer than the
+// (minecraft.OldestRelease and newer) and it differs. A world newer than the
 // recommended version is offered only its own version, if that runs here,
 // and nothing until it does, since no version listed can load it. rec is the
 // recommended version, which such a world is shown against.
