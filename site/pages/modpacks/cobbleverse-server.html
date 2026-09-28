@@ -27,7 +27,7 @@ schema: article
 {{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
 <section aria-labelledby="needs">
   {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What a Cobbleverse server needs" "Toc" "What it needs")}}
-  {{template "modpack-facts" (dict "Pack" $m "Version" .Site.Version)}}
+  {{template "modpack-facts" (dict "Pack" $m)}}
   <p>Version {{$m.Version}} bundles Cobblemon 1.7.3, not the 1.8.1 of the <a href="/modpacks/cobblemon-server">official Cobblemon pack</a>, so players join with Cobbleverse itself.</p>
 </section>
 
