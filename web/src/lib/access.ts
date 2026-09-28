@@ -1,11 +1,26 @@
-import type { Action, Me, ProjectRole, Scope, TokenRole } from '@/api/types'
+import type { Action, Allowance, Me, ProjectRole, Scope, TokenRole } from '@/api/types'
 import { t, type MessageKey } from '@/i18n'
-import { formatList } from './format'
+import { formatList, formatMB } from './format'
 import type { Route } from './router'
 
 /** Whether the signed-in account may take act. The panel checks every request anyway. */
 export function can(me: Me, act: Action): boolean {
   return me.access.can.includes(act)
+}
+
+/** Whether the account may create servers: as an admin of every server, or as a creator inside their allowance. */
+export function canCreate(me: Me): boolean {
+  return can(me, 'servers.create') || can(me, 'servers.create_own')
+}
+
+/** Whether the account may create a server on machine m: an admin of every server on any machine, a creator only on the dashboard's own. */
+export function canCreateOn(me: Me, m: { kind: string } | undefined): boolean {
+  return can(me, 'servers.create') || (can(me, 'servers.create_own') && (!m || m.kind === 'local'))
+}
+
+/** "Up to 1 server with 4 GB": what a creator may create. */
+export function allowanceText(al: Allowance): string {
+  return t('team.allowance', { servers: t('unit.servers', { count: al.servers }), memory: formatMB(al.memoryMB) })
 }
 
 export const projectRoles: ProjectRole[] = ['admin', 'moderator', 'viewer']

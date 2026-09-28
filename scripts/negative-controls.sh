@@ -6847,6 +6847,10 @@ control "creator invites: the member keeps the allowance" internal/panel/join.go
   'grant.Servers.String(), grant.Allowance.Servers, grant.Allowance.MemoryMB, now)' \
   'grant.Servers.String(), 0, 0, now)' \
   ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
+control "creators: their role and servers aren't changed on the Team page" internal/panel/team.go \
+  'if !t.Allowance.IsZero() {' \
+  'if false {' \
+  ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
 
 # Creators' servers: created inside the allowance, one change at a time,
 # joining their servers; memory changes and restores stay inside it; only

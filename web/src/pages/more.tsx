@@ -8,7 +8,7 @@ import { Avatar, PageHeader, roleLabel } from '@/components/app/shell'
 import { TemplateDialog } from '@/components/app/templates'
 import { UpdateDialog } from '@/components/app/update'
 import { t } from '@/i18n'
-import { can, settingsSections } from '@/lib/access'
+import { can, canCreate, settingsSections } from '@/lib/access'
 import { addonTab } from '@/lib/addons'
 import { checklist, complete, progress } from '@/lib/checklist'
 import { demo } from '@/lib/demo'
@@ -139,7 +139,7 @@ export function MorePage() {
             </li>
           )
         })}
-        {can(ws.me, 'servers.create') && (
+        {canCreate(ws.me) && (
           <li>
             <Row icon={<PlusIcon />} title={t('nav.newServer')} to={{ name: 'new-server' }} />
           </li>

@@ -344,6 +344,10 @@ func (s *Server) hTeamMemberEdit(w http.ResponseWriter, r *http.Request, sess *s
 	if !ok {
 		return
 	}
+	if !t.Allowance.IsZero() {
+		writeErr(w, http.StatusConflict, api.CodeConflict, "A creator's servers are the ones they create.", "Remove them from the team instead.")
+		return
+	}
 	if err := invites.CanEdit(sess.Access.Account, t.Account, req.Role, req.Servers); err != nil {
 		writeRefusal(w, err)
 		return

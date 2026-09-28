@@ -7,7 +7,7 @@ import { lineRuns } from '@/components/app/line-chart'
 import { axisLabel } from '@/components/app/players-chart'
 import { packRequest } from '@/pages/new-server'
 import { passwordStrength } from '@/components/app/password-field'
-import { tokenRoles } from './access'
+import { canCreateOn, tokenRoles } from './access'
 import { certState, claimStep, dashboardURL, freeServers, freeStage, nameProblem, normalizeName, ownDone, recordFor, zoneOf } from './address'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
@@ -1156,5 +1156,17 @@ describe('a restore that didn’t finish', () => {
       expect(whyNot(server({ phase: 'stopped', worldMissing: missing }), action, false)).toBe('Its world folder is missing. Move the previous world back first.')
       expect(whyNot(server({ phase: 'stopped' }), action, false)).toBeUndefined()
     }
+  })
+})
+
+describe('canCreateOn', () => {
+  const as = (can: string[]) => ({ access: { can } }) as unknown as Me
+  it('lets an admin of every server create on any machine, and a creator only on the dashboard’s own', () => {
+    const admin = as(['servers.create', 'servers.create_own'])
+    const creator = as(['servers.create_own'])
+    const viewer = as(['view'])
+    expect([canCreateOn(admin, { kind: 'local' }), canCreateOn(admin, { kind: 'remote' })]).toEqual([true, true])
+    expect([canCreateOn(creator, { kind: 'local' }), canCreateOn(creator, undefined), canCreateOn(creator, { kind: 'remote' })]).toEqual([true, true, false])
+    expect(canCreateOn(viewer, { kind: 'local' })).toBe(false)
   })
 })

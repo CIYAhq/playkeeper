@@ -22,7 +22,7 @@ import {
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
-import { can, settingsHome } from '@/lib/access'
+import { can, canCreate, settingsHome } from '@/lib/access'
 import { joinOf, machineLabel, machineOf, machineRoute, reachOf, type Join } from '@/lib/machines'
 import { controls } from '@/lib/phase'
 import { navigate, type Route, type ServerTab } from '@/lib/router'
@@ -115,7 +115,7 @@ export function CommandPalette({ open, onOpenChange, route, serversOnly, onShort
     for (const s of ordered) {
       for (const p of serverTabsFor(ws.me, s)) go.push({ value: `go:${s.id}:${p.tab}`, label: t('cmd.page', { server: s.name, page: t(p.key) }), icon: p.icon, run: () => navigate({ name: 'server', slug: s.slug, tab: p.tab }) })
     }
-    if (can(ws.me, 'servers.create')) go.push({ value: 'go:new', label: t('cmd.pageNew'), icon: <PlusIcon />, run: () => navigate({ name: 'new-server' }) })
+    if (canCreate(ws.me)) go.push({ value: 'go:new', label: t('cmd.pageNew'), icon: <PlusIcon />, run: () => navigate({ name: 'new-server' }) })
     for (const m of machines) {
       const to = machineRoute(m)
       go.push({ value: `go:machine:${m.id}`, label: t('cmd.pageMachine', { machine: m.kind === 'local' ? machineName : machineLabel(m) }), icon: <ServerIcon />, run: () => navigate(to) })

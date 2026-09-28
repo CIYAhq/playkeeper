@@ -1774,6 +1774,7 @@ export type Action =
   | 'backups.restore'
   | 'servers.manage'
   | 'servers.create'
+  | 'servers.create_own'
   | 'team.manage'
   | 'machine.manage'
   | 'audit.view'
@@ -1848,6 +1849,14 @@ export interface Invite {
   usesLeft?: number
   /** /join/<code>; only for links whose code is still known. */
   path?: string
+  /** Set on a creator invite: Admin with no servers yet, and this allowance. */
+  allowance?: Allowance
+}
+
+/** What a creator may create on a shared machine, as in the managed beta. */
+export interface Allowance {
+  servers: number
+  memoryMB: number
 }
 
 /** Where invite links start: base is https://host:port; friendly is false for a bare address. */
@@ -1928,6 +1937,8 @@ export interface TeamMember {
   /** An admin with two-factor on whose Admin rights wait for confirmation. */
   waiting?: boolean
   canConfirm?: boolean
+  /** Set for a creator. */
+  allowance?: Allowance
 }
 
 export interface TeamInvite extends Invite {
@@ -1947,6 +1958,8 @@ export interface Grant {
   role: ProjectRole
   servers: Scope
   label?: string
+  /** Makes a new invite a creator invite (the owner's alone). */
+  allowance?: Allowance
 }
 
 /** A new team invite: its link is link.base + path, shown only now. */
@@ -2015,6 +2028,8 @@ export interface MemberPreview {
   requires?: Requirement[]
   team?: string
   serverNames: string[]
+  /** Set when the invite is a creator's. */
+  allowance?: Allowance
 }
 
 export type JoinPreview = PlayerPreview | MemberPreview
