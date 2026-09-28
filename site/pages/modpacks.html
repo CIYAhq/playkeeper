@@ -34,6 +34,7 @@ schema: article
   {{template "h2n" (dict "ID" "memory" "N" 2 "Text" "How much memory a modpack needs" "Toc" "How much memory")}}
   <p>It follows the mods the server runs, not the pack's name. Playkeeper suggests memory for that number of mods, and more when a pack's own settings ask Java for a bigger heap: All the Mods 10 asks for {{(modpack "atm10").HeapGB}}, so it gets {{(modpack "atm10").Memory}}.</p>
   <p>Friends add to it. The <a href="/sizing">sizing guide</a> gives a big modpack {{(sizingFor 4 "modpack").MemoryGB}} GB for up to four friends and {{(sizingFor 8 "modpack").MemoryGB}} GB for more, so pick the larger of the two numbers.</p>
+  <p>On a test server, big packs used about 2 GB more than their Java heap: <a href="/guides/modded-minecraft-server-ram">what each pack used</a>.</p>
 </section>
 
 <section aria-labelledby="one-click">

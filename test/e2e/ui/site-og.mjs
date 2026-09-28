@@ -24,6 +24,7 @@ const previews = {
   'add-mods-to-minecraft-server': { eyebrow: 'Guide', title: 'How to add mods to a Minecraft server', pip: 'pip-box' },
   'play-minecraft-with-friends': { eyebrow: 'Guide', title: 'How to play Minecraft Java with friends', pip: 'pip-cheer' },
   'minecraft-server-cost': { eyebrow: 'Guide', title: 'What a Minecraft server really costs', pip: 'pip-search' },
+  'modded-minecraft-server-ram': { eyebrow: 'Guide', title: 'How much RAM modpack servers really use', pip: 'pip-search' },
   sizing: { eyebrow: 'Guide', title: 'How much RAM does a Minecraft server need?', pip: 'pip-search' },
   'hostinger-minecraft-server': { eyebrow: 'Guide', title: 'How to host a Minecraft server on Hostinger', pip: 'pip-hardhat' },
   'digitalocean-minecraft-server': { eyebrow: 'Guide', title: 'How to host a Minecraft server on DigitalOcean', pip: 'pip-hardhat' },
