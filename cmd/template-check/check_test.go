@@ -22,8 +22,9 @@ import (
 
 // fakeAgent answers the calls a check makes, as a Playkeeper agent does.
 type fakeAgent struct {
-	mu       sync.Mutex
-	ready    bool
+	mu          sync.Mutex
+	ready       bool
+	createFails bool
 	log      []string
 	servers  []api.ServerStatus
 	calls    []string
@@ -61,6 +62,10 @@ func (f *fakeAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.servers = append(f.servers, api.ServerStatus{ID: "s1", Name: req.Name})
 		reply(api.Operation{ID: "create"})
 	case "GET /v1/operations/create":
+		if f.createFails {
+			reply(api.Operation{ID: "create", Status: "failed", ServerID: "s1", Error: "The server stopped while starting (exit code 1)."})
+			return
+		}
 		reply(api.Operation{ID: "create", Status: "succeeded", ServerID: "s1"})
 	case "POST /v1/servers/s1/start":
 		reply(api.Operation{ID: "start"})
@@ -197,6 +202,23 @@ func TestAPluginThatFailsToEnableFailsTheCheck(t *testing.T) {
 	}
 	if len(agent.deleted) != 1 {
 		t.Error("the failed check's server stayed")
+	}
+}
+
+// A server that stops during its first start fails the template with what
+// its log says, and is still removed.
+func TestAFailedCreateSaysWhatTheLogSays(t *testing.T) {
+	agent := &fakeAgent{ready: true, createFails: true, log: []string{
+		"[main/WARN]: Mod resolution failed",
+		"[main/ERROR]: Incompatible mods found!",
+		" - Mod 'Ledger' (ledger) 1.3.23 requires version 1.13.9+kotlin.2.3.10 or later of fabric-language-kotlin, which is missing!",
+	}}
+	r := newTestChecker(t, agent).check(context.Background(), "survival", survivalFile(t), false, false)
+	if r.Status != statusFailing || !strings.Contains(r.Failure, "exit code 1") || !strings.Contains(r.Failure, "fabric-language-kotlin, which is missing") {
+		t.Fatalf("got %s: %s", r.Status, r.Failure)
+	}
+	if len(agent.deleted) != 1 {
+		t.Error("the failed server stayed")
 	}
 }
 

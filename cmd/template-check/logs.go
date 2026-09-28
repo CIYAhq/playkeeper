@@ -17,6 +17,7 @@ var failures = []*regexp.Regexp{
 	regexp.MustCompile(`UnsupportedClassVersionError`),
 	regexp.MustCompile(`NoClassDefFoundError`),
 	regexp.MustCompile(`Incompatible mods? (?:found|set)`),
+	regexp.MustCompile(`requires .* which is missing`),
 	regexp.MustCompile(`Mod resolution (?:failed|encountered)`),
 	regexp.MustCompile(`Missing or unsupported mandatory dependencies`),
 	regexp.MustCompile(`Mod loading has failed`),

@@ -24,6 +24,7 @@ func TestReadLog(t *testing.T) {
 		"org.bukkit.plugin.UnknownDependencyException: Unknown/missing dependency plugins: [Vault]",
 		"java.lang.UnsupportedClassVersionError: com/example/Plugin has been compiled by a more recent version",
 		"Incompatible mods found!",
+		" - Mod 'Ledger' (ledger) 1.3.23 requires version 1.13.9+kotlin.2.3.10 or later of fabric-language-kotlin, which is missing!",
 		"Mod resolution encountered an incompatible mod set!",
 		"Missing or unsupported mandatory dependencies:",
 		"#@!@# Game crashed! Crash report saved to: #@!@# This crash report has been saved to: crash-reports/x.txt",

@@ -95,7 +95,12 @@ func (c *checker) check(ctx context.Context, id string, f *templateFile, bump, p
 		defer c.remove(context.WithoutCancel(ctx), done.ServerID, name)
 	}
 	if err != nil {
-		return fail("creating it: %v", err)
+		why := ""
+		if done.ServerID != "" {
+			lines, _ := c.logs(ctx, done.ServerID)
+			why = explain(lines)
+		}
+		return fail("creating it: %v%s", err, why)
 	}
 	sid := done.ServerID
 	if _, err := c.agent.Do(ctx, "POST", "/v1/servers/"+sid+"/start", nil, map[string]string{"actor": c.actor}, nil); err != nil {
@@ -343,6 +348,18 @@ func serverName(id string) string {
 		n = n[:32]
 	}
 	return strings.TrimRight(n, "-")
+}
+
+// explain is what a failed server's log says went wrong: its failure lines,
+// or else its last lines.
+func explain(lines []string) string {
+	if f := readLog(lines).failures; len(f) > 0 {
+		if len(f) > 3 {
+			f = f[:3]
+		}
+		return ". Its log says: " + strings.Join(f, " / ")
+	}
+	return lastLines(lines, 3)
 }
 
 func lastLines(lines []string, n int) string {
