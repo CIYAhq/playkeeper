@@ -660,6 +660,32 @@ func TestPregenATaskARestartDroppedIsStartedAgain(t *testing.T) {
 	}
 }
 
+// On #49's ARM64 run the server went down 64 chunks into Paper's
+// pre-generation, most likely killed at its memory limit with squaremap
+// drawing the map too, and came back on its own without the task Chunky
+// hadn't saved. The agent starts it again after a crash as after a restart.
+func TestPregenATaskACrashDroppedIsStartedAgain(t *testing.T) {
+	e := newAgentEnv(t)
+	e.withSources()
+	e.create()
+	fc := e.chunky()
+	e.startPregen("small", false)
+	fc.advance(64)
+	e.fd.oomKill()
+	e.waitFor("the server back after running out of memory", func() bool {
+		c := e.status().RecoveredCrash
+		return c != nil && c.Kind == "container_memory_limit"
+	})
+	e.waitFor("Chunky to run the task again", func() bool { running, _ := fc.state(); return running })
+	if _, task := fc.state(); task.radius != 1000 || task.centerX != 16 || task.centerZ != -32 {
+		t.Fatalf("Chunky runs another task: %+v", task)
+	}
+	e.waitFor("the task to run", func() bool { return e.pregen().State == "running" })
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND actor = 'playkeeper' AND action = 'pregen.continued'`, e.sid); n != 1 {
+		t.Errorf("%d audit entries for starting it again", n)
+	}
+}
+
 // A task finishes when Chunky logs so, although it saved the task short of
 // the area a moment before. A task cancelled from the console that close to
 // its end, which Chunky never logs as finished, ends as cancelled.

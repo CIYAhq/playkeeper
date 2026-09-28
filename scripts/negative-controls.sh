@@ -5829,10 +5829,10 @@ control "the world border is filled where Chunky finds it" internal/agent/pregen
   '		plan.Radius = started.Radius' \
   '		_ = started.Radius' \
   ./internal/agent '^TestTheMapAreaFillsUpToTheWorldBorder$'
-control "a task a restart dropped is sent to Chunky again" internal/agent/pregen.go \
+control "a task a restart or a crash dropped is sent to Chunky again" internal/agent/pregen.go \
   '	if task != nil && st != nil && !s.pregenAfterRestart(ctx, p, task, st) {' \
   '	if task != nil && st != nil {' \
-  ./internal/agent '^TestPregenATaskARestartDroppedIsStartedAgain$'
+  ./internal/agent '^TestPregenATaskA(Restart|Crash)DroppedIsStartedAgain$'
 control "a dropped task is sent again once a run" internal/agent/pregen.go \
   '	tried := s.pg.resumedRun.Equal(run)' \
   '	tried := s.pg.resumedRun.Equal(run) && run.IsZero()' \
