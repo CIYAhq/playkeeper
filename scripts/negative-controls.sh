@@ -6638,7 +6638,7 @@ control "the funnel leaves test installs out" internal/usage/service/summary.go 
   ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
 control "still running means a heartbeat in the last day" internal/usage/service/summary.go \
   '			if lastSeen >= runningSince {' \
-  '			if lastSeen >= 0 {' \
+  '			if lastSeen >= runningSince-7*86400 {' \
   ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
 control "the site's analytics are kept for a quarter of an hour" internal/usage/service/site.go \
   'fresh := !r.readAt.IsZero() && now.Sub(r.readAt) < siteEvery' \
