@@ -276,6 +276,31 @@ func TestThePagesPort80RedirectsOnlyWhileHTTPSServesWithACertificate(t *testing.
 	}
 }
 
+// After the machine's address changes, the page's name catches up only at
+// the keeper's next look; Let's Encrypt's check for the new name on port 80
+// doesn't wait for it.
+func TestLetsEncryptsCheckForANewNameReachesTheAgentBeforeThePageCatchesUp(t *testing.T) {
+	a := &pageAgent{}
+	a.on.Store(true)
+	e := newPageEnv(t, a)
+	const newName = "play.example.org"
+	plain := e.srv.pageHandler(false)
+	if resp, body := pageGet(t, plain, "GET", newName, "/.well-known/acme-challenge/tok3n"); resp.StatusCode != 200 || body != "tok3n.key" {
+		t.Fatalf("a check for the new name: %d %q", resp.StatusCode, body)
+	}
+	if resp, _ := pageGet(t, plain, "GET", newName, "/.well-known/acme-challenge/other"); resp.StatusCode != 404 {
+		t.Fatalf("a check nobody made: %d", resp.StatusCode)
+	}
+	// The page itself answers only its own name, and port 443 passes on no
+	// checks.
+	if resp, _ := pageGet(t, plain, "GET", newName, "/"); resp.StatusCode != 404 {
+		t.Fatalf("the page for a name it doesn't have yet: %d", resp.StatusCode)
+	}
+	if resp, _ := pageGet(t, e.srv.pageHandler(true), "GET", newName, "/.well-known/acme-challenge/tok3n"); resp.StatusCode != 404 {
+		t.Fatalf("a check on port 443 for another name: %d", resp.StatusCode)
+	}
+}
+
 func TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn(t *testing.T) {
 	listen := func() (*os.File, int) {
 		ln, err := net.Listen("tcp", "127.0.0.1:0")

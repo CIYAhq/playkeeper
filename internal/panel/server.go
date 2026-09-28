@@ -339,7 +339,7 @@ func (s *Server) Routes() []Route {
 		am("/api/machines/{mid}/address/release", "/v1/address/release"),
 		an("/api/machines/{mid}/address/check", "/v1/address/check"),
 		an("/api/machines/{mid}/address/certificate", "/v1/address/certificate"),
-		mm("DELETE", "/api/machines/{mid}/address", "/v1/address", actManageMachine),
+		{"DELETE", "/api/machines/{mid}/address", needSessionCSRF, actManageMachine, s.addressProxy("DELETE", "/v1/address")},
 		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actCreateServers, s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)},
 		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actCreateServers, s.rawUpload("/v1/restore/upload", "application/gzip")},
 		{"GET", "/api/machines/{mid}/restore/{rid}", needSession, actRestore, s.restoreProxy("GET", "/v1/restore/{rid}", nil)},
@@ -1176,9 +1176,19 @@ func (s *Server) machineProxy(method, pattern string) func(http.ResponseWriter, 
 // addressProxy forwards an address route with panelHost, the host the
 // dashboard was opened with, in the query or body. The agent keeps it when
 // it is a public IP address: behind NAT that address is on no network
-// interface, and an own domain's A record needs it.
+// interface, and an own domain's A record needs it. A change to the
+// dashboard machine's address has the public page's keeper look again at
+// once, since the page answers at that address.
 func (s *Server) addressProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
-	return s.forwardTo(method, pattern, true, nil)
+	var then func(machine, *session, json.RawMessage)
+	if method != http.MethodGet {
+		then = func(m machine, _ *session, _ json.RawMessage) {
+			if m.Kind != remoteKind {
+				s.kickPage()
+			}
+		}
+	}
+	return s.forwardTo(method, pattern, true, then)
 }
 
 // dashboardAddress refuses to give a joined machine a free name or an own

@@ -110,12 +110,17 @@ func (s *Server) pageHandler(tls bool) http.Handler {
 		}
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !pageHost(r.Host, s.page.hostNow()) {
+		// Let's Encrypt's checks on port 80 are passed on whatever name they
+		// carry, as the agent's own responder answers them: the agent answers
+		// only its pending checks, and after the address changes the page's
+		// name catches up only at the keeper's next look.
+		check := !tls && strings.HasPrefix(r.URL.Path, acmePrefix)
+		if !check && !pageHost(r.Host, s.page.hostNow()) {
 			w.Header().Set("Cache-Control", "no-store")
 			http.NotFound(w, r)
 			return
 		}
-		if !tls && !strings.HasPrefix(r.URL.Path, acmePrefix) {
+		if !tls && !check {
 			if to, ok := s.pageRedirect(r); ok {
 				http.Redirect(w, r, to, http.StatusPermanentRedirect)
 				return
