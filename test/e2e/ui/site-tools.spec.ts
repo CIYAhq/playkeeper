@@ -142,6 +142,19 @@ test('the icon maker saves a real 64 × 64 PNG of the letters, and every letters
   }, picture.toString('base64'))
   expect(prevented, 'the field gets the text').toBe(false)
   await expect(tool.locator('#icon-source-letters')).toBeChecked()
+  // A radio or slider takes no text, so with one focused, as after a click
+  // on an option, the same paste opens the picture.
+  await tool.locator('label[for="icon-effect-outline"]').click()
+  const opened = await tool.locator('#icon-effect-outline').evaluate((el, b64) => {
+    const dt = new DataTransfer()
+    dt.setData('text/plain', 'ABC')
+    dt.items.add(new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], 'copied.png', { type: 'image/png' }))
+    const paste = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })
+    el.dispatchEvent(paste)
+    return paste.defaultPrevented
+  }, picture.toString('base64'))
+  expect(opened, 'the picture is taken').toBe(true)
+  await expect(tool.locator('#icon-source-picture')).toBeChecked()
   expect(errors()).toEqual([])
 })
 

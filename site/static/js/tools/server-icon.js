@@ -407,8 +407,9 @@
   document.addEventListener('paste', function (e) {
     // Text pasted into a field stays text, even when the clipboard holds a
     // picture too, as it does after copying part of a web page.
-    var field = e.target && e.target.closest && e.target.closest('input, textarea, [contenteditable]');
-    if (field && e.clipboardData && Array.prototype.indexOf.call(e.clipboardData.types || [], 'text/plain') >= 0) return;
+    var el = e.target;
+    var takesText = el && (el.isContentEditable || el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && /^(text|search|url|email|tel|number|password)$/.test(el.type)));
+    if (takesText && e.clipboardData && Array.prototype.indexOf.call(e.clipboardData.types || [], 'text/plain') >= 0) return;
     var items = (e.clipboardData && e.clipboardData.items) || [];
     for (var i = 0; i < items.length; i++) {
       if (items[i].kind === 'file' && /^image\//.test(items[i].type)) {
