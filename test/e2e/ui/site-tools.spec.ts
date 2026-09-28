@@ -128,6 +128,20 @@ test('the icon maker saves a real 64 × 64 PNG of the letters, and every letters
   await expect(tool.getByRole('button', { name: 'Shuffle the blocks' }), 'Shuffle shows only with blocks').toBeHidden()
   await tool.locator('#icon-name').fill('Pip Land')
   await expect(tool.locator('[data-list-name]')).toHaveText('Pip Land')
+
+  // Text pasted into a field stays text, even with a picture on the
+  // clipboard too, as after copying part of a web page.
+  const prevented = await tool.locator('#icon-text').evaluate((el, b64) => {
+    el.focus()
+    const dt = new DataTransfer()
+    dt.setData('text/plain', 'ABC')
+    dt.items.add(new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], 'copied.png', { type: 'image/png' }))
+    const paste = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })
+    el.dispatchEvent(paste)
+    return paste.defaultPrevented
+  }, picture.toString('base64'))
+  expect(prevented, 'the field gets the text').toBe(false)
+  await expect(tool.locator('#icon-source-letters')).toBeChecked()
   expect(errors()).toEqual([])
 })
 
