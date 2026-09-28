@@ -248,7 +248,7 @@
           <a class="btn btn-primary btn-lg" href="{{$t.Link}}" data-template-open="{{$t.ID}}"><span>Open in my dashboard</span>{{template "icon" "arrow-up-right"}}</a>
           <button type="button" class="btn btn-outline btn-lg" data-copy="{{abs $t.OpenPath}}" data-copy-toast="Link copied" hidden>{{template "icon" "link"}}<span data-copy-label>Copy link</span></button>
         </div>
-        <p class="tpage-proof hero-rise">Created and started on Playkeeper {{$k.Release}} on {{day $k.Checked}}: ready in {{$k.Done}} seconds with every plugin enabled.</p>
+        <p class="tpage-proof hero-rise">Created and started on Playkeeper {{$k.Release}} on {{day $k.Checked}}: ready in {{$k.Done}} seconds, with nothing failing to load.</p>
       </div>
     </div>
   </div>
@@ -259,17 +259,20 @@
       {{if $tp.Addons}}
       <section class="tpage-section" aria-labelledby="installs">
         <h2 id="installs" class="tpage-h2">What it installs</h2>
-        <p class="tpage-lead">The versions that installed when we started it. Your dashboard takes each one's newest build for Minecraft {{$t.Version}}.</p>
+        <p class="tpage-lead">The versions the template pins, as they installed when we started it, so your dashboard installs the same.</p>
         <ul class="addon-list">
-          {{range $k.Plugins}}<li class="addon"><span class="addon-mark" aria-hidden="true">{{initial .Name}}</span><span class="addon-main"><a class="addon-name" href="https://modrinth.com/plugin/{{.Slug}}">{{.Name}}</a><span class="addon-version">{{.Version}}</span></span><span class="addon-meta"><span>{{downloads .Downloads}} downloads</span><span>{{licence .Licence}}</span></span></li>{{end}}
+          {{range $k.Plugins}}<li class="addon"><span class="addon-mark" aria-hidden="true">{{initial .Name}}</span><span class="addon-main"><a class="addon-name" href="https://modrinth.com/project/{{.Slug}}">{{.Name}}</a><span class="addon-version">{{.Version}}</span></span><span class="addon-meta"><span>{{downloads .Downloads}} downloads</span><span>{{licence .Licence}}</span></span></li>{{end}}
         </ul>
       </section>
-      {{else if $tp.Modpack}}
+      {{else}}{{with $t.PackCheck}}
       <section class="tpage-section" aria-labelledby="installs">
         <h2 id="installs" class="tpage-h2">What it installs</h2>
-        <p class="tpage-lead">{{$t.ModpackName}}{{with $t.ModCount}}, {{.}} mods{{end}}, version {{$tp.Modpack.Pin.VersionNumber}}.{{with $t.PackPage}} <a href="{{.Path}}">What the {{.Label}} server needs</a>.{{end}}</p>
+        <p class="tpage-lead">The modpack version the template pins, as it installed when we started it.{{with $t.PackPage}} <a href="{{.Path}}">What the {{.Label}} server needs</a>.{{end}}</p>
+        <ul class="addon-list">
+          <li class="addon"><span class="addon-mark" aria-hidden="true">{{initial .Name}}</span><span class="addon-main">{{if eq (print $tp.Modpack.Source) "modrinth"}}<a class="addon-name" href="https://modrinth.com/modpack/{{$tp.Modpack.Slug}}">{{.Name}}</a>{{else}}<span class="addon-name">{{.Name}}</span>{{end}}<span class="addon-version">{{.Version}}</span></span><span class="addon-meta"><span>{{.Mods}} mods on the server</span><span>{{downloads .Downloads}} downloads</span></span></li>
+        </ul>
       </section>
-      {{end}}
+      {{end}}{{end}}
       {{with $t.Primary.Guide}}
       <section class="tpage-section tpage-guide" aria-labelledby="guide">
         <h2 id="guide" class="tpage-h2">Before your first session</h2>
@@ -277,11 +280,13 @@
       </section>
       {{end}}
       {{if .Article}}<article class="article tpage-notes">{{.Article}}{{.After}}</article>{{end}}
+      {{if or (not $tp.Modpack) (eq (print $tp.Modpack.Source) "modrinth")}}
       <section class="tpage-section" aria-labelledby="manual">
         <h2 id="manual" class="tpage-h2">The same server by hand</h2>
-        <p class="tpage-lead">With Docker and the itzg image Playkeeper runs servers in, sized the way Playkeeper sizes it. Open TCP 25565 in your provider's firewall.</p>
-        {{template "library-docker" (dict "L" $k)}}
+        <p class="tpage-lead">With Docker and the itzg image Playkeeper runs servers in, sized the way Playkeeper sizes it and with the pinned versions. Open TCP 25565 in your provider's firewall.</p>
+        {{if $tp.Modpack}}{{template "pack-docker" $t}}{{else}}{{template "library-docker" (dict "L" $k)}}{{end}}
       </section>
+      {{end}}
     </div>
     <aside class="tpage-side" aria-label="At a glance">
       <div class="facts-card">
@@ -289,7 +294,7 @@
         <dl class="tfacts">
           <div class="tfact"><dt>Server</dt><dd>{{with $l.Logo}}{{$i := img .}}<img class="tfact-logo{{if $l.Pixel}} pixel{{end}}" src="{{$i.URL}}" alt="" width="20" height="20" decoding="async">{{end}}{{$l.Name}} {{$t.Version}}, build {{$k.Build}}</dd></div>
           <div class="tfact"><dt>Java</dt><dd>{{javaFor $t.Version}}</dd></div>
-          <div class="tfact"><dt>Memory</dt><dd>{{$t.Memory}}, {{gb $k.JavaHeapMB}} for Java</dd></div>
+          <div class="tfact"><dt>Memory</dt><dd>{{$t.Memory}}, {{gb $t.JavaHeapMB}} for Java</dd></div>
           <div class="tfact"><dt>Type</dt><dd>{{$t.KindName}}</dd></div>
           <div class="tfact"><dt>Players</dt><dd>Up to {{$k.MaxPlayers}}</dd></div>
           <div class="tfact"><dt>Rules</dt><dd>{{title $k.Difficulty}}, PvP {{if $k.PVP}}on{{else}}off{{end}}{{if $k.Hardcore}}, hardcore{{end}}</dd></div>
@@ -316,6 +321,28 @@
   </div>
 </section>
 {{end}}
+{{end}}
+
+{{/* pack-docker: a Modrinth modpack's template by hand in the itzg image,
+     as the pack pages under /modpacks write it: the container gets the
+     template's memory, Java's heap what Playkeeper would give it, and the
+     pack the version the template pins. */}}
+{{define "pack-docker"}}{{$t := .}}{{$tp := $t.Template}}{{$m := $tp.Modpack}}
+<div class="codeblock">
+  <div class="code-head">
+    <div class="code-tabs" role="tablist" aria-label="How">
+      <button type="button" class="code-tab" role="tab" id="tab-docker" aria-controls="code-docker" aria-selected="true">Docker</button>
+    </div>
+    <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+  </div>
+<pre id="code-docker" role="tabpanel" tabindex="0" aria-labelledby="tab-docker"><span class="c"># {{$t.Name}}: {{$m.Name}} {{$m.Pin.VersionNumber}} on Java {{javaFor $t.Version}}, {{$t.Memory}} in all</span>
+docker run -d --name {{$t.ID}} -p 25565:25565 \
+  --memory {{gbFlag $t.MemoryMB}} --memory-swap {{gbFlag $t.MemoryMB}} \
+  -e EULA=TRUE -e MEMORY={{gbFlag $t.JavaHeapMB}} -e USE_AIKAR_FLAGS=TRUE \
+  -e TYPE=MODRINTH -e MODRINTH_MODPACK={{$m.Slug}} -e MODRINTH_VERSION={{$m.Pin.VersionID}} \
+  -e MAX_PLAYERS={{$tp.Settings.MaxPlayers}} \
+  -v {{$t.ID}}-data:/data itzg/minecraft-server:java{{javaFor $t.Version}}</pre>
+</div>
 {{end}}
 
 {{/* open: /t/<id>, which the browser leaves at once for the share page with

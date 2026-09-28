@@ -331,6 +331,9 @@ func (s *Server) Routes() []Route {
 		mg("/api/machines/{mid}/update", "/v1/update"),
 		mm("POST", "/api/machines/{mid}/update/check", "/v1/update/check", actManageMachine),
 		{"POST", "/api/machines/{mid}/update/apply", needSessionCSRF, actManageMachine, s.forwardThen("POST", "/v1/update/apply", s.recordUpdate)},
+		// Usage stats: the switch sets them on every machine of the dashboard.
+		view("/api/usage-stats", s.hUsageStats),
+		{"PUT", "/api/usage-stats", needSessionCSRF, actManageMachine, s.hUsageStatsSet},
 		ag("/api/machines/{mid}/address", "/v1/address"),
 		{"GET", "/api/machines/{mid}/address/available", needSession, actManageMachine, s.machineProxy("GET", "/v1/address/available")},
 		ag("/api/machines/{mid}/address/plan", "/v1/address/plan"),
@@ -391,6 +394,8 @@ func (s *Server) Routes() []Route {
 		sg("/api/servers/{id}/addons/checks", "/v1/servers/{id}/addons/checks"),
 		sg("/api/servers/{id}/addons/search", "/v1/servers/{id}/addons/search"),
 		sg("/api/servers/{id}/addons/curated", "/v1/servers/{id}/addons/curated"),
+		sg("/api/servers/{id}/crossplay", "/v1/servers/{id}/crossplay"),
+		sm("POST", "/api/servers/{id}/crossplay", "/v1/servers/{id}/crossplay"),
 		sg("/api/servers/{id}/addons/project/{source}/{project}", "/v1/servers/{id}/addons/project/{source}/{project}"),
 		sg("/api/servers/{id}/addons/project/{source}/{project}/removal", "/v1/servers/{id}/addons/project/{source}/{project}/removal"),
 		view("/api/servers/{id}/addons/icon", s.hAddonIcon),

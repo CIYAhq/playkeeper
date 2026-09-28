@@ -9,6 +9,9 @@ import { expect, test, type Page } from '@playwright/test'
 
 const cards = (page: Page) => page.locator('[data-dir-grid] .dcard-name')
 const names = async (page: Page) => (await cards(page).allTextContents()).map((s) => s.trim())
+/** The names the index lists for a game mode, the most popular first: what the page should show. */
+const inMode = (page: Page, mode: string) =>
+  page.evaluate((m) => (window as unknown as { playkeeperTemplates: { templates: { name: string; cats: string[] }[] } }).playkeeperTemplates.templates.filter((t) => t.cats.includes(m)).map((t) => t.name).slice(0, 24), mode)
 
 test('the directory searches, filters and sorts every template, and keeps what is chosen in the address', async ({ page }) => {
   const errors: string[] = []
@@ -18,13 +21,15 @@ test('the directory searches, filters and sorts every template, and keeps what i
   expect(all, 'templates on /templates').toBeGreaterThan(5)
   await expect(page.locator('[data-dir-count]')).toHaveText(`${all} templates`)
 
-  // A word searches names, descriptions, add-ons, game modes and tags.
+  // A word searches names, descriptions, add-ons, game modes and tags, a
+  // name that starts with it first.
   await page.locator('#dir-q').fill('towny')
-  await expect.poll(() => names(page)).toEqual(['Towny'])
+  await expect.poll(async () => (await names(page))[0]).toBe('Towny')
   await expect(page).toHaveURL(/\/templates\?q=towny$/)
   await expect(page.locator('[data-sort-label]')).toHaveText('Best match')
   await page.locator('#dir-q').fill('luckperms')
-  await expect.poll(() => names(page)).toEqual(['Towny'])
+  await expect.poll(() => names(page)).toContain('Towny')
+  expect((await names(page)).length).toBeLessThan(all)
   await page.locator('.dir-chip', { hasText: 'luckperms' }).click()
   await expect(cards(page)).toHaveCount(all)
   await expect(page.locator('#dir-q')).toHaveValue('')
@@ -34,10 +39,12 @@ test('the directory searches, filters and sorts every template, and keeps what i
   // reload keeps them.
   const smp = page.locator('.facet[data-facet="mode"] .facet-opt:has(input[value="smp"])')
   await smp.click()
-  await expect.poll(() => names(page)).toEqual(['Lifesteal SMP', 'Hardcore SMP', 'Survival with friends'])
+  const popular = await inMode(page, 'smp')
+  expect(popular.length, 'SMP templates').toBeGreaterThan(2)
+  await expect.poll(() => names(page)).toEqual(popular)
   await expect(page).toHaveURL(/\/templates\?mode=smp$/)
   await page.reload({ waitUntil: 'networkidle' })
-  await expect.poll(() => names(page)).toEqual(['Lifesteal SMP', 'Hardcore SMP', 'Survival with friends'])
+  await expect.poll(() => names(page)).toEqual(popular)
   await expect(smp.locator('input')).toBeChecked()
 
   // Sorting: A–Z, from a menu the keyboard can use too.
@@ -48,13 +55,20 @@ test('the directory searches, filters and sorts every template, and keeps what i
   await page.keyboard.press('Enter')
   await expect(page.locator('[data-sort-menu]')).toBeHidden()
   await expect(page.locator('[data-sort-label]')).toHaveText('A–Z')
-  await expect.poll(() => names(page)).toEqual(['Hardcore SMP', 'Lifesteal SMP', 'Survival with friends'])
+  const az = [...popular].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+  expect(az, 'A–Z differs from Popular for this test to see it').not.toEqual(popular)
+  await expect.poll(() => names(page)).toEqual(az)
   await expect(page).toHaveURL(/\/templates\?mode=smp&sort=name$/)
 
   // Features are all of those chosen; the counts say what each would show.
   await page.locator('.dir-chips-clear').click()
   await expect(cards(page)).toHaveCount(all)
-  const pvp = page.locator('.facet[data-facet="tag"] .facet-opt', { hasText: 'PvP' })
+  const features = page.locator('.facet[data-facet="tag"]')
+  const pvp = features.locator('.facet-opt', { hasText: 'PvP' })
+  if (!(await pvp.isVisible())) {
+    await features.locator('[data-facet-more]').click()
+    await expect(features.locator('[data-facet-more]')).toHaveText('Show fewer')
+  }
   const n = Number(await pvp.locator('[data-count]').textContent())
   await pvp.click()
   await expect(cards(page)).toHaveCount(n)
@@ -79,7 +93,7 @@ test('a card opens its template in the share page, and a card the script draws g
   await expect(page.locator('#t-name')).toHaveText(name)
 
   await page.goto('/templates?q=towny', { waitUntil: 'networkidle' })
-  const drawn = page.locator('[data-dir-grid] .dcard-open')
+  const drawn = page.locator('[data-dir-grid] .dcard-open').first()
   await expect(drawn).toHaveAttribute('href', '/t/towny')
   await drawn.click()
   await page.waitForURL(/\/t#[A-D]/)
@@ -87,7 +101,7 @@ test('a card opens its template in the share page, and a card the script draws g
 
   // The card's name opens the template's page, whose Copy link copies /t/<id>.
   await page.goto('/templates', { waitUntil: 'networkidle' })
-  await page.locator('[data-dir-grid] .dcard-link', { hasText: 'Towny' }).click()
+  await page.locator('[data-dir-grid] .dcard-link').getByText('Towny', { exact: true }).click()
   await expect(page).toHaveURL(/\/templates\/towny\/towny$/)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Towny')
   await expect(page.locator('.tpage-actions .btn-primary')).toHaveAttribute('href', /^\/t#/)
@@ -144,7 +158,7 @@ test('Open in my dashboard counts template_opened, where it was', async ({ brows
   await ctx.route('https://analytics-c.ciya.so/oa.js', (route) => route.fulfill({ contentType: 'text/javascript', body: 'window.oa = { track: function (name, props) { recordEvent(name, props) }, flush: function () {} }' }))
   const page = await ctx.newPage()
   await page.goto('/templates', { waitUntil: 'networkidle' })
-  await page.locator('[data-dir-grid] .dcard', { hasText: 'Towny' }).locator('.dcard-open').click({ button: 'middle' })
+  await page.locator('[data-dir-grid] .dcard:has(.dcard-name a:text-is("Towny"))').locator('.dcard-open').click({ button: 'middle' })
   await page.goto('/templates/towny/towny', { waitUntil: 'networkidle' })
   await page.locator('.tpage-actions .btn-primary').click({ button: 'middle' })
   await expect.poll(() => events).toEqual([

@@ -522,7 +522,7 @@ func TestChannels(t *testing.T) {
 		t.Fatal(err)
 	}
 	code := strings.TrimSuffix(strings.TrimPrefix(channelCode.String(), "^"), "$")
-	if !strings.Contains(string(conf), `location ~* "^/install(/`+code+`)?$" {`) {
+	if !strings.Contains(string(conf), `location ~* "^/install(?:/(?<channel>`+code+`))?$" {`) {
 		t.Errorf("site/nginx.conf's /install/<code> doesn't take %s", code)
 	}
 	for _, bad := range []Channel{

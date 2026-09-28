@@ -1,0 +1,18 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Older clients welcome",
+  "description": "Paper 26.2 that players on older Minecraft versions can join too, with ViaVersion and ViaBackwards translating between versions.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "26.2" },
+  "settings": {
+    "difficulty": "normal",
+    "gameMode": "survival",
+    "maxPlayers": 20,
+    "playStyle": "friends",
+    "memoryMB": 3072
+  },
+  "addons": [
+    { "source": "modrinth", "project": "P1OZGk5p", "slug": "viaversion", "name": "ViaVersion", "pin": { "versionId": "FaishMnD", "versionNumber": "5.12.0", "channel": "release", "hashAlgo": "sha512", "hash": "2dfe562109179f08685dc84a66aedf7c810592223b5287b6355ba1e741d1737d015ca0c444b4bc01e5db2a4b10549d5028bf2e3f3337219ded709e44b579a4d8" } },
+    { "source": "modrinth", "project": "NpvuJQoq", "slug": "viabackwards", "name": "ViaBackwards", "pin": { "versionId": "SxGhdsPK", "versionNumber": "5.12.0", "channel": "release", "hashAlgo": "sha512", "hash": "dba076b3283eb5987e3d37a63b57802e7946cf8a2d3b6f68ff57ddbc4eb648e2084decd212fef2cd0cde5187bc6565959c31b496bfb38000e67e3ffab4c290b3" } }
+  ]
+}

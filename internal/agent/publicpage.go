@@ -205,6 +205,9 @@ func (s *server) publicServer(ctx context.Context, host string, j api.JoinAddres
 	if _, err := s.readIcon(); err == nil {
 		ps.HasIcon = true
 	}
+	if crossplayOn(sc) {
+		ps.Bedrock = &api.BedrockJoin{Host: host, Port: sc.CrossplayPort}
+	}
 	if ps.State == api.PublicOnline && st.Players != nil {
 		p := &api.PublicPlayers{Online: st.Players.Online, Max: st.Players.Max}
 		if p.Max <= 0 {

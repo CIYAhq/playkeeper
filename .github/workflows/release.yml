@@ -11,8 +11,8 @@ name: Release
 # against), checks the assets again, publishes them as the latest (normal,
 # not pre-release) GitHub release, then checks the live addresses: the GitHub
 # release URLs and the one-line install from them must work, and
-# https://playkeeper.io/install should redirect to the new get.sh (a warning
-# only, since that site runs on its own server).
+# https://playkeeper.io/install should run the new get.sh (a warning only,
+# since that site runs on its own server).
 # Pull requests that touch the release path, and manual runs, are dry runs:
 # the same build, install and signing, without CurseForge's key and with a
 # throwaway signing key, and nothing is released.
@@ -125,7 +125,9 @@ jobs:
           check=$(lookup release-check.yml)
           built=
           if [ -n "$check" ]; then
-            built=$(gh api "repos/$GH_REPO/actions/runs/$check/artifacts" \
+            # A Release check uploads more artifacts than the API's default page
+            # of 30, and lists the release build, its first, last.
+            built=$(gh api "repos/$GH_REPO/actions/runs/$check/artifacts?per_page=100" \
               --jq '[.artifacts[] | select(.expired | not) | .name | select(startswith("release-")) | ltrimstr("release-")] | join(", ")') || built=
           fi
           if [[ ", $built, " == *", $TAG, "* ]]; then
@@ -228,14 +230,18 @@ jobs:
             fi
             cmp "/tmp/latest/$f" "/tmp/release/$f"
           done
+      # playkeeper.io/install is a few lines that run the latest release's
+      # get.sh (site/install.sh); the step's name stays, as the analytics
+      # digest counts its download of get.sh by it.
       - name: playkeeper.io/install resolves to this release's get.sh (warning only)
         run: |
           if curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o /tmp/install "$INSTALL_URL" &&
-            cmp -s /tmp/install /tmp/release/get.sh; then
-            echo "$INSTALL_URL resolves to this release's get.sh"
+            get=$(sed -n 's/^url=//p' /tmp/install) && [ "$get" = "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/get.sh" ] &&
+            curl -fsSL --retry 5 --retry-all-errors -o /tmp/install-get.sh "$get" && cmp -s /tmp/install-get.sh /tmp/release/get.sh; then
+            echo "$INSTALL_URL runs this release's get.sh"
           else
-            answer=$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' "$INSTALL_URL" 2>&1 || true)
-            echo "::warning::$INSTALL_URL does not resolve to this release's get.sh (it answered: $answer). Check the playkeeper.io application in Coolify (site/README.md) and its DNS. Installs from the GitHub release URL are not affected."
+            answer=$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' "$INSTALL_URL" 2>&1 || true)
+            echo "::warning::$INSTALL_URL does not run this release's get.sh (it answered: $answer). Check the playkeeper.io application in Coolify (site/README.md) and its DNS. Installs from the GitHub release URL are not affected."
           fi
       - name: One-line install from the GitHub release
         run: scripts/smoke-install.sh "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/get.sh" "$VERSION"

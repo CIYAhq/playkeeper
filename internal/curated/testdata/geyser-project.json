@@ -1,0 +1,27 @@
+{
+ "id": "wKkoqHrH",
+ "slug": "geyser",
+ "title": "Geyser",
+ "description": "A bridge/proxy allowing you to connect to Minecraft: Java Edition servers with Minecraft: Bedrock Edition.",
+ "project_type": "mod",
+ "server_side": "required",
+ "client_side": "unsupported",
+ "loaders": [
+  "bungeecord",
+  "fabric",
+  "neoforge",
+  "paper",
+  "spigot",
+  "velocity"
+ ],
+ "license": {
+  "id": "MIT"
+ },
+ "team": "rttnZkSH",
+ "updated": "2026-09-25T13:55:02.844530Z",
+ "game_versions": [
+  "26.1.1",
+  "26.1.2",
+  "26.2"
+ ]
+}

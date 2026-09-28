@@ -115,8 +115,7 @@ func checkSlug(kind, id string) error {
 // template's categories and tags must be in it, and a template needs a
 // category and the day it was added. It lists only those the release opens
 // whose last check passed (checked, site/data/checks), with their facts from
-// it; the rest wait for their release or a passing check. A modpack's
-// template waits too, until its page can show a modpack's check.
+// it; the rest wait for their release or a passing check.
 func loadDirectory(src fs.FS, file string, cards map[string]*TemplateCard, checked map[string]*checks.Check, packs map[string]*Modpack) (*Directory, error) {
 	b, err := fs.ReadFile(src, file)
 	if err != nil {
@@ -211,13 +210,25 @@ func loadDirectory(src fs.FS, file string, cards map[string]*TemplateCard, check
 		if tagErr != nil {
 			return nil, tagErr
 		}
-		c.check, c.pack = nil, packOf[id]
-		if k := checked[id]; k != nil && k.Status == checks.Passing && c.Template.Modpack == nil {
+		c.check, c.pack, c.modpackCheck = nil, packOf[id], nil
+		if k := checked[id]; k != nil && k.Status == checks.Passing {
 			l := &LibraryPage{ID: id, Template: id}
 			if err := l.fill(k); err != nil {
 				return nil, fmt.Errorf("site/data/checks/%s.json: %w", id, err)
 			}
-			if err := l.check(cards); err != nil {
+			// A modpack's check has the pack as it installed, not add-ons,
+			// which is all a guide's check (LibraryPage.check) takes.
+			switch {
+			case c.Template.Modpack == nil:
+				err = l.check(cards)
+			case k.Modpack == nil || k.Build == "":
+				err = fmt.Errorf("a modpack's check says which pack and server build installed")
+			case !hasType(c.Template.Server.Type):
+				err = fmt.Errorf("the release can't create %q servers", c.Template.Server.Type)
+			default:
+				l.card, c.modpackCheck = c, k.Modpack
+			}
+			if err != nil {
 				return nil, fmt.Errorf("site/data/checks/%s.json: %w", id, err)
 			}
 			c.check = l
@@ -346,6 +357,20 @@ func (c *TemplateCard) Check() *LibraryPage { return c.check }
 
 // PackPage is its modpack's page under /modpacks, or nil.
 func (c *TemplateCard) PackPage() *Modpack { return c.pack }
+
+// PackCheck is its modpack as it installed in its check, or nil for a
+// template without one.
+func (c *TemplateCard) PackCheck() *checks.Modpack { return c.modpackCheck }
+
+// JavaHeapMB is the heap Playkeeper gives Java of the template's memory:
+// less for a modpack's, whose mods need room outside the heap.
+func (c *TemplateCard) JavaHeapMB() int {
+	mods := 0
+	if c.modpackCheck != nil {
+		mods = c.modpackCheck.Mods
+	}
+	return minecraft.HeapFor(c.MemoryMB, c.Template.Server.Type, mods)
+}
 
 // ModCount is how many mods its modpack has, 0 when it has none or
 // cards.json doesn't say.
@@ -648,7 +673,7 @@ func (s *Site) addDirectory() error {
 		open := &Page{
 			Path:        t.OpenPath(),
 			Title:       "Open " + t.Name + " in your dashboard",
-			Description: "Opens the " + t.Name + " server template on Playkeeper's share page, which sends it to your own dashboard. Nothing installs until you confirm there.",
+			Description: "Opens the " + t.Name + " server template on Playkeeper's share page, which sends it to your dashboard. Nothing installs until you confirm.",
 			Label:       t.Name, H1: "Opening " + t.Name,
 			OG: "t", OGWords: "A Minecraft server setup, shared from Playkeeper", Layout: "open", Closing: "none", NoIndex: true, Refresh: t.Link,
 			Styles: []string{"css/templates.css"},

@@ -15,8 +15,8 @@ type Channel struct {
 }
 
 // channelCode is what nginx.conf's /install/<code> takes: any such code
-// redirects, not only a channel's, so a typo in a command on screen still
-// installs.
+// installs, not only a channel's, so a typo in a command on screen still
+// does.
 var channelCode = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
 
 // channels are the creators asked for a sponsored video, the launch posts, the

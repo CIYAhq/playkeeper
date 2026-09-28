@@ -12,8 +12,8 @@ The five problems people hit most, with what to check first. If none of this hel
 
 ## Friends can't join
 
-- Allow the game ports in your provider's firewall: TCP 25565 for the first server, and one more from 25566 for each further server. A server with voice chat also needs its UDP port, 24454 or the next free one. On Oracle Cloud that is the security list; if friends still can't connect, allow the ports in the VM's iptables as well, as for the dashboard above.
-- Friends need Minecraft: Java Edition. Bedrock can't join.
+- Allow the game ports in your provider's firewall: TCP 25565 for the first server, and one more from 25566 for each further server. A server with voice chat also needs its UDP port, 24454 or the next free one, and one with crossplay its UDP port, 19132 or the next free one. On Oracle Cloud that is the security list; if friends still can't connect, allow the ports in the VM's iptables as well, as for the dashboard above.
+- Friends on Minecraft: Bedrock Edition (phones, tablets, consoles and Windows) can join a Paper or Purpur server with **Bedrock players** on in its Settings. They add the server with the address and port on its Join card, not the server's own address, which Bedrock can't follow. Xbox, PlayStation and Switch players need a workaround such as [BedrockConnect](https://geysermc.org/wiki/geyser/using-geyser-with-consoles/). When Bedrock updates, update Geyser on the Plugins tab: an older Geyser turns newer Bedrock versions away. Add Bedrock friends to the allowlist while the server runs, as `.` then their Xbox gamertag, like `.Steve`.
 - They must be on the server's allowlist: send them an invite link from the Players tab, or add their Minecraft name there.
 - Copy the join address from the server's Overview. With a free name, each server gets its own address without a port three days after the claim; until then, friends use `yourname.playkeeper.me` with the server's port.
 - Free names now end in `.playkeeper.me`. If the dashboard says so when you refresh or change your name, update Playkeeper: it moves your name by itself, and the old `.playkeeper.io` address keeps working for two months.

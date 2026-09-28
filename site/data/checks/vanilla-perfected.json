@@ -1,0 +1,13 @@
+{
+  "status": "passing",
+  "checked": "2026-09-28",
+  "release": "0.4.2",
+  "build": "0.19.5",
+  "doneSeconds": 6.582,
+  "modpack": {
+    "name": "Vanilla Perfected",
+    "version": "1.0.3+26.2",
+    "mods": 81,
+    "downloads": 2518784
+  }
+}

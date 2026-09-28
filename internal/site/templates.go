@@ -56,6 +56,7 @@ type TemplateCard struct {
 	// page, when it has one.
 	check        *LibraryPage
 	pack         *Modpack
+	modpackCheck *checks.Modpack
 	categoryIDs  []string
 	tagIDs       []string
 	modpackMods  int

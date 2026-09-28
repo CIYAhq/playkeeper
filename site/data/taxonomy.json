@@ -41,6 +41,11 @@
       "intro": "Survival multiplayer for a group of friends: one shared world that keeps going, with plugins that keep it fair and easy to run.",
       "art": "app/pixel-art/play-with-friends.svg"
     },
+    "vanilla-plus": {
+      "name": "Vanilla+",
+      "intro": "Minecraft as it plays, made smoother: performance mods and small touches that leave the game feeling like itself.",
+      "description": "Vanilla+ server templates for Playkeeper: the game as it plays, with performance mods and small touches, each opened in your own dashboard in one click."
+    },
     "towny": {
       "name": "Towny",
       "intro": "Players found towns, claim land chunk by chunk and join their towns into nations, with ranks and protection built in."

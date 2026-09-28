@@ -120,7 +120,7 @@ func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 		}
 		for _, want := range []string{
 			`href="` + c.Link + `" data-template-open="` + c.ID + `"`,
-			`<a href="` + c.Primary().Path() + `">` + c.Primary().Name + `</a>`,
+			`<a href="` + c.Primary().Path() + `">`,
 			`<meta name="robots" content="noindex">`,
 			c.Loader().Name + " " + c.Version(),
 		} {

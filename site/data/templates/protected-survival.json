@@ -1,0 +1,21 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Protected survival",
+  "description": "Paper where players claim their land with a golden shovel, admins guard spawn with WorldGuard regions, and CoreProtect rolls back any grief.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "26.2" },
+  "settings": {
+    "difficulty": "normal",
+    "pvp": false,
+    "gameMode": "survival",
+    "maxPlayers": 20,
+    "playStyle": "friends",
+    "memoryMB": 4096
+  },
+  "addons": [
+    { "source": "modrinth", "project": "O4o4mKaq", "slug": "griefprevention", "name": "GriefPrevention", "pin": { "versionId": "dGfCZHqk", "versionNumber": "16.18.7", "channel": "release", "hashAlgo": "sha512", "hash": "c9bc692253ba3860327e5c38767ce3dc66c798264fe650a08b4ae888337ff75bc16e9bd1db7b39a514a275bf2cc2a3f1f8cd95cf080b89ae42a0f684fc2bfc66" } },
+    { "source": "modrinth", "project": "DKY9btbd", "slug": "worldguard", "name": "WorldGuard", "pin": { "versionId": "TtfwTyi6", "versionNumber": "7.0.19", "channel": "release", "hashAlgo": "sha512", "hash": "e9ad7ad53c93a07a7d5c3af3d844a677abbe894de4d7ff69fc03397daae5e8532217d57de23a3cddbe0d94ae81ee7acde6c78384b9596aa1eb3001bb37087d41" } },
+    { "source": "modrinth", "project": "1u6JkXh5", "slug": "worldedit", "name": "WorldEdit", "pin": { "versionId": "F5ea2ov3", "versionNumber": "7.4.5", "channel": "release", "hashAlgo": "sha512", "hash": "a383492fac6bfb4d43a257dfa7b5fc076aae503a71151b463de4fe80e6f3d5fc11209eaf4097baa115f3febf0adc40ca0a1ecda227b8439b429d0a4ba3a63a4f" } },
+    { "source": "modrinth", "project": "Lu3KuzdV", "slug": "coreprotect", "name": "CoreProtect", "pin": { "versionId": "3sehX6Sg", "versionNumber": "24.1", "channel": "release", "hashAlgo": "sha512", "hash": "76aad727528ddb990bbee5069f8ef3fcd018ae0bcdea89b965be2485e828633eb068672e841be64e550c8474f901a24d8c15c7bd44c2bd6c96244e1e58de0c95" } }
+  ]
+}

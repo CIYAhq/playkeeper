@@ -459,6 +459,13 @@ describe('console', () => {
     expect(parseLine('plain output').kind).toBe('info')
   })
 
+  // Paper 26.2 with a Bedrock player behind Geyser and Floodgate.
+  it('reads a Bedrock player by the dot in front of their name', () => {
+    expect(parseLine('[11:57:39 INFO]: .Notch joined the game').kind).toBe('players')
+    expect(parseLine('[11:57:52 INFO]: [Not Secure] <.Notch> hello from a phone').kind).toBe('chat')
+    expect(parseLine('[11:58:30 INFO]: .Notch left the game').kind).toBe('players')
+  })
+
   // Real lines from Vanilla 26.1.2, Fabric 26.3, Quilt 26.1.2, NeoForge 26.2 and 26.1.2, and Forge 65.1.0 for 26.2 servers, as the log API gives them.
   it.each([
     ['[08:36:29] [Server thread/INFO]: pkbotfriend joined the game', '08:36:29', 'INFO', 'players', 'pkbotfriend joined the game'],

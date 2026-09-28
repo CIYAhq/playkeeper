@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { ApiError, get, post } from './client'
 import type { MachineView, Me, ServerStatus, SignInNotice } from './types'
 import { t } from '@/i18n'
-import { isStale, joinOf, machineLabel, machineOf, machineRoute, reachOf } from '@/lib/machines'
+import { bedrockOf, isStale, joinOf, machineLabel, machineOf, machineRoute, reachOf } from '@/lib/machines'
 import { mergePrefs, undoPrefs } from '@/lib/optimistic'
 import { usePoll } from '@/lib/usePoll'
 
@@ -225,6 +225,7 @@ export function useServerMachine(s: ServerStatus) {
     name: machineLabel(machine) || ws.machineName,
     route: machine ? machineRoute(machine) : undefined,
     join: joinOf(s, machine),
+    bedrock: bedrockOf(s, machine),
   }
 }
 

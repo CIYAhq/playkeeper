@@ -32,6 +32,7 @@ import { addonKind } from '@/lib/software'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { serverAction } from '.'
+import { BedrockJoin } from './crossplay'
 import { AsleepCard, LastOneOut, ListeningLine, SleepToday } from './sleep'
 
 export function Overview({ server }: { server: ServerStatus }) {
@@ -181,6 +182,7 @@ function JoinCard({ server: s }: { server: ServerStatus }) {
       )}
       {!phone && <p className="mt-1 text-[13px] text-muted-foreground">{asleep ? t('sleep.joinWakes') : t('overview.joinHelp')}</p>}
       {phone && asleep && <p className="mt-1 text-[13px] text-muted-foreground">{t('sleep.joinWakesShort')}</p>}
+      <BedrockJoin server={s} />
       <p className={cn('mt-auto flex items-center gap-2 pt-4 text-xs text-muted-foreground max-sm:pt-3 max-sm:text-[13px]', phone && asleep && 'hidden')}>
         {asleep ? (
           <ListeningLine server={s} />

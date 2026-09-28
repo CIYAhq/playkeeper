@@ -1,0 +1,33 @@
+{
+  "status": "passing",
+  "checked": "2026-09-28",
+  "release": "0.4.2",
+  "build": "129",
+  "doneSeconds": 16.739,
+  "addons": [
+    {
+      "name": "GSit",
+      "source": "modrinth",
+      "slug": "gsit",
+      "version": "3.7.0",
+      "licence": "GPL-3.0-only",
+      "downloads": 125800
+    },
+    {
+      "name": "AxGraves",
+      "source": "modrinth",
+      "slug": "axgraves",
+      "version": "1.32.1",
+      "licence": "MIT",
+      "downloads": 198443
+    },
+    {
+      "name": "TAB",
+      "source": "modrinth",
+      "slug": "tab-was-taken",
+      "version": "6.2.0",
+      "licence": "Apache-2.0",
+      "downloads": 1231160
+    }
+  ]
+}

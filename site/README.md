@@ -1,6 +1,6 @@
 # playkeeper.io
 
-This folder is the website at [playkeeper.io](https://playkeeper.io): the landing page, feature, comparison and guide pages, the sizing guide, the docs, pricing, the blog, the share page for server templates and the live demo, served by nginx in a container. `https://playkeeper.io/install` answers with a redirect (HTTP 302) to `https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh`, so the one-line installer always gets `get.sh` from the latest release, and a new release never needs a redeploy of the site.
+This folder is the website at [playkeeper.io](https://playkeeper.io): the landing page, feature, comparison and guide pages, the sizing guide, the docs, pricing, the blog, the share page for server templates and the live demo, served by nginx in a container. `https://playkeeper.io/install` answers with a few lines of shell, `install.sh`, that download `https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh` and run it, so the one-line installer always gets `get.sh` from the latest release, and a new release never needs a redeploy of the site. They tell `get.sh` the install came through playkeeper.io, which the anonymous [usage stats](../README.md#usage-stats) count as an install on our domain.
 
 | Path | Answer |
 | --- | --- |
@@ -14,8 +14,8 @@ This folder is the website at [playkeeper.io](https://playkeeper.io): the landin
 | `/t/<id>` | a directory template's share page: sends the browser straight on to `/t` with the template, kept out of search engines |
 | `/sitemap.xml`, `/robots.txt`, `/blog/feed.xml` | for search engines and feed readers |
 | `/community` | `302` to where questions go (see Settings below) |
-| `/install` | `302` to the latest release's `get.sh` |
-| `/install/<code>` | the same `302`, with a channel's code, which the install log counts (see Channels below) |
+| `/install` | `install.sh`, which runs the latest release's `get.sh` and tells it the install came through playkeeper.io |
+| `/install/<code>` | the same script with a channel's code filled in, for the usage stats and the install log (see Channels below) |
 | `/go/<code>` | `302` to the landing page with a channel's UTM tags (see Channels below) |
 | `/healthz` | `200` with `ok`, for health checks |
 
@@ -68,10 +68,10 @@ Funnels in the analytics are built from pages and these custom events. Each also
 
 `Channels` in `internal/site/channels.go` are where visitors come from, such as a creator's sponsored video or a launch post, each with a code. `playkeeper.io/go/<code>` sends a visitor to the landing page with the channel's UTM tags (`utm_content` is the code), and the landing page then shows them that channel's install command, `curl -fsSL https://playkeeper.io/install/<code> | sudo sh`. It does this only for the codes it lists, reads the code from the address and stores nothing, so the site stays cookieless. Other pages, and other visitors, see the usual command. `install_copied` says which channel's command was copied in `channel`. To add a channel, add it to the list and redeploy.
 
-Every `/install/<code>`, with any code, is the same redirect as `/install`, so a typo in a command still installs. nginx writes each request for `/install` or `/install/<code>` to the install log, and nowhere else: one file a day, `/var/log/playkeeper/installs-YYYY-MM-DD.log`, with the time, the visitor's address (from the Coolify proxy's `X-Forwarded-For`), the method, the path, the status and the user agent. `install-logs.sh` deletes each file after 30 days. For the log to survive redeploys, that folder is a volume in Coolify (step 5 below). Install runs per code, counting each address once and leaving out browsers, from a terminal in the site's container:
+Every `/install/<code>`, with any code, is the same script as `/install`, with the code filled in (nginx's `sub_filter`), so a typo in a command still installs, and the usage stats count installs per code: `byChannel` in the stats service's counts ([services/stats](../services/stats/README.md#reading-the-numbers)). nginx writes each request for `/install` or `/install/<code>` to the install log, and nowhere else: one file a day, `/var/log/playkeeper/installs-YYYY-MM-DD.log`, with the time, the visitor's address (from the Coolify proxy's `X-Forwarded-For`), the method, the path, the status and the user agent. `install-logs.sh` deletes each file after 30 days. For the log to survive redeploys, that folder is a volume in Coolify (step 5 below). Install runs per code, counting each address once and leaving out browsers, from a terminal in the site's container:
 
 ```bash
-awk '$3 == "GET" && $5 == 302 && $6 !~ /^"Mozilla/ { print tolower($4), $2 }' /var/log/playkeeper/installs-*.log | sort -u | awk '{ print $1 }' | uniq -c
+awk '$3 == "GET" && $5 == 200 && $6 !~ /^"Mozilla/ { print tolower($4), $2 }' /var/log/playkeeper/installs-*.log | sort -u | awk '{ print $1 }' | uniq -c
 ```
 
 The release workflow's check of `/install` after each release counts as one there.
@@ -106,7 +106,7 @@ The release workflow's check of `/install` after each release counts as one ther
 - **Without scripts** it's pages of 24 cards (`/templates`, `/templates/page/2`…), a page per category (`/templates/<category>`) and a page per template (`/templates/<category>/<id>`), all linked, so search engines and visitors without scripts reach every template. `js/templates.js` adds search, filters and sorting over all of them at once, from the index the build writes (`js/templates-index.js`, loaded once the page is quiet), and keeps what's chosen in the address, like `/templates?loader=paper&sort=new`. Its cards open templates through `/t/<id>`, which sends the browser straight on to the share page.
 - **What a template is listed under:** `data/templates/cards.json` gives each its categories (the first is the one its page is under), its tags, the day it was added and its popularity, which sorts Popular. `data/taxonomy.json` (beside `data/templates`, since `cmd/template-check` reads every other file in there as a template) names the categories and tags, with each category's intro, and the tags each add-on brings, so a template with CoreProtect is tagged Grief rollback without saying so. Type, loader, version and memory come from the template itself. The build refuses a category or tag that isn't in `taxonomy.json`, a template with no category or no day, and the slug `page`, which the directory's pages use.
 - **A category's page** lists its templates, with search and filters from seven. `pages/templates/<category>.html` (with `layout: category`) is that category's guide, shown under its templates; a category without one needs a `description` in `taxonomy.json`. Search engines index a category's page once it has a guide or three templates.
-- **A template's page** is made from the template and its check: what it installs, with each add-on's version, licence and downloads, its rules and memory, when and on which release it started, and the same server with Docker. It's kept out of search engines, so a variant never competes with its category, unless `pages/templates/<category>/<id>.html` (with `layout: template`) adds notes of its own, which the 60% rule above then covers. A modpack's template isn't listed yet: its page would need to show a modpack's check.
+- **A template's page** is made from the template and its check: what it installs, with each add-on's version, licence and downloads, its rules and memory, when and on which release it started, and the same server with Docker. It's kept out of search engines, so a variant never competes with its category, unless `pages/templates/<category>/<id>.html` (with `layout: template`) adds notes of its own, which the 60% rule above then covers. A modpack's template shows its pack as it installed, and for a Modrinth pack the same `TYPE=MODRINTH` Docker command the pack pages give.
 - **At scale:** `TestTheDirectoryScalesToHundredsOfTemplates` builds the site with 600 more templates made from the real ones' add-ons and checks, some without a check or with a failing one, and fails when a page grows past its size, the index past 700 bytes a template, a template without a passing check is listed, or a listed one can't be reached from `/templates` by links. `PK_DIRECTORY_PREVIEW=<dir> go test -run TestWriteDirectoryPreview ./internal/site` writes that data out, to look at in a browser.
 
 **Checks.** `cmd/template-check` creates a server from a template on a running Playkeeper, starts it, reads its log and its add-ons, and removes it. A template passes when its server reaches Done with every add-on installed and nothing failing to load. The command writes `data/checks/<id>.json`, which nobody edits by hand. Its facts are what a template's page and its category's guide show: the Playkeeper release and server build, the seconds its log took to say Done, each add-on as it installed with its version, licence (the SPDX id its source lists) and downloads, and the day. They get Java and Java's share of the memory from the product (`minecraft.JavaFor`, `minecraft.HeapFor`), and the Docker command sizes the container the way Playkeeper does and installs the template's pinned versions.
@@ -173,7 +173,7 @@ HTTPS is automatic: once DNS points at the server, the Coolify proxy fetches the
 On your computer:
 
 ```bash
-curl -sI https://playkeeper.io/install   # a 302, with location: https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh
+curl -s https://playkeeper.io/install    # the lines of install.sh, which download https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh
 curl -s https://playkeeper.io/healthz    # ok
 curl -sI https://www.playkeeper.io/docs  # a 301, with location: https://playkeeper.io/docs
 ```
@@ -191,7 +191,7 @@ The install log (see Channels above) is written inside the container, and each d
    - **Source Path**: leave it empty, so Docker keeps the log in a named volume
    - **Destination Path**: `/var/log/playkeeper`
 4. Select **Add**, then **Redeploy**, and wait until the deployment log says it has finished.
-5. Check it. On your computer, `curl -s -o /dev/null -w '%{http_code}\n' https://playkeeper.io/install/check` prints `302`. Then, in Coolify, open the application's **Terminal** (or **Terminal** in the sidebar), choose the site's running container, select **Connect** and run `tail -n 1 /var/log/playkeeper/installs-*.log`: the line has today's date, your computer's address and `GET /install/check 302`. After the next deploy, the same command still shows it.
+5. Check it. On your computer, `curl -s -o /dev/null -w '%{http_code}\n' https://playkeeper.io/install/check` prints `200`. Then, in Coolify, open the application's **Terminal** (or **Terminal** in the sidebar), choose the site's running container, select **Connect** and run `tail -n 1 /var/log/playkeeper/installs-*.log`: the line has today's date, your computer's address and `GET /install/check 200`. After the next deploy, the same command still shows it.
 
 Keep **Delete Unused Volumes** off in the server's Docker cleanup settings, or a cleanup can delete the log.
 
@@ -208,7 +208,7 @@ Before 0.4.0, Coolify built the image from the `site` folder alone. The image no
 
 ## Updating
 
-- **A new Playkeeper release:** nothing to do for `/install`, which always points at the latest release. The site's docs, version and server types come from the repository, so deploy again once the release is on `main`.
+- **A new Playkeeper release:** nothing to do for `/install`, which always runs the latest release's `get.sh`. The site's docs, version and server types come from the repository, so deploy again once the release is on `main`.
 - **A change to this folder, the docs or the dashboard:** in Coolify, open the application and select **Deploy** again. An application added by repository URL is not redeployed on its own when `main` changes. That includes new sizing numbers in `internal/sizing`, which reach `/sizing` only with the next deploy, and changes in `web/`, which reach the live demo only with the next deploy.
 - **A new nginx, Go or Node version:** change the tag and the digest on the matching `FROM` line of `Dockerfile` (Docker Hub lists both for each tag; nginx uses an `…-alpine-slim` tag, Go and Node the `…-alpine` tags of the versions in `scripts/toolchains.txt`), then check and redeploy.
 

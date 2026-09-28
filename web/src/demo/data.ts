@@ -32,6 +32,7 @@ import type {
   Catalog,
   CatalogEntry,
   Crash,
+  Crossplay,
   CuratedAddons,
   DailyActivity,
   DataPack,
@@ -72,6 +73,7 @@ import type {
   SoftwarePin,
   TwoFactorStatus,
   UpdateInfo,
+  UsageStatsView,
   WhitelistEntry,
   WorldImport,
 } from '@/api/types'
@@ -168,6 +170,8 @@ export interface DemoState {
   files: Record<string, Record<string, DemoFile>>
   /** Uploads into servers' folders, by id. */
   fileUploads: Record<string, DemoUpload>
+  /** Whether usage stats are on, once the switch was used; states from before it have none. */
+  usageOn?: boolean
 }
 
 /** A file or folder in a server's folder. A text file keeps its text; any other file only its size. */
@@ -1011,6 +1015,31 @@ function catalog(s: DemoState, r: Request): Catalog {
 
 export const update = (now: number): UpdateInfo => ({ current: demoVersion, supported: true, latest: demoVersion, available: false, checkedAt: iso(now - 30 * minute) })
 
+/** Usage stats, with the heartbeat a machine like the demo's would send: counts only, never a name. */
+export const usageStats = (s: DemoState, now: number): UsageStatsView => {
+  const on = s.usageOn ?? true
+  return {
+    on,
+    reason: s.usageOn === undefined ? 'default' : 'settings',
+    canChange: true,
+    lastSent: on ? iso(now - 3 * hour - 12 * minute) : undefined,
+    service: 'https://stats.playkeeper.io',
+    report: {
+      id: '5d0c1a7e9b3f4e21a8c6d2f07e19b4a3',
+      version: demoVersion,
+      os: 'ubuntu',
+      osVersion: '24.04',
+      arch: 'amd64',
+      source: 'playkeeper.io',
+      kind: 'dashboard',
+      address: 'free',
+      servers: s.servers.length,
+      running: s.servers.filter((x) => x.phase === 'online').length,
+    },
+    machines: [],
+  }
+}
+
 function preflight(s: DemoState): Preflight {
   const live = s.machine.live
   return {
@@ -1327,6 +1356,24 @@ function memoryAdvice(s: DemoState, r: Request): MemoryAdvice {
   return { ...base, verdict: 'keep', params: { peak_mb: peakMB, days: 14, reason: 'fits' }, recommendedMB: budgetMB }
 }
 
+// Crossplay: the switch in Settings. Geyser and Floodgate aren't listed on
+// the Plugins tab of the demo; the switch and the Join card's Bedrock line
+// are.
+
+/** The demo's builds of crossplay's two plugins. */
+export const crossplayPlugins = [
+  { name: 'Geyser', versionNumber: '2.11.3-b1247', source: 'modrinth' as const },
+  { name: 'Floodgate', versionNumber: '2.2.5-b141', source: 'hangar' as const },
+]
+
+function crossplay(s: DemoState, r: Request): Crossplay {
+  const srv = serverOf(s, r)
+  const port = srv.config?.crossplayPort
+  const fits = srv.type === 'paper' || srv.type === 'purpur'
+  const notice = fits ? undefined : { kind: 'not_for_server_type', message: `Crossplay is only offered for Paper and Purpur servers; this server runs ${typeName(srv.type)}.`, hint: 'Bedrock players can join a Paper or Purpur server.' }
+  return { on: !!port, port: port ?? (s.servers.some((o) => o.config?.crossplayPort === 19132) ? 19133 : 19132), available: fits, notice, plugins: port ? crossplayPlugins : [], prefix: '.' }
+}
+
 // Picked by Playkeeper, and the pack friends need for a modded server.
 
 function curated(s: DemoState, r: Request): CuratedAddons {
@@ -1379,6 +1426,7 @@ export const reads: Routes = {
   'GET /api/machines/:machine/addon-sources': () => addonSources,
   'GET /api/auth/2fa': () => twoFactor,
   'GET /api/machines/:machine/update': (_, r) => update(r.now),
+  'GET /api/usage-stats': (s, r) => usageStats(s, r.now),
   'GET /api/machines/:machine/preflight': preflight,
   'GET /api/machines/:machine/events': () => [],
   'GET /api/audit': (s) => s.audit,
@@ -1398,6 +1446,7 @@ export const reads: Routes = {
   'GET /api/servers/:id/addons/checks': addonChecks,
   'GET /api/servers/:id/addons/search': addonSearch,
   'GET /api/servers/:id/addons/curated': curated,
+  'GET /api/servers/:id/crossplay': crossplay,
   'GET /api/servers/:id/mods/share': modsShare,
   'GET /api/servers/:id/public-page': (): PublicPageView => ({ enabled: true, players: false, about: '', stream: '', host: `${freeName}.playkeeper.me`, ports: { https: { port: 443, state: 'open' }, http: { port: 80, state: 'open' } } }),
   'GET /api/servers/:id/addons/project/:source/:project': addonDetails,

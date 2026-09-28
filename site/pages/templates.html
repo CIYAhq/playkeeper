@@ -43,9 +43,9 @@ updated: 2026-09-28
     {{template "faq" (dict "ID" "questions" "Items" (list
       (qa "Are these Minecraft server templates free?" "Yes. Playkeeper and its templates are free and open source; you pay only for the VPS they run on.")
       (qa "Does a template include a world?" "No. A template sets up a new server. Worlds, allowlists and operators never travel in one.")
-      (qa "What happens when a plugin updates?" "Templates install the newest version of each plugin that fits the server's Minecraft version. Each template's page lists the version we started it with, and your dashboard shows the one it will install before you create anything.")
+      (qa "What happens when a plugin updates?" "Each template pins the exact version of every add-on it was checked with, so it installs what its page lists. Every week an agent tries the newer versions, and a template takes them once a server starts cleanly with them.")
       (qa "Can I use a template without Playkeeper?" "Yes. Each template's page has the same server as a Docker command for the itzg image, which Playkeeper runs servers in too.")
-      (qa "Can Bedrock players join?" "Not yet. These templates create Minecraft: Java Edition servers.")
+      (qa "Can Bedrock players join?" "Yes, once the server is made. On a Paper or Purpur server, Bedrock players in its Settings lets friends on phones, consoles and Windows join through Geyser and Floodgate. Console players also need BedrockConnect.")
     ))}}
   </div>
 </section>
