@@ -40,7 +40,7 @@
      directory's heading, with Pip. */}}
 {{define "dir-fan"}}
 <div class="dir-fan" aria-hidden="true">
-  {{range $i, $c := .}}{{if lt $i 3}}{{$a := img $c.Art}}<div class="fan-card fan-{{$i}}"><div class="fan-art"><img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}" decoding="async"{{if eq $i 0}} fetchpriority="high"{{end}}></div><p class="fan-name">{{$c.Name}}</p><p class="fan-facts">{{$c.Loader.Name}} {{$c.Version}} · {{$c.Memory}}</p></div>{{end}}{{end}}
+  {{range $i, $c := .}}{{if lt $i 3}}<div class="fan-card fan-{{$i}}"><div class="fan-art{{if $c.Thumb}} is-photo{{end}}">{{template "tpl-art" (dict "Thumb" $c.Thumb "Art" $c.Art "Sizes" "248px" "Eager" (eq $i 0) "Media" "(min-width: 1024px)")}}</div><p class="fan-name">{{$c.Name}}</p><p class="fan-facts">{{$c.Loader.Name}} {{$c.Version}} · {{$c.Memory}}</p></div>{{end}}{{end}}
   <img class="fan-pip" src="{{asset "app/pip/pip-cheer.svg"}}" alt="" width="104" height="104" decoding="async">
 </div>
 {{end}}
@@ -136,9 +136,9 @@
 {{/* dir-card: a template's card, its name linking its page and Open in my
      dashboard opening it through /t. Crossplay shows on its picture, after
      its name for screen readers. */}}
-{{define "dir-card"}}{{$a := img .Art}}{{$l := .Loader}}
+{{define "dir-card"}}{{$l := .Loader}}
 <article class="dcard">
-  <div class="dcard-art"><img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}" loading="lazy" decoding="async"></div>
+  <div class="dcard-art{{if .Thumb}} is-photo{{end}}">{{template "tpl-art" (dict "Thumb" .Thumb "Art" .Art "Sizes" "(max-width: 639.98px) 100vw, (max-width: 1199.98px) 50vw, 300px")}}</div>
   <div class="dcard-body">
     <h3 class="dcard-name"><a class="dcard-link" href="{{.Path}}">{{.Name}}</a></h3>
     {{if .Crossplay}}<p class="dcard-badge">Crossplay</p>{{end}}
@@ -148,6 +148,11 @@
     <a class="dcard-open" href="{{.Link}}" data-template-open="{{.ID}}"><span>Open in my dashboard</span>{{template "icon" "arrow-up-right"}}<span class="visually-hidden"> the {{.Name}} template</span></a>
   </div>
 </article>{{end}}
+
+{{/* tpl-art: a template's picture, its thumbnail (a picture of its world)
+     when it has one, or its pixel-art scene: Thumb and Art, Sizes, and Eager
+     for the first thing a page shows (Media: on which screens). */}}
+{{define "tpl-art"}}{{if .Thumb}}{{template "shot" (dict "Name" .Thumb "Alt" "" "Sizes" .Sizes "Eager" .Eager "Media" .Media "Class" "thumb-img")}}{{else}}{{$a := img .Art}}<img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}"{{if .Eager}} fetchpriority="high"{{else}} loading="lazy"{{end}} decoding="async">{{end}}{{end}}
 
 {{/* addon-icon: an Installed's icon on a card, or its initial; addon-mark:
      the same, larger, on a template's page. */}}
@@ -187,7 +192,7 @@
 
 {{/* category: a category's page: its templates, then its guide when
      site/pages has one, and the other game modes. */}}
-{{define "category"}}{{$v := .Page.Dir}}{{$c := $v.Category}}{{$a := img $c.Scene}}
+{{define "category"}}{{$v := .Page.Dir}}{{$c := $v.Category}}
 <section class="cat-hero" aria-labelledby="cat-title">
   <div class="container cat-hero-row">
     <div class="cat-hero-text">
@@ -197,7 +202,7 @@
       <p class="cat-meta hero-rise"><span>{{plural (len $c.Templates) "template" "templates"}}</span>{{with .Page.Updated}}<span>Updated {{day .}}</span>{{end}}{{if .Page.Minutes}}<span>{{.Page.Minutes}} min read</span>{{end}}</p>
     </div>
     <div class="cat-hero-art" aria-hidden="true">
-      <div class="cat-scene"><img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}" fetchpriority="high" decoding="async"></div>
+      <div class="cat-scene{{if $c.Thumb}} is-photo{{end}}">{{template "tpl-art" (dict "Thumb" $c.Thumb "Art" $c.Scene "Sizes" "400px" "Eager" true "Media" "(min-width: 1024px)")}}</div>
       <img class="cat-pip" src="{{asset "app/pip/pip-hardhat.svg"}}" alt="" width="88" height="88" decoding="async">
     </div>
   </div>
@@ -238,7 +243,7 @@
       <a class="link-arrow" href="/templates">All templates{{template "icon" "arrow-right"}}</a>
     </div>
     <ul class="dir-more-list">
-      {{range directory.Categories}}{{if ne . $except}}{{$a := img .Scene}}<li><a class="mode-card" href="{{.Path}}"><span class="mode-art"><img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}" loading="lazy" decoding="async"></span><span class="mode-name">{{.Name}}</span><span class="mode-n">{{plural (len .Templates) "template" "templates"}}</span></a></li>{{end}}{{end}}
+      {{range directory.Categories}}{{if ne . $except}}<li><a class="mode-card" href="{{.Path}}"><span class="mode-art{{if .Thumb}} is-photo{{end}}">{{template "tpl-art" (dict "Thumb" .Thumb "Art" .Scene "Sizes" "72px")}}</span><span class="mode-name">{{.Name}}</span><span class="mode-n">{{plural (len .Templates) "template" "templates"}}</span></a></li>{{end}}{{end}}
     </ul>
   </div>
 </section>
@@ -247,12 +252,12 @@
 {{/* template-page: one template: what it sets up and installs, as the
      server created and started from it did (its check, which every listed
      template has), how to open it and the same server by hand. */}}
-{{define "template-page"}}{{$v := .Page.Dir}}{{$t := $v.Template}}{{$tp := $t.Template}}{{$l := $t.Loader}}{{$k := $t.Check}}{{$a := img $t.Art}}
+{{define "template-page"}}{{$v := .Page.Dir}}{{$t := $v.Template}}{{$tp := $t.Template}}{{$l := $t.Loader}}{{$k := $t.Check}}
 <section class="tpage-hero" aria-labelledby="tpage-title">
   <div class="container">
     {{template "crumbs" .}}
     <div class="tpage-head">
-      <div class="tpage-art hero-rise"><img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}" fetchpriority="high" decoding="async"></div>
+      <div class="tpage-art hero-rise{{if $t.Thumb}} is-photo{{end}}">{{template "tpl-art" (dict "Thumb" $t.Thumb "Art" $t.Art "Sizes" "(max-width: 1023.98px) min(100vw - 40px, 560px), 520px" "Eager" true)}}</div>
       <div class="tpage-intro">
         <h1 id="tpage-title" class="tpage-h1 hero-rise">{{.Page.H1}}</h1>
         <p class="tpage-desc hero-rise">{{$t.Description}}</p>

@@ -37,7 +37,7 @@
 <a class="skip" href="#main">Skip to content</a>
 {{if not (or (eq .Page.Layout "bare") (eq .Page.Layout "open"))}}{{template "header" .}}{{end}}
 <main id="main" tabindex="-1">
-{{if eq .Page.Layout "guide"}}{{template "guide" .}}{{else if eq .Page.Layout "post"}}{{template "post" .}}{{else if eq .Page.Layout "docs"}}{{template "docs" .}}{{else if eq .Page.Layout "directory"}}{{template "directory" .}}{{else if eq .Page.Layout "category"}}{{template "category" .}}{{else if eq .Page.Layout "template"}}{{template "template-page" .}}{{else if eq .Page.Layout "open"}}{{template "open" .}}{{else}}{{.Main}}{{end}}
+{{if eq .Page.Layout "guide"}}{{template "guide" .}}{{else if eq .Page.Layout "post"}}{{template "post" .}}{{else if eq .Page.Layout "docs"}}{{template "docs" .}}{{else if eq .Page.Layout "open"}}{{template "open" .}}{{else}}{{.Main}}{{end}}
 </main>
 {{template "closing" .}}
 {{if not (or (eq .Page.Layout "bare") (eq .Page.Layout "open"))}}{{template "footer" .}}{{end}}

@@ -123,6 +123,10 @@
 .dcard-art { aspect-ratio: 16 / 10; overflow: hidden; background: #cfe6f7; }
 .dcard-art img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
 .dcard-body { display: flex; flex: 1; flex-direction: column; padding: 16px 18px 18px; }
+/* A template's thumbnail, a picture of its world, fills the same frame as
+   the scene it replaces, smoothly rather than pixelated. */
+.dcard-art picture, .tpage-art picture, .cat-scene picture, .fan-art picture, .mode-art picture { display: contents; }
+.dcard-art.is-photo img, .tpage-art.is-photo img, .cat-scene.is-photo img, .fan-art.is-photo img, .mode-art.is-photo img { image-rendering: auto; }
 .dcard-name { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; }
 .dcard-link { color: var(--ink); }
 .dcard-link::after { content: ""; position: absolute; inset: 0; z-index: 1; }
