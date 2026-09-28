@@ -257,12 +257,37 @@ func (l *Library) latest(ctx context.Context, srv Server, t Target, recs []Insta
 		if err != nil {
 			return nil, upstream(Modrinth, err)
 		}
+		fitting := func(rec Installed, answers map[string]modrinth.Version) (candidate, bool) {
+			v, ok := answers[strings.ToLower(rec.Hash)]
+			if !ok || v.ProjectID != rec.ProjectID {
+				return candidate{}, false
+			}
+			c, fits := modrinthCandidate(recProject(rec), &v, t, mc)
+			return c, fits && (i == 1 || c.Channel == release)
+		}
+		// Modrinth answers with the newest build for any of the server's
+		// loaders. Where that is a build for another platform, the newest
+		// for the server's own replaces it if it is of the same release, as
+		// in preferOwnBuilds.
+		var others []string
 		for _, rec := range group {
-			if v, ok := m[strings.ToLower(rec.Hash)]; ok && v.ProjectID == rec.ProjectID {
-				if c, fits := modrinthCandidate(recProject(rec), &v, t, mc); fits && (i == 1 || c.Channel == release) {
-					out[rec.Key()] = latestResult{c: &c}
-					continue
+			if c, ok := fitting(rec, m); ok && !c.own {
+				others = append(others, strings.ToLower(rec.Hash))
+			}
+		}
+		owns := map[string]modrinth.Version{}
+		if len(others) > 0 {
+			if owns, err = l.Modrinth.LatestVersionsFromHashes(ctx, "sha512", others, modrinth.VersionFilter{Loaders: t.ownLoaders(), GameVersions: []string{mc}}, types); err != nil {
+				return nil, upstream(Modrinth, err)
+			}
+		}
+		for _, rec := range group {
+			if c, ok := fitting(rec, m); ok {
+				if o, ok := fitting(rec, owns); ok && o.own && o.release() == c.release() {
+					c = o
 				}
+				out[rec.Key()] = latestResult{c: &c}
+				continue
 			}
 			// Modrinth no longer knows the file, or its newest version does
 			// not run on this server: look through the project's versions.

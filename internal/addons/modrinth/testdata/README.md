@@ -18,5 +18,6 @@ Trimming:
 - Search hits: `versions` and project `game_versions` keep 1.21 and later; `gallery` keeps at most one image.
 - Projects: `body` is cut to 240 characters, `gallery` to one image, `versions` to the version ids kept in `versions-<slug>.json`.
 - Version lists keep a handful of versions per project, chosen to cover releases and pre-releases, several loaders (Paper, Fabric, NeoForge, Forge), other Minecraft versions, and every dependency type (required, optional, incompatible, a pinned `version_id`). `game_versions` keeps 1.21 and later.
+- BlueMap's and Simple Voice Chat's files were fetched on 2026-09-28, for projects that publish one build of a release per platform. BlueMap keeps the Paper, Spigot and Fabric builds of 5.28 and the Paper and Spigot builds of 5.27, each Spigot build published seconds after the Paper one. Simple Voice Chat keeps the Quilt and Fabric builds of 2.6.22 for 26.2, the Fabric one published minutes later, and the Fabric build of 2.6.21, which has no Quilt build.
 
-Project ids used across files: `P1OZGk5p` viaversion, `NpvuJQoq` viabackwards, `fALzjamp` chunky, `4qmvXRB9` zconfig, `sml2FMaA` anti-xray, `KOHu7RCS` moonrise-opt, `P7dR8mSH` fabric-api, `Eldc1g37` tcdcommons.
+Project ids used across files: `P1OZGk5p` viaversion, `NpvuJQoq` viabackwards, `fALzjamp` chunky, `4qmvXRB9` zconfig, `sml2FMaA` anti-xray, `KOHu7RCS` moonrise-opt, `P7dR8mSH` fabric-api, `Eldc1g37` tcdcommons, `swbUV1cr` bluemap, `9eGKb6K1` simple-voice-chat.

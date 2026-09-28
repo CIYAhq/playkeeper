@@ -1,0 +1,106 @@
+{
+ "client_side": "unsupported",
+ "server_side": "required",
+ "game_versions": [
+  "1.21",
+  "1.21.1",
+  "1.21.2",
+  "1.21.3",
+  "1.21.4",
+  "1.21.5",
+  "1.21.6",
+  "1.21.7",
+  "1.21.8",
+  "1.21.9",
+  "1.21.10",
+  "1.21.11",
+  "26.1",
+  "26.1.1",
+  "26.1.2",
+  "26.2",
+  "26.3"
+ ],
+ "environment": [
+  "dedicated_server_only",
+  "server_only"
+ ],
+ "id": "swbUV1cr",
+ "slug": "bluemap",
+ "project_type": "mod",
+ "team": "AWHf2TFK",
+ "organization": null,
+ "title": "BlueMap",
+ "description": "A Minecraft mapping tool that creates 3D models of your Minecraft worlds and displays them in a web viewer.",
+ "body": "[![title-banner](https://bluecolored.de/paste/BluemapBanner.png)](https://bluemap.bluecolored.de/)\n\n<center>\n\ncreate **3D**-maps of your Minecraft worlds and display them in your browser  \n**>> [DEMO MAP](https://bluecolored.de/bluemap) <<*",
+ "body_url": null,
+ "published": "2022-05-10T20:59:10.483390Z",
+ "updated": "2026-09-25T17:19:23.582392Z",
+ "approved": "2022-05-10T20:59:10.483390Z",
+ "queued": null,
+ "status": "approved",
+ "requested_status": null,
+ "moderator_message": null,
+ "license": {
+  "id": "MIT",
+  "name": "MIT License",
+  "url": "https://github.com/BlueMap-Minecraft/BlueMap/blob/master/LICENSE"
+ },
+ "downloads": 505754,
+ "followers": 1462,
+ "categories": [
+  "utility"
+ ],
+ "additional_categories": [
+  "adventure",
+  "management"
+ ],
+ "loaders": [
+  "fabric",
+  "folia",
+  "forge",
+  "neoforge",
+  "paper",
+  "purpur",
+  "spigot",
+  "sponge"
+ ],
+ "versions": [
+  "pILlMIlN",
+  "pJm76X7R",
+  "bbzcTCOs",
+  "w7JKRF0Q",
+  "v6LCJjZF"
+ ],
+ "icon_url": "https://cdn.modrinth.com/data/swbUV1cr/b9a17ab8c850046101a47e62037225c9b007a2ca_96.webp",
+ "raw_icon_url": "https://cdn.modrinth.com/data/swbUV1cr/icon.png",
+ "issues_url": "https://github.com/BlueMap-Minecraft/BlueMap/issues",
+ "source_url": "https://github.com/BlueMap-Minecraft/BlueMap",
+ "wiki_url": "https://bluemap.bluecolored.de/wiki/",
+ "discord_url": "https://discord.gg/zmkyJa3",
+ "donation_urls": [
+  {
+   "id": "patreon",
+   "platform": "Patreon",
+   "url": "https://www.patreon.com/bluecolored"
+  },
+  {
+   "id": "ko-fi",
+   "platform": "Ko-fi",
+   "url": "https://ko-fi.com/bluecolored"
+  }
+ ],
+ "gallery": [
+  {
+   "url": "https://cdn.modrinth.com/data/swbUV1cr/images/c67cba34a5f833b6e95bf05c513c8ff1ef1edbf2_350.webp",
+   "raw_url": "https://cdn.modrinth.com/data/swbUV1cr/images/df2a1300ab91264701c479b14478dc4733413fd7.jpeg",
+   "featured": true,
+   "title": null,
+   "description": null,
+   "created": "2023-02-07T10:59:42.915364Z",
+   "ordering": 0
+  }
+ ],
+ "color": 274275,
+ "thread_id": "swbUV1cr",
+ "monetization_status": "monetized"
+}
