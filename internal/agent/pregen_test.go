@@ -716,7 +716,10 @@ func TestPregenATaskACrashDroppedIsStartedAgain(t *testing.T) {
 	s.pg.idleSince = s.now().Add(-2 * pregenIdleGrace)
 	s.pg.mu.Unlock()
 	asked := e.rcon.count("chunky progress")
-	e.waitFor("the agent to look at the task", func() bool { return e.rcon.count("chunky progress") >= asked+3 })
+	// Chunky isn't asked about a task that ended.
+	e.waitFor("the agent to look at the task", func() bool {
+		return e.rcon.count("chunky progress") >= asked+3 || e.countRows(`SELECT COUNT(*) FROM pregen WHERE server_id = ? AND ended != ''`, e.sid) != 0
+	})
 	if v := e.pregen(); v.State != "paused" || v.PausedBy != "memory" {
 		t.Fatalf("a task paused for memory, long after Chunky last had it: %+v", v)
 	}
