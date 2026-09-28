@@ -113,12 +113,12 @@ func (s *Service) logErr(what string, err error) {
 }
 
 // backup writes the day's snapshot of the database to DataDir/backups once
-// a day and keeps the last keepBackups.
+// a day and keeps the last keepBackups. A snapshot that fails is tried
+// again at the next call.
 func (s *Service) backup(now time.Time) {
 	day := now.UTC().Format("2006-01-02")
 	s.mu.Lock()
 	done := s.lastBackup == day
-	s.lastBackup = day
 	s.mu.Unlock()
 	if done {
 		return
@@ -145,6 +145,9 @@ func (s *Service) backup(now time.Time) {
 			return
 		}
 	}
+	s.mu.Lock()
+	s.lastBackup = day
+	s.mu.Unlock()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return

@@ -503,3 +503,23 @@ func TestOldInstallsAreForgottenAndSnapshotsKeptForAWeek(t *testing.T) {
 		t.Errorf("%d snapshots kept, want %d", len(snaps), keepBackups)
 	}
 }
+
+// A snapshot that couldn't be written is tried again the next hour, not the
+// next day.
+func TestAFailedSnapshotIsTriedAgainTheNextHour(t *testing.T) {
+	e := newEnv(t)
+	blocker := filepath.Join(e.dir, "backups")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.backup(e.clock())
+	if !strings.Contains(e.log.String(), "backups directory") {
+		t.Fatalf("the failure wasn't logged: %s", e.log.String())
+	}
+	os.Remove(blocker)
+	e.advance(time.Hour)
+	e.svc.backup(e.clock())
+	if snaps, _ := filepath.Glob(filepath.Join(e.dir, "backups", "stats-*.db")); len(snaps) != 1 {
+		t.Errorf("an hour after a failed snapshot, %d snapshots", len(snaps))
+	}
+}

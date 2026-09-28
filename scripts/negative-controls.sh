@@ -6198,6 +6198,13 @@ control "a heartbeat without the test mark doesn't clear it" internal/usage/serv
   '			test = excluded.test`,
 		h.ID,' \
   ./internal/usage/service '^TestTestInstallsAreKeptOutOfEveryCount$'
+control "a daily snapshot that failed is tried again the next hour" internal/usage/service/service.go \
+  '	done := s.lastBackup == day
+	s.mu.Unlock()' \
+  '	done := s.lastBackup == day
+	s.lastBackup = day
+	s.mu.Unlock()' \
+  ./internal/usage/service '^TestAFailedSnapshotIsTriedAgainTheNextHour$'
 control "playkeeper dev sends no usage stats" internal/agent/usage.go \
   '	if a.cfg.Dev {
 		return false, api.UsageDev, ""
