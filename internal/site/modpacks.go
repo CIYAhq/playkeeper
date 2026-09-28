@@ -100,10 +100,12 @@ func (m *Modpack) Memory() string { return gigabytes(m.MemoryMB()) }
 // HeapGB writes the heap the pack asks for.
 func (m *Modpack) HeapGB() string { return gigabytes(m.HeapMB) }
 
-// JavaHeap is the heap Java gets from MemoryMB, like "8.2 GB".
-func (m *Modpack) JavaHeap() string {
-	return gigabytes(minecraft.HeapFor(m.MemoryMB(), m.Type, m.Mods))
-}
+// JavaHeapMB is the Java heap Playkeeper gives the pack from MemoryMB: the
+// rest is for the loader and the mods outside the heap.
+func (m *Modpack) JavaHeapMB() int { return minecraft.HeapFor(m.MemoryMB(), m.Type, m.Mods) }
+
+// JavaHeap writes JavaHeapMB, like "8.2 GB".
+func (m *Modpack) JavaHeap() string { return gigabytes(m.JavaHeapMB()) }
 
 // DownloadSize writes DownloadMB, like "1.4 GB" or "390 MB".
 func (m *Modpack) DownloadSize() string { return megabytes(m.DownloadMB) }

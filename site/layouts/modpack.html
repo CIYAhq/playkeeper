@@ -39,8 +39,11 @@
 {{end}}
 
 {{/* modpack-docker: the pack's server by hand in the itzg image, the one
-     Playkeeper runs servers in. Pack is a Modrinth pack; Slug its project's
-     name in addresses; Exclude, when given, the client mods to leave out. */}}
+     Playkeeper runs servers in, sized as Playkeeper sizes it: the container
+     gets the pack's memory, and the image's MEMORY, Java's heap, gets what
+     Playkeeper would give Java of it. Pack is a Modrinth pack; Slug its
+     project's name in addresses; Exclude, when given, the client mods to
+     leave out. */}}
 {{define "modpack-docker"}}{{$m := .Pack}}
 <div class="codeblock">
   <div class="code-head">
@@ -50,9 +53,10 @@
     </div>
     <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
   </div>
-<pre id="code-docker" role="tabpanel" tabindex="0" aria-labelledby="tab-docker"><span class="c"># {{$m.Label}} {{$m.Version}} with Java {{$m.Java}} and {{$m.Memory}}</span>
+<pre id="code-docker" role="tabpanel" tabindex="0" aria-labelledby="tab-docker"><span class="c"># {{$m.Label}} {{$m.Version}} on Java {{$m.Java}}: {{$m.Memory}} in all, {{$m.JavaHeap}} of it Java's heap</span>
 docker run -d --name {{.Slug}} -p 25565:25565 \
-  -e EULA=TRUE -e MEMORY={{$m.MemoryMB | gbFlag}} \
+  --memory {{gbFlag $m.MemoryMB}} --memory-swap {{gbFlag $m.MemoryMB}} \
+  -e EULA=TRUE -e MEMORY={{gbFlag $m.JavaHeapMB}} -e USE_AIKAR_FLAGS=TRUE \
   -e TYPE=MODRINTH -e MODRINTH_MODPACK={{.Slug}} -e MODRINTH_VERSION={{$m.Version}} \{{with .Exclude}}
   -e MODRINTH_EXCLUDE_FILES="{{.}}" \{{end}}
   -v {{.Slug}}-data:/data itzg/minecraft-server:java{{$m.Java}}</pre>

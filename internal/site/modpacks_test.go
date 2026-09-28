@@ -53,6 +53,17 @@ func TestModpackPagesFollowTheProduct(t *testing.T) {
 		if m.Template != "" && !strings.Contains(page, `href="`+cards[m.Template].Link+`"`) {
 			t.Errorf("%s doesn't open its template, %s", m.Path(), m.Template)
 		}
+		// The image's MEMORY is Java's heap, so the Docker command gives
+		// Java what Playkeeper would, inside a container of the whole budget.
+		if docker := between(page, `<pre id="code-docker"`, `</pre>`); docker != "" {
+			budget := minecraft.PackNeedMB(m.Type, m.Mods, m.HeapMB)
+			heap := minecraft.HeapFor(budget, m.Type, m.Mods)
+			for _, want := range []string{"--memory " + gbFlag(budget) + " --memory-swap " + gbFlag(budget), "-e MEMORY=" + gbFlag(heap) + " "} {
+				if !strings.Contains(docker, want) {
+					t.Errorf("%s's Docker command doesn't say %q: %s", m.Path(), want, docker)
+				}
+			}
+		}
 	}
 	for p := range built {
 		if id, ok := strings.CutSuffix(strings.TrimPrefix(p, "/modpacks/"), "-server"); ok && strings.HasPrefix(p, "/modpacks/") && packs[id] == nil {
