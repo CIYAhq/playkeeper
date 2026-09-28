@@ -1,0 +1,30 @@
+{
+ "project_id": "floodgate",
+ "project_name": "Floodgate",
+ "version": "2.2.5",
+ "build": 141,
+ "time": "2026-09-17T14:53:03.841Z",
+ "channel": "default",
+ "promoted": false,
+ "changes": [
+  {
+   "commit": "81b65ccb766bf8024858ebf3eefa6974056aecc5",
+   "summary": "Update to 26.3 (#686)",
+   "message": "Update to 26.3 (#686)"
+  }
+ ],
+ "downloads": {
+  "bungee": {
+   "name": "floodgate-bungee.jar",
+   "sha256": "ba79b19048e1255201ed886af5b437038d428e6e673d9756a8704235473c1544"
+  },
+  "spigot": {
+   "name": "floodgate-spigot.jar",
+   "sha256": "21570aff9ce17d6983928e8552777760e1ede5050026b04c686b0ae112e6fd7e"
+  },
+  "velocity": {
+   "name": "floodgate-velocity.jar",
+   "sha256": "649835022de37ff09255fc626d4bfe7bc2a3b926d07b0dfaf1f51e12bf37001d"
+  }
+ }
+}

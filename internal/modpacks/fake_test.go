@@ -409,7 +409,7 @@ func (f *fakes) serveModrinth(w http.ResponseWriter, r *http.Request) {
 	if f.foreign("modrinth", w, r) {
 		return
 	}
-	f.log("modrinth", r)
+	body := f.log("modrinth", r)
 	f.mu.Lock()
 	hook := f.hooks["modrinth "+r.URL.Path]
 	f.mu.Unlock()
@@ -423,6 +423,21 @@ func (f *fakes) serveModrinth(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(p, "/"), "/")
 	q := r.URL.Query()
 	switch {
+	case r.Method == http.MethodPost && p == "/version_files":
+		var req struct {
+			Hashes    []string `json:"hashes"`
+			Algorithm string   `json:"algorithm"`
+		}
+		json.Unmarshal([]byte(body), &req)
+		out := obj{}
+		for _, id := range f.order {
+			for _, x := range list(f.versions[id]["files"]) {
+				if h := str(x.(obj)["hashes"].(obj)[req.Algorithm]); slices.Contains(req.Hashes, h) {
+					out[h] = f.versions[id]
+				}
+			}
+		}
+		writeJSON(w, out)
 	case r.Method != http.MethodGet:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	case p == "/search":
@@ -639,6 +654,22 @@ func (f *fakes) cfPack(name, mc string, edit func(m obj), extra ...entry) []byte
 		{name: "overrides/server.properties", data: []byte("difficulty=hard\nmotd=Example\\: a pack\nserver-port=25570\nview-distance=8\n")},
 	}, extra...)
 	return zipOf(f.t, entries...)
+}
+
+// modrinthMod lists data on the fake Modrinth as the file of a version of
+// project, with Modrinth's environment for that version, and the project
+// with serverSide, Modrinth's older field.
+func (f *fakes) modrinthMod(project, name string, data []byte, environment, serverSide string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id := project + "v"
+	file := obj{"url": "https://cdn.modrinth.com/data/" + project + "/versions/" + id + "/" + name, "filename": name, "primary": true}
+	setSums(file, "size", data)
+	f.versions[id] = obj{"id": id, "project_id": project, "version_number": "1.0.0", "version_type": "release", "environment": environment,
+		"files": []any{file}}
+	f.order = append(f.order, id)
+	p := obj{"id": project, "slug": strings.ToLower(project), "project_type": "mod", "title": name, "client_side": "required", "server_side": serverSide}
+	f.projects[project], f.projects[str(p["slug"])] = p, p
 }
 
 // cfChange changes a CurseForge file record.

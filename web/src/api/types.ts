@@ -83,6 +83,8 @@ export interface ServerConfig {
   template?: ServerTemplate
   /** The UDP port voice chat has on this server. */
   voiceChatPort?: number
+  /** The UDP port Bedrock players join on, while crossplay is on. */
+  crossplayPort?: number
 }
 
 export interface Operation {
@@ -173,6 +175,8 @@ export interface ServerStatus {
   firstSteps: FirstSteps
   /** The friendly join address, set once it works. */
   joinAddress?: string
+  /** Where Bedrock players join, while crossplay is on. */
+  bedrock?: BedrockJoin
   /** The file that stopped the last start, while the server stays stopped. */
   refusal?: FileRefusal
   /** Set while the server's machine can't be reached: the status is the one it last sent, at this time. */
@@ -1156,8 +1160,8 @@ export interface Addon {
   size: number
   dependencyOf?: string
   installedAt: string
-  /** The part of Playkeeper that installed it and alone removes it: the Map, for squaremap. */
-  usedBy?: 'map'
+  /** The part of Playkeeper that installed it and alone removes it: the Map, for squaremap, or crossplay, for Geyser and Floodgate. */
+  usedBy?: 'map' | 'crossplay'
 }
 
 export interface AddonKey {
@@ -1263,6 +1267,35 @@ export interface AddonDetails {
 export interface AddonPort {
   protocol: 'udp' | 'tcp'
   port: number
+}
+
+/**
+ * Where Bedrock players join: the machine's name once its DNS records work,
+ * else the address the dashboard is open at or the machine's IP, always
+ * with the port, as Bedrock doesn't follow SRV records.
+ */
+export interface BedrockJoin {
+  host?: string
+  port: number
+}
+
+/** A server's crossplay switch: Bedrock players join through Geyser and Floodgate. */
+export interface Crossplay {
+  on: boolean
+  /** The UDP port Bedrock players join on, or the one they'd get now. */
+  port?: number
+  /** Whether crossplay can be turned on now: false while it's on, and when it can't be, for the reason in notice. */
+  available: boolean
+  notice?: AddonNotice
+  plugins: CrossplayPlugin[]
+  /** What goes in front of Bedrock players' names on the server. */
+  prefix: string
+}
+
+export interface CrossplayPlugin {
+  name: string
+  versionNumber: string
+  source: AddonSource
 }
 
 /** The add-ons Playkeeper picked by hand that fit the server's type and version. */
@@ -2653,6 +2686,8 @@ export interface PublicServer {
   pack?: string
   inviteOnly: boolean
   hasIcon: boolean
+  /** Where Bedrock players join while the server has crossplay: the page's own address and the UDP port. */
+  bedrock?: BedrockJoin
   /** The owner's words for the page, such as its rules, as plain text. */
   about?: string
   /** A live stream the page offers to play, on Twitch or YouTube. */

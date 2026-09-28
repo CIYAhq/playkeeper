@@ -2,9 +2,13 @@ package agent
 
 import (
 	"net/http"
+	"regexp"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/curated"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
 
@@ -23,8 +27,13 @@ func (s *server) hWhitelist(w http.ResponseWriter, r *http.Request) {
 // playerCommand runs a console command about one player and audits it. It
 // returns the server's reply, or false after writing an error.
 func (s *server) playerCommand(w http.ResponseWriter, r *http.Request, name, actor, action, cmd string, failed func(reply string) bool) (string, bool) {
-	if !minecraft.ValidPlayerName(name) {
-		writeError(w, errInvalid("Minecraft usernames are 3–16 letters, numbers or underscores."))
+	_, bedrock := s.bedrockTag(name)
+	if !minecraft.ValidPlayerName(name) && !bedrock {
+		msg := "Minecraft usernames are 3–16 letters, numbers or underscores."
+		if sc, err := s.serverConfig(); err == nil && crossplayOn(sc) {
+			msg = "Minecraft usernames are 3–16 letters, numbers or underscores; a Bedrock player's is their Xbox gamertag after a dot, like .Steve."
+		}
+		writeError(w, errInvalid("%s", msg))
 		return "", false
 	}
 	if !s.online(r.Context()) {
@@ -39,11 +48,88 @@ func (s *server) playerCommand(w http.ResponseWriter, r *http.Request, name, act
 	out = minecraft.StripANSI(out)
 	if failed(out) {
 		s.audit(actor, action, name, "failed", out)
-		writeErr(w, http.StatusUnprocessableEntity, api.CodeInvalid, out, "Check the spelling of the Java Edition username.")
+		hint := "Check the spelling of the Java Edition username."
+		if bedrock {
+			hint = "Check the spelling of the Xbox gamertag."
+		}
+		writeErr(w, http.StatusUnprocessableEntity, api.CodeInvalid, out, hint)
 		return "", false
 	}
 	s.audit(actor, action, name, "succeeded", out)
 	return out, true
+}
+
+var reGamertag = regexp.MustCompile(`^[A-Za-z0-9_]{1,16}$`)
+
+// bedrockTag is the Xbox gamertag in name, when the server has crossplay
+// and name is a Bedrock player's as Floodgate shows it: its prefix, then
+// the gamertag with spaces as underscores.
+func (s *server) bedrockTag(name string) (string, bool) {
+	tag, ok := strings.CutPrefix(name, curated.FloodgatePrefix)
+	if !ok || !reGamertag.MatchString(tag) {
+		return "", false
+	}
+	if sc, err := s.serverConfig(); err != nil || !crossplayOn(sc) {
+		return "", false
+	}
+	return tag, true
+}
+
+// bedrockListWait is how long a change to the allowlist Floodgate makes is
+// waited for.
+var bedrockListWait = 10 * time.Second
+
+// bedrockWhitelistChange adds a Bedrock player to the allowlist, or takes
+// one off, with Floodgate's own command: Floodgate looks the gamertag up at
+// GeyserMC, which a Java server can't, and writes the allowlist a moment
+// after it answers, with nothing to say. The allowlist shows how it went.
+func (s *server) bedrockWhitelistChange(w http.ResponseWriter, r *http.Request, name, tag, actor, verb string) {
+	// Floodgate names a player with a long gamertag within Java's 16
+	// letters.
+	java := name[:min(len(name), 16)]
+	listed := func(list []api.WhitelistEntry) bool {
+		return slices.ContainsFunc(list, func(e api.WhitelistEntry) bool { return strings.EqualFold(e.Name, java) })
+	}
+	want := verb == "add"
+	if !s.online(r.Context()) {
+		writeError(w, errConflict("Start the server to change this.", ""))
+		return
+	}
+	if list, err := s.whitelist(); err == nil && want && listed(list) {
+		writeJSON(w, http.StatusOK, api.WhitelistChange{Message: name + " is already on the allowlist.", Whitelist: list})
+		return
+	}
+	if _, err := s.rconCommand("fwhitelist " + verb + " " + tag); err != nil {
+		writeError(w, &apiError{Status: http.StatusBadGateway, Code: api.CodeInternal, Msg: "The server did not respond: " + err.Error()})
+		return
+	}
+	deadline := time.Now().Add(bedrockListWait)
+	for {
+		list, err := s.whitelist()
+		if err == nil && listed(list) == want {
+			msg := "Added " + name + " to the whitelist"
+			if !want {
+				msg = "Removed " + name + " from the whitelist"
+			}
+			s.audit(actor, "whitelist."+verb, name, "succeeded", msg)
+			writeJSON(w, http.StatusOK, api.WhitelistChange{Message: msg, Whitelist: list, Added: want})
+			return
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	msg, hint := "Floodgate found no Bedrock player called "+tag+".", "Check the spelling of the Xbox gamertag. Floodgate looks it up at GeyserMC, so this also fails while GeyserMC can't be reached."
+	if !want {
+		msg, hint = name+" is still on the allowlist: Floodgate didn't take them off.", "Try again in a minute."
+	}
+	s.audit(actor, "whitelist."+verb, name, "failed", msg)
+	writeErr(w, http.StatusUnprocessableEntity, api.CodeInvalid, msg, hint)
 }
 
 func unknownPlayer(out string) bool {
@@ -51,6 +137,10 @@ func unknownPlayer(out string) bool {
 }
 
 func (s *server) whitelistChange(w http.ResponseWriter, r *http.Request, name, actor, verb string) {
+	if tag, ok := s.bedrockTag(name); ok {
+		s.bedrockWhitelistChange(w, r, name, tag, actor, verb)
+		return
+	}
 	out, ok := s.playerCommand(w, r, name, actor, "whitelist."+verb, "whitelist "+verb+" "+name, unknownPlayer)
 	if !ok {
 		return

@@ -36,7 +36,7 @@ type DocPage struct {
 var docPages = []DocPage{
 	{"install", "Install Playkeeper", "What your VPS needs, the one-line install and every change it makes, the ports to open, and the setup link it prints.", "README.md", "Install on your VPS"},
 	{"servers", "Servers", "New servers with the version and memory picked for you: server types, modpacks, templates, your own world and Minecraft versions.", "README.md", "Servers"},
-	{"add-ons", "Plugins, mods and the world", "Plugins, mods, voice chat, friends' mod packs, pre-generation, resource and data packs and the live map.", "README.md", "Plugins, mods and the world"},
+	{"add-ons", "Plugins, mods and the world", "Plugins, mods, voice chat, Bedrock crossplay, friends' mod packs, pre-generation, resource and data packs and the live map.", "README.md", "Plugins, mods and the world"},
 	{"keep-it-running", "Keep it running", "Backups that keep players online, backup rules, off-site copies, schedules, sleep, crash and lag help, and freeing disk space.", "README.md", "Keep it running"},
 	{"friends-and-team", "Friends and your team", "Invite links that put friends on the allowlist, player pages, team roles for co-admins, Discord alerts and two-factor sign-in.", "README.md", "Friends and your team"},
 	{"addresses", "A name for your VPS", "A free name or your own domain for your VPS, with a Let's Encrypt certificate that renews by itself, and your servers' join addresses.", "README.md", "A name for your VPS"},

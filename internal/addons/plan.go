@@ -70,6 +70,9 @@ type Step struct {
 	// url is unexported so that a plan which went through JSON cannot be
 	// carried out: Install and Update always plan again.
 	url string
+	// geyser marks a GeyserMC project's file, which comes from GeyserMC's
+	// server rather than the source's.
+	geyser bool
 	// replaceChanged lets the step replace a file that changed since it
 	// was installed, because the user said so.
 	replaceChanged bool
@@ -271,6 +274,7 @@ func (r *resolver) add(c candidate, a Action, parent *Step, replaces *Installed)
 		Action: a, Source: c.Source, ProjectID: c.ProjectID(), Slug: c.Slug, Name: c.Name, Summary: c.Summary, IconURL: c.IconURL,
 		VersionID: c.VersionID, VersionNumber: c.Number, Channel: c.Channel, Published: c.Published,
 		FileName: c.FileName, Size: c.Size, HashAlgo: c.HashAlgo, Hash: c.Hash, Replaces: replaces, url: c.URL,
+		geyser: c.geyser != nil && c.geyser.resolved,
 	}
 	switch {
 	case parent != nil:
@@ -615,8 +619,8 @@ func (r *resolver) finish() *Plan {
 		case !validFileName(s.FileName):
 			r.block(badFileName(s).Notice)
 		case !validHash(s.HashAlgo, s.Hash):
-			r.block(notice(KindNoHash, kv("name", s.Name, "file", s.FileName, "source", s.Source.Name()),
-				fmt.Sprintf("%s lists no usable hash for %s, so Playkeeper cannot check the download.", s.Source.Name(), s.FileName),
+			r.block(notice(KindNoHash, kv("name", s.Name, "file", s.FileName, "source", s.publisher()),
+				fmt.Sprintf("%s lists no usable hash for %s, so Playkeeper cannot check the download.", s.publisher(), s.FileName),
 				"Choose another version."))
 		case s.Size > max:
 			r.block(tooLarge(s, max).Notice)
@@ -627,7 +631,7 @@ func (r *resolver) finish() *Plan {
 			r.block(fileExists(s, r.t))
 		}
 		seen[s.FileName] = true
-		if _, err := r.l.fileHosts(s.Source).Check(s.url); err != nil {
+		if _, err := r.l.stepHosts(s).Check(s.url); err != nil {
 			r.block(hostNotAllowed(s).Notice)
 		}
 		if old := s.Replaces; old != nil {

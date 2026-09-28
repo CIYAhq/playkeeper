@@ -73,6 +73,7 @@ export function SleepRows({ server: s }: { server: ServerStatus }) {
 
   const toggle = <Switch checked={enabled} onCheckedChange={(c) => void save({ enabled: c, idleMinutes: idle })} disabled={!!locked} title={locked} aria-label={t('settings.sleep')} />
   const after = <ChoiceSelect value={String(idle)} onChange={(v) => void save({ enabled, idleMinutes: Number(v) })} options={choices} label={t('sleep.after')} disabledReason={locked} className={phone ? undefined : 'mt-1.5 w-[240px]'} />
+  const hint = s.config?.crossplayPort ? t('sleep.crossplayHint') : t('settings.sleepHint')
   // The rows below the switch open and close with it, so it never has a line under it of its own.
   const reveal = (children: ReactNode) => (
     <div className={cn('grid transition-[grid-template-rows,opacity] duration-(--motion-standard) ease-standard', enabled ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0')} inert={!enabled}>
@@ -82,7 +83,7 @@ export function SleepRows({ server: s }: { server: ServerStatus }) {
   if (phone) {
     return (
       <>
-        <SettingRow label={t('settings.sleep')} hint={t('settings.sleepHint')} control={toggle} className="border-b-0" />
+        <SettingRow label={t('settings.sleep')} hint={hint} control={toggle} className="border-b-0" />
         {reveal(
           <>
             <SettingRow label={<span className="whitespace-nowrap">{t('sleep.after')}</span>} control={after} className="border-t" />
@@ -94,7 +95,7 @@ export function SleepRows({ server: s }: { server: ServerStatus }) {
   }
   return (
     <>
-      <SettingRow label={t('settings.sleep')} hint={t('settings.sleepHint')} control={toggle} className="border-b-0" />
+      <SettingRow label={t('settings.sleep')} hint={hint} control={toggle} className="border-b-0" />
       {reveal(
         <div className="grid grid-cols-[240px_minmax(0,1fr)] gap-6 pb-3.5">
           <div>

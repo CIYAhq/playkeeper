@@ -1,0 +1,25 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "SkyBlock Plus",
+  "description": "The SkyBlock Plus modpack for Fabric: start on a small island in the void and build out with its quests and custom recipes.",
+  "game": "minecraft-java",
+  "server": { "type": "fabric", "minecraftVersion": "26.2" },
+  "settings": {
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 6144
+  },
+  "modpack": {
+    "source": "modrinth",
+    "project": "cJJdkNYP",
+    "slug": "skyblock-plus",
+    "name": "SkyBlock Plus",
+    "pin": {
+      "versionId": "Nte4eTsy",
+      "versionNumber": "1.0.9",
+      "channel": "release",
+      "hashAlgo": "sha512",
+      "hash": "94df2dd6ce119bda726ac4ebf98ffa357190920c0375f4cc7519a2d0290fd7a8cb3f2a8c3b5c52126e0d188a2fe7a53a49cebf0b34a5d06e9078929f518c0076"
+    }
+  }
+}

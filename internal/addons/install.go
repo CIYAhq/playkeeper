@@ -77,7 +77,7 @@ func (l *Library) apply(ctx context.Context, srv Server, p *Plan, progress func(
 		case s.Size > max:
 			return nil, tooLarge(s, max)
 		}
-		if _, err := l.fileHosts(s.Source).Check(s.url); err != nil {
+		if _, err := l.stepHosts(s).Check(s.url); err != nil {
 			return nil, downloadError(s, err, max)
 		}
 	}
@@ -94,7 +94,7 @@ func (l *Library) apply(ctx context.Context, srv Server, p *Plan, progress func(
 	for i, s := range p.Steps {
 		var received int64
 		progress(Progress{Plan: p, Step: i})
-		path, err := fetch.Download(ctx, l.HTTP, l.fileHosts(s.Source), l.userAgent(), s.url, stage,
+		path, err := fetch.Download(ctx, l.HTTP, l.stepHosts(s), l.userAgent(), s.url, stage,
 			fetch.Want{Algo: s.HashAlgo, Hash: s.Hash, Size: s.Size, Max: max, Progress: func(n int64) {
 				received = n
 				progress(Progress{Plan: p, Step: i, Received: n})

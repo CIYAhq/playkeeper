@@ -189,14 +189,26 @@ describe('footerFor', () => {
   const upd = { versionId: 'c2', versionNumber: '1.4.40', channel: 'release', published: '' }
 
   it('offers the installed actions', () => {
-    expect(footerFor(details({ installed: addon('Chunky'), updateAvailable: true, latest: upd }))).toEqual({ kind: 'installed', update: upd, changed: false, missing: false })
-    expect(footerFor(details({ installed: addon('Chunky'), latest: upd }))).toEqual({ kind: 'installed', update: undefined, changed: false, missing: false })
+    expect(footerFor(details({ installed: addon('Chunky'), updateAvailable: true, latest: upd }))).toEqual({ kind: 'installed', update: upd, changed: false, missing: false, crossplay: false })
+    expect(footerFor(details({ installed: addon('Chunky'), latest: upd }))).toEqual({ kind: 'installed', update: undefined, changed: false, missing: false, crossplay: false })
     expect(footerFor(details({ installed: addon('Chunky'), changed: true, missing: false }))).toMatchObject({ changed: true })
     expect(footerFor(details({ installed: addon('Chunky'), missing: true }))).toMatchObject({ missing: true })
   })
 
   it('leaves what the Map installed to the Map', () => {
     expect(footerFor(details({ installed: addon('squaremap', { usedBy: 'map' }), updateAvailable: true, latest: upd }))).toEqual({ kind: 'map' })
+  })
+
+  it('sends Geyser and Floodgate to crossplay, which alone installs and removes them, and still updates them', () => {
+    expect(footerFor(details({ installed: addon('Geyser', { usedBy: 'crossplay' }), updateAvailable: true, latest: upd }))).toEqual({ kind: 'installed', update: upd, changed: false, missing: false, crossplay: true })
+    for (const key of [
+      { source: 'modrinth', projectId: 'wKkoqHrH' },
+      { source: 'hangar', projectId: '17' },
+      { source: 'hangar', projectId: '14' },
+    ] as const) {
+      expect(footerFor(details({ card: card('Geyser', key), plan: plan({ fingerprint: 'abc' }) }))).toEqual({ kind: 'crossplay' })
+    }
+    expect(footerFor(details({ card: card('Geyser', { source: 'hangar', projectId: 'wKkoqHrH' }), plan: plan({ fingerprint: 'abc' }) }))).toEqual({ kind: 'install', fingerprint: 'abc' })
   })
 
   it('sends people to the author for add-ons only on their site', () => {

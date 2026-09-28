@@ -91,6 +91,7 @@ TestBackupRulesThatCantBeReadDeleteNothing 13.3
 TestBackupWaitsUntilTheServerIsOnline 2.1
 TestBackupWarningSaysWhenTheServerStops 0.0
 TestBackupWithoutRoomNeverTouchesTheServer 2.1
+TestBedrockPlayersJoinTheAllowlistThroughFloodgate 7.1
 TestBuildListWaitersGetWhatTheFetchFound 0.0
 TestCPUStealExplainsLag 2.2
 TestCancellingARestoreFromACopyLeavesTheServerAsItWas 2.2
@@ -125,6 +126,12 @@ TestCreateFromTemplateDownloadsItsDataPacks 4.1
 TestCreateFromTemplateRefusesAChangedPlan 2.1
 TestCreateFromTemplateTriesAgainOnTheNextStart 4.2
 TestCreateStartStopAreIdempotent 4.4
+TestCrossplayIsOnlyForPaperAndPurpur 2.1
+TestCrossplayKeepsTheServerAwake 16.0
+TestCrossplayOffThatCantCheckTheServerChangesNothing 4.6
+TestCrossplaySwitchOpensItsPortAndInstallsBothPlugins 6.2
+TestCrossplayThatFailsClosesItsPort 4.2
+TestCrossplayUsesPluginsPutThereByHand 6.1
 TestCuratedPicksAreTheOnesThatFitTheServer 2.1
 TestCurseForgeKeyIsCheckedSavedAndRemoved 0.0
 TestDailySummaryFlagsIncompleteSessions 0.0
@@ -288,6 +295,7 @@ TestRestoreBringsTheBackupsModpack 24.8
 TestRestoreInterruptedUnder030IsKeptOnlyWithTheBackupsSettings 12.6
 TestRestoreInterruptedUnder030IsRecovered 31.9
 TestRestoreKeepsBothCopiesWhenPuttingThePreviousWorldBackFails 4.4
+TestRestoreKeepsCrossplaysPort 11.0
 TestRestoreKeepsVoiceChatsPort 12.5
 TestRestoreNeedsAVerifiedRollbackArchive 4.2
 TestRestorePreviewSaysOnceTheBackupWasMadeHere 2.1
@@ -361,6 +369,7 @@ TestTheMapAreaFillsInABiggerAreaThatSquaremapThenDraws 6.3
 TestTheMapAreaFillsUpToTheWorldBorder 6.3
 TestTheMapAreaStopsOrReplacesTheOneBeingFilledIn 6.3
 TestTheMapUsesSquaremapThePluginsTabInstalled 4.2
+TestThePublicPageSaysWhereBedrockPlayersJoin 4.7
 TestTheRecoveryKeyIsDownloadedAgainWhenCopiesGoToAnotherFolder 2.1
 TestTheRunnerHearsWhenAnotherOperationHoldsTheServer 2.1
 TestTheSharedMapsIconIsReadWithoutFollowingLinks 4.1
@@ -384,6 +393,7 @@ TestVanillaVersionChange 4.1
 TestVersionChangeBacksUpFirstAndStartsTheNewVersion 4.1
 TestVersionChangesNeverGoBack 2.1
 TestVersionThatDoesNotStartPutsTheWorldBack 4.2
+TestVoiceChatAndCrossplayNeverShareAPort 2.1
 TestVoiceChatInstallOpensItsPortFirst 6.2
 TestVoiceChatIsFoundInPacksFromEitherSource 0.0
 TestVoiceChatOpensItsPortAndClosesItWhenRemoved 6.7

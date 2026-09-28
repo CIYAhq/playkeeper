@@ -14,4 +14,4 @@ Trimming:
 - Search results: `mainPageContent` and `sponsors` are cut to 240 characters; `supportedPlatforms` keeps 1.21 and later for Paper.
 - Version lists keep a few versions per project (releases, snapshots, one for an older Minecraft version) and `pagination.count` is set to the number kept; `description` is cut to 200 characters and `platformDependencies` keeps 1.21 and later.
 
-What the projects cover: ViaVersion, ViaBackwards and ViaRewind depend on each other (required and optional Hangar dependencies); Geyser offers only an external download link; Orebfuscator requires ProtocolLib, which is not on Hangar (an external dependency link).
+What the projects cover: ViaVersion, ViaBackwards and ViaRewind depend on each other (required and optional Hangar dependencies); Geyser and Floodgate offer only a link to the newest build on GeyserMC's download server (`project-Floodgate.json` and `versions-Floodgate.json` were fetched on 2026-09-28, trimmed the same way); Orebfuscator requires ProtocolLib, which is not on Hangar (an external dependency link).

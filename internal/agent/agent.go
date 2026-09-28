@@ -270,8 +270,11 @@ type Agent struct {
 	// curatedPicks are the curated add-ons that fit a type and Minecraft
 	// version (wave 4).
 	curatedPicks *ttlCache[[]curatedPick]
-	voicePorts   voicePorts
-	icons        iconCache
+	// crossplayChecks say whether Geyser and Floodgate fit a type and
+	// Minecraft version: nil when they do.
+	crossplayChecks *ttlCache[*addons.Notice]
+	voicePorts      voicePorts
+	icons           iconCache
 	// packMu serializes changes to the resource pack store with pruning it.
 	packMu sync.Mutex
 	addr   addressRuntime
@@ -509,6 +512,7 @@ func New(opts Options) (*Agent, error) {
 		packPreviewSlots: make(chan struct{}, 2),
 		templatePlans:    newTTLCache[*templates.Template](time.Hour, 32),
 		curatedPicks:     newTTLCache[[]curatedPick](curatedTTL, 32),
+		crossplayChecks:  newTTLCache[*addons.Notice](crossplayCheckTTL, 32),
 
 		mapClient: webmap.NewClient(),
 	}
@@ -967,6 +971,9 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/packs/{token}", a.hPackLink},
 		// Wave 4: curated add-ons.
 		{"GET", "/v1/servers/{id}/addons/curated", srv((*server).hAddonCurated)},
+		// Bedrock players join through Geyser and Floodgate (0.4.3).
+		{"GET", "/v1/servers/{id}/crossplay", srv((*server).hCrossplay)},
+		{"POST", "/v1/servers/{id}/crossplay", srv((*server).hCrossplaySet)},
 		// Wave 4: add-on sources.
 		{"GET", "/v1/addon-sources", a.hAddonSources},
 		{"POST", "/v1/addon-sources/curseforge", a.hCurseForgeKeySet},

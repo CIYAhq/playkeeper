@@ -7,6 +7,8 @@
 // port of its own, so every server with it needs a free port that its
 // container publishes and the firewall allows: SetUpVoiceChat writes the port
 // into the add-on's settings and returns what the caller still has to do.
+// Crossplay is two plugins, Geyser and Floodgate, with a UDP port the same
+// way: WriteCrossplayConfig sets the port and how Bedrock players sign in.
 package curated
 
 import (

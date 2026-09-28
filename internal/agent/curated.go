@@ -156,10 +156,10 @@ func (s *server) holdVoiceChatPort() (int, func(), error) {
 	return s.holdVoicePort(s.id, curated.VoiceChatPort)
 }
 
-// voicePorts are the voice chat ports held for servers whose settings don't
-// record them yet: one being given to a server, or one closed while its
-// add-on is removed. Ports are picked and held under mu, so two servers
-// can't be given the same one.
+// voicePorts are the UDP ports of voice chat and crossplay held for servers
+// whose settings don't record them yet: one being given to a server, or one
+// closed while its add-on is removed. Ports are picked and held under mu, so
+// two servers can't be given the same one.
 type voicePorts struct {
 	mu   sync.Mutex
 	held map[int]string // by the server's id
@@ -203,12 +203,21 @@ func (a *Agent) holdVoicePort(id string, from int) (int, func(), error) {
 }
 
 // voicePortTaken reports the ports voice chat can't have on the server with
-// id, or on a new server when id is empty: any server's game port, the voice
-// chat port of another or one held for another, the dashboard's, and any UDP
-// port something on the machine already uses. Call it with voicePorts.mu
-// held.
-func (a *Agent) voicePortTaken(id string) func(int) bool {
+// id, or on a new server when id is empty (udpPortTaken). Call it with
+// voicePorts.mu held.
+func (a *Agent) voicePortTaken(id string) func(int) bool { return a.udpPortTaken(id, false) }
+
+// udpPortTaken reports the ports voice chat, or with crossplay crossplay,
+// can't have on the server with id, or on a new server when id is empty:
+// any server's game port, another server's voice chat or crossplay port or
+// one held for another, the server's own port for the other of the two, the
+// dashboard's, avoid, and any UDP port something on the machine already
+// uses. Call it with voicePorts.mu held.
+func (a *Agent) udpPortTaken(id string, crossplay bool, avoid ...int) func(int) bool {
 	used := map[int]bool{a.cfg.PanelPort: true}
+	for _, p := range avoid {
+		used[p] = true
+	}
 	for p, holder := range a.voicePorts.held {
 		if holder != id {
 			used[p] = true
@@ -216,13 +225,18 @@ func (a *Agent) voicePortTaken(id string) func(int) bool {
 	}
 	for _, o := range a.serverList() {
 		used[o.gamePort] = true
-		if o.id == id {
+		sc, err := o.serverConfig()
+		if err != nil || sc == nil {
 			continue
 		}
-		if sc, err := o.serverConfig(); err == nil && sc != nil && sc.VoiceChatPort > 0 {
+		if o.id != id || crossplay {
 			used[sc.VoiceChatPort] = true
 		}
+		if o.id != id || !crossplay {
+			used[sc.CrossplayPort] = true
+		}
 	}
+	delete(used, 0)
 	return func(p int) bool { return used[p] || a.opts.UDPPortInUse(p) }
 }
 

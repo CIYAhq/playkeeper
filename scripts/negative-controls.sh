@@ -2021,6 +2021,28 @@ control "only the server files of the pack's own version are used" internal/modp
   'sp.ParentProjectFileID == nil || *sp.ParentProjectFileID != file.ID || ' \
   '' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "a CurseForge pack's mods Modrinth lists as client-only stay off the server" internal/modpacks/resolve.go \
+  'case f.ClientOnly() || p.modrinthClient[f.SHA1()]:' \
+  'case f.ClientOnly():' \
+  ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "a mod version from before Modrinth's environment field goes by its project's server side" internal/modpacks/resolve.go \
+  'if r, ok := runs[v.ProjectID]; ok {' \
+  'if r, ok := runs[v.ProjectID]; false && ok {' \
+  ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "a client-only mod the pack's own files use stays on the server" internal/modpacks/resolve.go \
+  'delete(p.modrinthClient, sha1)' \
+  '_ = sha1' \
+  ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "only a pack's text files are read for the mods they use" internal/modpacks/resolve.go \
+  'if !mentionsFile(rel) || e.UncompressedSize64 > maxMentionsFile {' \
+  'if (rel == "" && !mentionsFile(rel)) || e.UncompressedSize64 > maxMentionsFile {' \
+  ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "a CurseForge pack whose mods Modrinth can't be asked about says so" internal/modpacks/resolve.go \
+  'if err != nil {
+		p.warn(notice(KindUnverifiedEnv, kv("pack", p.info.Name),' \
+  'if err != nil {
+		_ = (notice(KindUnverifiedEnv, kv("pack", p.info.Name),' \
+  ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
 control "a modpack's file may be as large as Pixelmon's jar" internal/modpacks/modpacks.go \
   'File: addons.DefaultMaxFileSize,' \
   'File: 256 << 20,' \
@@ -2162,6 +2184,41 @@ control "voice chat a template's Try again installs gets its UDP port" internal/
 	packSkips, err := s.installTemplatePacks(ctx, h, sc, packTries, still)' \
   'packSkips, err := s.installTemplatePacks(ctx, h, sc, packTries, still)' \
   ./internal/agent '^TestTemplateVoiceChatTriedAgainGetsItsPort$'
+# Crossplay: Floodgate comes from GeyserMC only for GeyserMC's own projects,
+# with the hash GeyserMC publishes, and a Bedrock name reaches Floodgate's
+# console command only as a plain gamertag.
+control "only GeyserMC's own projects follow a link to its newest build" internal/addons/resolve.go \
+  'ok && project == strings.ToLower(p.Slug) && slices.Contains(geysermc.Projects, project) {' \
+  'ok {' \
+  ./internal/addons '^TestOnlyGeyserMCsOwnProjectsFollowItsLinks$'
+control "a link to GeyserMC's newest build is on GeyserMC's own host" internal/addons/geysermc/geysermc.go \
+  'u.Host != Host ||' \
+  '!strings.HasPrefix(u.Host, Host) ||' \
+  ./internal/addons/geysermc '^TestParseLatestLink$'
+control "GeyserMC's build installs only with the hash GeyserMC publishes" internal/addons/resolve.go \
+  '"sha256", strings.ToLower(d.SHA256), size' \
+  '"", "", size' \
+  ./internal/addons '^(TestGeyserMCProjectsComeFromGeyserMC|TestGeyserMCDownloadsAreChecked)$'
+control "a Bedrock name reaches Floodgate's command only as a plain gamertag" internal/agent/players.go \
+  'if !ok || !reGamertag.MatchString(tag) {' \
+  'if !ok {' \
+  ./internal/agent '^TestBedrockPlayersJoinTheAllowlistThroughFloodgate$'
+control "crossplay uses a Geyser put there by hand, known only by its file name" internal/agent/crossplay.go \
+  '(n.Kind != addons.KindDuplicate && n.Kind != addons.KindFileExists)' \
+  'n.Kind != addons.KindDuplicate' \
+  ./internal/agent '^TestCrossplayUsesPluginsPutThereByHand$'
+control "crossplay off without Docker's answer changes nothing" internal/agent/crossplay.go \
+  'if _, _, err := s.containerRunning(ctx); err != nil {' \
+  'if _, _, err := s.containerRunning(ctx); false && err != nil {' \
+  ./internal/agent '^TestCrossplayOffThatCantCheckTheServerChangesNothing$'
+control "a server with crossplay doesn't fall asleep" internal/agent/sleeping.go \
+  '|| s.scheduleWorking() || s.hasCrossplay(), StartedAt: startedAt}' \
+  '|| s.scheduleWorking(), StartedAt: startedAt}' \
+  ./internal/agent '^TestCrossplayKeepsTheServerAwake$'
+control "turning crossplay on wakes a sleeping server" internal/agent/crossplay.go \
+  'if !running && s.desired() == api.DesiredSleeping {' \
+  'if false && !running && s.desired() == api.DesiredSleeping {' \
+  ./internal/agent '^TestCrossplayKeepsTheServerAwake$'
 control "a template whose modpack is made for another Minecraft version is blocked" internal/agent/templates.go \
   'case v.MinecraftVersion != "" && v.MinecraftVersion != p.Version.MinecraftVersion:' \
   'case false:' \
