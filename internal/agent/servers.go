@@ -661,6 +661,7 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	s.loops.Wait()
 	var own string
 	_ = s.db.QueryRow(`SELECT own_address FROM servers WHERE id = ?`, s.id).Scan(&own)
+	wild := s.ownName()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -690,6 +691,9 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	delete(s.servers, s.id)
 	s.srvMu.Unlock()
 	s.forgetCertificate(own)
+	if wild != own {
+		s.forgetCertificate(wild)
+	}
 	s.audit(actor, "server.deleted", s.id, "succeeded", fmt.Sprintf("%d backup(s) deleted with it", len(backups)))
 	s.serversChanged()
 	return nil

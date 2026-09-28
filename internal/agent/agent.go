@@ -952,6 +952,7 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/address/release", a.hAddressRelease},
 		{"POST", "/v1/address/check", a.hAddressCheck},
 		{"POST", "/v1/address/certificate", a.hAddressCertificate},
+		{"POST", "/v1/address/server-addresses", a.hServerAddresses},
 
 		// Wave 4: every server type.
 		{"GET", "/v1/catalog/builds", a.hCatalogBuilds},

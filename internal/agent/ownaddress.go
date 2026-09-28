@@ -63,6 +63,58 @@ func (s *server) hOwnAddressSet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.addressView())
 }
 
+// hServerAddresses turns an address for each server on or off: under the
+// machine's own domain, one wildcard record then points <slug>.<domain> at
+// the machine for every server without an address of its own. Turning it
+// off keeps their certificates, so turning it on again asks for none.
+func (a *Agent) hServerAddresses(w http.ResponseWriter, r *http.Request) {
+	var req api.ServerAddressesRequest
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	actor, err := validActor(req.Actor)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	release, err := a.holdAddress(r.Context(), 20*time.Second)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer release()
+	st := a.address()
+	if st.Kind != api.AddressOwn {
+		writeError(w, errConflict("An address for each server needs the machine's own domain.", "Give the machine your own domain first, in Machine settings › Address."))
+		return
+	}
+	if st.ServerAddresses != req.On {
+		if _, err := ownPlan(st.Host, a.joinServers(), a.machineIP(st), req.On).Records(); err != nil {
+			writeError(w, problemError(err, http.StatusBadRequest))
+			return
+		}
+		if err := a.updateAddress(func(s *addressState) { s.ServerAddresses = req.On }); err != nil {
+			writeError(w, err)
+			return
+		}
+		a.audit(actor, "address.server_addresses", st.Host, "changed", map[bool]string{true: "on", false: "off"}[req.On])
+		a.serversChanged()
+	}
+	writeJSON(w, http.StatusOK, a.addressView())
+}
+
+// ownName is the server's own address under the machine's own domain: the
+// one it was given, or the one the wildcard record gives it, or "".
+func (s *server) ownName() string {
+	for _, js := range s.ownAddresses(s.address()) {
+		if js.id == s.id {
+			return js.own
+		}
+	}
+	return ""
+}
+
 // validOwnAddress is raw written the one way the agent keeps it, or "" for
 // none. It must be a name of its own under the machine's own domain: not the
 // machine's name, not another server's address, and one the plan can give
@@ -83,27 +135,31 @@ func (s *server) validOwnAddress(raw string) (string, error) {
 		return "", errInvalid("%s is the machine's own name. Give the server another.", name)
 	}
 	servers := s.joinServers()
-	for i, js := range servers {
-		switch {
-		case js.id == s.id:
-			servers[i].own = name
-		case js.own == name:
-			return "", errConflict("Another server has that address.", "")
+	for _, js := range serverAddresses(st.Host, st.ServerAddresses, servers) {
+		if js.id != s.id && js.own == name {
+			return "", errConflict(nonEmptyOr(js.name, "Another server")+" has that address.", "")
 		}
 	}
-	if _, err := ownPlan(st.Host, servers, s.machineIP(st)).Records(); err != nil {
+	for i, js := range servers {
+		if js.id == s.id {
+			servers[i].own = name
+		}
+	}
+	if _, err := ownPlan(st.Host, servers, s.machineIP(st), st.ServerAddresses).Records(); err != nil {
 		return "", problemError(err, http.StatusBadRequest)
 	}
 	return name, nil
 }
 
-// ownAddresses are the servers' own addresses, under an own domain only.
+// ownAddresses are the servers' own addresses under the own domain st: the
+// ones given them, and with an address for each server the ones its
+// wildcard record gives.
 func (a *Agent) ownAddresses(st addressState) []joinServer {
 	if st.Kind != api.AddressOwn {
 		return nil
 	}
 	var out []joinServer
-	for _, js := range a.joinServers() {
+	for _, js := range serverAddresses(st.Host, st.ServerAddresses, a.joinServers()) {
 		if js.own != "" {
 			out = append(out, js)
 		}
@@ -112,10 +168,14 @@ func (a *Agent) ownAddresses(st addressState) []joinServer {
 }
 
 // forgetOwnCertificates forgets the certificates of the servers' own
-// addresses, when the machine stops using its own domain.
-func (a *Agent) forgetOwnCertificates() {
-	for _, js := range a.joinServers() {
-		a.forgetCertificate(js.own)
+// addresses under the own domain st: all of them when the machine stops
+// using it, and with onlyWild the ones its wildcard record gave, when the
+// machine moves to another domain or the wildcard is turned off.
+func (a *Agent) forgetOwnCertificates(st addressState, onlyWild bool) {
+	for _, js := range a.ownAddresses(st) {
+		if js.wild || !onlyWild {
+			a.forgetCertificate(js.own)
+		}
 	}
 }
 
@@ -144,7 +204,7 @@ func (a *Agent) domainFitsServers(domain string, st addressState) error {
 			return errConflict(domain+" is "+js.name+"'s own address.", "Clear it in Servers' own addresses first, or use another domain.")
 		}
 	}
-	if _, err := ownPlan(domain, servers, a.machineIP(st)).Records(); err != nil {
+	if _, err := ownPlan(domain, servers, a.machineIP(st), st.ServerAddresses).Records(); err != nil {
 		return problemError(err, http.StatusBadRequest)
 	}
 	return nil
@@ -159,7 +219,7 @@ func (a *Agent) ownCertificateDue(st addressState) (host string, held bool) {
 		return "", false
 	}
 	for _, js := range a.ownAddresses(st) {
-		if !ownNameOK(st.Check, js.id) {
+		if !ownNameOK(st, js) {
 			continue
 		}
 		if row := a.loadCertificate(js.own); row != nil && !row.status.Due(a.now()) {
@@ -173,11 +233,19 @@ func (a *Agent) ownCertificateDue(st addressState) (host string, held bool) {
 	return "", false
 }
 
-// ownNameOK reports whether the check found the server's own address
-// pointing here.
-func ownNameOK(c *api.AddressCheck, serverID string) bool {
-	return slices.ContainsFunc(c.Records, func(rc api.RecordCheck) bool {
-		return rc.Record.ServerID == serverID && (rc.Record.Type == "A" || rc.Record.Type == "AAAA") && rc.OK
+// ownNameOK reports whether the last check of the own domain st found the
+// server's own address pointing here: its A and AAAA records, or for one
+// the wildcard record gives, the wildcard's.
+func ownNameOK(st addressState, js joinServer) bool {
+	if st.Check == nil {
+		return false
+	}
+	return slices.ContainsFunc(st.Check.Records, func(rc api.RecordCheck) bool {
+		mine := rc.Record.ServerID == js.id
+		if js.wild {
+			mine = rc.Record.ServerID == "" && rc.Record.Name == "*."+st.Host
+		}
+		return mine && (rc.Record.Type == "A" || rc.Record.Type == "AAAA") && rc.OK
 	})
 }
 
@@ -186,8 +254,8 @@ func ownNameOK(c *api.AddressCheck, serverID string) bool {
 func (a *Agent) ownCertsToday(st addressState) int {
 	n := 0
 	since := a.now().Add(-24 * time.Hour)
-	for _, js := range a.joinServers() {
-		if js.own == "" || js.own == st.Host {
+	for _, js := range a.ownAddresses(st) {
+		if js.own == st.Host {
 			continue
 		}
 		if row := a.loadCertificate(js.own); row != nil && row.status.LastAttempt.After(since) {

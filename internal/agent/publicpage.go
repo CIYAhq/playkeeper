@@ -43,10 +43,8 @@ func (s *server) publicPageView() api.PublicPageView {
 // serverPageHost is where the server's page answers: its own address, or
 // the machine's name.
 func (s *server) serverPageHost() string {
-	for _, js := range s.ownAddresses(s.address()) {
-		if js.id == s.id {
-			return js.own
-		}
+	if own := s.ownName(); own != "" {
+		return own
 	}
 	return s.pageHost()
 }
