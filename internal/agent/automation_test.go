@@ -509,9 +509,11 @@ func (e *agentEnv) putToSleep() {
 func (e *agentEnv) holdOp(kind string) (release func()) {
 	e.t.Helper()
 	done := make(chan struct{})
-	if _, err := e.srv().beginOp(kind, "admin", func(context.Context, *opHandle) error {
-		<-done
-		return nil
+	if _, err := e.opWhenFree(func() (*api.Operation, error) {
+		return e.srv().beginOp(kind, "admin", func(context.Context, *opHandle) error {
+			<-done
+			return nil
+		})
 	}); err != nil {
 		e.t.Fatalf("%s: %v", kind, err)
 	}
@@ -637,7 +639,7 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 	wake := func(e *agentEnv) *api.Operation {
 		e.t.Helper()
 		s := e.srv()
-		op, err := s.beginOp("wake", "wake:Alex", s.wakeOp("Alex"))
+		op, err := e.opWhenFree(func() (*api.Operation, error) { return s.beginOp("wake", "wake:Alex", s.wakeOp("Alex")) })
 		if err != nil {
 			e.t.Fatalf("wake: %v", err)
 		}
@@ -655,9 +657,11 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 		return func(e *agentEnv) func() {
 			e.t.Helper()
 			done := make(chan struct{})
-			if _, err := e.a.beginMachineOp(kind, "admin", func(context.Context, *opHandle) error {
-				<-done
-				return nil
+			if _, err := e.opWhenFree(func() (*api.Operation, error) {
+				return e.a.beginMachineOp(kind, "admin", func(context.Context, *opHandle) error {
+					<-done
+					return nil
+				})
 			}); err != nil {
 				e.t.Fatalf("%s: %v", kind, err)
 			}

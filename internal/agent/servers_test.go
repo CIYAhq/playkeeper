@@ -362,7 +362,7 @@ func TestServersRunSideBySide(t *testing.T) {
 	if code, out := e.call("POST", "/v1/servers/"+creative+"/delete", map[string]any{"confirm": "Survival", "actor": "admin"}); code != 400 {
 		t.Fatalf("delete with another server's name: %d %v", code, out)
 	}
-	code, out = e.call("POST", "/v1/servers/"+creative+"/delete", map[string]any{"confirm": "Creative", "actor": "admin"})
+	code, out = e.callWhenFree("POST", "/v1/servers/"+creative+"/delete", map[string]any{"confirm": "Creative", "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("delete: %d %v", code, out)
 	}
@@ -452,10 +452,7 @@ func TestSettingsChangesAreWholeAndWaitForNoOperation(t *testing.T) {
 	if err := png.Encode(&icon, image.NewRGBA(image.Rect(0, 0, 64, 64))); err != nil {
 		t.Fatal(err)
 	}
-	release, ok := s.holdOpLock()
-	if !ok {
-		t.Fatal("the server is busy")
-	}
+	release := e.holdWhenFree(s)
 	code, out := e.call("POST", e.sp("/settings"), map[string]any{"motd": "Changed meanwhile", "actor": "admin"})
 	iconCode, iconOut := e.uploadTo(e.sp("/icon"), icon.Bytes())
 	release()
@@ -657,9 +654,11 @@ func TestNoServerIsAddedWhileTheMachineIsBusy(t *testing.T) {
 	e.waitFor("Survival idle", e.onlineIdle)
 
 	release := make(chan struct{})
-	if _, err := e.a.beginMachineOp("update", "admin", func(ctx context.Context, h *opHandle) error {
-		<-release
-		return nil
+	if _, err := e.opWhenFree(func() (*api.Operation, error) {
+		return e.a.beginMachineOp("update", "admin", func(ctx context.Context, h *opHandle) error {
+			<-release
+			return nil
+		})
 	}); err != nil {
 		t.Fatal(err)
 	}

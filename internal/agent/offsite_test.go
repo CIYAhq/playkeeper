@@ -857,7 +857,7 @@ func TestRestoringOrCheckingACopyOutlastsTheOperationDeadline(t *testing.T) {
 		e := newAgentEnv(t)
 		e.create()
 		shortDeadline(t)
-		op, err := e.srv().beginOp("backup", "admin", outlast)
+		op, err := e.opWhenFree(func() (*api.Operation, error) { return e.srv().beginOp("backup", "admin", outlast) })
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -868,7 +868,7 @@ func TestRestoringOrCheckingACopyOutlastsTheOperationDeadline(t *testing.T) {
 		e := newAgentEnv(t)
 		e.create()
 		shortDeadline(t)
-		op, err := e.a.beginMachineOp("disk-cleanup", "admin", outlast)
+		op, err := e.opWhenFree(func() (*api.Operation, error) { return e.a.beginMachineOp("disk-cleanup", "admin", outlast) })
 		if err != nil {
 			t.Fatal(err)
 		}

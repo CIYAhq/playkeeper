@@ -244,7 +244,7 @@ func TestARestoreFromARecoveryKeyHoldsNoServer(t *testing.T) {
 
 	// A friend joins the sleeping server.
 	s := e.srv()
-	wake, err := s.beginOp("wake", "wake:Alex", s.wakeOp("Alex"))
+	wake, err := e.opWhenFree(func() (*api.Operation, error) { return s.beginOp("wake", "wake:Alex", s.wakeOp("Alex")) })
 	if err != nil {
 		t.Fatalf("a join during the download: %v", err)
 	}

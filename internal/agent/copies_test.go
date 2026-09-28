@@ -454,10 +454,7 @@ func TestBackupRulesThatCantBeReadDeleteNothing(t *testing.T) {
 				undo = c.breaks(e)
 			}
 			s := e.srv()
-			release, ok := s.holdOpLock()
-			if !ok {
-				t.Fatal("the server is busy")
-			}
+			release := e.holdWhenFree(s)
 			s.applyRetention()
 			release()
 			s.pruneOffsite(context.Background(), dest)

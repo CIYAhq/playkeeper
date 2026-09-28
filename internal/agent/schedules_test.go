@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/schedule"
 )
 
@@ -298,9 +299,11 @@ func TestTheRunnerHearsWhenAnotherOperationHoldsTheServer(t *testing.T) {
 		t.Fatalf("idle: %+v", st)
 	}
 	release := make(chan struct{})
-	op, err := e.srv().beginOp("backup", "admin", func(context.Context, *opHandle) error {
-		<-release
-		return nil
+	op, err := e.opWhenFree(func() (*api.Operation, error) {
+		return e.srv().beginOp("backup", "admin", func(context.Context, *opHandle) error {
+			<-release
+			return nil
+		})
 	})
 	if err != nil {
 		t.Fatal(err)

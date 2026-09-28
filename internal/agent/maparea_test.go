@@ -223,10 +223,7 @@ func TestReplacingTheMapAreaKeepsTheOldOneUntilTheNewOneStarts(t *testing.T) {
 		}
 	}
 
-	release, ok := e.srv().holdOpLock()
-	if !ok {
-		t.Fatal("could not hold the server")
-	}
+	release := e.holdWhenFree(e.srv())
 	if code, out := e.setMapArea("small", true); code != 409 {
 		t.Errorf("replacing large while the server is busy: %d %v", code, out)
 	}

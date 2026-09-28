@@ -134,7 +134,9 @@ func TestAStartLeavesARunningModLoaderAndItsHeapAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	op, err := s.beginOp("start", "admin", func(ctx context.Context, h *opHandle) error { return s.startServer(ctx, h, *sc) })
+	op, err := e.opWhenFree(func() (*api.Operation, error) {
+		return s.beginOp("start", "admin", func(ctx context.Context, h *opHandle) error { return s.startServer(ctx, h, *sc) })
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +200,9 @@ func TestAStartSizesTheHeapOfEveryContainerItMakes(t *testing.T) {
 				t.Fatal(err)
 			}
 			tc.before(e, sc)
-			op, err := s.beginOp("start", "admin", func(ctx context.Context, h *opHandle) error { return s.startServer(ctx, h, *sc) })
+			op, err := e.opWhenFree(func() (*api.Operation, error) {
+				return s.beginOp("start", "admin", func(ctx context.Context, h *opHandle) error { return s.startServer(ctx, h, *sc) })
+			})
 			if err != nil {
 				t.Fatal(err)
 			}

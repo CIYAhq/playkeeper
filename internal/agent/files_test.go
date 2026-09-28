@@ -565,7 +565,7 @@ func TestFileChangesHoldOffOperations(t *testing.T) {
 				t.Fatalf("%s: %s", c.what, a)
 			}
 			e.waitIdle()
-			op, err := s.beginOp("backup", "admin", noop)
+			op, err := e.opWhenFree(func() (*api.Operation, error) { return s.beginOp("backup", "admin", noop) })
 			if err != nil {
 				t.Fatalf("a backup after %s: %v", c.what, err)
 			}

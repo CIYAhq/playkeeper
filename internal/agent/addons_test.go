@@ -354,7 +354,7 @@ func TestAddonsInstallUpdateRemove(t *testing.T) {
 	if !preview.Changed || len(preview.Orphans) != 1 || preview.Orphans[0].ProjectID != "mvcore00" {
 		t.Fatalf("removal preview of a changed plugin: %+v", preview)
 	}
-	code, out = e.call("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": "mvportal", "actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": "mvportal", "actor": "admin"})
 	if code != 409 || out["code"] != "modified" {
 		t.Fatalf("removing a changed file without asking: %d %v", code, out)
 	}

@@ -161,10 +161,7 @@ func TestNoRestoreStartsWhileAnotherIsUnsettled(t *testing.T) {
 			renameDir = os.Rename
 			// A job holding the server keeps the agent from settling the
 			// restore as soon as its world folder is back.
-			release, ok := e.srv().holdOpLock()
-			if !ok {
-				t.Fatal("the server is busy")
-			}
+			release := e.holdWhenFree(e.srv())
 			defer release()
 			if state.movedBack {
 				asides, _ := filepath.Glob(e.dataDir() + ".replaced-*")
@@ -270,10 +267,7 @@ func TestARestoreIsSettledOnceItsWorldIsBackWithoutAnAgentRestart(t *testing.T) 
 		return func() { set(false) }
 	}
 	busy := func(t *testing.T, e *agentEnv) func() {
-		release, ok := e.srv().holdOpLock()
-		if !ok {
-			t.Fatal("the server is busy")
-		}
+		release := e.holdWhenFree(e.srv())
 		return release
 	}
 	for _, c := range []struct {

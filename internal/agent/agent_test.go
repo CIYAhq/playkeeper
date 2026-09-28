@@ -293,6 +293,37 @@ func (e *agentEnv) callWhenFree(method, path string, body any) (int, map[string]
 	return e.whenFree(func() (int, map[string]any) { return e.call(method, path, body) })
 }
 
+// opWhenFree begins an operation with begin, again while the server or the
+// machine is busy (see whenFree).
+func (e *agentEnv) opWhenFree(begin func() (*api.Operation, error)) (*api.Operation, error) {
+	e.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		op, err := begin()
+		var ae *apiError
+		if !errors.As(err, &ae) || ae.Code != api.CodeBusy || time.Now().After(deadline) {
+			return op, err
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// holdWhenFree takes s's operation lock for the test, waiting while
+// something else holds it a moment longer (see whenFree).
+func (e *agentEnv) holdWhenFree(s *server) (release func()) {
+	e.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if release, ok := s.holdOpLock(); ok {
+			return release
+		}
+		if time.Now().After(deadline) {
+			e.t.Fatal("the server's operation lock stayed taken")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 // renameColumn renames table's column from to to, and returns what renames
 // it back. Both go through one connection: SQLite looks up the column an
 // ALTER TABLE RENAME COLUMN names in the schema that connection read last,
@@ -2209,7 +2240,7 @@ func TestWorldCopiesAreListedAndDiscarded(t *testing.T) {
 	if code, out := e.call("DELETE", e.sp("/world-copies/data.replaced-20260101-000000?actor=admin"), nil); code != 404 {
 		t.Errorf("discarding a copy that does not exist: %d %v", code, out)
 	}
-	release, _ := e.srv().holdOpLock()
+	release := e.holdWhenFree(e.srv())
 	code, out := e.call("DELETE", e.sp("/world-copies/data.replaced-20260924-090000?actor=admin"), nil)
 	release()
 	if code != 409 || out["code"] != api.CodeBusy {

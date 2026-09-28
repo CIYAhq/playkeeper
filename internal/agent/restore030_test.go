@@ -31,8 +31,10 @@ func (e *agentEnv) apply030(id string) string {
 		e.t.Fatal(err)
 	}
 	s := e.srv()
-	op, err := s.beginOp("restore", "admin", func(ctx context.Context, h *opHandle) error {
-		return s.restoreOp030(ctx, h, st, api.RestoreApplyRequest{}, "admin")
+	op, err := e.opWhenFree(func() (*api.Operation, error) {
+		return s.beginOp("restore", "admin", func(ctx context.Context, h *opHandle) error {
+			return s.restoreOp030(ctx, h, st, api.RestoreApplyRequest{}, "admin")
+		})
 	})
 	if err != nil {
 		e.t.Fatal(err)

@@ -646,10 +646,7 @@ func TestAStartForgetsTheCrashOnlyOnceItGoesAhead(t *testing.T) {
 		}, "world_missing", true},
 		{"another job", func(t *testing.T, e *agentEnv) bool {
 			e.create()
-			release, ok := e.srv().holdOpLock()
-			if !ok {
-				t.Fatal("the operation lock is taken")
-			}
+			release := e.holdWhenFree(e.srv())
 			t.Cleanup(release)
 			return false
 		}, "", true},
