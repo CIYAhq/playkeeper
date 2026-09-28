@@ -26,9 +26,11 @@ import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 
 type Editing = { kind: 'add' } | { kind: 'member'; member: TeamMember } | { kind: 'invite'; invite: TeamInvite } | CreatorEditing
-/** Inviting a creator, or an unused creator invite: the owner's alone. */
-type CreatorEditing = { kind: 'creator' } | { kind: 'creatorInvite'; invite: TeamInvite }
+/** Inviting a creator, an unused creator invite, or a creator on the team: their servers are the ones they create. */
+type CreatorEditing = { kind: 'creator' } | { kind: 'creatorInvite'; invite: TeamInvite } | { kind: 'creatorMember'; member: TeamMember }
 type GrantEditing = Exclude<Editing, CreatorEditing>
+
+const isCreatorEditing = (e: Editing): e is CreatorEditing => e.kind === 'creator' || e.kind === 'creatorInvite' || e.kind === 'creatorMember'
 
 const rank: Record<ProjectRole, number> = { viewer: 0, moderator: 1, admin: 2 }
 
@@ -114,7 +116,7 @@ export function TeamSection() {
       <Dialog open={grantOpen} onOpenChange={setGrantOpen}>
         <DialogPopup className="sm:max-w-[540px]" showCloseButton={false}>
           {grant &&
-            (grant.editing.kind === 'creator' || grant.editing.kind === 'creatorInvite' ? (
+            (isCreatorEditing(grant.editing) ? (
               <CreatorForm
                 key={grant.n}
                 editing={grant.editing}
@@ -123,6 +125,10 @@ export function TeamSection() {
                 onTurnOff={(inv) => {
                   setGrantOpen(false)
                   void turnOff(inv)
+                }}
+                onRemove={(m) => {
+                  setGrantOpen(false)
+                  setRemoving(m)
                 }}
               />
             ) : (
@@ -261,7 +267,7 @@ function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove, pr
           <span className={cn('block truncate text-xs', m.waiting ? 'text-warning-foreground' : 'text-muted-foreground')}>{memberLine(m)}</span>
         </span>
       </span>
-      <span className="truncate text-[13px] text-muted-foreground">{m.allowance ? allowanceText(m.allowance) : scopeText(m.servers, team.servers)}</span>
+      <span className="truncate text-[13px] text-muted-foreground">{m.allowance ? `${scopeText(m.servers, team.servers)}${t('common.dot')}${allowanceText(m.allowance)}` : scopeText(m.servers, team.servers)}</span>
       {m.owner ? (
         <span className="text-right text-[13px] font-semibold">{t('team.ownerAdmin')}</span>
       ) : m.canEdit && !m.allowance ? (
@@ -283,11 +289,15 @@ function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove, pr
             )}
             {m.canEdit && (
               <>
-                <MenuItem onClick={() => onEdit({ kind: 'member', member: m })}>
-                  <ServerIcon />
-                  {t('team.changeServers')}
-                </MenuItem>
-                <MenuSeparator />
+                {!m.allowance && (
+                  <>
+                    <MenuItem onClick={() => onEdit({ kind: 'member', member: m })}>
+                      <ServerIcon />
+                      {t('team.changeServers')}
+                    </MenuItem>
+                    <MenuSeparator />
+                  </>
+                )}
                 <MenuItem variant="destructive" onClick={() => onRemove(m)}>
                   <UserMinusIcon />
                   {t('team.remove')}
@@ -406,7 +416,7 @@ function PhoneTeam({ team, rows: listed, notice, dialogs, owner, onEdit }: { tea
         state,
         name: m.username,
         line: m.owner ? t('team.phone.owner') : `${role}${t('common.dot')}${m.waiting ? t('team.waiting') : what}`,
-        edit: m.canEdit && !m.owner ? { kind: 'member', member: m } : undefined,
+        edit: m.canEdit && !m.owner ? (m.allowance ? { kind: 'creatorMember', member: m } : { kind: 'member', member: m }) : undefined,
       }
     }
     const inv = item.invite
@@ -666,7 +676,7 @@ const creatorMemory = ['2048', '3072', '4096', '6144', '8192', '12288', '16384']
  * allowance and sees only those. Or, for an unused creator invite, what it
  * allows, with Turn off. Both are the owner's alone.
  */
-function CreatorForm({ editing, onClose, onChanged, onTurnOff }: { editing: CreatorEditing; onClose: () => void; onChanged: () => Promise<void>; onTurnOff: (inv: TeamInvite) => void }) {
+function CreatorForm({ editing, onClose, onChanged, onTurnOff, onRemove }: { editing: CreatorEditing; onClose: () => void; onChanged: () => Promise<void>; onTurnOff: (inv: TeamInvite) => void; onRemove: (m: TeamMember) => void }) {
   const phone = useIsPhone()
   const [label, setLabel] = useState('')
   const [servers, setServers] = useState('1')
@@ -689,6 +699,27 @@ function CreatorForm({ editing, onClose, onChanged, onTurnOff }: { editing: Crea
           <Button type="button" variant="destructive-outline" size={phone ? 'touch' : 'default'} onClick={() => onTurnOff(inv)}>
             <UnlinkIcon />
             {t('team.turnOff')}
+          </Button>
+          <Button size={phone ? 'touch' : 'default'} onClick={onClose}>
+            {t('common.done')}
+          </Button>
+        </DialogFooter>
+      </>
+    )
+  }
+
+  if (editing.kind === 'creatorMember') {
+    const m = editing.member
+    return (
+      <>
+        <DialogHeader>
+          <DialogTitle className="text-lg font-bold">{m.username}</DialogTitle>
+          <DialogDescription className="text-[13px]">{t('team.creatorMemberBody', { allowance: m.allowance ? allowanceText(m.allowance) : '' })}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter variant="bare" className="border-t border-border pt-4 sm:justify-between">
+          <Button type="button" variant="destructive-outline" size={phone ? 'touch' : 'default'} onClick={() => onRemove(m)}>
+            <UserMinusIcon />
+            {t('team.remove')}
           </Button>
           <Button size={phone ? 'touch' : 'default'} onClick={onClose}>
             {t('common.done')}

@@ -6847,6 +6847,10 @@ control "creator invites: the member keeps the allowance" internal/panel/join.go
   'grant.Servers.String(), grant.Allowance.Servers, grant.Allowance.MemoryMB, now)' \
   'grant.Servers.String(), 0, 0, now)' \
   ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
+control "creators: their role and servers aren't changed on the Team page" internal/panel/team.go \
+  'if !t.Allowance.IsZero() {' \
+  'if false {' \
+  ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

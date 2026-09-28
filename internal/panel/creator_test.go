@@ -2,6 +2,7 @@ package panel
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -93,6 +94,9 @@ func TestCreatorInvitesAreTheOwnersAlone(t *testing.T) {
 	}
 	if r := e.do(t, "POST", "/api/machines/"+machineID(t, e.env)+"/servers", `{"name":"alex","acceptEula":true}`, alex.auth()); r.status != http.StatusForbidden {
 		t.Fatalf("alex creates a server before creators may: %d %v", r.status, r.body)
+	}
+	if r := e.do(t, "PUT", "/api/team/members/"+strconv.FormatInt(alexID, 10), `{"role":"admin","servers":{"servers":["abcdefghjk"]}}`, own.auth()); r.status != http.StatusConflict {
+		t.Fatalf("the owner changes a creator's servers: %d %v", r.status, r.body)
 	}
 	var alexs teamBody
 	e.get(t, "/api/team", alex.cookie, &alexs)

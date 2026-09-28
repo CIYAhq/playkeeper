@@ -2595,6 +2595,7 @@ export const en = {
   'team.creatorNamePlaceholder': 'Their handle, like alex',
   'team.creatorInvite': 'Creator invite',
   'team.creatorInviteBody': '{allowance}. Only you can see or turn off this link. It runs out {when}.',
+  'team.creatorMemberBody': 'Creator: {allowance}. Their servers are the ones they create.',
   'team.inviteLink': 'Invite link',
   'team.owner': 'Owner',
   'team.youOwner': 'You · owner',
