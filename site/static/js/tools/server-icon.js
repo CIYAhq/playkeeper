@@ -273,9 +273,9 @@
     sizeTimer = setTimeout(function () {
       out.toBlob(function (blob) {
         if (!blob) return;
-        var text = '64 × 64 PNG · ' + (blob.size < 1024 ? blob.size + ' bytes' : (blob.size / 1024).toFixed(1) + ' KB');
-        info.textContent = text;
-        if (dockInfo) dockInfo.textContent = text;
+        var size = blob.size < 1024 ? blob.size + ' bytes' : (blob.size / 1024).toFixed(1) + ' KB';
+        info.textContent = '64 × 64 PNG · ' + size;
+        if (dockInfo) dockInfo.textContent = '64 × 64 · ' + size;
       }, 'image/png');
     }, 120);
   }

@@ -17,7 +17,9 @@
 .icon-text { font-family: var(--mono); font-size: 18px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
 .icon-shuffle { flex: none; }
 .icon-shuffle[hidden] { display: none; }
-.icon-dock { flex: none; width: 44px; height: 44px; image-rendering: pixelated; border-radius: 4px; box-shadow: 0 0 0 1px var(--twine); }
+/* Shown smaller than its 64 pixels, the icon is smoothed: pixelated
+   shrinking drops whole rows of its pixels. */
+.icon-dock { flex: none; width: 44px; height: 44px; image-rendering: auto; border-radius: 4px; box-shadow: 0 0 0 1px var(--twine); }
 .tool-hero code { padding: 1px 6px; border-radius: 6px; background: var(--white); color: var(--ink); font-size: 0.86em; box-shadow: inset 0 0 0 1px var(--twine); }
 
 @media (max-width: 1100px) and (min-width: 961px) {
@@ -31,5 +33,6 @@
   .icon-preview-body { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .icon-stage { width: 100%; height: auto; aspect-ratio: 1; max-width: 320px; margin: 0 auto; }
   .icon-big { width: calc(100% - 32px); height: auto; aspect-ratio: 1; }
-  .icon-real canvas { width: 48px; height: 48px; }
+  .icon-real canvas { width: 48px; height: 48px; image-rendering: auto; }
+  .icon-tool .mc-list-icon { image-rendering: auto; }
 }
