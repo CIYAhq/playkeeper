@@ -6976,6 +6976,7 @@ control "network guard: an IPv6 network is kept from the machine too" internal/n
   'if !n.IPv6 {' \
   'if true || !n.IPv6 {' \
   ./internal/netguard '^TestAnIPv6NetworkIsKeptFromTheMachineToo$'
+# shellcheck disable=SC2016
 control "network guard: rules listed with quoted comments are the guard's" internal/netguard/netguard.go \
   'strings.Trim(w[i+1], `"`) == Tag' \
   'w[i+1] == Tag' \
