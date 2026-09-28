@@ -24,6 +24,8 @@ import { cn } from '@/lib/utils'
 import { InviteLinks, JoinRequestNotice, NewInviteDialog, useInvites } from './invites'
 
 const reName = /^[A-Za-z0-9_]{3,16}$/
+/** A Bedrock player's name behind Floodgate's dot, on a server with crossplay. */
+const reBedrockName = /^\.[A-Za-z0-9_]{1,16}$/
 
 type Days = '1' | '7' | '30'
 
@@ -98,8 +100,9 @@ function usePlayerLists(server: ServerStatus, whitelist: WhitelistEntry[] | unde
   async function add(e: FormEvent) {
     e.preventDefault()
     const n = name.trim()
-    if (!reName.test(n)) {
-      setError(t('players.nameRule'))
+    const crossplay = !!server.config?.crossplayPort
+    if (!reName.test(n) && !(crossplay && reBedrockName.test(n))) {
+      setError(crossplay ? t('players.nameRuleBedrock') : t('players.nameRule'))
       return
     }
     setError(undefined)
@@ -173,7 +176,7 @@ function AddPlayer({ server, form, big, placeholder, iconButton, outline }: { se
             disabled={!!blocked}
             autoComplete="off"
             spellCheck={false}
-            maxLength={16}
+            maxLength={server.config?.crossplayPort ? 17 : 16}
           />
         </InputGroup>
         {iconButton ? (
@@ -371,7 +374,7 @@ export function PlayersPage({ server: s }: { server: ServerStatus }) {
             <CardHint>{t('players.whoHint')}</CardHint>
             {manage && (
               <div className="mt-3">
-                <AddPlayer server={s} form={lists.form} placeholder={t('players.namePlaceholder')} outline />
+                <AddPlayer server={s} form={lists.form} placeholder={s.config?.crossplayPort ? t('players.namePlaceholderBedrock') : t('players.namePlaceholder')} outline />
               </div>
             )}
             <ul className="mt-3 flex flex-col">

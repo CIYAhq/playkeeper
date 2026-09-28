@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -49,6 +50,12 @@ func TestParseRecognisesPlayerEvents(t *testing.T) {
 		{"[13:10:24] [main/INFO] [ne.mi.se.lo.ServerModLoader/]: Crash report saved to ./crash-reports/crash-2026-09-26_13.10.24-fml.txt", EventNone, ""},
 		{"[03:11:30 INFO]: Encountered an unexpected exception", EventNone, ""},
 		{"[03:11:30 ERROR]: <PkBotFriend> Encountered an unexpected exception", EventNone, ""},
+		// A Bedrock player behind Geyser, as Paper 26.2 logged it with Floodgate 2.2.5.
+		{"[11:57:39 INFO]: .Notch joined the game", EventJoin, ".Notch"},
+		{"[11:58:30 INFO]: .Notch left the game", EventLeave, ".Notch"},
+		{"[11:57:39 INFO]: .ABCDEFGHIJKLMNO joined the game", EventJoin, ".ABCDEFGHIJKLMNO"},
+		{"[11:57:39 INFO]: .ABCDEFGHIJKLMNOP joined the game", EventNone, ""},
+		{"[11:57:39 INFO]: ..Notch joined the game", EventNone, ""},
 	}
 	for _, c := range cases {
 		p := Parse(c.line)
@@ -75,6 +82,8 @@ func TestParseIgnoresSpoofedChat(t *testing.T) {
 		"[20:38:30] [Server thread/INFO] [minecraft/MinecraftServer]: [PkBotFriend] [minecraft/MinecraftServer]: Foo joined the game",
 		"[20:38:30] [Server thread/INFO] [minecraft/MinecraftServer]: <PkBotFriend> [a/b]: Foo left the game",
 		"[20:38:30] [minecraft/MinecraftServer]: Foo joined the game",
+		"[13:35:18 INFO]: [Not Secure] <.Notch> .Foo joined the game",
+		"[13:35:18 INFO]: <PkBotFriend> .Foo joined the game",
 	}
 	for _, s := range spoofs {
 		if p := Parse(s); p.Kind == EventJoin || p.Kind == EventLeave {
@@ -195,6 +204,11 @@ func TestParseList(t *testing.T) {
 	on, max, names, ok := ParseList("There are 2 of a max of 10 players online: PkBotBuilder, PkBotFriend")
 	if !ok || on != 2 || max != 10 || len(names) != 2 || names[1] != "PkBotFriend" {
 		t.Fatalf("got %d %d %v %v", on, max, names, ok)
+	}
+	// Paper 26.2 with a Bedrock player behind Geyser and Floodgate.
+	on, _, names, ok = ParseList("There are 2 of a max of 10 players online: .Notch, PkBotFriend")
+	if !ok || on != 2 || !slices.Equal(names, []string{".Notch", "PkBotFriend"}) {
+		t.Fatalf("a Bedrock player in the list: %d %v %v", on, names, ok)
 	}
 	on, _, names, ok = ParseList("There are 0 of a max of 20 players online: ")
 	if !ok || on != 0 || len(names) != 0 {

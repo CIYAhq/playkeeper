@@ -240,7 +240,7 @@ func playerName() *Error {
 func playerNotFound(name string) *Error {
 	return &Error{Code: CodePlayerUnknown, Status: http.StatusUnprocessableEntity, Params: map[string]string{"name": name},
 		Msg:  fmt.Sprintf("No Minecraft: Java Edition account is called %s.", name),
-		Hint: "Check the spelling. Minecraft on phones and consoles (Bedrock Edition) can't join this server."}
+		Hint: "Check the spelling. On a phone, console or Windows (Bedrock Edition)? This link takes Java Edition names only, so ask whoever sent it whether the server lets Bedrock players in."}
 }
 
 func playerDemo(name string) *Error {

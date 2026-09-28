@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ArrowUpRightIcon, CheckIcon, PlayIcon } from 'lucide-react'
 import { get } from '@/api/client'
-import type { PublicBoard, PublicPage, PublicServer, PublicStream } from '@/api/types'
+import type { BedrockJoin, PublicBoard, PublicPage, PublicServer, PublicStream } from '@/api/types'
 import ground from '@/assets/pixel-art/ground.svg'
 import { BrandMark, Emblem, Pip, TypeLogo } from '@/components/app/art'
 import { CopyButton, Dot, PlayerFace, useNow } from '@/components/app/bits'
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { relativeTime } from '@/lib/format'
+import { bedrockConsolesUrl } from '@/lib/machines'
 import { joinSteps, publicStatus, serverPageApi, serverPageFace, serverPageIcon, serverPageTitle, sessionTime, streamEmbed, untilText } from '@/lib/server-page'
 import { typeName } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
@@ -258,6 +259,7 @@ function JoinBlock({ server: s }: { server: PublicServer }) {
           </li>
         ))}
       </ol>
+      {s.bedrock && <BedrockBlock server={s} bedrock={s.bedrock} />}
       {s.modpack && s.pack && (
         <a href={s.pack} className="mt-3.5 inline-flex items-center gap-1 text-[15px] font-semibold text-success-strong hover:underline">
           {t('serverPage.getPack', { pack: s.modpack.name })}
@@ -265,6 +267,32 @@ function JoinBlock({ server: s }: { server: PublicServer }) {
         </a>
       )}
     </section>
+  )
+}
+
+/** Where Bedrock players join a server with crossplay: the address and the port, which they type in two fields. */
+function BedrockBlock({ server: s, bedrock: b }: { server: PublicServer; bedrock: BedrockJoin }) {
+  const phone = useIsPhone()
+  const host = b.host || window.location.hostname
+  return (
+    <div className="mt-5 border-t border-border pt-5 max-sm:mt-4 max-sm:pt-4">
+      <div className="section-label">{t('serverPage.bedrock')}</div>
+      <div className="mt-2 flex items-center gap-4 max-sm:flex-col max-sm:items-stretch max-sm:gap-3">
+        <p className="min-w-0 flex-1 break-all">
+          <span className="text-[22px] leading-7 font-bold tracking-[-0.01em] max-sm:text-lg">{host}</span>{' '}
+          <span className="text-[15px] whitespace-nowrap text-muted-foreground tabular-nums">{t('crossplay.port', { port: b.port })}</span>
+        </p>
+        <CopyButton text={host} label={t('serverPage.copy')} variant="outline" size={phone ? 'touch' : 'default'} className={phone ? 'w-full' : undefined} />
+      </div>
+      <p className="mt-3 text-[15px] leading-[21px] text-muted-foreground">
+        {t('serverPage.bedrockStep', { port: b.port })}
+        {s.inviteOnly && ` ${t('serverPage.bedrockInvite')}`}{' '}
+        <a href={bedrockConsolesUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-semibold text-success-strong hover:underline">
+          {t('serverPage.bedrockConsoles')}
+          <ArrowUpRightIcon className="size-4" aria-hidden="true" />
+        </a>
+      </p>
+    </div>
   )
 }
 

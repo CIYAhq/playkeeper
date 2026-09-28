@@ -143,11 +143,14 @@ const recorded = {
   picks: load('curated.json') as Pick[],
 }
 
-/** Whether a request only reads a server's add-ons: a GET under addons/, or what an update would do. */
+/** Whether a request only reads a server's add-ons: a GET under addons/ or of crossplay's switch, or what an update would do. */
 export function isAddonRead(method: string, path: string): boolean {
-  if (method === 'GET' || method === 'HEAD') return /^\/api\/servers\/\w+\/addons(\/.*)?$/.test(path)
+  if (method === 'GET' || method === 'HEAD') return /^\/api\/servers\/\w+\/(addons(\/.*)?|crossplay)$/.test(path)
   return method === 'POST' && /^\/api\/servers\/\w+\/addons\/update\/plan$/.test(path)
 }
+
+/** Crossplay's switch as the agent shows it on a Paper server without it, where Geyser and Floodgate have versions: no one asks Modrinth, Hangar or GeyserMC. */
+const crossplayOff = { on: false, available: true, port: 19132, plugins: [], prefix: '.' }
 
 /** The recorded folder, with nothing in it yet. */
 export function recordedFolder(): Json {
@@ -156,6 +159,7 @@ export function recordedFolder(): Json {
 
 /** The answer to an add-on read (see isAddonRead) for `world`, or undefined when nothing was recorded for it. `body` is a POST's parsed body. */
 export function answerRead(method: string, url: URL, body: unknown, world: World): Answer | undefined {
+  if (/^\/api\/servers\/\w+\/crossplay$/.test(url.pathname)) return method === 'GET' ? json(200, structuredClone(crossplayOff)) : undefined
   const m = /^\/api\/servers\/\w+\/addons(\/.*)?$/.exec(url.pathname)
   if (!m) return undefined
   const rest = m[1] ?? ''

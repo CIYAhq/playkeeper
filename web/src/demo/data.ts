@@ -32,6 +32,7 @@ import type {
   Catalog,
   CatalogEntry,
   Crash,
+  Crossplay,
   CuratedAddons,
   DailyActivity,
   DataPack,
@@ -1327,6 +1328,24 @@ function memoryAdvice(s: DemoState, r: Request): MemoryAdvice {
   return { ...base, verdict: 'keep', params: { peak_mb: peakMB, days: 14, reason: 'fits' }, recommendedMB: budgetMB }
 }
 
+// Crossplay: the switch in Settings. Geyser and Floodgate aren't listed on
+// the Plugins tab of the demo; the switch and the Join card's Bedrock line
+// are.
+
+/** The demo's builds of crossplay's two plugins. */
+export const crossplayPlugins = [
+  { name: 'Geyser', versionNumber: '2.11.3-b1247', source: 'modrinth' as const },
+  { name: 'Floodgate', versionNumber: '2.2.5-b141', source: 'hangar' as const },
+]
+
+function crossplay(s: DemoState, r: Request): Crossplay {
+  const srv = serverOf(s, r)
+  const port = srv.config?.crossplayPort
+  const fits = srv.type === 'paper' || srv.type === 'purpur'
+  const notice = fits ? undefined : { kind: 'not_for_server_type', message: `Crossplay is only offered for Paper and Purpur servers; this server runs ${typeName(srv.type)}.`, hint: 'Bedrock players can join a Paper or Purpur server.' }
+  return { on: !!port, port: port ?? (s.servers.some((o) => o.config?.crossplayPort === 19132) ? 19133 : 19132), available: fits, notice, plugins: port ? crossplayPlugins : [], prefix: '.' }
+}
+
 // Picked by Playkeeper, and the pack friends need for a modded server.
 
 function curated(s: DemoState, r: Request): CuratedAddons {
@@ -1398,6 +1417,7 @@ export const reads: Routes = {
   'GET /api/servers/:id/addons/checks': addonChecks,
   'GET /api/servers/:id/addons/search': addonSearch,
   'GET /api/servers/:id/addons/curated': curated,
+  'GET /api/servers/:id/crossplay': crossplay,
   'GET /api/servers/:id/mods/share': modsShare,
   'GET /api/servers/:id/public-page': (): PublicPageView => ({ enabled: true, players: false, about: '', stream: '', host: `${freeName}.playkeeper.me`, ports: { https: { port: 443, state: 'open' }, http: { port: 80, state: 'open' } } }),
   'GET /api/servers/:id/addons/project/:source/:project': addonDetails,
