@@ -6579,6 +6579,33 @@ webcontrol "the usage stats switch stays still where root or playkeeper dev deci
   'disabled={false} title={locked}' \
   web/src/pages/settings.test.tsx 'keeps the switch still'
 
+# The stats dashboard: it loads only its own files and asks only its own
+# service for the counts; the days leave test installs out and count an
+# install whose first report was lost as started the day it ended.
+control "the stats dashboard is sent with its Content-Security-Policy" internal/usage/service/dashboard.go \
+  '		h.Set("Content-Security-Policy", dashboardCSP)
+' \
+  '' \
+  ./internal/usage/service '^TestTheDashboardLoadsOnlyItsOwnFilesAndAsksOnlyForTheSummary$'
+control "a sign-in to the stats dashboard without its script can't put the token in an address" internal/usage/service/dashboard.go \
+  "form-action 'none'; " \
+  "" \
+  ./internal/usage/service '^TestTheDashboardLoadsOnlyItsOwnFilesAndAsksOnlyForTheSummary$'
+control "the stats dashboard asks only its own service for the counts" internal/usage/service/dashboard/app.js \
+  "fetch('/v1/summary'," \
+  "fetch('https://stats.example/v1/summary'," \
+  ./internal/usage/service '^TestTheDashboardLoadsOnlyItsOwnFilesAndAsksOnlyForTheSummary$'
+control "test installs aren't counted in the days" internal/usage/service/summary.go \
+  'WHERE test = 0 AND (started_at >= ? OR outcome_at >= ?)`, first*86400' \
+  'WHERE (started_at >= ? OR outcome_at >= ?)`, first*86400' \
+  ./internal/usage/service '^TestTestInstallsAreKeptOutOfEveryCount$'
+control "an install whose first report was lost started the day it ended" internal/usage/service/summary.go \
+  '		case outcome == usage.EventSucceeded || outcome == usage.EventFailed:
+			add(outcomeAt, source, Outcomes{Started: 1})
+' \
+  '' \
+  ./internal/usage/service '^TestSummaryCountsInstallsAndActiveInstallsByWindow$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
