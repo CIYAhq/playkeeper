@@ -91,7 +91,9 @@ type Installed struct {
 func (i Installed) Key() Key { return Key{i.Source, i.ProjectID} }
 
 const (
-	DefaultMaxFileSize = 256 << 20
+	// DefaultMaxFileSize bounds each add-on file and each modpack file. The
+	// largest mods fit: Pixelmon's jar is about 400 MB.
+	DefaultMaxFileSize = 512 << 20
 	DefaultMaxIconSize = 1 << 20
 )
 

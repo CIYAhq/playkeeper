@@ -232,7 +232,7 @@ type Limits struct {
 // DefaultLimits returns the limits used for every limit left at zero.
 func DefaultLimits() Limits {
 	return Limits{
-		Pack: 1 << 30, ServerFiles: 2 << 30, Index: 16 << 20, Files: 5000, File: 256 << 20,
+		Pack: 1 << 30, ServerFiles: 2 << 30, Index: 16 << 20, Files: 5000, File: addons.DefaultMaxFileSize,
 		Downloads: 4 << 30, Unpacked: 2 << 30, Entries: 20000,
 	}
 }
