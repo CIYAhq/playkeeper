@@ -6748,11 +6748,11 @@ control "the share page doesn't name the stats service" site/layouts/base.html \
 # under the current base.
 control "own domain: a playkeeper.me name nobody can claim is accepted" internal/agent/address.go \
   'return names.CheckName(name) != nil || names.Reserved(name)' \
-  'return false' \
+  'return false && names.Reserved(name)' \
   ./internal/agent '^(TestOwnDomainsNobodyCanClaimUnderTheFreeBaseAreAccepted|TestTheManagedBetaMachineCanBeBetaPlaykeeperMe)$'
 control "own domain: a playkeeper.me name someone can claim stays refused" internal/agent/address.go \
   'return names.CheckName(name) != nil || names.Reserved(name)' \
-  'return true' \
+  'return true || names.Reserved(name)' \
   ./internal/agent '^TestOwnDomainsUnderEitherFreeBaseAreRefused$'
 control "own domain: only the name right before playkeeper.me decides" internal/agent/address.go \
   "name := rest[strings.LastIndexByte(rest, '.')+1:]" \
