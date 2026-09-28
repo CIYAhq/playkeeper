@@ -11,9 +11,10 @@
 # guide's table at /sizing, the live demo at /demo/ (its page, its files, the
 # players' faces and the plugins' icons, deep links answered by the app, a
 # missing file still a 404, and that it is the demo build), /community,
-# /healthz, the /install redirect to get.sh of the latest release and the same
-# for /install/<code>, the install log they go to (the visitor's address, 30
-# days), the channels' links under /go/, cache and security headers, and the
+# /healthz, /install (the script that runs the latest release's get.sh,
+# telling it the install came through playkeeper.io, run with a stand-in
+# curl) and /install/<code> with its code filled in, the install log they go
+# to (the visitor's address, 30 days), the channels' links under /go/, cache and security headers, and the
 # container's own health check. With Chrome or
 # Chromium installed, it also opens /sizing in headless Chrome with an answer
 # in its address, and with one it can't read, and checks the answer the page
@@ -93,24 +94,58 @@ done
 health=$(curl -fsS "$base/healthz") || fail "/healthz does not answer"
 [ "$health" = ok ] || fail "/healthz answered '$health', not 'ok'"
 
-read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$base/install")
-[ "$code" = 302 ] || fail "/install answered $code, not 302"
-[ "$location" = "$want" ] || fail "/install redirects to '$location', not $want"
-# A channel's install command (internal/site/channels.go) is the same
-# redirect, and so is any other code in any case, so a typo still installs.
-# Each goes to the install log with the address the proxy says it's from.
+read -r code type < <(curl -sS -o "$work/install.sh" -w '%{http_code} %{content_type}\n' "$base/install")
+[ "$code" = 200 ] || fail "/install answered $code, not 200"
+[[ $type == text/plain* ]] || fail "/install is served as '$type', not as text"
+cmp -s "$work/install.sh" "$root/site/install.sh" || fail "/install is not site/install.sh: $(diff "$root/site/install.sh" "$work/install.sh")"
+grep -qxF "url=$want" "$work/install.sh" || fail "/install does not run $want"
+# Run as `curl … | sudo sh`, it hands over to the latest release's get.sh in
+# the same process, so the installer is still sudo's own child when it asks,
+# and tells it the install came through playkeeper.io. A stand-in for curl
+# serves a stand-in get.sh that writes down what it got.
+stub=$work/stub
+mkdir -p "$stub"
+cat >"$stub/curl" <<'EOF'
+#!/bin/sh
+for a in "$@"; do url=$a; done
+printf '%s\n' "$url" >"$STUB_OUT.url"
+[ -z "${STUB_FAIL:-}" ] || exit 22
+printf '%s\n' 'printf "%s|%s|%s|%s\n" "$PLAYKEEPER_INSTALL_SOURCE" "$PLAYKEEPER_INSTALL_CHANNEL" "$$" "$*" >"$STUB_OUT"'
+EOF
+chmod +x "$stub/curl"
+run_install() { # FILE [VAR=value...] — runs the script at FILE as sh does, with --yes --game-port 25566
+  local file=$1
+  shift
+  rm -f "$work/ran" "$work/ran.url"
+  # shellcheck disable=SC2016 # the inner shell's own $$ and $0
+  env PATH="$stub:$PATH" STUB_OUT="$work/ran" "$@" sh -c 'echo $$ >"$0.pid"; exec sh "$0" --yes --game-port 25566' "$file"
+}
+run_install "$work/install.sh" || fail "/install's script failed with a working download"
+[ "$(cat "$work/ran")" = "playkeeper.io||$(cat "$work/install.sh.pid")|--yes --game-port 25566" ] ||
+  fail "/install's script must run get.sh in its own process with the source and the arguments; get.sh got: $(cat "$work/ran")"
+[ "$(cat "$work/ran.url")" = "$want" ] || fail "/install's script downloaded $(cat "$work/ran.url"), not $want"
+if run_install "$work/install.sh" STUB_FAIL=1 2>"$work/err"; then fail "/install's script carried on without get.sh"; fi
+if [ -e "$work/ran" ] || ! grep -qF "could not download $want" "$work/err"; then fail "/install's script without get.sh must say so and run nothing: $(cat "$work/err")"; fi
+# A channel's install command (internal/site/channels.go) is the same script
+# with its code filled in, and so is any other code in any case, so a typo
+# still installs. Each goes to the install log with the address the proxy
+# says it's from.
 for p in /install/cygnus /install/HN /install/not-a-channel; do
-  read -r code location < <(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' -H 'X-Forwarded-For: 203.0.113.9' "$base$p")
-  if [ "$code" != 302 ] || [ "$location" != "$want" ]; then fail "$p answered $code to '$location', not 302 to $want"; fi
+  read -r code type < <(curl -sS -o "$work/channel.sh" -w '%{http_code} %{content_type}\n' -H 'X-Forwarded-For: 203.0.113.9' "$base$p")
+  if [ "$code" != 200 ] || [[ $type != text/plain* ]]; then fail "$p answered $code as '$type', not 200 as text"; fi
+  run_install "$work/channel.sh" || fail "$p's script failed"
+  [ "$(cut -d'|' -f1,2 "$work/ran")" = "playkeeper.io|${p#/install/}" ] || fail "$p's script must tell get.sh its code; get.sh got: $(cat "$work/ran")"
 done
 code=$(curl -sS -o /dev/null -w '%{http_code}' "$base/install/a/b")
 [ "$code" = 404 ] || fail "/install/a/b answered $code, not 404"
+code=$(curl -sS -o /dev/null -w '%{http_code}' "$base/install.sh")
+[ "$code" = 404 ] || fail "/install.sh answered $code: only /install serves the script"
 log=$(docker exec "$name" sh -c 'cat /var/log/playkeeper/installs-*.log') || fail "there is no install log"
 for p in /install/cygnus /install/HN; do
-  grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^ ]+ 203\.0\.113\.9 GET $p 302 \"curl/" <<<"$log" || fail "the install log has no line for $p from 203.0.113.9: $log"
+  grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[^ ]+ 203\.0\.113\.9 GET $p 200 \"curl/" <<<"$log" || fail "the install log has no line for $p from 203.0.113.9: $log"
 done
-grep -qE ' GET /install 302 "curl/' <<<"$log" || fail "the install log has no line for /install"
-if grep -vE ' GET /install(/[A-Za-z0-9-]+)? 302 ' <<<"$log" | grep -q .; then fail "the install log has more than installs: $log"; fi
+grep -qE ' GET /install 200 "curl/' <<<"$log" || fail "the install log has no line for /install"
+if grep -vE ' GET /install(/[A-Za-z0-9-]+)? 200 ' <<<"$log" | grep -q .; then fail "the install log has more than installs: $log"; fi
 # It keeps 30 days: a file older than that goes when the container starts,
 # and the rest stay.
 docker exec "$name" touch -d 2000-01-01 /var/log/playkeeper/installs-2000-01-01.log
@@ -120,7 +155,7 @@ for _ in $(seq 30); do
   sleep 1
 done
 docker exec "$name" test ! -e /var/log/playkeeper/installs-2000-01-01.log || fail "the install log keeps a file older than 30 days"
-docker exec "$name" sh -c 'cat /var/log/playkeeper/installs-*.log' | grep -qF '203.0.113.9 GET /install/cygnus 302' || fail "the install log lost today's lines when the container restarted"
+docker exec "$name" sh -c 'cat /var/log/playkeeper/installs-*.log' | grep -qF '203.0.113.9 GET /install/cygnus 200' || fail "the install log lost today's lines when the container restarted"
 # A channel's link is the landing page with its tags, in any case and with a
 # trailing slash; any other code is the landing page.
 for c in cygnus:youtube:sponsor:creators-oct26:/go/cygnus hn:hackernews:community:launch-sep26:/go/HN/ x:x:social:launch-sep26:/go/x \
@@ -397,4 +432,4 @@ for _ in $(seq 30); do
 done
 [ "$status" = healthy ] || fail "the container's health check reports '$status'"
 
-echo "Site image checks out: $checked pages from the sitemap answer with their title, description, canonical address, social preview and files; robots.txt, the sitemap and the feed; /t is the share page and kept out of search engines; a missing page is a 404; /pricing/ redirects; /community, /install, /install/<code> (in the install log, with the visitor's address, for 30 days), /go/<code> and /healthz answer; cache and security headers set; container healthy. $browser."
+echo "Site image checks out: $checked pages from the sitemap answer with their title, description, canonical address, social preview and files; robots.txt, the sitemap and the feed; /t is the share page and kept out of search engines; a missing page is a 404; /pricing/ redirects; /community, /install and /install/<code> (a script that hands over to get.sh with how the install came, in the install log with the visitor's address for 30 days), /go/<code> and /healthz answer; cache and security headers set; container healthy. $browser."
