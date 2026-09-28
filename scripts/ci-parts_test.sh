@@ -35,6 +35,7 @@ expect "install-and-play,restore,core-flows,update" test/e2e/pkclient.py
 expect "install-and-play,restore" test/e2e/scenario.py test/e2e/bot/bot.js
 expect "install-and-play" test/e2e/ui/onboarding.spec.ts
 expect "install-and-play,views" scripts/e2e/played-state.sh test/e2e/ui/views.spec.ts
+expect "install-and-play" scripts/e2e/guard-check.sh
 expect "install-and-play,views" .github/actions/played-install/action.yml
 expect "core-flows" test/e2e/ui/smoke.spec.ts
 expect "core-flows" test/e2e/stats_recorder.py

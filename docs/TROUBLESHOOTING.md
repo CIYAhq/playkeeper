@@ -1,6 +1,6 @@
 # Troubleshooting
 
-The five problems people hit most, with what to check first. If none of this helps, ask in [GitHub Discussions](https://github.com/CIYAhq/playkeeper/discussions) with what you tried.
+The problems people hit most, with what to check first. If none of this helps, ask in [GitHub Discussions](https://github.com/CIYAhq/playkeeper/discussions) with what you tried.
 
 ## Can't reach the dashboard
 
@@ -38,3 +38,9 @@ The five problems people hit most, with what to check first. If none of this hel
 - When a server runs out of memory, its Overview says so and offers more; **Settings › Memory** suggests a size from how much the server needed over the last 14 days.
 - The VPS's memory is shared between its servers, and each keeps its share while it's stopped, so a new server may need a bigger VPS or a smaller share for another server.
 - For a new VPS, the [sizing guide](https://playkeeper.io/sizing) suggests a size for how many friends play at once and what you run.
+
+## A plugin can't reach something on the VPS
+
+- From 0.4.5, servers can't open connections to the VPS they run on, or to the cloud's metadata service. That keeps plugins and mods away from the dashboard and anything else the VPS runs. A plugin that uses a database on the same VPS, such as MySQL for LuckPerms or CoreProtect, gets "connection refused".
+- To let servers reach the VPS again, add `"serversReachHost": true` to `/etc/playkeeper/config.json`, then run `sudo systemctl restart playkeeper-agent`. Servers keep running while the agent restarts. The metadata service stays out of their reach.
+- `sudo playkeeper status` says whether servers can reach the VPS. A database on another machine, and the internet, are reachable either way.

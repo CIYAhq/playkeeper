@@ -491,9 +491,14 @@ func runStatus(args []string) error {
 		return err
 	}
 	writeLinkStatus(os.Stdout, cfg, *path, time.Now())
+	ac := agentclient.New(cfg.SocketPath)
 	var servers []api.ServerStatus
-	if _, err := agentclient.New(cfg.SocketPath).Do(context.Background(), "GET", "/v1/servers", nil, nil, &servers); err != nil {
+	if _, err := ac.Do(context.Background(), "GET", "/v1/servers", nil, nil, &servers); err != nil {
 		return err
+	}
+	var m api.Machine
+	if _, err := ac.Do(context.Background(), "GET", "/v1/machine", nil, nil, &m); err == nil && m.Guard != nil {
+		fmt.Printf("%s\n\n", guardLine(*m.Guard))
 	}
 	if len(servers) == 0 {
 		fmt.Println("No servers yet. Create one in the dashboard.")
@@ -514,6 +519,17 @@ func runStatus(args []string) error {
 		}
 	}
 	return nil
+}
+
+// guardLine is what `playkeeper status` says of the network guard.
+func guardLine(g api.NetworkGuard) string {
+	switch {
+	case !g.On:
+		return "Network guard: off, so servers can reach this machine and the cloud's metadata service (" + g.Problem + ")"
+	case g.ServersReachHost:
+		return "Network guard: servers can reach this machine (serversReachHost in config.json), not the cloud's metadata service"
+	}
+	return "Network guard: servers can't reach this machine or the cloud's metadata service"
 }
 
 func panelUserOwn(path string) {

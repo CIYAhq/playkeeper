@@ -5,10 +5,12 @@
 #   preflight passes; the one-line install (get.sh from a local mirror,
 #   answering its question in a terminal); keyboard-only onboarding in the
 #   browser; two protocol bots, a backup with a player online, a same-host
-#   restore and its rollback; an update from the dashboard to a newer signed
-#   build; a reboot; and an uninstall that keeps the world and backups and
-#   leaves the system's packages, users, groups, units and listeners as they
-#   were.
+#   restore and its rollback; the network guard, from inside the server
+#   (scripts/e2e/guard-check.sh); an update from the dashboard to a newer
+#   signed build; a reboot, after which the guard's rules are back; and an
+#   uninstall that keeps the world and backups, takes the guard's rules out
+#   and leaves the system's packages, users, groups, units and listeners as
+#   they were.
 # On the RHEL family and Amazon Linux, where Docker comes from dnf and the
 # firewall is firewalld, it also checks, with the package sources, IP
 # forwarding and firewalld's settings in what the uninstall must leave as it
@@ -283,6 +285,10 @@ python3 "$root/test/e2e/scenario.py" host-a --existing --url "https://$G:8443" -
   --game-host "$join" --out "$OUT/host" | tee "$OUT/scenario.txt"
 ok "$(python3 -c 'import json, sys; c = json.load(open(sys.argv[1]))["checks"]; n = sum(x["ok"] for x in c); print(f"{n} of {len(c)} checks passed")' "$OUT/host/host-a-results.json")"
 
+step "from inside the server: this machine and link-local addresses are out of reach, the internet isn't"
+g 'sudo bash -s' <"$root/scripts/e2e/guard-check.sh" | tee "$OUT/guard.txt"
+ok "$(grep -c '^  ok: ' "$OUT/guard.txt") checks passed, the last: $(grep '^  ok: ' "$OUT/guard.txt" | tail -1 | sed 's/^  ok: //')"
+
 if [ -n "$rpm" ] && g 'sudo firewall-cmd --state' >/dev/null 2>&1; then
   step "a port Docker publishes gets through firewalld without a rule"
   g "sudo docker run -d --rm --name pk-e2e-published -p 25599:8080 $BUSYBOX sh -c 'echo ok >/tmp/index.html && exec httpd -f -p 8080 -h /tmp' >/dev/null && sleep 2"
@@ -348,7 +354,9 @@ started = datetime.datetime.fromisoformat(s)
 if started.timestamp() < int(sys.argv[1]):
     raise SystemExit(f"the server last started at {s}, before this boot")
 print(s[:19].replace("T", " "))' "$booted") || fail "the server was not started again after the reboot: $since"
-ok "online and reachable again, started at $since UTC after the reboot"
+guard=$(g 'sudo iptables -S | grep -c playkeeper-guard' || true)
+[ "${guard:-0}" -ge 3 ] || fail "the network guard's rules are not back after the reboot ($guard of 3)"
+ok "online and reachable again, started at $since UTC after the reboot, with the network guard's $guard rules back"
 
 if [ -n "$rpm" ]; then
   step "SELinux: what the server and Playkeeper run as, and nothing denied"
@@ -365,6 +373,8 @@ g 'sudo playkeeper uninstall --yes' | tee "$OUT/uninstall.txt"
 g 'sudo rm -rf /etc/systemd/system/playkeeper-agent.service.d && sudo systemctl daemon-reload'
 world_sums >"$OUT/world-after-uninstall.txt"
 diff "$OUT/world-before-uninstall.txt" "$OUT/world-after-uninstall.txt" || fail "world or backup files changed"
+guard=$(g 'sudo sh -c "{ iptables -S; ip6tables -S; } 2>/dev/null | grep -c playkeeper-guard"' || true)
+[ "${guard:-0}" = 0 ] || fail "the network guard's $guard rules are still there after the uninstall"
 system after
 diff "$OUT/before-system.txt" "$OUT/after-system.txt" || fail "the system differs from before the install: $(diff "$OUT/before-system.txt" "$OUT/after-system.txt" | grep -E '^[<>]' | head -5 | tr '\n' ' ')"
 removed=$(LC_ALL=C comm -23 "$OUT/before-packages.txt" "$OUT/after-packages.txt" | paste -sd' ')
