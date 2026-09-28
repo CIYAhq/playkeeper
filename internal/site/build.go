@@ -568,6 +568,14 @@ func (s *Site) funcs() template.FuncMap {
 		// tools are the free tools that exist, in the menu's order.
 		"tools":   s.tools,
 		"palette": func() []Swatch { return palette },
+		// data is a tool's own data from Go (toolData).
+		"data": func(name string) (any, error) {
+			f, ok := toolData[name]
+			if !ok {
+				return nil, fmt.Errorf("no tool data %q", name)
+			}
+			return f(), nil
+		},
 		"toolListSchema": func() map[string]any {
 			return toolListSchema(s.opts.Settings.BaseURL, s.tools())
 		},

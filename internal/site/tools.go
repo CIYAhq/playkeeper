@@ -15,6 +15,10 @@ var tools = []Tool{
 	{"/tools/server-properties", "minecraft server properties"},
 }
 
+// toolData is what a tool's page shows from Go, by name, for the templates'
+// data function: each tool registers its own in its own file's init.
+var toolData = map[string]func() any{}
+
 func toolPaths() []string {
 	out := make([]string, len(tools))
 	for i, t := range tools {
