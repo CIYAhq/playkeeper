@@ -5115,8 +5115,8 @@ control "a CurseForge manifest's odd recommendedRam doesn't refuse the pack" int
 	}' \
   ./internal/modpacks/curseforge '^TestRecommendedRAM$'
 control "a Forge server gets only the Forge build of a mod" internal/addons/target.go \
-  'Loaders: []string{"forge"}}' \
-  'Loaders: []string{"neoforge"}}' \
+  'Loaders: []string{"forge"}, own: 1}' \
+  'Loaders: []string{"neoforge"}, own: 1}' \
   ./internal/addons '^(TestTargetFor|TestPlanInstallPicksTheLoadersVersion)$'
 control "Forge's crash report line counts as a crash" internal/minecraft/logparse.go \
   'This crash report has been saved to: |Crash report saved to |' \
