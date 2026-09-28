@@ -1,0 +1,104 @@
+{{/*
+path: /templates/oneblock
+title: OneBlock server: plugin setup and one-click template (2026)
+description: Set up a OneBlock server: Paper 26.2 with the OneBlock plugin and Multiverse-Core, the two commands that create the islands, and a template that really started.
+label: OneBlock server
+h1: How to make a OneBlock server
+card: How to make a OneBlock server
+kind: Template
+section: guides
+layout: guide
+crumb: Templates
+og: template-oneblock
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$l := libpage "oneblock"}}In OneBlock, each player stands on one block that turns into the next when broken, from grass and trees to the Nether and the End. This template runs the OneBlock plugin {{(index $l.Plugins 1).Version}}, the most downloaded on Modrinth, with Multiverse-Core on {{$l.TypeName}} {{$l.T.Server.MinecraftVersion}}. An operator makes the OneBlock world with two commands, then players type /ob to start.{{end}}
+
+{{define "closing-title"}}Your OneBlock server, on your own VPS.{{end}}
+{{define "closing-sub"}}Free and open source. Invite players with a link.{{end}}
+
+{{define "side-text"}}Playkeeper sets up OneBlock and Multiverse-Core in one click.{{end}}
+
+{{define "article"}}{{$l := libpage "oneblock"}}
+<section aria-labelledby="contents">
+  {{template "h2n" (dict "ID" "contents" "N" 1 "Text" "What's in the OneBlock template" "Toc" "What's in it")}}
+  {{template "library-facts" (dict "L" $l)}}
+</section>
+
+<section aria-labelledby="world">
+  {{template "h2n" (dict "ID" "world" "N" 2 "Text" "Make the OneBlock world first" "Toc" "Make the world")}}
+  <p>OneBlock doesn't make its islands on its own: the plugin's README has an operator create a world with its generator, then mark where the first block goes. In the Console, then in the game:</p>
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="Where">
+        <button type="button" class="code-tab" role="tab" id="tab-setup" aria-controls="code-setup" aria-selected="true">Setup</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-setup" role="tabpanel" tabindex="0" aria-labelledby="tab-setup"><span class="c"># In the Console: a world made with OneBlock's generator</span>
+mv create OneBlock normal -g Oneblock
+<span class="c"># In the game, as an operator, standing in that world</span>
+/ob set 500</pre>
+  </div>
+  <p><code>/ob set 500</code> puts the first block where you stand and spaces islands 500 blocks apart; without a number they're 100 apart.</p>
+</section>
+
+<section aria-labelledby="play">
+  {{template "h2n" (dict "ID" "play" "N" 3 "Text" "How players start and team up" "Toc" "How players start")}}
+  <ul>
+    <li><strong><code>/ob</code></strong> takes a player to their own island, and a bar shows how far they are through the level.</li>
+    <li><strong><code>/ob invite Alex</code></strong> asks a friend to share the island; they type <code>/ob accept</code>.</li>
+    <li><strong><code>/ob listlvl</code></strong> lists the levels, from the first grass block to the End.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="defaults">
+  {{template "h2n" (dict "ID" "defaults" "N" 4 "Text" "Defaults to look at" "Toc" "Defaults")}}
+  <p>From the config OneBlock wrote on the test server:</p>
+  <ul>
+    <li><strong>Protection is off,</strong> so players can walk onto each other's islands. <code>/ob protection true</code> keeps them home.</li>
+    <li><strong>Nobody is sent to the OneBlock world on joining.</strong> <code>/ob autojoin true</code> starts players on their island as they arrive in it.</li>
+    <li><strong>Islands are laid out in a circle,</strong> and the Nether is allowed. Both are in <code>plugins/Oneblock/config.yml</code>.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 5 "Text" "Open it in one click" "Toc" "In one click")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Open the template below" "Text" "Your dashboard shows Multiverse-Core and OneBlock before anything installs.")
+    (dict "Title" "Create and start it" "Text" (printf "It runs in %s: a single block at a time is light work." $l.Memory))
+    (dict "Title" "Run the two setup commands" "Text" "Then send friends an invite link and tell them to type /ob.")
+  ))}}
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 6 "Text" "The same server by hand, with Docker" "Toc" "By hand")}}
+  {{template "library-docker" (dict "L" $l)}}
+  <p>Open TCP 25565 in your provider's firewall.</p>
+</section>
+{{end}}
+
+{{define "after"}}{{$l := libpage "oneblock"}}{{$p := index $l.Plugins 1}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "What's the best OneBlock plugin?" (printf "OneBlock by MrMarL is the most downloaded on Modrinth, with %s downloads, and open source under %s. Version %s started cleanly on Paper %s in our check." (count $p.Downloads) (licence $p.Licence) $p.Version $l.T.Server.MinecraftVersion))
+    (qa "Why does OneBlock need Multiverse-Core?" "To create the world its islands live in, with OneBlock's own generator: mv create OneBlock normal -g Oneblock.")
+    (qa "Can friends play on one island?" "Yes: /ob invite, then /ob accept on their side.")
+    (qa "Is OneBlock the same as skyblock?" "Both start you in the void. Skyblock gives you a small island; OneBlock gives you one block that keeps turning into new ones.")
+  ))}}
+  <section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
+    <div class="tpl-pair">
+      {{template "library-card" (dict "ID" $l.Template)}}
+      {{template "library-card" (dict "ID" "skyblock" "Page" "/templates/skyblock")}}
+    </div>
+  </section>
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/templates" "/templates/skyblock" "/templates/bedwars")}}{{end}}

@@ -1,0 +1,167 @@
+{{/*
+path: /tools/motd
+title: Minecraft MOTD Generator, with a Live Server List Preview
+description: Make a Minecraft MOTD with colours and gradients, see where the server list wraps it, and copy it for server.properties or MiniMOTD. Free, in your browser.
+label: MOTD generator
+h1: Minecraft MOTD generator
+card: Minecraft MOTD generator
+kind: Tool
+section: tools
+crumb: Tools
+og: motd
+updated: 2026-09-28
+schema: tool
+cover: img/tools/motd.svg
+summary: Two lines with colours and gradients, shown in the server list as friends see them, for server.properties or MiniMOTD.
+styles: css/tools.css, css/tools/mc-text.css, css/tools/motd.css
+noscript: css/tools-nojs.css
+scripts: js/tools.js, js/tools/mc-text.js, js/tools/mc-editor.js, js/tools/motd.js
+*/}}
+
+{{define "main"}}
+<section class="band-chalk page-hero page-hero-center tool-hero" aria-labelledby="page-title">
+  <div class="container">
+    {{template "crumbs" .}}
+    <h1 id="page-title" class="h1-page hero-rise">Minecraft MOTD generator</h1>
+    <p class="lead hero-after">The MOTD is the message under your server's name in the server list: two lines, and the list wraps anything wider than about 45 characters. Write yours with colours, see it as friends will, and copy it for <code>server.properties</code> or a MOTD plugin.</p>
+    <p class="meta hero-after">Free · Nothing leaves your browser · Updated {{day .Page.Updated}}</p>
+    <p class="tool-nojs">Turn on JavaScript to write a MOTD here. The steps below say where one goes.</p>
+
+    <div class="tool motd-tool hero-after" data-motd-tool data-default-icon="{{asset "img/tools/server-icon.svg"}}">
+      <div class="tool-grid motd-grid">
+        <section class="tool-card tool-controls" aria-labelledby="motd-write-title">
+          <div class="tool-card-head">
+            <h2 id="motd-write-title" class="tool-card-title">Write it</h2>
+            <div class="segments motd-align" role="radiogroup" aria-label="Lines">
+              <input type="radio" name="motd-align" id="motd-align-left" value="left" checked><label for="motd-align-left">Left</label>
+              <input type="radio" name="motd-align" id="motd-align-centre" value="centre"><label for="motd-align-centre">Centred</label>
+            </div>
+          </div>
+          <div class="motd-presets" role="group" aria-label="Start from an example">
+            <span class="tool-label">Start from</span>
+            <button type="button" class="code-chip motd-preset" data-preset="friends">Friends</button>
+            <button type="button" class="code-chip motd-preset" data-preset="gradient">A gradient</button>
+            <button type="button" class="code-chip motd-preset" data-preset="modded">Modded</button>
+            <button type="button" class="code-chip motd-preset" data-preset="maintenance">Maintenance</button>
+          </div>
+          {{template "mc-editor" (dict "ID" "motd-text" "Lines" true "Label" "Your MOTD, two lines" "Placeholder" "Line one, then Enter for line two")}}
+          <div class="motd-meters" data-meters>
+            <div class="motd-meter"><span class="motd-meter-label">Line 1</span><span class="motd-bar"><i data-bar="0"></i></span><span class="motd-meter-value" data-width="0">0 of 271</span></div>
+            <div class="motd-meter"><span class="motd-meter-label">Line 2</span><span class="motd-bar"><i data-bar="1"></i></span><span class="motd-meter-value" data-width="1">0 of 271</span></div>
+          </div>
+          <p class="tool-note motd-warning" data-warning hidden></p>
+        </section>
+
+        <div class="motd-side">
+          <section class="tool-card motd-preview" aria-labelledby="motd-list-title" data-preview>
+            <h2 id="motd-list-title" class="tool-card-title">In the server list</h2>
+            {{template "mc-list" (dict "Class" "motd-list" "Name" "Pip Land" "MOTD" "" "Alt" "Your server in Minecraft's server list, with its MOTD")}}
+            <div class="motd-fields">
+              <div class="tool-field">
+                <label class="tool-label" for="motd-name">Server name</label>
+                <input class="tool-input" id="motd-name" value="Pip Land" maxlength="32" autocomplete="off">
+              </div>
+              <div class="tool-field">
+                <span class="tool-label">Icon</span>
+                <div class="tool-row"><button type="button" class="btn btn-outline btn-sm" data-choose-icon>Use your icon</button><a class="link-arrow" href="/tools/server-icon">Make one{{template "icon" "arrow-right"}}</a></div>
+                <input type="file" class="visually-hidden" id="motd-icon" accept="image/png,image/jpeg,image/webp,image/gif" tabindex="-1" aria-label="Use your icon">
+              </div>
+            </div>
+          </section>
+
+          <section class="tool-card motd-out" aria-labelledby="motd-out-title">
+            <h2 id="motd-out-title" class="tool-card-title">Copy it</h2>
+            <div class="tool-tabs" role="tablist" aria-label="Where it goes">
+              <button type="button" class="tool-tab" role="tab" id="motd-tab-props" aria-controls="motd-panel-props" aria-selected="true">server.properties</button>
+              <button type="button" class="tool-tab" role="tab" id="motd-tab-mini" aria-controls="motd-panel-mini" aria-selected="false" tabindex="-1">MiniMOTD</button>
+              <button type="button" class="tool-tab" role="tab" id="motd-tab-sect" aria-controls="motd-panel-sect" aria-selected="false" tabindex="-1">§ codes</button>
+              <button type="button" class="tool-tab" role="tab" id="motd-tab-amp" aria-controls="motd-panel-amp" aria-selected="false" tabindex="-1">&amp; codes</button>
+            </div>
+            <div class="tool-tabpanel" role="tabpanel" id="motd-panel-props" aria-labelledby="motd-tab-props">
+              {{template "result" (dict "ID" "motd-out-props" "Action" "copy-properties" "Title" "The motd line of server.properties" "Tool" "motd")}}
+              <p class="tool-note">Replace the <code>motd=</code> line and restart the server. The section sign is written as <code>\u00A7</code> and the break as <code>\n</code>, which every server reads.</p>
+              <p class="tool-note" data-note-hex hidden><strong>server.properties has only the 16 colours:</strong> hex and gradients show as the nearest of them. For those, use MiniMOTD.</p>
+            </div>
+            <div class="tool-tabpanel" role="tabpanel" id="motd-panel-mini" aria-labelledby="motd-tab-mini" hidden>
+              {{template "result" (dict "ID" "motd-out-mini" "Action" "copy-minimotd" "Title" "The motds block of MiniMOTD's main.conf" "Tool" "motd")}}
+              <p class="tool-note">MiniMOTD runs on Paper, Purpur, Fabric and NeoForge, and shows hex colours and gradients to players on 1.16 and later. Its lines are MiniMessage, which Velocity's <code>motd</code> takes too.</p>
+            </div>
+            <div class="tool-tabpanel" role="tabpanel" id="motd-panel-sect" aria-labelledby="motd-tab-sect" hidden>
+              {{template "result" (dict "ID" "motd-out-sect" "Action" "copy-sect" "Title" "With the section sign" "Tool" "motd")}}
+              <p class="tool-note">For plugins and files that read the section sign as it is.</p>
+            </div>
+            <div class="tool-tabpanel" role="tabpanel" id="motd-panel-amp" aria-labelledby="motd-tab-amp" hidden>
+              {{template "result" (dict "ID" "motd-out-amp" "Action" "copy-amp" "Title" "With &amp; codes" "Tool" "motd")}}
+              <p class="tool-note">For MOTD plugins and BungeeCord's <code>config.yml</code>, which read <code>&amp;</code> and <code>&amp;#rrggbb</code>.</p>
+            </div>
+          </section>
+        </div>
+      </div>
+      <p class="visually-hidden" role="status" data-status></p>
+    </div>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="how-title">
+  <div class="container">
+    <h2 id="how-title" class="section-title reveal">Put it on your server</h2>
+    <p class="section-sub reveal">Every Java server reads its MOTD from server.properties. A plugin can show more.</p>
+    <div class="tool-how">
+      <div>
+        <h3 class="tool-how-title reveal">In server.properties</h3>
+        {{template "steps" (dict "Class" "steps-lg" "Items" (list
+          (dict "Title" "Open server.properties" "Text" "It's in the server's folder, next to the world.")
+          (dict "Title" "Replace the motd= line" "Text" "With the one from the server.properties tab above.")
+          (dict "Title" "Restart the server" "Text" "It reads the file when it starts. Then refresh your server list.")
+        ))}}
+        <h3 class="tool-how-title tool-how-next reveal">With MiniMOTD, for gradients</h3>
+        {{template "steps" (dict "Class" "steps-lg" "Items" (list
+          (dict "Title" "Add MiniMOTD" "Text" "From Modrinth or Hangar, on Paper, Purpur, Fabric or NeoForge.")
+          (dict "Title" "Paste the motds block" "Text" "Into its main.conf, in place of the one there.")
+          (dict "Title" "Restart the server" "Text" "The new lines show from the next refresh.")
+        ))}}
+      </div>
+      <div>
+        <h3 class="tool-how-title reveal">If it doesn't look right</h3>
+        <ul class="tool-checks">
+          <li class="reveal"><strong>You see § and letters instead of colours</strong><span>The file was saved in another encoding. Use the <code>\u00A7</code> line this tool writes, which survives any.</span></li>
+          <li class="reveal"><strong>Line 2 is missing</strong><span>Line 1 is too wide, so the list wraps it and pushes line 2 out. The meters above show when.</span></li>
+          <li class="reveal"><strong>The old MOTD still shows</strong><span>Restart the server, then press Refresh in the server list.</span></li>
+          <li class="reveal"><strong>It changes back by itself</strong><span>Some panels and hosts write the MOTD from their own settings at every start. Change it there, or use a MOTD plugin.</span></li>
+          <li class="reveal"><strong>On a network, the proxy decides</strong><span>Velocity and BungeeCord show their own MOTD, from their own config.</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk" aria-labelledby="pk-title">
+  <div class="container tool-pk">
+    <div>
+      <h2 id="pk-title" class="section-title reveal">In Playkeeper, it's in Settings</h2>
+      <p class="section-sub reveal">A server's Settings has its message and icon under Server list, with a preview like this one. That message is plain text of up to 59 characters; for colours and gradients, add MiniMOTD from the Plugins tab and paste the MiniMOTD block into its main.conf in the Files tab.</p>
+      <div class="reveal">{{template "install" (dict "ID" true)}}</div>
+      <div class="hero-actions reveal"><a class="btn btn-outline" href="/demo/servers/survival/settings">See it in the live demo{{template "icon" "arrow-right"}}</a></div>
+    </div>
+    <div class="tool-pk-art reveal">
+      {{template "cardshot" (dict "Name" "tool-server-list" "Alt" "A server's Settings in Playkeeper: Server list, with its name, its message, the server list preview and the server icon beside Upload picture." "Sizes" "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) 560px, 460px")}}
+    </div>
+  </div>
+</section>
+
+<section class="band band-white">
+  <div class="container">
+    {{template "faq" (dict "ID" "questions" "Items" (list
+      (qa "What is a MOTD in Minecraft?" "The message of the day: the text under a server's name in the multiplayer server list. Java Edition shows two lines of it.")
+      (qa "How long can a Minecraft MOTD be?" "Two lines of about 45 characters. The list wraps the text at 271 of the game's pixels and shows the first two lines, so a long first line pushes the second out of sight.")
+      (qa "How do I add colours to my MOTD?" "With colour codes in server.properties, written as <code>\\u00A7</code> followed by the code, as this tool writes them. For hex colours and gradients, use a plugin such as MiniMOTD.")
+      (qa "How do I make a two-line MOTD?" "Put <code>\\n</code> between the lines in server.properties, as the tool does. In MiniMOTD, the lines are line1 and line2.")
+      (qa "How do I centre my MOTD?" "Add spaces in front of each line. The game's font gives each letter its own width, so pick Centred here and the tool counts them for you.")
+      (qa "Can a MOTD have gradients or hex colours?" "Not from server.properties, which knows only the 16 colours. MiniMOTD and other MOTD plugins show them to players on Java 1.16 and later.")
+      (qa "How do I change the MOTD in Playkeeper?" "In a server's Settings, under Server list: a plain message of up to 59 characters, with a preview. For colours, add MiniMOTD from the Plugins tab.")
+    ))}}
+  </div>
+</section>
+
+{{template "related" (related 3 "/tools/color-codes" "/tools/server-icon" "/tools/server-properties" "/tools")}}
+{{end}}

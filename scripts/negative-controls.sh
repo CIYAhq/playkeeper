@@ -1755,6 +1755,18 @@ control "add-on scan: stops with its context" internal/addons/scan.go \
   'l.readLocal(ctx, root, lf, identify, verify)
 			if err := ctx.Err(); false && err != nil {' \
   ./internal/addons '^TestAScanStopsWithItsContext$'
+control "an add-on file may be as large as Pixelmon's jar" internal/addons/addons.go \
+  'DefaultMaxFileSize = 512 << 20' \
+  'DefaultMaxFileSize = 256 << 20' \
+  ./internal/addons '^TestPlanInstallTakesFilesUpTo512MiB$'
+control "an add-on file larger than 512 MiB is refused" internal/addons/addons.go \
+  'DefaultMaxFileSize = 512 << 20' \
+  'DefaultMaxFileSize = 1 << 62' \
+  ./internal/addons '^TestPlanInstallTakesFilesUpTo512MiB$'
+control "an add-on's download must match the hash its library publishes" internal/addons/fetch/download.go \
+  'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
+  ./internal/addons '^TestInstallRefusesBadDownloads$'
 control "pre-generation: a named pipe for the plugins folder is refused before it is opened" internal/gamefiles/gamefiles.go \
   'err = folderError(p, fi)' \
   'err = nil' \
@@ -2009,6 +2021,30 @@ control "only the server files of the pack's own version are used" internal/modp
   'sp.ParentProjectFileID == nil || *sp.ParentProjectFileID != file.ID || ' \
   '' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "a modpack's file may be as large as Pixelmon's jar" internal/modpacks/modpacks.go \
+  'File: addons.DefaultMaxFileSize,' \
+  'File: 256 << 20,' \
+  ./internal/modpacks '^TestDefaultFileLimit$'
+control "a modpack's file larger than 512 MiB is refused, listed or not" internal/modpacks/modpacks.go \
+  'File: addons.DefaultMaxFileSize,' \
+  'File: 1 << 62,' \
+  ./internal/modpacks '^TestDefaultFileLimit$'
+control "a pack file's download stops at one file's limit, even when the pack lists it smaller" internal/modpacks/apply.go \
+  'room := min(lim.File, lim.Downloads-total)' \
+  'room := lim.Downloads - total' \
+  ./internal/modpacks '^TestDefaultFileLimit$'
+control "a modpack may put as many files on the server as the largest real packs" internal/modpacks/modpacks.go \
+  'Index: 16 << 20, Files: 20000,' \
+  'Index: 16 << 20, Files: 5000,' \
+  ./internal/modpacks '^TestDefaultFileCount$'
+control "a modpack that would put more than 20,000 files on the server is refused" internal/modpacks/modpacks.go \
+  'Index: 16 << 20, Files: 20000,' \
+  'Index: 16 << 20, Files: 1 << 30,' \
+  ./internal/modpacks '^TestDefaultFileCount$'
+control "a modpack's downloads must match the hashes the pack lists" internal/addons/fetch/download.go \
+  'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
+  ./internal/modpacks '^TestDownloadsMustMatchThePacksHashes$'
 control "a pack's settings are read and written without following a link" internal/agent/modpacks.go \
   'cur, err := d.ReadProperties()
 	if errors.Is(err, fs.ErrNotExist) {
@@ -5961,6 +5997,15 @@ control "a pull onto a full disk isn't tried again" internal/agent/lifecycle.go 
   '' \
   ./internal/agent '^TestAnImagePullDockerHubRefusesOrDropsIsTriedAgain$'
 
+# playkeeper.io says a release is out only once it's published.
+control "the site describes the published release, not CHANGELOG.md's newest section" internal/site/build.go \
+  '			return r.Version, nil' \
+  '			return string(reRelease.FindSubmatch(c)[1]), nil' \
+  ./internal/site '^TestTheSiteShowsOnlyThePublishedRelease$'
+control "the published release has a CHANGELOG.md section" internal/site/build.go \
+  '		if string(m[1]) == r.Version {' \
+  '		if string(m[1]) == r.Version || true {' \
+  ./internal/site '^TestTheSiteShowsOnlyThePublishedRelease$'
 # 0.4.3: the public page at the machine's address, and the ports it takes.
 control "the public page names players only while the owner shows them" internal/agent/publicpage.go \
   '		if set.Players && len(st.Players.Names) > 0 {' \
@@ -6009,8 +6054,8 @@ control "an HTTP-01 check goes ahead on a busy port only when its holder passes 
   'if errors.Is(err, syscall.EADDRINUSE) {' \
   ./internal/certs '^TestHTTP01GoesAheadOnlyWhenThePortsHolderPassesChecksOn$'
 control "the page's ports answer only the machine's address" internal/panel/serverpage.go \
-  'if !pageHost(r.Host, s.page.hostNow()) {' \
-  'if false && !pageHost(r.Host, s.page.hostNow()) {' \
+  'if !check && !pageHost(r.Host, s.page.hostNow()) {' \
+  'if false && !check && !pageHost(r.Host, s.page.hostNow()) {' \
   ./internal/panel '^TestThePagesPortsServeThePageAndNothingElse$'
 control "the page escapes what the owner typed" internal/panel/serverpage.go \
   'head := "<title>" + html.EscapeString(title) + "</title>"' \

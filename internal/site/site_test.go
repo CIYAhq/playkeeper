@@ -608,13 +608,36 @@ func TestStartPage(t *testing.T) {
 func TestTemplateCardsOpenValidTemplates(t *testing.T) {
 	o := build(t, Default)
 	landing := pages(o)["/"]
-	links := regexp.MustCompile(`href="/t#([A-Za-z0-9_-]+)"`).FindAllStringSubmatch(landing, -1)
+	links := regexp.MustCompile(`href="(/t#[A-Za-z0-9_-]+)"`).FindAllStringSubmatch(landing, -1)
 	if len(links) != 4 {
 		t.Fatalf("the landing page has %d template links, want 4", len(links))
 	}
-	for _, want := range []string{"Paper · Minecraft 26.2 · 4 GB", "Fabric · Minecraft 1.21.1 · 6 GB", "Cobblemon Official Modpack [Fabric], 75 mods", "Chunky, CoreProtect and Simple Voice Chat"} {
-		if !strings.Contains(landing, want) {
-			t.Errorf("the landing page's template cards don't say %q", want)
+	cards, err := loadTemplateCards(os.DirFS("../.."), "site/data/templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byLink := map[string]*TemplateCard{}
+	for _, c := range cards {
+		byLink[c.Link] = c
+	}
+	for _, l := range links {
+		c := byLink[l[1]]
+		if c == nil {
+			t.Errorf("the landing page links %s, which is no template in site/data/templates", l[1])
+			continue
+		}
+		for _, want := range []string{c.Facts, c.Holds} {
+			if !strings.Contains(landing, template.HTMLEscapeString(want)) {
+				t.Errorf("the landing page's %s card doesn't say %q", c.ID, want)
+			}
+		}
+	}
+	for id, want := range map[string][2]string{
+		"survival-with-friends": {"Paper · Minecraft 26.2 · 4 GB", "Chunky, CoreProtect and Simple Voice Chat"},
+		"cobblemon":             {"Fabric · Minecraft 1.21.1 · 6 GB", "Cobblemon Official Modpack [Fabric], 75 mods"},
+	} {
+		if c := cards[id]; c.Facts != want[0] || c.Holds != want[1] {
+			t.Errorf("the %s card says %q and %q, want %q and %q", id, c.Facts, c.Holds, want[0], want[1])
 		}
 	}
 }

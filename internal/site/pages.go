@@ -46,6 +46,9 @@ type Page struct {
 	// Share puts Send to my computer next to each Copy on phones, for a page
 	// people mostly open on a phone, as /start's ad visitors do.
 	Share bool
+	// Partner names the provider (providers) whose partner links a guide
+	// carries; its top then says so, while the provider has one.
+	Partner string
 	// Scripts are the page's own scripts, after site.js; Styles its own
 	// stylesheets, after site.css; NoScript a stylesheet for when scripts
 	// don't run.
@@ -195,6 +198,8 @@ func parsePage(src string) (*Page, error) {
 				return nil, fmt.Errorf("share is true or false, not %q", value)
 			}
 			p.Share = b
+		case "partner":
+			p.Partner = value
 		case "scripts":
 			p.Scripts = fields(value)
 		case "styles":

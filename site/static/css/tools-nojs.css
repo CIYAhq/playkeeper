@@ -1,4 +1,8 @@
 /* A tool needs JavaScript; without it the page says so where the tool would
-   be, and the rest of the page still reads. */
+   be, and the rest of the page still reads. A tool marked tool-readable,
+   like the server.properties list, stays for its words, without the parts
+   marked tool-js-only. */
 .tool { display: none; }
 .tool-nojs { display: block; }
+.tool.tool-readable { display: block; }
+.tool-readable .tool-js-only { display: none; }

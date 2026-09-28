@@ -124,8 +124,15 @@ test('the analytics’ custom events: the install command copied, links out to G
   await sent(['install_copied', { spot: 'button', where: '/pricing' }], ['github_clicked', { link: 'repo', where: '/pricing' }], ['flush'], ['watch_releases_clicked', { plan: 'storage', where: '/pricing' }], ['flush'])
 
   await open('/sizing#friends=11-20&run=modpack')
-  await page.locator('[data-provider="Hostinger"] a').click()
+  await page.locator('[data-provider="Hostinger"]').getByRole('link', { name: /^See today's price/ }).click()
   await sent(['provider_clicked', { provider: 'Hostinger', plan: 'KVM 8 · 8 vCPU · 32 GB', where: '/sizing' }], ['flush'])
+
+  // A provider's setup guide stays on the site and counts nothing; the guide's Get a server counts the provider.
+  await open('/sizing')
+  await page.locator('[data-provider="Vultr"]').getByRole('link', { name: 'Setup guide for Vultr' }).click()
+  await page.waitForURL(/\/guides\/vultr-minecraft-server$/)
+  await page.getByRole('link', { name: 'Get a Vultr server' }).click()
+  await sent(['provider_clicked', { provider: 'Vultr', plan: 'High Performance · 4 vCPU · 8 GB', where: '/guides/vultr-minecraft-server' }], ['flush'])
 
   // Both install commands in the docs, and a middle-click, which opens its link in a new tab.
   await open('/docs/install')

@@ -205,6 +205,8 @@ textarea.tool-input { height: auto; min-height: 88px; padding: 10px 12px; line-h
 /* In Playkeeper: what the dashboard does instead, with the install command. */
 .tool-pk { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 460px); gap: 56px; align-items: center; }
 .tool-pk .section-sub { margin-bottom: 24px; }
+/* A link in a sentence is underlined, not told apart by its colour alone. */
+.tool-pk .section-sub a, .tool-checks span a, .tool-note a { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .tool-pk .install { max-width: 560px; }
 .tool-pk .hero-actions { margin-top: 16px; }
 .tool-pk-art { display: grid; place-items: center; }
