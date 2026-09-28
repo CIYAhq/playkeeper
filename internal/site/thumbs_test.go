@@ -15,21 +15,30 @@ import (
 )
 
 // mergedFS is the repository with extra files in it, listed in their
-// folders too.
+// folders too. The repository's own thumbnails are left out, so a test's
+// thumbnails are the only ones.
 type mergedFS struct {
 	base  fs.FS
 	extra fstest.MapFS
 }
 
+const thumbDir = "site/static/shots/templates"
+
 func (m mergedFS) Open(name string) (fs.File, error) {
 	if f, ok := m.extra[name]; ok && !f.Mode.IsDir() {
 		return m.extra.Open(name)
+	}
+	if strings.HasPrefix(name, thumbDir+"/") {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 	}
 	return m.base.Open(name)
 }
 
 func (m mergedFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	a, errA := fs.ReadDir(m.base, name)
+	if name == thumbDir {
+		a, errA = nil, nil
+	}
 	b, errB := fs.ReadDir(m.extra, name)
 	if errA != nil && errB != nil {
 		return nil, errA
