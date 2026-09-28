@@ -154,7 +154,7 @@ jobs:
       setup: ${{ needs.plan.outputs.setup }}
 
   ui-fake-panel:
-    name: Browser checks against a faked panel — the Console with a long log, desktop and phone; the click-through's own checks
+    name: Browser checks against a faked panel — the Console with a long log, desktop and phone; the stats dashboard; the click-through's own checks
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -172,6 +172,8 @@ jobs:
         run: cd test/e2e/ui && npx playwright test -c playwright.fake-panel.config.ts
       - name: playkeeper.io on desktop and phone — nothing wider than the screen, no serious accessibility violations
         run: cd test/e2e/ui && npx playwright test -c playwright.site.config.ts
+      - name: The stats dashboard against the stats service — sign-in, the token kept in the browser alone, the counts, a phone
+        run: cd test/e2e/ui && npx playwright test -c playwright.stats.config.ts
       - name: The click-through's own checks — its verdicts, the recorded fixtures, which pages a change touches, the split and the gate
         run: cd test/e2e/ui && npx playwright test clickthrough.spec.ts --grep-invert "every control does something on" --reporter=list
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

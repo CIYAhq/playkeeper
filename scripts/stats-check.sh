@@ -2,8 +2,10 @@
 # Builds the stats service image (services/stats/Dockerfile, from the
 # repository root) and runs it with a dummy read token, trusting Docker's
 # bridge as its proxy. Checks what it serves: /healthz, / (what installs send,
-# and the source code link), reports taken and refused, the counts refused
-# without the token and right with it, `playkeeper-stats summary` in the
+# and the source code link), the dashboard's page and files with the
+# Content-Security-Policy that keeps it to them, reports taken and refused,
+# the counts refused without the token and right with it, day by day too,
+# `playkeeper-stats summary` in the
 # container; then that it runs as a non-root user who can write /data, that
 # neither its files nor its log hold the address a report came from, its user
 # agent or the token, that it reports healthy and stops cleanly; last, that
@@ -48,6 +50,15 @@ page=$(curl -fsS "$base/") || fail "/ does not answer"
 grep -qF 'Source code (AGPL-3.0): https://github.com/CIYAhq/playkeeper' <<<"$page" || fail "/ does not link the source code"
 grep -qF 'https://github.com/CIYAhq/playkeeper#usage-stats' <<<"$page" || fail "/ does not say where what installs send is described"
 
+headers=$(curl -fsS -D - -o "$out" "$base/dashboard") || fail "/dashboard does not answer"
+grep -qi '^content-type: text/html' <<<"$headers" || fail "/dashboard is not a page: $headers"
+grep -qi "^content-security-policy: default-src 'none'; script-src 'self'" <<<"$headers" ||
+  fail "/dashboard has no Content-Security-Policy that keeps it to its own files: $headers"
+grep -qF 'src="/dashboard/app.js"' "$out" || fail "/dashboard does not load its script"
+for file in app.js app.css icon.svg; do
+  curl -fsS -o /dev/null "$base/dashboard/$file" || fail "/dashboard/$file does not answer"
+done
+
 id=0123456789abcdef0123456789abcdef
 system='"version":"0.4.4","os":"ubuntu","osVersion":"24.04","arch":"amd64","source":"playkeeper.io","kind":"dashboard"'
 report() { # PATH JSON — the status the service answered
@@ -78,6 +89,9 @@ a = s["active"]["1d"]
 assert a["installs"] == 1 and a["onOurDomain"] == 1 and a["servers"] == 2 and a["running"] == 1, a
 assert a["byAddress"] == {"free": 1}, a["byAddress"]
 assert s["test"] == {"started30d": 0, "active7d": 0}, s["test"]
+d = s["daily"][-1]
+assert d["started"] == 1 and d["succeeded"] == 1 and d["active"] == 1, d
+assert d["bySource"] == {"playkeeper.io": {"started": 1, "succeeded": 1, "failed": 0, "refused": 0}}, d
 EOF
 docker exec "$name" playkeeper-stats summary >"$out" || fail "playkeeper-stats summary does not run in the container"
 grep -qF '"onOurDomain": 1' "$out" || fail "playkeeper-stats summary does not count the install: $(cat "$out")"
@@ -117,4 +131,4 @@ fi
 grep -qF STATS_READ_TOKEN "$out" || fail "refusing a short read token does not name STATS_READ_TOKEN: $(cat "$out")"
 if grep -qF "$short" "$out"; then fail "refusing a short read token shows it"; fi
 
-echo "Stats image checks out: /healthz is ok, / says what installs send and links the source, reports taken and invalid ones refused, the counts need the token and are right, summary runs in the container, runs as uid $uid and writes /data, no client address, user agent or token in its files or log, healthy, stops cleanly, refuses a short read token without showing it."
+echo "Stats image checks out: /healthz is ok, / says what installs send and links the source, the dashboard serves its page and files with its Content-Security-Policy, reports taken and invalid ones refused, the counts need the token and are right, day by day too, summary runs in the container, runs as uid $uid and writes /data, no client address, user agent or token in its files or log, healthy, stops cleanly, refuses a short read token without showing it."

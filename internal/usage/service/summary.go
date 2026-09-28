@@ -77,11 +77,12 @@ type Active struct {
 // Day is one UTC day.
 type Day struct {
 	Day string `json:"day"`
-	// Active sent a heartbeat that day; Started and Succeeded are installs
-	// that started or succeeded that day.
-	Active    int `json:"active"`
-	Started   int `json:"started"`
-	Succeeded int `json:"succeeded"`
+	// Active sent a heartbeat that day. The outcomes are installs that
+	// started that day, and those that ended that day by how; BySource
+	// splits them by how Playkeeper got onto the machine.
+	Active int `json:"active"`
+	Outcomes
+	BySource map[string]Outcomes `json:"bySource"`
 }
 
 // TestInstalls are the project's own test installs, which a working setup
@@ -260,6 +261,7 @@ func (s *Service) daily(ctx context.Context, now time.Time) ([]Day, error) {
 	days := make([]Day, dailyDays)
 	for i := range days {
 		days[i].Day = time.Unix((first+int64(i))*86400, 0).UTC().Format("2006-01-02")
+		days[i].BySource = map[string]Outcomes{}
 	}
 	count := func(query string, set func(d *Day, n int), args ...any) error {
 		rows, err := s.db.QueryContext(ctx, query, args...)
@@ -283,13 +285,44 @@ func (s *Service) daily(ctx context.Context, now time.Time) ([]Day, error) {
 		func(d *Day, n int) { d.Active = n }, first); err != nil {
 		return nil, err
 	}
-	if err := count(`SELECT started_at / 86400, COUNT(*) FROM installs WHERE test = 0 AND started_at >= ? GROUP BY 1`,
-		func(d *Day, n int) { d.Started = n }, first*86400); err != nil {
+	rows, err := s.db.QueryContext(ctx, `SELECT source, started_at, outcome, outcome_at FROM installs
+		WHERE test = 0 AND (started_at >= ? OR outcome_at >= ?)`, first*86400, first*86400)
+	if err != nil {
 		return nil, err
 	}
-	if err := count(`SELECT outcome_at / 86400, COUNT(*) FROM installs WHERE test = 0 AND outcome = ? AND outcome_at >= ? GROUP BY 1`,
-		func(d *Day, n int) { d.Succeeded = n }, usage.EventSucceeded, first*86400); err != nil {
-		return nil, err
+	defer rows.Close()
+	add := func(at int64, source string, o Outcomes) {
+		if i := at/86400 - first; i >= 0 && i < dailyDays {
+			d := &days[i]
+			d.Outcomes = d.Outcomes.add(o)
+			d.BySource[source] = d.BySource[source].add(o)
+		}
 	}
-	return days, nil
+	for rows.Next() {
+		var source, outcome string
+		var started, outcomeAt int64
+		if err := rows.Scan(&source, &started, &outcome, &outcomeAt); err != nil {
+			return nil, err
+		}
+		if source == "" {
+			source = "unknown"
+		}
+		// As in installs: one that ended started, even when its first
+		// report was lost, and counts as started the day it ended.
+		switch {
+		case started != 0:
+			add(started, source, Outcomes{Started: 1})
+		case outcome == usage.EventSucceeded || outcome == usage.EventFailed:
+			add(outcomeAt, source, Outcomes{Started: 1})
+		}
+		switch outcome {
+		case usage.EventSucceeded:
+			add(outcomeAt, source, Outcomes{Succeeded: 1})
+		case usage.EventFailed:
+			add(outcomeAt, source, Outcomes{Failed: 1})
+		case usage.EventRefused:
+			add(outcomeAt, source, Outcomes{Refused: 1})
+		}
+	}
+	return days, rows.Err()
 }

@@ -32,6 +32,10 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("POST "+usage.PathInstall, s.limited(s.install))
 	mux.HandleFunc("POST "+usage.PathHeartbeat, s.limited(s.heartbeat))
 	mux.HandleFunc("GET /v1/summary", s.limited(s.summary))
+	dash := dashboard()
+	for p := range dashboardFiles {
+		mux.HandleFunc("GET "+p, dash)
+	}
 	return s.recoverer(mux)
 }
 
