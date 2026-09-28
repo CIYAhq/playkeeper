@@ -450,6 +450,18 @@ func TestCurseForgeModsFromServerFiles(t *testing.T) {
 		}
 	}
 
+	// So does a mod Modrinth lists as client-only when they have it: the
+	// pack's authors run it on servers.
+	listLithium := func(f *fakes, _ *Library, _, _ int64) {
+		f.modrinthMod("LITHI001", "lithium-fabric-0.25.3+mc26.3.jar", generated("lithium-fabric-0.25.3+mc26.3.jar"), "client_only", "unsupported")
+	}
+	entries := append(serverFiles(generated("ferritecore-9.0.0-fabric.jar")), entry{name: lithium, data: generated("lithium-fabric-0.25.3+mc26.3.jar")})
+	_, l, srv, ref, _ = setUp(t, listLithium, append(entries, copies(cloth, placeholder)...))
+	pl = mustPlan(t, l, srv, InstallRequest{Ref: ref})
+	if !slices.Contains(changeList(pl.Changes), "add "+lithium) || slices.Contains(pl.Skipped, Skipped{Path: lithium, Reason: addons.KindClientOnly}) {
+		t.Errorf("Lithium, which Modrinth lists as client-only and the server files have: changes %q, skipped %+v", changeList(pl.Changes), pl.Skipped)
+	}
+
 	// And a mod CurseForge tags for players' games goes on the server when
 	// they have it, as Better MC [FABRIC] BMC2's have Mod Menu, which one of
 	// its mods needs: their copy, when it is the file CurseForge lists.

@@ -2022,7 +2022,7 @@ control "only the server files of the pack's own version are used" internal/modp
   '' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
 control "a CurseForge pack's mods Modrinth lists as client-only stay off the server" internal/modpacks/resolve.go \
-  'case f.ClientOnly() || p.clientMods[f.SHA1()]:' \
+  'case f.ClientOnly() || p.modrinthClient[f.SHA1()]:' \
   'case f.ClientOnly():' \
   ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
 control "a mod version from before Modrinth's environment field goes by its project's server side" internal/modpacks/resolve.go \
@@ -2030,7 +2030,7 @@ control "a mod version from before Modrinth's environment field goes by its proj
   'if r, ok := runs[v.ProjectID]; false && ok {' \
   ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
 control "a client-only mod the pack's own files use stays on the server" internal/modpacks/resolve.go \
-  'delete(p.clientMods, sha1)' \
+  'delete(p.modrinthClient, sha1)' \
   '_ = sha1' \
   ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
 control "only a pack's text files are read for the mods they use" internal/modpacks/resolve.go \
