@@ -61,6 +61,7 @@ test-sh:
 	bash scripts/demo-marker_test.sh
 	bash scripts/go-test-shard_test.sh
 	bash scripts/ci-parts_test.sh
+	bash scripts/ci-since_test.sh
 	bash scripts/e2e/vm-rehearsal_test.sh
 
 web: ## Build the browser UI into web/dist
