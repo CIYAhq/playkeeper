@@ -45,6 +45,11 @@ type Check struct {
 	// Addons are the template's add-ons as they installed, in its order.
 	Addons  []Addon  `json:"addons,omitempty"`
 	Modpack *Modpack `json:"modpack,omitempty"`
+	// Crossplay says the release turned on crossplay for the server, and
+	// Geyser and Floodgate started beside the template's add-ons. It's
+	// false on a release without crossplay and for a server it isn't
+	// offered for.
+	Crossplay bool `json:"crossplay,omitempty"`
 }
 
 // Addon is one add-on as it installed.

@@ -18,9 +18,11 @@ package software
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
@@ -223,6 +225,45 @@ func (s Sources) Builds(ctx context.Context, typeID, mc string) ([]Build, error)
 		return forgeVersionList(ctx, s.Client, mc)
 	}
 	return nil, unsupportedType(typeID)
+}
+
+// ErrNoBuiltInList is a type or Minecraft version with no list built into
+// Playkeeper. Only NeoForge's versions for Minecraft 1.20.2 and newer have
+// one.
+var ErrNoBuiltInList = errors.New("no version list is built into Playkeeper for it")
+
+// BuiltInCatalog is Catalog from the version list built into Playkeeper,
+// for a machine with no list of its own while the upstream's can't be had,
+// and when that list was made. It still asks Mojang which Java each
+// Minecraft version needs.
+func (s Sources) BuiltInCatalog(ctx context.Context, typeID string) ([]Release, time.Time, error) {
+	if typeID != NeoForge {
+		return nil, time.Time{}, ErrNoBuiltInList
+	}
+	list, err := builtinNeoForge()
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	man, err := mojangManifest(ctx, s.Client)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	rels, err := neoforgeOffer(ctx, s.Client, man, list.byMC)
+	return rels, list.at, err
+}
+
+// BuiltInBuilds is Builds from the version list built into Playkeeper, and
+// when that list was made.
+func (s Sources) BuiltInBuilds(typeID, mc string) ([]Build, time.Time, error) {
+	if typeID != NeoForge || mc == "1.20.1" || !offered(mc) {
+		return nil, time.Time{}, ErrNoBuiltInList
+	}
+	list, err := builtinNeoForge()
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	bs, err := neoforgeBuilds(mc, list.byMC[mc])
+	return bs, list.at, err
 }
 
 // Resolved is what the upstreams publish for one pin: every artifact with

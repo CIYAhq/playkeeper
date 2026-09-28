@@ -24,15 +24,20 @@ type Page struct {
 	// Card is the title a "Keep reading" card shows, and Kind its eyebrow:
 	// Guide, Feature, Compare, Tool, Docs or Blog.
 	Card, Kind string
-	// Section is the header item the page belongs to: features, guides,
-	// compare, docs or pricing.
+	// Section is the header item the page belongs to: features, templates,
+	// guides, compare, docs or pricing.
 	Section string
-	// Layout is page, guide, post, docs or bare (no header or footer).
+	// Layout is page, guide, post, docs, bare (no header or footer), or one
+	// of the template directory's: directory, category, template and open.
 	Layout string
 	// Crumb is the parent in the breadcrumb, a section's label.
 	Crumb string
-	// OG names the social preview image, og/<OG>.png.
-	OG string
+	// OG names the social preview image, og/<OG>.png, and OGWords the words
+	// on it when they aren't the page's label, as on a page that shares its
+	// hub's image.
+	OG, OGWords string
+	// OGAlt describes a preview that isn't Pip and words, like a template's.
+	OGAlt string
 	// Published and Updated are days, YYYY-MM-DD.
 	Published, Updated string
 	// NoIndex keeps the page out of search engines and the sitemap.
@@ -61,7 +66,12 @@ type Page struct {
 	// Schema is the structured data the page carries in its head: software,
 	// article or posting. FAQs and breadcrumbs carry their own.
 	Schema string
+	// Refresh sends the browser straight on to this address: /t/<id> to the
+	// share page with its template.
+	Refresh string
 
+	// dir is what a page of the template directory shows.
+	dir    *DirView
 	file   string
 	source string
 	// minutes is the reading time of a guide or post.
@@ -89,6 +99,9 @@ func (p *Page) TOC() []Heading { return p.toc }
 
 // Docs is the docs page a page was built from, or nil.
 func (p *Page) Docs() *DocPage { return p.docs }
+
+// Dir is what a page of the template directory shows, or nil.
+func (p *Page) Dir() *DirView { return p.dir }
 
 // Day formats a YYYY-MM-DD day as "26 Sep 2026".
 func Day(s string) string {

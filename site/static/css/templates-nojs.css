@@ -1,0 +1,9 @@
+/* The template directory without scripts: search, filters and sorting need
+   js/templates.js, so they aren't shown; the cards, the game modes and the
+   pages still link every template. */
+.needs-js { display: none !important; }
+.dir-layout { grid-template-columns: minmax(0, 1fr); }
+.dir-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1199.98px) { .dir-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 899.98px) { .dir-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 639.98px) { .dir-grid { grid-template-columns: minmax(0, 1fr); } }

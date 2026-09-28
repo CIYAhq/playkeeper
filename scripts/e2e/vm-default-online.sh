@@ -25,7 +25,7 @@ lab_image
 lab_network
 lab_boot d 13 3072
 lab_scp "$tarball" "$tarball.sha256" "pk@$D:"
-lab_ssh "$D" "sha256sum -c $name.tar.gz.sha256 && tar -xzf $name.tar.gz && cd $name && sudo ./install.sh --yes" | tee "$OUT/install.txt"
+lab_ssh "$D" "sha256sum -c $name.tar.gz.sha256 && tar -xzf $name.tar.gz && cd $name && sudo DO_NOT_TRACK=1 ./install.sh --yes" | tee "$OUT/install.txt"
 code=$(grep -o 'setup code: [a-z0-9-]*' "$OUT/install.txt" | awk '{print $3}')
 lab_ssh "$D" 'sudo cat /var/lib/playkeeper/panel/tls/cert.pem' >"$OUT/cert.pem"
 pk() { python3 "$root/test/e2e/pkclient.py" --url "https://$D:8443" --cacert "$OUT/cert.pem" --state "$OUT/state.json" "$@"; }

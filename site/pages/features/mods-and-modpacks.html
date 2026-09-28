@@ -107,6 +107,7 @@ og: mods-and-modpacks
     {{template "faq" (dict "ID" "questions" "Items" (list
       (qa "Do friends need to install mods?" "For mods and modpacks, yes, the same ones as the server: the share link gives them a file for the Modrinth App or Prism Launcher. Plugins need nothing on their side.")
       (qa "Which modpacks work?" (printf "Modrinth and CurseForge packs for Minecraft %s and newer, on %s. Each pack shows what it needs before you create the server." oldestMinecraft loaderNames))
+      (qa "Which plugins do most servers run?" `EssentialsX, WorldEdit, WorldGuard and TAB lead, each on 49,000 to 66,000 servers. <a href="/guides/popular-minecraft-plugins">The most popular plugins</a> lists the top 25.`)
       (qa "Do I need a CurseForge key?" "No. Playkeeper has one built in. You can add your own free key under Settings › Add-on sources.")
       (qa "Can I add a mod that isn't in a library?" `Yes: drag its file into the mods folder on the server's Files tab. The Mods tab lists it, and if a library recognises it, Playkeeper can take it over so it gets updates. <a href="/guides/add-mods-to-minecraft-server">Adding mods to a server</a> goes step by step.`)
     ))}}

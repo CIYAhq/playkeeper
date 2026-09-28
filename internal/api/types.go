@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/usage"
 	"github.com/CIYAhq/playkeeper/internal/worldimport"
 )
 
@@ -262,6 +263,48 @@ type UpdateResult struct {
 }
 
 type UpdateCheckRequest struct {
+	Actor string `json:"actor"`
+}
+
+// What decides whether a machine sends anonymous usage stats (UsageStats.Reason).
+const (
+	// UsageDefault: nobody chose (usage.DefaultOn).
+	UsageDefault = "default"
+	// UsageSettings: the switch in Settings.
+	UsageSettings = "settings"
+	// UsageInstall: DO_NOT_TRACK or PLAYKEEPER_USAGE_STATS=off when
+	// Playkeeper was installed or upgraded, recorded in config.json. Only
+	// root's choices outrank the switch.
+	UsageInstall = "install"
+	// UsageEnv: DO_NOT_TRACK or PLAYKEEPER_USAGE_STATS in the agent's own
+	// environment (a systemd drop-in).
+	UsageEnv = "env"
+	// UsageDev: playkeeper dev, which never sends.
+	UsageDev = "dev"
+)
+
+// UsageStats is whether a machine sends anonymous usage stats
+// (internal/usage), and exactly what it sends.
+type UsageStats struct {
+	On bool `json:"on"`
+	// Reason is UsageDefault, UsageSettings, UsageInstall, UsageEnv or
+	// UsageDev; Variable names the environment variable for UsageEnv.
+	Reason   string `json:"reason"`
+	Variable string `json:"variable,omitempty"`
+	// CanChange says whether the switch may change it: not while root's
+	// choice or playkeeper dev decides.
+	CanChange bool `json:"canChange"`
+	// LastSent is when a heartbeat last reached the service.
+	LastSent *time.Time `json:"lastSent,omitempty"`
+	// Service is where they go, and Report what the next heartbeat sends,
+	// field for field.
+	Service string          `json:"service"`
+	Report  usage.Heartbeat `json:"report"`
+}
+
+// UsageStatsRequest turns usage stats on or off with the switch.
+type UsageStatsRequest struct {
+	On    bool   `json:"on"`
 	Actor string `json:"actor"`
 }
 
@@ -1531,6 +1574,15 @@ type JoinAddress struct {
 	// Published: Address works (a free address's records are published, or
 	// the last check found an own domain's).
 	Published bool `json:"published"`
+	// OwnAddress is the server's own address under an own domain, which is
+	// then Address: its own A and SRV records, and its own public page.
+	OwnAddress string `json:"ownAddress,omitempty"`
+}
+
+// OwnAddressRequest sets a server's own address; an empty one clears it.
+type OwnAddressRequest struct {
+	Address string `json:"address"`
+	Actor   string `json:"actor"`
 }
 
 // FreeAddress is a free playkeeper.me address at the names service.
@@ -1653,6 +1705,9 @@ type RecordCheck struct {
 	Record DNSRecord `json:"record"`
 	OK     bool      `json:"ok"`
 	Found  []string  `json:"found,omitempty"`
+	// Own means the record is for a server's own address, which doesn't
+	// count toward the domain's Ready.
+	Own bool `json:"own,omitempty"`
 }
 
 // CertificateStatus is the dashboard's certificate for the machine's name,
@@ -2029,6 +2084,24 @@ type TemplatePlan struct {
 	Blockers         []AddonNotice `json:"blockers"`
 	Ready            bool          `json:"ready"`
 	Fingerprint      string        `json:"fingerprint"`
+}
+
+// TemplateLibrary is the templates this release carries for New server › A
+// template, the ones playkeeper.io offers (internal/templates/library).
+type TemplateLibrary struct {
+	Templates []LibraryTemplate `json:"templates"`
+}
+
+// LibraryTemplate is one template of the library. File is its text, to plan
+// like any template file.
+type LibraryTemplate struct {
+	ID       string           `json:"id"`
+	Art      string           `json:"art"`
+	Page     string           `json:"page,omitempty"`
+	Checked  string           `json:"checked,omitempty"`
+	Release  string           `json:"release,omitempty"`
+	Contents TemplateContents `json:"contents"`
+	File     string           `json:"file"`
 }
 
 // Wave 4: sharing a modded server's pack with friends.
@@ -2658,6 +2731,9 @@ type PublicBoardRequest struct {
 type PublicPageState struct {
 	Host string `json:"host,omitempty"`
 	On   bool   `json:"on"`
+	// Hosts are the servers' own addresses the page also answers for, each
+	// with only its server: those of the servers on the page.
+	Hosts []string `json:"hosts,omitempty"`
 }
 
 // PagePortsRequest names the ports the panel asks the agent to open for

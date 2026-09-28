@@ -226,9 +226,9 @@ fi
 
 if [ -n "$rpm" ]; then
   step "a declined plan and an injected failure change nothing"
-  g 'cd pk/playkeeper-* && echo n | sudo ./install.sh' >"$OUT/decline.txt" 2>&1 || true
+  g 'cd pk/playkeeper-* && echo n | sudo DO_NOT_TRACK=1 ./install.sh' >"$OUT/decline.txt" 2>&1 || true
   unchanged after-decline
-  g "cd pk/playkeeper-* && sudo PLAYKEEPER_TEST_FAIL_INSTALL_STEP='install and start systemd services' ./install.sh --yes" >"$OUT/rollback.txt" 2>&1 || true
+  g "cd pk/playkeeper-* && sudo DO_NOT_TRACK=1 PLAYKEEPER_TEST_FAIL_INSTALL_STEP='install and start systemd services' ./install.sh --yes" >"$OUT/rollback.txt" 2>&1 || true
   grep -q 'Rollback complete' "$OUT/rollback.txt" || fail "the injected failure did not roll back: $(tail -3 "$OUT/rollback.txt" | tr '\n' ' ')"
   unchanged after-rollback
   ok "the rollback took back $(grep -c '↺ undo' "$OUT/rollback.txt") steps, Docker and where it came from included; packages, users, groups, units, listeners, package sources, forwarding and firewalld as before"
@@ -244,7 +244,7 @@ pids+=($!)
 g 'mkdir -p latest'
 lab_scp "$rel/b/"* "pk@$G:latest/"
 g 'nohup python3 -m http.server 8765 --bind 127.0.0.1 --directory latest </dev/null >/dev/null 2>&1 & sleep 1; echo "release location on the guest: http://127.0.0.1:8765"'
-oneliner="curl -fsSL $SITE/a/get.sh | sudo PLAYKEEPER_BASE_URL=$SITE/a PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --release-url http://127.0.0.1:8765"
+oneliner="curl -fsSL $SITE/a/get.sh | sudo DO_NOT_TRACK=1 PLAYKEEPER_BASE_URL=$SITE/a PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --release-url http://127.0.0.1:8765"
 echo "\$ $oneliner   # in a terminal; the installer's question is answered with y" | tee "$OUT/install.txt"
 start=$(date +%s)
 python3 "$root/test/e2e/tty_run.py" --answer 'Proceed? [y/N]=y' -- ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \

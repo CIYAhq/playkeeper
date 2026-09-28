@@ -16,7 +16,7 @@ curl -fsSL https://playkeeper.io/install | sudo sh
 
 No `sudo`, as on a Debian installed with a root password? Run `su -`, then the same command without `sudo`.
 
-`https://playkeeper.io/install` redirects to `get.sh` from the [latest release](https://github.com/CIYAhq/playkeeper/releases/latest). The script downloads the tarball for your VPS's CPU from that release, `playkeeper-linux-amd64.tar.gz` on x86_64 or `playkeeper-linux-arm64.tar.gz` on 64-bit ARM, and its `.sha256`, stops unless the SHA-256 matches, then runs the installer, which asks before changing anything. Installer options go after `sh -s --`, for example `… | sudo sh -s -- --yes --game-port 25566`. To read the script first: `curl -fsSL https://playkeeper.io/install | less`.
+`https://playkeeper.io/install` is a few lines that run `get.sh` from the [latest release](https://github.com/CIYAhq/playkeeper/releases/latest), telling it the install came through playkeeper.io. The script downloads the tarball for your VPS's CPU from that release, `playkeeper-linux-amd64.tar.gz` on x86_64 or `playkeeper-linux-arm64.tar.gz` on 64-bit ARM, and its `.sha256`, stops unless the SHA-256 matches, then runs the installer, which asks before changing anything. Installer options go after `sh -s --`, for example `… | sudo sh -s -- --yes --game-port 25566`. To read what runs first: `curl -fsSL https://playkeeper.io/install`, then `get.sh` at the address it names. The installer first says that it sends anonymous [usage stats](#usage-stats); `curl -fsSL https://playkeeper.io/install | sudo DO_NOT_TRACK=1 sh` installs without them.
 
 If playkeeper.io is unreachable, the same script comes straight from GitHub:
 
@@ -92,13 +92,13 @@ Everything else happens in the browser: create the admin account, pass the check
 
 - **Invite friends:** **New invite link** on a server's Players tab. A friend opens it, types their Minecraft name and is on the allowlist, right away or once you say yes. A link works for a day, a week, a month or until you turn it off, for a set number of friends, and the Players tab shows who joined with which link.
 - **Player pages:** each player's page shows when and how long they play and whether they're on the allowlist or an operator, and lets you message, kick or ban them.
-- **Team:** **Settings › Team** invites someone as an Admin, Moderator or Viewer, for every server or only some, with their own sign-in. Admins must use two-factor sign-in; until they turn it on and you confirm it with one click, they have Moderator rights.
+- **Team:** **Settings › Team** invites someone as an Admin, Moderator or Viewer, for every server or only some, with their own sign-in. Someone with only some servers sees only those servers and the team members who share one with them. Admins must use two-factor sign-in; until they turn it on and you confirm it with one click, they have Moderator rights.
 - **Discord:** **Settings › Discord** takes a channel's webhook link for alerts (a crash, back online, low disk space, a failed backup, a new Playkeeper or Minecraft version, a join request, and players joining and leaving if you want them) and keeps one live status message with each server and who's playing. It covers the servers on the dashboard's machine; servers on connected machines don't post to Discord. Alerts come from that machine's agent, so a crash is reported even while the dashboard is down.
 - **Two-factor sign-in:** **Your account** (your name at the bottom of the sidebar; on a phone, **More ›** your name) › **Turn on**: enter your password, scan the QR code with an authenticator app, type its code and save the ten recovery codes. Five wrong codes in a row pause app codes for a minute, doubling up to 16 minutes; 100 block them until a recovery code is used. If you lose the phone and the codes, run `sudo playkeeper reset-2fa <username>` on the VPS.
 
 ## A name for your VPS
 
-**Machine settings › Address** (on a phone: **More ›** your machine **› Address**) gives the dashboard's machine a free `yourname.playkeeper.me` name or your own domain, and the dashboard a Let's Encrypt certificate that renews by itself. With your own domain, add the records Playkeeper lists where you manage the domain (an A record, and an SRV record for each server not on port 25565) and open port 80 for Let's Encrypt's checks; each server then joins at its own address, without a port. A free name comes from Playkeeper's names service: three days after the claim, once the service has reached the dashboard on port 8443, the first five servers get their own address, and until then (and for any further servers) players add the server's port to the name. Servers on connected machines join at that machine's IP address and each server's port. The IP address and its self-signed certificate keep working. Invite, map and pack links use the name once there is one. Opening the name in a browser, without a port, shows a public page for your servers: their status, how to join and the shared map's link, with player names only if you show them (**Settings › Public page** on each server). There you can add your own words, like the server's rules, and a Twitch or YouTube channel that visitors can watch, and your tools can post a status board to it through the API or MCP: a headline, whether you're live and when the next session starts, a few numbers and a checklist. A link to the page shows a picture of the server where it's shared. It uses ports 443 and 80 only while nothing else on the VPS uses or claims them. Free names used to end in `.playkeeper.io`: an install from before the move gets the same name under `.playkeeper.me` when it updates, and the old address keeps reaching it for two months.
+**Machine settings › Address** (on a phone: **More ›** your machine **› Address**) gives the dashboard's machine a free `yourname.playkeeper.me` name or your own domain, and the dashboard a Let's Encrypt certificate that renews by itself. With your own domain, add the records Playkeeper lists where you manage the domain (an A record, and an SRV record for each server not on port 25565) and open port 80 for Let's Encrypt's checks; each server then joins at its own address, without a port. Under your own domain, **Servers' own addresses** can give a server an address of its own, like `alex.example.com` next to the machine's `mc.example.com`: add its A and SRV records, and players join it there without a port, a browser opening it gets that server's own public page, and Playkeeper gets its certificate, at most a few new ones a day. A free name comes from Playkeeper's names service: three days after the claim, once the service has reached the dashboard on port 8443, the first five servers get their own address, and until then (and for any further servers) players add the server's port to the name. Servers on connected machines join at that machine's IP address and each server's port. The IP address and its self-signed certificate keep working. Invite, map and pack links use the name once there is one. Opening the name in a browser, without a port, shows a public page for your servers: their status, how to join and the shared map's link, with player names only if you show them (**Settings › Public page** on each server). There you can add your own words, like the server's rules, and a Twitch or YouTube channel that visitors can watch, and your tools can post a status board to it through the API or MCP: a headline, whether you're live and when the next session starts, a few numbers and a checklist. A link to the page shows a picture of the server where it's shared. It uses ports 443 and 80 only while nothing else on the VPS uses or claims them. Free names used to end in `.playkeeper.io`: an install from before the move gets the same name under `.playkeeper.me` when it updates, and the old address keeps reaching it for two months.
 
 ## More machines and AI agents
 
@@ -118,6 +118,32 @@ Everything else happens in the browser: create the admin account, pass the check
 **Recover or move a world:** see [docs/RECOVERY.md](docs/RECOVERY.md). Backups listed in the dashboard live on the same server unless you turn on copies somewhere else; download copies of the ones you care about.
 
 **Other commands:** `sudo playkeeper status`, `sudo playkeeper setup-code` (a new setup code before an admin exists), `sudo playkeeper reset-password <user>`, `sudo playkeeper reset-2fa <user>` (turns off two-factor sign-in for a lost phone), `sudo playkeeper join` and `sudo playkeeper leave` (connect a machine to another dashboard, or disconnect it), and `sudo playkeeper mcp` (the AI tools over SSH).
+
+## Usage stats
+
+From 0.4.4, Playkeeper counts how many machines run it, anonymously, so the project knows how many people use it and where to spend its time. The installer says so before it sends anything. Each machine sends exactly this, and **Settings › Playkeeper › Usage stats** shows yours field for field:
+
+| Field | What it is |
+| --- | --- |
+| `id` | a random ID made on the machine for usage stats alone, tied to nothing else |
+| `version` | the Playkeeper version, like `0.4.4` |
+| `os`, `osVersion` | the system and its release, like `ubuntu` and `24.04` |
+| `arch` | the CPU type, `amd64` or `arm64` |
+| `source` | how Playkeeper got onto the machine: `playkeeper.io` (the install command there), `github` (`get.sh` straight from GitHub), `mirror` (`get.sh` from another location), `tarball` or `source` (a build that isn't a release) |
+| `channel` | the code of a `playkeeper.io/install/<code>` command, if one was used |
+| `kind` | `dashboard`, or `joined` for a machine connected to another dashboard |
+| `test` | marks the project's own test installs, which aren't counted |
+| `event`, `step` | from the installer: `started` once you accept its plan, then `succeeded`, or `failed` and the step that failed; or `refused` and the checks that turned it away, like `memory` |
+| `address` | from a running machine: `free` (a playkeeper.me name), `own` (your own domain) or `ip` (none) |
+| `servers`, `running` | from a running machine: how many Minecraft servers it has, and how many run |
+
+The installer sends its reports while it installs, and nothing if you decline its plan. A running machine sends a heartbeat a minute after Playkeeper starts and every 12 hours after. They go to `stats.playkeeper.io`, the project's own service, whose code is in this repository ([services/stats](services/stats/README.md)). It keeps each machine's random ID with what its reports say and the days it ran, never an IP address, and never learns a host name, server name or anything about players.
+
+To turn usage stats off:
+
+- **Settings › Playkeeper › Usage stats**: one switch for every machine of the dashboard.
+- When installing: `curl -fsSL https://playkeeper.io/install | sudo DO_NOT_TRACK=1 sh` sends nothing, and the machine keeps them off; the switch can't turn them back on. `PLAYKEEPER_USAGE_STATS=off` does the same. Put the variable after `sudo`, which drops variables set before it.
+- For a machine that's installed: `sudo systemctl edit playkeeper-agent`, add `Environment=DO_NOT_TRACK=1` under `[Service]`, then `sudo systemctl restart playkeeper-agent`.
 
 ## Build and contribute
 
@@ -151,4 +177,4 @@ Playkeeper is free software under the GNU Affero General Public License, version
 
 Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.
 
-[playkeeper.io](https://playkeeper.io) is this repository's `site/` folder, an nginx container ([site/README.md](site/README.md)): `/install` redirects to the latest release's `get.sh`, `/sizing` is the sizing guide, `/t` opens shared server templates in your own dashboard, and `/demo/` is the live demo, the dashboard from `web/` built with sample data (`web/src/demo/`).
+[playkeeper.io](https://playkeeper.io) is this repository's `site/` folder, an nginx container ([site/README.md](site/README.md)): `/install` runs the latest release's `get.sh`, `/sizing` is the sizing guide, `/t` opens shared server templates in your own dashboard, and `/demo/` is the live demo, the dashboard from `web/` built with sample data (`web/src/demo/`).

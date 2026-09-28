@@ -144,7 +144,7 @@ func TestForgeVersionsComeFromForgesLists(t *testing.T) {
 // NeoForge's Maven now and then fails for minutes. The last version list
 // and build lists it sent are kept, so a restart of the agent meanwhile
 // doesn't leave the New server page with nothing to offer; a list it never
-// sent is still an error.
+// sent comes from the one built into Playkeeper.
 func TestATypesListsOutliveARestartWhileItsSourceFails(t *testing.T) {
 	e := newAgentEnv(t)
 	e.up.serveMojang()
@@ -178,11 +178,75 @@ func TestATypesListsOutliveARestartWhileItsSourceFails(t *testing.T) {
 	if fmt.Sprint(keptCatalog["versions"]) != fmt.Sprint(catalog["versions"]) || fmt.Sprint(keptBuilds["builds"]) != fmt.Sprint(builds["builds"]) {
 		t.Fatalf("the kept lists differ from the ones fetched:\n%v\n%v", keptCatalog["versions"], keptBuilds["builds"])
 	}
-	if code, out := e.call("GET", "/v1/catalog/builds?type=neoforge&version=26.1.2", nil); code == 200 {
-		t.Fatalf("a build list NeoForge never sent: %d %v", code, out)
+	_, builtAt, err := software.Sources{}.BuiltInBuilds("neoforge", "26.1.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out := e.call("GET", "/v1/catalog/builds?type=neoforge&version=26.1.2", nil)
+	if code != 200 || len(out["builds"].([]any)) == 0 || out["checkedAt"] != builtAt.Format(time.RFC3339) {
+		t.Fatalf("a build list NeoForge never sent, from the one built into Playkeeper (made %v): %d %v", builtAt, code, out)
 	}
 	if code, out := e.call("GET", "/v1/catalog/builds?type=neoforge", nil); code == 200 {
 		t.Fatalf("builds for no Minecraft version, read from the kept version list: %d %v", code, out)
+	}
+}
+
+// neoforgeBetasOnly is a NeoForge version list that has lost its stable
+// versions.
+var neoforgeBetasOnly = []byte(`<metadata><versioning><versions>
+<version>26.3.0.30-beta</version><version>26.3.0.29-beta</version>
+</versions></versioning></metadata>`)
+
+// When NeoForge's version list has lost its stable versions, a machine with
+// no list of its own offers the one built into Playkeeper, and says when
+// that was made.
+func TestAFreshInstallOffersTheBuiltInListWhileNeoForgesHasLostItsStableVersions(t *testing.T) {
+	e := newAgentEnv(t)
+	e.up.serveMojang()
+	e.up.serve(neoforgeMetadata, neoforgeBetasOnly)
+	_, builtAt, err := software.Sources{}.BuiltInBuilds("neoforge", "26.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	made := builtAt.Format(time.RFC3339)
+
+	code, out := e.call("GET", "/v1/catalog?type=neoforge", nil)
+	if code != 200 || out["versionsCheckedAt"] != made {
+		t.Fatalf("catalog: %d %v", code, out)
+	}
+	found := false
+	for _, v := range out["versions"].([]any) {
+		m := v.(map[string]any)
+		sw := m["software"].(map[string]any)
+		if m["id"] == "neoforge-26.2" {
+			found = m["recommended"] == true && m["channel"] == "stable" && !strings.HasSuffix(sw["neoforgeVersion"].(string), "-beta")
+		}
+	}
+	if !found {
+		t.Fatalf("no stable NeoForge for 26.2 in the built-in list: %v", out["versions"])
+	}
+	code, out = e.call("GET", "/v1/catalog/builds?type=neoforge&version=26.2", nil)
+	if code != 200 || out["checkedAt"] != made || !strings.Contains(fmt.Sprint(out["builds"]), "26.2.0.88") {
+		t.Fatalf("builds: %d %v", code, out)
+	}
+}
+
+// A machine that has a list keeps it while NeoForge's has lost its stable
+// versions, across a restart.
+func TestAKeptListOutlivesANeoForgeListThatHasLostItsStableVersions(t *testing.T) {
+	e := newAgentEnv(t)
+	e.up.serveMojang()
+	e.up.serveNeoForgeLists()
+	code, fetched := e.call("GET", "/v1/catalog?type=neoforge", nil)
+	if code != 200 || len(fetched["versions"].([]any)) != 2 {
+		t.Fatalf("catalog: %d %v", code, fetched)
+	}
+	e.up.serve(neoforgeMetadata, neoforgeBetasOnly)
+	e.stop()
+	e.start()
+	code, kept := e.call("GET", "/v1/catalog?type=neoforge", nil)
+	if code != 200 || kept["versionsCheckedAt"] != fetched["versionsCheckedAt"] || fmt.Sprint(kept["versions"]) != fmt.Sprint(fetched["versions"]) {
+		t.Fatalf("the kept list, fetched %v: %d %v", fetched["versionsCheckedAt"], code, kept)
 	}
 }
 

@@ -185,6 +185,20 @@ type Options struct {
 	PageHTTPSAddr, PageHTTPAddr string
 	Uptime                      func() time.Duration
 	SystemdDir                  string
+
+	// Usage stats (internal/usage). UsageFirst is how long after starting
+	// the agent sends its first heartbeat (default a minute) and
+	// UsageInterval how often after that (default 12 hours; negative turns
+	// the heartbeat off). UsageClient carries them (tests; nil uses the
+	// usage client's own). Getenv reads the agent's own environment,
+	// OSRelease is the os-release file the system is read from, and
+	// Processes lists the machine's command lines (tests replace them).
+	UsageFirst    time.Duration
+	UsageInterval time.Duration
+	UsageClient   *http.Client
+	Getenv        func(string) string
+	OSRelease     string
+	Processes     func() []string
 }
 
 // Retention bounds stored analytics and audit data.
@@ -312,6 +326,8 @@ type Agent struct {
 	// passes checks on to while the panel holds it.
 	pagePorts pagePorts
 	http01    *certs.HTTP01Responder
+
+	usage usageState
 }
 
 func New(opts Options) (*Agent, error) {
@@ -432,6 +448,21 @@ func New(opts Options) (*Agent, error) {
 	if opts.SystemdDir == "" {
 		opts.SystemdDir = "/etc/systemd/system"
 	}
+	if opts.UsageFirst == 0 {
+		opts.UsageFirst = time.Minute
+	}
+	if opts.UsageInterval == 0 {
+		opts.UsageInterval = 12 * time.Hour
+	}
+	if opts.Getenv == nil {
+		opts.Getenv = os.Getenv
+	}
+	if opts.OSRelease == "" {
+		opts.OSRelease = "/etc/os-release"
+	}
+	if opts.Processes == nil {
+		opts.Processes = procCmdlines
+	}
 	cfg := opts.Config
 	for _, d := range []string{cfg.AgentDir(), cfg.BackupsDir(), cfg.StagingDir()} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
@@ -486,6 +517,7 @@ func New(opts Options) (*Agent, error) {
 		mapClient: webmap.NewClient(),
 	}
 	a.http01 = &certs.HTTP01Responder{Addr: opts.HTTP01Addr, Shared: a.pageRelaysChallenge}
+	a.usage.kick = make(chan struct{}, 1)
 	a.loadPacks()
 	a.ctx, a.cancel = context.WithCancel(context.Background())
 	if a.opts.Issue == nil {
@@ -537,6 +569,7 @@ func (a *Agent) Start() {
 	}
 	a.loop(a.pruneLoop)
 	a.loop(a.updateLoop)
+	a.loop(a.usageLoop)
 	a.loop(a.hostLoop)
 	a.loop(a.addressLoop)
 	a.loop(a.disc.n.Run)
@@ -894,6 +927,8 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/update", a.hUpdate},
 		{"POST", "/v1/update/check", a.hUpdateCheck},
 		{"POST", "/v1/update/apply", a.hUpdateApply},
+		{"GET", "/v1/usage-stats", a.hUsageStats},
+		{"PUT", "/v1/usage-stats", a.hUsageStatsSet},
 		// wave 5: player profiles, messages and bans; Discord.
 		{"GET", "/v1/servers/{id}/players/profile", srv((*server).hProfile)},
 		{"POST", "/v1/servers/{id}/players/message", srv((*server).hMessage)},
@@ -929,6 +964,7 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/servers/{id}/template", srv((*server).hTemplate)},
 		{"POST", "/v1/servers/{id}/template/retry", srv((*server).hTemplateRetry)},
 		{"POST", "/v1/templates/plan", a.hTemplatePlan},
+		{"GET", "/v1/templates/library", a.hTemplateLibrary},
 		// Wave 4: sharing the pack with friends.
 		{"GET", "/v1/servers/{id}/mods/share", srv((*server).hPackShare)},
 		{"POST", "/v1/servers/{id}/mods/share", srv((*server).hPackShareSet)},
@@ -957,6 +993,7 @@ func (a *Agent) routeTable() []Route {
 		// answers on, and Let's Encrypt's checks passed on from its port 80.
 		{"GET", "/v1/servers/{id}/public-page", srv((*server).hPublicPage)},
 		{"POST", "/v1/servers/{id}/public-page", srv((*server).hPublicPageSet)},
+		{"POST", "/v1/servers/{id}/own-address", srv((*server).hOwnAddressSet)},
 		{"PUT", "/v1/servers/{id}/public-page/board", srv((*server).hPublicBoardSet)},
 		{"DELETE", "/v1/servers/{id}/public-page/board", srv((*server).hPublicBoardClear)},
 		{"GET", "/v1/public-page", a.hPublicPageData},

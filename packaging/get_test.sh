@@ -62,6 +62,7 @@ while [ $# -gt 0 ]; do
 done
 echo "$url" >>"$SITE/../curl.log"
 path=${url#*://example.test/}
+case $url in https://github.com/CIYAhq/playkeeper/releases/latest/download/*) path=github/${url##*/} ;; esac
 [ -f "$SITE/$path" ] || exit 22
 cp "$SITE/$path" "$out"
 EOF
@@ -183,6 +184,27 @@ ok "no terminal and no --yes: stops before downloading and explains --yes"
 get PLAYKEEPER_BASE_URL=https://example.test/good FAKE_INSTALL_STATUS=3 -- --yes
 [ "$status" = 3 ] || fail "the installer's exit status must be passed on (got $status): $out"
 ok "installer exit status passed on"
+
+# The installer's usage stats say how Playkeeper was fetched: GitHub's own
+# get.sh, another release location, or what playkeeper.io's command said.
+# DO_NOT_TRACK and the channel code reach it as they were.
+mkdir -p "$t/said/$rel"
+cat >"$t/said/$rel/install.sh" <<EOF
+#!/bin/sh
+printf '%s|%s|%s\n' "\${PLAYKEEPER_INSTALL_SOURCE-unset}" "\${PLAYKEEPER_INSTALL_CHANNEL-unset}" "\${DO_NOT_TRACK-unset}" >"$t/said.txt"
+EOF
+cp "$t/rel/$rel/playkeeper" "$t/said/$rel/"
+chmod +x "$t/said/$rel/install.sh"
+publish said "$t/said" "$rel"
+publish github "$t/said" "$rel"
+said() { cat "$t/said.txt" 2>/dev/null; }
+get -- --yes
+[ "$status" = 0 ] && [ "$(said)" = "github|unset|unset" ] || fail "get.sh from GitHub's release must say so ($status): $out $(said)"
+get PLAYKEEPER_BASE_URL=https://example.test/said -- --yes
+[ "$status" = 0 ] && [ "$(said)" = "mirror|unset|unset" ] || fail "get.sh from another location must say so ($status): $out $(said)"
+get PLAYKEEPER_INSTALL_SOURCE=playkeeper.io PLAYKEEPER_INSTALL_CHANNEL=hn DO_NOT_TRACK=1 -- --yes
+[ "$status" = 0 ] && [ "$(said)" = "playkeeper.io|hn|1" ] || fail "what playkeeper.io's command said, the channel and DO_NOT_TRACK must reach the installer ($status): $out $(said)"
+ok "the installer learns how get.sh was fetched: GitHub, another location, or what playkeeper.io's command said"
 
 # install.sh runs the playkeeper next to it only when it is built for this
 # CPU: byte 18 of an ELF file names it, 62 for x86_64 and 183 for AArch64.

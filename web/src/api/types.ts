@@ -550,6 +550,48 @@ export interface UpdateInfo {
   lastResult?: UpdateResult
 }
 
+/** What a machine's heartbeat to the stats service says, field for field (internal/usage). */
+export interface UsageReport {
+  id: string
+  version: string
+  os: string
+  osVersion: string
+  arch: string
+  source: string
+  channel?: string
+  kind: 'dashboard' | 'joined'
+  test?: boolean
+  address: 'free' | 'own' | 'ip'
+  servers: number
+  running: number
+}
+
+/** What decides whether a machine sends usage stats: root's choices come first, then the switch. */
+export type UsageReason = 'default' | 'settings' | 'install' | 'env' | 'dev'
+
+export interface UsageStats {
+  on: boolean
+  reason: UsageReason
+  variable?: string
+  canChange: boolean
+  lastSent?: string
+  service: string
+  report: UsageReport
+}
+
+/** A joined machine's usage stats, or why they can't be read. */
+export interface UsageMachine {
+  id: string
+  name: string
+  stats?: UsageStats
+  error?: ApiErrorBody
+}
+
+/** GET and PUT /api/usage-stats: the dashboard machine's, with each joined machine's. */
+export interface UsageStatsView extends UsageStats {
+  machines: UsageMachine[]
+}
+
 export interface CatalogEntry {
   id: string
   label: string
@@ -912,6 +954,8 @@ export interface JoinAddress {
   /** The IP address with the port, which always works. */
   direct?: string
   published: boolean
+  /** The server's own address under an own domain, which is then `address`, with its own records and page. */
+  ownAddress?: string
 }
 
 export interface FreeAddress {
@@ -994,6 +1038,8 @@ export interface RecordCheck extends Note {
   record: DNSRecord
   ok: boolean
   found?: string[]
+  /** A server's own address's record, which Servers' own addresses shows and the domain's `ready` leaves out. */
+  own?: boolean
 }
 
 export interface AddressCheck {
@@ -1695,6 +1741,25 @@ export interface TemplatePlan {
   blockers: AddonNotice[]
   ready: boolean
   fingerprint: string
+}
+
+/** The templates this release carries for New server › A template, the ones playkeeper.io offers. */
+export interface TemplateLibrary {
+  templates: LibraryTemplate[]
+}
+
+/** One template of the library. `file` is its text, planned like any template file. */
+export interface LibraryTemplate {
+  id: string
+  /** A file in assets/pixel-art. */
+  art: string
+  /** Its page on playkeeper.io. */
+  page?: string
+  /** The day a server was created and started from it, and the Playkeeper it ran on. */
+  checked?: string
+  release?: string
+  contents: TemplateContents
+  file: string
 }
 
 // Wave 5: invite links, the team, Discord and player profiles.

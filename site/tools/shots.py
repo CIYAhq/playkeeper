@@ -13,6 +13,11 @@ a larger one; screenshots in a phone frame get 1, 2 and 3 times the largest.
 A capture narrower than the widest of them is an error: nothing is ever
 enlarged.
 
+Template thumbnails, pictures of each template's world, are captures named
+templates/<template id>.png, 16:10 and at least 960 pixels wide: each is
+written at the two widths the directory's cards and pages use (THUMBS), to
+site/static/shots/templates, encoded for pictures rather than screens.
+
 Usage: python3 site/tools/shots.py <captures-dir>
 Needs Pillow 11.3 or newer, for AVIF."""
 import os
@@ -82,6 +87,11 @@ SLOTS = {
 }
 
 
+# A template thumbnail's widths: a card is at most 480 pixels wide at 1x and
+# a template's page 520, so 960 covers both at 2x.
+THUMBS = [480, 960]
+
+
 def widths(name):
     desktop, largest, phone = SLOTS[name]
     if name in PHONES:
@@ -98,9 +108,38 @@ def widths(name):
     return sorted(out)
 
 
+def thumbnails(captures):
+    folder = os.path.join(captures, "templates")
+    if not os.path.isdir(folder):
+        return
+    out = os.path.join(OUT, "templates")
+    os.makedirs(out, exist_ok=True)
+    for f in sorted(os.listdir(folder)):
+        if not f.endswith(".png") or f.startswith("_"):
+            continue
+        name = f[:-4]
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
+            sys.exit(f"templates/{f}: name it after its template, like templates/lifesteal-smp.png")
+        im = Image.open(os.path.join(folder, f)).convert("RGB")
+        if im.width * 10 != im.height * 16:
+            sys.exit(f"templates/{f} is {im.width} × {im.height}; thumbnails are 16:10, like 1920 × 1200")
+        if im.width < THUMBS[-1]:
+            sys.exit(f"templates/{f} is {im.width} pixels wide; the site needs {THUMBS[-1]}.")
+        for old in os.listdir(out):
+            if re.fullmatch(re.escape(name) + r"-\d+w\.(webp|avif)", old):
+                os.remove(os.path.join(out, old))
+        for w in THUMBS:
+            small = im if w == im.width else im.resize((w, w * 10 // 16), Image.LANCZOS)
+            base = os.path.join(out, f"{name}-{w}w")
+            small.save(base + ".avif", "AVIF", quality=60, subsampling="4:2:0", speed=4)
+            small.save(base + ".webp", "WEBP", quality=80, method=6)
+        print("templates/" + name, " ".join(f"{w}w" for w in THUMBS))
+
+
 def main():
     captures = sys.argv[1]
     os.makedirs(OUT, exist_ok=True)
+    thumbnails(captures)
     made = []
     for f in sorted(os.listdir(captures)):
         if not f.endswith(".png") or f.startswith("_"):
@@ -123,7 +162,7 @@ def main():
         made.append(name)
         print(name, " ".join(f"{w}w" for w in want))
     missing = sorted(set(SLOTS) - set(made))
-    if missing:
+    if made and missing:
         print("not in the captures, left as they were:", ", ".join(missing))
 
 

@@ -157,17 +157,21 @@ var reTransient = regexp.MustCompile(`(?i)slow down|rate limit|too many requests
 func transient(failure string) bool { return reTransient.MatchString(failure) }
 
 // disagree says how a template's committed check differs from this run in
-// what the check stands for: whether it passes and which versions install.
-// Days, seconds, builds and downloads move on their own.
+// what the check stands for: whether it passes, which versions install and
+// whether crossplay turns on. Days, seconds, builds and downloads move on
+// their own.
 func disagree(was *checks.Check, r result) string {
 	if r.Check == nil {
 		return ""
 	}
+	onOff := map[bool]string{true: "on", false: "off"}
 	switch {
 	case was == nil:
 		return "site/data/checks has no check for it: run template-check with -write and commit the file"
 	case was.Status != r.Check.Status:
 		return fmt.Sprintf("site/data/checks says %s, and it's %s now", was.Status, r.Check.Status)
+	case was.Crossplay != r.Check.Crossplay:
+		return fmt.Sprintf("site/data/checks says crossplay turns %s, and it turned %s now%s: run template-check with -write and commit the file", onOff[was.Crossplay], onOff[r.Check.Crossplay], parenthesized(r.CrossplayFailure))
 	}
 	versions := func(c *checks.Check) []string {
 		var v []string
@@ -224,15 +228,29 @@ func summary(w io.Writer, release string, results []result) {
 		fmt.Fprintln(w, "No templates to check.")
 		return
 	}
-	fmt.Fprintf(w, "\n### Templates on Playkeeper %s\n\n| Template | Result | Ready in | What went wrong |\n|---|---|---|---|\n", release)
+	fmt.Fprintf(w, "\n### Templates on Playkeeper %s\n\n| Template | Result | Ready in | Crossplay | What went wrong |\n|---|---|---|---|---|\n", release)
 	for _, r := range results {
-		ready := ""
+		ready, crossplay := "", ""
 		if r.Check != nil && r.Check.DoneSeconds > 0 {
 			ready = fmt.Sprintf("%.0f s", r.Check.DoneSeconds)
 		}
-		fmt.Fprintf(w, "| %s | %s | %s | %s |\n", r.ID, r.Status, ready, strings.ReplaceAll(r.Failure, "|", "/"))
+		switch {
+		case r.Check != nil && r.Check.Crossplay:
+			crossplay = "on"
+		case r.CrossplayFailure != "":
+			crossplay = "didn't turn on: " + r.CrossplayFailure
+		}
+		fmt.Fprintf(w, "| %s | %s | %s | %s | %s |\n", r.ID, r.Status, ready, strings.ReplaceAll(crossplay, "|", "/"), strings.ReplaceAll(r.Failure, "|", "/"))
 	}
 	fmt.Fprintln(w)
+}
+
+// parenthesized writes s as " (s)", or nothing when it's empty.
+func parenthesized(s string) string {
+	if s == "" {
+		return ""
+	}
+	return " (" + s + ")"
 }
 
 var errNoTemplates = errors.New("no templates match")

@@ -10,7 +10,7 @@ import type { ApiToken, Backup, Gameplay, NewToken, Operation, PlayStyle, Player
 import { t } from '@/i18n'
 import { count } from './analytics'
 import { automationReads, copyNewBackup } from './automation'
-import { chatter, config, demoUser, demoVersion, fakeSha, fill, freeName, iso, logText, machineId, me, noise, reads, sample, sampleVersion, serverOf, update, versionsOf, buildsFor, pinOf, type DemoState, type Job, type JobKind, type Live, type Request, type Routes, type Step } from './data'
+import { chatter, config, demoUser, demoVersion, fakeSha, fill, freeName, iso, logText, machineId, me, noise, reads, sample, sampleVersion, serverOf, update, usageStats, versionsOf, buildsFor, pinOf, type DemoState, type Job, type JobKind, type Live, type Request, type Routes, type Step } from './data'
 import { fileRoutes, textRoutes } from './files'
 import { demoMarker } from './marker'
 import { dt } from './messages'
@@ -692,6 +692,11 @@ const writes: Routes = {
     return op
   },
   'POST /api/machines/:machine/update/check': (_, r) => update(r.now),
+  'PUT /api/usage-stats': (s, r) => {
+    s.usageOn = (r.body as { on?: boolean } | undefined)?.on === true
+    audit(s, r.now, s.usageOn ? 'usage_stats.on' : 'usage_stats.off')
+    return usageStats(s, r.now)
+  },
   'POST /api/join-codes': () => {
     throw new ApiError(400, { error: dt('demo.noJoin'), code: 'demo' })
   },

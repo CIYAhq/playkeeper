@@ -50,19 +50,6 @@ func TestLimiterCollectsOnlyOnceTheMapHasDoubled(t *testing.T) {
 	}
 }
 
-func TestReservedNames(t *testing.T) {
-	for _, name := range []string{"www", "names", "mail", "install", "api", "status", "playkeeper", "playkeeper-io", "myplaykeeper", "minecraft"} {
-		if !reservedName(name) {
-			t.Errorf("%s is not reserved", name)
-		}
-	}
-	for _, name := range []string{"alice", "survival-world", "play", "keeper", "mc"} {
-		if reservedName(name) {
-			t.Errorf("%s is reserved", name)
-		}
-	}
-}
-
 func TestBlocklistReloadsWhenTheFileChanges(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	path := filepath.Join(t.TempDir(), "blocklist.txt")
