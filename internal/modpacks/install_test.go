@@ -3,6 +3,7 @@ package modpacks
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -397,6 +398,48 @@ func TestServerEnvironmentAndOptionalFiles(t *testing.T) {
 			t.Errorf("downloaded %s, which the server does not get", r)
 		}
 	}
+}
+
+// A Modrinth pack's index often says every file is for both sides. A mod
+// Modrinth lists as client-only stays off the server all the same, as Better
+// MC 5's Better Grassify stops a server's first start, unless the pack's own
+// files use it. A client-only mod that a mod on the server requires by
+// Modrinth's lists goes on, even one the index keeps off servers, as
+// Prominence II's Forge Config Screens needs Mod Menu. When Modrinth can't be
+// asked, the index decides.
+func TestModrinthPackModsBySide(t *testing.T) {
+	f := newFakes(t)
+	grass, menu, screens, particular, lib := []byte("grass"), []byte("menu"), []byte("screens"), []byte("particular"), []byte("lib")
+	f.modrinthMod("GRASS001", "grass-1.jar", grass, "client_only", "unsupported")
+	f.modrinthMod("MENU0001", "menu-1.jar", menu, "client_only", "unsupported")
+	f.modrinthMod("SCREEN01", "screens-1.jar", screens, "client_or_server_prefers_both", "optional")
+	f.editVersion("SCREEN01v", func(v obj) {
+		v["dependencies"] = []any{obj{"project_id": "MENU0001", "dependency_type": "required"}, obj{"project_id": "GRASS001", "dependency_type": "optional"}}
+	})
+	f.modrinthMod("PARTIC01", "particular-1.jar", particular, "client_only", "unsupported")
+	id := f.addPack(testIndex(
+		f.indexFile("mods/grass-1.jar", grass, "required", "required"),
+		f.indexFile("mods/menu-1.jar", menu, "required", "unsupported"),
+		f.indexFile("mods/screens-1.jar", screens, "required", "required"),
+		f.indexFile("mods/particular-1.jar", particular, "required", "required"),
+		f.indexFile("mods/lib-1.jar", lib, "required", "required"),
+	), entry{name: "overrides/datapacks/spring/data/spring/worldgen/biome/spring.json", data: []byte(`{"effects": {"particle": {"options": {"type": "particular:firefly"}}}}`)})
+	srv := newServer(t, "fabric", "26.2")
+	p := mustPlan(t, f.library(), srv, InstallRequest{Ref: testRef(id)})
+	wantList(t, "changes", changeList(p.Changes),
+		"add datapacks/spring/data/spring/worldgen/biome/spring.json",
+		"add mods/lib-1.jar", "add mods/menu-1.jar", "add mods/particular-1.jar", "add mods/screens-1.jar")
+	wantList(t, "skipped", skippedList(p.Skipped), "client_only mods/grass-1.jar")
+	wantList(t, "warnings", noticeList(p.Warnings))
+
+	f.hook("modrinth /v2/version_files", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadGateway) })
+	p = mustPlan(t, f.library(), srv, InstallRequest{Ref: testRef(id)})
+	wantList(t, "changes when Modrinth can't be asked", changeList(p.Changes),
+		"add datapacks/spring/data/spring/worldgen/biome/spring.json",
+		"add mods/grass-1.jar", "add mods/lib-1.jar", "add mods/particular-1.jar", "add mods/screens-1.jar")
+	wantList(t, "skipped when Modrinth can't be asked", skippedList(p.Skipped), "client_only mods/menu-1.jar")
+	wantList(t, "warnings when Modrinth can't be asked", noticeList(p.Warnings),
+		"environment_unknown: Playkeeper could not ask Modrinth which of Test Pack's mods are for the game client only, so it installs them all.")
 }
 
 // A pack's default-server.properties, which the Default Server Properties

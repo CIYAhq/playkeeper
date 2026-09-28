@@ -152,6 +152,30 @@ func TestCurseForgeClientModsModrinthKnowsStayOff(t *testing.T) {
 		"server_properties: Example Fabric Pack ships server settings that Playkeeper does not take from packs: motd, server-port.")
 }
 
+// A client-only mod of a CurseForge pack that another of its mods requires
+// by CurseForge's own lists goes on the server: Sodium, which CurseForge
+// tags for players' games, once Lithium requires it. An optional dependency
+// doesn't count.
+func TestCurseForgeClientModAServerModRequiresGoesOn(t *testing.T) {
+	const sodium = "mods/sodium-fabric-0.9.2+mc26.3.jar"
+	for _, c := range []struct {
+		name     string
+		relation int
+		on       bool
+	}{
+		{"required", curseforge.RequiredDependency, true},
+		{"optional", 2, false},
+	} {
+		f := newFakes(t)
+		f.cfChange(8895969, func(file obj) { file["dependencies"] = []any{obj{"modId": 394468, "relationType": c.relation}} })
+		pl := mustPlan(t, f.library(), newServer(t, "", ""), InstallRequest{Ref: cfRef("")})
+		on := slices.Contains(changeList(pl.Changes), "add "+sodium)
+		if on != c.on || slices.Contains(skippedList(pl.Skipped), "client_only "+sodium) == c.on {
+			t.Errorf("%s: changes %q, skipped %q", c.name, changeList(pl.Changes), skippedList(pl.Skipped))
+		}
+	}
+}
+
 func TestUpdateCurseForgePack(t *testing.T) {
 	ctx := context.Background()
 	f := newFakes(t)
