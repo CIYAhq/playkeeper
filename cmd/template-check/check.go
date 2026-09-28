@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -46,7 +49,10 @@ type result struct {
 	Check   *checks.Check `json:"check,omitempty"`
 	// Warnings are error lines in the log that didn't make it fail.
 	Warnings []string `json:"warnings,omitempty"`
-	Seconds  float64  `json:"seconds"`
+	// CrossplayFailure says why crossplay didn't turn on for a passing
+	// template's server, where the release offers it.
+	CrossplayFailure string  `json:"crossplayFailure,omitempty"`
+	Seconds          float64 `json:"seconds"`
 	// pinned is the template file with the exact versions that installed,
 	// when -pin asked for it.
 	pinned []byte
@@ -163,8 +169,56 @@ func (c *checker) check(ctx context.Context, id string, f *templateFile, bump, p
 		m.Downloads = c.sources.project(ctx, string(pack.Source), pack.Project, pack.Slug).downloads
 		facts.Modpack = &m
 	}
+	facts.Crossplay, r.CrossplayFailure = c.crossplay(ctx, sid)
+	if r.CrossplayFailure != "" && transient(r.CrossplayFailure) && sleep(ctx, c.retryAfter) == nil {
+		facts.Crossplay, r.CrossplayFailure = c.crossplay(ctx, sid)
+	}
 	r.Status, r.Check = statusPassing, facts
 	return r
+}
+
+// reGeyserStarted is Geyser's line once Bedrock players can connect.
+var reGeyserStarted = regexp.MustCompile(`Started Geyser on UDP port \d+`)
+
+// crossplay turns on crossplay for a passing template's server, where the
+// release offers it, and reports whether Geyser and Floodgate started beside
+// the template's add-ons, or why not. A release without crossplay, and a
+// server it isn't offered for, give false and no reason.
+func (c *checker) crossplay(ctx context.Context, sid string) (bool, string) {
+	var cp api.Crossplay
+	if status, err := c.agent.Do(ctx, "GET", "/v1/servers/"+sid+"/crossplay", nil, nil, &cp); err != nil {
+		if status == http.StatusNotFound || status == http.StatusMethodNotAllowed {
+			return false, ""
+		}
+		return false, err.Error()
+	}
+	if cp.On {
+		return false, "crossplay was on before the check turned it on"
+	}
+	if !cp.Available {
+		return false, ""
+	}
+	var op api.Operation
+	if _, err := c.agent.Do(ctx, "POST", "/v1/servers/"+sid+"/crossplay", nil, api.CrossplayRequest{On: true, Actor: c.actor}, &op); err != nil {
+		return false, err.Error()
+	}
+	if _, err := c.wait(ctx, op.ID, 10*time.Minute); err != nil {
+		return false, err.Error()
+	}
+	if err := c.waitOnline(ctx, sid, 5*time.Minute); err != nil {
+		return false, err.Error()
+	}
+	lines, err := c.logs(ctx, sid)
+	if err != nil {
+		return false, err.Error()
+	}
+	if log := readLog(lines); len(log.failures) > 0 {
+		return false, strings.Join(log.failures, " / ")
+	}
+	if !slices.ContainsFunc(lines, reGeyserStarted.MatchString) {
+		return false, "Geyser never said it started"
+	}
+	return true, ""
 }
 
 // plan asks the agent what the template would make.

@@ -197,6 +197,23 @@ func TestAFailingCheckHoldsItsTemplate(t *testing.T) {
 	}
 }
 
+// A template offers crossplay when its last check passed with crossplay on,
+// which the directory filters by.
+func TestACheckWithCrossplayMarksItsCard(t *testing.T) {
+	cards, err := loadTemplateCards(os.DirFS("../.."), "site/data/templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossplays(cards, map[string]*checks.Check{
+		"towny":    {Status: checks.Passing, Checked: "2026-09-29", Release: "0.4.4", DoneSeconds: 15, Crossplay: true},
+		"skyblock": {Status: checks.Passing, Checked: "2026-09-29", Release: "0.4.4", DoneSeconds: 15},
+		"creative": {Status: checks.Failing, Failure: "WorldEdit failed to enable", Checked: "2026-09-29", Release: "0.4.4", Crossplay: true},
+	})
+	if !cards["towny"].Crossplay || cards["skyblock"].Crossplay || cards["creative"].Crossplay {
+		t.Errorf("crossplay: towny %v, skyblock %v, creative %v", cards["towny"].Crossplay, cards["skyblock"].Crossplay, cards["creative"].Crossplay)
+	}
+}
+
 // A library page that doesn't describe exactly what its template installs,
 // or doesn't say how it was checked, stops the build.
 func TestLibraryFactsTheTemplateCantBackStopTheBuild(t *testing.T) {
