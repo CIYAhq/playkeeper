@@ -408,8 +408,8 @@ func (s *Server) Routes() []Route {
 		sm("POST", "/api/servers/{id}/addons/remove", "/v1/servers/{id}/addons/remove"),
 		sm("POST", "/api/servers/{id}/addons/adopt", "/v1/servers/{id}/addons/adopt"),
 		sm("POST", "/api/servers/{id}/addons/forget", "/v1/servers/{id}/addons/forget"),
-		sg("/api/servers/{id}/pregen", "/v1/servers/{id}/pregen"),
-		sm("POST", "/api/servers/{id}/pregen/start", "/v1/servers/{id}/pregen/start"),
+		view("/api/servers/{id}/pregen", s.hPregen),
+		{"POST", "/api/servers/{id}/pregen/start", needSessionCSRF, actManageServers, s.hPregenStart},
 		sm("POST", "/api/servers/{id}/pregen/pause", "/v1/servers/{id}/pregen/pause"),
 		sm("POST", "/api/servers/{id}/pregen/continue", "/v1/servers/{id}/pregen/continue"),
 		sm("POST", "/api/servers/{id}/pregen/cancel", "/v1/servers/{id}/pregen/cancel"),
@@ -531,8 +531,8 @@ func (s *Server) Routes() []Route {
 	// The map's area: anyone who sees the server sees it; choosing one, which
 	// pre-generates land, needs the rights to change the map.
 	routes = append(routes, []Route{
-		sg("/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
-		sm("POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
+		view("/api/servers/{id}/map/area", s.hMapArea),
+		{"POST", "/api/servers/{id}/map/area", needSessionCSRF, actManageServers, s.hMapAreaSet},
 	}...)
 	// 0.4.3: the public page at the machine's address. Anyone who sees the
 	// server sees its switches; changing them, like sharing the map, needs
