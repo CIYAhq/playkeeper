@@ -520,11 +520,13 @@ func (s *server) pregenAfterRestart(ctx context.Context, p pregen.Platform, task
 }
 
 // pregenMemoryKills is how many times the server ran out of memory since
-// task started.
+// task started, or since someone last resumed it, as after giving the
+// server more memory.
 func (s *server) pregenMemoryKills(task *pregenTask) int {
 	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE server_id = ? AND kind = 'server_crashed' AND ts > ? AND (detail LIKE ? OR detail LIKE ?)`,
-		s.id, task.StartedAt.UnixMilli(), oomCrash+"%", heapCrash+"%").Scan(&n); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE server_id = ? AND kind = 'server_crashed' AND (detail LIKE ? OR detail LIKE ?)
+		AND ts > MAX(?, COALESCE((SELECT MAX(ts) FROM audit WHERE server_id = ? AND action = ? AND actor != 'playkeeper'), 0))`,
+		s.id, oomCrash+"%", heapCrash+"%", task.StartedAt.UnixMilli(), s.id, pregenAudits["continue"]).Scan(&n); err != nil {
 		s.log.Warn("could not count the server's crashes", "server", s.id, "err", err)
 	}
 	return n
@@ -584,6 +586,14 @@ func (s *server) pregenCheck(ctx context.Context, p pregen.Platform) (*pregenTas
 		s.drawPregenerated(ctx)
 		return nil, nil
 	case pregen.StateCancelled, pregen.StateIdle:
+		if st.State == pregen.StateIdle && task.PausedFor == pregenPausedForMemory {
+			// The crash that paused the task took it before Chunky saved
+			// it, so Chunky has none until Resume starts it again.
+			s.pg.mu.Lock()
+			s.pg.idleSince = time.Time{}
+			s.pg.mu.Unlock()
+			break
+		}
 		s.pg.mu.Lock()
 		if s.pg.idleSince.IsZero() {
 			s.pg.idleSince = now

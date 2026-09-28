@@ -5853,6 +5853,14 @@ control "Resume starts a task Chunky lost again" internal/agent/pregen.go \
   '			if plan, ok := taskPlan(task); ok && errors.Is(err, pregen.ErrNothingToContinue) {' \
   '			if plan, ok := taskPlan(task); false && ok && errors.Is(err, pregen.ErrNothingToContinue) {' \
   ./internal/agent '^TestPregenATaskACrashDroppedIsStartedAgain$'
+control "a task paused for memory isn't taken as gone while Chunky has none" internal/agent/pregen.go \
+  '		if st.State == pregen.StateIdle && task.PausedFor == pregenPausedForMemory {' \
+  '		if false {' \
+  ./internal/agent '^TestPregenATaskACrashDroppedIsStartedAgain$'
+control "memory kills are counted from the last resume" internal/agent/pregen.go \
+  '(SELECT MAX(ts) FROM audit WHERE server_id = ?' \
+  '(SELECT MAX(ts) FROM audit WHERE 0 AND server_id = ?' \
+  ./internal/agent '^TestPregenATaskACrashDroppedIsStartedAgain$'
 control "only a task a restart dropped is sent again" internal/agent/pregen.go \
   '	if run.IsZero() || !run.After(task.StartedAt) || tried {' \
   '	if run.IsZero() || tried {' \

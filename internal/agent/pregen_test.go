@@ -670,7 +670,8 @@ func TestPregenATaskARestartDroppedIsStartedAgain(t *testing.T) {
 // came back on its own without the task Chunky hadn't saved. The agent
 // starts the task again after a crash as after a restart, once: killed for
 // memory again, the server gets no third try, the task is paused until
-// someone gives it more memory, and Resume starts it again.
+// someone gives it more memory, however long Chunky has no task meanwhile,
+// and Resume starts it again with its one more try.
 func TestPregenATaskACrashDroppedIsStartedAgain(t *testing.T) {
 	e := newAgentEnv(t)
 	e.withSources()
@@ -708,6 +709,17 @@ func TestPregenATaskACrashDroppedIsStartedAgain(t *testing.T) {
 	if running, _ := fc.state(); running || e.pregen().PausedBy != "memory" {
 		t.Fatal("the task paused for memory went on by itself")
 	}
+	// Chunky has had no task since the crash, which for a task paused for
+	// memory doesn't make it gone, however long that lasts.
+	s := e.srv()
+	s.pg.mu.Lock()
+	s.pg.idleSince = s.now().Add(-2 * pregenIdleGrace)
+	s.pg.mu.Unlock()
+	asked := e.rcon.count("chunky progress")
+	e.waitFor("the agent to look at the task", func() bool { return e.rcon.count("chunky progress") >= asked+3 })
+	if v := e.pregen(); v.State != "paused" || v.PausedBy != "memory" {
+		t.Fatalf("a task paused for memory, long after Chunky last had it: %+v", v)
+	}
 
 	if v := e.pregenAct("continue"); v.State != "running" && v.State != "unknown" {
 		t.Fatalf("resumed: %+v", v)
@@ -716,6 +728,15 @@ func TestPregenATaskACrashDroppedIsStartedAgain(t *testing.T) {
 		t.Fatalf("Resume didn't start the task Chunky lost: running %v, %+v", running, task)
 	}
 	e.waitFor("the resumed task to run", func() bool { return e.pregen().State == "running" })
+
+	// Resumed, as after giving the server more memory, the task has its one
+	// more try again: a restart that drops it is sent to Chunky again.
+	fc.loseOnStop()
+	e.serverOp("/restart")
+	e.waitFor("Chunky to run the resumed task again", func() bool { running, _ := fc.state(); return running })
+	if v := e.pregen(); v.PausedBy != "" {
+		t.Fatalf("the resumed task, after a restart dropped it: %+v", v)
+	}
 }
 
 // A task finishes when Chunky logs so, although it saved the task short of
