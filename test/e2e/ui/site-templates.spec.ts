@@ -262,6 +262,8 @@ test('a dashboard is found from its free name, a server address on it, or its ad
   ]) {
     expect(await parse(typed), typed).toBe(want)
   }
+  // This site is never a dashboard.
+  expect(await parse(`https://${new URL(page.url()).host}`)).toBe('')
 })
 
 test("a card's name opens the template's page", async ({ page }) => {

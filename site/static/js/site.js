@@ -427,7 +427,8 @@
     } catch (err) {
       return '';
     }
-    if (u.protocol !== 'https:' || !u.hostname || u.username || u.password) return '';
+    // playkeeper.io is never a dashboard, even from the live demo.
+    if (u.protocol !== 'https:' || !u.hostname || u.username || u.password || u.host === location.host) return '';
     // A server's own address, like survival.siya.playkeeper.me, is on the
     // machine whose dashboard is at siya.playkeeper.me.
     var server = /^(?:[a-z0-9-]+\.)+([a-z0-9-]+\.playkeeper\.me)$/.exec(u.hostname);
