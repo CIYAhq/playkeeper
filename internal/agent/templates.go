@@ -93,6 +93,14 @@ func (s *server) templateSetup(ctx context.Context) (templates.Setup, error) {
 				st.Folder = scan
 			}
 		}
+		// Crossplay's plugins travel only with its port, which a template
+		// can't open (templateCrossplayLeftOut).
+		st.Addons = slices.DeleteFunc(st.Addons, func(rec addons.Installed) bool { return isCrossplay(rec.Key()) })
+		if st.Folder != nil {
+			st.Folder.Entries = slices.DeleteFunc(slices.Clone(st.Folder.Entries), func(e addons.ScanEntry) bool {
+				return e.Installed != nil && isCrossplay(e.Installed.Key()) || e.Identified != nil && isCrossplay(e.Identified.Key())
+			})
+		}
 	}
 	if m := sc.Modpack; m != nil && !m.Pending {
 		rec, err := s.packRecord()
@@ -156,6 +164,9 @@ func (s *server) hTemplate(w http.ResponseWriter, r *http.Request) {
 	out := api.TemplateExport{
 		FileName: templates.FileName(t), File: string(file), Contents: templateContents(t), Available: templateContents(all),
 		PacksHere: len(st.Packs), LeftOut: apiNotices(rep.LeftOut), Notes: apiNotices(rep.Notes),
+	}
+	if sc, err := s.serverConfig(); err == nil && crossplayOn(sc) {
+		out.LeftOut = append(out.LeftOut, templateCrossplayLeftOut)
 	}
 	if l, err := templates.NewLink(t); err == nil {
 		out.Link, out.LinkLong = l.URL, l.Warning != nil

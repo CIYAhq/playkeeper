@@ -198,7 +198,10 @@ func TestCrossplayProjects(t *testing.T) {
 	if e.Msg != "Crossplay is only offered for Paper and Purpur servers; this server runs Fabric." || e.Hint != "Bedrock players can join a Paper or Purpur server." {
 		t.Errorf("notice %+v", e.Notice)
 	}
-	wantKind(t, CrossplayFor("vanilla"), addons.KindNoAddons)
+	if e := wantKind(t, CrossplayFor("vanilla"), KindNotForType); e.Msg != "Crossplay is only offered for Paper and Purpur servers; this server runs Vanilla." {
+		t.Errorf("notice %+v", e.Notice)
+	}
+	wantKind(t, CrossplayFor("folia"), addons.KindUnknownServerType)
 	steps := CrossplaySteps(19133)
 	if len(steps) != 2 || steps[0].Kind != KindOpenPort || steps[0].Params["port"] != "19133" || steps[0].Params["protocol"] != "udp" || steps[1].Kind != KindConsoles {
 		t.Errorf("steps %+v", steps)

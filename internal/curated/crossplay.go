@@ -63,15 +63,17 @@ func IsCrossplayProject(key addons.Key) bool {
 
 // CrossplayFor checks that crossplay runs on a server type.
 func CrossplayFor(serverType string) error {
-	t, err := addons.TargetFor(serverType)
-	if err != nil {
-		return err
-	}
 	if slices.Contains(CrossplayTypes, serverType) {
 		return nil
 	}
+	name := "Vanilla"
+	if t, err := addons.TargetFor(serverType); err == nil {
+		name = t.Name()
+	} else if serverType != "vanilla" {
+		return err
+	}
 	return &addons.Error{Notice: notice(KindNotForType, kv("id", "crossplay", "name", "Crossplay", "type", serverType, "types", strings.Join(CrossplayTypes, ",")),
-		fmt.Sprintf("Crossplay is only offered for %s servers; this server runs %s.", typeNames(CrossplayTypes), t.Name()),
+		fmt.Sprintf("Crossplay is only offered for %s servers; this server runs %s.", typeNames(CrossplayTypes), name),
 		"Bedrock players can join a Paper or Purpur server.")}
 }
 

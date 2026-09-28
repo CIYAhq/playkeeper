@@ -71,6 +71,8 @@ type ServerStatus struct {
 	// survival.alex.playkeeper.me, once its DNS records work; empty until
 	// then, when players use the IP address and port.
 	JoinAddress string `json:"joinAddress,omitempty"`
+	// Bedrock is where Bedrock players join while crossplay is on.
+	Bedrock *BedrockJoin `json:"bedrock,omitempty"`
 	// WorldBytes is the world's size on disk (all its dimensions), measured
 	// every few minutes.
 	WorldBytes      *int64     `json:"worldBytes,omitempty"`
@@ -355,6 +357,10 @@ type ServerConfig struct {
 	// VoiceChatPort is the UDP port voice chat has on this server, published
 	// from its container with the same number (wave 4); 0 without voice chat.
 	VoiceChatPort int `json:"voiceChatPort,omitempty"`
+	// CrossplayPort is the UDP port Bedrock players join on through Geyser,
+	// published from the container with the same number (from 0.4.3); 0
+	// while crossplay is off.
+	CrossplayPort int `json:"crossplayPort,omitempty"`
 }
 
 type CreateServerRequest struct {
@@ -1119,6 +1125,48 @@ type AddonDetails struct {
 type AddonPort struct {
 	Protocol string `json:"protocol"` // udp or tcp
 	Port     int    `json:"port"`
+}
+
+// Crossplay (from 0.4.3): Bedrock players join a Paper or Purpur server
+// through Geyser and Floodgate, on a UDP port of its own.
+
+// BedrockJoin is where Bedrock players join a server: Host is the machine's
+// name once its DNS records work, else empty, and players use the address
+// the dashboard was opened at or the machine's IP address. Bedrock doesn't
+// follow the SRV records servers' own names use, so Port is always needed.
+type BedrockJoin struct {
+	Host string `json:"host,omitempty"`
+	Port int    `json:"port"`
+}
+
+// Crossplay is a server's crossplay switch.
+type Crossplay struct {
+	On bool `json:"on"`
+	// Port is the UDP port Bedrock players join on, or the one they would
+	// get if crossplay were turned on now.
+	Port int `json:"port,omitempty"`
+	// Available is false when crossplay can't be turned on, for the reason
+	// in Notice: the server type, or no Geyser or Floodgate for its
+	// Minecraft version.
+	Available bool         `json:"available"`
+	Notice    *AddonNotice `json:"notice,omitempty"`
+	// Plugins are the versions of Geyser and Floodgate on the server.
+	Plugins []CrossplayPlugin `json:"plugins"`
+	// Prefix goes in front of Bedrock players' names on the server.
+	Prefix string `json:"prefix"`
+}
+
+// CrossplayPlugin is Geyser or Floodgate as installed on a server.
+type CrossplayPlugin struct {
+	Name          string `json:"name"`
+	VersionNumber string `json:"versionNumber"`
+	Source        string `json:"source"`
+}
+
+// CrossplayRequest turns crossplay on or off.
+type CrossplayRequest struct {
+	On    bool   `json:"on"`
+	Actor string `json:"actor"`
 }
 
 // CuratedAddons are the add-ons Playkeeper picked by hand that have a

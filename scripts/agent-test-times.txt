@@ -124,6 +124,9 @@ TestCreateFromTemplateDownloadsItsDataPacks 4.1
 TestCreateFromTemplateRefusesAChangedPlan 2.1
 TestCreateFromTemplateTriesAgainOnTheNextStart 4.2
 TestCreateStartStopAreIdempotent 4.4
+TestCrossplayIsOnlyForPaperAndPurpur 2.1
+TestCrossplaySwitchOpensItsPortAndInstallsBothPlugins 6.2
+TestCrossplayThatFailsClosesItsPort 4.2
 TestCuratedPicksAreTheOnesThatFitTheServer 2.1
 TestCurseForgeKeyIsCheckedSavedAndRemoved 0.0
 TestDailySummaryFlagsIncompleteSessions 0.0
@@ -287,6 +290,7 @@ TestRestoreBringsTheBackupsModpack 24.8
 TestRestoreInterruptedUnder030IsKeptOnlyWithTheBackupsSettings 12.6
 TestRestoreInterruptedUnder030IsRecovered 31.9
 TestRestoreKeepsBothCopiesWhenPuttingThePreviousWorldBackFails 4.4
+TestRestoreKeepsCrossplaysPort 11.0
 TestRestoreKeepsVoiceChatsPort 12.5
 TestRestoreNeedsAVerifiedRollbackArchive 4.2
 TestRestorePreviewSaysOnceTheBackupWasMadeHere 2.1
@@ -379,6 +383,7 @@ TestVanillaVersionChange 4.1
 TestVersionChangeBacksUpFirstAndStartsTheNewVersion 4.1
 TestVersionChangesNeverGoBack 2.1
 TestVersionThatDoesNotStartPutsTheWorldBack 4.2
+TestVoiceChatAndCrossplayNeverShareAPort 2.1
 TestVoiceChatInstallOpensItsPortFirst 6.2
 TestVoiceChatIsFoundInPacksFromEitherSource 0.0
 TestVoiceChatOpensItsPortAndClosesItWhenRemoved 6.7
