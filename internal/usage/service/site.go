@@ -150,14 +150,16 @@ func newSiteReader(cfg Config) *siteReader {
 
 // numbers are the site's numbers for each window, when they were read, and
 // why the latest read failed, if it did. A read that fails keeps the numbers
-// from before.
+// from before. A read outlives the request that started it, so one dropped
+// halfway isn't taken for Open Analytics failing; requests that come
+// meanwhile wait for it, at most its 15 seconds.
 func (r *siteReader) numbers(ctx context.Context, now time.Time) (map[string]siteNumbers, time.Time, string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	fresh := !r.readAt.IsZero() && now.Sub(r.readAt) < siteEvery
 	if !fresh && (r.triedAt.IsZero() || now.Sub(r.triedAt) >= siteRetry) {
 		r.triedAt = now
-		windows, err := r.read(ctx, now)
+		windows, err := r.read(context.WithoutCancel(ctx), now)
 		if err != nil {
 			r.err = err.Error()
 		} else {

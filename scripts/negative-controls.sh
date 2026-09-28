@@ -6653,6 +6653,10 @@ control "a failed read of the site's analytics isn't tried again at once" intern
   'if !fresh && (r.triedAt.IsZero() || now.Sub(r.triedAt) >= siteRetry) {' \
   'if !fresh {' \
   ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+control "a read of the site's analytics outlives a dropped request" internal/usage/service/site.go \
+  'r.read(context.WithoutCancel(ctx), now)' \
+  'r.read(ctx, now)' \
+  ./internal/usage/service '^TestADroppedRequestDoesntStopTheSitesNumbersBeingRead$'
 control "the site's read key goes to Open Analytics as a bearer token" internal/usage/service/site.go \
   '	req.Header.Set("Authorization", "Bearer "+r.key)' \
   '	req.Header.Set("Authorization", r.key)' \

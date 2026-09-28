@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -21,6 +22,7 @@ type fakeOA struct {
 	srv   *httptest.Server
 	reads atomic.Int32
 	fail  atomic.Bool
+	slow  atomic.Bool
 	bad   atomic.Value // what was wrong with a request, if anything
 }
 
@@ -38,6 +40,9 @@ func newFakeOA(t *testing.T) *fakeOA {
 			f.bad.Store("a read key was sent with the site's header, which Open Analytics refuses")
 		case errFrom != nil || errTo != nil || q.Get("timezone") != "UTC" || from.Unix()%3600 != 0 || to.Unix()%3600 != 0:
 			f.bad.Store("the window isn't whole UTC hours: " + r.URL.RawQuery)
+		}
+		if f.slow.Load() {
+			time.Sleep(500 * time.Millisecond)
 		}
 		if f.fail.Load() {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -170,6 +175,22 @@ func TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun(
 			t.Errorf("the summary or the log shows %q", secret)
 		}
 	}
+}
+
+// A request for the summary that is dropped while the site's numbers are
+// read doesn't stop the read, so the next request has them.
+func TestADroppedRequestDoesntStopTheSitesNumbersBeingRead(t *testing.T) {
+	oa := newFakeOA(t)
+	oa.slow.Store(true)
+	e := newEnv(t, func(c *Config) { c.OAKey, c.OAAPI = testOAKey, oa.srv.URL })
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, _ = e.svc.Summary(ctx)
+	s := e.summary()
+	if f := s.Funnel["1d"]; f.Visitors == nil || *f.Visitors != 40 || s.Site.Error != "" {
+		t.Errorf("after a dropped request: visitors %v, site %+v", f.Visitors, s.Site)
+	}
+	oa.check(t)
 }
 
 // Without a key, the funnel has the service's own steps and says the site's
