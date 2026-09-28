@@ -148,23 +148,139 @@ test('a crossplay template is marked on its card, and Bedrock or GeyserMC finds 
   await expect(page).toHaveURL(/\/templates\/towny\/towny$/)
 })
 
-test('a card opens its template in the share page, and a card the script draws goes there through /t/<id>', async ({ page }) => {
+const DASHBOARD = 'https://siya.playkeeper.me:8443'
+/** The template /t/<id> sends the browser on with, from its refresh. */
+const templateOf = async (page: Page, id: string) => /url=\/t#([A-Za-z0-9_-]+)/.exec(await (await page.request.get(`/t/${id}`)).text())![1]
+
+test('Open in my dashboard asks once where the dashboard is, then opens templates there in one click', async ({ page, context }) => {
+  // The dashboard is a page this test serves at its address.
+  await context.route(`${DASHBOARD}/**`, (route) => route.fulfill({ contentType: 'text/html', body: '<title>Dashboard</title>' }))
   await page.goto('/templates', { waitUntil: 'networkidle' })
   const first = page.locator('[data-dir-grid] .dcard').first()
   const name = (await first.locator('.dcard-name').textContent())!.trim()
-  await expect(first.locator('.dcard-open')).toHaveAttribute('href', /^\/t#[A-D][A-Za-z0-9_-]+$/)
-  await first.locator('.dcard-open').click()
-  await expect(page).toHaveURL(/\/t#/)
+  const open = first.locator('.dcard-open')
+  await expect(open).toHaveAttribute('href', /^\/t#[A-D][A-Za-z0-9_-]+$/)
+  const template = (await open.getAttribute('href'))!.slice(3)
+  await expect(page.locator('[data-dashboard-line]').first()).toBeHidden()
+
+  // The first time, it asks. Without a dashboard, the share page says what
+  // the template sets up and how to get one.
+  await open.click()
+  const dialog = page.getByRole('dialog', { name: 'Where’s your dashboard?' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('textbox', { name: 'Your dashboard' })).toBeFocused()
+  await dialog.getByRole('link', { name: 'See what the template sets up' }).click()
+  await expect(page).toHaveURL(new RegExp(`/t#${template}$`))
   await expect(page.locator('#t-name')).toHaveText(name)
 
+  // A name is enough; something that isn't an address is refused.
+  await page.goto('/templates', { waitUntil: 'networkidle' })
+  await open.click()
+  await dialog.getByRole('textbox', { name: 'Your dashboard' }).fill('http://203.0.113.7')
+  await dialog.getByRole('button', { name: 'Open' }).click()
+  await expect(dialog.getByRole('status')).toContainText('like alex')
+  await dialog.getByRole('textbox', { name: 'Your dashboard' }).fill('siya')
+  await page.keyboard.press('Enter')
+  await page.waitForURL(`${DASHBOARD}/servers/new#template=${template}`)
+
+  // Remembered: every card opens there at once, a copied or middle-clicked
+  // link too, and the page says where.
+  await page.goto('/templates', { waitUntil: 'networkidle' })
+  await expect(open).toHaveAttribute('href', `${DASHBOARD}/servers/new#template=${template}`)
+  await expect(page.locator('.dir-toolbar [data-dashboard-line]')).toHaveText(/^Opens in siya\.playkeeper\.meChange/)
+  await open.click()
+  await page.waitForURL(`${DASHBOARD}/servers/new#template=${template}`)
+
+  // A card the script draws links /t/<id>; it opens there too.
   await page.goto('/templates?q=towny', { waitUntil: 'networkidle' })
   const drawn = page.locator('[data-dir-grid] .dcard-open').first()
   await expect(drawn).toHaveAttribute('href', '/t/towny')
   await drawn.click()
-  await page.waitForURL(/\/t#[A-D]/)
-  await expect(page.locator('#t-name')).toHaveText('Towny')
+  await page.waitForURL(`${DASHBOARD}/servers/new#template=${await templateOf(page, 'towny')}`)
 
-  // The card's name opens the template's page, whose Copy link copies /t/<id>.
+  // Change, then Forget: templates ask again.
+  await page.goto('/templates/towny/towny', { waitUntil: 'networkidle' })
+  await expect(page.locator('.tpage-intro [data-dashboard-line]')).toContainText('siya.playkeeper.me')
+  await page.locator('.tpage-intro [data-dashboard-line]').getByRole('button', { name: 'Change your dashboard' }).click()
+  const change = page.getByRole('dialog', { name: 'Your dashboard' })
+  await expect(change.getByRole('textbox', { name: 'Your dashboard' })).toHaveValue('siya.playkeeper.me')
+  await change.getByRole('textbox', { name: 'Your dashboard' }).fill('203.0.113.7')
+  await change.getByRole('button', { name: 'Save' }).click()
+  await expect(page.locator('.tpage-actions .btn-primary')).toHaveAttribute('href', /^https:\/\/203\.0\.113\.7:8443\/servers\/new#template=[A-D]/)
+  await page.locator('.tpage-intro [data-dashboard-line]').getByRole('button', { name: 'Change your dashboard' }).click()
+  await change.getByRole('button', { name: 'Forget it' }).click()
+  await expect(page.locator('.tpage-intro [data-dashboard-line]')).toBeHidden()
+  await expect(page.locator('.tpage-actions .btn-primary')).toHaveAttribute('href', /^\/t#[A-D]/)
+  expect(await page.evaluate(() => localStorage.getItem('playkeeper.dashboard'))).toBeNull()
+})
+
+test('the share page opens a template in the dashboard this browser knows in one click, or in another typed short', async ({ page, context }) => {
+  await context.addInitScript((d) => localStorage.setItem('playkeeper.dashboard', d), DASHBOARD)
+  for (const d of [DASHBOARD, 'https://203.0.113.7:8443']) await context.route(`${d}/**`, (route) => route.fulfill({ contentType: 'text/html', body: '<title>Dashboard</title>' }))
+  const template = await templateOf(page, 'towny')
+  await page.goto(`/t#${template}`, { waitUntil: 'networkidle' })
+  await expect(page.locator('#t-name')).toHaveText('Towny')
+  await expect(page.getByRole('textbox', { name: 'Your dashboard' })).toBeHidden()
+  await page.getByRole('button', { name: 'Open in siya.playkeeper.me' }).click()
+  await page.waitForURL(`${DASHBOARD}/servers/new#template=${template}`)
+
+  await page.goto(`/t#${template}`, { waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: 'Use another dashboard' }).click()
+  await expect(page.getByRole('textbox', { name: 'Your dashboard' })).toBeFocused()
+  await page.getByRole('textbox', { name: 'Your dashboard' }).fill('203.0.113.7')
+  await page.getByRole('button', { name: 'Open', exact: true }).click()
+  await page.waitForURL(`https://203.0.113.7:8443/servers/new#template=${template}`)
+})
+
+test("the dashboard's Browse templates link leaves its address in this browser, never in the analytics, then shows the directory", async ({ page, context }) => {
+  const seen: string[] = []
+  await context.exposeFunction('sawAddress', (href: string) => void seen.push(href))
+  await context.route('https://analytics-c.ciya.so/oa.js', (route) => route.fulfill({ contentType: 'text/javascript', body: 'sawAddress(location.href); window.oa = { track: function () { sawAddress(location.href) }, flush: function () {} }' }))
+  await page.goto(`/t#dashboard=${encodeURIComponent(DASHBOARD)}`)
+  await page.waitForURL(/\/templates$/)
+  await expect(page.locator('.dir-toolbar [data-dashboard-line]')).toHaveText(/^Opens in siya\.playkeeper\.meChange/)
+  expect(await page.evaluate(() => localStorage.getItem('playkeeper.dashboard'))).toBe(DASHBOARD)
+  await expect.poll(() => seen.length, 'the analytics loaded on /templates').toBeGreaterThan(0)
+  expect(seen.filter((href) => href.includes('siya') || href.includes('#')), 'addresses the analytics saw').toEqual([])
+
+  // Only an https:// address is kept.
+  await page.goto(`/t#dashboard=${encodeURIComponent('http://203.0.113.7:8443')}`)
+  await page.waitForURL(/\/templates$/)
+  expect(await page.evaluate(() => localStorage.getItem('playkeeper.dashboard'))).toBe(DASHBOARD)
+})
+
+test('a dashboard is found from its free name, a server address on it, or its address with or without https:// and the port', async ({ page }) => {
+  await page.goto('/templates')
+  const parse = (typed: string) => page.evaluate((s) => (window as unknown as { playkeeperSite: { dashboard: { parse: (s: string) => string } } }).playkeeperSite.dashboard.parse(s), typed)
+  for (const [typed, want] of [
+    ['siya', DASHBOARD],
+    [' Siya ', DASHBOARD],
+    ['siya.playkeeper.me', DASHBOARD],
+    ['survival.siya.playkeeper.me', DASHBOARD],
+    ['https://siya.playkeeper.me:8443/servers/new', DASHBOARD],
+    ['203.0.113.7', 'https://203.0.113.7:8443'],
+    ['203.0.113.7:9443', 'https://203.0.113.7:9443'],
+    ['panel.example.com', 'https://panel.example.com:8443'],
+    ['panel.example.com:443', 'https://panel.example.com'],
+    ['https://panel.example.com', 'https://panel.example.com'],
+    ['http://203.0.113.7:8443', ''],
+    ['', ''],
+  ]) {
+    expect(await parse(typed), typed).toBe(want)
+  }
+  // This site is never a dashboard.
+  expect(await parse(`https://${new URL(page.url()).host}`)).toBe('')
+  // What a field shows for a saved dashboard reads back as the same one.
+  for (const origin of [DASHBOARD, 'https://203.0.113.7:8443', 'https://203.0.113.7:9443', 'https://panel.example.com']) {
+    const back = await page.evaluate((o) => {
+      const d = (window as unknown as { playkeeperSite: { dashboard: { parse: (s: string) => string; typed: (s: string) => string } } }).playkeeperSite.dashboard
+      return d.parse(d.typed(o))
+    }, origin)
+    expect(back, origin).toBe(origin)
+  }
+})
+
+test("a card's name opens the template's page", async ({ page }) => {
   await page.goto('/templates', { waitUntil: 'networkidle' })
   await page.locator('[data-dir-grid] .dcard-link').getByText('Towny', { exact: true }).click()
   await expect(page).toHaveURL(/\/templates\/towny\/towny$/)

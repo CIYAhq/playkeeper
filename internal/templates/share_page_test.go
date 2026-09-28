@@ -75,7 +75,7 @@ func TestSharePageKeepsTheTemplateInTheBrowser(t *testing.T) {
 		}
 	}
 	for _, c := range []struct{ pattern, allowed string }{
-		{`location\.(\w+)`, "hash assign"},
+		{`location\.(\w+)`, "hash assign replace"},
 		{`localStorage\.(\w+)`, "getItem setItem"},
 		{`\.(\w+) = `, "hidden textContent value title port"},
 	} {
@@ -87,6 +87,11 @@ func TestSharePageKeepsTheTemplateInTheBrowser(t *testing.T) {
 	}
 	if got := matches(`setItem\(([^)]*)\)`, js); !slices.Equal(got, []string{"STORE, origin"}) {
 		t.Errorf("site/static/js/t.js stores %q, want only the dashboard's address", got)
+	}
+	// The dashboard's Browse templates link comes through the page, which
+	// then shows the directory in its place.
+	if got := matches(`location\.replace\(([^)]*)\)`, js); !slices.Equal(got, []string{"'/templates'"}) {
+		t.Errorf("site/static/js/t.js replaces the page with %q, want only the directory", got)
 	}
 }
 

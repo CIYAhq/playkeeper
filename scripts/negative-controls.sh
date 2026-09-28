@@ -2021,10 +2021,60 @@ control "only the server files of the pack's own version are used" internal/modp
   'sp.ParentProjectFileID == nil || *sp.ParentProjectFileID != file.ID || ' \
   '' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
-control "a CurseForge pack's mods Modrinth lists as client-only stay off the server" internal/modpacks/resolve.go \
-  'case f.ClientOnly() || p.modrinthClient[f.SHA1()]:' \
+control "Missing Mods Checker stays off the server" internal/modpacks/missingmods.go \
+  'delete(p.files, jar)' \
+  '_ = jar' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "the mods Missing Mods Checker lists come from CurseForge" internal/modpacks/missingmods.go \
+  'p.files[target] = &packFile{' \
+  '_ = &packFile{' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "a mod Missing Mods Checker lists that CurseForge flagged as malware stops the install" internal/modpacks/missingmods.go \
+  'case f.FileStatus == curseforge.StatusMalwareDetected:' \
+  'case false && f.FileStatus == curseforge.StatusMalwareDetected:' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "a mod Missing Mods Checker lists that CurseForge no longer offers gets a step" internal/modpacks/missingmods.go \
+  'if !seen[id] {' \
+  'if false && !seen[id] {' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "a mod Missing Mods Checker lists that CurseForge tags for players stays off" internal/modpacks/missingmods.go \
   'case f.ClientOnly():' \
+  'case false && f.ClientOnly():' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "a CurseForge pack's mods Modrinth lists as client-only stay off the server" internal/modpacks/resolve.go \
+  'case (f.ClientOnly() || p.modrinthClient[f.SHA1()]) && !p.needed[f.SHA1()]:' \
+  'case f.ClientOnly() && !p.needed[f.SHA1()]:' \
   ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "a CurseForge pack's client-only mod another of its mods requires goes on the server" internal/modpacks/resolve.go \
+  'case (f.ClientOnly() || p.modrinthClient[f.SHA1()]) && !p.needed[f.SHA1()]:' \
+  'case f.ClientOnly() || p.modrinthClient[f.SHA1()]:' \
+  ./internal/modpacks '^TestCurseForgeClientModAServerModRequiresGoesOn$'
+control "an optional CurseForge file's dependencies don't keep a client-only mod" internal/modpacks/resolve.go \
+  '		case mf.Required:
+			onServer = append(onServer, f.SHA1())' \
+  '		default:
+			onServer = append(onServer, f.SHA1())' \
+  ./internal/modpacks '^TestCurseForgeClientModAServerModRequiresGoesOn$'
+control "only a CurseForge file's required dependencies keep a client-only mod" internal/modpacks/resolve.go \
+  'if d.RelationType == curseforge.RequiredDependency {' \
+  'if d.RelationType != 0 {' \
+  ./internal/modpacks '^TestCurseForgeClientModAServerModRequiresGoesOn$'
+control "a Modrinth pack's mods Modrinth lists as client-only stay off the server" internal/modpacks/resolve.go \
+  'case env == mrpack.Unsupported || p.modrinthClient[sha1]:' \
+  'case env == mrpack.Unsupported:' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
+control "a Modrinth pack's client-only mod a mod on the server requires goes on" internal/modpacks/resolve.go \
+  'case p.needed[sha1]:' \
+  'case false && p.needed[sha1]:' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
+control "what a kept client-only mod requires in turn stays off" internal/modpacks/resolve.go \
+  'for _, m := range onServer {' \
+  'for _, m := range append(onServer, clientOnly...) {' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
+control "only a Modrinth version's required dependencies keep a client-only mod" internal/modpacks/resolve.go \
+  'if d.DependencyType == modrinth.Required && pr != "" {' \
+  'if pr != "" {' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
 control "a mod version from before Modrinth's environment field goes by its project's server side" internal/modpacks/resolve.go \
   'if r, ok := runs[v.ProjectID]; ok {' \
   'if r, ok := runs[v.ProjectID]; false && ok {' \
@@ -2034,9 +2084,13 @@ control "a client-only mod the pack's own files use stays on the server" interna
   '_ = sha1' \
   ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
 control "only a pack's text files are read for the mods they use" internal/modpacks/resolve.go \
-  'if !mentionsFile(rel) || e.UncompressedSize64 > maxMentionsFile {' \
-  'if (rel == "" && !mentionsFile(rel)) || e.UncompressedSize64 > maxMentionsFile {' \
+  'if !mentionsFile(rel) || !serverData(rel) || e.UncompressedSize64 > maxMentionsFile {' \
+  'if (rel == "" && !mentionsFile(rel)) || !serverData(rel) || e.UncompressedSize64 > maxMentionsFile {' \
   ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "only a pack's data and server scripts keep a client-only mod they name" internal/modpacks/resolve.go \
+  'if !mentionsFile(rel) || !serverData(rel) || e.UncompressedSize64 > maxMentionsFile {' \
+  'if !mentionsFile(rel) || e.UncompressedSize64 > maxMentionsFile {' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
 control "a CurseForge pack whose mods Modrinth can't be asked about says so" internal/modpacks/resolve.go \
   'if err != nil {
 		p.warn(notice(KindUnverifiedEnv, kv("pack", p.info.Name),' \
