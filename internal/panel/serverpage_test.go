@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"image/png"
 	"io"
 	"net"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/sharecard"
 )
 
 const pageHostName = "mc.example.com"
@@ -370,5 +372,54 @@ func TestTheDashboardShowsThePortsAndTriesAgain(t *testing.T) {
 	e.srv.cfg.PanelPort = 443
 	if want := e.srv.pagePortsWanted(); want.HTTPS {
 		t.Fatal("the keeper asks for the dashboard's own port")
+	}
+}
+
+func TestThePageHasALiveShareCardAndMayFrameAStream(t *testing.T) {
+	a := &pageAgent{}
+	a.on.Store(true)
+	e := newPageEnv(t, a)
+	h := e.srv.securityHeaders(e.srv.pageHandler(true))
+	resp, body := pageGet(t, h, "GET", pageHostName, "/")
+	if !strings.Contains(body, `<meta property="og:image" content="http://mc.example.com/api/public/server-page/card.png?at=`) || !strings.Contains(body, `<meta name="twitter:card" content="summary_large_image">`) {
+		t.Fatalf("the page's preview tags: %s", body)
+	}
+	if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "frame-src https://player.twitch.tv https://www.youtube-nocookie.com;") || !strings.Contains(csp, "frame-ancestors 'none'") {
+		t.Fatalf("the page's CSP: %q", csp)
+	}
+	dash := httptest.NewRecorder()
+	e.srv.Handler().ServeHTTP(dash, httptest.NewRequest("GET", "/", nil))
+	if strings.Contains(dash.Header().Get("Content-Security-Policy"), "frame-src") {
+		t.Fatalf("the dashboard lets pages frame others: %q", dash.Header().Get("Content-Security-Policy"))
+	}
+	resp, card := pageGet(t, h, "GET", pageHostName, "/api/public/server-page/card.png")
+	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "image/png" {
+		t.Fatalf("the card: %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	img, err := png.Decode(strings.NewReader(card))
+	if err != nil || img.Bounds().Dx() != sharecard.Width || img.Bounds().Dy() != sharecard.Height {
+		t.Fatalf("the card is %v (%v)", img, err)
+	}
+	a.on.Store(false)
+	e.clock.add(pageCacheFor + time.Second)
+	if resp, _ := pageGet(t, h, "GET", pageHostName, "/api/public/server-page/card.png"); resp.StatusCode != 404 {
+		t.Fatalf("the card of a page that is off: %d", resp.StatusCode)
+	}
+}
+
+func TestTheShareCardSaysHowTheServerIsDoing(t *testing.T) {
+	sv := api.PublicServer{Name: "Claude tries to beat Minecraft", Address: "ai.playkeeper.me", State: api.PublicOnline, Players: &api.PublicPlayers{Online: 64, Max: 80},
+		Board: &api.PublicBoard{Headline: "Day 3 · Nether reached"}}
+	c := shareCard(api.PublicPage{Address: "ai.playkeeper.me", Servers: []api.PublicServer{sv}})
+	if c != (sharecard.Card{Name: sv.Name, Status: "Online · 64 of 80 playing", Online: true, Headline: "Day 3 · Nether reached", Address: "ai.playkeeper.me"}) {
+		t.Fatalf("one server: %+v", c)
+	}
+	sv.State, sv.Board = api.PublicSleeping, nil
+	if c := shareCard(api.PublicPage{Servers: []api.PublicServer{sv}}); c.Status != "Asleep · joining wakes it up" || c.Online || c.Headline != "" {
+		t.Fatalf("asleep: %+v", c)
+	}
+	two := api.PublicPage{Address: "alex.playkeeper.me", Servers: []api.PublicServer{{State: api.PublicOnline}, {State: api.PublicOffline}}}
+	if c := shareCard(two); c.Name != "alex.playkeeper.me" || c.Status != "2 Minecraft servers · 1 online" || !c.Online {
+		t.Fatalf("two servers: %+v", c)
 	}
 }
