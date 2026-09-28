@@ -6458,9 +6458,13 @@ control "a machine that was away gets usage stats off when it connects" internal
 ' \
   '' \
   ./internal/panel '^TestAMachineThatWasAwayIsTurnedOffWhenItConnects$'
-control "a machine that connects while usage stats are on keeps its own" internal/panel/usage.go \
-  'here.Service == "" || here.On || here.Reason == api.UsageDev' \
-  'here.Service == "" || here.Reason == api.UsageDev' \
+control "a machine that connects after the switch turned usage stats on keeps its own" internal/panel/usage.go \
+  'if here.On || here.Reason != api.UsageSettings {' \
+  'if here.Reason != api.UsageSettings {' \
+  ./internal/panel '^TestAMachineThatWasAwayIsTurnedOffWhenItConnects$'
+control "an off the dashboard's machine has for itself isn't carried to a machine that connects" internal/panel/usage.go \
+  'if here.On || here.Reason != api.UsageSettings {' \
+  'if here.On || here.Reason == api.UsageDev {' \
   ./internal/panel '^TestAMachineThatWasAwayIsTurnedOffWhenItConnects$'
 # shellcheck disable=SC2016
 shcontrol "get.sh says it came from GitHub's release" packaging/get.sh \

@@ -179,8 +179,8 @@ func TestOnlyThoseWhoManageTheMachineUseTheSwitch(t *testing.T) {
 	}
 }
 
-// A machine that was away when usage stats were turned off gets them off
-// when it connects; one that connects while they're on keeps its own.
+// A machine that was away when the switch turned usage stats off gets them
+// off when it connects; otherwise one that connects keeps its own.
 func TestAMachineThatWasAwayIsTurnedOffWhenItConnects(t *testing.T) {
 	e := newEnvConfig(t, withDomain, nil)
 	cookie, csrf := e.setup(t)
@@ -202,18 +202,32 @@ func TestAMachineThatWasAwayIsTurnedOffWhenItConnects(t *testing.T) {
 		return len(p) == 1 && p[0]["on"] == false && p[0]["actor"] == "playkeeper"
 	})
 
-	e2 := newEnvConfig(t, withDomain, nil)
-	cookie2, csrf2 := e2.setup(t)
-	e2.usageLocally(&usageAgent{on: true, canChange: true})
-	keeps := &usageAgent{on: true, canChange: true}
-	rc := newRemoteAgent()
-	keeps.serveOn(rc)
-	e2.joined(t, cookie2, csrf2, rc)
-	if r := e2.do(t, "GET", "/api/usage-stats", "", auth(cookie2, "")); r.status != http.StatusOK {
-		t.Fatalf("%d %v", r.status, r.body)
-	}
-	time.Sleep(200 * time.Millisecond)
-	if p := keeps.seen(); len(p) != 0 {
-		t.Errorf("a machine that connected while usage stats were on was changed: %v", p)
+	// Only the switch's off is carried: not an on, nor an off the dashboard's
+	// machine has for itself, as root chose there.
+	for name, local := range map[string]*usageAgent{
+		"turned on with the switch": {on: true, canChange: true},
+		"off when it was installed": {on: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnvConfig(t, withDomain, nil)
+			cookie, csrf := e.setup(t)
+			e.usageLocally(local)
+			if local.canChange {
+				if r := e.do(t, "PUT", "/api/usage-stats", `{"on":true}`, auth(cookie, csrf)); r.status != http.StatusOK {
+					t.Fatalf("%d %v", r.status, r.body)
+				}
+			}
+			keeps := &usageAgent{on: true, canChange: true}
+			rc := newRemoteAgent()
+			keeps.serveOn(rc)
+			e.joined(t, cookie, csrf, rc)
+			if r := e.do(t, "GET", "/api/usage-stats", "", auth(cookie, "")); r.status != http.StatusOK {
+				t.Fatalf("%d %v", r.status, r.body)
+			}
+			time.Sleep(200 * time.Millisecond)
+			if p := keeps.seen(); len(p) != 0 {
+				t.Errorf("the machine that connected was changed: %v", p)
+			}
+		})
 	}
 }

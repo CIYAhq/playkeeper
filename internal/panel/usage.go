@@ -121,8 +121,10 @@ func (s *Server) hUsageStatsSet(w http.ResponseWriter, r *http.Request, sess *se
 }
 
 // carryUsageOff turns usage stats off on a joined machine that connects
-// while they are off on the dashboard's machine, as it may have been away
-// when the switch turned them off. An on is never carried over by itself.
+// while the switch has them off on the dashboard's machine, as it may have
+// been away when the switch turned them off. An off the dashboard's machine
+// has for itself (its environment, its install) stays its own, and an on is
+// never carried over by itself.
 func (s *Server) carryUsageOff(machineID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*machineTimeout)
 	defer cancel()
@@ -138,7 +140,7 @@ func (s *Server) carryUsageOff(machineID string) {
 			}
 		}
 	}
-	if here.Service == "" || here.On || here.Reason == api.UsageDev {
+	if here.On || here.Reason != api.UsageSettings {
 		return
 	}
 	for _, m := range list {
