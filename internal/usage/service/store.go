@@ -41,6 +41,14 @@ CREATE TABLE active_days (
 	id  TEXT NOT NULL,
 	PRIMARY KEY (day, id)
 ) WITHOUT ROWID;
+`, `
+CREATE TABLE site_hours (
+	hour    INTEGER NOT NULL,
+	event   TEXT NOT NULL,
+	channel TEXT NOT NULL DEFAULT '',
+	n       INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (hour, event, channel)
+) WITHOUT ROWID;
 `}
 
 // keepFor is how long an install the service hears nothing more from, and
@@ -156,4 +164,6 @@ func (s *Service) prune(ctx context.Context, now time.Time) {
 	s.logErr("Could not forget old installs", err)
 	_, err = s.db.ExecContext(ctx, `DELETE FROM active_days WHERE day < ?`, dayOf(cut))
 	s.logErr("Could not forget old days", err)
+	_, err = s.db.ExecContext(ctx, `DELETE FROM site_hours WHERE hour < ?`, hour(cut))
+	s.logErr("Could not forget the site's old counts", err)
 }

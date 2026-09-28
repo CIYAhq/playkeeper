@@ -37,10 +37,22 @@ const KIND = { dashboard: 'Dashboard', joined: 'Joined to another dashboard' }
 const SERVERS = { 0: 'No servers', 1: '1 server', 2: '2 servers', '3-5': '3 to 5', '6-10': '6 to 10', '11+': '11 or more' }
 const OUTCOMES = { succeeded: 'Succeeded', failed: 'Failed', refused: 'Refused', pending: 'No result that day' }
 const WINDOWS = { '1d': 'day', '7d': '7 days', '30d': '30 days' }
+// The funnel's steps: the site's own (visitors and demo opens from its
+// analytics, copies of the install command it counts here), then installs
+// made with the playkeeper.io command.
+const FUNNEL = [
+  ['visitors', 'Visitors', 'to playkeeper.io'],
+  ['demoOpens', 'Opened the demo', ''],
+  ['commandCopies', 'Copied the install command', ''],
+  ['started', 'Started an install', 'with the playkeeper.io command'],
+  ['succeeded', 'Install succeeded', ''],
+  ['stillRunning', 'Still running', 'a heartbeat in the last day'],
+]
+const percent = new Intl.NumberFormat('en-GB', { style: 'percent', maximumFractionDigits: 1 })
 
 // signins counts sign-ins and sign-outs, so counts that arrive after one are
 // dropped rather than shown.
-const state = { summary: null, split: 'outcome', window: '30d', day: -1, last: 0, busy: false, signins: 0 }
+const state = { summary: null, split: 'outcome', window: '30d', funnel: '7d', day: -1, last: 0, busy: false, signins: 0 }
 
 // The token, where it's kept. memory holds it for this page alone when the
 // browser refuses storage.
@@ -176,6 +188,7 @@ function show (summary) {
   view('dashboard')
   $('updated').textContent = 'Updated ' + clock.format(new Date(summary.generatedAt))
   renderActive(summary)
+  renderFunnel(summary)
   renderRunning(summary)
   renderInstalls(summary)
   renderFailures(summary)
@@ -189,6 +202,42 @@ function renderActive (s) {
     $('active-' + w).textContent = count(a.installs)
     $('active-' + w + '-sub').textContent = `${plural(a.servers, 'server')} · ${count(a.running)} running`
   }
+}
+
+// share is n as a part of of: "12.5%", or empty when there's no part to
+// give.
+function share (n, of) {
+  if (n == null || !of) return ''
+  const p = n / of
+  return p > 0 && p < 0.001 ? '<0.1%' : percent.format(p)
+}
+
+function renderFunnel (s) {
+  for (const b of document.querySelectorAll('[data-funnel]')) b.setAttribute('aria-pressed', String(b.dataset.funnel === state.funnel))
+  const f = (s.funnel || {})[state.funnel] || {}
+  const values = FUNNEL.map(([k]) => (f[k] == null ? null : f[k]))
+  const max = Math.max(1, ...values.filter((v) => v != null))
+  $('funnel').replaceChildren(...FUNNEL.map(([, name, hint], i) => {
+    const v = values[i]
+    const head = el('div', 'funnel-head', el('span', 'funnel-name', name, hint ? el('span', 'funnel-hint', ' ' + hint) : ''))
+    const part = i > 0 ? share(v, values[i - 1]) : ''
+    head.append(el('span', 'funnel-share', part ? `${part} of the step before` : ''), el('span', 'num', v == null ? '—' : count(v)))
+    const fill = el('span', 'fill')
+    fill.style.width = ((v || 0) / max) * 100 + '%'
+    return el('li', v == null ? 'unknown-step' : '', head, el('span', 'track', fill))
+  }))
+  const whole = share(values[5], values[0])
+  $('funnel-sub').textContent = whole
+    ? `${whole} of playkeeper.io's visitors in the last ${WINDOWS[state.funnel]} have Playkeeper running`
+    : `playkeeper.io's visitors in the last ${WINDOWS[state.funnel]}, then installs made with its command`
+  const site = s.site || {}
+  let note
+  if (!site.configured) note = 'Visitors and demo opens need a read key for the site’s analytics: STATS_OA_KEY in Coolify (services/stats/README.md).'
+  else if (site.error && site.readAt) note = `The site’s analytics couldn’t be read just now (${site.error}); visitors and demo opens are from ${clock.format(new Date(site.readAt))}.`
+  else if (site.error) note = `The site’s analytics couldn’t be read (${site.error}).`
+  else if (site.readAt) note = `Visitors and demo opens from the site’s analytics, read at ${clock.format(new Date(site.readAt))}.`
+  else note = ''
+  $('funnel-note').textContent = `${note} Each step counts the same window, not the same people, so a step can be larger than the one before it.`.trim()
 }
 
 // chart draws a column for each day, a stack of segments scaled to the
@@ -367,6 +416,12 @@ for (const b of document.querySelectorAll('[data-split]')) {
   b.addEventListener('click', () => {
     state.split = b.dataset.split
     renderInstalls(state.summary)
+  })
+}
+for (const b of document.querySelectorAll('[data-funnel]')) {
+  b.addEventListener('click', () => {
+    state.funnel = b.dataset.funnel
+    renderFunnel(state.summary)
   })
 }
 for (const b of document.querySelectorAll('[data-window]')) {

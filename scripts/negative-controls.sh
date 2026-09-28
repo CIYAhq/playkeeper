@@ -6610,6 +6610,62 @@ control "an install whose first report was lost started the day it ended" intern
   '' \
   ./internal/usage/service '^TestSummaryCountsInstallsAndActiveInstallsByWindow$'
 
+# The stats funnel: counts come from playkeeper.io's pages alone, as one
+# event, limited for each address; the funnel follows playkeeper.io installs
+# alone, leaves test installs out, and counts as still running only those
+# with a heartbeat in the last day; the site's analytics are read with the
+# key as a bearer token, kept for a while, not asked again at once after a
+# failure, and what they answer is passed on only as a plain code.
+control "site counts come from playkeeper.io's pages alone" internal/usage/service/site.go \
+  '	if r.Header.Get("Origin") != SiteOrigin {' \
+  '	if false && r.Header.Get("Origin") != SiteOrigin {' \
+  ./internal/usage/service '^TestSiteCountsComeOnlyFromThePagesAndSayNothingElse$'
+control "a site count is answered to playkeeper.io's pages" internal/usage/service/site.go \
+  '	w.Header().Set("Access-Control-Allow-Origin", SiteOrigin)
+' \
+  '' \
+  ./internal/usage/service '^TestSiteCountsComeOnlyFromThePagesAndSayNothingElse$'
+control "a site count is a copy of the install command and nothing else" internal/usage/service/site.go \
+  '	if e.Event != EventInstallCopied {' \
+  '	if false && e.Event != EventInstallCopied {' \
+  ./internal/usage/service '^TestSiteCountsComeOnlyFromThePagesAndSayNothingElse$'
+control "site counts from one address are limited" internal/usage/service/site.go \
+  'if ok, wait := s.perIPSite.allow(addrBucket(addr)); !ok {' \
+  'if ok, wait := s.perIPSite.allow(addrBucket(addr)); false && !ok {' \
+  ./internal/usage/service '^TestSiteCountsComeOnlyFromThePagesAndSayNothingElse$'
+control "the funnel follows installs made with the playkeeper.io command alone" internal/usage/service/summary.go \
+  'AND source = ? AND' \
+  'AND (source = ? OR 1) AND' \
+  ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+control "the funnel leaves test installs out" internal/usage/service/summary.go \
+  'WHERE test = 0 AND source = ?' \
+  'WHERE source = ?' \
+  ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+control "still running means a heartbeat in the last day" internal/usage/service/summary.go \
+  '			if lastSeen >= runningSince {' \
+  '			if lastSeen >= runningSince-7*86400 {' \
+  ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+control "the site's analytics are kept for a quarter of an hour" internal/usage/service/site.go \
+  'fresh := !r.readAt.IsZero() && now.Sub(r.readAt) < siteEvery' \
+  'fresh := false && !r.readAt.IsZero() && now.Sub(r.readAt) < siteEvery' \
+  ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+control "a failed read of the site's analytics isn't tried again at once" internal/usage/service/site.go \
+  'if !fresh && (r.triedAt.IsZero() || now.Sub(r.triedAt) >= siteRetry) {' \
+  'if !fresh {' \
+  ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+control "a read of the site's analytics outlives a dropped request" internal/usage/service/site.go \
+  'r.read(context.WithoutCancel(ctx), now)' \
+  'r.read(ctx, now)' \
+  ./internal/usage/service '^TestADroppedRequestDoesntStopTheSitesNumbersBeingRead$'
+control "the site's read key goes to Open Analytics as a bearer token" internal/usage/service/site.go \
+  '	req.Header.Set("Authorization", "Bearer "+r.key)' \
+  '	req.Header.Set("Authorization", r.key)' \
+  ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+control "the summary passes on only a plain code from Open Analytics' errors" internal/usage/service/site.go \
+  'if code := reErrorCode.FindString(e.Error.Code); code != "" {' \
+  'if code := e.Error.Code; code != "" {' \
+  ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+
 # playkeeper.io's copy count: pages reach the stats service only as the
 # policy allows, and the share page never names it. The script's own guards,
 # once a page view and none with Global Privacy Control or Do Not Track, are

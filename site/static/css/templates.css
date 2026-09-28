@@ -132,6 +132,7 @@
 .dcard-link::after { content: ""; position: absolute; inset: 0; z-index: 1; }
 .dcard-link:hover { text-decoration: none; }
 .dcard-link:focus-visible { outline: none; }
+.dcard-badge { position: absolute; top: 12px; left: 12px; z-index: 2; margin: 0; padding: 4px 10px; border-radius: 8px; background: var(--white); box-shadow: 0 1px 3px rgba(20, 24, 16, 0.2); color: var(--ink); font-size: 12.5px; font-weight: 700; line-height: 1.4; pointer-events: none; }
 .dcard-meta { display: flex; align-items: center; gap: 7px; margin: 6px 0 0; color: var(--sage); font-size: 14px; font-weight: 500; }
 .dcard-logo { width: 16px; height: 16px; flex: none; object-fit: contain; }
 .dcard-mem { color: var(--ink); font-weight: 700; }

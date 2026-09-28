@@ -143,7 +143,7 @@ scp ~/Downloads/*.jar you@your-server:/path/to/server/mods/</pre>
 {{define "after"}}
 <div class="article-after">
   {{template "faq" (dict "ID" "questions" "Items" (list
-    (qa "Can I add mods to a Paper or Spigot server?" (printf "No: Paper and Spigot load plugins. Mods need %s, so start a server on one of those from your world." (loaders "or")))
+    (qa "Can I add mods to a Paper or Spigot server?" (printf `No: Paper and Spigot load plugins, like <a href="/guides/popular-minecraft-plugins">the ones most servers run</a>. Mods need %s, so start a server on one of those from your world.` (loaders "or")))
     (qa "Do players need the mods too?" "Mods that add blocks, items or mobs: yes, the same versions. Server-only mods, like Lithium: no. Client-only mods, like shaders: only players.")
     (qa "Can I add mods to a Realm?" "No. Java Realms run vanilla worlds, with no mods or plugins.")
     (qa "Where do I download mods safely?" "From Modrinth or CurseForge, not re-upload sites. Playkeeper checks each download against the checksum its library publishes.")

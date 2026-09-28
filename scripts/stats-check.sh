@@ -4,7 +4,9 @@
 # bridge as its proxy. Checks what it serves: /healthz, / (what installs send,
 # and the source code link), the dashboard's page and files with the
 # Content-Security-Policy that keeps it to them, reports taken and refused,
-# the counts refused without the token and right with it, day by day too,
+# a copy of the install command taken from playkeeper.io and refused from
+# anywhere else, the counts refused without the token and right with it, day
+# by day and in the funnel too,
 # `playkeeper-stats summary` in the
 # container; then that it runs as a non-root user who can write /data, that
 # neither its files nor its log hold the address a report came from, its user
@@ -75,6 +77,14 @@ code=$(report /v1/heartbeat "{\"id\":\"$id\",$system,\"address\":\"alice.example
 [ "$code" = 400 ] || fail "a heartbeat with an address instead of its kind answered $code, not 400"
 grep -qF '"code":"invalid_request"' "$out" || fail "an invalid heartbeat was not refused as invalid: $(cat "$out")"
 if grep -qF alice "$out"; then fail "the refusal repeats the value it refused"; fi
+copy() { # ORIGIN — the status the service answered a copy of the install command
+  curl -sS -o "$out" -w '%{http_code}' -X POST -H 'Content-Type: text/plain;charset=UTF-8' -H "Origin: $1" -H "X-Forwarded-For: $client" -A "$agent" \
+    --data '{"event":"install_copied","channel":""}' "$base/v1/site"
+}
+code=$(copy https://playkeeper.io) || fail "POST /v1/site does not answer"
+[ "$code" = 204 ] || fail "a copy of the install command from playkeeper.io answered $code: $(cat "$out")"
+code=$(copy https://elsewhere.example)
+[ "$code" = 403 ] || fail "a copy from another site answered $code, not 403"
 
 code=$(curl -sS -o "$out" -w '%{http_code}' "$base/v1/summary")
 [ "$code" = 401 ] || fail "the counts without the token answered $code, not 401"
@@ -89,6 +99,9 @@ a = s["active"]["1d"]
 assert a["installs"] == 1 and a["onOurDomain"] == 1 and a["servers"] == 2 and a["running"] == 1, a
 assert a["byAddress"] == {"free": 1}, a["byAddress"]
 assert s["test"] == {"started30d": 0, "active7d": 0}, s["test"]
+f = s["funnel"]["1d"]
+assert f == {"visitors": None, "demoOpens": None, "commandCopies": 1, "started": 1, "succeeded": 1, "stillRunning": 1}, f
+assert s["site"] == {"configured": False}, s["site"]
 d = s["daily"][-1]
 assert d["started"] == 1 and d["succeeded"] == 1 and d["active"] == 1, d
 assert d["bySource"] == {"playkeeper.io": {"started": 1, "succeeded": 1, "failed": 0, "refused": 0}}, d
@@ -131,4 +144,4 @@ fi
 grep -qF STATS_READ_TOKEN "$out" || fail "refusing a short read token does not name STATS_READ_TOKEN: $(cat "$out")"
 if grep -qF "$short" "$out"; then fail "refusing a short read token shows it"; fi
 
-echo "Stats image checks out: /healthz is ok, / says what installs send and links the source, the dashboard serves its page and files with its Content-Security-Policy, reports taken and invalid ones refused, the counts need the token and are right, day by day too, summary runs in the container, runs as uid $uid and writes /data, no client address, user agent or token in its files or log, healthy, stops cleanly, refuses a short read token without showing it."
+echo "Stats image checks out: /healthz is ok, / says what installs send and links the source, the dashboard serves its page and files with its Content-Security-Policy, reports taken and invalid ones refused, copies counted from playkeeper.io alone, the counts need the token and are right, day by day and in the funnel too, summary runs in the container, runs as uid $uid and writes /data, no client address, user agent or token in its files or log, healthy, stops cleanly, refuses a short read token without showing it."

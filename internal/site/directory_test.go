@@ -45,10 +45,22 @@ var dataDirs = []string{"site/data/templates", "site/data/library", "site/data/c
 
 const taxonomyFile = "site/data/taxonomy.json"
 
+// cardOf is the card on a page whose name links path, or "".
+func cardOf(page, path string) string {
+	for _, c := range strings.Split(page, `<article class="dcard">`)[1:] {
+		c, _, _ = strings.Cut(c, "</article>")
+		if strings.Contains(c, `class="dcard-link" href="`+path+`"`) {
+			return c
+		}
+	}
+	return ""
+}
+
 // indexOf reads js/templates-index.js back.
 func indexOf(t *testing.T, o *Output) (idx struct {
 	Arts      []indexImage           `json:"arts"`
 	Loaders   map[string]indexLoader `json:"loaders"`
+	TagSearch map[string]string      `json:"tagSearch"`
 	Templates []indexTemplate        `json:"templates"`
 }) {
 	t.Helper()
@@ -88,6 +100,7 @@ func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 		t.Fatal(err)
 	}
 	failing(cards, checked)
+	crossplays(cards, checked)
 	packs, err := loadModpacks(root, "site/data/modpacks", cards)
 	if err != nil {
 		t.Fatal(err)
@@ -112,6 +125,9 @@ func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 	for i, c := range d.Templates {
 		if i < PerPage && (!strings.Contains(hub, `href="`+c.Path()+`"`) || !strings.Contains(hub, `href="`+c.Link+`"`)) {
 			t.Errorf("/templates has no card for %s linking %s and opening it", c.ID, c.Path())
+		}
+		if i < PerPage && strings.Contains(cardOf(hub, c.Path()), `class="dcard-badge"`) != c.Crossplay {
+			t.Errorf("/templates marks %s Crossplay %v, and its check says %v", c.ID, !c.Crossplay, c.Crossplay)
 		}
 		page, ok := built[c.Path()]
 		if !ok {
@@ -265,6 +281,12 @@ func TestTaxonomyMistakesStopTheBuild(t *testing.T) {
 		"an add-on's tag that isn't there": func(tax map[string]any, _ map[string]*TemplateCard) {
 			tax["addonTags"].(map[string]any)["towny"] = []string{"nations"}
 		},
+		"crossplay from cards.json, not a check": func(_ map[string]any, c map[string]*TemplateCard) {
+			c["towny"].tagIDs = []string{"crossplay"}
+		},
+		"crossplay from an add-on, not a check": func(tax map[string]any, _ map[string]*TemplateCard) {
+			tax["addonTags"].(map[string]any)["towny"] = []string{"crossplay"}
+		},
 		"a setting the directory doesn't know": func(tax map[string]any, _ map[string]*TemplateCard) {
 			tax["sorts"] = []string{"popular"}
 		},
@@ -287,6 +309,91 @@ func TestTaxonomyMistakesStopTheBuild(t *testing.T) {
 	noDesc["site/data/taxonomy.json"] = &fstest.MapFile{Data: b}
 	if _, err := Build(Options{Root: dataOverlay{root, noDesc}, Settings: Default, Now: time.Now()}); err == nil || !strings.Contains(err.Error(), "category creative has no page") {
 		t.Errorf("a category with neither a page nor a description builds: %v", err)
+	}
+}
+
+// Crossplay comes from templates' checks alone. A template whose last check
+// passed with crossplay on has the Crossplay feature, a mark on its card
+// instead of a tag, and a line on its page, and search finds it by what
+// people call it. Until one has, nothing mentions it.
+func TestCrossplayComesFromChecks(t *testing.T) {
+	withCrossplay := func(on func(id string) bool) (map[string]string, []indexTemplate, map[string]string) {
+		t.Helper()
+		data := dataFS(t)
+		for name, f := range data {
+			id, ok := strings.CutPrefix(name, "site/data/checks/")
+			if !ok {
+				continue
+			}
+			var k map[string]any
+			dec := json.NewDecoder(strings.NewReader(string(f.Data)))
+			dec.UseNumber()
+			if err := dec.Decode(&k); err != nil {
+				t.Fatal(err)
+			}
+			delete(k, "crossplay")
+			if on(strings.TrimSuffix(id, ".json")) {
+				k["crossplay"] = true
+			}
+			b, err := json.Marshal(k)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data[name] = &fstest.MapFile{Data: b}
+		}
+		o, err := Build(Options{Root: dataOverlay{os.DirFS("../.."), data}, Settings: Default, Now: time.Now()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		idx := indexOf(t, o)
+		return pages(o), idx.Templates, idx.TagSearch
+	}
+	const faq = "Templates marked Crossplay"
+
+	built, idx, _ := withCrossplay(func(string) bool { return false })
+	if len(idx) < minFiltered {
+		t.Fatalf("the directory lists %d templates, too few for its filters", len(idx))
+	}
+	hub := built["/templates"]
+	for _, s := range []string{`class="dcard-badge">`, `value="crossplay"`, faq} {
+		if strings.Contains(hub, s) {
+			t.Errorf("/templates has %s, with no template checked with crossplay", s)
+		}
+	}
+	for _, e := range idx {
+		if slices.Contains(e.Tags, crossplayTag) || strings.Contains(built[e.Page], "crossplay on") {
+			t.Errorf("%s has crossplay, and its check doesn't", e.ID)
+		}
+	}
+
+	without := idx[0].ID
+	built, idx, search := withCrossplay(func(id string) bool { return id != without })
+	hub = built["/templates"]
+	if !strings.Contains(hub, `name="tag" value="crossplay"`) || !strings.Contains(hub, faq) {
+		t.Error("/templates offers no Crossplay feature, or doesn't say what the mark means")
+	}
+	if !strings.Contains(search[crossplayTag], "Bedrock") || !strings.Contains(search[crossplayTag], "GeyserMC") {
+		t.Errorf("searching Bedrock or GeyserMC doesn't find crossplay's templates: %q", search[crossplayTag])
+	}
+	for i, e := range idx {
+		want := e.ID != without
+		if slices.Contains(e.Tags, crossplayTag) != want {
+			t.Errorf("the index gives %s crossplay %v, want %v", e.ID, !want, want)
+		}
+		page := built[e.Page]
+		if strings.Contains(page, "<dt>Bedrock</dt><dd>Yes, with crossplay on</dd>") != want || strings.Contains(page, "Crossplay turned on too") != want {
+			t.Errorf("%s says it has crossplay %v, want %v", e.Page, !want, want)
+		}
+		if i >= PerPage {
+			continue
+		}
+		card := cardOf(hub, e.Page)
+		if strings.Contains(card, `<p class="dcard-badge">Crossplay</p>`) != want {
+			t.Errorf("/templates marks %s Crossplay %v, want %v", e.ID, !want, want)
+		}
+		if strings.Contains(card, "<li>Crossplay</li>") {
+			t.Errorf("/templates lists Crossplay among %s's tags, as well as marking it", e.ID)
+		}
 	}
 }
 
@@ -510,7 +617,8 @@ func synthetic(t testing.TB, n int) fstest.MapFS {
 		if i%10 == 9 || !hasType(typ.id) {
 			continue
 		}
-		check := checks.Check{Status: checks.Passing, Checked: "2026-09-28", Release: "0.4.2", Build: "129", DoneSeconds: 10 + float64(i%9)}
+		check := checks.Check{Status: checks.Passing, Checked: "2026-09-28", Release: "0.4.4", Build: "129", DoneSeconds: 10 + float64(i%9)}
+		check.Crossplay = (typ.id == "paper" || typ.id == "purpur") && i%2 == 0
 		if i%25 == 24 {
 			check = checks.Check{Status: checks.Failing, Failure: "a plugin failed to enable", Checked: "2026-09-28", Release: "0.4.2"}
 		}
