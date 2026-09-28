@@ -18,9 +18,13 @@ package software
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
 
 // Server type IDs, as in the minecraft.Types registry. Paper keeps its own
@@ -73,14 +77,15 @@ type Pin struct {
 }
 
 // Validate checks a pin before it goes anywhere near a URL, a path or a
-// container: a supported type, a Minecraft release from 1.21 on, and a
-// well-formed build detail for that type and no other.
+// container: a supported type, a Minecraft release from
+// minecraft.OldestRelease on, and a well-formed build detail for that type
+// and no other.
 func (p Pin) Validate() error {
 	if !Supported(p.Type) {
 		return unsupportedType(p.Type)
 	}
-	if !offeredFamily(p.MinecraftVersion) {
-		return &Error{Kind: KindUnsupported, Msg: fmt.Sprintf("Playkeeper runs Minecraft releases from 1.21 on, not %s.", strconv.Quote(p.MinecraftVersion)),
+	if !offered(p.MinecraftVersion) {
+		return &Error{Kind: KindUnsupported, Msg: fmt.Sprintf("Playkeeper runs Minecraft releases from %s on, not %s.", minecraft.OldestRelease, strconv.Quote(p.MinecraftVersion)),
 			Hint: "Choose the version again.", Params: map[string]string{"type": p.Type, "minecraftVersion": p.MinecraftVersion}}
 	}
 	bad := func(value, msg string) error {
@@ -202,7 +207,7 @@ func (s Sources) Catalog(ctx context.Context, typeID string) ([]Release, error) 
 // newest first, with the newest stable one recommended: Purpur builds,
 // Fabric or Quilt loaders, or NeoForge or Forge versions. Vanilla has none.
 func (s Sources) Builds(ctx context.Context, typeID, mc string) ([]Build, error) {
-	if !offeredFamily(mc) {
+	if !offered(mc) {
 		return nil, (Pin{Type: typeID, MinecraftVersion: mc}).Validate()
 	}
 	switch typeID {
@@ -220,6 +225,45 @@ func (s Sources) Builds(ctx context.Context, typeID, mc string) ([]Build, error)
 		return forgeVersionList(ctx, s.Client, mc)
 	}
 	return nil, unsupportedType(typeID)
+}
+
+// ErrNoBuiltInList is a type or Minecraft version with no list built into
+// Playkeeper. Only NeoForge's versions for Minecraft 1.20.2 and newer have
+// one.
+var ErrNoBuiltInList = errors.New("no version list is built into Playkeeper for it")
+
+// BuiltInCatalog is Catalog from the version list built into Playkeeper,
+// for a machine with no list of its own while the upstream's can't be had,
+// and when that list was made. It still asks Mojang which Java each
+// Minecraft version needs.
+func (s Sources) BuiltInCatalog(ctx context.Context, typeID string) ([]Release, time.Time, error) {
+	if typeID != NeoForge {
+		return nil, time.Time{}, ErrNoBuiltInList
+	}
+	list, err := builtinNeoForge()
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	man, err := mojangManifest(ctx, s.Client)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	rels, err := neoforgeOffer(ctx, s.Client, man, list.byMC)
+	return rels, list.at, err
+}
+
+// BuiltInBuilds is Builds from the version list built into Playkeeper, and
+// when that list was made.
+func (s Sources) BuiltInBuilds(typeID, mc string) ([]Build, time.Time, error) {
+	if typeID != NeoForge || mc == "1.20.1" || !offered(mc) {
+		return nil, time.Time{}, ErrNoBuiltInList
+	}
+	list, err := builtinNeoForge()
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	bs, err := neoforgeBuilds(mc, list.byMC[mc])
+	return bs, list.at, err
 }
 
 // Resolved is what the upstreams publish for one pin: every artifact with

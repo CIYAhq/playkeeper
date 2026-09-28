@@ -195,3 +195,49 @@ func TestProviderGuidesFollowTheSizingGuide(t *testing.T) {
 		t.Errorf("the provider guides name the systems as %q, want %q", got, want)
 	}
 }
+
+// A new account's credit shows with its conditions wherever its partner link
+// does, on the provider's card and in its guide, and nowhere once the link
+// is gone. A guide calls a month free only when the credit pays for it.
+func TestOffersShowWithTheirTermsBesideTheirLink(t *testing.T) {
+	saved := slices.Clone(providers)
+	t.Cleanup(func() { providers = saved })
+	vultr, err := provider("Vultr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := vultr.Offered(); got != "$300 of credit for 30 days" || vultr.OfferTerms == "" {
+		t.Fatalf("Vultr's offer is %q with terms %q", got, vultr.OfferTerms)
+	}
+	offer := template.HTMLEscapeString("New accounts get " + vultr.Offered() + ". " + vultr.OfferTerms)
+	built := pages(build(t, Default))
+	for path, want := range map[string]int{"/sizing": 1, "/alternatives/aternos": 1, vultr.Guide: 1} {
+		if got := strings.Count(strings.ReplaceAll(built[path], "</strong>", ""), offer); got != want {
+			t.Errorf("%s shows Vultr's offer with its terms %d times, want %d", path, got, want)
+		}
+	}
+	guide := built[vultr.Guide]
+	for _, want := range []string{"so the first month is free. " + vultr.OfferTerms, "enough for that plan's first month. " + vultr.OfferTerms} {
+		if !strings.Contains(guide, template.HTMLEscapeString(vultr.Offered())+" through our link, "+want) {
+			t.Errorf("Vultr's guide doesn't say %q", want)
+		}
+	}
+	for path, html := range built {
+		if path != "/sizing" && path != "/alternatives/aternos" && path != vultr.Guide && strings.Contains(html, "of credit for 30 days") {
+			t.Errorf("%s shows Vultr's offer away from its link", path)
+		}
+	}
+	if pl := (Plan{USD: vultr.OfferUSD + 1}); vultr.CoversMonth(pl) {
+		t.Error("an offer covers a month of a plan that costs more than it")
+	}
+	for i := range providers {
+		if providers[i].Name == "Vultr" {
+			providers[i].Partner = ""
+		}
+	}
+	for path, html := range pages(build(t, Default)) {
+		if strings.Contains(html, "of credit for 30 days") {
+			t.Errorf("without Vultr's partner link, %s still shows its offer", path)
+		}
+	}
+}

@@ -8,7 +8,7 @@
 set -euo pipefail
 
 files=$(cat)
-parts=(install-and-play restore views core-flows update site names certs fake-panel)
+parts=(install-and-play restore views core-flows update site names stats certs fake-panel)
 
 # checks PART: the changed files that part checks, as an extended regex.
 checks() {
@@ -16,12 +16,13 @@ checks() {
     install-and-play) echo '^(test/e2e/(scenario|pkclient)\.py$|test/e2e/bot/|test/e2e/ui/onboarding\.spec\.ts$|scripts/e2e/played-state\.sh$|\.github/actions/played-install/)' ;;
     restore) echo '^(test/e2e/(scenario|pkclient)\.py$|test/e2e/bot/)' ;;
     views) echo '^(test/e2e/ui/views\.spec\.ts$|scripts/e2e/played-state\.sh$|\.github/actions/played-install/)' ;;
-    core-flows) echo '^(test/e2e/pkclient\.py$|test/e2e/ui/smoke\.spec\.ts$)' ;;
+    core-flows) echo '^(test/e2e/(pkclient|stats_recorder)\.py$|test/e2e/ui/smoke\.spec\.ts$|internal/usage/)' ;;
     update) echo '^(test/e2e/(update|pkclient)\.py$|scripts/e2e/update-releases\.sh$|internal/(install|update)/|packaging/)' ;;
     site) echo '^(site/|cmd/site/|internal/site/|scripts/site-check\.sh$|web/src/demo/|web/(package|package-lock)\.json$|web/vite\.config\.ts$|test/e2e/ui/(demo|site)[^/]*\.spec\.ts$)' ;;
     names) echo '^(services/names/|internal/names/|scripts/names-check\.sh$)' ;;
+    stats) echo '^(services/stats/|cmd/playkeeper-stats/|internal/usage/|scripts/stats-check\.sh$)' ;;
     certs) echo '^internal/certs/' ;;
-    fake-panel) echo '^(test/e2e/ui/|site/|cmd/site/|internal/site/)' ;;
+    fake-panel) echo '^(test/e2e/ui/|site/|cmd/site/|internal/site/|cmd/playkeeper-stats/|internal/usage/)' ;;
   esac
 }
 

@@ -43,6 +43,7 @@ import type {
   TeamResponse,
   TemplateContents,
   TemplateExport,
+  TemplateLibrary,
   TemplatePlan,
   TwoFactorSetup,
 } from '@/api/types'
@@ -1539,6 +1540,41 @@ describe('Templates', () => {
     await toggle('I accept the Minecraft End User License Agreement')
     await click('Create and start Survival with friends')
     expect(vi.mocked(client.post)).toHaveBeenCalledWith('/api/machines/m2345abcde/servers', { name: 'Survival with friends', acceptEula: true, memoryMB: 3072, acceptExperimental: false, template: { fingerprint: 'fp-1' } })
+  })
+
+  it('lists Playkeeper’s templates, and plans the one picked like a file', async () => {
+    window.history.replaceState(null, '', '/servers/new')
+    const towny = { ...contents, name: 'Towny', minecraftVersion: '26.2', settings: { ...contents.settings, memoryMB: 4096 }, addons: [{ source: 'modrinth', name: 'LuckPerms' }, { source: 'modrinth', name: 'Towny' }] }
+    const library: TemplateLibrary = { templates: [{ id: 'towny', art: 'world-big-biomes.svg', page: 'https://playkeeper.io/templates/towny', checked: '2026-09-28', release: '0.4.2', contents: towny, file: '{"name":"Towny"}' }] }
+    vi.mocked(client.api).mockResolvedValue({ ...plan, contents: towny })
+    answer({ '/catalog': catalog, '/templates/library': library })
+    await render(<NewServerPage />)
+    await click('A template')
+    const text = document.body.textContent ?? ''
+    for (const line of ['Playkeeper’s templates', 'Paper 26.2 · 4 GB', 'LuckPerms, Towny', 'Or use a template file']) expect(text).toContain(line)
+
+    const card = [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Towny'))
+    if (!card) throw new Error('no Towny card')
+    await click(card)
+    const [method, path, , body] = vi.mocked(client.api).mock.calls.at(-1) ?? []
+    expect([method, path]).toEqual(['POST', '/api/machines/m2345abcde/templates/plan'])
+    expect(await (body as Blob).text()).toBe('{"name":"Towny"}')
+    expect(document.body.textContent).toContain('TownyFrom Playkeeper’s templates')
+    expect(document.querySelector('a[href="https://playkeeper.io/templates/towny"]')?.textContent).toBe('Setup guide on playkeeper.io')
+
+    await click('Choose another template')
+    expect(document.body.textContent).toContain('Paper 26.2 · 4 GB')
+  })
+
+  it('shows no template list when the machine’s release carries none', async () => {
+    window.history.replaceState(null, '', '/servers/new')
+    answer({ '/catalog': catalog, '/templates/library': new Error('Not found.') })
+    await render(<NewServerPage />)
+    await click('A template')
+    const text = document.body.textContent ?? ''
+    expect(text).not.toContain('Playkeeper’s templates')
+    expect(text).not.toContain('Or use a template file')
+    expect(text).toMatch(/Drop a template file here|Choose a template file/)
   })
 
   it('sizes a mod loader template’s memory for its type and mods', async () => {

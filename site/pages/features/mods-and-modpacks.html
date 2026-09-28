@@ -71,8 +71,8 @@ og: mods-and-modpacks
     </div>
     <div class="detail reveal-group">
       <div class="detail-text">
-        <h2 class="reveal">Voice chat, maps and pre-generation</h2>
-        <p class="reveal">Curated add-ons set up their own ports and settings.</p>
+        <h2 class="reveal">Voice chat, crossplay and maps</h2>
+        <p class="reveal">Curated add-ons and Bedrock crossplay set up their own ports and settings.</p>
       </div>
       <div class="detail-media reveal">{{template "cardshot" (dict "Name" "detail-voice" "Alt" "Adding proximity voice chat: Playkeeper opens its UDP port and says to open it in the provider's firewall too." "Sizes" $detail)}}</div>
     </div>
@@ -98,7 +98,7 @@ og: mods-and-modpacks
     <div class="notdo">
       <h2 id="notdo-title" class="section-title reveal">What it doesn't do</h2>
       <ul>
-        <li class="reveal"><strong>No Bedrock</strong><span>Minecraft: Java Edition only.</span></li>
+        <li class="reveal"><strong>No Bedrock servers</strong><span>Servers run Java Edition; Bedrock friends join them through crossplay.</span></li>
         <li class="reveal"><strong>No single mods from CurseForge</strong><span>CurseForge brings whole modpacks; single mods come from Modrinth.</span></li>
         <li class="reveal"><strong>No client-only mods on the server</strong><span>They stay in your friends' launchers.</span></li>
       </ul>
@@ -106,7 +106,8 @@ og: mods-and-modpacks
     <div class="faq-gap"></div>
     {{template "faq" (dict "ID" "questions" "Items" (list
       (qa "Do friends need to install mods?" "For mods and modpacks, yes, the same ones as the server: the share link gives them a file for the Modrinth App or Prism Launcher. Plugins need nothing on their side.")
-      (qa "Which modpacks work?" (printf "Modrinth and CurseForge packs for Minecraft 1.21 and newer, on %s. Each pack shows what it needs before you create the server." loaderNames))
+      (qa "Which modpacks work?" (printf "Modrinth and CurseForge packs for Minecraft %s and newer, on %s. Each pack shows what it needs before you create the server." oldestMinecraft loaderNames))
+      (qa "Which plugins do most servers run?" `EssentialsX, WorldEdit, WorldGuard and TAB lead, each on 49,000 to 66,000 servers. <a href="/guides/popular-minecraft-plugins">The most popular plugins</a> lists the top 25.`)
       (qa "Do I need a CurseForge key?" "No. Playkeeper has one built in. You can add your own free key under Settings › Add-on sources.")
       (qa "Can I add a mod that isn't in a library?" `Yes: drag its file into the mods folder on the server's Files tab. The Mods tab lists it, and if a library recognises it, Playkeeper can take it over so it gets updates. <a href="/guides/add-mods-to-minecraft-server">Adding mods to a server</a> goes step by step.`)
     ))}}

@@ -30,13 +30,17 @@ checks=$((checks + 1))
 
 expect "" web/src/pages/server/console.tsx internal/agent/pregen.go CHANGELOG.md docs/ARCHITECTURE.md
 expect "" .github/workflows/ci.yml web/src/i18n/en.ts
-expect "install-and-play,restore,views,core-flows,update,site,names,certs,fake-panel" .github/workflows/e2e.yml
+expect "install-and-play,restore,views,core-flows,update,site,names,stats,certs,fake-panel" .github/workflows/e2e.yml
 expect "install-and-play,restore,core-flows,update" test/e2e/pkclient.py
 expect "install-and-play,restore" test/e2e/scenario.py test/e2e/bot/bot.js
 expect "install-and-play" test/e2e/ui/onboarding.spec.ts
 expect "install-and-play,views" scripts/e2e/played-state.sh test/e2e/ui/views.spec.ts
 expect "install-and-play,views" .github/actions/played-install/action.yml
 expect "core-flows" test/e2e/ui/smoke.spec.ts
+expect "core-flows" test/e2e/stats_recorder.py
+expect "stats" scripts/stats-check.sh services/stats/Dockerfile
+expect "stats,fake-panel" cmd/playkeeper-stats/main.go
+expect "core-flows,stats,fake-panel" internal/usage/usage.go
 expect "update" internal/install/install.go
 expect "update" internal/update/apply.go packaging/get.sh scripts/e2e/update-releases.sh
 expect "site,fake-panel" site/pages/index.html

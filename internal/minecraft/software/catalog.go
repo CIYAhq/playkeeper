@@ -70,10 +70,10 @@ func family(v string) string {
 	return p[0] + "." + p[1]
 }
 
-// offeredFamily reports whether mc is a release Playkeeper offers at all:
-// 1.21 and newer, like Paper.
-func offeredFamily(mc string) bool {
-	return len(mc) <= 16 && reRelease.MatchString(mc) && minecraft.CompareMinecraft(family(mc), "1.21") >= 0
+// offered reports whether mc is a release Playkeeper offers at all:
+// minecraft.OldestRelease and newer, like Paper.
+func offered(mc string) bool {
+	return len(mc) <= 16 && reRelease.MatchString(mc) && minecraft.CompareMinecraft(mc, minecraft.OldestRelease) >= 0
 }
 
 // compareVersions compares build versions such as "0.30.1", "0.31.0-beta.4"
@@ -118,15 +118,16 @@ type choice struct {
 }
 
 // offer applies Paper's catalog rules to one type. Versions are taken newest
-// first, whatever order the upstream lists them in. Only releases from 1.21
-// on that Mojang lists and whose Java fits the image are offered, one per
-// version family: the newest with a stable build. A newer version with only
-// unfinished builds is offered too, flagged experimental, as long as nothing
-// stable is newer. The newest stable entry is recommended.
+// first, whatever order the upstream lists them in. Only releases from
+// minecraft.OldestRelease on that Mojang lists and whose Java fits the image
+// are offered, one per version family: the newest with a stable build. A
+// newer version with only unfinished builds is offered too, flagged
+// experimental, as long as nothing stable is newer. The newest stable entry
+// is recommended.
 func offer(ctx context.Context, hc *http.Client, man map[string]mojangEntry, typeID string, versions []string, pick func(mc string) (choice, bool, error)) ([]Release, error) {
 	var list []string
 	for _, v := range versions {
-		if offeredFamily(v) && !slices.Contains(list, v) {
+		if offered(v) && !slices.Contains(list, v) {
 			list = append(list, v)
 		}
 	}

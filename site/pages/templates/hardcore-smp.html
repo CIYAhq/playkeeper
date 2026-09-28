@@ -6,9 +6,7 @@ label: Hardcore server
 h1: How to make a hardcore Minecraft server
 card: How to make a hardcore Minecraft server
 kind: Template
-section: guides
-layout: guide
-crumb: Templates
+layout: category
 og: template-hardcore-smp
 published: 2026-09-28
 updated: 2026-09-28
@@ -68,7 +66,7 @@ gamemode survival Steve</pre>
   <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
   {{template "install" (dict "ID" true)}}
   {{template "steps" (dict "Items" (list
-    (dict "Title" "Open the template below" "Text" "Your dashboard shows hardcore on, hard difficulty and each plugin before anything installs.")
+    (dict "Title" "Open the template above" "Text" "Your dashboard shows hardcore on, hard difficulty and each plugin before anything installs.")
     (dict "Title" "Create and start it" "Text" "Hardcore is set as the world is made, so it applies from the first block.")
     (dict "Title" "Invite the group" "Text" "Invite links put each friend on the allowlist by their Minecraft name.")
   ))}}
@@ -88,13 +86,6 @@ gamemode survival Steve</pre>
     (qa "How do you revive someone in hardcore?" "In the console, teleport them to safety, then run gamemode survival with their name. Or restore a backup from before they died.")
     (qa "How much RAM does a hardcore server need?" (printf "%s for a few friends, as this template sets. For 5 to 10 at once, the sizing guide gives %d GB." $l.Memory (sizingFor 8 "add-ons").MemoryGB))
   ))}}
-  <section class="tpl-section" aria-labelledby="tpl-title">
-    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
-    <div class="tpl-pair">
-      {{template "library-card" (dict "ID" $l.Template)}}
-      {{template "library-card" (dict "ID" "lifesteal-smp" "Page" "/templates/lifesteal-smp")}}
-    </div>
-  </section>
 </div>
 {{end}}
 

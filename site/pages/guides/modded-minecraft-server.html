@@ -11,7 +11,7 @@ layout: guide
 crumb: Guides
 og: modded-minecraft-server
 published: 2026-09-26
-updated: 2026-09-26
+updated: 2026-09-28
 schema: article
 */}}
 
@@ -36,21 +36,21 @@ schema: article
           {{if eq .ID "fabric"}}<td>Light and quick to update. Most performance mods.</td><td>Cobblemon, Better MC</td>
           {{else if eq .ID "neoforge"}}<td>Big tech and magic packs.</td><td>All the Mods 10, Create packs</td>
           {{else if eq .ID "quilt"}}<td>Runs most Fabric mods too.</td><td>Most Fabric packs</td>
-          {{else if eq .ID "forge"}}<td>The original loader, with the longest list of mods.</td><td>Packs that haven't moved to NeoForge</td>
+          {{else if eq .ID "forge"}}<td>The original loader, with the longest list of mods.</td><td>All the Mods 9, SkyFactory 5</td>
           {{else}}<td></td><td></td>{{end}}
         </tr>
         {{end}}{{end}}
       </tbody>
     </table>
   </div>
-  <p class="fine">Playkeeper runs Minecraft 1.21 and newer, so older packs, like RLCraft on 1.12.2, need another way.</p>
+  <p class="fine">Playkeeper runs Minecraft {{oldestMinecraft}} and newer, so older packs, like RLCraft on 1.12.2, need another way.</p>
 </section>
 
 <section aria-labelledby="manual">
   {{template "h2n" (dict "ID" "manual" "N" 2 "Text" "The manual way, in brief" "Toc" "The manual way")}}
   <p>On a Linux VPS, by hand. It works; it just takes a while, and every update means doing parts of it again.</p>
   {{template "steps" (dict "Items" (list
-    (dict "Title" "Install Java" "Text" "Java 21 for Minecraft 1.21, Java 25 for 26.1 and newer.")
+    (dict "Title" "Install Java" "Text" "Java 17 for Minecraft 1.20.1, Java 21 for 1.21, Java 25 for 26.1 and newer.")
     (dict "Title" "Run the loader's server installer" "Text" "It fetches Minecraft's server and the loader.")
     (dict "Title" "Accept the EULA" "Text" "Set eula=true in eula.txt.")
     (dict "Title" "Add the mods" "Text" "The pack's server files, or your own mods, go in the mods folder.")
@@ -122,6 +122,7 @@ sudo ufw allow 25565/tcp
 <section aria-labelledby="memory">
   {{template "h2n" (dict "ID" "memory" "N" 5 "Text" "How much memory modpacks need" "Toc" "How much memory")}}
   {{template "modded-memory" .}}
+  <p>What All the Mods 10, All the Mods 9 and other packs really used on a test server, with the Java heap each got: <a href="/guides/modded-minecraft-server-ram">modpack RAM, measured</a>.</p>
 </section>
 
 <section aria-labelledby="errors">
@@ -150,7 +151,7 @@ sudo ufw allow 25565/tcp
 <div class="article-after">
   {{template "faq" (dict "ID" "questions" "Items" (list
     (qa "Do my friends need the mods too?" "Yes, the same versions. Plugins stay on the server; mods don't.")
-    (qa "Which Java version do I need?" "The one your Minecraft version was made for: Java 21 for 1.21, Java 25 for 26.1 and newer. Playkeeper picks it for each server.")
+    (qa "Which Java version do I need?" "The one your Minecraft version was made for: Java 17 for 1.20.1, Java 21 for 1.21, Java 25 for 26.1 and newer. Playkeeper picks it for each server.")
     (qa "Can I use Forge mods?" (ifForge "Yes. Forge servers run Forge mods from Modrinth, and Forge modpacks from Modrinth and CurseForge." "Not yet: Playkeeper doesn't run Forge servers. Look for a NeoForge or Fabric version of the mod or pack."))
     (qa "Do I need a CurseForge key?" "No. Playkeeper has one built in. You can add your own free key under Settings › Add-on sources.")
   ))}}

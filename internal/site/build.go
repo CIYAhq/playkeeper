@@ -2,8 +2,9 @@
 // templates in site/layouts, the docs from the repository's own Markdown, and
 // the assets in site/static and web/src/assets under hashed names. Facts the
 // product owns come from the product: the server types from minecraft.Types,
-// the templates' links from internal/templates, the version from
-// site/data/release.json, which names the latest published release.
+// the oldest Minecraft version from minecraft.OldestRelease, the templates'
+// links from internal/templates, the version from site/data/release.json,
+// which names the latest published release.
 package site
 
 import (
@@ -21,8 +22,10 @@ import (
 	texttemplate "text/template"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/platform"
 	"github.com/CIYAhq/playkeeper/internal/sizing"
+	"github.com/CIYAhq/playkeeper/internal/templates/checks"
 )
 
 // Options say what to build the site from.
@@ -33,6 +36,12 @@ type Options struct {
 	// Now dates the pages that don't carry a day of their own in the
 	// sitemap, and the footer's year.
 	Now time.Time
+	// Icons fetches the icons of what the templates install; without it,
+	// each shows its initial.
+	Icons IconFetcher
+	// Previews draws each category's and template's social preview; without
+	// them, those pages share og/templates.png.
+	Previews bool
 }
 
 // Output is the built site.
@@ -46,6 +55,9 @@ type Output struct {
 	// Policy is the Content-Security-Policy nginx sends with every page but
 	// /start, whose own is StartPolicy; cmd/site -serve sends them too.
 	Policy, StartPolicy string
+	// NoIcons are the projects that kept their initial though Options.Icons
+	// was set, with why.
+	NoIcons []string
 }
 
 // Site is the site being built, for the templates.
@@ -58,6 +70,7 @@ type Site struct {
 	cards   map[string]*TemplateCard
 	packs   map[string]*Modpack
 	library map[string]*LibraryPage
+	dir     *Directory
 	docs    *docsBuild
 	posts   []*Page
 	sizing  SizingGuide
@@ -80,13 +93,35 @@ func Build(o Options) (*Output, error) {
 	if s.cards, err = loadTemplateCards(o.Root, "site/data/templates"); err != nil {
 		return nil, err
 	}
+	checked, err := checks.Read(o.Root, "site/data/checks")
+	if err != nil {
+		return nil, err
+	}
+	failing(s.cards, checked)
+	crossplays(s.cards, checked)
 	if s.packs, err = loadModpacks(o.Root, "site/data/modpacks", s.cards); err != nil {
 		return nil, err
 	}
-	if s.library, err = loadLibrary(o.Root, "site/data/library", s.cards); err != nil {
+	if s.library, err = loadLibrary(o.Root, "site/data/library", s.cards, checked); err != nil {
+		return nil, err
+	}
+	if s.dir, err = loadDirectory(o.Root, "site/data/taxonomy.json", s.cards, checked, s.packs); err != nil {
+		return nil, err
+	}
+	if err := s.addThumbs(); err != nil {
+		return nil, err
+	}
+	noIcons, err := s.addIcons()
+	if err != nil {
 		return nil, err
 	}
 	if s.pages, err = loadPages(o.Root, "site/pages"); err != nil {
+		return nil, err
+	}
+	if err := s.addDirectory(); err != nil {
+		return nil, err
+	}
+	if err := s.addPreviews(); err != nil {
 		return nil, err
 	}
 	if s.docs, err = buildDocs(o.Root, o.Settings); err != nil {
@@ -116,6 +151,13 @@ func Build(o Options) (*Output, error) {
 	if err := s.addSearchIndex(); err != nil {
 		return nil, err
 	}
+	idx, err := s.directoryIndex()
+	if err != nil {
+		return nil, err
+	}
+	if s.assets["js/templates-index.js"], err = newAsset("js/templates-index.js", idx); err != nil {
+		return nil, err
+	}
 	if err := s.addSizing(); err != nil {
 		return nil, err
 	}
@@ -123,7 +165,7 @@ func Build(o Options) (*Output, error) {
 		return nil, err
 	}
 
-	out := &Output{Files: map[string][]byte{}}
+	out := &Output{Files: map[string][]byte{}, NoIcons: noIcons}
 	// Articles first: rendering one works out its reading time and contents,
 	// which the blog index and the cards that list it show.
 	order := slices.Clone(s.pages)
@@ -332,7 +374,7 @@ func (s *Site) render(p *Page) ([]byte, error) {
 		} else if v.Main, err = part("main"); err != nil {
 			return nil, err
 		}
-	case "guide", "post":
+	case "guide", "post", "directory", "category", "template":
 		if v.Article, err = part("article"); err != nil {
 			return nil, err
 		}
@@ -353,6 +395,14 @@ func (s *Site) render(p *Page) ([]byte, error) {
 	}
 	v.HasInstall = strings.Contains(string(v.Main)+string(v.Article)+string(v.After), `id="install"`)
 	v.HasQuestions = strings.Contains(string(v.After), `id="questions"`)
+	// The directory's pages show template thumbnails, which the head asks
+	// for early, so their blocks render before the page around them too:
+	// last, since they show the parts above.
+	if block := dirBlocks[p.Layout]; block != "" {
+		if v.Main, err = part(block); err != nil {
+			return nil, err
+		}
+	}
 	var b bytes.Buffer
 	if err := t.ExecuteTemplate(&b, "layout", v); err != nil {
 		return nil, err
@@ -360,8 +410,22 @@ func (s *Site) render(p *Page) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// crumbs is the page's breadcrumb: its section, then the page.
+// dirBlocks are the directory's layouts' blocks in site/layouts/directory.html.
+var dirBlocks = map[string]string{"directory": "directory", "category": "category", "template": "template-page"}
+
+// crumbs is the page's breadcrumb: its section, then the page. A category of
+// the template directory is under Templates, and a template under its
+// category.
 func (s *Site) crumbs(p *Page) []Crumb {
+	if v := p.dir; v != nil {
+		switch v.Kind {
+		case "category":
+			return []Crumb{{Label: "Templates", Path: "/templates"}, {Label: v.Category.Name, Path: v.Category.Path()}}
+		case "template":
+			return []Crumb{{Label: "Templates", Path: "/templates"}, {Label: v.Category.Name, Path: v.Category.Path()}, {Label: v.Template.Name, Path: p.Path}}
+		}
+		return nil
+	}
 	if p.Crumb == "" {
 		return nil
 	}
@@ -585,7 +649,11 @@ func (s *Site) funcs() template.FuncMap {
 		},
 		"list": func(xs ...any) []any { return xs },
 		"html": func(s string) template.HTML { return template.HTML(s) },
-		"qa":   func(q, a string) QA { return QA{Q: q, A: template.HTML(a)} },
+		// refresh is the <meta> that sends the browser on to url at once.
+		"refresh": func(url string) template.HTML {
+			return template.HTML(`<meta http-equiv="refresh" content="0; url=` + template.HTMLEscapeString(url) + `">`)
+		},
+		"qa": func(q, a string) QA { return QA{Q: q, A: template.HTML(a)} },
 		"faqSchema": func(items []any) (map[string]any, error) {
 			var qs []QA
 			for _, it := range items {
@@ -634,6 +702,9 @@ func (s *Site) funcs() template.FuncMap {
 		},
 		"hasType":   hasType,
 		"countWord": countWord,
+		// oldestMinecraft is the oldest Minecraft release Playkeeper runs,
+		// for every server type and for modpacks: "1.20.1".
+		"oldestMinecraft": func() string { return minecraft.OldestRelease },
 		"card": func(id string) (*TemplateCard, error) {
 			c, ok := s.cards[id]
 			if !ok {
@@ -751,8 +822,28 @@ func (s *Site) funcs() template.FuncMap {
 		"modpacks": s.modpackList,
 		// libpage is a template of the library (site/data/library), and
 		// libpages every one with a page.
-		"libpage":   s.libraryPage,
-		"libpages":  s.libraryList,
+		"libpage":  s.libraryPage,
+		"libpages": s.libraryList,
+		// directory is the template directory: every listed template and
+		// its categories (site/data/templates/taxonomy.json).
+		"directory": func() *Directory { return s.dir },
+		"shareArts": s.shareArts,
+		// count as "1 template" or "12 templates".
+		"plural": func(n int, one, many string) string {
+			if n == 1 {
+				return "1 " + one
+			}
+			return count(n) + " " + many
+		},
+		// initial is a name's first letter, capitalised.
+		"initial": func(s string) string {
+			for _, r := range s {
+				return strings.ToUpper(string(r))
+			}
+			return ""
+		},
+		"downloads": shortCount,
+		"javaFor":   minecraft.JavaFor,
 		"licence":   licenceName,
 		"count":     count,
 		"upper":     strings.ToUpper,

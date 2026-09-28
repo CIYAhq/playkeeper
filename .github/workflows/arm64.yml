@@ -7,30 +7,26 @@ name: ARM64
 # onboarding, play with protocol bots, back up, restore on a second runner
 # installed with the one-line installer, start every server type with the
 # hand-picked add-ons, the map, pre-generation and a modpack, and uninstall.
-# It uses six ARM runners, so it runs on pull requests that change how
-# Playkeeper is installed or updated or which runtime images it pins, when
-# started by hand, and on the assets a release build made (artifact): in the
-# Release check on the release it builds (release-check.yml), whose success a
-# tag needs to publish those assets, and in the Release workflow's dry run on
-# pull requests that change the release path (the packaging, the release
-# scripts, the Makefile), which is why those aren't listed here.
+# It uses six ARM runners, so on pull requests it runs only when they change
+# installer or OS code: how Playkeeper is packaged, installed or updated, the
+# toolchains it's built with, or what it assumes about the system. It also
+# runs when started by hand, and on the assets a release build made
+# (artifact): in the Release check on the release it builds
+# (release-check.yml), whose success a tag needs to publish those assets, and
+# in the Release workflow's dry runs started by hand.
 
 on:
   pull_request:
     paths:
       - .github/workflows/arm64.yml
-      - go.mod
-      - go.sum
       - scripts/setup.sh
       - scripts/toolchains.txt
+      - scripts/package.sh
+      - packaging/**
       - internal/install/**
       - internal/update/**
       - internal/docker/**
-      - internal/minecraft/catalog.go
-      - internal/minecraft/java.go
-      - test/e2e/pkclient.py
-      - test/e2e/scenario.py
-      - test/e2e/software.py
+      - internal/platform/**
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -174,7 +170,7 @@ jobs:
           sudo ./playkeeper preflight | tee /tmp/evidence/preflight.txt
           grep -Eq '^ *\[ok  \] CPU architecture +64-bit ARM \(arm64\)\.$' /tmp/evidence/preflight.txt
           start=$(date +%s)
-          sudo ./install.sh --yes | tee /tmp/evidence/install.txt
+          sudo DO_NOT_TRACK=1 ./install.sh --yes | tee /tmp/evidence/install.txt
           echo "install wall time: $(( $(date +%s) - start )) s" | tee -a /tmp/evidence/install.txt
           file /usr/local/bin/playkeeper | tee -a /tmp/evidence/install.txt | grep -q 'ARM aarch64'
           sudo cat /var/lib/playkeeper/panel/tls/cert.pem > /tmp/evidence/cert.pem
@@ -272,12 +268,12 @@ jobs:
           printf '%064d  playkeeper-linux-arm64.tar.gz\n' 0 > /tmp/mirror/bad/playkeeper-linux-arm64.tar.gz.sha256
           python3 -m http.server 8765 --bind 127.0.0.1 --directory /tmp/mirror > /tmp/evidence/mirror-log.txt 2>&1 &
           sleep 1
-          if curl -fsSL http://127.0.0.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://127.0.0.1:8765/bad PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes 2>&1 | tee /tmp/evidence/oneliner-bad-checksum.txt; then
+          if curl -fsSL http://127.0.0.1:8765/get.sh | sudo DO_NOT_TRACK=1 PLAYKEEPER_BASE_URL=http://127.0.0.1:8765/bad PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes 2>&1 | tee /tmp/evidence/oneliner-bad-checksum.txt; then
             echo "a tarball with a wrong checksum was installed"; exit 1
           fi
           grep -q 'does not match its published checksum' /tmp/evidence/oneliner-bad-checksum.txt
           test ! -e /usr/local/bin/playkeeper
-          curl -fsSL http://127.0.0.1:8765/get.sh | sudo PLAYKEEPER_BASE_URL=http://127.0.0.1:8765 PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes | tee /tmp/evidence/install.txt
+          curl -fsSL http://127.0.0.1:8765/get.sh | sudo DO_NOT_TRACK=1 PLAYKEEPER_BASE_URL=http://127.0.0.1:8765 PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes | tee /tmp/evidence/install.txt
           grep -q '^Downloading playkeeper-linux-arm64.tar.gz from http://127.0.0.1:8765$' /tmp/evidence/install.txt
           if grep 'GET /playkeeper-linux-amd64' /tmp/evidence/mirror-log.txt; then echo "the one-line installer fetched the amd64 tarball on ARM"; exit 1; fi
           file /usr/local/bin/playkeeper | tee -a /tmp/evidence/install.txt | grep -q 'ARM aarch64'
@@ -326,7 +322,7 @@ jobs:
           cd /tmp/release/assets
           sha256sum -c playkeeper-linux-arm64.tar.gz.sha256
           tar -xzf playkeeper-linux-arm64.tar.gz
-          sudo ./playkeeper-*-linux-arm64/install.sh --yes | tee /tmp/evidence/install.txt
+          sudo DO_NOT_TRACK=1 ./playkeeper-*-linux-arm64/install.sh --yes | tee /tmp/evidence/install.txt
           sudo cat /var/lib/playkeeper/panel/tls/cert.pem > /tmp/evidence/cert.pem
           grep -o 'setup code: [a-z0-9-]*' /tmp/evidence/install.txt | awk '{print $3}' > /tmp/evidence/code
       - name: Paper, Purpur, Vanilla, Fabric, Quilt, NeoForge and Forge; add-ons, map, voice chat and pre-generation on Paper and Fabric; a Modrinth modpack

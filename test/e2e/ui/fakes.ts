@@ -51,6 +51,8 @@ interface FakeState {
   /** The last answer the page got to each read of a server's add-ons, packs and pre-generation, and of a machine's add-on sources, by path. */
   reads: Map<string, Record<string, unknown>>
   discord: Record<string, unknown>
+  /** Usage stats as the real panel last showed them; the switch answers with them. */
+  usage: Record<string, unknown>
   opSeq: number
   inviteSeq: number
   /** Each machine's address as the real panel last showed it; address changes answer with it. */
@@ -632,6 +634,8 @@ const routes: [string, RegExp, Handler][] = [
   ['PUT', /^\/api\/discord$/, (r, state) => discordAlerts(r.body, state)],
   ['DELETE', /^\/api\/discord$/, () => noContent],
   ['POST', /^\/api\/discord\/test$/, (_r, state) => ({ status: 200, body: { ...state.discord, delivery: { sent: new Date().toISOString() } } })],
+  // The usage stats switch never changes the machine the crawl runs on.
+  ['PUT', /^\/api\/usage-stats$/, (r, state) => ({ status: 200, body: { machines: [], ...state.usage, on: (r.body as { on?: unknown } | null)?.on === true, reason: 'settings', canChange: true } })],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
   // Wave 1: the World tab's pre-generation and packs, and the Plugins and Mods tabs.
   [
@@ -784,6 +788,34 @@ const routes: [string, RegExp, Handler][] = [
       const read = lastRead(state, params[0], 'mods/share')
       const share = read.share ?? { server: 'Server', type: 'fabric', minecraftVersion: '26.2', loaderVersion: '0.19.3', notice: { key: 'share.notice.none', text: 'Friends can join without mods' }, mods: [] }
       return { status: 200, body: { public: on, token: on ? 'Fake0Share0Token0Abcde' : undefined, file: read.file ?? 'server.mrpack', size: read.size ?? 2048, loaderName: read.loaderName ?? 'Fabric', share } }
+    },
+  ],
+  // 0.4.3: the public page's switches, and trying its ports again.
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/public-page$/,
+    ({ body, params }, state) => {
+      const b = body as { enabled?: unknown; players?: unknown; about?: unknown; stream?: unknown } | null
+      if (b?.enabled === undefined && b?.players === undefined && b?.about === undefined && b?.stream === undefined) return invalid('Say what to change.')
+      if ((b.enabled !== undefined && typeof b.enabled !== 'boolean') || (b.players !== undefined && typeof b.players !== 'boolean')) return invalid('Say what to change.')
+      if (b.about !== undefined && (typeof b.about !== 'string' || b.about.length > 600)) return invalid('The page’s About text can be at most 600 characters.')
+      if (b.stream !== undefined && (typeof b.stream !== 'string' || (b.stream !== '' && !/^(https?:\/\/)?(www\.|m\.)?(twitch\.tv\/[A-Za-z0-9_]{4,25}|youtube\.com\/channel\/UC[A-Za-z0-9_-]{22})\/?$/.test(b.stream.trim())))) {
+        return { status: 400, body: { error: 'That isn’t a Twitch or YouTube channel link.', code: 'invalid_request', hint: 'Paste your Twitch channel (twitch.tv/yourname) or your YouTube channel’s link with its ID (youtube.com/channel/UC…).' }, expected: true }
+      }
+      const read = lastRead(state, params[0], 'public-page')
+      return { status: 200, body: { ...read, enabled: b.enabled ?? read.enabled ?? true, players: b.players ?? read.players ?? false, about: b.about ?? read.about ?? '', stream: b.stream ?? read.stream ?? '' } }
+    },
+  ],
+  ['POST', /^\/api\/servers\/(\w+)\/public-page\/retry$/, () => ({ status: 200, body: { ok: true } })],
+  ['PUT', /^\/api\/servers\/(\w+)\/public-page\/board$/, ({ body }) => ({ status: 200, body: { ...(body as Record<string, unknown> | null), updatedAt: new Date().toISOString() } })],
+  ['DELETE', /^\/api\/servers\/(\w+)\/public-page\/board$/, () => ({ status: 200, body: { cleared: true } })],
+  // 0.4.4: crossplay's switch.
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/crossplay$/,
+    (r, state) => {
+      const on = (r.body as { on?: unknown } | null)?.on
+      return typeof on === 'boolean' ? op(state, on ? 'crossplay_on' : 'crossplay_off', r.params[0]) : invalid('Say whether crossplay should be on.')
     },
   ],
   // Wave 6: the map's switches, and worlds uploaded for a new server.
@@ -2025,6 +2057,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     jobs: new Map(),
     origin,
     discord: { connected: false, alerts: [], liveStatus: true, delivery: {}, kinds: [] },
+    usage: {},
     inviteSeq: 0,
     maps: new Map(),
     imports: new Map(),
@@ -2175,6 +2208,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen|mods\/share|map\/area)$/.test(path)) state.reads.set(path, laid as Record<string, unknown>)
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = laid as Record<string, unknown>
         if (path === '/api/discord') state.discord = laid as Record<string, unknown>
+        if (path === '/api/usage-stats') state.usage = laid as Record<string, unknown>
         const laidMap = /^\/api\/servers\/(\w+)\/map$/.exec(path)
         if (laidMap?.[1]) state.maps.set(laidMap[1], laid as Record<string, unknown>)
         const laidSchedules = /^\/api\/servers\/(\w+)\/schedules$/.exec(path)
@@ -2203,6 +2237,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (map?.[1]) state.maps.set(map[1], await res.json().catch(() => ({})))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
         if (path === '/api/discord') state.discord = await res.json().catch(() => state.discord)
+        if (path === '/api/usage-stats') state.usage = await res.json().catch(() => state.usage)
         if (path === '/api/machines/link') state.link = await res.json().catch(() => ({}))
         if (path === '/api/machines') state.machines = await res.json().catch(() => [])
         const address = /^\/api\/machines\/(\w+)\/address$/.exec(path)

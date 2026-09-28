@@ -1,76 +1,65 @@
 {{/*
 path: /templates
-title: Minecraft server templates: set one up in one click (2026)
-description: Free Minecraft server templates for an SMP, lifesteal, hardcore, Towny, skyblock, OneBlock and Bedwars, each created and started on a real server first.
+title: Minecraft server templates: one-click setups that really start
+description: Free Minecraft server templates for lifesteal, SMP, skyblock, Towny and more, each created and started on a real server before it's listed. Open one in a click.
 label: Server templates
 h1: Minecraft server templates
 card: Minecraft server templates
-kind: Guide
-section: guides
-layout: guide
-crumb: Guides
+kind: Templates
+layout: directory
 og: templates
 published: 2026-09-28
 updated: 2026-09-28
-schema: article
 */}}
-
-{{define "short"}}A template is a server's setup that opens in your own Playkeeper dashboard: the server software and version, the rules and the plugins. Pick one, check what it installs, and create the server. We created and started a server from each template here before listing it.{{end}}
 
 {{define "closing-title"}}Your next server is one template away.{{end}}
 {{define "closing-sub"}}Free and open source. Nothing installs until you confirm.{{end}}
 
-{{define "side-text"}}Every template opens in your own dashboard and installs nothing until you confirm.{{end}}
-
-{{define "article"}}
-<section aria-labelledby="game-modes">
-  {{template "h2n" (dict "ID" "game-modes" "N" 1 "Text" "Game modes")}}
-  <p>Each has its own page: what's in it, what to change first, and the same setup by hand.</p>
-  <div class="grid-4 tpl-grid">
-    {{range libpages}}{{template "library-card" (dict "ID" .Template "Page" .Path)}}{{end}}
-    {{template "library-card" (dict "ID" "creative")}}
-  </div>
-</section>
-
-<section aria-labelledby="modpacks">
-  {{template "h2n" (dict "ID" "modpacks" "N" 2 "Text" "Modpacks")}}
-  <p>Modpack servers have their own pages, with each pack's memory, server files and known issues, and how to set it up in your dashboard.</p>
-  <div class="related-grid">
-    {{range modpacks}}<a class="related-card reveal" href="{{.Path}}"><span class="eyebrow">Modpack</span><span class="related-title">{{.Name}}</span><span class="link-arrow">Read{{template "icon" "arrow-right"}}</span></a>{{end}}
-  </div>
-</section>
-
-<section aria-labelledby="holds">
-  {{template "h2n" (dict "ID" "holds" "N" 3 "Text" "What a template holds" "Toc" "What it holds")}}
-  <ul>
-    <li><strong>It holds</strong> the server type and Minecraft version, the rules (difficulty, PvP, hardcore, players), plugins or mods from Modrinth and Hangar, a Modrinth modpack, and data packs by address and checksum.</li>
-    <li><strong>It never holds</strong> a world, the allowlist, operators, ports, passwords or console commands.</li>
-    <li><strong>It travels as a link.</strong> Everything after <code>playkeeper.io/t#</code> is the template, which your browser reads without sending it anywhere.</li>
-  </ul>
-</section>
-
-<section aria-labelledby="checked">
-  {{template "h2n" (dict "ID" "checked" "N" 4 "Text" "How we check each template" "Toc" "How we check them")}}
-  <p>Before a template is listed, an agent creates a server from it on a real Playkeeper, starts it and reads its log: it has to reach Done with every plugin enabled and no errors. Each page says when, and with which release.</p>
-  <p>The checks for this batch caught two problems. Iridium Skyblock needs Vault, which its Modrinth page doesn't list, so the skyblock template brings VaultUnlocked. And Towny ships expecting an economy, so its page starts with the setting that lets players found towns.</p>
-</section>
-
-<section aria-labelledby="share">
-  {{template "h2n" (dict "ID" "share" "N" 5 "Text" "Share your own")}}
-  <p>In your dashboard, a server's menu has Share as a template. It makes a link like these, with that server's software, rules and plugins, and never its world.</p>
-</section>
-{{end}}
-
 {{define "after"}}
-<div class="article-after">
-  {{template "faq" (dict "ID" "questions" "Items" (list
-    (qa "Are these Minecraft server templates free?" "Yes. Playkeeper and its templates are free and open source; you pay only for the VPS they run on.")
-    (qa "Does a template include a world?" "No. A template sets up a new server. Worlds, allowlists and operators never travel in one.")
-    (qa "What happens when a plugin updates?" "These templates install the newest version of each plugin that fits the server's Minecraft version. Each page lists the version we started it with, and your dashboard shows the one it will install before you create anything.")
-    (qa "Can I use a template without Playkeeper?" "Yes. Each template's page has the same setup as a Docker command for the itzg image, which Playkeeper runs servers in too.")
-    (qa "Can Bedrock players join?" "Not yet. These templates create Minecraft: Java Edition servers.")
-  ))}}
-</div>
+{{with modpacks}}<section class="band band-chalk dir-packs" aria-labelledby="packs-title">
+  <div class="container">
+    <div class="dir-more-head">
+      <h2 id="packs-title" class="h3">Modpack servers</h2>
+      <a class="link-arrow" href="/modpacks">All modpacks{{template "icon" "arrow-right"}}</a>
+    </div>
+    <div class="related-grid">
+      {{range .}}<a class="related-card reveal" href="{{.Path}}"><span class="eyebrow">Modpack</span><span class="related-title">{{.Name}} server</span><span class="link-arrow">What it needs{{template "icon" "arrow-right"}}</span></a>{{end}}
+    </div>
+  </div>
+</section>{{end}}
+<section class="band band-white dir-how" aria-labelledby="how-title">
+  <div class="container">
+    <h2 id="how-title" class="h2 reveal">How the templates work</h2>
+    <div class="how-grid">
+      <div class="how-item reveal">
+        <img src="{{asset "app/pip/pip-box.svg"}}" alt="" width="64" height="64" loading="lazy" decoding="async">
+        <h3>What one holds</h3>
+        <p>The server type and Minecraft version, the rules, the memory, and plugins, mods or a modpack from Modrinth and Hangar. Never a world, the allowlist, operators, ports or passwords. It travels as a link, and everything after <code>playkeeper.io/t#</code> stays in your browser.</p>
+      </div>
+      <div class="how-item reveal">
+        <img src="{{asset "app/pip/pip-hardhat.svg"}}" alt="" width="64" height="64" loading="lazy" decoding="async">
+        <h3>How we check each one</h3>
+        <p>An agent creates a server from it on a real Playkeeper, starts it and reads its log, and lists it only if it reaches Done with every plugin enabled. The first checks caught two that would have failed: Iridium Skyblock needs Vault, and Towny can't found a town with its default economy.</p>
+      </div>
+      <div class="how-item reveal">
+        <img src="{{asset "app/pip/pip-letter.svg"}}" alt="" width="64" height="64" loading="lazy" decoding="async">
+        <h3>Share your own</h3>
+        <p>In your dashboard, a server's menu has Share as a template. It makes a link like these, with that server's software, rules and plugins, and never its world, so a friend can set up the same server on theirs.</p>
+      </div>
+    </div>
+  </div>
+</section>
+<section class="band band-chalk dir-faq" aria-label="Questions">
+  <div class="container container-narrow">
+    {{$bedrock := "Yes, once the server is made. On a Paper or Purpur server, Bedrock players in its Settings lets friends on phones, consoles and Windows join through Geyser and Floodgate. Console players also need BedrockConnect."}}
+    {{if directory.Crossplay}}{{$bedrock = print $bedrock " Templates marked Crossplay were also started with it on when we checked them."}}{{end}}
+    {{template "faq" (dict "ID" "questions" "Items" (list
+      (qa "Are these Minecraft server templates free?" "Yes. Playkeeper and its templates are free and open source; you pay only for the VPS they run on.")
+      (qa "Does a template include a world?" "No. A template sets up a new server. Worlds, allowlists and operators never travel in one.")
+      (qa "What happens when a plugin updates?" "Each template pins the exact version of every add-on it was checked with, so it installs what its page lists. Every week an agent tries the newer versions, and a template takes them once a server starts cleanly with them.")
+      (qa "Can I use a template without Playkeeper?" "Yes. Each template's page has the same server as a Docker command for the itzg image, which Playkeeper runs servers in too.")
+      (qa "Can Bedrock players join?" $bedrock)
+    ))}}
+  </div>
+</section>
 {{end}}
-
-{{define "keep-reading"}}{{template "related" (related 3 "/templates/lifesteal-smp" "/modpacks" "/guides/add-mods-to-minecraft-server")}}{{end}}

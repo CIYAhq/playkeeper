@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"cmp"
 	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
@@ -40,6 +41,15 @@ type fakeSources struct {
 	versions []*fakeVersion // in the order they were published
 	icons    map[string][]byte
 	hits     map[string]int // "METHOD path"
+	// hangarProjects are Hangar's plugins, each with the files it hosts on
+	// the same server as Modrinth's.
+	hangarProjects []*fakeHangarProject
+}
+
+type fakeHangarProject struct {
+	id                int64
+	owner, slug, name string
+	versions          []*fakeVersion // id is Hangar's numeric version id
 }
 
 type fakeProject struct {
@@ -54,6 +64,9 @@ type fakeVersion struct {
 	data                      []byte
 	channel                   string // Modrinth's version type; empty is a release
 	unlisted                  bool
+	// served, when set, is what the file host sends instead of data, whose
+	// hash the source keeps listing.
+	served []byte
 }
 
 func newFakeSources(t *testing.T) *fakeSources {
@@ -228,6 +241,23 @@ func (f *fakeSources) serveModrinth(w http.ResponseWriter, r *http.Request) {
 	defer f.mu.Unlock()
 	f.hits[r.Method+" "+r.URL.Path]++
 	get, post := r.Method == http.MethodGet, r.Method == http.MethodPost
+	if get && strings.HasPrefix(r.URL.Path, "/hcdn/") {
+		for _, p := range f.hangarProjects {
+			for _, v := range p.versions {
+				if r.URL.Path == "/hcdn/"+v.id+"/"+v.file {
+					data := v.data
+					if v.served != nil {
+						data = v.served
+					}
+					w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+					w.Write(data)
+					return
+				}
+			}
+		}
+		http.NotFound(w, r)
+		return
+	}
 	if get && strings.HasPrefix(r.URL.Path, "/cdn/") {
 		for _, v := range f.versions {
 			if r.URL.Path == "/cdn/"+v.id+"/"+v.file {
@@ -341,13 +371,78 @@ func (f *fakeSources) serveModrinth(w http.ResponseWriter, r *http.Request) {
 
 func (f *fakeSources) serveHangar(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.hits["hangar "+r.Method+" "+r.URL.Path]++
-	f.mu.Unlock()
 	if r.Method == http.MethodGet && r.URL.Path == "/api/v1/projects" {
 		fakeJSON(w, http.StatusOK, map[string]any{"pagination": map[string]any{"limit": 25, "offset": 0, "count": 0}, "result": []any{}})
 		return
 	}
+	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1"), "/"), "/")
+	switch {
+	case r.Method == http.MethodGet && len(parts) == 2 && parts[0] == "projects" && f.hangarProject(parts[1]) != nil:
+		fakeJSON(w, http.StatusOK, f.hangarProjectJSON(f.hangarProject(parts[1])))
+		return
+	case r.Method == http.MethodGet && len(parts) == 3 && parts[0] == "projects" && parts[2] == "versions" && f.hangarProject(parts[1]) != nil:
+		p := f.hangarProject(parts[1])
+		out := []map[string]any{}
+		for i := len(p.versions) - 1; i >= 0; i-- {
+			if pv := r.URL.Query().Get("platformVersion"); pv == "" || pv == "26.1.2" {
+				out = append(out, f.hangarVersionJSON(p, p.versions[i]))
+			}
+		}
+		fakeJSON(w, http.StatusOK, map[string]any{"pagination": map[string]any{"limit": 25, "offset": 0, "count": len(out)}, "result": out})
+		return
+	case r.Method == http.MethodGet && len(parts) == 2 && parts[0] == "versions":
+		for _, p := range f.hangarProjects {
+			for _, v := range p.versions {
+				if v.id == parts[1] {
+					fakeJSON(w, http.StatusOK, f.hangarVersionJSON(p, v))
+					return
+				}
+			}
+		}
+	}
 	fakeJSON(w, http.StatusNotFound, map[string]any{"message": "Not found", "isHangarApiException": true, "httpError": map[string]any{"statusCode": 404}})
+}
+
+// addHangarPlugin adds a Hangar project with one version for Paper 26.1.2,
+// its file hosted on the fake file host.
+func (f *fakeSources) addHangarPlugin(id int64, owner, slug, versionID, number, file string, at time.Time) *fakeVersion {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	v := &fakeVersion{id: versionID, project: strconv.FormatInt(id, 10), number: number, published: at, file: file, data: pluginJar(f.t, strings.ToLower(slug), number)}
+	f.hangarProjects = append(f.hangarProjects, &fakeHangarProject{id: id, owner: owner, slug: slug, name: slug, versions: []*fakeVersion{v}})
+	return v
+}
+
+func (f *fakeSources) hangarProject(ref string) *fakeHangarProject {
+	for _, p := range f.hangarProjects {
+		if strconv.FormatInt(p.id, 10) == ref || strings.EqualFold(p.slug, ref) {
+			return p
+		}
+	}
+	return nil
+}
+
+func (f *fakeSources) hangarProjectJSON(p *fakeHangarProject) map[string]any {
+	return map[string]any{
+		"id": p.id, "name": p.name, "namespace": map[string]any{"owner": p.owner, "slug": p.slug}, "description": p.name + " for tests.",
+		"category": "misc", "stats": map[string]any{"downloads": 1000}, "settings": map[string]any{"license": map[string]any{"type": "MIT", "name": "MIT"}},
+		"lastUpdated": p.versions[len(p.versions)-1].published.Format(time.RFC3339), "visibility": "public",
+	}
+}
+
+func (f *fakeSources) hangarVersionJSON(p *fakeHangarProject, v *fakeVersion) map[string]any {
+	sum := sha256.Sum256(v.data)
+	return map[string]any{
+		"id": json.Number(v.id), "projectId": p.id, "name": v.number, "createdAt": v.published.Format(time.RFC3339), "visibility": "public",
+		"channel": map[string]any{"name": "Release"},
+		"downloads": map[string]any{"PAPER": map[string]any{
+			"fileInfo":    map[string]any{"name": v.file, "sizeBytes": len(v.data), "sha256Hash": hex.EncodeToString(sum[:])},
+			"downloadUrl": f.modrinth.URL + "/hcdn/" + v.id + "/" + v.file,
+		}},
+		"pluginDependencies": map[string]any{}, "platformDependencies": map[string]any{"PAPER": []string{"26.1.2"}},
+	}
 }
 
 // loopbackOnly refuses every request that is not for a local test server.

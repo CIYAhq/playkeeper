@@ -114,6 +114,9 @@ type server struct {
 	// settleProblem is why the last try to settle a restore whose journal
 	// is kept failed, until a try succeeds.
 	settleProblem string
+	// settingsChecked is set once this agent process has checked the running
+	// server's console and allowlist (checkSettingsOnce).
+	settingsChecked bool
 
 	// rconLock holds the console connection; a channel, so waiting for it
 	// honours a command's deadline.
@@ -656,6 +659,8 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	// row for a server that no longer exists. Nothing below uses ctx.
 	s.cancel()
 	s.loops.Wait()
+	var own string
+	_ = s.db.QueryRow(`SELECT own_address FROM servers WHERE id = ?`, s.id).Scan(&own)
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -684,6 +689,7 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	s.srvMu.Lock()
 	delete(s.servers, s.id)
 	s.srvMu.Unlock()
+	s.forgetCertificate(own)
 	s.audit(actor, "server.deleted", s.id, "succeeded", fmt.Sprintf("%d backup(s) deleted with it", len(backups)))
 	s.serversChanged()
 	return nil

@@ -45,7 +45,7 @@ case $cmd in
     (cd "$assets" && sha256sum -c playkeeper-linux-amd64.tar.gz.sha256)
     rm -rf /tmp/install/playkeeper-*-linux-amd64
     tar -xzf "$assets/playkeeper-linux-amd64.tar.gz" -C /tmp/install
-    (cd /tmp/install/playkeeper-*-linux-amd64 && sudo ./install.sh --yes) | tee /tmp/evidence/install.txt
+    (cd /tmp/install/playkeeper-*-linux-amd64 && sudo DO_NOT_TRACK=1 ./install.sh --yes) | tee /tmp/evidence/install.txt
     certificate /tmp/evidence/cert.pem
     grep -o 'setup code: [a-z0-9-]*' /tmp/evidence/install.txt | awk '{print $3}' >/tmp/evidence/code
     sudo mkdir -p /etc/systemd/system/playkeeper-agent.service.d
@@ -82,12 +82,14 @@ case $cmd in
     sudo tar -C / -xzpf "$dir/state.tar.gz"
     # The installer made the game's user on this runner, maybe with other ids
     # than on the runner that saved the state: files follow the user's name,
-    # and the config gets this runner's ids.
+    # and the config gets this runner's ids. Usage stats stay off, as the
+    # install made them, whatever build saved the state.
     sudo python3 - "$(id -u playkeeper-mc)" "$(id -g playkeeper-mc)" <<'EOF'
 import json, sys
 path = "/etc/playkeeper/config.json"
 config = json.load(open(path))
 config["gameUID"], config["gameGID"] = int(sys.argv[1]), int(sys.argv[2])
+config["usageStats"] = "off"
 with open(path, "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")

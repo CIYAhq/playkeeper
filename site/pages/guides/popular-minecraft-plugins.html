@@ -1,0 +1,203 @@
+{{/*
+path: /guides/popular-minecraft-plugins
+title: Most popular Minecraft server plugins in 2026 (188,000 servers)
+description: The most popular Minecraft server plugins, server software, versions and Java, counted on 187,758 servers that report to bStats, with the full tables.
+label: Popular plugins
+h1: The most popular Minecraft server plugins in 2026
+card: What 188,000 Minecraft servers run
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: popular-minecraft-plugins
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+closing: guide
+*/}}
+
+{{define "short"}}The most installed server plugins are EssentialsX (66,411 servers), WorldEdit (56,881), WorldGuard (54,089), TAB (49,093) and Multiverse-Core (43,247), not counting libraries like PlaceholderAPI. That's out of 187,758 servers reporting to bStats on 28 Sep 2026. 89% of them run Paper or a fork of it, 47% are on Minecraft 26.x, and Floodgate, which lets Bedrock players join, runs on 66,840 servers and proxies.{{end}}
+
+{{define "closing-title"}}Run these plugins on a server of your own.{{end}}
+{{define "closing-sub"}}Free and open source. One command sets up the server, backups and updates on your VPS.{{end}}
+
+{{define "side-title"}}Plugins in one click{{end}}
+{{define "side-text"}}Playkeeper adds plugins like these from Modrinth and Hangar, and checks each download.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="plugins">
+  {{template "h2n" (dict "ID" "plugins" "N" 1 "Text" "The 25 most installed plugins" "Toc" "Top plugins")}}
+  <p>Servers running each plugin, from bStats, the stats service most plugins build in.</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="compare stack">
+      <caption>bStats' plugin table at 14:00 UTC on 28 Sep 2026: servers running each plugin with bStats on, out of 187,758. Plugins that don't report to bStats, like LuckPerms, ViaVersion and spark, can't be counted. Two plugins for servers that don't check Minecraft accounts are left out.</caption>
+      <thead><tr><td></td><th scope="col">Rank</th><th scope="col">Servers</th><th scope="col">Share</th><th scope="col">What it does</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">EssentialsX</th><td data-col="Rank">1</td><td data-col="Servers">66,411</td><td data-col="Share">35.4%</td><td data-col="What it does">Commands, homes, warps, kits and an economy</td></tr>
+        <tr><th scope="row">PlaceholderAPI</th><td data-col="Rank">2</td><td data-col="Servers">63,503</td><td data-col="Share">33.8%</td><td data-col="What it does">Library: placeholders other plugins show</td></tr>
+        <tr><th scope="row">WorldEdit</th><td data-col="Rank">3</td><td data-col="Servers">56,881</td><td data-col="Share">30.3%</td><td data-col="What it does">Edits big areas of the world at once</td></tr>
+        <tr><th scope="row">packetevents</th><td data-col="Rank">4</td><td data-col="Servers">56,083</td><td data-col="Share">29.9%</td><td data-col="What it does">Library: packet handling for other plugins</td></tr>
+        <tr><th scope="row">WorldGuard</th><td data-col="Rank">5</td><td data-col="Servers">54,089</td><td data-col="Share">28.8%</td><td data-col="What it does">Protected regions and their rules</td></tr>
+        <tr><th scope="row">TAB</th><td data-col="Rank">6</td><td data-col="Servers">49,093</td><td data-col="Share">26.1%</td><td data-col="What it does">Tab list, name tags and scoreboard</td></tr>
+        <tr><th scope="row">Vault</th><td data-col="Rank">7</td><td data-col="Servers">47,594</td><td data-col="Share">25.3%</td><td data-col="What it does">Library: connects economy and permission plugins</td></tr>
+        <tr><th scope="row">ProtocolLib</th><td data-col="Rank">8</td><td data-col="Servers">46,670</td><td data-col="Share">24.9%</td><td data-col="What it does">Library: packet access for other plugins</td></tr>
+        <tr><th scope="row">NBT-API</th><td data-col="Rank">9</td><td data-col="Servers">44,035</td><td data-col="Share">23.5%</td><td data-col="What it does">Library: item and block data for other plugins</td></tr>
+        <tr><th scope="row">Multiverse-Core</th><td data-col="Rank">10</td><td data-col="Servers">43,247</td><td data-col="Share">23.0%</td><td data-col="What it does">Several worlds on one server</td></tr>
+        <tr><th scope="row">Chunky</th><td data-col="Rank">11</td><td data-col="Servers">41,336</td><td data-col="Share">22.0%</td><td data-col="What it does">Generates the world ahead of players</td></tr>
+        <tr><th scope="row">FastAsyncWorldEdit</th><td data-col="Rank">12</td><td data-col="Servers">37,350</td><td data-col="Share">19.9%</td><td data-col="What it does">A faster WorldEdit for big edits</td></tr>
+        <tr><th scope="row">CoreProtect</th><td data-col="Rank">13</td><td data-col="Servers">30,422</td><td data-col="Share">16.2%</td><td data-col="What it does">Logs blocks and rolls back griefing</td></tr>
+        <tr><th scope="row">EssentialsXSpawn</th><td data-col="Rank">14</td><td data-col="Servers">28,676</td><td data-col="Share">15.3%</td><td data-col="What it does">EssentialsX's spawn point module</td></tr>
+        <tr><th scope="row">GSit</th><td data-col="Rank">15</td><td data-col="Servers">25,111</td><td data-col="Share">13.4%</td><td data-col="What it does">Sit, lie down and crawl</td></tr>
+        <tr><th scope="row">EssentialsXChat</th><td data-col="Rank">16</td><td data-col="Servers">22,499</td><td data-col="Share">12.0%</td><td data-col="What it does">EssentialsX's chat formatting module</td></tr>
+        <tr><th scope="row">Skript</th><td data-col="Rank">17</td><td data-col="Servers">21,793</td><td data-col="Share">11.6%</td><td data-col="What it does">A scripting language for custom features</td></tr>
+        <tr><th scope="row">DecentHolograms</th><td data-col="Rank">18</td><td data-col="Servers">21,060</td><td data-col="Share">11.2%</td><td data-col="What it does">Floating text</td></tr>
+        <tr><th scope="row">Citizens</th><td data-col="Rank">19</td><td data-col="Servers">19,509</td><td data-col="Share">10.4%</td><td data-col="What it does">NPCs</td></tr>
+        <tr><th scope="row">Grim</th><td data-col="Rank">20</td><td data-col="Servers">18,323</td><td data-col="Share">9.8%</td><td data-col="What it does">Anticheat</td></tr>
+        <tr><th scope="row">DeluxeMenus</th><td data-col="Rank">21</td><td data-col="Servers">16,793</td><td data-col="Share">8.9%</td><td data-col="What it does">Custom menus</td></tr>
+        <tr><th scope="row">DiscordSRV</th><td data-col="Rank">22</td><td data-col="Servers">16,447</td><td data-col="Share">8.8%</td><td data-col="What it does">Links chat with a Discord channel</td></tr>
+        <tr><th scope="row">FancyNpcs</th><td data-col="Rank">23</td><td data-col="Servers">16,151</td><td data-col="Share">8.6%</td><td data-col="What it does">NPCs</td></tr>
+        <tr><th scope="row">FancyHolograms</th><td data-col="Rank">24</td><td data-col="Servers">15,171</td><td data-col="Share">8.1%</td><td data-col="What it does">Floating text</td></tr>
+        <tr><th scope="row">InvSee++</th><td data-col="Rank">25</td><td data-col="Servers">14,517</td><td data-col="Share">7.7%</td><td data-col="What it does">Opens players' inventories and ender chests</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-labelledby="head-to-head">
+  {{template "h2n" (dict "ID" "head-to-head" "N" 2 "Text" "Plugins that do the same job" "Toc" "Head to head")}}
+  <ul>
+    <li><strong>Web maps:</strong> BlueMap 14,090 servers, dynmap 5,269, squaremap 2,872 and Pl3xMap 1,297.</li>
+    <li><strong>Anticheats:</strong> Grim 18,323 and Vulcan 7,032.</li>
+    <li><strong>Holograms:</strong> DecentHolograms 21,060 and FancyHolograms 15,171.</li>
+    <li><strong>NPCs:</strong> Citizens 19,509 and FancyNpcs 16,151.</li>
+    <li><strong>Land protection:</strong> WorldGuard 54,089 and GriefPrevention 9,457, across its two bStats listings.</li>
+    <li><strong>Shops:</strong> Shopkeepers 8,793, EconomyShopGUI 8,249 and QuickShop-Hikari 4,486.</li>
+  </ul>
+  <p>Old plugins linger too: 11.6% of Paper servers still load at least one plugin written for Minecraft before 1.13, and 14 load more than 50.</p>
+</section>
+
+<section aria-labelledby="crossplay">
+  {{template "h2n" (dict "ID" "crossplay" "N" 3 "Text" "Crossplay: Bedrock players on Java servers" "Toc" "Crossplay")}}
+  <p>Floodgate, the add-on that lets Bedrock players join a Java server without a Java account, runs on 66,840 servers and proxies. 53,136 of them are Paper or Spigot servers: 28% of all servers reporting. Geyser, which translates between the two editions, runs on 58,867.</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Bedrock players' device</th><th scope="col">Players online</th><th scope="col">Share</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Android</th><td>8,039</td><td>58.2%</td></tr>
+        <tr><th scope="row">Windows</th><td>1,769</td><td>12.8%</td></tr>
+        <tr><th scope="row">iOS</th><td>1,501</td><td>10.9%</td></tr>
+        <tr><th scope="row">PlayStation</th><td>1,257</td><td>9.1%</td></tr>
+        <tr><th scope="row">Switch</th><td>713</td><td>5.2%</td></tr>
+        <tr><th scope="row">Xbox</th><td>504</td><td>3.7%</td></tr>
+        <tr><th scope="row">Other</th><td>22</td><td>0.2%</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="fine">The 13,805 Bedrock players online through Geyser at 14:00 UTC on 28 Sep 2026, from Geyser's own bStats counter.</p>
+  <p>Phones are 69% of the Bedrock players on Java servers, and consoles 18%.</p>
+</section>
+
+<section aria-labelledby="software">
+  {{template "h2n" (dict "ID" "software" "N" 4 "Text" "Server software" "Toc" "Server software")}}
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Software</th><th scope="col">Servers</th><th scope="col">Share</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Paper</th><td>132,193</td><td>73.0%</td></tr>
+        <tr><th scope="row">Purpur</th><td>17,170</td><td>9.5%</td></tr>
+        <tr><th scope="row">Spigot</th><td>12,085</td><td>6.7%</td></tr>
+        <tr><th scope="row">Leaf</th><td>4,179</td><td>2.3%</td></tr>
+        <tr><th scope="row">UniverseSpigot</th><td>2,073</td><td>1.1%</td></tr>
+        <tr><th scope="row">Arclight</th><td>1,572</td><td>0.9%</td></tr>
+        <tr><th scope="row">Folia</th><td>1,213</td><td>0.7%</td></tr>
+        <tr><th scope="row">Mohist</th><td>996</td><td>0.6%</td></tr>
+        <tr><th scope="row">Other</th><td>4,030</td><td>2.2%</td></tr>
+        <tr><th scope="row">Unknown</th><td>5,505</td><td>3.0%</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="fine">Of the 181,016 servers that report their software. Arclight and Mohist load mods and plugins together.</p>
+  <p>Paper's own counter puts Paper and its forks, such as Purpur, Leaf and Folia, on 166,456 servers: 89% of all servers reporting. In front of the servers, Velocity proxies outnumber BungeeCord about six to one: 13,348 against 2,199.</p>
+</section>
+
+<section aria-labelledby="versions">
+  {{template "h2n" (dict "ID" "versions" "N" 5 "Text" "Minecraft and Java versions" "Toc" "Versions")}}
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Minecraft</th><th scope="col">Servers</th><th scope="col">Share</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">26.2</th><td>57,363</td><td>30.7%</td></tr>
+        <tr><th scope="row">1.21.11</th><td>48,873</td><td>26.1%</td></tr>
+        <tr><th scope="row">26.1.2</th><td>16,647</td><td>8.9%</td></tr>
+        <tr><th scope="row">26.3</th><td>13,393</td><td>7.2%</td></tr>
+        <tr><th scope="row">1.21.4</th><td>7,387</td><td>3.9%</td></tr>
+        <tr><th scope="row">1.21.10</th><td>6,103</td><td>3.3%</td></tr>
+        <tr><th scope="row">1.21.8</th><td>5,854</td><td>3.1%</td></tr>
+        <tr><th scope="row">1.21.1</th><td>5,202</td><td>2.8%</td></tr>
+        <tr><th scope="row">1.20.1</th><td>4,515</td><td>2.4%</td></tr>
+        <tr><th scope="row">1.8.8</th><td>4,268</td><td>2.3%</td></tr>
+        <tr><th scope="row">1.12.2</th><td>3,350</td><td>1.8%</td></tr>
+        <tr><th scope="row">Other versions</th><td>14,149</td><td>7.6%</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="fine">Of the 187,104 servers that report their Minecraft version.</p>
+  <p>Minecraft 26.x runs on 47.2% of servers and 1.21.x on 41.8%, so 1.21.11, the last 1.x release, is still the second most common version. Java follows: Java 25, which 26.1 and newer need, runs on 61.8% of servers, Java 21 on 27.5%, Java 17 on 3.0% and Java 8 on 2.7%.</p>
+</section>
+
+<section aria-labelledby="hardware">
+  {{template "h2n" (dict "ID" "hardware" "N" 6 "Text" "The machines servers run on" "Toc" "Hardware")}}
+  <ul>
+    <li><strong>Operating system:</strong> Linux 90.2%, Windows 9.3% (a third of it Windows Server) and macOS 0.4%.</li>
+    <li><strong>Processor:</strong> 95.5% x86-64 and 4.5% ARM64, which is 8,486 servers.</li>
+    <li><strong>Cores:</strong> 51.9% have 4 or fewer: 1 core 2.9%, 2 cores 19.7%, 3 or 4 cores 29.3%, 5 to 8 cores 20.2%, 9 to 16 cores 15.1% and more than 16 cores 12.4%.</li>
+    <li><strong>Country, by the server's address:</strong> the United States 22.1%, Germany 21.7%, France 7.1%, China 5.0%, Canada 4.7%, the United Kingdom 4.0%, the Netherlands 3.6% and Finland 2.8%. That's where the machines are, which isn't always where the players are.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="hours">
+  {{template "h2n" (dict "ID" "hours" "N" 7 "Text" "When players are online" "Toc" "Busy hours")}}
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Hour (UTC)</th><th scope="col">Players online</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">00:00</th><td>181,088</td></tr>
+        <tr><th scope="row">03:00</th><td>163,485</td></tr>
+        <tr><th scope="row">04:00, the quietest</th><td>160,702</td></tr>
+        <tr><th scope="row">06:00</th><td>169,222</td></tr>
+        <tr><th scope="row">09:00</th><td>201,391</td></tr>
+        <tr><th scope="row">12:00</th><td>253,701</td></tr>
+        <tr><th scope="row">15:00</th><td>298,206</td></tr>
+        <tr><th scope="row">17:00, the busiest</th><td>304,809</td></tr>
+        <tr><th scope="row">21:00</th><td>218,440</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="fine">Players on servers reporting to bStats, averaged over the 7 days to 28 Sep 2026.</p>
+  <p>The number of servers online barely moves, from 177,568 to 187,955 over the day, while players nearly double. Restarts and updates at 04:00 to 05:00 UTC reach the fewest players.</p>
+</section>
+
+<section aria-labelledby="method">
+  {{template "h2n" (dict "ID" "method" "N" 8 "Text" "How we counted" "Toc" "Method")}}
+  <ul>
+    <li><strong>The source:</strong> bStats' public API, read for 14:00 UTC on 28 Sep 2026. Totals and charts come from its counter for Bukkit-based servers (Paper, Purpur, Spigot and their forks), plugins from its plugin table, crossplay from Floodgate's and Geyser's own counters, and Paper's share from Paper's own counter.</li>
+    <li><strong>What's missing:</strong> servers with bStats off, and plugins that don't report to it. LuckPerms, ViaVersion, spark, LiteBans and Simple Voice Chat aren't there, so they're missing, not unpopular. Modded Fabric, NeoForge and Forge servers aren't in the totals.</li>
+    <li><strong>Busy hours:</strong> the average of each hour over the 7 days to 28 Sep 2026.</li>
+  </ul>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "What are the most popular Minecraft server plugins?" "EssentialsX (66,411 servers), WorldEdit (56,881), WorldGuard (54,089), TAB (49,093) and Multiverse-Core (43,247), out of 187,758 servers reporting to bStats on 28 Sep 2026. Counting libraries, PlaceholderAPI is second with 63,503.")
+    (qa "Is Paper more popular than Spigot?" "By far: 73.0% of servers run Paper and 6.7% run Spigot. Counting forks of Paper like Purpur and Leaf, 89% run Paper's code.")
+    (qa "What Minecraft version do most servers run?" "26.2, on 30.7% of servers, then 1.21.11 on 26.1%. Together, 26.x versions run on 47.2% of servers and 1.21.x on 41.8%.")
+    (qa "How many Minecraft servers are there?" "At least 187,758 Paper, Purpur and Spigot servers were online with bStats on at 14:00 UTC on 28 Sep 2026, behind 13,348 Velocity and 2,199 BungeeCord proxies. Servers with bStats off, modded servers and Bedrock servers aren't in that count, so there are more.")
+    (qa "Why isn't LuckPerms on the list?" "It doesn't report to bStats, so it can't be counted this way. Neither do ViaVersion and spark.")
+    (qa "When is the best time to restart a Minecraft server?" "When the fewest players are on. Across servers reporting to bStats, that's 04:00 to 05:00 UTC, with about half as many players online as at the 17:00 UTC peak. Your own server's player graph is the better guide.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/guides/modded-minecraft-server-ram" "/templates" "/guides/add-mods-to-minecraft-server")}}{{end}}

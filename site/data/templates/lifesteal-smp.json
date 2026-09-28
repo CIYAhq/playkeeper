@@ -13,8 +13,8 @@
     "memoryMB": 4096
   },
   "addons": [
-    { "source": "modrinth", "project": "l8Uv7FzS", "slug": "lifestealz", "name": "LifeStealZ", "latest": true },
-    { "source": "modrinth", "project": "fALzjamp", "slug": "chunky", "name": "Chunky", "latest": true },
-    { "source": "modrinth", "project": "Lu3KuzdV", "slug": "coreprotect", "name": "CoreProtect", "latest": true }
+    { "source": "modrinth", "project": "l8Uv7FzS", "slug": "lifestealz", "name": "LifeStealZ", "pin": { "versionId": "DqixaESV", "versionNumber": "2.21.1", "channel": "release", "hashAlgo": "sha512", "hash": "89c5986faf16b1fe4a5fb85c20c5af4533d86974fed6762a369502627c0070129735e1a286e11ec59bd73b6651bae9a4fc6ba1cb559fe6c63c7ce6af219d41c8" } },
+    { "source": "modrinth", "project": "fALzjamp", "slug": "chunky", "name": "Chunky", "pin": { "versionId": "MdY6JATr", "versionNumber": "1.5.3", "channel": "release", "hashAlgo": "sha512", "hash": "43ffecc6e6a734b752da41575bbb316526c124c3f878942437d5133c377bfbd9b78bda975520dc074d7158c15dade58a444ccd0fd8d8a25d165b6fc450140422" } },
+    { "source": "modrinth", "project": "Lu3KuzdV", "slug": "coreprotect", "name": "CoreProtect", "pin": { "versionId": "3sehX6Sg", "versionNumber": "24.1", "channel": "release", "hashAlgo": "sha512", "hash": "76aad727528ddb990bbee5069f8ef3fcd018ae0bcdea89b965be2485e828633eb068672e841be64e550c8474f901a24d8c15c7bd44c2bd6c96244e1e58de0c95" } }
   ]
 }

@@ -8,10 +8,12 @@ import { parse, publicMapToken } from '@/lib/router'
 import './styles.css'
 
 // Public pages load none of the signed-in dashboard's code and never ask who
-// is signed in: a friends' pack page, and the shared map at /map/<link token>.
+// is signed in: a friends' pack page, the shared map at /map/<link token>,
+// and the page at the machine's address, which the panel marks on the root.
 const App = lazy(() => import('./App').then((m) => ({ default: m.App })))
 const PackPage = lazy(() => import('@/pages/pack').then((m) => ({ default: m.PackPage })))
 const PublicMapPage = lazy(() => import('@/pages/public-map').then((m) => ({ default: m.PublicMapPage })))
+const ServerPage = lazy(() => import('@/pages/server-page').then((m) => ({ default: m.ServerPage })))
 
 /** The page while its code loads, with the landmark and heading screen readers look for. */
 function Loading() {
@@ -28,13 +30,14 @@ const mapToken = publicMapToken(window.location.pathname)
 reloadWhenCodeIsStale()
 const root = document.getElementById('root')
 if (root) {
+  const page = root.dataset.page === 'server' ? <ServerPage /> : route.name === 'pack' ? <PackPage token={route.token} /> : mapToken !== undefined ? <PublicMapPage token={mapToken} /> : <App />
   createRoot(root).render(
     <StrictMode>
       {/* The panel's Content Security Policy allows only its own style files. */}
       <CSPProvider disableStyleElements>
         <ToastProvider position="bottom-right" limit={3}>
           <LoadBoundary>
-            <Suspense fallback={<Loading />}>{route.name === 'pack' ? <PackPage token={route.token} /> : mapToken !== undefined ? <PublicMapPage token={mapToken} /> : <App />}</Suspense>
+            <Suspense fallback={<Loading />}>{page}</Suspense>
           </LoadBoundary>
         </ToastProvider>
       </CSPProvider>

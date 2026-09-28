@@ -100,11 +100,15 @@ func KindOf(err error) Kind {
 
 // upstream explains an error from a source's API.
 func upstream(src Source, err error) error {
+	return upstreamAs(src.Name(), err)
+}
+
+// upstreamAs explains an error from the API of the service called name.
+func upstreamAs(name string, err error) error {
 	var e *Error
 	if err == nil || errors.As(err, &e) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
-	name := src.Name()
 	var (
 		rl *fetch.RateLimitError
 		se *fetch.StatusError
@@ -144,7 +148,7 @@ func downloadError(s Step, err error, max int64) error {
 		ho *fetch.HostError
 		re *fetch.RedirectError
 	)
-	name, file, src := s.Name, s.FileName, s.Source.Name()
+	name, file, src := s.Name, s.FileName, s.publisher()
 	tampered := "This can mean a damaged download or a tampered copy. Nothing was installed; try again later."
 	switch {
 	case errors.As(err, &he):
@@ -158,11 +162,28 @@ func downloadError(s Step, err error, max int64) error {
 	case errors.As(err, &re):
 		return &Error{Notice: notice(KindRedirectRefused, kv("name", name, "file", file, "host", re.To),
 			fmt.Sprintf("The download of %s was redirected to %s, which is not one of %s's own file hosts.", file, re.To, src),
-			"Playkeeper only downloads add-ons from Modrinth's and Hangar's file hosts. Nothing was installed."), Err: err}
+			s.onlyHosts("")+" Nothing was installed."), Err: err}
 	case errors.As(err, &ho):
 		return hostNotAllowed(s)
 	}
-	return upstream(s.Source, err)
+	return upstreamAs(src, err)
+}
+
+// onlyHosts says where add-ons come from, over how when it's set.
+func (s Step) onlyHosts(how string) string {
+	if s.geyser {
+		return "Playkeeper only downloads " + s.Name + " " + how + "from GeyserMC's own file host."
+	}
+	return "Playkeeper only downloads add-ons " + how + "from Modrinth's and Hangar's file hosts."
+}
+
+// publisher names who publishes the file and hash of step s: its source, or
+// GeyserMC for its projects on Hangar.
+func (s Step) publisher() string {
+	if s.geyser {
+		return geyserName
+	}
+	return s.Source.Name()
 }
 
 func tooLarge(s Step, max int64) *Error {
@@ -178,10 +199,10 @@ func hostNotAllowed(s Step) *Error {
 		host, scheme = printable(u.Hostname()), u.Scheme
 	}
 	params := kv("name", s.Name, "file", s.FileName, "host", host)
-	hint := "Playkeeper only downloads add-ons over HTTPS from Modrinth's and Hangar's file hosts. Nothing was installed."
+	hint := s.onlyHosts("over HTTPS ") + " Nothing was installed."
 	if scheme != "" && scheme != "https" {
 		return fail(KindNotHTTPS, params, fmt.Sprintf("%s would be downloaded from %s without HTTPS.", s.FileName, host), hint)
 	}
 	return fail(KindHostNotAllowed, params,
-		fmt.Sprintf("%s would be downloaded from %s, which is not one of %s's own file hosts.", s.FileName, host, s.Source.Name()), hint)
+		fmt.Sprintf("%s would be downloaded from %s, which is not one of %s's own file hosts.", s.FileName, host, s.publisher()), hint)
 }

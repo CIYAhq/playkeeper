@@ -210,6 +210,24 @@
    "releaseTime": "2024-04-01T11:07:19+00:00",
    "sha1": "8fa7097f21ceade56a7360af3568ef64e309817c",
    "complianceLevel": 1
+  },
+  {
+   "id": "1.20.1",
+   "type": "release",
+   "url": "https://piston-meta.mojang.com/v1/packages/2492c9d294776667e63b56a73a611ae327948de2/1.20.1.json",
+   "time": "2026-09-22T06:45:56+00:00",
+   "releaseTime": "2023-06-12T13:25:51+00:00",
+   "sha1": "2492c9d294776667e63b56a73a611ae327948de2",
+   "complianceLevel": 1
+  },
+  {
+   "id": "1.20",
+   "type": "release",
+   "url": "https://piston-meta.mojang.com/v1/packages/50af6da98cdb14993372ce281e03ced670e9a495/1.20.json",
+   "time": "2026-09-22T06:45:56+00:00",
+   "releaseTime": "2023-06-02T08:36:17+00:00",
+   "sha1": "50af6da98cdb14993372ce281e03ced670e9a495",
+   "complianceLevel": 1
   }
  ]
 }

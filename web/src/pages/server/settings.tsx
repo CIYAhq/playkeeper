@@ -29,6 +29,8 @@ import { cn } from '@/lib/utils'
 import { usePoll } from '@/lib/usePoll'
 import { upgradeTargets } from '@/lib/versions'
 import { serverAction } from '.'
+import { CrossplayRows } from './crossplay'
+import { PublicPageRows } from './public-page'
 import { SchedulesPhoneRow, SchedulesSection } from './schedules'
 import { SleepRows } from './sleep'
 
@@ -60,6 +62,7 @@ function baseOf(s: ServerStatus): Draft {
 const sections = [
   { id: 'game', key: 'settings.game' },
   { id: 'list', key: 'settings.list' },
+  { id: 'page', key: 'settings.page' },
   { id: 'memory', key: 'settings.memory' },
   { id: 'schedules', key: 'settings.schedules' },
   { id: 'version', key: 'settings.version' },
@@ -233,6 +236,9 @@ export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus;
         }
       />
       <SettingRow label={t('settings.mode')} hint={phone ? t('settings.modeHintShort') : undefined} changed={changed('gameMode')} control={<ChoiceSelect value={v.gameMode} onChange={(m) => set('gameMode', m)} options={modeChoices()} label={t('settings.mode')} />} />
+      <div id="crossplay" className="scroll-mt-24">
+        <CrossplayRows server={s} />
+      </div>
     </>
   )
 
@@ -298,6 +304,7 @@ export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus;
       <div className="flex flex-col gap-5 pb-24">
         {group('game', t('settings.game'), game)}
         {group('list', t('settings.list'), list)}
+        {group('page', t('settings.page'), <PublicPageRows server={s} />)}
         {group('memory', t('settings.memory'), memory)}
         {group('schedules', t('settings.schedules'), <SchedulesPhoneRow server={s} />)}
         {group('version', t('settings.version'), <VersionRows server={s} versions={catalog?.versions} />)}
@@ -316,6 +323,9 @@ export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus;
         </Section>
         <Section id="list" title={t('settings.list')}>
           {list}
+        </Section>
+        <Section id="page" title={t('settings.page')}>
+          <PublicPageRows server={s} />
         </Section>
         <Section id="memory" title={t('settings.memory')}>
           {memory}

@@ -67,8 +67,9 @@ func contentSecurityPolicy(s Settings, start bool) string {
 	return strings.Join(append(d,
 		// The header's star count, once there are enough stars to show, and
 		// this site, where audits like Lighthouse read robots.txt from the
-		// page. img-src already lets a page ask this site for things.
-		"connect-src "+sources("'self'", "https://api.github.com", origin(s.Analytics.Collector), pixel),
+		// page. img-src already lets a page ask this site for things. The
+		// stats service takes copies of the install command.
+		"connect-src "+sources("'self'", "https://api.github.com", origin(s.Analytics.Collector), origin(s.Stats), pixel),
 		"base-uri 'none'",
 		"form-action 'none'",
 		"frame-ancestors 'none'",

@@ -147,6 +147,28 @@ If it shows your computer's IPv6 address with `"public":true`, add an AAAA recor
 
 Claim a name from a Playkeeper dashboard: the record appears under playkeeper.me's **DNS** → **Records** in Cloudflare with the comment `playkeeper-names <name>`.
 
+### 6. Send the bare domain to playkeeper.io
+
+`playkeeper.me` and `www.playkeeper.me` have no address records, so a browser that opens them shows "This site can't be reached". People who see a free address like `ai.playkeeper.me` in a video try the bare domain too. Send both to the website, all in Cloudflare (about 3 minutes). The service never touches either name: the apex isn't a name it manages, and `www` is reserved.
+
+1. Open **playkeeper.me** → **DNS** → **Records** → **Add record** and add these two, each with the proxy on (**Proxied**, the orange cloud):
+
+   | Type | Name | IPv6 address | Proxy status |
+   |---|---|---|---|
+   | AAAA | `@` | `100::` | Proxied |
+   | AAAA | `www` | `100::` | Proxied |
+
+   `100::` is a placeholder no one answers at: Cloudflare answers these names itself, with its own certificate. They count against the 10 records the service leaves free for you (`NAMES_RECORD_RESERVE`). Free names stay **DNS only**; only these two are proxied.
+2. Open **Rules** → **Redirect Rules** → **Create rule** → **Single Redirect**, name it `bare domain to playkeeper.io`, and set:
+   - **If incoming requests match**: **Custom filter expression**, `(http.host eq "playkeeper.me") or (http.host eq "www.playkeeper.me")`.
+   - **Then**: **Static**, URL `https://playkeeper.io/?ref=playkeeper.me`, status code **301**, **Preserve query string** off.
+3. Select **Deploy**, then check on your computer:
+
+   ```bash
+   curl -sI https://playkeeper.me/     | grep -i -E '^(HTTP|location)'   # 301, location: https://playkeeper.io/?ref=playkeeper.me
+   curl -sI http://www.playkeeper.me/  | grep -i -E '^(HTTP|location)'   # 301 to the same place
+   ```
+
 ## Running it
 
 ### Updating

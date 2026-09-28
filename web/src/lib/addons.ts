@@ -24,6 +24,18 @@ export const sourceNames: Record<AddonSource, string> = { modrinth: 'Modrinth', 
 /** Simple Voice Chat on Modrinth, whose install also opens its UDP port. */
 export const voiceChatProject: AddonKey = { source: 'modrinth', projectId: '9eGKb6K1' }
 
+/** Geyser and Floodgate from any of their listings: they come and go with crossplay, in the server's Settings. */
+const crossplayProjects: AddonKey[] = [
+  { source: 'modrinth', projectId: 'wKkoqHrH' },
+  { source: 'modrinth', projectId: 'geyser' },
+  { source: 'hangar', projectId: '17' },
+  { source: 'hangar', projectId: 'Floodgate' },
+  { source: 'hangar', projectId: '14' },
+  { source: 'hangar', projectId: 'Geyser' },
+]
+
+export const isCrossplayProject = (k: AddonKey): boolean => crossplayProjects.some((c) => sameKey(c, k))
+
 export const keyOf = (a: AddonKey): string => `${a.source}:${a.projectId}`
 export const sameKey = (a: AddonKey, b: AddonKey): boolean => a.source === b.source && a.projectId === b.projectId
 /** Just the key: the agent refuses fields it doesn't know. */
@@ -121,13 +133,17 @@ export type Footer =
       /** Another site names it as a project, so the library may have it too. */
       external: boolean
     }
-  | { kind: 'installed'; update?: AddonVersion; changed: boolean; missing: boolean }
+  /** crossplay: part of crossplay, which alone removes it; updates still come from here. */
+  | { kind: 'installed'; update?: AddonVersion; changed: boolean; missing: boolean; crossplay: boolean }
   | { kind: 'map' }
+  /** Geyser or Floodgate, not installed: crossplay installs them with their port. */
+  | { kind: 'crossplay' }
   | { kind: 'blocked'; notice?: AddonNotice }
 
 export function footerFor(d: AddonDetails): Footer {
   if (d.installed?.usedBy === 'map') return { kind: 'map' }
-  if (d.installed) return { kind: 'installed', update: d.updateAvailable ? d.latest : undefined, changed: !!d.changed, missing: !!d.missing }
+  if (d.installed) return { kind: 'installed', update: d.updateAvailable ? d.latest : undefined, changed: !!d.changed, missing: !!d.missing, crossplay: d.installed.usedBy === 'crossplay' }
+  if (isCrossplayProject(d.card)) return { kind: 'crossplay' }
   if (d.latest?.externalUrl) return { kind: 'external', url: d.latest.externalUrl }
   const p = d.plan
   if (p) {

@@ -230,8 +230,8 @@ export const pageModules: Record<string, string[]> = {
   '/account/two-factor': ['pages/account.tsx'],
 }
 
-/** Page modules the click-through opens no page of: the invite page, and Overview › How it's running. */
-export const uncrawled = ['pages/join.tsx', 'pages/server/running.tsx']
+/** Page modules the click-through opens no page of: the invite page, Overview › How it's running, and the public server page, which only ports 443 and 80 serve (server-page.spec.ts checks it). */
+export const uncrawled = ['pages/join.tsx', 'pages/server/running.tsx', 'pages/server-page.tsx']
 
 /** Modules whose lazy imports are pages of their own, listed in pageModules, not part of every page they route to. */
 const routers = new Set(['main.tsx', 'App.tsx', 'pages/server/index.tsx'])

@@ -6,9 +6,7 @@ label: Bedwars server
 h1: How to make a Bedwars server
 card: How to make a Bedwars server
 kind: Template
-section: guides
-layout: guide
-crumb: Templates
+layout: category
 og: template-bedwars
 published: 2026-09-28
 updated: 2026-09-28
@@ -72,7 +70,7 @@ schema: article
   <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
   {{template "install" (dict "ID" true)}}
   {{template "steps" (dict "Items" (list
-    (dict "Title" "Open the template below" "Text" (printf "Your dashboard shows PvP on, up to %d players and the three plugins before anything installs." $l.MaxPlayers))
+    (dict "Title" "Open the template above" "Text" (printf "Your dashboard shows PvP on, up to %d players and the three plugins before anything installs." $l.MaxPlayers))
     (dict "Title" "Create and start it" "Text" "Make yourself an operator on the Players tab to use the admin commands.")
     (dict "Title" "Build or paste an arena, then save it" "Text" "Then invite players with a link and start a game with /bw join.")
   ))}}
@@ -93,13 +91,6 @@ schema: article
     (qa "How do players join a game?" "/bw join with the arena's name, once the arena is saved.")
     (qa "How much RAM does a Bedwars server need?" (printf "%s for one arena of %d players, as this template sets. Add more for several arenas running at once." $l.Memory $l.MaxPlayers))
   ))}}
-  <section class="tpl-section" aria-labelledby="tpl-title">
-    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
-    <div class="tpl-pair">
-      {{template "library-card" (dict "ID" $l.Template)}}
-      {{template "library-card" (dict "ID" "lifesteal-smp" "Page" "/templates/lifesteal-smp")}}
-    </div>
-  </section>
 </div>
 {{end}}
 

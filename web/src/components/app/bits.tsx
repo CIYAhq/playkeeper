@@ -177,8 +177,9 @@ export function Kbd({ children }: { children: ReactNode }) {
 }
 
 function initials(name: string): string {
-  const parts = name.replace(/[_\d]+/g, ' ').trim().split(/\s+/)
-  const first = parts[0]?.[0] ?? name[0] ?? '?'
+  const bare = name.replace(/^\./, '')
+  const parts = bare.replace(/[_\d]+/g, ' ').trim().split(/\s+/)
+  const first = parts[0]?.[0] ?? bare[0] ?? '?'
   return first.toUpperCase()
 }
 
@@ -186,21 +187,24 @@ const faceColors = ['#E3F1E6', '#FFF3D1', '#E7EEFB', '#F7E4E4', '#EDE7F6', '#E6F
 
 /**
  * A player's face from their own skin, served by the panel. Players on a
- * default skin, or whose skin can't be found, get their initial instead.
+ * default skin, or whose skin can't be found, get their initial instead, and
+ * so do Bedrock players behind Geyser, whose names start with a dot and who
+ * have no Java skin.
  */
-export function PlayerFace({ name, uuid, size = 28, className }: { name: string; uuid?: string; size?: number; className?: string }) {
+export function PlayerFace({ name, uuid, src: from, size = 28, className }: { name: string; uuid?: string; src?: string; size?: number; className?: string }) {
   const [failed, setFailed] = useState(false)
+  const initial = failed || name.startsWith('.')
   const radius = Math.round(size / 5)
   const color = faceColors[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % faceColors.length]
-  const src = playerHeadUrl(name, uuid)
+  const src = from ?? playerHeadUrl(name, uuid)
   return (
     <span
       className={cn('relative inline-flex shrink-0 items-center justify-center overflow-hidden font-semibold text-foreground/80 after:absolute after:inset-0 after:rounded-[inherit] after:ring-1 after:ring-black/12 after:ring-inset', className)}
-      style={{ width: size, height: size, borderRadius: radius, background: failed ? color : undefined, fontSize: Math.round(size * 0.45) }}
+      style={{ width: size, height: size, borderRadius: radius, background: initial ? color : undefined, fontSize: Math.round(size * 0.45) }}
       role="img"
       aria-label={t('players.face', { name })}
     >
-      {failed ? (
+      {initial ? (
         initials(name)
       ) : (
         <img src={src} width={size} height={size} alt="" loading="lazy" className="pixelated h-full w-full" onError={() => setFailed(true)} />

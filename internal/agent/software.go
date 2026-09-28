@@ -200,13 +200,7 @@ func (a *Agent) typeCatalog(ctx context.Context, typ string) ([]api.CatalogEntry
 		if err != nil {
 			return nil, time.Time{}, err
 		}
-		entries := make([]api.CatalogEntry, 0, len(rels))
-		for _, r := range rels {
-			pin := api.SoftwarePin(r.Pin)
-			entries = append(entries, api.CatalogEntry{ID: r.ID, Label: r.Label, MinecraftVersion: r.MinecraftVersion, Java: r.Java,
-				Recommended: r.Recommended, Notes: r.Notes, Channel: string(r.Channel), Experimental: r.Experimental, Supported: true,
-				Software: &pin, Build: pinBuild(r.Pin)})
-		}
+		entries := catalogEntries(rels)
 		now := a.now()
 		c.mu.Lock()
 		if c.catalogs == nil {
@@ -234,9 +228,29 @@ func (a *Agent) typeCatalog(ctx context.Context, typ string) ([]api.CatalogEntry
 			c.mu.Unlock()
 			return saved.Entries, saved.At, nil
 		}
+		// A machine with no list of its own offers the one built into
+		// Playkeeper, unkept, so the next request asks the upstream again.
+		bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+		defer cancel()
+		if rels, at, berr := a.sources().BuiltInCatalog(bctx, typ); berr == nil {
+			a.log.Info("offering the version list built into Playkeeper", "type", typ, "madeAt", at)
+			return catalogEntries(rels), at, nil
+		}
 		return nil, time.Time{}, err
 	}
 	return entries, at, nil
+}
+
+// catalogEntries is a type's releases as the dashboard lists them.
+func catalogEntries(rels []software.Release) []api.CatalogEntry {
+	entries := make([]api.CatalogEntry, 0, len(rels))
+	for _, r := range rels {
+		pin := api.SoftwarePin(r.Pin)
+		entries = append(entries, api.CatalogEntry{ID: r.ID, Label: r.Label, MinecraftVersion: r.MinecraftVersion, Java: r.Java,
+			Recommended: r.Recommended, Notes: r.Notes, Channel: string(r.Channel), Experimental: r.Experimental, Supported: true,
+			Software: &pin, Build: pinBuild(r.Pin)})
+	}
+	return entries
 }
 
 // typeEntry finds a version to create a server of a type with.
@@ -349,6 +363,10 @@ func (a *Agent) typeBuilds(ctx context.Context, typ, mc string) ([]software.Buil
 			}
 			c.mu.Unlock()
 			return saved.Builds, saved.At, nil
+		}
+		if bs, at, berr := a.sources().BuiltInBuilds(typ, mc); berr == nil {
+			a.log.Info("offering the build list built into Playkeeper", "type", typ, "minecraft", mc, "madeAt", at)
+			return bs, at, nil
 		}
 		return nil, time.Time{}, err
 	}

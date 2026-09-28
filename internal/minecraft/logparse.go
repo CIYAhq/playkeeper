@@ -43,10 +43,15 @@ type Parsed struct {
 // patterns below cannot be forged from chat.
 const prefix = `^\[\d{2}:\d{2}:\d{2}(?: (?:INFO|WARN|ERROR))?\](?: \[Server thread/(?:INFO|WARN|ERROR)\](?: \[[A-Za-z0-9_.$]+/[A-Za-z0-9_.$-]*\])?)?: `
 
+// playerName is a name as the server logs it: a Java name, or a Bedrock
+// player's behind Geyser, which Floodgate puts a dot in front of, within
+// Java's 16 letters. No Java name has a dot.
+const playerName = `(\.[A-Za-z0-9_]{1,15}|[A-Za-z0-9_]{1,16})`
+
 var (
-	reJoin      = regexp.MustCompile(prefix + `([A-Za-z0-9_]{1,16}) joined the game$`)
-	reLeave     = regexp.MustCompile(prefix + `([A-Za-z0-9_]{1,16}) left the game$`)
-	reUUID      = regexp.MustCompile(prefix + `UUID of player ([A-Za-z0-9_]{1,16}) is ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`)
+	reJoin      = regexp.MustCompile(prefix + playerName + ` joined the game$`)
+	reLeave     = regexp.MustCompile(prefix + playerName + ` left the game$`)
+	reUUID      = regexp.MustCompile(prefix + `UUID of player ` + playerName + ` is ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`)
 	reReady     = regexp.MustCompile(prefix + `Done \(([0-9.,]+)s\)! For help, type "help"`)
 	reStopping  = regexp.MustCompile(prefix + `Stopping (?:the )?server$`)
 	reStarting  = regexp.MustCompile(prefix + `Starting minecraft server version (\S+)`)
@@ -69,7 +74,7 @@ var (
 	reColour    = regexp.MustCompile(`§[0-9a-fk-orxA-FK-ORX]`)
 	reIPv6Port  = regexp.MustCompile(`/\[?[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{0,4}){2,7}(?:%[\w.]+)?\]?(?::\d{1,5})?`)
 	reName      = regexp.MustCompile(`^[A-Za-z0-9_]{3,16}$`)
-	reLogName   = regexp.MustCompile(`^[A-Za-z0-9_]{1,16}$`)
+	reLogName   = regexp.MustCompile(`^` + playerName + `$`)
 	reListReply = regexp.MustCompile(`There are (\d+) of a max of (\d+) players online:?\s*(.*)$`)
 )
 

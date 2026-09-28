@@ -99,6 +99,9 @@ func (s *server) archiveMeta(sc api.ServerConfig, now time.Time) backup.Manifest
 	if sc.VoiceChatPort > 0 {
 		m.Settings[manifestVoiceChatPort] = strconv.Itoa(sc.VoiceChatPort)
 	}
+	if sc.CrossplayPort > 0 {
+		m.Settings[manifestCrossplayPort] = strconv.Itoa(sc.CrossplayPort)
+	}
 	if v := s.packSetting(sc); v != "" {
 		m.Settings[manifestModpack] = v
 	}
@@ -1558,6 +1561,12 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 		return fmt.Errorf("could not give the restored voice chat its port, so nothing was replaced: %w", err)
 	}
 	defer releasePort()
+	releaseCrossplay, err := s.restoredCrossplay(&j.Restored, prev, m, st.data)
+	if err != nil {
+		s.startPrevious(ctx, h, prev, wasRunning)
+		return fmt.Errorf("could not give the restored crossplay its port, so nothing was replaced: %w", err)
+	}
+	defer releaseCrossplay()
 	if rollback != nil {
 		j.Detail += "; rollback archive " + rollback.ID
 	}

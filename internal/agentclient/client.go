@@ -21,6 +21,9 @@ import (
 type Client struct {
 	hc     *http.Client
 	stream *http.Client
+	// socket is the local agent's socket; empty for a client through a
+	// machine link.
+	socket string
 }
 
 func New(socket string) *Client {
@@ -31,6 +34,7 @@ func New(socket string) *Client {
 	return &Client{
 		hc:     &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{DialContext: dial, MaxIdleConns: 8}},
 		stream: &http.Client{Transport: &http.Transport{DialContext: dial, DisableKeepAlives: true}},
+		socket: socket,
 	}
 }
 

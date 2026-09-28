@@ -761,7 +761,8 @@ test('the modpack fixtures answer every pack the library lists, from Modrinth an
   expect(read('?limit=26')).toMatchObject({ status: 400, body: { error: 'That page of results is out of range.' } })
   expect(read('?offset=x')).toMatchObject({ status: 400, body: { error: 'offset must be a number.' } })
   expect(read('?type=paper')).toMatchObject({ status: 400 })
-  expect(read('?version=1.20.1')).toMatchObject({ status: 400 })
+  expect(read('?version=1.20')).toMatchObject({ status: 400 })
+  expect(read('?version=1.20.1')).toMatchObject({ status: 200 })
   expect(read('/hangar/abc')).toMatchObject({ status: 400, body: { error: 'Modpacks come from Modrinth or CurseForge.' } })
   expect(read('/modrinth/bad!id')).toMatchObject({ status: 400, body: { error: 'That is not a valid modpack id.' } })
 

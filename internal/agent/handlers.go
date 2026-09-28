@@ -305,6 +305,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	}
 	st.FirstSteps = s.firstSteps()
 	st.JoinAddress = s.joinAddress()
+	st.Bedrock = s.bedrockJoin(sc)
 	if st.Operation == nil {
 		st.SavingPausedSince = s.savingPausedSince()
 		if crash != nil && sc != nil && !running && st.Phase != api.PhaseDockerUnavailable {
@@ -483,6 +484,18 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, errConflict(fmt.Sprintf("The template's modpack runs on %s %s, not what the template names, so nothing was created.", typeName(rt.typ), rt.pin.MinecraftVersion),
 				"Ask whoever shared the template for a new one."))
 			return
+		}
+		// The plan goes ahead when the pack's source doesn't answer, so the
+		// template's pin is checked here, where the source just answered.
+		if tpl != nil {
+			n, err := a.packFit(r.Context(), tpl.p)
+			if err == nil && n != nil {
+				err = &addons.Error{Notice: *n}
+			}
+			if err != nil {
+				writeError(w, addonError(err))
+				return
+			}
 		}
 		typ, entry, pin = rt.typ, rt.entry, rt.pin
 	} else if entry, err = a.typeEntry(r.Context(), typ, req.VersionID); err != nil {

@@ -2,6 +2,7 @@ package software
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -56,7 +57,7 @@ func catalogFake(t *testing.T, typeID string, reverse, newer bool) *fakeNet {
 			}
 		}
 		f.serve(purpurAPI, list(project, "versions"))
-		for _, mc := range []string{"26.3", "26.2", "26.1.2", "1.21.11"} {
+		for _, mc := range purpurFixtureVersions {
 			f.serve(purpurAPI+"/"+mc, list(readFixture(t, "purpur/"+mc+".json"), "builds", "all"))
 		}
 	case Fabric, Quilt:
@@ -80,10 +81,12 @@ func catalogFake(t *testing.T, typeID string, reverse, newer bool) *fakeNet {
 		if newer {
 			meta = []byte(strings.Replace(string(meta), "<versions>", "<versions>\n      <version>26.4.0.1</version>\n      <version>26.5.0.1</version>", 1))
 		}
+		legacy := readFixture(t, "neoforge/forge-maven-metadata.xml")
 		if reverse {
-			meta = reverseXMLVersions(meta)
+			meta, legacy = reverseXMLVersions(meta), reverseXMLVersions(legacy)
 		}
 		f.serve(neoforgeMaven+"/maven-metadata.xml", meta)
+		f.serve(neoforgeForgeMaven+"/maven-metadata.xml", legacy)
 	case Forge:
 		meta := readFixture(t, "forge/maven-metadata.xml")
 		promos := readFixture(t, "forge/promotions_slim.json")
@@ -133,12 +136,16 @@ func describeReleases(rs []Release) []string {
 
 func TestCatalog(t *testing.T) {
 	want := map[string][]string{
-		Vanilla:  {"26.3 stable recommended", "26.2 stable", "26.1.2 stable", "1.21.11 stable"},
-		Purpur:   {"26.3 experimental build 2641", "26.2 stable recommended build 2633", "26.1.2 stable build 2592", "1.21.11 stable build 2568"},
-		Fabric:   {"26.3 stable recommended loader 0.19.5", "26.2 stable loader 0.19.5", "26.1.2 stable loader 0.19.5", "1.21.11 stable loader 0.19.5"},
-		Quilt:    {"26.3 stable recommended loader 0.30.1", "26.2 stable loader 0.30.1", "26.1.2 stable loader 0.30.1", "1.21.11 stable loader 0.30.1"},
-		NeoForge: {"26.3 beta neoforge 26.3.0.16-beta", "26.2 stable recommended neoforge 26.2.0.88", "26.1.2 stable neoforge 26.1.2.109", "1.21.11 stable neoforge 21.11.45"},
-		Forge:    {"26.3 beta forge 66.0.4", "26.2 stable recommended forge 65.1.3", "26.1.2 stable forge 64.1.3", "1.21.11 stable forge 61.2.1"},
+		Vanilla: {"26.3 stable recommended", "26.2 stable", "26.1.2 stable", "1.21.11 stable", "1.20.6 stable"},
+		Purpur:  {"26.3 experimental build 2641", "26.2 stable recommended build 2633", "26.1.2 stable build 2592", "1.21.11 stable build 2568", "1.20.6 stable build 2233"},
+		Fabric: {"26.3 stable recommended loader 0.19.5", "26.2 stable loader 0.19.5", "26.1.2 stable loader 0.19.5", "1.21.11 stable loader 0.19.5",
+			"1.20.6 stable loader 0.19.5"},
+		Quilt: {"26.3 stable recommended loader 0.30.1", "26.2 stable loader 0.30.1", "26.1.2 stable loader 0.30.1", "1.21.11 stable loader 0.30.1",
+			"1.20.6 stable loader 0.30.1"},
+		NeoForge: {"26.3 beta neoforge 26.3.0.16-beta", "26.2 stable recommended neoforge 26.2.0.88", "26.1.2 stable neoforge 26.1.2.109", "1.21.11 stable neoforge 21.11.45",
+			"1.20.6 stable neoforge 20.6.139"},
+		Forge: {"26.3 beta forge 66.0.4", "26.2 stable recommended forge 65.1.3", "26.1.2 stable forge 64.1.3", "1.21.11 stable forge 61.2.1",
+			"1.20.1 stable forge 47.4.23"},
 	}
 	variants := []struct {
 		name           string
@@ -161,10 +168,7 @@ func TestCatalog(t *testing.T) {
 				}
 				recommended := 0
 				for _, r := range got {
-					java := 25
-					if strings.HasPrefix(r.MinecraftVersion, "1.") {
-						java = 21
-					}
+					java := minecraft.JavaFor(r.MinecraftVersion)
 					if r.ID != typeID+"-"+r.MinecraftVersion || r.Type != typeID || r.Label != typeName(typeID)+" "+r.MinecraftVersion || r.Java != java {
 						t.Errorf("release %q has id %q, type %q, label %q, Java %d", r.MinecraftVersion, r.ID, r.Type, r.Label, r.Java)
 					}
@@ -205,7 +209,7 @@ func TestCatalogSkipsExperimentalOlderThanStable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"26.3 experimental build 2641", "26.2 stable recommended build 2633", "1.21.11 stable build 2568"}
+	want := []string{"26.3 experimental build 2641", "26.2 stable recommended build 2633", "1.21.11 stable build 2568", "1.20.6 stable build 2233"}
 	if d := describeReleases(got); !slices.Equal(d, want) {
 		t.Fatalf("got  %q\nwant %q", d, want)
 	}
@@ -225,6 +229,7 @@ func TestCatalogNotes(t *testing.T) {
 		"26.2":    {NoteRecommended, "Recommended: the newest stable NeoForge release. Java Edition 26.2 clients can join."},
 		"26.1.2":  {NoteStable, "Stable. Java Edition 26.1.2 clients can join."},
 		"1.21.11": {NoteStable, "Stable. Java Edition 1.21.11 clients can join."},
+		"1.20.6":  {NoteStable, "Stable. Java Edition 1.20.6 clients can join."},
 	}
 	for _, r := range got {
 		w := want[r.MinecraftVersion]
@@ -237,7 +242,7 @@ func TestCatalogNotes(t *testing.T) {
 func TestCatalogWithNothingToOffer(t *testing.T) {
 	f := newFakeNet(t)
 	serveMojang(t, f, mojangFiles(t))
-	f.serve(purpurAPI, []byte(`{"project":"purpur","versions":["1.20.4","1.20.6","26.4-snapshot-1"]}`))
+	f.serve(purpurAPI, []byte(`{"project":"purpur","versions":["1.19.4","1.20","26.4-snapshot-1"]}`))
 	_, err := f.sources().Catalog(context.Background(), Purpur)
 	if e := wantKind(t, err, KindNoVersions); e.Msg != "Purpur lists no version Playkeeper can run." {
 		t.Errorf("got %q", e.Msg)
@@ -257,7 +262,7 @@ func TestCatalogSkipsVersionsWithoutBuilds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"26.3 experimental build 2641", "1.21.11 stable recommended build 2568"}
+	want := []string{"26.3 experimental build 2641", "1.21.11 stable recommended build 2568", "1.20.6 stable build 2233"}
 	if d := describeReleases(got); !slices.Equal(d, want) {
 		t.Fatalf("got  %q\nwant %q", d, want)
 	}
@@ -342,10 +347,13 @@ func TestBuilds(t *testing.T) {
 		{NeoForge, "26.3", []string{"26.3.0.16-beta beta", "26.3.0.14-beta beta", "26.3.0.0-beta beta"}},
 		{NeoForge, "1.21.1", []string{"21.1.251 stable recommended", "21.1.250 stable", "21.1.1 stable"}},
 		{NeoForge, "1.21", []string{"21.0.167 stable recommended", "21.0.166 stable", "21.0.0-beta beta"}},
+		{NeoForge, "1.20.6", []string{"20.6.139 stable recommended", "20.6.1-beta beta"}},
+		{NeoForge, "1.20.1", []string{"47.1.106 stable recommended", "47.1.105 stable", "47.1.99 stable", "47.1.79 stable", "47.1.5 stable"}},
 		{Forge, "26.2", []string{"65.1.3 stable recommended", "65.1.2 stable", "65.1.1 stable", "65.1.0 stable", "65.0.1 beta", "65.0.0 beta"}},
 		{Forge, "26.3", []string{"66.0.4 beta", "66.0.3 beta", "66.0.2 beta", "66.0.0 beta"}},
 		{Forge, "1.21.1", []string{"52.1.16 stable recommended", "52.1.0 stable", "52.0.1 beta"}},
 		{Forge, "1.21", []string{"51.0.33 beta"}},
+		{Forge, "1.20.1", []string{"47.4.23 stable recommended", "47.4.10 stable", "47.4.0 beta"}},
 	}
 	for _, tt := range tests {
 		for _, reverse := range []bool{false, true} {
@@ -375,12 +383,13 @@ func TestBuildsErrors(t *testing.T) {
 		msg        string
 	}{
 		{Fabric, "1.21.12", KindNotFound, "Fabric does not list Minecraft 1.21.12 as a stable version."},
-		{Quilt, "26.3-rc-3", KindUnsupported, `Playkeeper runs Minecraft releases from 1.21 on, not "26.3-rc-3".`},
-		{Purpur, "1.20.4", KindUnsupported, `Playkeeper runs Minecraft releases from 1.21 on, not "1.20.4".`},
+		{Quilt, "26.3-rc-3", KindUnsupported, `Playkeeper runs Minecraft releases from 1.20.1 on, not "26.3-rc-3".`},
+		{Purpur, "1.20", KindUnsupported, `Playkeeper runs Minecraft releases from 1.20.1 on, not "1.20".`},
 		{Purpur, "1.21.9", KindNotFound, "Purpur does not have its build list for Minecraft 1.21.9."},
 		{NeoForge, "1.21.8", KindNoVersions, "NeoForge has no build for Minecraft 1.21.8 that Playkeeper can install."},
+		{NeoForge, "1.20.2", KindNoVersions, "NeoForge has no build for Minecraft 1.20.2 that Playkeeper can install."},
 		{Forge, "1.21.5", KindNoVersions, "Forge has no build for Minecraft 1.21.5 that Playkeeper can install."},
-		{Forge, "1.20.1", KindUnsupported, `Playkeeper runs Minecraft releases from 1.21 on, not "1.20.1".`},
+		{Forge, "1.19.4", KindUnsupported, `Playkeeper runs Minecraft releases from 1.20.1 on, not "1.19.4".`},
 		{"spigot", "1.21.1", KindUnsupported, `Playkeeper does not install "spigot" servers this way.`},
 		{"paper", "26.2", KindUnsupported, `Playkeeper does not install "paper" servers this way.`},
 	}
@@ -435,6 +444,14 @@ func TestNeoForgeMinecraft(t *testing.T) {
 		{"26.2.0.88", "26.2", false, true},
 		{"26.1.2.109", "26.1.2", false, true},
 		{"26.3.0.16-beta", "26.3", true, true},
+		{"20.6.139", "1.20.6", false, true},
+		{"20.6.1-beta", "1.20.6", true, true},
+		{"20.4.251", "1.20.4", false, true},
+		{"47.1.106", "1.20.1", false, true},
+		{"47.1.0", "1.20.1", false, true},
+		{"47.2.0", "", false, false},
+		{"47.1.106-beta", "", false, false},
+		{"1.20.1-47.1.106", "", false, false},
 		{"26.1.0.0-alpha.1+snapshot-1", "", false, false},
 		{"0.25w14craftmine.3-beta", "", false, false},
 		{"25.1.0.1", "", false, false},
@@ -482,14 +499,64 @@ func TestRegistryMatchesSupportedTypes(t *testing.T) {
 	}
 }
 
-func TestOfferedFamily(t *testing.T) {
+func TestOffered(t *testing.T) {
 	for v, want := range map[string]bool{
-		"1.21": true, "1.21.11": true, "26.1.2": true, "26.3": true,
-		"1.20.6": false, "26.3-rc-3": false, "26.4-snapshot-1": false, "24w14potato": false,
+		"1.20.1": true, "1.20.6": true, "1.21": true, "1.21.11": true, "26.1.2": true, "26.3": true,
+		"1.20": false, "1.20.0": false, "1.19.4": false, "26.3-rc-3": false, "26.4-snapshot-1": false, "24w14potato": false,
 		"": false, "1": false, "1.21.1.1.1": false, "../1.21": false, "1.21 ": false,
 	} {
-		if got := offeredFamily(v); got != want {
-			t.Errorf("offeredFamily(%q) = %v, want %v", v, got, want)
+		if got := offered(v); got != want {
+			t.Errorf("offered(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
+// A NeoForge version list with betas only has lost versions, since NeoForge
+// has stable versions for every Minecraft release it supports. It's refused,
+// so the agent keeps the last list it had.
+func TestANeoForgeListWithOnlyBetasIsRefused(t *testing.T) {
+	f := catalogFake(t, NeoForge, false, false)
+	f.serve(neoforgeMaven+"/maven-metadata.xml", []byte(`<metadata><versioning><versions>
+<version>26.3.0.30-beta</version><version>26.3.0.29-beta</version>
+</versions><lastUpdated>20260928144755</lastUpdated></versioning></metadata>`))
+	_, err := f.sources().Catalog(context.Background(), NeoForge)
+	if e := wantKind(t, err, KindMalformed); !errors.Is(err, errNoStableVersion) || !strings.Contains(e.Msg, "lost its stable versions") {
+		t.Errorf("got %v", err)
+	}
+	_, err = f.sources().Builds(context.Background(), NeoForge, "26.3")
+	wantKind(t, err, KindMalformed)
+}
+
+// The list built into Playkeeper, for a machine with no list of its own
+// while NeoForge's can't be had, has NeoForge's stable versions and says
+// when it was made. No other type has one, nor NeoForge for 1.20.1.
+func TestTheBuiltInNeoForgeList(t *testing.T) {
+	f := newFakeNet(t)
+	serveMojang(t, f, mojangFiles(t))
+	rels, at, err := f.sources().BuiltInCatalog(context.Background(), NeoForge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at.IsZero() || at.After(time.Now()) {
+		t.Errorf("made at %v", at)
+	}
+	i := slices.IndexFunc(rels, func(r Release) bool { return r.MinecraftVersion == "26.2" })
+	if i < 0 || !rels[i].Recommended || rels[i].Channel != Stable {
+		t.Fatalf("no stable NeoForge recommended for 26.2 in %+v", rels)
+	}
+	bs, bat, err := Sources{}.BuiltInBuilds(NeoForge, "26.2")
+	if err != nil || !bat.Equal(at) {
+		t.Fatalf("builds made at %v (the catalog's at %v): %v", bat, at, err)
+	}
+	if !slices.ContainsFunc(bs, func(b Build) bool { return b.Version == "26.2.0.88" && b.Channel == Stable }) {
+		t.Errorf("26.2's builds: %+v", bs)
+	}
+	if _, _, err := f.sources().BuiltInCatalog(context.Background(), Forge); !errors.Is(err, ErrNoBuiltInList) {
+		t.Errorf("Forge's catalog: %v", err)
+	}
+	for _, c := range []struct{ typ, mc string }{{Forge, "26.2"}, {NeoForge, "1.20.1"}, {NeoForge, "26.3-snapshot-2"}, {NeoForge, ""}} {
+		if _, _, err := (Sources{}).BuiltInBuilds(c.typ, c.mc); !errors.Is(err, ErrNoBuiltInList) {
+			t.Errorf("%s %q: %v", c.typ, c.mc, err)
 		}
 	}
 }

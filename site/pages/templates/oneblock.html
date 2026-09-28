@@ -6,9 +6,7 @@ label: OneBlock server
 h1: How to make a OneBlock server
 card: How to make a OneBlock server
 kind: Template
-section: guides
-layout: guide
-crumb: Templates
+layout: category
 og: template-oneblock
 published: 2026-09-28
 updated: 2026-09-28
@@ -70,7 +68,7 @@ mv create OneBlock normal -g Oneblock
   <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
   {{template "install" (dict "ID" true)}}
   {{template "steps" (dict "Items" (list
-    (dict "Title" "Open the template below" "Text" "Your dashboard shows Multiverse-Core and OneBlock before anything installs.")
+    (dict "Title" "Open the template above" "Text" "Your dashboard shows Multiverse-Core and OneBlock before anything installs.")
     (dict "Title" "Create and start it" "Text" (printf "It runs in %s: a single block at a time is light work." $l.Memory))
     (dict "Title" "Run the two setup commands" "Text" "Then send friends an invite link and tell them to type /ob.")
   ))}}
@@ -91,13 +89,6 @@ mv create OneBlock normal -g Oneblock
     (qa "Can friends play on one island?" "Yes: /ob invite, then /ob accept on their side.")
     (qa "Is OneBlock the same as skyblock?" "Both start you in the void. Skyblock gives you a small island; OneBlock gives you one block that keeps turning into new ones.")
   ))}}
-  <section class="tpl-section" aria-labelledby="tpl-title">
-    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
-    <div class="tpl-pair">
-      {{template "library-card" (dict "ID" $l.Template)}}
-      {{template "library-card" (dict "ID" "skyblock" "Page" "/templates/skyblock")}}
-    </div>
-  </section>
 </div>
 {{end}}
 

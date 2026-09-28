@@ -83,6 +83,8 @@ export interface ServerConfig {
   template?: ServerTemplate
   /** The UDP port voice chat has on this server. */
   voiceChatPort?: number
+  /** The UDP port Bedrock players join on, while crossplay is on. */
+  crossplayPort?: number
 }
 
 export interface Operation {
@@ -173,6 +175,8 @@ export interface ServerStatus {
   firstSteps: FirstSteps
   /** The friendly join address, set once it works. */
   joinAddress?: string
+  /** Where Bedrock players join, while crossplay is on. */
+  bedrock?: BedrockJoin
   /** The file that stopped the last start, while the server stays stopped. */
   refusal?: FileRefusal
   /** Set while the server's machine can't be reached: the status is the one it last sent, at this time. */
@@ -546,6 +550,48 @@ export interface UpdateInfo {
   lastResult?: UpdateResult
 }
 
+/** What a machine's heartbeat to the stats service says, field for field (internal/usage). */
+export interface UsageReport {
+  id: string
+  version: string
+  os: string
+  osVersion: string
+  arch: string
+  source: string
+  channel?: string
+  kind: 'dashboard' | 'joined'
+  test?: boolean
+  address: 'free' | 'own' | 'ip'
+  servers: number
+  running: number
+}
+
+/** What decides whether a machine sends usage stats: root's choices come first, then the switch. */
+export type UsageReason = 'default' | 'settings' | 'install' | 'env' | 'dev'
+
+export interface UsageStats {
+  on: boolean
+  reason: UsageReason
+  variable?: string
+  canChange: boolean
+  lastSent?: string
+  service: string
+  report: UsageReport
+}
+
+/** A joined machine's usage stats, or why they can't be read. */
+export interface UsageMachine {
+  id: string
+  name: string
+  stats?: UsageStats
+  error?: ApiErrorBody
+}
+
+/** GET and PUT /api/usage-stats: the dashboard machine's, with each joined machine's. */
+export interface UsageStatsView extends UsageStats {
+  machines: UsageMachine[]
+}
+
 export interface CatalogEntry {
   id: string
   label: string
@@ -908,6 +954,8 @@ export interface JoinAddress {
   /** The IP address with the port, which always works. */
   direct?: string
   published: boolean
+  /** The server's own address under an own domain, which is then `address`, with its own records and page. */
+  ownAddress?: string
 }
 
 export interface FreeAddress {
@@ -990,6 +1038,8 @@ export interface RecordCheck extends Note {
   record: DNSRecord
   ok: boolean
   found?: string[]
+  /** A server's own address's record, which Servers' own addresses shows and the domain's `ready` leaves out. */
+  own?: boolean
 }
 
 export interface AddressCheck {
@@ -1114,8 +1164,8 @@ export interface Addon {
   size: number
   dependencyOf?: string
   installedAt: string
-  /** The part of Playkeeper that installed it and alone removes it: the Map, for squaremap. */
-  usedBy?: 'map'
+  /** The part of Playkeeper that installed it and alone removes it: the Map, for squaremap, or crossplay, for Geyser and Floodgate. */
+  usedBy?: 'map' | 'crossplay'
 }
 
 export interface AddonKey {
@@ -1221,6 +1271,35 @@ export interface AddonDetails {
 export interface AddonPort {
   protocol: 'udp' | 'tcp'
   port: number
+}
+
+/**
+ * Where Bedrock players join: the machine's name once its DNS records work,
+ * else the address the dashboard is open at or the machine's IP, always
+ * with the port, as Bedrock doesn't follow SRV records.
+ */
+export interface BedrockJoin {
+  host?: string
+  port: number
+}
+
+/** A server's crossplay switch: Bedrock players join through Geyser and Floodgate. */
+export interface Crossplay {
+  on: boolean
+  /** The UDP port Bedrock players join on, or the one they'd get now. */
+  port?: number
+  /** Whether crossplay can be turned on now: false while it's on, and when it can't be, for the reason in notice. */
+  available: boolean
+  notice?: AddonNotice
+  plugins: CrossplayPlugin[]
+  /** What goes in front of Bedrock players' names on the server. */
+  prefix: string
+}
+
+export interface CrossplayPlugin {
+  name: string
+  versionNumber: string
+  source: AddonSource
 }
 
 /** The add-ons Playkeeper picked by hand that fit the server's type and version. */
@@ -1662,6 +1741,25 @@ export interface TemplatePlan {
   blockers: AddonNotice[]
   ready: boolean
   fingerprint: string
+}
+
+/** The templates this release carries for New server › A template, the ones playkeeper.io offers. */
+export interface TemplateLibrary {
+  templates: LibraryTemplate[]
+}
+
+/** One template of the library. `file` is its text, planned like any template file. */
+export interface LibraryTemplate {
+  id: string
+  /** A file in assets/pixel-art. */
+  art: string
+  /** Its page on playkeeper.io. */
+  page?: string
+  /** The day a server was created and started from it, and the Playkeeper it ran on. */
+  checked?: string
+  release?: string
+  contents: TemplateContents
+  file: string
 }
 
 // Wave 5: invite links, the team, Discord and player profiles.
@@ -2558,4 +2656,91 @@ export interface FileUpload {
   createdAt: string
   files: FileUploadFile[]
   limitBytes: number
+}
+
+/** A server's settings for the public page at the machine's address (from 0.4.3). */
+export interface PublicPageSettings {
+  enabled: boolean
+  players: boolean
+  /** The owner's words for the page, and the link of the stream it offers to play (from 0.4.4); empty for none. */
+  about: string
+  stream: string
+}
+
+export type PagePortState = 'open' | 'busy' | 'claimed' | 'waiting' | 'denied' | 'off'
+
+/** One port of the public page; holder names what uses it when Playkeeper can tell. */
+export interface PagePort {
+  port: number
+  state: PagePortState
+  holder?: string
+}
+
+export interface PublicPagePorts {
+  https: PagePort
+  http: PagePort
+}
+
+/** A server's public page as its Settings show it. */
+export interface PublicPageView extends PublicPageSettings {
+  /** The machine's address, where the page answers; missing without one. */
+  host?: string
+  /** What the owner's tools last posted to the page. */
+  board?: PublicBoard
+  ports?: PublicPagePorts
+}
+
+export type PublicServerState = 'online' | 'starting' | 'sleeping' | 'offline'
+
+/** One server on the public page: only what the page shows. */
+export interface PublicServer {
+  slug: string
+  name: string
+  motd: string
+  /** What players type to join. */
+  address: string
+  state: PublicServerState
+  players?: { online: number; max: number; names?: string[] }
+  minecraftVersion: string
+  type: string
+  modpack?: { name: string; version: string }
+  /** The shared map's link while it's shared; pack the friends' pack page's. */
+  map?: string
+  pack?: string
+  inviteOnly: boolean
+  hasIcon: boolean
+  /** Where Bedrock players join while the server has crossplay: the page's own address and the UDP port. */
+  bedrock?: BedrockJoin
+  /** The owner's words for the page, such as its rules, as plain text. */
+  about?: string
+  /** A live stream the page offers to play, on Twitch or YouTube. */
+  stream?: PublicStream
+  /** What the owner's tools last posted to the page through the API or MCP. */
+  board?: PublicBoard
+}
+
+export interface PublicStream {
+  site: 'twitch' | 'youtube'
+  /** The Twitch channel's login, or the YouTube channel's ID. */
+  channel: string
+  /** The channel's own page. */
+  url: string
+}
+
+/** A status board the owner's tools keep up to date. */
+export interface PublicBoard {
+  /** One line on where things stand, like "Day 3 · Nether reached". */
+  headline?: string
+  /** Whether a session is on now; next is when the next one starts. */
+  live?: boolean
+  next?: string
+  stats?: { label: string; value: string }[]
+  checklist?: { label: string; done: boolean }[]
+  updatedAt: string
+}
+
+/** What the public page at the machine's address shows. */
+export interface PublicPage {
+  address: string
+  servers: PublicServer[]
 }

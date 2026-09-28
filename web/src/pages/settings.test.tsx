@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Action, AuditEntry, MachineView, Me } from '@/api/types'
+import type { Action, AuditEntry, MachineView, Me, UsageStatsView } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { GlobalSettingsPage } from './settings'
 
@@ -11,6 +11,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
   get: vi.fn(() => new Promise(() => {})),
   post: vi.fn(() => Promise.resolve({})),
+  put: vi.fn(() => Promise.resolve({})),
 }))
 
 const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover']
@@ -93,4 +94,55 @@ describe('Audit log', () => {
       expect(errors.mock.calls.filter((args) => args.join(' ').includes('same key'))).toEqual([])
     })
   }
+})
+
+const report = { id: '00112233445566778899aabbccddeeff', version: '0.4.4', os: 'ubuntu', osVersion: '24.04', arch: 'amd64', source: 'playkeeper.io', kind: 'dashboard', address: 'ip', servers: 2, running: 1 } as const
+const usage = (over: Partial<UsageStatsView>): UsageStatsView => ({ on: true, reason: 'default', canChange: true, service: 'https://stats.playkeeper.io', report, machines: [], ...over })
+
+async function renderSettings(view: UsageStatsView, who: Me = me) {
+  vi.mocked(client.get).mockImplementation(((path: string) => (path === '/api/usage-stats' ? Promise.resolve(view) : new Promise(() => {}))) as typeof client.get)
+  const r = createRoot(document.body.appendChild(document.createElement('div')))
+  root = r
+  await act(async () => r.render(<WorkspaceContext.Provider value={{ ...workspace([local, remote]), me: who }}>{<GlobalSettingsPage page={{ name: 'settings' }} />}</WorkspaceContext.Provider>))
+  await act(async () => {})
+}
+
+const card = () => document.querySelector('#usage-stats') as HTMLElement
+const toggle = () => card().querySelector('[role="switch"]') as HTMLElement | null
+
+describe('Usage stats', () => {
+  it('turns them off on every machine with one switch, and shows exactly what is sent', async () => {
+    vi.mocked(client.put).mockResolvedValue(usage({ on: false, reason: 'settings', machines: [{ id: remote.id, name: 'home-server', stats: usage({ on: false, reason: 'settings' }) }] }))
+    await renderSettings(usage({ lastSent: new Date(Date.now() - 3 * 3600_000).toISOString(), machines: [{ id: remote.id, name: 'home-server', stats: usage({}) }] }))
+    expect(card().textContent).toContain('On · sent twice a day, last sent 3 h ago')
+    expect(card().querySelector('li')?.textContent).toBe('home-serverOn')
+    await act(async () => toggle()?.click())
+    expect(client.put).toHaveBeenCalledWith('/api/usage-stats', { on: false })
+    expect(card().textContent).toContain('Off · nothing is sent')
+    expect(card().querySelector('li')?.textContent).toBe('home-serverOff')
+    await act(async () => (card().querySelector('button:not([role="switch"])') as HTMLElement).click())
+    expect(JSON.parse(card().querySelector('pre')?.textContent ?? '{}')).toEqual(report)
+  })
+
+  for (const tc of [
+    { name: 'DO_NOT_TRACK for the agent', view: usage({ on: false, reason: 'env', variable: 'DO_NOT_TRACK', canChange: false }), line: 'Off · DO_NOT_TRACK is set for Playkeeper on this machine' },
+    { name: 'an off chosen when it was installed', view: usage({ on: false, reason: 'install', canChange: false }), line: 'Off · turned off when Playkeeper was installed' },
+    { name: 'playkeeper dev', view: usage({ on: false, reason: 'dev', canChange: false }), line: 'Off · playkeeper dev never sends them' },
+  ]) {
+    it(`keeps the switch still and says why for ${tc.name}`, async () => {
+      await renderSettings(tc.view)
+      expect(card().textContent).toContain(tc.line)
+      expect(toggle()?.getAttribute('aria-disabled') === 'true' || toggle()?.hasAttribute('data-disabled')).toBe(true)
+      expect(toggle()?.getAttribute('title')).toBe(tc.line)
+      await act(async () => toggle()?.click())
+      expect(client.put).not.toHaveBeenCalled()
+    })
+  }
+
+  it('shows the state but no switch to those who can’t manage the machine', async () => {
+    const viewer: Me = { ...me, user: { username: 'pia', role: 'member' }, access: { ...me.access, role: 'viewer', can: ['view', 'account.manage'] } }
+    await renderSettings(usage({}), viewer)
+    expect(card().textContent).toContain('On · sent a minute after Playkeeper starts, then twice a day')
+    expect(toggle()).toBeNull()
+  })
 })

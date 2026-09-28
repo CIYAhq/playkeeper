@@ -1,0 +1,25 @@
+{
+  "status": "passing",
+  "checked": "2026-09-28",
+  "release": "0.4.2",
+  "build": "129",
+  "doneSeconds": 12.698,
+  "addons": [
+    {
+      "name": "ViaVersion",
+      "source": "modrinth",
+      "slug": "viaversion",
+      "version": "5.12.0",
+      "licence": "GPL-3.0-or-later",
+      "downloads": 3110023
+    },
+    {
+      "name": "ViaBackwards",
+      "source": "modrinth",
+      "slug": "viabackwards",
+      "version": "5.12.0",
+      "licence": "GPL-3.0-only",
+      "downloads": 2083553
+    }
+  ]
+}

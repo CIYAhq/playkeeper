@@ -9,7 +9,7 @@ export CGO_ENABLED ?= 0
 GO_PKGS := ./cmd/... ./internal/... ./web
 SH_FILES := $(wildcard scripts/*.sh scripts/e2e/*.sh packaging/*.sh)
 
-.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-go-other test-agent test-web test-sh web build package notices site dev e2e-vm clean
+.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-go-other test-agent test-web test-sh web build package notices site dev e2e-vm clean template-check
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-z0-9-]+:.*## /{printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -77,6 +77,9 @@ notices: ## Regenerate THIRD_PARTY_NOTICES after changing Go or npm dependencies
 
 site: ## Build playkeeper.io into site/dist (html/ is the web root; site/README.md)
 	go run ./cmd/site
+
+template-check: ## Create and start a server from each site template on a running Playkeeper (SOCKET=.dev/agent.sock, ARGS="-only towny -write -pin")
+	go run ./cmd/template-check -socket $(or $(SOCKET),.dev/agent.sock) $(ARGS)
 
 dev: web ## Run agent + panel locally (state in .dev/, uses your Docker)
 	go run ./cmd/playkeeper dev --dir .dev

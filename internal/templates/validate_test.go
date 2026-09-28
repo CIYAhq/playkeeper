@@ -5,10 +5,11 @@ import (
 	"testing"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
+	"github.com/CIYAhq/playkeeper/internal/modpacks"
 )
 
 func TestFixturesAreCanonical(t *testing.T) {
-	for _, name := range []string{"paper-server.json", "fabric-modpack.json"} {
+	for _, name := range []string{"paper-server.json", "fabric-modpack.json", "curseforge-modpack.json"} {
 		t.Run(name, func(t *testing.T) {
 			tp := fixture(t, name)
 			file, err := MarshalFile(tp)
@@ -26,12 +27,13 @@ func TestFixturesAreCanonical(t *testing.T) {
 func TestValidateRefuses(t *testing.T) {
 	a := func(n int) string { return strings.Repeat("a", n) }
 	cases := []struct {
-		name    string
-		modpack bool // edit the Fabric modpack fixture instead of the Paper one
-		edit    func(*Template)
-		kind    Kind
-		field   string
-		problem string
+		name       string
+		modpack    bool // edit the Fabric modpack fixture instead of the Paper one
+		curseForge bool // edit the CurseForge modpack fixture
+		edit       func(*Template)
+		kind       Kind
+		field      string
+		problem    string
 	}{
 		{name: "format 0", edit: func(tp *Template) { tp.Format = 0 }, field: "playkeeperTemplate", problem: "value"},
 		{name: "newer format", edit: func(tp *Template) { tp.Format = 2 }, kind: KindNewer},
@@ -103,6 +105,23 @@ func TestValidateRefuses(t *testing.T) {
 		{name: "modpack without a name", modpack: true, edit: func(tp *Template) { tp.Modpack.Name = "" }, field: "modpack.name", problem: "missing"},
 		{name: "modpack on Paper", modpack: true, edit: func(tp *Template) { tp.Server.Type = "paper" }, field: "modpack", problem: "not_allowed"},
 		{name: "modpack with a SHA-256", modpack: true, edit: func(tp *Template) { tp.Modpack.Pin.HashAlgo = "sha256" }, field: "modpack.pin.hashAlgo", problem: "value"},
+		{name: "Modrinth modpack with a SHA-1", modpack: true, edit: func(tp *Template) {
+			tp.Modpack.Pin.HashAlgo, tp.Modpack.Pin.Hash = "sha1", digest("sha1", "pack")
+		}, field: "modpack.pin.hashAlgo", problem: "value"},
+		{name: "CurseForge pack by its slug", curseForge: true, edit: func(tp *Template) { tp.Modpack.Project = "all-the-mods-10" }, field: "modpack.project", problem: "value"},
+		{name: "CurseForge pack id with a leading zero", curseForge: true, edit: func(tp *Template) { tp.Modpack.Project = "0925200" }, field: "modpack.project", problem: "value"},
+		{name: "CurseForge file id that is a name", curseForge: true, edit: func(tp *Template) { tp.Modpack.Pin.VersionID = "ATM10-8.2" }, field: "modpack.pin.versionId", problem: "value"},
+		{name: "CurseForge pack with a SHA-512", curseForge: true, edit: func(tp *Template) {
+			tp.Modpack.Pin.HashAlgo, tp.Modpack.Pin.Hash = "sha512", digest("sha512", "pack")
+		}, field: "modpack.pin.hashAlgo", problem: "value"},
+		{name: "CurseForge pack with an MD5", curseForge: true, edit: func(tp *Template) {
+			tp.Modpack.Pin.HashAlgo, tp.Modpack.Pin.Hash = "md5", "d41d8cd98f00b204e9800998ecf8427e"
+		}, field: "modpack.pin.hashAlgo", problem: "value"},
+		{name: "short CurseForge SHA-1", curseForge: true, edit: func(tp *Template) { tp.Modpack.Pin.Hash = tp.Modpack.Pin.Hash[:39] }, field: "modpack.pin.hash", problem: "hash"},
+		{name: "CurseForge pack on Purpur", curseForge: true, edit: func(tp *Template) { tp.Server.Type = "purpur" }, field: "modpack", problem: "not_allowed"},
+		{name: "add-on from CurseForge next to a CurseForge pack", curseForge: true, edit: func(tp *Template) {
+			tp.Addons = []Addon{{Source: "curseforge", Project: "238222", Name: "Just Enough Items", Latest: true}}
+		}, field: "addons[0].source", problem: "value"},
 
 		{name: "34 packs", edit: func(tp *Template) {
 			tp.Packs = nil
@@ -151,8 +170,11 @@ func TestValidateRefuses(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			tp := fixture(t, "paper-server.json")
-			if c.modpack {
+			switch {
+			case c.modpack:
 				tp = fixture(t, "fabric-modpack.json")
+			case c.curseForge:
+				tp = fixture(t, "curseforge-modpack.json")
 			}
 			c.edit(tp)
 			want := c.kind
@@ -231,6 +253,30 @@ func TestValidateAccepts(t *testing.T) {
 			}
 			roundTrip(t, tp)
 		})
+	}
+}
+
+// A modpack from CurseForge travels by CurseForge's project and file ids,
+// pinned by the SHA-1 CurseForge publishes for the pack's zip, and messages
+// about it name CurseForge.
+func TestTemplateCarriesACurseForgeModpack(t *testing.T) {
+	tp := fixture(t, "curseforge-modpack.json")
+	if m := tp.Modpack; m.Source != modpacks.CurseForge || m.Project != "925200" || m.Pin.VersionID != "8945086" || m.Pin.HashAlgo != "sha1" {
+		t.Fatalf("the fixture's modpack: %+v", m)
+	}
+	for _, c := range []struct {
+		edit func(*Template)
+		msg  string
+	}{
+		{func(tp *Template) { tp.Modpack.Pin.HashAlgo = "sha512" }, "The hash of All the Mods 10 - ATM10 must be the SHA-1 CurseForge publishes."},
+		{func(tp *Template) { tp.Modpack.Project = "all-the-mods-10" }, "The template's modpack has no valid CurseForge project id."},
+		{func(tp *Template) { tp.Modpack.Source = "ftb" }, "The template's modpack comes from neither Modrinth nor CurseForge."},
+	} {
+		tp := fixture(t, "curseforge-modpack.json")
+		c.edit(tp)
+		if e := refused(t, tp.Validate(), KindInvalid); e.Msg != c.msg {
+			t.Errorf("got %q, want %q", e.Msg, c.msg)
+		}
 	}
 }
 

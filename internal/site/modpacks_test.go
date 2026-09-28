@@ -86,8 +86,13 @@ func TestModpackFactsTheReleaseCantBackStopTheBuild(t *testing.T) {
 	if err := good().check(cards); err != nil {
 		t.Fatalf("a pack the release installs: %v", err)
 	}
+	old := good()
+	old.Type, old.Minecraft = "forge", "1.20.1"
+	if err := old.check(cards); err != nil {
+		t.Errorf("a Forge pack for Minecraft 1.20.1: %v", err)
+	}
 	for name, edit := range map[string]func(*Modpack){
-		"Minecraft older than the packs it offers":  func(m *Modpack) { m.Minecraft = "1.20.1" },
+		"Minecraft older than the packs it offers":  func(m *Modpack) { m.Minecraft = "1.19.2" },
 		"a type it doesn't run":                     func(m *Modpack) { m.Type = "sponge" },
 		"a plugin server":                           func(m *Modpack) { m.Type = "paper" },
 		"another source":                            func(m *Modpack) { m.Source = "technic" },
@@ -112,8 +117,10 @@ var (
 )
 
 // Google treats pages made at scale from one template with little of their
-// own as spam, so most of each pack page's and library template page's
-// sentences are its own: said on no other page under the same hub.
+// own as spam, so most of each pack page's and template directory guide's
+// sentences are its own: said on no other page under the same hub. Pages
+// kept out of search engines, like a template's page without notes of its
+// own, don't compete, so they aren't compared.
 func TestModpackAndTemplatePagesAreMostlyTheirOwn(t *testing.T) {
 	built := pages(build(t, Default))
 	for _, hub := range []string{"/modpacks/", "/templates/"} {
@@ -121,11 +128,16 @@ func TestModpackAndTemplatePagesAreMostlyTheirOwn(t *testing.T) {
 			sentences := map[string][]string{}
 			seen := map[string]int{}
 			for p, html := range built {
-				if !strings.HasPrefix(p, hub) {
+				if !strings.HasPrefix(p, hub) || strings.Contains(html, `<meta name="robots" content="noindex">`) {
 					continue
 				}
 				m := reArticle.FindStringSubmatch(html)
 				if m == nil {
+					// A category without a guide shows its intro and its
+					// templates' cards, in the templates' own words.
+					if hub == "/templates/" && strings.Contains(html, `class="cat-hero"`) {
+						continue
+					}
 					t.Fatalf("%s has no article", p)
 				}
 				own := map[string]bool{}

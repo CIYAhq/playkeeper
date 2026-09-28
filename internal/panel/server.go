@@ -115,6 +115,11 @@ type Server struct {
 
 	public      *publicGroup
 	activePacks *activePacks
+	// page is the public page at the machine's address, on ports 443 and
+	// 80, and pageCerts the certificates it serves there, without the
+	// self-signed fallback.
+	page      *pageSite
+	pageCerts *certs.Store
 	// listings are the servers each machine last listed.
 	listings listings
 	// toldSlugs are the slugs elsewhere the dashboard's machine last heard
@@ -183,6 +188,7 @@ func New(opts Options) (*Server, error) {
 	}
 	s.activePacks = &activePacks{fetch: s.fetchActivePacks, now: opts.Now}
 	s.public = newPublicGroup(s.publicRoutes(), opts.Now)
+	s.page = s.newPageSite()
 	if err := s.ensureWorkspace(); err != nil {
 		db.Close()
 		return nil, err
@@ -319,12 +325,15 @@ func (s *Server) Routes() []Route {
 		{"DELETE", "/api/machines/{mid}", needSessionCSRF, actManageMachine, s.hMachineRemove},
 		view("/api/machines/{mid}/events", s.hMachineEvents),
 		mg("/api/machines/{mid}/preflight", "/v1/preflight"),
-		mg("/api/machines/{mid}/catalog", "/v1/catalog"),
+		view("/api/machines/{mid}/catalog", s.hCatalog),
 		view("/api/machines/{mid}/activity", s.hMachineActivity),
 		view("/api/activity", s.hActivity),
 		mg("/api/machines/{mid}/update", "/v1/update"),
 		mm("POST", "/api/machines/{mid}/update/check", "/v1/update/check", actManageMachine),
 		{"POST", "/api/machines/{mid}/update/apply", needSessionCSRF, actManageMachine, s.forwardThen("POST", "/v1/update/apply", s.recordUpdate)},
+		// Usage stats: the switch sets them on every machine of the dashboard.
+		view("/api/usage-stats", s.hUsageStats),
+		{"PUT", "/api/usage-stats", needSessionCSRF, actManageMachine, s.hUsageStatsSet},
 		ag("/api/machines/{mid}/address", "/v1/address"),
 		{"GET", "/api/machines/{mid}/address/available", needSession, actManageMachine, s.machineProxy("GET", "/v1/address/available")},
 		ag("/api/machines/{mid}/address/plan", "/v1/address/plan"),
@@ -333,7 +342,7 @@ func (s *Server) Routes() []Route {
 		am("/api/machines/{mid}/address/release", "/v1/address/release"),
 		an("/api/machines/{mid}/address/check", "/v1/address/check"),
 		an("/api/machines/{mid}/address/certificate", "/v1/address/certificate"),
-		mm("DELETE", "/api/machines/{mid}/address", "/v1/address", actManageMachine),
+		{"DELETE", "/api/machines/{mid}/address", needSessionCSRF, actManageMachine, s.addressProxy("DELETE", "/v1/address")},
 		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actCreateServers, s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)},
 		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actCreateServers, s.rawUpload("/v1/restore/upload", "application/gzip")},
 		{"GET", "/api/machines/{mid}/restore/{rid}", needSession, actRestore, s.restoreProxy("GET", "/v1/restore/{rid}", nil)},
@@ -385,6 +394,8 @@ func (s *Server) Routes() []Route {
 		sg("/api/servers/{id}/addons/checks", "/v1/servers/{id}/addons/checks"),
 		sg("/api/servers/{id}/addons/search", "/v1/servers/{id}/addons/search"),
 		sg("/api/servers/{id}/addons/curated", "/v1/servers/{id}/addons/curated"),
+		sg("/api/servers/{id}/crossplay", "/v1/servers/{id}/crossplay"),
+		sm("POST", "/api/servers/{id}/crossplay", "/v1/servers/{id}/crossplay"),
 		sg("/api/servers/{id}/addons/project/{source}/{project}", "/v1/servers/{id}/addons/project/{source}/{project}"),
 		sg("/api/servers/{id}/addons/project/{source}/{project}/removal", "/v1/servers/{id}/addons/project/{source}/{project}/removal"),
 		view("/api/servers/{id}/addons/icon", s.hAddonIcon),
@@ -428,6 +439,7 @@ func (s *Server) Routes() []Route {
 		sg("/api/servers/{id}/template", "/v1/servers/{id}/template"),
 		sm("POST", "/api/servers/{id}/template/retry", "/v1/servers/{id}/template/retry"),
 		{"POST", "/api/machines/{mid}/templates/plan", needSessionCSRF, actManageServers, s.rawUpload("/v1/templates/plan", "text/plain")},
+		mg("/api/machines/{mid}/templates/library", "/v1/templates/library"),
 		// Wave 4: sharing the pack with friends; the public page is in
 		// publicRoutes.
 		sg("/api/servers/{id}/mods/share", "/v1/servers/{id}/mods/share"),
@@ -518,6 +530,22 @@ func (s *Server) Routes() []Route {
 	routes = append(routes, []Route{
 		sg("/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
 		sm("POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
+	}...)
+	// 0.4.3: the public page at the machine's address. Anyone who sees the
+	// server sees its switches; changing them, like sharing the map, needs
+	// the rights to manage servers. The page itself is served on its own
+	// ports (serverpage.go).
+	routes = append(routes, []Route{
+		view("/api/servers/{id}/public-page", s.hPublicPage),
+		{"POST", "/api/servers/{id}/public-page", needSessionCSRF, actManageServers, s.forwardThen("POST", "/v1/servers/{id}/public-page", func(machine, *session, json.RawMessage) { s.pageChanged() })},
+		{"POST", "/api/servers/{id}/public-page/retry", needSessionCSRF, actManageServers, s.hPublicPagePortsRetry},
+		// A server's own address is DNS and certificates for the whole
+		// machine, so it needs the right to manage the machine.
+		{"POST", "/api/servers/{id}/own-address", needSessionCSRF, actManageMachine, s.hOwnAddress},
+		// The status board changes as often as the owner's tools post, like
+		// the server's running state, so moderators may post and clear it.
+		{"PUT", "/api/servers/{id}/public-page/board", needSessionCSRF, actRunServers, s.forwardThen("PUT", "/v1/servers/{id}/public-page/board", func(machine, *session, json.RawMessage) { s.pageChanged() })},
+		{"DELETE", "/api/servers/{id}/public-page/board", needSessionCSRF, actRunServers, s.forwardThen("DELETE", "/v1/servers/{id}/public-page/board", func(machine, *session, json.RawMessage) { s.pageChanged() })},
 	}...)
 	return append(routes, s.fileRoutes()...)
 }
@@ -1161,9 +1189,35 @@ func (s *Server) machineProxy(method, pattern string) func(http.ResponseWriter, 
 // addressProxy forwards an address route with panelHost, the host the
 // dashboard was opened with, in the query or body. The agent keeps it when
 // it is a public IP address: behind NAT that address is on no network
-// interface, and an own domain's A record needs it.
+// interface, and an own domain's A record needs it. A change to the
+// dashboard machine's address has the public page's keeper look again at
+// once, since the page answers at that address.
 func (s *Server) addressProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
-	return s.forwardTo(method, pattern, true, nil)
+	var then func(machine, *session, json.RawMessage)
+	if method != http.MethodGet {
+		then = func(m machine, _ *session, _ json.RawMessage) {
+			if m.Kind != remoteKind {
+				s.kickPage()
+			}
+		}
+	}
+	return s.forwardTo(method, pattern, true, then)
+}
+
+// hOwnAddress gives a server its own address under the machine's own
+// domain, or clears it, and has the public page's keeper look again. A
+// joined machine has no own domain.
+func (s *Server) hOwnAddress(w http.ResponseWriter, r *http.Request, sess *session) {
+	m, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	if m.Kind == remoteKind {
+		writeErr(w, http.StatusConflict, api.CodeConflict, "Own addresses are for the dashboard's machine.",
+			"Players join "+m.Name+"'s servers at its IP address and each server's port.")
+		return
+	}
+	s.forwardThen("POST", "/v1/servers/{id}/own-address", func(machine, *session, json.RawMessage) { s.pageChanged() })(w, r, sess)
 }
 
 // dashboardAddress refuses to give a joined machine a free name or an own
@@ -1565,6 +1619,8 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 		return err
 	}
 	s.serveAlive(ctx, tc)
+	s.pageCerts = s.pageCertStore()
+	go s.runPage(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)
 	return s.serve(ctx, ln, tc)
 }

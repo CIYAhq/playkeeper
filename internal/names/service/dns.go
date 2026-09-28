@@ -32,7 +32,7 @@ func marker(name string) string { return "playkeeper-names " + name }
 // The apex, www, names and mail records never match: they are not of these
 // forms, or their name is reserved.
 func (s *Service) owns(name string, r cfRecord) bool {
-	if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {
+	if names.CheckName(name) != nil || names.Reserved(name) || r.Comment != marker(name) {
 		return false
 	}
 	fqdn := names.Address(name, s.base)

@@ -366,6 +366,11 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool,
 		"USE_AIKAR_FLAGS=TRUE",
 	)
 	env = append(env, gameplayEnv(sc.Gameplay)...)
+	if crossplayOn(&sc) {
+		// Bedrock players have no chat signing key, so a server that
+		// insists on one mutes them.
+		env = append(env, "ENFORCE_SECURE_PROFILE=FALSE")
+	}
 	pack, err := resourcePackEnv(s.currentOffer(sc.ResourcePack))
 	if err != nil {
 		pack = keptPackEnv(current)
@@ -408,6 +413,12 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool,
 			voice := strconv.Itoa(p) + "/udp"
 			cfg.ExposedPorts[voice] = struct{}{}
 			cfg.HostConfig.PortBindings[voice] = []docker.PortBinding{{HostPort: strconv.Itoa(p)}}
+		}
+		// So is crossplay's, as Geyser's config says (ensureCrossplay).
+		if p := sc.CrossplayPort; p > 0 {
+			bedrock := strconv.Itoa(p) + "/udp"
+			cfg.ExposedPorts[bedrock] = struct{}{}
+			cfg.HostConfig.PortBindings[bedrock] = []docker.PortBinding{{HostPort: strconv.Itoa(p)}}
 		}
 	}
 	b, _ := json.Marshal(cfg)
@@ -759,8 +770,14 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 			return err
 		}
 	}
+	if err := s.keepDefaultProperties(sc); err != nil {
+		return err
+	}
 	if takesPlugins(sc) {
 		if err := s.ensureTelemetryOff(); err != nil {
+			return err
+		}
+		if err := s.ensureCrossplay(sc); err != nil {
 			return err
 		}
 	}
@@ -1037,6 +1054,7 @@ func (s *server) reconcile(ctx context.Context) {
 	}
 	s.resumeSaving(ctx, c, c.State.Running)
 	if c.State.Running {
+		s.checkSettingsOnce(*sc)
 		return
 	}
 	// A container that never started has the zero finish time.

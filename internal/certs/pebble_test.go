@@ -96,6 +96,29 @@ func TestPebble(t *testing.T) {
 		}
 	})
 
+	// A server's own address gets a certificate of its own over HTTP-01 from
+	// the same account, and each name is served its own.
+	t.Run("http-01 for a second name", func(t *testing.T) {
+		h := &HTTP01Responder{Addr: loopback(env.httpPort)}
+		c, err := is.Issue(ctx, Request{Names: []string{"alex.example.org"}, HTTP01: h, Dir: dir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(c.Names, []string{"alex.example.org"}) {
+			t.Fatalf("Issue = %+v", c)
+		}
+		st, err := NewStore(StoreOptions{Dir: dir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"alex.example.org", "mc.example.com"} {
+			leaf, err := handshake(t, st.GetCertificate, &tls.Config{ServerName: name, RootCAs: env.roots})
+			if err != nil || !slices.Equal(leaf.DNSNames, []string{name}) {
+				t.Fatalf("%s is served %v (%v)", name, leaf, err)
+			}
+		}
+	})
+
 	t.Run("dns-01", func(t *testing.T) {
 		d := &DNS01{Challenger: challtestsrvDNS{env}, LookupTXT: DNSServer(env.dns).LookupTXT, Interval: 100 * time.Millisecond, Timeout: 10 * time.Second}
 		c, err := is.Issue(ctx, Request{Names: []string{"alex.playkeeper.me"}, DNS01: d, Dir: dir})

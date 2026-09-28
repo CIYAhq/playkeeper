@@ -3,6 +3,7 @@ package curseforge
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -31,7 +32,25 @@ type ManifestMinecraft struct {
 	ModLoaders []ModLoader `json:"modLoaders"`
 	// RecommendedRAM is the Java heap, in MB, the pack's author recommends;
 	// 0 when the manifest doesn't say.
-	RecommendedRAM int `json:"recommendedRam"`
+	RecommendedRAM MB `json:"recommendedRam"`
+}
+
+// MB is a number of megabytes. Some packs write recommendedRam as text,
+// like Better MC [FABRIC] BMC2's "10000"; anything but a whole number
+// counts as not saying, rather than refusing the pack over a hint.
+type MB int
+
+func (m *MB) UnmarshalJSON(b []byte) error {
+	var s string
+	if json.Unmarshal(b, &s) != nil {
+		s = string(b)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 0 {
+		n = 0
+	}
+	*m = MB(n)
+	return nil
 }
 
 // ModLoader is a loader id such as "fabric-0.19.5" or "neoforge-21.1.77".

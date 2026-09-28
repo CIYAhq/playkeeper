@@ -266,3 +266,47 @@ export async function fakePanel(page: Page, log: FakeConsole) {
   })
   return { server: s, unexpected }
 }
+
+/** What a server's Settings tab and a phone's Overview read, on top of fakePanel's answers. */
+export function settingsReads(): Record<string, unknown> {
+  const s = server()
+  const now = new Date().toISOString()
+  return {
+    [`/api/machines/${machine.id}/catalog`]: {
+      type: 'paper',
+      types: [{ id: 'paper', name: 'Paper', available: true }],
+      versions: [{ id: 'paper-26.1.2-74', label: '26.1.2', minecraftVersion: '26.1.2', paperBuild: 74, jarSha256: 'cd'.repeat(32), java: 25, recommended: true, notes: '', channel: 'STABLE', experimental: false, supported: true }],
+      memoryOptionsMB: [2048, 3072, 4096, 6144],
+      recommendedMemoryMB: 4096,
+      hostMemoryMB: machine.live.memoryTotalMB,
+      maxMemoryMB: 8192,
+      systemReserveMB: machine.live.systemReserveMB,
+      memoryFreeMB: machine.live.memoryFreeMB,
+      servers: [{ id: s.id, name: s.name, memoryMB: 4096, running: true }],
+      suggestedPort: 25566,
+      image: 'itzg/minecraft-server:2026.9.0-java25',
+    },
+    [`/api/servers/${s.id}/memory`]: {
+      verdict: 'keep',
+      params: { budget_mb: 4096, heap_mb: 3072, peak_mb: 2560, days: 14, reason: 'fits' },
+      title: 'Its memory fits',
+      explanation: 'It needed up to 2.5 GB in the last 14 days.',
+      evidence: [],
+      actions: [],
+      budgetMB: 4096,
+      heapMB: 3072,
+      recommendedMB: 4096,
+      days: Array.from({ length: 14 }, (_, i) => ({ date: `2026-09-${String(12 + i).padStart(2, '0')}`, peakMB: 2200 + i * 20 })),
+      options: [2048, 3072, 4096, 6144].map((memoryMB) => ({ memoryMB, heapMB: memoryMB * 0.75, fits: true })),
+    },
+    [`/api/servers/${s.id}/sleep`]: { enabled: false, idleMinutes: 15, listening: false, defaultIdleMinutes: 15, minIdleMinutes: 5, maxIdleMinutes: 240, today: { count: 0, seconds: 0 } },
+    [`/api/servers/${s.id}/crossplay`]: { on: false, available: true, port: 19132, plugins: [], prefix: '.' },
+    [`/api/servers/${s.id}/schedules`]: { schedules: [] },
+    [`/api/servers/${s.id}/schedules/runs`]: { runs: [] },
+    [`/api/servers/${s.id}/backups`]: [],
+    [`/api/servers/${s.id}/activity`]: [{ ts: now, serverId: s.id, kind: 'player_joined', actor: 'mara_k' }],
+    [`/api/servers/${s.id}/players/sessions`]: { range: '24h', sessions: [] },
+    [`/api/servers/${s.id}/metrics`]: { from: new Date(Date.now() - 86_400_000).toISOString(), to: now, bucketSeconds: 3600, sampleIntervalSeconds: 60, buckets: [], gaps: [], source: 'agent' },
+    [`/api/servers/${s.id}/public-page`]: { enabled: true, players: false, about: '', stream: '', host: 'alex.playkeeper.me', ports: { https: { port: 443, state: 'open' }, http: { port: 80, state: 'open' } } },
+  }
+}

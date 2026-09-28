@@ -32,7 +32,7 @@ func TestTheToolsRegister(t *testing.T) {
 	want := []string{"list_servers", "get_server_status", "start_server", "stop_server", "restart_server", "read_console",
 		"send_chat_message", "run_console_command", "list_online_players", "list_whitelist", "add_to_whitelist",
 		"remove_from_whitelist", "list_backups", "create_backup", "get_operation", "get_lag_report", "explain_crash", "search_addons",
-		"install_addon", "remove_addon"}
+		"install_addon", "remove_addon", "set_status_board"}
 	if !slices.Equal(names, want) {
 		t.Errorf("tools %v\nwant %v", names, want)
 	}
@@ -602,5 +602,45 @@ func TestTheCommandLineBackendServesThisMachine(t *testing.T) {
 	last := reqs[len(reqs)-1]
 	if last.Path != "/v1/servers/"+idA+"/command" || last.Actor != "cli:alice" || last.Body["actor"] != "cli:alice" {
 		t.Errorf("the command was sent as %+v", last)
+	}
+}
+
+func TestTheStatusBoardReachesThePublicPage(t *testing.T) {
+	b := newWorld(false)
+	a := b.agents["m1"]
+	p := "/v1/servers/" + idA
+
+	if r := connect(t, b, token(mcp.ScopeRead)).call("set_status_board", map[string]any{"server": idA, "headline": "hi"}); r.Kind != mcp.KindScopeMissing {
+		t.Errorf("a read-only token posted a board: %s %s", r.Kind, r.Text)
+	}
+	c := connect(t, b, token(mcp.ScopeManage))
+	r := c.call("set_status_board", map[string]any{"server": idA, "headline": "Day 3 · Nether reached", "live": true, "next": "2026-10-06T17:00:00Z",
+		"stats":     []map[string]any{{"label": "Deaths", "value": "5"}},
+		"checklist": []map[string]any{{"label": "Iron pickaxe", "done": true}, {"label": "Ender Dragon killed", "done": false}}})
+	if r.Kind != "" || r.Text != "Posted to Survival's public page: Day 3 · Nether reached" {
+		t.Fatalf("set_status_board: %s %s", r.Kind, r.Text)
+	}
+	reqs := a.requests()
+	last := reqs[len(reqs)-1]
+	if last.Method != "PUT" || last.Path != p+"/public-page/board" || last.Actor != actor || last.Body["actor"] != actor || last.Body["headline"] != "Day 3 · Nether reached" ||
+		last.Body["live"] != true || last.Body["next"] != "2026-10-06T17:00:00Z" {
+		t.Fatalf("the agent heard %+v", last)
+	}
+	if stats, _ := last.Body["stats"].([]any); len(stats) != 1 {
+		t.Fatalf("stats sent: %v", last.Body["stats"])
+	}
+	for _, next := range []string{"tomorrow", "2026-10-06T17:00Z", "2026-10-06 17:00:00Z"} {
+		if r := c.call("set_status_board", map[string]any{"server": idA, "next": next}); r.Kind != mcp.KindInvalidArguments {
+			t.Errorf("next %q: %s %s", next, r.Kind, r.Text)
+		}
+	}
+	if r := c.call("set_status_board", map[string]any{"server": idA, "stats": []map[string]any{{"label": "A", "value": strings.Repeat("9", 17)}}}); r.Kind != mcp.KindInvalidArguments {
+		t.Errorf("a number longer than the board shows: %s %s", r.Kind, r.Text)
+	}
+	r = c.call("set_status_board", map[string]any{"server": idA, "clear": true})
+	reqs = a.requests()
+	last = reqs[len(reqs)-1]
+	if r.Text != "Took the status board off Survival's public page." || last.Method != "DELETE" || last.Query.Get("actor") != actor {
+		t.Fatalf("clearing: %s, the agent heard %+v", r.Text, last)
 	}
 }

@@ -15,11 +15,11 @@
 {{end}}
 
 {{/* crumbs: the page's breadcrumb, from its section. */}}
-{{define "crumbs"}}{{with .Crumbs}}
+{{define "crumbs"}}{{with .Crumbs}}{{$all := .}}
 <nav class="crumbs" aria-label="Breadcrumb">
   <ol>
     {{range $i, $c := .}}{{if $i}}<li aria-hidden="true" class="crumb-sep">{{template "icon" "chevron-right"}}</li>{{end}}
-    <li>{{if eq $i 1}}<span aria-current="page">{{$c.Label}}</span>{{else if $c.Path}}<a href="{{$c.Path}}">{{$c.Label}}</a>{{else}}<span>{{$c.Label}}</span>{{end}}</li>
+    <li>{{if eq (add $i 1) (len $all)}}<span aria-current="page">{{$c.Label}}</span>{{else if $c.Path}}<a href="{{$c.Path}}">{{$c.Label}}</a>{{else}}<span>{{$c.Label}}</span>{{end}}</li>
     {{end}}
   </ol>
 </nav>
@@ -121,7 +121,8 @@
 {{end}}{{end}}
 
 {{/* providers: three VPS that fit a size, with plan names and "See today's
-     price", never prices, and each provider's setup guide. Which links earn
+     price", never prices, each provider's setup guide, and the credit a new
+     account gets through a partner link that carries one. Which links earn
      a commission is said before them. Need: the memory and cores. */}}
 {{define "providers"}}
 <div class="providers" data-providers>
@@ -133,6 +134,7 @@
       <h3>{{$p.Name}}</h3>
       <p class="provider-plan" data-plan>{{$plan.Name}} · {{$plan.CPUs}} vCPU · {{$plan.MemoryGB}} GB</p>
       <p class="provider-regions">{{$p.Regions}}</p>
+      {{with $p.Offered}}<p class="provider-offer"><strong>New accounts get {{.}}.</strong> {{$p.OfferTerms}}</p>{{end}}
       <div class="provider-actions">
         <a class="btn btn-outline btn-sm" href="{{$p.Link}}" rel="{{$p.Rel}}">See today's price{{template "icon" "arrow-up-right"}}<span class="visually-hidden"> at {{$p.Name}}</span></a>
         {{if exists $p.Guide}}<a class="link-arrow" href="{{$p.Guide}}">Setup guide{{template "icon" "arrow-right"}}<span class="visually-hidden"> for {{$p.Name}}</span></a>{{end}}
@@ -161,13 +163,14 @@
 {{end}}
 
 {{/* provider-cta: a guide's "Get a server" at its provider, with the plan
-     that fits the sizing guide's first answer and, beside a partner link,
-     what it earns. */}}
+     that fits the sizing guide's first answer, the credit a new account gets
+     through the partner link and, beside it, what the link earns. */}}
 {{define "provider-cta"}}{{$p := .}}{{$g := sizing}}{{$plan := $p.Fit $g.Answer.MemoryGB $g.Answer.Cores}}
 <div class="provider-cta reveal" data-provider="{{$p.Name}}">
   <div class="provider-cta-text">
     <p class="provider-cta-for">For {{$g.FirstBand}} friends on {{$g.FirstRun}}</p>
     <p class="provider-cta-plan" data-plan>{{$plan.Name}} · {{$plan.CPUs}} vCPU · {{$plan.MemoryGB}} GB</p>
+    {{with $p.Offered}}<p class="provider-cta-offer"><strong>New accounts get {{.}}.</strong> {{$p.OfferTerms}}</p>{{end}}
   </div>
   <a class="btn btn-primary" href="{{$p.Link}}" rel="{{$p.Rel}}">Get a {{$p.Name}} server{{template "icon" "arrow-up-right"}}</a>
   {{if $p.Partner}}<p class="provider-cta-note">{{$p.LinkNote}}</p>{{end}}
