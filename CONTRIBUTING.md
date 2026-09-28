@@ -95,7 +95,7 @@ git add internal/update/release.pub && git commit -m "Add the release signing ke
 | `scripts/` | toolchain setup, packaging, release checks, site and names checks, KVM rehearsal harness, negative controls |
 | `site/`, `internal/site`, `cmd/site` | playkeeper.io: its pages (the sizing guide and the template page among them), layouts and art, the generator that builds them with the docs from the repository's Markdown, and its nginx container with the live demo (hosted with Coolify) |
 | `test/e2e/` | API client, scenario driver, protocol bot, Playwright specs |
-| `.github/workflows/` | CI, the click-through it and the release path share, the ARM64 workflow, the Release check, the release workflow, the VM rehearsal and the OS matrix |
+| `.github/workflows/` | CI, the click-through it and the release path share, the ARM64 workflow, the Release check, the release workflow, the VM rehearsal, the VM release rehearsal and the OS matrix |
 
 ## Design principles
 
