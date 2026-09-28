@@ -352,12 +352,21 @@ func (a *Agent) namedHost() string {
 // yet; the dashboard then offers the address it was opened at.
 func (s *server) mapLink(rec *mapRecord) string {
 	p := rec.sharePath()
-	host := s.namedHost()
-	if p == "" || host == "" || !reDomain.MatchString(host) {
+	if p == "" {
 		return ""
 	}
-	if s.cfg.PanelPort != 443 {
-		host = net.JoinHostPort(host, strconv.Itoa(s.cfg.PanelPort))
+	return s.panelLink(p)
+}
+
+// panelLink is the dashboard's link to a public path under the machine's
+// name, or "" while the name doesn't work (see namedHost).
+func (a *Agent) panelLink(p string) string {
+	host := a.namedHost()
+	if host == "" || !reDomain.MatchString(host) {
+		return ""
+	}
+	if a.cfg.PanelPort != 443 {
+		host = net.JoinHostPort(host, strconv.Itoa(a.cfg.PanelPort))
 	}
 	return "https://" + host + p
 }
