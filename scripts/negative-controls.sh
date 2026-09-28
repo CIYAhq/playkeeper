@@ -6983,10 +6983,18 @@ control "server addresses: a name given by hand keeps its certificate when the d
   'func(o joinServer) bool { return o.own == name }' \
   'func(o joinServer) bool { return o.id != js.id && o.own == name }' \
   ./internal/agent '^TestAGivenSlugAddressKeepsItsCertificateWhenTheDomainMoves$'
-control "server addresses: a server's certificate from the wildcard goes after it was given its own address" internal/agent/ownaddress.go \
+control "server addresses: a server's leftover certificate from the wildcard goes with the domain" internal/agent/ownaddress.go \
   'js.slug == "" || ' \
   'js.slug == "" || js.own != "" || ' \
-  ./internal/agent '^TestTheDaysCertificatesCountWhateverBecameOfTheirNames$'
+  ./internal/agent '^TestALeftoverCertificateFromTheWildcardGoesWithTheDomain$'
+control "server addresses: a server given another address drops its certificate from the wildcard" internal/agent/ownaddress.go \
+  'if name != "" && wild != name {' \
+  'if false && name != "" && wild != name {' \
+  ./internal/agent '^TestGivingAServerAnAddressForgetsItsCertificateFromTheWildcard$'
+control "server addresses: a server given the name it has keeps its certificate" internal/agent/ownaddress.go \
+  'if name != "" && wild != name {' \
+  'if name != "" {' \
+  ./internal/agent '^TestGivingAServerAnAddressForgetsItsCertificateFromTheWildcard$'
 control "server addresses: each certificate request is logged for the day's count" internal/agent/ownaddress.go \
   'a.noteOwnCertAttempt()' \
   '_ = ctx' \

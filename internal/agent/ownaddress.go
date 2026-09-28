@@ -54,11 +54,17 @@ func (s *server) hOwnAddressSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if old != name {
+		// The certificate from the wildcard goes too once the server has
+		// an address of its own under another name: it won't use it again.
+		wild := s.wildName()
 		if _, err := s.db.Exec(`UPDATE servers SET own_address = ? WHERE id = ?`, name, s.id); err != nil {
 			writeError(w, err)
 			return
 		}
 		s.forgetCertificate(old)
+		if name != "" && wild != name {
+			s.forgetCertificate(wild)
+		}
 		s.audit(actor, "server.own_address", s.id, "changed", nonEmptyOr(name, "cleared"))
 		s.serversChanged()
 	}

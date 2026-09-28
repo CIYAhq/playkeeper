@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/certs"
 )
 
 func (e *addressEnv) setServerAddresses(on bool) (int, api.Address) {
@@ -307,6 +308,50 @@ func TestTheDaysCertificatesCountWhateverBecameOfTheirNames(t *testing.T) {
 	// an address of its own, went with the domain too.
 	if e.a.loadCertificate("creative.play.example.com") != nil {
 		t.Fatal("creative's certificate from the wildcard stayed")
+	}
+}
+
+// A server given an address of its own under another name won't use its
+// certificate from the wildcard again, so it goes; one given the name it
+// has keeps it.
+func TestGivingAServerAnAddressForgetsItsCertificateFromTheWildcard(t *testing.T) {
+	e, survival, creative, _ := ownDomainEnvWith(t, func(o *Options) { o.AddressInterval = 20 * time.Millisecond })
+	e.dns.set("*.play.example.com", testIP.String())
+	if code, _ := e.setServerAddresses(true); code != 200 {
+		t.Fatal("turning it on")
+	}
+	e.certified("survival.play.example.com", "creative.play.example.com", "test.play.example.com")
+	if code, out := e.setOwn(survival, "survival.play.example.com"); code != 200 {
+		t.Fatalf("giving survival the name it has: %d %v", code, out)
+	}
+	if e.a.loadCertificate("survival.play.example.com") == nil {
+		t.Fatal("survival lost the certificate of the name it keeps")
+	}
+	e.dns.set("alex.example.com", testIP.String())
+	if code, out := e.setOwn(creative, "alex.example.com"); code != 200 {
+		t.Fatalf("giving creative another address: %d %v", code, out)
+	}
+	if e.a.loadCertificate("creative.play.example.com") != nil {
+		t.Fatal("creative kept its certificate from the wildcard")
+	}
+}
+
+// A certificate from the wildcard left behind for a server that now has an
+// address of its own goes with the domain.
+func TestALeftoverCertificateFromTheWildcardGoesWithTheDomain(t *testing.T) {
+	e, _, creative, _ := ownDomainEnv(t)
+	if code, out := e.setOwn(creative, "alex.example.com"); code != 200 {
+		t.Fatalf("giving creative an address: %d %v", code, out)
+	}
+	row := &certRow{name: "creative.play.example.com", source: api.AddressOwn, challenge: "http-01", status: certs.Status{Names: []string{"creative.play.example.com"}, LastAttempt: e.a.now().Add(-time.Hour)}}
+	if err := e.a.saveCertificate(row); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := e.call("DELETE", "/v1/address?actor=admin", nil); code != 200 {
+		t.Fatalf("giving the domain up: %d %v", code, out)
+	}
+	if e.a.loadCertificate("creative.play.example.com") != nil {
+		t.Fatal("the leftover certificate stayed")
 	}
 }
 
