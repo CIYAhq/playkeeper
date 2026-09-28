@@ -96,11 +96,12 @@ export const unknownCost = 60
 export type Costs = Partial<Record<Size, Record<string, number>>>
 
 /**
- * A runner's share, in seconds of the costs: with its setup (the install,
- * onboarding and the bots' scenario take about 6 minutes), the package before
- * it and the gate after, every page takes about half an hour.
+ * A runner's share of the full crawl, in seconds of the costs. The Release
+ * check's runners start from a saved played state, a minute or so, after the
+ * three-minute build, so every page takes about a quarter of an hour. No
+ * runner takes less than the costliest group of pages (partition).
  */
-export const shardSeconds = 1080
+export const shardSeconds = 540
 
 /** The group a unit is crawled with: its crawler's pages, or a signed-in route's pages in all their states. */
 function groupOf(u: Unit): string {
