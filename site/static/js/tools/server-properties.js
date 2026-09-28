@@ -65,7 +65,9 @@
   function set(p, v) {
     p.loaded = null;
     if (!p.known || p.kind === 'int' || p.kind === 'text') {
-      p.input.value = v;
+      // A one-line field drops line breaks, so the MOTD shows its second
+      // line's break as \n, as the file writes it; escape reads it back.
+      p.input.value = p.key === 'motd' ? v.replace(/\r?\n/g, '\\n') : v;
     } else if (p.kind === 'bool') {
       p.input.checked = v.trim().toLowerCase() === 'true';
     } else {

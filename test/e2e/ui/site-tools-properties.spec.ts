@@ -115,7 +115,7 @@ test('a file of your own is read as the server reads it, older settings and all'
   await page.locator('#sp-paste').fill([
     '# a comment',
     '! another',
-    'motd = My \\u00A7aserver',
+    'motd = My \\u00A7aserver\\nline two',
     'max-players:10',
     'difficulty=2',
     'level-type=FLAT',
@@ -128,7 +128,7 @@ test('a file of your own is read as the server reads it, older settings and all'
   await page.getByRole('button', { name: 'Use it' }).click()
   await expect(page.locator('[data-toast]')).toContainText('Read 8 settings from your file.')
   await expect(page.locator('[data-load-panel]')).toBeHidden()
-  await expect(page.locator('#sp-motd')).toHaveValue('My §aserver')
+  await expect(page.locator('#sp-motd'), 'the MOTD keeps its line break, shown as \\n').toHaveValue('My §aserver\\nline two')
   await expect(page.locator('#sp-max-players')).toHaveValue('10')
   await expect(row(page, 'difficulty').locator('input:checked')).toHaveValue('normal')
   await expect(row(page, 'level-type').locator('input:checked')).toHaveValue('minecraft:flat')
@@ -139,7 +139,7 @@ test('a file of your own is read as the server reads it, older settings and all'
   const text = (await out(page)).split('\n')
   expect(text).toContain('pvp=false')
   expect(text).toContain('my-plugin-key=hello world')
-  expect(text).toContain('motd=My \\u00A7aserver')
+  expect(text).toContain('motd=My \\u00A7aserver\\nline two')
   expect(text).toContain('simulation-distance=6')
   const keys = text.slice(2).map((l) => l.split('=')[0])
   expect(keys, 'in the order the server writes them').toEqual([...keys].sort())
