@@ -1,0 +1,25 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "StoneBlock 4",
+  "description": "FTB StoneBlock 4 for NeoForge on Minecraft 1.21.1: survival underground in solid stone, with Vaults to explore and the World Engine to power.",
+  "game": "minecraft-java",
+  "server": { "type": "neoforge", "minecraftVersion": "1.21.1" },
+  "settings": {
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 12288
+  },
+  "modpack": {
+    "source": "curseforge",
+    "project": "1373378",
+    "slug": "ftb-stoneblock-4",
+    "name": "FTB StoneBlock 4",
+    "pin": {
+      "versionId": "8947694",
+      "versionNumber": "1.22.0",
+      "channel": "release",
+      "hashAlgo": "sha1",
+      "hash": "f05df3a2dcceeefb9a996e217b51535d96b2803d"
+    }
+  }
+}
