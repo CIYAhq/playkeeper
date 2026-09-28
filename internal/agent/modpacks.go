@@ -511,36 +511,46 @@ func (s *server) keepDefaultProperties(sc api.ServerConfig) error {
 // settingsSwitchedOff reports whether a modded server was started with the
 // console or the allowlist off, which Playkeeper always has on, because the
 // Default Server Properties mod used a default-server.properties that a pack
-// installed before 0.4.3 put there. It stays so until it restarts.
-func (s *server) settingsSwitchedOff(sc api.ServerConfig) bool {
+// installed by an older Playkeeper put there. It stays so until it restarts.
+// settled is false while the mod may still do it: the file is there and the
+// mod's marker isn't yet, or was written moments ago, as the mod writes it
+// just before server.properties.
+func (s *server) settingsSwitchedOff(sc api.ServerConfig) (off, settled bool) {
 	if !takesMods(sc) {
-		return false
+		return false, true
 	}
 	d, err := s.gameFiles()
 	if err != nil {
-		return false
+		return false, false
 	}
 	defer d.Close()
-	for _, name := range []string{modpacks.DefaultPropertiesName, defaultPropertiesUsed} {
-		if _, err := d.Lstat(name); err != nil {
-			return false
-		}
+	if _, err := d.Lstat(modpacks.DefaultPropertiesName); err != nil {
+		return false, true
+	}
+	used, err := d.Lstat(defaultPropertiesUsed)
+	if err != nil || s.now().Sub(used.ModTime()) < defaultPropertiesSettle {
+		return false, false
 	}
 	props := readProperties(s.dataDir())
 	if props == nil {
-		return false
+		return false, false
 	}
 	for _, k := range []string{"enable-rcon", "white-list", "enforce-whitelist"} {
 		if !strings.EqualFold(props[k], "true") {
-			return true
+			return true, true
 		}
 	}
-	return false
+	return false, true
 }
+
+// defaultPropertiesSettle is how long after writing its marker the Default
+// Server Properties mod is taken to have saved server.properties.
+const defaultPropertiesSettle = time.Minute
 
 // checkSettingsOnce restarts a running server whose settings the Default
 // Server Properties mod switched off (settingsSwitchedOff), which puts them
-// back. It looks once for each agent process.
+// back. It looks once for each agent process, or again on the next pass
+// while the answer isn't settled.
 func (s *server) checkSettingsOnce(sc api.ServerConfig) {
 	s.mu.Lock()
 	done := s.settingsChecked
@@ -548,7 +558,11 @@ func (s *server) checkSettingsOnce(sc api.ServerConfig) {
 	if done {
 		return
 	}
-	if s.settingsSwitchedOff(sc) {
+	off, settled := s.settingsSwitchedOff(sc)
+	if !settled {
+		return
+	}
+	if off {
 		if _, err := s.restart("playkeeper"); err != nil {
 			return
 		}

@@ -325,8 +325,9 @@ func TestCreateFromModpackTakesItsSuggestedSettings(t *testing.T) {
 }
 
 // modServer makes a stopped server of type typ, with server.properties and
-// the files the Default Server Properties mod reads, as a pack installed
-// before 0.4.3 left them; used also writes the mod's marker.
+// the files the Default Server Properties mod reads, as a pack installed by
+// an older Playkeeper left them; used also writes the mod's marker, an hour
+// ago.
 func (e *agentEnv) modServer(typ, properties, defaults string, used bool) {
 	e.t.Helper()
 	e.create()
@@ -345,7 +346,7 @@ func (e *agentEnv) modServer(typ, properties, defaults string, used bool) {
 	writeTestFile(e.t, filepath.Join(e.dataDir(), "server.properties"), []byte(properties), time.Time{})
 	writeTestFile(e.t, filepath.Join(e.dataDir(), "default-server.properties"), []byte(defaults), time.Time{})
 	if used {
-		writeTestFile(e.t, filepath.Join(e.dataDir(), "local", "default-used.marker"), nil, time.Time{})
+		writeTestFile(e.t, filepath.Join(e.dataDir(), "local", "default-used.marker"), nil, time.Now().Add(-time.Hour))
 	}
 }
 
@@ -429,6 +430,54 @@ func TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor(t *testing.T)
 				t.Fatalf("%d settings_restored events, want %d", n, tc.restarted)
 			}
 		})
+	}
+}
+
+// An update that lands while a server an older Playkeeper started is still
+// loading its mods, before the Default Server Properties mod has used its
+// file, looks again until the mod has: the restart comes once the mod's
+// marker is a minute old, by when the mod has saved server.properties.
+func TestAnUpdateDuringAFirstStartLooksAgainOnceThePackModHasRun(t *testing.T) {
+	e := newAgentEnv(t)
+	e.modServer("fabric", "", "allow-nether=false\n", false)
+	if op := e.runOp("POST", "/start"); op.Status != api.OpSucceeded {
+		t.Fatalf("start: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	marker := filepath.Join(e.dataDir(), "local", "default-used.marker")
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	checked := func() bool {
+		s := e.srv()
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.settingsChecked
+	}
+	restarts := func() int {
+		return e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'restart' AND actor = 'playkeeper' AND status = ?`, api.OpSucceeded)
+	}
+
+	e.stop()
+	e.start()
+	time.Sleep(500 * time.Millisecond)
+	if checked() {
+		t.Fatal("the check settled before the mod used its file")
+	}
+	writeTestFile(t, filepath.Join(e.dataDir(), "server.properties"), []byte("enable-rcon=false\nwhite-list=false\nenforce-whitelist=false\n"), time.Time{})
+	writeTestFile(t, marker, nil, time.Time{})
+	time.Sleep(500 * time.Millisecond)
+	if checked() || restarts() != 0 {
+		t.Fatalf("the check settled (%v) or restarted the server (%d) just after the mod wrote its marker", checked(), restarts())
+	}
+	e.skew.Add(int64(2 * time.Minute))
+	e.waitFor("the check", checked)
+	e.waitFor("online and idle", e.onlineIdle)
+	if n := restarts(); n != 1 {
+		t.Fatalf("%d restarts by Playkeeper, want 1", n)
+	}
+	if n := e.countEvents("settings_restored"); n != 1 {
+		t.Fatalf("%d settings_restored events, want 1", n)
 	}
 }
 

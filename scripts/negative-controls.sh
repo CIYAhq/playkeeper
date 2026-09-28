@@ -2058,9 +2058,24 @@ control "the Default Server Properties mod's marker says its file was used" inte
   'err = nil' \
   ./internal/agent '^TestDefaultServerPropertiesKeepPlaykeepersSettings$'
 control "a server a pack's mod started without the console and allowlist is restarted after an update" internal/agent/modpacks.go \
-  'if s.settingsSwitchedOff(sc) {' \
-  'if false && s.settingsSwitchedOff(sc) {' \
+  'if off {' \
+  'if false && off {' \
   ./internal/agent '^TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor$'
+control "the settings check waits a minute after the pack's mod writes its marker" internal/agent/modpacks.go \
+  'if err != nil || s.now().Sub(used.ModTime()) < defaultPropertiesSettle {' \
+  'if err != nil || used == nil {' \
+  ./internal/agent '^TestAnUpdateDuringAFirstStartLooksAgainOnceThePackModHasRun$'
+control "the settings check looks again while the pack's mod hasn't used its file" internal/agent/modpacks.go \
+  'if err != nil || s.now().Sub(used.ModTime()) < defaultPropertiesSettle {
+		return false, false
+	}' \
+  'if err != nil {
+		return false, true
+	}
+	if s.now().Sub(used.ModTime()) < defaultPropertiesSettle {
+		return false, false
+	}' \
+  ./internal/agent '^TestAnUpdateDuringAFirstStartLooksAgainOnceThePackModHasRun$'
 control "a modpack's downloads must match the hashes the pack lists" internal/addons/fetch/download.go \
   'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
   'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
