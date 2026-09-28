@@ -673,7 +673,10 @@ func (s *Site) funcs() template.FuncMap {
 			return pr, nil
 		},
 		"partnerNote": partnerNote,
-		"sizing":      func() SizingGuide { return s.sizing },
+		// freeMonth is the provider whose credit pays for a month of the
+		// sizing guide's first answer, or nil.
+		"freeMonth": func() *Provider { return freeMonth(s.sizing.Answer) },
+		"sizing":    func() SizingGuide { return s.sizing },
 		// sizingFor is the sizing guide's answer for friends playing at once
 		// on a workload ("vanilla", "add-ons" or "modpack").
 		"sizingFor": func(players int, workload string) (sizing.Recommendation, error) {

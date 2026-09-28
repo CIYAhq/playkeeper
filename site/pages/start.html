@@ -25,7 +25,7 @@ scripts: js/start.js
       <h1 id="page-title" class="h1-hero start-h1"><span class="line hero-rise">One command.</span> <span class="line line-green hero-rise">Your Minecraft server.</span></h1>
       <p class="hero-sub hero-after">Rent a VPS, paste one command, and Playkeeper sets up your Minecraft: Java Edition server. Then everything happens in your browser, and friends can be playing tonight.</p>
       <div class="hero-after">{{template "install" (dict "ID" true "Cmd" (installFor .Page.Channel) "Share" .Page.Share)}}</div>
-      <p class="start-vps hero-after">Don't have a VPS yet? They cost from a few dollars a month. <a class="link-arrow" href="/sizing">Which one to rent{{template "icon" "arrow-right"}}</a></p>
+      {{if freeMonth}}{{template "free-vps"}}{{else}}<p class="start-vps hero-after">Don't have a VPS yet? They cost from a few dollars a month. <a class="link-arrow" href="/sizing">Which one to rent{{template "icon" "arrow-right"}}</a></p>{{end}}
       <p class="start-how hero-after">Paste it into the VPS over SSH. It checks the machine and asks before it changes anything.</p>
       <div class="hero-actions hero-after">
         <a class="btn btn-outline btn-lg" href="/demo/">Try the live demo{{template "icon" "arrow-right"}}</a>

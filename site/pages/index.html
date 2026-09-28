@@ -23,6 +23,7 @@ scripts: js/landing.js, js/sizing-data.js, js/sizing.js
       <h1 id="hero-title" class="h1-hero"><span class="line hero-rise">Host your own</span> <span class="line hero-rise">Minecraft server.</span> <span class="line line-green hero-rise">Online 24/7.</span></h1>
       <p class="hero-sub hero-after">Playkeeper turns a VPS you rent into a Minecraft: Java Edition server for you and your friends. One command sets it up. Free and open source.</p>
       <div class="hero-after">{{template "install" (dict "ID" true)}}</div>
+      {{template "free-vps"}}
       <div class="hero-actions hero-after">
         <a class="btn btn-outline btn-lg" href="/demo/">Try the live demo{{template "icon" "arrow-right"}}</a>
         <a class="btn btn-outline btn-lg" href="{{.Settings.Repo}}">{{template "icon" "star"}}Star on GitHub</a>

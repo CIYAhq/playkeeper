@@ -566,12 +566,14 @@ func TestStartPage(t *testing.T) {
 	if !strings.Contains(start, `<meta name="robots" content="noindex">`) || strings.Contains(string(o.Files["sitemap.xml"]), "/start") {
 		t.Error("/start isn't kept out of search engines and the sitemap")
 	}
+	// The free month, or where it has none, what a VPS costs
+	// (TestFreeMonthSitsUnderTheInstallCommand).
 	under := between(start, share, `class="start-how`)
-	if !strings.Contains(under, `Don't have a VPS yet? They cost from a few dollars a month. <a class="link-arrow" href="/sizing">Which one to rent`) {
-		t.Errorf("/start doesn't say where to rent a VPS right under its install command: %q", under)
+	if !strings.Contains(under, `<div class="free-vps`) && !strings.Contains(under, `Don't have a VPS yet? They cost from a few dollars a month. <a class="link-arrow" href="/sizing">Which one to rent`) {
+		t.Errorf("/start doesn't say where to get a VPS right under its install command: %q", under)
 	}
-	if n := strings.Count(start, "a few dollars a month"); n != 1 {
-		t.Errorf("/start says what a VPS costs %d times, want once", n)
+	if n := strings.Count(start, "a few dollars a month"); n > 1 {
+		t.Errorf("/start says what a VPS costs %d times, want once at most", n)
 	}
 	if _, err := parsePage("{{/*\npath: /x\nshare: yes please\n*/}}"); err == nil {
 		t.Error("a page's share setting takes more than true or false")

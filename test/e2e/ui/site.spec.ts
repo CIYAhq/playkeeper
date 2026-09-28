@@ -134,6 +134,11 @@ test('the analytics’ custom events: the install command copied, links out to G
   await page.getByRole('link', { name: 'Get a Vultr server' }).click()
   await sent(['provider_clicked', { provider: 'Vultr', plan: 'High Performance · 4 vCPU · 8 GB', where: '/guides/vultr-minecraft-server' }], ['flush'])
 
+  // The free month under the landing page's install command counts the plan its words price.
+  await open('/')
+  await page.locator('.free-vps').getByRole('link', { name: 'Get $300 of credit at Vultr' }).click()
+  await sent(['provider_clicked', { provider: 'Vultr', plan: 'High Performance · 4 vCPU · 8 GB', where: '/' }], ['flush'])
+
   // Both install commands in the docs, and a middle-click, which opens its link in a new tab.
   await open('/docs/install')
   await page.locator('.prose pre', { hasText: 'https://playkeeper.io/install | sudo sh' }).locator('.code-copy').click()

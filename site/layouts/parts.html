@@ -177,6 +177,23 @@
 </div>
 {{end}}
 
+{{/* free-vps: "Run it free for a month", under a hero's install command, at
+     the provider whose partner link's credit pays for a month of the plan
+     for the sizing guide's first answer (freeMonth): the credit, what that
+     plan costs after it, the credit's terms and what the link earns, all
+     before the link, then its setup guide. Nothing when no credit does. */}}
+{{define "free-vps"}}{{with freeMonth}}{{$g := sizing}}{{$plan := .Fit $g.Answer.MemoryGB $g.Answer.Cores}}
+<div class="free-vps hero-after" data-provider="{{.Name}}">
+  <p class="free-vps-title">No VPS yet? Run it free for a month on {{.Name}}.</p>
+  <p class="free-vps-text" data-plan="{{$plan.Name}} · {{$plan.CPUs}} vCPU · {{$plan.MemoryGB}} GB">New accounts get {{.Offered}}, and the server for {{$g.FirstBand}} friends on {{$g.FirstRun}} is {{usd $plan.USD}} a month after that.</p>
+  <p class="free-vps-fine">{{.OfferTerms}} {{.LinkNote}}</p>
+  <div class="free-vps-actions">
+    <a class="btn btn-primary btn-sm" href="{{.Link}}" rel="{{.Rel}}">Get {{usd .OfferUSD}} of credit{{template "icon" "arrow-up-right"}}<span class="visually-hidden"> at {{.Name}}</span></a>
+    {{if exists .Guide}}<a class="link-arrow" href="{{.Guide}}">Set it up step by step{{template "icon" "arrow-right"}}</a>{{end}}
+  </div>
+</div>
+{{end}}{{end}}
+
 {{/* provider-ports: the ports to allow in a provider's firewall. */}}
 {{define "provider-ports"}}
 <div class="table-scroll" tabindex="0">

@@ -135,6 +135,19 @@ func (p Provider) CoversMonth(pl Plan) bool {
 	return p.Offered() != "" && p.OfferDays >= 30 && p.OfferUSD >= pl.USD
 }
 
+// freeMonth is the provider whose partner link carries credit that pays for
+// a month of the plan fitting the answer, for "Run it free for a month" on
+// the landing page and /start; nil when none does.
+func freeMonth(a SizingAnswer) *Provider {
+	for i := range providers {
+		p := &providers[i]
+		if pl := p.Fit(a.MemoryGB, a.Cores); pl.Name != "" && p.CoversMonth(pl) {
+			return p
+		}
+	}
+	return nil
+}
+
 // Link is where the provider's links go: the partner link when there is one.
 func (p Provider) Link() string {
 	if p.Partner != "" {

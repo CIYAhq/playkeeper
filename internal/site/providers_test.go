@@ -71,8 +71,9 @@ func TestProvidersFitEverySize(t *testing.T) {
 var reAnchor = regexp.MustCompile(`<a\s[^>]*>`)
 
 // A partner link is sponsored, and its page says who pays for it before the
-// first one: the note above the provider cards, or a guide's line at its top.
-// A provider without one gets its plain link and no claim of a commission.
+// first one: the note above the provider cards, a guide's line at its top, or
+// the "Referral link" line above the free month's button. A provider without
+// one gets its plain link and no claim of a commission.
 // That holds with every program on, with some, with one, and with none; the
 // note calls Vultr's alone a referral link.
 func TestPartnerLinksAreDisclosedFirst(t *testing.T) {
@@ -132,7 +133,7 @@ func TestPartnerLinksAreDisclosedFirst(t *testing.T) {
 					continue
 				}
 				said := func(s string) bool { i := strings.Index(html, s); return s != "" && i >= 0 && i < at }
-				if !said(note) && !said(disclosure) {
+				if !said(note) && !said(disclosure) && !said(template.HTMLEscapeString(p.LinkNote())) {
 					t.Errorf("%v on: %s links %s's partner link before saying it earns a commission", partners, path, p.Name)
 				}
 			}
@@ -197,8 +198,9 @@ func TestProviderGuidesFollowTheSizingGuide(t *testing.T) {
 }
 
 // A new account's credit shows with its conditions wherever its partner link
-// does, on the provider's card and in its guide, and nowhere once the link
-// is gone. A guide calls a month free only when the credit pays for it.
+// does, on the provider's card, in its guide and in the free month under the
+// landing page's and /start's install command, and nowhere once the link is
+// gone. A guide calls a month free only when the credit pays for it.
 func TestOffersShowWithTheirTermsBesideTheirLink(t *testing.T) {
 	saved := slices.Clone(providers)
 	t.Cleanup(func() { providers = saved })
@@ -222,8 +224,9 @@ func TestOffersShowWithTheirTermsBesideTheirLink(t *testing.T) {
 			t.Errorf("Vultr's guide doesn't say %q", want)
 		}
 	}
+	beside := map[string]bool{"/sizing": true, "/alternatives/aternos": true, vultr.Guide: true, "/": true, "/start": true}
 	for path, html := range built {
-		if path != "/sizing" && path != "/alternatives/aternos" && path != vultr.Guide && strings.Contains(html, "of credit for 30 days") {
+		if !beside[path] && strings.Contains(html, "of credit for 30 days") {
 			t.Errorf("%s shows Vultr's offer away from its link", path)
 		}
 	}
@@ -238,6 +241,82 @@ func TestOffersShowWithTheirTermsBesideTheirLink(t *testing.T) {
 	for path, html := range pages(build(t, Default)) {
 		if strings.Contains(html, "of credit for 30 days") {
 			t.Errorf("without Vultr's partner link, %s still shows its offer", path)
+		}
+	}
+}
+
+// With credit that pays for a month of the plan for the sizing guide's first
+// answer, the landing page and /start offer that month right under their
+// install command: what the plan costs after it, the credit's terms and the
+// "Referral link" line, then the link and the provider's guide. With credit
+// too small for a month, or no partner link, no page offers a free month and
+// /start says where to rent a VPS instead.
+func TestFreeMonthSitsUnderTheInstallCommand(t *testing.T) {
+	saved := slices.Clone(providers)
+	t.Cleanup(func() { providers = saved })
+	first, err := sizing.Recommend(sizingWorkload, sizingPlayers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vultr, err := provider("Vultr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := freeMonth(sizingAnswer(first)); p == nil || p.Name != "Vultr" {
+		t.Fatalf("the free month is at %v, want Vultr", p)
+	}
+	pl := vultr.Fit(first.MemoryGB, first.Cores)
+	block := []string{
+		`<div class="free-vps hero-after" data-provider="Vultr">`,
+		`<p class="free-vps-title">No VPS yet? Run it free for a month on Vultr.</p>`,
+		fmt.Sprintf(`<p class="free-vps-text" data-plan="%s · %d vCPU · %d GB">New accounts get $300 of credit for 30 days, and the server for %s friends on %s is %s a month after that.</p>`,
+			pl.Name, pl.CPUs, pl.MemoryGB, first.Band.Label(), first.Workload.Label(), usd(pl.USD)),
+		`<p class="free-vps-fine">` + template.HTMLEscapeString(vultr.OfferTerms+" "+vultr.LinkNote()) + `</p>`,
+		`<a class="btn btn-primary btn-sm" href="` + template.HTMLEscapeString(vultr.Partner) + `" rel="sponsored noopener">Get $300 of credit`,
+		`<a class="link-arrow" href="` + vultr.Guide + `">Set it up step by step`,
+	}
+	built := pages(build(t, Default))
+	for _, path := range []string{"/", "/start"} {
+		html := built[path]
+		install, at := strings.Index(html, `id="install"`), strings.Index(html, block[0])
+		if install < 0 || at < install || regexp.MustCompile(`<(p|a)[ >]`).MatchString(html[install:at]) {
+			t.Errorf("%s doesn't offer the free month right under its install command", path)
+			continue
+		}
+		rest := html[at:]
+		for _, want := range block {
+			i := strings.Index(rest, want)
+			if i < 0 {
+				t.Errorf("%s's free month doesn't go on to say %s", path, want)
+				break
+			}
+			rest = rest[i+len(want):]
+		}
+		if n := strings.Count(html, "free for a month"); n != 1 {
+			t.Errorf("%s offers a free month %d times, want once", path, n)
+		}
+	}
+	for _, c := range []struct {
+		name   string
+		change func(*Provider)
+	}{
+		{"credit too small for a month", func(p *Provider) { p.OfferUSD = pl.USD - 1 }},
+		{"no partner link", func(p *Provider) { p.Partner = "" }},
+	} {
+		providers = slices.Clone(saved)
+		for i := range providers {
+			if providers[i].Name == "Vultr" {
+				c.change(&providers[i])
+			}
+		}
+		built := pages(build(t, Default))
+		for path, html := range built {
+			if strings.Contains(html, "free-vps") || strings.Contains(html, "free for a month") {
+				t.Errorf("with %s, %s still offers a free month", c.name, path)
+			}
+		}
+		if under := between(built["/start"], `id="install"`, `class="start-how`); !strings.Contains(under, `Don't have a VPS yet? They cost from a few dollars a month. <a class="link-arrow" href="/sizing">Which one to rent`) {
+			t.Errorf("with %s, /start doesn't say where to rent a VPS under its install command: %q", c.name, under)
 		}
 	}
 }

@@ -109,8 +109,10 @@
       count('github_clicked', { link: part === 'blob' || part === 'tree' ? 'file' : part }, true);
     }
     if (a.hasAttribute('data-watch-releases')) count('watch_releases_clicked', { plan: a.getAttribute('data-watch-releases') }, true);
+    // The plan is data-plan's value, or where that's empty, its element's text.
     var provider = a.origin !== location.origin && a.closest('[data-provider]');
-    if (provider) count('provider_clicked', { provider: provider.getAttribute('data-provider'), plan: $('[data-plan]', provider).textContent }, true);
+    var plan = provider && $('[data-plan]', provider);
+    if (provider) count('provider_clicked', { provider: provider.getAttribute('data-provider'), plan: plan.getAttribute('data-plan') || plan.textContent }, true);
     if (a.origin === location.origin && /^\/demo(\/|$)/.test(a.pathname)) {
       count('demo_opened', { spot: a.closest('#phone-menu') ? 'menu' : a.closest('[data-header]') ? 'header' : a.closest('[data-closing]') ? 'closing' : 'page' }, true);
     }
