@@ -152,7 +152,7 @@ func TestProjectsMatchModrinth(t *testing.T) {
 }
 
 func TestForType(t *testing.T) {
-	plugins := []string{"voice-chat", "rollback", "pregenerate", "newer-clients", "essentials", "permissions"}
+	plugins := []string{"voice-chat", "rollback", "discord-chat", "newer-clients", "pregenerate", "essentials", "permissions"}
 	for typ, want := range map[string][]string{
 		"paper":    plugins,
 		"purpur":   plugins,
@@ -210,6 +210,14 @@ func TestFor(t *testing.T) {
 	lag, _ := Get("lag-finder")
 	_, err = lag.For("paper")
 	if e := wantKind(t, err, KindNotForType); e.Msg != "Lag finder is only offered for Fabric, Quilt, NeoForge and Forge servers; this server runs Paper." {
+		t.Errorf("message %q", e.Msg)
+	}
+	discord, _ := Get("discord-chat")
+	if p, err := discord.For("purpur"); err != nil || p.Title != "DiscordSRV" || p.ID != "UmLGoGij" {
+		t.Errorf("Discord chat For(purpur) = %+v, %v", p, err)
+	}
+	_, err = discord.For("fabric")
+	if e := wantKind(t, err, KindNotForType); e.Msg != "Discord chat is only offered for Paper and Purpur servers; this server runs Fabric." {
 		t.Errorf("message %q", e.Msg)
 	}
 
