@@ -351,6 +351,75 @@ func creatorPreset(id string) bool {
 	return false
 }
 
+// creatorArea reports whether a creator may choose map area id: Explored
+// only, or a size around spawn they may pre-generate. Filling up to the
+// world border takes the border as it is when the fill starts, which the
+// creator can move, so it is never theirs.
+func creatorArea(id string) bool {
+	return id == api.MapAreaExplored || creatorPreset(id)
+}
+
+// hMapArea is the map's area, offering a creator only the areas they may
+// choose.
+func (s *Server) hMapArea(w http.ResponseWriter, r *http.Request, sess *session) {
+	if !sess.Access.creator() {
+		s.serverProxy("GET", "/v1/servers/{id}/map/area")(w, r, sess)
+		return
+	}
+	m, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	var raw json.RawMessage
+	status, err := m.agent.Do(asActor(r.Context(), sess.User.Username), "GET", agentPath("/v1/servers/{id}/map/area", r), r.URL.Query(), nil, &raw)
+	if err != nil {
+		s.agentFailure(w, err)
+		return
+	}
+	var v map[string]json.RawMessage
+	var opts []api.MapAreaOption
+	if status != http.StatusOK || json.Unmarshal(raw, &v) != nil || json.Unmarshal(v["options"], &opts) != nil {
+		writeJSON(w, status, raw)
+		return
+	}
+	kept := []api.MapAreaOption{}
+	for _, o := range opts {
+		if creatorArea(o.ID) {
+			kept = append(kept, o)
+		}
+	}
+	v["options"], _ = json.Marshal(kept)
+	writeJSON(w, status, v)
+}
+
+// hMapAreaSet chooses the map's area, for a creator only one creatorArea
+// allows.
+func (s *Server) hMapAreaSet(w http.ResponseWriter, r *http.Request, sess *session) {
+	forward := s.serverProxy("POST", "/v1/servers/{id}/map/area")
+	if !sess.Access.creator() {
+		forward(w, r, sess)
+		return
+	}
+	b, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid request body.", "")
+		return
+	}
+	var req struct {
+		Area string `json:"area"`
+	}
+	if json.Unmarshal(b, &req) != nil {
+		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Request body must be a JSON object.", "")
+		return
+	}
+	if !creatorArea(req.Area) {
+		writeErr(w, http.StatusForbidden, api.CodeForbidden, "Creators fill in the map up to 2,500 blocks around spawn.", "Pick a smaller area, or ask the owner.")
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(b))
+	forward(w, r, sess)
+}
+
 // hPregen is where pre-generating a server's map stands, offering a creator
 // only the sizes they may start.
 func (s *Server) hPregen(w http.ResponseWriter, r *http.Request, sess *session) {

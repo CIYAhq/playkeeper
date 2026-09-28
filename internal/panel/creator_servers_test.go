@@ -182,8 +182,9 @@ func TestTwoCreatesAtOnceCantBothFitTheAllowance(t *testing.T) {
 }
 
 // A creator pre-generates at most 2,500 blocks around spawn, as the terms
-// say: the larger sizes are neither offered nor started. The owner's are
-// unchanged.
+// say, from Pre-generate and from the Map tab alike: the larger sizes, and
+// filling up to the world border, are neither offered nor started. The
+// owner's are unchanged.
 func TestCreatorsPreGenerateUpTo2500Blocks(t *testing.T) {
 	e := newJoinEnv(t)
 	own := owner(t, e.env)
@@ -222,5 +223,37 @@ func TestCreatorsPreGenerateUpTo2500Blocks(t *testing.T) {
 	}
 	if st := start(own, "huge"); st != http.StatusOK {
 		t.Fatalf("the owner starts huge: %d", st)
+	}
+
+	e.agent.mu.Lock()
+	e.agent.replies["GET /v1/servers/cafebabe23/map/area"] = `{"area":"explored","options":[{"id":"small","radius":1000},{"id":"medium","radius":2500},{"id":"large","radius":5000},{"id":"huge","radius":10000},{"id":"border","radius":2000}]}`
+	e.agent.mu.Unlock()
+	areas := func(m member) []string {
+		var v struct {
+			Options []api.MapAreaOption `json:"options"`
+		}
+		e.get(t, "/api/servers/cafebabe23/map/area", m.cookie, &v)
+		var ids []string
+		for _, o := range v.Options {
+			ids = append(ids, o.ID)
+		}
+		return ids
+	}
+	if got := areas(alex); !slices.Equal(got, []string{"small", "medium"}) {
+		t.Fatalf("alex's map areas: %v", got)
+	}
+	if got := areas(own); len(got) != 5 {
+		t.Fatalf("the owner's map areas: %v", got)
+	}
+	area := func(m member, a string) int {
+		return e.do(t, "POST", "/api/servers/cafebabe23/map/area", `{"area":"`+a+`","pauseForPlayers":true}`, m.auth()).status
+	}
+	for a, want := range map[string]int{"large": http.StatusForbidden, "border": http.StatusForbidden, "medium": http.StatusOK, "explored": http.StatusOK} {
+		if st := area(alex, a); st != want {
+			t.Fatalf("alex fills the map to %s: %d, want %d", a, st, want)
+		}
+	}
+	if st := area(own, "border"); st != http.StatusOK {
+		t.Fatalf("the owner fills the map to the border: %d", st)
 	}
 }

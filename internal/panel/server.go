@@ -531,8 +531,8 @@ func (s *Server) Routes() []Route {
 	// The map's area: anyone who sees the server sees it; choosing one, which
 	// pre-generates land, needs the rights to change the map.
 	routes = append(routes, []Route{
-		sg("/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
-		sm("POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
+		view("/api/servers/{id}/map/area", s.hMapArea),
+		{"POST", "/api/servers/{id}/map/area", needSessionCSRF, actManageServers, s.hMapAreaSet},
 	}...)
 	// 0.4.3: the public page at the machine's address. Anyone who sees the
 	// server sees its switches; changing them, like sharing the map, needs
