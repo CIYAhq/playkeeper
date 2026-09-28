@@ -106,6 +106,9 @@ type addressRuntime struct {
 	recheck   time.Time
 	lastPoll  time.Time
 	serversUp bool
+	// ownHeldNoted is when the log last said a server's own address waits
+	// for the day's certificates.
+	ownHeldNoted time.Time
 	// claiming is the free name being claimed right now: the names service
 	// checks that a lapsed name's address answers before the claim does.
 	claiming string
@@ -942,9 +945,10 @@ func (a *Agent) releaseFree(ctx context.Context, st addressState, actor string) 
 
 // Own domain.
 
-// ownPlan is the own domain's plan: the server on port 25565 is reached as
-// the domain itself, every other one as <slug>.<domain> through an SRV
-// record.
+// ownPlan is the own domain's plan: a server with its own address is
+// reached there, through A records of its own and an SRV record; else the
+// server on port 25565 is the domain itself, and every other one is
+// <slug>.<domain> through an SRV record.
 func ownPlan(host string, servers []joinServer, ip netip.Addr) certs.Plan {
 	p := certs.Plan{Name: host}
 	switch {
@@ -955,7 +959,10 @@ func ownPlan(host string, servers []joinServer, ip netip.Addr) certs.Plan {
 	}
 	for _, s := range servers {
 		js := certs.JoinServer{ID: s.id, Port: s.port}
-		if s.port != certs.MinecraftPort {
+		switch {
+		case s.own != "":
+			js.Host, js.Own = s.own, true
+		case s.port != certs.MinecraftPort:
 			js.Host = s.slug + "." + host
 		}
 		p.Servers = append(p.Servers, js)
@@ -976,7 +983,7 @@ func (a *Agent) checkOwn(ctx context.Context) (*api.AddressCheck, error) {
 	}
 	check := &api.AddressCheck{At: a.now().UTC(), Name: nameCheck(pc.Name), Ready: pc.Ready}
 	for _, rc := range pc.Records {
-		check.Records = append(check.Records, api.RecordCheck{Note: api.Note(rc.Note), Record: dnsRecord(rc.Record), OK: rc.OK, Found: rc.Found})
+		check.Records = append(check.Records, api.RecordCheck{Note: api.Note(rc.Note), Record: dnsRecord(rc.Record), OK: rc.OK, Found: rc.Found, Own: rc.Own})
 	}
 	a.saveCheck(st.Host, check)
 	return check, nil
@@ -1036,15 +1043,16 @@ func noteParams(p map[string]string) map[string]any {
 
 // Addresses and where they point.
 
-// joinServer is a server with what its join address needs.
+// joinServer is a server with what its join address needs; own is its own
+// address, which counts only under an own domain.
 type joinServer struct {
-	id, name, slug string
-	port           int
+	id, name, slug, own string
+	port                int
 }
 
 // joinServers lists the servers in display order.
 func (a *Agent) joinServers() []joinServer {
-	rows, err := a.db.Query(`SELECT id, name, slug, game_port FROM servers ORDER BY position, created_at, id`)
+	rows, err := a.db.Query(`SELECT id, name, slug, game_port, own_address FROM servers ORDER BY position, created_at, id`)
 	if err != nil {
 		return nil
 	}
@@ -1052,7 +1060,7 @@ func (a *Agent) joinServers() []joinServer {
 	var out []joinServer
 	for rows.Next() {
 		var s joinServer
-		if rows.Scan(&s.id, &s.name, &s.slug, &s.port) == nil {
+		if rows.Scan(&s.id, &s.name, &s.slug, &s.port, &s.own) == nil {
 			out = append(out, s)
 		}
 	}
@@ -1078,6 +1086,13 @@ func (a *Agent) joinAddresses(st addressState, servers []joinServer) []api.JoinA
 			j.Address = names.ServerAddress(s.slug, st.Free.Name.Name, names.DefaultBase)
 			j.Published = st.Free.Name.State == names.StateActive && !freeLapsed(st.Free.Name, a.now()) && st.Free.serverPublished(s)
 		case api.AddressOwn:
+			if s.own != "" {
+				// An own address has records of its own, so it works
+				// whatever the machine's name does.
+				j.Address, j.OwnAddress = s.own, s.own
+				j.Published = st.Check != nil && ownOK(st.Check, s.id)
+				break
+			}
 			// The server on 25565 is the domain itself and needs no SRV
 			// record; the check lists one for it only when one points
 			// elsewhere.
@@ -1104,6 +1119,21 @@ func srvOK(c *api.AddressCheck, serverID string, absentOK bool) bool {
 		}
 	}
 	return absentOK
+}
+
+// ownOK reports whether the check found every record of the server's own
+// address right: its A and AAAA records and its SRV record.
+func ownOK(c *api.AddressCheck, serverID string) bool {
+	n := 0
+	for _, rc := range c.Records {
+		if rc.Record.ServerID == serverID {
+			if !rc.OK {
+				return false
+			}
+			n++
+		}
+	}
+	return n >= 2
 }
 
 // joinAddress is the server's friendly address once its records work.
@@ -1520,6 +1550,10 @@ func (a *Agent) hAddressCheck(w http.ResponseWriter, r *http.Request) {
 		a.acceptTerms(actor)
 	}
 	st := a.address()
+	if err := a.domainFitsServers(domain, st); err != nil {
+		writeError(w, err)
+		return
+	}
 	switch {
 	case st.Kind == api.AddressPlaykeeper:
 		writeError(w, errConflict("This machine has a free address.", "Release it first, then use your own domain."))
@@ -1569,6 +1603,9 @@ func (a *Agent) hAddressDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.forgetCertificate(st.Host)
+	if st.Kind == api.AddressOwn {
+		a.forgetOwnCertificates()
+	}
 	a.audit(actor, "address.remove", st.Host, "succeeded", "")
 	writeJSON(w, http.StatusOK, a.addressView())
 }
@@ -1655,7 +1692,13 @@ func (a *Agent) addressTick(ctx context.Context, start bool) {
 				return
 			}
 		}
-		if st = a.address(); st.Check == nil || !st.Check.Name.OK {
+		if st = a.address(); st.Check == nil {
+			return
+		}
+		if !st.Check.Name.OK {
+			// Servers' own addresses have records of their own and get
+			// their certificates without the machine's name.
+			handed = a.startOwnCertificate(st)
 			return
 		}
 	default:
@@ -1665,5 +1708,7 @@ func (a *Agent) addressTick(ctx context.Context, start bool) {
 	if a.certificateDue(st) {
 		handed = true
 		a.startAddressOp("certificate.issue", "playkeeper", a.issueCertificate)
+		return
 	}
+	handed = a.startOwnCertificate(st)
 }

@@ -78,7 +78,7 @@ func (s *Server) lookAtPage(ctx context.Context) {
 	}
 	p := s.page
 	p.mu.Lock()
-	p.host = st.Host
+	p.host, p.hosts = st.Host, st.Hosts
 	p.mu.Unlock()
 	if !st.On {
 		s.closePagePorts(api.PortOff)
@@ -194,13 +194,15 @@ func (s *Server) pageCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, 
 }
 
 // pageRedirect is where plain HTTP on port 80 goes: HTTPS, while port 443
-// is served and a certificate for the name is in place.
+// is served and a certificate for the name asked for, the machine's or a
+// server's own address, is in place.
 func (s *Server) pageRedirect(r *http.Request) (string, bool) {
 	p := s.page
 	p.mu.Lock()
 	https := p.held[0]
-	host, port := p.host, p.ports.HTTPS.Port
+	port := p.ports.HTTPS.Port
 	p.mu.Unlock()
+	host := hostName(r.Host)
 	if https == nil || host == "" || s.pageCerts == nil {
 		return "", false
 	}

@@ -550,6 +550,38 @@ describe('a free address', () => {
 })
 
 describe('an own domain', () => {
+  it('gives a server its own address, with its two records and whether each works', async () => {
+    const aAlex: DNSRecord = { serverId: 's2', type: 'A', name: 'alex.example.com', value: ip, ttl: 300 }
+    const srvAlex: DNSRecord = { serverId: 's2', type: 'SRV', name: '_minecraft._tcp.alex.example.com', value: '0 5 25566 alex.example.com.', ttl: 300 }
+    vi.mocked(client.post).mockResolvedValue(own())
+    await show(
+      own({
+        servers: [survival({ address: 'play.example.com', published: true }), creative({ address: 'alex.example.com', ownAddress: 'alex.example.com' })],
+        records: [aRecord, aAlex, srvAlex],
+        check: check({}, true, [
+          { record: srvRecord, ok: true, code: 'srv_ok', message: 'The SRV record is right.' },
+          { record: aAlex, ok: true, code: 'name_ok', message: 'It points here.', own: true },
+          { record: srvAlex, ok: false, code: 'srv_missing', message: 'The SRV record for alex.example.com does not exist yet.', own: true },
+        ]),
+      }),
+    )
+    // The domain works whatever a server's own address does.
+    expect(text()).toContain('play.example.com is ready')
+    expect(text()).not.toContain('does not exist yet')
+    expect(text()).toContain('Servers’ own addresses')
+    expect(field('Creative').value).toBe('alex.example.com')
+    expect(field('Survival').value).toBe('')
+    expect(text()).toContain(`Aalex.example.com${ip}Works`)
+    expect(text()).toContain('SRV_minecraft._tcp.alex.example.com0 5 25566 alex.example.com.Not yet')
+    const save = (server: string) => need(document.querySelector<HTMLButtonElement>(`[aria-label="Save ${server}’s address"]`), `Save for ${server}`)
+    expect(save('Survival').disabled).toBe(true)
+    await type(field('Survival'), 'Sam.Example.com')
+    await click(save('Survival'))
+    expect(client.post).toHaveBeenCalledWith('/api/servers/s1/own-address', { address: 'sam.example.com' })
+    await click(need(document.querySelector<HTMLButtonElement>('[aria-label="Remove Creative’s address"]'), 'Remove for Creative'))
+    expect(client.post).toHaveBeenCalledWith('/api/servers/s2/own-address', { address: '' })
+  })
+
   it('lists the records for the domain, then checks them', async () => {
     const pending = own({ check: check({ ok: false, code: 'name_missing', message: 'No record.', records: [] }, false), certificate: undefined })
     vi.mocked(client.post).mockImplementation((() => {

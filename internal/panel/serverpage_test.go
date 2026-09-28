@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,7 +32,9 @@ var facePNG = []byte("\x89PNG\r\n\x1a\nface bytes")
 // pageAgent answers the panel's questions about the public page as an agent
 // would, for a machine whose address is pageHostName.
 type pageAgent struct {
-	on      atomic.Bool
+	on atomic.Bool
+	// hosts are servers' own addresses, each with a page of its own server.
+	hosts   []string
 	names   []string
 	pages   atomic.Int32
 	asks    chan api.PagePortsRequest
@@ -43,7 +46,11 @@ func (a *pageAgent) handle(t *testing.T) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/v1/public-page/state":
-			writeJSON(w, 200, api.PublicPageState{Host: pageHostName, On: a.on.Load()})
+			writeJSON(w, 200, api.PublicPageState{Host: pageHostName, On: a.on.Load(), Hosts: a.hosts})
+		case r.URL.Path == "/v1/public-page" && a.on.Load() && slices.ContainsFunc(a.hosts, func(h string) bool { return pageHost(r.URL.Query().Get("host"), h) }):
+			a.pages.Add(1)
+			host := hostName(r.URL.Query().Get("host"))
+			writeJSON(w, 200, api.PublicPage{Address: host, Servers: []api.PublicServer{{Slug: "creative", Name: "Alex's world", Address: host, State: api.PublicOffline, MinecraftVersion: "1.21.10", Type: "paper"}}})
 		case r.URL.Path == "/v1/public-page":
 			a.pages.Add(1)
 			if !a.on.Load() || r.URL.Query().Get("host") == "" || !pageHost(r.URL.Query().Get("host"), pageHostName) {
@@ -334,6 +341,53 @@ func TestAPortNotAskedForKeepsItsHolderAndItsWait(t *testing.T) {
 		if p := e.srv.page.portsNow().HTTPS; p.State != api.PortBusy || p.Holder != "nginx" {
 			t.Fatalf("port 443 after look %d, which didn't ask for it: %+v", look+2, p)
 		}
+	}
+}
+
+// A server's own address opens a page of that server alone, with the
+// address's own certificate on port 443 and its own redirect on port 80.
+// Any other name gets the same plain 404 as before.
+func TestAServersOwnAddressOpensItsOwnPage(t *testing.T) {
+	a := &pageAgent{hosts: []string{"alex.example.org"}}
+	a.on.Store(true)
+	e := newPageEnv(t, a)
+	e.srv.lookAtPage(context.Background())
+	secure := e.srv.pageHandler(true)
+	resp, body := pageGet(t, secure, "GET", "Alex.Example.org", "/")
+	if resp.StatusCode != 200 || !strings.Contains(body, "<title>Alex&#39;s world · Minecraft server</title>") {
+		t.Fatalf("the own address's page: %d %s", resp.StatusCode, body)
+	}
+	if resp, body := pageGet(t, secure, "GET", "alex.example.org", "/api/public/server-page"); resp.StatusCode != 200 || !strings.Contains(body, `"address":"alex.example.org"`) || strings.Contains(body, "survival") {
+		t.Fatalf("the own address's data: %d %s", resp.StatusCode, body)
+	}
+	if resp, _ := pageGet(t, secure, "GET", pageHostName, "/"); resp.StatusCode != 200 {
+		t.Fatalf("the machine's page: %d", resp.StatusCode)
+	}
+	for _, host := range []string{"sam.example.org", "alex.example.org.evil.test", "example.org"} {
+		if resp, _ := pageGet(t, secure, "GET", host, "/"); resp.StatusCode != 404 {
+			t.Errorf("%s: %d", host, resp.StatusCode)
+		}
+	}
+
+	now := e.clock.now()
+	writeBundle(t, e.cfg.CertsDir(), "alex.example.org", now.Add(-time.Hour), now.Add(90*24*time.Hour))
+	e.srv.pageCerts = e.srv.pageCertStore()
+	c, err := e.srv.pageCertificate(&tls.ClientHelloInfo{ServerName: "alex.example.org"})
+	if err != nil || c == nil || c.Leaf == nil && len(c.Certificate) == 0 {
+		t.Fatalf("port 443 has no certificate for the own address: %v", err)
+	}
+	if _, err := e.srv.pageCertificate(&tls.ClientHelloInfo{ServerName: pageHostName}); err == nil {
+		t.Fatal("the machine's name got a certificate nobody wrote")
+	}
+	e.srv.page.mu.Lock()
+	e.srv.page.held[0] = &pageListener{srv: &http.Server{}, port: 443}
+	e.srv.page.mu.Unlock()
+	plain := e.srv.pageHandler(false)
+	if resp, _ := pageGet(t, plain, "GET", "alex.example.org", "/?a=1"); resp.StatusCode != http.StatusPermanentRedirect || resp.Header.Get("Location") != "https://alex.example.org/?a=1" {
+		t.Fatalf("port 80 for the own address: %d %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	if resp, _ := pageGet(t, plain, "GET", pageHostName, "/"); resp.StatusCode != 200 {
+		t.Fatalf("port 80 for the machine's name, which has no certificate, must serve the page: %d %q", resp.StatusCode, resp.Header.Get("Location"))
 	}
 }
 

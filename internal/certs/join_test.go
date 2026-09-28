@@ -210,3 +210,83 @@ func TestCheckPlan(t *testing.T) {
 		t.Errorf("missing row = %+v", missing)
 	}
 }
+
+// A server with its own address gets A and AAAA records of its own,
+// pointing at the machine, and an SRV record that names that address.
+func TestPlanWithAServersOwnAddress(t *testing.T) {
+	p := machine()
+	p.Servers = append(p.Servers, JoinServer{ID: "alex", Host: "Alex.Example.org", Port: 25568, Own: true})
+	got, err := p.Records()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var own []Record
+	for _, r := range got {
+		if r.ServerID == "alex" {
+			own = append(own, r)
+		}
+	}
+	if len(own) != 3 || own[0] != (Record{ServerID: "alex", Type: "A", Name: "alex.example.org", Value: "203.0.113.10", TTL: 300}) ||
+		own[1] != (Record{ServerID: "alex", Type: "AAAA", Name: "alex.example.org", Value: "2001:db8::10", TTL: 300}) ||
+		own[2].Type != "SRV" || own[2].Name != "_minecraft._tcp.alex.example.org" || own[2].Value != "0 5 25568 alex.example.org." || own[2].SRV.Target != "alex.example.org" {
+		t.Fatalf("the own address's records: %+v", own)
+	}
+	if j, err := p.Join(); err != nil || j[3].Address != "alex.example.org" || j[3].Direct != "mc.example.com:25568" {
+		t.Fatalf("joining: %+v %v", j, err)
+	}
+	for _, bad := range []JoinServer{{ID: "x", Port: 25569, Own: true}, {ID: "x", Host: "mc.example.com", Port: 25569, Own: true}} {
+		q := machine()
+		q.Servers = append(q.Servers, bad)
+		if _, err := q.Records(); err == nil {
+			t.Errorf("an own address %+v was accepted", bad)
+		}
+	}
+}
+
+func TestCheckPlanChecksAServersOwnAddress(t *testing.T) {
+	plan := machine()
+	plan.Servers = append(plan.Servers, JoinServer{ID: "alex", Host: "alex.example.org", Port: 25568, Own: true})
+	good := func() *fakeResolver {
+		return &fakeResolver{
+			a:    map[string][]string{"mc.example.com": {"203.0.113.10"}, "alex.example.org": {"203.0.113.10"}},
+			aaaa: map[string][]string{"mc.example.com": {"2001:db8::10"}, "alex.example.org": {"2001:db8::10"}},
+			srv: map[string][]*net.SRV{
+				"_minecraft._tcp.creative.example.com": {srv("mc.example.com.", 25566)},
+				"_minecraft._tcp.alex.example.org":     {srv("alex.example.org.", 25568)},
+			},
+		}
+	}
+	rows := func(pc PlanCheck) map[string]RecordCheck {
+		out := map[string]RecordCheck{}
+		for _, rc := range pc.Records {
+			if rc.Record.ServerID == "alex" {
+				out[rc.Record.Type] = rc
+			}
+		}
+		return out
+	}
+	pc, err := CheckPlan(context.Background(), good(), plan, bothHere)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := rows(pc); !pc.Ready || !r["A"].OK || r["A"].Code != CodeNameOK || r["A"].Record.Name != "alex.example.org" || !r["SRV"].OK || !r["SRV"].Own {
+		t.Fatalf("ready %v, rows %+v", pc.Ready, r)
+	}
+	// The machine's name works whatever its servers' own addresses do.
+	for name, edit := range map[string]func(*fakeResolver){
+		"no A record":        func(r *fakeResolver) { delete(r.a, "alex.example.org"); delete(r.aaaa, "alex.example.org") },
+		"A record elsewhere": func(r *fakeResolver) { r.a["alex.example.org"] = []string{"198.51.100.7"} },
+		"SRV to the machine": func(r *fakeResolver) {
+			r.srv["_minecraft._tcp.alex.example.org"] = []*net.SRV{srv("mc.example.com.", 25568)}
+		},
+		"SRV missing": func(r *fakeResolver) { delete(r.srv, "_minecraft._tcp.alex.example.org") },
+	} {
+		res := good()
+		edit(res)
+		pc, _ := CheckPlan(context.Background(), res, plan, bothHere)
+		r := rows(pc)
+		if !pc.Ready || r["A"].OK && r["SRV"].OK || !r["A"].Own || !r["SRV"].Own || strings.ContainsAny(r["A"].Message+r["SRV"].Message, "{}") {
+			t.Errorf("%s: ready %v, rows %+v", name, pc.Ready, r)
+		}
+	}
+}

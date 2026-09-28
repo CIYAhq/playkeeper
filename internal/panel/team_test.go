@@ -233,6 +233,7 @@ func TestMachineWideActionsNeedEveryServer(t *testing.T) {
 		{"DELETE", "/api/discord"},
 		{"POST", "/api/discord/test"},
 		{"POST", "/api/servers/" + otherServer + "/delete"},
+		{"POST", "/api/servers/" + otherServer + "/own-address"},
 		{"GET", "/api/machines/" + mid + "/address/available"},
 		{"POST", "/api/machines/" + mid + "/address/claim"},
 		{"POST", "/api/machines/" + mid + "/address/refresh"},

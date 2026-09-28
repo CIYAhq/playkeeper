@@ -954,6 +954,8 @@ export interface JoinAddress {
   /** The IP address with the port, which always works. */
   direct?: string
   published: boolean
+  /** The server's own address under an own domain, which is then `address`, with its own records and page. */
+  ownAddress?: string
 }
 
 export interface FreeAddress {
@@ -1036,6 +1038,8 @@ export interface RecordCheck extends Note {
   record: DNSRecord
   ok: boolean
   found?: string[]
+  /** A server's own address's record, which Servers' own addresses shows and the domain's `ready` leaves out. */
+  own?: boolean
 }
 
 export interface AddressCheck {

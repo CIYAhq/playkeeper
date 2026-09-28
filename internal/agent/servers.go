@@ -659,6 +659,8 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	// row for a server that no longer exists. Nothing below uses ctx.
 	s.cancel()
 	s.loops.Wait()
+	var own string
+	_ = s.db.QueryRow(`SELECT own_address FROM servers WHERE id = ?`, s.id).Scan(&own)
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -687,6 +689,7 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	s.srvMu.Lock()
 	delete(s.servers, s.id)
 	s.srvMu.Unlock()
+	s.forgetCertificate(own)
 	s.audit(actor, "server.deleted", s.id, "succeeded", fmt.Sprintf("%d backup(s) deleted with it", len(backups)))
 	s.serversChanged()
 	return nil
