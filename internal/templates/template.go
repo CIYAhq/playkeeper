@@ -123,24 +123,29 @@ func (a Addon) Key() addons.Key { return addons.Key{Source: a.Source, ProjectID:
 
 // Pin is one published version of an add-on or modpack.
 type Pin struct {
+	// VersionID is the source's version id; a CurseForge pack's file id.
 	VersionID     string `json:"versionId"`
 	VersionNumber string `json:"versionNumber"`
 	Channel       string `json:"channel,omitempty"` // release, beta or alpha
-	// HashAlgo is sha512 for Modrinth and sha256 for Hangar: the hash each
-	// publishes for its files.
+	// HashAlgo is sha512 for Modrinth, sha256 for Hangar and sha1 for
+	// CurseForge: the hash each publishes for its files.
 	HashAlgo string `json:"hashAlgo"`
 	Hash     string `json:"hash"`
 }
 
-// Modpack is the Modrinth modpack the server is built from. The pack
-// decides the server's type and version and brings its own mods; Addons are
-// what was added on top.
+// Modpack is the Modrinth or CurseForge modpack the server is built from.
+// The pack decides the server's type and version and brings its own mods;
+// Addons are what was added on top. A CurseForge pack is installed with the
+// importing Playkeeper's own CurseForge API key: a template never carries
+// one.
 type Modpack struct {
-	Source  addons.Source `json:"source"`
-	Project string        `json:"project"`
-	Slug    string        `json:"slug,omitempty"`
-	Name    string        `json:"name"`
-	// Pin is the pack version, with the SHA-512 of its .mrpack file.
+	Source addons.Source `json:"source"`
+	// Project is CurseForge's project id as text for a CurseForge pack.
+	Project string `json:"project"`
+	Slug    string `json:"slug,omitempty"`
+	Name    string `json:"name"`
+	// Pin is the pack version, with the hash of its .mrpack or, from
+	// CurseForge, its zip.
 	Pin Pin `json:"pin"`
 }
 

@@ -17,6 +17,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
+	"github.com/CIYAhq/playkeeper/internal/modpacks"
 	"github.com/CIYAhq/playkeeper/internal/packs"
 	"github.com/CIYAhq/playkeeper/internal/templates"
 )
@@ -263,14 +264,22 @@ func (a *Agent) planTemplate(ctx context.Context, t *templates.Template) (*templ
 	return p, nil
 }
 
-// packFitNotice blocks a template whose modpack runs on another type or
-// Minecraft version than the template names: the new server would run the
-// pack's, not what the plan shows. When the pack's source can't be asked,
-// the create request checks again (templatePackFits).
+// packFitNotice blocks a template whose modpack comes from CurseForge on a
+// machine without a CurseForge API key, which a template never carries;
+// whose modpack isn't the file its source offers for the version the
+// template pins; or whose modpack runs on another type or Minecraft version
+// than the template names: the new server would run the pack's, not what
+// the plan shows. When the pack's source can't be asked, the create request
+// checks the type and version again (templatePackFits).
 func (a *Agent) packFitNotice(ctx context.Context, p *templates.Plan) *addons.Notice {
 	m := p.Modpack
 	if m == nil || !p.Ready || p.Version == nil {
 		return nil
+	}
+	if m.Source == modpacks.CurseForge && !slices.Contains(a.packs().Sources(), modpacks.CurseForge) {
+		return &addons.Notice{Kind: modpacks.KindNoCurseForge, Params: map[string]string{"modpack": m.Name},
+			Msg:  fmt.Sprintf("The template's modpack %s comes from CurseForge, and this Playkeeper has no CurseForge API key.", m.Name),
+			Hint: "The owner can add a free key under Settings › Add-on sources, then open the template again."}
 	}
 	ref, err := parsePackRef(string(m.Source), m.Project, m.Pin.VersionID)
 	if err != nil {
@@ -286,6 +295,11 @@ func (a *Agent) packFitNotice(ctx context.Context, p *templates.Plan) *addons.No
 	}
 	v, hint := d.Versions[i], "Ask whoever shared the template for a new one."
 	switch {
+	case v.Hash != "" && (v.HashAlgo != m.Pin.HashAlgo || v.Hash != m.Pin.Hash):
+		source := m.Source.Name()
+		return &addons.Notice{Kind: templates.KindPinMismatch, Params: map[string]string{"modpack": m.Name, "version": m.Pin.VersionNumber, "source": source},
+			Msg:  fmt.Sprintf("The file %s offers for %s %s isn't the one the template names.", source, m.Name, m.Pin.VersionNumber),
+			Hint: "The template may be out of date or altered. " + hint}
 	case v.Type != "" && v.Type != p.Type.ID:
 		packType := typeName(v.Type)
 		return &addons.Notice{Kind: kindTemplatePackType, Params: map[string]string{"type": p.Type.Name, "modpack": m.Name, "packType": packType},

@@ -198,14 +198,14 @@ func (x *exporter) modpack() {
 	name := printable(m.Name)
 	params := kv("name", name)
 	switch {
-	case m.Source != addons.Modrinth:
-		x.leftOut(KindLeftOutModpack, params, fmt.Sprintf("The modpack %s was left out: templates carry modpacks from Modrinth only.", name), "")
+	case !slices.Contains(modpackSources, m.Source):
+		x.leftOut(KindLeftOutModpack, params, fmt.Sprintf("The modpack %s was left out: templates carry modpacks from Modrinth and CurseForge only.", name), "")
 		return
 	case slices.Contains(nonModTypes, x.t.Server.Type):
 		x.leftOut(KindLeftOutModpack, params, fmt.Sprintf("The modpack %s was left out: it does not fit a %s server.", name, typeName(x.t.Server.Type)), "")
 		return
 	}
-	e := checkRef("modpack", name, m.Source, m.Project, m.Slug)
+	e := checkIDs("modpack", name, m.Source, m.Project, m.Slug)
 	if e == nil {
 		e = checkText("modpack.name", name, m.Name, maxLabel, true)
 	}

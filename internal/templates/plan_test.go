@@ -360,6 +360,27 @@ func TestPlanModpack(t *testing.T) {
 	}
 }
 
+// A CurseForge pack is planned like a Modrinth one: it keeps its type and
+// Minecraft version, and the memory its template suggests when the machine
+// has it.
+func TestPlanCurseForgeModpack(t *testing.T) {
+	tp := fixture(t, "curseforge-modpack.json")
+	c := withType(paperCatalog(), "neoforge", "1.21.1")
+	c.MemoryOptionsMB = append(c.MemoryOptionsMB, 8192, 12288)
+	p := planOf(t, tp, c)
+	if !p.Ready || p.Type.ID != "neoforge" || p.Version == nil || p.Version.MinecraftVersion != "1.21.1" || !reflect.DeepEqual(p.Modpack, tp.Modpack) || p.MemoryMB != 12288 {
+		t.Fatalf("got %+v, version %+v, %d MB", p, p.Version, p.MemoryMB)
+	}
+	wantKinds(t, "warnings", p.Warnings)
+	if err := p.Confirm(p.Fingerprint); err != nil {
+		t.Fatal(err)
+	}
+	p = planOf(t, tp, withType(paperCatalog(), "neoforge", "26.2"))
+	if p.Ready || p.Version != nil || !wantKinds(t, "blockers", p.Blockers, KindModpackUnavailable) {
+		t.Fatalf("a pack for a Minecraft version the machine can't create: %+v", p)
+	}
+}
+
 func TestPlanMemory(t *testing.T) {
 	eightGB := []int{1536, 2048, 3072, 4096, 6144}
 	cases := []struct {

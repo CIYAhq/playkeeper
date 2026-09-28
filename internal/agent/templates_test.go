@@ -408,17 +408,18 @@ func TestSkippedTemplateAddonsStayUntilTriedAgain(t *testing.T) {
 
 // A template carries a Vanilla modpack on a Vanilla server. One naming
 // another type or Minecraft version than its modpack runs on is blocked:
-// the new server would run the pack's, not what the plan shows.
+// the new server would run the pack's, not what the plan shows. So is one
+// whose pin isn't the file the source offers for that version.
 func TestTemplateModpackRunsOnTheTypeItNames(t *testing.T) {
 	e := newAgentEnv(t)
-	e.up.servePack()
+	pack := e.up.servePack()
 	e.up.serveFabricLists()
-	plan := func(typ, mc string) api.TemplatePlan {
+	planWith := func(typ, mc, hash string) api.TemplatePlan {
 		t.Helper()
 		file, err := templates.MarshalFile(&templates.Template{Format: templates.Format, Name: "Waystones", Game: templates.Game,
 			Server: templates.Server{Type: typ, MinecraftVersion: mc},
 			Modpack: &templates.Modpack{Source: addons.Modrinth, Project: fakePackID, Slug: "testpack", Name: "Waystones Pack",
-				Pin: templates.Pin{VersionID: fakePackVersion, VersionNumber: "1.0.0", Channel: "release", HashAlgo: "sha512", Hash: strings.Repeat("a", 128)}}})
+				Pin: templates.Pin{VersionID: fakePackVersion, VersionNumber: "1.0.0", Channel: "release", HashAlgo: "sha512", Hash: hash}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -428,8 +429,17 @@ func TestTemplateModpackRunsOnTheTypeItNames(t *testing.T) {
 		}
 		return p
 	}
+	plan := func(typ, mc string) api.TemplatePlan { t.Helper(); return planWith(typ, mc, pack.sha512) }
 	if p := plan("vanilla", "26.2"); !p.Ready || p.Type != "vanilla" || len(p.Blockers) != 0 {
 		t.Fatalf("a Vanilla pack on a Vanilla server: %+v", p)
+	}
+	altered := planWith("vanilla", "26.2", strings.Repeat("a", 128))
+	if altered.Ready || !slices.Equal(noticeKinds(altered.Blockers), []string{string(templates.KindPinMismatch)}) ||
+		altered.Blockers[0].Message != "The file Modrinth offers for Waystones Pack 1.0.0 isn't the one the template names." {
+		t.Fatalf("a template pinning another file than Modrinth's: %+v", altered)
+	}
+	if code, out := e.createFromTemplate(altered.Fingerprint, nil); code == 202 {
+		t.Fatalf("a blocked template must not create a server: %v", out)
 	}
 	p := plan("fabric", "26.2")
 	if p.Ready || !slices.Equal(noticeKinds(p.Blockers), []string{string(kindTemplatePackType)}) ||
@@ -741,5 +751,172 @@ func TestTemplatesNameNoOne(t *testing.T) {
 	code, plan, raw := e.planTemplate(string(file))
 	if shown, _ := json.Marshal(raw); code != 200 || !plan.Ready || plan.Contents.Created != today || strings.Contains(string(shown), "siya") {
 		t.Fatalf("planning a file that names its author shows no name: %d %s", code, shown)
+	}
+}
+
+// The fake CurseForge pack's ids, and a CurseForge API key for the machine.
+const (
+	cfPackID     = "9200001"
+	cfPackFileID = "9300001"
+	cfTestKey    = "fake-curseforge-key-0123456789abcdef"
+)
+
+// fakeCurseForgePack is a small Fabric pack on the fake CurseForge: a mod it
+// downloads, a mod whose author allows downloads only through CurseForge's
+// app, and a config file in its zip.
+type fakeCurseForgePack struct {
+	sha1  string // of the pack's zip, as CurseForge lists it
+	tools []byte // the mod it downloads
+}
+
+func (f *fakeUpstream) serveCurseForgePack() *fakeCurseForgePack {
+	f.t.Helper()
+	const cf = "https://api.curseforge.com/v1"
+	p := &fakeCurseForgePack{tools: []byte("fake mod stone tools")}
+	manifest, err := json.Marshal(map[string]any{
+		"minecraft":    map[string]any{"version": "26.2", "modLoaders": []any{map[string]any{"id": "fabric-0.17.2", "primary": true}}},
+		"manifestType": "minecraftModpack", "manifestVersion": 1, "name": "Stone Pack", "version": "1.0", "author": "pip", "overrides": "overrides",
+		"files": []any{map[string]any{"projectID": 9200002, "fileID": 9300002, "required": true}, map[string]any{"projectID": 9200003, "fileID": 9300003, "required": true}},
+	})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	zip := zipOf(f.t, map[string][]byte{"manifest.json": manifest, "overrides/config/stone.toml": []byte("stone = true\n")})
+	p.sha1 = sha1Hex(zip)
+	file := func(id, mod int, display, name string, body []byte, url string) map[string]any {
+		return map[string]any{"id": id, "gameId": 432, "modId": mod, "isAvailable": true, "displayName": display, "fileName": name,
+			"releaseType": 1, "fileStatus": 4, "hashes": []any{map[string]any{"value": sha1Hex(body), "algo": 1}},
+			"fileDate": "2026-09-20T10:00:00Z", "fileLength": len(body), "downloadUrl": url, "gameVersions": []string{"26.2", "Fabric"}}
+	}
+	project := func(id, class int, section, name, slug string, distribution bool) map[string]any {
+		return map[string]any{"id": id, "gameId": 432, "classId": class, "name": name, "slug": slug, "isAvailable": true, "allowModDistribution": distribution,
+			"links": map[string]any{"websiteUrl": "https://www.curseforge.com/minecraft/" + section + "/" + slug}, "dateModified": "2026-09-20T10:00:00Z"}
+	}
+	packURL, toolsURL := "https://edge.forgecdn.net/files/9300/1/stone-pack-1.0.zip", "https://edge.forgecdn.net/files/9300/2/stone-tools-1.0.jar"
+	pack, packProject := file(9300001, 9200001, "Stone Pack 1.0", "stone-pack-1.0.zip", zip, packURL), project(9200001, 4471, "modpacks", "Stone Pack", "stone-pack", true)
+	packProject["latestFilesIndexes"] = []any{map[string]any{"gameVersion": "26.2", "fileId": 9300001, "filename": "stone-pack-1.0.zip", "releaseType": 1, "modLoader": 4}}
+	f.serveJSON(cf+"/mods/"+cfPackID, map[string]any{"data": packProject})
+	f.serveJSON(cf+"/mods/"+cfPackID+"/files", map[string]any{"data": []any{pack}, "pagination": map[string]any{"index": 0, "pageSize": 50, "resultCount": 1, "totalCount": 1}})
+	f.serveJSON(cf+"/mods/"+cfPackID+"/files/"+cfPackFileID, map[string]any{"data": pack})
+	f.serveJSON(cf+"/mods/files", map[string]any{"data": []any{
+		file(9300002, 9200002, "Stone Tools 1.0", "stone-tools-1.0.jar", p.tools, toolsURL),
+		file(9300003, 9200003, "Kept Close 1.0", "kept-close-1.0.jar", []byte("fake mod kept close"), ""),
+	}})
+	f.serveJSON(cf+"/mods", map[string]any{"data": []any{
+		project(9200002, 6, "mc-mods", "Stone Tools", "stone-tools", true), project(9200003, 6, "mc-mods", "Kept Close", "kept-close", false),
+	}})
+	f.serve(packURL, zip)
+	f.serve(toolsURL, p.tools)
+	return p
+}
+
+// curseForgeTemplate is a Fabric template with the fake CurseForge pack,
+// pinned by hash.
+func curseForgeTemplate(t *testing.T, hash string) string {
+	t.Helper()
+	file, err := templates.MarshalFile(&templates.Template{Format: templates.Format, Name: "Stone Pack", Game: templates.Game,
+		Server:   templates.Server{Type: "fabric", MinecraftVersion: "26.2"},
+		Settings: templates.Settings{MemoryMB: 1536},
+		Modpack: &templates.Modpack{Source: modpacks.CurseForge, Project: cfPackID, Slug: "stone-pack", Name: "Stone Pack",
+			Pin: templates.Pin{VersionID: cfPackFileID, VersionNumber: "Stone Pack 1.0", Channel: "release", HashAlgo: "sha1", Hash: hash}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(file)
+}
+
+// A template can carry a CurseForge modpack, but never a CurseForge key: a
+// machine without one of its own says so and creates nothing. With one, the
+// server installs the pack as New server does, keeping CurseForge's rules: a
+// mod whose author allows downloads only through CurseForge's app is left
+// for the user to add, never fetched another way. The server shares its
+// pack as a template in turn, still without the key.
+func TestTemplateCarriesACurseForgeModpack(t *testing.T) {
+	e := newAgentEnv(t)
+	pack := e.up.serveCurseForgePack()
+	e.up.serveFabricLists()
+
+	code, plan, raw := e.planTemplate(curseForgeTemplate(t, pack.sha1))
+	if code != 200 || plan.Ready || !slices.Equal(noticeKinds(plan.Blockers), []string{string(modpacks.KindNoCurseForge)}) ||
+		plan.Blockers[0].Message != "The template's modpack Stone Pack comes from CurseForge, and this Playkeeper has no CurseForge API key." {
+		t.Fatalf("a machine without a CurseForge key: %d %+v %v", code, plan, raw)
+	}
+	if code, out := e.createFromTemplate(plan.Fingerprint, nil); code == 202 {
+		t.Fatalf("a blocked template must not create a server: %v", out)
+	}
+
+	if err := os.WriteFile(e.a.curseForgeKeyFile(), []byte(cfTestKey), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.a.loadPacks()
+	_, altered, _ := e.planTemplate(curseForgeTemplate(t, sha1Hex([]byte("another zip"))))
+	if altered.Ready || !slices.Equal(noticeKinds(altered.Blockers), []string{string(templates.KindPinMismatch)}) ||
+		altered.Blockers[0].Message != "The file CurseForge offers for Stone Pack Stone Pack 1.0 isn't the one the template names." {
+		t.Fatalf("a template pinning another zip than CurseForge's: %+v", altered)
+	}
+	code, plan, raw = e.planTemplate(curseForgeTemplate(t, pack.sha1))
+	if code != 200 || !plan.Ready || plan.Type != "fabric" || plan.MinecraftVersion != "26.2" || plan.Contents.Modpack == nil ||
+		plan.Contents.Modpack.Source != "curseforge" || plan.Contents.Modpack.VersionNumber != "Stone Pack 1.0" {
+		t.Fatalf("a machine with a key: %d %+v %v", code, plan, raw)
+	}
+	code, out := e.createFromTemplate(plan.Fingerprint, nil)
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	// Fabric itself isn't on the fake upstream, so the first start stops at
+	// its install, with the pack still to put in place.
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed {
+		t.Fatalf("the first start without Fabric: %+v", op)
+	}
+	sc, _ := e.srv().serverConfig()
+	if m := sc.Modpack; m == nil || m.Source != "curseforge" || m.ProjectID != cfPackID || m.VersionID != cfPackFileID || !m.Pending ||
+		sc.Software == nil || sc.Software.Type != "fabric" || sc.Software.FabricLoader != "0.17.2" {
+		t.Fatalf("the new server runs the Fabric Loader the pack names and waits for its files: %+v %+v", sc.Modpack, sc.Software)
+	}
+	e.installedFabric()
+	op := e.runOp("POST", "/start")
+	if op.Status != api.OpSucceeded {
+		t.Fatalf("start: %+v", op)
+	}
+	if got, err := os.ReadFile(filepath.Join(e.dataDir(), "mods", "stone-tools-1.0.jar")); err != nil || !bytes.Equal(got, pack.tools) {
+		t.Fatalf("the mod CurseForge lets Playkeeper download: %q %v", got, err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(e.dataDir(), "config", "stone.toml")); string(got) != "stone = true\n" {
+		t.Fatalf("the pack's config: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(e.dataDir(), "mods", "kept-close-1.0.jar")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a mod its author keeps to CurseForge's app is never fetched another way: %v", err)
+	}
+	manual, _ := json.Marshal(op.Detail["manual"])
+	var steps []api.AddonNotice
+	if err := json.Unmarshal(manual, &steps); err != nil || len(steps) != 1 || steps[0].Kind != string(addons.KindExternal) ||
+		steps[0].URL != "https://www.curseforge.com/minecraft/mc-mods/kept-close/files/9300003" {
+		t.Fatalf("the mod to add by hand, with its page: %s %v", manual, err)
+	}
+	if sc, _ = e.srv().serverConfig(); sc.Modpack.Pending {
+		t.Fatalf("the pack is in place: %+v", sc.Modpack)
+	}
+
+	code, _, body := e.getBytes(e.sp("/template"))
+	var exp api.TemplateExport
+	if err := json.Unmarshal(body, &exp); code != 200 || err != nil {
+		t.Fatalf("export: %d %v %s", code, err, body)
+	}
+	if m := exp.Contents.Modpack; m == nil || m.Source != "curseforge" || m.Name != "Stone Pack" || m.VersionNumber != "Stone Pack 1.0" || len(exp.LeftOut) != 0 {
+		t.Fatalf("the server shares its CurseForge pack: %+v, left out %+v", exp.Contents.Modpack, exp.LeftOut)
+	}
+	shared, err := templates.DecodeLink(exp.Link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := shared.Modpack; m == nil || m.Source != modpacks.CurseForge || m.Project != cfPackID || m.Pin.VersionID != cfPackFileID || m.Pin.HashAlgo != "sha1" || m.Pin.Hash != pack.sha1 {
+		t.Fatalf("the link's modpack: %+v", shared.Modpack)
+	}
+	linked, _ := json.Marshal(shared)
+	if strings.Contains(string(body), cfTestKey) || strings.Contains(string(linked), cfTestKey) {
+		t.Fatal("the template carries the machine's CurseForge key")
+	}
+	if code, again, raw := e.planTemplate(exp.Link); code != 200 || !again.Ready {
+		t.Fatalf("the shared link plans again: %d %+v %v", code, again, raw)
 	}
 }
