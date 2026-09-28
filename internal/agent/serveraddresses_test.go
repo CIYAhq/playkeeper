@@ -235,6 +235,11 @@ func TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes(t *testing.T) 
 		t.Fatalf("turning it off and on asked for %d more certificates", n-asked)
 	}
 
+	// With it off again, the certificates it kept still go with their
+	// server or domain.
+	if code, _ := e.setServerAddresses(false); code != 200 {
+		t.Fatal("turning it off again")
+	}
 	code, out := e.call("POST", "/v1/servers/"+test+"/delete", map[string]any{"confirm": "Test", "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("delete: %d %v", code, out)
@@ -248,14 +253,37 @@ func TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes(t *testing.T) 
 
 	e.dns.set("mc.example.com", testIP.String())
 	var v api.Address
-	if code := e.callInto("POST", "/v1/address/check", map[string]any{"domain": "mc.example.com", "actor": "admin"}, &v); code != 200 || !v.ServerAddresses {
+	if code := e.callInto("POST", "/v1/address/check", map[string]any{"domain": "mc.example.com", "actor": "admin"}, &v); code != 200 || v.ServerAddresses {
 		t.Fatalf("moving to mc.example.com: %d %+v", code, v)
 	}
 	if e.a.loadCertificate("creative.play.example.com") != nil {
 		t.Fatal("the old domain's certificates stayed")
 	}
-	if !slices.ContainsFunc(v.Records, func(r api.DNSRecord) bool { return r.Name == "*.mc.example.com" }) {
-		t.Fatalf("the new domain's records: %+v", v.Records)
+	if v.Operation != nil {
+		e.waitOp(v.Operation.ID)
+	}
+	if code, v := e.setServerAddresses(true); code != 200 || !slices.ContainsFunc(v.Records, func(r api.DNSRecord) bool { return r.Name == "*.mc.example.com" }) {
+		t.Fatalf("the new domain's records: %d %+v", code, v.Records)
+	}
+}
+
+func TestStoppingTheDomainTakesTheWildcardsCertificatesWhileItsOff(t *testing.T) {
+	e, _, _, _ := ownDomainEnvWith(t, func(o *Options) { o.AddressInterval = 20 * time.Millisecond })
+	e.dns.set("*.play.example.com", testIP.String())
+	if code, _ := e.setServerAddresses(true); code != 200 {
+		t.Fatal("turning it on")
+	}
+	e.certified("survival.play.example.com", "creative.play.example.com", "test.play.example.com")
+	if code, _ := e.setServerAddresses(false); code != 200 {
+		t.Fatal("turning it off")
+	}
+	if code, out := e.call("DELETE", "/v1/address?actor=admin", nil); code != 200 {
+		t.Fatalf("stopping the domain: %d %v", code, out)
+	}
+	for _, host := range []string{"survival.play.example.com", "creative.play.example.com", "test.play.example.com"} {
+		if e.a.loadCertificate(host) != nil {
+			t.Errorf("%s's certificate stayed", host)
+		}
 	}
 }
 

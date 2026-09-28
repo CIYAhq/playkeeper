@@ -661,7 +661,7 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	s.loops.Wait()
 	var own string
 	_ = s.db.QueryRow(`SELECT own_address FROM servers WHERE id = ?`, s.id).Scan(&own)
-	wild := s.ownName()
+	wild := s.wildName()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err

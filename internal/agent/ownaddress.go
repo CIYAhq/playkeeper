@@ -169,14 +169,34 @@ func (a *Agent) ownAddresses(st addressState) []joinServer {
 
 // forgetOwnCertificates forgets the certificates of the servers' own
 // addresses under the own domain st: all of them when the machine stops
-// using it, and with onlyWild the ones its wildcard record gave, when the
-// machine moves to another domain or the wildcard is turned off.
+// using it, and with onlyWild the ones its wildcard record gives, when the
+// machine moves to another domain. Those count whether an address for each
+// server is on or not, since turning it off keeps them.
 func (a *Agent) forgetOwnCertificates(st addressState, onlyWild bool) {
-	for _, js := range a.ownAddresses(st) {
-		if js.wild || !onlyWild {
+	if st.Kind != api.AddressOwn {
+		return
+	}
+	for _, js := range serverAddresses(st.Host, true, a.joinServers()) {
+		if js.own != "" && (js.wild || !onlyWild) {
 			a.forgetCertificate(js.own)
 		}
 	}
+}
+
+// wildName is the address the own domain's wildcard record gives the
+// server, <slug>.<domain>, whether an address for each server is on or not,
+// or "" when it has none.
+func (s *server) wildName() string {
+	st := s.address()
+	if st.Kind != api.AddressOwn {
+		return ""
+	}
+	for _, js := range serverAddresses(st.Host, true, s.joinServers()) {
+		if js.id == s.id && js.wild {
+			return js.own
+		}
+	}
+	return ""
 }
 
 // startOwnCertificate starts getting the certificate of the first own
