@@ -1,0 +1,124 @@
+{{/*
+path: /guides/minecraft-crossplay-server
+title: How to make a Minecraft crossplay server (Java and Bedrock, 2026)
+description: Set up a server Java and Bedrock players share: Geyser and Floodgate on Paper or Purpur, UDP 19132 in your firewall, and Bedrock friends on the allowlist.
+label: Crossplay server
+h1: How to make a Minecraft crossplay server
+card: How to make a Minecraft crossplay server
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: minecraft-crossplay-server
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}Run a Paper or Purpur server, add the Geyser and Floodgate plugins, and open UDP 19132 for Bedrock players beside the TCP game port Java players use. In Playkeeper that's one switch, Bedrock players in a server's Settings, from version 0.4.4. You still open the UDP port in your provider's firewall, and add Bedrock friends to the allowlist as a dot and their Xbox gamertag.{{end}}
+
+{{define "closing-title"}}Java and Bedrock friends on one server.{{end}}
+{{define "closing-sub"}}Free and open source. One switch installs Geyser and Floodgate and opens the port.{{end}}
+
+{{define "side-title"}}Crossplay, one switch{{end}}
+{{define "side-text"}}Playkeeper installs Geyser and Floodgate, sets them up and opens the Bedrock port.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="needs">
+  {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What a crossplay server needs" "Toc" "What it needs")}}
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <caption>Versions Playkeeper installed on 28 Sep.</caption>
+      <thead><tr><th scope="col">Part</th><th scope="col">What it's for</th><th scope="col">With the switch</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Paper or Purpur</th><td>The Java server, which takes plugins</td><td>Any Paper or Purpur server you have</td></tr>
+        <tr><th scope="row">Geyser</th><td>Translates between Bedrock's game and the Java server</td><td>2.11.3-b1247, from Modrinth</td></tr>
+        <tr><th scope="row">Floodgate</th><td>Lets Bedrock players in with their Xbox account</td><td>2.2.5-b141, checked against GeyserMC's SHA-256</td></tr>
+        <tr><th scope="row">UDP 19132</th><td>The port Bedrock players connect to</td><td>Published by Playkeeper; you open it at your provider</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Geyser also needs <code>auth-type: floodgate</code> in its config, and the server needs <code>enforce-secure-profile=false</code>, or Bedrock players' chat is refused. The switch sets both.</p>
+</section>
+
+<section aria-labelledby="switch">
+  {{template "h2n" (dict "ID" "switch" "N" 2 "Text" "The one-switch way" "Toc" "One switch")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{template "steps" (dict "Class" "shot-steps" "Items" (list
+    (dict "Title" "Turn on Bedrock players" "Text" "In a Paper or Purpur server's Settings, then Turn on crossplay. Playkeeper installs Geyser and Floodgate, sets them up and restarts the server. On a test server on 28 Sep it took 22 seconds.")
+    (dict "Title" "Open UDP 19132 at your provider" "Text" "The dialog shows the port. A second server with crossplay gets the next free one, such as 19133.")
+    (dict "Title" "Add Bedrock friends on Players" "Text" "While the server runs, type a dot and their Xbox gamertag, like .Steve. Playkeeper has Floodgate look the gamertag up at GeyserMC and add it to the allowlist.")
+  ))}}
+  <p>Friends on phones, tablets and Windows choose Play, then Servers › Add Server, with the Bedrock address and port on the server's Join card. That address is your machine's name, not the server's own address, because Bedrock can't follow the record that gives each server its own. Xbox, PlayStation and Switch players need a workaround such as BedrockConnect, which <a href="https://geysermc.org/wiki/geyser/using-geyser-with-consoles/">GeyserMC's guide for consoles</a> explains.</p>
+  <ul>
+    <li><strong>A server with crossplay stays awake.</strong> A Bedrock player can't wake a sleeping server, so sleeping when empty pauses while crossplay is on.</li>
+    <li><strong>Templates don't carry it.</strong> Turn crossplay on after you create a server from one.</li>
+    <li><strong>Keep Geyser up to date</strong> on the Plugins tab. When Bedrock updates, an older Geyser turns the new version away.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="firewall">
+  {{template "h2n" (dict "ID" "firewall" "N" 3 "Text" "Open the Bedrock port in your firewall" "Toc" "The firewall")}}
+  <p>Bedrock connects over UDP, not TCP. Playkeeper publishes the port from the server's container, but a firewall at your provider, or ufw on some images, still has to let it in. Add an inbound rule for <strong>UDP 19132 from anywhere</strong>, or for the port the Join card shows:</p>
+  <ul>
+    <li><strong>DigitalOcean:</strong> in the Droplet's Cloud Firewall, if it has one, under Networking › Firewalls.</li>
+    <li><strong>Hostinger:</strong> in hPanel's firewall, if it's on, under Security › Firewall.</li>
+    <li><strong>Vultr:</strong> in its Firewall group, if you added one, and in ufw on the server, which Vultr's Ubuntu image turns on: <code>sudo ufw allow 19132/udp</code>.</li>
+    <li><strong>Oracle Cloud:</strong> in the security list, then in the VM's own iptables as well.</li>
+    <li><strong>A server at home:</strong> forward UDP 19132 in your router to the machine.</li>
+  </ul>
+  <p>Java players keep using the TCP game port, 25565 for the first server.</p>
+</section>
+
+<section aria-labelledby="by-hand">
+  {{template "h2n" (dict "ID" "by-hand" "N" 4 "Text" "By hand, without Playkeeper" "Toc" "By hand")}}
+  <ol>
+    <li>Download Geyser and Floodgate for Spigot, Paper and Purpur from <a href="https://geysermc.org/download/">GeyserMC's download page</a>, and put both in the server's <code>plugins</code> folder.</li>
+    <li>Start the server once, so both plugins write their settings, then stop it.</li>
+    <li>Set the lines below, and start it again.</li>
+    <li>Open UDP 19132 on the machine and at your provider.</li>
+    <li>Add each Bedrock friend from the console with <code>fwhitelist add</code> and their gamertag.</li>
+  </ol>
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="File">
+        <button type="button" class="code-tab" role="tab" id="tab-geyser" aria-controls="code-geyser" aria-selected="true">Geyser's config</button>
+        <button type="button" class="code-tab" role="tab" id="tab-properties" aria-controls="code-properties" aria-selected="false" tabindex="-1">server.properties</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-geyser" role="tabpanel" tabindex="0" aria-labelledby="tab-geyser"><span class="c"># plugins/Geyser-Spigot/config.yml (Geyser 2.11)</span>
+bedrock:
+  port: 19132
+java:
+  auth-type: floodgate</pre>
+<pre id="code-properties" role="tabpanel" tabindex="0" aria-labelledby="tab-properties" hidden><span class="c"># Otherwise the server refuses Bedrock players' chat</span>
+enforce-secure-profile=false</pre>
+  </div>
+  <p>GeyserMC's <a href="https://geysermc.org/wiki/geyser/setup/">Geyser setup</a> and <a href="https://geysermc.org/wiki/floodgate/setup/">Floodgate setup</a> pages cover proxies, Fabric and NeoForge.</p>
+</section>
+
+<section aria-labelledby="tested">
+  {{template "h2n" (dict "ID" "tested" "N" 5 "Text" "What we tested, and what we haven't" "Toc" "What we tested")}}
+  <ul>
+    <li><strong>Tested:</strong> on a Paper 26.2 server on 28 Sep, a Bedrock test client speaking Bedrock 1.26.51 joined through Geyser and Floodgate with the allowlist on, spawned, chatted and showed up on the Players tab. Turning crossplay off took 12 seconds and closed the port.</li>
+    <li><strong>How that client signed in:</strong> offline, so Geyser's check of the Xbox sign-in was turned off by hand for the test. Playkeeper leaves that check on.</li>
+    <li><strong>Not tested yet:</strong> a phone, tablet or Windows player signed in to Xbox; a console through BedrockConnect; and a player joining from another network, through a provider's firewall.</li>
+  </ul>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "What port does Bedrock use?" "UDP 19132, Bedrock's own. Playkeeper gives each further server with crossplay the next free port, and the Join card shows which.")
+    (qa "Do I need Floodgate?" "For Bedrock players without a Java account, yes. Geyser alone makes each of them sign in with a Java account too.")
+    (qa "Does crossplay work on modded servers?" "Geyser and Floodgate have Fabric and NeoForge builds, but Bedrock players can't see blocks and items that mods add. Playkeeper offers the switch on Paper and Purpur servers.")
+    (qa "Why can't my friend on Switch join?" "Consoles can only join the featured servers Microsoft lists. They need a workaround such as BedrockConnect, which we haven't tested yet.")
+    (qa "Why did Bedrock players stop getting in after an update?" "Bedrock updated and Geyser didn't. Update Geyser on the Plugins tab, and they can join again once it supports the new version.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/guides/can-java-and-bedrock-play-together" "/guides/play-minecraft-with-friends" "/templates")}}{{end}}
