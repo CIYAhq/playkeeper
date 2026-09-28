@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -293,9 +294,15 @@ func (c *checker) waitOnline(ctx context.Context, sid string, limit time.Duratio
 	}
 }
 
+// logLines is how many of a server's newest log lines a check reads: all the
+// agent keeps (internal/agent's consoleCapacity). The agent answers a bigger
+// limit with only 500, fewer than a big modpack like FTB StoneBlock 4 logs in
+// the second after it says Done.
+const logLines = 2000
+
 func (c *checker) logs(ctx context.Context, sid string) ([]string, error) {
 	var l api.LogsResponse
-	if _, err := c.agent.Do(ctx, "GET", "/v1/servers/"+sid+"/logs", url.Values{"limit": {"5000"}}, nil, &l); err != nil {
+	if _, err := c.agent.Do(ctx, "GET", "/v1/servers/"+sid+"/logs", url.Values{"limit": {strconv.Itoa(logLines)}}, nil, &l); err != nil {
 		return nil, err
 	}
 	out := make([]string, 0, len(l.Lines))
