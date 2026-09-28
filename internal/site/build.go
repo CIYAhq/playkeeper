@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/platform"
+	"github.com/CIYAhq/playkeeper/internal/sizing"
 )
 
 // Options say what to build the site from.
@@ -242,6 +243,9 @@ type View struct {
 	Short template.HTML
 	// ClosingTitle and ClosingSub replace the closing band's words.
 	ClosingTitle, ClosingSub template.HTML
+	// SideTitle and SideText replace the words of a guide's install card,
+	// beside its contents.
+	SideTitle, SideText template.HTML
 	// Related is a guide's or post's Keep reading, after its article.
 	Related template.HTML
 	// HasInstall is whether the page shows the install command before the
@@ -314,7 +318,7 @@ func (s *Site) render(p *Page) ([]byte, error) {
 			return nil, err
 		}
 	}
-	for name, dst := range map[string]*template.HTML{"short": &v.Short, "closing-title": &v.ClosingTitle, "closing-sub": &v.ClosingSub, "keep-reading": &v.Related} {
+	for name, dst := range map[string]*template.HTML{"short": &v.Short, "closing-title": &v.ClosingTitle, "closing-sub": &v.ClosingSub, "side-title": &v.SideTitle, "side-text": &v.SideText, "keep-reading": &v.Related} {
 		if *dst, err = part(name); err != nil {
 			return nil, err
 		}
@@ -582,6 +586,30 @@ func (s *Site) funcs() template.FuncMap {
 		},
 		"providers": func() []Provider { return providers },
 		"sizing":    func() SizingGuide { return s.sizing },
+		// sizingFor is the sizing guide's answer for friends playing at once
+		// on a workload ("vanilla", "add-ons" or "modpack").
+		"sizingFor": func(players int, workload string) (sizing.Recommendation, error) {
+			w, err := sizing.ParseWorkload(workload)
+			if err != nil {
+				return sizing.Recommendation{}, err
+			}
+			return sizing.Recommend(w, players)
+		},
+		// sizingPhrase is what an answer's friends run, as its summary words
+		// it: "on a big modpack".
+		"sizingPhrase": sizingPhrase,
+		// cheapestFit is the cheapest provider plan with the memory and cores,
+		// and vpsFrom the one for the sizing guide's smallest answer: what a
+		// VPS costs a month at least. usd writes their prices.
+		"cheapestFit": cheapestFit,
+		"vpsFrom": func() (PlanAt, error) {
+			r, err := sizing.Recommend(sizing.Vanilla, 1)
+			if err != nil {
+				return PlanAt{}, err
+			}
+			return cheapestFit(r.MemoryGB, r.Cores), nil
+		},
+		"usd": usd,
 		// The codes the landing page shows a channel's install command for,
 		// and the command a page with a channel shows.
 		"channelCodes": func() string { return channelCodes(s.opts.Settings.Channels) },

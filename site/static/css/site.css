@@ -485,6 +485,7 @@ main:focus { outline: none; }
 .faq-item[open] .faq-icon::after { transform: rotate(0deg); }
 .faq-a { overflow: hidden; }
 .faq-a p { margin: -6px 0 20px; color: var(--sage); font-size: 16px; line-height: 1.6; max-width: 640px; }
+.faq-a a { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .faq-item::details-content { height: 0; opacity: 0; overflow: clip; transition: height 0.24s var(--ease), opacity 0.24s var(--ease), content-visibility 0.24s allow-discrete; }
 .faq-item[open]::details-content { height: auto; opacity: 1; }
 .faq-wide { max-width: 568px; }
@@ -655,7 +656,7 @@ main:focus { outline: none; }
 .compare td a:hover { text-decoration-color: currentColor; }
 .compare .us { background: var(--green-soft); color: var(--ink); font-weight: 600; }
 .compare thead .us { font-weight: 700; }
-.compare caption { caption-side: bottom; padding-top: 12px; font-size: 13px; color: var(--sage); text-align: left; }
+.compare caption { caption-side: bottom; padding: 12px 4px 0; font-size: 13px; color: var(--sage); text-align: left; }
 @media (max-width: 639.98px) {
   .compare { font-size: 13.5px; }
   .compare th, .compare td { padding: 12px 10px; }
@@ -758,6 +759,8 @@ main:focus { outline: none; }
 .article p strong, .article li strong { color: var(--ink); }
 .article p a, .article li a, .article td a, .meta a { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .article .install { margin: 20px 0; max-width: none; }
+.article > section > ul { padding-left: 22px; margin: 0 0 1em; }
+.article > section > ul > li { margin: 6px 0; }
 .article table.data { width: 100%; margin: 20px 0 8px; border-collapse: separate; border-spacing: 0; border: 1px solid var(--twine); border-radius: 16px; background: var(--white); overflow: hidden; font-size: 15px; }
 .article table.data th, .article table.data td { padding: 14px 16px; border-bottom: 1px solid var(--twine); text-align: left; vertical-align: middle; }
 .article table.data thead th { font-size: 13px; font-weight: 600; color: var(--sage); }
@@ -768,6 +771,7 @@ main:focus { outline: none; }
 .loader-cell img { width: 34px; height: 34px; padding: 5px; border: 1px solid var(--twine); border-radius: 9px; background: var(--white); object-fit: contain; }
 .table-note { display: flex; justify-content: space-between; gap: 16px; font-size: 13px; color: var(--sage); }
 .table-scroll { overflow-x: auto; }
+.article .table-scroll:has(> .compare) { margin-bottom: 20px; }
 .table-scroll:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; border-radius: var(--radius); }
 .codeblock { margin: 20px 0; border-radius: 14px; background: var(--console); color: var(--console-text); overflow: hidden; box-shadow: var(--shadow); }
 .code-head { display: flex; align-items: center; gap: 8px; padding: 8px 8px 0 12px; border-bottom: 1px solid rgb(255 255 255 / 0.08); }

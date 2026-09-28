@@ -1,8 +1,9 @@
 {{/* The long-read layouts: guides, blog posts and the docs. */}}
 
 {{/* guide: the H1 with the year, the Updated line, the short answer and Pip;
-     then sticky contents and an install card beside the article; then the
-     page's "after" part (FAQ, templates) and Keep reading. */}}
+     then sticky contents and an install card beside the article, whose words
+     a guide's side-title and side-text parts can replace; then the page's
+     "after" part (FAQ, templates) and Keep reading. */}}
 {{define "guide"}}
 <section class="band band-chalk guide-hero">
   <div class="container guide-hero-row">
@@ -29,8 +30,8 @@
         <ol>{{range .Page.TOC}}<li><a href="#{{.ID}}">{{.Text}}</a></li>{{end}}{{if .HasQuestions}}<li><a href="#questions">Questions</a></li>{{end}}</ol>
       </nav>
       <div class="side-install">
-        <p class="side-install-title">Skip the manual steps</p>
-        <p>Playkeeper installs modpacks in one click.</p>
+        <p class="side-install-title">{{or .SideTitle "Skip the manual steps"}}</p>
+        <p>{{or .SideText "Playkeeper installs modpacks in one click."}}</p>
         <a class="btn btn-primary btn-sm" href="#install" data-copy="{{.Settings.InstallCommand}}">{{template "icon" "copy"}}<span data-copy-label>Copy the install command</span></a>
       </div>
     </aside>
