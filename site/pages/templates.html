@@ -51,12 +51,14 @@ updated: 2026-09-28
 </section>
 <section class="band band-chalk dir-faq" aria-label="Questions">
   <div class="container container-narrow">
+    {{$bedrock := "Yes, once the server is made. On a Paper or Purpur server, Bedrock players in its Settings lets friends on phones, consoles and Windows join through Geyser and Floodgate. Console players also need BedrockConnect."}}
+    {{if directory.Crossplay}}{{$bedrock = print $bedrock " Templates marked Crossplay were also started with it on when we checked them."}}{{end}}
     {{template "faq" (dict "ID" "questions" "Items" (list
       (qa "Are these Minecraft server templates free?" "Yes. Playkeeper and its templates are free and open source; you pay only for the VPS they run on.")
       (qa "Does a template include a world?" "No. A template sets up a new server. Worlds, allowlists and operators never travel in one.")
       (qa "What happens when a plugin updates?" "Each template pins the exact version of every add-on it was checked with, so it installs what its page lists. Every week an agent tries the newer versions, and a template takes them once a server starts cleanly with them.")
       (qa "Can I use a template without Playkeeper?" "Yes. Each template's page has the same server as a Docker command for the itzg image, which Playkeeper runs servers in too.")
-      (qa "Can Bedrock players join?" "Yes, once the server is made. On a Paper or Purpur server, Bedrock players in its Settings lets friends on phones, consoles and Windows join through Geyser and Floodgate. Console players also need BedrockConnect.")
+      (qa "Can Bedrock players join?" $bedrock)
     ))}}
   </div>
 </section>

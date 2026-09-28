@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 
@@ -86,6 +89,60 @@ test('the directory searches, filters and sorts every template, and keeps what i
   await page.locator('[data-dir-empty] [data-clear]').click()
   await expect(cards(page)).toHaveCount(all)
   expect(errors, 'errors in the page').toEqual([])
+})
+
+test('a crossplay template is marked on its card, and Bedrock or GeyserMC finds it', async ({ page }) => {
+  // Which templates have crossplay comes from their checks; the test picks
+  // two itself, Towny and the most popular other, in the index the page loads.
+  const taxonomy = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../site/data/taxonomy.json')
+  const crossplay = (JSON.parse(readFileSync(taxonomy, 'utf8')) as { tags: Record<string, { name: string; search: string }> }).tags.crossplay
+  let marked: string[] = []
+  let others: string[] = []
+  // A template's own words, which find it too.
+  const own = new Map<string, string>()
+  await page.route(/\/assets\/js\/templates-index\.[^/]+\.js$/, async (route) => {
+    const body = await (await route.fetch()).text()
+    const data = JSON.parse(body.replace(/^window\.playkeeperTemplates = /, '').replace(/;\s*$/, '')) as {
+      tags: Record<string, string>
+      tagSearch: Record<string, string>
+      templates: { id: string; name: string; desc: string; addons: string[]; tags: string[] }[]
+    }
+    const picked = new Set(['towny', data.templates.find((t) => t.id !== 'towny')!.id])
+    for (const t of data.templates) {
+      t.tags = t.tags.filter((g) => g !== 'crossplay')
+      if (picked.has(t.id)) t.tags.push('crossplay')
+      own.set(t.name, [t.name, t.desc, ...t.addons].join(' ').toLowerCase())
+    }
+    data.tags.crossplay = crossplay.name
+    data.tagSearch.crossplay = crossplay.search
+    marked = data.templates.filter((t) => picked.has(t.id)).map((t) => t.name)
+    others = data.templates.filter((t) => !picked.has(t.id)).map((t) => t.name)
+    await route.fulfill({ contentType: 'text/javascript', body: `window.playkeeperTemplates = ${JSON.stringify(data)};` })
+  })
+  await page.goto('/templates', { waitUntil: 'networkidle' })
+  // Each word finds the same cards, so the test waits for the address, which
+  // changes once the cards for the word are drawn.
+  for (const word of ['crossplay', 'bedrock', 'geyser', 'GeyserMC']) {
+    await page.locator('#dir-q').fill(word)
+    await expect(page).toHaveURL(new RegExp(`/templates\\?q=${word}$`))
+    const want = [...marked, ...others.filter((n) => own.get(n)!.includes(word.toLowerCase()))].sort()
+    expect((await names(page)).sort(), word).toEqual(want)
+  }
+  for (const name of marked) {
+    const card = page.locator(`[data-dir-grid] .dcard:has(.dcard-name a:text-is("${name}"))`)
+    await expect(card.locator('.dcard-badge')).toHaveText('Crossplay')
+    await expect(card.locator('.dcard-badge')).toBeVisible()
+    await expect(card.locator('.dcard-tags li', { hasText: 'Crossplay' })).toHaveCount(0)
+  }
+  await page.locator('#dir-q').fill(others[0])
+  await expect.poll(() => names(page)).toContain(others[0])
+  await expect(page.locator(`[data-dir-grid] .dcard:has(.dcard-name a:text-is("${others[0]}")) .dcard-badge`)).toHaveCount(0)
+
+  // The mark lets a click through to the card's link, to the template's page.
+  await page.locator('#dir-q').fill('towny')
+  await expect(page).toHaveURL(/\/templates\?q=towny$/)
+  await page.locator('[data-dir-grid] .dcard:has(.dcard-name a:text-is("Towny")) .dcard-badge').click({ force: true })
+  await expect(page).toHaveURL(/\/templates\/towny\/towny$/)
 })
 
 test('a card opens its template in the share page, and a card the script draws goes there through /t/<id>', async ({ page }) => {

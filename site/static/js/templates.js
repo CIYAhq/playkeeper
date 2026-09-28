@@ -119,7 +119,7 @@
       t.nameWords = ' ' + norm(t.name);
       t.words = ' ' + norm([t.name, t.desc, t.addons.join(' '),
         t.cats.map(function (c) { return data.cats[c]; }).join(' '),
-        t.tags.map(function (g) { return data.tags[g]; }).join(' '),
+        t.tags.map(function (g) { return data.tags[g] + ' ' + (data.tagSearch[g] || ''); }).join(' '),
         data.loaders[t.loader].name, t.version, data.kinds[t.kind]].join(' '));
     });
     return { data: data, list: list };
@@ -209,13 +209,16 @@
     slot(el, 'loader').textContent = l.name + ' ' + t.version;
     slot(el, 'memory').textContent = gb(t.mb);
     slot(el, 'desc').textContent = t.desc;
+    // Crossplay shows on the card's picture rather than with its tags.
+    var shown = t.tags.filter(function (g) { return g !== 'crossplay'; }).slice(0, 3);
+    if (t.tags.indexOf('crossplay') < 0) slot(el, 'crossplay').remove();
     var tags = slot(el, 'tags');
-    t.tags.slice(0, 3).forEach(function (g) {
+    shown.forEach(function (g) {
       var li = document.createElement('li');
       li.textContent = d.tags[g];
       tags.appendChild(li);
     });
-    if (!t.tags.length) tags.remove();
+    if (!shown.length) tags.remove();
     var open = slot(el, 'open');
     open.href = t.open;
     open.setAttribute('data-template-open', t.id);

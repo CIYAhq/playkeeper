@@ -52,6 +52,7 @@
     }
   },
   "tags": {
+    "crossplay": { "name": "Crossplay", "search": "Bedrock GeyserMC Floodgate" },
     "grief-rollback": { "name": "Grief rollback" },
     "land-claims": { "name": "Land claims" },
     "minigame": { "name": "Minigame" },
