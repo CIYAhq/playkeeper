@@ -1,0 +1,133 @@
+{{/*
+path: /guides/modded-minecraft-server-ram
+title: How much RAM for a modded Minecraft server? Measured (2026)
+description: How much RAM a modded Minecraft server needs, measured on real installs of ATM10, ATM9, Better MC 4, StoneBlock 4 and Pixelmon: heap, memory used and startup.
+label: Modpack RAM, measured
+h1: How much RAM does a modded Minecraft server need? Measured (2026)
+card: How much RAM modpacks really use
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: modded-minecraft-server-ram
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+closing: guide
+*/}}
+
+{{define "short"}}A big modpack like All the Mods 10 starts on 8 GB and wants {{(sizingFor 4 "modpack").MemoryGB}} GB with friends; a small one like the Pixelmon Modpack runs on 4 GB. On our test server, All the Mods 10 (460 mods) ran out of memory with a 2 GB Java heap, idled on a 4.3 GB heap using 5.9 to 6.3 GB, and used 10.2 GB with an 8.3 GB heap. Every big pack used about 2 GB more than its heap, so leave that room when you set -Xmx.{{end}}
+
+{{define "closing-title"}}Any of these packs, sized and installed in one click.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper reads what a pack needs before it installs anything.{{end}}
+
+{{define "side-title"}}Where the numbers come from{{end}}
+{{define "side-text"}}Playkeeper's own test installs. It sizes memory for each pack before it installs.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="measured">
+  {{template "h2n" (dict "ID" "measured" "N" 1 "Text" "What each modpack used on a real server" "Toc" "What each pack used")}}
+  <p>Seven packs, installed from CurseForge or Modrinth on the same kind of 16 GB machine, one server at a time, with nobody online.</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="compare stack">
+      <caption>Measured 27 and 28 Sep 2026 on a 16 GB, 4-vCPU Linux VM. Used is the container's memory as docker stats shows it, without file cache, once the server was online (Better MC 4 two minutes after its start). Heap is the -Xmx the server got.</caption>
+      <thead><tr><td></td><th scope="col">Loader</th><th scope="col">Mods</th><th scope="col">Memory (Java heap)</th><th scope="col">Used</th><th scope="col">Result</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><a href="/modpacks/atm10-server">All the Mods 10</a> 8.2</th><td data-col="Loader">NeoForge, 1.21.1</td><td data-col="Mods">460</td><td data-col="Memory">4&nbsp;GB (2&nbsp;GB)</td><td data-col="Used">–</td><td data-col="Result">Out of memory at first start</td></tr>
+        <tr><th scope="row">All the Mods 10 8.2</th><td data-col="Loader">NeoForge, 1.21.1</td><td data-col="Mods">460</td><td data-col="Memory">8&nbsp;GB (4.3&nbsp;GB)</td><td data-col="Used">5.9 to 6.3&nbsp;GB</td><td data-col="Result">Online, 20 TPS</td></tr>
+        <tr><th scope="row">All the Mods 10 8.2</th><td data-col="Loader">NeoForge, 1.21.1</td><td data-col="Mods">460</td><td data-col="Memory">12&nbsp;GB (8.3&nbsp;GB)</td><td data-col="Used">10.2&nbsp;GB</td><td data-col="Result">Online, 20 TPS</td></tr>
+        <tr><th scope="row">All the Mods 9 1.1.1</th><td data-col="Loader">Forge, 1.20.1</td><td data-col="Mods">418</td><td data-col="Memory">8&nbsp;GB (4.6&nbsp;GB)</td><td data-col="Used">6.2&nbsp;GB</td><td data-col="Result">Online, 20 TPS</td></tr>
+        <tr><th scope="row">Better MC 4 v61</th><td data-col="Loader">Forge, 1.20.1</td><td data-col="Mods">310</td><td data-col="Memory">12&nbsp;GB (9&nbsp;GB)</td><td data-col="Used">11&nbsp;GB</td><td data-col="Result">Online, 20 TPS</td></tr>
+        <tr><th scope="row">FTB StoneBlock 4 1.22.0</th><td data-col="Loader">NeoForge, 1.21.1</td><td data-col="Mods">380</td><td data-col="Memory">12&nbsp;GB (8.8&nbsp;GB)</td><td data-col="Used">Not recorded</td><td data-col="Result">Online once a mod for players was deleted</td></tr>
+        <tr><th scope="row"><a href="/modpacks/pixelmon-server">The Pixelmon Modpack</a> 9.3.16</th><td data-col="Loader">NeoForge, 1.21.1</td><td data-col="Mods">13</td><td data-col="Memory">4&nbsp;GB (2.9&nbsp;GB)</td><td data-col="Used">3.5 to 3.8&nbsp;GB</td><td data-col="Result">Online, 20 TPS</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="fine">Loaders: NeoForge 21.1.251 for All the Mods 10, 21.1.250 for StoneBlock 4 and 21.1.172 for Pixelmon; Forge 47.4.0 for All the Mods 9 and 47.4.20 for Better MC 4.</p>
+  <p>Better MC 2 v40 (Fabric, 289 mods) and SkyFactory 5 5.0.8 (Forge) started too; their memory wasn't recorded, so they're only in the startup table below.</p>
+</section>
+
+<section aria-labelledby="heap">
+  {{template "h2n" (dict "ID" "heap" "N" 2 "Text" "Why a server needs about 2 GB more than its heap" "Toc" "Heap plus 2 GB")}}
+  <p>Java keeps the world, players and items in its heap, the -Xmx you set. The loader and every mod's classes, mixins and compiled code sit outside it. Playkeeper starts servers with Aikar's flags, which claim the whole heap at start (-Xms equal to -Xmx, with AlwaysPreTouch), so the memory used is the heap plus that outside part. With 300 to 460 mods, the outside part came to 1.6 to 2 GB on every big pack we ran:</p>
+  <ul>
+    <li><strong>All the Mods 10:</strong> 5.9 to 6.3 GB used with a 4.3 GB heap, and 10.2 GB with an 8.3 GB heap.</li>
+    <li><strong>All the Mods 9:</strong> 6.2 GB with a 4.6 GB heap.</li>
+    <li><strong>Better MC 4:</strong> 11 GB with a 9 GB heap.</li>
+    <li><strong>The Pixelmon Modpack:</strong> 3.5 to 3.8 GB with a 2.9 GB heap, since 13 mods need much less room outside it.</li>
+  </ul>
+  <p>So on a plan or a VPS with 8 GB in all, give a big pack a heap of about 6 GB, not 8. A heap as big as the whole machine gets the server killed once it grows into it.</p>
+  <p>It also means used memory says little about need: All the Mods 10 used about 4 GB more with the bigger heap, with nobody online.</p>
+</section>
+
+<section aria-labelledby="floor">
+  {{template "h2n" (dict "ID" "floor" "N" 3 "Text" "The smallest heaps we tried" "Toc" "The smallest heap")}}
+  <p>All the Mods 10 ran out of memory at its first start with a 2 GB heap, which is what 4 GB gives a pack that size. It started with 4.3 GB, and All the Mods 9 with 4.6 GB; nothing in between was tried. That's a floor with nobody online: players exploring new chunks, farms and machines need more, which is why All the Mods 10 and StoneBlock 4 ask for an 8 GB heap in their own files.</p>
+  <ul>
+    <li><strong>A big pack, just you:</strong> 8 GB.</li>
+    <li><strong>A big pack and up to four friends:</strong> {{(sizingFor 4 "modpack").MemoryGB}} GB, which gives Java the 8 GB heap those packs ask for.</li>
+    <li><strong>A big pack and more friends:</strong> {{(sizingFor 8 "modpack").MemoryGB}} GB, from the <a href="/sizing">sizing guide</a>.</li>
+    <li><strong>A small pack like the Pixelmon Modpack:</strong> 4 GB.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="startup">
+  {{template "h2n" (dict "ID" "startup" "N" 4 "Text" "How long each pack took to start" "Toc" "Startup times")}}
+  <p>From a fresh install to a server players can join, and the Done time each server printed in its log.</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="compare stack">
+      <caption>Fresh install is Create to Online in Playkeeper's log: downloading the pack, installing the loader and the first start, on a fast cloud connection. A home connection adds download time.</caption>
+      <thead><tr><td></td><th scope="col">Fresh install to online</th><th scope="col">Done time in the log</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">All the Mods 9 1.1.1</th><td data-col="To online">193 s</td><td data-col="Done">37.8 s</td></tr>
+        <tr><th scope="row">All the Mods 10 8.2</th><td data-col="To online">About 3 minutes</td><td data-col="Done">13.1 to 17.4 s</td></tr>
+        <tr><th scope="row">Better MC 4 v61</th><td data-col="To online">148 s</td><td data-col="Done">43.2 s</td></tr>
+        <tr><th scope="row">Better MC 2 v40, Fabric Loader 0.18.4</th><td data-col="To online">107 s</td><td data-col="Done">38.7 s</td></tr>
+        <tr><th scope="row">SkyFactory 5 5.0.8, Forge 47.4.0</th><td data-col="To online">107 s</td><td data-col="Done">Not recorded</td></tr>
+        <tr><th scope="row">The Pixelmon Modpack 9.3.16</th><td data-col="To online">88 s</td><td data-col="Done">26.3 s</td></tr>
+        <tr><th scope="row">FTB StoneBlock 4 1.22.0, a restart</th><td data-col="To online">50 s</td><td data-col="Done">2.0 s</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Minecraft's Done timer starts after the mods have loaded, so it leaves most of a modded server's startup out. StoneBlock 4 restarted in 50 seconds, with everything already downloaded, while its log said Done (2.041s).</p>
+</section>
+
+<section aria-labelledby="first-start">
+  {{template "h2n" (dict "ID" "first-start" "N" 5 "Text" "Mods that stop a first start" "Toc" "First-start crashes")}}
+  <p>Some first starts fail for reasons that have nothing to do with memory: a mod made only for players' games.</p>
+  <ul>
+    <li><strong>FTB StoneBlock 4 1.22.0:</strong> statuseffectbars stops the server with "invalid dist DEDICATED_SERVER". Delete its jar from mods.</li>
+    <li><strong>Better MC 5:</strong> delete Better Grassify and Distraction Free Recipes before the first start, as <a href="/modpacks/better-mc-server">its page</a> says.</li>
+    <li><strong>All the Mods 9 1.1.1:</strong> Mekalus, a shader mod, crashes a server set up from the pack's player files. ATM's server files leave it out, so start from those.</li>
+    <li><strong>Better MC 2 v40:</strong> it won't start without Mod Menu, although CurseForge marks that mod for players only.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="method">
+  {{template "h2n" (dict "ID" "method" "N" 6 "Text" "How we measured" "Toc" "Method")}}
+  <ul>
+    <li><strong>The machine:</strong> a 16 GB Linux cloud VM with 4 vCPUs, the same kind for every run, one server at a time.</li>
+    <li><strong>The install:</strong> Playkeeper installed each pack from CurseForge or Modrinth into its Docker container (itzg/minecraft-server, with Java 17 for Minecraft 1.20.1 and Java 21 for 1.21.1) with the memory shown.</li>
+    <li><strong>The heap:</strong> Playkeeper sets -Xmx to the memory minus room for the loader and mods: a quarter of the memory, or 1 GB plus 6 MB per mod on Forge and NeoForge, whichever is more, and at most half.</li>
+    <li><strong>The flags:</strong> Aikar's flags with G1, which set -Xms to the -Xmx and pre-touch the heap, so the whole heap counts as used from the start.</li>
+    <li><strong>Memory used:</strong> the container's memory without file cache, as docker stats shows it, read once the server was online.</li>
+    <li><strong>Times:</strong> from Playkeeper's log of each install.</li>
+    <li><strong>Runs:</strong> one per setting, two for All the Mods 10 at 8 GB, so treat small differences as noise.</li>
+  </ul>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "How much RAM does an ATM10 server need?" (printf "8 GB starts it: on our test server, All the Mods 10 8.2 idled on a 4.3 GB heap and used 5.9 to 6.3 GB. With a 2 GB heap it ran out of memory at first start. For friends, give it %d GB, which gives Java the 8 GB heap the pack's own files ask for." (sizingFor 4 "modpack").MemoryGB))
+    (qa "How much RAM does an ATM9 server need?" (printf "All the Mods 9 1.1.1 started at 8 GB with a 4.6 GB heap and used 6.2 GB with nobody on. Like other big packs, give it %d GB for friends." (sizingFor 4 "modpack").MemoryGB))
+    (qa "Is 8 GB enough for a modded Minecraft server?" (printf "To start a big pack and play alone, yes: All the Mods 10 and All the Mods 9 both ran on 8 GB. With friends exploring, give a big pack %d GB." (sizingFor 4 "modpack").MemoryGB))
+    (qa "Why does my modded server use all the memory I give it?" "With Aikar's flags, Java claims the whole heap when it starts, and the mods' code sits outside the heap: about 2 GB for a pack with 300 to 460 mods. All the Mods 10 used 6 GB with a 4.3 GB heap and 10.2 GB with an 8.3 GB heap, with nobody on.")
+    (qa "How much RAM does a Pixelmon server need?" `4 GB: the Pixelmon Modpack 9.3.16 ran at 20 ticks a second on 3.5 to 3.8 GB of 4 GB, with a 2.9 GB heap and nobody on. <a href="/modpacks/pixelmon-server">Its page</a> has the setup.`)
+    (qa "Where do these numbers come from?" "From Playkeeper's own test installs on 27 and 28 Sep 2026, on one 16 GB Linux VM, one server at a time. The method section says how each number was read.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/modpacks" "/sizing" "/guides/modded-minecraft-server")}}{{end}}
