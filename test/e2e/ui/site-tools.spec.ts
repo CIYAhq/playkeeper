@@ -115,6 +115,11 @@ test('the icon maker saves a real 64 × 64 PNG of the letters, and every letters
   }
   await changes('a hex letter colour', () => tool.locator('#icon-fg-hex').fill('#ff00aa'))
   expect(await tool.locator('input[name="icon-fg"]:checked').count(), 'a typed colour unticks the swatches').toBe(0)
+  const typed = await icon(page)
+  await tool.locator('#icon-fg-hex').fill('#ff00a')
+  await tool.locator('#icon-fg-hex').blur()
+  await expect(tool.locator('#icon-fg-hex'), 'leaving a half-typed colour puts back the one in use').toHaveValue('#ff00aa')
+  expect(await icon(page)).toBe(typed)
   for (const id of ['icon-effect-none', 'icon-effect-outline', 'icon-effect-shadow', 'icon-bg-solid', 'icon-bg-fade', 'icon-bg-blocks']) {
     await changes(id, () => tool.locator(`label[for="${id}"]`).click())
   }

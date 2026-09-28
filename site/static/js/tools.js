@@ -88,18 +88,25 @@
   // onChange gets the colour, or '' for a swatch that means none.
   function colorGroup(root, name, field, onChange) {
     var inputs = radios(root, name);
+    // The colour in use: a hex typed and then left half-changed puts it back.
+    var last = null;
     function current() {
       var v = value(root, name);
       if (v !== null) return v;
-      return hex(field && field.value) || '';
+      return hex(field && field.value) || last || '';
     }
+    function use(v) {
+      last = v;
+      onChange(v);
+    }
+    last = current();
     inputs.forEach(function (r) {
       r.addEventListener('change', function () {
         if (field) {
           field.value = r.value;
           field.removeAttribute('aria-invalid');
         }
-        onChange(current());
+        use(current());
       });
     });
     if (field) {
@@ -109,7 +116,7 @@
         if (!h) return;
         var match = inputs.filter(function (r) { return r.value === h; })[0];
         inputs.forEach(function (r) { r.checked = r === match; });
-        onChange(h);
+        use(h);
       });
       field.addEventListener('blur', function () {
         var h = hex(field.value);
@@ -117,7 +124,7 @@
         else { field.value = current(); field.removeAttribute('aria-invalid'); }
       });
     }
-    return { get: current, set: function (v) { pick(root, name, v); if (field) field.value = v; } };
+    return { get: current, set: function (v) { pick(root, name, v); if (field) field.value = v; last = v; } };
   }
 
   // Copy buttons with data-tool-copy copy the text of the element their
