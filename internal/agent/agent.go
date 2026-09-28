@@ -950,6 +950,8 @@ func (a *Agent) routeTable() []Route {
 		// answers on, and Let's Encrypt's checks passed on from its port 80.
 		{"GET", "/v1/servers/{id}/public-page", srv((*server).hPublicPage)},
 		{"POST", "/v1/servers/{id}/public-page", srv((*server).hPublicPageSet)},
+		{"PUT", "/v1/servers/{id}/public-page/board", srv((*server).hPublicBoardSet)},
+		{"DELETE", "/v1/servers/{id}/public-page/board", srv((*server).hPublicBoardClear)},
 		{"GET", "/v1/public-page", a.hPublicPageData},
 		{"GET", "/v1/public-page/state", a.hPublicPageState},
 		{"GET", "/v1/public-page/icons/{slug}", a.hPublicPageIcon},
