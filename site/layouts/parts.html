@@ -108,9 +108,9 @@
 {{/* template-card: a server template, opened in the visitor's own
      dashboard through /t. ID is the template; while it's held (cards.json's
      opensFrom), Else shows instead, and without an Else nothing does. */}}
-{{define "template-card"}}{{with shown .ID (or .Else "")}}{{$c := card .}}{{$a := img $c.Art}}
+{{define "template-card"}}{{with shown .ID (or .Else "")}}{{$c := card .}}
 <article class="tpl-card reveal">
-  <div class="tpl-art"><img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}" loading="lazy" decoding="async"></div>
+  <div class="tpl-art{{if $c.Thumb}} is-photo{{end}}">{{template "tpl-art" (dict "Thumb" $c.Thumb "Art" $c.Art "Sizes" "(max-width: 1023.98px) 50vw, 300px")}}</div>
   <div class="tpl-body">
     <h3 class="tpl-name">{{$c.Name}}</h3>
     <p class="tpl-facts"><span class="wide-only">{{$c.Facts}}</span><span class="phone-only">{{$c.Short}}</span></p>

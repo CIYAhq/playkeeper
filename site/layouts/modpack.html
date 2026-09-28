@@ -26,9 +26,9 @@
 
 {{/* pack-card: a pack's template, opened in the visitor's own dashboard
      through /t, in the template cards' design. Pack is the pack. */}}
-{{define "pack-card"}}{{$m := .Pack}}{{$c := card $m.Template}}{{$a := img $c.Art}}
+{{define "pack-card"}}{{$m := .Pack}}{{$c := card $m.Template}}
 <article class="tpl-card reveal">
-  <div class="tpl-art"><img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}" loading="lazy" decoding="async"></div>
+  <div class="tpl-art{{if $c.Thumb}} is-photo{{end}}">{{template "tpl-art" (dict "Thumb" $c.Thumb "Art" $c.Art "Sizes" "(max-width: 639.98px) 50vw, 380px")}}</div>
   <div class="tpl-body">
     <h3 class="tpl-name">{{$c.Name}}</h3>
     <p class="tpl-facts"><span class="wide-only">{{$c.Facts}}</span><span class="phone-only">{{$c.Short}}</span></p>
