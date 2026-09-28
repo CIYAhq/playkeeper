@@ -619,7 +619,9 @@ jobs:
         run: |
           for _ in $(seq 180); do
             if gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[].name' | grep -qx world-backup; then exit 0; fi
-            state=$(gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --jq '.jobs[] | select(.name == env.JOB) | "\(.status) \(.conclusion // "")"')
+            # The step runs under bash -e, so a lookup the API fails would end it:
+            # it is asked again next time round, as the artifacts are.
+            state=$(gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --jq '.jobs[] | select(.name == env.JOB) | "\(.status) \(.conclusion // "")"') || state=
             case $state in
               "completed success") exit 0 ;;
               completed*)
