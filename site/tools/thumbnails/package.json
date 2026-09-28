@@ -1,0 +1,29 @@
+{
+  "name": "playkeeper-template-thumbnails",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "Thumbnails for playkeeper.io's templates, from each template's real server: a bot joins and saves the world around spawn or the mode's showpiece, and prismarine-viewer renders it with Minecraft's own textures (offline-mode harness only; not an official client).",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node build.js"
+  },
+  "dependencies": {
+    "canvas": "3.2.3",
+    "minecraft-assets": "1.19.0",
+    "mineflayer": "4.39.0",
+    "playwright-core": "1.63.0",
+    "prismarine-viewer": "1.33.0",
+    "sharp": "0.35.5",
+    "vec3": "0.1.10"
+  },
+  "devDependencies": {
+    "assert": "2.1.0",
+    "buffer": "6.0.3",
+    "process": "0.11.10",
+    "webpack": "5.111.1",
+    "webpack-cli": "6.0.1"
+  }
+}

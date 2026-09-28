@@ -1,0 +1,33 @@
+{
+  "oneblock": {
+    "subject": true,
+    "player": true,
+    "steps": [
+      { "chat": "/gamemode spectator" },
+      { "chat": "/mv create OneBlock normal -g Oneblock", "until": "World 'OneBlock' created", "timeout": 90000 },
+      { "chat": "/mv tp OneBlock --unsafe", "wait": 3000 },
+      { "chat": "/gamemode spectator" },
+      { "chat": "/tp @s 0.5 100 0.5", "wait": 2000 },
+      { "chat": "/ob set 500", "wait": 2500 },
+      { "chat": "/ob", "wait": 4000 },
+      { "chat": "/gamemode survival", "wait": 3000 }
+    ]
+  },
+  "skyblock": {
+    "subject": true,
+    "player": true,
+    "steps": [
+      { "chat": "/gamemode creative", "wait": 1000 },
+      { "chat": "/is create", "wait": 0 },
+      { "click": { "item": "player_head", "name": "jungle" }, "until": "Island Creation Completed", "timeout": 90000, "wait": 3000 },
+      { "chat": "/gamemode survival", "wait": 3000 }
+    ]
+  },
+  "skyblock-plus": {
+    "subject": true,
+    "player": true,
+    "steps": [
+      { "chat": "/gamemode survival", "wait": 3000 }
+    ]
+  }
+}

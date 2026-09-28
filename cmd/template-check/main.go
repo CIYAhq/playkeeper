@@ -14,6 +14,10 @@
 // -pin rewrites each passing template's add-ons to the exact versions that
 // installed. -bump first moves them to the newest versions that fit, so the
 // weekly run finds the updates worth a PR.
+//
+// -shots DIR makes the templates' thumbnails instead of recording checks: a
+// bot joins each passing template's server and saves its world into DIR,
+// which site/tools/thumbnails/render.mjs draws (make template-thumbnails).
 package main
 
 import (
@@ -47,15 +51,20 @@ func main() {
 	pin := flag.Bool("pin", false, "rewrite each passing template's add-ons to the exact versions that installed")
 	bump := flag.Bool("bump", false, "move each template's add-ons to their newest versions first, then check and pin them")
 	verify := flag.Bool("verify", false, "fail when a template's check in site/data/checks disagrees with this run")
+	shots := flag.String("shots", "", "save each passing template's world into this folder for its thumbnails, with a bot; the agent must run servers in offline mode")
 	flag.Parse()
 	if *socket == "" {
 		fmt.Fprintln(os.Stderr, "template-check: -socket is the agent's socket, such as /tmp/pk/agent.sock")
 		os.Exit(2)
 	}
+	if *shots != "" && (*write || *pin || *bump || *verify) {
+		fmt.Fprintln(os.Stderr, "template-check: -shots makes thumbnails on an offline-mode agent, so it records no checks: run it without -write, -pin, -bump and -verify")
+		os.Exit(2)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	opts := options{root: *root, only: split(*only), shard: *shard, write: *write, pin: *pin || *bump, bump: *bump, verify: *verify}
-	c := &checker{agent: agentclient.New(*socket), sources: newSources(), actor: "template-check", now: time.Now, poll: 2 * time.Second, retryAfter: time.Minute}
+	c := &checker{agent: agentclient.New(*socket), sources: newSources(), actor: "template-check", now: time.Now, poll: 2 * time.Second, retryAfter: time.Minute, shots: *shots, root: *root}
 	results, err := run(ctx, c, opts)
 	if err == nil && *out != "" {
 		err = writeResults(*out, c.release, results)
@@ -72,7 +81,7 @@ func main() {
 		os.Exit(1)
 	}
 	for _, r := range results {
-		if r.Status == statusFailing {
+		if r.Status == statusFailing || r.ShotFailure != "" {
 			os.Exit(1)
 		}
 	}
@@ -96,6 +105,15 @@ func run(ctx context.Context, c *checker, o options) ([]result, error) {
 	released := isRelease(c.release)
 	if (o.write || o.verify) && !released {
 		return nil, fmt.Errorf("checks name the release they ran on, and %q isn't one: run against a released Playkeeper", c.release)
+	}
+	if c.shots != "" {
+		var m api.Machine
+		if _, err := c.agent.Do(ctx, "GET", "/v1/machine", nil, nil, &m); err != nil {
+			return nil, err
+		}
+		if !m.OfflineModeTest {
+			return nil, errors.New("-shots needs servers the capture bot can join: start playkeeper dev with PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1")
+		}
 	}
 	all, err := loadTemplates(o.root)
 	if err != nil {
@@ -240,7 +258,14 @@ func summary(w io.Writer, release string, results []result) {
 		case r.CrossplayFailure != "":
 			crossplay = "didn't turn on: " + r.CrossplayFailure
 		}
-		fmt.Fprintf(w, "| %s | %s | %s | %s | %s |\n", r.ID, r.Status, ready, strings.ReplaceAll(crossplay, "|", "/"), strings.ReplaceAll(r.Failure, "|", "/"))
+		wrong := r.Failure
+		switch {
+		case r.ShotFailure != "":
+			wrong = strings.TrimPrefix(wrong+"; ", "; ") + "its thumbnail's capture: " + r.ShotFailure
+		case r.ShotSkipped != "":
+			wrong = "no capture, " + r.ShotSkipped
+		}
+		fmt.Fprintf(w, "| %s | %s | %s | %s | %s |\n", r.ID, r.Status, ready, strings.ReplaceAll(crossplay, "|", "/"), strings.ReplaceAll(wrong, "|", "/"))
 	}
 	fmt.Fprintln(w)
 }

@@ -1,0 +1,60 @@
+--- /tmp/pvorig/package/viewer/lib/models.js	1985-10-26 08:15:00.000000000 +0000
++++ node_modules/prismarine-viewer/viewer/lib/models.js	2026-09-26 13:57:33.673308388 +0000
+@@ -263,6 +263,8 @@
+       if (eFace.tintindex === 0) {
+         if (block.name === 'redstone_wire') {
+           tint = tints.redstone[`${block.getProperties().power}`]
++        } else if (block.name === 'cherry_leaves' || block.name === 'azalea_leaves' || block.name === 'flowering_azalea_leaves' || block.name === 'pale_oak_leaves') {
++          tint = [1, 1, 1]
+         } else if (block.name === 'birch_leaves' ||
+           block.name === 'spruce_leaves' ||
+           block.name === 'lily_pad') {
+--- /tmp/pvorig/package/viewer/lib/modelsBuilder.js	1985-10-26 08:15:00.000000000 +0000
++++ node_modules/prismarine-viewer/viewer/lib/modelsBuilder.js	2026-09-26 13:13:56.460340646 +0000
+@@ -35,12 +35,14 @@
+ 
+ function prepareModel (model, texturesJson) {
+   // resolve texture names eg west: #all -> blocks/stone
++  const norm = (v) => (v && typeof v === 'object' ? v.sprite : v)
+   for (const tex in model.textures) {
+-    let root = model.textures[tex]
+-    while (root.charAt(0) === '#') {
+-      root = model.textures[root.substr(1)]
++    let root = norm(model.textures[tex])
++    let guard = 0
++    while (typeof root === 'string' && root.charAt(0) === '#' && guard++ < 16) {
++      root = norm(model.textures[root.substr(1)])
+     }
+-    model.textures[tex] = root
++    model.textures[tex] = root ?? 'missing_texture'
+   }
+   for (const tex in model.textures) {
+     let name = model.textures[tex]
+--- /tmp/pvorig/package/viewer/lib/worker.js	1985-10-26 08:15:00.000000000 +0000
++++ node_modules/prismarine-viewer/viewer/lib/worker.js	2026-09-26 13:51:17.201684363 +0000
+@@ -76,7 +76,16 @@
+     const chunk = world.getColumn(x, z)
+     if (chunk && chunk.sections[Math.floor(y / 16)]) {
+       delete dirtySections[key]
+-      const geometry = getSectionGeometry(x, y, z, world, blocksStates)
++      let geometry
++      try {
++        geometry = getSectionGeometry(x, y, z, world, blocksStates)
++      } catch (err) {
++        if (!self.__errs) self.__errs = {}
++        const m = String(err && err.stack || err).slice(0, 300)
++        if (!self.__errs[m]) { self.__errs[m] = 1; console.error('mesh error at ' + key + ': ' + m) }
++        postMessage({ type: 'sectionFinished', key })
++        continue
++      }
+       const transferable = [geometry.positions.buffer, geometry.normals.buffer, geometry.colors.buffer, geometry.uvs.buffer]
+       postMessage({ type: 'geometry', key, geometry }, transferable)
+     }
+--- /tmp/pvorig/package/viewer/lib/version.js	1985-10-26 08:15:00.000000000 +0000
++++ node_modules/prismarine-viewer/viewer/lib/version.js	2026-09-26 13:13:57.640328272 +0000
+@@ -1,4 +1,4 @@
+-const supportedVersions = ['1.8.8', '1.9.4', '1.10.2', '1.11.2', '1.12.2', '1.13.2', '1.14.4', '1.15.2', '1.16.1', '1.16.4', '1.17.1', '1.18.1', '1.19', '1.20.1', '1.21.1', '1.21.4']
++const supportedVersions = ['1.8.8', '1.9.4', '1.10.2', '1.11.2', '1.12.2', '1.13.2', '1.14.4', '1.15.2', '1.16.1', '1.16.4', '1.17.1', '1.18.1', '1.19', '1.20.1', '1.21.1', '1.21.4', '26.1']
+ 
+ const lastOfMajor = {}
+ for (const version of supportedVersions) {
