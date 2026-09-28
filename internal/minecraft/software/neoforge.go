@@ -3,6 +3,7 @@ package software
 import (
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
@@ -15,6 +16,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 const (
@@ -83,11 +86,37 @@ func neoforgeVersions(ctx context.Context, hc *http.Client) (map[string][]string
 	if err != nil {
 		return nil, err
 	}
+	byMC, _, err := neoforgeList(b)
+	if errors.Is(err, errNoStableVersion) {
+		return nil, &Error{Kind: KindMalformed, Msg: "NeoForge's version list has lost its stable versions, so Playkeeper keeps the last list it had.",
+			Hint: "Try again later.", Params: u.params("maven.neoforged.net", "what", what), Err: err}
+	}
+	if err != nil {
+		return nil, u.malformed(what, err)
+	}
+	return byMC, nil
+}
+
+// errNoStableVersion is a NeoForge version list with betas only. NeoForge
+// has stable versions for every Minecraft release it supports, so such a
+// list has lost versions and is refused.
+var errNoStableVersion = errors.New("it lists no stable version")
+
+// neoforgeList reads NeoForge's Maven metadata: its versions by Minecraft
+// version, newest first, and when it was last updated.
+func neoforgeList(b []byte) (map[string][]string, time.Time, error) {
 	var m struct {
-		Versions []string `xml:"versioning>versions>version"`
+		Versions    []string `xml:"versioning>versions>version"`
+		LastUpdated string   `xml:"versioning>lastUpdated"`
 	}
 	if err := xml.Unmarshal(b, &m); err != nil {
-		return nil, u.malformed(what, err)
+		return nil, time.Time{}, err
+	}
+	if !slices.ContainsFunc(m.Versions, func(v string) bool {
+		_, beta, ok := neoforgeMinecraft(v)
+		return ok && !beta
+	}) {
+		return nil, time.Time{}, errNoStableVersion
 	}
 	out := map[string][]string{}
 	for _, v := range m.Versions {
@@ -98,7 +127,26 @@ func neoforgeVersions(ctx context.Context, hc *http.Client) (map[string][]string
 	for _, vs := range out {
 		slices.SortFunc(vs, func(a, b string) int { return compareVersions(b, a) })
 	}
-	return out, nil
+	at, _ := time.Parse("20060102150405", m.LastUpdated)
+	return out, at, nil
+}
+
+// builtinNeoForgeMetadata is NeoForge's Maven metadata as Playkeeper was
+// built with it, for a machine with no list of its own while NeoForge's
+// can't be had. Refresh it from neoforgeMaven's maven-metadata.xml, or a
+// mirror of it, while that lists NeoForge's stable versions.
+//
+//go:embed builtin/neoforge-maven-metadata.xml
+var builtinNeoForgeMetadata []byte
+
+var builtinNeoForge = sync.OnceValues(func() (builtinList, error) {
+	byMC, at, err := neoforgeList(builtinNeoForgeMetadata)
+	return builtinList{byMC: byMC, at: at}, err
+})
+
+type builtinList struct {
+	byMC map[string][]string
+	at   time.Time
 }
 
 // neoforgeForgeVersions lists NeoForge's versions for Minecraft 1.20.1,
@@ -136,6 +184,11 @@ func neoforgeCatalog(ctx context.Context, hc *http.Client) ([]Release, error) {
 	if err != nil {
 		return nil, err
 	}
+	return neoforgeOffer(ctx, hc, man, byMC)
+}
+
+// neoforgeOffer is the catalog of a NeoForge version list.
+func neoforgeOffer(ctx context.Context, hc *http.Client, man map[string]mojangEntry, byMC map[string][]string) ([]Release, error) {
 	mcs := make([]string, 0, len(byMC))
 	for mc := range byMC {
 		mcs = append(mcs, mc)
@@ -168,6 +221,12 @@ func neoforgeVersionList(ctx context.Context, hc *http.Client, mc string) ([]Bui
 		}
 		vs = byMC[mc]
 	}
+	return neoforgeBuilds(mc, vs)
+}
+
+// neoforgeBuilds is the build list of a Minecraft version's NeoForge
+// versions.
+func neoforgeBuilds(mc string, vs []string) ([]Build, error) {
 	if len(vs) == 0 {
 		return nil, noBuilds(NeoForge, mc)
 	}

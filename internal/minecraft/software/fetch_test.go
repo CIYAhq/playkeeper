@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -96,7 +97,7 @@ func TestUpstreamAsksNeoForgeAgainAfterA404OrA5xx(t *testing.T) {
 	flakyWait = time.Millisecond
 	f := newFakeNet(t)
 	metadata := neoforgeMaven + "/maven-metadata.xml"
-	misses := []int{http.StatusNotFound, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusInternalServerError}
+	misses := []int{http.StatusNotFound, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusInternalServerError, http.StatusNotFound, http.StatusGatewayTimeout}
 	if len(misses) != flakyRetries {
 		t.Fatalf("the test misses %d times, and NeoForge is asked again %d times", len(misses), flakyRetries)
 	}
@@ -137,6 +138,61 @@ func TestUpstreamAsksNeoForgeAgainAfterA404OrA5xx(t *testing.T) {
 	f.status(mojangManifestURL, http.StatusNotFound)
 	_, err = mojangManifest(context.Background(), f.client())
 	wantKind(t, err, KindNotFound)
+	if n := f.hitCount(mojangManifestURL); n != 1 {
+		t.Errorf("asked Mojang %d times, want once", n)
+	}
+}
+
+// NeoForge's Maven sometimes doesn't answer in time. It's asked again as
+// after a 404; another host's timeout counts the first time, and so does the
+// caller's own deadline.
+func TestUpstreamAsksNeoForgeAgainWhenItDoesNotAnswerInTime(t *testing.T) {
+	defer func(w time.Duration) { flakyWait = w }(flakyWait)
+	flakyWait = time.Millisecond
+	f := newFakeNet(t)
+	metadata := neoforgeMaven + "/maven-metadata.xml"
+	var slow atomic.Int32
+	f.handle(metadata, func(w http.ResponseWriter, r *http.Request) {
+		if slow.Add(-1) >= 0 {
+			<-r.Context().Done()
+			return
+		}
+		_, _ = w.Write([]byte(`<metadata><versioning><versions><version>26.2.0.88</version></versions></versioning></metadata>`))
+	})
+	hc := f.client()
+	hc.Timeout = 100 * time.Millisecond
+
+	slow.Store(flakyRetries)
+	got, err := neoforgeVersions(context.Background(), hc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got["26.2"]) != 1 || f.hitCount(metadata) != flakyRetries+1 {
+		t.Errorf("got %v after %d requests", got, f.hitCount(metadata))
+	}
+
+	slow.Store(flakyRetries + 1)
+	before := f.hitCount(metadata)
+	_, err = neoforgeVersions(context.Background(), hc)
+	wantKind(t, err, KindUnreachable)
+	if n := f.hitCount(metadata) - before; n != flakyRetries+1 {
+		t.Errorf("no answer in time: asked %d times, want %d", n, flakyRetries+1)
+	}
+
+	slow.Store(1)
+	before = f.hitCount(metadata)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if _, err = neoforgeVersions(ctx, f.client()); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("got %v, want context.DeadlineExceeded", err)
+	}
+	if n := f.hitCount(metadata) - before; n != 1 {
+		t.Errorf("the caller's deadline: asked %d times, want once", n)
+	}
+
+	f.handle(mojangManifestURL, func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() })
+	_, err = mojangManifest(context.Background(), hc)
+	wantKind(t, err, KindUnreachable)
 	if n := f.hitCount(mojangManifestURL); n != 1 {
 		t.Errorf("asked Mojang %d times, want once", n)
 	}

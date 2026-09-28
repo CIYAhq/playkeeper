@@ -86,15 +86,16 @@ func (u upstream) client(what string) *http.Client {
 }
 
 // NeoForge's Maven now and then answers 404 for files it has (about one
-// request in five at times), or a 5xx, and then the same request a moment
-// later, so those answers from it are asked again, after flakyWait and then
-// twice as long each time, before they count.
+// request in five at times), or a 5xx, or doesn't answer in time, sometimes
+// for several seconds in a row, and then answers the same request. So those
+// answers from it are asked again, after flakyWait and then twice as long
+// each time, about 25 seconds in all, before they count.
 var (
 	flakyHosts = []string{"maven.neoforged.net"}
 	flakyWait  = 400 * time.Millisecond
 )
 
-const flakyRetries = 4
+const flakyRetries = 6
 
 // flakyStatus is an answer from a flaky host worth asking again.
 func flakyStatus(code int) bool {
@@ -105,6 +106,13 @@ func flakyStatus(code int) bool {
 	return false
 }
 
+// timedOut is a request a flaky host didn't answer in time, which is asked
+// again too. The caller's own deadline running out isn't.
+func timedOut(ctx context.Context, err error) bool {
+	var t interface{ Timeout() bool }
+	return ctx.Err() == nil && errors.As(err, &t) && t.Timeout()
+}
+
 // open sends a GET and returns the response only when it is 200 OK. what
 // names the thing asked for, as it reads in a sentence: "its version list".
 func (u upstream) open(ctx context.Context, raw, what string) (*http.Response, error) {
@@ -113,8 +121,11 @@ func (u upstream) open(ctx context.Context, raw, what string) (*http.Response, e
 		return nil, err
 	}
 	resp, err := u.get(ctx, p, what)
-	for try := 1; err == nil && flakyStatus(resp.StatusCode) && try <= flakyRetries && slices.Contains(flakyHosts, p.Hostname()); try++ {
-		resp.Body.Close()
+	flaky := slices.Contains(flakyHosts, p.Hostname())
+	for try := 1; flaky && try <= flakyRetries && ((err == nil && flakyStatus(resp.StatusCode)) || timedOut(ctx, err)); try++ {
+		if err == nil {
+			resp.Body.Close()
+		}
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
