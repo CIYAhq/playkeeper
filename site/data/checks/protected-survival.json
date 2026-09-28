@@ -1,9 +1,9 @@
 {
   "status": "passing",
   "checked": "2026-09-28",
-  "release": "0.4.2",
+  "release": "0.4.4",
   "build": "129",
-  "doneSeconds": 12.234,
+  "doneSeconds": 12.583,
   "addons": [
     {
       "name": "GriefPrevention",
@@ -11,7 +11,7 @@
       "slug": "griefprevention",
       "version": "16.18.7",
       "licence": "GPL-3.0-only",
-      "downloads": 205043
+      "downloads": 205239
     },
     {
       "name": "WorldGuard",
@@ -19,7 +19,7 @@
       "slug": "worldguard",
       "version": "7.0.19",
       "licence": "LGPL-3.0-only",
-      "downloads": 875354
+      "downloads": 876410
     },
     {
       "name": "WorldEdit",
@@ -27,7 +27,7 @@
       "slug": "worldedit",
       "version": "7.4.5",
       "licence": "GPL-3.0-only",
-      "downloads": 10915832
+      "downloads": 10922763
     },
     {
       "name": "CoreProtect",
@@ -35,7 +35,8 @@
       "slug": "coreprotect",
       "version": "24.1",
       "licence": "Artistic-2.0",
-      "downloads": 527744
+      "downloads": 528309
     }
-  ]
+  ],
+  "crossplay": true
 }

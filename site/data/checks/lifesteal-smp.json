@@ -1,9 +1,9 @@
 {
   "status": "passing",
   "checked": "2026-09-28",
-  "release": "0.4.2",
+  "release": "0.4.4",
   "build": "129",
-  "doneSeconds": 12.303,
+  "doneSeconds": 12.134,
   "addons": [
     {
       "name": "LifeStealZ",
@@ -11,7 +11,7 @@
       "slug": "lifestealz",
       "version": "2.21.1",
       "licence": "GPL-3.0-only",
-      "downloads": 417264
+      "downloads": 417484
     },
     {
       "name": "Chunky",
@@ -19,7 +19,7 @@
       "slug": "chunky",
       "version": "1.5.3",
       "licence": "GPL-3.0-only",
-      "downloads": 18377066
+      "downloads": 18388678
     },
     {
       "name": "CoreProtect",
@@ -27,7 +27,8 @@
       "slug": "coreprotect",
       "version": "24.1",
       "licence": "Artistic-2.0",
-      "downloads": 527690
+      "downloads": 528309
     }
-  ]
+  ],
+  "crossplay": true
 }

@@ -1,9 +1,9 @@
 {
   "status": "passing",
   "checked": "2026-09-28",
-  "release": "0.4.2",
+  "release": "0.4.4",
   "build": "129",
-  "doneSeconds": 11.397,
+  "doneSeconds": 11.621,
   "addons": [
     {
       "name": "Chunky",
@@ -11,7 +11,7 @@
       "slug": "chunky",
       "version": "1.5.3",
       "licence": "GPL-3.0-only",
-      "downloads": 18377066
+      "downloads": 18388678
     },
     {
       "name": "CoreProtect",
@@ -19,7 +19,7 @@
       "slug": "coreprotect",
       "version": "24.1",
       "licence": "Artistic-2.0",
-      "downloads": 527690
+      "downloads": 528309
     },
     {
       "name": "Simple Voice Chat",
@@ -27,7 +27,8 @@
       "slug": "simple-voice-chat",
       "version": "bukkit-2.6.24",
       "licence": "LicenseRef-All-Rights-Reserved",
-      "downloads": 70439086
+      "downloads": 70487398
     }
-  ]
+  ],
+  "crossplay": true
 }

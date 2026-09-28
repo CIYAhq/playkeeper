@@ -1,9 +1,9 @@
 {
   "status": "passing",
   "checked": "2026-09-28",
-  "release": "0.4.2",
+  "release": "0.4.4",
   "build": "129",
-  "doneSeconds": 16.739,
+  "doneSeconds": 17.938,
   "addons": [
     {
       "name": "GSit",
@@ -11,7 +11,7 @@
       "slug": "gsit",
       "version": "3.7.0",
       "licence": "GPL-3.0-only",
-      "downloads": 125800
+      "downloads": 126105
     },
     {
       "name": "AxGraves",
@@ -19,7 +19,7 @@
       "slug": "axgraves",
       "version": "1.32.1",
       "licence": "MIT",
-      "downloads": 198443
+      "downloads": 198612
     },
     {
       "name": "TAB",
@@ -27,7 +27,8 @@
       "slug": "tab-was-taken",
       "version": "6.2.0",
       "licence": "Apache-2.0",
-      "downloads": 1231160
+      "downloads": 1232047
     }
-  ]
+  ],
+  "crossplay": true
 }
