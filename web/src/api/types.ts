@@ -1242,7 +1242,7 @@ export interface Crossplay {
   on: boolean
   /** The UDP port Bedrock players join on, or the one they'd get now. */
   port?: number
-  /** False when crossplay can't be turned on, for the reason in notice. */
+  /** Whether crossplay can be turned on now: false while it's on, and when it can't be, for the reason in notice. */
   available: boolean
   notice?: AddonNotice
   plugins: CrossplayPlugin[]

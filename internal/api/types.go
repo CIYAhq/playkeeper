@@ -1151,9 +1151,9 @@ type Crossplay struct {
 	// Port is the UDP port Bedrock players join on, or the one they would
 	// get if crossplay were turned on now.
 	Port int `json:"port,omitempty"`
-	// Available is false when crossplay can't be turned on, for the reason
-	// in Notice: the server type, or no Geyser or Floodgate for its
-	// Minecraft version.
+	// Available says crossplay can be turned on now. It is false while it
+	// is on, and when it can't be, for the reason in Notice: the server
+	// type, or no Geyser or Floodgate for its Minecraft version.
 	Available bool         `json:"available"`
 	Notice    *AddonNotice `json:"notice,omitempty"`
 	// Plugins are the versions of Geyser and Floodgate on the server.
