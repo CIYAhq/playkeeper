@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/install"
 	"github.com/CIYAhq/playkeeper/internal/names"
@@ -113,5 +114,20 @@ func TestTheInstallTakesUsageStatsFromTheEnvironment(t *testing.T) {
 	writeInstallSummary(&summary, &install.Result{URL: "https://192.0.2.10:8443", SetupCode: "abc123", Fingerprint: "AA:BB", UsageOn: true})
 	if !strings.Contains(summary.String(), "Anonymous usage stats are on; Settings › Playkeeper turns them off.") {
 		t.Errorf("the summary doesn't say where usage stats turn off:\n%s", summary.String())
+	}
+}
+
+func TestStatusSaysWhetherServersAreKeptFromTheMachine(t *testing.T) {
+	for _, c := range []struct {
+		g    api.NetworkGuard
+		want string
+	}{
+		{api.NetworkGuard{On: true}, "servers can't reach this machine or the cloud's metadata service"},
+		{api.NetworkGuard{On: true, ServersReachHost: true}, "servers can reach this machine (serversReachHost in config.json), not the cloud's metadata service"},
+		{api.NetworkGuard{Problem: "the iptables command isn't installed"}, "off, so servers can reach this machine and the cloud's metadata service (the iptables command isn't installed)"},
+	} {
+		if got := guardLine(c.g); got != "Network guard: "+c.want {
+			t.Errorf("%+v: got %q", c.g, got)
+		}
 	}
 }

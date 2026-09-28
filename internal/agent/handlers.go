@@ -63,6 +63,10 @@ func (a *Agent) Machine(ctx context.Context) api.Machine {
 		v := *a.hostCPU
 		m.CPUPercent = &v
 	}
+	if a.guard != nil {
+		g := *a.guard
+		m.Guard = &g
+	}
 	a.mu.Unlock()
 	a.machineAutomation(&m)
 	return m

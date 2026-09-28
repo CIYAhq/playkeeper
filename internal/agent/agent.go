@@ -31,6 +31,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/modpacks"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/curseforge"
+	"github.com/CIYAhq/playkeeper/internal/netguard"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/templates"
@@ -199,6 +200,14 @@ type Options struct {
 	Getenv        func(string) string
 	OSRelease     string
 	Processes     func() []string
+
+	// 0.4.5: the network guard (internal/netguard). Firewall runs iptables
+	// for it; nil runs the commands themselves, but in dev mode, or when
+	// the agent isn't root, there is no guard. GuardInterval is how often
+	// the rules are looked at (default 1 minute; negative turns the ticker
+	// off).
+	Firewall      netguard.Runner
+	GuardInterval time.Duration
 }
 
 // Retention bounds stored analytics and audit data.
@@ -260,6 +269,11 @@ type Agent struct {
 	// selinux is set when Docker labels containers for SELinux, once
 	// selinuxKnown; mu guards both.
 	selinux, selinuxKnown bool
+	// guard is how the network guard's rules stand, once they were first
+	// looked at with the network there (mu); guardMu serializes changing
+	// them.
+	guard   *api.NetworkGuard
+	guardMu sync.Mutex
 
 	allowed map[uint32]bool
 
@@ -463,6 +477,12 @@ func New(opts Options) (*Agent, error) {
 	if opts.Processes == nil {
 		opts.Processes = procCmdlines
 	}
+	if opts.Firewall == nil {
+		opts.Firewall = defaultFirewall(opts.Config, os.Geteuid())
+	}
+	if opts.GuardInterval == 0 {
+		opts.GuardInterval = time.Minute
+	}
 	cfg := opts.Config
 	for _, d := range []string{cfg.AgentDir(), cfg.BackupsDir(), cfg.StagingDir()} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
@@ -560,7 +580,8 @@ func New(opts Options) (*Agent, error) {
 }
 
 // Start launches the background loops: each server's follower, collector and
-// reconciler, and the machine's pruning, sampling, update checks and address.
+// reconciler, and the machine's pruning, sampling, network guard, update
+// checks and address.
 // A restore a previous agent process was in the middle of is finished first.
 func (a *Agent) Start() {
 	for _, s := range a.serverList() {
@@ -571,6 +592,7 @@ func (a *Agent) Start() {
 	a.loop(a.updateLoop)
 	a.loop(a.usageLoop)
 	a.loop(a.hostLoop)
+	a.loop(a.guardLoop)
 	a.loop(a.addressLoop)
 	a.loop(a.disc.n.Run)
 	a.loop(a.discordLoop)
