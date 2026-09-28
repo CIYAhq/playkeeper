@@ -2033,6 +2033,14 @@ control "a pack file's download stops at one file's limit, even when the pack li
   'room := min(lim.File, lim.Downloads-total)' \
   'room := lim.Downloads - total' \
   ./internal/modpacks '^TestDefaultFileLimit$'
+control "a modpack may put as many files on the server as the largest real packs" internal/modpacks/modpacks.go \
+  'Index: 16 << 20, Files: 20000,' \
+  'Index: 16 << 20, Files: 5000,' \
+  ./internal/modpacks '^TestDefaultFileCount$'
+control "a modpack that would put more than 20,000 files on the server is refused" internal/modpacks/modpacks.go \
+  'Index: 16 << 20, Files: 20000,' \
+  'Index: 16 << 20, Files: 1 << 30,' \
+  ./internal/modpacks '^TestDefaultFileCount$'
 control "a modpack's downloads must match the hashes the pack lists" internal/addons/fetch/download.go \
   'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
   'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
