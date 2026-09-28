@@ -7093,7 +7093,7 @@ control "network guard: the agent puts back rules something removed" internal/ag
   ./internal/agent '^TestTheGuardPutsBackRulesSomethingRemoved$'
 control "network guard: servers may reach the machine unless its owner keeps them away" internal/agent/guard.go \
   'return err == nil && ok && v == "on"' \
-  'return true' \
+  'return err == nil && ok && v == "on" || true' \
   ./internal/agent '^TestByDefaultServersKeepOnlyOutOfTheMetadataService$'
 control "network guard: the owner's switch keeps servers away from the machine" internal/agent/guard.go \
   'host := a.guardHost()' \
