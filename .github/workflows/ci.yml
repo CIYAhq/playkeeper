@@ -2,16 +2,18 @@ name: CI
 
 # The fast checks, on every pull request and every push to main: lint and
 # typecheck, and the Go, agent, web and installer-script unit tests, side by
-# side, then a job that checks they all passed, the one branch protection
-# requires. A pull request also crawls the pages of the dashboard it changes
-# (clickthrough.yml, test/e2e/ui/plan.ts) and runs the parts of the
-# end-to-end workflow whose own files it changes (e2e.yml,
-# scripts/ci-parts.sh); the OS matrix and ARM64 run by themselves when it
-# changes installer or OS code. A push to main also saves the played state
-# pull requests' crawls start from, when it changes how that state is made
-# or the newest one is more than a day old. The full suite, the full
-# click-through included, runs once per release, in the Release check
-# (release-check.yml).
+# side, then a job that checks they all passed. A pull request also crawls
+# the pages of the dashboard it changes (clickthrough.yml,
+# test/e2e/ui/plan.ts) and runs the parts of the end-to-end workflow whose
+# own files it changes (e2e.yml, scripts/ci-parts.sh); the OS matrix and
+# ARM64 run by themselves when it changes installer or OS code. Once CI has
+# passed on a pull request, a push to it crawls and runs those parts only for
+# the files whose changes it changed since (scripts/ci-since.sh), so merging
+# main, or changing the docs or CHANGELOG.md, runs the fast checks alone. A
+# push to main also saves the played state pull requests' crawls start from,
+# when it changes how that state is made or the newest one is more than a day
+# old. The full suite, the full click-through included, runs once per release,
+# in the Release check (release-check.yml).
 
 on:
   pull_request:
@@ -47,10 +49,17 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 2
+          # A pull request's own changes are measured from where it meets main.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '2' }}
           persist-credentials: false
       - name: Set up pinned toolchains
         run: ./scripts/setup.sh
+      - name: What this push changes that the pull request's last green CI didn't see
+        id: since
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/ci-since.sh ci.yml > "$RUNNER_TEMP/since"
       - name: What the change is measured from
         id: base
         env:
@@ -63,12 +72,16 @@ jobs:
             push) if git fetch -q --depth=1 origin "$BEFORE"; then base=$BEFORE; fi ;;
           esac
           echo "base=$base" >> "$GITHUB_OUTPUT"
-      - name: The pages the change touches (every page when a shared layer, the crawler or the build changes)
+      - name: The pages the change touches
         id: plan
         env:
           BASE: ${{ steps.base.outputs.base }}
+          MEASURED: ${{ steps.since.outputs.measured }}
         run: |
-          if [ -n "$BASE" ]; then
+          if [ "$MEASURED" = true ]; then
+            mapfile -t since < "$RUNNER_TEMP/since"
+            .tools/node/bin/node test/e2e/ui/plan.ts --base "$BASE" --files "${since[@]}"
+          elif [ -n "$BASE" ]; then
             .tools/node/bin/node test/e2e/ui/plan.ts --base "$BASE"
           else
             .tools/node/bin/node test/e2e/ui/plan.ts --full
@@ -80,11 +93,14 @@ jobs:
           BASE: ${{ steps.base.outputs.base }}
           MODE: ${{ steps.plan.outputs.mode }}
           SETUP: ${{ steps.plan.outputs.setup }}
+          MEASURED: ${{ steps.since.outputs.measured }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           parts=
-          if [ "$EVENT" = pull_request ]; then
+          if [ "$EVENT" = pull_request ] && [ "$MEASURED" = true ]; then
+            parts=$(scripts/ci-parts.sh < "$RUNNER_TEMP/since")
+          elif [ "$EVENT" = pull_request ]; then
             parts=$(git diff --name-only --no-renames "$BASE" HEAD | scripts/ci-parts.sh)
           elif [ "$EVENT" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
             newest=$(gh api "repos/$GH_REPO/actions/caches?key=played-state-&ref=refs/heads/main&sort=created_at&direction=desc&per_page=1" \

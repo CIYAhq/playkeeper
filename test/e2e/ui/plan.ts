@@ -9,6 +9,12 @@ import { estimate, forPullRequest, freshSetup, importGraph, keysChanged, pageMap
 //   node test/e2e/ui/plan.ts --base REV        what a pull request from REV to HEAD crawls: the pages it
 //                                              changes, never every page (forPullRequest)
 //   node test/e2e/ui/plan.ts --files a b ...   the same for changing those files
+//   node test/e2e/ui/plan.ts --base REV --files a b ...
+//                                              the pages those of the files the change from REV
+//                                              changes touch (ci-since.sh's, for a push to a pull
+//                                              request that already passed): the string table's
+//                                              keys, and whether the played state is made fresh,
+//                                              still come from the whole change
 // With GITHUB_OUTPUT set it writes mode (none, pages or full), selection,
 // matrix and setup (saved or fresh) for .github/workflows/clickthrough.yml,
 // and a summary for the run.
@@ -46,21 +52,24 @@ const usesOf = (key: string) => {
 }
 
 let plan: Affected
-let changed: string[] = []
+let whole: string[] = []
 if (args.includes('--full')) {
   plan = { mode: 'full', pages: [], preludes: [], why: ['every page was asked for'] }
 } else {
   const files = args.indexOf('--files')
+  const base = flag('--base')
+  let changed: string[]
   let keys: string[] | undefined
-  if (files >= 0) changed = args.slice(files + 1)
+  if (files < 0 && !base) {
+    console.error('usage: plan.ts --full | --base REV [--head REV] [--files FILE...] | --files FILE...')
+    process.exit(2)
+  }
+  if (!base) changed = whole = args.slice(files + 1)
   else {
-    const base = flag('--base')
-    if (!base) {
-      console.error('usage: plan.ts --full | --base REV [--head REV] | --files FILE...')
-      process.exit(2)
-    }
     const head = flag('--head') ?? 'HEAD'
-    changed = git('diff', '--name-only', '--no-renames', base, head).split('\n').filter(Boolean)
+    whole = git('diff', '--name-only', '--no-renames', base, head).split('\n').filter(Boolean)
+    const only = files >= 0 ? new Set(args.slice(files + 1)) : undefined
+    changed = only ? whole.filter((f) => only.has(f)) : whole
     if (changed.includes('web/src/i18n/en.ts')) {
       const text = (rev: string) => {
         try {
@@ -76,7 +85,7 @@ if (args.includes('--full')) {
 }
 const selection: Selection = plan.mode === 'full' ? 'all' : { pages: plan.pages, preludes: plan.preludes }
 const shards = plan.mode === 'none' ? [] : shardsFor(costs, selection, plan.mode === 'full' ? undefined : pullRequestShardSeconds)
-const fresh = freshSetup(changed)
+const fresh = freshSetup(whole)
 
 const runners = (size: Size) => {
   const n = shards.filter((s) => s.size === size).length

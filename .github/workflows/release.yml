@@ -17,7 +17,10 @@ name: Release
 # the same build, install and signing, without CurseForge's key and with a
 # throwaway signing key, and nothing is released. A line added to
 # CHANGELOG.md isn't the release path: nearly every pull request adds one,
-# and the Release check builds the release from it before each release.
+# and the Release check builds the release from it before each release. A
+# push to a pull request whose dry run already passed runs it again only when
+# that push changes the release path (scripts/ci-since.sh): merging main
+# doesn't.
 # Each release carries a tarball for x86_64 and one for 64-bit ARM. The
 # Release check runs the ARM64 workflow (arm64.yml) on the assets it builds,
 # and so do dry runs started by hand; a pull request's dry run doesn't, since
@@ -62,9 +65,31 @@ defaults:
     shell: bash
 
 jobs:
+  # It runs on every event, so the jobs after it aren't skipped for a skipped
+  # job upstream; outside a pull request it says everything runs.
+  since:
+    name: What changed since the dry run last passed on this pull request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      run: ${{ steps.since.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+          persist-credentials: false
+      - id: since
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/ci-since.sh release.yml
+
   build:
     name: Dry run
-    if: github.event_name != 'push'
+    needs: since
+    if: github.event_name != 'push' && needs.since.outputs.run == 'true'
     uses: ./.github/workflows/release-build.yml
     with:
       version: ${{ inputs.tag || 'v0.0.0-dryrun' }}
@@ -74,6 +99,7 @@ jobs:
     needs: build
     if: github.event_name == 'workflow_dispatch'
     permissions:
+      actions: read
       contents: read
     uses: ./.github/workflows/arm64.yml
     with:

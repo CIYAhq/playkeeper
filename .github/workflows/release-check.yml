@@ -94,11 +94,17 @@ jobs:
 
   os-matrix:
     name: OS matrix
+    permissions:
+      actions: read
+      contents: read
     uses: ./.github/workflows/os-matrix.yml
 
   arm64:
     name: ARM64
     needs: build
+    permissions:
+      actions: read
+      contents: read
     uses: ./.github/workflows/arm64.yml
     with:
       artifact: release-${{ needs.build.outputs.tag }}
