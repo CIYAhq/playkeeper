@@ -286,6 +286,19 @@ func TestSummaryCountsInstallsAndActiveInstallsByWindow(t *testing.T) {
 	}
 }
 
+// An install from within the last day counts in it, though the service
+// keeps its time only to the hour.
+func TestAnInstallFromTheLastDayCountsInIt(t *testing.T) {
+	e := newEnv(t)
+	e.advance(-day + 10*time.Minute)
+	e.send(usage.PathInstall, event(1, usage.EventStarted, usage.SourceSite, ""))
+	e.send(usage.PathInstall, event(1, usage.EventSucceeded, usage.SourceSite, ""))
+	e.advance(day - 10*time.Minute)
+	if in := e.summary().Installs["1d"]; in.Started != 1 || in.Succeeded != 1 {
+		t.Errorf("an install 23 h 50 min ago: %+v", in)
+	}
+}
+
 // The project's own test installs never count; the summary says how many
 // there were, which a working setup keeps at zero.
 func TestTestInstallsAreKeptOutOfEveryCount(t *testing.T) {

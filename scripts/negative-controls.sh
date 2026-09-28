@@ -6346,6 +6346,10 @@ control "a heartbeat without the test mark doesn't clear it" internal/usage/serv
   '			test = excluded.test`,
 		h.ID,' \
   ./internal/usage/service '^TestTestInstallsAreKeptOutOfEveryCount$'
+control "an install from within the last day counts in it" internal/usage/service/summary.go \
+  'in, err := s.installs(ctx, now, hour(now)-int64(w.span/time.Second))' \
+  'in, err := s.installs(ctx, now, now.Add(-w.span).Unix())' \
+  ./internal/usage/service '^TestAnInstallFromTheLastDayCountsInIt$'
 control "a daily snapshot that failed is tried again the next hour" internal/usage/service/service.go \
   '	done := s.lastBackup == day
 	s.mu.Unlock()' \

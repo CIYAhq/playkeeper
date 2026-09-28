@@ -125,8 +125,10 @@ func newActive() *Active {
 func (s *Service) Summary(ctx context.Context) (*Summary, error) {
 	now := s.now().UTC()
 	sum := &Summary{GeneratedAt: now.Truncate(time.Second), Installs: map[string]*Installs{}, Active: map[string]*Active{}}
+	// Times are kept to the hour, so each window starts on one: an install
+	// from within the last day counts in it.
 	for _, w := range windows {
-		in, err := s.installs(ctx, now, now.Add(-w.span).Unix())
+		in, err := s.installs(ctx, now, hour(now)-int64(w.span/time.Second))
 		if err != nil {
 			return nil, err
 		}
@@ -145,7 +147,7 @@ func (s *Service) Summary(ctx context.Context) (*Summary, error) {
 	if sum.Daily, err = s.daily(ctx, now); err != nil {
 		return nil, err
 	}
-	since30 := now.Add(-30 * day).Unix()
+	since30 := hour(now) - int64(30*day/time.Second)
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM installs WHERE test = 1 AND (started_at >= ? OR outcome_at >= ?)`, since30, since30).Scan(&sum.Test.Started30d); err != nil {
 		return nil, err
 	}
