@@ -42,6 +42,9 @@ type Output struct {
 	// Nginx is included in nginx.conf's server block: the headers and
 	// redirects that follow the settings.
 	Nginx []byte
+	// Policy is the Content-Security-Policy nginx sends with every page but
+	// /start, whose own is StartPolicy; cmd/site -serve sends them too.
+	Policy, StartPolicy string
 }
 
 // Site is the site being built, for the templates.
@@ -140,6 +143,7 @@ func Build(o Options) (*Output, error) {
 	out.Files["robots.txt"] = robots(o.Settings.BaseURL)
 	out.Files["blog/feed.xml"] = feed(o.Settings, s.posts)
 	out.Nginx = nginxInclude(o.Settings)
+	out.Policy, out.StartPolicy = contentSecurityPolicy(o.Settings, false), contentSecurityPolicy(o.Settings, true)
 	return out, nil
 }
 
