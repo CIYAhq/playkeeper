@@ -7091,10 +7091,42 @@ control "network guard: the agent puts back rules something removed" internal/ag
   't := time.NewTicker(a.opts.GuardInterval)' \
   't := time.NewTicker(time.Hour)' \
   ./internal/agent '^TestTheGuardPutsBackRulesSomethingRemoved$'
-control "network guard: serversReachHost keeps only the metadata rule" internal/agent/guard.go \
-  '!a.cfg.ServersReachHost)' \
-  'true)' \
-  ./internal/agent '^TestServersReachHostKeepsOnlyTheMetadataRule$'
+control "network guard: servers may reach the machine unless its owner keeps them away" internal/agent/guard.go \
+  'return err == nil && ok && v == "on"' \
+  'return true' \
+  ./internal/agent '^TestByDefaultServersKeepOnlyOutOfTheMetadataService$'
+control "network guard: the owner's switch keeps servers away from the machine" internal/agent/guard.go \
+  'host := a.guardHost()' \
+  'host := false' \
+  ./internal/agent '^TestKeepingServersAwayIsTheOwnersSwitch$'
+control "network guard: no server starts while it can't be kept away" internal/agent/guard.go \
+  'if g == nil || !g.Host || g.On {' \
+  'if g == nil || !g.Host || true {' \
+  ./internal/agent '^TestAServerWontStartWhileItCantBeKeptAway$'
+control "network guard: with the switch off, servers start without the rules" internal/agent/guard.go \
+  'if g == nil || !g.Host || g.On {' \
+  'if g == nil || g.On {' \
+  ./internal/agent '^TestAServerStartsWhenTheGuardCant$'
+control "network guard: a creator invite keeps servers away from the machine first" internal/panel/team.go \
+  'if err := s.keepServersAway(r.Context(), sess.User.Username); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestACreatorInviteKeepsServersAwayFromTheMachine$'
+control "network guard: no creator invite until the agent keeps servers away" internal/panel/creators.go \
+  'if err == nil && !g.Host {' \
+  'if false && err == nil && !g.Host {' \
+  ./internal/panel '^TestACreatorInviteKeepsServersAwayFromTheMachine$'
+control "network guard: servers stay away while there are creators" internal/panel/creators.go \
+  'if has {' \
+  'if has && false {' \
+  ./internal/panel '^TestServersStayAwayWhileThereAreCreators$'
+control "network guard: a creator invite that still works counts as a creator" internal/panel/creators.go \
+  'AND revoked_at = 0 AND uses < max_uses AND expires_at > ?)' \
+  'AND 0 AND ?)' \
+  ./internal/panel '^TestServersStayAwayWhileThereAreCreators$'
+webcontrol "network guard: the switch in Machine settings asks the agent" web/src/pages/machine-settings/guard.tsx \
+  "machineApi(id, '/network-guard')" \
+  "machineApi(id, '/network-guards')" \
+  src/pages/machine-settings/guard.test.tsx 'keeps servers away from the machine when the owner turns it on'
 control "network guard: the machine's status says what went wrong" internal/agent/guard.go \
   'st.Problem = err.Error()' \
   '_ = err' \
