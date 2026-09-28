@@ -2086,7 +2086,7 @@ control "the Java heap a CurseForge manifest recommends is read" internal/modpac
   'p.heapMB = plausibleHeap(int(m.Minecraft.RecommendedRAM))' \
   'p.heapMB = 0' \
   ./internal/modpacks '^TestCurseForgePackHeap$'
-control "a pack's memory need covers the Java heap it asks for" internal/agent/modpacks.go \
+control "a pack's memory need covers the Java heap it asks for" internal/minecraft/catalog.go \
   '	if heapMB > 0 {
 		need = max(need,' \
   '	if false && heapMB > 0 {
