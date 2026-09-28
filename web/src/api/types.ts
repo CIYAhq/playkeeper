@@ -2564,7 +2564,7 @@ export interface FileUpload {
 export interface PublicPageSettings {
   enabled: boolean
   players: boolean
-  /** The owner's words for the page, and the link of the stream it offers to play; empty for none. */
+  /** The owner's words for the page, and the link of the stream it offers to play (from 0.4.4); empty for none. */
   about: string
   stream: string
 }

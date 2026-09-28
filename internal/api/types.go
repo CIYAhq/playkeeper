@@ -2503,8 +2503,9 @@ type FileUploadFileRequest struct {
 // address in a browser sees, on ports 443 and 80.
 
 // PublicPageSettings are a server's settings for the public page: whether
-// it is on the page, whether the page names who's playing, the owner's
-// words for it (About) and the link of the live stream it offers to play.
+// it is on the page, whether the page names who's playing, and from 0.4.4
+// the owner's words for it (About) and the link of the live stream it
+// offers to play.
 type PublicPageSettings struct {
 	Enabled bool   `json:"enabled"`
 	Players bool   `json:"players"`
@@ -2548,7 +2549,8 @@ const (
 	BoardNextWithin = 31 * 24 * time.Hour
 )
 
-// PublicStream is the live stream a server's page offers to play.
+// PublicStream is the live stream a server's page offers to play (from
+// 0.4.4).
 type PublicStream struct {
 	// Site is "twitch" or "youtube".
 	Site string `json:"site"`
@@ -2558,8 +2560,8 @@ type PublicStream struct {
 	URL     string `json:"url"`
 }
 
-// PublicBoard is a status board the owner's tools keep up to date through
-// the API or MCP: where things stand, whether a session is on and when the
+// PublicBoard (from 0.4.4) is a status board the owner's tools keep up to
+// date through the API or MCP: where things stand, whether a session is on and when the
 // next starts, a few numbers and a checklist. Each post replaces the last.
 type PublicBoard struct {
 	Headline  string      `json:"headline,omitempty"`
