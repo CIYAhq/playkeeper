@@ -97,8 +97,8 @@
   }
 
   // Links out: to the repository on GitHub, or /community, which sends people
-  // to its Discussions; Watch releases; and to a VPS provider. A middle-click
-  // opens one too.
+  // to its Discussions; Watch releases; to a VPS provider; and to the live
+  // demo. A middle-click opens one too.
   function followed(e) {
     if (e.type === 'auxclick' && e.button !== 1) return;
     var a = e.target.closest && e.target.closest('a[href]');
@@ -111,6 +111,9 @@
     if (a.hasAttribute('data-watch-releases')) count('watch_releases_clicked', { plan: a.getAttribute('data-watch-releases') }, true);
     var provider = a.closest('[data-provider]');
     if (provider) count('provider_clicked', { provider: provider.getAttribute('data-provider'), plan: $('[data-plan]', provider).textContent }, true);
+    if (a.origin === location.origin && /^\/demo(\/|$)/.test(a.pathname)) {
+      count('demo_opened', { spot: a.closest('#phone-menu') ? 'menu' : a.closest('[data-header]') ? 'header' : a.closest('[data-closing]') ? 'closing' : 'page' }, true);
+    }
   }
   document.addEventListener('copy', function () { copied(String(document.getSelection()), null); });
   document.addEventListener('click', followed, true);

@@ -47,6 +47,7 @@ Funnels in the analytics are built from pages and these custom events. Each also
 | `github_clicked` | A link to the repository on GitHub, or to `/community` | `link`: `repo`, `releases`, `file`, `discussions`, `community` and so on |
 | `provider_clicked` | See today's price at a VPS provider (`/sizing`, `/alternatives/aternos`) | `provider`, and the `plan` it showed |
 | `watch_releases_clicked` | Watch releases on GitHub on `/pricing`, which is also a `github_clicked` | `plan`: `storage` or `partner` |
+| `demo_opened` | A link to the live demo | `spot`: `page`, `closing`, `header` or `menu` (the phone menu) |
 | `demo_server_created` | New server finished in the live demo | `type`: the server type, such as `paper` |
 
 ### Channels

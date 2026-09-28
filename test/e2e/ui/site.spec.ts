@@ -83,10 +83,12 @@ async function recordEvents(ctx: BrowserContext) {
     await route.fulfill({ contentType: 'text/javascript', body: 'window.oa = { track: function (name, props) { recordEvent(name, props) }, flush: function () { recordEvent("flush") } }' })
   })
   await ctx.route(/^https:\/\/(github\.com|www\.hostinger\.com|www\.digitalocean\.com|www\.vultr\.com)\//, (route) => route.fulfill({ contentType: 'text/html', body: '' }))
+  // The live demo isn't part of the site's build.
+  await ctx.route(/^http:\/\/127\.0\.0\.1:\d+\/demo\//, (route) => route.fulfill({ contentType: 'text/html', body: '' }))
   return { events, release }
 }
 
-test('the analytics’ custom events: the install command copied, links out to GitHub, a VPS provider and Watch releases, and none from /t', async ({ browser, baseURL }) => {
+test('the analytics’ custom events: the install command copied, links out to GitHub, a VPS provider, Watch releases and the live demo, and none from /t', async ({ browser, baseURL }) => {
   const ctx = await browser.newContext({ baseURL, viewport: { width: 1440, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] })
   const { events, release } = await recordEvents(ctx)
   const page = await ctx.newPage()
@@ -109,6 +111,12 @@ test('the analytics’ custom events: the install command copied, links out to G
   await page.keyboard.press('ControlOrMeta+C')
   await page.locator('header .btn-star').click()
   await sent(['install_copied', { spot: 'closing', where: '/' }], ['install_copied', { spot: 'selection', where: '/' }], ['github_clicked', { link: 'repo', where: '/' }], ['flush'])
+  await open('/')
+  await page.locator('header .nav-demo').click()
+  await page.waitForURL(/\/demo\/$/)
+  await open('/pricing')
+  await page.locator('[data-closing]').getByRole('link', { name: 'Try the live demo' }).click()
+  await sent(['demo_opened', { spot: 'header', where: '/' }], ['flush'], ['demo_opened', { spot: 'closing', where: '/pricing' }], ['flush'])
 
   await open('/pricing')
   await page.getByRole('link', { name: 'Copy the install command' }).click()
