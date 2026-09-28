@@ -954,6 +954,8 @@ export interface JoinAddress {
   /** The IP address with the port, which always works. */
   direct?: string
   published: boolean
+  /** The server's own address under an own domain, which is then `address`, with its own records and page. */
+  ownAddress?: string
 }
 
 export interface FreeAddress {
