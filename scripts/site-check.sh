@@ -320,7 +320,7 @@ code=$(curl -sS -o "$start" -w '%{http_code}' "$base/start?utm_campaign=pk01-lau
 headers=$(curl -sS -D - -o /dev/null "$base/start?utm_campaign=pk01-launch")
 headers_ok /start "$headers"
 for h in "script-src 'self' https://analytics-c.ciya.so https://t.whop.tw;" "media-src 'self';" "worker-src blob:;" \
-  "connect-src 'self' https://api.github.com https://analytics-c.ciya.so https://t.whop.tw;" 'x-robots-tag: noindex'; do
+  "connect-src 'self' https://api.github.com https://analytics-c.ciya.so https://stats.playkeeper.io https://t.whop.tw;" 'x-robots-tag: noindex'; do
   grep -qiF "$h" <<<"$headers" || fail "/start does not send '$h'"
 done
 if curl -sS -D - -o /dev/null "$base/" | grep -qiE 't\.whop\.tw|worker-src|media-src|^x-robots-tag'; then fail "/ lets in or says what only /start should"; fi
@@ -348,11 +348,11 @@ if [ -n "$chrome" ]; then
   # open_sizing opens /sizing with the given address after # and leaves the
   # page, once its scripts have run, in $dom. Chrome only opens this site's
   # page here, so it runs without its sandbox, which containers and some CI
-  # runners refuse; the analytics' host doesn't resolve, so no visit is
-  # counted from here.
+  # runners refuse; the analytics' and the stats service's hosts don't
+  # resolve, so nothing is counted from here.
   open_sizing() {
     $limit "$chrome" --headless=new --no-sandbox --disable-gpu --no-first-run --no-default-browser-check \
-      --host-resolver-rules='MAP analytics-c.ciya.so ~NOTFOUND' \
+      --host-resolver-rules='MAP analytics-c.ciya.so ~NOTFOUND, MAP stats.playkeeper.io ~NOTFOUND' \
       --user-data-dir="$work/chrome" --virtual-time-budget=5000 --dump-dom "$base/sizing#$1" >"$dom" 2>/dev/null ||
       fail "headless Chrome ($chrome) could not open /sizing"
   }

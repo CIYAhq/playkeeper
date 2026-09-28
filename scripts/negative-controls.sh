@@ -6731,6 +6731,19 @@ control "giving a server its own address needs the right to manage the machine" 
   '{"POST", "/api/servers/{id}/own-address", needSessionCSRF, actManageServers,' \
   ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
 
+# playkeeper.io's copy count: pages reach the stats service only as the
+# policy allows, and the share page never names it. The script's own guards,
+# once a page view and none with Global Privacy Control or Do Not Track, are
+# held by site.spec.ts, which this script doesn't run.
+control "pages reach the stats service only as the policy allows" internal/site/nginx.go \
+  'origin(s.Stats), ' \
+  '' \
+  ./internal/site '^TestTheCopyCountIsOneSetting$'
+control "the share page doesn't name the stats service" site/layouts/base.html \
+  '{{if and (ne $.Page.Path "/t") (ne $.Page.Layout "open")}}<meta name="playkeeper-stats"' \
+  '{{if true}}<meta name="playkeeper-stats"' \
+  ./internal/site '^TestTheCopyCountIsOneSetting$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

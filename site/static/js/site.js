@@ -84,6 +84,24 @@
     });
   }
 
+  // The stats service (Settings.Stats) counts copies of the install command
+  // for its funnel: the channel's code and nothing else, once a page view,
+  // with no cookie or referrer, and none when the browser asks not to be
+  // tracked. It takes counts only from this site's origin, which a CORS
+  // request always names (a no-cors one without a referrer names none), and
+  // uses the address a count comes from for a rate limit and drops it.
+  var stats = $('meta[name="playkeeper-stats"]');
+  var told = false;
+  function tell(channel) {
+    if (!stats || told || !window.fetch || navigator.globalPrivacyControl || navigator.doNotTrack === '1') return;
+    told = true;
+    fetch(stats.content + '/v1/site', {
+      method: 'POST', mode: 'cors', credentials: 'omit', referrerPolicy: 'no-referrer', keepalive: true,
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ event: 'install_copied', channel: channel || '' })
+    }).catch(function () { /* a count that doesn't arrive is lost, and nothing else */ });
+  }
+
   // The install command, the site's or the GitHub release's, with or without
   // options, copied with a Copy (el) or by hand; a channel's, /install/<code>,
   // says which.
@@ -94,6 +112,7 @@
     var tag = /playkeeper\.io\/install\/([a-z0-9-]+)/i.exec(text);
     if (tag) props.channel = tag[1].toLowerCase();
     count('install_copied', props);
+    tell(props.channel);
   }
 
   // Links out: to the repository on GitHub, or /community, which sends people
