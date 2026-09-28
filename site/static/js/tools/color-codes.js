@@ -19,7 +19,13 @@
 
   function update(chars) {
     var be = bedrock();
-    mc.render(chat, chars, '#ffffff', true);
+    // Bedrock chat has no hex colours: it shows each as the nearest of the
+    // 16, as the codes copied for it are written.
+    mc.render(chat, be ? chars.map(function (c) {
+      if (!c.st.c || c.st.l) return c;
+      var n = mc.nearest(c.st.c, true);
+      return { ch: c.ch, st: Object.assign(mc.copyStyle(c.st), { c: mc.colorOf(n, true), l: n }) };
+    }) : chars, '#ffffff', true);
     out.amp.textContent = mc.legacy(chars, '&', t.value(root, 'cc-hex') || 'hash', false);
     out.sect.textContent = be ? mc.legacy(chars, '§', 'nearest', true) : mc.legacy(chars, '§', 'x', false);
     out.mm.textContent = mc.minimessage(chars, editor.gradients);

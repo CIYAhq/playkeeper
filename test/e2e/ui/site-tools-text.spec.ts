@@ -180,6 +180,8 @@ test('the colour codes page: codes copy with a click, the text maker colours a s
   await expect(page.locator('#cc-tab-sect')).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('#cc-out-sect')).toHaveText('§aGo §6now')
   await expect(page.locator('[data-note-hex]')).toBeVisible()
+  const shown = await page.locator('[data-chat] span').evaluateAll((els) => els.map((e) => [e.textContent, getComputedStyle(e).color]))
+  expect(shown, 'Bedrock chat shows a hex colour as the nearest of its own, as the codes are written').toEqual([['Go ', 'rgb(84, 255, 84)'], ['now', 'rgb(255, 170, 0)']])
   await select(page, 'cc-text', 0, 2)
   await page.keyboard.press('Control+u')
   await expect(page.locator('[data-toast]'), 'Ctrl+U says why it does nothing on Bedrock').toContainText('Bedrock has no underline')
