@@ -77,6 +77,8 @@ SLOTS = {
     # The free tools.
     "tool-server-list": (460, 560, 350),
     "tool-plugin-config": (460, 560, 350),
+    "tool-memory": (460, 560, 350),
+    "tool-properties": (460, 560, 350),
 }
 
 

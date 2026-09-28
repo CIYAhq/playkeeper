@@ -241,6 +241,36 @@ func TestPlanInstallRefusals(t *testing.T) {
 	}
 }
 
+// An add-on file may be as large as 512 MiB, which Pixelmon's jar fits in.
+// A larger one is refused before anything downloads.
+func TestPlanInstallTakesFilesUpTo512MiB(t *testing.T) {
+	const pixelmon = 394230428 // Pixelmon-1.21.1-9.3.16-universal.jar, as Modrinth lists it
+	for _, tc := range []struct {
+		name    string
+		size    int64
+		blocker string // the plan's only blocker, if any
+	}{
+		{"Pixelmon's jar", pixelmon, ""},
+		{"at the limit", 512 << 20, ""},
+		{"a byte over", 512<<20 + 1, "too_large: Chunky-NeoForge-1.5.4.jar is larger than the 512 MiB Playkeeper accepts for one add-on file."},
+	} {
+		f := newFakes(t)
+		f.patchFile("EyCqftOK", func(file obj) { file["size"] = tc.size })
+		p := mustPlan(t, f.library(), newServer(t, "neoforge", "26.2"), nil, InstallRequest{Source: Modrinth, Project: "chunky"})
+		var want []string
+		if tc.blocker != "" {
+			want = append(want, tc.blocker)
+		}
+		wantNotices(t, tc.name+": blockers", p.Blockers, want...)
+		if p.Ready != (tc.blocker == "") {
+			t.Errorf("%s: ready %v", tc.name, p.Ready)
+		}
+		if n := len(f.sent("cdn")); n != 0 {
+			t.Errorf("%s: planning downloaded %d files", tc.name, n)
+		}
+	}
+}
+
 func TestPlanInstallCountsFilesAlreadyOnTheServer(t *testing.T) {
 	handMade := func(t *testing.T, srv Server) {
 		writeFile(t, filepath.Join(srv.Dir, "plugins", "ViaVersion.jar"), pluginJar(t, "ViaVersion", "5.9.0"))

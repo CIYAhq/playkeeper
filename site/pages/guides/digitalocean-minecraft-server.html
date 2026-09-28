@@ -1,0 +1,88 @@
+{{/*
+path: /guides/digitalocean-minecraft-server
+title: How to host a Minecraft server on DigitalOcean (2026)
+description: Host a Minecraft: Java Edition server on a DigitalOcean Droplet: the Premium AMD size for your group, the firewall ports, one command to install and the cost.
+label: Minecraft on DigitalOcean
+h1: How to host a Minecraft server on DigitalOcean (2026)
+card: How to host a Minecraft server on DigitalOcean
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: digitalocean-minecraft-server
+partner: DigitalOcean
+published: 2026-09-28
+updated: 2026-09-28
+closing: guide
+schema: article
+*/}}
+
+{{define "short"}}{{$p := provider "DigitalOcean"}}{{$g := sizing}}{{$plan := $p.Fit $g.Answer.MemoryGB $g.Answer.Cores}}For {{$g.FirstBand}} friends on {{$g.FirstRun}}, create a Basic Droplet with {{$plan.Name}} cores ({{$plan.CPUs}} vCPU, {{$plan.MemoryGB}} GB) in the region nearest them, with Ubuntu 24.04. Allow the game ports in a Cloud Firewall, then run one command: Playkeeper sets up the server, a free address and backups. It's {{usd $plan.USD}} a month ({{checked}}).{{end}}
+
+{{define "closing-title"}}Your Droplet is one command away from a Minecraft server.{{end}}
+{{define "closing-sub"}}Free and open source. Friends can be playing tonight.{{end}}
+
+{{define "side-title"}}Skip the manual steps{{end}}
+{{define "side-text"}}Playkeeper sets up the server, a free address and backups for you.{{end}}
+
+{{define "article"}}{{$p := provider "DigitalOcean"}}{{$g := sizing}}{{$plan := $p.Fit $g.Answer.MemoryGB $g.Answer.Cores}}
+{{$shot := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 793.98px) calc(100vw - 64px), 730px"}}
+<section aria-labelledby="plan">
+  {{template "h2n" (dict "ID" "plan" "N" 1 "Text" "Which Droplet")}}
+  <p>Minecraft runs the world on one core, so a fast core and enough memory matter most. DigitalOcean's Basic Droplets with Premium AMD cores have NVMe disks and faster cores than its Regular ones, for a few dollars more a month. The <a href="/sizing">sizing guide</a> works out what your group needs; this is the size it picks for each group.</p>
+  {{template "provider-plans" $p}}
+  <p class="plan-note">Prices on {{checked}}, before tax. Droplets are billed by the hour, up to these monthly prices.</p>
+  {{template "provider-cta" $p}}
+</section>
+
+<section aria-labelledby="create">
+  {{template "h2n" (dict "ID" "create" "N" 2 "Text" "Create the Droplet")}}
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Create › Droplets" "Text" "In DigitalOcean's control panel.")
+    (dict "Title" "Pick the region nearest your friends" "Text" "DigitalOcean has datacenters in North America, Europe, Asia and Australia. Closer means lower ping.")
+    (dict "Title" "Pick Ubuntu 24.04 (LTS) x64" "Text" "Then Basic, CPU options Premium AMD, and the size from the table.")
+    (dict "Title" "Add your SSH key or a root password" "Text" "Then Create Droplet. Its IP address shows once it's up.")
+  ))}}
+  <p>Playkeeper also runs on {{systemRanges}}, on x86_64 or 64-bit ARM. Droplets are x86_64.</p>
+</section>
+
+<section aria-labelledby="ports">
+  {{template "h2n" (dict "ID" "ports" "N" 3 "Text" "Open the ports")}}
+  <p>A Droplet has no Cloud Firewall until you add one, and a Cloud Firewall blocks everything you haven't allowed. <strong>Networking › Firewalls › Create Firewall</strong>: keep its SSH rule, add these as inbound rules for All IPv4 and All IPv6, then apply it to your Droplet.</p>
+  {{template "provider-ports"}}
+  <p>If ufw or firewalld runs on the Droplet itself, the installer allows 8443, 25565 and 80 there for you.</p>
+</section>
+
+<section aria-labelledby="run">
+  {{template "h2n" (dict "ID" "run" "N" 4 "Text" "Run the one command")}}
+  {{template "provider-install" (dict "Console" "the Droplet Console")}}
+</section>
+
+<section aria-labelledby="address">
+  {{template "h2n" (dict "ID" "address" "N" 5 "Text" "A free address for your friends" "Toc" "A free address")}}
+  <p><strong>Machine settings › Address</strong> gives the Droplet a free <em>yourname</em>.playkeeper.me name with a real certificate: the browser warning goes away, and friends join at a name instead of an IP address. Then <strong>New invite link</strong> on a server's Players tab: a friend opens it, types their Minecraft name and is on the allowlist.</p>
+  {{template "cardshot" (dict "Name" "post-address" "Alt" "A server's join address at its free name, and who's playing now." "Sizes" $shot "Class" "shot-730")}}
+</section>
+
+<section aria-labelledby="copies">
+  {{template "h2n" (dict "ID" "copies" "N" 6 "Text" "Keep copies off the Droplet" "Toc" "Copies off the Droplet")}}
+  <p><strong>World › Backup rules › Copies somewhere else</strong> encrypts every backup on the Droplet, then sends it to S3-compatible storage or to another machine over SFTP. DigitalOcean's Spaces is S3-compatible, from $5 a month for 250 GiB: pick <strong>Other S3-compatible storage</strong> and enter its endpoint, like https://ams3.digitaloceanspaces.com, the bucket and an access key. A copy at another company, such as Backblaze B2 or Cloudflare R2 (both have presets), also survives a problem with your DigitalOcean account. Keep the recovery key somewhere other than the Droplet.</p>
+</section>
+
+<section aria-labelledby="cost">
+  {{template "h2n" (dict "ID" "cost" "N" 7 "Text" "What it costs")}}
+  <p>Playkeeper and its playkeeper.me address are free; the Droplet is the only bill. For {{$g.FirstBand}} friends on {{$g.FirstRun}}, a {{$plan.Name}} Droplet with {{$plan.CPUs}} vCPU and {{$plan.MemoryGB}} GB is {{usd $plan.USD}} a month, billed by the hour (prices on {{checked}}). DigitalOcean's own backups of the whole Droplet are optional, at 20% more a month for weekly ones. A new account starts with a $5 credit for 90 days.</p>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Premium AMD or Regular?" "Premium AMD. Its NVMe disks and faster cores cost a few dollars more a month, and Minecraft runs the world on one core, so a faster core means less lag.")
+    (qa "Can I make the Droplet bigger later?" "Yes: power it off and resize it in the control panel. Resizing only CPU and RAM, not the disk, lets you go back down later.")
+    (qa "Which region?" "The one nearest most of your friends. Their ping to the server matters more than yours.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/guides/hostinger-minecraft-server" "/guides/vultr-minecraft-server" "/sizing")}}{{end}}

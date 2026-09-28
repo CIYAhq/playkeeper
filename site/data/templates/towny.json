@@ -1,0 +1,20 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Towny",
+  "description": "Paper for a Towny server: players found towns and nations, claim land chunk by chunk and run their own plots, with LuckPerms for ranks.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "26.2" },
+  "settings": {
+    "difficulty": "normal",
+    "pvp": true,
+    "gameMode": "survival",
+    "maxPlayers": 30,
+    "playStyle": "friends",
+    "memoryMB": 4096
+  },
+  "addons": [
+    { "source": "modrinth", "project": "Vebnzrzj", "slug": "luckperms", "name": "LuckPerms", "latest": true },
+    { "source": "modrinth", "project": "Vs77PB2W", "slug": "towny", "name": "Towny", "latest": true },
+    { "source": "modrinth", "project": "fALzjamp", "slug": "chunky", "name": "Chunky", "latest": true }
+  ]
+}

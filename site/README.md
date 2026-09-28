@@ -26,7 +26,7 @@ The generator is `internal/site`:
 - **Pages** are the files in `pages/`, one per page, at the address their settings give. A page starts with its settings in a template comment (`path`, `title`, `description`, `label`, `kind`, `section`, `layout` and so on; see `internal/site/pages.go`), then defines its parts: `main` for most pages; `short`, `article`, `after` and `keep-reading` for a guide or a blog post.
 - **Layouts and blocks** are in `layouts/`: the page around every page (`base.html`), the guide, post and docs layouts (`article.html`), and the blocks pages are built from (`parts.html`): the install command, FAQ, steps, comparison tables, provider cards, screenshots in a browser or phone frame, template cards, the logo row, a terminal and "Keep reading".
 - **Assets** in `static/` and the dashboard's art in `web/src/assets` (Pip, the pixel scenes and the server software logos, with their licences in `web/src/assets/logos/NOTICE.md`) are published under `/assets/` with a hash in their names, so nginx lets browsers keep them for a year.
-- **Facts come from the product**: the server types, their count and logo row from `minecraft.Types`, the template cards' links from `internal/templates` (the templates are in `data/templates`), and the version from `CHANGELOG.md`. When a server type is added to the dashboard, the site shows it too.
+- **Facts come from the product**: the server types, their count and logo row from `minecraft.Types`, the template cards' links from `internal/templates` (the templates are in `data/templates`), and the version from `data/release.json`, the latest published release, which must have a section in `CHANGELOG.md` (a newer section is a release still being put together, and the site doesn't show it). When a server type is added to the dashboard, the site shows it too.
 
 A page that isn't built yet can already be linked: the header's menus, the footer and "Keep reading" show only pages that exist, and `first` picks a stand-in until then. `go test ./internal/site` builds the whole site and fails on a broken link or anchor, a missing title, description, canonical address or social preview, inline script or style (the Content-Security-Policy blocks them), an image without its size or alt text, or skipped heading levels.
 
@@ -48,12 +48,18 @@ Funnels in the analytics are built from pages and these custom events. Each also
 | --- | --- | --- |
 | `install_copied` | The install command is copied, with a Copy or selected and copied by hand | `spot`: `box` (the page's install command), `closing` (the dark band at the bottom), `button` (Copy the install command on `/pricing` and beside guides), `code` (a code block in the docs), `selection` (by hand) or `card` (the live demo's); `channel`: the code, for a channel's command (see Channels below) |
 | `github_clicked` | A link to the repository on GitHub, or to `/community` | `link`: `repo`, `releases`, `file`, `discussions`, `community` and so on |
-| `provider_clicked` | See today's price at a VPS provider (`/sizing`, `/alternatives/aternos`) | `provider`, and the `plan` it showed |
+| `provider_clicked` | See today's price at a VPS provider (`/sizing`, `/alternatives/aternos`), or Get a … server on its guide; its Setup guide link stays on the site and counts nothing | `provider`, and the `plan` it showed |
 | `watch_releases_clicked` | Watch releases on GitHub on `/pricing`, which is also a `github_clicked` | `plan`: `storage` or `partner` |
 | `install_shared` | Send to my computer, beside Copy on `/start` on phones: the page's address shared, or copied where the phone can't share it | `spot`: `box` or `closing`; `how`: `share` (the phone's share sheet) or `copy` |
 | `demo_opened` | A link to the live demo | `spot`: `page`, `closing`, `header` or `menu` (the phone menu) |
 | `tool_used` | A free tool's result is taken: a file downloaded or a result copied (`static/js/tools.js`) | `tool`: the tool, such as `server-icon`; `action`: `download` or `copy` |
 | `demo_server_created` | New server finished in the live demo | `type`: the server type, such as `paper` |
+
+### Providers and partner links
+
+`providers` in `internal/site/providers.go` are the VPS providers the site suggests: the cards under "VPS that fit" on `/sizing` and the Aternos page, and a setup guide each (`pages/guides/<provider>-minecraft-server.html`). Each lists the plans that suit Minecraft, cheapest first, with the price and the day it was checked; the cards show plan names only, and the guides show prices with that day. The plan a card or guide shows is the cheapest that fits the sizing guide's answer.
+
+`Partner` is the provider's affiliate or referral link. Every page that carries one says so before its first partner link: the note above the cards, or a guide's line under its title, which follows the page's `partner` setting. With `Partner` empty, as while a program hasn't approved Playkeeper, the site links the provider's own page with no disclosure. A partner link on another host, such as an affiliate network's, needs that host in `recordEvents` in `test/e2e/ui/site.spec.ts`.
 
 ### Channels
 
@@ -79,12 +85,26 @@ The release workflow's check of `/install` after each release counts as one ther
 
 ### Modpack pages
 
-`/modpacks` lists what each modpack's server needs, and `/modpacks/<id>-server` is one page per pack, like `/modpacks/atm10-server`. Each pack has its facts in `data/modpacks/<id>.json`: its source, project, version and release day, loader, Minecraft version, the mods its server runs, the download, the heap the pack's own settings ask for, its server files if its authors publish any, the site template that opens it (`data/templates`, Modrinth packs only), and the day all of it was checked. The page gets Java and memory from the product (`minecraft.JavaFor`, `minecraft.PackNeedMB`, the memory New server suggests), so it says what the dashboard would.
+`/modpacks` lists what each modpack's server needs, and `/modpacks/<id>-server` is one page per pack, like `/modpacks/atm10-server`. Each pack has its facts in `data/modpacks/<id>.json`: its source, project, version and release day, loader, Minecraft version, the mods its server runs, the download, the heap the pack's own settings ask for, its server files if its authors publish any, the site template that opens it (`data/templates`, Modrinth packs only), and the day all of it was checked, with the Playkeeper release whose install plan checked it (`release`). The pages name that release, not the newest `CHANGELOG.md` section, which comes before the release. The page gets Java and memory from the product (`minecraft.JavaFor`, `minecraft.PackNeedMB`, the memory New server suggests), so it says what the dashboard would.
 
 - **Facts:** take them from the pack's source (Modrinth's API and the `.mrpack`'s index, or CurseForge's files) and from Playkeeper's own install plan for that version (`modpacks.Library.PlanInstall`, which counts the mods it puts on the server and names anything that blocks the install). CurseForge packs need a CurseForge API key for the plan.
 - **The build refuses** a pack of a type the release doesn't run, for a Minecraft version older than the packs it offers (`modpacks.DefaultMinMinecraft`), or with a template that opens another version or less memory than the pack needs.
-- **A new page** copies the closest one in `pages/modpacks/` and keeps the blocks in `layouts/modpack.html` (facts, template card, the Docker and mrpack-install commands). What's true of that pack alone, like its restricted mods or the settings it expects, is what the page is for: `TestModpackPagesAreMostlyTheirOwn` fails a pack page when fewer than 60% of its sentences are its own. Search engines treat pages made at scale from one template as spam.
+- **A template the release people install can't open yet is held.** Its entry in `data/templates/cards.json` gets `opensFrom`, the first release that opens it.
+  - While it's held, no page links it: its cards stay out or give way to the stand-in a page names (`template-card`'s `Else`), and its pack page offers New server › A modpack. `TestNoPageOpensAHeldTemplate` checks every page.
+  - 0.4.2 opens no 1.21.1 pack's template and no CurseForge pack's, although New server installs those packs. So check a pack's template through `POST /v1/templates/plan`, not only the pack.
+  - Remove `opensFrom` once that release is out, not when its `CHANGELOG.md` section lands: sections come before the release.
+- **A new page** copies the closest one in `pages/modpacks/` and keeps the blocks in `layouts/modpack.html` (facts, template card, the Docker and mrpack-install commands). What's true of that pack alone, like its restricted mods or the settings it expects, is what the page is for: `TestModpackAndTemplatePagesAreMostlyTheirOwn` fails a pack page when fewer than 60% of its sentences are its own. Search engines treat pages made at scale from one template as spam.
 - **Social previews** come from the packs too: `node site-og.mjs modpacks modpack-<id>` draws the hub's and the page's.
+
+### Template library
+
+`/templates` is the public library of server templates, and `/templates/<id>` one page per template, like `/templates/towny`. Each is a site template in `data/templates` (the share format of `internal/templates`, so its card opens it in the visitor's dashboard) plus what happened when a server was created and started from it, in `data/library/<id>.json`: the Playkeeper release and server build, the seconds its log took to say Done, each plugin as it installed with its version, licence (the SPDX id its source lists) and downloads, and the day. The page gets Java and Java's share of the memory from the product (`minecraft.JavaFor`, `minecraft.HeapFor`), and its Docker command sizes the container the way Playkeeper does.
+
+- **Check a template before it gets a page:** create a server from it on a Playkeeper release (the agent API's `POST /v1/templates/plan`, then `POST /v1/servers` and start it), and keep it only if the server comes online with every plugin enabled and nothing failing in its log. `GET /v1/servers/<id>/addons` has the versions that installed. A plugin another one needs, like Vault, goes in the template, not in a note on the page.
+- **The build refuses** a facts file whose plugins aren't exactly the template's add-ons in its order, one that doesn't say which release, build and start time it was checked with, and one for a modpack's template, whose page is under `/modpacks`.
+- **A new page** copies the closest one in `pages/templates/` and keeps the blocks in `layouts/library.html` (facts, Docker, template cards). What the plugins make you do first, with the commands and defaults from their own configs, is what the page is for, and the 60% rule above holds for these pages too.
+- **Templates take each plugin's latest version,** so check them again when Minecraft or a plugin has a new release, and update the facts file with what installed.
+- **Social previews** carry the pages' headings: `node site-og.mjs templates template-<id>`.
 
 ## Host it with Coolify
 

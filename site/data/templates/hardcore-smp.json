@@ -1,0 +1,21 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Hardcore SMP",
+  "description": "Paper in hardcore for a group: one life each, hard difficulty, with pre-generation, block logging and proximity voice chat.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "26.2" },
+  "settings": {
+    "difficulty": "hard",
+    "pvp": false,
+    "gameMode": "survival",
+    "hardcore": true,
+    "maxPlayers": 10,
+    "playStyle": "hardcore",
+    "memoryMB": 4096
+  },
+  "addons": [
+    { "source": "modrinth", "project": "fALzjamp", "slug": "chunky", "name": "Chunky", "latest": true },
+    { "source": "modrinth", "project": "Lu3KuzdV", "slug": "coreprotect", "name": "CoreProtect", "latest": true },
+    { "source": "modrinth", "project": "9eGKb6K1", "slug": "simple-voice-chat", "name": "Simple Voice Chat", "latest": true }
+  ]
+}

@@ -1,0 +1,87 @@
+{{/*
+path: /guides/vultr-minecraft-server
+title: How to host a Minecraft server on Vultr (2026)
+description: Host a Minecraft: Java Edition server on Vultr: the High Performance plan for your group, the ports to open, one command to install and what it costs.
+label: Minecraft on Vultr
+h1: How to host a Minecraft server on Vultr (2026)
+card: How to host a Minecraft server on Vultr
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: vultr-minecraft-server
+partner: Vultr
+published: 2026-09-28
+updated: 2026-09-28
+closing: guide
+schema: article
+*/}}
+
+{{define "short"}}{{$p := provider "Vultr"}}{{$g := sizing}}{{$plan := $p.Fit $g.Answer.MemoryGB $g.Answer.Cores}}For {{$g.FirstBand}} friends on {{$g.FirstRun}}, deploy a {{$plan.Name}} server ({{$plan.CPUs}} vCPU, {{$plan.MemoryGB}} GB) in the location nearest them, with Ubuntu 24.04. Then run one command: Playkeeper sets up the server, a free address and backups, and opens the dashboard's port and the first game port in the firewall Vultr's Ubuntu turns on. It's {{usd $plan.USD}} a month ({{checked}}).{{end}}
+
+{{define "closing-title"}}Your Vultr server is one command away.{{end}}
+{{define "closing-sub"}}Free and open source. Friends can be playing tonight.{{end}}
+
+{{define "side-title"}}Skip the manual steps{{end}}
+{{define "side-text"}}Playkeeper sets up the server, a free address and backups for you.{{end}}
+
+{{define "article"}}{{$p := provider "Vultr"}}{{$g := sizing}}{{$plan := $p.Fit $g.Answer.MemoryGB $g.Answer.Cores}}
+{{$shot := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 793.98px) calc(100vw - 64px), 730px"}}
+<section aria-labelledby="plan">
+  {{template "h2n" (dict "ID" "plan" "N" 1 "Text" "Which plan")}}
+  <p>Minecraft runs the world on one core, so a fast core and enough memory matter most. Vultr's High Performance plans have the newest Intel Xeon or AMD EPYC cores it offers, and NVMe disks; Regular Performance has older cores and plain SSDs. High Performance also has more cores for the money than High Frequency. The <a href="/sizing">sizing guide</a> works out what your group needs; this is the plan it picks for each group.</p>
+  {{template "provider-plans" $p}}
+  <p class="plan-note">Prices on {{checked}}, before tax. Vultr bills by the hour, up to these monthly prices.</p>
+  {{template "provider-cta" $p}}
+</section>
+
+<section aria-labelledby="create">
+  {{template "h2n" (dict "ID" "create" "N" 2 "Text" "Create the server")}}
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Products › Compute › Deploy" "Text" "In Vultr's console, with Shared CPU as the type.")
+    (dict "Title" "Pick the location nearest your friends" "Text" "Vultr has locations on six continents. Closer means lower ping.")
+    (dict "Title" "Pick High Performance and the size" "Text" "From the table. AMD and Intel cost the same.")
+    (dict "Title" "Configure Software: Ubuntu 24.04 LTS x64" "Text" "Add your SSH key if you have one, then Deploy. The server's page shows its IP address and root password.")
+  ))}}
+  <p>Playkeeper also runs on {{systemRanges}}, on x86_64 or 64-bit ARM. Vultr's High Performance plans are x86_64.</p>
+</section>
+
+<section aria-labelledby="ports">
+  {{template "h2n" (dict "ID" "ports" "N" 3 "Text" "Open the ports")}}
+  <p>Vultr's Ubuntu image turns on ufw with only SSH allowed. The installer allows 8443, 25565 and 80 in it for you; open the rest yourself as you need them, such as <code>sudo ufw allow 24454/udp</code> for voice chat or <code>sudo ufw allow 25566/tcp</code> for a second server. A Vultr Firewall group is optional; if you add one, it needs every port you use:</p>
+  {{template "provider-ports"}}
+</section>
+
+<section aria-labelledby="run">
+  {{template "h2n" (dict "ID" "run" "N" 4 "Text" "Run the one command")}}
+  {{template "provider-install" (dict "Console" "Vultr's web console")}}
+</section>
+
+<section aria-labelledby="address">
+  {{template "h2n" (dict "ID" "address" "N" 5 "Text" "A free address for your friends" "Toc" "A free address")}}
+  <p><strong>Machine settings › Address</strong> gives the server a free <em>yourname</em>.playkeeper.me name with a real certificate: the browser warning goes away, and friends join at a name instead of an IP address. Then <strong>New invite link</strong> on a server's Players tab: a friend opens it, types their Minecraft name and is on the allowlist.</p>
+  {{template "cardshot" (dict "Name" "post-address" "Alt" "A server's join address at its free name, and who's playing now." "Sizes" $shot "Class" "shot-730")}}
+</section>
+
+<section aria-labelledby="copies">
+  {{template "h2n" (dict "ID" "copies" "N" 6 "Text" "Keep copies off the server" "Toc" "Copies off the server")}}
+  <p><strong>World › Backup rules › Copies somewhere else</strong> encrypts every backup on the server, then sends it to S3-compatible storage or to another machine over SFTP. Vultr's Object Storage is S3-compatible: pick <strong>Other S3-compatible storage</strong> and enter its endpoint, like https://ams1.vultrobjects.com, the bucket and an access key. A copy at another company, such as Backblaze B2 or Cloudflare R2 (both have presets), also survives a problem with your Vultr account. Keep the recovery key somewhere other than the server.</p>
+</section>
+
+<section aria-labelledby="cost">
+  {{template "h2n" (dict "ID" "cost" "N" 7 "Text" "What it costs")}}
+  <p>Playkeeper and its playkeeper.me address are free; the server is the only bill. For {{$g.FirstBand}} friends on {{$g.FirstRun}}, a {{$plan.Name}} plan with {{$plan.CPUs}} vCPU and {{$plan.MemoryGB}} GB is {{usd $plan.USD}} a month, billed by the hour (prices on {{checked}}). Vultr's own automatic backups of the whole server are optional and cost extra.</p>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "High Performance, High Frequency or Regular?" "High Performance. Regular Performance has older cores and plain SSDs; High Frequency costs the same for the same memory, with fewer cores, and every server after the first wants a core of its own.")
+    (qa "Can I move to a bigger plan later?" "Yes: the server's Settings › Change Plan. Vultr can't move a server to a smaller plan, so start with the size the table suggests.")
+    (qa "Which location?" "The one nearest most of your friends. Their ping to the server matters more than yours.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/guides/hostinger-minecraft-server" "/guides/digitalocean-minecraft-server" "/sizing")}}{{end}}

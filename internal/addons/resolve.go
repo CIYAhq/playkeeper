@@ -52,6 +52,9 @@ type candidate struct {
 	External  string
 	deps      []dep
 	notes     string // the author's Markdown notes for the version
+	// own is set for a build for the server's own platform, rather than one
+	// whose add-ons it runs too (Target.own).
+	own bool
 	// geyser is the GeyserMC project and platform whose newest build a
 	// Hangar version links to, until followGeyser pins the build; after,
 	// the file comes from GeyserMC's server (Library.stepHosts).
@@ -223,6 +226,7 @@ func (l *Library) candidates(ctx context.Context, t Target, mc string, p *projec
 		}
 	}
 	slices.SortStableFunc(out, func(a, b candidate) int { return b.Published.Compare(a.Published) })
+	preferOwnBuilds(out)
 	return out, nil
 }
 
@@ -271,6 +275,56 @@ func (l *Library) followGeyser(ctx context.Context, cands []candidate) error {
 // geyserName is how messages name GeyserMC, which publishes the files and
 // hashes of its projects.
 const geyserName = "GeyserMC"
+
+// preferOwnBuilds puts the builds of one release for the server's own
+// platform ahead of its builds for another: BlueMap publishes 5.28-paper and
+// then 5.28-spigot, and a Paper server takes the first. Releases keep the
+// order of their newest build, so a newer release built only for another
+// platform still comes first.
+func preferOwnBuilds(cs []candidate) {
+	first := map[string]int{} // by release: where its newest build is
+	group := map[string]int{} // by version id: its release's first
+	for i, c := range cs {
+		r := c.release()
+		if _, ok := first[r]; !ok {
+			first[r] = i
+		}
+		group[c.VersionID] = first[r]
+	}
+	other := func(c candidate) int {
+		if c.own {
+			return 0
+		}
+		return 1
+	}
+	slices.SortStableFunc(cs, func(a, b candidate) int {
+		return cmp.Or(cmp.Compare(group[a.VersionID], group[b.VersionID]), cmp.Compare(other(a), other(b)))
+	})
+}
+
+// platformWords are the platforms projects name in a build's version
+// number: BlueMap's 5.28-spigot, Simple Voice Chat's quilt-2.6.22+26.2.
+var platformWords = map[string]bool{
+	"paper": true, "purpur": true, "folia": true, "spigot": true, "bukkit": true, "sponge": true,
+	"fabric": true, "quilt": true, "neoforge": true, "forge": true,
+}
+
+// release is the candidate's version number without platform names, which
+// its builds for other platforms share.
+func (c candidate) release() string {
+	var words []string
+	for _, w := range strings.FieldsFunc(strings.ToLower(c.Number), func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '.'
+	}) {
+		if !platformWords[w] {
+			words = append(words, w)
+		}
+	}
+	if len(words) == 0 {
+		return c.Number
+	}
+	return strings.Join(words, "-")
+}
 
 // hangarPages is the most pages of a project's version list the library
 // reads looking for a release that fits.
@@ -429,7 +483,7 @@ func modrinthCandidate(p *project, v *modrinth.Version, t Target, mc string) (ca
 		return candidate{}, false
 	}
 	c := candidate{project: *p, VersionID: v.ID, Number: v.VersionNumber, Channel: modrinthChannel(v.VersionType), Published: v.DatePublished,
-		FileName: f.Filename, URL: f.URL, HashAlgo: "sha512", Hash: f.Hashes.SHA512, Size: f.Size, notes: v.Changelog}
+		FileName: f.Filename, URL: f.URL, HashAlgo: "sha512", Hash: f.Hashes.SHA512, Size: f.Size, notes: v.Changelog, own: overlaps(v.Loaders, t.ownLoaders())}
 	for _, d := range v.Dependencies {
 		switch d.DependencyType {
 		case modrinth.Required, modrinth.Optional, modrinth.Incompatible:
@@ -463,7 +517,7 @@ func hangarCandidate(p *project, v *hangar.Version, t Target, mc string) (candid
 	default:
 		ch = "beta"
 	}
-	c := candidate{project: *p, VersionID: strconv.FormatInt(v.ID, 10), Number: v.Name, Channel: ch, Published: v.CreatedAt, notes: v.Description}
+	c := candidate{project: *p, VersionID: strconv.FormatInt(v.ID, 10), Number: v.Name, Channel: ch, Published: v.CreatedAt, notes: v.Description, own: true}
 	switch {
 	case d.FileInfo != nil && d.DownloadURL != "":
 		c.FileName, c.URL, c.HashAlgo, c.Hash, c.Size = d.FileInfo.Name, d.DownloadURL, "sha256", d.FileInfo.SHA256Hash, d.FileInfo.SizeBytes

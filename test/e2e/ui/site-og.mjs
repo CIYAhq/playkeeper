@@ -25,6 +25,9 @@ const previews = {
   'play-minecraft-with-friends': { eyebrow: 'Guide', title: 'How to play Minecraft Java with friends', pip: 'pip-cheer' },
   'minecraft-server-cost': { eyebrow: 'Guide', title: 'What a Minecraft server really costs', pip: 'pip-search' },
   sizing: { eyebrow: 'Guide', title: 'How much RAM does a Minecraft server need?', pip: 'pip-search' },
+  'hostinger-minecraft-server': { eyebrow: 'Guide', title: 'How to host a Minecraft server on Hostinger', pip: 'pip-hardhat' },
+  'digitalocean-minecraft-server': { eyebrow: 'Guide', title: 'How to host a Minecraft server on DigitalOcean', pip: 'pip-hardhat' },
+  'vultr-minecraft-server': { eyebrow: 'Guide', title: 'How to host a Minecraft server on Vultr', pip: 'pip-hardhat' },
   docs: { eyebrow: 'Docs', title: 'Playkeeper docs', pip: 'pip-letter' },
   pricing: { eyebrow: 'Pricing', title: 'Free and open source. You only pay for your VPS.', pip: 'pip-box' },
   blog: { eyebrow: 'Blog', title: 'Releases, guides and building Playkeeper in public', pip: 'pip-letter' },
@@ -87,6 +90,21 @@ for (const file of fs.readdirSync(packs).filter((f) => f.endsWith('.json')).sort
   packPreviews[`modpack-${path.basename(file, '.json')}`] = { eyebrow: 'Modpack server', title: `How to make ${/^[aeiou]/i.test(label) ? 'an' : 'a'} ${label} server`, pip: 'pip-hardhat' }
 }
 for (const [name, p] of Object.entries(packPreviews)) {
+  if (!wanted(name)) continue
+  await tab.setContent(page(p), { waitUntil: 'load' })
+  await tab.screenshot({ path: path.join(out, `${name}.png`) })
+  console.log(name)
+}
+// The template library's previews carry their pages' headings, one per page
+// in site/data/library.
+const library = path.join(repo, 'site/data/library')
+const libraryPreviews = { templates: { eyebrow: 'Server templates', title: 'Minecraft server templates, one click each', pip: 'pip-cheer' } }
+for (const file of fs.readdirSync(library).filter((f) => f.endsWith('.json')).sort()) {
+  const id = path.basename(file, '.json')
+  const src = fs.readFileSync(path.join(repo, 'site/pages/templates', `${id}.html`), 'utf8')
+  libraryPreviews[`template-${id}`] = { eyebrow: 'Server template', title: src.match(/^h1:\s*(.+)$/m)[1], pip: 'pip-box' }
+}
+for (const [name, p] of Object.entries(libraryPreviews)) {
   if (!wanted(name)) continue
   await tab.setContent(page(p), { waitUntil: 'load' })
   await tab.screenshot({ path: path.join(out, `${name}.png`) })
