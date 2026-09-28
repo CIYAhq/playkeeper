@@ -62,7 +62,7 @@
     KEYS.forEach(function (k) { s[k] = (p.get(k) || '').split(',').filter(Boolean); });
     if (locked) s.mode = s.mode.filter(function (m) { return m !== locked; });
     s.memory = /^\d{1,3}$/.test(p.get('memory') || '') ? p.get('memory') : '';
-    s.sort = SORTS.hasOwnProperty(p.get('sort')) ? p.get('sort') : '';
+    s.sort = SORTS.hasOwnProperty(p.get('sort')) && (s.q || p.get('sort') !== 'relevance') ? p.get('sort') : '';
     s.page = parseInt(p.get('page'), 10) || (filtering(s) ? 1 : serverPage);
     return s;
   }
@@ -335,6 +335,8 @@
   // a step to the browser's history, as a new page does; typing and
   // filtering replace the current one.
   function draw(push) {
+    // Best match is only there while there's a search to match.
+    if (!state.q && state.sort === 'relevance') state.sort = '';
     var r = results(state);
     var total = r.list.length;
     var pages = Math.max(1, Math.ceil(total / PER_PAGE));

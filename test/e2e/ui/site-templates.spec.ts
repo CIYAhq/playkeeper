@@ -30,10 +30,15 @@ test('the directory searches, filters and sorts every template, and keeps what i
   await page.locator('#dir-q').fill('luckperms')
   await expect.poll(() => names(page)).toContain('Towny')
   expect((await names(page)).length).toBeLessThan(all)
+  // Best match chosen by hand goes back to Popular with the search.
+  await page.locator('[data-sort-btn]').click()
+  await page.locator('.dir-sort-opt[data-value="relevance"]').click()
+  await expect(page).toHaveURL(/\/templates\?q=luckperms$/)
   await page.locator('.dir-chip', { hasText: 'luckperms' }).click()
   await expect(cards(page)).toHaveCount(all)
   await expect(page.locator('#dir-q')).toHaveValue('')
   await expect(page).toHaveURL(/\/templates$/)
+  await expect(page.locator('[data-sort-label]')).toHaveText('Popular')
 
   // Game modes are any of those chosen, the most popular first, and a
   // reload keeps them.
