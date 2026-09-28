@@ -41,10 +41,10 @@ test: test-go test-web test-sh ## Go, web and installer-script unit tests
 
 # The agent's tests take longer than go test's default ten minutes on CI runners.
 test-go:
-	go test -count=1 -timeout 30m $(GO_PKGS)
+	go test -count=1 -timeout 30m $$(scripts/quarantine.sh skip) $(GO_PKGS)
 
 test-go-other: ## Go unit tests of every package but the agent's
-	go test -count=1 -timeout 30m $$(go list $(GO_PKGS) | grep -v '/internal/agent$$')
+	go test -count=1 -timeout 30m $$(scripts/quarantine.sh skip) $$(go list $(GO_PKGS) | grep -v '/internal/agent$$')
 
 # The agent's tests mostly wait on timers, so they run in shards side by
 # side, balanced by the times in scripts/agent-test-times.txt.
@@ -58,6 +58,7 @@ test-sh:
 	bash packaging/get_test.sh
 	bash scripts/setup_test.sh
 	bash scripts/package_test.sh
+	bash scripts/quarantine_test.sh
 	bash scripts/demo-marker_test.sh
 	bash scripts/go-test-shard_test.sh
 	bash scripts/ci-parts_test.sh
