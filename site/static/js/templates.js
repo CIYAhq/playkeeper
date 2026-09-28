@@ -402,10 +402,12 @@
   });
   $$('[data-clear]', root).forEach(function (b) { b.addEventListener('click', clearAll); });
 
-  // Pages: drawn here while a search, filter or sort is chosen.
+  // Pages: drawn here while a search, filter or sort is chosen; otherwise a
+  // link loads the list's own page, whose heading says which it is.
   pagesNav.addEventListener('click', function (e) {
     var a = e.target.closest('a[data-page], a.dir-page');
     if (!a || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (!filtering(state) && sortOf(state) === 'popular') return;
     var n = parseInt(a.getAttribute('data-page') || (a.href.match(/\/page\/(\d+)/) || [])[1] || (a.href.match(/[?&]page=(\d+)/) || [])[1] || '1', 10);
     e.preventDefault();
     state.page = n;
