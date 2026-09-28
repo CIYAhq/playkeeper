@@ -490,6 +490,11 @@ func (l *Library) addOverrides(p *pack, entries map[string]*zip.File, world stri
 		}
 		p.files[rel] = &packFile{path: rel, origin: Override, name: path.Base(rel), on: true, world: c == classWorld, size: n, sums: sums, entry: e}
 	}
+	// On a server's first start the mod uses these settings instead of the
+	// pack's server.properties, so they win.
+	if e := entries[DefaultPropertiesName]; e != nil {
+		l.readProperties(p, e)
+	}
 	return nil
 }
 
@@ -555,7 +560,7 @@ func (l *Library) readProperties(p *pack, e *zip.File) {
 	if err != nil {
 		return
 	}
-	props, dropped := suggestions(b)
+	props, dropped := Suggestions(b)
 	maps.Copy(p.properties, props)
 	if len(dropped) > 0 {
 		p.warn(notice(KindProperties, kv("pack", p.info.Name, "settings", strings.Join(dropped, ", ")),

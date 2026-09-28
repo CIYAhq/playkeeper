@@ -1,0 +1,33 @@
+{
+  "status": "passing",
+  "checked": "2026-09-28",
+  "release": "0.4.2",
+  "build": "129",
+  "doneSeconds": 12.303,
+  "addons": [
+    {
+      "name": "LifeStealZ",
+      "source": "modrinth",
+      "slug": "lifestealz",
+      "version": "2.21.1",
+      "licence": "GPL-3.0-only",
+      "downloads": 417264
+    },
+    {
+      "name": "Chunky",
+      "source": "modrinth",
+      "slug": "chunky",
+      "version": "1.5.3",
+      "licence": "GPL-3.0-only",
+      "downloads": 18377066
+    },
+    {
+      "name": "CoreProtect",
+      "source": "modrinth",
+      "slug": "coreprotect",
+      "version": "24.1",
+      "licence": "Artistic-2.0",
+      "downloads": 527690
+    }
+  ]
+}

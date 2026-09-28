@@ -399,6 +399,35 @@ func TestServerEnvironmentAndOptionalFiles(t *testing.T) {
 	}
 }
 
+// A pack's default-server.properties, which the Default Server Properties
+// mod puts in place of all of server.properties on the first start, never
+// goes on the server. Its settings are taken like server.properties' and
+// win over them, as they would with the mod; the console, the allowlist and
+// the other settings Playkeeper writes are never taken from it.
+func TestDefaultServerPropertiesStayOffTheServer(t *testing.T) {
+	f := newFakes(t)
+	l := f.library()
+	id := f.addPack(testIndex(),
+		entry{name: "overrides/server.properties", data: []byte("difficulty=easy\nallow-flight=false\n")},
+		entry{name: "overrides/default-server.properties", data: []byte("allow-flight=true\nallow-nether=false\nspawn-protection=512\n" +
+			"enable-rcon=false\nwhite-list=false\nmotd=A pack server\nbug-report-link=\n")},
+		entry{name: "overrides/config/ok.txt", data: []byte("ok")})
+	srv := newServer(t, "fabric", "26.2")
+	p := mustPlan(t, l, srv, InstallRequest{Ref: testRef(id)})
+	wantList(t, "changes", changeList(p.Changes), "add config/ok.txt")
+	wantList(t, "skipped", skippedList(p.Skipped), "protected_path default-server.properties", "protected_path server.properties")
+	sameJSON(t, "suggested settings", p.Properties, map[string]string{
+		"allow-flight": "true", "allow-nether": "false", "difficulty": "easy", "spawn-protection": "512",
+	})
+	wantList(t, "warnings", noticeList(p.Warnings),
+		"server_properties: Test Pack ships server settings that Playkeeper does not take from packs: bug-report-link, enable-rcon, motd, white-list.")
+	res := mustInstall(t, l, srv, InstallRequest{Ref: testRef(id)})
+	wantTree(t, srv.Dir, "config/", "config/ok.txt")
+	if res.Record.Owns(DefaultPropertiesName) {
+		t.Error("the record lists default-server.properties")
+	}
+}
+
 func TestProtectedClientAndWorldFiles(t *testing.T) {
 	f := newFakes(t)
 	l := f.library()

@@ -13,8 +13,8 @@
     "memoryMB": 4096
   },
   "addons": [
-    { "source": "modrinth", "project": "Vebnzrzj", "slug": "luckperms", "name": "LuckPerms", "latest": true },
-    { "source": "modrinth", "project": "Vs77PB2W", "slug": "towny", "name": "Towny", "latest": true },
-    { "source": "modrinth", "project": "fALzjamp", "slug": "chunky", "name": "Chunky", "latest": true }
+    { "source": "modrinth", "project": "Vebnzrzj", "slug": "luckperms", "name": "LuckPerms", "pin": { "versionId": "b0mk8uS6", "versionNumber": "v5.5.71-bukkit", "channel": "release", "hashAlgo": "sha512", "hash": "188a91f0a543d23bfda32385fca6db63d61e49c8a422bd452a260bd9cbc6a7d7fe45071199e9fca8f3ce43c2b41ee84fd315bd15464577028ff3951a7d4fab27" } },
+    { "source": "modrinth", "project": "Vs77PB2W", "slug": "towny", "name": "Towny", "pin": { "versionId": "pra46LOM", "versionNumber": "0.103.2.0", "channel": "release", "hashAlgo": "sha512", "hash": "68afbe2c19a611d2366705959e9d32df0a5f88e656d1e8c8334c166ada36d6ffa500db00fe3990ac4e5483786aafb20c686d5daadc55afae0b79dddeb0139c2f" } },
+    { "source": "modrinth", "project": "fALzjamp", "slug": "chunky", "name": "Chunky", "pin": { "versionId": "MdY6JATr", "versionNumber": "1.5.3", "channel": "release", "hashAlgo": "sha512", "hash": "43ffecc6e6a734b752da41575bbb316526c124c3f878942437d5133c377bfbd9b78bda975520dc074d7158c15dade58a444ccd0fd8d8a25d165b6fc450140422" } }
   ]
 }

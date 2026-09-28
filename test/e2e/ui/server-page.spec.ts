@@ -89,6 +89,10 @@ const rules = [
   '',
   'Unofficial. Not affiliated with Anthropic or Mojang.',
 ].join('\n')
+// serve() freezes the page's clock at this instant, and the scenes' times are
+// written against it, so a countdown or an "updated … ago" reads the same
+// however long the run takes.
+const clockAt = Date.parse('2026-10-03T12:00:00Z')
 const milestones = ['Crafting table', 'Stone mined', 'Stone pickaxe', 'Iron smelted', 'Iron pickaxe', 'Iron armour', 'Lava bucket', 'Diamonds found', 'Obsidian', 'Nether reached', 'Fortress found', 'Blaze rod', 'Stronghold found', 'The End reached', 'Ender Dragon killed']
 const board = {
   headline: 'Day 3 · Nether reached',
@@ -102,14 +106,14 @@ const board = {
     { label: 'Players', value: '1,204' },
   ],
   checklist: milestones.map((label, i) => ({ label, done: i < 10 })),
-  updatedAt: new Date(Date.now() - 40_000).toISOString(),
+  updatedAt: new Date(clockAt - 40_000).toISOString(),
 }
 const stream = { site: 'twitch' as const, channel: 'example_channel', url: 'https://www.twitch.tv/example_channel' }
 
 const pages = {
   event: { address: 'ai.playkeeper.me', servers: [event] },
   eventLive: { address: 'ai.playkeeper.me', servers: [{ ...event, about: rules, stream, board }] },
-  eventBetween: { address: 'ai.playkeeper.me', servers: [{ ...event, state: 'offline', players: undefined, about: rules, stream, board: { ...board, live: false, next: new Date(Date.now() + (3 * 60 + 12) * 60_000 + 30_000).toISOString() } }] },
+  eventBetween: { address: 'ai.playkeeper.me', servers: [{ ...event, state: 'offline', players: undefined, about: rules, stream, board: { ...board, live: false, next: new Date(clockAt + (3 * 60 + 12) * 60_000).toISOString() } }] },
   modded: { address: 'siya.playkeeper.me', servers: [modded] },
   asleep: { address: 'alex.playkeeper.me', servers: [asleep] },
   offline: { address: 'alex.playkeeper.me', servers: [{ ...asleep, state: 'offline' }] },
@@ -126,6 +130,7 @@ type Scene = keyof typeof pages | 'gone'
 
 /** Serves the built UI as the panel's public listener does, with the page's calls faked. */
 async function serve(page: Page, scene: Scene) {
+  await page.clock.setFixedTime(clockAt)
   await page.route(/\/$/, async (route) => {
     const res = await route.fetch()
     const html = (await res.text()).replace('<div id="root"></div>', '<div id="root" data-page="server"></div>')
@@ -317,21 +322,28 @@ test.describe('the Public page group in a server’s Settings', () => {
     })
     await page.goto('/servers/survival/settings#page')
     const group = page.locator('#page')
-    const save = group.getByRole('button', { name: 'Save' })
+    const saveAbout = group.getByRole('button', { name: 'Save About' })
+    const saveStream = group.getByRole('button', { name: 'Save stream' })
+    await expect(saveAbout).toBeVisible()
+    await expect(saveStream).toBeVisible()
+    // Each Save says what it saves. A bare "Save [disabled]" is the file
+    // editor's, and the click-through counts a control once, on the first
+    // page that has it, so the editor on a phone fell under its minimum.
+    await expect(group.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0)
 
     await group.getByRole('textbox', { name: 'About' }).fill('Be kind.\nUnofficial. Not affiliated with Anthropic or Mojang.')
     await expect(group.getByText('61/600')).toBeVisible()
-    await save.first().click()
+    await saveAbout.click()
     await expect(page.getByText('Saved to Survival’s public page')).toBeVisible()
     expect(posted).toEqual([{ about: 'Be kind.\nUnofficial. Not affiliated with Anthropic or Mojang.' }])
 
     const link = group.getByRole('textbox', { name: 'Live stream' })
     await link.fill('https://evil.example/claude')
-    await save.last().click()
+    await saveStream.click()
     await expect(group.getByRole('alert')).toContainText('That isn’t a Twitch or YouTube channel link.')
     await link.fill('twitch.tv/Example_Channel')
     await expect(group.getByRole('alert')).toHaveCount(0)
-    await save.last().click()
+    await saveStream.click()
     await expect(link).toHaveValue('https://www.twitch.tv/example_channel')
 
     await expect(group.getByText('“Day 3 · Nether reached”, posted 5 min ago.')).toBeVisible()
