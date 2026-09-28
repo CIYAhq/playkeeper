@@ -98,13 +98,14 @@ schema: article
     (qa "Is Better MC Forge or Fabric?" (printf "Each edition has its own loader: BMC5 %s, BMC4 Forge and BMC2 Fabric." $m.TypeName))
     (qa "Why is the server slow when we explore?" "BMC5 generates a lot per chunk. Pre-generate the world before you play, and keep the view distance moderate.")
   ))}}
-  {{if $m.OneClick}}<section class="tpl-section" aria-labelledby="tpl-title">
+  {{$older := shown "better-mc-4" "better-mc-2"}}
+  {{if or $m.OneClick $older}}<section class="tpl-section" aria-labelledby="tpl-title">
     <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
-    <div class="tpl-pair">
+    {{if $m.OneClick}}<div class="tpl-pair">
       {{template "pack-card" (dict "Pack" $m)}}
       {{if $other.OneClick}}{{template "pack-card" (dict "Pack" $other)}}{{end}}
-    </div>
-    {{if shown "better-mc-4" "better-mc-2"}}<div class="tpl-pair">
+    </div>{{end}}
+    {{if $older}}<div class="tpl-pair">
       {{template "template-card" (dict "ID" "better-mc-4")}}
       {{template "template-card" (dict "ID" "better-mc-2")}}
     </div>{{end}}
