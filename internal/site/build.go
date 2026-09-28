@@ -53,6 +53,7 @@ type Site struct {
 	byPath  map[string]*Page
 	assets  assets
 	cards   map[string]*TemplateCard
+	packs   map[string]*Modpack
 	docs    *docsBuild
 	posts   []*Page
 	sizing  SizingGuide
@@ -73,6 +74,9 @@ func Build(o Options) (*Output, error) {
 		return nil, err
 	}
 	if s.cards, err = loadTemplateCards(o.Root, "site/data/templates"); err != nil {
+		return nil, err
+	}
+	if s.packs, err = loadModpacks(o.Root, "site/data/modpacks", s.cards); err != nil {
 		return nil, err
 	}
 	if s.pages, err = loadPages(o.Root, "site/pages"); err != nil {
@@ -349,8 +353,11 @@ func (s *Site) crumbs(p *Page) []Crumb {
 			}
 		}
 	}
-	if p.Crumb == "Blog" {
+	switch p.Crumb {
+	case "Blog":
 		parent.Path = "/blog"
+	case "Modpacks":
+		parent.Path = "/modpacks"
 	}
 	return []Crumb{parent, {Label: p.Label, Path: p.Path}}
 }
@@ -657,5 +664,12 @@ func (s *Site) funcs() template.FuncMap {
 			}
 			return strings.ToUpper(s[:1]) + s[1:]
 		},
+		// modpack is a pack a /modpacks page is about (site/data/modpacks),
+		// and modpacks every pack with a page.
+		"modpack":   s.modpack,
+		"modpacks":  s.modpackList,
+		"megabytes": megabytes,
+		"gb":        gigabytes,
+		"gbFlag":    gbFlag,
 	}
 }

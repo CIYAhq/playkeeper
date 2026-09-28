@@ -1,0 +1,79 @@
+{{/* The blocks of the pages under /modpacks. Each pack's facts are in
+     site/data/modpacks and come in through modpack; what the release works
+     out from them (Java, memory) is worked out as the dashboard does. */}}
+
+{{/* modpack-facts: what a pack's server needs, as a table. Pack is the pack
+     (modpack "id"); Version the release the install plan was checked with. */}}
+{{define "modpack-facts"}}{{$m := .Pack}}
+<div class="table-scroll" tabindex="0">
+  <table class="data">
+    <caption class="visually-hidden">What a {{$m.Label}} server needs</caption>
+    <tbody>
+      <tr><th scope="row">Pack version</th><td>{{$m.Version}}, released {{day $m.Released}}</td></tr>
+      <tr><th scope="row">Minecraft</th><td>{{$m.Minecraft}}</td></tr>
+      <tr><th scope="row">Loader</th><td>{{range types}}{{if eq .ID $m.Type}}{{$i := img .Logo}}<span class="loader-cell"><img src="{{$i.URL}}" alt="" width="34" height="34"{{if .Pixel}} class="pixel"{{end}} loading="lazy">{{.Name}} {{$m.Loader}}</span>{{end}}{{end}}</td></tr>
+      <tr><th scope="row">Java</th><td>{{$m.Java}}</td></tr>
+      <tr><th scope="row">Memory</th><td>{{$m.Memory}}, as Playkeeper suggests it</td></tr>
+      <tr><th scope="row">Mods on the server</th><td>{{$m.Mods}}{{with $m.PlayerMods}}, and {{.}} more only players need{{end}}</td></tr>
+      <tr><th scope="row">Download</th><td>{{$m.DownloadSize}}</td></tr>
+      <tr><th scope="row">Server files</th><td>{{with $m.ServerFiles}}<a href="{{.URL}}">{{.Name}}</a>, {{megabytes .MB}}{{else}}None: servers are built from the pack itself{{end}}</td></tr>
+      <tr><th scope="row">From</th><td><a href="{{$m.Page}}">{{$m.SourceName}}</a>, by {{$m.Author}}, {{$m.DownloadCount}} downloads</td></tr>
+      <tr><th scope="row">Checked</th><td>{{day $m.Checked}}, on {{$m.SourceName}} and with Playkeeper {{.Version}}'s install plan</td></tr>
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{/* pack-card: a pack's template, opened in the visitor's own dashboard
+     through /t, in the template cards' design. Pack is the pack. */}}
+{{define "pack-card"}}{{$m := .Pack}}{{$c := card $m.Template}}{{$a := img $c.Art}}
+<article class="tpl-card reveal">
+  <div class="tpl-art"><img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}" loading="lazy" decoding="async"></div>
+  <div class="tpl-body">
+    <h3 class="tpl-name">{{$c.Name}}</h3>
+    <p class="tpl-facts"><span class="wide-only">{{$c.Facts}}</span><span class="phone-only">{{$c.Short}}</span></p>
+    <p class="tpl-holds wide-only">{{$m.Label}} {{$m.Version}}, {{$m.Mods}} mods on the server</p>
+    <a class="link-arrow tpl-open" href="{{$c.Link}}"><span class="wide-only">Open in my dashboard</span><span class="phone-only">Open</span>{{template "icon" "arrow-right"}}<span class="visually-hidden"> the {{$c.Name}} template</span></a>
+  </div>
+</article>
+{{end}}
+
+{{/* modpack-docker: the pack's server by hand in the itzg image, the one
+     Playkeeper runs servers in. Pack is a Modrinth pack; Slug its project's
+     name in addresses; Exclude, when given, the client mods to leave out. */}}
+{{define "modpack-docker"}}{{$m := .Pack}}
+<div class="codeblock">
+  <div class="code-head">
+    <div class="code-tabs" role="tablist" aria-label="How">
+      <button type="button" class="code-tab" role="tab" id="tab-docker" aria-controls="code-docker" aria-selected="true">Docker</button>
+      <button type="button" class="code-tab" role="tab" id="tab-mrpack" aria-controls="code-mrpack" aria-selected="false" tabindex="-1">mrpack-install</button>
+    </div>
+    <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+  </div>
+<pre id="code-docker" role="tabpanel" tabindex="0" aria-labelledby="tab-docker"><span class="c"># {{$m.Label}} {{$m.Version}} with Java {{$m.Java}} and {{$m.Memory}}</span>
+docker run -d --name {{.Slug}} -p 25565:25565 \
+  -e EULA=TRUE -e MEMORY={{$m.MemoryMB | gbFlag}} \
+  -e TYPE=MODRINTH -e MODRINTH_MODPACK={{.Slug}} -e MODRINTH_VERSION={{$m.Version}} \{{with .Exclude}}
+  -e MODRINTH_EXCLUDE_FILES="{{.}}" \{{end}}
+  -v {{.Slug}}-data:/data itzg/minecraft-server:java{{$m.Java}}</pre>
+<pre id="code-mrpack" role="tabpanel" tabindex="0" aria-labelledby="tab-mrpack" hidden><span class="c"># Writes the server, {{$m.TypeName}} and the mods into ./{{.Slug}}</span>
+mrpack-install {{.Slug}} {{$m.Version}} --server-dir {{.Slug}}
+<span class="c"># Then start it with Java {{$m.Java}} and accept the EULA in eula.txt</span></pre>
+</div>
+{{end}}
+
+{{/* modpack-table: every pack with a page, and what its server needs; on
+     phones each pack is a card. Caption says when and how it was checked. */}}
+{{define "modpack-table"}}
+<div class="table-scroll" tabindex="0">
+  <table class="compare stack">
+    <caption>{{.Caption}}</caption>
+    <thead><tr><td></td><th scope="col">Loader</th><th scope="col">Minecraft</th><th scope="col">Java</th><th scope="col">Memory</th><th scope="col">Mods on the server</th></tr></thead>
+    <tbody>
+      {{range modpacks}}
+      <tr><th scope="row"><a href="{{.Path}}">{{.Name}}</a> {{.Version}}</th><td data-col="Loader">{{.TypeName}} {{.Loader}}</td><td data-col="Minecraft">{{.Minecraft}}</td><td data-col="Java">{{.Java}}</td><td data-col="Memory">{{.Memory}}</td><td data-col="Mods">{{.Mods}}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

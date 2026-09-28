@@ -1,0 +1,24 @@
+{
+  "name": "All the Mods 10",
+  "short": "ATM10",
+  "source": "curseforge",
+  "project": "925200",
+  "page": "https://www.curseforge.com/minecraft/modpacks/all-the-mods-10",
+  "author": "ATMTeam",
+  "downloads": 21974138,
+  "version": "8.2",
+  "released": "2026-09-22",
+  "type": "neoforge",
+  "loader": "21.1.251",
+  "minecraft": "1.21.1",
+  "mods": 464,
+  "downloadMB": 1360,
+  "heapMB": 8192,
+  "serverFiles": {
+    "name": "ServerFiles-8.2.zip",
+    "url": "https://www.curseforge.com/minecraft/modpacks/all-the-mods-10/files/8945094",
+    "mb": 1219,
+    "mods": 464
+  },
+  "checked": "2026-09-28"
+}
