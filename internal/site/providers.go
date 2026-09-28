@@ -21,10 +21,13 @@ type Provider struct {
 	Regions string
 	// URL is the page listing its plans.
 	URL string
-	// Partner is Playkeeper's link to that page through the provider's
-	// affiliate or referral program, which earns a commission, and Program
-	// says which of the two it is. Pages link URL while Partner is empty,
-	// and say who pays them beside every partner link.
+	// Partner is Playkeeper's link to the provider through its affiliate or
+	// referral program, which earns a commission, and Program says which of
+	// the two it is. Pages link URL while Partner is empty, and say who pays
+	// them beside every partner link. A partner link on a host other than
+	// the provider's own also needs that host in recordEvents in
+	// test/e2e/ui/site.spec.ts, or the analytics test follows it off the
+	// machine.
 	Partner, Program string
 	// TermMonths is how many months a first price is paid upfront for, when
 	// the provider sells by the term rather than by the month.
@@ -140,13 +143,6 @@ func (p Provider) Disclosure() string {
 // sells by the term.
 func (p Provider) Upfront(pl Plan) float64 { return pl.USD * float64(p.TermMonths) }
 
-// partnerPlaceholder stands in for a partner link its program hasn't issued
-// yet. In the fragment, it leaves the link on the provider's plans, earning
-// nothing; every one must become the program's own link before the site is
-// deployed. A link on another host also needs that host in recordEvents in
-// test/e2e/ui/site.spec.ts, or the analytics test follows it off the machine.
-const partnerPlaceholder = "#partner-link-placeholder"
-
 // providers were picked on merit for Minecraft (docs/marketing, plan.md):
 // fast cores, NVMe disks, enough memory for the sizing guide's answers and
 // regions near your friends. Each gets its line that suits Minecraft best:
@@ -161,7 +157,6 @@ var providers = []Provider{
 		Guide:      "/guides/hostinger-minecraft-server",
 		Regions:    "Regions in the Americas, Europe and Asia",
 		URL:        "https://www.hostinger.com/vps-hosting",
-		Partner:    "https://www.hostinger.com/vps-hosting" + partnerPlaceholder,
 		Program:    "affiliate",
 		TermMonths: 24,
 		Plans: []Plan{
@@ -173,7 +168,6 @@ var providers = []Provider{
 		Guide:   "/guides/digitalocean-minecraft-server",
 		Regions: "Regions on four continents",
 		URL:     "https://www.digitalocean.com/pricing/droplets",
-		Partner: "https://www.digitalocean.com/pricing/droplets" + partnerPlaceholder,
 		Program: "affiliate",
 		Plans: []Plan{
 			{"Premium AMD", 2, 4, 28, 0, 80}, {"Premium AMD", 2, 8, 42, 0, 100}, {"Premium AMD", 4, 8, 56, 0, 160},
@@ -185,7 +179,7 @@ var providers = []Provider{
 		Guide:   "/guides/vultr-minecraft-server",
 		Regions: "Regions on six continents",
 		URL:     "https://www.vultr.com/pricing/",
-		Partner: "https://www.vultr.com/pricing/" + partnerPlaceholder,
+		Partner: "https://www.vultr.com/?ref=9925286",
 		Program: "referral",
 		Plans: []Plan{
 			{"High Performance", 2, 4, 24, 0, 100}, {"High Performance", 4, 8, 48, 0, 180}, {"High Performance", 4, 12, 72, 0, 260},
@@ -207,25 +201,38 @@ func provider(name string) (*Provider, error) {
 	return nil, fmt.Errorf("no provider %q in providers", name)
 }
 
-// partnerNote says which of the providers' links below it earn a commission;
-// empty when none does.
+// partnerNote says which of the providers' links below it earn a commission,
+// as referral links when every one is, affiliate links otherwise; empty when
+// none does.
 func partnerNote() string {
 	var names []string
+	kind := "referral"
 	for _, p := range providers {
 		if p.Partner != "" {
 			names = append(names, p.Name)
+			if p.Program != "referral" {
+				kind = "affiliate"
+			}
 		}
 	}
-	const earns = " Playkeeper earns a commission when you buy through them, at no extra cost to you. It never changes which providers we list or how we order them."
+	const rest = ", at no extra cost to you. It never changes which providers we list or how we order them."
 	switch len(names) {
 	case 0:
 		return ""
-	case len(providers):
-		return "The links below are affiliate links:" + earns
 	case 1:
-		return "The " + names[0] + " link below is an affiliate link:" + earns
+		return "The " + names[0] + " link below is " + article(kind) + " " + kind + " link: Playkeeper earns a commission when you buy through it" + rest
+	case len(providers):
+		return "The links below are " + kind + " links: Playkeeper earns a commission when you buy through them" + rest
 	}
-	return "The " + andList(names) + " links below are affiliate links:" + earns
+	return "The " + andList(names) + " links below are " + kind + " links: Playkeeper earns a commission when you buy through them" + rest
+}
+
+// article is "an" before a vowel and "a" otherwise, as in "an affiliate link".
+func article(word string) string {
+	if strings.ContainsRune("aeiou", rune(word[0])) {
+		return "an"
+	}
+	return "a"
 }
 
 // systemRanges names the systems Playkeeper runs on by the releases it's

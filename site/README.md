@@ -59,7 +59,7 @@ Funnels in the analytics are built from pages and these custom events. Each also
 
 `providers` in `internal/site/providers.go` are the VPS providers the site suggests: the cards under "VPS that fit" on `/sizing` and the Aternos page, and a setup guide each (`pages/guides/<provider>-minecraft-server.html`). Each lists the plans that suit Minecraft, cheapest first, with the price and the day it was checked; the cards show plan names only, and the guides show prices with that day. The plan a card or guide shows is the cheapest that fits the sizing guide's answer.
 
-`Partner` is the provider's affiliate or referral link. Every page that carries one says so before its first partner link: the note above the cards, or a guide's line under its title, which follows the page's `partner` setting. With `Partner` empty, the site links the provider's own page and says it earns nothing. A link that isn't issued yet holds `partnerPlaceholder` in its fragment, which still opens the provider's plans and earns nothing; replace it with the program's link before deploying. A partner link on another host, such as an affiliate network's, needs that host in `recordEvents` in `test/e2e/ui/site.spec.ts`.
+`Partner` is the provider's affiliate or referral link. Every page that carries one says so before its first partner link: the note above the cards, or a guide's line under its title, which follows the page's `partner` setting. With `Partner` empty, as while a program hasn't approved Playkeeper, the site links the provider's own page with no disclosure. A partner link on another host, such as an affiliate network's, needs that host in `recordEvents` in `test/e2e/ui/site.spec.ts`.
 
 ### Channels
 

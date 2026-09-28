@@ -73,33 +73,38 @@ var reAnchor = regexp.MustCompile(`<a\s[^>]*>`)
 // A partner link is sponsored, and its page says who pays for it before the
 // first one: the note above the provider cards, or a guide's line at its top.
 // A provider without one gets its plain link and no claim of a commission.
-// That holds with every program on, with one, and with none.
+// That holds with every program on, with some, with one, and with none; the
+// note calls Vultr's alone a referral link.
 func TestPartnerLinksAreDisclosedFirst(t *testing.T) {
 	saved := slices.Clone(providers)
 	t.Cleanup(func() { providers = saved })
-	all := []string{"Hostinger", "DigitalOcean", "Vultr"}
-	for _, partners := range [][]string{all, {"Vultr"}, nil} {
+	for _, c := range []struct {
+		partners []string
+		note     string
+	}{
+		{[]string{"Hostinger", "DigitalOcean", "Vultr"}, "The links below are affiliate links: Playkeeper earns a commission when you buy through them,"},
+		{[]string{"Hostinger", "Vultr"}, "The Hostinger and Vultr links below are affiliate links: Playkeeper earns a commission when you buy through them,"},
+		{[]string{"Hostinger"}, "The Hostinger link below is an affiliate link: Playkeeper earns a commission when you buy through it,"},
+		{[]string{"Vultr"}, "The Vultr link below is a referral link: Playkeeper earns a commission when you buy through it,"},
+		{nil, ""},
+	} {
+		partners := c.partners
 		providers = slices.Clone(saved)
-		for i := range providers {
-			if !slices.Contains(partners, providers[i].Name) {
+		for i, p := range providers {
+			switch {
+			case !slices.Contains(partners, p.Name):
 				providers[i].Partner = ""
+			case p.Partner == "":
+				providers[i].Partner = p.URL + "?partner=test"
 			}
 		}
 		built := pages(build(t, Default))
 		note := template.HTMLEscapeString(partnerNote())
-		switch len(partners) {
-		case len(all):
-			if !strings.HasPrefix(partnerNote(), "The links below are affiliate links:") {
-				t.Errorf("with every program on, the note is %q", partnerNote())
-			}
-		case 1:
-			if !strings.HasPrefix(partnerNote(), "The Vultr link below is an affiliate link:") {
-				t.Errorf("with Vultr's program alone, the note is %q", partnerNote())
-			}
-		case 0:
-			if partnerNote() != "" || !strings.Contains(built["/sizing"], "No partner links: we earn nothing from these.") {
-				t.Errorf("with no program on, /sizing still claims a commission: %q", partnerNote())
-			}
+		if !strings.HasPrefix(partnerNote(), c.note) || (c.note == "") != (partnerNote() == "") {
+			t.Errorf("with %v on, the note is %q, want it to start %q", partners, partnerNote(), c.note)
+		}
+		if has := strings.Contains(built["/sizing"], "No partner links: we earn nothing from these."); has != (len(partners) == 0) {
+			t.Errorf("with %v on, /sizing says it earns nothing: %v", partners, has)
 		}
 		for path, html := range built {
 			for _, p := range providers {
