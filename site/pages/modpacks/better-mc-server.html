@@ -1,7 +1,7 @@
 {{/*
 path: /modpacks/better-mc-server
 title: How to make a Better MC server (BMC5, 2026)
-description: Set up a Better Minecraft server: BMC5 on NeoForge and Minecraft 1.21.1, Java 21, 6 to 8 GB of memory, and the two mods to delete before its first start.
+description: Set up a Better Minecraft server: BMC5 on NeoForge and Minecraft 1.21.1 with Java 21 and 6 to 8 GB of memory, or BMC4 and BMC2 on 1.20.1, in one click.
 label: Better MC server
 h1: How to make a Better MC server (BMC5)
 card: How to make a Better MC server
@@ -15,7 +15,7 @@ updated: 2026-09-28
 schema: article
 */}}
 
-{{define "short"}}{{$m := modpack "better-mc"}}Better MC for Minecraft {{$m.Minecraft}} is BMC5, its {{$m.TypeName}} edition: version {{$m.Version}} runs {{$m.TypeName}} {{$m.Loader}} with Java {{$m.Java}}. Give it {{$m.Memory}}, or {{gb (card $m.Template).MemoryMB}} for up to four friends. Two of the {{$m.Mods}} mods it sends to the server, Better Grassify and Distraction Free Recipes, are for players' games and stop the server at its first start, so delete them from its mods folder. The Forge and Fabric editions are on Minecraft 1.20.1.{{end}}
+{{define "short"}}{{$m := modpack "better-mc"}}Better MC for Minecraft {{$m.Minecraft}} is BMC5, its {{$m.TypeName}} edition: version {{$m.Version}} runs {{$m.TypeName}} {{$m.Loader}} with Java {{$m.Java}}. Give it {{$m.Memory}}, or {{gb (card $m.Template).MemoryMB}} for up to four friends. From Playkeeper {{$m.Release}}, the server gets {{$m.Mods}} of its mods and none of those only players need. The Forge and Fabric editions are on Minecraft 1.20.1.{{end}}
 
 {{define "closing-title"}}Better MC on your own server.{{end}}
 {{define "closing-sub"}}Free and open source. Friends get the same pack from one link.{{end}}
@@ -44,7 +44,7 @@ schema: article
       </tbody>
     </table>
   </div>
-  <p class="fine">Downloads checked {{day $m.Checked}}. Playkeeper runs Minecraft 1.20.1 from 0.4.4, and BMC4 and BMC2 from CurseForge started on it in a test on 28 Sep. Their Modrinth copies stop at the first start: one of their mods, Missing Mods Checker, opens a window, which a server can't.</p>
+  <p class="fine">Downloads checked {{day $m.Checked}}. Playkeeper runs all three from 0.4.4, from Modrinth or CurseForge. From Modrinth, BMC4 lists two mods only CurseForge's app can download, Bee Fix and Fixed Diagonal Walls, for you to add by hand; the server starts without them.</p>
 </section>
 
 <section aria-labelledby="world">
@@ -63,11 +63,11 @@ schema: article
   {{$open := "Search New server › A modpack"}}{{$either := "It's"}}{{if $m.OneClick}}{{$open = "Open the template below, or search New server › A modpack"}}{{$either = "Either way it's"}}{{end}}
   {{template "steps" (dict "Class" "shot-steps" "Items" (list
     (dict "Title" $open "Text" (printf "%s BMC5 %s. Your dashboard shows what it installs before anything happens." $either $m.Version))
-    (dict "Title" "Create it" "Text" (printf "Playkeeper downloads %s of mods, checks each against Modrinth's hash and adds the ones the pack carries itself. Its first start stops, because of two mods for players' games." $m.DownloadSize))
-    (dict "Title" "Delete two mods, then start it" "Text" "On the Files tab, open mods and delete Better Grassify and Distraction Free Recipes. On a test server on 28 Sep, the next start reached Done in 13.8 seconds.")
+    (dict "Title" "Create and start it" "Text" (printf "Playkeeper downloads %s of mods, checks each against Modrinth's hash, adds the ones the pack carries itself and leaves off the ones only players need." $m.DownloadSize))
+    (dict "Title" "Send friends the pack" "Text" "Share with friends on the Mods tab gives them the pack and their launcher's steps.")
   ))}}
   {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs." "Sizes" $article)}}
-  <p>The two files are <code>BetterGrassify-1.6.1+neoforge.1.21.1.jar</code> and <code>distraction_free_recipes-neoforge-1.2.1-1.21.1.jar</code>. BMC5's own list of mods marks both as needed on servers too, so Playkeeper installs them, and each fails to load with <code>NoClassDefFoundError: net/minecraft/client/ParticleStatus</code>, a class only players' games have.</p>
+  <p><strong>On Playkeeper 0.4.3 or older,</strong> the first start stops. BMC5's own list of mods marks every mod as needed on servers, so two for players' games, <code>BetterGrassify-1.6.1+neoforge.1.21.1.jar</code> and <code>distraction_free_recipes-neoforge-1.2.1-1.21.1.jar</code>, go on and fail with <code>NoClassDefFoundError: net/minecraft/client/ParticleStatus</code>. Update Playkeeper, or delete both from mods on the Files tab and start it again.</p>
 </section>
 
 <section aria-labelledby="manual">
@@ -93,8 +93,8 @@ schema: article
 <div class="article-after">
   {{template "faq" (dict "ID" "questions" "Items" (list
     (qa "How much RAM does a Better MC server need?" (printf "%s, what Playkeeper suggests for its %d mods, or %s for up to four friends, what the sizing guide gives a modpack." $m.Memory $m.Mods (gb $c.MemoryMB)))
-    (qa "Which Better MC edition should I host?" (printf "The one your friends play. BMC5 is on %s and Minecraft %s. BMC4 and BMC2 are on Minecraft 1.20.1, which Playkeeper runs from 0.4.4, from their CurseForge copies." $m.TypeName $m.Minecraft))
-    (qa "Why does my Better MC server stop at its first start?" "Better Grassify and Distraction Free Recipes, two BMC5 mods for players' games, fail to load on a server. Delete both from the server's mods folder, then start it again.")
+    (qa "Which Better MC edition should I host?" (printf "The one your friends play. BMC5 is on %s and Minecraft %s. BMC4 and BMC2 are on Minecraft 1.20.1, which Playkeeper runs from 0.4.4." $m.TypeName $m.Minecraft))
+    (qa "Why does my Better MC server stop at its first start?" "On Playkeeper 0.4.3 or older, two BMC5 mods for players' games, Better Grassify and Distraction Free Recipes, go on the server and fail to load. Update Playkeeper, or delete both from the server's mods folder and start it again.")
     (qa "Is Better MC Forge or Fabric?" (printf "Each edition has its own loader: BMC5 %s, BMC4 Forge and BMC2 Fabric." $m.TypeName))
     (qa "Why is the server slow when we explore?" "BMC5 generates a lot per chunk. Pre-generate the world before you play, and keep the view distance moderate.")
   ))}}
@@ -104,6 +104,10 @@ schema: article
       {{template "pack-card" (dict "Pack" $m)}}
       {{if $other.OneClick}}{{template "pack-card" (dict "Pack" $other)}}{{end}}
     </div>
+    {{if shown "better-mc-4" "better-mc-2"}}<div class="tpl-pair">
+      {{template "template-card" (dict "ID" "better-mc-4")}}
+      {{template "template-card" (dict "ID" "better-mc-2")}}
+    </div>{{end}}
   </section>{{end}}
 </div>
 {{end}}

@@ -1,0 +1,25 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Better MC 2",
+  "description": "Better MC 2 for Fabric on Minecraft 1.20.1: a Vanilla+ pack of over 300 mods for new biomes, structures, mobs and quality of life.",
+  "game": "minecraft-java",
+  "server": { "type": "fabric", "minecraftVersion": "1.20.1" },
+  "settings": {
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 8192
+  },
+  "modpack": {
+    "source": "modrinth",
+    "project": "shFhR8Vx",
+    "slug": "better-mc-fabric-bmc2",
+    "name": "Better MC [FABRIC] - BMC2",
+    "pin": {
+      "versionId": "M5BnAIQy",
+      "versionNumber": "v40",
+      "channel": "release",
+      "hashAlgo": "sha512",
+      "hash": "a9ebbf5132f30fa89907fcb10f7d0a92064b325afbeabf053defdd41a26b5907cd709d253046bb43ba9164c3890b100577d822b9b899fe974c56bdfde7c572d9"
+    }
+  }
+}

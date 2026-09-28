@@ -1,0 +1,103 @@
+{{/*
+path: /modpacks/prominence-2-server
+title: How to make a Prominence II server (Hasturian Era, 2026)
+description: Set up a Prominence II: Hasturian Era server: Fabric on Minecraft 1.20.1, Java 17, {{(modpack "prominence-2").Mods}} mods and {{(modpack "prominence-2").Memory}} of memory, from Modrinth with nothing to add by hand.
+label: Prominence II server
+h1: How to make a Prominence II server
+card: How to make a Prominence II server
+kind: Modpack
+section: guides
+layout: guide
+crumb: Modpacks
+og: modpack-prominence-2
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$m := modpack "prominence-2"}}Host the Modrinth copy of {{$m.Name}}: version {{$m.Version}} runs {{$m.TypeName}} {{$m.Loader}} on Minecraft {{$m.Minecraft}} with Java {{$m.Java}}, puts {{$m.Mods}} mods on the server and needs {{$m.Memory}} of memory. It carries the mods and data packs that CurseForge's copy leaves you to add, so Playkeeper installs it from version {{$m.Release}} with no steps by hand.{{end}}
+
+{{define "closing-title"}}Your own Prominence II server.{{end}}
+{{define "closing-sub"}}Free and open source. Friends get the same version from one link.{{end}}
+
+{{define "side-text"}}Playkeeper installs Prominence II from Modrinth, data packs included.{{end}}
+
+{{define "article"}}{{$m := modpack "prominence-2"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+{{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
+<section aria-labelledby="needs">
+  {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What a Prominence II server needs" "Toc" "What it needs")}}
+  {{template "modpack-facts" (dict "Pack" $m)}}
+  <p>Version {{$m.Version}} is a hotfix, published on {{day $m.Released}}, the same day as 4.1.1. The server and every player need the same one.</p>
+</section>
+
+<section aria-labelledby="copies">
+  {{template "h2n" (dict "ID" "copies" "N" 2 "Text" "Modrinth's copy or CurseForge's" "Toc" "Which copy")}}
+  <p>Prominence II is on both sites, and the two copies install differently on a server:</p>
+  <ul>
+    <li><strong>Modrinth, {{$m.DownloadCount}} downloads.</strong> 36 of its mods come inside the pack file itself, and 56 data packs sit in its config folder, where the Paxi mod loads them into every world. Playkeeper's plan for {{$m.Version}} has nothing to add by hand.</li>
+    <li><strong>CurseForge, 12.8M downloads.</strong> Six of its mods can only be downloaded by CurseForge's own app. Its server files would have them, but they're a zip inside a zip, which Playkeeper doesn't open, so its plan lists the six for you to add, and 27 data packs it doesn't put on the server.</li>
+  </ul>
+  <p>Give friends the copy the server runs, at the same version, so their mods match it.</p>
+</section>
+
+<section aria-labelledby="server-mods">
+  {{template "h2n" (dict "ID" "server-mods" "N" 3 "Text" (printf "The %d mods on the server" $m.Mods) "Toc" "Server mods")}}
+  <ul>
+    <li><strong>{{$m.PlayerMods}} mods stay off,</strong> the ones Modrinth lists as for players' games only. Players get them in their own copy.</li>
+    <li><strong>One of those goes on anyway:</strong> Mod Menu, because Forge Config Screens, which the server runs, won't start without it.</li>
+    <li><strong>36 warnings at start are harmless.</strong> Lithium can't read some of BCLib's block classes, logs "Lithium Class Analysis Error" for each, and leaves those blocks as they are.</li>
+  </ul>
+  <p>On a test server on 28 Sep, with Playkeeper's build of that day, the log said <code>Done (48.214s)!</code> once the first world was made.</p>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 4 "Text" "The one-click way")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{$open := "Search New server › A modpack for Prominence"}}{{if $m.OneClick}}{{$open = "Open the template below, or search New server › A modpack"}}{{end}}
+  {{template "steps" (dict "Class" "shot-steps" "Items" (list
+    (dict "Title" $open "Text" (printf "Pick the Modrinth copy, %s. It shows Fabric, the %s it suggests and the mods before anything installs." $m.Version $m.Memory))
+    (dict "Title" "Create and start it" "Text" (printf "Playkeeper downloads %s, checks each file against Modrinth's hash, and adds the mods and data packs the pack carries itself." $m.DownloadSize))
+    (dict "Title" "Send friends the pack" "Text" "Share with friends on the Mods tab makes a page with the pack and how to install it in their launcher.")
+  ))}}
+  {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs." "Sizes" $article)}}
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 5 "Text" "By hand, from the pack" "Toc" "By hand")}}
+  <p>The itzg image, which Playkeeper runs servers in too, builds the server from the Modrinth copy, with the mods and data packs inside it.</p>
+  {{template "modpack-docker" (dict "Pack" $m "Slug" "prominence-2-fabric")}}
+  <p>Open TCP 25565 in your provider's firewall.</p>
+</section>
+
+<section aria-labelledby="friends">
+  {{template "h2n" (dict "ID" "friends" "N" 6 "Text" "Friends join with the same version" "Toc" "Friends join")}}
+  <div class="shot-step">
+    <div>
+      <p>Players install {{$m.Name}} {{$m.Version}} from Modrinth, in the Modrinth App or Prism Launcher, then join your server's address.</p>
+      <p>Their copy brings the pack's own screens, hotbar and the player-only mods the server leaves out.</p>
+    </div>
+    {{template "cardshot" (dict "Name" "guide-pack-page" "Alt" "The page friends open: the server's versions, the pack file to download and their launcher's steps." "Sizes" $side)}}
+  </div>
+</section>
+{{end}}
+
+{{define "after"}}{{$m := modpack "prominence-2"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "How much RAM does a Prominence II server need?" (printf "%s, what Playkeeper suggests for its %d server mods. Give it more as more friends join." $m.Memory $m.Mods))
+    (qa "Is Prominence II Fabric or Forge?" (printf "Fabric. Version %s runs Fabric Loader %s on Minecraft %s, with Java %d." $m.Version $m.Loader $m.Minecraft $m.Java))
+    (qa "Should I host the Modrinth or the CurseForge copy?" "The Modrinth copy: it carries every mod and data pack a server needs. CurseForge's leaves six mods for you to add by hand.")
+    (qa "Why does the log show Lithium Class Analysis Error?" "Lithium can't read some of BCLib's block classes and skips its speed-ups for them. The server starts and runs normally.")
+  ))}}
+  {{if $m.OneClick}}<section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
+    <div class="tpl-pair">
+      {{template "pack-card" (dict "Pack" $m)}}
+    </div>
+  </section>{{end}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/modpacks" "/modpacks/better-mc-server" "/guides/modded-minecraft-server")}}{{end}}

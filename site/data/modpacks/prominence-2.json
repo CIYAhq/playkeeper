@@ -1,0 +1,20 @@
+{
+  "name": "Prominence II: Hasturian Era",
+  "short": "Prominence II",
+  "source": "modrinth",
+  "project": "EGs3lC8D",
+  "page": "https://modrinth.com/modpack/prominence-2-fabric",
+  "author": "ElocinDev",
+  "downloads": 2048183,
+  "version": "4.1.1hf",
+  "released": "2026-09-25",
+  "type": "fabric",
+  "loader": "0.19.3",
+  "minecraft": "1.20.1",
+  "mods": 347,
+  "playerMods": 91,
+  "downloadMB": 796,
+  "template": "prominence-2",
+  "release": "0.4.4",
+  "checked": "2026-09-28"
+}
