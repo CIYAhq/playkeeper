@@ -1,16 +1,17 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowUpRightIcon } from 'lucide-react'
+import { ArrowUpRightIcon, CheckIcon, PlayIcon } from 'lucide-react'
 import { get } from '@/api/client'
-import type { PublicPage, PublicServer } from '@/api/types'
+import type { PublicBoard, PublicPage, PublicServer, PublicStream } from '@/api/types'
 import ground from '@/assets/pixel-art/ground.svg'
 import { BrandMark, Emblem, Pip, TypeLogo } from '@/components/app/art'
-import { CopyButton, Dot, PlayerFace } from '@/components/app/bits'
+import { CopyButton, Dot, PlayerFace, useNow } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
 import { LoadingLabel } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
-import { joinSteps, publicStatus, serverPageApi, serverPageFace, serverPageIcon, serverPageTitle } from '@/lib/server-page'
+import { relativeTime } from '@/lib/format'
+import { joinSteps, publicStatus, serverPageApi, serverPageFace, serverPageIcon, serverPageTitle, sessionTime, streamEmbed, untilText } from '@/lib/server-page'
 import { typeName } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -88,8 +89,132 @@ function ServerCard({ server: s, heading: Heading }: { server: PublicServer; hea
         <JoinBlock server={s} />
         <Facts server={s} />
       </article>
+      {(s.stream || s.about) && (
+        <div className={cn('grid gap-5 max-sm:grid-cols-1 max-sm:gap-4', s.stream && s.about ? 'grid-cols-[minmax(0,2fr)_minmax(0,1fr)]' : 'grid-cols-1')}>
+          {s.stream && <WatchCard stream={s.stream} board={s.board} />}
+          {s.about && <AboutCard text={s.about} />}
+        </div>
+      )}
+      {s.board && (s.board.headline || s.board.stats?.length || s.board.checklist?.length) ? <ProgressCard board={s.board} /> : null}
       {names.length > 0 && <PlayingNow names={names} />}
     </div>
+  )
+}
+
+const siteName: Record<PublicStream['site'], string> = { twitch: 'Twitch', youtube: 'YouTube' }
+
+/**
+ * The owner's live stream. Nothing loads from the stream's site until the
+ * visitor presses Watch live; between sessions it counts down to the next.
+ */
+function WatchCard({ stream, board }: { stream: PublicStream; board?: PublicBoard }) {
+  const [playing, setPlaying] = useState(false)
+  const now = useNow(30_000)
+  const site = siteName[stream.site]
+  const live = board?.live ?? false
+  const next = !live && board?.next && new Date(board.next).getTime() > now ? board.next : undefined
+  return (
+    <section aria-labelledby="watch-title" className="flex flex-col rounded-3xl border border-border bg-card p-6 shadow-card max-sm:p-5">
+      <div className="flex items-center justify-between gap-4">
+        <h2 id="watch-title" className="text-[15px] leading-5 font-semibold">
+          {t('serverPage.watch')}
+        </h2>
+        {live && (
+          <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-destructive-foreground">
+            <span className="size-2 animate-pulse rounded-full bg-destructive motion-reduce:animate-none" aria-hidden="true" />
+            {t('serverPage.liveNow')}
+          </span>
+        )}
+      </div>
+      <div className="relative mt-4 aspect-video overflow-hidden rounded-2xl bg-[#0e3b21] text-white">
+        {playing ? (
+          <iframe
+            src={streamEmbed(stream, window.location.hostname)}
+            title={t('serverPage.playerTitle', { site, channel: stream.channel })}
+            allow="autoplay; fullscreen"
+            allowFullScreen
+            referrerPolicy="origin"
+            className="absolute inset-0 size-full border-0"
+          />
+        ) : next ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
+            <p className="text-sm font-medium text-white/70">{t('serverPage.nextSession')}</p>
+            <p className="mt-1 text-[40px] leading-[46px] font-extrabold tracking-[-0.03em] tabular-nums max-sm:text-[30px] max-sm:leading-9">{untilText(next, now)}</p>
+            <p className="mt-1.5 text-sm text-white/70">{t('serverPage.nextAt', { time: sessionTime(next) })}</p>
+          </div>
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+            <Pip pose="cheer" size={72} className="max-sm:hidden" />
+            <Button size="lg" className="border-white bg-white text-[#0e3b21] shadow-none not-disabled:hover:bg-white/90" onClick={() => setPlaying(true)}>
+              <PlayIcon />
+              {t('serverPage.watchLive')}
+            </Button>
+            <p className="text-[13px] text-white/60">{t('serverPage.watchOn', { site })}</p>
+          </div>
+        )}
+      </div>
+      <a href={stream.url} target="_blank" rel="noreferrer noopener" className="mt-4 inline-flex items-center gap-1 self-start text-[15px] font-semibold text-success-strong hover:underline">
+        {t('serverPage.follow', { site })}
+        <ArrowUpRightIcon className="size-4" aria-hidden="true" />
+      </a>
+    </section>
+  )
+}
+
+/** The owner's words for the page, as they wrote them. */
+function AboutCard({ text }: { text: string }) {
+  return (
+    <section aria-labelledby="about-title" className="flex flex-col rounded-3xl border border-border bg-card p-6 shadow-card max-sm:p-5">
+      <h2 id="about-title" className="text-[15px] leading-5 font-semibold">
+        {t('serverPage.about')}
+      </h2>
+      <p className="mt-3 text-[15px] leading-6 whitespace-pre-line text-foreground/85 wrap-anywhere">{text}</p>
+    </section>
+  )
+}
+
+/** What the owner's tools last posted: a headline, a few numbers and a checklist. */
+function ProgressCard({ board }: { board: PublicBoard }) {
+  const now = useNow(60_000)
+  const stats = board.stats ?? []
+  const checklist = board.checklist ?? []
+  return (
+    <section aria-labelledby="progress-title" className="rounded-3xl border border-border bg-card p-6 shadow-card max-sm:p-5">
+      <div className="flex items-baseline justify-between gap-4">
+        <h2 id="progress-title" className="text-[15px] leading-5 font-semibold">
+          {t('serverPage.progress')}
+        </h2>
+        <span className="text-xs text-muted-foreground">{t('serverPage.updated', { when: relativeTime(board.updatedAt, now) })}</span>
+      </div>
+      {board.headline && <p className="mt-1 text-[24px] leading-8 font-bold tracking-[-0.02em] wrap-anywhere max-sm:text-xl max-sm:leading-7">{board.headline}</p>}
+      {stats.length > 0 && (
+        <dl className={cn('mt-5 grid gap-px overflow-hidden rounded-2xl border border-border bg-border max-sm:grid-cols-2', { 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-5' }[stats.length] ?? 'grid-cols-6')}>
+          {stats.map((st) => (
+            <div key={st.label} className="min-w-0 bg-card px-4 py-3.5">
+              <dt className="truncate text-xs font-medium text-muted-foreground">{st.label}</dt>
+              <dd className="mt-0.5 truncate text-[22px] leading-7 font-bold tabular-nums">{st.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {checklist.length > 0 && (
+        <ul className="mt-5 grid grid-cols-3 gap-x-6 gap-y-2.5 max-sm:grid-cols-1">
+          {checklist.map((c) => (
+            <li key={c.label} className="flex min-w-0 items-center gap-2.5 text-sm">
+              {c.done ? (
+                <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-success text-white" aria-hidden="true">
+                  <CheckIcon className="size-3.5" strokeWidth={3} />
+                </span>
+              ) : (
+                <span className="size-5 shrink-0 rounded-full border-[1.5px] border-muted-foreground/40" aria-hidden="true" />
+              )}
+              <span className={cn('truncate', c.done ? 'font-medium' : 'text-muted-foreground')}>{c.label}</span>
+              <span className="sr-only">{c.done ? t('serverPage.done') : t('serverPage.notYet')}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 

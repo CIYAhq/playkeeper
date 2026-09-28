@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PagePort, PublicPageView, PublicServer } from '@/api/types'
-import { joinSteps, pageReach, portProblem, publicStatus, serverPageFace, serverPageIcon, serverPageTitle } from './server-page'
+import { joinSteps, pageReach, portProblem, publicStatus, serverPageFace, serverPageIcon, serverPageTitle, streamEmbed, untilText } from './server-page'
 
 function server(over: Partial<PublicServer> = {}): PublicServer {
   return { slug: 'survival', name: 'Survival', motd: 'Hi', address: 'alex.playkeeper.me', state: 'online', minecraftVersion: '1.21.10', type: 'paper', inviteOnly: false, hasIcon: false, ...over }
@@ -10,7 +10,7 @@ const open = (port: number): PagePort => ({ port, state: 'open' })
 const off = (port: number): PagePort => ({ port, state: 'off' })
 
 function view(over: Partial<PublicPageView> = {}): PublicPageView {
-  return { enabled: true, players: false, host: 'alex.playkeeper.me', ports: { https: open(443), http: open(80) }, ...over }
+  return { enabled: true, players: false, about: '', stream: '', host: 'alex.playkeeper.me', ports: { https: open(443), http: open(80) }, ...over }
 }
 
 describe('the public server page', () => {
@@ -63,5 +63,27 @@ describe('whether browsers reach the page, for Settings', () => {
     expect(portProblem(claimed)).toBe('traefik is set to use port 443, so Playkeeper leaves it alone.')
     expect(portProblem({ port: 443, state: 'busy' })).toBe('Another program uses port 443, so Playkeeper leaves it alone.')
     expect(portProblem({ port: 80, state: 'denied' })).toBe('This machine doesn’t let Playkeeper use port 80.')
+  })
+})
+
+describe('the owner’s stream and its countdown', () => {
+  it('loads the stream’s own player, told which page it plays on', () => {
+    expect(streamEmbed({ site: 'twitch', channel: 'example_channel', url: 'https://www.twitch.tv/example_channel' }, 'ai.playkeeper.me')).toBe(
+      'https://player.twitch.tv/?channel=example_channel&parent=ai.playkeeper.me&autoplay=true',
+    )
+    expect(streamEmbed({ site: 'youtube', channel: 'UCabcdefghijklmnopqrstuv', url: 'https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv' }, 'ai.playkeeper.me')).toBe(
+      'https://www.youtube-nocookie.com/embed/live_stream?channel=UCabcdefghijklmnopqrstuv&autoplay=1',
+    )
+  })
+
+  it('counts down in days, hours and minutes', () => {
+    const now = Date.parse('2026-10-03T12:00:00Z')
+    const at = (minutes: number) => new Date(now + minutes * 60_000).toISOString()
+    expect(untilText(at(3 * 60 + 12), now)).toBe('3 h 12 min')
+    expect(untilText(at(12), now)).toBe('12 min')
+    expect(untilText(at(2 * 24 * 60 + 4 * 60), now)).toBe('2 days 4 h')
+    expect(untilText(at(24 * 60 + 30), now)).toBe('1 day 0 h')
+    expect(untilText(at(0), now)).toBe('a moment')
+    expect(untilText(at(-5), now)).toBe('a moment')
   })
 })

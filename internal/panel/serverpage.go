@@ -17,6 +17,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/sharecard"
 )
 
 // The public page at the machine's address: what anyone who types a
@@ -34,6 +35,15 @@ const (
 // pageCacheFor is how long the page's answers are kept: however many
 // people have the page open, the agent is asked about once in that time.
 const pageCacheFor = 5 * time.Second
+
+// pageCSP is the dashboard's Content Security Policy with the one addition
+// the page needs: the players of the stream an owner offers, which load
+// only once a visitor presses Watch live.
+const pageCSP = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; frame-src https://player.twitch.tv https://www.youtube-nocookie.com; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+
+// cardEvery is how often the share card's link changes, so a preview made
+// later shows the server as it is then.
+const cardEvery = 5 * time.Minute
 
 var (
 	// pageLimits: the page itself, opened now and then.
@@ -127,8 +137,18 @@ func (s *Server) pageHandler(tls bool) http.Handler {
 			}
 		}
 		w.Header().Set("X-Robots-Tag", "noindex")
+		w.Header().Set("Content-Security-Policy", pageCSP)
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// pageChanged forgets the page's answers after the owner changed what it
+// shows, and asks the port keeper to look again.
+func (s *Server) pageChanged() {
+	s.page.cmu.Lock()
+	clear(s.page.cache)
+	s.page.cmu.Unlock()
+	s.kickPage()
 }
 
 // pageHost reports whether the Host header host names addr.
@@ -154,8 +174,13 @@ func (s *Server) hPageRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, _ := s.pageData(r.Context(), r.Host)
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	card := scheme + "://" + r.Host + pageDataPrefix + "/card.png?at=" + strconv.FormatInt(s.now().Unix()/int64(cardEvery.Seconds()), 10)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(serverPageHTML(s.indexHTML(), page))
+	w.Write(serverPageHTML(s.indexHTML(), page, card))
 }
 
 func (s *Server) indexHTML() []byte {
@@ -168,15 +193,21 @@ func (s *Server) indexHTML() []byte {
 }
 
 // serverPageHTML is index with its root marked as the server page and the
-// head describing page for link previews. Everything from the page is
-// escaped.
-func serverPageHTML(index []byte, page api.PublicPage) []byte {
+// head describing page for link previews, with its share card at card.
+// Everything from the page is escaped.
+func serverPageHTML(index []byte, page api.PublicPage, card string) []byte {
 	title, desc := pageMeta(page)
 	head := "<title>" + html.EscapeString(title) + "</title>"
 	if desc != "" {
 		head += `<meta name="description" content="` + html.EscapeString(desc) + `"><meta property="og:description" content="` + html.EscapeString(desc) + `">`
 	}
-	head += `<meta property="og:title" content="` + html.EscapeString(title) + `"><meta property="og:type" content="website"><meta name="twitter:card" content="summary"><meta name="robots" content="noindex">`
+	head += `<meta property="og:title" content="` + html.EscapeString(title) + `"><meta property="og:type" content="website"><meta name="robots" content="noindex">`
+	if len(page.Servers) > 0 && card != "" {
+		head += `<meta property="og:image" content="` + html.EscapeString(card) + `"><meta property="og:image:width" content="` + strconv.Itoa(sharecard.Width) + `"><meta property="og:image:height" content="` + strconv.Itoa(sharecard.Height) +
+			`"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="` + html.EscapeString(card) + `">`
+	} else {
+		head += `<meta name="twitter:card" content="summary">`
+	}
 	out := string(index)
 	if i := strings.Index(out, "<title>"); i >= 0 {
 		if j := strings.Index(out[i:], "</title>"); j >= 0 {
@@ -203,6 +234,9 @@ func pageMeta(page api.PublicPage) (title, desc string) {
 	}
 	sv := page.Servers[0]
 	parts := []string{publicStateText(sv)}
+	if sv.Board != nil && sv.Board.Headline != "" {
+		parts = append(parts, sv.Board.Headline)
+	}
 	if sv.MinecraftVersion != "" {
 		parts = append(parts, "Minecraft: Java Edition "+sv.MinecraftVersion)
 	}
@@ -253,6 +287,8 @@ func (s *Server) hPageData(w http.ResponseWriter, r *http.Request) {
 		writePNG(w, a.body)
 	case strings.HasPrefix(rest, "/faces/"):
 		s.hPageFace(w, r, strings.TrimPrefix(rest, "/faces/"))
+	case rest == "/card.png":
+		s.hPageCard(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -288,6 +324,64 @@ func (s *Server) hPageFace(w http.ResponseWriter, r *http.Request, name string) 
 		}
 	}
 	http.NotFound(w, r)
+}
+
+// hPageCard serves the page's share card: the picture link previews show,
+// drawn from what the page shows now.
+func (s *Server) hPageCard(w http.ResponseWriter, r *http.Request) {
+	page, ok := s.pageData(r.Context(), r.Host)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	card := shareCard(page)
+	key, _ := json.Marshal(card)
+	a, ok := s.pageCached(r.Context(), "card "+string(key), func(context.Context) (pageAnswer, bool) {
+		b, err := sharecard.PNG(card)
+		if err != nil {
+			s.log.Warn("could not draw the public page's share card", "err", err)
+			return pageAnswer{}, false
+		}
+		return pageAnswer{body: b, contentType: "image/png"}, true
+	})
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	writePNG(w, a.body)
+}
+
+// shareCard is what the share card shows of page: its one server, or the
+// address and how many servers answer there.
+func shareCard(page api.PublicPage) sharecard.Card {
+	if len(page.Servers) != 1 {
+		online := 0
+		for _, sv := range page.Servers {
+			if sv.State == api.PublicOnline {
+				online++
+			}
+		}
+		return sharecard.Card{Name: page.Address, Status: strconv.Itoa(len(page.Servers)) + " Minecraft servers · " + strconv.Itoa(online) + " online", Online: online > 0, Address: page.Address}
+	}
+	sv := page.Servers[0]
+	c := sharecard.Card{Name: sv.Name, Online: sv.State == api.PublicOnline, Address: sv.Address}
+	switch sv.State {
+	case api.PublicOnline:
+		c.Status = "Online"
+		if sv.Players != nil {
+			c.Status += " · " + strconv.Itoa(sv.Players.Online) + " of " + strconv.Itoa(sv.Players.Max) + " playing"
+		}
+	case api.PublicStarting:
+		c.Status = "Starting"
+	case api.PublicSleeping:
+		c.Status = "Asleep · joining wakes it up"
+	default:
+		c.Status = "Offline"
+	}
+	if sv.Board != nil {
+		c.Headline = sv.Board.Headline
+	}
+	return c
 }
 
 func writePNG(w http.ResponseWriter, b []byte) {

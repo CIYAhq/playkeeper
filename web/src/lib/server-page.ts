@@ -1,5 +1,5 @@
-import type { PagePort, PublicPageView, PublicServer } from '@/api/types'
-import { t } from '@/i18n'
+import type { PagePort, PublicPageView, PublicServer, PublicStream } from '@/api/types'
+import { formatLocale, t } from '@/i18n'
 import type { Tone } from '@/lib/phase'
 
 /** The public page's data, a server's icon and a player's face, on the machine's address. */
@@ -89,4 +89,27 @@ export function portProblem(p: PagePort): string {
       return unreachable
     }
   }
+}
+
+/** The player a stream's card loads once someone asks to watch, on the page's own address. */
+export function streamEmbed(stream: PublicStream, host: string): string {
+  if (stream.site === 'twitch') return `https://player.twitch.tv/?channel=${encodeURIComponent(stream.channel)}&parent=${encodeURIComponent(host)}&autoplay=true`
+  return `https://www.youtube-nocookie.com/embed/live_stream?channel=${encodeURIComponent(stream.channel)}&autoplay=1`
+}
+
+/** How long until a session starts: "2 days 4 h", "3 h 12 min", "12 min" or "a moment". */
+export function untilText(next: string, now: number): string {
+  const s = Math.floor((new Date(next).getTime() - now) / 1000)
+  if (!Number.isFinite(s) || s < 60) return t('serverPage.aMoment')
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (d > 0) return t('serverPage.inDays', { count: d, h })
+  if (h > 0) return t('serverPage.inHours', { h, m })
+  return t('serverPage.inMinutes', { m })
+}
+
+/** When a session starts, in the visitor's own time: "Sat 3 Oct, 20:00". */
+export function sessionTime(next: string): string {
+  return new Date(next).toLocaleString(formatLocale(), { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/\bSept\b/, 'Sep')
 }

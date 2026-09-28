@@ -1,15 +1,19 @@
 import { useState, type ReactNode } from 'react'
 import { ArrowUpRightIcon } from 'lucide-react'
-import { get, post } from '@/api/client'
-import type { PublicPageView, ServerStatus } from '@/api/types'
+import { api, get, post } from '@/api/client'
+import type { PublicBoard, PublicPageView, ServerStatus } from '@/api/types'
 import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
+import { useNow } from '@/components/app/bits'
 import { SettingRow } from '@/components/app/controls'
 import { InlineSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
+import { relativeTime } from '@/lib/format'
 import { linkPath } from '@/lib/router'
 import { pageReach, portProblem } from '@/lib/server-page'
 import { usePoll } from '@/lib/usePoll'
@@ -60,7 +64,136 @@ export function PublicPageRows({ server: s }: { server: ServerStatus }) {
         hint={t('publicPage.playersHint')}
         control={<Switch checked={enabled && players} onCheckedChange={(c) => void save({ players: c })} disabled={!!locked || !enabled} title={locked ?? (!enabled ? t('publicPage.pageFirst') : undefined)} aria-label={t('publicPage.players')} />}
       />
+      <TextRow
+        id="page-about"
+        label={t('publicPage.about')}
+        hint={t('publicPage.aboutHint')}
+        value={v?.about ?? ''}
+        max={600}
+        multiline
+        disabledReason={locked ?? (!enabled ? t('publicPage.pageFirst') : undefined)}
+        onSave={(about) => saveText(s, { about }, view.refresh)}
+      />
+      <TextRow
+        id="page-stream"
+        label={t('publicPage.stream')}
+        hint={t('publicPage.streamHint')}
+        value={v?.stream ?? ''}
+        max={200}
+        placeholder={t('publicPage.streamPlaceholder')}
+        disabledReason={locked ?? (!enabled ? t('publicPage.pageFirst') : undefined)}
+        onSave={(stream) => saveText(s, { stream }, view.refresh)}
+      />
+      <BoardRow server={s} board={v?.board} enabled={enabled} onChange={view.refresh} />
     </>
+  )
+}
+
+/** Saves the page's words or stream link; a refusal reaches the row that asked. */
+async function saveText(s: ServerStatus, body: { about?: string; stream?: string }, refresh: () => Promise<void>) {
+  await post<PublicPageView>(serverApi(s.id, '/public-page'), body)
+  toastManager.add({ title: t('publicPage.savedToast', { server: s.name }), type: 'success' })
+  await refresh()
+}
+
+/** A text setting with its own Save: the page's words, or the stream's link. */
+function TextRow({ id, label, hint, value, max, multiline, placeholder, disabledReason, onSave }: {
+  id: string
+  label: string
+  hint: string
+  value: string
+  max: number
+  multiline?: boolean
+  placeholder?: string
+  disabledReason?: string
+  onSave: (value: string) => Promise<void>
+}) {
+  const [draft, setDraft] = useState<string>()
+  const [problem, setProblem] = useState<string>()
+  const [saving, setSaving] = useState(false)
+  const current = draft ?? value
+  const changed = draft !== undefined && draft.trim() !== value
+  async function commit() {
+    setSaving(true)
+    setProblem(undefined)
+    try {
+      await onSave(current)
+      setDraft(undefined)
+    } catch (e) {
+      setProblem(errorText(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+  const edit = (next: string) => {
+    setDraft(next)
+    setProblem(undefined)
+  }
+  return (
+    <SettingRow
+      wide
+      htmlFor={id}
+      className="items-start"
+      label={label}
+      hint={
+        problem ? (
+          <span role="alert" className="text-destructive-foreground">
+            {problem}
+          </span>
+        ) : (
+          hint
+        )
+      }
+      control={
+        <div className="flex w-[360px] flex-col gap-2 max-sm:w-full">
+          {multiline ? (
+            <Textarea id={id} value={current} onChange={(e) => edit(e.target.value)} maxLength={max} rows={5} className="resize-none" disabled={!!disabledReason} />
+          ) : (
+            <Input id={id} value={current} onChange={(e) => edit(e.target.value)} maxLength={max} placeholder={placeholder} disabled={!!disabledReason} />
+          )}
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-muted-foreground tabular-nums">{multiline ? t('publicPage.count', { count: current.length, max }) : ''}</span>
+            <Button size="sm" variant="outline" onClick={() => void commit()} loading={saving} disabledReason={disabledReason ?? (!changed ? t('publicPage.nothingToSave') : undefined)}>
+              {t('common.save')}
+            </Button>
+          </div>
+        </div>
+      }
+    />
+  )
+}
+
+/** What the owner's tools last posted, and taking it off the page. */
+function BoardRow({ server: s, board, enabled, onChange }: { server: ServerStatus; board?: PublicBoard; enabled: boolean; onChange: () => Promise<void> }) {
+  const ws = useWorkspace()
+  const now = useNow(60_000)
+  const [busy, setBusy] = useState(false)
+  if (!board) return <SettingRow label={t('publicPage.board')} hint={t('publicPage.boardNone')} control={null} />
+  async function clear() {
+    setBusy(true)
+    try {
+      await api('DELETE', serverApi(s.id, '/public-page/board'))
+      toastManager.add({ title: t('publicPage.boardCleared', { server: s.name }), type: 'success' })
+      await onChange()
+    } catch (e) {
+      toastManager.add({ title: errorText(e), type: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const hint = t('publicPage.boardPosted', { headline: board.headline || t('publicPage.boardUntitled'), when: relativeTime(board.updatedAt, now) })
+  return (
+    <SettingRow
+      label={t('publicPage.board')}
+      hint={enabled ? hint : `${hint} ${t('publicPage.boardHidden')}`}
+      control={
+        can(ws.me, 'servers.run') ? (
+          <Button size="sm" variant="outline" onClick={() => void clear()} loading={busy}>
+            {t('publicPage.boardClear')}
+          </Button>
+        ) : null
+      }
+    />
   )
 }
 

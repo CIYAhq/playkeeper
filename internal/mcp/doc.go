@@ -67,6 +67,8 @@
 //	                                            POST /v1/servers/{id}/addons/install with its fingerprint (open world)
 //	remove_addon           owner   destructive  GET /v1/servers/{id}/addons to find it, its .../removal preview, then
 //	                                            POST /v1/servers/{id}/addons/remove, keeping its settings
+//	set_status_board       manage  destructive  PUT /v1/servers/{id}/public-page/board in place of the last, or
+//	                                            DELETE it (idempotent)
 //
 // Restoring or deleting backups, changing settings or versions, and applying
 // updates are left out on purpose until clients can ask the user to confirm.
