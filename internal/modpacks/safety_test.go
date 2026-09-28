@@ -278,6 +278,40 @@ func TestDefaultFileLimit(t *testing.T) {
 	wantTree(t, l.TempDir)
 }
 
+// A pack may put up to 20,000 files on the server, as many as its archive may
+// hold entries, which the largest real packs fit in. One more is refused
+// before anything downloads.
+func TestDefaultFileCount(t *testing.T) {
+	for _, c := range []struct {
+		files int
+		err   string
+	}{
+		{20000, ""},
+		{20001, "Test Pack would put more than 20000 files on the server, more than Playkeeper accepts."},
+	} {
+		f := newFakes(t)
+		files := make([]obj, c.files)
+		for i := range files {
+			n := strconv.Itoa(i)
+			files[i] = f.fileAt("config/many/"+n+".toml", nil, f.url(f.cdn, "/data/many/versions/1/"+n+".toml"))
+		}
+		p, err := f.library().PlanInstall(context.Background(), newServer(t, "fabric", "26.2"), nil, InstallRequest{Ref: testRef(f.addPack(testIndex(files...)))})
+		switch {
+		case c.err != "":
+			if e := wantKind(t, err, KindTooManyFiles); e.Msg != c.err {
+				t.Errorf("%d files: %q", c.files, e.Msg)
+			}
+		case err != nil:
+			t.Errorf("%d files: %v", c.files, err)
+		case !p.Ready:
+			t.Errorf("%d files: blockers %q", c.files, noticeList(p.Blockers))
+		}
+		if got := f.served("cdn"); len(got) != 1 {
+			t.Errorf("%d files: downloaded %d files, want only the pack", c.files, len(got))
+		}
+	}
+}
+
 // If writing into the server's folder fails part way, everything written is
 // taken back.
 func TestFailedInstallLeavesNoTrace(t *testing.T) {

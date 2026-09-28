@@ -229,10 +229,12 @@ type Limits struct {
 	Entries     int   // entries in the archive
 }
 
-// DefaultLimits returns the limits used for every limit left at zero.
+// DefaultLimits returns the limits used for every limit left at zero. The
+// largest real packs fit: Beyond Depth puts 11,684 files on a server, out of
+// an archive of 11,922 entries.
 func DefaultLimits() Limits {
 	return Limits{
-		Pack: 1 << 30, ServerFiles: 2 << 30, Index: 16 << 20, Files: 5000, File: addons.DefaultMaxFileSize,
+		Pack: 1 << 30, ServerFiles: 2 << 30, Index: 16 << 20, Files: 20000, File: addons.DefaultMaxFileSize,
 		Downloads: 4 << 30, Unpacked: 2 << 30, Entries: 20000,
 	}
 }
