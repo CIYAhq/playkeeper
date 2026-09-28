@@ -125,7 +125,9 @@ jobs:
           check=$(lookup release-check.yml)
           built=
           if [ -n "$check" ]; then
-            built=$(gh api "repos/$GH_REPO/actions/runs/$check/artifacts" \
+            # A Release check uploads more artifacts than the API's default page
+            # of 30, and lists the release build, its first, last.
+            built=$(gh api "repos/$GH_REPO/actions/runs/$check/artifacts?per_page=100" \
               --jq '[.artifacts[] | select(.expired | not) | .name | select(startswith("release-")) | ltrimstr("release-")] | join(", ")') || built=
           fi
           if [[ ", $built, " == *", $TAG, "* ]]; then
