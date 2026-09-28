@@ -1,0 +1,37 @@
+/* The colour codes tool (/tools/color-codes): the tables of codes, whose
+   codes copy with a click, beside the formats and Bedrock's own colours. */
+
+.cc-tables { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; align-items: start; text-align: left; }
+.cc-side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.cc-card { padding: 18px 18px 16px; }
+.cc-card .tool-card-title { margin-bottom: 10px; }
+.cc-card .tool-foot { margin-top: 12px; }
+.cc-table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+.cc-table th, .cc-table td { padding: 7px 8px; border-top: 1px solid var(--twine); text-align: left; vertical-align: middle; }
+.cc-table thead th { padding-top: 4px; padding-bottom: 6px; border-top: 0; color: var(--sage); font-size: 12.5px; font-weight: 600; }
+.cc-table tbody th { font-weight: 600; }
+.cc-table tbody th small, .cc-bedrock { display: block; color: var(--sage); font-size: 12px; font-weight: 400; }
+.cc-table code, .tool-hero .lead code, .tool-how code, .tool-foot code, .tool-note code, .faq-a code { padding: 1px 5px; border-radius: 5px; background: var(--muted); color: var(--ink); font-size: 0.88em; }
+.tool-hero .lead code { background: var(--white); box-shadow: inset 0 0 0 1px var(--twine); }
+.cc-table tbody th > * { vertical-align: middle; }
+.cc-swatch { display: inline-block; width: 22px; height: 22px; margin-right: 10px; border-radius: 6px; box-shadow: inset 0 0 0 1px rgb(29 33 28 / 0.18); }
+.cc-name { display: inline-block; vertical-align: middle; }
+.cc-table tbody th:has(.cc-swatch) { display: flex; align-items: center; }
+.cc-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.cc-table-tight td, .cc-table-tight th { padding-top: 5px; padding-bottom: 5px; }
+
+.cc-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cc-edition { flex: none; }
+.cc-edition label { min-height: 30px; padding: 0 12px; font-size: 13.5px; }
+
+@media (max-width: 1023.98px) { .cc-tables { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 960px) { .cc-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 639.98px) {
+  .cc-card { padding: 14px 12px 12px; }
+  .cc-table { font-size: 14px; }
+  .cc-table th, .cc-table td { padding: 7px 5px; }
+  .cc-swatch { width: 18px; height: 18px; margin-right: 8px; }
+  .cc-table .cc-chips { flex-wrap: nowrap; gap: 3px; }
+  .cc-table .code-chip { min-width: 32px; padding: 0 5px; font-size: 12.5px; }
+  .cc-table code { font-size: 0.8em; }
+}

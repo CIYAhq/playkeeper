@@ -1,0 +1,102 @@
+{{/*
+path: /templates/skyblock
+title: Skyblock server: plugin setup and one-click template (2026)
+description: Set up a skyblock server: Paper 26.2 with Iridium Skyblock and the two plugins it needs, island types, upgrades and commands, in a template that really started.
+label: Skyblock server
+h1: How to make a skyblock server
+card: How to make a skyblock server
+kind: Template
+section: guides
+layout: guide
+crumb: Templates
+og: template-skyblock
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$l := libpage "skyblock"}}On a skyblock server, every player or team starts on a small island floating in the void and builds out from there. This template runs Iridium Skyblock {{(index $l.Plugins 2).Version}} on {{$l.TypeName}} {{$l.T.Server.MinecraftVersion}}, with VaultUnlocked and WorldEdit, which it needs to start and to place islands. Players make their own island with /is create.{{end}}
+
+{{define "closing-title"}}Your skyblock server, on your own VPS.{{end}}
+{{define "closing-sub"}}Free and open source. Invite players with a link.{{end}}
+
+{{define "side-text"}}Playkeeper sets up Iridium Skyblock and what it needs in one click.{{end}}
+
+{{define "article"}}{{$l := libpage "skyblock"}}
+<section aria-labelledby="contents">
+  {{template "h2n" (dict "ID" "contents" "N" 1 "Text" "What's in the skyblock template" "Toc" "What's in it")}}
+  {{template "library-facts" (dict "L" $l)}}
+</section>
+
+<section aria-labelledby="needs">
+  {{template "h2n" (dict "ID" "needs" "N" 2 "Text" "Why it brings two more plugins" "Toc" "Why two more plugins")}}
+  <ul>
+    <li><strong>VaultUnlocked:</strong> Iridium Skyblock won't load without Vault. Its Modrinth page doesn't say so, and our first check failed with "Unknown/missing dependency plugins: [Vault]". VaultUnlocked provides Vault.</li>
+    <li><strong>WorldEdit:</strong> islands are .schem files, and its config pastes them with WorldEdit.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="islands">
+  {{template "h2n" (dict "ID" "islands" "N" 3 "Text" "Islands, levels and upgrades" "Toc" "Islands and levels")}}
+  <p>From the files Iridium Skyblock wrote on the test server:</p>
+  <ul>
+    <li><strong>Three island types,</strong> desert, jungle and mushroom, each with its own Nether and End island.</li>
+    <li><strong>Islands sit 151 blocks apart</strong> in their own void world, called IridiumSkyblock, and PvP is off on them.</li>
+    <li><strong>The Nether opens at island level 10</strong> and the End at level 20. Islands level up as they earn experience.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="commands">
+  {{template "h2n" (dict "ID" "commands" "N" 4 "Text" "The commands players use" "Toc" "Commands")}}
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Command</th><th scope="col">What it does</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">/is create</th><td>Makes your island and takes you there</td></tr>
+        <tr><th scope="row">/is invite Alex</th><td>Invites a friend to build on your island</td></tr>
+        <tr><th scope="row">/is upgrades</th><td>A bigger island, more members and warps, and a better ore generator</td></tr>
+        <tr><th scope="row">/is missions</th><td>Tasks with rewards</td></tr>
+        <tr><th scope="row">/is top</th><td>Islands ranked by value</td></tr>
+        <tr><th scope="row">/is visit</th><td>Tours other players' islands</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 5 "Text" "Open it in one click" "Toc" "In one click")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Open the template below" "Text" "Your dashboard shows the three plugins, in the order they install, before anything happens.")
+    (dict "Title" "Create and start it" "Text" "Iridium Skyblock makes its void world on the first start.")
+    (dict "Title" "Join and type /is create" "Text" "Pick an island type, then invite friends with /is invite.")
+  ))}}
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 6 "Text" "The same server by hand, with Docker" "Toc" "By hand")}}
+  {{template "library-docker" (dict "L" $l)}}
+  <p>Open TCP 25565 in your provider's firewall.</p>
+</section>
+{{end}}
+
+{{define "after"}}{{$l := libpage "skyblock"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "What's a good skyblock plugin for Minecraft 26.2?" (printf "Iridium Skyblock %s started cleanly on Paper %s in our check, with VaultUnlocked and WorldEdit. BentoBox's BSkyBlock has no build for 26.2 yet." (index $l.Plugins 2).Version $l.T.Server.MinecraftVersion))
+    (qa "Why won't Iridium Skyblock load?" "Most often, Vault is missing. Add VaultUnlocked, which this template brings, and restart.")
+    (qa "Can friends share an island?" "Yes: /is invite adds a member, and upgrades raise how many an island can have.")
+    (qa "How much RAM does a skyblock server need?" (printf "%s for a small group, as this template sets. For 5 to 10 players at once, the sizing guide gives %d GB." $l.Memory (sizingFor 8 "add-ons").MemoryGB))
+  ))}}
+  <section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
+    <div class="tpl-pair">
+      {{template "library-card" (dict "ID" $l.Template)}}
+      {{template "library-card" (dict "ID" "oneblock" "Page" "/templates/oneblock")}}
+    </div>
+  </section>
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/templates" "/templates/oneblock" "/templates/towny")}}{{end}}

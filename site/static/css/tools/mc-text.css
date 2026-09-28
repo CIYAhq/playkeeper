@@ -1,0 +1,102 @@
+/* Minecraft text in the colour codes and MOTD tools (js/tools/mc-text.js,
+   js/tools/mc-editor.js): the editor with its toolbar, the previews in the
+   game's colours, and the results in each format. */
+
+/* ---------- The editor ---------- */
+
+.mc-editor { display: flex; flex-direction: column; gap: 12px; }
+.mc-toolbar { display: flex; flex-direction: column; gap: 10px; }
+.mc-toolbar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mc-colors { display: grid; grid-template-columns: repeat(8, 30px); gap: 6px; }
+.mc-colors-bedrock { display: none; }
+.is-bedrock .mc-colors-bedrock { display: grid; }
+.mc-color { width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; box-shadow: inset 0 0 0 1px rgb(29 33 28 / 0.18); cursor: pointer; transition: scale 0.12s, box-shadow 0.12s; }
+.mc-color:hover { scale: 1.1; }
+.mc-color:active { scale: 0.92; }
+.mc-color:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.mc-format { display: inline-grid; place-items: center; min-width: 38px; height: 36px; padding: 0 10px; border: 1px solid var(--twine); border-radius: 9px; background: var(--white); color: var(--ink); font: 700 15px var(--mono); cursor: pointer; transition: background-color 0.12s, border-color 0.12s, color 0.12s, scale 0.12s; }
+.mc-format:hover { border-color: var(--input); background: var(--muted); }
+.mc-format:active { scale: 0.95; }
+.mc-format[aria-pressed="true"] { border-color: var(--green); background: var(--green-tint); color: var(--green-text); }
+.mc-format-i { font-style: italic; }
+.mc-format-u { text-decoration: underline; text-underline-offset: 3px; }
+.mc-format-s { text-decoration: line-through; }
+.mc-format-k { letter-spacing: 0.08em; }
+.mc-format-wide { font: 600 14px var(--sans); }
+.is-bedrock .mc-java-only { display: none; }
+.mc-style-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.mc-style-row .color-row .tool-input { width: 104px; }
+.mc-grad { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mc-grad .tool-input { width: 96px; flex: none; font-family: var(--mono); font-size: 14px; height: 40px; }
+.mc-grad-arrow { color: var(--sage); }
+
+/* The field: a transparent textarea over the mirror that draws each
+   character in its style. Both share one font, size, line height, padding
+   and wrapping, so the caret sits on the mirror's letters. */
+.mc-field { position: relative; border-radius: 12px; background: #262624; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.3); }
+.mc-field:focus-within { box-shadow: 0 0 0 3px rgb(21 128 61 / 0.35), inset 0 0 0 1px rgb(0 0 0 / 0.3); }
+.mc-input, .mc-mirror { margin: 0; padding: 12px 14px; font: 500 16px/1.6 var(--mono); letter-spacing: 0; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; tab-size: 4; }
+.mc-input { position: relative; z-index: 1; display: block; width: 100%; min-height: 104px; border: 0; border-radius: 12px; background: transparent; color: transparent; caret-color: #fff; resize: none; overflow: hidden; outline: none; }
+.mc-input::selection { background: rgb(134 199 156 / 0.38); color: transparent; }
+.mc-input::placeholder { color: #8e9186; }
+.mc-mirror { position: absolute; inset: 0; overflow: hidden; color: #c9c9c4; pointer-events: none; }
+.mc-mirror .mc-obf { background: rgb(255 255 255 / 0.14); border-radius: 2px; }
+.mc-editor-lines .mc-input { min-height: calc(2 * 1.6em + 24px); }
+.mc-hint { margin: 0; color: var(--sage); font-size: 13px; line-height: 18px; }
+.mc-hint kbd { padding: 0 5px; border: 1px solid var(--twine); border-radius: 5px; background: var(--white); font-size: 12px; }
+
+/* The buttons' colours: Java's 16, then Bedrock's own. */
+.mc-c-0 { background: #000000; } .mc-c-1 { background: #0000aa; } .mc-c-2 { background: #00aa00; } .mc-c-3 { background: #00aaaa; }
+.mc-c-4 { background: #aa0000; } .mc-c-5 { background: #aa00aa; } .mc-c-6 { background: #ffaa00; } .mc-c-7 { background: #aaaaaa; }
+.mc-c-8 { background: #555555; } .mc-c-9 { background: #5555ff; } .mc-c-a { background: #55ff55; } .mc-c-b { background: #55ffff; }
+.mc-c-c { background: #ff5555; } .mc-c-d { background: #ff55ff; } .mc-c-e { background: #ffff55; } .mc-c-f { background: #ffffff; }
+.mc-c-g { background: #efce16; } .mc-c-h { background: #d9ccb8; } .mc-c-i { background: #a9b4b7; } .mc-c-j { background: #8f727d; }
+.mc-c-m { background: #ee222c; } .mc-c-n { background: #c87363; } .mc-c-p { background: #ffbf1e; } .mc-c-q { background: #13a045; }
+.mc-c-s { background: #5fecff; } .mc-c-t { background: #577bff; } .mc-c-u { background: #b66cdd; } .mc-c-v { background: #ff6a00; }
+.mc-c-w { background: #8bb3ff; }
+
+/* A code or example that does something on a click, like copy itself. */
+.code-chip { min-width: 40px; height: 28px; padding: 0 8px; border: 1px solid var(--twine); border-radius: 7px; background: var(--white); color: var(--ink); font: 600 13.5px var(--mono); cursor: pointer; transition: background-color 0.12s, border-color 0.12s, color 0.12s, scale 0.1s; }
+.code-chip:hover { border-color: var(--input); background: var(--muted); }
+.code-chip:active { scale: 0.95; }
+.code-chip.is-copied { border-color: var(--green); background: var(--green-tint); color: var(--green-text); }
+@media (max-width: 639.98px) { .code-chip { min-width: 36px; height: 30px; padding: 0 6px; } }
+
+/* ---------- Previews ---------- */
+
+/* Chat: the game's text with its drop shadow on the chat's dark band. */
+.mc-chat { min-height: 88px; padding: 12px 14px; border-radius: 12px; background: #1b1a17; color: #fff; font: 500 16px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.mc-chat:empty::before { content: "Your text shows here."; color: #7d7f7a; }
+.mc-preview-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.mc-preview-label .tool-hint { font-weight: 400; }
+
+/* The server list's message: gray unless coloured, no shadow, as the
+   game draws it there. */
+.mc-list .mc-list-motd { color: #808080; text-shadow: none; }
+.mc-list .mc-list-name, .mc-list .mc-list-side { text-shadow: none; }
+.mc-list-motd span { white-space: pre; }
+
+/* ---------- Results ---------- */
+
+.tool-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 3px; border-radius: 11px; background: var(--muted); border: 1px solid #ecece7; }
+.tool-tab { flex: 1 1 auto; min-height: 34px; padding: 0 12px; border: 0; border-radius: 8px; background: none; color: var(--sage); font: 500 14px var(--sans); white-space: nowrap; cursor: pointer; transition: background-color 0.12s, color 0.12s, box-shadow 0.12s; }
+.tool-tab:hover { color: var(--ink); }
+.tool-tab[aria-selected="true"] { background: var(--white); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgb(29 33 28 / 0.1), 0 0 0 1px rgb(29 33 28 / 0.04); }
+.tool-tab:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
+.tool-tab[hidden] { display: none; }
+.tool-tabpanel { margin-top: 12px; }
+.tool-tabpanel .fine { margin-top: 10px; }
+.tool-options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; font-size: 13.5px; color: var(--sage); }
+.tool-options .segments { flex: none; }
+.tool-options .segments label { min-height: 30px; font-size: 13px; }
+.tool-note { margin: 10px 0 0; color: var(--sage); font-size: 13.5px; line-height: 1.5; }
+.tool-note[hidden] { display: none; }
+.tool-note strong { color: var(--ink); }
+
+@media (max-width: 639.98px) {
+  .mc-colors { grid-template-columns: repeat(8, minmax(0, 1fr)); width: 100%; }
+  .mc-color { width: 100%; height: 34px; }
+  .mc-style-row { grid-template-columns: minmax(0, 1fr); }
+  .mc-input, .mc-mirror, .mc-chat { font-size: 15px; }
+  .tool-tab { flex: 1 1 40%; }
+}

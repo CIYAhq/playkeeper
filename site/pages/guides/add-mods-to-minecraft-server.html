@@ -150,13 +150,13 @@ scp ~/Downloads/*.jar you@your-server:/path/to/server/mods/</pre>
     (qa "How do I remove a mod?" "Stop the server, back it up and delete the mod's file from mods; its blocks and items leave the world. In Playkeeper, remove it from the Mods tab, with or without its settings.")
     (qa "Can I add a mod that isn't on Modrinth?" "Yes: upload its .jar to mods on the Files tab. It shows on the Mods tab with the rest.")
   ))}}
-  <section class="tpl-section" aria-labelledby="tpl-title">
+  {{if shown "cobblemon" "better-mc"}}<section class="tpl-section" aria-labelledby="tpl-title">
     <h2 id="tpl-title" class="h3 reveal">Or start from a modpack template</h2>
     <div class="tpl-pair">
       {{template "template-card" (dict "ID" "cobblemon")}}
       {{template "template-card" (dict "ID" "better-mc")}}
     </div>
-  </section>
+  </section>{{end}}
 </div>
 {{end}}
 

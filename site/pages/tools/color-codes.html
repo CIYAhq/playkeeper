@@ -1,0 +1,208 @@
+{{/*
+path: /tools/color-codes
+title: Minecraft Color Codes: Every § and & Code, and a Text Maker
+description: Every Minecraft color and formatting code for Java and Bedrock, with hex values and MiniMessage names. Write a line, see it in the game's colours, copy it.
+label: Color codes
+h1: Minecraft color codes
+card: Minecraft color codes
+kind: Tool
+section: tools
+crumb: Tools
+og: color-codes
+updated: 2026-09-28
+schema: tool
+cover: img/tools/color-codes.svg
+summary: Every § and & code for Java and Bedrock, and a text maker with gradients that writes every format.
+styles: css/tools.css, css/tools/mc-text.css, css/tools/color-codes.css
+noscript: css/tools-nojs.css
+scripts: js/tools.js, js/tools/mc-text.js, js/tools/mc-editor.js, js/tools/color-codes.js
+*/}}
+
+{{define "chip"}}<button type="button" class="code-chip" data-tool-copy="color-codes" data-copy-action="copy-code" data-copy-text="{{.}}" aria-label="Copy {{.}}">{{.}}</button>{{end}}
+
+{{define "main"}}
+<section class="band-chalk page-hero page-hero-center tool-hero" aria-labelledby="page-title">
+  <div class="container">
+    {{template "crumbs" .}}
+    <h1 id="page-title" class="h1-page hero-rise">Minecraft color codes</h1>
+    <p class="lead hero-after">Put <code>§</code> before a code, or <code>&amp;</code> in most plugins: <code>0</code> to <code>9</code> and <code>a</code> to <code>f</code> are colours, <code>l</code> bold, <code>o</code> italic, <code>n</code> underline, <code>m</code> strikethrough, <code>k</code> obfuscated and <code>r</code> resets. Click a code to copy it.</p>
+    <p class="meta hero-after">Java and Bedrock · Colours checked {{day .Page.Updated}}</p>
+
+    <div class="cc-tables hero-after">
+      <section class="tool-card cc-card" aria-labelledby="cc-colours-title">
+        <h2 id="cc-colours-title" class="tool-card-title">Colours</h2>
+        <div class="table-scroll" tabindex="0">
+          <table class="cc-table">
+            <caption class="visually-hidden">The 16 colour codes, with their names and hex colours</caption>
+            <thead><tr><th scope="col">Colour</th><th scope="col">Code</th><th scope="col">Hex</th></tr></thead>
+            <tbody>
+              {{- range data "minecraftColors"}}
+              <tr>
+                <th scope="row"><span class="cc-swatch mc-c-{{.Code}}"></span><span class="cc-name">{{.Name}}<small>{{.ID}}</small></span></th>
+                <td><span class="cc-chips">{{template "chip" (print "§" .Code)}}{{template "chip" (print "&" .Code)}}</span></td>
+                <td><span class="cc-chips">{{template "chip" .Hex}}</span>{{with .BedrockHex}}<small class="cc-bedrock">Bedrock {{.}}</small>{{end}}</td>
+              </tr>
+              {{- end}}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <div class="cc-side">
+        <section class="tool-card cc-card" aria-labelledby="cc-formats-title">
+          <h2 id="cc-formats-title" class="tool-card-title">Formatting</h2>
+          <div class="table-scroll" tabindex="0">
+            <table class="cc-table">
+              <caption class="visually-hidden">The formatting codes and what they do</caption>
+              <thead><tr><th scope="col">Code</th><th scope="col">Does</th><th scope="col">MiniMessage</th></tr></thead>
+              <tbody>
+                <tr><td><span class="cc-chips">{{template "chip" "§l"}}{{template "chip" "&l"}}</span></td><th scope="row"><b>Bold</b></th><td><code>&lt;bold&gt;</code></td></tr>
+                <tr><td><span class="cc-chips">{{template "chip" "§o"}}{{template "chip" "&o"}}</span></td><th scope="row"><i>Italic</i></th><td><code>&lt;italic&gt;</code></td></tr>
+                <tr><td><span class="cc-chips">{{template "chip" "§n"}}{{template "chip" "&n"}}</span></td><th scope="row"><u>Underline</u><small>Java only</small></th><td><code>&lt;underlined&gt;</code></td></tr>
+                <tr><td><span class="cc-chips">{{template "chip" "§m"}}{{template "chip" "&m"}}</span></td><th scope="row"><s>Strikethrough</s><small>Java only</small></th><td><code>&lt;strikethrough&gt;</code></td></tr>
+                <tr><td><span class="cc-chips">{{template "chip" "§k"}}{{template "chip" "&k"}}</span></td><th scope="row">Obfuscated<small>Letters that keep changing</small></th><td><code>&lt;obfuscated&gt;</code></td></tr>
+                <tr><td><span class="cc-chips">{{template "chip" "§r"}}{{template "chip" "&r"}}</span></td><th scope="row">Reset<small>Back to plain text</small></th><td><code>&lt;reset&gt;</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="tool-foot">On Java, a colour turns the formats off: put it first, as in <code>§6§l</code> for gold and bold. On Bedrock, formats stay on until <code>§r</code>.</p>
+        </section>
+        <section class="tool-card cc-card" aria-labelledby="cc-bedrock-title">
+          <h2 id="cc-bedrock-title" class="tool-card-title">Bedrock's own colours</h2>
+          <div class="table-scroll" tabindex="0">
+            <table class="cc-table cc-table-tight">
+              <caption class="visually-hidden">The colour codes only Bedrock Edition has</caption>
+              <thead><tr><th scope="col">Colour</th><th scope="col">Code</th><th scope="col">Hex</th></tr></thead>
+              <tbody>
+                {{- range data "bedrockColors"}}
+                <tr>
+                  <th scope="row"><span class="cc-swatch mc-c-{{.Code}}"></span><span class="cc-name">{{.Name}}</span></th>
+                  <td><span class="cc-chips">{{template "chip" (print "§" .Code)}}</span></td>
+                  <td><span class="cc-chips">{{template "chip" .Hex}}</span></td>
+                </tr>
+                {{- end}}
+              </tbody>
+            </table>
+          </div>
+          <p class="tool-foot">On Bedrock, <code>§m</code> and <code>§n</code> are these colours, not strikethrough and underline.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="maker-title">
+  <div class="container">
+    <h2 id="maker-title" class="section-title reveal">Colour a line and copy it in any format</h2>
+    <p class="section-sub reveal">Select text, then pick a colour, a gradient or a format. Paste codes or MiniMessage to read them.</p>
+    <p class="tool-nojs">Turn on JavaScript to use the text maker. The codes above work without it.</p>
+    <div class="tool cc-maker" data-cc-tool>
+      <div class="tool-grid cc-grid">
+        <section class="tool-card tool-controls" aria-labelledby="cc-write-title">
+          <div class="tool-card-head">
+            <h3 id="cc-write-title" class="tool-card-title">Write it</h3>
+            <div class="segments cc-edition" role="radiogroup" aria-label="Edition">
+              <input type="radio" name="cc-edition" id="cc-edition-java" value="java" checked><label for="cc-edition-java">Java</label>
+              <input type="radio" name="cc-edition" id="cc-edition-bedrock" value="bedrock"><label for="cc-edition-bedrock">Bedrock</label>
+            </div>
+          </div>
+          {{template "mc-editor" (dict "ID" "cc-text" "Lines" false "Label" "Your text" "Placeholder" "Type a line, then colour it")}}
+        </section>
+        <section class="tool-card tool-preview" aria-labelledby="cc-see-title">
+          <h3 id="cc-see-title" class="tool-card-title">See it and copy it</h3>
+          <p class="mc-preview-label">In chat <span class="tool-hint">with the game's shadow</span></p>
+          <div class="mc-chat" data-chat></div>
+          <div class="tool-tabs" role="tablist" aria-label="Formats">
+            <button type="button" class="tool-tab" role="tab" id="cc-tab-amp" aria-controls="cc-panel-amp" aria-selected="true" data-java>&amp; codes</button>
+            <button type="button" class="tool-tab" role="tab" id="cc-tab-sect" aria-controls="cc-panel-sect" aria-selected="false" tabindex="-1">§ codes</button>
+            <button type="button" class="tool-tab" role="tab" id="cc-tab-mm" aria-controls="cc-panel-mm" aria-selected="false" tabindex="-1" data-java>MiniMessage</button>
+            <button type="button" class="tool-tab" role="tab" id="cc-tab-json" aria-controls="cc-panel-json" aria-selected="false" tabindex="-1">/tellraw</button>
+          </div>
+          <div class="tool-tabpanel" role="tabpanel" id="cc-panel-amp" aria-labelledby="cc-tab-amp">
+            {{template "result" (dict "ID" "cc-out-amp" "Action" "copy-amp" "Title" "For plugins' configs and chat" "Tool" "color-codes")}}
+            <div class="tool-options">
+              <span id="cc-hex-label">Colours off the 16 as</span>
+              <div class="segments" role="radiogroup" aria-labelledby="cc-hex-label">
+                <input type="radio" name="cc-hex" id="cc-hex-hash" value="hash" checked><label for="cc-hex-hash">&amp;#rrggbb</label>
+                <input type="radio" name="cc-hex" id="cc-hex-x" value="x"><label for="cc-hex-x">&amp;x&amp;r&amp;r…</label>
+              </div>
+            </div>
+            <p class="tool-note">EssentialsX and most chat plugins read <code>&amp;#rrggbb</code>; Spigot's own code reads <code>&amp;x&amp;r&amp;r&amp;g&amp;g&amp;b&amp;b</code>.</p>
+          </div>
+          <div class="tool-tabpanel" role="tabpanel" id="cc-panel-sect" aria-labelledby="cc-tab-sect" hidden>
+            {{template "result" (dict "ID" "cc-out-sect" "Action" "copy-sect" "Title" "With the section sign" "Tool" "color-codes")}}
+            <p class="tool-note" data-note-sect>For server.properties, resource packs and anywhere else that reads the section sign.</p>
+          </div>
+          <div class="tool-tabpanel" role="tabpanel" id="cc-panel-mm" aria-labelledby="cc-tab-mm" hidden>
+            {{template "result" (dict "ID" "cc-out-mm" "Action" "copy-mm" "Title" "MiniMessage" "Tool" "color-codes")}}
+            <p class="tool-note">For Paper plugins that read MiniMessage, like MiniMOTD, and Velocity. Gradients stay one tag.</p>
+          </div>
+          <div class="tool-tabpanel" role="tabpanel" id="cc-panel-json" aria-labelledby="cc-tab-json" hidden>
+            {{template "result" (dict "ID" "cc-out-json" "Action" "copy-json" "Title" "A command for chat or a command block" "Tool" "color-codes")}}
+            <p class="tool-note" data-note-json>JSON text, as <code>/tellraw</code>, <code>/title</code> and signs made with commands take it.</p>
+          </div>
+          <p class="tool-note" data-note-hex hidden><strong>No hex colours on Bedrock:</strong> each shows as the nearest of its colours.</p>
+        </section>
+      </div>
+      <p class="visually-hidden" role="status" data-status></p>
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk" aria-labelledby="type-title">
+  <div class="container">
+    <h2 id="type-title" class="section-title reveal">Typing § and where codes work</h2>
+    <p class="section-sub reveal">The section sign isn't on most keyboards, and the game doesn't read it everywhere.</p>
+    <div class="tool-how">
+      <div>
+        <h3 class="tool-how-title reveal">Type the section sign</h3>
+        <ul class="tool-checks">
+          <li class="reveal"><strong>Windows</strong><span>Hold Alt and type 0167 on the number pad, or 21.</span></li>
+          <li class="reveal"><strong>Mac</strong><span>Option + 6 on a US keyboard, or Option + 0, 0, a, 7 with Unicode Hex Input.</span></li>
+          <li class="reveal"><strong>Linux</strong><span>Compose, s, o; or Ctrl + Shift + U, then a7 and Enter.</span></li>
+          <li class="reveal"><strong>Phones</strong><span>On an iPhone, hold &amp; on the symbols keyboard. On Gboard it's under ?123, then =\&lt;; on a Samsung, hold S.</span></li>
+          <li class="reveal"><strong>Or copy it</strong><span class="cc-chips">{{template "chip" "§"}}</span></li>
+        </ul>
+      </div>
+      <div>
+        <h3 class="tool-how-title reveal">Where the codes work</h3>
+        <ul class="tool-checks">
+          <li class="reveal"><strong>Java: files, not chat</strong><span>server.properties (the MOTD), resource packs, language files and world names. Typing § in Java chat disconnects you, so plugins read &amp; instead.</span></li>
+          <li class="reveal"><strong>Java commands take JSON text</strong><span><code>/tellraw</code>, <code>/title</code> and signs set by command use JSON, which the /tellraw tab above writes.</span></li>
+          <li class="reveal"><strong>Bedrock: most text</strong><span>Chat, signs, books and quills, anvil names, <code>/title</code> and <code>/scoreboard</code>, but not the newest menus, which show the codes as they are.</span></li>
+          <li class="reveal"><strong>Hex colours need 1.16 or later</strong><span>On Java servers and clients from 1.16, through plugins, MiniMessage or JSON. Bedrock has none.</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="pk-title">
+  <div class="container tool-pk">
+    <div>
+      <h2 id="pk-title" class="section-title reveal">Where the codes go, in Playkeeper</h2>
+      <p class="section-sub reveal">Add plugins that read &amp; codes from a server's Plugins tab, then edit their messages in the Files tab, right in the browser. For the server list, there's the <a href="/tools/motd">MOTD generator</a>.</p>
+      <div class="reveal">{{template "install" (dict "ID" true)}}</div>
+      <div class="hero-actions reveal"><a class="btn btn-outline" href="/demo/servers/survival">See it in the live demo{{template "icon" "arrow-right"}}</a></div>
+    </div>
+    <div class="tool-pk-art reveal">
+      {{template "cardshot" (dict "Name" "tool-plugin-config" "Alt" "A plugin's config.yml open in Playkeeper's Files tab, with welcome messages written in & colour codes." "Sizes" "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) 560px, 460px")}}
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk">
+  <div class="container">
+    {{template "faq" (dict "ID" "questions" "Items" (list
+      (qa "What are the Minecraft color codes?" "Sixteen colours, from <code>§0</code> black to <code>§f</code> white, and six formats: <code>§l</code> bold, <code>§o</code> italic, <code>§n</code> underline, <code>§m</code> strikethrough, <code>§k</code> obfuscated and <code>§r</code> reset. Bedrock adds its own colours, such as <code>§g</code> minecoin gold.")
+      (qa "What's the difference between § and &amp;?" "The game reads the section sign, <code>§</code>. Plugins read <code>&amp;</code> in their configs and chat, because <code>§</code> is hard to type and Java chat refuses it, and turn it into <code>§</code> for the game.")
+      (qa "How do I get the § symbol?" "On Windows, hold Alt and type 0167 on the number pad. On a Mac, press Option + 6. On a phone it's behind &amp; or S on the symbols keyboard. Or copy it from this page.")
+      (qa "Can I use hex colours in Minecraft?" "On Java 1.16 or later, yes: through plugins that read <code>&amp;#rrggbb</code>, MiniMessage tags like <code>&lt;#ff8800&gt;</code>, or JSON text. Bedrock only has its own colour codes.")
+      (qa "Why does my bold text stop after a colour?" "On Java, a colour code turns the formats off. Put the colour first and the format after it, as in <code>§6§l</code>, and repeat the format after each new colour.")
+      (qa "How do I make a gradient?" "Select the text in the text maker, pick two colours under Gradient and add it. Copy the MiniMessage for Paper plugins, or the &amp; codes with a colour for each letter for other plugins.")
+      (qa "Do color codes work on Bedrock?" "In chat, signs, books and item names, yes, with a few colours of its own. Underline and strikethrough don't exist there, and the newest Ore UI menus show codes as plain text.")
+    ))}}
+  </div>
+</section>
+
+{{template "related" (related 3 "/tools/motd" "/tools/server-icon" "/tools/server-properties" "/tools")}}
+{{end}}

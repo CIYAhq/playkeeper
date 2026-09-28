@@ -1,0 +1,30 @@
+{
+  "template": "skyblock",
+  "checked": "2026-09-28",
+  "release": "0.4.2",
+  "build": "129",
+  "doneSeconds": 18.0,
+  "plugins": [
+    {
+      "name": "VaultUnlocked",
+      "slug": "vaultunlocked",
+      "version": "2.20.3",
+      "licence": "LGPL-3.0-or-later",
+      "downloads": 148416
+    },
+    {
+      "name": "WorldEdit",
+      "slug": "worldedit",
+      "version": "7.4.5",
+      "licence": "GPL-3.0-only",
+      "downloads": 10912520
+    },
+    {
+      "name": "Iridium Skyblock",
+      "slug": "iridiumskyblock",
+      "version": "4.1.5",
+      "licence": "GPL-3.0-only",
+      "downloads": 18032
+    }
+  ]
+}

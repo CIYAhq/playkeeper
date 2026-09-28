@@ -11,8 +11,13 @@ type Target struct {
 	Kind string `json:"kind"`
 	// Folder is plugins or mods, inside the server's data directory.
 	Folder string `json:"folder"`
-	// Loaders are the Modrinth loaders the server runs.
+	// Loaders are the Modrinth loaders the server runs, its own platform's
+	// first.
 	Loaders []string `json:"loaders"`
+	// own counts the loaders at the start of Loaders that are the server's
+	// own platform. The rest are platforms whose add-ons it runs too:
+	// Spigot and Bukkit on Paper and Purpur, Fabric on Quilt.
+	own int
 	// HangarPlatform is the Hangar platform, or empty when Hangar has
 	// nothing for this type.
 	HangarPlatform string `json:"hangarPlatform,omitempty"`
@@ -24,18 +29,19 @@ func TargetFor(serverType string) (Target, error) {
 	switch serverType {
 	case "paper":
 		// Paper loads Bukkit and Spigot plugins as well as its own.
-		return Target{Type: serverType, Kind: "plugin", Folder: "plugins", Loaders: []string{"paper", "spigot", "bukkit"}, HangarPlatform: hangar.Paper}, nil
+		return Target{Type: serverType, Kind: "plugin", Folder: "plugins", Loaders: []string{"paper", "spigot", "bukkit"}, own: 1, HangarPlatform: hangar.Paper}, nil
 	case "purpur":
-		return Target{Type: serverType, Kind: "plugin", Folder: "plugins", Loaders: []string{"purpur", "paper", "spigot", "bukkit"}, HangarPlatform: hangar.Paper}, nil
+		// Purpur is a fork of Paper, so Paper's builds are its own.
+		return Target{Type: serverType, Kind: "plugin", Folder: "plugins", Loaders: []string{"purpur", "paper", "spigot", "bukkit"}, own: 2, HangarPlatform: hangar.Paper}, nil
 	case "fabric":
-		return Target{Type: serverType, Kind: "mod", Folder: "mods", Loaders: []string{"fabric"}}, nil
+		return Target{Type: serverType, Kind: "mod", Folder: "mods", Loaders: []string{"fabric"}, own: 1}, nil
 	case "quilt":
 		// Quilt loads most Fabric mods.
-		return Target{Type: serverType, Kind: "mod", Folder: "mods", Loaders: []string{"quilt", "fabric"}}, nil
+		return Target{Type: serverType, Kind: "mod", Folder: "mods", Loaders: []string{"quilt", "fabric"}, own: 1}, nil
 	case "neoforge":
-		return Target{Type: serverType, Kind: "mod", Folder: "mods", Loaders: []string{"neoforge"}}, nil
+		return Target{Type: serverType, Kind: "mod", Folder: "mods", Loaders: []string{"neoforge"}, own: 1}, nil
 	case "forge":
-		return Target{Type: serverType, Kind: "mod", Folder: "mods", Loaders: []string{"forge"}}, nil
+		return Target{Type: serverType, Kind: "mod", Folder: "mods", Loaders: []string{"forge"}, own: 1}, nil
 	case "vanilla":
 		return Target{}, fail(KindNoAddons, kv("type", serverType),
 			"Vanilla servers cannot load plugins or mods.",
@@ -63,6 +69,11 @@ func (t Target) Name() string {
 		return "Forge"
 	}
 	return t.Type
+}
+
+// ownLoaders are the Modrinth loaders of the server's own platform.
+func (t Target) ownLoaders() []string {
+	return t.Loaders[:t.own]
 }
 
 // Sources lists where add-ons for the target come from.

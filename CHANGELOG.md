@@ -6,6 +6,9 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 - **A public page at your address:** someone who types `yourname.playkeeper.me` (or your own domain) into a browser now sees a page with each server's status and how many are playing, its Minecraft version, software and modpack, its address with a Copy button and how to join, and the shared map's link when you share the map, with "This server runs on Playkeeper" at the bottom. Players' names show only if you turn on **Show who's playing**. Each server's **Settings › Public page** turns it off, and the dashboard stays on port 8443. The page uses ports 443 and 80 only when nothing else on the VPS uses them, a Docker container claims them or a web server like nginx is set to start with the machine, and a few minutes after it starts; Settings says what holds a port, with **Try again** once it's free.
 - Picked by Playkeeper suggests Discord chat on Paper and Purpur servers: DiscordSRV links the game chat with a channel on your Discord server, both ways, once you paste your own Discord bot's token into its settings.
+- Fixed: plugins that publish a Paper and a Spigot build of each release, such as BlueMap, FastAsyncWorldEdit, CommandAPI and AuthMe, installed their Spigot build on Paper and Purpur, and mods with a Quilt build, such as Simple Voice Chat, their Fabric build on Quilt. Installs and updates now take the build for the server's own platform; one installed before moves over at its next update.
+- The Pixelmon Modpack installs, and the Pixelmon mod can be added on the Mods tab: one file of a modpack or mod may now be up to 512 MiB, up from 256 MiB. Each file is still checked against its published checksum before it reaches the server.
+- Big modpacks like FTB StoneBlock 4 and Craftoria install: a pack may now put up to 20,000 files on the server, up from 5,000.
 
 ## 0.4.2
 

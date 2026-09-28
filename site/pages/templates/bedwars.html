@@ -1,0 +1,106 @@
+{{/*
+path: /templates/bedwars
+title: Bedwars server: plugin setup and one-click template (2026)
+description: Set up a Bedwars server: Paper 26.2 with Screaming BedWars, WorldEdit and Multiverse-Core, and the admin commands that turn your map into an arena.
+label: Bedwars server
+h1: How to make a Bedwars server
+card: How to make a Bedwars server
+kind: Template
+section: guides
+layout: guide
+crumb: Templates
+og: template-bedwars
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$l := libpage "bedwars"}}A Bedwars server needs a Bedwars plugin and an arena: teams, beds, resource spawners and a shop inside a map you build or paste. This template runs Screaming BedWars {{(index $l.Plugins 2).Version}} on {{$l.TypeName}} {{$l.T.Server.MinecraftVersion}}, with WorldEdit for maps and Multiverse-Core for arena worlds. It brings the plugins, not a map: set up your first arena with the /bw admin commands below.{{end}}
+
+{{define "closing-title"}}Your Bedwars server, on your own VPS.{{end}}
+{{define "closing-sub"}}Free and open source. Invite players with a link.{{end}}
+
+{{define "side-text"}}Playkeeper sets up Screaming BedWars and its tools in one click.{{end}}
+
+{{define "article"}}{{$l := libpage "bedwars"}}
+<section aria-labelledby="contents">
+  {{template "h2n" (dict "ID" "contents" "N" 1 "Text" "What's in the Bedwars template" "Toc" "What's in it")}}
+  {{template "library-facts" (dict "L" $l)}}
+  <p>Screaming BedWars is the most downloaded Bedwars plugin on Modrinth with a build for Minecraft 26. BedWars1058 has more downloads, but stops at 1.21.4.</p>
+</section>
+
+<section aria-labelledby="map">
+  {{template "h2n" (dict "ID" "map" "N" 2 "Text" "Get a map into its own world" "Toc" "A map first")}}
+  <ul>
+    <li><strong>Make a world for arenas</strong> in the Console: <code>mv create arenas normal -t flat</code>, then go there with <code>/mv tp arenas</code>.</li>
+    <li><strong>Build the map, or paste one:</strong> upload a .schem file to <code>plugins/WorldEdit/schematics</code> on the Files tab, then <code>//schem load</code> it and <code>//paste</code>.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="arena">
+  {{template "h2n" (dict "ID" "arena" "N" 3 "Text" "Turn the map into an arena" "Toc" "Set up the arena")}}
+  <p>The commands, from Screaming BedWars' own help, for an arena called <code>castle</code>:</p>
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="Where">
+        <button type="button" class="code-tab" role="tab" id="tab-arena" aria-controls="code-arena" aria-selected="true">In the game</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-arena" role="tabpanel" tabindex="0" aria-labelledby="tab-arena">/bw admin castle add
+/bw admin castle pos1            <span class="c"># one corner of the map</span>
+/bw admin castle pos2            <span class="c"># the opposite corner</span>
+/bw admin castle lobby           <span class="c"># where players wait</span>
+/bw admin castle spec            <span class="c"># where spectators go</span>
+/bw admin castle team add red RED 2
+/bw admin castle team spawn red
+/bw admin castle team bed red looking_at
+/bw admin castle spawner add iron
+/bw admin castle store add
+/bw admin castle save</pre>
+  </div>
+  <p>Repeat the three team lines for each team and the spawner line at each resource point. <code>save</code> activates the arena, and players join with <code>/bw join castle</code>.</p>
+</section>
+
+<section aria-labelledby="rules">
+  {{template "h2n" (dict "ID" "rules" "N" 4 "Text" "Game rules it starts with" "Toc" "Game rules")}}
+  <p>From Screaming BedWars' config on the test server: no crafting in games, no keeping items on death, no friendly fire, and shop villagers can't be killed. Players get a compass to track enemies. Change them in <code>plugins/BedWars/config.yml</code>, and the shop in <code>shop.yml</code>.</p>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 5 "Text" "Open it in one click" "Toc" "In one click")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Open the template below" "Text" (printf "Your dashboard shows PvP on, up to %d players and the three plugins before anything installs." $l.MaxPlayers))
+    (dict "Title" "Create and start it" "Text" "Make yourself an operator on the Players tab to use the admin commands.")
+    (dict "Title" "Build or paste an arena, then save it" "Text" "Then invite players with a link and start a game with /bw join.")
+  ))}}
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 6 "Text" "The same server by hand, with Docker" "Toc" "By hand")}}
+  {{template "library-docker" (dict "L" $l)}}
+  <p>Open TCP 25565 in your provider's firewall.</p>
+</section>
+{{end}}
+
+{{define "after"}}{{$l := libpage "bedwars"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Which Bedwars plugin works on Minecraft 26.2?" (printf "Screaming BedWars %s started cleanly on Paper %s in our check. BedWars1058 has no build past 1.21.4." (index $l.Plugins 2).Version $l.T.Server.MinecraftVersion))
+    (qa "Does the template include a Bedwars map?" "No. Build one, or paste a map you have as a .schem file with WorldEdit, then set it up with /bw admin.")
+    (qa "How do players join a game?" "/bw join with the arena's name, once the arena is saved.")
+    (qa "How much RAM does a Bedwars server need?" (printf "%s for one arena of %d players, as this template sets. Add more for several arenas running at once." $l.Memory $l.MaxPlayers))
+  ))}}
+  <section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
+    <div class="tpl-pair">
+      {{template "library-card" (dict "ID" $l.Template)}}
+      {{template "library-card" (dict "ID" "lifesteal-smp" "Page" "/templates/lifesteal-smp")}}
+    </div>
+  </section>
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/templates" "/templates/lifesteal-smp" "/templates/oneblock")}}{{end}}

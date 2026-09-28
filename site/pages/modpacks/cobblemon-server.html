@@ -27,7 +27,7 @@ schema: article
 {{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
 <section aria-labelledby="needs">
   {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What a Cobblemon server needs" "Toc" "What it needs")}}
-  {{template "modpack-facts" (dict "Pack" $m "Version" .Site.Version)}}
+  {{template "modpack-facts" (dict "Pack" $m)}}
   <p>The pack also comes in a NeoForge edition. The server and its players need the same edition and version.</p>
 </section>
 
@@ -45,8 +45,9 @@ schema: article
   {{template "h2n" (dict "ID" "one-click" "N" 3 "Text" "The one-click way")}}
   <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
   {{template "install" (dict "ID" true)}}
+  {{$open := "Search New server › A modpack"}}{{$either := "It's"}}{{if $m.OneClick}}{{$open = "Open the template below, or search New server › A modpack"}}{{$either = "Either way it's"}}{{end}}
   {{template "steps" (dict "Class" "shot-steps" "Items" (list
-    (dict "Title" "Open the template below, or search New server › A modpack" "Text" (printf "Either way it's the official pack, version %s. Your dashboard shows what it installs before anything happens." $m.Version))
+    (dict "Title" $open "Text" (printf "%s the official pack, version %s. Your dashboard shows what it installs before anything happens." $either $m.Version))
     (dict "Title" "Create and start it" "Text" (printf "Playkeeper downloads the %d server mods, checks each against Modrinth's hash and leaves the %d for players out." $m.Mods $m.PlayerMods))
     (dict "Title" "Send friends the pack" "Text" "Share with friends on the Mods tab gives them the pack and their launcher's steps.")
   ))}}
@@ -77,21 +78,21 @@ schema: article
 </section>
 {{end}}
 
-{{define "after"}}{{$m := modpack "cobblemon"}}{{$c := card $m.Template}}
+{{define "after"}}{{$m := modpack "cobblemon"}}{{$c := card $m.Template}}{{$other := modpack "cobbleverse"}}
 <div class="article-after">
   {{template "faq" (dict "ID" "questions" "Items" (list
-    (qa "How much RAM does a Cobblemon server need?" (printf "%s for a few friends, what Playkeeper suggests for its %d server mods, and %s for up to ten, as the template sets it." $m.Memory $m.Mods (gb $c.MemoryMB)))
+    (qa "How much RAM does a Cobblemon server need?" (printf "%s for a few friends, what Playkeeper suggests for its %d server mods, and %s for up to ten." $m.Memory $m.Mods (gb $c.MemoryMB)))
     (qa "Is Cobblemon Fabric or NeoForge?" (printf "Both. The official pack's main edition is %s, version %s on Minecraft %s; there's a NeoForge edition too. Playkeeper runs either." $m.TypeName $m.Version $m.Minecraft))
     (qa "Do players need the same mods?" (printf "They need the same pack version. It gives them the %d mods the server runs, at the same versions, and %d more for players." $m.Mods $m.PlayerMods))
     (qa "Can I play Cobblemon with friends without a server?" "Yes, in a world opened to LAN or through a tunnel, but only while your game runs. A server stays on when you log off.")
   ))}}
-  <section class="tpl-section" aria-labelledby="tpl-title">
+  {{if $m.OneClick}}<section class="tpl-section" aria-labelledby="tpl-title">
     <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
     <div class="tpl-pair">
       {{template "pack-card" (dict "Pack" $m)}}
-      {{template "pack-card" (dict "Pack" (modpack "cobbleverse"))}}
+      {{if $other.OneClick}}{{template "pack-card" (dict "Pack" $other)}}{{end}}
     </div>
-  </section>
+  </section>{{end}}
 </div>
 {{end}}
 
