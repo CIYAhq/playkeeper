@@ -4757,8 +4757,8 @@ control "an add-on or pack error the agent answers with has Playkeeper's hint" i
 # an empty server awake, and a backup dropped from a full copy queue discards
 # what it left at the destination.
 control "a running map pre-generation keeps an empty server awake" internal/agent/sleeping.go \
-  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking(),' \
-  'Busy: s.busy() || s.scheduleWorking(),' \
+  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking() || s.hasCrossplay(),' \
+  'Busy: s.busy() || s.scheduleWorking() || s.hasCrossplay(),' \
   ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^running$'
 control "sleep goes by what Chunky reported last about the task" internal/agent/pregen.go \
   'return st == pregen.StateRunning' \
@@ -4969,8 +4969,8 @@ control "the first keys are stored only while there are none" internal/agent/off
 # keeps an empty server awake, and with the allowlist off anyone who isn't
 # banned wakes a sleeping server by joining.
 control "a scheduled restart's countdown keeps an empty server awake" internal/agent/sleeping.go \
-  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking(),' \
-  'Busy: s.busy() || s.pregenRunning(),' \
+  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking() || s.hasCrossplay(),' \
+  'Busy: s.busy() || s.pregenRunning() || s.hasCrossplay(),' \
   ./internal/agent '^TestSleepWaitsForAScheduledRestartsCountdown$/^a_restart_counting_down$'
 control "a restart schedule counts as working while it counts down" internal/agent/schedules.go \
   'return ok && (act.Job.Schedule.Kind == schedule.KindRestart || act.Job.Schedule.Kind == schedule.KindBackup)' \
@@ -5513,7 +5513,7 @@ control "a sleep decided with another setting is called off" internal/agent/slee
   's.desired() != api.DesiredRunning' \
   ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$'
 control "a sleep is called off when someone joined since it decided" internal/agent/sleeping.go \
-  'if !s.nobodyOn() || s.pregenRunning() || s.scheduleWorking() {' \
+  'if !s.nobodyOn() || s.pregenRunning() || s.scheduleWorking() || s.hasCrossplay() {' \
   'if false {' \
   ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^someone_joined_as_it_looks_again$'
 # The same lock refuses turning sleep off during a backup; that test can't be
