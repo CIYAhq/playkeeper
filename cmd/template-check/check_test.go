@@ -76,6 +76,7 @@ func (f *fakeAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(api.Addons{Files: []api.AddonFile{
 			{FileName: "Chunky.jar", Addon: &api.Addon{Source: "modrinth", ProjectID: "fALzjamp", Slug: "chunky", Name: "Chunky", VersionNumber: "1.5.3"}},
 			{FileName: "CoreProtect.jar", Addon: &api.Addon{Source: "modrinth", ProjectID: "Lu3KuzdV", Slug: "coreprotect", Name: "CoreProtect", VersionNumber: "24.1"}},
+			{FileName: "Dep.jar", Addon: &api.Addon{Source: "modrinth", ProjectID: "P8hQ7pUj", Slug: "dep", Name: "A dependency", VersionNumber: "2.0", DependencyOf: "Lu3KuzdV"}},
 		}})
 	case "GET /v1/servers/s1/template":
 		reply(api.TemplateExport{File: f.exported})
@@ -232,8 +233,21 @@ func TestPinWritesTheExactVersions(t *testing.T) {
 	if strings.Contains(got, `"latest"`) {
 		t.Errorf("a pinned template still asks for the newest versions:\n%s", got)
 	}
-	if _, err := templates.Decode(r.pinned); err != nil {
-		t.Errorf("the pinned template doesn't read: %v", err)
+	pinned, err := templates.Decode(r.pinned)
+	if err != nil {
+		t.Fatalf("the pinned template doesn't read: %v", err)
+	}
+	// The site needs the check to list the committed template's add-ons, its
+	// dependencies too, in the same order.
+	var inTemplate, inCheck []string
+	for _, a := range pinned.Addons {
+		inTemplate = append(inTemplate, a.Name)
+	}
+	for _, a := range r.Check.Addons {
+		inCheck = append(inCheck, a.Name)
+	}
+	if !slices.Equal(inTemplate, inCheck) || r.Check.Addons[2].Version != "2.0" {
+		t.Errorf("the check lists %v, and the pinned template %v", inCheck, inTemplate)
 	}
 }
 

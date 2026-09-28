@@ -125,8 +125,21 @@ func (c *checker) check(ctx context.Context, id string, f *templateFile, bump, p
 	if _, err := c.agent.Do(ctx, "GET", "/v1/servers/"+sid+"/addons", nil, nil, &installed); err != nil {
 		return fail("listing its add-ons: %v", err)
 	}
+	// The check lists the template as it will be committed: with -pin, its
+	// pinned add-ons and the dependencies the server installed for them.
+	recorded := t
+	if pin {
+		p, err := c.pinned(ctx, sid, f.t)
+		if err != nil {
+			return fail("pinning its versions: %v", err)
+		}
+		if r.pinned, err = formatTemplate(p); err != nil {
+			return fail("pinning its versions: %v", err)
+		}
+		recorded = p
+	}
 	facts := &checks.Check{Status: checks.Passing, Checked: c.now().UTC().Format(time.DateOnly), Release: c.release, Build: plan.Build, DoneSeconds: log.done}
-	for _, a := range t.Addons {
+	for _, a := range recorded.Addons {
 		got := findAddon(installed, a)
 		if got == nil {
 			return fail("%s didn't install", a.Name)
@@ -134,20 +147,13 @@ func (c *checker) check(ctx context.Context, id string, f *templateFile, bump, p
 		info := c.sources.project(ctx, string(a.Source), a.Project, a.Slug)
 		facts.Addons = append(facts.Addons, checks.Addon{Name: a.Name, Source: string(a.Source), Slug: firstOf(a.Slug, got.Slug), Version: got.VersionNumber, Licence: info.licence, Downloads: info.downloads})
 	}
-	if t.Modpack != nil {
-		m := checks.Modpack{Name: t.Modpack.Name, Version: t.Modpack.Pin.VersionNumber}
+	if pack := recorded.Modpack; pack != nil {
+		m := checks.Modpack{Name: pack.Name, Version: pack.Pin.VersionNumber}
 		if installed.Modpack != nil {
 			m.Version, m.Mods = installed.Modpack.VersionNumber, installed.Modpack.Mods
 		}
-		m.Downloads = c.sources.project(ctx, string(t.Modpack.Source), t.Modpack.Project, t.Modpack.Slug).downloads
+		m.Downloads = c.sources.project(ctx, string(pack.Source), pack.Project, pack.Slug).downloads
 		facts.Modpack = &m
-	}
-	if pin {
-		b, err := c.pinned(ctx, sid, f.t)
-		if err != nil {
-			return fail("pinning its versions: %v", err)
-		}
-		r.pinned = b
 	}
 	r.Status, r.Check = statusPassing, facts
 	return r
@@ -229,9 +235,9 @@ func (c *checker) logs(ctx context.Context, sid string) ([]string, error) {
 	return out, nil
 }
 
-// pinned is the template file with each add-on at the exact version the
-// server installed, as the server's own export writes them.
-func (c *checker) pinned(ctx context.Context, sid string, t *templates.Template) ([]byte, error) {
+// pinned is the template with each add-on at the exact version the server
+// installed, as the server's own export writes them.
+func (c *checker) pinned(ctx context.Context, sid string, t *templates.Template) (*templates.Template, error) {
 	var exp api.TemplateExport
 	if _, err := c.agent.Do(ctx, "GET", "/v1/servers/"+sid+"/template", nil, nil, &exp); err != nil {
 		return nil, err
@@ -240,11 +246,7 @@ func (c *checker) pinned(ctx context.Context, sid string, t *templates.Template)
 	if err != nil {
 		return nil, err
 	}
-	p, err := pinFrom(t, e)
-	if err != nil {
-		return nil, err
-	}
-	return formatTemplate(p)
+	return pinFrom(t, e)
 }
 
 // removeNamed deletes a server with this name, left by a check that didn't
