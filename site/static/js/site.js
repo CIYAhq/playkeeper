@@ -404,7 +404,7 @@
   // template's Open goes straight to that dashboard's New server with the
   // template, which shows everything and installs nothing until confirmed.
   // The first time, a dialog asks where the dashboard is. A bare name like
-  // siya is siya.playkeeper.me, and an address without https:// gets
+  // alex is alex.playkeeper.me, and an address without https:// gets
   // Playkeeper's port, 8443, unless it has one. The share page (js/t.js)
   // reads and saves the same address, and takes one from the dashboard's
   // Browse templates link, /t#dashboard=<address>, where no analytics runs.
@@ -429,8 +429,8 @@
     }
     // playkeeper.io is never a dashboard, even from the live demo.
     if (u.protocol !== 'https:' || !u.hostname || u.username || u.password || u.host === location.host) return '';
-    // A server's own address, like survival.siya.playkeeper.me, is on the
-    // machine whose dashboard is at siya.playkeeper.me.
+    // A server's own address, like survival.alex.playkeeper.me, is on the
+    // machine whose dashboard is at alex.playkeeper.me.
     var server = /^(?:[a-z0-9-]+\.)+([a-z0-9-]+\.playkeeper\.me)$/.exec(u.hostname);
     if (server) u.hostname = server[1];
     if (bare && !u.port && !/^[^\/?#]*:443(?:[\/?#]|$)/.test(typed)) u.port = '8443';
@@ -455,6 +455,9 @@
   function dashboardURL(origin, template) { return origin + '/servers/new#template=' + template; }
   // hostOf is how an origin is shown: without https:// or the default port.
   function hostOf(origin) { return origin.replace(/^https:\/\//, '').replace(/:8443$/, ''); }
+  // typedOf is an origin as a field holds it: as short as it can be while
+  // parseDashboard reads it back the same, so port 443 keeps its https://.
+  function typedOf(origin) { return /:\d+$/.test(origin) ? hostOf(origin) : origin; }
 
   // pointTemplates points every link with a template at the dashboard once
   // it's known, so a middle-click or a copied link goes there too, and shows
@@ -502,9 +505,9 @@
     d.setAttribute('aria-labelledby', 'dash-title');
     d.innerHTML = '<div class="dash-body">' +
       '<h2 class="dash-title" id="dash-title"></h2>' +
-      '<p class="dash-text">Type your free name, like <b>siya</b> for siya.playkeeper.me, or the address you open your dashboard at.</p>' +
+      '<p class="dash-text">Type your free name, like <b>alex</b> for alex.playkeeper.me, or the address you open your dashboard at.</p>' +
       '<label class="dash-label" for="dash-input">Your dashboard</label>' +
-      '<input class="dash-input" id="dash-input" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="siya">' +
+      '<input class="dash-input" id="dash-input" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="alex">' +
       '<p class="dash-status" role="status"></p>' +
       '<p class="dash-note">This browser remembers it, and it never leaves your browser.</p>' +
       '<div class="dash-actions">' +
@@ -518,7 +521,7 @@
     var go = function () {
       var origin = parseDashboard(input.value);
       if (!origin) {
-        $('.dash-status', d).textContent = 'Type your name, like siya, or your dashboard\u2019s address, like 203.0.113.7.';
+        $('.dash-status', d).textContent = 'Type your name, like alex, or your dashboard\u2019s address, like 203.0.113.7.';
         input.focus();
         return;
       }
@@ -554,7 +557,7 @@
     $('.dash-foot', dialog).hidden = !link;
     if (link) $('[data-dash-share]', dialog).setAttribute('href', link.getAttribute('data-template') ? '/t#' + link.getAttribute('data-template') : link.getAttribute('href'));
     $('.dash-status', dialog).textContent = '';
-    $('.dash-input', dialog).value = saved ? hostOf(saved) : '';
+    $('.dash-input', dialog).value = saved ? typedOf(saved) : '';
     dialog.showModal();
     $('.dash-input', dialog).focus();
   }
@@ -583,7 +586,7 @@
   window.playkeeperSite = {
     toast: toast,
     count: function (name, props) { count(name, props || {}); },
-    dashboard: { parse: parseDashboard, saved: savedDashboard, save: saveDashboard, url: dashboardURL, host: hostOf, find: null },
+    dashboard: { parse: parseDashboard, saved: savedDashboard, save: saveDashboard, url: dashboardURL, host: hostOf, typed: typedOf, find: null },
   };
 
   doc.classList.add('has-js');

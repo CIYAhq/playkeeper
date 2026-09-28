@@ -175,7 +175,7 @@ test('Open in my dashboard asks once where the dashboard is, then opens template
   await open.click()
   await dialog.getByRole('textbox', { name: 'Your dashboard' }).fill('http://203.0.113.7')
   await dialog.getByRole('button', { name: 'Open' }).click()
-  await expect(dialog.getByRole('status')).toContainText('like siya')
+  await expect(dialog.getByRole('status')).toContainText('like alex')
   await dialog.getByRole('textbox', { name: 'Your dashboard' }).fill('siya')
   await page.keyboard.press('Enter')
   await page.waitForURL(`${DASHBOARD}/servers/new#template=${template}`)
@@ -213,12 +213,15 @@ test('Open in my dashboard asks once where the dashboard is, then opens template
 
 test('the share page opens a template in the dashboard this browser knows in one click, or in another typed short', async ({ page, context }) => {
   await context.addInitScript((d) => localStorage.setItem('playkeeper.dashboard', d), DASHBOARD)
-  await context.route('https://203.0.113.7:8443/**', (route) => route.fulfill({ contentType: 'text/html', body: '<title>Dashboard</title>' }))
+  for (const d of [DASHBOARD, 'https://203.0.113.7:8443']) await context.route(`${d}/**`, (route) => route.fulfill({ contentType: 'text/html', body: '<title>Dashboard</title>' }))
   const template = await templateOf(page, 'towny')
   await page.goto(`/t#${template}`, { waitUntil: 'networkidle' })
   await expect(page.locator('#t-name')).toHaveText('Towny')
-  await expect(page.getByRole('link', { name: 'Open in siya.playkeeper.me' })).toHaveAttribute('href', `${DASHBOARD}/servers/new#template=${template}`)
   await expect(page.getByRole('textbox', { name: 'Your dashboard' })).toBeHidden()
+  await page.getByRole('button', { name: 'Open in siya.playkeeper.me' }).click()
+  await page.waitForURL(`${DASHBOARD}/servers/new#template=${template}`)
+
+  await page.goto(`/t#${template}`, { waitUntil: 'networkidle' })
   await page.getByRole('button', { name: 'Use another dashboard' }).click()
   await expect(page.getByRole('textbox', { name: 'Your dashboard' })).toBeFocused()
   await page.getByRole('textbox', { name: 'Your dashboard' }).fill('203.0.113.7')
@@ -264,6 +267,14 @@ test('a dashboard is found from its free name, a server address on it, or its ad
   }
   // This site is never a dashboard.
   expect(await parse(`https://${new URL(page.url()).host}`)).toBe('')
+  // What a field shows for a saved dashboard reads back as the same one.
+  for (const origin of [DASHBOARD, 'https://203.0.113.7:8443', 'https://203.0.113.7:9443', 'https://panel.example.com']) {
+    const back = await page.evaluate((o) => {
+      const d = (window as unknown as { playkeeperSite: { dashboard: { parse: (s: string) => string; typed: (s: string) => string } } }).playkeeperSite.dashboard
+      return d.parse(d.typed(o))
+    }, origin)
+    expect(back, origin).toBe(origin)
+  }
 })
 
 test("a card's name opens the template's page", async ({ page }) => {

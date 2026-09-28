@@ -7,13 +7,15 @@
   var MAX_JSON = 131072; // templates.MaxFileSize
   var LINK_FORMAT = 1; // the first byte of a link's data
   var FORMAT = 1; // templates.Format
+  var STORE = 'playkeeper.dashboard';
   var HANDOFF = ['ready', 'newer', 'nopreview'];
   var TYPES = { paper: 'Paper', purpur: 'Purpur', vanilla: 'Vanilla', fabric: 'Fabric', quilt: 'Quilt', neoforge: 'NeoForge', forge: 'Forge' };
   // Play styles with their own picture (templates.Settings.PlayStyle).
   var ART = ['friends', 'creative', 'hardcore', 'solo'];
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  // The dashboard's address, which site.js keeps in this browser only.
+  // How a dashboard's address is read and shown: site.js's, which the
+  // directory's Open in my dashboard uses too.
   var dash = window.playkeeperSite.dashboard;
 
   // The dashboard's Browse templates link, /t#dashboard=<its address>:
@@ -27,16 +29,16 @@
     } catch (e) {
       from = '';
     }
-    if (from) dash.save(from);
+    if (from) remember(from);
     window.location.replace('/templates');
     return;
   }
 
-  var form = document.getElementById('open-form');
+  var form = document.getElementById('open');
   var input = document.getElementById('dashboard');
   var status = document.getElementById('open-status');
   var saved = document.getElementById('open-saved');
-  var savedLink = document.getElementById('open-saved-link');
+  var typed = document.getElementById('open-typed');
   var payload = '';
   var run = 0;
 
@@ -244,20 +246,41 @@
     else state.then(finish);
   }
 
+  // remembered is the dashboard this browser knows, or ''.
+  function remembered() {
+    try {
+      return dash.parse(window.localStorage.getItem(STORE));
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function remember(origin) {
+    try {
+      window.localStorage.setItem(STORE, origin);
+    } catch (e) {
+      // Storage is off in this browser: the address is asked for again.
+    }
+  }
+
   // offer shows Open in <the dashboard this browser knows>, one click, or
   // where there's none, or the visitor asks (other), the field to type one.
   function offer(other) {
-    var origin = dash.saved();
+    var origin = remembered();
     var known = !!origin && !other;
     saved.hidden = !known;
-    form.hidden = known;
-    if (known) {
-      document.getElementById('open-host').textContent = dash.host(origin);
-      savedLink.href = payload ? dash.url(origin, payload) : '/t';
-    }
-    input.value = origin ? dash.host(origin) : '';
+    typed.hidden = known;
+    if (known) document.getElementById('open-host').textContent = dash.host(origin);
+    input.value = origin ? dash.typed(origin) : '';
     status.textContent = '';
   }
+
+  document.getElementById('open-saved-button').addEventListener('click', function () {
+    var origin = remembered();
+    if (!payload || !origin) return;
+    status.textContent = 'Opening ' + dash.host(origin) + '…';
+    window.location.assign(origin + '/servers/new#template=' + payload);
+  });
 
   document.getElementById('open-other').addEventListener('click', function () {
     offer(true);
@@ -270,13 +293,13 @@
     if (!payload) return;
     var origin = dash.parse(input.value);
     if (!origin) {
-      status.textContent = 'Type your name, like siya, or your dashboard\u2019s address, like 203.0.113.7.';
+      status.textContent = 'Type your name, like alex, or your dashboard\u2019s address, like 203.0.113.7.';
       input.focus();
       return;
     }
-    dash.save(origin);
+    remember(origin);
     status.textContent = 'Opening ' + dash.host(origin) + '…';
-    window.location.assign(dash.url(origin, payload));
+    window.location.assign(origin + '/servers/new#template=' + payload);
   });
   window.addEventListener('hashchange', start);
   start();
