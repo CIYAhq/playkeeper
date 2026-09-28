@@ -172,3 +172,47 @@ func TestTwoCreatesAtOnceCantBothFitTheAllowance(t *testing.T) {
 		t.Fatalf("two creates at once: %d %v, then %d %v", first.status, first.body, r.status, r.body)
 	}
 }
+
+// A creator pre-generates at most 2,500 blocks around spawn, as the terms
+// say: the larger sizes are neither offered nor started. The owner's are
+// unchanged.
+func TestCreatorsPreGenerateUpTo2500Blocks(t *testing.T) {
+	e := newJoinEnv(t)
+	own := owner(t, e.env)
+	newCreatorAgent(e.env, "cafebabe23")
+	alex := addCreator(t, e.env, "alex", invites.Allowance{Servers: 1, MemoryMB: 4096})
+	if r := e.do(t, "POST", "/api/machines/"+machineID(t, e.env)+"/servers", `{"name":"alex","acceptEula":true,"memoryMB":4096}`, alex.auth()); r.status != http.StatusOK {
+		t.Fatalf("alex creates a server: %d %v", r.status, r.body)
+	}
+	e.agent.mu.Lock()
+	e.agent.replies["GET /v1/servers/cafebabe23/pregen"] = `{"state":"idle","presets":[{"id":"small","radius":1000},{"id":"medium","radius":2500},{"id":"large","radius":5000},{"id":"huge","radius":10000}]}`
+	e.agent.mu.Unlock()
+	presets := func(m member) []string {
+		var v struct {
+			Presets []api.PregenPreset `json:"presets"`
+		}
+		e.get(t, "/api/servers/cafebabe23/pregen", m.cookie, &v)
+		var ids []string
+		for _, p := range v.Presets {
+			ids = append(ids, p.ID)
+		}
+		return ids
+	}
+	if got := presets(alex); !slices.Equal(got, []string{"small", "medium"}) {
+		t.Fatalf("alex's sizes: %v", got)
+	}
+	if got := presets(own); len(got) != 4 {
+		t.Fatalf("the owner's sizes: %v", got)
+	}
+	start := func(m member, preset string) int {
+		return e.do(t, "POST", "/api/servers/cafebabe23/pregen/start", `{"preset":"`+preset+`","pauseForPlayers":true}`, m.auth()).status
+	}
+	for preset, want := range map[string]int{"large": http.StatusForbidden, "huge": http.StatusForbidden, "medium": http.StatusOK} {
+		if st := start(alex, preset); st != want {
+			t.Fatalf("alex starts %s: %d, want %d", preset, st, want)
+		}
+	}
+	if st := start(own, "huge"); st != http.StatusOK {
+		t.Fatalf("the owner starts huge: %d", st)
+	}
+}
