@@ -1,0 +1,117 @@
+{
+ "pagination": {
+  "count": 1,
+  "limit": 10,
+  "offset": 0
+ },
+ "result": [
+  {
+   "createdAt": "2023-03-19T20:57:26.630238Z",
+   "id": 239,
+   "projectId": 17,
+   "name": "Floodgate",
+   "visibility": "public",
+   "description": "Updated to new downloads API.",
+   "stats": {
+    "totalDownloads": 68732,
+    "platformDownloads": {
+     "PAPER": 63048,
+     "WATERFALL": 974,
+     "VELOCITY": 4710
+    }
+   },
+   "author": "Redned",
+   "reviewState": "reviewed",
+   "channel": {
+    "createdAt": "2022-12-24T01:16:52.073792Z",
+    "name": "Release",
+    "description": null,
+    "color": "#14b8a6",
+    "flags": [
+     "PINNED",
+     "SENDS_NOTIFICATIONS",
+     "FROZEN"
+    ]
+   },
+   "pinnedStatus": "CHANNEL",
+   "downloads": {
+    "PAPER": {
+     "fileInfo": null,
+     "externalUrl": "https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/spigot",
+     "downloadUrl": null
+    },
+    "WATERFALL": {
+     "fileInfo": null,
+     "externalUrl": "https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/bungee",
+     "downloadUrl": null
+    },
+    "VELOCITY": {
+     "fileInfo": null,
+     "externalUrl": "https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/velocity",
+     "downloadUrl": null
+    }
+   },
+   "pluginDependencies": {},
+   "platformDependencies": {
+    "PAPER": [
+     "1.21",
+     "1.21.1",
+     "1.21.10",
+     "1.21.11",
+     "1.21.2",
+     "1.21.3",
+     "1.21.4",
+     "1.21.5",
+     "1.21.6",
+     "1.21.7",
+     "1.21.8",
+     "1.21.9",
+     "26.1",
+     "26.1.1",
+     "26.1.2",
+     "26.2"
+    ],
+    "WATERFALL": [
+     "1.19",
+     "1.20",
+     "1.21"
+    ],
+    "VELOCITY": [
+     "3.0",
+     "3.1",
+     "3.1.0",
+     "3.1.1",
+     "3.2",
+     "3.3",
+     "3.4",
+     "3.4.0",
+     "3.5",
+     "3.5.0",
+     "3.5.1",
+     "4.0.0",
+     "4.1.0",
+     "4.1.1"
+    ]
+   },
+   "platformDependenciesFormatted": {
+    "PAPER": [
+     "1.8-26.2"
+    ],
+    "WATERFALL": [
+     "1.19-1.21"
+    ],
+    "VELOCITY": [
+     "3.0-4.1.1"
+    ]
+   },
+   "memberNames": [
+    "tim203",
+    "geysermc",
+    "camotoy",
+    "redned",
+    "rtm516",
+    "amberichu"
+   ]
+  }
+ ]
+}

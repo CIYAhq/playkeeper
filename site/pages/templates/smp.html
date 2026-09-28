@@ -6,9 +6,7 @@ label: SMP server
 h1: How to make a Minecraft SMP server
 card: How to make a Minecraft SMP server
 kind: Template
-section: guides
-layout: guide
-crumb: Templates
+layout: category
 og: template-smp
 published: 2026-09-28
 updated: 2026-09-28
@@ -35,7 +33,7 @@ schema: article
   <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
   {{template "install" (dict "ID" true)}}
   {{template "steps" (dict "Items" (list
-    (dict "Title" "Open the template below" "Text" "Your dashboard shows the server, its rules and each plugin before anything installs.")
+    (dict "Title" "Open the template above" "Text" "Your dashboard shows the server, its rules and each plugin before anything installs.")
     (dict "Title" "Create and start it" "Text" "Playkeeper downloads each plugin from Modrinth and checks it against Modrinth's hash.")
     (dict "Title" "Send friends an invite link" "Text" "A friend types their Minecraft name and is on the allowlist, with no commands.")
   ))}}
@@ -84,15 +82,8 @@ chunky start</pre>
     (qa "What does SMP mean?" "Survival multiplayer: a survival world that a group of friends shares and keeps coming back to.")
     (qa "How much RAM does a Minecraft SMP need?" (printf "%s for a few friends with plugins, as this template sets. The sizing guide gives 5 to 10 friends %d GB." $l.Memory (sizingFor 8 "add-ons").MemoryGB))
     (qa "Do friends need mods to join?" "No. Only Simple Voice Chat's mod, and only to talk; everyone can join and play without it.")
-    (qa "Can Bedrock players join?" "Not yet. This template creates a Minecraft: Java Edition server.")
+    (qa "Can Bedrock players join?" "Yes, once the server is made: turn on Bedrock players in its Settings, and friends on phones, consoles and Windows join through Geyser and Floodgate. Console players also need BedrockConnect, and Simple Voice Chat is for Java players only.")
   ))}}
-  <section class="tpl-section" aria-labelledby="tpl-title">
-    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
-    <div class="tpl-pair">
-      {{template "library-card" (dict "ID" $l.Template)}}
-      {{template "library-card" (dict "ID" "hardcore-smp" "Page" "/templates/hardcore-smp")}}
-    </div>
-  </section>
 </div>
 {{end}}
 

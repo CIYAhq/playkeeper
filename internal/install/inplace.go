@@ -78,6 +78,10 @@ func runUpgrade(ctx context.Context, sys System, o Options, newVersion string) (
 		return nil, fmt.Errorf("Playkeeper is busy (%s). Nothing was changed; run the installer again when it has finished", kind)
 	}
 	allow80 := !cfg.NoPanel && !contains(m.FirewallRules, acmeRule) && ufwActive(sys)
+	for _, line := range o.Usage.notice(o.Usage.upgradeState(ctx, sys, cfg)) {
+		fmt.Fprintln(out, line)
+	}
+	fmt.Fprintln(out)
 	fmt.Fprintf(out, "Playkeeper %s is installed on this server. This upgrades it to %s in place:\n", old, newVersion)
 	for _, line := range upgradePlan(sys, cfg, old, newVersion, allow80) {
 		fmt.Fprintf(out, "  %s\n", line)
@@ -91,9 +95,11 @@ func runUpgrade(ctx context.Context, sys System, o Options, newVersion string) (
 		}
 	}
 	var newCfg *config.Config
-	if o.ReleaseURL != "" && o.ReleaseURL != cfg.ReleaseURL {
-		c := cfg
+	c := o.Usage.record(cfg, sys)
+	if o.ReleaseURL != "" {
 		c.ReleaseURL = o.ReleaseURL
+	}
+	if c != cfg {
 		newCfg = &c
 	}
 	exe, err := sys.Executable()

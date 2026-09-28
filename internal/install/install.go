@@ -27,6 +27,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/panel"
 	"github.com/CIYAhq/playkeeper/internal/platform"
+	"github.com/CIYAhq/playkeeper/internal/usage"
 	_ "modernc.org/sqlite"
 )
 
@@ -56,8 +57,18 @@ type Options struct {
 	// Join, when set, is the address of the dashboard this machine joins
 	// once installed. It then runs no dashboard of its own.
 	Join string
-	In   io.Reader
-	Out  io.Writer
+	// Usage is what the install reports to the stats service, if anything.
+	Usage Usage
+	In    io.Reader
+	Out   io.Writer
+}
+
+// kind is what usage stats call the install.
+func (o Options) kind() string {
+	if o.Join != "" {
+		return usage.KindJoined
+	}
+	return usage.KindDashboard
 }
 
 // ports are the ports the install opens: the panel's and the game's, or
@@ -452,6 +463,8 @@ type Manifest struct {
 
 type step struct {
 	name string
+	// code names the step in usage stats, when the install fails there.
+	code string
 	do   func() error
 	undo func() error
 }
@@ -464,6 +477,10 @@ type installer struct {
 	cfg  config.Config
 	out  io.Writer
 	done []step
+	// rep sends the install's usage reports (nil when they're off), and
+	// failed is the code of the step the install failed at.
+	rep    *reporter
+	failed string
 }
 
 // Result is what a successful install prints for the user.
@@ -480,6 +497,8 @@ type Result struct {
 	FromVersion string
 	// NoPanel is set on a machine installed to join another dashboard.
 	NoPanel bool
+	// UsageOn says usage stats are on, for the summary's last word.
+	UsageOn bool
 }
 
 // Run installs Playkeeper, or upgrades an existing install in place. On any
@@ -490,10 +509,17 @@ func Run(ctx context.Context, sys System, o Options, version string) (*Result, e
 	}
 	start := sys.Now()
 	out := o.Out
-	fmt.Fprintf(out, "Playkeeper %s installer\n\nChecking this server (nothing is changed yet):\n", version)
+	fmt.Fprintf(out, "Playkeeper %s installer\n\n", version)
+	for _, line := range o.Usage.notice(o.Usage.state("")) {
+		fmt.Fprintln(out, line)
+	}
+	fmt.Fprintf(out, "\nChecking this server (nothing is changed yet):\n")
 	f := Preflight(ctx, sys, o)
 	PrintChecks(out, f)
+	rep := newReporter(o.Usage, sys, f.OS, version, o.kind())
 	if !f.OK() {
+		rep.send(ctx, usage.EventRefused, refusedChecks(f))
+		rep.wait()
 		return nil, errors.New("preflight failed; fix the items marked FAIL above. Nothing was changed")
 	}
 	fmt.Fprintf(out, "\nPlaykeeper will make these changes:\n")
@@ -508,9 +534,10 @@ func Run(ctx context.Context, sys System, o Options, version string) (*Result, e
 			return nil, errDeclined
 		}
 	}
-	in := &installer{sys: sys, o: o, f: f, out: out}
+	in := &installer{sys: sys, o: o, f: f, out: out, rep: rep}
 	in.m = Manifest{Version: version, InstalledAt: start.UTC(), PanelPort: o.PanelPort, GamePort: o.GamePort, ReusedData: f.ReuseData,
 		KeptOnUninstall: []string{config.DefaultDataDir + "/server (worlds)", config.DefaultDataDir + "/backups", config.DefaultDataDir + " (settings, admin account, analytics)"}}
+	rep.send(ctx, usage.EventStarted, "")
 	res, err := in.run(ctx)
 	if err != nil {
 		fmt.Fprintf(out, "\nInstall failed: %v\nRolling back:\n", err)
@@ -523,9 +550,14 @@ func Run(ctx context.Context, sys System, o Options, version string) (*Result, e
 				fmt.Fprintln(out, "  - "+p)
 			}
 		}
+		rep.send(ctx, usage.EventFailed, nonEmpty(in.failed, "other"))
+		rep.wait()
 		return nil, err
 	}
+	rep.send(ctx, usage.EventSucceeded, "")
+	rep.wait()
 	res.Duration = sys.Now().Sub(start)
+	res.UsageOn = o.Usage.On()
 	return res, nil
 }
 
@@ -535,11 +567,12 @@ func (in *installer) exec(s step) error {
 	if s.undo != nil {
 		in.done = append(in.done, s)
 	}
-	if err != nil {
-		return fmt.Errorf("%s: %w", s.name, err)
+	if err == nil && os.Getenv(FailStepEnv) == s.name {
+		err = fmt.Errorf("injected failure (%s)", FailStepEnv)
 	}
-	if os.Getenv(FailStepEnv) == s.name {
-		return fmt.Errorf("%s: injected failure (%s)", s.name, FailStepEnv)
+	if err != nil {
+		in.failed = s.code
+		return fmt.Errorf("%s: %w", s.name, err)
 	}
 	return nil
 }
@@ -572,11 +605,20 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 	cfg.NoPanel = in.o.Join != ""
 	cfg.InstallID = randomHex(16)
 	in.m.InstallID = cfg.InstallID
+	// An install with usage stats off gets no usage ID: the agent makes one
+	// if they are ever turned on.
+	u := in.o.Usage
+	cfg.UsageSource, cfg.UsageChannel, cfg.UsageStats, cfg.StatsURL = u.Source, u.Channel, u.setting(), u.URL
+	cfg.UsageTest = u.Test || testInstall(sys)
+	if in.rep != nil {
+		cfg.UsageID = in.rep.id
+	}
 	fmt.Fprintln(in.out, "\nInstalling:")
 
 	if !in.f.DockerPresent {
 		src := in.f.Docker
 		if src == nil {
+			in.failed = "docker"
 			return nil, errors.New("Docker is not installed, and Playkeeper doesn't install it on " + in.f.OS.Display())
 		}
 		var before map[string]bool
@@ -588,7 +630,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 				newDirs = append(newDirs, d)
 			}
 		}
-		if err := in.exec(step{name: "install Docker (" + strings.Join(src.pkgs, ", ") + ")", do: func() error {
+		if err := in.exec(step{name: "install Docker (" + strings.Join(src.pkgs, ", ") + ")", code: "docker", do: func() error {
 			var err error
 			if before, err = src.pm.installed(sys); err != nil {
 				return err
@@ -657,7 +699,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		if _, _, ok := sys.LookupUser(u.name); ok {
 			continue
 		}
-		if err := in.exec(step{name: "create user " + u.name, do: func() error {
+		if err := in.exec(step{name: "create user " + u.name, code: "users", do: func() error {
 			if _, err := sys.Run("groupadd", "--system", u.name); err != nil {
 				return err
 			}
@@ -709,7 +751,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		{cfg.BackupsDir(), 0o700, 0, 0},
 		{cfg.StagingDir(), 0o700, 0, 0},
 	}
-	if err := in.exec(step{name: "create directories", do: func() error {
+	if err := in.exec(step{name: "create directories", code: "directories", do: func() error {
 		for _, d := range dirs {
 			p := sys.P(d.path)
 			if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
@@ -749,7 +791,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		return nil, err
 	}
 
-	if err := in.exec(step{name: "install " + BinPath, do: func() error {
+	if err := in.exec(step{name: "install " + BinPath, code: "binary", do: func() error {
 		src, err := sys.Executable()
 		if err != nil {
 			return err
@@ -764,7 +806,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 	}
 
 	if in.f.SudoLink {
-		if err := in.exec(step{name: "link " + SudoLink + " to it, for sudo", do: func() error {
+		if err := in.exec(step{name: "link " + SudoLink + " to it, for sudo", code: "sudo-link", do: func() error {
 			if err := os.Symlink(BinPath, sys.P(SudoLink)); err != nil {
 				return err
 			}
@@ -780,7 +822,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		}
 	}
 
-	if err := in.exec(step{name: "write " + ConfigDir + "/config.json", do: func() error {
+	if err := in.exec(step{name: "write " + ConfigDir + "/config.json", code: "config", do: func() error {
 		if err := cfg.Save(sys.P(ConfigDir + "/config.json")); err != nil {
 			return err
 		}
@@ -793,7 +835,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 	res := &Result{NoPanel: cfg.NoPanel}
 	if !cfg.NoPanel {
 		res.URL, res.ExistingAdm = fmt.Sprintf("https://%s:%d", in.f.PanelURLHost, cfg.PanelPort), in.f.ExistingAdmin
-		if err := in.exec(step{name: "generate HTTPS certificate and first-run setup code", do: func() error {
+		if err := in.exec(step{name: "generate HTTPS certificate and first-run setup code", code: "certificate", do: func() error {
 			tlsDir := sys.P(cfg.TLSDir())
 			fp, err := panel.EnsureSelfSignedCert(tlsDir, sys.Now())
 			if err != nil {
@@ -822,7 +864,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		}
 	}
 
-	if err := in.exec(step{name: "install and start systemd services", do: func() error {
+	if err := in.exec(step{name: "install and start systemd services", code: "services", do: func() error {
 		units := Units(cfg, false)
 		for _, name := range unitNames {
 			content, ok := units[name]
@@ -884,7 +926,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 			name = "allow the game port in " + fw.short()
 		}
 		fw.record(sys, &in.m)
-		if err := in.exec(step{name: name, do: func() error {
+		if err := in.exec(step{name: name, code: "firewall", do: func() error {
 			for _, rule := range firewallRules(in.o) {
 				added, err := fw.allow(sys, rule)
 				if added {
@@ -906,7 +948,7 @@ func (in *installer) run(ctx context.Context) (*Result, error) {
 		}
 	}
 
-	if err := in.exec(step{name: "write install manifest", do: func() error {
+	if err := in.exec(step{name: "write install manifest", code: "manifest", do: func() error {
 		b, _ := json.MarshalIndent(in.m, "", "  ")
 		return os.WriteFile(sys.P(cfg.ManifestPath()), append(b, '\n'), 0o600)
 	}, undo: func() error { return removeIfExists(sys.P(cfg.ManifestPath())) }}); err != nil {

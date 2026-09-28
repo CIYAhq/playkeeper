@@ -20,6 +20,8 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/modpacks"
 	"github.com/CIYAhq/playkeeper/internal/packs"
 	"github.com/CIYAhq/playkeeper/internal/templates"
+	"github.com/CIYAhq/playkeeper/internal/templates/library"
+	"github.com/CIYAhq/playkeeper/internal/version"
 )
 
 // templateBuildKey is the one key of a template's Server.Build Playkeeper
@@ -98,6 +100,14 @@ func (s *server) templateSetup(ctx context.Context) (templates.Setup, error) {
 				st.Folder = scan
 			}
 		}
+		// Crossplay's plugins travel only with its port, which a template
+		// can't open (templateCrossplayLeftOut).
+		st.Addons = slices.DeleteFunc(st.Addons, func(rec addons.Installed) bool { return isCrossplay(rec.Key()) })
+		if st.Folder != nil {
+			st.Folder.Entries = slices.DeleteFunc(slices.Clone(st.Folder.Entries), func(e addons.ScanEntry) bool {
+				return e.Installed != nil && isCrossplay(e.Installed.Key()) || e.Identified != nil && isCrossplay(e.Identified.Key())
+			})
+		}
 	}
 	if m := sc.Modpack; m != nil && !m.Pending {
 		rec, err := s.packRecord()
@@ -167,6 +177,9 @@ func (s *server) hTemplate(w http.ResponseWriter, r *http.Request) {
 		FileName: templates.FileName(t), File: string(file), Contents: templateContents(t), Available: templateContents(all),
 		PacksHere: len(st.Packs), LeftOut: apiNotices(rep.LeftOut), Notes: apiNotices(rep.Notes),
 	}
+	if sc, err := s.serverConfig(); err == nil && crossplayOn(sc) {
+		out.LeftOut = append(out.LeftOut, templateCrossplayLeftOut)
+	}
 	if l, err := templates.NewLink(t); err == nil {
 		out.Link, out.LinkLong = l.URL, l.Warning != nil
 	}
@@ -208,6 +221,29 @@ func templateContents(t *templates.Template) api.TemplateContents {
 		}
 	}
 	return c
+}
+
+// hTemplateLibrary lists the templates this release carries for New server ›
+// A template: the ones playkeeper.io offers that this version opens. New
+// server plans one like any file, so its file travels with it.
+func (a *Agent) hTemplateLibrary(w http.ResponseWriter, _ *http.Request) {
+	list, err := library.For(version.Version)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	out := api.TemplateLibrary{Templates: make([]api.LibraryTemplate, 0, len(list))}
+	for _, l := range list {
+		t, err := templates.Decode(l.File)
+		if err != nil {
+			writeError(w, fmt.Errorf("the library's %s template: %w", l.ID, err))
+			return
+		}
+		out.Templates = append(out.Templates, api.LibraryTemplate{
+			ID: l.ID, Art: l.Art, Page: l.Page, Checked: l.Checked, Release: l.Release, Contents: templateContents(t), File: string(l.File),
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // hTemplatePlan says what a template would create on this machine. The body

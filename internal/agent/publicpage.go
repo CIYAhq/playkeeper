@@ -37,7 +37,18 @@ func (s *server) publicPageSettings() api.PublicPageSettings {
 }
 
 func (s *server) publicPageView() api.PublicPageView {
-	return api.PublicPageView{PublicPageSettings: s.publicPageSettings(), Host: s.pageHost(), Board: s.publicBoard()}
+	return api.PublicPageView{PublicPageSettings: s.publicPageSettings(), Host: s.serverPageHost(), Board: s.publicBoard()}
+}
+
+// serverPageHost is where the server's page answers: its own address, or
+// the machine's name.
+func (s *server) serverPageHost() string {
+	for _, js := range s.ownAddresses(s.address()) {
+		if js.id == s.id {
+			return js.own
+		}
+	}
+	return s.pageHost()
 }
 
 // pageHost is the address the page answers for: the machine's name, or ""
@@ -109,7 +120,7 @@ func (a *Agent) publicPageState() api.PublicPageState {
 	if err := a.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE public_page = 1`).Scan(&n); err != nil {
 		return api.PublicPageState{Host: host}
 	}
-	return api.PublicPageState{Host: host, On: n > 0}
+	return api.PublicPageState{Host: host, On: n > 0, Hosts: a.ownPageHosts()}
 }
 
 func (a *Agent) hPublicPageState(w http.ResponseWriter, r *http.Request) {
@@ -151,10 +162,19 @@ func (a *Agent) hPublicPageIcon(w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
-// pageServer is the server on the page at host with slug, or nil.
+// pageServer is the server on the page at host with slug, or nil. A
+// server's own address shows only that server.
 func (a *Agent) pageServer(host, slug string) *server {
 	st := a.publicPageState()
-	if !st.On || !sameHost(host, st.Host) {
+	if !st.On {
+		return nil
+	}
+	if !sameHost(host, st.Host) {
+		if s := a.ownPageServer(host); s != nil {
+			if row, err := s.row(); err == nil && row.Slug == slug {
+				return s
+			}
+		}
 		return nil
 	}
 	for _, s := range a.serverList() {
@@ -165,15 +185,28 @@ func (a *Agent) pageServer(host, slug string) *server {
 	return nil
 }
 
+// publicPage is what the page shows at host: every server on it at the
+// machine's name, or only the server whose own address host is.
 func (a *Agent) publicPage(ctx context.Context, host string) (api.PublicPage, bool) {
 	st := a.publicPageState()
-	if !st.On || !sameHost(host, st.Host) {
+	if !st.On {
 		return api.PublicPage{}, false
+	}
+	var only *server
+	address := st.Host
+	if !sameHost(host, st.Host) {
+		if only = a.ownPageServer(host); only == nil {
+			return api.PublicPage{}, false
+		}
+		address = only.serverPageHost()
 	}
 	addr := a.address()
 	joins := a.joinAddresses(addr, a.joinServers())
-	page := api.PublicPage{Address: st.Host, Servers: []api.PublicServer{}}
+	page := api.PublicPage{Address: address, Servers: []api.PublicServer{}}
 	for _, j := range joins {
+		if only != nil && j.ServerID != only.id {
+			continue
+		}
 		s := a.serverByID(j.ServerID)
 		if s == nil {
 			continue
@@ -205,6 +238,14 @@ func (s *server) publicServer(ctx context.Context, host string, j api.JoinAddres
 	if _, err := s.readIcon(); err == nil {
 		ps.HasIcon = true
 	}
+	if crossplayOn(sc) {
+		// Bedrock follows A records only, which a working own address has.
+		bedrock := host
+		if j.OwnAddress != "" && j.Published {
+			bedrock = j.OwnAddress
+		}
+		ps.Bedrock = &api.BedrockJoin{Host: bedrock, Port: sc.CrossplayPort}
+	}
 	if ps.State == api.PublicOnline && st.Players != nil {
 		p := &api.PublicPlayers{Online: st.Players.Online, Max: st.Players.Max}
 		if p.Max <= 0 {
@@ -230,12 +271,13 @@ func (s *server) publicServer(ctx context.Context, host string, j api.JoinAddres
 	return ps, true
 }
 
-// publicJoinAddress is what players type for the server: the machine's
-// address for the one on 25565, which its A record reaches without an SRV
-// record; else the server's own address once that works, or the machine's
-// address with the port.
+// publicJoinAddress is what players type for the server: its own address
+// once that works; else the machine's address for the one on 25565, which
+// its A record reaches without an SRV record; else the server's address
+// under the machine's once that works, or the machine's address with the
+// port.
 func publicJoinAddress(host string, j api.JoinAddress, port int) string {
-	if port != certs.MinecraftPort && j.Published && j.Address != "" {
+	if (j.OwnAddress != "" || port != certs.MinecraftPort) && j.Published && j.Address != "" {
 		return j.Address
 	}
 	return hostPort(host, port)

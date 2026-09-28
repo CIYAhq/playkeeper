@@ -187,6 +187,9 @@ const opKeys: Record<string, MessageKey> = {
   'offsite-check': 'op.offsite-check',
   // The map's area, and the World tab's pre-generation.
   'pregen-start': 'op.pregen-start',
+  // 0.4.3: Bedrock players join through Geyser and Floodgate.
+  crossplay_on: 'op.crossplay_on',
+  crossplay_off: 'op.crossplay_off',
 }
 
 /** "Backing up Survival", for the job pill and busy notes. */

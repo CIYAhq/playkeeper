@@ -45,6 +45,14 @@ func TestTemplateRoutesReachTheAgent(t *testing.T) {
 		t.Errorf("plan: the agent saw %s %s %v, actor %q, type %q, body %q", c.method, c.path, c.query, c.actor, c.contentType, c.body)
 	}
 
+	r, b = e.send(t, "GET", mid+"/templates/library", "", "", auth(cookie, ""))
+	if r.StatusCode != http.StatusOK {
+		t.Fatalf("library: %d %s", r.StatusCode, b)
+	}
+	if calls = agent.take(); len(calls) != 1 || calls[0].method != "GET" || calls[0].path != "/v1/templates/library" {
+		t.Fatalf("library: the agent saw %v", calls)
+	}
+
 	for _, tc := range []struct {
 		name, method, path string
 		hdr                map[string]string
@@ -54,6 +62,7 @@ func TestTemplateRoutesReachTheAgent(t *testing.T) {
 		{"a plan on another machine", "POST", "/api/machines/zzzzzzzzzz/templates/plan", auth(cookie, csrf), http.StatusNotFound},
 		{"a plan without a session", "POST", mid + "/templates/plan", nil, http.StatusUnauthorized},
 		{"an export without a session", "GET", "/api/servers/" + sampleServer + "/template", nil, http.StatusUnauthorized},
+		{"the library without a session", "GET", mid + "/templates/library", nil, http.StatusUnauthorized},
 	} {
 		if r, b := e.send(t, tc.method, tc.path, "", link, tc.hdr); r.StatusCode != tc.want {
 			t.Errorf("%s: %d %s, want %d", tc.name, r.StatusCode, b, tc.want)

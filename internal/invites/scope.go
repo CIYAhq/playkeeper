@@ -47,6 +47,25 @@ func (s Scope) Within(outer Scope) bool {
 	return true
 }
 
+// Overlaps reports whether s and other share a server. All servers shares
+// every server with any scope that has one, and with all servers.
+func (s Scope) Overlaps(other Scope) bool {
+	switch {
+	case s.All && other.All:
+		return true
+	case s.All:
+		return len(other.Servers) > 0
+	case other.All:
+		return len(s.Servers) > 0
+	}
+	for _, id := range s.Servers {
+		if slices.Contains(other.Servers, id) {
+			return true
+		}
+	}
+	return false
+}
+
 // String is s as the servers column stores it: "*" for all servers, else
 // the ids in order, separated by commas.
 func (s Scope) String() string {

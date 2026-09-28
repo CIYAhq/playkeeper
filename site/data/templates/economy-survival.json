@@ -1,0 +1,21 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Economy survival",
+  "description": "Paper 1.21.11 with money: EssentialsX's balance, pay and sell commands through VaultUnlocked, chest shops with QuickShop-Hikari, and LuckPerms for ranks.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "1.21.11" },
+  "settings": {
+    "difficulty": "normal",
+    "pvp": false,
+    "gameMode": "survival",
+    "maxPlayers": 20,
+    "playStyle": "friends",
+    "memoryMB": 4096
+  },
+  "addons": [
+    { "source": "modrinth", "project": "hXiIvTyT", "slug": "essentialsx", "name": "EssentialsX", "pin": { "versionId": "nY6VN1XH", "versionNumber": "2.22.0", "channel": "release", "hashAlgo": "sha512", "hash": "472ecf71924801723643ca6e1f9931297de5aa0874a544f8a719e2e2f7c81af81ef7bcbd38b6e43f0260a9dae6abe42c97907e70e2430e326ff8cff12ebd61cf" } },
+    { "source": "modrinth", "project": "ayRaM8J7", "slug": "vaultunlocked", "name": "VaultUnlocked", "pin": { "versionId": "qZgRzoYs", "versionNumber": "2.20.3", "channel": "release", "hashAlgo": "sha512", "hash": "0eedea1591459e7e327315b43afa834a173c8c2ae31b3b235586d31963df29a4a6c0ef4b8f3fdc746e15afd47ee50c1ff93584543b5c2ef7c2a80135dba1136a" } },
+    { "source": "modrinth", "project": "ijC5dDkD", "slug": "quickshop-hikari", "name": "QuickShop-Hikari", "pin": { "versionId": "OxlW1jL5", "versionNumber": "6.3.0.3", "channel": "release", "hashAlgo": "sha512", "hash": "5259237aaac00d21ddd6f954c708bfc6bd57a3505960b8eaffd254ea7cca0d89991195a6ec4e78194bf67f306802a7e2dc5dc7821c4724a7b2e2e5a927de6c64" } },
+    { "source": "modrinth", "project": "Vebnzrzj", "slug": "luckperms", "name": "LuckPerms", "pin": { "versionId": "b0mk8uS6", "versionNumber": "v5.5.71-bukkit", "channel": "release", "hashAlgo": "sha512", "hash": "188a91f0a543d23bfda32385fca6db63d61e49c8a422bd452a260bd9cbc6a7d7fe45071199e9fca8f3ce43c2b41ee84fd315bd15464577028ff3951a7d4fab27" } }
+  ]
+}

@@ -2021,6 +2021,82 @@ control "only the server files of the pack's own version are used" internal/modp
   'sp.ParentProjectFileID == nil || *sp.ParentProjectFileID != file.ID || ' \
   '' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "Missing Mods Checker stays off the server" internal/modpacks/missingmods.go \
+  'delete(p.files, jar)' \
+  '_ = jar' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "the mods Missing Mods Checker lists come from CurseForge" internal/modpacks/missingmods.go \
+  'p.files[target] = &packFile{' \
+  '_ = &packFile{' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "a mod Missing Mods Checker lists that CurseForge flagged as malware stops the install" internal/modpacks/missingmods.go \
+  'case f.FileStatus == curseforge.StatusMalwareDetected:' \
+  'case false && f.FileStatus == curseforge.StatusMalwareDetected:' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "a mod Missing Mods Checker lists that CurseForge no longer offers gets a step" internal/modpacks/missingmods.go \
+  'if !seen[id] {' \
+  'if false && !seen[id] {' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "a mod Missing Mods Checker lists that CurseForge tags for players stays off" internal/modpacks/missingmods.go \
+  'case f.ClientOnly():' \
+  'case false && f.ClientOnly():' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "a CurseForge pack's mods Modrinth lists as client-only stay off the server" internal/modpacks/resolve.go \
+  'case (f.ClientOnly() || p.modrinthClient[f.SHA1()]) && !p.needed[f.SHA1()]:' \
+  'case f.ClientOnly() && !p.needed[f.SHA1()]:' \
+  ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "a CurseForge pack's client-only mod another of its mods requires goes on the server" internal/modpacks/resolve.go \
+  'case (f.ClientOnly() || p.modrinthClient[f.SHA1()]) && !p.needed[f.SHA1()]:' \
+  'case f.ClientOnly() || p.modrinthClient[f.SHA1()]:' \
+  ./internal/modpacks '^TestCurseForgeClientModAServerModRequiresGoesOn$'
+control "an optional CurseForge file's dependencies don't keep a client-only mod" internal/modpacks/resolve.go \
+  '		case mf.Required:
+			onServer = append(onServer, f.SHA1())' \
+  '		default:
+			onServer = append(onServer, f.SHA1())' \
+  ./internal/modpacks '^TestCurseForgeClientModAServerModRequiresGoesOn$'
+control "only a CurseForge file's required dependencies keep a client-only mod" internal/modpacks/resolve.go \
+  'if d.RelationType == curseforge.RequiredDependency {' \
+  'if d.RelationType != 0 {' \
+  ./internal/modpacks '^TestCurseForgeClientModAServerModRequiresGoesOn$'
+control "a Modrinth pack's mods Modrinth lists as client-only stay off the server" internal/modpacks/resolve.go \
+  'case env == mrpack.Unsupported || p.modrinthClient[sha1]:' \
+  'case env == mrpack.Unsupported:' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
+control "a Modrinth pack's client-only mod a mod on the server requires goes on" internal/modpacks/resolve.go \
+  'case p.needed[sha1]:' \
+  'case false && p.needed[sha1]:' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
+control "what a kept client-only mod requires in turn stays off" internal/modpacks/resolve.go \
+  'for _, m := range onServer {' \
+  'for _, m := range append(onServer, clientOnly...) {' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
+control "only a Modrinth version's required dependencies keep a client-only mod" internal/modpacks/resolve.go \
+  'if d.DependencyType == modrinth.Required && pr != "" {' \
+  'if pr != "" {' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
+control "a mod version from before Modrinth's environment field goes by its project's server side" internal/modpacks/resolve.go \
+  'if r, ok := runs[v.ProjectID]; ok {' \
+  'if r, ok := runs[v.ProjectID]; false && ok {' \
+  ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "a client-only mod the pack's own files use stays on the server" internal/modpacks/resolve.go \
+  'delete(p.modrinthClient, sha1)' \
+  '_ = sha1' \
+  ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "only a pack's text files are read for the mods they use" internal/modpacks/resolve.go \
+  'if !mentionsFile(rel) || !serverData(rel) || e.UncompressedSize64 > maxMentionsFile {' \
+  'if (rel == "" && !mentionsFile(rel)) || !serverData(rel) || e.UncompressedSize64 > maxMentionsFile {' \
+  ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "only a pack's data and server scripts keep a client-only mod they name" internal/modpacks/resolve.go \
+  'if !mentionsFile(rel) || !serverData(rel) || e.UncompressedSize64 > maxMentionsFile {' \
+  'if !mentionsFile(rel) || e.UncompressedSize64 > maxMentionsFile {' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
+control "a CurseForge pack whose mods Modrinth can't be asked about says so" internal/modpacks/resolve.go \
+  'if err != nil {
+		p.warn(notice(KindUnverifiedEnv, kv("pack", p.info.Name),' \
+  'if err != nil {
+		_ = (notice(KindUnverifiedEnv, kv("pack", p.info.Name),' \
+  ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
 control "a modpack's file may be as large as Pixelmon's jar" internal/modpacks/modpacks.go \
   'File: addons.DefaultMaxFileSize,' \
   'File: 256 << 20,' \
@@ -2041,25 +2117,51 @@ control "a modpack that would put more than 20,000 files on the server is refuse
   'Index: 16 << 20, Files: 20000,' \
   'Index: 16 << 20, Files: 1 << 30,' \
   ./internal/modpacks '^TestDefaultFileCount$'
+control "a pack's default-server.properties never goes on the server" internal/modpacks/rules.go \
+  '"eula.txt", "server.properties", DefaultPropertiesName, "ops.json",' \
+  '"eula.txt", "server.properties", "ops.json",' \
+  ./internal/modpacks '^TestDefaultServerPropertiesStayOffTheServer$'
+control "a pack's default-server.properties settings are taken like its server.properties" internal/modpacks/resolve.go \
+  'if e := entries[DefaultPropertiesName]; e != nil {' \
+  'if e := entries[DefaultPropertiesName]; false && e != nil {' \
+  ./internal/modpacks '^TestDefaultServerPropertiesStayOffTheServer$'
+control "a default-server.properties on a modded server is settled before the start" internal/agent/lifecycle.go \
+  'if err := s.keepDefaultProperties(sc); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestDefaultServerPropertiesKeepPlaykeepersSettings$'
+control "the Default Server Properties mod's marker says its file was used" internal/agent/modpacks.go \
+  'err = d.WriteFile(defaultPropertiesUsed, nil, 0o640)' \
+  'err = nil' \
+  ./internal/agent '^TestDefaultServerPropertiesKeepPlaykeepersSettings$'
+control "a server a pack's mod started without the console and allowlist is restarted after an update" internal/agent/modpacks.go \
+  'if off {' \
+  'if false && off {' \
+  ./internal/agent '^TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor$'
+control "the settings check waits a minute after the pack's mod writes its marker" internal/agent/modpacks.go \
+  'if err != nil || s.now().Sub(used.ModTime()) < defaultPropertiesSettle {' \
+  'if err != nil || used == nil {' \
+  ./internal/agent '^TestAnUpdateDuringAFirstStartLooksAgainOnceThePackModHasRun$'
+control "the settings check looks again while the pack's mod hasn't used its file" internal/agent/modpacks.go \
+  'if err != nil || s.now().Sub(used.ModTime()) < defaultPropertiesSettle {
+		return false, false
+	}' \
+  'if err != nil {
+		return false, true
+	}
+	if s.now().Sub(used.ModTime()) < defaultPropertiesSettle {
+		return false, false
+	}' \
+  ./internal/agent '^TestAnUpdateDuringAFirstStartLooksAgainOnceThePackModHasRun$'
 control "a modpack's downloads must match the hashes the pack lists" internal/addons/fetch/download.go \
   'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
   'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
   ./internal/modpacks '^TestDownloadsMustMatchThePacksHashes$'
 control "a pack's settings are read and written without following a link" internal/agent/modpacks.go \
-  'cur, err := d.ReadProperties()
-	if errors.Is(err, fs.ErrNotExist) {
-		cur, err = nil, nil
-	}
-	if err == nil {
-		err = d.WriteProperties(mergeProperties(cur, props))
-	}' \
-  'cur, err := os.ReadFile(filepath.Join(s.dataDir(), "server.properties"))
-	if errors.Is(err, fs.ErrNotExist) {
-		cur, err = nil, nil
-	}
-	if err == nil {
-		err = os.WriteFile(filepath.Join(s.dataDir(), "server.properties"), mergeProperties(cur, props), 0o640)
-	}' \
+  'if err := setProperties(d, props); err != nil {
+		return gameFileError(err, "The modpack'"'"'s settings could not be saved, so the server was not started.")' \
+  'cur, _ := os.ReadFile(filepath.Join(s.dataDir(), "server.properties"))
+	if err := os.WriteFile(filepath.Join(s.dataDir(), "server.properties"), mergeProperties(cur, props), 0o640); err != nil {
+		return gameFileError(err, "The modpack'"'"'s settings could not be saved, so the server was not started.")' \
   ./internal/agent '^TestPackSettingsAreNotReadOrWrittenThroughALink$'
 control "a CurseForge key is saved only once CurseForge accepts it" internal/agent/addonsources.go \
   'if err := modpacks.CheckKey(ctx, a.opts.UpstreamClient, key); err != nil {' \
@@ -2075,7 +2177,7 @@ control "the Java heap a CurseForge manifest recommends is read" internal/modpac
   'p.heapMB = plausibleHeap(int(m.Minecraft.RecommendedRAM))' \
   'p.heapMB = 0' \
   ./internal/modpacks '^TestCurseForgePackHeap$'
-control "a pack's memory need covers the Java heap it asks for" internal/agent/modpacks.go \
+control "a pack's memory need covers the Java heap it asks for" internal/minecraft/catalog.go \
   '	if heapMB > 0 {
 		need = max(need,' \
   '	if false && heapMB > 0 {
@@ -2136,6 +2238,41 @@ control "voice chat a template's Try again installs gets its UDP port" internal/
 	packSkips, err := s.installTemplatePacks(ctx, h, sc, packTries, still)' \
   'packSkips, err := s.installTemplatePacks(ctx, h, sc, packTries, still)' \
   ./internal/agent '^TestTemplateVoiceChatTriedAgainGetsItsPort$'
+# Crossplay: Floodgate comes from GeyserMC only for GeyserMC's own projects,
+# with the hash GeyserMC publishes, and a Bedrock name reaches Floodgate's
+# console command only as a plain gamertag.
+control "only GeyserMC's own projects follow a link to its newest build" internal/addons/resolve.go \
+  'ok && project == strings.ToLower(p.Slug) && slices.Contains(geysermc.Projects, project) {' \
+  'ok {' \
+  ./internal/addons '^TestOnlyGeyserMCsOwnProjectsFollowItsLinks$'
+control "a link to GeyserMC's newest build is on GeyserMC's own host" internal/addons/geysermc/geysermc.go \
+  'u.Host != Host ||' \
+  '!strings.HasPrefix(u.Host, Host) ||' \
+  ./internal/addons/geysermc '^TestParseLatestLink$'
+control "GeyserMC's build installs only with the hash GeyserMC publishes" internal/addons/resolve.go \
+  '"sha256", strings.ToLower(d.SHA256), size' \
+  '"", "", size' \
+  ./internal/addons '^(TestGeyserMCProjectsComeFromGeyserMC|TestGeyserMCDownloadsAreChecked)$'
+control "a Bedrock name reaches Floodgate's command only as a plain gamertag" internal/agent/players.go \
+  'if !ok || !reGamertag.MatchString(tag) {' \
+  'if !ok {' \
+  ./internal/agent '^TestBedrockPlayersJoinTheAllowlistThroughFloodgate$'
+control "crossplay uses a Geyser put there by hand, known only by its file name" internal/agent/crossplay.go \
+  '(n.Kind != addons.KindDuplicate && n.Kind != addons.KindFileExists)' \
+  'n.Kind != addons.KindDuplicate' \
+  ./internal/agent '^TestCrossplayUsesPluginsPutThereByHand$'
+control "crossplay off without Docker's answer changes nothing" internal/agent/crossplay.go \
+  'if _, _, err := s.containerRunning(ctx); err != nil {' \
+  'if _, _, err := s.containerRunning(ctx); false && err != nil {' \
+  ./internal/agent '^TestCrossplayOffThatCantCheckTheServerChangesNothing$'
+control "a server with crossplay doesn't fall asleep" internal/agent/sleeping.go \
+  '|| s.scheduleWorking() || s.hasCrossplay(), StartedAt: startedAt}' \
+  '|| s.scheduleWorking(), StartedAt: startedAt}' \
+  ./internal/agent '^TestCrossplayKeepsTheServerAwake$'
+control "turning crossplay on wakes a sleeping server" internal/agent/crossplay.go \
+  'if !running && s.desired() == api.DesiredSleeping {' \
+  'if false && !running && s.desired() == api.DesiredSleeping {' \
+  ./internal/agent '^TestCrossplayKeepsTheServerAwake$'
 control "a template whose modpack is made for another Minecraft version is blocked" internal/agent/templates.go \
   'case v.MinecraftVersion != "" && v.MinecraftVersion != p.Version.MinecraftVersion:' \
   'case false:' \
@@ -2652,15 +2789,15 @@ shcontrol "the shards' check fails when shards listed other tests" scripts/go-te
   scripts/go-test-shard_test.sh
 
 control "names service owns only records with the name's marker" internal/names/service/dns.go \
-  'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
-  'if names.CheckName(name) != nil || reservedName(name) {' \
+  'if names.CheckName(name) != nil || names.Reserved(name) || r.Comment != marker(name) {' \
+  'if names.CheckName(name) != nil || names.Reserved(name) {' \
   ./internal/names/service '^(TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns|TestTheGuardRefusesEveryChangeOutsideItsPatterns|TestRecordsTheServiceDoesNotManageAreNeverTouched)$'
 control "names service checks a zone it couldn't check at startup before the first change" internal/names/service/dns.go \
   'if s.zoneOK.Load() {' \
   'if true || s.zoneOK.Load() {' \
   ./internal/names/service '^TestStartupWithoutCloudflareChecksTheZoneBeforeTheFirstChange$'
 control "names service never owns records of reserved names" internal/names/service/dns.go \
-  'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
+  'if names.CheckName(name) != nil || names.Reserved(name) || r.Comment != marker(name) {' \
   'if names.CheckName(name) != nil || r.Comment != marker(name) {' \
   ./internal/names/service '^(TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns|TestTheGuardRefusesEveryChangeOutsideItsPatterns)$'
 control "names service owns address records only at the name itself" internal/names/service/dns.go \
@@ -2732,12 +2869,12 @@ control "requests through Cloudflare's proxy cannot claim names" internal/names/
   'if false && inAny(cloudflareEdge, a) {' \
   ./internal/names/service '^TestNamesCannotPointAtPrivateReservedOrProxyAddresses$'
 control "reserved names cannot be claimed" internal/names/service/handlers.go \
-  'if reservedName(name) || s.block.has(name) {' \
+  'if names.Reserved(name) || s.block.has(name) {' \
   'if s.block.has(name) {' \
   ./internal/names/service '^TestReservedAndBlocklistedNamesCannotBeClaimed$'
 control "blocklisted names cannot be claimed" internal/names/service/handlers.go \
-  'if reservedName(name) || s.block.has(name) {' \
-  'if reservedName(name) {' \
+  'if names.Reserved(name) || s.block.has(name) {' \
+  'if names.Reserved(name) {' \
   ./internal/names/service '^TestReservedAndBlocklistedNamesCannotBeClaimed$'
 control "only the install that holds a name can change it" internal/names/service/handlers.go \
   'case row.Key != key:' \
@@ -4620,8 +4757,8 @@ control "an add-on or pack error the agent answers with has Playkeeper's hint" i
 # an empty server awake, and a backup dropped from a full copy queue discards
 # what it left at the destination.
 control "a running map pre-generation keeps an empty server awake" internal/agent/sleeping.go \
-  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking(),' \
-  'Busy: s.busy() || s.scheduleWorking(),' \
+  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking() || s.hasCrossplay(),' \
+  'Busy: s.busy() || s.scheduleWorking() || s.hasCrossplay(),' \
   ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^running$'
 control "sleep goes by what Chunky reported last about the task" internal/agent/pregen.go \
   'return st == pregen.StateRunning' \
@@ -4832,8 +4969,8 @@ control "the first keys are stored only while there are none" internal/agent/off
 # keeps an empty server awake, and with the allowlist off anyone who isn't
 # banned wakes a sleeping server by joining.
 control "a scheduled restart's countdown keeps an empty server awake" internal/agent/sleeping.go \
-  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking(),' \
-  'Busy: s.busy() || s.pregenRunning(),' \
+  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking() || s.hasCrossplay(),' \
+  'Busy: s.busy() || s.pregenRunning() || s.hasCrossplay(),' \
   ./internal/agent '^TestSleepWaitsForAScheduledRestartsCountdown$/^a_restart_counting_down$'
 control "a restart schedule counts as working while it counts down" internal/agent/schedules.go \
   'return ok && (act.Job.Schedule.Kind == schedule.KindRestart || act.Job.Schedule.Kind == schedule.KindBackup)' \
@@ -5104,8 +5241,8 @@ control "a CurseForge manifest's odd recommendedRam doesn't refuse the pack" int
 	}' \
   ./internal/modpacks/curseforge '^TestRecommendedRAM$'
 control "a Forge server gets only the Forge build of a mod" internal/addons/target.go \
-  'Loaders: []string{"forge"}}' \
-  'Loaders: []string{"neoforge"}}' \
+  'Loaders: []string{"forge"}, own: 1}' \
+  'Loaders: []string{"neoforge"}, own: 1}' \
   ./internal/addons '^(TestTargetFor|TestPlanInstallPicksTheLoadersVersion)$'
 control "Forge's crash report line counts as a crash" internal/minecraft/logparse.go \
   'This crash report has been saved to: |Crash report saved to |' \
@@ -5376,7 +5513,7 @@ control "a sleep decided with another setting is called off" internal/agent/slee
   's.desired() != api.DesiredRunning' \
   ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$'
 control "a sleep is called off when someone joined since it decided" internal/agent/sleeping.go \
-  'if !s.nobodyOn() || s.pregenRunning() || s.scheduleWorking() {' \
+  'if !s.nobodyOn() || s.pregenRunning() || s.scheduleWorking() || s.hasCrossplay() {' \
   'if false {' \
   ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^someone_joined_as_it_looks_again$'
 # The same lock refuses turning sleep off during a backup; that test can't be
@@ -6141,12 +6278,10 @@ control "a server turned off leaves the public page" internal/agent/publicpage.g
 	if false && !set.Enabled {' \
   ./internal/agent '^TestAServerTurnedOffLeavesThePageAndTheOthersStay$'
 control "the public page answers only for the machine's address" internal/agent/publicpage.go \
-  'st := a.publicPageState()
-	if !st.On || !sameHost(host, st.Host) {
-		return api.PublicPage{}, false' \
-  'st := a.publicPageState()
-	if !st.On {
-		return api.PublicPage{}, false' \
+  '	if !sameHost(host, st.Host) {
+		if only = a.ownPageServer(host); only == nil {' \
+  '	if false && !sameHost(host, st.Host) {
+		if only = a.ownPageServer(host); only == nil {' \
   ./internal/agent '^TestAPublicPageThatIsOffAnswersLikeAnUnknownAddress$'
 control "the page leaves ports 443 and 80 alone while the machine starts" internal/agent/pageports.go \
   'if a.opts.Uptime() < pageSettle {' \
@@ -6168,6 +6303,10 @@ control "the agent's own HTTP-01 check never makes port 80 count as busy" intern
   'if port == addrPort(a.opts.HTTP01Addr) {' \
   'if false && port == addrPort(a.opts.HTTP01Addr) {' \
   ./internal/agent '^TestAnHTTP01CheckDoesntMakePort80Busy$'
+control "a hand-over asked for over anything but the agent's socket tries no port" internal/agent/pageports.go \
+  'if _, ok := r.Context().Value(connKey{}).(*net.UnixConn); !ok {' \
+  'if _, ok := r.Context().Value(connKey{}).(*net.UnixConn); false && !ok {' \
+  ./internal/agent '^TestThePagesPortsReachThePanelOnlyOverTheAgentSocket$'
 control "machine links don't carry the public page's ports" internal/agent/link.go \
   '"POST " + pagePortsPath: true,' \
   '"POST " + pagePortsPath: false,' \
@@ -6177,8 +6316,8 @@ control "an HTTP-01 check goes ahead on a busy port only when its holder passes 
   'if errors.Is(err, syscall.EADDRINUSE) {' \
   ./internal/certs '^TestHTTP01GoesAheadOnlyWhenThePortsHolderPassesChecksOn$'
 control "the page's ports answer only the machine's address" internal/panel/serverpage.go \
-  'if !check && !pageHost(r.Host, s.page.hostNow()) {' \
-  'if false && !check && !pageHost(r.Host, s.page.hostNow()) {' \
+  'if !check && !s.page.answers(r.Host) {' \
+  'if false && !check && !s.page.answers(r.Host) {' \
   ./internal/panel '^TestThePagesPortsServeThePageAndNothingElse$'
 control "the page escapes what the owner typed" internal/panel/serverpage.go \
   'head := "<title>" + html.EscapeString(title) + "</title>"' \
@@ -6241,8 +6380,8 @@ control "the keeper never asks for a port it holds" internal/panel/pageports.go 
   'return !now.Before(p.next[i]) && port.Port != s.cfg.PanelPort' \
   ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
 control "Let's Encrypt's check for a new address passes port 80 before the page follows it" internal/panel/serverpage.go \
-  'if !check && !pageHost(r.Host, s.page.hostNow()) {' \
-  'if !pageHost(r.Host, s.page.hostNow()) {' \
+  'if !check && !s.page.answers(r.Host) {' \
+  'if !s.page.answers(r.Host) {' \
   ./internal/panel '^TestLetsEncryptsCheckForANewNameReachesTheAgentBeforeThePageCatchesUp$'
 control "a changed address has the page's keeper look again" internal/panel/server.go \
   'if method != http.MethodGet {
@@ -6279,6 +6418,408 @@ control "only the page's ports may frame the stream players" internal/panel/serv
   "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none';" \
   "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; frame-src https://player.twitch.tv; object-src 'none';" \
   ./internal/panel '^TestThePageHasALiveShareCardAndMayFrameAStream$'
+
+# Usage stats (internal/usage): nothing is sent that its check refuses, while
+# they're off, or before the installer has said so; root's choices outrank
+# the switch, which takes someone who manages the machine; the project's own
+# installs are marked and never counted; the stats service limits what one
+# address or install can send, and only its proxy may say whom a request is
+# from.
+control "the usage stats client sends no heartbeat its check refuses" internal/usage/client.go \
+  '	if err := h.Check(); err != nil {
+		return err
+	}
+	return c.post(ctx, PathHeartbeat, h)' \
+  '	return c.post(ctx, PathHeartbeat, h)' \
+  ./internal/usage '^TestTheClientSendsNothingItsCheckRefuses$'
+control "the usage stats client follows no redirect" internal/usage/client.go \
+  '	nc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+' \
+  '' \
+  ./internal/usage '^TestTheClientFollowsNoRedirectAndFailsOnARefusal$'
+control "the usage stats client uses plain http:// only on this machine" internal/usage/client.go \
+  'host == "localhost" || (ip != nil && ip.IsLoopback())' \
+  'true || host == "localhost" || (ip != nil && ip.IsLoopback())' \
+  ./internal/usage '^TestTheServiceIsReachedOverHTTPSOrOnThisMachine$'
+control "the stats service refuses a heartbeat its check refuses" internal/usage/service/handlers.go \
+  '!s.checked(w, h.ID, h.Check())' \
+  '!s.checked(w, h.ID, nil)' \
+  ./internal/usage/service '^TestReportsThatArentOneAreRefused$'
+control "the stats service limits each address" internal/usage/service/handlers.go \
+  'if ok, wait := s.perIP.allow(addrBucket(addr)); !ok {' \
+  'if ok, wait := s.perIP.allow(addrBucket(addr)); false && !ok {' \
+  ./internal/usage/service '^TestEachAddressAndEachInstallHasALimit$'
+control "the stats service limits each install" internal/usage/service/handlers.go \
+  'if ok, wait := s.perID.allow(id); !ok {' \
+  'if ok, wait := s.perID.allow(id); false && !ok {' \
+  ./internal/usage/service '^TestEachAddressAndEachInstallHasALimit$'
+control "the stats service takes a bounded number of new installs a day" internal/usage/service/store.go \
+  'if ok, _ := s.newIDs.allow(""); !ok {' \
+  'if ok, _ := s.newIDs.allow(""); false && !ok {' \
+  ./internal/usage/service '^TestNewInstallsPerDayAreBounded$'
+control "only a trusted proxy says whom a stats request is from" internal/usage/service/service.go \
+  '	if !s.trusted(addr) {
+		if r.Header.Get("X-Forwarded-For")' \
+  '	if false && !s.trusted(addr) {
+		if r.Header.Get("X-Forwarded-For")' \
+  ./internal/usage/service '^TestOnlyATrustedProxyNamesTheClient$'
+control "a stats request is from the address the proxy saw, not one the client made up" internal/usage/service/service.go \
+  'for i := len(hops) - 1; i >= 0; i-- {' \
+  'for i := 0; i < len(hops); i++ {' \
+  ./internal/usage/service '^TestOnlyATrustedProxyNamesTheClient$'
+control "the usage counts need the read token" internal/usage/service/handlers.go \
+  'if !ok || subtle.ConstantTimeCompare([]byte(strings.TrimSpace(token)), []byte(s.cfg.ReadToken)) != 1 {' \
+  'if false && (!ok || subtle.ConstantTimeCompare([]byte(strings.TrimSpace(token)), []byte(s.cfg.ReadToken)) != 1) {' \
+  ./internal/usage/service '^TestTheCountsNeedTheReadToken$'
+control "test installs aren't counted as running" internal/usage/service/summary.go \
+  'WHERE test = 0 AND last_seen != 0 AND last_seen >= ?' \
+  'WHERE last_seen != 0 AND last_seen >= ?' \
+  ./internal/usage/service '^TestTestInstallsAreKeptOutOfEveryCount$'
+control "test installs aren't counted as installs" internal/usage/service/summary.go \
+  'WHERE test = 0 AND (started_at >= ? OR outcome_at >= ?)' \
+  'WHERE (started_at >= ? OR outcome_at >= ?)' \
+  ./internal/usage/service '^TestTestInstallsAreKeptOutOfEveryCount$'
+control "a heartbeat without the test mark doesn't clear it" internal/usage/service/store.go \
+  '			test = MAX(installs.test, excluded.test)`,
+		h.ID,' \
+  '			test = excluded.test`,
+		h.ID,' \
+  ./internal/usage/service '^TestTestInstallsAreKeptOutOfEveryCount$'
+control "an install from within the last day counts in it" internal/usage/service/summary.go \
+  'in, err := s.installs(ctx, now, hour(now)-int64(w.span/time.Second))' \
+  'in, err := s.installs(ctx, now, now.Add(-w.span).Unix())' \
+  ./internal/usage/service '^TestAnInstallFromTheLastDayCountsInIt$'
+control "a daily snapshot that failed is tried again the next hour" internal/usage/service/service.go \
+  '	done := s.lastBackup == day
+	s.mu.Unlock()' \
+  '	done := s.lastBackup == day
+	s.lastBackup = day
+	s.mu.Unlock()' \
+  ./internal/usage/service '^TestAFailedSnapshotIsTriedAgainTheNextHour$'
+control "playkeeper dev sends no usage stats" internal/agent/usage.go \
+  '	if a.cfg.Dev {
+		return false, api.UsageDev, ""
+	}
+' \
+  '' \
+  ./internal/agent '^TestTheSwitchChangesUsageStatsUnlessRootChose$'
+control "DO_NOT_TRACK in the agent's environment decides" internal/agent/usage.go \
+  'usage.FromEnv(a.opts.Getenv)' \
+  'usage.FromEnv(func(string) string { return "" })' \
+  ./internal/agent '^TestTheSwitchChangesUsageStatsUnlessRootChose$'
+control "usage stats turned off at install stay off" internal/agent/usage.go \
+  '	if a.cfg.UsageStats == "off" {
+		return false, api.UsageInstall, ""
+	}
+' \
+  '' \
+  ./internal/agent '^TestTheSwitchChangesUsageStatsUnlessRootChose$'
+control "the switch doesn't change usage stats turned off at install" internal/agent/usage.go \
+  '	case reason == api.UsageInstall && !on:' \
+  '	case reason == api.UsageInstall && !on && false:' \
+  ./internal/agent '^TestTheSwitchChangesUsageStatsUnlessRootChose$'
+control "with usage stats off, the agent sends nothing" internal/agent/usage.go \
+  '	if on, _, _ := a.usageDecision(); !on {
+		return nil
+	}
+' \
+  '' \
+  ./internal/agent '^TestTurnedOffNothingIsSentAndTurningThemOnSendsAtOnce$'
+control "turning usage stats on sends a heartbeat at once" internal/agent/usage.go \
+  '	if req.On {
+		select {' \
+  '	if false && req.On {
+		select {' \
+  ./internal/agent '^TestTurnedOffNothingIsSentAndTurningThemOnSendsAtOnce$'
+control "an agent keeps the usage ID it made" internal/agent/usage.go \
+  'err != nil || (ok && usage.IsID(id))' \
+  'err != nil || (false && ok && usage.IsID(id))' \
+  ./internal/agent '^TestAnInstallWithoutAUsageIDGetsOneOfItsOwnOnce$'
+control "an agent on a machine running an Actions job marks its heartbeats as a test" internal/agent/usage.go \
+  ' || usage.ActionsJob(a.opts.Processes())' \
+  '' \
+  ./internal/agent '^TestTestInstallsAndJoinedMachinesSayWhatTheyAre$'
+control "the end-to-end tests' offline harness marks its heartbeats as a test" internal/agent/usage.go \
+  'a.cfg.UsageTest || a.offline() || ' \
+  'a.cfg.UsageTest || ' \
+  ./internal/agent '^TestTestInstallsAndJoinedMachinesSayWhatTheyAre$'
+control "the installer says usage stats are on before anything else" internal/install/install.go \
+  '	for _, line := range o.Usage.notice(o.Usage.state("")) {' \
+  '	for _, line := range o.Usage.notice(o.Usage.state(""))[:0] {' \
+  ./internal/install '^TestAnInstallReportsItsStartAndEndUnderTheIDItLeavesTheAgent$'
+control "an upgrade says usage stats are on before its plan" internal/install/inplace.go \
+  '	for _, line := range o.Usage.notice(o.Usage.upgradeState(ctx, sys, cfg)) {' \
+  '	for _, line := range o.Usage.notice(o.Usage.upgradeState(ctx, sys, cfg))[:0] {' \
+  ./internal/install '^TestAnUpgradeFromBeforeUsageStatsSaysTheyreOn$'
+control "an install sends nothing before its plan is accepted" internal/install/install.go \
+  '	if !o.Yes {
+		fmt.Fprint(out, "Proceed? [y/N] ")' \
+  '	rep.send(ctx, usage.EventStarted, "")
+	if !o.Yes {
+		fmt.Fprint(out, "Proceed? [y/N] ")' \
+  ./internal/install '^TestDecliningThePlanSendsNothing$'
+control "an install with DO_NOT_TRACK sends nothing" internal/install/usage.go \
+  '	if !u.On() || u.Send == nil {' \
+  '	if u.Send == nil {' \
+  ./internal/install '^TestDoNotTrackSendsNothingAndTheAgentKeepsItOff$'
+control "an install while an Actions job runs is a test" internal/install/usage.go \
+  '	return usage.ActionsJob(sys.Processes()) || os.Getenv(FailStepEnv) != ""' \
+  '	return os.Getenv(FailStepEnv) != ""' \
+  ./internal/install '^TestAnInstallDuringAnActionsJobIsATest$'
+control "a failed install names the step that failed" internal/install/install.go \
+  '		in.failed = s.code
+' \
+  '' \
+  ./internal/install '^TestAFailedInstallSaysWhichStepFailedAndCountsAsATest$'
+control "an upgrade records usage stats DO_NOT_TRACK turned off" internal/install/inplace.go \
+  '	c := o.Usage.record(cfg, sys)' \
+  '	c := cfg' \
+  ./internal/install '^TestAnUpgradeSaysSoAndRecordsDoNotTrack$'
+control "an upgrade says usage stats turned off at install are still off" internal/install/usage.go \
+  '	case setting == "off":' \
+  '	case false && setting == "off":' \
+  ./internal/install '^TestAnUpgradeSaysSoAndRecordsDoNotTrack$'
+control "the installer takes DO_NOT_TRACK from its environment" cmd/playkeeper/main.go \
+  'choice, why := usagestats.FromEnv(getenv)' \
+  'choice, why := usagestats.FromEnv(func(string) string { return "" })' \
+  ./cmd/playkeeper '^TestTheInstallTakesUsageStatsFromTheEnvironment$'
+control "only those who manage the machine use the usage stats switch" internal/panel/server.go \
+  '{"PUT", "/api/usage-stats", needSessionCSRF, actManageMachine, s.hUsageStatsSet}' \
+  '{"PUT", "/api/usage-stats", needSessionCSRF, actView, s.hUsageStatsSet}' \
+  ./internal/panel '^TestOnlyThoseWhoManageTheMachineUseTheSwitch$'
+control "the usage stats switch passes on only on or off" internal/panel/usage.go \
+  '	dec.DisallowUnknownFields()
+' \
+  '' \
+  ./internal/panel '^TestTheSwitchSetsUsageStatsOnEveryMachine$'
+control "a machine that was away gets usage stats off when it connects" internal/panel/machines.go \
+  '		go s.carryUsageOff(e.MachineID)
+' \
+  '' \
+  ./internal/panel '^TestAMachineThatWasAwayIsTurnedOffWhenItConnects$'
+control "a machine that connects after the switch turned usage stats on keeps its own" internal/panel/usage.go \
+  'if here.On || here.Reason != api.UsageSettings {' \
+  'if here.Reason != api.UsageSettings {' \
+  ./internal/panel '^TestAMachineThatWasAwayIsTurnedOffWhenItConnects$'
+control "an off the dashboard's machine has for itself isn't carried to a machine that connects" internal/panel/usage.go \
+  'if here.On || here.Reason != api.UsageSettings {' \
+  'if here.On || here.Reason == api.UsageDev {' \
+  ./internal/panel '^TestAMachineThatWasAwayIsTurnedOffWhenItConnects$'
+# shellcheck disable=SC2016
+shcontrol "get.sh says it came from GitHub's release" packaging/get.sh \
+  '    [ "$base" != "$default_base" ] || PLAYKEEPER_INSTALL_SOURCE=github
+' \
+  '' \
+  packaging/get_test.sh
+# shellcheck disable=SC2016
+shcontrol "get.sh passes on what playkeeper.io's command said" packaging/get.sh \
+  '  if [ -z "${PLAYKEEPER_INSTALL_SOURCE:-}" ]; then' \
+  '  if true; then' \
+  packaging/get_test.sh
+control "every install CI runs sends no usage stats" .github/workflows/ci.yml \
+  'sudo DO_NOT_TRACK=1 ./install.sh --yes | tee /tmp/evidence/install.txt' \
+  'sudo ./install.sh --yes | tee /tmp/evidence/install.txt' \
+  ./internal/usage '^TestEveryInstallTheProjectRunsSendsNoUsageStats$'
+# shellcheck disable=SC2016
+control "README.md lists every field usage stats send" README.md \
+  '| `arch` | the CPU type, `amd64` or `arm64` |
+' \
+  '' \
+  ./internal/usage '^TestTheReadmeListsEveryFieldSent$'
+webcontrol "the usage stats switch is left out for those who can't manage the machine" web/src/pages/settings.tsx \
+  '{manage && st && <Switch' \
+  '{st && <Switch' \
+  web/src/pages/settings.test.tsx 'no switch to those who can'
+webcontrol "the usage stats switch stays still where root or playkeeper dev decides" web/src/pages/settings.tsx \
+  'disabled={!!locked} title={locked}' \
+  'disabled={false} title={locked}' \
+  web/src/pages/settings.test.tsx 'keeps the switch still'
+
+# The stats dashboard: it loads only its own files and asks only its own
+# service for the counts; the days leave test installs out and count an
+# install whose first report was lost as started the day it ended.
+control "the stats dashboard is sent with its Content-Security-Policy" internal/usage/service/dashboard.go \
+  '		h.Set("Content-Security-Policy", dashboardCSP)
+' \
+  '' \
+  ./internal/usage/service '^TestTheDashboardLoadsOnlyItsOwnFilesAndAsksOnlyForTheSummary$'
+control "a sign-in to the stats dashboard without its script can't put the token in an address" internal/usage/service/dashboard.go \
+  "form-action 'none'; " \
+  "" \
+  ./internal/usage/service '^TestTheDashboardLoadsOnlyItsOwnFilesAndAsksOnlyForTheSummary$'
+control "the stats dashboard asks only its own service for the counts" internal/usage/service/dashboard/app.js \
+  "fetch('/v1/summary'," \
+  "fetch('https://stats.example/v1/summary'," \
+  ./internal/usage/service '^TestTheDashboardLoadsOnlyItsOwnFilesAndAsksOnlyForTheSummary$'
+control "test installs aren't counted in the days" internal/usage/service/summary.go \
+  'WHERE test = 0 AND (started_at >= ? OR outcome_at >= ?)`, first*86400' \
+  'WHERE (started_at >= ? OR outcome_at >= ?)`, first*86400' \
+  ./internal/usage/service '^TestTestInstallsAreKeptOutOfEveryCount$'
+control "an install whose first report was lost started the day it ended" internal/usage/service/summary.go \
+  '		case outcome == usage.EventSucceeded || outcome == usage.EventFailed:
+			add(outcomeAt, source, Outcomes{Started: 1})
+' \
+  '' \
+  ./internal/usage/service '^TestSummaryCountsInstallsAndActiveInstallsByWindow$'
+
+# The stats funnel: counts come from playkeeper.io's pages alone, as one
+# event, limited for each address; the funnel follows playkeeper.io installs
+# alone, leaves test installs out, and counts as still running only those
+# with a heartbeat in the last day; the site's analytics are read with the
+# key as a bearer token, kept for a while, not asked again at once after a
+# failure, and what they answer is passed on only as a plain code.
+control "site counts come from playkeeper.io's pages alone" internal/usage/service/site.go \
+  '	if r.Header.Get("Origin") != SiteOrigin {' \
+  '	if false && r.Header.Get("Origin") != SiteOrigin {' \
+  ./internal/usage/service '^TestSiteCountsComeOnlyFromThePagesAndSayNothingElse$'
+control "a site count is answered to playkeeper.io's pages" internal/usage/service/site.go \
+  '	w.Header().Set("Access-Control-Allow-Origin", SiteOrigin)
+' \
+  '' \
+  ./internal/usage/service '^TestSiteCountsComeOnlyFromThePagesAndSayNothingElse$'
+control "a site count is a copy of the install command and nothing else" internal/usage/service/site.go \
+  '	if e.Event != EventInstallCopied {' \
+  '	if false && e.Event != EventInstallCopied {' \
+  ./internal/usage/service '^TestSiteCountsComeOnlyFromThePagesAndSayNothingElse$'
+control "site counts from one address are limited" internal/usage/service/site.go \
+  'if ok, wait := s.perIPSite.allow(addrBucket(addr)); !ok {' \
+  'if ok, wait := s.perIPSite.allow(addrBucket(addr)); false && !ok {' \
+  ./internal/usage/service '^TestSiteCountsComeOnlyFromThePagesAndSayNothingElse$'
+control "the funnel follows installs made with the playkeeper.io command alone" internal/usage/service/summary.go \
+  'AND source = ? AND' \
+  'AND (source = ? OR 1) AND' \
+  ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+control "the funnel leaves test installs out" internal/usage/service/summary.go \
+  'WHERE test = 0 AND source = ?' \
+  'WHERE source = ?' \
+  ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+control "still running means a heartbeat in the last day" internal/usage/service/summary.go \
+  '			if lastSeen >= runningSince {' \
+  '			if lastSeen >= runningSince-7*86400 {' \
+  ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+control "the site's analytics are kept for a quarter of an hour" internal/usage/service/site.go \
+  'fresh := !r.readAt.IsZero() && now.Sub(r.readAt) < siteEvery' \
+  'fresh := false && !r.readAt.IsZero() && now.Sub(r.readAt) < siteEvery' \
+  ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+control "a failed read of the site's analytics isn't tried again at once" internal/usage/service/site.go \
+  'if !fresh && (r.triedAt.IsZero() || now.Sub(r.triedAt) >= siteRetry) {' \
+  'if !fresh {' \
+  ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+control "a read of the site's analytics outlives a dropped request" internal/usage/service/site.go \
+  'r.read(context.WithoutCancel(ctx), now)' \
+  'r.read(ctx, now)' \
+  ./internal/usage/service '^TestADroppedRequestDoesntStopTheSitesNumbersBeingRead$'
+control "the site's read key goes to Open Analytics as a bearer token" internal/usage/service/site.go \
+  '	req.Header.Set("Authorization", "Bearer "+r.key)' \
+  '	req.Header.Set("Authorization", r.key)' \
+  ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+control "the summary passes on only a plain code from Open Analytics' errors" internal/usage/service/site.go \
+  'if code := reErrorCode.FindString(e.Error.Code); code != "" {' \
+  'if code := e.Error.Code; code != "" {' \
+  ./internal/usage/service '^TestTheFunnelFollowsPlaykeeperIoFromTheSitesVisitorsToInstallsThatStillRun$'
+# A server's own address under the machine's own domain.
+control "an own address is only for a machine with its own domain" internal/agent/ownaddress.go \
+  'if st.Kind != api.AddressOwn {
+		return "", errConflict(' \
+  'if false && st.Kind != api.AddressOwn {
+		return "", errConflict(' \
+  ./internal/agent '^TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain$'
+control "an own address is never the machine's name" internal/agent/ownaddress.go \
+  'if name == st.Host {' \
+  'if false && name == st.Host {' \
+  ./internal/agent '^TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain$'
+control "two servers never share an own address" internal/agent/ownaddress.go \
+  'case js.own == name:' \
+  'case false && js.own == name:' \
+  ./internal/agent '^TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain$'
+control "own addresses get a few certificates a day" internal/agent/ownaddress.go \
+  'if a.ownCertsToday(st) >= ownCertsPerDay {' \
+  'if false && a.ownCertsToday(st) >= ownCertsPerDay {' \
+  ./internal/agent '^TestOwnAddressesGetAFewCertificatesADay$'
+control "an own address's page shows only its server" internal/agent/publicpage.go \
+  'if only != nil && j.ServerID != only.id {' \
+  'if false && only != nil && j.ServerID != only.id {' \
+  ./internal/agent '^TestAnOwnAddressOpensOnlyItsServersPage$'
+control "an own address's page answers only while its server is on the page" internal/agent/ownaddress.go \
+  'if s := a.serverByID(js.id); s != nil && s.publicPageSettings().Enabled {
+			return s
+		}' \
+  'if s := a.serverByID(js.id); s != nil {
+			return s
+		}' \
+  ./internal/agent '^TestAnOwnAddressOpensOnlyItsServersPage$'
+control "a server's own address doesn't hold the domain back" internal/certs/join.go \
+  '			rc.Own = true
+			pc.Records = append(pc.Records, rc)
+			continue' \
+  '			rc.Own = true
+			pc.Records = append(pc.Records, rc)
+			pc.Ready = pc.Ready && rc.OK
+			continue' \
+  ./internal/certs '^TestCheckPlanChecksAServersOwnAddress$'
+control "looking at the machine's name alone leaves own addresses out of Ready" internal/agent/certificates.go \
+  'return !r.OK && !r.Own' \
+  'return !r.OK' \
+  ./internal/agent '^TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain$'
+control "an own address works whatever the machine's name does" internal/agent/address.go \
+  'j.Published = st.Check != nil && ownOK(st.Check, s.id)' \
+  'j.Published = st.Check != nil && st.Check.Name.OK && ownOK(st.Check, s.id)' \
+  ./internal/agent '^TestAnOwnAddressWorksWithoutTheMachinesName$'
+control "an own address gets its certificate while the machine's name points elsewhere" internal/agent/address.go \
+  '			handed = a.startOwnCertificate(st)
+			return
+		}' \
+  '			return
+		}' \
+  ./internal/agent '^TestAnOwnAddressWorksWithoutTheMachinesName$'
+control "Bedrock players join a server at its working own address" internal/agent/publicpage.go \
+  'if j.OwnAddress != "" && j.Published {' \
+  'if false && j.OwnAddress != "" && j.Published {' \
+  ./internal/agent '^TestAnOwnAddressWorksWithoutTheMachinesName$'
+control "the machine's domain is never a server's own address" internal/agent/ownaddress.go \
+  'if js.own == domain {' \
+  'if false && js.own == domain {' \
+  ./internal/agent '^TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain$'
+control "giving a server its own address needs the right to manage the machine" internal/panel/server.go \
+  '{"POST", "/api/servers/{id}/own-address", needSessionCSRF, actManageMachine,' \
+  '{"POST", "/api/servers/{id}/own-address", needSessionCSRF, actManageServers,' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+
+# playkeeper.io's copy count: pages reach the stats service only as the
+# policy allows, and the share page never names it. The script's own guards,
+# once a page view and none with Global Privacy Control or Do Not Track, are
+# held by site.spec.ts, which this script doesn't run.
+control "pages reach the stats service only as the policy allows" internal/site/nginx.go \
+  'origin(s.Stats), ' \
+  '' \
+  ./internal/site '^TestTheCopyCountIsOneSetting$'
+control "the share page doesn't name the stats service" site/layouts/base.html \
+  '{{if and (ne $.Page.Path "/t") (ne $.Page.Layout "open")}}<meta name="playkeeper-stats"' \
+  '{{if true}}<meta name="playkeeper-stats"' \
+  ./internal/site '^TestTheCopyCountIsOneSetting$'
+
+# An own domain under playkeeper.me: only a name nobody can claim, and only
+# under the current base.
+control "own domain: a playkeeper.me name nobody can claim is accepted" internal/agent/address.go \
+  'return names.CheckName(name) != nil || names.Reserved(name)' \
+  'return false && names.Reserved(name)' \
+  ./internal/agent '^(TestOwnDomainsNobodyCanClaimUnderTheFreeBaseAreAccepted|TestTheManagedBetaMachineCanBeBetaPlaykeeperMe)$'
+control "own domain: a playkeeper.me name someone can claim stays refused" internal/agent/address.go \
+  'return names.CheckName(name) != nil || names.Reserved(name)' \
+  'return true || names.Reserved(name)' \
+  ./internal/agent '^TestOwnDomainsUnderEitherFreeBaseAreRefused$'
+control "own domain: only the name right before playkeeper.me decides" internal/agent/address.go \
+  "name := rest[strings.LastIndexByte(rest, '.')+1:]" \
+  "name := rest[:strings.IndexByte(rest+\".\", '.')]" \
+  ./internal/agent '^TestOwnDomainsUnderEitherFreeBaseAreRefused$'
+control "own domain: names under playkeeper.io stay refused" internal/agent/address.go \
+  'rest, ok := strings.CutSuffix(domain, "."+names.DefaultBase)' \
+  'rest, ok := strings.CutSuffix(domain, "."+names.BaseOf(domain))' \
+  ./internal/agent '^TestOwnDomainsUnderEitherFreeBaseAreRefused$'
+control "own addresses: records that don't work yet are looked at every minute" internal/agent/address.go \
+  'if check.Ready && !slices.ContainsFunc(check.Records, func(rc api.RecordCheck) bool { return rc.Own && !rc.OK }) {' \
+  'if check.Ready {' \
+  ./internal/agent '^TestAnOwnAddressIsLookedAtEveryMinuteUntilItsRecordsWork$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

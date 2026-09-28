@@ -434,4 +434,9 @@ ALTER TABLE servers ADD COLUMN public_about TEXT NOT NULL DEFAULT '';
 ALTER TABLE servers ADD COLUMN public_stream TEXT NOT NULL DEFAULT '';
 ALTER TABLE servers ADD COLUMN public_board TEXT NOT NULL DEFAULT '';
 `,
+	// A server's own address under an own domain, such as alex.example.com,
+	// where players join it and its public page answers ('' for none).
+	`
+ALTER TABLE servers ADD COLUMN own_address TEXT NOT NULL DEFAULT '';
+`,
 }

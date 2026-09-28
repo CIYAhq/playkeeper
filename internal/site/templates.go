@@ -42,6 +42,33 @@ type TemplateCard struct {
 	// Failing is set when its last check failed (site/data/checks), and no
 	// page links it either until it's fixed.
 	Failing bool
+	// Crossplay is set when its last check turned on crossplay and Geyser
+	// and Floodgate started beside its add-ons, so Bedrock friends can join
+	// a server made from it once crossplay is on in its Settings.
+	Crossplay bool
+	// Added is the day the directory first listed it, and Popularity what
+	// sorts it under Popular, most first.
+	Added      string
+	Popularity int
+	// Categories are the directory's categories it's in, its primary first,
+	// and Tags what it adds, its own and its add-ons'; the directory fills
+	// them in from site/data/taxonomy.json.
+	Categories []*Category
+	Tags       []*Tag
+	// check is what happened the last time a server was created and started
+	// from it (site/data/checks), when that passed, and pack its modpack's
+	// page, when it has one.
+	check        *LibraryPage
+	pack         *Modpack
+	modpackCheck *checks.Modpack
+	categoryIDs  []string
+	tagIDs       []string
+	modpackMods  int
+	modpackTitle string
+	// thumb is its thumbnail's name, when it has one (Site.addThumbs).
+	thumb string
+	// icons are what it installs' icons, by Project.key (Site.addIcons).
+	icons map[string]*asset
 }
 
 // Held reports whether pages leave the template out: the release people
@@ -57,6 +84,16 @@ func failing(cards map[string]*TemplateCard, checked map[string]*checks.Check) {
 	}
 }
 
+// crossplays marks the cards whose templates' last check passed with
+// crossplay on.
+func crossplays(cards map[string]*TemplateCard, checked map[string]*checks.Check) {
+	for id, c := range checked {
+		if card := cards[id]; card != nil && c.Status == checks.Passing && c.Crossplay {
+			card.Crossplay = true
+		}
+	}
+}
+
 // cardExtra is what a card shows that the template itself doesn't say.
 type cardExtra struct {
 	Art string `json:"art"`
@@ -65,6 +102,11 @@ type cardExtra struct {
 	// Modrinth.
 	Mods      int    `json:"mods,omitempty"`
 	OpensFrom string `json:"opensFrom,omitempty"`
+	// The directory's: see site/data/taxonomy.json and Directory.
+	Categories []string `json:"categories,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
+	Added      string   `json:"added,omitempty"`
+	Popularity int      `json:"popularity,omitempty"`
 }
 
 // loadTemplateCards reads the templates in dir (one .json each, in the format
@@ -114,8 +156,11 @@ func loadTemplateCards(src fs.FS, dir string) (map[string]*TemplateCard, error) 
 			Template: &t,
 		}
 		c.OpensFrom = extra.OpensFrom
+		c.Added, c.Popularity = extra.Added, extra.Popularity
+		c.categoryIDs, c.tagIDs, c.modpackMods = extra.Categories, extra.Tags, extra.Mods
 		if t.Modpack != nil {
 			c.Pack, c.PackVersion = t.Modpack.Project, t.Modpack.Pin.VersionNumber
+			c.modpackTitle = t.Modpack.Name
 		}
 		mem := ""
 		if t.Settings.MemoryMB > 0 {

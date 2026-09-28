@@ -305,6 +305,7 @@ func (s *server) Status(ctx context.Context) api.ServerStatus {
 	}
 	st.FirstSteps = s.firstSteps()
 	st.JoinAddress = s.joinAddress()
+	st.Bedrock = s.bedrockJoin(sc)
 	if st.Operation == nil {
 		st.SavingPausedSince = s.savingPausedSince()
 		if crash != nil && sc != nil && !running && st.Phase != api.PhaseDockerUnavailable {

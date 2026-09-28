@@ -178,6 +178,9 @@ type FileDependency struct {
 	RelationType int   `json:"relationType"`
 }
 
+// RequiredDependency is the RelationType of a project a file needs.
+const RequiredDependency = 3
+
 // File is one uploaded file of a project. DownloadURL is empty when the
 // author does not allow downloads outside CurseForge's app.
 type File struct {

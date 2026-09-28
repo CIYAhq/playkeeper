@@ -347,7 +347,13 @@ func neededByName(steps []addons.Step, installed []addons.Installed, st addons.S
 }
 
 func apiPlan(p *addons.Plan, installed []addons.Installed) *api.AddonPlan {
-	out := &api.AddonPlan{Steps: []api.AddonStep{}, Manual: []api.AddonNotice{}, Blockers: apiNotices(p.Blockers), Warnings: apiNotices(p.Warnings),
+	// GeyserMC marks every Geyser build a beta; that's how it releases them.
+	warnings := slices.DeleteFunc(slices.Clone(p.Warnings), func(n addons.Notice) bool {
+		return n.Kind == addons.KindPrerelease && slices.ContainsFunc(p.Steps, func(st addons.Step) bool {
+			return st.Name == n.Params["name"] && isCrossplay(addons.Key{Source: st.Source, ProjectID: st.ProjectID})
+		})
+	})
+	out := &api.AddonPlan{Steps: []api.AddonStep{}, Manual: []api.AddonNotice{}, Blockers: apiNotices(p.Blockers), Warnings: apiNotices(warnings),
 		Ready: p.Ready, Fingerprint: p.Fingerprint}
 	for _, st := range p.Steps {
 		as := api.AddonStep{Action: string(st.Action), Source: string(st.Source), ProjectID: st.ProjectID, Name: st.Name,
@@ -443,6 +449,9 @@ func (s *server) hAddons(w http.ResponseWriter, r *http.Request) {
 			if e.Installed != nil && isMapAddon(mapRecs, e.Installed.Key()) {
 				// The Map tab asks for the restart that loads it.
 				f.Addon.UsedBy, f.Pending = api.UsedByMap, false
+			}
+			if e.Installed != nil && crossplayOn(sc) && isCrossplay(e.Installed.Key()) {
+				f.Addon.UsedBy = api.UsedByCrossplay
 			}
 			if e.Installed == nil && pack[e.FileName] {
 				f.Status = api.AddonFromPack
@@ -703,7 +712,12 @@ func (s *server) hAddonDetails(w http.ResponseWriter, r *http.Request) {
 			d = other
 		}
 	}
-	if d.Notice != nil {
+	switch {
+	case rec != nil && rec.Channel != "release" && d.Notice != nil && d.Notice.Kind == addons.KindOnlyPrerelease:
+		// An add-on installed as a pre-release, as Geyser is, is offered
+		// newer ones (CheckUpdates).
+		d.Notice = nil
+	case d.Notice != nil:
 		// The library names a newest version with a notice only when it's a
 		// pre-release, which installs and updates here never take.
 		d.Latest, d.Notes = nil, ""
@@ -720,6 +734,9 @@ func (s *server) hAddonDetails(w http.ResponseWriter, r *http.Request) {
 		out.Installed = &a
 	case rec != nil:
 		a := apiAddon(*rec)
+		if sc, err := s.serverConfig(); err == nil && crossplayOn(sc) && isCrossplay(rec.Key()) {
+			a.UsedBy = api.UsedByCrossplay
+		}
 		out.Installed = &a
 		if p, err := lib.PreviewUninstall(r.Context(), srv, installed, rec.Key()); err == nil {
 			out.Changed, out.Missing = p.Changed, p.Missing
@@ -763,6 +780,10 @@ func (s *server) hAddonRemovePreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if err := s.refuseCrossplayAddons(false, key); err != nil {
+		writeError(w, err)
+		return
+	}
 	p, err := s.lib().PreviewUninstall(r.Context(), srv, installed, key)
 	if err != nil {
 		writeError(w, addonError(err))
@@ -801,6 +822,10 @@ func (s *server) hAddonInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.refuseMapKeys(key); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.refuseCrossplayAddons(true, key); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -1088,6 +1113,10 @@ func (s *server) hAddonRemove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if err := s.refuseCrossplayAddons(false, append([]addons.Key{key}, extra...)...); err != nil {
+		writeError(w, err)
+		return
+	}
 	lib := s.lib()
 	preview, err := lib.PreviewUninstall(r.Context(), srv, installed, key)
 	if err != nil {
@@ -1301,6 +1330,10 @@ func (s *server) hAddonForget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.refuseMapAddons(installed, key); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.refuseCrossplayAddons(false, key); err != nil {
 		writeError(w, err)
 		return
 	}

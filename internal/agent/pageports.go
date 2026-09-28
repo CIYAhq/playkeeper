@@ -240,6 +240,12 @@ func uptime() time.Duration {
 // JSON of what each port is, with the listening sockets of the open ones
 // passed along with it.
 func (a *Agent) hPublicPagePorts(w http.ResponseWriter, r *http.Request) {
+	// Only the agent's own socket can carry the sockets, so a request that
+	// came another way opens nothing.
+	if _, ok := r.Context().Value(connKey{}).(*net.UnixConn); !ok {
+		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Only the agent's own socket can carry the public page's ports.", "")
+		return
+	}
 	var want api.PagePortsRequest
 	if err := decode(r, &want); err != nil {
 		writeError(w, err)

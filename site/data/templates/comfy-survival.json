@@ -1,0 +1,20 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Comfy survival",
+  "description": "Paper with the small comforts players ask for: sit and lie down anywhere, graves that keep your items, and a tidy player list.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "26.2" },
+  "settings": {
+    "difficulty": "normal",
+    "pvp": false,
+    "gameMode": "survival",
+    "maxPlayers": 20,
+    "playStyle": "friends",
+    "memoryMB": 4096
+  },
+  "addons": [
+    { "source": "modrinth", "project": "GOHbQGyX", "slug": "gsit", "name": "GSit", "pin": { "versionId": "gnY5Flgo", "versionNumber": "3.7.0", "channel": "release", "hashAlgo": "sha512", "hash": "7813fe99d2fde47e3a40538c09b87b88b6101c27fb4f3305e0fd9bf806809c37e4e67c726f96596caca79785cdd7aa8d8ae724b211535775db21e602f57993d5" } },
+    { "source": "modrinth", "project": "Cz6msz34", "slug": "axgraves", "name": "AxGraves", "pin": { "versionId": "UlEYAsey", "versionNumber": "1.32.1", "channel": "release", "hashAlgo": "sha512", "hash": "84e9e9e3ead5a720a3608f8fca6a1e4ef137ad0036f6af3f50fbb37f17960dcc3014825d4625e01e9b24361f3e6d3aea76d2e442f6517dd77c85f8e66d1b1d73" } },
+    { "source": "modrinth", "project": "gG7VFbG0", "slug": "tab-was-taken", "name": "TAB", "pin": { "versionId": "OzomWbbH", "versionNumber": "6.2.0", "channel": "release", "hashAlgo": "sha512", "hash": "b09aa679e40b526273b6c59109ad69c135ee41cf2b26c636a1edc5662b83928278000bbb028088d5be55dd71f0eb239dba5289df265b6141307b251b2c8133e3" } }
+  ]
+}
