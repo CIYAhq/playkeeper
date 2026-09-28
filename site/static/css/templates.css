@@ -28,13 +28,13 @@
 .dir-modes { margin-top: 20px; }
 .dir-modes ul { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; }
 .dir-mode { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px 0 14px; border: 1px solid var(--twine); border-radius: 10px; background: rgb(255 255 255 / 0.7); color: var(--ink); font-size: 14.5px; font-weight: 600; white-space: nowrap; transition: border-color 0.15s, background-color 0.15s, transform 0.15s var(--ease); }
-.dir-mode:hover { border-color: var(--input); background: var(--white); text-decoration: none; transform: translateY(-1px); }
+.dir-mode:hover { border-color: var(--input); background: var(--white); text-decoration: none; }
 .dir-mode:active { transform: scale(0.97); }
 .dir-mode-n { color: var(--sage); font-weight: 500; font-variant-numeric: tabular-nums; }
 
 /* The three most popular templates, fanned out over Pip on the ground. */
 .dir-fan { position: relative; align-self: end; height: 420px; }
-.fan-card { position: absolute; bottom: 112px; left: 50%; width: 248px; margin-left: -110px; padding: 8px 8px 12px; border: 1px solid var(--twine); border-radius: 18px; background: var(--white); box-shadow: var(--shadow-lg); transition: transform 0.4s var(--ease-out); }
+.fan-card { position: absolute; bottom: 112px; left: 50%; width: 248px; margin-left: -110px; padding: 8px 8px 12px; border: 1px solid var(--twine); border-radius: 18px; background: var(--white); box-shadow: var(--shadow-lg); }
 .fan-art { overflow: hidden; aspect-ratio: 16 / 10; border-radius: 11px; background: #cfe6f7; }
 .fan-art img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
 .fan-name { margin: 10px 6px 0; font-size: 15px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.3; }
@@ -42,9 +42,6 @@
 .fan-0 { z-index: 3; transform: translateY(-26px); }
 .fan-1 { z-index: 2; transform: translate(-128px, 8px) rotate(-9deg); }
 .fan-2 { z-index: 1; transform: translate(128px, 4px) rotate(8deg); }
-.dir-fan:hover .fan-0 { transform: translateY(-34px); }
-.dir-fan:hover .fan-1 { transform: translate(-146px, 4px) rotate(-12deg); }
-.dir-fan:hover .fan-2 { transform: translate(146px, 0) rotate(11deg); }
 .fan-pip { position: absolute; z-index: 4; bottom: 0; left: 8px; width: 104px; height: 104px; image-rendering: pixelated; }
 
 /* ---------- Browsing: filters, toolbar and cards ---------- */
@@ -120,17 +117,15 @@
 .dir-cell { display: flex; min-width: 0; }
 
 /* A template's card. */
-.dcard { position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; border: 1px solid var(--twine); border-radius: 18px; background: var(--white); box-shadow: var(--shadow-sm); overflow: hidden; transition: transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out), border-color 0.2s; }
-.dcard:hover { transform: translateY(-3px); border-color: var(--input); box-shadow: var(--shadow-lg); }
+.dcard { position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; border: 1px solid var(--twine); border-radius: 18px; background: var(--white); box-shadow: var(--shadow-sm); overflow: hidden; }
 .dcard:has(.dcard-link:focus-visible) { outline: 3px solid var(--ring); outline-offset: 2px; }
 .dcard-art { aspect-ratio: 16 / 10; overflow: hidden; background: #cfe6f7; }
-.dcard-art img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; transition: transform 0.5s steps(3); }
-.dcard:hover .dcard-art img { transform: scale(1.04) translateX(-1%); }
+.dcard-art img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
 .dcard-body { display: flex; flex: 1; flex-direction: column; padding: 16px 18px 18px; }
 .dcard-name { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; }
 .dcard-link { color: var(--ink); }
 .dcard-link::after { content: ""; position: absolute; inset: 0; z-index: 1; }
-.dcard-link:hover { text-decoration: none; }
+.dcard-link:hover, .dcard:hover .dcard-link { color: var(--green-text); text-decoration: none; }
 .dcard-link:focus-visible { outline: none; }
 .dcard-meta { display: flex; align-items: center; gap: 7px; margin: 6px 0 0; color: var(--sage); font-size: 14px; font-weight: 500; }
 .dcard-logo { width: 16px; height: 16px; flex: none; object-fit: contain; }
@@ -142,9 +137,8 @@
 .dcard-tags li { padding: 3px 8px; border-radius: 7px; background: var(--muted); color: #4e5349; font-size: 12.5px; font-weight: 600; line-height: 1.4; }
 .dcard-open { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: 6px; height: 42px; margin-top: auto; border: 1px solid var(--twine); border-radius: 11px; background: var(--white); color: var(--green-text); font-size: 14.5px; font-weight: 700; transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 0.1s; }
 .dcard-body > :nth-last-child(2) { margin-bottom: 16px; }
-.dcard-open .icon { width: 15px; height: 15px; transition: transform 0.2s var(--ease-out); }
+.dcard-open .icon { width: 15px; height: 15px; }
 .dcard-open:hover { border-color: var(--green); background: var(--green); color: var(--white); text-decoration: none; }
-.dcard-open:hover .icon { transform: translate(2px, -2px); }
 .dcard-open:active { transform: scale(0.98); }
 
 .dir-empty { display: flex; flex-direction: column; align-items: center; padding: 56px 20px 64px; border: 1px dashed var(--input); border-radius: 20px; text-align: center; }
@@ -169,8 +163,6 @@
   .fan-card { width: 212px; margin-left: -96px; }
   .fan-1 { transform: translate(-96px, 8px) rotate(-9deg); }
   .fan-2 { transform: translate(96px, 4px) rotate(8deg); }
-  .dir-fan:hover .fan-1 { transform: translate(-108px, 4px) rotate(-11deg); }
-  .dir-fan:hover .fan-2 { transform: translate(108px, 0) rotate(10deg); }
 }
 
 /* Below 1024 pixels the filters are a sheet from the bottom. */
@@ -273,8 +265,9 @@
 .dir-more { padding: 88px 0; }
 .dir-more-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
 .dir-more-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; list-style: none; }
-.mode-card { display: grid; grid-template-columns: 72px minmax(0, 1fr); grid-template-rows: auto auto; align-items: center; column-gap: 14px; padding: 10px 14px 10px 10px; border: 1px solid var(--twine); border-radius: 16px; background: var(--white); color: var(--ink); transition: transform 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out), border-color 0.2s; }
-.mode-card:hover { transform: translateY(-2px); border-color: var(--input); box-shadow: var(--shadow); text-decoration: none; }
+.mode-card { display: grid; grid-template-columns: 72px minmax(0, 1fr); grid-template-rows: auto auto; align-items: center; column-gap: 14px; padding: 10px 14px 10px 10px; border: 1px solid var(--twine); border-radius: 16px; background: var(--white); color: var(--ink); }
+.mode-card:hover { text-decoration: none; }
+.mode-card:hover .mode-name { color: var(--green-text); }
 .mode-art { grid-row: 1 / 3; overflow: hidden; aspect-ratio: 16 / 10; border-radius: 10px; background: #cfe6f7; }
 .mode-art img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
 .mode-name { align-self: end; font-size: 16px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; }
@@ -314,8 +307,9 @@
 a.addon-name:hover { color: var(--green-text); }
 .addon-version { color: var(--sage); font: 500 13.5px/1.3 var(--mono); }
 .addon-meta { display: flex; gap: 14px; color: var(--sage); font-size: 13.5px; white-space: nowrap; }
-.guide-link { display: grid; gap: 6px; padding: 22px 24px; border: 1px solid var(--twine); border-radius: 18px; background: var(--white); color: var(--ink); transition: transform 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out), border-color 0.2s; }
-.guide-link:hover { transform: translateY(-2px); border-color: var(--input); box-shadow: var(--shadow); text-decoration: none; }
+.guide-link { display: grid; gap: 6px; padding: 22px 24px; border: 1px solid var(--twine); border-radius: 18px; background: var(--white); color: var(--ink); }
+.guide-link:hover { text-decoration: none; }
+.guide-link:hover .guide-link-title { color: var(--green-text); }
 .guide-link-k { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green-text); }
 .guide-link-title { font-size: 20px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.25; }
 .guide-link-text { color: var(--sage); font-size: 15px; line-height: 1.55; }
@@ -361,11 +355,6 @@ a.addon-name:hover { color: var(--green-text); }
 .open-inner p { margin: 0 0 6px; color: var(--sage); }
 
 @media (prefers-reduced-motion: reduce) {
-  .fan-card, .dcard, .dcard-art img, .dir-side, .mode-card, .guide-link { transition: none; }
-  .dir-fan:hover .fan-0 { transform: translateY(-26px); }
-  .dir-fan:hover .fan-1 { transform: translate(-128px, 8px) rotate(-9deg); }
-  .dir-fan:hover .fan-2 { transform: translate(128px, 4px) rotate(8deg); }
-  .dcard:hover, .mode-card:hover, .guide-link:hover { transform: none; }
-  .dcard:hover .dcard-art img { transform: none; }
+  .dir-side { transition: none; }
   .dir-sort-menu, .dir-scrim { animation: none; }
 }
