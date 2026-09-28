@@ -27,6 +27,7 @@ type fakeDocker struct {
 	mu           sync.Mutex
 	images       map[string]bool
 	pulls        int
+	pullFails    []pullFail // what the next pulls answer instead of the image, one each
 	networks     map[string]map[string]string
 	byName       map[string]*fakeContainer
 	byID         map[string]*fakeContainer
@@ -94,6 +95,13 @@ func listedPorts(running bool, ports []fakePort) []map[string]any {
 type fakeLine struct {
 	ts   time.Time
 	text string
+}
+
+// pullFail is how a pull fails: the daemon answers with status and msg, or
+// with 200 and msg in the progress stream, as when a download breaks off.
+type pullFail struct {
+	status int
+	msg    string
 }
 
 type fakeContainer struct {
@@ -293,10 +301,22 @@ func (fd *fakeDocker) serve(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "POST" && path == "/images/create":
 		ref := r.URL.Query().Get("fromImage") + "@" + r.URL.Query().Get("tag")
 		fd.mu.Lock()
-		fd.images[ref] = true
 		fd.pulls++
+		fail, failed := pullFail{}, len(fd.pullFails) > 0
+		if failed {
+			fail, fd.pullFails = fd.pullFails[0], fd.pullFails[1:]
+		} else {
+			fd.images[ref] = true
+		}
 		fd.mu.Unlock()
-		jsonOut(w, 200, map[string]string{"status": "Pull complete"})
+		switch {
+		case !failed:
+			jsonOut(w, 200, map[string]string{"status": "Pull complete"})
+		case fail.status == http.StatusOK:
+			jsonOut(w, 200, map[string]string{"error": fail.msg})
+		default:
+			jsonOut(w, fail.status, map[string]string{"message": fail.msg})
+		}
 	case r.Method == "GET" && strings.HasPrefix(path, "/networks/"):
 		name := strings.TrimPrefix(path, "/networks/")
 		fd.mu.Lock()
