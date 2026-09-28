@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -44,6 +45,9 @@ type pack struct {
 	blockers   []addons.Notice
 	warnings   []addons.Notice
 	properties map[string]string
+	// modrinthClient are the SHA-1s of a CurseForge pack's mods that
+	// Modrinth lists as for the game client only (clientOnlyOnModrinth).
+	modrinthClient map[string]bool
 	// heapMB is the Java heap the pack's own settings ask for (Plan.HeapMB).
 	heapMB     int
 	unknownEnv []string
@@ -490,6 +494,11 @@ func (l *Library) addOverrides(p *pack, entries map[string]*zip.File, world stri
 		}
 		p.files[rel] = &packFile{path: rel, origin: Override, name: path.Base(rel), on: true, world: c == classWorld, size: n, sums: sums, entry: e}
 	}
+	// On a server's first start the mod uses these settings instead of the
+	// pack's server.properties, so they win.
+	if e := entries[DefaultPropertiesName]; e != nil {
+		l.readProperties(p, e)
+	}
 	return nil
 }
 
@@ -555,7 +564,7 @@ func (l *Library) readProperties(p *pack, e *zip.File) {
 	if err != nil {
 		return
 	}
-	props, dropped := suggestions(b)
+	props, dropped := Suggestions(b)
 	maps.Copy(p.properties, props)
 	if len(dropped) > 0 {
 		p.warn(notice(KindProperties, kv("pack", p.info.Name, "settings", strings.Join(dropped, ", ")),
@@ -895,6 +904,10 @@ func (l *Library) readManifest(ctx context.Context, p *pack, mod *curseforge.Mod
 	for i := range mods {
 		modByID[mods[i].ID] = &mods[i]
 	}
+	p.modrinthClient = l.clientOnlyOnModrinth(ctx, p, files, modByID)
+	if err := p.keepMentioned(m.Overrides, files, modByID); err != nil {
+		return err
+	}
 	for _, mf := range m.Files {
 		l.addCurseForgeFile(p, mf, fileByID[mf.FileID], modByID[mf.ProjectID])
 	}
@@ -956,7 +969,7 @@ func (l *Library) addCurseForgeFile(p *pack, mf curseforge.ManifestFile, f *curs
 	}
 	target := "mods/" + f.FileName
 	switch {
-	case f.ClientOnly():
+	case f.ClientOnly() || p.modrinthClient[f.SHA1()]:
 		p.skip("mods/"+printable(f.FileName), addons.KindClientOnly)
 		if sum := f.SHA1(); mf.Required && plainJar(f.FileName) && sum != "" {
 			p.clientMods = append(p.clientMods, clientMod{path: target, project: id, name: display, sha1: sum})
@@ -999,6 +1012,142 @@ func (l *Library) addCurseForgeFile(p *pack, mf curseforge.ManifestFile, f *curs
 		path: target, origin: Download, project: id, name: display, optional: !mf.Required, on: mf.Required,
 		size: f.FileLength, sums: map[string]string{"sha1": f.SHA1()}, urls: []string{f.DownloadURL}, hosts: l.curseForgeFiles(),
 	}
+}
+
+// clientOnlyOnModrinth returns the SHA-1s of a CurseForge pack's mods that
+// Modrinth, which has many of the same files, lists as for the game client
+// only. CurseForge's tags often leave the side out, and such a mod stops the
+// server's first start. A mod Modrinth doesn't know stays in.
+func (l *Library) clientOnlyOnModrinth(ctx context.Context, p *pack, files []curseforge.File, mods map[int64]*curseforge.Mod) map[string]bool {
+	var hashes []string
+	for i := range files {
+		f := &files[i]
+		if m := mods[f.ModID]; m != nil && m.ClassID == curseforge.ClassMods && f.SHA1() != "" && !f.ClientOnly() {
+			hashes = append(hashes, f.SHA1())
+		}
+	}
+	out := map[string]bool{}
+	if len(hashes) == 0 || l.Modrinth == nil {
+		return out
+	}
+	vs, err := l.Modrinth.VersionsFromHashes(ctx, "sha1", hashes)
+	if err != nil {
+		p.warn(notice(KindUnverifiedEnv, kv("pack", p.info.Name),
+			fmt.Sprintf("Playkeeper could not ask Modrinth which of %s's mods are for the game client only, so it installs them all.", p.info.Name),
+			"If the server fails to start, one of them may be for the game client only."))
+		return out
+	}
+	// Versions from before Modrinth's environment field don't say; their
+	// projects' server_side does.
+	var ask []string
+	for _, v := range vs {
+		if v.Environment == "" && validID(v.ProjectID) && !slices.Contains(ask, v.ProjectID) {
+			ask = append(ask, v.ProjectID)
+		}
+	}
+	runs := map[string]bool{}
+	if len(ask) > 0 {
+		if ps, err := l.Modrinth.Projects(ctx, ask); err == nil {
+			for i := range ps {
+				runs[ps[i].ID] = ps[i].RunsOnServer()
+			}
+		}
+	}
+	for sha1, v := range vs {
+		onServer := v.RunsOnServer()
+		if v.Environment == "" {
+			onServer = true
+			if r, ok := runs[v.ProjectID]; ok {
+				onServer = r
+			}
+		}
+		if !onServer {
+			out[strings.ToLower(sha1)] = true
+		}
+	}
+	return out
+}
+
+// keepMentioned keeps the client-only mods clientOnlyOnModrinth found when
+// the pack's own files name something of theirs, as in "particular:firefly":
+// a datapack there may need a client-only mod's particles or blocks on the
+// server, as FTB StoneBlock 4's spring biome needs Particular's fireflies.
+// A mod's namespace is guessed from its file name and CurseForge slug, so a
+// guess that happens to match keeps a mod, never leaves one off.
+func (p *pack) keepMentioned(overrides string, files []curseforge.File, mods map[int64]*curseforge.Mod) error {
+	if len(p.modrinthClient) == 0 {
+		return nil
+	}
+	byName := map[string][]string{}
+	for i := range files {
+		f := &files[i]
+		if !p.modrinthClient[f.SHA1()] {
+			continue
+		}
+		slug := ""
+		if m := mods[f.ModID]; m != nil {
+			slug = m.Slug
+		}
+		for _, ns := range namespaces(f.FileName, slug) {
+			byName[ns] = append(byName[ns], f.SHA1())
+		}
+	}
+	names := slices.Sorted(maps.Keys(byName))
+	for i, ns := range names {
+		names[i] = regexp.QuoteMeta(ns)
+	}
+	re := regexp.MustCompile(`(?:^|[^a-z0-9_.-])(` + strings.Join(names, "|") + `):[a-z0-9_./-]`)
+	for rel, e := range p.arch.layer(overrides) {
+		if !mentionsFile(rel) || e.UncompressedSize64 > maxMentionsFile {
+			continue
+		}
+		b, err := p.arch.read(e.Name, maxMentionsFile)
+		if err != nil {
+			return err
+		}
+		for _, m := range re.FindAllSubmatch(b, -1) {
+			for _, sha1 := range byName[string(m[1])] {
+				delete(p.modrinthClient, sha1)
+			}
+		}
+	}
+	return nil
+}
+
+// maxMentionsFile is the largest file of a pack keepMentioned reads.
+const maxMentionsFile = 8 << 20
+
+// mentionsFile reports whether a pack's file may name a mod's content:
+// datapacks, scripts and settings, not images, sounds or archives.
+func mentionsFile(p string) bool {
+	switch strings.ToLower(path.Ext(p)) {
+	case ".json", ".json5", ".js", ".ts", ".zs", ".toml", ".cfg", ".conf", ".txt", ".mcfunction", ".snbt", ".yml", ".yaml", ".properties", ".mcmeta":
+		return true
+	}
+	return false
+}
+
+// namespaces guesses the names a mod's content goes by, from its file's
+// name ("particular-1.21.1-NeoForge-1.5.7.jar" gives particular) and its
+// CurseForge slug (status-effect-bars gives status-effect-bars,
+// statuseffectbars and status_effect_bars).
+func namespaces(fileName, slug string) []string {
+	var out []string
+	add := func(s string) {
+		if len(s) >= 2 && strings.Trim(s, "abcdefghijklmnopqrstuvwxyz0123456789_.-") == "" && !slices.Contains(out, s) {
+			out = append(out, s)
+		}
+	}
+	name := strings.ToLower(strings.TrimSuffix(fileName, path.Ext(fileName)))
+	if i := strings.IndexAny(name, "-_+ "); i > 0 {
+		name = name[:i]
+	}
+	add(name)
+	slug = strings.ToLower(slug)
+	add(slug)
+	add(strings.ReplaceAll(slug, "-", ""))
+	add(strings.ReplaceAll(slug, "-", "_"))
+	return out
 }
 
 // fromServerFiles notes that the step just added for f goes when the pack's

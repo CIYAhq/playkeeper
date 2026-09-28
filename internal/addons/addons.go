@@ -3,7 +3,10 @@
 // that fit, plans an install with the dependencies it needs, downloads files
 // only from the sources' own hosts, verifies them against the published
 // hashes before they reach the server's folder, and installs, updates, scans
-// and removes them in plugins/ or mods/.
+// and removes them in plugins/ or mods/. GeyserMC lists Geyser and Floodgate
+// on Hangar with a link to its own download server instead of a file; those
+// two come from there, pinned to a build and checked against the SHA-256
+// GeyserMC publishes for it.
 //
 // The package keeps no state. Callers pass the server and the add-ons
 // already installed on it, and store the Installed records they get back:
@@ -15,6 +18,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/addons/fetch"
+	"github.com/CIYAhq/playkeeper/internal/addons/geysermc"
 	"github.com/CIYAhq/playkeeper/internal/addons/hangar"
 	"github.com/CIYAhq/playkeeper/internal/addons/modrinth"
 	"github.com/CIYAhq/playkeeper/internal/version"
@@ -105,6 +109,9 @@ const (
 type Library struct {
 	Modrinth *modrinth.Client
 	Hangar   *hangar.Client
+	// GeyserMC is asked for the build a GeyserMC project's Hangar link
+	// names.
+	GeyserMC *geysermc.Client
 	// HTTP downloads files and icons. Redirects are checked against the
 	// allowlists below regardless of its own policy.
 	HTTP      *http.Client
@@ -115,17 +122,19 @@ type Library struct {
 	TempDir string
 	// ModrinthFiles and HangarFiles are the hosts files may come from, and
 	// IconHosts those icons may; each defaults to the sources' own CDN, and
-	// icons also to the host of CurseForge's modpack logos.
-	ModrinthFiles, HangarFiles, IconHosts fetch.Hosts
+	// icons also to the host of CurseForge's modpack logos. GeyserFiles is
+	// where the files of GeyserMC's projects on Hangar come from, by
+	// default GeyserMC's download server.
+	ModrinthFiles, HangarFiles, GeyserFiles, IconHosts fetch.Hosts
 	// MaxFileSize bounds each add-on file and MaxIconSize each icon.
 	MaxFileSize, MaxIconSize int64
 }
 
-// New returns a Library that reaches Modrinth and Hangar through hc and
-// waits up to 10 seconds when either asks it to slow down.
+// New returns a Library that reaches Modrinth, Hangar and GeyserMC through
+// hc and waits up to 10 seconds when one asks it to slow down.
 func New(hc *http.Client) *Library {
 	o := fetch.Options{HTTP: hc, MaxWait: 10 * time.Second}
-	return &Library{Modrinth: modrinth.New(o), Hangar: hangar.New(o), HTTP: hc}
+	return &Library{Modrinth: modrinth.New(o), Hangar: hangar.New(o), GeyserMC: geysermc.New(o), HTTP: hc}
 }
 
 func (l *Library) now() time.Time {
@@ -154,6 +163,17 @@ func (l *Library) fileHosts(s Source) fetch.Hosts {
 		return fetch.Hosts{hangar.CDNHost}
 	}
 	return nil
+}
+
+// stepHosts are the hosts step s's file may come from.
+func (l *Library) stepHosts(s Step) fetch.Hosts {
+	switch {
+	case !s.geyser:
+		return l.fileHosts(s.Source)
+	case l.GeyserFiles != nil:
+		return l.GeyserFiles
+	}
+	return fetch.Hosts{geysermc.Host}
 }
 
 // CurseForgeLogoHost is where CurseForge serves projects' logos, a

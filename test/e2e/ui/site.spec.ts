@@ -6,7 +6,10 @@ import fs from 'node:fs'
 // template state and the 404, at the designs' two sizes: nothing wider than
 // the screen, and no serious accessibility violations, with and without
 // reduced motion. Each page is checked even when one before it fails.
-// playwright.site.config.ts builds and serves the site.
+// playwright.site.config.ts builds and serves the site. The site gains pages
+// every week, so a check of every page is split into parts that run side by
+// side, and a test that visits every page has a time limit that grows with
+// the pages, instead of the config's three minutes.
 const sizes = [
   { name: 'desktop', width: 1440, height: 900, mobile: false },
   { name: 'phone', width: 390, height: 844, mobile: true },
@@ -20,6 +23,13 @@ async function pagesToVisit(page: Page) {
   return [...paths, '/t', '/t#' + link.split('#')[1], '/no-such-page']
 }
 
+/** A test's time limit for visiting `pages` pages at `perPage` ms each: over three times what a busy CI runner takes. */
+function allow(pages: number, perPage: number) {
+  test.setTimeout(60_000 + pages * perPage)
+}
+
+const parts = 3
+
 async function axe(page: Page, where: string) {
   const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()
   const bad = result.violations.filter((x) => x.impact === 'serious' || x.impact === 'critical')
@@ -28,29 +38,33 @@ async function axe(page: Page, where: string) {
 
 for (const size of sizes) {
   for (const motion of ['no-preference', 'reduce'] as const) {
-    test(`every page at ${size.name} size (${motion === 'reduce' ? 'reduced motion' : 'with motion'}): nothing wider than the screen, no serious accessibility violations`, async ({ browser, baseURL }) => {
-      const ctx = await browser.newContext({ baseURL, viewport: { width: size.width, height: size.height }, isMobile: size.mobile, hasTouch: size.mobile, reducedMotion: motion })
-      const page = await ctx.newPage()
-      const errors: string[] = []
-      page.on('pageerror', (e) => errors.push(e.message))
-      page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
-      for (const path of await pagesToVisit(page)) {
-        await page.goto(path, { waitUntil: 'networkidle' })
-        // Scroll through, so the parts that fade in are shown.
-        await page.evaluate(async () => {
-          for (let y = 0; y < document.body.scrollHeight; y += 500) { window.scrollTo(0, y); await new Promise((r) => setTimeout(r, 30)) }
-          window.scrollTo(0, 0)
-        })
-        await page.waitForTimeout(700)
-        const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
-        expect.soft(wide, `${path} at ${size.name} is wider than the screen by ${wide}px`).toBeLessThanOrEqual(0)
-        await axe(page, `${path} at ${size.name}`)
-      }
-      // The GitHub star count is fetched from api.github.com, which may be
-      // unreachable here; nothing else should log an error.
-      expect(errors.filter((e) => !/api\.github\.com|Failed to load resource/.test(e)), 'errors in the browser console').toEqual([])
-      await ctx.close()
-    })
+    for (let part = 0; part < parts; part++) {
+      test(`every page at ${size.name} size (${motion === 'reduce' ? 'reduced motion' : 'with motion'}), part ${part + 1} of ${parts}: nothing wider than the screen, no serious accessibility violations`, async ({ browser, baseURL }) => {
+        const ctx = await browser.newContext({ baseURL, viewport: { width: size.width, height: size.height }, isMobile: size.mobile, hasTouch: size.mobile, reducedMotion: motion })
+        const page = await ctx.newPage()
+        const errors: string[] = []
+        page.on('pageerror', (e) => errors.push(e.message))
+        page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+        const mine = (await pagesToVisit(page)).filter((_, i) => i % parts === part)
+        allow(mine.length, 10_000)
+        for (const path of mine) {
+          await page.goto(path, { waitUntil: 'networkidle' })
+          // Scroll through, so the parts that fade in are shown.
+          await page.evaluate(async () => {
+            for (let y = 0; y < document.body.scrollHeight; y += 500) { window.scrollTo(0, y); await new Promise((r) => setTimeout(r, 30)) }
+            window.scrollTo(0, 0)
+          })
+          await page.waitForTimeout(700)
+          const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+          expect.soft(wide, `${path} at ${size.name} is wider than the screen by ${wide}px`).toBeLessThanOrEqual(0)
+          await axe(page, `${path} at ${size.name}`)
+        }
+        // The GitHub star count is fetched from api.github.com, which may be
+        // unreachable here; nothing else should log an error.
+        expect(errors.filter((e) => !/api\.github\.com|Failed to load resource/.test(e)), 'errors in the browser console').toEqual([])
+        await ctx.close()
+      })
+    }
   }
 }
 
@@ -549,7 +563,9 @@ for (const size of sharp) {
     const ctx = await browser.newContext({ baseURL, viewport: { width: size.width, height: size.height }, deviceScaleFactor: size.dpr, isMobile: size.mobile, hasTouch: size.mobile, reducedMotion: 'reduce' })
     const page = await ctx.newPage()
     let checked = 0
-    for (const path of await pagesToVisit(page)) {
+    const paths = await pagesToVisit(page)
+    allow(paths.length, 6_000)
+    for (const path of paths) {
       await page.goto(path, { waitUntil: 'networkidle' })
       for (const s of await screenshots(page)) {
         checked++

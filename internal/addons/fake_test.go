@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/addons/fetch"
+	"github.com/CIYAhq/playkeeper/internal/addons/geysermc"
 	"github.com/CIYAhq/playkeeper/internal/addons/hangar"
 	"github.com/CIYAhq/playkeeper/internal/addons/modrinth"
 )
@@ -39,9 +40,12 @@ var testNow = time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
 // generated jars on a fake CDN, with hashes, sizes and URLs rewritten to
 // match; everything else is what the sources sent.
 type fakes struct {
-	t                           *testing.T
-	modrinth, hangar, cdn, evil *httptest.Server
-	client                      *http.Client
+	t                                   *testing.T
+	modrinth, hangar, cdn, evil, geyser *httptest.Server
+	client                              *http.Client
+	// gBuilds are GeyserMC's newest build of each project, by project;
+	// their files are on the geyser server, at the build's pinned path.
+	gBuilds map[string]obj
 
 	mu        sync.Mutex
 	mProjects map[string]obj // by id and by slug
@@ -68,17 +72,18 @@ type request struct {
 func newFakes(t *testing.T) *fakes {
 	t.Helper()
 	f := &fakes{t: t, mProjects: map[string]obj{}, mVersions: map[string]obj{}, hProjects: map[string]obj{}, hVersions: map[string]obj{},
-		files: map[string][]byte{}, hooks: map[string]http.HandlerFunc{}}
+		gBuilds: map[string]obj{}, files: map[string][]byte{}, hooks: map[string]http.HandlerFunc{}}
 	f.modrinth = httptest.NewTLSServer(http.HandlerFunc(f.serveModrinth))
 	f.hangar = httptest.NewTLSServer(http.HandlerFunc(f.serveHangar))
 	f.cdn = httptest.NewTLSServer(http.HandlerFunc(f.serveCDN))
+	f.geyser = httptest.NewTLSServer(http.HandlerFunc(f.serveGeyser))
 	f.evil = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.evilHits++
 		f.mu.Unlock()
 		w.Write([]byte("not an add-on"))
 	}))
-	for _, s := range []*httptest.Server{f.modrinth, f.hangar, f.cdn, f.evil} {
+	for _, s := range []*httptest.Server{f.modrinth, f.hangar, f.cdn, f.geyser, f.evil} {
 		t.Cleanup(s.Close)
 	}
 	// Every httptest TLS server uses the same certificate, so one client
@@ -110,7 +115,94 @@ func newFakes(t *testing.T) *fakes {
 			f.addHangarVersion(v.(obj))
 		}
 	}
+	for _, path := range f.glob("geysermc/testdata/latest-*.json") {
+		var b obj
+		f.decode(path, &b)
+		f.addGeyserBuild(b)
+	}
 	return f
+}
+
+// addGeyserBuild puts a generated jar behind each of the build's downloads,
+// with the hash rewritten to match.
+func (f *fakes) addGeyserBuild(b obj) {
+	project := str(b["project_id"])
+	dls, _ := b["downloads"].(obj)
+	for platform, x := range dls {
+		d := x.(obj)
+		path := f.geyserPath(b, platform)
+		name := str(b["project_name"])
+		if project == "geyser" {
+			name = "Geyser-Spigot"
+		}
+		data := fakeJar(f.t, path, name, project, str(b["version"]), []string{"paper"})
+		f.files[path] = data
+		d["sha256"] = sha256hex(data)
+	}
+	f.gBuilds[project] = b
+}
+
+// geyserPath is where GeyserMC serves the build's file for platform.
+func (f *fakes) geyserPath(b obj, platform string) string {
+	return "/v2/projects/" + str(b["project_id"]) + "/versions/" + str(b["version"]) + "/builds/" + num(b["build"]) + "/downloads/" + platform
+}
+
+// serveGeyser answers like download.geysermc.org: the newest build behind a
+// redirect to its pinned path, and each build's files, HEAD included.
+func (f *fakes) serveGeyser(w http.ResponseWriter, r *http.Request) {
+	f.log("geysermc", r)
+	f.mu.Lock()
+	hook := f.hooks["geysermc:"+r.URL.Path]
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	var build obj
+	if len(parts) >= 3 && parts[0] == "v2" && parts[1] == "projects" {
+		build = f.gBuilds[parts[2]]
+	}
+	data, isFile := f.files[r.URL.Path]
+	f.mu.Unlock()
+	switch {
+	case hook != nil:
+		hook(w, r)
+	case build != nil && len(parts) == 7 && parts[4] == "latest" && parts[6] == "latest":
+		http.Redirect(w, r, "/v2/projects/"+parts[2]+"/versions/"+str(build["version"])+"/builds/"+num(build["build"]), http.StatusFound)
+	case build != nil && len(parts) == 7 && parts[4] == str(build["version"]) && parts[6] == num(build["build"]):
+		writeJSON(w, http.StatusOK, build)
+	case isFile:
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		if r.Method != http.MethodHead {
+			w.Write(data)
+		}
+	default:
+		writeJSON(w, http.StatusNotFound, obj{"error": "Project not found."})
+	}
+}
+
+// gfile is the file of GeyserMC's newest build of project for platform.
+func (f *fakes) gfile(project, platform string) fakeFile {
+	f.t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	b := f.gBuilds[project]
+	dls, _ := b["downloads"].(obj)
+	d, _ := dls[platform].(obj)
+	if d == nil {
+		f.t.Fatalf("the fixtures have no GeyserMC file of %s for %s", project, platform)
+	}
+	path := f.geyserPath(b, platform)
+	return fakeFile{str(d["name"]), path, f.files[path]}
+}
+
+// newGeyserBuild publishes a newer build of project with a new file.
+func (f *fakes) newGeyserBuild(project string, build int, at time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	b := maps.Clone(f.gBuilds[project])
+	dls := obj{}
+	for k, v := range b["downloads"].(obj) {
+		dls[k] = maps.Clone(v.(obj))
+	}
+	b["downloads"], b["build"], b["time"] = dls, json.Number(strconv.Itoa(build)), at.Format(time.RFC3339Nano)
+	f.addGeyserBuild(b)
 }
 
 func (f *fakes) glob(pattern string) []string {
@@ -398,11 +490,13 @@ func (f *fakes) library() *Library {
 	return &Library{
 		Modrinth:      modrinth.New(fetch.Options{BaseURL: f.modrinth.URL + "/v2", HTTP: f.client, Now: now}),
 		Hangar:        hangar.New(fetch.Options{BaseURL: f.hangar.URL + "/api/v1", HTTP: f.client, Now: now}),
+		GeyserMC:      geysermc.New(fetch.Options{BaseURL: f.geyser.URL + "/v2", HTTP: f.client, Now: now}),
 		HTTP:          f.client,
 		Now:           now,
 		TempDir:       f.t.TempDir(),
 		ModrinthFiles: cdn,
 		HangarFiles:   cdn,
+		GeyserFiles:   fetch.Hosts{f.geyser.Listener.Addr().String()},
 		IconHosts:     cdn,
 	}
 }

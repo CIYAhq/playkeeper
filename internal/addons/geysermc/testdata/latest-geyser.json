@@ -1,0 +1,46 @@
+{
+ "project_id": "geyser",
+ "project_name": "Geyser",
+ "version": "2.11.3",
+ "build": 1247,
+ "time": "2026-09-25T13:54:24.209Z",
+ "channel": "default",
+ "promoted": false,
+ "changes": [
+  {
+   "commit": "63a4e2b79b12f0d138777d5fd80176a112b4bd72",
+   "summary": "Add mount translation fixes pack update (#6735)",
+   "message": "Add mount translation fixes pack update (#6735)"
+  }
+ ],
+ "downloads": {
+  "bungeecord": {
+   "name": "Geyser-BungeeCord.jar",
+   "sha256": "cd9d2f8f83e62ef45e638228d01efdb4c9ce03da9e047b549369d63ffa763d00"
+  },
+  "fabric": {
+   "name": "Geyser-Fabric.jar",
+   "sha256": "3b3815a939486df09b795ef708526f2ae24ead9103e9242233614ef5835b2c87"
+  },
+  "neoforge": {
+   "name": "Geyser-NeoForge.jar",
+   "sha256": "86e4095b7138b173880e580c7f0f2409f10433fdeacb8a19a6ae48510c47c30b"
+  },
+  "spigot": {
+   "name": "Geyser-Spigot.jar",
+   "sha256": "6fed2d9711e2db3c365508ec10db36d06a0199abd226159d23d57f82662fd7a6"
+  },
+  "standalone": {
+   "name": "Geyser-Standalone.jar",
+   "sha256": "1985465e2c88595dd6d8f180865cdb810442497486d8bd458ef07792684665aa"
+  },
+  "velocity": {
+   "name": "Geyser-Velocity.jar",
+   "sha256": "3ef64b8afe8778873c06e55e89a73f8109214781ab1f964636031a52d2eee619"
+  },
+  "viaproxy": {
+   "name": "Geyser-ViaProxy.jar",
+   "sha256": "85eea53e7fe58e4d97c2144a9d061577d37f619ab635227b68a948aa62d22924"
+  }
+ }
+}

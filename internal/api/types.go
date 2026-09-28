@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/usage"
 	"github.com/CIYAhq/playkeeper/internal/worldimport"
 )
 
@@ -71,6 +72,8 @@ type ServerStatus struct {
 	// survival.alex.playkeeper.me, once its DNS records work; empty until
 	// then, when players use the IP address and port.
 	JoinAddress string `json:"joinAddress,omitempty"`
+	// Bedrock is where Bedrock players join while crossplay is on.
+	Bedrock *BedrockJoin `json:"bedrock,omitempty"`
 	// WorldBytes is the world's size on disk (all its dimensions), measured
 	// every few minutes.
 	WorldBytes      *int64     `json:"worldBytes,omitempty"`
@@ -263,6 +266,48 @@ type UpdateCheckRequest struct {
 	Actor string `json:"actor"`
 }
 
+// What decides whether a machine sends anonymous usage stats (UsageStats.Reason).
+const (
+	// UsageDefault: nobody chose (usage.DefaultOn).
+	UsageDefault = "default"
+	// UsageSettings: the switch in Settings.
+	UsageSettings = "settings"
+	// UsageInstall: DO_NOT_TRACK or PLAYKEEPER_USAGE_STATS=off when
+	// Playkeeper was installed or upgraded, recorded in config.json. Only
+	// root's choices outrank the switch.
+	UsageInstall = "install"
+	// UsageEnv: DO_NOT_TRACK or PLAYKEEPER_USAGE_STATS in the agent's own
+	// environment (a systemd drop-in).
+	UsageEnv = "env"
+	// UsageDev: playkeeper dev, which never sends.
+	UsageDev = "dev"
+)
+
+// UsageStats is whether a machine sends anonymous usage stats
+// (internal/usage), and exactly what it sends.
+type UsageStats struct {
+	On bool `json:"on"`
+	// Reason is UsageDefault, UsageSettings, UsageInstall, UsageEnv or
+	// UsageDev; Variable names the environment variable for UsageEnv.
+	Reason   string `json:"reason"`
+	Variable string `json:"variable,omitempty"`
+	// CanChange says whether the switch may change it: not while root's
+	// choice or playkeeper dev decides.
+	CanChange bool `json:"canChange"`
+	// LastSent is when a heartbeat last reached the service.
+	LastSent *time.Time `json:"lastSent,omitempty"`
+	// Service is where they go, and Report what the next heartbeat sends,
+	// field for field.
+	Service string          `json:"service"`
+	Report  usage.Heartbeat `json:"report"`
+}
+
+// UsageStatsRequest turns usage stats on or off with the switch.
+type UsageStatsRequest struct {
+	On    bool   `json:"on"`
+	Actor string `json:"actor"`
+}
+
 type UpdateApplyRequest struct {
 	// Version is the release the admin chose; it must still be the latest.
 	Version string `json:"version"`
@@ -355,6 +400,10 @@ type ServerConfig struct {
 	// VoiceChatPort is the UDP port voice chat has on this server, published
 	// from its container with the same number (wave 4); 0 without voice chat.
 	VoiceChatPort int `json:"voiceChatPort,omitempty"`
+	// CrossplayPort is the UDP port Bedrock players join on through Geyser,
+	// published from the container with the same number (from 0.4.4); 0
+	// while crossplay is off.
+	CrossplayPort int `json:"crossplayPort,omitempty"`
 }
 
 type CreateServerRequest struct {
@@ -965,13 +1014,19 @@ type Addon struct {
 	DependencyOf string    `json:"dependencyOf,omitempty"`
 	InstalledAt  time.Time `json:"installedAt"`
 	// UsedBy is the part of Playkeeper that installed the add-on and alone
-	// removes it: UsedByMap for the Map's squaremap and what it needs.
-	// Empty for add-ons installed from the Plugins or Mods tab.
+	// removes it: UsedByMap for the Map's squaremap and what it needs, and
+	// UsedByCrossplay for Geyser and Floodgate while crossplay is on, which
+	// the Plugins tab still updates. Empty for add-ons installed from the
+	// Plugins or Mods tab.
 	UsedBy string `json:"usedBy,omitempty"`
 }
 
-// UsedByMap marks the add-ons the Map installed.
-const UsedByMap = "map"
+// UsedByMap marks the add-ons the Map installed, and UsedByCrossplay Geyser
+// and Floodgate while crossplay is on (from 0.4.4).
+const (
+	UsedByMap       = "map"
+	UsedByCrossplay = "crossplay"
+)
 
 // AddonKey names an installed add-on.
 type AddonKey struct {
@@ -1119,6 +1174,48 @@ type AddonDetails struct {
 type AddonPort struct {
 	Protocol string `json:"protocol"` // udp or tcp
 	Port     int    `json:"port"`
+}
+
+// Crossplay (from 0.4.4): Bedrock players join a Paper or Purpur server
+// through Geyser and Floodgate, on a UDP port of its own.
+
+// BedrockJoin is where Bedrock players join a server: Host is the machine's
+// name once its DNS records work, else empty, and players use the address
+// the dashboard was opened at or the machine's IP address. Bedrock doesn't
+// follow the SRV records servers' own names use, so Port is always needed.
+type BedrockJoin struct {
+	Host string `json:"host,omitempty"`
+	Port int    `json:"port"`
+}
+
+// Crossplay is a server's crossplay switch.
+type Crossplay struct {
+	On bool `json:"on"`
+	// Port is the UDP port Bedrock players join on, or the one they would
+	// get if crossplay were turned on now.
+	Port int `json:"port,omitempty"`
+	// Available says crossplay can be turned on now. It is false while it
+	// is on, and when it can't be, for the reason in Notice: the server
+	// type, or no Geyser or Floodgate for its Minecraft version.
+	Available bool         `json:"available"`
+	Notice    *AddonNotice `json:"notice,omitempty"`
+	// Plugins are the versions of Geyser and Floodgate on the server.
+	Plugins []CrossplayPlugin `json:"plugins"`
+	// Prefix goes in front of Bedrock players' names on the server.
+	Prefix string `json:"prefix"`
+}
+
+// CrossplayPlugin is Geyser or Floodgate as installed on a server.
+type CrossplayPlugin struct {
+	Name          string `json:"name"`
+	VersionNumber string `json:"versionNumber"`
+	Source        string `json:"source"`
+}
+
+// CrossplayRequest turns crossplay on or off.
+type CrossplayRequest struct {
+	On    bool   `json:"on"`
+	Actor string `json:"actor"`
 }
 
 // CuratedAddons are the add-ons Playkeeper picked by hand that have a
@@ -2706,6 +2803,10 @@ type PublicServer struct {
 	// join.
 	InviteOnly bool `json:"inviteOnly"`
 	HasIcon    bool `json:"hasIcon"`
+	// Bedrock is where Bedrock players join while the server has crossplay
+	// (from 0.4.4): the page's own address, which they type with the UDP
+	// port, as Bedrock doesn't follow SRV records.
+	Bedrock *BedrockJoin `json:"bedrock,omitempty"`
 	// About, Stream and Board are what the owner added to the page.
 	About  string        `json:"about,omitempty"`
 	Stream *PublicStream `json:"stream,omitempty"`

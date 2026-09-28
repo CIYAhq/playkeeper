@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { CircleArrowUpIcon, ExternalLinkIcon, RefreshCwIcon } from 'lucide-react'
-import { get, post } from '@/api/client'
-import type { AuditEntry, UpdateInfo } from '@/api/types'
+import { ChevronRightIcon, CircleArrowUpIcon, ExternalLinkIcon, RefreshCwIcon } from 'lucide-react'
+import { get, post, put } from '@/api/client'
+import type { AuditEntry, UpdateInfo, UsageMachine, UsageStats, UsageStatsView } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { AddonSourcesCard } from '@/components/app/addon-sources'
 import { Card, CardHint, CardTitle } from '@/components/app/bits'
@@ -10,6 +10,8 @@ import { PageBody, PageHeader, PhoneBackHeader } from '@/components/app/shell'
 import { InlineSkeleton, ListSkeleton, TableSkeleton } from '@/components/app/skeletons'
 import { UpdateDialog, useUpdateInfo } from '@/components/app/update'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can, settingsHome, settingsSections, type SettingsSectionName } from '@/lib/access'
@@ -128,6 +130,7 @@ function GeneralSettings() {
   return (
     <SettingsSection current="settings">
       <PlaykeeperCard />
+      <UsageStatsCard />
       {can(ws.me, 'audit.view') && <AuditCard phone={phone} />}
       <Card as="section" aria-labelledby="about-title">
         <CardTitle id="about-title">{t('global.about')}</CardTitle>
@@ -206,6 +209,108 @@ function PlaykeeperCard() {
         )}
       </div>
       <UpdateDialog open={open} onOpenChange={setOpen} />
+    </Card>
+  )
+}
+
+/** Why usage stats are as they are, in one line. */
+function usageLine(st: UsageStats): string {
+  if (st.on) {
+    if (st.reason === 'env') return t('usage.onEnv', { variable: st.variable ?? '' })
+    return st.lastSent ? t('usage.onSent', { time: relativeTime(st.lastSent) }) : t('usage.onNotYet')
+  }
+  switch (st.reason) {
+    case 'env':
+      return t('usage.offEnv', { variable: st.variable ?? '' })
+    case 'install':
+      return t('usage.offInstall')
+    case 'dev':
+      return t('usage.offDev')
+    case 'default':
+    case 'settings':
+      return t('usage.off')
+    default: {
+      const unreachable: never = st.reason
+      return unreachable
+    }
+  }
+}
+
+/** A joined machine's usage stats, in a word or two. */
+function usageMachineText(m: UsageMachine): string {
+  if (!m.stats) return t('usage.machineAway')
+  if (m.stats.on) return t('usage.machineOn')
+  return m.stats.canChange ? t('usage.machineOff') : t('usage.machineOffThere')
+}
+
+/** Anonymous usage stats: one switch for every machine, and exactly what is sent. */
+function UsageStatsCard() {
+  const ws = useWorkspace()
+  const usage = usePoll(() => get<UsageStatsView>('/api/usage-stats'), 60_000)
+  const [changed, setChanged] = useState<UsageStatsView>()
+  const [saving, setSaving] = useState(false)
+  const [open, setOpen] = useState(false)
+  const st = changed ?? usage.data
+  const manage = can(ws.me, 'machine.manage')
+
+  async function change(on: boolean) {
+    setSaving(true)
+    try {
+      setChanged(await put<UsageStatsView>('/api/usage-stats', { on }))
+      toastManager.add({ title: on ? t('usage.turnedOn') : t('usage.turnedOff'), type: 'success' })
+    } catch (e) {
+      toastManager.add({ title: errorText(e), type: 'error' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const locked = !st ? undefined : st.reason === 'dev' ? t('usage.offDev') : !st.canChange ? usageLine(st) : saving ? t('reason.saving') : undefined
+  const name = (m: UsageMachine) => machineLabel(ws.machines.find((x) => x.id === m.id)) || m.name
+  return (
+    <Card as="section" aria-labelledby="usage-title" id="usage-stats" className="scroll-mt-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <CardTitle id="usage-title">{t('usage.title')}</CardTitle>
+          <CardHint>{t('usage.hint')}</CardHint>
+        </div>
+        {manage && st && <Switch checked={st.on} onCheckedChange={(c) => void change(c)} aria-label={t('usage.switch')} disabled={!!locked} title={locked} />}
+      </div>
+      <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4 text-[13px]">
+        {usage.error && !st ? (
+          <p className="text-destructive-foreground">{errorText(usage.error)}</p>
+        ) : !st ? (
+          <InlineSkeleton className="w-56" />
+        ) : (
+          <p className="text-muted-foreground">{usageLine(st)}</p>
+        )}
+        {st && st.machines.length > 0 && (
+          <ul className="flex flex-col gap-1 text-xs text-muted-foreground" aria-label={t('usage.machines')}>
+            {st.machines.map((m) => (
+              <li key={m.id} className="flex justify-between gap-3">
+                <span className="min-w-0 truncate">{name(m)}</span>
+                <span className="shrink-0">{usageMachineText(m)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {st && (
+          <Collapsible open={open} onOpenChange={setOpen}>
+            <CollapsibleTrigger className="inline-flex items-center gap-1 rounded text-xs font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+              <ChevronRightIcon className={cn('size-3.5 transition-transform', open && 'rotate-90')} aria-hidden="true" />
+              {t('usage.whatsSent')}
+            </CollapsibleTrigger>
+            <CollapsiblePanel>
+              <p className="mt-2 text-xs text-muted-foreground">{t('usage.whatsSentHint', { service: st.service.replace(/^https?:\/\//, '') })}</p>
+              <pre className="mt-2 overflow-x-auto rounded-xl bg-muted p-3 font-mono text-xs leading-5">{JSON.stringify(st.report, null, 2)}</pre>
+              <a href={t('usage.learnMoreUrl')} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+                {t('usage.learnMore')}
+                <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
+              </a>
+            </CollapsiblePanel>
+          </Collapsible>
+        )}
+      </div>
     </Card>
   )
 }

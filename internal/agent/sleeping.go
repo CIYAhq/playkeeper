@@ -156,13 +156,14 @@ func (s *server) standInIcon() string {
 
 // observeSleep feeds one sample to the sleep tracker and puts an empty
 // server to sleep when it is time. A running map pre-generation or a
-// scheduled restart's countdown keeps it awake, as an operation does.
+// scheduled restart's countdown keeps it awake, as an operation does, and
+// so does crossplay, as a Bedrock player can't wake a sleeping server.
 func (s *server) observeSleep(now time.Time, state string, snap *api.PlayerSnapshot) {
 	set := s.sleepSettings()
 	s.mu.Lock()
 	startedAt := s.runStartedAt
 	s.mu.Unlock()
-	o := sleep.Observation{At: now, Running: state == "online", Busy: s.busy() || s.pregenRunning() || s.scheduleWorking(), StartedAt: startedAt}
+	o := sleep.Observation{At: now, Running: state == "online", Busy: s.busy() || s.pregenRunning() || s.scheduleWorking() || s.hasCrossplay(), StartedAt: startedAt}
 	if snap != nil {
 		o.Players, o.PlayersKnown = snap.Online, true
 	}
@@ -218,13 +219,13 @@ func (s *server) fallAsleep(set sleep.Settings) {
 
 // sleepOp puts the server to sleep, unless since the sleep watch decided
 // someone joined, a map pre-generation or a scheduled restart's countdown
-// began, the server stopped being meant to run or set stopped being its
-// sleep setting: then the operation is called off and the server stays
-// awake. Saving the setting takes the operation lock too, so the setting
-// can't change between this look and the stop.
+// began, crossplay was turned on, the server stopped being meant to run or
+// set stopped being its sleep setting: then the operation is called off and
+// the server stays awake. Saving the setting takes the operation lock too,
+// so the setting can't change between this look and the stop.
 func (s *server) sleepOp(ctx context.Context, h *opHandle, m *sleep.Manager, set sleep.Settings) error {
 	sleepLooks()
-	if !s.nobodyOn() || s.pregenRunning() || s.scheduleWorking() {
+	if !s.nobodyOn() || s.pregenRunning() || s.scheduleWorking() || s.hasCrossplay() {
 		h.callOff()
 		return nil
 	}

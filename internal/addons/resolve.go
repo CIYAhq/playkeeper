@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/addons/fetch"
+	"github.com/CIYAhq/playkeeper/internal/addons/geysermc"
 	"github.com/CIYAhq/playkeeper/internal/addons/hangar"
 	"github.com/CIYAhq/playkeeper/internal/addons/modrinth"
 )
@@ -54,6 +55,15 @@ type candidate struct {
 	// own is set for a build for the server's own platform, rather than one
 	// whose add-ons it runs too (Target.own).
 	own bool
+	// geyser is the GeyserMC project and platform whose newest build a
+	// Hangar version links to, until followGeyser pins the build; after,
+	// the file comes from GeyserMC's server (Library.stepHosts).
+	geyser *geyserLink
+}
+
+type geyserLink struct {
+	project, platform string
+	resolved          bool
 }
 
 func (c candidate) key() Key { return Key{c.Source, c.ProjectID()} }
@@ -211,11 +221,60 @@ func (l *Library) candidates(ctx context.Context, t Target, mc string, p *projec
 		if out, err = l.hangarCandidates(ctx, t, mc, p, findRelease); err != nil {
 			return nil, lookupError(Hangar, p.ID, err)
 		}
+		if err := l.followGeyser(ctx, out); err != nil {
+			return nil, err
+		}
 	}
 	slices.SortStableFunc(out, func(a, b candidate) int { return b.Published.Compare(a.Published) })
 	preferOwnBuilds(out)
 	return out, nil
 }
+
+// followGeyser pins each candidate that links to the newest build of a
+// GeyserMC project to that build: its file on GeyserMC's server, the
+// SHA-256 GeyserMC publishes and the size the server answers with. The
+// build's name ("2.2.5-b141") is its version, so a newer build is an
+// update.
+func (l *Library) followGeyser(ctx context.Context, cands []candidate) error {
+	builds := map[string]*geysermc.Build{}
+	for i := range cands {
+		c := &cands[i]
+		if c.geyser == nil || c.geyser.resolved || l.GeyserMC == nil {
+			continue
+		}
+		b := builds[c.geyser.project]
+		if b == nil {
+			var err error
+			if b, err = l.GeyserMC.Latest(ctx, c.geyser.project); err != nil {
+				return upstreamAs(geyserName, err)
+			}
+			builds[c.geyser.project] = b
+		}
+		d, ok := b.Downloads[c.geyser.platform]
+		if !ok || b.Project != c.geyser.project || !validRef(b.Name()) {
+			return fail(KindUpstream, kv("source", geyserName, "status", ""),
+				fmt.Sprintf("GeyserMC's newest build of %s has no file for this server.", c.Name), "Try again in a few minutes.")
+		}
+		link := l.GeyserMC.FileURL(b, c.geyser.platform)
+		size, err := l.GeyserMC.FileSize(ctx, link)
+		if err != nil {
+			return upstreamAs(geyserName, err)
+		}
+		c.VersionID, c.Number, c.Published = b.Name(), b.Name(), b.Time
+		c.FileName, c.URL, c.HashAlgo, c.Hash, c.Size = d.Name, link, "sha256", strings.ToLower(d.SHA256), size
+		c.External, c.geyser.resolved = "", true
+		var notes []string
+		for _, ch := range b.Changes {
+			notes = append(notes, "- "+ch.Summary)
+		}
+		c.notes = strings.Join(notes, "\n")
+	}
+	return nil
+}
+
+// geyserName is how messages name GeyserMC, which publishes the files and
+// hashes of its projects.
+const geyserName = "GeyserMC"
 
 // preferOwnBuilds puts the builds of one release for the server's own
 // platform ahead of its builds for another: BlueMap publishes 5.28-paper and
@@ -352,6 +411,13 @@ func (l *Library) exact(ctx context.Context, t Target, mc string, p *project, ve
 			return candidate{}, false, nil
 		}
 		c, ok := hangarCandidate(p, v, t, mc)
+		if ok {
+			cs := []candidate{c}
+			if err := l.followGeyser(ctx, cs); err != nil {
+				return candidate{}, false, err
+			}
+			c = cs[0]
+		}
 		return c, ok, nil
 	}
 	return candidate{}, false, nil
@@ -457,6 +523,10 @@ func hangarCandidate(p *project, v *hangar.Version, t Target, mc string) (candid
 		c.FileName, c.URL, c.HashAlgo, c.Hash, c.Size = d.FileInfo.Name, d.DownloadURL, "sha256", d.FileInfo.SHA256Hash, d.FileInfo.SizeBytes
 	case d.ExternalURL != "":
 		c.External = d.ExternalURL
+		// Only GeyserMC's own projects, linking to their own newest build.
+		if project, platform, ok := geysermc.ParseLatestLink(d.ExternalURL); ok && project == strings.ToLower(p.Slug) && slices.Contains(geysermc.Projects, project) {
+			c.geyser = &geyserLink{project: project, platform: platform}
+		}
 	default:
 		return candidate{}, false
 	}

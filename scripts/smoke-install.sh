@@ -5,7 +5,8 @@
 # uninstalls and checks nothing is left listening. It changes the machine it
 # runs on, so it only runs in CI.
 # PLAYKEEPER_BASE_URL and PLAYKEEPER_ALLOW_HTTP are passed on to get.sh when
-# set (for a local copy of the release assets).
+# set (for a local copy of the release assets). A test install sends no usage
+# stats: DO_NOT_TRACK=1.
 # Usage: scripts/smoke-install.sh URL VERSION
 set -euo pipefail
 
@@ -21,8 +22,8 @@ pass=()
 for v in PLAYKEEPER_BASE_URL PLAYKEEPER_ALLOW_HTTP; do
   [ -z "${!v:-}" ] || pass+=("$v=${!v}")
 done
-echo "+ curl -fsSL $url | sudo ${pass[*]} sh -s -- --yes"
-curl -fsSL "$url" | sudo env "${pass[@]}" sh -s -- --yes 2>&1 |
+echo "+ curl -fsSL $url | sudo DO_NOT_TRACK=1 ${pass[*]} sh -s -- --yes"
+curl -fsSL "$url" | sudo env DO_NOT_TRACK=1 "${pass[@]}" sh -s -- --yes 2>&1 |
   sed -E 's/(setup code: |#code=)[a-z0-9-]+/\1<redacted>/g'
 
 installed=$(playkeeper version)

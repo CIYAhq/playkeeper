@@ -1,0 +1,25 @@
+{
+  "status": "passing",
+  "checked": "2026-09-28",
+  "release": "0.4.2",
+  "build": "129",
+  "doneSeconds": 18.821,
+  "addons": [
+    {
+      "name": "AuraSkills",
+      "source": "modrinth",
+      "slug": "auraskills",
+      "version": "2.4.0",
+      "licence": "GPL-3.0-only",
+      "downloads": 215521
+    },
+    {
+      "name": "LuckPerms",
+      "source": "modrinth",
+      "slug": "luckperms",
+      "version": "v5.5.71-bukkit",
+      "licence": "MIT",
+      "downloads": 2779528
+    }
+  ]
+}

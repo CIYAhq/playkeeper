@@ -69,6 +69,12 @@ func (a *Agent) findInterruptedRestores() []string {
 			p.releasePort = a.voicePorts.hold(j.Restored.VoiceChatPort, s.id)
 			a.voicePorts.mu.Unlock()
 		}
+		if j != nil && j.State == swapMoving && j.Restored.CrossplayPort > 0 {
+			a.voicePorts.mu.Lock()
+			voice, bedrock := p.releasePort, a.voicePorts.hold(j.Restored.CrossplayPort, s.id)
+			p.releasePort = func() { voice(); bedrock() }
+			a.voicePorts.mu.Unlock()
+		}
 		s.recovery = p
 		found = append(found, op.ID)
 	}

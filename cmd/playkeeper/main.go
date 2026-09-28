@@ -29,6 +29,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/machinelink"
 	"github.com/CIYAhq/playkeeper/internal/panel"
 	"github.com/CIYAhq/playkeeper/internal/update"
+	usagestats "github.com/CIYAhq/playkeeper/internal/usage"
 	"github.com/CIYAhq/playkeeper/internal/version"
 	"github.com/CIYAhq/playkeeper/web"
 )
@@ -290,6 +291,11 @@ func runInstall(args []string) error {
 			return err
 		}
 	}
+	u, err := installUsage(os.Getenv)
+	if err != nil {
+		return err
+	}
+	o.Usage = u
 	switch {
 	case o.Join == "" && (j.code != "" || j.fingerprint != "" || j.name != ""):
 		return errors.New("--code, --fingerprint and --name go with --join ADDRESS; copy the whole command from the dashboard (Settings › Machines)")
@@ -312,7 +318,11 @@ func runInstall(args []string) error {
 	case res.Upgraded:
 		writeUpgradeSummary(os.Stdout, res)
 	case res.NoPanel:
-		fmt.Printf("\nPlaykeeper is installed (in %s).\n\n", res.Duration.Round(time.Second))
+		fmt.Printf("\nPlaykeeper is installed (in %s).\n", res.Duration.Round(time.Second))
+		if res.UsageOn {
+			fmt.Printf("Anonymous usage stats are on; Settings › Playkeeper on your dashboard turns them off.\n")
+		}
+		fmt.Println()
 	default:
 		writeInstallSummary(os.Stdout, res)
 	}
@@ -324,6 +334,26 @@ func runInstall(args []string) error {
 		return err
 	}
 	return joinAfterInstall(ctx, os.Stdout, install.Real(), cfg, j)
+}
+
+// installUsage is how an install takes part in usage stats, from what the
+// environment and the scripts that ran the installer say.
+func installUsage(getenv func(string) string) (install.Usage, error) {
+	choice, why := usagestats.FromEnv(getenv)
+	u := install.Usage{
+		Choice: choice, Why: why,
+		Source:  usagestats.SourceFor(getenv(usagestats.EnvSource), version.Version),
+		Channel: usagestats.CleanChannel(getenv(usagestats.EnvChannel)),
+		Test:    usagestats.TestFromEnv(getenv),
+		URL:     strings.TrimSpace(getenv(usagestats.EnvURL)),
+	}
+	if u.URL != "" {
+		if _, err := usagestats.CheckURL(u.URL); err != nil {
+			return u, fmt.Errorf("%s: %w", usagestats.EnvURL, err)
+		}
+	}
+	u.Send = usagestats.Client{URL: u.URL, Version: version.Version}.SendInstall
+	return u, nil
 }
 
 // removeGetDir deletes the folder the one-line installer (get.sh)
@@ -414,6 +444,9 @@ func writeInstallSummary(w io.Writer, res *install.Result) {
 		fmt.Fprintf(w, "Forgot the password? sudo playkeeper reset-password <username>\n")
 	}
 	fmt.Fprintf(w, "Uninstall any time: sudo playkeeper uninstall  (keeps your worlds and backups)\n")
+	if res.UsageOn {
+		fmt.Fprintf(w, "Anonymous usage stats are on; Settings › Playkeeper turns them off.\n")
+	}
 	fmt.Fprintf(w, "Install finished in %s.\n", res.Duration.Round(time.Second))
 }
 

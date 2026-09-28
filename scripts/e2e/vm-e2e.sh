@@ -175,17 +175,17 @@ phase "HOST A: preflight (read-only)"
 lab_ssh "$A" "cd $name && sudo ./playkeeper preflight" | tee "$OUT/host-a-preflight.txt" || true
 
 phase "HOST A: declining the plan changes nothing"
-lab_ssh "$A" "cd $name && echo n | sudo ./install.sh" | tee "$OUT/host-a-decline.txt" || true
+lab_ssh "$A" "cd $name && echo n | sudo DO_NOT_TRACK=1 ./install.sh" | tee "$OUT/host-a-decline.txt" || true
 unchanged "$A" host-a-snapshot-0-before host-a-snapshot-1-after-decline host-a-decline.txt
 
 phase "HOST A: injected mid-install failure rolls back"
-lab_ssh "$A" "cd $name && sudo PLAYKEEPER_TEST_FAIL_INSTALL_STEP='install and start systemd services' ./install.sh --yes" >"$OUT/host-a-rollback.txt" 2>&1 || true
+lab_ssh "$A" "cd $name && sudo DO_NOT_TRACK=1 PLAYKEEPER_TEST_FAIL_INSTALL_STEP='install and start systemd services' ./install.sh --yes" >"$OUT/host-a-rollback.txt" 2>&1 || true
 cat "$OUT/host-a-rollback.txt"
 unchanged "$A" host-a-snapshot-0-before host-a-snapshot-2-after-rollback host-a-rollback.txt
 
 phase "HOST A: install from the release tarball"
 start=$(date +%s)
-lab_ssh "$A" "cd $name && sudo ./install.sh --yes" | tee "$OUT/host-a-install.txt"
+lab_ssh "$A" "cd $name && sudo DO_NOT_TRACK=1 ./install.sh --yes" | tee "$OUT/host-a-install.txt"
 echo "install wall time: $(($(date +%s) - start)) s" | tee -a "$OUT/host-a-install.txt"
 lab_ssh "$A" 'sudo cat /var/lib/playkeeper/install-manifest.json' | tee "$OUT/host-a-install-manifest.json"
 code=$(grep -o 'setup code: [a-z0-9-]*' "$OUT/host-a-install.txt" | awk '{print $3}')
@@ -366,7 +366,7 @@ disable_offline_harness "$A"
 world_sums "$A" >"$OUT/host-a-data-after-uninstall.txt"
 diff "$OUT/host-a-data-before-uninstall.txt" "$OUT/host-a-data-after-uninstall.txt" && echo "world and backup checksums unchanged ($(wc -l <"$OUT/host-a-data-after-uninstall.txt") files)" | tee -a "$OUT/host-a-uninstall.txt"
 lab_ssh "$A" 'set +e; echo "## after uninstall"; systemctl list-unit-files | grep -c playkeeper; id playkeeper; ls /usr/local/bin/playkeeper /etc/playkeeper /etc/systemd/system/playkeeper-agent.service.d; command -v docker; sudo ss -ltnH' 2>&1 | tee -a "$OUT/host-a-uninstall.txt"
-lab_ssh "$A" "cd $name && sudo ./install.sh --yes" | tee "$OUT/host-a-reinstall.txt"
+lab_ssh "$A" "cd $name && sudo DO_NOT_TRACK=1 ./install.sh --yes" | tee "$OUT/host-a-reinstall.txt"
 agent_env=$(lab_ssh "$A" 'systemctl show -p Environment playkeeper-agent')
 printf '%s\n' "$agent_env" | tee -a "$OUT/host-a-reinstall.txt"
 case $agent_env in
@@ -423,8 +423,8 @@ lab_ssh "$B" 'sudo rm -f /var/tmp/pk-fill'
 
 phase "HOST B: collisions refused; coexistence with --allow-existing-minecraft"
 lab_ssh "$B" "cd $name && sudo ./playkeeper preflight" | tee "$OUT/host-b-preflight-conflicts.txt" || true
-lab_ssh "$B" "cd $name && sudo ./install.sh --yes" | tee "$OUT/host-b-install-refused.txt" || true
-lab_ssh "$B" "pkill -f 'http[.]server 25565'; cd $name && sudo ./install.sh --yes --allow-existing-minecraft" | tee "$OUT/host-b-install-coexist.txt"
+lab_ssh "$B" "cd $name && sudo DO_NOT_TRACK=1 ./install.sh --yes" | tee "$OUT/host-b-install-refused.txt" || true
+lab_ssh "$B" "pkill -f 'http[.]server 25565'; cd $name && sudo DO_NOT_TRACK=1 ./install.sh --yes --allow-existing-minecraft" | tee "$OUT/host-b-install-coexist.txt"
 code_b=$(grep -o 'setup code: [a-z0-9-]*' "$OUT/host-b-install-coexist.txt" | awk '{print $3}')
 lab_ssh "$B" 'sudo ufw status' | tee "$OUT/host-b-ufw.txt"
 fetch_cert "$B" "$OUT/cert-$B.pem"
@@ -512,12 +512,12 @@ refused() { # FILE COMMAND — runs COMMAND in guest C, which must fail
   [ "$st" != 0 ]
 }
 for case in bad tampered missing; do
-  refused host-c-oneliner-refusals.txt "curl -fsSL $SITE/get.sh | sudo PLAYKEEPER_BASE_URL=$SITE/$case PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes"
+  refused host-c-oneliner-refusals.txt "curl -fsSL $SITE/get.sh | sudo DO_NOT_TRACK=1 PLAYKEEPER_BASE_URL=$SITE/$case PLAYKEEPER_ALLOW_HTTP=1 sh -s -- --yes"
 done
-refused host-c-oneliner-refusals.txt "curl -fsSL $SITE/get.sh | sudo PLAYKEEPER_BASE_URL=$SITE PLAYKEEPER_ALLOW_HTTP=1 sh"
+refused host-c-oneliner-refusals.txt "curl -fsSL $SITE/get.sh | sudo DO_NOT_TRACK=1 PLAYKEEPER_BASE_URL=$SITE PLAYKEEPER_ALLOW_HTTP=1 sh"
 lab_ssh "$C" 'echo "get.sh temporary directories left in /tmp: $(ls -d /tmp/playkeeper-get.* 2>/dev/null | wc -l)"' | tee -a "$OUT/host-c-oneliner-refusals.txt"
 unchanged "$C" host-c-snapshot-0-before host-c-snapshot-1-after-refusals host-c-oneliner-refusals.txt
-oneliner="curl -fsSL $SITE/get.sh | sudo PLAYKEEPER_BASE_URL=$SITE PLAYKEEPER_ALLOW_HTTP=1 sh"
+oneliner="curl -fsSL $SITE/get.sh | sudo DO_NOT_TRACK=1 PLAYKEEPER_BASE_URL=$SITE PLAYKEEPER_ALLOW_HTTP=1 sh"
 echo "\$ $oneliner   # in a terminal; the installer's question is answered with y" | tee "$OUT/host-c-install.txt"
 start=$(date +%s)
 python3 "$root/test/e2e/tty_run.py" --answer 'Proceed? [y/N]=y' -- ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
@@ -564,7 +564,7 @@ host_facts "$LOWMEM" host-lowmem-facts.txt
 install_artifact "$LOWMEM"
 snapshot "$LOWMEM" host-lowmem-snapshot-0-before
 lab_ssh "$LOWMEM" "cd $name && sudo ./playkeeper preflight" | tee "$OUT/host-lowmem-preflight.txt" || true
-lab_ssh "$LOWMEM" "cd $name && sudo ./install.sh --yes" 2>&1 | tail -4 | tee -a "$OUT/host-lowmem-preflight.txt" || true
+lab_ssh "$LOWMEM" "cd $name && sudo DO_NOT_TRACK=1 ./install.sh --yes" 2>&1 | tail -4 | tee -a "$OUT/host-lowmem-preflight.txt" || true
 unchanged "$LOWMEM" host-lowmem-snapshot-0-before host-lowmem-snapshot-1-after host-lowmem-preflight.txt
 lab_shutdown lowmem
 }
@@ -577,7 +577,7 @@ host_facts "$BIONIC" host-bionic-facts.txt
 install_artifact "$BIONIC"
 snapshot "$BIONIC" host-bionic-snapshot-0-before
 lab_ssh "$BIONIC" "cd $name && sudo ./playkeeper preflight" | tee "$OUT/host-bionic-preflight.txt" || true
-lab_ssh "$BIONIC" "cd $name && sudo ./install.sh --yes" 2>&1 | tail -4 | tee -a "$OUT/host-bionic-preflight.txt" || true
+lab_ssh "$BIONIC" "cd $name && sudo DO_NOT_TRACK=1 ./install.sh --yes" 2>&1 | tail -4 | tee -a "$OUT/host-bionic-preflight.txt" || true
 unchanged "$BIONIC" host-bionic-snapshot-0-before host-bionic-snapshot-1-after host-bionic-preflight.txt
 lab_shutdown bionic
 }

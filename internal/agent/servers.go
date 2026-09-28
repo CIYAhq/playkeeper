@@ -114,6 +114,9 @@ type server struct {
 	// settleProblem is why the last try to settle a restore whose journal
 	// is kept failed, until a try succeeds.
 	settleProblem string
+	// settingsChecked is set once this agent process has checked the running
+	// server's console and allowlist (checkSettingsOnce).
+	settingsChecked bool
 
 	// rconLock holds the console connection; a channel, so waiting for it
 	// honours a command's deadline.

@@ -32,6 +32,8 @@ FROM nginx:1.30.5-alpine-slim@sha256:32463212baf0e7d91aded2e9b843a4f2b9e017804b8
 
 RUN rm -rf /usr/share/nginx/html/*
 COPY site/nginx.conf /etc/nginx/conf.d/default.conf
+# What /install answers: outside the web root, so nothing else serves it.
+COPY site/install.sh /usr/share/nginx/playkeeper/install.sh
 # The install log's folder, /var/log/playkeeper: nginx's workers own it and
 # files older than 30 days go (the image's entrypoint runs this first).
 COPY site/install-logs.sh /docker-entrypoint.d/40-install-logs.sh

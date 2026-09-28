@@ -327,15 +327,15 @@ function MapSkeleton({ phone }: { phone: boolean }) {
     )
   }
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-1 flex-col gap-3">
       <LoadingLabel />
       <div className="flex h-9 items-center gap-3">
         <Skeleton className="h-8 w-56 rounded-[9px]" />
         <Skeleton className="ml-auto h-4 w-44" />
         <Skeleton className="size-8 rounded-lg" />
       </div>
-      <div className="grid grid-cols-[minmax(0,1fr)_272px] gap-3.5">
-        <Skeleton className="h-[425px] rounded-2xl" />
+      <div className="grid flex-1 grid-cols-[minmax(0,1fr)_272px] gap-3.5">
+        <Skeleton className="min-h-[356px] rounded-2xl" />
         <div className="flex flex-col gap-3.5">
           <Skeleton className="h-[140px] rounded-2xl" />
           <Skeleton className="h-[180px] rounded-2xl" />
@@ -369,13 +369,14 @@ function LiveMap({ server, info, onChange, onTurnOff, menuOpen, onMenuOpenChange
     setFocus((f) => ({ x: p.x, z: p.z, seq: (f?.seq ?? 0) + 1 }))
   }
 
+  const mapSize = phone ? 'min-h-[360px] flex-1' : 'min-h-[356px]'
   const map =
     world && worlds.data ? (
-      <MapView world={world} tileSize={worlds.data.tileSize} tileURL={tileURL} players={drawing ? undefined : list} faceURL={faceURL} focus={focus} coords={coords} className={phone ? (drawing ? 'aspect-square w-full' : 'min-h-[360px] flex-1') : 'min-h-[356px]'} />
+      <MapView world={world} tileSize={worlds.data.tileSize} tileURL={tileURL} players={drawing ? undefined : list} faceURL={faceURL} focus={focus} coords={coords} className={mapSize} />
     ) : worlds.error ? (
-      <MapUnavailable error={worlds.error} onRetry={worlds.refresh} className={phone ? 'min-h-[360px] flex-1' : 'min-h-[356px]'} />
+      <MapUnavailable error={worlds.error} onRetry={worlds.refresh} className={mapSize} />
     ) : (
-      <Skeleton className={cn('rounded-2xl', phone ? (drawing ? 'aspect-square w-full' : 'min-h-[360px] flex-1') : 'min-h-[356px]')} />
+      <Skeleton className={cn('rounded-2xl', mapSize)} />
     )
   const toggle = sorted.length > 1 && world && <WorldSwitch worlds={sorted} value={world.name} onChange={setPicked} serverName={server.name} serverType={server.type || 'paper'} levelName={levelName} large={phone} />
   const fill = area.data && filling(area.data) ? <FillCard server={server} area={area.data} /> : null
@@ -424,7 +425,7 @@ function LiveMap({ server, info, onChange, onTurnOff, menuOpen, onMenuOpenChange
     )
   }
   return (
-    <div className="flex animate-fade flex-col gap-3">
+    <div className="flex flex-1 animate-fade flex-col gap-3">
       <div className="flex min-h-9 flex-wrap items-center gap-x-4 gap-y-2">
         {toggle}
         <div className="ml-auto flex items-center gap-4 text-[13px] text-muted-foreground">
@@ -443,7 +444,7 @@ function LiveMap({ server, info, onChange, onTurnOff, menuOpen, onMenuOpenChange
           </Menu>
         </div>
       </div>
-      <div className="grid grid-cols-[minmax(0,1fr)_272px] items-stretch gap-3.5">
+      <div className="grid flex-1 grid-cols-[minmax(0,1fr)_272px] items-stretch gap-3.5">
         {map}
         <div className="flex flex-col gap-3.5">
           {drawing && <DrawingCard info={info} />}

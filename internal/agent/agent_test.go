@@ -141,8 +141,10 @@ func newAgentEnvWith(t *testing.T, setup func(e *agentEnv)) *agentEnv {
 	cfg.GameUID, cfg.GameGID = os.Getuid(), os.Getgid()
 	cfg.InstallID = "test-install-0001"
 	cfg.Dev = true
-	// Nothing in these tests reaches the real names service.
+	// Nothing in these tests reaches the real names service, or the stats
+	// service.
 	cfg.NamesURL = closedURL(t)
+	cfg.StatsURL = closedURL(t)
 	e.cfg = cfg
 	if setup != nil {
 		setup(e)
@@ -219,6 +221,9 @@ func (e *agentEnv) start() {
 		Resolver: &fakeResolver{}, Issue: noCA, AddressInterval: -1, PublishPoll: 10 * time.Millisecond,
 		PublicAddrs: func() []netip.Addr { return []netip.Addr{testIP} },
 		PortHolder:  holder,
+		// No heartbeat unless a test sends one, and none of the machine's
+		// environment, system or processes: CI runs these in an Actions job.
+		UsageInterval: -1, Getenv: func(string) string { return "" }, OSRelease: e.osRelease(), Processes: func() []string { return nil },
 	}
 	if e.tweak != nil {
 		e.tweak(&opts)
@@ -232,6 +237,15 @@ func (e *agentEnv) start() {
 	a.Start()
 	e.ts = httptest.NewServer(a.HandlerForTest())
 	e.t.Cleanup(func() { e.stop() })
+}
+
+// osRelease is the system the agent reads it runs on: Debian 13.
+func (e *agentEnv) osRelease() string {
+	p := filepath.Join(e.dir, "os-release")
+	if _, err := os.Stat(p); err != nil {
+		os.WriteFile(p, []byte("PRETTY_NAME=\"Debian GNU/Linux 13 (trixie)\"\nID=debian\nVERSION_ID=\"13\"\n"), 0o644)
+	}
+	return p
 }
 
 func (e *agentEnv) stop() {

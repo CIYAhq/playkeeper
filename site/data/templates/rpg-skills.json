@@ -1,0 +1,19 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "RPG skills survival",
+  "description": "Paper with AuraSkills: players level up skills like farming, mining and fighting for stat boosts and abilities, with LuckPerms for ranks.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "26.2" },
+  "settings": {
+    "difficulty": "normal",
+    "pvp": true,
+    "gameMode": "survival",
+    "maxPlayers": 20,
+    "playStyle": "friends",
+    "memoryMB": 4096
+  },
+  "addons": [
+    { "source": "modrinth", "project": "uDdZAVls", "slug": "auraskills", "name": "AuraSkills", "pin": { "versionId": "9rSJ3THD", "versionNumber": "2.4.0", "channel": "release", "hashAlgo": "sha512", "hash": "47b9cd79efcb244f93e839abd8f5f27dce6945ca8ee23590d3fca194326defada28fe3b95d210b1f7ae5923d6c9dee53db3f62236a6a463c0d9c5f270bd18e77" } },
+    { "source": "modrinth", "project": "Vebnzrzj", "slug": "luckperms", "name": "LuckPerms", "pin": { "versionId": "b0mk8uS6", "versionNumber": "v5.5.71-bukkit", "channel": "release", "hashAlgo": "sha512", "hash": "188a91f0a543d23bfda32385fca6db63d61e49c8a422bd452a260bd9cbc6a7d7fe45071199e9fca8f3ce43c2b41ee84fd315bd15464577028ff3951a7d4fab27" } }
+  ]
+}

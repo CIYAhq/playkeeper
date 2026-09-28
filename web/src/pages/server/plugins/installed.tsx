@@ -298,7 +298,7 @@ function RowMenu({ row: r }: { row: AddonRow }) {
         {installed && (
           <>
             <MenuSeparator />
-            <MenuItem variant="destructive" onClick={() => a.askRemove(key)}>
+            <MenuItem variant="destructive" disabled={key.usedBy === 'crossplay'} title={key.usedBy === 'crossplay' ? t('addons.usedByCrossplayBody') : undefined} onClick={() => a.askRemove(key)}>
               <Trash2Icon />
               {t('common.remove')}
             </MenuItem>

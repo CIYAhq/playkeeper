@@ -13,8 +13,9 @@
 #          restore of an old backup work after
 # Then on both: sign-in and two-factor sign-in, Discord and a free name
 # without credentials, every page, and errors in the Playkeeper logs. The
-# guest's /etc/hosts sends the names service and Discord to a recorder on
-# 127.0.0.1:443 (test/e2e/outbound_recorder.py), so nothing reaches them.
+# guest's /etc/hosts sends the names service, the stats service and Discord to
+# a recorder on 127.0.0.1:443 (test/e2e/outbound_recorder.py), so nothing
+# reaches them; the installs send no usage stats anyway (DO_NOT_TRACK=1).
 #
 # The dashboard's updater only installs a release signed with a key it was
 # built with. The owner path signs this build's manifest with a key made for
@@ -55,7 +56,7 @@ export PK_PASSWORD=${PK_PASSWORD:-"lab-$(head -c 9 /dev/urandom | base64 | tr -d
 export PK_ADMIN_PASSWORD="$PK_PASSWORD"
 OFFLINE_DROPIN='[Service]
 Environment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1'
-BLOCKED="names.playkeeper.io discord.com discordapp.com canary.discord.com ptb.discord.com"
+BLOCKED="names.playkeeper.io stats.playkeeper.io discord.com discordapp.com canary.discord.com ptb.discord.com"
 results=()
 since=""
 
@@ -190,7 +191,7 @@ fresh() {
   boot_guest
   phase "FRESH: install $name from its release tarball"
   lab_scp "$tarball" "$tarball.sha256" "pk@$ip:"
-  lab_ssh "$ip" "sha256sum -c $name.tar.gz.sha256 && tar -xzf $name.tar.gz && cd $name && sudo ./install.sh --yes" | tee "$OUT/fresh-install.txt"
+  lab_ssh "$ip" "sha256sum -c $name.tar.gz.sha256 && tar -xzf $name.tar.gz && cd $name && sudo DO_NOT_TRACK=1 ./install.sh --yes" | tee "$OUT/fresh-install.txt"
   installed fresh-install.txt
   offline_harness
   wait_panel
@@ -212,7 +213,7 @@ owner() {
   from_rekeyed
   boot_guest
   phase "OWNER: install $FROM from its GitHub release"
-  lab_ssh "$ip" "curl -fsSL $base/get.sh | sudo PLAYKEEPER_BASE_URL=$base sh -s -- --yes --release-url http://127.0.0.1:8765/latest" | tee "$OUT/owner-install.txt"
+  lab_ssh "$ip" "curl -fsSL $base/get.sh | sudo DO_NOT_TRACK=1 PLAYKEEPER_BASE_URL=$base sh -s -- --yes --release-url http://127.0.0.1:8765/latest" | tee "$OUT/owner-install.txt"
   installed owner-install.txt
   curl -fsSL -o "$work/from-release.tar.gz" "$base/playkeeper-linux-amd64.tar.gz"
   mkdir -p "$work/release" && tar -xzf "$work/from-release.tar.gz" -C "$work/release"
