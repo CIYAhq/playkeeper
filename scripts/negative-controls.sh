@@ -2014,8 +2014,8 @@ control "mods CurseForge won't let Playkeeper download come from the pack's serv
   'if err := error(nil); err != nil {' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
 control "a mod from the server files must have the SHA-1 CurseForge lists" internal/modpacks/resolve.go \
-  'if sums["sha1"] != s.sha1 {' \
-  'if false && sums["sha1"] != s.sha1 {' \
+  'if sums["sha1"] != sha1 {' \
+  'if false && sums["sha1"] != sha1 {' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
 control "only the server files of the pack's own version are used" internal/modpacks/resolve.go \
   'sp.ParentProjectFileID == nil || *sp.ParentProjectFileID != file.ID || ' \
@@ -5086,6 +5086,14 @@ control "mods a pack's server files leave out stay off the server" internal/modp
 control "server files that hold few of the pack's mods don't decide what the server gets" internal/modpacks/resolve.go \
   'return len(pack) > 0 && 2*held >= len(pack)' \
   'return len(pack) > 0' \
+  ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "a mod CurseForge tags for players' games goes on the server when its server files have it" internal/modpacks/resolve.go \
+  'if err := p.keepWhatServerFilesHave(mods, lim); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "a mod the server files put back isn't listed as left out" internal/modpacks/resolve.go \
+  'p.skipped = slices.DeleteFunc(p.skipped, func(s Skipped) bool { return s.Path == c.path && s.Reason == addons.KindClientOnly })' \
+  '_ = c.path' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
 control "a CurseForge manifest's odd recommendedRam doesn't refuse the pack" internal/modpacks/curseforge/manifest.go \
   '	if err != nil || n < 0 {

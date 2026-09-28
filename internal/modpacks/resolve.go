@@ -52,7 +52,9 @@ type pack struct {
 	// from them (see fillFromServerFiles), and serverFills those mods.
 	server      *archive
 	serverFills []serverFill
-	dir         string
+	// clientMods are the mods CurseForge tags for players' games only.
+	clientMods []clientMod
+	dir        string
 	// hashed counts the bytes read out of the archive to hash them.
 	hashed int64
 }
@@ -63,6 +65,14 @@ type pack struct {
 // files have the file with the SHA-1 CurseForge lists for it.
 type serverFill struct {
 	step                int // in pack.manual
+	path, project, name string
+	sha1                string
+}
+
+// clientMod is a mod a CurseForge pack names that CurseForge tags for
+// players' games only. It goes on the server all the same when the pack's
+// server files have it (see keepWhatServerFilesHave).
+type clientMod struct {
 	path, project, name string
 	sha1                string
 }
@@ -948,6 +958,9 @@ func (l *Library) addCurseForgeFile(p *pack, mf curseforge.ManifestFile, f *curs
 	switch {
 	case f.ClientOnly():
 		p.skip("mods/"+printable(f.FileName), addons.KindClientOnly)
+		if sum := f.SHA1(); mf.Required && plainJar(f.FileName) && sum != "" {
+			p.clientMods = append(p.clientMods, clientMod{path: target, project: id, name: display, sha1: sum})
+		}
 		return
 	case !plainJar(f.FileName):
 		p.block(notice(addons.KindBadFileName, kv("pack", p.info.Name, "name", display, "file", printable(f.FileName)),
@@ -1037,27 +1050,19 @@ func (l *Library) fillFromServerFiles(ctx context.Context, p *pack, mod *cursefo
 	holds := serverFilesHoldThePack(p, mods)
 	done := map[int]bool{}
 	for _, s := range p.serverFills {
-		e := mods[path.Base(s.path)]
-		if e == nil || p.files[s.path] != nil || e.UncompressedSize64 > uint64(lim.File) {
-			continue
-		}
-		sums, n, err := copyEntry(e, io.Discard, lim.File)
+		took, err := p.takeFromServerFiles(mods, s.path, s.project, s.name, s.sha1, lim)
 		if err != nil {
-			return fail(KindBadPack, kv("pack", p.info.Name, "reason", err.Error()),
-				fmt.Sprintf("%s cannot be installed: its server files are damaged at %q (%v).", p.info.Name, printable(e.Name), err),
-				"Choose another version of the pack. Nothing was installed.")
+			return err
 		}
-		if p.hashed += n; p.hashed > lim.Unpacked {
-			return unpackedTooLarge(p.info.Name, lim)
+		if took {
+			done[s.step] = true
 		}
-		if sums["sha1"] != s.sha1 {
-			continue
-		}
-		p.files[s.path] = &packFile{path: s.path, origin: Override, project: s.project, name: s.name, on: true, size: n, sums: sums, entry: e}
-		done[s.step] = true
 	}
 	if holds {
 		leaveOutWhatServerFilesLeaveOut(p, mods, done)
+		if err := p.keepWhatServerFilesHave(mods, lim); err != nil {
+			return err
+		}
 	}
 	manual := p.manual[:0]
 	for i, m := range p.manual {
@@ -1111,6 +1116,47 @@ func leaveOutWhatServerFilesLeaveOut(p *pack, mods map[string]*zip.File, done ma
 			p.skip(s.path, KindNotInServerFiles)
 		}
 	}
+}
+
+// keepWhatServerFilesHave puts on the server the mods CurseForge tags for
+// players' games that a CurseForge pack's server files have all the same:
+// its authors run them on servers. Better MC [FABRIC] BMC2's have Mod Menu,
+// which one of its mods needs to start.
+func (p *pack) keepWhatServerFilesHave(mods map[string]*zip.File, lim Limits) error {
+	for _, c := range p.clientMods {
+		took, err := p.takeFromServerFiles(mods, c.path, c.project, c.name, c.sha1, lim)
+		if err != nil {
+			return err
+		}
+		if took {
+			p.skipped = slices.DeleteFunc(p.skipped, func(s Skipped) bool { return s.Path == c.path && s.Reason == addons.KindClientOnly })
+		}
+	}
+	return nil
+}
+
+// takeFromServerFiles puts the mod at rel on the server from a CurseForge
+// pack's server files, and reports whether it did: only when their mods
+// folder has it with the SHA-1 CurseForge lists for it.
+func (p *pack) takeFromServerFiles(mods map[string]*zip.File, rel, project, name, sha1 string, lim Limits) (bool, error) {
+	e := mods[path.Base(rel)]
+	if e == nil || p.files[rel] != nil || e.UncompressedSize64 > uint64(lim.File) {
+		return false, nil
+	}
+	sums, n, err := copyEntry(e, io.Discard, lim.File)
+	if err != nil {
+		return false, fail(KindBadPack, kv("pack", p.info.Name, "reason", err.Error()),
+			fmt.Sprintf("%s cannot be installed: its server files are damaged at %q (%v).", p.info.Name, printable(e.Name), err),
+			"Choose another version of the pack. Nothing was installed.")
+	}
+	if p.hashed += n; p.hashed > lim.Unpacked {
+		return false, unpackedTooLarge(p.info.Name, lim)
+	}
+	if sums["sha1"] != sha1 {
+		return false, nil
+	}
+	p.files[rel] = &packFile{path: rel, origin: Override, project: project, name: name, on: true, size: n, sums: sums, entry: e}
+	return true, nil
 }
 
 // clientCurseForge records a file of a CurseForge pack for players' games,

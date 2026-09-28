@@ -394,6 +394,37 @@ func TestCurseForgeModsFromServerFiles(t *testing.T) {
 		}
 	}
 
+	// And a mod CurseForge tags for players' games goes on the server when
+	// they have it, as Better MC [FABRIC] BMC2's have Mod Menu, which one of
+	// its mods needs: their copy, when it is the file CurseForge lists.
+	const sodium = "mods/sodium-fabric-0.9.2+mc26.3.jar"
+	for _, c := range []struct {
+		name string
+		data []byte
+		kept bool
+	}{
+		{"they have the file CurseForge lists", generated("sodium-fabric-0.9.2+mc26.3.jar"), true},
+		{"their copy is another file", []byte("another sodium"), false},
+	} {
+		entries := append(serverFiles(generated("ferritecore-9.0.0-fabric.jar")), copies(cloth, lithium, placeholder)...)
+		_, l, srv, ref, _ := setUp(t, nil, append(entries, entry{name: sodium, data: c.data}))
+		pl := mustPlan(t, l, srv, InstallRequest{Ref: ref})
+		clientOnly := slices.Contains(pl.Skipped, Skipped{Path: sodium, Reason: addons.KindClientOnly})
+		if slices.Contains(changeList(pl.Changes), "add "+sodium) != c.kept || clientOnly == c.kept {
+			t.Errorf("%s: changes %q, skipped %+v", c.name, changeList(pl.Changes), pl.Skipped)
+		}
+		if !c.kept {
+			continue
+		}
+		res := mustInstall(t, l, srv, InstallRequest{Ref: ref})
+		if readFile(t, srv, sodium) != string(c.data) || recordFiles(res.Record)[sodium].Origin != Override {
+			t.Errorf("%s: Sodium on the server isn't the server files' copy: %+v", c.name, recordFiles(res.Record)[sodium])
+		}
+		if !slices.ContainsFunc(res.Record.Client, func(f ClientFile) bool { return f.Path == sodium }) {
+			t.Errorf("%s: friends don't get Sodium", c.name)
+		}
+	}
+
 	// Otherwise the steps stay, and nothing comes from the server files.
 	for _, c := range []struct {
 		name    string
