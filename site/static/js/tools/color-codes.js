@@ -36,11 +36,11 @@
     var be = bedrock();
     root.classList.toggle('is-bedrock', be);
     editor.chars().forEach(function (c) {
+      if (be) { c.st.u = false; c.st.s = false; }
       if (!c.st.l) return;
       var color = mc.colorOf(c.st.l, be);
       if (color) c.st.c = color;
       else c.st.l = null;
-      if (be) { c.st.u = false; c.st.s = false; }
     });
     root.querySelectorAll('[data-java]').forEach(function (tab) { tab.hidden = be; });
     var shown = root.querySelector('.tool-tab[aria-selected="true"]');

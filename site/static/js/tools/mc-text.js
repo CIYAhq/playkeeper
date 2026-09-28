@@ -166,8 +166,8 @@
   }
 
   // Whether pasted text holds codes worth reading.
-  function hasCodes(text) {
-    if (/[§&](?:[0-9a-fk-or]|#[0-9a-f]{6}|x[§&][0-9a-f])/i.test(text)) return 'legacy';
+  function hasCodes(text, bedrock) {
+    if (/[§&](?:[0-9a-fk-or]|#[0-9a-f]{6}|x[§&][0-9a-f])/i.test(text) || (bedrock && /[§&][g-jpqs-w]/i.test(text))) return 'legacy';
     if (/<(?:\/?(?:#[0-9a-f]{6}|color:|gradient|rainbow|bold|italic|underlined|strikethrough|obfuscated|reset|newline|b|i|u|st)|(?:black|dark_blue|dark_green|dark_aqua|dark_red|dark_purple|gold|gr[ae]y|dark_gr[ae]y|blue|green|aqua|red|light_purple|yellow|white))/i.test(text)) return 'minimessage';
     return null;
   }
@@ -318,6 +318,8 @@
   function legacy(chars, sym, hex, bedrock) {
     var out = '';
     var cur = plain();
+    // Bedrock has no underline or strikethrough: its §n and §m are colours.
+    var formats = bedrock ? ['b', 'i', 'k'] : FORMAT_KEYS;
     // The colour as it's written: with 'nearest', letters of a gradient
     // that come out as the same one of the 16 share one code.
     var code = function (st) {
@@ -335,7 +337,7 @@
     chars.forEach(function (c) {
       var st = c.st;
       if (c.ch === '\n') { out += '\n'; return; }
-      var lost = FORMAT_KEYS.some(function (f) { return cur[f] && !st[f]; });
+      var lost = formats.some(function (f) { return cur[f] && !st[f]; });
       var colorChanged = code(st) !== code(cur);
       if (colorChanged || lost) {
         // A colour code ends the formats on Java; on Bedrock only a reset does.
@@ -347,7 +349,7 @@
         }
         cur = Object.assign(plain(), { c: st.c, l: st.l });
       }
-      FORMAT_KEYS.forEach(function (f) { if (st[f] && !cur[f]) out += sym + LEGACY[f]; });
+      formats.forEach(function (f) { if (st[f] && !cur[f]) out += sym + LEGACY[f]; });
       cur = copyStyle(st);
       out += c.ch;
     });

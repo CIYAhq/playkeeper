@@ -176,6 +176,7 @@
     }
     function hex(h) { style(function (st) { st.c = h; st.l = null; st.g = 0; }); }
     function format(f) {
+      if (bedrock() && (f === 'u' || f === 's')) { t.toast('Bedrock has no underline or strikethrough.', 2400); return; }
       var a = input.selectionStart;
       var b = input.selectionEnd;
       var on = a === b ? !styleAt(a)[f] : !chars.slice(a, b).every(function (c) { return c.st[f]; });
@@ -253,10 +254,11 @@
     input.addEventListener('paste', function (e) {
       var text = e.clipboardData && e.clipboardData.getData('text/plain');
       if (!text) return;
-      var kind = mc.hasCodes(text);
+      var kind = mc.hasCodes(text, bedrock());
       if (!kind) return;
       e.preventDefault();
       var list = kind === 'legacy' ? mc.parseLegacy(text.replace(/\r\n?/g, '\n'), bedrock()) : mc.parseMiniMessage(text.replace(/\r\n?/g, '\n'), gradients);
+      if (bedrock()) list.forEach(function (c) { c.st.u = false; c.st.s = false; });
       insert(list);
       t.toast(kind === 'legacy' ? 'Read the colour codes you pasted.' : 'Read the MiniMessage you pasted.', 2400);
     });

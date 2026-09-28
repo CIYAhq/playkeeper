@@ -57,6 +57,8 @@ test('the text engine writes each format as the game and plugins read it', async
       wrapped: (mc.wrap(long, 271) as unknown[][]).map((l) => (l as { ch: string }[]).map((c) => c.ch).join('')),
       width: mc.widthOf(mc.parseLegacy('Hi lt(~', false)),
       boldWidth: mc.widthOf(mc.parseLegacy('&lHi', false)),
+      bedrockUnderline: mc.legacy(mc.parseMiniMessage('<underlined>Hi</underlined> <st>so</st> <bold>there', new G()), '§', 'nearest', true),
+      bedrockCodes: [mc.hasCodes('§qEmerald', true), mc.hasCodes('§qEmerald', false)],
     }
   })
   expect(r.javaBold, 'on Java a colour turns bold off').toEqual([true, true, true, true, true, false, false, false, false, false])
@@ -80,6 +82,8 @@ test('the text engine writes each format as the game and plugins read it', async
   for (const l of r.wrapped) expect(l.length, `"${l}" fits the list`).toBeLessThanOrEqual(46)
   expect(r.width, "H, i, a space, l, t, ( and ~ at the font's widths, with the gap after each").toBe(6 + 2 + 4 + 3 + 4 + 4 + 7)
   expect(r.boldWidth, 'bold adds a pixel a letter').toBe(7 + 3)
+  expect(r.bedrockUnderline, "Bedrock's §n and §m are colours, so underline and strikethrough aren't written").toBe('Hi so §lthere')
+  expect(r.bedrockCodes, "Bedrock's own colour codes are read from a paste on Bedrock only").toEqual(['legacy', null])
 })
 
 test('the colour codes page: codes copy with a click, the text maker colours a selection, reads pasted codes, undoes, and does Bedrock', async ({ browser, baseURL }) => {
@@ -159,6 +163,10 @@ test('the colour codes page: codes copy with a click, the text maker colours a s
   await expect(page.locator('#cc-tab-sect')).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('#cc-out-sect')).toHaveText('§aGo §6now')
   await expect(page.locator('[data-note-hex]')).toBeVisible()
+  await select(page, 'cc-text', 0, 2)
+  await page.keyboard.press('Control+u')
+  await expect(page.locator('[data-toast]'), 'Ctrl+U says why it does nothing on Bedrock').toContainText('Bedrock has no underline')
+  await expect(page.locator('#cc-out-sect')).toHaveText('§aGo §6now')
   await page.locator('#cc-tab-json').click()
   await expect(page.locator('#cc-out-json')).toHaveText('/tellraw @a {"rawtext":[{"text":"§aGo §6now"}]}')
   await select(page, 'cc-text', 0, 3)
