@@ -74,8 +74,8 @@
 .facet-logo.pixel, .dcard-logo.pixel, .tfact-logo.pixel { image-rendering: pixelated; }
 .facet-label { flex: 1; min-width: 0; }
 .facet-count { color: var(--sage); font-size: 13.5px; font-variant-numeric: tabular-nums; }
-.facet-opt.is-empty { color: #9ea397; }
-.facet-opt.is-empty .facet-box { border-color: var(--twine); }
+.facet-opt.is-empty { color: var(--sage); }
+.facet-opt.is-empty .facet-box { border-color: var(--twine); background: var(--warm); }
 .facet-more { margin: 2px 0 0; padding: 4px 0; border: 0; background: none; color: var(--green-text); font-size: 14px; font-weight: 600; cursor: pointer; }
 .facet-more:hover { text-decoration: underline; text-underline-offset: 3px; }
 
@@ -163,21 +163,26 @@
 
 @media (max-width: 1199.98px) {
   .dir-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .dir-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .dir-hero-row { grid-template-columns: minmax(0, 1fr) 400px; }
+  .dir-grid-4, .dir-grid-plain { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dir-hero-row { grid-template-columns: minmax(0, 1fr) 380px; }
   .dir-h1 { font-size: 64px; }
+  .fan-card { width: 212px; margin-left: -96px; }
+  .fan-1 { transform: translate(-96px, 8px) rotate(-9deg); }
+  .fan-2 { transform: translate(96px, 4px) rotate(8deg); }
+  .dir-fan:hover .fan-1 { transform: translate(-108px, 4px) rotate(-11deg); }
+  .dir-fan:hover .fan-2 { transform: translate(108px, 0) rotate(10deg); }
 }
 
 /* Below 1024 pixels the filters are a sheet from the bottom. */
 @media (max-width: 1023.98px) {
   .dir-layout { grid-template-columns: minmax(0, 1fr); }
   .dir-filter-btn { display: inline-flex; }
-  .dir-side { position: fixed; z-index: 61; top: auto; right: 0; bottom: 0; left: 0; max-height: min(86dvh, 720px); border-radius: 22px 22px 0 0; background: var(--white); box-shadow: 0 -24px 60px -20px rgb(29 33 28 / 0.35); visibility: hidden; transform: translateY(100%); transition: transform 0.32s var(--ease-out), visibility 0s linear 0.32s; }
+  .dir-side { position: fixed; z-index: 61; top: auto; right: 0; bottom: 0; left: 0; max-height: min(86dvh, 720px); overflow: hidden; border-radius: 22px 22px 0 0; background: var(--white); box-shadow: 0 -24px 60px -20px rgb(29 33 28 / 0.35); visibility: hidden; transform: translateY(100%); transition: transform 0.32s var(--ease-out), visibility 0s linear 0.32s; }
   .dir-side.is-open { visibility: visible; transform: none; transition: transform 0.32s var(--ease-out), visibility 0s; }
   .dir-side-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 4px 20px; }
   .dir-side-head::before { content: ""; position: absolute; top: 8px; left: 50%; width: 40px; height: 4px; margin-left: -20px; border-radius: 2px; background: var(--twine); }
   .dir-side-title { font-size: 20px; letter-spacing: -0.03em; }
-  .dir-side-scroll { flex: 1; padding: 8px 20px 12px; }
+  .dir-side-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 20px 12px; }
   .dir-side-foot { display: flex; gap: 10px; padding: 12px 20px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--twine); background: var(--white); }
   .dir-side-foot .btn { min-height: 50px; }
   .dir-side-foot .btn-primary { flex: 1; }
@@ -204,9 +209,12 @@
   .dir-modes ul::-webkit-scrollbar { display: none; }
   .dir-hero-text { padding-bottom: 28px; }
   .dir-browse { padding-bottom: 72px; }
-  .dir-toolbar { margin-bottom: 12px; }
-  .dir-tool { height: 40px; padding: 0 12px; }
-  .dir-sort-k { display: none; }
+  .dir-toolbar { flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+  .dir-tools { order: -1; flex: 1 1 100%; }
+  .dir-tools > * { flex: 1; }
+  .dir-tool { justify-content: center; width: 100%; height: 44px; padding: 0 12px; }
+  .dir-sort-menu { right: 0; left: 0; min-width: 0; }
+  .dir-count { font-size: 14px; }
   .dir-grid, .dir-grid-4 { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .dcard-art { aspect-ratio: 2 / 1; }
   .dcard-body { padding: 14px 16px 16px; }

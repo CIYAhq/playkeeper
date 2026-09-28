@@ -513,7 +513,7 @@
     filterBtn.addEventListener('click', openSheet);
     scrim.addEventListener('click', closeSheet);
     $$('[data-close-filters]', side).forEach(function (b) { b.addEventListener('click', closeSheet); });
-    side.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeSheet(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeSheet(); });
     wide.addEventListener('change', function (e) { if (e.matches) closeSheet(); });
   }
 
