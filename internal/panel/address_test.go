@@ -98,6 +98,42 @@ func TestAddressRoutesCarryTheDashboardHost(t *testing.T) {
 	}
 }
 
+// The public page answers at the machine's address, so a change to it has
+// the page's keeper look again at once; looking at the address doesn't.
+func TestAChangedAddressHasThePageLookAgain(t *testing.T) {
+	e := newEnv(t)
+	cookie, csrf := e.setup(t)
+	base := "/api/machines/" + e.machineID(t, cookie) + "/address"
+	kicked := func() bool {
+		select {
+		case <-e.srv.page.kick:
+			return true
+		default:
+			return false
+		}
+	}
+	kicked()
+	if r := e.do(t, "GET", base, "", auth(cookie, "")); r.status != 200 {
+		t.Fatalf("looking at the address: %d %v", r.status, r.body)
+	}
+	if kicked() {
+		t.Fatal("looking at the address had the page's keeper look again")
+	}
+	for _, c := range []struct{ method, path, body string }{
+		{"POST", base + "/claim", `{"name":"alex","acceptTerms":true}`},
+		{"POST", base + "/check", `{}`},
+		{"POST", base + "/release", `{}`},
+		{"DELETE", base, ""},
+	} {
+		if r := e.do(t, c.method, c.path, c.body, auth(cookie, csrf)); r.status != 200 {
+			t.Fatalf("%s %s: %d %v", c.method, c.path, r.status, r.body)
+		}
+		if !kicked() {
+			t.Errorf("%s %s left the page's keeper waiting for its next look", c.method, c.path)
+		}
+	}
+}
+
 func TestAddressRefusalsReachTheDashboardWithTheirParams(t *testing.T) {
 	e := newEnv(t)
 	cookie, csrf := e.setup(t)

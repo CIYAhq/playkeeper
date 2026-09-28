@@ -278,6 +278,65 @@ func TestThePagesPort80RedirectsOnlyWhileHTTPSServesWithACertificate(t *testing.
 	}
 }
 
+// After the machine's address changes, the page's name catches up only at
+// the keeper's next look; Let's Encrypt's check for the new name on port 80
+// doesn't wait for it.
+func TestLetsEncryptsCheckForANewNameReachesTheAgentBeforeThePageCatchesUp(t *testing.T) {
+	a := &pageAgent{}
+	a.on.Store(true)
+	e := newPageEnv(t, a)
+	const newName = "play.example.org"
+	plain := e.srv.pageHandler(false)
+	if resp, body := pageGet(t, plain, "GET", newName, "/.well-known/acme-challenge/tok3n"); resp.StatusCode != 200 || body != "tok3n.key" {
+		t.Fatalf("a check for the new name: %d %q", resp.StatusCode, body)
+	}
+	if resp, _ := pageGet(t, plain, "GET", newName, "/.well-known/acme-challenge/other"); resp.StatusCode != 404 {
+		t.Fatalf("a check nobody made: %d", resp.StatusCode)
+	}
+	// The page itself answers only its own name, and port 443 passes on no
+	// checks.
+	if resp, _ := pageGet(t, plain, "GET", newName, "/"); resp.StatusCode != 404 {
+		t.Fatalf("the page for a name it doesn't have yet: %d", resp.StatusCode)
+	}
+	if resp, _ := pageGet(t, e.srv.pageHandler(true), "GET", newName, "/.well-known/acme-challenge/tok3n"); resp.StatusCode != 404 {
+		t.Fatalf("a check on port 443 for another name: %d", resp.StatusCode)
+	}
+}
+
+// The agent calls a port it wasn't asked for off; the keeper keeps what it
+// knew of that port, its holder and its wait, instead.
+func TestAPortNotAskedForKeepsItsHolderAndItsWait(t *testing.T) {
+	a := &pageAgent{asks: make(chan api.PagePortsRequest, 4)}
+	a.answer = func(want api.PagePortsRequest) (api.PublicPagePorts, []*os.File) {
+		out := api.PublicPagePorts{HTTPS: api.PagePort{Port: 443, State: api.PortOff}, HTTP: api.PagePort{Port: 80, State: api.PortOff}}
+		if want.HTTPS {
+			out.HTTPS = api.PagePort{Port: 443, State: api.PortBusy, Holder: "nginx"}
+		}
+		if want.HTTP {
+			out.HTTP = api.PagePort{Port: 80, State: api.PortWaiting}
+		}
+		return out, nil
+	}
+	a.on.Store(true)
+	e := newPageEnv(t, a)
+	ctx := context.Background()
+	e.srv.lookAtPage(ctx)
+	if want := <-a.asks; !want.HTTPS || !want.HTTP {
+		t.Fatalf("the first ask: %+v", want)
+	}
+	// Port 80 waits for the machine's start and is asked for at every look;
+	// port 443 waits its turn.
+	for look := range 2 {
+		e.srv.lookAtPage(ctx)
+		if want := <-a.asks; want.HTTPS || !want.HTTP {
+			t.Fatalf("look %d asked for %+v", look+2, want)
+		}
+		if p := e.srv.page.portsNow().HTTPS; p.State != api.PortBusy || p.Holder != "nginx" {
+			t.Fatalf("port 443 after look %d, which didn't ask for it: %+v", look+2, p)
+		}
+	}
+}
+
 func TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn(t *testing.T) {
 	listen := func() (*os.File, int) {
 		ln, err := net.Listen("tcp", "127.0.0.1:0")

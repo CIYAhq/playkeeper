@@ -6072,6 +6072,20 @@ control "the keeper never asks for a port it holds" internal/panel/pageports.go 
   'return p.held[i] == nil && !now.Before(p.next[i]) && port.Port != s.cfg.PanelPort' \
   'return !now.Before(p.next[i]) && port.Port != s.cfg.PanelPort' \
   ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
+control "Let's Encrypt's check for a new address passes port 80 before the page follows it" internal/panel/serverpage.go \
+  'if !check && !pageHost(r.Host, s.page.hostNow()) {' \
+  'if !pageHost(r.Host, s.page.hostNow()) {' \
+  ./internal/panel '^TestLetsEncryptsCheckForANewNameReachesTheAgentBeforeThePageCatchesUp$'
+control "a changed address has the page's keeper look again" internal/panel/server.go \
+  'if method != http.MethodGet {
+		then = func(' \
+  'if false && method != http.MethodGet {
+		then = func(' \
+  ./internal/panel '^TestAChangedAddressHasThePageLookAgain$'
+control "a port the keeper didn't ask for keeps its holder and its wait" internal/panel/pageports.go \
+  'if p.held[i] != nil || !asked[i] {' \
+  'if p.held[i] != nil || false && !asked[i] {' \
+  ./internal/panel '^TestAPortNotAskedForKeepsItsHolderAndItsWait$'
 # What the owner adds to the page: About, a stream and a status board.
 control "a page's stream is only a Twitch or YouTube channel" internal/agent/publicblocks.go \
   'case host == "twitch.tv" && len(parts) == 1 && reTwitchLogin.MatchString(parts[0]):' \
