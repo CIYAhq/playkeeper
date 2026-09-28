@@ -256,7 +256,8 @@ func TestTheLaunchPagesExist(t *testing.T) {
 		}
 	}
 	for p, html := range built {
-		if p == "/404" || strings.HasPrefix(p, "/docs") || p == "/t" {
+		// /t/<id> sends the browser straight on to the share page.
+		if p == "/404" || strings.HasPrefix(p, "/docs") || p == "/t" || strings.HasPrefix(p, "/t/") {
 			continue
 		}
 		want := "curl -fsSL https://playkeeper.io/install | sudo sh"
@@ -455,7 +456,8 @@ func TestSharePageLoadsOnlyItsScripts(t *testing.T) {
 	}
 }
 
-// Every page but the share page counts its visit, and the
+// Every page but the share page, and the /t/<id> pages that send the
+// browser straight on to it, counts its visit, and the
 // Content-Security-Policy lets the analytics' script and collector in; with
 // the setting empty, nothing loads and the policy names neither.
 func TestAnalyticsIsOneSetting(t *testing.T) {
@@ -463,7 +465,7 @@ func TestAnalyticsIsOneSetting(t *testing.T) {
 	o := build(t, Default)
 	for p, html := range pages(o) {
 		want := 1
-		if p == "/t" {
+		if p == "/t" || strings.HasPrefix(p, "/t/") {
 			want = 0
 		}
 		if got := strings.Count(html, tag); got != want {

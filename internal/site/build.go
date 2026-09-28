@@ -61,6 +61,7 @@ type Site struct {
 	cards   map[string]*TemplateCard
 	packs   map[string]*Modpack
 	library map[string]*LibraryPage
+	dir     *Directory
 	docs    *docsBuild
 	posts   []*Page
 	sizing  SizingGuide
@@ -95,7 +96,13 @@ func Build(o Options) (*Output, error) {
 	if s.library, err = loadLibrary(o.Root, "site/data/library", s.cards, checked); err != nil {
 		return nil, err
 	}
+	if s.dir, err = loadDirectory(o.Root, "site/data/taxonomy.json", s.cards, checked, s.packs); err != nil {
+		return nil, err
+	}
 	if s.pages, err = loadPages(o.Root, "site/pages"); err != nil {
+		return nil, err
+	}
+	if err := s.addDirectory(); err != nil {
 		return nil, err
 	}
 	if s.docs, err = buildDocs(o.Root, o.Settings); err != nil {
@@ -123,6 +130,13 @@ func Build(o Options) (*Output, error) {
 	}
 	sort.SliceStable(s.posts, func(i, j int) bool { return s.posts[i].Published > s.posts[j].Published })
 	if err := s.addSearchIndex(); err != nil {
+		return nil, err
+	}
+	idx, err := s.directoryIndex()
+	if err != nil {
+		return nil, err
+	}
+	if s.assets["js/templates-index.js"], err = newAsset("js/templates-index.js", idx); err != nil {
 		return nil, err
 	}
 	if err := s.addSizing(); err != nil {
@@ -341,7 +355,7 @@ func (s *Site) render(p *Page) ([]byte, error) {
 		} else if v.Main, err = part("main"); err != nil {
 			return nil, err
 		}
-	case "guide", "post":
+	case "guide", "post", "directory", "category", "template":
 		if v.Article, err = part("article"); err != nil {
 			return nil, err
 		}
@@ -369,8 +383,19 @@ func (s *Site) render(p *Page) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// crumbs is the page's breadcrumb: its section, then the page.
+// crumbs is the page's breadcrumb: its section, then the page. A category of
+// the template directory is under Templates, and a template under its
+// category.
 func (s *Site) crumbs(p *Page) []Crumb {
+	if v := p.dir; v != nil {
+		switch v.Kind {
+		case "category":
+			return []Crumb{{Label: "Templates", Path: "/templates"}, {Label: v.Category.Name, Path: v.Category.Path()}}
+		case "template":
+			return []Crumb{{Label: "Templates", Path: "/templates"}, {Label: v.Category.Name, Path: v.Category.Path()}, {Label: v.Template.Name, Path: p.Path}}
+		}
+		return nil
+	}
 	if p.Crumb == "" {
 		return nil
 	}
@@ -594,7 +619,11 @@ func (s *Site) funcs() template.FuncMap {
 		},
 		"list": func(xs ...any) []any { return xs },
 		"html": func(s string) template.HTML { return template.HTML(s) },
-		"qa":   func(q, a string) QA { return QA{Q: q, A: template.HTML(a)} },
+		// refresh is the <meta> that sends the browser on to url at once.
+		"refresh": func(url string) template.HTML {
+			return template.HTML(`<meta http-equiv="refresh" content="0; url=` + template.HTMLEscapeString(url) + `">`)
+		},
+		"qa": func(q, a string) QA { return QA{Q: q, A: template.HTML(a)} },
 		"faqSchema": func(items []any) (map[string]any, error) {
 			var qs []QA
 			for _, it := range items {
@@ -763,8 +792,27 @@ func (s *Site) funcs() template.FuncMap {
 		"modpacks": s.modpackList,
 		// libpage is a template of the library (site/data/library), and
 		// libpages every one with a page.
-		"libpage":   s.libraryPage,
-		"libpages":  s.libraryList,
+		"libpage":  s.libraryPage,
+		"libpages": s.libraryList,
+		// directory is the template directory: every listed template and
+		// its categories (site/data/templates/taxonomy.json).
+		"directory": func() *Directory { return s.dir },
+		// count as "1 template" or "12 templates".
+		"plural": func(n int, one, many string) string {
+			if n == 1 {
+				return "1 " + one
+			}
+			return count(n) + " " + many
+		},
+		// initial is a name's first letter, capitalised.
+		"initial": func(s string) string {
+			for _, r := range s {
+				return strings.ToUpper(string(r))
+			}
+			return ""
+		},
+		"downloads": shortCount,
+		"javaFor":   minecraft.JavaFor,
 		"licence":   licenceName,
 		"count":     count,
 		"upper":     strings.ToUpper,

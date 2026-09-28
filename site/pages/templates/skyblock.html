@@ -6,9 +6,7 @@ label: Skyblock server
 h1: How to make a skyblock server
 card: How to make a skyblock server
 kind: Template
-section: guides
-layout: guide
-crumb: Templates
+layout: category
 og: template-skyblock
 published: 2026-09-28
 updated: 2026-09-28
@@ -68,7 +66,7 @@ schema: article
   <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
   {{template "install" (dict "ID" true)}}
   {{template "steps" (dict "Items" (list
-    (dict "Title" "Open the template below" "Text" "Your dashboard shows the three plugins, in the order they install, before anything happens.")
+    (dict "Title" "Open the template above" "Text" "Your dashboard shows the three plugins, in the order they install, before anything happens.")
     (dict "Title" "Create and start it" "Text" "Iridium Skyblock makes its void world on the first start.")
     (dict "Title" "Join and type /is create" "Text" "Pick an island type, then invite friends with /is invite.")
   ))}}
@@ -89,13 +87,6 @@ schema: article
     (qa "Can friends share an island?" "Yes: /is invite adds a member, and upgrades raise how many an island can have.")
     (qa "How much RAM does a skyblock server need?" (printf "%s for a small group, as this template sets. For 5 to 10 players at once, the sizing guide gives %d GB." $l.Memory (sizingFor 8 "add-ons").MemoryGB))
   ))}}
-  <section class="tpl-section" aria-labelledby="tpl-title">
-    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
-    <div class="tpl-pair">
-      {{template "library-card" (dict "ID" $l.Template)}}
-      {{template "library-card" (dict "ID" "oneblock" "Page" "/templates/oneblock")}}
-    </div>
-  </section>
 </div>
 {{end}}
 

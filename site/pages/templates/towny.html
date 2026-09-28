@@ -6,9 +6,7 @@ label: Towny server
 h1: How to make a Towny server
 card: How to make a Towny server
 kind: Template
-section: guides
-layout: guide
-crumb: Templates
+layout: category
 og: template-towny
 published: 2026-09-28
 updated: 2026-09-28
@@ -58,7 +56,7 @@ schema: article
   <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
   {{template "install" (dict "ID" true)}}
   {{template "steps" (dict "Items" (list
-    (dict "Title" "Open the template below" "Text" "Your dashboard shows Towny, LuckPerms and Chunky before anything installs.")
+    (dict "Title" "Open the template above" "Text" "Your dashboard shows Towny, LuckPerms and Chunky before anything installs.")
     (dict "Title" "Create and start it, then set the economy" "Text" "Change using_economy on the Files tab and restart once.")
     (dict "Title" "Pre-generate before players spread out" "Text" "Towns claim land far apart; Pre-generate on the World tab makes it ready.")
   ))}}
@@ -79,13 +77,6 @@ schema: article
     (qa "Do I need LuckPerms for Towny?" "No. Towny handles town ranks itself. LuckPerms is for ranks across the whole server.")
     (qa "Does Towny work on Minecraft 26.2?" (printf "Yes. Towny %s started on Paper %s build %s in our check on %s, with LuckPerms and Chunky beside it." $t.Version $l.T.Server.MinecraftVersion $l.Build (day $l.Checked)))
   ))}}
-  <section class="tpl-section" aria-labelledby="tpl-title">
-    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
-    <div class="tpl-pair">
-      {{template "library-card" (dict "ID" $l.Template)}}
-      {{template "library-card" (dict "ID" "survival-with-friends" "Page" "/templates/smp")}}
-    </div>
-  </section>
 </div>
 {{end}}
 

@@ -171,10 +171,13 @@ main:focus { outline: none; }
 @media (max-width: 1023.98px) {
   .main-nav, .nav-demo { display: none; }
 }
-/* Six menus, Live demo, the star and Install fit from 1024 pixels wide. */
+/* Seven items, Live demo, the star and Install fit from 1024 pixels wide,
+   with the star saying "Star" to the eye until 1200. */
 @media (min-width: 1024px) and (max-width: 1199.98px) {
-  .main-nav ul { gap: 2px; }
-  .nav-link { padding: 0 10px; }
+  .header-row > .brand { flex: none; }
+  .main-nav ul { gap: 0; }
+  .nav-link { padding: 0 8px; }
+  .star-rest { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
 @media (max-width: 639.98px) {
   :root { --header: 60px; }
