@@ -4,6 +4,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.3
 
+- **Bedrock friends can join:** turn on **Bedrock players** in a Paper or Purpur server's Settings. Playkeeper installs Geyser and Floodgate, opens the UDP port Bedrock uses (19132, or the next free one) and restarts the server. The server's Join card shows the address and port Bedrock friends type on a phone, tablet or Windows; Xbox, PlayStation and Switch need BedrockConnect or a similar workaround. Add Bedrock friends to the allowlist on the Players tab as `.` then their Xbox gamertag. Geyser and Floodgate update on the Plugins tab, backups bring the port back, and turning crossplay off removes both and closes the port. Open the port in your provider's firewall too.
 - Picked by Playkeeper suggests Discord chat on Paper and Purpur servers: DiscordSRV links the game chat with a channel on your Discord server, both ways, once you paste your own Discord bot's token into its settings.
 
 ## 0.4.2
