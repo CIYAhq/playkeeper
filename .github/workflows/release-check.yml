@@ -6,11 +6,18 @@ name: Release check
 # through every control on every page of those assets at desktop and phone
 # sizes, split between runners, with the gate that proves together they
 # pressed every page's controls (clickthrough.yml), and runs the ARM64
-# workflow on those assets on GitHub's ARM runners (arm64.yml). It also
-# installs, plays on, backs up, restores, updates and uninstalls this commit
-# on every supported release of Ubuntu, Debian, the RHEL family and Amazon
-# Linux (os-matrix.yml). Pull requests crawl only the pages they touch, and
-# run the OS matrix only when they change the installer. Run this on the
+# workflow on those assets on GitHub's ARM runners (arm64.yml). It runs every
+# end-to-end check on those assets too (e2e.yml): the install, onboarding,
+# bots, backup and uninstall, the restore on a second runner, every page's
+# accessibility and width, the core flows, the upgrade from the current
+# release with its rollback, the site and names service images, Pebble's
+# certificates and the faked-panel browser checks. It also installs, plays
+# on, backs up, restores, updates and uninstalls this commit on every
+# supported release of Ubuntu, Debian, the RHEL family and Amazon Linux
+# (os-matrix.yml). This is the full suite, and it runs once per release: pull
+# requests run the fast checks, a crawl of the pages they change and the
+# end-to-end parts whose own files they change (ci.yml), and the OS matrix
+# and ARM64 only when they change installer or OS code. Run this on the
 # commit you are about to tag (CONTRIBUTING.md, Releases): the tag publishes
 # these assets, byte for byte, once this and CI have passed on its commit.
 
@@ -73,6 +80,17 @@ jobs:
       artifact: release-${{ needs.build.outputs.tag }}
       assets: assets
       matrix: ${{ needs.plan.outputs.matrix }}
+
+  e2e:
+    name: End to end
+    needs: build
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/e2e.yml
+    with:
+      artifact: release-${{ needs.build.outputs.tag }}
+      assets: assets
 
   os-matrix:
     name: OS matrix
