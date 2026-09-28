@@ -224,6 +224,11 @@ function TeamSkeleton({ phone }: { phone: boolean }) {
   )
 }
 
+/** A member's servers, or for a creator with none yet what they may create. */
+function serversText(m: TeamMember, team: TeamResponse): string {
+  return m.allowance && !m.servers.servers?.length && !m.servers.all ? allowanceText(m.allowance) : scopeText(m.servers, team.servers)
+}
+
 /** The second line under a member's name. */
 function memberLine(m: TeamMember): string {
   if (m.owner) return m.you ? t('team.youOwner') : t('team.owner')
@@ -267,7 +272,9 @@ function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove, pr
           <span className={cn('block truncate text-xs', m.waiting ? 'text-warning-foreground' : 'text-muted-foreground')}>{memberLine(m)}</span>
         </span>
       </span>
-      <span className="truncate text-[13px] text-muted-foreground">{m.allowance ? `${scopeText(m.servers, team.servers)}${t('common.dot')}${allowanceText(m.allowance)}` : scopeText(m.servers, team.servers)}</span>
+      <span className="truncate text-[13px] text-muted-foreground" title={m.allowance ? allowanceText(m.allowance) : undefined}>
+        {serversText(m, team)}
+      </span>
       {m.owner ? (
         <span className="text-right text-[13px] font-semibold">{t('team.ownerAdmin')}</span>
       ) : m.canEdit && !m.allowance ? (
@@ -410,7 +417,7 @@ function PhoneTeam({ team, rows: listed, notice, dialogs, owner, onEdit }: { tea
     if (item.kind === 'member') {
       const m = item.member
       const role = m.allowance ? t('team.creator') : roleName(m.role)
-      const what = m.allowance ? allowanceText(m.allowance) : scopeText(m.servers, team.servers)
+      const what = serversText(m, team)
       return {
         key,
         state,
