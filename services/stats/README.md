@@ -11,6 +11,7 @@ It runs apart from the [names service](../names/README.md) on purpose: it holds 
 | `POST /v1/install` | an installer's report: `started`, `succeeded`, `failed` or `refused` |
 | `POST /v1/heartbeat` | a running machine's heartbeat |
 | `GET /v1/summary` | the counts, as JSON, with `Authorization: Bearer <read token>` only (see [Reading the numbers](#reading-the-numbers)) |
+| `/dashboard` | the counts as charts, once you sign in with the read token (see [The dashboard](#the-dashboard)) |
 
 **What it keeps.** One row per install ID with what its reports last said, to the hour, and one row per install per day it sent a heartbeat. Nothing else: no IP address, no header, no user agent, no field a report type doesn't have. The address a request comes from decides the rate limits, in memory, and is dropped; the service keeps no access log, and drops net/http's own log lines, some of which name the client. An install it hears nothing from for 400 days is forgotten. `scripts/stats-check.sh` checks in CI that neither its files nor its log hold the address a report came from.
 
@@ -98,6 +99,21 @@ In the Cursor Dashboard, open **Cloud Agents** → **Secrets** and add `PLAYKEEP
 
 The counts stay at zero until installs of 0.4.4 or later arrive: earlier versions send nothing.
 
+## The dashboard
+
+Open **https://stats.playkeeper.io/dashboard** and paste the read token from step 2. Leave **Remember on this device** ticked on your own phone or computer; untick it on one you share. It shows:
+
+- machines running today, in the last 7 days and in the last 30 days, with their Minecraft servers, and a chart of the machines running each day;
+- installs per day for 30 days, by outcome (succeeded, failed, refused) or by how Playkeeper was fetched; tap a day for its numbers;
+- failed installs by the step they stopped at, and refused installs by the check that turned them away;
+- for the machines running in the last day, 7 days or 30 days: on or off our domain, versions, systems, CPU (x86 or ARM), address type, servers per machine, how Playkeeper was installed, dashboards and joined machines, and channels.
+
+It reads the counts again every five minutes while it's open; **Refresh** reads them at once, and **Sign out** removes the token from the browser.
+
+The token stays in your browser: in its local storage when remembered, in the tab's session storage when not. The page sends it only to this service, with each request for the counts. It loads nothing from anywhere else: the service sends it with a Content-Security-Policy that allows only its own files and requests to itself. It sets no cookie, and, like everything else the service answers, its requests aren't logged.
+
+The dashboard is part of the service, so a new version of it arrives with a redeploy ([Updating](#updating)).
+
 ## Reading the numbers
 
 ```bash
@@ -118,7 +134,7 @@ Or, in Coolify, open the application's **Terminal**, choose its container and ru
 | `…onOurDomain`, `offOurDomain`, `unknownSource` | installed with playkeeper.io's command; any other way (`github`, `mirror`, `tarball`, `source`); installed before 0.4.4, which didn't record how |
 | `…bySource`, `byChannel`, `byVersion`, `byOS`, `byArch`, `byAddress`, `byKind` | the same machines by each field of their last heartbeat; `byOS` is like `ubuntu 24.04`, `byAddress` is `free`, `own` or `ip`, `byKind` is `dashboard` or `joined` |
 | `…servers`, `running`, `serversPerInstall` | their Minecraft servers, those running, and machines by how many servers they have (`0`, `1`, `2`, `3-5`, `6-10`, `11+`) |
-| `daily` | each of the last 30 days (UTC), oldest first: machines that sent a heartbeat, installs started and installs that succeeded |
+| `daily` | each of the last 30 days (UTC), oldest first: machines that sent a heartbeat (`active`), and installs that started, succeeded, failed or were refused that day, in all and by how Playkeeper got onto the machine (`bySource`). An install whose first report was lost counts as started the day it ended |
 | `test.started30d`, `test.active7d` | the project's own test installs, left out of everything above: made while a GitHub Actions job ran, by the end-to-end tests' harness, or with `PLAYKEEPER_USAGE_TEST=1`. The project's CI sends nothing, so these stay at zero unless an install forgets `DO_NOT_TRACK=1` |
 
 A machine counts once whatever it sends: `installs` in `active` are machines, not heartbeats. An install whose machine is later uninstalled stays in `installs` and leaves `active` once 30 days pass without a heartbeat.
@@ -127,7 +143,7 @@ A machine counts once whatever it sends: `installs` in `active` are machines, no
 
 ### Updating
 
-When a change to the service is on `main`, select **Deploy** again in Coolify; an application added by repository URL is not redeployed on its own. The counts survive a deploy. For new Go or Alpine versions, change the tag and the digest on both `FROM` lines of `Dockerfile`, then check and redeploy.
+A push doesn't redeploy it: an application added from a public repository URL hears nothing from GitHub. When a change to the service is on `main`, open the application in Coolify and select **Redeploy** at the top right. Coolify builds the new image and swaps it in; the counts survive, and the dashboard keeps you signed in. For new Go or Alpine versions, change the tag and the digest on both `FROM` lines of `Dockerfile`, then check and redeploy.
 
 ### Backups
 
@@ -148,7 +164,7 @@ Reports that came after that snapshot are lost; running machines send their next
 
 ### Changing the read token
 
-Make a new one as in step 2, replace `STATS_READ_TOKEN` in Coolify and select **Redeploy**, then replace `PLAYKEEPER_STATS_TOKEN` in Cursor's secrets. The old token stops working with the redeploy.
+Make a new one as in step 2, replace `STATS_READ_TOKEN` in Coolify and select **Redeploy**, then replace `PLAYKEEPER_STATS_TOKEN` in Cursor's secrets. The old token stops working with the redeploy, and the dashboard asks you to sign in again with the new one.
 
 ### If the service is down
 
