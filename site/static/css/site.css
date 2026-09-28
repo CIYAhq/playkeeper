@@ -1021,10 +1021,12 @@ main:focus { outline: none; }
 
 /* The hero's lines rise in on load; everything else fades up as its section
    comes into view (site.js marks what's still off screen). */
-.hero-rise { animation: rise 0.6s var(--ease-out) both; }
+/* Filled backwards only: a transform held after the animation would make
+   them the containing block of a fixed element inside, like a tool's bar. */
+.hero-rise { animation: rise 0.6s var(--ease-out) backwards; }
 .h1-hero .line:nth-child(2) { animation-delay: 80ms; }
 .h1-hero .line:nth-child(3) { animation-delay: 160ms; }
-.hero-after { animation: rise 0.6s var(--ease-out) 0.24s both; }
+.hero-after { animation: rise 0.6s var(--ease-out) 0.24s backwards; }
 @keyframes rise { from { opacity: 0; transform: translateY(24px); } }
 .will-reveal { opacity: 0; transform: translateY(24px); }
 .is-revealed { opacity: 1; transform: none; transition: opacity 0.6s var(--ease-out), transform 0.6s var(--ease-out); transition-delay: var(--reveal-delay, 0ms); }
