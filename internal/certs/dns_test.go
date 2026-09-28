@@ -9,13 +9,31 @@ import (
 	"testing"
 )
 
-// fakeResolver answers from maps; names not in a map do not exist. Like
-// the Go resolver, it returns IPv4 addresses in their IPv6 form.
+// fakeResolver answers from maps; names not in a map do not exist, unless a
+// wildcard (*.parent) covers them, as in DNS. Like the Go resolver, it
+// returns IPv4 addresses in their IPv6 form. asked lists the names A and
+// AAAA lookups asked for.
 type fakeResolver struct {
 	a, aaaa map[string][]string
 	srv     map[string][]*net.SRV
 	txt     map[string][]string
 	fail    map[string]error // by "A name", "AAAA name", "SRV name" or "TXT name"
+	asked   []string
+}
+
+// covered is what m holds for host, or for the closest wildcard above it
+// when host has nothing of its own.
+func covered(m map[string][]string, host string) []string {
+	if v, ok := m[host]; ok {
+		return v
+	}
+	for rest := host; strings.Contains(rest, "."); {
+		_, rest, _ = strings.Cut(rest, ".")
+		if v, ok := m["*."+rest]; ok {
+			return v
+		}
+	}
+	return nil
 }
 
 func notFoundErr(name string) error {
@@ -41,11 +59,12 @@ func (f *fakeResolver) LookupNetIP(_ context.Context, network, host string) ([]n
 	if network == "ip6" {
 		typ, m = "AAAA", f.aaaa
 	}
+	f.asked = append(f.asked, host)
 	if err := f.fail[typ+" "+host]; err != nil {
 		return nil, err
 	}
 	var out []netip.Addr
-	for _, s := range m[host] {
+	for _, s := range covered(m, host) {
 		a := netip.MustParseAddr(s)
 		out = append(out, netip.AddrFrom16(a.As16()))
 	}
