@@ -58,6 +58,19 @@ func (h *HTTP01Responder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, keyAuth)
 }
 
+// Idle runs fn while the responder isn't listening on Addr, and keeps it
+// from starting to until fn returns; it reports false, without running
+// fn, while the responder listens.
+func (h *HTTP01Responder) Idle(fn func()) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.srv != nil {
+		return false
+	}
+	fn()
+	return true
+}
+
 // KeyAuthorization is the answer to the pending check for token.
 func (h *HTTP01Responder) KeyAuthorization(token string) (string, bool) {
 	if !reToken.MatchString(token) {

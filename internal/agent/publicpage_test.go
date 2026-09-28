@@ -361,3 +361,27 @@ func TestAServerTurnedOffLeavesThePageAndTheOthersStay(t *testing.T) {
 		t.Fatalf("the icon of a server off the page: %d", code)
 	}
 }
+
+// Let's Encrypt's check for an own domain has the agent listen on port 80
+// for a few seconds. A hand-over in that time leaves the port for the next
+// look instead of counting it as busy for good.
+func TestAnHTTP01CheckDoesntMakePort80Busy(t *testing.T) {
+	e, _, plain := pageEnv(t, time.Hour, nil)
+	e.a.http01.Addr = ":" + strconv.Itoa(plain)
+	e.a.opts.HTTP01Addr = e.a.http01.Addr
+	release, err := e.a.http01.Present("tok3n", "tok3n.key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ports, files := e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTP: true})
+	closeAll(files)
+	if len(files) != 0 || ports.HTTP.State != api.PortWaiting {
+		t.Fatalf("during the check the page got %+v (%d files)", ports.HTTP, len(files))
+	}
+	release()
+	ports, files = e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTP: true})
+	closeAll(files)
+	if len(files) != 1 || ports.HTTP.State != api.PortOpen {
+		t.Fatalf("after the check the page got %+v (%d files)", ports.HTTP, len(files))
+	}
+}

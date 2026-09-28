@@ -5996,6 +5996,10 @@ control "a port found busy isn't tried again until the owner asks" internal/agen
   'if p, ok := a.pagePorts.busy[addr]; ok {' \
   'if p, ok := a.pagePorts.busy[addr]; false && ok {' \
   ./internal/agent '^TestThePageNeverTakesAPortSomethingElseUsesOrWillUse$'
+control "the agent's own HTTP-01 check never makes port 80 count as busy" internal/agent/pageports.go \
+  'if port == addrPort(a.opts.HTTP01Addr) {' \
+  'if false && port == addrPort(a.opts.HTTP01Addr) {' \
+  ./internal/agent '^TestAnHTTP01CheckDoesntMakePort80Busy$'
 control "machine links don't carry the public page's ports" internal/agent/link.go \
   '"POST " + pagePortsPath: true,' \
   '"POST " + pagePortsPath: false,' \
