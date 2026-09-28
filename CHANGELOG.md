@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.5
+
+- Fixed: records for a server's own address that you added after saving it were found only at Playkeeper's next look, up to 6 hours later. Until they work, Playkeeper now looks every minute, as it does for your domain's records, so the page gets its certificate a minute or two after you add them.
+
 ## 0.4.4
 
 - **A server's own address:** under your own domain, **Machine settings › Address** can give each server an address of its own, like `alex.example.com`. Add the two records it lists, and players join the server there without a port, while a browser opening the address sees that server's public page alone, with its own certificate.
