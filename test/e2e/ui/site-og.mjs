@@ -15,8 +15,8 @@ const out = path.join(repo, 'site/static/og')
 const art = (p) => 'data:image/svg+xml;base64,' + fs.readFileSync(path.join(repo, p)).toString('base64')
 
 const previews = {
-  default: { title: 'Your VPS. Your Minecraft servers. Your worlds.', pip: 'pip-wave' },
-  landing: { title: 'Your VPS. Your Minecraft servers. Your worlds.', pip: 'pip-wave' },
+  default: { title: 'Host your own Minecraft server. Online 24/7.', pip: 'pip-wave' },
+  landing: { title: 'Host your own Minecraft server. Online 24/7.', pip: 'pip-wave' },
   'mods-and-modpacks': { eyebrow: 'Feature', title: 'Plugins, mods and modpacks. One click each.', pip: 'pip-cheer' },
   aternos: { eyebrow: 'Compare', title: 'The Aternos alternative with no queue', pip: 'pip-wave' },
   pterodactyl: { eyebrow: 'Compare', title: 'A Pterodactyl alternative for one VPS and a few friends', pip: 'pip-box' },

@@ -395,6 +395,19 @@ main:focus { outline: none; }
   .why-card .why-art img { height: 84px; }
   .why-card h3 { font-size: 19px; }
   .why-card p { margin: 6px 0 8px; font-size: 16px; }
+  .why-row { grid-template-columns: minmax(0, 1fr); }
+}
+/* Side by side, each card's scene, heading, text and link share rows with
+   its neighbours', so a longer line never pushes one card's link out of line. */
+@media (min-width: 640px) {
+  .why-row .why-card, .why-row .why-card > div:not(.why-art) { display: grid; grid-template-rows: subgrid; row-gap: 0; }
+  .why-row .why-card { grid-row: span 4; }
+  .why-row .why-card > div:not(.why-art) { grid-row: span 3; }
+  .why-row .why-card .link-arrow { justify-self: start; }
+}
+@media (min-width: 1024px) {
+  .why-row .why-art { height: 168px; }
+  .why-row .why-art img { height: 136px; }
 }
 
 /* Features: a phone in each card. */

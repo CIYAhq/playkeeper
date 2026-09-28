@@ -922,6 +922,37 @@ func TestCostGuideFollowsTheSizingGuideAndThePlans(t *testing.T) {
 	}
 }
 
+// The landing page's card for people paying a game host holds only with the
+// cost guide's prices: the cheapest VPS it shows has at least twice the
+// memory of a premium host's 4 GB plan (Apex Hosting's, in the cost guide),
+// and costs no more than that plan, even after its first term renews.
+func TestPaidHostCardFollowsTheCostGuide(t *testing.T) {
+	built := pages(build(t, Default))
+	landing, cost := built["/"], built["/guides/minecraft-server-cost"]
+	r, err := sizing.Recommend(sizing.Vanilla, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vps := cheapestFit(r.MemoryGB, r.Cores)
+	if want := fmt.Sprintf("%d GB on a VPS costs about what a premium host charges for 4 GB", vps.MemoryGB); !strings.Contains(landing, want) {
+		t.Errorf("the landing page doesn't say %q", want)
+	}
+	if vps.MemoryGB < 8 {
+		t.Errorf("the cheapest VPS, %s's %s, has %d GB, less than twice a premium host's 4 GB", vps.Provider, vps.Name, vps.MemoryGB)
+	}
+	m := regexp.MustCompile(`Apex Hosting's 4 GB plan costs \$(\d+\.\d\d)`).FindStringSubmatch(cost)
+	if m == nil {
+		t.Fatal("the cost guide no longer gives the premium 4 GB price the landing page compares with")
+	}
+	premium, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if most := max(vps.USD, vps.Renews); most > premium {
+		t.Errorf("%s's %s costs up to %s a month, more than a premium host's 4 GB at %s", vps.Provider, vps.Name, usd(most), usd(premium))
+	}
+}
+
 // The sizing guide's table works without JavaScript: a row for each number of
 // friends at once, a column for each thing they run, and each size as
 // internal/sizing works it out.
