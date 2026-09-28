@@ -1,0 +1,23 @@
+{
+ "id": "1.20.6",
+ "type": "release",
+ "time": "2024-04-29T12:40:45+00:00",
+ "releaseTime": "2024-04-29T12:40:45+00:00",
+ "javaVersion": {
+  "component": "java-runtime-delta",
+  "majorVersion": 21
+ },
+ "downloads": {
+  "server": {
+   "sha1": "145ff0858209bcfc164859ba735d4199aafa1eea",
+   "size": 51420480,
+   "url": "https://piston-data.mojang.com/v1/objects/145ff0858209bcfc164859ba735d4199aafa1eea/server.jar"
+  },
+  "server_mappings": {
+   "sha1": "9e96100f573a46ef44caab3e716d5eb974594bb7",
+   "size": 7283803,
+   "url": "https://piston-data.mojang.com/v1/objects/9e96100f573a46ef44caab3e716d5eb974594bb7/server.txt"
+  }
+ },
+ "mainClass": "net.minecraft.client.main.Main"
+}

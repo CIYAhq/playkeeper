@@ -69,7 +69,8 @@ const (
 	// arguments inside NeoForge's installer.
 	DeriveNeoForge DeriveKind = "neoforge_installer"
 	// DeriveForge reads the same inside Forge's installer, which also
-	// publishes the hashes of the files it builds.
+	// publishes the hashes of the files it builds. NeoForge's installers
+	// for Minecraft 1.20.1 are Forge's.
 	DeriveForge DeriveKind = "forge_installer"
 )
 
@@ -266,6 +267,9 @@ func (p Plan) validate() error {
 		default:
 			return bad("it reads hashes in an unknown way (%q)", d.Kind)
 		}
+		if _, ok := forgeBuildOf(p.Pin); d.Kind == DeriveForge && !ok {
+			return bad("it reads the hashes of a Forge installer for a %s server", typeName(p.Pin.Type))
+		}
 		if !downloaded[d.From] {
 			return bad("it reads hashes from %s, which is not downloaded", d.From)
 		}
@@ -404,7 +408,8 @@ func derive(root *os.Root, p Plan, d Derivation) ([]Check, []string, error) {
 	case DeriveNeoForge:
 		return neoforgeInstallerChecks(root, d.From, d.Into, p.Pin)
 	case DeriveForge:
-		checks, err := forgeInstallerChecks(root, d.From, d.Into, p.Pin)
+		b, _ := forgeBuildOf(p.Pin)
+		checks, err := forgeInstallerChecks(root, d.From, d.Into, b)
 		return checks, nil, err
 	}
 	return nil, nil, fmt.Errorf("unknown derivation %q", d.Kind)

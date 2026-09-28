@@ -6,6 +6,9 @@
     <latest>26.3.0.16-beta</latest>
     <release>26.3.0.16-beta</release>
     <versions>
+      <version>20.4.251</version>
+      <version>20.6.1-beta</version>
+      <version>20.6.139</version>
       <version>21.0.0-beta</version>
       <version>21.0.166</version>
       <version>21.0.167</version>

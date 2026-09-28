@@ -11,6 +11,10 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - Big modpacks like FTB StoneBlock 4 and Craftoria install: a pack may now put up to 20,000 files on the server, up from 5,000.
 - Templates can carry CurseForge modpacks, like All the Mods 10, as well as Modrinth ones. A template never holds a CurseForge key: the Playkeeper that opens it installs the pack with its own, and only if the pack's file is the one the template pins.
 - Fixed: sharing a server made from a modpack as a template listed each of the pack's mods as left out.
+- Servers and modpacks for Minecraft 1.20.1, the version most Minecraft 1.20 modpacks were made for, like All the Mods 9, Better MC 4 and 2, SkyFactory 5, Prominence II and Beyond Depth. They run on Java 17, and Forge's and NeoForge's builds for 1.20.1 are checked like the newer ones. Playkeeper ran Minecraft 1.21 and newer before.
+- CurseForge packs whose server files keep everything in a folder of their own, like All the Mods 9's, get the mods CurseForge lets only its own app download from those files, instead of leaving them for you to add.
+- When a CurseForge pack's server files hold most of its mods, a server gets the mods they have and no others. A mod the pack's authors left out of the server files, like the client-only one that stopped All the Mods 9 at its first start, stays off the server, and one CurseForge tags for players' games goes on it when they have it, like the Mod Menu that Better MC 2 needs to start.
+- Fixed: a CurseForge pack whose manifest gives its recommended memory as text, like Better MC [FABRIC] BMC2, was refused as not valid JSON.
 
 ## 0.4.2
 

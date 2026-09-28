@@ -27,8 +27,8 @@ import (
 // Skipped is a file of the pack that does not go on the server.
 type Skipped struct {
 	Path string `json:"path"`
-	// Reason is client_only, client_content, protected_path, world_files,
-	// optional_off or user_removed.
+	// Reason is client_only, client_content, not_in_server_files,
+	// protected_path, world_files, optional_off or user_removed.
 	Reason addons.Kind `json:"reason"`
 }
 
@@ -52,7 +52,9 @@ type pack struct {
 	// from them (see fillFromServerFiles), and serverFills those mods.
 	server      *archive
 	serverFills []serverFill
-	dir         string
+	// clientMods are the mods CurseForge tags for players' games only.
+	clientMods []clientMod
+	dir        string
 	// hashed counts the bytes read out of the archive to hash them.
 	hashed int64
 }
@@ -63,6 +65,14 @@ type pack struct {
 // files have the file with the SHA-1 CurseForge lists for it.
 type serverFill struct {
 	step                int // in pack.manual
+	path, project, name string
+	sha1                string
+}
+
+// clientMod is a mod a CurseForge pack names that CurseForge tags for
+// players' games only. It goes on the server all the same when the pack's
+// server files have it (see keepWhatServerFilesHave).
+type clientMod struct {
 	path, project, name string
 	sha1                string
 }
@@ -859,7 +869,7 @@ func (l *Library) readManifest(ctx context.Context, p *pack, mod *curseforge.Mod
 	if p.reqs, err = l.requirements(p.info.Name, loader, loaderVersion, m.Minecraft.Version); err != nil {
 		return err
 	}
-	p.heapMB = plausibleHeap(m.Minecraft.RecommendedRAM)
+	p.heapMB = plausibleHeap(int(m.Minecraft.RecommendedRAM))
 	if len(m.Files) > lim.Files {
 		return fail(KindTooManyFiles, kv("pack", p.info.Name, "limit", strconv.Itoa(lim.Files)),
 			fmt.Sprintf("%s would put more than %d files on the server, more than Playkeeper accepts.", p.info.Name, lim.Files),
@@ -948,6 +958,9 @@ func (l *Library) addCurseForgeFile(p *pack, mf curseforge.ManifestFile, f *curs
 	switch {
 	case f.ClientOnly():
 		p.skip("mods/"+printable(f.FileName), addons.KindClientOnly)
+		if sum := f.SHA1(); mf.Required && plainJar(f.FileName) && sum != "" {
+			p.clientMods = append(p.clientMods, clientMod{path: target, project: id, name: display, sha1: sum})
+		}
 		return
 	case !plainJar(f.FileName):
 		p.block(notice(addons.KindBadFileName, kv("pack", p.info.Name, "name", display, "file", printable(f.FileName)),
@@ -1027,36 +1040,123 @@ func (l *Library) fillFromServerFiles(ctx context.Context, p *pack, mod *cursefo
 	if p.server, err = openArchive(got, p.info.Name, lim); err != nil {
 		return err
 	}
-	mods := p.server.layer("mods")
-	filled := map[int]bool{}
+	// Some server files, like All the Mods 9's, keep everything in a
+	// folder of their own: Server-Files-1.1.1/mods.
+	dir := "mods"
+	if root := p.server.root(); root != "" && root != dir {
+		dir = root + "/mods"
+	}
+	mods := p.server.layer(dir)
+	holds := serverFilesHoldThePack(p, mods)
+	done := map[int]bool{}
 	for _, s := range p.serverFills {
-		e := mods[path.Base(s.path)]
-		if e == nil || p.files[s.path] != nil || e.UncompressedSize64 > uint64(lim.File) {
-			continue
-		}
-		sums, n, err := copyEntry(e, io.Discard, lim.File)
+		took, err := p.takeFromServerFiles(mods, s.path, s.project, s.name, s.sha1, lim)
 		if err != nil {
-			return fail(KindBadPack, kv("pack", p.info.Name, "reason", err.Error()),
-				fmt.Sprintf("%s cannot be installed: its server files are damaged at %q (%v).", p.info.Name, printable(e.Name), err),
-				"Choose another version of the pack. Nothing was installed.")
+			return err
 		}
-		if p.hashed += n; p.hashed > lim.Unpacked {
-			return unpackedTooLarge(p.info.Name, lim)
+		if took {
+			done[s.step] = true
 		}
-		if sums["sha1"] != s.sha1 {
-			continue
+	}
+	if holds {
+		leaveOutWhatServerFilesLeaveOut(p, mods, done)
+		if err := p.keepWhatServerFilesHave(mods, lim); err != nil {
+			return err
 		}
-		p.files[s.path] = &packFile{path: s.path, origin: Override, project: s.project, name: s.name, on: true, size: n, sums: sums, entry: e}
-		filled[s.step] = true
 	}
 	manual := p.manual[:0]
 	for i, m := range p.manual {
-		if !filled[i] {
+		if !done[i] {
 			manual = append(manual, m)
 		}
 	}
 	p.manual = manual
 	return nil
+}
+
+// serverFilesHoldThePack reports whether a CurseForge pack's server files
+// have most of the mods its manifest names. Some server files hold only a
+// script that downloads the mods, and then they say nothing about which
+// mods a server needs.
+func serverFilesHoldThePack(p *pack, mods map[string]*zip.File) bool {
+	pack := map[string]bool{}
+	for rel, f := range p.files {
+		if strings.HasPrefix(rel, "mods/") && f.origin == Download {
+			pack[rel] = true
+		}
+	}
+	for _, s := range p.serverFills {
+		pack[s.path] = true
+	}
+	held := 0
+	for rel := range pack {
+		if mods[path.Base(rel)] != nil {
+			held++
+		}
+	}
+	return len(pack) > 0 && 2*held >= len(pack)
+}
+
+// leaveOutWhatServerFilesLeaveOut leaves off the server the mods a
+// CurseForge pack's manifest names that its server files don't have: its
+// authors left them out of what servers run. They are mostly for players'
+// games, like shader and menu mods that CurseForge doesn't tag as such, and
+// some of them stop a server from starting. Players still get them, and the
+// steps to download such mods by hand are done.
+func leaveOutWhatServerFilesLeaveOut(p *pack, mods map[string]*zip.File, done map[int]bool) {
+	for _, rel := range slices.Sorted(maps.Keys(p.files)) {
+		if f := p.files[rel]; strings.HasPrefix(rel, "mods/") && f.origin == Download && mods[path.Base(rel)] == nil {
+			delete(p.files, rel)
+			p.skip(rel, KindNotInServerFiles)
+		}
+	}
+	for _, s := range p.serverFills {
+		if mods[path.Base(s.path)] == nil {
+			done[s.step] = true
+			p.skip(s.path, KindNotInServerFiles)
+		}
+	}
+}
+
+// keepWhatServerFilesHave puts on the server the mods CurseForge tags for
+// players' games that a CurseForge pack's server files have all the same:
+// its authors run them on servers. Better MC [FABRIC] BMC2's have Mod Menu,
+// which one of its mods needs to start.
+func (p *pack) keepWhatServerFilesHave(mods map[string]*zip.File, lim Limits) error {
+	for _, c := range p.clientMods {
+		took, err := p.takeFromServerFiles(mods, c.path, c.project, c.name, c.sha1, lim)
+		if err != nil {
+			return err
+		}
+		if took {
+			p.skipped = slices.DeleteFunc(p.skipped, func(s Skipped) bool { return s.Path == c.path && s.Reason == addons.KindClientOnly })
+		}
+	}
+	return nil
+}
+
+// takeFromServerFiles puts the mod at rel on the server from a CurseForge
+// pack's server files, and reports whether it did: only when their mods
+// folder has it with the SHA-1 CurseForge lists for it.
+func (p *pack) takeFromServerFiles(mods map[string]*zip.File, rel, project, name, sha1 string, lim Limits) (bool, error) {
+	e := mods[path.Base(rel)]
+	if e == nil || p.files[rel] != nil || e.UncompressedSize64 > uint64(lim.File) {
+		return false, nil
+	}
+	sums, n, err := copyEntry(e, io.Discard, lim.File)
+	if err != nil {
+		return false, fail(KindBadPack, kv("pack", p.info.Name, "reason", err.Error()),
+			fmt.Sprintf("%s cannot be installed: its server files are damaged at %q (%v).", p.info.Name, printable(e.Name), err),
+			"Choose another version of the pack. Nothing was installed.")
+	}
+	if p.hashed += n; p.hashed > lim.Unpacked {
+		return false, unpackedTooLarge(p.info.Name, lim)
+	}
+	if sums["sha1"] != sha1 {
+		return false, nil
+	}
+	p.files[rel] = &packFile{path: rel, origin: Override, project: project, name: name, on: true, size: n, sums: sums, entry: e}
+	return true, nil
 }
 
 // clientCurseForge records a file of a CurseForge pack for players' games,

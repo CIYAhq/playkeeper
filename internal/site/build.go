@@ -2,8 +2,9 @@
 // templates in site/layouts, the docs from the repository's own Markdown, and
 // the assets in site/static and web/src/assets under hashed names. Facts the
 // product owns come from the product: the server types from minecraft.Types,
-// the templates' links from internal/templates, the version from
-// site/data/release.json, which names the latest published release.
+// the oldest Minecraft version from minecraft.OldestRelease, the templates'
+// links from internal/templates, the version from site/data/release.json,
+// which names the latest published release.
 package site
 
 import (
@@ -21,6 +22,7 @@ import (
 	texttemplate "text/template"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/platform"
 	"github.com/CIYAhq/playkeeper/internal/sizing"
 )
@@ -634,6 +636,9 @@ func (s *Site) funcs() template.FuncMap {
 		},
 		"hasType":   hasType,
 		"countWord": countWord,
+		// oldestMinecraft is the oldest Minecraft release Playkeeper runs,
+		// for every server type and for modpacks: "1.20.1".
+		"oldestMinecraft": func() string { return minecraft.OldestRelease },
 		"card": func(id string) (*TemplateCard, error) {
 			c, ok := s.cards[id]
 			if !ok {

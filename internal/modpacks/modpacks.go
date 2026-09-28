@@ -27,6 +27,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/addons/fetch"
 	"github.com/CIYAhq/playkeeper/internal/addons/modrinth"
+	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/curseforge"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/mrpack"
 	"github.com/CIYAhq/playkeeper/internal/version"
@@ -70,6 +71,10 @@ const (
 	KindOptionalOff     addons.Kind = "optional_off"
 	KindUserRemoved     addons.Kind = "user_removed"
 	KindModdedWorld     addons.Kind = "modded_world"
+
+	// KindNotInServerFiles: a mod a CurseForge pack names that its server
+	// files leave out, so the server doesn't get it.
+	KindNotInServerFiles addons.Kind = "not_in_server_files"
 )
 
 // Server is the server a pack goes on.
@@ -240,7 +245,7 @@ func DefaultLimits() Limits {
 }
 
 // DefaultMinMinecraft is the oldest Minecraft version packs are offered for.
-const DefaultMinMinecraft = "1.21"
+const DefaultMinMinecraft = minecraft.OldestRelease
 
 // Library runs modpack operations. One Library serves every server on a
 // machine and holds no per-server state.
