@@ -826,14 +826,13 @@ type indexTemplate struct {
 	Kind       string   `json:"kind"`
 	Popularity int      `json:"pop"`
 	Added      string   `json:"added"`
-	Addons     []string `json:"addons"`
-	// Thumb is its thumbnail's WebP files, 480 and 960 pixels wide, when it
-	// has one.
-	Thumb []string `json:"th,omitempty"`
 	// Addons are what it installs, its add-ons or its modpack, and Icons
 	// their icons, as indexes into the index's icons (-1 for none).
 	Addons []string `json:"addons"`
 	Icons  []int    `json:"ai"`
+	// Thumb is its thumbnail's WebP files, 480 and 960 pixels wide, when it
+	// has one.
+	Thumb []string `json:"th,omitempty"`
 }
 
 type indexImage struct {
