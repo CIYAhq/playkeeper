@@ -2035,7 +2035,7 @@ control "a client-only mod the pack's own files use stays on the server" interna
   ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
 control "only a pack's text files are read for the mods they use" internal/modpacks/resolve.go \
   'if !mentionsFile(rel) || e.UncompressedSize64 > maxMentionsFile {' \
-  'if e.UncompressedSize64 > maxMentionsFile {' \
+  'if (rel == "" && !mentionsFile(rel)) || e.UncompressedSize64 > maxMentionsFile {' \
   ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
 control "a CurseForge pack whose mods Modrinth can't be asked about says so" internal/modpacks/resolve.go \
   'if err != nil {
