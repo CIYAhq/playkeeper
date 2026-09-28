@@ -81,7 +81,7 @@
     </nav>
     <div class="header-actions">
       <a class="nav-link nav-demo" href="/demo/">Live demo</a>
-      <a class="btn btn-outline btn-star" href="{{.Settings.Repo}}"{{if ne .Page.Path "/t"}} data-stars="{{.Settings.StarsFrom}}"{{end}}>{{template "icon" "star"}}<span>Star on GitHub</span><span class="star-count" data-star-count hidden></span></a>
+      <a class="btn btn-outline btn-star" href="{{.Settings.Repo}}"{{if ne .Page.Path "/t"}} data-stars="{{.Settings.StarsFrom}}"{{end}}>{{template "icon" "star"}}<span>Star<span class="star-rest"> on GitHub</span></span><span class="star-count" data-star-count hidden></span></a>
       <a class="btn btn-primary btn-install" href="{{template "install-href" .}}" data-install-link>{{template "icon" "download"}}<span>Install</span></a>
       <button type="button" class="menu-button" popovertarget="phone-menu" aria-label="Menu">{{template "icon" "menu"}}</button>
     </div>
