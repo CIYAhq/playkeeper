@@ -12,7 +12,7 @@
       <h1 id="dir-title" class="dir-h1 hero-rise">{{.Page.H1}}</h1>
       {{if gt $v.Page 1}}<p class="dir-sub hero-rise">Page {{$v.Page}} of {{$v.Pages}}, the most popular first.</p>
       {{else}}<p class="dir-sub hero-rise">{{title (countWord (len $v.List))}} setups that really start: each was created and started on a real Playkeeper before it was listed. Open one in your own dashboard in one click.</p>{{end}}
-      {{template "dir-search" (len $d.Templates)}}
+      {{if $v.Filters}}{{template "dir-search" (len $d.Templates)}}{{end}}
       <nav class="dir-modes hero-rise" aria-label="Game modes">
         <ul>{{range $d.Popular 8}}<li><a class="dir-mode" href="{{.Path}}">{{.Name}}<span class="dir-mode-n">{{len .Templates}}</span></a></li>{{end}}</ul>
       </nav>

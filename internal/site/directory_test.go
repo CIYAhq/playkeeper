@@ -100,6 +100,11 @@ func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 		t.Fatalf("the directory lists %d templates", len(d.Templates))
 	}
 	hub := built["/templates"]
+	// The search box works only where js/templates.js does: with search,
+	// filters and sorting, from minFiltered templates.
+	if strings.Contains(hub, `data-dir-q`) != (len(d.Templates) >= minFiltered) || strings.Contains(hub, `data-directory`) != (len(d.Templates) >= minFiltered) {
+		t.Errorf("/templates has a search box %v and the directory's script %v, with %d templates", strings.Contains(hub, `data-dir-q`), strings.Contains(hub, `data-directory`), len(d.Templates))
+	}
 	idx := indexOf(t, o)
 	if len(idx.Templates) != len(d.Templates) {
 		t.Errorf("the index has %d templates, and the directory lists %d", len(idx.Templates), len(d.Templates))
@@ -132,6 +137,9 @@ func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 		open := built[c.OpenPath()]
 		if !strings.Contains(open, `<meta http-equiv="refresh" content="0; url=`+c.Link+`">`) || !strings.Contains(open, `<meta name="robots" content="noindex">`) {
 			t.Errorf("%s doesn't send the browser on to %s, or search engines index it", c.OpenPath(), c.Link)
+		}
+		if !strings.Contains(open, `href="/assets/css/templates.`) {
+			t.Errorf("%s doesn't load templates.css, which lays out what it shows while it sends the browser on", c.OpenPath())
 		}
 		if i < len(idx.Templates) {
 			e := idx.Templates[i]
@@ -617,5 +625,22 @@ func TestWriteDirectoryPreview(t *testing.T) {
 		if err := os.WriteFile(p, f.Data, 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// A directory with fewer templates than minFiltered shows them as a plain
+// grid, with no search box: js/templates.js runs only where there are
+// filters too. Every guide needs a listed template, so rather than hold some
+// of today's, the test raises the bar past them.
+func TestASmallDirectoryHasNoSearchItCantRun(t *testing.T) {
+	saved := minFiltered
+	t.Cleanup(func() { minFiltered = saved })
+	minFiltered = 100
+	hub := pages(build(t, Default))["/templates"]
+	if n := strings.Count(hub, `class="dcard-open" href="/t#`); n == 0 || n >= minFiltered {
+		t.Fatalf("/templates shows %d cards, want fewer than %d", n, minFiltered)
+	}
+	if strings.Contains(hub, `data-dir-q`) || strings.Contains(hub, `data-directory`) {
+		t.Error("/templates has a search box or the directory's script with fewer templates than it filters")
 	}
 }

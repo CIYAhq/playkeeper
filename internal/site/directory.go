@@ -550,8 +550,9 @@ func facets(list []*TemplateCard, except *Category) []Facet {
 func (v *DirView) Facets() []Facet { return facets(v.List, v.Category) }
 
 // minFiltered is how many templates a list needs before its page has
-// search, filters and sorting: a handful are simpler to look through.
-const minFiltered = 7
+// search, filters and sorting: a handful are simpler to look through. A
+// variable only so a test can see a small list.
+var minFiltered = 7
 
 // Filters reports whether the page offers search, filters and sorting.
 func (v *DirView) Filters() bool { return len(v.List) >= minFiltered }
@@ -650,13 +651,14 @@ func (s *Site) addDirectory() error {
 			Description: "Opens the " + t.Name + " server template on Playkeeper's share page, which sends it to your own dashboard. Nothing installs until you confirm there.",
 			Label:       t.Name, H1: "Opening " + t.Name,
 			OG: "t", OGWords: "A Minecraft server setup, shared from Playkeeper", Layout: "open", Closing: "none", NoIndex: true, Refresh: t.Link,
+			Styles: []string{"css/templates.css"},
 		}
 		open.Card = open.Label
 		open.dir = &DirView{Kind: "open", Category: t.Primary(), Template: t}
 		s.pages = append(s.pages, open)
 	}
 	for p := range own {
-		return fmt.Errorf("site/pages has a page at %s, which is no category or listed template of the directory", p)
+		return fmt.Errorf("site/pages has a page at %s, which is no category with a listed template, nor a listed template: a guide whose templates are all held or unchecked comes down until one is listed", p)
 	}
 	return nil
 }
