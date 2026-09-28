@@ -1183,6 +1183,7 @@
     "id": "stoneblock-4",
     "name": "StoneBlock 4",
     "art": "world-amplified.svg",
+    "page": "https://playkeeper.io/modpacks/stoneblock-4-server",
     "checked": "2026-09-28",
     "release": "0.4.4",
     "file": {
