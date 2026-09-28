@@ -539,6 +539,9 @@ func (s *Server) Routes() []Route {
 		view("/api/servers/{id}/public-page", s.hPublicPage),
 		{"POST", "/api/servers/{id}/public-page", needSessionCSRF, actManageServers, s.forwardThen("POST", "/v1/servers/{id}/public-page", func(machine, *session, json.RawMessage) { s.pageChanged() })},
 		{"POST", "/api/servers/{id}/public-page/retry", needSessionCSRF, actManageServers, s.hPublicPagePortsRetry},
+		// A server's own address is DNS and certificates for the whole
+		// machine, so it needs the right to manage the machine.
+		{"POST", "/api/servers/{id}/own-address", needSessionCSRF, actManageMachine, s.hOwnAddress},
 		// The status board changes as often as the owner's tools post, like
 		// the server's running state, so moderators may post and clear it.
 		{"PUT", "/api/servers/{id}/public-page/board", needSessionCSRF, actRunServers, s.forwardThen("PUT", "/v1/servers/{id}/public-page/board", func(machine, *session, json.RawMessage) { s.pageChanged() })},
@@ -1199,6 +1202,22 @@ func (s *Server) addressProxy(method, pattern string) func(http.ResponseWriter, 
 		}
 	}
 	return s.forwardTo(method, pattern, true, then)
+}
+
+// hOwnAddress gives a server its own address under the machine's own
+// domain, or clears it, and has the public page's keeper look again. A
+// joined machine has no own domain.
+func (s *Server) hOwnAddress(w http.ResponseWriter, r *http.Request, sess *session) {
+	m, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	if m.Kind == remoteKind {
+		writeErr(w, http.StatusConflict, api.CodeConflict, "Own addresses are for the dashboard's machine.",
+			"Players join "+m.Name+"'s servers at its IP address and each server's port.")
+		return
+	}
+	s.forwardThen("POST", "/v1/servers/{id}/own-address", func(machine, *session, json.RawMessage) { s.pageChanged() })(w, r, sess)
 }
 
 // dashboardAddress refuses to give a joined machine a free name or an own
