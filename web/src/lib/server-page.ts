@@ -1,4 +1,4 @@
-import type { PublicServer } from '@/api/types'
+import type { PagePort, PublicPageView, PublicServer } from '@/api/types'
 import { t } from '@/i18n'
 import type { Tone } from '@/lib/phase'
 
@@ -45,4 +45,48 @@ export function joinSteps(s: PublicServer): string[] {
 export function serverPageTitle(address: string, servers: PublicServer[]): string {
   const only = servers.length === 1 ? servers[0] : undefined
   return only ? t('serverPage.title', { server: only.name }) : t('serverPage.titleMany', { address })
+}
+
+/** Whether browsers reach a server's public page, for its Settings. */
+export type PageReach =
+  | { kind: 'off' }
+  | { kind: 'otherMachine' }
+  | { kind: 'noAddress' }
+  | { kind: 'live'; url: string }
+  | { kind: 'plainOnly'; url: string; https: PagePort }
+  | { kind: 'opening' }
+  | { kind: 'waiting' }
+  | { kind: 'blocked'; port: PagePort }
+
+export function pageReach(v: PublicPageView): PageReach {
+  if (!v.enabled) return { kind: 'off' }
+  if (!v.ports) return { kind: 'otherMachine' }
+  if (!v.host) return { kind: 'noAddress' }
+  const { https, http } = v.ports
+  if (https.state === 'open') return { kind: 'live', url: https.port === 443 ? `https://${v.host}` : `https://${v.host}:${https.port}` }
+  if (http.state === 'open') return { kind: 'plainOnly', url: http.port === 80 ? `http://${v.host}` : `http://${v.host}:${http.port}`, https }
+  if (https.state === 'waiting' || http.state === 'waiting') return { kind: 'waiting' }
+  if (https.state === 'off' && http.state === 'off') return { kind: 'opening' }
+  return { kind: 'blocked', port: https.state !== 'off' ? https : http }
+}
+
+/** Why a port can't take the page, in one line. */
+export function portProblem(p: PagePort): string {
+  switch (p.state) {
+    case 'busy':
+      return p.holder ? t('publicPage.busyBy', { holder: p.holder, port: p.port }) : t('publicPage.busy', { port: p.port })
+    case 'claimed':
+      return t('publicPage.claimed', { holder: p.holder ?? t('publicPage.anotherProgram'), port: p.port })
+    case 'denied':
+      return t('publicPage.denied', { port: p.port })
+    case 'waiting':
+      return t('publicPage.waiting')
+    case 'open':
+    case 'off':
+      return ''
+    default: {
+      const unreachable: never = p.state
+      return unreachable
+    }
+  }
 }
