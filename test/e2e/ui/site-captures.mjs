@@ -409,6 +409,7 @@ const shots = [
   { name: 'detail-updates', route: '/servers/survival/plugins', size: desktop, dpr: 3, cards: ['BlueMap', 'ViaVersion'], from: 'Plugins on Survival' },
   { name: 'step-type', route: '/servers/new', size: desktop, dpr: 3, element: '[role=radiogroup][aria-label="Server type"]', height: 300 },
   { name: 'tool-server-list', route: '/servers/survival/settings', size: desktop, dpr: 3, before: serverList, element: '#list' },
+  { name: 'tool-plugin-config', route: '/servers/survival/file/plugins/FriendsWelcome/config.yml', size: desktop, dpr: 3, area: ['FriendsWelcome', 610, 206, -153, -6] },
   // Dialogs and pages the demo has no data for.
   { name: 'detail-voice', route: '/servers/survival/plugins/browse', size: desktop, dpr: 4, voiceChat: true, before: voiceChat, element: popup },
   { name: 'detail-modpack', route: '/servers/new', size: desktop, dpr: 4, before: modpacks(true), element: popup, height: 520, left: 180 },
