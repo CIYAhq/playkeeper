@@ -44,6 +44,9 @@ type pack struct {
 	blockers   []addons.Notice
 	warnings   []addons.Notice
 	properties map[string]string
+	// modrinthClient are the SHA-1s of a CurseForge pack's mods that
+	// Modrinth lists as for the game client only (clientOnlyOnModrinth).
+	modrinthClient map[string]bool
 	// heapMB is the Java heap the pack's own settings ask for (Plan.HeapMB).
 	heapMB     int
 	unknownEnv []string
@@ -900,6 +903,7 @@ func (l *Library) readManifest(ctx context.Context, p *pack, mod *curseforge.Mod
 	for i := range mods {
 		modByID[mods[i].ID] = &mods[i]
 	}
+	p.modrinthClient = l.clientOnlyOnModrinth(ctx, p, files, modByID)
 	for _, mf := range m.Files {
 		l.addCurseForgeFile(p, mf, fileByID[mf.FileID], modByID[mf.ProjectID])
 	}
@@ -961,7 +965,7 @@ func (l *Library) addCurseForgeFile(p *pack, mf curseforge.ManifestFile, f *curs
 	}
 	target := "mods/" + f.FileName
 	switch {
-	case f.ClientOnly():
+	case f.ClientOnly() || p.modrinthClient[f.SHA1()]:
 		p.skip("mods/"+printable(f.FileName), addons.KindClientOnly)
 		if sum := f.SHA1(); mf.Required && plainJar(f.FileName) && sum != "" {
 			p.clientMods = append(p.clientMods, clientMod{path: target, project: id, name: display, sha1: sum})
@@ -1004,6 +1008,60 @@ func (l *Library) addCurseForgeFile(p *pack, mf curseforge.ManifestFile, f *curs
 		path: target, origin: Download, project: id, name: display, optional: !mf.Required, on: mf.Required,
 		size: f.FileLength, sums: map[string]string{"sha1": f.SHA1()}, urls: []string{f.DownloadURL}, hosts: l.curseForgeFiles(),
 	}
+}
+
+// clientOnlyOnModrinth returns the SHA-1s of a CurseForge pack's mods that
+// Modrinth, which has many of the same files, lists as for the game client
+// only. CurseForge's tags often leave the side out, and such a mod stops the
+// server's first start. A mod Modrinth doesn't know stays in.
+func (l *Library) clientOnlyOnModrinth(ctx context.Context, p *pack, files []curseforge.File, mods map[int64]*curseforge.Mod) map[string]bool {
+	var hashes []string
+	for i := range files {
+		f := &files[i]
+		if m := mods[f.ModID]; m != nil && m.ClassID == curseforge.ClassMods && f.SHA1() != "" && !f.ClientOnly() {
+			hashes = append(hashes, f.SHA1())
+		}
+	}
+	out := map[string]bool{}
+	if len(hashes) == 0 || l.Modrinth == nil {
+		return out
+	}
+	vs, err := l.Modrinth.VersionsFromHashes(ctx, "sha1", hashes)
+	if err != nil {
+		p.warn(notice(KindUnverifiedEnv, kv("pack", p.info.Name),
+			fmt.Sprintf("Playkeeper could not ask Modrinth which of %s's mods are for the game client only, so it installs them all.", p.info.Name),
+			"If the server fails to start, one of them may be for the game client only."))
+		return out
+	}
+	// Versions from before Modrinth's environment field don't say; their
+	// projects' server_side does.
+	var ask []string
+	for _, v := range vs {
+		if v.Environment == "" && validID(v.ProjectID) && !slices.Contains(ask, v.ProjectID) {
+			ask = append(ask, v.ProjectID)
+		}
+	}
+	runs := map[string]bool{}
+	if len(ask) > 0 {
+		if ps, err := l.Modrinth.Projects(ctx, ask); err == nil {
+			for i := range ps {
+				runs[ps[i].ID] = ps[i].RunsOnServer()
+			}
+		}
+	}
+	for sha1, v := range vs {
+		onServer := v.RunsOnServer()
+		if v.Environment == "" {
+			onServer = true
+			if r, ok := runs[v.ProjectID]; ok {
+				onServer = r
+			}
+		}
+		if !onServer {
+			out[strings.ToLower(sha1)] = true
+		}
+	}
+	return out
 }
 
 // fromServerFiles notes that the step just added for f goes when the pack's

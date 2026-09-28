@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -94,6 +95,45 @@ func TestInstallCurseForgePack(t *testing.T) {
 	if len(f.offHosts) != 0 || f.evilHits != 0 {
 		t.Errorf("contacted %q", f.offHosts)
 	}
+}
+
+// A CurseForge pack's mods that Modrinth lists as for the game client only,
+// by the same file, stay off the server even when CurseForge doesn't tag
+// them, as such a mod stops the server's first start: by the version's
+// environment, or by the project's server_side for versions from before
+// it. A client-only mod only CurseForge's app may download needs no step.
+// When Modrinth can't be asked, every mod goes on, with a warning.
+func TestCurseForgeClientModsModrinthKnowsStayOff(t *testing.T) {
+	f := newFakes(t)
+	f.modrinthMod("CLOTH001", "cloth-config-26.3.155-fabric.jar", generated("cloth-config-26.3.155-fabric.jar"), "client_only", "unknown")
+	f.modrinthMod("LITHI001", "lithium-fabric-0.25.3+mc26.3.jar", generated("lithium-fabric-0.25.3+mc26.3.jar"), "", "unsupported")
+	f.modrinthMod("FERRI001", "ferritecore-9.0.0-fabric.jar", generated("ferritecore-9.0.0-fabric.jar"), "client_only", "unknown")
+	f.modrinthMod("FAPI0001", "fabric-api-0.141.0+26.3.jar", generated("fabric-api-0.141.0+26.3.jar"), "client_and_server", "required")
+	pl := mustPlan(t, f.library(), newServer(t, "", ""), InstallRequest{Ref: cfRef("")})
+	wantList(t, "changes", changeList(pl.Changes),
+		"add config/example.json",
+		"add mods/fabric-api-0.141.0+26.3.jar",
+		"add mods/placeholder-api-3.1.0+26.3.jar")
+	for _, want := range []string{"cloth-config-26.3.155-fabric.jar", "ferritecore-9.0.0-fabric.jar", "lithium-fabric-0.25.3+mc26.3.jar", "sodium-fabric-0.9.2+mc26.3.jar"} {
+		if !slices.Contains(skippedList(pl.Skipped), "client_only mods/"+want) {
+			t.Errorf("%s isn't left off as client only: %q", want, skippedList(pl.Skipped))
+		}
+	}
+	wantList(t, "manual", manualList(pl.Manual))
+	wantList(t, "warnings", noticeList(pl.Warnings),
+		"server_properties: Example Fabric Pack ships server settings that Playkeeper does not take from packs: motd, server-port.")
+
+	f.hook("modrinth /v2/version_files", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadGateway) })
+	pl = mustPlan(t, f.library(), newServer(t, "", ""), InstallRequest{Ref: cfRef("")})
+	wantList(t, "changes when Modrinth can't be asked", changeList(pl.Changes),
+		"add config/example.json",
+		"add mods/cloth-config-26.3.155-fabric.jar",
+		"add mods/fabric-api-0.141.0+26.3.jar",
+		"add mods/lithium-fabric-0.25.3+mc26.3.jar",
+		"add mods/placeholder-api-3.1.0+26.3.jar")
+	wantList(t, "warnings when Modrinth can't be asked", noticeList(pl.Warnings),
+		"environment_unknown: Playkeeper could not ask Modrinth which of Example Fabric Pack's mods are for the game client only, so it installs them all.",
+		"server_properties: Example Fabric Pack ships server settings that Playkeeper does not take from packs: motd, server-port.")
 }
 
 func TestUpdateCurseForgePack(t *testing.T) {
