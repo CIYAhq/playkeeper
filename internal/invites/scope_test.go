@@ -78,6 +78,21 @@ func TestScopeCoversAndWithin(t *testing.T) {
 			t.Errorf("%+v within %+v: %v", tc.inner, tc.outer, got)
 		}
 	}
+	for _, tc := range []struct {
+		a, b Scope
+		want bool
+	}{
+		{AllServers(), AllServers(), true},
+		{AllServers(), OnlyServers(serverID), true},
+		{some, OnlyServers(otherServer), true},
+		{some, OnlyServers(thirdServer), false},
+		{AllServers(), Scope{}, false},
+		{Scope{}, Scope{}, false},
+	} {
+		if got, back := tc.a.Overlaps(tc.b), tc.b.Overlaps(tc.a); got != tc.want || back != tc.want {
+			t.Errorf("%+v and %+v overlap: %v and %v, want %v", tc.a, tc.b, got, back, tc.want)
+		}
+	}
 }
 
 func TestScopeNarrow(t *testing.T) {

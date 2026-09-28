@@ -97,7 +97,7 @@ func (s *Server) hTeam(w http.ResponseWriter, r *http.Request, sess *session) {
 	rows.Close()
 	for _, x := range list {
 		t, err := s.access(x.u)
-		if err != nil {
+		if err != nil || !seesMember(a, t) {
 			continue
 		}
 		out.Members = append(out.Members, memberRow(a, t, invites.FromMillis(x.added)))
@@ -111,7 +111,7 @@ func (s *Server) hTeam(w http.ResponseWriter, r *http.Request, sess *session) {
 	}
 	for irows.Next() {
 		inv, err := scanInvite(irows)
-		if err != nil {
+		if err != nil || !inv.Servers.Within(a.Servers) {
 			continue
 		}
 		out.Invites = append(out.Invites, teamInvite{Summary: inv.Summarize(now), CanEdit: invites.CanGrant(a.Account, inv.Role, inv.Servers) == nil})
@@ -125,6 +125,15 @@ func (s *Server) hTeam(w http.ResponseWriter, r *http.Request, sess *session) {
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// seesMember reports whether a sees team member t on the Team page and their
+// joins in the activity. An account with every server sees the whole team;
+// one with only some sees itself, the owner and those who share a server
+// with it, so people given different servers on one machine don't learn of
+// each other.
+func seesMember(a, t access) bool {
+	return a.Servers.All || t.UserID == a.UserID || t.owner() || t.Servers.Overlaps(a.Servers)
 }
 
 // grantBody is a role and servers chosen on the Team page.
@@ -475,6 +484,41 @@ func (s *Server) turnOffLinks(r *http.Request, by user, creator invites.Account,
 
 // --- routes scoped to the servers an account can use ---
 
+// hCatalog is a machine's catalog: the versions and memory sizes a server
+// may have there, and the servers already on it with their memory. An
+// account with only some servers gets its own servers in that list, never
+// the others' names; their memory still counts in what is left.
+func (s *Server) hCatalog(w http.ResponseWriter, r *http.Request, sess *session) {
+	m, ok := s.machineFromPath(w, r)
+	if !ok {
+		return
+	}
+	var raw json.RawMessage
+	status, err := m.agent.Do(asActor(r.Context(), sess.User.Username), "GET", "/v1/catalog", r.URL.Query(), nil, &raw)
+	if err != nil {
+		s.agentFailure(w, err)
+		return
+	}
+	if sess.Access.Servers.All || status != http.StatusOK {
+		writeJSON(w, status, raw)
+		return
+	}
+	var c map[string]json.RawMessage
+	var servers []api.ServerMemory
+	if json.Unmarshal(raw, &c) != nil || json.Unmarshal(c["servers"], &servers) != nil {
+		writeErr(w, http.StatusBadGateway, api.CodeAgentUnavailable, "The machine's agent gave an answer the dashboard can't read.", "")
+		return
+	}
+	mine := []api.ServerMemory{}
+	for _, sv := range servers {
+		if sess.Access.covers(sv.ID) {
+			mine = append(mine, sv)
+		}
+	}
+	c["servers"], _ = json.Marshal(mine)
+	writeJSON(w, status, c)
+}
+
 // hMachineActivity is a machine's recent activity, for the servers the
 // account can use. The team's joins are the dashboard's, not any machine's,
 // so only the dashboard's own machine lists them.
@@ -584,24 +628,35 @@ func (s *Server) withTeamJoins(activity []api.Activity, a access, limit int) []a
 }
 
 // teamJoins are members joining the team, as activity with their role.
-// Who is on the team is for those who manage it, so everyone else sees only
-// their own join.
+// Who is on the team is for those who manage it, and then only the members
+// they see on the Team page (seesMember), so everyone else sees only their
+// own join.
 func (s *Server) teamJoins(a access, limit int) []api.Activity {
 	everyone := permit(a, actManageTeam, "") == nil
-	rows, err := s.db.Query(`SELECT u.username, m.role, m.created_at FROM project_members m JOIN users u ON u.id = m.user_id
+	ask := limit
+	if everyone && !a.Servers.All {
+		ask = 200
+	}
+	rows, err := s.db.Query(`SELECT u.id, u.username, m.role, m.servers, m.created_at FROM project_members m JOIN users u ON u.id = m.user_id
 		WHERE m.project_id = ? AND u.role = ? AND (? OR u.id = ?) ORDER BY m.created_at DESC LIMIT ?`,
-		s.projectID(a), roleMember, everyone, a.UserID, limit)
+		s.projectID(a), roleMember, everyone, a.UserID, ask)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
 	var out []api.Activity
-	for rows.Next() {
-		var name, role string
-		var joined int64
-		if rows.Scan(&name, &role, &joined) == nil {
-			out = append(out, api.Activity{TS: invites.FromMillis(joined), Kind: api.ActivityTeamJoined, Actor: name, Detail: role})
+	for rows.Next() && len(out) < limit {
+		var id, joined int64
+		var name, role, servers string
+		if rows.Scan(&id, &name, &role, &servers, &joined) != nil {
+			continue
 		}
+		if id != a.UserID && !a.Servers.All {
+			if sc, err := invites.ParseScope(servers); err != nil || !sc.Overlaps(a.Servers) {
+				continue
+			}
+		}
+		out = append(out, api.Activity{TS: invites.FromMillis(joined), Kind: api.ActivityTeamJoined, Actor: name, Detail: role})
 	}
 	return out
 }
