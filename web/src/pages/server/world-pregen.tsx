@@ -100,6 +100,8 @@ export function pausedText(pg: Pregen, server: string): string {
       return pg.pausedFor ? t('pregen.pausedFor', { name: pg.pausedFor }) : t('pregen.pausedPlayers')
     case 'server':
       return t('pregen.pausedServer', { server })
+    case 'memory':
+      return t('pregen.pausedMemory', { server })
     case 'user':
     case undefined:
       return t('pregen.pausedUser')
@@ -122,6 +124,8 @@ export function pregenLine(pg: Pregen | undefined, server: string): string {
       return [t('pregen.rowActive'), percent(pg), pg.etaSeconds >= 0 ? t('pregen.aboutLeft', { time: shortTime(pg.etaSeconds) }) : undefined].filter(Boolean).join(t('common.dot'))
     case 'paused':
       return t('pregen.rowPaused', { percent: percent(pg) })
+    case 'unknown':
+      return t('pregen.rowUnknown', { percent: percent(pg) })
     case 'finished':
       return t('pregen.rowReady', { radius: pg.radius ?? 0 })
     default: {
@@ -152,7 +156,7 @@ export function usePregen(s: ServerStatus): Poll<Pregen> {
   const [every, setEvery] = useState(30_000)
   const poll = usePoll(() => get<Pregen>(serverApi(s.id, '/pregen')), every, s.id)
   const state = poll.data?.state
-  const want = state === 'starting' || state === 'running' ? 3_000 : state === 'paused' ? 10_000 : 30_000
+  const want = state === 'starting' || state === 'running' || state === 'unknown' ? 3_000 : state === 'paused' ? 10_000 : 30_000
   if (want !== every) setEvery(want)
   return poll
 }
@@ -365,6 +369,7 @@ function Running({ server: s, pregen: pg, onChanged }: { server: ServerStatus; p
   const [acting, setActing] = useState<'pause' | 'continue' | 'cancel'>()
   const starting = pg.state === 'starting'
   const paused = pg.state === 'paused'
+  const unknown = pg.state === 'unknown'
 
   async function act(action: 'pause' | 'continue' | 'cancel') {
     setActing(action)
@@ -379,7 +384,7 @@ function Running({ server: s, pregen: pg, onChanged }: { server: ServerStatus; p
   }
 
   const presetLine = pg.preset === 'border' ? t('mapArea.border') : pg.preset && pg.radius ? t('pregen.presetLine', { preset: t(presetNames[pg.preset]), radius: pg.radius }) : undefined
-  const status = paused ? pausedText(pg, s.name) : pg.etaSeconds >= 0 ? t('pregen.left', { time: longTime(pg.etaSeconds) }) : undefined
+  const status = paused ? pausedText(pg, s.name) : unknown ? t('pregen.unknown') : pg.etaSeconds >= 0 ? t('pregen.left', { time: longTime(pg.etaSeconds) }) : undefined
   const resume = paused && pg.pausedBy !== 'server'
   const size = phone ? 'touch' : 'default'
   const blocked = offline ?? (acting ? t('reason.busy', { what: t(actingKeys[acting]) }) : undefined)
@@ -412,7 +417,7 @@ function Running({ server: s, pregen: pg, onChanged }: { server: ServerStatus; p
           )}
         </span>
       </div>
-      <Bar value={pg.percent} tone={paused ? 'muted' : 'info'} label={t('world.pregen')} className="mt-4" />
+      <Bar value={pg.percent} tone={paused || unknown ? 'muted' : 'info'} label={t('world.pregen')} className="mt-4" />
     </>
   )
   const pauses = !paused && pg.pauseForPlayers && t('pregen.pausesForPlayers')

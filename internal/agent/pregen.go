@@ -37,6 +37,12 @@ const (
 
 	pregenFinished  = "finished"
 	pregenCancelled = "cancelled"
+
+	// pregenPausedForMemory is paused_for of a task the agent paused, as if
+	// someone had, because the server ran out of memory again after the
+	// task was sent again: it waits for someone to give the server more
+	// memory and resume it.
+	pregenPausedForMemory = "memory"
 )
 
 // errChunkyConsole matches a Chunky command that never reached the console.
@@ -135,6 +141,10 @@ type pregenCache struct {
 	// override is set when someone continues the task while people play,
 	// so the policy leaves it running until the server is empty.
 	override bool
+	// resumedRun is the run of the server a task a restart dropped was
+	// last sent to Chunky again in: once a run, so a task Chunky keeps
+	// losing ends as gone.
+	resumedRun time.Time
 	// finished is the last "Task finished" line Chunky logged for each
 	// world.
 	finished map[string]pregenFinish
@@ -341,7 +351,8 @@ func (s *server) pregenView(ctx context.Context) (api.Pregen, error) {
 		}
 		return out, nil
 	}
-	if st := s.pg.latest(s.now(), s.pregenFresh()); online && st != nil && st.State == pregen.StateRunning && st.Progress != nil {
+	st := s.pg.latest(s.now(), s.pregenFresh())
+	if online && st != nil && st.State == pregen.StateRunning && st.Progress != nil {
 		out.State = "running"
 		out.Chunks, out.Percent, out.Rate, out.ETASeconds = st.Progress.Chunks, st.Progress.Percent, st.Progress.Rate, st.Progress.ETASeconds
 		return out, nil
@@ -351,12 +362,18 @@ func (s *server) pregenView(ctx context.Context) (api.Pregen, error) {
 		out.Chunks, out.Percent, out.ElapsedSeconds = saved.Chunks, saved.Percent(), saved.ElapsedSeconds
 	}
 	switch {
+	case task.PausedByUser && task.PausedFor == pregenPausedForMemory:
+		out.PausedBy = "memory"
 	case task.PausedByUser:
 		out.PausedBy = "user"
 	case !online:
 		out.PausedBy = "server"
 	case task.PausedByPolicy:
 		out.PausedBy, out.PausedFor = "players", task.PausedFor
+	case st == nil || st.State != pregen.StatePaused:
+		// Chunky couldn't be asked, or has no task for it: that says
+		// nothing about whether it's paused.
+		out.State = "unknown"
 	}
 	return out, nil
 }
@@ -429,9 +446,99 @@ func (s *server) pregenTick(ctx context.Context) {
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	task, st := s.pregenCheck(cctx, p)
 	cancel()
-	if task != nil && st != nil {
+	if task != nil && st != nil && !s.pregenAfterRestart(ctx, p, task, st) {
 		s.pregenPolicy(ctx, p, task, st)
 	}
+}
+
+// pregenAfterRestart has Chunky go on with an unfinished task nobody paused
+// that it doesn't run although the server restarted since the task started:
+// the server stopped before Chunky saved a task it had just started, so it
+// came back without it, or Chunky's settings said not to continue it. A
+// lost task is started again with the plan it was started with. Once a run.
+func (s *server) pregenAfterRestart(ctx context.Context, p pregen.Platform, task *pregenTask, st *pregen.Status) bool {
+	if (st.State != pregen.StateIdle && st.State != pregen.StatePaused) || task.PausedByUser || task.PausedByPolicy {
+		return false
+	}
+	s.mu.Lock()
+	run := s.runStartedAt
+	s.mu.Unlock()
+	s.pg.mu.Lock()
+	tried := s.pg.resumedRun.Equal(run)
+	s.pg.mu.Unlock()
+	if run.IsZero() || !run.After(task.StartedAt) || tried {
+		return false
+	}
+	release, ok := s.holdOpLock()
+	if !ok {
+		return false
+	}
+	defer release()
+	if s.machineBusy() != nil {
+		return false
+	}
+	s.pg.run.Lock()
+	defer s.pg.run.Unlock()
+	if cur, err := s.lastPregen(); err != nil || !cur.unfinished() || cur.PausedByUser != task.PausedByUser || cur.PausedByPolicy != task.PausedByPolicy || !cur.StartedAt.Equal(task.StartedAt) {
+		return false
+	}
+	s.pg.mu.Lock()
+	s.pg.resumedRun = run
+	s.pg.mu.Unlock()
+	cctx, cancel := context.WithTimeout(ctx, pregenCommandTimeout)
+	defer cancel()
+	ctrl := s.chunky(p)
+	if s.pregenMemoryKills(task) >= 2 {
+		// Sent again once after the server ran out of memory, the task ran
+		// it out again: another try would only take it down once more.
+		if err := ctrl.Configure(cctx, pregen.Config{ContinueOnRestart: false, UpdateInterval: pregenUpdateInterval}); err != nil {
+			s.log.Warn("could not keep the map pre-generation from resuming", "server", s.id, "err", err)
+		}
+		if err := s.updatePregen(`paused_by_user = 1, paused_by_policy = 0, paused_for = ?`, pregenPausedForMemory); err != nil {
+			s.log.Warn("could not pause the map pre-generation", "server", s.id, "err", err)
+			return false
+		}
+		s.audit("playkeeper", "pregen.paused", task.World, "succeeded", "the server ran out of memory twice while pre-generating")
+		s.pg.forget()
+		return true
+	}
+	var err error
+	if st.State == pregen.StatePaused {
+		err = ctrl.Continue(cctx, task.World)
+	} else if plan, ok := taskPlan(task); ok {
+		_, err = ctrl.Start(cctx, plan, pregen.StartOptions{ContinueOnRestart: true, Replace: true})
+	} else {
+		err = fmt.Errorf("no plan for the %q size", task.Preset)
+	}
+	if err != nil {
+		s.log.Warn("could not have Chunky go on with the map pre-generation after the server restarted", "server", s.id, "err", err)
+		return false
+	}
+	s.audit("playkeeper", "pregen.continued", task.World, "succeeded", "the server restarted and Chunky didn't go on with it")
+	s.pg.forget()
+	return true
+}
+
+// pregenMemoryKills is how many times the server ran out of memory since
+// task started, or since someone last resumed it, as after giving the
+// server more memory.
+func (s *server) pregenMemoryKills(task *pregenTask) int {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE server_id = ? AND kind = 'server_crashed' AND (detail LIKE ? OR detail LIKE ?)
+		AND ts > MAX(?, COALESCE((SELECT MAX(ts) FROM audit WHERE server_id = ? AND action = ? AND actor != 'playkeeper'), 0))`,
+		s.id, oomCrash+"%", heapCrash+"%", task.StartedAt.UnixMilli(), s.id, pregenAudits["continue"]).Scan(&n); err != nil {
+		s.log.Warn("could not count the server's crashes", "server", s.id, "err", err)
+	}
+	return n
+}
+
+// taskPlan is the plan task was started with: a size around spawn, or the
+// world up to its border.
+func taskPlan(task *pregenTask) (pregen.Plan, bool) {
+	if task.Preset == api.MapAreaBorder {
+		return pregen.BorderPlan(task.World, task.Radius), true
+	}
+	return pregen.PresetPlan(task.Preset, task.World)
 }
 
 // pregenCheck asks Chunky where the unfinished task stands and records it
@@ -479,6 +586,14 @@ func (s *server) pregenCheck(ctx context.Context, p pregen.Platform) (*pregenTas
 		s.drawPregenerated(ctx)
 		return nil, nil
 	case pregen.StateCancelled, pregen.StateIdle:
+		if st.State == pregen.StateIdle && task.PausedFor == pregenPausedForMemory {
+			// The crash that paused the task took it before Chunky saved
+			// it, so Chunky has none until Resume starts it again.
+			s.pg.mu.Lock()
+			s.pg.idleSince = time.Time{}
+			s.pg.mu.Unlock()
+			break
+		}
 		s.pg.mu.Lock()
 		if s.pg.idleSince.IsZero() {
 			s.pg.idleSince = now
@@ -943,7 +1058,12 @@ func (s *server) pregenAct(ctx context.Context, p pregen.Platform, actor, action
 			return pregenError(err)
 		}
 		if online {
-			if err := ctrl.Continue(ctx, task.World); err != nil {
+			err := ctrl.Continue(ctx, task.World)
+			if plan, ok := taskPlan(task); ok && errors.Is(err, pregen.ErrNothingToContinue) {
+				// Chunky lost the task, as when the server ran out of memory.
+				_, err = ctrl.Start(ctx, plan, pregen.StartOptions{ContinueOnRestart: true, Replace: true})
+			}
+			if err != nil {
 				return pregenError(err)
 			}
 			s.mu.Lock()

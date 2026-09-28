@@ -5866,6 +5866,54 @@ control "the world border is filled where Chunky finds it" internal/agent/pregen
   '		plan.Radius = started.Radius' \
   '		_ = started.Radius' \
   ./internal/agent '^TestTheMapAreaFillsUpToTheWorldBorder$'
+control "a task a restart or a crash dropped is sent to Chunky again" internal/agent/pregen.go \
+  '	if task != nil && st != nil && !s.pregenAfterRestart(ctx, p, task, st) {' \
+  '	if task != nil && st != nil {' \
+  ./internal/agent '^TestPregenATaskA(Restart|Crash)DroppedIsStartedAgain$'
+control "a dropped task is sent again once a run" internal/agent/pregen.go \
+  '	tried := s.pg.resumedRun.Equal(run)' \
+  '	tried := s.pg.resumedRun.Equal(run) && run.IsZero()' \
+  ./internal/agent '^TestPregenATaskARestartDroppedIsStartedAgain$'
+control "a task the server ran out of memory with twice is paused, not sent again" internal/agent/pregen.go \
+  '	if s.pregenMemoryKills(task) >= 2 {' \
+  '	if false {' \
+  ./internal/agent '^TestPregenATaskACrashDroppedIsStartedAgain$'
+control "a task paused for memory reads so" internal/agent/pregen.go \
+  '	case task.PausedByUser && task.PausedFor == pregenPausedForMemory:' \
+  '	case false:' \
+  ./internal/agent '^TestPregenATaskACrashDroppedIsStartedAgain$'
+control "a task paused for memory doesn't resume when the server restarts" internal/agent/pregen.go \
+  '		if err := ctrl.Configure(cctx, pregen.Config{ContinueOnRestart: false, UpdateInterval: pregenUpdateInterval}); err != nil {' \
+  '		if err := ctrl.Configure(cctx, pregen.Config{ContinueOnRestart: true, UpdateInterval: pregenUpdateInterval}); err != nil {' \
+  ./internal/agent '^TestPregenATaskACrashDroppedIsStartedAgain$'
+control "Resume starts a task Chunky lost again" internal/agent/pregen.go \
+  '			if plan, ok := taskPlan(task); ok && errors.Is(err, pregen.ErrNothingToContinue) {' \
+  '			if plan, ok := taskPlan(task); false && ok && errors.Is(err, pregen.ErrNothingToContinue) {' \
+  ./internal/agent '^TestPregenATaskACrashDroppedIsStartedAgain$'
+control "a task paused for memory isn't taken as gone while Chunky has none" internal/agent/pregen.go \
+  '		if st.State == pregen.StateIdle && task.PausedFor == pregenPausedForMemory {' \
+  '		if false {' \
+  ./internal/agent '^TestPregenATaskACrashDroppedIsStartedAgain$'
+control "memory kills are counted from the last resume" internal/agent/pregen.go \
+  '(SELECT MAX(ts) FROM audit WHERE server_id = ?' \
+  '(SELECT MAX(ts) FROM audit WHERE 0 AND server_id = ?' \
+  ./internal/agent '^TestPregenATaskACrashDroppedIsStartedAgain$'
+control "only a task a restart dropped is sent again" internal/agent/pregen.go \
+  '	if run.IsZero() || !run.After(task.StartedAt) || tried {' \
+  '	if run.IsZero() || tried {' \
+  ./internal/agent '^TestPregenCancel$'
+control "a task someone paused isn't sent again after a restart" internal/agent/pregen.go \
+  '	if (st.State != pregen.StateIdle && st.State != pregen.StatePaused) || task.PausedByUser || task.PausedByPolicy {' \
+  '	if st.State != pregen.StateIdle && st.State != pregen.StatePaused {' \
+  ./internal/agent '^TestPregenAcrossServerStops$'
+control "a task Chunky can't be asked about, or has lost, reads unknown, not paused" internal/agent/pregen.go \
+  '	case st == nil || st.State != pregen.StatePaused:' \
+  '	case false:' \
+  ./internal/agent '^(TestPregenCancel|TestPregenFinishesWhenChunkyLogsIt)$'
+webcontrol "the page says it's checking on a task Chunky can't be asked about" web/src/pages/server/world-pregen.tsx \
+  ": unknown ? t('pregen.unknown') :" \
+  ":" \
+  web/src/pages/server/world.test.tsx 'says it is checking'
 control "choosing the map's area takes an admin" internal/panel/server.go \
   'sm("POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),' \
   'smAs(actView, "POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),' \

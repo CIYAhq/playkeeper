@@ -115,7 +115,7 @@ function PhoneLink({ server, sub, icon, title, line, busy, disabledReason }: Omi
 /** The phone's rows for pre-generating and packs; a running pre-generation shows its progress. */
 export function PhoneWorldLinks({ server: s }: { server: ServerStatus }) {
   const pg = usePregen(s).data
-  const active = pg?.state === 'starting' || pg?.state === 'running' || pg?.state === 'paused'
+  const active = pg?.state === 'starting' || pg?.state === 'running' || pg?.state === 'paused' || pg?.state === 'unknown'
   return (
     <>
       <PhoneLink server={s} sub="pregen" icon={<MapIcon />} title={t('world.pregen')} line={active ? pregenLine(pg, s.name) : undefined} busy={working(pg)} disabledReason={worldMissingReason(s)} />

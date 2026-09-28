@@ -1255,8 +1255,9 @@ type PregenPreset struct {
 // Pregen is where pre-generating a server's map stands.
 type Pregen struct {
 	// State is idle (also after a cancel), starting (Playkeeper is
-	// installing Chunky or restarting the server for it), running, paused
-	// or finished.
+	// installing Chunky or restarting the server for it), running, paused,
+	// unknown (an unfinished task nobody paused that Chunky couldn't be
+	// asked about, or has just lost) or finished.
 	State string `json:"state"`
 	// Step is where starting stands: installing (Chunky), restarting (the
 	// server, to load it), starting_server or starting_task.
@@ -1274,7 +1275,9 @@ type Pregen struct {
 	ElapsedSeconds int64   `json:"elapsedSeconds,omitempty"`
 	// PausedBy says why a paused task waits: "user" (until someone
 	// resumes it), "players" (until the server has been empty a while;
-	// PausedFor is one of them) or "server" (until the server starts).
+	// PausedFor is one of them), "server" (until the server starts) or
+	// "memory" (the server ran out of memory twice while the task ran:
+	// until someone gives it more memory and resumes it).
 	PausedBy        string     `json:"pausedBy,omitempty"`
 	PausedFor       string     `json:"pausedFor,omitempty"`
 	PauseForPlayers bool       `json:"pauseForPlayers"`

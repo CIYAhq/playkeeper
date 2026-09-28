@@ -177,7 +177,7 @@ func (s *server) hMapAreaSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	filling := cur.Fill.State == "starting" || cur.Fill.State == "running" || cur.Fill.State == "paused"
+	filling := cur.Fill.State == "starting" || cur.Fill.State == "running" || cur.Fill.State == "paused" || cur.Fill.State == "unknown"
 	if req.Area == api.MapAreaExplored {
 		switch {
 		case cur.Fill.State == "finished":
