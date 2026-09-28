@@ -47,7 +47,7 @@ schema: article
   {{template "install" (dict "ID" true)}}
   {{template "steps" (dict "Class" "shot-steps" "Items" (list
     (dict "Title" "Search New server › A modpack" "Text" "Type All the Mods 10. It comes from CurseForge, with its loader and the memory it needs.")
-    (dict "Title" "Create and start it" "Text" (printf "The memory starts at %s. Playkeeper downloads %s from CurseForge and checks each file against CurseForge's hash." $m.Memory $m.DownloadSize))
+    (dict "Title" "Create and start it" "Text" (printf "The memory starts at %s. Playkeeper downloads the pack's %s from CurseForge, and ATM's %s server files for the five restricted mods, checking each file against CurseForge's hash." $m.Memory $m.DownloadSize (megabytes $m.ServerFiles.MB)))
     (dict "Title" "Wait for the first start" "Text" "About 80 seconds on the 27 Sep test machine, then the Overview shows it online.")
   ))}}
   {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs." "Sizes" $article)}}

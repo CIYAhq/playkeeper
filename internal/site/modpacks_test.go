@@ -14,14 +14,12 @@ import (
 // from the pack's facts, and when they were checked. Every page under
 // /modpacks has its pack's facts, and the hub lists each page.
 func TestModpackPagesFollowTheProduct(t *testing.T) {
-	o := build(t, Default)
-	built := pages(o)
-	s := &Site{}
-	var err error
-	if s.cards, err = loadTemplateCards(os.DirFS("../.."), "site/data/templates"); err != nil {
+	built := pages(build(t, Default))
+	cards, err := loadTemplateCards(os.DirFS("../.."), "site/data/templates")
+	if err != nil {
 		t.Fatal(err)
 	}
-	packs, err := loadModpacks(os.DirFS("../.."), "site/data/modpacks", s.cards)
+	packs, err := loadModpacks(os.DirFS("../.."), "site/data/modpacks", cards)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +50,7 @@ func TestModpackPagesFollowTheProduct(t *testing.T) {
 		if row := between(hub, `<a href="`+m.Path()+`">`+m.Name+`</a> `+m.Version+`</th>`, "</tr>"); !strings.Contains(row, `<td data-col="Memory">`+m.Memory()+`</td>`) {
 			t.Errorf("the hub doesn't list %s with the memory it needs: %q", m.Path(), row)
 		}
-		if m.Template != "" && !strings.Contains(page, `href="`+s.cards[m.Template].Link+`"`) {
+		if m.Template != "" && !strings.Contains(page, `href="`+cards[m.Template].Link+`"`) {
 			t.Errorf("%s doesn't open its template, %s", m.Path(), m.Template)
 		}
 	}

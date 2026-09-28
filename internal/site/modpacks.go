@@ -2,6 +2,7 @@ package site
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -217,6 +218,8 @@ func (s *Site) modpackList() []*Modpack {
 			out = append(out, m)
 		}
 	}
-	slices.SortFunc(out, func(a, b *Modpack) int { return b.Downloads - a.Downloads })
+	slices.SortFunc(out, func(a, b *Modpack) int {
+		return cmp.Or(cmp.Compare(b.Downloads, a.Downloads), cmp.Compare(a.ID, b.ID))
+	})
 	return out
 }
