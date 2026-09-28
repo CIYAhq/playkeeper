@@ -6848,6 +6848,52 @@ control "creator invites: the member keeps the allowance" internal/panel/join.go
   'grant.Servers.String(), 0, 0, now)' \
   ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
 
+# Creators' servers: created inside the allowance, one change at a time,
+# joining their servers; memory changes and restores stay inside it; only
+# their own servers are theirs to delete.
+control "creators: an admin of some servers without an allowance creates none" internal/panel/workspace.go \
+  'case act == actCreateOwnServers && !a.Servers.All && a.Allowance.IsZero():' \
+  'case act == actCreateOwnServers && false:' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: no more servers than the allowance" internal/panel/creators.go \
+  'if use.servers >= a.Allowance.Servers {' \
+  'if false {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: no more memory than the allowance" internal/panel/creators.go \
+  'if left := al.MemoryMB - use.memoryMB; memoryMB > left {' \
+  'if left := al.MemoryMB - use.memoryMB; false && memoryMB > left {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: a server the owner gave them keeps its memory" internal/panel/creators.go \
+  'if memoryMB != cur {' \
+  'if false && memoryMB != cur {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: they delete only the servers they created" internal/panel/creators.go \
+  'if !slices.Contains(owned, r.PathValue("id")) {' \
+  'if false && !slices.Contains(owned, r.PathValue("id")) {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: a new server joins their servers" internal/panel/creators.go \
+  'if !sc.All && !slices.Contains(sc.Servers, op.ServerID) {' \
+  'if false {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: memory changes in settings stay inside the allowance" internal/panel/creators.go \
+  'if !s.creatorMemoryFits(w, r, sess.Access, r.PathValue("id"), mb) {' \
+  'if false {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: a restore's memory stays inside the allowance" internal/panel/team.go \
+  'if method == "POST" && sess.Access.creator() {' \
+  'if false {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: the catalog offers only the memory their allowance has left" internal/panel/team.go \
+  'if sess.Access.creator() {' \
+  'if false {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: two creates at once are checked one after the other" internal/panel/creators.go \
+  'use, err := s.allowanceUse(r.Context(), a, m, "")' \
+  's.creators.Unlock()
+	defer s.creators.Lock()
+	use, err := s.allowanceUse(r.Context(), a, m, "")' \
+  ./internal/panel '^TestTwoCreatesAtOnceCantBothFitTheAllowance$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
