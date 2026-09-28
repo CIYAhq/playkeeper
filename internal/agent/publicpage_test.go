@@ -259,22 +259,28 @@ func TestThePageNeverTakesAPortSomethingElseUsesOrWillUse(t *testing.T) {
 
 func TestThePagesPortsReachThePanelOnlyOverTheAgentSocket(t *testing.T) {
 	e, https, plain := pageEnv(t, time.Hour, nil)
-	// Over anything but the agent's own socket the route opens nothing.
+	// Over anything but the agent's own socket the route doesn't even try
+	// the ports. They're held here meanwhile, so a try would find them busy
+	// and remember that, and the hand-over below would fail.
+	var held []net.Listener
+	for _, p := range []int{https, plain} {
+		ln, err := net.Listen("tcp", ":"+strconv.Itoa(p))
+		if err != nil {
+			t.Fatal(err)
+		}
+		held = append(held, ln)
+	}
 	req, _ := http.NewRequest("POST", e.ts.URL+pagePortsPath, strings.NewReader(`{"https":true,"http":true}`))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
+	for _, ln := range held {
+		ln.Close()
+	}
 	if resp.StatusCode != 400 {
 		t.Fatalf("over TCP the hand-over answers %d", resp.StatusCode)
-	}
-	for _, p := range []int{https, plain} {
-		if ln, err := net.Listen("tcp", ":"+strconv.Itoa(p)); err != nil {
-			t.Fatalf("port %d stayed open after a hand-over that couldn't pass it: %v", p, err)
-		} else {
-			ln.Close()
-		}
 	}
 
 	sock := filepath.Join(e.dir, "page.sock")
