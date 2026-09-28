@@ -37,6 +37,10 @@ if (!web || !site || !out) {
 const here = path.dirname(fileURLToPath(import.meta.url))
 const phone = { width: 390, height: 844 }
 const desktop = { width: 1280, height: 800 }
+// The Overview's join address card breaks an address anywhere to fit; from
+// 1320 pixels wide survival.alex.playkeeper.me fits on one line. Same shape
+// as desktop, which the landing page's product loop is framed for.
+const wide = { width: 1344, height: 840 }
 const survival = 'h4k8v2m9qa'
 const packToken = 'Pk7Friends0Pack0Link0A'
 
@@ -373,10 +377,10 @@ async function voiceChat(page) {
 // view.
 const shots = [
   // The landing page's product loop and live demo window: the whole view.
-  { name: 'loop-overview', route: '/servers/survival', size: desktop, dpr: 2 },
-  { name: 'loop-new-server', route: '/servers/new', size: desktop, dpr: 2 },
-  { name: 'loop-setting-up', route: '/servers/new', size: desktop, dpr: 2, before: createServer(900) },
-  { name: 'loop-setting-up-2', route: '/servers/new', size: desktop, dpr: 2, before: createServer(7000) },
+  { name: 'loop-overview', route: '/servers/survival', size: wide, dpr: 2 },
+  { name: 'loop-new-server', route: '/servers/new', size: wide, dpr: 2 },
+  { name: 'loop-setting-up', route: '/servers/new', size: wide, dpr: 2, before: createServer(900) },
+  { name: 'loop-setting-up-2', route: '/servers/new', size: wide, dpr: 2, before: createServer(7000) },
   { name: 'demo-home', route: '/', size: desktop, dpr: 2, keepDemo: true },
   // Phones: the hero's live map, whole, and the top of a screen for each feature card.
   { name: 'hero-map-phone', route: '/servers/survival/map', size: phone, dpr: 3, before: zoomMap },
@@ -390,7 +394,7 @@ const shots = [
   { name: 'feat-agents', route: '/settings/ai-agents', size: phone, dpr: 3, top: 300 },
   // Browser windows: the main panel from its top.
   { name: 'feature-mods', route: '/servers/cobblemon/mods', size: desktop, dpr: 2, panel: 560, before: startServer },
-  { name: 'ptero-hero', route: '/servers/survival', size: desktop, dpr: 2, panel: 560 },
+  { name: 'ptero-hero', route: '/servers/survival', size: wide, dpr: 2, panel: 560 },
   { name: 'ptero-world', route: '/servers/survival/world', size: desktop, dpr: 2, panel: 560 },
   // Crops of one part of a screen, from its heading.
   { name: 'post-backups', route: '/servers/survival/world', size: desktop, dpr: 3, cards: ['Make a backup', 'World'] },
