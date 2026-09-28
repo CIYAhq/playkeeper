@@ -425,11 +425,12 @@ func TestRestoreInterruptedUnder030IsKeptOnlyWithTheBackupsSettings(t *testing.T
 // world was starting, and could not stop the restored world, which ran on
 // from the failed restore's copy. After the upgrade the restore's record says
 // why it was undone, and a restored world still running from then is stopped
-// and the previous world started. A server stopped or restarted since is left
-// to start or run as usual. It is all done once.
+// and the previous world started, also when it started in the millisecond
+// the record keeps as the restore's end. A server stopped or restarted since
+// is left to start or run as usual. It is all done once.
 func TestRestoreUndoneBy030StoppingIsTidiedUp(t *testing.T) {
 	const why = "The Playkeeper agent stopped while the restored world was starting, so the restore was undone and your previous world put back."
-	for _, since := range []string{"", "stopped since", "restarted since"} {
+	for _, since := range []string{"", "stopped since", "restarted since", "started as the restore was undone"} {
 		name := "the restored world still runs"
 		if since != "" {
 			name = "the server was " + since
@@ -468,6 +469,11 @@ func TestRestoreUndoneBy030StoppingIsTidiedUp(t *testing.T) {
 				e.fd.mu.Lock()
 				e.fd.byName[e.cname()].started = time.Now().UTC()
 				e.fd.mu.Unlock()
+			case "started as the restore was undone":
+				// In the millisecond the record keeps as the restore's end.
+				e.fd.mu.Lock()
+				e.fd.byName[e.cname()].started = op.FinishedAt.Add(500 * time.Microsecond)
+				e.fd.mu.Unlock()
 			}
 			e.fd.mu.Lock()
 			strayID, strayStarted := e.fd.byName[e.cname()].id, e.fd.byName[e.cname()].started
@@ -475,7 +481,7 @@ func TestRestoreUndoneBy030StoppingIsTidiedUp(t *testing.T) {
 			restarted := time.Now()
 			e.start()
 			detail := "corrected the record of a restore undone because the agent stopped"
-			if since == "" {
+			if since == "" || since == "started as the restore was undone" {
 				detail = "stopped the restored world, which was still running after the restore was undone"
 			}
 			e.waitFor("the restore's record to be corrected", func() bool {

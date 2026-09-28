@@ -2407,9 +2407,13 @@ control "the lookup tried again asks PaperMC, not the cached failure" internal/a
   '_ = m' \
   ./internal/agent '^TestA030RestoreIsFinishedThroughAShortPaperMCOutage$'
 control "only a restored world started during a restore 0.3.0 undid is stopped" internal/agent/recovery.go \
-  'if !running || !ok || started.Before(op.StartedAt) || started.After(*op.FinishedAt) {' \
+  'if !running || !ok || started.Before(op.StartedAt) || started.Truncate(time.Millisecond).After(*op.FinishedAt) {' \
   'if !running || !ok || started.IsZero() {' \
   ./internal/agent '^TestRestoreUndoneBy030StoppingIsTidiedUp$/^the_server_was_restarted_since$'
+control "a restored world started in the millisecond its restore was undone in was started during it" internal/agent/recovery.go \
+  'started.Truncate(time.Millisecond).After(*op.FinishedAt)' \
+  'started.After(*op.FinishedAt)' \
+  ./internal/agent '^TestRestoreUndoneBy030StoppingIsTidiedUp$/^the_server_was_started_as_the_restore_was_undone$'
 control "only a restore 0.3.0 undid because the agent stopped is corrected" internal/agent/recovery.go \
   'strings.Contains(why, "context canceled")' \
   'strings.Contains(why, "")' \

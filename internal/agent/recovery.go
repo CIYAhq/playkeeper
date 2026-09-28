@@ -415,7 +415,9 @@ func (s *server) recoverUndoneRestore() {
 	fixed.Hint = strings.TrimPrefix(op.Hint, "Press Start on the Overview. ")
 	fixed.Detail["recoveredAfterRestart"] = true
 	started, ok := c.State.Started()
-	if !running || !ok || started.Before(op.StartedAt) || started.After(*op.FinishedAt) {
+	// The record keeps its times to the millisecond, and the restored world
+	// can have started in the millisecond the restore was undone in.
+	if !running || !ok || started.Before(op.StartedAt) || started.Truncate(time.Millisecond).After(*op.FinishedAt) {
 		s.saveOperation(fixed)
 		s.audit("playkeeper", "restore.recovered", op.ID, "succeeded", "corrected the record of a restore undone because the agent stopped")
 		return
