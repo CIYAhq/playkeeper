@@ -36,6 +36,9 @@ type fakeAgent struct {
 	// without it; turning it on adds crossplayLog to the log.
 	crossplay    *api.Crossplay
 	crossplayLog []string
+	// crossplaySlowDown makes the first crossplay operation fail with a
+	// reason that passes, after crossplay went on.
+	crossplaySlowDown bool
 }
 
 func (f *fakeAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -117,6 +120,11 @@ func (f *fakeAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.log = append(f.log, f.crossplayLog...)
 		reply(api.Operation{ID: "crossplay"})
 	case "GET /v1/operations/crossplay":
+		if f.crossplaySlowDown {
+			f.crossplaySlowDown = false
+			reply(api.Operation{ID: "crossplay", Status: "failed", Error: "Hangar asked Playkeeper to slow down."})
+			return
+		}
 		reply(api.Operation{ID: "crossplay", Status: "succeeded"})
 	case "POST /v1/servers/s1/stop":
 		reply(api.Operation{ID: "stop"})
@@ -449,5 +457,20 @@ func TestACheckTurnsOnCrossplay(t *testing.T) {
 		if len(agent.deleted) != 1 {
 			t.Errorf("%s: the server wasn't removed", name)
 		}
+	}
+}
+
+// When turning crossplay on fails for a reason that passes but leaves it on,
+// the check's second try checks Geyser rather than turning it on again.
+func TestACrossplayLeftOnByARetriedFailureIsChecked(t *testing.T) {
+	done := "[Server thread/INFO]: Done (12.51s)! For help, type \"help\""
+	agent := &fakeAgent{ready: true, log: []string{done}, crossplay: &api.Crossplay{Available: true, Port: 19132}, crossplaySlowDown: true,
+		crossplayLog: []string{"[Geyser-Spigot] Started Geyser on UDP port 19132", done}}
+	r := newTestChecker(t, agent).check(context.Background(), "survival", survivalFile(t), false, false)
+	if r.Status != statusPassing || !r.Check.Crossplay || r.CrossplayFailure != "" {
+		t.Fatalf("got %s, crossplay %v, %q", r.Status, r.Check != nil && r.Check.Crossplay, r.CrossplayFailure)
+	}
+	if n := strings.Count(strings.Join(agent.calls, "\n"), "POST /v1/servers/s1/crossplay"); n != 1 {
+		t.Errorf("crossplay was turned on %d times, want once", n)
 	}
 }
