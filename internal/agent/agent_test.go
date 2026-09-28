@@ -287,6 +287,32 @@ func (e *agentEnv) callWhenFree(method, path string, body any) (int, map[string]
 	}
 }
 
+// renameColumn renames table's column from to to, and returns what renames
+// it back. Both go through one connection: SQLite looks up the column an
+// ALTER TABLE RENAME COLUMN names in the schema that connection read last,
+// so another pooled connection can still see the old name and refuse.
+func (e *agentEnv) renameColumn(table, from, to string) (back func()) {
+	e.t.Helper()
+	ctx := context.Background()
+	c, err := e.a.db.Conn(ctx)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	e.t.Cleanup(func() { c.Close() })
+	alter := func(from, to string) {
+		e.t.Helper()
+		if _, err := c.ExecContext(ctx, `ALTER TABLE `+table+` RENAME COLUMN `+from+` TO `+to); err != nil {
+			e.t.Fatal(err)
+		}
+	}
+	alter(from, to)
+	return func() {
+		e.t.Helper()
+		alter(to, from)
+		c.Close()
+	}
+}
+
 func (e *agentEnv) status() api.ServerStatus {
 	e.t.Helper()
 	return e.srv().Status(context.Background())
