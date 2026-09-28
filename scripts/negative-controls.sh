@@ -2072,7 +2072,7 @@ control "the Java heap a pack's user_jvm_args.txt asks for is read" internal/mod
   '' \
   ./internal/modpacks '^TestPackHeapFromItsServerSettings$'
 control "the Java heap a CurseForge manifest recommends is read" internal/modpacks/resolve.go \
-  'p.heapMB = plausibleHeap(m.Minecraft.RecommendedRAM)' \
+  'p.heapMB = plausibleHeap(int(m.Minecraft.RecommendedRAM))' \
   'p.heapMB = 0' \
   ./internal/modpacks '^TestCurseForgePackHeap$'
 control "a pack's memory need covers the Java heap it asks for" internal/agent/modpacks.go \
@@ -4976,12 +4976,12 @@ control "Forge's installer setting names a downloaded jar in the server's folder
 		case "CUSTOM_SERVER", "NEOFORGE_INSTALLER":' \
   ./internal/minecraft/software '^TestPlanValidation$'
 control "a Forge installer installs the version pinned" internal/minecraft/software/forge.go \
-  'if prof.Version != name || prof.Minecraft != pin.MinecraftVersion || ver.ID != name || ver.InheritsFrom != pin.MinecraftVersion {' \
-  'if false && (prof.Version != name || prof.Minecraft != pin.MinecraftVersion || ver.ID != name || ver.InheritsFrom != pin.MinecraftVersion) {' \
+  'if prof.Version != name || prof.Minecraft != b.mc || ver.ID != name || ver.InheritsFrom != b.mc {' \
+  'if false && (prof.Version != name || prof.Minecraft != b.mc || ver.ID != name || ver.InheritsFrom != b.mc) {' \
   ./internal/minecraft/software '^TestInstallForgeRefuses$'
 control "Forge's installer looks for Mojang's jar where Playkeeper verified it" internal/minecraft/software/forge.go \
-  '; prof.ServerJarPath != want {' \
-  '; false && prof.ServerJarPath != want {' \
+  '.Replace(prof.ServerJarPath) != b.serverJarPath() {' \
+  '.Replace(prof.ServerJarPath) != b.serverJarPath() && false {' \
   ./internal/minecraft/software '^TestInstallForgeRefuses$'
 control "NeoForge's installers for Minecraft 1.21 to 1.21.11 install, NeoForm's data checked like the libraries" internal/minecraft/software/neoforge.go \
   'var neoforgeLibraryExts = []string{".jar", ".zip", ".tsrg.lzma"}' \
@@ -5000,19 +5000,19 @@ control "a Forge server starts from Forge's shim jar" internal/minecraft/softwar
   'if false && (prof.Path != shimCoord || !ok || shim == nil || shim.Path != into+"/"+shimRel) {' \
   ./internal/minecraft/software '^TestInstallForgeRefuses$'
 control "the shim jar a Forge server starts is checked" internal/minecraft/software/forge.go \
-  'checks = append(checks, Check{Path: shimName, Hash: shim.Hash, Size: shim.Size, Origin: Derived, Source: forgeLibrarySource})' \
+  'checks = append(checks, Check{Path: shimName, Hash: shim.Hash, Size: shim.Size, Origin: Derived, Source: libs})' \
   '' \
   ./internal/minecraft/software '^TestInstallForgeRefuses$'
 control "Forge's launch arguments are where the server container reads them" internal/minecraft/software/forge.go \
-  'if !extractsForgeArgs(prof, forgeArgsPath(pin)) {' \
-  'if false && !extractsForgeArgs(prof, forgeArgsPath(pin)) {' \
+  'if !extractsForgeArgs(prof, b.argsPath()) {' \
+  'if false && !extractsForgeArgs(prof, b.argsPath()) {' \
   ./internal/minecraft/software '^TestInstallForgeRefuses$'
 control "Forge's launch arguments start its checked shim jar" internal/minecraft/software/forge.go \
-  'if !startsJar(string(args), shimName) {' \
-  'if false && !startsJar(string(args), shimName) {' \
+  'case shimName != "" && !startsJar(string(args), shimName):' \
+  'case false && !startsJar(string(args), shimName):' \
   ./internal/minecraft/software '^TestInstallForgeRefuses$'
 control "the files Forge's installer builds are checked against the SHA-1s it publishes" internal/minecraft/software/forge.go \
-  'out = append(out, Check{Path: into + "/" + p, Hash: h, Origin: Derived, Source: forgeOutputSource})' \
+  'out = append(out, Check{Path: into + "/" + p, Hash: h, Origin: Derived, Source: source})' \
   '_, _ = p, h' \
   ./internal/minecraft/software '^TestInstallForgeRefuses$'
 control "a Forge installer must publish the patched jar's SHA-1" internal/minecraft/software/forge.go \
@@ -5031,6 +5031,54 @@ control "Forge keeps as much memory outside the heap as NeoForge" internal/minec
   '"neoforge": 1024, "forge": 1024}' \
   '"neoforge": 1024}' \
   ./internal/minecraft '^TestHeapForModLoaders$'
+
+# Minecraft 1.20.1: the oldest release offered, Forge's installers from
+# before its shim jar, NeoForge's builds under Forge's name, and the packs
+# that name them.
+control "Playkeeper offers Minecraft from 1.20.1 on, not 1.20" internal/minecraft/software/catalog.go \
+  'minecraft.CompareMinecraft(mc, minecraft.OldestRelease) >= 0' \
+  'minecraft.CompareMinecraft(mc, "1.20") >= 0' \
+  ./internal/minecraft/software '^(TestOffered|TestPinValidate|TestBuildsErrors)$'
+control "Paper's catalog starts at Minecraft 1.20.1" internal/minecraft/fill.go \
+  'CompareMinecraft(id, OldestRelease) < 0' \
+  'CompareMinecraft(id, "1.20") < 0' \
+  ./internal/minecraft '^TestCatalogStartsAtTheOldestRelease$'
+control "Forge's installers before Minecraft 1.20.3 get Mojang's jar under its plain name" internal/minecraft/software/forge.go \
+  'return b.group == "net.minecraftforge" && minecraft.CompareMinecraft(b.mc, "1.20.3") >= 0' \
+  'return b.group == "net.minecraftforge"' \
+  ./internal/minecraft/software '^(TestInstallForgeForMinecraft1201|TestResolveForge)$'
+control "a Forge server without a shim jar starts from the libraries its installer checked" internal/minecraft/software/forge.go \
+  'case shimName == "" && (prof.Path != "" || slices.Contains(strings.Fields(string(args)), "-jar")):' \
+  'case false:' \
+  ./internal/minecraft/software '^TestInstallForgeForMinecraft1201Refuses$'
+control "NeoForge's builds for Minecraft 1.20.1 are checked as the Forge installers they are" internal/minecraft/software/neoforge.go \
+  'derive, args = DeriveForge, b.argsPath()' \
+  '_ = b' \
+  ./internal/minecraft/software '^(TestInstallNeoForgeForMinecraft1201|TestResolveNeoForge)$'
+control "NeoForge's builds for Minecraft 1.20.1 come from its Forge-named artifact" internal/minecraft/software/neoforge.go \
+  'fileURL = neoforgeForgeMaven + "/" + b.id() + "/" + name' \
+  'fileURL = neoforgeMaven + "/" + b.id() + "/" + name' \
+  ./internal/minecraft/software '^TestResolveNeoForge$'
+control "NeoForge's list for Minecraft 1.20.1 keeps only its builds for 1.20.1" internal/minecraft/software/neoforge.go \
+  'ok && reNeoForgeForge.MatchString(v)' \
+  'reNeoForgeForge.MatchString(v)' \
+  ./internal/minecraft/software '^TestBuilds$'
+control "Forge's checks are only for a build Forge's installer makes" internal/minecraft/software/plan.go \
+  'd.Kind == DeriveForge && !ok {' \
+  'false {' \
+  ./internal/minecraft/software '^TestPlanValidation$'
+control "CurseForge's NeoForge builds for Minecraft 1.20.1 lose the version in front" internal/modpacks/requirements.go \
+  'if t == "forge" || t == "neoforge" {' \
+  'if t == "forge" {' \
+  ./internal/modpacks '^TestPackDependenciesDecideTheServer$'
+control "a CurseForge manifest's odd recommendedRam doesn't refuse the pack" internal/modpacks/curseforge/manifest.go \
+  '	if err != nil || n < 0 {
+		n = 0
+	}' \
+  '	if err != nil || n < 0 {
+		return err
+	}' \
+  ./internal/modpacks/curseforge '^TestRecommendedRAM$'
 control "a Forge server gets only the Forge build of a mod" internal/addons/target.go \
   'Loaders: []string{"forge"}}' \
   'Loaders: []string{"neoforge"}}' \
