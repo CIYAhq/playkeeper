@@ -43,16 +43,16 @@ docker run -d --name {{$l.ID}} -p 25565:25565{{if $l.Has "simple-voice-chat"}} -
 {{end}}
 
 {{/* library-card: a library template in the template cards' design, its
-     name linking to its page. ID is the template; Page the page, if it has
-     one; Holds what it adds. */}}
-{{define "library-card"}}{{$c := card .ID}}{{$a := img $c.Art}}
+     name linking to its page. ID is the template, left out while it's held;
+     Page the page, if it has one; Holds what it adds. */}}
+{{define "library-card"}}{{$in := .}}{{with shown .ID}}{{$c := card .}}{{$a := img $c.Art}}
 <article class="tpl-card reveal">
   <div class="tpl-art"><img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}" loading="lazy" decoding="async"></div>
   <div class="tpl-body">
-    <h3 class="tpl-name">{{with .Page}}<a href="{{.}}">{{$c.Name}}</a>{{else}}{{$c.Name}}{{end}}</h3>
+    <h3 class="tpl-name">{{with $in.Page}}<a href="{{.}}">{{$c.Name}}</a>{{else}}{{$c.Name}}{{end}}</h3>
     <p class="tpl-facts"><span class="wide-only">{{$c.Facts}}</span><span class="phone-only">{{$c.Short}}</span></p>
-    <p class="tpl-holds wide-only">{{or .Holds $c.Holds}}</p>
+    <p class="tpl-holds wide-only">{{or $in.Holds $c.Holds}}</p>
     <a class="link-arrow tpl-open" href="{{$c.Link}}"><span class="wide-only">Open in my dashboard</span><span class="phone-only">Open</span>{{template "icon" "arrow-right"}}<span class="visually-hidden"> the {{$c.Name}} template</span></a>
   </div>
 </article>
-{{end}}
+{{end}}{{end}}

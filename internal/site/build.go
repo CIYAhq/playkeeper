@@ -625,6 +625,23 @@ func (s *Site) funcs() template.FuncMap {
 			}
 			return c, nil
 		},
+		// shown is the first of the templates that isn't held, or "" when
+		// all are: a template, then the stand-in a page names for it.
+		"shown": func(ids ...string) (string, error) {
+			for _, id := range ids {
+				if id == "" {
+					continue
+				}
+				c, ok := s.cards[id]
+				if !ok {
+					return "", fmt.Errorf("no template %q in site/data/templates", id)
+				}
+				if !c.Held() {
+					return id, nil
+				}
+			}
+			return "", nil
+		},
 		"providers": func() []Provider { return providers },
 		"sizing":    func() SizingGuide { return s.sizing },
 		// sizingFor is the sizing guide's answer for friends playing at once

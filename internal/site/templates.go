@@ -35,7 +35,14 @@ type TemplateCard struct {
 	Pack, PackVersion string
 	// Template is the template itself, for the pages that describe it.
 	Template *templates.Template
+	// OpensFrom is the first Playkeeper release that opens the template, set
+	// only while that release isn't out. Until then no page links it.
+	OpensFrom string
 }
+
+// Held reports whether the release people install can't open the template
+// yet, so pages leave it out.
+func (c *TemplateCard) Held() bool { return c.OpensFrom != "" }
 
 // cardExtra is what a card shows that the template itself doesn't say.
 type cardExtra struct {
@@ -43,7 +50,8 @@ type cardExtra struct {
 	// Mods is how many mods the pinned modpack version bundles, counted as
 	// the dashboard counts them: the version's embedded projects on
 	// Modrinth.
-	Mods int `json:"mods,omitempty"`
+	Mods      int    `json:"mods,omitempty"`
+	OpensFrom string `json:"opensFrom,omitempty"`
 }
 
 // loadTemplateCards reads the templates in dir (one .json each, in the format
@@ -59,6 +67,9 @@ func loadTemplateCards(src fs.FS, dir string) (map[string]*TemplateCard, error) 
 	}
 	cards := map[string]*TemplateCard{}
 	for id, extra := range extras {
+		if extra.OpensFrom != "" && !reRelease3.MatchString(extra.OpensFrom) {
+			return nil, fmt.Errorf("cards.json: %s opens from %q, which isn't a release like 0.4.4", id, extra.OpensFrom)
+		}
 		raw, err := fs.ReadFile(src, path.Join(dir, id+".json"))
 		if err != nil {
 			return nil, err
@@ -89,6 +100,7 @@ func loadTemplateCards(src fs.FS, dir string) (map[string]*TemplateCard, error) 
 			MemoryMB: t.Settings.MemoryMB,
 			Template: &t,
 		}
+		c.OpensFrom = extra.OpensFrom
 		if t.Modpack != nil {
 			c.Pack, c.PackVersion = t.Modpack.Project, t.Modpack.Pin.VersionNumber
 		}

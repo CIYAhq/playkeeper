@@ -3,6 +3,7 @@ package site
 import (
 	"maps"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -85,6 +86,55 @@ func TestLibraryPagesFollowTheirTemplates(t *testing.T) {
 	for p := range built {
 		if id, ok := strings.CutPrefix(p, "/templates/"); ok && library[id] == nil {
 			t.Errorf("%s has no facts in site/data/library/%s.json", p, id)
+		}
+	}
+}
+
+// No page links a template the release people install can't open yet: its
+// cards stay out, or give way to the stand-in a page names, and the pack
+// pages offer New server › A modpack, until that release is out.
+func TestNoPageOpensAHeldTemplate(t *testing.T) {
+	built := pages(build(t, Default))
+	cards, err := loadTemplateCards(os.DirFS("../.."), "site/data/templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cards {
+		if !c.Held() {
+			continue
+		}
+		for p, html := range built {
+			if strings.Contains(html, c.Link) {
+				t.Errorf("%s opens the %s template, which opens only from Playkeeper %s", p, c.ID, c.OpensFrom)
+			}
+		}
+	}
+}
+
+// A held template says which release opens it, so it's clear when it can
+// come back.
+func TestAHeldTemplateSaysWhichReleaseOpensIt(t *testing.T) {
+	dir := t.TempDir()
+	tpl, err := os.ReadFile("../../site/data/templates/creative.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "creative.json"), tpl, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for opens, ok := range map[string]bool{"": true, "0.4.4": true, "soon": false, "v0.4.4": false} {
+		cards := `{"creative": {"art": "app/pixel-art/play-creative.svg", "opensFrom": "` + opens + `"}}`
+		if err := os.WriteFile(filepath.Join(dir, "cards.json"), []byte(cards), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := loadTemplateCards(os.DirFS(dir), ".")
+		switch {
+		case ok && err != nil:
+			t.Errorf("opensFrom %q: %v", opens, err)
+		case !ok && err == nil:
+			t.Errorf("opensFrom %q passes", opens)
+		case ok && got["creative"].Held() != (opens != ""):
+			t.Errorf("opensFrom %q: held is %v", opens, got["creative"].Held())
 		}
 	}
 }
