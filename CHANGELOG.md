@@ -20,6 +20,8 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - Fixed: a CurseForge pack whose manifest gives its recommended memory as text, like Better MC [FABRIC] BMC2, was refused as not valid JSON.
 - Someone on your team with only some servers now sees only the team members and invites that share a server with them, on the Team page and in the activity, and no longer gets the other servers' names with the memory settings.
 - Fixed: a new install couldn't create a NeoForge server or a NeoForge modpack while NeoForge's own version list was broken, as it was on 28 Sep, listing only two 26.3 betas. Playkeeper now keeps the last list it had when NeoForge's loses its stable versions, and a machine with none uses the list this release was built with. It also keeps asking NeoForge for its list for about 25 seconds, instead of 6, when NeoForge says it doesn't have it or doesn't answer.
+- Fixed: Modrinth modpacks whose list says every mod is for both sides, like Better MC 5, put mods that only run in the game client on the server, where Better Grassify and Distraction Free Recipes stopped its first start. Playkeeper now asks Modrinth about each mod, as it does for CurseForge packs.
+- Fixed: a mod a pack marks for players only that another of its mods needs on the server, like Mod Menu for Prominence II's Forge Config Screens, was left off and stopped the server's start. It now goes on the server.
 
 ## 0.4.3
 
