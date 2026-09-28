@@ -84,7 +84,8 @@
     if (over[0] === 1) warning.textContent = 'Line 1 is wider than the list: Minecraft wraps it, and ' + (ls[1] && ls[1].length ? 'line 2 drops out of sight.' : 'the rest shows as line 2.');
     else if (over[0] === 2) warning.textContent = 'Line 2 is wider than the list: its end is cut off.';
     out.props.textContent = 'motd=' + mc.properties(shown);
-    out.mini.textContent = 'motds=[\n    {\n        icon=random\n        line1=' + hocon(mc.minimessage(ls[0] || [], editor.gradients)) + '\n        line2=' + hocon(mc.minimessage(ls[1] || [], editor.gradients)) + '\n    }\n]';
+    var mini = function (line) { var o = mc.own(line || [], editor.gradients); return hocon(mc.minimessage(o.chars, o.gradients)); };
+    out.mini.textContent = 'motds=[\n    {\n        icon=random\n        line1=' + mini(ls[0]) + '\n        line2=' + mini(ls[1]) + '\n    }\n]';
     out.sect.textContent = mc.legacy(shown, '§', 'x', false);
     out.amp.textContent = mc.legacy(shown, '&', 'hash', false);
     hexNote.hidden = !shown.some(function (c) { return c.st.c && !c.st.l; });

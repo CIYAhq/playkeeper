@@ -65,6 +65,15 @@ test('the text engine writes each format as the game and plugins read it', async
         gg.apply(cs)
         return { mm: mc.minimessage(cs, gg), runs: new Set(cs.map((c) => c.st.g)).size, c: cs[3].st.c }
       })(),
+      ownPart: (() => {
+        const gg = new G()
+        const cs = mc.parseMiniMessage('<gradient:#ff0000:#0000ff>abcd</gradient>', gg) as unknown[]
+        gg.apply(cs)
+        const own = mc.own as unknown as (c: unknown[], g: unknown) => { chars: unknown[]; gradients: unknown }
+        const part = own(cs.slice(0, 2), gg)
+        const whole = own(cs, gg)
+        return [mc.minimessage(part.chars, part.gradients), mc.minimessage(whole.chars, whole.gradients)]
+      })(),
     }
   })
   expect(r.javaBold, 'on Java a colour turns bold off').toEqual([true, true, true, true, true, false, false, false, false, false])
@@ -91,6 +100,7 @@ test('the text engine writes each format as the game and plugins read it', async
   expect(r.bedrockUnderline, "Bedrock's §n and §m are colours, so underline and strikethrough aren't written").toBe('Hi so §lthere')
   expect(r.bedrockCodes, "Bedrock's own colour codes are read from a paste on Bedrock only").toEqual(['legacy', null])
   expect(r.gradientBreak, 'a gradient across a line break stays one run, and comes back as it went in').toEqual({ mm: '<gradient:#ff0000:#0000ff>ab<newline>cd', runs: 1, c: '#4000bf' })
+  expect(r.ownPart, "part of a gradient gets stops for its own colours; a whole one keeps its own").toEqual(['<gradient:#ff0000:#aa0055>ab', '<gradient:#ff0000:#0000ff>abcd'])
 })
 
 test('the colour codes page: codes copy with a click, the text maker colours a selection, reads pasted codes, undoes, and does Bedrock', async ({ browser, baseURL }) => {
@@ -215,6 +225,21 @@ test('the MOTD generator: the server list wraps and warns as the game does, cent
   await page.locator('#motd-text').press('Enter')
   await page.locator('#motd-text').type('x')
   await expect(page.locator('#motd-text')).toHaveValue('One\nTwox')
+
+  // A gradient across both lines: MiniMOTD takes each line on its own, so
+  // each gets stops for its own colours.
+  await page.locator('#motd-text').evaluate((el: HTMLTextAreaElement) => {
+    el.focus()
+    el.setSelectionRange(0, el.value.length)
+    const dt = new DataTransfer()
+    dt.setData('text/plain', '<gradient:#ff0000:#0000ff>ab<newline>cd</gradient>')
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+  })
+  await page.locator('#motd-tab-mini').click()
+  await expect(page.locator('#motd-out-mini')).toContainText('line1="<gradient:#ff0000:#bf0040>ab"')
+  await expect(page.locator('#motd-out-mini')).toContainText('line2="<gradient:#4000bf:#0000ff>cd"')
+  await page.locator('#motd-text').fill('')
+  await page.locator('#motd-text').fill('One\nTwox')
 
   // Centred: spaces in front, the first written as "\ " so server.properties keeps them.
   await tool.locator('label[for="motd-align-centre"]').click()

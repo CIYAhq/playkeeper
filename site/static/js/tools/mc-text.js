@@ -216,6 +216,32 @@
     }
   };
 
+  // own gives each run of a gradient in chars stops of its own that colour it
+  // as it's coloured now, for writing part of the text, like one line of a
+  // MOTD, as MiniMessage: MiniMessage spreads a gradient over just the text
+  // it's given. A part of a two-stop gradient gets its first and last
+  // colours, and a part of a longer one a stop for each letter.
+  function own(chars, gradients) {
+    var mine = new Gradients();
+    var out = chars.map(function (c) { return { ch: c.ch, st: copyStyle(c.st) }; });
+    var i = 0;
+    while (i < out.length) {
+      var g = out[i].st.g;
+      if (!g || !gradients.list[g]) { i++; continue; }
+      var j = i;
+      while (j < out.length && out[j].st.g === g) j++;
+      var run = out.slice(i, j);
+      var stops = gradients.list[g];
+      var n = run.length;
+      var whole = run.every(function (c, k) { return c.st.c === gradients.at(stops, n === 1 ? 0 : k / (n - 1)); });
+      var colours = run.map(function (c) { return c.st.c; });
+      var id = whole ? mine.add(stops) : n === 1 ? 0 : mine.add(stops.length === 2 ? [colours[0], colours[n - 1]] : colours);
+      run.forEach(function (c) { c.st.g = id; });
+      i = j;
+    }
+    return { chars: out, gradients: mine };
+  }
+
   // The width of each character in the game's default font, in its pixels,
   // before the one-pixel gap after it; bold adds a pixel. Characters not
   // listed are 5 wide.
@@ -454,6 +480,7 @@
     nearest: nearest,
     properties: properties,
     minimessage: minimessage,
+    own: own,
     json: json,
     text: text,
     FORMAT_KEYS: FORMAT_KEYS,
