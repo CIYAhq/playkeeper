@@ -188,6 +188,30 @@ def check_map(c, label):
     return {"state": m["state"], "areas": m.get("areas"), "plugin": f"{m.get('plugin')} {m.get('pluginVersion', '')}".strip()}
 
 
+def settle(c, label):
+    """Waits until the server runs everything installed: no operation under
+    way, no restart still to come (Restart is pressed for one the add-ons
+    need, as the dashboard asks), the same run on two looks in a row, and
+    Chunky answering the console. A task Chunky has just started is lost to a
+    restart that comes before Chunky saves it (ARM64 run 36357996413)."""
+    run = [None]
+
+    def ready():
+        st = c.status()
+        if st["phase"] != "online" or not st.get("reachable") or st.get("operation"):
+            run[0] = None
+            return None
+        if st.get("pendingRestart") or c.ok("GET", c.sp("/addons")).get("restartNeeded"):
+            restart(c, label, "every add-on loaded")
+            run[0] = None
+            return None
+        if st.get("startedAt") != run[0]:
+            run[0] = st.get("startedAt")
+            return None
+        return st if "[Chunky]" in console(c, "chunky progress") else None
+    return wait_for(f"{label}: running every add-on, with Chunky answering", ready, 600)
+
+
 def check_pregen(c, label):
     op = c.ok("POST", c.sp("/pregen/start"), {"preset": "small", "pauseForPlayers": False})
     op = c.wait_op(op["id"], timeout=900)
@@ -238,6 +262,7 @@ def one_type(c, typ, cpu):
         st = c.wait_online(timeout=900)
         check(not st.get("crash") and st["phase"] == "online", f"{label}: online with {len(picked)} add-ons and the map")
         rec["map"] = check_map(c, label)
+        settle(c, label)
         rec["pregen"] = check_pregen(c, label)
         st = c.wait_online(timeout=600)
         if "voice-chat" in picked:
