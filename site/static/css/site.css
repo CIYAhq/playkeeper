@@ -231,6 +231,10 @@ main:focus { outline: none; }
   .install-shares .install-copy-label { display: inline; }
   .install-share { display: inline-flex; flex: 2 0 auto; }
 }
+/* So a channel's lines fit on 360-pixel phones, common on Android. */
+@media (max-width: 374.98px) {
+  .install-tagged .install-cmd { font-size: 11px; }
+}
 
 /* A toast, for "Command copied" on phones. */
 .toast { position: fixed; left: 50%; bottom: 20px; z-index: 60; display: flex; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 32px); padding: 12px 16px; border-radius: 12px; background: var(--ink); color: var(--white); font-size: 15px; font-weight: 600; box-shadow: var(--shadow-lg); transform: translate(-50%, 0); transition: transform 0.24s var(--ease-out), opacity 0.2s; }
