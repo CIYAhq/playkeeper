@@ -128,6 +128,9 @@ type Server struct {
 		sync.Mutex
 		list string
 	}
+	// creators serialises what creators create, resize and delete, so each
+	// change is checked against the allowance as it stands.
+	creators sync.Mutex
 }
 
 func New(opts Options) (*Server, error) {
@@ -343,7 +346,7 @@ func (s *Server) Routes() []Route {
 		an("/api/machines/{mid}/address/check", "/v1/address/check"),
 		an("/api/machines/{mid}/address/certificate", "/v1/address/certificate"),
 		{"DELETE", "/api/machines/{mid}/address", needSessionCSRF, actManageMachine, s.addressProxy("DELETE", "/v1/address")},
-		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actCreateServers, s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)},
+		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actCreateOwnServers, s.hCreateServer},
 		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actCreateServers, s.rawUpload("/v1/restore/upload", "application/gzip")},
 		{"GET", "/api/machines/{mid}/restore/{rid}", needSession, actRestore, s.restoreProxy("GET", "/v1/restore/{rid}", nil)},
 		{"POST", "/api/machines/{mid}/restore/{rid}/apply", needSessionCSRF, actRestore, s.restoreProxy("POST", "/v1/restore/{rid}/apply", s.claimCreatedBy)},
@@ -354,9 +357,9 @@ func (s *Server) Routes() []Route {
 		smAs(actRunServers, "POST", "/api/servers/{id}/start", "/v1/servers/{id}/start"),
 		smAs(actRunServers, "POST", "/api/servers/{id}/stop", "/v1/servers/{id}/stop"),
 		smAs(actRunServers, "POST", "/api/servers/{id}/restart", "/v1/servers/{id}/restart"),
-		sm("POST", "/api/servers/{id}/settings", "/v1/servers/{id}/settings"),
+		{"POST", "/api/servers/{id}/settings", needSessionCSRF, actManageServers, s.hServerSettings},
 		sm("POST", "/api/servers/{id}/version", "/v1/servers/{id}/version"),
-		smAs(actCreateServers, "POST", "/api/servers/{id}/delete", "/v1/servers/{id}/delete"),
+		{"POST", "/api/servers/{id}/delete", needSessionCSRF, actCreateOwnServers, s.hDeleteServer},
 		view("/api/servers/{id}/icon", s.rawGet("/v1/servers/{id}/icon", "image/png")),
 		{"POST", "/api/servers/{id}/icon", needSessionCSRF, actManageServers, s.rawUpload("/v1/servers/{id}/icon", "image/png")},
 		sg("/api/servers/{id}/logs", "/v1/servers/{id}/logs"),
