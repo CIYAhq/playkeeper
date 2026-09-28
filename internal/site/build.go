@@ -43,6 +43,9 @@ type Output struct {
 	// Nginx is included in nginx.conf's server block: the headers and
 	// redirects that follow the settings.
 	Nginx []byte
+	// Policy is the Content-Security-Policy nginx sends with every page but
+	// /start, whose own is StartPolicy; cmd/site -serve sends them too.
+	Policy, StartPolicy string
 }
 
 // Site is the site being built, for the templates.
@@ -145,6 +148,7 @@ func Build(o Options) (*Output, error) {
 	out.Files["robots.txt"] = robots(o.Settings.BaseURL)
 	out.Files["blog/feed.xml"] = feed(o.Settings, s.posts)
 	out.Nginx = nginxInclude(o.Settings)
+	out.Policy, out.StartPolicy = contentSecurityPolicy(o.Settings, false), contentSecurityPolicy(o.Settings, true)
 	return out, nil
 }
 
@@ -456,6 +460,16 @@ func (s *Site) exists(addr string) bool {
 	return p != nil
 }
 
+func (s *Site) tools() []*Page {
+	var out []*Page
+	for _, t := range tools {
+		if p := s.byPath[t.Path]; p != nil {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 type footerView struct {
 	Title string
 	Links []FooterLink
@@ -562,8 +576,22 @@ func (s *Site) funcs() template.FuncMap {
 			return faqSchema(qs), nil
 		},
 		"crumbSchema": func(crumbs []Crumb) map[string]any { return crumbSchema(s.opts.Settings.BaseURL, crumbs) },
-		"types":       func() []ServerType { return serverTypes(rowOrder) },
-		"typeCount":   func() int { return len(serverTypes(textOrder)) },
+		// tools are the free tools that exist, in the menu's order.
+		"tools":   s.tools,
+		"palette": func() []Swatch { return palette },
+		// data is a tool's own data from Go (toolData).
+		"data": func(name string) (any, error) {
+			f, ok := toolData[name]
+			if !ok {
+				return nil, fmt.Errorf("no tool data %q", name)
+			}
+			return f(), nil
+		},
+		"toolListSchema": func() map[string]any {
+			return toolListSchema(s.opts.Settings.BaseURL, s.tools())
+		},
+		"types":     func() []ServerType { return serverTypes(rowOrder) },
+		"typeCount": func() int { return len(serverTypes(textOrder)) },
 		"typeNames": func() string {
 			var names []string
 			for _, t := range serverTypes(textOrder) {
