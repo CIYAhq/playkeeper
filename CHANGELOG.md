@@ -4,6 +4,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.2
 
+- A **Files** tab on each server, for admins: browse its folder, edit `server.properties`, YAML, JSON and TOML in an editor that marks what Playkeeper sets from Settings, upload files or whole folders by dragging them in (uploads carry on after a dropped connection), download files or folders as a zip, and make folders, rename, move and delete. While the server runs its world is read-only, and other changes apply when it restarts.
 - Free addresses now end in `.playkeeper.me`, a domain used for nothing else. Updating moves yours by itself: `siya.playkeeper.io` becomes `siya.playkeeper.me`, with a new certificate a few minutes later. The old address keeps working for two months, and links you shared with it open without a warning until its certificate runs out. Machines connected to your dashboard at its free address follow it.
 - Playkeeper installs on Ubuntu 20.04, 22.04, 24.04 and 26.04 LTS and on Debian 12 and 13, not only on Ubuntu 24.04. A newer release of either only warns instead of stopping the install.
 - Playkeeper installs on AlmaLinux and Rocky Linux 9 and 10, Oracle Linux 9, Amazon Linux 2023, and RHEL and CentOS Stream 9 and 10. Docker comes from Docker's repository (or Amazon Linux's), firewalld gets the ports opened, and uninstall leaves the host as it was, Podman included.
