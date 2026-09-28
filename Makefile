@@ -83,15 +83,19 @@ site: ## Build playkeeper.io into site/dist (html/ is the web root; site/README.
 template-check: ## Create and start a server from each site template on a running Playkeeper (SOCKET=.dev/agent.sock, ARGS="-only towny -write -pin")
 	go run ./cmd/template-check -socket $(or $(SOCKET),.dev/agent.sock) $(ARGS)
 
-# A template that fails its check or its capture still leaves the others'
-# worlds, so they're drawn before the failure is reported. shots.py writes the
-# 16:10 captures at the site's widths and needs Pillow 11.3 or newer (PYTHON=).
+# A template that fails its check, its capture or its render still leaves the
+# others' pictures, so they're drawn and written before the failure is
+# reported. shots.py writes the 16:10 captures at the site's widths and needs
+# Pillow 11.3 or newer (PYTHON=).
 template-thumbnails: ## Thumbnails of the site's templates from their real worlds, on playkeeper dev run with PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1 (SOCKET=, ARGS="-only towny")
 	cd site/tools/thumbnails && npm ci --no-audit --no-fund && npm run build
 	rm -rf $(or $(SHOTS),.tmp/shots)
 	status=0; go run ./cmd/template-check -socket $(or $(SOCKET),.dev/agent.sock) -shots $(or $(SHOTS),.tmp/shots) $(ARGS) || status=$$?; \
 	if ls $(or $(SHOTS),.tmp/shots)/*.json.gz >/dev/null 2>&1; then \
-	  node site/tools/thumbnails/render.mjs $(or $(SHOTS),.tmp/shots) && $(or $(PYTHON),python3) site/tools/shots.py $(or $(SHOTS),.tmp/shots)/captures || status=1; \
+	  node site/tools/thumbnails/render.mjs $(or $(SHOTS),.tmp/shots) || status=1; \
+	fi; \
+	if ls $(or $(SHOTS),.tmp/shots)/captures/templates/*.png >/dev/null 2>&1; then \
+	  $(or $(PYTHON),python3) site/tools/shots.py $(or $(SHOTS),.tmp/shots)/captures || status=1; \
 	fi; \
 	exit $$status
 
