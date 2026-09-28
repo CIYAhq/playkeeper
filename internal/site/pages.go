@@ -32,8 +32,10 @@ type Page struct {
 	Layout string
 	// Crumb is the parent in the breadcrumb, a section's label.
 	Crumb string
-	// OG names the social preview image, og/<OG>.png.
-	OG string
+	// OG names the social preview image, og/<OG>.png, and OGWords the words
+	// on it when they aren't the page's label, as on a page that shares its
+	// hub's image.
+	OG, OGWords string
 	// Published and Updated are days, YYYY-MM-DD.
 	Published, Updated string
 	// NoIndex keeps the page out of search engines and the sitemap.

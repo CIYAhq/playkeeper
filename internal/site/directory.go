@@ -33,6 +33,10 @@ const PerPage = 24
 // engines index its page, when it has no page of its own in site/pages.
 const minIndexedCategory = 3
 
+// sharedPreview is og/templates.png, which the pages made from the data
+// share, and the words on it (test/e2e/ui/site-og.mjs draws it).
+const sharedPreview, sharedPreviewWords = "templates", "Minecraft server templates, one click each"
+
 var reDirSlug = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 // Taxonomy is site/data/templates/taxonomy.json: the categories templates
@@ -565,7 +569,7 @@ func (s *Site) addDirectory() error {
 			Path:        fmt.Sprintf("/templates/page/%d", n),
 			Title:       fmt.Sprintf("Minecraft server templates, page %d of %d", n, pages),
 			Description: fmt.Sprintf("Page %d of %d of Minecraft server templates for Playkeeper, each created and started on a real server before it was listed.", n, pages),
-			Label:       hub.Label, H1: hub.H1, Card: hub.Card, Kind: hub.Kind, OG: hub.OG,
+			Label:       hub.Label, H1: hub.H1, Card: hub.Card, Kind: hub.Kind, OG: hub.OG, OGWords: hub.OGWords,
 			Layout: "directory", NoIndex: true,
 		}
 		s.directoryPage(p, &DirView{Kind: "directory", List: d.Templates, Page: n, Pages: pages})
@@ -588,7 +592,7 @@ func (s *Site) addDirectory() error {
 				Title:       c.Name + " server templates for Minecraft",
 				Description: c.Description,
 				Label:       c.Name + " server templates", H1: c.Name + " server templates",
-				Kind: "Templates", OG: "templates", Layout: "category",
+				Kind: "Templates", OG: sharedPreview, OGWords: sharedPreviewWords, Layout: "category",
 			}
 			p.Card = p.Label
 			s.pages = append(s.pages, p)
@@ -601,7 +605,7 @@ func (s *Site) addDirectory() error {
 				Path:        fmt.Sprintf("%s/page/%d", c.Path(), n),
 				Title:       fmt.Sprintf("%s server templates, page %d of %d", c.Name, n, pages),
 				Description: fmt.Sprintf("Page %d of %d of %s server templates for Playkeeper, each created and started on a real server before it was listed.", n, pages, c.Name),
-				Label:       p.Label, H1: p.H1, Card: p.Card, Kind: p.Kind, OG: p.OG,
+				Label:       p.Label, H1: p.H1, Card: p.Card, Kind: p.Kind, OG: p.OG, OGWords: firstOf(p.OGWords, p.Label),
 				Layout: "category", NoIndex: true,
 			}
 			s.directoryPage(q, &DirView{Kind: "category", Category: c, List: c.Templates, Page: n, Pages: pages})
@@ -621,7 +625,7 @@ func (s *Site) addDirectory() error {
 				Title:       t.Name + ": a Minecraft server template",
 				Description: metaDescription(t.Description(), "Open it in your own Playkeeper dashboard in one click; nothing installs until you confirm."),
 				Label:       t.Name + " server template", H1: t.Name,
-				Kind: "Template", OG: "templates", Layout: "template", NoIndex: true,
+				Kind: "Template", OG: sharedPreview, OGWords: sharedPreviewWords, Layout: "template", NoIndex: true,
 			}
 			p.Card = p.Label
 			s.pages = append(s.pages, p)
@@ -632,7 +636,7 @@ func (s *Site) addDirectory() error {
 			Title:       "Open " + t.Name + " in your dashboard",
 			Description: "Opens the " + t.Name + " server template on Playkeeper's share page, which sends it to your own dashboard. Nothing installs until you confirm there.",
 			Label:       t.Name, H1: "Opening " + t.Name,
-			OG: "t", Layout: "open", Closing: "none", NoIndex: true, Refresh: t.Link,
+			OG: "t", OGWords: "A Minecraft server setup, shared from Playkeeper", Layout: "open", Closing: "none", NoIndex: true, Refresh: t.Link,
 		}
 		open.Card = open.Label
 		open.dir = &DirView{Kind: "open", Category: t.Primary(), Template: t}

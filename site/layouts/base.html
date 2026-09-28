@@ -17,7 +17,7 @@
 <meta property="og:image" content="{{.Image}}">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Pip, Playkeeper's mascot, with the words {{.Page.Label}}">
+<meta property="og:image:alt" content="Pip, Playkeeper's mascot, with the words {{or .Page.OGWords .Page.Label}}">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{{.Page.Label}}">
 <meta name="twitter:description" content="{{.Page.Description}}">
