@@ -1,0 +1,140 @@
+{{/*
+path: /modpacks/stoneblock-4-server
+title: How to make a StoneBlock 4 server (FTB StoneBlock 4), 2026
+description: Set up an FTB StoneBlock 4 server: NeoForge 21.1.250, Java 21, 11.5 GB of memory and the four files you add by hand, or FTB's own installer.
+label: StoneBlock 4 server
+h1: How to make a StoneBlock 4 server (FTB StoneBlock 4)
+card: How to make a StoneBlock 4 server
+kind: Modpack
+section: guides
+layout: guide
+crumb: Modpacks
+og: modpack-stoneblock-4
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$m := modpack "stoneblock-4"}}A StoneBlock 4 server runs {{$m.TypeName}} {{$m.Loader}} on Minecraft {{$m.Minecraft}} with Java {{$m.Java}}, and needs about {{$m.Memory}} of memory for the {{$m.HeapGB}} heap FTB asks for. Playkeeper {{$m.Release}} installs version {{$m.Version}} from CurseForge and leaves three mods and a data pack for you to add. FTB's own installer gets all four.{{end}}
+
+{{define "closing-title"}}StoneBlock 4 on your own server, in one click.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper sizes the server for the pack and lists each file it can't download.{{end}}
+
+{{define "side-text"}}Playkeeper installs StoneBlock 4 from CurseForge and lists the four files to add.{{end}}
+
+{{define "article"}}{{$m := modpack "stoneblock-4"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+{{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
+<section aria-labelledby="needs">
+  {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What a StoneBlock 4 server needs" "Toc" "What it needs")}}
+  {{template "modpack-facts" (dict "Pack" $m)}}
+  <p>FTB releases a new version every week or two: 1.20.1 on 1 Sep, 1.21.0 on 9 Sep and 1.22.0 on 22 Sep. Your server and your friends' games must run the same one.</p>
+  <p>On 28 Sep, a server created from its template on the published {{$m.Release}} was online 1 minute 44 seconds after Create, downloads included. Its log said <code>Done (1.357s)!</code>, a timer that leaves out loading the mods.</p>
+</section>
+
+<section aria-labelledby="memory">
+  {{template "h2n" (dict "ID" "memory" "N" 2 "Text" "How much memory StoneBlock 4 needs" "Toc" "How much memory")}}
+  <p>FTB's listing recommends {{$m.HeapGB}}, with 6 GB as the least, and the pack's CurseForge file asks Java for {{$m.HeapGB}}. That's the heap alone. NeoForge and {{$m.Mods}} mods take memory outside it, so Playkeeper suggests {{$m.Memory}}, of which Java gets {{$m.JavaHeap}}.</p>
+  <ul>
+    <li><strong>The template rounds it up to {{gb (card $m.Template).MemoryMB}},</strong> the memory the 28 Sep server started with.</li>
+    <li><strong>For 5 or more friends,</strong> the <a href="/sizing">sizing guide</a> gives a big modpack {{(sizingFor 8 "modpack").MemoryGB}} GB.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 3 "Text" "The one-click way")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{$open := "Search New server › A modpack"}}{{$how := "Type StoneBlock 4. It comes from CurseForge with NeoForge, the memory it needs and a step for each file you add."}}{{if $m.OneClick}}{{$open = "Open the template below, or search New server › A modpack"}}{{$how = printf "Either way it's StoneBlock 4 %s from CurseForge, with NeoForge, the memory it needs and a step for each file you add." $m.Version}}{{end}}
+  {{template "steps" (dict "Class" "shot-steps" "Items" (list
+    (dict "Title" $open "Text" $how)
+    (dict "Title" "Create and start it" "Text" (printf "Playkeeper downloads the pack's %s in 6,211 files, checking each against CurseForge's hash. On the test machine that took a minute, and the start under another." $m.DownloadSize))
+    (dict "Title" "Add the four files, then restart" "Text" "The next section says where each one goes.")
+  ))}}
+  {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs." "Sizes" $article)}}
+  <p><strong>On Playkeeper 0.4.3 or older,</strong> the first start stops with <code>invalid dist DEDICATED_SERVER</code>. Status Effect Bars, a mod for players' screens that CurseForge doesn't mark as one, goes on the server, and the pack's <code>default-server.properties</code> switches off Playkeeper's console and allowlist. Update Playkeeper: {{$m.Release}} leaves the mod off and keeps its own settings.</p>
+</section>
+
+<section aria-labelledby="four-files">
+  {{template "h2n" (dict "ID" "four-files" "N" 4 "Text" "The four files you add by hand" "Toc" "Files to add")}}
+  <p>StoneBlock 4 has no server files on CurseForge to take these from, so Playkeeper lists a step for each, with its page:</p>
+  <ul>
+    <li><strong><a href="https://www.curseforge.com/minecraft/mc-mods/betterblockz/files/8545060">BetterBlockZ</a>, <a href="https://www.curseforge.com/minecraft/mc-mods/servercore/files/8312220">ServerCore</a> and <a href="https://www.curseforge.com/minecraft/mc-mods/create-shimmer/files/8640618">Create: Shimmer</a>.</strong> Their authors allow downloads only through the CurseForge app. Download each jar from its page and upload it to <code>mods</code> on the Files tab.</li>
+    <li><strong><a href="https://www.curseforge.com/minecraft/data-packs/extra-data-models/files/8644133">Hostile Neural Networks: Extra Data Models</a>,</strong> <code>ExtraDataModels-1.21-4.4.2.zip</code>, is a data pack, not a mod. Upload it to <code>datapacks</code>, the folder beside <code>mods</code> that holds the pack's other data packs. FTB's own installer puts it there.</li>
+  </ul>
+  <p>The server starts without them, as the 28 Sep one did. Add them before friends join, then restart it.</p>
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 5 "Text" "By hand, with FTB's installer" "Toc" "By hand")}}
+  <p>FTB publishes StoneBlock 4's server on <a href="https://www.feed-the-beast.com/modpacks/130-ftb-stoneblock-4">its own site</a> rather than CurseForge, as an installer. It downloads the pack from FTB's list, which has the three mods and the data pack, and leaves Status Effect Bars off. The itzg Docker image, which Playkeeper runs servers in too, runs that installer for you:</p>
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="How">
+        <button type="button" class="code-tab" role="tab" id="tab-docker" aria-controls="code-docker" aria-selected="true">Docker</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-docker" role="tabpanel" tabindex="0" aria-labelledby="tab-docker"><span class="c"># {{$m.Label}} {{$m.Version}} on Java {{$m.Java}}: {{$m.Memory}} in all, {{$m.JavaHeap}} of it Java's heap</span>
+docker run -d --name stoneblock-4 -p 25565:25565 \
+  --memory {{gbFlag $m.MemoryMB}} --memory-swap {{gbFlag $m.MemoryMB}} \
+  -e EULA=TRUE -e MEMORY={{gbFlag $m.JavaHeapMB}} -e USE_AIKAR_FLAGS=TRUE \
+  -e TYPE=FTBA -e FTB_MODPACK_ID=130 -e FTB_MODPACK_VERSION_ID=100515 \
+  -v stoneblock-4-data:/data itzg/minecraft-server:java{{$m.Java}}</pre>
+  </div>
+  <ul>
+    <li><strong>130 is the pack in FTB's list, and 100515 its version {{$m.Version}}.</strong> Without <code>FTB_MODPACK_VERSION_ID</code> the image takes FTB's newest version, and a new number installs that version over the old one.</li>
+    <li><strong>It ran on 28 Sep:</strong> FTB's installer put {{$m.TypeName}} {{$m.Loader}} and the pack in place, restricted mods included, and the server said Done about 75 seconds after its container started.</li>
+    <li><strong>Open TCP 25565</strong> in your provider's firewall.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="settings">
+  {{template "h2n" (dict "ID" "settings" "N" 6 "Text" "The settings StoneBlock 4 brings" "Toc" "Settings")}}
+  <p>The pack's <code>default-server.properties</code> sets these on a new server, and Playkeeper {{$m.Release}} keeps them:</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Setting</th><th scope="col">Value</th><th scope="col">What it means</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">allow-flight</th><td>true</td><td>Flying with mod items doesn't get players kicked.</td></tr>
+        <tr><th scope="row">allow-nether</th><td>false</td><td>Nobody can travel to the Nether.</td></tr>
+        <tr><th scope="row">enable-command-block</th><td>true</td><td>Command blocks run.</td></tr>
+        <tr><th scope="row">spawn-protection</th><td>512</td><td>Only operators can change blocks within 512 blocks of the world's spawn.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>It also sets <code>bug-report-link</code>, which Playkeeper doesn't take from packs. New server says so before you create the server.</p>
+</section>
+
+<section aria-labelledby="friends">
+  {{template "h2n" (dict "ID" "friends" "N" 7 "Text" "Friends play the same version" "Toc" "Friends join")}}
+  <div class="shot-step">
+    <div>
+      <p>Each friend installs FTB StoneBlock 4 {{$m.Version}} in the FTB App, the CurseForge app or Prism Launcher, then joins your server's address.</p>
+      <p>Share with friends, on the server's Mods tab, makes them a page with the pack's version and their launcher's steps.</p>
+    </div>
+    {{template "cardshot" (dict "Name" "guide-pack-page" "Alt" "The page friends open: the server's versions, the pack file to download and their launcher's steps." "Sizes" $side)}}
+  </div>
+</section>
+{{end}}
+
+{{define "after"}}{{$m := modpack "stoneblock-4"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "How much RAM does a StoneBlock 4 server need?" (printf "About %s for a few friends: FTB asks Java for %s, and %s with %d mods needs memory beside it. Give 5 or more friends %d GB." $m.Memory $m.HeapGB $m.TypeName $m.Mods (sizingFor 8 "modpack").MemoryGB))
+    (qa "Is StoneBlock 4 Forge or NeoForge?" (printf "%s. Version %s runs %s %s on Minecraft %s." $m.TypeName $m.Version $m.TypeName $m.Loader $m.Minecraft))
+    (qa "Where are the StoneBlock 4 server files?" "Not on CurseForge. FTB offers them on its own site as an installer, which also downloads the three mods only the CurseForge app may.")
+    (qa "Why does my StoneBlock 4 server stop with \"invalid dist DEDICATED_SERVER\"?" "Status Effect Bars, a mod for players' screens, is on it. Delete statuseffectbars-1.21.1-NeoForge-1.0.2.jar from mods, or update to Playkeeper 0.4.4, which leaves it off.")
+    (qa "Which files do I add to a StoneBlock 4 server by hand?" "BetterBlockZ, ServerCore and Create: Shimmer go in mods, and the Extra Data Models zip in datapacks. FTB's installer adds all four itself.")
+  ))}}
+  {{if $m.OneClick}}<section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
+    <div class="tpl-pair">
+      {{template "pack-card" (dict "Pack" $m)}}
+      {{with modpack "atm10"}}{{if .OneClick}}{{template "pack-card" (dict "Pack" .)}}{{end}}{{end}}
+    </div>
+  </section>{{end}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/modpacks" "/modpacks/atm10-server" "/guides/modded-minecraft-server-ram")}}{{end}}

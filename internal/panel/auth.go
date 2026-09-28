@@ -301,6 +301,16 @@ ALTER TABLE invites ADD COLUMN allowance_memory_mb INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE project_members ADD COLUMN allowance_servers INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE project_members ADD COLUMN allowance_memory_mb INTEGER NOT NULL DEFAULT 0;
 `,
+	// The servers each creator created, which count against their allowance
+	// and which alone they may delete.
+	`
+CREATE TABLE creator_servers (
+  server_id  TEXT    PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX creator_servers_user ON creator_servers(user_id);
+`,
 }
 
 const (

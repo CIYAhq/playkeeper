@@ -551,6 +551,12 @@ func (s *Server) hCatalog(w http.ResponseWriter, r *http.Request, sess *session)
 		}
 	}
 	c["servers"], _ = json.Marshal(mine)
+	if sess.Access.creator() {
+		if err := s.capCatalog(r.Context(), sess.Access, m, r.URL.Query().Get("server"), c); err != nil {
+			s.listFailure(w, err)
+			return
+		}
+	}
 	writeJSON(w, status, c)
 }
 
@@ -738,6 +744,13 @@ func (s *Server) restoreProxy(method, pattern string, then func(machine, *sessio
 		if err := permit(sess.Access, act, p.ServerID); err != nil {
 			writeRefusal(w, err)
 			return
+		}
+		if method == "POST" && sess.Access.creator() {
+			s.creators.Lock()
+			defer s.creators.Unlock()
+			if !s.creatorRestoreFits(w, r, sess.Access, p) {
+				return
+			}
 		}
 		fwd(w, r, sess)
 	}

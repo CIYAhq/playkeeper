@@ -13,8 +13,7 @@ const creatorInviteBody = `{"role":"admin","servers":{},"label":"alex","allowanc
 
 // A creator invite (the managed beta's) makes an Admin with no servers and
 // an allowance. Only the owner can make or turn one off, and nobody else on
-// the team sees it. Until creators may create servers, the account can do
-// nothing with any server.
+// the team sees it. The account starts with no servers.
 func TestCreatorInvitesAreTheOwnersAlone(t *testing.T) {
 	e := newJoinEnv(t)
 	own := owner(t, e.env)
@@ -91,9 +90,6 @@ func TestCreatorInvitesAreTheOwnersAlone(t *testing.T) {
 	}
 	if st := e.do(t, "GET", "/api/servers/"+sampleServer, "", alex.auth()).status; st != http.StatusForbidden {
 		t.Fatalf("alex uses the owner's server: %d", st)
-	}
-	if r := e.do(t, "POST", "/api/machines/"+machineID(t, e.env)+"/servers", `{"name":"alex","acceptEula":true}`, alex.auth()); r.status != http.StatusForbidden {
-		t.Fatalf("alex creates a server before creators may: %d %v", r.status, r.body)
 	}
 	if r := e.do(t, "PUT", "/api/team/members/"+strconv.FormatInt(alexID, 10), `{"role":"admin","servers":{"servers":["abcdefghjk"]}}`, own.auth()); r.status != http.StatusConflict {
 		t.Fatalf("the owner changes a creator's servers: %d %v", r.status, r.body)

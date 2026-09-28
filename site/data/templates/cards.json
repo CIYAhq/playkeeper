@@ -24,6 +24,7 @@
   "skyfactory-5": { "art": "app/pixel-art/world-flat.svg", "mods": 264, "categories": ["skyblock"], "added": "2026-09-28", "popularity": 150 },
   "smp-essentials-1-21-11": { "art": "app/pixel-art/play-with-friends.svg", "categories": ["smp"], "added": "2026-09-28", "popularity": 10 },
   "smp-purpur-26-2": { "art": "app/pixel-art/play-with-friends.svg", "categories": ["smp"], "added": "2026-09-28", "popularity": 250 },
+  "stoneblock-4": { "art": "app/pixel-art/world-amplified.svg", "mods": 370, "categories": ["kitchen-sink"], "added": "2026-09-28", "popularity": 2050 },
   "survival-with-friends": { "art": "app/pixel-art/play-with-friends.svg", "categories": ["smp"], "added": "2026-09-26", "popularity": 750 },
   "towny": { "art": "app/pixel-art/world-big-biomes.svg", "categories": ["towny"], "added": "2026-09-28", "popularity": 650 },
   "vanilla-perfected": { "art": "app/pixel-art/world-normal.svg", "mods": 115, "categories": ["vanilla-plus"], "added": "2026-09-28", "popularity": 20 }
