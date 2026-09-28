@@ -317,21 +317,28 @@ test.describe('the Public page group in a server’s Settings', () => {
     })
     await page.goto('/servers/survival/settings#page')
     const group = page.locator('#page')
-    const save = group.getByRole('button', { name: 'Save' })
+    const saveAbout = group.getByRole('button', { name: 'Save About' })
+    const saveStream = group.getByRole('button', { name: 'Save stream' })
+    await expect(saveAbout).toBeVisible()
+    await expect(saveStream).toBeVisible()
+    // Each Save says what it saves. A bare "Save [disabled]" is the file
+    // editor's, and the click-through counts a control once, on the first
+    // page that has it, so the editor on a phone fell under its minimum.
+    await expect(group.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0)
 
     await group.getByRole('textbox', { name: 'About' }).fill('Be kind.\nUnofficial. Not affiliated with Anthropic or Mojang.')
     await expect(group.getByText('61/600')).toBeVisible()
-    await save.first().click()
+    await saveAbout.click()
     await expect(page.getByText('Saved to Survival’s public page')).toBeVisible()
     expect(posted).toEqual([{ about: 'Be kind.\nUnofficial. Not affiliated with Anthropic or Mojang.' }])
 
     const link = group.getByRole('textbox', { name: 'Live stream' })
     await link.fill('https://evil.example/claude')
-    await save.last().click()
+    await saveStream.click()
     await expect(group.getByRole('alert')).toContainText('That isn’t a Twitch or YouTube channel link.')
     await link.fill('twitch.tv/Example_Channel')
     await expect(group.getByRole('alert')).toHaveCount(0)
-    await save.last().click()
+    await saveStream.click()
     await expect(link).toHaveValue('https://www.twitch.tv/example_channel')
 
     await expect(group.getByText('“Day 3 · Nether reached”, posted 5 min ago.')).toBeVisible()
