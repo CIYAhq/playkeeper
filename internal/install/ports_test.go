@@ -32,6 +32,15 @@ func TestTheAgentMayOpenPort80AndChangeTheFirewallAndNothingMore(t *testing.T) {
 	}
 }
 
+func TestThePlanSaysServersAreKeptFromTheMachine(t *testing.T) {
+	h := newFakeHost(t)
+	o := opts("")
+	plan := strings.Join(Plan(Preflight(context.Background(), h.system(t), o), o), "\n")
+	if !strings.Contains(plan, "iptables rules that keep servers from this machine and the cloud's metadata service") {
+		t.Fatalf("the plan doesn't say what the network guard adds:\n%s", plan)
+	}
+}
+
 func manifestOf(t *testing.T, h *fakeHost) Manifest {
 	t.Helper()
 	var m Manifest
