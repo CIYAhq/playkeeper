@@ -10,7 +10,7 @@
 // showpiece (a skyblock island, the OneBlock block) it frames the blocks
 // around where the bot stood, with the bot on them.
 //
-//   node render.mjs <shots-dir> [--out CAPTURES-DIR] [--extra DIR] [--only a,b]
+//   node render.mjs <shots-dir> [--out CAPTURES-DIR] [--extra DIR] [--only a,b] [--view heading,height]
 import { createServer } from 'node:http'
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -34,6 +34,9 @@ if (!shots) {
 }
 const out = { captures: resolve(opt('out', join(shots, 'captures'))), extra: opt('extra') ? resolve(opt('extra')) : null }
 const only = (opt('only') || '').split(',').filter(Boolean)
+// --view <heading>,<height> takes that view of spawn instead of the best
+// scoring one: a heading in degrees (0, 15 … 345) and a height (0, 1 or 2).
+const [pinHeading, pinTier] = (opt('view') || '').split(',').map(Number)
 const dist = join(here, 'dist')
 if (!existsSync(join(dist, 'thumb.js'))) {
   console.error('dist/ is missing: run npm ci && npm run build in site/tools/thumbnails first')
@@ -152,7 +155,7 @@ function view (w, cam, yaw, pitch, vfov, aspect, far) {
 // scored by what the site's 16:10 picture shows. The extra pictures are the
 // same view, cropped to their shape.
 const landVfov = { '16x10': 52, '16x9': 50, '1x1': 60 }
-function landscape (snap, w) {
+function landscape (snap, w, pin = null) {
   const f = snap.focus
   const reach = snap.radius * 16
   const far = reach * 0.92
@@ -206,6 +209,7 @@ function landscape (snap, w) {
     score -= v.close * 5 + v.fogged * 3
     // The lowest camera, unless a higher one sees clearly more.
     score -= tier * 0.2
+    if (pin && ((i % 24) * 15 !== pin.heading || tier !== pin.tier)) continue
     if (!best || score > best.score) {
       const td = 40
       best = { score, yaw: (i % 24) * 15, cam: { x: cx, y: cy, z: cz, tx: cx + dir.x * td, ty: cy + Math.tan(pitch) * td, tz: cz + dir.z * td, fov: vfov } }
@@ -329,7 +333,7 @@ for (const id of files) {
     await page.goto(`http://127.0.0.1:${server.address().port}/`)
     await page.waitForFunction(() => window.thumb && window.thumb.ready)
     const loaded = await page.evaluate(() => window.thumb.load('world.json'))
-    const land = snap.subject ? null : landscape(snap, w)
+    const land = snap.subject ? null : landscape(snap, w, Number.isFinite(pinHeading) ? { heading: pinHeading, tier: pinTier || 0 } : null)
     for (const s of shapes(out)) {
       const view = land ? { ...land, cam: { ...land.cam, fov: landVfov[s.name] } } : subject(snap, w, s.w / s.h)
       const url = await page.evaluate((p) => window.thumb.shot(p), { w: s.w, h: s.h, cam: view.cam, look: view.look })
