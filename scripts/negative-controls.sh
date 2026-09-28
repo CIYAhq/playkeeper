@@ -6926,6 +6926,109 @@ control "creators: the backups a new server starts with are on" internal/panel/c
   '"automatic": map[string]any{"enabled": false, "everyHours": 24, "onlyIfPlayed": true},' \
   ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
 
+# The network guard (internal/netguard): servers can't reach the machine or
+# link-local addresses.
+control "network guard: the rules go first in their chains" internal/netguard/netguard.go \
+  'script = append(script, "-I "+chain+" 1 "+strings.Join(w[i], " "))' \
+  'script = append(script, "-A "+chain+" "+strings.Join(w[i], " "))' \
+  ./internal/netguard '^TestApplyPutsTheRulesFirstInTheirChains$'
+control "network guard: buried rules move back to the top" internal/netguard/netguard.go \
+  'top = top && i < len(w)' \
+  'top = top || i < len(w)' \
+  ./internal/netguard '^TestApplyMovesBuriedRulesBackToTheTop$'
+control "network guard: the rules for an earlier bridge come out" internal/netguard/netguard.go \
+  'script = append(script, "-D"+strings.TrimPrefix(r, "-A"))' \
+  '_ = r' \
+  ./internal/netguard '^TestApplyFollowsANewBridge$'
+control "network guard: rules found at the top are checked for the bridge" internal/netguard/netguard.go \
+  'if len(ours) == len(w) && top && present(ctx, run, f, chain, w) {' \
+  'if len(ours) == len(w) && top {' \
+  ./internal/netguard '^TestApplyFollowsANewBridge$'
+control "network guard: new connections to the machine are refused, replies aren't" internal/netguard/netguard.go \
+  '"!", "--ctstate", "ESTABLISHED,RELATED"' \
+  '"--ctstate", "ESTABLISHED,RELATED"' \
+  ./internal/netguard '^TestApplyPutsTheRulesFirstInTheirChains$'
+control "network guard: DNS to the machine stays open" internal/netguard/netguard.go \
+  '"-p", proto, "!", "--dport", "53",' \
+  '"-p", proto,' \
+  ./internal/netguard '^TestApplyPutsTheRulesFirstInTheirChains$'
+control "network guard: every link-local address is out of reach" internal/netguard/netguard.go \
+  '"-d", "169.254.0.0/16"' \
+  '"-d", "169.254.169.254/32"' \
+  ./internal/netguard '^TestApplyPutsTheRulesFirstInTheirChains$'
+control "network guard: the metadata rule goes in DOCKER-USER when Docker has it" internal/netguard/netguard.go \
+  'if t.chains["DOCKER-USER"] {' \
+  'if false && t.chains["DOCKER-USER"] {' \
+  ./internal/netguard '^TestApplyPutsTheRulesFirstInTheirChains$'
+control "network guard: a restore leaves the other rules in place" internal/netguard/netguard.go \
+  'f.restore, "-w", "5", "--noflush")' \
+  'f.restore, "-w", "5")' \
+  ./internal/netguard '^TestApplyPutsTheRulesFirstInTheirChains$'
+control "network guard: a restore never declares, so empties, a chain" internal/netguard/netguard.go \
+  'for i := len(w) - 1; i >= 0; i-- {' \
+  'script = append(script, ":"+chain+" - [0:0]"); for i := len(w) - 1; i >= 0; i-- {' \
+  ./internal/netguard '^TestApplyPutsTheRulesFirstInTheirChains$'
+control "network guard: an unusable interface name is refused" internal/netguard/netguard.go \
+  'if !ifname.MatchString(n.Bridge) {' \
+  'if false && !ifname.MatchString(n.Bridge) {' \
+  ./internal/netguard '^TestApplyRefusesAnUnusableInterfaceName$'
+control "network guard: an IPv6 network is kept from the machine too" internal/netguard/netguard.go \
+  'if !n.IPv6 {' \
+  'if true || !n.IPv6 {' \
+  ./internal/netguard '^TestAnIPv6NetworkIsKeptFromTheMachineToo$'
+control "network guard: rules listed with quoted comments are the guard's" internal/netguard/netguard.go \
+  'strings.Trim(w[i+1], `"`) == Tag' \
+  'w[i+1] == Tag' \
+  ./internal/netguard '^TestQuotedCommentsAreTheGuards$'
+control "network guard: Remove takes out every rule of the guard's" internal/netguard/netguard.go \
+  'for _, f := range []family{ipv4, ipv6} {' \
+  'for _, f := range []family{} {' \
+  ./internal/netguard '^TestRemoveTakesOutEveryRuleOfTheGuards$'
+control "network guard: in place before a server's container starts" internal/agent/lifecycle.go \
+  'a.guardNetwork(ctx)' \
+  '_ = ctx' \
+  ./internal/agent '^TestTheGuardIsInPlaceBeforeAServersContainerStarts$'
+control "network guard: the agent puts back rules something removed" internal/agent/guard.go \
+  't := time.NewTicker(a.opts.GuardInterval)' \
+  't := time.NewTicker(time.Hour)' \
+  ./internal/agent '^TestTheGuardPutsBackRulesSomethingRemoved$'
+control "network guard: serversReachHost keeps only the metadata rule" internal/agent/guard.go \
+  '!a.cfg.ServersReachHost)' \
+  'true)' \
+  ./internal/agent '^TestServersReachHostKeepsOnlyTheMetadataRule$'
+control "network guard: the machine's status says what went wrong" internal/agent/guard.go \
+  'st.Problem = err.Error()' \
+  '_ = err' \
+  ./internal/agent '^TestAServerStartsWhenTheGuardCant$'
+control "network guard: rules are for the network's own interface" internal/agent/guard.go \
+  'if b := n.Options["com.docker.network.bridge.name"]; b != "" {' \
+  'if b := ""; b != "" {' \
+  ./internal/agent '^TestTheGuardUsesTheNetworksOwnInterfaceName$'
+control "network guard: an IPv6 network gets the ip6tables rules" internal/agent/guard.go \
+  'IPv6: n.EnableIPv6}' \
+  'IPv6: false}' \
+  ./internal/agent '^TestTheGuardKeepsAnIPv6NetworkFromTheMachine$'
+control "network guard: a network that isn't a bridge isn't taken for one" internal/agent/guard.go \
+  'if n.Driver != "bridge" {' \
+  'if false && n.Driver != "bridge" {' \
+  ./internal/agent '^TestTheGuardNeedsABridge$'
+control "network guard: playkeeper dev leaves the machine's firewall alone" internal/agent/guard.go \
+  'if cfg.Dev || euid != 0 {' \
+  'if euid != 0 {' \
+  ./internal/agent '^TestNoGuardInDevMode$'
+control "network guard: the uninstall takes the rules out" internal/install/uninstall.go \
+  'if sys.Firewall != nil {' \
+  'if sys.Firewall == nil {' \
+  ./internal/install '^TestUninstallTakesOutTheNetworkGuardsRules$'
+control "network guard: the agent's unit lets it run iptables" internal/install/units.go \
+  'CAP_NET_BIND_SERVICE CAP_NET_ADMIN CAP_NET_RAW' \
+  'CAP_NET_BIND_SERVICE' \
+  ./internal/install '^TestTheAgentMayOpenPort80AndChangeTheFirewallAndNothingMore$'
+control "network guard: the agent's unit allows the netlink sockets iptables uses" internal/install/units.go \
+  'AF_INET6 AF_NETLINK' \
+  'AF_INET6' \
+  ./internal/install '^TestTheAgentMayOpenPort80AndChangeTheFirewallAndNothingMore$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
