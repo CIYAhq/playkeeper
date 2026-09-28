@@ -397,7 +397,7 @@ func TestBackupRulesThatCantBeReadDeleteNothing(t *testing.T) {
 		{name: "no rules saved", rules: keepAll, breaks: exec(`UPDATE servers SET backup_rules = ''`), deletes: true},
 		{name: "rules that don't parse", rules: keepAll, breaks: exec(`UPDATE servers SET backup_rules = '{"settings":'`)},
 		{name: "the rules can't be read", rules: keepAll,
-			breaks: rename(`ALTER TABLE servers RENAME COLUMN backup_rules TO backup_rules_gone`, `ALTER TABLE servers RENAME COLUMN backup_rules_gone TO backup_rules`)},
+			breaks: func(e *agentEnv) func() { return e.renameColumn("servers", "backup_rules", "backup_rules_gone") }},
 		{name: "rules that keep only the newest", rules: newestOnly, deletes: true},
 		{name: "the copy queue can't be read", rules: newestOnly,
 			breaks: rename(`ALTER TABLE offsite_uploads RENAME TO offsite_uploads_gone`, `ALTER TABLE offsite_uploads_gone RENAME TO offsite_uploads`)},
