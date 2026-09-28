@@ -66,33 +66,6 @@ func (a *Agent) loadPacks() {
 	a.packPreviews.clear()
 }
 
-// packMemoryMB is the memory Playkeeper suggests for a pack of n mods, or 0
-// when n is unknown.
-func packMemoryMB(n int) int {
-	switch {
-	case n <= 0:
-		return 0
-	case n < 50:
-		return 4096
-	case n < 300:
-		return 6144
-	}
-	return 8192
-}
-
-// packNeedMB is the memory a server needs for a pack of type typ that puts
-// mods mods on it and whose own settings ask for heapMB of Java heap (0
-// when they don't say): packMemoryMB's suggestion, or more when the heap
-// the server would give Java for those mods is less than the pack asks for,
-// rounded up to half a gigabyte.
-func packNeedMB(typ string, mods, heapMB int) int {
-	need := packMemoryMB(mods)
-	if heapMB > 0 {
-		need = max(need, (minecraft.BudgetFor(heapMB, typ, mods)+511)/512*512)
-	}
-	return need
-}
-
 var rePackID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 // parsePackRef checks a pack's source, project and version as they come
@@ -114,7 +87,7 @@ func apiPackCard(c modpacks.Card) api.ModpackCard {
 	out := api.ModpackCard{
 		Source: string(c.Source), ProjectID: c.ProjectID, Slug: c.Slug, Name: c.Name, Author: c.Author, Summary: c.Summary,
 		Downloads: c.Downloads, IconURL: webLink(c.IconURL), Updated: c.Updated, PageURL: webLink(c.PageURL),
-		Types: c.Types, MinecraftVersions: c.MinecraftVersions, Mods: c.Mods, MemoryMB: packMemoryMB(c.Mods),
+		Types: c.Types, MinecraftVersions: c.MinecraftVersions, Mods: c.Mods, MemoryMB: minecraft.PackMemoryMB(c.Mods),
 	}
 	if out.Types == nil {
 		out.Types = []string{}
@@ -208,7 +181,7 @@ func (a *Agent) packDetail(ctx context.Context, ref modpacks.Ref) (*api.ModpackD
 	}
 	if n := modpacks.Newest(d.Versions); n != nil {
 		out.Newest = n.ID
-		out.Mods, out.MemoryMB = n.Mods, packMemoryMB(n.Mods)
+		out.Mods, out.MemoryMB = n.Mods, minecraft.PackMemoryMB(n.Mods)
 	}
 	a.packDetails.put(key, out, a.now())
 	return out, nil
@@ -275,7 +248,7 @@ func (a *Agent) hModpackPreview(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	out.MemoryMB = packNeedMB(out.Type, out.Mods, out.HeapMB)
+	out.MemoryMB = minecraft.PackNeedMB(out.Type, out.Mods, out.HeapMB)
 	for _, m := range pl.Manual {
 		out.Manual = append(out.Manual, apiManual(m))
 	}
