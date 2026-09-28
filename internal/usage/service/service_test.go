@@ -278,8 +278,16 @@ func TestSummaryCountsInstallsAndActiveInstallsByWindow(t *testing.T) {
 		t.Fatalf("daily: %d days, from %s to %s", len(s.Daily), s.Daily[0].Day, s.Daily[len(s.Daily)-1].Day)
 	}
 	today, tenAgo := s.Daily[dailyDays-1], s.Daily[dailyDays-11]
-	if today.Active != 4 || today.Started != 1 || today.Succeeded != 1 || tenAgo.Active != 1 || tenAgo.Started != 2 || tenAgo.Succeeded != 1 {
-		t.Errorf("daily: today %+v, ten days ago %+v", today, tenAgo)
+	// Today's install from cygnus sent no start, so it started the day it
+	// ended, as the windows count it.
+	if today.Active != 4 || today.Outcomes != (Outcomes{Started: 2, Succeeded: 1}) || len(today.BySource) != 1 ||
+		today.BySource[usage.SourceSite] != (Outcomes{Started: 2, Succeeded: 1}) {
+		t.Errorf("daily: today %+v", today)
+	}
+	if tenAgo.Active != 1 || tenAgo.Outcomes != (Outcomes{Started: 2, Succeeded: 1, Failed: 1, Refused: 1}) ||
+		tenAgo.BySource[usage.SourceGitHub] != (Outcomes{Started: 1, Failed: 1, Refused: 1}) ||
+		tenAgo.BySource[usage.SourceTarball] != (Outcomes{Started: 1, Succeeded: 1}) {
+		t.Errorf("daily: ten days ago %+v", tenAgo)
 	}
 	if strings.Contains(e.do("GET", "/v1/summary", "198.51.100.8", nil, "Authorization", "Bearer "+testToken).Body.String(), id(1)) {
 		t.Error("the summary shows an install ID")
@@ -313,7 +321,8 @@ func TestTestInstallsAreKeptOutOfEveryCount(t *testing.T) {
 	real := beat(2, usage.SourceSite, 1, 0)
 	e.send(usage.PathHeartbeat, real)
 	s := e.summary()
-	if s.Installs["1d"].Started != 0 || s.Active["1d"].Installs != 1 || s.Active["1d"].OnOurDomain != 1 || s.Daily[dailyDays-1].Active != 1 {
+	if s.Installs["1d"].Started != 0 || s.Active["1d"].Installs != 1 || s.Active["1d"].OnOurDomain != 1 || s.Daily[dailyDays-1].Active != 1 ||
+		s.Daily[dailyDays-1].Started != 0 || len(s.Daily[dailyDays-1].BySource) != 0 {
 		t.Errorf("a test install counted: installs %+v, active %+v, today %+v", s.Installs["1d"], s.Active["1d"], s.Daily[dailyDays-1])
 	}
 	if s.Test != (TestInstalls{Started30d: 1, Active7d: 1}) {

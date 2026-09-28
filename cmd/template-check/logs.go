@@ -2,6 +2,7 @@ package main
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -24,6 +25,16 @@ var failures = []*regexp.Regexp{
 	regexp.MustCompile(`This crash report has been saved to`),
 }
 
+// harmless are lines that match a failure but don't mean anything failed to
+// load, each with why. They never fail a check.
+var harmless = []*regexp.Regexp{
+	// Lithium looks through each block class for the methods it speeds up.
+	// A class it can't read, such as one naming a class only players' game
+	// has, only means it leaves that block as it is. Prominence II's BCLib
+	// blocks log 36 of these, and its server starts.
+	regexp.MustCompile(`Lithium Class Analysis Error: Class \S+ cannot be analysed`),
+}
+
 var reError = regexp.MustCompile(`\b(?:ERROR|SEVERE)\]|\[[^\]]*/(?:ERROR|SEVERE)\]`)
 
 // logReport is what a server's log says about a check.
@@ -42,11 +53,13 @@ func readLog(lines []string) logReport {
 			r.done, _ = strconv.ParseFloat(m[1], 64)
 		}
 		failed := false
-		for _, f := range failures {
-			if f.MatchString(line) {
-				r.failures = append(r.failures, clip(line))
-				failed = true
-				break
+		if !slices.ContainsFunc(harmless, func(h *regexp.Regexp) bool { return h.MatchString(line) }) {
+			for _, f := range failures {
+				if f.MatchString(line) {
+					r.failures = append(r.failures, clip(line))
+					failed = true
+					break
+				}
 			}
 		}
 		if !failed && reError.MatchString(line) {

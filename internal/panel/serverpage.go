@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -66,8 +67,10 @@ type pageSite struct {
 	// kick asks the port keeper to look again now.
 	kick chan struct{}
 
-	mu    sync.Mutex
-	host  string
+	mu   sync.Mutex
+	host string
+	// hosts are the servers' own addresses the page also answers for.
+	hosts []string
 	ports api.PublicPagePorts
 	held  [2]*pageListener
 	next  [2]time.Time
@@ -110,6 +113,14 @@ func (p *pageSite) hostNow() string {
 	return p.host
 }
 
+// answers reports whether the Host header host names the machine or one of
+// the servers' own addresses the page answers for.
+func (p *pageSite) answers(host string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return pageHost(host, p.host) || slices.ContainsFunc(p.hosts, func(h string) bool { return pageHost(host, h) })
+}
+
 // pageHandler serves the public page on one of its ports; tls says which.
 func (s *Server) pageHandler(tls bool) http.Handler {
 	mux := http.NewServeMux()
@@ -125,7 +136,7 @@ func (s *Server) pageHandler(tls bool) http.Handler {
 		// only its pending checks, and after the address changes the page's
 		// name catches up only at the keeper's next look.
 		check := !tls && strings.HasPrefix(r.URL.Path, acmePrefix)
-		if !check && !pageHost(r.Host, s.page.hostNow()) {
+		if !check && !s.page.answers(r.Host) {
 			w.Header().Set("Cache-Control", "no-store")
 			http.NotFound(w, r)
 			return
@@ -153,11 +164,16 @@ func (s *Server) pageChanged() {
 
 // pageHost reports whether the Host header host names addr.
 func pageHost(host, addr string) bool {
+	host = hostName(host)
+	return host != "" && host == strings.ToLower(addr)
+}
+
+// hostName is the name in the Host header host, without its port.
+func hostName(host string) string {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
-	return host != "" && host == strings.ToLower(addr)
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
 }
 
 // hPageRoot serves the page itself: the dashboard's index.html with its

@@ -32,6 +32,13 @@ type fakeAgent struct {
 	calls       []string
 	deleted     []api.DeleteServerRequest
 	exported    string
+	// crossplay is what the server says of crossplay, nil on a release
+	// without it; turning it on adds crossplayLog to the log.
+	crossplay    *api.Crossplay
+	crossplayLog []string
+	// crossplaySlowDown makes the first crossplay operation fail with a
+	// reason that passes, after crossplay went on.
+	crossplaySlowDown bool
 }
 
 func (f *fakeAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +103,29 @@ func (f *fakeAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(api.Addons{Files: files})
 	case "GET /v1/servers/s1/template":
 		reply(api.TemplateExport{File: f.exported})
+	case "GET /v1/servers/s1/crossplay":
+		if f.crossplay == nil {
+			http.Error(w, `{"error":"no such call"}`, http.StatusNotFound)
+			return
+		}
+		reply(f.crossplay)
+	case "POST /v1/servers/s1/crossplay":
+		var req api.CrossplayRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if f.crossplay == nil || !f.crossplay.Available || !req.On || req.Actor == "" {
+			http.Error(w, `{"error":"bad crossplay"}`, http.StatusBadRequest)
+			return
+		}
+		f.crossplay.On, f.crossplay.Available = true, false
+		f.log = append(f.log, f.crossplayLog...)
+		reply(api.Operation{ID: "crossplay"})
+	case "GET /v1/operations/crossplay":
+		if f.crossplaySlowDown {
+			f.crossplaySlowDown = false
+			reply(api.Operation{ID: "crossplay", Status: "failed", Error: "Hangar asked Playkeeper to slow down."})
+			return
+		}
+		reply(api.Operation{ID: "crossplay", Status: "succeeded"})
 	case "POST /v1/servers/s1/stop":
 		reply(api.Operation{ID: "stop"})
 	case "GET /v1/operations/stop", "GET /v1/operations/delete":
@@ -382,5 +412,65 @@ func TestRunWritesAndVerifiesChecks(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].Status != statusFailing || !strings.Contains(results[0].Failure, "chunky 1.4.0") {
 		t.Fatalf("a check listing other versions passed: %+v", results)
+	}
+
+	written["survival"].Addons[0].Version = "1.5.3"
+	written["survival"].Crossplay = true
+	if err := checks.Write(filepath.Join(root, "site", "data", "checks"), "survival", written["survival"]); err != nil {
+		t.Fatal(err)
+	}
+	results, err = run(context.Background(), newTestChecker(t, agent), options{root: root, only: []string{"survival"}, verify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Status != statusFailing || !strings.Contains(results[0].Failure, "crossplay turns on, and it turned off") {
+		t.Fatalf("a check saying crossplay turns on passed a run where it didn't: %+v", results)
+	}
+}
+
+// Where the release offers crossplay, a passing template's check turns it on
+// and records whether Geyser started beside its add-ons. Crossplay never
+// fails the template itself, and a release without it records nothing.
+func TestACheckTurnsOnCrossplay(t *testing.T) {
+	done := "[Server thread/INFO]: Done (12.51s)! For help, type \"help\""
+	for name, tc := range map[string]struct {
+		crossplay *api.Crossplay
+		after     []string
+		want      bool
+		why       string
+	}{
+		"a release without crossplay":   {nil, nil, false, ""},
+		"a server it isn't offered for": {&api.Crossplay{Port: 19132}, nil, false, ""},
+		"Geyser starts":                 {&api.Crossplay{Available: true, Port: 19132}, []string{"[Geyser-Spigot] Started Geyser on UDP port 19132", done}, true, ""},
+		"Geyser fails to enable":        {&api.Crossplay{Available: true, Port: 19132}, []string{"[Server thread/ERROR]: Error occurred while enabling Geyser-Spigot v2.11.3-SNAPSHOT (Is it up to date?)", done}, false, "Error occurred while enabling Geyser-Spigot"},
+		"Geyser never says it started":  {&api.Crossplay{Available: true, Port: 19132}, []string{done}, false, "Geyser never said it started"},
+	} {
+		agent := &fakeAgent{ready: true, log: []string{done}, crossplay: tc.crossplay, crossplayLog: tc.after}
+		r := newTestChecker(t, agent).check(context.Background(), "survival", survivalFile(t), false, false)
+		if r.Status != statusPassing {
+			t.Errorf("%s: the template is %s: %s", name, r.Status, r.Failure)
+			continue
+		}
+		if r.Check.Crossplay != tc.want || (tc.why == "") != (r.CrossplayFailure == "") || !strings.Contains(r.CrossplayFailure, tc.why) {
+			t.Errorf("%s: crossplay %v, %q", name, r.Check.Crossplay, r.CrossplayFailure)
+		}
+		if len(agent.deleted) != 1 {
+			t.Errorf("%s: the server wasn't removed", name)
+		}
+	}
+}
+
+// When turning crossplay on fails for a reason that passes but leaves it on,
+// the check's second try checks Geyser rather than turning it on again.
+func TestACrossplayLeftOnByARetriedFailureIsChecked(t *testing.T) {
+	done := "[Server thread/INFO]: Done (12.51s)! For help, type \"help\""
+	agent := &fakeAgent{ready: true, log: []string{done}, crossplay: &api.Crossplay{Available: true, Port: 19132}, crossplaySlowDown: true,
+		crossplayLog: []string{"[Geyser-Spigot] Started Geyser on UDP port 19132", done}}
+	r := newTestChecker(t, agent).check(context.Background(), "survival", survivalFile(t), false, false)
+	if r.Status != statusPassing || !r.Check.Crossplay || r.CrossplayFailure != "" {
+		t.Fatalf("got %s, crossplay %v, %q", r.Status, r.Check != nil && r.Check.Crossplay, r.CrossplayFailure)
+	}
+	if n := strings.Count(strings.Join(agent.calls, "\n"), "POST /v1/servers/s1/crossplay"); n != 1 {
+		t.Errorf("crossplay was turned on %d times, want once", n)
 	}
 }

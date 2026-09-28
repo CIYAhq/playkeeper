@@ -83,9 +83,9 @@ test("the modded guide's Copy copies the whole script of the tab that's showing"
 
 /**
  * Serves, in place of the analytics' oa.js, one that hands each custom event
- * (and each flush) to the test, and answers for the sites links go out to, so
- * nothing leaves the machine and no visit is counted. oa.js waits for
- * release().
+ * (and each flush) to the test, and answers for the sites links go out to and
+ * for the stats service, so nothing leaves the machine and no visit or copy
+ * is counted. oa.js waits for release().
  */
 async function recordEvents(ctx: BrowserContext) {
   const events: unknown[][] = []
@@ -97,6 +97,7 @@ async function recordEvents(ctx: BrowserContext) {
     await route.fulfill({ contentType: 'text/javascript', body: 'window.oa = { track: function (name, props) { recordEvent(name, props) }, flush: function () { recordEvent("flush") } }' })
   })
   await ctx.route(/^https:\/\/(github\.com|www\.hostinger\.com|www\.digitalocean\.com|www\.vultr\.com)\//, (route) => route.fulfill({ contentType: 'text/html', body: '' }))
+  await ctx.route('https://stats.playkeeper.io/**', (route) => route.fulfill({ status: 204 }))
   // The live demo isn't part of the site's build.
   await ctx.route(/^http:\/\/127\.0\.0\.1:\d+\/demo\//, (route) => route.fulfill({ contentType: 'text/html', body: '' }))
   return { events, release }
@@ -174,6 +175,65 @@ test('the analytics’ custom events: the install command copied, links out to G
   await page.waitForURL(/github\.com/)
   expect(events, 'events from /t').toEqual([])
   await ctx.close()
+})
+
+/** Answers, for the stats service, the copies of the install command pages send, and keeps each for the test. */
+async function recordCopies(ctx: BrowserContext) {
+  const copies: { body: string; origin?: string; contentType?: string; cookie?: string; referer?: string }[] = []
+  await ctx.route('https://stats.playkeeper.io/v1/site', async (route) => {
+    const r = route.request()
+    const h = r.headers()
+    copies.push({ body: r.postData() ?? '', origin: h.origin, contentType: h['content-type'], cookie: h.cookie, referer: h.referer })
+    await route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': h.origin ?? '' } })
+  })
+  return copies
+}
+
+test('a copy of the install command tells the stats service once a page view, with the channel’s code and nothing else, and never from /t or a browser that asks not to be tracked', async ({ browser, baseURL }) => {
+  const ctx = await browser.newContext({ baseURL, viewport: { width: 1440, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] })
+  ;(await recordEvents(ctx)).release()
+  const copies = await recordCopies(ctx)
+  const page = await ctx.newPage()
+  await page.goto('/', { waitUntil: 'networkidle' })
+  await page.locator('#install .install-copy').click()
+  await page.locator('[data-closing] .install-copy').click()
+  await page.locator('#install .install-line').selectText()
+  await page.keyboard.press('ControlOrMeta+C')
+  await expect.poll(() => copies.length).toBe(1)
+  await page.waitForTimeout(500)
+  expect(copies, 'the copies told from one page view').toHaveLength(1)
+  // It names the page's origin, which the stats service takes counts from, and nothing else about the visitor.
+  expect(copies[0]).toEqual({ body: '{"event":"install_copied","channel":""}', origin: new URL(baseURL!).origin, contentType: expect.stringMatching(/^text\/plain/), cookie: undefined, referer: undefined })
+
+  // Another page view is counted again; a channel's command says its code.
+  await page.goto('/?utm_source=youtube&utm_medium=sponsor&utm_campaign=creators-oct26&utm_content=cygnus', { waitUntil: 'networkidle' })
+  await page.locator('#install .install-copy').click()
+  await expect.poll(() => copies.length).toBe(2)
+  expect(JSON.parse(copies[1].body)).toEqual({ event: 'install_copied', channel: 'cygnus' })
+
+  // The share page tells nothing.
+  const link = fs.readFileSync('../../../internal/templates/testdata/share-link.txt', 'utf8').trim()
+  await page.goto('/t#' + link.split('#')[1], { waitUntil: 'networkidle' })
+  await page.locator('#install .install-copy').click()
+  await expect(page.locator('#install .install-copy')).toHaveClass(/is-copied/)
+  await page.waitForTimeout(500)
+  expect(copies, 'copies told from /t').toHaveLength(2)
+  await ctx.close()
+
+  // Nor does a browser with Global Privacy Control or Do Not Track.
+  for (const [flag, value] of [['globalPrivacyControl', true], ['doNotTrack', '1']] as const) {
+    const quiet = await browser.newContext({ baseURL, permissions: ['clipboard-read', 'clipboard-write'] })
+    ;(await recordEvents(quiet)).release()
+    const none = await recordCopies(quiet)
+    await quiet.addInitScript(([f, v]) => Object.defineProperty(Navigator.prototype, f, { get: () => v }), [flag, value] as const)
+    const p = await quiet.newPage()
+    await p.goto('/', { waitUntil: 'networkidle' })
+    await p.locator('#install .install-copy').click()
+    await expect(p.locator('#install .install-copy')).toHaveClass(/is-copied/)
+    await p.waitForTimeout(500)
+    expect(none, `copies told with ${flag}`).toEqual([])
+    await quiet.close()
+  }
 })
 
 /**

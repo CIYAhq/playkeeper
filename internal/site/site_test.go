@@ -256,7 +256,8 @@ func TestTheLaunchPagesExist(t *testing.T) {
 		}
 	}
 	for p, html := range built {
-		if p == "/404" || strings.HasPrefix(p, "/docs") || p == "/t" {
+		// /t/<id> sends the browser straight on to the share page.
+		if p == "/404" || strings.HasPrefix(p, "/docs") || p == "/t" || strings.HasPrefix(p, "/t/") {
 			continue
 		}
 		want := "curl -fsSL https://playkeeper.io/install | sudo sh"
@@ -437,8 +438,9 @@ func TestNoEmailForms(t *testing.T) {
 	}
 }
 
-// The share page makes no requests: it loads only site.js and t.js, and no
-// star count.
+// The share page makes no requests: it loads only site.js and t.js, and
+// neither the star count nor the copy count, which site.js makes only when a
+// page asks for them.
 func TestSharePageLoadsOnlyItsScripts(t *testing.T) {
 	o := build(t, Default)
 	html := pages(o)["/t"]
@@ -449,13 +451,18 @@ func TestSharePageLoadsOnlyItsScripts(t *testing.T) {
 	if strings.Contains(html, "data-stars") {
 		t.Error("/t asks GitHub for the star count")
 	}
+	if strings.Contains(html, `name="playkeeper-stats"`) {
+		t.Error("/t names the stats service")
+	}
 	site := string(o.Files[strings.TrimPrefix(scripts[0][1], "/")])
-	if n := strings.Count(site, "fetch("); n != 1 || !strings.Contains(site, "var star = $('[data-stars]');\n  if (star && window.fetch)") {
-		t.Error("site.js makes a request other than the star count, or makes it without the header asking for it")
+	if n := strings.Count(site, "fetch("); n != 2 || !strings.Contains(site, "var star = $('[data-stars]');\n  if (star && window.fetch)") ||
+		!strings.Contains(site, `var stats = $('meta[name="playkeeper-stats"]');`) || !strings.Contains(site, "if (!stats || told || !window.fetch") {
+		t.Error("site.js makes a request other than the star count and the copy count, or makes one without what asks for it")
 	}
 }
 
-// Every page but the share page counts its visit, and the
+// Every page but the share page, and the /t/<id> pages that send the
+// browser straight on to it, counts its visit, and the
 // Content-Security-Policy lets the analytics' script and collector in; with
 // the setting empty, nothing loads and the policy names neither.
 func TestAnalyticsIsOneSetting(t *testing.T) {
@@ -463,14 +470,14 @@ func TestAnalyticsIsOneSetting(t *testing.T) {
 	o := build(t, Default)
 	for p, html := range pages(o) {
 		want := 1
-		if p == "/t" {
+		if p == "/t" || strings.HasPrefix(p, "/t/") {
 			want = 0
 		}
 		if got := strings.Count(html, tag); got != want {
 			t.Errorf("%s loads the analytics %d times, want %d", p, got, want)
 		}
 	}
-	for _, want := range []string{"script-src 'self' https://analytics-c.ciya.so;", "connect-src 'self' https://api.github.com https://analytics-c.ciya.so;"} {
+	for _, want := range []string{"script-src 'self' https://analytics-c.ciya.so;", "connect-src 'self' https://api.github.com https://analytics-c.ciya.so https://stats.playkeeper.io;"} {
 		if !strings.Contains(string(o.Nginx), want) {
 			t.Errorf("the Content-Security-Policy doesn't say %s", want)
 		}
@@ -483,10 +490,42 @@ func TestAnalyticsIsOneSetting(t *testing.T) {
 			t.Errorf("%s loads the analytics while it's off", p)
 		}
 	}
-	for _, want := range []string{"script-src 'self';", "connect-src 'self' https://api.github.com;"} {
+	for _, want := range []string{"script-src 'self';", "connect-src 'self' https://api.github.com https://stats.playkeeper.io;"} {
 		if !strings.Contains(string(o.Nginx), want) {
 			t.Errorf("with the analytics off, the Content-Security-Policy doesn't say %s", want)
 		}
+	}
+}
+
+// Where copies of the install command are counted is one setting too: the
+// same pages as the analytics name the stats service, and the
+// Content-Security-Policy lets them reach it; with the setting empty, no
+// page names it and the policy doesn't either.
+func TestTheCopyCountIsOneSetting(t *testing.T) {
+	tag := `<meta name="playkeeper-stats" content="https://stats.playkeeper.io">`
+	o := build(t, Default)
+	for p, html := range pages(o) {
+		want := 1
+		if p == "/t" || strings.HasPrefix(p, "/t/") {
+			want = 0
+		}
+		if got := strings.Count(html, tag); got != want {
+			t.Errorf("%s names the stats service %d times, want %d", p, got, want)
+		}
+	}
+	if !strings.Contains(string(o.Nginx), " https://stats.playkeeper.io;") {
+		t.Error("the Content-Security-Policy doesn't let pages reach the stats service")
+	}
+	off := Default
+	off.Stats = ""
+	o = build(t, off)
+	for p, html := range pages(o) {
+		if strings.Contains(html, `name="playkeeper-stats"`) {
+			t.Errorf("%s names the stats service while it's off", p)
+		}
+	}
+	if strings.Contains(string(o.Nginx), "stats.playkeeper.io") {
+		t.Error("with the setting off, the Content-Security-Policy still names the stats service")
 	}
 }
 
@@ -583,7 +622,7 @@ func TestStartPage(t *testing.T) {
 		t.Errorf("the site's policy lets in what only /start needs: %s", site)
 	}
 	for _, want := range []string{"script-src 'self' https://analytics-c.ciya.so https://t.whop.tw;", "media-src 'self';", "worker-src blob:;",
-		"connect-src 'self' https://api.github.com https://analytics-c.ciya.so https://t.whop.tw;"} {
+		"connect-src 'self' https://api.github.com https://analytics-c.ciya.so https://stats.playkeeper.io https://t.whop.tw;"} {
 		if !strings.Contains(own, want) {
 			t.Errorf("/start's policy doesn't say %s: %s", want, own)
 		}
@@ -750,6 +789,10 @@ func TestScreenshotsArePicturesWithSizes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
+		// Template thumbnails, in shots/templates, have their own test.
+		if e.IsDir() {
+			continue
+		}
 		a := s.assets["shots/"+e.Name()]
 		if a == nil || !shown[a.URL] {
 			t.Errorf("site/static/shots/%s isn't shown on any page", e.Name())

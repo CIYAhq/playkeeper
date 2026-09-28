@@ -1,0 +1,98 @@
+{{/*
+path: /modpacks/pixelmon-server
+title: How to make a Pixelmon server (2026)
+description: Set up a Pixelmon server with the official Pixelmon Modpack: NeoForge on Minecraft 1.21.1, Java 21, {{(modpack "pixelmon").Mods}} mods, a {{(modpack "pixelmon").DownloadSize}} download and {{(modpack "pixelmon").Memory}} of memory.
+label: Pixelmon server
+h1: How to make a Pixelmon server
+card: How to make a Pixelmon server
+kind: Modpack
+section: guides
+layout: guide
+crumb: Modpacks
+og: modpack-pixelmon
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$m := modpack "pixelmon"}}Start from {{$m.Name}} {{$m.Version}}: it runs {{$m.TypeName}} {{$m.Loader}} on Minecraft {{$m.Minecraft}} with Java {{$m.Java}}, puts {{$m.Mods}} mods on the server and needs {{$m.Memory}} of memory. Most of its {{$m.DownloadSize}} download is one file, the 394 MB Pixelmon jar, which Playkeeper accepts from version {{$m.Release}}.{{end}}
+
+{{define "closing-title"}}Your own Pixelmon server, in one click.{{end}}
+{{define "closing-sub"}}Free and open source. Friends get the same pack from one link.{{end}}
+
+{{define "side-text"}}Playkeeper downloads the Pixelmon Modpack, checks every file and starts it in one click.{{end}}
+
+{{define "article"}}{{$m := modpack "pixelmon"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+{{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
+<section aria-labelledby="needs">
+  {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What a Pixelmon server needs" "Toc" "What it needs")}}
+  {{template "modpack-facts" (dict "Pack" $m)}}
+  <p>Version {{$m.Version}} is the newest release on {{day $m.Checked}}. The 9.4 versions published since are marked beta.</p>
+</section>
+
+<section aria-labelledby="jar">
+  {{template "h2n" (dict "ID" "jar" "N" 2 "Text" "The 394 MB Pixelmon jar" "Toc" "The big jar")}}
+  <p>The pack's own file is small. What it downloads isn't: <code>Pixelmon-1.21.1-9.3.16-universal.jar</code> alone is 394 MB, most of the {{$m.DownloadSize}}.</p>
+  <ul>
+    <li><strong>Playkeeper 0.4.2 refused it,</strong> because it took add-on files up to 256 MiB. From {{$m.Release}} it takes files up to 512 MiB.</li>
+    <li><strong>Every file is checked</strong> against the SHA-512 Modrinth publishes before it goes in the mods folder. A half-downloaded jar never reaches the server.</li>
+    <li><strong>The first start takes a while:</strong> on the test server, the download and NeoForge's install took under two minutes, and the log said <code>Done (26.349s)!</code> after that.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="server-mods">
+  {{template "h2n" (dict "ID" "server-mods" "N" 3 "Text" (printf "The %d mods on the server" $m.Mods) "Toc" "Server mods")}}
+  <p>The pack sends every mod to the server as well as to players:</p>
+  <ul>
+    <li><strong>Pixelmon itself,</strong> with Just Enough Items and JourneyMap.</li>
+    <li><strong>New land to explore:</strong> Terralith and Tectonic reshape the terrain, Incendium rebuilds the Nether, and Structory and Structory: Towers add ruins and towers. Lithostitched is the library they share.</li>
+    <li><strong>Four that change players' screens:</strong> Essential, FancyMenu, Konkrete and Melody. They load on the server without complaint, and Essential logs one harmless error line at start.</li>
+  </ul>
+  <p>The pack also carries the Pixelmon soundtrack, a 143 MB resource pack. It's for players, so Playkeeper leaves it off the server.</p>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 4 "Text" "The one-click way")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{template "steps" (dict "Class" "shot-steps" "Items" (list
+    (dict "Title" "Search New server › A modpack for Pixelmon" "Text" (printf "It offers %s, NeoForge and the %s it suggests, and shows the mods before anything installs." $m.Version $m.Memory))
+    (dict "Title" "Create and start it" "Text" "Playkeeper fetches NeoForge and the mods, leaves the soundtrack for players, and tells you when the server is online.")
+    (dict "Title" "Send friends the pack" "Text" "Share with friends on the Mods tab makes a page with the pack and how to install it in their launcher.")
+  ))}}
+  {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs." "Sizes" $article)}}
+  <p>The dashboard's card counts 14 mods, because it counts the soundtrack with them. The server gets {{$m.Mods}}.</p>
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 5 "Text" "By hand, from the pack" "Toc" "By hand")}}
+  <p>The itzg image, which Playkeeper runs servers in too, builds the server from the pack. The command below leaves the soundtrack off, as Playkeeper does.</p>
+  {{template "modpack-docker" (dict "Pack" $m "Slug" "the-pixelmon-modpack" "Exclude" "ThePixelmonOST")}}
+  <p>Open TCP 25565 in your provider's firewall.</p>
+</section>
+
+<section aria-labelledby="friends">
+  {{template "h2n" (dict "ID" "friends" "N" 6 "Text" "Friends join with the same version" "Toc" "Friends join")}}
+  <div class="shot-step">
+    <div>
+      <p>Players install {{$m.Name}} {{$m.Version}} in the Modrinth App or Prism Launcher, then join your server's address. Their copy brings the soundtrack the server leaves out.</p>
+      <p>A player on a 9.4 beta won't match a {{$m.Version}} server, so pick one version for everyone.</p>
+    </div>
+    {{template "cardshot" (dict "Name" "guide-pack-page" "Alt" "The page friends open: the server's versions, the pack file to download and their launcher's steps." "Sizes" $side)}}
+  </div>
+</section>
+{{end}}
+
+{{define "after"}}{{$m := modpack "pixelmon"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "How much RAM does a Pixelmon server need?" (printf "%s, what Playkeeper suggests for its %d mods. With nobody on, the test server ran at 20 ticks a second on 3.5 to 3.8 GB of it. Give it more as more friends join." $m.Memory $m.Mods))
+    (qa "Is Pixelmon on Forge or NeoForge?" (printf "The Pixelmon Modpack for Minecraft %s runs on %s %s. Playkeeper installs the loader with the pack." $m.Minecraft $m.TypeName $m.Loader))
+    (qa "Why is the download so big?" "The Pixelmon jar is 394 MB on its own. The rest of the pack's mods add less than 50 MB.")
+    (qa "Can I share the pack with my friends?" "Send them its Modrinth page or Playkeeper's share page rather than a copy of the files. The Pixelmon team keeps all rights to the pack.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/modpacks" "/modpacks/cobblemon-server" "/guides/play-minecraft-with-friends")}}{{end}}

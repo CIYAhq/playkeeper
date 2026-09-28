@@ -4,12 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/netip"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/usage"
 )
 
 // Environment variables the service reads; services/stats/README.md
@@ -20,6 +23,8 @@ const (
 	EnvTrustedProxies = "STATS_TRUSTED_PROXIES"
 	EnvReadToken      = "STATS_READ_TOKEN"
 	EnvNewPerDay      = "STATS_NEW_INSTALLS_PER_DAY"
+	EnvOAKey          = "STATS_OA_KEY"
+	EnvOAAPI          = "STATS_OA_API"
 )
 
 // Defaults of the settings that have one.
@@ -27,6 +32,8 @@ const (
 	DefaultDataDir   = "/data"
 	DefaultListen    = ":8080"
 	DefaultNewPerDay = 5000
+	// DefaultOAAPI is Open Analytics, where playkeeper.io counts its visits.
+	DefaultOAAPI = "https://analytics-api.ciya.so"
 )
 
 // Config is what the service needs to run.
@@ -46,12 +53,21 @@ type Config struct {
 	// time in a day, everyone together, so a flood of made-up IDs can't fill
 	// the disk.
 	NewPerDay int
+	// OAKey is a read key for playkeeper.io's site in Open Analytics, at
+	// OAAPI: with it, the funnel starts with the site's visitors and demo
+	// opens. The key goes to Open Analytics alone and is never shown.
+	OAKey, OAAPI string
+	// OAClient reads Open Analytics; nil uses one with a 10-second timeout.
+	OAClient *http.Client
 
 	Log *slog.Logger
 	Now func() time.Time
 }
 
-var reToken = regexp.MustCompile(`^[A-Za-z0-9_-]{32,200}$`)
+var (
+	reToken = regexp.MustCompile(`^[A-Za-z0-9_-]{32,200}$`)
+	reOAKey = regexp.MustCompile(`^[A-Za-z0-9_-]{16,200}$`)
+)
 
 // FromEnv reads the configuration from environment variables. Errors name
 // the variable, never its value, so the token cannot leak into logs.
@@ -66,6 +82,8 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		DataDir:   get(EnvDataDir, DefaultDataDir),
 		Listen:    get(EnvListen, DefaultListen),
 		ReadToken: get(EnvReadToken, ""),
+		OAKey:     get(EnvOAKey, ""),
+		OAAPI:     get(EnvOAAPI, DefaultOAAPI),
 	}
 	var errs []error
 	if !filepath.IsAbs(cfg.DataDir) {
@@ -83,6 +101,12 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		errs = append(errs, fmt.Errorf("%s must be a whole number from 1 to 1000000", EnvNewPerDay))
 	}
 	cfg.NewPerDay = n
+	if cfg.OAKey != "" && !reOAKey.MatchString(cfg.OAKey) {
+		errs = append(errs, fmt.Errorf("%s must be an Open Analytics read key: 16 to 200 letters, digits, - and _", EnvOAKey))
+	}
+	if _, err := usage.CheckURL(cfg.OAAPI); err != nil {
+		errs = append(errs, fmt.Errorf("%s must be an https:// address without a path", EnvOAAPI))
+	}
 	return cfg, errors.Join(errs...)
 }
 

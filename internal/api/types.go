@@ -1574,6 +1574,15 @@ type JoinAddress struct {
 	// Published: Address works (a free address's records are published, or
 	// the last check found an own domain's).
 	Published bool `json:"published"`
+	// OwnAddress is the server's own address under an own domain, which is
+	// then Address: its own A and SRV records, and its own public page.
+	OwnAddress string `json:"ownAddress,omitempty"`
+}
+
+// OwnAddressRequest sets a server's own address; an empty one clears it.
+type OwnAddressRequest struct {
+	Address string `json:"address"`
+	Actor   string `json:"actor"`
 }
 
 // FreeAddress is a free playkeeper.me address at the names service.
@@ -1696,6 +1705,9 @@ type RecordCheck struct {
 	Record DNSRecord `json:"record"`
 	OK     bool      `json:"ok"`
 	Found  []string  `json:"found,omitempty"`
+	// Own means the record is for a server's own address, which doesn't
+	// count toward the domain's Ready.
+	Own bool `json:"own,omitempty"`
 }
 
 // CertificateStatus is the dashboard's certificate for the machine's name,
@@ -2072,6 +2084,24 @@ type TemplatePlan struct {
 	Blockers         []AddonNotice `json:"blockers"`
 	Ready            bool          `json:"ready"`
 	Fingerprint      string        `json:"fingerprint"`
+}
+
+// TemplateLibrary is the templates this release carries for New server › A
+// template, the ones playkeeper.io offers (internal/templates/library).
+type TemplateLibrary struct {
+	Templates []LibraryTemplate `json:"templates"`
+}
+
+// LibraryTemplate is one template of the library. File is its text, to plan
+// like any template file.
+type LibraryTemplate struct {
+	ID       string           `json:"id"`
+	Art      string           `json:"art"`
+	Page     string           `json:"page,omitempty"`
+	Checked  string           `json:"checked,omitempty"`
+	Release  string           `json:"release,omitempty"`
+	Contents TemplateContents `json:"contents"`
+	File     string           `json:"file"`
 }
 
 // Wave 4: sharing a modded server's pack with friends.
@@ -2701,6 +2731,9 @@ type PublicBoardRequest struct {
 type PublicPageState struct {
 	Host string `json:"host,omitempty"`
 	On   bool   `json:"on"`
+	// Hosts are the servers' own addresses the page also answers for, each
+	// with only its server: those of the servers on the page.
+	Hosts []string `json:"hosts,omitempty"`
 }
 
 // PagePortsRequest names the ports the panel asks the agent to open for

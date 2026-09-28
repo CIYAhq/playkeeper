@@ -20,8 +20,42 @@ type Summary struct {
 	Active map[string]*Active `json:"active"`
 	// Daily is the last 30 days, oldest first (UTC).
 	Daily []Day `json:"daily"`
+	// Funnel follows playkeeper.io's visitors to installs that still run,
+	// in the last day, 7 days and 30 days.
+	Funnel map[string]*Funnel `json:"funnel"`
+	// Site says whether and when the site's own numbers were read.
+	Site SiteStatus `json:"site"`
 	// Test counts the test installs kept out of everything above.
 	Test TestInstalls `json:"test"`
+}
+
+// Funnel is one window's steps from playkeeper.io's visitors to installs
+// that still run. Each step counts the window on its own, not the people of
+// the step before, so a step can be larger than the one before it.
+type Funnel struct {
+	// Visitors and DemoOpens come from the site's analytics (Open
+	// Analytics); null when the service has no key for it or has not read
+	// it yet. DemoOpens are the demo's visitors at its start, and those who
+	// arrived straight on one of its pages.
+	Visitors  *int `json:"visitors"`
+	DemoOpens *int `json:"demoOpens"`
+	// CommandCopies are copies of the install command on playkeeper.io.
+	CommandCopies int `json:"commandCopies"`
+	// Started and Succeeded are installs made with the playkeeper.io
+	// command; StillRunning are those that succeeded and sent a heartbeat
+	// in the last day.
+	Started      int `json:"started"`
+	Succeeded    int `json:"succeeded"`
+	StillRunning int `json:"stillRunning"`
+}
+
+// SiteStatus is whether the service reads the site's analytics (it has
+// STATS_OA_KEY), when it last read them, and why the latest read failed, if
+// it did; the funnel then keeps the numbers read before.
+type SiteStatus struct {
+	Configured bool       `json:"configured"`
+	ReadAt     *time.Time `json:"readAt,omitempty"`
+	Error      string     `json:"error,omitempty"`
 }
 
 // Outcomes are installs that started, and how the ones that ended did.
@@ -77,11 +111,12 @@ type Active struct {
 // Day is one UTC day.
 type Day struct {
 	Day string `json:"day"`
-	// Active sent a heartbeat that day; Started and Succeeded are installs
-	// that started or succeeded that day.
-	Active    int `json:"active"`
-	Started   int `json:"started"`
-	Succeeded int `json:"succeeded"`
+	// Active sent a heartbeat that day. The outcomes are installs that
+	// started that day, and those that ended that day by how; BySource
+	// splits them by how Playkeeper got onto the machine.
+	Active int `json:"active"`
+	Outcomes
+	BySource map[string]Outcomes `json:"bySource"`
 }
 
 // TestInstalls are the project's own test installs, which a working setup
@@ -124,7 +159,8 @@ func newActive() *Active {
 // Summary counts what the service keeps.
 func (s *Service) Summary(ctx context.Context) (*Summary, error) {
 	now := s.now().UTC()
-	sum := &Summary{GeneratedAt: now.Truncate(time.Second), Installs: map[string]*Installs{}, Active: map[string]*Active{}}
+	sum := &Summary{GeneratedAt: now.Truncate(time.Second), Installs: map[string]*Installs{}, Active: map[string]*Active{}, Funnel: map[string]*Funnel{},
+		Site: SiteStatus{Configured: s.site != nil}}
 	// Times are kept to the hour, so each window starts on one: an install
 	// from within the last day counts in it.
 	for _, w := range windows {
@@ -138,6 +174,26 @@ func (s *Service) Summary(ctx context.Context) (*Summary, error) {
 			return nil, err
 		}
 		sum.Active[w.name] = act
+		f, err := s.funnel(ctx, now, hour(now)-int64(w.span/time.Second))
+		if err != nil {
+			return nil, err
+		}
+		sum.Funnel[w.name] = f
+	}
+	if s.site != nil {
+		numbers, readAt, problem := s.site.numbers(ctx, now)
+		for w, n := range numbers {
+			if f := sum.Funnel[w]; f != nil {
+				f.Visitors, f.DemoOpens = &n.visitors, &n.demoOpens
+			}
+		}
+		if !readAt.IsZero() {
+			at := readAt.UTC().Truncate(time.Second)
+			sum.Site.ReadAt = &at
+		}
+		if problem != "" {
+			sum.Site.Error = "Open Analytics: " + problem
+		}
 	}
 	all, err := s.installs(ctx, now, 0)
 	if err != nil {
@@ -155,6 +211,43 @@ func (s *Service) Summary(ctx context.Context) (*Summary, error) {
 		return nil, err
 	}
 	return sum, nil
+}
+
+// funnel counts the steps the service knows itself from since on: copies of
+// the install command, and installs made with the playkeeper.io command that
+// started, succeeded, and still run. As in installs, one that ended started,
+// even when its first report was lost.
+func (s *Service) funnel(ctx context.Context, now time.Time, since int64) (*Funnel, error) {
+	f := &Funnel{}
+	var err error
+	if f.CommandCopies, err = s.siteCopies(ctx, since); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT started_at, outcome, outcome_at, last_seen FROM installs
+		WHERE test = 0 AND source = ? AND (started_at >= ? OR outcome_at >= ?)`, usage.SourceSite, since, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	runningSince := hour(now) - int64(day/time.Second)
+	for rows.Next() {
+		var outcome string
+		var started, outcomeAt, lastSeen int64
+		if err := rows.Scan(&started, &outcome, &outcomeAt, &lastSeen); err != nil {
+			return nil, err
+		}
+		ended := outcome != "" && outcomeAt >= since
+		if (started != 0 && started >= since) || (started == 0 && ended && (outcome == usage.EventSucceeded || outcome == usage.EventFailed)) {
+			f.Started++
+		}
+		if ended && outcome == usage.EventSucceeded {
+			f.Succeeded++
+			if lastSeen >= runningSince {
+				f.StillRunning++
+			}
+		}
+	}
+	return f, rows.Err()
 }
 
 // installs counts the installer's reports from since on.
@@ -260,6 +353,7 @@ func (s *Service) daily(ctx context.Context, now time.Time) ([]Day, error) {
 	days := make([]Day, dailyDays)
 	for i := range days {
 		days[i].Day = time.Unix((first+int64(i))*86400, 0).UTC().Format("2006-01-02")
+		days[i].BySource = map[string]Outcomes{}
 	}
 	count := func(query string, set func(d *Day, n int), args ...any) error {
 		rows, err := s.db.QueryContext(ctx, query, args...)
@@ -283,13 +377,44 @@ func (s *Service) daily(ctx context.Context, now time.Time) ([]Day, error) {
 		func(d *Day, n int) { d.Active = n }, first); err != nil {
 		return nil, err
 	}
-	if err := count(`SELECT started_at / 86400, COUNT(*) FROM installs WHERE test = 0 AND started_at >= ? GROUP BY 1`,
-		func(d *Day, n int) { d.Started = n }, first*86400); err != nil {
+	rows, err := s.db.QueryContext(ctx, `SELECT source, started_at, outcome, outcome_at FROM installs
+		WHERE test = 0 AND (started_at >= ? OR outcome_at >= ?)`, first*86400, first*86400)
+	if err != nil {
 		return nil, err
 	}
-	if err := count(`SELECT outcome_at / 86400, COUNT(*) FROM installs WHERE test = 0 AND outcome = ? AND outcome_at >= ? GROUP BY 1`,
-		func(d *Day, n int) { d.Succeeded = n }, usage.EventSucceeded, first*86400); err != nil {
-		return nil, err
+	defer rows.Close()
+	add := func(at int64, source string, o Outcomes) {
+		if i := at/86400 - first; i >= 0 && i < dailyDays {
+			d := &days[i]
+			d.Outcomes = d.Outcomes.add(o)
+			d.BySource[source] = d.BySource[source].add(o)
+		}
 	}
-	return days, nil
+	for rows.Next() {
+		var source, outcome string
+		var started, outcomeAt int64
+		if err := rows.Scan(&source, &started, &outcome, &outcomeAt); err != nil {
+			return nil, err
+		}
+		if source == "" {
+			source = "unknown"
+		}
+		// As in installs: one that ended started, even when its first
+		// report was lost, and counts as started the day it ended.
+		switch {
+		case started != 0:
+			add(started, source, Outcomes{Started: 1})
+		case outcome == usage.EventSucceeded || outcome == usage.EventFailed:
+			add(outcomeAt, source, Outcomes{Started: 1})
+		}
+		switch outcome {
+		case usage.EventSucceeded:
+			add(outcomeAt, source, Outcomes{Succeeded: 1})
+		case usage.EventFailed:
+			add(outcomeAt, source, Outcomes{Failed: 1})
+		case usage.EventRefused:
+			add(outcomeAt, source, Outcomes{Refused: 1})
+		}
+	}
+	return days, rows.Err()
 }

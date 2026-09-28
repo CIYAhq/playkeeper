@@ -72,33 +72,6 @@ func (l *limiter) gc(now time.Time) {
 	}
 }
 
-// reserved are names nobody can claim and whose records the service never
-// touches: the project's own hosts, mail and infrastructure names, and
-// names people would trust as official.
-var reserved = func() map[string]bool {
-	m := map[string]bool{}
-	for _, n := range strings.Fields(`
-		www www1 www2 names name api app apps admin administrator root install get download downloads
-		update updates release releases status docs doc help support faq about blog news forum wiki
-		demo test staging dev beta preview static assets cdn media files images
-		mail email smtp imap pop pop3 mx webmail autoconfig autodiscover mta-sts postmaster hostmaster
-		webmaster abuse security noreply no-reply dmarc dkim spf bimi ns ns1 ns2 ns3 ns4 dns
-		wpad isatap localhost broadcasthost ftp sftp ssh vpn proxy gateway router
-		login signin signup register account accounts auth sso oauth verify billing pay payment payments
-		shop store dashboard panel console portal official team staff moderator mod owner
-		minecraft mojang microsoft papermc paper purpur fabric forge neoforge spigot bukkit velocity
-		cloudflare namecheap coolify github`) {
-		m[n] = true
-	}
-	return m
-}()
-
-// reservedName reports whether the built-in list reserves name. Anything
-// containing "playkeeper" is reserved too, so nobody can pose as the project.
-func reservedName(name string) bool {
-	return reserved[name] || strings.Contains(name, "playkeeper")
-}
-
 // maxBlocklist bounds the blocklist file.
 const maxBlocklist = 1 << 20
 

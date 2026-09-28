@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#f2f2ec">
+<title>Playkeeper stats</title>
+<link rel="icon" href="/dashboard/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/dashboard/app.css">
+<script type="module" src="/dashboard/app.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><img src="/dashboard/icon.svg" alt="" width="28" height="28"><span>Playkeeper stats</span></div>
+  <div class="actions" id="actions" hidden>
+    <span class="updated" id="updated"></span>
+    <button type="button" class="button" id="refresh">Refresh</button>
+    <button type="button" class="button" id="signout">Sign out</button>
+  </div>
+</header>
+
+<main>
+  <section class="card signin" id="signin" hidden aria-labelledby="signin-title">
+    <h1 id="signin-title">Sign in</h1>
+    <p class="muted">Paste the service's read token, <code>STATS_READ_TOKEN</code>. It stays in this browser and goes only to this service, with each request for the counts.</p>
+    <form id="signin-form" novalidate>
+      <input class="visually-hidden" type="text" name="username" value="stats" autocomplete="username" tabindex="-1" aria-hidden="true">
+      <label for="token">Read token</label>
+      <input id="token" name="password" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" required>
+      <label class="check"><input type="checkbox" id="remember" checked> Remember on this device</label>
+      <p class="error" id="signin-error" role="alert" hidden></p>
+      <button type="submit" class="button primary" id="signin-button">Sign in</button>
+    </form>
+  </section>
+
+  <p class="status" id="status" role="status" hidden></p>
+
+  <div class="dashboard" id="dashboard" hidden>
+    <section class="stats" aria-label="Machines running Playkeeper">
+      <article class="card stat">
+        <p class="label">Running today</p>
+        <p class="value" id="active-1d">0</p>
+        <p class="sub" id="active-1d-sub"></p>
+      </article>
+      <article class="card stat">
+        <p class="label">Running in 7 days</p>
+        <p class="value" id="active-7d">0</p>
+        <p class="sub" id="active-7d-sub"></p>
+      </article>
+      <article class="card stat">
+        <p class="label">Running in 30 days</p>
+        <p class="value" id="active-30d">0</p>
+        <p class="sub" id="active-30d-sub"></p>
+      </article>
+    </section>
+
+    <section class="card" aria-labelledby="funnel-title">
+      <div class="card-head">
+        <div>
+          <h2 id="funnel-title">From visitors to running installs</h2>
+          <p class="muted" id="funnel-sub"></p>
+        </div>
+        <div class="segmented" role="group" aria-label="Funnel over the last">
+          <button type="button" data-funnel="1d" aria-pressed="false">1 day</button>
+          <button type="button" data-funnel="7d" aria-pressed="true">7 days</button>
+          <button type="button" data-funnel="30d" aria-pressed="false">30 days</button>
+        </div>
+      </div>
+      <ol class="funnel" id="funnel"></ol>
+      <p class="muted funnel-note" id="funnel-note"></p>
+    </section>
+
+    <section class="card" aria-labelledby="running-title">
+      <div class="card-head">
+        <div>
+          <h2 id="running-title">Machines running each day</h2>
+          <p class="muted">Machines that sent a heartbeat that day, over the last 30 days</p>
+        </div>
+      </div>
+      <div class="chart small" id="running-chart"></div>
+      <div class="axis" id="running-axis"></div>
+    </section>
+
+    <section class="card" aria-labelledby="installs-title">
+      <div class="card-head">
+        <div>
+          <h2 id="installs-title">Installs per day</h2>
+          <p class="muted" id="installs-totals"></p>
+        </div>
+        <div class="segmented" role="group" aria-label="Split installs by">
+          <button type="button" data-split="outcome" aria-pressed="true">Outcome</button>
+          <button type="button" data-split="source" aria-pressed="false">Source</button>
+        </div>
+      </div>
+      <div class="chart" id="installs-chart"></div>
+      <div class="axis" id="installs-axis"></div>
+      <ul class="legend" id="installs-legend"></ul>
+      <p class="day" id="installs-day" aria-live="polite"></p>
+    </section>
+
+    <section class="pair">
+      <article class="card" aria-labelledby="failed-title">
+        <h2 id="failed-title">Failed installs by step</h2>
+        <p class="muted">Where installs stopped, over the last 30 days</p>
+        <ul class="bars" id="failed-steps"></ul>
+      </article>
+      <article class="card" aria-labelledby="refused-title">
+        <h2 id="refused-title">Refused installs by check</h2>
+        <p class="muted">Checks that turned installs away, over the last 30 days</p>
+        <ul class="bars" id="refused-checks"></ul>
+      </article>
+    </section>
+
+    <section class="card" aria-labelledby="machines-title">
+      <div class="card-head">
+        <div>
+          <h2 id="machines-title">Machines</h2>
+          <p class="muted" id="machines-sub"></p>
+        </div>
+        <div class="segmented" role="group" aria-label="Machines running in the last">
+          <button type="button" data-window="1d" aria-pressed="false">1 day</button>
+          <button type="button" data-window="7d" aria-pressed="false">7 days</button>
+          <button type="button" data-window="30d" aria-pressed="true">30 days</button>
+        </div>
+      </div>
+      <h3>On or off our domain</h3>
+      <div class="split" id="domain-split"></div>
+      <ul class="legend" id="domain-legend"></ul>
+      <div class="breakdowns">
+        <div class="breakdown"><h3>Versions</h3><ul class="bars" id="by-version"></ul></div>
+        <div class="breakdown"><h3>Systems</h3><ul class="bars" id="by-os"></ul></div>
+        <div class="breakdown"><h3>CPU</h3><ul class="bars" id="by-arch"></ul></div>
+        <div class="breakdown"><h3>Address</h3><ul class="bars" id="by-address"></ul></div>
+        <div class="breakdown"><h3>Servers per machine</h3><ul class="bars" id="servers-per"></ul></div>
+        <div class="breakdown"><h3>How it was installed</h3><ul class="bars" id="by-source"></ul></div>
+        <div class="breakdown"><h3>Kind</h3><ul class="bars" id="by-kind"></ul></div>
+        <div class="breakdown" id="channels" hidden><h3>Channels</h3><ul class="bars" id="by-channel"></ul></div>
+      </div>
+    </section>
+
+    <p class="foot" id="foot"></p>
+  </div>
+
+  <noscript><p class="status">The dashboard needs JavaScript to read the counts.</p></noscript>
+</main>
+</body>
+</html>

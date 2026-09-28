@@ -15,11 +15,11 @@
 {{end}}
 
 {{/* crumbs: the page's breadcrumb, from its section. */}}
-{{define "crumbs"}}{{with .Crumbs}}
+{{define "crumbs"}}{{with .Crumbs}}{{$all := .}}
 <nav class="crumbs" aria-label="Breadcrumb">
   <ol>
     {{range $i, $c := .}}{{if $i}}<li aria-hidden="true" class="crumb-sep">{{template "icon" "chevron-right"}}</li>{{end}}
-    <li>{{if eq $i 1}}<span aria-current="page">{{$c.Label}}</span>{{else if $c.Path}}<a href="{{$c.Path}}">{{$c.Label}}</a>{{else}}<span>{{$c.Label}}</span>{{end}}</li>
+    <li>{{if eq (add $i 1) (len $all)}}<span aria-current="page">{{$c.Label}}</span>{{else if $c.Path}}<a href="{{$c.Path}}">{{$c.Label}}</a>{{else}}<span>{{$c.Label}}</span>{{end}}</li>
     {{end}}
   </ol>
 </nav>

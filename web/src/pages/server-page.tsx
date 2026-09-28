@@ -17,7 +17,11 @@ import { typeName } from '@/lib/servers'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 
-/** Where the footer's call to action leads, tagged so the site can count visits from server pages. */
+/**
+ * Where the footer's call to action leads, tagged so the site can count
+ * visits from server pages. The link sends the page's origin as the
+ * referrer, the one part of it the site's analytics records per page.
+ */
 const siteLink = 'https://playkeeper.io/?ref=server-page'
 
 /**
@@ -381,7 +385,7 @@ function BrandBand() {
           </h2>
           <p className="mt-1 text-[15px] leading-[21px] text-pretty text-white/75">{t('serverPage.brandBody')}</p>
         </div>
-        <Button size={phone ? 'touch' : 'lg'} className={cn('border-white bg-white text-[#0e3b21] shadow-none not-disabled:hover:bg-white/90 not-disabled:active:bg-white/85', phone && 'w-full')} render={<a href={siteLink} />}>
+        <Button size={phone ? 'touch' : 'lg'} className={cn('border-white bg-white text-[#0e3b21] shadow-none not-disabled:hover:bg-white/90 not-disabled:active:bg-white/85', phone && 'w-full')} render={<a href={siteLink} referrerPolicy="origin" />}>
           {t('serverPage.brandCta')}
           <ArrowUpRightIcon />
         </Button>

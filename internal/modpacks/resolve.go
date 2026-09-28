@@ -45,9 +45,12 @@ type pack struct {
 	blockers   []addons.Notice
 	warnings   []addons.Notice
 	properties map[string]string
-	// modrinthClient are the SHA-1s of a CurseForge pack's mods that
-	// Modrinth lists as for the game client only (clientOnlyOnModrinth).
+	// modrinthClient are the SHA-1s of a pack's mods that Modrinth lists
+	// as for the game client only (clientOnlyVersions).
 	modrinthClient map[string]bool
+	// needed are the SHA-1s of client-only mods that a mod on the server
+	// requires (neededClientMods), which go on the server all the same.
+	needed map[string]bool
 	// heapMB is the Java heap the pack's own settings ask for (Plan.HeapMB).
 	heapMB     int
 	unknownEnv []string
@@ -335,7 +338,7 @@ func (l *Library) readModrinth(ctx context.Context, proj *modrinth.Project, v *m
 		p.close()
 		return nil, err
 	}
-	if err := l.readIndex(p, world, lim); err != nil {
+	if err := l.readIndex(ctx, p, world, lim); err != nil {
 		p.close()
 		return nil, err
 	}
@@ -363,7 +366,7 @@ func (l *Library) fetchArchive(ctx context.Context, p *pack, hosts fetch.Hosts, 
 	return err
 }
 
-func (l *Library) readIndex(p *pack, world string, lim Limits) error {
+func (l *Library) readIndex(ctx context.Context, p *pack, world string, lim Limits) error {
 	b, err := p.arch.read(mrpack.IndexName, lim.Index)
 	if err != nil {
 		return indexError(p.info.Name, mrpack.IndexName, err)
@@ -384,11 +387,17 @@ func (l *Library) readIndex(p *pack, world string, lim Limits) error {
 	if p.reqs, err = l.requirements(p.info.Name, loader, loaderVersion, ix.Dependencies[mrpack.Minecraft]); err != nil {
 		return err
 	}
+	if err := l.modrinthSides(ctx, p, ix.Files); err != nil {
+		return err
+	}
 	hosts := slices.Concat(l.packHosts(), l.packRedirects())
 	for i := range ix.Files {
 		l.addIndexFile(p, &ix.Files[i], world, hosts)
 	}
 	if err := l.addOverrides(p, p.arch.layer(mrpack.Overrides, mrpack.ServerOverrides), world, lim); err != nil {
+		return err
+	}
+	if err := l.missingModsChecker(ctx, p, lim); err != nil {
 		return err
 	}
 	if err := l.addClientOverrides(p, p.arch.layer(mrpack.Overrides, mrpack.ClientOverrides), lim); err != nil {
@@ -411,10 +420,14 @@ func (l *Library) addIndexFile(p *pack, f *mrpack.File, world string, hosts fetc
 		}
 	}
 	env := f.Server()
-	switch env {
-	case mrpack.Unsupported:
+	switch sha1 := strings.ToLower(f.Hashes.SHA1); {
+	case p.needed[sha1]:
+		env = mrpack.Required
+	case env == mrpack.Unsupported || p.modrinthClient[sha1]:
 		p.skip(f.Path, addons.KindClientOnly)
 		return
+	}
+	switch env {
 	case mrpack.Required, mrpack.Optional:
 	default:
 		p.unknownEnv = append(p.unknownEnv, f.Path)
@@ -905,9 +918,16 @@ func (l *Library) readManifest(ctx context.Context, p *pack, mod *curseforge.Mod
 		modByID[mods[i].ID] = &mods[i]
 	}
 	p.modrinthClient = l.clientOnlyOnModrinth(ctx, p, files, modByID)
-	if err := p.keepMentioned(m.Overrides, files, modByID); err != nil {
+	guesses := map[string][]string{}
+	for i := range files {
+		if cm := modByID[files[i].ModID]; cm != nil {
+			guesses[files[i].SHA1()] = namespaces(files[i].FileName, cm.Slug)
+		}
+	}
+	if err := p.keepMentioned(p.arch.layer(m.Overrides), guesses); err != nil {
 		return err
 	}
+	p.needed = neededCurseForge(p, m.Files, fileByID, modByID)
 	for _, mf := range m.Files {
 		l.addCurseForgeFile(p, mf, fileByID[mf.FileID], modByID[mf.ProjectID])
 	}
@@ -969,7 +989,7 @@ func (l *Library) addCurseForgeFile(p *pack, mf curseforge.ManifestFile, f *curs
 	}
 	target := "mods/" + f.FileName
 	switch {
-	case f.ClientOnly() || p.modrinthClient[f.SHA1()]:
+	case (f.ClientOnly() || p.modrinthClient[f.SHA1()]) && !p.needed[f.SHA1()]:
 		p.skip("mods/"+printable(f.FileName), addons.KindClientOnly)
 		if sum := f.SHA1(); mf.Required && plainJar(f.FileName) && sum != "" {
 			p.clientMods = append(p.clientMods, clientMod{path: target, project: id, name: display, sha1: sum})
@@ -1026,7 +1046,13 @@ func (l *Library) clientOnlyOnModrinth(ctx context.Context, p *pack, files []cur
 			hashes = append(hashes, f.SHA1())
 		}
 	}
-	out := map[string]bool{}
+	return l.clientOnlyVersions(ctx, l.versionsOnModrinth(ctx, p, hashes))
+}
+
+// versionsOnModrinth asks Modrinth for the versions of a pack's files by their
+// SHA-1s, in lower case. When Modrinth can't be asked, the pack says so.
+func (l *Library) versionsOnModrinth(ctx context.Context, p *pack, hashes []string) map[string]modrinth.Version {
+	out := map[string]modrinth.Version{}
 	if len(hashes) == 0 || l.Modrinth == nil {
 		return out
 	}
@@ -1037,6 +1063,16 @@ func (l *Library) clientOnlyOnModrinth(ctx context.Context, p *pack, files []cur
 			"If the server fails to start, one of them may be for the game client only."))
 		return out
 	}
+	for sha1, v := range vs {
+		out[strings.ToLower(sha1)] = v
+	}
+	return out
+}
+
+// clientOnlyVersions returns the SHA-1s of the versions in vs that Modrinth
+// lists as for the game client only.
+func (l *Library) clientOnlyVersions(ctx context.Context, vs map[string]modrinth.Version) map[string]bool {
+	out := map[string]bool{}
 	// Versions from before Modrinth's environment field don't say; their
 	// projects' server_side does.
 	var ask []string
@@ -1072,33 +1108,29 @@ func (l *Library) clientOnlyOnModrinth(ctx context.Context, p *pack, files []cur
 // the pack's own files name something of theirs, as in "particular:firefly":
 // a datapack there may need a client-only mod's particles or blocks on the
 // server, as FTB StoneBlock 4's spring biome needs Particular's fireflies.
-// A mod's namespace is guessed from its file name and CurseForge slug, so a
-// guess that happens to match keeps a mod, never leaves one off.
-func (p *pack) keepMentioned(overrides string, files []curseforge.File, mods map[int64]*curseforge.Mod) error {
-	if len(p.modrinthClient) == 0 {
-		return nil
-	}
+// A mod's namespace is guessed (guesses, by SHA-1) from its file name and
+// CurseForge slug, so a guess that happens to match keeps a mod, never
+// leaves one off. entries are the pack's files for the server.
+func (p *pack) keepMentioned(entries map[string]*zip.File, guesses map[string][]string) error {
 	byName := map[string][]string{}
-	for i := range files {
-		f := &files[i]
-		if !p.modrinthClient[f.SHA1()] {
+	for sha1, nss := range guesses {
+		if !p.modrinthClient[sha1] {
 			continue
 		}
-		slug := ""
-		if m := mods[f.ModID]; m != nil {
-			slug = m.Slug
+		for _, ns := range nss {
+			byName[ns] = append(byName[ns], sha1)
 		}
-		for _, ns := range namespaces(f.FileName, slug) {
-			byName[ns] = append(byName[ns], f.SHA1())
-		}
+	}
+	if len(byName) == 0 {
+		return nil
 	}
 	names := slices.Sorted(maps.Keys(byName))
 	for i, ns := range names {
 		names[i] = regexp.QuoteMeta(ns)
 	}
 	re := regexp.MustCompile(`(?:^|[^a-z0-9_.-])(` + strings.Join(names, "|") + `):[a-z0-9_./-]`)
-	for rel, e := range p.arch.layer(overrides) {
-		if !mentionsFile(rel) || e.UncompressedSize64 > maxMentionsFile {
+	for rel, e := range entries {
+		if !mentionsFile(rel) || !serverData(rel) || e.UncompressedSize64 > maxMentionsFile {
 			continue
 		}
 		b, err := p.arch.read(e.Name, maxMentionsFile)
@@ -1114,8 +1146,136 @@ func (p *pack) keepMentioned(overrides string, files []curseforge.File, mods map
 	return nil
 }
 
+// neededClientMods returns which of a pack's client-only mods (by SHA-1)
+// the mods on the server require: they go on the server all the same, as
+// Forge Config Screens stops a server's start without Mod Menu. project
+// names a mod's project, and requires the projects it requires. What a mod
+// kept this way requires in turn stays off: the lists don't say which side
+// needs a mod, so Better MC 5's Immersive Lanterns, which needs Sodium
+// Dynamic Lights only in players' games, would bring Sodium Options API,
+// and that needs a mod no list names.
+func neededClientMods(onServer, clientOnly []string, project func(string) string, requires func(string) []string) map[string]bool {
+	byProject := map[string][]string{}
+	for _, c := range clientOnly {
+		if pr := project(c); pr != "" {
+			byProject[pr] = append(byProject[pr], c)
+		}
+	}
+	needed := map[string]bool{}
+	for _, m := range onServer {
+		for _, pr := range requires(m) {
+			for _, c := range byProject[pr] {
+				needed[c] = true
+			}
+		}
+	}
+	return needed
+}
+
+// neededCurseForge returns the client-only mods of a CurseForge pack,
+// tagged so or listed so on Modrinth, that its other mods require by
+// CurseForge's own lists (neededClientMods). Optional files stay off unless
+// chosen, so what they require doesn't count.
+func neededCurseForge(p *pack, mfs []curseforge.ManifestFile, files map[int64]*curseforge.File, mods map[int64]*curseforge.Mod) map[string]bool {
+	bySHA1 := map[string]*curseforge.File{}
+	var onServer, clientOnly []string
+	for _, mf := range mfs {
+		f, m := files[mf.FileID], mods[mf.ProjectID]
+		if f == nil || m == nil || m.ClassID != curseforge.ClassMods || f.ModID != mf.ProjectID || f.SHA1() == "" {
+			continue
+		}
+		bySHA1[f.SHA1()] = f
+		switch {
+		case f.ClientOnly() || p.modrinthClient[f.SHA1()]:
+			clientOnly = append(clientOnly, f.SHA1())
+		case mf.Required:
+			onServer = append(onServer, f.SHA1())
+		}
+	}
+	return neededClientMods(onServer, clientOnly,
+		func(sha1 string) string { return strconv.FormatInt(bySHA1[sha1].ModID, 10) },
+		func(sha1 string) []string {
+			var out []string
+			for _, d := range bySHA1[sha1].Dependencies {
+				if d.RelationType == curseforge.RequiredDependency {
+					out = append(out, strconv.FormatInt(d.ModID, 10))
+				}
+			}
+			return out
+		})
+}
+
+// modrinthSides settles which of a Modrinth pack's mods go on the server
+// beyond what its index says, which is often "both" for every file. Mods
+// Modrinth lists as client-only stay off, like Better MC 5's Better
+// Grassify, unless the pack's own files use them; and a client-only mod a
+// mod on the server requires by Modrinth's lists goes on, even one the
+// index keeps off servers, like Prominence II's Mod Menu.
+func (l *Library) modrinthSides(ctx context.Context, p *pack, files []mrpack.File) error {
+	var hashes []string
+	for i := range files {
+		if sha1 := strings.ToLower(files[i].Hashes.SHA1); modJar(files[i].Path) && sha1 != "" {
+			hashes = append(hashes, sha1)
+		}
+	}
+	vs := l.versionsOnModrinth(ctx, p, hashes)
+	p.modrinthClient = l.clientOnlyVersions(ctx, vs)
+	guesses := map[string][]string{}
+	for i := range files {
+		guesses[strings.ToLower(files[i].Hashes.SHA1)] = namespaces(path.Base(files[i].Path), "")
+	}
+	if err := p.keepMentioned(p.arch.layer(mrpack.Overrides, mrpack.ServerOverrides), guesses); err != nil {
+		return err
+	}
+	versionProject := map[string]string{}
+	for _, v := range vs {
+		versionProject[v.ID] = v.ProjectID
+	}
+	var onServer, clientOnly []string
+	for i := range files {
+		sha1 := strings.ToLower(files[i].Hashes.SHA1)
+		switch {
+		case !modJar(files[i].Path) || sha1 == "":
+		case files[i].Server() == mrpack.Unsupported || p.modrinthClient[sha1]:
+			clientOnly = append(clientOnly, sha1)
+		default:
+			onServer = append(onServer, sha1)
+		}
+	}
+	p.needed = neededClientMods(onServer, clientOnly,
+		func(sha1 string) string { return vs[sha1].ProjectID },
+		func(sha1 string) []string {
+			var out []string
+			for _, d := range vs[sha1].Dependencies {
+				pr := d.ProjectID
+				if pr == "" {
+					pr = versionProject[d.VersionID]
+				}
+				if d.DependencyType == modrinth.Required && pr != "" {
+					out = append(out, pr)
+				}
+			}
+			return out
+		})
+	return nil
+}
+
+// modJar reports whether a pack's file is a mod.
+func modJar(p string) bool {
+	return strings.HasPrefix(p, "mods/") && strings.HasSuffix(strings.ToLower(p), ".jar")
+}
+
 // maxMentionsFile is the largest file of a pack keepMentioned reads.
 const maxMentionsFile = 8 << 20
+
+// serverData reports whether a pack's file is data the server loads by
+// name: a datapack's (.../data/<namespace>/...) or a server or startup
+// script's. Other mods' settings don't count: Better MC 4's settings for
+// Resource Pack Overrides name Continuity, a mod for players' games.
+func serverData(p string) bool {
+	return strings.HasPrefix(p, "data/") || strings.Contains(p, "/data/") ||
+		strings.HasPrefix(p, "kubejs/server_scripts/") || strings.HasPrefix(p, "kubejs/startup_scripts/")
+}
 
 // mentionsFile reports whether a pack's file may name a mod's content:
 // datapacks, scripts and settings, not images, sounds or archives.
