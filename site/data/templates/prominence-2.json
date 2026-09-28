@@ -1,0 +1,25 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Prominence II",
+  "description": "Prominence II: Hasturian Era on Fabric 1.20.1: a story-driven RPG pack with a talent tree, an artifact weapon to forge and bosses to beat.",
+  "game": "minecraft-java",
+  "server": { "type": "fabric", "minecraftVersion": "1.20.1" },
+  "settings": {
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 8192
+  },
+  "modpack": {
+    "source": "modrinth",
+    "project": "EGs3lC8D",
+    "slug": "prominence-2-fabric",
+    "name": "Prominence™ II: Hasturian Era",
+    "pin": {
+      "versionId": "pM4d8h1G",
+      "versionNumber": "4.1.1hf",
+      "channel": "release",
+      "hashAlgo": "sha512",
+      "hash": "76d5bc4006485ededf3f9e844748695a5c7e89f0c13b5ad56471c9e75a83f4b99db42074982bd85dd641dbfbeca08a3d8bcd523b9631a8912eb45c72c8e7e709"
+    }
+  }
+}

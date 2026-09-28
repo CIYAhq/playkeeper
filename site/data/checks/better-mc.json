@@ -1,0 +1,13 @@
+{
+  "status": "passing",
+  "checked": "2026-09-28",
+  "release": "0.4.4",
+  "build": "21.1.252",
+  "doneSeconds": 12.544,
+  "modpack": {
+    "name": "Better MC [NEOFORGE] BMC5",
+    "version": "v31",
+    "mods": 219,
+    "downloads": 305295
+  }
+}

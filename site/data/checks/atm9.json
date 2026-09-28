@@ -1,0 +1,13 @@
+{
+  "status": "passing",
+  "checked": "2026-09-28",
+  "release": "0.4.4",
+  "build": "47.4.23",
+  "doneSeconds": 47.086,
+  "modpack": {
+    "name": "All the Mods 9 - ATM9",
+    "version": "All the Mods 9-1.1.1",
+    "mods": 418,
+    "downloads": 13639405
+  }
+}

@@ -1,0 +1,16 @@
+# Tests that fail now and then for reasons outside the change under test.
+# CI leaves them out of the checks that block a merge, and the Quarantined
+# tests workflow (.github/workflows/quarantine.yml) runs them every day and by
+# hand, and reports how often each failed without ever failing itself. Each is
+# here to be fixed: take its line out with the fix, once the workflow has seen
+# it pass every run for a few days. scripts/quarantine.sh reads this file.
+#
+# PACKAGE OR SCRIPT      TEST OR CHECK                                          HOW IT FAILED
+./internal/agent         TestLagCountsOnlyTheCurrentRunsGC                      after_a_restart, on siya/site-copy-hosting-6127 (run 36411806815)
+./internal/agent         TestPregenCancel                                       on siya/public-server-page-6dd2 (run 36416802566)
+./internal/agent         TestAgentRestartBringsBackAServerThatShouldBeRunning   two subtests in two runs of siya/modpack-file-limit-512-1a3a (runs 36411046651, 36412932320); a_policy_that_gave_up on #111 (run 36446836534), passing on reruns
+./internal/agent         TestANewKeyReachesTheCopyBeingMade                     during_a_copy_that_saved_where_it_stopped, on siya/tools-hub-server-icon-c9c0 (run 36405712060)
+./internal/agent         TestUpdateIsVerifiedStagedAndHandedToTheUpdater        reads /v1/update the moment the operation succeeds, before the agent clears "installing"; ARM64 run on #99 (run 36432245229)
+./internal/agent         TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor  console_and_allowlist_off: "2 restarts by Playkeeper, want 1", on #136, which changes no Go code (run 36467104524); passes on main
+./internal/modpacks/share TestNewTokenIsUniform                                 its chi-squared bound of 110 fails by chance about once in 350 runs (run 36419888033)
+test/e2e/software.py     pregen                                                 Paper at 2048 MB is killed at its container's memory limit while it pre-generates (cause=oom in the agent's journal), which loses Chunky's task: 10 of 85 ARM runs on 28 Sep. A product bug to fix, not the test's

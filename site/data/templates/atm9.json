@@ -1,0 +1,25 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "All the Mods 9",
+  "description": "All the Mods 9 for Forge on Minecraft 1.20.1: over 400 mods, quests and an endgame to build the ATM Star.",
+  "game": "minecraft-java",
+  "server": { "type": "forge", "minecraftVersion": "1.20.1" },
+  "settings": {
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 8192
+  },
+  "modpack": {
+    "source": "curseforge",
+    "project": "715572",
+    "slug": "all-the-mods-9",
+    "name": "All the Mods 9 - ATM9",
+    "pin": {
+      "versionId": "7097953",
+      "versionNumber": "1.1.1",
+      "channel": "release",
+      "hashAlgo": "sha1",
+      "hash": "bcf232e85b4d200b3e65bc02facd98a179b685dd"
+    }
+  }
+}

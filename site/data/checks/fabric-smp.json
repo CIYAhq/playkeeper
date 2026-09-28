@@ -1,9 +1,9 @@
 {
   "status": "passing",
   "checked": "2026-09-28",
-  "release": "0.4.2",
+  "release": "0.4.4",
   "build": "0.19.5",
-  "doneSeconds": 3.309,
+  "doneSeconds": 3.288,
   "addons": [
     {
       "name": "Fabric API",
@@ -11,7 +11,7 @@
       "slug": "fabric-api",
       "version": "0.161.0+26.2",
       "licence": "Apache-2.0",
-      "downloads": 263135966
+      "downloads": 263321079
     },
     {
       "name": "Lithium",
@@ -19,7 +19,7 @@
       "slug": "lithium",
       "version": "mc26.2-0.25.3-fabric",
       "licence": "LGPL-3.0-only",
-      "downloads": 130565140
+      "downloads": 130636560
     },
     {
       "name": "FerriteCore",
@@ -27,7 +27,7 @@
       "slug": "ferrite-core",
       "version": "9.0.0-fabric",
       "licence": "MIT",
-      "downloads": 153952896
+      "downloads": 154025490
     },
     {
       "name": "Krypton",
@@ -35,7 +35,7 @@
       "slug": "krypton",
       "version": "0.3.1",
       "licence": "LGPL-3.0-only",
-      "downloads": 42234221
+      "downloads": 42251340
     },
     {
       "name": "ScalableLux",
@@ -43,7 +43,7 @@
       "slug": "scalablelux",
       "version": "0.2.1+fabric.2b08348",
       "licence": "LGPL-3.0-only",
-      "downloads": 14267744
+      "downloads": 14280760
     },
     {
       "name": "Chunky",
@@ -51,7 +51,7 @@
       "slug": "chunky",
       "version": "1.5.3",
       "licence": "GPL-3.0-only",
-      "downloads": 18378184
+      "downloads": 18388678
     },
     {
       "name": "Simple Voice Chat",
@@ -59,7 +59,7 @@
       "slug": "simple-voice-chat",
       "version": "fabric-2.6.22+26.2",
       "licence": "LicenseRef-All-Rights-Reserved",
-      "downloads": 70443451
+      "downloads": 70487398
     }
   ]
 }

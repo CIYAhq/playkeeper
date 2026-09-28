@@ -1,9 +1,9 @@
 {
   "status": "passing",
   "checked": "2026-09-28",
-  "release": "0.4.2",
+  "release": "0.4.4",
   "build": "129",
-  "doneSeconds": 12.515,
+  "doneSeconds": 13.033,
   "addons": [
     {
       "name": "WorldEdit",
@@ -11,7 +11,7 @@
       "slug": "worldedit",
       "version": "7.4.5",
       "licence": "GPL-3.0-only",
-      "downloads": 10915153
+      "downloads": 10922763
     },
     {
       "name": "Multiverse-Core",
@@ -19,7 +19,7 @@
       "slug": "multiverse-core",
       "version": "5.8.1",
       "licence": "BSD-3-Clause",
-      "downloads": 821032
+      "downloads": 821669
     },
     {
       "name": "Screaming BedWars",
@@ -27,7 +27,8 @@
       "slug": "screamingbedwars",
       "version": "0.2.44",
       "licence": "LGPL-3.0-only",
-      "downloads": 20173
+      "downloads": 20208
     }
-  ]
+  ],
+  "crossplay": true
 }

@@ -37,7 +37,7 @@ def serve(port, log):
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 
 
-def check(log, config, version):
+def check(log, config, version, source="source"):
     reports = [json.loads(line) for line in open(log)]
     usage_id = json.load(open(config))["usageID"]
     installs = [r["body"] for r in reports if r["path"] == "/v1/install"]
@@ -49,8 +49,9 @@ def check(log, config, version):
         assert r["id"] == usage_id, (r, usage_id)
         assert r["version"] == version and r["kind"] == "dashboard" and r["test"] is True, r
         assert r["os"] == "ubuntu" and r["arch"] in ("amd64", "arm64"), r
-        # CI's builds aren't releases, so they come from the source.
-        assert r["source"] == "source", r
+        # CI's own builds aren't releases, so they come from the source; the
+        # Release check's release build comes from its tarball.
+        assert r["source"] == source, (r, source)
     for e in installs:
         assert set(e) <= INSTALL, set(e) - INSTALL
     for b in beats:
@@ -63,4 +64,4 @@ if __name__ == "__main__":
     if sys.argv[1] == "serve":
         serve(int(sys.argv[2]), sys.argv[3])
     else:
-        check(sys.argv[2], sys.argv[3], sys.argv[4])
+        check(*sys.argv[2:6])
