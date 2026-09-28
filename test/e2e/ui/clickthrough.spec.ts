@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { answerRead, installJob, isAddonRead, recordedFolder, updateJob, type World } from './addon-fixtures'
-import { affected, closure, costOf, importGraph, named, pageMapProblems, pageOf, partition, preludesOf, selects, shardsFor, type Costs, type CrawlerName, type Selection, type Size, type Unit } from './clickthrough-plan'
+import { affected, closure, costOf, freshSetup, importGraph, named, pageMapProblems, pageOf, partition, preludesOf, selects, shardsFor, type Costs, type CrawlerName, type Selection, type Size, type Unit } from './clickthrough-plan'
 import { at, found, gate, ownProblems, places, type Negative, type Pressed, type Rules, type ShardReport } from './clickthrough-rules'
 import { Crawler, failing, type Result } from './crawl'
 import { installPageHelpers } from './crawl-page'
@@ -622,6 +622,18 @@ test('a change to a shared layer or the crawler crawls every page; a change to a
     { size: 'phone', shard: 1, of: 1 },
   ])
   expect(shardsFor(costs, { pages: ['/more'], preludes: ['/'] })).toEqual([{ size: 'phone', shard: 1, of: 1 }])
+})
+
+test('a change to how the state the pages are crawled in is made crawls after the onboarding and the bots; any other, after a saved played state', () => {
+  expect(freshSetup(['web/src/pages/server/console.tsx', 'internal/panel/server.go', 'test/e2e/ui/crawl.ts'])).toBeUndefined()
+  expect(freshSetup([])).toBeUndefined()
+  expect(freshSetup(['web/src/pages/login.tsx', 'test/e2e/bot/bot.js'])).toBe('test/e2e/bot/bot.js changes how the state the pages are crawled in is made')
+  for (const file of ['test/e2e/ui/onboarding.spec.ts', 'test/e2e/scenario.py', 'test/e2e/pkclient.py']) expect(freshSetup([file]), file).toBeDefined()
+  // A change to how the state is saved or restored starts from a saved one, which tries it.
+  expect(freshSetup(['scripts/e2e/played-state.sh', '.github/actions/played-install/action.yml'])).toBeUndefined()
+  const graph = importGraph(fileURLToPath(new URL('../../../web/src', import.meta.url)))
+  expect(affected(['scripts/e2e/played-state.sh'], graph).mode).toBe('full')
+  expect(affected(['.github/actions/played-install/action.yml'], graph).mode).toBe('full')
 })
 
 test('the add-on fixtures answer as the panel would, work out plans against the folder and have no answer for what was never recorded', () => {

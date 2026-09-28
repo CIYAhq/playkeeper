@@ -1,0 +1,92 @@
+name: A played install
+description: >-
+  Installs the build under test from its release tarball, then gives it the
+  state the click-through and the views check start from: the newest played
+  state CI saved (scripts/e2e/played-state.sh) when an ancestor of this
+  commit saved it, otherwise, or if the build doesn't come up on it, the
+  keyboard onboarding and the protocol bots' scenario. Sets PK_PASSWORD, the
+  admin's password, for the steps after.
+
+inputs:
+  assets:
+    description: The folder with playkeeper-linux-amd64.tar.gz and its .sha256
+    required: true
+  setup:
+    description: saved (a saved played state when one fits, else the onboarding and the bots) or fresh (always the onboarding and the bots)
+    default: saved
+  password:
+    description: The admin's password when the onboarding makes the admin
+    required: true
+
+outputs:
+  setup:
+    description: What this runner did, saved or fresh
+    value: ${{ steps.restore.outputs.setup || 'fresh' }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install the build under test (outside the checkout)
+      shell: bash
+      env:
+        ASSETS: ${{ inputs.assets }}
+      run: scripts/e2e/played-state.sh install "$ASSETS"
+    - name: The newest saved played state
+      id: cache
+      if: inputs.setup == 'saved'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: /tmp/played
+        key: played-state-none
+        restore-keys: played-state-
+    - name: Start from it, if an ancestor of this commit saved it
+      id: restore
+      if: steps.cache.outputs.cache-matched-key != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        ASSETS: ${{ inputs.assets }}
+        MATCHED: ${{ steps.cache.outputs.cache-matched-key }}
+      run: |
+        saved=$(cat /tmp/played/commit 2>/dev/null || true)
+        # A state saved by a build newer than this one may not load in it.
+        status=$(gh api "repos/$GH_REPO/compare/$saved...$GITHUB_SHA" --jq .status) || status="not known"
+        case $status in
+          ahead | identical) ;;
+          *)
+            echo "$MATCHED was saved on ${saved:-no commit}, which this commit doesn't contain ($status), so this runner makes its own state."
+            echo "setup=fresh" >> "$GITHUB_OUTPUT"
+            exit 0
+            ;;
+        esac
+        if timeout 8m scripts/e2e/played-state.sh restore /tmp/played; then
+          echo "PK_PASSWORD=$(cat /tmp/played/password)" >> "$GITHUB_ENV"
+          echo "setup=saved" >> "$GITHUB_OUTPUT"
+        else
+          echo "::warning::This build didn't come up on the played state saved on $saved ($(cat /tmp/played/build)), so this runner installs it again and makes its own state."
+          scripts/e2e/played-state.sh purge
+          scripts/e2e/played-state.sh install "$ASSETS"
+          echo "setup=fresh" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Keyboard onboarding (the admin, and a server)
+      if: steps.restore.outputs.setup != 'saved'
+      shell: bash
+      env:
+        PK_URL: https://127.0.0.1:8443
+        PK_PASSWORD: ${{ inputs.password }}
+        PK_SHOTS: /tmp/evidence/screenshots
+        PK_OUT: /tmp/evidence/ui
+      run: |
+        PK_SETUP_CODE=$(cat /tmp/evidence/code)
+        export PK_SETUP_CODE
+        cd test/e2e/ui && timeout 10m npx playwright test onboarding.spec.ts --reporter=list
+    - name: The protocol bots' scenario (players, sessions, backups)
+      if: steps.restore.outputs.setup != 'saved'
+      shell: bash
+      env:
+        PK_ADMIN_PASSWORD: ${{ inputs.password }}
+      run: |
+        timeout 10m python3 test/e2e/scenario.py host-a --existing --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem \
+          --code "$(cat /tmp/evidence/code)" --game-host "$(cat /tmp/evidence/ui/join-address.txt)" --out /tmp/evidence/a
+        echo "PK_PASSWORD=$PK_ADMIN_PASSWORD" >> "$GITHUB_ENV"

@@ -25,6 +25,7 @@ jobs:
       mode: ${{ steps.plan.outputs.mode }}
       selection: ${{ steps.plan.outputs.selection }}
       matrix: ${{ steps.plan.outputs.matrix }}
+      setup: ${{ steps.plan.outputs.setup }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -150,6 +151,7 @@ jobs:
       artifact: release
       selection: ${{ needs.plan.outputs.selection }}
       matrix: ${{ needs.plan.outputs.matrix }}
+      setup: ${{ needs.plan.outputs.setup }}
 
   ui-fake-panel:
     name: Browser checks against a faked panel — the Console with a long log, desktop and phone; the click-through's own checks
@@ -244,7 +246,7 @@ jobs:
         run: scripts/names-check.sh
 
   install-and-play:
-    name: Fresh runner — install, onboarding, two bots, backup, every page, uninstall
+    name: Fresh runner — install, onboarding, two bots, backup, uninstall
     needs: package
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -299,13 +301,15 @@ jobs:
         run: |
           python3 test/e2e/scenario.py host-a --existing --url https://127.0.0.1:8443 --cacert /tmp/evidence/cert.pem \
             --code "$(cat /tmp/evidence/code)" --game-host "$(cat /tmp/evidence/ui/join-address.txt)" --out /tmp/evidence/a
-      - name: Every view, accessibility and keyboard checks
-        env:
-          PK_URL: https://127.0.0.1:8443
-          PK_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
-          PK_SHOTS: /tmp/evidence/screenshots
-          PK_OUT: /tmp/evidence/ui
-        run: cd test/e2e/ui && npx playwright test views.spec.ts --reporter=list
+      # At once, for the second runner, which waits for it (restore-second-host).
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: world-backup
+          path: |
+            /tmp/evidence/a/world-backup.tar.gz
+            /tmp/evidence/a/marker.json
+            /tmp/evidence/a/host-a-results.json
+          retention-days: 7
       - name: Exposure and privilege checks
         run: |
           set -x
@@ -322,6 +326,35 @@ jobs:
           sudo docker inspect "$container" --format 'Privileged={{.HostConfig.Privileged}} CapAdd={{.HostConfig.CapAdd}} CapDrop={{.HostConfig.CapDrop}} Memory={{.HostConfig.Memory}} User={{.Config.User}} Ports={{json .HostConfig.PortBindings}}'
           sudo sh -c "grep -E '^(online-mode|white-list|enforce-whitelist|log-ips)=' /var/lib/playkeeper/servers/*/data/server.properties"
           curl -sS -i http://127.0.0.1:8443/ | head -1
+      # The state after the onboarding and the bots, for the click-through and
+      # views runners to start from: each commit of main saves one for pull
+      # requests, and a pull request's first run one for its later pushes (a
+      # key is saved once, and a state is a few hundred MB). It names the
+      # commit it was made on, a pull request's head rather than its merge
+      # commit, so later commits can tell they contain it.
+      - name: The key of this run's played state
+        id: played
+        env:
+          KEY: played-state-${{ github.event.pull_request.number && format('pr{0}', github.event.pull_request.number) || format('{0}-{1}', github.sha, github.run_attempt) }}
+        run: echo "key=$KEY" >> "$GITHUB_OUTPUT"
+      - name: Whether it's saved already
+        id: saved
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/played
+          key: ${{ steps.played.outputs.key }}
+          lookup-only: true
+      - name: Save the played state
+        if: steps.saved.outputs.cache-hit != 'true'
+        env:
+          PK_ADMIN_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: scripts/e2e/played-state.sh save /tmp/played "$PK_ADMIN_PASSWORD" "$COMMIT"
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.saved.outputs.cache-hit != 'true'
+        with:
+          path: /tmp/played
+          key: ${{ steps.played.outputs.key }}
       - name: Uninstall keeps the world and backups
         run: |
           worlds() { sudo sh -c 'find /var/lib/playkeeper/servers/*/data/world /var/lib/playkeeper/backups -type f -exec sha256sum {} +' | sort -k2; }
@@ -345,13 +378,51 @@ jobs:
           name: evidence-host-a
           path: /tmp/evidence
           retention-days: 7
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+
+  views:
+    name: Fresh runner — every page's accessibility and width, and the keyboard checks, on a played install
+    needs: [plan, package]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: world-backup
-          path: |
-            /tmp/evidence/a/world-backup.tar.gz
-            /tmp/evidence/a/marker.json
-            /tmp/evidence/a/host-a-results.json
+          name: release
+          path: /tmp/release
+      - name: Test tools (Node for the protocol bots and the browser tests)
+        run: |
+          ./scripts/setup.sh
+          echo "$PWD/.tools/node/bin" >> "$GITHUB_PATH"
+          (cd test/e2e/bot && ../../../.tools/node/bin/npm ci --no-audit --no-fund)
+          cd test/e2e/ui
+          ../../../.tools/node/bin/npm ci --no-audit --no-fund
+          sudo env "PATH=$PWD/../../../.tools/node/bin:$PATH" npx playwright install-deps chromium
+          PATH="$PWD/../../../.tools/node/bin:$PATH" npx playwright install chromium
+      - name: A played install of this build
+        uses: ./.github/actions/played-install
+        with:
+          assets: /tmp/release
+          setup: ${{ needs.plan.outputs.setup }}
+          password: ci-v-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Every view, accessibility and keyboard checks
+        env:
+          PK_URL: https://127.0.0.1:8443
+          PK_SHOTS: /tmp/evidence/screenshots
+          PK_OUT: /tmp/evidence/ui
+        run: cd test/e2e/ui && npx playwright test views.spec.ts --reporter=list
+      - name: Collect evidence
+        if: always()
+        run: |
+          sudo journalctl -u playkeeper-agent -u playkeeper-panel --no-pager > /tmp/evidence/journal.txt || true
+          rm -f /tmp/evidence/code /tmp/evidence/ui/browser-session.json /tmp/evidence/a/state-a.json
+          sudo chown -R "$(id -u)" /tmp/evidence
+          sed -i -E 's/(setup code: |#code=)[a-z0-9-]+/\1<redacted>/g' /tmp/evidence/install.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: evidence-views
+          path: /tmp/evidence
           retention-days: 7
 
   core-flows:
@@ -500,21 +571,21 @@ jobs:
           path: /tmp/evidence
           retention-days: 7
 
+  # It starts beside install-and-play, installs, then waits for its backup.
   restore-second-host:
     name: Second fresh runner — one-line install, restore the backup, verify the marker
-    needs: install-and-play
+    needs: package
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    permissions:
+      actions: read
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release
           path: /tmp/release
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: world-backup
-          path: /tmp/backup
       - name: Test tools (Node for the protocol bot)
         run: |
           ./scripts/setup.sh
@@ -540,6 +611,32 @@ jobs:
           sudo mkdir -p /etc/systemd/system/playkeeper-agent.service.d
           printf '[Service]\nEnvironment=PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1\n' | sudo tee /etc/systemd/system/playkeeper-agent.service.d/e2e-offline.conf
           sudo systemctl daemon-reload && sudo systemctl restart playkeeper-agent
+      - name: The first runner's backup, as soon as it has one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          JOB: Fresh runner — install, onboarding, two bots, backup, uninstall
+        run: |
+          for _ in $(seq 180); do
+            if gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[].name' | grep -qx world-backup; then exit 0; fi
+            # The step runs under bash -e, so a lookup the API fails would end it:
+            # it is asked again next time round, as the artifacts are.
+            state=$(gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --jq '.jobs[] | select(.name == env.JOB) | "\(.status) \(.conclusion // "")"') || state=
+            case $state in
+              "completed success") exit 0 ;;
+              completed*)
+                echo "::error::$JOB ended ($state) without a backup to restore."
+                exit 1
+                ;;
+            esac
+            sleep 5
+          done
+          echo "::error::$JOB uploaded no backup in 15 minutes."
+          exit 1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: world-backup
+          path: /tmp/backup
       - name: Guarded restore and marker verification (console and client view)
         env:
           PK_ADMIN_PASSWORD: ci-b-${{ github.run_id }}-${{ github.run_attempt }}
