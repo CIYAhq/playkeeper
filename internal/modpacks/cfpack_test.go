@@ -128,13 +128,13 @@ func TestCurseForgeClientModsModrinthKnowsStayOff(t *testing.T) {
 	id := f.cfAddFile(nil,
 		entry{name: "overrides/datapacks/spring/data/spring/worldgen/biome/spring.json", data: []byte(`{"effects": {"particle": {"options": {"type": "lithium:spark"}}}}`)},
 		entry{name: "overrides/config/notes.txt", data: []byte("Cloth Config: see clothconfig docs\n")},
-		entry{name: "overrides/datapacks/spring/pack.png", data: []byte("cloth-config:not-read")})
+		entry{name: "overrides/datapacks/spring/data/spring/icon.png", data: []byte("cloth-config:not-read")})
 	pl = mustPlan(t, f.library(), newServer(t, "", ""), InstallRequest{Ref: cfRef(strconv.FormatInt(id, 10))})
 	wantList(t, "changes with a datapack using Lithium", changeList(pl.Changes),
 		"add config/example.json",
 		"add config/notes.txt",
+		"add datapacks/spring/data/spring/icon.png",
 		"add datapacks/spring/data/spring/worldgen/biome/spring.json",
-		"add datapacks/spring/pack.png",
 		"add mods/fabric-api-0.141.0+26.3.jar",
 		"add mods/lithium-fabric-0.25.3+mc26.3.jar",
 		"add mods/placeholder-api-3.1.0+26.3.jar")
@@ -150,6 +150,48 @@ func TestCurseForgeClientModsModrinthKnowsStayOff(t *testing.T) {
 	wantList(t, "warnings when Modrinth can't be asked", noticeList(pl.Warnings),
 		"environment_unknown: Playkeeper could not ask Modrinth which of Example Fabric Pack's mods are for the game client only, so it installs them all.",
 		"server_properties: Example Fabric Pack ships server settings that Playkeeper does not take from packs: motd, server-port.")
+}
+
+// A client-only mod of a CurseForge pack that another of its mods requires
+// by CurseForge's own lists goes on the server: Sodium, which CurseForge
+// tags for players' games, once Lithium requires it. An optional dependency
+// doesn't count, and neither does an optional file's.
+func TestCurseForgeClientModAServerModRequiresGoesOn(t *testing.T) {
+	const sodium = "mods/sodium-fabric-0.9.2+mc26.3.jar"
+	for _, c := range []struct {
+		name     string
+		relation int
+		on       bool
+	}{
+		{"required", curseforge.RequiredDependency, true},
+		{"optional", 2, false},
+	} {
+		f := newFakes(t)
+		f.cfChange(8895969, func(file obj) { file["dependencies"] = []any{obj{"modId": 394468, "relationType": c.relation}} })
+		pl := mustPlan(t, f.library(), newServer(t, "", ""), InstallRequest{Ref: cfRef("")})
+		on := slices.Contains(changeList(pl.Changes), "add "+sodium)
+		if on != c.on || slices.Contains(skippedList(pl.Skipped), "client_only "+sodium) == c.on {
+			t.Errorf("%s: changes %q, skipped %q", c.name, changeList(pl.Changes), skippedList(pl.Skipped))
+		}
+	}
+
+	// Nor does a file the manifest marks optional, which stays off unless
+	// chosen.
+	f := newFakes(t)
+	f.cfChange(8895969, func(file obj) {
+		file["dependencies"] = []any{obj{"modId": 394468, "relationType": curseforge.RequiredDependency}}
+	})
+	id := f.cfAddFile(func(m obj) {
+		for _, x := range list(m["files"]) {
+			if int64(num(x.(obj)["projectID"])) == 360438 {
+				x.(obj)["required"] = false
+			}
+		}
+	})
+	pl := mustPlan(t, f.library(), newServer(t, "", ""), InstallRequest{Ref: cfRef(strconv.FormatInt(id, 10))})
+	if slices.Contains(changeList(pl.Changes), "add "+sodium) {
+		t.Errorf("an optional Lithium brought Sodium: changes %q", changeList(pl.Changes))
+	}
 }
 
 func TestUpdateCurseForgePack(t *testing.T) {
