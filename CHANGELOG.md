@@ -5,6 +5,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 ## 0.4.5
 
 - **Creators:** the owner can invite someone to create their own servers on this machine. **Settings › Team › Invite a creator** gives them an allowance of servers and memory. They make their own account, turn on two-factor sign-in, and create, resize and delete their own servers inside it, seeing only those. Their new servers start with a backup each day someone played. It's how Playkeeper's managed beta runs, and it works for sharing a VPS with friends too.
+- **An address for each server:** under your own domain, turn on **An address for each server** in **Machine settings › Address** and add one record, `*.` and your domain. Every server then gets an address like `survival.mc.example.com` by itself, with its own page and certificate, and players type the server's port with it.
 - Fixed: records for a server's own address that you added after saving it were found only at Playkeeper's next look, up to 6 hours later. Until they work, Playkeeper now looks every minute, as it does for your domain's records, so the page gets its certificate a minute or two after you add them.
 - Fixed: asking the API for more of a server's console than Playkeeper keeps, its newest 2,000 lines, returned only the newest 500. It now returns all 2,000, so a tool reading a big modpack's start, which can log hundreds of lines in a second, still finds the line saying the server is ready.
 
