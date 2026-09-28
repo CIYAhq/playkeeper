@@ -2211,6 +2211,10 @@ control "a template whose modpack runs on another type is blocked" internal/agen
   'p.Blockers, p.Ready = append(p.Blockers, *n), false' \
   '_ = n' \
   ./internal/agent '^TestTemplateModpackRunsOnTheTypeItNames$'
+control "a template's modpack plans on the Minecraft version it's made for" internal/agent/templates.go \
+  'if same < 0 && t.Modpack != nil && typ == t.Server.Type {' \
+  'if false {' \
+  ./internal/agent '^TestTemplateModpackPlansOnThePacksOwnVersion$'
 control "a template's CurseForge modpack needs this machine's own CurseForge key" internal/agent/templates.go \
   'if m.Source == modpacks.CurseForge && !slices.Contains(a.packs().Sources(), modpacks.CurseForge) {' \
   'if false {' \
