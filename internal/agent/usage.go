@@ -170,9 +170,9 @@ func (a *Agent) sendUsage(ctx context.Context) error {
 }
 
 // usageLoop sends a heartbeat UsageFirst after the agent starts, then every
-// UsageInterval, give or take half an hour so machines started together
-// don't all send at once, and right away when the switch turns usage stats
-// on.
+// UsageInterval plus up to a 24th of it (half an hour for 12 hours), so
+// machines started together don't all send at once, and right away when the
+// switch turns usage stats on.
 func (a *Agent) usageLoop(ctx context.Context) {
 	if a.opts.UsageInterval < 0 {
 		return
@@ -191,7 +191,7 @@ func (a *Agent) usageLoop(ctx context.Context) {
 		if err := a.sendUsage(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			a.log.Info("usage stats were not sent", "err", err)
 		}
-		wait = a.opts.UsageInterval + time.Duration(rand.Int64N(int64(30*time.Minute)))
+		wait = a.opts.UsageInterval + time.Duration(rand.Int64N(int64(a.opts.UsageInterval/24)+1))
 	}
 }
 
