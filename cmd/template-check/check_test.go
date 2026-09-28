@@ -25,6 +25,7 @@ type fakeAgent struct {
 	mu          sync.Mutex
 	ready       bool
 	createFails bool
+	missing     string
 	log         []string
 	servers     []api.ServerStatus
 	calls       []string
@@ -78,11 +79,15 @@ func (f *fakeAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		reply(api.LogsResponse{Lines: lines})
 	case "GET /v1/servers/s1/addons":
-		reply(api.Addons{Files: []api.AddonFile{
+		files := []api.AddonFile{
 			{FileName: "Chunky.jar", Addon: &api.Addon{Source: "modrinth", ProjectID: "fALzjamp", Slug: "chunky", Name: "Chunky", VersionNumber: "1.5.3"}},
 			{FileName: "CoreProtect.jar", Addon: &api.Addon{Source: "modrinth", ProjectID: "Lu3KuzdV", Slug: "coreprotect", Name: "CoreProtect", VersionNumber: "24.1"}},
 			{FileName: "Dep.jar", Addon: &api.Addon{Source: "modrinth", ProjectID: "P8hQ7pUj", Slug: "dep", Name: "A dependency", VersionNumber: "2.0", DependencyOf: "Lu3KuzdV"}},
-		}})
+		}
+		if f.missing != "" {
+			files = slices.DeleteFunc(files, func(a api.AddonFile) bool { return a.Addon.Slug == f.missing })
+		}
+		reply(api.Addons{Files: files})
 	case "GET /v1/servers/s1/template":
 		reply(api.TemplateExport{File: f.exported})
 	case "POST /v1/servers/s1/stop":
@@ -270,6 +275,20 @@ func TestPinWritesTheExactVersions(t *testing.T) {
 	}
 	if !slices.Equal(inTemplate, inCheck) || r.Check.Addons[2].Version != "2.0" {
 		t.Errorf("the check lists %v, and the pinned template %v", inCheck, inTemplate)
+	}
+}
+
+// A template whose add-on didn't install fails, and -pin writes nothing for
+// it, even though its server's export had pins.
+func TestAFailingCheckWritesNoPins(t *testing.T) {
+	agent := &fakeAgent{ready: true, log: []string{"Done (12.5s)!"}, exported: pinnedExport(t), missing: "coreprotect"}
+	f := survivalFile(t)
+	if err := os.WriteFile(f.path, f.raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := newTestChecker(t, agent).check(context.Background(), "survival", f, false, true)
+	if r.Status != statusFailing || !strings.Contains(r.Failure, "CoreProtect didn't install") || r.pinned != nil {
+		t.Fatalf("got %s (%s), pinned %d bytes", r.Status, r.Failure, len(r.pinned))
 	}
 }
 

@@ -56,7 +56,7 @@ func (c *checker) check(ctx context.Context, id string, f *templateFile, bump, p
 	r = result{ID: id}
 	defer func() { r.Seconds = c.now().Sub(began).Round(time.Second).Seconds() }()
 	fail := func(format string, a ...any) result {
-		r.Status, r.Failure = statusFailing, fmt.Sprintf(format, a...)
+		r.Status, r.Failure, r.pinned = statusFailing, fmt.Sprintf(format, a...), nil
 		r.Check = &checks.Check{Status: checks.Failing, Failure: r.Failure, Checked: c.now().UTC().Format(time.DateOnly), Release: c.release}
 		return r
 	}

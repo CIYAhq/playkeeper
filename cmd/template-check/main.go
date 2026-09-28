@@ -134,7 +134,7 @@ func run(ctx context.Context, c *checker, o options) ([]result, error) {
 				return results, err
 			}
 		}
-		if o.pin && r.pinned != nil {
+		if o.pin && r.Status == statusPassing && r.pinned != nil {
 			if err := os.WriteFile(t.path, r.pinned, 0o644); err != nil {
 				return results, err
 			}
