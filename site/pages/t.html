@@ -43,8 +43,11 @@ scripts: js/t.js
       <h1 id="t-name" class="h1-page"></h1>
       <p id="t-made" class="meta" hidden></p>
       <p id="t-description" class="t-description"></p>
+      {{/* The template's picture: a directory template's own, as its card
+           shows it (data-for: the start of its link), or the scene of how
+           its server is played (data-art). */}}
       <div class="share-art">
-        {{range list (list "friends" "app/pixel-art/play-with-friends.svg") (list "creative" "app/pixel-art/play-creative.svg") (list "hardcore" "app/pixel-art/play-hardcore.svg") (list "solo" "app/pixel-art/play-just-me.svg") (list "world" "app/pixel-art/world-normal.svg")}}{{$a := img (index . 1)}}<img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}" data-art="{{index . 0}}" loading="lazy" hidden>{{end}}
+        {{range $art := shareArts}}{{with $art.Thumb}}<img class="share-thumb" src="{{.Src}}" srcset="{{.Srcset}}" sizes="{{.Sizes}}" alt="" width="{{.Width}}" height="{{.Height}}" data-for="{{$art.For}}" loading="lazy" hidden>{{else}}{{$a := $art.Img}}<img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}"{{with $art.For}} data-for="{{.}}"{{end}}{{with $art.Style}} data-art="{{.}}"{{end}} loading="lazy" hidden>{{end}}{{end}}
       </div>
       <dl class="facts">
         <div><dt>Server</dt><dd id="t-server"></dd></div>
