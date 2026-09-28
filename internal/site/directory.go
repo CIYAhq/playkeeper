@@ -463,27 +463,6 @@ func (c *TemplateCard) ModCount() int { return c.modpackMods }
 // ModpackName is its modpack's name, or "".
 func (c *TemplateCard) ModpackName() string { return c.modpackTitle }
 
-// AddonNames are its add-ons' names, in its order.
-func (c *TemplateCard) AddonNames() []string {
-	var out []string
-	for _, a := range c.Template.Addons {
-		out = append(out, a.Name)
-	}
-	return out
-}
-
-// CardTags are the tags a card shows: up to three, leaving out Crossplay,
-// which the card shows on its picture instead.
-func (c *TemplateCard) CardTags() []*Tag {
-	var out []*Tag
-	for _, t := range c.Tags {
-		if t.ID != crossplayTag && len(out) < 3 {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
 // DirView is what a page of the directory shows, for its layout.
 type DirView struct {
 	// Kind is directory, category, template or open.
@@ -851,6 +830,10 @@ type indexTemplate struct {
 	// Thumb is its thumbnail's WebP files, 480 and 960 pixels wide, when it
 	// has one.
 	Thumb []string `json:"th,omitempty"`
+	// Addons are what it installs, its add-ons or its modpack, and Icons
+	// their icons, as indexes into the index's icons (-1 for none).
+	Addons []string `json:"addons"`
+	Icons  []int    `json:"ai"`
 }
 
 type indexImage struct {
@@ -870,14 +853,15 @@ type indexLoader struct {
 func (s *Site) directoryIndex() ([]byte, error) {
 	idx := struct {
 		Arts       []indexImage           `json:"arts"`
+		Icons      []string               `json:"icons"`
 		Loaders    map[string]indexLoader `json:"loaders"`
 		Categories map[string]string      `json:"cats"`
 		Tags       map[string]string      `json:"tags"`
 		TagSearch  map[string]string      `json:"tagSearch"`
 		Kinds      map[string]string      `json:"kinds"`
 		Templates  []indexTemplate        `json:"templates"`
-	}{Loaders: map[string]indexLoader{}, Categories: map[string]string{}, Tags: map[string]string{}, TagSearch: map[string]string{}, Kinds: kindNames}
-	arts := map[string]int{}
+	}{Icons: []string{}, Loaders: map[string]indexLoader{}, Categories: map[string]string{}, Tags: map[string]string{}, TagSearch: map[string]string{}, Kinds: kindNames}
+	arts, icons := map[string]int{}, map[string]int{}
 	for _, t := range s.dir.Templates {
 		a, ok := s.assets[t.Art]
 		if !ok {
@@ -899,12 +883,18 @@ func (s *Site) directoryIndex() ([]byte, error) {
 		}
 		e := indexTemplate{ID: t.ID, Name: t.Name, Desc: t.Description(), Page: t.Path(), Open: t.OpenPath(), Art: i,
 			Loader: l.ID, Version: t.Version(), MemoryMB: t.MemoryMB, Kind: t.Kind(), Popularity: t.Popularity, Added: t.Added,
-			Categories: []string{}, Tags: []string{}, Addons: t.AddonNames()}
-		if e.Addons == nil {
-			e.Addons = []string{}
-		}
-		if t.ModpackName() != "" {
-			e.Addons = append(e.Addons, t.ModpackName())
+			Categories: []string{}, Tags: []string{}, Addons: []string{}, Icons: []int{}}
+		for _, x := range t.Installs() {
+			n := -1
+			if x.Icon != nil {
+				var ok bool
+				if n, ok = icons[x.Icon.URL]; !ok {
+					n = len(idx.Icons)
+					icons[x.Icon.URL] = n
+					idx.Icons = append(idx.Icons, x.Icon.URL)
+				}
+			}
+			e.Addons, e.Icons = append(e.Addons, x.Name), append(e.Icons, n)
 		}
 		if t.thumb != "" {
 			for _, w := range thumbWidths {

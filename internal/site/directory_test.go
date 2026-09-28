@@ -59,6 +59,7 @@ func cardOf(page, path string) string {
 // indexOf reads js/templates-index.js back.
 func indexOf(t *testing.T, o *Output) (idx struct {
 	Arts      []indexImage           `json:"arts"`
+	Icons     []string               `json:"icons"`
 	Loaders   map[string]indexLoader `json:"loaders"`
 	TagSearch map[string]string      `json:"tagSearch"`
 	Templates []indexTemplate        `json:"templates"`

@@ -21,6 +21,7 @@ func main() {
 	out := flag.String("out", "site/dist", "the folder to build into: html/ for the web root and nginx/ for nginx.conf's include")
 	serve := flag.String("serve", "", "instead of writing the site, serve it at this address, as nginx would (for example 127.0.0.1:8080)")
 	lib := flag.String("library", "", "instead of building the site, write the template list releases carry (internal/templates/library) to this file")
+	icons := flag.Bool("icons", true, "fetch the icons of what the templates install from Modrinth and Hangar; without them, each shows its initial")
 	flag.Parse()
 	if *lib != "" {
 		b, err := site.DashboardLibrary(os.DirFS(*root), site.Default)
@@ -33,7 +34,14 @@ func main() {
 		}
 		return
 	}
-	o, err := site.Build(site.Options{Root: os.DirFS(*root), Settings: site.Default, Now: time.Now()})
+	opts := site.Options{Root: os.DirFS(*root), Settings: site.Default, Now: time.Now()}
+	if *icons {
+		opts.Icons = site.NetIcons(&http.Client{Timeout: 20 * time.Second}, "https://api.modrinth.com/v2", "https://hangar.papermc.io/api/v1")
+	}
+	o, err := site.Build(opts)
+	if err == nil && len(o.NoIcons) > 0 {
+		fmt.Fprintf(os.Stderr, "site: %d without an icon, which show their initial: %s\n", len(o.NoIcons), strings.Join(o.NoIcons, ", "))
+	}
 	if err == nil && *serve != "" {
 		fmt.Printf("serving playkeeper.io at http://%s/\n", *serve)
 		err = http.ListenAndServe(*serve, handler(o))

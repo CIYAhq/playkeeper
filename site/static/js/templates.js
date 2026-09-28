@@ -231,16 +231,40 @@
     slot(el, 'loader').textContent = l.name + ' ' + t.version;
     slot(el, 'memory').textContent = gb(t.mb);
     slot(el, 'desc').textContent = t.desc;
-    // Crossplay shows on the card's picture rather than with its tags.
-    var shown = t.tags.filter(function (g) { return g !== 'crossplay'; }).slice(0, 3);
     if (t.tags.indexOf('crossplay') < 0) slot(el, 'crossplay').remove();
-    var tags = slot(el, 'tags');
-    shown.forEach(function (g) {
+    // What it installs, each with its icon or its initial: three, then how
+    // many more.
+    var installs = slot(el, 'installs');
+    t.addons.slice(0, 3).forEach(function (name, i) {
       var li = document.createElement('li');
-      li.textContent = d.tags[g];
-      tags.appendChild(li);
+      var icon = d.icons[t.ai[i]];
+      var mark = document.createElement(icon ? 'img' : 'span');
+      if (icon) {
+        mark.className = 'ai';
+        mark.src = icon;
+        mark.alt = '';
+        mark.width = 18;
+        mark.height = 18;
+        mark.loading = 'lazy';
+        mark.decoding = 'async';
+      } else {
+        mark.className = 'ai ai-initial';
+        mark.setAttribute('aria-hidden', 'true');
+        mark.textContent = name.charAt(0).toUpperCase();
+      }
+      var label = document.createElement('span');
+      label.textContent = name;
+      li.appendChild(mark);
+      li.appendChild(label);
+      installs.appendChild(li);
     });
-    if (!shown.length) tags.remove();
+    if (t.addons.length > 3) {
+      var more = document.createElement('li');
+      more.className = 'dcard-more';
+      more.textContent = '+' + (t.addons.length - 3) + ' more';
+      installs.appendChild(more);
+    }
+    if (!t.addons.length) installs.remove();
     var open = slot(el, 'open');
     open.href = t.open;
     open.setAttribute('data-template-open', t.id);
