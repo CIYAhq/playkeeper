@@ -12,13 +12,11 @@ import { Sheet, SheetDescription, SheetPanel, SheetPopup, SheetTitle } from '@/c
 import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { bedrockConsolesUrl } from '@/lib/machines'
 import { busyReason } from '@/lib/phase'
 import { linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
-
-/** GeyserMC's guide to the ways console players get in. */
-export const consolesUrl = 'https://geysermc.org/wiki/geyser/using-geyser-with-consoles/'
 
 function useCrossplay(server: ServerStatus) {
   const op = server.operation?.kind
@@ -78,7 +76,7 @@ export function CrossplayRows({ server: s }: { server: ServerStatus }) {
       {port ? <li>{t('crossplay.firewall', { port })}</li> : null}
       <li>
         {t('crossplay.consoles')}{' '}
-        <a href={consolesUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-medium text-success-strong hover:underline">
+        <a href={bedrockConsolesUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-medium text-success-strong hover:underline">
           {t('crossplay.learnMore')}
           <ExternalLinkIcon className="size-3" aria-hidden="true" />
         </a>
@@ -277,7 +275,7 @@ export function BedrockJoin({ server: s }: { server: ServerStatus }) {
       </div>
       <p className="mt-0.5 text-xs text-muted-foreground max-sm:text-[13px]">
         {t('crossplay.joinHint')}{' '}
-        <a href={consolesUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-medium text-success-strong hover:underline">
+        <a href={bedrockConsolesUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-medium text-success-strong hover:underline">
           {t('crossplay.consolesLink')}
           <ExternalLinkIcon className="size-3" aria-hidden="true" />
         </a>

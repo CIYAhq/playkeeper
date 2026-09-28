@@ -2742,6 +2742,10 @@ type PublicServer struct {
 	// join.
 	InviteOnly bool `json:"inviteOnly"`
 	HasIcon    bool `json:"hasIcon"`
+	// Bedrock is where Bedrock players join while the server has crossplay
+	// (from 0.4.4): the page's own address, which they type with the UDP
+	// port, as Bedrock doesn't follow SRV records.
+	Bedrock *BedrockJoin `json:"bedrock,omitempty"`
 	// About, Stream and Board are what the owner added to the page.
 	About  string        `json:"about,omitempty"`
 	Stream *PublicStream `json:"stream,omitempty"`

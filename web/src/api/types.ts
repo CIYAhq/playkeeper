@@ -2644,6 +2644,8 @@ export interface PublicServer {
   pack?: string
   inviteOnly: boolean
   hasIcon: boolean
+  /** Where Bedrock players join while the server has crossplay: the page's own address and the UDP port. */
+  bedrock?: BedrockJoin
   /** The owner's words for the page, such as its rules, as plain text. */
   about?: string
   /** A live stream the page offers to play, on Twitch or YouTube. */

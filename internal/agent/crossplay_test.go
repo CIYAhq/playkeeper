@@ -140,6 +140,30 @@ func TestCrossplaySwitchOpensItsPortAndInstallsBothPlugins(t *testing.T) {
 	}
 }
 
+// The public page says where Bedrock players join while the server has
+// crossplay: the page's own address, with the UDP port.
+func TestThePublicPageSaysWhereBedrockPlayersJoin(t *testing.T) {
+	e := newAgentEnv(t)
+	withCrossplayProjects(e.withSources())
+	e.create()
+	e.withPageAddress()
+	e.waitFor("online", e.onlineIdle)
+	e.waitFor("the page", func() bool {
+		code, p, _ := e.page(pageTestHost)
+		return code == 200 && len(p.Servers) == 1
+	})
+	if _, p, _ := e.page(pageTestHost); p.Servers[0].Bedrock != nil {
+		t.Fatalf("the page without crossplay: %+v", p.Servers[0])
+	}
+	if op := e.crossplayOp(true); op.Status != api.OpSucceeded {
+		t.Fatalf("crossplay on: %+v", op)
+	}
+	_, p, _ := e.page(pageTestHost)
+	if len(p.Servers) != 1 || p.Servers[0].Bedrock == nil || *p.Servers[0].Bedrock != (api.BedrockJoin{Host: pageTestHost, Port: curated.CrossplayPort}) {
+		t.Fatalf("the page with crossplay: %+v", p)
+	}
+}
+
 // Geyser and Floodgate put in the plugins folder by hand are used as they
 // are. GeyserMC's own download of Geyser calls itself Geyser-Spigot, so only
 // its file name says it's Geyser. Turning crossplay off leaves both, since

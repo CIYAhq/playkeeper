@@ -3,9 +3,11 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Action, Crossplay, MachineView, Me, ServerConfig, ServerStatus } from '@/api/types'
+import type { Action, Crossplay, MachineView, Me, PublicPage, PublicServer, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { PlayerFace } from '@/components/app/bits'
+import { serverPageApi } from '@/lib/server-page'
+import { ServerPage as PublicServerPage } from '../server-page'
 import { BedrockJoin, CrossplayRows } from './crossplay'
 
 vi.mock('@/api/client', async (importOriginal) => ({
@@ -70,8 +72,12 @@ const ws: Workspace = {
 
 let root: Root | undefined
 
-async function render(node: React.ReactNode, view?: Crossplay) {
-  vi.mocked(client.get).mockImplementation(((path: string) => (view && path.endsWith('/crossplay') ? Promise.resolve(view) : new Promise(() => {}))) as typeof client.get)
+async function render(node: React.ReactNode, view?: Crossplay, reads: Record<string, unknown> = {}) {
+  vi.mocked(client.get).mockImplementation(((path: string) => {
+    if (view && path.endsWith('/crossplay')) return Promise.resolve(view)
+    if (path in reads) return Promise.resolve(reads[path])
+    return new Promise(() => {})
+  }) as typeof client.get)
   if (root) await act(async () => root?.unmount())
   document.body.innerHTML = ''
   const r = createRoot(document.body.appendChild(document.createElement('div')))
@@ -165,6 +171,29 @@ describe('the Join card’s Bedrock line', () => {
   it('is not there without crossplay', async () => {
     await render(<BedrockJoin server={server} />)
     expect(document.body.textContent).toBe('')
+  })
+})
+
+describe('the public page’s Bedrock line', () => {
+  const page = (over: Partial<PublicServer>): PublicPage => ({
+    address: 'alex.playkeeper.me',
+    servers: [{ slug: 'survival', name: 'Survival', motd: 'Hi', address: 'alex.playkeeper.me', state: 'online', minecraftVersion: '26.2', type: 'paper', inviteOnly: false, hasIcon: false, ...over }],
+  })
+
+  it('gives the address, the port and how Bedrock players join, with the allowlist in mind', async () => {
+    await render(<PublicServerPage />, undefined, { [serverPageApi]: page({ inviteOnly: true, bedrock: { host: 'alex.playkeeper.me', port: 19133 } }) })
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('On Bedrock Edition')
+    expect(text).toContain('port 19133')
+    expect(text).toContain('Servers › Add Server, and enter this address with port 19133.')
+    expect(text).toContain('ask whoever runs the server to add your Xbox gamertag')
+    expect(document.querySelector('a[href^="https://geysermc.org/wiki/geyser/using-geyser-with-consoles"]')?.textContent).toContain('Xbox, PlayStation or Switch')
+  })
+
+  it('is not there without crossplay', async () => {
+    await render(<PublicServerPage />, undefined, { [serverPageApi]: page({}) })
+    expect(document.body.textContent).toContain('Server address')
+    expect(document.body.textContent).not.toContain('Bedrock')
   })
 })
 

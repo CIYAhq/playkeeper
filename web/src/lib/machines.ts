@@ -146,6 +146,9 @@ export function joinOf(s: Pick<ServerStatus, 'name' | 'joinAddress' | 'gamePort'
   return ip ? { address: joinAddress(ip, s.gamePort) } : { address: '', reason: t('join.noIP', { machine: machineLabel(m) }) }
 }
 
+/** GeyserMC's guide to the ways console players get in. */
+export const bedrockConsolesUrl = 'https://geysermc.org/wiki/geyser/using-geyser-with-consoles/'
+
 /** Where Bedrock players join: an address and the port, which they type in two fields; reason says why there's no address. */
 export interface BedrockJoinAt {
   host: string
