@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -904,6 +905,9 @@ func (l *Library) readManifest(ctx context.Context, p *pack, mod *curseforge.Mod
 		modByID[mods[i].ID] = &mods[i]
 	}
 	p.modrinthClient = l.clientOnlyOnModrinth(ctx, p, files, modByID)
+	if err := p.keepMentioned(m.Overrides, files, modByID); err != nil {
+		return err
+	}
 	for _, mf := range m.Files {
 		l.addCurseForgeFile(p, mf, fileByID[mf.FileID], modByID[mf.ProjectID])
 	}
@@ -1061,6 +1065,88 @@ func (l *Library) clientOnlyOnModrinth(ctx context.Context, p *pack, files []cur
 			out[strings.ToLower(sha1)] = true
 		}
 	}
+	return out
+}
+
+// keepMentioned keeps the client-only mods clientOnlyOnModrinth found when
+// the pack's own files name something of theirs, as in "particular:firefly":
+// a datapack there may need a client-only mod's particles or blocks on the
+// server, as FTB StoneBlock 4's spring biome needs Particular's fireflies.
+// A mod's namespace is guessed from its file name and CurseForge slug, so a
+// guess that happens to match keeps a mod, never leaves one off.
+func (p *pack) keepMentioned(overrides string, files []curseforge.File, mods map[int64]*curseforge.Mod) error {
+	if len(p.modrinthClient) == 0 {
+		return nil
+	}
+	byName := map[string][]string{}
+	for i := range files {
+		f := &files[i]
+		if !p.modrinthClient[f.SHA1()] {
+			continue
+		}
+		slug := ""
+		if m := mods[f.ModID]; m != nil {
+			slug = m.Slug
+		}
+		for _, ns := range namespaces(f.FileName, slug) {
+			byName[ns] = append(byName[ns], f.SHA1())
+		}
+	}
+	names := slices.Sorted(maps.Keys(byName))
+	for i, ns := range names {
+		names[i] = regexp.QuoteMeta(ns)
+	}
+	re := regexp.MustCompile(`(?:^|[^a-z0-9_.-])(` + strings.Join(names, "|") + `):[a-z0-9_./-]`)
+	for rel, e := range p.arch.layer(overrides) {
+		if !mentionsFile(rel) || e.UncompressedSize64 > maxMentionsFile {
+			continue
+		}
+		b, err := p.arch.read(e.Name, maxMentionsFile)
+		if err != nil {
+			return err
+		}
+		for _, m := range re.FindAllSubmatch(b, -1) {
+			for _, sha1 := range byName[string(m[1])] {
+				delete(p.modrinthClient, sha1)
+			}
+		}
+	}
+	return nil
+}
+
+// maxMentionsFile is the largest file of a pack keepMentioned reads.
+const maxMentionsFile = 8 << 20
+
+// mentionsFile reports whether a pack's file may name a mod's content:
+// datapacks, scripts and settings, not images, sounds or archives.
+func mentionsFile(p string) bool {
+	switch strings.ToLower(path.Ext(p)) {
+	case ".json", ".json5", ".js", ".ts", ".zs", ".toml", ".cfg", ".conf", ".txt", ".mcfunction", ".snbt", ".yml", ".yaml", ".properties", ".mcmeta":
+		return true
+	}
+	return false
+}
+
+// namespaces guesses the names a mod's content goes by, from its file's
+// name ("particular-1.21.1-NeoForge-1.5.7.jar" gives particular) and its
+// CurseForge slug (status-effect-bars gives status-effect-bars,
+// statuseffectbars and status_effect_bars).
+func namespaces(fileName, slug string) []string {
+	var out []string
+	add := func(s string) {
+		if len(s) >= 2 && strings.Trim(s, "abcdefghijklmnopqrstuvwxyz0123456789_.-") == "" && !slices.Contains(out, s) {
+			out = append(out, s)
+		}
+	}
+	name := strings.ToLower(strings.TrimSuffix(fileName, path.Ext(fileName)))
+	if i := strings.IndexAny(name, "-_+ "); i > 0 {
+		name = name[:i]
+	}
+	add(name)
+	slug = strings.ToLower(slug)
+	add(slug)
+	add(strings.ReplaceAll(slug, "-", ""))
+	add(strings.ReplaceAll(slug, "-", "_"))
 	return out
 }
 

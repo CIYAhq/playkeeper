@@ -123,8 +123,24 @@ func TestCurseForgeClientModsModrinthKnowsStayOff(t *testing.T) {
 	wantList(t, "warnings", noticeList(pl.Warnings),
 		"server_properties: Example Fabric Pack ships server settings that Playkeeper does not take from packs: motd, server-port.")
 
+	// The pack's own datapack uses Lithium's particles, so Lithium stays;
+	// text that isn't a resource location keeps nothing.
+	id := f.cfAddFile(nil,
+		entry{name: "overrides/datapacks/spring/data/spring/worldgen/biome/spring.json", data: []byte(`{"effects": {"particle": {"options": {"type": "lithium:spark"}}}}`)},
+		entry{name: "overrides/config/notes.txt", data: []byte("Cloth Config: see clothconfig docs\n")},
+		entry{name: "overrides/datapacks/spring/pack.png", data: []byte("cloth-config:not-read")})
+	pl = mustPlan(t, f.library(), newServer(t, "", ""), InstallRequest{Ref: cfRef(strconv.FormatInt(id, 10))})
+	wantList(t, "changes with a datapack using Lithium", changeList(pl.Changes),
+		"add config/example.json",
+		"add config/notes.txt",
+		"add datapacks/spring/data/spring/worldgen/biome/spring.json",
+		"add datapacks/spring/pack.png",
+		"add mods/fabric-api-0.141.0+26.3.jar",
+		"add mods/lithium-fabric-0.25.3+mc26.3.jar",
+		"add mods/placeholder-api-3.1.0+26.3.jar")
+
 	f.hook("modrinth /v2/version_files", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadGateway) })
-	pl = mustPlan(t, f.library(), newServer(t, "", ""), InstallRequest{Ref: cfRef("")})
+	pl = mustPlan(t, f.library(), newServer(t, "", ""), InstallRequest{Ref: cfRef("9200002")})
 	wantList(t, "changes when Modrinth can't be asked", changeList(pl.Changes),
 		"add config/example.json",
 		"add mods/cloth-config-26.3.155-fabric.jar",

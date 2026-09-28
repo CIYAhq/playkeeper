@@ -2029,6 +2029,14 @@ control "a mod version from before Modrinth's environment field goes by its proj
   'if r, ok := runs[v.ProjectID]; ok {' \
   'if r, ok := runs[v.ProjectID]; false && ok {' \
   ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "a client-only mod the pack's own files use stays on the server" internal/modpacks/resolve.go \
+  'delete(p.clientMods, sha1)' \
+  '_ = sha1' \
+  ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "only a pack's text files are read for the mods they use" internal/modpacks/resolve.go \
+  'if !mentionsFile(rel) || e.UncompressedSize64 > maxMentionsFile {' \
+  'if e.UncompressedSize64 > maxMentionsFile {' \
+  ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
 control "a CurseForge pack whose mods Modrinth can't be asked about says so" internal/modpacks/resolve.go \
   'if err != nil {
 		p.warn(notice(KindUnverifiedEnv, kv("pack", p.info.Name),' \
