@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.4
+
+- **New server › A template** lists Playkeeper's own templates, the ones playkeeper.io offers, from an SMP or a lifesteal server to Towny, skyblock and Bedwars. Pick one to see what it installs before anything happens, with a link to its setup guide. The list comes with the release, so New server fetches it from nowhere. A machine still on an older release offers template files and links as before.
+
 ## 0.4.3
 
 - Picked by Playkeeper suggests Discord chat on Paper and Purpur servers: DiscordSRV links the game chat with a channel on your Discord server, both ways, once you paste your own Discord bot's token into its settings.

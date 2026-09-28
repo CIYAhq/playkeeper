@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { CopyIcon, DownloadIcon, FileIcon, FileUpIcon, LinkIcon, RefreshCwIcon, Share2Icon } from 'lucide-react'
+import { CopyIcon, DownloadIcon, FileIcon, FileUpIcon, LayoutGridIcon, LinkIcon, RefreshCwIcon, Share2Icon } from 'lucide-react'
 import { ApiError } from '@/api/client'
-import { planTemplate, useTemplateExport } from '@/api/templates'
-import type { AddonNotice, ServerStatus, TemplatePlan } from '@/api/types'
+import { planTemplate, useTemplateExport, useTemplateLibrary } from '@/api/templates'
+import type { AddonNotice, LibraryTemplate, ServerStatus, TemplateContents, TemplatePlan } from '@/api/types'
 import { errorText } from '@/api/workspace'
-import { Emblem, GameIcon, TypeLogo } from '@/components/app/art'
+import { Emblem, GameIcon, TemplateArt, TypeLogo } from '@/components/app/art'
 import { copyText, Notice } from '@/components/app/bits'
 import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
 import { LoadingLabel } from '@/components/app/skeletons'
@@ -191,10 +191,51 @@ export function TemplateDialog({ server, open, onOpenChange }: { server: ServerS
 /** A template planned on this machine, and where it came from. */
 export interface TemplateChoice {
   plan: TemplatePlan
-  /** The file's name; empty for a link. */
+  /** The file's name; empty for a link or a library template. */
   fileName: string
   /** The file or link data, to plan again. */
   text: string
+  /** The library template it is, when it came from Playkeeper's templates. */
+  library?: LibraryTemplate
+}
+
+/** "Paper 26.2 · 4 GB": what a library template runs on. */
+function libraryFacts(c: TemplateContents): string {
+  const memory = c.settings.memoryMB ? t('unit.gb', { value: Math.round((c.settings.memoryMB / 1024) * 10) / 10 }) : ''
+  return [`${typeName(c.type)} ${c.minecraftVersion}`, memory].filter(Boolean).join(t('common.dot'))
+}
+
+/** The templates the machine's release carries, each planned like a file when picked. */
+function LibraryList({ templates, onPick }: { templates: LibraryTemplate[]; onPick: (l: LibraryTemplate) => void }) {
+  const id = useId()
+  return (
+    <section aria-labelledby={id} className="flex flex-col gap-2.5">
+      <div>
+        <h3 id={id} className="text-[13px] font-semibold">
+          {t('template.library.title')}
+        </h3>
+        <p className="text-xs text-muted-foreground">{t('template.library.sub')}</p>
+      </div>
+      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {templates.map((l) => (
+          <li key={l.id}>
+            <button
+              type="button"
+              onClick={() => onPick(l)}
+              className="flex w-full items-center gap-3 rounded-xl border border-border bg-card p-2.5 text-left transition-colors duration-(--motion-fast) ease-standard hover:border-primary hover:bg-selected focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              <TemplateArt file={l.art} className="rounded-md" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold">{l.contents.name}</span>
+                <span className="block truncate text-xs text-muted-foreground">{libraryFacts(l.contents)}</span>
+                <span className="block truncate text-xs text-muted-foreground">{l.contents.modpack ? l.contents.modpack.name : l.contents.addons.map((a) => a.name).join(', ')}</span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
 }
 
 function Row({ label, value, detail, icon }: { label: string; value: ReactNode; detail?: ReactNode; icon?: ReactNode }) {
@@ -251,17 +292,18 @@ export function TemplatePicker({
   onAcceptExperimental: (v: boolean) => void
 }) {
   const phone = useIsPhone()
+  const library = useTemplateLibrary(machineId)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [over, setOver] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const handed = useRef(false)
 
-  async function read(text: string, fileName: string) {
+  async function read(text: string, fileName: string, from?: LibraryTemplate) {
     setBusy(true)
     setError(undefined)
     try {
-      onChange({ plan: await planTemplate(machineId, text), fileName, text })
+      onChange({ plan: await planTemplate(machineId, text), fileName, text, library: from })
     } catch (e) {
       onChange(undefined)
       setError(readError(e))
@@ -308,6 +350,7 @@ export function TemplatePicker({
   }
 
   if (!value) {
+    const listed = !!library && library.length > 0
     return (
       <div className="flex flex-col gap-3">
         {error && (
@@ -315,6 +358,8 @@ export function TemplatePicker({
             {error}
           </Notice>
         )}
+        {listed && <LibraryList templates={library} onPick={(l) => void read(l.file, '', l)} />}
+        {listed && <h3 className="mt-2 text-[13px] font-semibold">{t('template.library.file')}</h3>}
         {phone ? (
           <Button variant="outline" size="touch" className="w-full" onClick={choose}>
             <FileUpIcon />
@@ -369,12 +414,19 @@ export function TemplatePicker({
           <GameIcon size={40} />
           <div className="min-w-0 flex-1 basis-40">
             <h3 className="truncate text-[15px] font-semibold">{c.name}</h3>
-            <p className="truncate text-xs text-muted-foreground">{[value.fileName || t('template.fromLink'), madeOn(c)].filter(Boolean).join(t('common.dot'))}</p>
+            <p className="truncate text-xs text-muted-foreground">{[value.library ? t('template.fromLibrary') : value.fileName || t('template.fromLink'), madeOn(c)].filter(Boolean).join(t('common.dot'))}</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={choose}>
-            <FileIcon />
-            {t('template.chooseAnother')}
-          </Button>
+          {value.library ? (
+            <Button variant="ghost" size="sm" onClick={() => onChange(undefined)}>
+              <LayoutGridIcon />
+              {t('template.chooseAnotherTemplate')}
+            </Button>
+          ) : (
+            <Button variant="ghost" size="sm" onClick={choose}>
+              <FileIcon />
+              {t('template.chooseAnother')}
+            </Button>
+          )}
           {fileInput}
         </div>
         <dl>
@@ -393,7 +445,17 @@ export function TemplatePicker({
             {t('new.experimentalConsent', { version: p.minecraftVersion ?? '' })}
           </label>
         )}
-        <p className="border-t border-border pt-3 text-xs text-muted-foreground">{t(mods ? 'template.freshMods' : 'template.freshPlugins')}</p>
+        <p className="border-t border-border pt-3 text-xs text-muted-foreground">
+          {t(mods ? 'template.freshMods' : 'template.freshPlugins')}
+          {value.library?.page && (
+            <>
+              {' '}
+              <a href={value.library.page} target="_blank" rel="noopener" className="font-semibold text-primary hover:underline">
+                {t('template.library.guide')}
+              </a>
+            </>
+          )}
+        </p>
       </div>
     </div>
   )

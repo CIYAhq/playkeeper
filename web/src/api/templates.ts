@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, get } from './client'
-import type { TemplateExport, TemplatePlan } from './types'
+import type { LibraryTemplate, TemplateExport, TemplateLibrary, TemplatePlan } from './types'
 import { errorText, machineApi, serverApi } from './workspace'
 
 export interface TemplateOptions {
@@ -38,6 +38,24 @@ export function useTemplateExport(serverId: string, options: TemplateOptions, op
   }, [path, serverId, tick])
   const current = state.serverId === serverId ? state : { data: undefined, error: undefined }
   return { data: current.data, error: current.error, loading: !!path && !current.data && !current.error, reload: () => setTick((n) => n + 1) }
+}
+
+/**
+ * The templates the machine's release carries. A machine on an older release
+ * has none, so any failure is an empty list rather than an error to show.
+ */
+export function useTemplateLibrary(machineId: string) {
+  const [state, setState] = useState<{ machineId: string; templates?: LibraryTemplate[] }>({ machineId })
+  useEffect(() => {
+    let cancelled = false
+    get<TemplateLibrary>(machineApi(machineId, '/templates/library'))
+      .then((l) => !cancelled && setState({ machineId, templates: l.templates }))
+      .catch(() => !cancelled && setState({ machineId, templates: [] }))
+    return () => {
+      cancelled = true
+    }
+  }, [machineId])
+  return state.machineId === machineId ? state.templates : undefined
 }
 
 /** Reads a template file, link or link data on the machine and plans the server it makes. */
