@@ -1,0 +1,58 @@
+{{/* The blocks of the template library at /templates. Each template's page
+     reads what happened when a server was created and started from it
+     (site/data/library, through libpage) and the template itself. */}}
+
+{{/* library-facts: what a template sets up, as a table. L is the page
+     (libpage "id"). */}}
+{{define "library-facts"}}{{$l := .L}}{{$t := $l.T}}
+<div class="table-scroll" tabindex="0">
+  <table class="data">
+    <caption class="visually-hidden">What the {{$l.Card.Name}} template sets up</caption>
+    <tbody>
+      <tr><th scope="row">Server</th><td>{{range types}}{{if eq .ID $t.Server.Type}}{{$i := img .Logo}}<span class="loader-cell"><img src="{{$i.URL}}" alt="" width="34" height="34"{{if .Pixel}} class="pixel"{{end}} loading="lazy">{{.Name}} {{$t.Server.MinecraftVersion}}, build {{$l.Build}}</span>{{end}}{{end}}</td></tr>
+      <tr><th scope="row">Java</th><td>{{$l.Java}}</td></tr>
+      <tr><th scope="row">Memory</th><td>{{$l.Memory}}, {{gb $l.JavaHeapMB}} of it for Java</td></tr>
+      <tr><th scope="row">Rules</th><td>{{title $l.Difficulty}} difficulty, PvP {{if $l.PVP}}on{{else}}off{{end}}{{if $l.Hardcore}}, hardcore{{end}}, up to {{$l.MaxPlayers}} players</td></tr>
+      {{range $l.Plugins}}<tr><th scope="row">Plugin</th><td><a href="https://modrinth.com/plugin/{{.Slug}}">{{.Name}}</a> {{.Version}} · {{licence .Licence}}</td></tr>
+      {{end}}<tr><th scope="row">Checked</th><td>{{day $l.Checked}}: created and started on Playkeeper {{$l.Release}}, ready in {{$l.Done}} seconds with every plugin enabled</td></tr>
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{/* library-docker: the template by hand in the itzg image, the one
+     Playkeeper runs servers in, sized as Playkeeper sizes it: the container
+     gets the template's memory and Java's heap (MEMORY) what Playkeeper
+     would give Java of it. L is the page. */}}
+{{define "library-docker"}}{{$l := .L}}{{$t := $l.T}}
+<div class="codeblock">
+  <div class="code-head">
+    <div class="code-tabs" role="tablist" aria-label="How">
+      <button type="button" class="code-tab" role="tab" id="tab-docker" aria-controls="code-docker" aria-selected="true">Docker</button>
+    </div>
+    <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+  </div>
+<pre id="code-docker" role="tabpanel" tabindex="0" aria-labelledby="tab-docker"><span class="c"># {{$l.Card.Name}}: {{$l.TypeName}} {{$t.Server.MinecraftVersion}} on Java {{$l.Java}}, {{$l.Memory}} in all</span>
+docker run -d --name {{$l.ID}} -p 25565:25565{{if $l.Has "simple-voice-chat"}} -p 24454:24454/udp{{end}} \
+  --memory {{gbFlag $t.Settings.MemoryMB}} --memory-swap {{gbFlag $t.Settings.MemoryMB}} \
+  -e EULA=TRUE -e TYPE={{upper $t.Server.Type}} -e VERSION={{$t.Server.MinecraftVersion}} -e MEMORY={{gbFlag $l.JavaHeapMB}} -e USE_AIKAR_FLAGS=TRUE \
+  -e DIFFICULTY={{$l.Difficulty}} -e PVP={{$l.PVP}} -e MAX_PLAYERS={{$l.MaxPlayers}}{{if $l.Hardcore}} -e HARDCORE=true{{end}} \
+  -e MODRINTH_PROJECTS={{$l.Projects}} \
+  -v {{$l.ID}}-data:/data itzg/minecraft-server:java{{$l.Java}}</pre>
+</div>
+{{end}}
+
+{{/* library-card: a library template in the template cards' design, its
+     name linking to its page. ID is the template; Page the page, if it has
+     one; Holds what it adds. */}}
+{{define "library-card"}}{{$c := card .ID}}{{$a := img $c.Art}}
+<article class="tpl-card reveal">
+  <div class="tpl-art"><img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}" loading="lazy" decoding="async"></div>
+  <div class="tpl-body">
+    <h3 class="tpl-name">{{with .Page}}<a href="{{.}}">{{$c.Name}}</a>{{else}}{{$c.Name}}{{end}}</h3>
+    <p class="tpl-facts"><span class="wide-only">{{$c.Facts}}</span><span class="phone-only">{{$c.Short}}</span></p>
+    <p class="tpl-holds wide-only">{{or .Holds $c.Holds}}</p>
+    <a class="link-arrow tpl-open" href="{{$c.Link}}"><span class="wide-only">Open in my dashboard</span><span class="phone-only">Open</span>{{template "icon" "arrow-right"}}<span class="visually-hidden"> the {{$c.Name}} template</span></a>
+  </div>
+</article>
+{{end}}

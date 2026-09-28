@@ -33,6 +33,8 @@ type TemplateCard struct {
 	// modpack project and version it pins, if it has one.
 	MemoryMB          int
 	Pack, PackVersion string
+	// Template is the template itself, for the pages that describe it.
+	Template *templates.Template
 }
 
 // cardExtra is what a card shows that the template itself doesn't say.
@@ -85,6 +87,7 @@ func loadTemplateCards(src fs.FS, dir string) (map[string]*TemplateCard, error) 
 			Link:     "/t#" + link.Payload,
 			Mods:     t.Modpack != nil || strings.Contains(" fabric quilt neoforge forge ", " "+t.Server.Type+" "),
 			MemoryMB: t.Settings.MemoryMB,
+			Template: &t,
 		}
 		if t.Modpack != nil {
 			c.Pack, c.PackVersion = t.Modpack.Project, t.Modpack.Pin.VersionNumber

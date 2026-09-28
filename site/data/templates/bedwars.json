@@ -1,0 +1,20 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Bedwars",
+  "description": "Paper for Bedwars: Screaming BedWars runs the games, with WorldEdit for building arenas and Multiverse-Core for keeping each arena in its own world.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "26.2" },
+  "settings": {
+    "difficulty": "normal",
+    "pvp": true,
+    "gameMode": "survival",
+    "maxPlayers": 16,
+    "playStyle": "friends",
+    "memoryMB": 4096
+  },
+  "addons": [
+    { "source": "modrinth", "project": "1u6JkXh5", "slug": "worldedit", "name": "WorldEdit", "latest": true },
+    { "source": "modrinth", "project": "3wmN97b8", "slug": "multiverse-core", "name": "Multiverse-Core", "latest": true },
+    { "source": "modrinth", "project": "8sg1aj4I", "slug": "screamingbedwars", "name": "Screaming BedWars", "latest": true }
+  ]
+}

@@ -3,5 +3,11 @@
   "creative": { "art": "app/pixel-art/play-creative.svg" },
   "cobblemon": { "art": "app/pixel-art/world-normal.svg", "mods": 75 },
   "better-mc": { "art": "app/pixel-art/world-amplified.svg", "mods": 261 },
-  "cobbleverse": { "art": "app/pixel-art/world-big-biomes.svg", "mods": 168 }
+  "cobbleverse": { "art": "app/pixel-art/world-big-biomes.svg", "mods": 168 },
+  "lifesteal-smp": { "art": "app/pixel-art/world-amplified.svg" },
+  "hardcore-smp": { "art": "app/pixel-art/play-hardcore.svg" },
+  "towny": { "art": "app/pixel-art/world-big-biomes.svg" },
+  "skyblock": { "art": "app/pixel-art/world-flat.svg" },
+  "oneblock": { "art": "app/pixel-art/play-just-me.svg" },
+  "bedwars": { "art": "app/pixel-art/world-normal.svg" }
 }

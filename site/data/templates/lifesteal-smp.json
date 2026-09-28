@@ -1,0 +1,20 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Lifesteal SMP",
+  "description": "Paper for a lifesteal SMP: kill a player to take a heart, die and lose one. With LifeStealZ, pre-generation and block logging.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "26.2" },
+  "settings": {
+    "difficulty": "normal",
+    "pvp": true,
+    "gameMode": "survival",
+    "maxPlayers": 20,
+    "playStyle": "friends",
+    "memoryMB": 4096
+  },
+  "addons": [
+    { "source": "modrinth", "project": "l8Uv7FzS", "slug": "lifestealz", "name": "LifeStealZ", "latest": true },
+    { "source": "modrinth", "project": "fALzjamp", "slug": "chunky", "name": "Chunky", "latest": true },
+    { "source": "modrinth", "project": "Lu3KuzdV", "slug": "coreprotect", "name": "CoreProtect", "latest": true }
+  ]
+}

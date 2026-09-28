@@ -1,0 +1,92 @@
+{{/*
+path: /templates/towny
+title: Towny server: plugin setup and one-click template (2026)
+description: Set up a Towny server: Paper 26.2 with Towny 0.103 and LuckPerms, the one setting to change before anyone can found a town, and a template that really started.
+label: Towny server
+h1: How to make a Towny server
+card: How to make a Towny server
+kind: Template
+section: guides
+layout: guide
+crumb: Templates
+og: template-towny
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$l := libpage "towny"}}Towny lets players found towns, claim land chunk by chunk and join towns into nations. This template runs Towny {{(index $l.Plugins 1).Version}} with LuckPerms and Chunky on {{$l.TypeName}} {{$l.T.Server.MinecraftVersion}} for up to {{$l.MaxPlayers}} players. Before anyone can found a town, turn Towny's economy off or add one: it's on by default, and with no economy plugin nobody can pay for a town.{{end}}
+
+{{define "closing-title"}}Your Towny server, on your own VPS.{{end}}
+{{define "closing-sub"}}Free and open source. Invite players with a link.{{end}}
+
+{{define "side-text"}}Playkeeper sets up Towny and LuckPerms in one click.{{end}}
+
+{{define "article"}}{{$l := libpage "towny"}}
+<section aria-labelledby="contents">
+  {{template "h2n" (dict "ID" "contents" "N" 1 "Text" "What's in the Towny template" "Toc" "What's in it")}}
+  {{template "library-facts" (dict "L" $l)}}
+</section>
+
+<section aria-labelledby="economy">
+  {{template "h2n" (dict "ID" "economy" "N" 2 "Text" "Change this first: Towny's economy" "Toc" "Change this first")}}
+  <p>Towny's own config says it: with <code>using_economy</code> on and no economy plugin, "it will not be possible to create towns". Founding a town costs 250, a nation 1,000 and each extra claim 25. Pick one:</p>
+  <ul>
+    <li><strong>Free towns,</strong> for friends: set <code>using_economy: 'false'</code> in <code>plugins/Towny/settings/config.yml</code> on the Files tab, then restart.</li>
+    <li><strong>Towns that cost money:</strong> add an economy plugin and a Vault bridge, then set the prices in the same file.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="first-town">
+  {{template "h2n" (dict "ID" "first-town" "N" 3 "Text" "Found the first town" "Toc" "The first town")}}
+  <ul>
+    <li><strong><code>/town new Riverside</code></strong> founds a town on the chunk you stand in, with you as mayor.</li>
+    <li><strong><code>/town claim</code></strong> takes the chunk you're in. Each resident brings the town 8 more chunks to claim.</li>
+    <li><strong><code>/town add Alex</code></strong> invites a player, and <code>/nation new Northlands</code> starts a nation towns can join.</li>
+  </ul>
+  <p>A town block is one chunk, 16 by 16 blocks from bedrock to sky, and only the town's residents can build in it.</p>
+</section>
+
+<section aria-labelledby="ranks">
+  {{template "h2n" (dict "ID" "ranks" "N" 4 "Text" "Ranks and the map" "Toc" "Ranks and the map")}}
+  <p>Town ranks, like mayor and assistant, come from Towny's own <code>townyperms.yml</code>. LuckPerms is for server-wide ranks, such as moderators: <code>/lp editor</code> opens its web editor.</p>
+  <p>Playkeeper's live map shows the world, but not town borders yet: no map add-on draws Towny's claims for Minecraft 26.2.</p>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 5 "Text" "Open it in one click" "Toc" "In one click")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Open the template below" "Text" "Your dashboard shows Towny, LuckPerms and Chunky before anything installs.")
+    (dict "Title" "Create and start it, then set the economy" "Text" "Change using_economy on the Files tab and restart once.")
+    (dict "Title" "Pre-generate before players spread out" "Text" "Towns claim land far apart; Pre-generate on the World tab makes it ready.")
+  ))}}
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 6 "Text" "The same server by hand, with Docker" "Toc" "By hand")}}
+  {{template "library-docker" (dict "L" $l)}}
+  <p>Open TCP 25565 in your provider's firewall.</p>
+</section>
+{{end}}
+
+{{define "after"}}{{$l := libpage "towny"}}{{$t := index $l.Plugins 1}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Does Towny need an economy plugin?" "Not if you turn its economy off. With it on, the default, towns cost money, so you need an economy plugin and a Vault bridge.")
+    (qa "How much land can a Towny town claim?" "By default, 8 chunks for each resident. More residents, more land.")
+    (qa "Do I need LuckPerms for Towny?" "No. Towny handles town ranks itself. LuckPerms is for ranks across the whole server.")
+    (qa "Does Towny work on Minecraft 26.2?" (printf "Yes. Towny %s started on Paper %s build %s in our check on %s, with LuckPerms and Chunky beside it." $t.Version $l.T.Server.MinecraftVersion $l.Build (day $l.Checked)))
+  ))}}
+  <section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
+    <div class="tpl-pair">
+      {{template "library-card" (dict "ID" $l.Template)}}
+      {{template "library-card" (dict "ID" "survival-with-friends" "Page" "/templates/smp")}}
+    </div>
+  </section>
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/templates" "/templates/skyblock" "/templates/smp")}}{{end}}

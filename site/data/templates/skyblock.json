@@ -1,0 +1,20 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Skyblock",
+  "description": "Paper for skyblock: every player or team starts on a small island in the void, with Iridium Skyblock's upgrades, missions and island levels, and the two plugins it needs.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "26.2" },
+  "settings": {
+    "difficulty": "normal",
+    "pvp": false,
+    "gameMode": "survival",
+    "maxPlayers": 20,
+    "playStyle": "friends",
+    "memoryMB": 4096
+  },
+  "addons": [
+    { "source": "modrinth", "project": "ayRaM8J7", "slug": "vaultunlocked", "name": "VaultUnlocked", "latest": true },
+    { "source": "modrinth", "project": "1u6JkXh5", "slug": "worldedit", "name": "WorldEdit", "latest": true },
+    { "source": "modrinth", "project": "uVMG0MzO", "slug": "iridiumskyblock", "name": "Iridium Skyblock", "latest": true }
+  ]
+}

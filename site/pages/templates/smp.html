@@ -1,0 +1,99 @@
+{{/*
+path: /templates/smp
+title: How to make a Minecraft SMP server: plugins and template (2026)
+description: Set up a Minecraft SMP for friends: Paper 26.2 with Chunky, CoreProtect and Simple Voice Chat, 4 GB, as a one-click template started on a real server.
+label: SMP server
+h1: How to make a Minecraft SMP server
+card: How to make a Minecraft SMP server
+kind: Template
+section: guides
+layout: guide
+crumb: Templates
+og: template-smp
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$l := libpage "smp"}}An SMP is a survival server for a group of friends. This template sets one up on {{$l.TypeName}} {{$l.T.Server.MinecraftVersion}} with the plugins SMPs reach for first: Chunky to pre-generate the world, CoreProtect to undo griefing and Simple Voice Chat for proximity voice. It gives the server {{$l.Memory}}, and on {{day $l.Checked}} it started with every plugin enabled.{{end}}
+
+{{define "closing-title"}}Your SMP, on your own server.{{end}}
+{{define "closing-sub"}}Free and open source. Invite friends with a link.{{end}}
+
+{{define "side-text"}}Playkeeper sets up this SMP, plugins included, in one click.{{end}}
+
+{{define "article"}}{{$l := libpage "smp"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+<section aria-labelledby="contents">
+  {{template "h2n" (dict "ID" "contents" "N" 1 "Text" "What's in the SMP template" "Toc" "What's in it")}}
+  {{template "library-facts" (dict "L" $l)}}
+  <p>Chunky runs on 22% of plugin servers and CoreProtect on 16%, the most-installed plugins of their kinds (bStats, 28 Sep 2026).</p>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 2 "Text" "Open it in one click" "Toc" "In one click")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Open the template below" "Text" "Your dashboard shows the server, its rules and each plugin before anything installs.")
+    (dict "Title" "Create and start it" "Text" "Playkeeper downloads each plugin from Modrinth and checks it against Modrinth's hash.")
+    (dict "Title" "Send friends an invite link" "Text" "A friend types their Minecraft name and is on the allowlist, with no commands.")
+  ))}}
+</section>
+
+<section aria-labelledby="pregen">
+  {{template "h2n" (dict "ID" "pregen" "N" 3 "Text" "Pre-generate the world before friends explore" "Toc" "Pre-generate first")}}
+  <p>New land is the heaviest work a server does. Generate it before the first evening together, so exploring doesn't lag for everyone. In the Console:</p>
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="Where">
+        <button type="button" class="code-tab" role="tab" id="tab-console" aria-controls="code-console" aria-selected="true">Console</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-console" role="tabpanel" tabindex="0" aria-labelledby="tab-console">chunky radius 3000
+chunky start</pre>
+  </div>
+  <p>Or use Pre-generate on the World tab, which runs Chunky for you and pauses when the server runs low on memory.</p>
+</section>
+
+<section aria-labelledby="griefing">
+  {{template "h2n" (dict "ID" "griefing" "N" 4 "Text" "Undo griefing with CoreProtect" "Toc" "Undo griefing")}}
+  <ul>
+    <li><strong><code>/co inspect</code></strong>, then click a block, shows who placed or broke it and when.</li>
+    <li><strong><code>/co rollback u:Steve t:1h r:20</code></strong> undoes what Steve changed in the last hour within 20 blocks.</li>
+    <li><strong><code>/co restore</code></strong> with the same filters undoes a rollback.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="voice">
+  {{template "h2n" (dict "ID" "voice" "N" 5 "Text" "Proximity voice chat" "Toc" "Voice chat")}}
+  <p>Simple Voice Chat sends voice on its own port. Playkeeper opens UDP 24454 on the machine; open it in your provider's firewall too. Friends add the Simple Voice Chat mod to their game to talk, and can join without it to just play.</p>
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 6 "Text" "The same SMP by hand, with Docker" "Toc" "By hand")}}
+  <p>The itzg image, which Playkeeper runs servers in too, installs the plugins from Modrinth when it starts:</p>
+  {{template "library-docker" (dict "L" $l)}}
+</section>
+{{end}}
+
+{{define "after"}}{{$l := libpage "smp"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "What does SMP mean?" "Survival multiplayer: a survival world that a group of friends shares and keeps coming back to.")
+    (qa "How much RAM does a Minecraft SMP need?" (printf "%s for a few friends with plugins, as this template sets. The sizing guide gives 5 to 10 friends %d GB." $l.Memory (sizingFor 8 "add-ons").MemoryGB))
+    (qa "Do friends need mods to join?" "No. Only Simple Voice Chat's mod, and only to talk; everyone can join and play without it.")
+    (qa "Can Bedrock players join?" "Not yet. This template creates a Minecraft: Java Edition server.")
+  ))}}
+  <section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
+    <div class="tpl-pair">
+      {{template "library-card" (dict "ID" $l.Template)}}
+      {{template "library-card" (dict "ID" "hardcore-smp" "Page" "/templates/hardcore-smp")}}
+    </div>
+  </section>
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/templates" "/templates/lifesteal-smp" "/guides/play-minecraft-with-friends")}}{{end}}

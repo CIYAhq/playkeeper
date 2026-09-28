@@ -1,0 +1,101 @@
+{{/*
+path: /templates/hardcore-smp
+title: Hardcore Minecraft server: settings and one-click template (2026)
+description: Set up a hardcore Minecraft server for friends: Paper 26.2 on hard with one life each, what death means on a server, and how an operator brings someone back.
+label: Hardcore server
+h1: How to make a hardcore Minecraft server
+card: How to make a hardcore Minecraft server
+kind: Template
+section: guides
+layout: guide
+crumb: Templates
+og: template-hardcore-smp
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$l := libpage "hardcore-smp"}}Set hardcore=true in server.properties: the difficulty stays on hard, and a player who dies becomes a spectator instead of respawning. This template does it on {{$l.TypeName}} {{$l.T.Server.MinecraftVersion}} for {{$l.MaxPlayers}} players with PvP off, plus Chunky, CoreProtect and Simple Voice Chat, and started that way on {{day $l.Checked}}.{{end}}
+
+{{define "closing-title"}}One life each, on your own server.{{end}}
+{{define "closing-sub"}}Free and open source. Backups that keep everyone playing.{{end}}
+
+{{define "side-text"}}Playkeeper sets up this hardcore server in one click.{{end}}
+
+{{define "article"}}{{$l := libpage "hardcore-smp"}}
+<section aria-labelledby="contents">
+  {{template "h2n" (dict "ID" "contents" "N" 1 "Text" "What's in the hardcore template" "Toc" "What's in it")}}
+  {{template "library-facts" (dict "L" $l)}}
+  <p>The test server's server.properties read hardcore=true, difficulty=hard and pvp=false.</p>
+</section>
+
+<section aria-labelledby="death">
+  {{template "h2n" (dict "ID" "death" "N" 2 "Text" "What hardcore means on a server" "Toc" "What death means")}}
+  <ul>
+    <li><strong>One life.</strong> A player who dies turns into a spectator: they can fly around and watch, but not play.</li>
+    <li><strong>The world goes on.</strong> Unlike singleplayer hardcore, nothing is deleted, and everyone still alive keeps playing.</li>
+    <li><strong>Hard, always.</strong> Mobs hit harder and hunger can kill, and the difficulty can't be turned down while hardcore is on.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="revive">
+  {{template "h2n" (dict "ID" "revive" "N" 3 "Text" "Bringing someone back" "Toc" "Bring someone back")}}
+  <p>Some groups allow it once. In the Console, move them somewhere safe first, since a spectator can be inside a wall, then give them survival back:</p>
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="Where">
+        <button type="button" class="code-tab" role="tab" id="tab-console" aria-controls="code-console" aria-selected="true">Console</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-console" role="tabpanel" tabindex="0" aria-labelledby="tab-console">tp Steve Alex
+gamemode survival Steve</pre>
+  </div>
+  <p>Or restore the backup from before the fatal fight. It brings the world and every player back as they were then; Playkeeper's Back up now takes one without stopping the server.</p>
+</section>
+
+<section aria-labelledby="prepare">
+  {{template "h2n" (dict "ID" "prepare" "N" 4 "Text" "Before the first night" "Toc" "Before the first night")}}
+  <ul>
+    <li><strong>Pre-generate the world</strong> on the World tab, which runs Chunky: lag on hard difficulty gets people killed.</li>
+    <li><strong>Talk.</strong> Simple Voice Chat uses UDP 24454, which Playkeeper opens on the machine; open it in your provider's firewall too, and friends add the mod.</li>
+    <li><strong>Back up before big fights.</strong> The Nether, the End or a raid are where most runs end.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 5 "Text" "Open it in one click" "Toc" "In one click")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Open the template below" "Text" "Your dashboard shows hardcore on, hard difficulty and each plugin before anything installs.")
+    (dict "Title" "Create and start it" "Text" "Hardcore is set as the world is made, so it applies from the first block.")
+    (dict "Title" "Invite the group" "Text" "Invite links put each friend on the allowlist by their Minecraft name.")
+  ))}}
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 6 "Text" "The same server by hand, with Docker" "Toc" "By hand")}}
+  {{template "library-docker" (dict "L" $l)}}
+</section>
+{{end}}
+
+{{define "after"}}{{$l := libpage "hardcore-smp"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "What happens when you die on a hardcore server?" "You become a spectator: you can watch and fly through the world, but not respawn. An operator can give you survival back.")
+    (qa "Can you change the difficulty on a hardcore server?" "No. Hardcore keeps it on hard; turning hardcore off in server.properties and restarting is the only way.")
+    (qa "How do you revive someone in hardcore?" "In the console, teleport them to safety, then run gamemode survival with their name. Or restore a backup from before they died.")
+    (qa "How much RAM does a hardcore server need?" (printf "%s for a few friends, as this template sets. For 5 to 10 at once, the sizing guide gives %d GB." $l.Memory (sizingFor 8 "add-ons").MemoryGB))
+  ))}}
+  <section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
+    <div class="tpl-pair">
+      {{template "library-card" (dict "ID" $l.Template)}}
+      {{template "library-card" (dict "ID" "lifesteal-smp" "Page" "/templates/lifesteal-smp")}}
+    </div>
+  </section>
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/templates" "/templates/smp" "/templates/lifesteal-smp")}}{{end}}

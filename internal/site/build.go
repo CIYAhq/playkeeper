@@ -57,6 +57,7 @@ type Site struct {
 	assets  assets
 	cards   map[string]*TemplateCard
 	packs   map[string]*Modpack
+	library map[string]*LibraryPage
 	docs    *docsBuild
 	posts   []*Page
 	sizing  SizingGuide
@@ -80,6 +81,9 @@ func Build(o Options) (*Output, error) {
 		return nil, err
 	}
 	if s.packs, err = loadModpacks(o.Root, "site/data/modpacks", s.cards); err != nil {
+		return nil, err
+	}
+	if s.library, err = loadLibrary(o.Root, "site/data/library", s.cards); err != nil {
 		return nil, err
 	}
 	if s.pages, err = loadPages(o.Root, "site/pages"); err != nil {
@@ -362,6 +366,8 @@ func (s *Site) crumbs(p *Page) []Crumb {
 		parent.Path = "/blog"
 	case "Modpacks":
 		parent.Path = "/modpacks"
+	case "Templates":
+		parent.Path = "/templates"
 	}
 	return []Crumb{parent, {Label: p.Label, Path: p.Path}}
 }
@@ -694,8 +700,15 @@ func (s *Site) funcs() template.FuncMap {
 		},
 		// modpack is a pack a /modpacks page is about (site/data/modpacks),
 		// and modpacks every pack with a page.
-		"modpack":   s.modpack,
-		"modpacks":  s.modpackList,
+		"modpack":  s.modpack,
+		"modpacks": s.modpackList,
+		// libpage is a template of the library (site/data/library), and
+		// libpages every one with a page.
+		"libpage":   s.libraryPage,
+		"libpages":  s.libraryList,
+		"licence":   licenceName,
+		"count":     count,
+		"upper":     strings.ToUpper,
 		"megabytes": megabytes,
 		"gb":        gigabytes,
 		"gbFlag":    gbFlag,
