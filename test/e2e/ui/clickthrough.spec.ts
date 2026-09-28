@@ -5,7 +5,29 @@ import type { AddressInfo } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { answerRead, installJob, isAddonRead, recordedFolder, updateJob, type World } from './addon-fixtures'
-import { affected, closure, costOf, freshSetup, importGraph, named, pageMapProblems, pageOf, partition, preludesOf, selects, shardsFor, type Costs, type CrawlerName, type Selection, type Size, type Unit } from './clickthrough-plan'
+import {
+  closure,
+  costOf,
+  forPullRequest,
+  freshSetup,
+  importGraph,
+  keysChanged,
+  named,
+  pageMapProblems,
+  pageModules,
+  pageOf,
+  partition,
+  preludesOf,
+  pullRequestRunners,
+  pullRequestShardSeconds,
+  selects,
+  shardsFor,
+  type Costs,
+  type CrawlerName,
+  type Selection,
+  type Size,
+  type Unit,
+} from './clickthrough-plan'
 import { at, found, gate, ownProblems, places, type Negative, type Pressed, type Rules, type ShardReport } from './clickthrough-rules'
 import { Crawler, failing, type Result } from './crawl'
 import { installPageHelpers } from './crawl-page'
@@ -594,34 +616,68 @@ test('runners get whole groups of pages, a page with its faked states, the costl
   expect(pageOf('/map/Zz9xWv8uTs7rQp6oNm5lKj')).toBe('/map/*')
 })
 
-test('a change to a shared layer or the crawler crawls every page; a change to a page crawls the pages its modules draw, after the pages before them', () => {
+test('a change to a page crawls the pages its modules draw, after the pages before them; one to no page, none', () => {
   const graph = importGraph(fileURLToPath(new URL('../../../web/src', import.meta.url)))
   expect(pageMapProblems(graph)).toEqual([])
-  expect(affected(['web/src/components/ui/button.tsx'], graph).mode).toBe('full')
-  expect(affected(['web/src/i18n/en.ts'], graph).mode).toBe('full')
-  expect(affected(['test/e2e/ui/crawl.ts'], graph).mode).toBe('full')
-  expect(affected(['web/vite.config.ts'], graph).mode).toBe('full')
-  expect(affected(['web/src/pages/server/console.tsx'], graph)).toMatchObject({ mode: 'pages', pages: ['/servers/*/console'], preludes: ['/', '/servers/*'] })
+  // Without costs no page is left for the release, so these are all the pages a change reaches.
+  const reach = (changed: string[]) => forPullRequest(changed, graph, {})
+  expect(reach(['web/src/pages/server/console.tsx'])).toMatchObject({ mode: 'pages', pages: ['/servers/*/console'], preludes: ['/', '/servers/*'] })
   // The World tab shows pre-generation's row too, and the Map area uses its texts.
-  expect(affected(['web/src/pages/server/world-pregen.tsx'], graph)).toMatchObject({ mode: 'pages', pages: ['/servers/*/world', '/servers/*/world/pregen', '/servers/*/map'], preludes: ['/', '/servers/*'] })
-  const twoFactor = affected(['web/src/pages/two-factor.tsx'], graph)
+  expect(reach(['web/src/pages/server/world-pregen.tsx'])).toMatchObject({ mode: 'pages', pages: ['/servers/*/world', '/servers/*/world/pregen', '/servers/*/map'], preludes: ['/', '/servers/*'] })
+  const twoFactor = reach(['web/src/pages/two-factor.tsx'])
   expect(twoFactor.pages).toEqual(expect.arrayContaining(['/account', '/account/two-factor']))
   expect(twoFactor.pages).not.toContain('/servers/*')
-  expect(affected(['web/src/pages/server/map.test.tsx', 'internal/panel/server.go', 'docs/ARCHITECTURE.md'], graph).mode).toBe('none')
-  expect(affected(['web/src/pages/join.tsx'], graph).mode).toBe('none')
-  expect(affected(['web/src/pages/a-new-page.tsx'], graph).mode).toBe('full')
+  expect(reach(['web/src/pages/server/map.test.tsx', 'internal/panel/server.go', 'docs/ARCHITECTURE.md']).mode).toBe('none')
+  expect(reach(['web/src/pages/join.tsx']).mode).toBe('none')
+  // A page module the page map doesn't know yet is sampled with Home until it's added.
+  expect(reach(['web/src/pages/a-new-page.tsx']).pages).toEqual(['/'])
   expect([...closure(graph, ['pages/server/index.tsx'])]).not.toContain('pages/server/console.tsx')
   expect(preludesOf('/servers/*/world/pregen')).toEqual(['/', '/servers/*'])
   expect(preludesOf('/login')).toEqual([])
 
+  // A page is crawled with its states on one runner, so two pages have no use for a third.
   const costs: Costs = { desktop: { '/': 100, '/servers/*': 1100, '/servers/* (stopped)': 1100 }, phone: { '/': 100, '/more': 60 } }
   expect(shardsFor(costs, 'all')).toEqual([
-    { size: 'desktop', shard: 1, of: 3 },
-    { size: 'desktop', shard: 2, of: 3 },
-    { size: 'desktop', shard: 3, of: 3 },
+    { size: 'desktop', shard: 1, of: 2 },
+    { size: 'desktop', shard: 2, of: 2 },
     { size: 'phone', shard: 1, of: 1 },
   ])
   expect(shardsFor(costs, { pages: ['/more'], preludes: ['/'] })).toEqual([{ size: 'phone', shard: 1, of: 1 }])
+  expect(shardsFor(costs, 'all', 300).filter((s) => s.size === 'phone')).toEqual([{ size: 'phone', shard: 1, of: 1 }])
+})
+
+test("a pull request crawls the pages its change reaches, one page for those a module many share runs on, and no more than its runners", () => {
+  const graph = importGraph(fileURLToPath(new URL('../../../web/src', import.meta.url)))
+  const costs = JSON.parse(fs.readFileSync(new URL('./clickthrough-costs.json', import.meta.url), 'utf8')) as Costs
+  const plan = (changed: string[], keys?: string[], users: Record<string, string[]> = {}) => forPullRequest(changed, graph, costs, keys, (k) => users[k] ?? [])
+  expect(plan(['web/src/pages/server/console.tsx'])).toMatchObject({ mode: 'pages', pages: ['/servers/*/console'], preludes: ['/', '/servers/*'] })
+  // A module every page runs on, the crawler and the build take Home for them all.
+  expect(plan(['web/src/components/ui/button.tsx'])).toMatchObject({ mode: 'pages', pages: ['/'], preludes: [] })
+  expect(plan(['test/e2e/ui/crawl.ts']).pages).toEqual(['/'])
+  expect(plan(['web/vite.config.ts']).pages).toEqual(['/'])
+  // A server's pages all run its page module; its Overview stands for them.
+  expect(plan(['web/src/pages/server/index.tsx']).pages).toEqual(['/servers/*'])
+  // A changed string takes the pages whose modules use it, not every page that loads the table.
+  const pregen = plan(['web/src/i18n/en.ts'], ['pregen.unknown'], { 'pregen.unknown': ['pages/server/world-pregen.tsx'] })
+  expect(pregen.mode).toBe('pages')
+  expect(pregen.pages).toContain('/servers/*/world/pregen')
+  expect(pregen.pages).not.toContain('/')
+  expect(plan(['web/src/i18n/en.ts'], ['nobody.uses.this']).mode).toBe('none')
+  // Without the keys, as plan.ts --files gives none, the table is a module every page runs on.
+  expect(plan(['web/src/i18n/en.ts']).pages).toEqual(['/'])
+  expect(plan(['web/src/pages/server/map.test.tsx', 'internal/panel/server.go', 'docs/ARCHITECTURE.md']).mode).toBe('none')
+  // Every page module at once: no more runners than a pull request gets, and the rest wait for the release.
+  const every = forPullRequest([...new Set(Object.values(pageModules).flat())].map((m) => `web/src/${m}`), graph, costs)
+  expect(shardsFor(costs, { pages: every.pages, preludes: every.preludes }, pullRequestShardSeconds).length).toBeLessThanOrEqual(pullRequestRunners)
+  expect(every.why.at(-1)).toMatch(/wait for the release's full crawl/)
+})
+
+test('a change to the string table names the keys whose lines it changed, in values spread over lines too, and not comments', () => {
+  const before = ['export const en = {', '  // Shared', "  'a.one': 'One',", "  'a.two': {", "    one: '1 thing',", "    other: '{count} things',", '  },', "  'a.three': 'Three',", '} as const'].join('\n')
+  const after = ['export const en = {', '  // Shared, and more', "  'a.one': 'One!',", "  'a.two': {", "    one: '1 thing',", "    other: '{count} things now',", '  },', "  'a.three': 'Three',", "  'a.four': 'Four',", '} as const'].join('\n')
+  const diff = ['@@ -2 +2 @@', '-  // Shared', '+  // Shared, and more', '@@ -3 +3 @@', "-  'a.one': 'One',", "+  'a.one': 'One!',", '@@ -6 +6 @@', "-    other: '{count} things',", "+    other: '{count} things now',", '@@ -8,0 +9 @@', "+  'a.four': 'Four',"].join('\n')
+  expect(keysChanged(diff, before, after)).toEqual(['a.four', 'a.one', 'a.two'])
+  expect(keysChanged(['@@ -3 +2,0 @@', "-  'a.one': 'One',"].join('\n'), before, after)).toEqual(['a.one'])
 })
 
 test('a change to how the state the pages are crawled in is made crawls after the onboarding and the bots; any other, after a saved played state', () => {
@@ -632,8 +688,8 @@ test('a change to how the state the pages are crawled in is made crawls after th
   // A change to how the state is saved or restored starts from a saved one, which tries it.
   expect(freshSetup(['scripts/e2e/played-state.sh', '.github/actions/played-install/action.yml'])).toBeUndefined()
   const graph = importGraph(fileURLToPath(new URL('../../../web/src', import.meta.url)))
-  expect(affected(['scripts/e2e/played-state.sh'], graph).mode).toBe('full')
-  expect(affected(['.github/actions/played-install/action.yml'], graph).mode).toBe('full')
+  expect(forPullRequest(['scripts/e2e/played-state.sh'], graph, {}).pages).toEqual(['/'])
+  expect(forPullRequest(['.github/actions/played-install/action.yml'], graph, {}).pages).toEqual(['/'])
 })
 
 test('the add-on fixtures answer as the panel would, work out plans against the folder and have no answer for what was never recorded', () => {

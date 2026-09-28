@@ -168,12 +168,30 @@ export interface Shard {
   of: number
 }
 
-/** The runners a selection needs: one per shardSeconds of its pages at each size, none at a size it has no page at. */
-export function shardsFor(costs: Costs, selection: Selection): Shard[] {
+/**
+ * The groups a selection's pages fall into at a size, as the costs name
+ * them: a page with its states is crawled on one runner (partition), so a
+ * selection has no use for more runners than this.
+ */
+function groupsAt(costs: Costs, size: Size, selection: Selection): number {
+  const groups = new Set<string>()
+  for (const name of Object.keys(costs[size] ?? {})) {
+    const { page, view } = parseName(name)
+    if (selects(selection, { route: page, view })) groups.add(page.replace(/#.*$/, ''))
+  }
+  if (selection !== 'all') {
+    const known = new Set(sizeNames.flatMap((sz) => Object.keys(costs[sz] ?? {}).map((n) => parseName(n).page)))
+    for (const p of selection.pages) if (!known.has(p)) groups.add(p)
+  }
+  return groups.size
+}
+
+/** The runners a selection needs: one per `share` seconds of its pages at each size, no more than it has groups, none at a size it has no page at. */
+export function shardsFor(costs: Costs, selection: Selection, share = shardSeconds): Shard[] {
   return sizeNames.flatMap((size) => {
     const { seconds, pages } = estimate(costs, size, selection)
     if (!pages) return []
-    const of = Math.max(1, Math.ceil(seconds / shardSeconds))
+    const of = Math.max(1, Math.min(Math.ceil(seconds / share), groupsAt(costs, size, selection)))
     return Array.from({ length: of }, (_, i) => ({ size, shard: i + 1, of }))
   })
 }
@@ -267,15 +285,11 @@ const buildFiles = [/^web\/(index\.html|vite\.config\.ts|package\.json|package-l
 
 const isTest = (file: string) => /\.test\.tsx?$/.test(file)
 
-/** Why a changed file means crawling every page, or undefined. */
-export function sharedLayer(file: string): string | undefined {
+/** Why a changed file is the crawler's or how the dashboard is built, which a pull request's crawl samples with Home, or undefined. */
+function crawlerOrBuild(file: string): string | undefined {
   if (crawlerFiles.some((re) => re.test(file))) return `${file} is part of the click-through or the state it crawls in`
   if (buildFiles.some((re) => re.test(file))) return `${file} changes how the dashboard is built or served`
-  if (!file.startsWith('web/src/') || isTest(file)) return undefined
-  const rel = file.slice('web/src/'.length)
-  if (rel.startsWith('pages/') || rel.startsWith('demo/')) return undefined
-  const layer = rel.includes('/') ? `web/src/${rel.split('/')[0]}/` : file
-  return `${file} is in a layer every page shares (${layer})`
+  return undefined
 }
 
 interface Node {
@@ -342,29 +356,132 @@ export interface Affected {
   why: string[]
 }
 
-/** The pages a change touches: every page when a shared layer changes, else the pages whose modules it changed. */
-export function affected(changed: string[], graph: Graph): Affected {
-  const full = changed.map(sharedLayer).filter((w): w is string => !!w)
-  if (full.length) return { mode: 'full', pages: [], preludes: [], why: full }
+const inPageOrder = (a: string, b: string) => Object.keys(pageModules).indexOf(a) - Object.keys(pageModules).indexOf(b)
+
+/** Pages in the page map's order, with the pages crawled before them as they are. */
+function withPreludes(pages: string[]): { pages: string[]; preludes: string[] } {
+  const sorted = [...pages].sort(inPageOrder)
+  return { pages: sorted, preludes: [...new Set(sorted.flatMap(preludesOf))].filter((p) => !pages.includes(p)).sort(inPageOrder) }
+}
+
+/**
+ * A pull request's runners take this many seconds of pages each, at most
+ * pullRequestRunners of them, so its crawl ends a few minutes after the fast
+ * checks; the Release check crawls every page before each release. A page
+ * with its states is never split, so the costliest ones take longer alone.
+ */
+export const pullRequestShardSeconds = 300
+export const pullRequestRunners = 4
+
+/** Every page loads the string table, so a change to it reaches the pages whose modules use the keys it changed. */
+const stringTable = 'i18n/en.ts'
+
+/**
+ * What a pull request's crawl takes, which is never every page: the Release
+ * check crawls them all before each release. A module under web/src takes
+ * the pages it runs on (their modules and what they import); a change to
+ * the string table takes the pages whose modules use the keys it changed
+ * (usesOf), when they're given. A module more than a third of the pages run
+ * on takes the first of them as their sample, and a change to how the
+ * dashboard is built or to the crawler and the state it crawls in takes
+ * Home, which shows the crawl still works. When that's more than
+ * pullRequestRunners runners' worth, the pages that list a changed module as
+ * their own come first, then the other pages a changed page module runs on,
+ * and the rest wait for the release.
+ */
+export function forPullRequest(changed: string[], graph: Graph, costs: Costs, keys?: string[], usesOf: (key: string) => string[] = () => []): Affected {
   const drawn = Object.entries(pageModules).map(([page, entries]) => ({ page, modules: closure(graph, entries.filter((e) => graph.has(e))) }))
-  const pages = new Set<string>()
+  const reach = (rel: string) => drawn.filter((d) => d.modules.has(rel)).map((d) => d.page)
+  const own = new Set<string>()
+  const reached = new Set<string>()
+  const touched = new Set<string>()
   const why: string[] = []
-  for (const file of changed) {
-    if (!file.startsWith('web/src/') || isTest(file) || !sourceFile.test(file)) continue
-    const rel = file.slice('web/src/'.length)
-    const hits = drawn.filter((d) => d.modules.has(rel)).map((d) => d.page)
-    if (hits.length) {
-      for (const p of hits) pages.add(p)
-      why.push(`${file}: ${hits.join(', ')}`)
-    } else if (rel.startsWith('pages/') && !uncrawled.includes(rel)) {
-      return { mode: 'full', pages: [], preludes: [], why: [`${file} is a page module no page in pageModules (clickthrough-plan.ts) draws`] }
+  // A module many pages run on is sampled by the first page whose own
+  // modules list it, or else the first it runs on.
+  const take = (what: string, pages: string[], into: Set<string>, rel?: string) => {
+    if (pages.length > drawn.length / 3) {
+      const sample = pages.find((p) => rel !== undefined && pageModules[p]?.includes(rel)) ?? (pages[0] as string)
+      reached.add(sample)
+      why.push(`${what} runs on ${pages.length} of the ${drawn.length} pages, so ${sample} stands for them`)
+    } else {
+      for (const p of pages) into.add(p)
+      why.push(`${what}: ${pages.join(', ')}`)
     }
   }
-  if (!pages.size) return { mode: 'none', pages: [], preludes: [], why: why.length ? why : ['no page of the dashboard changed'] }
-  const order = Object.keys(pageModules)
-  const sorted = [...pages].sort((a, b) => order.indexOf(a) - order.indexOf(b))
-  const preludes = [...new Set(sorted.flatMap(preludesOf))].filter((p) => !pages.has(p)).sort((a, b) => order.indexOf(a) - order.indexOf(b))
-  return { mode: 'pages', pages: sorted, preludes, why }
+  for (const file of changed) {
+    const tooling = crawlerOrBuild(file)
+    if (tooling) {
+      reached.add('/')
+      why.push(`${tooling}, so Home shows the crawl still works`)
+      continue
+    }
+    if (!file.startsWith('web/src/') || isTest(file) || !sourceFile.test(file)) continue
+    const rel = file.slice('web/src/'.length)
+    if (rel === stringTable && keys) continue
+    touched.add(rel)
+    const pages = reach(rel)
+    if (pages.length) take(file, pages, rel.startsWith('pages/') ? own : reached, rel)
+    else if (rel.startsWith('pages/') && !uncrawled.includes(rel)) {
+      reached.add('/')
+      why.push(`${file} is a page module no page in pageModules (clickthrough-plan.ts) draws, so Home stands in`)
+    }
+  }
+  for (const key of keys ?? []) {
+    const users = usesOf(key)
+    for (const m of users) touched.add(m)
+    const pages = [...new Set(users.flatMap(reach))].sort(inPageOrder)
+    if (pages.length) take(`the string ${key}`, pages, reached)
+    else why.push(`the string ${key}: no page's modules name it`)
+  }
+  const rank = (p: string) => ((pageModules[p] ?? []).some((m) => touched.has(m)) ? 0 : own.has(p) ? 1 : 2)
+  const ranked = [...new Set([...own, ...reached])].sort((a, b) => rank(a) - rank(b) || inPageOrder(a, b))
+  const pages: string[] = []
+  const left: string[] = []
+  for (const p of ranked) {
+    if (!pages.length || shardsFor(costs, withPreludes([...pages, p]), pullRequestShardSeconds).length <= pullRequestRunners) pages.push(p)
+    else left.push(p)
+  }
+  if (left.length) why.push(`that's more than ${pullRequestRunners} runners' worth, so these wait for the release's full crawl: ${left.join(', ')}`)
+  if (!pages.length) return { mode: 'none', pages: [], preludes: [], why: why.length ? why : ['no page of the dashboard changed'] }
+  return { mode: 'pages', ...withPreludes(pages), why }
+}
+
+/**
+ * The keys of the string table (web/src/i18n/en.ts) a change to it touched:
+ * `diff` is its `git diff -U0`, `before` and `after` its text on either side.
+ * A changed line counts under the key it belongs to in its version of the
+ * file, its own line or a line of a value spread over several; comments and
+ * blank lines count under none.
+ */
+export function keysChanged(diff: string, before: string, after: string): string[] {
+  const keyLine = /^ {2}'([^']+)':/
+  const inValue = /^( {4,}\S| {2}\},?$)/
+  const keyAt = (lines: string[], i: number): string | undefined => {
+    const own = keyLine.exec(lines[i] ?? '')
+    if (own) return own[1]
+    if (!inValue.test(lines[i] ?? '')) return undefined
+    for (let j = i - 1; j >= 0; j--) {
+      const m = keyLine.exec(lines[j] ?? '')
+      if (m) return m[1]
+      if (!/^ {4,}\S/.test(lines[j] ?? '')) return undefined
+    }
+    return undefined
+  }
+  const sides = { before: before.split('\n'), after: after.split('\n') }
+  const keys = new Set<string>()
+  for (const h of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
+    const spans = [
+      { lines: sides.before, from: Number(h[1]), count: h[2] === undefined ? 1 : Number(h[2]) },
+      { lines: sides.after, from: Number(h[3]), count: h[4] === undefined ? 1 : Number(h[4]) },
+    ]
+    for (const { lines, from, count } of spans) {
+      for (let n = from; n < from + count; n++) {
+        const key = keyAt(lines, n - 1)
+        if (key) keys.add(key)
+      }
+    }
+  }
+  return [...keys].sort()
 }
 
 /** What's wrong with the page map: modules that are gone, and page modules no page draws. */
