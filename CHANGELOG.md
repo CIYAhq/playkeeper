@@ -5,6 +5,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 ## 0.4.5
 
 - Fixed: records for a server's own address that you added after saving it were found only at Playkeeper's next look, up to 6 hours later. Until they work, Playkeeper now looks every minute, as it does for your domain's records, so the page gets its certificate a minute or two after you add them.
+- Fixed: asking the API for more of a server's console than Playkeeper keeps, its newest 2,000 lines, returned only the newest 500. It now returns all 2,000, so a tool reading a big modpack's start, which can log hundreds of lines in a second, still finds the line saying the server is ready.
 
 ## 0.4.4
 
