@@ -20,9 +20,11 @@
     navigator.clipboard.writeText(text).then(function () {
       if (tool) track(tool, action || 'copy');
       if (button) {
+        // The label's own words are kept on it the first time, so a second
+        // click while it says Copied still goes back to them.
         var label = button.querySelector('[data-copy-label]');
-        var before = label ? label.getAttribute('data-copy-label') || label.textContent : '';
-        if (label && !label.hasAttribute('data-copy-label')) label.setAttribute('data-copy-label', before);
+        if (label && !label.getAttribute('data-copy-label')) label.setAttribute('data-copy-label', label.textContent);
+        var before = label ? label.getAttribute('data-copy-label') : '';
         button.classList.add('is-copied');
         if (label) label.textContent = 'Copied';
         clearTimeout(button._copyTimer);
