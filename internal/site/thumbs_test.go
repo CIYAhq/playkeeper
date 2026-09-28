@@ -196,6 +196,13 @@ func TestThumbnailsTakeTheScenesPlace(t *testing.T) {
 			}
 			if photo {
 				photos[p]++
+				for _, w := range thumbWidths {
+					for _, ext := range []string{"avif", "webp"} {
+						if !regexp.MustCompile(fmt.Sprintf(`/assets/shots/templates/%s-%dw\.[0-9a-f]+\.%s %dw`, id, w, ext, w)).MatchString(c) {
+							t.Errorf("%s's card on %s doesn't offer its %dw %s", id, p, w, ext)
+						}
+					}
+				}
 			}
 		}
 	}
