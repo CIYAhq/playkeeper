@@ -73,6 +73,15 @@ The release workflow's check of `/install` after each release counts as one ther
 - **Whop's ad pixel:** `WhopPixel` in the settings names the Whop business. `js/start.js` loads the pixel with Whop's own snippet, on this page only. It sends a page view, then `install_copied`, `install_shared` and `demo_opened` whenever site.js counts one (the `playkeeper:count` event), each with the visit's one `event_id`, so Whop counts each once a visit. It doesn't load when the browser sends Global Privacy Control or Do Not Track.
 - **Content-Security-Policy:** only `/start`'s policy, set in its nginx location, lets in `https://t.whop.tw`, the pixel's `blob:` worker and the film. The page ends with a note that says plainly what the pixel stores and sends. Keep forms, iframes and links to whop.com off the page: the pixel reads forms, posts to frames and tags those links.
 
+### Modpack pages
+
+`/modpacks` lists what each modpack's server needs, and `/modpacks/<id>-server` is one page per pack, like `/modpacks/atm10-server`. Each pack has its facts in `data/modpacks/<id>.json`: its source, project, version and release day, loader, Minecraft version, the mods its server runs, the download, the heap the pack's own settings ask for, its server files if its authors publish any, the site template that opens it (`data/templates`, Modrinth packs only), and the day all of it was checked. The page gets Java and memory from the product (`minecraft.JavaFor`, `minecraft.PackNeedMB`, the memory New server suggests), so it says what the dashboard would.
+
+- **Facts:** take them from the pack's source (Modrinth's API and the `.mrpack`'s index, or CurseForge's files) and from Playkeeper's own install plan for that version (`modpacks.Library.PlanInstall`, which counts the mods it puts on the server and names anything that blocks the install). CurseForge packs need a CurseForge API key for the plan.
+- **The build refuses** a pack of a type the release doesn't run, for a Minecraft version older than the packs it offers (`modpacks.DefaultMinMinecraft`), or with a template that opens another version or less memory than the pack needs.
+- **A new page** copies the closest one in `pages/modpacks/` and keeps the blocks in `layouts/modpack.html` (facts, template card, the Docker and mrpack-install commands). What's true of that pack alone, like its restricted mods or the settings it expects, is what the page is for: `TestModpackPagesAreMostlyTheirOwn` fails a pack page when fewer than 60% of its sentences are its own. Search engines treat pages made at scale from one template as spam.
+- **Social previews** come from the packs too: `node site-og.mjs modpacks modpack-<id>` draws the hub's and the page's.
+
 ## Host it with Coolify
 
 You need a server with Coolify on it, the Coolify proxy running (it is by default), and inbound TCP ports **80** and **443** open in the server's firewall. Coolify gets the HTTPS certificate from Let's Encrypt, which checks the domain through those ports.

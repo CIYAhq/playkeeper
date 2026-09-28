@@ -29,6 +29,10 @@ type TemplateCard struct {
 	Link string
 	// Mods is whether it runs mods (a modded server's template).
 	Mods bool
+	// MemoryMB is the memory it suggests, and Pack and PackVersion the
+	// modpack project and version it pins, if it has one.
+	MemoryMB          int
+	Pack, PackVersion string
 }
 
 // cardExtra is what a card shows that the template itself doesn't say.
@@ -75,11 +79,15 @@ func loadTemplateCards(src fs.FS, dir string) (map[string]*TemplateCard, error) 
 			typeName = st.Name
 		}
 		c := &TemplateCard{
-			ID:   id,
-			Name: t.Name,
-			Art:  extra.Art,
-			Link: "/t#" + link.Payload,
-			Mods: t.Modpack != nil || strings.Contains(" fabric quilt neoforge forge ", " "+t.Server.Type+" "),
+			ID:       id,
+			Name:     t.Name,
+			Art:      extra.Art,
+			Link:     "/t#" + link.Payload,
+			Mods:     t.Modpack != nil || strings.Contains(" fabric quilt neoforge forge ", " "+t.Server.Type+" "),
+			MemoryMB: t.Settings.MemoryMB,
+		}
+		if t.Modpack != nil {
+			c.Pack, c.PackVersion = t.Modpack.Project, t.Modpack.Pin.VersionNumber
 		}
 		mem := ""
 		if t.Settings.MemoryMB > 0 {
