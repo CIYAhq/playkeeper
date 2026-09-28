@@ -121,22 +121,85 @@
 {{end}}{{end}}
 
 {{/* providers: three VPS that fit a size, with plan names and "See today's
-     price", never prices, and the disclosure. Need: the memory and cores. */}}
+     price", never prices, and each provider's setup guide. Which links earn
+     a commission is said before them. Need: the memory and cores. */}}
 {{define "providers"}}
 <div class="providers" data-providers>
   <p class="providers-fit"><strong data-fit-label>{{.Label}}</strong></p>
+  {{with partnerNote}}<p class="providers-note">{{.}}</p>{{end}}
   <div class="provider-grid">
     {{range $p := providers}}{{$plan := $p.Fit $.MemoryGB $.Cores}}
     <article class="provider reveal" data-provider="{{$p.Name}}">
       <h3>{{$p.Name}}</h3>
       <p class="provider-plan" data-plan>{{$plan.Name}} · {{$plan.CPUs}} vCPU · {{$plan.MemoryGB}} GB</p>
       <p class="provider-regions">{{$p.Regions}}</p>
-      <a class="btn btn-outline btn-sm" href="{{$p.URL}}"{{if $p.Referral}} rel="sponsored noopener"{{else}} rel="noopener"{{end}}>See today's price{{template "icon" "arrow-up-right"}}<span class="visually-hidden"> at {{$p.Name}}</span></a>
+      <div class="provider-actions">
+        <a class="btn btn-outline btn-sm" href="{{$p.Link}}" rel="{{$p.Rel}}">See today's price{{template "icon" "arrow-up-right"}}<span class="visually-hidden"> at {{$p.Name}}</span></a>
+        {{if exists $p.Guide}}<a class="link-arrow" href="{{$p.Guide}}">Setup guide{{template "icon" "arrow-right"}}<span class="visually-hidden"> for {{$p.Name}}</span></a>{{end}}
+      </div>
     </article>
     {{end}}
   </div>
-  <p class="fine">{{if referral}}Partner links: we may earn a commission. It never changes which providers we list or how we rank them.{{else}}No partner links: we earn nothing from these. Plans checked {{checked}}.{{end}}</p>
+  <p class="fine">{{if not partnerNote}}No partner links: we earn nothing from these. {{end}}Plans checked {{checked}}.</p>
 </div>
+{{end}}
+
+{{/* provider-plans: a provider's plans for a guide, what each costs a month
+     and the groups the sizing guide sends to it. */}}
+{{define "provider-plans"}}{{$p := .}}
+<div class="table-scroll" tabindex="0">
+  <table class="data plan-table">
+    <caption class="visually-hidden">{{$p.Name}}'s plans that fit Minecraft, their prices and the groups each suits</caption>
+    <thead><tr><th scope="col">Plan and price</th><th scope="col">The sizing guide's pick for</th></tr></thead>
+    <tbody>
+      {{- range $p.Fits}}
+      <tr><th scope="row">{{.CPUs}} vCPU · {{.MemoryGB}} GB<span class="plan-sub">{{.Name}} · {{.DiskGB}} GB NVMe</span><span class="plan-price">{{usd .USD}} a month{{with .Renews}}, then {{usd .}}{{end}}</span></th><td>{{range $i, $f := .For}}{{if $i}}<br>{{end}}{{$f}}{{end}}</td></tr>
+      {{- end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{/* provider-cta: a guide's "Get a server" at its provider, with the plan
+     that fits the sizing guide's first answer and, beside a partner link,
+     what it earns. */}}
+{{define "provider-cta"}}{{$p := .}}{{$g := sizing}}{{$plan := $p.Fit $g.Answer.MemoryGB $g.Answer.Cores}}
+<div class="provider-cta reveal" data-provider="{{$p.Name}}">
+  <div class="provider-cta-text">
+    <p class="provider-cta-for">For {{$g.FirstBand}} friends on {{$g.FirstRun}}</p>
+    <p class="provider-cta-plan" data-plan>{{$plan.Name}} · {{$plan.CPUs}} vCPU · {{$plan.MemoryGB}} GB</p>
+  </div>
+  <a class="btn btn-primary" href="{{$p.Link}}" rel="{{$p.Rel}}">Get a {{$p.Name}} server{{template "icon" "arrow-up-right"}}</a>
+  {{if $p.Partner}}<p class="provider-cta-note">{{$p.LinkNote}}</p>{{end}}
+</div>
+{{end}}
+
+{{/* provider-ports: the ports to allow in a provider's firewall. */}}
+{{define "provider-ports"}}
+<div class="table-scroll" tabindex="0">
+  <table class="data">
+    <thead><tr><th scope="col">Port</th><th scope="col">For</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">TCP 22</th><td>SSH, so you can still log in</td></tr>
+      <tr><th scope="row">TCP 8443</th><td>The dashboard</td></tr>
+      <tr><th scope="row">TCP 25565</th><td>The first Minecraft server; 25566, 25567 and so on for each one after it</td></tr>
+      <tr><th scope="row">UDP 24454</th><td>Voice chat, for each server that has it; the next takes the next free port</td></tr>
+      <tr><th scope="row">TCP 80</th><td>Only for your own domain, while Let's Encrypt checks it</td></tr>
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{/* provider-install: running the installer and opening the dashboard, for
+     a guide. Console names the provider's browser terminal. */}}
+{{define "provider-install"}}
+<p class="p-lead">Log in as root over SSH, or in {{.Console}}, and run:</p>
+{{template "install" (dict "ID" true)}}
+{{template "steps" (dict "Items" (list
+  (dict "Title" "It checks the VPS first" "Text" "Then it lists every change it will make, and how to undo it, before it asks to go ahead.")
+  (dict "Title" "Open the link it prints" "Text" "https://your-ip:8443/setup with a one-time code, good for 24 hours. The browser warns about the certificate: continue only if the fingerprint it shows matches the one the installer printed.")
+  (dict "Title" "Create your admin account" "Text" "Then your first server: the newest Paper, with memory picked for how you'll play. Change picks others.")
+))}}
 {{end}}
 
 {{/* h2n: a guide's numbered section heading; the contents list is made

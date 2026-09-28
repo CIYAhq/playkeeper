@@ -48,12 +48,18 @@ Funnels in the analytics are built from pages and these custom events. Each also
 | --- | --- | --- |
 | `install_copied` | The install command is copied, with a Copy or selected and copied by hand | `spot`: `box` (the page's install command), `closing` (the dark band at the bottom), `button` (Copy the install command on `/pricing` and beside guides), `code` (a code block in the docs), `selection` (by hand) or `card` (the live demo's); `channel`: the code, for a channel's command (see Channels below) |
 | `github_clicked` | A link to the repository on GitHub, or to `/community` | `link`: `repo`, `releases`, `file`, `discussions`, `community` and so on |
-| `provider_clicked` | See today's price at a VPS provider (`/sizing`, `/alternatives/aternos`) | `provider`, and the `plan` it showed |
+| `provider_clicked` | See today's price at a VPS provider (`/sizing`, `/alternatives/aternos`), or Get a … server on its guide; its Setup guide link stays on the site and counts nothing | `provider`, and the `plan` it showed |
 | `watch_releases_clicked` | Watch releases on GitHub on `/pricing`, which is also a `github_clicked` | `plan`: `storage` or `partner` |
 | `install_shared` | Send to my computer, beside Copy on `/start` on phones: the page's address shared, or copied where the phone can't share it | `spot`: `box` or `closing`; `how`: `share` (the phone's share sheet) or `copy` |
 | `demo_opened` | A link to the live demo | `spot`: `page`, `closing`, `header` or `menu` (the phone menu) |
 | `tool_used` | A free tool's result is taken: a file downloaded or a result copied (`static/js/tools.js`) | `tool`: the tool, such as `server-icon`; `action`: `download` or `copy` |
 | `demo_server_created` | New server finished in the live demo | `type`: the server type, such as `paper` |
+
+### Providers and partner links
+
+`providers` in `internal/site/providers.go` are the VPS providers the site suggests: the cards under "VPS that fit" on `/sizing` and the Aternos page, and a setup guide each (`pages/guides/<provider>-minecraft-server.html`). Each lists the plans that suit Minecraft, cheapest first, with the price and the day it was checked; the cards show plan names only, and the guides show prices with that day. The plan a card or guide shows is the cheapest that fits the sizing guide's answer.
+
+`Partner` is the provider's affiliate or referral link. Every page that carries one says so before its first partner link: the note above the cards, or a guide's line under its title, which follows the page's `partner` setting. With `Partner` empty, as while a program hasn't approved Playkeeper, the site links the provider's own page with no disclosure. A partner link on another host, such as an affiliate network's, needs that host in `recordEvents` in `test/e2e/ui/site.spec.ts`.
 
 ### Channels
 

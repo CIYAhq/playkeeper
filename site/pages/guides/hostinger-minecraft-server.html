@@ -1,0 +1,87 @@
+{{/*
+path: /guides/hostinger-minecraft-server
+title: How to host a Minecraft server on Hostinger (2026)
+description: Host a Minecraft: Java Edition server on a Hostinger VPS: the KVM plan for your group, the ports to open, one command to install and what it costs.
+label: Minecraft on Hostinger
+h1: How to host a Minecraft server on Hostinger (2026)
+card: How to host a Minecraft server on Hostinger
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: hostinger-minecraft-server
+partner: Hostinger
+published: 2026-09-28
+updated: 2026-09-28
+closing: guide
+schema: article
+*/}}
+
+{{define "short"}}{{$p := provider "Hostinger"}}{{$g := sizing}}{{$plan := $p.Fit $g.Answer.MemoryGB $g.Answer.Cores}}For {{$g.FirstBand}} friends on {{$g.FirstRun}}, rent a {{$plan.Name}} ({{$plan.CPUs}} vCPU, {{$plan.MemoryGB}} GB) in the location nearest them, with Ubuntu 24.04. Allow the game ports if you turn on hPanel's firewall, then run one command: Playkeeper sets up the server, a free address and backups. It's {{usd $plan.USD}} a month on Hostinger's 24-month term ({{checked}}).{{end}}
+
+{{define "closing-title"}}Your Hostinger server is one command away.{{end}}
+{{define "closing-sub"}}Free and open source. Friends can be playing tonight.{{end}}
+
+{{define "side-title"}}Skip the manual steps{{end}}
+{{define "side-text"}}Playkeeper sets up the server, a free address and backups for you.{{end}}
+
+{{define "article"}}{{$p := provider "Hostinger"}}{{$g := sizing}}{{$plan := $p.Fit $g.Answer.MemoryGB $g.Answer.Cores}}
+{{$shot := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 793.98px) calc(100vw - 64px), 730px"}}
+<section aria-labelledby="plan">
+  {{template "h2n" (dict "ID" "plan" "N" 1 "Text" "Which plan")}}
+  <p>Minecraft runs the world on one core, so a fast core and enough memory matter most. Hostinger's KVM plans have AMD EPYC cores and NVMe disks. The <a href="/sizing">sizing guide</a> works out what your group needs; this is the plan it picks for each group.</p>
+  {{template "provider-plans" $p}}
+  <p class="plan-note">Prices on {{checked}}, before tax, a month on the 24-month term, paid upfront. Shorter terms cost more a month.</p>
+  {{template "provider-cta" $p}}
+</section>
+
+<section aria-labelledby="create">
+  {{template "h2n" (dict "ID" "create" "N" 2 "Text" "Create the server")}}
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Buy the plan" "Text" "Choose it on Hostinger's VPS page, with the 24-month term for the prices above.")
+    (dict "Title" "Pick the location nearest your friends" "Text" "Hostinger has data centres in North America, Europe, Asia and South America. Closer means lower ping.")
+    (dict "Title" "Pick Ubuntu 24.04" "Text" "A plain OS, not a panel or an app. Then set a root password or add your SSH key.")
+  ))}}
+  <p>Playkeeper also runs on {{systemRanges}}, on x86_64 or 64-bit ARM. Hostinger's KVM plans are x86_64.</p>
+</section>
+
+<section aria-labelledby="ports">
+  {{template "h2n" (dict "ID" "ports" "N" 3 "Text" "Open the ports")}}
+  <p>hPanel's firewall is optional. Once one is on, it drops every port you haven't allowed, so add a rule for each of these: in hPanel, your VPS › <strong>Security › Firewall › Add firewall</strong>, then <strong>Edit</strong>, and <strong>Add rule</strong> with Accept, the protocol, the port and Anywhere.</p>
+  {{template "provider-ports"}}
+  <p>If ufw or firewalld runs on the VPS itself, the installer allows 8443, 25565 and 80 there for you.</p>
+</section>
+
+<section aria-labelledby="run">
+  {{template "h2n" (dict "ID" "run" "N" 4 "Text" "Run the one command")}}
+  {{template "provider-install" (dict "Console" "hPanel's browser terminal")}}
+</section>
+
+<section aria-labelledby="address">
+  {{template "h2n" (dict "ID" "address" "N" 5 "Text" "A free address for your friends" "Toc" "A free address")}}
+  <p><strong>Machine settings › Address</strong> gives the VPS a free <em>yourname</em>.playkeeper.me name with a real certificate: the browser warning goes away, and friends join at a name instead of an IP address. Then <strong>New invite link</strong> on a server's Players tab: a friend opens it, types their Minecraft name and is on the allowlist.</p>
+  {{template "cardshot" (dict "Name" "post-address" "Alt" "A server's join address at its free name, and who's playing now." "Sizes" $shot "Class" "shot-730")}}
+</section>
+
+<section aria-labelledby="copies">
+  {{template "h2n" (dict "ID" "copies" "N" 6 "Text" "Keep copies off the VPS" "Toc" "Copies off the VPS")}}
+  <p>Hostinger's free weekly backups copy the whole VPS, and stay at Hostinger. For copies of each world that survive losing the VPS, turn on <strong>World › Backup rules › Copies somewhere else</strong>: every backup is encrypted on the VPS, then sent to S3-compatible storage or to another machine over SFTP. Hostinger doesn't sell S3-compatible storage, but Backblaze B2, Cloudflare R2 and Wasabi each have a preset. Keep the recovery key somewhere other than the VPS.</p>
+</section>
+
+<section aria-labelledby="cost">
+  {{template "h2n" (dict "ID" "cost" "N" 7 "Text" "What it costs")}}
+  <p>Playkeeper and its playkeeper.me address are free; the VPS is the only bill. For {{$g.FirstBand}} friends on {{$g.FirstRun}}, a {{$plan.Name}} is {{usd $plan.USD}} a month on the 24-month term: {{usd ($p.Upfront $plan)}} upfront, then {{usd $plan.Renews}} a month when it renews (prices on {{checked}}). The plans come with a domain for the first year, if you'd like your own.</p>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Can I use Hostinger's Game Panel plans?" "Pick a KVM plan with plain Ubuntu instead. The Game Panel plans come with Hostinger's own game panel installed, and Playkeeper never takes over another panel.")
+    (qa "Is KVM 1 enough?" "It has one core, and Playkeeper is tested on two: the world, backups and the dashboard share them. Start with KVM 2.")
+    (qa "Can I try it before paying for two years?" "Hostinger has a 30-day money-back guarantee. Shorter terms are sold too, at a higher price a month.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/guides/digitalocean-minecraft-server" "/guides/vultr-minecraft-server" "/sizing")}}{{end}}
