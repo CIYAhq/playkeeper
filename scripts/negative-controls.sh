@@ -6066,7 +6066,7 @@ control "the page serves faces only of players it lists" internal/panel/serverpa
 	http.NotFound(w, r)
 }
 
-func writePNG(' \
+// hPageCard serves' \
   '	}
 	if st, img := s.head(r.Context(), name, ""); st == headOK {
 		writePNG(w, img)
@@ -6075,7 +6075,7 @@ func writePNG(' \
 	http.NotFound(w, r)
 }
 
-func writePNG(' \
+// hPageCard serves' \
   ./internal/panel '^TestThePageNamesAndFacesOnlyPlayersTheOwnerShows$'
 control "visitors share one question to the agent" internal/panel/serverpage.go \
   '	if a, ok := lookup(); ok {
