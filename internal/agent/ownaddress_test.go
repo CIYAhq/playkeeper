@@ -269,3 +269,42 @@ func TestAnOwnAddressWorksWithoutTheMachinesName(t *testing.T) {
 		t.Fatalf("the own address's page: %+v", page.Servers)
 	}
 }
+
+// The managed beta's machine is beta.playkeeper.me, a name nobody can claim
+// whose record is made by hand, and each creator's server has a
+// playkeeper.me address of its own.
+func TestTheManagedBetaMachineCanBeBetaPlaykeeperMe(t *testing.T) {
+	e := newAddressEnv(t, nil)
+	alex := e.addServerNamed("Alex")
+	e.dns.set("beta.playkeeper.me", testIP.String())
+	var v api.Address
+	check := map[string]any{"domain": "beta.playkeeper.me", "acceptTerms": true, "panelHost": "203.0.113.10:8443", "actor": "admin"}
+	if code := e.callInto("POST", "/v1/address/check", check, &v); code != 200 || v.Host != "beta.playkeeper.me" || !v.Check.Ready || v.Operation == nil {
+		t.Fatalf("the machine's domain: %d %+v", code, v)
+	}
+	if op := e.waitOp(v.Operation.ID); op.Status != api.OpSucceeded {
+		t.Fatalf("the machine's certificate: %+v", op)
+	}
+	e.dns.set("alex.playkeeper.me", testIP.String())
+	e.dns.setSRV("alex.playkeeper.me", 25565, "alex.playkeeper.me")
+	if code, out := e.setOwn(alex, "alex.playkeeper.me"); code != 200 {
+		t.Fatalf("alex's own address: %d %v", code, out)
+	}
+	if _, err := e.a.checkOwn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	e.a.serversChanged()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if row := e.a.loadCertificate("alex.playkeeper.me"); row != nil && row.status.Certificate != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("alex.playkeeper.me got no certificate")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, page, _ := e.page("alex.playkeeper.me"); len(page.Servers) != 1 || page.Servers[0].Address != "alex.playkeeper.me" {
+		t.Fatalf("alex.playkeeper.me's page: %+v", page.Servers)
+	}
+}

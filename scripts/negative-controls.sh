@@ -6744,6 +6744,25 @@ control "the share page doesn't name the stats service" site/layouts/base.html \
   '{{if true}}<meta name="playkeeper-stats"' \
   ./internal/site '^TestTheCopyCountIsOneSetting$'
 
+# An own domain under playkeeper.me: only a name nobody can claim, and only
+# under the current base.
+control "own domain: a playkeeper.me name nobody can claim is accepted" internal/agent/address.go \
+  'return names.CheckName(name) != nil || names.Reserved(name)' \
+  'return false' \
+  ./internal/agent '^(TestOwnDomainsNobodyCanClaimUnderTheFreeBaseAreAccepted|TestTheManagedBetaMachineCanBeBetaPlaykeeperMe)$'
+control "own domain: a playkeeper.me name someone can claim stays refused" internal/agent/address.go \
+  'return names.CheckName(name) != nil || names.Reserved(name)' \
+  'return true' \
+  ./internal/agent '^TestOwnDomainsUnderEitherFreeBaseAreRefused$'
+control "own domain: only the name right before playkeeper.me decides" internal/agent/address.go \
+  "name := rest[strings.LastIndexByte(rest, '.')+1:]" \
+  "name := rest[:strings.IndexByte(rest+\".\", '.')]" \
+  ./internal/agent '^TestOwnDomainsUnderEitherFreeBaseAreRefused$'
+control "own domain: names under playkeeper.io stay refused" internal/agent/address.go \
+  'rest, ok := strings.CutSuffix(domain, "."+names.DefaultBase)' \
+  'rest, ok := strings.CutSuffix(domain, "."+names.BaseOf(domain))' \
+  ./internal/agent '^TestOwnDomainsUnderEitherFreeBaseAreRefused$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
