@@ -13,6 +13,7 @@ import { runningOp } from '@/lib/address'
 import { linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { Choose, FreeAddress, useClaim } from './free'
+import { NetworkGuardSettings } from './guard'
 import { OwnDomain } from './own'
 import type { AddressProps } from './parts'
 
@@ -45,6 +46,7 @@ export function MachineSettingsPage({ id }: { id: string }) {
     )
   }
   const name = m.name || m.live?.hostname || ''
+  const guard = m.live?.guard && <NetworkGuardSettings key={String(m.live.guard.host)} id={id} guard={m.live.guard} />
 
   let body
   if (a) {
@@ -70,7 +72,10 @@ export function MachineSettingsPage({ id }: { id: string }) {
     return (
       <>
         <PhoneBackHeader to={{ name: 'machine', id }} label={name} title={t('address.title')} />
-        <div className="flex flex-1 flex-col">{body}</div>
+        <div className="flex flex-1 flex-col">
+          {body}
+          {guard}
+        </div>
       </>
     )
   }
@@ -91,7 +96,10 @@ export function MachineSettingsPage({ id }: { id: string }) {
         title={t('machine.settings')}
         subtitle={a?.ip ? `${name}${t('common.dot')}${a.ip}` : name}
       />
-      <PageBody>{body}</PageBody>
+      <PageBody>
+        {body}
+        {guard}
+      </PageBody>
     </>
   )
 }
