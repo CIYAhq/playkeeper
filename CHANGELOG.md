@@ -6,6 +6,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 - **Your words, your stream and a status board on the page:** **Settings › Public page** takes an About text, such as your server's rules, and a Twitch or YouTube channel. Visitors get a **Watch live** button, and nothing loads from Twitch or YouTube until they press it. Your own tools can post a status board through the API, and AI agents through the new `set_status_board` tool: a headline, whether you're live and when the next session starts, which the page counts down to, up to 6 numbers and a checklist.
 - A link to the page shows a picture of the server wherever it's shared: its name, whether it's online and how many are playing, the board's headline and its address.
+- Fixed: modpacks that ship a `default-server.properties`, like FTB StoneBlock 4, switched off the console, the allowlist and Playkeeper's other settings on the server's first start. Their gameplay settings still apply, and a server still running that way is restarted once after the update to put them back.
 
 ## 0.4.3
 

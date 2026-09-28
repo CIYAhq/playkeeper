@@ -71,6 +71,7 @@ export function PublicPageRows({ server: s }: { server: ServerStatus }) {
         value={v?.about ?? ''}
         max={600}
         multiline
+        saveLabel={t('publicPage.saveAbout')}
         disabledReason={locked ?? (!enabled ? t('publicPage.pageFirst') : undefined)}
         onSave={(about) => saveText(s, { about }, view.refresh)}
       />
@@ -81,6 +82,7 @@ export function PublicPageRows({ server: s }: { server: ServerStatus }) {
         value={v?.stream ?? ''}
         max={200}
         placeholder={t('publicPage.streamPlaceholder')}
+        saveLabel={t('publicPage.saveStream')}
         disabledReason={locked ?? (!enabled ? t('publicPage.pageFirst') : undefined)}
         onSave={(stream) => saveText(s, { stream }, view.refresh)}
       />
@@ -97,7 +99,7 @@ async function saveText(s: ServerStatus, body: { about?: string; stream?: string
 }
 
 /** A text setting with its own Save: the page's words, or the stream's link. */
-function TextRow({ id, label, hint, value, max, multiline, placeholder, disabledReason, onSave }: {
+function TextRow({ id, label, hint, value, max, multiline, placeholder, saveLabel, disabledReason, onSave }: {
   id: string
   label: string
   hint: string
@@ -105,6 +107,7 @@ function TextRow({ id, label, hint, value, max, multiline, placeholder, disabled
   max: number
   multiline?: boolean
   placeholder?: string
+  saveLabel: string
   disabledReason?: string
   onSave: (value: string) => Promise<void>
 }) {
@@ -153,7 +156,7 @@ function TextRow({ id, label, hint, value, max, multiline, placeholder, disabled
           )}
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs text-muted-foreground tabular-nums">{multiline ? t('publicPage.count', { count: current.length, max }) : ''}</span>
-            <Button size="sm" variant="outline" onClick={() => void commit()} loading={saving} disabledReason={disabledReason ?? (!changed ? t('publicPage.nothingToSave') : undefined)}>
+            <Button size="sm" variant="outline" aria-label={saveLabel} onClick={() => void commit()} loading={saving} disabledReason={disabledReason ?? (!changed ? t('publicPage.nothingToSave') : undefined)}>
               {t('common.save')}
             </Button>
           </div>
