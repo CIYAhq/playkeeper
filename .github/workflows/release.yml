@@ -202,7 +202,9 @@ jobs:
   verify:
     name: Live addresses — one-line install on a fresh ${{ matrix.cpu }} runner
     needs: [checked, publish]
-    if: github.event_name == 'push'
+    # A tag skips the dry run above, and a job skipped anywhere upstream skips
+    # a job whose if has no status function of its own.
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.publish.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
