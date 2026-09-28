@@ -18,7 +18,13 @@ templates/<template id>.png, 16:10 and at least 960 pixels wide: each is
 written at the two widths the directory's cards and pages use (THUMBS), to
 site/static/shots/templates, encoded for pictures rather than screens.
 
+Each thumbnail is also written small for the dashboard's New server › A
+template list, which bundles them (web/src/assets/template-thumbs/<id>.webp,
+DASHBOARD pixels wide). --dashboard makes those from the site's thumbnails
+alone, for templates whose captures aren't at hand.
+
 Usage: python3 site/tools/shots.py <captures-dir>
+       python3 site/tools/shots.py --dashboard
 Needs Pillow 11.3 or newer, for AVIF."""
 import os
 import re
@@ -91,6 +97,25 @@ SLOTS = {
 # a template's page 520, so 960 covers both at 2x.
 THUMBS = [480, 960]
 
+# The dashboard's copy: its list shows a template 64 × 40, so three times that.
+DASHBOARD = 192
+DASHBOARD_OUT = "web/src/assets/template-thumbs"
+
+
+def dashboard_thumb(im, name):
+    os.makedirs(DASHBOARD_OUT, exist_ok=True)
+    small = im.resize((DASHBOARD, DASHBOARD * 10 // 16), Image.LANCZOS)
+    small.save(os.path.join(DASHBOARD_OUT, name + ".webp"), "WEBP", quality=80, method=6)
+
+
+def dashboard_from_site():
+    folder = os.path.join(OUT, "templates")
+    for f in sorted(os.listdir(folder)):
+        m = re.fullmatch(r"(.+)-%dw\.webp" % THUMBS[-1], f)
+        if m:
+            dashboard_thumb(Image.open(os.path.join(folder, f)).convert("RGB"), m[1])
+            print("dashboard", m[1])
+
 
 def widths(name):
     desktop, largest, phone = SLOTS[name]
@@ -133,10 +158,14 @@ def thumbnails(captures):
             base = os.path.join(out, f"{name}-{w}w")
             small.save(base + ".avif", "AVIF", quality=60, subsampling="4:2:0", speed=4)
             small.save(base + ".webp", "WEBP", quality=80, method=6)
-        print("templates/" + name, " ".join(f"{w}w" for w in THUMBS))
+        dashboard_thumb(im, name)
+        print("templates/" + name, " ".join(f"{w}w" for w in THUMBS), "and the dashboard's")
 
 
 def main():
+    if sys.argv[1] == "--dashboard":
+        dashboard_from_site()
+        return
     captures = sys.argv[1]
     os.makedirs(OUT, exist_ok=True)
     thumbnails(captures)
