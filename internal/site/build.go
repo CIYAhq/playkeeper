@@ -449,6 +449,16 @@ func (s *Site) exists(addr string) bool {
 	return p != nil
 }
 
+func (s *Site) tools() []*Page {
+	var out []*Page
+	for _, t := range tools {
+		if p := s.byPath[t.Path]; p != nil {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 type footerView struct {
 	Title string
 	Links []FooterLink
@@ -555,8 +565,14 @@ func (s *Site) funcs() template.FuncMap {
 			return faqSchema(qs), nil
 		},
 		"crumbSchema": func(crumbs []Crumb) map[string]any { return crumbSchema(s.opts.Settings.BaseURL, crumbs) },
-		"types":       func() []ServerType { return serverTypes(rowOrder) },
-		"typeCount":   func() int { return len(serverTypes(textOrder)) },
+		// tools are the free tools that exist, in the menu's order.
+		"tools":   s.tools,
+		"palette": func() []Swatch { return palette },
+		"toolListSchema": func() map[string]any {
+			return toolListSchema(s.opts.Settings.BaseURL, s.tools())
+		},
+		"types":     func() []ServerType { return serverTypes(rowOrder) },
+		"typeCount": func() int { return len(serverTypes(textOrder)) },
 		"typeNames": func() string {
 			var names []string
 			for _, t := range serverTypes(textOrder) {

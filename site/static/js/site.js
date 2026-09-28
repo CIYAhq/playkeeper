@@ -395,5 +395,12 @@
     }
   }
 
+  // A page's own script, like a free tool's, counts its events and shows the
+  // toast through these.
+  window.playkeeperSite = {
+    toast: toast,
+    count: function (name, props) { count(name, props || {}); },
+  };
+
   doc.classList.add('has-js');
 })();

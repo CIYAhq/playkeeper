@@ -6,6 +6,7 @@ This folder is the website at [playkeeper.io](https://playkeeper.io): the landin
 | --- | --- |
 | `/`, `/features/…`, `/alternatives/…`, `/guides/…`, `/pricing`, `/blog`, `/blog/…` | pages built from `pages/` |
 | `/sizing` | the sizing guide: its calculator, table and several-servers rules come from `internal/sizing` (`internal/site/sizing.go`, `layouts/sizing.html`, `static/js/sizing.js`); the landing page's "How big a VPS?" is the same calculator |
+| `/tools`, `/tools/…` | the free tools and their hub (`pages/tools.html`, `pages/tools/`): each runs in the browser, from `static/js/tools.js` and its own script in `static/js/tools/`, and makes nothing on a server |
 | `/demo/` | the live demo: the dashboard in `web/` built with its sample data (`web/src/demo`); any path under it that isn't a file is one of its pages |
 | `/docs`, `/docs/…` | the docs, built from the repository's own Markdown: `README.md`'s sections, `docs/RECOVERY.md`, `docs/TROUBLESHOOTING.md`, `CONTRIBUTING.md` and `SECURITY.md` |
 | `/t` | the share page for server templates (`pages/t.html`, `static/js/t.js`), kept out of search engines |
@@ -33,7 +34,9 @@ A page that isn't built yet can already be linked: the header's menus, the foote
 
 1. Copy the page closest to it: a feature page (`pages/features/mods-and-modpacks.html`), a comparison (`pages/alternatives/aternos.html`), a guide (`pages/guides/modded-minecraft-server.html`) or a blog post (`pages/blog/playkeeper-0-4-0.html`).
 2. Change its settings and words. A screenshot is `static/shots/<name>-<width>w.avif` and `.webp` at a few widths: `test/e2e/ui/site-captures.mjs` takes it from the dashboard of the release the site describes (its live demo, with the sample data the captures add), at 2 to 4 times its pixels, and `site/tools/shots.py` makes the widths the site shows it at. The page gives its `Sizes`, how wide it shows it, and marks the first thing it shows `Eager`, which its head asks for early. `test/e2e/ui/site-shots.mjs` takes screenshots of whole pages. Every page gets a social preview in `static/og/`, drawn by `test/e2e/ui/site-og.mjs`.
-3. Run `go run ./cmd/site -serve 127.0.0.1:8080` and look at it, then run `go test ./internal/site`, the browser checks (in `test/e2e/ui`: `npx playwright test -c playwright.site.config.ts`, which open every page at desktop and phone sizes and fail on anything wider than the screen or a serious accessibility violation) and `scripts/site-check.sh`.
+3. Run `go run ./cmd/site -serve 127.0.0.1:8080` and look at it (it sends the site's Content-Security-Policy, as nginx does, so a page that breaks it breaks there too), then run `go test ./internal/site`, the browser checks (in `test/e2e/ui`: `npx playwright test -c playwright.site.config.ts`, which open every page at desktop and phone sizes and fail on anything wider than the screen or a serious accessibility violation) and `scripts/site-check.sh`.
+
+A free tool is a page like `pages/tools/server-icon.html`: its script in `static/js/tools/` (after `js/tools.js`, which copies, downloads and counts `tool_used`), its styles in `static/css/tools/`, the blocks every tool shares in `layouts/tools.html`, and a line in `tools` in `internal/site/tools.go` with the search it's made for, which its title and heading must say. That line puts it in the header's Tools menu and on `/tools` once its page exists. Its social preview is drawn by `test/e2e/ui/site-og.mjs`, and its browser checks go in `test/e2e/ui/site-tools*.spec.ts`.
 
 ### Settings
 
@@ -49,6 +52,7 @@ Funnels in the analytics are built from pages and these custom events. Each also
 | `watch_releases_clicked` | Watch releases on GitHub on `/pricing`, which is also a `github_clicked` | `plan`: `storage` or `partner` |
 | `install_shared` | Send to my computer, beside Copy on `/start` on phones: the page's address shared, or copied where the phone can't share it | `spot`: `box` or `closing`; `how`: `share` (the phone's share sheet) or `copy` |
 | `demo_opened` | A link to the live demo | `spot`: `page`, `closing`, `header` or `menu` (the phone menu) |
+| `tool_used` | A free tool's result is taken: a file downloaded or a result copied (`static/js/tools.js`) | `tool`: the tool, such as `server-icon`; `action`: `download` or `copy` |
 | `demo_server_created` | New server finished in the live demo | `type`: the server type, such as `paper` |
 
 ### Channels

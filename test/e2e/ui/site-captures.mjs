@@ -401,6 +401,7 @@ const shots = [
   { name: 'detail-browse', route: '/servers/survival/plugins/browse', size: desktop, dpr: 3, cards: ['CoreProtect', 'Chunky', 'ViaVersion'], from: 'Picked by Playkeeper' },
   { name: 'detail-updates', route: '/servers/survival/plugins', size: desktop, dpr: 3, cards: ['BlueMap', 'ViaVersion'], from: 'Plugins on Survival' },
   { name: 'step-type', route: '/servers/new', size: desktop, dpr: 3, element: '[role=radiogroup][aria-label="Server type"]', height: 300 },
+  { name: 'tool-server-list', route: '/servers/survival/settings', size: desktop, dpr: 3, before: serverList, element: '#list' },
   // Dialogs and pages the demo has no data for.
   { name: 'detail-voice', route: '/servers/survival/plugins/browse', size: desktop, dpr: 4, voiceChat: true, before: voiceChat, element: popup },
   { name: 'detail-modpack', route: '/servers/new', size: desktop, dpr: 4, before: modpacks(true), element: popup, height: 520, left: 180 },
@@ -415,6 +416,12 @@ const shots = [
   { name: 'move-aternos-phone', route: '/servers/new', size: phone, dpr: 4, before: worldFromAternos(), top: 680 },
   { name: 'move-inside', route: '/servers/new', size: desktop, dpr: 3, before: worldFromAternos({ file: true, check: true }), panel: 730 },
 ]
+
+/** Settings' Server list card in view, with the card above it hidden so its edge stays out of the crop. */
+async function serverList(page) {
+  await page.locator('#list').scrollIntoViewIfNeeded()
+  await page.locator('#game').evaluate((el) => { el.style.visibility = 'hidden' })
+}
 
 // cardClip is the rectangle around the cards with the given headings, and
 // from the element with the text "from" when there's one, with a margin.

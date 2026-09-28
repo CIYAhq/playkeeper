@@ -130,6 +130,15 @@ type Crumb struct {
 	Label, Path string
 }
 
+// toolListSchema is the tools hub's list of tools as structured data.
+func toolListSchema(base string, pages []*Page) map[string]any {
+	var items []map[string]any
+	for i, p := range pages {
+		items = append(items, map[string]any{"@type": "ListItem", "position": i + 1, "name": p.Label, "url": p.URL(base)})
+	}
+	return map[string]any{"@context": "https://schema.org", "@type": "ItemList", "itemListElement": items}
+}
+
 func crumbSchema(base string, crumbs []Crumb) map[string]any {
 	var items []map[string]any
 	for i, c := range crumbs {
@@ -165,6 +174,24 @@ func pageSchema(s Settings, p *Page, version, image string) (map[string]any, err
 			"downloadUrl":            s.Repo + "/releases/latest",
 			"sameAs":                 s.Repo,
 			"offers":                 map[string]any{"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+		}, nil
+	case "tool":
+		// A free tool that runs in the browser: a WebApplication, which
+		// schema.org gives browserRequirements on top of SoftwareApplication's
+		// properties.
+		return map[string]any{
+			"@context":            "https://schema.org",
+			"@type":               "WebApplication",
+			"name":                p.Label,
+			"description":         p.Description,
+			"url":                 p.URL(s.BaseURL),
+			"image":               image,
+			"applicationCategory": "UtilitiesApplication",
+			"operatingSystem":     "Any",
+			"browserRequirements": "Requires JavaScript",
+			"isAccessibleForFree": true,
+			"offers":              map[string]any{"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+			"publisher":           map[string]any{"@type": "Organization", "name": "Playkeeper", "url": s.BaseURL + "/"},
 		}, nil
 	case "article", "posting":
 		t := "Article"
