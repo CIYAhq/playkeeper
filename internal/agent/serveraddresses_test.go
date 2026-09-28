@@ -300,6 +300,11 @@ func TestTheDaysCertificatesCountWhateverBecameOfTheirNames(t *testing.T) {
 	if n := e.a.ownCertsToday(e.a.address()); n != ownCertsPerDay {
 		t.Fatalf("with the certificates forgotten, %d of the day's count", n)
 	}
+	// Creative's certificate from the wildcard, from before it was given
+	// an address of its own, went with the domain too.
+	if e.a.loadCertificate("creative.play.example.com") != nil {
+		t.Fatal("creative's certificate from the wildcard stayed")
+	}
 }
 
 func TestStoppingTheDomainTakesTheWildcardsCertificatesWhileItsOff(t *testing.T) {

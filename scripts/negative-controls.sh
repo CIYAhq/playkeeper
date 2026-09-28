@@ -6976,9 +6976,13 @@ control "server addresses: an old domain's certificates go" internal/agent/addre
   '_ = st' \
   ./internal/agent '^TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes$'
 control "server addresses: a domain's certificates go while the switch is off too" internal/agent/ownaddress.go \
-  'for _, js := range serverAddresses(st.Host, true, a.joinServers()) {' \
-  'for _, js := range serverAddresses(st.Host, st.ServerAddresses, a.joinServers()) {' \
+  'a.forgetCertificate(automaticName(st, servers, js))' \
+  'if st.ServerAddresses { a.forgetCertificate(automaticName(st, servers, js)) }' \
   ./internal/agent '^TestStoppingTheDomainTakesTheWildcardsCertificatesWhileItsOff$'
+control "server addresses: a server's certificate from the wildcard goes after it was given its own address" internal/agent/ownaddress.go \
+  'js.slug == "" || ' \
+  'js.slug == "" || js.own != "" || ' \
+  ./internal/agent '^TestTheDaysCertificatesCountWhateverBecameOfTheirNames$'
 control "server addresses: each certificate request is logged for the day's count" internal/agent/ownaddress.go \
   'a.noteOwnCertAttempt()' \
   '_ = ctx' \
@@ -6992,8 +6996,8 @@ control "server addresses: certificates asked before the log count too" internal
   'false && name != st.Host && fromMillis(last).After(since)' \
   ./internal/agent '^TestOwnAddressesGetAFewCertificatesADay$'
 control "server addresses: a deleted server's certificate goes while the switch is off too" internal/agent/ownaddress.go \
-  'for _, js := range serverAddresses(st.Host, true, s.joinServers()) {' \
-  'for _, js := range serverAddresses(st.Host, st.ServerAddresses, s.joinServers()) {' \
+  'return automaticName(s.address(), servers, js)' \
+  'if st := s.address(); st.ServerAddresses { return automaticName(st, servers, js) }' \
   ./internal/agent '^TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes$'
 control "server addresses: only an admin of every server turns it on" internal/panel/server.go \
   'am("/api/machines/{mid}/address/server-addresses", "/v1/address/server-addresses"),' \

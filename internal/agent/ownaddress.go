@@ -178,24 +178,33 @@ func (a *Agent) forgetOwnCertificates(st addressState, onlyWild bool) {
 	if st.Kind != api.AddressOwn {
 		return
 	}
-	for _, js := range serverAddresses(st.Host, true, a.joinServers()) {
-		if js.own != "" && (js.wild || !onlyWild) {
+	servers := a.joinServers()
+	for _, js := range servers {
+		if !onlyWild {
 			a.forgetCertificate(js.own)
 		}
+		a.forgetCertificate(automaticName(st, servers, js))
 	}
 }
 
-// wildName is the address the own domain's wildcard record gives the
-// server, <slug>.<domain>, whether an address for each server is on or not,
-// or "" when it has none.
-func (s *server) wildName() string {
-	st := s.address()
-	if st.Kind != api.AddressOwn {
+// automaticName is the address the own domain st's wildcard record gives
+// js, or gave it before it was given one of its own: <slug>.<domain>,
+// whether an address for each server is on or not, unless another of
+// servers was given that name; else "".
+func automaticName(st addressState, servers []joinServer, js joinServer) string {
+	name := js.slug + "." + st.Host
+	if st.Kind != api.AddressOwn || js.slug == "" || slices.ContainsFunc(servers, func(o joinServer) bool { return o.id != js.id && o.own == name }) {
 		return ""
 	}
-	for _, js := range serverAddresses(st.Host, true, s.joinServers()) {
-		if js.id == s.id && js.wild {
-			return js.own
+	return name
+}
+
+// wildName is the server's address from the wildcard record (automaticName).
+func (s *server) wildName() string {
+	servers := s.joinServers()
+	for _, js := range servers {
+		if js.id == s.id {
+			return automaticName(s.address(), servers, js)
 		}
 	}
 	return ""
