@@ -49,7 +49,7 @@ closing: guide
 
 <section aria-labelledby="heap">
   {{template "h2n" (dict "ID" "heap" "N" 2 "Text" "Why a server needs about 2 GB more than its heap" "Toc" "Heap plus 2 GB")}}
-  <p>Java keeps the world, players and items in its heap, the -Xmx you set. The loader and every mod's code, mixins and compiled code sit outside it. With 300 to 460 mods, that came to 1.6 to 2 GB on every big pack we ran:</p>
+  <p>Java keeps the world, players and items in its heap, the -Xmx you set. The loader and every mod's classes, mixins and compiled code sit outside it. Playkeeper starts servers with Aikar's flags, which claim the whole heap at start (-Xms equal to -Xmx, with AlwaysPreTouch), so the memory used is the heap plus that outside part. With 300 to 460 mods, the outside part came to 1.6 to 2 GB on every big pack we ran:</p>
   <ul>
     <li><strong>All the Mods 10:</strong> 5.9 to 6.3 GB used with a 4.3 GB heap, and 10.2 GB with an 8.3 GB heap.</li>
     <li><strong>All the Mods 9:</strong> 6.2 GB with a 4.6 GB heap.</li>
@@ -57,7 +57,7 @@ closing: guide
     <li><strong>The Pixelmon Modpack:</strong> 3.5 to 3.8 GB with a 2.9 GB heap, since 13 mods need much less room outside it.</li>
   </ul>
   <p>So on a plan or a VPS with 8 GB in all, give a big pack a heap of about 6 GB, not 8. A heap as big as the whole machine gets the server killed once it grows into it.</p>
-  <p>Used memory also follows the heap you allow, even with nobody on: All the Mods 10 used about 4 GB more with the bigger heap. What a server uses isn't what it needs.</p>
+  <p>It also means used memory says little about need: All the Mods 10 used about 4 GB more with the bigger heap, with nobody online.</p>
 </section>
 
 <section aria-labelledby="floor">
@@ -109,6 +109,7 @@ closing: guide
     <li><strong>The machine:</strong> a 16 GB Linux cloud VM with 4 vCPUs, the same kind for every run, one server at a time.</li>
     <li><strong>The install:</strong> Playkeeper installed each pack from CurseForge or Modrinth into its Docker container (itzg/minecraft-server, with Java 17 for Minecraft 1.20.1 and Java 21 for 1.21.1) with the memory shown.</li>
     <li><strong>The heap:</strong> Playkeeper sets -Xmx to the memory minus room for the loader and mods: a quarter of the memory, or 1 GB plus 6 MB per mod on Forge and NeoForge, whichever is more, and at most half.</li>
+    <li><strong>The flags:</strong> Aikar's flags with G1, which set -Xms to the -Xmx and pre-touch the heap, so the whole heap counts as used from the start.</li>
     <li><strong>Memory used:</strong> the container's memory without file cache, as docker stats shows it, read once the server was online.</li>
     <li><strong>Times:</strong> from Playkeeper's log of each install.</li>
     <li><strong>Runs:</strong> one per setting, two for All the Mods 10 at 8 GB, so treat small differences as noise.</li>
@@ -122,7 +123,7 @@ closing: guide
     (qa "How much RAM does an ATM10 server need?" (printf "8 GB starts it: on our test server, All the Mods 10 8.2 idled on a 4.3 GB heap and used 5.9 to 6.3 GB. With a 2 GB heap it ran out of memory at first start. For friends, give it %d GB, which gives Java the 8 GB heap the pack's own files ask for." (sizingFor 4 "modpack").MemoryGB))
     (qa "How much RAM does an ATM9 server need?" (printf "All the Mods 9 1.1.1 started at 8 GB with a 4.6 GB heap and used 6.2 GB with nobody on. Like other big packs, give it %d GB for friends." (sizingFor 4 "modpack").MemoryGB))
     (qa "Is 8 GB enough for a modded Minecraft server?" (printf "To start a big pack and play alone, yes: All the Mods 10 and All the Mods 9 both ran on 8 GB. With friends exploring, give a big pack %d GB." (sizingFor 4 "modpack").MemoryGB))
-    (qa "Why does my modded server use all the memory I give it?" "Java grows into the heap it's allowed before it cleans up, and the mods' code sits outside the heap: about 2 GB for a pack with 300 to 460 mods. All the Mods 10 used 6 GB with a 4.3 GB heap and 10.2 GB with an 8.3 GB heap, with nobody on.")
+    (qa "Why does my modded server use all the memory I give it?" "With Aikar's flags, Java claims the whole heap when it starts, and the mods' code sits outside the heap: about 2 GB for a pack with 300 to 460 mods. All the Mods 10 used 6 GB with a 4.3 GB heap and 10.2 GB with an 8.3 GB heap, with nobody on.")
     (qa "How much RAM does a Pixelmon server need?" `4 GB: the Pixelmon Modpack 9.3.16 ran at 20 ticks a second on 3.5 to 3.8 GB of 4 GB, with a 2.9 GB heap and nobody on. <a href="/modpacks/pixelmon-server">Its page</a> has the setup.`)
     (qa "Where do these numbers come from?" "From Playkeeper's own test installs on 27 and 28 Sep 2026, on one 16 GB Linux VM, one server at a time. The method section says how each number was read.")
   ))}}
