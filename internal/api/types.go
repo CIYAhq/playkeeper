@@ -2533,6 +2533,13 @@ type PublicPageState struct {
 	On   bool   `json:"on"`
 }
 
+// PagePortsRequest names the ports the panel asks the agent to open for
+// the page: those it doesn't hold already.
+type PagePortsRequest struct {
+	HTTPS bool `json:"https"`
+	HTTP  bool `json:"http"`
+}
+
 // PublicPagePorts says whether the page answers on ports 443 and 80.
 type PublicPagePorts struct {
 	HTTPS PagePort `json:"https"`

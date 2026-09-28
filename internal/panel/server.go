@@ -115,6 +115,11 @@ type Server struct {
 
 	public      *publicGroup
 	activePacks *activePacks
+	// page is the public page at the machine's address, on ports 443 and
+	// 80, and pageCerts the certificates it serves there, without the
+	// self-signed fallback.
+	page      *pageSite
+	pageCerts *certs.Store
 	// listings are the servers each machine last listed.
 	listings listings
 	// toldSlugs are the slugs elsewhere the dashboard's machine last heard
@@ -183,6 +188,7 @@ func New(opts Options) (*Server, error) {
 	}
 	s.activePacks = &activePacks{fetch: s.fetchActivePacks, now: opts.Now}
 	s.public = newPublicGroup(s.publicRoutes(), opts.Now)
+	s.page = s.newPageSite()
 	if err := s.ensureWorkspace(); err != nil {
 		db.Close()
 		return nil, err
@@ -518,6 +524,15 @@ func (s *Server) Routes() []Route {
 	routes = append(routes, []Route{
 		sg("/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
 		sm("POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
+	}...)
+	// 0.4.3: the public page at the machine's address. Anyone who sees the
+	// server sees its switches; changing them, like sharing the map, needs
+	// the rights to manage servers. The page itself is served on its own
+	// ports (serverpage.go).
+	routes = append(routes, []Route{
+		view("/api/servers/{id}/public-page", s.hPublicPage),
+		{"POST", "/api/servers/{id}/public-page", needSessionCSRF, actManageServers, s.forwardThen("POST", "/v1/servers/{id}/public-page", func(machine, *session, json.RawMessage) { s.kickPage() })},
+		{"POST", "/api/servers/{id}/public-page/retry", needSessionCSRF, actManageServers, s.hPublicPagePortsRetry},
 	}...)
 	return append(routes, s.fileRoutes()...)
 }
@@ -1565,6 +1580,8 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 		return err
 	}
 	s.serveAlive(ctx, tc)
+	s.pageCerts = s.pageCertStore()
+	go s.runPage(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)
 	return s.serve(ctx, ln, tc)
 }
