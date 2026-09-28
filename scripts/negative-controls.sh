@@ -5834,8 +5834,8 @@ control "a task a restart dropped is sent to Chunky again" internal/agent/pregen
   '	if task != nil && st != nil {' \
   ./internal/agent '^TestPregenATaskARestartDroppedIsStartedAgain$'
 control "a dropped task is sent again once a run" internal/agent/pregen.go \
-  '	if run.IsZero() || !run.After(task.StartedAt) || tried {' \
-  '	if run.IsZero() || !run.After(task.StartedAt) {' \
+  '	tried := s.pg.resumedRun.Equal(run)' \
+  '	tried := s.pg.resumedRun.Equal(run) && run.IsZero()' \
   ./internal/agent '^TestPregenATaskARestartDroppedIsStartedAgain$'
 control "only a task a restart dropped is sent again" internal/agent/pregen.go \
   '	if run.IsZero() || !run.After(task.StartedAt) || tried {' \
