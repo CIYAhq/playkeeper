@@ -18,7 +18,7 @@ import { Sheet, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
-import { can } from '@/lib/access'
+import { can, canCreate } from '@/lib/access'
 import { demo } from '@/lib/demo'
 import { formatMB, relativeTime } from '@/lib/format'
 import { awayOf, isStale, outOfReach, reachOf } from '@/lib/machines'
@@ -250,7 +250,7 @@ function MoreMenu({ server }: { server: ServerStatus }) {
   const c = controls(server)
   const run = can(me, 'servers.run')
   const backUp = can(me, 'backups.make')
-  const remove = can(me, 'servers.create')
+  const remove = canCreate(me)
   const share = can(me, 'view') && demo?.templates !== false
   const [sharing, setSharing] = useState(false)
   const backUpBlocked = whyNot(server, 'backup', offline)
@@ -336,7 +336,7 @@ function ServerHeader({ server: s, tab, settingUp }: { server: ServerStatus; tab
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
-              {can(ws.me, 'servers.create') && (
+              {canCreate(ws.me) && (
                 <>
                   <MenuSeparator />
                   <MenuItem onClick={() => navigate({ name: 'new-server' })}>
@@ -482,7 +482,7 @@ export function SwitcherSheet({ open, onOpenChange, current, tab }: { open: bool
           ))}
         </ul>
         <ul className="mt-3 mb-2 overflow-hidden rounded-3xl border border-border bg-white">
-          {can(ws.me, 'servers.create') && (
+          {canCreate(ws.me) && (
             <li className="border-b border-border">
               <button type="button" onClick={() => go({ name: 'new-server' })} className="flex min-h-14 w-full items-center gap-3 px-4 py-2 text-left">
                 <PlusIcon className="size-5 text-primary" aria-hidden="true" />

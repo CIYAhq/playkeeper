@@ -1774,6 +1774,7 @@ export type Action =
   | 'backups.restore'
   | 'servers.manage'
   | 'servers.create'
+  | 'servers.create_own'
   | 'team.manage'
   | 'machine.manage'
   | 'audit.view'

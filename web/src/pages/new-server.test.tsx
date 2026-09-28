@@ -344,6 +344,19 @@ describe('New server from a world', () => {
   })
 })
 
+describe('New server for a creator', () => {
+  it('starts from a server type, a modpack or a template, never a world or a backup', async () => {
+    const creator: Me = { ...me, user: { username: 'alex', role: 'member' }, access: { ...me.access, servers: {}, twoFactor: true, can: ['view', 'account.manage', 'servers.run', 'servers.manage', 'servers.create_own'] } }
+    const r = createRoot(document.body.appendChild(document.createElement('div')))
+    root = r
+    await act(async () => r.render(<WorkspaceContext.Provider value={{ ...workspace, me: creator }}>{<NewServerPage />}</WorkspaceContext.Provider>))
+    await act(settle)
+    expect(text()).toContain('A server type')
+    expect(text()).not.toContain('A world')
+    expect(text()).not.toContain('Restore it as a new server')
+  })
+})
+
 describe('New server on a joined machine', () => {
   const remote = { id: 'r2345abcde', projectId: 'p2345abcde', name: 'home-server', kind: 'remote' } as MachineView
   const on = (state: 'connected' | 'offline'): Workspace => ({ ...workspace, machines: [machine, { ...remote, link: { machineId: remote.id, name: remote.name, fingerprint: '', state, problems: [] } }] })

@@ -36,6 +36,7 @@ import { typeName } from '@/lib/servers'
 import { addonKind, hasBuilds, typeTexts } from '@/lib/software'
 import { preset } from '@/lib/styles'
 import { templateFromHash } from '@/lib/templates'
+import { can } from '@/lib/access'
 import { cn } from '@/lib/utils'
 
 const stepKeys: MessageKey[] = ['new.step.type', 'new.step.version', 'new.step.style', 'new.step.memory', 'new.step.name']
@@ -57,6 +58,7 @@ const allStartFroms: { value: StartFrom; long: MessageKey; short: MessageKey }[]
   { value: 'world', long: 'new.from.world', short: 'new.from.worldShort' },
 ]
 const startFroms = allStartFroms.filter((f) => f.value === 'type' || f.value === 'world' || demo?.templates !== false)
+const fromColumns: Record<number, string> = { 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4' }
 
 /**
  * A server made from a pack runs the type, version and game settings the pack names; the play style step is skipped.
@@ -156,6 +158,9 @@ function unavailable(machine: string | undefined, target: MachineView | undefine
 export function NewServerPage({ machine }: { machine?: string }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
+  // A creator creates servers but doesn't import worlds or restore backups into new ones.
+  const importer = can(ws.me, 'servers.create')
+  const froms = importer ? startFroms : startFroms.filter((f) => f.value !== 'world')
   const target = machine ? ws.machines.find((m) => m.id === machine) : ws.machine
   const away = unavailable(machine, target, ws.machines)
   const machineName = target?.kind === 'remote' || (machine && !target) ? machineLabel(target) : ws.machineName
@@ -175,7 +180,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
     if (templateFromHash(window.location.hash)) window.history.replaceState(null, '', window.location.pathname)
   }, [])
   const [from, setFrom] = useState<StartFrom>(() =>
-    handoff ? 'template' : window.location.hash === '#world' ? 'world' : window.location.hash === '#modpack' && startFroms.some((f) => f.value === 'modpack') ? 'modpack' : 'type',
+    handoff ? 'template' : window.location.hash === '#world' && importer ? 'world' : window.location.hash === '#modpack' && froms.some((f) => f.value === 'modpack') ? 'modpack' : 'type',
   )
   const [pack, setPack] = useState<ModpackChoice>()
   const packed = from === 'modpack' && !!pack
@@ -473,8 +478,8 @@ export function NewServerPage({ machine }: { machine?: string }) {
             <section>
               {phone ? (
                 <>
-                  {startFroms.length > 1 && (
-                    <Segmented value={from} onChange={pickFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.short) }))} label={t('new.startFrom')} className="grid w-full grid-cols-4 rounded-xl p-1" itemClassName="h-11 rounded-[10px] text-[15px]" />
+                  {froms.length > 1 && (
+                    <Segmented value={from} onChange={pickFrom} options={froms.map((f) => ({ value: f.value, label: t(f.short) }))} label={t('new.startFrom')} className={cn('grid w-full rounded-xl p-1', fromColumns[froms.length])} itemClassName="h-11 rounded-[10px] text-[15px]" />
                   )}
                   {from === 'type' && (
                     <div className="mt-1 mb-2 flex justify-end">
@@ -488,8 +493,8 @@ export function NewServerPage({ machine }: { machine?: string }) {
               ) : (
                 <div>
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h2 className="text-[15px] font-semibold">{startFroms.length > 1 ? t('new.startFrom') : t('new.from.type')}</h2>
-                    {startFroms.length > 1 && <Segmented value={from} onChange={pickFrom} options={startFroms.map((f) => ({ value: f.value, label: t(f.long) }))} label={t('new.startFrom')} />}
+                    <h2 className="text-[15px] font-semibold">{froms.length > 1 ? t('new.startFrom') : t('new.from.type')}</h2>
+                    {froms.length > 1 && <Segmented value={from} onChange={pickFrom} options={froms.map((f) => ({ value: f.value, label: t(f.long) }))} label={t('new.startFrom')} />}
                   </div>
                   <p className="mt-0.5 text-[13px] text-muted-foreground">
                     {from === 'modpack' ? (
@@ -747,7 +752,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
   const continueLabel =
     step === 4 ? (voicePort !== undefined ? t('new.createOpenPort') : t('new.create', { name: c?.name.trim() || t('nav.newServer') })) : worldKeys && (!phone || step === 0) ? t(worldKeys.button) : step === 0 && from === 'modpack' ? t('new.continuePack') : step === 0 && from === 'template' ? t('new.continueMemory') : phone ? (step === 0 ? t('new.continueVersion') : t('common.continue')) : t(continueKeys[step] ?? 'new.continueName')
   const nextHint = worldKeys ? t(worldKeys.next) : step === 0 && from === 'modpack' ? t('new.nextPack') : step === 0 && from === 'template' ? t(tplMods ? 'new.nextTemplateMods' : 'new.nextTemplate') : step < 4 ? t(nextKeys[step] ?? 'new.nextName', { type: typeName(c?.type) }) : ''
-  const restoreLink = (
+  const restoreLink = importer && (
     <p className="text-xs text-muted-foreground">
       {rich('restore.newLink', {
         restore: (chunk) => (
