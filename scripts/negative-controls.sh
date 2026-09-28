@@ -2029,6 +2029,10 @@ control "a modpack's file larger than 512 MiB is refused, listed or not" interna
   'File: addons.DefaultMaxFileSize,' \
   'File: 1 << 62,' \
   ./internal/modpacks '^TestDefaultFileLimit$'
+control "a pack file's download stops at one file's limit, even when the pack lists it smaller" internal/modpacks/apply.go \
+  'room := min(lim.File, lim.Downloads-total)' \
+  'room := lim.Downloads - total' \
+  ./internal/modpacks '^TestDefaultFileLimit$'
 control "a modpack's downloads must match the hashes the pack lists" internal/addons/fetch/download.go \
   'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
   'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
