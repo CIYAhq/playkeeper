@@ -4,6 +4,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.5
 
+- **Creators:** the owner can invite someone to create their own servers on this machine. **Settings › Team › Invite a creator** gives them an allowance of servers and memory. They make their own account, turn on two-factor sign-in, and create, resize and delete their own servers inside it, seeing only those. It's how Playkeeper's managed beta runs, and it works for sharing a VPS with friends too.
 - Fixed: records for a server's own address that you added after saving it were found only at Playkeeper's next look, up to 6 hours later. Until they work, Playkeeper now looks every minute, as it does for your domain's records, so the page gets its certificate a minute or two after you add them.
 
 ## 0.4.4
