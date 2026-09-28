@@ -50,7 +50,7 @@ func TestModpackPagesFollowTheProduct(t *testing.T) {
 		if row := between(hub, `<a href="`+m.Path()+`">`+m.Name+`</a> `+m.Version+`</th>`, "</tr>"); !strings.Contains(row, `<td data-col="Memory">`+m.Memory()+`</td>`) {
 			t.Errorf("the hub doesn't list %s with the memory it needs: %q", m.Path(), row)
 		}
-		if m.Template != "" && !strings.Contains(page, `href="`+cards[m.Template].Link+`"`) {
+		if m.OneClick() && !strings.Contains(page, `href="`+cards[m.Template].Link+`"`) {
 			t.Errorf("%s doesn't open its template, %s", m.Path(), m.Template)
 		}
 		// The image's MEMORY is Java's heap, so the Docker command gives
@@ -111,45 +111,49 @@ var (
 )
 
 // Google treats pages made at scale from one template with little of their
-// own as spam, so most of each pack page's sentences are its own: said on no
-// other pack page.
-func TestModpackPagesAreMostlyTheirOwn(t *testing.T) {
+// own as spam, so most of each pack page's and library template page's
+// sentences are its own: said on no other page under the same hub.
+func TestModpackAndTemplatePagesAreMostlyTheirOwn(t *testing.T) {
 	built := pages(build(t, Default))
-	sentences := map[string][]string{}
-	seen := map[string]int{}
-	for p, html := range built {
-		if !strings.HasPrefix(p, "/modpacks/") {
-			continue
-		}
-		m := reArticle.FindStringSubmatch(html)
-		if m == nil {
-			t.Fatalf("%s has no article", p)
-		}
-		own := map[string]bool{}
-		for _, s := range reSentence.FindAllString(plainText(m[1]), -1) {
-			s = strings.Join(strings.Fields(s), " ")
-			if len(strings.Fields(s)) < 4 || own[s] {
-				continue
+	for _, hub := range []string{"/modpacks/", "/templates/"} {
+		t.Run(strings.Trim(hub, "/"), func(t *testing.T) {
+			sentences := map[string][]string{}
+			seen := map[string]int{}
+			for p, html := range built {
+				if !strings.HasPrefix(p, hub) {
+					continue
+				}
+				m := reArticle.FindStringSubmatch(html)
+				if m == nil {
+					t.Fatalf("%s has no article", p)
+				}
+				own := map[string]bool{}
+				for _, s := range reSentence.FindAllString(plainText(m[1]), -1) {
+					s = strings.Join(strings.Fields(s), " ")
+					if len(strings.Fields(s)) < 4 || own[s] {
+						continue
+					}
+					own[s] = true
+					sentences[p] = append(sentences[p], s)
+					seen[s]++
+				}
 			}
-			own[s] = true
-			sentences[p] = append(sentences[p], s)
-			seen[s]++
-		}
-	}
-	if len(sentences) < 2 {
-		t.Fatalf("%d pack pages; this test compares them", len(sentences))
-	}
-	for p, ss := range sentences {
-		unique := 0
-		for _, s := range ss {
-			if seen[s] == 1 {
-				unique++
+			if len(sentences) < 2 {
+				t.Fatalf("%d pages under %s; this test compares them", len(sentences), hub)
 			}
-		}
-		share := float64(unique) / float64(len(ss))
-		t.Logf("%s: %d of its %d sentences are its own (%.0f%%)", p, unique, len(ss), share*100)
-		if share < 0.6 {
-			t.Errorf("%s: %d of its %d sentences are its own (%.0f%%), want at least 60%%", p, unique, len(ss), share*100)
-		}
+			for p, ss := range sentences {
+				unique := 0
+				for _, s := range ss {
+					if seen[s] == 1 {
+						unique++
+					}
+				}
+				share := float64(unique) / float64(len(ss))
+				t.Logf("%s: %d of its %d sentences are its own (%.0f%%)", p, unique, len(ss), share*100)
+				if share < 0.6 {
+					t.Errorf("%s: %d of its %d sentences are its own (%.0f%%), want at least 60%%", p, unique, len(ss), share*100)
+				}
+			}
+		})
 	}
 }

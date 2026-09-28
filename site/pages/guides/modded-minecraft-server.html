@@ -153,13 +153,13 @@ sudo ufw allow 25565/tcp
     (qa "Can I use Forge mods?" (ifForge "Yes. Forge servers run Forge mods from Modrinth, and Forge modpacks from Modrinth and CurseForge." "Not yet: Playkeeper doesn't run Forge servers. Look for a NeoForge or Fabric version of the mod or pack."))
     (qa "Do I need a CurseForge key?" "No. Playkeeper has one built in. You can add your own free key under Settings › Add-on sources.")
   ))}}
-  <section class="tpl-section" aria-labelledby="tpl-title">
+  {{if shown "cobblemon" "better-mc"}}<section class="tpl-section" aria-labelledby="tpl-title">
     <h2 id="tpl-title" class="h3 reveal">Or start from a modpack template</h2>
     <div class="tpl-pair">
       {{template "template-card" (dict "ID" "cobblemon")}}
       {{template "template-card" (dict "ID" "better-mc")}}
     </div>
-  </section>
+  </section>{{end}}
 </div>
 {{end}}
 

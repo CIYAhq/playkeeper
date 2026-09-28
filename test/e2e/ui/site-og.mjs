@@ -92,4 +92,19 @@ for (const [name, p] of Object.entries(packPreviews)) {
   await tab.screenshot({ path: path.join(out, `${name}.png`) })
   console.log(name)
 }
+// The template library's previews carry their pages' headings, one per page
+// in site/data/library.
+const library = path.join(repo, 'site/data/library')
+const libraryPreviews = { templates: { eyebrow: 'Server templates', title: 'Minecraft server templates, one click each', pip: 'pip-cheer' } }
+for (const file of fs.readdirSync(library).filter((f) => f.endsWith('.json')).sort()) {
+  const id = path.basename(file, '.json')
+  const src = fs.readFileSync(path.join(repo, 'site/pages/templates', `${id}.html`), 'utf8')
+  libraryPreviews[`template-${id}`] = { eyebrow: 'Server template', title: src.match(/^h1:\s*(.+)$/m)[1], pip: 'pip-box' }
+}
+for (const [name, p] of Object.entries(libraryPreviews)) {
+  if (!wanted(name)) continue
+  await tab.setContent(page(p), { waitUntil: 'load' })
+  await tab.screenshot({ path: path.join(out, `${name}.png`) })
+  console.log(name)
+}
 await browser.close()

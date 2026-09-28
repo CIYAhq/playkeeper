@@ -18,7 +18,7 @@ var navSections = []NavSection{
 		"/features/crash-and-lag-help", "/features/worlds-and-map", "/features/automation", "/features/ai-agents",
 	}},
 	{Key: "guides", Label: "Guides", Hub: "/guides/host-a-minecraft-server", HubLabel: "All guides", Items: []string{
-		"/guides/modded-minecraft-server", "/guides/add-mods-to-minecraft-server", "/modpacks", "/sizing", "/guides/play-minecraft-with-friends", "/guides/minecraft-server-cost",
+		"/guides/modded-minecraft-server", "/guides/add-mods-to-minecraft-server", "/modpacks", "/templates", "/sizing", "/guides/play-minecraft-with-friends", "/guides/minecraft-server-cost",
 	}},
 	{Key: "compare", Label: "Compare", Hub: "/compare/minecraft-server-panels", HubLabel: "All panels compared", Items: []string{
 		"/alternatives/aternos", "/alternatives/pterodactyl", "/alternatives/realms", "/alternatives/minehut",

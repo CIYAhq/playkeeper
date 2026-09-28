@@ -1,0 +1,19 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "OneBlock",
+  "description": "Paper for OneBlock: each player stands on a single block that turns into the next when broken, from grass to the End, with the OneBlock plugin and Multiverse-Core for its world.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "26.2" },
+  "settings": {
+    "difficulty": "normal",
+    "pvp": false,
+    "gameMode": "survival",
+    "maxPlayers": 20,
+    "playStyle": "friends",
+    "memoryMB": 3072
+  },
+  "addons": [
+    { "source": "modrinth", "project": "3wmN97b8", "slug": "multiverse-core", "name": "Multiverse-Core", "latest": true },
+    { "source": "modrinth", "project": "gMMDcC2d", "slug": "oneblock_bukkit", "name": "OneBlock", "latest": true }
+  ]
+}

@@ -83,8 +83,22 @@ The release workflow's check of `/install` after each release counts as one ther
 
 - **Facts:** take them from the pack's source (Modrinth's API and the `.mrpack`'s index, or CurseForge's files) and from Playkeeper's own install plan for that version (`modpacks.Library.PlanInstall`, which counts the mods it puts on the server and names anything that blocks the install). CurseForge packs need a CurseForge API key for the plan.
 - **The build refuses** a pack of a type the release doesn't run, for a Minecraft version older than the packs it offers (`modpacks.DefaultMinMinecraft`), or with a template that opens another version or less memory than the pack needs.
-- **A new page** copies the closest one in `pages/modpacks/` and keeps the blocks in `layouts/modpack.html` (facts, template card, the Docker and mrpack-install commands). What's true of that pack alone, like its restricted mods or the settings it expects, is what the page is for: `TestModpackPagesAreMostlyTheirOwn` fails a pack page when fewer than 60% of its sentences are its own. Search engines treat pages made at scale from one template as spam.
+- **A template the release people install can't open yet is held.** Its entry in `data/templates/cards.json` gets `opensFrom`, the first release that opens it.
+  - While it's held, no page links it: its cards stay out or give way to the stand-in a page names (`template-card`'s `Else`), and its pack page offers New server › A modpack. `TestNoPageOpensAHeldTemplate` checks every page.
+  - 0.4.2 opens no 1.21.1 pack's template and no CurseForge pack's, although New server installs those packs. So check a pack's template through `POST /v1/templates/plan`, not only the pack.
+  - Remove `opensFrom` once that release is out, not when its `CHANGELOG.md` section lands: sections come before the release.
+- **A new page** copies the closest one in `pages/modpacks/` and keeps the blocks in `layouts/modpack.html` (facts, template card, the Docker and mrpack-install commands). What's true of that pack alone, like its restricted mods or the settings it expects, is what the page is for: `TestModpackAndTemplatePagesAreMostlyTheirOwn` fails a pack page when fewer than 60% of its sentences are its own. Search engines treat pages made at scale from one template as spam.
 - **Social previews** come from the packs too: `node site-og.mjs modpacks modpack-<id>` draws the hub's and the page's.
+
+### Template library
+
+`/templates` is the public library of server templates, and `/templates/<id>` one page per template, like `/templates/towny`. Each is a site template in `data/templates` (the share format of `internal/templates`, so its card opens it in the visitor's dashboard) plus what happened when a server was created and started from it, in `data/library/<id>.json`: the Playkeeper release and server build, the seconds its log took to say Done, each plugin as it installed with its version, licence (the SPDX id its source lists) and downloads, and the day. The page gets Java and Java's share of the memory from the product (`minecraft.JavaFor`, `minecraft.HeapFor`), and its Docker command sizes the container the way Playkeeper does.
+
+- **Check a template before it gets a page:** create a server from it on a Playkeeper release (the agent API's `POST /v1/templates/plan`, then `POST /v1/servers` and start it), and keep it only if the server comes online with every plugin enabled and nothing failing in its log. `GET /v1/servers/<id>/addons` has the versions that installed. A plugin another one needs, like Vault, goes in the template, not in a note on the page.
+- **The build refuses** a facts file whose plugins aren't exactly the template's add-ons in its order, one that doesn't say which release, build and start time it was checked with, and one for a modpack's template, whose page is under `/modpacks`.
+- **A new page** copies the closest one in `pages/templates/` and keeps the blocks in `layouts/library.html` (facts, Docker, template cards). What the plugins make you do first, with the commands and defaults from their own configs, is what the page is for, and the 60% rule above holds for these pages too.
+- **Templates take each plugin's latest version,** so check them again when Minecraft or a plugin has a new release, and update the facts file with what installed.
+- **Social previews** carry the pages' headings: `node site-og.mjs templates template-<id>`.
 
 ## Host it with Coolify
 

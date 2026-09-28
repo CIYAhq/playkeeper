@@ -106,8 +106,9 @@
 {{end}}
 
 {{/* template-card: a server template, opened in the visitor's own
-     dashboard through /t. */}}
-{{define "template-card"}}{{$c := card .ID}}{{$a := img $c.Art}}
+     dashboard through /t. ID is the template; while it's held (cards.json's
+     opensFrom), Else shows instead, and without an Else nothing does. */}}
+{{define "template-card"}}{{with shown .ID (or .Else "")}}{{$c := card .}}{{$a := img $c.Art}}
 <article class="tpl-card reveal">
   <div class="tpl-art"><img src="{{$a.URL}}" alt="" width="{{$a.Width}}" height="{{$a.Height}}" loading="lazy" decoding="async"></div>
   <div class="tpl-body">
@@ -117,7 +118,7 @@
     <a class="link-arrow tpl-open" href="{{$c.Link}}"><span class="wide-only">Open in my dashboard</span><span class="phone-only">Open</span>{{template "icon" "arrow-right"}}<span class="visually-hidden"> the {{$c.Name}} template</span></a>
   </div>
 </article>
-{{end}}
+{{end}}{{end}}
 
 {{/* providers: three VPS that fit a size, with plan names and "See today's
      price", never prices, and the disclosure. Need: the memory and cores. */}}
