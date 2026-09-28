@@ -60,13 +60,20 @@ scripts: js/t.js
 
     <form id="open" data-show="ready newer nopreview" class="open-card" hidden novalidate>
       <h2>Open it in your dashboard</h2>
-      <label for="dashboard">Your dashboard's address</label>
-      <div class="open-row">
-        <input id="dashboard" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="https://203.0.113.7:8443">
-        <button type="submit" class="btn btn-primary">Open{{template "icon" "arrow-right"}}</button>
+      <div class="open-saved" id="open-saved" hidden>
+        <button type="button" class="btn btn-primary btn-lg" id="open-saved-button"><span class="open-saved-text">Open in <span id="open-host"></span></span>{{template "icon" "arrow-right"}}</button>
+        <button type="button" class="dash-change" id="open-other">Use another dashboard</button>
+      </div>
+      <div id="open-typed">
+        <label for="dashboard">Your dashboard</label>
+        <div class="open-row">
+          <input id="dashboard" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="alex, or 203.0.113.7">
+          <button type="submit" class="btn btn-primary">Open{{template "icon" "arrow-right"}}</button>
+        </div>
+        <p class="open-tip">Your free name, like alex for alex.playkeeper.me, or the address you open your dashboard at.</p>
       </div>
       <p class="status" id="open-status" role="status"></p>
-      <p class="hint">Your dashboard shows everything first and installs nothing until you confirm. This browser remembers the address.</p>
+      <p class="hint">Your dashboard shows everything first and installs nothing until you confirm. This browser remembers where your dashboard is, and the address never leaves it.</p>
     </form>
 
     <div class="no-dash" id="no-dash">

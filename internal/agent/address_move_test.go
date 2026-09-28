@@ -241,7 +241,7 @@ func TestAnAddressPastedFromBeforeTheMoveNamesTheName(t *testing.T) {
 }
 
 func TestOwnDomainsUnderEitherFreeBaseAreRefused(t *testing.T) {
-	for _, d := range []string{"play.playkeeper.me", "PlayKeeper.ME", "play.playkeeper.io", "playkeeper.io"} {
+	for _, d := range []string{"play.playkeeper.me", "PlayKeeper.ME", "survival.play.playkeeper.me", "www.play.playkeeper.me", "play.playkeeper.io", "playkeeper.io", "beta.playkeeper.io", "ai.playkeeper.io"} {
 		if _, err := ownDomain(d); err == nil {
 			t.Errorf("%s was accepted as an own domain", d)
 		}
@@ -249,6 +249,21 @@ func TestOwnDomainsUnderEitherFreeBaseAreRefused(t *testing.T) {
 	for _, d := range []string{"play.example.com", "playkeeper.me.example.com"} {
 		if got, err := ownDomain(d); err != nil || got != d {
 			t.Errorf("%s: %q, %v", d, got, err)
+		}
+	}
+}
+
+// The project's own machines sit at playkeeper.me names nobody can claim,
+// with a record made by hand, like the managed beta's beta.playkeeper.me.
+func TestOwnDomainsNobodyCanClaimUnderTheFreeBaseAreAccepted(t *testing.T) {
+	for raw, want := range map[string]string{
+		"beta.playkeeper.me":    "beta.playkeeper.me",
+		"BETA.PlayKeeper.me.":   "beta.playkeeper.me",
+		"ai.playkeeper.me":      "ai.playkeeper.me",
+		"eu.beta.playkeeper.me": "eu.beta.playkeeper.me",
+	} {
+		if got, err := ownDomain(raw); err != nil || got != want {
+			t.Errorf("%s: %q, %v; want %q", raw, got, err, want)
 		}
 	}
 }

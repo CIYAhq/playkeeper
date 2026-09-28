@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { CopyIcon, DownloadIcon, FileIcon, FileUpIcon, LayoutGridIcon, LinkIcon, RefreshCwIcon, Share2Icon } from 'lucide-react'
+import { ArrowUpRightIcon, CopyIcon, DownloadIcon, FileIcon, FileUpIcon, LayoutGridIcon, LinkIcon, RefreshCwIcon, Share2Icon } from 'lucide-react'
 import { ApiError } from '@/api/client'
 import { planTemplate, useTemplateExport, useTemplateLibrary } from '@/api/templates'
 import type { AddonNotice, LibraryTemplate, ServerStatus, TemplateContents, TemplatePlan } from '@/api/types'
@@ -17,6 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
+import { demo } from '@/lib/demo'
 import { iconURL, typeName } from '@/lib/servers'
 import { addonKind } from '@/lib/software'
 import { addonsLine, fileSize, leftOutAddons, madeOn, packsLine, pinned, settingNames, settingsSummary } from '@/lib/templates'
@@ -205,16 +206,39 @@ function libraryFacts(c: TemplateContents): string {
   return [`${typeName(c.type)} ${c.minecraftVersion}`, memory].filter(Boolean).join(t('common.dot'))
 }
 
+/**
+ * playkeeper.io's templates, with this dashboard's address after #
+ * (/t#dashboard=…), which the site keeps in the browser so its Open in my
+ * dashboard comes back here in one click. What follows # never reaches a
+ * server. The live demo has no dashboard to come back to, so it links the
+ * directory alone.
+ */
+export function browseTemplatesURL(origin: string): string {
+  return demo ? 'https://playkeeper.io/templates' : `https://playkeeper.io/t#dashboard=${encodeURIComponent(origin)}`
+}
+
+function BrowseTemplates() {
+  return (
+    <a href={browseTemplatesURL(window.location.origin)} target="_blank" rel="noopener noreferrer" className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-primary hover:underline">
+      {t('template.library.browse')}
+      <ArrowUpRightIcon aria-hidden className="size-3.5" />
+    </a>
+  )
+}
+
 /** The templates the machine's release carries, each planned like a file when picked. */
 function LibraryList({ templates, onPick }: { templates: LibraryTemplate[]; onPick: (l: LibraryTemplate) => void }) {
   const id = useId()
   return (
     <section aria-labelledby={id} className="flex flex-col gap-2.5">
-      <div>
-        <h3 id={id} className="text-[13px] font-semibold">
-          {t('template.library.title')}
-        </h3>
-        <p className="text-xs text-muted-foreground">{t('template.library.sub')}</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 id={id} className="text-[13px] font-semibold">
+            {t('template.library.title')}
+          </h3>
+          <p className="text-xs text-muted-foreground">{t('template.library.sub')}</p>
+        </div>
+        <BrowseTemplates />
       </div>
       <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {templates.map((l) => (
@@ -358,7 +382,7 @@ export function TemplatePicker({
             {error}
           </Notice>
         )}
-        {listed && <LibraryList templates={library} onPick={(l) => void read(l.file, '', l)} />}
+        {listed ? <LibraryList templates={library} onPick={(l) => void read(l.file, '', l)} /> : <BrowseTemplates />}
         {listed && <h3 className="mt-2 text-[13px] font-semibold">{t('template.library.file')}</h3>}
         {phone ? (
           <Button variant="outline" size="touch" className="w-full" onClick={choose}>

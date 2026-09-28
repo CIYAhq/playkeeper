@@ -14,9 +14,31 @@
   var ART = ['friends', 'creative', 'hardcore', 'solo'];
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+  // How a dashboard's address is read and shown: site.js's, which the
+  // directory's Open in my dashboard uses too.
+  var dash = window.playkeeperSite.dashboard;
+
+  // The dashboard's Browse templates link, /t#dashboard=<its address>:
+  // this browser remembers the address and goes on to the directory. It
+  // comes here because this page has no analytics.
+  var handoff = /^#dashboard=([^&]*)/.exec(window.location.hash);
+  if (handoff) {
+    var from = '';
+    try {
+      from = dash.parse(decodeURIComponent(handoff[1]));
+    } catch (e) {
+      from = '';
+    }
+    if (from) remember(from);
+    window.location.replace('/templates');
+    return;
+  }
+
   var form = document.getElementById('open');
   var input = document.getElementById('dashboard');
   var status = document.getElementById('open-status');
+  var saved = document.getElementById('open-saved');
+  var typed = document.getElementById('open-typed');
   var payload = '';
   var run = 0;
 
@@ -221,6 +243,7 @@
     var finish = function (state) {
       if (mine !== run) return;
       payload = HANDOFF.indexOf(state) >= 0 ? s : '';
+      offer(false);
       show(state);
     };
     payload = '';
@@ -230,26 +253,10 @@
     else state.then(finish);
   }
 
-  // dashboard turns what the visitor typed into their dashboard's origin, or
-  // '' when it is not an HTTPS address. An address typed without https://,
-  // such as 203.0.113.7, gets Playkeeper's default port unless it has one.
-  function dashboard(value) {
-    var typed = value.replace(/\s+/g, '');
-    var bare = !/^[a-z][a-z0-9+.-]*:\/\//i.test(typed);
-    var u;
-    try {
-      u = new URL(bare ? 'https://' + typed : typed);
-    } catch (e) {
-      return '';
-    }
-    if (u.protocol !== 'https:' || !u.hostname || u.username || u.password) return '';
-    if (bare && !u.port && !/^[^\/?#]*:443(?:[\/?#]|$)/.test(typed)) u.port = '8443';
-    return u.origin;
-  }
-
+  // remembered is the dashboard this browser knows, or ''.
   function remembered() {
     try {
-      return window.localStorage.getItem(STORE) || '';
+      return dash.parse(window.localStorage.getItem(STORE));
     } catch (e) {
       return '';
     }
@@ -263,20 +270,44 @@
     }
   }
 
+  // offer shows Open in <the dashboard this browser knows>, one click, or
+  // where there's none, or the visitor asks (other), the field to type one.
+  function offer(other) {
+    var origin = remembered();
+    var known = !!origin && !other;
+    saved.hidden = !known;
+    typed.hidden = known;
+    if (known) document.getElementById('open-host').textContent = dash.host(origin);
+    input.value = origin ? dash.typed(origin) : '';
+    status.textContent = '';
+  }
+
+  document.getElementById('open-saved-button').addEventListener('click', function () {
+    var origin = remembered();
+    if (!payload || !origin) return;
+    status.textContent = 'Opening ' + dash.host(origin) + '…';
+    window.location.assign(origin + '/servers/new#template=' + payload);
+  });
+
+  document.getElementById('open-other').addEventListener('click', function () {
+    offer(true);
+    input.select();
+    input.focus();
+  });
+
   form.addEventListener('submit', function (e) {
     e.preventDefault();
     if (!payload) return;
-    var origin = dashboard(input.value);
+    var origin = dash.parse(input.value);
     if (!origin) {
-      status.textContent = "Enter your dashboard's https:// address, such as https://203.0.113.7:8443.";
+      status.textContent = 'Type your name, like alex, or your dashboard\u2019s address, like 203.0.113.7.';
       input.focus();
       return;
     }
     remember(origin);
-    status.textContent = 'Opening ' + origin + '…';
+    status.textContent = 'Opening ' + dash.host(origin) + '…';
     window.location.assign(origin + '/servers/new#template=' + payload);
   });
-  input.value = remembered();
   window.addEventListener('hashchange', start);
   start();
 })();
