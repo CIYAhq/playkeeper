@@ -9,6 +9,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/install"
 	"github.com/CIYAhq/playkeeper/internal/names"
+	usagestats "github.com/CIYAhq/playkeeper/internal/usage"
 )
 
 func TestTheInstallerDeletesOnlyTheFolderGetShDownloadedItInto(t *testing.T) {
@@ -91,5 +92,26 @@ func TestDevStaysOffTheRealNamesServiceAndLetsEncrypt(t *testing.T) {
 	devDefaults(&cfg)
 	if cfg.NamesURL != "https://names.example.org" || cfg.ACMEDirectoryURL != "https://ca.example.org/directory" {
 		t.Fatalf("dev replaced the services .dev/config.json names: names %q, ACME %q", cfg.NamesURL, cfg.ACMEDirectoryURL)
+	}
+}
+
+func TestTheInstallTakesUsageStatsFromTheEnvironment(t *testing.T) {
+	env := map[string]string{"DO_NOT_TRACK": "1", "PLAYKEEPER_INSTALL_SOURCE": "playkeeper.io", "PLAYKEEPER_INSTALL_CHANNEL": "HN", "PLAYKEEPER_USAGE_TEST": "1"}
+	u, err := installUsage(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	// This test binary isn't a release, so it comes from the source.
+	if u.Choice != usagestats.Off || u.Why != usagestats.EnvDoNotTrack || u.Source != usagestats.SourceBuild || u.Channel != "hn" || !u.Test || u.Send == nil {
+		t.Errorf("%+v", u)
+	}
+	env = map[string]string{"PLAYKEEPER_STATS_URL": "http://stats.example.test"}
+	if _, err := installUsage(func(k string) string { return env[k] }); err == nil || !strings.Contains(err.Error(), "PLAYKEEPER_STATS_URL") {
+		t.Errorf("a plain http:// stats service elsewhere: %v", err)
+	}
+	var summary bytes.Buffer
+	writeInstallSummary(&summary, &install.Result{URL: "https://192.0.2.10:8443", SetupCode: "abc123", Fingerprint: "AA:BB", UsageOn: true})
+	if !strings.Contains(summary.String(), "Anonymous usage stats are on; Settings › Playkeeper turns them off.") {
+		t.Errorf("the summary doesn't say where usage stats turn off:\n%s", summary.String())
 	}
 }

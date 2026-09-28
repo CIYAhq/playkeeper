@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/usage"
 	"github.com/CIYAhq/playkeeper/internal/worldimport"
 )
 
@@ -260,6 +261,48 @@ type UpdateResult struct {
 }
 
 type UpdateCheckRequest struct {
+	Actor string `json:"actor"`
+}
+
+// What decides whether a machine sends anonymous usage stats (UsageStats.Reason).
+const (
+	// UsageDefault: nobody chose (usage.DefaultOn).
+	UsageDefault = "default"
+	// UsageSettings: the switch in Settings.
+	UsageSettings = "settings"
+	// UsageInstall: DO_NOT_TRACK or PLAYKEEPER_USAGE_STATS=off when
+	// Playkeeper was installed or upgraded, recorded in config.json. Only
+	// root's choices outrank the switch.
+	UsageInstall = "install"
+	// UsageEnv: DO_NOT_TRACK or PLAYKEEPER_USAGE_STATS in the agent's own
+	// environment (a systemd drop-in).
+	UsageEnv = "env"
+	// UsageDev: playkeeper dev, which never sends.
+	UsageDev = "dev"
+)
+
+// UsageStats is whether a machine sends anonymous usage stats
+// (internal/usage), and exactly what it sends.
+type UsageStats struct {
+	On bool `json:"on"`
+	// Reason is UsageDefault, UsageSettings, UsageInstall, UsageEnv or
+	// UsageDev; Variable names the environment variable for UsageEnv.
+	Reason   string `json:"reason"`
+	Variable string `json:"variable,omitempty"`
+	// CanChange says whether the switch may change it: not while root's
+	// choice or playkeeper dev decides.
+	CanChange bool `json:"canChange"`
+	// LastSent is when a heartbeat last reached the service.
+	LastSent *time.Time `json:"lastSent,omitempty"`
+	// Service is where they go, and Report what the next heartbeat sends,
+	// field for field.
+	Service string          `json:"service"`
+	Report  usage.Heartbeat `json:"report"`
+}
+
+// UsageStatsRequest turns usage stats on or off with the switch.
+type UsageStatsRequest struct {
+	On    bool   `json:"on"`
 	Actor string `json:"actor"`
 }
 
