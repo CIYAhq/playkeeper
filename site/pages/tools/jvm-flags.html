@@ -76,10 +76,10 @@ scripts: js/tools.js, js/tools/jvm-flags.js
               </div>
               <p class="tool-hint" data-flags-hint>G1, tuned for Minecraft: what Paper recommends and Playkeeper uses.</p>
             </fieldset>
-            <fieldset class="tool-field">
+            <fieldset class="tool-field jvm-options">
               <legend>Options</legend>
-              <label class="jvm-switch" for="jvm-restart" data-restart-field><span class="jvm-switch-text">Restart when it stops<small>After a crash or /stop, until you press Ctrl+C.</small></span><input type="checkbox" role="switch" id="jvm-restart"><span class="jvm-switch-track" aria-hidden="true"></span></label>
-              <label class="jvm-switch" for="jvm-gclog"><span class="jvm-switch-text">Log garbage collection<small data-gclog-hint>To logs/gc.log, five files of 1 MB at most.</small></span><input type="checkbox" role="switch" id="jvm-gclog"><span class="jvm-switch-track" aria-hidden="true"></span></label>
+              <label class="tool-switch" for="jvm-restart" data-restart-field><span class="tool-switch-text">Restart when it stops<small>After a crash or /stop, until you press Ctrl+C.</small></span><input type="checkbox" role="switch" id="jvm-restart"><span class="tool-switch-track" aria-hidden="true"></span></label>
+              <label class="tool-switch" for="jvm-gclog"><span class="tool-switch-text">Log garbage collection<small data-gclog-hint>To logs/gc.log, five files of 1 MB at most.</small></span><input type="checkbox" role="switch" id="jvm-gclog"><span class="tool-switch-track" aria-hidden="true"></span></label>
             </fieldset>
             <div class="tool-field" data-jar-field>
               <label class="tool-label" for="jvm-jar">Server jar</label>

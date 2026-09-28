@@ -7,27 +7,11 @@
 .jvm-java strong { color: var(--ink); font-weight: 600; }
 .jvm-java.is-bad { color: #c2410c; }
 
-/* Switches, drawn as the dashboard draws them. */
-.jvm-switch { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid var(--twine); cursor: pointer; }
-.jvm-switch:first-of-type { padding-top: 0; border-top: 0; }
-.jvm-switch-text { font-size: 14px; font-weight: 500; line-height: 20px; }
-.jvm-switch-text small { display: block; color: var(--sage); font-size: 13px; font-weight: 400; line-height: 18px; }
-.jvm-switch input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
-.jvm-switch-track { position: relative; flex: none; width: 34px; height: 20px; border-radius: 10px; background: var(--input); transition: background-color 0.15s; }
-.jvm-switch-track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--white); box-shadow: 0 1px 2px rgb(29 33 28 / 0.22); transition: translate 0.2s var(--ease-out), width 0.12s; }
-.jvm-switch:hover .jvm-switch-track { background: #c9cbc0; }
-.jvm-switch input:checked + .jvm-switch-track { background: var(--green); }
-.jvm-switch input:checked + .jvm-switch-track::after { translate: 14px 0; }
-.jvm-switch:active .jvm-switch-track::after { width: 19px; }
-.jvm-switch:active input:checked + .jvm-switch-track::after { translate: 11px 0; }
-.jvm-switch input:focus-visible + .jvm-switch-track { outline: 2px solid var(--ring); outline-offset: 2px; }
-@media (max-width: 639.98px) {
-  .jvm-switch-track { width: 42px; height: 24px; border-radius: 12px; }
-  .jvm-switch-track::after { width: 20px; height: 20px; border-radius: 10px; }
-  .jvm-switch input:checked + .jvm-switch-track::after { translate: 18px 0; }
-  .jvm-switch:active .jvm-switch-track::after { width: 24px; }
-  .jvm-switch:active input:checked + .jvm-switch-track::after { translate: 14px 0; }
-}
+/* The options, one to a row, between lines. */
+.jvm-options .tool-switch { padding: 10px 0; }
+.jvm-options .tool-switch:first-of-type { padding-top: 0; }
+.jvm-options .tool-switch:last-of-type { padding-bottom: 0; }
+.jvm-options .tool-switch:not(:last-of-type) { border-bottom: 1px solid var(--twine); }
 
 /* How the memory splits: the heap, and what Java and the system keep. */
 .jvm-heap { margin-bottom: 16px; }
