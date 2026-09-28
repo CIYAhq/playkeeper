@@ -418,6 +418,14 @@ func TestOnlyATrustedProxyNamesTheClient(t *testing.T) {
 	if w.Code != http.StatusTooManyRequests {
 		t.Errorf("an untrusted peer's X-Forwarded-For moved it to another limit: %d", w.Code)
 	}
+	// Behind the proxy, a client can put made-up addresses in front of the
+	// one the proxy saw; only the proxy's counts.
+	for i := range requestsPerIPBurst {
+		e.do("GET", "/v1/summary", fmt.Sprintf("192.0.2.%d, 198.51.100.32", i), nil)
+	}
+	if w := e.do("GET", "/v1/summary", "192.0.2.250, 198.51.100.32", nil); w.Code != http.StatusTooManyRequests {
+		t.Errorf("addresses a client made up moved it to another limit: %d", w.Code)
+	}
 	if w := e.do("GET", "/healthz", "198.51.100.31", nil); w.Code != 200 || w.Body.String() != "ok\n" {
 		t.Errorf("/healthz: %d %q", w.Code, w.Body)
 	}

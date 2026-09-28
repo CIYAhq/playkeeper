@@ -108,6 +108,8 @@ func TestDecliningThePlanSendsNothing(t *testing.T) {
 	if _, err := Run(context.Background(), h.system(t), withUsage(opts("n\n"), r), "0.4.4"); !errors.Is(err, errDeclined) {
 		t.Fatal(err)
 	}
+	// Reports go out in the background, so one sent would land a moment later.
+	time.Sleep(100 * time.Millisecond)
 	if got := r.events(); len(got) != 0 {
 		t.Errorf("a declined install sent %v", got)
 	}

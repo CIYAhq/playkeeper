@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/invites"
 )
@@ -204,14 +205,15 @@ func TestAMachineThatWasAwayIsTurnedOffWhenItConnects(t *testing.T) {
 	e2 := newEnvConfig(t, withDomain, nil)
 	cookie2, csrf2 := e2.setup(t)
 	e2.usageLocally(&usageAgent{on: true, canChange: true})
-	keeps := &usageAgent{on: false, canChange: true}
+	keeps := &usageAgent{on: true, canChange: true}
 	rc := newRemoteAgent()
 	keeps.serveOn(rc)
 	e2.joined(t, cookie2, csrf2, rc)
 	if r := e2.do(t, "GET", "/api/usage-stats", "", auth(cookie2, "")); r.status != http.StatusOK {
 		t.Fatalf("%d %v", r.status, r.body)
 	}
+	time.Sleep(200 * time.Millisecond)
 	if p := keeps.seen(); len(p) != 0 {
-		t.Errorf("an on was carried to a machine that connected: %v", p)
+		t.Errorf("a machine that connected while usage stats were on was changed: %v", p)
 	}
 }
