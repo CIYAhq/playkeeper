@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
+	"github.com/CIYAhq/playkeeper/internal/modpacks/curseforge"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/mrpack"
 )
 
@@ -30,8 +31,9 @@ type missingMod struct {
 // CurseForge offers: on a server it opens a window, which stops the start.
 // It stays off the server, and the mods its list names come from
 // CurseForge instead, when CurseForge lets Playkeeper download them; each
-// other one gets a step to download it by hand. Mods CurseForge tags for
-// players' games stay off too.
+// other one gets a step to download it by hand, and one CurseForge flagged
+// as malware stops the install. Mods CurseForge tags for players' games
+// stay off too.
 func (l *Library) missingModsChecker(ctx context.Context, p *pack, lim Limits) error {
 	jar := ""
 	for rel, f := range p.files {
@@ -82,29 +84,49 @@ func (l *Library) missingModsChecker(ctx context.Context, p *pack, lim Limits) e
 	if err != nil {
 		return Upstream(CurseForge, err)
 	}
+	seen := map[int64]bool{}
 	for i := range files {
 		f := &files[i]
 		m, ok := byID[f.ID]
-		if !ok {
+		if !ok || seen[f.ID] {
 			continue
 		}
+		seen[f.ID] = true
 		name, target := printable(m.DisplayName), "mods/"+f.FileName
 		switch {
+		case f.FileStatus == curseforge.StatusMalwareDetected:
+			p.block(notice(KindMalware, kv("pack", p.info.Name, "name", name, "file", printable(f.FileName)),
+				fmt.Sprintf("CurseForge flagged %s (%s), which %s needs, as malware.", printable(f.FileName), name, p.info.Name),
+				"Do not install this version of the pack."))
+		case !f.IsAvailable || f.FileStatus == curseforge.StatusDeleted || f.FileStatus == curseforge.StatusRejected:
+			seen[f.ID] = false
 		case f.ClientOnly():
 			p.skip("mods/"+printable(f.FileName), addons.KindClientOnly)
-		case !plainJar(f.FileName) || !f.IsAvailable || f.SHA1() == "" || p.files[target] != nil:
+		case p.files[target] != nil:
 		case f.DownloadURL == "":
 			p.manual = append(p.manual, addons.ManualStep{Notice: notice(addons.KindExternal, kv("pack", p.info.Name, "name", name, "file", printable(f.FileName), "folder", "mods"),
 				fmt.Sprintf("%s's author only allows downloads through CurseForge's app, so Playkeeper cannot download %s for you.", name, printable(f.FileName)),
 				"Download it from that page and upload it to the mods folder."), URL: m.URL})
 		default:
-			if _, err := l.curseForgeFiles().Check(f.DownloadURL); err != nil {
+			if _, err := l.curseForgeFiles().Check(f.DownloadURL); err != nil || !plainJar(f.FileName) || f.SHA1() == "" {
+				p.manual = append(p.manual, addons.ManualStep{Notice: notice(addons.KindExternal, kv("pack", p.info.Name, "name", name, "file", printable(f.FileName), "folder", "mods"),
+					fmt.Sprintf("Playkeeper cannot check CurseForge's download of %s, so it doesn't download %s for you.", name, printable(f.FileName)),
+					"Download it from that page and upload it to the mods folder."), URL: m.URL})
 				continue
 			}
 			p.files[target] = &packFile{
 				path: target, origin: Download, project: strconv.FormatInt(f.ModID, 10), name: name, on: true,
 				size: f.FileLength, sums: map[string]string{"sha1": f.SHA1()}, urls: []string{f.DownloadURL}, hosts: l.curseForgeFiles(),
 			}
+		}
+	}
+	for _, id := range ids {
+		if !seen[id] {
+			m := byID[id]
+			name := printable(m.DisplayName)
+			p.manual = append(p.manual, addons.ManualStep{Notice: notice(KindUnavailable, kv("pack", p.info.Name, "name", name),
+				fmt.Sprintf("%s, which %s needs, is no longer available on CurseForge.", name, p.info.Name),
+				"The pack may not work without it. Look on its page for a replacement."), URL: m.URL})
 		}
 	}
 	return nil

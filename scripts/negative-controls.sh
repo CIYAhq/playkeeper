@@ -2029,6 +2029,14 @@ control "the mods Missing Mods Checker lists come from CurseForge" internal/modp
   'p.files[target] = &packFile{' \
   '_ = &packFile{' \
   ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "a mod Missing Mods Checker lists that CurseForge flagged as malware stops the install" internal/modpacks/missingmods.go \
+  'case f.FileStatus == curseforge.StatusMalwareDetected:' \
+  'case false && f.FileStatus == curseforge.StatusMalwareDetected:' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "a mod Missing Mods Checker lists that CurseForge no longer offers gets a step" internal/modpacks/missingmods.go \
+  'if !seen[id] {' \
+  'if false && !seen[id] {' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
 control "a mod Missing Mods Checker lists that CurseForge tags for players stays off" internal/modpacks/missingmods.go \
   'case f.ClientOnly():' \
   'case false && f.ClientOnly():' \
