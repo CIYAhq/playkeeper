@@ -2,12 +2,12 @@ name: Templates
 
 # Creates and starts a real server from each of playkeeper.io's templates
 # (site/data/templates) on the latest Playkeeper release, with
-# cmd/template-check. On a pull request it checks the templates the change
-# touches, all of them when the checker or the template code changes, and
-# fails when site/data/checks doesn't list what installed. Every night and
-# when a release comes out it checks them all, and files an issue naming any
-# that fail; the scheduled template agent then fixes their pins or holds
-# them in a PR. See site/README.md, "Template library".
+# cmd/template-check. It's a scheduled job: every night and when a release
+# comes out it checks them all, and files an issue naming any that fail; the
+# scheduled template agent then fixes their pins or holds them in a PR. On a
+# pull request it checks only the templates the change adds or changes, and
+# fails when site/data/checks doesn't list what installed. See
+# site/README.md, "Template library".
 
 on:
   pull_request:
@@ -15,9 +15,6 @@ on:
       - site/data/templates/**
       - site/data/library/**
       - site/data/checks/**
-      - cmd/template-check/**
-      - internal/templates/**
-      - .github/workflows/templates.yml
   schedule:
     - cron: "30 2 * * *"
   release:
@@ -40,7 +37,7 @@ env:
 
 jobs:
   list:
-    name: Templates to check — the ones the change touches, or all of them
+    name: Templates to check — the ones a pull request changes, or all of them
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -64,14 +61,12 @@ jobs:
           ids=$all
           if [ "$EVENT" = pull_request ]; then
             changed=$(git diff --name-only "$BASE"...HEAD)
-            if ! grep -qE '^(cmd/template-check|internal/templates)/|^\.github/workflows/templates\.yml$|^site/data/templates/cards\.json$' <<<"$changed"; then
-              ids=$(sed -nE 's#^site/data/(templates|checks)/([a-z0-9-]+)\.json$#\2#p' <<<"$changed")
-              for f in $(grep -E '^site/data/library/[a-z0-9-]+\.json$' <<<"$changed" || true); do
-                [ -f "$f" ] && ids="$ids"$'\n'"$(sed -nE 's/.*"template": *"([^"]+)".*/\1/p' "$f")"
-              done
-              ids=$(grep -v '^$' <<<"$ids" | sort -u | while read -r id; do [ -f "site/data/templates/$id.json" ] && echo "$id"; done || true)
-              only=$(paste -sd, <<<"$ids")
-            fi
+            ids=$(sed -nE 's#^site/data/(templates|checks)/([a-z0-9-]+)\.json$#\2#p' <<<"$changed")
+            for f in $(grep -E '^site/data/library/[a-z0-9-]+\.json$' <<<"$changed" || true); do
+              [ -f "$f" ] && ids="$ids"$'\n'"$(sed -nE 's/.*"template": *"([^"]+)".*/\1/p' "$f")"
+            done
+            ids=$(grep -v -e '^$' -e '^cards$' <<<"$ids" | sort -u | while read -r id; do [ -f "site/data/templates/$id.json" ] && echo "$id"; done || true)
+            only=$(paste -sd, <<<"$ids")
           elif [ -n "$ONLY" ]; then
             only=$ONLY
             ids=$(tr , '\n' <<<"$ONLY")

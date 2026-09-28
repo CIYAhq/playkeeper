@@ -107,9 +107,9 @@ The release workflow's check of `/install` after each release counts as one ther
   - `-pin` rewrites the template's add-ons to the exact versions that installed.
   - A plugin another one needs, like Vault, goes in the template, not in a note on the page.
 - **Templates pin every add-on,** so a passing check stays true until a pin changes. `-bump` tries each add-on's newest version, and pins the new versions if the template still passes. The scheduled template agent runs it weekly and opens a PR with what changed.
-- **CI (`.github/workflows/templates.yml`)** checks templates on the latest release:
-  - **On a PR:** the templates the PR touches, or all of them when the checker or `internal/templates` changes. It fails when `data/checks` doesn't list the versions that installed.
+- **CI (`.github/workflows/templates.yml`)** is a scheduled job that checks templates on the latest release:
   - **Nightly and on each release:** all of them. It opens an issue naming any that fail, and the template agent fixes their pins or holds them.
+  - **On a PR:** only the templates it adds or changes. It fails when `data/checks` doesn't list the versions that installed.
 - **A failing check holds its template:** no card or page links it (`TestNoPageOpensAHeldTemplate`). A library page needs a passing check, so fix the template or take its page down in the same PR.
 - **The build refuses** a check whose add-ons aren't exactly the template's in its order, or that doesn't say which release, build and start time it ran with, and a library page for a modpack's template, whose page is under `/modpacks`.
 - **A new page** copies the closest one in `pages/templates/` and keeps the blocks in `layouts/library.html` (facts, Docker, template cards). What the plugins make you do first, with the commands and defaults from their own configs, is what the page is for, and the 60% rule above holds for these pages too.
