@@ -31,7 +31,7 @@
 {{end}}{{range .Preloads}}<link rel="preload" as="image" type="image/avif" {{imageSrcset .Avif}} imagesizes="{{.Sizes}}"{{with .Media}} media="{{.}}"{{end}} fetchpriority="high">
 {{end}}<script src="{{asset "js/site.js"}}" defer></script>
 {{range .Page.Scripts}}<script src="{{asset .}}" defer></script>
-{{end}}{{template "analytics" .}}{{with .Head}}<script type="application/ld+json">{{.}}</script>
+{{end}}{{template "analytics" .}}{{template "stats" .}}{{with .Head}}<script type="application/ld+json">{{.}}</script>
 {{end}}</head>
 <body class="layout-{{.Page.Layout}}">
 <a class="skip" href="#main">Skip to content</a>
@@ -50,6 +50,11 @@
      whose template is in the address after # and stays in the browser, and
      the /t/<id> pages that send the browser straight on to it. */}}
 {{define "analytics"}}{{with .Settings.Analytics}}{{if and .Script (ne $.Page.Path "/t") (ne $.Page.Layout "open")}}<script src="{{.Script}}" async data-key="{{.Key}}" data-collector="{{.Collector}}"></script>
+{{end}}{{end}}{{end}}
+
+{{/* Where copies of the install command are counted (Settings.Stats), on
+     the same pages as the analytics; js/site.js reads it. */}}
+{{define "stats"}}{{with .Settings.Stats}}{{if and (ne $.Page.Path "/t") (ne $.Page.Layout "open")}}<meta name="playkeeper-stats" content="{{.}}">
 {{end}}{{end}}{{end}}
 
 {{/* Where the header's Install goes: the page's own install command when it

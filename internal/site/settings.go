@@ -20,6 +20,12 @@ type Settings struct {
 	// lets its script and collector in; empty turns it off. The live demo
 	// loads the same script (web/src/demo/vite.ts).
 	Analytics Analytics
+	// Stats is the stats service (services/stats) whose funnel counts
+	// copies of the install command: on the same pages as the analytics, a
+	// copy tells it so, with the channel's code and nothing else, once a
+	// page view. The Content-Security-Policy lets pages reach it; empty
+	// turns it off.
+	Stats string
 	// Channels are where visitors come from, each with a code: /go/<code>
 	// sends them to the landing page with the channel's UTM tags, and the
 	// landing page then shows the channel's own install command,
@@ -71,6 +77,7 @@ var Default = Settings{
 		Collector: "https://analytics-c.ciya.so",
 		Key:       "oa_pk_tyJHnpyD4m-pl_XrUbi3maHu2Iqq87Uf",
 	},
+	Stats:     "https://stats.playkeeper.io",
 	Channels:  channels,
 	WhopPixel: "biz_bbmk63HMB3yZ4c",
 }
