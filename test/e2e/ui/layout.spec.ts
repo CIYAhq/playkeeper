@@ -45,6 +45,7 @@ const reads: Record<string, unknown> = {
     options: [2048, 3072, 4096, 6144].map((memoryMB) => ({ memoryMB, heapMB: memoryMB * 0.75, fits: true })),
   },
   [`/api/servers/${s.id}/sleep`]: { enabled: false, idleMinutes: 15, listening: false, defaultIdleMinutes: 15, minIdleMinutes: 5, maxIdleMinutes: 240, today: { count: 0, seconds: 0 } },
+  [`/api/servers/${s.id}/crossplay`]: { on: false, available: true, port: 19132, plugins: [], prefix: '.' },
   [`/api/servers/${s.id}/schedules`]: { schedules: [] },
   [`/api/servers/${s.id}/schedules/runs`]: { runs: [] },
   [`/api/servers/${s.id}/backups`]: [],
