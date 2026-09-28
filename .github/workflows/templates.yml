@@ -139,15 +139,16 @@ jobs:
   # site/tools/thumbnails renders it. The bot joins as a player would, so
   # this job's Playkeeper runs servers in offline mode, on a runner thrown
   # away afterwards. Nightly it makes them for templates without one; the
-  # scheduled template agent commits them from the artifact.
+  # scheduled template agent commits them from the artifact. Like the check,
+  # it runs third-party plugins with read-only access; thumbnails-report
+  # files the issue.
   thumbnails:
     name: Thumbnails of templates without one, from their real worlds
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    permissions:
-      contents: read
-      issues: write
+    outputs:
+      made: ${{ steps.made.outputs.made }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -204,15 +205,30 @@ jobs:
             /tmp/pk.log
           if-no-files-found: ignore
           retention-days: 14
-      - name: Ask for them to be committed
-        if: success() && steps.pick.outputs.count != '0'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      - name: Which templates have new thumbnails
+        id: made
+        if: always() && steps.pick.outputs.count != '0'
         run: |
           made=$(git status --porcelain --untracked-files=all site/static/shots/templates | sed -nE 's#.*site/static/shots/templates/([a-z0-9-]+)-960w\.webp$#\1#p' | sort -u | paste -sd, -)
-          [ -n "$made" ] || { echo "No new thumbnails."; exit 0; }
-          body=$(printf 'New thumbnails for %s, rendered from their real worlds on %s, are in the run'"'"'s template-thumbnails artifact:\n\n%s\n\nThe scheduled template agent commits them to site/static/shots/templates, with their small copies for the dashboard in web/src/assets/template-thumbs.\n' "$made" "$(date -u +%F)" "$RUN")
+          echo "made=$made" >> "$GITHUB_OUTPUT"
+          echo "New thumbnails: ${made:-none}"
+
+  thumbnails-report:
+    name: File an issue with the new thumbnails for the template agent
+    needs: thumbnails
+    if: always() && needs.thumbnails.outputs.made != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open the issue, or add to the open one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MADE: ${{ needs.thumbnails.outputs.made }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          body=$(printf 'New thumbnails for %s, rendered from their real worlds on %s, are in the run'"'"'s template-thumbnails artifact:\n\n%s\n\nThe scheduled template agent commits them to site/static/shots/templates, with their small copies for the dashboard in web/src/assets/template-thumbs.\n' "$MADE" "$(date -u +%F)" "$RUN")
           n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search 'in:title "Template thumbnails to add"' --json number --jq '.[0].number // empty')
           if [ -n "$n" ]; then
             gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$body"
