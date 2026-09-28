@@ -14,17 +14,19 @@ import (
 	"unicode/utf8"
 
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/templates/checks"
 )
 
 // The template directory at /templates: every template the release people
 // install can open and a server has been created and started from (its
-// check, site/data/library), as cards to search, filter and sort. Without
-// scripts it
+// passing check, site/data/checks), as cards to search, filter and sort.
+// Without scripts it
 // is pages of cards, a page per category and a page per template, all
 // linked; with them, js/templates.js searches and filters every template at
 // once, from the index the build writes (js/templates-index.js). What a
-// template is listed under comes from cards.json and taxonomy.json in
-// site/data/templates.
+// template is listed under comes from site/data/templates/cards.json and
+// site/data/taxonomy.json, which sits beside site/data/templates because
+// cmd/template-check reads every other file in there as a template.
 
 // PerPage is how many cards a page of the directory or of a category shows.
 const PerPage = 24
@@ -39,7 +41,7 @@ const sharedPreview, sharedPreviewWords = "templates", "Minecraft server templat
 
 var reDirSlug = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-// Taxonomy is site/data/templates/taxonomy.json: the categories templates
+// Taxonomy is site/data/taxonomy.json: the categories templates
 // are listed under, the tags that say what they add, and the tags each
 // add-on brings, so a template with CoreProtect is tagged without saying so.
 type Taxonomy struct {
@@ -112,9 +114,10 @@ func checkSlug(kind, id string) error {
 // loadDirectory reads taxonomy.json and lists the templates by it: each
 // template's categories and tags must be in it, and a template needs a
 // category and the day it was added. It lists only those the release opens
-// and a server has been created and started from; the rest wait for their
-// release or their check.
-func loadDirectory(src fs.FS, file string, cards map[string]*TemplateCard, library map[string]*LibraryPage, packs map[string]*Modpack) (*Directory, error) {
+// whose last check passed (checked, site/data/checks), with their facts from
+// it; the rest wait for their release or a passing check. A modpack's
+// template waits too, until its page can show a modpack's check.
+func loadDirectory(src fs.FS, file string, cards map[string]*TemplateCard, checked map[string]*checks.Check, packs map[string]*Modpack) (*Directory, error) {
 	b, err := fs.ReadFile(src, file)
 	if err != nil {
 		return nil, err
@@ -149,10 +152,6 @@ func loadDirectory(src fs.FS, file string, cards map[string]*TemplateCard, libra
 				return nil, fmt.Errorf("%s: add-on %s brings tag %q, which isn't in tags", file, addon, t)
 			}
 		}
-	}
-	checks := map[string]*LibraryPage{}
-	for _, l := range library {
-		checks[l.Template] = l
 	}
 	packOf := map[string]*Modpack{}
 	for _, m := range packs {
@@ -212,7 +211,17 @@ func loadDirectory(src fs.FS, file string, cards map[string]*TemplateCard, libra
 		if tagErr != nil {
 			return nil, tagErr
 		}
-		c.check, c.pack = checks[id], packOf[id]
+		c.check, c.pack = nil, packOf[id]
+		if k := checked[id]; k != nil && k.Status == checks.Passing && c.Template.Modpack == nil {
+			l := &LibraryPage{ID: id, Template: id}
+			if err := l.fill(k); err != nil {
+				return nil, fmt.Errorf("site/data/checks/%s.json: %w", id, err)
+			}
+			if err := l.check(cards); err != nil {
+				return nil, fmt.Errorf("site/data/checks/%s.json: %w", id, err)
+			}
+			c.check = l
+		}
 		if c.Held() || c.check == nil {
 			continue
 		}
@@ -331,8 +340,8 @@ func (c *TemplateCard) Version() string { return c.Template.Server.MinecraftVers
 // Memory is the memory it gives the server, like "4 GB".
 func (c *TemplateCard) Memory() string { return gigabytes(c.MemoryMB) }
 
-// Check is what happened when a server was created and started from it, or
-// nil when site/data/library doesn't say.
+// Check is what happened the last time a server was created and started from
+// it, when that passed, or nil: the directory lists only templates with one.
 func (c *TemplateCard) Check() *LibraryPage { return c.check }
 
 // PackPage is its modpack's page under /modpacks, or nil.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/templates"
+	"github.com/CIYAhq/playkeeper/internal/templates/checks"
 )
 
 // TemplateCard is a server template the site offers, opened in the visitor's
@@ -38,17 +39,21 @@ type TemplateCard struct {
 	// OpensFrom is the first Playkeeper release that opens the template, set
 	// only while that release isn't out. Until then no page links it.
 	OpensFrom string
+	// Failing is set when its last check failed (site/data/checks), and no
+	// page links it either until it's fixed.
+	Failing bool
 	// Added is the day the directory first listed it, and Popularity what
 	// sorts it under Popular, most first.
 	Added      string
 	Popularity int
 	// Categories are the directory's categories it's in, its primary first,
 	// and Tags what it adds, its own and its add-ons'; the directory fills
-	// them in from taxonomy.json.
+	// them in from site/data/taxonomy.json.
 	Categories []*Category
 	Tags       []*Tag
-	// check is what happened when a server was created and started from it
-	// (site/data/library), and pack its modpack's page, when it has them.
+	// check is what happened the last time a server was created and started
+	// from it (site/data/checks), when that passed, and pack its modpack's
+	// page, when it has one.
 	check        *LibraryPage
 	pack         *Modpack
 	categoryIDs  []string
@@ -57,9 +62,18 @@ type TemplateCard struct {
 	modpackTitle string
 }
 
-// Held reports whether the release people install can't open the template
-// yet, so pages leave it out.
-func (c *TemplateCard) Held() bool { return c.OpensFrom != "" }
+// Held reports whether pages leave the template out: the release people
+// install can't open it yet, or it failed its last check.
+func (c *TemplateCard) Held() bool { return c.OpensFrom != "" || c.Failing }
+
+// failing marks the cards whose templates failed their last check.
+func failing(cards map[string]*TemplateCard, checked map[string]*checks.Check) {
+	for id, c := range checked {
+		if card := cards[id]; card != nil && c.Status == checks.Failing {
+			card.Failing = true
+		}
+	}
+}
 
 // cardExtra is what a card shows that the template itself doesn't say.
 type cardExtra struct {
@@ -69,7 +83,7 @@ type cardExtra struct {
 	// Modrinth.
 	Mods      int    `json:"mods,omitempty"`
 	OpensFrom string `json:"opensFrom,omitempty"`
-	// The directory's: see taxonomy.json and Directory.
+	// The directory's: see site/data/taxonomy.json and Directory.
 	Categories []string `json:"categories,omitempty"`
 	Tags       []string `json:"tags,omitempty"`
 	Added      string   `json:"added,omitempty"`

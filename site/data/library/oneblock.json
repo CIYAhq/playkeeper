@@ -1,23 +1,3 @@
 {
-  "template": "oneblock",
-  "checked": "2026-09-28",
-  "release": "0.4.2",
-  "build": "129",
-  "doneSeconds": 13.0,
-  "plugins": [
-    {
-      "name": "Multiverse-Core",
-      "slug": "multiverse-core",
-      "version": "5.8.1",
-      "licence": "BSD-3-Clause",
-      "downloads": 820894
-    },
-    {
-      "name": "OneBlock",
-      "slug": "oneblock_bukkit",
-      "version": "1.6.3",
-      "licence": "MIT",
-      "downloads": 243456
-    }
-  ]
+  "template": "oneblock"
 }

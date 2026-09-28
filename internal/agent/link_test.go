@@ -8,9 +8,22 @@ import (
 
 func TestLinkRoutesAreTheRouteTable(t *testing.T) {
 	routes := LinkRoutes()
-	table := (&Agent{}).Routes()
+	var table []Route
+	for _, rt := range (&Agent{}).Routes() {
+		if !socketOnly[rt.Method+" "+rt.Pattern] {
+			table = append(table, rt)
+		}
+	}
 	if len(routes) != len(table) {
-		t.Fatalf("%d link routes for %d agent routes", len(routes), len(table))
+		t.Fatalf("%d link routes for %d agent routes that aren't socket-only", len(routes), len(table))
+	}
+	for _, r := range routes {
+		if socketOnly[r.Method+" "+r.Pattern] {
+			t.Fatalf("a machine link offers %s %s, which only the agent's socket can carry", r.Method, r.Pattern)
+		}
+	}
+	if !socketOnly["POST "+pagePortsPath] {
+		t.Fatal("the public page's ports aren't socket-only")
 	}
 	streams := map[string]bool{}
 	update := false

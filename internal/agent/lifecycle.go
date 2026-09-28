@@ -759,6 +759,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 			return err
 		}
 	}
+	if err := s.keepDefaultProperties(sc); err != nil {
+		return err
+	}
 	if takesPlugins(sc) {
 		if err := s.ensureTelemetryOff(); err != nil {
 			return err
@@ -1037,6 +1040,7 @@ func (s *server) reconcile(ctx context.Context) {
 	}
 	s.resumeSaving(ctx, c, c.State.Running)
 	if c.State.Running {
+		s.checkSettingsOnce(*sc)
 		return
 	}
 	// A container that never started has the zero finish time.

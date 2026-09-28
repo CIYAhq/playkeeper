@@ -17,24 +17,33 @@ import (
 	"unicode/utf8"
 
 	"github.com/CIYAhq/playkeeper/internal/templates"
+	"github.com/CIYAhq/playkeeper/internal/templates/checks"
 )
 
-// dataOverlay is the repository with site/data/templates and
-// site/data/library replaced by over's, folders and all, so a folder lists
-// over's files alone.
+// dataOverlay is the repository with the directory's data replaced by
+// over's, folders and all, so a folder lists over's files alone.
 type dataOverlay struct {
 	base fs.FS
 	over fstest.MapFS
 }
 
 func (o dataOverlay) Open(name string) (fs.File, error) {
-	for _, dir := range []string{"site/data/templates", "site/data/library"} {
+	if name == taxonomyFile {
+		return o.over.Open(name)
+	}
+	for _, dir := range dataDirs {
 		if name == dir || strings.HasPrefix(name, dir+"/") {
 			return o.over.Open(name)
 		}
 	}
 	return o.base.Open(name)
 }
+
+// dataDirs are the folders the directory is made from, and taxonomyFile the
+// file beside them, which dataOverlay replaces.
+var dataDirs = []string{"site/data/templates", "site/data/library", "site/data/checks"}
+
+const taxonomyFile = "site/data/taxonomy.json"
 
 // indexOf reads js/templates-index.js back.
 func indexOf(t *testing.T, o *Output) (idx struct {
@@ -74,15 +83,16 @@ func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	library, err := loadLibrary(root, "site/data/library", cards)
+	checked, err := checks.Read(root, "site/data/checks")
 	if err != nil {
 		t.Fatal(err)
 	}
+	failing(cards, checked)
 	packs, err := loadModpacks(root, "site/data/modpacks", cards)
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := loadDirectory(root, "site/data/templates/taxonomy.json", cards, library, packs)
+	d, err := loadDirectory(root, "site/data/taxonomy.json", cards, checked, packs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,10 +144,12 @@ func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 	for _, c := range cards {
 		why := ""
 		switch {
+		case c.Failing:
+			why = "failed its last check"
 		case c.Held():
 			why = "opens only from Playkeeper " + c.OpensFrom
 		case c.Check() == nil:
-			why = "no server has been created and started from yet"
+			why = "has no passing check in site/data/checks"
 		default:
 			continue
 		}
@@ -201,7 +213,7 @@ func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 // the build.
 func TestTaxonomyMistakesStopTheBuild(t *testing.T) {
 	root := os.DirFS("../..")
-	taxonomy, err := os.ReadFile("../../site/data/templates/taxonomy.json")
+	taxonomy, err := os.ReadFile("../../site/data/taxonomy.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,34 +267,30 @@ func TestTaxonomyMistakesStopTheBuild(t *testing.T) {
 	}
 
 	// A category with a listed template needs its own page or a description
-	// for search engines: here OneBlock, which is checked, moves to Creative,
-	// which has neither once its description goes.
+	// for search engines: Creative, whose template is checked, has no page.
 	data := dataFS(t)
 	var tax map[string]any
 	if err := json.Unmarshal(taxonomy, &tax); err != nil {
 		t.Fatal(err)
 	}
 	delete(categories(tax)["creative"].(map[string]any), "description")
-	var entries map[string]map[string]any
-	if err := json.Unmarshal(data["site/data/templates/cards.json"].Data, &entries); err != nil {
-		t.Fatal(err)
-	}
-	entries["oneblock"]["categories"] = []string{"creative"}
 	noDesc := maps.Clone(data)
-	for name, v := range map[string]any{"site/data/templates/taxonomy.json": tax, "site/data/templates/cards.json": entries} {
-		b, _ := json.Marshal(v)
-		noDesc[name] = &fstest.MapFile{Data: b}
-	}
+	b, _ := json.Marshal(tax)
+	noDesc["site/data/taxonomy.json"] = &fstest.MapFile{Data: b}
 	if _, err := Build(Options{Root: dataOverlay{root, noDesc}, Settings: Default, Now: time.Now()}); err == nil || !strings.Contains(err.Error(), "category creative has no page") {
 		t.Errorf("a category with neither a page nor a description builds: %v", err)
 	}
 }
 
-// dataFS is site/data/templates and site/data/library as they are.
+// dataFS is the folders the directory is made from, as they are.
 func dataFS(t testing.TB) fstest.MapFS {
 	t.Helper()
-	out := fstest.MapFS{}
-	for _, dir := range []string{"site/data/templates", "site/data/library"} {
+	b, err := os.ReadFile(filepath.Join("../..", taxonomyFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := fstest.MapFS{taxonomyFile: {Data: b}}
+	for _, dir := range dataDirs {
 		entries, err := os.ReadDir(filepath.Join("../..", dir))
 		if err != nil {
 			t.Fatal(err)
@@ -374,26 +382,27 @@ func TestMetaDescriptionsFit(t *testing.T) {
 	}
 }
 
-// synthetic is site/data/templates and site/data/library with n more
-// templates, made from the real templates' add-ons and their checks, across
-// the real categories and a dozen more: the directory at a size it hasn't
-// reached yet. Every tenth has no check, like a template the library
-// hasn't started yet, which the directory leaves out.
+// synthetic is the directory's data folders with n more templates, made
+// from the real templates' add-ons and their checks, across the real
+// categories and a dozen more: the directory at a size it hasn't reached
+// yet. Every tenth has no check, like a template the library hasn't started
+// yet, and every 25th failed its check; the directory leaves both out.
 func synthetic(t testing.TB, n int) fstest.MapFS {
 	t.Helper()
 	out := dataFS(t)
 	type addon struct {
-		Source  string `json:"source"`
-		Project string `json:"project"`
-		Slug    string `json:"slug"`
-		Name    string `json:"name"`
-		Latest  bool   `json:"latest"`
+		Source  string          `json:"source"`
+		Project string          `json:"project"`
+		Slug    string          `json:"slug"`
+		Name    string          `json:"name"`
+		Pin     json.RawMessage `json:"pin,omitempty"`
+		Latest  bool            `json:"latest,omitempty"`
 	}
 	var pool []addon
-	facts := map[string]LibraryPlugin{}
+	facts := map[string]checks.Addon{}
 	for name, f := range out {
 		switch {
-		case strings.HasPrefix(name, "site/data/templates/") && !strings.HasSuffix(name, "cards.json") && !strings.HasSuffix(name, "taxonomy.json"):
+		case strings.HasPrefix(name, "site/data/templates/") && !strings.HasSuffix(name, "cards.json"):
 			var tpl struct{ Addons []addon }
 			if err := json.Unmarshal(f.Data, &tpl); err != nil {
 				t.Fatal(err)
@@ -403,13 +412,13 @@ func synthetic(t testing.TB, n int) fstest.MapFS {
 					pool = append(pool, a)
 				}
 			}
-		case strings.HasPrefix(name, "site/data/library/"):
-			var l LibraryPage
-			if err := json.Unmarshal(f.Data, &l); err != nil {
+		case strings.HasPrefix(name, "site/data/checks/"):
+			var k checks.Check
+			if err := json.Unmarshal(f.Data, &k); err != nil {
 				t.Fatal(err)
 			}
-			for _, p := range l.Plugins {
-				facts[p.Slug] = p
+			for _, a := range k.Addons {
+				facts[a.Slug] = a
 			}
 		}
 	}
@@ -419,7 +428,7 @@ func synthetic(t testing.TB, n int) fstest.MapFS {
 		Tags       map[string]map[string]string `json:"tags"`
 		AddonTags  map[string][]string          `json:"addonTags"`
 	}
-	if err := json.Unmarshal(out["site/data/templates/taxonomy.json"].Data, &tax); err != nil {
+	if err := json.Unmarshal(out["site/data/taxonomy.json"].Data, &tax); err != nil {
 		t.Fatal(err)
 	}
 	for _, m := range []string{"Factions", "Prison", "KitPvP", "Survival Games", "Parkour", "Earth", "RPG", "Economy", "Anarchy", "Minigames", "Build Battle", "Manhunt"} {
@@ -453,7 +462,7 @@ func synthetic(t testing.TB, n int) fstest.MapFS {
 		typ := types[(i*7)%len(types)]
 		var addons []addon
 		if typ.id != "vanilla" {
-			for k := range 1 + i%4 {
+			for k := range 1 + i%3 {
 				a := pool[(i*3+k*5)%len(pool)]
 				if !slices.ContainsFunc(addons, func(b addon) bool { return b.Slug == a.Slug }) {
 					addons = append(addons, a)
@@ -493,17 +502,21 @@ func synthetic(t testing.TB, n int) fstest.MapFS {
 		if i%10 == 9 || !hasType(typ.id) {
 			continue
 		}
-		check := LibraryPage{Template: id, Checked: "2026-09-28", Release: "0.4.2", Build: "129", DoneSeconds: 10 + float64(i%9)}
+		check := checks.Check{Status: checks.Passing, Checked: "2026-09-28", Release: "0.4.2", Build: "129", DoneSeconds: 10 + float64(i%9)}
+		if i%25 == 24 {
+			check = checks.Check{Status: checks.Failing, Failure: "a plugin failed to enable", Checked: "2026-09-28", Release: "0.4.2"}
+		}
 		for _, a := range addons {
-			f := facts[a.Slug]
-			check.Plugins = append(check.Plugins, LibraryPlugin{Name: a.Name, Slug: a.Slug, Version: f.Version, Licence: f.Licence, Downloads: f.Downloads})
+			if check.Status == checks.Passing {
+				check.Addons = append(check.Addons, facts[a.Slug])
+			}
 		}
 		if b, err = json.Marshal(check); err != nil {
 			t.Fatal(err)
 		}
-		out["site/data/library/"+id+".json"] = &fstest.MapFile{Data: b}
+		out["site/data/checks/"+id+".json"] = &fstest.MapFile{Data: b}
 	}
-	for name, v := range map[string]any{"site/data/templates/cards.json": cards, "site/data/templates/taxonomy.json": tax} {
+	for name, v := range map[string]any{"site/data/templates/cards.json": cards, "site/data/taxonomy.json": tax} {
 		b, err := json.MarshalIndent(v, "", "  ")
 		if err != nil {
 			t.Fatal(err)
@@ -516,13 +529,17 @@ func synthetic(t testing.TB, n int) fstest.MapFS {
 // The directory stays quick with hundreds of templates: pages of 24 cards,
 // a page for each, an index a few hundred kilobytes long, and every template
 // reachable from /templates by following links, without scripts. The made-up
-// templates without a check stay out.
+// templates without a passing check stay out.
 func TestTheDirectoryScalesToHundredsOfTemplates(t *testing.T) {
 	const n = 600
 	data := synthetic(t, n)
+	passing := func(id string) bool {
+		f := data["site/data/checks/"+id+".json"]
+		return f != nil && strings.Contains(string(f.Data), `"status":"passing"`)
+	}
 	checked := 0
 	for name := range data {
-		if id, ok := strings.CutPrefix(name, "site/data/library/made-up-"); ok && strings.HasSuffix(id, ".json") {
+		if id, ok := strings.CutPrefix(name, "site/data/templates/"); ok && strings.HasPrefix(id, "made-up-") && passing(strings.TrimSuffix(id, ".json")) {
 			checked++
 		}
 	}
@@ -539,8 +556,8 @@ func TestTheDirectoryScalesToHundredsOfTemplates(t *testing.T) {
 	for _, e := range idx.Templates {
 		if strings.HasPrefix(e.ID, "made-up-") {
 			made++
-			if data["site/data/library/"+e.ID+".json"] == nil {
-				t.Errorf("the directory lists %s, which has no check", e.ID)
+			if !passing(e.ID) {
+				t.Errorf("the directory lists %s, which has no passing check", e.ID)
 			}
 		}
 	}

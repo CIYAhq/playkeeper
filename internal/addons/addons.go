@@ -28,13 +28,16 @@ const (
 	Hangar   Source = "hangar"
 )
 
-// Name is the source's name for messages.
+// Name is the source's name for messages, CurseForge's (modpacks.CurseForge)
+// included.
 func (s Source) Name() string {
 	switch s {
 	case Modrinth:
 		return "Modrinth"
 	case Hangar:
 		return "Hangar"
+	case "curseforge":
+		return "CurseForge"
 	}
 	return string(s)
 }

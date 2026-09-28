@@ -12,7 +12,7 @@ import (
 )
 
 func TestLinkRoundTrip(t *testing.T) {
-	for _, name := range []string{"paper-server.json", "fabric-modpack.json"} {
+	for _, name := range []string{"paper-server.json", "fabric-modpack.json", "curseforge-modpack.json"} {
 		t.Run(name, func(t *testing.T) {
 			tp := fixture(t, name)
 			l := mustLink(t, tp)
@@ -52,11 +52,13 @@ func TestLinkRoundTrip(t *testing.T) {
 // The site check opens the testdata/share-link*.txt links on the share page
 // in a browser: the Paper fixture's link, the same with markup in its name,
 // the same with the day it was made and an author filled in by hand, which
-// the page never shows, and one holding the fixture padded with spaces past
-// what a template can be. Decoding them keeps them in step with this
-// package; run the tests with -update to write them again.
+// the page never shows, one holding the fixture padded with spaces past what
+// a template can be, and the CurseForge modpack fixture's. Decoding them
+// keeps them in step with this package; run the tests with -update to write
+// them again.
 func TestShareLinkFixtures(t *testing.T) {
 	paper := fixture(t, "paper-server.json")
+	curseForge := fixture(t, "curseforge-modpack.json")
 	markup := fixture(t, "paper-server.json")
 	markup.Name = "<b>Survival</b> & <i>friends</i>"
 	signed := fixture(t, "paper-server.json")
@@ -75,6 +77,7 @@ func TestShareLinkFixtures(t *testing.T) {
 		{"share-link-markup.txt", mustLink(t, markup).URL, markup},
 		{"share-link-author.txt", mustLink(t, signed).URL, signed},
 		{"share-link-oversized.txt", ShareURL + "#" + craft(linkVersion, deflate(t, padded)), nil},
+		{"share-link-curseforge.txt", mustLink(t, curseForge).URL, curseForge},
 	} {
 		if *update {
 			if err := os.WriteFile(filepath.Join("testdata", c.file), []byte(c.link+"\n"), 0o644); err != nil {

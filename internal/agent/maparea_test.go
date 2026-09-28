@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -354,7 +355,11 @@ func TestTheLargestFinishedAreaStaysDone(t *testing.T) {
 // as done.
 func TestPregenerationsFinishedBeforeCountAsDone(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agent.db")
-	db, err := store.Open(path, migrations[:len(migrations)-1])
+	before := slices.IndexFunc(migrations, func(m string) bool { return strings.Contains(m, "ADD COLUMN done_radius") })
+	if before < 0 {
+		t.Fatal("no migration adds pregen.done_radius")
+	}
+	db, err := store.Open(path, migrations[:before])
 	if err != nil {
 		t.Fatal(err)
 	}

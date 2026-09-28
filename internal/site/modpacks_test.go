@@ -86,8 +86,13 @@ func TestModpackFactsTheReleaseCantBackStopTheBuild(t *testing.T) {
 	if err := good().check(cards); err != nil {
 		t.Fatalf("a pack the release installs: %v", err)
 	}
+	old := good()
+	old.Type, old.Minecraft = "forge", "1.20.1"
+	if err := old.check(cards); err != nil {
+		t.Errorf("a Forge pack for Minecraft 1.20.1: %v", err)
+	}
 	for name, edit := range map[string]func(*Modpack){
-		"Minecraft older than the packs it offers":  func(m *Modpack) { m.Minecraft = "1.20.1" },
+		"Minecraft older than the packs it offers":  func(m *Modpack) { m.Minecraft = "1.19.2" },
 		"a type it doesn't run":                     func(m *Modpack) { m.Type = "sponge" },
 		"a plugin server":                           func(m *Modpack) { m.Type = "paper" },
 		"another source":                            func(m *Modpack) { m.Source = "technic" },

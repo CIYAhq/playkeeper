@@ -230,6 +230,8 @@ func serve(a *fakeAgent, st api.ServerStatus, op string) {
 	a.on("GET", p+"/addons/project/modrinth/fALzjamp/removal", http.StatusOK, api.AddonRemovePreview{Addon: *installedChunky(),
 		NeededBy: []string{}, Orphans: []api.Addon{}, ConfigFolder: "Chunky"})
 	a.on("POST", p+"/addons/remove", http.StatusOK, api.AddonRemoval{Removed: []string{"Chunky"}, Warnings: []api.AddonNotice{}})
+	a.on("PUT", p+"/public-page/board", http.StatusOK, api.PublicBoard{Headline: "Day 3 · Nether reached", UpdatedAt: t0})
+	a.on("DELETE", p+"/public-page/board", http.StatusOK, map[string]bool{"cleared": true})
 }
 
 // installedChunky is Chunky as Playkeeper installed it.

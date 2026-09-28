@@ -226,10 +226,9 @@ func TestRefusedPacks(t *testing.T) {
 		kind addons.Kind
 		msg  string
 	}{
-		{Ref{addons.Modrinth, "create_plus", "OirSzesD"}, KindMinecraft, "Create+ is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.21 and newer."},
-		{Ref{addons.Modrinth, "the-content-smp", "ck8SrkA4"}, KindMinecraft, "The Content Smp (Fan-Made) is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.21 and newer."},
-		{Ref{addons.Modrinth, "the-content-smp", ""}, KindMinecraft, "The Content Smp (Fan-Made) is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.21 and newer."},
-		{Ref{addons.Modrinth, "adrenaline", "wGteoJrN"}, KindMinecraft, "Adrenaline is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer."},
+		{Ref{addons.Modrinth, "create_plus", "OirSzesD"}, KindMinecraft, "Create+ is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.20.1 and newer."},
+		{Ref{addons.Modrinth, "the-content-smp", "ck8SrkA4"}, KindMinecraft, "The Content Smp (Fan-Made) is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.20.1 and newer."},
+		{Ref{addons.Modrinth, "the-content-smp", ""}, KindMinecraft, "The Content Smp (Fan-Made) is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.20.1 and newer."},
 		{Ref{addons.Modrinth, "sodiumplus", ""}, addons.KindClientOnly, "Sodium Plus is for the game client only, not for servers."},
 		{Ref{addons.Modrinth, "fabric-api", ""}, KindNotModpack, "Fabric API is not a modpack on Modrinth."},
 		{Ref{addons.Modrinth, "adrenaline", "jmYEuzNA"}, addons.KindNotFound, `Adrenaline has no version "jmYEuzNA".`},
@@ -263,11 +262,15 @@ func TestPackDependenciesDecideTheServer(t *testing.T) {
 		{deps: obj{"minecraft": "1.21.4"}, want: Requirements{"vanilla", "1.21.4", ""}},
 		{deps: obj{"minecraft": "26.2", "forge": "65.1.3"}, want: Requirements{"forge", "26.2", "65.1.3"}},
 		{deps: obj{"minecraft": "26.2", "forge": "26.2-65.1.3"}, want: Requirements{"forge", "26.2", "65.1.3"}},
-		{deps: obj{"minecraft": "1.20.1", "forge": "47.4.0"}, kind: KindMinecraft},
+		{deps: obj{"minecraft": "1.20.1", "forge": "47.4.0"}, want: Requirements{"forge", "1.20.1", "47.4.0"}},
+		{deps: obj{"minecraft": "1.20.1", "neoforge": "47.1.79"}, want: Requirements{"neoforge", "1.20.1", "47.1.79"}},
+		{deps: obj{"minecraft": "1.20.1", "neoforge": "1.20.1-47.1.99"}, want: Requirements{"neoforge", "1.20.1", "47.1.99"}},
+		{deps: obj{"minecraft": "1.20.1", "fabric-loader": "0.18.4"}, want: Requirements{"fabric", "1.20.1", "0.18.4"}},
 		{deps: obj{"minecraft": "26.2", "liteloader": "1.0"}, kind: KindUnknownLoader},
 		{deps: obj{"minecraft": "26.2", "fabric-loader": "0.19.5", "quilt-loader": "0.29.1"}, kind: KindBadPack},
 		{deps: obj{"minecraft": "26.2-rc1", "fabric-loader": "0.19.5"}, kind: KindMinecraft},
-		{deps: obj{"minecraft": "1.20.4", "fabric-loader": "0.19.5"}, kind: KindMinecraft},
+		{deps: obj{"minecraft": "1.20", "fabric-loader": "0.19.5"}, kind: KindMinecraft},
+		{deps: obj{"minecraft": "1.19.2", "forge": "43.4.0"}, kind: KindMinecraft},
 		{deps: obj{"minecraft": "26.2", "fabric-loader": "0.19.5 && rm -rf /"}, kind: KindBadPack},
 	} {
 		f := newFakes(t)
@@ -393,6 +396,35 @@ func TestServerEnvironmentAndOptionalFiles(t *testing.T) {
 		if strings.Contains(r, "/client") || strings.Contains(r, "/opt-1.jar") {
 			t.Errorf("downloaded %s, which the server does not get", r)
 		}
+	}
+}
+
+// A pack's default-server.properties, which the Default Server Properties
+// mod puts in place of all of server.properties on the first start, never
+// goes on the server. Its settings are taken like server.properties' and
+// win over them, as they would with the mod; the console, the allowlist and
+// the other settings Playkeeper writes are never taken from it.
+func TestDefaultServerPropertiesStayOffTheServer(t *testing.T) {
+	f := newFakes(t)
+	l := f.library()
+	id := f.addPack(testIndex(),
+		entry{name: "overrides/server.properties", data: []byte("difficulty=easy\nallow-flight=false\n")},
+		entry{name: "overrides/default-server.properties", data: []byte("allow-flight=true\nallow-nether=false\nspawn-protection=512\n" +
+			"enable-rcon=false\nwhite-list=false\nmotd=A pack server\nbug-report-link=\n")},
+		entry{name: "overrides/config/ok.txt", data: []byte("ok")})
+	srv := newServer(t, "fabric", "26.2")
+	p := mustPlan(t, l, srv, InstallRequest{Ref: testRef(id)})
+	wantList(t, "changes", changeList(p.Changes), "add config/ok.txt")
+	wantList(t, "skipped", skippedList(p.Skipped), "protected_path default-server.properties", "protected_path server.properties")
+	sameJSON(t, "suggested settings", p.Properties, map[string]string{
+		"allow-flight": "true", "allow-nether": "false", "difficulty": "easy", "spawn-protection": "512",
+	})
+	wantList(t, "warnings", noticeList(p.Warnings),
+		"server_properties: Test Pack ships server settings that Playkeeper does not take from packs: bug-report-link, enable-rcon, motd, white-list.")
+	res := mustInstall(t, l, srv, InstallRequest{Ref: testRef(id)})
+	wantTree(t, srv.Dir, "config/", "config/ok.txt")
+	if res.Record.Owns(DefaultPropertiesName) {
+		t.Error("the record lists default-server.properties")
 	}
 }
 
