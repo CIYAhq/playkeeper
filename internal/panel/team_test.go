@@ -329,6 +329,78 @@ func TestListsShowOnlyTheAccountsServers(t *testing.T) {
 	}
 }
 
+// People given different servers on one machine don't learn of each other:
+// an admin of some servers sees only the team members and team invites that
+// share a server with them, the team joins of those members, and only their
+// own servers in the catalog's memory list. The owner still sees everyone.
+func TestAnAdminOfSomeServersSeesOnlyTheirPartOfTheTeam(t *testing.T) {
+	e := newEnv(t)
+	own := owner(t, e)
+	mid := machineID(t, e)
+	e.reply("GET", "/v1/servers", bothServers)
+	tobi := addAdmin(t, e, "tobi", otherServer)
+	e.clock.add(time.Minute)
+	addMember(t, e, "mara", invites.RoleModerator, otherServer)
+	e.clock.add(time.Minute)
+	addAdmin(t, e, "alex", sampleServer)
+	e.clock.add(time.Minute)
+	addMember(t, e, "sam", invites.RoleViewer, "*")
+	for _, servers := range []string{sampleServer, otherServer} {
+		e.clock.add(2 * time.Second)
+		body := `{"role":"moderator","servers":{"servers":["` + servers + `"]},"label":"for ` + servers + `"}`
+		if r := e.do(t, "POST", "/api/team/invites", body, own.auth()); r.status != http.StatusCreated {
+			t.Fatalf("the owner's invite for %s: %d %v", servers, r.status, r.body)
+		}
+	}
+
+	names := func(team teamBody) (members, labels []string) {
+		for _, m := range team.Members {
+			members = append(members, m.Username)
+		}
+		for _, inv := range team.Invites {
+			labels = append(labels, inv.Label)
+		}
+		return members, labels
+	}
+	var team teamBody
+	if st := e.get(t, "/api/team", tobi.cookie, &team); st != 200 {
+		t.Fatalf("team: %d", st)
+	}
+	if members, labels := names(team); strings.Join(members, " ") != "admin tobi mara sam" || strings.Join(labels, " ") != "for "+otherServer {
+		t.Errorf("an admin of one server sees %v and invites %v", members, labels)
+	}
+	if st := e.get(t, "/api/team", own.cookie, &team); st != 200 {
+		t.Fatalf("team: %d", st)
+	}
+	if members, labels := names(team); len(members) != 5 || len(labels) != 2 {
+		t.Errorf("the owner sees %v and invites %v", members, labels)
+	}
+
+	e.reply("GET", "/v1/activity", `[]`)
+	var acts []api.Activity
+	if st := e.get(t, "/api/machines/"+mid+"/activity", tobi.cookie, &acts); st != 200 {
+		t.Fatalf("activity: %d", st)
+	}
+	var joined []string
+	for _, a := range acts {
+		joined = append(joined, a.Actor)
+	}
+	if strings.Join(joined, " ") != "sam mara tobi" {
+		t.Errorf("an admin of one server sees the joins of %v", joined)
+	}
+
+	e.reply("GET", "/v1/catalog", `{"type":"paper","memoryFreeMB":6144,"servers":[{"id":"abcdefghjk","name":"Survival","memoryMB":4096,"running":true},
+		{"id":"bcdefghjkm","name":"Creative","memoryMB":2048,"running":false}]}`)
+	var cat api.Catalog
+	if st := e.get(t, "/api/machines/"+mid+"/catalog?server="+otherServer, tobi.cookie, &cat); st != 200 ||
+		len(cat.Servers) != 1 || cat.Servers[0].Name != "Creative" || cat.MemoryFreeMB != 6144 {
+		t.Errorf("an admin of one server's catalog: %d %+v", st, cat)
+	}
+	if st := e.get(t, "/api/machines/"+mid+"/catalog", own.cookie, &cat); st != 200 || len(cat.Servers) != 2 {
+		t.Errorf("the owner's catalog: %d %+v", st, cat)
+	}
+}
+
 // A world import's routes name only the import, so, as for a restore, the
 // server it is for decides: an admin of some servers can't read, fill,
 // check, apply or discard another server's import, nor one that makes a new

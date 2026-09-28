@@ -325,7 +325,7 @@ func (s *Server) Routes() []Route {
 		{"DELETE", "/api/machines/{mid}", needSessionCSRF, actManageMachine, s.hMachineRemove},
 		view("/api/machines/{mid}/events", s.hMachineEvents),
 		mg("/api/machines/{mid}/preflight", "/v1/preflight"),
-		mg("/api/machines/{mid}/catalog", "/v1/catalog"),
+		view("/api/machines/{mid}/catalog", s.hCatalog),
 		view("/api/machines/{mid}/activity", s.hMachineActivity),
 		view("/api/activity", s.hActivity),
 		mg("/api/machines/{mid}/update", "/v1/update"),

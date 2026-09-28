@@ -18,6 +18,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - Fixed: CurseForge modpacks put mods that only run in the game client, like FTB StoneBlock 4's Status Effect Bars, on the server, which stopped its first start. Playkeeper now leaves off the ones Modrinth lists as client-only, as CurseForge's own tags often don't say.
 - Fixed: sharing a server made from a modpack as a template listed each of the pack's mods as left out.
 - Fixed: a CurseForge pack whose manifest gives its recommended memory as text, like Better MC [FABRIC] BMC2, was refused as not valid JSON.
+- Someone on your team with only some servers now sees only the team members and invites that share a server with them, on the Team page and in the activity, and no longer gets the other servers' names with the memory settings.
 
 ## 0.4.3
 
