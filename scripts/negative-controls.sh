@@ -6979,6 +6979,10 @@ control "server addresses: a domain's certificates go while the switch is off to
   'a.forgetCertificate(automaticName(st, servers, js))' \
   'if st.ServerAddresses { a.forgetCertificate(automaticName(st, servers, js)) }' \
   ./internal/agent '^TestStoppingTheDomainTakesTheWildcardsCertificatesWhileItsOff$'
+control "server addresses: a name given by hand keeps its certificate when the domain moves" internal/agent/ownaddress.go \
+  'func(o joinServer) bool { return o.own == name }' \
+  'func(o joinServer) bool { return o.id != js.id && o.own == name }' \
+  ./internal/agent '^TestAGivenSlugAddressKeepsItsCertificateWhenTheDomainMoves$'
 control "server addresses: a server's certificate from the wildcard goes after it was given its own address" internal/agent/ownaddress.go \
   'js.slug == "" || ' \
   'js.slug == "" || js.own != "" || ' \

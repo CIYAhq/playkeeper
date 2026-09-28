@@ -189,11 +189,11 @@ func (a *Agent) forgetOwnCertificates(st addressState, onlyWild bool) {
 
 // automaticName is the address the own domain st's wildcard record gives
 // js, or gave it before it was given one of its own: <slug>.<domain>,
-// whether an address for each server is on or not, unless another of
-// servers was given that name; else "".
+// whether an address for each server is on or not, unless one of servers,
+// js itself included, was given that name; else "".
 func automaticName(st addressState, servers []joinServer, js joinServer) string {
 	name := js.slug + "." + st.Host
-	if st.Kind != api.AddressOwn || js.slug == "" || slices.ContainsFunc(servers, func(o joinServer) bool { return o.id != js.id && o.own == name }) {
+	if st.Kind != api.AddressOwn || js.slug == "" || slices.ContainsFunc(servers, func(o joinServer) bool { return o.own == name }) {
 		return ""
 	}
 	return name

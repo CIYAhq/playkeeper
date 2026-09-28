@@ -310,6 +310,27 @@ func TestTheDaysCertificatesCountWhateverBecameOfTheirNames(t *testing.T) {
 	}
 }
 
+// A server given <slug>.<domain> by hand keeps that address, and its
+// certificate, when the machine moves to another domain.
+func TestAGivenSlugAddressKeepsItsCertificateWhenTheDomainMoves(t *testing.T) {
+	e, _, creative, _ := ownDomainEnvWith(t, func(o *Options) { o.AddressInterval = 20 * time.Millisecond })
+	e.dns.set("creative.play.example.com", testIP.String())
+	e.dns.setSRV("creative.play.example.com", 25566, "creative.play.example.com")
+	if code, out := e.setOwn(creative, "creative.play.example.com"); code != 200 {
+		t.Fatalf("giving creative its own name: %d %v", code, out)
+	}
+	e.a.serversChanged()
+	e.certified("creative.play.example.com")
+	e.dns.set("mc.example.com", testIP.String())
+	var v api.Address
+	if code := e.callInto("POST", "/v1/address/check", map[string]any{"domain": "mc.example.com", "actor": "admin"}, &v); code != 200 {
+		t.Fatalf("moving to mc.example.com: %d %+v", code, v)
+	}
+	if e.a.loadCertificate("creative.play.example.com") == nil {
+		t.Fatal("creative's own address lost its certificate")
+	}
+}
+
 func TestStoppingTheDomainTakesTheWildcardsCertificatesWhileItsOff(t *testing.T) {
 	e, _, _, _ := ownDomainEnvWith(t, func(o *Options) { o.AddressInterval = 20 * time.Millisecond })
 	e.dns.set("*.play.example.com", testIP.String())
