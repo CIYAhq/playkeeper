@@ -5,6 +5,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 ## 0.4.3
 
 - **A public page at your address:** someone who types `yourname.playkeeper.me` (or your own domain) into a browser now sees a page with each server's status and how many are playing, its Minecraft version, software and modpack, its address with a Copy button and how to join, and the shared map's link when you share the map, with "This server runs on Playkeeper" at the bottom. Players' names show only if you turn on **Show who's playing**. Each server's **Settings › Public page** turns it off, and the dashboard stays on port 8443. The page uses ports 443 and 80 only when nothing else on the VPS uses them, a Docker container claims them or a web server like nginx is set to start with the machine, and a few minutes after it starts; Settings says what holds a port, with **Try again** once it's free.
+- Picked by Playkeeper suggests Discord chat on Paper and Purpur servers: DiscordSRV links the game chat with a channel on your Discord server, both ways, once you paste your own Discord bot's token into its settings.
 
 ## 0.4.2
 

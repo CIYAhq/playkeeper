@@ -17,14 +17,19 @@
     "projectId": "Lu3KuzdV"
   },
   {
-    "id": "pregenerate",
+    "id": "discord-chat",
     "source": "modrinth",
-    "projectId": "fALzjamp"
+    "projectId": "UmLGoGij"
   },
   {
     "id": "newer-clients",
     "source": "modrinth",
     "projectId": "P1OZGk5p"
+  },
+  {
+    "id": "pregenerate",
+    "source": "modrinth",
+    "projectId": "fALzjamp"
   },
   {
     "id": "essentials",

@@ -1,0 +1,17 @@
+{
+  "name": "Cobbleverse",
+  "source": "modrinth",
+  "project": "Jkb29YJU",
+  "page": "https://modrinth.com/modpack/cobbleverse",
+  "author": "LUMYVERSE",
+  "downloads": 6825179,
+  "version": "1.7.42",
+  "released": "2026-07-21",
+  "type": "fabric",
+  "loader": "0.18.4",
+  "minecraft": "1.21.1",
+  "mods": 136,
+  "downloadMB": 390,
+  "template": "cobbleverse",
+  "checked": "2026-09-28"
+}

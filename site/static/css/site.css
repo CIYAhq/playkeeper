@@ -133,7 +133,7 @@ main:focus { outline: none; }
 .brand:hover { text-decoration: none; }
 .brand img { width: 28px; height: 28px; border-radius: 7px; }
 .main-nav ul { display: flex; list-style: none; gap: 8px; }
-.nav-link { display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 14px; border: 0; border-radius: 8px; background: none; color: var(--ink); font-size: 15px; font-weight: 500; cursor: pointer; transition: background-color 0.15s, color 0.15s; }
+.nav-link { display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 14px; white-space: nowrap; border: 0; border-radius: 8px; background: none; color: var(--ink); font-size: 15px; font-weight: 500; cursor: pointer; transition: background-color 0.15s, color 0.15s; }
 .nav-link:hover { background: rgb(29 33 28 / 0.05); text-decoration: none; }
 .nav-link .icon { display: none; }
 .nav-item { position: relative; }
@@ -170,6 +170,11 @@ main:focus { outline: none; }
 
 @media (max-width: 1023.98px) {
   .main-nav, .nav-demo { display: none; }
+}
+/* Six menus, Live demo, the star and Install fit from 1024 pixels wide. */
+@media (min-width: 1024px) and (max-width: 1199.98px) {
+  .main-nav ul { gap: 2px; }
+  .nav-link { padding: 0 10px; }
 }
 @media (max-width: 639.98px) {
   :root { --header: 60px; }
@@ -390,6 +395,19 @@ main:focus { outline: none; }
   .why-card .why-art img { height: 84px; }
   .why-card h3 { font-size: 19px; }
   .why-card p { margin: 6px 0 8px; font-size: 16px; }
+  .why-row { grid-template-columns: minmax(0, 1fr); }
+}
+/* Side by side, each card's scene, heading, text and link share rows with
+   its neighbours', so a longer line never pushes one card's link out of line. */
+@media (min-width: 640px) {
+  .why-row .why-card, .why-row .why-card > div:not(.why-art) { display: grid; grid-template-rows: subgrid; row-gap: 0; }
+  .why-row .why-card { grid-row: span 4; }
+  .why-row .why-card > div:not(.why-art) { grid-row: span 3; }
+  .why-row .why-card .link-arrow { justify-self: start; }
+}
+@media (min-width: 1024px) {
+  .why-row .why-art { height: 168px; }
+  .why-row .why-art img { height: 136px; }
 }
 
 /* Features: a phone in each card. */
@@ -1020,10 +1038,12 @@ main:focus { outline: none; }
 
 /* The hero's lines rise in on load; everything else fades up as its section
    comes into view (site.js marks what's still off screen). */
-.hero-rise { animation: rise 0.6s var(--ease-out) both; }
+/* Filled backwards only: a transform held after the animation would make
+   them the containing block of a fixed element inside, like a tool's bar. */
+.hero-rise { animation: rise 0.6s var(--ease-out) backwards; }
 .h1-hero .line:nth-child(2) { animation-delay: 80ms; }
 .h1-hero .line:nth-child(3) { animation-delay: 160ms; }
-.hero-after { animation: rise 0.6s var(--ease-out) 0.24s both; }
+.hero-after { animation: rise 0.6s var(--ease-out) 0.24s backwards; }
 @keyframes rise { from { opacity: 0; transform: translateY(24px); } }
 .will-reveal { opacity: 0; transform: translateY(24px); }
 .is-revealed { opacity: 1; transform: none; transition: opacity 0.6s var(--ease-out), transform 0.6s var(--ease-out); transition-delay: var(--reveal-delay, 0ms); }

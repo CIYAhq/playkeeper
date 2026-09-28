@@ -140,3 +140,30 @@ func BudgetFor(heapMB int, typ string, mods int) int {
 	}
 	return lo
 }
+
+// PackMemoryMB is the memory Playkeeper suggests for a pack of n mods, or 0
+// when n is unknown.
+func PackMemoryMB(n int) int {
+	switch {
+	case n <= 0:
+		return 0
+	case n < 50:
+		return 4096
+	case n < 300:
+		return 6144
+	}
+	return 8192
+}
+
+// PackNeedMB is the memory a server needs for a pack of type typ that puts
+// mods mods on it and whose own settings ask for heapMB of Java heap (0
+// when they don't say): PackMemoryMB's suggestion, or more when the heap
+// the server would give Java for those mods is less than the pack asks for,
+// rounded up to half a gigabyte.
+func PackNeedMB(typ string, mods, heapMB int) int {
+	need := PackMemoryMB(mods)
+	if heapMB > 0 {
+		need = max(need, (BudgetFor(heapMB, typ, mods)+511)/512*512)
+	}
+	return need
+}

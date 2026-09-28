@@ -1,0 +1,25 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Cobbleverse",
+  "description": "Cobbleverse for Fabric: a Cobblemon adventure with gyms, exclusive structures and 136 mods on the server, for you and your friends.",
+  "game": "minecraft-java",
+  "server": { "type": "fabric", "minecraftVersion": "1.21.1" },
+  "settings": {
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 8192
+  },
+  "modpack": {
+    "source": "modrinth",
+    "project": "Jkb29YJU",
+    "slug": "cobbleverse",
+    "name": "COBBLEVERSE - Pokemon Adventure [Cobblemon]",
+    "pin": {
+      "versionId": "4SKGla61",
+      "versionNumber": "1.7.42",
+      "channel": "release",
+      "hashAlgo": "sha512",
+      "hash": "9af64e0d3a092ab8d72d966cc4d45512e8d875685e804bea9233adb88f5f5d4c30578b77304f70fe77e9ef2ee01e487d652f3341279bcc1850ff2587ae8aa8a4"
+    }
+  }
+}

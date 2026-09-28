@@ -24,16 +24,18 @@ import (
 const voiceChatProject = "9eGKb6K1"
 
 // withCuratedProjects adds some of the curated projects to the fake Modrinth:
-// voice chat, CoreProtect and LuckPerms with a version for the server, and
-// ViaVersion without one. EssentialsX isn't there at all.
+// voice chat, CoreProtect, DiscordSRV and LuckPerms with a version for the
+// server, and ViaVersion without one. EssentialsX isn't there at all.
 func withCuratedProjects(f *fakeSources) {
 	at := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	f.addProject(&fakeProject{id: voiceChatProject, slug: "simple-voice-chat", title: "Simple Voice Chat", summary: "Proximity voice chat.", downloads: 90000000})
 	f.addProject(&fakeProject{id: "Lu3KuzdV", slug: "coreprotect", title: "CoreProtect", summary: "Block logging and rollback.", downloads: 3000000})
+	f.addProject(&fakeProject{id: "UmLGoGij", slug: "discordsrv", title: "DiscordSRV", summary: "A Discord chat bridge.", downloads: 510000})
 	f.addProject(&fakeProject{id: "Vebnzrzj", slug: "luckperms", title: "LuckPerms", summary: "A permissions plugin.", downloads: 2900000})
 	f.addProject(&fakeProject{id: "P1OZGk5p", slug: "viaversion", title: "ViaVersion", summary: "Newer clients on older servers.", downloads: 5000000})
 	f.publish(voiceChatProject, "svc-v1", "2.6.4", at)
 	f.publish("Lu3KuzdV", "cp-v1", "23.1", at)
+	f.publish("UmLGoGij", "dsrv-v1", "1.30.5", at)
 	f.publish("Vebnzrzj", "lp-v1", "5.5.10", at)
 }
 
@@ -49,7 +51,7 @@ func TestCuratedPicksAreTheOnesThatFitTheServer(t *testing.T) {
 	for _, p := range got.Picks {
 		ids = append(ids, p.ID+" "+p.Card.Name)
 	}
-	if want := []string{"voice-chat Simple Voice Chat", "rollback CoreProtect", "pregenerate Chunky", "permissions LuckPerms"}; !slices.Equal(ids, want) {
+	if want := []string{"voice-chat Simple Voice Chat", "rollback CoreProtect", "discord-chat DiscordSRV", "pregenerate Chunky", "permissions LuckPerms"}; !slices.Equal(ids, want) {
 		t.Fatalf("picks %q, want %q: only the ones with a version for Paper 26.1.2, in the list's order", ids, want)
 	}
 	voice := got.Picks[0]

@@ -1,0 +1,19 @@
+{
+  "name": "Cobblemon Official Modpack",
+  "short": "Cobblemon",
+  "source": "modrinth",
+  "project": "5FFgwNNP",
+  "page": "https://modrinth.com/modpack/cobblemon-fabric",
+  "author": "Cobbled Studios",
+  "downloads": 10908499,
+  "version": "1.8.1",
+  "released": "2026-09-13",
+  "type": "fabric",
+  "loader": "0.19.5",
+  "minecraft": "1.21.1",
+  "mods": 32,
+  "playerMods": 41,
+  "downloadMB": 183,
+  "template": "cobblemon",
+  "checked": "2026-09-28"
+}
