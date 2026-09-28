@@ -5,6 +5,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 ## 0.4.3
 
 - Picked by Playkeeper suggests Discord chat on Paper and Purpur servers: DiscordSRV links the game chat with a channel on your Discord server, both ways, once you paste your own Discord bot's token into its settings.
+- Fixed: plugins that publish a Paper and a Spigot build of each release, such as BlueMap, FastAsyncWorldEdit, CommandAPI and AuthMe, installed their Spigot build on Paper and Purpur, and mods with a Quilt build, such as Simple Voice Chat, their Fabric build on Quilt. Installs and updates now take the build for the server's own platform; one installed before moves over at its next update.
 
 ## 0.4.2
 
