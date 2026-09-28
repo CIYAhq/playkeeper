@@ -107,10 +107,12 @@
 
 {{/* template-card: a server template, opened in the visitor's own
      dashboard through /t. ID is the template; while it's held (cards.json's
-     opensFrom), Else shows instead, and without an Else nothing does. */}}
+     opensFrom), Else shows instead, and without an Else nothing does. Sizes
+     is how wide its picture shows, a quarter of the page's width unless it
+     says otherwise. */}}
 {{define "template-card"}}{{with shown .ID (or .Else "")}}{{$c := card .}}
 <article class="tpl-card reveal">
-  <div class="tpl-art{{if $c.Thumb}} is-photo{{end}}">{{template "tpl-art" (dict "Thumb" $c.Thumb "Art" $c.Art "Sizes" "(max-width: 1023.98px) 50vw, 300px")}}</div>
+  <div class="tpl-art{{if $c.Thumb}} is-photo{{end}}">{{template "tpl-art" (dict "Thumb" $c.Thumb "Art" $c.Art "Sizes" (or $.Sizes "(max-width: 1023.98px) 50vw, 300px"))}}</div>
   <div class="tpl-body">
     <h3 class="tpl-name">{{$c.Name}}</h3>
     <p class="tpl-facts"><span class="wide-only">{{$c.Facts}}</span><span class="phone-only">{{$c.Short}}</span></p>
