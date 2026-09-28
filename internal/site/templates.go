@@ -42,6 +42,10 @@ type TemplateCard struct {
 	// Failing is set when its last check failed (site/data/checks), and no
 	// page links it either until it's fixed.
 	Failing bool
+	// Crossplay is set when its last check turned on crossplay and Geyser
+	// and Floodgate started beside its add-ons, so Bedrock friends can join
+	// a server made from it once crossplay is on in its Settings.
+	Crossplay bool
 }
 
 // Held reports whether pages leave the template out: the release people
@@ -53,6 +57,16 @@ func failing(cards map[string]*TemplateCard, checked map[string]*checks.Check) {
 	for id, c := range checked {
 		if card := cards[id]; card != nil && c.Status == checks.Failing {
 			card.Failing = true
+		}
+	}
+}
+
+// crossplays marks the cards whose templates' last check passed with
+// crossplay on.
+func crossplays(cards map[string]*TemplateCard, checked map[string]*checks.Check) {
+	for id, c := range checked {
+		if card := cards[id]; card != nil && c.Status == checks.Passing && c.Crossplay {
+			card.Crossplay = true
 		}
 	}
 }

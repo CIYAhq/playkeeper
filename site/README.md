@@ -111,6 +111,7 @@ The release workflow's check of `/install` after each release counts as one ther
   - **Nightly and on each release:** all of them. It opens an issue naming any that fail, and the template agent fixes their pins or holds them.
   - **On a PR:** only the templates it adds or changes. It fails when `data/checks` doesn't list the versions that installed.
 - **A failing check holds its template:** no card or page links it (`TestNoPageOpensAHeldTemplate`). A library page needs a passing check, so fix the template or take its page down in the same PR.
+- **Crossplay:** on a release that has it (0.4.4 and later), a passing check also turns crossplay on and records `crossplay: true` when Geyser and Floodgate start beside the template's add-ons. `TemplateCard.Crossplay` carries it, for the directory's Crossplay feature. A crossplay that doesn't turn on never fails the template, but `-verify` fails a PR whose check says otherwise.
 - **The build refuses** a check whose add-ons aren't exactly the template's in its order, or that doesn't say which release, build and start time it ran with, and a library page for a modpack's template, whose page is under `/modpacks`.
 - **A new page** copies the closest one in `pages/templates/` and keeps the blocks in `layouts/library.html` (facts, Docker, template cards). What the plugins make you do first, with the commands and defaults from their own configs, is what the page is for, and the 60% rule above holds for these pages too.
 - **Social previews** carry the pages' headings: `node site-og.mjs templates template-<id>`.

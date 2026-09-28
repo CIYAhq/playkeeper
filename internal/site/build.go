@@ -88,6 +88,7 @@ func Build(o Options) (*Output, error) {
 		return nil, err
 	}
 	failing(s.cards, checked)
+	crossplays(s.cards, checked)
 	if s.packs, err = loadModpacks(o.Root, "site/data/modpacks", s.cards); err != nil {
 		return nil, err
 	}
