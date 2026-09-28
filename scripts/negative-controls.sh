@@ -2022,9 +2022,29 @@ control "only the server files of the pack's own version are used" internal/modp
   '' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
 control "a CurseForge pack's mods Modrinth lists as client-only stay off the server" internal/modpacks/resolve.go \
-  'case f.ClientOnly() || p.modrinthClient[f.SHA1()]:' \
-  'case f.ClientOnly():' \
+  'case (f.ClientOnly() || p.modrinthClient[f.SHA1()]) && !p.needed[f.SHA1()]:' \
+  'case f.ClientOnly() && !p.needed[f.SHA1()]:' \
   ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "a CurseForge pack's client-only mod another of its mods requires goes on the server" internal/modpacks/resolve.go \
+  'case (f.ClientOnly() || p.modrinthClient[f.SHA1()]) && !p.needed[f.SHA1()]:' \
+  'case f.ClientOnly() || p.modrinthClient[f.SHA1()]:' \
+  ./internal/modpacks '^TestCurseForgeClientModAServerModRequiresGoesOn$'
+control "only a CurseForge file's required dependencies keep a client-only mod" internal/modpacks/resolve.go \
+  'if d.RelationType == curseforge.RequiredDependency {' \
+  'if d.RelationType != 0 {' \
+  ./internal/modpacks '^TestCurseForgeClientModAServerModRequiresGoesOn$'
+control "a Modrinth pack's mods Modrinth lists as client-only stay off the server" internal/modpacks/resolve.go \
+  'case env == mrpack.Unsupported || p.modrinthClient[sha1]:' \
+  'case env == mrpack.Unsupported:' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
+control "a Modrinth pack's client-only mod a mod on the server requires goes on" internal/modpacks/resolve.go \
+  'case p.needed[sha1]:' \
+  'case false && p.needed[sha1]:' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
+control "only a Modrinth version's required dependencies keep a client-only mod" internal/modpacks/resolve.go \
+  'if d.DependencyType == modrinth.Required && pr != "" {' \
+  'if pr != "" {' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
 control "a mod version from before Modrinth's environment field goes by its project's server side" internal/modpacks/resolve.go \
   'if r, ok := runs[v.ProjectID]; ok {' \
   'if r, ok := runs[v.ProjectID]; false && ok {' \
