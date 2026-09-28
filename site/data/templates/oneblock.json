@@ -13,7 +13,7 @@
     "memoryMB": 3072
   },
   "addons": [
-    { "source": "modrinth", "project": "3wmN97b8", "slug": "multiverse-core", "name": "Multiverse-Core", "latest": true },
-    { "source": "modrinth", "project": "gMMDcC2d", "slug": "oneblock_bukkit", "name": "OneBlock", "latest": true }
+    { "source": "modrinth", "project": "3wmN97b8", "slug": "multiverse-core", "name": "Multiverse-Core", "pin": { "versionId": "YZ2Ji4IS", "versionNumber": "5.8.1", "channel": "release", "hashAlgo": "sha512", "hash": "322c1f4dc1abcd30e0f55aa9f378c7031846d1e59a5156480f9199050dc104c19468c9891c47be35e4dde68742ec4420ea974ec8850db6a259f97ffa1b1c51ea" } },
+    { "source": "modrinth", "project": "gMMDcC2d", "slug": "oneblock_bukkit", "name": "OneBlock", "pin": { "versionId": "fO8gas7m", "versionNumber": "1.6.3", "channel": "release", "hashAlgo": "sha512", "hash": "9d3e2077a1ab550b0456f42ea8738e5ff15c5e37607277ac70df4ccb60fb8408fc7b3b40373ba159710e9dba7aa05616fe70748f70350e4e28f881ffe004f99a" } }
   ]
 }
