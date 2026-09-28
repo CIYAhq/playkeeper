@@ -244,7 +244,7 @@ func (a *Agent) saveNameCheck(host string, nc certs.NameCheck) {
 			c = *st.Check
 		}
 		c.At, c.Name = now, nameCheck(nc)
-		c.Ready = nc.OK && !slices.ContainsFunc(c.Records, func(r api.RecordCheck) bool { return !r.OK })
+		c.Ready = nc.OK && !slices.ContainsFunc(c.Records, func(r api.RecordCheck) bool { return !r.OK && !r.Own })
 		st.Check = &c
 		saved, ready = true, c.Ready
 	})

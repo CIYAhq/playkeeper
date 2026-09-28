@@ -55,9 +55,25 @@ func TestAServerGetsAnAddressOfItsOwnUnderTheOwnDomain(t *testing.T) {
 	if code, out := e.setOwn(creative, " Alex.Example.com. "); code != 200 {
 		t.Fatalf("setting it: %d %v", code, out)
 	}
+	if _, err := e.a.checkOwn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	v := e.address()
 	if j := joinOf(v, creative); j.OwnAddress != "alex.example.com" || j.Address != "alex.example.com" || j.Published {
 		t.Fatalf("its join address before its records exist: %+v", j)
+	}
+	// The domain works whatever a server's own address does.
+	if !v.Check.Ready || !joinOf(v, survival).Published || !joinOf(v, test).Published {
+		t.Fatalf("the domain before the own address's records exist: ready %v, %+v", v.Check.Ready, v.Servers)
+	}
+	st := e.a.address()
+	e.a.saveNameCheck(st.Host, certs.CheckName(context.Background(), e.dns, st.Host, e.a.expectedAddrs(st)))
+	if v := e.address(); !v.Check.Ready {
+		t.Fatal("looking at the machine's name alone made the domain wait for the own address")
+	}
+	var clash api.Address
+	if code := e.callInto("POST", "/v1/address/check", map[string]any{"domain": "alex.example.com", "actor": "admin"}, &clash); code != 409 || e.address().Host != "play.example.com" {
+		t.Fatalf("moving the machine to a server's own address: %d, now %q", code, e.address().Host)
 	}
 	var own []api.DNSRecord
 	for _, r := range v.Records {
@@ -213,5 +229,43 @@ func TestAnOwnAddressOpensOnlyItsServersPage(t *testing.T) {
 	}
 	if st := e.a.publicPageState(); len(st.Hosts) != 0 {
 		t.Fatalf("the page still answers %v", st.Hosts)
+	}
+}
+
+// An own address has records of its own: it works, gets its certificate
+// and shows Bedrock players where to join while the machine's name points
+// elsewhere.
+func TestAnOwnAddressWorksWithoutTheMachinesName(t *testing.T) {
+	e, _, creative, _ := ownDomainEnv(t)
+	if _, err := e.a.db.Exec(`UPDATE servers SET config = json_set(config, '$.crossplayPort', 19133) WHERE id = ?`, creative); err != nil {
+		t.Fatal(err)
+	}
+	e.dns.set("alex.example.com", testIP.String())
+	e.dns.setSRV("alex.example.com", 25566, "alex.example.com")
+	if code, out := e.setOwn(creative, "alex.example.com"); code != 200 {
+		t.Fatalf("setting it: %d %v", code, out)
+	}
+	e.dns.set("play.example.com", "198.51.100.7")
+	if _, err := e.a.checkOwn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	v := e.address()
+	if v.Check.Name.OK || !joinOf(v, creative).Published {
+		t.Fatalf("with the machine's name elsewhere: name ok %v, %+v", v.Check.Name.OK, joinOf(v, creative))
+	}
+	e.a.serversChanged()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if row := e.a.loadCertificate("alex.example.com"); row != nil && row.status.Certificate != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the own address got no certificate while the machine's name points elsewhere")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	_, page, _ := e.page("alex.example.com")
+	if len(page.Servers) != 1 || page.Servers[0].Address != "alex.example.com" || page.Servers[0].Bedrock == nil || page.Servers[0].Bedrock.Host != "alex.example.com" {
+		t.Fatalf("the own address's page: %+v", page.Servers)
 	}
 }

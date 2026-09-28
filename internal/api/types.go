@@ -1705,6 +1705,9 @@ type RecordCheck struct {
 	Record DNSRecord `json:"record"`
 	OK     bool      `json:"ok"`
 	Found  []string  `json:"found,omitempty"`
+	// Own means the record is for a server's own address, which doesn't
+	// count toward the domain's Ready.
+	Own bool `json:"own,omitempty"`
 }
 
 // CertificateStatus is the dashboard's certificate for the machine's name,

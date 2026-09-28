@@ -239,7 +239,12 @@ func (s *server) publicServer(ctx context.Context, host string, j api.JoinAddres
 		ps.HasIcon = true
 	}
 	if crossplayOn(sc) {
-		ps.Bedrock = &api.BedrockJoin{Host: host, Port: sc.CrossplayPort}
+		// Bedrock follows A records only, which a working own address has.
+		bedrock := host
+		if j.OwnAddress != "" && j.Published {
+			bedrock = j.OwnAddress
+		}
+		ps.Bedrock = &api.BedrockJoin{Host: bedrock, Port: sc.CrossplayPort}
 	}
 	if ps.State == api.PublicOnline && st.Players != nil {
 		p := &api.PublicPlayers{Online: st.Players.Online, Max: st.Players.Max}

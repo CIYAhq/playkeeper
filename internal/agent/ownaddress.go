@@ -119,6 +119,37 @@ func (a *Agent) forgetOwnCertificates() {
 	}
 }
 
+// startOwnCertificate starts getting the certificate of the first own
+// address that needs one, and reports whether it did. The caller holds the
+// address lock, which the operation takes over.
+func (a *Agent) startOwnCertificate(st addressState) bool {
+	host, held := a.ownCertificateDue(st)
+	switch {
+	case host != "":
+		a.startAddressOp("certificate.server", "playkeeper", a.issueOwnCertificate(host))
+		return true
+	case held:
+		a.noteOwnCertsHeld()
+	}
+	return false
+}
+
+// domainFitsServers refuses a machine domain that is a server's own
+// address, or that the plan couldn't give records with the servers'
+// addresses.
+func (a *Agent) domainFitsServers(domain string, st addressState) error {
+	servers := a.joinServers()
+	for _, js := range servers {
+		if js.own == domain {
+			return errConflict(domain+" is "+js.name+"'s own address.", "Clear it in Servers' own addresses first, or use another domain.")
+		}
+	}
+	if _, err := ownPlan(domain, servers, a.machineIP(st)).Records(); err != nil {
+		return problemError(err, http.StatusBadRequest)
+	}
+	return nil
+}
+
 // ownCertificateDue is the first own address that needs a certificate now:
 // its records check out and it has none, or it's time to renew, or the
 // wait after a failed attempt is over. held says the day's certificates

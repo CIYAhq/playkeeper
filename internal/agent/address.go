@@ -983,7 +983,7 @@ func (a *Agent) checkOwn(ctx context.Context) (*api.AddressCheck, error) {
 	}
 	check := &api.AddressCheck{At: a.now().UTC(), Name: nameCheck(pc.Name), Ready: pc.Ready}
 	for _, rc := range pc.Records {
-		check.Records = append(check.Records, api.RecordCheck{Note: api.Note(rc.Note), Record: dnsRecord(rc.Record), OK: rc.OK, Found: rc.Found})
+		check.Records = append(check.Records, api.RecordCheck{Note: api.Note(rc.Note), Record: dnsRecord(rc.Record), OK: rc.OK, Found: rc.Found, Own: rc.Own})
 	}
 	a.saveCheck(st.Host, check)
 	return check, nil
@@ -1087,8 +1087,10 @@ func (a *Agent) joinAddresses(st addressState, servers []joinServer) []api.JoinA
 			j.Published = st.Free.Name.State == names.StateActive && !freeLapsed(st.Free.Name, a.now()) && st.Free.serverPublished(s)
 		case api.AddressOwn:
 			if s.own != "" {
+				// An own address has records of its own, so it works
+				// whatever the machine's name does.
 				j.Address, j.OwnAddress = s.own, s.own
-				j.Published = st.Check != nil && st.Check.Name.OK && ownOK(st.Check, s.id)
+				j.Published = st.Check != nil && ownOK(st.Check, s.id)
 				break
 			}
 			// The server on 25565 is the domain itself and needs no SRV
@@ -1548,6 +1550,10 @@ func (a *Agent) hAddressCheck(w http.ResponseWriter, r *http.Request) {
 		a.acceptTerms(actor)
 	}
 	st := a.address()
+	if err := a.domainFitsServers(domain, st); err != nil {
+		writeError(w, err)
+		return
+	}
 	switch {
 	case st.Kind == api.AddressPlaykeeper:
 		writeError(w, errConflict("This machine has a free address.", "Release it first, then use your own domain."))
@@ -1686,7 +1692,13 @@ func (a *Agent) addressTick(ctx context.Context, start bool) {
 				return
 			}
 		}
-		if st = a.address(); st.Check == nil || !st.Check.Name.OK {
+		if st = a.address(); st.Check == nil {
+			return
+		}
+		if !st.Check.Name.OK {
+			// Servers' own addresses have records of their own and get
+			// their certificates without the machine's name.
+			handed = a.startOwnCertificate(st)
 			return
 		}
 	default:
@@ -1698,11 +1710,5 @@ func (a *Agent) addressTick(ctx context.Context, start bool) {
 		a.startAddressOp("certificate.issue", "playkeeper", a.issueCertificate)
 		return
 	}
-	switch host, held := a.ownCertificateDue(st); {
-	case host != "":
-		handed = true
-		a.startAddressOp("certificate.server", "playkeeper", a.issueOwnCertificate(host))
-	case held:
-		a.noteOwnCertsHeld()
-	}
+	handed = a.startOwnCertificate(st)
 }
