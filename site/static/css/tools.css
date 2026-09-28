@@ -114,6 +114,28 @@ textarea.tool-input { height: auto; min-height: 88px; padding: 10px 12px; line-h
 .range-row { display: grid; grid-template-columns: minmax(0, 1fr) 52px; align-items: center; gap: 12px; }
 .range-value { color: var(--sage); font-size: 14px; font-variant-numeric: tabular-nums; text-align: right; }
 
+/* A switch, drawn like the dashboard's: a checkbox inside its label, the
+   words on the left and the track on the right. */
+.tool-switch { display: flex; align-items: center; justify-content: space-between; gap: 16px; cursor: pointer; }
+.tool-switch-text { min-width: 0; font-size: 14px; font-weight: 500; line-height: 20px; }
+.tool-switch-text small { display: block; color: var(--sage); font-size: 13px; font-weight: 400; line-height: 18px; }
+.tool-switch input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.tool-switch-track { position: relative; flex: none; width: 34px; height: 20px; border-radius: 10px; background: var(--input); transition: background-color 0.15s; }
+.tool-switch-track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--white); box-shadow: 0 1px 2px rgb(29 33 28 / 0.22); transition: translate 0.2s var(--ease-out), width 0.12s; }
+.tool-switch:hover .tool-switch-track { background: #c9cbc0; }
+.tool-switch input:checked + .tool-switch-track { background: var(--green); }
+.tool-switch input:checked + .tool-switch-track::after { translate: 14px 0; }
+.tool-switch:active .tool-switch-track::after { width: 19px; }
+.tool-switch:active input:checked + .tool-switch-track::after { translate: 11px 0; }
+.tool-switch input:focus-visible + .tool-switch-track { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (max-width: 639.98px) {
+  .tool-switch-track { width: 42px; height: 24px; border-radius: 12px; }
+  .tool-switch-track::after { width: 20px; height: 20px; border-radius: 10px; }
+  .tool-switch input:checked + .tool-switch-track::after { translate: 18px 0; }
+  .tool-switch:active .tool-switch-track::after { width: 24px; }
+  .tool-switch:active input:checked + .tool-switch-track::after { translate: 14px 0; }
+}
+
 /* A drop zone for a file. */
 .drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 148px; padding: 20px; border: 1.5px dashed var(--input); border-radius: 14px; background: var(--warm); color: var(--sage); font-size: 14px; text-align: center; transition: border-color 0.15s, background-color 0.15s; }
 .drop.is-over { border-color: var(--green); background: var(--green-soft); color: var(--green-text); }
