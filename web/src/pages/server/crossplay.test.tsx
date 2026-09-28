@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
 import type { Action, Crossplay, MachineView, Me, ServerConfig, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
+import { PlayerFace } from '@/components/app/bits'
 import { BedrockJoin, CrossplayRows } from './crossplay'
 
 vi.mock('@/api/client', async (importOriginal) => ({
@@ -164,5 +165,15 @@ describe('the Join card’s Bedrock line', () => {
   it('is not there without crossplay', async () => {
     await render(<BedrockJoin server={server} />)
     expect(document.body.textContent).toBe('')
+  })
+})
+
+describe('a Bedrock player’s face', () => {
+  it('is their initial, without asking for a Java skin', async () => {
+    await render(<PlayerFace name=".Notch" />)
+    expect(document.querySelector('img')).toBeNull()
+    expect(document.querySelector('[role="img"]')?.textContent).toBe('N')
+    await render(<PlayerFace name="Notch" />)
+    expect(document.querySelector('img')?.getAttribute('src')).toBe('/api/players/Notch/head')
   })
 })
