@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -342,6 +345,52 @@ func TestCurseForgeModsFromServerFiles(t *testing.T) {
 		wantList(t, name+": manual", manualList(pl.Manual))
 		if changes := changeList(pl.Changes); !slices.Contains(changes, "add "+ferrite) || !slices.Contains(changes, "add "+fabricAPI) {
 			t.Errorf("%s: changes %q", name, changes)
+		}
+	}
+
+	// Server files that hold most of the pack's mods say which ones a server
+	// needs, as All the Mods 9's leave out Mekalus, a shader mod that stops a
+	// server from starting. What they leave out stays off the server, and
+	// its step to download it by hand goes, but friends still get it. Those
+	// above hold two of the five mods, too few to say.
+	const cloth, lithium, placeholder = "mods/cloth-config-26.3.155-fabric.jar", "mods/lithium-fabric-0.25.3+mc26.3.jar", "mods/placeholder-api-3.1.0+26.3.jar"
+	copies := func(rels ...string) []entry {
+		var out []entry
+		for _, rel := range rels {
+			out = append(out, entry{name: rel, data: []byte("the server files' copy")})
+		}
+		return out
+	}
+	for _, c := range []struct {
+		name     string
+		entries  []entry
+		changes  []string
+		leftOut  []string
+		friends  string
+		noManual bool
+	}{
+		{"they leave out a mod CurseForge lets Playkeeper download", append(serverFiles(generated("ferritecore-9.0.0-fabric.jar")), copies(cloth, placeholder)...),
+			[]string{"add config/example.json", "add " + cloth, "add " + fabricAPI, "add " + ferrite, "add " + placeholder}, []string{lithium}, lithium, true},
+		{"they leave out a mod only CurseForge's app downloads", append(serverFiles(nil)[1:], copies(cloth, lithium, placeholder)...),
+			[]string{"add config/example.json", "add " + cloth, "add " + fabricAPI, "add " + lithium, "add " + placeholder}, []string{ferrite}, ferrite, true},
+	} {
+		_, l, srv, ref, _ := setUp(t, nil, c.entries)
+		pl := mustPlan(t, l, srv, InstallRequest{Ref: ref})
+		wantList(t, c.name+": changes", changeList(pl.Changes), c.changes...)
+		wantList(t, c.name+": manual", manualList(pl.Manual))
+		var leftOut []string
+		for _, s := range pl.Skipped {
+			if s.Reason == KindNotInServerFiles {
+				leftOut = append(leftOut, s.Path)
+			}
+		}
+		wantList(t, c.name+": left out", leftOut, c.leftOut...)
+		res := mustInstall(t, l, srv, InstallRequest{Ref: ref})
+		if !slices.ContainsFunc(res.Record.Client, func(f ClientFile) bool { return f.Path == c.friends }) {
+			t.Errorf("%s: friends don't get %s: %+v", c.name, c.friends, res.Record.Client)
+		}
+		if _, err := os.Stat(filepath.Join(srv.Dir, filepath.FromSlash(c.friends))); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s: %s is on the server (%v)", c.name, c.friends, err)
 		}
 	}
 

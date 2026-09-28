@@ -27,8 +27,8 @@ import (
 // Skipped is a file of the pack that does not go on the server.
 type Skipped struct {
 	Path string `json:"path"`
-	// Reason is client_only, client_content, protected_path, world_files,
-	// optional_off or user_removed.
+	// Reason is client_only, client_content, not_in_server_files,
+	// protected_path, world_files, optional_off or user_removed.
 	Reason addons.Kind `json:"reason"`
 }
 
@@ -1034,7 +1034,8 @@ func (l *Library) fillFromServerFiles(ctx context.Context, p *pack, mod *cursefo
 		dir = root + "/mods"
 	}
 	mods := p.server.layer(dir)
-	filled := map[int]bool{}
+	holds := serverFilesHoldThePack(p, mods)
+	done := map[int]bool{}
 	for _, s := range p.serverFills {
 		e := mods[path.Base(s.path)]
 		if e == nil || p.files[s.path] != nil || e.UncompressedSize64 > uint64(lim.File) {
@@ -1053,16 +1054,63 @@ func (l *Library) fillFromServerFiles(ctx context.Context, p *pack, mod *cursefo
 			continue
 		}
 		p.files[s.path] = &packFile{path: s.path, origin: Override, project: s.project, name: s.name, on: true, size: n, sums: sums, entry: e}
-		filled[s.step] = true
+		done[s.step] = true
+	}
+	if holds {
+		leaveOutWhatServerFilesLeaveOut(p, mods, done)
 	}
 	manual := p.manual[:0]
 	for i, m := range p.manual {
-		if !filled[i] {
+		if !done[i] {
 			manual = append(manual, m)
 		}
 	}
 	p.manual = manual
 	return nil
+}
+
+// serverFilesHoldThePack reports whether a CurseForge pack's server files
+// have most of the mods its manifest names. Some server files hold only a
+// script that downloads the mods, and then they say nothing about which
+// mods a server needs.
+func serverFilesHoldThePack(p *pack, mods map[string]*zip.File) bool {
+	pack := map[string]bool{}
+	for rel, f := range p.files {
+		if strings.HasPrefix(rel, "mods/") && f.origin == Download {
+			pack[rel] = true
+		}
+	}
+	for _, s := range p.serverFills {
+		pack[s.path] = true
+	}
+	held := 0
+	for rel := range pack {
+		if mods[path.Base(rel)] != nil {
+			held++
+		}
+	}
+	return len(pack) > 0 && 2*held >= len(pack)
+}
+
+// leaveOutWhatServerFilesLeaveOut leaves off the server the mods a
+// CurseForge pack's manifest names that its server files don't have: its
+// authors left them out of what servers run. They are mostly for players'
+// games, like shader and menu mods that CurseForge doesn't tag as such, and
+// some of them stop a server from starting. Players still get them, and the
+// steps to download such mods by hand are done.
+func leaveOutWhatServerFilesLeaveOut(p *pack, mods map[string]*zip.File, done map[int]bool) {
+	for _, rel := range slices.Sorted(maps.Keys(p.files)) {
+		if f := p.files[rel]; strings.HasPrefix(rel, "mods/") && f.origin == Download && mods[path.Base(rel)] == nil {
+			delete(p.files, rel)
+			p.skip(rel, KindNotInServerFiles)
+		}
+	}
+	for _, s := range p.serverFills {
+		if mods[path.Base(s.path)] == nil {
+			done[s.step] = true
+			p.skip(s.path, KindNotInServerFiles)
+		}
+	}
 }
 
 // clientCurseForge records a file of a CurseForge pack for players' games,

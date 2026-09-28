@@ -5079,6 +5079,14 @@ control "server files that hold only a mods folder keep it" internal/modpacks/re
   'if root := p.server.root(); root != "" && root != dir {' \
   'if root := p.server.root(); root != "" {' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "mods a pack's server files leave out stay off the server" internal/modpacks/resolve.go \
+  '	if holds {' \
+  '	if holds && false {' \
+  ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "server files that hold few of the pack's mods don't decide what the server gets" internal/modpacks/resolve.go \
+  'return len(pack) > 0 && 2*held >= len(pack)' \
+  'return len(pack) > 0' \
+  ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
 control "a CurseForge manifest's odd recommendedRam doesn't refuse the pack" internal/modpacks/curseforge/manifest.go \
   '	if err != nil || n < 0 {
 		n = 0

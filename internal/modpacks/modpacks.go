@@ -71,6 +71,10 @@ const (
 	KindOptionalOff     addons.Kind = "optional_off"
 	KindUserRemoved     addons.Kind = "user_removed"
 	KindModdedWorld     addons.Kind = "modded_world"
+
+	// KindNotInServerFiles: a mod a CurseForge pack names that its server
+	// files leave out, so the server doesn't get it.
+	KindNotInServerFiles addons.Kind = "not_in_server_files"
 )
 
 // Server is the server a pack goes on.
