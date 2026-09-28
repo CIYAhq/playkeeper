@@ -397,6 +397,9 @@ func (l *Library) readIndex(ctx context.Context, p *pack, world string, lim Limi
 	if err := l.addOverrides(p, p.arch.layer(mrpack.Overrides, mrpack.ServerOverrides), world, lim); err != nil {
 		return err
 	}
+	if err := l.missingModsChecker(ctx, p, lim); err != nil {
+		return err
+	}
 	if err := l.addClientOverrides(p, p.arch.layer(mrpack.Overrides, mrpack.ClientOverrides), lim); err != nil {
 		return err
 	}
