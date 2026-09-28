@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -10,6 +11,19 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/docker"
 	"github.com/CIYAhq/playkeeper/internal/netguard"
 )
+
+// kvGuardHost is the owner's switch, Keep servers away from this machine:
+// "on" adds the rules for the machine itself to the metadata rule that is
+// always there (netguard). Off, the default, a plugin can still reach a
+// database the machine runs. The dashboard turns it on when it makes a
+// creator invite, and keeps it on while the machine has creators.
+const kvGuardHost = "network_guard_host"
+
+// guardHost reports whether the owner keeps servers away from this machine.
+func (a *Agent) guardHost() bool {
+	v, ok, err := a.kvGet(kvGuardHost)
+	return err == nil && ok && v == "on"
+}
 
 // defaultFirewall is what runs iptables for an agent with no Firewall option:
 // the commands themselves for root, and nothing in dev mode, where the
@@ -19,6 +33,51 @@ func defaultFirewall(cfg config.Config, euid int) netguard.Runner {
 		return nil
 	}
 	return netguard.Exec
+}
+
+// hNetworkGuard turns keeping servers away from this machine on or off, and
+// changes the rules at once. In dev mode the switch is kept, but the
+// firewall left alone.
+func (a *Agent) hNetworkGuard(w http.ResponseWriter, r *http.Request) {
+	var req api.NetworkGuardRequest
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	actor, err := validActor(req.Actor)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if req.Host != a.guardHost() {
+		if err := a.kvSet(kvGuardHost, map[bool]string{true: "on", false: "off"}[req.Host]); err != nil {
+			writeError(w, err)
+			return
+		}
+		a.audit(actor, "machine.network_guard", "", "changed", map[bool]string{true: "servers kept away from this machine", false: "servers may reach this machine"}[req.Host])
+	}
+	a.guardNetwork(r.Context())
+	g := a.guardView()
+	if g == nil {
+		g = &api.NetworkGuard{Host: req.Host}
+	}
+	writeJSON(w, http.StatusOK, g)
+}
+
+// guardView is how the network guard stands, for Machine: the owner's
+// switch, and whether the rules are in place, which they aren't until the
+// first server makes Playkeeper's network. It is nil in dev mode.
+func (a *Agent) guardView() *api.NetworkGuard {
+	if a.opts.Firewall == nil {
+		return nil
+	}
+	g := api.NetworkGuard{Host: a.guardHost()}
+	a.mu.Lock()
+	if a.guard != nil {
+		g.On, g.Problem = a.guard.On, a.guard.Problem
+	}
+	a.mu.Unlock()
+	return &g
 }
 
 // guardLoop keeps the network guard's rules in place: Docker, ufw and
@@ -45,8 +104,6 @@ func (a *Agent) guardLoop(ctx context.Context) {
 
 // guardNetwork puts the network guard's rules for Playkeeper's network in
 // place, or back at the top of their chains, and records how that went.
-// Servers start even when it can't: a machine without iptables never had
-// the rules, and the loop tries again.
 func (a *Agent) guardNetwork(ctx context.Context) {
 	if a.opts.Firewall == nil {
 		return
@@ -62,12 +119,13 @@ func (a *Agent) guardNetwork(ctx context.Context) {
 		// are.
 		return
 	}
+	host := a.guardHost()
 	if n.Driver != "bridge" {
 		err = fmt.Errorf("Playkeeper's network uses Docker's %q driver, not a bridge", n.Driver)
 	} else {
-		err = netguard.Apply(ctx, a.opts.Firewall, netguard.Network{Bridge: bridgeName(n), IPv6: n.EnableIPv6}, !a.cfg.ServersReachHost)
+		err = netguard.Apply(ctx, a.opts.Firewall, netguard.Network{Bridge: bridgeName(n), IPv6: n.EnableIPv6}, host)
 	}
-	st := &api.NetworkGuard{On: err == nil, ServersReachHost: a.cfg.ServersReachHost}
+	st := &api.NetworkGuard{On: err == nil, Host: host}
 	if err != nil {
 		st.Problem = err.Error()
 	}
@@ -77,10 +135,22 @@ func (a *Agent) guardNetwork(ctx context.Context) {
 	a.mu.Unlock()
 	switch {
 	case err != nil && (was == nil || was.Problem != st.Problem):
-		a.log.Warn("servers are not kept from this machine and the cloud's metadata service", "err", err)
+		a.log.Warn("the network guard's rules are not in place", "err", err)
 	case err == nil && was != nil && !was.On:
-		a.log.Info("servers are kept from this machine and the cloud's metadata service again")
+		a.log.Info("the network guard's rules are in place again")
 	}
+}
+
+// guardRefusal refuses to start a server while servers are to be kept away
+// from this machine and the rules can't be put in place: servers otherwise
+// start without them, as a machine without iptables always did.
+func (a *Agent) guardRefusal() error {
+	g := a.guardView()
+	if g == nil || !g.Host || g.On {
+		return nil
+	}
+	return errConflict("Playkeeper couldn't keep this server away from the machine: "+nonEmptyOr(g.Problem, "Docker didn't answer")+".",
+		"Keep servers away from this machine is on in Machine settings, so servers start once its rules are in place. Try again, or turn it off there.")
 }
 
 // bridgeName is the machine's interface for the Docker bridge network n: the

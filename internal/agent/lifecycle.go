@@ -501,7 +501,7 @@ func (a *Agent) ensureNetwork(ctx context.Context) error {
 		return a.dockerErr(err)
 	}
 	a.guardNetwork(ctx)
-	return nil
+	return a.guardRefusal()
 }
 
 // ensureDirs makes the server's folders. then is what to do once the world

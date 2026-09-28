@@ -76,12 +76,6 @@ type Config struct {
 	UsageTest bool `json:"usageTest,omitempty"`
 	// StatsURL is where usage stats go; empty means usage.DefaultURL.
 	StatsURL string `json:"statsURL,omitempty"`
-	// ServersReachHost lets game servers open connections to this machine,
-	// as a plugin needs for a database the machine runs itself. Without it
-	// the agent's firewall rules keep them from every port the machine
-	// listens on (internal/netguard). The cloud's metadata service stays
-	// out of their reach either way.
-	ServersReachHost bool `json:"serversReachHost,omitempty"`
 	// Dev relaxes host checks for `playkeeper dev`; never set by the installer.
 	Dev bool `json:"dev,omitempty"`
 	// NoPanel is set on a machine installed to join another dashboard: it

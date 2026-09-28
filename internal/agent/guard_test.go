@@ -35,22 +35,57 @@ func newGuardEnv(t *testing.T, interval time.Duration, setup func(e *agentEnv)) 
 	return e, fw
 }
 
+// keepAway sets the owner's switch, Keep servers away from this machine.
+func (e *agentEnv) keepAway(on bool) api.NetworkGuard {
+	e.t.Helper()
+	var g api.NetworkGuard
+	if code := e.callInto("POST", "/v1/network-guard", map[string]any{"host": on, "actor": "admin"}, &g); code != 200 {
+		e.t.Fatalf("keeping servers away %v: %d %+v", on, code, g)
+	}
+	return g
+}
+
 // guardRules are the guard's rules in fam's chain.
 func guardRules(fw *netguardtest.Tables, fam, chain string) []string {
 	return slices.DeleteFunc(fw.Rules(fam, chain), func(r string) bool { return !strings.Contains(r, netguard.Tag) })
 }
 
+// metadataKept reports whether the guard's rule for br-0123456789ab is the
+// first in DOCKER-USER.
+func metadataKept(fw *netguardtest.Tables) bool {
+	du := fw.Rules("iptables", "DOCKER-USER")
+	return len(du) > 0 && strings.HasPrefix(du[0], "-d 169.254.0.0/16 -i br-0123456789ab ") && strings.Contains(du[0], netguard.Tag)
+}
+
 // kept reports whether the guard's rules for br-0123456789ab are the first
 // in INPUT and DOCKER-USER.
 func kept(fw *netguardtest.Tables) bool {
-	in, du := fw.Rules("iptables", "INPUT"), fw.Rules("iptables", "DOCKER-USER")
-	return len(in) >= 2 && len(du) > 0 &&
+	in := fw.Rules("iptables", "INPUT")
+	return len(in) >= 2 && metadataKept(fw) &&
 		strings.HasPrefix(in[0], "-i br-0123456789ab -p tcp ") && strings.Contains(in[0], netguard.Tag) &&
-		strings.HasPrefix(in[1], "-i br-0123456789ab -p udp ") && strings.Contains(in[1], netguard.Tag) &&
-		strings.HasPrefix(du[0], "-d 169.254.0.0/16 -i br-0123456789ab ") && strings.Contains(du[0], netguard.Tag)
+		strings.HasPrefix(in[1], "-i br-0123456789ab -p udp ") && strings.Contains(in[1], netguard.Tag)
 }
 
 func (e *agentEnv) guard() *api.NetworkGuard { return e.a.Machine(context.Background()).Guard }
+
+// On a machine its owner shares with no one, servers can reach it, as a
+// plugin needs for a database there; the metadata service they never can.
+func TestByDefaultServersKeepOnlyOutOfTheMetadataService(t *testing.T) {
+	e, fw := newGuardEnv(t, -1, nil)
+	if g := e.guard(); g == nil || g.On || g.Host || g.Problem != "" {
+		t.Fatalf("with no network yet: %+v", g)
+	}
+	e.create()
+	if r := guardRules(fw, "iptables", "INPUT"); len(r) != 0 {
+		t.Fatalf("servers may reach the machine, but INPUT has %q", r)
+	}
+	if !metadataKept(fw) {
+		t.Fatalf("the metadata service must stay out of reach: %q", fw.Rules("iptables", "DOCKER-USER"))
+	}
+	if g := e.guard(); g == nil || !g.On || g.Host || g.Problem != "" {
+		t.Fatalf("machine guard: %+v", g)
+	}
+}
 
 func TestTheGuardIsInPlaceBeforeAServersContainerStarts(t *testing.T) {
 	var mu sync.Mutex
@@ -61,8 +96,8 @@ func TestTheGuardIsInPlaceBeforeAServersContainerStarts(t *testing.T) {
 		defer mu.Unlock()
 		atStart = append(atStart, kept(fw))
 	}
-	if g := e.guard(); g != nil {
-		t.Fatalf("with no network yet there is nothing to guard, but got %+v", g)
+	if g := e.keepAway(true); !g.Host || g.On {
+		t.Fatalf("keeping servers away with no network yet: %+v", g)
 	}
 	e.create()
 	mu.Lock()
@@ -70,13 +105,34 @@ func TestTheGuardIsInPlaceBeforeAServersContainerStarts(t *testing.T) {
 	if len(atStart) == 0 || slices.Contains(atStart, false) {
 		t.Fatalf("the rules weren't all in place as the server's container started: %v\n%q\n%q", atStart, fw.Rules("iptables", "INPUT"), fw.Rules("iptables", "DOCKER-USER"))
 	}
-	if g := e.guard(); g == nil || !g.On || g.ServersReachHost || g.Problem != "" {
+	if g := e.guard(); g == nil || !g.On || !g.Host || g.Problem != "" {
 		t.Fatalf("machine guard: %+v", g)
+	}
+}
+
+// The owner's switch changes the rules at once, and lasts.
+func TestKeepingServersAwayIsTheOwnersSwitch(t *testing.T) {
+	e, fw := newGuardEnv(t, -1, nil)
+	e.create()
+	if g := e.keepAway(true); !g.On || !g.Host || !kept(fw) {
+		t.Fatalf("turning it on: %+v\n%q", g, fw.Rules("iptables", "INPUT"))
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE action = 'machine.network_guard'`); n != 1 {
+		t.Fatalf("%d audit entries", n)
+	}
+	e.stop()
+	e.start()
+	if g := e.guard(); g == nil || !g.Host {
+		t.Fatalf("after the agent restarted: %+v", g)
+	}
+	if g := e.keepAway(false); !g.On || g.Host || len(guardRules(fw, "iptables", "INPUT")) != 0 || !metadataKept(fw) {
+		t.Fatalf("turning it off: %+v\n%q", g, fw.Rules("iptables", "INPUT"))
 	}
 }
 
 func TestTheGuardPutsBackRulesSomethingRemoved(t *testing.T) {
 	e, fw := newGuardEnv(t, 20*time.Millisecond, nil)
+	e.keepAway(true)
 	e.create()
 	e.waitFor("the rules", func() bool { return kept(fw) })
 	// ufw reloading, then an admin's rule for the bridge at the top.
@@ -90,20 +146,8 @@ func TestTheGuardPutsBackRulesSomethingRemoved(t *testing.T) {
 	}
 }
 
-func TestServersReachHostKeepsOnlyTheMetadataRule(t *testing.T) {
-	e, fw := newGuardEnv(t, -1, func(e *agentEnv) { e.cfg.ServersReachHost = true })
-	e.create()
-	if r := guardRules(fw, "iptables", "INPUT"); len(r) != 0 {
-		t.Fatalf("serversReachHost is on, but INPUT has %q", r)
-	}
-	if r := guardRules(fw, "iptables", "DOCKER-USER"); len(r) != 1 || !strings.HasPrefix(r[0], "-d 169.254.0.0/16 -i br-0123456789ab ") {
-		t.Fatalf("the metadata service must stay out of reach: %q", r)
-	}
-	if g := e.guard(); g == nil || !g.On || !g.ServersReachHost {
-		t.Fatalf("machine guard: %+v", g)
-	}
-}
-
+// While servers may reach the machine, one starts even when the metadata
+// rule can't be put in place, as on a machine without iptables.
 func TestAServerStartsWhenTheGuardCant(t *testing.T) {
 	var mu sync.Mutex
 	broken := true
@@ -122,18 +166,66 @@ func TestAServerStartsWhenTheGuardCant(t *testing.T) {
 		t.Fatalf("machine guard: %+v", g)
 	}
 	time.Sleep(100 * time.Millisecond)
-	if n := strings.Count(e.warnings.String(), "servers are not kept from this machine"); n != 1 {
+	if n := strings.Count(e.warnings.String(), "the network guard's rules are not in place"); n != 1 {
 		t.Fatalf("want the problem logged once, got %d times:\n%s", n, e.warnings.String())
 	}
 	mu.Lock()
 	broken = false
 	mu.Unlock()
-	e.waitFor("the rules", func() bool { return kept(fw) })
+	e.waitFor("the rule", func() bool { return metadataKept(fw) })
 	e.waitFor("the guard on", func() bool { g := e.guard(); return g != nil && g.On && g.Problem == "" })
+}
+
+// While servers are to be kept away from the machine, none starts without
+// the rules that do it.
+func TestAServerWontStartWhileItCantBeKeptAway(t *testing.T) {
+	var mu sync.Mutex
+	broken := true
+	e, fw := newGuardEnv(t, -1, nil)
+	fw.Fail = func(name string, args []string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if broken {
+			return errors.New("the iptables command isn't installed")
+		}
+		return nil
+	}
+	e.keepAway(true)
+	code, out := e.startCreate(map[string]any{})
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status == api.OpSucceeded && e.status().Phase == api.PhaseOnline {
+		t.Fatal("the server started without the rules that keep it away from the machine")
+	}
+	e.waitFor("the start to fail", func() bool {
+		st := e.status()
+		return st.Phase != api.PhaseStarting && strings.Contains(st.LastError+op.Error, "couldn't keep this server away from the machine")
+	})
+	e.fd.mu.Lock()
+	started := slices.ContainsFunc(e.fd.calls, func(c string) bool {
+		return strings.HasPrefix(c, "POST /containers/") && strings.HasSuffix(c, "/start")
+	})
+	e.fd.mu.Unlock()
+	if started {
+		t.Fatal("the server's container started")
+	}
+	mu.Lock()
+	broken = false
+	mu.Unlock()
+	if code, out := e.callWhenFree("POST", e.sp("/start"), map[string]any{"actor": "admin"}); code != 202 {
+		t.Fatalf("start: %d %v", code, out)
+	}
+	e.waitFor("online", func() bool { return e.status().Phase == api.PhaseOnline })
+	if !kept(fw) {
+		t.Fatalf("online without the rules: %q", fw.Rules("iptables", "INPUT"))
+	}
 }
 
 func TestTheGuardUsesTheNetworksOwnInterfaceName(t *testing.T) {
 	e, fw := newGuardEnv(t, -1, func(e *agentEnv) { e.fd.networkBridge = "pk0" })
+	e.keepAway(true)
 	e.create()
 	for _, r := range append(guardRules(fw, "iptables", "INPUT"), guardRules(fw, "iptables", "DOCKER-USER")...) {
 		if !strings.Contains(r, "-i pk0 ") {
@@ -147,6 +239,7 @@ func TestTheGuardUsesTheNetworksOwnInterfaceName(t *testing.T) {
 
 func TestTheGuardKeepsAnIPv6NetworkFromTheMachine(t *testing.T) {
 	e, fw := newGuardEnv(t, -1, func(e *agentEnv) { e.fd.networkIPv6 = true })
+	e.keepAway(true)
 	e.create()
 	if r := guardRules(fw, "ip6tables", "INPUT"); len(r) != 2 {
 		t.Fatalf("want the guard's 2 rules in ip6tables' INPUT, got %q", r)
@@ -166,6 +259,11 @@ func TestTheGuardNeedsABridge(t *testing.T) {
 
 func TestNoGuardInDevMode(t *testing.T) {
 	e := newAgentEnv(t)
+	// The switch is kept, as a creator invite made there needs, but
+	// nothing changes the firewall or holds a server back.
+	if g := e.keepAway(true); !g.Host {
+		t.Fatalf("keeping servers away in dev mode: %+v", g)
+	}
 	e.create()
 	if e.a.opts.Firewall != nil {
 		t.Fatal("dev mode must leave the machine's firewall alone")

@@ -872,6 +872,7 @@ func (a *Agent) routeTable() []Route {
 	return append([]Route{
 		{"GET", "/v1/health", a.hHealth},
 		{"GET", "/v1/machine", a.hMachine},
+		{"POST", "/v1/network-guard", a.hNetworkGuard},
 		{"GET", "/v1/preflight", a.hPreflight},
 		{"GET", "/v1/catalog", a.hCatalog},
 		{"GET", "/v1/servers", a.hServers},
