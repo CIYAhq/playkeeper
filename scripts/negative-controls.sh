@@ -2021,10 +2021,60 @@ control "only the server files of the pack's own version are used" internal/modp
   'sp.ParentProjectFileID == nil || *sp.ParentProjectFileID != file.ID || ' \
   '' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
-control "a CurseForge pack's mods Modrinth lists as client-only stay off the server" internal/modpacks/resolve.go \
-  'case f.ClientOnly() || p.modrinthClient[f.SHA1()]:' \
+control "Missing Mods Checker stays off the server" internal/modpacks/missingmods.go \
+  'delete(p.files, jar)' \
+  '_ = jar' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "the mods Missing Mods Checker lists come from CurseForge" internal/modpacks/missingmods.go \
+  'p.files[target] = &packFile{' \
+  '_ = &packFile{' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "a mod Missing Mods Checker lists that CurseForge flagged as malware stops the install" internal/modpacks/missingmods.go \
+  'case f.FileStatus == curseforge.StatusMalwareDetected:' \
+  'case false && f.FileStatus == curseforge.StatusMalwareDetected:' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "a mod Missing Mods Checker lists that CurseForge no longer offers gets a step" internal/modpacks/missingmods.go \
+  'if !seen[id] {' \
+  'if false && !seen[id] {' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "a mod Missing Mods Checker lists that CurseForge tags for players stays off" internal/modpacks/missingmods.go \
   'case f.ClientOnly():' \
+  'case false && f.ClientOnly():' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "a CurseForge pack's mods Modrinth lists as client-only stay off the server" internal/modpacks/resolve.go \
+  'case (f.ClientOnly() || p.modrinthClient[f.SHA1()]) && !p.needed[f.SHA1()]:' \
+  'case f.ClientOnly() && !p.needed[f.SHA1()]:' \
   ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "a CurseForge pack's client-only mod another of its mods requires goes on the server" internal/modpacks/resolve.go \
+  'case (f.ClientOnly() || p.modrinthClient[f.SHA1()]) && !p.needed[f.SHA1()]:' \
+  'case f.ClientOnly() || p.modrinthClient[f.SHA1()]:' \
+  ./internal/modpacks '^TestCurseForgeClientModAServerModRequiresGoesOn$'
+control "an optional CurseForge file's dependencies don't keep a client-only mod" internal/modpacks/resolve.go \
+  '		case mf.Required:
+			onServer = append(onServer, f.SHA1())' \
+  '		default:
+			onServer = append(onServer, f.SHA1())' \
+  ./internal/modpacks '^TestCurseForgeClientModAServerModRequiresGoesOn$'
+control "only a CurseForge file's required dependencies keep a client-only mod" internal/modpacks/resolve.go \
+  'if d.RelationType == curseforge.RequiredDependency {' \
+  'if d.RelationType != 0 {' \
+  ./internal/modpacks '^TestCurseForgeClientModAServerModRequiresGoesOn$'
+control "a Modrinth pack's mods Modrinth lists as client-only stay off the server" internal/modpacks/resolve.go \
+  'case env == mrpack.Unsupported || p.modrinthClient[sha1]:' \
+  'case env == mrpack.Unsupported:' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
+control "a Modrinth pack's client-only mod a mod on the server requires goes on" internal/modpacks/resolve.go \
+  'case p.needed[sha1]:' \
+  'case false && p.needed[sha1]:' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
+control "what a kept client-only mod requires in turn stays off" internal/modpacks/resolve.go \
+  'for _, m := range onServer {' \
+  'for _, m := range append(onServer, clientOnly...) {' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
+control "only a Modrinth version's required dependencies keep a client-only mod" internal/modpacks/resolve.go \
+  'if d.DependencyType == modrinth.Required && pr != "" {' \
+  'if pr != "" {' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
 control "a mod version from before Modrinth's environment field goes by its project's server side" internal/modpacks/resolve.go \
   'if r, ok := runs[v.ProjectID]; ok {' \
   'if r, ok := runs[v.ProjectID]; false && ok {' \
@@ -2034,9 +2084,13 @@ control "a client-only mod the pack's own files use stays on the server" interna
   '_ = sha1' \
   ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
 control "only a pack's text files are read for the mods they use" internal/modpacks/resolve.go \
-  'if !mentionsFile(rel) || e.UncompressedSize64 > maxMentionsFile {' \
-  'if (rel == "" && !mentionsFile(rel)) || e.UncompressedSize64 > maxMentionsFile {' \
+  'if !mentionsFile(rel) || !serverData(rel) || e.UncompressedSize64 > maxMentionsFile {' \
+  'if (rel == "" && !mentionsFile(rel)) || !serverData(rel) || e.UncompressedSize64 > maxMentionsFile {' \
   ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "only a pack's data and server scripts keep a client-only mod they name" internal/modpacks/resolve.go \
+  'if !mentionsFile(rel) || !serverData(rel) || e.UncompressedSize64 > maxMentionsFile {' \
+  'if !mentionsFile(rel) || e.UncompressedSize64 > maxMentionsFile {' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
 control "a CurseForge pack whose mods Modrinth can't be asked about says so" internal/modpacks/resolve.go \
   'if err != nil {
 		p.warn(notice(KindUnverifiedEnv, kv("pack", p.info.Name),' \
@@ -2735,15 +2789,15 @@ shcontrol "the shards' check fails when shards listed other tests" scripts/go-te
   scripts/go-test-shard_test.sh
 
 control "names service owns only records with the name's marker" internal/names/service/dns.go \
-  'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
-  'if names.CheckName(name) != nil || reservedName(name) {' \
+  'if names.CheckName(name) != nil || names.Reserved(name) || r.Comment != marker(name) {' \
+  'if names.CheckName(name) != nil || names.Reserved(name) {' \
   ./internal/names/service '^(TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns|TestTheGuardRefusesEveryChangeOutsideItsPatterns|TestRecordsTheServiceDoesNotManageAreNeverTouched)$'
 control "names service checks a zone it couldn't check at startup before the first change" internal/names/service/dns.go \
   'if s.zoneOK.Load() {' \
   'if true || s.zoneOK.Load() {' \
   ./internal/names/service '^TestStartupWithoutCloudflareChecksTheZoneBeforeTheFirstChange$'
 control "names service never owns records of reserved names" internal/names/service/dns.go \
-  'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
+  'if names.CheckName(name) != nil || names.Reserved(name) || r.Comment != marker(name) {' \
   'if names.CheckName(name) != nil || r.Comment != marker(name) {' \
   ./internal/names/service '^(TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns|TestTheGuardRefusesEveryChangeOutsideItsPatterns)$'
 control "names service owns address records only at the name itself" internal/names/service/dns.go \
@@ -2815,12 +2869,12 @@ control "requests through Cloudflare's proxy cannot claim names" internal/names/
   'if false && inAny(cloudflareEdge, a) {' \
   ./internal/names/service '^TestNamesCannotPointAtPrivateReservedOrProxyAddresses$'
 control "reserved names cannot be claimed" internal/names/service/handlers.go \
-  'if reservedName(name) || s.block.has(name) {' \
+  'if names.Reserved(name) || s.block.has(name) {' \
   'if s.block.has(name) {' \
   ./internal/names/service '^TestReservedAndBlocklistedNamesCannotBeClaimed$'
 control "blocklisted names cannot be claimed" internal/names/service/handlers.go \
-  'if reservedName(name) || s.block.has(name) {' \
-  'if reservedName(name) {' \
+  'if names.Reserved(name) || s.block.has(name) {' \
+  'if names.Reserved(name) {' \
   ./internal/names/service '^TestReservedAndBlocklistedNamesCannotBeClaimed$'
 control "only the install that holds a name can change it" internal/names/service/handlers.go \
   'case row.Key != key:' \
@@ -4703,8 +4757,8 @@ control "an add-on or pack error the agent answers with has Playkeeper's hint" i
 # an empty server awake, and a backup dropped from a full copy queue discards
 # what it left at the destination.
 control "a running map pre-generation keeps an empty server awake" internal/agent/sleeping.go \
-  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking(),' \
-  'Busy: s.busy() || s.scheduleWorking(),' \
+  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking() || s.hasCrossplay(),' \
+  'Busy: s.busy() || s.scheduleWorking() || s.hasCrossplay(),' \
   ./internal/agent '^TestSleepWaitsForTheMapPreGeneration$/^running$'
 control "sleep goes by what Chunky reported last about the task" internal/agent/pregen.go \
   'return st == pregen.StateRunning' \
@@ -4915,8 +4969,8 @@ control "the first keys are stored only while there are none" internal/agent/off
 # keeps an empty server awake, and with the allowlist off anyone who isn't
 # banned wakes a sleeping server by joining.
 control "a scheduled restart's countdown keeps an empty server awake" internal/agent/sleeping.go \
-  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking(),' \
-  'Busy: s.busy() || s.pregenRunning(),' \
+  'Busy: s.busy() || s.pregenRunning() || s.scheduleWorking() || s.hasCrossplay(),' \
+  'Busy: s.busy() || s.pregenRunning() || s.hasCrossplay(),' \
   ./internal/agent '^TestSleepWaitsForAScheduledRestartsCountdown$/^a_restart_counting_down$'
 control "a restart schedule counts as working while it counts down" internal/agent/schedules.go \
   'return ok && (act.Job.Schedule.Kind == schedule.KindRestart || act.Job.Schedule.Kind == schedule.KindBackup)' \
@@ -5459,7 +5513,7 @@ control "a sleep decided with another setting is called off" internal/agent/slee
   's.desired() != api.DesiredRunning' \
   ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$'
 control "a sleep is called off when someone joined since it decided" internal/agent/sleeping.go \
-  'if !s.nobodyOn() || s.pregenRunning() || s.scheduleWorking() {' \
+  'if !s.nobodyOn() || s.pregenRunning() || s.scheduleWorking() || s.hasCrossplay() {' \
   'if false {' \
   ./internal/agent '^TestSleepLooksAgainBeforeItStopsTheServer$/^someone_joined_as_it_looks_again$'
 # The same lock refuses turning sleep off during a backup; that test can't be
@@ -6743,6 +6797,25 @@ control "the share page doesn't name the stats service" site/layouts/base.html \
   '{{if and (ne $.Page.Path "/t") (ne $.Page.Layout "open")}}<meta name="playkeeper-stats"' \
   '{{if true}}<meta name="playkeeper-stats"' \
   ./internal/site '^TestTheCopyCountIsOneSetting$'
+
+# An own domain under playkeeper.me: only a name nobody can claim, and only
+# under the current base.
+control "own domain: a playkeeper.me name nobody can claim is accepted" internal/agent/address.go \
+  'return names.CheckName(name) != nil || names.Reserved(name)' \
+  'return false && names.Reserved(name)' \
+  ./internal/agent '^(TestOwnDomainsNobodyCanClaimUnderTheFreeBaseAreAccepted|TestTheManagedBetaMachineCanBeBetaPlaykeeperMe)$'
+control "own domain: a playkeeper.me name someone can claim stays refused" internal/agent/address.go \
+  'return names.CheckName(name) != nil || names.Reserved(name)' \
+  'return true || names.Reserved(name)' \
+  ./internal/agent '^TestOwnDomainsUnderEitherFreeBaseAreRefused$'
+control "own domain: only the name right before playkeeper.me decides" internal/agent/address.go \
+  "name := rest[strings.LastIndexByte(rest, '.')+1:]" \
+  "name := rest[:strings.IndexByte(rest+\".\", '.')]" \
+  ./internal/agent '^TestOwnDomainsUnderEitherFreeBaseAreRefused$'
+control "own domain: names under playkeeper.io stay refused" internal/agent/address.go \
+  'rest, ok := strings.CutSuffix(domain, "."+names.DefaultBase)' \
+  'rest, ok := strings.CutSuffix(domain, "."+names.BaseOf(domain))' \
+  ./internal/agent '^TestOwnDomainsUnderEitherFreeBaseAreRefused$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
