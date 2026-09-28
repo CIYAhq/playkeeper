@@ -414,15 +414,31 @@ def degrade(a):
         w.browser_session(a.browser_session)
 
 
+def moment(stamp):
+    """The time an ISO 8601 stamp with a zone names, or None. slog's stamps
+    have milliseconds and Z or +00:00, journalctl's short-iso ones +0000, and
+    --since whole seconds and Z, so they compare only as times: as strings,
+    06:30:00.120Z sorts before 06:30:00Z."""
+    m = re.fullmatch(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(\.\d+)?(Z|[+-]\d\d:?\d\d)", stamp)
+    if not m:
+        return None
+    frac = (m.group(2) or ".")[1:7].ljust(6, "0")
+    zone = "+00:00" if m.group(3) == "Z" else m.group(3)[:3] + ":" + m.group(3)[-2:]
+    return datetime.fromisoformat(f"{m.group(1)}.{frac}{zone}")
+
+
 def logs(a):
     since = a.since or ""
+    start = moment(since) if since else None
     errors, early, warns = [], [], {}
     for line in open(a.journal, errors="replace"):
         m = re.search(r"\btime=(\S+)", line)
-        stamp = m.group(1) if m else line[:24]
+        at = moment(m.group(1) if m else line[:24])
+        # A line whose time can't be read counts as after the update.
+        later = start is None or at is None or at >= start
         if re.search(r"\blevel=ERROR\b|\bpanic:|fatal error:", line):
-            (errors if stamp >= since else early).append(line.rstrip())
-        elif re.search(r"\blevel=WARN\b", line) and stamp >= since:
+            (errors if later else early).append(line.rstrip())
+        elif re.search(r"\blevel=WARN\b", line) and later:
             msg = re.search(r'msg=("[^"]*"|\S+)', line)
             key = msg.group(1) if msg else line.rstrip()[-120:]
             warns[key] = warns.get(key, 0) + 1
