@@ -6865,11 +6865,11 @@ control "creators: no more memory than the allowance" internal/panel/creators.go
   ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
 control "creators: a server the owner gave them keeps its memory" internal/panel/creators.go \
   'if memoryMB != cur {' \
-  'if false {' \
+  'if false && memoryMB != cur {' \
   ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
 control "creators: they delete only the servers they created" internal/panel/creators.go \
   'if !slices.Contains(owned, r.PathValue("id")) {' \
-  'if false {' \
+  'if false && !slices.Contains(owned, r.PathValue("id")) {' \
   ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
 control "creators: a new server joins their servers" internal/panel/creators.go \
   'if !sc.All && !slices.Contains(sc.Servers, op.ServerID) {' \

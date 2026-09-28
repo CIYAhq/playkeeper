@@ -65,7 +65,7 @@ func TestCreatorsCreateTheirOwnServersInsideTheirAllowance(t *testing.T) {
 	e := newJoinEnv(t)
 	own := owner(t, e.env)
 	newCreatorAgent(e.env, "cafebabe23", "deadbeef45")
-	alex := addCreator(t, e.env, "alex", invites.Allowance{Servers: 1, MemoryMB: 4096})
+	alex := addCreator(t, e.env, "alex", invites.Allowance{Servers: 1, MemoryMB: 6144})
 	lena := addAdmin(t, e.env, "lena", sampleServer)
 	mid := machineID(t, e.env)
 	create := func(m member, body string) resp {
@@ -100,11 +100,11 @@ func TestCreatorsCreateTheirOwnServersInsideTheirAllowance(t *testing.T) {
 	if st := e.do(t, "GET", "/api/servers/cafebabe23", "", alex.auth()).status; st != http.StatusOK {
 		t.Fatalf("alex uses the server they created: %d", st)
 	}
-	if r := create(alex, `{"name":"two","acceptEula":true,"memoryMB":1024}`); r.status != http.StatusConflict {
-		t.Fatalf("a second server past the allowance: %d %v", r.status, r.body)
+	if r := create(alex, `{"name":"two","acceptEula":true,"memoryMB":2048}`); r.status != http.StatusConflict {
+		t.Fatalf("a second server past the allowance, though its memory fits: %d %v", r.status, r.body)
 	}
-	if opts := options(); len(opts) != 0 {
-		t.Fatalf("memory choices with the allowance used: %v", opts)
+	if opts := options(); !slices.Equal(opts, []any{float64(2048)}) {
+		t.Fatalf("memory choices with 2 GB of the allowance left: %v", opts)
 	}
 
 	if _, err := e.srv.db.Exec(`UPDATE project_members SET servers = ? WHERE user_id = ?`, sampleServer+",cafebabe23", alex.id); err != nil {
