@@ -978,5 +978,53 @@
       "ready": true,
       "fingerprint": "77fcf56fb7c883da3678016ea076caf0"
     }
+  },
+  "modrinth:UmLGoGij": {
+    "card": {
+      "source": "modrinth",
+      "projectId": "UmLGoGij",
+      "slug": "discordsrv",
+      "name": "DiscordSRV",
+      "author": "Scarsz",
+      "summary": "The most powerful, configurable, open-source Discord to Minecraft bridging plugin available.",
+      "categories": [
+        "management",
+        "social",
+        "utility"
+      ],
+      "license": "GPL-3.0-or-later",
+      "downloads": 517959,
+      "iconUrl": "https://cdn.modrinth.com/data/UmLGoGij/icon.png",
+      "updated": "2026-04-24T12:01:20.640408Z",
+      "pageUrl": "https://modrinth.com/plugin/discordsrv",
+      "installed": false
+    },
+    "latest": {
+      "versionId": "ATlquwiT",
+      "versionNumber": "1.30.5",
+      "channel": "release",
+      "published": "2026-04-24T12:01:20.640408Z",
+      "fileName": "DiscordSRV-Build-1.30.5.jar",
+      "size": 10653915
+    },
+    "plan": {
+      "steps": [
+        {
+          "action": "install",
+          "source": "modrinth",
+          "projectId": "UmLGoGij",
+          "name": "DiscordSRV",
+          "versionNumber": "1.30.5",
+          "channel": "release",
+          "fileName": "DiscordSRV-Build-1.30.5.jar",
+          "size": 10653915
+        }
+      ],
+      "manual": [],
+      "blockers": [],
+      "warnings": [],
+      "ready": true,
+      "fingerprint": "90e5fe5bcd22832ac774217edca10348"
+    }
   }
 }
