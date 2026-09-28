@@ -3,7 +3,6 @@ package site
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"html"
 	"io/fs"
@@ -99,41 +98,16 @@ func buildWith(extra fstest.MapFS) (*Output, error) {
 	return Build(Options{Root: mergedFS{os.DirFS("../.."), extra}, Settings: Default, Now: time.Now()})
 }
 
-// opened is cards.json with the templates ids opening in one click, as they
-// will once the release they wait for is out.
-func opened(t *testing.T, ids ...string) *fstest.MapFile {
-	t.Helper()
-	b, err := os.ReadFile("../../site/data/templates/cards.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var cards map[string]map[string]any
-	if err := json.Unmarshal(b, &cards); err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range ids {
-		if _, ok := cards[id]["opensFrom"]; !ok {
-			t.Fatalf("%s opens in one click already", id)
-		}
-		delete(cards[id], "opensFrom")
-	}
-	if b, err = json.Marshal(cards); err != nil {
-		t.Fatal(err)
-	}
-	return &fstest.MapFile{Data: b}
-}
-
 // A template's thumbnail takes the place of its pixel-art scene on its card,
 // its page and its category's picture, as a <picture> with both widths in
 // AVIF and WebP, asked for early where it's the first thing a page shows. A
-// template without one keeps its scene. Cobblemon opens in one click here,
-// so its modpack page shows its card.
+// template without one keeps its scene.
 func TestThumbnailsTakeTheScenesPlace(t *testing.T) {
 	plain := build(t, Default)
 	idx := indexOf(t, plain)
 	first := idx.Templates[0].ID
 	withThumb := map[string]bool{"towny": true, first: true, "survival-with-friends": true, "cobblemon": true}
-	extra := fstest.MapFS{"site/data/templates/cards.json": opened(t, "cobblemon")}
+	extra := fstest.MapFS{}
 	for id := range withThumb {
 		for k, v := range thumbFiles(id) {
 			extra[k] = v
