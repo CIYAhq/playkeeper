@@ -3,7 +3,7 @@
 // the assets in site/static and web/src/assets under hashed names. Facts the
 // product owns come from the product: the server types from minecraft.Types,
 // the templates' links from internal/templates, the version from
-// CHANGELOG.md.
+// site/data/release.json, which names the latest published release.
 package site
 
 import (
@@ -158,18 +158,34 @@ func Build(o Options) (*Output, error) {
 
 var reRelease = regexp.MustCompile(`(?m)^## (\d+\.\d+\.\d+)\s*$`)
 
-// releaseVersion is the newest version CHANGELOG.md has a section for: the
-// release the site describes.
+// releaseVersion is the release the site describes: the latest published
+// one, which site/data/release.json names and a release's own commit
+// updates. CHANGELOG.md must have its section. A newer section there is a
+// release still being put together, so the site never says it's out.
 func releaseVersion(root fs.FS) (string, error) {
-	b, err := fs.ReadFile(root, "CHANGELOG.md")
+	b, err := fs.ReadFile(root, "site/data/release.json")
 	if err != nil {
 		return "", err
 	}
-	m := reRelease.FindSubmatch(b)
-	if m == nil {
-		return "", fmt.Errorf("CHANGELOG.md has no ## X.Y.Z section")
+	var r struct {
+		Version string `json:"version"`
 	}
-	return string(m[1]), nil
+	if err := json.Unmarshal(b, &r); err != nil {
+		return "", fmt.Errorf("site/data/release.json: %w", err)
+	}
+	if !reRelease3.MatchString(r.Version) {
+		return "", fmt.Errorf("site/data/release.json: version %q isn't MAJOR.MINOR.PATCH", r.Version)
+	}
+	c, err := fs.ReadFile(root, "CHANGELOG.md")
+	if err != nil {
+		return "", err
+	}
+	for _, m := range reRelease.FindAllSubmatch(c, -1) {
+		if string(m[1]) == r.Version {
+			return r.Version, nil
+		}
+	}
+	return "", fmt.Errorf("site/data/release.json names %s, but CHANGELOG.md has no ## %s section", r.Version, r.Version)
 }
 
 // expand runs a page setting that uses the templates' functions, like
@@ -643,7 +659,21 @@ func (s *Site) funcs() template.FuncMap {
 			return "", nil
 		},
 		"providers": func() []Provider { return providers },
-		"sizing":    func() SizingGuide { return s.sizing },
+		"provider":  provider,
+		// pagePartner is the provider whose partner links the page carries,
+		// or nil while it has none.
+		"pagePartner": func(p *Page) (*Provider, error) {
+			if p.Partner == "" {
+				return nil, nil
+			}
+			pr, err := provider(p.Partner)
+			if err != nil || pr.Partner == "" {
+				return nil, err
+			}
+			return pr, nil
+		},
+		"partnerNote": partnerNote,
+		"sizing":      func() SizingGuide { return s.sizing },
 		// sizingFor is the sizing guide's answer for friends playing at once
 		// on a workload ("vanilla", "add-ons" or "modpack").
 		"sizingFor": func(players int, workload string) (sizing.Recommendation, error) {
@@ -676,6 +706,7 @@ func (s *Site) funcs() template.FuncMap {
 		// later, or Debian 12 or later", or "Ubuntu 20.04+ or Debian 12+".
 		"systems":      platform.Summary,
 		"systemsShort": platform.Short,
+		"systemRanges": systemRanges,
 		// The one-line installer (Settings.InstallCommand), on one line, in
 		// the three a phone shows, and wrapped before its pipe for a terminal.
 		"installCommand": func() string { return s.opts.Settings.InstallCommand },
@@ -687,7 +718,6 @@ func (s *Site) funcs() template.FuncMap {
 			}
 			return before + " \\\n    | " + after
 		},
-		"referral":  anyReferral,
 		"checked":   func() string { return Day(checkedProviders) },
 		"posts":     func() []*Page { return s.posts },
 		"docGroups": func() []DocGroup { return s.docs.groups },

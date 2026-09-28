@@ -25,6 +25,11 @@ type HTTP01Responder struct {
 	// Empty means the responder does not listen itself: serve it as an
 	// http.Handler on port 80 instead.
 	Addr string
+	// Shared, when set, is asked when Addr is taken: whether whatever
+	// listens there passes the check for token on to this responder and
+	// answers keyAuth, as Playkeeper's public page does. Then the check goes
+	// ahead without listening.
+	Shared func(token, keyAuth string) bool
 
 	mu      sync.Mutex
 	tokens  map[string]string
@@ -44,9 +49,7 @@ func (h *HTTP01Responder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	h.mu.Lock()
-	keyAuth, ok := h.tokens[token]
-	h.mu.Unlock()
+	keyAuth, ok := h.KeyAuthorization(token)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -55,21 +58,54 @@ func (h *HTTP01Responder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, keyAuth)
 }
 
+// Idle runs fn while the responder isn't listening on Addr, and keeps it
+// from starting to until fn returns; it reports false, without running
+// fn, while the responder listens.
+func (h *HTTP01Responder) Idle(fn func()) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.srv != nil {
+		return false
+	}
+	fn()
+	return true
+}
+
+// KeyAuthorization is the answer to the pending check for token.
+func (h *HTTP01Responder) KeyAuthorization(token string) (string, bool) {
+	if !reToken.MatchString(token) {
+		return "", false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	keyAuth, ok := h.tokens[token]
+	return keyAuth, ok
+}
+
 // Present answers the check for token with keyAuth until release is
 // called. While any token is pending the responder listens on Addr; it
-// stops listening when the last one is released. Errors are *Problems that
-// explain a busy or forbidden port.
+// stops listening when the last one is released. When Addr is taken and
+// Shared reports that its holder passes the check on, it goes ahead
+// without listening. Errors are *Problems that explain a busy or forbidden
+// port.
 func (h *HTTP01Responder) Present(token, keyAuth string) (release func(), err error) {
 	if !reToken.MatchString(token) {
 		return nil, newProblem(errors.New("the certificate authority sent an invalid token"), CodeCAError, nil)
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.Addr != "" && h.srv == nil {
-		ln, err := net.Listen("tcp", h.Addr)
-		if err != nil {
-			return nil, listenProblem(h.Addr, err)
-		}
+	if h.tokens == nil {
+		h.tokens = map[string]string{}
+	}
+	h.tokens[token] = keyAuth
+	h.pending++
+	var once sync.Once
+	release = func() { once.Do(func() { h.release(token) }) }
+	if h.Addr == "" || h.srv != nil {
+		h.mu.Unlock()
+		return release, nil
+	}
+	ln, err := net.Listen("tcp", h.Addr)
+	if err == nil {
 		srv := &http.Server{
 			Handler:           h,
 			ReadHeaderTimeout: 10 * time.Second,
@@ -81,14 +117,17 @@ func (h *HTTP01Responder) Present(token, keyAuth string) (release func(), err er
 		}
 		go srv.Serve(ln)
 		h.srv = srv
+		h.mu.Unlock()
+		return release, nil
 	}
-	if h.tokens == nil {
-		h.tokens = map[string]string{}
+	h.mu.Unlock()
+	// The holder is asked without the lock, as it passes the check back to
+	// this responder.
+	if errors.Is(err, syscall.EADDRINUSE) && h.Shared != nil && h.Shared(token, keyAuth) {
+		return release, nil
 	}
-	h.tokens[token] = keyAuth
-	h.pending++
-	var once sync.Once
-	return func() { once.Do(func() { h.release(token) }) }, nil
+	release()
+	return nil, listenProblem(h.Addr, err)
 }
 
 func (h *HTTP01Responder) release(token string) {

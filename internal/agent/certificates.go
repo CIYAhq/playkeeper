@@ -205,7 +205,7 @@ func (a *Agent) issueCertificate(ctx context.Context, h *opHandle) error {
 		if !nc.OK {
 			return &apiError{Status: http.StatusConflict, Code: nc.Code, Msg: nc.Message, Hint: nc.Hint, Params: noteParams(nc.Params)}
 		}
-		req.HTTP01 = &certs.HTTP01Responder{Addr: a.opts.HTTP01Addr}
+		req.HTTP01 = a.http01
 		challenge = "http-01"
 	default:
 		return errConflict("This machine has no address to get a certificate for.", "")

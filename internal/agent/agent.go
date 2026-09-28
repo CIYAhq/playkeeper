@@ -177,6 +177,15 @@ type Options struct {
 	// MapAddr maps the container address to squaremap's address (tests).
 	MapAddr func(containerIP string) string
 
+	// 0.4.3: the public page. PageHTTPSAddr and PageHTTPAddr are the ports
+	// the agent opens for it (default ":443" and ":80"), Uptime is how long
+	// the machine has been up (default: from /proc/uptime), and SystemdDir
+	// is where services set to start with the machine are linked (default
+	// /etc/systemd/system).
+	PageHTTPSAddr, PageHTTPAddr string
+	Uptime                      func() time.Duration
+	SystemdDir                  string
+
 	// Usage stats (internal/usage). UsageFirst is how long after starting
 	// the agent sends its first heartbeat (default a minute) and
 	// UsageInterval how often after that (default 12 hours; negative turns
@@ -309,6 +318,12 @@ type Agent struct {
 	// it downloads, and pruning deletes only when it can hold it alone.
 	copyReads sync.RWMutex
 
+	// 0.4.3: the ports handed to the panel for the public page, and the one
+	// responder for Let's Encrypt's HTTP-01 checks, which the page's port 80
+	// passes checks on to while the panel holds it.
+	pagePorts pagePorts
+	http01    *certs.HTTP01Responder
+
 	usage usageState
 }
 
@@ -418,6 +433,18 @@ func New(opts Options) (*Agent, error) {
 	if opts.MapAddr == nil {
 		opts.MapAddr = func(ip string) string { return net.JoinHostPort(ip, strconv.Itoa(webmap.Port)) }
 	}
+	if opts.PageHTTPSAddr == "" {
+		opts.PageHTTPSAddr = ":443"
+	}
+	if opts.PageHTTPAddr == "" {
+		opts.PageHTTPAddr = ":80"
+	}
+	if opts.Uptime == nil {
+		opts.Uptime = uptime
+	}
+	if opts.SystemdDir == "" {
+		opts.SystemdDir = "/etc/systemd/system"
+	}
 	if opts.UsageFirst == 0 {
 		opts.UsageFirst = time.Minute
 	}
@@ -485,6 +512,7 @@ func New(opts Options) (*Agent, error) {
 
 		mapClient: webmap.NewClient(),
 	}
+	a.http01 = &certs.HTTP01Responder{Addr: opts.HTTP01Addr, Shared: a.pageRelaysChallenge}
 	a.usage.kick = make(chan struct{}, 1)
 	a.loadPacks()
 	a.ctx, a.cancel = context.WithCancel(context.Background())
@@ -953,6 +981,16 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/servers/{id}/map/restart-later", srv((*server).hMapRestartLater)},
 		{"GET", "/v1/public-maps/{token}", a.hPublicMap},
 		{"GET", "/v1/public-maps/{token}/{rest...}", a.hPublicMapProxy},
+		// 0.4.3: the public page at the machine's address, the ports it
+		// answers on, and Let's Encrypt's checks passed on from its port 80.
+		{"GET", "/v1/servers/{id}/public-page", srv((*server).hPublicPage)},
+		{"POST", "/v1/servers/{id}/public-page", srv((*server).hPublicPageSet)},
+		{"GET", "/v1/public-page", a.hPublicPageData},
+		{"GET", "/v1/public-page/state", a.hPublicPageState},
+		{"GET", "/v1/public-page/icons/{slug}", a.hPublicPageIcon},
+		{"POST", pagePortsPath, a.hPublicPagePorts},
+		{"POST", "/v1/public-page/ports/retry", a.hPublicPagePortsRetry},
+		{"GET", "/v1/acme-challenge/{token}", a.hACMEChallenge},
 		// Wave 6: worlds people upload, for a new server or to replace one's world.
 		{"POST", "/v1/servers/{id}/world-imports", srv((*server).hWorldImportNew)},
 		{"POST", "/v1/world-imports", a.hWorldImportNewServer},

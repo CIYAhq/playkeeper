@@ -27,7 +27,7 @@ schema: article
 {{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
 <section aria-labelledby="needs">
   {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What a Cobblemon server needs" "Toc" "What it needs")}}
-  {{template "modpack-facts" (dict "Pack" $m "Version" .Site.Version)}}
+  {{template "modpack-facts" (dict "Pack" $m)}}
   <p>The pack also comes in a NeoForge edition. The server and its players need the same edition and version.</p>
 </section>
 

@@ -2541,3 +2541,134 @@ type FileUploadFileRequest struct {
 	Replace bool   `json:"replace,omitempty"`
 	Actor   string `json:"actor"`
 }
+
+// Public server page (from 0.4.3): what anyone who opens the machine's
+// address in a browser sees, on ports 443 and 80.
+
+// PublicPageSettings are a server's switches for the public page: whether
+// it is on the page, and whether the page names who's playing.
+type PublicPageSettings struct {
+	Enabled bool `json:"enabled"`
+	Players bool `json:"players"`
+}
+
+// PublicPageRequest changes the switches that are set.
+type PublicPageRequest struct {
+	Enabled *bool  `json:"enabled,omitempty"`
+	Players *bool  `json:"players,omitempty"`
+	Actor   string `json:"actor"`
+}
+
+// PublicPageView is a server's public page as the dashboard shows it.
+type PublicPageView struct {
+	PublicPageSettings
+	// Host is the machine's address, where the page answers; empty without
+	// one.
+	Host string `json:"host,omitempty"`
+	// Ports says whether browsers reach the page; the panel fills it in.
+	Ports *PublicPagePorts `json:"ports,omitempty"`
+}
+
+// PublicPageState is what the panel needs to serve the page: the address
+// it answers for, and whether any server is on it.
+type PublicPageState struct {
+	Host string `json:"host,omitempty"`
+	On   bool   `json:"on"`
+}
+
+// PagePortsRequest names the ports the panel asks the agent to open for
+// the page: those it doesn't hold already.
+type PagePortsRequest struct {
+	HTTPS bool `json:"https"`
+	HTTP  bool `json:"http"`
+}
+
+// PublicPagePorts says whether the page answers on ports 443 and 80.
+type PublicPagePorts struct {
+	HTTPS PagePort `json:"https"`
+	HTTP  PagePort `json:"http"`
+}
+
+// States of a public page port.
+const (
+	// PortOpen: the page answers on the port.
+	PortOpen = "open"
+	// PortBusy: another program listens on it; Holder names it when
+	// Playkeeper can tell.
+	PortBusy = "busy"
+	// PortClaimed: a Docker container publishes it, or a web server set to
+	// start with the machine would listen on it; Holder names which.
+	PortClaimed = "claimed"
+	// PortWaiting: the machine started moments ago, and Playkeeper leaves
+	// the port to the programs that start with it for a few minutes.
+	PortWaiting = "waiting"
+	// PortDenied: the system doesn't let Playkeeper listen on it.
+	PortDenied = "denied"
+	// PortOff: the page is off, or the machine has no address.
+	PortOff = "off"
+)
+
+// PagePort is one port of the public page.
+type PagePort struct {
+	Port   int    `json:"port"`
+	State  string `json:"state"`
+	Holder string `json:"holder,omitempty"`
+}
+
+// PublicPage is what the public page shows: the servers that are on it,
+// in display order.
+type PublicPage struct {
+	Address string         `json:"address"`
+	Servers []PublicServer `json:"servers"`
+}
+
+// Public states of a server: joining a sleeping server wakes it.
+const (
+	PublicOnline   = "online"
+	PublicStarting = "starting"
+	PublicSleeping = "sleeping"
+	PublicOffline  = "offline"
+)
+
+// PublicServer is one server on the public page. It holds only what the
+// page shows: no player names unless the owner shows them, no IP address,
+// no crash, backup or machine details.
+type PublicServer struct {
+	// Slug names the server's icon at /api/public/server-page/icons/<slug>.
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+	MOTD string `json:"motd"`
+	// Address is what players type: the server's own address once it
+	// works, else the machine's address with the server's port.
+	Address string `json:"address"`
+	// State is PublicOnline, PublicStarting, PublicSleeping or
+	// PublicOffline.
+	State string `json:"state"`
+	// Players is who's online while it runs; Names only while the owner
+	// shows them.
+	Players          *PublicPlayers `json:"players,omitempty"`
+	MinecraftVersion string         `json:"minecraftVersion"`
+	Type             string         `json:"type"`
+	Modpack          *PublicModpack `json:"modpack,omitempty"`
+	// Map is the shared map's link while it is shared, and Pack the
+	// friends' pack page's.
+	Map  string `json:"map,omitempty"`
+	Pack string `json:"pack,omitempty"`
+	// InviteOnly: the allowlist is on, so only players the owner adds can
+	// join.
+	InviteOnly bool `json:"inviteOnly"`
+	HasIcon    bool `json:"hasIcon"`
+}
+
+// PublicPlayers is how many are online, of how many the server lets in.
+type PublicPlayers struct {
+	Online int      `json:"online"`
+	Max    int      `json:"max"`
+	Names  []string `json:"names,omitempty"`
+}
+
+// PublicModpack is the modpack a server runs.
+type PublicModpack struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
