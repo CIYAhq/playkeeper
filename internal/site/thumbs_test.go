@@ -151,7 +151,11 @@ func TestThumbnailsTakeTheScenesPlace(t *testing.T) {
 		if i < PerPage && photo != withThumb[e.ID] {
 			t.Errorf("/templates shows %s's thumbnail %v, want %v", e.ID, photo, withThumb[e.ID])
 		}
-		if withThumb[e.ID] != (len(e.Thumb) == 2) || (len(e.Thumb) == 2 && (!strings.Contains(e.Thumb[0], e.ID+"-480w.") || !strings.Contains(e.Thumb[1], e.ID+"-960w."))) {
+		named := len(e.Thumb) == len(thumbWidths)
+		for i, w := range thumbWidths {
+			named = named && strings.Contains(e.Thumb[i], fmt.Sprintf("%s-%dw.", e.ID, w))
+		}
+		if withThumb[e.ID] != (len(e.Thumb) > 0) || (len(e.Thumb) > 0 && !named) {
 			t.Errorf("the index gives %s the thumbnail %v", e.ID, e.Thumb)
 		}
 		page := built[e.Page]
@@ -238,8 +242,8 @@ func TestThumbnailMistakesStopTheBuild(t *testing.T) {
 		},
 		"a width short": func(m fstest.MapFS) { delete(m, "site/static/shots/templates/towny-960w.avif") },
 		"another width": func(m fstest.MapFS) {
-			m["site/static/shots/templates/towny-1200w.webp"] = &fstest.MapFile{Data: fakeWebP(1200, 750)}
-			m["site/static/shots/templates/towny-1200w.avif"] = &fstest.MapFile{Data: fakeAVIF(1200, 750)}
+			m["site/static/shots/templates/towny-1600w.webp"] = &fstest.MapFile{Data: fakeWebP(1600, 1000)}
+			m["site/static/shots/templates/towny-1600w.avif"] = &fstest.MapFile{Data: fakeAVIF(1600, 1000)}
 		},
 		"a file that isn't a thumbnail": func(m fstest.MapFS) {
 			m["site/static/shots/templates/towny.webp"] = &fstest.MapFile{Data: fakeWebP(960, 600)}
