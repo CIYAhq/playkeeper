@@ -90,6 +90,7 @@ TestBackupRulesThatCantBeReadDeleteNothing 13.3
 TestBackupWaitsUntilTheServerIsOnline 2.1
 TestBackupWarningSaysWhenTheServerStops 0.0
 TestBackupWithoutRoomNeverTouchesTheServer 2.1
+TestBedrockPlayersJoinTheAllowlistThroughFloodgate 7.1
 TestBuildListWaitersGetWhatTheFetchFound 0.0
 TestCPUStealExplainsLag 2.2
 TestCancellingARestoreFromACopyLeavesTheServerAsItWas 2.2

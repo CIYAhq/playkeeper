@@ -139,6 +139,68 @@ func TestCrossplaySwitchOpensItsPortAndInstallsBothPlugins(t *testing.T) {
 	}
 }
 
+// With crossplay on, the Players tab adds a Bedrock player to the allowlist
+// by their Xbox gamertag after Floodgate's dot, through Floodgate's own
+// command, and waits for Floodgate to write the list, as it did on a real
+// Paper 26.2 server: nothing said over RCON, the entry a moment later.
+func TestBedrockPlayersJoinTheAllowlistThroughFloodgate(t *testing.T) {
+	e := newAgentEnv(t)
+	withCrossplayProjects(e.withSources())
+	e.create()
+	e.waitFor("online", e.onlineIdle)
+	add := map[string]any{"actor": "admin", "name": ".Notch"}
+	if code, out := e.callWhenFree("POST", e.sp("/whitelist"), add); code != 400 {
+		t.Fatalf("a Bedrock name without crossplay: %d %v", code, out)
+	}
+	if op := e.crossplayOp(true); op.Status != api.OpSucceeded {
+		t.Fatalf("crossplay on: %+v", op)
+	}
+	e.waitFor("online with crossplay", e.onlineIdle)
+
+	list := filepath.Join(e.dataDir(), "whitelist.json")
+	notch := `[{"uuid":"00000000-0000-0000-0009-01fb54b26482","name":".Notch"}]`
+	e.rcon.answer = func(cmd string) (string, bool) {
+		switch cmd {
+		case "fwhitelist add Notch":
+			go func() {
+				time.Sleep(300 * time.Millisecond)
+				os.WriteFile(list, []byte(notch), 0o644)
+			}()
+			return "", true
+		case "fwhitelist remove Notch":
+			os.WriteFile(list, []byte("[]"), 0o644)
+			return "", true
+		case "fwhitelist add Nobody":
+			return "", true
+		}
+		return "", false
+	}
+	defer func(w time.Duration) { bedrockListWait = w }(bedrockListWait)
+	bedrockListWait = 2 * time.Second
+
+	code, out := e.callWhenFree("POST", e.sp("/whitelist"), add)
+	if code != 200 || out["added"] != true || !strings.Contains(out["message"].(string), ".Notch") || len(out["whitelist"].([]any)) != 1 {
+		t.Fatalf("add a Bedrock player: %d %v", code, out)
+	}
+	if code, out := e.callWhenFree("POST", e.sp("/whitelist"), add); code != 200 || out["added"] == true {
+		t.Fatalf("add them again: %d %v", code, out)
+	}
+	if code, out := e.callWhenFree("POST", e.sp("/whitelist"), map[string]any{"actor": "admin", "name": ".Nobody"}); code != 422 || !strings.Contains(out["error"].(string), "no Bedrock player called Nobody") {
+		t.Fatalf("a gamertag Floodgate can't find: %d %v", code, out)
+	}
+	if code, out := e.callWhenFree("DELETE", e.sp("/whitelist/.Notch")+"?actor=admin", nil); code != 200 || len(out["whitelist"].([]any)) != 0 {
+		t.Fatalf("remove a Bedrock player: %d %v", code, out)
+	}
+	for _, bad := range []string{".", ".no spaces", ".way-too-long-for-a-gamertag", "..Notch"} {
+		if code, _ := e.callWhenFree("POST", e.sp("/whitelist"), map[string]any{"actor": "admin", "name": bad}); code != 400 {
+			t.Errorf("%q: %d, want 400", bad, code)
+		}
+	}
+	if e.rcon.count("fwhitelist add Notch") != 1 {
+		t.Errorf("Floodgate was asked %d times to add Notch", e.rcon.count("fwhitelist add Notch"))
+	}
+}
+
 // A crossplay install that fails closes the port it opened and leaves
 // neither plugin behind; one that can't have a port installs nothing.
 func TestCrossplayThatFailsClosesItsPort(t *testing.T) {
