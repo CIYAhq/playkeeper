@@ -60,7 +60,7 @@
 .facet-opt { position: relative; display: flex; align-items: center; gap: 10px; min-height: 36px; margin: 0 -8px; padding: 4px 8px; border-radius: 9px; color: var(--ink); font-size: 15px; font-weight: 500; line-height: 1.3; cursor: pointer; user-select: none; transition: background-color 0.12s; }
 .facet-opt:hover { background: rgb(29 33 28 / 0.045); }
 .facet-opt.is-extra { display: none; }
-.facet.is-open .facet-opt.is-extra { display: flex; }
+.facet.is-open .facet-opt.is-extra, .facet-opt.is-extra:has(:checked) { display: flex; }
 .facet-input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
 .facet-box { display: grid; flex: none; place-items: center; width: 20px; height: 20px; border: 1.5px solid #c9cbc1; border-radius: 6px; background: var(--white); color: var(--white); transition: background-color 0.12s, border-color 0.12s, transform 0.12s var(--ease); }
 .facet-box .icon { width: 14px; height: 14px; stroke-width: 3; opacity: 0; transform: scale(0.6); transition: opacity 0.12s, transform 0.16s var(--ease-out); }
