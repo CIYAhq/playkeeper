@@ -357,10 +357,21 @@ func TestServerTypesFollowTheProduct(t *testing.T) {
 		if hasForge != forge {
 			t.Errorf("forge %v: the logo row shows Forge: %v", forge, hasForge)
 		}
-		for _, p := range []string{landing, feature, guide, built["/blog/playkeeper-0-4-0"]} {
+		addMods := built["/guides/add-mods-to-minecraft-server"]
+		for _, p := range []string{landing, feature, guide, addMods, built["/blog/playkeeper-0-4-0"]} {
 			if strings.Contains(p, "Forge isn") || strings.Contains(p, "No Forge") {
 				t.Errorf("forge %v: a page still says Forge isn't in Playkeeper", forge)
 			}
+		}
+		if got := strings.Count(addMods, `<span class="loader-cell">`); got != n {
+			t.Errorf("forge %v: the add-mods guide's table has %d server types, want %d", forge, got, n)
+		}
+		wantOr := "Fabric, Quilt or NeoForge"
+		if forge {
+			wantOr = "Fabric, Quilt, NeoForge or Forge"
+		}
+		if !strings.Contains(addMods, "Mods need "+wantOr+", so start") {
+			t.Errorf("forge %v: the add-mods guide doesn't name the loaders as %s", forge, wantOr)
 		}
 		if got := strings.Contains(guide, "Forge servers run Forge mods from Modrinth"); got != forge {
 			t.Errorf("forge %v: the guide's Forge answer says Forge runs: %v", forge, got)
@@ -815,17 +826,98 @@ func TestCrumbsLinkTheirHub(t *testing.T) {
 }
 
 // A guide's contents use a heading's short label when it has one, and end
-// with its questions.
+// with its questions. Its install card says what the guide's side-title and
+// side-text parts say, or the modded guide's words when it has none.
 func TestGuideContents(t *testing.T) {
-	guide := pages(build(t, Default))["/guides/modded-minecraft-server"]
-	start := strings.Index(guide, `<nav class="toc" data-toc>`)
-	if start < 0 {
-		t.Fatal("the modded server guide has no contents")
+	built := pages(build(t, Default))
+	for path, want := range map[string]struct {
+		toc  []string
+		side string
+	}{
+		"/guides/modded-minecraft-server":      {[]string{`<a href="#manual">The manual way</a>`, `<a href="#memory">How much memory</a>`}, "<p class=\"side-install-title\">Skip the manual steps</p>\n        <p>Playkeeper installs modpacks in one click.</p>"},
+		"/guides/add-mods-to-minecraft-server": {[]string{`<a href="#loader">Can your server run mods?</a>`, `<a href="#manual">Add the files by hand</a>`}, "<p class=\"side-install-title\">Skip the manual steps</p>\n        <p>Playkeeper adds a mod and what it needs in one click.</p>"},
+		"/guides/play-minecraft-with-friends":  {[]string{`<a href="#friends-list">Add friends on Java</a>`, `<a href="#own-server">Your own server</a>`}, "<p class=\"side-install-title\">Always on, no port</p>"},
+		"/guides/minecraft-server-cost":        {[]string{`<a href="#vps">A VPS by size</a>`, `<a href="#cheapest">The cheapest reliable setup</a>`}, "<p class=\"side-install-title\">Only the VPS to pay for</p>"},
+	} {
+		guide := built[path]
+		start := strings.Index(guide, `<nav class="toc" data-toc>`)
+		if start < 0 {
+			t.Errorf("%s has no contents", path)
+			continue
+		}
+		toc := guide[start : start+strings.Index(guide[start:], "</nav>")]
+		for _, w := range append(want.toc, `<a href="#questions">Questions</a></li></ol>`) {
+			if !strings.Contains(toc, w) {
+				t.Errorf("%s's contents lack %s", path, w)
+			}
+		}
+		if !strings.Contains(guide, want.side) {
+			t.Errorf("%s's install card doesn't say %q", path, want.side)
+		}
 	}
-	toc := guide[start : start+strings.Index(guide[start:], "</nav>")]
-	for _, want := range []string{`<a href="#manual">The manual way</a>`, `<a href="#memory">How much memory</a>`, `<a href="#questions">Questions</a>`} {
-		if !strings.Contains(toc, want) {
-			t.Errorf("the guide's contents lack %s", want)
+}
+
+// The cost guide's VPS prices are the providers' plans, dated with the day
+// they were checked: each of its groups needs what the sizing guide says,
+// and shows the plan that fits at each provider, with its price. "From" is
+// the cheapest plan for the sizing guide's smallest answer, on the cost
+// guide and the friends guide alike.
+func TestCostGuideFollowsTheSizingGuideAndThePlans(t *testing.T) {
+	built := pages(build(t, Default))
+	cost, friends := built["/guides/minecraft-server-cost"], built["/guides/play-minecraft-with-friends"]
+	for _, p := range providers {
+		for _, pl := range p.Plans {
+			if pl.USD <= 0 || (pl.Renews != 0 && pl.Renews <= pl.USD) {
+				t.Errorf("%s %s has no price, or renews for less than its first price: %+v", p.Name, pl.Name, pl)
+			}
+		}
+	}
+	if !strings.Contains(cost, "checked "+Day(checkedProviders)+" on each provider") {
+		t.Errorf("the cost guide doesn't date its VPS prices with %s", Day(checkedProviders))
+	}
+	for _, g := range []struct {
+		players  int
+		workload sizing.Workload
+	}{{4, sizing.Vanilla}, {8, sizing.AddOns}, {4, sizing.Modpack}} {
+		r, err := sizing.Recommend(g.workload, g.players)
+		if err != nil {
+			t.Fatal(err)
+		}
+		row := between(cost, `<th scope="row">`+r.Band.Label()+" friends "+sizingPhrase(r)+"</th>", "</tr>")
+		if !strings.Contains(row, fmt.Sprintf(`<td data-col="Needs">%d GB · %d cores</td>`, r.MemoryGB, r.Cores)) {
+			t.Errorf("the cost guide has no row for %s friends %s needing %d GB and %d cores: %q", r.Band.Label(), sizingPhrase(r), r.MemoryGB, r.Cores, row)
+			continue
+		}
+		for _, p := range providers {
+			pl := p.Fit(r.MemoryGB, r.Cores)
+			want := fmt.Sprintf("%s, %d GB: <strong>%s</strong>", pl.Name, pl.MemoryGB, usd(pl.USD))
+			if pl.Renews != 0 {
+				want += ", then " + usd(pl.Renews)
+			}
+			if !strings.Contains(row, `<td data-col="`+p.Name+`"><span>`+want+"</span></td>") {
+				t.Errorf("the cost guide's %s row doesn't show %s's %s", r.Band.Label()+" "+string(g.workload), p.Name, want)
+			}
+		}
+	}
+	r, err := sizing.Recommend(sizing.Vanilla, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := cheapestFit(r.MemoryGB, r.Cores)
+	for _, p := range providers {
+		if pl := p.Fit(r.MemoryGB, r.Cores); pl.Name != "" && pl.USD < from.USD {
+			t.Errorf("%s's %s costs less than the cheapest fit, %s's %s", p.Name, pl.Name, from.Provider, from.Name)
+		}
+	}
+	if want := fmt.Sprintf("From %s for %d GB", usd(from.USD), from.MemoryGB); !strings.Contains(cost, want) {
+		t.Errorf("the cost guide doesn't say %q", want)
+	}
+	if want := "From " + usd(from.USD) + " a month on a VPS"; !strings.Contains(friends, want) {
+		t.Errorf("the friends guide doesn't say %q", want)
+	}
+	for v, want := range map[float64]string{20: "$20", 8.99: "$8.99", 252: "$252", 14.5: "$14.50"} {
+		if got := usd(v); got != want {
+			t.Errorf("usd(%v) = %q, want %q", v, got, want)
 		}
 	}
 }
@@ -944,10 +1036,13 @@ func TestStructuredDataIsJSON(t *testing.T) {
 		blocks(p)
 	}
 	for p, types := range map[string][]string{
-		"/":                               {"SoftwareApplication", "FAQPage"},
-		"/guides/modded-minecraft-server": {"Article", "FAQPage"},
-		"/blog/playkeeper-0-4-0":          {"BlogPosting", "BreadcrumbList"},
-		"/features/mods-and-modpacks":     {"BreadcrumbList", "FAQPage"},
+		"/":                                    {"SoftwareApplication", "FAQPage"},
+		"/guides/modded-minecraft-server":      {"Article", "FAQPage"},
+		"/guides/add-mods-to-minecraft-server": {"Article", "FAQPage"},
+		"/guides/play-minecraft-with-friends":  {"Article", "FAQPage"},
+		"/guides/minecraft-server-cost":        {"Article", "FAQPage"},
+		"/blog/playkeeper-0-4-0":               {"BlogPosting", "BreadcrumbList"},
+		"/features/mods-and-modpacks":          {"BreadcrumbList", "FAQPage"},
 	} {
 		got := blocks(p)
 		for _, typ := range types {

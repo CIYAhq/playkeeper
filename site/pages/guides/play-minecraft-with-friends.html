@@ -1,0 +1,174 @@
+{{/*
+path: /guides/play-minecraft-with-friends
+title: How to play Minecraft Java with friends: every way (2026)
+description: How to play Minecraft: Java Edition with friends in 2026: the friends list, Open to LAN, a tunnel, Realms, a free host or your own server, with steps.
+label: Play with friends
+h1: How to play Minecraft Java with friends (2026)
+card: How to play Minecraft Java with friends
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: play-minecraft-with-friends
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}Pick one way to share a world: Open to LAN on the same Wi-Fi, a tunnel mod like e4mc for friends elsewhere, Realms for $7.99 a month, a free host with a queue, or your own server that's always on. Everyone needs the same Minecraft version. The friends list shows who's online, but can't join worlds yet.{{end}}
+
+{{define "closing-title"}}An always-on server for your friends, one command away.{{end}}
+{{define "closing-sub"}}Free and open source. Friends join at a free name, with an invite link.{{end}}
+
+{{define "side-title"}}Always on, no port{{end}}
+{{define "side-text"}}Playkeeper runs your server on a VPS, with a free address and invite links.{{end}}
+
+{{define "article"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+{{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
+{{$vps := vpsFrom}}
+<section aria-labelledby="ways">
+  {{template "h2n" (dict "ID" "ways" "N" 1 "Text" "Every way, compared")}}
+  <p>Java has five ways to play together. They differ in what they cost, whether friends can be somewhere else, and whether the world stays up when the host logs off.</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="compare stack">
+      <caption>Realms from minecraft.net and VPS plans from their providers, checked {{day "2026-09-28"}}.</caption>
+      <thead><tr><td></td><th scope="col">Costs</th><th scope="col">Friends elsewhere</th><th scope="col">Up without the host</th><th scope="col">Mods and plugins</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Open to LAN</th><td data-col="Costs">Free</td><td data-col="Elsewhere">No</td><td data-col="Without host">No</td><td data-col="Mods">Mods, if all have them</td></tr>
+        <tr><th scope="row">LAN and a tunnel</th><td data-col="Costs">Free</td><td data-col="Elsewhere">Yes</td><td data-col="Without host">No</td><td data-col="Mods">Mods, if all have them</td></tr>
+        <tr><th scope="row">Realms</th><td data-col="Costs">$7.99 a month</td><td data-col="Elsewhere">Yes, 10 at once</td><td data-col="Without host">Yes</td><td data-col="Mods">No</td></tr>
+        <tr><th scope="row">A free host</th><td data-col="Costs">Free</td><td data-col="Elsewhere">Yes</td><td data-col="Without host">Until it's empty</td><td data-col="Mods">Depends on the host</td></tr>
+        <tr><th scope="row">Your own server</th><td data-col="Costs">From {{usd $vps.USD}} a month on a VPS</td><td data-col="Elsewhere">Yes</td><td data-col="Without host">Yes</td><td data-col="Mods">Both</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-labelledby="friends-list">
+  {{template "h2n" (dict "ID" "friends-list" "N" 2 "Text" "Add friends on Java: the friends list" "Toc" "Add friends on Java")}}
+  <p>Since Minecraft 26.2, Java Edition has a friends list. It shows who's online and where they play.</p>
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Open the friends list" "Text" "Friends, on the title screen or the pause menu, or press O.")
+    (dict "Title" "Send a request" "Text" "Type their profile name, the name they play under. Xbox friends who own Java show up by themselves.")
+    (dict "Title" "Accept theirs" "Text" "Requests wait under Pending until you accept or decline them.")
+  ))}}
+  <p>Each friend shows as Online, Online (LAN), Online (World), Online (Realm) or Online (Server). It can't take you into a friend's world yet: Mojang tested invites to singleplayer worlds in a 26.2 snapshot and took them out before release, and 26.3 doesn't have them either. To play together, pick one of the ways below.</p>
+</section>
+
+<section aria-labelledby="lan">
+  {{template "h2n" (dict "ID" "lan" "N" 3 "Text" "Open to LAN, on the same Wi-Fi" "Toc" "Open to LAN")}}
+  <p>Free and quick when everyone is in the same house. The world is open only while the host plays.</p>
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Open your world" "Text" "The host starts a singleplayer world.")
+    (dict "Title" "Open it to LAN" "Text" "Pause › World Options, then turn on LAN under Multiplayer. Before 26.3: Pause › Open to LAN › Start LAN World.")
+    (dict "Title" "Friends join" "Text" "Their Multiplayer list shows the world under LAN. If it doesn't, use Direct Connection with the host's local IP and the port the game puts in chat.")
+  ))}}
+</section>
+
+<section aria-labelledby="tunnel">
+  {{template "h2n" (dict "ID" "tunnel" "N" 4 "Text" "Friends somewhere else: a tunnel" "Toc" "A tunnel for friends elsewhere")}}
+  <p>A tunnel gives the host's world an address friends can reach from home, with no router settings. It's free; the world runs on the host's PC and connection, and stops when they do.</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Tunnel</th><th scope="col">How it works</th><th scope="col">Friends need</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">e4mc</th><td>A mod for Fabric, Quilt, NeoForge and Forge. Open to LAN, and it shows a public address.</td><td>Nothing extra</td></tr>
+        <tr><th scope="row">Essential</th><td>A mod with its own friends list. Friends join your world from it.</td><td>Essential too</td></tr>
+        <tr><th scope="row">playit.gg</th><td>A program that gives a server on your PC a public address. Free for Minecraft Java.</td><td>Nothing extra</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-labelledby="realms">
+  {{template "h2n" (dict "ID" "realms" "N" 5 "Text" "Realms, run by Mojang" "Toc" "Realms")}}
+  <p>Realms for Java costs $7.99 a month: you and 10 friends at once, always online, with backups. Friends play free.</p>
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Start a Realm" "Text" "Minecraft Realms, on the title screen. New subscribers get 30 days free.")
+    (dict "Title" "Invite friends" "Text" "By name, or with an invite code, new in 26.3.")
+    (dict "Title" "Friends join" "Text" "From their Realms list, or Join Realm with the code.")
+  ))}}
+  <p class="fine">Java Realms run no mods or plugins, only Java players can join, and it's 10 friends at a time.</p>
+</section>
+
+<section aria-labelledby="free-host">
+  {{template "h2n" (dict "ID" "free-host" "N" 6 "Text" "A free host")}}
+  <p>Aternos and Minehut run a server for you, free. Aternos has a queue at busy times and stops the server when everyone leaves. Minehut's free plan has 1 GB of memory and 10 slots, and sleeps when empty. Fine for trying it out; outgrowing one is common, and <a href="/alternatives/aternos">moving an Aternos world</a> takes minutes.</p>
+</section>
+
+<section aria-labelledby="own-server">
+  {{template "h2n" (dict "ID" "own-server" "N" 7 "Text" "Your own server, always on" "Toc" "Your own server")}}
+  <p>Your own server keeps the world up when you log off, runs mods or plugins, and fits as many friends as it has memory for. On your PC it's free, but the PC stays on and you open port 25565 on your router. On a VPS it's always on, from {{usd $vps.USD}} a month: see <a href="/guides/minecraft-server-cost">what a Minecraft server costs</a>.</p>
+  <p class="p-lead">Playkeeper sets the server up on a VPS you rent, with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  <ol class="steps shot-steps">
+    <li class="step reveal"><span class="step-n" aria-hidden="true">1</span><div><h3 class="step-title">Create a server</h3><p>Vanilla, Paper or a modpack. Playkeeper suggests the memory.</p></div></li>
+    <li class="step reveal"><span class="step-n" aria-hidden="true">2</span><div><h3 class="step-title">Send friends its address</h3><p>A free name like survival.alex.playkeeper.me, without a port from three days after you claim it. Friends add it under Multiplayer › Add Server.</p></div></li>
+  </ol>
+  {{template "cardshot" (dict "Name" "guide-address" "Alt" "A server's Overview: its join address survival.alex.playkeeper.me with Copy, and the three friends playing now." "Sizes" $article)}}
+  <ol class="steps" start="3">
+    <li class="step reveal"><span class="step-n" aria-hidden="true">3</span><div><h3 class="step-title">Or send an invite link</h3><p>Friends open it and type their Minecraft name, and they're on the allowlist. Each link runs out when you choose.</p></div></li>
+  </ol>
+  {{template "cardshot" (dict "Name" "guide-invite" "Alt" "The Players tab: invite links, each with who joined with it and when it runs out, and New invite link." "Sizes" $article)}}
+  <p>Not sure how big a VPS? <a href="/sizing">The sizing guide</a> works it out from how many friends play at once.</p>
+</section>
+
+<section aria-labelledby="modded">
+  {{template "h2n" (dict "ID" "modded" "N" 8 "Text" "Playing modded? Everyone needs the same mods" "Toc" "Playing modded")}}
+  <div class="shot-step">
+    <div>
+      <p>The host and every friend need the same loader, Minecraft version and mods. The easy way is a modpack everyone installs in the same launcher.</p>
+      <p>On your own server, Playkeeper makes one link: friends download a file for the Modrinth App or Prism Launcher, import it, and join. The <a href="/guides/modded-minecraft-server">modded server guide</a> goes step by step.</p>
+    </div>
+    {{template "cardshot" (dict "Name" "guide-share" "Alt" "Send friends what they need: the link to share, and what friends do with it." "Sizes" $side)}}
+  </div>
+</section>
+
+<section aria-labelledby="problems">
+  {{template "h2n" (dict "ID" "problems" "N" 9 "Text" "When friends can't join")}}
+  <p>The message on their screen says what's wrong.</p>
+  <div class="error-card reveal">
+    <h3>Different versions</h3>
+    <code class="err">Incompatible client! Please use 26.3</code>
+    <p>{{template "icon" "arrow-right"}}Play the version it names: the Minecraft Launcher's Installations tab adds any. On your own server, ViaVersion lets newer versions join.</p>
+  </div>
+  <div class="error-card reveal">
+    <h3>Multiplayer is off for the account</h3>
+    <code class="err">Multiplayer is disabled. Please check your Microsoft account settings.</code>
+    <p>{{template "icon" "arrow-right"}}It's usually a child account: a parent allows multiplayer in the account's Xbox privacy settings.</p>
+  </div>
+  <div class="error-card reveal">
+    <h3>Not on the allowlist</h3>
+    <code class="err">You are not white-listed on this server!</code>
+    <p>{{template "icon" "arrow-right"}}Add them with /whitelist add and their name, or send them an invite link.</p>
+  </div>
+  <div class="error-card reveal">
+    <h3>The server can't be reached</h3>
+    <code class="err">Failed to connect to the server</code>
+    <p>{{template "icon" "arrow-right"}}Check the address, that the server runs, and that TCP 25565 is open in your router or your VPS provider's firewall.</p>
+  </div>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "How do I join a friend's world on Java?" "On the same Wi-Fi, it shows under LAN in your Multiplayer list once they open it to LAN. From anywhere else, they need a tunnel, a Realm or a server, and send you its address.")
+    (qa "Can I invite friends to my world on Java?" "Not from the friends list yet: Mojang took invites out before 26.2 shipped. Share the world with LAN, a tunnel, a Realm or your own server.")
+    (qa "Can I play Minecraft Java with friends for free?" "Yes: Open to LAN, a tunnel like e4mc, or a free host. Realms and a VPS cost money, and stay up without you.")
+    (qa "Can Java and Bedrock players play together?" "Not by default. They're separate editions, and this guide, like Playkeeper, is about Java.")
+    (qa "Does everyone need to own Minecraft?" "Yes, each player needs Minecraft: Java Edition. On a Realm, friends don't pay for the Realm, but still need the game.")
+    (qa "How many friends can play at once?" `Realms takes 10 besides you. A server of your own takes as many as its memory fits: <a href="/sizing">the sizing guide</a> works out the size.`)
+  ))}}
+  <section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Or start from a template</h2>
+    <div class="tpl-pair">
+      {{template "template-card" (dict "ID" "survival-with-friends")}}
+      {{template "template-card" (dict "ID" "creative")}}
+    </div>
+  </section>
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/sizing" "/guides/minecraft-server-cost" "/guides/modded-minecraft-server" "/alternatives/aternos")}}{{end}}
