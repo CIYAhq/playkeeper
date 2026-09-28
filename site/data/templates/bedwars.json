@@ -13,8 +13,8 @@
     "memoryMB": 4096
   },
   "addons": [
-    { "source": "modrinth", "project": "1u6JkXh5", "slug": "worldedit", "name": "WorldEdit", "latest": true },
-    { "source": "modrinth", "project": "3wmN97b8", "slug": "multiverse-core", "name": "Multiverse-Core", "latest": true },
-    { "source": "modrinth", "project": "8sg1aj4I", "slug": "screamingbedwars", "name": "Screaming BedWars", "latest": true }
+    { "source": "modrinth", "project": "1u6JkXh5", "slug": "worldedit", "name": "WorldEdit", "pin": { "versionId": "F5ea2ov3", "versionNumber": "7.4.5", "channel": "release", "hashAlgo": "sha512", "hash": "a383492fac6bfb4d43a257dfa7b5fc076aae503a71151b463de4fe80e6f3d5fc11209eaf4097baa115f3febf0adc40ca0a1ecda227b8439b429d0a4ba3a63a4f" } },
+    { "source": "modrinth", "project": "3wmN97b8", "slug": "multiverse-core", "name": "Multiverse-Core", "pin": { "versionId": "YZ2Ji4IS", "versionNumber": "5.8.1", "channel": "release", "hashAlgo": "sha512", "hash": "322c1f4dc1abcd30e0f55aa9f378c7031846d1e59a5156480f9199050dc104c19468c9891c47be35e4dde68742ec4420ea974ec8850db6a259f97ffa1b1c51ea" } },
+    { "source": "modrinth", "project": "8sg1aj4I", "slug": "screamingbedwars", "name": "Screaming BedWars", "pin": { "versionId": "nUPEYDAm", "versionNumber": "0.2.44", "channel": "release", "hashAlgo": "sha512", "hash": "033bd19dc10b0c48387e90fb3801efbc3f7e1c9b59001a03b284f86cbe492307c5e8d5efd28da80e4840e87b75285b5d66717baae976c3c48f0ad47740befe01" } }
   ]
 }

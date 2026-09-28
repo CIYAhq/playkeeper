@@ -1,0 +1,25 @@
+{
+  "status": "passing",
+  "checked": "2026-09-28",
+  "release": "0.4.2",
+  "build": "129",
+  "doneSeconds": 12.624,
+  "addons": [
+    {
+      "name": "Multiverse-Core",
+      "source": "modrinth",
+      "slug": "multiverse-core",
+      "version": "5.8.1",
+      "licence": "BSD-3-Clause",
+      "downloads": 821032
+    },
+    {
+      "name": "OneBlock",
+      "source": "modrinth",
+      "slug": "oneblock_bukkit",
+      "version": "1.6.3",
+      "licence": "MIT",
+      "downloads": 243486
+    }
+  ]
+}

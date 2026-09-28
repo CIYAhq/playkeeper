@@ -23,6 +23,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/platform"
 	"github.com/CIYAhq/playkeeper/internal/sizing"
+	"github.com/CIYAhq/playkeeper/internal/templates/checks"
 )
 
 // Options say what to build the site from.
@@ -80,10 +81,15 @@ func Build(o Options) (*Output, error) {
 	if s.cards, err = loadTemplateCards(o.Root, "site/data/templates"); err != nil {
 		return nil, err
 	}
+	checked, err := checks.Read(o.Root, "site/data/checks")
+	if err != nil {
+		return nil, err
+	}
+	failing(s.cards, checked)
 	if s.packs, err = loadModpacks(o.Root, "site/data/modpacks", s.cards); err != nil {
 		return nil, err
 	}
-	if s.library, err = loadLibrary(o.Root, "site/data/library", s.cards); err != nil {
+	if s.library, err = loadLibrary(o.Root, "site/data/library", s.cards, checked); err != nil {
 		return nil, err
 	}
 	if s.pages, err = loadPages(o.Root, "site/pages"); err != nil {
