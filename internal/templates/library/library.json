@@ -5,7 +5,7 @@
     "art": "world-normal.svg",
     "page": "https://playkeeper.io/templates/bedwars",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Bedwars",
@@ -67,11 +67,189 @@
     }
   },
   {
+    "id": "better-mc",
+    "name": "Better MC",
+    "art": "world-amplified.svg",
+    "page": "https://playkeeper.io/modpacks/better-mc-server",
+    "checked": "2026-09-28",
+    "release": "0.4.4",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Better MC",
+      "description": "Better MC for NeoForge: hundreds of mods for new biomes, structures, mobs and quality of life.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "neoforge",
+        "minecraftVersion": "1.21.1"
+      },
+      "settings": {
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 8192
+      },
+      "modpack": {
+        "source": "modrinth",
+        "project": "B37WQ89b",
+        "slug": "better-mc-neoforge-bmc5",
+        "name": "Better MC [NEOFORGE] BMC5",
+        "pin": {
+          "versionId": "Mo8ro6Ra",
+          "versionNumber": "v31",
+          "channel": "release",
+          "hashAlgo": "sha512",
+          "hash": "65be2d384d38eb16d827790113d113bd5c2a9d032a72e681df5222bec431034fe5074b10235d94aca41f2b62cadcda94edec1c8943209adb1d5a5c3da56b638d"
+        }
+      }
+    }
+  },
+  {
+    "id": "better-mc-2",
+    "name": "Better MC 2",
+    "art": "world-amplified.svg",
+    "checked": "2026-09-28",
+    "release": "0.4.4",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Better MC 2",
+      "description": "Better MC 2 for Fabric on Minecraft 1.20.1: a Vanilla+ pack of over 300 mods for new biomes, structures, mobs and quality of life.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "fabric",
+        "minecraftVersion": "1.20.1"
+      },
+      "settings": {
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 8192
+      },
+      "modpack": {
+        "source": "modrinth",
+        "project": "shFhR8Vx",
+        "slug": "better-mc-fabric-bmc2",
+        "name": "Better MC [FABRIC] - BMC2",
+        "pin": {
+          "versionId": "M5BnAIQy",
+          "versionNumber": "v40",
+          "channel": "release",
+          "hashAlgo": "sha512",
+          "hash": "a9ebbf5132f30fa89907fcb10f7d0a92064b325afbeabf053defdd41a26b5907cd709d253046bb43ba9164c3890b100577d822b9b899fe974c56bdfde7c572d9"
+        }
+      }
+    }
+  },
+  {
+    "id": "better-mc-4",
+    "name": "Better MC 4",
+    "art": "world-amplified.svg",
+    "checked": "2026-09-28",
+    "release": "0.4.4",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Better MC 4",
+      "description": "Better MC 4 for Forge on Minecraft 1.20.1: a Vanilla+ pack of over 300 mods for new biomes, structures, mobs and quality of life.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "forge",
+        "minecraftVersion": "1.20.1"
+      },
+      "settings": {
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 8192
+      },
+      "modpack": {
+        "source": "modrinth",
+        "project": "4BV47HRn",
+        "slug": "better-mc-forge-bmc4",
+        "name": "Better MC [FORGE] - BMC4",
+        "pin": {
+          "versionId": "bdRIjRgs",
+          "versionNumber": "v59",
+          "channel": "release",
+          "hashAlgo": "sha512",
+          "hash": "f6b9fb8c74f80a52acb6e3aa4b44e16dfa9e8d7c311da2f2b5d1cf3abec06f4c709ab045b854700a338283995b91137e9ead82b94630627d095a8bb97be0d077"
+        }
+      }
+    }
+  },
+  {
+    "id": "cobblemon",
+    "name": "Cobblemon",
+    "art": "world-normal.svg",
+    "page": "https://playkeeper.io/modpacks/cobblemon-server",
+    "checked": "2026-09-28",
+    "release": "0.4.4",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Cobblemon",
+      "description": "The official Cobblemon modpack for Fabric: catch, train and battle creatures around your world with friends.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "fabric",
+        "minecraftVersion": "1.21.1"
+      },
+      "settings": {
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 6144
+      },
+      "modpack": {
+        "source": "modrinth",
+        "project": "5FFgwNNP",
+        "slug": "cobblemon-fabric",
+        "name": "Cobblemon Official Modpack [Fabric]",
+        "pin": {
+          "versionId": "Cqimd3JM",
+          "versionNumber": "1.8.1",
+          "channel": "release",
+          "hashAlgo": "sha512",
+          "hash": "ae2429fd6ffd7ef00f19e0f8fa0121e2f24c81bd73786ae03c2b0337e3d99b916a10017b6f4aea145bcfa17562330d2e69e5c1a2caf623fa95b8e9cfb48ca928"
+        }
+      }
+    }
+  },
+  {
+    "id": "cobbleverse",
+    "name": "Cobbleverse",
+    "art": "world-big-biomes.svg",
+    "page": "https://playkeeper.io/modpacks/cobbleverse-server",
+    "checked": "2026-09-28",
+    "release": "0.4.4",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Cobbleverse",
+      "description": "Cobbleverse for Fabric: a Cobblemon adventure with gyms, exclusive structures and 136 mods on the server, for you and your friends.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "fabric",
+        "minecraftVersion": "1.21.1"
+      },
+      "settings": {
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 8192
+      },
+      "modpack": {
+        "source": "modrinth",
+        "project": "Jkb29YJU",
+        "slug": "cobbleverse",
+        "name": "COBBLEVERSE - Pokemon Adventure [Cobblemon]",
+        "pin": {
+          "versionId": "4SKGla61",
+          "versionNumber": "1.7.42",
+          "channel": "release",
+          "hashAlgo": "sha512",
+          "hash": "9af64e0d3a092ab8d72d966cc4d45512e8d875685e804bea9233adb88f5f5d4c30578b77304f70fe77e9ef2ee01e487d652f3341279bcc1850ff2587ae8aa8a4"
+        }
+      }
+    }
+  },
+  {
     "id": "comfy-survival",
     "name": "Comfy survival",
     "art": "world-normal.svg",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Comfy survival",
@@ -137,7 +315,7 @@
     "name": "Creative",
     "art": "play-creative.svg",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Creative",
@@ -189,7 +367,7 @@
     "name": "Economy survival",
     "art": "world-flat.svg",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Economy survival",
@@ -268,7 +446,7 @@
     "name": "Fabric SMP",
     "art": "world-normal.svg",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Fabric SMP",
@@ -388,7 +566,7 @@
     "art": "play-hardcore.svg",
     "page": "https://playkeeper.io/templates/hardcore-smp",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Hardcore SMP",
@@ -456,7 +634,7 @@
     "art": "world-amplified.svg",
     "page": "https://playkeeper.io/templates/lifesteal-smp",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Lifesteal SMP",
@@ -522,7 +700,7 @@
     "name": "Older clients welcome",
     "art": "play-just-me.svg",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Older clients welcome",
@@ -575,7 +753,7 @@
     "art": "play-just-me.svg",
     "page": "https://playkeeper.io/templates/oneblock",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "OneBlock",
@@ -624,11 +802,47 @@
     }
   },
   {
+    "id": "prominence-2",
+    "name": "Prominence II",
+    "art": "play-hardcore.svg",
+    "page": "https://playkeeper.io/modpacks/prominence-2-server",
+    "checked": "2026-09-28",
+    "release": "0.4.4",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Prominence II",
+      "description": "Prominence II: Hasturian Era on Fabric 1.20.1: a story-driven RPG pack with a talent tree, an artifact weapon to forge and bosses to beat.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "fabric",
+        "minecraftVersion": "1.20.1"
+      },
+      "settings": {
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 8192
+      },
+      "modpack": {
+        "source": "modrinth",
+        "project": "EGs3lC8D",
+        "slug": "prominence-2-fabric",
+        "name": "Prominence™ II: Hasturian Era",
+        "pin": {
+          "versionId": "pM4d8h1G",
+          "versionNumber": "4.1.1hf",
+          "channel": "release",
+          "hashAlgo": "sha512",
+          "hash": "76d5bc4006485ededf3f9e844748695a5c7e89f0c13b5ad56471c9e75a83f4b99db42074982bd85dd641dbfbeca08a3d8bcd523b9631a8912eb45c72c8e7e709"
+        }
+      }
+    }
+  },
+  {
     "id": "protected-survival",
     "name": "Protected survival",
     "art": "world-big-biomes.svg",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Protected survival",
@@ -707,7 +921,7 @@
     "name": "RPG skills survival",
     "art": "world-amplified.svg",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "RPG skills survival",
@@ -760,7 +974,7 @@
     "name": "SkyBlock Plus",
     "art": "world-flat.svg",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "SkyBlock Plus",
@@ -796,7 +1010,7 @@
     "art": "world-flat.svg",
     "page": "https://playkeeper.io/templates/skyblock",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Skyblock",
@@ -862,7 +1076,7 @@
     "name": "Survival with Discord chat",
     "art": "play-with-friends.svg",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Survival with Discord chat",
@@ -942,7 +1156,7 @@
     "name": "Survival with EssentialsX",
     "art": "play-with-friends.svg",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Survival with EssentialsX",
@@ -1023,7 +1237,7 @@
     "art": "play-with-friends.svg",
     "page": "https://playkeeper.io/templates/smp",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Survival with friends",
@@ -1090,7 +1304,7 @@
     "name": "Survival with friends on Purpur",
     "art": "play-with-friends.svg",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Survival with friends on Purpur",
@@ -1158,7 +1372,7 @@
     "art": "world-big-biomes.svg",
     "page": "https://playkeeper.io/templates/towny",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Towny",
@@ -1224,7 +1438,7 @@
     "name": "Vanilla Perfected",
     "art": "world-normal.svg",
     "checked": "2026-09-28",
-    "release": "0.4.2",
+    "release": "0.4.4",
     "file": {
       "playkeeperTemplate": 1,
       "name": "Vanilla Perfected",

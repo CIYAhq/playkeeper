@@ -1,0 +1,25 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Better MC 4",
+  "description": "Better MC 4 for Forge on Minecraft 1.20.1: a Vanilla+ pack of over 300 mods for new biomes, structures, mobs and quality of life.",
+  "game": "minecraft-java",
+  "server": { "type": "forge", "minecraftVersion": "1.20.1" },
+  "settings": {
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 8192
+  },
+  "modpack": {
+    "source": "modrinth",
+    "project": "4BV47HRn",
+    "slug": "better-mc-forge-bmc4",
+    "name": "Better MC [FORGE] - BMC4",
+    "pin": {
+      "versionId": "bdRIjRgs",
+      "versionNumber": "v59",
+      "channel": "release",
+      "hashAlgo": "sha512",
+      "hash": "f6b9fb8c74f80a52acb6e3aa4b44e16dfa9e8d7c311da2f2b5d1cf3abec06f4c709ab045b854700a338283995b91137e9ead82b94630627d095a8bb97be0d077"
+    }
+  }
+}

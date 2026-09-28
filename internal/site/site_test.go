@@ -337,9 +337,28 @@ func TestServerTypesFollowTheProduct(t *testing.T) {
 			minecraft.Types = append(minecraft.Types, minecraft.ServerType{ID: "forge", Name: "Forge", Available: true})
 		}
 	}
+	forgeData := false
+	for _, dir := range []string{"../../site/data/modpacks", "../../site/data/templates"} {
+		entries, _ := os.ReadDir(dir)
+		for _, e := range entries {
+			var m struct {
+				Type   string `json:"type"`
+				Server struct {
+					Type string `json:"type"`
+				} `json:"server"`
+			}
+			if b, err := os.ReadFile(dir + "/" + e.Name()); err == nil && json.Unmarshal(b, &m) == nil && (m.Type == "forge" || m.Server.Type == "forge") {
+				forgeData = true
+			}
+		}
+	}
 	for _, forge := range []bool{false, true} {
 		if _, err := os.Stat("../../web/src/assets/logos/forge-apple-touch-icon.png"); forge && err != nil {
 			t.Log("Forge's logo isn't in web/src/assets/logos yet, so Forge can't be shown")
+			continue
+		}
+		if !forge && forgeData {
+			t.Log("the site has Forge packs or templates, which a release without Forge can't install, so it isn't built without Forge")
 			continue
 		}
 		setForge(forge)

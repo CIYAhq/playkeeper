@@ -1,9 +1,9 @@
 {
   "status": "passing",
   "checked": "2026-09-28",
-  "release": "0.4.2",
+  "release": "0.4.4",
   "build": "129",
-  "doneSeconds": 12.698,
+  "doneSeconds": 13.145,
   "addons": [
     {
       "name": "ViaVersion",
@@ -11,7 +11,7 @@
       "slug": "viaversion",
       "version": "5.12.0",
       "licence": "GPL-3.0-or-later",
-      "downloads": 3110023
+      "downloads": 3112539
     },
     {
       "name": "ViaBackwards",
@@ -19,7 +19,8 @@
       "slug": "viabackwards",
       "version": "5.12.0",
       "licence": "GPL-3.0-only",
-      "downloads": 2083553
+      "downloads": 2085084
     }
-  ]
+  ],
+  "crossplay": true
 }

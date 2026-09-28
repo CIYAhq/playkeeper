@@ -1,0 +1,13 @@
+{
+  "status": "passing",
+  "checked": "2026-09-28",
+  "release": "0.4.4",
+  "build": "0.19.5",
+  "doneSeconds": 46.386,
+  "modpack": {
+    "name": "Better MC [FABRIC] - BMC2",
+    "version": "v40",
+    "mods": 278,
+    "downloads": 3502791
+  }
+}
