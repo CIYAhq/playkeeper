@@ -19,14 +19,15 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/templates"
 )
 
-// overlay is the repository with some folders replaced: site/data/templates
-// and site/data/library from over, everything else from the repository.
-type overlay struct {
+// dataOverlay is the repository with site/data/templates and
+// site/data/library replaced by over's, folders and all, so a folder lists
+// over's files alone.
+type dataOverlay struct {
 	base fs.FS
 	over fstest.MapFS
 }
 
-func (o overlay) Open(name string) (fs.File, error) {
+func (o dataOverlay) Open(name string) (fs.File, error) {
 	for _, dir := range []string{"site/data/templates", "site/data/library"} {
 		if name == dir || strings.HasPrefix(name, dir+"/") {
 			return o.over.Open(name)
@@ -249,7 +250,7 @@ func TestTaxonomyMistakesStopTheBuild(t *testing.T) {
 	b, _ := json.Marshal(tax)
 	noDesc := maps.Clone(data)
 	noDesc["site/data/templates/taxonomy.json"] = &fstest.MapFile{Data: b}
-	if _, err := Build(Options{Root: overlay{root, noDesc}, Settings: Default, Now: time.Now()}); err == nil || !strings.Contains(err.Error(), "creative") {
+	if _, err := Build(Options{Root: dataOverlay{root, noDesc}, Settings: Default, Now: time.Now()}); err == nil || !strings.Contains(err.Error(), "creative") {
 		t.Errorf("a category with neither a page nor a description builds: %v", err)
 	}
 }
@@ -495,7 +496,7 @@ func synthetic(t testing.TB, n int) fstest.MapFS {
 func TestTheDirectoryScalesToHundredsOfTemplates(t *testing.T) {
 	const n = 600
 	start := time.Now()
-	o, err := Build(Options{Root: overlay{os.DirFS("../.."), synthetic(t, n)}, Settings: Default, Now: time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)})
+	o, err := Build(Options{Root: dataOverlay{os.DirFS("../.."), synthetic(t, n)}, Settings: Default, Now: time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)})
 	if err != nil {
 		t.Fatal(err)
 	}
