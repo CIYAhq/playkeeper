@@ -2041,6 +2041,26 @@ control "a modpack that would put more than 20,000 files on the server is refuse
   'Index: 16 << 20, Files: 20000,' \
   'Index: 16 << 20, Files: 1 << 30,' \
   ./internal/modpacks '^TestDefaultFileCount$'
+control "a pack's default-server.properties never goes on the server" internal/modpacks/rules.go \
+  '"eula.txt", "server.properties", DefaultPropertiesName, "ops.json",' \
+  '"eula.txt", "server.properties", "ops.json",' \
+  ./internal/modpacks '^TestDefaultServerPropertiesStayOffTheServer$'
+control "a pack's default-server.properties settings are taken like its server.properties" internal/modpacks/resolve.go \
+  'if e := entries[DefaultPropertiesName]; e != nil {' \
+  'if e := entries[DefaultPropertiesName]; false && e != nil {' \
+  ./internal/modpacks '^TestDefaultServerPropertiesStayOffTheServer$'
+control "a default-server.properties on a modded server is settled before the start" internal/agent/lifecycle.go \
+  'if err := s.keepDefaultProperties(sc); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestDefaultServerPropertiesKeepPlaykeepersSettings$'
+control "the Default Server Properties mod's marker says its file was used" internal/agent/modpacks.go \
+  'err = d.WriteFile(defaultPropertiesUsed, nil, 0o640)' \
+  'err = nil' \
+  ./internal/agent '^TestDefaultServerPropertiesKeepPlaykeepersSettings$'
+control "a server a pack's mod started without the console and allowlist is restarted after an update" internal/agent/modpacks.go \
+  'if s.settingsSwitchedOff(sc) {' \
+  'if false && s.settingsSwitchedOff(sc) {' \
+  ./internal/agent '^TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor$'
 control "a modpack's downloads must match the hashes the pack lists" internal/addons/fetch/download.go \
   'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
   'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
