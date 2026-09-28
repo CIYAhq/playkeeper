@@ -44,8 +44,8 @@ func TestModpackPagesFollowTheProduct(t *testing.T) {
 				t.Errorf("%s's facts don't say %q", m.Path(), want)
 			}
 		}
-		if !strings.Contains(facts, `<th scope="row">Checked</th><td>`+Day(m.Checked)+", on "+m.SourceName()) {
-			t.Errorf("%s doesn't say when its facts were checked", m.Path())
+		if !strings.Contains(facts, `<th scope="row">Checked</th><td>`+Day(m.Checked)+", on "+m.SourceName()+" and with Playkeeper "+m.Release+"'s install plan") {
+			t.Errorf("%s doesn't say when its facts were checked, and with which release", m.Path())
 		}
 		if row := between(hub, `<a href="`+m.Path()+`">`+m.Name+`</a> `+m.Version+`</th>`, "</tr>"); !strings.Contains(row, `<td data-col="Memory">`+m.Memory()+`</td>`) {
 			t.Errorf("the hub doesn't list %s with the memory it needs: %q", m.Path(), row)
@@ -81,7 +81,7 @@ func TestModpackFactsTheReleaseCantBackStopTheBuild(t *testing.T) {
 	good := func() *Modpack {
 		return &Modpack{Name: "Cobblemon Official Modpack", Source: "modrinth", Project: "5FFgwNNP", Page: "https://modrinth.com/modpack/cobblemon-fabric",
 			Author: "Cobbled Studios", Downloads: 1, Version: "1.8.1", Released: "2026-09-13", Type: "fabric", Loader: "0.19.5",
-			Minecraft: "1.21.1", Mods: 32, DownloadMB: 183, Template: "cobblemon", Checked: "2026-09-28"}
+			Minecraft: "1.21.1", Mods: 32, DownloadMB: 183, Template: "cobblemon", Release: "0.4.2", Checked: "2026-09-28"}
 	}
 	if err := good().check(cards); err != nil {
 		t.Fatalf("a pack the release installs: %v", err)
@@ -96,6 +96,7 @@ func TestModpackFactsTheReleaseCantBackStopTheBuild(t *testing.T) {
 		"a template that isn't there":               func(m *Modpack) { m.Template = "nope" },
 		"no day it was checked":                     func(m *Modpack) { m.Checked = "" },
 		"mods not counted":                          func(m *Modpack) { m.Mods = 0 },
+		"no release it was checked with":            func(m *Modpack) { m.Release = "" },
 	} {
 		m := good()
 		edit(m)

@@ -27,7 +27,7 @@ schema: article
 <section aria-labelledby="requirements">
   {{template "h2n" (dict "ID" "requirements" "N" 1 "Text" "What each modpack's server needs" "Toc" "Requirements by pack")}}
   <p>Each pack has its own page with the steps, the server files and what goes wrong.</p>
-  {{template "modpack-table" (dict "Caption" (printf "Checked %s on Modrinth and CurseForge and with Playkeeper %s's install plan. Mods on the server leave out the ones only players need." (day (modpack "atm10").Checked) .Site.Version))}}
+  {{template "modpack-table" (dict "Caption" (printf "Checked %s on Modrinth and CurseForge and with Playkeeper %s's install plan. Mods on the server leave out the ones only players need." (day (modpack "atm10").Checked) (modpack "atm10").Release))}}
 </section>
 
 <section aria-labelledby="memory">
@@ -60,7 +60,7 @@ schema: article
     (qa "How much RAM does a modded Minecraft server need?" (printf "From %s for a pack with a few dozen mods, like the %s, to %s for a big one, like %s. Add more for more friends." (modpack "cobblemon").Memory (modpack "cobblemon").Name (modpack "atm10").Memory (modpack "atm10").Name))
     (qa "Which Java does a modpack server need?" "The one its Minecraft version needs: Java 21 for 1.21, Java 25 for 26.1 and newer. Playkeeper picks it for you.")
     (qa "Do friends need the same modpack?" "Yes: the same pack and version as the server. Playkeeper's Share with friends gives them a page with the pack and their launcher's steps.")
-    (qa "Where do the numbers come from?" (printf "From each pack's own files on Modrinth or CurseForge, and from Playkeeper %s's install plan for the version shown, which counts what goes on the server." .Site.Version))
+    (qa "Where do the numbers come from?" (printf "From each pack's own files on Modrinth or CurseForge, and from Playkeeper %s's install plan for the version shown, which counts what goes on the server." (modpack "atm10").Release))
   ))}}
 </div>
 {{end}}
