@@ -10,10 +10,11 @@ It runs apart from the [names service](../names/README.md) on purpose: it holds 
 | `/healthz` | `200` with `ok`, for health checks |
 | `POST /v1/install` | an installer's report: `started`, `succeeded`, `failed` or `refused` |
 | `POST /v1/heartbeat` | a running machine's heartbeat |
+| `POST /v1/site` | a copy of the install command on playkeeper.io, from its pages alone |
 | `GET /v1/summary` | the counts, as JSON, with `Authorization: Bearer <read token>` only (see [Reading the numbers](#reading-the-numbers)) |
 | `/dashboard` | the counts as charts, once you sign in with the read token (see [The dashboard](#the-dashboard)) |
 
-**What it keeps.** One row per install ID with what its reports last said, to the hour, and one row per install per day it sent a heartbeat. Nothing else: no IP address, no header, no user agent, no field a report type doesn't have. The address a request comes from decides the rate limits, in memory, and is dropped; the service keeps no access log, and drops net/http's own log lines, some of which name the client. An install it hears nothing from for 400 days is forgotten. `scripts/stats-check.sh` checks in CI that neither its files nor its log hold the address a report came from.
+**What it keeps.** One row per install ID with what its reports last said, to the hour, and one row per install per day it sent a heartbeat; and for playkeeper.io, how many times its install command was copied each hour, by the channel's code. Nothing else: no IP address, no header, no user agent, no field a report type doesn't have. The address a request comes from decides the rate limits, in memory, and is dropped; the service keeps no access log, and drops net/http's own log lines, some of which name the client. An install it hears nothing from for 400 days is forgotten. `scripts/stats-check.sh` checks in CI that neither its files nor its log hold the address a report came from.
 
 `Dockerfile` builds the image (Go and Alpine, pinned by digest; the service runs as user 10001 on port 8080) with a health check on `/healthz`. It is built from the repository root, and `Dockerfile.dockerignore` limits the build to the files it needs.
 
@@ -99,6 +100,18 @@ In the Cursor Dashboard, open **Cloud Agents** → **Secrets** and add `PLAYKEEP
 
 The counts stay at zero until installs of 0.4.4 or later arrive: earlier versions send nothing.
 
+### 7. Let the funnel read the site's visitors
+
+The dashboard's funnel starts with playkeeper.io's visitors and demo opens, which the service reads from the site's analytics (Open Analytics) with a read key of its own. Without one, the funnel starts at copies of the install command.
+
+1. In Open Analytics, open the **playkeeper** site, then **Settings** → **API**. In **API keys**, select **Create key**.
+2. **Name**: `stats.playkeeper.io`. **Type**: **Read**. Leave **Read analytics** on. Select **Create**.
+3. Copy the key it shows (`oa_sk_…`; it is shown only this once) and select **I saved it**.
+4. In Coolify, open the stats application → **Environment Variables**, add `STATS_OA_KEY` with the key, and untick **Available at Buildtime**. Select **Save**, then **Redeploy** at the top right.
+5. Open the dashboard: the funnel's first two steps show numbers, and its note says when they were read. In the application's **Logs**, the line `playkeeper-stats is listening` says `site_numbers=true`.
+
+The key is used only by the service, only to read Open Analytics, and never reaches a browser. It is a separate key from the analytics digest's, so either can be revoked alone: in Open Analytics, the key's row has a revoke button, and the funnel then says why it can't read the site's numbers.
+
 ## The dashboard
 
 Open **https://stats.playkeeper.io/dashboard** and paste the read token from step 2. Leave **Remember on this device** ticked on your own phone or computer; untick it on one you share. It shows:
@@ -106,7 +119,8 @@ Open **https://stats.playkeeper.io/dashboard** and paste the read token from ste
 - machines running today, in the last 7 days and in the last 30 days, with their Minecraft servers, and a chart of the machines running each day;
 - installs per day for 30 days, by outcome (succeeded, failed, refused) or by how Playkeeper was fetched; tap a day for its numbers;
 - failed installs by the step they stopped at, and refused installs by the check that turned them away;
-- for the machines running in the last day, 7 days or 30 days: on or off our domain, versions, systems, CPU (x86 or ARM), address type, servers per machine, how Playkeeper was installed, dashboards and joined machines, and channels.
+- for the machines running in the last day, 7 days or 30 days: on or off our domain, versions, systems, CPU (x86 or ARM), address type, servers per machine, how Playkeeper was installed, dashboards and joined machines, and channels;
+- a funnel for the last day, 7 days or 30 days, from playkeeper.io's visitors to installs that still run: visitors, demo opens, copies of the install command, then installs made with the playkeeper.io command that started, succeeded, and sent a heartbeat in the last day, each with its share of the step before. Each step counts the same window, not the same people, so a step can be larger than the one before it.
 
 It reads the counts again every five minutes while it's open; **Refresh** reads them at once, and **Sign out** removes the token from the browser.
 
@@ -135,6 +149,8 @@ Or, in Coolify, open the application's **Terminal**, choose its container and ru
 | `…bySource`, `byChannel`, `byVersion`, `byOS`, `byArch`, `byAddress`, `byKind` | the same machines by each field of their last heartbeat; `byOS` is like `ubuntu 24.04`, `byAddress` is `free`, `own` or `ip`, `byKind` is `dashboard` or `joined` |
 | `…servers`, `running`, `serversPerInstall` | their Minecraft servers, those running, and machines by how many servers they have (`0`, `1`, `2`, `3-5`, `6-10`, `11+`) |
 | `daily` | each of the last 30 days (UTC), oldest first: machines that sent a heartbeat (`active`), and installs that started, succeeded, failed or were refused that day, in all and by how Playkeeper got onto the machine (`bySource`). An install whose first report was lost counts as started the day it ended |
+| `funnel.1d`, `.7d`, `.30d` | `visitors` and `demoOpens` from the site's analytics (`null` without `STATS_OA_KEY`; demo opens are the demo's visitors at its start and those who arrived straight on one of its pages), `commandCopies` on playkeeper.io, then installs made with its command: `started`, `succeeded`, and `stillRunning`, those that succeeded and sent a heartbeat in the last day |
+| `site` | `configured` (the service has `STATS_OA_KEY`), `readAt`, when it last read the site's analytics (it reads them again every 15 minutes at most), and `error`, why the latest read failed, if it did; the funnel then keeps the numbers read before |
 | `test.started30d`, `test.active7d` | the project's own test installs, left out of everything above: made while a GitHub Actions job ran, by the end-to-end tests' harness, or with `PLAYKEEPER_USAGE_TEST=1`. The project's CI sends nothing, so these stay at zero unless an install forgets `DO_NOT_TRACK=1` |
 
 A machine counts once whatever it sends: `installs` in `active` are machines, not heartbeats. An install whose machine is later uninstalled stays in `installs` and leaves `active` once 30 days pass without a heartbeat.
@@ -178,6 +194,8 @@ Nothing on anyone's machine notices: the installer waits a few seconds at most f
 | Reports for one install ID | 6 at once, then 12 an hour | |
 | Install IDs heard of for the first time, everyone together | 5000 a day | `STATS_NEW_INSTALLS_PER_DAY` |
 | A report | JSON of at most 4 KiB, every field in the form `internal/usage` checks | |
+| Copies of the install command from one address | 10 at once, then 20 an hour | |
+| Copies of the install command, everyone together | 20000 a day | |
 | An install nothing is heard from | forgotten after 400 days, with its days | |
 | Snapshots | one a day, the last 7 kept | |
 
