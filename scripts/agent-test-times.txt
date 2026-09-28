@@ -126,6 +126,7 @@ TestCreateFromTemplateRefusesAChangedPlan 2.1
 TestCreateFromTemplateTriesAgainOnTheNextStart 4.2
 TestCreateStartStopAreIdempotent 4.4
 TestCrossplayIsOnlyForPaperAndPurpur 2.1
+TestCrossplayKeepsTheServerAwake 16.0
 TestCrossplayOffThatCantCheckTheServerChangesNothing 4.6
 TestCrossplaySwitchOpensItsPortAndInstallsBothPlugins 6.2
 TestCrossplayThatFailsClosesItsPort 4.2

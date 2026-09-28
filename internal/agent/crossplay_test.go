@@ -13,6 +13,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/curated"
+	"github.com/CIYAhq/playkeeper/internal/sleep"
 )
 
 // withCrossplayProjects adds Geyser to the fake Modrinth, as a beta the way
@@ -137,6 +138,52 @@ func TestCrossplaySwitchOpensItsPortAndInstallsBothPlugins(t *testing.T) {
 	}
 	if e.audits("crossplay.port_closed") != 1 {
 		t.Fatalf("the port closed %d times", e.audits("crossplay.port_closed"))
+	}
+}
+
+// A server with crossplay stays awake, as a Bedrock player can't wake a
+// sleeping server, and one asleep when crossplay is turned on wakes up.
+func TestCrossplayKeepsTheServerAwake(t *testing.T) {
+	localStandIn(t)
+	e := newAgentEnv(t)
+	withCrossplayProjects(e.withSources())
+	e.create()
+	e.waitFor("online", e.onlineIdle)
+	if code, out := e.callWhenFree("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5}); code != 200 {
+		t.Fatalf("turn sleep on: %d %v", code, out)
+	}
+	// Nobody plays. The clock skips the 10 minutes a started server stays
+	// up, then the sampler sees every minute.
+	e.skew.Add(int64(10 * time.Minute))
+	e.waitUpTo(20*time.Second, "the server to fall asleep", func() bool {
+		if e.status().Phase == api.PhaseAsleep && !e.a.busy() {
+			return true
+		}
+		e.skew.Add(int64(time.Minute))
+		time.Sleep(150 * time.Millisecond)
+		return false
+	})
+	if op := e.crossplayOp(true); op.Status != api.OpSucceeded {
+		t.Fatalf("crossplay on while asleep: %+v", op)
+	}
+	e.waitFor("awake with crossplay", e.onlineIdle)
+	port := strconv.Itoa(curated.CrossplayPort)
+	if st := e.status(); st.Desired != api.DesiredRunning || !slices.Contains(e.published(), port+"/udp→"+port) {
+		t.Fatalf("after crossplay went on the server wants %q and publishes %v", st.Desired, e.published())
+	}
+	slept := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'sleep'`)
+	e.skew.Add(int64(10 * time.Minute))
+	// Twice the 5 minutes of the setting.
+	for range 10 {
+		e.skew.Add(int64(time.Minute))
+		time.Sleep(150 * time.Millisecond)
+	}
+	s := e.srv()
+	s.auto.mu.Lock()
+	hold := s.auto.decision.Hold
+	s.auto.mu.Unlock()
+	if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'sleep'`); n != slept || hold != sleep.HoldBusy {
+		t.Fatalf("with crossplay on, the server fell asleep %d more times; sleep holds for %q", n-slept, hold)
 	}
 }
 

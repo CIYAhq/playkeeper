@@ -9,6 +9,7 @@ import { PlayerFace } from '@/components/app/bits'
 import { serverPageApi } from '@/lib/server-page'
 import { ServerPage as PublicServerPage } from '../server-page'
 import { BedrockJoin, CrossplayRows } from './crossplay'
+import { SleepRows } from './sleep'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
@@ -125,6 +126,15 @@ describe('the crossplay switch', () => {
     vi.mocked(client.post).mockResolvedValue({})
     await click(button('Turn on crossplay'))
     expect(vi.mocked(client.post).mock.calls).toEqual([['/api/servers/abcdefghjk/crossplay', { on: true }]])
+  })
+
+  it('says a sleeping server wakes up and stays awake, since Bedrock friends can’t wake it', async () => {
+    const asleep: ServerStatus = { ...server, desired: 'sleeping', phase: 'stopped', sleep: { enabled: true, idleMinutes: 15, listening: true } }
+    await render(<CrossplayRows server={asleep} />, { on: false, available: true, port: 19132, plugins: [], prefix: '.' })
+    await click(toggle())
+    expect(document.body.textContent).toContain('Survival wakes up now and stays awake while crossplay is on: a Bedrock friend can’t wake it.')
+    await render(<SleepRows server={{ ...server, config: { ...config, crossplayPort: 19132 }, sleep: { enabled: true, idleMinutes: 15, listening: false } }} />)
+    expect(document.body.textContent).toContain('Stays awake while crossplay is on: a Bedrock friend can’t wake a sleeping server.')
   })
 
   it('is off and says why where crossplay can’t be turned on', async () => {

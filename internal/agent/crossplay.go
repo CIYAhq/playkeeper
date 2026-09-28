@@ -35,6 +35,12 @@ func init() {
 // crossplayOn reports whether the server has crossplay.
 func crossplayOn(sc *api.ServerConfig) bool { return sc != nil && sc.CrossplayPort > 0 }
 
+// hasCrossplay reports whether the server has crossplay now.
+func (s *server) hasCrossplay() bool {
+	sc, err := s.serverConfig()
+	return err == nil && crossplayOn(sc)
+}
+
 func isCrossplay(key addons.Key) bool { return curated.IsCrossplayProject(key) }
 
 // crossplayFits says whether Geyser and Floodgate have versions for a server
@@ -164,7 +170,9 @@ func (s *server) hCrossplaySet(w http.ResponseWriter, r *http.Request) {
 // Geyser and Floodgate: an install that can't open the port installs
 // nothing, and one that fails closes the port again. A running server is
 // restarted to publish the port and load the plugins; a stopped one gets
-// them when it next starts. The provider's firewall is left to the owner.
+// them when it next starts. A sleeping one wakes, since a server with
+// crossplay stays awake: a Bedrock player couldn't wake it. The provider's
+// firewall is left to the owner.
 func (s *server) crossplayOnOp(ctx context.Context, h *opHandle, actor string) error {
 	sc, srv, _, err := s.addonContext()
 	if err != nil {
@@ -203,6 +211,16 @@ func (s *server) crossplayOnOp(ctx context.Context, h *opHandle, actor string) e
 		return restartUnchecked("Crossplay is on", "Restart the server so Bedrock players can join once Docker answers.", err)
 	}
 	h.set("restartNeeded", false)
+	if !running && s.desired() == api.DesiredSleeping {
+		if err := s.setDesired(api.DesiredRunning); err != nil {
+			return err
+		}
+		if err := s.startServer(ctx, h, *sc); err != nil {
+			s.startFailed(ctx)
+			return err
+		}
+		return nil
+	}
 	if !running {
 		return nil
 	}

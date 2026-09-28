@@ -150,7 +150,14 @@ function CrossplayBody({ server: s, on, view, phone, onClose, onDone }: { server
   const place = useServerMachine(s)
   const [busy, setBusy] = useState(false)
   const port = s.config?.crossplayPort ?? view?.port
-  const restarts = s.phase === 'online' ? t('crossplay.restarts', { server: s.name }) : ''
+  const restarts =
+    on && s.desired === 'sleeping'
+      ? t('crossplay.wakes', { server: s.name })
+      : s.phase !== 'online'
+        ? ''
+        : on && s.sleep?.enabled
+          ? t('crossplay.restartsAwake', { server: s.name })
+          : t('crossplay.restarts', { server: s.name })
   const blocked = busyReason(s) ?? (on && view && !view.available ? view.notice?.message : undefined)
 
   async function go() {

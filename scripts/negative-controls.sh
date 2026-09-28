@@ -2163,6 +2163,14 @@ control "crossplay off without Docker's answer changes nothing" internal/agent/c
   'if _, _, err := s.containerRunning(ctx); err != nil {' \
   'if _, _, err := s.containerRunning(ctx); false && err != nil {' \
   ./internal/agent '^TestCrossplayOffThatCantCheckTheServerChangesNothing$'
+control "a server with crossplay doesn't fall asleep" internal/agent/sleeping.go \
+  '|| s.scheduleWorking() || s.hasCrossplay(), StartedAt: startedAt}' \
+  '|| s.scheduleWorking(), StartedAt: startedAt}' \
+  ./internal/agent '^TestCrossplayKeepsTheServerAwake$'
+control "turning crossplay on wakes a sleeping server" internal/agent/crossplay.go \
+  'if !running && s.desired() == api.DesiredSleeping {' \
+  'if false && !running && s.desired() == api.DesiredSleeping {' \
+  ./internal/agent '^TestCrossplayKeepsTheServerAwake$'
 control "a template whose modpack is made for another Minecraft version is blocked" internal/agent/templates.go \
   'case v.MinecraftVersion != "" && v.MinecraftVersion != p.Version.MinecraftVersion:' \
   'case false:' \
