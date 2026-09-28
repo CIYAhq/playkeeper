@@ -1,0 +1,165 @@
+name: Templates
+
+# Creates and starts a real server from each of playkeeper.io's templates
+# (site/data/templates) on the latest Playkeeper release, with
+# cmd/template-check. On a pull request it checks the templates the change
+# touches, all of them when the checker or the template code changes, and
+# fails when site/data/checks doesn't list what installed. Every night and
+# when a release comes out it checks them all, and files an issue naming any
+# that fail; the scheduled template agent then fixes their pins or holds
+# them in a PR. See site/README.md, "Template library".
+
+on:
+  pull_request:
+    paths:
+      - site/data/templates/**
+      - site/data/library/**
+      - site/data/checks/**
+      - cmd/template-check/**
+      - internal/templates/**
+      - .github/workflows/templates.yml
+  schedule:
+    - cron: "30 2 * * *"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      only:
+        description: Template ids, comma-separated (empty checks them all)
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: templates-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "0"
+
+jobs:
+  list:
+    name: Templates to check — the ones the change touches, or all of them
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      only: ${{ steps.list.outputs.only }}
+      count: ${{ steps.list.outputs.count }}
+      shards: ${{ steps.list.outputs.shards }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pick the templates and split them into shards
+        id: list
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          all=$(find site/data/templates -maxdepth 1 -name '*.json' ! -name cards.json -printf '%f\n' | sed 's/\.json$//' | sort)
+          only=
+          ids=$all
+          if [ "$EVENT" = pull_request ]; then
+            changed=$(git diff --name-only "$BASE"...HEAD)
+            if ! grep -qE '^(cmd/template-check|internal/templates)/|^\.github/workflows/templates\.yml$|^site/data/templates/cards\.json$' <<<"$changed"; then
+              ids=$(sed -nE 's#^site/data/(templates|checks)/([a-z0-9-]+)\.json$#\2#p' <<<"$changed")
+              for f in $(grep -E '^site/data/library/[a-z0-9-]+\.json$' <<<"$changed" || true); do
+                [ -f "$f" ] && ids="$ids"$'\n'"$(sed -nE 's/.*"template": *"([^"]+)".*/\1/p' "$f")"
+              done
+              ids=$(grep -v '^$' <<<"$ids" | sort -u | while read -r id; do [ -f "site/data/templates/$id.json" ] && echo "$id"; done || true)
+              only=$(paste -sd, <<<"$ids")
+            fi
+          elif [ -n "$ONLY" ]; then
+            only=$ONLY
+            ids=$(tr , '\n' <<<"$ONLY")
+          fi
+          count=$(grep -c . <<<"$ids" || true)
+          shards=$(( (count + 5) / 6 ))
+          [ "$shards" -gt 20 ] && shards=20
+          [ "$shards" -lt 1 ] && shards=1
+          {
+            echo "only=$only"
+            echo "count=$count"
+            echo "shards=[$(seq -s, 1 "$shards")]"
+          } >> "$GITHUB_OUTPUT"
+          echo "$count templates in $shards shards: ${only:-all of them}"
+
+  check:
+    name: Template check ${{ matrix.shard }} of ${{ strategy.job-total }} — create, start and read each server on the latest release
+    needs: list
+    if: needs.list.outputs.count != '0'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.list.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
+      - name: The Playkeeper release people install (the new one, for a release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p /tmp/release
+          gh release download ${TAG:+"$TAG"} --repo "$GITHUB_REPOSITORY" --pattern 'playkeeper-linux-amd64.tar.gz*' --dir /tmp/release
+          cd /tmp/release
+          sha256sum -c playkeeper-linux-amd64.tar.gz.sha256
+          tar -xzf playkeeper-linux-amd64.tar.gz
+      - name: Run it in dev mode (panel and agent on this runner's Docker, nothing installed)
+        run: |
+          pk=$(ls -d /tmp/release/playkeeper-*-linux-amd64)/playkeeper
+          nohup "$pk" dev --dir /tmp/pk > /tmp/pk.log 2>&1 &
+          for _ in $(seq 60); do [ -S /tmp/pk/agent.sock ] && break; sleep 1; done
+          [ -S /tmp/pk/agent.sock ] || { cat /tmp/pk.log; exit 1; }
+      - name: Check the templates
+        env:
+          ONLY: ${{ needs.list.outputs.only }}
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+          VERIFY: ${{ github.event_name == 'pull_request' && '-verify' || '' }}
+        run: make template-check SOCKET=/tmp/pk/agent.sock ARGS="-only '$ONLY' -shard $SHARD -out /tmp/results.json $VERIFY"
+      - name: Keep the results and Playkeeper's log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: templates-${{ matrix.shard }}
+          path: |
+            /tmp/results.json
+            /tmp/pk.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  report:
+    name: File an issue naming the templates that failed
+    needs: [list, check]
+    if: failure() && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: templates-*
+          path: /tmp/results
+      - name: Open the issue, or add to the open one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          failed=$(cat /tmp/results/*/results.json 2>/dev/null | jq -r '.templates[] | select(.status == "failing") | "- **\(.id)**: \(.failure)"' || true)
+          [ -n "$failed" ] || failed="The run stopped before a template's result was written; its log is in the run."
+          body=$(printf 'The template check on %s failed:\n\n%s\n\nRun: %s\n\nThe scheduled template agent fixes the pins or holds the template in a PR.\n' "$(date -u +%F)" "$failed" "$RUN")
+          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search 'in:title "Template check failing"' --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "Template check failing" --body "$body"
+          fi
