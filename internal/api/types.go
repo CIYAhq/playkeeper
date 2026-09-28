@@ -1565,6 +1565,10 @@ type Address struct {
 	// look at them.
 	Records []DNSRecord   `json:"records,omitempty"`
 	Check   *AddressCheck `json:"check,omitempty"`
+	// ServerAddresses (0.4.5) gives every server an address under the own
+	// domain, <label>.<domain>, through one wildcard record, *.<domain>, in
+	// Records. Players type each server's port with it.
+	ServerAddresses bool `json:"serverAddresses,omitempty"`
 	// Certificate is the dashboard's certificate for Host.
 	Certificate *CertificateStatus `json:"certificate,omitempty"`
 	Names       NamesService       `json:"names"`
@@ -1593,12 +1597,23 @@ type JoinAddress struct {
 	// OwnAddress is the server's own address under an own domain, which is
 	// then Address: its own A and SRV records, and its own public page.
 	OwnAddress string `json:"ownAddress,omitempty"`
+	// Automatic means OwnAddress is <label>.<domain>, from the own domain's
+	// wildcard record (Address.ServerAddresses): it has no records of its
+	// own, and players type the port with it.
+	Automatic bool `json:"automatic,omitempty"`
 }
 
 // OwnAddressRequest sets a server's own address; an empty one clears it.
 type OwnAddressRequest struct {
 	Address string `json:"address"`
 	Actor   string `json:"actor"`
+}
+
+// ServerAddressesRequest turns an address for each server on or off
+// (Address.ServerAddresses).
+type ServerAddressesRequest struct {
+	On    bool   `json:"on"`
+	Actor string `json:"actor"`
 }
 
 // FreeAddress is a free playkeeper.me address at the names service.

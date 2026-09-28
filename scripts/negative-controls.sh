@@ -6926,6 +6926,104 @@ control "creators: the backups a new server starts with are on" internal/panel/c
   '"automatic": map[string]any{"enabled": false, "everyHours": 24, "onlyIfPlayed": true},' \
   ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
 
+# An address for each server: one wildcard record under the own domain.
+control "server addresses: the wildcard record is among the records to add" internal/certs/join.go \
+  'out = append(out, p.addrRecords("", p.wildcardName())...)' \
+  '_ = p.wildcardName()' \
+  ./internal/certs '^TestPlanWithAWildcard$'
+control "server addresses: a server reached through the wildcard needs no SRV record" internal/certs/join.go \
+  'return s.Host != "" && !s.Wild && ' \
+  'return s.Host != "" && ' \
+  ./internal/certs '^TestPlanWithAWildcard$'
+control "server addresses: each look at the wildcard asks for a name of its own" internal/certs/join.go \
+  '_, _ = rand.Read(b)' \
+  '_, _ = rand.Read(b[:0])' \
+  ./internal/certs '^TestCheckPlanChecksTheWildcard$'
+control "server addresses: the wildcard's note names the record to fix" internal/certs/join.go \
+  'params["name"] = wild' \
+  '_ = params' \
+  ./internal/certs '^TestCheckPlanChecksTheWildcard$'
+control "server addresses: players type the port" internal/agent/address.go \
+  'j.Address, j.OwnAddress = hostPort(s.own, s.port), s.own' \
+  'j.Address, j.OwnAddress = s.own, s.own' \
+  ./internal/agent '^TestEveryServerGetsAnAddressUnderTheWildcard$'
+control "server addresses: an address from the wildcard works once the wildcard does" internal/agent/ownaddress.go \
+  'if js.wild {' \
+  'if false && js.wild {' \
+  ./internal/agent '^TestEveryServerGetsAnAddressUnderTheWildcard$'
+control "server addresses: a name given to one server isn't another's too" internal/agent/address.go \
+  'js.own == "" && !given[name] && ' \
+  'js.own == "" && ' \
+  ./internal/agent '^TestANameGivenBeforeTheWildcardStaysItsServers$'
+control "server addresses: no server is given another's address from the wildcard" internal/agent/ownaddress.go \
+  'if js.id != s.id && js.own == name {' \
+  'if false && js.id != s.id && js.own == name {' \
+  ./internal/agent '^TestServersGivenAnAddressKeepItUnderTheWildcard$'
+control "server addresses: under playkeeper.me, names Playkeeper keeps get none" internal/agent/address.go \
+  '!(official && names.Reserved(js.slug))' \
+  '!(official && false)' \
+  ./internal/agent '^TestUnderPlaykeeperMeOfficialNamesGetNoAddress$'
+control "server addresses: turning it off keeps the certificates" internal/agent/ownaddress.go \
+  'a.audit(actor, "address.server_addresses",' \
+  'a.forgetOwnCertificates(st, true); a.audit(actor, "address.server_addresses",' \
+  ./internal/agent '^TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes$'
+control "server addresses: a deleted server's certificate goes" internal/agent/servers.go \
+  's.forgetCertificate(wild)' \
+  '_ = wild' \
+  ./internal/agent '^TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes$'
+control "server addresses: an old domain's certificates go" internal/agent/address.go \
+  'a.forgetOwnCertificates(st, true)' \
+  '_ = st' \
+  ./internal/agent '^TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes$'
+control "server addresses: a domain's certificates go while the switch is off too" internal/agent/ownaddress.go \
+  'a.forgetCertificate(automaticName(st, servers, js))' \
+  'if st.ServerAddresses { a.forgetCertificate(automaticName(st, servers, js)) }' \
+  ./internal/agent '^TestStoppingTheDomainTakesTheWildcardsCertificatesWhileItsOff$'
+control "server addresses: a name given by hand keeps its certificate when the domain moves" internal/agent/ownaddress.go \
+  'func(o joinServer) bool { return o.own == name }' \
+  'func(o joinServer) bool { return o.id != js.id && o.own == name }' \
+  ./internal/agent '^TestAGivenSlugAddressKeepsItsCertificateWhenTheDomainMoves$'
+control "server addresses: a server's leftover certificate from the wildcard goes with the domain" internal/agent/ownaddress.go \
+  'js.slug == "" || ' \
+  'js.slug == "" || js.own != "" || ' \
+  ./internal/agent '^TestALeftoverCertificateFromTheWildcardGoesWithTheDomain$'
+control "server addresses: a server given another address drops its certificate from the wildcard" internal/agent/ownaddress.go \
+  'if name != "" && wild != name {' \
+  'if false && name != "" && wild != name {' \
+  ./internal/agent '^TestGivingAServerAnAddressForgetsItsCertificateFromTheWildcard$'
+control "server addresses: a server given the name it has keeps its certificate" internal/agent/ownaddress.go \
+  'if name != "" && wild != name {' \
+  'if name != "" {' \
+  ./internal/agent '^TestGivingAServerAnAddressForgetsItsCertificateFromTheWildcard$'
+control "server addresses: each certificate request is logged for the day's count" internal/agent/ownaddress.go \
+  'a.noteOwnCertAttempt()' \
+  '_ = ctx' \
+  ./internal/agent '^TestTheDaysCertificatesCountWhateverBecameOfTheirNames$'
+control "server addresses: the day's count holds once the certificates are forgotten" internal/agent/ownaddress.go \
+  'return max(logged, kept)' \
+  'return kept' \
+  ./internal/agent '^TestTheDaysCertificatesCountWhateverBecameOfTheirNames$'
+control "server addresses: certificates asked before the log count too" internal/agent/ownaddress.go \
+  'name != st.Host && fromMillis(last).After(since)' \
+  'false && name != st.Host && fromMillis(last).After(since)' \
+  ./internal/agent '^TestOwnAddressesGetAFewCertificatesADay$'
+control "server addresses: a deleted server's certificate goes while the switch is off too" internal/agent/ownaddress.go \
+  'return automaticName(s.address(), servers, js)' \
+  'if st := s.address(); st.ServerAddresses { return automaticName(st, servers, js) }' \
+  ./internal/agent '^TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes$'
+control "server addresses: only an admin of every server turns it on" internal/panel/server.go \
+  'am("/api/machines/{mid}/address/server-addresses", "/v1/address/server-addresses"),' \
+  '{"POST", "/api/machines/{mid}/address/server-addresses", needSessionCSRF, actView, s.addressProxy("POST", "/v1/address/server-addresses")},' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+webcontrol "server addresses: the switch asks the agent" web/src/pages/machine-settings/own.tsx \
+  "machineApi(id, '/address/server-addresses')" \
+  "machineApi(id, '/address/server-address')" \
+  src/pages/machine-settings/address.test.tsx 'lets the owner turn on an address for each server'
+webcontrol "server addresses: an address from the wildcard leaves the field for one of its own" web/src/pages/machine-settings/own.tsx \
+  "const saved = s.automatic ? '' : (s.ownAddress ?? '')" \
+  "const saved = s.ownAddress ?? ''" \
+  src/pages/machine-settings/address.test.tsx 'gives every server an address with one wildcard record'
+
 # The network guard (internal/netguard): servers can't reach the machine or
 # link-local addresses.
 control "network guard: the rules go first in their chains" internal/netguard/netguard.go \

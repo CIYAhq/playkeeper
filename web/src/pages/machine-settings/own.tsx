@@ -8,6 +8,7 @@ import { useIsPhone } from '@/components/app/controls'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupInput } from '@/components/ui/input-group'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
@@ -368,11 +369,11 @@ function Results({ a, now, phone, checking, onCheck, certBusy, onCertificate }: 
  * Each server's own address under the domain, as the owner gives them, with
  * the two records each needs and whether the last check found them.
  */
-function OwnAddresses({ a, refresh }: { a: Address; refresh: () => Promise<void> }) {
+function OwnAddresses({ id, a, refresh }: { id: string; a: Address; refresh: () => Promise<void> }) {
   const phone = useIsPhone()
   const servers = a.servers ?? []
   if (a.kind !== 'own' || !a.host || servers.length === 0) return null
-  const rows = servers.map((s) => <OwnAddressRow key={s.serverId} a={a} s={s} refresh={refresh} />)
+  const rows = [<ServerAddresses key="each" id={id} a={a} refresh={refresh} />, ...servers.map((s) => <OwnAddressRow key={s.serverId} a={a} s={s} refresh={refresh} />)]
   if (phone) {
     return (
       <Group label={t('address.ownAddresses')}>
@@ -389,13 +390,50 @@ function OwnAddresses({ a, refresh }: { a: Address; refresh: () => Promise<void>
   )
 }
 
+/**
+ * The owner's switch for an address for each server: with one wildcard
+ * record, every server gets name.domain and its own page, joined with its
+ * port. While it's on, the record and whether the last check found it.
+ */
+function ServerAddresses({ id, a, refresh }: { id: string; a: Address; refresh: () => Promise<void> }) {
+  const ws = useWorkspace()
+  const switchId = useId()
+  const [busy, setBusy] = useState(false)
+  const domain = a.host ?? ''
+  const locked = !can(ws.me, 'machine.manage')
+  const wild = (a.records ?? []).filter((r) => !r.serverId && r.name === `*.${domain}`)
+  async function toggle(on: boolean) {
+    setBusy(true)
+    try {
+      await post<Address>(machineApi(id, '/address/server-addresses'), { on })
+      await refresh()
+    } catch (e) {
+      toastManager.add({ title: refusal(e), type: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="flex flex-col gap-2 py-3">
+      <div className="flex min-h-12 items-center gap-4">
+        <label htmlFor={switchId} className="min-w-0 flex-1">
+          <span className="block text-[13px] leading-5 font-semibold">{t('address.serverAddresses')}</span>
+          <span className="block text-xs text-muted-foreground">{t('address.serverAddressesHint', { domain, example: `alex.${domain}` })}</span>
+        </label>
+        <Switch id={switchId} checked={!!a.serverAddresses} disabled={locked || busy} onCheckedChange={(on) => void toggle(on)} />
+      </div>
+      {a.serverAddresses && wild.map((r, i) => <OwnRecord key={`${r.type}-${i}`} r={r} check={a.check} />)}
+    </div>
+  )
+}
+
 function OwnAddressRow({ a, s, refresh }: { a: Address; s: JoinAddress; refresh: () => Promise<void> }) {
   const ws = useWorkspace()
   const inputId = useId()
   const [draft, setDraft] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string>()
-  const saved = s.ownAddress ?? ''
+  const saved = s.automatic ? '' : (s.ownAddress ?? '')
   const value = draft ?? saved
   const locked = can(ws.me, 'machine.manage') ? undefined : t('address.ownNotAllowed')
   async function save(address: string) {
@@ -417,6 +455,13 @@ function OwnAddressRow({ a, s, refresh }: { a: Address; s: JoinAddress; refresh:
       <label htmlFor={inputId} className="text-[13px] leading-5 font-semibold">
         {s.name}
       </label>
+      {s.automatic && (
+        <p className="text-[13px] leading-5">
+          {t('address.automatic', { address: s.address ?? '' })}{' '}
+          <span className={cn('text-xs font-medium', s.published ? 'text-success-strong' : 'text-muted-foreground')}>{s.published ? t('address.recordWorks') : t('address.recordNotYet')}</span>
+        </p>
+      )}
+      {a.serverAddresses && !s.automatic && !s.ownAddress && <p className="text-xs text-muted-foreground">{t('address.automaticNone', { address: s.address ?? '' })}</p>}
       <div className="flex flex-wrap items-center gap-2">
         <InputGroup className="max-w-[300px] max-sm:h-11">
           <InputGroupInput
@@ -549,7 +594,7 @@ export function OwnDomain(props: AddressProps) {
             </>
           }
         />
-        <OwnAddresses a={a} refresh={refresh} />
+        <OwnAddresses id={id} a={a} refresh={refresh} />
         {dialog}
       </>
     )
@@ -570,7 +615,7 @@ export function OwnDomain(props: AddressProps) {
       <>
         <div className="flex flex-1 flex-col gap-5 pt-2 pb-6">
           {steps}
-          {!editing && <OwnAddresses a={a} refresh={refresh} />}
+          {!editing && <OwnAddresses id={id} a={a} refresh={refresh} />}
         </div>
         {dialog}
       </>
@@ -583,7 +628,7 @@ export function OwnDomain(props: AddressProps) {
         {!editing && <CardHint>{a.ip ? t('address.lead', { ip: a.ip }) : t('address.leadNoIp')}</CardHint>}
         {steps}
       </Card>
-      {!editing && <OwnAddresses a={a} refresh={refresh} />}
+      {!editing && <OwnAddresses id={id} a={a} refresh={refresh} />}
       {dialog}
     </>
   )

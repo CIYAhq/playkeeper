@@ -2,7 +2,10 @@ package certs
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"maps"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -27,9 +30,13 @@ type Plan struct {
 	Name string `json:"name"`
 	// IPv4 and IPv6 are the addresses Name's A and AAAA records hold; an
 	// invalid address means no such record.
-	IPv4    netip.Addr   `json:"ipv4,omitzero"`
-	IPv6    netip.Addr   `json:"ipv6,omitzero"`
-	Servers []JoinServer `json:"servers"`
+	IPv4 netip.Addr `json:"ipv4,omitzero"`
+	IPv6 netip.Addr `json:"ipv6,omitzero"`
+	// Wildcard adds A and AAAA records for *.Name, which point every name
+	// under Name here, so servers with Wild set need no records of their
+	// own.
+	Wildcard bool         `json:"wildcard,omitempty"`
+	Servers  []JoinServer `json:"servers"`
 }
 
 // JoinServer is one Minecraft server of the machine.
@@ -44,6 +51,10 @@ type JoinServer struct {
 	// of its own, pointing at the machine like Name's, and its SRV record
 	// names Host itself, so players and browsers reach the server there.
 	Own bool `json:"own,omitempty"`
+	// Wild means Host is a name just under Name that the plan's wildcard
+	// record points here. Browsers reach the server there; players type
+	// the port with it, since no SRV record says it.
+	Wild bool `json:"wild,omitempty"`
 }
 
 // Record is a DNS record to create at the DNS provider.
@@ -91,7 +102,7 @@ func (p Plan) normalized() (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	out := Plan{Name: name}
+	out := Plan{Name: name, Wildcard: p.Wildcard}
 	if p.IPv4.IsValid() {
 		if !p.IPv4.Unmap().Is4() {
 			return Plan{}, newProblem(nil, CodeInvalidPlan, map[string]string{"kind": "bad_address"})
@@ -125,6 +136,9 @@ func (p Plan) normalized() (Plan, error) {
 		if s.Own && (s.Host == "" || s.Host == name) {
 			return Plan{}, newProblem(nil, CodeInvalidPlan, map[string]string{"kind": "duplicate_host", "host": name})
 		}
+		if label, under := strings.CutSuffix(s.Host, "."+name); s.Wild && (!p.Wildcard || s.Own || !under || strings.Contains(label, ".")) {
+			return Plan{}, newProblem(nil, CodeInvalidPlan, map[string]string{"kind": "not_wild", "host": s.Host})
+		}
 		if a := out.bareAddress(s); a != "" {
 			if addresses[a] {
 				return Plan{}, newProblem(nil, CodeInvalidPlan, map[string]string{"kind": "duplicate_host", "host": a})
@@ -150,7 +164,7 @@ func (p Plan) bareAddress(s JoinServer) string {
 
 // needsSRV reports whether players reach s through an SRV record.
 func (p Plan) needsSRV(s JoinServer) bool {
-	return s.Host != "" && !(s.Host == p.Name && s.Port == MinecraftPort)
+	return s.Host != "" && !s.Wild && !(s.Host == p.Name && s.Port == MinecraftPort)
 }
 
 // srvTarget is the name s's SRV record points to: Name, or s's own address.
@@ -173,15 +187,19 @@ func (p Plan) srvRecord(s JoinServer) Record {
 	}
 }
 
-// Records lists the DNS records to create: A and AAAA for Name, then for
-// each server its own address's A and AAAA and an SRV record for every
-// server with its own Host (or Host = Name on another port than 25565).
+// Records lists the DNS records to create: A and AAAA for Name and, with
+// Wildcard, for *.Name, then for each server its own address's A and AAAA
+// and an SRV record for every server with its own Host (or Host = Name on
+// another port than 25565) that isn't Wild.
 func (p Plan) Records() ([]Record, error) {
 	p, err := p.normalized()
 	if err != nil {
 		return nil, err
 	}
 	out := p.addrRecords("", p.Name)
+	if p.Wildcard {
+		out = append(out, p.addrRecords("", p.wildcardName())...)
+	}
 	for _, s := range p.Servers {
 		if s.Own {
 			out = append(out, p.addrRecords(s.ID, s.Host)...)
@@ -218,7 +236,10 @@ func (p Plan) Join() ([]JoinAddress, error) {
 			direct += ":" + strconv.Itoa(s.Port)
 		}
 		address := direct
-		if s.Host != "" {
+		switch {
+		case s.Wild && s.Port != MinecraftPort:
+			address = s.Host + ":" + strconv.Itoa(s.Port)
+		case s.Host != "":
 			address = s.Host
 		}
 		out = append(out, JoinAddress{ServerID: s.ID, Address: address, Direct: direct})
@@ -259,7 +280,13 @@ func CheckPlan(ctx context.Context, r Resolver, p Plan, expected []netip.Addr) (
 	}
 	pc := PlanCheck{Name: CheckName(ctx, r, p.Name, expected)}
 	pc.Ready = pc.Name.OK
+	if p.Wildcard {
+		pc.Records = append(pc.Records, p.checkWildcard(ctx, r, expected))
+	}
 	for _, s := range p.Servers {
+		if s.Wild {
+			continue
+		}
 		if s.Own {
 			pc.Records = append(pc.Records, p.checkOwnName(ctx, r, s, expected))
 			rc := p.checkSRV(ctx, r, s, p.srvRecord(s), false)
@@ -283,6 +310,34 @@ func CheckPlan(ctx context.Context, r Resolver, p Plan, expected []netip.Addr) (
 		pc.Ready = pc.Ready && rc.OK
 	}
 	return pc, nil
+}
+
+func (p Plan) wildcardName() string { return "*." + p.Name }
+
+// checkWildcard looks up a name no server has just under Name, a new one
+// each time so that no resolver answers from what it kept of an earlier
+// look: when *.Name points here, so does it. Its record is the first of
+// *.Name's A and AAAA records, which its note names too, and Found what the
+// name points to. It counts as a server's own address.
+func (p Plan) checkWildcard(ctx context.Context, r Resolver, expected []netip.Addr) RecordCheck {
+	b := make([]byte, 6)
+	_, _ = rand.Read(b)
+	nc := CheckName(ctx, r, "playkeeper-"+hex.EncodeToString(b)+"."+p.Name, expected)
+	wild := p.wildcardName()
+	rc := RecordCheck{OK: nc.OK, Own: true, Record: Record{Type: "A", Name: wild, TTL: srvTTL}}
+	if recs := p.addrRecords("", wild); len(recs) > 0 {
+		rc.Record = recs[0]
+	}
+	params := maps.Clone(nc.Params)
+	if params == nil {
+		params = map[string]string{}
+	}
+	params["name"] = wild
+	rc.Note, _ = note(nc.Code, params)
+	for _, a := range nc.Records {
+		rc.Found = append(rc.Found, a.Addr.String())
+	}
+	return rc
 }
 
 // checkOwnName looks up s's own address as CheckName looks up Name: its
