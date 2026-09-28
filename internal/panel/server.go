@@ -346,6 +346,7 @@ func (s *Server) Routes() []Route {
 		an("/api/machines/{mid}/address/check", "/v1/address/check"),
 		an("/api/machines/{mid}/address/certificate", "/v1/address/certificate"),
 		am("/api/machines/{mid}/address/server-addresses", "/v1/address/server-addresses"),
+		{"POST", "/api/machines/{mid}/network-guard", needSessionCSRF, actManageMachine, s.hNetworkGuard},
 		{"DELETE", "/api/machines/{mid}/address", needSessionCSRF, actManageMachine, s.addressProxy("DELETE", "/v1/address")},
 		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actCreateOwnServers, s.hCreateServer},
 		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actCreateServers, s.rawUpload("/v1/restore/upload", "application/gzip")},

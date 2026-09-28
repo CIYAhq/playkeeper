@@ -77,7 +77,7 @@ func startFakeAgent(t *testing.T, dir string) (string, *fakeAgent) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fa := &fakeAgent{replies: map[string]string{}, statuses: map[string]int{}, headers: map[string]http.Header{}, before: map[string]func(){}, lastBody: map[string]string{}, gates: map[string]chan struct{}{},
+	fa := &fakeAgent{replies: map[string]string{"POST /v1/network-guard": `{"on":true,"host":true}`}, statuses: map[string]int{}, headers: map[string]http.Header{}, before: map[string]func(){}, lastBody: map[string]string{}, gates: map[string]chan struct{}{},
 		answers: map[string]http.HandlerFunc{}}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))

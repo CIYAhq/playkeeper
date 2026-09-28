@@ -205,6 +205,15 @@ func (s *Server) hTeamInviteCreate(w http.ResponseWriter, r *http.Request, sess 
 		writeRefusal(w, err)
 		return
 	}
+	// A creator's servers must not reach the machine: that goes on first.
+	if !c.Invite.Allowance.IsZero() {
+		if err := s.keepServersAway(r.Context(), sess.User.Username); err != nil {
+			s.log.Warn("could not keep servers away from this machine for a creator invite", "err", err)
+			writeErr(w, http.StatusBadGateway, api.CodeAgentUnavailable, "Playkeeper couldn't keep servers away from this machine, so it made no creator invite.",
+				"Try again. If it keeps failing, check Machine settings › Keep servers away from this machine.")
+			return
+		}
+	}
 	if err := s.insertInvite(c.Invite); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
