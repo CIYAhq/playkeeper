@@ -1,9 +1,9 @@
 // playkeeper.io on every page: the header's scrolled look and menus, the
 // analytics' custom events, the landing page's install command for the
-// channel a visitor came from, Copy, the FAQ's animation where the browser
-// has none, scroll reveals, the phone footer's groups, a guide's contents,
-// code tabs and the star count. Nothing here is needed to read or use a
-// page; without it, everything is shown.
+// channel a visitor came from, Copy and Send to my computer, the FAQ's
+// animation where the browser has none, scroll reveals, the phone footer's
+// groups, a guide's contents, code tabs and the star count. Nothing here is
+// needed to read or use a page; without it, everything is shown.
 (function () {
   var doc = document.documentElement;
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -42,10 +42,10 @@
     phone.addEventListener('change', function (e) { if (!e.matches && sheet.hidePopover) try { sheet.hidePopover(); } catch (err) { /* closed */ } });
   }
 
-  // A short message at the bottom of the screen.
+  // A short message at the bottom of the screen, for 1.6 s or ms.
   var toastBox = $('[data-toast]');
   var toastTimer = 0;
-  function toast(text) {
+  function toast(text, ms) {
     if (!toastBox) return;
     clearTimeout(toastTimer);
     toastBox.classList.remove('is-leaving');
@@ -55,7 +55,7 @@
       if (reduce.matches) { toastBox.hidden = true; return; }
       toastBox.classList.add('is-leaving');
       toastTimer = setTimeout(function () { toastBox.hidden = true; toastBox.classList.remove('is-leaving'); }, 200);
-    }, 1600);
+    }, ms || 1600);
   }
 
   // Custom events for the analytics (Settings.Analytics), which its funnels
@@ -97,8 +97,8 @@
   }
 
   // Links out: to the repository on GitHub, or /community, which sends people
-  // to its Discussions; Watch releases; and to a VPS provider. A middle-click
-  // opens one too.
+  // to its Discussions; Watch releases; to a VPS provider; and to the live
+  // demo. A middle-click opens one too.
   function followed(e) {
     if (e.type === 'auxclick' && e.button !== 1) return;
     var a = e.target.closest && e.target.closest('a[href]');
@@ -111,6 +111,9 @@
     if (a.hasAttribute('data-watch-releases')) count('watch_releases_clicked', { plan: a.getAttribute('data-watch-releases') }, true);
     var provider = a.closest('[data-provider]');
     if (provider) count('provider_clicked', { provider: provider.getAttribute('data-provider'), plan: $('[data-plan]', provider).textContent }, true);
+    if (a.origin === location.origin && /^\/demo(\/|$)/.test(a.pathname)) {
+      count('demo_opened', { spot: a.closest('#phone-menu') ? 'menu' : a.closest('[data-header]') ? 'header' : a.closest('[data-closing]') ? 'closing' : 'page' }, true);
+    }
   }
   document.addEventListener('copy', function () { copied(String(document.getSelection()), null); });
   document.addEventListener('click', followed, true);
@@ -133,7 +136,8 @@
   }
 
   // Copy: buttons and links with data-copy copy it where the browser allows.
-  if (navigator.clipboard && window.isSecureContext !== false) {
+  var canCopy = !!navigator.clipboard && window.isSecureContext !== false;
+  if (canCopy) {
     $$('[data-copy]').forEach(function (el) {
       el.hidden = false;
       var label = $('.install-copy-label, [data-copy-label]', el);
@@ -157,6 +161,37 @@
       });
     });
   }
+
+  // Send to my computer, on phones (a page's share setting): the phone's
+  // share sheet with the page's address as it is, ad IDs and all, or where
+  // the browser has none or it fails, the address copied.
+  $$('[data-share]').forEach(function (el) {
+    if (!navigator.share && !canCopy) return;
+    el.hidden = false;
+    var label = $('span', el);
+    var before = label.textContent;
+    var timer = 0;
+    var props = function (how) { return { spot: el.closest('[data-closing]') ? 'closing' : 'box', how: how }; };
+    var failed = function () { toast("Sharing failed. Copy this page's address instead."); };
+    var copyLink = function () {
+      if (!canCopy) { failed(); return; }
+      navigator.clipboard.writeText(location.href).then(function () {
+        count('install_shared', props('copy'), true);
+        label.textContent = 'Link copied';
+        toast('Link copied. Send it to yourself and open it on your computer.', 3000);
+        clearTimeout(timer);
+        timer = setTimeout(function () { label.textContent = before; }, 1600);
+      }, failed);
+    };
+    el.addEventListener('click', function () {
+      if (!navigator.share) { copyLink(); return; }
+      navigator.share({ title: document.title, url: location.href }).then(function () {
+        count('install_shared', props('share'), true);
+      }, function (err) {
+        if (!err || err.name !== 'AbortError') copyLink();
+      });
+    });
+  });
 
   // Code blocks in guides and the docs get their own Copy.
   if (navigator.clipboard) {

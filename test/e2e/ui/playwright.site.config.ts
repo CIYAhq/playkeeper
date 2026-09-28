@@ -18,8 +18,9 @@ export default defineConfig({
     locale: 'en-GB',
     timezoneId: 'UTC',
     trace: 'retain-on-failure',
-    // The analytics' host doesn't resolve here, so no visit is counted from a test run.
-    launchOptions: { args: ['--host-resolver-rules=MAP analytics-c.ciya.so ~NOTFOUND'] },
+    // The analytics' host and Whop's pixel don't resolve here, so no visit or
+    // conversion is counted from a test run.
+    launchOptions: { args: ['--host-resolver-rules=MAP analytics-c.ciya.so ~NOTFOUND, MAP t.whop.tw ~NOTFOUND'] },
   },
   webServer: {
     command: `sh -c 'PATH="$PWD/.tools/go/bin:$PATH" exec go run ./cmd/site -serve 127.0.0.1:${port}'`,

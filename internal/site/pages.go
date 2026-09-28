@@ -43,6 +43,9 @@ type Page struct {
 	// /install/<code>, the page shows everywhere, as /start does; empty shows
 	// the usual one.
 	Channel string
+	// Share puts Send to my computer next to each Copy on phones, for a page
+	// people mostly open on a phone, as /start's ad visitors do.
+	Share bool
 	// Scripts are the page's own scripts, after site.js; Styles its own
 	// stylesheets, after site.css; NoScript a stylesheet for when scripts
 	// don't run.
@@ -186,6 +189,12 @@ func parsePage(src string) (*Page, error) {
 			p.Closing = value
 		case "channel":
 			p.Channel = value
+		case "share":
+			b, err := strconv.ParseBool(value)
+			if err != nil {
+				return nil, fmt.Errorf("share is true or false, not %q", value)
+			}
+			p.Share = b
 		case "scripts":
 			p.Scripts = fields(value)
 		case "styles":
