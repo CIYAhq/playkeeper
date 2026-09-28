@@ -657,7 +657,7 @@ func TestATokenFollowsItsAccountsRole(t *testing.T) {
 		return e.newToken(t, m.cookie, m.csrf, fmt.Sprintf(`{"name":"%s %d","role":"%s","allServers":true}`, role, m.id, role))
 	}
 	read := []string{"list_servers", "get_server_status", "read_console", "list_online_players", "list_whitelist", "list_backups", "get_operation", "get_lag_report", "explain_crash", "search_addons"}
-	run := []string{"start_server", "stop_server", "restart_server", "send_chat_message", "add_to_whitelist", "remove_from_whitelist", "create_backup"}
+	run := []string{"start_server", "stop_server", "restart_server", "send_chat_message", "add_to_whitelist", "remove_from_whitelist", "create_backup", "set_status_board"}
 	outcomes := func(reads, runs, console, install string) map[string]string {
 		out := map[string]string{"run_console_command": console, "install_addon": install, "remove_addon": install}
 		for _, tool := range read {
@@ -816,6 +816,7 @@ func TestEveryToolTakesTheActionOfItsDashboardRoute(t *testing.T) {
 		"search_addons":         "GET /api/servers/{id}/addons/search",
 		"install_addon":         "POST /api/servers/{id}/addons/install",
 		"remove_addon":          "POST /api/servers/{id}/addons/remove",
+		"set_status_board":      "PUT /api/servers/{id}/public-page/board",
 	}
 	acts := map[string]action{}
 	for _, rt := range newEnv(t).srv.Routes() {
