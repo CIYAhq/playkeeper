@@ -6975,6 +6975,14 @@ control "server addresses: an old domain's certificates go" internal/agent/addre
   'a.forgetOwnCertificates(st, true)' \
   '_ = st' \
   ./internal/agent '^TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes$'
+control "server addresses: a domain's certificates go while the switch is off too" internal/agent/ownaddress.go \
+  'for _, js := range serverAddresses(st.Host, true, a.joinServers()) {' \
+  'for _, js := range serverAddresses(st.Host, st.ServerAddresses, a.joinServers()) {' \
+  ./internal/agent '^TestStoppingTheDomainTakesTheWildcardsCertificatesWhileItsOff$'
+control "server addresses: a deleted server's certificate goes while the switch is off too" internal/agent/ownaddress.go \
+  'for _, js := range serverAddresses(st.Host, true, s.joinServers()) {' \
+  'for _, js := range serverAddresses(st.Host, st.ServerAddresses, s.joinServers()) {' \
+  ./internal/agent '^TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes$'
 control "server addresses: only an admin of every server turns it on" internal/panel/server.go \
   'am("/api/machines/{mid}/address/server-addresses", "/v1/address/server-addresses"),' \
   '{"POST", "/api/machines/{mid}/address/server-addresses", needSessionCSRF, actView, s.addressProxy("POST", "/v1/address/server-addresses")},' \
