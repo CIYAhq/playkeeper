@@ -2074,6 +2074,24 @@ type TemplatePlan struct {
 	Fingerprint      string        `json:"fingerprint"`
 }
 
+// TemplateLibrary is the templates this release carries for New server › A
+// template, the ones playkeeper.io offers (internal/templates/library).
+type TemplateLibrary struct {
+	Templates []LibraryTemplate `json:"templates"`
+}
+
+// LibraryTemplate is one template of the library. File is its text, to plan
+// like any template file.
+type LibraryTemplate struct {
+	ID       string           `json:"id"`
+	Art      string           `json:"art"`
+	Page     string           `json:"page,omitempty"`
+	Checked  string           `json:"checked,omitempty"`
+	Release  string           `json:"release,omitempty"`
+	Contents TemplateContents `json:"contents"`
+	File     string           `json:"file"`
+}
+
 // Wave 4: sharing a modded server's pack with friends.
 
 // PackShare is a modded server's friends' share, for the Mods tab and the

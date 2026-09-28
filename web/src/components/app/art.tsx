@@ -59,6 +59,22 @@ export function WorldArt({ type, scale = 2, className }: { type: LevelType; scal
   return <Pixel src={worldArt[type]} width={32 * scale} height={20 * scale} className={className} />
 }
 
+const templateArt: Record<string, string> = {
+  'play-with-friends.svg': playFriends,
+  'play-creative.svg': playCreative,
+  'play-hardcore.svg': playHardcore,
+  'play-just-me.svg': playJustMe,
+  'world-normal.svg': worldNormal,
+  'world-flat.svg': worldFlat,
+  'world-amplified.svg': worldAmplified,
+  'world-big-biomes.svg': worldBigBiomes,
+}
+
+/** A library template's scene: the file its card names, or the grass world when this release lacks it. */
+export function TemplateArt({ file, scale = 2, className }: { file: string; scale?: number; className?: string }) {
+  return <Pixel src={templateArt[file] ?? worldNormal} width={32 * scale} height={20 * scale} className={className} />
+}
+
 export function EmptyArt({ kind, scale = 8, className }: { kind: 'backups' | 'players'; scale?: number; className?: string }) {
   return <Pixel src={kind === 'backups' ? emptyBackups : emptyPlayers} width={40 * scale} height={24 * scale} className={className} />
 }

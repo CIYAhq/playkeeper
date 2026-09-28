@@ -964,6 +964,7 @@ func (a *Agent) routeTable() []Route {
 		{"GET", "/v1/servers/{id}/template", srv((*server).hTemplate)},
 		{"POST", "/v1/servers/{id}/template/retry", srv((*server).hTemplateRetry)},
 		{"POST", "/v1/templates/plan", a.hTemplatePlan},
+		{"GET", "/v1/templates/library", a.hTemplateLibrary},
 		// Wave 4: sharing the pack with friends.
 		{"GET", "/v1/servers/{id}/mods/share", srv((*server).hPackShare)},
 		{"POST", "/v1/servers/{id}/mods/share", srv((*server).hPackShareSet)},

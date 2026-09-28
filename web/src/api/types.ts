@@ -1739,6 +1739,25 @@ export interface TemplatePlan {
   fingerprint: string
 }
 
+/** The templates this release carries for New server › A template, the ones playkeeper.io offers. */
+export interface TemplateLibrary {
+  templates: LibraryTemplate[]
+}
+
+/** One template of the library. `file` is its text, planned like any template file. */
+export interface LibraryTemplate {
+  id: string
+  /** A file in assets/pixel-art. */
+  art: string
+  /** Its page on playkeeper.io. */
+  page?: string
+  /** The day a server was created and started from it, and the Playkeeper it ran on. */
+  checked?: string
+  release?: string
+  contents: TemplateContents
+  file: string
+}
+
 // Wave 5: invite links, the team, Discord and player profiles.
 
 export type Action =

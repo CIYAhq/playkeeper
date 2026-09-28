@@ -1,14 +1,19 @@
 package site
 
 import (
+	"bytes"
+	"encoding/json"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/templates/checks"
+	"github.com/CIYAhq/playkeeper/internal/templates/library"
 )
 
 // Every library page says what its template sets up as the release creates
@@ -141,6 +146,57 @@ func TestAHeldTemplateSaysWhichReleaseOpensIt(t *testing.T) {
 		case ok && got["creative"].Held() != (opens != ""):
 			t.Errorf("opensFrom %q: held is %v", opens, got["creative"].Held())
 		}
+	}
+}
+
+// The template list releases carry for New server is the site's, as go
+// generate writes it.
+func TestTheDashboardListsTheSitesTemplates(t *testing.T) {
+	want, err := DashboardLibrary(os.DirFS("../.."), Default)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile("../templates/library/library.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Error("internal/templates/library/library.json isn't what site/data/templates makes: run go generate ./internal/templates/library")
+	}
+}
+
+// New server lists a template only once a server was created and started
+// from it, as the site does: not before its first check, nor after a failing
+// one.
+func TestTheDashboardListsOnlyPassingTemplates(t *testing.T) {
+	tpl, err := os.ReadFile("../../site/data/templates/creative.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := &fstest.MapFile{Mode: fs.ModeDir}
+	root := fstest.MapFS{
+		"site/data/templates/cards.json": {Data: []byte(`{
+			"passing": {"art": "app/pixel-art/play-creative.svg"},
+			"failing": {"art": "app/pixel-art/play-creative.svg"},
+			"unchecked": {"art": "app/pixel-art/play-creative.svg"}}`)},
+		"site/data/templates/passing.json":   {Data: tpl},
+		"site/data/templates/failing.json":   {Data: tpl},
+		"site/data/templates/unchecked.json": {Data: tpl},
+		"site/data/checks/passing.json":      {Data: []byte(`{"status": "passing", "checked": "2026-09-28", "release": "0.4.2", "doneSeconds": 12.5}`)},
+		"site/data/checks/failing.json":      {Data: []byte(`{"status": "failing", "failure": "WorldEdit failed to enable", "checked": "2026-09-28", "release": "0.4.2"}`)},
+		"site/data/library":                  dir,
+		"site/data/modpacks":                 dir,
+	}
+	b, err := DashboardLibrary(root, Default)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []library.Template
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "passing" || got[0].Checked != "2026-09-28" || got[0].Release != "0.4.2" {
+		t.Errorf("listed %+v, want only passing, checked 2026-09-28 on 0.4.2", got)
 	}
 }
 

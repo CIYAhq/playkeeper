@@ -1,0 +1,512 @@
+[
+  {
+    "id": "bedwars",
+    "name": "Bedwars",
+    "art": "world-normal.svg",
+    "page": "https://playkeeper.io/templates/bedwars",
+    "checked": "2026-09-28",
+    "release": "0.4.2",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Bedwars",
+      "description": "Paper for Bedwars: Screaming BedWars runs the games, with WorldEdit for building arenas and Multiverse-Core for keeping each arena in its own world.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "normal",
+        "pvp": true,
+        "gameMode": "survival",
+        "maxPlayers": 16,
+        "playStyle": "friends",
+        "memoryMB": 4096
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "1u6JkXh5",
+          "slug": "worldedit",
+          "name": "WorldEdit",
+          "pin": {
+            "versionId": "F5ea2ov3",
+            "versionNumber": "7.4.5",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "a383492fac6bfb4d43a257dfa7b5fc076aae503a71151b463de4fe80e6f3d5fc11209eaf4097baa115f3febf0adc40ca0a1ecda227b8439b429d0a4ba3a63a4f"
+          }
+        },
+        {
+          "source": "modrinth",
+          "project": "3wmN97b8",
+          "slug": "multiverse-core",
+          "name": "Multiverse-Core",
+          "pin": {
+            "versionId": "YZ2Ji4IS",
+            "versionNumber": "5.8.1",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "322c1f4dc1abcd30e0f55aa9f378c7031846d1e59a5156480f9199050dc104c19468c9891c47be35e4dde68742ec4420ea974ec8850db6a259f97ffa1b1c51ea"
+          }
+        },
+        {
+          "source": "modrinth",
+          "project": "8sg1aj4I",
+          "slug": "screamingbedwars",
+          "name": "Screaming BedWars",
+          "pin": {
+            "versionId": "nUPEYDAm",
+            "versionNumber": "0.2.44",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "033bd19dc10b0c48387e90fb3801efbc3f7e1c9b59001a03b284f86cbe492307c5e8d5efd28da80e4840e87b75285b5d66717baae976c3c48f0ad47740befe01"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "creative",
+    "name": "Creative",
+    "art": "play-creative.svg",
+    "checked": "2026-09-28",
+    "release": "0.4.2",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Creative",
+      "description": "Paper in creative mode, with WorldEdit for big builds and Multiverse for extra worlds.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "peaceful",
+        "gameMode": "creative",
+        "maxPlayers": 10,
+        "playStyle": "creative",
+        "memoryMB": 3072
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "1u6JkXh5",
+          "slug": "worldedit",
+          "name": "WorldEdit",
+          "pin": {
+            "versionId": "F5ea2ov3",
+            "versionNumber": "7.4.5",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "a383492fac6bfb4d43a257dfa7b5fc076aae503a71151b463de4fe80e6f3d5fc11209eaf4097baa115f3febf0adc40ca0a1ecda227b8439b429d0a4ba3a63a4f"
+          }
+        },
+        {
+          "source": "modrinth",
+          "project": "3wmN97b8",
+          "slug": "multiverse-core",
+          "name": "Multiverse-Core",
+          "pin": {
+            "versionId": "YZ2Ji4IS",
+            "versionNumber": "5.8.1",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "322c1f4dc1abcd30e0f55aa9f378c7031846d1e59a5156480f9199050dc104c19468c9891c47be35e4dde68742ec4420ea974ec8850db6a259f97ffa1b1c51ea"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "hardcore-smp",
+    "name": "Hardcore SMP",
+    "art": "play-hardcore.svg",
+    "page": "https://playkeeper.io/templates/hardcore-smp",
+    "checked": "2026-09-28",
+    "release": "0.4.2",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Hardcore SMP",
+      "description": "Paper in hardcore for a group: one life each, hard difficulty, with pre-generation, block logging and proximity voice chat.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "hard",
+        "pvp": false,
+        "gameMode": "survival",
+        "hardcore": true,
+        "maxPlayers": 10,
+        "playStyle": "hardcore",
+        "memoryMB": 4096
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "fALzjamp",
+          "slug": "chunky",
+          "name": "Chunky",
+          "pin": {
+            "versionId": "MdY6JATr",
+            "versionNumber": "1.5.3",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "43ffecc6e6a734b752da41575bbb316526c124c3f878942437d5133c377bfbd9b78bda975520dc074d7158c15dade58a444ccd0fd8d8a25d165b6fc450140422"
+          }
+        },
+        {
+          "source": "modrinth",
+          "project": "Lu3KuzdV",
+          "slug": "coreprotect",
+          "name": "CoreProtect",
+          "pin": {
+            "versionId": "3sehX6Sg",
+            "versionNumber": "24.1",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "76aad727528ddb990bbee5069f8ef3fcd018ae0bcdea89b965be2485e828633eb068672e841be64e550c8474f901a24d8c15c7bd44c2bd6c96244e1e58de0c95"
+          }
+        },
+        {
+          "source": "modrinth",
+          "project": "9eGKb6K1",
+          "slug": "simple-voice-chat",
+          "name": "Simple Voice Chat",
+          "pin": {
+            "versionId": "EJth3OAr",
+            "versionNumber": "bukkit-2.6.24",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "7f1d5765e79cd42616f14f40322d1171a8505e1116dfff71c7bd0e59af9d255c06f70a68a5b622015c0407d40c80e70298c172992007ff339cedcef0116fec42"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "lifesteal-smp",
+    "name": "Lifesteal SMP",
+    "art": "world-amplified.svg",
+    "page": "https://playkeeper.io/templates/lifesteal-smp",
+    "checked": "2026-09-28",
+    "release": "0.4.2",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Lifesteal SMP",
+      "description": "Paper for a lifesteal SMP: kill a player to take a heart, die and lose one. With LifeStealZ, pre-generation and block logging.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "normal",
+        "pvp": true,
+        "gameMode": "survival",
+        "maxPlayers": 20,
+        "playStyle": "friends",
+        "memoryMB": 4096
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "l8Uv7FzS",
+          "slug": "lifestealz",
+          "name": "LifeStealZ",
+          "pin": {
+            "versionId": "DqixaESV",
+            "versionNumber": "2.21.1",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "89c5986faf16b1fe4a5fb85c20c5af4533d86974fed6762a369502627c0070129735e1a286e11ec59bd73b6651bae9a4fc6ba1cb559fe6c63c7ce6af219d41c8"
+          }
+        },
+        {
+          "source": "modrinth",
+          "project": "fALzjamp",
+          "slug": "chunky",
+          "name": "Chunky",
+          "pin": {
+            "versionId": "MdY6JATr",
+            "versionNumber": "1.5.3",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "43ffecc6e6a734b752da41575bbb316526c124c3f878942437d5133c377bfbd9b78bda975520dc074d7158c15dade58a444ccd0fd8d8a25d165b6fc450140422"
+          }
+        },
+        {
+          "source": "modrinth",
+          "project": "Lu3KuzdV",
+          "slug": "coreprotect",
+          "name": "CoreProtect",
+          "pin": {
+            "versionId": "3sehX6Sg",
+            "versionNumber": "24.1",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "76aad727528ddb990bbee5069f8ef3fcd018ae0bcdea89b965be2485e828633eb068672e841be64e550c8474f901a24d8c15c7bd44c2bd6c96244e1e58de0c95"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "oneblock",
+    "name": "OneBlock",
+    "art": "play-just-me.svg",
+    "page": "https://playkeeper.io/templates/oneblock",
+    "checked": "2026-09-28",
+    "release": "0.4.2",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "OneBlock",
+      "description": "Paper for OneBlock: each player stands on a single block that turns into the next when broken, from grass to the End, with the OneBlock plugin and Multiverse-Core for its world.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "normal",
+        "pvp": false,
+        "gameMode": "survival",
+        "maxPlayers": 20,
+        "playStyle": "friends",
+        "memoryMB": 3072
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "3wmN97b8",
+          "slug": "multiverse-core",
+          "name": "Multiverse-Core",
+          "pin": {
+            "versionId": "YZ2Ji4IS",
+            "versionNumber": "5.8.1",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "322c1f4dc1abcd30e0f55aa9f378c7031846d1e59a5156480f9199050dc104c19468c9891c47be35e4dde68742ec4420ea974ec8850db6a259f97ffa1b1c51ea"
+          }
+        },
+        {
+          "source": "modrinth",
+          "project": "gMMDcC2d",
+          "slug": "oneblock_bukkit",
+          "name": "OneBlock",
+          "pin": {
+            "versionId": "fO8gas7m",
+            "versionNumber": "1.6.3",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "9d3e2077a1ab550b0456f42ea8738e5ff15c5e37607277ac70df4ccb60fb8408fc7b3b40373ba159710e9dba7aa05616fe70748f70350e4e28f881ffe004f99a"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "skyblock",
+    "name": "Skyblock",
+    "art": "world-flat.svg",
+    "page": "https://playkeeper.io/templates/skyblock",
+    "checked": "2026-09-28",
+    "release": "0.4.2",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Skyblock",
+      "description": "Paper for skyblock: every player or team starts on a small island in the void, with Iridium Skyblock's upgrades, missions and island levels, and the two plugins it needs.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "normal",
+        "pvp": false,
+        "gameMode": "survival",
+        "maxPlayers": 20,
+        "playStyle": "friends",
+        "memoryMB": 4096
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "ayRaM8J7",
+          "slug": "vaultunlocked",
+          "name": "VaultUnlocked",
+          "pin": {
+            "versionId": "qZgRzoYs",
+            "versionNumber": "2.20.3",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "0eedea1591459e7e327315b43afa834a173c8c2ae31b3b235586d31963df29a4a6c0ef4b8f3fdc746e15afd47ee50c1ff93584543b5c2ef7c2a80135dba1136a"
+          }
+        },
+        {
+          "source": "modrinth",
+          "project": "1u6JkXh5",
+          "slug": "worldedit",
+          "name": "WorldEdit",
+          "pin": {
+            "versionId": "F5ea2ov3",
+            "versionNumber": "7.4.5",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "a383492fac6bfb4d43a257dfa7b5fc076aae503a71151b463de4fe80e6f3d5fc11209eaf4097baa115f3febf0adc40ca0a1ecda227b8439b429d0a4ba3a63a4f"
+          }
+        },
+        {
+          "source": "modrinth",
+          "project": "uVMG0MzO",
+          "slug": "iridiumskyblock",
+          "name": "Iridium Skyblock",
+          "pin": {
+            "versionId": "3L0LVid4",
+            "versionNumber": "4.1.5",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "d4e906ed501d2477eade44fcbcdb164ac599baa20c80120da397bf439bd88f870a9d166d60e09bb61365a8433732ba594dd0c0f5b8aa445fdb6692ef52805341"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "survival-with-friends",
+    "name": "Survival with friends",
+    "art": "play-with-friends.svg",
+    "page": "https://playkeeper.io/templates/smp",
+    "checked": "2026-09-28",
+    "release": "0.4.2",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Survival with friends",
+      "description": "Paper for a group of friends: pre-generation, block logging and proximity voice chat.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "normal",
+        "pvp": false,
+        "gameMode": "survival",
+        "viewDistance": 10,
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 4096
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "fALzjamp",
+          "slug": "chunky",
+          "name": "Chunky",
+          "pin": {
+            "versionId": "MdY6JATr",
+            "versionNumber": "1.5.3",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "43ffecc6e6a734b752da41575bbb316526c124c3f878942437d5133c377bfbd9b78bda975520dc074d7158c15dade58a444ccd0fd8d8a25d165b6fc450140422"
+          }
+        },
+        {
+          "source": "modrinth",
+          "project": "Lu3KuzdV",
+          "slug": "coreprotect",
+          "name": "CoreProtect",
+          "pin": {
+            "versionId": "3sehX6Sg",
+            "versionNumber": "24.1",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "76aad727528ddb990bbee5069f8ef3fcd018ae0bcdea89b965be2485e828633eb068672e841be64e550c8474f901a24d8c15c7bd44c2bd6c96244e1e58de0c95"
+          }
+        },
+        {
+          "source": "modrinth",
+          "project": "9eGKb6K1",
+          "slug": "simple-voice-chat",
+          "name": "Simple Voice Chat",
+          "pin": {
+            "versionId": "EJth3OAr",
+            "versionNumber": "bukkit-2.6.24",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "7f1d5765e79cd42616f14f40322d1171a8505e1116dfff71c7bd0e59af9d255c06f70a68a5b622015c0407d40c80e70298c172992007ff339cedcef0116fec42"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "towny",
+    "name": "Towny",
+    "art": "world-big-biomes.svg",
+    "page": "https://playkeeper.io/templates/towny",
+    "checked": "2026-09-28",
+    "release": "0.4.2",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Towny",
+      "description": "Paper for a Towny server: players found towns and nations, claim land chunk by chunk and run their own plots, with LuckPerms for ranks.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "normal",
+        "pvp": true,
+        "gameMode": "survival",
+        "maxPlayers": 30,
+        "playStyle": "friends",
+        "memoryMB": 4096
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "Vebnzrzj",
+          "slug": "luckperms",
+          "name": "LuckPerms",
+          "pin": {
+            "versionId": "b0mk8uS6",
+            "versionNumber": "v5.5.71-bukkit",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "188a91f0a543d23bfda32385fca6db63d61e49c8a422bd452a260bd9cbc6a7d7fe45071199e9fca8f3ce43c2b41ee84fd315bd15464577028ff3951a7d4fab27"
+          }
+        },
+        {
+          "source": "modrinth",
+          "project": "Vs77PB2W",
+          "slug": "towny",
+          "name": "Towny",
+          "pin": {
+            "versionId": "pra46LOM",
+            "versionNumber": "0.103.2.0",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "68afbe2c19a611d2366705959e9d32df0a5f88e656d1e8c8334c166ada36d6ffa500db00fe3990ac4e5483786aafb20c686d5daadc55afae0b79dddeb0139c2f"
+          }
+        },
+        {
+          "source": "modrinth",
+          "project": "fALzjamp",
+          "slug": "chunky",
+          "name": "Chunky",
+          "pin": {
+            "versionId": "MdY6JATr",
+            "versionNumber": "1.5.3",
+            "channel": "release",
+            "hashAlgo": "sha512",
+            "hash": "43ffecc6e6a734b752da41575bbb316526c124c3f878942437d5133c377bfbd9b78bda975520dc074d7158c15dade58a444ccd0fd8d8a25d165b6fc450140422"
+          }
+        }
+      ]
+    }
+  }
+]

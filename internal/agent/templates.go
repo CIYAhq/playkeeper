@@ -20,6 +20,8 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/modpacks"
 	"github.com/CIYAhq/playkeeper/internal/packs"
 	"github.com/CIYAhq/playkeeper/internal/templates"
+	"github.com/CIYAhq/playkeeper/internal/templates/library"
+	"github.com/CIYAhq/playkeeper/internal/version"
 )
 
 // templateBuildKey is the one key of a template's Server.Build Playkeeper
@@ -219,6 +221,29 @@ func templateContents(t *templates.Template) api.TemplateContents {
 		}
 	}
 	return c
+}
+
+// hTemplateLibrary lists the templates this release carries for New server ›
+// A template: the ones playkeeper.io offers that this version opens. New
+// server plans one like any file, so its file travels with it.
+func (a *Agent) hTemplateLibrary(w http.ResponseWriter, _ *http.Request) {
+	list, err := library.For(version.Version)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	out := api.TemplateLibrary{Templates: make([]api.LibraryTemplate, 0, len(list))}
+	for _, l := range list {
+		t, err := templates.Decode(l.File)
+		if err != nil {
+			writeError(w, fmt.Errorf("the library's %s template: %w", l.ID, err))
+			return
+		}
+		out.Templates = append(out.Templates, api.LibraryTemplate{
+			ID: l.ID, Art: l.Art, Page: l.Page, Checked: l.Checked, Release: l.Release, Contents: templateContents(t), File: string(l.File),
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // hTemplatePlan says what a template would create on this machine. The body

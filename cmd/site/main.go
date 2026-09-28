@@ -20,7 +20,19 @@ func main() {
 	root := flag.String("root", ".", "the repository")
 	out := flag.String("out", "site/dist", "the folder to build into: html/ for the web root and nginx/ for nginx.conf's include")
 	serve := flag.String("serve", "", "instead of writing the site, serve it at this address, as nginx would (for example 127.0.0.1:8080)")
+	lib := flag.String("library", "", "instead of building the site, write the template list releases carry (internal/templates/library) to this file")
 	flag.Parse()
+	if *lib != "" {
+		b, err := site.DashboardLibrary(os.DirFS(*root), site.Default)
+		if err == nil {
+			err = os.WriteFile(*lib, b, 0o644)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "site:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	o, err := site.Build(site.Options{Root: os.DirFS(*root), Settings: site.Default, Now: time.Now()})
 	if err == nil && *serve != "" {
 		fmt.Printf("serving playkeeper.io at http://%s/\n", *serve)
