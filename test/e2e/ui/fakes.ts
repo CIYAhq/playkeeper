@@ -786,6 +786,15 @@ const routes: [string, RegExp, Handler][] = [
       return { status: 200, body: { public: on, token: on ? 'Fake0Share0Token0Abcde' : undefined, file: read.file ?? 'server.mrpack', size: read.size ?? 2048, loaderName: read.loaderName ?? 'Fabric', share } }
     },
   ],
+  // 0.4.3: crossplay's switch.
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/crossplay$/,
+    (r, state) => {
+      const on = (r.body as { on?: unknown } | null)?.on
+      return typeof on === 'boolean' ? op(state, on ? 'crossplay_on' : 'crossplay_off', r.params[0]) : invalid('Say whether crossplay should be on.')
+    },
+  ],
   // Wave 6: the map's switches, and worlds uploaded for a new server.
   ['POST', /^\/api\/servers\/(\w+)\/map\/enable$/, (r, state) => op(state, 'map_enable', r.params[0])],
   ['POST', /^\/api\/servers\/(\w+)\/map\/disable$/, (r, state) => (typeof (r.body as { deleteMap?: unknown } | null)?.deleteMap === 'boolean' ? op(state, 'map_disable', r.params[0]) : invalid('Say whether to keep the drawn map.'))],

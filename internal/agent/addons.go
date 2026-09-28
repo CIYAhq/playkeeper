@@ -450,6 +450,9 @@ func (s *server) hAddons(w http.ResponseWriter, r *http.Request) {
 				// The Map tab asks for the restart that loads it.
 				f.Addon.UsedBy, f.Pending = api.UsedByMap, false
 			}
+			if e.Installed != nil && crossplayOn(sc) && isCrossplay(e.Installed.Key()) {
+				f.Addon.UsedBy = api.UsedByCrossplay
+			}
 			if e.Installed == nil && pack[e.FileName] {
 				f.Status = api.AddonFromPack
 			}
@@ -731,6 +734,9 @@ func (s *server) hAddonDetails(w http.ResponseWriter, r *http.Request) {
 		out.Installed = &a
 	case rec != nil:
 		a := apiAddon(*rec)
+		if sc, err := s.serverConfig(); err == nil && crossplayOn(sc) && isCrossplay(rec.Key()) {
+			a.UsedBy = api.UsedByCrossplay
+		}
 		out.Installed = &a
 		if p, err := lib.PreviewUninstall(r.Context(), srv, installed, rec.Key()); err == nil {
 			out.Changed, out.Missing = p.Changed, p.Missing

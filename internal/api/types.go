@@ -971,13 +971,19 @@ type Addon struct {
 	DependencyOf string    `json:"dependencyOf,omitempty"`
 	InstalledAt  time.Time `json:"installedAt"`
 	// UsedBy is the part of Playkeeper that installed the add-on and alone
-	// removes it: UsedByMap for the Map's squaremap and what it needs.
-	// Empty for add-ons installed from the Plugins or Mods tab.
+	// removes it: UsedByMap for the Map's squaremap and what it needs, and
+	// UsedByCrossplay for Geyser and Floodgate while crossplay is on, which
+	// the Plugins tab still updates. Empty for add-ons installed from the
+	// Plugins or Mods tab.
 	UsedBy string `json:"usedBy,omitempty"`
 }
 
-// UsedByMap marks the add-ons the Map installed.
-const UsedByMap = "map"
+// UsedByMap marks the add-ons the Map installed, and UsedByCrossplay Geyser
+// and Floodgate while crossplay is on (from 0.4.3).
+const (
+	UsedByMap       = "map"
+	UsedByCrossplay = "crossplay"
+)
 
 // AddonKey names an installed add-on.
 type AddonKey struct {

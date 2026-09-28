@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils'
 import { usePoll } from '@/lib/usePoll'
 import { upgradeTargets } from '@/lib/versions'
 import { serverAction } from '.'
+import { CrossplayRows } from './crossplay'
 import { SchedulesPhoneRow, SchedulesSection } from './schedules'
 import { SleepRows } from './sleep'
 
@@ -233,6 +234,9 @@ export function ServerSettingsPage({ server: s, focus }: { server: ServerStatus;
         }
       />
       <SettingRow label={t('settings.mode')} hint={phone ? t('settings.modeHintShort') : undefined} changed={changed('gameMode')} control={<ChoiceSelect value={v.gameMode} onChange={(m) => set('gameMode', m)} options={modeChoices()} label={t('settings.mode')} />} />
+      <div id="crossplay" className="scroll-mt-24">
+        <CrossplayRows server={s} />
+      </div>
     </>
   )
 

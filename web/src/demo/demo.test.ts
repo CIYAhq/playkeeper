@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { Address, AddonBrowse, AddonChecks, AddonDetails, AddonRemovePreview, Addons, AddonSources, Catalog, CatalogEntry, CuratedAddons, DataPacks, LogsResponse, MemoryAdvice, PackShare, Pregen, ResourcePack, Running, ServerStatus, SoftwareBuilds, TwoFactorStatus } from '@/api/types'
+import type { Address, AddonBrowse, AddonChecks, AddonDetails, AddonRemovePreview, Addons, AddonSources, Catalog, CatalogEntry, Crossplay, CuratedAddons, DataPacks, LogsResponse, MemoryAdvice, PackShare, Pregen, ResourcePack, Running, ServerStatus, SoftwareBuilds, TwoFactorStatus } from '@/api/types'
 import { addonIconOf, faceOf, library, samplePlayers } from './data'
 import { hasBuilds, pinBuild } from '@/lib/software'
 import { upgradeTargets } from '@/lib/versions'
@@ -338,6 +338,17 @@ it('picks a few plugins for Paper servers, and none for Fabric', async () => {
     ['lag-finder', 'spark', false],
   ])
   expect((await ask<CuratedAddons>('GET', `/api/servers/${(await server('cobblemon')).id}/addons/curated`)).picks).toEqual([])
+})
+
+it('turns crossplay on and off on a Paper server, and says why not on Fabric', async () => {
+  const id = (await survival()).id
+  expect(await ask<Crossplay>('GET', `/api/servers/${id}/crossplay`)).toMatchObject({ on: false, available: true, port: 19132, plugins: [] })
+  await ask('POST', `/api/servers/${id}/crossplay`, { on: true })
+  expect(await ask<Crossplay>('GET', `/api/servers/${id}/crossplay`)).toMatchObject({ on: true, port: 19132, plugins: [{ name: 'Geyser' }, { name: 'Floodgate' }] })
+  expect((await survival()).bedrock).toEqual({ host: 'demo.playkeeper.me', port: 19132 })
+  const cobblemon = (await server('cobblemon')).id
+  expect(await ask<Crossplay>('GET', `/api/servers/${cobblemon}/crossplay`)).toMatchObject({ on: false, available: false, notice: { kind: 'not_for_server_type' } })
+  await expect(ask('POST', `/api/servers/${cobblemon}/crossplay`, { on: true })).rejects.toMatchObject({ status: 409 })
 })
 
 it('offers every server type, with its builds, and makes a Fabric server as asked', async () => {

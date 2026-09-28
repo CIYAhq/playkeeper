@@ -11,7 +11,7 @@ import { t } from '@/i18n'
 import { alsoInstalls, compactCount, footerFor, keyFrom, libraryMatch, searchPath, sourceNames, updatedAgo, versionPage } from '@/lib/addons'
 import { externalLink } from '@/lib/links'
 import { busyReason, opLabel } from '@/lib/phase'
-import { navigate } from '@/lib/router'
+import { href, navigate } from '@/lib/router'
 import { softwareLabel } from '@/lib/servers'
 import { cn } from '@/lib/utils'
 import { AddonIcon, detailsPath, useAddons, type Detail } from './state'
@@ -308,7 +308,7 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
         }
         const up = f.update
         const remove = (
-          <Button variant="destructive-outline" size={size} className={up ? (phone ? 'w-full' : '') : 'w-full'} onClick={() => a.askRemove(key)}>
+          <Button variant="destructive-outline" size={size} className={up ? (phone ? 'w-full' : '') : 'w-full'} onClick={() => a.askRemove(key)} disabledReason={f.crossplay ? t('addons.usedByCrossplayBody') : undefined}>
             <Trash2Icon />
             {t('common.remove')}
           </Button>
@@ -353,6 +353,24 @@ function DetailFooter({ d, adoptFile }: { d: AddonDetails; adoptFile?: string })
               }}
             >
               <span className="truncate">{t('addons.openMap')}</span>
+              <ArrowRightIcon />
+            </Button>
+          </Blocked>
+        )
+        break
+      case 'crossplay':
+        body = (
+          <Blocked title={t('addons.crossplayTitle')} body={t('addons.crossplayBody')}>
+            <Button
+              variant="outline"
+              size={size}
+              className="w-full"
+              onClick={() => {
+                a.openDetail(undefined)
+                navigate(`${href({ name: 'server', slug: a.server.slug, tab: 'settings' })}#crossplay`)
+              }}
+            >
+              <span className="truncate">{t('addons.openCrossplay')}</span>
               <ArrowRightIcon />
             </Button>
           </Blocked>
