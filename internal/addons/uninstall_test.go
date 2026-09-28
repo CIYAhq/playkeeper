@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -216,8 +217,8 @@ func TestUninstallRefusals(t *testing.T) {
 	writeFile(t, filepath.Join(srv.Dir, "plugins", "ViaVersion.jar"), f.mfile("FaishMnD").data)
 
 	_, err := l.Uninstall(context.Background(), srv, installed, Key{Modrinth, "P1OZGk5p"}, UninstallOptions{Force: true})
-	if e := wantKind(t, err, KindNotManaged); e.Msg != "Playkeeper did not install this add-on, so it will not delete it." {
-		t.Errorf("message %q", e.Msg)
+	if e := wantKind(t, err, KindNotManaged); e.Msg != "Playkeeper did not install this add-on, so it will not delete it." || e.Hint != "Delete its file on the Files tab instead." {
+		t.Errorf("message %q, hint %q", e.Msg, e.Hint)
 	}
 
 	for _, name := range []string{"../server.properties", "../server.properties.jar", "server.properties", ".Chunky.jar", "a/b.jar", ""} {
@@ -225,8 +226,8 @@ func TestUninstallRefusals(t *testing.T) {
 		rec.FileName, rec.Hash, rec.Size = name, sha512hex(props), int64(len(props))
 		_, err := l.Uninstall(context.Background(), srv, []Installed{rec}, rec.Key(), UninstallOptions{Force: true})
 		e := wantKind(t, err, KindBadFileName)
-		if name == "../server.properties" && e.Msg != `The record of Chunky names the file "../server.properties", which Playkeeper will not touch.` {
-			t.Errorf("message %q", e.Msg)
+		if name == "../server.properties" && (e.Msg != `The record of Chunky names the file "../server.properties", which Playkeeper will not touch.` || !strings.Contains(e.Hint, "on the Files tab")) {
+			t.Errorf("message %q, hint %q", e.Msg, e.Hint)
 		}
 	}
 

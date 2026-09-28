@@ -66,10 +66,20 @@ const (
 // in actNeeds, so only the owner may, as the dashboard says.
 const actManageAddonSources action = "addon_sources.manage"
 
+// The file browser: looking at a server's files and changing them. The raw
+// files hold what the dashboard keeps from moderators and viewers (the RCON
+// password, plugins' tokens and passwords, logs with players' addresses on
+// older versions), and a changed file can run code in the game, as a plugin
+// does, so both need an admin, like the settings and add-ons.
+const (
+	actViewFiles action = "files.view"
+	actEditFiles action = "files.edit"
+)
+
 // actions lists every action, for the signed-in account's "can" list.
 var actions = []action{actView, actManageAccount, actRunServers, actConsole, actManagePlayers, actMakeBackups,
 	actRestore, actManageServers, actCreateServers, actManageTeam, actManageMachine, actViewAuditTrail,
-	actManageBackupCopies, actRecoveryKey, actRecoverBackups, actManageAddonSources}
+	actManageBackupCopies, actRecoveryKey, actRecoverBackups, actManageAddonSources, actViewFiles, actEditFiles}
 
 // keyActions are decided by mayHoldBackupKeys rather than actNeeds.
 var keyActions = map[action]bool{actManageBackupCopies: true, actRecoveryKey: true, actRecoverBackups: true}
@@ -89,6 +99,8 @@ var actNeeds = map[action]string{
 	actManageTeam:     invites.RoleAdmin,
 	actManageMachine:  invites.RoleAdmin,
 	actViewAuditTrail: invites.RoleAdmin,
+	actViewFiles:      invites.RoleAdmin,
+	actEditFiles:      invites.RoleAdmin,
 }
 
 // machineWide actions reach past single servers, so an admin needs all of

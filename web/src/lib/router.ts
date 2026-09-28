@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { scrollBehavior, scrollToSection } from './scroll'
 
-export type ServerTab = 'overview' | 'console' | 'players' | 'world' | 'map' | 'plugins' | 'mods' | 'settings'
-export const serverTabs: ServerTab[] = ['overview', 'console', 'players', 'world', 'map', 'plugins', 'mods', 'settings']
+export type ServerTab = 'overview' | 'console' | 'players' | 'world' | 'map' | 'plugins' | 'mods' | 'files' | 'settings'
+export const serverTabs: ServerTab[] = ['overview', 'console', 'players', 'world', 'map', 'plugins', 'mods', 'files', 'settings']
 
 /** Pages under a tab, such as /servers/survival/world/pregen, and their paths under it. */
 export type ServerSub = 'pregen' | 'packs' | 'browse' | 'schedules' | 'backup-rules' | 'backup-copies'
@@ -21,8 +21,10 @@ export type Route =
   | { name: 'setup' }
   | { name: 'welcome' }
   | { name: 'new-server'; machine?: string }
-  // page is a page under Overview: "How it's running".
-  | { name: 'server'; slug: string; tab: ServerTab; sub?: ServerSub; page?: 'running' }
+  // page is a page under Overview: "How it's running". path is a folder in
+  // the Files tab (/servers/survival/files/plugins), or with file the file
+  // open in its editor (/servers/survival/file/server.properties).
+  | { name: 'server'; slug: string; tab: ServerTab; sub?: ServerSub; page?: 'running'; path?: string; file?: boolean }
   | { name: 'machine'; id: string; sub?: MachineSub }
   | { name: 'machine-settings'; id: string }
   | { name: 'settings' }
@@ -56,6 +58,29 @@ const reMachineId = /^[a-z2-9]{10}$/
 export function publicMapToken(pathname: string): string | undefined {
   const m = /^\/map\/([^/]*)\/?$/.exec(pathname)
   return m ? (m[1] ?? '') : undefined
+}
+
+/** A path in a server's files from the address's segments, each decoded; undefined when one isn't a name. */
+function filesPath(segments: string[]): string | undefined {
+  const names: string[] = []
+  for (const s of segments) {
+    let name: string
+    try {
+      name = decodeURIComponent(s)
+    } catch {
+      return undefined
+    }
+    if (name === '' || name === '.' || name === '..' || name.includes('/') || name.includes('\0')) return undefined
+    names.push(name)
+  }
+  return names.join('/')
+}
+
+/** The Files tab's address for a folder, or for a file open in its editor. */
+function filesHref(slug: string, path: string | undefined, file: boolean | undefined): string {
+  const rest = (path ?? '').split('/').filter(Boolean).map(encodeURIComponent).join('/')
+  if (file && rest) return `/servers/${slug}/file/${rest}`
+  return rest ? `/servers/${slug}/files/${rest}` : `/servers/${slug}/files`
 }
 
 /** The machine a page is about, from ?machine= in the address: where a new server goes, or whose add-on sources show. */
@@ -100,6 +125,11 @@ export function parse(pathname: string, search = ''): Route {
       if (second === 'new' && !third) return { name: 'new-server', ...targetMachine(search) }
       if (second && reSlug.test(second)) {
         if (third === 'running' && parts.length === 3) return { name: 'server', slug: second, tab: 'overview', page: 'running' }
+        if (third === 'files' || third === 'file') {
+          const path = filesPath(parts.slice(3))
+          if (path === undefined || (third === 'file' && !path)) return { name: 'server', slug: second, tab: 'files' }
+          return third === 'file' ? { name: 'server', slug: second, tab: 'files', path, file: true } : path ? { name: 'server', slug: second, tab: 'files', path } : { name: 'server', slug: second, tab: 'files' }
+        }
         const tab = (third ?? 'overview') as ServerTab
         if (serverTabs.includes(tab) && parts.length <= 3) return { name: 'server', slug: second, tab }
         if (third === 'players' && fourth && rePlayerName.test(fourth) && parts.length === 4) {
@@ -138,6 +168,7 @@ export function href(route: Route): string {
       return route.machine ? `/servers/new?machine=${route.machine}` : '/servers/new'
     case 'server': {
       if (route.page === 'running') return `/servers/${route.slug}/running`
+      if (route.tab === 'files') return filesHref(route.slug, route.path, route.file)
       const path = route.tab === 'overview' ? `/servers/${route.slug}` : `/servers/${route.slug}/${route.tab}`
       const sub = route.sub && serverSubs[route.tab]?.[route.sub]
       return sub ? `${path}/${sub}` : path
@@ -204,18 +235,52 @@ function revisit(path: string) {
   focus?.focus({ preventScroll: true })
 }
 
+/**
+ * Whether the page may be left for a path, such as an editor with unsaved
+ * changes: the guard may ask first, then navigate there itself once allowed.
+ */
+type LeaveGuard = (to: string) => boolean
+let leaveGuard: LeaveGuard | undefined
+
+/** Until the returned function removes it, leaving the page asks guard first, by a link or the browser's Back too. */
+export function guardLeaving(guard: LeaveGuard): () => void {
+  leaveGuard = guard
+  return () => {
+    if (leaveGuard === guard) leaveGuard = undefined
+  }
+}
+
+// The address the page shows, for Back when a guard keeps the page.
+let shown = typeof window === 'undefined' ? '' : window.location.pathname + window.location.search + window.location.hash
+
+if (typeof window !== 'undefined') {
+  // Registered before the router's own listener, so a kept page never changes.
+  window.addEventListener('popstate', (e) => {
+    const to = appPath(window.location.pathname) + window.location.search + window.location.hash
+    if (leaveGuard && !leaveGuard(to)) {
+      e.stopImmediatePropagation()
+      window.history.pushState(null, '', shown)
+      return
+    }
+    shown = window.location.pathname + window.location.search + window.location.hash
+  })
+}
+
 export function navigate(to: Route | string, replace = false) {
-  const path = base + (typeof to === 'string' ? to : href(to))
+  const target = typeof to === 'string' ? to : href(to)
+  const path = base + target
   if (path === window.location.pathname + window.location.hash && !replace) {
     revisit(path)
     return
   }
+  if (leaveGuard && !leaveGuard(target)) return
   // A #section of the page you're on scrolls there; another page starts at its top and jumps to its own section.
   const [pathname, hash] = path.split('#')
   const samePage = pathname === window.location.pathname
   const section = samePage && hash ? document.getElementById(hash) : null
   if (replace) window.history.replaceState(null, '', path)
   else window.history.pushState(null, '', path)
+  shown = window.location.pathname + window.location.search + window.location.hash
   listeners.forEach((fn) => fn())
   watchers.forEach((fn) => fn())
   if (section) scrollToSection(section)

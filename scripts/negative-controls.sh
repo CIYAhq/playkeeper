@@ -1167,8 +1167,8 @@ control "waiting for a request body's own source doesn't count against the machi
   'n, err := b.rc.Read(p)' \
   ./internal/machinelink '^TestLinkTimeLimitsCountOnlyWaitingOnTheMachine$'
 control "a joined machine takes data packs bigger than a request" internal/agent/link.go \
-  '"POST /v1/servers/{id}/datapacks":             true,' \
-  '"POST /v1/servers/{id}/datapacks":             false,' \
+  '"POST /v1/servers/{id}/datapacks":                   true,' \
+  '"POST /v1/servers/{id}/datapacks":                   false,' \
   ./internal/panel '^TestAJoinedMachineTakesBigPacks$'
 control "the dashboard keeps wrong join codes in panel.db" internal/panel/linkstore.go \
   '	for _, f := range fails {
@@ -1421,6 +1421,243 @@ control "the agent reads no game file through a link" internal/gamefiles/gamefil
 	if err == nil {
 		err = nil' \
   ./internal/agent '^TestGameFilesAreReadWithoutFollowingLinks$'
+# The Files tab: every path stays inside the server's folder, nothing is
+# reached through a link or special file on the way, the world waits for the
+# game to stop, and only admins get in.
+control "file browser: a folder is listed only through real folders" internal/gamefiles/browse.go \
+  'fi, err := d.folder(name)' \
+  'fi, err := d.root.Lstat(name)' \
+  ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
+control "file browser: a new folder is made only through real folders" internal/gamefiles/browse.go \
+  'if _, err := d.folders(ps[:len(ps)-1], true); err != nil {' \
+  'if _, err := d.folders(ps[:len(ps)-1], true); false && err != nil {' \
+  ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
+control "file browser: a move starts only from behind real folders" internal/gamefiles/browse.go \
+  'ffi, err := d.folders(fps[:len(fps)-1], false)
+	if err != nil {' \
+  'ffi, err := d.folders(fps[:len(fps)-1], false)
+	if false && err != nil {' \
+  ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
+control "file browser: a move goes only into real folders" internal/gamefiles/browse.go \
+  'tfi, err := d.folders(tps[:len(tps)-1], false)
+	if err != nil {' \
+  'tfi, err := d.folders(tps[:len(tps)-1], false)
+	if false && err != nil {' \
+  ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
+control "file browser: a delete reaches only through real folders" internal/gamefiles/browse.go \
+  'if _, err := d.folders(ps[:len(ps)-1], false); err != nil {' \
+  'if _, err := d.folders(ps[:len(ps)-1], false); false && err != nil {' \
+  ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
+control "file browser: an upload goes in only through real folders" internal/gamefiles/browse.go \
+  'pfi, err := d.folders(ps[:len(ps)-1], true)' \
+  'pfi, err := d.root.Lstat(path.Join(ps[:len(ps)-1]...))' \
+  ./internal/gamefiles '^TestLinksAreRefusedAtEveryStep$'
+control "file browser: an upload never replaces a link or special file" internal/gamefiles/browse.go \
+  'if err := fileError(name, fi); err != nil {' \
+  'if err := fileError(name, fi); false && err != nil {' \
+  ./internal/gamefiles '^TestLinksAreRefusedAtEveryStep$'
+control "file browser: a rename never replaces what appeared at its name meanwhile" internal/gamefiles/place_linux.go \
+  'unix.RENAME_NOREPLACE)' \
+  '0)' \
+  ./internal/gamefiles '^TestChangesNeverReplaceWhatAppearsMeanwhile$'
+control "file browser: an upload that may not replace renames without replacing" internal/gamefiles/browse.go \
+  'err = renameInto(staged, pf, path.Base(name), replace)' \
+  'err = renameInto(staged, pf, path.Base(name), true)' \
+  ./internal/gamefiles '^TestChangesNeverReplaceWhatAppearsMeanwhile$'
+control "file browser: a new file renames without replacing" internal/gamefiles/gamefiles.go \
+  'if fresh {
+			err = d.renameNew(tmp, pfi, name, pfi)' \
+  'if false && fresh {
+			err = d.renameNew(tmp, pfi, name, pfi)' \
+  ./internal/gamefiles '^TestChangesNeverReplaceWhatAppearsMeanwhile$'
+control "file browser: a zip's files are counted only up to its limit" internal/gamefiles/browse.go \
+  'if more {
+		*n = limit + 1' \
+  'if false && more {
+		*n = limit + 1' \
+  ./internal/gamefiles '^TestCountStopsPastTheLimit$'
+control "file browser: a zip's count stops far down" internal/gamefiles/browse.go \
+  'if depth > maxDepth {
+		return tooDeepError(start, maxDepth)
+	}
+	entries, more, err := d.List(p, limit-*n)' \
+  'if false && depth > maxDepth {
+		return tooDeepError(start, maxDepth)
+	}
+	entries, more, err := d.List(p, limit-*n)' \
+  ./internal/gamefiles '^TestWalkAndCountStopFarDown$'
+control "file browser: a zip's walk stops far down" internal/gamefiles/browse.go \
+  'if depth > maxDepth {
+		return tooDeepError(start, maxDepth)
+	}
+	entries, more, err := d.List(p, limit)' \
+  'if false && depth > maxDepth {
+		return tooDeepError(start, maxDepth)
+	}
+	entries, more, err := d.List(p, limit)' \
+  ./internal/gamefiles '^TestWalkAndCountStopFarDown$'
+control "game files: the hidden file a write goes through fits the longest name" internal/gamefiles/gamefiles.go \
+  'if len(tmp) > maxNameBytes {' \
+  'if false && len(tmp) > maxNameBytes {' \
+  ./internal/gamefiles '^TestLongNamesCanBeWritten$'
+control "file browser: a path from the dashboard is relative and has no dot segments" internal/agent/files.go \
+  'case len(raw) > maxPathBytes || !fs.ValidPath(raw) || strings.ContainsRune(raw, 0):' \
+  'case len(raw) > maxPathBytes || strings.ContainsRune(raw, 0):' \
+  ./internal/agent '^TestFileBrowserPathsStayInsideTheServersFolder$'
+control "file browser: the world can't change while the game runs" internal/agent/files.go \
+  'if inWorld(p, worlds) && s.gameRunning(ctx) {' \
+  'if false && inWorld(p, worlds) && s.gameRunning(ctx) {' \
+  ./internal/agent '^TestTheWorldIsReadOnlyWhileTheGameRuns$'
+control "file browser: the editor opens world files read-only while the game runs" internal/agent/files.go \
+  'if running && inWorld(p, s.worldFolders(d)) {' \
+  'if false && running && inWorld(p, s.worldFolders(d)) {' \
+  ./internal/agent '^TestTheWorldIsReadOnlyWhileTheGameRuns$'
+control "file browser: a plugin's world is read-only while the game runs too" internal/agent/files.go \
+  'if fi, err := d.Lstat(e.Name + "/level.dat"); err == nil && fi.Mode().IsRegular() {' \
+  'if fi, err := d.Lstat(e.Name + "/level.dat"); false && err == nil && fi.Mode().IsRegular() {' \
+  ./internal/agent '^TestTheWorldIsReadOnlyWhileTheGameRuns$'
+control "file browser: nothing changes while the server is busy" internal/agent/files.go \
+  'if s.busy() {' \
+  'if false && s.busy() {' \
+  ./internal/agent '^TestFileBrowserWaitsForTheServersOperation$'
+control "file browser: a change holds off the server's operations until it is done" internal/agent/files.go \
+  'rel, ok := s.holdOpLock()' \
+  'rel, ok := func() {}, true' \
+  ./internal/agent '^TestFileChangesHoldOffOperations$'
+control "file browser: changes share the hold rather than refuse each other" internal/agent/files.go \
+  'if h.n == 0 {' \
+  'if true {' \
+  ./internal/agent '^TestFileChangesHoldOffOperations$'
+control "file browser: a move holds off operations until it is done" internal/agent/files.go \
+  'release, err := s.holdFiles(r.Context(), d, all...)' \
+  'release, err := func() {}, s.changeRefusal(r.Context(), d, all...)' \
+  ./internal/agent '^TestFileChangesHoldOffOperations$'
+control "file browser: a delete holds off operations until it is done" internal/agent/files.go \
+  'release, err := s.holdFiles(r.Context(), d, paths...)' \
+  'release, err := func() {}, s.changeRefusal(r.Context(), d, paths...)' \
+  ./internal/agent '^TestFileChangesHoldOffOperations$'
+control "file browser: an upload holds off operations while it is put in place" internal/agent/fileuploads.go \
+  'release, err := s.holdFiles(ctx, d, dest)' \
+  'release, err := func() {}, s.changeRefusal(ctx, d, dest)' \
+  ./internal/agent '^TestFileChangesHoldOffOperations$'
+control "file browser: a long delete holds off operations after its answer too" internal/agent/files.go \
+  'Continuing: true})' \
+  'Continuing: true})
+		release()' \
+  ./internal/agent '^TestALongDeleteCarriesOnAfterItsAnswer$'
+control "file browser: the editor saves only over the version it opened" internal/agent/files.go \
+  'if expect != "" && contentVersion(cur) != expect {' \
+  'if false && expect != "" && contentVersion(cur) != expect {' \
+  ./internal/agent '^TestFileBrowserListsOpensAndSavesTheServersFiles$'
+control "file browser: of two saves of one version the second is refused" internal/agent/files.go \
+  's.fileHold.save.Lock()
+		defer s.fileHold.save.Unlock()' \
+  '_ = &s.fileHold.save' \
+  ./internal/agent '^TestTwoSavesOfOneVersionCantBothWin$'
+control "file browser: a zip too large for the agent to keep track of is refused before it starts" internal/agent/files.go \
+  'if total += n; total > maxZipped {' \
+  'if total += n; false && total > maxZipped {' \
+  ./internal/agent '^TestAZipOfTooManyFilesIsRefusedBeforeItStarts$'
+control "file browser: a zip's files are named safely for any unpacker" internal/agent/files.go \
+  'Name: zipName(rel), Modified: st.ModTime()' \
+  'Name: rel, Modified: st.ModTime()' \
+  ./internal/agent '^TestZipNamesUnpackSafelyAnywhere$'
+control "file browser: a zip's folders are named safely for any unpacker" internal/agent/files.go \
+  'Name: zipName(rel) + "/"' \
+  'Name: rel + "/"' \
+  ./internal/agent '^TestZipNamesUnpackSafelyAnywhere$'
+control "file browser: a download stops at a file that got shorter" internal/agent/files.go \
+  'if err == nil && n != size {' \
+  'if false && err == nil && n != size {' \
+  ./internal/agent '^TestADownloadStopsAtAFileThatGotShorter$'
+control "file browser: an upload replaces a file only when asked" internal/agent/fileuploads.go \
+  'case !replace:' \
+  'case false && !replace:' \
+  ./internal/agent '^(TestFileUploadsCarryOnAfterADroppedConnection|TestAnUploadThatCantBePutInPlaceCanBeTriedAgain)$'
+control "file browser: an upload carries on only from the byte it has" internal/agent/fileuploads.go \
+  'if offset != f.received {' \
+  'if false && offset != f.received {' \
+  ./internal/agent '^TestFileUploadsCarryOnAfterADroppedConnection$'
+control "file browser: one server's uploads can't take them all" internal/agent/fileuploads.go \
+  'if all < maxFileUploads && mine < maxServerUploads {' \
+  'if all < maxFileUploads {' \
+  ./internal/agent '^TestUploadsAreSharedOutBetweenServers$'
+control "file browser: a finished upload doesn't count against the limits" internal/agent/fileuploads.go \
+  'if up.unfinished() {' \
+  'if true {' \
+  ./internal/agent '^TestUploadsAreSharedOutBetweenServers$'
+control "file browser: a file is put in place once" internal/agent/fileuploads.go \
+  'f.placed || f.placing || f.received < f.size' \
+  'f.placed || f.received < f.size' \
+  ./internal/agent '^TestAFileIsPutInPlaceOnce$'
+control "file browser: a cancelled upload puts nothing more in place" internal/agent/fileuploads.go \
+  'up.gone || f.placed' \
+  'f.placed' \
+  ./internal/agent '^TestACancelledUploadPutsNothingInPlace$'
+control "recent activity reads on past a big upload" internal/agent/analytics.go \
+  'if len(out) > limit || len(rows) < n || n >= maxActivityRows {' \
+  'if true || len(out) > limit || len(rows) < n || n >= maxActivityRows {' \
+  ./internal/agent '^TestABigUploadDoesntHideOlderActivity$'
+control "recent activity reads no more rows than its cap" internal/agent/analytics.go \
+  'n = min(n*4, maxActivityRows) {' \
+  'n *= 4 {' \
+  ./internal/agent '^TestRecentActivityReadsNoMoreThanItsRows$'
+control "recent activity names the server's folder as the file browser does" internal/agent/analytics.go \
+  'folder := shown(path.Dir(e.Detail))' \
+  'folder := path.Dir(e.Detail)' \
+  ./internal/agent '^TestFileChangesAreAuditedAndShownAsActivity$'
+control "file browser: only admins see a server's files" internal/panel/workspace.go \
+  'actViewFiles:      invites.RoleAdmin,' \
+  'actViewFiles:      invites.RoleViewer,' \
+  ./internal/panel '^TestTheFileBrowserIsForAdmins$'
+control "file browser: only admins change a server's files" internal/panel/workspace.go \
+  'actEditFiles:      invites.RoleAdmin,' \
+  'actEditFiles:      invites.RoleModerator,' \
+  ./internal/panel '^TestTheFileBrowserIsForAdmins$'
+control "file browser: a download can't render as a page of the panel" internal/panel/files.go \
+  'h.Set("Content-Type", "application/octet-stream")' \
+  'h.Set("Content-Type", resp.Header.Get("Content-Type"))' \
+  ./internal/panel '^TestFileDownloadsAreNamedAndTypedByThePanel$'
+control "file browser: a download runs sandboxed if a browser shows it anyway" internal/panel/files.go \
+  'h.Set("Content-Security-Policy", "sandbox")' \
+  'h.Set("X-Sandbox", "off")' \
+  ./internal/panel '^TestFileDownloadsAreNamedAndTypedByThePanel$'
+control "file browser: a download's check never sends the file" internal/panel/files.go \
+  'case resp.StatusCode != want:' \
+  'case false && resp.StatusCode != want:' \
+  ./internal/panel '^TestFileDownloadsAreNamedAndTypedByThePanel$'
+control "file browser: a joined machine's upload pieces aren't held to the link's smaller bodies" internal/agent/link.go \
+  '"PUT /v1/servers/{id}/files/uploads/{up}/files/{n}": true,' \
+  '"PUT /v1/servers/{id}/files/uploads/{up}/files/{n}": false,' \
+  ./internal/panel '^TestAJoinedMachinesFilesGoThroughItsLink$'
+control "file browser: a joined machine's downloads aren't held to the link's smaller answers" internal/agent/link.go \
+  '"GET /v1/servers/{id}/files/download":               true,' \
+  '"GET /v1/servers/{id}/files/download":               false,' \
+  ./internal/panel '^TestAJoinedMachinesFilesGoThroughItsLink$'
+webcontrol "the Files tab shows only to those who may see a server's files" web/src/components/app/server-tabs.tsx \
+  "(x.tab === 'files' ? can(me, 'files.view') :" \
+  "(x.tab === 'files' ? true :" \
+  web/src/pages/server/files/files.test.tsx 'shows only to those who may see'
+webcontrol "the Files tab offers no change to someone who may only look" web/src/pages/server/files/folder.tsx \
+  "const canEdit = can(ws.me, 'files.edit')" \
+  "const canEdit = can(ws.me, 'files.view')" \
+  web/src/pages/server/files/files.test.tsx 'may only look'
+webcontrol "the Files tab keeps the world's rows from changing while the game runs" web/src/pages/server/files/folder.tsx \
+  'const worldEntry = (e: FileEntry) => running && inWorld(joinPath(path, e.name), worlds)' \
+  'const worldEntry = (e: FileEntry) => false && running && inWorld(joinPath(path, e.name), worlds)' \
+  web/src/pages/server/files/files.test.tsx 'keeps the world'
+webcontrol "the Files tab checks a folder's download before following its link" web/src/pages/server/files/folder.tsx \
+  "download: '', onLink: checkedDownload(server.id, [p]) })" \
+  "download: '' })" \
+  web/src/pages/server/files/files.test.tsx 'checks a folder'
+webcontrol "the editor saves over the version it opened" web/src/pages/server/files/editor.tsx \
+  "const info = await saveFile(server.id, path, sent, force ? '' : version)" \
+  "const info = await saveFile(server.id, path, sent, '')" \
+  web/src/pages/server/files/files.test.tsx 'saves over the version it opened'
+webcontrol "an address that climbs out of a server's files opens the Files tab's top" web/src/lib/router.ts \
+  "if (name === '' || name === '.' || name === '..' || name.includes('/') || name.includes('\\0')) return undefined" \
+  "if (name === '' || name === '.' || name.includes('/') || name.includes('\\0')) return undefined" \
+  web/src/lib/lib.test.ts 'names no path inside the server'
 control "a start that fails before the server's files keeps the refusal" internal/agent/gamefiles.go \
   'if !refused && !pastFiles {' \
   'if false {' \
@@ -3992,11 +4229,11 @@ webcontrol "leaving the page keeps an upload a server was made from" web/src/com
   web/src/pages/new-server.test.tsx
 # shellcheck disable=SC2016
 webcontrol "carrying on with an upload asks the machine which files it has" web/src/lib/upload.ts \
-  'let imp = seen(o.resume ? await get<WorldImport>(`${o.base}/${o.resume.id}`) : await post<WorldImport>(o.base, {}))' \
-  'let imp = seen(o.resume ?? (await post<WorldImport>(o.base, {})))' \
+  'let imp = seen(o.resume ? await get<T>(`${o.base}/${o.resume.id}`) : await kind.open())' \
+  'let imp = seen((o.resume as T | undefined) ?? (await kind.open()))' \
   web/src/lib/upload.test.ts
 webcontrol "carrying on refuses an upload whose files differ" web/src/lib/upload.ts \
-  ' || imp.files.some((f, n) => f.name !== o.files[n]?.name || f.size !== o.files[n]?.size)' \
+  ' || imp.files.some(differs)' \
   '' \
   web/src/lib/upload.test.ts
 webcontrol "Try again carries on with the upload as the machine last described it" web/src/components/app/world-import.tsx \

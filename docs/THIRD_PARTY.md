@@ -46,6 +46,10 @@ List exactly what is compiled in with `go version -m dist/playkeeper-*-linux-amd
 | tailwind-merge | 3.7.0 | MIT |
 | vite (its modulepreload polyfill only) | 8.3.1 | MIT |
 | rolldown (its CommonJS runtime helper only) | 1.2.10 | MIT |
+| @codemirror/state, @codemirror/view, @codemirror/commands, @codemirror/language, @codemirror/search, @codemirror/lint, @codemirror/autocomplete (CodeMirror, the Files tab's editor) | 6.7.6, 6.43.13, 6.11.1, 6.12.4, 6.7.2, 6.9.7, 6.20.3 | MIT |
+| @codemirror/lang-json, @codemirror/lang-yaml, @codemirror/legacy-modes (the editor's languages) | 6.0.2, 6.1.3, 6.5.4 | MIT |
+| @lezer/common, @lezer/lr, @lezer/highlight, @lezer/json, @lezer/yaml (the editor's parsers) | 1.5.3, 1.4.10, 1.2.4, 1.0.3, 1.0.4 | MIT |
+| style-mod, w3c-keyname, crelt, @marijn/find-cluster-break (used by CodeMirror) | 4.1.4, 2.2.8, 1.0.7, 1.0.4 | MIT |
 | coss ui components, copied into `web/src/components/ui` from cosscom/coss `apps/ui` at 59e8c88 and restyled | — | MIT (`web/src/components/ui/LICENSE.md`) |
 
 The UI uses system fonts. Pip, the pixel art, the Vanilla type's icon and the Playkeeper mark are original to Playkeeper and use no Minecraft or Mojang art. No OpenAnalytics or Ghost source, CSS, assets or branding is used.

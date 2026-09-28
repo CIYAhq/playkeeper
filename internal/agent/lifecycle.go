@@ -153,11 +153,19 @@ func (s *server) busyError() error {
 		return err
 	}
 	cur := s.currentOp()
-	what := "another operation"
-	if cur != nil {
-		what = opLabels[cur.Kind]
+	return &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: s.name() + " is busy with " + s.busyWith(cur, "another operation") + ".", Hint: "Wait for it to finish, then try again.", Op: cur}
+}
+
+// busyWith names what holds the server's operation lock: its operation cur,
+// a change the file browser makes to its files, or otherwise.
+func (s *server) busyWith(cur *api.Operation, otherwise string) string {
+	switch {
+	case cur != nil:
+		return opLabels[cur.Kind]
+	case s.changingFiles():
+		return "a change to its files"
 	}
-	return &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: s.name() + " is busy with " + what + ".", Hint: "Wait for it to finish, then try again.", Op: cur}
+	return otherwise
 }
 
 // holdOpLock takes the server's operation lock for a short decision, such as

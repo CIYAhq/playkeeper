@@ -5,18 +5,22 @@ import "github.com/CIYAhq/playkeeper/internal/machinelink"
 // streamed are the routes whose bodies are large or open-ended, or that can
 // take more than a minute to answer: backup downloads and uploads, data and
 // resource pack uploads (up to packs.ResourcePackMaxBytes), world uploads,
-// and checking or using an uploaded world, which reads all of it.
+// checking or using an uploaded world, which reads all of it, and the file
+// browser's downloads, uploads and saves (up to maxEditBytes).
 var streamed = map[string]bool{
-	"GET /v1/servers/{id}/backups/{bid}/download": true,
-	"POST /v1/servers/{id}/restore/upload":        true,
-	"POST /v1/restore/upload":                     true,
-	"POST /v1/servers/{id}/datapacks":             true,
-	"POST /v1/servers/{id}/resourcepack":          true,
-	"PUT /v1/world-imports/{imp}/files/{n}":       true,
-	"POST /v1/world-imports/{imp}/inspect":        true,
-	"POST /v1/world-imports/{imp}/preview":        true,
-	"POST /v1/world-imports/{imp}/apply":          true,
-	"POST /v1/world-imports/{imp}/create":         true,
+	"GET /v1/servers/{id}/files/download":               true,
+	"PUT /v1/servers/{id}/files/content":                true,
+	"PUT /v1/servers/{id}/files/uploads/{up}/files/{n}": true,
+	"GET /v1/servers/{id}/backups/{bid}/download":       true,
+	"POST /v1/servers/{id}/restore/upload":              true,
+	"POST /v1/restore/upload":                           true,
+	"POST /v1/servers/{id}/datapacks":                   true,
+	"POST /v1/servers/{id}/resourcepack":                true,
+	"PUT /v1/world-imports/{imp}/files/{n}":             true,
+	"POST /v1/world-imports/{imp}/inspect":              true,
+	"POST /v1/world-imports/{imp}/preview":              true,
+	"POST /v1/world-imports/{imp}/apply":                true,
+	"POST /v1/world-imports/{imp}/create":               true,
 }
 
 // LinkRoutes is the route table as data, for machine links: a dashboard may

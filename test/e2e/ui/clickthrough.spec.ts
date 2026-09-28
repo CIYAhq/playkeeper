@@ -114,6 +114,9 @@ async function routes(page: Page, phone: boolean): Promise<{ live: string[]; sha
   }
   // The World tab's pages of their own, as a fresh install has them.
   if (servers[0]) out.push(`/servers/${servers[0].slug}/world/pregen`, `/servers/${servers[0].slug}/world/packs`)
+  // The first server's server.properties in the editor. Its folders are crawled with a few files (fakedCrawls):
+  // a fresh server's folder has dozens, each with a menu of dialogs, and a move dialog opens every folder in it.
+  if (servers[0]) out.push(`/servers/${servers[0].slug}/file/server.properties`)
   out.push('/servers/new', '/servers/new#world')
   // The add-on library with Playkeeper's picks, for the first server that
   // has one (each library takes minutes), and a template someone shared.
@@ -177,6 +180,7 @@ function fakedCrawls(live: string[], phone: boolean): Crawl[] {
     ['friends and team', [...(first ? [`${first}/players`] : []), '/settings/team', '/settings/discord']],
     ['map on', map ? [map] : []],
     ['map restart', map ? [map] : []],
+    ['a few files', first ? [`${first}/files`, `${first}/files/plugins`] : []],
   ]
   return byView.flatMap(([view, pages]) => pages.map((route) => ({ route, view })))
 }

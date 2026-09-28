@@ -1,4 +1,5 @@
 import type { APIResponse, Page, Request, Route } from '@playwright/test'
+import { createHash } from 'node:crypto'
 import { addonKeyProblem, answerRead, installJob, isAddonRead, recordedFolder, updateJob, type Answer, type JobStart, type World } from './addon-fixtures'
 import { answerModpackRead, isModpackRead, type PackWorld } from './modpack-fixtures'
 import { answerBuildsRead, isRecordedBuildsRead, layRecordedCatalog } from './software-fixtures'
@@ -64,6 +65,8 @@ interface FakeState {
   maps: Map<string, Record<string, unknown>>
   /** World uploads opened on the fakes. */
   imports: Map<string, WorldUpload>
+  /** Uploads into a server's folder opened on the fakes. */
+  fileUploads: Map<string, FileUpload>
   /** The operations the fakes started, for the dialogs that follow one by its id. */
   ops: Map<string, Record<string, unknown>>
   schedules: Map<string, Record<string, unknown>[]>
@@ -91,6 +94,15 @@ interface WorldUpload {
   files: UploadedFile[]
   limitBytes: number
   inspection?: unknown
+}
+
+interface FileUpload {
+  id: string
+  serverId: string
+  folder: string
+  createdAt: string
+  files: (UploadedFile & { placed?: boolean })[]
+  limitBytes: number
 }
 
 const name = /^[A-Za-z0-9_]{3,16}$/
@@ -890,6 +902,108 @@ const routes: [string, RegExp, Handler][] = [
       return { status: 204, raw: '' }
     },
   ],
+  // A server's Files tab: its changes, checked as the agent checks them, and its uploads.
+  [
+    'PUT',
+    /^\/api\/servers\/(\w+)\/files\/content$/,
+    ({ url, body }) => {
+      const p = url.searchParams.get('path') ?? ''
+      const expect = url.searchParams.get('expect') ?? ''
+      const problem = filePathProblem(p)
+      if (problem) return invalid(problem)
+      if (expect !== '' && expect !== 'new' && !/^[0-9a-f]{64}$/.test(expect)) return invalid('expect is new, the SHA-256 the file was opened with, or empty.')
+      const text = Buffer.isBuffer(body) ? body : Buffer.alloc(0)
+      if (text.length > maxEditBytes) return refuse(413, 'too_large', 'The file would be larger than 2 MB, the most the editor saves.', 'Make it smaller, or upload it instead.')
+      return { status: 200, body: { path: p, size: text.length, modifiedAt: new Date().toISOString(), version: createHash('sha256').update(text).digest('hex') } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/files\/folder$/,
+    ({ body }) => {
+      const p = (body as { path?: unknown } | null)?.path
+      const problem = typeof p === 'string' ? filePathProblem(p) : "Name a file or folder in the server's files."
+      if (problem || typeof p !== 'string') return invalid(problem ?? '')
+      return { status: 201, body: { name: p.slice(p.lastIndexOf('/') + 1), type: 'folder', size: 0, modifiedAt: new Date().toISOString() } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/files\/move$/,
+    ({ body }) => {
+      const items = (body as { items?: unknown } | null)?.items
+      if (!Array.isArray(items) || items.length === 0 || items.length > maxFileBatch) return invalid(`Move between 1 and ${maxFileBatch} files at once.`)
+      for (const it of items as { from?: unknown; to?: unknown }[]) {
+        const problem = typeof it?.from === 'string' && typeof it.to === 'string' ? (filePathProblem(it.from) ?? filePathProblem(it.to)) : 'Say what moves where.'
+        if (problem) return invalid(problem)
+      }
+      return { status: 200, body: { moved: items.length } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/files\/delete$/,
+    ({ body }) => {
+      const paths = (body as { paths?: unknown } | null)?.paths
+      if (!Array.isArray(paths) || paths.length === 0 || paths.length > maxFileBatch) return invalid(`Delete between 1 and ${maxFileBatch} files at once.`)
+      const problem = paths.map((p) => (typeof p === 'string' ? filePathProblem(p) : 'Name a file or folder.')).find(Boolean)
+      return problem ? invalid(problem) : { status: 200, body: { deleted: paths.length } }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/files\/uploads$/,
+    ({ body, params }, state) => {
+      const folder = (body as { folder?: unknown } | null)?.folder ?? ''
+      const problem = typeof folder === 'string' ? (folder === '' ? undefined : filePathProblem(folder)) : 'Say which folder the files go into.'
+      if (problem || typeof folder !== 'string') return invalid(problem ?? '')
+      const id = (state.fileUploads.size + 1).toString(16).padStart(16, '0')
+      const up: FileUpload = { id, serverId: params[0] ?? '', folder, createdAt: new Date().toISOString(), files: [], limitBytes: 68_719_476_736 }
+      state.fileUploads.set(id, up)
+      return { status: 201, body: fileUploadView(up) }
+    },
+  ],
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/files\/uploads\/([0-9a-f]{16})\/files$/,
+    ({ body, params }, state) => {
+      const up = state.fileUploads.get(params[1] ?? '')
+      if (!up || up.serverId !== params[0]) return fileUploadGone()
+      const b = (body ?? {}) as { name?: unknown; size?: unknown; replace?: unknown }
+      if (typeof b.name !== 'string' || typeof b.size !== 'number' || b.size < 0) return invalid('Say each file’s name and size.')
+      const problem = filePathProblem(b.name)
+      if (problem) return invalid(problem)
+      if (up.files.some((f) => f.name === b.name)) return refuse(409, 'conflict', `"${b.name}" is in this upload already.`)
+      up.files.push({ index: up.files.length, name: b.name, size: b.size, received: 0, placed: b.size === 0 })
+      return { status: 201, body: fileUploadView(up) }
+    },
+  ],
+  [
+    'PUT',
+    /^\/api\/servers\/(\w+)\/files\/uploads\/([0-9a-f]{16})\/files\/(\d{1,4})$/,
+    ({ url, body, params }, state) => {
+      const up = state.fileUploads.get(params[1] ?? '')
+      const f = up?.files[Number(params[2])]
+      if (!up || up.serverId !== params[0] || !f) return fileUploadGone()
+      const offset = url.searchParams.get('offset') ?? ''
+      if (!/^(0|[1-9][0-9]*)$/.test(offset)) return invalid('Say which file and from which byte.')
+      if (Number(offset) !== f.received) return refuse(409, 'conflict', `The upload has ${f.received} bytes of "${f.name}"; send from there.`)
+      const piece = Buffer.isBuffer(body) ? body.length : 0
+      if (f.received + piece > f.size) return invalid(`"${f.name}" is larger than announced.`)
+      f.received += piece
+      if (f.received === f.size) f.placed = true
+      return { status: 200, body: fileUploadView(up) }
+    },
+  ],
+  [
+    'DELETE',
+    /^\/api\/servers\/(\w+)\/files\/uploads\/([0-9a-f]{16})$/,
+    ({ params }, state) => {
+      if (state.fileUploads.get(params[1] ?? '')?.serverId !== params[0]) return fileUploadGone()
+      state.fileUploads.delete(params[1] ?? '')
+      return noContent
+    },
+  ],
   [
     'POST',
     /^\/api\/servers\/(\w+)\/schedules$/,
@@ -1154,6 +1268,26 @@ function importGone(): Reply {
   return { status: 404, body: { error: 'This upload isn’t here anymore.', hint: 'Upload the world again.', code: 'not_found' } }
 }
 
+const maxEditBytes = 2 << 20
+const maxFileBatch = 1000
+
+/** Why the agent refuses a path in a server's files (its filePath), or undefined. */
+function filePathProblem(p: string): string | undefined {
+  if (p === '' || p === '.') return "Name a file or folder in the server's files."
+  if (p.length > 4096 || p.includes('\0') || p.split('/').some((x) => x === '' || x === '.' || x === '..')) return `${JSON.stringify(p)} is not a path inside the server's files.`
+  if (p.split('/').some((x) => Buffer.byteLength(x) > 255)) return `${JSON.stringify(p)} has a name longer than 255 bytes.`
+  return undefined
+}
+
+/** An upload into a server's folder as the agent describes it. */
+function fileUploadView(up: FileUpload) {
+  return { id: up.id, folder: up.folder, createdAt: up.createdAt, files: up.files.map((f) => ({ ...f })), limitBytes: up.limitBytes }
+}
+
+function fileUploadGone(): Reply {
+  return { status: 404, body: { error: 'This upload isn’t here anymore.', hint: 'Choose the files again.', code: 'not_found' } }
+}
+
 /** A Minecraft 1.21.4 singleplayer world, as the agent describes it after checking an upload. */
 function sampleWorld(archive: string) {
   return {
@@ -1304,6 +1438,9 @@ export type View =
   | 'map restart'
   | 'second step'
   | 'shared links'
+  // The Files tab with a few files of each kind, one folder deep, instead of a fresh server's folder: a
+  // world in use, a jar, a link, and folders the move dialog can open without crawling a real tree.
+  | 'a few files'
 
 type Json = Record<string, unknown>
 
@@ -1372,6 +1509,7 @@ function server(view: View, s: Json): Json {
     case 'map restart':
     case 'second step':
     case 'shared links':
+    case 'a few files':
       return s
     default: {
       const unreachable: never = view
@@ -1754,6 +1892,34 @@ export function lay(view: View, path: string, body: unknown, host: string): unkn
   return undefined
 }
 
+/** What each folder holds in the view with a few files, while the server runs. */
+const fewFiles: Record<string, [string, string, number][]> = {
+  '': [
+    ['plugins', 'folder', 0],
+    ['world', 'folder', 0],
+    ['paper-26.1.2-74.jar', 'file', 51_380_224],
+    ['server.properties', 'file', 1_210],
+    ['uploads', 'link', 0],
+  ],
+  plugins: [
+    ['Essentials', 'folder', 0],
+    ['EssentialsX-2.21.2.jar', 'file', 3_210_000],
+  ],
+  'plugins/Essentials': [['config.yml', 'file', 4_096]],
+  world: [
+    ['region', 'folder', 0],
+    ['level.dat', 'file', 5_212],
+  ],
+}
+
+/** A folder's listing in the view with a few files: every folder the page or the move dialog opens is one of them, or empty. */
+function fewFilesAnswer(url: URL): Reply | undefined {
+  if (!/^\/api\/servers\/\w+\/files$/.test(url.pathname)) return undefined
+  const folder = url.searchParams.get('path') ?? ''
+  const entries = (fewFiles[folder] ?? []).map(([name, type, size], i) => ({ name, type, size, modifiedAt: ago(600 + i * 3_600) }))
+  return { status: 200, body: { path: folder, entries, running: true, worlds: ['world', 'world_nether', 'world_the_end'] } }
+}
+
 /** A generated 8×8 face, so tests never fetch or show a real player's skin. */
 export function standInFace(player: string): string {
   let h = 2166136261
@@ -1862,6 +2028,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     inviteSeq: 0,
     maps: new Map(),
     imports: new Map(),
+    fileUploads: new Map(),
     ops: new Map(),
     schedules: new Map(),
     backupRules: new Map(),
@@ -1893,7 +2060,9 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
             ? mapAnswer(path)
             : view() === 'shared links'
               ? sharedAnswer(method, path, planning ? posted(request) : undefined)
-              : undefined
+              : view() === 'a few files' && method === 'GET'
+                ? fewFilesAnswer(url)
+                : undefined
       if (made) {
         calls.push({ method, path, status: made.status, faked: true, expected: made.expected, at })
         await route.fulfill({ status: made.status, contentType: 'application/json', body: JSON.stringify(made.body) })
@@ -1908,6 +2077,24 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
       if (/^\/api\/servers\/\w+\/backups\/[\w-]+\/download$/.test(path)) {
         calls.push({ method, path, status: 200, faked: true, at })
         await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/gzip', 'Content-Disposition': 'attachment; filename="backup.tar.gz"' }, body: 'fake backup' })
+        return
+      }
+      if (/^\/api\/servers\/\w+\/files\/download$/.test(path)) {
+        const paths = url.searchParams.getAll('path')
+        const problem = paths.length === 0 ? 'Say which files to download.' : paths.map((p) => (p === '' ? undefined : filePathProblem(p))).find(Boolean)
+        const check = url.searchParams.get('check') === '1'
+        const status = problem ? 400 : check ? 204 : 200
+        calls.push({ method, path, status, faked: true, error: problem, at })
+        if (problem) await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ error: problem, code: 'invalid_request' }) })
+        else if (check) await route.fulfill({ status, headers: { 'Cache-Control': 'no-store' } })
+        else await route.fulfill({ status, headers: { 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="download"' }, body: 'fake file' })
+        return
+      }
+      const fileUpload = /^\/api\/servers\/(\w+)\/files\/uploads\/([0-9a-f]{16})$/.exec(path)
+      const faked = fileUpload && state.fileUploads.get(fileUpload[2] ?? '')
+      if (fileUpload && faked?.serverId === fileUpload[1]) {
+        calls.push({ method, path, status: 200, faked: true, at })
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fileUploadView(faked)) })
         return
       }
       const key = /^\/api\/servers\/(\w+)\/offsite\/recovery-key$/.exec(path)
