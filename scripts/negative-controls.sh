@@ -2058,9 +2058,13 @@ control "a client-only mod the pack's own files use stays on the server" interna
   '_ = sha1' \
   ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
 control "only a pack's text files are read for the mods they use" internal/modpacks/resolve.go \
-  'if !mentionsFile(rel) || e.UncompressedSize64 > maxMentionsFile {' \
-  'if (rel == "" && !mentionsFile(rel)) || e.UncompressedSize64 > maxMentionsFile {' \
+  'if !mentionsFile(rel) || !serverData(rel) || e.UncompressedSize64 > maxMentionsFile {' \
+  'if (rel == "" && !mentionsFile(rel)) || !serverData(rel) || e.UncompressedSize64 > maxMentionsFile {' \
   ./internal/modpacks '^TestCurseForgeClientModsModrinthKnowsStayOff$'
+control "only a pack's data and server scripts keep a client-only mod they name" internal/modpacks/resolve.go \
+  'if !mentionsFile(rel) || !serverData(rel) || e.UncompressedSize64 > maxMentionsFile {' \
+  'if !mentionsFile(rel) || e.UncompressedSize64 > maxMentionsFile {' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
 control "a CurseForge pack whose mods Modrinth can't be asked about says so" internal/modpacks/resolve.go \
   'if err != nil {
 		p.warn(notice(KindUnverifiedEnv, kv("pack", p.info.Name),' \

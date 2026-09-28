@@ -128,13 +128,13 @@ func TestCurseForgeClientModsModrinthKnowsStayOff(t *testing.T) {
 	id := f.cfAddFile(nil,
 		entry{name: "overrides/datapacks/spring/data/spring/worldgen/biome/spring.json", data: []byte(`{"effects": {"particle": {"options": {"type": "lithium:spark"}}}}`)},
 		entry{name: "overrides/config/notes.txt", data: []byte("Cloth Config: see clothconfig docs\n")},
-		entry{name: "overrides/datapacks/spring/pack.png", data: []byte("cloth-config:not-read")})
+		entry{name: "overrides/datapacks/spring/data/spring/icon.png", data: []byte("cloth-config:not-read")})
 	pl = mustPlan(t, f.library(), newServer(t, "", ""), InstallRequest{Ref: cfRef(strconv.FormatInt(id, 10))})
 	wantList(t, "changes with a datapack using Lithium", changeList(pl.Changes),
 		"add config/example.json",
 		"add config/notes.txt",
+		"add datapacks/spring/data/spring/icon.png",
 		"add datapacks/spring/data/spring/worldgen/biome/spring.json",
-		"add datapacks/spring/pack.png",
 		"add mods/fabric-api-0.141.0+26.3.jar",
 		"add mods/lithium-fabric-0.25.3+mc26.3.jar",
 		"add mods/placeholder-api-3.1.0+26.3.jar")

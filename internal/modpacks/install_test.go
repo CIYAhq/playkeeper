@@ -403,7 +403,7 @@ func TestServerEnvironmentAndOptionalFiles(t *testing.T) {
 // A Modrinth pack's index often says every file is for both sides. A mod
 // Modrinth lists as client-only stays off the server all the same, as Better
 // MC 5's Better Grassify stops a server's first start, unless the pack's own
-// files use it. A client-only mod that a mod on the server requires by
+// data uses it (a mod's settings naming it don't count). A client-only mod that a mod on the server requires by
 // Modrinth's lists goes on, even one the index keeps off servers, as
 // Prominence II's Forge Config Screens needs Mod Menu; what such a mod
 // requires in turn stays off. When Modrinth can't be asked, the index
@@ -427,11 +427,12 @@ func TestModrinthPackModsBySide(t *testing.T) {
 		f.indexFile("mods/screens-1.jar", screens, "required", "required"),
 		f.indexFile("mods/particular-1.jar", particular, "required", "required"),
 		f.indexFile("mods/lib-1.jar", lib, "required", "required"),
-	), entry{name: "overrides/datapacks/spring/data/spring/worldgen/biome/spring.json", data: []byte(`{"effects": {"particle": {"options": {"type": "particular:firefly"}}}}`)})
+	), entry{name: "overrides/datapacks/spring/data/spring/worldgen/biome/spring.json", data: []byte(`{"effects": {"particle": {"options": {"type": "particular:firefly"}}}}`)},
+		entry{name: "overrides/config/resourcepackoverrides.json", data: []byte(`{"default_packs": ["grass:default"]}`)})
 	srv := newServer(t, "fabric", "26.2")
 	p := mustPlan(t, f.library(), srv, InstallRequest{Ref: testRef(id)})
 	wantList(t, "changes", changeList(p.Changes),
-		"add datapacks/spring/data/spring/worldgen/biome/spring.json",
+		"add config/resourcepackoverrides.json", "add datapacks/spring/data/spring/worldgen/biome/spring.json",
 		"add mods/lib-1.jar", "add mods/menu-1.jar", "add mods/particular-1.jar", "add mods/screens-1.jar")
 	wantList(t, "skipped", skippedList(p.Skipped), "client_only mods/grass-1.jar")
 	wantList(t, "warnings", noticeList(p.Warnings))
@@ -439,7 +440,7 @@ func TestModrinthPackModsBySide(t *testing.T) {
 	f.hook("modrinth /v2/version_files", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadGateway) })
 	p = mustPlan(t, f.library(), srv, InstallRequest{Ref: testRef(id)})
 	wantList(t, "changes when Modrinth can't be asked", changeList(p.Changes),
-		"add datapacks/spring/data/spring/worldgen/biome/spring.json",
+		"add config/resourcepackoverrides.json", "add datapacks/spring/data/spring/worldgen/biome/spring.json",
 		"add mods/grass-1.jar", "add mods/lib-1.jar", "add mods/particular-1.jar", "add mods/screens-1.jar")
 	wantList(t, "skipped when Modrinth can't be asked", skippedList(p.Skipped), "client_only mods/menu-1.jar")
 	wantList(t, "warnings when Modrinth can't be asked", noticeList(p.Warnings),

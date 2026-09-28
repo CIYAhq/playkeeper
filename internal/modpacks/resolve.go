@@ -1127,7 +1127,7 @@ func (p *pack) keepMentioned(entries map[string]*zip.File, guesses map[string][]
 	}
 	re := regexp.MustCompile(`(?:^|[^a-z0-9_.-])(` + strings.Join(names, "|") + `):[a-z0-9_./-]`)
 	for rel, e := range entries {
-		if !mentionsFile(rel) || e.UncompressedSize64 > maxMentionsFile {
+		if !mentionsFile(rel) || !serverData(rel) || e.UncompressedSize64 > maxMentionsFile {
 			continue
 		}
 		b, err := p.arch.read(e.Name, maxMentionsFile)
@@ -1262,6 +1262,15 @@ func modJar(p string) bool {
 
 // maxMentionsFile is the largest file of a pack keepMentioned reads.
 const maxMentionsFile = 8 << 20
+
+// serverData reports whether a pack's file is data the server loads by
+// name: a datapack's (.../data/<namespace>/...) or a server or startup
+// script's. Other mods' settings don't count: Better MC 4's settings for
+// Resource Pack Overrides name Continuity, a mod for players' games.
+func serverData(p string) bool {
+	return strings.HasPrefix(p, "data/") || strings.Contains(p, "/data/") ||
+		strings.HasPrefix(p, "kubejs/server_scripts/") || strings.HasPrefix(p, "kubejs/startup_scripts/")
+}
 
 // mentionsFile reports whether a pack's file may name a mod's content:
 // datapacks, scripts and settings, not images, sounds or archives.
