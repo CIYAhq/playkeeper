@@ -208,6 +208,9 @@ func TestAnOwnAddressOpensOnlyItsServersPage(t *testing.T) {
 	if code, _, _ := e.page("alex.example.com"); code != 404 {
 		t.Fatalf("the own address of a server off the page: %d", code)
 	}
+	if e.a.pageServer("alex.example.com", "creative") != nil {
+		t.Fatal("the own address of a server off the page serves its icon")
+	}
 	if st := e.a.publicPageState(); len(st.Hosts) != 0 {
 		t.Fatalf("the page still answers %v", st.Hosts)
 	}
