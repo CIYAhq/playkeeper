@@ -859,7 +859,7 @@ func (l *Library) readManifest(ctx context.Context, p *pack, mod *curseforge.Mod
 	if p.reqs, err = l.requirements(p.info.Name, loader, loaderVersion, m.Minecraft.Version); err != nil {
 		return err
 	}
-	p.heapMB = plausibleHeap(m.Minecraft.RecommendedRAM)
+	p.heapMB = plausibleHeap(int(m.Minecraft.RecommendedRAM))
 	if len(m.Files) > lim.Files {
 		return fail(KindTooManyFiles, kv("pack", p.info.Name, "limit", strconv.Itoa(lim.Files)),
 			fmt.Sprintf("%s would put more than %d files on the server, more than Playkeeper accepts.", p.info.Name, lim.Files),

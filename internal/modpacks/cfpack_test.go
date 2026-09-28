@@ -181,8 +181,8 @@ func TestRefusedCurseForgePacks(t *testing.T) {
 		{"a loader Playkeeper does not know in the manifest", func(f *fakes) Ref { return cfRef(strconv.FormatInt(f.cfAddFile(loader("liteloader-1.0")), 10)) },
 			KindUnknownLoader, "Example Fabric Pack needs a mod loader Playkeeper does not know (liteloader)."},
 		{"old Minecraft in the manifest", func(f *fakes) Ref {
-			return cfRef(strconv.FormatInt(f.cfAddFile(func(m obj) { m["minecraft"].(obj)["version"] = "1.20.1" }), 10))
-		}, KindMinecraft, "Example Fabric Pack is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer."},
+			return cfRef(strconv.FormatInt(f.cfAddFile(func(m obj) { m["minecraft"].(obj)["version"] = "1.20" }), 10))
+		}, KindMinecraft, "Example Fabric Pack is for Minecraft 1.20, and Playkeeper runs Minecraft 1.20.1 and newer."},
 		{"no manifest", func(f *fakes) Ref {
 			return cfRef(strconv.FormatInt(f.cfAddFile(func(m obj) { m["manifestType"] = "somethingElse" }), 10))
 		}, KindBadPack, ""},
@@ -477,7 +477,7 @@ func TestCurseForgePackHeap(t *testing.T) {
 	f := newFakes(t)
 	l := f.library()
 	srv := newServer(t, "fabric", "26.2")
-	ram := func(mb int) func(m obj) { return func(m obj) { m["minecraft"].(obj)["recommendedRam"] = mb } }
+	ram := func(mb any) func(m obj) { return func(m obj) { m["minecraft"].(obj)["recommendedRam"] = mb } }
 	for _, c := range []struct {
 		name string
 		id   int64
@@ -486,6 +486,9 @@ func TestCurseForgePackHeap(t *testing.T) {
 		{"recommended", f.cfAddFile(ram(8196)), 8196},
 		{"user_jvm_args.txt wins", f.cfAddFile(ram(8196), entry{name: "overrides/user_jvm_args.txt", data: []byte("-Xms2G\n-Xmx6G\n")}), 6 << 10},
 		{"not a heap", f.cfAddFile(ram(64)), 0},
+		// Better MC [FABRIC] BMC2 writes it as text.
+		{"recommended as text", f.cfAddFile(ram("10000")), 10000},
+		{"text that is not a number", f.cfAddFile(ram("8G")), 0},
 	} {
 		if p := mustPlan(t, l, srv, InstallRequest{Ref: cfRef(strconv.FormatInt(c.id, 10))}); p.HeapMB != c.want {
 			t.Errorf("%s: heap %d MB, want %d", c.name, p.HeapMB, c.want)

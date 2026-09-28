@@ -44,9 +44,10 @@ func TestSearchModrinth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Sodium Plus is for clients only and Aged only for Minecraft versions
-	// Playkeeper does not run.
-	wantList(t, "results", cardSlugs(res.Cards), "cobblemon-fabric", "vanilla-perfected", "the-pixelmon-modpack", "create_plus", "rso")
+	// Sodium Plus is for clients only. Aged is for Minecraft 1.19.2 and
+	// 1.20.1, the oldest Playkeeper runs.
+	wantList(t, "results", cardSlugs(res.Cards), "cobblemon-fabric", "vanilla-perfected", "the-pixelmon-modpack", "aged", "create_plus", "rso")
+	wantList(t, "Aged's Minecraft versions", cardBySlug(t, res.Cards, "aged").MinecraftVersions, "1.20.1")
 	if res.Total != 10091 || res.Offset != 0 || res.Limit != 20 {
 		t.Errorf("page: %d from %d of %d", res.Limit, res.Offset, res.Total)
 	}
@@ -63,11 +64,11 @@ func TestSearchModrinth(t *testing.T) {
 			IconURL: "https://cdn.modrinth.com/data/vwgtbO0y/e16493aab7b0a32a2c9920cb0d89ebe06c4b3726_96.webp",
 			Updated: time.Date(2026, 9, 17, 8, 39, 6, 72455000, time.UTC), PageURL: "https://modrinth.com/modpack/the-pixelmon-modpack",
 		},
-		Types: []string{"neoforge", "forge"}, MinecraftVersions: []string{"1.21.1"},
+		Types: []string{"neoforge", "forge"}, MinecraftVersions: []string{"1.21.1", "1.20.2", "1.20.1"},
 	})
 	rso := cardBySlug(t, res.Cards, "rso")
 	wantList(t, "rso's Minecraft versions", rso.MinecraftVersions, "26.3", "26.2", "26.1.2", "26.1.1", "26.1", "1.21.11", "1.21.10",
-		"1.21.9", "1.21.8", "1.21.7", "1.21.6", "1.21.5", "1.21.4", "1.21.3", "1.21.1", "1.21")
+		"1.21.9", "1.21.8", "1.21.7", "1.21.6", "1.21.5", "1.21.4", "1.21.3", "1.21.1", "1.21", "1.20.6", "1.20.4", "1.20.2", "1.20.1")
 	if rso.Name != "红石生电优化【Redstone Survival Optimization】" || strings.Join(cardBySlug(t, res.Cards, "cobblemon-fabric").Categories, ",") != "adventure,lightweight,multiplayer" {
 		t.Errorf("rso %q, cobblemon %q", rso.Name, cardBySlug(t, res.Cards, "cobblemon-fabric").Categories)
 	}
@@ -94,7 +95,7 @@ func TestSearchModrinth(t *testing.T) {
 		{Source: addons.Modrinth, Offset: -1},
 		{Source: addons.Modrinth, Offset: 10001},
 		{Source: addons.Modrinth, Type: "paper"},
-		{Source: addons.Modrinth, MinecraftVersion: "1.20.1"},
+		{Source: addons.Modrinth, MinecraftVersion: "1.20"},
 		{Source: addons.Modrinth, MinecraftVersion: "26.2-pre1"},
 		{Source: addons.Modrinth, Text: strings.Repeat("é", 101)},
 		{Source: addons.Hangar},
@@ -121,9 +122,12 @@ func TestSearchCurseForge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The Forge pack for Minecraft 1.20.1 and the pack for Minecraft 1.19.2
-	// are left out; a pack whose files name no loader is a vanilla pack.
-	wantList(t, "results", cardSlugs(res.Cards), "example-fabric-pack", "example-neoforge-pack", "example-untagged-pack")
+	// The pack for Minecraft 1.19.2 is left out; a pack whose files name no
+	// loader is a vanilla pack.
+	wantList(t, "results", cardSlugs(res.Cards), "example-fabric-pack", "example-forge-pack", "example-neoforge-pack", "example-untagged-pack")
+	if f := cardBySlug(t, res.Cards, "example-forge-pack"); strings.Join(f.Types, ",") != "forge" || strings.Join(f.MinecraftVersions, ",") != "1.20.1" {
+		t.Errorf("Forge pack for Minecraft 1.20.1: %v %v", f.Types, f.MinecraftVersions)
+	}
 	if res.Total != 812 {
 		t.Errorf("total %d", res.Total)
 	}
@@ -179,13 +183,12 @@ func TestVersions(t *testing.T) {
 		HashAlgo: "sha512", Hash: "1a9e0c5f4fa4e995ac9ed8ddb1908e855d627610a7781f1bf3e057414c20048ec78194377177454f4d2e015bee2652aa86d17cf25b5093096d11300ef5849ba1",
 	})
 	for _, v := range vs {
-		if (v.Unsupported != nil) != (v.ID == "wGteoJrN") {
+		if v.Unsupported != nil {
 			t.Errorf("%s: unsupported %+v", v.ID, v.Unsupported)
 		}
 	}
-	if u := vs[5]; u.MinecraftVersion != "1.20.1" || u.Unsupported.Kind != KindMinecraft ||
-		u.Unsupported.Msg != "Adrenaline is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer." {
-		t.Errorf("1.20.1: %+v %+v", u, u.Unsupported)
+	if u := vs[5]; u.ID != "wGteoJrN" || u.MinecraftVersion != "1.20.1" || u.Type != "fabric" {
+		t.Errorf("1.20.1: %+v", u)
 	}
 
 	vs, err = l.Versions(ctx, addons.Modrinth, "vanilla-perfected", "26.1.2")
@@ -200,7 +203,7 @@ func TestVersions(t *testing.T) {
 	}
 	wantList(t, "Create+", versionIDs(vs), "BSg2ZS8u", "3XKDXorU", "OirSzesD")
 	if v := vs[2]; v.Type != "forge" || v.MinecraftVersion != "1.19.2" || v.Unsupported == nil || v.Unsupported.Kind != KindMinecraft ||
-		v.Unsupported.Msg != "Create+ is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.21 and newer." {
+		v.Unsupported.Msg != "Create+ is for Minecraft 1.19.2, and Playkeeper runs Minecraft 1.20.1 and newer." {
 		t.Errorf("Forge version for an old Minecraft: %+v", v)
 	}
 	if v := vs[0]; v.Channel != "alpha" || v.Type != "neoforge" || v.MinecraftVersion != "1.21.1" || v.Unsupported != nil {
@@ -253,7 +256,7 @@ func TestDetail(t *testing.T) {
 	wantList(t, "types", d.Types, "fabric", "quilt")
 	wantList(t, "categories", d.Categories, "lightweight", "multiplayer", "optimization")
 	wantList(t, "Minecraft versions", d.MinecraftVersions, "26.3", "26.2", "26.1.2", "26.1.1", "26.1", "1.21.11", "1.21.10", "1.21.8",
-		"1.21.7", "1.21.5", "1.21.4", "1.21.3", "1.21.1", "1.21")
+		"1.21.7", "1.21.5", "1.21.4", "1.21.3", "1.21.1", "1.21", "1.20.6", "1.20.4", "1.20.2", "1.20.1")
 
 	d, err = l.Detail(ctx, addons.Modrinth, "create_plus")
 	if err != nil {
