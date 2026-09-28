@@ -27,7 +27,7 @@ import (
 // act asks for a start or a stop and waits for its operation.
 func (e *agentEnv) act(verb string) *api.Operation {
 	e.t.Helper()
-	code, out := e.call("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
 	if code != 202 {
 		e.t.Fatalf("%s: %d %v", verb, code, out)
 	}
@@ -360,7 +360,7 @@ func TestGameFilesAreReadWithoutFollowingLinks(t *testing.T) {
 	if err := png.Encode(&icon, image.NewRGBA(image.Rect(0, 0, 64, 64))); err != nil {
 		t.Fatal(err)
 	}
-	code, out := e.uploadTo(e.sp("/icon"), icon.Bytes())
+	code, out := e.whenFree(func() (int, map[string]any) { return e.uploadTo(e.sp("/icon"), icon.Bytes()) })
 	if msg, _ := out["error"].(string); code != 409 || !strings.Contains(msg, "server-icon.png in the server's files is a link") {
 		t.Errorf("an icon upload over a link: %d %v", code, out)
 	}
@@ -627,7 +627,7 @@ func TestAWorldImportNeverFollowsAPlantedServerProperties(t *testing.T) {
 	phrase := e.importPreview(imp, map[string]any{}).ConfirmPhrase
 	apply := func() *api.Operation {
 		t.Helper()
-		code, out := e.call("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
+		code, out := e.callWhenFree("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
 		if code != 202 {
 			t.Fatalf("apply: %d %v", code, out)
 		}

@@ -48,7 +48,7 @@ func (e *agentEnv) worldRestoreScenario() (id, phrase, restored, previous string
 // without waiting for it.
 func (e *agentEnv) startRestore(id, phrase string) string {
 	e.t.Helper()
-	code, out := e.call("POST", "/v1/restore/"+id+"/apply", map[string]any{"confirm": phrase, "actor": "admin"})
+	code, out := e.callWhenFree("POST", "/v1/restore/"+id+"/apply", map[string]any{"confirm": phrase, "actor": "admin"})
 	if code != 202 {
 		e.t.Fatalf("apply: %d %v", code, out)
 	}

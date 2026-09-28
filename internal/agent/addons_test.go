@@ -108,7 +108,7 @@ func (e *agentEnv) addonList() api.Addons {
 // addonOp starts an install or update and waits for it to finish.
 func (e *agentEnv) addonOp(path string, body any) *api.Operation {
 	e.t.Helper()
-	code, out := e.call("POST", e.sp(path), body)
+	code, out := e.callWhenFree("POST", e.sp(path), body)
 	if code != 202 {
 		e.t.Fatalf("POST %s: %d %v", path, code, out)
 	}
@@ -266,13 +266,13 @@ func TestAddonsInstallUpdateRemove(t *testing.T) {
 	if !slices.Equal(preview.NeededBy, []string{"Multiverse-Portals"}) || preview.Changed || preview.Missing {
 		t.Fatalf("removal preview of the dependency: %+v", preview)
 	}
-	code, out := e.call("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": "mvcore00", "keepConfig": true, "actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": "mvcore00", "keepConfig": true, "actor": "admin"})
 	if code != 409 || out["code"] != "needed_by" {
 		t.Fatalf("removing a dependency in use: %d %v", code, out)
 	}
 
 	// A restart loads what was installed.
-	code, out = e.call("POST", e.sp("/restart"), map[string]any{"actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/restart"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("restart: %d %v", code, out)
 	}
@@ -354,7 +354,7 @@ func TestAddonsInstallUpdateRemove(t *testing.T) {
 	if !preview.Changed || len(preview.Orphans) != 1 || preview.Orphans[0].ProjectID != "mvcore00" {
 		t.Fatalf("removal preview of a changed plugin: %+v", preview)
 	}
-	code, out = e.call("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": "mvportal", "actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": "mvportal", "actor": "admin"})
 	if code != 409 || out["code"] != "modified" {
 		t.Fatalf("removing a changed file without asking: %d %v", code, out)
 	}
@@ -364,7 +364,7 @@ func TestAddonsInstallUpdateRemove(t *testing.T) {
 		t.Fatalf("removing an add-on that is not an orphan along with it: %d %v", code, out)
 	}
 	var removal api.AddonRemoval
-	code, out = e.call("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": "mvportal", "changed": true, "actor": "admin",
+	code, out = e.callWhenFree("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": "mvportal", "changed": true, "actor": "admin",
 		"orphans": []map[string]string{{"source": "modrinth", "projectId": "mvcore00"}}})
 	if b, _ := json.Marshal(out); code != 200 || json.Unmarshal(b, &removal) != nil || !slices.Equal(removal.Removed, []string{"Multiverse-Portals", "Multiverse-Core"}) {
 		t.Fatalf("removing the plugin and its orphan: %d %v", code, out)
@@ -613,7 +613,7 @@ func TestAddonFixesStartTheStoppedServer(t *testing.T) {
 	}
 
 	// Multiverse-Core goes, as when it's removed by hand; Portals then needs it.
-	code, out = e.call("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": "mvcore00", "force": true, "actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": "mvcore00", "force": true, "actor": "admin"})
 	if code != 200 {
 		t.Fatalf("remove: %d %v", code, out)
 	}

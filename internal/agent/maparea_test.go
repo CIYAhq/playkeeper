@@ -47,7 +47,7 @@ func (e *agentEnv) mapArea() api.MapArea {
 
 func (e *agentEnv) setMapArea(area string, pauseForPlayers bool) (int, map[string]any) {
 	e.t.Helper()
-	return e.call("POST", e.sp("/map/area"), map[string]any{"area": area, "pauseForPlayers": pauseForPlayers, "actor": "admin"})
+	return e.callWhenFree("POST", e.sp("/map/area"), map[string]any{"area": area, "pauseForPlayers": pauseForPlayers, "actor": "admin"})
 }
 
 // fillMapArea chooses a bigger area and waits until Chunky fills it in.
@@ -223,11 +223,8 @@ func TestReplacingTheMapAreaKeepsTheOldOneUntilTheNewOneStarts(t *testing.T) {
 		}
 	}
 
-	release, ok := e.srv().holdOpLock()
-	if !ok {
-		t.Fatal("could not hold the server")
-	}
-	if code, out := e.setMapArea("small", true); code != 409 {
+	release := e.holdWhenFree(e.srv())
+	if code, out := e.call("POST", e.sp("/map/area"), map[string]any{"area": "small", "pauseForPlayers": true, "actor": "admin"}); code != 409 {
 		t.Errorf("replacing large while the server is busy: %d %v", code, out)
 	}
 	release()

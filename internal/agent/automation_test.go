@@ -496,7 +496,7 @@ func localStandIn(t *testing.T) {
 func (e *agentEnv) putToSleep() {
 	e.t.Helper()
 	localStandIn(e.t)
-	if code, out := e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5}); code != http.StatusOK {
+	if code, out := e.callWhenFree("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5}); code != http.StatusOK {
 		e.t.Fatalf("turn sleep on: %d %v", code, out)
 	}
 	s := e.srv()
@@ -509,9 +509,11 @@ func (e *agentEnv) putToSleep() {
 func (e *agentEnv) holdOp(kind string) (release func()) {
 	e.t.Helper()
 	done := make(chan struct{})
-	if _, err := e.srv().beginOp(kind, "admin", func(context.Context, *opHandle) error {
-		<-done
-		return nil
+	if _, err := e.opWhenFree(func() (*api.Operation, error) {
+		return e.srv().beginOp(kind, "admin", func(context.Context, *opHandle) error {
+			<-done
+			return nil
+		})
 	}); err != nil {
 		e.t.Fatalf("%s: %v", kind, err)
 	}
@@ -531,7 +533,7 @@ func TestServerSleepsWhenEmptyAndWakesForAListedPlayer(t *testing.T) {
 	if code, out := e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 3}); code != http.StatusBadRequest {
 		t.Fatalf("3 minutes: %d %v", code, out)
 	}
-	code, out := e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5})
+	code, out := e.callWhenFree("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5})
 	if st, _ := out["sleep"].(map[string]any); code != 200 || st["enabled"] != true || st["idleMinutes"] != float64(5) {
 		t.Fatalf("turn on: %d %v", code, out)
 	}
@@ -637,15 +639,16 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 	wake := func(e *agentEnv) *api.Operation {
 		e.t.Helper()
 		s := e.srv()
-		op, err := s.beginOp("wake", "wake:Alex", s.wakeOp("Alex"))
+		op, err := e.opWhenFree(func() (*api.Operation, error) { return s.beginOp("wake", "wake:Alex", s.wakeOp("Alex")) })
 		if err != nil {
 			e.t.Fatalf("wake: %v", err)
 		}
 		return e.waitOp(op.ID)
 	}
+	off := map[string]any{"actor": "admin", "enabled": false, "idleMinutes": 5}
 	sleepOff := func(e *agentEnv) (int, map[string]any) {
 		e.t.Helper()
-		return e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": false, "idleMinutes": 5})
+		return e.callWhenFree("POST", e.sp("/sleep"), off)
 	}
 	holdServerOp := func(kind string) func(e *agentEnv) func() {
 		return func(e *agentEnv) func() { return e.holdOp(kind) }
@@ -654,9 +657,11 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 		return func(e *agentEnv) func() {
 			e.t.Helper()
 			done := make(chan struct{})
-			if _, err := e.a.beginMachineOp(kind, "admin", func(context.Context, *opHandle) error {
-				<-done
-				return nil
+			if _, err := e.opWhenFree(func() (*api.Operation, error) {
+				return e.a.beginMachineOp(kind, "admin", func(context.Context, *opHandle) error {
+					<-done
+					return nil
+				})
 			}); err != nil {
 				e.t.Fatalf("%s: %v", kind, err)
 			}
@@ -809,7 +814,7 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 		}, want: state{api.DesiredRunning, false, false, api.PhaseOnline}},
 		{name: "sleep turned off during a backup", steps: func(e *agentEnv) {
 			release := e.holdOp("backup")
-			code, out := sleepOff(e)
+			code, out := e.call("POST", e.sp("/sleep"), off)
 			release()
 			if code != http.StatusConflict || out["code"] != api.CodeBusy {
 				e.t.Fatalf("sleep off during a backup: %d %v", code, out)
@@ -996,7 +1001,7 @@ func TestSleepWaitsForTheMapPreGeneration(t *testing.T) {
 			e.create()
 			fc := e.chunky()
 			e.startPregen("small", true)
-			if code, out := e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5}); code != http.StatusOK {
+			if code, out := e.callWhenFree("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5}); code != http.StatusOK {
 				t.Fatalf("turn sleep on: %d %v", code, out)
 			}
 			c.steps(e, fc)
@@ -1054,7 +1059,7 @@ func TestSleepWaitsForAScheduledRestartsCountdown(t *testing.T) {
 			localStandIn(t)
 			e := newAgentEnv(t)
 			e.create()
-			if code, out := e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": sleep.MinIdleMinutes}); code != http.StatusOK {
+			if code, out := e.callWhenFree("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": sleep.MinIdleMinutes}); code != http.StatusOK {
 				t.Fatalf("turn sleep on: %d %v", code, out)
 			}
 			counting := func() bool {
@@ -1202,7 +1207,7 @@ func TestSleepLooksAgainBeforeItStopsTheServer(t *testing.T) {
 			localStandIn(t)
 			e = newAgentEnv(t)
 			e.create()
-			if code, out := setSleep(e, on); code != http.StatusOK {
+			if code, out := e.whenFree(func() (int, map[string]any) { return setSleep(e, on) }); code != http.StatusOK {
 				t.Fatalf("turn sleep on: %d %v", code, out)
 			}
 			s := e.srv()
@@ -1888,7 +1893,7 @@ func TestDiskSpaceShowsWhatToFreeAndDeletesOnlyWhatWasChosen(t *testing.T) {
 		}
 	}
 	notOffered := strings.Repeat("0", 32)
-	code, out = e.call("POST", "/v1/disk/clean", map[string]any{"actor": "admin", "ids": []string{id, notOffered}, "timeZone": "Europe/Berlin"})
+	code, out = e.callWhenFree("POST", "/v1/disk/clean", map[string]any{"actor": "admin", "ids": []string{id, notOffered}, "timeZone": "Europe/Berlin"})
 	if code != http.StatusAccepted {
 		t.Fatalf("clean: %d %v", code, out)
 	}

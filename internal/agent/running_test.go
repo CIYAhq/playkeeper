@@ -190,7 +190,7 @@ func TestHowItsRunningExplainsTheLag(t *testing.T) {
 		t.Fatalf("the charts average the tick rate and tick time: %+v", m.Buckets)
 	}
 
-	code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("stop: %d %v", code, out)
 	}
@@ -484,7 +484,7 @@ func TestGCLogFlagAppliesFromTheNextStart(t *testing.T) {
 	}
 
 	for _, action := range []string{"/stop", "/start"} {
-		code, out := e.call("POST", e.sp(action), map[string]any{"actor": "admin"})
+		code, out := e.callWhenFree("POST", e.sp(action), map[string]any{"actor": "admin"})
 		if code != 202 {
 			t.Fatalf("%s: %d %v", action, code, out)
 		}

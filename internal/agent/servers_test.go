@@ -306,7 +306,7 @@ func TestServersRunSideBySide(t *testing.T) {
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, backup)
 	}
-	code, restart := e.call("POST", "/v1/servers/"+creative+"/restart", map[string]any{"actor": "admin"})
+	code, restart := e.callWhenFree("POST", "/v1/servers/"+creative+"/restart", map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("another server must not wait for the backup: %d %v", code, restart)
 	}
@@ -362,7 +362,7 @@ func TestServersRunSideBySide(t *testing.T) {
 	if code, out := e.call("POST", "/v1/servers/"+creative+"/delete", map[string]any{"confirm": "Survival", "actor": "admin"}); code != 400 {
 		t.Fatalf("delete with another server's name: %d %v", code, out)
 	}
-	code, out = e.call("POST", "/v1/servers/"+creative+"/delete", map[string]any{"confirm": "Creative", "actor": "admin"})
+	code, out = e.callWhenFree("POST", "/v1/servers/"+creative+"/delete", map[string]any{"confirm": "Creative", "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("delete: %d %v", code, out)
 	}
@@ -403,11 +403,11 @@ func TestGameSettingsApplyWithARestart(t *testing.T) {
 	if st.Gameplay.Difficulty != "peaceful" || st.Gameplay.GameMode != "creative" || *st.Gameplay.PVP || st.Gameplay.ViewDistance != 10 || st.Config.PlayStyle != "creative" {
 		t.Fatalf("the settings in effect: %+v", st.Gameplay)
 	}
-	code, out := e.call("POST", e.sp("/settings"), map[string]any{"gameplay": map[string]any{"difficulty": "hard", "viewDistance": 12}, "actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/settings"), map[string]any{"gameplay": map[string]any{"difficulty": "hard", "viewDistance": 12}, "actor": "admin"})
 	if code != 200 || !e.status().PendingRestart {
 		t.Fatalf("a changed setting waits for a restart: %d %v", code, out)
 	}
-	code, out = e.call("POST", e.sp("/settings"), map[string]any{"name": "Build world", "restart": true, "actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/settings"), map[string]any{"name": "Build world", "restart": true, "actor": "admin"})
 	if code != 202 || out["operation"] == nil {
 		t.Fatalf("save and restart: %d %v", code, out)
 	}
@@ -452,10 +452,7 @@ func TestSettingsChangesAreWholeAndWaitForNoOperation(t *testing.T) {
 	if err := png.Encode(&icon, image.NewRGBA(image.Rect(0, 0, 64, 64))); err != nil {
 		t.Fatal(err)
 	}
-	release, ok := s.holdOpLock()
-	if !ok {
-		t.Fatal("the server is busy")
-	}
+	release := e.holdWhenFree(s)
 	code, out := e.call("POST", e.sp("/settings"), map[string]any{"motd": "Changed meanwhile", "actor": "admin"})
 	iconCode, iconOut := e.uploadTo(e.sp("/icon"), icon.Bytes())
 	release()
@@ -556,7 +553,7 @@ func TestBackupRestoresAsANewServer(t *testing.T) {
 	e.createWith(map[string]any{"name": "Survival"})
 	survival := e.sid
 	os.WriteFile(filepath.Join(e.dataDir(), "world", "marker.txt"), []byte("nonce-survival"), 0o644)
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}
@@ -586,7 +583,7 @@ func TestBackupRestoresAsANewServer(t *testing.T) {
 	if n := len(e.a.serverList()); n != 1 {
 		t.Fatalf("a refused restore made a server: %d", n)
 	}
-	code, out = e.call("POST", "/v1/restore/"+id+"/apply", map[string]any{"confirm": "restore", "acceptEula": true, "actor": "admin"})
+	code, out = e.callWhenFree("POST", "/v1/restore/"+id+"/apply", map[string]any{"confirm": "restore", "acceptEula": true, "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("apply: %d %v", code, out)
 	}
@@ -613,7 +610,7 @@ func TestUpdateWaitsForEveryServer(t *testing.T) {
 	e.fd.mu.Lock()
 	e.fd.beforeStop = wait
 	e.fd.mu.Unlock()
-	code, out := e.call("POST", e.sp("/restart"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/restart"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("restart: %d %v", code, out)
 	}
@@ -638,7 +635,7 @@ func TestUpdateWaitsForEveryServer(t *testing.T) {
 func TestNoServerIsAddedWhileTheMachineIsBusy(t *testing.T) {
 	e := newAgentEnv(t)
 	e.createWith(map[string]any{"name": "Survival"})
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}
@@ -657,9 +654,11 @@ func TestNoServerIsAddedWhileTheMachineIsBusy(t *testing.T) {
 	e.waitFor("Survival idle", e.onlineIdle)
 
 	release := make(chan struct{})
-	if _, err := e.a.beginMachineOp("update", "admin", func(ctx context.Context, h *opHandle) error {
-		<-release
-		return nil
+	if _, err := e.opWhenFree(func() (*api.Operation, error) {
+		return e.a.beginMachineOp("update", "admin", func(ctx context.Context, h *opHandle) error {
+			<-release
+			return nil
+		})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -795,7 +794,7 @@ func TestWorldSizeIsMeasuredAgainAfterARestore(t *testing.T) {
 func TestDeleteKeepsBackupsWhenTheFilesCannotBeMoved(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}
@@ -814,7 +813,7 @@ func TestDeleteKeepsBackupsWhenTheFilesCannotBeMoved(t *testing.T) {
 		return os.Rename(from, to)
 	}
 	t.Cleanup(func() { renameDir = os.Rename })
-	code, out = e.call("POST", e.sp("/delete"), map[string]any{"confirm": s.name(), "actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/delete"), map[string]any{"confirm": s.name(), "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("delete: %d %v", code, out)
 	}
@@ -841,7 +840,7 @@ func TestDeletedServerLeavesNothingRunning(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
 	s := e.srv()
-	code, out := e.call("POST", e.sp("/delete"), map[string]any{"confirm": s.name(), "actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/delete"), map[string]any{"confirm": s.name(), "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("delete: %d %v", code, out)
 	}

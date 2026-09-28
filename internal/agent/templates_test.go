@@ -311,7 +311,7 @@ func TestCreateFromTemplateDownloadsItsDataPacks(t *testing.T) {
 
 	// The host serves the pack the template names again: Try again puts it in.
 	e.up.serve("https://packs.example.com/terrain.zip", terrain)
-	code, out = e.call("POST", e.sp("/template/retry"), map[string]any{"actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/template/retry"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("try again: %d %v", code, out)
 	}
@@ -377,7 +377,7 @@ func TestSkippedTemplateAddonsStayUntilTriedAgain(t *testing.T) {
 	}
 
 	putBack()
-	code, out = e.call("POST", e.sp("/template/retry"), map[string]any{"actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/template/retry"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("try again: %d %v", code, out)
 	}

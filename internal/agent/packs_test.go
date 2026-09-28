@@ -236,7 +236,9 @@ func decodeAs[T any](t *testing.T, m map[string]any) T {
 // addDataPack uploads a data pack as the panel does, with its file name.
 func (e *agentEnv) addDataPack(fileName string, zip []byte) api.DataPacks {
 	e.t.Helper()
-	code, out := e.uploadTo(e.sp("/datapacks?name="+url.QueryEscape(fileName)), zip)
+	code, out := e.whenFree(func() (int, map[string]any) {
+		return e.uploadTo(e.sp("/datapacks?name="+url.QueryEscape(fileName)), zip)
+	})
 	if code != 200 {
 		e.t.Fatalf("add data pack %s: %d %v", fileName, code, out)
 	}
@@ -254,7 +256,7 @@ func (e *agentEnv) dataPackList() api.DataPacks {
 // answers with.
 func (e *agentEnv) switchDataPack(name, action string) api.DataPacks {
 	e.t.Helper()
-	code, out := e.call("POST", e.sp("/datapacks/"+name+"/"+action), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/datapacks/"+name+"/"+action), map[string]any{"actor": "admin"})
 	if code != 200 {
 		e.t.Fatalf("%s %s: %d %v", action, name, code, out)
 	}
@@ -360,7 +362,7 @@ func TestDataPacksOnARunningServer(t *testing.T) {
 	}
 
 	// Removing an enabled pack disables it first.
-	code, out = e.call("DELETE", e.sp("/datapacks/Graves_v2.zip?actor=admin"), nil)
+	code, out = e.callWhenFree("DELETE", e.sp("/datapacks/Graves_v2.zip?actor=admin"), nil)
 	if code != 200 || len(out["packs"].([]any)) != 1 {
 		t.Fatalf("remove: %d %v", code, out)
 	}
@@ -454,7 +456,7 @@ func TestFolderDataPacks(t *testing.T) {
 	if p := list.Packs[1]; p.Name != "Tab\tMade" || !p.Folder || enabledState(&p) != "unknown" {
 		t.Fatalf("the folder pack with a tab in its name: %+v", p)
 	}
-	if code, out := e.call("DELETE", e.sp("/datapacks/"+url.PathEscape("Hand Made")+"?actor=admin"), nil); code != 409 || out["code"] != packs.CodeFolderPack {
+	if code, out := e.callWhenFree("DELETE", e.sp("/datapacks/"+url.PathEscape("Hand Made")+"?actor=admin"), nil); code != 409 || out["code"] != packs.CodeFolderPack {
 		t.Fatalf("removing a folder pack: %d %v", code, out)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "Hand Made", "pack.mcmeta")); err != nil {
@@ -535,7 +537,9 @@ func (e *agentEnv) resourcePack() api.ResourcePack {
 // players' games reach the panel.
 func (e *agentEnv) offerPack(fileName string, zip []byte) api.ResourcePack {
 	e.t.Helper()
-	code, out := e.uploadTo(e.sp("/resourcepack?host=203.0.113.10&port=8443&name="+url.QueryEscape(fileName)), zip)
+	code, out := e.whenFree(func() (int, map[string]any) {
+		return e.uploadTo(e.sp("/resourcepack?host=203.0.113.10&port=8443&name="+url.QueryEscape(fileName)), zip)
+	})
 	if code != 200 {
 		e.t.Fatalf("offer %s: %d %v", fileName, code, out)
 	}
@@ -593,7 +597,9 @@ func TestAMachineWithoutADashboardRefusesResourcePacks(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newAgentEnvWith(t, func(e *agentEnv) { e.cfg.NoPanel = tc.noPanel })
 			e.create()
-			code, out := e.uploadTo(e.sp("/resourcepack?host=203.0.113.10&port=8443&name=Faithful.zip"), resourcePackZip(t, "Faithful 32x", true))
+			code, out := e.whenFree(func() (int, map[string]any) {
+				return e.uploadTo(e.sp("/resourcepack?host=203.0.113.10&port=8443&name=Faithful.zip"), resourcePackZip(t, "Faithful 32x", true))
+			})
 			if code != tc.code {
 				t.Fatalf("upload: %d %v", code, out)
 			}
@@ -622,7 +628,9 @@ func TestResourcePackOffer(t *testing.T) {
 	if code != 400 || out["code"] != packs.CodeInvalidHost {
 		t.Fatalf("a pack players couldn't download: %d %v", code, out)
 	}
-	if code, out := e.uploadTo(e.sp("/resourcepack?host=203.0.113.10&port=8443"), dataPackZip(t, "x", false)); code != 400 || out["code"] != packs.CodeWrongKind {
+	if code, out := e.whenFree(func() (int, map[string]any) {
+		return e.uploadTo(e.sp("/resourcepack?host=203.0.113.10&port=8443"), dataPackZip(t, "x", false))
+	}); code != 400 || out["code"] != packs.CodeWrongKind {
 		t.Fatalf("a data pack as the resource pack: %d %v", code, out)
 	}
 	if got := e.storedPacks(); len(got) != 0 {
@@ -653,7 +661,7 @@ func TestResourcePackOffer(t *testing.T) {
 		t.Fatalf("the pack's icon: %d", code)
 	}
 
-	code, out = e.call("POST", e.sp("/resourcepack/settings"), map[string]any{"required": true, "prompt": " Grab the pack! ", "actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/resourcepack/settings"), map[string]any{"required": true, "prompt": " Grab the pack! ", "actor": "admin"})
 	if o := decodeAs[api.ResourcePack](t, out).Offer; code != 200 || !o.Required || o.Prompt != "Grab the pack!" {
 		t.Fatalf("settings: %d %v", code, out)
 	}
@@ -704,11 +712,11 @@ func TestResourcePackOffer(t *testing.T) {
 	}
 
 	// Removing the offer clears the settings from the next start.
-	code, out = e.call("DELETE", e.sp("/resourcepack?actor=admin"), nil)
+	code, out = e.callWhenFree("DELETE", e.sp("/resourcepack?actor=admin"), nil)
 	if v := decodeAs[api.ResourcePack](t, out); code != 200 || v.Offer != nil || !v.Pending {
 		t.Fatalf("remove: %d %v", code, out)
 	}
-	if code, _ := e.call("DELETE", e.sp("/resourcepack?actor=admin"), nil); code != 200 || e.audits("resourcepack.removed") != 1 {
+	if code, _ := e.callWhenFree("DELETE", e.sp("/resourcepack?actor=admin"), nil); code != 200 || e.audits("resourcepack.removed") != 1 {
 		t.Fatalf("removing again: %d, %d audit entries", code, e.audits("resourcepack.removed"))
 	}
 	if code, out := e.call("POST", e.sp("/resourcepack/settings"), map[string]any{"required": false, "actor": "admin"}); code != 409 || out["code"] != "no_resource_pack" {
@@ -830,7 +838,9 @@ func TestResourcePackLinksUseHTTPSWithATrustedCertificate(t *testing.T) {
 	secure := "https://" + host + ":8443/resource-packs/" + sum + ".zip"
 	offer := func() api.ResourcePack {
 		t.Helper()
-		code, out := e.uploadTo(e.sp("/resourcepack?host="+host+"&port=8443&name=Faithful.zip"), faithful)
+		code, out := e.whenFree(func() (int, map[string]any) {
+			return e.uploadTo(e.sp("/resourcepack?host="+host+"&port=8443&name=Faithful.zip"), faithful)
+		})
 		if code != 200 {
 			t.Fatalf("offer: %d %v", code, out)
 		}
@@ -1002,7 +1012,7 @@ func TestResourcePackOfferThatCantBeBuilt(t *testing.T) {
 	if v := e.offerPack("Sphax.zip", sphax); v.Problem != badPrompt {
 		t.Fatalf("the pack uploaded again: %+v", v)
 	}
-	code, out := e.call("POST", e.sp("/resourcepack/settings"), map[string]any{"required": false, "prompt": "Grab the pack!", "actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/resourcepack/settings"), map[string]any{"required": false, "prompt": "Grab the pack!", "actor": "admin"})
 	if v := decodeAs[api.ResourcePack](t, out); code != 200 || v.Problem != "" || !v.Pending {
 		t.Fatalf("a message players can see: %d %v", code, out)
 	}
@@ -1054,7 +1064,7 @@ func TestResourcePackAcrossRestoreAndDelete(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("upload: %d %v", code, preview)
 	}
-	code, out := e.call("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": "restore", "acceptEula": true, "actor": "admin"})
+	code, out := e.callWhenFree("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": "restore", "acceptEula": true, "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("apply: %d %v", code, out)
 	}
@@ -1071,7 +1081,7 @@ func TestResourcePackAcrossRestoreAndDelete(t *testing.T) {
 	}
 
 	e.sid = survival
-	code, out = e.call("POST", e.sp("/delete"), map[string]any{"confirm": "Survival", "actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/delete"), map[string]any{"confirm": "Survival", "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("delete: %d %v", code, out)
 	}

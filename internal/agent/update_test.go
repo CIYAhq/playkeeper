@@ -116,7 +116,7 @@ func (e *agentEnv) updateInfo() api.UpdateInfo {
 // release is handed to the updater (the operation keeps running) or refused.
 func (e *agentEnv) applyUpdate(v string) *api.Operation {
 	e.t.Helper()
-	code, out := e.call("POST", "/v1/update/apply", map[string]any{"version": v, "actor": "admin"})
+	code, out := e.callWhenFree("POST", "/v1/update/apply", map[string]any{"version": v, "actor": "admin"})
 	if code != 202 {
 		e.t.Fatalf("apply: %d %v", code, out)
 	}
@@ -346,7 +346,7 @@ func TestFailedUpdatesAreReportedAndDoNotBlockTheDashboard(t *testing.T) {
 	}
 	os.Remove(applying)
 
-	if code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 202 {
+	if code, out := e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 202 {
 		t.Fatalf("operations must work again: %d %v", code, out)
 	}
 }

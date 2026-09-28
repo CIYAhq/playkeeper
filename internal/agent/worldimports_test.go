@@ -499,7 +499,7 @@ func TestAnUpgradedWorldWaitsForTheCopyOfItAsUploaded(t *testing.T) {
 	}
 	start := func() *api.Operation {
 		t.Helper()
-		code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+		code, out := e.callWhenFree("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 		if code != 202 {
 			t.Fatalf("start: %d %v", code, out)
 		}
@@ -528,7 +528,7 @@ func TestAnUpgradedWorldWaitsForTheCopyOfItAsUploaded(t *testing.T) {
 	if c := copies(); len(c) != 1 || c[0].MinecraftVersion != "1.21.4" || !strings.Contains(c[0].Note, "as uploaded") || op.Detail["originalBackupId"] != c[0].ID {
 		t.Fatalf("the start must save the world as uploaded first: %+v %v", c, op.Detail)
 	}
-	code, out = e.call("POST", e.sp("/restart"), map[string]any{"actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/restart"), map[string]any{"actor": "admin"})
 	if code != 202 || e.waitOp(out["id"].(string)).Status != api.OpSucceeded || len(copies()) != 1 {
 		t.Fatalf("a later restart saves the world as uploaded again: %d %v", code, out)
 	}
@@ -605,7 +605,7 @@ func TestImportReplacesAServersWorldLikeARestore(t *testing.T) {
 	if code != 400 || !strings.Contains(fmt.Sprint(out["error"]), `Type "replace world"`) || !exists(filepath.Join(live, "world", "marker.txt")) {
 		t.Fatalf("an import without its confirmation phrase: %d %v", code, out)
 	}
-	code, out = e.call("POST", importPath(imp, "/apply"), map[string]any{"confirm": "replace world", "actor": "admin"})
+	code, out = e.callWhenFree("POST", importPath(imp, "/apply"), map[string]any{"confirm": "replace world", "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("apply: %d %v", code, out)
 	}
@@ -686,7 +686,7 @@ func TestImportedWorldThatFailsToStartIsSwappedBack(t *testing.T) {
 	}
 	t.Cleanup(func() { renameDir = os.Rename })
 
-	code, out := e.call("POST", importPath(imp, "/apply"), map[string]any{"confirm": pv.ConfirmPhrase, "actor": "admin"})
+	code, out := e.callWhenFree("POST", importPath(imp, "/apply"), map[string]any{"confirm": pv.ConfirmPhrase, "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("apply: %d %v", code, out)
 	}
@@ -738,7 +738,7 @@ func TestAWorldImportRefusesLinkedWorldFolders(t *testing.T) {
 	phrase := e.importPreview(imp, map[string]any{}).ConfirmPhrase
 	apply := func() *api.Operation {
 		t.Helper()
-		code, out := e.call("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
+		code, out := e.callWhenFree("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
 		if code != 202 {
 			t.Fatalf("apply: %d %v", code, out)
 		}
@@ -1118,7 +1118,7 @@ func TestAnImportedWorldMovesBackOnlyOnceTheServerStopped(t *testing.T) {
 				e.fd.bootExit, e.fd.bootDelay, e.fd.started, e.fd.down = 0, 30*time.Millisecond, nil, ""
 				e.fd.mu.Unlock()
 			})
-			code, out := e.call("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
+			code, out := e.callWhenFree("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
 			if code != 202 {
 				t.Fatalf("apply: %d %v", code, out)
 			}

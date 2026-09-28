@@ -295,7 +295,7 @@ func TestCreateFromModpack(t *testing.T) {
 			t.Errorf("%s downloaded %d times", u, n)
 		}
 	}
-	code, _ = e.call("POST", e.sp("/delete"), map[string]any{"actor": "admin", "confirm": "My server"})
+	code, _ = e.callWhenFree("POST", e.sp("/delete"), map[string]any{"actor": "admin", "confirm": "My server"})
 	if code != 202 && code != 200 {
 		t.Fatalf("delete: %d", code)
 	}
@@ -600,7 +600,7 @@ func TestRestoreBringsTheBackupsModpack(t *testing.T) {
 				t.Fatalf("create: %+v", op)
 			}
 			e.waitFor("online", e.onlineIdle)
-			code, out = e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+			code, out = e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 			if code != 202 {
 				t.Fatalf("backup: %d %v", code, out)
 			}
@@ -654,7 +654,7 @@ func TestRestoreBringsTheBackupsModpack(t *testing.T) {
 				e.fd.mu.Unlock()
 				finished = api.OpFailed
 			}
-			code, out = e.call("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": preview["confirmPhrase"], "acceptEula": true, "actor": "admin"})
+			code, out = e.callWhenFree("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": preview["confirmPhrase"], "acceptEula": true, "actor": "admin"})
 			if code != 202 {
 				t.Fatalf("apply: %d %v", code, out)
 			}

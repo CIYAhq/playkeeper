@@ -107,7 +107,7 @@ func TestVoiceChatOpensItsPortAndClosesItWhenRemoved(t *testing.T) {
 	}
 	e.waitFor("online again", func() bool { return e.status().Phase == api.PhaseOnline })
 
-	if code, out := e.call("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": voiceChatProject, "keepConfig": true, "actor": "admin"}); code != 200 {
+	if code, out := e.callWhenFree("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": voiceChatProject, "keepConfig": true, "actor": "admin"}); code != 200 {
 		t.Fatalf("remove: %d %v", code, out)
 	}
 	if sc, _ := e.srv().serverConfig(); sc.VoiceChatPort != 0 {
@@ -205,14 +205,14 @@ func TestVoiceChatRecordAndPortNeverDisagree(t *testing.T) {
 			if tc.setup != nil {
 				putRight = tc.setup(t, e)
 			}
-			if code, out := e.call("POST", e.sp("/addons/remove"), tc.remove); (code == 200) != tc.removed {
+			if code, out := e.callWhenFree("POST", e.sp("/addons/remove"), tc.remove); (code == 200) != tc.removed {
 				t.Fatalf("the removal: %d %v", code, out)
 			}
 			if agree("after the removal") != tc.kept {
 				t.Fatalf("voice chat must be installed after the removal: %v", tc.kept)
 			}
 			putRight()
-			code, out := e.call("POST", e.sp("/addons/remove"), tc.again)
+			code, out := e.callWhenFree("POST", e.sp("/addons/remove"), tc.again)
 			if (code == 200) != tc.kept {
 				t.Fatalf("removing voice chat again: %d %v", code, out)
 			}
@@ -285,10 +285,10 @@ func TestVoiceChatInstallOpensItsPortFirst(t *testing.T) {
 	}
 
 	e.waitFor("online with voice chat", e.onlineIdle)
-	if code, out := e.call("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": voiceChatProject, "keepConfig": true, "actor": "admin"}); code != 200 {
+	if code, out := e.callWhenFree("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": voiceChatProject, "keepConfig": true, "actor": "admin"}); code != 200 {
 		t.Fatalf("remove: %d %v", code, out)
 	}
-	code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("stop: %d %v", code, out)
 	}
@@ -331,7 +331,7 @@ func TestRestoreKeepsVoiceChatsPort(t *testing.T) {
 	e.waitFor("online", e.onlineIdle)
 	backup := func() string {
 		t.Helper()
-		code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+		code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 		if code != 202 {
 			t.Fatalf("backup: %d %v", code, out)
 		}
@@ -344,7 +344,7 @@ func TestRestoreKeepsVoiceChatsPort(t *testing.T) {
 	}
 	restore := func(id string) {
 		t.Helper()
-		code, preview := e.call("POST", e.sp("/backups/"+id+"/restore"), map[string]any{"actor": "admin"})
+		code, preview := e.callWhenFree("POST", e.sp("/backups/"+id+"/restore"), map[string]any{"actor": "admin"})
 		if code != 200 {
 			t.Fatalf("stage: %d %v", code, preview)
 		}
@@ -396,7 +396,7 @@ func TestRestoreKeepsVoiceChatsPort(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("upload: %d %v", code, preview)
 	}
-	code, out := e.call("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": "restore", "acceptEula": true, "actor": "admin"})
+	code, out := e.callWhenFree("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": "restore", "acceptEula": true, "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("apply: %d %v", code, out)
 	}
@@ -428,7 +428,7 @@ func (e *agentEnv) installVoiceChat(id string) {
 func (e *agentEnv) removeVoiceChat(id string) {
 	e.t.Helper()
 	e.sid = id
-	if code, out := e.call("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": voiceChatProject, "keepConfig": true, "actor": "admin"}); code != 200 {
+	if code, out := e.callWhenFree("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": voiceChatProject, "keepConfig": true, "actor": "admin"}); code != 200 {
 		e.t.Fatalf("remove voice chat: %d %v", code, out)
 	}
 }
@@ -458,7 +458,7 @@ func voiceChatServers(t *testing.T) (e *agentEnv, survival, creative, backupID s
 	e.waitFor("Survival online", e.onlineIdle)
 	e.installVoiceChat(survival)
 	e.waitFor("Survival online with voice chat", e.onlineIdle)
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}
@@ -477,7 +477,7 @@ func voiceChatServers(t *testing.T) (e *agentEnv, survival, creative, backupID s
 func (e *agentEnv) stageRestore(id, backupID string) (string, string) {
 	e.t.Helper()
 	e.sid = id
-	code, preview := e.call("POST", e.sp("/backups/"+backupID+"/restore"), map[string]any{"actor": "admin"})
+	code, preview := e.callWhenFree("POST", e.sp("/backups/"+backupID+"/restore"), map[string]any{"actor": "admin"})
 	if code != 200 {
 		e.t.Fatalf("stage: %d %v", code, preview)
 	}
@@ -658,7 +658,7 @@ func TestTemplateVoiceChatTriedAgainGetsItsPort(t *testing.T) {
 	}
 
 	putBack()
-	code, out = e.call("POST", e.sp("/template/retry"), map[string]any{"actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/template/retry"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("try again: %d %v", code, out)
 	}

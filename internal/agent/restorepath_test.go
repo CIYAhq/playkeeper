@@ -54,7 +54,7 @@ func TestAWorldFolderARestoreLeftMissingIsShownUntilItIsBack(t *testing.T) {
 		t.Fatalf("the status must say where the previous world is: %+v", m)
 	}
 	for _, path := range []string{"/start", "/backups"} {
-		code, out := e.call("POST", e.sp(path), map[string]any{"actor": "admin"})
+		code, out := e.callWhenFree("POST", e.sp(path), map[string]any{"actor": "admin"})
 		if code != 202 {
 			t.Fatalf("%s: %d %v", path, code, out)
 		}
@@ -108,7 +108,9 @@ func refusedForMissingWorldFolder(t *testing.T, m *api.WorldMissing, what string
 // to upload or add it again once the folder is back, not to press Start.
 func TestAnIconOrPackRefusedForTheMissingWorldFolderSaysWhatToRedo(t *testing.T) {
 	e, m := worldLeftMissing(t)
-	code, out := e.uploadTo(e.sp("/datapacks?name=extra.zip"), dataPackZip(t, "Extra", false))
+	code, out := e.whenFree(func() (int, map[string]any) {
+		return e.uploadTo(e.sp("/datapacks?name=extra.zip"), dataPackZip(t, "Extra", false))
+	})
 	refusedForMissingWorldFolder(t, m, "a new data pack", code, out, "add the data pack again")
 	var icon bytes.Buffer
 	if err := png.Encode(&icon, image.NewRGBA(image.Rect(0, 0, 64, 64))); err != nil {
@@ -144,7 +146,7 @@ func TestNoRestoreStartsWhileAnotherIsUnsettled(t *testing.T) {
 			id, phrase := e.backupAndStage()
 			list, _ := e.srv().listBackups(`kind = 'manual'`)
 			b := list[0]
-			code, spare := e.call("POST", e.sp("/backups/"+b.ID+"/restore"), map[string]any{"actor": "admin"})
+			code, spare := e.callWhenFree("POST", e.sp("/backups/"+b.ID+"/restore"), map[string]any{"actor": "admin"})
 			if code != 200 {
 				t.Fatalf("stage: %d %v", code, spare)
 			}
@@ -159,10 +161,7 @@ func TestNoRestoreStartsWhileAnotherIsUnsettled(t *testing.T) {
 			renameDir = os.Rename
 			// A job holding the server keeps the agent from settling the
 			// restore as soon as its world folder is back.
-			release, ok := e.srv().holdOpLock()
-			if !ok {
-				t.Fatal("the server is busy")
-			}
+			release := e.holdWhenFree(e.srv())
 			defer release()
 			if state.movedBack {
 				asides, _ := filepath.Glob(e.dataDir() + ".replaced-*")
@@ -268,10 +267,7 @@ func TestARestoreIsSettledOnceItsWorldIsBackWithoutAnAgentRestart(t *testing.T) 
 		return func() { set(false) }
 	}
 	busy := func(t *testing.T, e *agentEnv) func() {
-		release, ok := e.srv().holdOpLock()
-		if !ok {
-			t.Fatal("the server is busy")
-		}
+		release := e.holdWhenFree(e.srv())
 		return release
 	}
 	for _, c := range []struct {
@@ -308,7 +304,7 @@ func TestARestoreIsSettledOnceItsWorldIsBackWithoutAnAgentRestart(t *testing.T) 
 				release()
 			}
 			if c.start {
-				code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+				code, out := e.callWhenFree("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 				if code != 202 {
 					t.Fatalf("start: %d %v", code, out)
 				}
@@ -383,7 +379,7 @@ func TestNoJobStartsAServerWhoseRestoreIsntSettled(t *testing.T) {
 		}},
 		{"pre-generating the map", func(t *testing.T, e *agentEnv) *api.Operation {
 			e.chunky()
-			code, out := e.call("POST", e.sp("/pregen/start"), map[string]any{"preset": "small", "pauseForPlayers": false, "actor": "admin"})
+			code, out := e.callWhenFree("POST", e.sp("/pregen/start"), map[string]any{"preset": "small", "pauseForPlayers": false, "actor": "admin"})
 			if code != 202 {
 				t.Fatalf("pre-generate: %d %v", code, out)
 			}
@@ -677,15 +673,17 @@ func TestNothingMakesAWorldFolderWhileTheRestoredWorldIsInTheStage(t *testing.T)
 			if err := png.Encode(&icon, image.NewRGBA(image.Rect(0, 0, 64, 64))); err != nil {
 				t.Fatal(err)
 			}
-			code, out := e.uploadTo(e.sp("/icon"), icon.Bytes())
+			code, out := e.whenFree(func() (int, map[string]any) { return e.uploadTo(e.sp("/icon"), icon.Bytes()) })
 			return refused(t, code, out)
 		}},
 		{"a player added to the allowlist", "try again", func(t *testing.T, e *agentEnv) (string, string) {
-			code, out := e.call("POST", e.sp("/whitelist"), map[string]any{"name": "JunoFox", "uuid": "5507140b-cf95-3383-b75a-47dd34196981", "actor": "admin"})
+			code, out := e.callWhenFree("POST", e.sp("/whitelist"), map[string]any{"name": "JunoFox", "uuid": "5507140b-cf95-3383-b75a-47dd34196981", "actor": "admin"})
 			return refused(t, code, out)
 		}},
 		{"a new data pack", "add the data pack again", func(t *testing.T, e *agentEnv) (string, string) {
-			code, out := e.uploadTo(e.sp("/datapacks?name=extra.zip"), dataPackZip(t, "Extra", false))
+			code, out := e.whenFree(func() (int, map[string]any) {
+				return e.uploadTo(e.sp("/datapacks?name=extra.zip"), dataPackZip(t, "Extra", false))
+			})
 			return refused(t, code, out)
 		}},
 		{"an add-on install", "try again", func(t *testing.T, e *agentEnv) (string, string) {

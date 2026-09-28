@@ -15,7 +15,7 @@ import (
 func (e *agentEnv) changeVersion(body map[string]any) (int, map[string]any) {
 	e.t.Helper()
 	body["actor"] = "admin"
-	return e.call("POST", e.sp("/version"), body)
+	return e.callWhenFree("POST", e.sp("/version"), body)
 }
 
 func TestCatalogIsLiveFromPaperMCAndExperimentalNeedsConsent(t *testing.T) {
