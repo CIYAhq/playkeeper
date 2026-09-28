@@ -1,6 +1,7 @@
 package site
 
 import (
+	"fmt"
 	"html/template"
 	"net/url"
 	"regexp"
@@ -70,7 +71,7 @@ func TestProvidersFitEverySize(t *testing.T) {
 var reAnchor = regexp.MustCompile(`<a\s[^>]*>`)
 
 // A partner link is sponsored, and its page says who pays for it before the
-// first one: the note above the provider cards.
+// first one: the note above the provider cards, or a guide's line at its top.
 // A provider without one gets its plain link and no claim of a commission.
 // That holds with every program on, with one, and with none.
 func TestPartnerLinksAreDisclosedFirst(t *testing.T) {
@@ -131,5 +132,61 @@ func TestPartnerLinksAreDisclosedFirst(t *testing.T) {
 				}
 			}
 		}
+		for _, p := range providers {
+			guide := built[p.Guide]
+			if has := strings.Contains(guide, template.HTMLEscapeString(p.Disclosure())); has != (p.Partner != "") {
+				t.Errorf("%v on: %s's guide says it earns a commission: %v", partners, p.Name, has)
+			}
+		}
+	}
+}
+
+// Each provider's guide is linked from its card, lists its plans with their
+// prices and the groups the sizing guide sends to each, offers the plan for
+// the sizing guide's first answer, and names the systems Playkeeper runs on
+// as it does.
+func TestProviderGuidesFollowTheSizingGuide(t *testing.T) {
+	built := pages(build(t, Default))
+	first, err := sizing.Recommend(sizingWorkload, sizingPlayers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range providers {
+		guide, ok := built[p.Guide]
+		if !ok {
+			t.Errorf("%s has no guide at %s", p.Name, p.Guide)
+			continue
+		}
+		for _, from := range []string{"/sizing", "/alternatives/aternos"} {
+			if !strings.Contains(built[from], `<a class="link-arrow" href="`+p.Guide+`">Setup guide`) {
+				t.Errorf("%s's card on %s doesn't link its guide", p.Name, from)
+			}
+		}
+		fits, err := p.Fits()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range fits {
+			row := fmt.Sprintf(`<th scope="row">%d vCPU · %d GB<span class="plan-sub">%s · %d GB NVMe</span><span class="plan-price">%s a month`, f.CPUs, f.MemoryGB, f.Name, f.DiskGB, usd(f.USD))
+			if f.Renews != 0 {
+				row += ", then " + usd(f.Renews)
+			}
+			if !strings.Contains(guide, row+"</span></th><td>"+strings.Join(f.For, "<br>")+"</td>") {
+				t.Errorf("%s's guide has no row for %s with %d GB at %s for %q", p.Name, f.Name, f.MemoryGB, usd(f.USD), f.For)
+			}
+		}
+		pl := p.Fit(first.MemoryGB, first.Cores)
+		cta := fmt.Sprintf(`data-plan>%s · %d vCPU · %d GB</p>`, pl.Name, pl.CPUs, pl.MemoryGB)
+		link := `href="` + template.HTMLEscapeString(p.Link()) + `" rel="` + p.Rel() + `">Get a ` + p.Name + ` server`
+		if !strings.Contains(guide, cta) || !strings.Contains(guide, link) {
+			t.Errorf("%s's guide doesn't offer %s with %d GB through its link", p.Name, pl.Name, pl.MemoryGB)
+		}
+		// html/template writes + as &#43; in text.
+		if !strings.Contains(guide, "Playkeeper also runs on "+strings.ReplaceAll(systemRanges(), "+", "&#43;")+", on x86_64 or 64-bit ARM.") {
+			t.Errorf("%s's guide doesn't name the systems Playkeeper runs on", p.Name)
+		}
+	}
+	if got, want := systemRanges(), "Ubuntu 20.04–26.04, Debian 12–13, the RHEL family 9+ or Amazon Linux 2023"; got != want {
+		t.Errorf("the provider guides name the systems as %q, want %q", got, want)
 	}
 }

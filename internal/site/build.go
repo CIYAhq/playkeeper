@@ -642,7 +642,20 @@ func (s *Site) funcs() template.FuncMap {
 			}
 			return "", nil
 		},
-		"providers":   func() []Provider { return providers },
+		"providers": func() []Provider { return providers },
+		"provider":  provider,
+		// pagePartner is the provider whose partner links the page carries,
+		// or nil while it has none.
+		"pagePartner": func(p *Page) (*Provider, error) {
+			if p.Partner == "" {
+				return nil, nil
+			}
+			pr, err := provider(p.Partner)
+			if err != nil || pr.Partner == "" {
+				return nil, err
+			}
+			return pr, nil
+		},
 		"partnerNote": partnerNote,
 		"sizing":      func() SizingGuide { return s.sizing },
 		// sizingFor is the sizing guide's answer for friends playing at once
@@ -677,6 +690,7 @@ func (s *Site) funcs() template.FuncMap {
 		// later, or Debian 12 or later", or "Ubuntu 20.04+ or Debian 12+".
 		"systems":      platform.Summary,
 		"systemsShort": platform.Short,
+		"systemRanges": systemRanges,
 		// The one-line installer (Settings.InstallCommand), on one line, in
 		// the three a phone shows, and wrapped before its pipe for a terminal.
 		"installCommand": func() string { return s.opts.Settings.InstallCommand },
