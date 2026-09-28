@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -456,6 +457,40 @@ func TestTemplateModpackRunsOnTheTypeItNames(t *testing.T) {
 	}
 	if code, out := e.createFromTemplate(p.Fingerprint, nil); code == 202 {
 		t.Fatalf("a blocked template must not create a server: %v", out)
+	}
+}
+
+// A modpack runs the Minecraft version it is made for, which the create
+// flow may not list: it offers each line's newest release, 26.1.2 here and
+// not 26.1.1. A template of such a pack plans and creates a server on the
+// pack's version, as New server does with the pack itself.
+func TestTemplateModpackPlansOnThePacksOwnVersion(t *testing.T) {
+	e := newAgentEnv(t)
+	pack := e.up.servePackOf(fakePackSpec{mc: "26.1.1", loader: "fabric-loader", loaderVersion: "0.17.2"})
+	e.up.serveFabricLists()
+	e.up.serve("https://meta.fabricmc.net/v2/versions/game", []byte(`[{"version":"26.2","stable":true},{"version":"26.1.2","stable":true},{"version":"26.1.1","stable":true}]`))
+	entries, _, err := e.a.typeCatalog(context.Background(), "fabric")
+	if err != nil || slices.ContainsFunc(entries, func(c api.CatalogEntry) bool { return c.MinecraftVersion == "26.1.1" }) {
+		t.Fatalf("New server offers each line's newest release, not 26.1.1: %+v %v", entries, err)
+	}
+	file, err := templates.MarshalFile(&templates.Template{Format: templates.Format, Name: "Waystones", Game: templates.Game,
+		Server: templates.Server{Type: "fabric", MinecraftVersion: "26.1.1"},
+		Modpack: &templates.Modpack{Source: addons.Modrinth, Project: fakePackID, Slug: "testpack", Name: "Waystones Pack",
+			Pin: templates.Pin{VersionID: fakePackVersion, VersionNumber: "1.0.0", Channel: "release", HashAlgo: "sha512", Hash: pack.sha512}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, p, raw := e.planTemplate(string(file))
+	if code != 200 || !p.Ready || p.Type != "fabric" || p.MinecraftVersion != "26.1.1" || p.Build != "0.17.2" || len(p.Blockers) != 0 || len(p.Warnings) != 0 {
+		t.Fatalf("plan: %d %+v %v", code, p, raw)
+	}
+	code, out := e.createFromTemplate(p.Fingerprint, nil)
+	if code != 202 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	e.waitOp(out["id"].(string))
+	if sc, _ := e.srv().serverConfig(); sc.Modpack == nil || sc.Modpack.VersionID != fakePackVersion || sc.Software == nil || sc.Software.MinecraftVersion != "26.1.1" {
+		t.Fatalf("the new server runs the pack's Minecraft version: %+v %+v", sc.Modpack, sc.Software)
 	}
 }
 

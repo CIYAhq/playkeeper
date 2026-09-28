@@ -350,7 +350,10 @@ func (a *Agent) templateCatalog(ctx context.Context, t *templates.Template) temp
 // templateVersions are the versions of a type an import can pick, each with
 // the build the create flow would pin. A build the template names for its
 // own Minecraft version is a choice too when this machine can install it,
-// so a pinned template gets the same software.
+// so a pinned template gets the same software. So is the Minecraft version a
+// template's modpack is made for, which the create flow may not list, as it
+// offers each line's newest release: a server made from the pack runs it,
+// as one made from the pack in New server does.
 func (a *Agent) templateVersions(ctx context.Context, typ string, t *templates.Template) ([]templates.CatalogVersion, string) {
 	entries, _, err := a.typeCatalog(ctx, typ)
 	if err != nil {
@@ -367,6 +370,12 @@ func (a *Agent) templateVersions(ctx context.Context, typ string, t *templates.T
 		if same < 0 && e.MinecraftVersion == t.Server.MinecraftVersion {
 			same = i
 		}
+	}
+	if same < 0 && t.Modpack != nil && typ == t.Server.Type {
+		if rt, err := a.packTarget(ctx, typ, t.Server.MinecraftVersion, ""); err == nil {
+			vs = append(vs, templates.CatalogVersion{ID: rt.entry.ID, MinecraftVersion: rt.entry.MinecraftVersion, Build: entryBuild(rt.entry)})
+		}
+		return vs, ""
 	}
 	want := t.Server.Build[templateBuildKey]
 	if same < 0 || want == "" || typ != t.Server.Type || typ == api.TypePaper || !software.Supported(typ) || want == entries[same].Build {
