@@ -4,9 +4,11 @@ name: Release check
 # version from CHANGELOG.md's newest section, or the one given, with
 # CurseForge's key built in), installs it on a fresh runner, and clicks
 # through every control on every page of those assets at desktop and phone
-# sizes, split between runners, with the gate that proves together they
-# pressed every page's controls (clickthrough.yml), and runs the ARM64
-# workflow on those assets on GitHub's ARM runners (arm64.yml). It runs every
+# sizes, split between about 18 runners of 9 minutes' pages each that start
+# from the newest played state main saved, with the gate that proves
+# together they pressed every page's controls (clickthrough.yml,
+# test/e2e/ui/plan.ts --full), and runs the ARM64 workflow on those assets
+# on GitHub's ARM runners (arm64.yml). It runs every
 # end-to-end check on those assets too (e2e.yml): the install, onboarding,
 # bots, backup and uninstall, the restore on a second runner, every page's
 # accessibility and width, the core flows, the upgrade from the current
@@ -80,6 +82,7 @@ jobs:
       artifact: release-${{ needs.build.outputs.tag }}
       assets: assets
       matrix: ${{ needs.plan.outputs.matrix }}
+      setup: saved
 
   e2e:
     name: End to end
