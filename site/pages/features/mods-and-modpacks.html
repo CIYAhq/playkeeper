@@ -108,10 +108,10 @@ og: mods-and-modpacks
       (qa "Do friends need to install mods?" "For mods and modpacks, yes, the same ones as the server: the share link gives them a file for the Modrinth App or Prism Launcher. Plugins need nothing on their side.")
       (qa "Which modpacks work?" (printf "Modrinth and CurseForge packs for Minecraft 1.21 and newer, on %s. Each pack shows what it needs before you create the server." loaderNames))
       (qa "Do I need a CurseForge key?" "No. Playkeeper has one built in. You can add your own free key under Settings › Add-on sources.")
-      (qa "Can I add a mod that isn't in a library?" "Yes: copy its file into the server's mods folder on the VPS. The Mods tab lists it, and if a library recognises it, Playkeeper can take it over so it gets updates.")
+      (qa "Can I add a mod that isn't in a library?" `Yes: drag its file into the mods folder on the server's Files tab. The Mods tab lists it, and if a library recognises it, Playkeeper can take it over so it gets updates. <a href="/guides/add-mods-to-minecraft-server">Adding mods to a server</a> goes step by step.`)
     ))}}
   </div>
 </section>
 
-{{template "related" (related 3 "/guides/modded-minecraft-server" "/features/backups" "/alternatives/aternos" "/sizing")}}
+{{template "related" (related 3 "/guides/modded-minecraft-server" "/guides/add-mods-to-minecraft-server" "/features/backups" "/alternatives/aternos" "/sizing")}}
 {{end}}
