@@ -19,6 +19,12 @@ func forgeInstallerURL(id string) string {
 	return forgeMaven + "/" + id + "/forge-" + id + "-installer.jar"
 }
 
+// neoforgeForgeInstallerURL is where the installer of NeoForge's build id
+// for Minecraft 1.20.1 is: "1.20.1-47.1.106".
+func neoforgeForgeInstallerURL(id string) string {
+	return neoforgeForgeMaven + "/" + id + "/forge-" + id + "-installer.jar"
+}
+
 // resolveFake serves everything Resolve reads for a type, from the
 // fixtures. Fabric keeps the SHA-512 hashes its metadata lists.
 func resolveFake(t *testing.T, typeID string) *fakeNet {
@@ -36,10 +42,12 @@ func resolveFake(t *testing.T, typeID string) *fakeNet {
 		serveNeoForgeMetadata(t, f)
 		f.serve(neoforgeInstallerURL("26.2.0.88")+".sha512", []byte(strings.Repeat("ab", 64)))
 		f.serve(neoforgeInstallerURL("21.1.251")+".sha512", []byte(strings.Repeat("CD", 64)+"  neoforge-21.1.251-installer.jar\n"))
+		f.serve(neoforgeForgeInstallerURL("1.20.1-47.1.106")+".sha512", []byte(strings.Repeat("ef", 64)))
 	case Forge:
 		serveForgeMetadata(t, f)
 		f.serve(forgeInstallerURL("26.2-65.1.0")+".sha512", []byte(strings.Repeat("ab", 64)))
 		f.serve(forgeInstallerURL("1.21.1-52.1.0")+".sha512", []byte(strings.Repeat("CD", 64)+"  forge-1.21.1-52.1.0-installer.jar\n"))
+		f.serve(forgeInstallerURL("1.20.1-47.4.10")+".sha512", []byte(strings.Repeat("ef", 64)))
 	}
 	return f
 }
@@ -253,6 +261,24 @@ func TestResolveNeoForge(t *testing.T) {
 	if r.Java != 21 || r.Software.Hash.Value != strings.Repeat("cd", 64) || p.Downloads[1].Path != "libraries/net/minecraft/server/1.21.1/server-1.21.1.jar" {
 		t.Errorf("got Java %d, installer hash %s and server jar at %s", r.Java, short(r.Software.Hash.Value), p.Downloads[1].Path)
 	}
+
+	// NeoForge's builds for Minecraft 1.20.1 are Forge's installer, under
+	// NeoForge's name, and run on Java 17.
+	r, p = resolve(t, f, Pin{Type: NeoForge, MinecraftVersion: "1.20.1", NeoForgeVersion: "47.1.106"})
+	want = &Artifact{URL: neoforgeForgeInstallerURL("1.20.1-47.1.106"), Path: "forge-1.20.1-47.1.106-installer.jar",
+		Hash: Hash{Algorithm: SHA512, Value: strings.Repeat("ef", 64)}, Source: "NeoForge's Maven repository", Upstream: "NeoForge", Hosts: []string{"maven.neoforged.net"}}
+	if r.Java != 17 || !reflect.DeepEqual(r.Software, want) {
+		t.Errorf("got Java %d and installer %+v", r.Java, r.Software)
+	}
+	wantStrings(t, "setup env", p.Setup.Env, []string{"TYPE=NEOFORGE", "NEOFORGE_INSTALLER=/data/forge-1.20.1-47.1.106-installer.jar", "NEOFORGE_FORCE_REINSTALL=TRUE", "SETUP_ONLY=TRUE"})
+	wantStrings(t, "run env", p.Run.Env, []string{"TYPE=CUSTOM", "CUSTOM_JAR_EXEC=@libraries/net/neoforged/forge/1.20.1-47.1.106/unix_args.txt"})
+	wantDerive = []Derivation{
+		{Kind: DeriveForge, From: "forge-1.20.1-47.1.106-installer.jar", Into: "libraries"},
+		{Kind: DeriveBundler, From: "libraries/net/minecraft/server/1.20.1/server-1.20.1.jar", Into: "libraries"},
+	}
+	if !reflect.DeepEqual(p.Derive, wantDerive) || !checksDownloads(p) {
+		t.Errorf("got %+v", p)
+	}
 }
 
 func TestResolveForge(t *testing.T) {
@@ -285,6 +311,14 @@ func TestResolveForge(t *testing.T) {
 	if r.Java != 21 || r.Software.Hash.Value != strings.Repeat("cd", 64) || p.Downloads[1].Path != "libraries/net/minecraft/server/1.21.1/server-1.21.1-bundled.jar" {
 		t.Errorf("got Java %d, installer hash %s and server jar at %s", r.Java, short(r.Software.Hash.Value), p.Downloads[1].Path)
 	}
+
+	// Forge's installers before Minecraft 1.20.3 look for Mojang's server
+	// jar under its plain name.
+	r, p = resolve(t, f, Pin{Type: Forge, MinecraftVersion: "1.20.1", ForgeVersion: "47.4.10"})
+	if r.Java != 17 || p.Downloads[1].Path != "libraries/net/minecraft/server/1.20.1/server-1.20.1.jar" {
+		t.Errorf("got Java %d and server jar at %s", r.Java, p.Downloads[1].Path)
+	}
+	wantStrings(t, "run env", p.Run.Env, []string{"TYPE=CUSTOM", "CUSTOM_JAR_EXEC=@libraries/net/minecraftforge/forge/1.20.1-47.4.10/unix_args.txt"})
 }
 
 func TestResolveErrors(t *testing.T) {
@@ -374,6 +408,8 @@ func TestResolveErrors(t *testing.T) {
 			delete(p, "launcherMainClass")
 		}), KindMalformed, "it names no valid launcher class"},
 		{"NeoForge version it does not have", Pin{Type: NeoForge, MinecraftVersion: "26.2", NeoForgeVersion: "26.2.0.99"}, nil, KindNotFound, "NeoForge has no version 26.2.0.99."},
+		{"NeoForge version for Minecraft 1.20.1 it does not have", Pin{Type: NeoForge, MinecraftVersion: "1.20.1", NeoForgeVersion: "47.1.200"}, nil, KindNotFound,
+			"NeoForge has no version 47.1.200."},
 		{"NeoForge limits requests", neoforge, func(t *testing.T, f *fakeNet) { f.status(neoforgeInstallerURL("26.2.0.88")+".sha512", 429) }, KindRateLimited,
 			"NeoForge is limiting requests from this host"},
 		{"NeoForge checksum too long", neoforge, func(t *testing.T, f *fakeNet) {
