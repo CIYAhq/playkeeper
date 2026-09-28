@@ -19,6 +19,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - Fixed: sharing a server made from a modpack as a template listed each of the pack's mods as left out.
 - Fixed: a CurseForge pack whose manifest gives its recommended memory as text, like Better MC [FABRIC] BMC2, was refused as not valid JSON.
 - Someone on your team with only some servers now sees only the team members and invites that share a server with them, on the Team page and in the activity, and no longer gets the other servers' names with the memory settings.
+- Fixed: a new install couldn't create a NeoForge server or a NeoForge modpack while NeoForge's own version list was broken, as it was on 28 Sep, listing only two 26.3 betas. Playkeeper now keeps the last list it had when NeoForge's loses its stable versions, and a machine with none uses the list this release was built with. It also keeps asking NeoForge for its list for about 25 seconds, instead of 6, when NeoForge says it doesn't have it or doesn't answer.
 
 ## 0.4.3
 
