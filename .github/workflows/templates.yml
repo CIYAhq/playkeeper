@@ -161,14 +161,16 @@ jobs:
             ids=$(tr , '\n' <<<"$ONLY")
           else
             ids=$(find site/data/templates -maxdepth 1 -name '*.json' ! -name cards.json -printf '%f\n' | sed 's/\.json$//' | sort |
-              while read -r id; do ls "site/static/thumbs/$id-16x9-"*.webp >/dev/null 2>&1 || echo "$id"; done)
+              while read -r id; do [ -f "site/static/shots/templates/$id-960w.webp" ] || echo "$id"; done)
           fi
           echo "only=$(paste -sd, <<<"$ids")" >> "$GITHUB_OUTPUT"
           echo "count=$(grep -c . <<<"$ids" || true)" >> "$GITHUB_OUTPUT"
           echo "Thumbnails for: ${ids:-none}"
-      - name: Set up pinned toolchains
+      - name: Set up pinned toolchains, and Pillow for AVIF
         if: steps.pick.outputs.count != '0'
-        run: ./scripts/setup.sh
+        run: |
+          ./scripts/setup.sh
+          python3 -m pip install --user --quiet 'pillow>=11.3'
       - name: The Playkeeper release people install
         if: steps.pick.outputs.count != '0'
         env:
@@ -197,7 +199,7 @@ jobs:
         with:
           name: template-thumbnails
           path: |
-            site/static/thumbs/
+            site/static/shots/templates/
             /tmp/pk.log
           if-no-files-found: ignore
           retention-days: 14
@@ -207,9 +209,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          made=$(git status --porcelain --untracked-files=all site/static/thumbs | sed -nE 's#.*site/static/thumbs/([a-z0-9-]+)-16x9-[0-9]+w\.webp$#\1#p' | sort -u | paste -sd, -)
+          made=$(git status --porcelain --untracked-files=all site/static/shots/templates | sed -nE 's#.*site/static/shots/templates/([a-z0-9-]+)-960w\.webp$#\1#p' | sort -u | paste -sd, -)
           [ -n "$made" ] || { echo "No new thumbnails."; exit 0; }
-          body=$(printf 'New thumbnails for %s, rendered from their real worlds on %s, are in the run'"'"'s template-thumbnails artifact:\n\n%s\n\nThe scheduled template agent commits them to site/static/thumbs.\n' "$made" "$(date -u +%F)" "$RUN")
+          body=$(printf 'New thumbnails for %s, rendered from their real worlds on %s, are in the run'"'"'s template-thumbnails artifact:\n\n%s\n\nThe scheduled template agent commits them to site/static/shots/templates.\n' "$made" "$(date -u +%F)" "$RUN")
           n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search 'in:title "Template thumbnails to add"' --json number --jq '.[0].number // empty')
           if [ -n "$n" ]; then
             gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$body"

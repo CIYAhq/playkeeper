@@ -1,34 +1,30 @@
-// Thumbnails for a modpack template whose server the capture bot can't
-// join, such as a NeoForge pack or one whose mods every player must have:
-// made of the pack's official icon from its Modrinth page, and credited in
-// site/data/thumbs.json.
+// Pictures for a modpack template whose server the capture bot can't join,
+// such as a NeoForge pack or one whose mods every player must have: made of
+// the pack's official icon from its Modrinth page, then written for the
+// site by site/tools/shots.py like the rendered ones.
 //
-//   node pack-art.mjs better-mc [cobblemon ...] [--out DIR]
-import { mkdirSync } from 'node:fs'
+//   node pack-art.mjs <captures-dir> <template-id>... [--extra DIR]
 import { resolve } from 'node:path'
-import { FORMATS, THUMBS, encode, masterSize } from './files.mjs'
-import { art, credit, packIcon, packOf } from './pack.mjs'
+import { save, shapes } from './files.mjs'
+import { art, packIcon, packOf } from './pack.mjs'
 
 const argv = process.argv.slice(2)
-const i = argv.indexOf('--out')
-const out = i >= 0 ? resolve(argv.splice(i, 2)[1]) : THUMBS
-if (!argv.length) {
-  console.error('usage: node pack-art.mjs <template-id>... [--out DIR]')
+const i = argv.indexOf('--extra')
+const extra = i >= 0 ? resolve(argv.splice(i, 2)[1]) : null
+const [dir, ...ids] = argv
+if (!dir || !ids.length) {
+  console.error('usage: node pack-art.mjs <captures-dir> <template-id>... [--extra DIR]')
   process.exit(2)
 }
-mkdirSync(out, { recursive: true })
+const out = { captures: resolve(dir), extra }
 let failed = 0
-for (const id of argv) {
+for (const id of ids) {
   try {
     const pack = packOf(id)
-    if (!pack) throw new Error('it installs no modpack; site/tools/thumbnails/render.mjs draws its world')
+    if (!pack) throw new Error('it installs no modpack; render.mjs draws its world')
     const icon = await packIcon(pack)
-    for (const format of Object.keys(FORMATS)) {
-      const [W, H] = masterSize(format)
-      await encode(out, id, format, await art(icon.png, W, H))
-    }
-    if (out === THUMBS) credit(id, icon.credit, true)
-    console.log(`[${id}] ${icon.credit.pack}'s icon, by ${icon.credit.by}`)
+    for (const s of shapes(out)) save(out, id, s.name, await art(icon, s.w, s.h))
+    console.log(`[${id}] ${pack.name}'s icon`)
   } catch (e) {
     failed++
     console.error(`[${id}] ${e.message}`)

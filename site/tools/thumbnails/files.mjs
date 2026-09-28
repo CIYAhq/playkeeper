@@ -1,37 +1,28 @@
-// The thumbnail files the site uses: each picture at the widths its cards
-// and pages show, as AVIF and WebP, in site/static/thumbs as
-// <id>-<shape>-<width>w.<avif|webp> (internal/site/thumbs.go reads them).
-import { readdirSync, rmSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+// The pictures render.mjs and pack-art.mjs make. The site takes one 16:10
+// capture per template, templates/<id>.png in a captures folder, which
+// site/tools/shots.py writes at the widths the directory's cards and pages
+// use (site/static/shots/templates). --extra folders also get a 16:9 and a
+// square picture of the same view, for sharing elsewhere.
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
-const require = createRequire(import.meta.url)
-const sharp = require('sharp')
+export const SITE = { name: '16x10', w: 1920, h: 1200 }
+export const EXTRA = [{ name: '16x9', w: 1920, h: 1080 }, { name: '1x1', w: 1200, h: 1200 }]
 
-export const THUMBS = join(dirname(fileURLToPath(import.meta.url)), '../../static/thumbs')
-
-// FORMATS are the shapes and the widths of each file. Masters are made at
-// twice the widest, so every file is a downscale.
-export const FORMATS = { '16x9': { w: 16, h: 9, widths: [400, 800, 1200] }, '1x1': { w: 1, h: 1, widths: [400, 800] } }
-
-export function masterSize (format) {
-  const { w, h, widths } = FORMATS[format]
-  const W = widths[widths.length - 1] * 2
-  return [W, Math.round((W * h) / w)]
+// save writes a template's picture in one shape: the site's into
+// <captures>/templates/<id>.png, an extra one into <extra>/<id>-<shape>.png.
+export function save ({ captures, extra }, id, shape, png) {
+  if (shape === SITE.name) {
+    mkdirSync(join(captures, 'templates'), { recursive: true })
+    writeFileSync(join(captures, 'templates', `${id}.png`), png)
+  } else if (extra) {
+    mkdirSync(extra, { recursive: true })
+    writeFileSync(join(extra, `${id}-${shape}.png`), png)
+  }
 }
 
-// encode writes a template's files of one shape from its master PNG,
-// replacing the ones it had. Minecraft's textures are all detail, so the
-// widest files, for large screens at twice their size, get a lower quality
-// to stay under the 150 kB internal/site's tests allow.
-export async function encode (out, id, format, png) {
-  for (const old of readdirSync(out)) if (old.startsWith(`${id}-${format}-`)) rmSync(join(out, old))
-  for (const w of FORMATS[format].widths) {
-    const img = sharp(png).resize({ width: w, kernel: 'lanczos3' })
-    const base = join(out, `${id}-${format}-${w}w`)
-    const wide = w > 800
-    await img.clone().avif({ quality: wide ? 44 : 52, effort: 6, chromaSubsampling: '4:2:0' }).toFile(base + '.avif')
-    await img.clone().webp({ quality: wide ? 62 : 74, effort: 6, smartSubsample: true }).toFile(base + '.webp')
-  }
+// shapes are the pictures to make: the site's, and the extra ones when
+// there's somewhere to put them.
+export function shapes ({ extra }) {
+  return extra ? [SITE, ...EXTRA] : [SITE]
 }

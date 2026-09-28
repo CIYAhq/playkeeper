@@ -81,12 +81,15 @@ template-check: ## Create and start a server from each site template on a runnin
 	go run ./cmd/template-check -socket $(or $(SOCKET),.dev/agent.sock) $(ARGS)
 
 # A template that fails its check or its capture still leaves the others'
-# worlds, so they're drawn before the failure is reported.
+# worlds, so they're drawn before the failure is reported. shots.py writes the
+# 16:10 captures at the site's widths and needs Pillow 11.3 or newer (PYTHON=).
 template-thumbnails: ## Thumbnails of the site's templates from their real worlds, on playkeeper dev run with PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1 (SOCKET=, ARGS="-only towny")
 	cd site/tools/thumbnails && npm ci --no-audit --no-fund && npm run build
 	rm -rf $(or $(SHOTS),.tmp/shots)
 	status=0; go run ./cmd/template-check -socket $(or $(SOCKET),.dev/agent.sock) -shots $(or $(SHOTS),.tmp/shots) $(ARGS) || status=$$?; \
-	if ls $(or $(SHOTS),.tmp/shots)/*.json.gz >/dev/null 2>&1; then node site/tools/thumbnails/render.mjs $(or $(SHOTS),.tmp/shots) || status=1; fi; \
+	if ls $(or $(SHOTS),.tmp/shots)/*.json.gz >/dev/null 2>&1; then \
+	  node site/tools/thumbnails/render.mjs $(or $(SHOTS),.tmp/shots) && $(or $(PYTHON),python3) site/tools/shots.py $(or $(SHOTS),.tmp/shots)/captures || status=1; \
+	fi; \
 	exit $$status
 
 dev: web ## Run agent + panel locally (state in .dev/, uses your Docker)

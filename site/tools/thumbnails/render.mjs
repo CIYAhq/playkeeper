@@ -1,25 +1,23 @@
 // Renders the world snapshots capture.js saved into the site's template
-// thumbnails: for each <id>.json.gz in the shots folder, a 16:9 picture and a
-// square one, each at the widths the site's cards and pages show, as AVIF
-// and WebP (site/static/thumbs/<id>-16x9-<width>w.avif and so on).
+// thumbnails: for each <id>.json.gz in the shots folder, the 16:10 capture
+// site/tools/shots.py takes, <out>/templates/<id>.png (files.mjs), and with
+// --extra a 16:9 and a square picture of the same view.
 //
 // The camera is chosen from the world itself. For spawn it stands a little
 // behind the world's spawn, above the ground, and looks the way whose
 // picture shows the most: trees, water, sand, stone, relief, anything built,
 // a band of sky, and no hill up close or land lost in the fog. For a
 // showpiece (a skyblock island, the OneBlock block) it frames the blocks
-// around where the bot stood, with the bot on them. A modpack's pictures get
-// its icon as a badge (pack.mjs).
+// around where the bot stood, with the bot on them.
 //
-//   node render.mjs <shots-dir> [--out DIR] [--masters DIR] [--only a,b]
+//   node render.mjs <shots-dir> [--out CAPTURES-DIR] [--extra DIR] [--only a,b]
 import { createServer } from 'node:http'
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { gunzipSync } from 'node:zlib'
 import { dirname, extname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { FORMATS, THUMBS, encode, masterSize } from './files.mjs'
-import { badge, credit, packIcon, packOf } from './pack.mjs'
+import { SITE, save, shapes } from './files.mjs'
 
 const require = createRequire(import.meta.url)
 const { chromium } = require('playwright-core')
@@ -31,11 +29,10 @@ const argv = process.argv.slice(2)
 const opt = (name, def) => { const i = argv.indexOf(`--${name}`); return i >= 0 ? argv[i + 1] : def }
 const shots = argv[0] && !argv[0].startsWith('--') ? resolve(argv[0]) : null
 if (!shots) {
-  console.error('usage: node render.mjs <shots-dir> [--out DIR] [--masters DIR] [--only a,b]')
+  console.error('usage: node render.mjs <shots-dir> [--out CAPTURES-DIR] [--extra DIR] [--only a,b]')
   process.exit(2)
 }
-const out = resolve(opt('out', THUMBS))
-const masters = opt('masters') ? resolve(opt('masters')) : null
+const out = { captures: resolve(opt('out', join(shots, 'captures'))), extra: opt('extra') ? resolve(opt('extra')) : null }
 const only = (opt('only') || '').split(',').filter(Boolean)
 const dist = join(here, 'dist')
 if (!existsSync(join(dist, 'thumb.js'))) {
@@ -152,16 +149,16 @@ function view (w, cam, yaw, pitch, vfov, aspect, far) {
 }
 
 // landscape picks the camera for spawn: 24 headings at three heights, each
-// scored by what its 16:9 picture shows. The square picture is the same
-// view, cropped narrower and taller.
-const landVfov = { '16x9': 50, '1x1': 60 }
+// scored by what the site's 16:10 picture shows. The extra pictures are the
+// same view, cropped to their shape.
+const landVfov = { '16x10': 52, '16x9': 50, '1x1': 60 }
 function landscape (snap, w) {
   const f = snap.focus
   const reach = snap.radius * 16
   const far = reach * 0.92
   const fAt = w.top(f.x, f.z)
   const floor = fAt ? fAt.y : f.y
-  const vfov = landVfov['16x9']
+  const vfov = landVfov[SITE.name]
   let best = null
   for (let i = 0; i < 72; i++) {
     const yaw = ((i % 24) / 24) * Math.PI * 2
@@ -178,7 +175,7 @@ function landscape (snap, w) {
     for (let d = 20; d <= 60; d += 4) { const t = w.top(cx + dir.x * d, cz + dir.z * d); if (t) { sum += t.y; n++ } }
     const aimY = n ? sum / n : floor
     const pitch = Math.max(rad(-28), Math.min(rad(-7), Math.atan2(aimY - cy, 40)))
-    const v = view(w, { x: cx, y: cy, z: cz }, yaw, pitch, vfov, 16 / 9, far)
+    const v = view(w, { x: cx, y: cy, z: cz }, yaw, pitch, vfov, SITE.w / SITE.h, far)
     if (!v.hits.length) continue
     // What the picture shows, nearer counting more.
     const kinds = {}
@@ -310,8 +307,6 @@ if (!files.length) {
   console.error(`no snapshots in ${shots}`)
   process.exit(1)
 }
-mkdirSync(out, { recursive: true })
-if (masters) mkdirSync(masters, { recursive: true })
 const tmp = join(shots, '.render')
 mkdirSync(tmp, { recursive: true })
 const browser = await chromium.launch({
@@ -335,21 +330,14 @@ for (const id of files) {
     await page.waitForFunction(() => window.thumb && window.thumb.ready)
     const loaded = await page.evaluate(() => window.thumb.load('world.json'))
     const land = snap.subject ? null : landscape(snap, w)
-    const pack = packOf(id)
-    const icon = pack ? await packIcon(pack) : null
-    for (const [format, { w: fw, h: fh }] of Object.entries(FORMATS)) {
-      const [W, H] = masterSize(format)
-      const view = land ? { ...land, cam: { ...land.cam, fov: landVfov[format] } } : subject(snap, w, fw / fh)
-      const url = await page.evaluate((p) => window.thumb.shot(p), { w: W, h: H, cam: view.cam, look: view.look })
-      let png = Buffer.from(url.slice(url.indexOf(',') + 1), 'base64')
-      if (icon) png = await badge(png, icon.png)
-      await encode(out, id, format, png)
-      if (masters) writeFileSync(join(masters, `${id}-${format}.png`), png)
-      console.log(`[${id}] ${format} heading ${view.yaw}°${view.score !== undefined ? `, score ${view.score.toFixed(2)}` : `, ${view.blocks} blocks`}`)
+    for (const s of shapes(out)) {
+      const view = land ? { ...land, cam: { ...land.cam, fov: landVfov[s.name] } } : subject(snap, w, s.w / s.h)
+      const url = await page.evaluate((p) => window.thumb.shot(p), { w: s.w, h: s.h, cam: view.cam, look: view.look })
+      save(out, id, s.name, Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'))
+      console.log(`[${id}] ${s.name} heading ${view.yaw}°${view.score !== undefined ? `, score ${view.score.toFixed(2)}` : `, ${view.blocks} blocks`}`)
     }
     await page.close()
     server.close()
-    if (out === THUMBS) credit(id, icon && icon.credit)
     console.log(`[${id}] ${loaded.columns} columns, meshed in ${(loaded.ms / 1000).toFixed(1)} s, done in ${((Date.now() - started) / 1000).toFixed(0)} s`)
   } catch (e) {
     failed++
