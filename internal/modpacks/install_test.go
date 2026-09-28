@@ -405,8 +405,9 @@ func TestServerEnvironmentAndOptionalFiles(t *testing.T) {
 // MC 5's Better Grassify stops a server's first start, unless the pack's own
 // files use it. A client-only mod that a mod on the server requires by
 // Modrinth's lists goes on, even one the index keeps off servers, as
-// Prominence II's Forge Config Screens needs Mod Menu. When Modrinth can't be
-// asked, the index decides.
+// Prominence II's Forge Config Screens needs Mod Menu; what such a mod
+// requires in turn stays off. When Modrinth can't be asked, the index
+// decides.
 func TestModrinthPackModsBySide(t *testing.T) {
 	f := newFakes(t)
 	grass, menu, screens, particular, lib := []byte("grass"), []byte("menu"), []byte("screens"), []byte("particular"), []byte("lib")
@@ -415,6 +416,9 @@ func TestModrinthPackModsBySide(t *testing.T) {
 	f.modrinthMod("SCREEN01", "screens-1.jar", screens, "client_or_server_prefers_both", "optional")
 	f.editVersion("SCREEN01v", func(v obj) {
 		v["dependencies"] = []any{obj{"project_id": "MENU0001", "dependency_type": "required"}, obj{"project_id": "GRASS001", "dependency_type": "optional"}}
+	})
+	f.editVersion("MENU0001v", func(v obj) {
+		v["dependencies"] = []any{obj{"project_id": "GRASS001", "dependency_type": "required"}}
 	})
 	f.modrinthMod("PARTIC01", "particular-1.jar", particular, "client_only", "unsupported")
 	id := f.addPack(testIndex(

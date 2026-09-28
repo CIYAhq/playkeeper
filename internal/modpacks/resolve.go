@@ -1144,10 +1144,13 @@ func (p *pack) keepMentioned(entries map[string]*zip.File, guesses map[string][]
 }
 
 // neededClientMods returns which of a pack's client-only mods (by SHA-1)
-// the mods on the server require, directly or through each other: they go
-// on the server all the same, as Forge Config Screens stops a server's
-// start without Mod Menu. project names a mod's project, and requires the
-// projects it requires.
+// the mods on the server require: they go on the server all the same, as
+// Forge Config Screens stops a server's start without Mod Menu. project
+// names a mod's project, and requires the projects it requires. What a mod
+// kept this way requires in turn stays off: the lists don't say which side
+// needs a mod, so Better MC 5's Immersive Lanterns, which needs Sodium
+// Dynamic Lights only in players' games, would bring Sodium Options API,
+// and that needs a mod no list names.
 func neededClientMods(onServer, clientOnly []string, project func(string) string, requires func(string) []string) map[string]bool {
 	byProject := map[string][]string{}
 	for _, c := range clientOnly {
@@ -1155,21 +1158,11 @@ func neededClientMods(onServer, clientOnly []string, project func(string) string
 			byProject[pr] = append(byProject[pr], c)
 		}
 	}
-	needed, seen := map[string]bool{}, map[string]bool{}
-	queue := slices.Clone(onServer)
-	for len(queue) > 0 {
-		m := queue[0]
-		queue = queue[1:]
+	needed := map[string]bool{}
+	for _, m := range onServer {
 		for _, pr := range requires(m) {
-			if seen[pr] {
-				continue
-			}
-			seen[pr] = true
 			for _, c := range byProject[pr] {
-				if !needed[c] {
-					needed[c] = true
-					queue = append(queue, c)
-				}
+				needed[c] = true
 			}
 		}
 	}

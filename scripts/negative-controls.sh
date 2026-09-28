@@ -2041,6 +2041,10 @@ control "a Modrinth pack's client-only mod a mod on the server requires goes on"
   'case p.needed[sha1]:' \
   'case false && p.needed[sha1]:' \
   ./internal/modpacks '^TestModrinthPackModsBySide$'
+control "what a kept client-only mod requires in turn stays off" internal/modpacks/resolve.go \
+  'for _, m := range onServer {' \
+  'for _, m := range append(onServer, clientOnly...) {' \
+  ./internal/modpacks '^TestModrinthPackModsBySide$'
 control "only a Modrinth version's required dependencies keep a client-only mod" internal/modpacks/resolve.go \
   'if d.DependencyType == modrinth.Required && pr != "" {' \
   'if pr != "" {' \
