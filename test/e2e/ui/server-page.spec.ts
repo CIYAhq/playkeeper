@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { faceIndex, faceSvg } from '../../../web/src/demo/faces'
 import { iconSvg } from '../../../web/src/demo/icons'
+import { FakeConsole, fakePanel, settingsReads } from './fake-panel'
 
 // The public page at a machine's address, as the panel serves it on ports 443
 // and 80: index.html with the root marked, and the page's calls under
@@ -169,4 +170,44 @@ test('a page without names shown lists no players', async ({ browser, baseURL })
   await expect(page.getByText('64 of 80 playing')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Playing now' })).toHaveCount(0)
   await ctx.close()
+})
+
+test.describe('the Public page group in a server’s Settings', () => {
+  for (const [size, device] of Object.entries(sizes)) {
+    test(`at ${size} size: both switches, the page’s link, and a port another program uses`, async ({ browser, baseURL }) => {
+      const ctx = await browser.newContext({ baseURL, ...device })
+      const page = await ctx.newPage()
+      const { unexpected } = await fakePanel(page, new FakeConsole())
+      const reads = settingsReads()
+      const view = { enabled: true, players: false, host: 'alex.playkeeper.me', ports: { https: { port: 443, state: 'open' }, http: { port: 80, state: 'open' } } }
+      let current: unknown = view
+      await page.route('**/api/**', (route) => {
+        const url = new URL(route.request().url())
+        if (/\/public-page$/.test(url.pathname) && route.request().method() === 'GET') return route.fulfill({ json: current })
+        const hit = route.request().method() === 'GET' ? reads[url.pathname] : undefined
+        return hit === undefined ? route.fallback() : route.fulfill({ json: hit })
+      })
+      await page.goto('/servers/survival/settings#page')
+      const group = page.locator('#page')
+      await expect(group.getByRole('switch', { name: 'Show this server' })).toBeChecked()
+      await expect(group.getByRole('switch', { name: 'Show who’s playing' })).not.toBeChecked()
+      await expect(group.getByRole('link', { name: /alex\.playkeeper\.me/ })).toHaveAttribute('href', 'https://alex.playkeeper.me')
+      await axe(page, `Settings at ${size}`)
+      if (shots) {
+        mkdirSync(shots, { recursive: true })
+        await group.scrollIntoViewIfNeeded()
+        await group.screenshot({ path: join(shots, `settings-${size}.png`) })
+      }
+      current = { ...view, ports: { https: { port: 443, state: 'busy', holder: 'nginx' }, http: { port: 80, state: 'busy', holder: 'nginx' } } }
+      await page.reload()
+      await expect(group.getByText('nginx uses port 443, so Playkeeper leaves it alone.')).toBeVisible()
+      await expect(group.getByRole('button', { name: 'Try again' })).toBeVisible()
+      if (shots) {
+        await group.scrollIntoViewIfNeeded()
+        await group.screenshot({ path: join(shots, `settings-port-busy-${size}.png`) })
+      }
+      expect(unexpected.filter((k) => !k.includes('/public-page')), 'API calls the fake panel does not answer').toEqual([])
+      await ctx.close()
+    })
+  }
 })
