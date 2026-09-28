@@ -367,13 +367,6 @@ func (s *Site) render(p *Page) ([]byte, error) {
 		if v.After, err = part("after"); err != nil {
 			return nil, err
 		}
-		// The directory's pages show template thumbnails, which the head
-		// asks for early, so they render before the page around them too.
-		if block := dirBlocks[p.Layout]; block != "" {
-			if v.Main, err = part(block); err != nil {
-				return nil, err
-			}
-		}
 	default:
 		if v.Main, err = part("main"); err != nil {
 			return nil, err
@@ -386,6 +379,14 @@ func (s *Site) render(p *Page) ([]byte, error) {
 	}
 	v.HasInstall = strings.Contains(string(v.Main)+string(v.Article)+string(v.After), `id="install"`)
 	v.HasQuestions = strings.Contains(string(v.After), `id="questions"`)
+	// The directory's pages show template thumbnails, which the head asks
+	// for early, so their blocks render before the page around them too:
+	// last, since they show the parts above.
+	if block := dirBlocks[p.Layout]; block != "" {
+		if v.Main, err = part(block); err != nil {
+			return nil, err
+		}
+	}
 	var b bytes.Buffer
 	if err := t.ExecuteTemplate(&b, "layout", v); err != nil {
 		return nil, err
