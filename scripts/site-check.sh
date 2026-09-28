@@ -38,6 +38,7 @@ community=https://github.com/CIYAhq/playkeeper/discussions
 analytics='<script src="https://analytics-c.ciya.so/oa.js" async data-key="oa_pk_tyJHnpyD4m-pl_XrUbi3maHu2Iqq87Uf" data-collector="https://analytics-c.ciya.so"></script>'
 # The pages the launch needs, whether or not the sitemap lists them.
 needed=(/ /features/mods-and-modpacks /alternatives/aternos /alternatives/pterodactyl /guides/modded-minecraft-server
+  /guides/add-mods-to-minecraft-server /guides/play-minecraft-with-friends /guides/minecraft-server-cost
   /sizing /docs /docs/install /pricing /blog /blog/playkeeper-0-4-0)
 fail() {
   echo "site check failed: $*" >&2
