@@ -1791,6 +1791,11 @@ type ModpackVersion struct {
 	MinecraftVersion string       `json:"minecraftVersion,omitempty"`
 	Mods             int          `json:"mods,omitempty"`
 	Unsupported      *AddonNotice `json:"unsupported,omitempty"`
+	// HashAlgo and Hash are the hash the source publishes for the version's
+	// archive, which the agent checks a template's pin against. The
+	// dashboard doesn't get them.
+	HashAlgo string `json:"-"`
+	Hash     string `json:"-"`
 }
 
 // ModpackDetail is a pack's details sheet.

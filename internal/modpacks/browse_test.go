@@ -176,6 +176,7 @@ func TestVersions(t *testing.T) {
 	sameJSON(t, "Adrenaline for 26.1.2", vs[2], Version{
 		ID: "mj1mTI1B", Number: "26.5.0+mc26.1.2.fabric", Name: vs[2].Name, Channel: "release",
 		Published: time.Date(2026, 9, 21, 21, 5, 27, 474175000, time.UTC), Size: 7038, Type: "fabric", MinecraftVersion: "26.1.2",
+		HashAlgo: "sha512", Hash: "1a9e0c5f4fa4e995ac9ed8ddb1908e855d627610a7781f1bf3e057414c20048ec78194377177454f4d2e015bee2652aa86d17cf25b5093096d11300ef5849ba1",
 	})
 	for _, v := range vs {
 		if (v.Unsupported != nil) != (v.ID == "wGteoJrN") {
@@ -212,8 +213,10 @@ func TestVersions(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantList(t, "Example Fabric Pack", versionIDs(vs), "9200003", "9200002", "9200001")
+	var zipSHA1 string
+	f.cfChange(9200003, func(file obj) { zipSHA1 = str(file["hashes"].([]any)[0].(obj)["value"]) })
 	if v := vs[0]; v.Number != "Example Fabric Pack 2.1.0-alpha.1" || v.Name != "Example Fabric Pack 2.1.0-alpha.1.zip" || v.Channel != "alpha" ||
-		v.Type != "fabric" || v.MinecraftVersion != "26.3" || v.Unsupported != nil {
+		v.Type != "fabric" || v.MinecraftVersion != "26.3" || v.Unsupported != nil || v.HashAlgo != "sha1" || v.Hash != zipSHA1 {
 		t.Errorf("CurseForge version: %+v", v)
 	}
 

@@ -2211,6 +2211,57 @@ control "a template whose modpack runs on another type is blocked" internal/agen
   'p.Blockers, p.Ready = append(p.Blockers, *n), false' \
   '_ = n' \
   ./internal/agent '^TestTemplateModpackRunsOnTheTypeItNames$'
+control "a template's modpack plans on the Minecraft version it's made for" internal/agent/templates.go \
+  'if same < 0 && t.Modpack != nil && typ == t.Server.Type {' \
+  'if false {' \
+  ./internal/agent '^TestTemplateModpackPlansOnThePacksOwnVersion$'
+control "a template's CurseForge modpack needs this machine's own CurseForge key" internal/agent/templates.go \
+  'if m.Source == modpacks.CurseForge && !slices.Contains(a.packs().Sources(), modpacks.CurseForge) {' \
+  'if false {' \
+  ./internal/agent '^TestTemplateCarriesACurseForgeModpack$'
+control "a template whose modpack version its source doesn't list is blocked" internal/agent/templates.go \
+  '	case i < 0:
+		return &addons.Notice{Kind: kindTemplatePackMissing,' \
+  '	case false:
+		return &addons.Notice{Kind: kindTemplatePackMissing,' \
+  ./internal/agent '^TestTemplateCarriesACurseForgeModpack$'
+control "a template whose modpack version can't be installed is blocked" internal/agent/templates.go \
+  '	case v.Unsupported != nil:
+		return packNotice(*v.Unsupported, hint)' \
+  '	case false:
+		return packNotice(*v.Unsupported, hint)' \
+  ./internal/agent '^TestTemplateCarriesACurseForgeModpack$'
+control "creating from a template checks its modpack's pin when the plan couldn't" internal/agent/handlers.go \
+  '		if tpl != nil {
+			n, err := a.packFit(r.Context(), tpl.p)' \
+  '		if false {
+			n, err := a.packFit(r.Context(), tpl.p)' \
+  ./internal/agent '^TestTemplateCreateChecksThePinThePlanCouldNot$'
+control "a template whose modpack isn't the file its source offers is blocked" internal/agent/templates.go \
+  'case v.Hash != "" && (v.HashAlgo != m.Pin.HashAlgo || v.Hash != m.Pin.Hash):' \
+  'case false:' \
+  ./internal/agent '^TestTemplate(ModpackRunsOnTheTypeItNames|CarriesACurseForgeModpack)$'
+control "an exported modpack server's own mods travel with its pack" internal/agent/templates.go \
+  'if st.Modpack.Files, err = s.packFiles(st.Folder.Folder); err != nil {' \
+  'if _, err = s.packFiles(st.Folder.Folder); err != nil {' \
+  ./internal/agent '^TestTemplate(OfAModpackServerCarriesThePack|CarriesACurseForgeModpack)$'
+control "templates carry CurseForge modpacks" internal/templates/validate.go \
+  'modpackSources = []addons.Source{addons.Modrinth, modpacks.CurseForge}' \
+  'modpackSources = []addons.Source{addons.Modrinth}' \
+  ./internal/templates '^Test(FixturesAreCanonical|TemplateCarriesACurseForgeModpack|ExportCurseForgeModpack)$'
+control "a template's CurseForge modpack is pinned by the SHA-1 CurseForge publishes" internal/templates/validate.go \
+  '	case modpacks.CurseForge:
+		return "sha1"' \
+  '' \
+  ./internal/templates '^Test(ValidateRefuses|TemplateCarriesACurseForgeModpack)$'
+control "a modpack's own files aren't reported as added by hand" internal/templates/export.go \
+  'case e.Installed == nil && x.packFiles[e.FileName]:' \
+  'case false:' \
+  ./internal/templates '^TestExportLeavesAModpacksOwnFilesToIt$'
+control "a CurseForge pack's versions carry the SHA-1 CurseForge publishes" internal/modpacks/browse.go \
+  ' HashAlgo: "sha1", Hash: f.SHA1(),' \
+  '' \
+  ./internal/modpacks '^TestVersions$'
 control "a backup records voice chat's UDP port" internal/agent/backups.go \
   'm.Settings[manifestVoiceChatPort] = strconv.Itoa(sc.VoiceChatPort)' \
   '_ = sc.VoiceChatPort' \
