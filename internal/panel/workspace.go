@@ -213,8 +213,9 @@ func (s *Server) access(u user) (access, error) {
 	a := access{Account: invites.Account{UserID: u.ID, Name: u.Username, InstallRole: u.Role}}
 	var servers string
 	var adminFactor, seen int64
-	err := s.db.QueryRow(`SELECT project_id, role, servers, admin_factor, factor_seen FROM project_members WHERE user_id = ? ORDER BY created_at LIMIT 1`, u.ID).
-		Scan(&a.ProjectID, &a.ProjectRole, &servers, &adminFactor, &seen)
+	err := s.db.QueryRow(`SELECT project_id, role, servers, admin_factor, factor_seen, allowance_servers, allowance_memory_mb FROM project_members
+		WHERE user_id = ? ORDER BY created_at LIMIT 1`, u.ID).
+		Scan(&a.ProjectID, &a.ProjectRole, &servers, &adminFactor, &seen, &a.Allowance.Servers, &a.Allowance.MemoryMB)
 	if err != nil && !isNoRows(err) {
 		return access{}, err
 	}

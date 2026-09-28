@@ -6821,6 +6821,33 @@ control "own addresses: records that don't work yet are looked at every minute" 
   'if check.Ready {' \
   ./internal/agent '^TestAnOwnAddressIsLookedAtEveryMinuteUntilItsRecordsWork$'
 
+# Creator invites (the managed beta): the owner's alone, for an Admin with
+# no servers and an allowance, and nobody else on the team sees them.
+control "creator invites: only the owner can give an allowance" internal/invites/allowance.go \
+  'if a.InstallRole != InstallOwner {' \
+  'if false {' \
+  ./internal/invites '^TestNewCreatorInvite$'
+control "creator invites: a creator starts with no servers" internal/invites/invites.go \
+  'if spec.Role != RoleAdmin || spec.Servers.All || len(spec.Servers.Servers) > 0 {' \
+  'if spec.Role != RoleAdmin {' \
+  ./internal/invites '^TestNewCreatorInvite$'
+control "creator invites: one stops working when its creator couldn't make it as it stands" internal/invites/member.go \
+  'if inviter.UserID != inv.CreatedBy || CanGrantAllowance(inviter, inv.Allowance) != nil || inv.Role != RoleAdmin {' \
+  'if inviter.UserID != inv.CreatedBy {' \
+  ./internal/invites '^TestAcceptCreatorInvite$'
+control "creator invites: only the owner may change or turn one off" internal/panel/team.go \
+  'return invites.CanGrantAllowance(a.Account, inv.Allowance)' \
+  'return nil' \
+  ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
+control "creator invites: the rest of the team doesn't see them" internal/panel/team.go \
+  'return canChangeInvite(a, inv) == nil' \
+  'return true' \
+  ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
+control "creator invites: the member keeps the allowance" internal/panel/join.go \
+  'grant.Servers.String(), grant.Allowance.Servers, grant.Allowance.MemoryMB, now)' \
+  'grant.Servers.String(), 0, 0, now)' \
+  ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

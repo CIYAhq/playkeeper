@@ -21,7 +21,7 @@ import (
 // Friend invite links, join requests and how players got in (wave 5). The
 // rules live in internal/invites; these handlers store what it decides.
 
-const inviteColumns = `id, kind, code_hash, code, project_id, server_id, role, servers, approval, label, created_by, created_at, expires_at, max_uses, uses, revoked_at`
+const inviteColumns = `id, kind, code_hash, code, project_id, server_id, role, servers, approval, label, created_by, created_at, expires_at, max_uses, uses, revoked_at, allowance_servers, allowance_memory_mb`
 
 // useInvite counts one use of an invite in one statement, so two people
 // can't both take the last one (see invites.RecordUse).
@@ -37,7 +37,7 @@ func scanInvite(row rowScanner) (invites.Invite, error) {
 	var kind, servers, approval string
 	var created, expires, revoked int64
 	if err := row.Scan(&inv.ID, &kind, &inv.CodeHash, &inv.Code, &inv.ProjectID, &inv.ServerID, &inv.Role, &servers, &approval,
-		&inv.Label, &inv.CreatedBy, &created, &expires, &inv.MaxUses, &inv.Uses, &revoked); err != nil {
+		&inv.Label, &inv.CreatedBy, &created, &expires, &inv.MaxUses, &inv.Uses, &revoked, &inv.Allowance.Servers, &inv.Allowance.MemoryMB); err != nil {
 		return invites.Invite{}, err
 	}
 	inv.Kind, inv.Approval = invites.Kind(kind), invites.Approval(approval)
@@ -58,9 +58,10 @@ func (s *Server) insertInviteOn(ctx context.Context, db querier, inv invites.Inv
 	if inv.Kind == invites.KindMember {
 		servers = inv.Servers.String()
 	}
-	_, err := db.ExecContext(ctx, `INSERT INTO invites(`+inviteColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := db.ExecContext(ctx, `INSERT INTO invites(`+inviteColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		inv.ID, string(inv.Kind), inv.CodeHash, inv.Code, inv.ProjectID, inv.ServerID, inv.Role, servers, string(inv.Approval), inv.Label,
-		inv.CreatedBy, invites.Millis(inv.CreatedAt), invites.Millis(inv.ExpiresAt), inv.MaxUses, inv.Uses, invites.Millis(inv.RevokedAt))
+		inv.CreatedBy, invites.Millis(inv.CreatedAt), invites.Millis(inv.ExpiresAt), inv.MaxUses, inv.Uses, invites.Millis(inv.RevokedAt),
+		inv.Allowance.Servers, inv.Allowance.MemoryMB)
 	return err
 }
 

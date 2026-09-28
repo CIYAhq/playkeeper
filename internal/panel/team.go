@@ -25,14 +25,16 @@ import (
 // CanRemove); these handlers store what they allow.
 
 type teamMember struct {
-	ID        int64         `json:"id"`
-	Username  string        `json:"username"`
-	Owner     bool          `json:"owner"`
-	You       bool          `json:"you"`
-	Role      string        `json:"role"`
-	Servers   invites.Scope `json:"servers"`
-	TwoFactor bool          `json:"twoFactor"`
-	AddedAt   time.Time     `json:"addedAt"`
+	ID       int64         `json:"id"`
+	Username string        `json:"username"`
+	Owner    bool          `json:"owner"`
+	You      bool          `json:"you"`
+	Role     string        `json:"role"`
+	Servers  invites.Scope `json:"servers"`
+	// Allowance is set for a creator (see invites.Allowance).
+	Allowance invites.Allowance `json:"allowance,omitzero"`
+	TwoFactor bool              `json:"twoFactor"`
+	AddedAt   time.Time         `json:"addedAt"`
 	// CanEdit says whether the signed-in account may change this member's
 	// role and servers, or remove them.
 	CanEdit bool `json:"canEdit"`
@@ -46,7 +48,7 @@ type teamMember struct {
 // memberRow is t as the Team page shows it to a.
 func memberRow(a, t access, added time.Time) teamMember {
 	return teamMember{ID: t.UserID, Username: t.Name, Owner: t.owner(), You: t.UserID == a.UserID,
-		Role: t.ProjectRole, Servers: t.Servers, TwoFactor: t.FactorOn, AddedAt: added,
+		Role: t.ProjectRole, Servers: t.Servers, Allowance: t.Allowance, TwoFactor: t.FactorOn, AddedAt: added,
 		CanEdit: invites.CanRemove(a.Account, t.Account) == nil, Waiting: t.awaitingConfirmation(),
 		CanConfirm: t.awaitingConfirmation() && canConfirm(a, t) == nil}
 }
@@ -111,10 +113,10 @@ func (s *Server) hTeam(w http.ResponseWriter, r *http.Request, sess *session) {
 	}
 	for irows.Next() {
 		inv, err := scanInvite(irows)
-		if err != nil || !inv.Servers.Within(a.Servers) {
+		if err != nil || !seesInvite(a, inv) {
 			continue
 		}
-		out.Invites = append(out.Invites, teamInvite{Summary: inv.Summarize(now), CanEdit: invites.CanGrant(a.Account, inv.Role, inv.Servers) == nil})
+		out.Invites = append(out.Invites, teamInvite{Summary: inv.Summarize(now), CanEdit: canChangeInvite(a, inv) == nil})
 	}
 	irows.Close()
 	if servers, err := s.listServers(r.Context()); err == nil {
@@ -136,11 +138,33 @@ func seesMember(a, t access) bool {
 	return a.Servers.All || t.UserID == a.UserID || t.owner() || t.Servers.Overlaps(a.Servers)
 }
 
+// seesInvite reports whether a sees an unused team invite on the Team page:
+// one for servers it has, or, for the owner alone, a creator invite, whose
+// label names someone the rest of the team needn't know of.
+func seesInvite(a access, inv invites.Invite) bool {
+	if !inv.Allowance.IsZero() {
+		return canChangeInvite(a, inv) == nil
+	}
+	return inv.Servers.Within(a.Servers)
+}
+
+// canChangeInvite reports whether a may change or turn off an unused team
+// invite: whether it could make it as it stands.
+func canChangeInvite(a access, inv invites.Invite) error {
+	if !inv.Allowance.IsZero() {
+		return invites.CanGrantAllowance(a.Account, inv.Allowance)
+	}
+	return invites.CanGrant(a.Account, inv.Role, inv.Servers)
+}
+
 // grantBody is a role and servers chosen on the Team page.
 type grantBody struct {
 	Role    string        `json:"role"`
 	Servers invites.Scope `json:"servers"`
 	Label   string        `json:"label,omitempty"`
+	// Allowance makes a new invite a creator invite (see
+	// invites.Allowance); an invite's allowance can't be changed.
+	Allowance invites.Allowance `json:"allowance,omitzero"`
 }
 
 // existingServers lists the servers that exist, for choices that must name
@@ -175,8 +199,8 @@ func (s *Server) hTeamInviteCreate(w http.ResponseWriter, r *http.Request, sess 
 	if !ok {
 		return
 	}
-	c, err := invites.NewMember(invites.MemberSpec{ProjectID: s.projectID(sess.Access), Role: req.Role, Servers: req.Servers, Label: req.Label},
-		sess.Access.Account, serverIDs(servers), s.now())
+	c, err := invites.NewMember(invites.MemberSpec{ProjectID: s.projectID(sess.Access), Role: req.Role, Servers: req.Servers, Label: req.Label,
+		Allowance: req.Allowance}, sess.Access.Account, serverIDs(servers), s.now())
 	if err != nil {
 		writeRefusal(w, err)
 		return
@@ -185,8 +209,11 @@ func (s *Server) hTeamInviteCreate(w http.ResponseWriter, r *http.Request, sess 
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
-	s.audit(sess.User.Username, "invite.create", c.Invite.Actor(), "succeeded",
-		fmt.Sprintf("team invite; %s of %s; works 7 days", c.Invite.Role, scopeText(c.Invite.Servers, servers)))
+	grant := fmt.Sprintf("%s of %s", c.Invite.Role, scopeText(c.Invite.Servers, servers))
+	if !c.Invite.Allowance.IsZero() {
+		grant = allowanceText(c.Invite.Allowance)
+	}
+	s.audit(sess.User.Username, "invite.create", c.Invite.Actor(), "succeeded", fmt.Sprintf("team invite; %s; works 7 days", grant))
 	writeJSON(w, http.StatusCreated, map[string]any{"invite": c.Invite.Summarize(s.now()), "path": c.Path, "link": s.linkBase(r)})
 }
 
@@ -198,7 +225,7 @@ func (s *Server) teamInvite(w http.ResponseWriter, r *http.Request, sess *sessio
 		inv, err := s.inviteByID(id)
 		switch {
 		case err == nil && inv.Kind == invites.KindMember && inv.ProjectID == s.projectID(sess.Access):
-			if err := invites.CanGrant(sess.Access.Account, inv.Role, inv.Servers); err != nil {
+			if err := canChangeInvite(sess.Access, inv); err != nil {
 				writeRefusal(w, err)
 				return invites.Invite{}, false
 			}
@@ -215,12 +242,16 @@ func (s *Server) teamInvite(w http.ResponseWriter, r *http.Request, sess *sessio
 // hTeamInviteEdit changes the role or servers an unused team invite gives.
 func (s *Server) hTeamInviteEdit(w http.ResponseWriter, r *http.Request, sess *session) {
 	var req grantBody
-	if err := decodeJSON(r, &req); err != nil || req.Label != "" {
+	if err := decodeJSON(r, &req); err != nil || req.Label != "" || !req.Allowance.IsZero() {
 		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid request.", "")
 		return
 	}
 	inv, ok := s.teamInvite(w, r, sess)
 	if !ok {
+		return
+	}
+	if !inv.Allowance.IsZero() {
+		writeErr(w, http.StatusConflict, api.CodeConflict, "A creator invite can't be changed.", "Turn it off and make another.")
 		return
 	}
 	servers, ok := s.existingServers(w, r)
