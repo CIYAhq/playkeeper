@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -54,7 +55,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	opts := options{root: *root, only: split(*only), shard: *shard, write: *write, pin: *pin || *bump, bump: *bump, verify: *verify}
-	c := &checker{agent: agentclient.New(*socket), sources: newSources(), actor: "template-check", now: time.Now, poll: 2 * time.Second}
+	c := &checker{agent: agentclient.New(*socket), sources: newSources(), actor: "template-check", now: time.Now, poll: 2 * time.Second, retryAfter: time.Minute}
 	results, err := run(ctx, c, opts)
 	if err == nil && *out != "" {
 		err = writeResults(*out, c.release, results)
@@ -120,10 +121,16 @@ func run(ctx context.Context, c *checker, o options) ([]result, error) {
 		}
 		fmt.Fprintf(os.Stderr, "checking %s…\n", id)
 		r := c.check(ctx, id, t, o.bump, o.pin)
+		if r.Status == statusFailing && transient(r.Failure) && ctx.Err() == nil {
+			fmt.Fprintf(os.Stderr, "%s failed for a reason that passes (%s); trying it again in %s…\n", id, r.Failure, c.retryAfter)
+			if sleep(ctx, c.retryAfter) == nil {
+				r = c.check(ctx, id, t, o.bump, o.pin)
+			}
+		}
 		if ctx.Err() != nil {
 			return results, ctx.Err()
 		}
-		if o.verify {
+		if o.verify && r.Status == statusPassing {
 			if msg := disagree(committed[id], r); msg != "" {
 				r.Status, r.Failure = statusFailing, msg
 			}
@@ -142,6 +149,12 @@ func run(ctx context.Context, c *checker, o options) ([]result, error) {
 	}
 	return results, nil
 }
+
+// reTransient matches failures that say nothing about the template: a
+// source asking to slow down, or a network or server hiccup.
+var reTransient = regexp.MustCompile(`(?i)slow down|rate limit|too many requests|timed? ?out|temporar|connection reset|\b50[234]\b|bad gateway|unavailable`)
+
+func transient(failure string) bool { return reTransient.MatchString(failure) }
 
 // disagree says how a template's committed check differs from this run in
 // what the check stands for: whether it passes and which versions install.

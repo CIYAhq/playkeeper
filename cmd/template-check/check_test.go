@@ -25,6 +25,7 @@ type fakeAgent struct {
 	mu          sync.Mutex
 	ready       bool
 	createFails bool
+	slowDowns   int
 	missing     string
 	log         []string
 	servers     []api.ServerStatus
@@ -63,6 +64,11 @@ func (f *fakeAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.servers = append(f.servers, api.ServerStatus{ID: "s1", Name: req.Name})
 		reply(api.Operation{ID: "create"})
 	case "GET /v1/operations/create":
+		if f.slowDowns > 0 {
+			f.slowDowns--
+			reply(api.Operation{ID: "create", Status: "failed", ServerID: "s1", Error: "Modrinth asked Playkeeper to slow down."})
+			return
+		}
 		if f.createFails {
 			reply(api.Operation{ID: "create", Status: "failed", ServerID: "s1", Error: "The server stopped while starting (exit code 1)."})
 			return
@@ -157,7 +163,7 @@ func newTestChecker(t *testing.T, agent *fakeAgent) *checker {
 	t.Cleanup(modrinth.Close)
 	s := newSources()
 	s.modrinth = modrinth.URL
-	return &checker{agent: agentclient.Via(through{agent}), sources: s, actor: "template-check", now: time.Now, poll: time.Millisecond, release: "0.4.2"}
+	return &checker{agent: agentclient.Via(through{agent}), sources: s, actor: "template-check", now: time.Now, poll: time.Millisecond, retryAfter: time.Millisecond, release: "0.4.2"}
 }
 
 func survivalFile(t *testing.T) *templateFile {
@@ -310,6 +316,32 @@ func TestFloatedAsksForTheNewestVersions(t *testing.T) {
 	}
 	if tpl.Addons[0].Pin == nil {
 		t.Error("floated changed the template it was given")
+	}
+}
+
+// A template that failed because a source asked to slow down is tried
+// again once, and a real failure keeps its own reason under -verify.
+func TestRunTriesAgainAfterARateLimitAndKeepsRealReasons(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "site", "data", "templates")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{"survival.json": survival, "cards.json": `{"survival": {"art": "a.svg"}}`} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	agent := &fakeAgent{ready: true, log: []string{"Done (12.5s)!"}, slowDowns: 1}
+	results, err := run(context.Background(), newTestChecker(t, agent), options{root: root, write: true})
+	if err != nil || len(results) != 1 || results[0].Status != statusPassing {
+		t.Fatalf("a rate-limited template wasn't tried again: %+v %v", results, err)
+	}
+
+	agent = &fakeAgent{ready: false}
+	results, err = run(context.Background(), newTestChecker(t, agent), options{root: root, verify: true})
+	if err != nil || len(results) != 1 || !strings.Contains(results[0].Failure, "can't be created here") {
+		t.Fatalf("-verify hid the real reason: %+v %v", results, err)
 	}
 }
 

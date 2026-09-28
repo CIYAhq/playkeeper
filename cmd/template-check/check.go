@@ -31,6 +31,9 @@ type checker struct {
 	actor   string
 	now     func() time.Time
 	poll    time.Duration
+	// retryAfter is how long to wait before checking a template again that
+	// failed for a reason that passes, like a source's rate limit.
+	retryAfter time.Duration
 	// release is the agent's version, as it answered.
 	release string
 }
