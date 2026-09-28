@@ -26,7 +26,7 @@ func TestClassify(t *testing.T) {
 			"options.txt", "optionsof.txt", "optionsshaders.txt", "servers.dat", "servers.dat_old",
 		}},
 		{"survival", classProtected, []string{
-			"server.properties", "eula.txt", "ops.json", "whitelist.json", "banned-players.json", "banned-ips.json",
+			"server.properties", "default-server.properties", "eula.txt", "ops.json", "whitelist.json", "banned-players.json", "banned-ips.json",
 			"usercache.json", "usernamecache.json", "log4j2.xml", "user_jvm_args.txt",
 			"server.jar", "Server.JAR", "run.sh", "run.BAT", "start.cmd", "start.ps1", "server.exe", "start.command",
 			"libraries/net/x.jar", "versions/26.2/server-26.2.jar", "logs/latest.log", "crash-reports/c.txt", "debug/d.txt",
@@ -74,7 +74,7 @@ func TestSuggestions(t *testing.T) {
 		"server-port=25571",
 		"level-name=../elsewhere",
 	}, "\n")
-	got, dropped := suggestions([]byte(props))
+	got, dropped := Suggestions([]byte(props))
 	sameJSON(t, "suggested settings", got, map[string]string{
 		"difficulty": "hard", "pvp": "false", "level-seed": `abc:def=ghi\jkl`, "spawn-protection": "",
 		"generator-settings": `{"biome":"minecraft:plains"}`, "view-distance": "10", "spawn-monsters": "false",
@@ -86,7 +86,7 @@ func TestSuggestions(t *testing.T) {
 // A pack of data packs could raise function-permission-level and ship a load
 // function that makes its author an operator.
 func TestPacksCannotSuggestPermissionLevels(t *testing.T) {
-	got, dropped := suggestions([]byte("function-permission-level=4\nop-permission-level=4\ndifficulty=hard\n"))
+	got, dropped := Suggestions([]byte("function-permission-level=4\nop-permission-level=4\ndifficulty=hard\n"))
 	sameJSON(t, "suggested settings", got, map[string]string{"difficulty": "hard"})
 	wantList(t, "dropped settings", dropped, "function-permission-level", "op-permission-level")
 }

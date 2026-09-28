@@ -28,11 +28,18 @@ var (
 	clientFiles      = []string{"options.txt", "optionsof.txt", "optionsshaders.txt", "servers.dat", "servers.dat_old"}
 	protectedFolders = []string{"libraries", "versions", "logs", "crash-reports", "debug"}
 	protectedFiles   = []string{
-		"eula.txt", "server.properties", "ops.json", "whitelist.json", "banned-players.json", "banned-ips.json",
-		"usercache.json", "usernamecache.json", "log4j2.xml", "user_jvm_args.txt",
+		"eula.txt", "server.properties", DefaultPropertiesName, "ops.json", "whitelist.json", "banned-players.json",
+		"banned-ips.json", "usercache.json", "usernamecache.json", "log4j2.xml", "user_jvm_args.txt",
 	}
 	startFiles = []string{".jar", ".sh", ".bat", ".cmd", ".ps1", ".exe", ".command"}
 )
+
+// DefaultPropertiesName is the file the Default Server Properties mod, which
+// FTB packs use, puts in place of the whole of server.properties the first
+// time the server starts, dropping the settings Playkeeper wrote there: its
+// console, its allowlist. Packs' copies never go on the server; their
+// settings are taken like a pack's server.properties.
+const DefaultPropertiesName = "default-server.properties"
 
 // classify sorts a checked pack path. world is the server's world folder;
 // packs name theirs "world".
@@ -81,10 +88,10 @@ var suggestible = []string{
 	"spawn-monsters", "spawn-npcs", "spawn-protection", "sync-chunk-writes", "view-distance",
 }
 
-// suggestions reads the server.properties a pack ships. It returns the
-// settings a pack may suggest and the names of the others, which are
-// dropped. As in Java, a setting's last line wins.
-func suggestions(b []byte) (map[string]string, []string) {
+// Suggestions reads the server.properties or default-server.properties a
+// pack ships. It returns the settings a pack may suggest and the names of
+// the others, which are dropped. As in Java, a setting's last line wins.
+func Suggestions(b []byte) (map[string]string, []string) {
 	raw := map[string]string{}
 	for line := range strings.SplitSeq(string(b), "\n") {
 		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
