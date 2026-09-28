@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.3
+
+- Picked by Playkeeper suggests Discord chat on Paper and Purpur servers: DiscordSRV links the game chat with a channel on your Discord server, both ways, once you paste your own Discord bot's token into its settings.
+
 ## 0.4.2
 
 - A **Files** tab on each server, for admins: browse its folder, edit `server.properties`, YAML, JSON and TOML in an editor that marks what Playkeeper sets from Settings, upload files or whole folders by dragging them in (uploads carry on after a dropped connection), download files or folders as a zip, and make folders, rename, move and delete. While the server runs its world is read-only, and other changes apply when it restarts.
