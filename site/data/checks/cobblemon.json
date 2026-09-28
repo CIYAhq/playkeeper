@@ -1,0 +1,13 @@
+{
+  "status": "passing",
+  "checked": "2026-09-28",
+  "release": "0.4.4",
+  "build": "0.19.5",
+  "doneSeconds": 7.235,
+  "modpack": {
+    "name": "Cobblemon Official Modpack [Fabric]",
+    "version": "1.8.1",
+    "mods": 32,
+    "downloads": 10919148
+  }
+}

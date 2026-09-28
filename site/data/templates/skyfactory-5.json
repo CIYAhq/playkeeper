@@ -1,0 +1,25 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "SkyFactory 5",
+  "description": "SkyFactory 5 for Forge on Minecraft 1.20.1: start on a tree in the void and grow a world of automation from it.",
+  "game": "minecraft-java",
+  "server": { "type": "forge", "minecraftVersion": "1.20.1" },
+  "settings": {
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 6144
+  },
+  "modpack": {
+    "source": "curseforge",
+    "project": "392141",
+    "slug": "skyfactory-5",
+    "name": "SkyFactory 5",
+    "pin": {
+      "versionId": "6290684",
+      "versionNumber": "5.0.8",
+      "channel": "release",
+      "hashAlgo": "sha1",
+      "hash": "0d915173c3c6645d36795c2834341cb4c48f6477"
+    }
+  }
+}

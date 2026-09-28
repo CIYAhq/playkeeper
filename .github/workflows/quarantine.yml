@@ -1,0 +1,64 @@
+name: Quarantined tests
+
+# The tests test/quarantine.txt lists fail now and then for reasons outside
+# the change under test, so CI leaves them out of the checks that block a
+# merge. This runs each Go one five times, every day, by hand, and when the
+# list changes, and reports how often each failed without ever failing
+# itself, so they stay in sight until they're fixed. The ARM64 workflow runs
+# a quarantined end-to-end check and warns when it fails (test/e2e/software.py).
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  push:
+    branches: [main]
+    paths:
+      - test/quarantine.txt
+      - scripts/quarantine.sh
+      - .github/workflows/quarantine.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quarantine-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "0"
+
+jobs:
+  go:
+    name: Quarantined Go tests, five runs each — reports, never fails
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up pinned toolchains
+        run: ./scripts/setup.sh
+      - name: Five runs of each
+        run: |
+          {
+            echo "| Package | Test | Failed runs |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for pkg in $(scripts/quarantine.sh packages); do
+            for name in $(scripts/quarantine.sh names "$pkg"); do
+              failed=0
+              for run in 1 2 3 4 5; do
+                if ! .tools/go/bin/go test -count=1 -timeout 10m -run "^$name\$" "$pkg" > "/tmp/$name-$run.log" 2>&1; then
+                  failed=$((failed + 1))
+                  echo "::group::$name, run $run"
+                  tail -40 "/tmp/$name-$run.log"
+                  echo "::endgroup::"
+                fi
+              done
+              echo "| $pkg | $name | $failed of 5 |" >> "$GITHUB_STEP_SUMMARY"
+              if [ "$failed" -gt 0 ]; then
+                echo "::warning::$name ($pkg) failed $failed of 5 runs; it stays in test/quarantine.txt until it's fixed"
+              fi
+            done
+          done

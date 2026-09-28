@@ -116,12 +116,20 @@ wait_online() { # signs in again only when the saved session no longer works
   return 1
 }
 
+# Users and groups the system makes by itself, install or not, when one of its
+# own timers first runs: fwupd's firmware-refresh timer makes fwupd-refresh
+# (AlmaLinux 10).
+os_accounts="fwupd-refresh"
+
 # system — what an install must leave as it found it (worlds and backups in
-# /var/lib/playkeeper stay by design): packages, users, groups, units and
-# listeners, and on RPM systems the package sources and signing keys, IP
-# forwarding and firewalld's settings and files.
+# /var/lib/playkeeper stay by design): packages, users, groups but those the
+# system makes itself, units and listeners, and on RPM systems the package
+# sources and signing keys, IP forwarding and firewalld's settings and files.
 system() {
-  g 'echo "## users"; getent passwd | cut -d: -f1 | sort; echo "## groups"; getent group | cut -d: -f1 | sort; echo "## units"; ls /etc/systemd/system | sort; echo "## listeners"; sudo ss -ltnH | awk "{print \$4}" | sort -u' >"$OUT/$1-system.txt"
+  local own
+  # shellcheck disable=SC2086 # one -e for each name
+  own=$(printf ' -e %s' $os_accounts)
+  g 'echo "## users"; getent passwd | cut -d: -f1 | grep -vx'"$own"' | sort; echo "## groups"; getent group | cut -d: -f1 | grep -vx'"$own"' | sort; echo "## units"; ls /etc/systemd/system | sort; echo "## listeners"; sudo ss -ltnH | awk "{print \$4}" | sort -u' >"$OUT/$1-system.txt"
   if [ -n "$rpm" ]; then
     g 'set +e; echo "## package sources"; ls /etc/yum.repos.d /etc/pki/rpm-gpg; echo "## forwarding"; sysctl -n net.ipv4.ip_forward; echo "## firewalld"; if sudo firewall-cmd --state >/dev/null 2>&1; then sudo firewall-cmd --list-all-zones; sudo firewall-cmd --get-policies; sudo find /etc/firewalld -type f | sort; else echo "not running"; fi' >>"$OUT/$1-system.txt"
     # Signing keys are each a gpg-pubkey package; the version tells them apart.

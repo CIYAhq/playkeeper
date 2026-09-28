@@ -73,6 +73,14 @@ grep -q 'E broke on purpose' "$t/log-2" || fail "the failing test's output wasn'
 grep -qx TestE "$t/out/ran-2.txt" || fail "a failing test isn't among the tests its shard ran"
 ok "a failing test fails its shard, shows its output and still counts as run"
 
+rm -rf "$t/out"
+printf '# PACKAGE TEST WHY\n./pkg TestE   breaks now and then\n./other TestA   in another package\n' >"$t/quarantine.txt"
+for k in 1 2 3; do QUARANTINE_LIST="$t/quarantine.txt" BREAK_E=1 shard "$k/3" || fail "shard $k of 3 failed with TestE quarantined: $(cat "$t/log-$k")"; done
+[ "$(cat "$t"/out/ran-*.txt | sort | tr '\n' ' ')" = "TestA TestB TestC TestD " ] || fail "with TestE quarantined the shards ran $(cat "$t"/out/ran-*.txt | tr '\n' ' ')"
+grep -q "quarantined, so left out: TestE" "$t/log-1" || fail "shard 1 didn't say it left TestE out: $(cat "$t/log-1")"
+check || fail "--check refused shards that left out only the quarantined test: $(cat "$t/check")"
+ok "a quarantined test is left out of every shard, failing or not, and --check passes without it"
+
 if "$root/scripts/go-test-shard.sh" ./pkg 4/3 "$t/out" >"$t/log" 2>&1; then fail "shard 4 of 3 ran"; fi
 grep -q "not K/N" "$t/log" || fail "a shard out of range said: $(cat "$t/log")"
 ok "a shard out of range is refused"

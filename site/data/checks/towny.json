@@ -1,9 +1,9 @@
 {
   "status": "passing",
   "checked": "2026-09-28",
-  "release": "0.4.2",
+  "release": "0.4.4",
   "build": "129",
-  "doneSeconds": 14.715,
+  "doneSeconds": 14.286,
   "addons": [
     {
       "name": "LuckPerms",
@@ -11,7 +11,7 @@
       "slug": "luckperms",
       "version": "v5.5.71-bukkit",
       "licence": "MIT",
-      "downloads": 2779325
+      "downloads": 2781422
     },
     {
       "name": "Towny",
@@ -19,7 +19,7 @@
       "slug": "towny",
       "version": "0.103.2.0",
       "licence": "LicenseRef-CC-BY-NC-ND-3.0",
-      "downloads": 52106
+      "downloads": 52165
     },
     {
       "name": "Chunky",
@@ -27,7 +27,8 @@
       "slug": "chunky",
       "version": "1.5.3",
       "licence": "GPL-3.0-only",
-      "downloads": 18377066
+      "downloads": 18388678
     }
-  ]
+  ],
+  "crossplay": true
 }

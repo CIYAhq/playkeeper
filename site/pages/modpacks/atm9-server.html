@@ -1,0 +1,120 @@
+{{/*
+path: /modpacks/atm9-server
+title: How to make an ATM9 server (All the Mods 9), 2026
+description: Set up an All the Mods 9 server: Forge 47.4.0 on Minecraft 1.20.1, Java 17, 8 GB of memory and ATM's server files, or Playkeeper in one click from 0.4.4.
+label: ATM9 server
+h1: How to make an ATM9 server (All the Mods 9)
+card: How to make an ATM9 server
+kind: Modpack
+section: guides
+layout: guide
+crumb: Modpacks
+og: modpack-atm9
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$m := modpack "atm9"}}An ATM9 server runs {{$m.TypeName}} {{$m.Loader}} on Minecraft {{$m.Minecraft}} with Java {{$m.Java}}, puts {{$m.Mods}} mods on the server and needs about {{$m.Memory}} of memory. Use ATM's own server files, or let Playkeeper install version {{$m.Version}} from CurseForge. Playkeeper runs Minecraft 1.20.1 from version {{$m.Release}}.{{end}}
+
+{{define "closing-title"}}ATM9 on your own server, in one click.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper sizes the server for the pack and fetches every mod.{{end}}
+
+{{define "side-text"}}Playkeeper installs ATM9 from CurseForge, with every mod from ATM's own server files.{{end}}
+
+{{define "article"}}{{$m := modpack "atm9"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+{{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
+<section aria-labelledby="needs">
+  {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What an ATM9 server needs" "Toc" "What it needs")}}
+  {{template "modpack-facts" (dict "Pack" $m)}}
+  <p>Version {{$m.Version}}, from {{day $m.Released}}, is still ATM9's newest: the team's new releases go to All the Mods 10 now. On 28 Sep, a server made from its template on the published {{$m.Release}} loaded all {{$m.Mods}} mods and its log said <code>Done (47.086s)!</code>.</p>
+</section>
+
+<section aria-labelledby="memory">
+  {{template "h2n" (dict "ID" "memory" "N" 2 "Text" "How much memory ATM9 needs" "Toc" "How much memory")}}
+  <p>Playkeeper suggests {{$m.Memory}} for its {{$m.Mods}} mods, which gives Java {{$m.JavaHeap}}. ATM's server files ask for more: their <code>user_jvm_args.txt</code> starts Java at 4 GB and lets it grow to 8 GB, with Forge and the mods needing memory beside that.</p>
+  <ul>
+    <li><strong>For a few friends,</strong> {{$m.Memory}} is what New server offers.</li>
+    <li><strong>For 5 or more,</strong> the <a href="/sizing">sizing guide</a> gives a big modpack {{(sizingFor 8 "modpack").MemoryGB}} GB.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 3 "Text" "The one-click way")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{$open := "Search New server › A modpack"}}{{$how := "Type All the Mods 9. It comes from CurseForge, with Forge and the memory it needs."}}{{if $m.OneClick}}{{$open = "Open the template below, or search New server › A modpack"}}{{$how = printf "Either way it's ATM9 %s from CurseForge, with Forge and the memory it needs." $m.Version}}{{end}}
+  {{template "steps" (dict "Class" "shot-steps" "Items" (list
+    (dict "Title" $open "Text" $how)
+    (dict "Title" "Create and start it" "Text" (printf "Playkeeper downloads the pack's %s, taking its mods from ATM's %s server files and checking each file against CurseForge's hash." $m.DownloadSize (megabytes $m.ServerFiles.MB)))
+    (dict "Title" "Send friends the pack" "Text" "Share with friends on the Mods tab makes a page with the pack's version and their launcher's steps.")
+  ))}}
+  {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs." "Sizes" $article)}}
+</section>
+
+<section aria-labelledby="server-files">
+  {{template "h2n" (dict "ID" "server-files" "N" 4 "Text" "What the server files decide" "Toc" "Server files")}}
+  <p>ATM's server files are the pack as its team runs it: {{$m.ServerFiles.Mods}} mods, all inside a folder called <code>Server-Files-1.1.1</code>. Playkeeper follows them both ways:</p>
+  <ul>
+    <li><strong>What they have goes on the server,</strong> including mods CurseForge lets only its own app download. Each is checked against the SHA-1 CurseForge lists for it.</li>
+    <li><strong>What they leave out stays off,</strong> even when the pack lists it. Mekalus, a shader mod for players' games, stopped ATM9's first start until Playkeeper learned this.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 5 "Text" "By hand, with ATM's server files" "Toc" "By hand")}}
+  {{with $m.ServerFiles}}<p>Download <a href="{{.URL}}">{{.Name}}</a> ({{megabytes .MB}}) from the pack's files on CurseForge. Its start script installs {{$m.TypeName}} {{$m.Loader}} the first time it runs.</p>{{end}}
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="System">
+        <button type="button" class="code-tab" role="tab" id="tab-ubuntu" aria-controls="code-ubuntu" aria-selected="true">Ubuntu 24.04</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-ubuntu" role="tabpanel" tabindex="0" aria-labelledby="tab-ubuntu"><span class="c"># Java {{$m.Java}}, then the server files in ./Server-Files-1.1.1</span>
+sudo apt install -y openjdk-{{$m.Java}}-jre-headless unzip
+unzip {{$m.ServerFiles.Name}} &amp;&amp; cd Server-Files-1.1.1
+echo "eula=true" &gt; eula.txt
+ATM9_RESTART=false sh startserver.sh   <span class="c"># installs {{$m.TypeName}}, then starts</span></pre>
+  </div>
+  <ul>
+    <li><strong>Memory</strong> is in <code>user_jvm_args.txt</code>: <code>-Xmx8G</code> is the most Java may take, so the machine needs more than that.</li>
+    <li><strong>Restarts:</strong> the script starts the server again 10 seconds after it stops, unless <code>ATM9_RESTART</code> is <code>false</code>.</li>
+    <li><strong>Java:</strong> anything older than {{$m.Java}} stops it with "Minecraft 1.20.1 requires Java 17". <code>ATM9_JAVA</code> picks another Java.</li>
+  </ul>
+  <p>On a new server the script also writes <code>allow-flight=true</code>, so flying items don't get players kicked, and <code>max-tick-time=180000</code>, so one long tick doesn't stop the server. Playkeeper leaves these to you: set them in <code>server.properties</code> on the Files tab.</p>
+</section>
+
+<section aria-labelledby="friends">
+  {{template "h2n" (dict "ID" "friends" "N" 6 "Text" "Friends join with the same version" "Toc" "Friends join")}}
+  <div class="shot-step">
+    <div>
+      <p>Players install All the Mods 9 {{$m.Version}} in the CurseForge app or Prism Launcher, then join your server's address. A player on another version is turned away with a list of the mods that don't match.</p>
+      <p>In Playkeeper, Share with friends on the Mods tab makes a page with the pack's version and their launcher's steps.</p>
+    </div>
+    {{template "cardshot" (dict "Name" "guide-pack-page" "Alt" "The page friends open: the server's versions, the pack file to download and their launcher's steps." "Sizes" $side)}}
+  </div>
+</section>
+{{end}}
+
+{{define "after"}}{{$m := modpack "atm9"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "How much RAM does an ATM9 server need?" (printf "%s for a few friends, what Playkeeper suggests for its %d mods. Give 5 or more friends %d GB." $m.Memory $m.Mods (sizingFor 8 "modpack").MemoryGB))
+    (qa "Is ATM9 Forge or NeoForge?" (printf "%s. Version %s runs %s %s on Minecraft %s." $m.TypeName $m.Version $m.TypeName $m.Loader $m.Minecraft))
+    (qa "Which Java does an ATM9 server need?" (printf "Java %d. ATM's start script stops on anything older, and Playkeeper runs the server on Java %d for you." $m.Java $m.Java))
+    (qa "Where are the ATM9 server files?" (printf "On the pack's CurseForge page, under its files: %s, %s. Playkeeper doesn't need them from you." $m.ServerFiles.Name (megabytes $m.ServerFiles.MB)))
+    (qa "Should I host ATM9 or ATM10?" "The one your friends play. ATM9 is on Minecraft 1.20.1 and Forge, ATM10 on 1.21.1 and NeoForge, and new versions now go to ATM10.")
+  ))}}
+  {{if $m.OneClick}}<section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
+    <div class="tpl-pair">
+      {{template "pack-card" (dict "Pack" $m)}}
+      {{with modpack "atm10"}}{{if .OneClick}}{{template "pack-card" (dict "Pack" .)}}{{end}}{{end}}
+    </div>
+  </section>{{end}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/modpacks" "/modpacks/atm10-server" "/modpacks/skyfactory-5-server")}}{{end}}

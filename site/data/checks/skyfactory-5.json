@@ -1,0 +1,13 @@
+{
+  "status": "passing",
+  "checked": "2026-09-28",
+  "release": "0.4.4",
+  "build": "47.4.23",
+  "doneSeconds": 3.621,
+  "modpack": {
+    "name": "SkyFactory 5",
+    "version": "SkyFactory5-5.0.8.zip",
+    "mods": 264,
+    "downloads": 1604220
+  }
+}

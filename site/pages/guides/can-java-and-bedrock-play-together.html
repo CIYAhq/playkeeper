@@ -1,0 +1,110 @@
+{{/*
+path: /guides/can-java-and-bedrock-play-together
+title: Can Java and Bedrock play together? Yes, with crossplay (2026)
+description: Java and Bedrock players can share a Java server that runs Geyser and Floodgate. Which devices can join, what's different for them, and how to set it up.
+label: Java and Bedrock together
+h1: Can Java and Bedrock play together?
+card: Can Java and Bedrock play together?
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: can-java-and-bedrock-play-together
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}Not on their own: Java Edition and Bedrock Edition are separate games, with separate servers and Realms. They can play together on a Java server that runs two plugins, Geyser, which translates for Bedrock players, and Floodgate, which lets them in with their Xbox account. Phones, tablets and Windows then add the server by its address and port. Xbox, PlayStation and Switch need a workaround such as BedrockConnect.{{end}}
+
+{{define "closing-title"}}A server both editions can join.{{end}}
+{{define "closing-sub"}}Free and open source. Crossplay is one switch on Paper and Purpur servers.{{end}}
+
+{{define "side-title"}}Crossplay, one switch{{end}}
+{{define "side-text"}}Playkeeper installs Geyser and Floodgate and opens the Bedrock port for you.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="why-not">
+  {{template "h2n" (dict "ID" "why-not" "N" 1 "Text" "Why they can't by default" "Toc" "Why not by default")}}
+  <p>Minecraft has two editions, and each only talks to its own kind:</p>
+  <ul>
+    <li><strong>Java Edition</strong> runs on Windows, macOS and Linux. It has the mods, the plugin servers and most of the big community servers.</li>
+    <li><strong>Bedrock Edition</strong> runs on phones, tablets, Xbox, PlayStation, Switch and Windows. It's the one on consoles and in the Microsoft Store.</li>
+  </ul>
+  <p>The two send different data over the network, so a Bedrock game can't join a Java server, and a Java game can't join a Bedrock server. Realms are split the same way: a Java Realm takes Java players only. Buying both for Windows, as Mojang sells them together, gives you two games, not one shared world.</p>
+</section>
+
+<section aria-labelledby="how">
+  {{template "h2n" (dict "ID" "how" "N" 2 "Text" "How crossplay works: Geyser and Floodgate" "Toc" "How crossplay works")}}
+  <p>Crossplay happens on a Java server, with two free, open source plugins from GeyserMC:</p>
+  <ul>
+    <li><strong>Geyser</strong> listens for Bedrock players on a UDP port of its own, 19132 by default, and translates everything between their game and the Java server, both ways.</li>
+    <li><strong>Floodgate</strong> lets Bedrock players in with the Xbox account they already sign in with, so they don't need a Java account. It puts a dot in front of their name, like <code>.Steve</code>, so a Bedrock name never clashes with a Java one.</li>
+  </ul>
+  <p>The world stays a Java world. Redstone, farms and mob spawning follow Java's rules for everyone, and Java players join the way they always do.</p>
+</section>
+
+<section aria-labelledby="devices">
+  {{template "h2n" (dict "ID" "devices" "N" 3 "Text" "Which devices can join" "Toc" "Which devices")}}
+  <div class="table-scroll" tabindex="0">
+    <table class="compare stack">
+      <caption>How each device joins a Java server with Geyser and Floodgate.</caption>
+      <thead><tr><td></td><th scope="col">How they join</th><th scope="col">Tested by us</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Java on Windows, macOS, Linux</th><td data-col="How">Multiplayer › Add Server, with the Java address</td><td data-col="Tested">Yes</td></tr>
+        <tr><th scope="row">Bedrock on phones and tablets</th><td data-col="How">Play › Servers › Add Server, with the Bedrock address and port</td><td data-col="Tested">Not yet on a real device</td></tr>
+        <tr><th scope="row">Bedrock on Windows</th><td data-col="How">The same as phones</td><td data-col="Tested">Not yet on a real device</td></tr>
+        <tr><th scope="row">Xbox, PlayStation, Switch</th><td data-col="How">Only through a workaround, such as BedrockConnect</td><td data-col="Tested">No</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Consoles only list the featured servers Microsoft picks, with no Add Server button. Workarounds send the console to your server anyway: BedrockConnect changes the console's DNS setting, and <a href="https://geysermc.org/wiki/geyser/using-geyser-with-consoles/">GeyserMC's guide for consoles</a> lists the others.</p>
+</section>
+
+<section aria-labelledby="different">
+  {{template "h2n" (dict "ID" "different" "N" 4 "Text" "What's different for Bedrock players" "Toc" "What's different")}}
+  <ul>
+    <li><strong>No Java mods.</strong> Bedrock players see what a plugin server has, so crossplay suits Paper and Purpur servers, not modpacks with new blocks and items.</li>
+    <li><strong>Some things Bedrock's game can't show.</strong> Chat links can't be clicked, the glowing effect doesn't show, and many plugin commands don't complete with Tab. <a href="https://geysermc.org/wiki/geyser/current-limitations/">GeyserMC's list of limitations</a> has the rest.</li>
+    <li><strong>Geyser has to keep up with Bedrock.</strong> Bedrock updates itself often, and an older Geyser turns newer Bedrock versions away, so update Geyser when Bedrock updates.</li>
+    <li><strong>Their names start with a dot,</strong> so add them to the server's allowlist as <code>.</code> and their Xbox gamertag.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="own-server">
+  {{template "h2n" (dict "ID" "own-server" "N" 5 "Text" "Set it up on your own server" "Toc" "Set it up")}}
+  <p class="p-lead">Playkeeper runs your Java server on a VPS you rent, and from version 0.4.4 crossplay is one switch. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{template "steps" (dict "Class" "shot-steps" "Items" (list
+    (dict "Title" "Turn on Bedrock players" "Text" "In a Paper or Purpur server's Settings. Playkeeper installs Geyser and Floodgate, opens a UDP port for Bedrock players and restarts the server, in about 20 seconds.")
+    (dict "Title" "Open the UDP port in your provider's firewall" "Text" "The dialog shows it, 19132 for the first server with crossplay. Java players keep using the TCP game port.")
+    (dict "Title" "Add your Bedrock friends" "Text" "On the Players tab, as a dot and their Xbox gamertag. They join with the address and port on the server's Join card.")
+  ))}}
+  <p>The <a href="/guides/minecraft-crossplay-server">crossplay server guide</a> has each step in detail, the firewall rules, and how to set up Geyser and Floodgate by hand.</p>
+</section>
+
+<section aria-labelledby="tested">
+  {{template "h2n" (dict "ID" "tested" "N" 6 "Text" "What we tested, and what we haven't" "Toc" "What we tested")}}
+  <p>On 28 Sep, on a Paper 26.2 server, a Bedrock test client speaking Bedrock 1.26.51 joined through Geyser and Floodgate with the allowlist on, spawned, chatted and showed up on the Players tab. That client signed in offline, so Geyser's check of the Xbox sign-in was turned off by hand for the test.</p>
+  <p>Not tested yet:</p>
+  <ul>
+    <li>a phone, tablet or Windows player signed in to Xbox;</li>
+    <li>a console joining through BedrockConnect;</li>
+    <li>a player joining from another network, through a provider's firewall.</li>
+  </ul>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Can Bedrock players join a Java Realm?" "No. Realms are split by edition, and a Java Realm takes Java players only. Crossplay needs a Java server you run, with Geyser and Floodgate.")
+    (qa "Can Java players join a Bedrock server?" "Not with the normal game. Crossplay works the other way round: Bedrock players join a Java server through Geyser.")
+    (qa "Do Bedrock players need a Java account?" "Not with Floodgate. They sign in with the Xbox account their game already uses.")
+    (qa "Does crossplay cost anything?" "Geyser and Floodgate are free and open source, and so is Playkeeper. You pay only for the VPS your server runs on.")
+    (qa "Why do Bedrock players' names start with a dot?" "Floodgate adds it, so a Bedrock player called Steve and a Java player called Steve are two different people on your server.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/guides/minecraft-crossplay-server" "/guides/play-minecraft-with-friends" "/templates")}}{{end}}

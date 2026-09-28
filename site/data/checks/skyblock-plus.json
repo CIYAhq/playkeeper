@@ -1,13 +1,13 @@
 {
   "status": "passing",
   "checked": "2026-09-28",
-  "release": "0.4.2",
+  "release": "0.4.4",
   "build": "0.19.5",
-  "doneSeconds": 9.347,
+  "doneSeconds": 10.112,
   "modpack": {
     "name": "SkyBlock Plus",
     "version": "1.0.9",
     "mods": 6,
-    "downloads": 529853
+    "downloads": 530032
   }
 }
