@@ -30,7 +30,7 @@ type Config struct {
 	PanelBind string `json:"panelBind,omitempty"`
 	GamePort  int    `json:"gamePort"`
 	// Domain is not read by anything. The machine's address (a free
-	// playkeeper.io name or the admin's own domain) is chosen in Machine
+	// playkeeper.me name or the admin's own domain) is chosen in Machine
 	// settings and kept in the agent's database. The panel stays on
 	// PanelPort; the agent listens on port 80 only while Let's Encrypt checks
 	// a name.
@@ -44,7 +44,7 @@ type Config struct {
 	// service, accepted by hand. Admins usually accept them on the Address
 	// page instead, which the agent records itself.
 	ACMEAgreedTerms string `json:"acmeAgreedTerms,omitempty"`
-	// NamesURL is the service that hands out free playkeeper.io addresses;
+	// NamesURL is the service that hands out free playkeeper.me addresses;
 	// empty means https://names.playkeeper.io.
 	NamesURL     string `json:"namesURL,omitempty"`
 	DataDir      string `json:"dataDir"`

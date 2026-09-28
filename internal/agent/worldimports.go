@@ -56,10 +56,10 @@ const (
 type importRegistry struct {
 	mu   sync.Mutex
 	byID map[string]*worldImport
-	// announce makes announcing files take turns, so each announce sees the
-	// allowance the others left, and space makes imports claim disk space
-	// in turn. Both are taken before mu and the imports' locks, never while
-	// holding one.
+	// announce makes announcing files take turns, those of uploads into
+	// servers' folders too, so each announce sees the allowance the others
+	// left, and space makes imports claim disk space in turn. Both are taken
+	// before mu and the uploads' and imports' locks, never while holding one.
 	announce sync.Mutex
 	space    sync.Mutex
 }
@@ -254,15 +254,16 @@ func (a *Agent) dropImport(imp *worldImport) {
 }
 
 // uploadAllowance is how many more bytes uploads may announce: the upload
-// limit restores use, less what open uploads announced and haven't sent yet.
+// limit restores use, less what open uploads, of worlds and into servers'
+// folders, announced and haven't sent yet.
 func (a *Agent) uploadAllowance() int64 {
+	unsent := a.fileUploadsUnsent()
 	a.imports.mu.Lock()
 	list := make([]*worldImport, 0, len(a.imports.byID))
 	for _, imp := range a.imports.byID {
 		list = append(list, imp)
 	}
 	a.imports.mu.Unlock()
-	var unsent int64
 	for _, imp := range list {
 		imp.mu.Lock()
 		for _, f := range imp.files {

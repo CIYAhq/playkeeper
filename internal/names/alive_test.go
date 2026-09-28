@@ -73,9 +73,9 @@ func TestAliveHandlerAnswersOnlyForTheNamesItHolds(t *testing.T) {
 		handler http.Handler
 		host    string
 	}{
-		{"on the mux", mux, "alice.playkeeper.io:8443"},
-		{"mounted without the pattern", h, "alice.playkeeper.io:8443"},
-		{"a host in capitals with a dot", mux, "ALICE.Playkeeper.IO."},
+		{"on the mux", mux, "alice.playkeeper.me:8443"},
+		{"mounted without the pattern", h, "alice.playkeeper.me:8443"},
+		{"a host in capitals with a dot", mux, "ALICE.Playkeeper.ME."},
 	} {
 		rec, b := get(tc.handler, tc.host, AlivePath+testNonce)
 		var a Alive
@@ -90,12 +90,13 @@ func TestAliveHandlerAnswersOnlyForTheNamesItHolds(t *testing.T) {
 		name, host, path, code string
 		status                 int
 	}{
-		{"a name it does not hold", "bob.playkeeper.io:8443", AlivePath + testNonce, CodeNoName, http.StatusNotFound},
+		{"a name it does not hold", "bob.playkeeper.me:8443", AlivePath + testNonce, CodeNoName, http.StatusNotFound},
 		{"another base domain", "alice.example.com:8443", AlivePath + testNonce, CodeNoName, http.StatusNotFound},
+		{"the previous base domain", "alice." + PreviousBase + ":8443", AlivePath + testNonce, CodeNoName, http.StatusNotFound},
 		{"an address as the host", "5.75.160.99:8443", AlivePath + testNonce, CodeNoName, http.StatusNotFound},
-		{"an invalid name", "-alice.playkeeper.io", AlivePath + testNonce, CodeNoName, http.StatusNotFound},
-		{"a short nonce", "alice.playkeeper.io:8443", AlivePath + "abc", CodeInvalidRequest, http.StatusBadRequest},
-		{"a nonce with other characters", "alice.playkeeper.io:8443", AlivePath + strings.Repeat("a.", 16), CodeInvalidRequest, http.StatusBadRequest},
+		{"an invalid name", "-alice.playkeeper.me", AlivePath + testNonce, CodeNoName, http.StatusNotFound},
+		{"a short nonce", "alice.playkeeper.me:8443", AlivePath + "abc", CodeInvalidRequest, http.StatusBadRequest},
+		{"a nonce with other characters", "alice.playkeeper.me:8443", AlivePath + strings.Repeat("a.", 16), CodeInvalidRequest, http.StatusBadRequest},
 	} {
 		rec, b := get(mux, tc.host, tc.path)
 		var body ErrorBody

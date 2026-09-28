@@ -191,16 +191,12 @@ func TestAutomaticBackupsThatCantBeReadAreNeitherShownNorSaved(t *testing.T) {
 				return s
 			}
 			before := schedules()
-			if _, err := e.a.db.Exec(`ALTER TABLE schedules RENAME COLUMN last_run TO last_run_gone`); err != nil {
-				t.Fatal(err)
-			}
+			back := e.renameColumn("schedules", "last_run", "last_run_gone")
 			saved, out := e.call("POST", e.sp("/backup-rules"), map[string]any{"actor": "admin", "automatic": c.automatic})
 			shown, _ := e.call("GET", e.sp("/backup-rules"), nil)
 			estimated, _ := e.call("POST", e.sp("/backup-rules/estimate"), map[string]any{"actor": "admin",
 				"rules": map[string]any{"onHost": map[string]any{"keepAll": true}, "offSite": map[string]any{"keepAll": true}, "includeManual": true}})
-			if _, err := e.a.db.Exec(`ALTER TABLE schedules RENAME COLUMN last_run_gone TO last_run`); err != nil {
-				t.Fatal(err)
-			}
+			back()
 			if saved != http.StatusInternalServerError || shown != http.StatusInternalServerError || estimated != http.StatusInternalServerError {
 				t.Fatalf("with the schedules unreadable: save %d %v, page %d, estimate %d", saved, out, shown, estimated)
 			}

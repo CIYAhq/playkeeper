@@ -7,11 +7,15 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -42,18 +46,27 @@ type testRelease struct {
 	binary   []byte
 }
 
-// newTestRelease builds a real release tarball, its manifest and signature.
+// newTestRelease builds a real release tarball for every platform, its
+// manifest and signature. tarball and binary are this platform's.
 func newTestRelease(t *testing.T, version string) *testRelease {
 	t.Helper()
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	dir := t.TempDir()
-	r := &testRelease{priv: priv, keys: []ed25519.PublicKey{pub}, binary: []byte("#!/bin/sh\necho playkeeper " + version + "\n")}
-	r.tarball = filepath.Join(dir, TarballFile)
-	writeTarball(t, r.tarball, map[string][]byte{
-		"playkeeper-" + version + "-linux-amd64/install.sh": []byte("#!/bin/sh\n"),
-		"playkeeper-" + version + "-linux-amd64/playkeeper": r.binary,
-	})
-	m, err := BuildManifest(version, "2026-09-25T12:00:00Z", "- Updates from the dashboard", r.tarball)
+	r := &testRelease{priv: priv, keys: []ed25519.PublicKey{pub}}
+	var tarballs []string
+	for _, p := range Platforms {
+		binary := []byte("#!/bin/sh\necho playkeeper " + version + " " + p + "\n")
+		tarball := filepath.Join(dir, TarballName(p))
+		writeTarball(t, tarball, map[string][]byte{
+			"playkeeper-" + version + "-" + p + "/install.sh": []byte("#!/bin/sh\n"),
+			BinaryPath(version, p):                            binary,
+		})
+		if p == Platform {
+			r.tarball, r.binary = tarball, binary
+		}
+		tarballs = append(tarballs, tarball)
+	}
+	m, err := BuildManifest(version, "2026-09-25T12:00:00Z", "- Updates from the dashboard", tarballs...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,11 +116,11 @@ func TestSignedButMalformedManifestsAreRefused(t *testing.T) {
 	r := newTestRelease(t, "0.2.0")
 	for name, edit := range map[string][2]string{
 		"future schema":      {`"schema": 1`, `"schema": 2`},
-		"binary elsewhere":   {`linux-amd64/playkeeper"`, `linux-amd64/../../bin/sh"`},
-		"other platform":     {`"linux-amd64"`, `"linux-arm64"`},
-		"bad checksum":       {`"sha256": "`, `"sha256": "zz`},
+		"binary elsewhere":   {Platform + `/playkeeper"`, Platform + `/../../bin/sh"`},
+		"other platform":     {`"platform": "` + Platform + `"`, `"platform": "linux-riscv64"`},
+		"bad checksum":       {`"file": "` + TarballFile + `",` + "\n" + `      "sha256": "`, `"file": "` + TarballFile + `",` + "\n" + `      "sha256": "zz`},
 		"not a version":      {`"version": "0.2.0"`, `"version": "latest"`},
-		"another file":       {`"file": "playkeeper-linux-amd64.tar.gz"`, `"file": "evil.tar.gz"`},
+		"another file":       {`"file": "` + TarballFile + `"`, `"file": "evil.tar.gz"`},
 		"version mismatched": {`"version": "0.2.0"`, `"version": "0.2.1"`},
 	} {
 		changed := bytes.Replace(r.manifest, []byte(edit[0]), []byte(edit[1]), 1)
@@ -234,6 +247,109 @@ func TestReleaseLocationsMustBeHTTPSUnlessLocal(t *testing.T) {
 		if _, err := CheckReleaseURL(bad); err == nil {
 			t.Errorf("%s must be refused", bad)
 		}
+	}
+}
+
+func TestEveryPlatformHasItsOwnBuild(t *testing.T) {
+	r := newTestRelease(t, "0.5.0")
+	m, err := VerifyManifest(r.manifest, r.sig, r.keys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.CheckComplete(); err != nil {
+		t.Fatalf("a release with every platform's build must be complete: %v", err)
+	}
+	for i, p := range Platforms {
+		a, err := m.AssetFor(p)
+		if err != nil || m.Assets[i].Platform != p || a.File != TarballName(p) || a.Binary != "playkeeper-0.5.0-"+p+"/playkeeper" {
+			t.Errorf("%s: %+v %v", p, a, err)
+		}
+	}
+	if a, _ := m.Asset(); a.Platform != Platform || a.File != TarballFile || Platform != "linux-"+runtime.GOARCH {
+		t.Fatalf("this machine updates from %+v, want the %s build", a, runtime.GOARCH)
+	}
+	if !slices.Contains(Platforms, Platform) {
+		t.Fatalf("%s is not a platform releases carry", Platform)
+	}
+}
+
+// Versions up to 0.4.0 look for the linux-amd64 entry, check it with these
+// rules and skip the rest, so that entry keeps its shape.
+func TestVersionsBeforeArmStillFindTheirBuild(t *testing.T) {
+	r := newTestRelease(t, "0.5.0")
+	var m struct {
+		Assets []map[string]any `json:"assets"`
+	}
+	if err := json.Unmarshal(r.manifest, &m); err != nil {
+		t.Fatal(err)
+	}
+	old := regexp.MustCompile(`^playkeeper-[0-9A-Za-z.+-]+-linux-amd64/playkeeper$`)
+	var found map[string]any
+	for _, a := range m.Assets {
+		if a["platform"] == "linux-amd64" {
+			found = a
+			break
+		}
+	}
+	if found == nil || found["file"] != "playkeeper-linux-amd64.tar.gz" || !old.MatchString(found["binary"].(string)) ||
+		found["binary"] != "playkeeper-0.5.0-linux-amd64/playkeeper" {
+		t.Fatalf("0.4.0 can't update from this manifest: %v", m.Assets)
+	}
+}
+
+func TestManifestsFromLaterReleasesStillUpdateThisPlatform(t *testing.T) {
+	r := newTestRelease(t, "0.5.0")
+	extra := bytes.Replace(r.manifest, []byte(`"assets": [`), []byte(`"assets": [
+    {"platform": "linux-riscv64", "file": "playkeeper-linux-riscv64.tar.gz", "sha256": "`+strings.Repeat("a", 64)+`", "size": 1, "binary": "playkeeper-0.5.0-linux-riscv64/playkeeper", "binarySha256": "`+strings.Repeat("b", 64)+`"},`), 1)
+	m, err := VerifyManifest(extra, Sign(r.priv, extra), r.keys)
+	if err != nil {
+		t.Fatalf("a build for a platform this version doesn't know must not stop its update: %v", err)
+	}
+	if a, err := m.Asset(); err != nil || a.Platform != Platform {
+		t.Fatalf("got %+v %v", a, err)
+	}
+	if err := m.CheckComplete(); err == nil {
+		t.Fatal("the release workflow publishes exactly the platforms it builds")
+	}
+	only, err := BuildManifest("0.5.0", "2026-09-25T12:00:00Z", "- notes", r.tarball)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var one Manifest
+	if err := json.Unmarshal(only, &one); err != nil {
+		t.Fatal(err)
+	}
+	if err := one.CheckComplete(); err == nil || !strings.Contains(err.Error(), "want linux-amd64, linux-arm64") {
+		t.Fatalf("a release without every platform's build is incomplete: %v", err)
+	}
+}
+
+func TestBuildManifestNeedsReleaseTarballs(t *testing.T) {
+	r := newTestRelease(t, "0.5.0")
+	renamed := filepath.Join(t.TempDir(), "playkeeper.tar.gz")
+	b, _ := os.ReadFile(r.tarball)
+	if err := os.WriteFile(renamed, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, tarballs := range map[string][]string{
+		"none":     nil,
+		"misnamed": {renamed},
+		"twice":    {r.tarball, r.tarball},
+	} {
+		if _, err := BuildManifest("0.5.0", "2026-09-25T12:00:00Z", "- notes", tarballs...); err == nil {
+			t.Errorf("%s: a manifest was built", name)
+		}
+	}
+	other := "linux-amd64"
+	if Platform == other {
+		other = "linux-arm64"
+	}
+	wrong := filepath.Join(t.TempDir(), TarballName(other))
+	if err := os.WriteFile(wrong, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuildManifest("0.5.0", "2026-09-25T12:00:00Z", "- notes", wrong); err == nil || !strings.Contains(err.Error(), BinaryPath("0.5.0", other)) {
+		t.Fatalf("a tarball named for %s must hold that platform's binary: %v", other, err)
 	}
 }
 

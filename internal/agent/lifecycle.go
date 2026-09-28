@@ -153,11 +153,19 @@ func (s *server) busyError() error {
 		return err
 	}
 	cur := s.currentOp()
-	what := "another operation"
-	if cur != nil {
-		what = opLabels[cur.Kind]
+	return &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: s.name() + " is busy with " + s.busyWith(cur, "another operation") + ".", Hint: "Wait for it to finish, then try again.", Op: cur}
+}
+
+// busyWith names what holds the server's operation lock: its operation cur,
+// a change the file browser makes to its files, or otherwise.
+func (s *server) busyWith(cur *api.Operation, otherwise string) string {
+	switch {
+	case cur != nil:
+		return opLabels[cur.Kind]
+	case s.changingFiles():
+		return "a change to its files"
 	}
-	return &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: s.name() + " is busy with " + what + ".", Hint: "Wait for it to finish, then try again.", Op: cur}
+	return otherwise
 }
 
 // holdOpLock takes the server's operation lock for a short decision, such as
@@ -366,6 +374,12 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool,
 	limit := int64(sc.MemoryMB) << 20
 	pids := int64(2048)
 	stop := int(s.opts.StopTimeout.Seconds())
+	data, secret := s.dataDir()+":/data", s.containerSecret()+":/run/secrets/rcon_password:ro"
+	if s.selinuxLabels() {
+		// Docker relabels both for containers at every start, so a world a
+		// restore moved in is readable too.
+		data, secret = data+":z", secret+",z"
+	}
 	cfg := docker.ContainerConfig{
 		Image:       runtimeImage(sc.MinecraftVersion),
 		Env:         env,
@@ -374,7 +388,7 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool,
 		StopTimeout: &stop,
 		Labels:      s.labels(),
 		HostConfig: docker.HostConfig{
-			Binds:         []string{s.dataDir() + ":/data", s.containerSecret() + ":/run/secrets/rcon_password:ro"},
+			Binds:         []string{data, secret},
 			RestartPolicy: docker.RestartPolicy{Name: "no"},
 			Memory:        limit,
 			MemorySwap:    limit,

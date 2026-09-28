@@ -4,11 +4,11 @@
 // machine hears only how much came (worlds.ts).
 
 import type * as real from '@/lib/upload'
-import { backoffMs, pieceBytes, retryable, uploadWorld as uploadForReal, UploadSpeed, xhrPut, type Put, type UploadOptions } from '@/lib/upload'
+import { backoffMs, pieceBytes, retryable, uploadFiles as filesForReal, uploadWorld as uploadForReal, UploadSpeed, xhrPut, type FileUploadOptions, type Put, type UploadOptions } from '@/lib/upload'
 import { answer } from './engine'
 
 export { backoffMs, pieceBytes, retryable, UploadSpeed, xhrPut }
-export type { Put, PutResult, UploadOptions, UploadProgress } from '@/lib/upload'
+export type { FileUploadOptions, Put, PutResult, UploadOptions, UploadProgress } from '@/lib/upload'
 
 /** However big the world, its upload takes about this long. */
 const uploadMs = 4000
@@ -28,10 +28,13 @@ function wait(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-/** Uploads files the way the real upload does, without sending a byte. */
-export function uploadWorld(o: UploadOptions) {
+/** A small file's text, which the demo keeps so the editor can open it. */
+const keptText = 64 << 10
+
+/** Pieces that "arrive" over a moment and tell the make-believe machine only how many bytes came, and a small file's text. */
+function pretendPut(o: { files: File[]; piece?: number }): Put {
   const total = Math.max(1, o.files.reduce((n, f) => n + f.size, 0))
-  const pretend: Put = async (url, _body, onSent, signal) => {
+  return async (url, body, onSent, signal) => {
     const [, n = '0', from = '0'] = /\/files\/(\d+)\?offset=(\d+)/.exec(url) ?? []
     const size = o.files[Number(n)]?.size ?? 0
     const piece = Math.min(o.piece ?? pieceBytes, size - Number(from))
@@ -40,11 +43,21 @@ export function uploadWorld(o: UploadOptions) {
       await wait(tickMs, signal)
       onSent(Math.round((piece * i) / steps))
     }
-    const imp = await answer('PUT', url, { received: Number(from) + piece })
+    const text = size <= keptText && Number(from) === 0 && piece === size ? await body.text() : undefined
+    const imp = await answer('PUT', url, { received: Number(from) + piece, text })
     return { status: 200, text: JSON.stringify(imp) }
   }
-  return uploadForReal({ ...o, put: pretend })
+}
+
+/** Uploads a world the way the real upload does, without sending a byte. */
+export function uploadWorld(o: UploadOptions) {
+  return uploadForReal({ ...o, put: pretendPut(o) })
+}
+
+/** Uploads files into a server's folder the same way. */
+export function uploadFiles(o: FileUploadOptions) {
+  return filesForReal({ ...o, put: pretendPut(o) })
 }
 
 // Type-checks that this module stands in for every export of the real one.
-void ({ backoffMs, pieceBytes, retryable, uploadWorld, UploadSpeed, xhrPut } satisfies typeof real)
+void ({ backoffMs, pieceBytes, retryable, uploadFiles, uploadWorld, UploadSpeed, xhrPut } satisfies typeof real)

@@ -17,8 +17,13 @@ const (
 	KindNotFolder Kind = "not_a_folder"
 	KindTooLarge  Kind = "too_large"
 	KindTooMany   Kind = "too_many_entries"
+	KindTooDeep   Kind = "too_deep"
 	KindChanged   Kind = "changed"
 	KindBadName   Kind = "bad_name"
+	// KindExists and KindIntoItself refuse what the file browser asks for:
+	// a name something already has, and moving a folder into itself.
+	KindExists     Kind = "exists"
+	KindIntoItself Kind = "into_itself"
 )
 
 // Error is a refusal: Msg and Hint in English, Kind and Params for
@@ -101,12 +106,25 @@ func tooManyError(p string, limit int) error {
 		"Delete what the server does not need from it, then try again.", "limit", strconv.Itoa(limit))
 }
 
+func tooDeepError(p string, limit int) error {
+	return refuse(KindTooDeep, p, where(p)+" has folders more than "+strconv.Itoa(limit)+" deep in it, deeper than Playkeeper goes.",
+		"Delete what the server does not need from it, then try again. "+hintPlanted, "limit", strconv.Itoa(limit))
+}
+
 func changedError(p string) error {
 	return refuse(KindChanged, p, where(p)+" changed while Playkeeper was using it.", "Try again.")
 }
 
 func badNameError(p string) error {
 	return refuse(KindBadName, p, strconv.Quote(p)+" is not a path inside the server's files.", "")
+}
+
+func existsError(p string) error {
+	return refuse(KindExists, p, where(p)+" already exists.", "Choose another name, or move or delete what is there first.")
+}
+
+func intoItselfError(from, to string) error {
+	return refuse(KindIntoItself, from, where(from)+" can't be moved into itself.", "Choose a folder outside it.", "to", to)
 }
 
 // sizeText writes a limit the way the dashboard does, like "64 KB".

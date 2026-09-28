@@ -17,6 +17,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/machinelink"
+	"github.com/CIYAhq/playkeeper/internal/platform"
 	"github.com/CIYAhq/playkeeper/internal/sizing"
 	"github.com/CIYAhq/playkeeper/internal/version"
 )
@@ -413,6 +414,22 @@ type minimumView struct {
 	Cores      int `json:"cores"`
 	MemoryGB   int `json:"memoryGB"`
 	FreeDiskGB int `json:"freeDiskGB"`
+	// Systems are the supported distributions, a family of them as one,
+	// each with its oldest supported release: later releases work too.
+	Systems []systemView `json:"systems"`
+}
+
+type systemView struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+func minimum() minimumView {
+	m := minimumView{Cores: sizing.MinCores, MemoryGB: sizing.MinMemoryGB, FreeDiskGB: sizing.MinFreeDiskGB}
+	for _, g := range platform.Groups() {
+		m.Systems = append(m.Systems, systemView{Name: g.Name, Version: g.Version})
+	}
+	return m
 }
 
 // hMachineLink is what the connect-a-machine screen needs: the dashboard's
@@ -422,7 +439,7 @@ type minimumView struct {
 func (s *Server) hMachineLink(w http.ResponseWriter, r *http.Request, sess *session) {
 	out := map[string]any{
 		"addresses": s.dialAddresses(r.Context(), r),
-		"minimum":   minimumView{Cores: sizing.MinCores, MemoryGB: sizing.MinMemoryGB, FreeDiskGB: sizing.MinFreeDiskGB},
+		"minimum":   minimum(),
 		"sizingUrl": "https://playkeeper.io/sizing",
 		"available": s.hub != nil,
 	}

@@ -103,11 +103,11 @@ func cobblemonShare() share.Share {
 // replaces the host the page was opened at.
 func TestFriendsPackPageGivesTheServersNamedAddress(t *testing.T) {
 	f := newFriendsAgent(t)
-	f.link.JoinAddress = "cobblemon.alex.playkeeper.io"
+	f.link.JoinAddress = "cobblemon.alex.playkeeper.me"
 	e := newEnvAgent(t, f.handler, &syncBuffer{})
 	r, body := get(t, e.ts.Client(), "GET", e.ts.URL+share.PathPrefix+friendsToken+"/page", nil)
 	var p share.Page
-	if r.StatusCode != http.StatusOK || json.Unmarshal([]byte(body), &p) != nil || p.Address != "cobblemon.alex.playkeeper.io" {
+	if r.StatusCode != http.StatusOK || json.Unmarshal([]byte(body), &p) != nil || p.Address != "cobblemon.alex.playkeeper.me" {
 		t.Fatalf("page data: %d %s", r.StatusCode, body)
 	}
 }
@@ -120,7 +120,7 @@ func TestAJoinedMachinesPackPageGivesItsIPAndPort(t *testing.T) {
 	cookie, csrf := e.setup(t)
 	e.replyStatus("GET", "/v1/packs/"+friendsToken, http.StatusNotFound, `{"error":"Pack not found.","code":"not_found"}`)
 	f := newFriendsAgent(t)
-	f.link.JoinAddress = "cobblemon.home.playkeeper.io"
+	f.link.JoinAddress = "cobblemon.home.playkeeper.me"
 	e.joined(t, cookie, csrf, http.HandlerFunc(f.handler))
 	req, _ := http.NewRequest("GET", e.ts.URL+share.PathPrefix+friendsToken+"/page", nil)
 	req.Host = "panel.example.com"

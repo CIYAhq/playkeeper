@@ -203,6 +203,12 @@ main:focus { outline: none; }
 .install-dark .install-copy { border-color: rgb(255 255 255 / 0.16); background: rgb(255 255 255 / 0.08); color: var(--white); }
 .install-dark .install-copy:hover { background: rgb(255 255 255 / 0.16); }
 .install-dark .install-copy.is-copied .icon-check { color: #86d46a; }
+/* Send to my computer, where a page's share setting asks for it: on phones
+   only, beside Copy under the command. */
+.install-share { display: none; flex: none; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 12px; border: 1px solid transparent; border-radius: 9px; background: var(--green); color: var(--white); font-size: 14px; font-weight: 600; cursor: pointer; transition: background-color 0.15s, transform 0.1s; }
+.install-share:hover { background: #147a3a; }
+.install-share:active { transform: scale(0.96); }
+.install-share .icon { width: 18px; height: 18px; }
 /* A channel's command, /install/<code>, is longer: its box is wider, and on
    phones Copy goes under it, and a line wraps rather than hide behind Copy. */
 .install-tagged { max-width: 660px; }
@@ -219,10 +225,19 @@ main:focus { outline: none; }
   .install-tagged .install-lines { white-space: pre-wrap; word-break: break-all; }
   .install-tagged .install-copy { width: 100%; gap: 8px; }
   .install-tagged .install-copy-label { display: inline; }
+  .install-shares { flex-wrap: wrap; column-gap: 8px; }
+  .install-shares .install-cmd { flex: 1 0 100%; }
+  .install-shares .install-copy { flex: 1 0 auto; width: auto; padding: 0 12px; gap: 8px; }
+  .install-shares .install-copy-label { display: inline; }
+  .install-share { display: inline-flex; flex: 2 0 auto; }
+}
+/* So a channel's lines fit on 360-pixel phones, common on Android. */
+@media (max-width: 374.98px) {
+  .install-tagged .install-cmd { font-size: 11px; }
 }
 
 /* A toast, for "Command copied" on phones. */
-.toast { position: fixed; left: 50%; bottom: 20px; z-index: 60; display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-radius: 12px; background: var(--ink); color: var(--white); font-size: 15px; font-weight: 600; box-shadow: var(--shadow-lg); transform: translate(-50%, 0); transition: transform 0.24s var(--ease-out), opacity 0.2s; }
+.toast { position: fixed; left: 50%; bottom: 20px; z-index: 60; display: flex; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 32px); padding: 12px 16px; border-radius: 12px; background: var(--ink); color: var(--white); font-size: 15px; font-weight: 600; box-shadow: var(--shadow-lg); transform: translate(-50%, 0); transition: transform 0.24s var(--ease-out), opacity 0.2s; }
 .toast .icon { color: #86d46a; }
 .toast.is-leaving { opacity: 0; transform: translate(-50%, 8px); }
 @starting-style { .toast { transform: translate(-50%, 16px); opacity: 0; } }

@@ -141,7 +141,7 @@ func (l *Library) inventory(ctx context.Context, srv Server, t Target, installed
 			entries = entries[:maxFolderEntries]
 			warnings = append(warnings, notice(KindTooLarge, kv("folder", t.Folder, "limit", strconv.Itoa(maxFolderEntries)),
 				fmt.Sprintf("The %s folder has more than %d entries, so Playkeeper looked at only %d of them.", t.Folder, maxFolderEntries, maxFolderEntries),
-				"Tidy up the folder in the file manager."))
+				"Tidy up the folder on the Files tab."))
 		}
 		for _, e := range entries {
 			name := e.Name()

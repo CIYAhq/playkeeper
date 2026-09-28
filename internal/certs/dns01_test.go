@@ -79,12 +79,12 @@ func (c *fakeChallenger) log() []string {
 	return slices.Clone(c.calls)
 }
 
-const alexTXT = "_acme-challenge.alex.playkeeper.io"
+const alexTXT = "_acme-challenge.alex.playkeeper.me"
 
 func TestDNS01Present(t *testing.T) {
 	c := newChallenger(t)
 	d := &DNS01{Challenger: c, LookupTXT: c.lookup, Interval: time.Millisecond}
-	remove, err := d.present(t.Context(), "alex.playkeeper.io", "v1")
+	remove, err := d.present(t.Context(), "alex.playkeeper.me", "v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestDNS01WaitsForPropagation(t *testing.T) {
 			}
 			return c.lookup(ctx, fqdn)
 		}}
-	remove, err := d.present(t.Context(), "alex.playkeeper.io", "v1")
+	remove, err := d.present(t.Context(), "alex.playkeeper.me", "v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,12 +126,12 @@ func TestDNS01NotVisible(t *testing.T) {
 	d := &DNS01{Challenger: c, Interval: time.Millisecond, Timeout: 50 * time.Millisecond,
 		LookupTXT: func(context.Context, string) ([]string, error) { return []string{"stale"}, nil }}
 	start := time.Now()
-	_, err := d.present(t.Context(), "alex.playkeeper.io", "v1")
+	_, err := d.present(t.Context(), "alex.playkeeper.me", "v1")
 	p := wantProblem(t, err, CodeDNS01NotVisible, "")
 	if time.Since(start) > 5*time.Second {
 		t.Errorf("gave up after %s", time.Since(start))
 	}
-	if p.Params["fqdn"] != alexTXT || p.Params["name"] != "alex.playkeeper.io" {
+	if p.Params["fqdn"] != alexTXT || p.Params["name"] != "alex.playkeeper.me" {
 		t.Errorf("params = %v", p.Params)
 	}
 	if !strings.Contains(p.Message, alexTXT) || !strings.Contains(p.Detail, `"stale"`) {
@@ -152,7 +152,7 @@ func TestDNS01LookupsFail(t *testing.T) {
 			lookups.Add(1)
 			return nil, &net.DNSError{Err: "i/o timeout", Name: fqdn, IsTimeout: true}
 		}}
-	remove, err := d.present(t.Context(), "alex.playkeeper.io", "v1")
+	remove, err := d.present(t.Context(), "alex.playkeeper.me", "v1")
 	if err != nil {
 		t.Fatalf("present = %v, want to go ahead", err)
 	}
@@ -167,9 +167,9 @@ func TestDNS01LookupsFail(t *testing.T) {
 
 func TestDNS01PublishFails(t *testing.T) {
 	c := newChallenger(t)
-	c.setErr = errors.New("the playkeeper.io service refused the change: too many records")
+	c.setErr = errors.New("the names service refused the change: too many records")
 	d := &DNS01{Challenger: c, LookupTXT: c.lookup}
-	_, err := d.present(t.Context(), "alex.playkeeper.io", "v1")
+	_, err := d.present(t.Context(), "alex.playkeeper.me", "v1")
 	p := wantProblem(t, err, CodeDNS01PublishFailed, "")
 	if p.Detail != c.setErr.Error() || !errors.Is(err, c.setErr) {
 		t.Errorf("detail = %q", p.Detail)
@@ -181,7 +181,7 @@ func TestDNS01PublishFails(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := d.present(ctx, "alex.playkeeper.io", "v1"); !errors.Is(err, context.Canceled) {
+	if _, err := d.present(ctx, "alex.playkeeper.me", "v1"); !errors.Is(err, context.Canceled) {
 		t.Errorf("present with a canceled context = %v", err)
 	}
 }
@@ -198,7 +198,7 @@ func TestDNS01Canceled(t *testing.T) {
 			}
 			return nil, nil
 		}}
-	_, err := d.present(ctx, "alex.playkeeper.io", "v1")
+	_, err := d.present(ctx, "alex.playkeeper.me", "v1")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("present = %v", err)
 	}
@@ -215,10 +215,10 @@ func TestDNS01Canceled(t *testing.T) {
 func TestDNS01KeepsTheChallengersProblem(t *testing.T) {
 	c := newChallenger(t)
 	retryAt := time.Date(2026, 10, 2, 15, 4, 0, 0, time.UTC)
-	refused := errors.New("New certificates for playkeeper.io names are paused.")
-	c.setErr = CertificateLimit(refused, "alex.playkeeper.io", "all", retryAt)
+	refused := errors.New("New certificates for playkeeper.me names are paused.")
+	c.setErr = CertificateLimit(refused, "alex.playkeeper.me", "all", retryAt)
 	d := &DNS01{Challenger: c, LookupTXT: c.lookup}
-	_, err := d.present(t.Context(), "alex.playkeeper.io", "v1")
+	_, err := d.present(t.Context(), "alex.playkeeper.me", "v1")
 	p := wantProblem(t, err, CodeCertificateLimit, "all")
 	if !p.RetryAt.Equal(retryAt) || !errors.Is(err, refused) || !strings.Contains(p.Message, "paused this week") || !strings.Contains(p.Hint, "2026-10-02 15:04 UTC") {
 		t.Errorf("problem = %+v", p)
@@ -226,13 +226,13 @@ func TestDNS01KeepsTheChallengersProblem(t *testing.T) {
 	if got := c.log(); len(got) != 2 || !strings.HasPrefix(got[1], "clear ") {
 		t.Errorf("calls = %q", got)
 	}
-	if p := CertificateLimit(refused, "alex.playkeeper.io", "name", retryAt); !strings.HasPrefix(p.Message, "alex.playkeeper.io has asked for as many certificates") || !p.RetryAt.Equal(retryAt) {
+	if p := CertificateLimit(refused, "alex.playkeeper.me", "name", retryAt); !strings.HasPrefix(p.Message, "alex.playkeeper.me has asked for as many certificates") || !p.RetryAt.Equal(retryAt) {
 		t.Errorf("one name's limit: %+v", p)
 	}
 }
 
 // namesService answers a names.Client's challenge requests the way the
-// playkeeper.io service does: Cloudflare may not have published a stored
+// names service does: Cloudflare may not have published a stored
 // record yet when the service answers, and the service keeps publishing it.
 type namesService struct {
 	mu      sync.Mutex
@@ -303,7 +303,7 @@ func TestDNS01WaitsForAChallengeTheNamesServiceStored(t *testing.T) {
 			defer srv.Close()
 			c := &names.Client{ServiceURL: srv.URL, Key: ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), Name: "alex", HTTP: srv.Client()}
 			d := &DNS01{Challenger: c, LookupTXT: s.lookup, Interval: time.Millisecond, Timeout: time.Second}
-			remove, err := d.present(t.Context(), "alex.playkeeper.io", value)
+			remove, err := d.present(t.Context(), "alex.playkeeper.me", value)
 			if tc.code != "" {
 				wantProblem(t, err, tc.code, "")
 			} else if err != nil {

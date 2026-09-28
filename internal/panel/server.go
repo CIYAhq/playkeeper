@@ -83,8 +83,10 @@ type Server struct {
 	static  fs.FS
 	loginIP *limiter
 	control *limiter
-	// previews is previewRoutes' bucket, apart from control's.
+	// previews is previewRoutes' bucket, apart from control's, and uploads
+	// is uploadRoutes'.
 	previews *limiter
+	uploads  *limiter
 	locks    *lockout
 	// loginUser counts failed sign-ins per account from every address, so
 	// guesses spread over many addresses stay slow. One address can't use
@@ -170,6 +172,7 @@ func New(opts Options) (*Server, error) {
 		loginIP:     newLimiter(10, 15*time.Minute, opts.Now),
 		control:     newLimiter(30, time.Minute, opts.Now),
 		previews:    newLimiter(120, time.Minute, opts.Now),
+		uploads:     newLimiter(1200, time.Minute, opts.Now),
 		locks:       newLockout(opts.Now),
 		loginUser:   newLimiter(30, time.Hour, opts.Now),
 		heads:       newHeadFetcher(src, mc),
@@ -516,7 +519,7 @@ func (s *Server) Routes() []Route {
 		sg("/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
 		sm("POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
 	}...)
-	return routes
+	return append(routes, s.fileRoutes()...)
 }
 
 // Handler returns the complete panel handler (API, health check and UI).
@@ -578,8 +581,11 @@ func (s *Server) guard(rt Route) http.HandlerFunc {
 					return
 				}
 				bucket := s.control
-				if previewRoutes[rt.Method+" "+rt.Pattern] {
+				switch key := rt.Method + " " + rt.Pattern; {
+				case previewRoutes[key]:
 					bucket = s.previews
+				case uploadRoutes[key]:
+					bucket = s.uploads
 				}
 				if ok, wait := bucket.allow("session:" + sess.IDHash); !ok {
 					w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
@@ -1497,13 +1503,18 @@ func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
 			http.ServeFileFS(w, r, s.static, p)
 			return
 		}
-		if strings.HasPrefix(p, "assets/") || path.Ext(p) != "" {
+		if strings.HasPrefix(p, "assets/") || (path.Ext(p) != "" && !reFilesPage.MatchString(p)) {
 			http.NotFound(w, r)
 			return
 		}
 	}
 	s.writeIndex(w, cache)
 }
+
+// reFilesPage matches the pages of a server's Files tab, whose addresses end
+// in the path of a file or folder, often with an extension: they are pages,
+// not built files.
+var reFilesPage = regexp.MustCompile(`^servers/[^/]+/files?/`)
 
 // writeIndex answers with the UI's index.html.
 func (s *Server) writeIndex(w http.ResponseWriter, cacheControl string) {

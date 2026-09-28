@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { BotIcon, ChevronRightIcon, CircleHelpIcon, HouseIcon, LibraryIcon, ListChecksIcon, LogOutIcon, MapIcon, MessageSquareIcon, PlusIcon, PuzzleIcon, ServerCogIcon, ServerIcon, SettingsIcon, Share2Icon, SlidersHorizontalIcon, UsersIcon } from 'lucide-react'
+import { BotIcon, ChevronRightIcon, CircleHelpIcon, FolderIcon, HouseIcon, LibraryIcon, ListChecksIcon, LogOutIcon, MapIcon, MessageSquareIcon, PlusIcon, PuzzleIcon, ServerCogIcon, ServerIcon, SettingsIcon, Share2Icon, SlidersHorizontalIcon, UsersIcon } from 'lucide-react'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { SectionLabel, Spinner } from '@/components/app/bits'
 import { stepRoute, stepTitle } from '@/components/app/checklist'
@@ -77,6 +77,7 @@ export function MorePage() {
   const steps = server ? checklist(server) : checklist(undefined)
   const p = progress(steps)
   const addons = addonTab(server?.type)
+  const manage = can(ws.me, 'servers.manage')
   return (
     <div className="flex flex-col gap-4 pb-6">
       <PageHeader title={t('more.title')} />
@@ -92,22 +93,29 @@ export function MorePage() {
           </li>
         </Group>
       )}
-      {server && can(ws.me, 'servers.manage') && (
+      {server && (manage || can(ws.me, 'files.view')) && (
         <Group label={server.name}>
-          {hasMap(server) && (
+          {manage && hasMap(server) && (
             <li>
               <Row icon={<MapIcon />} title={t('tab.map')} hint={t('more.mapHint')} to={{ name: 'server', slug: server.slug, tab: 'map' }} />
             </li>
           )}
-          {addons && (
+          {manage && addons && (
             <li>
               <Row icon={<PuzzleIcon />} title={addons === 'mods' ? t('tab.mods') : t('tab.plugins')} to={{ name: 'server', slug: server.slug, tab: addons }} />
             </li>
           )}
-          <li>
-            <Row icon={<SlidersHorizontalIcon />} title={t('tab.settings')} hint={t('more.settingsHint')} to={{ name: 'server', slug: server.slug, tab: 'settings' }} />
-          </li>
-          {demo?.templates !== false && (
+          {can(ws.me, 'files.view') && (
+            <li>
+              <Row icon={<FolderIcon />} title={t('tab.files')} hint={t('more.filesHint')} to={{ name: 'server', slug: server.slug, tab: 'files' }} />
+            </li>
+          )}
+          {manage && (
+            <li>
+              <Row icon={<SlidersHorizontalIcon />} title={t('tab.settings')} hint={t('more.settingsHint')} to={{ name: 'server', slug: server.slug, tab: 'settings' }} />
+            </li>
+          )}
+          {manage && demo?.templates !== false && (
             <li>
               <Row icon={<Share2Icon />} title={t('template.menu')} hint={t('more.templateHint')} onClick={() => setSharing(true)} />
             </li>

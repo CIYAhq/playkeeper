@@ -20,12 +20,14 @@ const usage = `Usage:
       prints the private key on standard output, for example straight into
       the repository secret the release workflow signs with:
         go run ./cmd/release-sign keygen | gh secret set PLAYKEEPER_RELEASE_SIGNING_KEY --repo CIYAhq/playkeeper
-  release-sign manifest --version V --tarball FILE [--changelog CHANGELOG.md | --notes TEXT] [--date RFC3339]
-      Prints the release manifest for a tarball built by make package.
+  release-sign manifest --version V --tarball FILE... [--changelog CHANGELOG.md | --notes TEXT] [--date RFC3339]
+      Prints the release manifest for the tarballs built by make package,
+      one --tarball for each platform.
   release-sign sign     [--key-env PLAYKEEPER_RELEASE_SIGNING_KEY] FILE
       Writes FILE.sig with the private key from the environment variable.
   release-sign verify   [--public-key-file internal/update/release.pub] FILE
-      Checks FILE.sig against the key file and prints the release version.
+      Checks FILE.sig against the key file and that FILE describes a build for
+      every platform, and prints the release version.
   release-sign pubkey   [--key-env PLAYKEEPER_RELEASE_SIGNING_KEY]
       Prints the public key line of the private key in the environment variable.
 `
@@ -83,15 +85,22 @@ func keygen(args []string) error {
 	return nil
 }
 
+// files collects a flag given more than once.
+type files []string
+
+func (f *files) String() string     { return strings.Join(*f, ",") }
+func (f *files) Set(v string) error { *f = append(*f, v); return nil }
+
 func manifest(args []string) error {
 	fs := flag.NewFlagSet("manifest", flag.ExitOnError)
 	version := fs.String("version", "", "release version, without the leading v")
-	tarball := fs.String("tarball", "", "playkeeper-linux-amd64.tar.gz built by make package")
+	var tarballs files
+	fs.Var(&tarballs, "tarball", "a playkeeper-linux-<arch>.tar.gz built by make package; once for each platform")
 	changelog := fs.String("changelog", "", "take the notes from this changelog's section for the version")
 	notes := fs.String("notes", "", "the notes (instead of --changelog)")
 	date := fs.String("date", time.Now().UTC().Format(time.RFC3339), "release date")
 	fs.Parse(args)
-	if *version == "" || *tarball == "" {
+	if *version == "" || len(tarballs) == 0 {
 		return errors.New("--version and --tarball are required")
 	}
 	text := *notes
@@ -109,7 +118,7 @@ func manifest(args []string) error {
 	if strings.TrimSpace(text) == "" {
 		return errors.New("the release needs notes: pass --changelog or --notes")
 	}
-	b, err := update.BuildManifest(*version, *date, text, *tarball)
+	b, err := update.BuildManifest(*version, *date, text, tarballs...)
 	if err != nil {
 		return err
 	}
@@ -174,7 +183,10 @@ func verify(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s: release %s, signed by a key in %s\n", fs.Arg(0), m.Version, *keyFile)
+	if err := m.CheckComplete(); err != nil {
+		return err
+	}
+	fmt.Printf("%s: release %s for %s, signed by a key in %s\n", fs.Arg(0), m.Version, strings.Join(update.Platforms, " and "), *keyFile)
 	return nil
 }
 

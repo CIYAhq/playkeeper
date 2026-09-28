@@ -106,6 +106,11 @@ func recoverer(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if v := recover(); v != nil {
+				// A handler that has sent part of an answer ends the
+				// connection this way, as net/http does.
+				if v == http.ErrAbortHandler {
+					panic(v)
+				}
 				log.Error("agent handler panic", "panic", v, "stack", string(debug.Stack()))
 				writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Internal error", "")
 			}

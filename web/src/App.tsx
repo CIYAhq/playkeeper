@@ -242,7 +242,7 @@ function page(route: Route) {
     case 'new-server':
       return <NewServerPage key={route.machine ?? ''} machine={route.machine} />
     case 'server':
-      return <ServerPage slug={route.slug} tab={route.tab} sub={route.sub} page={route.page} />
+      return <ServerPage slug={route.slug} tab={route.tab} sub={route.sub} page={route.page} path={route.path} file={route.file} />
     case 'player':
       return <ServerPage slug={route.slug} tab="players" player={route.player} />
     case 'machine':

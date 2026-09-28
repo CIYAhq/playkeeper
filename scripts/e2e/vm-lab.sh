@@ -1,43 +1,120 @@
 #!/usr/bin/env bash
-# Disposable KVM lab for Playkeeper rehearsals: fresh Ubuntu 24.04 cloud-image
-# guests on a private bridge (198.51.100.0/24, a documentation range) with NAT
-# to the internet. Source this file; it defines functions only.
+# Disposable KVM lab for Playkeeper rehearsals: fresh guests from official
+# cloud images (Ubuntu 24.04 by default, or any supported system's, lab_os_url)
+# on a private bridge (198.51.100.0/24, a documentation range) with NAT to the
+# internet. Source this file; it defines functions only.
 #
 # Requires: qemu-system-x86_64 with /dev/kvm, qemu-img, cloud-localds, iproute2,
 # iptables, sudo. Guests are throwaway; nothing touches real hosts.
+# LAB_ACCEL=tcg emulates the CPU instead of using KVM: many times slower, for
+# machines whose KVM can't create a virtual CPU.
 
 LAB_DIR=${LAB_DIR:-/tmp/pk-lab}
 LAB_IMAGE_URL=${LAB_IMAGE_URL:-https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img}
-LAB_JAMMY_URL=${LAB_JAMMY_URL:-https://cloud-images.ubuntu.com/minimal/releases/jammy/release/ubuntu-22.04-minimal-cloudimg-amd64.img}
+LAB_BIONIC_URL=${LAB_BIONIC_URL:-https://cloud-images.ubuntu.com/bionic/current/bionic-server-cloudimg-amd64.img}
 LAB_BRIDGE=pkbr0
 LAB_NET=198.51.100
 LAB_KEY="$LAB_DIR/id_ed25519"
 LAB_QEMU_START_TIMEOUT=${LAB_QEMU_START_TIMEOUT:-60}
+LAB_ACCEL=${LAB_ACCEL:-kvm}
+# LAB_SSH_WAIT is how many 2-second tries a guest gets to answer ssh.
+LAB_SSH_WAIT=${LAB_SSH_WAIT:-90}
 
 lab_log() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
 
-lab_image() {
-  lab_image_named base "$LAB_IMAGE_URL"
+lab_key() {
+  mkdir -p "$LAB_DIR"
   [ -f "$LAB_KEY" ] || ssh-keygen -q -t ed25519 -N '' -f "$LAB_KEY"
 }
 
-# lab_image_named NAME URL — downloads a cloud image to $LAB_DIR/NAME.img once,
-# verified against the SHA256SUMS published next to it.
+lab_image() {
+  lab_image_named base "$LAB_IMAGE_URL"
+  lab_key
+}
+
+# lab_os_url OS — the official cloud image of a supported release
+# (internal/platform), by the name the OS matrix gives it.
+lab_os_url() {
+  local v=${1##*-} dir name
+  case $1 in
+    ubuntu-20.04) echo https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img ;;
+    ubuntu-22.04) echo https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img ;;
+    ubuntu-24.04) echo https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img ;;
+    ubuntu-26.04) echo https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img ;;
+    debian-12) echo https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2 ;;
+    debian-13) echo https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2 ;;
+    almalinux-9 | almalinux-10) echo "https://repo.almalinux.org/almalinux/$v/cloud/x86_64/images/AlmaLinux-$v-GenericCloud-latest.x86_64.qcow2" ;;
+    rocky-9 | rocky-10) echo "https://dl.rockylinux.org/pub/rocky/$v/images/x86_64/Rocky-$v-GenericCloud-Base.latest.x86_64.qcow2" ;;
+    centos-stream-9 | centos-stream-10) echo "https://cloud.centos.org/centos/$v-stream/x86_64/images/CentOS-Stream-GenericCloud-$v-latest.x86_64.qcow2" ;;
+    # Oracle keeps earlier updates' images, so this one stays (lab_os_sums).
+    oraclelinux-9) echo https://yum.oracle.com/templates/OracleLinux/OL9/u8/x86_64/OL9U8_x86_64-kvm-b293.qcow2 ;;
+    amazonlinux-2023)
+      # The latest image is named only in the checksum list next to it.
+      dir=https://cdn.amazonlinux.com/al2023/os-images/latest/kvm
+      name=$(curl -fsSL --retry 3 "$dir/SHA256SUMS" | awk '/-x86_64\.xfs\.gpt\.qcow2$/ {print $2; exit}')
+      if [ -z "$name" ]; then
+        lab_log "no x86_64 image in $dir/SHA256SUMS"
+        return 1
+      fi
+      echo "$dir/$name"
+      ;;
+    *)
+      lab_log "no cloud image for $1"
+      return 1
+      ;;
+  esac
+}
+
+# lab_os_sums OS — where OS's cloud image's checksum is published, for
+# lab_image_named: nothing for a SHA256SUMS or SHA512SUMS next to the image.
+lab_os_sums() {
+  case $1 in
+    almalinux-* | centos-stream-*) echo "$(dirname "$(lab_os_url "$1")")/CHECKSUM" ;;
+    rocky-*) echo "$(lab_os_url "$1").CHECKSUM" ;;
+    # Oracle lists it only on https://yum.oracle.com/oracle-linux-templates.html.
+    oraclelinux-9) echo sha256:b12103391327abee8090686759c0d62dac9a7af2bf0f45fdf6b0d085a0fbb52b ;;
+  esac
+}
+
+# lab_image_named NAME URL [SUMS] — downloads a cloud image to $LAB_DIR/NAME.img
+# once, verified against SUMS: the URL of a checksum list in GNU or BSD format,
+# or sha256:HEX where the publisher lists the checksum only on a web page.
+# Without SUMS it uses the SHA256SUMS or SHA512SUMS published next to the
+# image, as Ubuntu and Debian do.
 lab_image_named() {
-  local name=$1 url=$2 file want got
+  local name=$1 url=$2 sums=${3:-} file want got list sum=sha256sum
   file=$(basename "$url")
   mkdir -p "$LAB_DIR"
   [ -f "$LAB_DIR/$name.img" ] && return 0
   lab_log "downloading $file"
-  curl -fsSL -o "$LAB_DIR/$name.img.part" "$url"
-  curl -fsSL -o "$LAB_DIR/$name.SHA256SUMS" "$(dirname "$url")/SHA256SUMS"
-  want=$(awk -v f="$file" '$2 == "*" f || $2 == f {print $1}' "$LAB_DIR/$name.SHA256SUMS")
-  got=$(sha256sum "$LAB_DIR/$name.img.part" | awk '{print $1}')
+  curl -fsSL --retry 3 -o "$LAB_DIR/$name.img.part" "$url"
+  case $sums in
+    sha256:*) want=${sums#sha256:} ;;
+    ?*)
+      curl -fsSL --retry 3 -o "$LAB_DIR/$name.sums" "$sums"
+      want=$(lab_sum "$file" "$LAB_DIR/$name.sums")
+      ;;
+    *)
+      for list in SHA256SUMS SHA512SUMS; do
+        curl -fsSL --retry 3 -o "$LAB_DIR/$name.sums" "$(dirname "$url")/$list" 2>/dev/null && break
+        rm -f "$LAB_DIR/$name.sums"
+      done
+      [ "$list" = SHA512SUMS ] && sum=sha512sum
+      want=$(lab_sum "$file" "$LAB_DIR/$name.sums" 2>/dev/null || true)
+      ;;
+  esac
+  got=$($sum "$LAB_DIR/$name.img.part" | awk '{print $1}')
   if [ -z "$want" ] || [ "$want" != "$got" ]; then
-    lab_log "cloud image checksum mismatch for $file"
+    lab_log "cloud image checksum mismatch for $file (want '$want', got $got)"
     return 1
   fi
   mv "$LAB_DIR/$name.img.part" "$LAB_DIR/$name.img"
+}
+
+# lab_sum FILE LIST — FILE's checksum in LIST: "HEX  FILE" or "HEX *FILE"
+# (GNU), or "SHA256 (FILE) = HEX" (BSD).
+lab_sum() {
+  awk -v f="$1" '$2 == "*" f || $2 == f {print $1} $1 ~ /^SHA(256|512)$/ && $2 == "(" f ")" {print $4}' "$2" | head -1
 }
 
 lab_network() {
@@ -59,13 +136,20 @@ lab_network() {
 }
 
 # lab_boot NAME OCTET MEMORY_MB — boots a fresh guest at $LAB_NET.OCTET from
-# $LAB_BASE_IMAGE (default: the Ubuntu 24.04 image).
+# $LAB_BASE_IMAGE (default: the Ubuntu 24.04 image). NAME becomes part of the
+# host name and the tap device's name, so keep it short, without dots.
 lab_boot() {
-  local name=$1 octet=$2 mem=${3:-3072} dir="$LAB_DIR/$1" dns
-  dns=$(awk '/^nameserver/ {print $2; exit}' /etc/resolv.conf)
+  local name=$1 octet=$2 mem=${3:-3072} dir="$LAB_DIR/$1" dns base=${LAB_BASE_IMAGE:-$LAB_DIR/base.img} size
+  # A resolver on the host's loopback (systemd-resolved's 127.0.0.53) is out
+  # of the guests' reach: they get the servers it forwards to.
+  dns=$(awk '/^nameserver/ && $2 !~ /^127\./ {print $2; exit}' /etc/resolv.conf /run/systemd/resolve/resolv.conf 2>/dev/null || true)
+  dns=${dns:-1.1.1.1}
   rm -rf "$dir"
   mkdir -p "$dir"
-  qemu-img create -q -f qcow2 -F qcow2 -b "${LAB_BASE_IMAGE:-$LAB_DIR/base.img}" "$dir/disk.qcow2" 20G
+  # 20 GB, or the image's own disk where that is larger (Oracle Linux's is
+  # 37 GB): a smaller disk would cut off its partitions.
+  size=$(qemu-img info --output=json "$base" | python3 -c 'import json, sys; print(max(20 * 2**30, json.load(sys.stdin)["virtual-size"]))')
+  qemu-img create -q -f qcow2 -F qcow2 -b "$base" "$dir/disk.qcow2" "$size"
   cat >"$dir/user-data" <<EOF
 #cloud-config
 hostname: pk-$name
@@ -86,7 +170,8 @@ ethernets:
     set-name: eth0
     addresses: [$LAB_NET.$octet/24]
     routes:
-      - to: default
+      # Not "default": the RHEL family's cloud-init refuses it.
+      - to: 0.0.0.0/0
         via: $LAB_NET.1
     nameservers:
       addresses: [$dns, 1.1.1.1]
@@ -99,8 +184,9 @@ EOF
   sudo ip link set "$tap" up
   # -daemonize returns once the virtual machine is set up, in seconds. Where
   # KVM can't create a virtual CPU (the kernel oopses), qemu never returns.
-  local st=0
-  timeout --kill-after=10 "$LAB_QEMU_START_TIMEOUT" qemu-system-x86_64 -enable-kvm -cpu host -smp 2 -m "$mem" -name "pk-$name" \
+  local st=0 accel=(-enable-kvm -cpu host)
+  [ "$LAB_ACCEL" = tcg ] && accel=(-accel "tcg,thread=multi" -cpu max)
+  timeout --kill-after=10 "$LAB_QEMU_START_TIMEOUT" qemu-system-x86_64 "${accel[@]}" -smp 2 -m "$mem" -name "pk-$name" \
     -drive "file=$dir/disk.qcow2,if=virtio" -drive "file=$dir/seed.iso,if=virtio,format=raw" \
     -netdev "tap,id=n0,ifname=$tap,script=no,downscript=no" -device "virtio-net-pci,netdev=n0,mac=52:54:00:98:51:$octet" \
     -display none -serial "file:$dir/console.log" -daemonize -pidfile "$dir/qemu.pid" || st=$?
@@ -113,7 +199,7 @@ EOF
     lab_shutdown "$name"
     return 1
   fi
-  lab_log "booted $name at $LAB_NET.$octet ($mem MB RAM, 2 vCPU, 20 GB disk)"
+  lab_log "booted $name at $LAB_NET.$octet ($mem MB RAM, 2 vCPU, $((size / 1024 / 1024 / 1024)) GB disk)"
   lab_wait_ssh "$LAB_NET.$octet"
 }
 
@@ -129,7 +215,7 @@ lab_scp() { # SRC... IP:DEST
 
 lab_wait_ssh() {
   local ip=$1 i
-  for i in $(seq 1 90); do
+  for i in $(seq 1 "$LAB_SSH_WAIT"); do
     if lab_ssh "$ip" 'cloud-init status --wait >/dev/null 2>&1; true' 2>/dev/null; then
       lab_log "$ip is up (ssh ready after ~$((i * 2)) s)"
       return 0

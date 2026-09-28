@@ -51,6 +51,26 @@ func TestMigratedServerKeepsItsExactContainerDefinition(t *testing.T) {
 	}
 }
 
+// A Docker that runs containers under SELinux labels, as RHEL-family admins
+// can set it up, relabels what a server bind-mounts; with any other Docker the
+// definition stays as it was, so an upgrade restarts no server.
+func TestBindsAreRelabelledOnlyForADockerThatUsesSELinux(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		e := newAgentEnvWith(t, func(e *agentEnv) { e.fd.selinux = on })
+		e.create()
+		e.fd.mu.Lock()
+		binds := slices.Clone(e.fd.byName[e.cname()].cfg.HostConfig.Binds)
+		e.fd.mu.Unlock()
+		data, secret := ":/data", ":/run/secrets/rcon_password:ro"
+		if on {
+			data, secret = ":/data:z", ":/run/secrets/rcon_password:ro,z"
+		}
+		if len(binds) != 2 || !strings.HasSuffix(binds[0], data) || !strings.HasSuffix(binds[1], secret) {
+			t.Fatalf("SELinux in Docker %v: binds %q", on, binds)
+		}
+	}
+}
+
 // oldDatabase writes agent.db as 0.2.0 left it, with its single server.
 func oldDatabase(t *testing.T, e *agentEnv, sc api.ServerConfig, since time.Time) {
 	t.Helper()

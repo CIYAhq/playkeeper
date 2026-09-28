@@ -36,6 +36,7 @@ const tabs = {
   backups: () => import('./backups'),
   console: () => import('./console'),
   copies: () => import('./copies'),
+  files: () => import('./files'),
   map: () => import('./map'),
   players: () => import('./players'),
   profile: () => import('./profile'),
@@ -52,6 +53,7 @@ const BackupRulesPhonePage = lazy(() => tabs.backups().then((m) => ({ default: m
 const ConsolePage = lazy(() => tabs.console().then((m) => ({ default: m.ConsolePage })))
 const CopiesCard = lazy(() => tabs.copies().then((m) => ({ default: m.CopiesCard })))
 const CopiesPhonePage = lazy(() => tabs.copies().then((m) => ({ default: m.CopiesPhonePage })))
+const FilesPage = lazy(() => tabs.files().then((m) => ({ default: m.FilesPage })))
 const MapPage = lazy(() => tabs.map().then((m) => ({ default: m.MapPage })))
 const PlayersPage = lazy(() => tabs.players().then((m) => ({ default: m.PlayersPage })))
 const PlayerProfilePage = lazy(() => tabs.profile().then((m) => ({ default: m.PlayerProfilePage })))
@@ -69,7 +71,7 @@ export function preloadTabs() {
 
 export { serverAction }
 
-export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab: ServerTab; sub?: ServerSub; page?: 'running'; player?: string }) {
+export function ServerPage({ slug, tab, sub, page, player, path, file }: { slug: string; tab: ServerTab; sub?: ServerSub; page?: 'running'; player?: string; path?: string; file?: boolean }) {
   const ws = useWorkspace()
   const server = useServer(slug)
   const phone = useIsPhone()
@@ -111,6 +113,9 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
     case 'map':
       body = <MapPage server={server} />
       break
+    case 'files':
+      body = <FilesPage server={server} path={path ?? ''} file={!!file} />
+      break
     case 'settings':
       body = phone && sub === 'schedules' ? <SchedulesPhonePage server={server} /> : <ServerSettingsPage server={server} focus={sub} />
       break
@@ -130,7 +135,8 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
   // Plugins tab keeps its running job and highlighted file across its views.
   const inner = sub ?? page
   let view = inner ? `${tab}/${inner}` : tab
-  if (tab === 'plugins' || tab === 'mods') view = tab
+  // The Files tab keeps its uploads going between its folders and files.
+  if (tab === 'plugins' || tab === 'mods' || tab === 'files') view = tab
   else if (player) view = `${tab}/${player}`
   else if (!phone && sub === 'backup-copies') view = 'world/backup-rules'
   else if (!phone && tab === 'settings') view = 'settings'
@@ -148,7 +154,7 @@ export function ServerPage({ slug, tab, sub, page, player }: { slug: string; tab
           <PhoneBackHeader to={{ name: 'server', slug: server.slug, tab: 'overview' }} label={t('tab.overview')} title={t('overview.running')} />
         ) : (tab === 'plugins' || tab === 'mods') && ownView ? (
           <PluginsPhoneHeader server={server} tab={tab} sub={sub} />
-        ) : (tab === 'world' && sub && ownView) || (tab === 'map' && ownView) ? null : (
+        ) : (tab === 'world' && sub && ownView) || ((tab === 'map' || tab === 'files') && ownView) ? null : (
           <PhoneServerHeader server={server} tab={tab} />
         )
       ) : (

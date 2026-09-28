@@ -550,7 +550,7 @@ func inTheWay(pack, blocker, p string) addons.Notice {
 		msg = fmt.Sprintf("%s needs to write %s, but %s on the server is a file or a link, not a folder.", pack, printable(p), printable(blocker))
 	}
 	return notice(KindInTheWay, kv("pack", pack, "path", printable(blocker), "file", printable(p)), msg,
-		"Move it out of the way in the file manager, then try again.")
+		"Move it out of the way on the Files tab, then try again.")
 }
 
 func (pl *Plan) fingerprint() string {

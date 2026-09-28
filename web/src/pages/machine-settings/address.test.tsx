@@ -39,17 +39,17 @@ const survival = (over: Partial<JoinAddress> = {}): JoinAddress => ({ serverId: 
 const creative = (over: Partial<JoinAddress> = {}): JoinAddress => ({ serverId: 's2', name: 'Creative', port: 25566, label: '', direct: `${ip}:25566`, published: false, ...over })
 const op = (over: Partial<Operation>): Operation => ({ id: 'op1', kind: 'address.publish', status: 'running', phase: 'pointing', actor: 'siya', startedAt: ago(29_000), ...over })
 
-const none: Address = { kind: '', ip, panelPort: 8443, base: 'playkeeper.io', servers: [survival(), creative()], names: { url: 'https://names.playkeeper.io' } }
+const none: Address = { kind: '', ip, panelPort: 8443, base: 'playkeeper.me', previousBase: 'playkeeper.io', servers: [survival(), creative()], names: { url: 'https://names.playkeeper.io' } }
 
 function free(over: Partial<Address> = {}, name: Partial<FreeAddress> = {}): Address {
   return {
     ...none,
     kind: 'playkeeper',
-    host: 'alex.playkeeper.io',
+    host: 'alex.playkeeper.me',
     termsAccepted: claimedAt,
-    servers: [survival({ label: 'survival', address: 'survival.alex.playkeeper.io', published: true }), creative({ label: 'creative', address: 'creative.alex.playkeeper.io', published: true })],
+    servers: [survival({ label: 'survival', address: 'survival.alex.playkeeper.me', published: true }), creative({ label: 'creative', address: 'creative.alex.playkeeper.me', published: true })],
     free: { name: 'alex', state: 'active', dns: 'ok', claimedAt, refreshedAt: claimedAt, checkedAt: claimedAt, holdDays: 30, ...name },
-    certificate: { names: ['alex.playkeeper.io'], challenge: 'dns-01', notAfter },
+    certificate: { names: ['alex.playkeeper.me'], challenge: 'dns-01', notAfter },
     ...over,
   }
 }
@@ -143,7 +143,7 @@ function answerGets() {
     if (path === '/api/machines/m1/address') return current instanceof client.ApiError ? Promise.reject(current) : Promise.resolve(current)
     const name = decodeURIComponent(path.match(/\/address\/available\?name=(.*)$/)?.[1] ?? '')
     if (name) {
-      const r = names[name] ?? { name, address: `${name}.playkeeper.io`, available: true }
+      const r = names[name] ?? { name, address: `${name}.playkeeper.me`, available: true }
       return r instanceof client.ApiError ? Promise.reject(r) : Promise.resolve(r)
     }
     if (path === '/api/machines/m1/address/plan?domain=play.example.com') return Promise.resolve(plan)
@@ -185,23 +185,31 @@ describe('choosing an address', () => {
     expect(text()).toContain('Machine settings')
     expect(text()).toContain(`my-vps · ${ip}`)
     expect(text()).toContain(`A name instead of ${ip}, and no more browser warnings.`)
-    expect(radio('Free playkeeper.io address').getAttribute('aria-checked')).toBe('true')
+    expect(radio('Free playkeeper.me address').getAttribute('aria-checked')).toBe('true')
     expect(field('Pick a name').value).toBe('siya')
-    expect(text()).toContain('Checking siya.playkeeper.io…')
+    expect(text()).toContain('Checking siya.playkeeper.me…')
     await settle()
-    expect(text()).toContain('siya.playkeeper.io is free')
-    expect(text()).toContain('survival.siya.playkeeper.io')
-    expect(text()).toContain('creative.siya.playkeeper.io')
-    expect(text()).toContain('https://siya.playkeeper.io:8443')
+    expect(text()).toContain('siya.playkeeper.me is free')
+    expect(text()).toContain('survival.siya.playkeeper.me')
+    expect(text()).toContain('creative.siya.playkeeper.me')
+    expect(text()).toContain('https://siya.playkeeper.me:8443')
     expect(text()).toContain('By continuing you accept Let’s Encrypt’s terms.')
-    expect(button('Claim siya.playkeeper.io').disabled).toBe(false)
+    expect(button('Claim siya.playkeeper.me').disabled).toBe(false)
+  })
+
+  it('names the domain free names live under as the agent says it', async () => {
+    await show({ ...none, base: 'names.example.net' })
+    expect(radio('Free names.example.net address').getAttribute('aria-checked')).toBe('true')
+    expect(text()).toContain('Like alex.names.example.net. Ready in a minute.')
+    await settle()
+    expect(text()).toContain('siya.names.example.net is free')
   })
 
   it('says why a name can’t be had: not allowed, taken with free ones, held and reserved', async () => {
     names = {
-      alex: { name: 'alex', address: 'alex.playkeeper.io', available: false, code: 'name_taken', message: 'Taken.', suggestions: ['alex-mc', 'alexcraft', 'alex-plays'] },
-      'steve-mc': { name: 'steve-mc', address: 'steve-mc.playkeeper.io', available: false, code: 'name_held', message: 'Held.', params: { until: Date.parse('2026-10-24T12:00:00Z') / 1000 } },
-      admin: { name: 'admin', address: 'admin.playkeeper.io', available: false, code: 'name_reserved', message: 'Reserved.' },
+      alex: { name: 'alex', address: 'alex.playkeeper.me', available: false, code: 'name_taken', message: 'Taken.', suggestions: ['alex-mc', 'alexcraft', 'alex-plays'] },
+      'steve-mc': { name: 'steve-mc', address: 'steve-mc.playkeeper.me', available: false, code: 'name_held', message: 'Held.', params: { until: Date.parse('2026-10-24T12:00:00Z') / 1000 } },
+      admin: { name: 'admin', address: 'admin.playkeeper.me', available: false, code: 'name_reserved', message: 'Reserved.' },
     }
     await show(none)
     await type(field('Pick a name'), 'alex--mc')
@@ -211,25 +219,29 @@ describe('choosing an address', () => {
     expect(button('Claim').title).toBe('Use a–z, 0–9 and single dashes, like alex-mc.')
 
     await type(field('Pick a name'), 'alex')
-    expect(text()).toContain('Checking alex.playkeeper.io…')
+    expect(text()).toContain('Checking alex.playkeeper.me…')
     await settle()
-    expect(text()).toContain('Someone already has alex.playkeeper.io.')
+    expect(text()).toContain('Someone already has alex.playkeeper.me.')
     expect(text()).toContain('Free right now:')
-    expect(button('Claim alex.playkeeper.io').disabled).toBe(true)
-    expect(button('Claim alex.playkeeper.io').title).toBe('Pick a name that’s free.')
+    expect(button('Claim alex.playkeeper.me').disabled).toBe(true)
+    expect(button('Claim alex.playkeeper.me').title).toBe('Pick a name that’s free.')
     await click(button('alex-mc'))
     expect(field('Pick a name').value).toBe('alex-mc')
     await settle()
-    expect(text()).toContain('alex-mc.playkeeper.io is free')
+    expect(text()).toContain('alex-mc.playkeeper.me is free')
 
+    await type(field('Pick a name'), 'Steve-MC.playkeeper.me')
+    await settle()
+    expect(text()).toContain(`steve-mc.playkeeper.me is held until ${formatDate('2026-10-24T12:00:00Z')}.`)
+    // An address pasted from before free names moved gives the same name.
     await type(field('Pick a name'), 'Steve-MC.playkeeper.io')
     await settle()
-    expect(text()).toContain(`steve-mc.playkeeper.io is held until ${formatDate('2026-10-24T12:00:00Z')}.`)
+    expect(text()).toContain(`steve-mc.playkeeper.me is held until ${formatDate('2026-10-24T12:00:00Z')}.`)
     expect(link('Learn more').getAttribute('href')).toBe('https://github.com/CIYAhq/playkeeper#a-name-for-your-vps')
 
     await type(field('Pick a name'), 'admin')
     await settle()
-    expect(text()).toContain('admin.playkeeper.io is reserved. Pick another name.')
+    expect(text()).toContain('admin.playkeeper.me is reserved. Pick another name.')
   })
 
   it('claims a name in three steps', async () => {
@@ -238,15 +250,15 @@ describe('choosing an address', () => {
     await show(none)
     await type(field('Pick a name'), 'alex')
     await settle()
-    await click(button('Claim alex.playkeeper.io'))
+    await click(button('Claim alex.playkeeper.me'))
     expect(client.post).toHaveBeenCalledWith('/api/machines/m1/address/claim', { name: 'alex', acceptTerms: true })
-    expect(text()).toContain('Claiming alex.playkeeper.io')
+    expect(text()).toContain('Claiming alex.playkeeper.me')
     expect(currentStep()).toContain('Name reserved')
 
     current = free({ operation: op({ phase: 'pointing' }) })
     await act(async () => finish(current as Address))
     await act(async () => {})
-    expect(text()).toContain('Claiming alex.playkeeper.io')
+    expect(text()).toContain('Claiming alex.playkeeper.me')
     expect(currentStep()).toContain('Pointing it at my-vps')
     expect(currentStep()).toContain(ip)
   })
@@ -261,7 +273,7 @@ describe('choosing an address', () => {
     vi.mocked(client.post).mockRejectedValueOnce(refusal(429, 'rate_limited', 'Too many requests.', { retryAfterSeconds: 2652 }))
     await show(none)
     await settle()
-    await click(button('Claim siya.playkeeper.io'))
+    await click(button('Claim siya.playkeeper.me'))
     expect(text()).toContain('Too many tries from this machine')
     expect(button('Try again in 44:12').disabled).toBe(true)
     expect(button('Try again in 44:12').title).toBe('Try again in 44:12')
@@ -269,11 +281,11 @@ describe('choosing an address', () => {
     vi.mocked(client.post).mockRejectedValueOnce(refusal(507, 'zone_full', 'Full.'))
     await type(field('Pick a name'), 'alex')
     await settle()
-    await click(button('Claim alex.playkeeper.io'))
+    await click(button('Claim alex.playkeeper.me'))
     expect(text()).toContain('The free address service is full right now')
     expect(text()).toContain('Try again tomorrow, or use your own domain.')
     expect(field('Pick a name').value).toBe('alex')
-    expect(text()).toContain('survival.alex.playkeeper.io')
+    expect(text()).toContain('survival.alex.playkeeper.me')
     await click(button('Use your own domain'))
     expect(radio('Your own domain').getAttribute('aria-checked')).toBe('true')
     expect(field('Your domain')).toBeTruthy()
@@ -283,7 +295,7 @@ describe('choosing an address', () => {
     vi.mocked(client.post).mockRejectedValueOnce(refusal(502, 'clock_skew', 'Clock skew.', { skewSeconds: -540 }))
     await show(none)
     await settle()
-    await click(button('Claim siya.playkeeper.io'))
+    await click(button('Claim siya.playkeeper.me'))
     expect(text()).toContain('my-vps’s clock is 9 minutes off')
     expect(text()).toContain('Run this on the VPS, then try again:')
     expect(text()).toContain('sudo timedatectl set-ntp true')
@@ -297,10 +309,10 @@ describe('choosing an address', () => {
   })
 
   it('says when the free address service couldn’t reach the dashboard on port 8443, with Try again and how to open it', async () => {
-    vi.mocked(client.post).mockRejectedValue(refusal(409, 'not_answering', 'siya.playkeeper.io stays off.', { name: 'siya', ip, port: 8443 }))
+    vi.mocked(client.post).mockRejectedValue(refusal(409, 'not_answering', 'siya.playkeeper.me stays off.', { name: 'siya', ip, port: 8443 }))
     await show(none)
     await settle()
-    await click(button('Claim siya.playkeeper.io'))
+    await click(button('Claim siya.playkeeper.me'))
     expect(text()).toContain('The free address service couldn’t reach my-vps')
     expect(text()).toContain('Open port 8443 in your VPS provider’s firewall, then try again.')
     expect(text()).not.toContain('stays off')
@@ -318,14 +330,14 @@ describe('choosing an address', () => {
     expect(text()).not.toContain('couldn’t reach')
     expect(text()).not.toContain('no such host')
     expect(document.querySelector('[role="alert"]')).toBeNull()
-    expect(button('Claim siya.playkeeper.io').disabled).toBe(true)
-    expect(button('Claim siya.playkeeper.io').title).toBe('Free addresses aren’t available right now.')
-    const preview = need([...document.querySelectorAll('dd')].find((d) => d.textContent === 'https://siya.playkeeper.io:8443'), 'dashboard preview')
+    expect(button('Claim siya.playkeeper.me').disabled).toBe(true)
+    expect(button('Claim siya.playkeeper.me').title).toBe('Free addresses aren’t available right now.')
+    const preview = need([...document.querySelectorAll('dd')].find((d) => d.textContent === 'https://siya.playkeeper.me:8443'), 'dashboard preview')
     expect(preview.className).toContain('text-muted-foreground')
 
     const before = availableCalls()
     await click(button('Try again'))
-    expect(text()).toContain('Checking siya.playkeeper.io…')
+    expect(text()).toContain('Checking siya.playkeeper.me…')
     await settle()
     expect(availableCalls()).toBe(before + 1)
     expect(text()).toContain('Free addresses aren’t available right now.')
@@ -333,9 +345,9 @@ describe('choosing an address', () => {
     delete names.siya
     await click(button('Try again'))
     await settle()
-    expect(text()).toContain('siya.playkeeper.io is free')
+    expect(text()).toContain('siya.playkeeper.me is free')
     expect(text()).not.toContain('aren’t available')
-    expect(button('Claim siya.playkeeper.io').disabled).toBe(false)
+    expect(button('Claim siya.playkeeper.me').disabled).toBe(false)
     expect(preview.className).not.toContain('text-muted-foreground')
   })
 
@@ -355,14 +367,14 @@ describe('choosing an address', () => {
     expect(text()).toContain('Free addresses aren’t available right now. Try again')
     expect(text()).not.toContain('3 to 32 lowercase letters')
     expect(document.querySelector('[role="alert"]')).toBeNull()
-    expect(button('Claim siya.playkeeper.io').disabled).toBe(true)
+    expect(button('Claim siya.playkeeper.me').disabled).toBe(true)
   })
 
   it('says the same when the service stops answering between the check and the claim, and Try again claims again', async () => {
     vi.mocked(client.post).mockRejectedValueOnce(refusal(503, 'names_unreachable', 'Playkeeper couldn’t reach the free address service.'))
     await show(none)
     await settle()
-    await click(button('Claim siya.playkeeper.io'))
+    await click(button('Claim siya.playkeeper.me'))
     expect(text()).toContain('Free addresses aren’t available right now. Try again')
     expect(document.querySelector('[role="alert"]')).toBeNull()
     vi.mocked(client.post).mockResolvedValueOnce(free())
@@ -384,26 +396,26 @@ describe('choosing an address', () => {
 describe('a free address', () => {
   it('shows each join address, the dashboard with its port, and Open', async () => {
     await show(free())
-    expect(text()).toContain('alex.playkeeper.io is yours')
+    expect(text()).toContain('alex.playkeeper.me is yours')
     expect(text()).toContain('Real certificate, renews by itself.')
-    const open = link('Open https://alex.playkeeper.io:8443')
-    expect(open.getAttribute('href')).toBe('https://alex.playkeeper.io:8443')
+    const open = link('Open https://alex.playkeeper.me:8443')
+    expect(open.getAttribute('href')).toBe('https://alex.playkeeper.me:8443')
     expect(open.getAttribute('target')).toBe('_blank')
     expect(text()).toContain('You’ll sign in again there.')
-    for (const value of ['survival.alex.playkeeper.io', 'creative.alex.playkeeper.io', 'https://alex.playkeeper.io:8443']) {
+    for (const value of ['survival.alex.playkeeper.me', 'creative.alex.playkeeper.me', 'https://alex.playkeeper.me:8443']) {
       expect(document.querySelector(`[aria-label="Copy ${value}"]`), value).toBeTruthy()
     }
     expect(text()).toContain(`${ip} keeps working too.`)
   })
 
   it('shows publishing with each address’s state, and Open waits', async () => {
-    await show(free({ servers: [survival({ label: 'survival', address: 'survival.alex.playkeeper.io', published: true }), creative({ label: 'creative', address: 'creative.alex.playkeeper.io' })], operation: op({ phase: 'publishing' }) }))
-    expect(text()).toContain('Publishing alex.playkeeper.io…')
+    await show(free({ servers: [survival({ label: 'survival', address: 'survival.alex.playkeeper.me', published: true }), creative({ label: 'creative', address: 'creative.alex.playkeeper.me' })], operation: op({ phase: 'publishing' }) }))
+    expect(text()).toContain('Publishing alex.playkeeper.me…')
     expect(text()).toContain('Usually a minute or two.')
     expect(text()).toContain('published')
     expect(text()).toContain('publishing…')
-    expect(button('Open https://alex.playkeeper.io:8443').disabled).toBe(true)
-    expect(button('Open https://alex.playkeeper.io:8443').title).toBe('Opens once it’s published.')
+    expect(button('Open https://alex.playkeeper.me:8443').disabled).toBe(true)
+    expect(button('Open https://alex.playkeeper.me:8443').title).toBe('Opens once it’s published.')
   })
 
   it('warns when it lapsed, and Refresh brings it back', async () => {
@@ -420,13 +432,13 @@ describe('a free address', () => {
   it('changes the name, and Cancel keeps the old one', async () => {
     await show(free())
     await click(button('Change name'))
-    expect(text()).toContain('alex.playkeeper.io stops working when you claim another name.')
+    expect(text()).toContain('alex.playkeeper.me stops working when you claim another name.')
     expect(field('Pick a name').value).toBe('')
     await type(field('Pick a name'), 'alex')
-    expect(text()).toContain('alex.playkeeper.io is yours')
-    expect(button('Claim alex.playkeeper.io').disabled).toBe(true)
+    expect(text()).toContain('alex.playkeeper.me is yours')
+    expect(button('Claim alex.playkeeper.me').disabled).toBe(true)
     await click(button('Cancel'))
-    expect(link('Open https://alex.playkeeper.io:8443')).toBeTruthy()
+    expect(link('Open https://alex.playkeeper.me:8443')).toBeTruthy()
   })
 
   it('asks before releasing, then says the name is released', async () => {
@@ -437,18 +449,18 @@ describe('a free address', () => {
     }) as typeof client.post)
     await show(free())
     await click(button('Release it'))
-    expect(dialog().textContent).toContain('Release alex.playkeeper.io?')
+    expect(dialog().textContent).toContain('Release alex.playkeeper.me?')
     expect(dialog().textContent).toContain('The addresses stop working right away. The name is held for 30 days.')
     await click(button('Release it', dialog()))
     expect(client.post).toHaveBeenCalledWith('/api/machines/m1/address/release', {})
-    expect(add).toHaveBeenCalledWith(expect.objectContaining({ title: 'alex.playkeeper.io is released', type: 'success' }))
+    expect(add).toHaveBeenCalledWith(expect.objectContaining({ title: 'alex.playkeeper.me is released', type: 'success' }))
     expect(text()).toContain('Pick a name')
   })
 
   it('shows a certificate problem with Try again, as the one notice even while the service doesn’t answer', async () => {
     vi.mocked(client.post).mockRejectedValueOnce(refusal(409, 'retry_later', 'Let’s Encrypt refuses new attempts until 2026-09-26 10:00 UTC.', undefined, 'Playkeeper tries again by itself then.'))
     const add = vi.spyOn(toastManager, 'add')
-    await show(free({ names: { url: 'https://names.playkeeper.io', unreachable: true }, certificate: { names: ['alex.playkeeper.io'], challenge: 'dns-01', problem: { code: 'dns_timeout', message: 'The challenge record didn’t show up in time.', hint: 'Try again in a few minutes.' } } }))
+    await show(free({ names: { url: 'https://names.playkeeper.io', unreachable: true }, certificate: { names: ['alex.playkeeper.me'], challenge: 'dns-01', problem: { code: 'dns_timeout', message: 'The challenge record didn’t show up in time.', hint: 'Try again in a few minutes.' } } }))
     expect(text()).toContain('Couldn’t get a certificate')
     expect(text()).toContain('The challenge record didn’t show up in time. Try again in a few minutes.')
     expect(text()).not.toContain('isn’t answering')
@@ -459,11 +471,11 @@ describe('a free address', () => {
 
   it('says in one quiet line when the service doesn’t answer, and the addresses keep working', async () => {
     await show(free({ names: { url: 'https://names.playkeeper.io', unreachable: true } }))
-    expect(text()).toContain('alex.playkeeper.io is yours')
+    expect(text()).toContain('alex.playkeeper.me is yours')
     expect(text()).toContain('The free address service isn’t answering right now. Your addresses keep working.')
     expect(text()).not.toContain('couldn’t reach')
     expect(document.querySelector('[role="alert"]')).toBeNull()
-    expect(link('Open https://alex.playkeeper.io:8443')).toBeTruthy()
+    expect(link('Open https://alex.playkeeper.me:8443')).toBeTruthy()
   })
 
   it('answers Release with the same one line while the service doesn’t answer, and keeps the name', async () => {
@@ -475,7 +487,7 @@ describe('a free address', () => {
     expect(client.post).toHaveBeenCalledWith('/api/machines/m1/address/release', {})
     expect(add).toHaveBeenCalledWith(expect.objectContaining({ title: 'The free address service isn’t answering right now. Your addresses keep working.', type: 'error' }))
     expect(add).not.toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringContaining('couldn’t reach') }))
-    expect(text()).toContain('alex.playkeeper.io is yours')
+    expect(text()).toContain('alex.playkeeper.me is yours')
   })
 
   it('shows one notice at a time: the service not answering before the servers’ wait, whose date stays on each row', async () => {
@@ -483,12 +495,12 @@ describe('a free address', () => {
     await show(free({ ...waiting, names: { url: 'https://names.playkeeper.io', unreachable: true } }, { serversWait: 'server_address_not_yet', serversFrom }))
     expect(text()).toContain('The free address service isn’t answering right now.')
     expect(text()).not.toContain('Server addresses start on')
-    expect(text()).toContain(`survival.alex.playkeeper.io from ${formatDate(serversFrom)}`)
+    expect(text()).toContain(`survival.alex.playkeeper.me from ${formatDate(serversFrom)}`)
   })
 
   it('says why it lapsed when the dashboard didn’t answer on port 8443, and a refresh that still can’t reach it says so', async () => {
     const stoppedAt = '2026-10-03T09:00:00Z'
-    vi.mocked(client.post).mockRejectedValueOnce(refusal(409, 'not_answering', 'alex.playkeeper.io stays off.', { name: 'alex', ip, port: 8443 }, 'Open port 8443.'))
+    vi.mocked(client.post).mockRejectedValueOnce(refusal(409, 'not_answering', 'alex.playkeeper.me stays off.', { name: 'alex', ip, port: 8443 }, 'Open port 8443.'))
     const add = vi.spyOn(toastManager, 'add')
     await show(free({}, { state: 'lapsed', lapseReason: 'no_answer', stoppedAt }))
     expect(text()).toContain(`This address stopped updating on ${formatDate(stoppedAt)}`)
@@ -500,17 +512,17 @@ describe('a free address', () => {
     )
   })
 
-  const waiting = { servers: [survival({ label: 'survival', address: 'survival.alex.playkeeper.io' }), creative({ label: 'creative', address: 'creative.alex.playkeeper.io' })] }
+  const waiting = { servers: [survival({ label: 'survival', address: 'survival.alex.playkeeper.me' }), creative({ label: 'creative', address: 'creative.alex.playkeeper.me' })] }
 
   it('gives the servers their addresses a few days after the claim, and the name with the port meanwhile', async () => {
     const serversFrom = '2026-09-28T12:00:00Z'
     await show(free(waiting, { serversWait: 'server_address_not_yet', serversFrom }))
-    expect(text()).toContain('alex.playkeeper.io is yours')
+    expect(text()).toContain('alex.playkeeper.me is yours')
     expect(text()).toContain(`Server addresses start on ${formatDate(serversFrom)}`)
-    expect(text()).toContain('Until then, players join at alex.playkeeper.io with the port listed below.')
-    expect(text()).toContain(`survival.alex.playkeeper.io from ${formatDate(serversFrom)}`)
-    expect(text()).toContain('alex.playkeeper.io:25566')
-    expect(document.querySelector('[aria-label="Copy alex.playkeeper.io:25566"]')).toBeTruthy()
+    expect(text()).toContain('Until then, players join at alex.playkeeper.me with the port listed below.')
+    expect(text()).toContain(`survival.alex.playkeeper.me from ${formatDate(serversFrom)}`)
+    expect(text()).toContain('alex.playkeeper.me:25566')
+    expect(document.querySelector('[aria-label="Copy alex.playkeeper.me:25566"]')).toBeTruthy()
     expect(text()).not.toContain('publishing…')
   })
 
@@ -518,21 +530,21 @@ describe('a free address', () => {
     await show(free(waiting, { serversWait: 'not_answering' }))
     expect(text()).toContain('Server addresses wait for port 8443')
     expect(text()).toContain('The free address service hasn’t reached my-vps on port 8443 yet.')
-    expect(text()).toContain('creative.alex.playkeeper.io once port 8443 is open')
+    expect(text()).toContain('creative.alex.playkeeper.me once port 8443 is open')
     expect(link('How to open a port')).toBeTruthy()
   })
 
   it('says when the certificate limit lets it try again, without a Try again that can only fail', async () => {
     const retryAt = new Date(Date.now() + 2 * 86_400_000).toISOString()
     const limited = (kind: string, renewing: boolean) =>
-      free({ certificate: { names: ['alex.playkeeper.io'], challenge: 'dns-01', notAfter: renewing ? notAfter : undefined, problem: { code: 'certificate_limit', params: { kind, until: retryAt }, message: 'Paused.', retryAt } } })
+      free({ certificate: { names: ['alex.playkeeper.me'], challenge: 'dns-01', notAfter: renewing ? notAfter : undefined, problem: { code: 'certificate_limit', params: { kind, until: retryAt }, message: 'Paused.', retryAt } } })
     await show(limited('all', false))
     expect(text()).toContain('New certificates are paused for now')
     expect(text()).toContain(`to stay within Let’s Encrypt’s limits. Playkeeper tries again after ${formatDateTime(retryAt)}. Players can still join.`)
     expect(buttons('Try again')).toHaveLength(0)
     await show(limited('name', true))
     expect(text()).toContain('Couldn’t renew the certificate')
-    expect(text()).toContain(`It runs out on ${formatDate(notAfter)}. alex.playkeeper.io has asked for as many certificates this week as one free address can. Playkeeper tries again after ${formatDateTime(retryAt)}.`)
+    expect(text()).toContain(`It runs out on ${formatDate(notAfter)}. alex.playkeeper.me has asked for as many certificates this week as one free address can. Playkeeper tries again after ${formatDateTime(retryAt)}.`)
     expect(buttons('Try again')).toHaveLength(0)
   })
 })
@@ -647,17 +659,17 @@ describe('on a phone', () => {
     expect(text()).toContain('Ready in a minute')
     expect(text()).toContain('You add a record or two')
     await settle()
-    expect(text()).toContain('siya.playkeeper.io is free')
-    expect(text()).toContain('survival.siya.playkeeper.io')
-    expect(button('Claim siya.playkeeper.io').disabled).toBe(false)
+    expect(text()).toContain('siya.playkeeper.me is free')
+    expect(text()).toContain('survival.siya.playkeeper.me')
+    expect(button('Claim siya.playkeeper.me').disabled).toBe(false)
     await click(radio('Your own domain'))
     expect(text()).not.toContain('Ready in a minute')
   })
 
   it('opens the dashboard without https:// in the label, and copies each address', async () => {
     await show(free(), { phone: true })
-    expect(link('Open alex.playkeeper.io:8443').getAttribute('href')).toBe('https://alex.playkeeper.io:8443')
-    expect(document.querySelector('[aria-label="Copy survival.alex.playkeeper.io"]')?.textContent).toBe('')
+    expect(link('Open alex.playkeeper.me:8443').getAttribute('href')).toBe('https://alex.playkeeper.me:8443')
+    expect(document.querySelector('[aria-label="Copy survival.alex.playkeeper.me"]')?.textContent).toBe('')
     expect(button('Change name')).toBeTruthy()
     expect(button('Release it')).toBeTruthy()
   })

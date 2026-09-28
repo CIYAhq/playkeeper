@@ -116,25 +116,25 @@
       "name": "dns-01 record does not exist",
       "step": "validate",
       "challenge": "dns-01",
-      "names": ["alex.playkeeper.io"],
-      "problem": {"type": "urn:ietf:params:acme:error:dns", "detail": "DNS problem: NXDOMAIN looking up TXT for _acme-challenge.alex.playkeeper.io - check that a DNS record exists for this domain", "status": 400},
-      "want": {"code": "dns01_not_visible", "params": {"name": "alex.playkeeper.io", "fqdn": "_acme-challenge.alex.playkeeper.io"}}
+      "names": ["alex.playkeeper.me"],
+      "problem": {"type": "urn:ietf:params:acme:error:dns", "detail": "DNS problem: NXDOMAIN looking up TXT for _acme-challenge.alex.playkeeper.me - check that a DNS record exists for this domain", "status": 400},
+      "want": {"code": "dns01_not_visible", "params": {"name": "alex.playkeeper.me", "fqdn": "_acme-challenge.alex.playkeeper.me"}}
     },
     {
       "name": "dns-01 record has another value",
       "step": "validate",
       "challenge": "dns-01",
-      "names": ["alex.playkeeper.io"],
-      "problem": {"type": "urn:ietf:params:acme:error:unauthorized", "detail": "Incorrect TXT record \"Nfe2DdYk9rTOxFnd6Nrkr7J5W4kY3ZL2VbYt8pS0tOQ\" found at _acme-challenge.alex.playkeeper.io", "status": 403},
-      "want": {"code": "dns01_record_wrong", "params": {"name": "alex.playkeeper.io", "fqdn": "_acme-challenge.alex.playkeeper.io"}}
+      "names": ["alex.playkeeper.me"],
+      "problem": {"type": "urn:ietf:params:acme:error:unauthorized", "detail": "Incorrect TXT record \"Nfe2DdYk9rTOxFnd6Nrkr7J5W4kY3ZL2VbYt8pS0tOQ\" found at _acme-challenge.alex.playkeeper.me", "status": 403},
+      "want": {"code": "dns01_record_wrong", "params": {"name": "alex.playkeeper.me", "fqdn": "_acme-challenge.alex.playkeeper.me"}}
     },
     {
       "name": "dns-01 name has no TXT record",
       "step": "validate",
       "challenge": "dns-01",
-      "names": ["alex.playkeeper.io"],
-      "problem": {"type": "urn:ietf:params:acme:error:unauthorized", "detail": "No TXT record found at _acme-challenge.alex.playkeeper.io", "status": 403},
-      "want": {"code": "dns01_not_visible", "params": {"name": "alex.playkeeper.io", "fqdn": "_acme-challenge.alex.playkeeper.io"}}
+      "names": ["alex.playkeeper.me"],
+      "problem": {"type": "urn:ietf:params:acme:error:unauthorized", "detail": "No TXT record found at _acme-challenge.alex.playkeeper.me", "status": 403},
+      "want": {"code": "dns01_not_visible", "params": {"name": "alex.playkeeper.me", "fqdn": "_acme-challenge.alex.playkeeper.me"}}
     },
     {
       "name": "name refused by policy",

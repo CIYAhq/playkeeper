@@ -229,7 +229,9 @@ var readOps = []fileOp{
 
 var ops = append(slices.Clone(readOps),
 	fileOp{"WriteFile", func(d *Dir, name string) error { return d.WriteFile(name, []byte("enabled: false\n"), 0o640) }},
-	fileOp{"Remove", func(d *Dir, name string) error { return d.Remove(name) }})
+	fileOp{"Remove", func(d *Dir, name string) error { return d.Remove(name) }},
+	fileOp{"Place", func(d *Dir, name string) error { return placeStaged(d, name, true) }},
+	fileOp{"PlaceNew", func(d *Dir, name string) error { return placeStaged(d, name, false) }})
 
 // A plugin or mod can put a link anywhere on the way to a file Playkeeper
 // uses. Wherever it is and wherever it points, it is refused, and nothing it

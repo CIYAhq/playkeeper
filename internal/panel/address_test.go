@@ -183,7 +183,7 @@ func writeBundle(t *testing.T, dir, name string, notBefore, notAfter time.Time) 
 func TestTheDashboardServesTheAddressCertificateByName(t *testing.T) {
 	e := newEnv(t)
 	now := e.clock.now()
-	writeBundle(t, e.cfg.CertsDir(), "alex.playkeeper.io", now.Add(-time.Hour), now.Add(90*24*time.Hour))
+	writeBundle(t, e.cfg.CertsDir(), "alex.playkeeper.me", now.Add(-time.Hour), now.Add(90*24*time.Hour))
 	tc, err := e.srv.tlsConfig()
 	if err != nil {
 		t.Fatal(err)
@@ -203,7 +203,7 @@ func TestTheDashboardServesTheAddressCertificateByName(t *testing.T) {
 		}
 		return l
 	}
-	if l := leaf(&tls.ClientHelloInfo{ServerName: "alex.playkeeper.io"}); !slices.Contains(l.DNSNames, "alex.playkeeper.io") {
+	if l := leaf(&tls.ClientHelloInfo{ServerName: "alex.playkeeper.me"}); !slices.Contains(l.DNSNames, "alex.playkeeper.me") {
 		t.Fatalf("the address got %v", l.Subject)
 	}
 	selfSigned := func(l *x509.Certificate) bool {
@@ -215,7 +215,7 @@ func TestTheDashboardServesTheAddressCertificateByName(t *testing.T) {
 		}
 	}
 	e.clock.add(91 * 24 * time.Hour)
-	if l := leaf(&tls.ClientHelloInfo{ServerName: "alex.playkeeper.io"}); !selfSigned(l) {
+	if l := leaf(&tls.ClientHelloInfo{ServerName: "alex.playkeeper.me"}); !selfSigned(l) {
 		t.Fatalf("a lapsed certificate is still served: %v", l.Subject)
 	}
 }
@@ -226,7 +226,7 @@ func TestHSTSIsShortOnNamesAndLongOnIPAddresses(t *testing.T) {
 		"":                        "max-age=31536000",
 		"203.0.113.10:8443":       "max-age=31536000",
 		"[2001:db8::1]:8443":      "max-age=31536000",
-		"alex.playkeeper.io:8443": "max-age=86400",
+		"alex.playkeeper.me:8443": "max-age=86400",
 		"mc.example.com":          "max-age=86400",
 	} {
 		req, _ := http.NewRequest("GET", e.ts.URL+"/healthz", nil)

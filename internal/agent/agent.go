@@ -231,6 +231,10 @@ type Agent struct {
 	hostCPU       *float64
 	hostTimes     []cpuSnapshot
 
+	// selinux is set when Docker labels containers for SELinux, once
+	// selinuxKnown; mu guards both.
+	selinux, selinuxKnown bool
+
 	allowed map[uint32]bool
 
 	upd     updateState
@@ -274,6 +278,8 @@ type Agent struct {
 	maps      mapState
 	mapClient *http.Client
 	imports   importRegistry
+	// uploads are the uploads into servers' folders from the file browser.
+	uploads fileUploads
 
 	// Wave 7 (0.4.0): the Disk space page's last scan.
 	disk diskCache
@@ -596,11 +602,7 @@ func (a *Agent) beginMachineOp(kind, actor string, fn func(ctx context.Context, 
 			a.createMu.Unlock()
 			<-a.mopLock
 			cur := s.currentOp()
-			what := "an operation"
-			if cur != nil {
-				what = opLabels[cur.Kind]
-			}
-			return nil, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: s.name() + " is busy with " + what + ".", Hint: "Wait for it to finish, then try again.", Op: cur}
+			return nil, &apiError{Status: http.StatusConflict, Code: api.CodeBusy, Msg: s.name() + " is busy with " + s.busyWith(cur, "an operation") + ".", Hint: "Wait for it to finish, then try again.", Op: cur}
 		}
 	}
 	op := &api.Operation{ID: newID(), Kind: kind, Status: api.OpRunning, Actor: actor, StartedAt: a.now().UTC(), Detail: map[string]any{}}
@@ -924,6 +926,19 @@ func (a *Agent) routeTable() []Route {
 		// The map's area: the explored land, or a bigger area pre-generated for it.
 		{"GET", "/v1/servers/{id}/map/area", srv((*server).hMapArea)},
 		{"POST", "/v1/servers/{id}/map/area", srv((*server).hMapAreaSet)},
+		// Each server's file browser.
+		{"GET", "/v1/servers/{id}/files", srv((*server).hFiles)},
+		{"GET", "/v1/servers/{id}/files/content", srv((*server).hFileContent)},
+		{"PUT", "/v1/servers/{id}/files/content", srv((*server).hFileSave)},
+		{"POST", "/v1/servers/{id}/files/folder", srv((*server).hFileFolder)},
+		{"POST", "/v1/servers/{id}/files/move", srv((*server).hFileMove)},
+		{"POST", "/v1/servers/{id}/files/delete", srv((*server).hFileDelete)},
+		{"GET", "/v1/servers/{id}/files/download", srv((*server).hFileDownload)},
+		{"POST", "/v1/servers/{id}/files/uploads", srv((*server).hFileUploadNew)},
+		{"GET", "/v1/servers/{id}/files/uploads/{up}", srv((*server).hFileUpload)},
+		{"DELETE", "/v1/servers/{id}/files/uploads/{up}", srv((*server).hFileUploadDelete)},
+		{"POST", "/v1/servers/{id}/files/uploads/{up}/files", srv((*server).hFileUploadFile)},
+		{"PUT", "/v1/servers/{id}/files/uploads/{up}/files/{n}", srv((*server).hFileUploadPut)},
 	}, a.automationRoutes()...)
 }
 

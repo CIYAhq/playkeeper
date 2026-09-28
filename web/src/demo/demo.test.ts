@@ -6,7 +6,7 @@ import type { Address, AddonBrowse, AddonChecks, AddonDetails, AddonRemovePrevie
 import { addonIconOf, faceOf, library, samplePlayers } from './data'
 import { hasBuilds, pinBuild } from '@/lib/software'
 import { upgradeTargets } from '@/lib/versions'
-import { answer, resetDemo } from './engine'
+import { answer, reloadDemo, resetDemo } from './engine'
 import { faceCount } from './faces'
 import { iconCount, iconSvg } from './icons'
 import { demoMarker } from './marker'
@@ -139,13 +139,24 @@ it('keeps console lines arriving', async () => {
   expect(more.lines.every((l) => l.seq > first.next)).toBe(true)
 })
 
-it('starts over on the hour', async () => {
+it('keeps an open page’s demo past the hour, and a reload’s until a later hour, when it starts over', async () => {
+  // A tab's sessionStorage, which a reload keeps.
+  const kept = new Map<string, string>()
+  vi.stubGlobal('sessionStorage', {
+    getItem: (key: string) => kept.get(key) ?? null,
+    setItem: (key: string, value: string) => void kept.set(key, value),
+    removeItem: (key: string) => void kept.delete(key),
+  })
   const { id } = await survival()
   await ask('POST', `/api/servers/${id}/stop`)
   await vi.advanceTimersByTimeAsync(20_000)
   expect((await survival()).phase).toBe('stopped')
+  reloadDemo()
+  expect((await survival()).phase).toBe('stopped')
 
   vi.setSystemTime(new Date('2026-09-25T13:00:05Z'))
+  expect((await survival()).phase).toBe('stopped')
+  reloadDemo()
   expect((await survival()).phase).toBe('online')
 })
 
@@ -222,7 +233,7 @@ it('offers a resource pack from the address the demo is open at, and three data 
   const { id } = await survival()
   const rp = await ask<ResourcePack>('GET', `/api/servers/${id}/resourcepack`)
   expect(rp.offer?.fileName).toBe('Cosy_Blocks_32x.zip')
-  expect(new URL(rp.offer?.url ?? '').hostname).toBe('demo.playkeeper.io')
+  expect(new URL(rp.offer?.url ?? '').hostname).toBe('demo.playkeeper.me')
   const dp = await ask<DataPacks>('GET', `/api/servers/${id}/datapacks`)
   expect(dp.live).toBe(true)
   expect(dp.packs.map((p) => p.enabled)).toEqual([true, true, false])
@@ -259,10 +270,10 @@ it('fails soft when asked to change plugins, the pre-generation or packs', async
 it('gives the machine a free name nobody can claim, with an address for each server', async () => {
   const [m] = await ask<{ id: string }[]>('GET', '/api/machines')
   const address = await ask<Address>('GET', `/api/machines/${m?.id}/address`)
-  expect(address).toMatchObject({ kind: 'playkeeper', host: 'demo.playkeeper.io', free: { name: 'demo', state: 'active', dns: 'ok' }, certificate: { names: ['demo.playkeeper.io'] } })
+  expect(address).toMatchObject({ kind: 'playkeeper', host: 'demo.playkeeper.me', free: { name: 'demo', state: 'active', dns: 'ok' }, certificate: { names: ['demo.playkeeper.me'] } })
   const servers = await ask<ServerStatus[]>('GET', '/api/servers')
   expect(address.servers?.map((s) => s.address)).toEqual(servers.map((s) => s.joinAddress))
-  expect(servers.map((s) => s.joinAddress)).toEqual(['survival.demo.playkeeper.io', 'creative.demo.playkeeper.io', 'cobblemon.demo.playkeeper.io'])
+  expect(servers.map((s) => s.joinAddress)).toEqual(['survival.demo.playkeeper.me', 'creative.demo.playkeeper.me', 'cobblemon.demo.playkeeper.me'])
   await expect(ask('POST', `/api/machines/${m?.id}/address/claim`, { name: 'alex' })).rejects.toMatchObject({ status: 400, code: 'demo' })
   expect(await ask<TwoFactorStatus>('GET', '/api/auth/2fa')).toMatchObject({ state: 'off' })
   await expect(ask('POST', '/api/auth/2fa/setup', { password: 'x' })).rejects.toMatchObject({ status: 400, code: 'demo' })

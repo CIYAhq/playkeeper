@@ -65,6 +65,9 @@ export const minimums: Record<Size, Record<string, number>> = {
     '/welcome (no servers)': 11,
     '/settings (update available)': 5,
     '/machines/*/disk (space to free)': 11,
+    '/servers/*/file/server.properties': 5,
+    '/servers/*/files (a few files)': 72,
+    '/servers/*/files/plugins (a few files)': 33,
   },
   phone: {
     '/login': 3,
@@ -109,6 +112,9 @@ export const minimums: Record<Size, Record<string, number>> = {
     '/settings (update available)': 3,
     '/more (update available)': 1,
     '/machines/*/disk (space to free)': 14,
+    '/servers/*/file/server.properties': 3,
+    '/servers/*/files (a few files)': 115,
+    '/servers/*/files/plugins (a few files)': 52,
   },
 }
 
@@ -193,6 +199,13 @@ export const places: Place[] = [
   { what: 'pausing a map area while people play', sizes: ['desktop', 'phone'], view: 'map on', page: '/servers/*/map', key: /^switch "Pause while people (are playing|play)" in dialog "Map area"$/ },
   { what: 'filling in a bigger map area', sizes: ['desktop', 'phone'], view: 'map on', page: '/servers/*/map', key: /^button "Start" in dialog "Map area"$/ },
   { what: 'stopping the map area being filled in', sizes: ['desktop', 'phone'], view: 'map on', page: '/servers/*/map', key: /^button "Stop" in dialog "Map area"$/ },
+  { what: 'deleting in the Files tab, after asking', sizes: ['desktop', 'phone'], view: 'a few files', page: '/servers/*/files', key: /^button "Delete" in dialog "Delete .+\?"$/ },
+  { what: 'making a folder in the Files tab', sizes: ['desktop', 'phone'], view: 'a few files', page: '/servers/*/files', key: /^button "Create folder" in dialog "New folder"/ },
+  { what: 'uploading into a folder of the Files tab', sizes: ['desktop'], view: 'a few files', page: '/servers/*/files', key: /^button "Upload" in "Files"$/ },
+  { what: 'uploading from the phone’s bar in the Files tab', sizes: ['phone'], view: 'a few files', page: '/servers/*/files', key: /^button "Upload files"$/ },
+  { what: 'deleting a selection with the world in it while the game runs', sizes: ['desktop'], view: 'a few files', page: '/servers/*/files', key: /^button "Delete" in "Files" \[disabled\]$/, status: 'disabled with a reason' },
+  { what: 'the world folder’s Delete while the game runs, in the phone’s sheet', sizes: ['phone'], view: 'a few files', page: '/servers/*/files', key: /^button "Delete" in dialog "world"( > row "Delete")? \[disabled\]$/, status: 'disabled with a reason' },
+  { what: 'the editor’s Save before anything changed', sizes: ['desktop', 'phone'], page: '/servers/*/file/server.properties', key: /^button "Save" \[disabled\]$/, status: 'disabled with a reason' },
 ]
 
 export interface Rules {

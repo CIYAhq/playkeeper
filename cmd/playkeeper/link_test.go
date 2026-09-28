@@ -26,21 +26,21 @@ import (
 func TestJoinTakesTheDashboardsCommandEitherWay(t *testing.T) {
 	const fp = "Z287KN4CDZD0Z8A4XXJA514NKG"
 	for _, args := range [][]string{
-		{"alex.playkeeper.io:8443", "--code", "7KQ2-M9XD", "--fingerprint", fp, "--name", "home-server"},
-		{"--code", "7KQ2-M9XD", "--fingerprint", fp, "--name", "home-server", "alex.playkeeper.io:8443"},
+		{"alex.playkeeper.me:8443", "--code", "7KQ2-M9XD", "--fingerprint", fp, "--name", "home-server"},
+		{"--code", "7KQ2-M9XD", "--fingerprint", fp, "--name", "home-server", "alex.playkeeper.me:8443"},
 	} {
 		j, err := parseJoinArgs(args)
-		if err != nil || j.address != "alex.playkeeper.io:8443" || j.code != "7KQ2-M9XD" || j.fingerprint != fp || j.name != "home-server" || j.config != config.DefaultPath {
+		if err != nil || j.address != "alex.playkeeper.me:8443" || j.code != "7KQ2-M9XD" || j.fingerprint != fp || j.name != "home-server" || j.config != config.DefaultPath {
 			t.Errorf("%q: %+v, %v", args, j, err)
 		}
 	}
 	for args, want := range map[string]string{
-		"alex.playkeeper.io:8443 --code 7KQ2-M9XD":                                "usage: sudo playkeeper join ADDRESS",
+		"alex.playkeeper.me:8443 --code 7KQ2-M9XD":                                "usage: sudo playkeeper join ADDRESS",
 		"--code 7KQ2-M9XD --fingerprint " + fp:                                    "usage: sudo playkeeper join ADDRESS",
-		"alex.playkeeper.io:8443 --code 7KQ2 --fingerprint " + fp:                 "Join codes are 8 letters and digits",
-		"alex.playkeeper.io:8443 --code 7KQ2-M9XD --fingerprint Z287KN4C":         "fingerprint should be 26 letters and digits",
-		"alex.playkeeper.io:8443 extra --code 7KQ2-M9XD --fingerprint " + fp:      `unexpected argument "extra"`,
-		"alex.playkeeper.io:8443 --code 7KQ2-M9XD --fingerprint " + fp + " --yes": "flag provided but not defined: -yes",
+		"alex.playkeeper.me:8443 --code 7KQ2 --fingerprint " + fp:                 "Join codes are 8 letters and digits",
+		"alex.playkeeper.me:8443 --code 7KQ2-M9XD --fingerprint Z287KN4C":         "fingerprint should be 26 letters and digits",
+		"alex.playkeeper.me:8443 extra --code 7KQ2-M9XD --fingerprint " + fp:      `unexpected argument "extra"`,
+		"alex.playkeeper.me:8443 --code 7KQ2-M9XD --fingerprint " + fp + " --yes": "flag provided but not defined: -yes",
 	} {
 		if _, err := parseJoinArgs(strings.Fields(args)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %v, want %q", args, err, want)

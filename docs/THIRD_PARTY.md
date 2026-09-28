@@ -6,7 +6,7 @@ The full licence texts of everything below that is compiled into the binary, and
 
 ## Compiled into the `playkeeper` binary
 
-List exactly what is compiled in with `go version -m dist/playkeeper-*-linux-amd64/playkeeper` (checked against the table below for the tested build).
+List exactly what is compiled in with `go version -m dist/playkeeper-*-linux-amd64/playkeeper` (checked against the table below for the tested build). The linux/arm64 build, `dist/playkeeper-*-linux-arm64/playkeeper`, links the same modules at the same versions.
 
 | Module | Version | Licence |
 | --- | --- | --- |
@@ -46,6 +46,10 @@ List exactly what is compiled in with `go version -m dist/playkeeper-*-linux-amd
 | tailwind-merge | 3.7.0 | MIT |
 | vite (its modulepreload polyfill only) | 8.3.1 | MIT |
 | rolldown (its CommonJS runtime helper only) | 1.2.10 | MIT |
+| @codemirror/state, @codemirror/view, @codemirror/commands, @codemirror/language, @codemirror/search, @codemirror/lint, @codemirror/autocomplete (CodeMirror, the Files tab's editor) | 6.7.6, 6.43.13, 6.11.1, 6.12.4, 6.7.2, 6.9.7, 6.20.3 | MIT |
+| @codemirror/lang-json, @codemirror/lang-yaml, @codemirror/legacy-modes (the editor's languages) | 6.0.2, 6.1.3, 6.5.4 | MIT |
+| @lezer/common, @lezer/lr, @lezer/highlight, @lezer/json, @lezer/yaml (the editor's parsers) | 1.5.3, 1.4.10, 1.2.4, 1.0.3, 1.0.4 | MIT |
+| style-mod, w3c-keyname, crelt, @marijn/find-cluster-break (used by CodeMirror) | 4.1.4, 2.2.8, 1.0.7, 1.0.4 | MIT |
 | coss ui components, copied into `web/src/components/ui` from cosscom/coss `apps/ui` at 59e8c88 and restyled | — | MIT (`web/src/components/ui/LICENSE.md`) |
 
 The UI uses system fonts. Pip, the pixel art, the Vanilla type's icon and the Playkeeper mark are original to Playkeeper and use no Minecraft or Mojang art. No OpenAnalytics or Ghost source, CSS, assets or branding is used.
@@ -75,7 +79,7 @@ playkeeper.io (`site/`) is built by `cmd/site`, which renders the docs' Markdown
 
 | Component | How it is obtained | Terms |
 | --- | --- | --- |
-| `itzg/minecraft-server` image `2026.9.1-java25` | Pulled by digest `sha256:e8640538…315749` from Docker Hub when the user creates a server | Apache-2.0 (repository licence checked 2026-09-24) |
+| `itzg/minecraft-server` image `2026.9.1-java25` | Pulled by digest `sha256:e8640538…315749` from Docker Hub when the user creates a server. Each pinned digest is a multi-architecture index with `linux/amd64` and `linux/arm64` images, so Docker pulls the one for the server's CPU | Apache-2.0 (repository licence checked 2026-09-24) |
 | `itzg/minecraft-server` images `2026.9.1-java21`, `-java17`, `-java16` and `-java8` | Pulled by digest (`sha256:21b3d6ba…`, `38afacde…`, `7a5a811a…`, `aea37afb…`, listed in `internal/minecraft/java.go`) only for a server on an older Minecraft version, which runs on the Java Mojang made that version for | Apache-2.0, same release as above |
 | Paper 26.1.2 build 74 / 1.21.11 build 132 | Downloaded by the image from PaperMC's Fill v3 API after EULA acceptance; SHA-256 checked by Playkeeper before first run | GPL-3.0 with some MIT-licensed contributions (Paper `LICENSE.md`, checked 2026-09-24) |
 | Minecraft: Java Edition server | Downloaded from Mojang by Paper's launcher on first start | Minecraft EULA (proprietary); Playkeeper never redistributes it |

@@ -143,13 +143,13 @@
     <p class="closing-sub reveal">{{.ClosingSub}}</p>
     {{else if eq .Page.Closing "sizing"}}
     <h2 id="closing-title" class="reveal">Got your size? Install Playkeeper.</h2>
-    <p class="closing-sub reveal">One command on Ubuntu 24.04. Free and open source.</p>
+    <p class="closing-sub reveal">One command on your Linux VPS. Free and open source.</p>
     {{else}}
     <h2 id="closing-title" class="reveal">Your server is one command away.</h2>
     <p class="closing-sub reveal">Free and open source. Friends can be playing tonight.</p>
     {{end}}
     <div class="closing-actions reveal">
-      {{template "install" (dict "ID" (not .HasInstall) "Dark" true "Cmd" (installFor .Page.Channel))}}
+      {{template "install" (dict "ID" (not .HasInstall) "Dark" true "Cmd" (installFor .Page.Channel) "Share" .Page.Share)}}
       {{if eq .Page.Closing "guide"}}<a class="btn btn-ghost-dark" href="/sizing">Work out your size{{template "icon" "arrow-right"}}</a>
       {{else}}<a class="btn btn-ghost-dark" href="/demo/">Try the live demo{{template "icon" "arrow-right"}}</a>{{end}}
     </div>

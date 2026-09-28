@@ -1,4 +1,4 @@
-// Package names is the protocol and client for free yourname.playkeeper.io
+// Package names is the protocol and client for free yourname.playkeeper.me
 // addresses. An install proves who it is with its own Ed25519 key: every
 // change is a request signed with that key, and the names service
 // (cmd/playkeeper-names) points the name's DNS records at the address the
@@ -8,6 +8,7 @@ package names
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"time"
 )
@@ -16,8 +17,28 @@ const (
 	// DefaultServiceURL is the names service the Playkeeper project runs.
 	DefaultServiceURL = "https://names.playkeeper.io"
 	// DefaultBase is the domain free names live under.
-	DefaultBase = "playkeeper.io"
+	DefaultBase = "playkeeper.me"
+	// PreviousBase is the domain free names lived under before DefaultBase.
+	// An install moves a free address saved under it to DefaultBase, and
+	// the names service answers requests still signed for it with
+	// CodeUpdateRequired.
+	PreviousBase = "playkeeper.io"
 )
+
+// BaseOf is DefaultBase or PreviousBase when host (which may have a port)
+// is that domain or a name under it, else "".
+func BaseOf(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	for _, base := range []string{DefaultBase, PreviousBase} {
+		if host == base || strings.HasSuffix(host, "."+base) {
+			return base
+		}
+	}
+	return ""
+}
 
 // Length limits of names and server labels.
 const (
@@ -73,7 +94,7 @@ func CheckName(s string) error {
 }
 
 // CheckServerLabel reports whether s can name a server under a name
-// ("survival" in survival.alice.playkeeper.io): the rules of CheckName, from
+// ("survival" in survival.alice.playkeeper.me): the rules of CheckName, from
 // one character on.
 func CheckServerLabel(s string) error {
 	return checkLabel(s, 1, ServerMaxLen, CodeInvalidServer, "A server label")
@@ -99,14 +120,20 @@ func checkLabel(s string, minLen, maxLen int, code, what string) error {
 }
 
 // NormalizeName turns what someone typed into a name candidate: it trims
-// spaces, lowercases, and drops a trailing ".playkeeper.io" (or other base)
-// so pasting the whole address works. The result still needs CheckName.
-func NormalizeName(input, base string) string {
+// spaces, lowercases, and drops a trailing ".playkeeper.me" (the first of
+// bases it ends with) so pasting the whole address works. The result still
+// needs CheckName.
+func NormalizeName(input string, bases ...string) string {
 	s := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(input)), ".")
-	return strings.TrimSuffix(s, "."+strings.ToLower(base))
+	for _, base := range bases {
+		if name, ok := strings.CutSuffix(s, "."+strings.ToLower(base)); ok {
+			return name
+		}
+	}
+	return s
 }
 
-// Address is the host name of name under base: alice.playkeeper.io.
+// Address is the host name of name under base: alice.playkeeper.me.
 func Address(name, base string) string { return name + "." + base }
 
 // ServerAddress is the address players type for a server under a name; an
@@ -165,7 +192,7 @@ type Name struct {
 // through an SRV record that points at the name and the server's port.
 type Server struct {
 	// Label is the part before the name ("survival" in
-	// survival.alice.playkeeper.io), or "" for the name itself.
+	// survival.alice.playkeeper.me), or "" for the name itself.
 	Label   string `json:"label"`
 	Address string `json:"address"`
 	Port    int    `json:"port"`

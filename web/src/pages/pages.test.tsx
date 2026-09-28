@@ -628,15 +628,23 @@ describe('Overview notices', () => {
   }
 
   it('says a server that came back on its own had run out of memory, and gives it more with a restart', async () => {
-    vi.mocked(client.post).mockClear()
-    const recoveredCrash = memoryKill({})
-    const text = await render(<Overview server={server({ recoveredCrash })} />)
-    expect(text).toContain(`Survival ran out of memory at ${formatClock(recoveredCrash.at)}`)
-    expect(text).toContain('Docker stopped it at its 2 GB limit, and Playkeeper started it again.')
-    await press('Give Survival 3 GB')
-    expect(posts()).toEqual([['/settings', { memoryMB: 3072, restart: true }]])
-    await act(async () => noticeButton('Dismiss')?.click())
-    expect(document.body.textContent).not.toContain('ran out of memory')
+    // The notice gives the time alone for a crash today and adds the date
+    // for an older one, so a crash a minute before midnight isn't today.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 8, 27, 12, 0, 0))
+    try {
+      vi.mocked(client.post).mockClear()
+      const recoveredCrash = memoryKill({})
+      const text = await render(<Overview server={server({ recoveredCrash })} />)
+      expect(text).toContain(`Survival ran out of memory at ${formatClock(recoveredCrash.at)}`)
+      expect(text).toContain('Docker stopped it at its 2 GB limit, and Playkeeper started it again.')
+      await press('Give Survival 3 GB')
+      expect(posts()).toEqual([['/settings', { memoryMB: 3072, restart: true }]])
+      await act(async () => noticeButton('Dismiss')?.click())
+      expect(document.body.textContent).not.toContain('ran out of memory')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('says when the machine has no memory to give a server that ran out of it', async () => {
@@ -2208,10 +2216,10 @@ describe('Onboarding', () => {
 })
 
 describe('Machine page', () => {
-  const none: Address = { kind: '', ip: '198.51.100.10', panelPort: 8443, base: 'playkeeper.io', servers: [], names: { url: 'https://names.playkeeper.io' } }
+  const none: Address = { kind: '', ip: '198.51.100.10', panelPort: 8443, base: 'playkeeper.me', servers: [], names: { url: 'https://names.playkeeper.io' } }
   const day = 24 * 3600_000
-  const certificate = { names: ['alex.playkeeper.io'], challenge: 'dns-01', notBefore: new Date(Date.now() - 30 * day).toISOString(), notAfter: new Date(Date.now() + 60 * day).toISOString() }
-  const free: Address = { ...none, kind: 'playkeeper', host: 'alex.playkeeper.io', certificate }
+  const certificate = { names: ['alex.playkeeper.me'], challenge: 'dns-01', notBefore: new Date(Date.now() - 30 * day).toISOString(), notAfter: new Date(Date.now() + 60 * day).toISOString() }
+  const free: Address = { ...none, kind: 'playkeeper', host: 'alex.playkeeper.me', certificate }
 
   const health = async (address: Address) => {
     answer({ '/address': address })
@@ -3294,16 +3302,16 @@ describe('Machines and AI agents', () => {
       live: { ...machine.live!, hostname: 'home-server' },
       link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), address: '203.0.113.20', problems: [] },
     }
-    const survival = server({ machineId: machine.id, joinAddress: 'survival.alex.playkeeper.io' })
-    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id, gamePort: 25566, joinAddress: 'cobblemon.home.playkeeper.io' })
+    const survival = server({ machineId: machine.id, joinAddress: 'survival.alex.playkeeper.me' })
+    const cobblemon = server({ id: 'cobblemon1', name: 'Cobblemon', slug: 'cobblemon', machineId: home.id, gamePort: 25566, joinAddress: 'cobblemon.home.playkeeper.me' })
     const ws = workspace({ machines: [machine, home], servers: [survival, cobblemon] })
     let text = await render(<HomePage />, ws)
-    expect(text).toContain('survival.alex.playkeeper.io')
+    expect(text).toContain('survival.alex.playkeeper.me')
     expect(text).toContain('203.0.113.20:25566')
-    expect(text).not.toContain('cobblemon.home.playkeeper.io')
+    expect(text).not.toContain('cobblemon.home.playkeeper.me')
     text = await render(<Overview server={cobblemon} />, ws)
     expect(text).toContain('203.0.113.20:25566')
-    expect(text).not.toContain('cobblemon.home.playkeeper.io')
+    expect(text).not.toContain('cobblemon.home.playkeeper.me')
   })
 
   it('says why a joined machine’s server has no address yet, and never gives the dashboard’s host or a reported name', async () => {
@@ -3315,14 +3323,14 @@ describe('Machines and AI agents', () => {
       live: { ...machine.live!, hostname: 'attic' },
       link: { machineId: 'a2345abcde', name: 'attic', fingerprint: 'X'.repeat(26), state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
     }
-    const box = server({ id: 'atticsrv01', name: 'Attic', slug: 'attic', machineId: attic.id, gamePort: 25567, joinAddress: 'attic.old.playkeeper.io' })
+    const box = server({ id: 'atticsrv01', name: 'Attic', slug: 'attic', machineId: attic.id, gamePort: 25567, joinAddress: 'attic.old.playkeeper.me' })
     const ws = workspace({ machines: [machine, attic], servers: [server({ machineId: machine.id }), box] })
     const reason = 'No address yet: the dashboard hasn’t seen attic’s IP.'
     for (const node of [<HomePage key="home" />, <Overview key="overview" server={box} />]) {
       const text = await render(node, ws)
       expect(text).toContain(reason)
       expect(text).not.toContain(`${window.location.hostname}:25567`)
-      expect(text).not.toContain('attic.old.playkeeper.io')
+      expect(text).not.toContain('attic.old.playkeeper.me')
     }
     await render(<ServerPage slug="attic" tab="overview" />, ws)
     const copy = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Copy join address'))
@@ -3377,14 +3385,15 @@ describe('Machines and AI agents', () => {
   it('says how to get a command when the dashboard has no address another machine can dial', async () => {
     forgetJoinCode()
     vi.mocked(client.post).mockClear()
-    answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5 }, sizingUrl: 'https://playkeeper.io/sizing', available: true, codes: [] } })
+    answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }, { name: 'Debian', version: '12' }] }, sizingUrl: 'https://playkeeper.io/sizing', available: true, codes: [] } })
     const text = await render(<MachinesSection />)
     expect(text).toContain('Open this dashboard at its IP address or domain name, not localhost, to get the command.')
+    expect(text).toContain('Ubuntu 20.04+ or Debian 12+ on x86-64 or ARM64, at least 2 CPU cores, 3 GB of memory and 5 GB of free disk.')
     expect(vi.mocked(client.post).mock.calls.some(([p]) => String(p).includes('/join-codes'))).toBe(false)
   })
 
   it('says why a token can’t be made yet', async () => {
-    answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5 }, sizingUrl: '', available: true }, '/api/tokens': [] })
+    answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }, { name: 'Debian', version: '12' }] }, sizingUrl: '', available: true }, '/api/tokens': [] })
     await render(<AiAgentsSection />)
     const open = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New token'))
     await act(async () => open?.click())

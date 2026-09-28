@@ -43,8 +43,7 @@ func TestOnlyABackupThatIsGoneLeavesTheCopyQueue(t *testing.T) {
 			return nil
 		}},
 		{name: "its record can't be read", logged: "the backup's record can't be read", breaks: func(e *agentEnv, _, _ string) func() {
-			_, _ = e.a.db.Exec(`ALTER TABLE backups RENAME COLUMN sha256 TO sha256_gone`)
-			return func() { _, _ = e.a.db.Exec(`ALTER TABLE backups RENAME COLUMN sha256_gone TO sha256`) }
+			return e.renameColumn("backups", "sha256", "sha256_gone")
 		}},
 		{name: "its archive deleted", gone: true, breaks: func(_ *agentEnv, _, path string) func() {
 			_ = os.Remove(path)
@@ -146,14 +145,10 @@ func TestABackupIsQueuedWhenWhetherCopiesAreOnCantBeRead(t *testing.T) {
 			if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": on, "config": map[string]any{"type": "s3", "s3": testS3}, "secretKey": "wJalrXUtnFEMI-example-secret"}); code != http.StatusOK {
 				t.Fatalf("settings: %d %v", code, out)
 			}
-			if _, err := e.a.db.Exec(`ALTER TABLE offsite RENAME COLUMN enabled TO enabled_gone`); err != nil {
-				t.Fatal(err)
-			}
+			back := e.renameColumn("offsite", "enabled", "enabled_gone")
 			id := e.backup()
 			queued := e.countRows(`SELECT COUNT(*) FROM offsite_uploads WHERE backup_id = ?`, id) == 1
-			if _, err := e.a.db.Exec(`ALTER TABLE offsite RENAME COLUMN enabled_gone TO enabled`); err != nil {
-				t.Fatal(err)
-			}
+			back()
 			if !queued || !strings.Contains(e.warnings.String(), "whether copies somewhere else are on can't be read") {
 				t.Fatalf("queued: %v; logged:\n%s", queued, e.warnings.String())
 			}
@@ -567,6 +562,52 @@ func TestCopiesTurnedOffBetweenTwoCopiesStopTheNext(t *testing.T) {
 	e.waitFor("the queue emptied", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_uploads`) == 0 })
 	if got := store.secrets(); len(got) != 0 {
 		t.Fatalf("%d uploads after copies were turned off, want none", len(got))
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM offsite_copies`); n != 0 {
+		t.Fatalf("%d copies recorded after copies were turned off, want none", n)
+	}
+}
+
+// Copies turned off while a copy is being made stop its upload there:
+// nothing more is sent, nothing is recorded, and the queue empties.
+func TestCopiesTurnedOffStopTheCopyBeingMade(t *testing.T) {
+	store := &credStore{fakeDest: fakeDest{stored: map[string]offsite.Copy{}}, secret: "the-secret", hold: map[string]chan struct{}{},
+		waiting: make(chan string, 4), stopped: make(chan string, 4)}
+	prev := openOffsite
+	openOffsite = func(cfg offsite.Config, _ offsite.Keys, _ offsite.Options) (offsiteDest, error) {
+		return credDest{credStore: store, secret: cfg.S3.SecretKey.Reveal()}, nil
+	}
+	t.Cleanup(func() { openOffsite = prev })
+	e := newAgentEnv(t)
+	e.create()
+	b, err := e.srv().getBackup(e.backup())
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	store.mu.Lock()
+	store.hold[b.FileName] = release
+	store.mu.Unlock()
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": true, "config": map[string]any{"type": "s3", "s3": testS3}, "secretKey": "the-secret"}); code != http.StatusOK {
+		t.Fatalf("turn on: %d %v", code, out)
+	}
+	select {
+	case <-store.waiting:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the copy was never started")
+	}
+	if code, out := e.call("POST", e.sp("/offsite"), map[string]any{"actor": "admin", "enabled": false}); code != http.StatusOK {
+		t.Fatalf("turn off: %d %v", code, out)
+	}
+	select {
+	case <-store.stopped:
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatal("turning copies off didn't stop the copy being made")
+	}
+	e.waitFor("the queue emptied", func() bool { return e.countRows(`SELECT COUNT(*) FROM offsite_uploads`) == 0 })
+	if got := store.secrets(); len(got) != 1 {
+		t.Fatalf("%d uploads, want only the one that was stopped", len(got))
 	}
 	if n := e.countRows(`SELECT COUNT(*) FROM offsite_copies`); n != 0 {
 		t.Fatalf("%d copies recorded after copies were turned off, want none", n)

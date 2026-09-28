@@ -24,7 +24,7 @@ func (e *testEnv) certSets(name string) (sets, first int) {
 // certify publishes and clears a fresh challenge value for c's name.
 func certify(t *testing.T, c *names.Client, tag string) error {
 	t.Helper()
-	fqdn := names.ChallengeFQDN(c.Name, testBase)
+	fqdn := names.ChallengeFQDN(c.Name, c.Base)
 	v := acmeValue(c.Name + " " + tag)
 	if err := c.SetTXT(context.Background(), fqdn, v); err != nil {
 		return err

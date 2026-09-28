@@ -50,7 +50,7 @@ scripts: js/sizing-data.js, js/sizing.js
 <section class="band band-white">
   <div class="container">
     {{template "faq" (dict "ID" "questions" "Items" (list
-      (qa "What are the minimum requirements?" (printf "Ubuntu 24.04 on x86_64, with %d CPU cores, %d GB of memory and %d GB of free disk for Playkeeper. Each server needs more on top, as the calculator shows." $g.Min.Cores $g.Min.MemoryGB $g.Min.DiskGB))
+      (qa "What are the minimum requirements?" (printf "%s, on x86_64 or 64-bit ARM, with %d CPU cores, %d GB of memory and %d GB of free disk for Playkeeper. Each server needs more on top, as the calculator shows." systems $g.Min.Cores $g.Min.MemoryGB $g.Min.DiskGB))
       (qa "Which Java version does a server need?" "The one its Minecraft version was made for: Java 25 from 26.1, 21 for 1.20.5 to 1.21.11, 17 for 1.18 to 1.20.4, 16 for 1.17 and 8 for 1.16.5 and older. Playkeeper runs each server on the right one, so you don't install Java.")
       (qa "What matters more, CPU or RAM?" "Memory first: a server that runs out of it crashes. Then the speed of each core: Minecraft runs the world on one core, so a fast core beats many slow ones.")
       (qa "Why isn't more memory always better?" "Memory the world doesn't use sits idle, and Java takes longer to clear out a very large heap, which players feel as short pauses. Start with the calculator's size; once a server runs, its Settings suggests memory from real use.")

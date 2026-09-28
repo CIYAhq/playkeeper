@@ -1,19 +1,21 @@
 // The live demo's make-believe panel. It answers the dashboard's requests from
 // DemoState, plays jobs out over a few seconds the way an agent reports them,
 // and keeps players and the console moving. The state lives in
-// sessionStorage: a reload keeps it, and it starts over on the hour and in
-// every new tab.
+// sessionStorage: a reload in the same hour keeps it, and a page that loads
+// in a later hour, or in a new tab, starts over. An open page keeps its demo
+// for as long as it stays open, so nobody loses what they're in the middle of.
 
 import { ApiError } from '@/api/client'
-import type { Activity, ActivityKind, ApiToken, Backup, Gameplay, NewToken, Operation, PlayStyle, PlayerStat, RestorePreview, ServerStatus, TokenRole } from '@/api/types'
+import type { ApiToken, Backup, Gameplay, NewToken, Operation, PlayStyle, PlayerStat, RestorePreview, ServerStatus, TokenRole } from '@/api/types'
 import { t } from '@/i18n'
-import { opLabel } from '@/lib/phase'
 import { count } from './analytics'
 import { automationReads, copyNewBackup } from './automation'
 import { chatter, config, demoUser, demoVersion, fakeSha, fill, iso, logText, machineId, me, noise, reads, sample, sampleVersion, serverOf, update, versionsOf, buildsFor, pinOf, type DemoState, type Job, type JobKind, type Live, type Request, type Routes, type Step } from './data'
+import { fileRoutes, textRoutes } from './files'
 import { demoMarker } from './marker'
 import { dt } from './messages'
 import { peopleReads } from './people'
+import { audit, busy, note } from './shared'
 import { demoToast, type DemoAction } from './toast'
 import { fromUpload, worldRoutes } from './worlds'
 
@@ -26,9 +28,11 @@ const keepLines = 500
 
 let state: DemoState | undefined
 
+/** The open page's demo: on its first request, what sessionStorage kept if it was made this hour, else a fresh one. */
 function load(now: number): DemoState {
-  state ??= saved()
-  if (!state || state.sample !== sampleVersion || state.hour !== Math.floor(now / hour)) state = sample(now)
+  if (state) return state
+  const kept = saved()
+  state = kept && kept.sample === sampleVersion && kept.hour === Math.floor(now / hour) ? kept : sample(now)
   return state
 }
 
@@ -49,6 +53,11 @@ function save(s: DemoState) {
   }
 }
 
+/** Forgets the open page's demo but not what sessionStorage kept, as a reload does. */
+export function reloadDemo() {
+  state = undefined
+}
+
 /** Forgets this tab's demo, as a new visit would. */
 export function resetDemo() {
   state = undefined
@@ -63,17 +72,6 @@ function say(s: DemoState, id: string, at: number, text: string) {
   const log = (s.logs[id] ??= [])
   log.push({ seq: (log.at(-1)?.seq ?? 0) + 1, ts: iso(at), text: logText(at, text) })
   if (log.length > keepLines) log.splice(0, log.length - keepLines)
-}
-
-function note(s: DemoState, at: number, serverId: string, kind: ActivityKind, more: Partial<Activity> = {}) {
-  s.activity.unshift({ ts: iso(at), serverId, kind, ...more })
-  s.activity.sort((a, b) => b.ts.localeCompare(a.ts))
-  s.activity.splice(200)
-}
-
-function audit(s: DemoState, at: number, action: string, srv?: ServerStatus, target?: string, detail?: string) {
-  s.audit.unshift({ id: (s.audit[0]?.id ?? 0) + 1, ts: iso(at), actor: demoUser, action, target: target ?? srv?.name, serverId: srv?.id, result: 'succeeded', detail, source: srv ? 'agent' : 'panel', machineId: srv ? machineId : undefined })
-  s.audit.splice(200)
 }
 
 /** A player's row in the server's roster, made on their first visit. */
@@ -143,10 +141,6 @@ function plan(kind: JobKind, srv: ServerStatus, args: Record<string, string>): S
       return unreachable
     }
   }
-}
-
-function busy(srv: ServerStatus): ApiError {
-  return new ApiError(409, { error: dt('demo.busy', { what: srv.operation ? opLabel(srv.operation, srv) : srv.name }), code: 'busy' })
 }
 
 function begin(s: DemoState, srv: ServerStatus, kind: JobKind, now: number, args: Record<string, string> = {}): Operation {
@@ -622,7 +616,7 @@ const writes: Routes = {
     if (srv.operation) throw busy(srv)
     s.servers = s.servers.filter((x) => x !== srv)
     s.activity = s.activity.filter((a) => a.serverId !== srv.id)
-    for (const table of [s.live, s.backups, s.logs, s.whitelist, s.operators, s.roster, s.jobs, s.addons, s.pregen, s.packs, s.copies, s.runs] as Record<string, unknown>[]) delete table[srv.id]
+    for (const table of [s.live, s.backups, s.logs, s.whitelist, s.operators, s.roster, s.jobs, s.addons, s.pregen, s.packs, s.copies, s.runs, s.files] as Record<string, unknown>[]) delete table[srv.id]
     audit(s, r.now, 'server.deleted', srv)
     demoToast('delete')
     return {}
@@ -706,17 +700,17 @@ const writes: Routes = {
   },
 }
 
-const routes = Object.entries({ ...reads, ...peopleReads, ...automationReads, ...worldRoutes, ...writes }).map(([key, handler]) => {
+const routes = Object.entries({ ...reads, ...peopleReads, ...automationReads, ...worldRoutes, ...fileRoutes, ...writes }).map(([key, handler]) => {
   const [method = '', pattern = ''] = key.split(' ')
   const names: string[] = []
   const re = new RegExp(`^${pattern.replace(/:(\w+)/g, (_, name: string) => (names.push(name), '([^/]+)'))}$`)
-  return { method, re, names, handler }
+  return { method, re, names, handler, text: textRoutes.has(key) }
 })
 
 function route(method: string, path: string) {
   for (const r of routes) {
     const m = r.method === method ? r.re.exec(path) : null
-    if (m) return { handler: r.handler, params: Object.fromEntries(r.names.map((n, i) => [n, decodeURIComponent(m[i + 1] ?? '')])) }
+    if (m) return { handler: r.handler, text: r.text, params: Object.fromEntries(r.names.map((n, i) => [n, decodeURIComponent(m[i + 1] ?? '')])) }
   }
   return undefined
 }
@@ -724,19 +718,21 @@ function route(method: string, path: string) {
 /**
  * Answers one request the way the panel would, a moment later. A path the
  * demo has no data for fails like a missing endpoint, so its screen shows its
- * empty or error state rather than breaking.
+ * empty or error state rather than breaking. Only a file saved in the editor
+ * sends its bytes; the demo takes no other uploads.
  */
 export async function answer(method: string, path: string, body?: unknown, raw?: Blob): Promise<unknown> {
   await new Promise((resolve) => setTimeout(resolve, 60 + Math.random() * 120))
+  const url = new URL(path, 'http://demo.invalid')
+  const found = route(method, url.pathname)
+  const text = raw && found?.text ? await raw.text() : undefined
   const now = Date.now()
   const s = load(now)
   try {
     tick(s, now)
-    if (raw) throw new ApiError(400, { error: dt('demo.noUploads'), code: 'demo' })
-    const url = new URL(path, 'http://demo.invalid')
-    const found = route(method, url.pathname)
+    if (raw && text === undefined) throw new ApiError(400, { error: dt('demo.noUploads'), code: 'demo' })
     if (!found) throw method === 'GET' ? new ApiError(404, { error: dt('demo.noData'), code: 'not_found' }) : new ApiError(400, { error: dt('demo.notHere'), code: 'demo' })
-    const result = found.handler(s, { params: found.params, query: url.searchParams, body, now })
+    const result = found.handler(s, { params: found.params, query: url.searchParams, body, text, now })
     if (result === never) return new Promise(() => undefined)
     return result === undefined ? undefined : structuredClone(result)
   } finally {

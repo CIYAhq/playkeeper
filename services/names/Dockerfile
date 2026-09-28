@@ -1,4 +1,4 @@
-# playkeeper-names: the service behind free yourname.playkeeper.io addresses,
+# playkeeper-names: the service behind free yourname.playkeeper.me addresses,
 # on port 8080. Coolify builds it from the repository root (see README.md):
 #   docker build -f services/names/Dockerfile .
 # The tags are for humans; the digests decide.

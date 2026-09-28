@@ -96,7 +96,7 @@ export function Choose({ id, a, machine, refresh, claim }: AddressProps & { clai
         <section>
           <SectionLabel className="px-4 pb-2">{label}</SectionLabel>
           <CardGroup value={choice} onChange={choose} label={label} className="overflow-hidden rounded-3xl border border-border bg-white">
-            <PhoneChoice value="free" title={t('address.free')} hint={choice === 'free' ? t('address.freeHintShort') : undefined} />
+            <PhoneChoice value="free" title={t('address.free', { base: a.base })} hint={choice === 'free' ? t('address.freeHintShort') : undefined} />
             <PhoneChoice value="own" title={t('address.own')} hint={choice === 'free' ? t('address.ownHintShort') : undefined} />
           </CardGroup>
         </section>
@@ -110,8 +110,8 @@ export function Choose({ id, a, machine, refresh, claim }: AddressProps & { clai
       <CardHint>{a.ip ? t('address.lead', { ip: a.ip }) : t('address.leadNoIp')}</CardHint>
       <CardGroup value={choice} onChange={choose} label={label} className="mt-4 grid gap-3 md:grid-cols-2">
         <ChoiceCard value="free" radio="start" className="gap-3 px-4 py-3.5">
-          <span className="block text-sm font-semibold">{t('address.free')}</span>
-          <span className="mt-0.5 block text-[13px] text-muted-foreground">{t('address.freeHint')}</span>
+          <span className="block text-sm font-semibold">{t('address.free', { base: a.base })}</span>
+          <span className="mt-0.5 block text-[13px] text-muted-foreground">{t('address.freeHint', { base: a.base })}</span>
         </ChoiceCard>
         <ChoiceCard value="own" radio="start" className="gap-3 px-4 py-3.5">
           <span className="block text-sm font-semibold">{t('address.own')}</span>
@@ -146,7 +146,7 @@ function FreePicker({ id, a, machine, claim, current, onUseOwn, onCancel }: { id
   const statusId = useId()
   // The picker is swapped out while claiming, so after a failed claim it starts from that name.
   const [raw, setRaw] = useState(() => (claim.state.status === 'failed' ? claim.state.name : current ? '' : startingName(ws.me.user.username, a.base)))
-  const name = normalizeName(raw, a.base)
+  const name = normalizeName(raw, a.base, a.previousBase)
   const problem = nameProblem(name)
   const mine = !!current && name === current
   const { answer, forget } = useLookup(problem || mine ? '' : name, (n) => get<NameAvailability>(machineApi(id, `/address/available?name=${encodeURIComponent(n)}`)), checkDelayMs)

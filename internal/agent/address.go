@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
@@ -21,7 +22,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/names"
 )
 
-// The machine's address: a free playkeeper.io name from the names service,
+// The machine's address: a free playkeeper.me name from the names service,
 // or the admin's own domain. Its state is kept in kv "address"; the
 // dashboard's certificate for it is in certificates.go.
 
@@ -125,7 +126,38 @@ func (a *Agent) loadAddress() {
 	}
 	if err := json.Unmarshal([]byte(v), &a.addr.st); err != nil {
 		a.log.Warn("the saved machine address cannot be read", "err", err)
+		return
 	}
+	a.moveFree()
+}
+
+// moveFree moves a free address saved under names.PreviousBase to
+// names.DefaultBase, where the names service keeps the same name for this
+// machine's key. The address loop's first look refreshes the name, which
+// publishes it and the servers' addresses under the new base, then gets a
+// certificate for the new address. The old certificate stays, so links
+// shared before the move open without a warning until it expires: nothing
+// renews it, and the loop forgets it then (see forgetMovedCertificate).
+func (a *Agent) moveFree() {
+	st := a.address()
+	if st.Kind != api.AddressPlaykeeper || st.Free == nil || st.Host != names.Address(st.Free.Name.Name, names.PreviousBase) {
+		return
+	}
+	old, name := st.Host, st.Free.Name.Name
+	f := *st.Free
+	f.Name.Address, f.Name.DNS, f.NextRefresh = names.Address(name, names.DefaultBase), names.DNSPending, time.Time{}
+	f.Name.Servers = make([]names.Server, len(st.Free.Name.Servers))
+	for i, sv := range st.Free.Name.Servers {
+		sv.Address, sv.DNS = names.ServerAddress(sv.Label, name, names.DefaultBase), names.DNSPending
+		f.Name.Servers[i] = sv
+	}
+	st.Host, st.Free = f.Name.Address, &f
+	if err := a.setAddress(st); err != nil {
+		a.log.Warn("could not move the free address to "+names.DefaultBase, "name", name, "err", err)
+		return
+	}
+	a.log.Info("moved the free address", "from", old, "to", st.Host)
+	a.audit("playkeeper", "address.move", st.Host, "succeeded", "Free address moved from "+old+" to "+st.Host)
 }
 
 func (a *Agent) address() addressState {
@@ -1178,7 +1210,7 @@ func (a *Agent) addressViewWith(op *api.Operation) api.Address {
 func (a *Agent) addressView() api.Address {
 	st := a.address()
 	servers := a.joinServers()
-	v := api.Address{Kind: st.Kind, Host: st.Host, PanelPort: a.cfg.PanelPort, Base: names.DefaultBase,
+	v := api.Address{Kind: st.Kind, Host: st.Host, PanelPort: a.cfg.PanelPort, Base: names.DefaultBase, PreviousBase: names.PreviousBase,
 		Servers: a.joinAddresses(st, servers), Operation: a.addressOp(), TermsAccepted: a.termsAccepted()}
 	if ip := a.machineIP(st); ip.IsValid() {
 		v.IP = ip.String()
@@ -1252,11 +1284,13 @@ func (a *Agent) hAddress(w http.ResponseWriter, r *http.Request) {
 }
 
 // hAddressAlive answers the names service's liveness check, which the panel
-// passes on from the internet with the check's Host header in host.
+// passes on from the internet with the check's Host header in host. A check
+// for the name under names.PreviousBase is answered too, as a names service
+// that has not moved to names.DefaultBase yet asks for it.
 func (a *Agent) hAddressAlive(w http.ResponseWriter, r *http.Request) {
 	r = r.Clone(r.Context())
 	r.Host = r.URL.Query().Get("host")
-	names.AliveHandler(names.DefaultBase, a.aliveKey).ServeHTTP(w, r)
+	names.AliveHandler(cmp.Or(names.BaseOf(r.Host), names.DefaultBase), a.aliveKey).ServeHTTP(w, r)
 }
 
 // aliveKey is the machine's names key if the machine holds name or is
@@ -1285,7 +1319,7 @@ func (a *Agent) setClaiming(name string) {
 }
 
 func (a *Agent) hAddressAvailable(w http.ResponseWriter, r *http.Request) {
-	name := names.NormalizeName(r.URL.Query().Get("name"), names.DefaultBase)
+	name := names.NormalizeName(r.URL.Query().Get("name"), names.DefaultBase, names.PreviousBase)
 	av, err := a.availability(r.Context(), name)
 	if err != nil {
 		writeError(w, err)
@@ -1305,7 +1339,7 @@ func (a *Agent) hAddressClaim(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	name := names.NormalizeName(req.Name, names.DefaultBase)
+	name := names.NormalizeName(req.Name, names.DefaultBase, names.PreviousBase)
 	if err := names.CheckName(name); err != nil {
 		writeError(w, a.namesError(err))
 		return
@@ -1448,8 +1482,8 @@ func ownDomain(raw string) (string, error) {
 	if err != nil {
 		return "", problemError(err, http.StatusBadRequest)
 	}
-	if domain == names.DefaultBase || strings.HasSuffix(domain, "."+names.DefaultBase) {
-		return "", &apiError{Status: http.StatusBadRequest, Code: api.CodeInvalid, Msg: "Names under " + names.DefaultBase + " are free addresses.", Hint: "Pick one with the free address instead."}
+	if base := names.BaseOf(domain); base != "" {
+		return "", &apiError{Status: http.StatusBadRequest, Code: api.CodeInvalid, Msg: "Names under " + base + " are free addresses.", Hint: "Pick one with the free address instead."}
 	}
 	return domain, nil
 }
@@ -1587,6 +1621,7 @@ func (a *Agent) addressTick(ctx context.Context, start bool) {
 		}
 		switch {
 		case start || !now.Before(st.Free.NextRefresh):
+			a.forgetMovedCertificate(st.Free.Name.Name)
 			if err := a.refreshFree(ctx); err != nil {
 				a.log.Warn("could not refresh the free address", "err", err)
 				return

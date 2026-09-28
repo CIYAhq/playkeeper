@@ -61,12 +61,31 @@ func IsConflict(err error) bool {
 }
 
 type VersionInfo struct {
-	Version       string `json:"Version"`
-	APIVersion    string `json:"ApiVersion"`
-	MinAPIVersion string `json:"MinAPIVersion"`
-	Os            string `json:"Os"`
-	Arch          string `json:"Arch"`
-	KernelVersion string `json:"KernelVersion"`
+	Version       string      `json:"Version"`
+	APIVersion    string      `json:"ApiVersion"`
+	MinAPIVersion string      `json:"MinAPIVersion"`
+	Os            string      `json:"Os"`
+	Arch          string      `json:"Arch"`
+	KernelVersion string      `json:"KernelVersion"`
+	Components    []Component `json:"Components"`
+}
+
+// Component is one part of the engine that answered, like "Engine" or
+// "containerd".
+type Component struct {
+	Name    string `json:"Name"`
+	Version string `json:"Version"`
+}
+
+// Podman reports whether Podman's Docker-compatible API answered (podman-docker
+// points the Docker socket at it) rather than Docker Engine.
+func (v VersionInfo) Podman() bool {
+	for _, c := range v.Components {
+		if strings.HasPrefix(c.Name, "Podman") {
+			return true
+		}
+	}
+	return false
 }
 
 // Negotiate queries the unversioned /version endpoint and pins the API version
@@ -189,6 +208,18 @@ func (c *Client) Info(ctx context.Context) (Info, error) {
 	var i Info
 	_, err := c.do(ctx, http.MethodGet, "/info", nil, nil, &i)
 	return i, err
+}
+
+// SELinux reports whether the daemon runs containers under SELinux labels
+// ("selinux-enabled" in its configuration), so what they bind-mount needs a
+// label they may use.
+func (i Info) SELinux() bool {
+	for _, o := range i.SecurityOptions {
+		if o == "name=selinux" || strings.HasPrefix(o, "name=selinux,") {
+			return true
+		}
+	}
+	return false
 }
 
 type ImageInfo struct {

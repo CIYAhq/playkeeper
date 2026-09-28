@@ -107,15 +107,16 @@ func TestChallengesForOtherRecordsAreRefusedBeforeSending(t *testing.T) {
 	value := challengeValue()
 	c := &Client{Key: ed25519.NewKeyFromSeed(testSeed), Name: "alice", HTTP: offline(t)}
 	for _, tc := range []struct{ fqdn, value string }{
-		{"_acme-challenge.bob.playkeeper.io", value},
+		{"_acme-challenge.bob.playkeeper.me", value},
 		{"_acme-challenge.alice.example.com", value},
-		{"alice.playkeeper.io", value},
-		{"_acme-challenge.survival.alice.playkeeper.io", value},
-		{"_acme-challenge.alice.playkeeper.io.example.com", value},
-		{"_acme-challenge.alice.playkeeper.io", "short"},
-		{"_acme-challenge.alice.playkeeper.io", value[:42] + "="},
-		{"_acme-challenge.alice.playkeeper.io", value[:40] + "/.."},
-		{"_acme-challenge.alice.playkeeper.io", value + "a"},
+		{"_acme-challenge.alice." + PreviousBase, value},
+		{"alice.playkeeper.me", value},
+		{"_acme-challenge.survival.alice.playkeeper.me", value},
+		{"_acme-challenge.alice.playkeeper.me.example.com", value},
+		{"_acme-challenge.alice.playkeeper.me", "short"},
+		{"_acme-challenge.alice.playkeeper.me", value[:42] + "="},
+		{"_acme-challenge.alice.playkeeper.me", value[:40] + "/.."},
+		{"_acme-challenge.alice.playkeeper.me", value + "a"},
 	} {
 		for op, f := range map[string]func(context.Context, string, string) error{"SetTXT": c.SetTXT, "ClearTXT": c.ClearTXT} {
 			if err := f(context.Background(), tc.fqdn, tc.value); code(err) != CodeInvalidChallenge {
@@ -124,7 +125,7 @@ func TestChallengesForOtherRecordsAreRefusedBeforeSending(t *testing.T) {
 		}
 	}
 	c.Name = ""
-	if err := c.SetTXT(context.Background(), "_acme-challenge.alice.playkeeper.io", value); code(err) != CodeNoName {
+	if err := c.SetTXT(context.Background(), "_acme-challenge.alice.playkeeper.me", value); code(err) != CodeNoName {
 		t.Errorf("without a name: got %v, want %s", err, CodeNoName)
 	}
 }
@@ -146,16 +147,16 @@ func TestSetTXTReturnsOnceCloudflareHasTheRecord(t *testing.T) {
 		writeJSON(w, http.StatusOK, Challenge{FQDN: ChallengeFQDN("alice", DefaultBase), Value: value, ExpiresAt: testNow.Add(time.Hour), DNS: dns})
 	})
 	ctx := context.Background()
-	if err := c.SetTXT(ctx, "_acme-challenge.Alice.playkeeper.io.", value); err != nil {
+	if err := c.SetTXT(ctx, "_acme-challenge.Alice.playkeeper.me.", value); err != nil {
 		t.Fatalf("a trailing dot and capitals must be accepted: %v", err)
 	}
-	if err := c.ClearTXT(ctx, "_acme-challenge.alice.playkeeper.io", value); err != nil {
+	if err := c.ClearTXT(ctx, "_acme-challenge.alice.playkeeper.me", value); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
 	dns = DNSPending
 	mu.Unlock()
-	if err := c.SetTXT(ctx, "_acme-challenge.alice.playkeeper.io", value); code(err) != CodeDNSPending {
+	if err := c.SetTXT(ctx, "_acme-challenge.alice.playkeeper.me", value); code(err) != CodeDNSPending {
 		t.Errorf("a record Cloudflare does not have yet: got %v, want %s", err, CodeDNSPending)
 	}
 	want := []string{
@@ -310,7 +311,7 @@ func TestRequestsUseTheRightPathsAndOnlyChangesAreSigned(t *testing.T) {
 		case r.URL.Path == "/v1/ip":
 			writeJSON(w, http.StatusOK, IPInfo{IP: "5.75.160.99", Family: "ipv4", Public: true})
 		case r.URL.Path == "/v1/names/bob":
-			writeJSON(w, http.StatusOK, Availability{Name: "bob", Address: "bob.playkeeper.io", Available: true, Message: "bob.playkeeper.io is free."})
+			writeJSON(w, http.StatusOK, Availability{Name: "bob", Address: "bob.playkeeper.me", Available: true, Message: "bob.playkeeper.me is free."})
 		case r.URL.Path == "/v1/names":
 			writeJSON(w, http.StatusOK, NameList{Names: []Name{{Name: "alice", State: StateReleased}}})
 		case strings.Contains(r.URL.Path, "/servers/"):
@@ -498,7 +499,7 @@ func TestRefreshSetsBothVersionsAndClearsOnlyOneThatHasNoRoute(t *testing.T) {
 func TestRefreshReportsTheServicesAnswerOverAnUnreachableVersion(t *testing.T) {
 	lapsed := func(w http.ResponseWriter, r *http.Request) {
 		checkSigned(t, r)
-		writeJSON(w, http.StatusConflict, ErrorBody{Error: "alice.playkeeper.io lapsed because it was not refreshed.", Code: CodeNameLapsed, Hint: "Claim it again."})
+		writeJSON(w, http.StatusConflict, ErrorBody{Error: "alice.playkeeper.me lapsed because it was not refreshed.", Code: CodeNameLapsed, Hint: "Claim it again."})
 	}
 	for _, tc := range []struct {
 		name  string

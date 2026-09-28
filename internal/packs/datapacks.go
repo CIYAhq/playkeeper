@@ -279,6 +279,6 @@ func folderPack(name string) *Error {
 		Code:   CodeFolderPack,
 		Params: map[string]any{"name": shortName(name)},
 		Msg:    fmt.Sprintf("%s in the datapacks folder is an unpacked folder, which Playkeeper doesn't change.", shortQuote(name)),
-		Hint:   "Change the folder yourself with a file manager or over SFTP, or give the new pack another name.",
+		Hint:   "Change the folder yourself on the Files tab, or give the new pack another name.",
 	}
 }

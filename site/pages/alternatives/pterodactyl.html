@@ -21,8 +21,8 @@ og: pterodactyl
       <a class="link-arrow hero-after" href="/demo/">Try the live demo{{template "icon" "arrow-right"}}</a>
     </div>
     <div class="alt-art alt-art-ptero hero-after">
-      {{template "browser" (dict "Name" "ptero-hero" "URL" "alex.playkeeper.io:8443" "Eager" true "Alt" "A server's Overview in the dashboard: its join address, who's playing, how it's running and the players over the last day." "Sizes" "(max-width: 639.98px) 1px, 558px" "Media" "(min-width: 640px)")}}
-      <div aria-hidden="true">{{template "terminal" (dict "Class" "art-terminal" "Decor" true "Lines" (list (dict "Cmd" (installCommand)) (dict "Ok" "Ubuntu 24.04 · x86_64 · 4 vCPU · 8 GB") (dict "Go" "https://203.0.113.7:8443/setup#code=…")))}}</div>
+      {{template "browser" (dict "Name" "ptero-hero" "URL" "alex.playkeeper.me:8443" "Eager" true "Alt" "A server's Overview in the dashboard: its join address, who's playing, how it's running and the players over the last day." "Sizes" "(max-width: 639.98px) 1px, 558px" "Media" "(min-width: 640px)")}}
+      <div aria-hidden="true">{{template "terminal" (dict "Class" "art-terminal" "Decor" true "Lines" (list (dict "Cmd" (installCommand)) (dict "Ok" "Ubuntu 26.04 · x86_64 · 4 vCPU · 8 GB") (dict "Go" "https://203.0.113.7:8443/setup#code=…")))}}</div>
     </div>
   </div>
 </section>
@@ -68,13 +68,13 @@ og: pterodactyl
         {{template "terminal" (dict "Lines" (list
           (dict "Cmd" (installCommand))
           (dict "Ok" "Download matches its SHA-256")
-          (dict "Ok" "Ubuntu 24.04 · x86_64 · 4 vCPU · 8 GB · 71 GB free")
+          (dict "Ok" "Ubuntu 26.04 · x86_64 · 4 vCPU · 8 GB · 71 GB free")
           (dict "Ok" "Ports 8443 and 25565 are free")
           (dict "Note" "It will install Docker (docker.io) and the Playkeeper services.")
           (dict "Note" "Continue? [y/N] y")
           (dict "Go" "Open https://203.0.113.7:8443/setup#code=…")
         ))}}
-        <p class="fine">It checks the server, lists every change and asks first. Docker comes from Ubuntu's archive if it's missing.</p>
+        <p class="fine">It checks the server, lists every change and asks first. If Docker is missing, it comes from your system's packages or Docker's own repository.</p>
       </div>
     </div>
   </div>
@@ -98,13 +98,13 @@ og: pterodactyl
       <h2 id="adds-title" class="section-title reveal">What Playkeeper adds</h2>
       <ul class="adds">
         <li class="reveal">{{template "icon" "sparkles"}}<div><strong>Guided setup</strong><span>A first server in a few questions, sized for your VPS.</span></div></li>
-        <li class="reveal">{{template "icon" "globe"}}<div><strong>A free address</strong><span>yourname.playkeeper.io with a real certificate. No port for friends.</span></div></li>
+        <li class="reveal">{{template "icon" "globe"}}<div><strong>A free address</strong><span>yourname.playkeeper.me with a real certificate. No port for friends.</span></div></li>
         <li class="reveal">{{template "icon" "archive"}}<div><strong>Live backups</strong><span>Players stay online, and every copy is checked.</span></div></li>
         <li class="reveal">{{template "icon" "heart-pulse"}}<div><strong>Crash help</strong><span>What went wrong, from the log, and the fix.</span></div></li>
         <li class="reveal">{{template "icon" "user-plus"}}<div><strong>Invites</strong><span>A link that puts friends on the allowlist.</span></div></li>
       </ul>
     </div>
-    <div class="reveal">{{template "browser" (dict "Name" "ptero-world" "URL" "alex.playkeeper.io:8443/servers/survival/world" "Alt" "A server's World tab: Back up now while players stay online, and each backup checked." "Sizes" "(max-width: 639.98px) calc(100vw - 42px), (max-width: 1023.98px) calc(100vw - 66px), 672px")}}</div>
+    <div class="reveal">{{template "browser" (dict "Name" "ptero-world" "URL" "alex.playkeeper.me:8443/servers/survival/world" "Alt" "A server's World tab: Back up now while players stay online, and each backup checked." "Sizes" "(max-width: 639.98px) calc(100vw - 42px), (max-width: 1023.98px) calc(100vw - 66px), 672px")}}</div>
   </div>
 </section>
 

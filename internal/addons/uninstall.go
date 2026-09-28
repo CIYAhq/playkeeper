@@ -116,13 +116,13 @@ func (l *Library) Uninstall(ctx context.Context, srv Server, installed []Install
 	if i < 0 {
 		return nil, fail(KindNotManaged, kv("source", key.Source.Name(), "project", printable(key.ProjectID)),
 			"Playkeeper did not install this add-on, so it will not delete it.",
-			"Delete its file in the file manager instead.")
+			"Delete its file on the Files tab instead.")
 	}
 	rec := installed[i]
 	if !validFileName(rec.FileName) {
 		return nil, fail(KindBadFileName, kv("name", rec.Name, "file", printable(rec.FileName)),
 			fmt.Sprintf("The record of %s names the file \"%s\", which Playkeeper will not touch.", rec.Name, printable(rec.FileName)),
-			"Delete the file in the file manager, then remove the add-on from the list.")
+			"Delete the file on the Files tab, then remove the add-on from the list.")
 	}
 	if needers := neededBy(installed, rec); len(needers) > 0 && !opts.Force {
 		list := joinNames(needers)
@@ -183,7 +183,7 @@ func (l *Library) Uninstall(ctx context.Context, srv Server, installed []Install
 		if err := root.RemoveAll(meta.ID); err != nil {
 			out.Warnings = append(out.Warnings, notice(KindFolderUnusable, kv("folder", t.Folder+"/"+meta.ID),
 				fmt.Sprintf("%s was removed, but its settings folder %s/%s could not be deleted: %s.", rec.Name, t.Folder, meta.ID, err),
-				"Delete it in the file manager."))
+				"Delete it on the Files tab."))
 		} else {
 			out.ConfigRemoved = true
 		}

@@ -16,6 +16,10 @@ name: Release
 # Pull requests that touch the release path, and manual runs, are dry runs:
 # the same build, install and signing, without CurseForge's key and with a
 # throwaway signing key, and nothing is released.
+# Each release carries a tarball for x86_64 and one for 64-bit ARM. The
+# Release check runs the ARM64 workflow (arm64.yml) on the assets it builds;
+# dry runs run it on theirs, so pull requests exercise it the same way, and
+# the live one-line install after publishing runs on both CPUs.
 
 on:
   push:
@@ -62,6 +66,16 @@ jobs:
     uses: ./.github/workflows/release-build.yml
     with:
       version: ${{ inputs.tag || 'v0.0.0-dryrun' }}
+
+  arm64:
+    name: ARM64 (dry run)
+    needs: build
+    if: github.event_name != 'push'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/arm64.yml
+    with:
+      artifact: release-${{ needs.build.outputs.tag }}
 
   checked:
     name: The tagged commit passed CI and its Release check
@@ -165,12 +179,12 @@ jobs:
         run: |
           scripts/sign-release.sh release/assets "$RUNNER_TEMP/release-keys.pub"
           scripts/release-check.sh release/assets "$VERSION" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/release-keys.pub"
-      - name: Create a draft release with the five assets
+      - name: Create a draft release with the seven assets
         if: github.event_name == 'push'
         working-directory: release/assets
         run: |
           gh release create "$TAG" --verify-tag --draft --title "$TITLE" --notes-file ../release-notes.md \
-            get.sh playkeeper-linux-amd64.tar.gz playkeeper-linux-amd64.tar.gz.sha256 playkeeper-release.json playkeeper-release.json.sig
+            get.sh playkeeper-linux-{amd64,arm64}.tar.gz{,.sha256} playkeeper-release.json playkeeper-release.json.sig
       - name: Check the draft carries exactly these assets
         if: github.event_name == 'push'
         run: |
@@ -182,10 +196,16 @@ jobs:
         run: gh release edit "$TAG" --draft=false --prerelease=false --latest
 
   verify:
-    name: Live addresses — one-line install on a fresh runner
+    name: Live addresses — one-line install on a fresh ${{ matrix.cpu }} runner
     needs: [checked, publish]
     if: github.event_name == 'push'
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, cpu: x86_64 }
+          - { runner: ubuntu-24.04-arm, cpu: ARM }
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}
@@ -201,7 +221,7 @@ jobs:
           gh release download "$TAG" --dir /tmp/release
           latest=https://github.com/$GITHUB_REPOSITORY/releases/latest/download
           mkdir -p /tmp/latest
-          for f in get.sh playkeeper-linux-amd64.tar.gz playkeeper-linux-amd64.tar.gz.sha256 playkeeper-release.json playkeeper-release.json.sig; do
+          for f in get.sh playkeeper-linux-{amd64,arm64}.tar.gz{,.sha256} playkeeper-release.json playkeeper-release.json.sig; do
             if ! curl -fsSL --retry 5 --retry-all-errors -o "/tmp/latest/$f" "$latest/$f"; then
               echo "::error::$latest/$f cannot be downloaded without signing in. Is the repository public?"
               exit 1

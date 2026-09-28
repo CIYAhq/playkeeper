@@ -6,7 +6,8 @@
 # playkeeper.io/install serves this file from the latest release, as does
 # https://github.com/CIYAhq/playkeeper/releases/latest/download/get.sh.
 #
-# Downloads playkeeper-linux-amd64.tar.gz and its .sha256 from the release
+# Downloads the tarball for this server's CPU, playkeeper-linux-amd64.tar.gz
+# or playkeeper-linux-arm64.tar.gz, and its .sha256 from the release
 # location, checks the SHA-256 before anything from the download runs, then
 # runs the installer, which shows every change and asks before making it.
 # Arguments after "sh -s --" go to the installer, for example:
@@ -18,7 +19,6 @@
 set -eu
 
 default_base=https://github.com/CIYAhq/playkeeper/releases/latest/download
-asset=playkeeper-linux-amd64.tar.gz
 # The same limits as the agent's updater (internal/update).
 max_tarball=$((200 * 1024 * 1024))
 max_small=$((1024 * 1024))
@@ -66,11 +66,12 @@ main() {
 
   [ "$(uname -s)" = Linux ] || die "Playkeeper installs on Linux servers only."
   case $(uname -m) in
-    x86_64 | amd64) ;;
-    *) die "this server's CPU is $(uname -m); Playkeeper is built for x86_64 (amd64) only." "Use an x86_64 VPS." ;;
+    x86_64 | amd64) arch=amd64 ;;
+    aarch64 | arm64) arch=arm64 ;;
+    *) die "this server's CPU is $(uname -m); Playkeeper runs on x86_64 (amd64) and 64-bit ARM (aarch64) servers." "Use an x86_64 or 64-bit ARM server. On a Raspberry Pi 4 or 5, install a 64-bit system." ;;
   esac
-  [ "$(id -u)" -eq 0 ] || die "the installer needs root." "Pipe into sudo: curl -fsSL <this script's URL> | sudo sh"
-  command -v curl >/dev/null 2>&1 || die "curl is not installed." "sudo apt-get install -y curl"
+  [ "$(id -u)" -eq 0 ] || die "the installer needs root." "Pipe into sudo: curl -fsSL <this script's URL> | sudo sh (without sudo, as on a Debian with a root password, run it as root after su -)"
+  command -v curl >/dev/null 2>&1 || die "curl is not installed." "sudo apt-get install -y curl, or on the RHEL family and Amazon Linux: sudo dnf install -y curl"
   case $base in
     https://*) proto='=https' ;;
     http://*)
@@ -80,6 +81,12 @@ main() {
       ;;
     *) die "the release location must be an https:// URL, got: $base" ;;
   esac
+  # A 32-bit system on a 64-bit CPU, such as a 32-bit Raspberry Pi OS, says
+  # aarch64 too, but its Docker pulls 32-bit images the newer Java runtimes
+  # don't have.
+  [ "$(getconf LONG_BIT 2>/dev/null || echo 64)" = 64 ] ||
+    die "this is a 32-bit system on a 64-bit CPU; Playkeeper needs the 64-bit system." "Install the 64-bit version of the operating system, then run this again."
+  asset=playkeeper-linux-$arch.tar.gz
   # The installer asks for confirmation; with "curl | sh" its input would be
   # this script, so the answer is read from the terminal instead.
   if [ "$assume_yes" = 0 ] && ! (true </dev/tty) 2>/dev/null; then
@@ -113,7 +120,7 @@ main() {
   mkdir "$tmp/x"
   tar -xzf "$tmp/$asset" -C "$tmp/x" --no-same-owner
   count=$(find "$tmp/x" -mindepth 1 -maxdepth 1 | wc -l)
-  dir=$(find "$tmp/x" -mindepth 1 -maxdepth 1 -type d -name 'playkeeper-*-linux-amd64')
+  dir=$(find "$tmp/x" -mindepth 1 -maxdepth 1 -type d -name "playkeeper-*-linux-$arch")
   if [ "$count" -ne 1 ] || [ -z "$dir" ] || [ ! -f "$dir/install.sh" ] || [ ! -x "$dir/playkeeper" ]; then
     die "$asset does not have the layout of a Playkeeper release."
   fi
@@ -121,13 +128,18 @@ main() {
     die "cannot run programs from $tmp (is it mounted noexec?)." "Run again with TMPDIR set to a directory that allows it, for example: ... | sudo TMPDIR=/root sh"
 
   say "Starting the installer from ${dir##*/}"
-  status=0
   if [ "$assume_yes" = 1 ]; then
+    status=0
     "$dir/install.sh" "$@" </dev/null || status=$?
-  else
-    "$dir/install.sh" "$@" </dev/tty || status=$?
+    exit "$status"
   fi
-  exit "$status"
+  # The installer asks on the terminal, so it takes this script's place as
+  # sudo's own child: a process that reads the terminal before sudo hands it
+  # over is stopped, and sudo-rs (Ubuntu 26.04's sudo) resumes only its own
+  # child. The installer deletes the download when it is done.
+  PLAYKEEPER_GET_DIR=$tmp
+  export PLAYKEEPER_GET_DIR
+  exec "$dir/install.sh" "$@" </dev/tty
 }
 
 main "$@"

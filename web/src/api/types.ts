@@ -466,7 +466,8 @@ export interface JoinCommand extends JoinCode {
 /** What connecting a machine needs: where it dials, the smallest machine that works and the codes. */
 export interface MachineLinkInfo {
   addresses: DialAddress[]
-  minimum: { cores: number; memoryGB: number; freeDiskGB: number }
+  /** systems: each supported distribution with its oldest supported release; later ones work too. */
+  minimum: { cores: number; memoryGB: number; freeDiskGB: number; systems: { name: string; version: string }[] }
   sizingUrl: string
   available: boolean
   fingerprint?: string
@@ -749,6 +750,14 @@ export type ActivityKind =
   | 'woke_up'
   // A scheduled backup refused because world saving couldn't be paused; detail is why.
   | 'backup_refused'
+  // Changes in the file browser; detail is the path, or for a move "from → to".
+  | 'file_saved'
+  | 'file_created'
+  | 'file_uploaded'
+  | 'folder_made'
+  | 'file_renamed'
+  | 'file_moved'
+  | 'file_deleted'
 
 /** An actor that isn't an account: an AI agent's token, or root running `playkeeper mcp` for a user. */
 export type ActorKind = 'token' | 'cli'
@@ -763,6 +772,8 @@ export interface Activity {
   /** The token's name, or the account that ran sudo. */
   actorName?: string
   detail?: string
+  /** How many files an upload line stands for; detail is then their folder. */
+  count?: number
 }
 
 export interface ManifestSummary {
@@ -891,7 +902,7 @@ export interface JoinAddress {
   serverId: string
   name: string
   port: number
-  /** The server's part of the address: "survival" in survival.alex.playkeeper.io. */
+  /** The server's part of the address: "survival" in survival.alex.playkeeper.me. */
   label: string
   address?: string
   /** The IP address with the port, which always works. */
@@ -1014,6 +1025,8 @@ export interface Address {
   ip?: string
   panelPort: number
   base: string
+  /** Where free addresses lived before `base`: a pasted one names the same name. */
+  previousBase?: string
   servers: JoinAddress[] | null
   free?: FreeAddress
   records?: DNSRecord[] | null
@@ -1669,6 +1682,8 @@ export type Action =
   | 'backups.recovery_key'
   | 'backups.recover'
   | 'addon_sources.manage'
+  | 'files.view'
+  | 'files.edit'
 
 export type ProjectRole = 'admin' | 'moderator' | 'viewer'
 
@@ -2471,4 +2486,75 @@ export interface DiskReport {
   truncated: boolean
   problems?: { code: string; path: string; text: string }[]
   moreProblems?: number
+}
+
+// Each server's file browser.
+
+export type FileType = 'file' | 'folder' | 'link' | 'special'
+
+export interface FileEntry {
+  name: string
+  type: FileType
+  /** Bytes, for files; 0 for folders, links and special files. */
+  size: number
+  modifiedAt: string
+}
+
+/** A folder of a server's files. */
+export interface Files {
+  /** The folder, '' for the server's folder itself. */
+  path: string
+  entries: FileEntry[]
+  /** The folder has more entries than those listed. */
+  more?: boolean
+  /** The game runs now: its world folders are read-only, and a change to any other file applies when it restarts. */
+  running: boolean
+  worlds: string[]
+}
+
+/** A file as the editor last saw it. */
+export interface FileInfo {
+  path: string
+  size: number
+  modifiedAt: string
+  /** The SHA-256 the file had; a save that names it is refused once the file changed. */
+  version: string
+}
+
+/** A file opened in the editor. */
+export interface FileContent extends FileInfo {
+  /** Not UTF-8 text, so only offered for download; text is then empty. */
+  binary?: boolean
+  text: string
+  /** Why the file can't change now: a world file while the game runs. */
+  readOnly?: 'world_in_use'
+  running: boolean
+  /** The keys of server.properties Playkeeper sets from the server's settings each time it starts. */
+  managed?: string[]
+}
+
+/** What a delete did: continuing says it carries on after the answer, as deleting a folder of very many files does. */
+export interface FileDeleteResult {
+  deleted: number
+  continuing?: boolean
+}
+
+export interface FileUploadFile {
+  index: number
+  /** Its path in the upload's folder, which may name folders the upload makes. */
+  name: string
+  size: number
+  received: number
+  placed?: boolean
+  /** Why a file that arrived could not be put in place. */
+  error?: string
+}
+
+/** An upload of files into a folder, resumable like a world upload. */
+export interface FileUpload {
+  id: string
+  folder: string
+  createdAt: string
+  files: FileUploadFile[]
+  limitBytes: number
 }

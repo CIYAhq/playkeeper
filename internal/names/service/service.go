@@ -1,4 +1,4 @@
-// Package service is the names service behind free yourname.playkeeper.io
+// Package service is the names service behind free yourname.playkeeper.me
 // addresses (cmd/playkeeper-names). It keeps claimed names in SQLite and
 // manages their DNS records in the base domain's Cloudflare zone, pointing
 // each name at the public address its install's signed requests come from.
@@ -81,10 +81,12 @@ const (
 type Service struct {
 	cfg  Config
 	base string
-	db   *sql.DB
-	cf   *cloudflare
-	log  *slog.Logger
-	now  func() time.Time
+	// previous is the base domain before the last move (see adoptBase).
+	previous string
+	db       *sql.DB
+	cf       *cloudflare
+	log      *slog.Logger
+	now      func() time.Time
 
 	block                 *blocklist
 	perIP, perKey         *limiter
@@ -185,6 +187,10 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 			return nil, err
 		}
 		s.log.Warn("Could not reach Cloudflare to check the zone; the check is repeated before the first change", "error", err)
+	}
+	if err := s.adoptBase(ctx); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("could not record the base domain in the database: %w", err)
 	}
 	return s, nil
 }

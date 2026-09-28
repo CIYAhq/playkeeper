@@ -14,6 +14,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -39,8 +40,8 @@ type System struct {
 	Chown      func(path string, uid, gid int) error
 	Now        func() time.Time
 	Sleep      func(time.Duration)
-	// PackageLockHeld reports whether another program (apt, dpkg,
-	// unattended-upgrades) holds apt's or dpkg's lock.
+	// PackageLockHeld reports whether another program holds the package
+	// manager's lock: apt's or dpkg's, or rpm's or dnf's.
 	PackageLockHeld func() bool
 	// WaitHealthy blocks until the agent socket and panel HTTPS answer; a
 	// panelPort of 0 means the machine has no panel.
@@ -56,12 +57,18 @@ type System struct {
 type DockerInfo struct {
 	Version    string
 	Containers []docker.ContainerSummary
+	// Podman is set when Podman's Docker-compatible API answered on the
+	// Docker socket instead of Docker Engine.
+	Podman bool
 }
 
 // P maps an absolute host path into the system root.
 func (s System) P(path string) string { return filepath.Join(s.Root, path) }
 
 func Real() System {
+	// Debian's su, without -, keeps the user's PATH, which lacks the sbin
+	// directories useradd, iptables and ufw live in.
+	os.Setenv("PATH", withSbin(os.Getenv("PATH")))
 	return System{
 		Root: "/",
 		Run: func(name string, args ...string) (string, error) {
@@ -108,21 +115,37 @@ func Real() System {
 			if err != nil {
 				return DockerInfo{}, err
 			}
+			if v.Podman() {
+				return DockerInfo{Version: v.Version, Podman: true}, nil
+			}
 			list, err := c.ContainerList(ctx, true)
 			if err != nil {
 				return DockerInfo{}, err
 			}
 			return DockerInfo{Version: v.Version, Containers: list}, nil
 		},
-		Executable:      os.Executable,
-		Chown:           os.Lchown,
-		Now:             time.Now,
-		Sleep:           time.Sleep,
-		PackageLockHeld: func() bool { return lockHeld(aptLocks) },
-		WaitHealthy:     waitHealthy,
-		WaitVersion:     waitVersion,
-		Version:         binaryVersion,
+		Executable: os.Executable,
+		Chown:      os.Lchown,
+		Now:        time.Now,
+		Sleep:      time.Sleep,
+		PackageLockHeld: func() bool {
+			return lockHeld(aptLocks) || lockHeld(rpmLocks) || pidLockHeld("/", dnfLocks)
+		},
+		WaitHealthy: waitHealthy,
+		WaitVersion: waitVersion,
+		Version:     binaryVersion,
 	}
+}
+
+// withSbin is path with the sbin directories added where they are missing.
+func withSbin(path string) string {
+	dirs := filepath.SplitList(path)
+	for _, d := range []string{"/usr/local/sbin", "/usr/sbin", "/sbin"} {
+		if !slices.Contains(dirs, d) {
+			dirs = append(dirs, d)
+		}
+	}
+	return strings.Join(dirs, string(filepath.ListSeparator))
 }
 
 // binaryVersion runs `<binary> version`, which prints

@@ -11,8 +11,10 @@
 #   host C: one-line install (get.sh) from a local HTTP mirror, including a
 #           bad-checksum refusal; browser restore of host A's archive;
 #           damaged archives refused while a world is live
-#   lowmem: 2 GB guest, preflight refuses; jammy: Ubuntu 22.04, preflight refuses
+#   lowmem: 2 GB guest, preflight refuses; bionic: Ubuntu 18.04, older than the
+#           oldest supported release, preflight refuses
 #   containers: preflight in containers without systemd (Ubuntu 24.04, Debian 12)
+# The OS matrix (scripts/e2e/vm-os.sh) runs the install on every supported release.
 # Guests run one at a time. The archive moves between hosts only as a file.
 # DNS queries on the lab bridge are recorded to show which services the guests
 # contacted. Usage: scripts/e2e/vm-e2e.sh [path/to/playkeeper-*.tar.gz]
@@ -33,7 +35,7 @@ A=198.51.100.10
 B=198.51.100.11
 C=198.51.100.12
 LOWMEM=198.51.100.14
-JAMMY=198.51.100.15
+BIONIC=198.51.100.15
 LAB_HOST=$LAB_NET.1
 SITE="http://$LAB_HOST:8765"
 export PK_PASSWORD=${PK_PASSWORD:-"lab-$(head -c 9 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"}
@@ -51,7 +53,7 @@ cleanup() {
     lab_log "failed (exit $rc); guests kept running for inspection"
     return
   fi
-  for g in a b c lowmem jammy; do lab_shutdown "$g"; done
+  for g in a b c lowmem bionic; do lab_shutdown "$g"; done
 }
 trap cleanup EXIT
 
@@ -567,17 +569,17 @@ unchanged "$LOWMEM" host-lowmem-snapshot-0-before host-lowmem-snapshot-1-after h
 lab_shutdown lowmem
 }
 
-host_jammy() {
-phase "HOST JAMMY: Ubuntu 22.04; preflight and the installer refuse an untested OS and change nothing"
-lab_image_named jammy "$LAB_JAMMY_URL"
-LAB_BASE_IMAGE="$LAB_DIR/jammy.img" lab_boot jammy 15 3072
-host_facts "$JAMMY" host-jammy-facts.txt
-install_artifact "$JAMMY"
-snapshot "$JAMMY" host-jammy-snapshot-0-before
-lab_ssh "$JAMMY" "cd $name && sudo ./playkeeper preflight" | tee "$OUT/host-jammy-preflight.txt" || true
-lab_ssh "$JAMMY" "cd $name && sudo ./install.sh --yes" 2>&1 | tail -4 | tee -a "$OUT/host-jammy-preflight.txt" || true
-unchanged "$JAMMY" host-jammy-snapshot-0-before host-jammy-snapshot-1-after host-jammy-preflight.txt
-lab_shutdown jammy
+host_bionic() {
+phase "HOST BIONIC: Ubuntu 18.04, older than the oldest supported release; preflight and the installer refuse and change nothing"
+lab_image_named bionic "$LAB_BIONIC_URL"
+LAB_BASE_IMAGE="$LAB_DIR/bionic.img" lab_boot bionic 15 3072
+host_facts "$BIONIC" host-bionic-facts.txt
+install_artifact "$BIONIC"
+snapshot "$BIONIC" host-bionic-snapshot-0-before
+lab_ssh "$BIONIC" "cd $name && sudo ./playkeeper preflight" | tee "$OUT/host-bionic-preflight.txt" || true
+lab_ssh "$BIONIC" "cd $name && sudo ./install.sh --yes" 2>&1 | tail -4 | tee -a "$OUT/host-bionic-preflight.txt" || true
+unchanged "$BIONIC" host-bionic-snapshot-0-before host-bionic-snapshot-1-after host-bionic-preflight.txt
+lab_shutdown bionic
 }
 
 host_containers() {
@@ -592,7 +594,7 @@ dns_summary() {
 phase "DNS: names the guests looked up during the run"
 python3 - "$OUT/dns-capture.raw" <<'PY' | tee "$OUT/dns-queries.txt"
 import collections, re, sys
-hosts = {"10": "A", "11": "B", "12": "C", "14": "lowmem", "15": "jammy"}
+hosts = {"10": "A", "11": "B", "12": "C", "14": "lowmem", "15": "bionic"}
 seen = collections.defaultdict(collections.Counter)
 for line in open(sys.argv[1], errors="replace"):
     src = re.search(r"IP 198\.51\.100\.(\d+)\.\d+ > ", line)
@@ -609,7 +611,7 @@ PY
 
 # HOSTS selects which guests to run; host C reuses host A's archive, marker
 # and secret hashes from $OUT, so "HOSTS='b c' OUT=<earlier run>" resumes a run.
-for h in ${HOSTS:-a b c lowmem jammy containers}; do
+for h in ${HOSTS:-a b c lowmem bionic containers}; do
   "host_$h"
 done
 sudo kill "${pids[0]}" 2>/dev/null || true

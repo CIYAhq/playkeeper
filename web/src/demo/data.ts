@@ -3,9 +3,10 @@
 // pre-generation, packs, address, health and history.
 // Every GET the dashboard makes is answered from `reads` at the bottom, or
 // from the reads of people.ts (the team, invites, Discord, profiles),
-// automation.ts (sleep, schedules, backup rules, copies, disk space) and
-// worlds.ts (world imports); a path that isn't in any of them gets "no sample
-// data" and its screen shows its empty state. To give a screen sample data,
+// automation.ts (sleep, schedules, backup rules, copies, disk space),
+// worlds.ts (world imports) and files.ts (each server's files); a path that
+// isn't in any of them gets "no sample data" and its screen shows its empty
+// state. To give a screen sample data,
 // add what it needs to DemoState and sample(), and its path to reads.
 
 import { ApiError } from '@/api/client'
@@ -35,6 +36,7 @@ import type {
   DailyActivity,
   DataPack,
   DataPacks,
+  FileUpload,
   LogLine,
   LogsResponse,
   MachineLinkInfo,
@@ -78,7 +80,7 @@ import { addonKind } from '@/lib/software'
 import { faceCount, faceIndex } from './faces'
 
 /** Bump when DemoState changes shape, so sessions saved by an older demo start over. */
-export const sampleVersion = 4
+export const sampleVersion = 5
 export const demoVersion = '0.4.0'
 export const demoUser = 'siya'
 export const machineId = 'q7m2vk9xpd'
@@ -134,7 +136,7 @@ export interface Job {
 
 export interface DemoState {
   sample: number
-  /** The hour this state was made in; the demo starts over when it changes. */
+  /** The hour this state was made in; a page that loads in a later hour starts over. */
   hour: number
   seq: number
   machine: MachineView
@@ -161,6 +163,26 @@ export interface DemoState {
   runs: Record<string, ScheduleRun[]>
   /** World uploads for new servers, by id. */
   imports: Record<string, WorldImport>
+  /** Each server's files by path, made the first time its Files tab opens (files.ts). */
+  files: Record<string, Record<string, DemoFile>>
+  /** Uploads into servers' folders, by id. */
+  fileUploads: Record<string, DemoUpload>
+}
+
+/** A file or folder in a server's folder. A text file keeps its text; any other file only its size. */
+export interface DemoFile {
+  folder?: true
+  text?: string
+  size?: number
+  modified: number
+}
+
+/** An upload into a server's folder: what the dashboard sees, whether each file may replace one of its name, and a small file's text. */
+export interface DemoUpload {
+  serverId: string
+  view: FileUpload
+  replace: boolean[]
+  text: (string | null)[]
 }
 
 /** A library plugin on a server, at the version Playkeeper installed. */
@@ -252,7 +274,7 @@ export const survivalId = 'h4k8v2m9qa'
 export const creativeId = 'c6t3w8n2rb'
 export const cobblemonId = 'k9p4f7x2ne'
 
-/** The machine's free name; playkeeper.io reserves "demo", so it leads to nobody's server. */
+/** The machine's free name; the names service reserves "demo", so it leads to nobody's server. */
 export const freeName = 'demo'
 const machineIP = '203.0.113.10'
 
@@ -443,7 +465,7 @@ function lastClock(now: number, h: number, m: number): number {
   return at.getTime() > now ? new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1, h, m).getTime() : at.getTime()
 }
 
-/** The demo as it starts: a fresh copy every hour and on every new visit. */
+/** The demo as it starts: a fresh copy on every new visit, and on a reload in a later hour. */
 export function sample(now: number): DemoState {
   const created = now - 41 * day
   const creativeCreated = now - 19 * day
@@ -493,7 +515,7 @@ export function sample(now: number): DemoState {
     pendingRestart: false,
     collectingSince: iso(created),
     firstSteps: { invited: 'JunoFox', friendJoined: 'JunoFox', friendJoinedAt: iso(created + day), backedUp: true, downloaded: true },
-    joinAddress: `survival.${freeName}.playkeeper.io`,
+    joinAddress: `survival.${freeName}.playkeeper.me`,
     sleep: { enabled: false, idleMinutes: 15, listening: false },
   }
   const creative: ServerStatus = {
@@ -519,7 +541,7 @@ export function sample(now: number): DemoState {
     pendingRestart: false,
     collectingSince: iso(creativeCreated),
     firstSteps: { invited: 'PixelPia', friendJoined: 'PixelPia', friendJoinedAt: iso(creativeCreated + hour), backedUp: true, downloaded: true },
-    joinAddress: `creative.${freeName}.playkeeper.io`,
+    joinAddress: `creative.${freeName}.playkeeper.me`,
     sleep: { enabled: true, idleMinutes: 30, asleepSince: iso(stoppedAt), listening: true },
   }
   const cobblemonCreated = now - 9 * day
@@ -557,7 +579,7 @@ export function sample(now: number): DemoState {
     pendingRestart: false,
     collectingSince: iso(cobblemonCreated),
     firstSteps: { invited: 'Brickbert', friendJoined: 'Brickbert', friendJoinedAt: iso(cobblemonCreated + 2 * hour), backedUp: true, downloaded: true },
-    joinAddress: `cobblemon.${freeName}.playkeeper.io`,
+    joinAddress: `cobblemon.${freeName}.playkeeper.me`,
     sleep: { enabled: false, idleMinutes: 15, listening: false },
   }
   return {
@@ -681,6 +703,8 @@ export function sample(now: number): DemoState {
     copies: { [survivalId]: survivalCopies(now, survivalAll, survivalManual, survivalBackups), [creativeId]: [], [cobblemonId]: [] },
     runs: { [survivalId]: survivalRuns(now, created, survivalAll), [creativeId]: creativeRuns(now, creativeBackups.find((b) => b.kind === 'scheduled')), [cobblemonId]: cobblemonRuns(crashedAt) },
     imports: {},
+    files: {},
+    fileUploads: {},
   }
 }
 
@@ -772,6 +796,8 @@ export interface Request {
   params: Record<string, string>
   query: URLSearchParams
   body: unknown
+  /** The text a request sends as its body, for the routes that take one (files.ts). */
+  text?: string
   now: number
 }
 export type Handler = (s: DemoState, r: Request) => unknown
@@ -787,7 +813,7 @@ export function serverOf(s: DemoState, r: Request): ServerStatus {
 const limit = (r: Request, fallback: number) => Number(r.query.get('limit') ?? fallback) || fallback
 
 /** Everything an owner may do, as the panel's permit lists it for them. */
-const ownerCan: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover']
+const ownerCan: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover', 'files.view', 'files.edit']
 
 export function me(now: number): Me {
   return {
@@ -999,10 +1025,10 @@ function preflight(s: DemoState): Preflight {
 
 const link: MachineLinkInfo = {
   addresses: [
-    { kind: 'name', address: 'demo.playkeeper.io:8443' },
+    { kind: 'name', address: 'demo.playkeeper.me:8443' },
     { kind: 'ip', address: '203.0.113.10:8443' },
   ],
-  minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5 },
+  minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }, { name: 'Debian', version: '12' }, { name: 'the RHEL family', version: '9' }, { name: 'Amazon Linux', version: '2023' }] },
   sizingUrl: 'https://playkeeper.io/sizing',
   available: true,
   fingerprint: 'Z287KN4CDZD0Z8A4XXJA514NKG',
@@ -1233,8 +1259,8 @@ function resourcePack(s: DemoState, r: Request): ResourcePack {
   const offer = s.packs[serverOf(s, r).id]?.resource
   if (!offer) return { pending: false }
   // Players' games download the pack from the address the dashboard is open at,
-  // which the demo build names demo.playkeeper.io, as it does game addresses.
-  const host = typeof window === 'undefined' ? 'demo.playkeeper.io' : window.location.hostname
+  // which the demo build names demo.playkeeper.me, as it does game addresses.
+  const host = typeof window === 'undefined' ? 'demo.playkeeper.me' : window.location.hostname
   return { offer: { ...offer, url: `http://${host}:8443/resource-packs/${offer.sha1}.zip` }, pending: false }
 }
 
@@ -1251,14 +1277,14 @@ function dataPacks(s: DemoState, r: Request): DataPacks {
 
 function address(s: DemoState, r: Request): Address {
   const claimed = r.now - 32 * day
-  const host = `${freeName}.playkeeper.io`
+  const host = `${freeName}.playkeeper.me`
   return {
     kind: 'playkeeper',
     host,
     since: iso(claimed),
     ip: machineIP,
     panelPort: 8443,
-    base: 'playkeeper.io',
+    base: 'playkeeper.me',
     servers: s.servers.map((x) => ({ serverId: x.id, name: x.name, port: x.gamePort, label: x.slug, address: `${x.slug}.${host}`, direct: `${machineIP}:${x.gamePort}`, published: true })),
     free: { name: freeName, state: 'active', dns: 'ok', ipv4: machineIP, claimedAt: iso(claimed), refreshedAt: iso(r.now - 3 * hour), checkedAt: iso(r.now - 2 * hour), holdDays: 30 },
     certificate: { names: [host], challenge: 'dns-01', notBefore: iso(r.now - 20 * day), notAfter: iso(r.now + 70 * day), renewAt: iso(r.now + 40 * day), issuer: 'Let’s Encrypt' },

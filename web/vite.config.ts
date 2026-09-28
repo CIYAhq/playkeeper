@@ -27,7 +27,7 @@ export default defineConfig(({ command, mode, isPreview }) => {
     resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
     // Game addresses in the demo name a made-up server, not the site serving it.
     // Only in the build: the dev server's own client reads the same name.
-    define: demo && command === 'build' ? { 'window.location.hostname': JSON.stringify('demo.playkeeper.io') } : {},
+    define: demo && command === 'build' ? { 'window.location.hostname': JSON.stringify('demo.playkeeper.me') } : {},
     build: { outDir: demo ? 'dist-demo' : 'dist', emptyOutDir: true, sourcemap: false, target: 'es2022', assetsInlineLimit: 0 },
     server: {
       port: 5173,

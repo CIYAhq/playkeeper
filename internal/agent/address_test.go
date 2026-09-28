@@ -156,7 +156,10 @@ func (f *fakeIssuer) requests() []certs.Request {
 type fakeNames struct {
 	srv *httptest.Server
 
-	mu     sync.Mutex
+	mu sync.Mutex
+	// base is the base domain requests must be signed for, and names live
+	// under.
+	base   string
 	names  map[string]*names.Name
 	owner  map[string]string
 	calls  []string
@@ -188,7 +191,7 @@ type fakeRefusal struct {
 
 func startFakeNames(t *testing.T) *fakeNames {
 	t.Helper()
-	f := &fakeNames{names: map[string]*names.Name{}, owner: map[string]string{}}
+	f := &fakeNames{base: names.DefaultBase, names: map[string]*names.Name{}, owner: map[string]string{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/names/{name}", f.available)
 	mux.HandleFunc("PUT /v1/names/{name}", f.signed(f.claim))
@@ -255,7 +258,10 @@ type signedHandler func(w http.ResponseWriter, r *http.Request, key string, body
 func (f *fakeNames) signed(h signedHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
-		s, err := names.VerifyRequest(r.Header, r.Method, r.URL.RequestURI(), body, names.DefaultBase, time.Now())
+		f.mu.Lock()
+		base := f.base
+		f.mu.Unlock()
+		s, err := names.VerifyRequest(r.Header, r.Method, r.URL.RequestURI(), body, base, time.Now())
 		if err != nil {
 			var ne *names.Error
 			errors.As(err, &ne)
@@ -291,7 +297,7 @@ func (f *fakeNames) available(w http.ResponseWriter, r *http.Request) {
 	n := f.names[name]
 	switch {
 	case n == nil || n.State == names.StateReleased && !held(n):
-		jsonOut(w, http.StatusOK, names.Availability{Name: name, Address: names.Address(name, names.DefaultBase), Available: true})
+		jsonOut(w, http.StatusOK, names.Availability{Name: name, Address: names.Address(name, f.base), Available: true})
 	case held(n):
 		jsonOut(w, http.StatusOK, names.Availability{Name: name, Code: names.CodeNameHeld, Message: "Held.", Params: map[string]any{"until": n.FreedAt.Unix()}})
 	default:
@@ -327,7 +333,7 @@ func (f *fakeNames) claim(w http.ResponseWriter, r *http.Request, key string, _ 
 // fresh is name as a claim leaves it.
 func (f *fakeNames) fresh(name string) *names.Name {
 	now := time.Now().UTC().Truncate(time.Second)
-	return &names.Name{Name: name, Address: names.Address(name, names.DefaultBase), State: names.StateActive, IPv4: testIP.String(),
+	return &names.Name{Name: name, Address: names.Address(name, f.base), State: names.StateActive, IPv4: testIP.String(),
 		ClaimedAt: now, RefreshedAt: now, RefreshBy: now.Add(namesLapseAfter), FreedAt: now.Add(2 * namesLapseAfter), Servers: []names.Server{}, DNS: f.dns()}
 }
 
@@ -398,7 +404,7 @@ func (f *fakeNames) setServer(w http.ResponseWriter, r *http.Request, key string
 		return
 	}
 	label := strings.TrimPrefix(r.PathValue("label"), "@")
-	sv := names.Server{Label: label, Address: names.ServerAddress(label, n.Name, names.DefaultBase), Port: req.Port, DNS: f.dns()}
+	sv := names.Server{Label: label, Address: names.ServerAddress(label, n.Name, f.base), Port: req.Port, DNS: f.dns()}
 	if i := slices.IndexFunc(n.Servers, func(s names.Server) bool { return s.Label == label }); i >= 0 {
 		n.Servers[i] = sv
 	} else if len(n.Servers) >= namesMaxServers {
@@ -426,7 +432,7 @@ func (f *fakeNames) setTXT(w http.ResponseWriter, r *http.Request, key string, _
 		return
 	}
 	f.txtSet++
-	jsonOut(w, http.StatusOK, names.Challenge{FQDN: names.ChallengeFQDN(n.Name, names.DefaultBase), Value: r.PathValue("value"), ExpiresAt: time.Now().Add(time.Hour), DNS: names.DNSOK})
+	jsonOut(w, http.StatusOK, names.Challenge{FQDN: names.ChallengeFQDN(n.Name, f.base), Value: r.PathValue("value"), ExpiresAt: time.Now().Add(time.Hour), DNS: names.DNSOK})
 }
 
 func (f *fakeNames) clearTXT(w http.ResponseWriter, r *http.Request, key string, _ []byte) {
@@ -446,6 +452,20 @@ func (f *fakeNames) publish() {
 		n.DNS = names.DNSOK
 		for i := range n.Servers {
 			n.Servers[i].DNS = names.DNSOK
+		}
+	}
+}
+
+// moveTo makes the service one for base, as the owner's switch does: the
+// names it holds keep their keys and live under base from then on.
+func (f *fakeNames) moveTo(base string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.base = base
+	for _, n := range f.names {
+		n.Address = names.Address(n.Name, base)
+		for i, sv := range n.Servers {
+			n.Servers[i].Address = names.ServerAddress(sv.Label, n.Name, base)
 		}
 	}
 }
@@ -852,11 +872,11 @@ func TestFreeAddressClaimPublishesServersAndCertificate(t *testing.T) {
 	e.addServerNamed("Creative")
 
 	var av api.NameAvailability
-	if code := e.callInto("GET", "/v1/address/available?name=Alex.playkeeper.io", nil, &av); code != 200 || !av.Available || av.Name != "alex" || av.Address != "alex.playkeeper.io" {
+	if code := e.callInto("GET", "/v1/address/available?name=Alex.playkeeper.me", nil, &av); code != 200 || !av.Available || av.Name != "alex" || av.Address != "alex.playkeeper.me" {
 		t.Fatalf("availability: %d %+v", code, av)
 	}
 	v := e.claim("alex")
-	if v.Kind != api.AddressPlaykeeper || v.Host != "alex.playkeeper.io" || v.Free == nil || v.Free.State != names.StateActive || v.Free.DNS != names.DNSOK || v.Free.HoldDays != 30 {
+	if v.Kind != api.AddressPlaykeeper || v.Host != "alex.playkeeper.me" || v.Free == nil || v.Free.State != names.StateActive || v.Free.DNS != names.DNSOK || v.Free.HoldDays != 30 {
 		t.Fatalf("address after the claim: %+v %+v", v, v.Free)
 	}
 	if n, owner := e.names.name("alex"); n.State != names.StateActive || owner == "" {
@@ -870,7 +890,7 @@ func TestFreeAddressClaimPublishesServersAndCertificate(t *testing.T) {
 	}
 
 	reqs := e.ca.requests()
-	if len(reqs) != 1 || reqs[0].DNS01 == nil || reqs[0].HTTP01 != nil || !slices.Equal(reqs[0].Names, []string{"alex.playkeeper.io"}) || reqs[0].Dir != e.cfg.CertsDir() {
+	if len(reqs) != 1 || reqs[0].DNS01 == nil || reqs[0].HTTP01 != nil || !slices.Equal(reqs[0].Names, []string{"alex.playkeeper.me"}) || reqs[0].Dir != e.cfg.CertsDir() {
 		t.Fatalf("certificate requests: %+v", reqs)
 	}
 	if set, cleared := e.names.txtCounts(); set != 1 || cleared != 1 {
@@ -879,19 +899,19 @@ func TestFreeAddressClaimPublishesServersAndCertificate(t *testing.T) {
 	if v.Certificate == nil || v.Certificate.NotAfter == nil || v.Certificate.Challenge != "dns-01" || v.Certificate.Problem != nil {
 		t.Fatalf("certificate: %+v", v.Certificate)
 	}
-	if _, err := os.Stat(filepath.Join(e.cfg.CertsDir(), "alex.playkeeper.io.pem")); err != nil {
+	if _, err := os.Stat(filepath.Join(e.cfg.CertsDir(), "alex.playkeeper.me.pem")); err != nil {
 		t.Fatal(err)
 	}
 
 	want := []api.JoinAddress{
-		{ServerID: survival, Name: "Survival", Port: 25565, Label: "survival", Address: "survival.alex.playkeeper.io", Direct: "203.0.113.10", Published: true},
-		{Name: "Creative", Port: 25566, Label: "creative", Address: "creative.alex.playkeeper.io", Direct: "203.0.113.10:25566", Published: true},
+		{ServerID: survival, Name: "Survival", Port: 25565, Label: "survival", Address: "survival.alex.playkeeper.me", Direct: "203.0.113.10", Published: true},
+		{Name: "Creative", Port: 25566, Label: "creative", Address: "creative.alex.playkeeper.me", Direct: "203.0.113.10:25566", Published: true},
 	}
 	want[1].ServerID = v.Servers[1].ServerID
 	if !slices.Equal(v.Servers, want) {
 		t.Fatalf("join addresses:\n got %+v\nwant %+v", v.Servers, want)
 	}
-	if got := e.a.serverByID(survival).Status(context.Background()).JoinAddress; got != "survival.alex.playkeeper.io" {
+	if got := e.a.serverByID(survival).Status(context.Background()).JoinAddress; got != "survival.alex.playkeeper.me" {
 		t.Fatalf("server status join address %q", got)
 	}
 	if v.TermsAccepted == nil {
@@ -928,7 +948,7 @@ func TestFreeAddressPublishingWaitsForTheRecords(t *testing.T) {
 	if op := e.waitOp(v.Operation.ID); op.Status != api.OpSucceeded {
 		t.Fatalf("publishing: %+v", op)
 	}
-	if got := e.a.serverByID(id).Status(context.Background()).JoinAddress; got != "survival.alex.playkeeper.io" {
+	if got := e.a.serverByID(id).Status(context.Background()).JoinAddress; got != "survival.alex.playkeeper.me" {
 		t.Fatalf("join address after publishing: %q", got)
 	}
 }
@@ -970,7 +990,7 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 	if n, _ := e.names.name("alex"); n.State != names.StateActive {
 		t.Fatalf("alex was not claimed back: %+v", n)
 	}
-	if v := e.address(); v.Host != "alex.playkeeper.io" || v.Free.State != names.StateActive {
+	if v := e.address(); v.Host != "alex.playkeeper.me" || v.Free.State != names.StateActive {
 		t.Fatalf("address after the failed change: %+v", v)
 	}
 
@@ -985,7 +1005,7 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 	if n, _ := e.names.name("alex"); n.State != names.StateActive {
 		t.Fatalf("alex was not claimed back after the change couldn't be saved: %+v", n)
 	}
-	if v := e.address(); v.Host != "alex.playkeeper.io" || v.Free.State != names.StateActive {
+	if v := e.address(); v.Host != "alex.playkeeper.me" || v.Free.State != names.StateActive {
 		t.Fatalf("address after the change couldn't be saved: %+v", v)
 	}
 	// When bob can't be released either, alex can't be claimed back, as a
@@ -1009,21 +1029,21 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 	if e.names.requests("PUT /v1/names/alex") != claimsBack {
 		t.Fatal("alex was claimed back while bob was still held")
 	}
-	if v := e.address(); v.Host != "alex.playkeeper.io" || e.a.loadCertificate("alex.playkeeper.io") == nil {
+	if v := e.address(); v.Host != "alex.playkeeper.me" || e.a.loadCertificate("alex.playkeeper.me") == nil {
 		t.Fatalf("address after a change that couldn't be saved or undone: %+v", v)
 	}
 
 	v := e.claim("bob")
-	if v.Host != "bob.playkeeper.io" || v.Servers[0].Address != "survival.bob.playkeeper.io" {
+	if v.Host != "bob.playkeeper.me" || v.Servers[0].Address != "survival.bob.playkeeper.me" {
 		t.Fatalf("address after the change: %+v", v)
 	}
 	if n, _ := e.names.name("alex"); n.State != names.StateReleased {
 		t.Fatalf("alex was not released: %+v", n)
 	}
-	if _, err := os.Stat(filepath.Join(e.cfg.CertsDir(), "alex.playkeeper.io.pem")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(e.cfg.CertsDir(), "alex.playkeeper.me.pem")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the old name's certificate is still served: %v", err)
 	}
-	if e.a.loadCertificate("alex.playkeeper.io") != nil || e.a.loadCertificate("bob.playkeeper.io") == nil {
+	if e.a.loadCertificate("alex.playkeeper.me") != nil || e.a.loadCertificate("bob.playkeeper.me") == nil {
 		t.Fatal("certificates were not moved to the new name")
 	}
 	// The released name is held from others, not from this machine.
@@ -1038,7 +1058,7 @@ func TestFreeAddressChangeAndRelease(t *testing.T) {
 	if n, _ := e.names.name("bob"); n.State != names.StateReleased {
 		t.Fatalf("bob was not released: %+v", n)
 	}
-	if e.a.loadCertificate("bob.playkeeper.io") != nil {
+	if e.a.loadCertificate("bob.playkeeper.me") != nil {
 		t.Fatal("the released name's certificate was kept")
 	}
 	if v.Servers[0].Address != "" || v.Servers[0].Direct != "203.0.113.10" {
@@ -1109,7 +1129,7 @@ func TestFreeNameChangeWithALostAnswerFollowsTheService(t *testing.T) {
 			if c.late {
 				e.waitFor("the client to stop waiting for the answer", func() bool { return e.names.hungUps() == 1 })
 			}
-			if v.Host != "bob.playkeeper.io" || v.Free == nil || v.Free.State != names.StateActive || v.Servers[0].Address != "survival.bob.playkeeper.io" {
+			if v.Host != "bob.playkeeper.me" || v.Free == nil || v.Free.State != names.StateActive || v.Servers[0].Address != "survival.bob.playkeeper.me" {
 				t.Fatalf("address after the change: %+v", v)
 			}
 			if n, owner := e.names.name("bob"); n.State != names.StateActive || owner != key {
@@ -1118,7 +1138,7 @@ func TestFreeNameChangeWithALostAnswerFollowsTheService(t *testing.T) {
 			if n, _ := e.names.name("alex"); n.State != names.StateReleased {
 				t.Fatalf("the service has alex as %+v", n)
 			}
-			if e.a.loadCertificate("bob.playkeeper.io") == nil || e.a.loadCertificate("alex.playkeeper.io") != nil {
+			if e.a.loadCertificate("bob.playkeeper.me") == nil || e.a.loadCertificate("alex.playkeeper.me") != nil {
 				t.Fatal("the certificate is not for the name the service holds")
 			}
 			// The service is asked what became of the claim; claiming alex
@@ -1163,10 +1183,10 @@ func TestFreeNameChangeThatFailedGivesTheOldNameBack(t *testing.T) {
 		if n, _ := e.names.name(to); n.State == names.StateActive {
 			t.Fatalf("the service has %s as %+v", to, n)
 		}
-		if v := e.address(); v.Host != from+".playkeeper.io" || v.Free == nil || v.Free.State != names.StateActive {
+		if v := e.address(); v.Host != from+".playkeeper.me" || v.Free == nil || v.Free.State != names.StateActive {
 			t.Fatalf("address after changing to %s failed: %+v", to, v)
 		}
-		if e.a.loadCertificate(from+".playkeeper.io") == nil || e.a.loadCertificate(to+".playkeeper.io") != nil {
+		if e.a.loadCertificate(from+".playkeeper.me") == nil || e.a.loadCertificate(to+".playkeeper.me") != nil {
 			t.Fatalf("the certificate is not for %s", from)
 		}
 		e.waitFor("the servers' records under "+from, func() bool { return e.names.labels(from)["survival"] == 25565 })
@@ -1206,7 +1226,7 @@ func TestFreeNameIsKeptWhileTheServiceHoldsIt(t *testing.T) {
 			t.Fatalf("%s: changing to bob: %d %v", c.name, code, out)
 		}
 		st := e.a.address()
-		if st.Host != "alex.playkeeper.io" || st.Free == nil || st.Free.Name.Name != "alex" || e.a.loadCertificate("alex.playkeeper.io") == nil {
+		if st.Host != "alex.playkeeper.me" || st.Free == nil || st.Free.Name.Name != "alex" || e.a.loadCertificate("alex.playkeeper.me") == nil {
 			t.Fatalf("%s: the machine gave alex up: %+v", c.name, st)
 		}
 		if d := time.Until(st.Free.NextRefresh); d < 50*time.Minute || d > 70*time.Minute {
@@ -1236,7 +1256,7 @@ func TestFreeNameIsKeptWhileTheServiceHoldsIt(t *testing.T) {
 		t.Fatalf("changing to bob after alex went to someone else: %d %v", code, out)
 	}
 	e.names.setFail(nil)
-	if st := e.a.address(); st.Kind != api.AddressNone || st.Released != "alex" || e.a.loadCertificate("alex.playkeeper.io") != nil {
+	if st := e.a.address(); st.Kind != api.AddressNone || st.Released != "alex" || e.a.loadCertificate("alex.playkeeper.me") != nil {
 		t.Fatalf("the machine kept a name someone else has: %+v", st)
 	}
 }
@@ -1284,7 +1304,7 @@ func TestFreeNameChangeIsUndoneAfterItsTimeRanOut(t *testing.T) {
 			if n, _ := e.names.name("bob"); n.State == names.StateActive {
 				t.Fatalf("the service has bob as %+v", n)
 			}
-			if st := e.a.address(); st.Host != "alex.playkeeper.io" || st.Free == nil || st.Free.Name.Name != "alex" || e.a.loadCertificate("alex.playkeeper.io") == nil {
+			if st := e.a.address(); st.Host != "alex.playkeeper.me" || st.Free == nil || st.Free.Name.Name != "alex" || e.a.loadCertificate("alex.playkeeper.me") == nil {
 				t.Fatalf("the machine has %+v", st)
 			}
 		})
@@ -1461,7 +1481,7 @@ func TestFreeNameFollowsTheServiceOnEveryErrorPath(t *testing.T) {
 				if st.Kind != api.AddressNone || st.Free != nil {
 					t.Fatalf("after the step the machine has %+v", st)
 				}
-			} else if st.Free == nil || st.Free.Name.Name != c.want || st.Host != c.want+".playkeeper.io" || !about(time.Until(st.Free.NextRefresh), c.next) {
+			} else if st.Free == nil || st.Free.Name.Name != c.want || st.Host != c.want+".playkeeper.me" || !about(time.Until(st.Free.NextRefresh), c.next) {
 				t.Fatalf("after the step the machine has %s (%+v), want %s refreshed in %v", st.Host, st.Free, c.want, c.next)
 			}
 			// A name the machine keeps for a day is one the service holds.
@@ -1474,7 +1494,7 @@ func TestFreeNameFollowsTheServiceOnEveryErrorPath(t *testing.T) {
 			// certificate without waiting for its next refresh.
 			if !c.change && !c.first && c.want != "" && c.want != "alex" {
 				e.waitFor(c.want+"'s record and certificate", func() bool {
-					return e.names.labels(c.want)["survival"] == 25565 && e.a.loadCertificate(c.want+".playkeeper.io") != nil
+					return e.names.labels(c.want)["survival"] == 25565 && e.a.loadCertificate(c.want+".playkeeper.me") != nil
 				})
 			}
 
@@ -1491,7 +1511,7 @@ func TestFreeNameFollowsTheServiceOnEveryErrorPath(t *testing.T) {
 				if st.Kind != api.AddressNone || st.Free != nil {
 					t.Fatalf("the machine ends with %+v", st)
 				}
-			} else if st.Free == nil || st.Free.Name.Name != c.then || st.Host != c.then+".playkeeper.io" || st.Free.Name.State != names.StateActive || !about(time.Until(st.Free.NextRefresh), day) {
+			} else if st.Free == nil || st.Free.Name.Name != c.then || st.Host != c.then+".playkeeper.me" || st.Free.Name.State != names.StateActive || !about(time.Until(st.Free.NextRefresh), day) {
 				t.Fatalf("the machine ends with %s (%+v), want %s", st.Host, st.Free, c.then)
 			}
 			// The machine releases alex, or gives it up, whenever it ends
@@ -1508,7 +1528,7 @@ func TestFreeNameFollowsTheServiceOnEveryErrorPath(t *testing.T) {
 				if held := owner == key && n.State == names.StateActive; held != (name == c.then || name == c.orphan) {
 					t.Errorf("the service holds %s for this machine: %v (%+v)", name, held, n)
 				}
-				if has := e.a.loadCertificate(name+".playkeeper.io") != nil; has != (name == c.then) {
+				if has := e.a.loadCertificate(name+".playkeeper.me") != nil; has != (name == c.then) {
 					t.Errorf("the machine has a certificate for %s: %v", name, has)
 				}
 			}
@@ -1553,7 +1573,7 @@ func TestFreeNameChangeTheMachineCouldNotConfirmEndsOnTheNewName(t *testing.T) {
 	if n, _ := e.names.name("alex"); n.State != names.StateReleased {
 		t.Fatalf("the service has alex as %+v", n)
 	}
-	if st := e.a.address(); st.Host != "alex.playkeeper.io" || e.a.loadCertificate("alex.playkeeper.io") == nil || !about(time.Until(st.Free.NextRefresh), time.Hour) {
+	if st := e.a.address(); st.Host != "alex.playkeeper.me" || e.a.loadCertificate("alex.playkeeper.me") == nil || !about(time.Until(st.Free.NextRefresh), time.Hour) {
 		t.Fatalf("after the change the machine has %+v", st)
 	}
 
@@ -1562,16 +1582,16 @@ func TestFreeNameChangeTheMachineCouldNotConfirmEndsOnTheNewName(t *testing.T) {
 	e.loopRefreshes("alex")
 	e.settled()
 	v := e.address()
-	if v.Host != "bob.playkeeper.io" || v.Free == nil || v.Free.Name != "bob" || v.Free.State != names.StateActive || len(v.Servers) != 1 || v.Servers[0].Address != "survival.bob.playkeeper.io" || !v.Servers[0].Published {
+	if v.Host != "bob.playkeeper.me" || v.Free == nil || v.Free.Name != "bob" || v.Free.State != names.StateActive || len(v.Servers) != 1 || v.Servers[0].Address != "survival.bob.playkeeper.me" || !v.Servers[0].Published {
 		t.Fatalf("after the loop's refresh the machine has %+v, servers %+v", v, v.Servers)
 	}
 	if n, owner := e.names.name("bob"); n.State != names.StateActive || owner != key || e.names.labels("bob")["survival"] != 25565 {
 		t.Fatalf("the service has bob as %+v for %q", n, owner)
 	}
-	if v.Certificate == nil || v.Certificate.Problem != nil || e.a.loadCertificate("bob.playkeeper.io") == nil || e.a.loadCertificate("alex.playkeeper.io") != nil {
+	if v.Certificate == nil || v.Certificate.Problem != nil || e.a.loadCertificate("bob.playkeeper.me") == nil || e.a.loadCertificate("alex.playkeeper.me") != nil {
 		t.Fatalf("certificates after the loop's refresh: %+v", v.Certificate)
 	}
-	if _, err := os.Stat(filepath.Join(e.cfg.CertsDir(), "alex.playkeeper.io.pem")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(e.cfg.CertsDir(), "alex.playkeeper.me.pem")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the old name's certificate is still served: %v", err)
 	}
 	if st := e.a.address(); st.Released != "alex" || !about(time.Until(st.Free.NextRefresh), 24*time.Hour) {
@@ -1728,7 +1748,7 @@ func TestOwnDomainChecksTheNameBeforeHTTP01(t *testing.T) {
 	if plan.Servers[0].Address != "play.example.com" || plan.Servers[1].Address != "creative.play.example.com" || plan.Servers[0].Published {
 		t.Fatalf("planned join addresses: %+v", plan.Servers)
 	}
-	for _, bad := range []string{"alex.playkeeper.io", "playkeeper.io", "https://play.example.com/", "localhost", "203.0.113.10"} {
+	for _, bad := range []string{"alex.playkeeper.me", "playkeeper.me", "https://play.example.com/", "localhost", "203.0.113.10"} {
 		if code, out := e.call("GET", "/v1/address/plan?domain="+bad, nil); code != 400 {
 			t.Errorf("plan for %q: %d %v", bad, code, out)
 		}
@@ -1869,7 +1889,7 @@ func TestFreeRecordsFollowTheServers(t *testing.T) {
 		l := e.names.labels("alex")
 		return len(l) == 1 && l["creative"] == 25566
 	})
-	if got := e.a.serverByID(creative).Status(context.Background()).JoinAddress; got != "creative.alex.playkeeper.io" {
+	if got := e.a.serverByID(creative).Status(context.Background()).JoinAddress; got != "creative.alex.playkeeper.me" {
 		t.Fatalf("join address %q", got)
 	}
 }
@@ -2014,14 +2034,14 @@ func TestLivenessCheckIsAnsweredOnlyForTheMachinesName(t *testing.T) {
 		code := e.callInto("GET", "/v1/address/alive/"+nonce+"?"+url.Values{"host": {host}}.Encode(), nil, &v)
 		return code, v
 	}
-	if code, _ := ask("alex.playkeeper.io:8443"); code != http.StatusNotFound {
+	if code, _ := ask("alex.playkeeper.me:8443"); code != http.StatusNotFound {
 		t.Fatalf("before a claim: %d", code)
 	}
 	// The service checks a lapsed name's address before it answers the claim.
 	during := 0
 	e.names.setFail(func(r *http.Request) *fakeRefusal {
 		if r.Method == "PUT" && r.URL.Path == "/v1/names/alex" {
-			during, _ = ask("alex.playkeeper.io:8443")
+			during, _ = ask("alex.playkeeper.me:8443")
 		}
 		return nil
 	})
@@ -2035,19 +2055,19 @@ func TestLivenessCheckIsAnsweredOnlyForTheMachinesName(t *testing.T) {
 		t.Fatal(err)
 	}
 	pub := key.Public().(ed25519.PublicKey)
-	code, v := ask("Alex.playkeeper.io.:8443")
+	code, v := ask("Alex.playkeeper.me.:8443")
 	if code != http.StatusOK || v.Name != "alex" || !names.VerifyAlive(pub, names.DefaultBase, "alex", nonce, v.Signature) {
 		t.Fatalf("held name: %d %+v", code, v)
 	}
 	if names.VerifyAlive(pub, names.DefaultBase, "alex", nonce+"x", v.Signature) {
 		t.Fatal("the answer is not bound to the nonce")
 	}
-	for _, host := range []string{"bob.playkeeper.io:8443", "steve.playkeeper.io:8443", "alex.example.com:8443", "survival.alex.playkeeper.io:8443", "203.0.113.10:8443", ""} {
+	for _, host := range []string{"bob.playkeeper.me:8443", "steve.playkeeper.me:8443", "alex.example.com:8443", "survival.alex.playkeeper.me:8443", "203.0.113.10:8443", ""} {
 		if code, v := ask(host); code != http.StatusNotFound || v.Signature != "" {
 			t.Errorf("%q: %d %+v", host, code, v)
 		}
 	}
-	if code, _ := e.call("GET", "/v1/address/alive/short?host=alex.playkeeper.io", nil); code != http.StatusBadRequest {
+	if code, _ := e.call("GET", "/v1/address/alive/short?host=alex.playkeeper.me", nil); code != http.StatusBadRequest {
 		t.Errorf("bad nonce: %d", code)
 	}
 
@@ -2057,7 +2077,7 @@ func TestLivenessCheckIsAnsweredOnlyForTheMachinesName(t *testing.T) {
 		f.Name.State = names.StateReleased
 		st.Free = &f
 	})
-	if code, _ := ask("alex.playkeeper.io:8443"); code != http.StatusNotFound {
+	if code, _ := ask("alex.playkeeper.me:8443"); code != http.StatusNotFound {
 		t.Errorf("released in the service: %d", code)
 	}
 	_ = e.a.updateAddress(func(st *addressState) {
@@ -2069,7 +2089,7 @@ func TestLivenessCheckIsAnsweredOnlyForTheMachinesName(t *testing.T) {
 	if code := e.callInto("POST", "/v1/address/release", map[string]any{"actor": "admin"}, &a); code != http.StatusOK {
 		t.Fatalf("release: %d", code)
 	}
-	if code, _ := ask("alex.playkeeper.io:8443"); code != http.StatusNotFound {
+	if code, _ := ask("alex.playkeeper.me:8443"); code != http.StatusNotFound {
 		t.Errorf("released: %d", code)
 	}
 }
@@ -2081,7 +2101,7 @@ func TestCertificateLimitWaitsForTheNamesService(t *testing.T) {
 		if r.Method != "PUT" || !strings.Contains(r.URL.Path, "/acme-challenge/") {
 			return nil
 		}
-		return &fakeRefusal{status: http.StatusTooManyRequests, code: names.CodeCertificateLimit, msg: "New certificates for playkeeper.io names are paused.",
+		return &fakeRefusal{status: http.StatusTooManyRequests, code: names.CodeCertificateLimit, msg: "New certificates for playkeeper.me names are paused.",
 			params: map[string]any{"scope": "all", "limit": 50, "retryAt": retryAt.Format(time.RFC3339)}, retryAfter: strconv.Itoa(int(time.Until(retryAt).Seconds()))}
 	})
 	v := e.claim("alex")

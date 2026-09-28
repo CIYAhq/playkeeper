@@ -45,10 +45,10 @@ function watch(page: Page): string[] {
 }
 
 /**
- * The demo starts over on the hour (engine.ts), and takes along whatever a
- * walk was in the middle of, such as an upload. Each test's clock starts ten
- * minutes into the hour it runs in and goes on from there, so no walk crosses
- * one.
+ * A page of the demo that loads in a later hour starts over (engine.ts), so a
+ * walk that reloads across one would find a fresh demo. Each test's clock
+ * starts ten minutes into the hour it runs in and goes on from there, so none
+ * crosses one unless it means to.
  */
 async function midHour(target: Page | BrowserContext) {
   const at = new Date()
@@ -171,6 +171,58 @@ test('the live demo’s machines pages: its one machine, and Connect says what i
   expect(problems).toEqual([])
 })
 
+test('the live demo’s Files tab: a server’s folder, the editor, an upload, a download and a delete, on a desktop and a phone', async ({ page }) => {
+  const problems = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`${demoUrl}servers/survival`)
+  await page.getByRole('navigation', { name: 'Server pages' }).getByRole('link', { name: 'Files' }).click()
+  await expect(page).toHaveURL(`${demoUrl}servers/survival/files`)
+  const folder = page.getByRole('table', { name: 'Files in the server’s folder' })
+  await expect(folder.getByRole('button', { name: 'server.properties', exact: true })).toBeVisible()
+  await expect(folder.getByRole('row').filter({ hasText: 'world_nether' })).toContainText('In use')
+  await still(page, 'demo-files-desktop')
+
+  await folder.getByRole('button', { name: 'plugins', exact: true }).click()
+  await expect(page).toHaveURL(`${demoUrl}servers/survival/files/plugins`)
+  const plugins = page.getByRole('table', { name: 'Files in plugins' })
+  await expect(plugins.getByRole('button', { name: 'LuckPerms-Bukkit-5.5.10.jar', exact: true })).toBeVisible()
+  await page.getByLabel('Files to upload').setInputFiles({ name: 'greetings.yml', mimeType: 'text/yaml', buffer: Buffer.from('welcome: "Hi {player}!"\n') })
+  await expect(page.getByText('Uploaded greetings.yml to plugins')).toBeVisible({ timeout: 20_000 })
+  await expect(plugins.getByRole('button', { name: 'greetings.yml', exact: true })).toBeVisible()
+  await plugins.getByRole('button', { name: 'greetings.yml', exact: true }).click()
+  await expect(page).toHaveURL(`${demoUrl}servers/survival/file/plugins/greetings.yml`)
+  await expect(page.getByRole('textbox', { name: 'Contents of greetings.yml' })).toContainText('welcome: "Hi {player}!"')
+
+  await page.goto(`${demoUrl}servers/survival/file/server.properties`)
+  const editor = page.getByRole('textbox', { name: 'Contents of server.properties' })
+  await expect(editor).toContainText('motd=Survival with friends')
+  await expect(page.getByText('Marked lines are set from Settings each time Survival starts.')).toBeVisible()
+  await editor.click()
+  await page.keyboard.press('ControlOrMeta+Home')
+  await page.keyboard.type('# checked in the demo\n')
+  await expect(page.getByText('Unsaved changes')).toBeVisible()
+  await still(page, 'demo-editor-desktop')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByText('Saved. Restart Survival to use the change.')).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: 'Contents of server.properties' })).toContainText('# checked in the demo')
+  await page.getByRole('link', { name: 'Download' }).click()
+  await expect(page.locator('[data-demo-toast="fileDownload"]')).toContainText('The sample files stay in the demo.')
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(`${demoUrl}servers/survival/files`)
+  await expect(page.getByRole('heading', { name: 'Files', level: 1 })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Upload files' })).toBeVisible()
+  await still(page, 'demo-files-phone')
+  await page.getByRole('button', { name: 'More for bukkit.yml' }).click()
+  await page.getByRole('dialog', { name: 'bukkit.yml' }).getByRole('button', { name: 'Delete' }).click()
+  await page.getByRole('dialog', { name: 'Delete bukkit.yml?' }).getByRole('button', { name: 'Delete' }).click()
+  await expect(page.getByText('Deleted bukkit.yml')).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Files in the server’s folder' })).not.toContainText('bukkit.yml')
+
+  expect(problems).toEqual([])
+})
+
 /** Waits until every add-on icon on the page has loaded from the demo's own drawings. */
 async function iconsLoaded(page: Page) {
   const icons = page.locator('img[src*="/demo/icons/"]')
@@ -213,7 +265,7 @@ test('the live demo’s address, two-factor, health, crash help, server types an
   const problems = watch(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`${demoUrl}servers/survival`)
-  await expect(page.getByText('survival.demo.playkeeper.io').first()).toBeVisible()
+  await expect(page.getByText('survival.demo.playkeeper.me').first()).toBeVisible()
   await page.getByRole('link', { name: 'How it’s running' }).click()
   await expect(page).toHaveURL(`${demoUrl}servers/survival/running`)
   await expect(page.getByText(/^Running smoothly/).first()).toBeVisible()
@@ -221,7 +273,7 @@ test('the live demo’s address, two-factor, health, crash help, server types an
   await expect(page.getByText('It never needed more than 2.5 GB in the last 14 days, so 4 GB is plenty.')).toBeVisible()
 
   await page.goto(`${demoUrl}machines/q7m2vk9xpd/settings`)
-  await expect(page.getByText('cobblemon.demo.playkeeper.io').first()).toBeVisible()
+  await expect(page.getByText('cobblemon.demo.playkeeper.me').first()).toBeVisible()
   await page.goto(`${demoUrl}account`)
   await expect(page.getByRole('region', { name: 'Signing in' }).getByRole('link', { name: 'Turn on' })).toHaveAttribute('href', '/demo/account/two-factor')
 
@@ -305,12 +357,16 @@ for (const [size, viewport] of [
   })
 }
 
-test('the live demo makes a server from its sample world', async ({ page }) => {
+test('the live demo makes a server from its sample world, with its upload running across the hour', async ({ page }) => {
   const problems = watch(page)
   const events = await record(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`${demoUrl}servers/survival/world`)
   await page.getByRole('link', { name: /Start from your own world/ }).click()
+  // An open page keeps its demo past the hour: the upload, three seconds before it, finishes after it.
+  const hour = new Date(await page.evaluate(() => Date.now()))
+  hour.setUTCMinutes(60, 0, 0)
+  await page.clock.setSystemTime(hour.getTime() - 3_000)
   await page.getByRole('button', { name: 'Try a sample world' }).click()
   // Check the world opens when the upload says it's done, however long a
   // slow runner takes to get there.

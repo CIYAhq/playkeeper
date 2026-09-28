@@ -292,15 +292,23 @@ webcontrol "a search the add-on library finds nothing for says where modpacks ar
   web/src/pages/server/plugins/plugins.test.tsx 'sends a search for a modpack'
 webcontrol "a page whose code doesn't load keeps the dashboard on screen" web/src/App.tsx \
   '      <LoadBoundary resetKey={JSON.stringify(route)}>
-        <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>
+        <Suspense fallback={<PageSkeleton />}>
+          <Appear>{page(route)}</Appear>
+        </Suspense>
       </LoadBoundary>' \
-  '      <Suspense fallback={<PageSkeleton />}>{page(route)}</Suspense>' \
+  '      <Suspense fallback={<PageSkeleton />}>
+        <Appear>{page(route)}</Appear>
+      </Suspense>' \
   web/src/components/app/load-boundary.test.tsx 'page whose code never loads'
 webcontrol "a server tab whose code doesn't load keeps the server page on screen" web/src/pages/server/index.tsx \
   '        <LoadBoundary>
-          <Suspense fallback={<TabSkeleton />}>{body}</Suspense>
+          <Suspense fallback={<TabSkeleton />}>
+            <Appear>{body}</Appear>
+          </Suspense>
         </LoadBoundary>' \
-  '        <Suspense fallback={<TabSkeleton />}>{body}</Suspense>' \
+  '        <Suspense fallback={<TabSkeleton />}>
+          <Appear>{body}</Appear>
+        </Suspense>' \
   web/src/components/app/load-boundary.test.tsx 'server tab whose code never loads'
 webcontrol "every server tab's code loads after sign-in" web/src/App.tsx \
   '  void pages.server().then((m) => m.preloadTabs(), () => {})
@@ -798,6 +806,127 @@ control "preflight existing Minecraft setups" internal/install/install.go \
   'case len(existing) == 0:' \
   'case true:' \
   ./internal/install '^TestPreflightRefusesEachCollisionWithAFix$'
+control "a later release of a supported distribution counts as newer, not unsupported" internal/platform/platform.go \
+  'case c > 0:' \
+  'case false:' \
+  ./internal/platform '^TestLaterReleasesOfASupportedDistributionAreNewerNotRefused$'
+control "the preflight refuses a release older than the oldest supported one" internal/install/oscheck.go \
+  '	case v.Distro != nil:
+		c.Status = "fail"' \
+  '	case v.Distro != nil:
+		c.Status = "warn"' \
+  ./internal/install '^TestPreflightRefusesOlderReleasesAndOtherSystemsUnlessAllowed$'
+control "Debian 13 gets the docker command, which it packages on its own" internal/install/packages.go \
+  'if aptCandidate(sys, p) {' \
+  'if false && aptCandidate(sys, p) {' \
+  ./internal/install '^TestDebianGetsDockerFromItsOwnArchiveWithTheDockerCommand$'
+# After the OS matrix's Debian 13 run on 6a8b8a11: apt is asked for the docker
+# command only once its lists are fresh, as a new server's are empty.
+control "apt is asked about the docker command after apt-get update" internal/install/packages.go \
+  '	if _, err := aptGet(sys, out, "update"); err != nil {
+		return err
+	}
+	for _, p := range optional {' \
+  '	for _, p := range optional {
+		if aptCandidate(sys, p) {
+			pkgs = append(slices.Clone(pkgs), p)
+		}
+	}
+	if _, err := aptGet(sys, out, "update"); err != nil {
+		return err
+	}
+	for _, p := range optional[:0] {' \
+  ./internal/install '^TestDebianGetsDockerFromItsOwnArchiveWithTheDockerCommand$'
+control "a package that is only a name docker.io provides isn't installed" internal/install/oscheck.go \
+  'return v != "" && v != "(none)"' \
+  'return v != ""' \
+  ./internal/install '^TestUbuntuDockerIOAlreadyHasTheDockerCommand$'
+control "the preflight names an nftables firewall that drops incoming connections" internal/install/firewall.go \
+  'strings.Contains(line, "policy drop")' \
+  'strings.Contains(line, "policy dropped")' \
+  ./internal/install '^TestPreflightNamesAFirewallOtherThanUFWThatDropsIncomingConnections$'
+control "the sizing guide leaves out the memory Ubuntu sets aside for crash dumps" internal/sizing/numbers.go \
+  'return min(mb*reportedPercent/100, mb*kernelPercent/100-crashKernelMB(memoryGB))' \
+  'return mb * reportedPercent / 100' \
+  ./internal/sizing '^TestReportedMemoryLeavesOutUbuntusCrashDumpMemory$'
+control "preflight refuses what installing Docker CE would replace" internal/install/distro.go \
+  'if installed[name] {' \
+  'if false && installed[name] {' \
+  ./internal/install '^TestPreflightRefusesWhatInstallingDockerCEWouldBreak$'
+control "preflight refuses a Docker socket that answers as Podman" internal/install/install.go \
+  'podman := derr == nil && di.Podman' \
+  'podman := false' \
+  ./internal/install '^TestPreflightRefusesWhatInstallingDockerCEWouldBreak$'
+# After Bugbot's finding on b1557e2e: the fix for Podman's Docker socket names
+# the host's package manager, not dnf on every system.
+control "the Podman socket's fix names the host's package manager" internal/install/install.go \
+  'how = " (" + fam.pm.uninstallHint("podman-docker") + ")"' \
+  'how = " (" + dnf{}.uninstallHint("podman-docker") + ")"' \
+  ./internal/install '^TestThePodmanSocketFixUsesTheHostsPackageManager$'
+control "the RHEL family trusts only the Docker key Playkeeper carries" internal/install/distro.go \
+  'gpgcheck=1\ngpgkey=file://%s\n' \
+  'gpgcheck=0\ngpgkey=file://%s\n' \
+  ./internal/install '^TestDockerCEInstallsFromDockersRepositoryAndLeavesWithIt$'
+control "uninstall keeps the packages of Docker's that other software needs" internal/install/uninstall.go \
+  'if len(kept) > 0 {' \
+  'if false && len(kept) > 0 {' \
+  ./internal/install '^TestUninstallKeepsWhatOtherSoftwareNeedsOfDocker$'
+control "uninstall keeps a Docker that other software needs" internal/install/uninstall.go \
+  'if slices.ContainsFunc(kept, func(p string) bool { return slices.Contains(dockerEngines, p) }) {' \
+  'if false && slices.ContainsFunc(kept, func(p string) bool { return slices.Contains(dockerEngines, p) }) {' \
+  ./internal/install '^TestUninstallKeepsDockerWhenOtherSoftwareNeedsIt$'
+control "dnf removes only what rpm says nothing else needs" internal/install/packages.go \
+  '	if o, err := sys.Run("rpm", append([]string{"-e", "--test"}, pkgs...)...); err != nil {
+		if n := needs(o + "\n" + err.Error()); len(n) > 0 {' \
+  '	if o, err := sys.Run("rpm", append([]string{"-e", "--test"}, pkgs...)...); false && err != nil {
+		if n := needs(o + "\n" + err.Error()); len(n) > 0 {' \
+  ./internal/install '^TestDNFRemoveRefusesWhatOtherSoftwareNeeds$'
+control "firewalld: uninstall leaves the rules the admin had" internal/install/firewall.go \
+  'added := strings.TrimSpace(out) != "yes"' \
+  'added := strings.TrimSpace(out) != "yes" || true' \
+  ./internal/install '^TestFirewalldOpensPortsInTheZoneAndUninstallLeavesTheAdminsRules$'
+control "firewalld: Docker's zone and policy go with Docker" internal/install/install.go \
+  'errs = append(errs, removeFiles(sys, m.DockerRepoFiles), removeFirewalld(sys, m.DockerFirewalld))' \
+  'errs = append(errs, removeFiles(sys, m.DockerRepoFiles))' \
+  ./internal/install '^TestFirewalldOpensPortsInTheZoneAndUninstallLeavesTheAdminsRules$'
+control "sudo finds playkeeper where its path leaves out /usr/local/bin" internal/install/install.go \
+  'f.SudoLink = sudoMissesBin(sys)' \
+  'f.SudoLink = false && sudoMissesBin(sys)' \
+  ./internal/install '^TestDockerCEInstallsFromDockersRepositoryAndLeavesWithIt$'
+control "RHEL 10 gets the running kernel's netfilter modules for Docker" internal/install/distro.go \
+  'if major == "10" {' \
+  'if false && major == "10" {' \
+  ./internal/install '^TestEL10GetsTheRunningKernelsNetfilterModulesForDocker$'
+control "what Docker added to firewalld is recorded when it then fails to start" internal/install/install.go \
+  '			if zonesBefore != nil {
+				now := firewalldHas(sys)' \
+  '			if err == nil && zonesBefore != nil {
+				now := firewalldHas(sys)' \
+  ./internal/install '^TestADockerThatFailsToStartLeavesFirewalldAsItWas$'
+control "uninstall leaves firewalld's zone as it was" internal/install/uninstall.go \
+  '	note(fw.tidy(sys, *m))' \
+  '' \
+  ./internal/install '^TestAZoneFirewalldReadFromItsDefaultsIsLeftAsItWas$'
+control "a zone the admin changed after the install keeps its settings" internal/install/firewall.go \
+  'err == nil && now == m.FirewallZoneBefore {' \
+  'err == nil && (now == m.FirewallZoneBefore || true) {' \
+  ./internal/install '^TestAZoneFirewalldReadFromItsDefaultsIsLeftAsItWas$'
+control "firewalld's backups of Docker's zone and policy go too" internal/install/firewall.go \
+  'removeIfExists(sys.P(dir+"/"+name+".xml.old"))' \
+  'removeIfExists(sys.P(dir+"/"+name+".xml.missing"))' \
+  ./internal/install '^TestFirewalldOpensPortsInTheZoneAndUninstallLeavesTheAdminsRules$'
+control "a failed Docker install removes the repository it added" internal/install/install.go \
+  '				return removeFiles(sys, in.m.DockerRepoFiles)' \
+  '				return nil' \
+  ./internal/install '^TestAFailedDockerInstallRemovesTheRepositoryItAdded$'
+control "Docker's repository and key go with Docker" internal/install/install.go \
+  'errs = append(errs, removeFiles(sys, m.DockerRepoFiles), removeFirewalld(sys, m.DockerFirewalld))' \
+  'errs = append(errs, removeFirewalld(sys, m.DockerFirewalld))' \
+  ./internal/install '^TestDockerCEInstallsFromDockersRepositoryAndLeavesWithIt$'
+control "a Docker that labels containers for SELinux relabels a server's binds" internal/agent/lifecycle.go \
+  'if s.selinuxLabels() {' \
+  'if false && s.selinuxLabels() {' \
+  ./internal/agent '^TestBindsAreRelabelledOnlyForADockerThatUsesSELinux$'
 # Without the lock a start can slip in between the check and the write; the
 # sleep holds that gap open so the race shows in most runs, not one in three.
 control "start/stop no-op under the operation lock" internal/agent/handlers.go \
@@ -832,6 +961,18 @@ control "release manifest signature" internal/update/manifest.go \
   'if !verified {' \
   'if false && !verified {' \
   ./internal/update '^TestOnlyManifestsSignedByATrustedKeyAreAccepted$'
+control "an update takes this platform's tarball" internal/update/manifest.go \
+  'case a.File != TarballName(platform):' \
+  'case false && a.File != TarballName(platform):' \
+  ./internal/update '^TestSignedButMalformedManifestsAreRefused$'
+control "a release names a build for every platform" internal/update/manifest.go \
+  'if !slices.Equal(got, Platforms) {' \
+  'if false && !slices.Equal(got, Platforms) {' \
+  ./internal/update '^TestManifestsFromLaterReleasesStillUpdateThisPlatform$'
+control "the preflight refuses a 32-bit system on a 64-bit CPU" internal/install/install.go \
+  'case archNames[arch] != "" && userland32(sys):' \
+  'case false && archNames[arch] != "" && userland32(sys):' \
+  ./internal/install '^TestPreflightRefusesA32BitSystemOnA64BitCPU$'
 control "update download size" internal/update/fetch.go \
   'if n != a.Size {' \
   'if false && n != a.Size {' \
@@ -1026,12 +1167,8 @@ control "waiting for a request body's own source doesn't count against the machi
   'n, err := b.rc.Read(p)' \
   ./internal/machinelink '^TestLinkTimeLimitsCountOnlyWaitingOnTheMachine$'
 control "a joined machine takes data packs bigger than a request" internal/agent/link.go \
-  '"POST /v1/servers/{id}/datapacks":             true,' \
-  '"POST /v1/servers/{id}/datapacks":             false,' \
-  ./internal/panel '^TestAJoinedMachineTakesBigPacks$'
-control "a joined machine takes resource packs bigger than a request" internal/agent/link.go \
-  '"POST /v1/servers/{id}/resourcepack":          true,' \
-  '"POST /v1/servers/{id}/resourcepack":          false,' \
+  '"POST /v1/servers/{id}/datapacks":                   true,' \
+  '"POST /v1/servers/{id}/datapacks":                   false,' \
   ./internal/panel '^TestAJoinedMachineTakesBigPacks$'
 control "the dashboard keeps wrong join codes in panel.db" internal/panel/linkstore.go \
   '	for _, f := range fails {
@@ -1284,6 +1421,243 @@ control "the agent reads no game file through a link" internal/gamefiles/gamefil
 	if err == nil {
 		err = nil' \
   ./internal/agent '^TestGameFilesAreReadWithoutFollowingLinks$'
+# The Files tab: every path stays inside the server's folder, nothing is
+# reached through a link or special file on the way, the world waits for the
+# game to stop, and only admins get in.
+control "file browser: a folder is listed only through real folders" internal/gamefiles/browse.go \
+  'fi, err := d.folder(name)' \
+  'fi, err := d.root.Lstat(name)' \
+  ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
+control "file browser: a new folder is made only through real folders" internal/gamefiles/browse.go \
+  'if _, err := d.folders(ps[:len(ps)-1], true); err != nil {' \
+  'if _, err := d.folders(ps[:len(ps)-1], true); false && err != nil {' \
+  ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
+control "file browser: a move starts only from behind real folders" internal/gamefiles/browse.go \
+  'ffi, err := d.folders(fps[:len(fps)-1], false)
+	if err != nil {' \
+  'ffi, err := d.folders(fps[:len(fps)-1], false)
+	if false && err != nil {' \
+  ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
+control "file browser: a move goes only into real folders" internal/gamefiles/browse.go \
+  'tfi, err := d.folders(tps[:len(tps)-1], false)
+	if err != nil {' \
+  'tfi, err := d.folders(tps[:len(tps)-1], false)
+	if false && err != nil {' \
+  ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
+control "file browser: a delete reaches only through real folders" internal/gamefiles/browse.go \
+  'if _, err := d.folders(ps[:len(ps)-1], false); err != nil {' \
+  'if _, err := d.folders(ps[:len(ps)-1], false); false && err != nil {' \
+  ./internal/gamefiles '^TestBrowsingRefusesLinksOnTheWay$'
+control "file browser: an upload goes in only through real folders" internal/gamefiles/browse.go \
+  'pfi, err := d.folders(ps[:len(ps)-1], true)' \
+  'pfi, err := d.root.Lstat(path.Join(ps[:len(ps)-1]...))' \
+  ./internal/gamefiles '^TestLinksAreRefusedAtEveryStep$'
+control "file browser: an upload never replaces a link or special file" internal/gamefiles/browse.go \
+  'if err := fileError(name, fi); err != nil {' \
+  'if err := fileError(name, fi); false && err != nil {' \
+  ./internal/gamefiles '^TestLinksAreRefusedAtEveryStep$'
+control "file browser: a rename never replaces what appeared at its name meanwhile" internal/gamefiles/place_linux.go \
+  'unix.RENAME_NOREPLACE)' \
+  '0)' \
+  ./internal/gamefiles '^TestChangesNeverReplaceWhatAppearsMeanwhile$'
+control "file browser: an upload that may not replace renames without replacing" internal/gamefiles/browse.go \
+  'err = renameInto(staged, pf, path.Base(name), replace)' \
+  'err = renameInto(staged, pf, path.Base(name), true)' \
+  ./internal/gamefiles '^TestChangesNeverReplaceWhatAppearsMeanwhile$'
+control "file browser: a new file renames without replacing" internal/gamefiles/gamefiles.go \
+  'if fresh {
+			err = d.renameNew(tmp, pfi, name, pfi)' \
+  'if false && fresh {
+			err = d.renameNew(tmp, pfi, name, pfi)' \
+  ./internal/gamefiles '^TestChangesNeverReplaceWhatAppearsMeanwhile$'
+control "file browser: a zip's files are counted only up to its limit" internal/gamefiles/browse.go \
+  'if more {
+		*n = limit + 1' \
+  'if false && more {
+		*n = limit + 1' \
+  ./internal/gamefiles '^TestCountStopsPastTheLimit$'
+control "file browser: a zip's count stops far down" internal/gamefiles/browse.go \
+  'if depth > maxDepth {
+		return tooDeepError(start, maxDepth)
+	}
+	entries, more, err := d.List(p, limit-*n)' \
+  'if false && depth > maxDepth {
+		return tooDeepError(start, maxDepth)
+	}
+	entries, more, err := d.List(p, limit-*n)' \
+  ./internal/gamefiles '^TestWalkAndCountStopFarDown$'
+control "file browser: a zip's walk stops far down" internal/gamefiles/browse.go \
+  'if depth > maxDepth {
+		return tooDeepError(start, maxDepth)
+	}
+	entries, more, err := d.List(p, limit)' \
+  'if false && depth > maxDepth {
+		return tooDeepError(start, maxDepth)
+	}
+	entries, more, err := d.List(p, limit)' \
+  ./internal/gamefiles '^TestWalkAndCountStopFarDown$'
+control "game files: the hidden file a write goes through fits the longest name" internal/gamefiles/gamefiles.go \
+  'if len(tmp) > maxNameBytes {' \
+  'if false && len(tmp) > maxNameBytes {' \
+  ./internal/gamefiles '^TestLongNamesCanBeWritten$'
+control "file browser: a path from the dashboard is relative and has no dot segments" internal/agent/files.go \
+  'case len(raw) > maxPathBytes || !fs.ValidPath(raw) || strings.ContainsRune(raw, 0):' \
+  'case len(raw) > maxPathBytes || strings.ContainsRune(raw, 0):' \
+  ./internal/agent '^TestFileBrowserPathsStayInsideTheServersFolder$'
+control "file browser: the world can't change while the game runs" internal/agent/files.go \
+  'if inWorld(p, worlds) && s.gameRunning(ctx) {' \
+  'if false && inWorld(p, worlds) && s.gameRunning(ctx) {' \
+  ./internal/agent '^TestTheWorldIsReadOnlyWhileTheGameRuns$'
+control "file browser: the editor opens world files read-only while the game runs" internal/agent/files.go \
+  'if running && inWorld(p, s.worldFolders(d)) {' \
+  'if false && running && inWorld(p, s.worldFolders(d)) {' \
+  ./internal/agent '^TestTheWorldIsReadOnlyWhileTheGameRuns$'
+control "file browser: a plugin's world is read-only while the game runs too" internal/agent/files.go \
+  'if fi, err := d.Lstat(e.Name + "/level.dat"); err == nil && fi.Mode().IsRegular() {' \
+  'if fi, err := d.Lstat(e.Name + "/level.dat"); false && err == nil && fi.Mode().IsRegular() {' \
+  ./internal/agent '^TestTheWorldIsReadOnlyWhileTheGameRuns$'
+control "file browser: nothing changes while the server is busy" internal/agent/files.go \
+  'if s.busy() {' \
+  'if false && s.busy() {' \
+  ./internal/agent '^TestFileBrowserWaitsForTheServersOperation$'
+control "file browser: a change holds off the server's operations until it is done" internal/agent/files.go \
+  'rel, ok := s.holdOpLock()' \
+  'rel, ok := func() {}, true' \
+  ./internal/agent '^TestFileChangesHoldOffOperations$'
+control "file browser: changes share the hold rather than refuse each other" internal/agent/files.go \
+  'if h.n == 0 {' \
+  'if true {' \
+  ./internal/agent '^TestFileChangesHoldOffOperations$'
+control "file browser: a move holds off operations until it is done" internal/agent/files.go \
+  'release, err := s.holdFiles(r.Context(), d, all...)' \
+  'release, err := func() {}, s.changeRefusal(r.Context(), d, all...)' \
+  ./internal/agent '^TestFileChangesHoldOffOperations$'
+control "file browser: a delete holds off operations until it is done" internal/agent/files.go \
+  'release, err := s.holdFiles(r.Context(), d, paths...)' \
+  'release, err := func() {}, s.changeRefusal(r.Context(), d, paths...)' \
+  ./internal/agent '^TestFileChangesHoldOffOperations$'
+control "file browser: an upload holds off operations while it is put in place" internal/agent/fileuploads.go \
+  'release, err := s.holdFiles(ctx, d, dest)' \
+  'release, err := func() {}, s.changeRefusal(ctx, d, dest)' \
+  ./internal/agent '^TestFileChangesHoldOffOperations$'
+control "file browser: a long delete holds off operations after its answer too" internal/agent/files.go \
+  'Continuing: true})' \
+  'Continuing: true})
+		release()' \
+  ./internal/agent '^TestALongDeleteCarriesOnAfterItsAnswer$'
+control "file browser: the editor saves only over the version it opened" internal/agent/files.go \
+  'if expect != "" && contentVersion(cur) != expect {' \
+  'if false && expect != "" && contentVersion(cur) != expect {' \
+  ./internal/agent '^TestFileBrowserListsOpensAndSavesTheServersFiles$'
+control "file browser: of two saves of one version the second is refused" internal/agent/files.go \
+  's.fileHold.save.Lock()
+		defer s.fileHold.save.Unlock()' \
+  '_ = &s.fileHold.save' \
+  ./internal/agent '^TestTwoSavesOfOneVersionCantBothWin$'
+control "file browser: a zip too large for the agent to keep track of is refused before it starts" internal/agent/files.go \
+  'if total += n; total > maxZipped {' \
+  'if total += n; false && total > maxZipped {' \
+  ./internal/agent '^TestAZipOfTooManyFilesIsRefusedBeforeItStarts$'
+control "file browser: a zip's files are named safely for any unpacker" internal/agent/files.go \
+  'Name: zipName(rel), Modified: st.ModTime()' \
+  'Name: rel, Modified: st.ModTime()' \
+  ./internal/agent '^TestZipNamesUnpackSafelyAnywhere$'
+control "file browser: a zip's folders are named safely for any unpacker" internal/agent/files.go \
+  'Name: zipName(rel) + "/"' \
+  'Name: rel + "/"' \
+  ./internal/agent '^TestZipNamesUnpackSafelyAnywhere$'
+control "file browser: a download stops at a file that got shorter" internal/agent/files.go \
+  'if err == nil && n != size {' \
+  'if false && err == nil && n != size {' \
+  ./internal/agent '^TestADownloadStopsAtAFileThatGotShorter$'
+control "file browser: an upload replaces a file only when asked" internal/agent/fileuploads.go \
+  'case !replace:' \
+  'case false && !replace:' \
+  ./internal/agent '^(TestFileUploadsCarryOnAfterADroppedConnection|TestAnUploadThatCantBePutInPlaceCanBeTriedAgain)$'
+control "file browser: an upload carries on only from the byte it has" internal/agent/fileuploads.go \
+  'if offset != f.received {' \
+  'if false && offset != f.received {' \
+  ./internal/agent '^TestFileUploadsCarryOnAfterADroppedConnection$'
+control "file browser: one server's uploads can't take them all" internal/agent/fileuploads.go \
+  'if all < maxFileUploads && mine < maxServerUploads {' \
+  'if all < maxFileUploads {' \
+  ./internal/agent '^TestUploadsAreSharedOutBetweenServers$'
+control "file browser: a finished upload doesn't count against the limits" internal/agent/fileuploads.go \
+  'if up.unfinished() {' \
+  'if true {' \
+  ./internal/agent '^TestUploadsAreSharedOutBetweenServers$'
+control "file browser: a file is put in place once" internal/agent/fileuploads.go \
+  'f.placed || f.placing || f.received < f.size' \
+  'f.placed || f.received < f.size' \
+  ./internal/agent '^TestAFileIsPutInPlaceOnce$'
+control "file browser: a cancelled upload puts nothing more in place" internal/agent/fileuploads.go \
+  'up.gone || f.placed' \
+  'f.placed' \
+  ./internal/agent '^TestACancelledUploadPutsNothingInPlace$'
+control "recent activity reads on past a big upload" internal/agent/analytics.go \
+  'if len(out) > limit || len(rows) < n || n >= maxActivityRows {' \
+  'if true || len(out) > limit || len(rows) < n || n >= maxActivityRows {' \
+  ./internal/agent '^TestABigUploadDoesntHideOlderActivity$'
+control "recent activity reads no more rows than its cap" internal/agent/analytics.go \
+  'n = min(n*4, maxActivityRows) {' \
+  'n *= 4 {' \
+  ./internal/agent '^TestRecentActivityReadsNoMoreThanItsRows$'
+control "recent activity names the server's folder as the file browser does" internal/agent/analytics.go \
+  'folder := shown(path.Dir(e.Detail))' \
+  'folder := path.Dir(e.Detail)' \
+  ./internal/agent '^TestFileChangesAreAuditedAndShownAsActivity$'
+control "file browser: only admins see a server's files" internal/panel/workspace.go \
+  'actViewFiles:      invites.RoleAdmin,' \
+  'actViewFiles:      invites.RoleViewer,' \
+  ./internal/panel '^TestTheFileBrowserIsForAdmins$'
+control "file browser: only admins change a server's files" internal/panel/workspace.go \
+  'actEditFiles:      invites.RoleAdmin,' \
+  'actEditFiles:      invites.RoleModerator,' \
+  ./internal/panel '^TestTheFileBrowserIsForAdmins$'
+control "file browser: a download can't render as a page of the panel" internal/panel/files.go \
+  'h.Set("Content-Type", "application/octet-stream")' \
+  'h.Set("Content-Type", resp.Header.Get("Content-Type"))' \
+  ./internal/panel '^TestFileDownloadsAreNamedAndTypedByThePanel$'
+control "file browser: a download runs sandboxed if a browser shows it anyway" internal/panel/files.go \
+  'h.Set("Content-Security-Policy", "sandbox")' \
+  'h.Set("X-Sandbox", "off")' \
+  ./internal/panel '^TestFileDownloadsAreNamedAndTypedByThePanel$'
+control "file browser: a download's check never sends the file" internal/panel/files.go \
+  'case resp.StatusCode != want:' \
+  'case false && resp.StatusCode != want:' \
+  ./internal/panel '^TestFileDownloadsAreNamedAndTypedByThePanel$'
+control "file browser: a joined machine's upload pieces aren't held to the link's smaller bodies" internal/agent/link.go \
+  '"PUT /v1/servers/{id}/files/uploads/{up}/files/{n}": true,' \
+  '"PUT /v1/servers/{id}/files/uploads/{up}/files/{n}": false,' \
+  ./internal/panel '^TestAJoinedMachinesFilesGoThroughItsLink$'
+control "file browser: a joined machine's downloads aren't held to the link's smaller answers" internal/agent/link.go \
+  '"GET /v1/servers/{id}/files/download":               true,' \
+  '"GET /v1/servers/{id}/files/download":               false,' \
+  ./internal/panel '^TestAJoinedMachinesFilesGoThroughItsLink$'
+webcontrol "the Files tab shows only to those who may see a server's files" web/src/components/app/server-tabs.tsx \
+  "(x.tab === 'files' ? can(me, 'files.view') :" \
+  "(x.tab === 'files' ? true :" \
+  web/src/pages/server/files/files.test.tsx 'shows only to those who may see'
+webcontrol "the Files tab offers no change to someone who may only look" web/src/pages/server/files/folder.tsx \
+  "const canEdit = can(ws.me, 'files.edit')" \
+  "const canEdit = can(ws.me, 'files.view')" \
+  web/src/pages/server/files/files.test.tsx 'may only look'
+webcontrol "the Files tab keeps the world's rows from changing while the game runs" web/src/pages/server/files/folder.tsx \
+  'const worldEntry = (e: FileEntry) => running && inWorld(joinPath(path, e.name), worlds)' \
+  'const worldEntry = (e: FileEntry) => false && running && inWorld(joinPath(path, e.name), worlds)' \
+  web/src/pages/server/files/files.test.tsx 'keeps the world'
+webcontrol "the Files tab checks a folder's download before following its link" web/src/pages/server/files/folder.tsx \
+  "download: '', onLink: checkedDownload(server.id, [p]) })" \
+  "download: '' })" \
+  web/src/pages/server/files/files.test.tsx 'checks a folder'
+webcontrol "the editor saves over the version it opened" web/src/pages/server/files/editor.tsx \
+  "const info = await saveFile(server.id, path, sent, force ? '' : version)" \
+  "const info = await saveFile(server.id, path, sent, '')" \
+  web/src/pages/server/files/files.test.tsx 'saves over the version it opened'
+webcontrol "an address that climbs out of a server's files opens the Files tab's top" web/src/lib/router.ts \
+  "if (name === '' || name === '.' || name === '..' || name.includes('/') || name.includes('\\0')) return undefined" \
+  "if (name === '' || name === '.' || name.includes('/') || name.includes('\\0')) return undefined" \
+  web/src/lib/lib.test.ts 'names no path inside the server'
 control "a start that fails before the server's files keeps the refusal" internal/agent/gamefiles.go \
   'if !refused && !pastFiles {' \
   'if false {' \
@@ -1915,7 +2289,7 @@ control "no start recreates a world directory a restore moved aside" internal/ag
 		return errWorldMissing(m, then)' \
   'if m := s.worldMissing(); false && m != nil {
 		return errWorldMissing(m, then)' \
-  ./internal/agent '^TestTripleFailedRestoreKeepsItsStageUntilThePreviousWorldIsBack$'
+  ./internal/agent '^TestAWorldFolderARestoreLeftMissingIsShownUntilItIsBack$'
 control "a world copy is discarded only by its exact name" internal/agent/backups.go \
   'if !reWorldCopy.MatchString(name) {' \
   'if false && !reWorldCopy.MatchString(name) {' \
@@ -2066,6 +2440,16 @@ shcontrol() { # NAME FILE FROM TO TEST-SCRIPT
   fi
   git checkout -q -- "$file"
 }
+control "the installer deletes get.sh's download when it stops at its flags" cmd/playkeeper/main.go \
+  '	defer removeGetDir()
+' \
+  '' \
+  ./cmd/playkeeper '^TestTheInstallerDeletesGetShsDownloadWhenItStopsEarly$'
+# shellcheck disable=SC2016
+shcontrol "get.sh hands over to the installer, so sudo-rs resumes it when it asks" packaging/get.sh \
+  'exec "$dir/install.sh" "$@" </dev/tty' \
+  '"$dir/install.sh" "$@" </dev/tty' \
+  packaging/get_test.sh
 # shellcheck disable=SC2016
 shcontrol "every get.sh download is size-limited" packaging/get.sh \
   '--max-filesize "$3" ' \
@@ -2080,6 +2464,20 @@ shcontrol "get.sh refuses an oversized download curl let through" packaging/get.
 shcontrol "get.sh says a download curl stopped is too large" packaging/get.sh \
   '[ "$rc" = 63 ] || ' \
   '' \
+  packaging/get_test.sh
+shcontrol "get.sh downloads the arm64 tarball on 64-bit ARM" packaging/get.sh \
+  'aarch64 | arm64) arch=arm64 ;;' \
+  'aarch64 | arm64) arch=amd64 ;;' \
+  packaging/get_test.sh
+# shellcheck disable=SC2016
+shcontrol "get.sh refuses a 32-bit system on a 64-bit CPU" packaging/get.sh \
+  '[ "$(getconf LONG_BIT 2>/dev/null || echo 64)" = 64 ] ||' \
+  'true ||' \
+  packaging/get_test.sh
+# shellcheck disable=SC2016
+shcontrol "install.sh runs only the build for this CPU" packaging/install.sh \
+  '!= "$machine" ]; then' \
+  '= "never" ]; then' \
   packaging/get_test.sh
 # shellcheck disable=SC2016
 shcontrol "package.sh builds CURSEFORGE_API_KEY into the binary" scripts/package.sh \
@@ -3570,8 +3968,8 @@ control "an upload for a new server needs rights over every server" internal/pan
   'mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actManageServers),' \
   ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
 control "making a server from an upload needs rights over every server" internal/panel/server.go \
-  'needSessionCSRF, actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
-  'needSessionCSRF, actManageServers, s.forwardLong("/v1/world-imports/{imp}/create")' \
+  'needSessionCSRF, actCreateServers, s.importGuard(actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create"))' \
+  'needSessionCSRF, actManageServers, s.importGuard(actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create"))' \
   ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
 control "turning the map on counts what the Mods tab installed as there" internal/agent/maps.go \
   's.lib().Install(ctx, srv, installed, addons.InstallRequest{Source: addons.Source(l.Source), Project: l.ProjectID})' \
@@ -3831,11 +4229,11 @@ webcontrol "leaving the page keeps an upload a server was made from" web/src/com
   web/src/pages/new-server.test.tsx
 # shellcheck disable=SC2016
 webcontrol "carrying on with an upload asks the machine which files it has" web/src/lib/upload.ts \
-  'let imp = seen(o.resume ? await get<WorldImport>(`${o.base}/${o.resume.id}`) : await post<WorldImport>(o.base, {}))' \
-  'let imp = seen(o.resume ?? (await post<WorldImport>(o.base, {})))' \
+  'let imp = seen(o.resume ? await get<T>(`${o.base}/${o.resume.id}`) : await kind.open())' \
+  'let imp = seen((o.resume as T | undefined) ?? (await kind.open()))' \
   web/src/lib/upload.test.ts
 webcontrol "carrying on refuses an upload whose files differ" web/src/lib/upload.ts \
-  ' || imp.files.some((f, n) => f.name !== o.files[n]?.name || f.size !== o.files[n]?.size)' \
+  ' || imp.files.some(differs)' \
   '' \
   web/src/lib/upload.test.ts
 webcontrol "Try again carries on with the upload as the machine last described it" web/src/components/app/world-import.tsx \
@@ -4144,7 +4542,7 @@ control "the uploader's claim names the copy it picked" internal/agent/offsite.g
 control "a claimed copy uploads under the claim's cancel" internal/agent/offsite.go \
   'cp, err := dest.Upload(job.ctx,' \
   'cp, err := dest.Upload(ctx,' \
-  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
+  ./internal/agent '^TestCopiesTurnedOffStopTheCopyBeingMade$'
 control "turning copies off stops the copy the uploader claimed" internal/agent/offsite.go \
   'func (s *server) stopUpload() {
 	s.auto.mu.Lock()
@@ -4152,7 +4550,7 @@ control "turning copies off stops the copy the uploader claimed" internal/agent/
   'func (s *server) stopUpload() {
 	s.auto.mu.Lock()
 	var c *uploadClaim' \
-  ./internal/agent '^TestTheCopyBeingMadeStaysQueuedWhenABackupJoinsAFullQueue$/^S3$'
+  ./internal/agent '^TestCopiesTurnedOffStopTheCopyBeingMade$'
 
 # Wave 7 before Bugbot: a schedule lists the retry after a run skipped for
 # players exactly while the runner plans it.
@@ -4633,6 +5031,10 @@ webcontrol "a joined machine's details say its agent stopped answering" web/src/
   ": agentSilent(m) ? { title: t('machines.problem.agentDown', { name })" \
   ": false ? { title: t('machines.problem.agentDown', { name })" \
   web/src/pages/pages.test.tsx 'stopped answering, as the sidebar'
+webcontrol "a machine to connect may run either supported system" web/src/pages/machines.tsx \
+  "version: s.version })), 'or')" \
+  "version: s.version })), 'and')" \
+  web/src/pages/pages.test.tsx 'says how to get a command'
 webcontrol "a World tab without backups links to backup rules" web/src/pages/server/world-links.tsx \
   '      <DesktopLink server={server} sub="backup-rules" icon={<SlidersHorizontalIcon />} title={t('"'"'world.rules'"'"')} line={t('"'"'world.rulesLine'"'"')} />
 ' \
@@ -4735,7 +5137,7 @@ control "a template without memory gets the sizing guide's suggestion" internal/
   'p.MemoryMB = opts[0]' \
   ./internal/templates '^TestPlanMemoryFollowsTheSizingGuide$'
 webcontrol "New server asks the catalog for what a template or pack runs" web/src/pages/new-server.tsx \
-  "{ ...catalogFor(from, c?.type ?? 'paper', pack, tpl, types), fresh: true }" \
+  "{ ...catalogFor(from, c?.type ?? 'paper', pack && packMods ? { ...pack, mods: packMods } : pack, tpl, types), fresh: true }" \
   "{ type: c?.type ?? 'paper', fresh: true }" \
   src/pages/new-server.test.tsx 'sizes a shared template'
 webcontrol "New server counts a Paper template's plugins" web/src/pages/new-server.tsx \

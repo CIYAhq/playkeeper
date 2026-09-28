@@ -211,6 +211,9 @@ export const pageModules: Record<string, string[]> = {
   '/servers/*/plugins/browse': ['pages/server/index.tsx', 'pages/server/plugins/index.tsx'],
   '/servers/*/mods': ['pages/server/index.tsx', 'pages/server/plugins/index.tsx'],
   '/servers/*/mods/browse': ['pages/server/index.tsx', 'pages/server/plugins/index.tsx'],
+  '/servers/*/files': ['pages/server/index.tsx', 'pages/server/files/index.tsx'],
+  '/servers/*/files/plugins': ['pages/server/index.tsx', 'pages/server/files/index.tsx'],
+  '/servers/*/file/server.properties': ['pages/server/index.tsx', 'pages/server/files/index.tsx'],
   '/servers/*/settings': ['pages/server/index.tsx', 'pages/server/settings.tsx'],
   '/servers/*/settings/schedules': ['pages/server/index.tsx', 'pages/server/settings.tsx', 'pages/server/schedules.tsx'],
   '/machines/*': ['pages/machine.tsx'],
@@ -235,7 +238,7 @@ const routers = new Set(['main.tsx', 'App.tsx', 'pages/server/index.tsx'])
 
 /** The files of the click-through and the state it crawls in (onboarding, the bots' scenario), and its workflow. */
 const crawlerFiles = [
-  /^test\/e2e\/ui\/(crawl|crawl-page|fakes|addon-fixtures|modpack-fixtures|helpers|clickthrough-plan|clickthrough-rules|plan)\.ts$/,
+  /^test\/e2e\/ui\/(crawl|crawl-page|fakes|addon-fixtures|modpack-fixtures|software-fixtures|helpers|clickthrough-plan|clickthrough-rules|plan)\.ts$/,
   /^test\/e2e\/ui\/(clickthrough|clickthrough-gate|onboarding)\.spec\.ts$/,
   /^test\/e2e\/ui\/(clickthrough-costs\.json|playwright\.config\.ts|package\.json|package-lock\.json)$/,
   /^test\/e2e\/ui\/fixtures\//,

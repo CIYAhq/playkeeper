@@ -4,6 +4,7 @@
 .start-hero { padding: 56px 0 88px; }
 .start-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 460px); gap: 56px; align-items: center; }
 .start-h1 { font-size: 64px; }
+.start-vps { margin: 14px 0 0; font-size: 15px; line-height: 1.5; }
 .start-how { margin: 10px 0 0; font-size: 14px; color: var(--sage); }
 .start-film { margin: 0; }
 .start-film video { display: block; width: 100%; height: auto; aspect-ratio: 1; border-radius: var(--radius); background: #243152; box-shadow: var(--shadow-lg); }

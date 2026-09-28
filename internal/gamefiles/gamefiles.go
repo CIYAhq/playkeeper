@@ -49,6 +49,9 @@ const propertiesName = "server.properties"
 // replaced.
 const maxEnsured = 64 << 10
 
+// maxNameBytes is the longest name Linux file systems keep.
+const maxNameBytes = 255
+
 // Owner is the game's user. What Playkeeper makes in the data directory is
 // given to it, so the game can change it later.
 type Owner struct{ UID, GID int }
@@ -156,21 +159,44 @@ func (d *Dir) WriteFile(name string, b []byte, perm fs.FileMode) error {
 // and what was at name is replaced, never written through. When write
 // fails, name is left as it was.
 func (d *Dir) WriteFrom(name string, perm fs.FileMode, write func(io.Writer) error) error {
+	return d.writeFrom(name, perm, false, write)
+}
+
+// CreateFile writes b to name, which must not exist yet, the way WriteFile
+// writes. Something that appears at name meanwhile is refused rather than
+// replaced, where the file system can tell in the same step.
+func (d *Dir) CreateFile(name string, b []byte, perm fs.FileMode) error {
+	return d.writeFrom(name, perm, true, func(w io.Writer) error {
+		_, err := w.Write(b)
+		return err
+	})
+}
+
+// writeFrom is WriteFrom; with fresh, name must not exist, as for CreateFile.
+func (d *Dir) writeFrom(name string, perm fs.FileMode, fresh bool, write func(io.Writer) error) error {
 	ps, err := split(name)
 	if err != nil {
 		return err
 	}
-	if _, err := d.folders(ps[:len(ps)-1], true); err != nil {
+	pfi, err := d.folders(ps[:len(ps)-1], true)
+	if err != nil {
 		return err
 	}
 	if fi, err := d.root.Lstat(name); err == nil {
 		if err := fileError(name, fi); err != nil {
 			return err
 		}
+		if fresh {
+			return existsError(name)
+		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	tmp := path.Join(path.Dir(name), "."+path.Base(name)+".playkeeper-"+randomHex())
+	tmp := "." + path.Base(name) + ".playkeeper-" + randomHex()
+	if len(tmp) > maxNameBytes {
+		tmp = ".playkeeper-" + randomHex()
+	}
+	tmp = path.Join(path.Dir(name), tmp)
 	d.step("create", tmp)
 	f, err := d.root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, perm)
 	if err != nil {
@@ -187,12 +213,57 @@ func (d *Dir) WriteFrom(name string, perm fs.FileMode, write func(io.Writer) err
 		err = cerr
 	}
 	if err == nil {
-		err = d.root.Rename(tmp, name)
+		d.step("rename", name)
+		err = errNoReplace
+		if fresh {
+			err = d.renameNew(tmp, pfi, name, pfi)
+		}
+		if errors.Is(err, errNoReplace) {
+			err = d.root.Rename(tmp, name)
+		}
 	}
 	if err != nil {
 		d.root.Remove(tmp)
 	}
 	return err
+}
+
+// errNoReplace is renameNoReplace's answer where the file system can't
+// refuse, in the same step, to replace what is at the new name.
+var errNoReplace = errors.New("the file system can't rename without replacing")
+
+// renameNew renames from to to, relative to handles on the folders they
+// are in, which fromFolder and toFolder describe (nil for the data
+// directory). What appears at to meanwhile is refused as existing.
+func (d *Dir) renameNew(from string, fromFolder fs.FileInfo, to string, toFolder fs.FileInfo) error {
+	fd, err := d.parent(from, fromFolder)
+	if err != nil {
+		return err
+	}
+	defer fd.Close()
+	td, err := d.parent(to, toFolder)
+	if err != nil {
+		return err
+	}
+	defer td.Close()
+	err = renameNoReplace(fd, path.Base(from), td, path.Base(to))
+	if errors.Is(err, fs.ErrExist) {
+		return existsError(to)
+	}
+	return err
+}
+
+// parent opens the folder name is in, which fi describes, checked to be
+// that folder; fi is nil for a name in the data directory.
+func (d *Dir) parent(name string, fi fs.FileInfo) (*os.File, error) {
+	p := path.Dir(name)
+	if p == "." {
+		var err error
+		if fi, err = d.root.Lstat("."); err != nil {
+			return nil, err
+		}
+	}
+	return d.openFolder(p, fi)
 }
 
 // EnsureFile makes sure name holds b. The file is left as it is when keep

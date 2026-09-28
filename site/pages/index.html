@@ -1,7 +1,7 @@
 {{/*
 path: /
 title: Playkeeper: a free Minecraft server panel for your own VPS
-description: Playkeeper turns an Ubuntu VPS into a Minecraft: Java Edition server host with one command: mods, modpacks, backups and a free address. Free and open source.
+description: Turn a Linux VPS into a Minecraft: Java Edition server host with one command: mods, modpacks, backups and a free address. Free and open source.
 label: Playkeeper
 layout: landing
 og: landing
@@ -21,7 +21,7 @@ scripts: js/landing.js, js/sizing-data.js, js/sizing.js
     <div class="hero-text">
       {{with page "/blog/playkeeper-0-4-0"}}<a class="release-pill hero-rise" href="{{.Path}}"><span class="dot" aria-hidden="true"></span>Playkeeper {{$.Site.Version}} is out <strong>What's new{{template "icon" "arrow-right"}}</strong></a>{{end}}
       <h1 id="hero-title" class="h1-hero"><span class="line hero-rise">Your VPS.</span> <span class="line hero-rise">Your Minecraft servers.</span> <span class="line line-green hero-rise">Your worlds.</span></h1>
-      <p class="hero-sub hero-after">Playkeeper turns an Ubuntu VPS into a Minecraft: Java Edition server host. One command installs it. Free and open source.</p>
+      <p class="hero-sub hero-after">Playkeeper turns a Linux VPS into a Minecraft: Java Edition server host. One command installs it. Free and open source.</p>
       <div class="hero-after">{{template "install" (dict "ID" true)}}</div>
       <div class="hero-actions hero-after">
         <a class="btn btn-outline btn-lg" href="/demo/">Try the live demo{{template "icon" "arrow-right"}}</a>
@@ -31,7 +31,7 @@ scripts: js/landing.js, js/sizing-data.js, js/sizing.js
     <div class="hero-art">
       <div class="product" data-product>
         <figure class="browser product-browser" data-loop>
-          <div class="browser-bar" aria-hidden="true"><span class="browser-dots"><i></i><i></i><i></i></span><span class="browser-url">{{template "icon" "lock"}}<span class="browser-url-text">alex.playkeeper.io:8443</span></span></div>
+          <div class="browser-bar" aria-hidden="true"><span class="browser-dots"><i></i><i></i><i></i></span><span class="browser-url">{{template "icon" "lock"}}<span class="browser-url-text">alex.playkeeper.me:8443</span></span></div>
           <div class="browser-view">
             {{template "shot" (dict "Name" "loop-new-server" "Alt" "" "Class" "loop-frame f1" "Sizes" $loop)}}
             {{template "shot" (dict "Name" "loop-setting-up" "Alt" "" "Class" "loop-frame f2" "Sizes" $loop)}}
@@ -42,7 +42,7 @@ scripts: js/landing.js, js/sizing-data.js, js/sizing.js
         </figure>
         {{template "phone" (dict "Name" "hero-map-phone" "Alt" "The Map tab on a phone: the world from above, with three players' positions." "Class" "product-phone" "Eager" true "Sizes" "(max-width: 639.98px) 272px, 198px")}}
         <img class="product-pip" src="{{asset "app/pip/pip-wave.svg"}}" alt="" width="84" height="84" data-pip>
-        <div class="moment moment-copied" data-moment="copied" aria-hidden="true"><span class="moment-icon">{{template "icon" "check"}}</span><span>Join address copied<small>survival.alex.playkeeper.io</small></span></div>
+        <div class="moment moment-copied" data-moment="copied" aria-hidden="true"><span class="moment-icon">{{template "icon" "check"}}</span><span>Join address copied<small>survival.alex.playkeeper.me</small></span></div>
         <div class="moment moment-joined" data-moment="joined" aria-hidden="true"><img src="{{asset "img/face-mara.svg"}}" alt="" width="32" height="32"><span>mara_k joined Survival<small>just now</small></span></div>
       </div>
     </div>
@@ -57,12 +57,12 @@ scripts: js/landing.js, js/sizing-data.js, js/sizing.js
       <div class="step-card reveal">
         <div class="step-card-art">{{template "cardshot" (dict "Name" "step-size" "Alt" "The sizing guide's answer: a VPS with 6 GB of memory, 2 fast cores and 40 GB of disk for 5 to 10 friends on Vanilla or Paper." "Sizes" $step)}}</div>
         <h3><span class="num">1</span>Rent a VPS</h3>
-        <p>Ubuntu 24.04 with at least {{sizing.Min.MemoryGB}} GB of memory.</p>
+        <p>{{systemsShort}} with at least {{sizing.Min.MemoryGB}} GB of memory.</p>
         <a class="link-arrow" href="/sizing">Which VPS?{{template "icon" "arrow-right"}}</a>
       </div>
       <div class="step-card reveal">
         <div class="step-card-art">
-          {{template "terminal" (dict "Lines" (list (dict "Cmd" (installWrapped)) (dict "Ok" "Download matches its SHA-256") (dict "Ok" "Ubuntu 24.04 · x86_64 · 4 vCPU · 8 GB") (dict "Go" "Open https://203.0.113.7:8443/setup#code=…")))}}
+          {{template "terminal" (dict "Lines" (list (dict "Cmd" (installWrapped)) (dict "Ok" "Download matches its SHA-256") (dict "Ok" "Ubuntu 26.04 · x86_64 · 4 vCPU · 8 GB") (dict "Go" "Open https://203.0.113.7:8443/setup#code=…")))}}
         </div>
         <h3><span class="num">2</span>Run one command</h3>
         <p>It checks the machine and asks before it changes anything.</p>
@@ -71,13 +71,13 @@ scripts: js/landing.js, js/sizing-data.js, js/sizing.js
         <div class="step-card-art">
           <div class="mini-card" aria-hidden="true">
             <div class="mini-card-head">Join address <span class="chip-copy">{{template "icon" "copy"}}Copy</span></div>
-            <p class="addr">survival.alex.playkeeper.io</p>
+            <p class="addr">survival.alex.playkeeper.me</p>
             <p class="hint">In Minecraft: Multiplayer → Add Server, then paste it.</p>
             <p class="answering">Answering · checked 12 s ago</p>
           </div>
         </div>
         <h3><span class="num">3</span>Share your address</h3>
-        <p>Friends join at survival.yourname.playkeeper.io.</p>
+        <p>Friends join at survival.yourname.playkeeper.me.</p>
       </div>
     </div>
   </div>
@@ -125,7 +125,7 @@ scripts: js/landing.js, js/sizing-data.js, js/sizing.js
     <div class="grid-4 feature-grid">
       {{range $f := list
         (dict "Page" "/features/mods-and-modpacks" "Demo" "/demo/servers/cobblemon/mods" "Title" "Plugins, mods and modpacks" "Text" (printf "%s server types, add-ons in one click." (title (countWord typeCount))) "Shot" "feat-types" "Alt" "New server on a phone: picking what the server runs.")
-        (dict "Page" "/features/free-address" "Demo" "/demo/machines/q7m2vk9xpd/settings" "Title" "A free address" "Text" "Friends join at yourname.playkeeper.io." "Shot" "feat-address" "Alt" "Machine settings on a phone, picking a free playkeeper.io name.")
+        (dict "Page" "/features/free-address" "Demo" "/demo/machines/q7m2vk9xpd/settings" "Title" "A free address" "Text" "Friends join at yourname.playkeeper.me." "Shot" "feat-address" "Alt" "Machine settings on a phone, picking a free playkeeper.me name.")
         (dict "Page" "/features/backups" "Demo" "/demo/servers/survival/world" "Title" "Backups" "Text" "Players stay online while it copies." "Shot" "feat-backups" "Alt" "A server's World tab on a phone, with Back up now and its backups.")
         (dict "Page" "/features/crash-and-lag-help" "Demo" "/demo/servers/cobblemon" "Title" "Crash and lag help" "Text" "What went wrong, and what to do." "Shot" "feat-crash" "Alt" "A crashed server's Overview on a phone, explaining it ran out of memory.")
         (dict "Page" "/features/friends-and-team" "Demo" "/demo/servers/survival/players" "Title" "Friends and team" "Text" "Invite links, roles and Discord." "Shot" "feat-friends" "Alt" "A server's Players tab on a phone.")
@@ -208,10 +208,10 @@ scripts: js/landing.js, js/sizing-data.js, js/sizing.js
   <div class="container">
     {{template "faq" (dict "ID" "questions" "Aside" (printf "Anything else? %s." .Settings.Community.Ask) "AsideLink" (list .Settings.Community.URL "Ask a question") "Items" (list
       (qa "Is it free?" "Yes. Playkeeper is free and open source (AGPL-3.0). You only pay for your VPS.")
-      (qa "Which VPS do I need?" (printf `Ubuntu 24.04 on x86_64, with at least %d CPU cores, %d GB of memory and %d GB of free disk for Playkeeper, plus room for your servers. <a href="/sizing">The sizing guide</a> suggests a size.` sizing.Min.Cores sizing.Min.MemoryGB sizing.Min.DiskGB))
+      (qa "Which VPS do I need?" (printf `%s, on x86_64 or 64-bit ARM, with at least %d CPU cores, %d GB of memory and %d GB of free disk for Playkeeper, plus room for your servers. <a href="/sizing">The sizing guide</a> suggests a size.` systems sizing.Min.Cores sizing.Min.MemoryGB sizing.Min.DiskGB))
       (qa "Java or Bedrock?" "Minecraft: Java Edition only. Bedrock players can't join.")
       (qa "Can I bring my Aternos or Realms world?" "Yes. New server › A world takes your singleplayer world, or one from Aternos, Minehut, Realms or another host, with steps for getting it out. It shows what's inside before anything changes.")
-      (qa "Do friends need a port number?" "Not with a free yourname.playkeeper.io name: from three days after you claim it, each server joins at its own address without a port. On the IP address, the first server needs no port and the others add theirs.")
+      (qa "Do friends need a port number?" "Not with a free yourname.playkeeper.me name: from three days after you claim it, each server joins at its own address without a port. On the IP address, the first server needs no port and the others add theirs.")
       (qa "How do updates work?" "Update available appears in the dashboard. Each update is signed and checked before it runs, your servers keep running, and a failed update rolls back by itself.")
     ))}}
   </div>

@@ -1,4 +1,4 @@
-// Command playkeeper-names is the service behind free yourname.playkeeper.io
+// Command playkeeper-names is the service behind free yourname.playkeeper.me
 // addresses: installs claim a name with a signed request, and the service
 // points the name's DNS records in Cloudflare at the address the request
 // came from. It runs on the project's own server (services/names/README.md
@@ -24,7 +24,7 @@ const usage = `Usage:
       Runs the service. It is configured with environment variables:
         NAMES_CLOUDFLARE_API_TOKEN      Cloudflare API token with DNS edit rights on the zone (required)
         NAMES_CLOUDFLARE_ZONE_ID        the zone's ID (required)
-        NAMES_BASE_DOMAIN               domain names live under (default playkeeper.io)
+        NAMES_BASE_DOMAIN               domain names live under, playkeeper.me for installs (default playkeeper.io)
         NAMES_DATA_DIR                  database and daily snapshots (default /data)
         NAMES_LISTEN                    listen address (default :8080)
         NAMES_TRUSTED_PROXIES           the reverse proxy's own address, e.g. 10.0.1.5 (default none)
@@ -33,7 +33,7 @@ const usage = `Usage:
         NAMES_CLAIMS_PER_DAY            new names per day across everyone (default 30)
         NAMES_RECORD_RESERVE            DNS records the service always leaves free in the zone (default 10)
         NAMES_RECORD_QUOTA              most DNS records the zone may hold (default 200, Cloudflare Free)
-        NAMES_NEW_CERTIFICATES_PER_WEEK names that may get their first certificate in 7 days, 1 to 50 (default 40)
+        NAMES_NEW_CERTIFICATES_PER_WEEK names that may get their first certificate in 7 days, within Let's Encrypt's limit (default 40)
         NAMES_BLOCKLIST_FILE            file of names nobody may have, one per line (optional)
         NAMES_ALERT_WEBHOOK_URL         https:// webhook, e.g. Discord's, for the owner's alerts (optional)
   playkeeper-names healthcheck

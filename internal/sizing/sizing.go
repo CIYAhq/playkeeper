@@ -229,8 +229,8 @@ type Server struct {
 // counts, running or not: Playkeeper keeps a stopped server's memory so it
 // can always start. They add up:
 //
-//   - memory: every server's budget, plus the 2 GB left for Ubuntu, Docker
-//     and Playkeeper once;
+//   - memory: every server's budget, plus the 2 GB left for the system,
+//     Docker and Playkeeper once;
 //   - cores: the busiest server's, plus one for each other server, which
 //     runs its world on a core of its own;
 //   - disk: every server's files, worlds and backups, plus the system once.

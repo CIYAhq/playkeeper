@@ -282,7 +282,8 @@ func TestAMachineJoinsAndItsServersAreReachable(t *testing.T) {
 	fp, _ := info["fingerprint"].(string)
 	minimum, _ := info["minimum"].(map[string]any)
 	if info["available"] != true || fp == "" || fmt.Sprint(info["codes"]) != "[]" || info["joinPausedSeconds"] != float64(0) ||
-		minimum["cores"] != float64(2) || minimum["memoryGB"] != float64(3) || minimum["freeDiskGB"] != float64(5) {
+		minimum["cores"] != float64(2) || minimum["memoryGB"] != float64(3) || minimum["freeDiskGB"] != float64(5) ||
+		fmt.Sprint(minimum["systems"]) != "[map[name:Ubuntu version:20.04] map[name:Debian version:12] map[name:the RHEL family version:9] map[name:Amazon Linux version:2023]]" {
 		t.Fatalf("link info: %v", info)
 	}
 

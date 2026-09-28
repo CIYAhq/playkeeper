@@ -78,6 +78,9 @@ type testEnv struct {
 	svc *Service
 	srv *httptest.Server
 	log *syncBuffer
+	// base is the base domain new installs use.
+	base    string
+	handler atomic.Pointer[http.Handler]
 
 	mu     sync.Mutex
 	panels []*panel
@@ -106,7 +109,7 @@ func testConfig(t *testing.T, clk *testClock, cf *fakeCloudflare, log io.Writer)
 // the fake Cloudflare before the service starts.
 func newEnv(t *testing.T, setup ...func(*testEnv)) *testEnv {
 	t.Helper()
-	e := &testEnv{t: t, clk: &testClock{t: testStart}, log: &syncBuffer{}, of: map[*names.Client]*panel{}}
+	e := &testEnv{t: t, clk: &testClock{t: testStart}, log: &syncBuffer{}, base: testBase, of: map[*names.Client]*panel{}}
 	e.cf = newFakeCloudflare(t)
 	e.cfg = testConfig(t, e.clk, e.cf, e.log)
 	e.cfg.dialAlive = e.dialPanel
@@ -117,8 +120,8 @@ func newEnv(t *testing.T, setup ...func(*testEnv)) *testEnv {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	e.svc = svc
-	e.srv = httptest.NewServer(svc.Handler())
+	e.serve(svc)
+	e.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { (*e.handler.Load()).ServeHTTP(w, r) }))
 	t.Cleanup(func() {
 		e.srv.Close()
 		e.svc.Close()
@@ -134,15 +137,42 @@ func newEnv(t *testing.T, setup ...func(*testEnv)) *testEnv {
 	return e
 }
 
+// serve makes svc the service behind e.srv.
+func (e *testEnv) serve(svc *Service) {
+	e.svc = svc
+	h := svc.Handler()
+	e.handler.Store(&h)
+}
+
+// restart stops the service and starts it again on the same database, as a
+// deploy does; setup may change the configuration in between. A service
+// that does not start is New's error, and the old one stays stopped.
+func (e *testEnv) restart(setup ...func(*testEnv)) error {
+	e.t.Helper()
+	if err := e.svc.Close(); err != nil {
+		e.t.Fatal(err)
+	}
+	for _, f := range setup {
+		f(e)
+	}
+	svc, err := New(context.Background(), e.cfg)
+	if err != nil {
+		return err
+	}
+	e.serve(svc)
+	return nil
+}
+
 // panel is an install's dashboard as the liveness checks reach it: the
-// real names.AliveHandler behind TLS, on port 8443 of its machine's
-// addresses while it is up. The first dashboard added for a machine gets
-// its port 8443.
+// real names.AliveHandler for the install's base domain behind TLS, on
+// port 8443 of its machine's addresses while it is up. The first dashboard
+// added for a machine gets its port 8443.
 type panel struct {
 	m   *machine
 	key ed25519.PrivateKey
 
 	mu      sync.Mutex
+	base    string
 	down    bool
 	handler http.Handler
 	srv     *httptest.Server
@@ -168,13 +198,13 @@ func (p *panel) listen() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.srv == nil {
-		mux := http.NewServeMux()
-		mux.Handle(names.AlivePattern, names.AliveHandler(testBase, func(string) ed25519.PrivateKey { return p.key }))
 		p.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p.mu.Lock()
-			h := p.handler
+			h, base := p.handler, p.base
 			p.mu.Unlock()
 			if h == nil {
+				mux := http.NewServeMux()
+				mux.Handle(names.AlivePattern, names.AliveHandler(base, func(string) ed25519.PrivateKey { return p.key }))
 				h = mux
 			}
 			h.ServeHTTP(w, r)
@@ -293,10 +323,20 @@ func (e *testEnv) install(seed string, m *machine) *names.Client {
 			return c
 		}
 	}
-	p := &panel{m: m, key: c.Key}
+	p := &panel{m: m, key: c.Key, base: c.Base}
 	e.panels = append(e.panels, p)
 	e.of[c] = p
 	return c
+}
+
+// update makes c's install a release for the base domain new installs use:
+// its requests and its dashboard's answers are for that base from then on.
+func (e *testEnv) update(c *names.Client) {
+	c.Base = e.base
+	p := e.panelOf(c)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.base = e.base
 }
 
 func (e *testEnv) client(seed string, m *machine) *names.Client {
@@ -313,7 +353,7 @@ func (e *testEnv) client(seed string, m *machine) *names.Client {
 		})}
 	}
 	return &names.Client{
-		ServiceURL: e.srv.URL, Base: testBase, Key: testKey(seed),
+		ServiceURL: e.srv.URL, Base: e.base, Key: testKey(seed),
 		HTTP: via(names.AnyFamily), HTTP4: via(names.IPv4), HTTP6: via(names.IPv6), Now: e.clk.Now,
 	}
 }

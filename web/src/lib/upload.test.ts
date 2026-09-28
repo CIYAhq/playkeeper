@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
 import type { WorldImport } from '@/api/types'
-import { backoffMs, retryable, uploadWorld, UploadSpeed, type Put } from './upload'
+import { backoffMs, retryable, uploadFiles, uploadWorld, UploadSpeed, type Put } from './upload'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
@@ -163,6 +163,51 @@ describe('uploadWorld', () => {
     expect(machine.files.map((f) => f.name)).toEqual(['world.zip', 'world_nether.zip'])
     expect(machine.puts).toEqual([at(0), at(10), at(0, 1)])
     expect(sent.at(-1)).toBe(17)
+  })
+})
+
+describe('uploadFiles', () => {
+  const files = '/api/servers/abcdefghjk/files/uploads'
+  const piece = (offset: number, n = 0) => `${files}/imp2345abc/files/${n}?offset=${offset}`
+
+  beforeEach(() => {
+    vi.mocked(client.post).mockImplementation((async (path: string, body?: unknown) => {
+      if (path !== files) {
+        const b = body as { name: string; size: number }
+        machine.files.push({ name: b.name, size: b.size, received: 0 })
+      }
+      return machine.view()
+    }) as typeof client.post)
+  })
+
+  it('opens the upload into its folder and announces each file with its path there and whether it may replace one', async () => {
+    const dropped = [file('config.yml', 12), file('LuckPerms.jar', 5)]
+    const up = await uploadFiles({ base: files, folder: 'plugins', files: dropped, paths: ['LuckPerms/config.yml', 'LuckPerms.jar'], replace: true, signal: new AbortController().signal, put: machine.put, wait: noWait, piece: 10 })
+    expect(vi.mocked(client.post).mock.calls).toEqual([
+      [files, { folder: 'plugins' }],
+      [`${files}/imp2345abc/files`, { name: 'LuckPerms/config.yml', size: 12, replace: true }],
+      [`${files}/imp2345abc/files`, { name: 'LuckPerms.jar', size: 5, replace: true }],
+    ])
+    expect(machine.puts).toEqual([piece(0), piece(10), piece(0, 1)])
+    expect(up.files.map((f) => [f.name, f.received])).toEqual([
+      ['LuckPerms/config.yml', 12],
+      ['LuckPerms.jar', 5],
+    ])
+  })
+
+  it('names a file by its own name without a path, and carries on after the connection drops', async () => {
+    machine.drops = [3]
+    await uploadFiles({ base: files, folder: '', files: [file('server-icon.png', 8)], signal: new AbortController().signal, put: machine.put, wait: noWait, piece: 10 })
+    expect(vi.mocked(client.post).mock.calls[1]).toEqual([`${files}/imp2345abc/files`, { name: 'server-icon.png', size: 8, replace: false }])
+    expect(machine.puts).toEqual([piece(0), piece(3)])
+  })
+
+  it('won’t carry on with an upload the machine holds other files for', async () => {
+    machine.files = [{ name: 'plugins/other.jar', size: 5, received: 0 }]
+    await expect(uploadFiles({ base: files, folder: 'plugins', files: [file('LuckPerms.jar', 5)], resume: { ...machine.view(), folder: 'plugins' }, signal: new AbortController().signal, put: machine.put, wait: noWait })).rejects.toMatchObject({
+      status: 409,
+      message: 'The machine has other files for this upload. Choose the files again to start over.',
+    })
   })
 })
 

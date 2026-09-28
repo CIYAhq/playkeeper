@@ -7,11 +7,14 @@ export const nameMax = 32
 export const freeServerMax = 5
 const labelRe = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
-/** A typed name the way the agent reads it: trimmed, lowercase, without a trailing dot or the base domain. */
-export function normalizeName(input: string, base: string): string {
+/** A typed name the way the agent reads it: trimmed, lowercase, without a trailing dot or the first of the base domains it ends with. */
+export function normalizeName(input: string, ...bases: (string | undefined)[]): string {
   const s = input.trim().toLowerCase().replace(/\.$/, '')
-  const suffix = `.${base.toLowerCase()}`
-  return s.endsWith(suffix) ? s.slice(0, -suffix.length) : s
+  for (const base of bases) {
+    const suffix = base && `.${base.toLowerCase()}`
+    if (suffix && s.endsWith(suffix)) return s.slice(0, -suffix.length)
+  }
+  return s
 }
 
 export type NameProblem = 'empty' | 'characters' | 'short' | 'long'
