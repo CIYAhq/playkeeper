@@ -134,12 +134,22 @@ func (p *previewer) draw(v preview) ([]byte, error) {
 	for i, l := range lines {
 		drawText(img, title, textX, base+i*int(size*1.02), l, -size*0.045, ogInk)
 	}
+	// What it runs on, below: in two lines at most, smaller if it takes more.
 	if v.Meta != "" {
-		meta, err := p.face(p.semi, 30)
-		if err != nil {
-			return nil, err
+		for _, sz := range []float64{30, 26, 22} {
+			meta, err := p.face(p.semi, sz)
+			if err != nil {
+				return nil, err
+			}
+			ml := wrapText(meta, v.Meta, 0, textW)
+			if len(ml) > 2 && sz > 22 {
+				continue
+			}
+			for i, l := range ml[:min(len(ml), 2)] {
+				drawText(img, meta, textX, base+(len(lines)-1)*int(size*1.02)+62+i*int(sz*1.3), l, 0, ogSage)
+			}
+			break
 		}
-		drawText(img, meta, textX, base+(len(lines)-1)*int(size*1.02)+62, v.Meta, 0, ogSage)
 	}
 	var out bytes.Buffer
 	if err := png.Encode(&out, img); err != nil {

@@ -121,28 +121,32 @@ func TestPreviewTitlesFitBesideThePicture(t *testing.T) {
 	}
 	pic := image.NewNRGBA(image.Rect(0, 0, picW, picH))
 	for _, title := range []string{"Towny", "Survival with EssentialsX", "COBBLEVERSE - Pokemon Adventure", "Supercalifragilisticexpialidocious", "Wide Wide Wide Wide Wide Wide"} {
-		b, err := p.draw(preview{Eyebrow: "Server template", Title: title, Meta: "NeoForge 1.21.1 · 12 GB · Crossplay", Picture: pic})
-		if err != nil {
-			t.Errorf("%q: %v", title, err)
-			continue
+		for _, meta := range []string{"NeoForge 1.21.1 · 12 GB · Crossplay", "12 templates · Paper, Purpur, Fabric, Quilt, NeoForge, Forge and Vanilla"} {
+			b, err := p.draw(preview{Eyebrow: "Server template", Title: title, Meta: meta, Picture: pic})
+			if err != nil {
+				t.Errorf("%q: %v", title, err)
+				continue
+			}
+			clearOfPicture(t, p, b, title+" / "+meta)
 		}
-		img, err := png.Decode(bytes.NewReader(b))
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Between the words, which end by x = 592, and the card's shadow, from
-		// x = 635, is the frame alone.
-		for y := 140; y < 490; y++ {
-			for x := 596; x < 632; x++ {
-				if img.At(x, y) != p.frame.At(x, y) {
-					r1, g1, b1, _ := img.At(x, y).RGBA()
-					r2, g2, b2, _ := p.frame.At(x, y).RGBA()
-					if r1 != r2 || g1 != g2 || b1 != b2 {
-						t.Errorf("%q reaches the picture at (%d, %d)", title, x, y)
-						y = previewH
-						break
-					}
-				}
+	}
+}
+
+// clearOfPicture checks that the strip between a preview's words, which end
+// by x = 592, and its card's shadow, from x = 635, is the frame alone.
+func clearOfPicture(t *testing.T, p *previewer, b []byte, what string) {
+	t.Helper()
+	img, err := png.Decode(bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for y := 140; y < 520; y++ {
+		for x := 596; x < 632; x++ {
+			r1, g1, b1, _ := img.At(x, y).RGBA()
+			r2, g2, b2, _ := p.frame.At(x, y).RGBA()
+			if r1 != r2 || g1 != g2 || b1 != b2 {
+				t.Errorf("%q reaches the picture at (%d, %d)", what, x, y)
+				return
 			}
 		}
 	}
