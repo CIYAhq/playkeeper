@@ -308,7 +308,7 @@ function Results({ a, now, phone, checking, onCheck, certBusy, onCertificate }: 
         </ResultBlock>,
       )
   }
-  const wrong = n.ok ? (c.records ?? []).filter((r) => !r.ok) : []
+  const wrong = n.ok ? (c.records ?? []).filter((r) => !r.ok && !r.own) : []
   wrong.forEach((r, i) =>
     blocks.push(
       <ResultBlock key={`srv-${i}`} tone="amber" title={r.message} actions={i === wrong.length - 1 && again(t('address.checkAgain'))}>
@@ -463,7 +463,7 @@ function OwnAddressRow({ a, s, refresh }: { a: Address; s: JoinAddress; refresh:
 
 /** One of an own address's records, and whether the last check found it right. */
 function OwnRecord({ r, check }: { r: DNSRecord; check?: AddressCheck }) {
-  const works = (check?.records ?? []).some((rc) => rc.ok && rc.record.serverId === r.serverId && (r.type === 'SRV' ? rc.record.type === 'SRV' : rc.record.type !== 'SRV'))
+  const works = (check?.records ?? []).some((rc) => rc.ok && rc.record.serverId === r.serverId && rc.record.name === r.name && (rc.record.type === 'SRV') === (r.type === 'SRV'))
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
       <span className="w-10 font-semibold">{r.type}</span>

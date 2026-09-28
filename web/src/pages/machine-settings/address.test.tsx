@@ -558,12 +558,16 @@ describe('an own domain', () => {
       own({
         servers: [survival({ address: 'play.example.com', published: true }), creative({ address: 'alex.example.com', ownAddress: 'alex.example.com' })],
         records: [aRecord, aAlex, srvAlex],
-        check: check({}, false, [
-          { record: aAlex, ok: true, code: 'name_ok', message: 'It points here.' },
-          { record: srvAlex, ok: false, code: 'srv_missing', message: 'The SRV record for alex.example.com does not exist yet.' },
+        check: check({}, true, [
+          { record: srvRecord, ok: true, code: 'srv_ok', message: 'The SRV record is right.' },
+          { record: aAlex, ok: true, code: 'name_ok', message: 'It points here.', own: true },
+          { record: srvAlex, ok: false, code: 'srv_missing', message: 'The SRV record for alex.example.com does not exist yet.', own: true },
         ]),
       }),
     )
+    // The domain works whatever a server's own address does.
+    expect(text()).toContain('play.example.com is ready')
+    expect(text()).not.toContain('does not exist yet')
     expect(text()).toContain('Servers’ own addresses')
     expect(field('Creative').value).toBe('alex.example.com')
     expect(field('Survival').value).toBe('')

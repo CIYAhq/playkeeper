@@ -1038,6 +1038,8 @@ export interface RecordCheck extends Note {
   record: DNSRecord
   ok: boolean
   found?: string[]
+  /** A server's own address's record, which Servers' own addresses shows and the domain's `ready` leaves out. */
+  own?: boolean
 }
 
 export interface AddressCheck {
