@@ -6068,6 +6068,31 @@ control "the keeper never asks for a port it holds" internal/panel/pageports.go 
   'return p.held[i] == nil && !now.Before(p.next[i]) && port.Port != s.cfg.PanelPort' \
   'return !now.Before(p.next[i]) && port.Port != s.cfg.PanelPort' \
   ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
+# What the owner adds to the page: About, a stream and a status board.
+control "a page's stream is only a Twitch or YouTube channel" internal/agent/publicblocks.go \
+  'case host == "twitch.tv" && len(parts) == 1 && reTwitchLogin.MatchString(parts[0]):' \
+  'case len(parts) == 1 && reTwitchLogin.MatchString(parts[0]):' \
+  ./internal/agent '^TestTheOwnersWordsAndStreamShowOnThePage$'
+control "the page's About keeps out control and direction-changing characters" internal/agent/publicblocks.go \
+  "return unicode.IsPrint(r) || r == '\\u200d'" \
+  'return r != 0' \
+  ./internal/agent '^TestTheOwnersWordsAndStreamShowOnThePage$'
+control "a board with more numbers than the page shows is refused" internal/agent/publicblocks.go \
+  'if len(req.Stats) > api.BoardStatsMax {' \
+  'if false && len(req.Stats) > api.BoardStatsMax {' \
+  ./internal/agent '^TestTheStatusBoardShowsWhatTheToolsPostWithinItsBounds$'
+control "a board's next session is within a month" internal/agent/publicblocks.go \
+  'if next.Before(now.Add(-24*time.Hour)) || next.After(now.Add(api.BoardNextWithin)) {' \
+  'if next.Before(now.Add(-24 * time.Hour)) {' \
+  ./internal/agent '^TestTheStatusBoardShowsWhatTheToolsPostWithinItsBounds$'
+control "posting the status board needs the right to run the server" internal/panel/server.go \
+  '{"PUT", "/api/servers/{id}/public-page/board", needSessionCSRF, actRunServers,' \
+  '{"PUT", "/api/servers/{id}/public-page/board", needSessionCSRF, actView,' \
+  ./internal/panel '^TestEveryToolTakesTheActionOfItsDashboardRoute$'
+control "only the page's ports may frame the stream players" internal/panel/server.go \
+  "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none';" \
+  "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; frame-src https://player.twitch.tv; object-src 'none';" \
+  ./internal/panel '^TestThePageHasALiveShareCardAndMayFrameAStream$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
