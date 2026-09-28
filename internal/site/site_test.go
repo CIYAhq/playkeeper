@@ -533,6 +533,7 @@ func TestChannels(t *testing.T) {
 // A page's channel must be one of the settings'.
 func TestStartPage(t *testing.T) {
 	o := build(t, Default)
+	const share = `<button type="button" class="install-share" data-share hidden>`
 	for p, html := range pages(o) {
 		has := strings.Contains(html, `data-whop-pixel="biz_bbmk63HMB3yZ4c"`) && strings.Contains(html, "/assets/js/start.")
 		if has != (p == "/start") {
@@ -541,10 +542,28 @@ func TestStartPage(t *testing.T) {
 		if strings.Contains(html, "t.whop.tw") {
 			t.Errorf("%s names t.whop.tw in its HTML; start.js loads it", p)
 		}
+		// Send to my computer, beside both of /start's Copy buttons.
+		want := 0
+		if p == "/start" {
+			want = 2
+		}
+		if n := strings.Count(html, share); n != want {
+			t.Errorf("%s has %d Send to my computer buttons, want %d", p, n, want)
+		}
 	}
 	start := pages(o)["/start"]
 	if !strings.Contains(start, `<meta name="robots" content="noindex">`) || strings.Contains(string(o.Files["sitemap.xml"]), "/start") {
 		t.Error("/start isn't kept out of search engines and the sitemap")
+	}
+	under := between(start, share, `class="start-how`)
+	if !strings.Contains(under, `Don't have a VPS yet? They cost from a few dollars a month. <a class="link-arrow" href="/sizing">Which one to rent`) {
+		t.Errorf("/start doesn't say where to rent a VPS right under its install command: %q", under)
+	}
+	if n := strings.Count(start, "a few dollars a month"); n != 1 {
+		t.Errorf("/start says what a VPS costs %d times, want once", n)
+	}
+	if _, err := parsePage("{{/*\npath: /x\nshare: yes please\n*/}}"); err == nil {
+		t.Error("a page's share setting takes more than true or false")
 	}
 	nginx := string(o.Nginx)
 	site := between(nginx, `set $csp "`, `";`)

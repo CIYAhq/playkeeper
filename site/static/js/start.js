@@ -1,8 +1,9 @@
 // /start, where the Meta ads land. The film plays while it's in view. Whop's
 // ad pixel, on this page alone (Settings.WhopPixel, in data-whop-pixel),
-// counts the visit and a copy of the install command, from site.js's
-// playkeeper:count events; it doesn't load when the browser sends Global
-// Privacy Control or Do Not Track.
+// counts the visit, a copy of the install command, the page sent to a
+// computer and the live demo opened, from site.js's playkeeper:count events;
+// it doesn't load when the browser sends Global Privacy Control or Do Not
+// Track.
 (function () {
   var film = document.querySelector('[data-film]');
   if (film && 'IntersectionObserver' in window && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -23,10 +24,11 @@
   window.whop.setScope(account);
   window.whop.track('page');
 
-  // One id per page view: Whop counts an event name and id once, so copying
-  // twice in one visit is one conversion.
-  var copyId = window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2);
+  // One id per page view, for every event: Whop counts an event name and id
+  // once, so copying twice in one visit is one conversion.
+  var eventId = window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2);
+  var forwarded = ['install_copied', 'install_shared', 'demo_opened'];
   document.addEventListener('playkeeper:count', function (e) {
-    if (e.detail.name === 'install_copied') window.whop.track('install_copied', { event_id: copyId });
+    if (forwarded.indexOf(e.detail.name) !== -1) window.whop.track(e.detail.name, { event_id: eventId });
   });
 })();
