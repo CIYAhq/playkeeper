@@ -4,6 +4,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.5
 
+- **New server › A template** shows each of Playkeeper's templates with a picture of its own world, the same one playkeeper.io shows, instead of a pixel scene.
 - Fixed: records for a server's own address that you added after saving it were found only at Playkeeper's next look, up to 6 hours later. Until they work, Playkeeper now looks every minute, as it does for your domain's records, so the page gets its certificate a minute or two after you add them.
 
 ## 0.4.4

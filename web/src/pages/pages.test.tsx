@@ -1566,6 +1566,24 @@ describe('Templates', () => {
     expect(document.body.textContent).toContain('Paper 26.2 · 4 GB')
   })
 
+  it('shows each listed template’s own world, and its scene when this dashboard has no picture of it', async () => {
+    window.history.replaceState(null, '', '/servers/new')
+    const library: TemplateLibrary = {
+      templates: [
+        { id: 'towny', art: 'world-big-biomes.svg', contents: { ...contents, name: 'Towny' }, file: '{"name":"Towny"}' },
+        { id: 'from-a-newer-release', art: 'world-amplified.svg', contents: { ...contents, name: 'Newer' }, file: '{"name":"Newer"}' },
+      ],
+    }
+    answer({ '/catalog': catalog, '/templates/library': library })
+    await render(<NewServerPage />)
+    await click('A template')
+    const picture = (name: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith(name))?.querySelector('img')
+    expect(picture('Towny')?.getAttribute('src')).toMatch(/\/template-thumbs\/towny\.webp$/)
+    expect(picture('Towny')?.classList.contains('pixelated')).toBe(false)
+    expect(picture('Newer')?.getAttribute('src')).toMatch(/\/pixel-art\/world-amplified\.svg$/)
+    expect(picture('Newer')?.classList.contains('pixelated')).toBe(true)
+  })
+
   it('shows no template list when the machine’s release carries none', async () => {
     window.history.replaceState(null, '', '/servers/new')
     answer({ '/catalog': catalog, '/templates/library': new Error('Not found.') })

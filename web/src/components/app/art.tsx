@@ -70,9 +70,13 @@ const templateArt: Record<string, string> = {
   'world-big-biomes.svg': worldBigBiomes,
 }
 
-/** A library template's scene: the file its card names, or the grass world when this release lacks it. */
-export function TemplateArt({ file, scale = 2, className }: { file: string; scale?: number; className?: string }) {
-  return <Pixel src={templateArt[file] ?? worldNormal} width={32 * scale} height={20 * scale} className={className} />
+/**
+ * A library template's picture: thumb, a picture of its world, when there is one, else the scene its card
+ * names, or the grass world when this release lacks that too.
+ */
+export function TemplateArt({ file, thumb, scale = 2, className }: { file: string; thumb?: string; scale?: number; className?: string }) {
+  if (!thumb) return <Pixel src={templateArt[file] ?? worldNormal} width={32 * scale} height={20 * scale} className={className} />
+  return <img src={thumb} width={32 * scale} height={20 * scale} alt="" className={cn('shrink-0 object-cover select-none', className)} draggable={false} />
 }
 
 export function EmptyArt({ kind, scale = 8, className }: { kind: 'backups' | 'players'; scale?: number; className?: string }) {

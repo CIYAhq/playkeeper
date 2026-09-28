@@ -1751,7 +1751,7 @@ export interface TemplateLibrary {
 /** One template of the library. `file` is its text, planned like any template file. */
 export interface LibraryTemplate {
   id: string
-  /** A file in assets/pixel-art. */
+  /** A file in assets/pixel-art, shown when this dashboard has no thumbnail of the template (assets/template-thumbs/<id>.webp). */
   art: string
   /** Its page on playkeeper.io. */
   page?: string
