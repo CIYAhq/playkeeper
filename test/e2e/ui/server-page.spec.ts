@@ -19,6 +19,9 @@ const sizes = {
 } as const
 
 interface Server {
+  about?: string
+  stream?: { site: 'twitch' | 'youtube'; channel: string; url: string }
+  board?: { headline?: string; live?: boolean; next?: string; stats?: { label: string; value: string }[]; checklist?: { label: string; done: boolean }[]; updatedAt: string }
   slug: string
   name: string
   motd: string
@@ -76,8 +79,37 @@ const asleep: Server = {
   hasIcon: false,
 }
 
+// The flagship's owner blocks: its rules, its stream and what the harness posts.
+const rules = [
+  'Help Claude or sabotage it: pick a side at spawn.',
+  'Players can hurt Claude only in the sabotage windows.',
+  'No TNT, lava or fire near Claude.',
+  'No slurs, spam or offensive builds: moderators ban on sight.',
+  'Nothing here is for sale.',
+  '',
+  'Unofficial. Not affiliated with Anthropic or Mojang.',
+].join('\n')
+const milestones = ['Crafting table', 'Stone mined', 'Stone pickaxe', 'Iron smelted', 'Iron pickaxe', 'Iron armour', 'Lava bucket', 'Diamonds found', 'Obsidian', 'Nether reached', 'Fortress found', 'Blaze rod', 'Stronghold found', 'The End reached', 'Ender Dragon killed']
+const board = {
+  headline: 'Day 3 · Nether reached',
+  live: true,
+  stats: [
+    { label: 'Deaths', value: '5' },
+    { label: 'Spent', value: '$64.10' },
+    { label: 'Tokens', value: '19.2M' },
+    { label: 'Helpers', value: '612' },
+    { label: 'Saboteurs', value: '488' },
+    { label: 'Players', value: '1,204' },
+  ],
+  checklist: milestones.map((label, i) => ({ label, done: i < 10 })),
+  updatedAt: new Date(Date.now() - 40_000).toISOString(),
+}
+const stream = { site: 'twitch' as const, channel: 'example_channel', url: 'https://www.twitch.tv/example_channel' }
+
 const pages = {
   event: { address: 'ai.playkeeper.me', servers: [event] },
+  eventLive: { address: 'ai.playkeeper.me', servers: [{ ...event, about: rules, stream, board }] },
+  eventBetween: { address: 'ai.playkeeper.me', servers: [{ ...event, state: 'offline', players: undefined, about: rules, stream, board: { ...board, live: false, next: new Date(Date.now() + (3 * 60 + 12) * 60_000 + 30_000).toISOString() } }] },
   modded: { address: 'siya.playkeeper.me', servers: [modded] },
   asleep: { address: 'alex.playkeeper.me', servers: [asleep] },
   offline: { address: 'alex.playkeeper.me', servers: [{ ...asleep, state: 'offline' }] },
