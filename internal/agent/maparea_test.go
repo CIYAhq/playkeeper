@@ -47,7 +47,7 @@ func (e *agentEnv) mapArea() api.MapArea {
 
 func (e *agentEnv) setMapArea(area string, pauseForPlayers bool) (int, map[string]any) {
 	e.t.Helper()
-	return e.call("POST", e.sp("/map/area"), map[string]any{"area": area, "pauseForPlayers": pauseForPlayers, "actor": "admin"})
+	return e.callWhenFree("POST", e.sp("/map/area"), map[string]any{"area": area, "pauseForPlayers": pauseForPlayers, "actor": "admin"})
 }
 
 // fillMapArea chooses a bigger area and waits until Chunky fills it in.

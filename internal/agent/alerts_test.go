@@ -111,7 +111,7 @@ func TestDiscordAlertSequences(t *testing.T) {
 			body = map[string]any{}
 		}
 		body["actor"] = "admin"
-		code, out := e.call("POST", e.sp("/"+verb), body)
+		code, out := e.callWhenFree("POST", e.sp("/"+verb), body)
 		if code != 202 {
 			e.t.Fatalf("%s: %d %v", verb, code, out)
 		}

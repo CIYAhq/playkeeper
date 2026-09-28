@@ -266,7 +266,7 @@ func TestAddonsInstallUpdateRemove(t *testing.T) {
 	if !slices.Equal(preview.NeededBy, []string{"Multiverse-Portals"}) || preview.Changed || preview.Missing {
 		t.Fatalf("removal preview of the dependency: %+v", preview)
 	}
-	code, out := e.call("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": "mvcore00", "keepConfig": true, "actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/addons/remove"), map[string]any{"source": "modrinth", "projectId": "mvcore00", "keepConfig": true, "actor": "admin"})
 	if code != 409 || out["code"] != "needed_by" {
 		t.Fatalf("removing a dependency in use: %d %v", code, out)
 	}

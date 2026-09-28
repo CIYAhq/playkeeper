@@ -352,7 +352,7 @@ func TestSaveOnRetryRefusesNoAction(t *testing.T) {
 				time.AfterFunc(300*time.Millisecond, reply)
 			}
 			asked := time.Now()
-			code, out := e.call("POST", e.sp(tc.path), map[string]any{"actor": "admin"})
+			code, out := e.callWhenFree("POST", e.sp(tc.path), map[string]any{"actor": "admin"})
 			if code != tc.want {
 				t.Fatalf("%s while save-on waits for the console: %d %v", tc.name, code, out)
 			}
@@ -385,7 +385,7 @@ func TestSavingLockKeepsSaveOnOutOfABackup(t *testing.T) {
 		held string
 	}{
 		{"a backup waits for a save-on", func(e *agentEnv) func() {
-			code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+			code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 			if code != http.StatusAccepted {
 				e.t.Fatalf("backup: %d %v", code, out)
 			}

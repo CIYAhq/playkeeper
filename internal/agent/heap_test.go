@@ -255,7 +255,7 @@ func recordHeap(mb int) func(t *testing.T, e *agentEnv) {
 // saveMemory saves a new memory budget, which waits for a restart.
 func saveMemory(mb int) func(t *testing.T, e *agentEnv) {
 	return func(t *testing.T, e *agentEnv) {
-		if code, out := e.call("POST", e.sp("/settings"), map[string]any{"memoryMB": mb, "actor": "admin"}); code != 200 {
+		if code, out := e.callWhenFree("POST", e.sp("/settings"), map[string]any{"memoryMB": mb, "actor": "admin"}); code != 200 {
 			t.Fatalf("settings: %d %v", code, out)
 		}
 	}
@@ -342,7 +342,7 @@ func TestCrashHelpExplainsTheMemoryTheServerRanWith(t *testing.T) {
 func TestASaveWithTheSameMemoryLeavesTheHeapAlone(t *testing.T) {
 	e := sizedFabric(t)
 	e.addMods(17, 40)
-	if code, out := e.call("POST", e.sp("/settings"), map[string]any{"memoryMB": 2048, "actor": "admin"}); code != 200 {
+	if code, out := e.callWhenFree("POST", e.sp("/settings"), map[string]any{"memoryMB": 2048, "actor": "admin"}); code != 200 {
 		t.Fatalf("settings: %d %v", code, out)
 	}
 	if sc, _ := e.srv().serverConfig(); sc.HeapMB != minecraft.HeapFor(2048, "fabric", 17) {

@@ -643,9 +643,10 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 		}
 		return e.waitOp(op.ID)
 	}
+	off := map[string]any{"actor": "admin", "enabled": false, "idleMinutes": 5}
 	sleepOff := func(e *agentEnv) (int, map[string]any) {
 		e.t.Helper()
-		return e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": false, "idleMinutes": 5})
+		return e.callWhenFree("POST", e.sp("/sleep"), off)
 	}
 	holdServerOp := func(kind string) func(e *agentEnv) func() {
 		return func(e *agentEnv) func() { return e.holdOp(kind) }
@@ -809,7 +810,7 @@ func TestSleepAndWakeTransitions(t *testing.T) {
 		}, want: state{api.DesiredRunning, false, false, api.PhaseOnline}},
 		{name: "sleep turned off during a backup", steps: func(e *agentEnv) {
 			release := e.holdOp("backup")
-			code, out := sleepOff(e)
+			code, out := e.call("POST", e.sp("/sleep"), off)
 			release()
 			if code != http.StatusConflict || out["code"] != api.CodeBusy {
 				e.t.Fatalf("sleep off during a backup: %d %v", code, out)
@@ -1202,7 +1203,7 @@ func TestSleepLooksAgainBeforeItStopsTheServer(t *testing.T) {
 			localStandIn(t)
 			e = newAgentEnv(t)
 			e.create()
-			if code, out := setSleep(e, on); code != http.StatusOK {
+			if code, out := e.whenFree(func() (int, map[string]any) { return setSleep(e, on) }); code != http.StatusOK {
 				t.Fatalf("turn sleep on: %d %v", code, out)
 			}
 			s := e.srv()
@@ -1888,7 +1889,7 @@ func TestDiskSpaceShowsWhatToFreeAndDeletesOnlyWhatWasChosen(t *testing.T) {
 		}
 	}
 	notOffered := strings.Repeat("0", 32)
-	code, out = e.call("POST", "/v1/disk/clean", map[string]any{"actor": "admin", "ids": []string{id, notOffered}, "timeZone": "Europe/Berlin"})
+	code, out = e.callWhenFree("POST", "/v1/disk/clean", map[string]any{"actor": "admin", "ids": []string{id, notOffered}, "timeZone": "Europe/Berlin"})
 	if code != http.StatusAccepted {
 		t.Fatalf("clean: %d %v", code, out)
 	}

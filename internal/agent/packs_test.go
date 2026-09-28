@@ -236,7 +236,9 @@ func decodeAs[T any](t *testing.T, m map[string]any) T {
 // addDataPack uploads a data pack as the panel does, with its file name.
 func (e *agentEnv) addDataPack(fileName string, zip []byte) api.DataPacks {
 	e.t.Helper()
-	code, out := e.uploadTo(e.sp("/datapacks?name="+url.QueryEscape(fileName)), zip)
+	code, out := e.whenFree(func() (int, map[string]any) {
+		return e.uploadTo(e.sp("/datapacks?name="+url.QueryEscape(fileName)), zip)
+	})
 	if code != 200 {
 		e.t.Fatalf("add data pack %s: %d %v", fileName, code, out)
 	}
@@ -454,7 +456,7 @@ func TestFolderDataPacks(t *testing.T) {
 	if p := list.Packs[1]; p.Name != "Tab\tMade" || !p.Folder || enabledState(&p) != "unknown" {
 		t.Fatalf("the folder pack with a tab in its name: %+v", p)
 	}
-	if code, out := e.call("DELETE", e.sp("/datapacks/"+url.PathEscape("Hand Made")+"?actor=admin"), nil); code != 409 || out["code"] != packs.CodeFolderPack {
+	if code, out := e.callWhenFree("DELETE", e.sp("/datapacks/"+url.PathEscape("Hand Made")+"?actor=admin"), nil); code != 409 || out["code"] != packs.CodeFolderPack {
 		t.Fatalf("removing a folder pack: %d %v", code, out)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "Hand Made", "pack.mcmeta")); err != nil {
@@ -535,7 +537,9 @@ func (e *agentEnv) resourcePack() api.ResourcePack {
 // players' games reach the panel.
 func (e *agentEnv) offerPack(fileName string, zip []byte) api.ResourcePack {
 	e.t.Helper()
-	code, out := e.uploadTo(e.sp("/resourcepack?host=203.0.113.10&port=8443&name="+url.QueryEscape(fileName)), zip)
+	code, out := e.whenFree(func() (int, map[string]any) {
+		return e.uploadTo(e.sp("/resourcepack?host=203.0.113.10&port=8443&name="+url.QueryEscape(fileName)), zip)
+	})
 	if code != 200 {
 		e.t.Fatalf("offer %s: %d %v", fileName, code, out)
 	}
@@ -593,7 +597,9 @@ func TestAMachineWithoutADashboardRefusesResourcePacks(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newAgentEnvWith(t, func(e *agentEnv) { e.cfg.NoPanel = tc.noPanel })
 			e.create()
-			code, out := e.uploadTo(e.sp("/resourcepack?host=203.0.113.10&port=8443&name=Faithful.zip"), resourcePackZip(t, "Faithful 32x", true))
+			code, out := e.whenFree(func() (int, map[string]any) {
+				return e.uploadTo(e.sp("/resourcepack?host=203.0.113.10&port=8443&name=Faithful.zip"), resourcePackZip(t, "Faithful 32x", true))
+			})
 			if code != tc.code {
 				t.Fatalf("upload: %d %v", code, out)
 			}
@@ -622,7 +628,9 @@ func TestResourcePackOffer(t *testing.T) {
 	if code != 400 || out["code"] != packs.CodeInvalidHost {
 		t.Fatalf("a pack players couldn't download: %d %v", code, out)
 	}
-	if code, out := e.uploadTo(e.sp("/resourcepack?host=203.0.113.10&port=8443"), dataPackZip(t, "x", false)); code != 400 || out["code"] != packs.CodeWrongKind {
+	if code, out := e.whenFree(func() (int, map[string]any) {
+		return e.uploadTo(e.sp("/resourcepack?host=203.0.113.10&port=8443"), dataPackZip(t, "x", false))
+	}); code != 400 || out["code"] != packs.CodeWrongKind {
 		t.Fatalf("a data pack as the resource pack: %d %v", code, out)
 	}
 	if got := e.storedPacks(); len(got) != 0 {
@@ -830,7 +838,9 @@ func TestResourcePackLinksUseHTTPSWithATrustedCertificate(t *testing.T) {
 	secure := "https://" + host + ":8443/resource-packs/" + sum + ".zip"
 	offer := func() api.ResourcePack {
 		t.Helper()
-		code, out := e.uploadTo(e.sp("/resourcepack?host="+host+"&port=8443&name=Faithful.zip"), faithful)
+		code, out := e.whenFree(func() (int, map[string]any) {
+			return e.uploadTo(e.sp("/resourcepack?host="+host+"&port=8443&name=Faithful.zip"), faithful)
+		})
 		if code != 200 {
 			t.Fatalf("offer: %d %v", code, out)
 		}

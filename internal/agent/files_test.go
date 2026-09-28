@@ -63,10 +63,12 @@ func (e *agentEnv) openFile(p string) api.FileContent {
 // opened ("" to save over whatever is there, "new" for a new file).
 func (e *agentEnv) saveFile(p, expect, text string) (int, map[string]any) {
 	e.t.Helper()
-	code, b, _ := e.fileRequest("PUT", e.sp("/files/content?path="+url.QueryEscape(p)+"&expect="+expect), strings.NewReader(text))
-	out := map[string]any{}
-	json.Unmarshal(b, &out)
-	return code, out
+	return e.whenFree(func() (int, map[string]any) {
+		code, b, _ := e.fileRequest("PUT", e.sp("/files/content?path="+url.QueryEscape(p)+"&expect="+expect), strings.NewReader(text))
+		out := map[string]any{}
+		json.Unmarshal(b, &out)
+		return code, out
+	})
 }
 
 func (e *agentEnv) data(rel string) string {
@@ -418,21 +420,21 @@ func TestTheWorldIsReadOnlyWhileTheGameRuns(t *testing.T) {
 	}
 	code, out := e.saveFile("world/level.dat", "", "x")
 	refused("save", code, out)
-	code, out = e.call("POST", e.sp("/files/folder"), map[string]any{"actor": "admin", "path": "world/datapacks"})
+	code, out = e.callWhenFree("POST", e.sp("/files/folder"), map[string]any{"actor": "admin", "path": "world/datapacks"})
 	refused("make a folder", code, out)
-	code, out = e.call("POST", e.sp("/files/delete"), map[string]any{"actor": "admin", "paths": []string{"world"}})
+	code, out = e.callWhenFree("POST", e.sp("/files/delete"), map[string]any{"actor": "admin", "paths": []string{"world"}})
 	refused("delete the world", code, out)
-	code, out = e.call("POST", e.sp("/files/move"), map[string]any{"actor": "admin", "items": []any{map[string]any{"from": "world/region/r.0.0.mca", "to": "r.0.0.mca"}}})
+	code, out = e.callWhenFree("POST", e.sp("/files/move"), map[string]any{"actor": "admin", "items": []any{map[string]any{"from": "world/region/r.0.0.mca", "to": "r.0.0.mca"}}})
 	refused("move out of the world", code, out)
 	e.putData("old_world/region/r.0.0.mca", "old")
-	code, out = e.call("POST", e.sp("/files/move"), map[string]any{"actor": "admin", "items": []any{map[string]any{"from": "old_world", "to": "world_nether"}}})
+	code, out = e.callWhenFree("POST", e.sp("/files/move"), map[string]any{"actor": "admin", "items": []any{map[string]any{"from": "old_world", "to": "world_nether"}}})
 	refused("move into a world folder", code, out)
 	// A world a plugin like Multiverse keeps beside the server's own.
 	e.putData("survival_games/level.dat", "\x0a\x00\x00level")
 	if f := e.filesAt(""); !slices.Contains(f.Worlds, "survival_games") || slices.Contains(f.Worlds, "old_world") {
 		t.Fatalf("the worlds: %v", f.Worlds)
 	}
-	code, out = e.call("POST", e.sp("/files/delete"), map[string]any{"actor": "admin", "paths": []string{"survival_games/level.dat"}})
+	code, out = e.callWhenFree("POST", e.sp("/files/delete"), map[string]any{"actor": "admin", "paths": []string{"survival_games/level.dat"}})
 	refused("delete in a plugin's world", code, out)
 	code, out = e.call("POST", e.sp("/files/uploads"), map[string]any{"actor": "admin", "folder": "world"})
 	if code != 201 {

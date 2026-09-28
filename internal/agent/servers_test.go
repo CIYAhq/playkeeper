@@ -306,7 +306,7 @@ func TestServersRunSideBySide(t *testing.T) {
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, backup)
 	}
-	code, restart := e.call("POST", "/v1/servers/"+creative+"/restart", map[string]any{"actor": "admin"})
+	code, restart := e.callWhenFree("POST", "/v1/servers/"+creative+"/restart", map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("another server must not wait for the backup: %d %v", code, restart)
 	}

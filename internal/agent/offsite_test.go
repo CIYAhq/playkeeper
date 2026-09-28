@@ -547,7 +547,7 @@ func TestDeletingAServerAsksBeforeItDeletesTheOnlyKeyToItsCopies(t *testing.T) {
 			e := newAgentEnv(t)
 			e.create()
 			c.setup(e)
-			code, out := e.call("POST", e.sp("/delete"), map[string]any{"actor": "admin", "confirm": e.srv().name(), "forgetKey": c.confirm})
+			code, out := e.callWhenFree("POST", e.sp("/delete"), map[string]any{"actor": "admin", "confirm": e.srv().name(), "forgetKey": c.confirm})
 			if c.reason != "" {
 				params, _ := out["params"].(map[string]any)
 				if code != http.StatusConflict || out["reason"] != c.reason || params["copies"] != c.copies {

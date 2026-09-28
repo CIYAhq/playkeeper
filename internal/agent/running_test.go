@@ -484,7 +484,7 @@ func TestGCLogFlagAppliesFromTheNextStart(t *testing.T) {
 	}
 
 	for _, action := range []string{"/stop", "/start"} {
-		code, out := e.call("POST", e.sp(action), map[string]any{"actor": "admin"})
+		code, out := e.callWhenFree("POST", e.sp(action), map[string]any{"actor": "admin"})
 		if code != 202 {
 			t.Fatalf("%s: %d %v", action, code, out)
 		}

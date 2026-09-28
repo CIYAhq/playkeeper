@@ -476,7 +476,7 @@ func TestPluginsTabLeavesTheMapsSquaremapToTheMap(t *testing.T) {
 		if c.method == "GET" {
 			body = nil
 		}
-		if code, out := e.call(c.method, e.sp(c.path), body); code != http.StatusConflict || out["error"] != "squaremap is part of the Map." {
+		if code, out := e.callWhenFree(c.method, e.sp(c.path), body); code != http.StatusConflict || out["error"] != "squaremap is part of the Map." {
 			t.Errorf("%s %s: %d %v", c.method, c.path, code, out)
 		}
 	}
@@ -714,7 +714,7 @@ func TestAReplacedWorldIsDrawnAfresh(t *testing.T) {
 			archive, _ := paperServerUpload(t)
 			imp := e.uploadWorld(e.sp("/world-imports"), "paper-server.zip", archive)
 			phrase := e.importPreview(imp, map[string]any{}).ConfirmPhrase
-			code, out := e.call("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
+			code, out := e.callWhenFree("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
 			if code != 202 {
 				t.Fatalf("apply: %d %v", code, out)
 			}
@@ -1023,7 +1023,7 @@ func TestEveryRunThatComesOnlineGetsTheFirstRender(t *testing.T) {
 	firstRenderWait = 0
 	do := func(e *agentEnv, verb string) {
 		e.t.Helper()
-		code, out := e.call("POST", e.sp(verb), map[string]any{"actor": "admin"})
+		code, out := e.callWhenFree("POST", e.sp(verb), map[string]any{"actor": "admin"})
 		if code != http.StatusAccepted || e.waitOp(out["id"].(string)).Status != api.OpSucceeded {
 			e.t.Fatalf("%s: %d %v", verb, code, out)
 		}

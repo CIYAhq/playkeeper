@@ -682,7 +682,7 @@ func TestPregenRefusals(t *testing.T) {
 		{"cancel without a task", "/pregen/cancel", map[string]any{"actor": "admin"}, 409, pregen.CodeNotRunning},
 		{"pause without an actor", "/pregen/pause", map[string]any{}, 400, api.CodeInvalid},
 	} {
-		code, out := e.call("POST", e.sp(c.path), c.body)
+		code, out := e.callWhenFree("POST", e.sp(c.path), c.body)
 		if msg, _ := out["error"].(string); code != c.code || out["code"] != c.errCode || msg == "" {
 			t.Errorf("%s: %d %v, want %d %s", c.name, code, out, c.code, c.errCode)
 		}

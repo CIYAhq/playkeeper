@@ -94,7 +94,7 @@ func TestCrashIsExplainedFromTheRunsLog(t *testing.T) {
 		t.Errorf("a player's address reached the status: %s", b)
 	}
 
-	code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("start: %d %v", code, out)
 	}
@@ -118,7 +118,7 @@ func TestCrashReportIsTheOneThisRunWrote(t *testing.T) {
 		t.Fatalf("an old crash report explained this crash: %s %s", c.Kind, c.Explanation)
 	}
 
-	code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("start: %d %v", code, out)
 	}
@@ -147,7 +147,7 @@ func TestFailedStartIsExplained(t *testing.T) {
 	e := crashEnv(t)
 	run := func(verb string) *api.Operation {
 		t.Helper()
-		code, out := e.call("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
+		code, out := e.callWhenFree("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
 		if code != 202 {
 			t.Fatalf("%s: %d %v", verb, code, out)
 		}
@@ -225,7 +225,7 @@ func TestAStartThatGaveUpButKeptRunningIsStoppedAndExplained(t *testing.T) {
 	e := crashEnv(t)
 	run := func(verb string) *api.Operation {
 		t.Helper()
-		code, out := e.call("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
+		code, out := e.callWhenFree("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
 		if code != 202 {
 			t.Fatalf("%s: %d %v", verb, code, out)
 		}
@@ -278,7 +278,7 @@ func TestPortCrashNamesTheProgramHoldingThePort(t *testing.T) {
 	e.create()
 	run := func(verb string) *api.Operation {
 		t.Helper()
-		code, out := e.call("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
+		code, out := e.callWhenFree("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
 		if code != 202 {
 			t.Fatalf("%s: %d %v", verb, code, out)
 		}
@@ -346,7 +346,7 @@ func TestPortCrashNamesTheDockerContainerHoldingThePort(t *testing.T) {
 	e.create()
 	run := func(verb string) *api.Operation {
 		t.Helper()
-		code, out := e.call("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
+		code, out := e.callWhenFree("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
 		if code != 202 {
 			t.Fatalf("%s: %d %v", verb, code, out)
 		}
@@ -598,7 +598,7 @@ func TestAStartThatDoesNotGoAheadKeepsTheCrash(t *testing.T) {
 	e.a.upd.mu.Unlock()
 
 	writeGameFile(t, filepath.Join(e.dataDir(), "..", removedAddonsDir), "a file where the folder goes", time.Time{})
-	code, out := removeAndStart()
+	code, out := e.whenFree(func() (int, map[string]any) { return removeAndStart() })
 	if code != 202 {
 		t.Fatalf("remove and start: %d %v", code, out)
 	}
@@ -718,7 +718,7 @@ func TestRemoveAddonMovesOnlyThatJarAside(t *testing.T) {
 		t.Fatal(err)
 	}
 	remove := func(jar string, start bool) (int, map[string]any) {
-		return e.call("POST", e.sp("/addons/remove-file"), map[string]any{"actor": "admin", "jar": jar, "start": start})
+		return e.callWhenFree("POST", e.sp("/addons/remove-file"), map[string]any{"actor": "admin", "jar": jar, "start": start})
 	}
 	for _, jar := range []string{"../outside.jar", "plugins/x.jar", `..\outside.jar`, "notes.txt", ".jar", ".hidden.jar", "a\nb.jar", strings.Repeat("a", 201) + ".jar", ""} {
 		if code, out := remove(jar, false); code != 400 {

@@ -605,7 +605,7 @@ func TestImportReplacesAServersWorldLikeARestore(t *testing.T) {
 	if code != 400 || !strings.Contains(fmt.Sprint(out["error"]), `Type "replace world"`) || !exists(filepath.Join(live, "world", "marker.txt")) {
 		t.Fatalf("an import without its confirmation phrase: %d %v", code, out)
 	}
-	code, out = e.call("POST", importPath(imp, "/apply"), map[string]any{"confirm": "replace world", "actor": "admin"})
+	code, out = e.callWhenFree("POST", importPath(imp, "/apply"), map[string]any{"confirm": "replace world", "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("apply: %d %v", code, out)
 	}
@@ -686,7 +686,7 @@ func TestImportedWorldThatFailsToStartIsSwappedBack(t *testing.T) {
 	}
 	t.Cleanup(func() { renameDir = os.Rename })
 
-	code, out := e.call("POST", importPath(imp, "/apply"), map[string]any{"confirm": pv.ConfirmPhrase, "actor": "admin"})
+	code, out := e.callWhenFree("POST", importPath(imp, "/apply"), map[string]any{"confirm": pv.ConfirmPhrase, "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("apply: %d %v", code, out)
 	}
@@ -738,7 +738,7 @@ func TestAWorldImportRefusesLinkedWorldFolders(t *testing.T) {
 	phrase := e.importPreview(imp, map[string]any{}).ConfirmPhrase
 	apply := func() *api.Operation {
 		t.Helper()
-		code, out := e.call("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
+		code, out := e.callWhenFree("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
 		if code != 202 {
 			t.Fatalf("apply: %d %v", code, out)
 		}
@@ -1118,7 +1118,7 @@ func TestAnImportedWorldMovesBackOnlyOnceTheServerStopped(t *testing.T) {
 				e.fd.bootExit, e.fd.bootDelay, e.fd.started, e.fd.down = 0, 30*time.Millisecond, nil, ""
 				e.fd.mu.Unlock()
 			})
-			code, out := e.call("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
+			code, out := e.callWhenFree("POST", importPath(imp, "/apply"), map[string]any{"confirm": phrase, "actor": "admin"})
 			if code != 202 {
 				t.Fatalf("apply: %d %v", code, out)
 			}

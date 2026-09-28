@@ -271,20 +271,26 @@ func (e *agentEnv) call(method, path string, body any) (int, map[string]any) {
 	return resp.StatusCode, out
 }
 
-// callWhenFree is call, asked again while the server answers that it's busy
-// with another operation, as the dashboard does: once a copy is recorded, a
-// restore is settled or an operation has ended, the server can hold its
-// operation lock a moment longer.
-func (e *agentEnv) callWhenFree(method, path string, body any) (int, map[string]any) {
+// whenFree asks again while the server answers that it's busy with another
+// operation, as the dashboard does: once a copy is recorded, a restore is
+// settled, an operation has ended or a request that held the operation lock
+// has answered, the server can hold the lock a moment longer.
+func (e *agentEnv) whenFree(ask func() (int, map[string]any)) (int, map[string]any) {
 	e.t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		code, out := e.call(method, path, body)
+		code, out := ask()
 		if code != http.StatusConflict || out["code"] != api.CodeBusy || time.Now().After(deadline) {
 			return code, out
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+}
+
+// callWhenFree is call, asked again while the server is busy (see whenFree).
+func (e *agentEnv) callWhenFree(method, path string, body any) (int, map[string]any) {
+	e.t.Helper()
+	return e.whenFree(func() (int, map[string]any) { return e.call(method, path, body) })
 }
 
 // renameColumn renames table's column from to to, and returns what renames
@@ -757,7 +763,7 @@ func TestDownloadsArePinnedAndTelemetryIsOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, verb := range []string{"stop", "start"} {
-		code, out := e.call("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
+		code, out := e.callWhenFree("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
 		if code != 202 {
 			t.Fatalf("%s: %d %v", verb, code, out)
 		}
@@ -1100,7 +1106,7 @@ func TestFailedStartIsCountedOnce(t *testing.T) {
 	crashes := func() int { return e.countRows(`SELECT COUNT(*) FROM events WHERE kind = 'server_crashed'`) }
 	run := func(verb, want string) {
 		t.Helper()
-		code, out := e.call("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
+		code, out := e.callWhenFree("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
 		if code != 202 {
 			t.Fatalf("%s: %d %v", verb, code, out)
 		}
