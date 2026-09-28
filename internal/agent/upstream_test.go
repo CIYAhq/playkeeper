@@ -159,6 +159,16 @@ func (f *fakeUpstream) serveForgeLists() {
 	f.serve("https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json", []byte(`{"promos":{"26.2-recommended":"65.1.0","26.2-latest":"65.1.3","26.1.2-recommended":"64.1.3","1.20.1-recommended":"47.4.23"}}`))
 }
 
+// neoforgeMetadata is NeoForge's Maven metadata, which lists its versions.
+const neoforgeMetadata = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"
+
+// serveNeoForgeLists serves NeoForge's Maven metadata.
+func (f *fakeUpstream) serveNeoForgeLists() {
+	f.serve(neoforgeMetadata, []byte(`<metadata><versioning><versions>
+<version>26.1.2.109</version><version>26.2.0.87</version><version>26.2.0.88</version><version>26.2.0.90-beta</version>
+</versions></versioning></metadata>`))
+}
+
 // serveFabricLists serves Fabric's lists of Minecraft versions and loaders.
 func (f *fakeUpstream) serveFabricLists() {
 	f.serve("https://meta.fabricmc.net/v2/versions/game", []byte(`[{"version":"26.2","stable":true},{"version":"26.1.2","stable":true},{"version":"26.3-snapshot-2","stable":false}]`))

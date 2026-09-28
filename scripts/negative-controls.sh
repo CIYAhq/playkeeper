@@ -2138,6 +2138,25 @@ control "a caller that waited for a build list gets what the fetch found" intern
 	return c.builds[key].builds, c.builds[key].at, nil
 }' \
   ./internal/agent '^TestBuildListWaitersGetWhatTheFetchFound$'
+control "a type's kept version list is offered while its source fails" internal/agent/software.go \
+  '		if a.savedSoftwareList(typ, "", &saved) {' \
+  '		if false && a.savedSoftwareList(typ, "", &saved) {' \
+  ./internal/agent '^TestATypesListsOutliveARestartWhileItsSourceFails$'
+control "a type's kept build list is offered while its source fails" internal/agent/software.go \
+  '		if a.savedSoftwareList(typ, mc, &saved) {' \
+  '		if false && a.savedSoftwareList(typ, mc, &saved) {' \
+  ./internal/agent '^TestATypesListsOutliveARestartWhileItsSourceFails$'
+control "only a supported type names a kept list's file" internal/agent/software.go \
+  '	if !software.Supported(typ) {
+		return "", false
+	}
+	name := "catalog-" + typ' \
+  '	name := "catalog-" + typ' \
+  ./internal/agent '^TestAKeptListIsNamedOnlyByATypeAndARelease$'
+control "only a Minecraft release names a kept build list's file" internal/agent/software.go \
+  '		if !reListedRelease.MatchString(mc) {' \
+  '		if false {' \
+  ./internal/agent '^TestAKeptListIsNamedOnlyByATypeAndARelease$'
 control "NeoForge's Maven is asked again after a 5xx" internal/minecraft/software/fetch.go \
   '	case http.StatusNotFound, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:' \
   '	case http.StatusNotFound:' \

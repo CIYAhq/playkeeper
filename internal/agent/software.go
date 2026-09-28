@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -54,6 +55,68 @@ type cachedBuilds struct {
 
 // maxCachedBuilds bounds the build lists kept, one per type and version.
 const maxCachedBuilds = 64
+
+// The last version list and build lists each type's upstream sent are also
+// kept on disk, so a Maven hiccup right after the agent restarts, or after
+// the build lists in memory were dropped, still finds the list the lists
+// in memory would have offered.
+type savedCatalog struct {
+	At      time.Time          `json:"at"`
+	Entries []api.CatalogEntry `json:"entries"`
+}
+
+type savedBuilds struct {
+	At     time.Time        `json:"at"`
+	Builds []software.Build `json:"builds"`
+}
+
+// reListedRelease is a Minecraft release, the only versions with builds.
+var reListedRelease = regexp.MustCompile(`^[0-9]+(\.[0-9]+){1,3}$`)
+
+// softwareListPath is where typ's version list, or with mc its build list
+// for that release, is kept. Only a supported type and a release name a
+// file, so no request can name another path.
+func (a *Agent) softwareListPath(typ, mc string) (string, bool) {
+	if !software.Supported(typ) {
+		return "", false
+	}
+	name := "catalog-" + typ
+	if mc != "" {
+		if !reListedRelease.MatchString(mc) {
+			return "", false
+		}
+		name = "builds-" + typ + "-" + mc
+	}
+	return filepath.Join(a.cfg.AgentDir(), "software-lists", name+".json"), true
+}
+
+// saveSoftwareList keeps list, which typ's upstream just sent.
+func (a *Agent) saveSoftwareList(typ, mc string, list any) {
+	path, ok := a.softwareListPath(typ, mc)
+	if !ok {
+		return
+	}
+	b, err := json.Marshal(list)
+	if err == nil {
+		err = os.MkdirAll(filepath.Dir(path), 0o700)
+	}
+	if err == nil {
+		err = writeFileAtomic(path, b, 0o600)
+	}
+	if err != nil {
+		a.log.Warn("could not keep a server type's list for when its source can't be reached", "type", typ, "version", mc, "err", err)
+	}
+}
+
+// savedSoftwareList reads what saveSoftwareList kept into list.
+func (a *Agent) savedSoftwareList(typ, mc string, list any) bool {
+	path, ok := a.softwareListPath(typ, mc)
+	if !ok {
+		return false
+	}
+	b, err := os.ReadFile(path)
+	return err == nil && json.Unmarshal(b, list) == nil
+}
 
 // flight is a list being fetched: once done is closed, what it fetched and
 // when, or why it couldn't.
@@ -112,7 +175,7 @@ func typeCheck(id string) string {
 
 // typeCatalog is the list of versions to offer for a server type and when
 // it was fetched, reused for catalogTTL. If the upstream cannot be reached,
-// the last list is used if there is one.
+// the last list is used if there is one, in memory or kept on disk.
 func (a *Agent) typeCatalog(ctx context.Context, typ string) ([]api.CatalogEntry, time.Time, error) {
 	if typ == api.TypePaper {
 		return a.versionCatalog(ctx)
@@ -140,17 +203,30 @@ func (a *Agent) typeCatalog(ctx context.Context, typ string) ([]api.CatalogEntry
 		}
 		now := a.now()
 		c.mu.Lock()
-		defer c.mu.Unlock()
 		if c.catalogs == nil {
 			c.catalogs = map[string]cachedCatalog{}
 		}
 		c.catalogs[typ] = cachedCatalog{entries: entries, at: now}
+		c.mu.Unlock()
+		a.saveSoftwareList(typ, "", savedCatalog{At: now, Entries: entries})
 		return entries, now, nil
 	})
 	if err != nil {
 		a.log.Warn("could not load a server type's version list", "type", typ, "err", err)
 		if ok {
 			return hit.entries, hit.at, nil
+		}
+		var saved savedCatalog
+		if a.savedSoftwareList(typ, "", &saved) {
+			c.mu.Lock()
+			if c.catalogs == nil {
+				c.catalogs = map[string]cachedCatalog{}
+			}
+			if _, fetched := c.catalogs[typ]; !fetched {
+				c.catalogs[typ] = cachedCatalog{entries: saved.Entries, at: saved.At}
+			}
+			c.mu.Unlock()
+			return saved.Entries, saved.At, nil
 		}
 		return nil, time.Time{}, err
 	}
@@ -224,7 +300,8 @@ func withReleaseDates(entries []api.CatalogEntry, dates map[string]time.Time) []
 }
 
 // typeBuilds lists a type's builds for one Minecraft version, newest first,
-// reused for catalogTTL.
+// reused for catalogTTL. If the upstream cannot be reached, the last list
+// is used if there is one, in memory or kept on disk.
 func (a *Agent) typeBuilds(ctx context.Context, typ, mc string) ([]software.Build, time.Time, error) {
 	key := typ + "@" + mc
 	c := &a.software
@@ -243,16 +320,29 @@ func (a *Agent) typeBuilds(ctx context.Context, typ, mc string) ([]software.Buil
 		}
 		now := a.now()
 		c.mu.Lock()
-		defer c.mu.Unlock()
 		if c.builds == nil || len(c.builds) >= maxCachedBuilds {
 			c.builds = map[string]cachedBuilds{}
 		}
 		c.builds[key] = cachedBuilds{builds: bs, at: now}
+		c.mu.Unlock()
+		a.saveSoftwareList(typ, mc, savedBuilds{At: now, Builds: bs})
 		return bs, now, nil
 	})
 	if err != nil {
 		if ok {
 			return hit.builds, hit.at, nil
+		}
+		var saved savedBuilds
+		if a.savedSoftwareList(typ, mc, &saved) {
+			c.mu.Lock()
+			if c.builds == nil || len(c.builds) >= maxCachedBuilds {
+				c.builds = map[string]cachedBuilds{}
+			}
+			if _, fetched := c.builds[key]; !fetched {
+				c.builds[key] = cachedBuilds{builds: saved.Builds, at: saved.At}
+			}
+			c.mu.Unlock()
+			return saved.Builds, saved.At, nil
 		}
 		return nil, time.Time{}, err
 	}
