@@ -82,6 +82,17 @@ type fakePort struct {
 
 // listedPorts is what Docker's list shows of published ports: none for a
 // container that isn't running.
+// other is the container the fake lists but doesn't run with id ref; fd.mu
+// is held.
+func (fd *fakeDocker) other(ref string) (fakeListed, bool) {
+	for i, o := range fd.others {
+		if ref == fmt.Sprintf("o%063d", i) || ref == o.name {
+			return o, true
+		}
+	}
+	return fakeListed{}, false
+}
+
 func listedPorts(running bool, ports []fakePort) []map[string]any {
 	out := []map[string]any{}
 	for _, p := range ports {
@@ -372,7 +383,19 @@ func (fd *fakeDocker) serve(w http.ResponseWriter, r *http.Request) {
 		if c == nil {
 			c = fd.byID[ref]
 		}
+		other, isOther := fd.other(ref)
 		fd.mu.Unlock()
+		if c == nil && isOther && r.Method == "GET" && action == "json" {
+			// A container the fake doesn't run keeps its ports in its
+			// settings, as Docker shows a stopped one.
+			bindings := map[string][]map[string]string{}
+			for _, p := range other.ports {
+				key := "80/" + p.proto
+				bindings[key] = append(bindings[key], map[string]string{"HostIp": "", "HostPort": strconv.Itoa(p.public)})
+			}
+			jsonOut(w, 200, map[string]any{"Id": ref, "Name": "/" + other.name, "State": map[string]any{"Running": other.running}, "HostConfig": map[string]any{"PortBindings": bindings}})
+			return
+		}
 		if c == nil {
 			jsonOut(w, 404, map[string]string{"message": "No such container: " + ref})
 			return

@@ -115,6 +115,11 @@ type Server struct {
 
 	public      *publicGroup
 	activePacks *activePacks
+	// page is the public page at the machine's address, on ports 443 and
+	// 80, and pageCerts the certificates it serves there, without the
+	// self-signed fallback.
+	page      *pageSite
+	pageCerts *certs.Store
 	// listings are the servers each machine last listed.
 	listings listings
 	// toldSlugs are the slugs elsewhere the dashboard's machine last heard
@@ -183,6 +188,7 @@ func New(opts Options) (*Server, error) {
 	}
 	s.activePacks = &activePacks{fetch: s.fetchActivePacks, now: opts.Now}
 	s.public = newPublicGroup(s.publicRoutes(), opts.Now)
+	s.page = s.newPageSite()
 	if err := s.ensureWorkspace(); err != nil {
 		db.Close()
 		return nil, err
@@ -333,7 +339,7 @@ func (s *Server) Routes() []Route {
 		am("/api/machines/{mid}/address/release", "/v1/address/release"),
 		an("/api/machines/{mid}/address/check", "/v1/address/check"),
 		an("/api/machines/{mid}/address/certificate", "/v1/address/certificate"),
-		mm("DELETE", "/api/machines/{mid}/address", "/v1/address", actManageMachine),
+		{"DELETE", "/api/machines/{mid}/address", needSessionCSRF, actManageMachine, s.addressProxy("DELETE", "/v1/address")},
 		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actCreateServers, s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)},
 		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actCreateServers, s.rawUpload("/v1/restore/upload", "application/gzip")},
 		{"GET", "/api/machines/{mid}/restore/{rid}", needSession, actRestore, s.restoreProxy("GET", "/v1/restore/{rid}", nil)},
@@ -518,6 +524,15 @@ func (s *Server) Routes() []Route {
 	routes = append(routes, []Route{
 		sg("/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
 		sm("POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
+	}...)
+	// 0.4.3: the public page at the machine's address. Anyone who sees the
+	// server sees its switches; changing them, like sharing the map, needs
+	// the rights to manage servers. The page itself is served on its own
+	// ports (serverpage.go).
+	routes = append(routes, []Route{
+		view("/api/servers/{id}/public-page", s.hPublicPage),
+		{"POST", "/api/servers/{id}/public-page", needSessionCSRF, actManageServers, s.forwardThen("POST", "/v1/servers/{id}/public-page", func(machine, *session, json.RawMessage) { s.kickPage() })},
+		{"POST", "/api/servers/{id}/public-page/retry", needSessionCSRF, actManageServers, s.hPublicPagePortsRetry},
 	}...)
 	return append(routes, s.fileRoutes()...)
 }
@@ -1161,9 +1176,19 @@ func (s *Server) machineProxy(method, pattern string) func(http.ResponseWriter, 
 // addressProxy forwards an address route with panelHost, the host the
 // dashboard was opened with, in the query or body. The agent keeps it when
 // it is a public IP address: behind NAT that address is on no network
-// interface, and an own domain's A record needs it.
+// interface, and an own domain's A record needs it. A change to the
+// dashboard machine's address has the public page's keeper look again at
+// once, since the page answers at that address.
 func (s *Server) addressProxy(method, pattern string) func(http.ResponseWriter, *http.Request, *session) {
-	return s.forwardTo(method, pattern, true, nil)
+	var then func(machine, *session, json.RawMessage)
+	if method != http.MethodGet {
+		then = func(m machine, _ *session, _ json.RawMessage) {
+			if m.Kind != remoteKind {
+				s.kickPage()
+			}
+		}
+	}
+	return s.forwardTo(method, pattern, true, then)
 }
 
 // dashboardAddress refuses to give a joined machine a free name or an own
@@ -1565,6 +1590,8 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 		return err
 	}
 	s.serveAlive(ctx, tc)
+	s.pageCerts = s.pageCertStore()
+	go s.runPage(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)
 	return s.serve(ctx, ln, tc)
 }
