@@ -6054,8 +6054,8 @@ control "an HTTP-01 check goes ahead on a busy port only when its holder passes 
   'if errors.Is(err, syscall.EADDRINUSE) {' \
   ./internal/certs '^TestHTTP01GoesAheadOnlyWhenThePortsHolderPassesChecksOn$'
 control "the page's ports answer only the machine's address" internal/panel/serverpage.go \
-  'if !pageHost(r.Host, s.page.hostNow()) {' \
-  'if false && !pageHost(r.Host, s.page.hostNow()) {' \
+  'if !check && !pageHost(r.Host, s.page.hostNow()) {' \
+  'if false && !check && !pageHost(r.Host, s.page.hostNow()) {' \
   ./internal/panel '^TestThePagesPortsServeThePageAndNothingElse$'
 control "the page escapes what the owner typed" internal/panel/serverpage.go \
   'head := "<title>" + html.EscapeString(title) + "</title>"' \
