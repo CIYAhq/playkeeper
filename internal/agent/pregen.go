@@ -471,7 +471,7 @@ func (s *server) pregenAfterRestart(ctx context.Context, p pregen.Platform, task
 	}
 	s.pg.run.Lock()
 	defer s.pg.run.Unlock()
-	if cur, err := s.lastPregen(); err != nil || !cur.unfinished() || cur.PausedByUser || cur.PausedByPolicy || !cur.StartedAt.Equal(task.StartedAt) {
+	if cur, err := s.lastPregen(); err != nil || !cur.unfinished() || cur.PausedByUser != task.PausedByUser || cur.PausedByPolicy != task.PausedByPolicy || !cur.StartedAt.Equal(task.StartedAt) {
 		return false
 	}
 	s.pg.mu.Lock()

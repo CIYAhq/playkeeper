@@ -5829,6 +5829,30 @@ control "the world border is filled where Chunky finds it" internal/agent/pregen
   '		plan.Radius = started.Radius' \
   '		_ = started.Radius' \
   ./internal/agent '^TestTheMapAreaFillsUpToTheWorldBorder$'
+control "a task a restart dropped is sent to Chunky again" internal/agent/pregen.go \
+  '	if task != nil && st != nil && !s.pregenAfterRestart(ctx, p, task, st) {' \
+  '	if task != nil && st != nil {' \
+  ./internal/agent '^TestPregenATaskARestartDroppedIsStartedAgain$'
+control "a dropped task is sent again once a run" internal/agent/pregen.go \
+  '	if run.IsZero() || !run.After(task.StartedAt) || tried {' \
+  '	if run.IsZero() || !run.After(task.StartedAt) {' \
+  ./internal/agent '^TestPregenATaskARestartDroppedIsStartedAgain$'
+control "only a task a restart dropped is sent again" internal/agent/pregen.go \
+  '	if run.IsZero() || !run.After(task.StartedAt) || tried {' \
+  '	if run.IsZero() || tried {' \
+  ./internal/agent '^TestPregenCancel$'
+control "a task someone paused isn't sent again after a restart" internal/agent/pregen.go \
+  '	if (st.State != pregen.StateIdle && st.State != pregen.StatePaused) || task.PausedByUser || task.PausedByPolicy {' \
+  '	if st.State != pregen.StateIdle && st.State != pregen.StatePaused {' \
+  ./internal/agent '^TestPregenAcrossServerStops$'
+control "a task Chunky can't be asked about, or has lost, reads unknown, not paused" internal/agent/pregen.go \
+  '	case st == nil || st.State != pregen.StatePaused:' \
+  '	case false:' \
+  ./internal/agent '^(TestPregenCancel|TestPregenFinishesWhenChunkyLogsIt)$'
+webcontrol "the page says it's checking on a task Chunky can't be asked about" web/src/pages/server/world-pregen.tsx \
+  ": unknown ? t('pregen.unknown') :" \
+  ":" \
+  web/src/pages/server/world.test.tsx 'says it is checking'
 control "choosing the map's area takes an admin" internal/panel/server.go \
   'sm("POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),' \
   'smAs(actView, "POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),' \
