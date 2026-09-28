@@ -55,7 +55,7 @@ test('the text engine writes each format as the game and plugins read it', async
       json: mc.json(mc.parseLegacy('&6&lGold&r plain', false)),
       plainJson: mc.json(mc.parseLegacy('Just text', false)),
       wrapped: (mc.wrap(long, 271) as unknown[][]).map((l) => (l as { ch: string }[]).map((c) => c.ch).join('')),
-      width: mc.widthOf(mc.parseLegacy('Hi il', false)),
+      width: mc.widthOf(mc.parseLegacy('Hi lt(~', false)),
       boldWidth: mc.widthOf(mc.parseLegacy('&lHi', false)),
     }
   })
@@ -78,7 +78,7 @@ test('the text engine writes each format as the game and plugins read it', async
   expect(r.plainJson).toBe('"Just text"')
   expect(r.wrapped.length, 'twenty words wrap onto several lines').toBeGreaterThan(1)
   for (const l of r.wrapped) expect(l.length, `"${l}" fits the list`).toBeLessThanOrEqual(46)
-  expect(r.width, "H and i and l, with the font's widths and a space").toBe(6 + 2 + 4 + 2 + 2)
+  expect(r.width, "H, i, a space, l, t, ( and ~ at the font's widths, with the gap after each").toBe(6 + 2 + 4 + 3 + 4 + 4 + 7)
   expect(r.boldWidth, 'bold adds a pixel a letter').toBe(7 + 3)
 })
 

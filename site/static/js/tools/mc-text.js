@@ -215,7 +215,7 @@
   // The width of each character in the game's default font, in its pixels,
   // before the one-pixel gap after it; bold adds a pixel. Characters not
   // listed are 5 wide.
-  var WIDTH = { ' ': 3, '!': 1, '"': 3, "'": 1, '(': 4, ')': 4, ',': 1, '.': 1, ':': 1, ';': 1, '<': 4, '>': 4, '@': 6, I: 3, '[': 3, ']': 3, '`': 2, f: 4, i: 1, k: 4, l: 1, t: 4, '{': 4, '|': 1, '}': 4 };
+  var WIDTH = { ' ': 3, '!': 1, '"': 3, "'": 1, '(': 3, ')': 3, '*': 3, ',': 1, '.': 1, ':': 1, ';': 1, '<': 4, '>': 4, '@': 6, I: 3, '[': 3, ']': 3, '`': 2, f: 4, i: 1, k: 4, l: 2, t: 3, '{': 3, '|': 1, '}': 3, '~': 6 };
   function advance(ch, bold) { return (WIDTH[ch] !== undefined ? WIDTH[ch] : 5) + 1 + (bold ? 1 : 0); }
   function widthOf(chars) { return chars.reduce(function (n, c) { return n + (c.ch === '\n' ? 0 : advance(c.ch, c.st.b)); }, 0); }
 
