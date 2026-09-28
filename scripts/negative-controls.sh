@@ -2021,6 +2021,18 @@ control "only the server files of the pack's own version are used" internal/modp
   'sp.ParentProjectFileID == nil || *sp.ParentProjectFileID != file.ID || ' \
   '' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "Missing Mods Checker stays off the server" internal/modpacks/missingmods.go \
+  'delete(p.files, jar)' \
+  '_ = jar' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "the mods Missing Mods Checker lists come from CurseForge" internal/modpacks/missingmods.go \
+  'p.files[target] = &packFile{' \
+  '_ = &packFile{' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
+control "a mod Missing Mods Checker lists that CurseForge tags for players stays off" internal/modpacks/missingmods.go \
+  'case f.ClientOnly():' \
+  'case false && f.ClientOnly():' \
+  ./internal/modpacks '^TestMissingModsCheckerStaysOffAndItsModsComeFromCurseForge$'
 control "a CurseForge pack's mods Modrinth lists as client-only stay off the server" internal/modpacks/resolve.go \
   'case (f.ClientOnly() || p.modrinthClient[f.SHA1()]) && !p.needed[f.SHA1()]:' \
   'case f.ClientOnly() && !p.needed[f.SHA1()]:' \
