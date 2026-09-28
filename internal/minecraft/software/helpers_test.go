@@ -217,7 +217,7 @@ func wantKind(t *testing.T, err error, kind Kind) *Error {
 	return e
 }
 
-var mojangFixtureVersions = []string{"26.3", "26.2", "26.1.2", "1.21.11", "1.21.8", "1.21.1"}
+var mojangFixtureVersions = []string{"26.3", "26.2", "26.1.2", "1.21.11", "1.21.8", "1.21.1", "1.20.6", "1.20.1"}
 
 // mojangFiles are the trimmed version files the fake Mojang serves.
 func mojangFiles(t *testing.T) map[string][]byte {
@@ -318,16 +318,23 @@ func openRoot(t *testing.T, dir string) *os.Root {
 	return root
 }
 
+// purpurFixtureVersions are the Minecraft versions with Purpur build lists
+// in the fixtures.
+var purpurFixtureVersions = []string{"26.3", "26.2", "26.1.2", "1.21.11", "1.20.6"}
+
 func servePurpur(t *testing.T, f *fakeNet) {
 	f.serve(purpurAPI, readFixture(t, "purpur/project.json"))
-	for _, mc := range []string{"26.3", "26.2", "26.1.2", "1.21.11"} {
+	for _, mc := range purpurFixtureVersions {
 		f.serve(purpurAPI+"/"+mc, readFixture(t, "purpur/"+mc+".json"))
 	}
 	f.serve(purpurAPI+"/26.2/2633", readFixture(t, "purpur/26.2-2633.json"))
 }
 
+// serveNeoForgeMetadata serves NeoForge's version lists: its own, and the
+// one of its versions for Minecraft 1.20.1.
 func serveNeoForgeMetadata(t *testing.T, f *fakeNet) {
 	f.serve(neoforgeMaven+"/maven-metadata.xml", readFixture(t, "neoforge/maven-metadata.xml"))
+	f.serve(neoforgeForgeMaven+"/maven-metadata.xml", readFixture(t, "neoforge/forge-maven-metadata.xml"))
 }
 
 func serveForgeMetadata(t *testing.T, f *fakeNet) {

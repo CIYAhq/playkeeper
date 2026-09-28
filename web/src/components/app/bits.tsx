@@ -191,12 +191,12 @@ const faceColors = ['#E3F1E6', '#FFF3D1', '#E7EEFB', '#F7E4E4', '#EDE7F6', '#E6F
  * so do Bedrock players behind Geyser, whose names start with a dot and who
  * have no Java skin.
  */
-export function PlayerFace({ name, uuid, size = 28, className }: { name: string; uuid?: string; size?: number; className?: string }) {
+export function PlayerFace({ name, uuid, src: from, size = 28, className }: { name: string; uuid?: string; src?: string; size?: number; className?: string }) {
   const [failed, setFailed] = useState(false)
   const initial = failed || name.startsWith('.')
   const radius = Math.round(size / 5)
   const color = faceColors[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % faceColors.length]
-  const src = playerHeadUrl(name, uuid)
+  const src = from ?? playerHeadUrl(name, uuid)
   return (
     <span
       className={cn('relative inline-flex shrink-0 items-center justify-center overflow-hidden font-semibold text-foreground/80 after:absolute after:inset-0 after:rounded-[inherit] after:ring-1 after:ring-black/12 after:ring-inset', className)}

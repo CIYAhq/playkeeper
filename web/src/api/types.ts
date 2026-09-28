@@ -2592,3 +2592,88 @@ export interface FileUpload {
   files: FileUploadFile[]
   limitBytes: number
 }
+
+/** A server's settings for the public page at the machine's address (from 0.4.3). */
+export interface PublicPageSettings {
+  enabled: boolean
+  players: boolean
+  /** The owner's words for the page, and the link of the stream it offers to play (from 0.4.4); empty for none. */
+  about: string
+  stream: string
+}
+
+export type PagePortState = 'open' | 'busy' | 'claimed' | 'waiting' | 'denied' | 'off'
+
+/** One port of the public page; holder names what uses it when Playkeeper can tell. */
+export interface PagePort {
+  port: number
+  state: PagePortState
+  holder?: string
+}
+
+export interface PublicPagePorts {
+  https: PagePort
+  http: PagePort
+}
+
+/** A server's public page as its Settings show it. */
+export interface PublicPageView extends PublicPageSettings {
+  /** The machine's address, where the page answers; missing without one. */
+  host?: string
+  /** What the owner's tools last posted to the page. */
+  board?: PublicBoard
+  ports?: PublicPagePorts
+}
+
+export type PublicServerState = 'online' | 'starting' | 'sleeping' | 'offline'
+
+/** One server on the public page: only what the page shows. */
+export interface PublicServer {
+  slug: string
+  name: string
+  motd: string
+  /** What players type to join. */
+  address: string
+  state: PublicServerState
+  players?: { online: number; max: number; names?: string[] }
+  minecraftVersion: string
+  type: string
+  modpack?: { name: string; version: string }
+  /** The shared map's link while it's shared; pack the friends' pack page's. */
+  map?: string
+  pack?: string
+  inviteOnly: boolean
+  hasIcon: boolean
+  /** The owner's words for the page, such as its rules, as plain text. */
+  about?: string
+  /** A live stream the page offers to play, on Twitch or YouTube. */
+  stream?: PublicStream
+  /** What the owner's tools last posted to the page through the API or MCP. */
+  board?: PublicBoard
+}
+
+export interface PublicStream {
+  site: 'twitch' | 'youtube'
+  /** The Twitch channel's login, or the YouTube channel's ID. */
+  channel: string
+  /** The channel's own page. */
+  url: string
+}
+
+/** A status board the owner's tools keep up to date. */
+export interface PublicBoard {
+  /** One line on where things stand, like "Day 3 · Nether reached". */
+  headline?: string
+  /** Whether a session is on now; next is when the next one starts. */
+  live?: boolean
+  next?: string
+  stats?: { label: string; value: string }[]
+  checklist?: { label: string; done: boolean }[]
+  updatedAt: string
+}
+
+/** What the public page at the machine's address shows. */
+export interface PublicPage {
+  address: string
+  servers: PublicServer[]
+}

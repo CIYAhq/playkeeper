@@ -158,3 +158,60 @@ func TestHTTP01ListenProblems(t *testing.T) {
 		}
 	}
 }
+
+// When port 80 is taken by something that passes checks on to the
+// responder (Playkeeper's public page), a check goes ahead without the
+// responder listening; when its holder doesn't, it fails as a busy port.
+func TestHTTP01GoesAheadOnlyWhenThePortsHolderPassesChecksOn(t *testing.T) {
+	h := &HTTP01Responder{}
+	holder := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimPrefix(r.URL.Path, challengePath)
+		if keyAuth, ok := h.KeyAuthorization(token); ok {
+			io.WriteString(w, keyAuth)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer holder.Close()
+	addr := ":" + strings.TrimPrefix(holder.URL[strings.LastIndex(holder.URL, ":"):], ":")
+	relays := func(token, keyAuth string) bool {
+		resp, err := http.Get(holder.URL + challengePath + token)
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode == 200 && string(b) == keyAuth
+	}
+
+	h.Addr = addr
+	if _, err := h.Present("tok1", "tok1.key"); err == nil {
+		t.Fatal("a check went ahead on a busy port nobody passes on")
+	} else if p, ok := err.(*Problem); !ok || p.Code != CodePort80Busy {
+		t.Fatalf("a busy port: %v", err)
+	}
+	if _, ok := h.KeyAuthorization("tok1"); ok {
+		t.Fatal("a refused check stays pending")
+	}
+
+	h.Shared = func(string, string) bool { return false }
+	if _, err := h.Present("tok2", "tok2.key"); err == nil {
+		t.Fatal("a check went ahead although the port's holder doesn't pass it on")
+	}
+
+	h.Shared = relays
+	release, err := h.Present("tok3", "tok3.key")
+	if err != nil {
+		t.Fatalf("the holder passes checks on, yet: %v", err)
+	}
+	if h.srv != nil {
+		t.Fatal("the responder listens beside the port's holder")
+	}
+	if !relays("tok3", "tok3.key") {
+		t.Fatal("the check isn't answered through the holder")
+	}
+	release()
+	if _, ok := h.KeyAuthorization("tok3"); ok {
+		t.Fatal("a released check is still answered")
+	}
+}

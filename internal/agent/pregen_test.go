@@ -608,7 +608,12 @@ func TestPregenCancel(t *testing.T) {
 	s.pg.idleSince = s.pg.idleSince.Add(-pregenIdleGrace)
 	s.pg.mu.Unlock()
 	e.waitFor("the lost task to end", func() bool { return e.pregen().State == "idle" })
-	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND action = 'pregen.cancelled' AND result = 'failed' AND detail = 'Chunky no longer has the task'`, e.sid); n != 1 {
+	lost := func() int {
+		return e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND action = 'pregen.cancelled' AND result = 'failed' AND detail = 'Chunky no longer has the task'`, e.sid)
+	}
+	// The task is recorded as ended a moment before its audit entry.
+	e.waitFor("the lost task's audit entry", func() bool { return lost() > 0 })
+	if n := lost(); n != 1 {
 		t.Errorf("%d audit entries for the lost task", n)
 	}
 }

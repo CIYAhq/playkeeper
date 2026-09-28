@@ -637,3 +637,41 @@ func explainCrash(ctx context.Context, c *call) (*mcp.Result, error) {
 	}
 	return &mcp.Result{Text: b.String(), Structured: out}, nil
 }
+
+func setStatusBoard(ctx context.Context, c *call) (*mcp.Result, error) {
+	var args struct {
+		Server    string          `json:"server"`
+		Headline  string          `json:"headline"`
+		Live      bool            `json:"live"`
+		Next      string          `json:"next"`
+		Stats     []api.BoardStat `json:"stats"`
+		Checklist []api.BoardItem `json:"checklist"`
+		Clear     bool            `json:"clear"`
+	}
+	if err := c.Bind(&args); err != nil {
+		return nil, err
+	}
+	if args.Clear {
+		if _, err := c.do(ctx, "DELETE", c.path("/public-page/board"), url.Values{"actor": {c.actor()}}, nil, nil); err != nil {
+			return nil, err
+		}
+		return &mcp.Result{Text: fmt.Sprintf("Took the status board off %s's public page.", c.server.Name), Structured: map[string]any{"cleared": true}}, nil
+	}
+	body := api.PublicBoardRequest{Headline: args.Headline, Live: args.Live, Stats: args.Stats, Checklist: args.Checklist, Actor: c.actor()}
+	if args.Next != "" {
+		next, err := time.Parse(time.RFC3339, args.Next)
+		if err != nil {
+			return nil, &mcp.ToolError{Kind: mcp.KindInvalidArguments, Msg: "next isn't an RFC 3339 time.", Hint: "Write it like 2026-10-06T17:00:00Z."}
+		}
+		body.Next = &next
+	}
+	var posted api.PublicBoard
+	if _, err := c.do(ctx, "PUT", c.path("/public-page/board"), nil, body, &posted); err != nil {
+		return nil, err
+	}
+	text := fmt.Sprintf("Posted the status board to %s's public page.", c.server.Name)
+	if posted.Headline != "" {
+		text = fmt.Sprintf("Posted to %s's public page: %s", c.server.Name, posted.Headline)
+	}
+	return &mcp.Result{Text: text, Structured: map[string]any{"board": posted}}, nil
+}

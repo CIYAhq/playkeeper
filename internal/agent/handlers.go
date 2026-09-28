@@ -485,6 +485,18 @@ func (a *Agent) hCreate(w http.ResponseWriter, r *http.Request) {
 				"Ask whoever shared the template for a new one."))
 			return
 		}
+		// The plan goes ahead when the pack's source doesn't answer, so the
+		// template's pin is checked here, where the source just answered.
+		if tpl != nil {
+			n, err := a.packFit(r.Context(), tpl.p)
+			if err == nil && n != nil {
+				err = &addons.Error{Notice: *n}
+			}
+			if err != nil {
+				writeError(w, addonError(err))
+				return
+			}
+		}
 		typ, entry, pin = rt.typ, rt.entry, rt.pin
 	} else if entry, err = a.typeEntry(r.Context(), typ, req.VersionID); err != nil {
 		writeError(w, err)

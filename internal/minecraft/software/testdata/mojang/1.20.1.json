@@ -1,0 +1,23 @@
+{
+ "id": "1.20.1",
+ "type": "release",
+ "time": "2023-06-12T13:25:51+00:00",
+ "releaseTime": "2023-06-12T13:25:51+00:00",
+ "javaVersion": {
+  "component": "java-runtime-gamma",
+  "majorVersion": 17
+ },
+ "downloads": {
+  "server": {
+   "sha1": "84194a2f286ef7c14ed7ce0090dba59902951553",
+   "size": 47791053,
+   "url": "https://piston-data.mojang.com/v1/objects/84194a2f286ef7c14ed7ce0090dba59902951553/server.jar"
+  },
+  "server_mappings": {
+   "sha1": "0b4dba049482496c507b2387a73a913230ebbd76",
+   "size": 6154195,
+   "url": "https://piston-data.mojang.com/v1/objects/0b4dba049482496c507b2387a73a913230ebbd76/server.txt"
+  }
+ },
+ "mainClass": "net.minecraft.client.main.Main"
+}

@@ -786,7 +786,26 @@ const routes: [string, RegExp, Handler][] = [
       return { status: 200, body: { public: on, token: on ? 'Fake0Share0Token0Abcde' : undefined, file: read.file ?? 'server.mrpack', size: read.size ?? 2048, loaderName: read.loaderName ?? 'Fabric', share } }
     },
   ],
-  // 0.4.3: crossplay's switch.
+  // 0.4.3: the public page's switches, and trying its ports again.
+  [
+    'POST',
+    /^\/api\/servers\/(\w+)\/public-page$/,
+    ({ body, params }, state) => {
+      const b = body as { enabled?: unknown; players?: unknown; about?: unknown; stream?: unknown } | null
+      if (b?.enabled === undefined && b?.players === undefined && b?.about === undefined && b?.stream === undefined) return invalid('Say what to change.')
+      if ((b.enabled !== undefined && typeof b.enabled !== 'boolean') || (b.players !== undefined && typeof b.players !== 'boolean')) return invalid('Say what to change.')
+      if (b.about !== undefined && (typeof b.about !== 'string' || b.about.length > 600)) return invalid('The page’s About text can be at most 600 characters.')
+      if (b.stream !== undefined && (typeof b.stream !== 'string' || (b.stream !== '' && !/^(https?:\/\/)?(www\.|m\.)?(twitch\.tv\/[A-Za-z0-9_]{4,25}|youtube\.com\/channel\/UC[A-Za-z0-9_-]{22})\/?$/.test(b.stream.trim())))) {
+        return { status: 400, body: { error: 'That isn’t a Twitch or YouTube channel link.', code: 'invalid_request', hint: 'Paste your Twitch channel (twitch.tv/yourname) or your YouTube channel’s link with its ID (youtube.com/channel/UC…).' }, expected: true }
+      }
+      const read = lastRead(state, params[0], 'public-page')
+      return { status: 200, body: { ...read, enabled: b.enabled ?? read.enabled ?? true, players: b.players ?? read.players ?? false, about: b.about ?? read.about ?? '', stream: b.stream ?? read.stream ?? '' } }
+    },
+  ],
+  ['POST', /^\/api\/servers\/(\w+)\/public-page\/retry$/, () => ({ status: 200, body: { ok: true } })],
+  ['PUT', /^\/api\/servers\/(\w+)\/public-page\/board$/, ({ body }) => ({ status: 200, body: { ...(body as Record<string, unknown> | null), updatedAt: new Date().toISOString() } })],
+  ['DELETE', /^\/api\/servers\/(\w+)\/public-page\/board$/, () => ({ status: 200, body: { cleared: true } })],
+  // 0.4.4: crossplay's switch.
   [
     'POST',
     /^\/api\/servers\/(\w+)\/crossplay$/,
