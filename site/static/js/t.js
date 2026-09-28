@@ -146,7 +146,9 @@
     return next();
   }
 
-  function summarize(t) {
+  // summarize shows the template t; key is the start of its link
+  // (internal/site's shareKey).
+  function summarize(t, key) {
     if (!t || typeof t.playkeeperTemplate !== 'number') return 'damaged';
     if (t.playkeeperTemplate > FORMAT) return 'newer';
     if (t.playkeeperTemplate !== FORMAT || !t.server) return 'damaged';
@@ -165,12 +167,17 @@
     if (memory !== undefined && (typeof memory !== 'number' || memory % 1 !== 0 || memory < 512 || memory > 65536)) {
       throw new Error('not a memory size');
     }
-    // The picture follows how the template's server is played; a modpack's
-    // server without one gets the hills.
+    // The picture is a directory template's own, as its card shows it, or
+    // follows how the template's server is played; a modpack's server
+    // without a play style gets the hills.
     var style = text(settings.playStyle, 16);
     var art = ART.indexOf(style) >= 0 ? style : 'world';
-    var pictures = document.querySelectorAll('[data-art]');
-    for (var i = 0; i < pictures.length; i++) pictures[i].hidden = pictures[i].getAttribute('data-art') !== art;
+    var pictures = document.querySelectorAll('[data-art], [data-for]');
+    var own = null;
+    for (var i = 0; i < pictures.length; i++) {
+      if ((' ' + pictures[i].getAttribute('data-for') + ' ').indexOf(' ' + key + ' ') >= 0) own = pictures[i];
+    }
+    for (i = 0; i < pictures.length; i++) pictures[i].hidden = own ? pictures[i] !== own : pictures[i].getAttribute('data-art') !== art;
     put('t-name', name);
     put('t-description', text(t.description, 280));
     put('t-made', made ? 'Made ' + made : '');
@@ -214,7 +221,7 @@
       for (var i = 0; i < 4; i++) {
         if (check[i] !== raw[3 + i]) return 'damaged';
       }
-      return inflate(body).then(function (json) { return summarize(JSON.parse(json)); });
+      return inflate(body).then(function (json) { return summarize(JSON.parse(json), s.slice(0, 10)); });
     }).then(null, function () { return 'damaged'; });
   }
 

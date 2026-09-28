@@ -821,6 +821,7 @@ func (s *Site) funcs() template.FuncMap {
 		// directory is the template directory: every listed template and
 		// its categories (site/data/templates/taxonomy.json).
 		"directory": func() *Directory { return s.dir },
+		"shareArts": s.shareArts,
 		// count as "1 template" or "12 templates".
 		"plural": func(n int, one, many string) string {
 			if n == 1 {
