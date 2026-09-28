@@ -155,7 +155,7 @@ func TestCurseForgeClientModsModrinthKnowsStayOff(t *testing.T) {
 // A client-only mod of a CurseForge pack that another of its mods requires
 // by CurseForge's own lists goes on the server: Sodium, which CurseForge
 // tags for players' games, once Lithium requires it. An optional dependency
-// doesn't count.
+// doesn't count, and neither does an optional file's.
 func TestCurseForgeClientModAServerModRequiresGoesOn(t *testing.T) {
 	const sodium = "mods/sodium-fabric-0.9.2+mc26.3.jar"
 	for _, c := range []struct {
@@ -173,6 +173,24 @@ func TestCurseForgeClientModAServerModRequiresGoesOn(t *testing.T) {
 		if on != c.on || slices.Contains(skippedList(pl.Skipped), "client_only "+sodium) == c.on {
 			t.Errorf("%s: changes %q, skipped %q", c.name, changeList(pl.Changes), skippedList(pl.Skipped))
 		}
+	}
+
+	// Nor does a file the manifest marks optional, which stays off unless
+	// chosen.
+	f := newFakes(t)
+	f.cfChange(8895969, func(file obj) {
+		file["dependencies"] = []any{obj{"modId": 394468, "relationType": curseforge.RequiredDependency}}
+	})
+	id := f.cfAddFile(func(m obj) {
+		for _, x := range list(m["files"]) {
+			if int64(num(x.(obj)["projectID"])) == 360438 {
+				x.(obj)["required"] = false
+			}
+		}
+	})
+	pl := mustPlan(t, f.library(), newServer(t, "", ""), InstallRequest{Ref: cfRef(strconv.FormatInt(id, 10))})
+	if slices.Contains(changeList(pl.Changes), "add "+sodium) {
+		t.Errorf("an optional Lithium brought Sodium: changes %q", changeList(pl.Changes))
 	}
 }
 

@@ -1171,7 +1171,8 @@ func neededClientMods(onServer, clientOnly []string, project func(string) string
 
 // neededCurseForge returns the client-only mods of a CurseForge pack,
 // tagged so or listed so on Modrinth, that its other mods require by
-// CurseForge's own lists (neededClientMods).
+// CurseForge's own lists (neededClientMods). Optional files stay off unless
+// chosen, so what they require doesn't count.
 func neededCurseForge(p *pack, mfs []curseforge.ManifestFile, files map[int64]*curseforge.File, mods map[int64]*curseforge.Mod) map[string]bool {
 	bySHA1 := map[string]*curseforge.File{}
 	var onServer, clientOnly []string
@@ -1181,9 +1182,10 @@ func neededCurseForge(p *pack, mfs []curseforge.ManifestFile, files map[int64]*c
 			continue
 		}
 		bySHA1[f.SHA1()] = f
-		if f.ClientOnly() || p.modrinthClient[f.SHA1()] {
+		switch {
+		case f.ClientOnly() || p.modrinthClient[f.SHA1()]:
 			clientOnly = append(clientOnly, f.SHA1())
-		} else {
+		case mf.Required:
 			onServer = append(onServer, f.SHA1())
 		}
 	}

@@ -2029,6 +2029,12 @@ control "a CurseForge pack's client-only mod another of its mods requires goes o
   'case (f.ClientOnly() || p.modrinthClient[f.SHA1()]) && !p.needed[f.SHA1()]:' \
   'case f.ClientOnly() || p.modrinthClient[f.SHA1()]:' \
   ./internal/modpacks '^TestCurseForgeClientModAServerModRequiresGoesOn$'
+control "an optional CurseForge file's dependencies don't keep a client-only mod" internal/modpacks/resolve.go \
+  '		case mf.Required:
+			onServer = append(onServer, f.SHA1())' \
+  '		default:
+			onServer = append(onServer, f.SHA1())' \
+  ./internal/modpacks '^TestCurseForgeClientModAServerModRequiresGoesOn$'
 control "only a CurseForge file's required dependencies keep a client-only mod" internal/modpacks/resolve.go \
   'if d.RelationType == curseforge.RequiredDependency {' \
   'if d.RelationType != 0 {' \
