@@ -8,7 +8,9 @@
 # goes to #ci through the CI webhook (DISCORD_WEBHOOK_CI) with the commit, the
 # jobs that failed or timed out and the run's link, and the first passing CI
 # run on main after one of those, a passing re-run included, says main is
-# green again. Nothing else posts: pull requests, dry runs and cancelled runs.
+# green again. A CI run a newer run on main has overtaken, like a re-run of an
+# older one, posts nothing. Nothing else posts either: pull requests, dry runs
+# and cancelled runs.
 # A webhook whose secret isn't added yet is skipped with a notice, so the
 # workflow stays green until it is.
 # It reads the finished run from WORKFLOW (its workflow's name), EVENT,
@@ -23,15 +25,20 @@ red=15680580  # 0xEF4444
 answer=$(mktemp)
 trap 'rm -f "$answer"' EXIT
 
+# configured SECRET says whether the variable named SECRET holds a webhook
+# URL, with a notice when it doesn't.
+configured() {
+  if [ -n "${!1:-}" ]; then return 0; fi
+  echo "::notice::$1 isn't set yet, so nothing was posted."
+  return 1
+}
+
 # send SECRET BUILDER posts what BUILDER prints to the webhook whose URL is in
 # the variable named SECRET. The URL is never printed.
 send() {
   local secret=$1 build=$2 url payload code
-  url=${!secret:-}
-  if [ -z "$url" ]; then
-    echo "::notice::$secret isn't set yet, so nothing was posted."
-    return 0
-  fi
+  configured "$secret" || return 0
+  url=${!secret}
   payload=$("$build")
   code=$(curl -sS --retry 3 -o "$answer" -w '%{http_code}' -H 'Content-Type: application/json' \
     --data-binary "$payload" "$url?wait=true") || code=000
@@ -106,7 +113,21 @@ green_post() {
   embed "main is green again" "$RUN_URL" "$(commit_line)" "$green"
 }
 
-# previous_outcome prints how CI on main went before this run: its own
+# main_runs prints main's last 20 CI push runs, newest first, as JSON.
+main_runs() {
+  gh run list --workflow CI --branch main --event push --limit 20 --json databaseId,status,conclusion
+}
+
+# newer_result RUNS prints the id of a CI run on main newer than this one that
+# has finished with a result, if there is one: then this run, a re-run of an
+# older one, no longer says how main is. Newer runs still going, or
+# cancelled, don't count.
+newer_result() {
+  jq -r --argjson run "$RUN_ID" '[.[] | select(.databaseId > $run and .status == "completed"
+    and (.conclusion | IN("success", "failure", "timed_out", "startup_failure")))] | max_by(.databaseId) | .databaseId // ""' <<<"$1"
+}
+
+# previous_outcome RUNS prints how CI on main went before this run: its own
 # earlier attempts first, since a re-run keeps the run's id, then the last CI
 # push run on main before it. Cancelled runs, like those a newer push
 # replaced, don't count.
@@ -121,25 +142,29 @@ previous_outcome() {
       return
     fi
   done
-  gh run list --workflow CI --branch main --event push --status completed --limit 20 --json databaseId,conclusion |
-    jq -r --argjson run "$RUN_ID" '[.[] | select(.databaseId < $run)
-      | .conclusion |= (if . == "timed_out" or . == "startup_failure" then "failure" else . end)
-      | select(.conclusion == "success" or .conclusion == "failure")] | max_by(.databaseId) | .conclusion // ""'
+  jq -r --argjson run "$RUN_ID" '[.[] | select(.databaseId < $run and .status == "completed")
+    | .conclusion |= (if . == "timed_out" or . == "startup_failure" then "failure" else . end)
+    | select(.conclusion == "success" or .conclusion == "failure")] | max_by(.databaseId) | .conclusion // ""' <<<"$1"
 }
 
 case "${WORKFLOW:-}:${EVENT:-}:$(outcome "${CONCLUSION:-}")" in
   Release:push:success) send DISCORD_WEBHOOK_RELEASES release_post ;;
   Release:push:failure) send DISCORD_WEBHOOK_CI failure_post ;;
-  CI:push:failure)
-    if [ "${BRANCH:-}" = main ]; then send DISCORD_WEBHOOK_CI failure_post; fi
-    ;;
-  CI:push:success)
-    if [ "${BRANCH:-}" = main ]; then
-      previous=$(previous_outcome)
-      if [ "$previous" = failure ]; then
-        send DISCORD_WEBHOOK_CI green_post
+  CI:push:failure | CI:push:success)
+    if [ "${BRANCH:-}" = main ] && configured DISCORD_WEBHOOK_CI; then
+      runs=$(main_runs)
+      newer=$(newer_result "$runs")
+      if [ -n "$newer" ]; then
+        echo "A newer CI run on main, $newer, has finished since, so this one's result isn't news."
+      elif [ "$(outcome "$CONCLUSION")" = failure ]; then
+        send DISCORD_WEBHOOK_CI failure_post
       else
-        echo "main was already green, so nothing was posted."
+        previous=$(previous_outcome "$runs")
+        if [ "$previous" = failure ]; then
+          send DISCORD_WEBHOOK_CI green_post
+        else
+          echo "main was already green, so nothing was posted."
+        fi
       fi
     fi
     ;;

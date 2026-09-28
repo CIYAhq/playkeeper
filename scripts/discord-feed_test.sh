@@ -5,7 +5,8 @@
 # out or couldn't start to the CI webhook with the commit and the jobs that
 # failed or timed out; and "main is green again" only for the first passing
 # run on main after one of those, whatever was cancelled in between, a passing
-# re-run of the failed run included. That pull requests, dry runs, other
+# re-run of the failed run included, while a run a newer one on main has
+# overtaken posts nothing. That pull requests, dry runs, other
 # branches and cancelled runs post nothing; that a webhook whose secret isn't
 # set is skipped without failing or asking GitHub anything; that a post
 # Discord refuses, or GitHub failing to answer, fails the run; that the
@@ -94,6 +95,17 @@ nothing_posted() {
 release() { # NAME URL BODY
   jq -n --arg name "$1" --arg url "$2" --arg body "$3" '{name: $name, url: $url, body: $body}' >"$stubs/release.json"
 }
+runs() { # ID:CONCLUSION... main's CI push runs for the stub; "in_progress" hasn't finished
+  local item id conclusion
+  for item in "$@"; do
+    id=${item%%:*} conclusion=${item#*:}
+    if [ "$conclusion" = in_progress ]; then
+      jq -n --argjson id "$id" '{databaseId: $id, status: "in_progress", conclusion: ""}'
+    else
+      jq -n --argjson id "$id" --arg c "$conclusion" '{databaseId: $id, status: "completed", conclusion: $c}'
+    fi
+  done | jq -s . >"$stubs/runs.json"
+}
 
 release "Playkeeper v0.4.4 (early release)" https://github.com/CIYAhq/playkeeper/releases/tag/v0.4.4 "$(
   cat <<'EOF'
@@ -155,28 +167,26 @@ posted_to "$ci_url" "a failed release"
 grep -q '^gh api repos/CIYAhq/playkeeper/actions/runs/500/jobs' "$stubs/gh.log" || fail "failed release: asked GitHub $(cat "$stubs/gh.log")"
 ok "a failed tag release posts the commit, the failed jobs and the run to the CI webhook"
 
+runs 500:failure 499:success
 run CI push failure main
 posted_to "$ci_url" "a failed CI run on main"
 [ "$(field '.embeds[0].title')" = "CI failed on main" ] || fail "failed CI title: $(field '.embeds[0].title')"
 [ "$(field '.embeds[0].description')" = "$commit"$'\n'"$failed_jobs" ] || fail "failed CI: $(field '.embeds[0].description')"
 ok "a failed CI run on main posts the commit, the failed jobs and the run to the CI webhook"
 
-echo '[{"databaseId": 501, "conclusion": "failure"}, {"databaseId": 500, "conclusion": "success"},
-  {"databaseId": 499, "conclusion": "cancelled"}, {"databaseId": 498, "conclusion": "failure"},
-  {"databaseId": 497, "conclusion": "success"}]' >"$stubs/runs.json"
+runs 501:in_progress 500:success 499:cancelled 498:failure 497:success
 run CI push success main
 posted_to "$ci_url" "main passing after a failure"
 [ "$(field '.embeds[0].title')" = "main is green again" ] || fail "green again title: $(field '.embeds[0].title')"
 [ "$(field '.embeds[0].description')" = "$commit" ] || fail "green again: $(field '.embeds[0].description')"
 [ "$(field '.embeds[0].color')" = 1409085 ] || fail "green again colour: $(field '.embeds[0].color')"
 grep -q -- '--workflow CI --branch main --event push' "$stubs/gh.log" || fail "green again: asked GitHub $(cat "$stubs/gh.log")"
-ok "the first passing run on main after a failed one says main is green again, past cancelled runs"
+ok "the first passing run on main after a failed one says main is green again, past cancelled runs and with a newer run still going"
 
-echo '[{"databaseId": 500, "conclusion": "success"}, {"databaseId": 499, "conclusion": "success"},
-  {"databaseId": 498, "conclusion": "failure"}]' >"$stubs/runs.json"
+runs 500:success 499:success 498:failure
 run CI push success main
 nothing_posted "main passing after a pass"
-echo '[{"databaseId": 500, "conclusion": "success"}]' >"$stubs/runs.json"
+runs 500:success
 run CI push success main
 nothing_posted "main's first run"
 ok "a passing run after a passing one, or with none before it, posts nothing"
@@ -188,6 +198,7 @@ cat >"$stubs/jobs.json" <<'EOF'
   {"name": "Lint, typecheck and unit tests — every job passed", "conclusion": "failure"}
 ]}
 EOF
+runs 500:timed_out 499:success
 run CI push timed_out main
 posted_to "$ci_url" "a CI run on main that timed out"
 [ "$(field '.embeds[0].title')" = "CI timed out on main" ] || fail "timed-out CI title: $(field '.embeds[0].title')"
@@ -198,13 +209,13 @@ run Release push startup_failure v0.4.5
 posted_to "$ci_url" "a release that couldn't start"
 [ "$(field '.embeds[0].title')" = "Release v0.4.5 couldn't start" ] || fail "release that couldn't start: $(field '.embeds[0].title')"
 [ "$(field '.embeds[0].description')" = "$commit" ] || fail "release that couldn't start: $(field '.embeds[0].description')"
-echo '[{"databaseId": 500, "conclusion": "success"}, {"databaseId": 499, "conclusion": "timed_out"}]' >"$stubs/runs.json"
+runs 500:success 499:timed_out
 run CI push success main
 posted_to "$ci_url" "main passing after a timeout"
 [ "$(field '.embeds[0].title')" = "main is green again" ] || fail "green after a timeout: $(field '.embeds[0].title')"
 ok "a run that timed out or couldn't start counts as failed, with its timed-out jobs listed"
 
-echo '[{"databaseId": 500, "conclusion": "success"}, {"databaseId": 499, "conclusion": "success"}]' >"$stubs/runs.json"
+runs 500:success 499:success
 echo '{"conclusion": "failure"}' >"$stubs/attempt-1.json"
 run CI push success main RUN_ATTEMPT=2
 posted_to "$ci_url" "a passing re-run of a failed run"
@@ -214,13 +225,29 @@ echo '{"conclusion": "cancelled"}' >"$stubs/attempt-2.json"
 run CI push success main RUN_ATTEMPT=3
 posted_to "$ci_url" "a passing re-run after a cancelled attempt of a failed run"
 echo '{"conclusion": "success"}' >"$stubs/attempt-1.json"
-echo '[{"databaseId": 500, "conclusion": "success"}, {"databaseId": 499, "conclusion": "failure"}]' >"$stubs/runs.json"
+runs 500:success 499:failure
 run CI push success main RUN_ATTEMPT=2
 nothing_posted "a passing re-run of a passing run"
 echo '{"conclusion": "cancelled"}' >"$stubs/attempt-1.json"
 run CI push success main RUN_ATTEMPT=2
 posted_to "$ci_url" "a passing re-run of a cancelled run after a failure"
 ok "a re-run looks at the run's own earlier attempts first, past cancelled ones"
+
+echo '{"conclusion": "failure"}' >"$stubs/attempt-1.json"
+runs 501:failure 500:success 499:success
+run CI push success main RUN_ATTEMPT=2
+nothing_posted "a passing re-run of an older run after a newer run failed"
+grep -q "A newer CI run on main, 501, has finished since" "$tmp/out" || fail "overtaken re-run: $(cat "$tmp/out")"
+runs 501:success 500:success 499:success
+run CI push success main RUN_ATTEMPT=2
+nothing_posted "a passing re-run of an older run after a newer run passed"
+runs 501:success 500:failure 499:success
+run CI push failure main RUN_ATTEMPT=2
+nothing_posted "a failing re-run of an older run after a newer run passed"
+runs 501:cancelled 500:success 499:failure
+run CI push success main
+posted_to "$ci_url" "main passing when the newer run was cancelled"
+ok "a run a newer run on main has overtaken posts nothing, unless that run was cancelled"
 
 echo 'not json' >"$stubs/runs.json"
 run CI push success main
@@ -246,8 +273,10 @@ grep -q "DISCORD_WEBHOOK_RELEASES isn't set yet" "$tmp/out" || fail "no notice f
 [ ! -f "$stubs/gh.log" ] || fail "a skipped post asked GitHub $(cat "$stubs/gh.log")"
 run CI push failure main DISCORD_WEBHOOK_CI=
 nothing_posted "a failure before its secret is set"
+[ ! -f "$stubs/gh.log" ] || fail "a skipped CI post asked GitHub $(cat "$stubs/gh.log")"
 ok "a webhook whose secret isn't set yet is skipped with a notice, and the run passes"
 
+runs 500:failure 499:success
 run CI push failure main CODE=400 'ANSWER={"message": "Invalid Webhook Token", "code": 50027}'
 [ "$status" != 0 ] || fail "a refused post passed: $(cat "$tmp/out")"
 grep -q 'HTTP 400' "$tmp/out" && grep -q 'Invalid Webhook Token' "$tmp/out" || fail "a refused post didn't say why: $(cat "$tmp/out")"
