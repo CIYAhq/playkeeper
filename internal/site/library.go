@@ -2,6 +2,7 @@ package site
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/templates"
+	"github.com/CIYAhq/playkeeper/internal/templates/library"
 )
 
 // LibraryPage is a template of the public library at /templates/<ID>: the
@@ -186,6 +188,59 @@ func (s *Site) libraryPage(id string) (*LibraryPage, error) {
 		return nil, fmt.Errorf("no library page %q in site/data/library", id)
 	}
 	return l, nil
+}
+
+// DashboardLibrary is the template list each release carries for New server
+// › A template (internal/templates/library): every template in
+// site/data/templates by name, with its page and, for a library template, the
+// check its page states.
+func DashboardLibrary(root fs.FS, s Settings) ([]byte, error) {
+	cards, err := loadTemplateCards(root, "site/data/templates")
+	if err != nil {
+		return nil, err
+	}
+	pages, err := loadLibrary(root, "site/data/library", cards)
+	if err != nil {
+		return nil, err
+	}
+	packs, err := loadModpacks(root, "site/data/modpacks", cards)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]library.Template, 0, len(cards))
+	for id, c := range cards {
+		file, err := fs.ReadFile(root, path.Join("site/data/templates", id+".json"))
+		if err != nil {
+			return nil, err
+		}
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, file); err != nil {
+			return nil, fmt.Errorf("%s.json: %w", id, err)
+		}
+		t := library.Template{ID: id, Name: c.Name, Art: path.Base(c.Art), OpensFrom: c.OpensFrom, File: compact.Bytes()}
+		for _, m := range packs {
+			if m.Template == id {
+				t.Page = s.BaseURL + m.Path()
+			}
+		}
+		for _, l := range pages {
+			if l.Template == id {
+				t.Page, t.Checked, t.Release = s.BaseURL+l.Path(), l.Checked, l.Release
+			}
+		}
+		out = append(out, t)
+	}
+	slices.SortFunc(out, func(a, b library.Template) int {
+		return cmp.Or(strings.Compare(a.Name, b.Name), strings.Compare(a.ID, b.ID))
+	})
+	var b bytes.Buffer
+	e := json.NewEncoder(&b)
+	e.SetEscapeHTML(false)
+	e.SetIndent("", "  ")
+	if err := e.Encode(out); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }
 
 // libraryList is every library template with a page, by name.

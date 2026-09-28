@@ -1,6 +1,7 @@
 package site
 
 import (
+	"bytes"
 	"maps"
 	"os"
 	"path/filepath"
@@ -136,6 +137,22 @@ func TestAHeldTemplateSaysWhichReleaseOpensIt(t *testing.T) {
 		case ok && got["creative"].Held() != (opens != ""):
 			t.Errorf("opensFrom %q: held is %v", opens, got["creative"].Held())
 		}
+	}
+}
+
+// The template list releases carry for New server is the site's, as go
+// generate writes it.
+func TestTheDashboardListsTheSitesTemplates(t *testing.T) {
+	want, err := DashboardLibrary(os.DirFS("../.."), Default)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile("../templates/library/library.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Error("internal/templates/library/library.json isn't what site/data/templates makes: run go generate ./internal/templates/library")
 	}
 }
 

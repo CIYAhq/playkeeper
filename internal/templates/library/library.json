@@ -1,0 +1,483 @@
+[
+  {
+    "id": "bedwars",
+    "name": "Bedwars",
+    "art": "world-normal.svg",
+    "page": "https://playkeeper.io/templates/bedwars",
+    "checked": "2026-09-28",
+    "release": "0.4.2",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Bedwars",
+      "description": "Paper for Bedwars: Screaming BedWars runs the games, with WorldEdit for building arenas and Multiverse-Core for keeping each arena in its own world.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "normal",
+        "pvp": true,
+        "gameMode": "survival",
+        "maxPlayers": 16,
+        "playStyle": "friends",
+        "memoryMB": 4096
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "1u6JkXh5",
+          "slug": "worldedit",
+          "name": "WorldEdit",
+          "latest": true
+        },
+        {
+          "source": "modrinth",
+          "project": "3wmN97b8",
+          "slug": "multiverse-core",
+          "name": "Multiverse-Core",
+          "latest": true
+        },
+        {
+          "source": "modrinth",
+          "project": "8sg1aj4I",
+          "slug": "screamingbedwars",
+          "name": "Screaming BedWars",
+          "latest": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "better-mc",
+    "name": "Better MC",
+    "art": "world-amplified.svg",
+    "page": "https://playkeeper.io/modpacks/better-mc-server",
+    "opensFrom": "0.4.4",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Better MC",
+      "description": "Better MC for NeoForge: hundreds of mods for new biomes, structures, mobs and quality of life.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "neoforge",
+        "minecraftVersion": "1.21.1"
+      },
+      "settings": {
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 8192
+      },
+      "modpack": {
+        "source": "modrinth",
+        "project": "B37WQ89b",
+        "slug": "better-mc-neoforge-bmc5",
+        "name": "Better MC [NEOFORGE] BMC5",
+        "pin": {
+          "versionId": "Mo8ro6Ra",
+          "versionNumber": "v31",
+          "channel": "release",
+          "hashAlgo": "sha512",
+          "hash": "65be2d384d38eb16d827790113d113bd5c2a9d032a72e681df5222bec431034fe5074b10235d94aca41f2b62cadcda94edec1c8943209adb1d5a5c3da56b638d"
+        }
+      }
+    }
+  },
+  {
+    "id": "cobblemon",
+    "name": "Cobblemon",
+    "art": "world-normal.svg",
+    "page": "https://playkeeper.io/modpacks/cobblemon-server",
+    "opensFrom": "0.4.4",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Cobblemon",
+      "description": "The official Cobblemon modpack for Fabric: catch, train and battle creatures around your world with friends.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "fabric",
+        "minecraftVersion": "1.21.1"
+      },
+      "settings": {
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 6144
+      },
+      "modpack": {
+        "source": "modrinth",
+        "project": "5FFgwNNP",
+        "slug": "cobblemon-fabric",
+        "name": "Cobblemon Official Modpack [Fabric]",
+        "pin": {
+          "versionId": "Cqimd3JM",
+          "versionNumber": "1.8.1",
+          "channel": "release",
+          "hashAlgo": "sha512",
+          "hash": "ae2429fd6ffd7ef00f19e0f8fa0121e2f24c81bd73786ae03c2b0337e3d99b916a10017b6f4aea145bcfa17562330d2e69e5c1a2caf623fa95b8e9cfb48ca928"
+        }
+      }
+    }
+  },
+  {
+    "id": "cobbleverse",
+    "name": "Cobbleverse",
+    "art": "world-big-biomes.svg",
+    "page": "https://playkeeper.io/modpacks/cobbleverse-server",
+    "opensFrom": "0.4.4",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Cobbleverse",
+      "description": "Cobbleverse for Fabric: a Cobblemon adventure with gyms, exclusive structures and 136 mods on the server, for you and your friends.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "fabric",
+        "minecraftVersion": "1.21.1"
+      },
+      "settings": {
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 8192
+      },
+      "modpack": {
+        "source": "modrinth",
+        "project": "Jkb29YJU",
+        "slug": "cobbleverse",
+        "name": "COBBLEVERSE - Pokemon Adventure [Cobblemon]",
+        "pin": {
+          "versionId": "4SKGla61",
+          "versionNumber": "1.7.42",
+          "channel": "release",
+          "hashAlgo": "sha512",
+          "hash": "9af64e0d3a092ab8d72d966cc4d45512e8d875685e804bea9233adb88f5f5d4c30578b77304f70fe77e9ef2ee01e487d652f3341279bcc1850ff2587ae8aa8a4"
+        }
+      }
+    }
+  },
+  {
+    "id": "creative",
+    "name": "Creative",
+    "art": "play-creative.svg",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Creative",
+      "description": "Paper in creative mode, with WorldEdit for big builds and Multiverse for extra worlds.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "peaceful",
+        "gameMode": "creative",
+        "maxPlayers": 10,
+        "playStyle": "creative",
+        "memoryMB": 3072
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "1u6JkXh5",
+          "slug": "worldedit",
+          "name": "WorldEdit",
+          "latest": true
+        },
+        {
+          "source": "modrinth",
+          "project": "3wmN97b8",
+          "slug": "multiverse-core",
+          "name": "Multiverse-Core",
+          "latest": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "hardcore-smp",
+    "name": "Hardcore SMP",
+    "art": "play-hardcore.svg",
+    "page": "https://playkeeper.io/templates/hardcore-smp",
+    "checked": "2026-09-28",
+    "release": "0.4.2",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Hardcore SMP",
+      "description": "Paper in hardcore for a group: one life each, hard difficulty, with pre-generation, block logging and proximity voice chat.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "hard",
+        "pvp": false,
+        "gameMode": "survival",
+        "hardcore": true,
+        "maxPlayers": 10,
+        "playStyle": "hardcore",
+        "memoryMB": 4096
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "fALzjamp",
+          "slug": "chunky",
+          "name": "Chunky",
+          "latest": true
+        },
+        {
+          "source": "modrinth",
+          "project": "Lu3KuzdV",
+          "slug": "coreprotect",
+          "name": "CoreProtect",
+          "latest": true
+        },
+        {
+          "source": "modrinth",
+          "project": "9eGKb6K1",
+          "slug": "simple-voice-chat",
+          "name": "Simple Voice Chat",
+          "latest": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "lifesteal-smp",
+    "name": "Lifesteal SMP",
+    "art": "world-amplified.svg",
+    "page": "https://playkeeper.io/templates/lifesteal-smp",
+    "checked": "2026-09-28",
+    "release": "0.4.2",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Lifesteal SMP",
+      "description": "Paper for a lifesteal SMP: kill a player to take a heart, die and lose one. With LifeStealZ, pre-generation and block logging.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "normal",
+        "pvp": true,
+        "gameMode": "survival",
+        "maxPlayers": 20,
+        "playStyle": "friends",
+        "memoryMB": 4096
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "l8Uv7FzS",
+          "slug": "lifestealz",
+          "name": "LifeStealZ",
+          "latest": true
+        },
+        {
+          "source": "modrinth",
+          "project": "fALzjamp",
+          "slug": "chunky",
+          "name": "Chunky",
+          "latest": true
+        },
+        {
+          "source": "modrinth",
+          "project": "Lu3KuzdV",
+          "slug": "coreprotect",
+          "name": "CoreProtect",
+          "latest": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "oneblock",
+    "name": "OneBlock",
+    "art": "play-just-me.svg",
+    "page": "https://playkeeper.io/templates/oneblock",
+    "checked": "2026-09-28",
+    "release": "0.4.2",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "OneBlock",
+      "description": "Paper for OneBlock: each player stands on a single block that turns into the next when broken, from grass to the End, with the OneBlock plugin and Multiverse-Core for its world.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "normal",
+        "pvp": false,
+        "gameMode": "survival",
+        "maxPlayers": 20,
+        "playStyle": "friends",
+        "memoryMB": 3072
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "3wmN97b8",
+          "slug": "multiverse-core",
+          "name": "Multiverse-Core",
+          "latest": true
+        },
+        {
+          "source": "modrinth",
+          "project": "gMMDcC2d",
+          "slug": "oneblock_bukkit",
+          "name": "OneBlock",
+          "latest": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "skyblock",
+    "name": "Skyblock",
+    "art": "world-flat.svg",
+    "page": "https://playkeeper.io/templates/skyblock",
+    "checked": "2026-09-28",
+    "release": "0.4.2",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Skyblock",
+      "description": "Paper for skyblock: every player or team starts on a small island in the void, with Iridium Skyblock's upgrades, missions and island levels, and the two plugins it needs.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "normal",
+        "pvp": false,
+        "gameMode": "survival",
+        "maxPlayers": 20,
+        "playStyle": "friends",
+        "memoryMB": 4096
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "ayRaM8J7",
+          "slug": "vaultunlocked",
+          "name": "VaultUnlocked",
+          "latest": true
+        },
+        {
+          "source": "modrinth",
+          "project": "1u6JkXh5",
+          "slug": "worldedit",
+          "name": "WorldEdit",
+          "latest": true
+        },
+        {
+          "source": "modrinth",
+          "project": "uVMG0MzO",
+          "slug": "iridiumskyblock",
+          "name": "Iridium Skyblock",
+          "latest": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "survival-with-friends",
+    "name": "Survival with friends",
+    "art": "play-with-friends.svg",
+    "page": "https://playkeeper.io/templates/smp",
+    "checked": "2026-09-28",
+    "release": "0.4.2",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Survival with friends",
+      "description": "Paper for a group of friends: pre-generation, block logging and proximity voice chat.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "normal",
+        "pvp": false,
+        "gameMode": "survival",
+        "viewDistance": 10,
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 4096
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "fALzjamp",
+          "slug": "chunky",
+          "name": "Chunky",
+          "latest": true
+        },
+        {
+          "source": "modrinth",
+          "project": "Lu3KuzdV",
+          "slug": "coreprotect",
+          "name": "CoreProtect",
+          "latest": true
+        },
+        {
+          "source": "modrinth",
+          "project": "9eGKb6K1",
+          "slug": "simple-voice-chat",
+          "name": "Simple Voice Chat",
+          "latest": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "towny",
+    "name": "Towny",
+    "art": "world-big-biomes.svg",
+    "page": "https://playkeeper.io/templates/towny",
+    "checked": "2026-09-28",
+    "release": "0.4.2",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "Towny",
+      "description": "Paper for a Towny server: players found towns and nations, claim land chunk by chunk and run their own plots, with LuckPerms for ranks.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "paper",
+        "minecraftVersion": "26.2"
+      },
+      "settings": {
+        "difficulty": "normal",
+        "pvp": true,
+        "gameMode": "survival",
+        "maxPlayers": 30,
+        "playStyle": "friends",
+        "memoryMB": 4096
+      },
+      "addons": [
+        {
+          "source": "modrinth",
+          "project": "Vebnzrzj",
+          "slug": "luckperms",
+          "name": "LuckPerms",
+          "latest": true
+        },
+        {
+          "source": "modrinth",
+          "project": "Vs77PB2W",
+          "slug": "towny",
+          "name": "Towny",
+          "latest": true
+        },
+        {
+          "source": "modrinth",
+          "project": "fALzjamp",
+          "slug": "chunky",
+          "name": "Chunky",
+          "latest": true
+        }
+      ]
+    }
+  }
+]
