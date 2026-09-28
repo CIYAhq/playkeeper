@@ -1,0 +1,52 @@
+name: Discord
+
+# Posts the release and CI feeds to the Playkeeper Discord
+# (scripts/discord-feed.sh): each release a tag publishes to #announcements
+# through the Releases webhook, and a failed CI run on main, a failed release,
+# or main passing again after a failure to #ci through the CI webhook. The
+# webhooks' URLs are the DISCORD_WEBHOOK_RELEASES and DISCORD_WEBHOOK_CI
+# secrets; until one is added, its posts are skipped with a notice.
+# It follows the CI and Release workflows instead of the release event: Release
+# publishes with its own token, and a release published that way starts no
+# other workflow. workflow_run always runs this file from the default branch,
+# and it checks out the default branch, never the code of the run it follows,
+# so a pull request can't reach the secrets. It runs only for pushes: CI on
+# main and Release on a v* tag.
+
+on:
+  workflow_run:
+    workflows: [CI, Release]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  FORCE_COLOR: "0"
+
+jobs:
+  post:
+    name: Post the run's news to Discord
+    if: github.event.workflow_run.event == 'push' && (github.event.workflow_run.name == 'Release' || github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Post a release, a failure, or main passing again
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DISCORD_WEBHOOK_RELEASES: ${{ secrets.DISCORD_WEBHOOK_RELEASES }}
+          DISCORD_WEBHOOK_CI: ${{ secrets.DISCORD_WEBHOOK_CI }}
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+          EVENT: ${{ github.event.workflow_run.event }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          COMMIT_MESSAGE: ${{ github.event.workflow_run.head_commit.message }}
+        run: scripts/discord-feed.sh
