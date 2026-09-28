@@ -5044,8 +5044,8 @@ control "Paper's catalog starts at Minecraft 1.20.1" internal/minecraft/fill.go 
   'CompareMinecraft(id, "1.20") < 0' \
   ./internal/minecraft '^TestCatalogStartsAtTheOldestRelease$'
 control "Forge's installers before Minecraft 1.20.3 get Mojang's jar under its plain name" internal/minecraft/software/forge.go \
-  'return b.group == "net.minecraftforge" && minecraft.CompareMinecraft(b.mc, "1.20.3") >= 0' \
-  'return b.group == "net.minecraftforge"' \
+  'minecraft.CompareMinecraft(b.mc, "1.20.3") >= 0' \
+  'minecraft.CompareMinecraft(b.mc, "1.20.3") >= -1' \
   ./internal/minecraft/software '^(TestInstallForgeForMinecraft1201|TestResolveForge)$'
 control "a Forge server without a shim jar starts from the libraries its installer checked" internal/minecraft/software/forge.go \
   'case shimName == "" && (prof.Path != "" || slices.Contains(strings.Fields(string(args)), "-jar")):' \
@@ -5061,11 +5061,11 @@ control "NeoForge's builds for Minecraft 1.20.1 come from its Forge-named artifa
   ./internal/minecraft/software '^TestResolveNeoForge$'
 control "NeoForge's list for Minecraft 1.20.1 keeps only its builds for 1.20.1" internal/minecraft/software/neoforge.go \
   'ok && reNeoForgeForge.MatchString(v)' \
-  'reNeoForgeForge.MatchString(v)' \
+  '(ok || true) && reNeoForgeForge.MatchString(v)' \
   ./internal/minecraft/software '^TestBuilds$'
 control "Forge's checks are only for a build Forge's installer makes" internal/minecraft/software/plan.go \
   'd.Kind == DeriveForge && !ok {' \
-  'false {' \
+  'd.Kind == DeriveForge && !ok && false {' \
   ./internal/minecraft/software '^TestPlanValidation$'
 control "CurseForge's NeoForge builds for Minecraft 1.20.1 lose the version in front" internal/modpacks/requirements.go \
   'if t == "forge" || t == "neoforge" {' \
