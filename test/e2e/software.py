@@ -241,7 +241,7 @@ def check_pregen(c, label):
             print(f"::warning::{e}: pre-generation is quarantined (test/quarantine.txt), so this doesn't fail the run", flush=True)
             try:
                 c.ok("POST", c.sp("/pregen/cancel"), {})
-            except Exception as e2:  # a task Chunky lost can't be cancelled
+            except (Exception, SystemExit) as e2:  # c.ok raises SystemExit on the error a task Chunky lost gets
                 print(f"    could not cancel the pre-generation: {e2}", flush=True)
             return {"quarantined": str(e)}
     else:

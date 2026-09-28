@@ -15,7 +15,7 @@ case ${1:-} in
   packages) entries | awk '$1 ~ /^\.\// { print $1 }' | sort -u ;;
   names) entries | awk -v p="${2:?usage: quarantine.sh names PACKAGE}" '$1 == p { print $2 }' ;;
   skip)
-    tests=$(entries | awk '$1 ~ /^\.\// { print $2 }' | paste -sd'|' -)
+    tests=$(entries | awk '$1 ~ /^\.\// { print $2 }' | sort -u | paste -sd'|' -)
     if [ -n "$tests" ]; then echo "-skip=^($tests)\$"; fi
     ;;
   *)

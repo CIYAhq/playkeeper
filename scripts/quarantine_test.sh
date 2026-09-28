@@ -29,9 +29,14 @@ for pkg in $("$q" packages); do
   done
 done
 if [ "${#tests[@]}" -gt 0 ]; then
-  want="-skip=^($(IFS='|'; echo "${tests[*]}"))\$"
+  want="-skip=^($(printf '%s\n' "${tests[@]}" | sort -u | paste -sd'|' -))\$"
   [ "$skip" = "$want" ] || fail "the skip flag is '$skip', want '$want'"
   ok "the skip flag leaves out the ${#tests[@]} quarantined Go tests"
+  reordered=$(mktemp)
+  tac "$root/test/quarantine.txt" >"$reordered"
+  [ "$(QUARANTINE_LIST=$reordered "$q" skip)" = "$skip" ] || fail "the skip flag changes when the list's lines are reordered"
+  rm -f "$reordered"
+  ok "the skip flag doesn't depend on the list's order"
 else
   [ -z "$skip" ] || fail "no Go test is quarantined, but the skip flag is '$skip'"
   ok "no Go test is quarantined, so there's no skip flag"
