@@ -6893,6 +6893,26 @@ control "creators: two creates at once are checked one after the other" internal
 	defer s.creators.Lock()
 	use, err := s.allowanceUse(r.Context(), a, m, "")' \
   ./internal/panel '^TestTwoCreatesAtOnceCantBothFitTheAllowance$'
+control "creators: pre-generation only up to 2,500 blocks" internal/panel/creators.go \
+  'return p.Radius <= creatorPregenRadius' \
+  'return p.Radius > 0' \
+  ./internal/panel '^TestCreatorsPreGenerateUpTo2500Blocks$'
+control "creators: a larger pre-generation isn't started" internal/panel/creators.go \
+  'if !creatorPreset(req.Preset) {' \
+  'if false && !creatorPreset(req.Preset) {' \
+  ./internal/panel '^TestCreatorsPreGenerateUpTo2500Blocks$'
+control "creators: the larger sizes aren't offered" internal/panel/creators.go \
+  'if p.Radius <= creatorPregenRadius {' \
+  'if p.Radius > 0 {' \
+  ./internal/panel '^TestCreatorsPreGenerateUpTo2500Blocks$'
+control "creators: the Map tab fills in only the areas they may pre-generate" internal/panel/creators.go \
+  'return id == api.MapAreaExplored || creatorPreset(id)' \
+  'return id != ""' \
+  ./internal/panel '^TestCreatorsPreGenerateUpTo2500Blocks$'
+control "creators: a bigger map area isn't started" internal/panel/creators.go \
+  'if !creatorArea(req.Area) {' \
+  'if false && !creatorArea(req.Area) {' \
+  ./internal/panel '^TestCreatorsPreGenerateUpTo2500Blocks$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
