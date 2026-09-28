@@ -36,7 +36,11 @@ const out = { captures: resolve(opt('out', join(shots, 'captures'))), extra: opt
 const only = (opt('only') || '').split(',').filter(Boolean)
 // --view <heading>,<height> takes that view of spawn instead of the best
 // scoring one: a heading in degrees (0, 15 … 345) and a height (0, 1 or 2).
-const [pinHeading, pinTier] = (opt('view') || '').split(',').map(Number)
+const pin = opt('view') ? (([heading, tier = 0]) => ({ heading, tier }))(opt('view').split(',').map(Number)) : null
+if (pin && (!Number.isInteger(pin.heading) || pin.heading % 15 || pin.heading < 0 || pin.heading > 345 || ![0, 1, 2].includes(pin.tier))) {
+  console.error('--view is <heading>,<height>: a heading of 0, 15 … 345 degrees and a height of 0, 1 or 2')
+  process.exit(2)
+}
 const dist = join(here, 'dist')
 if (!existsSync(join(dist, 'thumb.js'))) {
   console.error('dist/ is missing: run npm ci && npm run build in site/tools/thumbnails first')
@@ -333,7 +337,7 @@ for (const id of files) {
     await page.goto(`http://127.0.0.1:${server.address().port}/`)
     await page.waitForFunction(() => window.thumb && window.thumb.ready)
     const loaded = await page.evaluate(() => window.thumb.load('world.json'))
-    const land = snap.subject ? null : landscape(snap, w, Number.isFinite(pinHeading) ? { heading: pinHeading, tier: pinTier || 0 } : null)
+    const land = snap.subject ? null : landscape(snap, w, pin)
     for (const s of shapes(out)) {
       const view = land ? { ...land, cam: { ...land.cam, fov: landVfov[s.name] } } : subject(snap, w, s.w / s.h)
       const url = await page.evaluate((p) => window.thumb.shot(p), { w: s.w, h: s.h, cam: view.cam, look: view.look })
