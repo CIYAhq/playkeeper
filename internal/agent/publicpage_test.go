@@ -336,3 +336,28 @@ func TestLetsEncryptsChecksReachTheAgentThroughThePage(t *testing.T) {
 		t.Fatalf("a check released: %d", code)
 	}
 }
+
+func TestAServerTurnedOffLeavesThePageAndTheOthersStay(t *testing.T) {
+	e := newAgentEnv(t)
+	e.createWith(map[string]any{"name": "Survival"})
+	first := e.status()
+	e.createWith(map[string]any{"name": "Creative"})
+	second := e.status()
+	e.withPageAddress()
+	if code, p, _ := e.page(pageTestHost); code != 200 || len(p.Servers) != 2 {
+		t.Fatalf("with both on: %d %+v", code, p)
+	}
+	if code, out := e.call("POST", "/v1/servers/"+second.ID+"/public-page", map[string]any{"enabled": false, "actor": "admin"}); code != 200 || out["enabled"] != false {
+		t.Fatalf("turning Creative off: %d %v", code, out)
+	}
+	code, p, raw := e.page(pageTestHost)
+	if code != 200 || len(p.Servers) != 1 || p.Servers[0].Slug != first.Slug || strings.Contains(raw, "Creative") || strings.Contains(raw, second.Slug) {
+		t.Fatalf("with Creative off the page shows %d %s", code, raw)
+	}
+	if p.Servers[0].Address != pageTestHost {
+		t.Fatalf("the server on 25565 joins at %q, want the bare address", p.Servers[0].Address)
+	}
+	if code, _ := e.call("GET", "/v1/public-page/icons/"+second.Slug+"?host="+pageTestHost, nil); code != 404 {
+		t.Fatalf("the icon of a server off the page: %d", code)
+	}
+}

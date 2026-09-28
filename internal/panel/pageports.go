@@ -196,7 +196,7 @@ func (s *Server) pageRedirect(r *http.Request) (string, bool) {
 	p := s.page
 	p.mu.Lock()
 	https := p.held[0]
-	host := p.host
+	host, port := p.host, p.ports.HTTPS.Port
 	p.mu.Unlock()
 	if https == nil || host == "" || s.pageCerts == nil {
 		return "", false
@@ -204,8 +204,8 @@ func (s *Server) pageRedirect(r *http.Request) (string, bool) {
 	if _, err := s.pageCerts.GetCertificate(&tls.ClientHelloInfo{ServerName: host}); err != nil {
 		return "", false
 	}
-	if https.port != 443 {
-		host = net.JoinHostPort(host, strconv.Itoa(https.port))
+	if port != 443 && port != 0 {
+		host = net.JoinHostPort(host, strconv.Itoa(port))
 	}
 	return "https://" + host + r.URL.RequestURI(), true
 }
