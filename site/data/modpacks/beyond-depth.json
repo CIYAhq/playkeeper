@@ -1,0 +1,18 @@
+{
+  "name": "Beyond Depth",
+  "source": "curseforge",
+  "project": "1134605",
+  "page": "https://www.curseforge.com/minecraft/modpacks/beyond-depth",
+  "author": "blueversal",
+  "downloads": 3289348,
+  "version": "Ver12.8.3",
+  "released": "2026-09-24",
+  "type": "forge",
+  "loader": "47.4.22",
+  "minecraft": "1.20.1",
+  "mods": 376,
+  "downloadMB": 1007,
+  "heapMB": 8416,
+  "release": "0.4.4",
+  "checked": "2026-09-28"
+}

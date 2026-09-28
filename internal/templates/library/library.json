@@ -1,5 +1,77 @@
 [
   {
+    "id": "atm10",
+    "name": "All the Mods 10",
+    "art": "world-normal.svg",
+    "page": "https://playkeeper.io/modpacks/atm10-server",
+    "checked": "2026-09-28",
+    "release": "0.4.4",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "All the Mods 10",
+      "description": "All the Mods 10 for NeoForge: over 450 mods, with the memory the pack asks for.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "neoforge",
+        "minecraftVersion": "1.21.1"
+      },
+      "settings": {
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 12288
+      },
+      "modpack": {
+        "source": "curseforge",
+        "project": "925200",
+        "slug": "all-the-mods-10",
+        "name": "All the Mods 10 - ATM10",
+        "pin": {
+          "versionId": "8945086",
+          "versionNumber": "8.2",
+          "channel": "release",
+          "hashAlgo": "sha1",
+          "hash": "68c1a22bff9a82c0e3dc60f3af9077391915e8fa"
+        }
+      }
+    }
+  },
+  {
+    "id": "atm9",
+    "name": "All the Mods 9",
+    "art": "world-big-biomes.svg",
+    "page": "https://playkeeper.io/modpacks/atm9-server",
+    "checked": "2026-09-28",
+    "release": "0.4.4",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "All the Mods 9",
+      "description": "All the Mods 9 for Forge on Minecraft 1.20.1: over 400 mods, quests and an endgame to build the ATM Star.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "forge",
+        "minecraftVersion": "1.20.1"
+      },
+      "settings": {
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 8192
+      },
+      "modpack": {
+        "source": "curseforge",
+        "project": "715572",
+        "slug": "all-the-mods-9",
+        "name": "All the Mods 9 - ATM9",
+        "pin": {
+          "versionId": "7097953",
+          "versionNumber": "1.1.1",
+          "channel": "release",
+          "hashAlgo": "sha1",
+          "hash": "bcf232e85b4d200b3e65bc02facd98a179b685dd"
+        }
+      }
+    }
+  },
+  {
     "id": "bedwars",
     "name": "Bedwars",
     "art": "world-normal.svg",
@@ -1000,6 +1072,42 @@
           "channel": "release",
           "hashAlgo": "sha512",
           "hash": "94df2dd6ce119bda726ac4ebf98ffa357190920c0375f4cc7519a2d0290fd7a8cb3f2a8c3b5c52126e0d188a2fe7a53a49cebf0b34a5d06e9078929f518c0076"
+        }
+      }
+    }
+  },
+  {
+    "id": "skyfactory-5",
+    "name": "SkyFactory 5",
+    "art": "world-flat.svg",
+    "page": "https://playkeeper.io/modpacks/skyfactory-5-server",
+    "checked": "2026-09-28",
+    "release": "0.4.4",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "SkyFactory 5",
+      "description": "SkyFactory 5 for Forge on Minecraft 1.20.1: start on a tree in the void and grow a world of automation from it.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "forge",
+        "minecraftVersion": "1.20.1"
+      },
+      "settings": {
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 6144
+      },
+      "modpack": {
+        "source": "curseforge",
+        "project": "392141",
+        "slug": "skyfactory-5",
+        "name": "SkyFactory 5",
+        "pin": {
+          "versionId": "6290684",
+          "versionNumber": "5.0.8",
+          "channel": "release",
+          "hashAlgo": "sha1",
+          "hash": "0d915173c3c6645d36795c2834341cb4c48f6477"
         }
       }
     }

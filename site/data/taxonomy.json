@@ -24,6 +24,11 @@
       "name": "Hardcore SMP",
       "intro": "One life each: the difficulty stays on hard, and a player who dies watches the rest of the world as a spectator."
     },
+    "kitchen-sink": {
+      "name": "Kitchen sink",
+      "intro": "Hundreds of mods of every kind in one pack, from machines and magic to new dimensions, with quests that lead to an endgame.",
+      "description": "Kitchen-sink modpack server templates for Playkeeper: hundreds of mods of every kind, like All the Mods, each opened in your own dashboard in one click."
+    },
     "lifesteal-smp": {
       "name": "Lifesteal SMP",
       "intro": "Survival with PvP, where a kill takes a heart from the loser and gives it to the winner, and running out of hearts puts you out."

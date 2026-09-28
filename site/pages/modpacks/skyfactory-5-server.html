@@ -1,0 +1,108 @@
+{{/*
+path: /modpacks/skyfactory-5-server
+title: How to make a SkyFactory 5 server (2026)
+description: Set up a SkyFactory 5 server: Forge 47.4.0 on Minecraft 1.20.1, Java 17, {{(modpack "skyfactory-5").Memory}} of memory and the pack's own server files, or Playkeeper in one click from 0.4.4.
+label: SkyFactory 5 server
+h1: How to make a SkyFactory 5 server
+card: How to make a SkyFactory 5 server
+kind: Modpack
+section: guides
+layout: guide
+crumb: Modpacks
+og: modpack-skyfactory-5
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$m := modpack "skyfactory-5"}}A SkyFactory 5 server runs {{$m.TypeName}} {{$m.Loader}} on Minecraft {{$m.Minecraft}} with Java {{$m.Java}}, puts {{$m.Mods}} mods on the server and needs about {{$m.Memory}}. Its server files install Forge with one script, or Playkeeper installs version {{$m.Version}} from CurseForge, from version {{$m.Release}}.{{end}}
+
+{{define "closing-title"}}SkyFactory 5 on your own server, in one click.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper sizes the server for the pack and fetches every file.{{end}}
+
+{{define "side-text"}}Playkeeper installs SkyFactory 5 from CurseForge, all 8,000-odd files of it.{{end}}
+
+{{define "article"}}{{$m := modpack "skyfactory-5"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+{{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
+<section aria-labelledby="needs">
+  {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What a SkyFactory 5 server needs" "Toc" "What it needs")}}
+  {{template "modpack-facts" (dict "Pack" $m)}}
+  <p>Version {{$m.Version}}, from {{day $m.Released}}, is the newest. SkyFactory 5 is a skyblock pack: the world starts as empty void, and players build everything from very little.</p>
+</section>
+
+<section aria-labelledby="files">
+  {{template "h2n" (dict "ID" "files" "N" 2 "Text" "8,502 files, not just mods" "Toc" "8,502 files")}}
+  <p>Only {{$m.Mods}} of the files the server gets are mods. The rest are configs, default settings and packs of data and resources, 8,502 files in all.</p>
+  <ul>
+    <li><strong>Playkeeper 0.4.2 and older refused it,</strong> because a pack could put at most 5,000 files on a server. From 0.4.3 the limit is 20,000.</li>
+    <li><strong>It starts on 0.4.4:</strong> on 28 Sep, a server made from its template on the published 0.4.4 reached <code>Done (3.621s)!</code> once Forge had loaded its mods.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 3 "Text" "The one-click way")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{$open := "Search New server › A modpack"}}{{$how := "Type SkyFactory 5. It comes from CurseForge, with Forge and the memory it needs."}}{{if $m.OneClick}}{{$open = "Open the template below, or search New server › A modpack"}}{{$how = printf "Either way it's SkyFactory 5 %s from CurseForge, with Forge and the memory it needs." $m.Version}}{{end}}
+  {{template "steps" (dict "Class" "shot-steps" "Items" (list
+    (dict "Title" $open "Text" $how)
+    (dict "Title" "Create and start it" "Text" (printf "Playkeeper downloads the pack's %s and checks each file against CurseForge's hash. There's nothing to add by hand." $m.DownloadSize))
+    (dict "Title" "Send friends the pack" "Text" "Share with friends on the Mods tab makes a page with the pack's version and their launcher's steps.")
+  ))}}
+  {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs." "Sizes" $article)}}
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 4 "Text" "By hand, with the server files" "Toc" "By hand")}}
+  {{with $m.ServerFiles}}<p>Download <a href="{{.URL}}">{{.Name}}</a> ({{megabytes .MB}}, {{.Mods}} mods) from the pack's files on CurseForge. Its <code>Install.sh</code> runs the Forge installer it comes with, which writes the <code>run.sh</code> that starts the server.</p>{{end}}
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="System">
+        <button type="button" class="code-tab" role="tab" id="tab-ubuntu" aria-controls="code-ubuntu" aria-selected="true">Ubuntu 24.04</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-ubuntu" role="tabpanel" tabindex="0" aria-labelledby="tab-ubuntu"><span class="c"># Java {{$m.Java}}, then the server files in ./skyfactory5</span>
+sudo apt install -y openjdk-{{$m.Java}}-jre-headless unzip
+unzip {{$m.ServerFiles.Name}} -d skyfactory5 &amp;&amp; cd skyfactory5
+sh Install.sh                  <span class="c"># installs {{$m.TypeName}} {{$m.Loader}}</span>
+echo "eula=true" &gt; eula.txt
+sh run.sh</pre>
+  </div>
+  <ul>
+    <li><strong>Memory</strong> is in <code>user_jvm_args.txt</code>, which gives Java 4 GB. The pack's README calls 4 GB the minimum, and Playkeeper suggests {{$m.Memory}} for its {{$m.Mods}} mods.</li>
+    <li><strong>The EULA:</strong> without <code>eula.txt</code>, the first start stops and writes one set to false.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="friends">
+  {{template "h2n" (dict "ID" "friends" "N" 5 "Text" "Friends join with the same version" "Toc" "Friends join")}}
+  <div class="shot-step">
+    <div>
+      <p>Players install SkyFactory 5 {{$m.Version}} in the CurseForge app or Prism Launcher, then join your server's address.</p>
+      <p>In Playkeeper, Share with friends on the Mods tab makes a page with the pack's version and their launcher's steps.</p>
+    </div>
+    {{template "cardshot" (dict "Name" "guide-pack-page" "Alt" "The page friends open: the server's versions, the pack file to download and their launcher's steps." "Sizes" $side)}}
+  </div>
+</section>
+{{end}}
+
+{{define "after"}}{{$m := modpack "skyfactory-5"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "How much RAM does a SkyFactory 5 server need?" (printf "%s, what Playkeeper suggests for its %d mods. The pack's own README calls 4 GB the minimum." $m.Memory $m.Mods))
+    (qa "Is SkyFactory 5 Forge or Fabric?" (printf "%s. Version %s runs %s %s on Minecraft %s, with Java %d." $m.TypeName $m.Version $m.TypeName $m.Loader $m.Minecraft $m.Java))
+    (qa "Where is the SkyFactory 5 server pack?" (printf "On the pack's CurseForge page, under its files: %s, %s. Playkeeper doesn't need it from you." $m.ServerFiles.Name (megabytes $m.ServerFiles.MB)))
+    (qa "Why couldn't Playkeeper install SkyFactory 5 before?" "It puts 8,502 files on the server, and before 0.4.3 a pack could put at most 5,000. Minecraft 1.20.1 itself arrived in 0.4.4.")
+  ))}}
+  {{if $m.OneClick}}<section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
+    <div class="tpl-pair">
+      {{template "pack-card" (dict "Pack" $m)}}
+    </div>
+  </section>{{end}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/modpacks" "/modpacks/atm9-server" "/templates/skyblock")}}{{end}}
