@@ -1,0 +1,217 @@
+{{/*
+path: /tools/jvm-flags
+title: Minecraft JVM Arguments Generator: Aikar's Flags and Start Scripts
+description: Make Minecraft JVM arguments for a server or the launcher: Aikar's flags, a heap that leaves Java room, the right Java version and a start script. Free.
+label: JVM arguments generator
+h1: Minecraft JVM arguments generator
+card: Minecraft JVM arguments generator
+kind: Tool
+section: tools
+crumb: Tools
+og: jvm-flags
+updated: 2026-09-28
+schema: tool
+cover: img/tools/jvm-flags.svg
+summary: Aikar's flags in a start script, with a heap that leaves Java room, for a server or the launcher.
+styles: css/tools.css, css/tools/jvm-flags.css
+noscript: css/tools-nojs.css
+scripts: js/tools.js, js/tools/jvm-flags.js
+*/}}
+
+{{define "main"}}{{$j := data "jvm"}}
+<section class="band-chalk page-hero page-hero-center tool-hero" aria-labelledby="page-title">
+  <div class="container">
+    {{template "crumbs" .}}
+    <h1 id="page-title" class="h1-page hero-rise">Minecraft JVM arguments generator</h1>
+    <p class="lead hero-after">JVM arguments tell Java how much memory Minecraft gets and how to clean it up. Pick your server and its memory for Aikar's flags in a start script, with a heap that leaves Java the room it needs.</p>
+    <p class="meta hero-after">Free · Nothing leaves your browser · Updated {{day .Page.Updated}}</p>
+    <p class="tool-nojs">Turn on JavaScript to make arguments for your server. What each of Aikar's flags does is below.</p>
+
+    <div class="tool jvm-tool hero-after" data-jvm-tool>
+      <div class="tool-grid">
+        <section class="tool-card tool-controls" aria-labelledby="jvm-set-title" data-controls>
+          <h2 id="jvm-set-title" class="tool-card-title">Your setup</h2>
+          <fieldset class="tool-field">
+            <legend>Arguments for</legend>
+            <div class="segments">
+              <input type="radio" name="jvm-for" id="jvm-for-server" value="server" checked><label for="jvm-for-server">A server</label>
+              <input type="radio" name="jvm-for" id="jvm-for-game" value="game"><label for="jvm-for-game">The game</label>
+            </div>
+          </fieldset>
+
+          <div class="tool-field">
+            <label class="tool-label" for="jvm-version">Minecraft version</label>
+            <div class="tool-row">
+              <input class="tool-input tool-input-short" id="jvm-version" value="{{$j.Version}}" maxlength="24" inputmode="decimal" autocomplete="off" spellcheck="false" aria-describedby="jvm-java">
+              <p class="jvm-java" id="jvm-java" aria-live="polite" data-java>Runs on <strong>Java {{$j.Java}}</strong></p>
+            </div>
+          </div>
+
+          <div class="tool-panel" data-panel="server">
+            <fieldset class="tool-field">
+              <legend>Server software</legend>
+              <div class="segments jvm-types">
+                <input type="radio" name="jvm-type" id="jvm-type-paper" value="paper" checked><label for="jvm-type-paper">Paper or Purpur</label>
+                <input type="radio" name="jvm-type" id="jvm-type-vanilla" value="vanilla"><label for="jvm-type-vanilla">Vanilla</label>
+                <input type="radio" name="jvm-type" id="jvm-type-fabric" value="fabric"><label for="jvm-type-fabric">Fabric or Quilt</label>
+                <input type="radio" name="jvm-type" id="jvm-type-neoforge" value="neoforge"><label for="jvm-type-neoforge">NeoForge or Forge</label>
+              </div>
+            </fieldset>
+            <div class="tool-field">
+              <label class="tool-label" for="jvm-memory">Memory the server can use</label>
+              <div class="range-row"><input type="range" class="tool-range" id="jvm-memory" min="1" max="32" step="0.5" value="8" aria-describedby="jvm-memory-hint"><span class="range-value" data-memory-value>8 GB</span></div>
+              <p class="tool-hint" id="jvm-memory-hint">Your host's plan, or what the machine can spare for it.</p>
+            </div>
+            <div class="tool-field" data-mods-field hidden>
+              <label class="tool-label" for="jvm-mods">Mods</label>
+              <div class="range-row"><input type="range" class="tool-range" id="jvm-mods" min="0" max="500" step="5" value="100" aria-describedby="jvm-mods-hint"><span class="range-value" data-mods-value>100</span></div>
+              <p class="tool-hint" id="jvm-mods-hint">Each needs a little memory outside the heap.</p>
+            </div>
+            <fieldset class="tool-field">
+              <legend>Flags</legend>
+              <div class="segments">
+                <input type="radio" name="jvm-flags" id="jvm-flags-aikar" value="aikar" checked><label for="jvm-flags-aikar">Aikar's flags</label>
+                <input type="radio" name="jvm-flags" id="jvm-flags-zgc" value="zgc"><label for="jvm-flags-zgc">ZGC</label>
+                <input type="radio" name="jvm-flags" id="jvm-flags-none" value="none"><label for="jvm-flags-none">Java's defaults</label>
+              </div>
+              <p class="tool-hint" data-flags-hint>G1, tuned for Minecraft: what Paper recommends and Playkeeper uses.</p>
+            </fieldset>
+            <fieldset class="tool-field">
+              <legend>Options</legend>
+              <label class="jvm-switch" for="jvm-restart" data-restart-field><span class="jvm-switch-text">Restart when it stops<small>After a crash or /stop, until you press Ctrl+C.</small></span><input type="checkbox" role="switch" id="jvm-restart"><span class="jvm-switch-track" aria-hidden="true"></span></label>
+              <label class="jvm-switch" for="jvm-gclog"><span class="jvm-switch-text">Log garbage collection<small data-gclog-hint>To logs/gc.log, five files of 1 MB at most.</small></span><input type="checkbox" role="switch" id="jvm-gclog"><span class="jvm-switch-track" aria-hidden="true"></span></label>
+            </fieldset>
+            <div class="tool-field" data-jar-field>
+              <label class="tool-label" for="jvm-jar">Server jar</label>
+              <input class="tool-input tool-input-mono" id="jvm-jar" value="paper.jar" maxlength="80" autocomplete="off" spellcheck="false" aria-describedby="jvm-jar-hint">
+              <p class="tool-hint" id="jvm-jar-hint">The .jar file in the server's folder.</p>
+            </div>
+          </div>
+
+          <div class="tool-panel" data-panel="game" hidden>
+            <div class="tool-field">
+              <label class="tool-label" for="jvm-game-memory">Memory for the game</label>
+              <div class="range-row"><input type="range" class="tool-range" id="jvm-game-memory" min="2" max="16" step="1" value="4" aria-describedby="jvm-game-memory-hint"><span class="range-value" data-game-memory-value>4 GB</span></div>
+              <p class="tool-hint" id="jvm-game-memory-hint">Since 26.1 the launcher gives the game 4 GB; before, 2 GB.</p>
+            </div>
+            <fieldset class="tool-field">
+              <legend>Launcher</legend>
+              <div class="segments">
+                <input type="radio" name="jvm-launcher" id="jvm-launcher-official" value="official" checked><label for="jvm-launcher-official">Minecraft Launcher</label>
+                <input type="radio" name="jvm-launcher" id="jvm-launcher-other" value="other"><label for="jvm-launcher-other">Another launcher</label>
+              </div>
+              <p class="tool-hint" data-launcher-hint>Installations, then ⋯ › Edit › More options: JVM arguments.</p>
+            </fieldset>
+          </div>
+        </section>
+
+        <section class="tool-card tool-preview" aria-labelledby="jvm-out-title" data-preview>
+          <h2 id="jvm-out-title" class="tool-card-title">Your arguments</h2>
+          <div class="jvm-heap" data-heap>
+            <div class="jvm-heap-bar" aria-hidden="true"><span class="jvm-heap-fill" data-heap-fill></span></div>
+            <p class="jvm-heap-legend"><span class="jvm-heap-in"><strong data-heap-size>{{$j.HeapGB}} GB</strong> heap, the -Xmx</span><span class="jvm-heap-out"><strong data-outside-size>{{$j.OutsideGB}} GB</strong> for Java itself and the system</span></p>
+          </div>
+          <div class="segments jvm-formats" data-formats>
+            <input type="radio" name="jvm-format" id="jvm-format-sh" value="sh" checked><label for="jvm-format-sh">start.sh</label>
+            <input type="radio" name="jvm-format" id="jvm-format-bat" value="bat"><label for="jvm-format-bat">start.bat</label>
+            <input type="radio" name="jvm-format" id="jvm-format-args" value="args" hidden><label for="jvm-format-args" hidden>user_jvm_args.txt</label>
+            <input type="radio" name="jvm-format" id="jvm-format-flags" value="flags"><label for="jvm-format-flags">Flags only</label>
+          </div>
+          <figure class="tool-result jvm-result">
+            <figcaption class="tool-result-head">
+              <span class="tool-result-title" data-out-title>start.sh</span>
+              <span class="jvm-result-actions">
+                <button type="button" class="tool-copy" data-tool-copy="jvm-flags" data-copy-from="#jvm-out">{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span><span class="visually-hidden"> the arguments</span></button>
+                <button type="button" class="tool-copy" data-download>{{template "icon" "download"}}<span>Download</span></button>
+              </span>
+            </figcaption>
+            <pre id="jvm-out" tabindex="0" data-out>#!/usr/bin/env sh
+# A {{$j.HeapGB}} GB heap with Aikar's flags, on Java {{$j.Java}}. playkeeper.io/tools/jvm-flags
+cd "$(dirname "$0")"
+java -Xms{{$j.HeapMB}}M -Xmx{{$j.HeapMB}}M{{range $j.Aikar}} {{.Flag}}{{end}} -jar paper.jar --nogui</pre>
+          </figure>
+          <p class="tool-hint jvm-next" data-next>Save it next to paper.jar, run <code>chmod +x start.sh</code> once, then <code>./start.sh</code>.</p>
+        </section>
+      </div>
+
+      <div class="tool-dock" data-dock inert>
+        <span class="tool-dock-text" data-dock-title>start.sh<small data-dock-info>{{$j.HeapGB}} GB heap · Aikar's flags</small></span>
+        <button type="button" class="btn btn-primary" data-tool-copy="jvm-flags" data-copy-from="#jvm-out">{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="start-title">
+  <div class="container">
+    <h2 id="start-title" class="section-title reveal">Start your server with it</h2>
+    <p class="section-sub reveal">On Linux, macOS or Windows, or in a host's panel, with any Java from 8 to 25.</p>
+    <div class="tool-how">
+      <div>
+        <h3 class="tool-how-title reveal">Where it goes</h3>
+        {{template "steps" (dict "Class" "steps-lg" "Items" (list
+          (dict "Title" "Linux and macOS: start.sh" "Text" (html "Save it next to the server's jar, run <code>chmod +x start.sh</code> once, then <code>./start.sh</code> to start."))
+          (dict "Title" "Windows: start.bat" "Text" "Save it next to the server's jar and double-click it.")
+          (dict "Title" "NeoForge and Forge: user_jvm_args.txt" "Text" (html "Replace what's in the file the installer made, then start with <code>./run.sh nogui</code>, or <code>run.bat nogui</code> on Windows."))
+          (dict "Title" "A host's panel: Flags only" "Text" "Paste them where the panel takes JVM arguments.")
+        ))}}
+      </div>
+      <div>
+        <h3 class="tool-how-title reveal">If it won't start</h3>
+        <ul class="tool-checks">
+          <li class="reveal"><strong>UnsupportedClassVersionError</strong><span>The server needs a newer Java. The class file version in the message names it: 61 is Java 17, 65 is Java 21 and 69 is Java 25.</span></li>
+          <li class="reveal"><strong>Error opening log file 'logs/gc.log'</strong><span>Java 11 and newer won't start while the GC log's folder is missing. Make a <code>logs</code> folder next to the server; the scripts made here do.</span></li>
+          <li class="reveal"><strong>Unrecognized VM option</strong><span>Your Java doesn't have that flag: <code>-XX:+UseCompactObjectHeaders</code> needs Java 25, and <code>-XX:+ZGenerational</code> Java 21.</span></li>
+          <li class="reveal"><strong>Could not reserve enough space for object heap</strong><span>Java can't get that much memory: the heap is bigger than the machine has free, or the Java is 32-bit.</span></li>
+          <li class="reveal"><strong>It just says Killed</strong><span>The system ran out of memory and stopped Java. Give the heap less, so Java has room outside it.</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk" aria-labelledby="flags-title" id="flags">
+  <div class="container">
+    <h2 id="flags-title" class="section-title reveal">What each of Aikar's flags does</h2>
+    <p class="section-sub reveal">They tune G1, Java's garbage collector, for how Minecraft uses memory. From {{$j.LargeGB}} GB of heap, five take larger values.</p>
+    <dl class="jvm-flags">
+      <div class="jvm-flag reveal"><dt><code>-Xms</code> and <code>-Xmx</code></dt><dd>The heap, where Minecraft keeps what it's working on. The same size for both means Java takes it all at the start and never has to grow it.</dd></div>
+      {{- range $j.Aikar}}
+      <div class="jvm-flag reveal"><dt><code>{{.Flag}}</code>{{with .LargeValue}}<span class="jvm-flag-large">{{$j.LargeGB}} GB or more: {{.}}</span>{{end}}</dt><dd>{{.What}}</dd></div>
+      {{- end}}
+    </dl>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="pk-title">
+  <div class="container tool-pk">
+    <div>
+      <h2 id="pk-title" class="section-title reveal">Playkeeper starts every server this way</h2>
+      <p class="section-sub reveal">Aikar's flags, the Java its Minecraft version needs and a heap sized as it is here. Settings › Memory then suggests a size from what the server needed over the last 14 days.</p>
+      <div class="reveal">{{template "install" (dict "ID" true)}}</div>
+      <div class="hero-actions reveal"><a class="btn btn-outline" href="/demo/servers/survival/settings">See it in the live demo{{template "icon" "arrow-right"}}</a></div>
+    </div>
+    <div class="tool-pk-art reveal">
+      {{template "cardshot" (dict "Name" "tool-memory" "Alt" "A server's Memory in Playkeeper's Settings: it never needed more than 2.5 GB in the last 14 days, so 4 GB is plenty, over a chart of each day's peak." "Sizes" "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) 560px, 460px")}}
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk">
+  <div class="container">
+    {{template "faq" (dict "ID" "questions" "Items" (list
+      (qa "What are the best JVM arguments for a Minecraft server?" "For most servers, Aikar's flags, with <code>-Xms</code> and <code>-Xmx</code> set to the same heap and room left for Java outside it. Paper recommends them. On Java 17 or newer it also suggests trying Java's defaults first, and Aikar's flags if garbage collection makes the server lag.")
+      (qa "How much memory should -Xmx get?" "Less than the server has. Java needs memory outside the heap for its own code, threads and network buffers, and a host stops the server when it goes over. This tool leaves a quarter outside, at least 512 MB and more for mod loaders, as Playkeeper does. Paper suggests leaving about 1,000 to 1,500 MB.")
+      (qa "Should -Xms and -Xmx be the same?" "Yes, on a server. Java then takes the whole heap at the start and never resizes it, and G1 makes better use of memory it has than of memory it might get.")
+      (qa "Do Aikar's flags still work on Java 21 and 25?" (printf "Yes. Every one of them starts on Java 8, 16, 17, 21 and 25 without a warning. From %d GB of heap, use Aikar's larger values, as this tool does." $j.LargeGB))
+      (qa "Aikar's flags or ZGC?" "Aikar's flags tune G1, which Paper recommends and Playkeeper uses. ZGC pauses the server for under a millisecond, but needs more memory headroom and processor time. Its generational mode needs Java 21, so Minecraft 1.20.5 or newer. Since 26.1 the Minecraft Launcher starts the game itself with ZGC.")
+      (qa "What JVM arguments does the Minecraft Launcher use?" (printf "Since 26.1, on computers that support ZGC: <code>-Xms4G -Xmx4G %s</code>, 4 GB with ZGC. Before that: <code>-Xmx2G %s</code>, 2 GB with G1. To give the game more memory, change only the numbers." $j.LauncherArgs $j.OldLauncher))
+      (qa "Why won't my server start after adding the GC log flag?" "Java 11 and newer refuse to start when the log's folder doesn't exist yet, with <code>Error opening log file 'logs/gc.log'</code>. Make a <code>logs</code> folder next to the server first. The start scripts made here do it for you.")
+      (qa "What Java does my Minecraft version need?" "Java 8 up to 1.16.5, Java 16 for 1.17, Java 17 up to 1.20.4, Java 21 up to 1.21.11 and Java 25 from 26.1. The tool shows it as you type the version.")
+      (qa "Does Playkeeper use Aikar's flags?" "Yes. Every server starts with them, on the Java its Minecraft version needs, with a heap sized from its memory the way this tool sizes it. Playkeeper also logs its garbage collection, and Settings › Memory suggests a size from that.")
+    ))}}
+  </div>
+</section>
+
+{{template "related" (related 3 "/sizing" "/tools/server-properties" "/guides/modded-minecraft-server" "/tools")}}
+{{end}}
