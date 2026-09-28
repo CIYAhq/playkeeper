@@ -1,0 +1,163 @@
+{{/*
+path: /guides/add-mods-to-minecraft-server
+title: How to add mods to a Minecraft server, step by step (2026)
+description: How to add mods to a Minecraft server: run it on a mod loader, pick mods that run on servers, put them in the mods folder, and give friends the same mods.
+label: Add mods
+h1: How to add mods to a Minecraft server (2026)
+card: How to add mods to a Minecraft server
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: add-mods-to-minecraft-server
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}Run the server on a mod loader ({{loaders "or"}}), download mods made for that loader and its Minecraft version, put the .jar files and the mods they need in the server's mods folder, and restart. Players install the same mods, except server-only ones. In Playkeeper, the Mods tab adds a mod and what it needs in one click.{{end}}
+
+{{define "closing-title"}}Mods in one click, on your own server.{{end}}
+{{define "closing-sub"}}Free and open source. Friends get the same mods from one link.{{end}}
+
+{{define "side-text"}}Playkeeper adds a mod and what it needs in one click.{{end}}
+
+{{define "article"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+{{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
+<section aria-labelledby="loader">
+  {{template "h2n" (dict "ID" "loader" "N" 1 "Text" "Check that your server can run mods" "Toc" "Can your server run mods?")}}
+  <p>Mods need a mod loader on the server. Plugin servers like Paper can't load them, and Vanilla runs neither.</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Server type</th><th scope="col">Runs</th><th scope="col">To add mods</th></tr></thead>
+      <tbody>
+        {{range types}}{{$i := img .Logo}}
+        <tr>
+          <th scope="row"><span class="loader-cell"><img src="{{$i.URL}}" alt="" width="34" height="34"{{if .Pixel}} class="pixel"{{end}} loading="lazy">{{.Name}}</span></th>
+          {{if .Mods}}<td>Mods</td><td>Go ahead</td>
+          {{else if eq .ID "vanilla"}}<td>Data packs</td><td>Move the world to a mod loader</td>
+          {{else}}<td>Plugins</td><td>Move the world to a mod loader, or use a plugin instead</td>{{end}}
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  <p>Moving keeps the world: back it up, then start a {{loaders "or"}} server from it. In Playkeeper, New server › A world does that, and shows what comes over before anything changes. The <a href="/guides/modded-minecraft-server">modded server guide</a> helps you pick a loader.</p>
+</section>
+
+<section aria-labelledby="find">
+  {{template "h2n" (dict "ID" "find" "N" 2 "Text" "Find mods that fit your server" "Toc" "Find mods that fit")}}
+  <p>Download mods from Modrinth or CurseForge, and check three things on each mod's page:</p>
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "The loader and Minecraft version" "Text" "The file must name your server's, like NeoForge and 1.21.1. A mod for another loader doesn't load.")
+    (dict "Title" "What it needs" "Text" "Most mods list others they depend on, like Fabric API or Architectury. Each goes in too.")
+    (dict "Title" "Where it runs" "Text" "Modrinth marks each mod for the client, the server or both.")
+  ))}}
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">The mod</th><th scope="col">On the server</th><th scope="col">Players</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Adds blocks, items or mobs, like Create</th><td>Yes</td><td>The same version</td></tr>
+        <tr><th scope="row">Speeds up the server, like Lithium</th><td>Yes</td><td>No need</td></tr>
+        <tr><th scope="row">Graphics or menus, like Sodium or a minimap</th><td>No</td><td>If they want it</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 3 "Text" "Add the files by hand" "Toc" "Add the files by hand")}}
+  <p>On any server you reach over SSH or a host's file manager:</p>
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Stop the server and back it up" "Text" "Mods change the world, and a backup is the way back.")
+    (dict "Title" "Put the .jar files in mods" "Text" "The mods folder sits next to server.properties. The loader makes it the first time it runs.")
+    (dict "Title" "Start it and read the log" "Text" "The loader lists each mod it loads. If it stops, the last lines name the mod.")
+  ))}}
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="Where you are">
+        <button type="button" class="code-tab" role="tab" id="tab-server" aria-controls="code-server" aria-selected="true">Server</button>
+        <button type="button" class="code-tab" role="tab" id="tab-computer" aria-controls="code-computer" aria-selected="false" tabindex="-1">Your computer</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-server" role="tabpanel" tabindex="0" aria-labelledby="tab-server"><span class="c"># In the server's folder, with the server stopped</span>
+cp -r world world-backup
+cd mods
+curl -LO https://cdn.modrinth.com/data/&lt;project&gt;/versions/&lt;version&gt;/&lt;file&gt;.jar
+cd ..
+./run.sh nogui   <span class="c"># Fabric: java -jar fabric-server-launch.jar nogui</span></pre>
+<pre id="code-computer" role="tabpanel" tabindex="0" aria-labelledby="tab-computer" hidden><span class="c"># Copy downloaded mods to the server over SSH</span>
+scp ~/Downloads/*.jar you@your-server:/path/to/server/mods/</pre>
+  </div>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 4 "Text" "The one-click way")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent, and adds mods for you. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  <ol class="steps shot-steps">
+    <li class="step reveal"><span class="step-n" aria-hidden="true">1</span><div><h3 class="step-title">Search the Mods tab</h3><p>It lists Modrinth's mods for your server's loader and version only. What a mod needs installs with it, and each file is checked against Modrinth's checksum.</p></div></li>
+    <li class="step reveal"><span class="step-n" aria-hidden="true">2</span><div><h3 class="step-title">See what friends need</h3><p>Each mod says Friends need it, Optional for friends or Server only.</p></div></li>
+  </ol>
+  {{template "cardshot" (dict "Name" "guide-mods-tab" "Alt" "The Mods tab: mods added by hand, with what friends need of each, and the modpack's own mods." "Sizes" $article)}}
+  <ol class="steps" start="3">
+    <li class="step reveal"><span class="step-n" aria-hidden="true">3</span><div><h3 class="step-title">Or upload one that isn't in a library</h3><p>On the Files tab, drag its .jar into mods and restart the server. Its settings are in config, where the editor opens TOML, JSON and YAML.</p></div></li>
+  </ol>
+  {{template "cardshot" (dict "Name" "guide-files" "Alt" "The Files tab of a Fabric server, open at its mods folder: each mod's file with its size and when it changed, and Upload." "Sizes" $article)}}
+  <p>Mods you upload show on the Mods tab too, and Playkeeper can take over the ones Modrinth recognises, so they get updates.</p>
+</section>
+
+<section aria-labelledby="friends">
+  {{template "h2n" (dict "ID" "friends" "N" 5 "Text" "Give friends the same mods" "Toc" "Friends need the same mods")}}
+  <div class="shot-step">
+    <div>
+      <p>Players need every mod that adds content, in the same version. The easy way is a pack file they import in the Modrinth App or Prism Launcher.</p>
+      <p>In Playkeeper, Share with friends on the Mods tab makes that file and a page with each launcher's steps. Server-only mods stay hidden. <a href="/guides/play-minecraft-with-friends">Playing with friends</a> covers the rest.</p>
+    </div>
+    {{template "cardshot" (dict "Name" "guide-pack-page" "Alt" "The page friends open: the server's versions, the pack file to download and their launcher's steps." "Sizes" $side)}}
+  </div>
+</section>
+
+<section aria-labelledby="existing">
+  {{template "h2n" (dict "ID" "existing" "N" 6 "Text" "Adding mods to a world you already have" "Toc" "Mods on an existing world")}}
+  <ul>
+    <li><strong>New ores and structures</strong> appear only in land nobody has visited yet, so explore further out to find them.</li>
+    <li><strong>Removing a mod</strong> removes its blocks and items from the world. Back up before you do.</li>
+    <li><strong>Updating Minecraft?</strong> Wait until every mod has a version for the new one.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="errors">
+  {{template "h2n" (dict "ID" "errors" "N" 7 "Text" "When the server won't start" "Toc" "When it won't start")}}
+  <ul>
+    <li><strong>It stops at start-up.</strong> The log's last lines name the mod: one for another version or loader, a missing dependency, or a client-only mod. <a href="/guides/modded-minecraft-server#errors">Common modded errors</a> shows each message and its fix.</li>
+    <li><strong>Friends are sent back to the menu.</strong> Their mods don't match the server's. Send them the pack file again.</li>
+    <li><strong>It runs out of memory.</strong> Mods add up: <a href="/sizing">the sizing guide</a> suggests memory for a few mods or a big pack.</li>
+  </ul>
+  <p>On a Playkeeper server, the Overview explains a crash from the log, with the fix one click away.</p>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Can I add mods to a Paper or Spigot server?" (printf "No: Paper and Spigot load plugins. Mods need %s, so start a server on one of those from your world." (loaders "or")))
+    (qa "Do players need the mods too?" "Mods that add blocks, items or mobs: yes, the same versions. Server-only mods, like Lithium: no. Client-only mods, like shaders: only players.")
+    (qa "Can I add mods to a Realm?" "No. Java Realms run vanilla worlds, with no mods or plugins.")
+    (qa "Where do I download mods safely?" "From Modrinth or CurseForge, not re-upload sites. Playkeeper checks each download against the checksum its library publishes.")
+    (qa "How do I remove a mod?" "Stop the server, back it up and delete the mod's file from mods; its blocks and items leave the world. In Playkeeper, remove it from the Mods tab, with or without its settings.")
+    (qa "Can I add a mod that isn't on Modrinth?" "Yes: upload its .jar to mods on the Files tab. It shows on the Mods tab with the rest.")
+  ))}}
+  <section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Or start from a modpack template</h2>
+    <div class="tpl-pair">
+      {{template "template-card" (dict "ID" "cobblemon")}}
+      {{template "template-card" (dict "ID" "better-mc")}}
+    </div>
+  </section>
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/guides/modded-minecraft-server" "/features/mods-and-modpacks" "/guides/play-minecraft-with-friends" "/sizing")}}{{end}}
