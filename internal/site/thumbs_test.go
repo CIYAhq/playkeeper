@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -177,5 +178,56 @@ func TestThumbnailMistakesStopTheBuild(t *testing.T) {
 	}
 	if _, err := buildWith(thumbFiles("towny")); err != nil {
 		t.Errorf("Towny's four thumbnail files: %v", err)
+	}
+}
+
+// A category's guide keeps what its own page says: its intro, its side
+// box's words, its Keep reading band and the link to its questions.
+func TestACategoryGuideKeepsItsOwnParts(t *testing.T) {
+	built := pages(build(t, Default))
+	entries, err := os.ReadDir("../../site/pages/templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions := regexp.MustCompile(`\{\{.*?\}\}`)
+	part := func(src, name string) string {
+		m := regexp.MustCompile(`(?s)\{\{define "` + name + `"\}\}(.*?)\{\{end\}\}`).FindStringSubmatch(src)
+		if m == nil {
+			return ""
+		}
+		return m[1]
+	}
+	checked := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".html") {
+			continue
+		}
+		b, err := os.ReadFile("../../site/pages/templates/" + e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		src, path := string(b), "/templates/"+strings.TrimSuffix(e.Name(), ".html")
+		page := built[path]
+		if page == "" {
+			continue
+		}
+		checked++
+		if short := strings.TrimSpace(actions.ReplaceAllString(part(src, "short"), "")); short != "" {
+			if first, _, _ := strings.Cut(short, ". "); !strings.Contains(page, first) {
+				t.Errorf("%s doesn't open with its own intro, %q", path, first)
+			}
+		}
+		if side := strings.TrimSpace(part(src, "side-text")); side != "" && !strings.Contains(side, "{{") && !strings.Contains(page, side) {
+			t.Errorf("%s's side box doesn't say %q", path, side)
+		}
+		if part(src, "keep-reading") != "" && !strings.Contains(page, `<section class="band band-chalk related"`) {
+			t.Errorf("%s has no Keep reading band", path)
+		}
+		if strings.Contains(page, `id="questions"`) && !strings.Contains(page, `<li><a href="#questions">Questions</a></li>`) {
+			t.Errorf("%s's contents don't link its questions", path)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no category guide was built")
 	}
 }
