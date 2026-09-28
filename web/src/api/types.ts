@@ -956,6 +956,8 @@ export interface JoinAddress {
   published: boolean
   /** The server's own address under an own domain, which is then `address`, with its own records and page. */
   ownAddress?: string
+  /** `ownAddress` is `label`.domain from the domain's wildcard record (`Address.serverAddresses`): no records of its own, and players type the port. */
+  automatic?: boolean
 }
 
 export interface FreeAddress {
@@ -1081,6 +1083,8 @@ export interface Address {
   free?: FreeAddress
   records?: DNSRecord[] | null
   check?: AddressCheck
+  /** Every server gets `label`.host through one wildcard record, *.host, in `records`. */
+  serverAddresses?: boolean
   certificate?: CertificateStatus
   names: NamesService
   termsAccepted?: string

@@ -1108,6 +1108,7 @@ describe('address', () => {
     const srv: DNSRecord = { serverId: 's2', type: 'SRV', name: '_minecraft._tcp.creative.play.example.com', value: '0 5 25566 play.example.com', ttl: 300, srv: { service: 'minecraft', protocol: 'tcp', host: 'creative.play.example.com', priority: 0, weight: 5, port: 25566, target: 'play.example.com' } }
     expect(recordFor(a, servers)).toBe('Dashboard and Survival')
     expect(recordFor(a, servers.slice(1))).toBe('Dashboard')
+    expect(recordFor({ ...a, name: `*.${a.name}` }, servers)).toBe('Every server')
     expect(recordFor(srv, servers)).toBe('Creative, on port 25566')
     expect(recordFor(srv, servers, true)).toBe('Creative')
   })
