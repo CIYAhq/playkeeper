@@ -144,10 +144,15 @@
     {{if .Crossplay}}<p class="dcard-badge">Crossplay</p>{{end}}
     <p class="dcard-meta">{{with $l.Logo}}{{$i := img .}}<img class="dcard-logo{{if $l.Pixel}} pixel{{end}}" src="{{$i.URL}}" alt="" width="16" height="16" loading="lazy" decoding="async">{{end}}<span class="dcard-loader">{{$l.Name}} {{.Version}}</span><span class="dcard-mem">{{.Memory}}</span></p>
     <p class="dcard-desc">{{.Description}}</p>
-    {{with .CardTags}}<ul class="dcard-tags" aria-label="Adds">{{range .}}<li>{{.Name}}</li>{{end}}</ul>{{end}}
+    {{with .Installs}}<ul class="dcard-installs" aria-label="Installs">{{range $i, $x := .}}{{if lt $i 3}}<li>{{template "addon-icon" $x}}<span>{{$x.Name}}</span></li>{{end}}{{end}}{{if gt (len .) 3}}<li class="dcard-more">+{{add (len .) -3}} more</li>{{end}}</ul>{{end}}
     <a class="dcard-open" href="{{.Link}}" data-template-open="{{.ID}}"><span>Open in my dashboard</span>{{template "icon" "arrow-up-right"}}<span class="visually-hidden"> the {{.Name}} template</span></a>
   </div>
 </article>{{end}}
+
+{{/* addon-icon: an Installed's icon on a card, or its initial; addon-mark:
+     the same, larger, on a template's page. */}}
+{{define "addon-icon"}}{{with .Icon}}<img class="ai" src="{{.URL}}" alt="" width="18" height="18" loading="lazy" decoding="async">{{else}}<span class="ai ai-initial" aria-hidden="true">{{initial $.Name}}</span>{{end}}{{end}}
+{{define "addon-mark"}}{{with .Icon}}<img class="addon-mark addon-icon" src="{{.URL}}" alt="" width="40" height="40" loading="lazy" decoding="async">{{else}}<span class="addon-mark" aria-hidden="true">{{initial $.Name}}</span>{{end}}{{end}}
 
 {{/* dir-card-shell: the card js/templates.js fills in for a template it
      draws; its Open in my dashboard goes through /t/<id>. */}}
@@ -158,7 +163,7 @@
     <p class="dcard-badge" data-slot="crossplay">Crossplay</p>
     <p class="dcard-meta"><img class="dcard-logo" alt="" width="16" height="16" loading="lazy" decoding="async" data-slot="logo"><span class="dcard-loader" data-slot="loader"></span><span class="dcard-mem" data-slot="memory"></span></p>
     <p class="dcard-desc" data-slot="desc"></p>
-    <ul class="dcard-tags" aria-label="Adds" data-slot="tags"></ul>
+    <ul class="dcard-installs" aria-label="Installs" data-slot="installs"></ul>
     <a class="dcard-open" href="/templates" data-slot="open"><span>Open in my dashboard</span>{{template "icon" "arrow-up-right"}}<span class="visually-hidden" data-slot="open-name"></span></a>
   </div>
 </article></li>{{end}}
@@ -273,7 +278,7 @@
         <h2 id="installs" class="tpage-h2">What it installs</h2>
         <p class="tpage-lead">The versions the template pins, as they installed when we started it, so your dashboard installs the same.</p>
         <ul class="addon-list">
-          {{range $k.Plugins}}<li class="addon"><span class="addon-mark" aria-hidden="true">{{initial .Name}}</span><span class="addon-main"><a class="addon-name" href="https://modrinth.com/project/{{.Slug}}">{{.Name}}</a><span class="addon-version">{{.Version}}</span></span><span class="addon-meta"><span>{{downloads .Downloads}} downloads</span><span>{{licence .Licence}}</span></span></li>{{end}}
+          {{range $k.Plugins}}<li class="addon">{{template "addon-mark" (dict "Name" .Name "Icon" ($t.IconOf .Slug))}}<span class="addon-main"><a class="addon-name" href="https://modrinth.com/project/{{.Slug}}">{{.Name}}</a><span class="addon-version">{{.Version}}</span></span><span class="addon-meta"><span>{{downloads .Downloads}} downloads</span><span>{{licence .Licence}}</span></span></li>{{end}}
         </ul>
       </section>
       {{else}}{{with $t.PackCheck}}
@@ -281,7 +286,7 @@
         <h2 id="installs" class="tpage-h2">What it installs</h2>
         <p class="tpage-lead">The modpack version the template pins, as it installed when we started it.{{with $t.PackPage}} <a href="{{.Path}}">What the {{.Label}} server needs</a>.{{end}}</p>
         <ul class="addon-list">
-          <li class="addon"><span class="addon-mark" aria-hidden="true">{{initial .Name}}</span><span class="addon-main">{{if eq (print $tp.Modpack.Source) "modrinth"}}<a class="addon-name" href="https://modrinth.com/modpack/{{$tp.Modpack.Slug}}">{{.Name}}</a>{{else}}<span class="addon-name">{{.Name}}</span>{{end}}<span class="addon-version">{{.Version}}</span></span><span class="addon-meta"><span>{{.Mods}} mods on the server</span><span>{{downloads .Downloads}} downloads</span></span></li>
+          <li class="addon">{{template "addon-mark" (dict "Name" .Name "Icon" (index $t.Installs 0).Icon)}}<span class="addon-main">{{if eq (print $tp.Modpack.Source) "modrinth"}}<a class="addon-name" href="https://modrinth.com/modpack/{{$tp.Modpack.Slug}}">{{.Name}}</a>{{else}}<span class="addon-name">{{.Name}}</span>{{end}}<span class="addon-version">{{.Version}}</span></span><span class="addon-meta"><span>{{.Mods}} mods on the server</span><span>{{downloads .Downloads}} downloads</span></span></li>
         </ul>
       </section>
       {{end}}{{end}}
