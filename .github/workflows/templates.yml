@@ -161,8 +161,14 @@ jobs:
           if [ -n "$ONLY" ]; then
             ids=$(tr , '\n' <<<"$ONLY")
           else
+            # Templates without a thumbnail whose servers the capture bot can
+            # join (cmd/template-check's viaFor): a NeoForge or Forge pack's
+            # comes from its icon, with pack-art.mjs, by hand.
             ids=$(find site/data/templates -maxdepth 1 -name '*.json' ! -name cards.json -printf '%f\n' | sed 's/\.json$//' | sort |
-              while read -r id; do [ -f "site/static/shots/templates/$id-960w.webp" ] || echo "$id"; done)
+              while read -r id; do
+                [ -f "site/static/shots/templates/$id-960w.webp" ] && continue
+                case $(jq -r .server.type "site/data/templates/$id.json") in paper | purpur | folia | fabric) echo "$id" ;; esac
+              done)
           fi
           echo "only=$(paste -sd, <<<"$ids")" >> "$GITHUB_OUTPUT"
           echo "count=$(grep -c . <<<"$ids" || true)" >> "$GITHUB_OUTPUT"

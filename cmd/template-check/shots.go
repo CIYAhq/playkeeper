@@ -53,19 +53,21 @@ func (e cantShoot) Error() string { return string(e) }
 // viaFor is what a server of this type and version needs so the capture bot
 // can join: ViaVersion lets a newer client onto an older server (ViaFabric
 // on Fabric), and ViaBackwards an older client onto a newer one. Nothing,
-// on the bot's own version.
+// on the bot's own version. A vanilla server joins only on that version,
+// and a NeoForge or Forge server never: its mods must be on the client too.
 func viaFor(typ, version string) ([]string, error) {
+	var via []string
+	switch {
+	case typ == "paper" || typ == "purpur" || typ == "folia":
+		via = []string{"viaversion"}
+	case typ == "fabric":
+		via = []string{"viafabric"}
+	case typ == "vanilla" && version == shotVersion:
+	default:
+		return nil, cantShoot(fmt.Sprintf("the capture bot speaks Minecraft %s, and can't join %s servers on %s", shotVersion, typ, version))
+	}
 	if version == shotVersion {
 		return nil, nil
-	}
-	var via []string
-	switch typ {
-	case "paper", "purpur", "folia":
-		via = []string{"viaversion"}
-	case "fabric":
-		via = []string{"viafabric"}
-	default:
-		return nil, cantShoot(fmt.Sprintf("the capture bot speaks Minecraft %s, and ViaVersion doesn't run on %s servers to let it onto %s", shotVersion, typ, version))
 	}
 	if minecraft.CompareMinecraft(version, shotVersion) > 0 {
 		via = append(via, "viabackwards")
