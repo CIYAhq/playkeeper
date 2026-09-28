@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -86,8 +87,14 @@ func (f *fakeAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "GET /v1/servers/s1":
 		reply(api.ServerStatus{ID: "s1", Phase: api.PhaseOnline})
 	case "GET /v1/servers/s1/logs":
+		// The agent keeps a server's newest 2,000 lines and answers a limit
+		// it can't meet with its newest 500.
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		if limit <= 0 || limit > 2000 {
+			limit = 500
+		}
 		var lines []api.LogLine
-		for _, l := range f.log {
+		for _, l := range f.log[max(0, len(f.log)-limit):] {
 			lines = append(lines, api.LogLine{Text: l})
 		}
 		reply(api.LogsResponse{Lines: lines})
@@ -202,6 +209,25 @@ func TestACurseForgePackGetsItsDownloadsFromTheRelease(t *testing.T) {
 	r := newTestChecker(t, agent).check(context.Background(), "atm9", f, false, false)
 	if r.Status != statusPassing || r.Check.Modpack == nil || r.Check.Modpack.Downloads != 13639405 {
 		t.Fatalf("got %s %q, modpack %+v", r.Status, r.Failure, r.Check.Modpack)
+	}
+}
+
+// FTB StoneBlock 4 logs over 500 lines in the second after it says Done, as
+// its mods look through loot tables, and its check still reads the Done line.
+func TestACheckFindsDoneBeforeABigModpacksBurstOfLines(t *testing.T) {
+	tpl, err := templates.Decode([]byte(curseforgePack))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &templateFile{path: filepath.Join(t.TempDir(), "atm9.json"), raw: []byte(curseforgePack), t: tpl}
+	log := []string{"[Server thread/INFO]: Done (8.12s)! For help, type \"help\""}
+	for range 1200 {
+		log = append(log, "[Server thread/WARN] [ali]: Loot table twilightforest:entities/naga belongs to no entity by its id")
+	}
+	agent := &fakeAgent{ready: true, log: log}
+	r := newTestChecker(t, agent).check(context.Background(), "atm9", f, false, false)
+	if r.Status != statusPassing || r.Check.DoneSeconds != 8.12 {
+		t.Fatalf("got %s %q, check %+v", r.Status, r.Failure, r.Check)
 	}
 }
 
