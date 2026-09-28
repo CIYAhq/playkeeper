@@ -99,6 +99,9 @@ func Build(o Options) (*Output, error) {
 	if s.dir, err = loadDirectory(o.Root, "site/data/taxonomy.json", s.cards, checked, s.packs); err != nil {
 		return nil, err
 	}
+	if err := s.addThumbs(); err != nil {
+		return nil, err
+	}
 	if s.pages, err = loadPages(o.Root, "site/pages"); err != nil {
 		return nil, err
 	}
@@ -364,6 +367,13 @@ func (s *Site) render(p *Page) ([]byte, error) {
 		if v.After, err = part("after"); err != nil {
 			return nil, err
 		}
+		// The directory's pages show template thumbnails, which the head
+		// asks for early, so they render before the page around them too.
+		if block := dirBlocks[p.Layout]; block != "" {
+			if v.Main, err = part(block); err != nil {
+				return nil, err
+			}
+		}
 	default:
 		if v.Main, err = part("main"); err != nil {
 			return nil, err
@@ -382,6 +392,9 @@ func (s *Site) render(p *Page) ([]byte, error) {
 	}
 	return b.Bytes(), nil
 }
+
+// dirBlocks are the directory's layouts' blocks in site/layouts/directory.html.
+var dirBlocks = map[string]string{"directory": "directory", "category": "category", "template": "template-page"}
 
 // crumbs is the page's breadcrumb: its section, then the page. A category of
 // the template directory is under Templates, and a template under its

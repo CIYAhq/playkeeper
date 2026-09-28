@@ -65,6 +65,8 @@ type TemplateCard struct {
 	tagIDs       []string
 	modpackMods  int
 	modpackTitle string
+	// thumb is its thumbnail's name, when it has one (Site.addThumbs).
+	thumb string
 }
 
 // Held reports whether pages leave the template out: the release people

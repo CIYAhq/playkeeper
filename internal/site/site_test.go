@@ -789,6 +789,10 @@ func TestScreenshotsArePicturesWithSizes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
+		// Template thumbnails, in shots/templates, have their own test.
+		if e.IsDir() {
+			continue
+		}
 		a := s.assets["shots/"+e.Name()]
 		if a == nil || !shown[a.URL] {
 			t.Errorf("site/static/shots/%s isn't shown on any page", e.Name())

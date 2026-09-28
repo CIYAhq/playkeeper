@@ -190,11 +190,21 @@
   function card(t) {
     var d = index.data;
     var el = shell.content.firstElementChild.cloneNode(true);
-    var art = d.arts[t.art];
     var img = slot(el, 'art');
-    img.src = art.src;
-    img.width = art.w;
-    img.height = art.h;
+    if (t.th) {
+      // Its thumbnail, a picture of its world, 480 and 960 pixels wide.
+      img.src = t.th[0];
+      img.srcset = t.th[0] + ' 480w, ' + t.th[1] + ' 960w';
+      img.sizes = '(max-width: 639.98px) 100vw, (max-width: 1199.98px) 50vw, 300px';
+      img.width = 480;
+      img.height = 300;
+      img.parentNode.classList.add('is-photo');
+    } else {
+      var art = d.arts[t.art];
+      img.src = art.src;
+      img.width = art.w;
+      img.height = art.h;
+    }
     var name = slot(el, 'name');
     name.textContent = t.name;
     name.href = t.page;

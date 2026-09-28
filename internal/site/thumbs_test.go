@@ -1,0 +1,181 @@
+package site
+
+import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"io/fs"
+	"os"
+	"slices"
+	"strings"
+	"testing"
+	"testing/fstest"
+	"time"
+)
+
+// mergedFS is the repository with extra files in it, listed in their
+// folders too.
+type mergedFS struct {
+	base  fs.FS
+	extra fstest.MapFS
+}
+
+func (m mergedFS) Open(name string) (fs.File, error) {
+	if f, ok := m.extra[name]; ok && !f.Mode.IsDir() {
+		return m.extra.Open(name)
+	}
+	return m.base.Open(name)
+}
+
+func (m mergedFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	a, errA := fs.ReadDir(m.base, name)
+	b, errB := fs.ReadDir(m.extra, name)
+	if errA != nil && errB != nil {
+		return nil, errA
+	}
+	seen := map[string]bool{}
+	var out []fs.DirEntry
+	for _, e := range append(a, b...) {
+		if !seen[e.Name()] {
+			seen[e.Name()] = true
+			out = append(out, e)
+		}
+	}
+	slices.SortFunc(out, func(x, y fs.DirEntry) int { return strings.Compare(x.Name(), y.Name()) })
+	return out, nil
+}
+
+// fakeWebP and fakeAVIF are just enough of a w × h image for the site to
+// read its size.
+func fakeWebP(w, h int) []byte {
+	b := make([]byte, 30)
+	copy(b, "RIFF")
+	binary.LittleEndian.PutUint32(b[4:], 22)
+	copy(b[8:], "WEBPVP8X")
+	binary.LittleEndian.PutUint32(b[16:], 10)
+	b[24], b[25], b[26] = byte(w-1), byte((w-1)>>8), byte((w-1)>>16)
+	b[27], b[28], b[29] = byte(h-1), byte((h-1)>>8), byte((h-1)>>16)
+	return b
+}
+
+func isoBox(typ string, body ...[]byte) []byte {
+	payload := bytes.Join(body, nil)
+	b := binary.BigEndian.AppendUint32(nil, uint32(8+len(payload)))
+	return append(append(b, typ...), payload...)
+}
+
+func fakeAVIF(w, h int) []byte {
+	ispe := binary.BigEndian.AppendUint32(binary.BigEndian.AppendUint32(make([]byte, 4), uint32(w)), uint32(h))
+	return append(isoBox("ftyp", []byte("avif\x00\x00\x00\x00avifmif1")), isoBox("meta", make([]byte, 4), isoBox("iprp", isoBox("ipco", isoBox("ispe", ispe))))...)
+}
+
+// thumbFiles are the four files site/tools/shots.py makes for a template.
+func thumbFiles(id string) fstest.MapFS {
+	out := fstest.MapFS{}
+	for _, w := range thumbWidths {
+		base := fmt.Sprintf("site/static/shots/templates/%s-%dw", id, w)
+		out[base+".webp"] = &fstest.MapFile{Data: fakeWebP(w, w*10/16)}
+		out[base+".avif"] = &fstest.MapFile{Data: fakeAVIF(w, w*10/16)}
+	}
+	return out
+}
+
+func buildWith(extra fstest.MapFS) (*Output, error) {
+	return Build(Options{Root: mergedFS{os.DirFS("../.."), extra}, Settings: Default, Now: time.Now()})
+}
+
+// A template's thumbnail takes the place of its pixel-art scene on its card,
+// its page and its category's picture, as a <picture> with both widths in
+// AVIF and WebP, asked for early where it's the first thing a page shows. A
+// template without one keeps its scene.
+func TestThumbnailsTakeTheScenesPlace(t *testing.T) {
+	plain := build(t, Default)
+	idx := indexOf(t, plain)
+	first := idx.Templates[0].ID
+	extra := thumbFiles("towny")
+	for k, v := range thumbFiles(first) {
+		extra[k] = v
+	}
+	o, err := buildWith(extra)
+	if err != nil {
+		t.Fatal(err)
+	}
+	built := pages(o)
+	withThumb := map[string]bool{"towny": true, first: true}
+	hub := built["/templates"]
+	for i, e := range indexOf(t, o).Templates {
+		card := cardOf(hub, e.Page)
+		photo := strings.Contains(card, `class="dcard-art is-photo"><picture><source type="image/avif" srcset="/assets/shots/templates/`+e.ID+`-480w.`)
+		if i < PerPage && photo != withThumb[e.ID] {
+			t.Errorf("/templates shows %s's thumbnail %v, want %v", e.ID, photo, withThumb[e.ID])
+		}
+		if withThumb[e.ID] != (len(e.Thumb) == 2) || (len(e.Thumb) == 2 && (!strings.Contains(e.Thumb[0], e.ID+"-480w.") || !strings.Contains(e.Thumb[1], e.ID+"-960w."))) {
+			t.Errorf("the index gives %s the thumbnail %v", e.ID, e.Thumb)
+		}
+		page := built[e.Page]
+		hero := strings.Contains(page, `class="tpage-art hero-rise is-photo"><picture>`)
+		if hero != withThumb[e.ID] {
+			t.Errorf("%s shows its thumbnail at the top %v, want %v", e.Page, hero, withThumb[e.ID])
+		}
+		if hero && !strings.Contains(page, `<link rel="preload" as="image" type="image/avif" imagesrcset="/assets/shots/templates/`+e.ID+`-480w.`) {
+			t.Errorf("%s doesn't ask for its thumbnail early", e.Page)
+		}
+	}
+	if !strings.Contains(built["/templates/towny"], `class="cat-scene is-photo"`) || !strings.Contains(built["/templates/towny"], `media="(min-width: 1024px)" fetchpriority="high">`) {
+		t.Error("/templates/towny's picture isn't Towny's thumbnail, asked for early on screens that show it")
+	}
+	// Every page's pictures keep the site's rules for screenshots.
+	for p, html := range built {
+		pictures := rePicture.FindAllStringSubmatch(html, -1)
+		if n := strings.Count(html, `class="shot-img`); n != len(pictures) {
+			t.Errorf("%s has %d screenshots, %d of them in a <picture> with sizes", p, n, len(pictures))
+		}
+		preloads := map[string]string{}
+		for _, m := range rePreload.FindAllStringSubmatch(html, -1) {
+			preloads[m[1]] = m[2]
+		}
+		eager := 0
+		for _, m := range pictures {
+			if m[6] == ` fetchpriority="high"` {
+				eager++
+				if preloads[m[1]] != m[5] {
+					t.Errorf("%s shows %s first without asking for it early with its sizes", p, m[1])
+				}
+			}
+		}
+		if eager != len(preloads) {
+			t.Errorf("%s shows %d pictures first and asks for %d early", p, eager, len(preloads))
+		}
+	}
+}
+
+// A thumbnail that isn't one of a template's four files stops the build.
+func TestThumbnailMistakesStopTheBuild(t *testing.T) {
+	for name, edit := range map[string]func(fstest.MapFS){
+		"a thumbnail for no template": func(m fstest.MapFS) {
+			for k, v := range thumbFiles("no-such-template") {
+				m[k] = v
+			}
+		},
+		"a thumbnail that isn't 16:10": func(m fstest.MapFS) {
+			m["site/static/shots/templates/towny-480w.webp"] = &fstest.MapFile{Data: fakeWebP(480, 320)}
+		},
+		"a width short": func(m fstest.MapFS) { delete(m, "site/static/shots/templates/towny-960w.avif") },
+		"another width": func(m fstest.MapFS) {
+			m["site/static/shots/templates/towny-1200w.webp"] = &fstest.MapFile{Data: fakeWebP(1200, 750)}
+			m["site/static/shots/templates/towny-1200w.avif"] = &fstest.MapFile{Data: fakeAVIF(1200, 750)}
+		},
+		"a file that isn't a thumbnail": func(m fstest.MapFS) {
+			m["site/static/shots/templates/towny.webp"] = &fstest.MapFile{Data: fakeWebP(960, 600)}
+		},
+	} {
+		m := thumbFiles("towny")
+		edit(m)
+		if _, err := buildWith(m); err == nil {
+			t.Errorf("%s builds", name)
+		}
+	}
+	if _, err := buildWith(thumbFiles("towny")); err != nil {
+		t.Errorf("Towny's four thumbnail files: %v", err)
+	}
+}
