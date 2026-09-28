@@ -341,16 +341,17 @@
     pagesNav.textContent = '';
     pagesNav.hidden = pages < 2;
     if (pages < 2) return;
-    var link = function (n, html, cls, rel) {
+    var link = function (n, html, cls, rel, label) {
       var a = document.createElement('a');
       a.className = 'dir-page' + (cls ? ' ' + cls : '');
       a.href = address(state, n);
       a.setAttribute('data-page', n);
       if (rel) a.rel = rel;
+      if (label) a.setAttribute('aria-label', label);
       a.innerHTML = html;
       return a;
     };
-    if (state.page > 1) pagesNav.appendChild(link(state.page - 1, ICON.left + '<span>Previous</span>', 'dir-step', 'prev'));
+    if (state.page > 1) pagesNav.appendChild(link(state.page - 1, ICON.left + '<span>Previous</span>', 'dir-step', 'prev', 'Previous page'));
     var ol = document.createElement('ol');
     ol.className = 'dir-page-list';
     var last = 0;
@@ -377,7 +378,7 @@
       last = n;
     }
     pagesNav.appendChild(ol);
-    if (state.page < pages) pagesNav.appendChild(link(state.page + 1, '<span>Next</span>' + ICON.right, 'dir-step', 'next'));
+    if (state.page < pages) pagesNav.appendChild(link(state.page + 1, '<span>Next</span>' + ICON.right, 'dir-step', 'next', 'Next page'));
   }
 
   // draw shows what's chosen: its cards, count, filters and pages. push adds
