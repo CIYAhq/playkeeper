@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"slices"
@@ -136,6 +137,78 @@ func TestCrossplaySwitchOpensItsPortAndInstallsBothPlugins(t *testing.T) {
 	}
 	if e.audits("crossplay.port_closed") != 1 {
 		t.Fatalf("the port closed %d times", e.audits("crossplay.port_closed"))
+	}
+}
+
+// Geyser and Floodgate put in the plugins folder by hand are used as they
+// are. GeyserMC's own download of Geyser calls itself Geyser-Spigot, so only
+// its file name says it's Geyser. Turning crossplay off leaves both, since
+// Playkeeper didn't install them.
+func TestCrossplayUsesPluginsPutThereByHand(t *testing.T) {
+	e := newAgentEnv(t)
+	withCrossplayProjects(e.withSources())
+	e.create()
+	e.waitFor("online", e.onlineIdle)
+	plugins := filepath.Join(e.dataDir(), "plugins")
+	if err := os.MkdirAll(plugins, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hand := map[string][]byte{
+		"Geyser-2.11.3-b1247.jar": pluginJar(t, "Geyser-Spigot", "2.11.3-b1247"),
+		"floodgate-spigot.jar":    pluginJar(t, "floodgate", "2.2.5-b140"),
+	}
+	for name, data := range hand {
+		if err := os.WriteFile(filepath.Join(plugins, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if op := e.crossplayOp(true); op.Status != api.OpSucceeded {
+		t.Fatalf("crossplay on with both plugins put there by hand: %+v", op)
+	}
+	recs, _ := e.srv().installedAddons()
+	if c := e.crossplay(); !c.On || len(recs) != 0 {
+		t.Fatalf("crossplay %+v installed %+v over the copies put there by hand", c, recs)
+	}
+	e.waitFor("online with crossplay", e.onlineIdle)
+	if op := e.crossplayOp(false); op.Status != api.OpSucceeded {
+		t.Fatalf("crossplay off: %+v", op)
+	}
+	for name, data := range hand {
+		if got, err := os.ReadFile(filepath.Join(plugins, name)); err != nil || !bytes.Equal(got, data) {
+			t.Errorf("%s after crossplay went off: %v", name, err)
+		}
+	}
+}
+
+// Turning crossplay off without Docker's answer on whether the server runs
+// changes nothing, since a running server would go on letting Bedrock
+// players in.
+func TestCrossplayOffThatCantCheckTheServerChangesNothing(t *testing.T) {
+	e := newAgentEnv(t)
+	withCrossplayProjects(e.withSources())
+	e.create()
+	e.waitFor("online", e.onlineIdle)
+	if op := e.crossplayOp(true); op.Status != api.OpSucceeded {
+		t.Fatalf("crossplay on: %+v", op)
+	}
+	e.waitFor("online with crossplay", e.onlineIdle)
+	started := e.startedAt()
+	down := func(prefix string) {
+		e.fd.mu.Lock()
+		e.fd.down = prefix
+		e.fd.mu.Unlock()
+	}
+	down("/containers/" + e.cname() + "/json")
+	op := e.crossplayOp(false)
+	down("")
+	if op.Status != api.OpFailed || !strings.HasPrefix(op.Error, "Crossplay is still on: Playkeeper couldn't tell whether the server is running") || op.Hint != "Try again once Docker answers." {
+		t.Fatalf("crossplay off with Docker not answering: %+v", op)
+	}
+	sc, _ := e.srv().serverConfig()
+	recs, _ := e.srv().installedAddons()
+	jars, _ := filepath.Glob(filepath.Join(e.dataDir(), "plugins", "*.jar"))
+	if sc.CrossplayPort == 0 || len(recs) != 2 || len(jars) != 2 || !e.startedAt().Equal(started) {
+		t.Fatalf("crossplay off that failed left port %d, records %+v, jars %v; restarted %v", sc.CrossplayPort, recs, jars, !e.startedAt().Equal(started))
 	}
 }
 

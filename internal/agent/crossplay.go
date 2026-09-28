@@ -298,10 +298,12 @@ func crossplayTitle(req addons.InstallRequest) string {
 }
 
 // onlyAlreadyThere reports whether all that stops a plan is that the server
-// has the add-on already, from its other listing or by hand.
+// has the add-on already: from its other listing, by hand, or as a file
+// with the name its download has. A copy from GeyserMC's own site calls
+// itself Geyser-Spigot, not Geyser, so only its file name gives it away.
 func onlyAlreadyThere(p *addons.Plan, name string) bool {
 	return len(p.Blockers) > 0 && !slices.ContainsFunc(p.Blockers, func(n addons.Notice) bool {
-		return n.Kind != addons.KindDuplicate || !strings.EqualFold(n.Params["name"], name)
+		return (n.Kind != addons.KindDuplicate && n.Kind != addons.KindFileExists) || !strings.EqualFold(n.Params["name"], name)
 	})
 }
 
@@ -318,7 +320,8 @@ func noticeError(h *opHandle, err error) error {
 // crossplayOff removes Geyser and Floodgate, keeping their settings (and
 // Floodgate's key, so linked accounts stay linked), and closes the port in
 // the transaction that drops their records. A running server is restarted
-// so the port and the plugins go now. A file Playkeeper didn't install, or
+// so the port and the plugins go now, and without Docker's answer on
+// whether it runs, nothing changes. A file Playkeeper didn't install, or
 // one changed since, stays, and the operation says so after closing the
 // port.
 func (s *server) crossplayOff(ctx context.Context, h *opHandle, actor string) error {
@@ -328,6 +331,10 @@ func (s *server) crossplayOff(ctx context.Context, h *opHandle, actor string) er
 	}
 	if !crossplayOn(sc) {
 		return errConflict("Crossplay is already off.", "")
+	}
+	if _, _, err := s.containerRunning(ctx); err != nil {
+		return &apiError{Status: http.StatusServiceUnavailable, Code: api.CodeDockerUnavailable,
+			Msg: "Crossplay is still on: Playkeeper couldn't tell whether the server is running, and a running server keeps letting Bedrock players in until it restarts. " + errText(err), Hint: "Try again once Docker answers."}
 	}
 	installed, err := s.installedAddons()
 	if err != nil {
@@ -360,7 +367,10 @@ func (s *server) crossplayOff(ctx context.Context, h *opHandle, actor string) er
 		return err
 	}
 	_, running, err := s.containerRunning(ctx)
-	if err == nil && running {
+	if err != nil {
+		return restartUnchecked("Crossplay is off", "Restart the server once Docker answers, so Bedrock players can't join any more.", err)
+	}
+	if running {
 		h.phase("restarting")
 		if err := s.stopServer(ctx, h); err != nil {
 			return err

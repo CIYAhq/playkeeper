@@ -2155,6 +2155,14 @@ control "a Bedrock name reaches Floodgate's command only as a plain gamertag" in
   'if !ok || !reGamertag.MatchString(tag) {' \
   'if !ok {' \
   ./internal/agent '^TestBedrockPlayersJoinTheAllowlistThroughFloodgate$'
+control "crossplay uses a Geyser put there by hand, known only by its file name" internal/agent/crossplay.go \
+  '(n.Kind != addons.KindDuplicate && n.Kind != addons.KindFileExists)' \
+  'n.Kind != addons.KindDuplicate' \
+  ./internal/agent '^TestCrossplayUsesPluginsPutThereByHand$'
+control "crossplay off without Docker's answer changes nothing" internal/agent/crossplay.go \
+  'if _, _, err := s.containerRunning(ctx); err != nil {' \
+  'if _, _, err := s.containerRunning(ctx); false && err != nil {' \
+  ./internal/agent '^TestCrossplayOffThatCantCheckTheServerChangesNothing$'
 control "a template whose modpack is made for another Minecraft version is blocked" internal/agent/templates.go \
   'case v.MinecraftVersion != "" && v.MinecraftVersion != p.Version.MinecraftVersion:' \
   'case false:' \
