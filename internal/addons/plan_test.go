@@ -357,23 +357,26 @@ func TestPlanInstallManualSteps(t *testing.T) {
 	})
 	t.Run("add-on only offered on another site", func(t *testing.T) {
 		f := newFakes(t)
+		// Geyser's own link is followed (TestGeyserMCProjectsComeFromGeyserMC);
+		// any other site's isn't.
+		link := "https://github.com/GeyserMC/Geyser/releases"
+		f.patchHangarVersion("238", func(v obj) { v["downloads"].(obj)["PAPER"].(obj)["externalUrl"] = link })
 		l := f.library()
 		srv := newServer(t, "paper", "26.2")
-		link := "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot"
 		p := mustPlan(t, l, srv, nil, InstallRequest{Source: Hangar, Project: "Geyser"})
 		if len(p.Steps) != 0 || p.Ready {
 			t.Errorf("steps %q, ready %v", stepList(p), p.Ready)
 		}
 		sameJSON(t, "manual", p.Manual, []ManualStep{{
-			Notice: Notice{Kind: KindExternal, Params: map[string]string{"name": "Geyser", "version": "Geyser", "host": "download.geysermc.org", "folder": "plugins"},
-				Msg: "Geyser is only offered on download.geysermc.org, so Playkeeper cannot install it for you.", Hint: "Download it from that page, then put it in the server's plugins folder."},
+			Notice: Notice{Kind: KindExternal, Params: map[string]string{"name": "Geyser", "version": "Geyser", "host": "github.com", "folder": "plugins"},
+				Msg: "Geyser is only offered on github.com, so Playkeeper cannot install it for you.", Hint: "Download it from that page, then put it in the server's plugins folder."},
 			URL: link,
 		}})
 
 		_, err := l.Install(context.Background(), srv, nil, InstallRequest{Source: Hangar, Project: "Geyser"})
 		wantKind(t, err, KindExternal)
-		if ls(t, srv.Dir) != nil || len(f.sent("cdn")) != 0 || len(f.strays()) != 0 {
-			t.Errorf("wrote %v, downloaded %d, strays %v", ls(t, srv.Dir), len(f.sent("cdn")), f.strays())
+		if ls(t, srv.Dir) != nil || len(f.sent("cdn")) != 0 || len(f.sent("geysermc")) != 0 || len(f.strays()) != 0 {
+			t.Errorf("wrote %v, downloaded %d, asked GeyserMC %d times, strays %v", ls(t, srv.Dir), len(f.sent("cdn")), len(f.sent("geysermc")), f.strays())
 		}
 
 		vs, err := l.Versions(context.Background(), srv, Hangar, "Geyser")
