@@ -5071,6 +5071,14 @@ control "CurseForge's NeoForge builds for Minecraft 1.20.1 lose the version in f
   'if t == "forge" || t == "neoforge" {' \
   'if t == "forge" {' \
   ./internal/modpacks '^TestPackDependenciesDecideTheServer$'
+control "server files in a folder of their own give their mods" internal/modpacks/resolve.go \
+  'if root := p.server.root(); root != "" && root != dir {' \
+  'if root := p.server.root(); false && root != dir {' \
+  ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "server files that hold only a mods folder keep it" internal/modpacks/resolve.go \
+  'if root := p.server.root(); root != "" && root != dir {' \
+  'if root := p.server.root(); root != "" {' \
+  ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
 control "a CurseForge manifest's odd recommendedRam doesn't refuse the pack" internal/modpacks/curseforge/manifest.go \
   '	if err != nil || n < 0 {
 		n = 0

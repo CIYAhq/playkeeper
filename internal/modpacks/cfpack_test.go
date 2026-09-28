@@ -329,6 +329,22 @@ func TestCurseForgeModsFromServerFiles(t *testing.T) {
 	}
 	wantTree(t, l.TempDir)
 
+	// Server files that keep everything in a folder of their own, like All
+	// the Mods 9's Server-Files-1.1.1, or that hold only a mods folder, give
+	// their mods too.
+	var wrapped []entry
+	for _, e := range serverFiles(generated("ferritecore-9.0.0-fabric.jar")) {
+		wrapped = append(wrapped, entry{name: "Server-Files-2.0.0/" + e.name, data: e.data})
+	}
+	for name, entries := range map[string][]entry{"in a folder": wrapped, "only mods": serverFiles(generated("ferritecore-9.0.0-fabric.jar"))[:2]} {
+		_, l, srv, ref, _ := setUp(t, nil, entries)
+		pl := mustPlan(t, l, srv, InstallRequest{Ref: ref})
+		wantList(t, name+": manual", manualList(pl.Manual))
+		if changes := changeList(pl.Changes); !slices.Contains(changes, "add "+ferrite) || !slices.Contains(changes, "add "+fabricAPI) {
+			t.Errorf("%s: changes %q", name, changes)
+		}
+	}
+
 	// Otherwise the steps stay, and nothing comes from the server files.
 	for _, c := range []struct {
 		name    string

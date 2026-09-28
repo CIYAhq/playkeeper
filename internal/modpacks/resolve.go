@@ -1027,7 +1027,13 @@ func (l *Library) fillFromServerFiles(ctx context.Context, p *pack, mod *cursefo
 	if p.server, err = openArchive(got, p.info.Name, lim); err != nil {
 		return err
 	}
-	mods := p.server.layer("mods")
+	// Some server files, like All the Mods 9's, keep everything in a
+	// folder of their own: Server-Files-1.1.1/mods.
+	dir := "mods"
+	if root := p.server.root(); root != "" && root != dir {
+		dir = root + "/mods"
+	}
+	mods := p.server.layer(dir)
 	filled := map[int]bool{}
 	for _, s := range p.serverFills {
 		e := mods[path.Base(s.path)]
