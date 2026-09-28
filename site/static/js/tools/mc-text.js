@@ -119,19 +119,23 @@
     var grads = [];
     var re = /<(\/?)([#!]?[a-z0-9_:#.-]+)>|\\([<\\])|([\s\S])/gi;
     var m;
+    // Every character inside a gradient, a line break or a tag kept as text
+    // too, carries it, so the gradient stays one run.
+    var letter = function (ch, top) {
+      var st = copyStyle(top);
+      if (grads.length) st.g = grads[grads.length - 1];
+      return { ch: ch, st: st };
+    };
     while ((m = re.exec(text))) {
       var top = stack[stack.length - 1];
       if (m[4] !== undefined || m[3] !== undefined) {
-        var ch = m[4] !== undefined ? m[4] : m[3];
-        var st = copyStyle(top);
-        if (grads.length) st.g = grads[grads.length - 1];
-        out.push({ ch: ch, st: st });
+        out.push(letter(m[4] !== undefined ? m[4] : m[3], top));
         continue;
       }
       var closing = m[1] === '/';
       var tag = m[2].toLowerCase();
       var name = tag.split(':')[0];
-      if (name === 'newline' || name === 'br') { out.push({ ch: '\n', st: copyStyle(top) }); continue; }
+      if (name === 'newline' || name === 'br') { out.push(letter('\n', top)); continue; }
       if (closing) {
         if (name === 'gradient' || name === 'rainbow') grads.pop();
         else if (stack.length > 1) stack.pop();
@@ -157,7 +161,7 @@
         grads.push(gradients.add(stops));
         continue;
       } else {
-        out.push.apply(out, Array.from(m[0]).map(function (ch) { return { ch: ch, st: copyStyle(top) }; }));
+        out.push.apply(out, Array.from(m[0]).map(function (ch) { return letter(ch, top); }));
         continue;
       }
       stack.push(next);

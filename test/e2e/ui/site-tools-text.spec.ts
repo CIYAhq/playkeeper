@@ -59,6 +59,12 @@ test('the text engine writes each format as the game and plugins read it', async
       boldWidth: mc.widthOf(mc.parseLegacy('&lHi', false)),
       bedrockUnderline: mc.legacy(mc.parseMiniMessage('<underlined>Hi</underlined> <st>so</st> <bold>there', new G()), '§', 'nearest', true),
       bedrockCodes: [mc.hasCodes('§qEmerald', true), mc.hasCodes('§qEmerald', false)],
+      gradientBreak: (() => {
+        const gg = new G()
+        const cs = mc.parseMiniMessage('<gradient:#ff0000:#0000ff>ab<newline>cd</gradient>', gg) as { ch: string; st: { c: string; g: number } }[]
+        gg.apply(cs)
+        return { mm: mc.minimessage(cs, gg), runs: new Set(cs.map((c) => c.st.g)).size, c: cs[3].st.c }
+      })(),
     }
   })
   expect(r.javaBold, 'on Java a colour turns bold off').toEqual([true, true, true, true, true, false, false, false, false, false])
@@ -84,6 +90,7 @@ test('the text engine writes each format as the game and plugins read it', async
   expect(r.boldWidth, 'bold adds a pixel a letter').toBe(7 + 3)
   expect(r.bedrockUnderline, "Bedrock's §n and §m are colours, so underline and strikethrough aren't written").toBe('Hi so §lthere')
   expect(r.bedrockCodes, "Bedrock's own colour codes are read from a paste on Bedrock only").toEqual(['legacy', null])
+  expect(r.gradientBreak, 'a gradient across a line break stays one run, and comes back as it went in').toEqual({ mm: '<gradient:#ff0000:#0000ff>ab<newline>cd', runs: 1, c: '#4000bf' })
 })
 
 test('the colour codes page: codes copy with a click, the text maker colours a selection, reads pasted codes, undoes, and does Bedrock', async ({ browser, baseURL }) => {
