@@ -2041,25 +2041,51 @@ control "a modpack that would put more than 20,000 files on the server is refuse
   'Index: 16 << 20, Files: 20000,' \
   'Index: 16 << 20, Files: 1 << 30,' \
   ./internal/modpacks '^TestDefaultFileCount$'
+control "a pack's default-server.properties never goes on the server" internal/modpacks/rules.go \
+  '"eula.txt", "server.properties", DefaultPropertiesName, "ops.json",' \
+  '"eula.txt", "server.properties", "ops.json",' \
+  ./internal/modpacks '^TestDefaultServerPropertiesStayOffTheServer$'
+control "a pack's default-server.properties settings are taken like its server.properties" internal/modpacks/resolve.go \
+  'if e := entries[DefaultPropertiesName]; e != nil {' \
+  'if e := entries[DefaultPropertiesName]; false && e != nil {' \
+  ./internal/modpacks '^TestDefaultServerPropertiesStayOffTheServer$'
+control "a default-server.properties on a modded server is settled before the start" internal/agent/lifecycle.go \
+  'if err := s.keepDefaultProperties(sc); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestDefaultServerPropertiesKeepPlaykeepersSettings$'
+control "the Default Server Properties mod's marker says its file was used" internal/agent/modpacks.go \
+  'err = d.WriteFile(defaultPropertiesUsed, nil, 0o640)' \
+  'err = nil' \
+  ./internal/agent '^TestDefaultServerPropertiesKeepPlaykeepersSettings$'
+control "a server a pack's mod started without the console and allowlist is restarted after an update" internal/agent/modpacks.go \
+  'if off {' \
+  'if false && off {' \
+  ./internal/agent '^TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor$'
+control "the settings check waits a minute after the pack's mod writes its marker" internal/agent/modpacks.go \
+  'if err != nil || s.now().Sub(used.ModTime()) < defaultPropertiesSettle {' \
+  'if err != nil || used == nil {' \
+  ./internal/agent '^TestAnUpdateDuringAFirstStartLooksAgainOnceThePackModHasRun$'
+control "the settings check looks again while the pack's mod hasn't used its file" internal/agent/modpacks.go \
+  'if err != nil || s.now().Sub(used.ModTime()) < defaultPropertiesSettle {
+		return false, false
+	}' \
+  'if err != nil {
+		return false, true
+	}
+	if s.now().Sub(used.ModTime()) < defaultPropertiesSettle {
+		return false, false
+	}' \
+  ./internal/agent '^TestAnUpdateDuringAFirstStartLooksAgainOnceThePackModHasRun$'
 control "a modpack's downloads must match the hashes the pack lists" internal/addons/fetch/download.go \
   'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
   'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
   ./internal/modpacks '^TestDownloadsMustMatchThePacksHashes$'
 control "a pack's settings are read and written without following a link" internal/agent/modpacks.go \
-  'cur, err := d.ReadProperties()
-	if errors.Is(err, fs.ErrNotExist) {
-		cur, err = nil, nil
-	}
-	if err == nil {
-		err = d.WriteProperties(mergeProperties(cur, props))
-	}' \
-  'cur, err := os.ReadFile(filepath.Join(s.dataDir(), "server.properties"))
-	if errors.Is(err, fs.ErrNotExist) {
-		cur, err = nil, nil
-	}
-	if err == nil {
-		err = os.WriteFile(filepath.Join(s.dataDir(), "server.properties"), mergeProperties(cur, props), 0o640)
-	}' \
+  'if err := setProperties(d, props); err != nil {
+		return gameFileError(err, "The modpack'"'"'s settings could not be saved, so the server was not started.")' \
+  'cur, _ := os.ReadFile(filepath.Join(s.dataDir(), "server.properties"))
+	if err := os.WriteFile(filepath.Join(s.dataDir(), "server.properties"), mergeProperties(cur, props), 0o640); err != nil {
+		return gameFileError(err, "The modpack'"'"'s settings could not be saved, so the server was not started.")' \
   ./internal/agent '^TestPackSettingsAreNotReadOrWrittenThroughALink$'
 control "a CurseForge key is saved only once CurseForge accepts it" internal/agent/addonsources.go \
   'if err := modpacks.CheckKey(ctx, a.opts.UpstreamClient, key); err != nil {' \
@@ -2075,7 +2101,7 @@ control "the Java heap a CurseForge manifest recommends is read" internal/modpac
   'p.heapMB = plausibleHeap(int(m.Minecraft.RecommendedRAM))' \
   'p.heapMB = 0' \
   ./internal/modpacks '^TestCurseForgePackHeap$'
-control "a pack's memory need covers the Java heap it asks for" internal/agent/modpacks.go \
+control "a pack's memory need covers the Java heap it asks for" internal/minecraft/catalog.go \
   '	if heapMB > 0 {
 		need = max(need,' \
   '	if false && heapMB > 0 {
@@ -5104,8 +5130,8 @@ control "a CurseForge manifest's odd recommendedRam doesn't refuse the pack" int
 	}' \
   ./internal/modpacks/curseforge '^TestRecommendedRAM$'
 control "a Forge server gets only the Forge build of a mod" internal/addons/target.go \
-  'Loaders: []string{"forge"}}' \
-  'Loaders: []string{"neoforge"}}' \
+  'Loaders: []string{"forge"}, own: 1}' \
+  'Loaders: []string{"neoforge"}, own: 1}' \
   ./internal/addons '^(TestTargetFor|TestPlanInstallPicksTheLoadersVersion)$'
 control "Forge's crash report line counts as a crash" internal/minecraft/logparse.go \
   'This crash report has been saved to: |Crash report saved to |' \
