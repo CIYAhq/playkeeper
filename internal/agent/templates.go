@@ -41,6 +41,10 @@ const kindTemplatePackType addons.Kind = "template_pack_type"
 // another Minecraft version.
 const kindTemplatePackVersion addons.Kind = "template_pack_version"
 
+// kindTemplatePackMissing blocks a template whose modpack version isn't one
+// the pack's source lists, which a server can't be created from.
+const kindTemplatePackMissing addons.Kind = "template_pack_missing"
+
 // templateSubstitutes are the types whose versions an import lists when the
 // template's own type can't be created here, as the templates package
 // substitutes them.
@@ -264,13 +268,15 @@ func (a *Agent) planTemplate(ctx context.Context, t *templates.Template) (*templ
 	return p, nil
 }
 
-// packFitNotice blocks a template whose modpack comes from CurseForge on a
-// machine without a CurseForge API key, which a template never carries;
-// whose modpack isn't the file its source offers for the version the
-// template pins; or whose modpack runs on another type or Minecraft version
-// than the template names: the new server would run the pack's, not what
-// the plan shows. When the pack's source can't be asked, the create request
-// checks the type and version again (templatePackFits).
+// packFitNotice blocks a template whose modpack the create request would
+// refuse, or would run other than the plan shows: a CurseForge pack on a
+// machine without a CurseForge API key, which a template never carries; a
+// pack or pinned version its source doesn't offer or Playkeeper can't
+// install (packCreateTarget refuses those); a pinned file that isn't the one
+// the source offers for that version; or a pack that runs on another type or
+// Minecraft version than the template names. When the pack's source can't
+// be asked, the create request checks again (packCreateTarget,
+// templatePackFits).
 func (a *Agent) packFitNotice(ctx context.Context, p *templates.Plan) *addons.Notice {
 	m := p.Modpack
 	if m == nil || !p.Ready || p.Version == nil {
@@ -289,17 +295,28 @@ func (a *Agent) packFitNotice(ctx context.Context, p *templates.Plan) *addons.No
 	if err != nil {
 		return nil
 	}
+	hint := "Ask whoever shared the template for a new one."
 	i := slices.IndexFunc(d.Versions, func(v api.ModpackVersion) bool { return v.ID == m.Pin.VersionID })
-	if i < 0 {
-		return nil
+	var v api.ModpackVersion
+	if i >= 0 {
+		v = d.Versions[i]
 	}
-	v, hint := d.Versions[i], "Ask whoever shared the template for a new one."
 	switch {
+	case d.Unavailable != nil:
+		return packNotice(*d.Unavailable, hint)
+	case i < 0:
+		return &addons.Notice{Kind: kindTemplatePackMissing, Params: map[string]string{"modpack": m.Name, "version": m.Pin.VersionNumber, "source": m.Source.Name()},
+			Msg: fmt.Sprintf("Playkeeper can't install version %s of %s, which the template names.", m.Pin.VersionNumber, m.Name), Hint: hint}
+	case v.Unsupported != nil:
+		return packNotice(*v.Unsupported, hint)
 	case v.Hash != "" && (v.HashAlgo != m.Pin.HashAlgo || v.Hash != m.Pin.Hash):
 		source := m.Source.Name()
 		return &addons.Notice{Kind: templates.KindPinMismatch, Params: map[string]string{"modpack": m.Name, "version": m.Pin.VersionNumber, "source": source},
 			Msg:  fmt.Sprintf("The file %s offers for %s %s isn't the one the template names.", source, m.Name, m.Pin.VersionNumber),
 			Hint: "The template may be out of date or altered. " + hint}
+	case v.Type == "" || v.MinecraftVersion == "":
+		return &addons.Notice{Kind: kindTemplatePackType, Params: map[string]string{"type": p.Type.Name, "modpack": m.Name},
+			Msg: fmt.Sprintf("%s doesn't say which server it runs on, so Playkeeper can't create one for it.", m.Name), Hint: hint}
 	case v.Type != "" && v.Type != p.Type.ID:
 		packType := typeName(v.Type)
 		return &addons.Notice{Kind: kindTemplatePackType, Params: map[string]string{"type": p.Type.Name, "modpack": m.Name, "packType": packType},
@@ -310,6 +327,12 @@ func (a *Agent) packFitNotice(ctx context.Context, p *templates.Plan) *addons.No
 			Hint: hint}
 	}
 	return nil
+}
+
+// packNotice is a pack source's reason, with a hint for someone opening a
+// template.
+func packNotice(n api.AddonNotice, hint string) *addons.Notice {
+	return &addons.Notice{Kind: addons.Kind(n.Kind), Params: n.Params, Msg: n.Message, Hint: hint}
 }
 
 // templatePackFits reports whether the software a template's modpack runs

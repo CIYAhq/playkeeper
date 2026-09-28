@@ -2219,6 +2219,18 @@ control "a template's CurseForge modpack needs this machine's own CurseForge key
   'if m.Source == modpacks.CurseForge && !slices.Contains(a.packs().Sources(), modpacks.CurseForge) {' \
   'if false {' \
   ./internal/agent '^TestTemplateCarriesACurseForgeModpack$'
+control "a template whose modpack version its source doesn't list is blocked" internal/agent/templates.go \
+  '	case i < 0:
+		return &addons.Notice{Kind: kindTemplatePackMissing,' \
+  '	case false:
+		return &addons.Notice{Kind: kindTemplatePackMissing,' \
+  ./internal/agent '^TestTemplateCarriesACurseForgeModpack$'
+control "a template whose modpack version can't be installed is blocked" internal/agent/templates.go \
+  '	case v.Unsupported != nil:
+		return packNotice(*v.Unsupported, hint)' \
+  '	case false:
+		return packNotice(*v.Unsupported, hint)' \
+  ./internal/agent '^TestTemplateCarriesACurseForgeModpack$'
 control "a template whose modpack isn't the file its source offers is blocked" internal/agent/templates.go \
   'case v.Hash != "" && (v.HashAlgo != m.Pin.HashAlgo || v.Hash != m.Pin.Hash):' \
   'case false:' \

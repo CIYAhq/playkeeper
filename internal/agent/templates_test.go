@@ -798,10 +798,14 @@ const (
 
 // fakeCurseForgePack is a small Fabric pack on the fake CurseForge: a mod it
 // downloads, a mod whose author allows downloads only through CurseForge's
-// app, and a config file in its zip.
+// app, and a config file in its zip; and an older file of the pack itself
+// that its author lets only CurseForge's app download.
 type fakeCurseForgePack struct {
 	sha1  string // of the pack's zip, as CurseForge lists it
 	tools []byte // the mod it downloads
+	// keptSHA1 is an older file of the pack, which its author lets only
+	// CurseForge's app download.
+	keptSHA1 string
 }
 
 func (f *fakeUpstream) serveCurseForgePack() *fakeCurseForgePack {
@@ -831,7 +835,9 @@ func (f *fakeUpstream) serveCurseForgePack() *fakeCurseForgePack {
 	pack, packProject := file(9300001, 9200001, "Stone Pack 1.0", "stone-pack-1.0.zip", zip, packURL), project(9200001, 4471, "modpacks", "Stone Pack", "stone-pack", true)
 	packProject["latestFilesIndexes"] = []any{map[string]any{"gameVersion": "26.2", "fileId": 9300001, "filename": "stone-pack-1.0.zip", "releaseType": 1, "modLoader": 4}}
 	f.serveJSON(cf+"/mods/"+cfPackID, map[string]any{"data": packProject})
-	f.serveJSON(cf+"/mods/"+cfPackID+"/files", map[string]any{"data": []any{pack}, "pagination": map[string]any{"index": 0, "pageSize": 50, "resultCount": 1, "totalCount": 1}})
+	kept := file(9300009, 9200001, "Stone Pack 0.9", "stone-pack-0.9.zip", []byte("an older zip"), "")
+	kept["fileDate"], p.keptSHA1 = "2026-08-20T10:00:00Z", sha1Hex([]byte("an older zip"))
+	f.serveJSON(cf+"/mods/"+cfPackID+"/files", map[string]any{"data": []any{pack, kept}, "pagination": map[string]any{"index": 0, "pageSize": 50, "resultCount": 2, "totalCount": 2}})
 	f.serveJSON(cf+"/mods/"+cfPackID+"/files/"+cfPackFileID, map[string]any{"data": pack})
 	f.serveJSON(cf+"/mods/files", map[string]any{"data": []any{
 		file(9300002, 9200002, "Stone Tools 1.0", "stone-tools-1.0.jar", p.tools, toolsURL),
@@ -845,15 +851,15 @@ func (f *fakeUpstream) serveCurseForgePack() *fakeCurseForgePack {
 	return p
 }
 
-// curseForgeTemplate is a Fabric template with the fake CurseForge pack,
-// pinned by hash.
-func curseForgeTemplate(t *testing.T, hash string) string {
+// curseForgeTemplate is a Fabric template with the fake CurseForge pack's
+// file, pinned by hash.
+func curseForgeTemplate(t *testing.T, fileID, hash string) string {
 	t.Helper()
 	file, err := templates.MarshalFile(&templates.Template{Format: templates.Format, Name: "Stone Pack", Game: templates.Game,
 		Server:   templates.Server{Type: "fabric", MinecraftVersion: "26.2"},
 		Settings: templates.Settings{MemoryMB: 1536},
 		Modpack: &templates.Modpack{Source: modpacks.CurseForge, Project: cfPackID, Slug: "stone-pack", Name: "Stone Pack",
-			Pin: templates.Pin{VersionID: cfPackFileID, VersionNumber: "Stone Pack 1.0", Channel: "release", HashAlgo: "sha1", Hash: hash}}})
+			Pin: templates.Pin{VersionID: fileID, VersionNumber: "Stone Pack 1.0", Channel: "release", HashAlgo: "sha1", Hash: hash}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -871,7 +877,7 @@ func TestTemplateCarriesACurseForgeModpack(t *testing.T) {
 	pack := e.up.serveCurseForgePack()
 	e.up.serveFabricLists()
 
-	code, plan, raw := e.planTemplate(curseForgeTemplate(t, pack.sha1))
+	code, plan, raw := e.planTemplate(curseForgeTemplate(t, cfPackFileID, pack.sha1))
 	if code != 200 || plan.Ready || !slices.Equal(noticeKinds(plan.Blockers), []string{string(modpacks.KindNoCurseForge)}) ||
 		plan.Blockers[0].Message != "The template's modpack Stone Pack comes from CurseForge, and this Playkeeper has no CurseForge API key." {
 		t.Fatalf("a machine without a CurseForge key: %d %+v %v", code, plan, raw)
@@ -884,12 +890,26 @@ func TestTemplateCarriesACurseForgeModpack(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.a.loadPacks()
-	_, altered, _ := e.planTemplate(curseForgeTemplate(t, sha1Hex([]byte("another zip"))))
+	_, altered, _ := e.planTemplate(curseForgeTemplate(t, cfPackFileID, sha1Hex([]byte("another zip"))))
 	if altered.Ready || !slices.Equal(noticeKinds(altered.Blockers), []string{string(templates.KindPinMismatch)}) ||
 		altered.Blockers[0].Message != "The file CurseForge offers for Stone Pack Stone Pack 1.0 isn't the one the template names." {
 		t.Fatalf("a template pinning another zip than CurseForge's: %+v", altered)
 	}
-	code, plan, raw = e.planTemplate(curseForgeTemplate(t, pack.sha1))
+	// Creating refuses a file CurseForge doesn't list, or one its author lets
+	// only CurseForge's app download, so planning does too.
+	for _, c := range []struct{ file, hash, kind, msg string }{
+		{"9300999", pack.sha1, string(kindTemplatePackMissing), "Playkeeper can't install version Stone Pack 1.0 of Stone Pack, which the template names."},
+		{"9300009", pack.keptSHA1, string(addons.KindExternal), "Stone Pack's author only allows downloading it through CurseForge's app, so Playkeeper cannot install it."},
+	} {
+		_, refused, _ := e.planTemplate(curseForgeTemplate(t, c.file, c.hash))
+		if refused.Ready || !slices.Equal(noticeKinds(refused.Blockers), []string{c.kind}) || refused.Blockers[0].Message != c.msg {
+			t.Fatalf("a template pinning file %s: %+v", c.file, refused)
+		}
+		if code, out := e.createFromTemplate(refused.Fingerprint, nil); code == 202 {
+			t.Fatalf("a blocked template must not create a server: %v", out)
+		}
+	}
+	code, plan, raw = e.planTemplate(curseForgeTemplate(t, cfPackFileID, pack.sha1))
 	if code != 200 || !plan.Ready || plan.Type != "fabric" || plan.MinecraftVersion != "26.2" || plan.Contents.Modpack == nil ||
 		plan.Contents.Modpack.Source != "curseforge" || plan.Contents.Modpack.VersionNumber != "Stone Pack 1.0" {
 		t.Fatalf("a machine with a key: %d %+v %v", code, plan, raw)
