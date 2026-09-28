@@ -93,7 +93,7 @@ func (s *Server) lookAtPage(ctx context.Context) {
 		s.log.Warn("could not get ports 443 and 80 for the public page", "err", err)
 		return
 	}
-	s.servePagePorts(ports, files)
+	s.servePagePorts(want, ports, files)
 }
 
 // pagePortsWanted are the ports the keeper asks the agent for now: those it
@@ -109,19 +109,22 @@ func (s *Server) pagePortsWanted() api.PagePortsRequest {
 	return api.PagePortsRequest{HTTPS: ask(0, p.ports.HTTPS), HTTP: ask(1, p.ports.HTTP)}
 }
 
-// servePagePorts starts serving the sockets the agent opened, HTTPS first,
-// and notes what each port is.
-func (s *Server) servePagePorts(ports api.PublicPagePorts, files []*os.File) {
+// servePagePorts starts serving the sockets the agent opened for want,
+// HTTPS first, and notes what each port asked for is. The agent calls a
+// port it wasn't asked for off, so what the keeper knows of that one, like
+// its holder and its wait, stands.
+func (s *Server) servePagePorts(want api.PagePortsRequest, ports api.PublicPagePorts, files []*os.File) {
 	p := s.page
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	now := s.now()
+	asked := [2]bool{want.HTTPS, want.HTTP}
 	for i, port := range []api.PagePort{ports.HTTPS, ports.HTTP} {
 		slot := &p.ports.HTTPS
 		if i == 1 {
 			slot = &p.ports.HTTP
 		}
-		if p.held[i] != nil {
+		if p.held[i] != nil || !asked[i] {
 			continue
 		}
 		if port.State != api.PortOpen {
