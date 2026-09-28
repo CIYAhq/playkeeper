@@ -160,7 +160,7 @@ for (const size of [{ name: 'desktop', width: 1440, height: 900, mobile: false }
   test(`a template's page at ${size.name} size: nothing wider than the screen, no serious accessibility violations`, async ({ browser, baseURL }) => {
     const ctx = await browser.newContext({ baseURL, viewport: { width: size.width, height: size.height }, isMobile: size.mobile, hasTouch: size.mobile })
     const page = await ctx.newPage()
-    for (const path of ['/templates/lifesteal-smp/lifesteal-smp', '/templates/creative/creative', '/templates/creative', '/templates?mode=smp&sort=new']) {
+    for (const path of ['/templates/lifesteal-smp/lifesteal-smp', '/templates/oneblock/oneblock', '/templates/skyblock', '/templates?mode=smp&sort=new']) {
       await page.goto(path, { waitUntil: 'networkidle' })
       const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
       expect.soft(wide, `${path} is wider than the screen by ${wide}px`).toBeLessThanOrEqual(0)

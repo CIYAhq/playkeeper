@@ -802,8 +802,6 @@ func (s *Site) funcs() template.FuncMap {
 		},
 		"downloads": shortCount,
 		"javaFor":   minecraft.JavaFor,
-		// addonPage is an add-on's page at its source.
-		"addonPage": addonPage,
 		"licence":   licenceName,
 		"count":     count,
 		"upper":     strings.ToUpper,

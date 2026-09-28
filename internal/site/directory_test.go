@@ -59,12 +59,13 @@ func indexOf(t *testing.T, o *Output) (idx struct {
 	return idx
 }
 
-// The directory lists every template the release people install can open,
-// and nothing else: each has a card on /templates that opens it, a page
-// with its facts under its first category, a /t/<id> that sends the
-// browser on to the share page with it, and an entry in the index the
-// directory's script filters. Each category's page lists its templates.
-func TestTheDirectoryListsWhatTheReleaseOpens(t *testing.T) {
+// The directory lists every template the release people install can open
+// and a server has been created and started from, as it says of each, and
+// nothing else: each has a card on /templates that opens it, a page with
+// its facts under its first category, a /t/<id> that sends the browser on to
+// the share page with it, and an entry in the index the directory's script
+// filters. Each category's page lists its templates.
+func TestTheDirectoryListsWhatTheReleaseOpensAndWasChecked(t *testing.T) {
 	o := build(t, Default)
 	built := pages(o)
 	sitemap := string(o.Files["sitemap.xml"])
@@ -129,18 +130,32 @@ func TestTheDirectoryListsWhatTheReleaseOpens(t *testing.T) {
 			}
 		}
 	}
+	unlisted := 0
 	for _, c := range cards {
-		if !c.Held() {
+		why := ""
+		switch {
+		case c.Held():
+			why = "opens only from Playkeeper " + c.OpensFrom
+		case c.Check() == nil:
+			why = "no server has been created and started from yet"
+		default:
 			continue
 		}
+		unlisted++
 		for p := range built {
-			if strings.HasSuffix(p, "/"+c.ID) {
-				t.Errorf("%s is a page for %s, which opens only from Playkeeper %s", p, c.ID, c.OpensFrom)
+			if (strings.HasPrefix(p, "/templates/") || strings.HasPrefix(p, "/t/")) && strings.HasSuffix(p, "/"+c.ID) {
+				t.Errorf("%s is a page for %s, which %s", p, c.ID, why)
 			}
 		}
-		if slices.ContainsFunc(idx.Templates, func(e indexTemplate) bool { return e.ID == c.ID }) {
-			t.Errorf("the index has %s, which opens only from Playkeeper %s", c.ID, c.OpensFrom)
+		if strings.Contains(hub, `href="`+c.Link+`"`) {
+			t.Errorf("/templates opens %s, which %s", c.ID, why)
 		}
+		if slices.ContainsFunc(idx.Templates, func(e indexTemplate) bool { return e.ID == c.ID }) {
+			t.Errorf("the index has %s, which %s", c.ID, why)
+		}
+	}
+	if unlisted == 0 {
+		t.Error("every template in site/data/templates is listed, so this test checks nothing held or unchecked stays out")
 	}
 	for _, cat := range d.Categories {
 		page, ok := built[cat.Path()]
@@ -239,18 +254,26 @@ func TestTaxonomyMistakesStopTheBuild(t *testing.T) {
 		}
 	}
 
-	// A category needs its own page or a description for search engines, and a
-	// page under /templates needs a category or template to be about.
+	// A category with a listed template needs its own page or a description
+	// for search engines: here OneBlock, which is checked, moves to Creative,
+	// which has neither once its description goes.
 	data := dataFS(t)
 	var tax map[string]any
 	if err := json.Unmarshal(taxonomy, &tax); err != nil {
 		t.Fatal(err)
 	}
 	delete(categories(tax)["creative"].(map[string]any), "description")
-	b, _ := json.Marshal(tax)
+	var entries map[string]map[string]any
+	if err := json.Unmarshal(data["site/data/templates/cards.json"].Data, &entries); err != nil {
+		t.Fatal(err)
+	}
+	entries["oneblock"]["categories"] = []string{"creative"}
 	noDesc := maps.Clone(data)
-	noDesc["site/data/templates/taxonomy.json"] = &fstest.MapFile{Data: b}
-	if _, err := Build(Options{Root: dataOverlay{root, noDesc}, Settings: Default, Now: time.Now()}); err == nil || !strings.Contains(err.Error(), "creative") {
+	for name, v := range map[string]any{"site/data/templates/taxonomy.json": tax, "site/data/templates/cards.json": entries} {
+		b, _ := json.Marshal(v)
+		noDesc[name] = &fstest.MapFile{Data: b}
+	}
+	if _, err := Build(Options{Root: dataOverlay{root, noDesc}, Settings: Default, Now: time.Now()}); err == nil || !strings.Contains(err.Error(), "category creative has no page") {
 		t.Errorf("a category with neither a page nor a description builds: %v", err)
 	}
 }
@@ -355,7 +378,7 @@ func TestMetaDescriptionsFit(t *testing.T) {
 // templates, made from the real templates' add-ons and their checks, across
 // the real categories and a dozen more: the directory at a size it hasn't
 // reached yet. Every tenth has no check, like a template the library
-// hasn't started yet.
+// hasn't started yet, which the directory leaves out.
 func synthetic(t testing.TB, n int) fstest.MapFS {
 	t.Helper()
 	out := dataFS(t)
@@ -492,20 +515,37 @@ func synthetic(t testing.TB, n int) fstest.MapFS {
 
 // The directory stays quick with hundreds of templates: pages of 24 cards,
 // a page for each, an index a few hundred kilobytes long, and every template
-// reachable from /templates by following links, without scripts.
+// reachable from /templates by following links, without scripts. The made-up
+// templates without a check stay out.
 func TestTheDirectoryScalesToHundredsOfTemplates(t *testing.T) {
 	const n = 600
+	data := synthetic(t, n)
+	checked := 0
+	for name := range data {
+		if id, ok := strings.CutPrefix(name, "site/data/library/made-up-"); ok && strings.HasSuffix(id, ".json") {
+			checked++
+		}
+	}
 	start := time.Now()
-	o, err := Build(Options{Root: dataOverlay{os.DirFS("../.."), synthetic(t, n)}, Settings: Default, Now: time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)})
+	o, err := Build(Options{Root: dataOverlay{os.DirFS("../.."), data}, Settings: Default, Now: time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("built %d files with %d more templates in %s", len(o.Files), n, time.Since(start).Round(time.Millisecond))
+	t.Logf("built %d files with %d more templates, %d of them checked, in %s", len(o.Files), n, checked, time.Since(start).Round(time.Millisecond))
 	built := pages(o)
 	idx := indexOf(t, o)
 	total := len(idx.Templates)
-	if total < n {
-		t.Fatalf("the index lists %d templates, want at least %d", total, n)
+	made := 0
+	for _, e := range idx.Templates {
+		if strings.HasPrefix(e.ID, "made-up-") {
+			made++
+			if data["site/data/library/"+e.ID+".json"] == nil {
+				t.Errorf("the directory lists %s, which has no check", e.ID)
+			}
+		}
+	}
+	if made != checked || total < 500 {
+		t.Fatalf("the index lists %d templates, %d of them made up, want the %d made-up ones with a check and at least 500 in all", total, made, checked)
 	}
 	if last := pagesFor(total); built[fmt.Sprintf("/templates/page/%d", last)] == "" || built[fmt.Sprintf("/templates/page/%d", last+1)] != "" {
 		t.Errorf("/templates has no page %d, or has one past it", last)

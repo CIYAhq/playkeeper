@@ -13,13 +13,13 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
-	"github.com/CIYAhq/playkeeper/internal/templates"
 )
 
 // The template directory at /templates: every template the release people
-// install can open, as cards to search, filter and sort. Without scripts it
+// install can open and a server has been created and started from (its
+// check, site/data/library), as cards to search, filter and sort. Without
+// scripts it
 // is pages of cards, a page per category and a page per template, all
 // linked; with them, js/templates.js searches and filters every template at
 // once, from the index the build writes (js/templates-index.js). What a
@@ -92,8 +92,10 @@ type Tag struct {
 
 // Directory is every template the directory lists, and its categories.
 type Directory struct {
-	// Templates are the templates the release people install opens, the
-	// most popular first; held ones (TemplateCard.Held) stay out.
+	// Templates are the templates listed, the most popular first: those the
+	// release people install opens (TemplateCard.Held) and a server has
+	// been created and started from (TemplateCard.Check), as the directory
+	// says of every one.
 	Templates []*TemplateCard
 	// Categories are those with a listed template, by name.
 	Categories []*Category
@@ -109,7 +111,9 @@ func checkSlug(kind, id string) error {
 
 // loadDirectory reads taxonomy.json and lists the templates by it: each
 // template's categories and tags must be in it, and a template needs a
-// category and the day it was added.
+// category and the day it was added. It lists only those the release opens
+// and a server has been created and started from; the rest wait for their
+// release or their check.
 func loadDirectory(src fs.FS, file string, cards map[string]*TemplateCard, library map[string]*LibraryPage, packs map[string]*Modpack) (*Directory, error) {
 	b, err := fs.ReadFile(src, file)
 	if err != nil {
@@ -209,7 +213,7 @@ func loadDirectory(src fs.FS, file string, cards map[string]*TemplateCard, libra
 			return nil, tagErr
 		}
 		c.check, c.pack = checks[id], packOf[id]
-		if c.Held() {
+		if c.Held() || c.check == nil {
 			continue
 		}
 		d.Templates = append(d.Templates, c)
@@ -676,15 +680,6 @@ func shortCount(n int) string {
 		return strconv.FormatFloat(f/1e3, 'f', 0, 64) + "k"
 	}
 	return itoa(n)
-}
-
-// addonPage is an add-on's page at its source, or "" for a source without
-// pages by slug.
-func addonPage(a templates.Addon) string {
-	if a.Source == addons.Modrinth {
-		return "https://modrinth.com/project/" + firstOf(a.Slug, a.Project)
-	}
-	return ""
 }
 
 // metaDescription fits text into a meta description of 100 to 160

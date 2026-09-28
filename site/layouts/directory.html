@@ -228,9 +228,9 @@
 </section>
 {{end}}
 
-{{/* template-page: one template: what it sets up and installs, as a server
-     created and started from it did, how to open it and the same server by
-     hand. */}}
+{{/* template-page: one template: what it sets up and installs, as the
+     server created and started from it did (its check, which every listed
+     template has), how to open it and the same server by hand. */}}
 {{define "template-page"}}{{$v := .Page.Dir}}{{$t := $v.Template}}{{$tp := $t.Template}}{{$l := $t.Loader}}{{$k := $t.Check}}{{$a := img $t.Art}}
 <section class="tpage-hero" aria-labelledby="tpage-title">
   <div class="container">
@@ -248,8 +248,7 @@
           <a class="btn btn-primary btn-lg" href="{{$t.Link}}" data-template-open="{{$t.ID}}"><span>Open in my dashboard</span>{{template "icon" "arrow-up-right"}}</a>
           <button type="button" class="btn btn-outline btn-lg" data-copy="{{abs $t.OpenPath}}" data-copy-toast="Link copied" hidden>{{template "icon" "link"}}<span data-copy-label>Copy link</span></button>
         </div>
-        {{with $k}}<p class="tpage-proof hero-rise">Created and started on Playkeeper {{.Release}} on {{day .Checked}}: ready in {{.Done}} seconds with every plugin enabled.</p>
-        {{else}}<p class="tpage-proof hero-rise">Your dashboard shows everything it installs before anything happens.</p>{{end}}
+        <p class="tpage-proof hero-rise">Created and started on Playkeeper {{$k.Release}} on {{day $k.Checked}}: ready in {{$k.Done}} seconds with every plugin enabled.</p>
       </div>
     </div>
   </div>
@@ -260,10 +259,9 @@
       {{if $tp.Addons}}
       <section class="tpage-section" aria-labelledby="installs">
         <h2 id="installs" class="tpage-h2">What it installs</h2>
-        <p class="tpage-lead">{{if $k}}The versions that installed when we started it. Your dashboard takes each one's newest build for Minecraft {{$t.Version}}.{{else}}Each add-on's newest build for Minecraft {{$t.Version}}, from its source.{{end}}</p>
+        <p class="tpage-lead">The versions that installed when we started it. Your dashboard takes each one's newest build for Minecraft {{$t.Version}}.</p>
         <ul class="addon-list">
-          {{if $k}}{{range $k.Plugins}}<li class="addon"><span class="addon-mark" aria-hidden="true">{{initial .Name}}</span><span class="addon-main"><a class="addon-name" href="https://modrinth.com/plugin/{{.Slug}}">{{.Name}}</a><span class="addon-version">{{.Version}}</span></span><span class="addon-meta"><span>{{downloads .Downloads}} downloads</span><span>{{licence .Licence}}</span></span></li>{{end}}
-          {{else}}{{range $ad := $tp.Addons}}<li class="addon"><span class="addon-mark" aria-hidden="true">{{initial $ad.Name}}</span><span class="addon-main">{{with addonPage $ad}}<a class="addon-name" href="{{.}}">{{$ad.Name}}</a>{{else}}<span class="addon-name">{{$ad.Name}}</span>{{end}}</span><span class="addon-meta"><span>{{$ad.Source.Name}}</span></span></li>{{end}}{{end}}
+          {{range $k.Plugins}}<li class="addon"><span class="addon-mark" aria-hidden="true">{{initial .Name}}</span><span class="addon-main"><a class="addon-name" href="https://modrinth.com/plugin/{{.Slug}}">{{.Name}}</a><span class="addon-version">{{.Version}}</span></span><span class="addon-meta"><span>{{downloads .Downloads}} downloads</span><span>{{licence .Licence}}</span></span></li>{{end}}
         </ul>
       </section>
       {{else if $tp.Modpack}}
@@ -279,28 +277,24 @@
       </section>
       {{end}}
       {{if .Article}}<article class="article tpage-notes">{{.Article}}{{.After}}</article>{{end}}
-      {{with $k}}
       <section class="tpage-section" aria-labelledby="manual">
         <h2 id="manual" class="tpage-h2">The same server by hand</h2>
         <p class="tpage-lead">With Docker and the itzg image Playkeeper runs servers in, sized the way Playkeeper sizes it. Open TCP 25565 in your provider's firewall.</p>
-        {{template "library-docker" (dict "L" .)}}
+        {{template "library-docker" (dict "L" $k)}}
       </section>
-      {{end}}
     </div>
     <aside class="tpage-side" aria-label="At a glance">
       <div class="facts-card">
         <h2 class="facts-title">At a glance</h2>
         <dl class="tfacts">
-          <div class="tfact"><dt>Server</dt><dd>{{with $l.Logo}}{{$i := img .}}<img class="tfact-logo{{if $l.Pixel}} pixel{{end}}" src="{{$i.URL}}" alt="" width="20" height="20" decoding="async">{{end}}{{$l.Name}} {{$t.Version}}{{with $k}}, build {{.Build}}{{end}}</dd></div>
+          <div class="tfact"><dt>Server</dt><dd>{{with $l.Logo}}{{$i := img .}}<img class="tfact-logo{{if $l.Pixel}} pixel{{end}}" src="{{$i.URL}}" alt="" width="20" height="20" decoding="async">{{end}}{{$l.Name}} {{$t.Version}}, build {{$k.Build}}</dd></div>
           <div class="tfact"><dt>Java</dt><dd>{{javaFor $t.Version}}</dd></div>
-          <div class="tfact"><dt>Memory</dt><dd>{{$t.Memory}}{{with $k}}, {{gb .JavaHeapMB}} for Java{{end}}</dd></div>
+          <div class="tfact"><dt>Memory</dt><dd>{{$t.Memory}}, {{gb $k.JavaHeapMB}} for Java</dd></div>
           <div class="tfact"><dt>Type</dt><dd>{{$t.KindName}}</dd></div>
-          {{with $k}}
-          <div class="tfact"><dt>Players</dt><dd>Up to {{.MaxPlayers}}</dd></div>
-          <div class="tfact"><dt>Rules</dt><dd>{{title .Difficulty}}, PvP {{if .PVP}}on{{else}}off{{end}}{{if .Hardcore}}, hardcore{{end}}</dd></div>
-          <div class="tfact"><dt>Checked</dt><dd>{{day .Checked}}, Playkeeper {{.Release}}</dd></div>
-          <div class="tfact"><dt>Ready in</dt><dd>{{.Done}} seconds</dd></div>
-          {{end}}
+          <div class="tfact"><dt>Players</dt><dd>Up to {{$k.MaxPlayers}}</dd></div>
+          <div class="tfact"><dt>Rules</dt><dd>{{title $k.Difficulty}}, PvP {{if $k.PVP}}on{{else}}off{{end}}{{if $k.Hardcore}}, hardcore{{end}}</dd></div>
+          <div class="tfact"><dt>Checked</dt><dd>{{day $k.Checked}}, Playkeeper {{$k.Release}}</dd></div>
+          <div class="tfact"><dt>Ready in</dt><dd>{{$k.Done}} seconds</dd></div>
         </dl>
       </div>
       <div class="side-install tpage-install">
