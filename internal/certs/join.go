@@ -230,7 +230,9 @@ func (p Plan) Join() ([]JoinAddress, error) {
 type PlanCheck struct {
 	Name    NameCheck     `json:"name"`
 	Records []RecordCheck `json:"records,omitempty"`
-	// Ready means Name points here and every SRV record is right.
+	// Ready means Name points here and every SRV record under it is right.
+	// Servers' own addresses are checked alongside and don't count: each
+	// works, or doesn't, on its own.
 	Ready bool `json:"ready"`
 }
 
@@ -243,6 +245,8 @@ type RecordCheck struct {
 	OK     bool   `json:"ok"`
 	// Found lists the SRV records found, as "priority weight port target.".
 	Found []string `json:"found,omitempty"`
+	// Own means the record is for a server's own address.
+	Own bool `json:"own,omitempty"`
 }
 
 // CheckPlan checks the plan's records: Name with CheckName, every server's
@@ -257,9 +261,11 @@ func CheckPlan(ctx context.Context, r Resolver, p Plan, expected []netip.Addr) (
 	pc.Ready = pc.Name.OK
 	for _, s := range p.Servers {
 		if s.Own {
-			rc := p.checkOwnName(ctx, r, s, expected)
+			pc.Records = append(pc.Records, p.checkOwnName(ctx, r, s, expected))
+			rc := p.checkSRV(ctx, r, s, p.srvRecord(s), false)
+			rc.Own = true
 			pc.Records = append(pc.Records, rc)
-			pc.Ready = pc.Ready && rc.OK
+			continue
 		}
 		var rc RecordCheck
 		switch {
@@ -283,7 +289,7 @@ func CheckPlan(ctx context.Context, r Resolver, p Plan, expected []netip.Addr) (
 // record is the first of its A and AAAA records, and Found what it points to.
 func (p Plan) checkOwnName(ctx context.Context, r Resolver, s JoinServer, expected []netip.Addr) RecordCheck {
 	nc := CheckName(ctx, r, s.Host, expected)
-	rc := RecordCheck{Note: nc.Note, OK: nc.OK}
+	rc := RecordCheck{Note: nc.Note, OK: nc.OK, Own: true}
 	if recs := p.addrRecords(s.ID, s.Host); len(recs) > 0 {
 		rc.Record = recs[0]
 	} else {

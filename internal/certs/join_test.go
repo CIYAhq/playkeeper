@@ -269,9 +269,10 @@ func TestCheckPlanChecksAServersOwnAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := rows(pc); !pc.Ready || !r["A"].OK || r["A"].Code != CodeNameOK || r["A"].Record.Name != "alex.example.org" || !r["SRV"].OK {
+	if r := rows(pc); !pc.Ready || !r["A"].OK || r["A"].Code != CodeNameOK || r["A"].Record.Name != "alex.example.org" || !r["SRV"].OK || !r["SRV"].Own {
 		t.Fatalf("ready %v, rows %+v", pc.Ready, r)
 	}
+	// The machine's name works whatever its servers' own addresses do.
 	for name, edit := range map[string]func(*fakeResolver){
 		"no A record":        func(r *fakeResolver) { delete(r.a, "alex.example.org"); delete(r.aaaa, "alex.example.org") },
 		"A record elsewhere": func(r *fakeResolver) { r.a["alex.example.org"] = []string{"198.51.100.7"} },
@@ -284,7 +285,7 @@ func TestCheckPlanChecksAServersOwnAddress(t *testing.T) {
 		edit(res)
 		pc, _ := CheckPlan(context.Background(), res, plan, bothHere)
 		r := rows(pc)
-		if pc.Ready || r["A"].OK && r["SRV"].OK || strings.ContainsAny(r["A"].Message+r["SRV"].Message, "{}") {
+		if !pc.Ready || r["A"].OK && r["SRV"].OK || !r["A"].Own || !r["SRV"].Own || strings.ContainsAny(r["A"].Message+r["SRV"].Message, "{}") {
 			t.Errorf("%s: ready %v, rows %+v", name, pc.Ready, r)
 		}
 	}
