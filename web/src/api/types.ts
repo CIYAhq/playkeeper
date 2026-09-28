@@ -546,6 +546,48 @@ export interface UpdateInfo {
   lastResult?: UpdateResult
 }
 
+/** What a machine's heartbeat to the stats service says, field for field (internal/usage). */
+export interface UsageReport {
+  id: string
+  version: string
+  os: string
+  osVersion: string
+  arch: string
+  source: string
+  channel?: string
+  kind: 'dashboard' | 'joined'
+  test?: boolean
+  address: 'free' | 'own' | 'ip'
+  servers: number
+  running: number
+}
+
+/** What decides whether a machine sends usage stats: root's choices come first, then the switch. */
+export type UsageReason = 'default' | 'settings' | 'install' | 'env' | 'dev'
+
+export interface UsageStats {
+  on: boolean
+  reason: UsageReason
+  variable?: string
+  canChange: boolean
+  lastSent?: string
+  service: string
+  report: UsageReport
+}
+
+/** A joined machine's usage stats, or why they can't be read. */
+export interface UsageMachine {
+  id: string
+  name: string
+  stats?: UsageStats
+  error?: ApiErrorBody
+}
+
+/** GET and PUT /api/usage-stats: the dashboard machine's, with each joined machine's. */
+export interface UsageStatsView extends UsageStats {
+  machines: UsageMachine[]
+}
+
 export interface CatalogEntry {
   id: string
   label: string

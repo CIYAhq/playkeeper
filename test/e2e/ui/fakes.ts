@@ -51,6 +51,8 @@ interface FakeState {
   /** The last answer the page got to each read of a server's add-ons, packs and pre-generation, and of a machine's add-on sources, by path. */
   reads: Map<string, Record<string, unknown>>
   discord: Record<string, unknown>
+  /** Usage stats as the real panel last showed them; the switch answers with them. */
+  usage: Record<string, unknown>
   opSeq: number
   inviteSeq: number
   /** Each machine's address as the real panel last showed it; address changes answer with it. */
@@ -632,6 +634,8 @@ const routes: [string, RegExp, Handler][] = [
   ['PUT', /^\/api\/discord$/, (r, state) => discordAlerts(r.body, state)],
   ['DELETE', /^\/api\/discord$/, () => noContent],
   ['POST', /^\/api\/discord\/test$/, (_r, state) => ({ status: 200, body: { ...state.discord, delivery: { sent: new Date().toISOString() } } })],
+  // The usage stats switch never changes the machine the crawl runs on.
+  ['PUT', /^\/api\/usage-stats$/, (r, state) => ({ status: 200, body: { machines: [], ...state.usage, on: (r.body as { on?: unknown } | null)?.on === true, reason: 'settings', canChange: true } })],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
   // Wave 1: the World tab's pre-generation and packs, and the Plugins and Mods tabs.
   [
@@ -2025,6 +2029,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
     jobs: new Map(),
     origin,
     discord: { connected: false, alerts: [], liveStatus: true, delivery: {}, kinds: [] },
+    usage: {},
     inviteSeq: 0,
     maps: new Map(),
     imports: new Map(),
@@ -2175,6 +2180,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (/^\/api\/servers\/\w+\/(datapacks|resourcepack|pregen|mods\/share|map\/area)$/.test(path)) state.reads.set(path, laid as Record<string, unknown>)
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = laid as Record<string, unknown>
         if (path === '/api/discord') state.discord = laid as Record<string, unknown>
+        if (path === '/api/usage-stats') state.usage = laid as Record<string, unknown>
         const laidMap = /^\/api\/servers\/(\w+)\/map$/.exec(path)
         if (laidMap?.[1]) state.maps.set(laidMap[1], laid as Record<string, unknown>)
         const laidSchedules = /^\/api\/servers\/(\w+)\/schedules$/.exec(path)
@@ -2203,6 +2209,7 @@ export async function installFakes(page: Page, baseURL: string, view: () => View
         if (map?.[1]) state.maps.set(map[1], await res.json().catch(() => ({})))
         if (/^\/api\/machines\/\w+\/update$/.test(path)) state.update = await res.json().catch(() => ({}))
         if (path === '/api/discord') state.discord = await res.json().catch(() => state.discord)
+        if (path === '/api/usage-stats') state.usage = await res.json().catch(() => state.usage)
         if (path === '/api/machines/link') state.link = await res.json().catch(() => ({}))
         if (path === '/api/machines') state.machines = await res.json().catch(() => [])
         const address = /^\/api\/machines\/(\w+)\/address$/.exec(path)
