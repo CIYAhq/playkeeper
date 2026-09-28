@@ -7,30 +7,28 @@ name: ARM64
 # onboarding, play with protocol bots, back up, restore on a second runner
 # installed with the one-line installer, start every server type with the
 # hand-picked add-ons, the map, pre-generation and a modpack, and uninstall.
-# It uses six ARM runners, so it runs on pull requests that change how
-# Playkeeper is installed or updated or which runtime images it pins, when
-# started by hand, and on the assets a release build made (artifact): in the
-# Release check on the release it builds (release-check.yml), whose success a
-# tag needs to publish those assets, and in the Release workflow's dry run on
-# pull requests that change the release path (the packaging, the release
-# scripts, the Makefile), which is why those aren't listed here.
+# It uses six ARM runners, so on pull requests it runs only when they change
+# installer or OS code: how Playkeeper is packaged, installed or updated, the
+# toolchains it's built with, or what it assumes about the system; and on a
+# pull request it already passed on, only for a push that changes one of
+# those files (scripts/ci-since.sh), not one that merges main. It also
+# runs when started by hand, and on the assets a release build made
+# (artifact): in the Release check on the release it builds
+# (release-check.yml), whose success a tag needs to publish those assets, and
+# in the Release workflow's dry runs started by hand.
 
 on:
   pull_request:
     paths:
       - .github/workflows/arm64.yml
-      - go.mod
-      - go.sum
       - scripts/setup.sh
       - scripts/toolchains.txt
+      - scripts/package.sh
+      - packaging/**
       - internal/install/**
       - internal/update/**
       - internal/docker/**
-      - internal/minecraft/catalog.go
-      - internal/minecraft/java.go
-      - test/e2e/pkclient.py
-      - test/e2e/scenario.py
-      - test/e2e/software.py
+      - internal/platform/**
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -54,11 +52,34 @@ defaults:
     shell: bash
 
 jobs:
+  # It runs on every event, so the jobs after it aren't skipped for a skipped
+  # job upstream; outside a pull request it says everything runs.
+  since:
+    name: What changed since ARM64 last passed on this pull request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      run: ${{ steps.since.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+          persist-credentials: false
+      - id: since
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/ci-since.sh arm64.yml
+
   # What make check and make lint-sh cover, run as CI runs them: the agent's
   # tests in shards side by side, which check that together they ran every
   # test.
   check:
     name: ARM — lint, typecheck and unit tests
+    needs: since
+    if: needs.since.outputs.run == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
@@ -78,6 +99,8 @@ jobs:
 
   package:
     name: ARM — the release assets, built and checked on ARM
+    needs: since
+    if: needs.since.outputs.run == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     outputs:
@@ -129,6 +152,8 @@ jobs:
 
   runtimes:
     name: ARM — every pinned Java runtime image, pulled and run natively
+    needs: since
+    if: needs.since.outputs.run == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     steps:

@@ -234,16 +234,17 @@
 {{end}}
 
 {{/* dir-modes-band: the other categories, as links, under a category or a
-     template. Except is the one the page is about. */}}
-{{define "dir-modes-band"}}{{$except := .}}
+     template, whose category is the one it's given; on /templates, given
+     nothing, every category, so each one's page is a link from the hub. */}}
+{{define "dir-modes-band"}}{{$except := ""}}{{$title := "Every game mode"}}{{with .}}{{$except = .Path}}{{$title = "More game modes"}}{{end}}
 <section class="band band-white dir-more" aria-labelledby="more-modes">
   <div class="container">
     <div class="dir-more-head">
-      <h2 id="more-modes" class="h3">More game modes</h2>
-      <a class="link-arrow" href="/templates">All templates{{template "icon" "arrow-right"}}</a>
+      <h2 id="more-modes" class="h3">{{$title}}</h2>
+      {{if $except}}<a class="link-arrow" href="/templates">All templates{{template "icon" "arrow-right"}}</a>{{end}}
     </div>
     <ul class="dir-more-list">
-      {{range directory.Categories}}{{if ne . $except}}<li><a class="mode-card" href="{{.Path}}"><span class="mode-art{{if .Thumb}} is-photo{{end}}">{{template "tpl-art" (dict "Thumb" .Thumb "Art" .Scene "Sizes" "72px")}}</span><span class="mode-name">{{.Name}}</span><span class="mode-n">{{plural (len .Templates) "template" "templates"}}</span></a></li>{{end}}{{end}}
+      {{range directory.Categories}}{{if ne .Path $except}}<li><a class="mode-card" href="{{.Path}}"><span class="mode-art{{if .Thumb}} is-photo{{end}}">{{template "tpl-art" (dict "Thumb" .Thumb "Art" .Scene "Sizes" "72px")}}</span><span class="mode-name">{{.Name}}</span><span class="mode-n">{{plural (len .Templates) "template" "templates"}}</span></a></li>{{end}}{{end}}
     </ul>
   </div>
 </section>

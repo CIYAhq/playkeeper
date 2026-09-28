@@ -1,9 +1,9 @@
 {
   "status": "passing",
   "checked": "2026-09-28",
-  "release": "0.4.2",
+  "release": "0.4.4",
   "build": "129",
-  "doneSeconds": 12.624,
+  "doneSeconds": 12.816,
   "addons": [
     {
       "name": "Multiverse-Core",
@@ -11,7 +11,7 @@
       "slug": "multiverse-core",
       "version": "5.8.1",
       "licence": "BSD-3-Clause",
-      "downloads": 821032
+      "downloads": 821669
     },
     {
       "name": "OneBlock",
@@ -19,7 +19,8 @@
       "slug": "oneblock_bukkit",
       "version": "1.6.3",
       "licence": "MIT",
-      "downloads": 243486
+      "downloads": 243622
     }
-  ]
+  ],
+  "crossplay": true
 }

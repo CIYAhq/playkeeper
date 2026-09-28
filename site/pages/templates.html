@@ -16,6 +16,7 @@ updated: 2026-09-28
 {{define "closing-sub"}}Free and open source. Nothing installs until you confirm.{{end}}
 
 {{define "after"}}
+{{template "dir-modes-band" ""}}
 {{with modpacks}}<section class="band band-chalk dir-packs" aria-labelledby="packs-title">
   <div class="container">
     <div class="dir-more-head">
@@ -52,7 +53,7 @@ updated: 2026-09-28
 <section class="band band-chalk dir-faq" aria-label="Questions">
   <div class="container container-narrow">
     {{$bedrock := "Yes, once the server is made. On a Paper or Purpur server, Bedrock players in its Settings lets friends on phones, consoles and Windows join through Geyser and Floodgate. Console players also need BedrockConnect."}}
-    {{if directory.Crossplay}}{{$bedrock = print $bedrock " Templates marked Crossplay were also started with it on when we checked them."}}{{end}}
+    {{if directory.Crossplay}}{{$bedrock = print $bedrock " Templates marked Crossplay were also started with it on when we checked them."}}{{end}}{{$bedrock = print $bedrock ` <a href="/guides/minecraft-crossplay-server">How to set up crossplay</a>.`}}
     {{template "faq" (dict "ID" "questions" "Items" (list
       (qa "Are these Minecraft server templates free?" "Yes. Playkeeper and its templates are free and open source; you pay only for the VPS they run on.")
       (qa "Does a template include a world?" "No. A template sets up a new server. Worlds, allowlists and operators never travel in one.")

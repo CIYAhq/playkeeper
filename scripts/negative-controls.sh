@@ -6616,7 +6616,7 @@ shcontrol "get.sh passes on what playkeeper.io's command said" packaging/get.sh 
   '  if [ -z "${PLAYKEEPER_INSTALL_SOURCE:-}" ]; then' \
   '  if true; then' \
   packaging/get_test.sh
-control "every install CI runs sends no usage stats" .github/workflows/ci.yml \
+control "every install CI runs sends no usage stats" .github/workflows/e2e.yml \
   'sudo DO_NOT_TRACK=1 ./install.sh --yes | tee /tmp/evidence/install.txt' \
   'sudo ./install.sh --yes | tee /tmp/evidence/install.txt' \
   ./internal/usage '^TestEveryInstallTheProjectRunsSendsNoUsageStats$'

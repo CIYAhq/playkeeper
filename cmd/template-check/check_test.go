@@ -103,6 +103,8 @@ func (f *fakeAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(api.Addons{Files: files})
 	case "GET /v1/servers/s1/template":
 		reply(api.TemplateExport{File: f.exported})
+	case "GET /v1/modpacks/curseforge/715572":
+		reply(api.ModpackDetail{ModpackCard: api.ModpackCard{Downloads: 13639405}})
 	case "GET /v1/servers/s1/crossplay":
 		if f.crossplay == nil {
 			http.Error(w, `{"error":"no such call"}`, http.StatusNotFound)
@@ -163,6 +165,45 @@ const survival = `{
   ]
 }
 `
+
+const curseforgePack = `{
+  "playkeeperTemplate": 1,
+  "name": "All the Mods 9",
+  "game": "minecraft-java",
+  "server": { "type": "forge", "minecraftVersion": "1.20.1" },
+  "settings": {
+    "memoryMB": 4096
+  },
+  "modpack": {
+    "source": "curseforge",
+    "project": "715572",
+    "slug": "all-the-mods-9",
+    "name": "All the Mods 9 - ATM9",
+    "pin": {
+      "versionId": "7097953",
+      "versionNumber": "1.1.1",
+      "channel": "release",
+      "hashAlgo": "sha1",
+      "hash": "bcf232e85b4d200b3e65bc02facd98a179b685dd"
+    }
+  }
+}
+`
+
+// A CurseForge pack's downloads come from the release, which has
+// CurseForge's key: the checker's own sources can't ask CurseForge.
+func TestACurseForgePackGetsItsDownloadsFromTheRelease(t *testing.T) {
+	tpl, err := templates.Decode([]byte(curseforgePack))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &templateFile{path: filepath.Join(t.TempDir(), "atm9.json"), raw: []byte(curseforgePack), t: tpl}
+	agent := &fakeAgent{ready: true, log: []string{"[Server thread/INFO]: Done (37.81s)! For help, type \"help\""}}
+	r := newTestChecker(t, agent).check(context.Background(), "atm9", f, false, false)
+	if r.Status != statusPassing || r.Check.Modpack == nil || r.Check.Modpack.Downloads != 13639405 {
+		t.Fatalf("got %s %q, modpack %+v", r.Status, r.Failure, r.Check.Modpack)
+	}
+}
 
 func pinnedExport(t *testing.T) string {
 	t.Helper()

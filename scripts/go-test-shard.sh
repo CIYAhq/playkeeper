@@ -24,6 +24,19 @@ report() {
   jq -j 'select((.Action == "output" and .Test == null) or .Action == "build-output") | .Output' "$json"
 }
 
+# listed: the tests on stdin but the ones test/quarantine.txt quarantines in
+# $pkg, which the Quarantined tests workflow runs on their own.
+listed() {
+  local q
+  q=$("$(dirname "$0")/quarantine.sh" names "$pkg")
+  if [ -z "$q" ]; then
+    cat
+    return
+  fi
+  echo "quarantined, so left out: $(paste -sd' ' - <<<"$q")" >&2
+  grep -vxF -e "$q" || true
+}
+
 # ran JSON: the top-level tests that ran.
 ran() {
   jq -r 'select(.Action == "run" and .Test != null and (.Test | contains("/") | not)) | .Test' "$1" | sort -u
@@ -65,7 +78,7 @@ if [ "${1:-}" = --jobs ]; then
   dir=$(go list -f '{{.Dir}}' "$pkg")
   path=$(go list -f '{{.ImportPath}}' "$pkg")
   go test -c -o "$out/pkg.test" "$pkg"
-  (cd "$dir" && "$out/pkg.test" -test.list '.*') | grep -E '^(Test|Example|Fuzz)' >"$out/all.txt"
+  (cd "$dir" && "$out/pkg.test" -test.list '.*') | grep -E '^(Test|Example|Fuzz)' | listed >"$out/all.txt"
   # A test TIMES doesn't know counts as 5 s.
   awk 'FILENAME == ARGV[1] { t[$1] = $2; next } { print $1, ($1 in t ? t[$1] : 5) }' "$times" "$out/all.txt" | sort -k2,2nr -k1,1 |
     awk -v n="$jobs" -v out="$out" '{ k = 1; for (i = 2; i <= n; i++) if (load[i] < load[k]) k = i; load[k] += $2; print $1 > (out "/mine-" k ".txt") }'
@@ -108,7 +121,7 @@ if ! [[ $shard =~ ^[0-9]+$ && $of =~ ^[0-9]+$ ]] || [ "$shard" -lt 1 ] || [ "$sh
   exit 2
 fi
 mkdir -p "$out"
-go test -list '.*' "$pkg" | grep -E '^(Test|Example|Fuzz)' >"$out/all-$shard.txt"
+go test -list '.*' "$pkg" | grep -E '^(Test|Example|Fuzz)' | listed >"$out/all-$shard.txt"
 awk -v k="$shard" -v n="$of" 'NR % n == k % n' "$out/all-$shard.txt" >"$out/mine-$shard.txt"
 echo "shard $shard of $of: $(wc -l <"$out/mine-$shard.txt") of the $(wc -l <"$out/all-$shard.txt") tests in $pkg"
 json="$out/test-$shard.json"
