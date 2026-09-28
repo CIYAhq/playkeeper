@@ -292,6 +292,15 @@ CREATE TABLE public_links (
 	`
 ALTER TABLE server_machines ADD COLUMN slug TEXT NOT NULL DEFAULT '';
 `,
+	// A creator's allowance (the managed beta): on the invite and on the
+	// member it made, the servers they may create and the memory between
+	// them (see invites.Allowance). Zero for everyone else.
+	`
+ALTER TABLE invites ADD COLUMN allowance_servers INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE invites ADD COLUMN allowance_memory_mb INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE project_members ADD COLUMN allowance_servers INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE project_members ADD COLUMN allowance_memory_mb INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 const (

@@ -123,6 +123,9 @@ type Invite struct {
 	Role string `json:"role,omitempty"`
 	// Servers is the scope a member invite gives with the role.
 	Servers Scope `json:"servers,omitzero"`
+	// Allowance is set on a creator invite, which gives Admin with no
+	// servers yet (see Allowance).
+	Allowance Allowance `json:"allowance,omitzero"`
 	// Approval is when a player invite lets people in.
 	Approval Approval `json:"approval,omitempty"`
 	// Label is the creator's note to tell links apart ("Discord crew").
@@ -313,6 +316,9 @@ type MemberSpec struct {
 	Role      string
 	Servers   Scope
 	Label     string
+	// Allowance makes it a creator invite: Role must be admin and Servers
+	// empty.
+	Allowance Allowance
 }
 
 // NewPlayer creates an invite that lets friends add themselves to a
@@ -366,6 +372,9 @@ func playerUses(spec PlayerSpec) (int, error) {
 // project's servers now; the invite may name only those. The inviter must
 // be allowed to give the role and the servers (see CanGrant).
 func NewMember(spec MemberSpec, inviter Account, existing []string, now time.Time) (Created, error) {
+	if !spec.Allowance.IsZero() {
+		return newCreator(spec, inviter, now)
+	}
 	if err := CanGrant(inviter, spec.Role, spec.Servers); err != nil {
 		return Created{}, err
 	}
@@ -373,6 +382,19 @@ func NewMember(spec MemberSpec, inviter Account, existing []string, now time.Tim
 		return Created{}, badOptions("servers", "Choose servers from this project, each once.")
 	}
 	return create(Invite{Kind: KindMember, ProjectID: spec.ProjectID, Role: spec.Role, Servers: spec.Servers.sorted(), MaxUses: 1},
+		spec.Label, MemberLifetime, inviter.UserID, now)
+}
+
+// newCreator makes a creator invite: Admin of the servers its member will
+// create, none yet, inside the allowance.
+func newCreator(spec MemberSpec, inviter Account, now time.Time) (Created, error) {
+	if err := CanGrantAllowance(inviter, spec.Allowance); err != nil {
+		return Created{}, err
+	}
+	if spec.Role != RoleAdmin || spec.Servers.All || len(spec.Servers.Servers) > 0 {
+		return Created{}, badOptions("allowance", "A creator starts as Admin with no servers, and creates their own.")
+	}
+	return create(Invite{Kind: KindMember, ProjectID: spec.ProjectID, Role: RoleAdmin, Allowance: spec.Allowance, MaxUses: 1},
 		spec.Label, MemberLifetime, inviter.UserID, now)
 }
 
