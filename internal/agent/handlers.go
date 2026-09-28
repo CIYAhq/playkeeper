@@ -911,10 +911,10 @@ func (s *server) hLogs(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	after, _ := strconv.ParseInt(q.Get("after"), 10, 64)
 	limit, _ := strconv.Atoi(q.Get("limit"))
-	if limit <= 0 || limit > consoleCapacity {
+	if limit <= 0 {
 		limit = 500
 	}
-	writeJSON(w, http.StatusOK, s.console.since(q.Get("epoch"), after, limit))
+	writeJSON(w, http.StatusOK, s.console.since(q.Get("epoch"), after, min(limit, consoleCapacity)))
 }
 
 // validateCommand accepts one Minecraft console command. Commands go to the

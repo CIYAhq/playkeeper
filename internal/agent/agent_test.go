@@ -1794,6 +1794,33 @@ func TestConsoleBufferIsBounded(t *testing.T) {
 	}
 }
 
+// A log request for more lines than the console keeps gets every line it
+// keeps, newest last: a big modpack logs more than 500 lines in the second
+// after it says Done. One that asks for none gets the newest 500.
+func TestALogRequestForMoreLinesThanTheConsoleKeepsGetsThemAll(t *testing.T) {
+	e := newAgentEnv(t)
+	e.addIdleServer()
+	c := e.srv().console
+	base := time.Now()
+	for i := range consoleCapacity + 100 {
+		c.append(base.Add(time.Duration(i)), fmt.Sprintf("line %d", i))
+	}
+	newest := fmt.Sprintf("line %d", consoleCapacity+99)
+	for _, tc := range []struct {
+		limit string
+		want  int
+	}{{"5000", consoleCapacity}, {"", 500}, {"0", 500}, {"10", 10}} {
+		code, out := e.call("GET", e.sp("/logs?limit="+tc.limit), nil)
+		lines, _ := out["lines"].([]any)
+		if code != 200 || len(lines) != tc.want {
+			t.Fatalf("limit %q: %d with %d lines, want %d", tc.limit, code, len(lines), tc.want)
+		}
+		if last := lines[len(lines)-1].(map[string]any)["text"]; last != newest {
+			t.Fatalf("limit %q ends with %v, not the newest line", tc.limit, last)
+		}
+	}
+}
+
 // backupAndStage makes a backup of the current world and stages it for a
 // restore, returning the restore id and its confirmation phrase.
 func (e *agentEnv) backupAndStage() (string, string) {
