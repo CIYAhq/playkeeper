@@ -25,11 +25,11 @@ type fakeAgent struct {
 	mu          sync.Mutex
 	ready       bool
 	createFails bool
-	log      []string
-	servers  []api.ServerStatus
-	calls    []string
-	deleted  []api.DeleteServerRequest
-	exported string
+	log         []string
+	servers     []api.ServerStatus
+	calls       []string
+	deleted     []api.DeleteServerRequest
+	exported    string
 }
 
 func (f *fakeAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
