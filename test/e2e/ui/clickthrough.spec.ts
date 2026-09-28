@@ -657,6 +657,11 @@ test("a pull request crawls the pages its change reaches, one page for those a m
   expect(plan(['web/vite.config.ts']).pages).toEqual(['/'])
   // A server's pages all run its page module; its Overview stands for them.
   expect(plan(['web/src/pages/server/index.tsx']).pages).toEqual(['/servers/*'])
+  // The app's shell and the stylesheet are above the page map; Home stands for the pages they reach.
+  expect(plan(['web/src/App.tsx']).pages).toEqual(['/'])
+  expect(plan(['web/src/main.tsx']).pages).toEqual(['/'])
+  expect(plan(['web/src/styles.css']).pages).toEqual(['/'])
+  expect(plan(['web/src/demo/client.ts']).mode).toBe('none')
   // A changed string takes the pages whose modules use it, not every page that loads the table.
   const pregen = plan(['web/src/i18n/en.ts'], ['pregen.unknown'], { 'pregen.unknown': ['pages/server/world-pregen.tsx'] })
   expect(pregen.mode).toBe('pages')

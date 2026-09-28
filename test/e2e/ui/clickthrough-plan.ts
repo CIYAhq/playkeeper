@@ -382,9 +382,10 @@ const stringTable = 'i18n/en.ts'
  * the pages it runs on (their modules and what they import); a change to
  * the string table takes the pages whose modules use the keys it changed
  * (usesOf), when they're given. A module more than a third of the pages run
- * on takes the first of them as their sample, and a change to how the
- * dashboard is built or to the crawler and the state it crawls in takes
- * Home, which shows the crawl still works. When that's more than
+ * on takes the first of them as their sample. A stylesheet, the app's shell
+ * above the pages, a change to how the dashboard is built or to the crawler
+ * and the state it crawls in takes Home, which shows the crawl still works
+ * and stands for the pages they reach. When that's more than
  * pullRequestRunners runners' worth, the pages that list a changed module as
  * their own come first, then the other pages a changed page module runs on,
  * and the rest wait for the release.
@@ -415,15 +416,20 @@ export function forPullRequest(changed: string[], graph: Graph, costs: Costs, ke
       why.push(`${tooling}, so Home shows the crawl still works`)
       continue
     }
-    if (!file.startsWith('web/src/') || isTest(file) || !sourceFile.test(file)) continue
+    if (!file.startsWith('web/src/') || isTest(file)) continue
     const rel = file.slice('web/src/'.length)
-    if (rel === stringTable && keys) continue
+    if (rel.endsWith('.css')) {
+      reached.add('/')
+      why.push(`${file} is a stylesheet, which the page map doesn't follow, so Home stands for the pages it styles`)
+      continue
+    }
+    if (!sourceFile.test(file) || rel.startsWith('demo/') || (rel === stringTable && keys)) continue
     touched.add(rel)
     const pages = reach(rel)
     if (pages.length) take(file, pages, rel.startsWith('pages/') ? own : reached, rel)
-    else if (rel.startsWith('pages/') && !uncrawled.includes(rel)) {
+    else if (!uncrawled.includes(rel)) {
       reached.add('/')
-      why.push(`${file} is a page module no page in pageModules (clickthrough-plan.ts) draws, so Home stands in`)
+      why.push(`${file} runs above the pages in pageModules (clickthrough-plan.ts), as the app's shell does, or on none it knows yet, so Home stands in`)
     }
   }
   for (const key of keys ?? []) {

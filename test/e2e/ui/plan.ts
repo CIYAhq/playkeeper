@@ -30,13 +30,19 @@ if (problems.length) {
 const costs = JSON.parse(fs.readFileSync(path.join(root, 'test/e2e/ui/clickthrough-costs.json'), 'utf8')) as Costs
 const git = (...a: string[]) => execFileSync('git', a, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 })
 
-// The modules that name a key of the string table: as a string, or as the
-// start of a template the key is built from, as t(`settings.mode.${mode}`).
-const sources = [...graph.keys()].filter((f) => f !== 'i18n/en.ts').map((f) => ({ f, text: fs.readFileSync(path.join(root, 'web/src', f), 'utf8') }))
+// The modules that name a key of the string table: as a string, or in a
+// template the key is built from, as t(`style.world.${level}.desc`).
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const sources = [...graph.keys()]
+  .filter((f) => f !== 'i18n/en.ts')
+  .map((f) => {
+    const text = fs.readFileSync(path.join(root, 'web/src', f), 'utf8')
+    const templates = [...text.matchAll(/`([\w.-]+\$\{[^}`]*\}(?:[\w.-]|\$\{[^}`]*\})*)`/g)].map((m) => new RegExp(`^${(m[1] ?? '').split(/\$\{[^}`]*\}/).map(escape).join('.+')}$`))
+    return { f, text, templates }
+  })
 const usesOf = (key: string) => {
   const names = [`'${key}'`, `"${key}"`, `\`${key}\``]
-  const parent = key.includes('.') ? `\`${key.slice(0, key.lastIndexOf('.'))}.\${` : undefined
-  return sources.filter(({ text }) => names.some((n) => text.includes(n)) || (parent !== undefined && text.includes(parent))).map(({ f }) => f)
+  return sources.filter(({ text, templates }) => names.some((n) => text.includes(n)) || templates.some((re) => re.test(key))).map(({ f }) => f)
 }
 
 let plan: Affected
