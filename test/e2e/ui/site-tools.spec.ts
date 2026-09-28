@@ -155,6 +155,20 @@ test('the icon maker frames a picture: opened or dropped, zoomed, moved, fitted,
   }
   await changes('zooming', () => slide(page, '#icon-zoom', 300))
   await expect(tool.locator('[data-zoom-value]')).toHaveText('300%')
+  // The arrow keys move the picture the way they point, as dragging does:
+  // the green stripe down its middle moves right with Right.
+  const stripe = () => page.locator('[data-big]').evaluate((c: HTMLCanvasElement) => {
+    const d = c.getContext('2d')!.getImageData(0, c.height / 2, c.width, 1).data
+    let x = 0
+    for (let i = 1; i < c.width; i++) if (d[i * 4 + 1] - d[i * 4] - d[i * 4 + 2] > d[x * 4 + 1] - d[x * 4] - d[x * 4 + 2]) x = i
+    return x
+  })
+  const middle = await stripe()
+  await page.locator('[data-big]').focus()
+  await page.keyboard.press('Shift+ArrowRight')
+  expect(await stripe(), 'Right moves the picture right').toBeGreaterThan(middle + 16)
+  await page.keyboard.press('Shift+ArrowLeft')
+  expect(await stripe()).toBe(middle)
   const box = (await page.locator('[data-big]').boundingBox())!
   await changes('dragging the picture', async () => {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)

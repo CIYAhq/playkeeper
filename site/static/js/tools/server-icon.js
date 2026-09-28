@@ -462,9 +462,11 @@
     var step = (e.shiftKey ? 8 : 1) / scale();
     var moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
     if (moves[e.key]) {
+      // The picture moves the way the arrow points, as it does when dragged,
+      // so what's in the middle of the icon moves the other way.
       e.preventDefault();
-      state.cx += moves[e.key][0];
-      state.cy += moves[e.key][1];
+      state.cx -= moves[e.key][0];
+      state.cy -= moves[e.key][1];
       clampCenter();
       render();
     } else if (e.key === '+' || e.key === '=') {
