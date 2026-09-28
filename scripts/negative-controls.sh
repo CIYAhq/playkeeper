@@ -2735,15 +2735,15 @@ shcontrol "the shards' check fails when shards listed other tests" scripts/go-te
   scripts/go-test-shard_test.sh
 
 control "names service owns only records with the name's marker" internal/names/service/dns.go \
-  'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
-  'if names.CheckName(name) != nil || reservedName(name) {' \
+  'if names.CheckName(name) != nil || names.Reserved(name) || r.Comment != marker(name) {' \
+  'if names.CheckName(name) != nil || names.Reserved(name) {' \
   ./internal/names/service '^(TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns|TestTheGuardRefusesEveryChangeOutsideItsPatterns|TestRecordsTheServiceDoesNotManageAreNeverTouched)$'
 control "names service checks a zone it couldn't check at startup before the first change" internal/names/service/dns.go \
   'if s.zoneOK.Load() {' \
   'if true || s.zoneOK.Load() {' \
   ./internal/names/service '^TestStartupWithoutCloudflareChecksTheZoneBeforeTheFirstChange$'
 control "names service never owns records of reserved names" internal/names/service/dns.go \
-  'if names.CheckName(name) != nil || reservedName(name) || r.Comment != marker(name) {' \
+  'if names.CheckName(name) != nil || names.Reserved(name) || r.Comment != marker(name) {' \
   'if names.CheckName(name) != nil || r.Comment != marker(name) {' \
   ./internal/names/service '^(TestOwnsOnlyMarkedRecordsInTheServicesOwnPatterns|TestTheGuardRefusesEveryChangeOutsideItsPatterns)$'
 control "names service owns address records only at the name itself" internal/names/service/dns.go \
@@ -2815,12 +2815,12 @@ control "requests through Cloudflare's proxy cannot claim names" internal/names/
   'if false && inAny(cloudflareEdge, a) {' \
   ./internal/names/service '^TestNamesCannotPointAtPrivateReservedOrProxyAddresses$'
 control "reserved names cannot be claimed" internal/names/service/handlers.go \
-  'if reservedName(name) || s.block.has(name) {' \
+  'if names.Reserved(name) || s.block.has(name) {' \
   'if s.block.has(name) {' \
   ./internal/names/service '^TestReservedAndBlocklistedNamesCannotBeClaimed$'
 control "blocklisted names cannot be claimed" internal/names/service/handlers.go \
-  'if reservedName(name) || s.block.has(name) {' \
-  'if reservedName(name) {' \
+  'if names.Reserved(name) || s.block.has(name) {' \
+  'if names.Reserved(name) {' \
   ./internal/names/service '^TestReservedAndBlocklistedNamesCannotBeClaimed$'
 control "only the install that holds a name can change it" internal/names/service/handlers.go \
   'case row.Key != key:' \
@@ -6743,7 +6743,6 @@ control "the share page doesn't name the stats service" site/layouts/base.html \
   '{{if and (ne $.Page.Path "/t") (ne $.Page.Layout "open")}}<meta name="playkeeper-stats"' \
   '{{if true}}<meta name="playkeeper-stats"' \
   ./internal/site '^TestTheCopyCountIsOneSetting$'
-
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
