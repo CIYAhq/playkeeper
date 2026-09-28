@@ -5961,6 +5961,16 @@ control "a pull onto a full disk isn't tried again" internal/agent/lifecycle.go 
   '' \
   ./internal/agent '^TestAnImagePullDockerHubRefusesOrDropsIsTriedAgain$'
 
+# playkeeper.io says a release is out only once it's published.
+control "the site describes the published release, not CHANGELOG.md's newest section" internal/site/build.go \
+  '			return r.Version, nil' \
+  '			return string(reRelease.FindSubmatch(c)[1]), nil' \
+  ./internal/site '^TestTheSiteShowsOnlyThePublishedRelease$'
+control "the published release has a CHANGELOG.md section" internal/site/build.go \
+  '		if string(m[1]) == r.Version {' \
+  '		if string(m[1]) == r.Version || true {' \
+  ./internal/site '^TestTheSiteShowsOnlyThePublishedRelease$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
