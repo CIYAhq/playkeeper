@@ -21,6 +21,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/minecraft/software"
 	"github.com/CIYAhq/playkeeper/internal/modpacks"
@@ -436,17 +437,127 @@ func (s *server) applyPackSettings(props map[string]string) error {
 		return err
 	}
 	defer d.Close()
+	if err := setProperties(d, props); err != nil {
+		return gameFileError(err, "The modpack's settings could not be saved, so the server was not started.")
+	}
+	return nil
+}
+
+// setProperties sets props in server.properties, keeping its other lines.
+func setProperties(d *gamefiles.Dir, props map[string]string) error {
+	if len(props) == 0 {
+		return nil
+	}
 	cur, err := d.ReadProperties()
 	if errors.Is(err, fs.ErrNotExist) {
 		cur, err = nil, nil
 	}
+	if err != nil {
+		return err
+	}
+	return d.WriteProperties(mergeProperties(cur, props))
+}
+
+// takesMods is true for the types that load mods.
+func takesMods(sc api.ServerConfig) bool {
+	t, err := addons.TargetFor(cmp.Or(sc.Type, api.TypePaper))
+	return err == nil && t.Kind == "mod"
+}
+
+// defaultPropertiesUsed is where the Default Server Properties mod notes
+// that it has used default-server.properties. With it there, the mod leaves
+// server.properties as it is.
+const defaultPropertiesUsed = "local/default-used.marker"
+
+// keepDefaultProperties stops a default-server.properties on a modded
+// server from replacing its server.properties, the console and allowlist
+// with it, on the first start (see modpacks.DefaultPropertiesName). Until
+// the mod has used the file, the settings in it that a pack may suggest go
+// into server.properties the way a pack's do, and the mod's marker then says
+// it has been used. The file itself is left as it is.
+func (s *server) keepDefaultProperties(sc api.ServerConfig) error {
+	if !takesMods(sc) {
+		return nil
+	}
+	d, err := s.gameFiles()
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	b, err := d.ReadFile(modpacks.DefaultPropertiesName, gamefiles.MaxProperties)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	if err == nil {
-		err = d.WriteProperties(mergeProperties(cur, props))
+		if _, err = d.Lstat(defaultPropertiesUsed); err == nil {
+			return nil
+		} else if errors.Is(err, fs.ErrNotExist) {
+			err = nil
+		}
+	}
+	if err == nil {
+		props, _ := modpacks.Suggestions(b)
+		err = setProperties(d, props)
+	}
+	if err == nil {
+		err = d.WriteFile(defaultPropertiesUsed, nil, 0o640)
 	}
 	if err != nil {
-		return gameFileError(err, "The modpack's settings could not be saved, so the server was not started.")
+		return gameFileError(err, "The server's default-server.properties could not be settled, so the server was not started.")
 	}
 	return nil
+}
+
+// settingsSwitchedOff reports whether a modded server was started with the
+// console or the allowlist off, which Playkeeper always has on, because the
+// Default Server Properties mod used a default-server.properties that a pack
+// installed before 0.4.3 put there. It stays so until it restarts.
+func (s *server) settingsSwitchedOff(sc api.ServerConfig) bool {
+	if !takesMods(sc) {
+		return false
+	}
+	d, err := s.gameFiles()
+	if err != nil {
+		return false
+	}
+	defer d.Close()
+	for _, name := range []string{modpacks.DefaultPropertiesName, defaultPropertiesUsed} {
+		if _, err := d.Lstat(name); err != nil {
+			return false
+		}
+	}
+	props := readProperties(s.dataDir())
+	if props == nil {
+		return false
+	}
+	for _, k := range []string{"enable-rcon", "white-list", "enforce-whitelist"} {
+		if !strings.EqualFold(props[k], "true") {
+			return true
+		}
+	}
+	return false
+}
+
+// checkSettingsOnce restarts a running server whose settings the Default
+// Server Properties mod switched off (settingsSwitchedOff), which puts them
+// back. It looks once for each agent process.
+func (s *server) checkSettingsOnce(sc api.ServerConfig) {
+	s.mu.Lock()
+	done := s.settingsChecked
+	s.mu.Unlock()
+	if done {
+		return
+	}
+	if s.settingsSwitchedOff(sc) {
+		if _, err := s.restart("playkeeper"); err != nil {
+			return
+		}
+		s.log.Warn("restarting the server to put back its console and allowlist, which a mod in its pack switched off", "server", s.id)
+		s.recordEvent(s.now(), "settings_restored", "", "playkeeper", "The console and allowlist were off: a mod in the pack had replaced server.properties.")
+	}
+	s.mu.Lock()
+	s.settingsChecked = true
+	s.mu.Unlock()
 }
 
 // packFailure turns a pack's refusal into the operation's error, keeping

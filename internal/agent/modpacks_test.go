@@ -324,6 +324,114 @@ func TestCreateFromModpackTakesItsSuggestedSettings(t *testing.T) {
 	}
 }
 
+// modServer makes a stopped server of type typ, with server.properties and
+// the files the Default Server Properties mod reads, as a pack installed
+// before 0.4.3 left them; used also writes the mod's marker.
+func (e *agentEnv) modServer(typ, properties, defaults string, used bool) {
+	e.t.Helper()
+	e.create()
+	if op := e.runOp("POST", "/stop"); op.Status != api.OpSucceeded {
+		e.t.Fatalf("stop: %+v", op)
+	}
+	s := e.srv()
+	sc, err := s.serverConfig()
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	sc.Type = typ
+	if err := s.saveServerConfig(*sc); err != nil {
+		e.t.Fatal(err)
+	}
+	writeTestFile(e.t, filepath.Join(e.dataDir(), "server.properties"), []byte(properties), time.Time{})
+	writeTestFile(e.t, filepath.Join(e.dataDir(), "default-server.properties"), []byte(defaults), time.Time{})
+	if used {
+		writeTestFile(e.t, filepath.Join(e.dataDir(), "local", "default-used.marker"), nil, time.Time{})
+	}
+}
+
+// A default-server.properties on a modded server, which the Default Server
+// Properties mod would put in place of all of server.properties on the first
+// start, has its gameplay settings put in server.properties before that
+// start instead, and the mod's marker says it was used: the console, the
+// allowlist and the other settings Playkeeper writes stay. Once the mod has
+// used the file, and on a server that loads no mods, it is left alone.
+func TestDefaultServerPropertiesKeepPlaykeepersSettings(t *testing.T) {
+	const (
+		properties = "difficulty=easy\nallow-nether=true\n"
+		defaults   = "allow-nether=false\nspawn-protection=512\nenable-rcon=false\nwhite-list=false\nmotd=A pack server\n"
+	)
+	for _, tc := range []struct {
+		name string
+		typ  string
+		used bool
+		want string
+	}{
+		{"a modded server's first start", "fabric", false, "difficulty=easy\nallow-nether=false\nspawn-protection=512\n"},
+		{"after the mod used it", "neoforge", true, properties},
+		{"a Paper server", api.TypePaper, false, properties},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.modServer(tc.typ, properties, defaults, tc.used)
+			if op := e.runOp("POST", "/start"); op.Status != api.OpSucceeded {
+				t.Fatalf("start: %+v", op)
+			}
+			if got, _ := os.ReadFile(filepath.Join(e.dataDir(), "server.properties")); string(got) != tc.want {
+				t.Errorf("server.properties:\n%s\nwant:\n%s", got, tc.want)
+			}
+			_, err := os.Stat(filepath.Join(e.dataDir(), "local", "default-used.marker"))
+			if marked := err == nil; marked != (tc.typ != api.TypePaper) {
+				t.Errorf("the mod's marker is there: %v", marked)
+			}
+			if got, _ := os.ReadFile(filepath.Join(e.dataDir(), "default-server.properties")); string(got) != defaults {
+				t.Errorf("default-server.properties changed: %q", got)
+			}
+		})
+	}
+}
+
+// A server a pack installed before 0.4.3 may still run the way the Default
+// Server Properties mod started it, with the console and the allowlist off.
+// The agent an update brings restarts it once, which puts Playkeeper's
+// settings back; a server that has them is left running.
+func TestAnUpdateRestartsAServerAPackModSwitchedTheAllowlistOffFor(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		properties string
+		restarted  int
+	}{
+		{"console and allowlist off", "enable-rcon=false\nwhite-list=false\nenforce-whitelist=false\nmotd=A Minecraft Server\n", 1},
+		{"settings on", "enable-rcon=true\nwhite-list=true\nenforce-whitelist=true\nmotd=My server\n", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAgentEnv(t)
+			e.modServer("fabric", "", "allow-nether=false\n", true)
+			if op := e.runOp("POST", "/start"); op.Status != api.OpSucceeded {
+				t.Fatalf("start: %+v", op)
+			}
+			e.waitFor("online", e.onlineIdle)
+			writeTestFile(t, filepath.Join(e.dataDir(), "server.properties"), []byte(tc.properties), time.Time{})
+
+			// Updating restarts the agent, not the server.
+			e.stop()
+			e.start()
+			e.waitFor("the check", func() bool {
+				s := e.srv()
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				return s.settingsChecked
+			})
+			e.waitFor("online and idle", e.onlineIdle)
+			if n := e.countRows(`SELECT COUNT(*) FROM operations WHERE kind = 'restart' AND actor = 'playkeeper' AND status = ?`, api.OpSucceeded); n != tc.restarted {
+				t.Fatalf("%d restarts by Playkeeper, want %d", n, tc.restarted)
+			}
+			if n := e.countEvents("settings_restored"); n != tc.restarted {
+				t.Fatalf("%d settings_restored events, want %d", n, tc.restarted)
+			}
+		})
+	}
+}
+
 // A pack for an older Minecraft version runs on the Java that version was
 // made for (the real-world check's AsguhoServer: Minecraft 1.21.4 with a
 // Fabric Loader that can't read Java 25's classes). The preview says so
