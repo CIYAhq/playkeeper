@@ -11,6 +11,7 @@ import (
 	"slices"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/backup/retention"
 	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 )
@@ -172,8 +173,45 @@ func (s *Server) hCreateServer(w http.ResponseWriter, r *http.Request, sess *ses
 	}
 	s.forwardThen("POST", "/v1/servers", func(m machine, sess *session, raw json.RawMessage) {
 		s.claimCreated(m, raw)
-		s.claimForCreator(sess.Access, raw)
+		if id := createdServer(raw); id != "" {
+			s.claimForCreator(sess.Access, id)
+			s.startCreatorBackups(r.Context(), m, sess.Access, id)
+		}
 	})(w, r, sess)
+}
+
+// createdServer is the server a create answer names, or "" for a refusal.
+func createdServer(raw json.RawMessage) string {
+	var op struct {
+		ServerID string `json:"serverId"`
+	}
+	if json.Unmarshal(raw, &op) != nil || !reMachineID.MatchString(op.ServerID) {
+		return ""
+	}
+	return op.ServerID
+}
+
+// creatorBackupRules are what a creator's new server starts with: a backup
+// each day someone played, keeping the last day's, 5 daily and 2 weekly on
+// the machine, so the disk every server shares holds about a week of each.
+var creatorBackupRules = retention.Settings{OnHost: retention.Rules{Hours: 24, Daily: 5, Weekly: 2}, OffSite: retention.DefaultSettings().OffSite}
+
+// startCreatorBackups turns on a creator's new server's backups, which a new
+// server otherwise starts without. A creator can change them later; if the
+// agent refuses, the server stays as it is and the log says so.
+func (s *Server) startCreatorBackups(ctx context.Context, m machine, a access, id string) {
+	body := map[string]any{
+		"actor":     a.Name,
+		"automatic": map[string]any{"enabled": true, "everyHours": 24, "onlyIfPlayed": true},
+		"rules":     creatorBackupRules,
+	}
+	status, err := m.agent.Do(asActor(ctx, a.Name), "POST", "/v1/servers/"+id+"/backup-rules", nil, body, nil)
+	if err == nil && status != http.StatusOK {
+		err = fmt.Errorf("the agent answered %d", status)
+	}
+	if err != nil {
+		s.log.Warn("could not turn on backups for a creator's new server", "server", id, "creator", a.Name, "err", err)
+	}
 }
 
 func serverCount(n int) string {
@@ -185,13 +223,7 @@ func serverCount(n int) string {
 
 // claimForCreator records a server a creator just created: it joins their
 // servers and counts against their allowance.
-func (s *Server) claimForCreator(a access, raw json.RawMessage) {
-	var op struct {
-		ServerID string `json:"serverId"`
-	}
-	if json.Unmarshal(raw, &op) != nil || !reMachineID.MatchString(op.ServerID) {
-		return
-	}
+func (s *Server) claimForCreator(a access, id string) {
 	ctx := context.Background()
 	err := s.immediate(ctx, func(c *sql.Conn) error {
 		var col string
@@ -199,17 +231,17 @@ func (s *Server) claimForCreator(a access, raw json.RawMessage) {
 			return err
 		}
 		sc, _ := invites.ParseScope(col)
-		if !sc.All && !slices.Contains(sc.Servers, op.ServerID) {
-			sc.Servers = append(sc.Servers, op.ServerID)
+		if !sc.All && !slices.Contains(sc.Servers, id) {
+			sc.Servers = append(sc.Servers, id)
 		}
 		if _, err := c.ExecContext(ctx, `UPDATE project_members SET servers = ? WHERE user_id = ? AND project_id = ?`, sc.String(), a.UserID, a.ProjectID); err != nil {
 			return err
 		}
-		_, err := c.ExecContext(ctx, `INSERT OR IGNORE INTO creator_servers(server_id, user_id, created_at) VALUES(?,?,?)`, op.ServerID, a.UserID, millis(s.now()))
+		_, err := c.ExecContext(ctx, `INSERT OR IGNORE INTO creator_servers(server_id, user_id, created_at) VALUES(?,?,?)`, id, a.UserID, millis(s.now()))
 		return err
 	})
 	if err != nil {
-		s.log.Error("could not record the server a creator created", "server", op.ServerID, "creator", a.Name, "err", err)
+		s.log.Error("could not record the server a creator created", "server", id, "creator", a.Name, "err", err)
 	}
 }
 

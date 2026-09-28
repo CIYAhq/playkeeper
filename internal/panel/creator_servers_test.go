@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/backup/retention"
 	"github.com/CIYAhq/playkeeper/internal/invites"
 )
 
@@ -97,6 +98,25 @@ func TestCreatorsCreateTheirOwnServersInsideTheirAllowance(t *testing.T) {
 	if servers != "cafebabe23" || created != "cafebabe23" {
 		t.Fatalf("alex's servers %q, created %q", servers, created)
 	}
+	e.agent.mu.Lock()
+	backups := e.agent.lastBody["POST /v1/servers/cafebabe23/backup-rules"]
+	e.agent.mu.Unlock()
+	var rules struct {
+		Actor     string `json:"actor"`
+		Automatic struct {
+			Enabled      bool `json:"enabled"`
+			EveryHours   int  `json:"everyHours"`
+			OnlyIfPlayed bool `json:"onlyIfPlayed"`
+		} `json:"automatic"`
+		Rules retention.Settings `json:"rules"`
+	}
+	if err := json.Unmarshal([]byte(backups), &rules); err != nil || rules.Actor != "alex" || !rules.Automatic.Enabled || rules.Automatic.EveryHours != 24 ||
+		!rules.Automatic.OnlyIfPlayed || rules.Rules.OnHost != (retention.Rules{Hours: 24, Daily: 5, Weekly: 2}) {
+		t.Fatalf("the backups alex's new server starts with: %q", backups)
+	}
+	if err := creatorBackupRules.Validate(); err != nil {
+		t.Fatalf("a creator's backup rules: %v", err)
+	}
 	if st := e.do(t, "GET", "/api/servers/cafebabe23", "", alex.auth()).status; st != http.StatusOK {
 		t.Fatalf("alex uses the server they created: %d", st)
 	}
@@ -151,6 +171,9 @@ func TestCreatorsCreateTheirOwnServersInsideTheirAllowance(t *testing.T) {
 	}
 	if r := create(own, `{"name":"owner","acceptEula":true,"memoryMB":8192}`); r.status != http.StatusOK || r.body["serverId"] != "deadbeef45" {
 		t.Fatalf("the owner creates a server: %d %v", r.status, r.body)
+	}
+	if slices.Contains(e.agentHits(), "POST /v1/servers/deadbeef45/backup-rules") {
+		t.Fatal("the owner's new server got a creator's backup rules")
 	}
 }
 

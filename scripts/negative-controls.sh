@@ -6917,6 +6917,14 @@ control "creators: a bigger map area isn't started" internal/panel/creators.go \
   'if !creatorArea(req.Area) {' \
   'if false && !creatorArea(req.Area) {' \
   ./internal/panel '^TestCreatorsPreGenerateUpTo2500Blocks$'
+control "creators: a new server starts with backups" internal/panel/creators.go \
+  's.startCreatorBackups(r.Context(), m, sess.Access, id)' \
+  '_ = id' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: the backups a new server starts with are on" internal/panel/creators.go \
+  '"automatic": map[string]any{"enabled": true, "everyHours": 24, "onlyIfPlayed": true},' \
+  '"automatic": map[string]any{"enabled": false, "everyHours": 24, "onlyIfPlayed": true},' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
