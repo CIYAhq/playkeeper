@@ -2936,6 +2936,8 @@ export const en = {
   'publicPage.stream': 'Live stream',
   'publicPage.streamHint': 'A Twitch or YouTube channel link. The page plays it when a visitor asks.',
   'publicPage.streamPlaceholder': 'twitch.tv/yourname',
+  'publicPage.saveAbout': 'Save About',
+  'publicPage.saveStream': 'Save stream',
   'publicPage.nothingToSave': 'Change it first.',
   'publicPage.savedToast': 'Saved to {server}’s public page',
   'publicPage.board': 'Status board',
