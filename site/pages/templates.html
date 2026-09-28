@@ -34,9 +34,9 @@ schema: article
 
 <section aria-labelledby="modpacks">
   {{template "h2n" (dict "ID" "modpacks" "N" 2 "Text" "Modpacks")}}
-  <p>Modpack servers have their own pages, with the pack's memory, server files and known issues, and a template where the pack comes from Modrinth.</p>
+  <p>Modpack servers have their own pages, with each pack's memory, server files and known issues, and how to set it up in your dashboard.</p>
   <div class="related-grid">
-    {{range modpacks}}{{if .Template}}<a class="related-card reveal" href="{{.Path}}"><span class="eyebrow">Modpack</span><span class="related-title">{{.Name}}</span><span class="link-arrow">Read{{template "icon" "arrow-right"}}</span></a>{{end}}{{end}}
+    {{range modpacks}}<a class="related-card reveal" href="{{.Path}}"><span class="eyebrow">Modpack</span><span class="related-title">{{.Name}}</span><span class="link-arrow">Read{{template "icon" "arrow-right"}}</span></a>{{end}}
   </div>
 </section>
 

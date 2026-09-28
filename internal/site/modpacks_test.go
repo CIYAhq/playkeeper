@@ -50,7 +50,7 @@ func TestModpackPagesFollowTheProduct(t *testing.T) {
 		if row := between(hub, `<a href="`+m.Path()+`">`+m.Name+`</a> `+m.Version+`</th>`, "</tr>"); !strings.Contains(row, `<td data-col="Memory">`+m.Memory()+`</td>`) {
 			t.Errorf("the hub doesn't list %s with the memory it needs: %q", m.Path(), row)
 		}
-		if m.Template != "" && !strings.Contains(page, `href="`+cards[m.Template].Link+`"`) {
+		if m.OneClick() && !strings.Contains(page, `href="`+cards[m.Template].Link+`"`) {
 			t.Errorf("%s doesn't open its template, %s", m.Path(), m.Template)
 		}
 		// The image's MEMORY is Java's heap, so the Docker command gives
@@ -65,9 +65,19 @@ func TestModpackPagesFollowTheProduct(t *testing.T) {
 			}
 		}
 	}
-	for p := range built {
+	for p, html := range built {
 		if id, ok := strings.CutSuffix(strings.TrimPrefix(p, "/modpacks/"), "-server"); ok && strings.HasPrefix(p, "/modpacks/") && packs[id] == nil {
 			t.Errorf("%s has no pack in site/data/modpacks/%s.json", p, id)
+		}
+		// Until the release people install opens a pack's template, the pack
+		// pages and the library point to New server › A modpack instead.
+		if !strings.HasPrefix(p, "/modpacks") && !strings.HasPrefix(p, "/templates") {
+			continue
+		}
+		for _, m := range packs {
+			if m.Template != "" && !m.OneClick() && strings.Contains(html, `href="`+cards[m.Template].Link+`"`) {
+				t.Errorf("%s offers %s's template, which opens only from Playkeeper %s", p, m.Template, m.TemplateRelease)
+			}
 		}
 	}
 }
@@ -96,6 +106,8 @@ func TestModpackFactsTheReleaseCantBackStopTheBuild(t *testing.T) {
 		"a template that isn't there":               func(m *Modpack) { m.Template = "nope" },
 		"no day it was checked":                     func(m *Modpack) { m.Checked = "" },
 		"mods not counted":                          func(m *Modpack) { m.Mods = 0 },
+		"a template release with no template":       func(m *Modpack) { m.Template, m.TemplateRelease = "", "0.4.3" },
+		"a template release that isn't a release":   func(m *Modpack) { m.TemplateRelease = "soon" },
 	} {
 		m := good()
 		edit(m)

@@ -56,7 +56,11 @@ type Modpack struct {
 	// Template is the site's template (site/data/templates) that opens this
 	// pack version in the visitor's own dashboard.
 	Template string `json:"template,omitempty"`
-	Checked  string `json:"checked"`
+	// TemplateRelease is the first Playkeeper release that opens Template,
+	// set only while that release isn't out: until then the page leaves the
+	// template out and offers New server › A modpack alone.
+	TemplateRelease string `json:"templateRelease,omitempty"`
+	Checked         string `json:"checked"`
 }
 
 // ServerFiles is a pack's own download for servers.
@@ -69,6 +73,10 @@ type ServerFiles struct {
 
 // Path is the pack's page.
 func (m *Modpack) Path() string { return "/modpacks/" + m.ID + "-server" }
+
+// OneClick reports whether the page offers the pack's template, which it
+// does once the release people install opens it.
+func (m *Modpack) OneClick() bool { return m.Template != "" && m.TemplateRelease == "" }
 
 // Label is what the page calls the pack in running text.
 func (m *Modpack) Label() string { return firstOf(m.Short, m.Name) }
@@ -193,6 +201,8 @@ func (m *Modpack) check(cards map[string]*TemplateCard) error {
 		return fmt.Errorf("template %q opens %s %s, not the version the page describes", m.Template, cards[m.Template].Pack, cards[m.Template].PackVersion)
 	case m.Template != "" && cards[m.Template].MemoryMB < m.MemoryMB():
 		return fmt.Errorf("template %q suggests %d MB, less than the %d MB Playkeeper suggests for the pack", m.Template, cards[m.Template].MemoryMB, m.MemoryMB())
+	case m.TemplateRelease != "" && (m.Template == "" || !reRelease3.MatchString(m.TemplateRelease)):
+		return fmt.Errorf("templateRelease %q is the release that opens the pack's template, so it needs a template and a version like 0.4.3", m.TemplateRelease)
 	case m.ServerFiles != nil && (!strings.HasPrefix(m.ServerFiles.URL, "https://") || m.ServerFiles.MB <= 0 || m.ServerFiles.Mods <= 0):
 		return fmt.Errorf("server files need their address, size and mods")
 	}
