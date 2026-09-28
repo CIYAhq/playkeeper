@@ -246,12 +246,12 @@ func TestThePagesPort80RedirectsOnlyWhileHTTPSServesWithACertificate(t *testing.
 	a.on.Store(true)
 	e := newPageEnv(t, a)
 	h := e.srv.pageHandler(false)
-	if resp, body := pageGet(t, h, "GET", pageHostName, "/"); resp.StatusCode != 200 || !strings.Contains(body, `data-page="server"`) {
-		t.Fatalf("without port 443 plain HTTP serves the page: %d", resp.StatusCode)
-	}
 	now := e.clock.now()
 	writeBundle(t, e.cfg.CertsDir(), pageHostName, now.Add(-time.Hour), now.Add(90*24*time.Hour))
 	e.srv.pageCerts = e.srv.pageCertStore()
+	if resp, body := pageGet(t, h, "GET", pageHostName, "/"); resp.StatusCode != 200 || !strings.Contains(body, `data-page="server"`) {
+		t.Fatalf("with a certificate but port 443 not served, plain HTTP must serve the page: %d %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
 	e.srv.page.mu.Lock()
 	e.srv.page.held[0] = &pageListener{srv: &http.Server{}, port: 443}
 	e.srv.page.mu.Unlock()
