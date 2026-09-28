@@ -109,6 +109,9 @@
       count('github_clicked', { link: part === 'blob' || part === 'tree' ? 'file' : part }, true);
     }
     if (a.hasAttribute('data-watch-releases')) count('watch_releases_clicked', { plan: a.getAttribute('data-watch-releases') }, true);
+    if (a.hasAttribute('data-template-open')) {
+      count('template_opened', { template: a.getAttribute('data-template-open'), spot: a.closest('.tpage-actions') ? 'page' : a.closest('.tpage-related') ? 'related' : 'card' }, true);
+    }
     var provider = a.origin !== location.origin && a.closest('[data-provider]');
     if (provider) count('provider_clicked', { provider: provider.getAttribute('data-provider'), plan: $('[data-plan]', provider).textContent }, true);
     if (a.origin === location.origin && /^\/demo(\/|$)/.test(a.pathname)) {
@@ -149,7 +152,7 @@
           copied(el.getAttribute('data-copy'), el);
           el.classList.add('is-copied');
           if (label) label.textContent = 'Copied';
-          if (phone.matches || el.hasAttribute('data-copy-toast')) toast('Command copied');
+          if (phone.matches || el.hasAttribute('data-copy-toast')) toast(el.getAttribute('data-copy-toast') || 'Command copied');
           clearTimeout(timer);
           timer = setTimeout(function () {
             el.classList.remove('is-copied');

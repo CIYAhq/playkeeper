@@ -9,7 +9,9 @@ This folder is the website at [playkeeper.io](https://playkeeper.io): the landin
 | `/tools`, `/tools/…` | the free tools and their hub (`pages/tools.html`, `pages/tools/`): each runs in the browser, from `static/js/tools.js` and its own script in `static/js/tools/`, and makes nothing on a server |
 | `/demo/` | the live demo: the dashboard in `web/` built with its sample data (`web/src/demo`); any path under it that isn't a file is one of its pages |
 | `/docs`, `/docs/…` | the docs, built from the repository's own Markdown: `README.md`'s sections, `docs/RECOVERY.md`, `docs/TROUBLESHOOTING.md`, `CONTRIBUTING.md` and `SECURITY.md` |
+| `/templates`, `/templates/…` | the template directory: pages of templates, a page per category and per template, from `data/templates` (see Template directory below) |
 | `/t` | the share page for server templates (`pages/t.html`, `static/js/t.js`), kept out of search engines |
+| `/t/<id>` | a directory template's share page: sends the browser straight on to `/t` with the template, kept out of search engines |
 | `/sitemap.xml`, `/robots.txt`, `/blog/feed.xml` | for search engines and feed readers |
 | `/community` | `302` to where questions go (see Settings below) |
 | `/install` | `302` to the latest release's `get.sh` |
@@ -53,6 +55,7 @@ Funnels in the analytics are built from pages and these custom events. Each also
 | `install_shared` | Send to my computer, beside Copy on `/start` on phones: the page's address shared, or copied where the phone can't share it | `spot`: `box` or `closing`; `how`: `share` (the phone's share sheet) or `copy` |
 | `demo_opened` | A link to the live demo | `spot`: `page`, `closing`, `header` or `menu` (the phone menu) |
 | `tool_used` | A free tool's result is taken: a file downloaded or a result copied (`static/js/tools.js`) | `tool`: the tool, such as `server-icon`; `action`: `download` or `copy` |
+| `template_opened` | Open in my dashboard on a template's card or page in the template directory | `template`: its id, such as `towny`; `spot`: `card`, `page` (the template's page) or `related` (a card under it) |
 | `demo_server_created` | New server finished in the live demo | `type`: the server type, such as `paper` |
 
 ### Providers and partner links
@@ -96,15 +99,23 @@ The release workflow's check of `/install` after each release counts as one ther
 - **A new page** copies the closest one in `pages/modpacks/` and keeps the blocks in `layouts/modpack.html` (facts, template card, the Docker and mrpack-install commands). What's true of that pack alone, like its restricted mods or the settings it expects, is what the page is for: `TestModpackAndTemplatePagesAreMostlyTheirOwn` fails a pack page when fewer than 60% of its sentences are its own. Search engines treat pages made at scale from one template as spam.
 - **Social previews** come from the packs too: `node site-og.mjs modpacks modpack-<id>` draws the hub's and the page's.
 
-### Template library
+### Template directory
 
-`/templates` is the public library of server templates, and `/templates/<id>` one page per template, like `/templates/towny`. Each is a site template in `data/templates` (the share format of `internal/templates`, so its card opens it in the visitor's dashboard) plus what happened when a server was created and started from it, in `data/library/<id>.json`: the Playkeeper release and server build, the seconds its log took to say Done, each plugin as it installed with its version, licence (the SPDX id its source lists) and downloads, and the day. The page gets Java and Java's share of the memory from the product (`minecraft.JavaFor`, `minecraft.HeapFor`), and its Docker command sizes the container the way Playkeeper does.
+`/templates` is the directory of server templates: every template the release people install can open, as cards to search, filter (game mode, type, loader, Minecraft version, memory and features) and sort (popular, newest, A–Z). Each is a site template in `data/templates`, in the share format of `internal/templates`, so its card's Open in my dashboard opens it in the visitor's own dashboard through `/t`.
 
-- **Check a template before it gets a page:** create a server from it on a Playkeeper release (the agent API's `POST /v1/templates/plan`, then `POST /v1/servers` and start it), and keep it only if the server comes online with every plugin enabled and nothing failing in its log. `GET /v1/servers/<id>/addons` has the versions that installed. A plugin another one needs, like Vault, goes in the template, not in a note on the page.
-- **The build refuses** a facts file whose plugins aren't exactly the template's add-ons in its order, one that doesn't say which release, build and start time it was checked with, and one for a modpack's template, whose page is under `/modpacks`.
-- **A new page** copies the closest one in `pages/templates/` and keeps the blocks in `layouts/library.html` (facts, Docker, template cards). What the plugins make you do first, with the commands and defaults from their own configs, is what the page is for, and the 60% rule above holds for these pages too.
-- **Templates take each plugin's latest version,** so check them again when Minecraft or a plugin has a new release, and update the facts file with what installed.
-- **Social previews** carry the pages' headings: `node site-og.mjs templates template-<id>`.
+- **Without scripts** it's pages of 24 cards (`/templates`, `/templates/page/2`…), a page per category (`/templates/<category>`) and a page per template (`/templates/<category>/<id>`), all linked, so search engines and visitors without scripts reach every template. `js/templates.js` adds search, filters and sorting over all of them at once, from the index the build writes (`js/templates-index.js`, loaded once the page is quiet), and keeps what's chosen in the address, like `/templates?loader=paper&sort=new`. Its cards open templates through `/t/<id>`, which sends the browser straight on to the share page.
+- **What a template is listed under:** `data/templates/cards.json` gives each its categories (the first is the one its page is under), its tags, the day it was added and its popularity, which sorts Popular. `data/templates/taxonomy.json` names the categories and tags, with each category's intro, and the tags each add-on brings, so a template with CoreProtect is tagged Grief rollback without saying so. Type, loader, version and memory come from the template itself. The build refuses a category or tag that isn't in `taxonomy.json`, a template with no category or no day, and the slug `page`, which the directory's pages use.
+- **A category's page** lists its templates, with search and filters from seven. `pages/templates/<category>.html` (with `layout: category`) is that category's guide, shown under its templates; a category without one needs a `description` in `taxonomy.json`. Search engines index a category's page once it has a guide or three templates.
+- **A template's page** is made from the template and its check (below): what it installs, with each add-on's version, licence and downloads, its rules and memory, when and on which release it started, and the same server with Docker. It's kept out of search engines, so a variant never competes with its category, unless `pages/templates/<category>/<id>.html` (with `layout: template`) adds notes of its own, which the 60% rule above then covers.
+- **At scale:** `TestTheDirectoryScalesToHundredsOfTemplates` builds the site with 600 more templates made from the real ones' add-ons, and fails when a page grows past its size, the index past 700 bytes a template, or a template can't be reached from `/templates` by links. `PK_DIRECTORY_PREVIEW=<dir> go test -run TestWriteDirectoryPreview ./internal/site` writes that data out, to look at in a browser.
+
+Each template's check is what happened when a server was created and started from it, in `data/library/<name>.json`: the Playkeeper release and server build, the seconds its log took to say Done, each plugin as it installed with its version, licence (the SPDX id its source lists) and downloads, and the day. Its page gets Java and Java's share of the memory from the product (`minecraft.JavaFor`, `minecraft.HeapFor`), and its Docker command sizes the container the way Playkeeper does.
+
+- **Check a template before it's listed:** create a server from it on a Playkeeper release (the agent API's `POST /v1/templates/plan`, then `POST /v1/servers` and start it), and keep it only if the server comes online with every plugin enabled and nothing failing in its log. `GET /v1/servers/<id>/addons` has the versions that installed. A plugin another one needs, like Vault, goes in the template, not in a note on the page.
+- **The build refuses** a check whose plugins aren't exactly the template's add-ons in its order, one that doesn't say which release, build and start time it was checked with, and one for a modpack's template, whose pack page is under `/modpacks`. Name a new check after its template's id; the seven checks that came first are named after their category's guide.
+- **A guide** copies the closest one in `pages/templates/` and keeps the blocks in `layouts/library.html` (facts and Docker). What the plugins make you do first, with the commands and defaults from their own configs, is what it's for, and the 60% rule above holds for guides too.
+- **Templates take each plugin's latest version,** so check them again when Minecraft or a plugin has a new release, and update the check with what installed.
+- **Social previews** carry the guides' headings: `node site-og.mjs templates template-<id>`. Pages made from the data share `og/templates.png`.
 
 ## Host it with Coolify
 

@@ -38,6 +38,23 @@ type TemplateCard struct {
 	// OpensFrom is the first Playkeeper release that opens the template, set
 	// only while that release isn't out. Until then no page links it.
 	OpensFrom string
+	// Added is the day the directory first listed it, and Popularity what
+	// sorts it under Popular, most first.
+	Added      string
+	Popularity int
+	// Categories are the directory's categories it's in, its primary first,
+	// and Tags what it adds, its own and its add-ons'; the directory fills
+	// them in from taxonomy.json.
+	Categories []*Category
+	Tags       []*Tag
+	// check is what happened when a server was created and started from it
+	// (site/data/library), and pack its modpack's page, when it has them.
+	check        *LibraryPage
+	pack         *Modpack
+	categoryIDs  []string
+	tagIDs       []string
+	modpackMods  int
+	modpackTitle string
 }
 
 // Held reports whether the release people install can't open the template
@@ -52,6 +69,11 @@ type cardExtra struct {
 	// Modrinth.
 	Mods      int    `json:"mods,omitempty"`
 	OpensFrom string `json:"opensFrom,omitempty"`
+	// The directory's: see taxonomy.json and Directory.
+	Categories []string `json:"categories,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
+	Added      string   `json:"added,omitempty"`
+	Popularity int      `json:"popularity,omitempty"`
 }
 
 // loadTemplateCards reads the templates in dir (one .json each, in the format
@@ -101,8 +123,11 @@ func loadTemplateCards(src fs.FS, dir string) (map[string]*TemplateCard, error) 
 			Template: &t,
 		}
 		c.OpensFrom = extra.OpensFrom
+		c.Added, c.Popularity = extra.Added, extra.Popularity
+		c.categoryIDs, c.tagIDs, c.modpackMods = extra.Categories, extra.Tags, extra.Mods
 		if t.Modpack != nil {
 			c.Pack, c.PackVersion = t.Modpack.Project, t.Modpack.Pin.VersionNumber
+			c.modpackTitle = t.Modpack.Name
 		}
 		mem := ""
 		if t.Settings.MemoryMB > 0 {

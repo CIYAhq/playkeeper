@@ -14,8 +14,8 @@ import (
 // it: the server and its build, Java, the memory and Java's share of it, and
 // each plugin with the version and licence that installed, and when a server
 // was created and started from it. Its Docker command sets up the same
-// server by hand, it opens its template, the hub and the sitemap list it, and
-// every page under /templates has its facts.
+// server by hand, it opens its template, and the hub and the sitemap list
+// it. The directory's own pages are checked in directory_test.go.
 func TestLibraryPagesFollowTheirTemplates(t *testing.T) {
 	o := build(t, Default)
 	built := pages(o)
@@ -81,11 +81,6 @@ func TestLibraryPagesFollowTheirTemplates(t *testing.T) {
 		}
 		if !strings.Contains(sitemap, "<loc>"+Default.BaseURL+l.Path()+"</loc>") {
 			t.Errorf("the sitemap doesn't list %s", l.Path())
-		}
-	}
-	for p := range built {
-		if id, ok := strings.CutPrefix(p, "/templates/"); ok && library[id] == nil {
-			t.Errorf("%s has no facts in site/data/library/%s.json", p, id)
 		}
 	}
 }

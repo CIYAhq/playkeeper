@@ -8,6 +8,7 @@
 <meta name="description" content="{{.Page.Description}}">
 {{if .Page.NoIndex}}<meta name="robots" content="noindex">
 {{else}}<link rel="canonical" href="{{.Canonical}}">
+{{end}}{{with .Page.Refresh}}{{refresh .}}
 {{end}}<meta property="og:type" content="{{if eq .Page.Layout "post"}}article{{else}}website{{end}}">
 <meta property="og:site_name" content="Playkeeper">
 <meta property="og:title" content="{{.Page.Label}}">
@@ -34,20 +35,21 @@
 {{end}}</head>
 <body class="layout-{{.Page.Layout}}">
 <a class="skip" href="#main">Skip to content</a>
-{{if ne .Page.Layout "bare"}}{{template "header" .}}{{end}}
+{{if not (or (eq .Page.Layout "bare") (eq .Page.Layout "open"))}}{{template "header" .}}{{end}}
 <main id="main" tabindex="-1">
-{{if eq .Page.Layout "guide"}}{{template "guide" .}}{{else if eq .Page.Layout "post"}}{{template "post" .}}{{else if eq .Page.Layout "docs"}}{{template "docs" .}}{{else}}{{.Main}}{{end}}
+{{if eq .Page.Layout "guide"}}{{template "guide" .}}{{else if eq .Page.Layout "post"}}{{template "post" .}}{{else if eq .Page.Layout "docs"}}{{template "docs" .}}{{else if eq .Page.Layout "directory"}}{{template "directory" .}}{{else if eq .Page.Layout "category"}}{{template "category" .}}{{else if eq .Page.Layout "template"}}{{template "template-page" .}}{{else if eq .Page.Layout "open"}}{{template "open" .}}{{else}}{{.Main}}{{end}}
 </main>
 {{template "closing" .}}
-{{if ne .Page.Layout "bare"}}{{template "footer" .}}{{end}}
+{{if not (or (eq .Page.Layout "bare") (eq .Page.Layout "open"))}}{{template "footer" .}}{{end}}
 <div class="toast" data-toast role="status" hidden></div>
 </body>
 </html>
 {{end}}
 
-{{/* Visit counting (Settings.Analytics), on every page but the share page:
-     its template is in the address after #, and stays in the browser. */}}
-{{define "analytics"}}{{with .Settings.Analytics}}{{if and .Script (ne $.Page.Path "/t")}}<script src="{{.Script}}" async data-key="{{.Key}}" data-collector="{{.Collector}}"></script>
+{{/* Visit counting (Settings.Analytics), on every page but the share page,
+     whose template is in the address after # and stays in the browser, and
+     the /t/<id> pages that send the browser straight on to it. */}}
+{{define "analytics"}}{{with .Settings.Analytics}}{{if and .Script (ne $.Page.Path "/t") (ne $.Page.Layout "open")}}<script src="{{.Script}}" async data-key="{{.Key}}" data-collector="{{.Collector}}"></script>
 {{end}}{{end}}{{end}}
 
 {{/* Where the header's Install goes: the page's own install command when it
