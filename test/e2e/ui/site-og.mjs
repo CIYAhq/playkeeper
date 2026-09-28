@@ -71,4 +71,19 @@ if (wanted('playkeeper-0-4-0')) {
   await tab.screenshot({ path: path.join(out, 'playkeeper-0-4-0.png') })
   console.log('playkeeper-0-4-0')
 }
+// The modpack pages' previews come from their packs (site/data/modpacks), so
+// a new pack's page gets one without an entry above.
+const packs = path.join(repo, 'site/data/modpacks')
+const packPreviews = { modpacks: { eyebrow: 'Guide', title: 'Modpack server requirements', pip: 'pip-box' } }
+for (const file of fs.readdirSync(packs).filter((f) => f.endsWith('.json')).sort()) {
+  const pack = JSON.parse(fs.readFileSync(path.join(packs, file), 'utf8'))
+  const label = pack.short || pack.name
+  packPreviews[`modpack-${path.basename(file, '.json')}`] = { eyebrow: 'Modpack server', title: `How to make ${/^[aeiou]/i.test(label) ? 'an' : 'a'} ${label} server`, pip: 'pip-hardhat' }
+}
+for (const [name, p] of Object.entries(packPreviews)) {
+  if (!wanted(name)) continue
+  await tab.setContent(page(p), { waitUntil: 'load' })
+  await tab.screenshot({ path: path.join(out, `${name}.png`) })
+  console.log(name)
+}
 await browser.close()

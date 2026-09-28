@@ -1,0 +1,108 @@
+{{/*
+path: /modpacks/better-mc-server
+title: How to make a Better MC server (BMC5, 2026)
+description: Set up a Better Minecraft server: BMC5 on NeoForge and Minecraft 1.21.1, Java 21, {{(modpack "better-mc").Mods}} mods and 6 to 8 GB of memory, in one click or by hand.
+label: Better MC server
+h1: How to make a Better MC server (BMC5)
+card: How to make a Better MC server
+kind: Modpack
+section: guides
+layout: guide
+crumb: Modpacks
+og: modpack-better-mc
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$m := modpack "better-mc"}}Better MC for Minecraft {{$m.Minecraft}} is BMC5, its {{$m.TypeName}} edition: version {{$m.Version}} runs {{$m.TypeName}} {{$m.Loader}} with Java {{$m.Java}} and puts {{$m.Mods}} mods on the server. Give it {{$m.Memory}}, or {{gb (card $m.Template).MemoryMB}} for up to four friends. The Forge and Fabric editions are on Minecraft 1.20.1.{{end}}
+
+{{define "closing-title"}}Better MC on your own server, in one click.{{end}}
+{{define "closing-sub"}}Free and open source. Friends get the same pack from one link.{{end}}
+
+{{define "side-text"}}Playkeeper sets up BMC5 and its {{(modpack "better-mc").Mods}} mods in one click.{{end}}
+
+{{define "article"}}{{$m := modpack "better-mc"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+{{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
+<section aria-labelledby="needs">
+  {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What a Better MC server needs" "Toc" "What it needs")}}
+  {{template "modpack-facts" (dict "Pack" $m "Version" .Site.Version)}}
+  <p>Version {{$m.Version}} came out on {{day $m.Released}} and was still the newest on {{day $m.Checked}}, so a server set up now won't need an update soon.</p>
+</section>
+
+<section aria-labelledby="editions">
+  {{template "h2n" (dict "ID" "editions" "N" 2 "Text" "Which Better MC edition to host" "Toc" "Editions")}}
+  <p>Better MC comes in three editions. Host the one your friends play, at the same version.</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Edition</th><th scope="col">Loader</th><th scope="col">Minecraft</th><th scope="col">Downloads on Modrinth</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">BMC5</th><td>{{$m.TypeName}}</td><td>{{$m.Minecraft}}</td><td>{{$m.DownloadCount}}</td></tr>
+        <tr><th scope="row">BMC4</th><td>Forge</td><td>1.20.1</td><td>2.2M</td></tr>
+        <tr><th scope="row">BMC2</th><td>Fabric</td><td>1.20.1</td><td>3.5M</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="fine">Downloads checked {{day $m.Checked}}. Playkeeper installs packs for Minecraft 1.21 and newer, so it runs BMC5; BMC4 and BMC2 need another way.</p>
+</section>
+
+<section aria-labelledby="world">
+  {{template "h2n" (dict "ID" "world" "N" 3 "Text" "New land keeps it busy" "Toc" "World generation")}}
+  <p>BMC5 adds dimensions, biomes and bosses, from The Aether and Oh The Biomes We've Gone to L_Ender's Cataclysm, the three biggest mods in it. Each new chunk costs more than in plain Minecraft, so:</p>
+  <ul>
+    <li><strong>Pre-generate the world</strong> before friends explore. In Playkeeper it's on the World tab.</li>
+    <li><strong>Pick a VPS with fast cores:</strong> the <a href="/sizing">sizing guide</a> starts big modpacks at {{(sizingFor 4 "modpack").Cores}} cores.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 4 "Text" "The one-click way")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{template "steps" (dict "Class" "shot-steps" "Items" (list
+    (dict "Title" "Open the template below, or search New server › A modpack" "Text" (printf "Either way it's BMC5 %s. Your dashboard shows what it installs before anything happens." $m.Version))
+    (dict "Title" "Create and start it" "Text" (printf "Playkeeper downloads %s of mods, checks each against Modrinth's hash and adds the ones the pack carries itself." $m.DownloadSize))
+    (dict "Title" "Send friends the pack" "Text" "Share with friends on the Mods tab gives them the pack and their launcher's steps.")
+  ))}}
+  {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs." "Sizes" $article)}}
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 5 "Text" "By hand, from the pack" "Toc" "By hand")}}
+  <p>18 of its mods come inside the pack rather than from Modrinth. The itzg Docker image, which Playkeeper runs servers in too, and mrpack-install both copy them.</p>
+  {{template "modpack-docker" (dict "Pack" $m "Slug" "better-mc-neoforge-bmc5")}}
+  <p>Open TCP 25565 in your provider's firewall.</p>
+</section>
+
+<section aria-labelledby="friends">
+  {{template "h2n" (dict "ID" "friends" "N" 6 "Text" "Friends join with the same edition" "Toc" "Friends join")}}
+  <div class="shot-step">
+    <div>
+      <p>Players install BMC5 {{$m.Version}} in the Modrinth App, the CurseForge app or Prism Launcher, then join your server's address. BMC4 or BMC2 won't connect to it.</p>
+      <p>In Playkeeper, Share with friends on the Mods tab makes a page with the pack and their launcher's steps.</p>
+    </div>
+    {{template "cardshot" (dict "Name" "guide-pack-page" "Alt" "The page friends open: the server's versions, the pack file to download and their launcher's steps." "Sizes" $side)}}
+  </div>
+</section>
+{{end}}
+
+{{define "after"}}{{$m := modpack "better-mc"}}{{$c := card $m.Template}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "How much RAM does a Better MC server need?" (printf "%s, what Playkeeper suggests for its %d mods. The template starts it with %s, what the sizing guide gives a modpack for up to four friends." $m.Memory $m.Mods (gb $c.MemoryMB)))
+    (qa "Which Better MC edition should I host?" (printf "BMC5, on %s and Minecraft %s, if your friends play it. BMC4 and BMC2 are on Minecraft 1.20.1, which Playkeeper doesn't run packs for." $m.TypeName $m.Minecraft))
+    (qa "Is Better MC Forge or Fabric?" (printf "Each edition has its own loader: BMC5 %s, BMC4 Forge and BMC2 Fabric." $m.TypeName))
+    (qa "Why is the server slow when we explore?" "BMC5 generates a lot per chunk. Pre-generate the world before you play, and keep the view distance moderate.")
+  ))}}
+  <section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
+    <div class="tpl-pair">
+      {{template "pack-card" (dict "Pack" $m)}}
+      {{template "pack-card" (dict "Pack" (modpack "cobbleverse"))}}
+    </div>
+  </section>
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/modpacks" "/modpacks/atm10-server" "/guides/add-mods-to-minecraft-server")}}{{end}}

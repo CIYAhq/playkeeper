@@ -1,0 +1,130 @@
+{{/*
+path: /modpacks/atm10-server
+title: How to make an ATM10 server (All the Mods 10), 2026
+description: Set up an All the Mods 10 server: NeoForge 21.1.251, Java 21, 12 GB of memory, ATM's server files and the five mods other apps can't download.
+label: ATM10 server
+h1: How to make an ATM10 server (All the Mods 10)
+card: How to make an ATM10 server
+kind: Modpack
+section: guides
+layout: guide
+crumb: Modpacks
+og: modpack-atm10
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$m := modpack "atm10"}}An ATM10 server runs {{$m.TypeName}} {{$m.Loader}} on Minecraft {{$m.Minecraft}} with Java {{$m.Java}}, and needs about {{$m.Memory}} of memory, because the pack asks Java for {{$m.HeapGB}}. Use ATM's own server files, or let Playkeeper install version {{$m.Version}} from CurseForge, five restricted mods included.{{end}}
+
+{{define "closing-title"}}ATM10 on your own server, in one click.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper sizes the server for the pack and fetches every mod.{{end}}
+
+{{define "side-text"}}Playkeeper installs ATM10 from CurseForge, restricted mods included.{{end}}
+
+{{define "article"}}{{$m := modpack "atm10"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+{{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
+<section aria-labelledby="needs">
+  {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What an ATM10 server needs" "Toc" "What it needs")}}
+  {{template "modpack-facts" (dict "Pack" $m "Version" .Site.Version)}}
+  <p>ATM10 updates every few weeks: 8.0 came out on 14 Aug, 8.1 on 29 Aug and 8.2 on 22 Sep. The server and every player need the same version.</p>
+</section>
+
+<section aria-labelledby="memory">
+  {{template "h2n" (dict "ID" "memory" "N" 2 "Text" "How much memory ATM10 needs" "Toc" "How much memory")}}
+  <p>{{$m.Memory}} for a few friends. ATM's server files set <code>-Xmx{{gbFlag $m.HeapMB}}</code> in <code>user_jvm_args.txt</code>, the most Java may use. NeoForge and {{$m.Mods}} mods need memory beside that, so Playkeeper suggests {{$m.Memory}}, which gives Java {{$m.JavaHeap}}.</p>
+  <ul>
+    <li><strong>Less fails.</strong> On a test machine on 27 Sep, ATM10 8.2 with 4 GB stopped on its first start with "Java ran out of memory".</li>
+    <li><strong>{{$m.Memory}} works.</strong> The same server was online about 80 seconds after it started, using 10.2 GB.</li>
+    <li><strong>More friends:</strong> <a href="https://allthemods.github.io/alltheguides/help/server/">ATM's own guide</a> asks for 12 GB of heap or more for several players, so give 5 or more friends {{(sizingFor 8 "modpack").MemoryGB}} GB.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 3 "Text" "The one-click way")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{template "steps" (dict "Class" "shot-steps" "Items" (list
+    (dict "Title" "Search New server › A modpack" "Text" "Type All the Mods 10. It comes from CurseForge, with its loader and the memory it needs.")
+    (dict "Title" "Create and start it" "Text" (printf "The memory starts at %s. Playkeeper downloads %s from CurseForge and checks each file against CurseForge's hash." $m.Memory $m.DownloadSize))
+    (dict "Title" "Wait for the first start" "Text" "About 80 seconds on the 27 Sep test machine, then the Overview shows it online.")
+  ))}}
+  {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs." "Sizes" $article)}}
+</section>
+
+<section aria-labelledby="restricted">
+  {{template "h2n" (dict "ID" "restricted" "N" 4 "Text" "The five mods other apps can't download" "Toc" "Restricted mods")}}
+  <p>ATM10 8.2 lists five mods that other apps can't download from CurseForge:</p>
+  <ul>
+    <li><strong>Corail Tombstone, Structory, Structory: Towers and I'm Fast.</strong> Their authors allow downloads through the CurseForge app only.</li>
+    <li><strong>CC Tweaked Compat.</strong> It's gone from CurseForge, though the pack still lists it.</li>
+  </ul>
+  <p>Tools that install from the pack's list stop at these. ATM's server files have all five, so Playkeeper takes them from there, each checked against the SHA-1 CurseForge lists for it.</p>
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 5 "Text" "By hand, with ATM's server files" "Toc" "By hand")}}
+  {{with $m.ServerFiles}}<p>Download <a href="{{.URL}}">{{.Name}}</a> ({{megabytes .MB}}, {{.Mods}} mods) from the pack's files on CurseForge. It has a start script that installs {{$m.TypeName}} {{$m.Loader}} the first time it runs.</p>{{end}}
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="System">
+        <button type="button" class="code-tab" role="tab" id="tab-ubuntu" aria-controls="code-ubuntu" aria-selected="true">Ubuntu 24.04</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-ubuntu" role="tabpanel" tabindex="0" aria-labelledby="tab-ubuntu"><span class="c"># Java {{$m.Java}}, then the server files in ./atm10</span>
+sudo apt install -y openjdk-{{$m.Java}}-jre-headless unzip
+unzip {{$m.ServerFiles.Name}} -d atm10 &amp;&amp; cd atm10
+echo "eula=true" &gt; eula.txt
+ATM10_RESTART=false sh startserver.sh   <span class="c"># installs {{$m.TypeName}}, then starts</span></pre>
+  </div>
+  <ul>
+    <li><strong>Memory</strong> is in <code>user_jvm_args.txt</code>: raise <code>-Xmx{{gbFlag $m.HeapMB}}</code> for more friends, and leave the machine some for NeoForge.</li>
+    <li><strong>Restarts:</strong> the script starts the server again after it stops, unless <code>ATM10_RESTART</code> is <code>false</code>.</li>
+    <li><strong>Java:</strong> anything older than {{$m.Java}} stops it with "Minecraft 1.21 requires Java 21". <code>ATM10_JAVA</code> picks another Java.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="settings">
+  {{template "h2n" (dict "ID" "settings" "N" 6 "Text" "The settings ATM10 expects" "Toc" "Settings")}}
+  <p>ATM's start script writes these to <code>server.properties</code> on a new server:</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Setting</th><th scope="col">Value</th><th scope="col">Why</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">allow-flight</th><td>true</td><td>Jetpacks and flight items would get players kicked for flying.</td></tr>
+        <tr><th scope="row">view-distance</th><td>8</td><td>Less land sent to each player.</td></tr>
+        <tr><th scope="row">simulation-distance</th><td>5</td><td>Fewer machines and mobs running at once.</td></tr>
+        <tr><th scope="row">max-tick-time</th><td>180000</td><td>A long tick doesn't stop the server for 3 minutes.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>In Playkeeper, set view distance in the server's Settings and the others in <code>server.properties</code> on the Files tab. Pre-generating the world, on the World tab, also keeps exploring from slowing everyone down.</p>
+</section>
+
+<section aria-labelledby="friends">
+  {{template "h2n" (dict "ID" "friends" "N" 7 "Text" "Friends join with the same version" "Toc" "Friends join")}}
+  <div class="shot-step">
+    <div>
+      <p>Players install All the Mods 10 {{$m.Version}} in the CurseForge app or Prism Launcher, then join your server's address. A player on another version is turned away with a list of the mods that don't match.</p>
+      <p>In Playkeeper, Share with friends on the Mods tab makes a page with the pack's version and their launcher's steps.</p>
+    </div>
+    {{template "cardshot" (dict "Name" "guide-pack-page" "Alt" "The page friends open: the server's versions, the pack file to download and their launcher's steps." "Sizes" $side)}}
+  </div>
+</section>
+{{end}}
+
+{{define "after"}}{{$m := modpack "atm10"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "How much RAM does an ATM10 server need?" (printf "About %s for a few friends: the pack gives Java %s, and %s with %d mods needs memory beside it. Give 5 or more friends %d GB." $m.Memory $m.HeapGB $m.TypeName $m.Mods (sizingFor 8 "modpack").MemoryGB))
+    (qa "Is ATM10 Forge or NeoForge?" (printf "%s. Version %s runs %s %s on Minecraft %s." $m.TypeName $m.Version $m.TypeName $m.Loader $m.Minecraft))
+    (qa "Which Java does an ATM10 server need?" (printf "Java %d. ATM's start script stops on anything older, and Playkeeper runs the server on Java %d for you." $m.Java $m.Java))
+    (qa "Where are the ATM10 server files?" (printf "On the pack's CurseForge page, under its files: %s, %s. Playkeeper doesn't need them from you." $m.ServerFiles.Name (megabytes $m.ServerFiles.MB)))
+    (qa "How do I update an ATM10 server?" "Back up the world first, then move the server and every player to the new version together. Playkeeper's Back up now keeps players on while it copies.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/modpacks" "/modpacks/cobbleverse-server" "/modpacks/better-mc-server")}}{{end}}

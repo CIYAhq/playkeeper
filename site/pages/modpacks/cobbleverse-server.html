@@ -1,0 +1,114 @@
+{{/*
+path: /modpacks/cobbleverse-server
+title: How to make a Cobbleverse server (2026)
+description: Set up a Cobbleverse server: Fabric on Minecraft 1.21.1, Java 21, 136 mods and 6 GB of memory, with no server pack and the client mods it marks for servers.
+label: Cobbleverse server
+h1: How to make a Cobbleverse server
+card: How to make a Cobbleverse server
+kind: Modpack
+section: guides
+layout: guide
+crumb: Modpacks
+og: modpack-cobbleverse
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$m := modpack "cobbleverse"}}A Cobbleverse server runs {{$m.TypeName}} Loader {{$m.Loader}} on Minecraft {{$m.Minecraft}} with Java {{$m.Java}}, puts {{$m.Mods}} mods on the server and needs about {{$m.Memory}} of memory. Cobbleverse publishes no server pack, so build the server from its Modrinth pack, or open it in Playkeeper in one click.{{end}}
+
+{{define "closing-title"}}Cobbleverse on your own server, in one click.{{end}}
+{{define "closing-sub"}}Free and open source. Friends get the pack from one link.{{end}}
+
+{{define "side-text"}}Playkeeper builds the Cobbleverse server from its pack in one click.{{end}}
+
+{{define "article"}}{{$m := modpack "cobbleverse"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+{{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
+<section aria-labelledby="needs">
+  {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What a Cobbleverse server needs" "Toc" "What it needs")}}
+  {{template "modpack-facts" (dict "Pack" $m "Version" .Site.Version)}}
+  <p>Version {{$m.Version}} bundles Cobblemon 1.7.3, not the 1.8.1 of the <a href="/modpacks/cobblemon-server">official Cobblemon pack</a>, so players join with Cobbleverse itself.</p>
+</section>
+
+<section aria-labelledby="no-server-pack">
+  {{template "h2n" (dict "ID" "no-server-pack" "N" 2 "Text" "There's no server pack" "Toc" "No server pack")}}
+  <p>Cobbleverse publishes one file, a {{megabytes 239}} .mrpack for players, and its page sends server owners to paid hosts. That file still has everything a server needs:</p>
+  <ul>
+    <li><strong>The {{$m.Mods}} mods the server runs.</strong> All but one download from Modrinth, {{$m.DownloadSize}} in all; the last comes inside the pack.</li>
+    <li><strong>1,285 files only players use,</strong> the music, resource packs and shaders that make it big. An install tool leaves them off the server.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 3 "Text" "The one-click way")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{template "steps" (dict "Class" "shot-steps" "Items" (list
+    (dict "Title" "Open the template below, or search New server › A modpack" "Text" (printf "Either way it's Cobbleverse %s. Your dashboard shows what it installs before anything happens." $m.Version))
+    (dict "Title" "Create and start it" "Text" (printf "Playkeeper downloads the %d mods, checks each against Modrinth's hash and leaves the players' files out." $m.Mods))
+    (dict "Title" "Send friends the pack" "Text" "Share with friends on the Mods tab gives them the pack and their launcher's steps.")
+  ))}}
+  {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs." "Sizes" $article)}}
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 4 "Text" "By hand, from the .mrpack" "Toc" "By hand")}}
+  <p>Two free tools read the pack's list and build the server from it: the itzg Docker image, which Playkeeper runs servers in too, and mrpack-install.</p>
+  {{template "modpack-docker" (dict "Pack" $m "Slug" "cobbleverse")}}
+  <p>Open TCP 25565 in your provider's firewall, and give it {{$m.Memory}} or more.</p>
+</section>
+
+<section aria-labelledby="client-mods">
+  {{template "h2n" (dict "ID" "client-mods" "N" 5 "Text" "The client mods it marks for servers" "Toc" "Client mods")}}
+  <p>Cobbleverse {{$m.Version}} marks all its mods as needed on the server, including 22 that only change what players see or hear. We read each one's own files:</p>
+  <ul>
+    <li><strong>15 say they're client-only,</strong> like Sodium, Iris, Mod Menu, Zoomify and Continuity. Fabric doesn't load them on a server, so they only take disk space.</li>
+    <li><strong>7 say they run on both sides,</strong> like Xaero's Minimap and World Map and FancyMenu, and load on the server as their authors intend.</li>
+  </ul>
+  <p>They don't stop the server. To skip downloading the 15, list them in the itzg image's <code>MODRINTH_EXCLUDE_FILES</code>.</p>
+</section>
+
+<section aria-labelledby="public">
+  {{template "h2n" (dict "ID" "public" "N" 6 "Text" "Private and public servers" "Toc" "Public servers")}}
+  <p>From the pack's rules on Modrinth, checked {{day $m.Checked}}:</p>
+  <ul>
+    <li><strong>Friends and family:</strong> free to host.</li>
+    <li><strong>Public:</strong> every mod's licence applies, and some don't allow commercial use.</li>
+    <li><strong>A shop</strong> with ranks, perks or paid items rules out Cobbleverse's own structures, trainers and data packs.</li>
+    <li><strong>The name:</strong> not "COBBLEVERSE Server", but "COBBLEVERSE Compatible" is fine.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="friends">
+  {{template "h2n" (dict "ID" "friends" "N" 7 "Text" "Friends join with the same version" "Toc" "Friends join")}}
+  <div class="shot-step">
+    <div>
+      <p>Players install Cobbleverse {{$m.Version}} in the Modrinth App, the CurseForge app or Prism Launcher, then join your server's address.</p>
+      <p>In Playkeeper, Share with friends on the Mods tab makes a page with the pack and their launcher's steps.</p>
+    </div>
+    {{template "cardshot" (dict "Name" "guide-pack-page" "Alt" "The page friends open: the server's versions, the pack file to download and their launcher's steps." "Sizes" $side)}}
+  </div>
+</section>
+{{end}}
+
+{{define "after"}}{{$m := modpack "cobbleverse"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "How much RAM does a Cobbleverse server need?" (printf "About %s, what Playkeeper suggests for its %d mods. The template starts it with 8 GB, what the sizing guide gives a modpack for up to four friends." $m.Memory $m.Mods))
+    (qa "Is there a Cobbleverse server pack?" "No. Cobbleverse publishes only its .mrpack, and install tools build the server from it. Playkeeper does it in one click.")
+    (qa "Can friends join with the official Cobblemon pack?" (printf "No. Cobbleverse %s bundles Cobblemon 1.7.3 and its own mods, so players need Cobbleverse, the same version as the server." $m.Version))
+    (qa "Is Cobbleverse Fabric or Forge?" (printf "Fabric: %s Loader %s on Minecraft %s." $m.TypeName $m.Loader $m.Minecraft))
+    (qa "Can I run a public Cobbleverse server?" "Yes, if it follows every mod's licence and Cobbleverse's rules: no shop with its custom content, and no calling it a COBBLEVERSE Server.")
+  ))}}
+  <section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
+    <div class="tpl-pair">
+      {{template "pack-card" (dict "Pack" $m)}}
+      {{template "pack-card" (dict "Pack" (modpack "cobblemon"))}}
+    </div>
+  </section>
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/modpacks" "/modpacks/cobblemon-server" "/modpacks/atm10-server")}}{{end}}
