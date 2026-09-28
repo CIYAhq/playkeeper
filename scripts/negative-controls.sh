@@ -2150,9 +2150,19 @@ control "only a supported type names a kept list's file" internal/agent/software
   '	if !software.Supported(typ) {
 		return "", false
 	}
-	name := "catalog-" + typ' \
-  '	name := "catalog-" + typ' \
+	var name string' \
+  '	var name string' \
   ./internal/agent '^TestAKeptListIsNamedOnlyByATypeAndARelease$'
+control "no build list is taken for the version list" internal/agent/software.go \
+  '	case savedBuilds, *savedBuilds:
+		if !reListedRelease.MatchString(mc) {' \
+  '	case savedBuilds, *savedBuilds:
+		if mc == "" {
+			name = "catalog-" + typ
+			break
+		}
+		if !reListedRelease.MatchString(mc) {' \
+  ./internal/agent '^(TestAKeptListIsNamedOnlyByATypeAndARelease|TestATypesListsOutliveARestartWhileItsSourceFails)$'
 control "only a Minecraft release names a kept build list's file" internal/agent/software.go \
   '		if !reListedRelease.MatchString(mc) {' \
   '		if false {' \

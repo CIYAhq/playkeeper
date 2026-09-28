@@ -181,25 +181,34 @@ func TestATypesListsOutliveARestartWhileItsSourceFails(t *testing.T) {
 	if code, out := e.call("GET", "/v1/catalog/builds?type=neoforge&version=26.1.2", nil); code == 200 {
 		t.Fatalf("a build list NeoForge never sent: %d %v", code, out)
 	}
+	if code, out := e.call("GET", "/v1/catalog/builds?type=neoforge", nil); code == 200 {
+		t.Fatalf("builds for no Minecraft version, read from the kept version list: %d %v", code, out)
+	}
 }
 
 // Only a supported type and a Minecraft release name a kept list's file, so
-// no request can make the agent read or write another path.
+// no request can make the agent read or write another path, and a build
+// list is never read from or written over the version list.
 func TestAKeptListIsNamedOnlyByATypeAndARelease(t *testing.T) {
 	e := newAgentEnv(t)
 	dir := filepath.Join(e.cfg.AgentDir(), "software-lists")
-	for _, c := range []struct{ typ, mc, want string }{
-		{"neoforge", "", filepath.Join(dir, "catalog-neoforge.json")},
-		{"neoforge", "26.2", filepath.Join(dir, "builds-neoforge-26.2.json")},
-		{"forge", "1.20.1", filepath.Join(dir, "builds-forge-1.20.1.json")},
-		{"paper", "", ""},
-		{"../../../x", "", ""},
-		{"neoforge", "../../x", ""},
-		{"neoforge", "26.2/../../../x", ""},
-		{"neoforge", "26.3-snapshot-2", ""},
+	for _, c := range []struct {
+		typ, mc string
+		list    any
+		want    string
+	}{
+		{"neoforge", "", savedCatalog{}, filepath.Join(dir, "catalog-neoforge.json")},
+		{"neoforge", "26.2", &savedBuilds{}, filepath.Join(dir, "builds-neoforge-26.2.json")},
+		{"forge", "1.20.1", savedBuilds{}, filepath.Join(dir, "builds-forge-1.20.1.json")},
+		{"neoforge", "", &savedBuilds{}, ""},
+		{"paper", "", savedCatalog{}, ""},
+		{"../../../x", "", savedCatalog{}, ""},
+		{"neoforge", "../../x", savedBuilds{}, ""},
+		{"neoforge", "26.2/../../../x", savedBuilds{}, ""},
+		{"neoforge", "26.3-snapshot-2", savedBuilds{}, ""},
 	} {
-		if got, ok := e.a.softwareListPath(c.typ, c.mc); got != c.want || ok != (c.want != "") {
-			t.Errorf("%q %q: %q %v, want %q", c.typ, c.mc, got, ok, c.want)
+		if got, ok := e.a.softwareListPath(c.typ, c.mc, c.list); got != c.want || ok != (c.want != "") {
+			t.Errorf("%q %q %T: %q %v, want %q", c.typ, c.mc, c.list, got, ok, c.want)
 		}
 	}
 }

@@ -73,26 +73,32 @@ type savedBuilds struct {
 // reListedRelease is a Minecraft release, the only versions with builds.
 var reListedRelease = regexp.MustCompile(`^[0-9]+(\.[0-9]+){1,3}$`)
 
-// softwareListPath is where typ's version list, or with mc its build list
-// for that release, is kept. Only a supported type and a release name a
-// file, so no request can name another path.
-func (a *Agent) softwareListPath(typ, mc string) (string, bool) {
+// softwareListPath is where list, typ's version list or its build list for
+// the release mc, is kept. Only a supported type and a release name a file,
+// so no request can name another path, and no build list is taken for the
+// version list.
+func (a *Agent) softwareListPath(typ, mc string, list any) (string, bool) {
 	if !software.Supported(typ) {
 		return "", false
 	}
-	name := "catalog-" + typ
-	if mc != "" {
+	var name string
+	switch list.(type) {
+	case savedCatalog, *savedCatalog:
+		name = "catalog-" + typ
+	case savedBuilds, *savedBuilds:
 		if !reListedRelease.MatchString(mc) {
 			return "", false
 		}
 		name = "builds-" + typ + "-" + mc
+	default:
+		return "", false
 	}
 	return filepath.Join(a.cfg.AgentDir(), "software-lists", name+".json"), true
 }
 
 // saveSoftwareList keeps list, which typ's upstream just sent.
 func (a *Agent) saveSoftwareList(typ, mc string, list any) {
-	path, ok := a.softwareListPath(typ, mc)
+	path, ok := a.softwareListPath(typ, mc, list)
 	if !ok {
 		return
 	}
@@ -110,7 +116,7 @@ func (a *Agent) saveSoftwareList(typ, mc string, list any) {
 
 // savedSoftwareList reads what saveSoftwareList kept into list.
 func (a *Agent) savedSoftwareList(typ, mc string, list any) bool {
-	path, ok := a.softwareListPath(typ, mc)
+	path, ok := a.softwareListPath(typ, mc, list)
 	if !ok {
 		return false
 	}
