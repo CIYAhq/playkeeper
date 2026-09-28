@@ -1,0 +1,4 @@
+/* A tool needs JavaScript; without it the page says so where the tool would
+   be, and the rest of the page still reads. */
+.tool { display: none; }
+.tool-nojs { display: block; }

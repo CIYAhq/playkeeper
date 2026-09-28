@@ -613,7 +613,8 @@ function frameProblems({ phones, steps, pair }: Frames): string[] {
 
 for (const size of sharp) {
   test(`screenshots start at the top of their screens and fill their frames, and cards in a row line up, at ${size.name} size`, async ({ browser, baseURL }) => {
-    const ctx = await browser.newContext({ baseURL, viewport: { width: size.width, height: size.height }, deviceScaleFactor: size.dpr, isMobile: size.mobile, hasTouch: size.mobile, reducedMotion: 'reduce' })
+    // bypassCSP: the negative control below adds a style the site's policy refuses.
+    const ctx = await browser.newContext({ baseURL, viewport: { width: size.width, height: size.height }, deviceScaleFactor: size.dpr, isMobile: size.mobile, hasTouch: size.mobile, reducedMotion: 'reduce', bypassCSP: true })
     const page = await ctx.newPage()
     const seen = { phones: 0, steps: 0, pair: 0 }
     for (const path of ['/', '/features/mods-and-modpacks', '/guides/modded-minecraft-server']) {

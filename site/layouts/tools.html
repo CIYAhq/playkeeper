@@ -1,0 +1,43 @@
+{{/* Blocks the free tools share (css/tools.css, js/tools.js). */}}
+
+{{/* swatches: the palette (internal/site/tools.go) as radios called Name,
+     with Checked, a swatch's ID, ticked at first. None adds a first swatch
+     for no colour, whose ID is "none". */}}
+{{define "swatches"}}
+<div class="swatches">
+  {{- if .None}}
+  <input type="radio" name="{{.Name}}" id="{{.Name}}-none" value=""{{if eq .Checked "none"}} checked{{end}}><label class="swatch" for="{{.Name}}-none" title="None"><span class="chip chip-none"></span><span class="visually-hidden">None</span></label>
+  {{- end}}
+  {{- range palette}}
+  <input type="radio" name="{{$.Name}}" id="{{$.Name}}-{{.ID}}" value="{{.Hex}}"{{if eq $.Checked .ID}} checked{{end}}><label class="swatch" for="{{$.Name}}-{{.ID}}" title="{{.Name}}"><span class="chip c-{{.ID}}"></span><span class="visually-hidden">{{.Name}}</span></label>
+  {{- end}}
+</div>
+{{end}}
+
+{{/* hex: the field beside swatches for any colour, as #rrggbb. */}}
+{{define "hex"}}
+<div class="color-row">
+  <label class="visually-hidden" for="{{.ID}}">{{.Label}}, as a hex colour</label>
+  <input class="tool-input" id="{{.ID}}" value="{{.Value}}" maxlength="7" autocomplete="off" spellcheck="false" placeholder="#rrggbb">
+  {{- with .After}}{{.}}{{end}}
+</div>
+{{end}}
+
+{{/* result: a tool's result in one format, with Copy. ID names its <pre>;
+     Tool and Action are what tool_used counts. */}}
+{{define "result"}}
+<figure class="tool-result">
+  <figcaption class="tool-result-head"><span class="tool-result-title">{{.Title}}</span><button type="button" class="tool-copy" data-tool-copy="{{.Tool}}" data-copy-from="#{{.ID}}"{{with .Action}} data-copy-action="{{.}}"{{end}}>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span><span class="visually-hidden"> {{.Title}}</span></button></figcaption>
+  <pre id="{{.ID}}" tabindex="0">{{.Text}}</pre>
+</figure>
+{{end}}
+
+{{/* mc-list: the server as it shows in Minecraft's server list. The tool's
+     script draws the icon in the canvas and writes the name and message. */}}
+{{define "mc-list"}}
+<div class="mc-list{{with .Class}} {{.}}{{end}}" role="img" aria-label="{{.Alt}}">
+  <canvas class="mc-list-icon" width="64" height="64" data-list-icon></canvas>
+  <span class="mc-list-text"><span class="mc-list-name" data-list-name>{{.Name}}</span><span class="mc-list-motd" data-list-motd>{{.MOTD}}</span></span>
+  <span class="mc-list-side"><span data-list-players>0/20</span><span class="mc-bars"><i></i><i></i><i></i><i></i><i></i></span></span>
+</div>
+{{end}}

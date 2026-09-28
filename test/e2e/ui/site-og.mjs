@@ -30,6 +30,12 @@ const previews = {
   blog: { eyebrow: 'Blog', title: 'Releases, guides and building Playkeeper in public', pip: 'pip-letter' },
   t: { eyebrow: 'Server template', title: 'A Minecraft server setup, shared from Playkeeper', pip: 'pip-search' },
   demo: { eyebrow: 'Live demo', title: 'Try the dashboard in your browser', pip: 'pip-wave', file: 'web/src/demo/social.png' },
+  tools: { eyebrow: 'Free tools', title: 'Free Minecraft server tools', pip: 'pip-box' },
+  'server-icon': { eyebrow: 'Free tool', title: 'Minecraft server icon maker', pip: 'pip-cheer' },
+  'color-codes': { eyebrow: 'Free tool', title: 'Minecraft color codes, with a live preview', pip: 'pip-wave' },
+  motd: { eyebrow: 'Free tool', title: 'Minecraft MOTD generator', pip: 'pip-letter' },
+  'jvm-flags': { eyebrow: 'Free tool', title: "Minecraft JVM arguments, with Aikar's flags", pip: 'pip-hardhat' },
+  'server-properties': { eyebrow: 'Free tool', title: 'Every server.properties setting, explained', pip: 'pip-search' },
 }
 const only = process.argv.slice(2)
 const wanted = (name) => only.length === 0 || only.includes(name)
