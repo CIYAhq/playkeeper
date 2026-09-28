@@ -27,7 +27,7 @@
      Tool and Action are what tool_used counts. */}}
 {{define "result"}}
 <figure class="tool-result">
-  <figcaption class="tool-result-head"><span class="tool-result-title">{{.Title}}</span><button type="button" class="code-copy" data-tool-copy="{{.Tool}}" data-copy-from="#{{.ID}}"{{with .Action}} data-copy-action="{{.}}"{{end}}>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span><span class="visually-hidden"> {{.Title}}</span></button></figcaption>
+  <figcaption class="tool-result-head"><span class="tool-result-title">{{.Title}}</span><button type="button" class="tool-copy" data-tool-copy="{{.Tool}}" data-copy-from="#{{.ID}}"{{with .Action}} data-copy-action="{{.}}"{{end}}>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span><span class="visually-hidden"> {{.Title}}</span></button></figcaption>
   <pre id="{{.ID}}" tabindex="0">{{.Text}}</pre>
 </figure>
 {{end}}

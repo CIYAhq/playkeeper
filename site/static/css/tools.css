@@ -140,10 +140,14 @@ textarea.tool-input { height: auto; min-height: 88px; padding: 10px 12px; line-h
 .tool-result-title { margin: 0; color: #c9ccc1; font-size: 13px; font-weight: 600; }
 .tool-result pre { margin: 0; padding: 14px 16px; overflow-x: auto; font-size: 13.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-all; }
 .tool-result pre:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
-.tool-result .code-copy { flex: none; }
-.tool-result .code-copy .icon-check { display: none; }
-.tool-result .code-copy.is-copied .icon-copy { display: none; }
-.tool-result .code-copy.is-copied .icon-check { display: block; color: #86d46a; }
+/* Copy on a result: the guides' code Copy, under its own name, since
+   site.js rewrites the code Copy beside a list of tabs. */
+.tool-copy { display: inline-flex; flex: none; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid rgb(255 255 255 / 0.16); border-radius: 8px; background: rgb(255 255 255 / 0.06); color: var(--white); font: 600 13px var(--sans); cursor: pointer; transition: background-color 0.12s, scale 0.1s; }
+.tool-copy:hover { background: rgb(255 255 255 / 0.12); }
+.tool-copy:active { scale: 0.96; }
+.tool-copy .icon { width: 13px; height: 13px; }
+.tool-copy .icon-check, .tool-copy.is-copied .icon-copy { display: none; }
+.tool-copy.is-copied .icon-check { display: block; color: #86d46a; }
 .tool-results { display: flex; flex-direction: column; gap: 12px; }
 
 /* The Minecraft server list, as a friend sees the server in it. Drawn in
