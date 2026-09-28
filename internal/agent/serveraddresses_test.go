@@ -226,6 +226,9 @@ func TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes(t *testing.T) 
 	if code, v := e.setServerAddresses(false); code != 200 || v.ServerAddresses || joinOf(v, test).Address != "test.play.example.com" || joinOf(v, test).Automatic {
 		t.Fatalf("turning it off: %d %+v", code, v)
 	}
+	if e.a.loadCertificate("creative.play.example.com") == nil {
+		t.Fatal("turning it off forgot the certificates")
+	}
 	if code, _ := e.setServerAddresses(true); code != 200 {
 		t.Fatal("turning it on again")
 	}
