@@ -391,9 +391,13 @@ jobs:
           PK_SHOTS: /tmp/evidence/screenshots
         run: cd test/e2e/ui && npx playwright test smoke.spec.ts --reporter=list
       - name: Usage stats — the installer's reports and the agent's first heartbeat, marked as a test, with only the fields README.md lists
+        env:
+          # A release build, which the Release check hands over in its assets
+          # folder, says it came from its tarball; CI's own builds, from the source.
+          SOURCE: ${{ inputs.assets != '' && 'tarball' || 'source' }}
         run: |
           for _ in $(seq 60); do grep -q '"/v1/heartbeat"' /tmp/evidence/stats.jsonl 2>/dev/null && break; sleep 2; done
-          python3 test/e2e/stats_recorder.py check /tmp/evidence/stats.jsonl /etc/playkeeper/config.json "$(playkeeper version | awk '{print $2}')"
+          python3 test/e2e/stats_recorder.py check /tmp/evidence/stats.jsonl /etc/playkeeper/config.json "$(playkeeper version | awk '{print $2}')" "$SOURCE"
       - name: Collect evidence
         if: failure()
         run: |
