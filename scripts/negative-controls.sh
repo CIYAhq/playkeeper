@@ -6744,6 +6744,7 @@ control "the share page doesn't name the stats service" site/layouts/base.html \
   '{{if true}}<meta name="playkeeper-stats"' \
   ./internal/site '^TestTheCopyCountIsOneSetting$'
 
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
