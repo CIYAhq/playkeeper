@@ -1,0 +1,22 @@
+{
+  "playkeeperTemplate": 1,
+  "name": "Survival with EssentialsX",
+  "description": "Paper 1.21.11 for friends with EssentialsX's homes, warps, kits and teleport requests, plus pre-generation, block logging and proximity voice chat.",
+  "game": "minecraft-java",
+  "server": { "type": "paper", "minecraftVersion": "1.21.11" },
+  "settings": {
+    "difficulty": "normal",
+    "pvp": false,
+    "gameMode": "survival",
+    "viewDistance": 10,
+    "maxPlayers": 10,
+    "playStyle": "friends",
+    "memoryMB": 4096
+  },
+  "addons": [
+    { "source": "modrinth", "project": "hXiIvTyT", "slug": "essentialsx", "name": "EssentialsX", "pin": { "versionId": "nY6VN1XH", "versionNumber": "2.22.0", "channel": "release", "hashAlgo": "sha512", "hash": "472ecf71924801723643ca6e1f9931297de5aa0874a544f8a719e2e2f7c81af81ef7bcbd38b6e43f0260a9dae6abe42c97907e70e2430e326ff8cff12ebd61cf" } },
+    { "source": "modrinth", "project": "fALzjamp", "slug": "chunky", "name": "Chunky", "pin": { "versionId": "P3y2MXnd", "versionNumber": "1.4.40", "channel": "release", "hashAlgo": "sha512", "hash": "b017fd180141b5c14c38dfb10128d5f5a1072a68ff93ee486d4465953331f5851f09a09b4a159364837a95d192198d8e9885ce39c46eed32dacbf1fd65c6f30f" } },
+    { "source": "modrinth", "project": "Lu3KuzdV", "slug": "coreprotect", "name": "CoreProtect", "pin": { "versionId": "3sehX6Sg", "versionNumber": "24.1", "channel": "release", "hashAlgo": "sha512", "hash": "76aad727528ddb990bbee5069f8ef3fcd018ae0bcdea89b965be2485e828633eb068672e841be64e550c8474f901a24d8c15c7bd44c2bd6c96244e1e58de0c95" } },
+    { "source": "modrinth", "project": "9eGKb6K1", "slug": "simple-voice-chat", "name": "Simple Voice Chat", "pin": { "versionId": "EJth3OAr", "versionNumber": "bukkit-2.6.24", "channel": "release", "hashAlgo": "sha512", "hash": "7f1d5765e79cd42616f14f40322d1171a8505e1116dfff71c7bd0e59af9d255c06f70a68a5b622015c0407d40c80e70298c172992007ff339cedcef0116fec42" } }
+  ]
+}

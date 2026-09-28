@@ -1,0 +1,65 @@
+{
+  "status": "passing",
+  "checked": "2026-09-28",
+  "release": "0.4.2",
+  "build": "0.19.5",
+  "doneSeconds": 3.309,
+  "addons": [
+    {
+      "name": "Fabric API",
+      "source": "modrinth",
+      "slug": "fabric-api",
+      "version": "0.161.0+26.2",
+      "licence": "Apache-2.0",
+      "downloads": 263135966
+    },
+    {
+      "name": "Lithium",
+      "source": "modrinth",
+      "slug": "lithium",
+      "version": "mc26.2-0.25.3-fabric",
+      "licence": "LGPL-3.0-only",
+      "downloads": 130565140
+    },
+    {
+      "name": "FerriteCore",
+      "source": "modrinth",
+      "slug": "ferrite-core",
+      "version": "9.0.0-fabric",
+      "licence": "MIT",
+      "downloads": 153952896
+    },
+    {
+      "name": "Krypton",
+      "source": "modrinth",
+      "slug": "krypton",
+      "version": "0.3.1",
+      "licence": "LGPL-3.0-only",
+      "downloads": 42234221
+    },
+    {
+      "name": "ScalableLux",
+      "source": "modrinth",
+      "slug": "scalablelux",
+      "version": "0.2.1+fabric.2b08348",
+      "licence": "LGPL-3.0-only",
+      "downloads": 14267744
+    },
+    {
+      "name": "Chunky",
+      "source": "modrinth",
+      "slug": "chunky",
+      "version": "1.5.3",
+      "licence": "GPL-3.0-only",
+      "downloads": 18378184
+    },
+    {
+      "name": "Simple Voice Chat",
+      "source": "modrinth",
+      "slug": "simple-voice-chat",
+      "version": "fabric-2.6.22+26.2",
+      "licence": "LicenseRef-All-Rights-Reserved",
+      "downloads": 70443451
+    }
+  ]
+}
