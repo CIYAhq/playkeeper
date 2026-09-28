@@ -201,7 +201,7 @@ jobs:
   clickthrough:
     name: Click-through
     needs: [plan, package]
-    if: github.event_name == 'pull_request' && needs.plan.outputs.mode != 'none'
+    if: github.event_name == 'pull_request' && (needs.plan.outputs.mode == 'pages' || needs.plan.outputs.mode == 'full')
     uses: ./.github/workflows/clickthrough.yml
     with:
       artifact: release
