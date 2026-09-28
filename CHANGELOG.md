@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.4
+
+- Anonymous **usage stats**, so the project can count how many machines run Playkeeper and how installs go. It sends a random ID made on your machine, the Playkeeper version, the system, how Playkeeper was installed, the kind of address and how many servers you have: when it installs, a minute after it starts, and twice a day. No IP address is kept, and nothing names you, your servers or your players. **Settings › Playkeeper › Usage stats** shows exactly what is sent and turns them off on every machine. To send nothing at all, install with `DO_NOT_TRACK=1`, or set it for Playkeeper's agent before you update, as README.md's Usage stats section shows.
+
 ## 0.4.3
 
 - **A public page at your address:** someone who types `yourname.playkeeper.me` (or your own domain) into a browser now sees a page with each server's status and how many are playing, its Minecraft version, software and modpack, its address with a Copy button and how to join, and the shared map's link when you share the map, with "This server runs on Playkeeper" at the bottom. Players' names show only if you turn on **Show who's playing**. Each server's **Settings › Public page** turns it off, and the dashboard stays on port 8443. The page uses ports 443 and 80 only when nothing else on the VPS uses them, a Docker container claims them or a web server like nginx is set to start with the machine, and a few minutes after it starts; Settings says what holds a port, with **Try again** once it's free.
