@@ -20,6 +20,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - CurseForge packs whose server files keep everything in a folder of their own, like All the Mods 9's, get the mods CurseForge lets only its own app download from those files, instead of leaving them for you to add.
 - When a CurseForge pack's server files hold most of its mods, a server gets the mods they have and no others. A mod the pack's authors left out of the server files, like the client-only one that stopped All the Mods 9 at its first start, stays off the server, and one CurseForge tags for players' games goes on it when they have it, like the Mod Menu that Better MC 2 needs to start.
 - Fixed: a CurseForge pack whose manifest gives its recommended memory as text, like Better MC [FABRIC] BMC2, was refused as not valid JSON.
+- Fixed: modpacks that ship a `default-server.properties`, like FTB StoneBlock 4, switched off the console, the allowlist and Playkeeper's other settings on the server's first start. Their gameplay settings still apply, and a server still running that way is restarted once after the update to put them back.
 
 ## 0.4.2
 
