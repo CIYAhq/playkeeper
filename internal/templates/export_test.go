@@ -163,6 +163,32 @@ func TestExportFabricModpack(t *testing.T) {
 	roundTrip(t, tp)
 }
 
+// The files a modpack put in the mods folder have no add-on records. They
+// travel with the pack, so none is reported as added by hand; a file that
+// was is.
+func TestExportLeavesAModpacksOwnFilesToIt(t *testing.T) {
+	s := fabricSetup()
+	s.Folder = &addons.ScanResult{Folder: "mods", Entries: append(managed(s.Addons),
+		addons.ScanEntry{FileName: "krypton-0.2.8.jar", Status: addons.FileUnknown},
+		addons.ScanEntry{FileName: "my-tweaks.jar", Status: addons.FileUnknown, Meta: addons.JarMeta{ID: "mytweaks", Name: "My Tweaks", Kind: "mod"}},
+		addons.ScanEntry{FileName: "vmp-fabric-0.2.0.jar", Status: addons.FileUnknown},
+	)}
+	s.Modpack.Files = map[string]bool{"krypton-0.2.8.jar": true, "vmp-fabric-0.2.0.jar": true}
+	tp, rep, err := Export(s, ExportOptions{Latest: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameTemplate(t, tp, fixture(t, "fabric-modpack.json"))
+	if wantKinds(t, "left out", rep.LeftOut, KindLeftOutUpload) && rep.LeftOut[0].Params["name"] != "My Tweaks" {
+		t.Errorf("got %+v, want My Tweaks added by hand", rep.LeftOut[0])
+	}
+	if wantKinds(t, "notes", rep.Notes, KindNoteWorld, KindNotePlayers, KindNoteAddonConfig, KindNoteLatest, KindNoteModpackAddons) {
+		if n := rep.Notes[4]; n.Params["count"] != "4" || n.Params["name"] != "Adrenaserver" {
+			t.Errorf("got %+v, want 4 mods travelling with Adrenaserver", n)
+		}
+	}
+}
+
 func TestExportLeavesOut(t *testing.T) {
 	basic := []Kind{KindNoteWorld, KindNotePlayers, KindNoteAddonConfig}
 	cases := []struct {

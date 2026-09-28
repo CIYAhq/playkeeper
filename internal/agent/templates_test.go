@@ -17,6 +17,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/addons/fetch"
 	"github.com/CIYAhq/playkeeper/internal/addons/modrinth"
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/modpacks"
 	"github.com/CIYAhq/playkeeper/internal/templates"
 )
 
@@ -445,6 +446,49 @@ func TestTemplateModpackRunsOnTheTypeItNames(t *testing.T) {
 	}
 	if code, out := e.createFromTemplate(p.Fingerprint, nil); code == 202 {
 		t.Fatalf("a blocked template must not create a server: %v", out)
+	}
+}
+
+// A server made from a modpack shares the pack, not its mods one by one:
+// they have no add-on records, and they aren't files added by hand. A mod
+// that was is left out.
+func TestTemplateOfAModpackServerCarriesThePack(t *testing.T) {
+	e := newAgentEnv(t)
+	e.addIdleServer()
+	e.fabricForShare()
+	mods := filepath.Join(e.dataDir(), "mods")
+	for _, id := range []string{"waystones", "chunky", "mytweaks"} {
+		jar := zipOf(t, map[string][]byte{"fabric.mod.json": []byte(`{"schemaVersion":1,"id":"` + id + `","version":"1.0.0","name":"` + id + `"}`)})
+		writeTestFile(t, filepath.Join(mods, id+".jar"), jar, time.Time{})
+	}
+	s := e.srv()
+	rec := modpacks.Record{
+		Pack: addons.Installed{Source: addons.Modrinth, ProjectID: fakePackID, Slug: "testpack", Name: "Waystones Pack", VersionID: fakePackVersion,
+			VersionNumber: "1.0.0", Channel: "release", HashAlgo: "sha512", Hash: strings.Repeat("a", 128)},
+		Files: []modpacks.File{{Path: "mods/waystones.jar", Origin: modpacks.Download}, {Path: "mods/chunky.jar", Origin: modpacks.Download},
+			{Path: "config/testpack.toml", Origin: modpacks.Override}},
+	}
+	if err := s.savePackRecord(rec); err != nil {
+		t.Fatal(err)
+	}
+	sc, err := s.serverConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc.Modpack = &api.ServerModpack{Source: "modrinth", ProjectID: fakePackID, VersionID: fakePackVersion, Name: "Waystones Pack", VersionNumber: "1.0.0", Mods: 2}
+	if err := s.saveServerConfig(*sc); err != nil {
+		t.Fatal(err)
+	}
+	var exp api.TemplateExport
+	e.decode("GET", e.sp("/template"), &exp)
+	if m := exp.Contents.Modpack; m == nil || m.Name != "Waystones Pack" || m.VersionNumber != "1.0.0" || len(exp.Contents.Addons) != 0 {
+		t.Fatalf("the template carries the pack: %+v, add-ons %+v", exp.Contents.Modpack, exp.Contents.Addons)
+	}
+	if len(exp.LeftOut) != 1 || exp.LeftOut[0].Kind != string(templates.KindLeftOutUpload) || exp.LeftOut[0].Params["file"] != "mytweaks.jar" {
+		t.Fatalf("only the mod added by hand is left out: %+v", exp.LeftOut)
+	}
+	if i := slices.IndexFunc(exp.Notes, func(n api.AddonNotice) bool { return n.Kind == string(templates.KindNoteModpackAddons) }); i < 0 || exp.Notes[i].Params["count"] != "2" {
+		t.Fatalf("the pack's 2 mods travel with it: %+v", exp.Notes)
 	}
 }
 

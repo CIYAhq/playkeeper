@@ -86,7 +86,7 @@ func (s *server) templateSetup(ctx context.Context) (templates.Setup, error) {
 		}
 		// Without identify the scan stays on this machine: add-ons whose
 		// file is gone are left out, and a pack's own mods, which have no
-		// rows, don't travel one by one next to the pack.
+		// rows, travel with the pack (ModpackSetup.Files), not one by one.
 		srv := addons.Server{Dir: s.dataDir(), Type: typ, MinecraftVersion: sc.MinecraftVersion, Owner: s.gameOwner()}
 		if lib := s.lib(); lib != nil {
 			if scan, err := lib.Scan(ctx, srv, st.Addons, false); err == nil {
@@ -105,6 +105,11 @@ func (s *server) templateSetup(ctx context.Context) (templates.Setup, error) {
 				Source: p.Source, Project: p.ProjectID, Slug: p.Slug, Name: m.Name,
 				Pin: templates.Pin{VersionID: p.VersionID, VersionNumber: p.VersionNumber, Channel: p.Channel, HashAlgo: p.HashAlgo, Hash: p.Hash},
 			}}
+			if st.Folder != nil {
+				if st.Modpack.Files, err = s.packFiles(st.Folder.Folder); err != nil {
+					return templates.Setup{}, err
+				}
+			}
 		}
 	}
 	if o := sc.ResourcePack; o != nil && o.SHA1 != "" {

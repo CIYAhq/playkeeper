@@ -2211,6 +2211,14 @@ control "a template whose modpack runs on another type is blocked" internal/agen
   'p.Blockers, p.Ready = append(p.Blockers, *n), false' \
   '_ = n' \
   ./internal/agent '^TestTemplateModpackRunsOnTheTypeItNames$'
+control "an exported modpack server's own mods travel with its pack" internal/agent/templates.go \
+  'if st.Modpack.Files, err = s.packFiles(st.Folder.Folder); err != nil {' \
+  'if _, err = s.packFiles(st.Folder.Folder); err != nil {' \
+  ./internal/agent '^TestTemplateOfAModpackServerCarriesThePack$'
+control "a modpack's own files aren't reported as added by hand" internal/templates/export.go \
+  'case e.Installed == nil && x.packFiles[e.FileName]:' \
+  'case false:' \
+  ./internal/templates '^TestExportLeavesAModpacksOwnFilesToIt$'
 control "a backup records voice chat's UDP port" internal/agent/backups.go \
   'm.Settings[manifestVoiceChatPort] = strconv.Itoa(sc.VoiceChatPort)' \
   '_ = sc.VoiceChatPort' \
