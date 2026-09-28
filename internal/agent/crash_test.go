@@ -182,7 +182,7 @@ func TestFailedStartIsExplained(t *testing.T) {
 	e.fd.mu.Lock()
 	e.fd.startErr = ""
 	e.fd.mu.Unlock()
-	if code, _ := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 200 {
+	if code, _ := e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 200 {
 		t.Fatalf("stop: %d", code)
 	}
 	if c := e.status().Crash; c != nil {
@@ -445,7 +445,7 @@ func TestAMemoryKillIsExplainedAfterTheServerComesBack(t *testing.T) {
 		t.Fatal("still shown a day later")
 	}
 	e.skew.Add(-int64(recoveredFor))
-	if code, out := e.call("POST", e.sp("/settings"), map[string]any{"memoryMB": 3072, "actor": "admin"}); code != 200 {
+	if code, out := e.callWhenFree("POST", e.sp("/settings"), map[string]any{"memoryMB": 3072, "actor": "admin"}); code != 200 {
 		t.Fatalf("settings: %d %v", code, out)
 	}
 	if c := e.status().RecoveredCrash; c != nil {
@@ -677,7 +677,7 @@ func TestAStartForgetsTheCrashOnlyOnceItGoesAhead(t *testing.T) {
 			s.crash, s.crashes, s.crashed, s.nextAutoRestart = crash, []time.Time{time.Now()}, true, next
 			s.mu.Unlock()
 
-			code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+			code, out := e.callWhenFree("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 			switch {
 			case accepted && code == 202:
 				op := e.waitOp(out["id"].(string))

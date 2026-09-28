@@ -496,7 +496,7 @@ func localStandIn(t *testing.T) {
 func (e *agentEnv) putToSleep() {
 	e.t.Helper()
 	localStandIn(e.t)
-	if code, out := e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5}); code != http.StatusOK {
+	if code, out := e.callWhenFree("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5}); code != http.StatusOK {
 		e.t.Fatalf("turn sleep on: %d %v", code, out)
 	}
 	s := e.srv()
@@ -531,7 +531,7 @@ func TestServerSleepsWhenEmptyAndWakesForAListedPlayer(t *testing.T) {
 	if code, out := e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 3}); code != http.StatusBadRequest {
 		t.Fatalf("3 minutes: %d %v", code, out)
 	}
-	code, out := e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5})
+	code, out := e.callWhenFree("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5})
 	if st, _ := out["sleep"].(map[string]any); code != 200 || st["enabled"] != true || st["idleMinutes"] != float64(5) {
 		t.Fatalf("turn on: %d %v", code, out)
 	}
@@ -996,7 +996,7 @@ func TestSleepWaitsForTheMapPreGeneration(t *testing.T) {
 			e.create()
 			fc := e.chunky()
 			e.startPregen("small", true)
-			if code, out := e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5}); code != http.StatusOK {
+			if code, out := e.callWhenFree("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": 5}); code != http.StatusOK {
 				t.Fatalf("turn sleep on: %d %v", code, out)
 			}
 			c.steps(e, fc)
@@ -1054,7 +1054,7 @@ func TestSleepWaitsForAScheduledRestartsCountdown(t *testing.T) {
 			localStandIn(t)
 			e := newAgentEnv(t)
 			e.create()
-			if code, out := e.call("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": sleep.MinIdleMinutes}); code != http.StatusOK {
+			if code, out := e.callWhenFree("POST", e.sp("/sleep"), map[string]any{"actor": "admin", "enabled": true, "idleMinutes": sleep.MinIdleMinutes}); code != http.StatusOK {
 				t.Fatalf("turn sleep on: %d %v", code, out)
 			}
 			counting := func() bool {

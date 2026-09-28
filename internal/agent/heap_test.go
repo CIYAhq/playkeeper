@@ -108,7 +108,7 @@ func TestModLoaderHeapLeavesRoomForItsMods(t *testing.T) {
 	if st := e.status(); st.PendingRestart {
 		t.Fatal("a mod added while the server runs changed its container's definition")
 	}
-	if code, out := e.call("POST", e.sp("/settings"), map[string]any{"memoryMB": 3072, "actor": "admin"}); code != 200 {
+	if code, out := e.callWhenFree("POST", e.sp("/settings"), map[string]any{"memoryMB": 3072, "actor": "admin"}); code != 200 {
 		t.Fatalf("settings: %d %v", code, out)
 	}
 	if sc, _ := e.srv().serverConfig(); sc.HeapMB != minecraft.HeapFor(3072, "fabric", 18) {

@@ -240,7 +240,7 @@ func TestPackLinkAnswersAlikeWhateverTheReason(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
 	if code != http.StatusAccepted {
 		t.Fatalf("stop: %d %v", code, out)
 	}

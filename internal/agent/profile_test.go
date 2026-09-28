@@ -212,11 +212,11 @@ func TestMessageBanAndAllowlistCommands(t *testing.T) {
 		t.Fatal("a ban is audited")
 	}
 
-	code, out = e.call("POST", e.sp("/whitelist"), map[string]any{"name": "JunoFox", "actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/whitelist"), map[string]any{"name": "JunoFox", "actor": "admin"})
 	if code != 200 || out["added"] != true {
 		t.Fatalf("allowlist add: %d %v", code, out)
 	}
-	code, out = e.call("POST", e.sp("/whitelist"), map[string]any{"name": "JunoFox", "actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/whitelist"), map[string]any{"name": "JunoFox", "actor": "admin"})
 	if code != 200 || out["added"] != false || out["message"] != "Player is already whitelisted" {
 		t.Fatalf("allowlist add again: %d %v", code, out)
 	}

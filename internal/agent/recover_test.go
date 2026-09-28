@@ -255,7 +255,7 @@ func TestARestoreFromARecoveryKeyHoldsNoServer(t *testing.T) {
 	downloading("after the wake")
 
 	// A backup comes due.
-	code, out = e.call("POST", e.sp("/backups"), map[string]any{"actor": "schedule:qrstuvwxyz"})
+	code, out = e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "schedule:qrstuvwxyz"})
 	if code != http.StatusAccepted {
 		t.Fatalf("a backup during the download: %d %v", code, out)
 	}

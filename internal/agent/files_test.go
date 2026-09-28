@@ -447,7 +447,7 @@ func TestTheWorldIsReadOnlyWhileTheGameRuns(t *testing.T) {
 		t.Fatalf("a file outside the world: %d %v", code, out)
 	}
 
-	if code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 202 {
+	if code, out := e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 202 {
 		t.Fatalf("stop: %d %v", code, out)
 	}
 	e.waitFor("stopped", func() bool { return !e.srv().gameRunning(t.Context()) && !e.a.busy() })

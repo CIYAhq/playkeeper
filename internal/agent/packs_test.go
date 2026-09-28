@@ -254,7 +254,7 @@ func (e *agentEnv) dataPackList() api.DataPacks {
 // answers with.
 func (e *agentEnv) switchDataPack(name, action string) api.DataPacks {
 	e.t.Helper()
-	code, out := e.call("POST", e.sp("/datapacks/"+name+"/"+action), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/datapacks/"+name+"/"+action), map[string]any{"actor": "admin"})
 	if code != 200 {
 		e.t.Fatalf("%s %s: %d %v", action, name, code, out)
 	}
@@ -360,7 +360,7 @@ func TestDataPacksOnARunningServer(t *testing.T) {
 	}
 
 	// Removing an enabled pack disables it first.
-	code, out = e.call("DELETE", e.sp("/datapacks/Graves_v2.zip?actor=admin"), nil)
+	code, out = e.callWhenFree("DELETE", e.sp("/datapacks/Graves_v2.zip?actor=admin"), nil)
 	if code != 200 || len(out["packs"].([]any)) != 1 {
 		t.Fatalf("remove: %d %v", code, out)
 	}
@@ -653,7 +653,7 @@ func TestResourcePackOffer(t *testing.T) {
 		t.Fatalf("the pack's icon: %d", code)
 	}
 
-	code, out = e.call("POST", e.sp("/resourcepack/settings"), map[string]any{"required": true, "prompt": " Grab the pack! ", "actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/resourcepack/settings"), map[string]any{"required": true, "prompt": " Grab the pack! ", "actor": "admin"})
 	if o := decodeAs[api.ResourcePack](t, out).Offer; code != 200 || !o.Required || o.Prompt != "Grab the pack!" {
 		t.Fatalf("settings: %d %v", code, out)
 	}
@@ -704,11 +704,11 @@ func TestResourcePackOffer(t *testing.T) {
 	}
 
 	// Removing the offer clears the settings from the next start.
-	code, out = e.call("DELETE", e.sp("/resourcepack?actor=admin"), nil)
+	code, out = e.callWhenFree("DELETE", e.sp("/resourcepack?actor=admin"), nil)
 	if v := decodeAs[api.ResourcePack](t, out); code != 200 || v.Offer != nil || !v.Pending {
 		t.Fatalf("remove: %d %v", code, out)
 	}
-	if code, _ := e.call("DELETE", e.sp("/resourcepack?actor=admin"), nil); code != 200 || e.audits("resourcepack.removed") != 1 {
+	if code, _ := e.callWhenFree("DELETE", e.sp("/resourcepack?actor=admin"), nil); code != 200 || e.audits("resourcepack.removed") != 1 {
 		t.Fatalf("removing again: %d, %d audit entries", code, e.audits("resourcepack.removed"))
 	}
 	if code, out := e.call("POST", e.sp("/resourcepack/settings"), map[string]any{"required": false, "actor": "admin"}); code != 409 || out["code"] != "no_resource_pack" {
@@ -1002,7 +1002,7 @@ func TestResourcePackOfferThatCantBeBuilt(t *testing.T) {
 	if v := e.offerPack("Sphax.zip", sphax); v.Problem != badPrompt {
 		t.Fatalf("the pack uploaded again: %+v", v)
 	}
-	code, out := e.call("POST", e.sp("/resourcepack/settings"), map[string]any{"required": false, "prompt": "Grab the pack!", "actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/resourcepack/settings"), map[string]any{"required": false, "prompt": "Grab the pack!", "actor": "admin"})
 	if v := decodeAs[api.ResourcePack](t, out); code != 200 || v.Problem != "" || !v.Pending {
 		t.Fatalf("a message players can see: %d %v", code, out)
 	}
@@ -1054,7 +1054,7 @@ func TestResourcePackAcrossRestoreAndDelete(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("upload: %d %v", code, preview)
 	}
-	code, out := e.call("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": "restore", "acceptEula": true, "actor": "admin"})
+	code, out := e.callWhenFree("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": "restore", "acceptEula": true, "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("apply: %d %v", code, out)
 	}
@@ -1071,7 +1071,7 @@ func TestResourcePackAcrossRestoreAndDelete(t *testing.T) {
 	}
 
 	e.sid = survival
-	code, out = e.call("POST", e.sp("/delete"), map[string]any{"confirm": "Survival", "actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/delete"), map[string]any{"confirm": "Survival", "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("delete: %d %v", code, out)
 	}

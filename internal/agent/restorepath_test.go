@@ -144,7 +144,7 @@ func TestNoRestoreStartsWhileAnotherIsUnsettled(t *testing.T) {
 			id, phrase := e.backupAndStage()
 			list, _ := e.srv().listBackups(`kind = 'manual'`)
 			b := list[0]
-			code, spare := e.call("POST", e.sp("/backups/"+b.ID+"/restore"), map[string]any{"actor": "admin"})
+			code, spare := e.callWhenFree("POST", e.sp("/backups/"+b.ID+"/restore"), map[string]any{"actor": "admin"})
 			if code != 200 {
 				t.Fatalf("stage: %d %v", code, spare)
 			}
@@ -308,7 +308,7 @@ func TestARestoreIsSettledOnceItsWorldIsBackWithoutAnAgentRestart(t *testing.T) 
 				release()
 			}
 			if c.start {
-				code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+				code, out := e.callWhenFree("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 				if code != 202 {
 					t.Fatalf("start: %d %v", code, out)
 				}
@@ -383,7 +383,7 @@ func TestNoJobStartsAServerWhoseRestoreIsntSettled(t *testing.T) {
 		}},
 		{"pre-generating the map", func(t *testing.T, e *agentEnv) *api.Operation {
 			e.chunky()
-			code, out := e.call("POST", e.sp("/pregen/start"), map[string]any{"preset": "small", "pauseForPlayers": false, "actor": "admin"})
+			code, out := e.callWhenFree("POST", e.sp("/pregen/start"), map[string]any{"preset": "small", "pauseForPlayers": false, "actor": "admin"})
 			if code != 202 {
 				t.Fatalf("pre-generate: %d %v", code, out)
 			}

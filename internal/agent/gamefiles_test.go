@@ -27,7 +27,7 @@ import (
 // act asks for a start or a stop and waits for its operation.
 func (e *agentEnv) act(verb string) *api.Operation {
 	e.t.Helper()
-	code, out := e.call("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/"+verb), map[string]any{"actor": "admin"})
 	if code != 202 {
 		e.t.Fatalf("%s: %d %v", verb, code, out)
 	}

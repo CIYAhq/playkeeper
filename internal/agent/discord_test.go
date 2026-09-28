@@ -543,7 +543,7 @@ func TestDiscordOptionalAlertsGoOut(t *testing.T) {
 		return e, f
 	}
 	stop := func(e *agentEnv) {
-		code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
+		code, out := e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
 		if code != 202 {
 			e.t.Fatalf("stop: %d %v", code, out)
 		}
@@ -663,7 +663,7 @@ func TestDiscordShowsAnExitAsTheReconcileLoopWillCountIt(t *testing.T) {
 	if st := state(); st != discord.StateOffline {
 		t.Fatalf("a clean shutdown is not a crash: %s", st)
 	}
-	if code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"}); code != 202 {
+	if code, out := e.callWhenFree("POST", e.sp("/start"), map[string]any{"actor": "admin"}); code != 202 {
 		t.Fatalf("start: %d %v", code, out)
 	}
 	e.waitFor("online again", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
@@ -686,7 +686,7 @@ func TestBackupFailureIsPostedToDiscord(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(deep, "r.mca"), []byte("region"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}

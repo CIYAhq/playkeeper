@@ -22,7 +22,7 @@ func (e *agentEnv) backupNow(body map[string]any) *api.Operation {
 	for k, v := range body {
 		full[k] = v
 	}
-	code, out := e.call("POST", e.sp("/backups"), full)
+	code, out := e.callWhenFree("POST", e.sp("/backups"), full)
 	if code != 202 {
 		e.t.Fatalf("backup: %d %v", code, out)
 	}
@@ -257,7 +257,7 @@ func TestSavingLeftPausedIsShownAndTurnedBackOn(t *testing.T) {
 		t.Fatalf("a failed save-on must say so plainly, without the console's reply: %d %v", code, out)
 	}
 	broken.Store(false)
-	if code, out := e.call("POST", e.sp("/saving/resume"), map[string]any{"actor": "admin"}); code != 200 {
+	if code, out := e.callWhenFree("POST", e.sp("/saving/resume"), map[string]any{"actor": "admin"}); code != 200 {
 		t.Fatalf("turn saving back on: %d %v", code, out)
 	}
 	e.waitFor("the pause to end", func() bool { return e.status().SavingPausedSince == nil })
@@ -299,7 +299,7 @@ func TestReconcilerTurnsSavingBackOn(t *testing.T) {
 	started := e.status().StartedAt
 	e.a.db.Exec(`UPDATE servers SET saving_paused_since = ? WHERE id = ?`, started.Add(-time.Minute).UnixMilli(), e.sid)
 	e.waitFor("a pause from before the server started to be forgotten", func() bool { return e.status().SavingPausedSince == nil })
-	if code, _ := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 202 {
+	if code, _ := e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 202 {
 		t.Fatalf("stop: %d", code)
 	}
 	e.waitFor("stopped", func() bool { st := e.status(); return st.Phase == api.PhaseStopped && st.Operation == nil })

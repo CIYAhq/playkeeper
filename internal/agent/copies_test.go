@@ -102,7 +102,7 @@ func TestChangingWhereCopiesGoAsksBeforeForgettingTheOldCopies(t *testing.T) {
 			return e.countRows(`SELECT COUNT(*) FROM offsite_copies WHERE backup_id = ?`, id) == 1
 		})
 	}
-	if code, _ := e.call("DELETE", e.sp("/backups/"+first)+"?actor=admin", nil); code != http.StatusNoContent {
+	if code, _ := e.callWhenFree("DELETE", e.sp("/backups/"+first)+"?actor=admin", nil); code != http.StatusNoContent {
 		t.Fatalf("delete the first backup here: %d", code)
 	}
 	s3 := map[string]any{"provider": "minio", "endpoint": "203.0.113.10:9000", "bucket": "worlds", "accessKeyId": "PKEXAMPLE"}
@@ -226,7 +226,7 @@ func TestACopyWithoutItsBackupSaysWhoRemovedIt(t *testing.T) {
 	if got := removed(); got[first] != "rules <nil>" || got[second] != "<nil> <nil>" {
 		t.Fatalf("after the rules removed the first backup here: %v", got)
 	}
-	if code, _ := e.call("DELETE", e.sp("/backups/"+second)+"?actor=admin", nil); code != http.StatusNoContent {
+	if code, _ := e.callWhenFree("DELETE", e.sp("/backups/"+second)+"?actor=admin", nil); code != http.StatusNoContent {
 		t.Fatalf("delete the second backup here: %d", code)
 	}
 	if got := removed(); got[first] != "rules <nil>" || got[second] != "person admin" {

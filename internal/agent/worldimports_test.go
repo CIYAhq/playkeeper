@@ -499,7 +499,7 @@ func TestAnUpgradedWorldWaitsForTheCopyOfItAsUploaded(t *testing.T) {
 	}
 	start := func() *api.Operation {
 		t.Helper()
-		code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+		code, out := e.callWhenFree("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 		if code != 202 {
 			t.Fatalf("start: %d %v", code, out)
 		}
@@ -528,7 +528,7 @@ func TestAnUpgradedWorldWaitsForTheCopyOfItAsUploaded(t *testing.T) {
 	if c := copies(); len(c) != 1 || c[0].MinecraftVersion != "1.21.4" || !strings.Contains(c[0].Note, "as uploaded") || op.Detail["originalBackupId"] != c[0].ID {
 		t.Fatalf("the start must save the world as uploaded first: %+v %v", c, op.Detail)
 	}
-	code, out = e.call("POST", e.sp("/restart"), map[string]any{"actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/restart"), map[string]any{"actor": "admin"})
 	if code != 202 || e.waitOp(out["id"].(string)).Status != api.OpSucceeded || len(copies()) != 1 {
 		t.Fatalf("a later restart saves the world as uploaded again: %d %v", code, out)
 	}

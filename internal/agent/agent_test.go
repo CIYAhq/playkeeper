@@ -272,9 +272,9 @@ func (e *agentEnv) call(method, path string, body any) (int, map[string]any) {
 }
 
 // callWhenFree is call, asked again while the server answers that it's busy
-// with another operation, as the dashboard does: once a copy is recorded, or
-// an operation has ended, the server can hold its operation lock a moment
-// longer.
+// with another operation, as the dashboard does: once a copy is recorded, a
+// restore is settled or an operation has ended, the server can hold its
+// operation lock a moment longer.
 func (e *agentEnv) callWhenFree(method, path string, body any) (int, map[string]any) {
 	e.t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
@@ -690,14 +690,14 @@ func TestCreateStartStopAreIdempotent(t *testing.T) {
 			t.Fatal("the Docker socket must never be mounted")
 		}
 	}
-	code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 	if code != 200 || out["noop"] != true {
 		t.Fatalf("second start should be a no-op: %d %v", code, out)
 	}
 	if n := e.fd.containerCount(e.cname()); n != 1 {
 		t.Fatalf("second start created another container: %d", n)
 	}
-	code, out = e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("stop: %d %v", code, out)
 	}
@@ -716,7 +716,7 @@ func TestCreateStartStopAreIdempotent(t *testing.T) {
 	if !sawSave {
 		t.Fatal("stop must save the world (save-all) before stopping")
 	}
-	if code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 200 || out["noop"] != true {
+	if code, out := e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 200 || out["noop"] != true {
 		t.Fatalf("second stop should be a no-op: %d %v", code, out)
 	}
 	if code, _ := e.call("POST", e.sp("/restart"), map[string]any{"actor": "admin"}); code != 409 {
@@ -726,7 +726,7 @@ func TestCreateStartStopAreIdempotent(t *testing.T) {
 	if st := e.status(); st.Phase != api.PhaseStopped {
 		t.Fatalf("reconciler restarted a server the user stopped: %s", st.Phase)
 	}
-	code, out = e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("start: %d %v", code, out)
 	}
@@ -1276,7 +1276,7 @@ func TestStartDuringLogReplayWaitsForTheNewRun(t *testing.T) {
 		e.create()
 		e.fd.crash(137)
 		e.waitFor("the crash to be counted", func() bool { return e.crashEvents() == 1 })
-		if code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 200 {
+		if code, out := e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 200 {
 			t.Fatalf("stop: %d %v", code, out)
 		}
 		return e
@@ -1378,7 +1378,7 @@ func TestStatusWarnsAboutLowDiskWithThePreflightAdvice(t *testing.T) {
 	if w := e.a.Machine(context.Background()).DiskWarning; w == nil || w.Status != "fail" || !strings.Contains(w.Fix, "Free at least 5 GB") {
 		t.Fatalf("1 MB free: %+v", w)
 	}
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}
@@ -1475,7 +1475,7 @@ func TestPortCollisionHasActionableError(t *testing.T) {
 	e.fd.mu.Lock()
 	e.fd.startErr = ""
 	e.fd.mu.Unlock()
-	code, out = e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("start after freeing the port: %d %v", code, out)
 	}
@@ -1510,7 +1510,7 @@ func TestFailedAutomaticStartsBackOffAndGiveUp(t *testing.T) {
 	e.fd.mu.Lock()
 	e.fd.startErr = ""
 	e.fd.mu.Unlock()
-	code, out := e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("start after fixing the cause: %d %v", code, out)
 	}
@@ -1704,7 +1704,7 @@ func (e *agentEnv) backupAndStage() (string, string) {
 // backupWithAndStage is backupAndStage with the backup request's body.
 func (e *agentEnv) backupWithAndStage(body map[string]any) (string, string) {
 	e.t.Helper()
-	code, out := e.call("POST", e.sp("/backups"), body)
+	code, out := e.callWhenFree("POST", e.sp("/backups"), body)
 	if code != 202 {
 		e.t.Fatalf("backup: %d %v", code, out)
 	}
@@ -1713,7 +1713,7 @@ func (e *agentEnv) backupWithAndStage(body map[string]any) (string, string) {
 	}
 	e.waitFor("online after backup", func() bool { return e.status().Phase == api.PhaseOnline && !e.a.busy() })
 	list, _ := e.srv().listBackups(`kind = 'manual'`)
-	code, preview := e.call("POST", e.sp("/backups/"+list[0].ID+"/restore"), map[string]any{"actor": "admin"})
+	code, preview := e.callWhenFree("POST", e.sp("/backups/"+list[0].ID+"/restore"), map[string]any{"actor": "admin"})
 	if code != 200 {
 		e.t.Fatalf("stage: %d %v", code, preview)
 	}
@@ -1722,7 +1722,7 @@ func (e *agentEnv) backupWithAndStage(body map[string]any) (string, string) {
 
 func (e *agentEnv) applyRestore(id, phrase string) *api.Operation {
 	e.t.Helper()
-	code, out := e.call("POST", "/v1/restore/"+id+"/apply", map[string]any{"confirm": phrase, "actor": "admin"})
+	code, out := e.callWhenFree("POST", "/v1/restore/"+id+"/apply", map[string]any{"confirm": phrase, "actor": "admin"})
 	if code != 202 {
 		e.t.Fatalf("apply: %d %v", code, out)
 	}
@@ -1791,7 +1791,7 @@ func TestBackupRefusesAWorldARestoreWouldRefuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	stops := e.dockerStops()
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}
@@ -1833,7 +1833,7 @@ func TestBackupRefusesAServerPropertiesItWontReadBeforeStopping(t *testing.T) {
 		t.Fatal(err)
 	}
 	stops := e.dockerStops()
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}
@@ -1876,7 +1876,7 @@ func TestBackupRefusesAServerPropertiesItWontReadBeforeStopping(t *testing.T) {
 func TestRecompressedBackupFailsItsRecordedChecksum(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}
@@ -1945,7 +1945,7 @@ func TestFailedRestoreDeletesItsStageAndStartPrunesLeftovers(t *testing.T) {
 	}
 	e.waitFor("idle", func() bool { return !e.a.busy() })
 	list, _ := e.srv().listBackups(`kind = 'manual'`)
-	if code, out := e.call("POST", e.sp("/backups/"+list[0].ID+"/restore"), map[string]any{"actor": "admin"}); code != 200 {
+	if code, out := e.callWhenFree("POST", e.sp("/backups/"+list[0].ID+"/restore"), map[string]any{"actor": "admin"}); code != 200 {
 		t.Fatalf("stage: %d %v", code, out)
 	}
 	if left, _ := os.ReadDir(e.cfg.StagingDir()); len(left) != 1 {
@@ -2266,7 +2266,7 @@ func TestBackupRestoreRollbackAndRefusals(t *testing.T) {
 	world := filepath.Join(e.dataDir(), "world")
 	os.WriteFile(filepath.Join(e.dataDir(), "server.properties"), []byte("level-name=world\nrcon.password=topsecret\n"), 0o644)
 	os.WriteFile(filepath.Join(world, "marker.txt"), []byte("nonce-original"), 0o644)
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin", "note": "first"})
+	code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin", "note": "first"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}
@@ -2331,7 +2331,7 @@ func TestBackupRestoreRollbackAndRefusals(t *testing.T) {
 	if got := worldHash(t, e.dataDir()); got != live {
 		t.Fatal("a refused confirmation changed the world")
 	}
-	code, out = e.call("POST", "/v1/restore/"+id+"/apply", map[string]any{"actor": "admin", "confirm": "replace world"})
+	code, out = e.callWhenFree("POST", "/v1/restore/"+id+"/apply", map[string]any{"actor": "admin", "confirm": "replace world"})
 	if code != 202 {
 		t.Fatalf("apply: %d %v", code, out)
 	}
@@ -2348,11 +2348,11 @@ func TestBackupRestoreRollbackAndRefusals(t *testing.T) {
 	}
 	// Restoring the rollback archive brings the replaced state back.
 	e.waitFor("idle", func() bool { return !e.a.busy() })
-	code, preview = e.call("POST", e.sp("/backups/"+list[0].ID+"/restore"), map[string]any{"actor": "admin"})
+	code, preview = e.callWhenFree("POST", e.sp("/backups/"+list[0].ID+"/restore"), map[string]any{"actor": "admin"})
 	if code != 200 {
 		t.Fatalf("stage rollback: %d %v", code, preview)
 	}
-	code, out = e.call("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"actor": "admin", "confirm": "replace world"})
+	code, out = e.callWhenFree("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"actor": "admin", "confirm": "replace world"})
 	if code != 202 {
 		t.Fatalf("apply rollback: %d %v", code, out)
 	}
@@ -2447,7 +2447,7 @@ func TestNoIPsOrSecretsAreStored(t *testing.T) {
 func TestWhitelistAndConsoleAreAudited(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
-	if code, out := e.call("POST", e.sp("/whitelist"), map[string]any{"actor": "admin", "name": "PkBotFriend"}); code != 200 {
+	if code, out := e.callWhenFree("POST", e.sp("/whitelist"), map[string]any{"actor": "admin", "name": "PkBotFriend"}); code != 200 {
 		t.Fatalf("invite: %d %v", code, out)
 	}
 	if code, _ := e.call("POST", e.sp("/whitelist"), map[string]any{"actor": "admin", "name": "bad name;id"}); code != 400 {
@@ -2457,7 +2457,7 @@ func TestWhitelistAndConsoleAreAudited(t *testing.T) {
 	if code != 200 || !strings.Contains(out["output"].(string), "Unknown or incomplete command") {
 		t.Fatalf("$(id) must reach Minecraft as text: %d %v", code, out)
 	}
-	if code, _ := e.call("POST", e.sp("/settings"), map[string]any{"actor": "admin", "maxPlayers": 20}); code != 200 {
+	if code, _ := e.callWhenFree("POST", e.sp("/settings"), map[string]any{"actor": "admin", "maxPlayers": 20}); code != 200 {
 		t.Fatalf("settings: %d", code)
 	}
 	if !e.status().PendingRestart {
@@ -2511,7 +2511,7 @@ func TestBackupRefusesAWholeWorldOverALimitBeforeStopping(t *testing.T) {
 		t.Fatal(err)
 	}
 	stops := e.dockerStops()
-	code, out := e.call("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}

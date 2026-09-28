@@ -24,7 +24,7 @@ var vanilla262 = map[string]any{"type": "vanilla", "versionId": "vanilla-26.2", 
 
 func (e *agentEnv) runOp(method, path string) *api.Operation {
 	e.t.Helper()
-	code, out := e.call(method, e.sp(path), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree(method, e.sp(path), map[string]any{"actor": "admin"})
 	if code != 202 {
 		e.t.Fatalf("%s %s: %d %v", method, path, code, out)
 	}

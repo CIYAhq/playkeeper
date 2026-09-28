@@ -288,7 +288,7 @@ func (e *agentEnv) mapInfo() api.MapInfo {
 func (e *agentEnv) mapOp(rest string, body map[string]any) *api.Operation {
 	e.t.Helper()
 	body["actor"] = "admin"
-	code, out := e.call("POST", e.sp(rest), body)
+	code, out := e.callWhenFree("POST", e.sp(rest), body)
 	if code != http.StatusAccepted {
 		e.t.Fatalf("%s: %d %v", rest, code, out)
 	}
@@ -384,7 +384,7 @@ func TestMapTurnsOnDrawsOnceAndTurnsOff(t *testing.T) {
 	}
 
 	// A restart does not ask for the whole map again.
-	code, out := e.call("POST", e.sp("/restart"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/restart"), map[string]any{"actor": "admin"})
 	if code != 202 || e.waitOp(out["id"].(string)).Status != api.OpSucceeded {
 		t.Fatalf("restart: %d %v", code, out)
 	}
@@ -620,7 +620,7 @@ func TestTurningTheMapOffStopsSquaremapFirst(t *testing.T) {
 				t.Cleanup(func() { os.Chmod(stuck, 0o755) })
 			}
 			if c.stopped {
-				code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
+				code, out := e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
 				if code != 202 || e.waitOp(out["id"].(string)).Status != api.OpSucceeded {
 					t.Fatalf("stop: %d %v", code, out)
 				}
@@ -1120,7 +1120,7 @@ func TestRestartLaterOnlyWhileSquaremapNeedsARestart(t *testing.T) {
 				t.Fatalf("enable: %+v", op)
 			}
 			if c.stopped {
-				code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
+				code, out := e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
 				if code != http.StatusAccepted || e.waitOp(out["id"].(string)).Status != api.OpSucceeded {
 					t.Fatalf("stop: %d %v", code, out)
 				}
@@ -1325,7 +1325,7 @@ func TestSharedMapAnswersOnlyWhileItsSwitchIsOn(t *testing.T) {
 	}
 
 	// squaremap reads its link at startup.
-	code, out = e.call("POST", e.sp("/restart"), map[string]any{"actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/restart"), map[string]any{"actor": "admin"})
 	if code != 202 || e.waitOp(out["id"].(string)).Status != api.OpSucceeded {
 		t.Fatalf("restart: %d %v", code, out)
 	}
@@ -1351,7 +1351,7 @@ func TestSharedMapAnswersOnlyWhileItsSwitchIsOn(t *testing.T) {
 		t.Fatalf("the new link: %d %s", code, body)
 	}
 
-	code, out = e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
 	if code != 202 || e.waitOp(out["id"].(string)).Status != api.OpSucceeded {
 		t.Fatalf("stop: %d %v", code, out)
 	}
@@ -1394,7 +1394,7 @@ func TestMapSettingsThatCannotBeWrittenStopTheStart(t *testing.T) {
 		t.Fatalf("enable: %+v", op)
 	}
 	e.waitFor("online", e.onlineIdle)
-	code, out := e.call("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"})
 	if code != 202 || e.waitOp(out["id"].(string)).Status != api.OpSucceeded {
 		t.Fatalf("stop: %d %v", code, out)
 	}
@@ -1405,7 +1405,7 @@ func TestMapSettingsThatCannotBeWrittenStopTheStart(t *testing.T) {
 	if err := os.Symlink(t.TempDir(), dir); err != nil {
 		t.Fatal(err)
 	}
-	code, out = e.call("POST", e.sp("/start"), map[string]any{"actor": "admin"})
+	code, out = e.callWhenFree("POST", e.sp("/start"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("start: %d %v", code, out)
 	}
@@ -1425,7 +1425,7 @@ func TestDeletingAServerForgetsItsMap(t *testing.T) {
 		t.Fatalf("enable: %+v", op)
 	}
 	e.waitFor("online", e.onlineIdle)
-	code, out := e.call("POST", e.sp("/delete"), map[string]any{"confirm": e.srv().name(), "actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/delete"), map[string]any{"confirm": e.srv().name(), "actor": "admin"})
 	if code != 202 || e.waitOp(out["id"].(string)).Status != api.OpSucceeded {
 		t.Fatalf("delete: %d %v", code, out)
 	}

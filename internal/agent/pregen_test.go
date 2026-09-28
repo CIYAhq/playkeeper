@@ -272,7 +272,7 @@ func (e *agentEnv) pregen() api.Pregen {
 // startPregen pre-generates a preset's area and waits until Chunky runs it.
 func (e *agentEnv) startPregen(preset string, pauseForPlayers bool) *api.Operation {
 	e.t.Helper()
-	code, out := e.call("POST", e.sp("/pregen/start"), map[string]any{"preset": preset, "pauseForPlayers": pauseForPlayers, "actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/pregen/start"), map[string]any{"preset": preset, "pauseForPlayers": pauseForPlayers, "actor": "admin"})
 	if code != 202 {
 		e.t.Fatalf("start pre-generating: %d %v", code, out)
 	}
@@ -287,7 +287,7 @@ func (e *agentEnv) startPregen(preset string, pauseForPlayers bool) *api.Operati
 // route answers with.
 func (e *agentEnv) pregenAct(action string) api.Pregen {
 	e.t.Helper()
-	code, out := e.call("POST", e.sp("/pregen/"+action), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/pregen/"+action), map[string]any{"actor": "admin"})
 	if code != 200 {
 		e.t.Fatalf("%s: %d %v", action, code, out)
 	}
@@ -302,7 +302,7 @@ func (e *agentEnv) pregenAct(action string) api.Pregen {
 // serverOp starts, stops or restarts the server and waits until it is done.
 func (e *agentEnv) serverOp(path string) {
 	e.t.Helper()
-	code, out := e.call("POST", e.sp(path), map[string]any{"actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp(path), map[string]any{"actor": "admin"})
 	if code != 202 {
 		e.t.Fatalf("POST %s: %d %v", path, code, out)
 	}
@@ -360,7 +360,7 @@ func TestPregenInstallsChunkyAndFollowsTheTask(t *testing.T) {
 	e.fd.mu.Unlock()
 	e.rcon.setOnline("mara_k")
 	e.waitFor("mara_k to be seen", func() bool { return e.playersOnline() == 1 })
-	code, out := e.call("POST", e.sp("/pregen/start"), map[string]any{"preset": "medium", "pauseForPlayers": false, "actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/pregen/start"), map[string]any{"preset": "medium", "pauseForPlayers": false, "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("start: %d %v", code, out)
 	}
@@ -705,7 +705,7 @@ func TestPregenRefusals(t *testing.T) {
 	e.diskFree.Store(0)
 
 	fc.setBroken(true)
-	code, out := e.call("POST", e.sp("/pregen/start"), map[string]any{"preset": "small", "actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/pregen/start"), map[string]any{"preset": "small", "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("start: %d %v", code, out)
 	}
@@ -759,7 +759,7 @@ func TestPregenIsForgottenWithTheWorld(t *testing.T) {
 	}
 
 	e.startPregen("small", true)
-	code, out := e.call("POST", e.sp("/delete"), map[string]any{"confirm": e.srv().name(), "actor": "admin"})
+	code, out := e.callWhenFree("POST", e.sp("/delete"), map[string]any{"confirm": e.srv().name(), "actor": "admin"})
 	if code != 202 {
 		t.Fatalf("delete: %d %v", code, out)
 	}
