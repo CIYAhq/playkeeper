@@ -40,7 +40,9 @@ expect "core-flows" test/e2e/ui/smoke.spec.ts
 expect "update" internal/install/install.go
 expect "update" internal/update/apply.go packaging/get.sh scripts/e2e/update-releases.sh
 expect "site,fake-panel" site/pages/index.html
-expect "site" cmd/site/main.go web/src/demo/data.ts
+expect "site,fake-panel" cmd/site/main.go web/src/demo/data.ts
+expect "site,fake-panel" internal/site/build.go
+expect "site" web/src/demo/data.ts
 expect "site" web/package-lock.json
 expect "site" test/e2e/ui/demo-iphone.spec.ts
 expect "site,fake-panel" test/e2e/ui/site-tools-motd.spec.ts

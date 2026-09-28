@@ -18,10 +18,10 @@ checks() {
     views) echo '^(test/e2e/ui/views\.spec\.ts$|scripts/e2e/played-state\.sh$|\.github/actions/played-install/)' ;;
     core-flows) echo '^(test/e2e/pkclient\.py$|test/e2e/ui/smoke\.spec\.ts$)' ;;
     update) echo '^(test/e2e/(update|pkclient)\.py$|scripts/e2e/update-releases\.sh$|internal/(install|update)/|packaging/)' ;;
-    site) echo '^(site/|cmd/site/|scripts/site-check\.sh$|web/src/demo/|web/(package|package-lock)\.json$|web/vite\.config\.ts$|test/e2e/ui/(demo|site)[^/]*\.spec\.ts$)' ;;
+    site) echo '^(site/|cmd/site/|internal/site/|scripts/site-check\.sh$|web/src/demo/|web/(package|package-lock)\.json$|web/vite\.config\.ts$|test/e2e/ui/(demo|site)[^/]*\.spec\.ts$)' ;;
     names) echo '^(services/names/|internal/names/|scripts/names-check\.sh$)' ;;
     certs) echo '^internal/certs/' ;;
-    fake-panel) echo '^(test/e2e/ui/|site/)' ;;
+    fake-panel) echo '^(test/e2e/ui/|site/|cmd/site/|internal/site/)' ;;
   esac
 }
 
