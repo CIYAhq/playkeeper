@@ -22,6 +22,7 @@ func main() {
 	serve := flag.String("serve", "", "instead of writing the site, serve it at this address, as nginx would (for example 127.0.0.1:8080)")
 	lib := flag.String("library", "", "instead of building the site, write the template list releases carry (internal/templates/library) to this file")
 	icons := flag.Bool("icons", true, "fetch the icons of what the templates install from Modrinth and Hangar; without them, each shows its initial")
+	previews := flag.Bool("previews", true, "draw each category's and template's social preview; without them, those pages share og/templates.png")
 	flag.Parse()
 	if *lib != "" {
 		b, err := site.DashboardLibrary(os.DirFS(*root), site.Default)
@@ -34,7 +35,7 @@ func main() {
 		}
 		return
 	}
-	opts := site.Options{Root: os.DirFS(*root), Settings: site.Default, Now: time.Now()}
+	opts := site.Options{Root: os.DirFS(*root), Settings: site.Default, Now: time.Now(), Previews: *previews}
 	if *icons {
 		opts.Icons = site.NetIcons(&http.Client{Timeout: 20 * time.Second}, "https://api.modrinth.com/v2", "https://hangar.papermc.io/api/v1")
 	}

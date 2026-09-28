@@ -39,6 +39,9 @@ type Options struct {
 	// Icons fetches the icons of what the templates install; without it,
 	// each shows its initial.
 	Icons IconFetcher
+	// Previews draws each category's and template's social preview; without
+	// them, those pages share og/templates.png.
+	Previews bool
 }
 
 // Output is the built site.
@@ -116,6 +119,9 @@ func Build(o Options) (*Output, error) {
 		return nil, err
 	}
 	if err := s.addDirectory(); err != nil {
+		return nil, err
+	}
+	if err := s.addPreviews(); err != nil {
 		return nil, err
 	}
 	if s.docs, err = buildDocs(o.Root, o.Settings); err != nil {
