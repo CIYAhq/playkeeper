@@ -709,12 +709,14 @@ main:focus { outline: none; }
 @media (max-width: 1023.98px) { .move-row { grid-template-columns: minmax(0, 1fr); gap: 28px; } }
 
 .providers-fit { margin: 0 0 12px; font-size: 15px; }
+.providers-note { max-width: 760px; margin: -4px 0 16px; color: var(--sage); font-size: 14px; line-height: 1.5; }
 .provider-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .provider { display: flex; flex-direction: column; padding: 20px; border: 1px solid var(--twine); border-radius: 16px; background: var(--white); }
 .provider h3 { font-size: 18px; }
 .provider-plan { margin: 6px 0 2px; font-size: 14.5px; }
 .provider-regions { margin: 0 0 20px; color: var(--sage); font-size: 13.5px; }
-.provider .btn { align-self: flex-start; margin-top: auto; }
+.provider-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: auto; }
+.provider-actions .link-arrow { font-size: 14px; }
 .provider .btn .icon { width: 13px; height: 13px; }
 .providers .fine { margin-top: 14px; }
 @media (max-width: 1023.98px) { .provider-grid { grid-template-columns: minmax(0, 1fr); } }

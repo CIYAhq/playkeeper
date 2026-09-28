@@ -642,8 +642,9 @@ func (s *Site) funcs() template.FuncMap {
 			}
 			return "", nil
 		},
-		"providers": func() []Provider { return providers },
-		"sizing":    func() SizingGuide { return s.sizing },
+		"providers":   func() []Provider { return providers },
+		"partnerNote": partnerNote,
+		"sizing":      func() SizingGuide { return s.sizing },
 		// sizingFor is the sizing guide's answer for friends playing at once
 		// on a workload ("vanilla", "add-ons" or "modpack").
 		"sizingFor": func(players int, workload string) (sizing.Recommendation, error) {
@@ -687,7 +688,6 @@ func (s *Site) funcs() template.FuncMap {
 			}
 			return before + " \\\n    | " + after
 		},
-		"referral":  anyReferral,
 		"checked":   func() string { return Day(checkedProviders) },
 		"posts":     func() []*Page { return s.posts },
 		"docGroups": func() []DocGroup { return s.docs.groups },

@@ -121,21 +121,26 @@
 {{end}}{{end}}
 
 {{/* providers: three VPS that fit a size, with plan names and "See today's
-     price", never prices, and the disclosure. Need: the memory and cores. */}}
+     price", never prices, and each provider's setup guide. Which links earn
+     a commission is said before them. Need: the memory and cores. */}}
 {{define "providers"}}
 <div class="providers" data-providers>
   <p class="providers-fit"><strong data-fit-label>{{.Label}}</strong></p>
+  {{with partnerNote}}<p class="providers-note">{{.}}</p>{{end}}
   <div class="provider-grid">
     {{range $p := providers}}{{$plan := $p.Fit $.MemoryGB $.Cores}}
     <article class="provider reveal" data-provider="{{$p.Name}}">
       <h3>{{$p.Name}}</h3>
       <p class="provider-plan" data-plan>{{$plan.Name}} · {{$plan.CPUs}} vCPU · {{$plan.MemoryGB}} GB</p>
       <p class="provider-regions">{{$p.Regions}}</p>
-      <a class="btn btn-outline btn-sm" href="{{$p.URL}}"{{if $p.Referral}} rel="sponsored noopener"{{else}} rel="noopener"{{end}}>See today's price{{template "icon" "arrow-up-right"}}<span class="visually-hidden"> at {{$p.Name}}</span></a>
+      <div class="provider-actions">
+        <a class="btn btn-outline btn-sm" href="{{$p.Link}}" rel="{{$p.Rel}}">See today's price{{template "icon" "arrow-up-right"}}<span class="visually-hidden"> at {{$p.Name}}</span></a>
+        {{if exists $p.Guide}}<a class="link-arrow" href="{{$p.Guide}}">Setup guide{{template "icon" "arrow-right"}}<span class="visually-hidden"> for {{$p.Name}}</span></a>{{end}}
+      </div>
     </article>
     {{end}}
   </div>
-  <p class="fine">{{if referral}}Partner links: we may earn a commission. It never changes which providers we list or how we rank them.{{else}}No partner links: we earn nothing from these. Plans checked {{checked}}.{{end}}</p>
+  <p class="fine">{{if not partnerNote}}No partner links: we earn nothing from these. {{end}}Plans checked {{checked}}.</p>
 </div>
 {{end}}
 
