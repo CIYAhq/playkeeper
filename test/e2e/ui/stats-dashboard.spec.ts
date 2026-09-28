@@ -28,6 +28,12 @@ test.beforeAll(async ({ playwright }, info) => {
     const res = await request.post(path, { data: report })
     expect(res.status(), `${path} ${JSON.stringify(report)}`).toBe(204)
   }
+  // A copy of the install command, as playkeeper.io's pages send it.
+  const copy = await request.post('/v1/site', {
+    headers: { Origin: 'https://playkeeper.io', 'Content-Type': 'text/plain;charset=UTF-8' },
+    data: JSON.stringify({ event: 'install_copied', channel: '' }),
+  })
+  expect(copy.status(), 'a copy of the install command').toBe(204)
   await request.dispose()
 })
 
@@ -65,6 +71,19 @@ test('signs in with the read token, keeps it in this browser alone and shows the
 
   await expect(page.locator('#active-1d')).toHaveText('3')
   await expect(page.locator('#active-30d-sub')).toHaveText('3 servers · 2 running')
+  // Without the site's read key, the funnel starts at the copies it counts
+  // itself, and says what the first steps need.
+  await expect(page.locator('#funnel li')).toHaveText([
+    /^Visitors to playkeeper\.io\s*—$/,
+    /^Opened the demo\s*—$/,
+    /^Copied the install command\s*1$/,
+    /^Started an install with the playkeeper\.io command\s*100% of the step before\s*1$/,
+    /^Install succeeded\s*100% of the step before\s*1$/,
+    /^Still running a heartbeat in the last day\s*100% of the step before\s*1$/,
+  ])
+  await expect(page.locator('#funnel-note')).toContainText('STATS_OA_KEY')
+  await page.locator('[data-funnel="30d"]').click()
+  await expect(page.locator('#funnel-sub')).toContainText('in the last 30 days')
   await expect(page.locator('#installs-totals')).toHaveText('Last 30 days: 2 started · 1 succeeded · 1 failed · 1 refused')
   await expect(page.locator('#installs-day')).toContainText('2 started · 1 succeeded · 1 failed · 1 refused')
   await expect(page.locator('#installs-day')).toContainText('playkeeper.io command 1 · GitHub get.sh 2')
@@ -114,7 +133,7 @@ test('fits a phone, and keeps the token for the tab alone when it isn’t to be 
   expect(await kept(page), 'where the token is kept').toEqual({ local: null, session: token, cookie: '' })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'nothing wider than the screen').toBe(true)
   for (const w of ['1d', '7d', '30d']) await expect(page.locator(`#active-${w}`)).toBeInViewport()
-  await page.getByRole('button', { name: '7 days' }).click()
+  await page.locator('[data-window="7d"]').click()
   await expect(page.locator('#machines-sub')).toContainText('3 machines ran in the last 7 days')
   const today = page.locator('#installs-chart .col').last()
   await expect(today).toHaveAttribute('aria-pressed', 'true')

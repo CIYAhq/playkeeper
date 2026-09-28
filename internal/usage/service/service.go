@@ -47,6 +47,10 @@ type Service struct {
 	now func() time.Time
 
 	perIP, perID, newIDs *limiter
+	// perIPSite and siteEvents bound the counts playkeeper.io's pages send.
+	perIPSite, siteEvents *limiter
+	// site reads the site's own numbers; nil without STATS_OA_KEY.
+	site *siteReader
 
 	mu         sync.Mutex
 	lastBackup string
@@ -77,6 +81,10 @@ func New(cfg Config) (*Service, error) {
 		perIP:  newLimiter(requestsPerIPBurst, requestsPerIPHour, time.Hour, now),
 		perID:  newLimiter(reportsPerIDBurst, reportsPerIDHour, time.Hour, now),
 		newIDs: newLimiter(cfg.NewPerDay, cfg.NewPerDay, day, now),
+
+		perIPSite:  newLimiter(siteEventsPerIPBurst, siteEventsPerIPHour, time.Hour, now),
+		siteEvents: newLimiter(siteEventsPerDay, siteEventsPerDay, day, now),
+		site:       newSiteReader(cfg),
 	}
 	for _, p := range cfg.TrustedProxies {
 		if p.Bits() < p.Addr().BitLen() {

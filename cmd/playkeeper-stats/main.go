@@ -30,6 +30,8 @@ const usage = `Usage:
         STATS_TRUSTED_PROXIES       the reverse proxy's own address, e.g. 10.0.1.5 (default none)
         STATS_READ_TOKEN            opens GET /v1/summary to Authorization: Bearer <token> (optional)
         STATS_NEW_INSTALLS_PER_DAY  install IDs heard of for the first time per day, everyone together (default 5000)
+        STATS_OA_KEY                an Open Analytics read key for playkeeper.io, for the funnel's visitors and demo opens (optional)
+        STATS_OA_API                Open Analytics' API (default https://analytics-api.ciya.so)
   playkeeper-stats summary
       Prints the counts as JSON from the database in STATS_DATA_DIR, without the read token.
   playkeeper-stats healthcheck
@@ -93,7 +95,7 @@ func serve() error {
 	}()
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
-	log.Info("playkeeper-stats is listening", "address", cfg.Listen, "trusted_proxies", len(cfg.TrustedProxies), "summary", cfg.ReadToken != "")
+	log.Info("playkeeper-stats is listening", "address", cfg.Listen, "trusted_proxies", len(cfg.TrustedProxies), "summary", cfg.ReadToken != "", "site_numbers", cfg.OAKey != "")
 	if len(cfg.TrustedProxies) == 0 {
 		log.Warn(service.EnvTrustedProxies + " is empty, so X-Forwarded-For is ignored; behind a reverse proxy, set it to the proxy's own address")
 	}
