@@ -2136,6 +2136,25 @@ control "voice chat a template's Try again installs gets its UDP port" internal/
 	packSkips, err := s.installTemplatePacks(ctx, h, sc, packTries, still)' \
   'packSkips, err := s.installTemplatePacks(ctx, h, sc, packTries, still)' \
   ./internal/agent '^TestTemplateVoiceChatTriedAgainGetsItsPort$'
+# Crossplay: Floodgate comes from GeyserMC only for GeyserMC's own projects,
+# with the hash GeyserMC publishes, and a Bedrock name reaches Floodgate's
+# console command only as a plain gamertag.
+control "only GeyserMC's own projects follow a link to its newest build" internal/addons/resolve.go \
+  'ok && project == strings.ToLower(p.Slug) && slices.Contains(geysermc.Projects, project) {' \
+  'ok {' \
+  ./internal/addons '^TestOnlyGeyserMCsOwnProjectsFollowItsLinks$'
+control "a link to GeyserMC's newest build is on GeyserMC's own host" internal/addons/geysermc/geysermc.go \
+  'u.Host != Host ||' \
+  '!strings.HasPrefix(u.Host, Host) ||' \
+  ./internal/addons/geysermc '^TestParseLatestLink$'
+control "GeyserMC's build installs only with the hash GeyserMC publishes" internal/addons/resolve.go \
+  '"sha256", strings.ToLower(d.SHA256), size' \
+  '"", "", size' \
+  ./internal/addons '^(TestGeyserMCProjectsComeFromGeyserMC|TestGeyserMCDownloadsAreChecked)$'
+control "a Bedrock name reaches Floodgate's command only as a plain gamertag" internal/agent/players.go \
+  'if !ok || !reGamertag.MatchString(tag) {' \
+  'if !ok {' \
+  ./internal/agent '^TestBedrockPlayersJoinTheAllowlistThroughFloodgate$'
 control "a template whose modpack is made for another Minecraft version is blocked" internal/agent/templates.go \
   'case v.MinecraftVersion != "" && v.MinecraftVersion != p.Version.MinecraftVersion:' \
   'case false:' \
