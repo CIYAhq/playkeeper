@@ -6816,6 +6816,10 @@ control "own domain: names under playkeeper.io stay refused" internal/agent/addr
   'rest, ok := strings.CutSuffix(domain, "."+names.DefaultBase)' \
   'rest, ok := strings.CutSuffix(domain, "."+names.BaseOf(domain))' \
   ./internal/agent '^TestOwnDomainsUnderEitherFreeBaseAreRefused$'
+control "own addresses: records that don't work yet are looked at every minute" internal/agent/address.go \
+  'if check.Ready && !slices.ContainsFunc(check.Records, func(rc api.RecordCheck) bool { return rc.Own && !rc.OK }) {' \
+  'if check.Ready {' \
+  ./internal/agent '^TestAnOwnAddressIsLookedAtEveryMinuteUntilItsRecordsWork$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

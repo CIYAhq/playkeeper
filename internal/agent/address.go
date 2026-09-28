@@ -52,7 +52,8 @@ const (
 	// request that got no answer may have used up the change's.
 	settleWait = 2 * time.Minute
 	// ownRecheckPending and ownRecheckReady are how often the own domain's
-	// records are looked up while they are not right yet, and after.
+	// records, servers' own addresses' included, are looked up while they
+	// are not right yet, and after.
 	ownRecheckPending = time.Minute
 	ownRecheckReady   = 6 * time.Hour
 )
@@ -996,7 +997,7 @@ func (a *Agent) saveCheck(host string, check *api.AddressCheck) {
 		}
 	})
 	next := ownRecheckPending
-	if check.Ready {
+	if check.Ready && !slices.ContainsFunc(check.Records, func(rc api.RecordCheck) bool { return rc.Own && !rc.OK }) {
 		next = ownRecheckReady
 	}
 	a.addr.mu.Lock()
