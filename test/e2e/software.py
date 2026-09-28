@@ -43,6 +43,18 @@ CPUS = {"x86_64": "x86-64", "aarch64": "ARM64"}
 results = {"servers": [], "checks": []}
 
 
+def quarantined():
+    """This script's checks test/quarantine.txt lists: they fail now and then
+    for reasons outside the change under test, so they warn instead."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(here, "..", "quarantine.txt")) as f:
+        rows = [line.split() for line in f if line.strip() and not line.lstrip().startswith("#")]
+    return {r[1] for r in rows if len(r) > 1 and r[0] == "test/e2e/software.py"}
+
+
+QUARANTINED = quarantined()
+
+
 class Failed(Exception):
     pass
 
@@ -221,7 +233,19 @@ def check_pregen(c, label):
         p = c.ok("GET", c.sp("/pregen"))
         print(f"    pregen: {p['state']} {p.get('chunks', 0)}/{p.get('total', 0)} chunks", flush=True)
         return p if p["state"] in ("running", "finished") and p.get("chunks", 0) >= 200 else None
-    p = wait_for(f"{label}: Chunky generated 200 chunks", progress, 900, every=10)
+    if "pregen" in QUARANTINED:
+        try:
+            p = wait_for(f"{label}: Chunky generated 200 chunks", progress, 300, every=10)
+        except Failed as e:
+            results["checks"][-1]["quarantined"] = True
+            print(f"::warning::{e}: pre-generation is quarantined (test/quarantine.txt), so this doesn't fail the run", flush=True)
+            try:
+                c.ok("POST", c.sp("/pregen/cancel"), {})
+            except Exception as e2:  # a task Chunky lost can't be cancelled
+                print(f"    could not cancel the pre-generation: {e2}", flush=True)
+            return {"quarantined": str(e)}
+    else:
+        p = wait_for(f"{label}: Chunky generated 200 chunks", progress, 900, every=10)
     check(True, f"{label}: Chunky generated {p['chunks']} of {p['total']} chunks at {p.get('rate', 0):.0f} a second")
     if p["state"] == "running":
         c.ok("POST", c.sp("/pregen/cancel"), {})

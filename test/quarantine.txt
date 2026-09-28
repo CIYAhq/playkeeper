@@ -1,0 +1,14 @@
+# Tests that fail now and then for reasons outside the change under test.
+# CI leaves them out of the checks that block a merge, and the Quarantined
+# tests workflow (.github/workflows/quarantine.yml) runs them every day and by
+# hand, and reports how often each failed without ever failing itself. Each is
+# here to be fixed: take its line out with the fix, once the workflow has seen
+# it pass every run for a few days. scripts/quarantine.sh reads this file.
+#
+# PACKAGE OR SCRIPT      TEST OR CHECK                                          HOW IT FAILED
+./internal/agent         TestLagCountsOnlyTheCurrentRunsGC                      after_a_restart, on siya/site-copy-hosting-6127 (run 36411806815)
+./internal/agent         TestPregenCancel                                       on siya/public-server-page-6dd2 (run 36416802566)
+./internal/agent         TestAgentRestartBringsBackAServerThatShouldBeRunning   two subtests in two runs of siya/modpack-file-limit-512-1a3a (runs 36411046651, 36412932320)
+./internal/agent         TestANewKeyReachesTheCopyBeingMade                     during_a_copy_that_saved_where_it_stopped, on siya/tools-hub-server-icon-c9c0 (run 36405712060)
+./internal/modpacks/share TestNewTokenIsUniform                                 its chi-squared bound of 110 fails by chance about once in 350 runs (run 36419888033)
+test/e2e/software.py     pregen                                                 the ARM pre-generation stall: Chunky pauses at 0 chunks and "No tasks to continue", on 14 branches since 27 Sep
