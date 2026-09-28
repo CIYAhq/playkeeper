@@ -36,6 +36,9 @@ type Options struct {
 	// Now dates the pages that don't carry a day of their own in the
 	// sitemap, and the footer's year.
 	Now time.Time
+	// Icons fetches the icons of what the templates install; without it,
+	// each shows its initial.
+	Icons IconFetcher
 }
 
 // Output is the built site.
@@ -49,6 +52,9 @@ type Output struct {
 	// Policy is the Content-Security-Policy nginx sends with every page but
 	// /start, whose own is StartPolicy; cmd/site -serve sends them too.
 	Policy, StartPolicy string
+	// NoIcons are the projects that kept their initial though Options.Icons
+	// was set, with why.
+	NoIcons []string
 }
 
 // Site is the site being built, for the templates.
@@ -102,6 +108,10 @@ func Build(o Options) (*Output, error) {
 	if err := s.addThumbs(); err != nil {
 		return nil, err
 	}
+	noIcons, err := s.addIcons()
+	if err != nil {
+		return nil, err
+	}
 	if s.pages, err = loadPages(o.Root, "site/pages"); err != nil {
 		return nil, err
 	}
@@ -149,7 +159,7 @@ func Build(o Options) (*Output, error) {
 		return nil, err
 	}
 
-	out := &Output{Files: map[string][]byte{}}
+	out := &Output{Files: map[string][]byte{}, NoIcons: noIcons}
 	// Articles first: rendering one works out its reading time and contents,
 	// which the blog index and the cards that list it show.
 	order := slices.Clone(s.pages)

@@ -29,6 +29,9 @@ test('the directory searches, filters and sorts every template, and keeps what i
   await page.locator('#dir-q').fill('towny')
   await expect.poll(async () => (await names(page))[0]).toBe('Towny')
   await expect(page).toHaveURL(/\/templates\?q=towny$/)
+  // A card the script draws lists what the template installs.
+  const installs = await page.evaluate(() => (window as unknown as { playkeeperTemplates: { templates: { id: string; addons: string[] }[] } }).playkeeperTemplates.templates.find((t) => t.id === 'towny')!.addons.slice(0, 3))
+  await expect(page.locator('[data-dir-grid] .dcard').first().locator('.dcard-installs li > span:last-child')).toHaveText(installs)
   await expect(page.locator('[data-sort-label]')).toHaveText('Best match')
   await page.locator('#dir-q').fill('luckperms')
   await expect.poll(() => names(page)).toContain('Towny')
