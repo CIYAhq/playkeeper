@@ -1512,10 +1512,25 @@ func ownDomain(raw string) (string, error) {
 	if err != nil {
 		return "", problemError(err, http.StatusBadRequest)
 	}
-	if base := names.BaseOf(domain); base != "" {
+	if base := names.BaseOf(domain); base != "" && !neverFree(domain) {
 		return "", &apiError{Status: http.StatusBadRequest, Code: api.CodeInvalid, Msg: "Names under " + base + " are free addresses.", Hint: "Pick one with the free address instead."}
 	}
 	return domain, nil
+}
+
+// neverFree reports whether domain sits under names.DefaultBase at a name
+// nobody can claim, reserved like beta.playkeeper.me or too short like
+// ai.playkeeper.me. The names service never touches records there, so only
+// one made by hand points it anywhere. Names under names.PreviousBase stay
+// free addresses: a joined machine looks for its dashboard at the same name
+// under names.DefaultBase.
+func neverFree(domain string) bool {
+	rest, ok := strings.CutSuffix(domain, "."+names.DefaultBase)
+	if !ok {
+		return false
+	}
+	name := rest[strings.LastIndexByte(rest, '.')+1:]
+	return names.CheckName(name) != nil || names.Reserved(name)
 }
 
 func (a *Agent) hAddressCheck(w http.ResponseWriter, r *http.Request) {

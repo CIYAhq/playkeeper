@@ -57,6 +57,19 @@ func TestServerLabelsFollowTheSameRulesFromOneCharacter(t *testing.T) {
 	}
 }
 
+func TestReservedNames(t *testing.T) {
+	for _, name := range []string{"www", "names", "mail", "install", "api", "status", "beta", "playkeeper", "playkeeper-io", "myplaykeeper", "minecraft"} {
+		if !Reserved(name) {
+			t.Errorf("%s is not reserved", name)
+		}
+	}
+	for _, name := range []string{"alice", "survival-world", "play", "keeper", "mc"} {
+		if Reserved(name) {
+			t.Errorf("%s is reserved", name)
+		}
+	}
+}
+
 func TestNormalizeNameTakesPastedAddresses(t *testing.T) {
 	for in, want := range map[string]string{
 		"  Alice ":               "alice",
