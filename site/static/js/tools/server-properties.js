@@ -54,6 +54,8 @@
       var on = p.radios.filter(function (r) { return r.checked; })[0];
       return on ? on.value : p.def;
     }
+    // The server reads a number with Integer.parseInt, which a space fails.
+    if (p.kind === 'int') return p.input.value.trim();
     return p.input.value;
   }
 
@@ -125,7 +127,7 @@
     if (!p.known) return retired[p.key] || 'Not a setting 26.3 reads. The server keeps it as it is, for a plugin that might.';
     if (p.loaded !== null && p.loaded !== undefined) return 'Your file had ' + p.loaded + ', which 26.3 doesn’t know, so it uses ' + p.def + '.';
     if (p.kind === 'int') {
-      if (!/^-?\d+$/.test(v.trim())) return 'Not a whole number, so the server would use ' + p.def + '.';
+      if (!/^-?\d+$/.test(v)) return 'Not a whole number, so the server would use ' + p.def + '.';
       var n = Number(v);
       if ((p.min !== null && n < p.min) || (p.max !== null && n > p.max)) return p.max !== null ? 'It can be ' + p.min + ' to ' + p.max + '.' : 'It can be ' + p.min + ' or more.';
     }
@@ -172,7 +174,7 @@
       var why = problem(p);
       p.note.hidden = !why;
       p.note.textContent = why;
-      if (p.kind === 'int' && p.known) p.input.toggleAttribute('aria-invalid', !/^-?\d+$/.test(get(p).trim()));
+      if (p.kind === 'int' && p.known) p.input.toggleAttribute('aria-invalid', !/^-?\d+$/.test(get(p)));
     });
     var text = n === 0 ? 'No changes' : n === 1 ? '1 changed' : n + ' changed';
     count.textContent = text;
