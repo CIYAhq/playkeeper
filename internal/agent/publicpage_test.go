@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"os"
@@ -147,15 +148,20 @@ func TestThePublicPageSwitchesRefuseNothingToChange(t *testing.T) {
 	}
 }
 
-// freePort is a TCP port nothing listens on right now.
+// freePort is a TCP port nothing listens on right now. It comes from below
+// the range the kernel hands out for ":0" and outgoing connections, so a
+// connection elsewhere in the run can't take it between the tests' binds.
 func freePort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Fatal(err)
+	for range 100 {
+		p := 20000 + rand.IntN(10000)
+		if ln, err := net.Listen("tcp", ":"+strconv.Itoa(p)); err == nil {
+			ln.Close()
+			return p
+		}
 	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
+	t.Fatal("no free port between 20000 and 29999")
+	return 0
 }
 
 // pageEnv is an agent whose page answers at pageTestHost, with the page's
