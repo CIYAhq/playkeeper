@@ -23,6 +23,7 @@ var navSections = []NavSection{
 	{Key: "compare", Label: "Compare", Hub: "/compare/minecraft-server-panels", HubLabel: "All panels compared", Items: []string{
 		"/alternatives/aternos", "/alternatives/pterodactyl", "/alternatives/realms", "/alternatives/minehut",
 	}},
+	{Key: "tools", Label: "Tools", Hub: "/tools", HubLabel: "All free tools", Items: toolPaths()},
 	{Key: "docs", Label: "Docs", Link: "/docs"},
 	{Key: "pricing", Label: "Pricing", Link: "/pricing"},
 }

@@ -1,0 +1,48 @@
+{{/* The Minecraft text editor the colour codes and MOTD tools share
+     (js/tools/mc-editor.js, css/tools/mc-text.css). ID names its textarea;
+     Lines makes it the two lines of a MOTD; Label and Placeholder are the
+     textarea's. */}}
+{{define "mc-editor"}}
+<div class="mc-editor{{if .Lines}} mc-editor-lines{{end}}" data-editor>
+  <div class="mc-toolbar" role="group" aria-label="Colours and formats">
+    <div class="mc-colors">
+      {{- range data "minecraftColors"}}
+      <button type="button" class="mc-color mc-c-{{.Code}}" data-color="{{.Code}}" title="{{.Name}} (§{{.Code}})"><span class="visually-hidden">{{.Name}}</span></button>
+      {{- end}}
+    </div>
+    <div class="mc-colors mc-colors-bedrock">
+      {{- range data "bedrockColors"}}
+      <button type="button" class="mc-color mc-c-{{.Code}}" data-color="{{.Code}}" title="{{.Name}} (§{{.Code}})"><span class="visually-hidden">{{.Name}}</span></button>
+      {{- end}}
+    </div>
+    <div class="mc-toolbar-row">
+      <button type="button" class="mc-format" data-format="b" aria-pressed="false" title="Bold (§l)">B<span class="visually-hidden"> Bold</span></button>
+      <button type="button" class="mc-format mc-format-i" data-format="i" aria-pressed="false" title="Italic (§o)">I<span class="visually-hidden"> Italic</span></button>
+      <button type="button" class="mc-format mc-format-u mc-java-only" data-format="u" aria-pressed="false" title="Underline (§n)">U<span class="visually-hidden"> Underline</span></button>
+      <button type="button" class="mc-format mc-format-s mc-java-only" data-format="s" aria-pressed="false" title="Strikethrough (§m)">S<span class="visually-hidden"> Strikethrough</span></button>
+      <button type="button" class="mc-format mc-format-k" data-format="k" aria-pressed="false" title="Obfuscated (§k)">Obf<span class="visually-hidden">uscated</span></button>
+      <button type="button" class="mc-format mc-format-wide" data-clear>Clear</button>
+    </div>
+    <div class="mc-style-row">
+      <div class="tool-field">
+        <label class="tool-label" for="{{.ID}}-hex">Any colour</label>
+        <div class="color-row"><input class="tool-input" id="{{.ID}}-hex" data-hex value="#ff8800" maxlength="7" autocomplete="off" spellcheck="false"><button type="button" class="btn btn-outline btn-sm" data-apply-hex>Colour it</button></div>
+      </div>
+      <div class="tool-field">
+        <span class="tool-label" id="{{.ID}}-grad">Gradient</span>
+        <div class="mc-grad" role="group" aria-labelledby="{{.ID}}-grad">
+          <input class="tool-input" data-grad-a value="#ffaa00" maxlength="7" autocomplete="off" spellcheck="false" aria-label="Gradient from">
+          <span class="mc-grad-arrow" aria-hidden="true">→</span>
+          <input class="tool-input" data-grad-b value="#ff5555" maxlength="7" autocomplete="off" spellcheck="false" aria-label="Gradient to">
+          <button type="button" class="btn btn-outline btn-sm" data-apply-gradient>Add the gradient</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="mc-field">
+    <div class="mc-mirror" data-mirror aria-hidden="true"></div>
+    <textarea class="mc-input" id="{{.ID}}" data-input rows="{{if .Lines}}2{{else}}4{{end}}" spellcheck="false" autocomplete="off" aria-label="{{.Label}}" placeholder="{{.Placeholder}}"></textarea>
+  </div>
+  <p class="mc-hint">Select text first, or pick a style and then type. <kbd>Ctrl</kbd> + <kbd>B</kbd>, <kbd>I</kbd> and <kbd>U</kbd> work too.</p>
+</div>
+{{end}}

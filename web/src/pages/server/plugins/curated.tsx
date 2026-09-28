@@ -16,6 +16,7 @@ import { AddonIcon, detailsPath, useAddons } from './state'
 const copy: Record<string, [MessageKey, MessageKey]> = {
   'voice-chat': ['curated.voice-chat.does', 'curated.voice-chat.note'],
   rollback: ['curated.rollback.does', 'curated.rollback.note'],
+  'discord-chat': ['curated.discord-chat.does', 'curated.discord-chat.note'],
   pregenerate: ['curated.pregenerate.does', 'curated.pregenerate.note'],
   'newer-clients': ['curated.newer-clients.does', 'curated.newer-clients.note'],
   essentials: ['curated.essentials.does', 'curated.essentials.note'],

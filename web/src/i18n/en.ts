@@ -2448,6 +2448,8 @@ export const en = {
   'curated.voice-chat.note': 'Needs one more port. Friends add the mod to talk.',
   'curated.rollback.does': 'Undo griefing, block by block.',
   'curated.rollback.note': 'Keeps a log of who changed what.',
+  'curated.discord-chat.does': 'Friends on Discord see the game chat and can reply.',
+  'curated.discord-chat.note': 'Needs your own Discord bot. Paste its token on the Files tab.',
   'curated.pregenerate.does': 'Generates the land ahead, so exploring doesn’t lag.',
   'curated.pregenerate.note': 'Start it from the World tab.',
   'curated.newer-clients.does': 'Friends on a newer Minecraft can still join.',

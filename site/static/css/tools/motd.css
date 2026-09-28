@@ -1,0 +1,42 @@
+/* The MOTD generator (/tools/motd): the server list at a readable size,
+   how much of the list's width each line takes, and the results below. */
+
+.motd-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.motd-align { flex: none; }
+.motd-align label { min-height: 30px; padding: 0 12px; font-size: 13.5px; }
+.motd-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 14px; }
+.motd-presets .tool-label { margin-right: 4px; }
+.motd-preset { min-width: 0; font-family: var(--sans); font-size: 13.5px; font-weight: 500; }
+/* As in the game, the message runs the full width under the name and the
+   player count. */
+.motd-list { grid-template-columns: 64px minmax(0, 1fr) auto; grid-template-areas: "icon name side" "icon motd motd"; font-size: 15px; line-height: 19px; }
+.motd-list .mc-list-icon { grid-area: icon; }
+.motd-list .mc-list-text { display: contents; }
+.motd-list .mc-list-name { grid-area: name; padding-top: 2px; }
+.motd-list .mc-list-side { grid-area: side; }
+.motd-list .mc-list-motd { grid-area: motd; min-height: 38px; }
+.motd-meters { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.motd-meter { display: grid; grid-template-columns: 52px minmax(0, 1fr) 84px; align-items: center; gap: 10px; font-size: 13px; color: var(--sage); }
+.motd-meter-label { font-weight: 600; color: var(--ink); }
+.motd-bar { position: relative; height: 6px; border-radius: 3px; background: var(--muted); box-shadow: inset 0 0 0 1px #e1e2da; overflow: hidden; }
+.motd-bar i { position: absolute; inset: 0 auto 0 0; width: var(--w, 0%); border-radius: 3px; background: var(--green); transition: width 0.18s var(--ease); }
+.motd-meter.is-over .motd-bar i { background: #c2410c; }
+.motd-meter.is-over .motd-meter-value { color: #9a3412; font-weight: 600; }
+.motd-meter-value { text-align: right; font-variant-numeric: tabular-nums; }
+.motd-warning { color: #9a3412; }
+.motd-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-top: 18px; }
+.motd-fields .tool-row { min-height: 44px; }
+.motd-side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.tool-how-next { margin-top: 28px; }
+
+@media (max-width: 960px) { .motd-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 639.98px) {
+  .motd-list { grid-template-columns: 48px minmax(0, 1fr) auto; font-size: 12px; line-height: 15px; }
+  /* Too narrow for 45 of the game's letters: lines wrap here, and the
+     meters keep the game's widths. */
+  .motd-list .mc-list-motd { min-height: 30px; }
+  .motd-list .mc-list-motd, .motd-list .mc-list-motd span { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .motd-fields { grid-template-columns: minmax(0, 1fr); }
+  .motd-meter { grid-template-columns: 48px minmax(0, 1fr) 76px; }
+}
+@media (prefers-reduced-motion: reduce) { .motd-bar i { transition: none; } }

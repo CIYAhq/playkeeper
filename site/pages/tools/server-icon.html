@@ -1,0 +1,204 @@
+{{/*
+path: /tools/server-icon
+title: Minecraft Server Icon Maker: Make a 64×64 server-icon.png
+description: Make a Minecraft server icon from letters or a picture, see it in the server list and download server-icon.png at 64×64. Free, and it runs in your browser.
+label: Server icon maker
+h1: Minecraft server icon maker
+card: Minecraft server icon maker
+kind: Tool
+section: tools
+crumb: Tools
+og: server-icon
+updated: 2026-09-28
+schema: tool
+cover: img/tools/server-icon.svg
+summary: Make a 64 × 64 server-icon.png from letters or a picture, and see it in the server list.
+styles: css/tools.css, css/tools/server-icon.css
+noscript: css/tools-nojs.css
+scripts: js/tools.js, js/tools/server-icon.js
+*/}}
+
+{{define "main"}}
+<section class="band-chalk page-hero page-hero-center tool-hero" aria-labelledby="page-title">
+  <div class="container">
+    {{template "crumbs" .}}
+    <h1 id="page-title" class="h1-page hero-rise">Minecraft server icon maker</h1>
+    <p class="lead hero-after">A server icon is a 64 × 64 PNG named <code>server-icon.png</code>, in the server's folder next to <code>server.properties</code>. Make one from letters or a picture, see it in the server list, and download it.</p>
+    <p class="meta hero-after">Free · Nothing leaves your browser · Updated {{day .Page.Updated}}</p>
+    <p class="tool-nojs">Turn on JavaScript to make an icon here. The steps below work with any 64 × 64 PNG.</p>
+
+    <div class="tool icon-tool hero-after" data-icon-tool>
+      <div class="tool-grid tool-grid-preview-first">
+        <section class="tool-card tool-controls" aria-labelledby="icon-make-title">
+          <h2 id="icon-make-title" class="tool-card-title">Make your icon</h2>
+          <fieldset class="tool-field">
+            <legend>Start from</legend>
+            <div class="segments">
+              <input type="radio" name="icon-source" id="icon-source-letters" value="letters" checked><label for="icon-source-letters">Letters</label>
+              <input type="radio" name="icon-source" id="icon-source-picture" value="picture"><label for="icon-source-picture">A picture</label>
+            </div>
+          </fieldset>
+
+          <div class="tool-panel" data-panel="letters">
+            <div class="tool-field">
+              <label class="tool-label" for="icon-text">Letters</label>
+              <input class="tool-input icon-text" id="icon-text" value="SMP" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="icon-text-hint">
+              <p class="tool-hint" id="icon-text-hint" data-text-hint>Up to four: letters, numbers and ! ? &amp; + - # ♥</p>
+            </div>
+            <fieldset class="tool-field">
+              <legend>Letter colour</legend>
+              {{template "swatches" (dict "Name" "icon-fg" "Checked" "white")}}
+              {{template "hex" (dict "ID" "icon-fg-hex" "Label" "Letter colour" "Value" "#ffffff")}}
+            </fieldset>
+            <fieldset class="tool-field">
+              <legend>Around the letters</legend>
+              <div class="segments">
+                <input type="radio" name="icon-effect" id="icon-effect-none" value="none"><label for="icon-effect-none">Nothing</label>
+                <input type="radio" name="icon-effect" id="icon-effect-shadow" value="shadow" checked><label for="icon-effect-shadow">Shadow</label>
+                <input type="radio" name="icon-effect" id="icon-effect-outline" value="outline"><label for="icon-effect-outline">Outline</label>
+              </div>
+            </fieldset>
+            <fieldset class="tool-field">
+              <legend>Background</legend>
+              <div class="segments">
+                <input type="radio" name="icon-bg-style" id="icon-bg-solid" value="solid"><label for="icon-bg-solid">Plain</label>
+                <input type="radio" name="icon-bg-style" id="icon-bg-fade" value="fade"><label for="icon-bg-fade">Fade</label>
+                <input type="radio" name="icon-bg-style" id="icon-bg-blocks" value="blocks" checked><label for="icon-bg-blocks">Blocks</label>
+              </div>
+              {{template "swatches" (dict "Name" "icon-bg" "Checked" "grass")}}
+              {{template "hex" (dict "ID" "icon-bg-hex" "Label" "Background colour" "Value" "#3f9b3a" "After" (html `<button type="button" class="btn btn-outline btn-sm icon-shuffle" data-shuffle>Shuffle the blocks</button>`))}}
+            </fieldset>
+          </div>
+
+          <div class="tool-panel" data-panel="picture" hidden>
+            <div class="drop" data-drop>
+              <p class="drop-name" data-drop-text><strong>Drop a picture here</strong> or paste one</p>
+              <button type="button" class="btn btn-outline" data-choose>Choose a picture</button>
+              <input type="file" class="visually-hidden" id="icon-file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/avif" tabindex="-1" aria-label="Choose a picture">
+              <p class="tool-hint">PNG, JPEG, WebP or GIF. It stays on your computer.</p>
+            </div>
+            <div class="tool-panel" data-picture-controls hidden>
+              <div class="tool-field">
+                <label class="tool-label" for="icon-zoom">Zoom</label>
+                <div class="range-row"><input type="range" class="tool-range" id="icon-zoom" min="100" max="800" step="5" value="100" aria-describedby="icon-move-hint"><span class="range-value" data-zoom-value>100%</span></div>
+                <p class="tool-hint" id="icon-move-hint">Drag the picture in the preview to move it, or use the arrow keys there.</p>
+              </div>
+              <fieldset class="tool-field">
+                <legend>Fit</legend>
+                <div class="segments">
+                  <input type="radio" name="icon-fit" id="icon-fit-fill" value="fill" checked><label for="icon-fit-fill">Fill the square</label>
+                  <input type="radio" name="icon-fit" id="icon-fit-whole" value="whole"><label for="icon-fit-whole">Whole picture</label>
+                </div>
+              </fieldset>
+              <fieldset class="tool-field">
+                <legend>Pixels</legend>
+                <div class="segments">
+                  <input type="radio" name="icon-pixels" id="icon-pixels-smooth" value="smooth" checked><label for="icon-pixels-smooth">Smooth</label>
+                  <input type="radio" name="icon-pixels" id="icon-pixels-sharp" value="sharp"><label for="icon-pixels-sharp">Sharp, for pixel art</label>
+                </div>
+              </fieldset>
+              <fieldset class="tool-field">
+                <legend>Behind the picture</legend>
+                {{template "swatches" (dict "Name" "icon-pbg" "Checked" "none" "None" true)}}
+                {{template "hex" (dict "ID" "icon-pbg-hex" "Label" "Colour behind the picture" "Value" "")}}
+              </fieldset>
+            </div>
+          </div>
+        </section>
+
+        <section class="tool-card tool-preview" aria-labelledby="icon-preview-title" data-preview>
+          <h2 id="icon-preview-title" class="tool-card-title">Preview</h2>
+          <div class="icon-preview-body">
+            <div class="icon-stage" data-stage>
+              <canvas class="icon-big" width="256" height="256" data-big role="img" aria-label="Your server icon"></canvas>
+              <p class="icon-empty" data-empty hidden>Choose a picture to start</p>
+            </div>
+            <div class="icon-side">
+              <div class="icon-real">
+                <canvas width="64" height="64" data-real aria-hidden="true"></canvas>
+                <p class="tool-hint"><strong>Actual size.</strong> Minecraft draws it at 64 × 64 on a big screen, and smaller on a small one.</p>
+              </div>
+              <div class="tool-field">
+                <p class="tool-label" id="icon-list-title">In the server list</p>
+                {{template "mc-list" (dict "Name" "My server" "MOTD" "A Minecraft Server" "Alt" "The icon in Minecraft's server list, beside the server's name and message")}}
+              </div>
+              <div class="tool-field">
+                <label class="tool-label" for="icon-name">Server name in the preview</label>
+                <input class="tool-input" id="icon-name" value="My server" maxlength="32" autocomplete="off">
+              </div>
+            </div>
+          </div>
+          <div class="tool-actions">
+            <button type="button" class="btn btn-primary" data-download>{{template "icon" "download"}}Download server-icon.png</button>
+            <p class="fine" data-file-info>64 × 64 PNG</p>
+          </div>
+        </section>
+      </div>
+
+      <div class="tool-dock" data-dock inert>
+        <canvas class="icon-dock" width="64" height="64" data-dock-icon aria-hidden="true"></canvas>
+        <span class="tool-dock-text">Your icon<small data-dock-info>64 × 64</small></span>
+        <button type="button" class="btn btn-primary" data-download>{{template "icon" "download"}}Download</button>
+      </div>
+      <p class="visually-hidden" role="status" data-status></p>
+    </div>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="how-title">
+  <div class="container">
+    <h2 id="how-title" class="section-title reveal">Add it to your server</h2>
+    <p class="section-sub reveal">Any server that runs Java Edition: Vanilla, Paper, Purpur, Fabric, NeoForge and the rest.</p>
+    <div class="tool-how">
+      <div>
+        <h3 class="tool-how-title reveal">Four steps</h3>
+        {{template "steps" (dict "Class" "steps-lg" "Items" (list
+          (dict "Title" "Keep the name server-icon.png" "Text" "All in lower case. The server looks for exactly that name.")
+          (dict "Title" "Put it in the server's folder" "Text" "Next to server.properties, not in the world or plugins folder.")
+          (dict "Title" "Restart the server" "Text" "It reads the icon only when it starts.")
+          (dict "Title" "Refresh the server list" "Text" "Friends see the new icon the next time their list pings the server.")
+        ))}}
+      </div>
+      <div>
+        <h3 class="tool-how-title reveal">If it doesn't show</h3>
+        <ul class="tool-checks">
+          <li class="reveal"><strong>It must be 64 × 64 pixels</strong><span>Any other size is refused: the server logs that it couldn't load the icon, and friends see none.</span></li>
+          <li class="reveal"><strong>It must be a real PNG</strong><span>A JPEG renamed to .png won't load. The icon made here is always a PNG.</span></li>
+          <li class="reveal"><strong>Check the name for a second .png</strong><span>Windows hides file extensions, so server-icon.png can really be server-icon.png.png.</span></li>
+          <li class="reveal"><strong>On a network, the proxy decides</strong><span>Velocity and BungeeCord show their own icon, from the proxy's folder.</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk" aria-labelledby="pk-title">
+  <div class="container tool-pk">
+    <div>
+      <h2 id="pk-title" class="section-title reveal">In Playkeeper, it's in Settings</h2>
+      <p class="section-sub reveal">Open a server's Settings, then Server list, and upload any picture. Playkeeper crops it to 64 × 64 and shows it next to the message friends see. No files, no folders.</p>
+      <div class="reveal">{{template "install" (dict "ID" true)}}</div>
+      <div class="hero-actions reveal"><a class="btn btn-outline" href="/demo/servers/survival/settings">See it in the live demo{{template "icon" "arrow-right"}}</a></div>
+    </div>
+    <div class="tool-pk-art reveal">
+      {{template "cardshot" (dict "Name" "tool-server-list" "Alt" "A server's Settings in Playkeeper: Server list, with its name, its message, the server list preview and the server icon beside Upload picture." "Sizes" "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) 560px, 460px")}}
+    </div>
+  </div>
+</section>
+
+<section class="band band-white">
+  <div class="container">
+    {{template "faq" (dict "ID" "questions" "Items" (list
+      (qa "What size is a Minecraft server icon?" "64 × 64 pixels, saved as a PNG. Minecraft shows it smaller or larger with the game's GUI scale, but the file itself must be exactly 64 × 64.")
+      (qa "What do I name the server icon file?" "<code>server-icon.png</code>, all in lower case, in the same folder as <code>server.properties</code>. The server finds it there when it starts.")
+      (qa "Why isn't my server icon showing?" "It's usually the size (it must be exactly 64 × 64), a picture that isn't really a PNG, a second .png that Windows hides, or a server that hasn't restarted since. On a network, the proxy's own icon shows instead.")
+      (qa "Can a server icon be animated?" "No. The server list shows one still PNG. Some plugins pick a different icon each time the list refreshes, which is the closest you can get.")
+      (qa "Do Bedrock servers have an icon?" "No. Bedrock's server list shows no icon for servers added by address, and a Bedrock Dedicated Server has no setting for one.")
+      (qa "Is my picture uploaded anywhere?" "No. The icon is made on this page, in your browser, and the picture never leaves your computer.")
+      (qa "How do I change the server icon in Playkeeper?" "Open the server's Settings, then Server list, and choose Upload picture. Playkeeper crops it to a square, makes it 64 × 64 and shows the preview. Friends see it after the next restart.")
+    ))}}
+  </div>
+</section>
+
+{{template "related" (related 3 "/tools/motd" "/tools/color-codes" "/sizing" "/guides/modded-minecraft-server" "/tools")}}
+{{end}}

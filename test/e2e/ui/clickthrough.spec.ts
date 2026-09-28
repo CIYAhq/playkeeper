@@ -688,7 +688,7 @@ test("the add-on fixtures list Playkeeper's picks, and installs take Wave 3's st
 
   type Picks = { picks: { id: string; card: { name: string; installed: boolean }; permission?: string; ports?: { protocol: string; port: number }[] }[] }
   const picks = get('/curated')?.body as Picks
-  expect(picks.picks.map((p) => p.id)).toEqual(['voice-chat', 'rollback', 'pregenerate', 'newer-clients', 'essentials', 'permissions'])
+  expect(picks.picks.map((p) => p.id)).toEqual(['voice-chat', 'rollback', 'discord-chat', 'newer-clients', 'pregenerate', 'essentials', 'permissions'])
   expect(picks.picks[0]).toMatchObject({ card: { name: 'Simple Voice Chat', installed: false }, permission: 'https://modrepo.de/minecraft/voicechat/faq', ports: [{ protocol: 'udp', port: 24454 }] })
   expect((get('/curated', withVia)?.body as Picks).picks.filter((p) => p.card.installed).map((p) => p.id)).toEqual(['newer-clients'])
   const voice = get('/project/modrinth/9eGKb6K1')?.body as { ports?: unknown; plan: { fingerprint: string } }

@@ -15,8 +15,8 @@ const out = path.join(repo, 'site/static/og')
 const art = (p) => 'data:image/svg+xml;base64,' + fs.readFileSync(path.join(repo, p)).toString('base64')
 
 const previews = {
-  default: { title: 'Your VPS. Your Minecraft servers. Your worlds.', pip: 'pip-wave' },
-  landing: { title: 'Your VPS. Your Minecraft servers. Your worlds.', pip: 'pip-wave' },
+  default: { title: 'Host your own Minecraft server. Online 24/7.', pip: 'pip-wave' },
+  landing: { title: 'Host your own Minecraft server. Online 24/7.', pip: 'pip-wave' },
   'mods-and-modpacks': { eyebrow: 'Feature', title: 'Plugins, mods and modpacks. One click each.', pip: 'pip-cheer' },
   aternos: { eyebrow: 'Compare', title: 'The Aternos alternative with no queue', pip: 'pip-wave' },
   pterodactyl: { eyebrow: 'Compare', title: 'A Pterodactyl alternative for one VPS and a few friends', pip: 'pip-box' },
@@ -30,6 +30,12 @@ const previews = {
   blog: { eyebrow: 'Blog', title: 'Releases, guides and building Playkeeper in public', pip: 'pip-letter' },
   t: { eyebrow: 'Server template', title: 'A Minecraft server setup, shared from Playkeeper', pip: 'pip-search' },
   demo: { eyebrow: 'Live demo', title: 'Try the dashboard in your browser', pip: 'pip-wave', file: 'web/src/demo/social.png' },
+  tools: { eyebrow: 'Free tools', title: 'Free Minecraft server tools', pip: 'pip-box' },
+  'server-icon': { eyebrow: 'Free tool', title: 'Minecraft server icon maker', pip: 'pip-cheer' },
+  'color-codes': { eyebrow: 'Free tool', title: 'Minecraft color codes, with a live preview', pip: 'pip-wave' },
+  motd: { eyebrow: 'Free tool', title: 'Minecraft MOTD generator', pip: 'pip-letter' },
+  'jvm-flags': { eyebrow: 'Free tool', title: "Minecraft JVM arguments, with Aikar's flags", pip: 'pip-hardhat' },
+  'server-properties': { eyebrow: 'Free tool', title: 'Every server.properties setting, explained', pip: 'pip-search' },
 }
 const only = process.argv.slice(2)
 const wanted = (name) => only.length === 0 || only.includes(name)

@@ -1,0 +1,57 @@
+{{/*
+path: /tools
+title: Free Minecraft Server Tools That Run in Your Browser
+description: Free tools for running a Minecraft server: make a server icon, work out the RAM it needs and more. They run in your browser, with nothing to sign up for.
+label: Free tools
+h1: Free Minecraft server tools
+card: Free Minecraft server tools
+kind: Tool
+section: tools
+og: tools
+updated: 2026-09-28
+styles: css/tools.css
+*/}}
+
+{{define "main"}}
+<section class="band-chalk page-hero page-hero-center" aria-labelledby="page-title">
+  <div class="container">
+    <h1 id="page-title" class="h1-page hero-rise">Free Minecraft server tools</h1>
+    <p class="lead hero-after">Small tools for the jobs around a Minecraft server. They run in your browser: nothing to install, no account, and what you make stays on your computer.</p>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="tools-title">
+  <div class="container">
+    <h2 id="tools-title" class="visually-hidden">The tools</h2>
+    <div class="tool-tiles">
+      {{range tools}}{{$a := img .Cover}}
+      <a class="tool-tile reveal" href="{{.Path}}">
+        <span class="tool-tile-art"><img src="{{$a.URL}}" alt="" width="112" height="112" loading="lazy" decoding="async"></span>
+        <h3>{{.Card}}</h3>
+        <p>{{.Summary}}</p>
+        <span class="link-arrow">Open the tool{{template "icon" "arrow-right"}}</span>
+      </a>
+      {{end}}
+      {{$a := img "img/tools/ram.svg"}}
+      <a class="tool-tile reveal" href="/sizing">
+        <span class="tool-tile-art"><img src="{{$a.URL}}" alt="" width="112" height="112" loading="lazy" decoding="async"></span>
+        <h3>Minecraft server RAM calculator</h3>
+        <p>How much memory and how many cores a server needs for your friends and what you run.</p>
+        <span class="link-arrow">Open the tool{{template "icon" "arrow-right"}}</span>
+      </a>
+    </div>
+    <script type="application/ld+json">{{toolListSchema}}</script>
+  </div>
+</section>
+
+<section class="band band-chalk">
+  <div class="container">
+    {{template "faq" (dict "ID" "questions" "Items" (list
+      (qa "Are these tools free?" "Yes, with no account and no limits. Playkeeper makes them for the people who run Minecraft servers, and its dashboard is free and open source too.")
+      (qa "Do my pictures and settings get uploaded?" "No. Each tool works on the page, in your browser: a picture you open or a file you make never leaves your computer until you save it.")
+      (qa "Do they work for Bedrock servers?" "Mostly they're for Java Edition servers, which is what Playkeeper runs. Each tool says where Bedrock differs.")
+      (qa "Can Playkeeper do these for me?" "Much of it: a server's icon and list message are in its Settings, it picks memory and starts every server with Aikar's flags, and its Files tab edits server.properties.")
+    ))}}
+  </div>
+</section>
+{{end}}

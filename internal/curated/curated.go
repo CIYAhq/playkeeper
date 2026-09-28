@@ -85,7 +85,8 @@ type Port struct {
 // VoiceChatID is the voice chat entry's ID.
 const VoiceChatID = "voice-chat"
 
-// List returns every curated add-on, in the order the UI shows them.
+// List returns every curated add-on, in the order the UI shows them. The
+// library shows the first four that fit a server before a search.
 func List() []Entry {
 	plugins := []string{"paper", "purpur"}
 	return []Entry{
@@ -110,10 +111,11 @@ func List() []Entry {
 			},
 		},
 		{
-			ID: "pregenerate", Name: "World pre-generation",
-			Purpose: "Generates the land around spawn ahead of time, so exploring does not make the server lag.",
+			// Until the owner gives it a bot token, it turns itself off.
+			ID: "discord-chat", Name: "Discord chat",
+			Purpose: "Links the game chat with a channel on your Discord server, both ways.",
 			Projects: []Project{
-				modrinth([]string{"paper", "purpur", "fabric", "neoforge", "forge"}, "fALzjamp", "chunky", "Chunky", "pop4959", "GPL-3.0-only"),
+				modrinth(plugins, "UmLGoGij", "discordsrv", "DiscordSRV", "Scarsz", "GPL-3.0-or-later"),
 			},
 		},
 		{
@@ -121,6 +123,14 @@ func List() []Entry {
 			Purpose: "Lets players whose game has already updated to a newer Minecraft version join before the server updates.",
 			Projects: []Project{
 				modrinth(plugins, "P1OZGk5p", "viaversion", "ViaVersion", "kennytv", "GPL-3.0-or-later"),
+			},
+		},
+		{
+			// The World tab installs Chunky itself.
+			ID: "pregenerate", Name: "World pre-generation",
+			Purpose: "Generates the land around spawn ahead of time, so exploring does not make the server lag.",
+			Projects: []Project{
+				modrinth([]string{"paper", "purpur", "fabric", "neoforge", "forge"}, "fALzjamp", "chunky", "Chunky", "pop4959", "GPL-3.0-only"),
 			},
 		},
 		{

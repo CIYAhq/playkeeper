@@ -74,6 +74,9 @@ SLOTS = {
     "post-mods": (730, 730, 350),
     "post-address": (730, 730, 350),
     "post-backups": (730, 730, 350),
+    # The free tools.
+    "tool-server-list": (460, 560, 350),
+    "tool-plugin-config": (460, 560, 350),
 }
 
 
