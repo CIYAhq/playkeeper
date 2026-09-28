@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.3
+
+- **A public page at your address:** someone who types `yourname.playkeeper.me` (or your own domain) into a browser now sees a page with each server's status and how many are playing, its Minecraft version, software and modpack, its address with a Copy button and how to join, and the shared map's link when you share the map, with "This server runs on Playkeeper" at the bottom. Players' names show only if you turn on **Show who's playing**. Each server's **Settings › Public page** turns it off, and the dashboard stays on port 8443. The page uses ports 443 and 80 only when nothing else on the VPS uses them, a Docker container claims them or a web server like nginx is set to start with the machine, and a few minutes after it starts; Settings says what holds a port, with **Try again** once it's free.
+
 ## 0.4.2
 
 - A **Files** tab on each server, for admins: browse its folder, edit `server.properties`, YAML, JSON and TOML in an editor that marks what Playkeeper sets from Settings, upload files or whole folders by dragging them in (uploads carry on after a dropped connection), download files or folders as a zip, and make folders, rename, move and delete. While the server runs its world is read-only, and other changes apply when it restarts.
