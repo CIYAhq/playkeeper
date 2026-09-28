@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
+	"github.com/CIYAhq/playkeeper/internal/modpacks"
 )
 
 // paperSetup is the server the Paper fixture was exported from, as
@@ -59,6 +60,21 @@ func fabricSetup() Setup {
 					Hash: "7872791b236bee9897c67e391c5f0a13a4588784927656d60bd0edba89aa3a56fcb00c22cf4d2bc4dd26c71a642a57d6c8d6d285875e9faaf89d555ce64d3020"}},
 			Includes: []addons.Key{{Source: addons.Modrinth, ProjectID: "gvQqBUqZ"}, {Source: addons.Modrinth, ProjectID: "uXXizFIs"}},
 		},
+	}
+}
+
+// curseForgeSetup is the server the CurseForge modpack fixture was exported
+// from: All the Mods 10 at the file CurseForge lists as 8.2, with the SHA-1
+// it publishes for the pack's zip.
+func curseForgeSetup() Setup {
+	return Setup{
+		Name:             "All the Mods 10",
+		Description:      "All the Mods 10 on NeoForge, with the memory the pack asks for.",
+		Type:             "neoforge",
+		MinecraftVersion: "1.21.1",
+		Settings:         Settings{MaxPlayers: 10, PlayStyle: "friends", MemoryMB: 12288},
+		Modpack: &ModpackSetup{Modpack: Modpack{Source: modpacks.CurseForge, Project: "925200", Slug: "all-the-mods-10", Name: "All the Mods 10 - ATM10",
+			Pin: Pin{VersionID: "8945086", VersionNumber: "All the Mods 10-8.2", Channel: "release", HashAlgo: "sha1", Hash: "68C1A22BFF9A82C0E3DC60F3AF9077391915E8FA"}}},
 	}
 }
 
@@ -161,6 +177,45 @@ func TestExportFabricModpack(t *testing.T) {
 		}
 	}
 	roundTrip(t, tp)
+}
+
+// A server made from a CurseForge pack travels with its pack, by
+// CurseForge's ids and SHA-1, like one made from a Modrinth pack.
+func TestExportCurseForgeModpack(t *testing.T) {
+	tp, rep, err := Export(curseForgeSetup(), ExportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameTemplate(t, tp, fixture(t, "curseforge-modpack.json"))
+	wantKinds(t, "left out", rep.LeftOut)
+	wantKinds(t, "notes", rep.Notes, KindNoteWorld, KindNotePlayers)
+	roundTrip(t, tp)
+}
+
+// The files a modpack put in the mods folder have no add-on records. They
+// travel with the pack, so none is reported as added by hand; a file that
+// was is.
+func TestExportLeavesAModpacksOwnFilesToIt(t *testing.T) {
+	s := fabricSetup()
+	s.Folder = &addons.ScanResult{Folder: "mods", Entries: append(managed(s.Addons),
+		addons.ScanEntry{FileName: "krypton-0.2.8.jar", Status: addons.FileUnknown},
+		addons.ScanEntry{FileName: "my-tweaks.jar", Status: addons.FileUnknown, Meta: addons.JarMeta{ID: "mytweaks", Name: "My Tweaks", Kind: "mod"}},
+		addons.ScanEntry{FileName: "vmp-fabric-0.2.0.jar", Status: addons.FileUnknown},
+	)}
+	s.Modpack.Files = map[string]bool{"krypton-0.2.8.jar": true, "vmp-fabric-0.2.0.jar": true}
+	tp, rep, err := Export(s, ExportOptions{Latest: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameTemplate(t, tp, fixture(t, "fabric-modpack.json"))
+	if wantKinds(t, "left out", rep.LeftOut, KindLeftOutUpload) && rep.LeftOut[0].Params["name"] != "My Tweaks" {
+		t.Errorf("got %+v, want My Tweaks added by hand", rep.LeftOut[0])
+	}
+	if wantKinds(t, "notes", rep.Notes, KindNoteWorld, KindNotePlayers, KindNoteAddonConfig, KindNoteLatest, KindNoteModpackAddons) {
+		if n := rep.Notes[4]; n.Params["count"] != "4" || n.Params["name"] != "Adrenaserver" {
+			t.Errorf("got %+v, want 4 mods travelling with Adrenaserver", n)
+		}
+	}
 }
 
 func TestExportLeavesOut(t *testing.T) {

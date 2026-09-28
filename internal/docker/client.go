@@ -425,7 +425,8 @@ type ContainerJSON struct {
 		Labels map[string]string `json:"Labels"`
 	} `json:"Config"`
 	HostConfig struct {
-		Memory int64 `json:"Memory"`
+		Memory       int64                    `json:"Memory"`
+		PortBindings map[string][]PortBinding `json:"PortBindings"`
 	} `json:"HostConfig"`
 	NetworkSettings struct {
 		Networks map[string]struct {

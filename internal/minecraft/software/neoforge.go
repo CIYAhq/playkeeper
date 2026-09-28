@@ -17,14 +17,21 @@ import (
 	"strings"
 )
 
-const neoforgeMaven = "https://maven.neoforged.net/releases/net/neoforged/neoforge"
+const (
+	neoforgeMaven = "https://maven.neoforged.net/releases/net/neoforged/neoforge"
+	// neoforgeForgeMaven has NeoForge's versions for Minecraft 1.20.1,
+	// published under Forge's name as net.neoforged:forge:1.20.1-47.1.106.
+	neoforgeForgeMaven = "https://maven.neoforged.net/releases/net/neoforged/forge"
+)
 
 // NeoForge versions name their Minecraft version: 21.1.251 is for 1.21.1
 // and 21.0.167 for 1.21; from Minecraft 26.1 on, 26.2.0.88 is for 26.2 and
-// 26.1.2.109 for 26.1.2.
+// 26.1.2.109 for 26.1.2. Its first versions, for 1.20.1, kept Forge's
+// numbers: 47.1.106.
 var (
-	reNeoForgeOld = regexp.MustCompile(`^(2[01])\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta)?$`)
-	reNeoForgeNew = regexp.MustCompile(`^([1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta)?$`)
+	reNeoForgeOld   = regexp.MustCompile(`^(2[01])\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta)?$`)
+	reNeoForgeNew   = regexp.MustCompile(`^([1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta)?$`)
+	reNeoForgeForge = regexp.MustCompile(`^47\.1\.(0|[1-9][0-9]*)$`)
 )
 
 func neoforgeUpstream(hc *http.Client) upstream {
@@ -36,6 +43,9 @@ func neoforgeUpstream(hc *http.Client) upstream {
 func neoforgeMinecraft(v string) (mc string, beta, ok bool) {
 	if len(v) > 32 {
 		return "", false, false
+	}
+	if reNeoForgeForge.MatchString(v) {
+		return "1.20.1", false, true
 	}
 	if m := reNeoForgeOld.FindStringSubmatch(v); m != nil {
 		mc = "1." + m[1]
@@ -81,13 +91,39 @@ func neoforgeVersions(ctx context.Context, hc *http.Client) (map[string][]string
 	}
 	out := map[string][]string{}
 	for _, v := range m.Versions {
-		if mc, _, ok := neoforgeMinecraft(v); ok && offeredFamily(mc) && !slices.Contains(out[mc], v) {
+		if mc, _, ok := neoforgeMinecraft(v); ok && offered(mc) && !slices.Contains(out[mc], v) {
 			out[mc] = append(out[mc], v)
 		}
 	}
 	for _, vs := range out {
 		slices.SortFunc(vs, func(a, b string) int { return compareVersions(b, a) })
 	}
+	return out, nil
+}
+
+// neoforgeForgeVersions lists NeoForge's versions for Minecraft 1.20.1,
+// newest first. The catalog never needs them: NeoForge has newer releases
+// of Minecraft 1.20.
+func neoforgeForgeVersions(ctx context.Context, hc *http.Client) ([]string, error) {
+	u := neoforgeUpstream(hc)
+	const what = "its version list for Minecraft 1.20.1"
+	b, err := u.read(ctx, neoforgeForgeMaven+"/maven-metadata.xml", what, maxMetadata)
+	if err != nil {
+		return nil, err
+	}
+	var m struct {
+		Versions []string `xml:"versioning>versions>version"`
+	}
+	if err := xml.Unmarshal(b, &m); err != nil {
+		return nil, u.malformed(what, err)
+	}
+	var out []string
+	for _, v := range m.Versions {
+		if v, ok := strings.CutPrefix(v, "1.20.1-"); ok && reNeoForgeForge.MatchString(v) && !slices.Contains(out, v) {
+			out = append(out, v)
+		}
+	}
+	slices.SortFunc(out, func(a, b string) int { return compareVersions(b, a) })
 	return out, nil
 }
 
@@ -118,14 +154,24 @@ func neoforgeCatalog(ctx context.Context, hc *http.Client) ([]Release, error) {
 }
 
 func neoforgeVersionList(ctx context.Context, hc *http.Client, mc string) ([]Build, error) {
-	byMC, err := neoforgeVersions(ctx, hc)
-	if err != nil {
-		return nil, err
+	var vs []string
+	if mc == "1.20.1" {
+		list, err := neoforgeForgeVersions(ctx, hc)
+		if err != nil {
+			return nil, err
+		}
+		vs = list
+	} else {
+		byMC, err := neoforgeVersions(ctx, hc)
+		if err != nil {
+			return nil, err
+		}
+		vs = byMC[mc]
 	}
-	if len(byMC[mc]) == 0 {
+	if len(vs) == 0 {
 		return nil, noBuilds(NeoForge, mc)
 	}
-	return builds(Pin{Type: NeoForge, MinecraftVersion: mc}, byMC[mc], neoforgeChannel,
+	return builds(Pin{Type: NeoForge, MinecraftVersion: mc}, vs, neoforgeChannel,
 		func(p *Pin, v string) { p.NeoForgeVersion = v }), nil
 }
 
@@ -134,6 +180,10 @@ func neoforgeResolve(ctx context.Context, hc *http.Client, r *Resolved) error {
 	v := r.Pin.NeoForgeVersion
 	name := "neoforge-" + v + "-installer.jar"
 	fileURL := neoforgeMaven + "/" + v + "/" + name
+	if b, ok := forgeBuildOf(r.Pin); ok {
+		name = "forge-" + b.id() + "-installer.jar"
+		fileURL = neoforgeForgeMaven + "/" + b.id() + "/" + name
+	}
 	h, err := u.checksum(ctx, fileURL, SHA512, name)
 	if isNotFound(err) {
 		return &Error{Kind: KindNotFound, Msg: fmt.Sprintf("NeoForge has no version %s.", v),
@@ -151,7 +201,9 @@ func neoforgeResolve(ctx context.Context, hc *http.Client, r *Resolved) error {
 // it. The installer downloads the libraries its profile lists and checks
 // each against the SHA-1 there; Finish checks them again, together with
 // Minecraft's own libraries, and records the patched Minecraft jar the
-// installer builds, which has no published hash.
+// installer builds, which has no published hash. NeoForge's installers for
+// Minecraft 1.20.1 are Forge's, which publish that hash, so their checks
+// are Forge's.
 func neoforgePlan(r Resolved) (Plan, error) {
 	if r.Software == nil {
 		return Plan{}, incomplete(r.Pin)
@@ -159,16 +211,20 @@ func neoforgePlan(r Resolved) (Plan, error) {
 	mc, v := r.Pin.MinecraftVersion, r.Pin.NeoForgeVersion
 	installer, server := *r.Software, r.Server
 	server.Path = "libraries/net/minecraft/server/" + mc + "/server-" + mc + ".jar"
+	derive, args := DeriveNeoForge, neoforgeArgsPath(v)
+	if b, ok := forgeBuildOf(r.Pin); ok {
+		derive, args = DeriveForge, b.argsPath()
+	}
 	return Plan{
 		Downloads: []Artifact{installer, server},
 		Setup: &Container{Env: []string{"TYPE=NEOFORGE", "NEOFORGE_INSTALLER=/data/" + installer.Path,
 			"NEOFORGE_FORCE_REINSTALL=TRUE", "SETUP_ONLY=TRUE"}},
 		Derive: []Derivation{
-			{Kind: DeriveNeoForge, From: installer.Path, Into: "libraries"},
+			{Kind: derive, From: installer.Path, Into: "libraries"},
 			{Kind: DeriveBundler, From: server.Path, Into: "libraries"},
 		},
 		Remove: []string{installer.Path, installer.Path + ".log"},
-		Run:    Container{Env: []string{"TYPE=CUSTOM", "CUSTOM_JAR_EXEC=@" + neoforgeArgsPath(v)}},
+		Run:    Container{Env: []string{"TYPE=CUSTOM", "CUSTOM_JAR_EXEC=@" + args}},
 	}, nil
 }
 
@@ -210,7 +266,7 @@ const neoforgeLibrarySource = "the library list inside the verified NeoForge ins
 
 // neoforgeLibraryExts are the files a NeoForge installer lists as libraries:
 // jars, and NeoForm's data, which the processors read to build the patched
-// Minecraft jar: a .zip for Minecraft 1.21 to 1.21.8 and mappings in a
+// Minecraft jar: a .zip for Minecraft 1.20.2 to 1.21.8 and mappings in a
 // .tsrg.lzma for 1.21.10 and 1.21.11. Each is checked like the jars.
 var neoforgeLibraryExts = []string{".jar", ".zip", ".tsrg.lzma"}
 

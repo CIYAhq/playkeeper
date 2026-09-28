@@ -56,8 +56,11 @@ type Modpack struct {
 	// Template is the site's template (site/data/templates) that opens this
 	// pack version in the visitor's own dashboard.
 	Template string `json:"template,omitempty"`
-	Checked  string `json:"checked"`
-	card     *TemplateCard
+	// Release is the Playkeeper whose install plan checked the pack on
+	// Checked.
+	Release string `json:"release"`
+	Checked string `json:"checked"`
+	card    *TemplateCard
 }
 
 // ServerFiles is a pack's own download for servers.
@@ -201,6 +204,8 @@ func (m *Modpack) check(cards map[string]*TemplateCard) error {
 		return fmt.Errorf("template %q suggests %d MB, less than the %d MB Playkeeper suggests for the pack", m.Template, cards[m.Template].MemoryMB, m.MemoryMB())
 	case m.ServerFiles != nil && (!strings.HasPrefix(m.ServerFiles.URL, "https://") || m.ServerFiles.MB <= 0 || m.ServerFiles.Mods <= 0):
 		return fmt.Errorf("server files need their address, size and mods")
+	case !reRelease3.MatchString(m.Release):
+		return fmt.Errorf("release %q isn't the Playkeeper release whose install plan checked the pack, like 0.4.2", m.Release)
 	}
 	for _, day := range []string{m.Released, m.Checked} {
 		if _, err := time.Parse(time.DateOnly, day); err != nil {

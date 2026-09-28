@@ -419,4 +419,19 @@ ALTER TABLE pregen ADD COLUMN done_border INTEGER NOT NULL DEFAULT 0;
 UPDATE pregen SET done_radius = radius WHERE ended = 'finished';
 UPDATE pregen SET done_border = radius WHERE ended = 'finished' AND preset = 'border';
 `,
+	// 0.4.3: the public page at the machine's address. Every server is on
+	// it until its owner turns that off, and it names who's playing only
+	// once they turn that on.
+	`
+ALTER TABLE servers ADD COLUMN public_page INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE servers ADD COLUMN public_page_players INTEGER NOT NULL DEFAULT 0;
+`,
+	// 0.4.4: what the owner adds to the public page: their words for it, the
+	// link of a live stream it offers to play, and the status board their
+	// tools post, as JSON ('' for none).
+	`
+ALTER TABLE servers ADD COLUMN public_about TEXT NOT NULL DEFAULT '';
+ALTER TABLE servers ADD COLUMN public_stream TEXT NOT NULL DEFAULT '';
+ALTER TABLE servers ADD COLUMN public_board TEXT NOT NULL DEFAULT '';
+`,
 }

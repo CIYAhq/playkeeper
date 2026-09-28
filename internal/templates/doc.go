@@ -6,10 +6,10 @@
 // is self-contained data. It holds the server type and Minecraft version,
 // the plain-language settings, plugins and mods by source, project and
 // pinned version with the hash their source publishes (or, explicitly, "the
-// newest version that fits"), an optional Modrinth modpack, and resource and
-// data packs by public HTTPS address and checksum. It never holds ports,
-// RCON, the allowlist, online mode, operators, secrets, world data or
-// console commands.
+// newest version that fits"), an optional Modrinth or CurseForge modpack, and
+// resource and data packs by public HTTPS address and checksum. It never
+// holds ports, RCON, the allowlist, online mode, operators, secrets (the
+// CurseForge API key included), world data or console commands.
 //
 // A template file is its JSON. A link is https://playkeeper.io/t#<data>,
 // where <data> is base64url without padding of:

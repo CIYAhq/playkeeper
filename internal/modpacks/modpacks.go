@@ -27,6 +27,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/addons"
 	"github.com/CIYAhq/playkeeper/internal/addons/fetch"
 	"github.com/CIYAhq/playkeeper/internal/addons/modrinth"
+	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/curseforge"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/mrpack"
 	"github.com/CIYAhq/playkeeper/internal/version"
@@ -70,6 +71,10 @@ const (
 	KindOptionalOff     addons.Kind = "optional_off"
 	KindUserRemoved     addons.Kind = "user_removed"
 	KindModdedWorld     addons.Kind = "modded_world"
+
+	// KindNotInServerFiles: a mod a CurseForge pack names that its server
+	// files leave out, so the server doesn't get it.
+	KindNotInServerFiles addons.Kind = "not_in_server_files"
 )
 
 // Server is the server a pack goes on.
@@ -229,16 +234,18 @@ type Limits struct {
 	Entries     int   // entries in the archive
 }
 
-// DefaultLimits returns the limits used for every limit left at zero.
+// DefaultLimits returns the limits used for every limit left at zero. The
+// largest real packs fit: Beyond Depth puts 11,684 files on a server, out of
+// an archive of 11,922 entries.
 func DefaultLimits() Limits {
 	return Limits{
-		Pack: 1 << 30, ServerFiles: 2 << 30, Index: 16 << 20, Files: 5000, File: 256 << 20,
+		Pack: 1 << 30, ServerFiles: 2 << 30, Index: 16 << 20, Files: 20000, File: addons.DefaultMaxFileSize,
 		Downloads: 4 << 30, Unpacked: 2 << 30, Entries: 20000,
 	}
 }
 
 // DefaultMinMinecraft is the oldest Minecraft version packs are offered for.
-const DefaultMinMinecraft = "1.21"
+const DefaultMinMinecraft = minecraft.OldestRelease
 
 // Library runs modpack operations. One Library serves every server on a
 // machine and holds no per-server state.

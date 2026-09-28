@@ -90,6 +90,7 @@ const toolPhrases: Record<string, MessageKey> = {
   search_addons: 'ai.did.search_addons',
   install_addon: 'ai.did.install_addon',
   remove_addon: 'ai.did.remove_addon',
+  set_status_board: 'ai.did.set_status_board',
 }
 
 /** What an agent did, in lower case after its name: "made a backup of Survival". */

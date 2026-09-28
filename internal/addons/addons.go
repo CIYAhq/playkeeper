@@ -28,13 +28,16 @@ const (
 	Hangar   Source = "hangar"
 )
 
-// Name is the source's name for messages.
+// Name is the source's name for messages, CurseForge's (modpacks.CurseForge)
+// included.
 func (s Source) Name() string {
 	switch s {
 	case Modrinth:
 		return "Modrinth"
 	case Hangar:
 		return "Hangar"
+	case "curseforge":
+		return "CurseForge"
 	}
 	return string(s)
 }
@@ -91,7 +94,9 @@ type Installed struct {
 func (i Installed) Key() Key { return Key{i.Source, i.ProjectID} }
 
 const (
-	DefaultMaxFileSize = 256 << 20
+	// DefaultMaxFileSize bounds each add-on file and each modpack file. The
+	// largest mods fit: Pixelmon's jar is about 400 MB.
+	DefaultMaxFileSize = 512 << 20
 	DefaultMaxIconSize = 1 << 20
 )
 

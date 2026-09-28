@@ -1,0 +1,393 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"math/rand/v2"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/agentclient"
+	"github.com/CIYAhq/playkeeper/internal/api"
+)
+
+const pageTestHost = "mc.example.com"
+
+// withPageAddress gives the machine an own domain, where the page answers.
+func (e *agentEnv) withPageAddress() {
+	e.t.Helper()
+	if err := e.a.updateAddress(func(st *addressState) { st.Kind, st.Host = api.AddressOwn, pageTestHost }); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// page is what the public page shows to a browser that asked for host.
+func (e *agentEnv) page(host string) (int, api.PublicPage, string) {
+	e.t.Helper()
+	resp, err := http.Get(e.ts.URL + "/v1/public-page?host=" + host)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	var p api.PublicPage
+	if resp.StatusCode == 200 {
+		if err := json.Unmarshal(b, &p); err != nil {
+			e.t.Fatal(err)
+		}
+	}
+	return resp.StatusCode, p, string(b)
+}
+
+func TestThePublicPageShowsAServerButNotWhosPlaying(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	e.withPageAddress()
+	e.rcon.setOnline("tobi2009", "mara_k")
+	var p api.PublicPage
+	e.waitFor("the page to count the players", func() bool {
+		code, got, _ := e.page(pageTestHost)
+		p = got
+		return code == 200 && len(got.Servers) == 1 && got.Servers[0].Players != nil && got.Servers[0].Players.Online == 2
+	})
+	s := p.Servers[0]
+	if p.Address != pageTestHost || s.State != api.PublicOnline || s.Address != pageTestHost || s.Players.Max < 2 || s.MinecraftVersion == "" || s.Type != api.TypePaper || s.Name == "" {
+		t.Fatalf("the page shows %+v", p)
+	}
+	if len(s.Players.Names) != 0 || s.Map != "" || s.Pack != "" {
+		t.Fatalf("a page nobody changed names players or links: %+v", s)
+	}
+	_, _, raw := e.page(pageTestHost)
+	for _, leak := range []string{testIP.String(), "tobi2009", "mara_k", e.sid, "memory", "crash", "backup"} {
+		if strings.Contains(raw, leak) {
+			t.Errorf("the public page's answer holds %q: %s", leak, raw)
+		}
+	}
+	// The owner shows who's playing: the names, sorted; then hides them again.
+	if code, out := e.call("POST", e.sp("/public-page"), map[string]any{"players": true, "actor": "admin"}); code != 200 || out["players"] != true || out["enabled"] != true {
+		t.Fatalf("showing players: %d %v", code, out)
+	}
+	e.waitFor("the names on the page", func() bool {
+		_, got, _ := e.page(pageTestHost)
+		return len(got.Servers) == 1 && got.Servers[0].Players != nil && slices.Equal(got.Servers[0].Players.Names, []string{"mara_k", "tobi2009"})
+	})
+	e.call("POST", e.sp("/public-page"), map[string]any{"players": false, "actor": "admin"})
+	if _, got, _ := e.page(pageTestHost); len(got.Servers) != 1 || got.Servers[0].Players == nil || len(got.Servers[0].Players.Names) != 0 {
+		t.Fatalf("names stay after the owner hid them: %+v", got)
+	}
+}
+
+func TestAPublicPageThatIsOffAnswersLikeAnUnknownAddress(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	e.withPageAddress()
+	unknown, _, unknownBody := e.page("other.example.com")
+	if unknown != 404 {
+		t.Fatalf("another address gets %d", unknown)
+	}
+	for _, host := range []string{pageTestHost, "MC.Example.com.", pageTestHost + ":443", pageTestHost + ":80"} {
+		if code, _, _ := e.page(host); code != 200 {
+			t.Fatalf("the machine's address as %q gets %d", host, code)
+		}
+	}
+	if code, out := e.call("POST", e.sp("/public-page"), map[string]any{"enabled": false, "actor": "admin"}); code != 200 || out["enabled"] != false {
+		t.Fatalf("turning the page off: %d %v", code, out)
+	}
+	code, _, body := e.page(pageTestHost)
+	if code != 404 || body != unknownBody {
+		t.Fatalf("a page that is off answers %d %s, an unknown address %d %s", code, body, unknown, unknownBody)
+	}
+	if st := e.a.publicPageState(); st.On || st.Host != pageTestHost {
+		t.Fatalf("with every server off the page the state is %+v", st)
+	}
+	slug := e.status().Slug
+	if code, _ := e.call("GET", "/v1/public-page/icons/"+slug+"?host="+pageTestHost, nil); code != 404 {
+		t.Fatalf("the icon of a server off the page answers %d", code)
+	}
+	var audited int
+	e.a.db.QueryRow(`SELECT COUNT(*) FROM audit WHERE action = 'public_page.changed' AND actor = 'admin'`).Scan(&audited)
+	if audited != 1 {
+		t.Fatalf("%d audit rows for changing the page", audited)
+	}
+}
+
+func TestAMachineWithoutAnAddressHasNoPublicPage(t *testing.T) {
+	e := newAgentEnvWith(t, func(e *agentEnv) { e.cfg.Dev = false })
+	e.create()
+	if st := e.a.publicPageState(); st.On || st.Host != "" {
+		t.Fatalf("the state without an address is %+v", st)
+	}
+	if code, _, _ := e.page("localhost"); code != 404 {
+		t.Fatalf("the page answers %d without an address", code)
+	}
+	ports, files := e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true, HTTP: true})
+	if len(files) != 0 || ports.HTTPS.State != api.PortOff || ports.HTTP.State != api.PortOff {
+		t.Fatalf("without an address the agent opened %v: %+v", len(files), ports)
+	}
+}
+
+func TestThePublicPageSwitchesRefuseNothingToChange(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	if code, _ := e.call("POST", e.sp("/public-page"), map[string]any{"actor": "admin"}); code != 400 {
+		t.Fatalf("no switch named: %d", code)
+	}
+	if code, _ := e.call("POST", e.sp("/public-page"), map[string]any{"enabled": true}); code != 400 {
+		t.Fatalf("no actor: %d", code)
+	}
+	if code, out := e.call("GET", e.sp("/public-page"), nil); code != 200 || out["enabled"] != true || out["players"] != false {
+		t.Fatalf("a new server's switches: %d %v", code, out)
+	}
+}
+
+// freePort is a TCP port nothing listens on right now. It comes from below
+// the range the kernel hands out for ":0" and outgoing connections, so a
+// connection elsewhere in the run can't take it between the tests' binds.
+func freePort(t *testing.T) int {
+	t.Helper()
+	for range 100 {
+		p := 20000 + rand.IntN(10000)
+		if ln, err := net.Listen("tcp", ":"+strconv.Itoa(p)); err == nil {
+			ln.Close()
+			return p
+		}
+	}
+	t.Fatal("no free port between 20000 and 29999")
+	return 0
+}
+
+// pageEnv is an agent whose page answers at pageTestHost, with the page's
+// ports on free high ports and the machine up for up.
+func pageEnv(t *testing.T, up time.Duration, setup func(e *agentEnv)) (e *agentEnv, https, plain int) {
+	t.Helper()
+	https, plain = freePort(t), freePort(t)
+	systemd := t.TempDir()
+	e = newAgentEnvWith(t, func(e *agentEnv) {
+		e.tweak = func(o *Options) {
+			o.PageHTTPSAddr, o.PageHTTPAddr = ":"+strconv.Itoa(https), ":"+strconv.Itoa(plain)
+			o.Uptime = func() time.Duration { return up }
+			o.SystemdDir = systemd
+		}
+		if setup != nil {
+			setup(e)
+		}
+	})
+	e.create()
+	e.withPageAddress()
+	return e, https, plain
+}
+
+func closeAll(files []*os.File) {
+	for _, f := range files {
+		f.Close()
+	}
+}
+
+func TestThePageLeavesPortsToWhatStartsWithTheMachine(t *testing.T) {
+	e, _, _ := pageEnv(t, 90*time.Second, nil)
+	ports, files := e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true, HTTP: true})
+	closeAll(files)
+	if len(files) != 0 || ports.HTTPS.State != api.PortWaiting || ports.HTTP.State != api.PortWaiting {
+		t.Fatalf("a machine up for 90 seconds handed over %d ports: %+v", len(files), ports)
+	}
+}
+
+func TestThePageNeverTakesAPortSomethingElseUsesOrWillUse(t *testing.T) {
+	blocker, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Close()
+	busy := blocker.Addr().(*net.TCPAddr).Port
+	var e *agentEnv
+	var https, plain int
+	e, https, plain = pageEnv(t, time.Hour, func(e *agentEnv) {
+		e.portHolder = func(port int) (string, int, bool) { return "nginx", 4242, port == busy }
+	})
+	e.a.opts.PageHTTPSAddr = ":" + strconv.Itoa(busy)
+
+	// A program listens on the HTTPS port; a stopped Docker container has the
+	// HTTP port in its settings.
+	e.fd.mu.Lock()
+	e.fd.others = append(e.fd.others, fakeListed{name: "caddy-proxy", ports: []fakePort{{plain, "tcp"}}})
+	e.fd.mu.Unlock()
+	ports, files := e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true, HTTP: true})
+	closeAll(files)
+	if len(files) != 0 || ports.HTTPS.State != api.PortBusy || ports.HTTPS.Holder != "nginx" || ports.HTTP.State != api.PortClaimed || ports.HTTP.Holder != "caddy-proxy" {
+		t.Fatalf("handed over %d ports: %+v", len(files), ports)
+	}
+
+	// The program stops: the port found busy isn't tried again, so a web
+	// server restarting just then can't lose it, until the owner asks.
+	blocker.Close()
+	if ports, files := e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true}); len(files) != 0 || ports.HTTPS.State != api.PortBusy {
+		closeAll(files)
+		t.Fatalf("a port found busy was tried again: %+v", ports)
+	}
+	if code, _ := e.call("POST", "/v1/public-page/ports/retry", map[string]any{"actor": "admin"}); code != 200 {
+		t.Fatalf("retry: %d", code)
+	}
+	ports, files = e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true})
+	closeAll(files)
+	if len(files) != 1 || ports.HTTPS.State != api.PortOpen {
+		t.Fatalf("after the owner asked, the free port: %+v (%d files)", ports, len(files))
+	}
+
+	// A web server set to start with the machine claims both ports, running
+	// or not.
+	e.fd.mu.Lock()
+	e.fd.others = nil
+	e.fd.mu.Unlock()
+	e.a.opts.PageHTTPSAddr = ":" + strconv.Itoa(https)
+	wants := filepath.Join(e.a.opts.SystemdDir, "multi-user.target.wants")
+	os.MkdirAll(wants, 0o755)
+	os.Symlink("/lib/systemd/system/apache2.service", filepath.Join(wants, "apache2.service"))
+	ports, files = e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true, HTTP: true})
+	closeAll(files)
+	if len(files) != 0 || ports.HTTPS.State != api.PortClaimed || ports.HTTPS.Holder != "apache2" || ports.HTTP.Holder != "apache2" {
+		t.Fatalf("with apache2 enabled: %+v (%d files)", ports, len(files))
+	}
+}
+
+func TestThePagesPortsReachThePanelOnlyOverTheAgentSocket(t *testing.T) {
+	e, https, plain := pageEnv(t, time.Hour, nil)
+	// Over anything but the agent's own socket the route opens nothing.
+	req, _ := http.NewRequest("POST", e.ts.URL+pagePortsPath, strings.NewReader(`{"https":true,"http":true}`))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Fatalf("over TCP the hand-over answers %d", resp.StatusCode)
+	}
+	for _, p := range []int{https, plain} {
+		if ln, err := net.Listen("tcp", ":"+strconv.Itoa(p)); err != nil {
+			t.Fatalf("port %d stayed open after a hand-over that couldn't pass it: %v", p, err)
+		} else {
+			ln.Close()
+		}
+	}
+
+	sock := filepath.Join(e.dir, "page.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: e.a.Handler(), ConnContext: withConn}
+	go srv.Serve(ln)
+	defer srv.Close()
+	ports, files, err := agentclient.New(sock).PublicPagePorts(context.Background(), api.PagePortsRequest{HTTPS: true, HTTP: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeAll(files)
+	if len(files) != 2 || ports.HTTPS.State != api.PortOpen || ports.HTTPS.Port != https || ports.HTTP.State != api.PortOpen || ports.HTTP.Port != plain {
+		t.Fatalf("the panel got %d sockets: %+v", len(files), ports)
+	}
+	// The sockets listen on the ports, and the agent kept no copy: closing
+	// the panel's frees the port.
+	l, err := net.FileListener(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		if c, err := l.Accept(); err == nil {
+			c.Close()
+		}
+	}()
+	c, err := net.Dial("tcp", "127.0.0.1:"+strconv.Itoa(https))
+	if err != nil {
+		t.Fatalf("the handed-over socket doesn't listen: %v", err)
+	}
+	c.Close()
+	l.Close()
+	files[0].Close()
+	if again, err := net.Listen("tcp", ":"+strconv.Itoa(https)); err != nil {
+		t.Fatalf("the agent kept port %d open: %v", https, err)
+	} else {
+		again.Close()
+	}
+}
+
+func TestLetsEncryptsChecksReachTheAgentThroughThePage(t *testing.T) {
+	e := newAgentEnv(t)
+	if code, _ := e.call("GET", "/v1/acme-challenge/tok3n", nil); code != 404 {
+		t.Fatalf("no check pending: %d", code)
+	}
+	e.a.http01.Addr = ""
+	release, err := e.a.http01.Present("tok3n", "tok3n.key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Get(e.ts.URL + "/v1/acme-challenge/tok3n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || string(b) != "tok3n.key" {
+		t.Fatalf("a pending check: %d %q", resp.StatusCode, b)
+	}
+	release()
+	if code, _ := e.call("GET", "/v1/acme-challenge/tok3n", nil); code != 404 {
+		t.Fatalf("a check released: %d", code)
+	}
+}
+
+func TestAServerTurnedOffLeavesThePageAndTheOthersStay(t *testing.T) {
+	e := newAgentEnv(t)
+	e.createWith(map[string]any{"name": "Survival"})
+	first := e.status()
+	e.createWith(map[string]any{"name": "Creative"})
+	second := e.status()
+	e.withPageAddress()
+	if code, p, _ := e.page(pageTestHost); code != 200 || len(p.Servers) != 2 {
+		t.Fatalf("with both on: %d %+v", code, p)
+	}
+	if code, out := e.call("POST", "/v1/servers/"+second.ID+"/public-page", map[string]any{"enabled": false, "actor": "admin"}); code != 200 || out["enabled"] != false {
+		t.Fatalf("turning Creative off: %d %v", code, out)
+	}
+	code, p, raw := e.page(pageTestHost)
+	if code != 200 || len(p.Servers) != 1 || p.Servers[0].Slug != first.Slug || strings.Contains(raw, "Creative") || strings.Contains(raw, second.Slug) {
+		t.Fatalf("with Creative off the page shows %d %s", code, raw)
+	}
+	if p.Servers[0].Address != pageTestHost {
+		t.Fatalf("the server on 25565 joins at %q, want the bare address", p.Servers[0].Address)
+	}
+	if code, _ := e.call("GET", "/v1/public-page/icons/"+second.Slug+"?host="+pageTestHost, nil); code != 404 {
+		t.Fatalf("the icon of a server off the page: %d", code)
+	}
+}
+
+// Let's Encrypt's check for an own domain has the agent listen on port 80
+// for a few seconds. A hand-over in that time leaves the port for the next
+// look instead of counting it as busy for good.
+func TestAnHTTP01CheckDoesntMakePort80Busy(t *testing.T) {
+	e, _, plain := pageEnv(t, time.Hour, nil)
+	e.a.http01.Addr = ":" + strconv.Itoa(plain)
+	e.a.opts.HTTP01Addr = e.a.http01.Addr
+	release, err := e.a.http01.Present("tok3n", "tok3n.key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ports, files := e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTP: true})
+	closeAll(files)
+	if len(files) != 0 || ports.HTTP.State != api.PortWaiting {
+		t.Fatalf("during the check the page got %+v (%d files)", ports.HTTP, len(files))
+	}
+	release()
+	ports, files = e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTP: true})
+	closeAll(files)
+	if len(files) != 1 || ports.HTTP.State != api.PortOpen {
+		t.Fatalf("after the check the page got %+v (%d files)", ports.HTTP, len(files))
+	}
+}

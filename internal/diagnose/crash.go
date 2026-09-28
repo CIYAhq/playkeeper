@@ -40,7 +40,7 @@ const (
 type CrashInput struct {
 	ServerType  string // registry id: paper, purpur, vanilla, fabric, neoforge, forge…
 	MCVersion   string
-	JavaVersion int // Java major version of the image, e.g. 25
+	JavaVersion int // Java major version the server runs on, e.g. 17 for Minecraft 1.20.1
 
 	ExitCode    int
 	OOMKilled   bool   // Docker's State.OOMKilled

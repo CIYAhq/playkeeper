@@ -238,6 +238,80 @@ func TestLimits(t *testing.T) {
 	}
 }
 
+// A pack file may be as large as an add-on file, 512 MiB, which the Pixelmon
+// Modpack's Pixelmon jar fits in. A larger one is refused, whether the pack
+// lists its size or it only shows as the file downloads.
+func TestDefaultFileLimit(t *testing.T) {
+	const pixelmon = 394230428 // Pixelmon-1.21.1-9.3.16-universal.jar, as the pack lists it
+	for _, c := range []struct {
+		name    string
+		size    int64
+		blocker string // the plan's only blocker, if any
+	}{
+		{"Pixelmon's jar", pixelmon, ""},
+		{"at the limit", 512 << 20, ""},
+		{"a byte over", 512<<20 + 1, "too_large: Test Pack's file mods/big-1.jar is larger than the 512 MiB Playkeeper accepts for one file."},
+	} {
+		f := newFakes(t)
+		file := f.indexFile("mods/big-1.jar", []byte("big"))
+		file["fileSize"] = c.size
+		p := mustPlan(t, f.library(), newServer(t, "fabric", "26.2"), InstallRequest{Ref: testRef(f.addPack(testIndex(file)))})
+		if got := strings.Join(noticeList(p.Blockers), "; "); p.Ready != (c.blocker == "") || got != c.blocker {
+			t.Errorf("%s: ready %v, blockers %q", c.name, p.Ready, got)
+		}
+	}
+
+	f := newFakes(t)
+	l := f.library()
+	srv := newServer(t, "fabric", "26.2")
+	file := f.indexFile("mods/big-1.jar", []byte("big"))
+	f.hook(f.parse(strs(file["downloads"])[0]).Path, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(512<<20+1))
+	})
+	id := f.addPack(testIndex(file))
+	p := mustPlan(t, l, srv, InstallRequest{Ref: testRef(id)})
+	_, err := l.Install(context.Background(), srv, nil, InstallRequest{Ref: testRef(id), Fingerprint: p.Fingerprint})
+	if e := wantKind(t, err, addons.KindTooLarge); e.Msg != "mods/big-1.jar is larger than the 512 MiB Playkeeper accepts." {
+		t.Errorf("a download larger than the pack lists: %q", e.Msg)
+	}
+	wantTree(t, srv.Dir)
+	wantTree(t, l.TempDir)
+}
+
+// A pack may put up to 20,000 files on the server, as many as its archive may
+// hold entries, which the largest real packs fit in. One more is refused
+// before anything downloads.
+func TestDefaultFileCount(t *testing.T) {
+	for _, c := range []struct {
+		files int
+		err   string
+	}{
+		{20000, ""},
+		{20001, "Test Pack would put more than 20000 files on the server, more than Playkeeper accepts."},
+	} {
+		f := newFakes(t)
+		files := make([]obj, c.files)
+		for i := range files {
+			n := strconv.Itoa(i)
+			files[i] = f.fileAt("config/many/"+n+".toml", nil, f.url(f.cdn, "/data/many/versions/1/"+n+".toml"))
+		}
+		p, err := f.library().PlanInstall(context.Background(), newServer(t, "fabric", "26.2"), nil, InstallRequest{Ref: testRef(f.addPack(testIndex(files...)))})
+		switch {
+		case c.err != "":
+			if e := wantKind(t, err, KindTooManyFiles); e.Msg != c.err {
+				t.Errorf("%d files: %q", c.files, e.Msg)
+			}
+		case err != nil:
+			t.Errorf("%d files: %v", c.files, err)
+		case !p.Ready:
+			t.Errorf("%d files: blockers %q", c.files, noticeList(p.Blockers))
+		}
+		if got := f.served("cdn"); len(got) != 1 {
+			t.Errorf("%d files: downloaded %d files, want only the pack", c.files, len(got))
+		}
+	}
+}
+
 // If writing into the server's folder fails part way, everything written is
 // taken back.
 func TestFailedInstallLeavesNoTrace(t *testing.T) {

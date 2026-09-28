@@ -23,13 +23,25 @@ var streamed = map[string]bool{
 	"POST /v1/world-imports/{imp}/create":               true,
 }
 
+// socketOnly are the routes only the agent's own socket can answer: the
+// public page's ports travel as listening sockets passed over it, which a
+// machine link can't carry, and a joined machine runs no panel to serve them.
+var socketOnly = map[string]bool{
+	"POST " + pagePortsPath: true,
+}
+
 // LinkRoutes is the route table as data, for machine links: a dashboard may
-// send a joined machine exactly the requests its own agent serves.
+// send a joined machine exactly the requests its own agent serves, less the
+// socket-only ones.
 func LinkRoutes() []machinelink.Route {
 	table := (&Agent{}).routeTable()
 	out := make([]machinelink.Route, 0, len(table))
 	for _, rt := range table {
-		out = append(out, machinelink.Route{Method: rt.Method, Pattern: rt.Pattern, Stream: streamed[rt.Method+" "+rt.Pattern]})
+		key := rt.Method + " " + rt.Pattern
+		if socketOnly[key] {
+			continue
+		}
+		out = append(out, machinelink.Route{Method: rt.Method, Pattern: rt.Pattern, Stream: streamed[key]})
 	}
 	return out
 }

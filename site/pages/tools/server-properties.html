@@ -1,0 +1,169 @@
+{{/*
+path: /tools/server-properties
+title: Minecraft Server Properties: Every Setting Explained, With an Editor
+description: Every Minecraft server.properties setting for 26.3, explained in a line with its default. Change any of them and download the file, or load your own. Free.
+label: server.properties editor
+h1: Minecraft server properties, every setting explained
+card: Minecraft server properties editor
+kind: Tool
+section: tools
+crumb: Tools
+og: server-properties
+updated: 2026-09-28
+schema: tool
+cover: img/tools/server-properties.svg
+summary: Every server.properties setting explained, with a control for each and the file to download.
+styles: css/tools.css, css/tools/server-properties.css
+noscript: css/tools-nojs.css
+scripts: js/tools.js, js/tools/server-properties.js
+*/}}
+
+{{define "main"}}{{$p := data "properties"}}
+<section class="band-chalk page-hero page-hero-center tool-hero" aria-labelledby="page-title">
+  <div class="container">
+    {{template "crumbs" .}}
+    <h1 id="page-title" class="h1-page hero-rise">Minecraft server properties, every setting explained</h1>
+    <p class="lead hero-after">server.properties holds a Java server's settings, next to its jar. Here are all {{$p.Count}} that Minecraft 26.3 reads, each in a line with its default. Change any of them, or load your own file, and download the result.</p>
+    <p class="meta hero-after">Free · Nothing leaves your browser · Updated {{day .Page.Updated}}</p>
+    <p class="tool-nojs">Turn on JavaScript to change settings and download the file. Every setting is below with its default.</p>
+
+    <div class="tool tool-readable sp-tool hero-after" data-sp-tool>
+      <div class="sp-layout">
+        <div class="sp-main" data-controls>
+          <div class="tool-card sp-bar tool-js-only">
+            <div class="sp-find">
+              <label class="visually-hidden" for="sp-search">Find a setting</label>
+              <input class="tool-input" id="sp-search" placeholder="Find a setting, like port or whitelist" autocomplete="off" spellcheck="false" enterkeyhint="search">
+            </div>
+            <label class="tool-switch sp-only" for="sp-changed"><span class="tool-switch-text">Changed only</span><input type="checkbox" role="switch" id="sp-changed"><span class="tool-switch-track" aria-hidden="true"></span></label>
+            <button type="button" class="btn btn-outline sp-load-button" data-load aria-expanded="false" aria-controls="sp-load">Load your file</button>
+          </div>
+          <div class="tool-card sp-load tool-js-only" id="sp-load" data-load-panel hidden>
+            <label class="tool-label" for="sp-paste">Paste your server.properties</label>
+            <textarea class="tool-input tool-input-mono sp-paste" id="sp-paste" rows="6" spellcheck="false" placeholder="motd=My server&#10;max-players=10"></textarea>
+            <div class="sp-load-actions">
+              <button type="button" class="btn btn-primary" data-use>Use it</button>
+              <button type="button" class="btn btn-outline" data-choose>Choose the file</button>
+              <input type="file" class="visually-hidden" id="sp-file" accept=".properties,.txt,text/plain" tabindex="-1" aria-label="Choose server.properties">
+              <p class="tool-hint">It stays on your computer. Settings it doesn't have keep their defaults.</p>
+            </div>
+          </div>
+
+          {{- range $p.Groups}}
+          <section class="tool-card sp-group" aria-labelledby="sp-group-{{.ID}}" data-group>
+            <h2 class="tool-card-title" id="sp-group-{{.ID}}">{{.Name}}</h2>
+            {{- range .Props}}
+            <div class="sp-row sp-row-{{.Kind}}" id="{{.ID}}" data-prop="{{.Key}}" data-kind="{{.Kind}}" data-default="{{.Default}}"{{with .Min}} data-min="{{.}}"{{end}}{{with .Max}} data-max="{{.}}"{{end}}>
+              <div class="sp-info">
+                <p class="sp-key" id="sp-key-{{.ID}}">{{if eq .Kind "choice"}}<code>{{.Key}}</code>{{else}}<label for="sp-{{.ID}}"><code>{{.Key}}</code></label>{{end}}</p>
+                <p class="sp-what">{{.What}}</p>
+                <p class="sp-default"><span data-default-text>Default: {{if .Default}}<code>{{.Default}}</code>{{else}}empty{{end}}{{with .Range}} · {{.}}{{end}}</span> <button type="button" class="sp-reset tool-js-only" data-reset hidden>Reset</button></p>
+                <p class="sp-note" data-note hidden></p>
+              </div>
+              <div class="sp-control tool-js-only">
+                {{- if eq .Kind "bool"}}
+                <label class="tool-switch" for="sp-{{.ID}}"><span class="visually-hidden">{{.Key}}</span><input type="checkbox" role="switch" id="sp-{{.ID}}"{{if eq .Default "true"}} checked{{end}}><span class="tool-switch-track" aria-hidden="true"></span></label>
+                {{- else if eq .Kind "choice"}}{{$id := .ID}}{{$def := .Default}}
+                <div class="segments sp-choices" role="radiogroup" aria-labelledby="sp-key-{{.ID}}">
+                  {{- range $i, $c := .Choices}}
+                  <input type="radio" name="sp-{{$id}}" id="sp-{{$id}}-{{$i}}" value="{{$c.Value}}"{{if eq $c.Value $def}} checked{{end}}><label for="sp-{{$id}}-{{$i}}">{{$c.Label}}</label>
+                  {{- end}}
+                </div>
+                {{- else}}
+                <input class="tool-input tool-input-mono sp-input" id="sp-{{.ID}}" value="{{.Default}}"{{if eq .Kind "int"}} inputmode="numeric"{{end}} autocomplete="off" spellcheck="false">
+                {{- end}}
+              </div>
+            </div>
+            {{- end}}
+          </section>
+          {{- end}}
+          <section class="tool-card sp-group" aria-labelledby="sp-group-other" data-other hidden>
+            <h2 class="tool-card-title" id="sp-group-other">From your file, not read by 26.3</h2>
+            <div data-other-rows></div>
+          </section>
+          <p class="sp-empty tool-js-only" data-empty hidden></p>
+          <ul hidden data-retired>{{range $k, $v := $p.Retired}}<li data-key="{{$k}}">{{$v}}</li>{{end}}</ul>
+        </div>
+
+        <section class="tool-card tool-preview sp-out tool-js-only" aria-labelledby="sp-out-title" data-preview>
+          <div class="tool-card-head"><h2 id="sp-out-title" class="tool-card-title">Your server.properties</h2><span class="sp-count" data-count>No changes</span></div>
+          <figure class="tool-result sp-result">
+            <figcaption class="tool-result-head">
+              <span class="tool-result-title">server.properties</span>
+              <span class="sp-result-actions">
+                <button type="button" class="tool-copy" data-tool-copy="server-properties" data-copy-from="#sp-out">{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span><span class="visually-hidden"> server.properties</span></button>
+                <button type="button" class="tool-copy" data-download>{{template "icon" "download"}}<span>Download</span></button>
+              </span>
+            </figcaption>
+            <pre id="sp-out" tabindex="0" data-out>{{$p.File}}</pre>
+          </figure>
+          <p class="tool-hint sp-next">Put it in the server's folder in place of the old one, then restart the server.</p>
+        </section>
+      </div>
+
+      <div class="tool-dock tool-js-only" data-dock inert>
+        <span class="tool-dock-text">server.properties<small data-dock-info>No changes</small></span>
+        <button type="button" class="btn btn-primary" data-download>{{template "icon" "download"}}Download</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-white" aria-labelledby="use-title">
+  <div class="container">
+    <h2 id="use-title" class="section-title reveal">Put it on your server</h2>
+    <p class="section-sub reveal">The same file for Vanilla, Paper, Purpur, Fabric, NeoForge and the rest.</p>
+    <div class="tool-how">
+      <div>
+        <h3 class="tool-how-title reveal">Three steps</h3>
+        {{template "steps" (dict "Class" "steps-lg" "Items" (list
+          (dict "Title" "Replace the file" "Text" "server.properties sits in the server's folder, next to its jar. Keep the name.")
+          (dict "Title" "Restart the server" "Text" "It reads the file only when it starts.")
+          (dict "Title" "Check it kept your values" "Text" "The server writes the file back as it starts, with every setting it knows, in order.")
+        ))}}
+      </div>
+      <div>
+        <h3 class="tool-how-title reveal">If a setting doesn't stick</h3>
+        <ul class="tool-checks">
+          <li class="reveal"><strong>It went back to the default</strong><span>The server couldn't read the value, like letters where it wants a number, so it wrote the default in its place.</span></li>
+          <li class="reveal"><strong>A panel or Playkeeper set it back</strong><span>Hosts' panels set some keys from their own settings at every start. Change those there.</span></li>
+          <li class="reveal"><strong>It's from an older version</strong><span>pvp, allow-nether, enable-command-block and spawn-monsters are game rules since 1.21.9. The server keeps the lines but doesn't read them.</span></li>
+          <li class="reveal"><strong>The server won't start</strong><span>With the management API on, TLS needs a keystore. The editor above warns about that, and about RCON without a password.</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band band-chalk" aria-labelledby="pk-title">
+  <div class="container tool-pk">
+    <div>
+      <h2 id="pk-title" class="section-title reveal">In Playkeeper, the common ones are in Settings</h2>
+      <p class="section-sub reveal">Difficulty, game mode, view distance, the most players and the server list's message, in plain words. Its Files tab edits server.properties for the rest and marks the lines Settings sets.</p>
+      <div class="reveal">{{template "install" (dict "ID" true)}}</div>
+      <div class="hero-actions reveal"><a class="btn btn-outline" href="/demo/servers/survival/settings">See it in the live demo{{template "icon" "arrow-right"}}</a></div>
+    </div>
+    <div class="tool-pk-art reveal">
+      {{template "cardshot" (dict "Name" "tool-properties" "Alt" "server.properties open in Playkeeper's Files tab: marked lines, like difficulty and enable-rcon, are set from Settings each time the server starts." "Sizes" "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) 560px, 460px")}}
+    </div>
+  </div>
+</section>
+
+<section class="band band-white">
+  <div class="container">
+    {{template "faq" (dict "ID" "questions" "Items" (list
+      (qa "Where is server.properties?" "In the server's folder, next to its jar. The server makes it the first time it starts, in the folder it was started from.")
+      (qa "How do I change a server.properties setting?" "Change the line in any text editor, save it and restart the server, which reads the file only when it starts. Or change it here and download the whole file.")
+      (qa "Why did my setting go back to the default?" "The server couldn't read the value, like letters where it expects a number, so it wrote the default back when it started. A host's panel, or Playkeeper, can also set some keys from its own settings at every start.")
+      (qa "What is the default Minecraft server port?" "25565, over TCP, set by <code>server-port</code>. Query uses 25565 over UDP, and RCON 25575.")
+      (qa "Is the whitelist on by default?" "Since 26.3, yes: <code>white-list</code> is <code>true</code> in a new server.properties. Add friends with <code>/whitelist add</code> and their name. Operators can always join.")
+      (qa "Where did pvp, allow-nether and spawn-monsters go?" "Since 1.21.9 they're game rules, set with <code>/gamerule</code>: <code>pvp</code>, <code>allow_entering_nether_using_portals</code> and <code>spawn_monsters</code>, and <code>command_blocks_work</code> in place of enable-command-block, by their names since 1.21.11. The server keeps the old lines but no longer reads them.")
+      (qa "What's the difference between view-distance and simulation-distance?" "Both count chunks around each player. <code>view-distance</code> is how far the server sends the world, so how far players see. <code>simulation-distance</code> is how far the world keeps running: mobs moving, crops growing, redstone working.")
+      (qa "How do I add colours to the MOTD in server.properties?" "Write each colour code as <code>\\u00A7</code> and a letter, like <code>\\u00A7a</code> for green, and a line break as <code>\\n</code>. The editor escapes what you type the same way.")
+      (qa "Does Playkeeper edit server.properties?" "Its Settings change the common ones in plain words: difficulty, game mode, view distance, the most players and the server list's message. Its Files tab edits the file itself, and marks the lines Playkeeper sets from Settings at every start.")
+    ))}}
+  </div>
+</section>
+
+{{template "related" (related 3 "/tools/motd" "/tools/jvm-flags" "/sizing" "/tools/server-icon" "/tools")}}
+{{end}}

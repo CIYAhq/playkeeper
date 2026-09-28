@@ -15,39 +15,40 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/templates"
+	"github.com/CIYAhq/playkeeper/internal/templates/checks"
 	"github.com/CIYAhq/playkeeper/internal/templates/library"
 )
 
 // LibraryPage is a template of the public library at /templates/<ID>: the
-// site template it opens (site/data/templates) and what happened when an
-// agent created and started a server from it on a real Playkeeper, on the
-// day in Checked (site/data/library/<ID>.json).
+// site template it opens (site/data/library/<ID>.json names it) and what
+// happened the last time cmd/template-check created and started a server from
+// it on a real Playkeeper (site/data/checks/<template>.json).
 type LibraryPage struct {
 	ID       string `json:"-"`
 	Template string `json:"template"`
-	Checked  string `json:"checked"`
-	// Release is the Playkeeper version the server was created with, and
-	// Build the server software's build its plan picked.
-	Release string `json:"release"`
-	Build   string `json:"build"`
+	// Checked is the day of the check; Release the Playkeeper version it
+	// ran on, and Build the server software's build its plan picked.
+	Checked string `json:"-"`
+	Release string `json:"-"`
+	Build   string `json:"-"`
 	// DoneSeconds is what the server's log said when it was ready: "Done
 	// (12.005s)!".
-	DoneSeconds float64 `json:"doneSeconds"`
+	DoneSeconds float64 `json:"-"`
 	// Plugins are the template's add-ons as they installed, in its order.
-	Plugins []LibraryPlugin `json:"plugins"`
+	Plugins []LibraryPlugin `json:"-"`
 	card    *TemplateCard
 }
 
 // LibraryPlugin is one add-on of a library template as it installed.
 type LibraryPlugin struct {
-	Name    string `json:"name"`
-	Slug    string `json:"slug"`
-	Version string `json:"version"`
+	Name    string
+	Slug    string
+	Version string
 	// Licence is the SPDX id its source lists; LicenseRef-All-Rights-Reserved
 	// for none.
-	Licence string `json:"licence"`
+	Licence string
 	// Downloads is its total on its source on Checked.
-	Downloads int `json:"downloads"`
+	Downloads int
 }
 
 var reRelease3 = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
@@ -83,11 +84,17 @@ func (l *LibraryPage) Done() string {
 	return strconv.FormatFloat(l.DoneSeconds, 'f', 0, 64)
 }
 
-// Projects lists the add-ons' slugs for the itzg image's MODRINTH_PROJECTS.
+// Projects lists the add-ons for the itzg image's MODRINTH_PROJECTS: each
+// slug with the version the template pins, so the command installs what the
+// template does.
 func (l *LibraryPage) Projects() string {
 	var out []string
-	for _, p := range l.Plugins {
-		out = append(out, p.Slug)
+	for _, a := range l.T().Addons {
+		p := a.Slug
+		if a.Pin != nil {
+			p += ":" + a.Pin.VersionID
+		}
+		out = append(out, p)
 	}
 	return strings.Join(out, ",")
 }
@@ -124,9 +131,10 @@ func (l *LibraryPage) Has(slug string) bool {
 	return slices.ContainsFunc(l.Plugins, func(p LibraryPlugin) bool { return p.Slug == slug })
 }
 
-// loadLibrary reads the library's pages in dir, one .json each, and refuses
-// one that doesn't describe exactly what its template installs.
-func loadLibrary(src fs.FS, dir string, cards map[string]*TemplateCard) (map[string]*LibraryPage, error) {
+// loadLibrary reads the library's pages in dir, one .json each, takes their
+// facts from their templates' checks, and refuses a page whose template
+// has no passing check or whose check doesn't list exactly what it installs.
+func loadLibrary(src fs.FS, dir string, cards map[string]*TemplateCard, checked map[string]*checks.Check) (map[string]*LibraryPage, error) {
 	entries, err := fs.ReadDir(src, dir)
 	if err != nil {
 		return nil, err
@@ -147,12 +155,54 @@ func loadLibrary(src fs.FS, dir string, cards map[string]*TemplateCard) (map[str
 		if err := d.Decode(l); err != nil {
 			return nil, fmt.Errorf("%s: %w", e.Name(), err)
 		}
+		if err := l.fill(checked[l.Template]); err != nil {
+			return nil, fmt.Errorf("%s: %w", e.Name(), err)
+		}
 		if err := l.check(cards); err != nil {
 			return nil, fmt.Errorf("%s: %w", e.Name(), err)
 		}
 		out[id] = l
 	}
 	return out, nil
+}
+
+// fill takes the page's facts from its template's last check.
+func (l *LibraryPage) fill(c *checks.Check) error {
+	switch {
+	case c == nil:
+		return fmt.Errorf("template %q has no check in site/data/checks: run cmd/template-check with -write", l.Template)
+	case c.Status != checks.Passing:
+		return fmt.Errorf("template %q failed its last check (%s): fix it or take its page down", l.Template, c.Failure)
+	}
+	l.Checked, l.Release, l.Build, l.DoneSeconds = c.Checked, c.Release, c.Build, c.DoneSeconds
+	l.Plugins = nil
+	for _, a := range c.Addons {
+		l.Plugins = append(l.Plugins, LibraryPlugin{Name: a.Name, Slug: a.Slug, Version: versionName(a.Version), Licence: a.Licence, Downloads: a.Downloads})
+	}
+	return nil
+}
+
+var (
+	reLoaderTag = regexp.MustCompile(`(?i)^(?:bukkit|spigot|paper|purpur|fabric|quilt|neoforge|forge)[-_]|[-_+](?:bukkit|spigot|paper|purpur|fabric|quilt|neoforge|forge)$`)
+	reMCPrefix  = regexp.MustCompile(`^mc\d+(?:\.\d+)+[-_]`)
+	reMCSuffix  = regexp.MustCompile(`\+(?:mc)?\d+(?:\.\d+)+$`)
+)
+
+// versionName is an add-on's version as a reader says it: without the
+// loader and Minecraft version its source adds, such as "bukkit-2.6.24" or
+// "mc26.2-0.25.3-fabric", or a leading v.
+func versionName(v string) string {
+	s := v
+	for range 3 {
+		s = reMCSuffix.ReplaceAllString(reMCPrefix.ReplaceAllString(reLoaderTag.ReplaceAllString(s, ""), ""), "")
+	}
+	if len(s) > 1 && s[0] == 'v' && s[1] >= '0' && s[1] <= '9' {
+		s = s[1:]
+	}
+	if s == "" {
+		return v
+	}
+	return s
 }
 
 func (l *LibraryPage) check(cards map[string]*TemplateCard) error {
@@ -192,14 +242,18 @@ func (s *Site) libraryPage(id string) (*LibraryPage, error) {
 
 // DashboardLibrary is the template list each release carries for New server
 // › A template (internal/templates/library): every template in
-// site/data/templates by name, with its page and, for a library template, the
-// check its page states.
+// site/data/templates whose last check passed, by name, with its page and
+// that check's day and release.
 func DashboardLibrary(root fs.FS, s Settings) ([]byte, error) {
 	cards, err := loadTemplateCards(root, "site/data/templates")
 	if err != nil {
 		return nil, err
 	}
-	pages, err := loadLibrary(root, "site/data/library", cards)
+	checked, err := checks.Read(root, "site/data/checks")
+	if err != nil {
+		return nil, err
+	}
+	pages, err := loadLibrary(root, "site/data/library", cards, checked)
 	if err != nil {
 		return nil, err
 	}
@@ -209,6 +263,10 @@ func DashboardLibrary(root fs.FS, s Settings) ([]byte, error) {
 	}
 	out := make([]library.Template, 0, len(cards))
 	for id, c := range cards {
+		ck := checked[id]
+		if ck == nil || ck.Status != checks.Passing {
+			continue
+		}
 		file, err := fs.ReadFile(root, path.Join("site/data/templates", id+".json"))
 		if err != nil {
 			return nil, err
@@ -217,7 +275,7 @@ func DashboardLibrary(root fs.FS, s Settings) ([]byte, error) {
 		if err := json.Compact(&compact, file); err != nil {
 			return nil, fmt.Errorf("%s.json: %w", id, err)
 		}
-		t := library.Template{ID: id, Name: c.Name, Art: path.Base(c.Art), OpensFrom: c.OpensFrom, File: compact.Bytes()}
+		t := library.Template{ID: id, Name: c.Name, Art: path.Base(c.Art), OpensFrom: c.OpensFrom, Checked: ck.Checked, Release: ck.Release, File: compact.Bytes()}
 		for _, m := range packs {
 			if m.Template == id {
 				t.Page = s.BaseURL + m.Path()
@@ -225,7 +283,7 @@ func DashboardLibrary(root fs.FS, s Settings) ([]byte, error) {
 		}
 		for _, l := range pages {
 			if l.Template == id {
-				t.Page, t.Checked, t.Release = s.BaseURL+l.Path(), l.Checked, l.Release
+				t.Page = s.BaseURL + l.Path()
 			}
 		}
 		out = append(out, t)

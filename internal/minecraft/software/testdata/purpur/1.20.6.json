@@ -1,0 +1,48 @@
+{
+ "project": "purpur",
+ "version": "1.20.6",
+ "builds": {
+  "latest": {
+   "project": "purpur",
+   "version": "1.20.6",
+   "build": "2233",
+   "result": "SUCCESS",
+   "timestamp": 1718683050390,
+   "duration": 373664,
+   "metadata": {},
+   "md5": "d4ef6834b254dac98f7ad8b3b10bda54"
+  },
+  "all": [
+   {
+    "project": "purpur",
+    "version": "1.20.6",
+    "build": "2231",
+    "result": "FAILURE",
+    "timestamp": 1718009333999,
+    "duration": 1821,
+    "metadata": {},
+    "md5": null
+   },
+   {
+    "project": "purpur",
+    "version": "1.20.6",
+    "build": "2232",
+    "result": "SUCCESS",
+    "timestamp": 1718323654021,
+    "duration": 262813,
+    "metadata": {},
+    "md5": "7b6d43b3efd699fa6f6cf9de255ce10f"
+   },
+   {
+    "project": "purpur",
+    "version": "1.20.6",
+    "build": "2233",
+    "result": "SUCCESS",
+    "timestamp": 1718683050390,
+    "duration": 373664,
+    "metadata": {},
+    "md5": "d4ef6834b254dac98f7ad8b3b10bda54"
+   }
+  ]
+ }
+}

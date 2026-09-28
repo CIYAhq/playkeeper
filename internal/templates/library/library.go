@@ -30,8 +30,8 @@ type Template struct {
 	Page string `json:"page,omitempty"`
 	// OpensFrom is the first release that opens it, when older ones can't.
 	OpensFrom string `json:"opensFrom,omitempty"`
-	// Checked is the day a server was created and started from it, and
-	// Release the Playkeeper it ran on, when its page says.
+	// Checked is the day a server was last created and started from it, and
+	// Release the Playkeeper it ran on.
 	Checked string `json:"checked,omitempty"`
 	Release string `json:"release,omitempty"`
 	// File is the template itself, in the format of internal/templates.

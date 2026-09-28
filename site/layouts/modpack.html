@@ -3,7 +3,7 @@
      out from them (Java, memory) is worked out as the dashboard does. */}}
 
 {{/* modpack-facts: what a pack's server needs, as a table. Pack is the pack
-     (modpack "id"); Version the release the install plan was checked with. */}}
+     (modpack "id"). */}}
 {{define "modpack-facts"}}{{$m := .Pack}}
 <div class="table-scroll" tabindex="0">
   <table class="data">
@@ -18,7 +18,7 @@
       <tr><th scope="row">Download</th><td>{{$m.DownloadSize}}</td></tr>
       <tr><th scope="row">Server files</th><td>{{with $m.ServerFiles}}<a href="{{.URL}}">{{.Name}}</a>, {{megabytes .MB}}{{else}}None: servers are built from the pack itself{{end}}</td></tr>
       <tr><th scope="row">From</th><td><a href="{{$m.Page}}">{{$m.SourceName}}</a>, by {{$m.Author}}, {{$m.DownloadCount}} downloads</td></tr>
-      <tr><th scope="row">Checked</th><td>{{day $m.Checked}}, on {{$m.SourceName}} and with Playkeeper {{.Version}}'s install plan</td></tr>
+      <tr><th scope="row">Checked</th><td>{{day $m.Checked}}, on {{$m.SourceName}} and with Playkeeper {{$m.Release}}'s install plan</td></tr>
     </tbody>
   </table>
 </div>

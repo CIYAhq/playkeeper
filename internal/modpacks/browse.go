@@ -71,6 +71,11 @@ type Version struct {
 	Mods int `json:"mods,omitempty"`
 	// Unsupported says why Playkeeper cannot install this version.
 	Unsupported *addons.Notice `json:"unsupported,omitempty"`
+	// HashAlgo and Hash are what the source publishes for the pack's
+	// archive, which an install checks it against: sha512 for a .mrpack,
+	// sha1 for a CurseForge zip. Hash is empty when the source lists none.
+	HashAlgo string `json:"hashAlgo,omitempty"`
+	Hash     string `json:"hash,omitempty"`
 
 	bundled []string // Modrinth project ids
 }
@@ -473,7 +478,7 @@ func (l *Library) modrinthVersions(ctx context.Context, proj *modrinth.Project, 
 		out = append(out, Version{
 			ID: v.ID, Number: printable(v.VersionNumber), Name: printable(v.Name), Channel: channel(v.VersionType),
 			Published: v.DatePublished, Size: file.Size, Type: typ, MinecraftVersion: printable(m), Mods: len(ids), Unsupported: why,
-			bundled: ids,
+			HashAlgo: "sha512", Hash: strings.ToLower(file.Hashes.SHA512), bundled: ids,
 		})
 	}
 	return newestFirst(out), nil
@@ -499,7 +504,7 @@ func (l *Library) curseForgeVersions(ctx context.Context, mod *curseforge.Mod, m
 		}
 		out = append(out, Version{
 			ID: strconv.FormatInt(f.ID, 10), Number: printable(f.DisplayName), Name: printable(f.FileName), Channel: cfChannel(f.ReleaseType),
-			Published: f.FileDate, Size: f.FileLength, Type: typ, MinecraftVersion: m, Unsupported: why,
+			Published: f.FileDate, Size: f.FileLength, Type: typ, MinecraftVersion: m, Unsupported: why, HashAlgo: "sha1", Hash: f.SHA1(),
 		})
 	}
 	return newestFirst(out), nil

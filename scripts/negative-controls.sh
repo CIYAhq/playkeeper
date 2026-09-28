@@ -1755,6 +1755,18 @@ control "add-on scan: stops with its context" internal/addons/scan.go \
   'l.readLocal(ctx, root, lf, identify, verify)
 			if err := ctx.Err(); false && err != nil {' \
   ./internal/addons '^TestAScanStopsWithItsContext$'
+control "an add-on file may be as large as Pixelmon's jar" internal/addons/addons.go \
+  'DefaultMaxFileSize = 512 << 20' \
+  'DefaultMaxFileSize = 256 << 20' \
+  ./internal/addons '^TestPlanInstallTakesFilesUpTo512MiB$'
+control "an add-on file larger than 512 MiB is refused" internal/addons/addons.go \
+  'DefaultMaxFileSize = 512 << 20' \
+  'DefaultMaxFileSize = 1 << 62' \
+  ./internal/addons '^TestPlanInstallTakesFilesUpTo512MiB$'
+control "an add-on's download must match the hash its library publishes" internal/addons/fetch/download.go \
+  'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
+  ./internal/addons '^TestInstallRefusesBadDownloads$'
 control "pre-generation: a named pipe for the plugins folder is refused before it is opened" internal/gamefiles/gamefiles.go \
   'err = folderError(p, fi)' \
   'err = nil' \
@@ -2002,13 +2014,37 @@ control "mods CurseForge won't let Playkeeper download come from the pack's serv
   'if err := error(nil); err != nil {' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
 control "a mod from the server files must have the SHA-1 CurseForge lists" internal/modpacks/resolve.go \
-  'if sums["sha1"] != s.sha1 {' \
-  'if false && sums["sha1"] != s.sha1 {' \
+  'if sums["sha1"] != sha1 {' \
+  'if false && sums["sha1"] != sha1 {' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
 control "only the server files of the pack's own version are used" internal/modpacks/resolve.go \
   'sp.ParentProjectFileID == nil || *sp.ParentProjectFileID != file.ID || ' \
   '' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "a modpack's file may be as large as Pixelmon's jar" internal/modpacks/modpacks.go \
+  'File: addons.DefaultMaxFileSize,' \
+  'File: 256 << 20,' \
+  ./internal/modpacks '^TestDefaultFileLimit$'
+control "a modpack's file larger than 512 MiB is refused, listed or not" internal/modpacks/modpacks.go \
+  'File: addons.DefaultMaxFileSize,' \
+  'File: 1 << 62,' \
+  ./internal/modpacks '^TestDefaultFileLimit$'
+control "a pack file's download stops at one file's limit, even when the pack lists it smaller" internal/modpacks/apply.go \
+  'room := min(lim.File, lim.Downloads-total)' \
+  'room := lim.Downloads - total' \
+  ./internal/modpacks '^TestDefaultFileLimit$'
+control "a modpack may put as many files on the server as the largest real packs" internal/modpacks/modpacks.go \
+  'Index: 16 << 20, Files: 20000,' \
+  'Index: 16 << 20, Files: 5000,' \
+  ./internal/modpacks '^TestDefaultFileCount$'
+control "a modpack that would put more than 20,000 files on the server is refused" internal/modpacks/modpacks.go \
+  'Index: 16 << 20, Files: 20000,' \
+  'Index: 16 << 20, Files: 1 << 30,' \
+  ./internal/modpacks '^TestDefaultFileCount$'
+control "a modpack's downloads must match the hashes the pack lists" internal/addons/fetch/download.go \
+  'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
+  ./internal/modpacks '^TestDownloadsMustMatchThePacksHashes$'
 control "a pack's settings are read and written without following a link" internal/agent/modpacks.go \
   'cur, err := d.ReadProperties()
 	if errors.Is(err, fs.ErrNotExist) {
@@ -2036,7 +2072,7 @@ control "the Java heap a pack's user_jvm_args.txt asks for is read" internal/mod
   '' \
   ./internal/modpacks '^TestPackHeapFromItsServerSettings$'
 control "the Java heap a CurseForge manifest recommends is read" internal/modpacks/resolve.go \
-  'p.heapMB = plausibleHeap(m.Minecraft.RecommendedRAM)' \
+  'p.heapMB = plausibleHeap(int(m.Minecraft.RecommendedRAM))' \
   'p.heapMB = 0' \
   ./internal/modpacks '^TestCurseForgePackHeap$'
 control "a pack's memory need covers the Java heap it asks for" internal/agent/modpacks.go \
@@ -2175,6 +2211,57 @@ control "a template whose modpack runs on another type is blocked" internal/agen
   'p.Blockers, p.Ready = append(p.Blockers, *n), false' \
   '_ = n' \
   ./internal/agent '^TestTemplateModpackRunsOnTheTypeItNames$'
+control "a template's modpack plans on the Minecraft version it's made for" internal/agent/templates.go \
+  'if same < 0 && t.Modpack != nil && typ == t.Server.Type {' \
+  'if false {' \
+  ./internal/agent '^TestTemplateModpackPlansOnThePacksOwnVersion$'
+control "a template's CurseForge modpack needs this machine's own CurseForge key" internal/agent/templates.go \
+  'if m.Source == modpacks.CurseForge && !slices.Contains(a.packs().Sources(), modpacks.CurseForge) {' \
+  'if false {' \
+  ./internal/agent '^TestTemplateCarriesACurseForgeModpack$'
+control "a template whose modpack version its source doesn't list is blocked" internal/agent/templates.go \
+  '	case i < 0:
+		return &addons.Notice{Kind: kindTemplatePackMissing,' \
+  '	case false:
+		return &addons.Notice{Kind: kindTemplatePackMissing,' \
+  ./internal/agent '^TestTemplateCarriesACurseForgeModpack$'
+control "a template whose modpack version can't be installed is blocked" internal/agent/templates.go \
+  '	case v.Unsupported != nil:
+		return packNotice(*v.Unsupported, hint)' \
+  '	case false:
+		return packNotice(*v.Unsupported, hint)' \
+  ./internal/agent '^TestTemplateCarriesACurseForgeModpack$'
+control "creating from a template checks its modpack's pin when the plan couldn't" internal/agent/handlers.go \
+  '		if tpl != nil {
+			n, err := a.packFit(r.Context(), tpl.p)' \
+  '		if false {
+			n, err := a.packFit(r.Context(), tpl.p)' \
+  ./internal/agent '^TestTemplateCreateChecksThePinThePlanCouldNot$'
+control "a template whose modpack isn't the file its source offers is blocked" internal/agent/templates.go \
+  'case v.Hash != "" && (v.HashAlgo != m.Pin.HashAlgo || v.Hash != m.Pin.Hash):' \
+  'case false:' \
+  ./internal/agent '^TestTemplate(ModpackRunsOnTheTypeItNames|CarriesACurseForgeModpack)$'
+control "an exported modpack server's own mods travel with its pack" internal/agent/templates.go \
+  'if st.Modpack.Files, err = s.packFiles(st.Folder.Folder); err != nil {' \
+  'if _, err = s.packFiles(st.Folder.Folder); err != nil {' \
+  ./internal/agent '^TestTemplate(OfAModpackServerCarriesThePack|CarriesACurseForgeModpack)$'
+control "templates carry CurseForge modpacks" internal/templates/validate.go \
+  'modpackSources = []addons.Source{addons.Modrinth, modpacks.CurseForge}' \
+  'modpackSources = []addons.Source{addons.Modrinth}' \
+  ./internal/templates '^Test(FixturesAreCanonical|TemplateCarriesACurseForgeModpack|ExportCurseForgeModpack)$'
+control "a template's CurseForge modpack is pinned by the SHA-1 CurseForge publishes" internal/templates/validate.go \
+  '	case modpacks.CurseForge:
+		return "sha1"' \
+  '' \
+  ./internal/templates '^Test(ValidateRefuses|TemplateCarriesACurseForgeModpack)$'
+control "a modpack's own files aren't reported as added by hand" internal/templates/export.go \
+  'case e.Installed == nil && x.packFiles[e.FileName]:' \
+  'case false:' \
+  ./internal/templates '^TestExportLeavesAModpacksOwnFilesToIt$'
+control "a CurseForge pack's versions carry the SHA-1 CurseForge publishes" internal/modpacks/browse.go \
+  ' HashAlgo: "sha1", Hash: f.SHA1(),' \
+  '' \
+  ./internal/modpacks '^TestVersions$'
 control "a backup records voice chat's UDP port" internal/agent/backups.go \
   'm.Settings[manifestVoiceChatPort] = strconv.Itoa(sc.VoiceChatPort)' \
   '_ = sc.VoiceChatPort' \
@@ -4889,12 +4976,12 @@ control "Forge's installer setting names a downloaded jar in the server's folder
 		case "CUSTOM_SERVER", "NEOFORGE_INSTALLER":' \
   ./internal/minecraft/software '^TestPlanValidation$'
 control "a Forge installer installs the version pinned" internal/minecraft/software/forge.go \
-  'if prof.Version != name || prof.Minecraft != pin.MinecraftVersion || ver.ID != name || ver.InheritsFrom != pin.MinecraftVersion {' \
-  'if false && (prof.Version != name || prof.Minecraft != pin.MinecraftVersion || ver.ID != name || ver.InheritsFrom != pin.MinecraftVersion) {' \
+  'if prof.Version != name || prof.Minecraft != b.mc || ver.ID != name || ver.InheritsFrom != b.mc {' \
+  'if false && (prof.Version != name || prof.Minecraft != b.mc || ver.ID != name || ver.InheritsFrom != b.mc) {' \
   ./internal/minecraft/software '^TestInstallForgeRefuses$'
 control "Forge's installer looks for Mojang's jar where Playkeeper verified it" internal/minecraft/software/forge.go \
-  '; prof.ServerJarPath != want {' \
-  '; false && prof.ServerJarPath != want {' \
+  '.Replace(prof.ServerJarPath) != b.serverJarPath() {' \
+  '.Replace(prof.ServerJarPath) != b.serverJarPath() && false {' \
   ./internal/minecraft/software '^TestInstallForgeRefuses$'
 control "NeoForge's installers for Minecraft 1.21 to 1.21.11 install, NeoForm's data checked like the libraries" internal/minecraft/software/neoforge.go \
   'var neoforgeLibraryExts = []string{".jar", ".zip", ".tsrg.lzma"}' \
@@ -4913,19 +5000,19 @@ control "a Forge server starts from Forge's shim jar" internal/minecraft/softwar
   'if false && (prof.Path != shimCoord || !ok || shim == nil || shim.Path != into+"/"+shimRel) {' \
   ./internal/minecraft/software '^TestInstallForgeRefuses$'
 control "the shim jar a Forge server starts is checked" internal/minecraft/software/forge.go \
-  'checks = append(checks, Check{Path: shimName, Hash: shim.Hash, Size: shim.Size, Origin: Derived, Source: forgeLibrarySource})' \
+  'checks = append(checks, Check{Path: shimName, Hash: shim.Hash, Size: shim.Size, Origin: Derived, Source: libs})' \
   '' \
   ./internal/minecraft/software '^TestInstallForgeRefuses$'
 control "Forge's launch arguments are where the server container reads them" internal/minecraft/software/forge.go \
-  'if !extractsForgeArgs(prof, forgeArgsPath(pin)) {' \
-  'if false && !extractsForgeArgs(prof, forgeArgsPath(pin)) {' \
+  'if !extractsForgeArgs(prof, b.argsPath()) {' \
+  'if false && !extractsForgeArgs(prof, b.argsPath()) {' \
   ./internal/minecraft/software '^TestInstallForgeRefuses$'
 control "Forge's launch arguments start its checked shim jar" internal/minecraft/software/forge.go \
-  'if !startsJar(string(args), shimName) {' \
-  'if false && !startsJar(string(args), shimName) {' \
+  'case shimName != "" && !startsJar(string(args), shimName):' \
+  'case false && !startsJar(string(args), shimName):' \
   ./internal/minecraft/software '^TestInstallForgeRefuses$'
 control "the files Forge's installer builds are checked against the SHA-1s it publishes" internal/minecraft/software/forge.go \
-  'out = append(out, Check{Path: into + "/" + p, Hash: h, Origin: Derived, Source: forgeOutputSource})' \
+  'out = append(out, Check{Path: into + "/" + p, Hash: h, Origin: Derived, Source: source})' \
   '_, _ = p, h' \
   ./internal/minecraft/software '^TestInstallForgeRefuses$'
 control "a Forge installer must publish the patched jar's SHA-1" internal/minecraft/software/forge.go \
@@ -4944,6 +5031,78 @@ control "Forge keeps as much memory outside the heap as NeoForge" internal/minec
   '"neoforge": 1024, "forge": 1024}' \
   '"neoforge": 1024}' \
   ./internal/minecraft '^TestHeapForModLoaders$'
+
+# Minecraft 1.20.1: the oldest release offered, Forge's installers from
+# before its shim jar, NeoForge's builds under Forge's name, and the packs
+# that name them.
+control "Playkeeper offers Minecraft from 1.20.1 on, not 1.20" internal/minecraft/software/catalog.go \
+  'minecraft.CompareMinecraft(mc, minecraft.OldestRelease) >= 0' \
+  'minecraft.CompareMinecraft(mc, "1.20") >= 0' \
+  ./internal/minecraft/software '^(TestOffered|TestPinValidate|TestBuildsErrors)$'
+control "Paper's catalog starts at Minecraft 1.20.1" internal/minecraft/fill.go \
+  'CompareMinecraft(id, OldestRelease) < 0' \
+  'CompareMinecraft(id, "1.20") < 0' \
+  ./internal/minecraft '^TestCatalogStartsAtTheOldestRelease$'
+control "Forge's installers before Minecraft 1.20.3 get Mojang's jar under its plain name" internal/minecraft/software/forge.go \
+  'minecraft.CompareMinecraft(b.mc, "1.20.3") >= 0' \
+  'minecraft.CompareMinecraft(b.mc, "1.20.3") >= -1' \
+  ./internal/minecraft/software '^(TestInstallForgeForMinecraft1201|TestResolveForge)$'
+control "a Forge server without a shim jar starts from the libraries its installer checked" internal/minecraft/software/forge.go \
+  'case shimName == "" && (prof.Path != "" || slices.Contains(strings.Fields(string(args)), "-jar")):' \
+  'case false:' \
+  ./internal/minecraft/software '^TestInstallForgeForMinecraft1201Refuses$'
+control "NeoForge's builds for Minecraft 1.20.1 are checked as the Forge installers they are" internal/minecraft/software/neoforge.go \
+  'derive, args = DeriveForge, b.argsPath()' \
+  '_ = b' \
+  ./internal/minecraft/software '^(TestInstallNeoForgeForMinecraft1201|TestResolveNeoForge)$'
+control "NeoForge's builds for Minecraft 1.20.1 come from its Forge-named artifact" internal/minecraft/software/neoforge.go \
+  'fileURL = neoforgeForgeMaven + "/" + b.id() + "/" + name' \
+  'fileURL = neoforgeMaven + "/" + b.id() + "/" + name' \
+  ./internal/minecraft/software '^TestResolveNeoForge$'
+control "NeoForge's list for Minecraft 1.20.1 keeps only its builds for 1.20.1" internal/minecraft/software/neoforge.go \
+  'ok && reNeoForgeForge.MatchString(v)' \
+  '(ok || true) && reNeoForgeForge.MatchString(v)' \
+  ./internal/minecraft/software '^TestBuilds$'
+control "Forge's checks are only for a build Forge's installer makes" internal/minecraft/software/plan.go \
+  'd.Kind == DeriveForge && !ok {' \
+  'd.Kind == DeriveForge && !ok && false {' \
+  ./internal/minecraft/software '^TestPlanValidation$'
+control "CurseForge's NeoForge builds for Minecraft 1.20.1 lose the version in front" internal/modpacks/requirements.go \
+  'if t == "forge" || t == "neoforge" {' \
+  'if t == "forge" {' \
+  ./internal/modpacks '^TestPackDependenciesDecideTheServer$'
+control "server files in a folder of their own give their mods" internal/modpacks/resolve.go \
+  'if root := p.server.root(); root != "" && root != dir {' \
+  'if root := p.server.root(); false && root != dir {' \
+  ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "server files that hold only a mods folder keep it" internal/modpacks/resolve.go \
+  'if root := p.server.root(); root != "" && root != dir {' \
+  'if root := p.server.root(); root != "" {' \
+  ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "mods a pack's server files leave out stay off the server" internal/modpacks/resolve.go \
+  '	if holds {' \
+  '	if holds && false {' \
+  ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "server files that hold few of the pack's mods don't decide what the server gets" internal/modpacks/resolve.go \
+  'return len(pack) > 0 && 2*held >= len(pack)' \
+  'return len(pack) > 0' \
+  ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "a mod CurseForge tags for players' games goes on the server when its server files have it" internal/modpacks/resolve.go \
+  'if err := p.keepWhatServerFilesHave(mods, lim); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "a mod the server files put back isn't listed as left out" internal/modpacks/resolve.go \
+  'p.skipped = slices.DeleteFunc(p.skipped, func(s Skipped) bool { return s.Path == c.path && s.Reason == addons.KindClientOnly })' \
+  '_ = c.path' \
+  ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "a CurseForge manifest's odd recommendedRam doesn't refuse the pack" internal/modpacks/curseforge/manifest.go \
+  '	if err != nil || n < 0 {
+		n = 0
+	}' \
+  '	if err != nil || n < 0 {
+		return err
+	}' \
+  ./internal/modpacks/curseforge '^TestRecommendedRAM$'
 control "a Forge server gets only the Forge build of a mod" internal/addons/target.go \
   'Loaders: []string{"forge"}}' \
   'Loaders: []string{"neoforge"}}' \
@@ -5960,6 +6119,166 @@ control "a pull onto a full disk isn't tried again" internal/agent/lifecycle.go 
   ' && !strings.Contains(err.Error(), "no space left on device")' \
   '' \
   ./internal/agent '^TestAnImagePullDockerHubRefusesOrDropsIsTriedAgain$'
+
+# playkeeper.io says a release is out only once it's published.
+control "the site describes the published release, not CHANGELOG.md's newest section" internal/site/build.go \
+  '			return r.Version, nil' \
+  '			return string(reRelease.FindSubmatch(c)[1]), nil' \
+  ./internal/site '^TestTheSiteShowsOnlyThePublishedRelease$'
+control "the published release has a CHANGELOG.md section" internal/site/build.go \
+  '		if string(m[1]) == r.Version {' \
+  '		if string(m[1]) == r.Version || true {' \
+  ./internal/site '^TestTheSiteShowsOnlyThePublishedRelease$'
+# 0.4.3: the public page at the machine's address, and the ports it takes.
+control "the public page names players only while the owner shows them" internal/agent/publicpage.go \
+  '		if set.Players && len(st.Players.Names) > 0 {' \
+  '		if len(st.Players.Names) > 0 {' \
+  ./internal/agent '^TestThePublicPageShowsAServerButNotWhosPlaying$'
+control "a server turned off leaves the public page" internal/agent/publicpage.go \
+  'set := s.publicPageSettings()
+	if !set.Enabled {' \
+  'set := s.publicPageSettings()
+	if false && !set.Enabled {' \
+  ./internal/agent '^TestAServerTurnedOffLeavesThePageAndTheOthersStay$'
+control "the public page answers only for the machine's address" internal/agent/publicpage.go \
+  'st := a.publicPageState()
+	if !st.On || !sameHost(host, st.Host) {
+		return api.PublicPage{}, false' \
+  'st := a.publicPageState()
+	if !st.On {
+		return api.PublicPage{}, false' \
+  ./internal/agent '^TestAPublicPageThatIsOffAnswersLikeAnUnknownAddress$'
+control "the page leaves ports 443 and 80 alone while the machine starts" internal/agent/pageports.go \
+  'if a.opts.Uptime() < pageSettle {' \
+  'if false && a.opts.Uptime() < pageSettle {' \
+  ./internal/agent '^TestThePageLeavesPortsToWhatStartsWithTheMachine$'
+control "a stopped Docker container keeps the ports it names" internal/agent/pageports.go \
+  'if c.State == "running" || inspected >= maxPageContainers {' \
+  'if true {' \
+  ./internal/agent '^TestThePageNeverTakesAPortSomethingElseUsesOrWillUse$'
+control "a web server set to start with the machine keeps ports 443 and 80" internal/agent/pageports.go \
+  'if a.enabledService(unit) {' \
+  'if false && a.enabledService(unit) {' \
+  ./internal/agent '^TestThePageNeverTakesAPortSomethingElseUsesOrWillUse$'
+control "a port found busy isn't tried again until the owner asks" internal/agent/pageports.go \
+  'if p, ok := a.pagePorts.busy[addr]; ok {' \
+  'if p, ok := a.pagePorts.busy[addr]; false && ok {' \
+  ./internal/agent '^TestThePageNeverTakesAPortSomethingElseUsesOrWillUse$'
+control "the agent's own HTTP-01 check never makes port 80 count as busy" internal/agent/pageports.go \
+  'if port == addrPort(a.opts.HTTP01Addr) {' \
+  'if false && port == addrPort(a.opts.HTTP01Addr) {' \
+  ./internal/agent '^TestAnHTTP01CheckDoesntMakePort80Busy$'
+control "machine links don't carry the public page's ports" internal/agent/link.go \
+  '"POST " + pagePortsPath: true,' \
+  '"POST " + pagePortsPath: false,' \
+  ./internal/agent '^TestLinkRoutesAreTheRouteTable$'
+control "an HTTP-01 check goes ahead on a busy port only when its holder passes it on" internal/certs/http01.go \
+  'if errors.Is(err, syscall.EADDRINUSE) && h.Shared != nil && h.Shared(token, keyAuth) {' \
+  'if errors.Is(err, syscall.EADDRINUSE) {' \
+  ./internal/certs '^TestHTTP01GoesAheadOnlyWhenThePortsHolderPassesChecksOn$'
+control "the page's ports answer only the machine's address" internal/panel/serverpage.go \
+  'if !check && !pageHost(r.Host, s.page.hostNow()) {' \
+  'if false && !check && !pageHost(r.Host, s.page.hostNow()) {' \
+  ./internal/panel '^TestThePagesPortsServeThePageAndNothingElse$'
+control "the page escapes what the owner typed" internal/panel/serverpage.go \
+  'head := "<title>" + html.EscapeString(title) + "</title>"' \
+  'head := "<title>" + title + "</title>"' \
+  ./internal/panel '^TestThePagesPortsServeThePageAndNothingElse$'
+control "the page serves faces only of players it lists" internal/panel/serverpage.go \
+  '	}
+	http.NotFound(w, r)
+}
+
+// hPageCard serves' \
+  '	}
+	if st, img := s.head(r.Context(), name, ""); st == headOK {
+		writePNG(w, img)
+		return
+	}
+	http.NotFound(w, r)
+}
+
+// hPageCard serves' \
+  ./internal/panel '^TestThePageNamesAndFacesOnlyPlayersTheOwnerShows$'
+control "visitors share one question to the agent" internal/panel/serverpage.go \
+  '	if a, ok := lookup(); ok {
+		return a, a.ok
+	}
+	p.fetch.Lock()
+	defer p.fetch.Unlock()
+	if a, ok := lookup(); ok {
+		return a, a.ok
+	}' \
+  '	_ = lookup
+	p.fetch.Lock()
+	defer p.fetch.Unlock()' \
+  ./internal/panel '^TestManyVisitorsAskTheAgentOnceAndEachAddressIsLimited$'
+control "port 443 never serves the self-signed certificate" internal/panel/pageports.go \
+  '	return s.pageCerts.GetCertificate(hello)
+}' \
+  '	tc, err := s.tlsConfig()
+	if err != nil {
+		return nil, err
+	}
+	return tc.GetCertificate(hello)
+}' \
+  ./internal/panel '^TestThePagesPort80RedirectsOnlyWhileHTTPSServesWithACertificate$'
+control "port 80 redirects only while port 443 serves the page" internal/panel/pageports.go \
+  'if https == nil || host == "" || s.pageCerts == nil {' \
+  'if _ = https; host == "" || s.pageCerts == nil {' \
+  ./internal/panel '^TestThePagesPort80RedirectsOnlyWhileHTTPSServesWithACertificate$'
+control "turning the page off gives the ports back" internal/panel/pageports.go \
+  'if !st.On {
+		s.closePagePorts(api.PortOff)
+		return
+	}' \
+  'if !st.On {
+		return
+	}' \
+  ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
+control "the keeper never asks for a port it holds" internal/panel/pageports.go \
+  'return p.held[i] == nil && !now.Before(p.next[i]) && port.Port != s.cfg.PanelPort' \
+  'return !now.Before(p.next[i]) && port.Port != s.cfg.PanelPort' \
+  ./internal/panel '^TestTheKeeperHoldsThePortsOnlyWhileThePageIsOn$'
+control "Let's Encrypt's check for a new address passes port 80 before the page follows it" internal/panel/serverpage.go \
+  'if !check && !pageHost(r.Host, s.page.hostNow()) {' \
+  'if !pageHost(r.Host, s.page.hostNow()) {' \
+  ./internal/panel '^TestLetsEncryptsCheckForANewNameReachesTheAgentBeforeThePageCatchesUp$'
+control "a changed address has the page's keeper look again" internal/panel/server.go \
+  'if method != http.MethodGet {
+		then = func(' \
+  'if false && method != http.MethodGet {
+		then = func(' \
+  ./internal/panel '^TestAChangedAddressHasThePageLookAgain$'
+control "a port the keeper didn't ask for keeps its holder and its wait" internal/panel/pageports.go \
+  'if p.held[i] != nil || !asked[i] {' \
+  'if p.held[i] != nil || false && !asked[i] {' \
+  ./internal/panel '^TestAPortNotAskedForKeepsItsHolderAndItsWait$'
+# What the owner adds to the page: About, a stream and a status board.
+control "a page's stream is only a Twitch or YouTube channel" internal/agent/publicblocks.go \
+  'case host == "twitch.tv" && len(parts) == 1 && reTwitchLogin.MatchString(parts[0]):' \
+  'case len(parts) == 1 && reTwitchLogin.MatchString(parts[0]):' \
+  ./internal/agent '^TestTheOwnersWordsAndStreamShowOnThePage$'
+control "the page's About keeps out control and direction-changing characters" internal/agent/publicblocks.go \
+  "return unicode.IsPrint(r) || r == '\\u200d'" \
+  'return r != 0' \
+  ./internal/agent '^TestTheOwnersWordsAndStreamShowOnThePage$'
+control "a board with more numbers than the page shows is refused" internal/agent/publicblocks.go \
+  'if len(req.Stats) > api.BoardStatsMax {' \
+  'if false && len(req.Stats) > api.BoardStatsMax {' \
+  ./internal/agent '^TestTheStatusBoardShowsWhatTheToolsPostWithinItsBounds$'
+control "a board's next session is within a month" internal/agent/publicblocks.go \
+  'if next.Before(now.Add(-24*time.Hour)) || next.After(now.Add(api.BoardNextWithin)) {' \
+  'if next.Before(now.Add(-24 * time.Hour)) {' \
+  ./internal/agent '^TestTheStatusBoardShowsWhatTheToolsPostWithinItsBounds$'
+control "posting the status board needs the right to run the server" internal/panel/server.go \
+  '{"PUT", "/api/servers/{id}/public-page/board", needSessionCSRF, actRunServers,' \
+  '{"PUT", "/api/servers/{id}/public-page/board", needSessionCSRF, actView,' \
+  ./internal/panel '^TestEveryToolTakesTheActionOfItsDashboardRoute$'
+control "only the page's ports may frame the stream players" internal/panel/server.go \
+  "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none';" \
+  "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; frame-src https://player.twitch.tv; object-src 'none';" \
+  ./internal/panel '^TestThePageHasALiveShareCardAndMayFrameAStream$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

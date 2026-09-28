@@ -5,10 +5,22 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 ## 0.4.4
 
 - **New server › A template** lists Playkeeper's own templates, the ones playkeeper.io offers, from an SMP or a lifesteal server to Towny, skyblock and Bedwars. Pick one to see what it installs before anything happens, with a link to its setup guide. The list comes with the release, so New server fetches it from nowhere. A machine still on an older release offers template files and links as before.
+- **Your words, your stream and a status board on the page:** **Settings › Public page** takes an About text, such as your server's rules, and a Twitch or YouTube channel. Visitors get a **Watch live** button, and nothing loads from Twitch or YouTube until they press it. Your own tools can post a status board through the API, and AI agents through the new `set_status_board` tool: a headline, whether you're live and when the next session starts, which the page counts down to, up to 6 numbers and a checklist.
+- A link to the page shows a picture of the server wherever it's shared: its name, whether it's online and how many are playing, the board's headline and its address.
 
 ## 0.4.3
 
+- **A public page at your address:** someone who types `yourname.playkeeper.me` (or your own domain) into a browser now sees a page with each server's status and how many are playing, its Minecraft version, software and modpack, its address with a Copy button and how to join, and the shared map's link when you share the map, with "This server runs on Playkeeper" at the bottom. Players' names show only if you turn on **Show who's playing**. Each server's **Settings › Public page** turns it off, and the dashboard stays on port 8443. The page uses ports 443 and 80 only when nothing else on the VPS uses them, a Docker container claims them or a web server like nginx is set to start with the machine, and a few minutes after it starts; Settings says what holds a port, with **Try again** once it's free.
 - Picked by Playkeeper suggests Discord chat on Paper and Purpur servers: DiscordSRV links the game chat with a channel on your Discord server, both ways, once you paste your own Discord bot's token into its settings.
+- Fixed: plugins that publish a Paper and a Spigot build of each release, such as BlueMap, FastAsyncWorldEdit, CommandAPI and AuthMe, installed their Spigot build on Paper and Purpur, and mods with a Quilt build, such as Simple Voice Chat, their Fabric build on Quilt. Installs and updates now take the build for the server's own platform; one installed before moves over at its next update.
+- The Pixelmon Modpack installs, and the Pixelmon mod can be added on the Mods tab: one file of a modpack or mod may now be up to 512 MiB, up from 256 MiB. Each file is still checked against its published checksum before it reaches the server.
+- Big modpacks like FTB StoneBlock 4 and Craftoria install: a pack may now put up to 20,000 files on the server, up from 5,000.
+- Templates can carry CurseForge modpacks, like All the Mods 10, as well as Modrinth ones. A template never holds a CurseForge key: the Playkeeper that opens it installs the pack with its own, and only if the pack's file is the one the template pins.
+- Fixed: sharing a server made from a modpack as a template listed each of the pack's mods as left out.
+- Servers and modpacks for Minecraft 1.20.1, the version most Minecraft 1.20 modpacks were made for, like All the Mods 9, Better MC 4 and 2, SkyFactory 5, Prominence II and Beyond Depth. They run on Java 17, and Forge's and NeoForge's builds for 1.20.1 are checked like the newer ones. Playkeeper ran Minecraft 1.21 and newer before.
+- CurseForge packs whose server files keep everything in a folder of their own, like All the Mods 9's, get the mods CurseForge lets only its own app download from those files, instead of leaving them for you to add.
+- When a CurseForge pack's server files hold most of its mods, a server gets the mods they have and no others. A mod the pack's authors left out of the server files, like the client-only one that stopped All the Mods 9 at its first start, stays off the server, and one CurseForge tags for players' games goes on it when they have it, like the Mod Menu that Better MC 2 needs to start.
+- Fixed: a CurseForge pack whose manifest gives its recommended memory as text, like Better MC [FABRIC] BMC2, was refused as not valid JSON.
 
 ## 0.4.2
 

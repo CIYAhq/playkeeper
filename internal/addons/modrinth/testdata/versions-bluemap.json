@@ -1,0 +1,211 @@
+[
+ {
+  "game_versions": [
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "folia",
+   "paper",
+   "purpur"
+  ],
+  "environment": "unknown",
+  "id": "pILlMIlN",
+  "project_id": "swbUV1cr",
+  "author_id": "5x96R9Op",
+  "featured": false,
+  "name": "5.28-paper",
+  "version_number": "5.28-paper",
+  "changelog_url": null,
+  "date_published": "2026-09-25T17:19:02.862111Z",
+  "downloads": 1470,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "CtOkYe3Z",
+    "hashes": {
+     "sha512": "f831c8a8609cf37a16b31bc14330d6de190f149587c005b15d06452c8ae3f36b3e0a169919899fcc0bdcdb9fbfbca2b4a7d06fa884ed06884be802a557c12201",
+     "sha1": "6e9d1bb29a43aa24108b5cb4b61de6efec1f521a"
+    },
+    "url": "https://cdn.modrinth.com/data/swbUV1cr/versions/pILlMIlN/bluemap-5.28-paper.jar",
+    "filename": "bluemap-5.28-paper.jar",
+    "primary": true,
+    "size": 6285353,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "game_versions": [
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "spigot"
+  ],
+  "environment": "unknown",
+  "id": "pJm76X7R",
+  "project_id": "swbUV1cr",
+  "author_id": "5x96R9Op",
+  "featured": false,
+  "name": "5.28-spigot",
+  "version_number": "5.28-spigot",
+  "changelog_url": null,
+  "date_published": "2026-09-25T17:19:12.424039Z",
+  "downloads": 229,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "GcNokM5e",
+    "hashes": {
+     "sha512": "1e5fc0749c81299fba2e23743d9ca284b8addf2bf56f04c7d6a2bf72acd226426a7c0377105aeef9d86fab919bd052029e1f20f55fd8bcccadc7e552212d94fe",
+     "sha1": "657ae07db9003f6c7c9fa9fc81e907be16250aeb"
+    },
+    "url": "https://cdn.modrinth.com/data/swbUV1cr/versions/pJm76X7R/bluemap-5.28-spigot.jar",
+    "filename": "bluemap-5.28-spigot.jar",
+    "primary": true,
+    "size": 7090043,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "game_versions": [
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "environment": "dedicated_server_only",
+  "id": "bbzcTCOs",
+  "project_id": "swbUV1cr",
+  "author_id": "5x96R9Op",
+  "featured": false,
+  "name": "5.28-fabric",
+  "version_number": "5.28-fabric",
+  "changelog_url": null,
+  "date_published": "2026-09-25T17:18:32.021450Z",
+  "downloads": 941,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "QF0WOWFZ",
+    "hashes": {
+     "sha1": "0f4289092d6cd5e1e028ace14b4464f096e90595",
+     "sha512": "21978808ee083f6abe06ba23fd0ff6c0e07fcfa7260f3e1cff959a517836e3e71a08a43574a3711ec37456bd6ad9fc1ebaabb736b590ee53f0d79f01637f8b26"
+    },
+    "url": "https://cdn.modrinth.com/data/swbUV1cr/versions/bbzcTCOs/bluemap-5.28-fabric.jar",
+    "filename": "bluemap-5.28-fabric.jar",
+    "primary": true,
+    "size": 7034681,
+    "file_type": null
+   }
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ]
+ },
+ {
+  "game_versions": [
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "folia",
+   "paper",
+   "purpur"
+  ],
+  "environment": "unknown",
+  "id": "w7JKRF0Q",
+  "project_id": "swbUV1cr",
+  "author_id": "5x96R9Op",
+  "featured": false,
+  "name": "5.27-paper",
+  "version_number": "5.27-paper",
+  "changelog_url": null,
+  "date_published": "2026-09-16T07:21:10.141051Z",
+  "downloads": 4072,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "RerjgtkW",
+    "hashes": {
+     "sha1": "d610094814814d436acac05d1e826c5325521820",
+     "sha512": "edf865c3c0412325aeec5519959ffbb15b6d9ce66eb622bbddb3def96844cc3b627b79aea7a48ed13914613e2f39573cdb342ff0932884e494d9fad5fa737c21"
+    },
+    "url": "https://cdn.modrinth.com/data/swbUV1cr/versions/w7JKRF0Q/bluemap-5.27-paper.jar",
+    "filename": "bluemap-5.27-paper.jar",
+    "primary": true,
+    "size": 6276259,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ },
+ {
+  "game_versions": [
+   "26.1",
+   "26.1.1",
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "spigot"
+  ],
+  "environment": "unknown",
+  "id": "v6LCJjZF",
+  "project_id": "swbUV1cr",
+  "author_id": "5x96R9Op",
+  "featured": false,
+  "name": "5.27-spigot",
+  "version_number": "5.27-spigot",
+  "changelog_url": null,
+  "date_published": "2026-09-16T07:21:18.850852Z",
+  "downloads": 882,
+  "version_type": "release",
+  "status": "listed",
+  "requested_status": null,
+  "files": [
+   {
+    "id": "rlYS1LKN",
+    "hashes": {
+     "sha512": "f56e019d2b237ee70b5231aaba37b0887590327d95b812ccac532428fc3eec0f061f22a5751ff4e1ee2ad1f8ae584daec1898f798dc23706400a9522636d2673",
+     "sha1": "d8cc24269dfed984ba6fcb4fb453550e1d59175b"
+    },
+    "url": "https://cdn.modrinth.com/data/swbUV1cr/versions/v6LCJjZF/bluemap-5.27-spigot.jar",
+    "filename": "bluemap-5.27-spigot.jar",
+    "primary": true,
+    "size": 7080948,
+    "file_type": null
+   }
+  ],
+  "dependencies": []
+ }
+]

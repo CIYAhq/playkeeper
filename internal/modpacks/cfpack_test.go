@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -181,8 +184,8 @@ func TestRefusedCurseForgePacks(t *testing.T) {
 		{"a loader Playkeeper does not know in the manifest", func(f *fakes) Ref { return cfRef(strconv.FormatInt(f.cfAddFile(loader("liteloader-1.0")), 10)) },
 			KindUnknownLoader, "Example Fabric Pack needs a mod loader Playkeeper does not know (liteloader)."},
 		{"old Minecraft in the manifest", func(f *fakes) Ref {
-			return cfRef(strconv.FormatInt(f.cfAddFile(func(m obj) { m["minecraft"].(obj)["version"] = "1.20.1" }), 10))
-		}, KindMinecraft, "Example Fabric Pack is for Minecraft 1.20.1, and Playkeeper runs Minecraft 1.21 and newer."},
+			return cfRef(strconv.FormatInt(f.cfAddFile(func(m obj) { m["minecraft"].(obj)["version"] = "1.20" }), 10))
+		}, KindMinecraft, "Example Fabric Pack is for Minecraft 1.20, and Playkeeper runs Minecraft 1.20.1 and newer."},
 		{"no manifest", func(f *fakes) Ref {
 			return cfRef(strconv.FormatInt(f.cfAddFile(func(m obj) { m["manifestType"] = "somethingElse" }), 10))
 		}, KindBadPack, ""},
@@ -328,6 +331,99 @@ func TestCurseForgeModsFromServerFiles(t *testing.T) {
 		t.Errorf("forgecdn served %q", f.served("forgecdn"))
 	}
 	wantTree(t, l.TempDir)
+
+	// Server files that keep everything in a folder of their own, like All
+	// the Mods 9's Server-Files-1.1.1, or that hold only a mods folder, give
+	// their mods too.
+	var wrapped []entry
+	for _, e := range serverFiles(generated("ferritecore-9.0.0-fabric.jar")) {
+		wrapped = append(wrapped, entry{name: "Server-Files-2.0.0/" + e.name, data: e.data})
+	}
+	for name, entries := range map[string][]entry{"in a folder": wrapped, "only mods": serverFiles(generated("ferritecore-9.0.0-fabric.jar"))[:2]} {
+		_, l, srv, ref, _ := setUp(t, nil, entries)
+		pl := mustPlan(t, l, srv, InstallRequest{Ref: ref})
+		wantList(t, name+": manual", manualList(pl.Manual))
+		if changes := changeList(pl.Changes); !slices.Contains(changes, "add "+ferrite) || !slices.Contains(changes, "add "+fabricAPI) {
+			t.Errorf("%s: changes %q", name, changes)
+		}
+	}
+
+	// Server files that hold most of the pack's mods say which ones a server
+	// needs, as All the Mods 9's leave out Mekalus, a shader mod that stops a
+	// server from starting. What they leave out stays off the server, and
+	// its step to download it by hand goes, but friends still get it. Those
+	// above hold two of the five mods, too few to say.
+	const cloth, lithium, placeholder = "mods/cloth-config-26.3.155-fabric.jar", "mods/lithium-fabric-0.25.3+mc26.3.jar", "mods/placeholder-api-3.1.0+26.3.jar"
+	copies := func(rels ...string) []entry {
+		var out []entry
+		for _, rel := range rels {
+			out = append(out, entry{name: rel, data: []byte("the server files' copy")})
+		}
+		return out
+	}
+	for _, c := range []struct {
+		name     string
+		entries  []entry
+		changes  []string
+		leftOut  []string
+		friends  string
+		noManual bool
+	}{
+		{"they leave out a mod CurseForge lets Playkeeper download", append(serverFiles(generated("ferritecore-9.0.0-fabric.jar")), copies(cloth, placeholder)...),
+			[]string{"add config/example.json", "add " + cloth, "add " + fabricAPI, "add " + ferrite, "add " + placeholder}, []string{lithium}, lithium, true},
+		{"they leave out a mod only CurseForge's app downloads", append(serverFiles(nil)[1:], copies(cloth, lithium, placeholder)...),
+			[]string{"add config/example.json", "add " + cloth, "add " + fabricAPI, "add " + lithium, "add " + placeholder}, []string{ferrite}, ferrite, true},
+	} {
+		_, l, srv, ref, _ := setUp(t, nil, c.entries)
+		pl := mustPlan(t, l, srv, InstallRequest{Ref: ref})
+		wantList(t, c.name+": changes", changeList(pl.Changes), c.changes...)
+		wantList(t, c.name+": manual", manualList(pl.Manual))
+		var leftOut []string
+		for _, s := range pl.Skipped {
+			if s.Reason == KindNotInServerFiles {
+				leftOut = append(leftOut, s.Path)
+			}
+		}
+		wantList(t, c.name+": left out", leftOut, c.leftOut...)
+		res := mustInstall(t, l, srv, InstallRequest{Ref: ref})
+		if !slices.ContainsFunc(res.Record.Client, func(f ClientFile) bool { return f.Path == c.friends }) {
+			t.Errorf("%s: friends don't get %s: %+v", c.name, c.friends, res.Record.Client)
+		}
+		if _, err := os.Stat(filepath.Join(srv.Dir, filepath.FromSlash(c.friends))); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s: %s is on the server (%v)", c.name, c.friends, err)
+		}
+	}
+
+	// And a mod CurseForge tags for players' games goes on the server when
+	// they have it, as Better MC [FABRIC] BMC2's have Mod Menu, which one of
+	// its mods needs: their copy, when it is the file CurseForge lists.
+	const sodium = "mods/sodium-fabric-0.9.2+mc26.3.jar"
+	for _, c := range []struct {
+		name string
+		data []byte
+		kept bool
+	}{
+		{"they have the file CurseForge lists", generated("sodium-fabric-0.9.2+mc26.3.jar"), true},
+		{"their copy is another file", []byte("another sodium"), false},
+	} {
+		entries := append(serverFiles(generated("ferritecore-9.0.0-fabric.jar")), copies(cloth, lithium, placeholder)...)
+		_, l, srv, ref, _ := setUp(t, nil, append(entries, entry{name: sodium, data: c.data}))
+		pl := mustPlan(t, l, srv, InstallRequest{Ref: ref})
+		clientOnly := slices.Contains(pl.Skipped, Skipped{Path: sodium, Reason: addons.KindClientOnly})
+		if slices.Contains(changeList(pl.Changes), "add "+sodium) != c.kept || clientOnly == c.kept {
+			t.Errorf("%s: changes %q, skipped %+v", c.name, changeList(pl.Changes), pl.Skipped)
+		}
+		if !c.kept {
+			continue
+		}
+		res := mustInstall(t, l, srv, InstallRequest{Ref: ref})
+		if readFile(t, srv, sodium) != string(c.data) || recordFiles(res.Record)[sodium].Origin != Override {
+			t.Errorf("%s: Sodium on the server isn't the server files' copy: %+v", c.name, recordFiles(res.Record)[sodium])
+		}
+		if !slices.ContainsFunc(res.Record.Client, func(f ClientFile) bool { return f.Path == sodium }) {
+			t.Errorf("%s: friends don't get Sodium", c.name)
+		}
+	}
 
 	// Otherwise the steps stay, and nothing comes from the server files.
 	for _, c := range []struct {
@@ -477,7 +573,7 @@ func TestCurseForgePackHeap(t *testing.T) {
 	f := newFakes(t)
 	l := f.library()
 	srv := newServer(t, "fabric", "26.2")
-	ram := func(mb int) func(m obj) { return func(m obj) { m["minecraft"].(obj)["recommendedRam"] = mb } }
+	ram := func(mb any) func(m obj) { return func(m obj) { m["minecraft"].(obj)["recommendedRam"] = mb } }
 	for _, c := range []struct {
 		name string
 		id   int64
@@ -486,6 +582,9 @@ func TestCurseForgePackHeap(t *testing.T) {
 		{"recommended", f.cfAddFile(ram(8196)), 8196},
 		{"user_jvm_args.txt wins", f.cfAddFile(ram(8196), entry{name: "overrides/user_jvm_args.txt", data: []byte("-Xms2G\n-Xmx6G\n")}), 6 << 10},
 		{"not a heap", f.cfAddFile(ram(64)), 0},
+		// Better MC [FABRIC] BMC2 writes it as text.
+		{"recommended as text", f.cfAddFile(ram("10000")), 10000},
+		{"text that is not a number", f.cfAddFile(ram("8G")), 0},
 	} {
 		if p := mustPlan(t, l, srv, InstallRequest{Ref: cfRef(strconv.FormatInt(c.id, 10))}); p.HeapMB != c.want {
 			t.Errorf("%s: heap %d MB, want %d", c.name, p.HeapMB, c.want)

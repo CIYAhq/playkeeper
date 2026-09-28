@@ -27,8 +27,10 @@ import (
 // downloads and a config file inside its archive.
 type fakePack struct {
 	archiveURL string
-	mods       map[string][]byte // download URL → file
-	modURLs    []string
+	// sha512 is the archive's, as the fake Modrinth publishes it.
+	sha512  string
+	mods    map[string][]byte // download URL → file
+	modURLs []string
 }
 
 const (
@@ -128,6 +130,7 @@ func (f *fakeUpstream) servePackOf(spec fakePackSpec) *fakePack {
 	}
 	archive := buf.Bytes()
 	p.archiveURL = "https://cdn.modrinth.com/data/" + fakePackID + "/versions/" + fakePackVersion + "/test-pack-1.0.0.mrpack"
+	p.sha512 = sha512Hex(archive)
 	f.serve(p.archiveURL, archive)
 
 	version := map[string]any{

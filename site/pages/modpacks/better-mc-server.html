@@ -27,7 +27,7 @@ schema: article
 {{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
 <section aria-labelledby="needs">
   {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What a Better MC server needs" "Toc" "What it needs")}}
-  {{template "modpack-facts" (dict "Pack" $m "Version" .Site.Version)}}
+  {{template "modpack-facts" (dict "Pack" $m)}}
   <p>Version {{$m.Version}} came out on {{day $m.Released}} and was still the newest on {{day $m.Checked}}, so a server set up now won't need an update soon.</p>
 </section>
 
@@ -44,7 +44,7 @@ schema: article
       </tbody>
     </table>
   </div>
-  <p class="fine">Downloads checked {{day $m.Checked}}. Playkeeper installs packs for Minecraft 1.21 and newer, so it runs BMC5; BMC4 and BMC2 need another way.</p>
+  <p class="fine">Downloads checked {{day $m.Checked}}. Playkeeper runs all three: BMC4 and BMC2 are in New server › A modpack too.</p>
 </section>
 
 <section aria-labelledby="world">
@@ -92,7 +92,7 @@ schema: article
 <div class="article-after">
   {{template "faq" (dict "ID" "questions" "Items" (list
     (qa "How much RAM does a Better MC server need?" (printf "%s, what Playkeeper suggests for its %d mods, or %s for up to four friends, what the sizing guide gives a modpack." $m.Memory $m.Mods (gb $c.MemoryMB)))
-    (qa "Which Better MC edition should I host?" (printf "BMC5, on %s and Minecraft %s, if your friends play it. BMC4 and BMC2 are on Minecraft 1.20.1, which Playkeeper doesn't run packs for." $m.TypeName $m.Minecraft))
+    (qa "Which Better MC edition should I host?" (printf "The one your friends play. BMC5 is on %s and Minecraft %s, BMC4 and BMC2 on Minecraft 1.20.1, and Playkeeper runs all three." $m.TypeName $m.Minecraft))
     (qa "Is Better MC Forge or Fabric?" (printf "Each edition has its own loader: BMC5 %s, BMC4 Forge and BMC2 Fabric." $m.TypeName))
     (qa "Why is the server slow when we explore?" "BMC5 generates a lot per chunk. Pre-generate the world before you play, and keep the view distance moderate.")
   ))}}

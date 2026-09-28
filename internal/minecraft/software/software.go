@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+
+	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
 
 // Server type IDs, as in the minecraft.Types registry. Paper keeps its own
@@ -73,14 +75,15 @@ type Pin struct {
 }
 
 // Validate checks a pin before it goes anywhere near a URL, a path or a
-// container: a supported type, a Minecraft release from 1.21 on, and a
-// well-formed build detail for that type and no other.
+// container: a supported type, a Minecraft release from
+// minecraft.OldestRelease on, and a well-formed build detail for that type
+// and no other.
 func (p Pin) Validate() error {
 	if !Supported(p.Type) {
 		return unsupportedType(p.Type)
 	}
-	if !offeredFamily(p.MinecraftVersion) {
-		return &Error{Kind: KindUnsupported, Msg: fmt.Sprintf("Playkeeper runs Minecraft releases from 1.21 on, not %s.", strconv.Quote(p.MinecraftVersion)),
+	if !offered(p.MinecraftVersion) {
+		return &Error{Kind: KindUnsupported, Msg: fmt.Sprintf("Playkeeper runs Minecraft releases from %s on, not %s.", minecraft.OldestRelease, strconv.Quote(p.MinecraftVersion)),
 			Hint: "Choose the version again.", Params: map[string]string{"type": p.Type, "minecraftVersion": p.MinecraftVersion}}
 	}
 	bad := func(value, msg string) error {
@@ -202,7 +205,7 @@ func (s Sources) Catalog(ctx context.Context, typeID string) ([]Release, error) 
 // newest first, with the newest stable one recommended: Purpur builds,
 // Fabric or Quilt loaders, or NeoForge or Forge versions. Vanilla has none.
 func (s Sources) Builds(ctx context.Context, typeID, mc string) ([]Build, error) {
-	if !offeredFamily(mc) {
+	if !offered(mc) {
 		return nil, (Pin{Type: typeID, MinecraftVersion: mc}).Validate()
 	}
 	switch typeID {

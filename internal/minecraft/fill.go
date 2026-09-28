@@ -23,9 +23,10 @@ const DefaultFillURL = "https://fill.papermc.io"
 // ImageJava is the Java version in the pinned runtime image.
 const ImageJava = 25
 
-// oldestFamily is the oldest Minecraft version family Playkeeper offers;
-// older Paper versions are not tested on the image's Java.
-var oldestFamily = []int{1, 21}
+// OldestRelease is the oldest Minecraft release Playkeeper runs, for every
+// server type and for modpacks: the version most modpacks of Minecraft 1.20
+// were made for.
+const OldestRelease = "1.20.1"
 
 // Fill reads Paper versions and builds from PaperMC's Fill v3 API.
 type Fill struct {
@@ -98,10 +99,10 @@ func (f Fill) get(ctx context.Context, path string, v any) error {
 }
 
 // Catalog lists the Paper versions to offer, newest first: the newest
-// release of every version family from 1.21 on, each with its latest stable
-// build. A version PaperMC supports but has no stable build of yet is offered
-// as experimental, with its latest build. The newest version with a stable
-// build is recommended.
+// release of every version family from OldestRelease on, each with its
+// latest stable build. A version PaperMC supports but has no stable build of
+// yet is offered as experimental, with its latest build. The newest version
+// with a stable build is recommended.
 func (f Fill) Catalog(ctx context.Context) ([]api.CatalogEntry, error) {
 	var list struct {
 		Versions []fillVersion `json:"versions"`
@@ -122,7 +123,7 @@ func (f Fill) Catalog(ctx context.Context) ([]api.CatalogEntry, error) {
 	for _, v := range releases {
 		id := v.Version.ID
 		fam := family(id)
-		if stableFamily[fam] || compareParts(parts(fam), oldestFamily) < 0 || v.Version.Java.Version.Minimum > ImageJava {
+		if stableFamily[fam] || CompareMinecraft(id, OldestRelease) < 0 || v.Version.Java.Version.Minimum > ImageJava {
 			continue
 		}
 		supported := v.Version.Support.Status == "SUPPORTED"
@@ -161,8 +162,8 @@ func (f Fill) RestoreBuild(ctx context.Context, mcVersion string, build int) (ap
 	if !reRelease.MatchString(mcVersion) {
 		return api.CatalogEntry{}, fmt.Errorf("%q is not a Minecraft release version", mcVersion)
 	}
-	if compareParts(parts(family(mcVersion)), oldestFamily) < 0 {
-		return api.CatalogEntry{}, fmt.Errorf("Playkeeper runs Minecraft 1.21 and newer, not %s", mcVersion)
+	if CompareMinecraft(mcVersion, OldestRelease) < 0 {
+		return api.CatalogEntry{}, fmt.Errorf("Playkeeper runs Minecraft %s and newer, not %s", OldestRelease, mcVersion)
 	}
 	var v fillVersion
 	if err := f.get(ctx, "/v3/projects/paper/versions/"+mcVersion, &v); err != nil {

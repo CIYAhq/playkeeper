@@ -1,9 +1,10 @@
 {{/* The long-read layouts: guides, blog posts and the docs. */}}
 
-{{/* guide: the H1 with the year, the Updated line, the short answer and Pip;
-     then sticky contents and an install card beside the article, whose words
-     a guide's side-title and side-text parts can replace; then the page's
-     "after" part (FAQ, templates) and Keep reading. */}}
+{{/* guide: the H1 with the year, the Updated line, who pays for its partner
+     links, the short answer and Pip; then sticky contents and an install card
+     beside the article, whose words a guide's side-title and side-text parts
+     can replace; then the page's "after" part (FAQ, templates) and Keep
+     reading. */}}
 {{define "guide"}}
 <section class="band band-chalk guide-hero">
   <div class="container guide-hero-row">
@@ -11,6 +12,7 @@
       {{template "crumbs" .}}
       <h1 class="h1-guide hero-rise">{{.Page.H1}}</h1>
       <p class="meta hero-rise">Updated {{day .Page.Updated}} · {{.Page.Minutes}} min read</p>
+      {{with pagePartner .Page}}<p class="partner-note hero-rise">{{.Disclosure}}</p>{{end}}
       <div class="short-answer hero-rise">
         <p class="eyebrow">The short answer</p>
         <p>{{.Short}}</p>

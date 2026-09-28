@@ -13,8 +13,8 @@
     "memoryMB": 4096
   },
   "addons": [
-    { "source": "modrinth", "project": "ayRaM8J7", "slug": "vaultunlocked", "name": "VaultUnlocked", "latest": true },
-    { "source": "modrinth", "project": "1u6JkXh5", "slug": "worldedit", "name": "WorldEdit", "latest": true },
-    { "source": "modrinth", "project": "uVMG0MzO", "slug": "iridiumskyblock", "name": "Iridium Skyblock", "latest": true }
+    { "source": "modrinth", "project": "ayRaM8J7", "slug": "vaultunlocked", "name": "VaultUnlocked", "pin": { "versionId": "qZgRzoYs", "versionNumber": "2.20.3", "channel": "release", "hashAlgo": "sha512", "hash": "0eedea1591459e7e327315b43afa834a173c8c2ae31b3b235586d31963df29a4a6c0ef4b8f3fdc746e15afd47ee50c1ff93584543b5c2ef7c2a80135dba1136a" } },
+    { "source": "modrinth", "project": "1u6JkXh5", "slug": "worldedit", "name": "WorldEdit", "pin": { "versionId": "F5ea2ov3", "versionNumber": "7.4.5", "channel": "release", "hashAlgo": "sha512", "hash": "a383492fac6bfb4d43a257dfa7b5fc076aae503a71151b463de4fe80e6f3d5fc11209eaf4097baa115f3febf0adc40ca0a1ecda227b8439b429d0a4ba3a63a4f" } },
+    { "source": "modrinth", "project": "uVMG0MzO", "slug": "iridiumskyblock", "name": "Iridium Skyblock", "pin": { "versionId": "3L0LVid4", "versionNumber": "4.1.5", "channel": "release", "hashAlgo": "sha512", "hash": "d4e906ed501d2477eade44fcbcdb164ac599baa20c80120da397bf439bd88f870a9d166d60e09bb61365a8433732ba594dd0c0f5b8aa445fdb6692ef52805341" } }
   ]
 }

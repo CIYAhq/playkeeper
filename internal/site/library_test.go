@@ -2,13 +2,18 @@ package site
 
 import (
 	"bytes"
+	"encoding/json"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
+	"github.com/CIYAhq/playkeeper/internal/templates/checks"
+	"github.com/CIYAhq/playkeeper/internal/templates/library"
 )
 
 // Every library page says what its template sets up as the release creates
@@ -24,7 +29,11 @@ func TestLibraryPagesFollowTheirTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	library, err := loadLibrary(os.DirFS("../.."), "site/data/library", cards)
+	checked, err := checks.Read(os.DirFS("../.."), "site/data/checks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	library, err := loadLibrary(os.DirFS("../.."), "site/data/library", cards, checked)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,6 +162,94 @@ func TestTheDashboardListsTheSitesTemplates(t *testing.T) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Error("internal/templates/library/library.json isn't what site/data/templates makes: run go generate ./internal/templates/library")
+	}
+}
+
+// New server lists a template only once a server was created and started
+// from it, as the site does: not before its first check, nor after a failing
+// one.
+func TestTheDashboardListsOnlyPassingTemplates(t *testing.T) {
+	tpl, err := os.ReadFile("../../site/data/templates/creative.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := &fstest.MapFile{Mode: fs.ModeDir}
+	root := fstest.MapFS{
+		"site/data/templates/cards.json": {Data: []byte(`{
+			"passing": {"art": "app/pixel-art/play-creative.svg"},
+			"failing": {"art": "app/pixel-art/play-creative.svg"},
+			"unchecked": {"art": "app/pixel-art/play-creative.svg"}}`)},
+		"site/data/templates/passing.json":   {Data: tpl},
+		"site/data/templates/failing.json":   {Data: tpl},
+		"site/data/templates/unchecked.json": {Data: tpl},
+		"site/data/checks/passing.json":      {Data: []byte(`{"status": "passing", "checked": "2026-09-28", "release": "0.4.2", "doneSeconds": 12.5}`)},
+		"site/data/checks/failing.json":      {Data: []byte(`{"status": "failing", "failure": "WorldEdit failed to enable", "checked": "2026-09-28", "release": "0.4.2"}`)},
+		"site/data/library":                  dir,
+		"site/data/modpacks":                 dir,
+	}
+	b, err := DashboardLibrary(root, Default)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []library.Template
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "passing" || got[0].Checked != "2026-09-28" || got[0].Release != "0.4.2" {
+		t.Errorf("listed %+v, want only passing, checked 2026-09-28 on 0.4.2", got)
+	}
+}
+
+func TestVersionNameDropsWhatTheSourceAdds(t *testing.T) {
+	for in, want := range map[string]string{
+		"bukkit-2.6.24": "2.6.24", "v5.5.71-bukkit": "5.5.71", "mc26.2-0.25.3-fabric": "0.25.3", "fabric-2.6.24+26.2": "2.6.24",
+		"0.161.0+26.2": "0.161.0", "1.5.3": "1.5.3", "0.103.2.0": "0.103.2.0", "5.12.1-SNAPSHOT+1069": "5.12.1-SNAPSHOT+1069",
+		"2.11.3-b1247": "2.11.3-b1247", "v": "v", "version": "version",
+	} {
+		if got := versionName(in); got != want {
+			t.Errorf("versionName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A library page takes its facts from its template's check, and a template
+// without a passing check has no page.
+func TestLibraryPagesNeedAPassingCheck(t *testing.T) {
+	passing := &checks.Check{Status: checks.Passing, Checked: "2026-09-28", Release: "0.4.2", Build: "129", DoneSeconds: 12.5,
+		Addons: []checks.Addon{{Name: "Chunky", Source: "modrinth", Slug: "chunky", Version: "1.5.3", Licence: "GPL-3.0-only", Downloads: 9}}}
+	l := &LibraryPage{ID: "smp", Template: "survival-with-friends"}
+	if err := l.fill(passing); err != nil {
+		t.Fatal(err)
+	}
+	if l.Release != "0.4.2" || l.DoneSeconds != 12.5 || len(l.Plugins) != 1 || l.Plugins[0].Version != "1.5.3" || l.Plugins[0].Downloads != 9 {
+		t.Errorf("filled %+v", l)
+	}
+	if err := (&LibraryPage{Template: "x"}).fill(nil); err == nil {
+		t.Error("a page without a check filled")
+	}
+	failed := &checks.Check{Status: checks.Failing, Failure: "LifeStealZ failed to enable", Checked: "2026-09-29", Release: "0.4.2"}
+	if err := (&LibraryPage{Template: "x"}).fill(failed); err == nil || !strings.Contains(err.Error(), "LifeStealZ failed to enable") {
+		t.Errorf("a failing check filled a page: %v", err)
+	}
+}
+
+// A template that failed its last check is held: every card block leaves it
+// out, as it does a template whose release isn't out.
+func TestAFailingCheckHoldsItsTemplate(t *testing.T) {
+	cards, err := loadTemplateCards(os.DirFS("../.."), "site/data/templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cards["creative"].Held() {
+		t.Fatal("creative is held before its check fails")
+	}
+	failing(cards, map[string]*checks.Check{
+		"creative": {Status: checks.Failing, Failure: "WorldEdit failed to enable", Checked: "2026-09-29", Release: "0.4.2"},
+		"towny":    {Status: checks.Passing, Checked: "2026-09-29", Release: "0.4.2", DoneSeconds: 15},
+		"gone":     {Status: checks.Failing, Failure: "no card", Checked: "2026-09-29", Release: "0.4.2"},
+	})
+	if !cards["creative"].Held() || cards["towny"].Held() {
+		t.Errorf("creative held %v, towny held %v", cards["creative"].Held(), cards["towny"].Held())
 	}
 }
 

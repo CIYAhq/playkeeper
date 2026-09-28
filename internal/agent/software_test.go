@@ -234,7 +234,7 @@ func TestCatalogBuildsListsEachTypesBuilds(t *testing.T) {
 	if code, out := e.call("GET", "/v1/catalog/builds?type=vanilla&version=26.2", nil); code != 200 || len(out["builds"].([]any)) != 0 {
 		t.Fatalf("Vanilla has no builds: %d %v", code, out)
 	}
-	for _, q := range []string{"type=paper&version=26.2", "type=fabric&version=1.20.1", "type=fabric&version=26.9", "type=fabric&version=../26.2"} {
+	for _, q := range []string{"type=paper&version=26.2", "type=fabric&version=1.20", "type=fabric&version=26.9", "type=fabric&version=../26.2"} {
 		if code, _ := e.call("GET", "/v1/catalog/builds?"+q, nil); code != 400 {
 			t.Errorf("%s: %d, want 400", q, code)
 		}

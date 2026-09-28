@@ -27,7 +27,7 @@ schema: article
 {{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
 <section aria-labelledby="needs">
   {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What an ATM10 server needs" "Toc" "What it needs")}}
-  {{template "modpack-facts" (dict "Pack" $m "Version" .Site.Version)}}
+  {{template "modpack-facts" (dict "Pack" $m)}}
   <p>ATM10 updates every few weeks: 8.0 came out on 14 Aug, 8.1 on 29 Aug and 8.2 on 22 Sep. The server and every player need the same version.</p>
 </section>
 
