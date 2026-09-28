@@ -1,5 +1,5 @@
 import { useId, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { CheckIcon, ChevronRightIcon, EllipsisIcon, LinkIcon, ServerIcon, ShieldCheckIcon, UnlinkIcon, UserMinusIcon, UserPlusIcon } from 'lucide-react'
+import { CheckIcon, ChevronRightIcon, EllipsisIcon, LinkIcon, ServerIcon, ShieldCheckIcon, SparklesIcon, UnlinkIcon, UserMinusIcon, UserPlusIcon } from 'lucide-react'
 import { del, get, post, put } from '@/api/client'
 import type { CreatedTeamInvite, Grant, ProjectRole, Scope, TeamInvite, TeamMember, TeamResponse } from '@/api/types'
 import { errorText, usePhoneServer, useWorkspace } from '@/api/workspace'
@@ -17,15 +17,18 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
-import { can, projectRoles, roleHint, roleName, scopeText } from '@/lib/access'
-import { relativeTime, timeUntil } from '@/lib/format'
+import { allowanceText, can, projectRoles, roleHint, roleName, scopeText } from '@/lib/access'
+import { formatMB, relativeTime, timeUntil } from '@/lib/format'
 import { usePending } from '@/lib/optimistic'
 import { presenceProps, useListPresence, type Present } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 
-type Editing = { kind: 'add' } | { kind: 'member'; member: TeamMember } | { kind: 'invite'; invite: TeamInvite }
+type Editing = { kind: 'add' } | { kind: 'member'; member: TeamMember } | { kind: 'invite'; invite: TeamInvite } | CreatorEditing
+/** Inviting a creator, or an unused creator invite: the owner's alone. */
+type CreatorEditing = { kind: 'creator' } | { kind: 'creatorInvite'; invite: TeamInvite }
+type GrantEditing = Exclude<Editing, CreatorEditing>
 
 const rank: Record<ProjectRole, number> = { viewer: 0, moderator: 1, admin: 2 }
 
@@ -60,6 +63,7 @@ function inviteName(inv: TeamInvite): string {
 /** Settings › Team: who can use this dashboard, with which role and servers. */
 export function TeamSection() {
   const phone = useIsPhone()
+  const owner = useWorkspace().me.user.role === 'owner'
   const team = usePoll(() => get<TeamResponse>('/api/team'), 15_000)
   const [grant, setGrant] = useState<{ editing: Editing; n: number }>()
   const [grantOpen, setGrantOpen] = useState(false)
@@ -109,30 +113,42 @@ export function TeamSection() {
     <>
       <Dialog open={grantOpen} onOpenChange={setGrantOpen}>
         <DialogPopup className="sm:max-w-[540px]" showCloseButton={false}>
-          {grant && (
-            <GrantForm
-              key={grant.n}
-              team={data}
-              editing={grant.editing}
-              onClose={() => setGrantOpen(false)}
-              onChanged={team.refresh}
-              onRemove={(m) => {
-                setGrantOpen(false)
-                setRemoving(m)
-              }}
-              onTurnOff={(inv) => {
-                setGrantOpen(false)
-                void turnOff(inv)
-              }}
-            />
-          )}
+          {grant &&
+            (grant.editing.kind === 'creator' || grant.editing.kind === 'creatorInvite' ? (
+              <CreatorForm
+                key={grant.n}
+                editing={grant.editing}
+                onClose={() => setGrantOpen(false)}
+                onChanged={team.refresh}
+                onTurnOff={(inv) => {
+                  setGrantOpen(false)
+                  void turnOff(inv)
+                }}
+              />
+            ) : (
+              <GrantForm
+                key={grant.n}
+                team={data}
+                editing={grant.editing}
+                onClose={() => setGrantOpen(false)}
+                onChanged={team.refresh}
+                onRemove={(m) => {
+                  setGrantOpen(false)
+                  setRemoving(m)
+                }}
+                onTurnOff={(inv) => {
+                  setGrantOpen(false)
+                  void turnOff(inv)
+                }}
+              />
+            ))}
         </DialogPopup>
       </Dialog>
       <RemoveDialog member={removing} onClose={() => setRemoving(undefined)} onRemoved={team.refresh} />
     </>
   )
 
-  if (phone) return <PhoneTeam team={data} rows={rows} notice={notice} dialogs={dialogs} onEdit={edit} />
+  if (phone) return <PhoneTeam team={data} rows={rows} notice={notice} dialogs={dialogs} owner={owner} onEdit={edit} />
 
   return (
     <>
@@ -140,10 +156,18 @@ export function TeamSection() {
       <Card aria-labelledby="team-title">
         <div className="flex items-center justify-between gap-3">
           <CardTitle id="team-title">{t('team.title')}</CardTitle>
-          <Button onClick={() => edit({ kind: 'add' })}>
-            <UserPlusIcon />
-            {t('team.add')}
-          </Button>
+          <div className="flex items-center gap-2">
+            {owner && (
+              <Button variant="outline" onClick={() => edit({ kind: 'creator' })}>
+                <SparklesIcon />
+                {t('team.addCreator')}
+              </Button>
+            )}
+            <Button onClick={() => edit({ kind: 'add' })}>
+              <UserPlusIcon />
+              {t('team.add')}
+            </Button>
+          </div>
         </div>
         <ul className="mt-2 flex flex-col">
           {rows.map(({ key, item, state }) =>
@@ -237,13 +261,13 @@ function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove, pr
           <span className={cn('block truncate text-xs', m.waiting ? 'text-warning-foreground' : 'text-muted-foreground')}>{memberLine(m)}</span>
         </span>
       </span>
-      <span className="truncate text-[13px] text-muted-foreground">{scopeText(m.servers, team.servers)}</span>
+      <span className="truncate text-[13px] text-muted-foreground">{m.allowance ? allowanceText(m.allowance) : scopeText(m.servers, team.servers)}</span>
       {m.owner ? (
         <span className="text-right text-[13px] font-semibold">{t('team.ownerAdmin')}</span>
-      ) : m.canEdit ? (
+      ) : m.canEdit && !m.allowance ? (
         <ChoiceSelect value={role} onChange={(r) => void pick(r, t('team.roleToast', { name: m.username, role: roleName(r) }))} options={roleChoices(team, m.role)} label={t('team.roleFor', { name: m.username })} className="w-full min-w-0" />
       ) : (
-        <span className="text-[13px]">{roleName(m.role)}</span>
+        <span className="text-[13px]">{m.allowance ? t('team.creator') : roleName(m.role)}</span>
       )}
       {(m.canEdit || m.canConfirm) && !m.owner ? (
         <Menu>
@@ -289,14 +313,14 @@ function InviteRow({ invite: inv, team, onChanged, onEdit, onTurnOff, presence }
         <Avatar name={name} className={cn('size-8', avatarTone(name))} />
         <span className="min-w-0">
           <span className="block truncate text-[13px] font-semibold">{name}</span>
-          <span className="block truncate text-xs text-muted-foreground">{inv.expiresAt ? t('team.inviteLine', { when: timeUntil(inv.expiresAt) }) : t('team.inviteWaiting')}</span>
+          <span className="block truncate text-xs text-muted-foreground">{inv.expiresAt ? t(inv.allowance ? 'team.creatorInviteLine' : 'team.inviteLine', { when: timeUntil(inv.expiresAt) }) : t('team.inviteWaiting')}</span>
         </span>
       </span>
-      <span className="truncate text-[13px] text-muted-foreground">{scopeText(inv.servers ?? {}, team.servers)}</span>
-      {inv.canEdit ? (
+      <span className="truncate text-[13px] text-muted-foreground">{inv.allowance ? allowanceText(inv.allowance) : scopeText(inv.servers ?? {}, team.servers)}</span>
+      {inv.canEdit && !inv.allowance ? (
         <ChoiceSelect value={role} onChange={(r) => void pick(r)} options={roleChoices(team, saved)} label={t('team.roleFor', { name })} className="w-full min-w-0" />
       ) : (
-        <span className="text-[13px]">{roleName(role)}</span>
+        <span className="text-[13px]">{inv.allowance ? t('team.creator') : roleName(role)}</span>
       )}
       {inv.canEdit ? (
         <Menu>
@@ -304,11 +328,15 @@ function InviteRow({ invite: inv, team, onChanged, onEdit, onTurnOff, presence }
             <EllipsisIcon />
           </MenuTrigger>
           <MenuPopup align="end" className="min-w-52">
-            <MenuItem onClick={() => onEdit({ kind: 'invite', invite: inv })}>
-              <ServerIcon />
-              {t('team.changeServers')}
-            </MenuItem>
-            <MenuSeparator />
+            {!inv.allowance && (
+              <>
+                <MenuItem onClick={() => onEdit({ kind: 'invite', invite: inv })}>
+                  <ServerIcon />
+                  {t('team.changeServers')}
+                </MenuItem>
+                <MenuSeparator />
+              </>
+            )}
             <MenuItem variant="destructive" onClick={() => void onTurnOff(inv)}>
               <UnlinkIcon />
               {t('team.turnOff')}
@@ -366,17 +394,19 @@ function RoleTable() {
   )
 }
 
-function PhoneTeam({ team, rows: listed, notice, dialogs, onEdit }: { team: TeamResponse; rows: Present<TeamRow>[]; notice: ReactNode; dialogs: ReactNode; onEdit: (e: Editing) => void }) {
+function PhoneTeam({ team, rows: listed, notice, dialogs, owner, onEdit }: { team: TeamResponse; rows: Present<TeamRow>[]; notice: ReactNode; dialogs: ReactNode; owner: boolean; onEdit: (e: Editing) => void }) {
   const tabs = !!usePhoneServer()
-  const rows = listed.map(({ key, item, state }) => {
+  const rows = listed.map(({ key, item, state }): { key: string; state: Present<TeamRow>['state']; name: string; line: string; edit?: Editing } => {
     if (item.kind === 'member') {
       const m = item.member
+      const role = m.allowance ? t('team.creator') : roleName(m.role)
+      const what = m.allowance ? allowanceText(m.allowance) : scopeText(m.servers, team.servers)
       return {
         key,
         state,
         name: m.username,
-        line: m.owner ? t('team.phone.owner') : `${roleName(m.role)}${t('common.dot')}${m.waiting ? t('team.waiting') : scopeText(m.servers, team.servers)}`,
-        edit: m.canEdit && !m.owner ? ({ kind: 'member', member: m } as const) : undefined,
+        line: m.owner ? t('team.phone.owner') : `${role}${t('common.dot')}${m.waiting ? t('team.waiting') : what}`,
+        edit: m.canEdit && !m.owner ? { kind: 'member', member: m } : undefined,
       }
     }
     const inv = item.invite
@@ -384,8 +414,8 @@ function PhoneTeam({ team, rows: listed, notice, dialogs, onEdit }: { team: Team
       key,
       state,
       name: inviteName(inv),
-      line: `${roleName(inv.role ?? 'viewer')}${t('common.dot')}${t('team.phone.invite')}`,
-      edit: inv.canEdit ? ({ kind: 'invite', invite: inv } as const) : undefined,
+      line: inv.allowance ? `${t('team.creator')}${t('common.dot')}${t('team.phone.creatorInvite')}` : `${roleName(inv.role ?? 'viewer')}${t('common.dot')}${t('team.phone.invite')}`,
+      edit: inv.canEdit ? (inv.allowance ? { kind: 'creatorInvite', invite: inv } : { kind: 'invite', invite: inv }) : undefined,
     }
   })
   return (
@@ -417,6 +447,12 @@ function PhoneTeam({ team, rows: listed, notice, dialogs, onEdit }: { team: Team
         })}
       </ul>
       <p className="px-1 text-[13px] text-muted-foreground">{t('team.adminsTwoFactor')}</p>
+      {owner && (
+        <Button variant="outline" size="touch" className="w-full" onClick={() => onEdit({ kind: 'creator' })}>
+          <SparklesIcon />
+          {t('team.addCreator')}
+        </Button>
+      )}
       <div className="h-16" aria-hidden="true" />
       <div className={cn('fixed inset-x-4 z-30', tabs ? 'bottom-[calc(68px+env(safe-area-inset-bottom))]' : 'bottom-[max(env(safe-area-inset-bottom),16px)]')}>
         <Button size="touch" className="w-full" onClick={() => onEdit({ kind: 'add' })}>
@@ -433,7 +469,7 @@ function PhoneTeam({ team, rows: listed, notice, dialogs, onEdit }: { team: Team
  * Add a team member, or change what a member or an unused link gives: a
  * role, and all servers or some. A new link is shown once, here.
  */
-function GrantForm({ team, editing, onClose, onChanged, onRemove, onTurnOff }: { team: TeamResponse; editing: Editing; onClose: () => void; onChanged: () => Promise<void>; onRemove: (m: TeamMember) => void; onTurnOff: (inv: TeamInvite) => void }) {
+function GrantForm({ team, editing, onClose, onChanged, onRemove, onTurnOff }: { team: TeamResponse; editing: GrantEditing; onClose: () => void; onChanged: () => Promise<void>; onRemove: (m: TeamMember) => void; onTurnOff: (inv: TeamInvite) => void }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
   const start: { role: ProjectRole; servers: Scope } =
@@ -489,37 +525,7 @@ function GrantForm({ team, editing, onClose, onChanged, onRemove, onTurnOff }: {
     }
   }
 
-  if (created) {
-    const who = label.trim()
-    return (
-      <>
-        <DialogHeader>
-          <DialogTitle className="text-lg font-bold">{who ? t('team.createdTitle', { name: who }) : t('team.createdTitleUnnamed')}</DialogTitle>
-          <DialogDescription className="text-[13px]">{t('team.createdBody')}</DialogDescription>
-        </DialogHeader>
-        <DialogPanel className="flex flex-col gap-3">
-          <div className="flex gap-2">
-            <Input value={created.url} readOnly aria-label={t('team.inviteLink')} className="flex-1 font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
-            <CopyButton text={created.url} size={phone ? 'lg' : 'default'} toast={t('toast.copied')} />
-          </div>
-          {!created.friendly && can(ws.me, 'machine.manage') && ws.machine && (
-            <p className="text-xs text-muted-foreground">
-              {rich('invites.noAddress', {
-                a: (chunk) => (
-                  <a {...linkProps({ name: 'machine', id: ws.machine?.id ?? '' })} className="font-medium text-success-strong hover:underline">
-                    {chunk}
-                  </a>
-                ),
-              })}
-            </p>
-          )}
-        </DialogPanel>
-        <DialogFooter variant="bare" className="border-t border-border pt-4">
-          <Button onClick={onClose}>{t('common.done')}</Button>
-        </DialogFooter>
-      </>
-    )
-  }
+  if (created) return <CreatedLink name={label.trim()} created={created} onClose={onClose} />
 
   const title =
     editing.kind === 'add'
@@ -611,6 +617,144 @@ function GrantForm({ team, editing, onClose, onChanged, onRemove, onTurnOff }: {
           <Button type="submit" size={phone ? 'touch' : 'default'} loading={busy} disabledReason={valid ? undefined : t('team.pickServer')}>
             {editing.kind === 'add' ? <LinkIcon /> : null}
             {editing.kind === 'add' ? t('invites.create') : t('common.save')}
+          </Button>
+        </div>
+      </DialogFooter>
+    </form>
+  )
+}
+
+/** A new team invite's link, shown once. */
+function CreatedLink({ name, created, onClose }: { name: string; created: { url: string; friendly: boolean }; onClose: () => void }) {
+  const ws = useWorkspace()
+  const phone = useIsPhone()
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle className="text-lg font-bold">{name ? t('team.createdTitle', { name }) : t('team.createdTitleUnnamed')}</DialogTitle>
+        <DialogDescription className="text-[13px]">{t('team.createdBody')}</DialogDescription>
+      </DialogHeader>
+      <DialogPanel className="flex flex-col gap-3">
+        <div className="flex gap-2">
+          <Input value={created.url} readOnly aria-label={t('team.inviteLink')} className="flex-1 font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
+          <CopyButton text={created.url} size={phone ? 'lg' : 'default'} toast={t('toast.copied')} />
+        </div>
+        {!created.friendly && can(ws.me, 'machine.manage') && ws.machine && (
+          <p className="text-xs text-muted-foreground">
+            {rich('invites.noAddress', {
+              a: (chunk) => (
+                <a {...linkProps({ name: 'machine', id: ws.machine?.id ?? '' })} className="font-medium text-success-strong hover:underline">
+                  {chunk}
+                </a>
+              ),
+            })}
+          </p>
+        )}
+      </DialogPanel>
+      <DialogFooter variant="bare" className="border-t border-border pt-4">
+        <Button onClick={onClose}>{t('common.done')}</Button>
+      </DialogFooter>
+    </>
+  )
+}
+
+const creatorServers = ['1', '2', '3']
+const creatorMemory = ['2048', '3072', '4096', '6144', '8192', '12288', '16384']
+
+/**
+ * Invite a creator: an account that creates its own servers inside an
+ * allowance and sees only those. Or, for an unused creator invite, what it
+ * allows, with Turn off. Both are the owner's alone.
+ */
+function CreatorForm({ editing, onClose, onChanged, onTurnOff }: { editing: CreatorEditing; onClose: () => void; onChanged: () => Promise<void>; onTurnOff: (inv: TeamInvite) => void }) {
+  const phone = useIsPhone()
+  const [label, setLabel] = useState('')
+  const [servers, setServers] = useState('1')
+  const [memory, setMemory] = useState('4096')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const [created, setCreated] = useState<{ url: string; friendly: boolean }>()
+
+  if (editing.kind === 'creatorInvite') {
+    const inv = editing.invite
+    return (
+      <>
+        <DialogHeader>
+          <DialogTitle className="text-lg font-bold">{inv.label || t('team.creatorInvite')}</DialogTitle>
+          <DialogDescription className="text-[13px]">
+            {t('team.creatorInviteBody', { allowance: inv.allowance ? allowanceText(inv.allowance) : '', when: inv.expiresAt ? timeUntil(inv.expiresAt) : '' })}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter variant="bare" className="border-t border-border pt-4 sm:justify-between">
+          <Button type="button" variant="destructive-outline" size={phone ? 'touch' : 'default'} onClick={() => onTurnOff(inv)}>
+            <UnlinkIcon />
+            {t('team.turnOff')}
+          </Button>
+          <Button size={phone ? 'touch' : 'default'} onClick={onClose}>
+            {t('common.done')}
+          </Button>
+        </DialogFooter>
+      </>
+    )
+  }
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    setBusy(true)
+    setError(undefined)
+    try {
+      const res = await post<CreatedTeamInvite>('/api/team/invites', {
+        role: 'admin',
+        servers: {},
+        label: label.trim() || undefined,
+        allowance: { servers: Number(servers), memoryMB: Number(memory) },
+      } satisfies Grant)
+      setCreated({ url: res.link.base + res.path, friendly: res.link.friendly })
+      await onChanged()
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (created) return <CreatedLink name={label.trim()} created={created} onClose={onClose} />
+  return (
+    <form onSubmit={submit} className="contents" noValidate>
+      <DialogHeader>
+        <DialogTitle className="text-lg font-bold">{t('team.addCreator')}</DialogTitle>
+        <DialogDescription className="text-[13px]">{t('team.creatorHint')}</DialogDescription>
+      </DialogHeader>
+      <DialogPanel className="flex flex-col gap-4">
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[13px] font-semibold">{t('invites.nameLabel')}</span>
+          <Input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={64} placeholder={t('team.creatorNamePlaceholder')} autoComplete="off" className="max-sm:h-11 max-sm:[&>input]:h-full" />
+        </label>
+        <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[13px] font-semibold">{t('team.creatorServers')}</span>
+            <ChoiceSelect value={servers} onChange={setServers} options={creatorServers.map((v) => ({ value: v, label: t('unit.servers', { count: Number(v) }) }))} label={t('team.creatorServers')} className="w-full min-w-0" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[13px] font-semibold">{t('team.creatorMemory')}</span>
+            <ChoiceSelect value={memory} onChange={setMemory} options={creatorMemory.map((v) => ({ value: v, label: formatMB(Number(v)) }))} label={t('team.creatorMemory')} className="w-full min-w-0" />
+          </div>
+        </div>
+        {error && (
+          <p className="text-[13px] text-destructive-foreground" role="alert">
+            {error}
+          </p>
+        )}
+      </DialogPanel>
+      <DialogFooter variant="bare" className="border-t border-border pt-4 sm:mx-6 sm:items-center sm:justify-between sm:px-0">
+        <span className="text-xs text-muted-foreground max-sm:order-last max-sm:text-center">{t('team.linkRule')}</span>
+        <div className="flex gap-2 max-sm:flex-col-reverse">
+          <Button type="button" variant="ghost" size={phone ? 'touch' : 'default'} onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button type="submit" size={phone ? 'touch' : 'default'} loading={busy}>
+            <LinkIcon />
+            {t('invites.create')}
           </Button>
         </div>
       </DialogFooter>

@@ -1,11 +1,16 @@
-import type { Action, Me, ProjectRole, Scope, TokenRole } from '@/api/types'
+import type { Action, Allowance, Me, ProjectRole, Scope, TokenRole } from '@/api/types'
 import { t, type MessageKey } from '@/i18n'
-import { formatList } from './format'
+import { formatList, formatMB } from './format'
 import type { Route } from './router'
 
 /** Whether the signed-in account may take act. The panel checks every request anyway. */
 export function can(me: Me, act: Action): boolean {
   return me.access.can.includes(act)
+}
+
+/** "Up to 1 server with 4 GB": what a creator may create. */
+export function allowanceText(al: Allowance): string {
+  return t('team.allowance', { servers: t('unit.servers', { count: al.servers }), memory: formatMB(al.memoryMB) })
 }
 
 export const projectRoles: ProjectRole[] = ['admin', 'moderator', 'viewer']

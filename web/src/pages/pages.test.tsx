@@ -2548,6 +2548,55 @@ describe('Team', () => {
     expect(button('Create link').disabled).toBe(true)
     expect(button('Create link').title).toBe('Pick at least one server.')
   })
+
+  it('lets the owner invite a creator with an allowance, and shows creators and their links apart', async () => {
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [
+        { id: 1, username: 'siya', owner: true, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: '2026-09-01T10:00:00Z', canEdit: false },
+        { id: 4, username: 'alex', owner: false, you: false, role: 'admin', servers: {}, twoFactor: true, addedAt: hoursAgo(2), canEdit: true, allowance: { servers: 1, memoryMB: 4096 } },
+      ],
+      invites: [{ id: 'ti2', kind: 'member', projectId: 'p2345abcde', role: 'admin', label: 'cambam', createdBy: 1, createdAt: hoursAgo(1), expiresAt: inHours(6 * 24 + 1), maxUses: 1, uses: 0, status: 'active', canEdit: true, allowance: { servers: 1, memoryMB: 8192 } }],
+      grantableRoles: ['admin', 'moderator', 'viewer'],
+      servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+    }
+    answer({ '/api/team': team })
+    answerPosts({ '/api/team/invites': { invite: team.invites[0], path: '/join/Qm7xK2pLw9RtVb4n', link: { base: 'https://beta.playkeeper.me:8443', friendly: true } } })
+    const text = await render(<TeamSection />)
+    for (const line of ['Up to 1 server with 4 GB', 'cambam', 'Creator invite not used yet · runs out in 6 days', 'Up to 1 server with 8 GB']) expect(text).toContain(line)
+    await click(button('Invite a creator'))
+    expect(page()).toContain('They see only their own servers, and only you see this link.')
+    await typeInto('input[placeholder="Their handle, like alex"]', 'mogswamp')
+    await click(button('Create link'))
+    expect(client.post).toHaveBeenCalledWith('/api/team/invites', { role: 'admin', servers: {}, label: 'mogswamp', allowance: { servers: 1, memoryMB: 4096 } })
+    expect(document.querySelector<HTMLInputElement>('input[readonly]')?.value).toBe('https://beta.playkeeper.me:8443/join/Qm7xK2pLw9RtVb4n')
+  })
+
+  it('offers creator invites only to the owner', async () => {
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [{ id: 2, username: 'mara', owner: false, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: hoursAgo(49), canEdit: false }],
+      invites: [],
+      grantableRoles: ['moderator', 'viewer'],
+      servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+    }
+    answer({ '/api/team': team })
+    await render(<TeamSection />, workspace({ me: member('admin', everything, { servers: { all: true }, twoFactor: true }) }))
+    expect(buttons('Add a team member')).toHaveLength(1)
+    expect(buttons('Invite a creator')).toHaveLength(0)
+  })
+})
+
+describe('Creator invite page', () => {
+  it('shows what a creator may create instead of servers', async () => {
+    const preview: JoinPreview = { kind: 'member', inviter: '', role: 'admin', servers: {}, expiresAt: '2026-10-02T12:00:00Z', serverNames: [], team: 'Playkeeper beta', allowance: { servers: 1, memoryMB: 4096 } }
+    answerPosts({ '/preview': preview })
+    const text = await render(<JoinPage code="Qm7xK2pLw9RtVb4n" onSignedIn={() => {}} />)
+    for (const line of ['Create your own Minecraft server on Playkeeper beta', 'Creator', 'You create and run your own servers here', 'Up to 1 server with 4 GB']) expect(text).toContain(line)
+    expect(text).not.toContain('No servers')
+  })
 })
 
 describe('Discord', () => {
