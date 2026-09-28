@@ -16,7 +16,7 @@ curl -fsSL https://playkeeper.io/install | sudo sh
 
 No `sudo`, as on a Debian installed with a root password? Run `su -`, then the same command without `sudo`.
 
-`https://playkeeper.io/install` redirects to `get.sh` from the [latest release](https://github.com/CIYAhq/playkeeper/releases/latest). The script downloads the tarball for your VPS's CPU from that release, `playkeeper-linux-amd64.tar.gz` on x86_64 or `playkeeper-linux-arm64.tar.gz` on 64-bit ARM, and its `.sha256`, stops unless the SHA-256 matches, then runs the installer, which asks before changing anything. Installer options go after `sh -s --`, for example `… | sudo sh -s -- --yes --game-port 25566`. To read the script first: `curl -fsSL https://playkeeper.io/install | less`.
+`https://playkeeper.io/install` is a few lines that run `get.sh` from the [latest release](https://github.com/CIYAhq/playkeeper/releases/latest), telling it the install came through playkeeper.io. The script downloads the tarball for your VPS's CPU from that release, `playkeeper-linux-amd64.tar.gz` on x86_64 or `playkeeper-linux-arm64.tar.gz` on 64-bit ARM, and its `.sha256`, stops unless the SHA-256 matches, then runs the installer, which asks before changing anything. Installer options go after `sh -s --`, for example `… | sudo sh -s -- --yes --game-port 25566`. To read what runs first: `curl -fsSL https://playkeeper.io/install`, then `get.sh` at the address it names. The installer first says that it sends anonymous [usage stats](#usage-stats); `curl -fsSL https://playkeeper.io/install | sudo DO_NOT_TRACK=1 sh` installs without them.
 
 If playkeeper.io is unreachable, the same script comes straight from GitHub:
 
@@ -119,6 +119,32 @@ Everything else happens in the browser: create the admin account, pass the check
 
 **Other commands:** `sudo playkeeper status`, `sudo playkeeper setup-code` (a new setup code before an admin exists), `sudo playkeeper reset-password <user>`, `sudo playkeeper reset-2fa <user>` (turns off two-factor sign-in for a lost phone), `sudo playkeeper join` and `sudo playkeeper leave` (connect a machine to another dashboard, or disconnect it), and `sudo playkeeper mcp` (the AI tools over SSH).
 
+## Usage stats
+
+From 0.4.4, Playkeeper counts how many machines run it, anonymously, so the project knows how many people use it and where to spend its time. The installer says so before it sends anything. Each machine sends exactly this, and **Settings › Playkeeper › Usage stats** shows yours field for field:
+
+| Field | What it is |
+| --- | --- |
+| `id` | a random ID made on the machine for usage stats alone, tied to nothing else |
+| `version` | the Playkeeper version, like `0.4.4` |
+| `os`, `osVersion` | the system and its release, like `ubuntu` and `24.04` |
+| `arch` | the CPU type, `amd64` or `arm64` |
+| `source` | how Playkeeper got onto the machine: `playkeeper.io` (the install command there), `github` (`get.sh` straight from GitHub), `mirror` (`get.sh` from another location), `tarball` or `source` (a build that isn't a release) |
+| `channel` | the code of a `playkeeper.io/install/<code>` command, if one was used |
+| `kind` | `dashboard`, or `joined` for a machine connected to another dashboard |
+| `test` | marks the project's own test installs, which aren't counted |
+| `event`, `step` | from the installer: `started` once you accept its plan, then `succeeded`, or `failed` and the step that failed; or `refused` and the checks that turned it away, like `memory` |
+| `address` | from a running machine: `free` (a playkeeper.me name), `own` (your own domain) or `ip` (none) |
+| `servers`, `running` | from a running machine: how many Minecraft servers it has, and how many run |
+
+The installer sends its reports while it installs, and nothing if you decline its plan. A running machine sends a heartbeat a minute after Playkeeper starts and every 12 hours after. They go to `stats.playkeeper.io`, the project's own service, whose code is in this repository ([services/stats](services/stats/README.md)). It keeps each machine's random ID with what its reports say and the days it ran, never an IP address, and never learns a host name, server name or anything about players.
+
+To turn usage stats off:
+
+- **Settings › Playkeeper › Usage stats**: one switch for every machine of the dashboard.
+- When installing: `curl -fsSL https://playkeeper.io/install | sudo DO_NOT_TRACK=1 sh` sends nothing, and the machine keeps them off; the switch can't turn them back on. `PLAYKEEPER_USAGE_STATS=off` does the same. Put the variable after `sudo`, which drops variables set before it.
+- For a machine that's installed: `sudo systemctl edit playkeeper-agent`, add `Environment=DO_NOT_TRACK=1` under `[Service]`, then `sudo systemctl restart playkeeper-agent`.
+
 ## Build and contribute
 
 Outside contributions are welcome, under the project's licence; [CONTRIBUTING.md](CONTRIBUTING.md) has the details and the PR checklist. Report security problems privately, as [SECURITY.md](SECURITY.md) describes, not in a public issue.
@@ -151,4 +177,4 @@ Playkeeper is free software under the GNU Affero General Public License, version
 
 Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.
 
-[playkeeper.io](https://playkeeper.io) is this repository's `site/` folder, an nginx container ([site/README.md](site/README.md)): `/install` redirects to the latest release's `get.sh`, `/sizing` is the sizing guide, `/t` opens shared server templates in your own dashboard, and `/demo/` is the live demo, the dashboard from `web/` built with sample data (`web/src/demo/`).
+[playkeeper.io](https://playkeeper.io) is this repository's `site/` folder, an nginx container ([site/README.md](site/README.md)): `/install` runs the latest release's `get.sh`, `/sizing` is the sizing guide, `/t` opens shared server templates in your own dashboard, and `/demo/` is the live demo, the dashboard from `web/` built with sample data (`web/src/demo/`).

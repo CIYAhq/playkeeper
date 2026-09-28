@@ -73,6 +73,7 @@ import type {
   SoftwarePin,
   TwoFactorStatus,
   UpdateInfo,
+  UsageStatsView,
   WhitelistEntry,
   WorldImport,
 } from '@/api/types'
@@ -169,6 +170,8 @@ export interface DemoState {
   files: Record<string, Record<string, DemoFile>>
   /** Uploads into servers' folders, by id. */
   fileUploads: Record<string, DemoUpload>
+  /** Whether usage stats are on, once the switch was used; states from before it have none. */
+  usageOn?: boolean
 }
 
 /** A file or folder in a server's folder. A text file keeps its text; any other file only its size. */
@@ -1012,6 +1015,31 @@ function catalog(s: DemoState, r: Request): Catalog {
 
 export const update = (now: number): UpdateInfo => ({ current: demoVersion, supported: true, latest: demoVersion, available: false, checkedAt: iso(now - 30 * minute) })
 
+/** Usage stats, with the heartbeat a machine like the demo's would send: counts only, never a name. */
+export const usageStats = (s: DemoState, now: number): UsageStatsView => {
+  const on = s.usageOn ?? true
+  return {
+    on,
+    reason: s.usageOn === undefined ? 'default' : 'settings',
+    canChange: true,
+    lastSent: on ? iso(now - 3 * hour - 12 * minute) : undefined,
+    service: 'https://stats.playkeeper.io',
+    report: {
+      id: '5d0c1a7e9b3f4e21a8c6d2f07e19b4a3',
+      version: demoVersion,
+      os: 'ubuntu',
+      osVersion: '24.04',
+      arch: 'amd64',
+      source: 'playkeeper.io',
+      kind: 'dashboard',
+      address: 'free',
+      servers: s.servers.length,
+      running: s.servers.filter((x) => x.phase === 'online').length,
+    },
+    machines: [],
+  }
+}
+
 function preflight(s: DemoState): Preflight {
   const live = s.machine.live
   return {
@@ -1398,6 +1426,7 @@ export const reads: Routes = {
   'GET /api/machines/:machine/addon-sources': () => addonSources,
   'GET /api/auth/2fa': () => twoFactor,
   'GET /api/machines/:machine/update': (_, r) => update(r.now),
+  'GET /api/usage-stats': (s, r) => usageStats(s, r.now),
   'GET /api/machines/:machine/preflight': preflight,
   'GET /api/machines/:machine/events': () => [],
   'GET /api/audit': (s) => s.audit,
