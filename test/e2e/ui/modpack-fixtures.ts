@@ -9,7 +9,8 @@ import { iconAnswer, invalid, json, type Answer } from './addon-fixtures'
 // library at each of the picker's sorts (the first six packs of each), each
 // pack's details, with its versions cut to the ten newest and the one a new
 // server gets, and that version's preview. A pack whose preview failed that
-// day is left out. No CurseForge key was at hand, so curseforge.json holds
+// day is left out. Playkeeper ran packs from Minecraft 1.21 on then, so
+// versions for 1.20.1 keep the refusal it gave them. No CurseForge key was at hand, so curseforge.json holds
 // what Playkeeper's own library answers for the made-up Example Fabric Pack of
 // internal/modpacks/curseforge/testdata, served by the tests' fake CurseForge
 // (its sizes are the small files those tests generate); the other made-up
@@ -118,7 +119,7 @@ function search(q: URLSearchParams, world: PackWorld): Answer {
   const type = q.get('type') ?? ''
   if (type && !packTypes.includes(type)) return invalid('Playkeeper runs packs on Fabric, Quilt, NeoForge and Vanilla servers.')
   const version = q.get('version') ?? ''
-  if (version && !(/^[0-9]{1,3}\.[0-9]{1,3}(\.[0-9]{1,3})?$/.test(version) && compareMinecraft(version, '1.21') >= 0)) return invalid('Packs are offered for release versions of Minecraft from 1.21 on.')
+  if (version && !(/^[0-9]{1,3}\.[0-9]{1,3}(\.[0-9]{1,3})?$/.test(version) && compareMinecraft(version, '1.20.1') >= 0)) return invalid('Packs are offered for release versions of Minecraft from 1.20.1 on.')
   const limit = page.limit || 20
   const source = q.get('source') || 'modrinth'
   if (source === 'curseforge' && !world.curseforge) return noCurseForge()

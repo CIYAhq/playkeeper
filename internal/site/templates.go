@@ -10,6 +10,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/templates"
+	"github.com/CIYAhq/playkeeper/internal/templates/checks"
 )
 
 // TemplateCard is a server template the site offers, opened in the visitor's
@@ -38,11 +39,23 @@ type TemplateCard struct {
 	// OpensFrom is the first Playkeeper release that opens the template, set
 	// only while that release isn't out. Until then no page links it.
 	OpensFrom string
+	// Failing is set when its last check failed (site/data/checks), and no
+	// page links it either until it's fixed.
+	Failing bool
 }
 
-// Held reports whether the release people install can't open the template
-// yet, so pages leave it out.
-func (c *TemplateCard) Held() bool { return c.OpensFrom != "" }
+// Held reports whether pages leave the template out: the release people
+// install can't open it yet, or it failed its last check.
+func (c *TemplateCard) Held() bool { return c.OpensFrom != "" || c.Failing }
+
+// failing marks the cards whose templates failed their last check.
+func failing(cards map[string]*TemplateCard, checked map[string]*checks.Check) {
+	for id, c := range checked {
+		if card := cards[id]; card != nil && c.Status == checks.Failing {
+			card.Failing = true
+		}
+	}
+}
 
 // cardExtra is what a card shows that the template itself doesn't say.
 type cardExtra struct {

@@ -2,8 +2,9 @@
 // templates in site/layouts, the docs from the repository's own Markdown, and
 // the assets in site/static and web/src/assets under hashed names. Facts the
 // product owns come from the product: the server types from minecraft.Types,
-// the templates' links from internal/templates, the version from
-// site/data/release.json, which names the latest published release.
+// the oldest Minecraft version from minecraft.OldestRelease, the templates'
+// links from internal/templates, the version from site/data/release.json,
+// which names the latest published release.
 package site
 
 import (
@@ -21,8 +22,10 @@ import (
 	texttemplate "text/template"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/platform"
 	"github.com/CIYAhq/playkeeper/internal/sizing"
+	"github.com/CIYAhq/playkeeper/internal/templates/checks"
 )
 
 // Options say what to build the site from.
@@ -80,10 +83,15 @@ func Build(o Options) (*Output, error) {
 	if s.cards, err = loadTemplateCards(o.Root, "site/data/templates"); err != nil {
 		return nil, err
 	}
+	checked, err := checks.Read(o.Root, "site/data/checks")
+	if err != nil {
+		return nil, err
+	}
+	failing(s.cards, checked)
 	if s.packs, err = loadModpacks(o.Root, "site/data/modpacks", s.cards); err != nil {
 		return nil, err
 	}
-	if s.library, err = loadLibrary(o.Root, "site/data/library", s.cards); err != nil {
+	if s.library, err = loadLibrary(o.Root, "site/data/library", s.cards, checked); err != nil {
 		return nil, err
 	}
 	if s.pages, err = loadPages(o.Root, "site/pages"); err != nil {
@@ -634,6 +642,9 @@ func (s *Site) funcs() template.FuncMap {
 		},
 		"hasType":   hasType,
 		"countWord": countWord,
+		// oldestMinecraft is the oldest Minecraft release Playkeeper runs,
+		// for every server type and for modpacks: "1.20.1".
+		"oldestMinecraft": func() string { return minecraft.OldestRelease },
 		"card": func(id string) (*TemplateCard, error) {
 			c, ok := s.cards[id]
 			if !ok {

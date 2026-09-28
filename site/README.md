@@ -98,12 +98,21 @@ The release workflow's check of `/install` after each release counts as one ther
 
 ### Template library
 
-`/templates` is the public library of server templates, and `/templates/<id>` one page per template, like `/templates/towny`. Each is a site template in `data/templates` (the share format of `internal/templates`, so its card opens it in the visitor's dashboard) plus what happened when a server was created and started from it, in `data/library/<id>.json`: the Playkeeper release and server build, the seconds its log took to say Done, each plugin as it installed with its version, licence (the SPDX id its source lists) and downloads, and the day. The page gets Java and Java's share of the memory from the product (`minecraft.JavaFor`, `minecraft.HeapFor`), and its Docker command sizes the container the way Playkeeper does.
+`/templates` is the public library of server templates, and `/templates/<id>` one page per template, like `/templates/towny`. A page's `data/library/<id>.json` names its site template in `data/templates` (the share format of `internal/templates`, so its card opens it in the visitor's dashboard). Its facts come from that template's check in `data/checks`: the Playkeeper release and server build, the seconds its log took to say Done, each add-on as it installed with its version, licence (the SPDX id its source lists) and downloads, and the day. The page gets Java and Java's share of the memory from the product (`minecraft.JavaFor`, `minecraft.HeapFor`), and its Docker command sizes the container the way Playkeeper does and installs the template's pinned versions.
 
-- **Check a template before it gets a page:** create a server from it on a Playkeeper release (the agent API's `POST /v1/templates/plan`, then `POST /v1/servers` and start it), and keep it only if the server comes online with every plugin enabled and nothing failing in its log. `GET /v1/servers/<id>/addons` has the versions that installed. A plugin another one needs, like Vault, goes in the template, not in a note on the page.
-- **The build refuses** a facts file whose plugins aren't exactly the template's add-ons in its order, one that doesn't say which release, build and start time it was checked with, and one for a modpack's template, whose page is under `/modpacks`.
+**Checks.** `cmd/template-check` creates a server from a template on a running Playkeeper, starts it, reads its log and its add-ons, and removes it. A template passes when its server reaches Done with every add-on installed and nothing failing to load. The command writes `data/checks/<id>.json`, which nobody edits by hand.
+
+- **Check a template before its PR,** against `playkeeper dev` on a release: `make template-check SOCKET=/tmp/pk/agent.sock ARGS="-only towny -write -pin"`.
+  - `-write` records the check.
+  - `-pin` rewrites the template's add-ons to the exact versions that installed.
+  - A plugin another one needs, like Vault, goes in the template, not in a note on the page.
+- **Templates pin every add-on,** so a passing check stays true until a pin changes. `-bump` tries each add-on's newest version, and pins the new versions if the template still passes. The scheduled template agent runs it weekly and opens a PR with what changed.
+- **CI (`.github/workflows/templates.yml`)** is a scheduled job that checks templates on the latest release:
+  - **Nightly and on each release:** all of them. It opens an issue naming any that fail, and the template agent fixes their pins or holds them.
+  - **On a PR:** only the templates it adds or changes. It fails when `data/checks` doesn't list the versions that installed.
+- **A failing check holds its template:** no card or page links it (`TestNoPageOpensAHeldTemplate`). A library page needs a passing check, so fix the template or take its page down in the same PR.
+- **The build refuses** a check whose add-ons aren't exactly the template's in its order, or that doesn't say which release, build and start time it ran with, and a library page for a modpack's template, whose page is under `/modpacks`.
 - **A new page** copies the closest one in `pages/templates/` and keeps the blocks in `layouts/library.html` (facts, Docker, template cards). What the plugins make you do first, with the commands and defaults from their own configs, is what the page is for, and the 60% rule above holds for these pages too.
-- **Templates take each plugin's latest version,** so check them again when Minecraft or a plugin has a new release, and update the facts file with what installed.
 - **Social previews** carry the pages' headings: `node site-og.mjs templates template-<id>`.
 
 ## Host it with Coolify

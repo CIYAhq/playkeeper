@@ -426,4 +426,12 @@ UPDATE pregen SET done_border = radius WHERE ended = 'finished' AND preset = 'bo
 ALTER TABLE servers ADD COLUMN public_page INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE servers ADD COLUMN public_page_players INTEGER NOT NULL DEFAULT 0;
 `,
+	// 0.4.4: what the owner adds to the public page: their words for it, the
+	// link of a live stream it offers to play, and the status board their
+	// tools post, as JSON ('' for none).
+	`
+ALTER TABLE servers ADD COLUMN public_about TEXT NOT NULL DEFAULT '';
+ALTER TABLE servers ADD COLUMN public_stream TEXT NOT NULL DEFAULT '';
+ALTER TABLE servers ADD COLUMN public_board TEXT NOT NULL DEFAULT '';
+`,
 }

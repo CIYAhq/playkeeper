@@ -1,6 +1,9 @@
 package mcptools
 
-import "github.com/CIYAhq/playkeeper/internal/mcp"
+import (
+	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/mcp"
+)
 
 // Patterns for arguments; each reads the same in Go and ECMA-262.
 const (
@@ -8,6 +11,7 @@ const (
 	patPlayer    = `^[A-Za-z0-9_]{3,16}$`
 	patOperation = `^[0-9a-f]{16}$`
 	patProject   = `^[A-Za-z0-9._-]{1,64}$`
+	patTime      = `^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$`
 )
 
 func toolSpecs() []spec {
@@ -149,6 +153,31 @@ func toolSpecs() []spec {
 				"a running server stops using it when it restarts. It leaves an add-on that others need, or whose file changed since it " +
 				"was installed, and says why.",
 			run: removeAddon,
+		},
+		{
+			name: "set_status_board", title: "Post to the public page", scope: mcp.ScopeManage, act: ActRunServers, effect: mcp.Destructive, idempotent: true, perServer: true,
+			props: map[string]*mcp.Schema{
+				"headline": {Type: "string", MaxLength: new(api.BoardHeadlineMax), Pattern: patPrintable,
+					Description: "One line on where things stand. For example: Day 3 · Nether reached"},
+				"live": {Type: "boolean", Description: "Whether a session is on now: the page's stream says Live now."},
+				"next": {Type: "string", Pattern: patTime,
+					Description: "When the next session starts, as an RFC 3339 time like 2026-10-06T17:00:00Z, for the page's countdown."},
+				"stats": {Type: "array", MaxItems: new(api.BoardStatsMax), Description: "Up to 6 numbers, like Deaths: 5.",
+					Items: &mcp.Schema{Type: "object", Required: []string{"label", "value"}, Properties: map[string]*mcp.Schema{
+						"label": {Type: "string", MinLength: new(1), MaxLength: new(api.BoardStatLabelMax), Pattern: patPrintable},
+						"value": {Type: "string", MinLength: new(1), MaxLength: new(api.BoardStatValueMax), Pattern: patPrintable},
+					}}},
+				"checklist": {Type: "array", MaxItems: new(api.BoardItemsMax), Description: "Up to 24 goals, each done or not.",
+					Items: &mcp.Schema{Type: "object", Required: []string{"label", "done"}, Properties: map[string]*mcp.Schema{
+						"label": {Type: "string", MinLength: new(1), MaxLength: new(api.BoardItemLabelMax), Pattern: patPrintable},
+						"done":  {Type: "boolean"},
+					}}},
+				"clear": {Type: "boolean", Description: "Take the board off the page instead of posting one."},
+			},
+			desc: "Posts a status board to a server's public page, the page anyone sees at the server's address in a browser: a headline, " +
+				"whether a session is live and when the next starts, up to 6 numbers and a checklist. Each post replaces the last; post again " +
+				"whenever something changes. Everyone can read it, so post nothing private.",
+			run: setStatusBoard,
 		},
 	}
 }

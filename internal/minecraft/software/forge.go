@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
 
 const (
@@ -76,7 +78,7 @@ func forgeVersions(ctx context.Context, hc *http.Client) (forgeBuilds, error) {
 	fb := forgeBuilds{byMC: map[string][]string{}, recommended: map[string]string{}}
 	for _, v := range m.Versions {
 		mc, build, ok := strings.Cut(v, "-")
-		if ok && offeredFamily(mc) && reForgeVersion.MatchString(build) && !slices.Contains(fb.byMC[mc], build) {
+		if ok && offered(mc) && reForgeVersion.MatchString(build) && !slices.Contains(fb.byMC[mc], build) {
 			fb.byMC[mc] = append(fb.byMC[mc], build)
 		}
 	}
@@ -130,12 +132,66 @@ func forgeVersionList(ctx context.Context, hc *http.Client, mc string) ([]Build,
 		func(p *Pin, v string) { p.ForgeVersion = v }), nil
 }
 
-// forgeID is how Forge's Maven and installer name a build: "26.2-65.1.3".
-func forgeID(p Pin) string { return p.MinecraftVersion + "-" + p.ForgeVersion }
+// forgeBuild is a build that Forge's installer makes: one of Forge's, or one
+// of NeoForge's versions for Minecraft 1.20.1, which kept Forge's installer
+// and its names under the group net.neoforged.
+type forgeBuild struct {
+	group, mc, version string
+}
+
+// forgeBuildOf is the build a Forge pin names, or a NeoForge pin for
+// Minecraft 1.20.1.
+func forgeBuildOf(p Pin) (forgeBuild, bool) {
+	switch {
+	case p.Type == Forge:
+		return forgeBuild{group: "net.minecraftforge", mc: p.MinecraftVersion, version: p.ForgeVersion}, true
+	case p.Type == NeoForge && reNeoForgeForge.MatchString(p.NeoForgeVersion):
+		return forgeBuild{group: "net.neoforged", mc: p.MinecraftVersion, version: p.NeoForgeVersion}, true
+	}
+	return forgeBuild{}, false
+}
+
+func (b forgeBuild) name() string {
+	if b.group == "net.neoforged" {
+		return "NeoForge"
+	}
+	return "Forge"
+}
+
+// id is how Maven and the installer name the build: "26.2-65.1.3".
+func (b forgeBuild) id() string { return b.mc + "-" + b.version }
+
+// coord is the Maven coordinate of one of the build's files.
+func (b forgeBuild) coord(classifier string) string {
+	return b.group + ":forge:" + b.id() + ":" + classifier
+}
+
+// shim reports whether the installer has the server start from a shim jar,
+// as Forge's do from Minecraft 1.20.3 (Forge 49) on. The earlier ones, and
+// NeoForge's for 1.20.1, have the launch arguments start FML's bootstrap
+// launcher from the libraries instead, and look for Mojang's server jar
+// under its plain name.
+func (b forgeBuild) shim() bool {
+	return b.group == "net.minecraftforge" && minecraft.CompareMinecraft(b.mc, "1.20.3") >= 0
+}
+
+// serverJarPath is where the installer looks for Mojang's server jar.
+func (b forgeBuild) serverJarPath() string {
+	name := "server-" + b.mc
+	if b.shim() {
+		name += "-bundled"
+	}
+	return "libraries/net/minecraft/server/" + b.mc + "/" + name + ".jar"
+}
+
+func (b forgeBuild) argsPath() string {
+	return "libraries/" + strings.ReplaceAll(b.group, ".", "/") + "/forge/" + b.id() + "/unix_args.txt"
+}
 
 func forgeResolve(ctx context.Context, hc *http.Client, r *Resolved) error {
 	u := forgeMavenUpstream(hc)
-	id := forgeID(r.Pin)
+	b, _ := forgeBuildOf(r.Pin)
+	id := b.id()
 	name := "forge-" + id + "-installer.jar"
 	fileURL := forgeMaven + "/" + id + "/" + name
 	h, err := u.checksum(ctx, fileURL, SHA512, name)
@@ -161,8 +217,9 @@ func forgePlan(r Resolved) (Plan, error) {
 	if r.Software == nil {
 		return Plan{}, incomplete(r.Pin)
 	}
+	b, _ := forgeBuildOf(r.Pin)
 	installer, server := *r.Software, r.Server
-	server.Path = forgeServerJarPath(r.Pin.MinecraftVersion)
+	server.Path = b.serverJarPath()
 	return Plan{
 		Downloads: []Artifact{installer, server},
 		Setup: &Container{Env: []string{"TYPE=FORGE", "FORGE_INSTALLER=/data/" + installer.Path,
@@ -172,16 +229,8 @@ func forgePlan(r Resolved) (Plan, error) {
 			{Kind: DeriveBundler, From: server.Path, Into: "libraries"},
 		},
 		Remove: []string{installer.Path, installer.Path + ".log"},
-		Run:    Container{Env: []string{"TYPE=CUSTOM", "CUSTOM_JAR_EXEC=@" + forgeArgsPath(r.Pin)}},
+		Run:    Container{Env: []string{"TYPE=CUSTOM", "CUSTOM_JAR_EXEC=@" + b.argsPath()}},
 	}, nil
-}
-
-func forgeServerJarPath(mc string) string {
-	return "libraries/net/minecraft/server/" + mc + "/server-" + mc + "-bundled.jar"
-}
-
-func forgeArgsPath(p Pin) string {
-	return "libraries/net/minecraftforge/forge/" + forgeID(p) + "/unix_args.txt"
 }
 
 type forgeLibrary struct {
@@ -217,23 +266,24 @@ type forgeVersionFile struct {
 	Libraries    []forgeLibrary `json:"libraries"`
 }
 
-const (
-	forgeLibrarySource = "the library list inside the verified Forge installer"
-	forgeOutputSource  = "the install profile inside the verified Forge installer"
-)
+// source names a list inside the build's verified installer as the source
+// of a hash: "the library list inside the verified Forge installer".
+func (b forgeBuild) source(list string) string {
+	return list + " inside the verified " + b.name() + " installer"
+}
 
 // forgeInstallerChecks reads the verified installer: every library it
 // installs under into with its SHA-1 and size, the shim jar the server
-// starts from, the launch arguments it extracts, and the SHA-1 it publishes
-// for each file its processors build, the patched Minecraft jar among them.
-func forgeInstallerChecks(root *os.Root, installer, into string, pin Pin) ([]Check, error) {
-	id := forgeID(pin)
+// starts from when it has one, the launch arguments it extracts, and the
+// SHA-1 it publishes for each file its processors build, the patched
+// Minecraft jar among them.
+func forgeInstallerChecks(root *os.Root, installer, into string, b forgeBuild) ([]Check, error) {
 	readJSON := func(name string, out any) error {
-		b, err := readZipEntry(root, installer, name, 4<<20)
+		data, err := readZipEntry(root, installer, name, 4<<20)
 		if err != nil {
 			return err
 		}
-		if err := json.Unmarshal(b, out); err != nil {
+		if err := json.Unmarshal(data, out); err != nil {
 			return jarError(installer, "its "+name+" is not valid JSON", err)
 		}
 		return nil
@@ -246,17 +296,18 @@ func forgeInstallerChecks(root *os.Root, installer, into string, pin Pin) ([]Che
 	if err := readJSON("version.json", &ver); err != nil {
 		return nil, err
 	}
-	name := pin.MinecraftVersion + "-forge-" + pin.ForgeVersion
-	if prof.Version != name || prof.Minecraft != pin.MinecraftVersion || ver.ID != name || ver.InheritsFrom != pin.MinecraftVersion {
-		return nil, jarError(installer, fmt.Sprintf("it installs %q for Minecraft %q, not Forge %s for Minecraft %s", prof.Version, prof.Minecraft, pin.ForgeVersion, pin.MinecraftVersion), nil)
+	name := b.mc + "-forge-" + b.version
+	if prof.Version != name || prof.Minecraft != b.mc || ver.ID != name || ver.InheritsFrom != b.mc {
+		return nil, jarError(installer, fmt.Sprintf("it installs %q for Minecraft %q, not %s %s for Minecraft %s", prof.Version, prof.Minecraft, b.name(), b.version, b.mc), nil)
 	}
-	if want := "{LIBRARY_DIR}/net/minecraft/server/{MINECRAFT_VERSION}/server-{MINECRAFT_VERSION}-bundled.jar"; prof.ServerJarPath != want {
-		return nil, jarError(installer, "it expects Mojang's server jar somewhere other than "+forgeServerJarPath(pin.MinecraftVersion), nil)
+	if strings.NewReplacer("{LIBRARY_DIR}", "libraries", "{MINECRAFT_VERSION}", b.mc).Replace(prof.ServerJarPath) != b.serverJarPath() {
+		return nil, jarError(installer, "it expects Mojang's server jar somewhere other than "+b.serverJarPath(), nil)
 	}
+	libs := b.source("the library list")
 	// The client's patched jar is listed for launchers; a server install
 	// never has it.
-	client := "net.minecraftforge:forge:" + id + ":client"
-	shimCoord := "net.minecraftforge:forge:" + id + ":shim"
+	client := b.coord("client")
+	shimCoord := b.coord("shim")
 	var checks []Check
 	var shim *Check
 	for _, l := range append(prof.Libraries, ver.Libraries...) {
@@ -268,34 +319,40 @@ func forgeInstallerChecks(root *os.Root, installer, into string, pin Pin) ([]Che
 		if !ok || a.Size <= 0 || !cleanRel(a.Path, ".jar", ".zip") {
 			return nil, jarError(installer, fmt.Sprintf("its library %q has no valid path, SHA-1 or size", l.Name), nil)
 		}
-		c := Check{Path: into + "/" + a.Path, Hash: h, Size: a.Size, Origin: Derived, Source: forgeLibrarySource}
+		c := Check{Path: into + "/" + a.Path, Hash: h, Size: a.Size, Origin: Derived, Source: libs}
 		checks = append(checks, c)
 		if l.Name == shimCoord && shim == nil {
 			shim = &c
 		}
 	}
-	shimRel, ok := mavenPath(shimCoord)
-	if prof.Path != shimCoord || !ok || shim == nil || shim.Path != into+"/"+shimRel {
-		return nil, jarError(installer, "it does not start the server from its shim jar, "+path.Base(shimRel), nil)
+	shimName := ""
+	if b.shim() {
+		shimRel, ok := mavenPath(shimCoord)
+		if prof.Path != shimCoord || !ok || shim == nil || shim.Path != into+"/"+shimRel {
+			return nil, jarError(installer, "it does not start the server from its shim jar, "+path.Base(shimRel), nil)
+		}
+		shimName = path.Base(shimRel)
+		checks = append(checks, Check{Path: shimName, Hash: shim.Hash, Size: shim.Size, Origin: Derived, Source: libs})
 	}
-	shimName := path.Base(shimRel)
-	checks = append(checks, Check{Path: shimName, Hash: shim.Hash, Size: shim.Size, Origin: Derived, Source: forgeLibrarySource})
 
-	if !extractsForgeArgs(prof, forgeArgsPath(pin)) {
-		return nil, jarError(installer, "it does not put its launch arguments at "+forgeArgsPath(pin), nil)
+	if !extractsForgeArgs(prof, b.argsPath()) {
+		return nil, jarError(installer, "it does not put its launch arguments at "+b.argsPath(), nil)
 	}
 	args, err := readZipEntry(root, installer, "data/unix_args.txt", 1<<20)
 	if err != nil {
 		return nil, err
 	}
-	if !startsJar(string(args), shimName) {
+	switch {
+	case shimName != "" && !startsJar(string(args), shimName):
 		return nil, jarError(installer, "its launch arguments do not start "+shimName, nil)
+	case shimName == "" && (prof.Path != "" || slices.Contains(strings.Fields(string(args)), "-jar")):
+		return nil, jarError(installer, "it starts the server from a jar of its own, not from the libraries it installs", nil)
 	}
 	sum := sha256.Sum256(args)
-	checks = append(checks, Check{Path: forgeArgsPath(pin), Hash: Hash{Algorithm: SHA256, Value: hex.EncodeToString(sum[:])},
-		Size: int64(len(args)), Origin: Derived, Source: "the launch arguments inside the verified Forge installer"})
+	checks = append(checks, Check{Path: b.argsPath(), Hash: Hash{Algorithm: SHA256, Value: hex.EncodeToString(sum[:])},
+		Size: int64(len(args)), Origin: Derived, Source: b.source("the launch arguments")})
 
-	outputs, err := forgeOutputs(installer, into, prof)
+	outputs, err := forgeOutputs(installer, into, prof, b.source("the install profile"))
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +362,7 @@ func forgeInstallerChecks(root *os.Root, installer, into string, pin Pin) ([]Che
 // forgeOutputs is the files the installer's processors build, each with the
 // SHA-1 the install profile publishes for it (PATCHED and PATCHED_SHA).
 // The patched Minecraft jar must be one of them.
-func forgeOutputs(installer, into string, prof forgeProfile) ([]Check, error) {
+func forgeOutputs(installer, into string, prof forgeProfile, source string) ([]Check, error) {
 	keys := make([]string, 0, len(prof.Data))
 	for k := range prof.Data {
 		keys = append(keys, k)
@@ -327,7 +384,7 @@ func forgeOutputs(installer, into string, prof forgeProfile) ([]Check, error) {
 		if !ok || !hashOK {
 			return nil, jarError(installer, fmt.Sprintf("its install profile names an invalid file or SHA-1 for %s", k), nil)
 		}
-		out = append(out, Check{Path: into + "/" + p, Hash: h, Origin: Derived, Source: forgeOutputSource})
+		out = append(out, Check{Path: into + "/" + p, Hash: h, Origin: Derived, Source: source})
 		patched = patched || k == "PATCHED"
 	}
 	if !patched {

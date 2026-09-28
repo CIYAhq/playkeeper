@@ -4,6 +4,8 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.4
 
+- **Your words, your stream and a status board on the page:** **Settings › Public page** takes an About text, such as your server's rules, and a Twitch or YouTube channel. Visitors get a **Watch live** button, and nothing loads from Twitch or YouTube until they press it. Your own tools can post a status board through the API, and AI agents through the new `set_status_board` tool: a headline, whether you're live and when the next session starts, which the page counts down to, up to 6 numbers and a checklist.
+- A link to the page shows a picture of the server wherever it's shared: its name, whether it's online and how many are playing, the board's headline and its address.
 - Anonymous **usage stats**, so the project can count how many machines run Playkeeper and how installs go. It sends a random ID made on your machine, the Playkeeper version, the system, how Playkeeper was installed, the kind of address and how many servers you have: when it installs, a minute after it starts, and twice a day. No IP address is kept, and nothing names you, your servers or your players. **Settings › Playkeeper › Usage stats** shows exactly what is sent and turns them off on every machine. To send nothing at all, install with `DO_NOT_TRACK=1`, or set it for Playkeeper's agent before you update, as README.md's Usage stats section shows.
 
 ## 0.4.3
@@ -13,6 +15,12 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 - Fixed: plugins that publish a Paper and a Spigot build of each release, such as BlueMap, FastAsyncWorldEdit, CommandAPI and AuthMe, installed their Spigot build on Paper and Purpur, and mods with a Quilt build, such as Simple Voice Chat, their Fabric build on Quilt. Installs and updates now take the build for the server's own platform; one installed before moves over at its next update.
 - The Pixelmon Modpack installs, and the Pixelmon mod can be added on the Mods tab: one file of a modpack or mod may now be up to 512 MiB, up from 256 MiB. Each file is still checked against its published checksum before it reaches the server.
 - Big modpacks like FTB StoneBlock 4 and Craftoria install: a pack may now put up to 20,000 files on the server, up from 5,000.
+- Templates can carry CurseForge modpacks, like All the Mods 10, as well as Modrinth ones. A template never holds a CurseForge key: the Playkeeper that opens it installs the pack with its own, and only if the pack's file is the one the template pins.
+- Fixed: sharing a server made from a modpack as a template listed each of the pack's mods as left out.
+- Servers and modpacks for Minecraft 1.20.1, the version most Minecraft 1.20 modpacks were made for, like All the Mods 9, Better MC 4 and 2, SkyFactory 5, Prominence II and Beyond Depth. They run on Java 17, and Forge's and NeoForge's builds for 1.20.1 are checked like the newer ones. Playkeeper ran Minecraft 1.21 and newer before.
+- CurseForge packs whose server files keep everything in a folder of their own, like All the Mods 9's, get the mods CurseForge lets only its own app download from those files, instead of leaving them for you to add.
+- When a CurseForge pack's server files hold most of its mods, a server gets the mods they have and no others. A mod the pack's authors left out of the server files, like the client-only one that stopped All the Mods 9 at its first start, stays off the server, and one CurseForge tags for players' games goes on it when they have it, like the Mod Menu that Better MC 2 needs to start.
+- Fixed: a CurseForge pack whose manifest gives its recommended memory as text, like Better MC [FABRIC] BMC2, was refused as not valid JSON.
 
 ## 0.4.2
 

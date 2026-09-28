@@ -2602,10 +2602,13 @@ export interface FileUpload {
   limitBytes: number
 }
 
-/** A server's switches for the public page at the machine's address (from 0.4.3). */
+/** A server's settings for the public page at the machine's address (from 0.4.3). */
 export interface PublicPageSettings {
   enabled: boolean
   players: boolean
+  /** The owner's words for the page, and the link of the stream it offers to play (from 0.4.4); empty for none. */
+  about: string
+  stream: string
 }
 
 export type PagePortState = 'open' | 'busy' | 'claimed' | 'waiting' | 'denied' | 'off'
@@ -2626,6 +2629,8 @@ export interface PublicPagePorts {
 export interface PublicPageView extends PublicPageSettings {
   /** The machine's address, where the page answers; missing without one. */
   host?: string
+  /** What the owner's tools last posted to the page. */
+  board?: PublicBoard
   ports?: PublicPagePorts
 }
 
@@ -2648,6 +2653,32 @@ export interface PublicServer {
   pack?: string
   inviteOnly: boolean
   hasIcon: boolean
+  /** The owner's words for the page, such as its rules, as plain text. */
+  about?: string
+  /** A live stream the page offers to play, on Twitch or YouTube. */
+  stream?: PublicStream
+  /** What the owner's tools last posted to the page through the API or MCP. */
+  board?: PublicBoard
+}
+
+export interface PublicStream {
+  site: 'twitch' | 'youtube'
+  /** The Twitch channel's login, or the YouTube channel's ID. */
+  channel: string
+  /** The channel's own page. */
+  url: string
+}
+
+/** A status board the owner's tools keep up to date. */
+export interface PublicBoard {
+  /** One line on where things stand, like "Day 3 · Nether reached". */
+  headline?: string
+  /** Whether a session is on now; next is when the next one starts. */
+  live?: boolean
+  next?: string
+  stats?: { label: string; value: string }[]
+  checklist?: { label: string; done: boolean }[]
+  updatedAt: string
 }
 
 /** What the public page at the machine's address shows. */

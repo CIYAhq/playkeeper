@@ -30,14 +30,14 @@ const devPageHost = "localhost"
 // be read is off the page.
 func (s *server) publicPageSettings() api.PublicPageSettings {
 	var set api.PublicPageSettings
-	if err := s.db.QueryRow(`SELECT public_page, public_page_players FROM servers WHERE id = ?`, s.id).Scan(&set.Enabled, &set.Players); err != nil {
+	if err := s.db.QueryRow(`SELECT public_page, public_page_players, public_about, public_stream FROM servers WHERE id = ?`, s.id).Scan(&set.Enabled, &set.Players, &set.About, &set.Stream); err != nil {
 		return api.PublicPageSettings{}
 	}
 	return set
 }
 
 func (s *server) publicPageView() api.PublicPageView {
-	return api.PublicPageView{PublicPageSettings: s.publicPageSettings(), Host: s.pageHost()}
+	return api.PublicPageView{PublicPageSettings: s.publicPageSettings(), Host: s.pageHost(), Board: s.publicBoard()}
 }
 
 // pageHost is the address the page answers for: the machine's name, or ""
@@ -70,11 +70,17 @@ func (s *server) hPublicPageSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if req.Enabled == nil && req.Players == nil {
-		writeError(w, errInvalid("Say which switch to change."))
+	if req.Enabled == nil && req.Players == nil && req.About == nil && req.Stream == nil {
+		writeError(w, errInvalid("Say what to change."))
 		return
 	}
-	res, err := s.db.Exec(`UPDATE servers SET public_page = COALESCE(?, public_page), public_page_players = COALESCE(?, public_page_players) WHERE id = ?`, req.Enabled, req.Players, s.id)
+	about, stream, changed, err := pageText(req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	res, err := s.db.Exec(`UPDATE servers SET public_page = COALESCE(?, public_page), public_page_players = COALESCE(?, public_page_players),
+		public_about = COALESCE(?, public_about), public_stream = COALESCE(?, public_stream) WHERE id = ?`, req.Enabled, req.Players, about, stream, s.id)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -84,7 +90,11 @@ func (s *server) hPublicPageSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := s.publicPageView()
-	s.audit(actor, "public_page.changed", "public_page", "changed", fmt.Sprintf("page %s, players %s", onOff(v.Enabled), onOff(v.Players)))
+	detail := fmt.Sprintf("page %s, players %s", onOff(v.Enabled), onOff(v.Players))
+	if len(changed) > 0 {
+		detail += ", " + strings.Join(changed, ", ")
+	}
+	s.audit(actor, "public_page.changed", "public_page", "changed", detail)
 	writeJSON(w, http.StatusOK, v)
 }
 
@@ -216,6 +226,7 @@ func (s *server) publicServer(ctx context.Context, host string, j api.JoinAddres
 	if on, token := s.packsPublic(); on {
 		ps.Pack = s.panelLink("/packs/" + token)
 	}
+	ps.About, ps.Stream, ps.Board = set.About, s.pageStream(set.Stream), s.publicBoard()
 	return ps, true
 }
 

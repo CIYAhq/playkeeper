@@ -104,7 +104,7 @@ func apiPackCard(c modpacks.Card) api.ModpackCard {
 
 func apiPackVersion(v modpacks.Version) api.ModpackVersion {
 	out := api.ModpackVersion{ID: v.ID, Number: v.Number, Name: v.Name, Channel: v.Channel, Published: v.Published, Size: v.Size,
-		Type: v.Type, MinecraftVersion: v.MinecraftVersion, Mods: v.Mods}
+		Type: v.Type, MinecraftVersion: v.MinecraftVersion, Mods: v.Mods, HashAlgo: v.HashAlgo, Hash: v.Hash}
 	if v.Unsupported != nil {
 		n := apiNotice(*v.Unsupported)
 		out.Unsupported = &n

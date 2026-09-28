@@ -28,7 +28,8 @@ type fakeVersion struct {
 func sha(n int) string { return fmt.Sprintf("%064x", n) }
 
 // fillToday mirrors PaperMC on 2026-09-25: 26.3 has only alpha builds, 26.2
-// is the newest version with stable builds.
+// is the newest version with stable builds, and Minecraft 1.20.4 and older
+// need Java 17.
 var fillToday = []fakeVersion{
 	{"26.3", "SUPPORTED", 25, []fakeBuild{{41, "ALPHA", sha(341)}, {40, "ALPHA", sha(340)}}},
 	{"26.3-rc-3", "UNSUPPORTED", 25, []fakeBuild{{1, "ALPHA", sha(31)}}},
@@ -39,6 +40,9 @@ var fillToday = []fakeVersion{
 	{"1.21.11", "UNSUPPORTED", 21, []fakeBuild{{132, "STABLE", sha(21132)}}},
 	{"1.21.10", "UNSUPPORTED", 21, []fakeBuild{{50, "STABLE", sha(2110)}}},
 	{"1.20.6", "UNSUPPORTED", 21, []fakeBuild{{151, "STABLE", sha(206)}}},
+	{"1.20.1", "UNSUPPORTED", 17, []fakeBuild{{196, "STABLE", sha(201196)}, {195, "STABLE", sha(201195)}}},
+	{"1.20", "UNSUPPORTED", 17, []fakeBuild{{17, "STABLE", sha(20017)}}},
+	{"1.19.4", "UNSUPPORTED", 17, []fakeBuild{{550, "STABLE", sha(194)}}},
 }
 
 type fakeFill struct {
@@ -101,7 +105,7 @@ func TestCatalogOffersTheLatestStableFirstAndExperimentalWithAWarning(t *testing
 	for _, e := range got {
 		ids = append(ids, fmt.Sprintf("%s#%d", e.MinecraftVersion, e.PaperBuild))
 	}
-	if want := "26.3#41 26.2#129 26.1.2#74 1.21.11#132"; strings.Join(ids, " ") != want {
+	if want := "26.3#41 26.2#129 26.1.2#74 1.21.11#132 1.20.6#151"; strings.Join(ids, " ") != want {
 		t.Fatalf("offered %v, want %s", ids, want)
 	}
 	exp, rec := got[0], got[1]
@@ -117,8 +121,8 @@ func TestCatalogOffersTheLatestStableFirstAndExperimentalWithAWarning(t *testing
 		}
 	}
 	for _, p := range f.requests {
-		for _, skipped := range []string{"26.1.1", "1.21.10", "1.20.6", "rc"} {
-			if strings.Contains(p, skipped) {
+		for _, skipped := range []string{"26.1.1", "1.21.10", "1.20.1", "1.20/", "1.19.4", "rc"} {
+			if strings.Contains(p+"/", skipped) {
 				t.Errorf("%s was fetched although it is not offered", p)
 			}
 		}
@@ -128,7 +132,10 @@ func TestCatalogOffersTheLatestStableFirstAndExperimentalWithAWarning(t *testing
 func TestCatalogDoesNotDependOnTheOrderPaperMCListsVersionsIn(t *testing.T) {
 	reversed := slices.Clone(fillToday)
 	slices.Reverse(reversed)
-	shuffled := []fakeVersion{fillToday[5], fillToday[2], fillToday[8], fillToday[0], fillToday[6], fillToday[3], fillToday[4], fillToday[1], fillToday[7]}
+	var shuffled []fakeVersion
+	for _, i := range []int{5, 2, 10, 8, 0, 11, 6, 3, 9, 4, 1, 7} {
+		shuffled = append(shuffled, fillToday[i])
+	}
 	for name, versions := range map[string][]fakeVersion{"oldest first": reversed, "shuffled": shuffled} {
 		_, fill := startFakeFill(t, versions)
 		got, err := fill.Catalog(context.Background())
@@ -139,8 +146,33 @@ func TestCatalogDoesNotDependOnTheOrderPaperMCListsVersionsIn(t *testing.T) {
 		for _, e := range got {
 			ids = append(ids, fmt.Sprintf("%s#%d", e.MinecraftVersion, e.PaperBuild))
 		}
-		if want := "26.3#41 26.2#129 26.1.2#74 1.21.11#132"; strings.Join(ids, " ") != want || !got[1].Recommended {
+		if want := "26.3#41 26.2#129 26.1.2#74 1.21.11#132 1.20.6#151"; strings.Join(ids, " ") != want || !got[1].Recommended {
 			t.Errorf("%s: offered %v, want %s with 26.2 recommended", name, ids, want)
+		}
+	}
+}
+
+// Minecraft 1.20.1 is the oldest release offered: 1.20 is not, even when
+// it is the only one of its family.
+func TestCatalogStartsAtTheOldestRelease(t *testing.T) {
+	for _, tc := range []struct {
+		versions []fakeVersion
+		want     string
+	}{
+		{[]fakeVersion{fillToday[9], fillToday[10], fillToday[11]}, "1.20.1#196"},
+		{[]fakeVersion{fillToday[10], fillToday[11]}, ""},
+	} {
+		_, fill := startFakeFill(t, tc.versions)
+		got, err := fill.Catalog(context.Background())
+		var ids []string
+		for _, e := range got {
+			ids = append(ids, fmt.Sprintf("%s#%d", e.MinecraftVersion, e.PaperBuild))
+		}
+		if strings.Join(ids, " ") != tc.want || (tc.want == "") != (err != nil) {
+			t.Errorf("offered %v (%v), want %q", ids, err, tc.want)
+		}
+		if len(got) > 0 && got[0].Java != 17 {
+			t.Errorf("1.20.1 runs on Java %d, want 17", got[0].Java)
 		}
 	}
 }
@@ -171,13 +203,14 @@ func TestRestoreBuildKeepsTheBackupsBuildWhenNoStableOneIsNewer(t *testing.T) {
 		{"26.2", 100, 129, false},
 		{"26.3", 40, 40, true},
 		{"26.1.2", 74, 74, false},
+		{"1.20.1", 195, 196, false},
 	} {
 		e, err := fill.RestoreBuild(ctx, tc.mc, tc.build)
 		if err != nil || e.PaperBuild != tc.want || e.Experimental != tc.exp {
 			t.Errorf("restore %s build %d: got %+v %v, want build %d experimental=%v", tc.mc, tc.build, e, err, tc.want, tc.exp)
 		}
 	}
-	for _, tc := range []struct{ mc, why string }{{"9.9.9", "no Paper build"}, {"1.20.6", "1.21 and newer"}, {"26.3", "no usable build"}} {
+	for _, tc := range []struct{ mc, why string }{{"9.9.9", "no Paper build"}, {"1.20", "1.20.1 and newer"}, {"1.19.4", "1.20.1 and newer"}, {"26.3", "no usable build"}} {
 		build := 1
 		if tc.mc == "26.3" {
 			build = 99

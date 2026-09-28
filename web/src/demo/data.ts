@@ -1428,7 +1428,7 @@ export const reads: Routes = {
   'GET /api/servers/:id/addons/search': addonSearch,
   'GET /api/servers/:id/addons/curated': curated,
   'GET /api/servers/:id/mods/share': modsShare,
-  'GET /api/servers/:id/public-page': (): PublicPageView => ({ enabled: true, players: false, host: `${freeName}.playkeeper.me`, ports: { https: { port: 443, state: 'open' }, http: { port: 80, state: 'open' } } }),
+  'GET /api/servers/:id/public-page': (): PublicPageView => ({ enabled: true, players: false, about: '', stream: '', host: `${freeName}.playkeeper.me`, ports: { https: { port: 443, state: 'open' }, http: { port: 80, state: 'open' } } }),
   'GET /api/servers/:id/addons/project/:source/:project': addonDetails,
   'GET /api/servers/:id/addons/project/:source/:project/removal': addonRemoval,
   'GET /api/servers/:id/pregen': pregen,

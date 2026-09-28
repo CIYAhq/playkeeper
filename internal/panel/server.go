@@ -534,8 +534,12 @@ func (s *Server) Routes() []Route {
 	// ports (serverpage.go).
 	routes = append(routes, []Route{
 		view("/api/servers/{id}/public-page", s.hPublicPage),
-		{"POST", "/api/servers/{id}/public-page", needSessionCSRF, actManageServers, s.forwardThen("POST", "/v1/servers/{id}/public-page", func(machine, *session, json.RawMessage) { s.kickPage() })},
+		{"POST", "/api/servers/{id}/public-page", needSessionCSRF, actManageServers, s.forwardThen("POST", "/v1/servers/{id}/public-page", func(machine, *session, json.RawMessage) { s.pageChanged() })},
 		{"POST", "/api/servers/{id}/public-page/retry", needSessionCSRF, actManageServers, s.hPublicPagePortsRetry},
+		// The status board changes as often as the owner's tools post, like
+		// the server's running state, so moderators may post and clear it.
+		{"PUT", "/api/servers/{id}/public-page/board", needSessionCSRF, actRunServers, s.forwardThen("PUT", "/v1/servers/{id}/public-page/board", func(machine, *session, json.RawMessage) { s.pageChanged() })},
+		{"DELETE", "/api/servers/{id}/public-page/board", needSessionCSRF, actRunServers, s.forwardThen("DELETE", "/v1/servers/{id}/public-page/board", func(machine, *session, json.RawMessage) { s.pageChanged() })},
 	}...)
 	return append(routes, s.fileRoutes()...)
 }

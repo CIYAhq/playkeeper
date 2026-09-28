@@ -414,10 +414,16 @@ if [ -n "$chrome" ]; then
   expect_state "$(link_data share-link-markup.txt)" ready
   grep -qF '&lt;b&gt;Survival&lt;/b&gt; &amp; &lt;i&gt;friends&lt;/i&gt;' "$dom" || fail "/t does not show the template's name as text"
   if grep -qF '<b>Survival' "$dom"; then fail "/t turns markup in a template's name into HTML"; fi
+  # A CurseForge modpack shows like a Modrinth one, from the link alone.
+  expect_state "$(link_data share-link-curseforge.txt)" ready
+  for text in 'All the Mods 10' 'NeoForge · Minecraft 1.21.1 · 12 GB of memory' '<dd id="t-modpack">All the Mods 10 - ATM10</dd>'; do
+    grep -qF "$text" "$dom" || fail "/t does not show '$text' for the CurseForge modpack's template"
+  done
+  if form_hidden; then fail "/t does not offer to open the CurseForge modpack's template"; fi
 
   logs=$(docker logs "$name" 2>&1)
   grep -q '"GET /t HTTP/.*HeadlessChrome' <<<"$logs" || fail "Chrome's visits to /t are not in the server's log"
-  for f in share-link.txt share-link-markup.txt share-link-author.txt share-link-oversized.txt; do
+  for f in share-link.txt share-link-markup.txt share-link-author.txt share-link-oversized.txt share-link-curseforge.txt; do
     data=$(link_data "$f")
     if grep -qF "${data:0:32}" <<<"$logs"; then fail "the template in $f reached the server"; fi
   done

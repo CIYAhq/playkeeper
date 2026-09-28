@@ -122,6 +122,20 @@ func next(p string, i int) int {
 	return i + 1 + j
 }
 
+// root is the folder every file of the archive is in, when they are all in
+// one, else "".
+func (a *archive) root() string {
+	root := ""
+	for p := range a.files {
+		top, _, ok := strings.Cut(p, "/")
+		if !ok || root != "" && top != root {
+			return ""
+		}
+		root = top
+	}
+	return root
+}
+
 // layer returns the files under the folders prefixes by their path below
 // them; a later folder's file wins over an earlier one's at the same path.
 func (a *archive) layer(prefixes ...string) map[string]*zip.File {
