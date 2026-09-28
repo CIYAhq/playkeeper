@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Tests that scripts/discord-feed.sh posts a release a tag published to the
 # Releases webhook with its title, link and bold lead phrases, or "fixes" when
-# it only fixes things; a failed CI run on main and a failed tag release to the
-# CI webhook with the commit and the jobs that failed; and "main is green
-# again" only for the first passing run on main after a failed one, whatever
-# was cancelled in between. That pull requests, dry runs, other branches and
-# cancelled runs post nothing; that a webhook whose secret isn't set is skipped
-# without failing or asking GitHub anything; that a post Discord refuses fails
-# the run; that the webhook URLs never show in what it prints; and that the
-# workflow runs it only for pushes, from the default branch's own files.
+# it only fixes things; a CI run on main or a tag release that failed, timed
+# out or couldn't start to the CI webhook with the commit and the jobs that
+# failed or timed out; and "main is green again" only for the first passing
+# run on main after one of those, whatever was cancelled in between, a passing
+# re-run of the failed run included. That pull requests, dry runs, other
+# branches and cancelled runs post nothing; that a webhook whose secret isn't
+# set is skipped without failing or asking GitHub anything; that a post
+# Discord refuses, or GitHub failing to answer, fails the run; that the
+# webhook URLs never show in what it prints; and that the workflow runs it
+# only for pushes, from the default branch's own files.
 # gh and curl are stubs that answer from files.
 # Assertions are written "condition || fail ...": fail always exits.
 # shellcheck disable=SC2015
@@ -37,6 +39,7 @@ echo "gh $*" >>"$STUBS/gh.log"
 case "$1 $2" in
   "release view") cat "$STUBS/release.json" ;;
   "run list") cat "$STUBS/runs.json" ;;
+  "api "*/attempts/*) cat "$STUBS/attempt-${2##*/}.json" ;;
   "api "*) cat "$STUBS/jobs.json" ;;
   *)
     echo "unexpected: gh $*" >&2
@@ -73,7 +76,7 @@ run() {
   status=0
   env PATH="$tmp/bin:$PATH" STUBS="$stubs" GH_REPO=CIYAhq/playkeeper GH_TOKEN=test \
     DISCORD_WEBHOOK_RELEASES="$releases_url" DISCORD_WEBHOOK_CI="$ci_url" \
-    WORKFLOW="$1" EVENT="$2" CONCLUSION="$3" BRANCH="$4" SHA=0123456789abcdef RUN_ID=500 RUN_URL="$run_url" \
+    WORKFLOW="$1" EVENT="$2" CONCLUSION="$3" BRANCH="$4" SHA=0123456789abcdef RUN_ID=500 RUN_ATTEMPT=1 RUN_URL="$run_url" \
     COMMIT_MESSAGE=$'Keep "quotes" & <tags> in the subject\n\nand only the first line' \
     "${@:5}" "$feed" >"$tmp/out" 2>&1 || status=$?
   ! grep -q token-for-tests "$tmp/out" || fail "a webhook URL showed in what it printed for $*"
@@ -177,6 +180,52 @@ echo '[{"databaseId": 500, "conclusion": "success"}]' >"$stubs/runs.json"
 run CI push success main
 nothing_posted "main's first run"
 ok "a passing run after a passing one, or with none before it, posts nothing"
+
+cat >"$stubs/jobs.json" <<'EOF'
+{"jobs": [
+  {"name": "Go unit tests, every package but the agent's", "conclusion": "success"},
+  {"name": "Agent unit tests — 16 shards side by side, every test run", "conclusion": "timed_out"},
+  {"name": "Lint, typecheck and unit tests — every job passed", "conclusion": "failure"}
+]}
+EOF
+run CI push timed_out main
+posted_to "$ci_url" "a CI run on main that timed out"
+[ "$(field '.embeds[0].title')" = "CI timed out on main" ] || fail "timed-out CI title: $(field '.embeds[0].title')"
+want="$commit"$'\n- Agent unit tests — 16 shards side by side, every test run (timed out)\n- Lint, typecheck and unit tests — every job passed'
+[ "$(field '.embeds[0].description')" = "$want" ] || fail "timed-out CI: $(field '.embeds[0].description')"
+echo '{"jobs": []}' >"$stubs/jobs.json"
+run Release push startup_failure v0.4.5
+posted_to "$ci_url" "a release that couldn't start"
+[ "$(field '.embeds[0].title')" = "Release v0.4.5 couldn't start" ] || fail "release that couldn't start: $(field '.embeds[0].title')"
+[ "$(field '.embeds[0].description')" = "$commit" ] || fail "release that couldn't start: $(field '.embeds[0].description')"
+echo '[{"databaseId": 500, "conclusion": "success"}, {"databaseId": 499, "conclusion": "timed_out"}]' >"$stubs/runs.json"
+run CI push success main
+posted_to "$ci_url" "main passing after a timeout"
+[ "$(field '.embeds[0].title')" = "main is green again" ] || fail "green after a timeout: $(field '.embeds[0].title')"
+ok "a run that timed out or couldn't start counts as failed, with its timed-out jobs listed"
+
+echo '[{"databaseId": 500, "conclusion": "success"}, {"databaseId": 499, "conclusion": "success"}]' >"$stubs/runs.json"
+echo '{"conclusion": "failure"}' >"$stubs/attempt-1.json"
+run CI push success main RUN_ATTEMPT=2
+posted_to "$ci_url" "a passing re-run of a failed run"
+[ "$(field '.embeds[0].title')" = "main is green again" ] || fail "green re-run: $(field '.embeds[0].title')"
+grep -q '^gh api repos/CIYAhq/playkeeper/actions/runs/500/attempts/1$' "$stubs/gh.log" || fail "green re-run: asked GitHub $(cat "$stubs/gh.log")"
+echo '{"conclusion": "cancelled"}' >"$stubs/attempt-2.json"
+run CI push success main RUN_ATTEMPT=3
+posted_to "$ci_url" "a passing re-run after a cancelled attempt of a failed run"
+echo '{"conclusion": "success"}' >"$stubs/attempt-1.json"
+echo '[{"databaseId": 500, "conclusion": "success"}, {"databaseId": 499, "conclusion": "failure"}]' >"$stubs/runs.json"
+run CI push success main RUN_ATTEMPT=2
+nothing_posted "a passing re-run of a passing run"
+echo '{"conclusion": "cancelled"}' >"$stubs/attempt-1.json"
+run CI push success main RUN_ATTEMPT=2
+posted_to "$ci_url" "a passing re-run of a cancelled run after a failure"
+ok "a re-run looks at the run's own earlier attempts first, past cancelled ones"
+
+echo 'not json' >"$stubs/runs.json"
+run CI push success main
+[ "$status" != 0 ] && [ ! -f "$stubs/url" ] || fail "a GitHub answer it can't read passed as main already green: $(cat "$tmp/out")"
+ok "GitHub failing to answer fails the run instead of posting nothing"
 
 run CI pull_request failure siya/some-branch
 nothing_posted "a pull request's failed CI"
