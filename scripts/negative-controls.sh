@@ -6620,6 +6620,11 @@ control "site counts come from playkeeper.io's pages alone" internal/usage/servi
   '	if r.Header.Get("Origin") != SiteOrigin {' \
   '	if false && r.Header.Get("Origin") != SiteOrigin {' \
   ./internal/usage/service '^TestSiteCountsComeOnlyFromThePagesAndSayNothingElse$'
+control "a site count is answered to playkeeper.io's pages" internal/usage/service/site.go \
+  '	w.Header().Set("Access-Control-Allow-Origin", SiteOrigin)
+' \
+  '' \
+  ./internal/usage/service '^TestSiteCountsComeOnlyFromThePagesAndSayNothingElse$'
 control "a site count is a copy of the install command and nothing else" internal/usage/service/site.go \
   '	if e.Event != EventInstallCopied {' \
   '	if false && e.Event != EventInstallCopied {' \

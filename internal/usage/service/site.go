@@ -46,9 +46,13 @@ type siteEvent struct {
 }
 
 // hSiteEvent takes a count from one of playkeeper.io's pages. The page
-// sends it as text/plain, so the browser needs no preflight, and reads no
-// answer. The address it came from is used for the rate limits and dropped.
+// sends it as a CORS request, which every browser sends with the page's
+// origin, and as text/plain, so it needs no preflight; the answer lets the
+// page see it arrived. The address it came from is used for the rate limits
+// and dropped.
 func (s *Service) hSiteEvent(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", SiteOrigin)
+	w.Header().Set("Vary", "Origin")
 	if r.Header.Get("Origin") != SiteOrigin {
 		writeError(w, http.StatusForbidden, "forbidden", "Counts come from "+SiteOrigin+" alone.")
 		return

@@ -221,7 +221,11 @@ func TestSiteCountsComeOnlyFromThePagesAndSayNothingElse(t *testing.T) {
 			t.Errorf("%s: %d %s", c.name, w.Code, w.Body)
 		}
 	}
-	accepted := 2
+	w := copyCommand(e, "203.0.113.92", "")
+	if w.Code != http.StatusNoContent || w.Header().Get("Access-Control-Allow-Origin") != SiteOrigin {
+		t.Errorf("a copy from the site isn't answered to the site, so its page sees no answer: %d %v", w.Code, w.Header())
+	}
+	accepted := 3
 	for i := 0; ; i++ {
 		w := copyCommand(e, "203.0.113.91", "")
 		if w.Code == http.StatusTooManyRequests {
