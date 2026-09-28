@@ -192,6 +192,24 @@ test('on a phone the filters are a sheet from the bottom', async ({ browser, bas
   await ctx.close()
 })
 
+test("the share page shows a directory template with its card's picture, and any other with its play style's", async ({ page }) => {
+  await page.goto('/templates', { waitUntil: 'networkidle' })
+  const card = page.locator('[data-dir-grid] .dcard:has(.dcard-name a:text-is("Lifesteal SMP"))')
+  const art = await card.locator('.dcard-art img').getAttribute('src')
+  const link = (await card.locator('.dcard-open').getAttribute('href'))!
+  await page.goto(link, { waitUntil: 'networkidle' })
+  await expect(page.locator('#t-name')).toHaveText('Lifesteal SMP')
+  await expect(page.locator('.share-art img:visible')).toHaveCount(1)
+  await expect(page.locator('.share-art img:visible')).toHaveAttribute('src', art!)
+
+  // A template shared from someone's own server gets the scene of how it's played.
+  const shared = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../internal/templates/testdata/share-link.txt'), 'utf8').trim()
+  await page.goto(`/t#${shared.split('#')[1]}`, { waitUntil: 'networkidle' })
+  await expect(page.locator('#t-name')).toHaveText('Survival with friends')
+  await expect(page.locator('.share-art img:visible')).toHaveCount(1)
+  await expect(page.locator('.share-art img:visible')).toHaveAttribute('data-art', 'friends')
+})
+
 test('without JavaScript every template is a link away, and the controls that need it are not shown', async ({ browser, baseURL }) => {
   const ctx = await browser.newContext({ baseURL, javaScriptEnabled: false })
   const page = await ctx.newPage()
