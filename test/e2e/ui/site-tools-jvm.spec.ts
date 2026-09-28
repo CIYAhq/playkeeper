@@ -113,6 +113,7 @@ test('a server: Aikar\'s flags in a start script, with the heap and Java Playkee
   await expect(tool.locator('[data-download]')).toBeHidden()
   await pick(page, 'jvm-format-sh')
   await version(page, '1.12.2')
+  await expect(page.locator('[data-gclog-hint]'), 'Java 8 logs to gc.log in the server folder').toHaveText('To gc.log in the server’s folder, five files of 1 MB at most.')
   text = await out(page)
   expect(text).not.toContain('mkdir')
   expect(text).toContain(' -Xloggc:gc.log -verbose:gc -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=5 -XX:GCLogFileSize=1M -jar')

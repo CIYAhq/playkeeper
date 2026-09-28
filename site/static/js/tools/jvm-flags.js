@@ -58,6 +58,7 @@
   var next = $('[data-next]');
   var download = $('[data-download]');
   var flagsHint = $('[data-flags-hint]');
+  var gclogHint = $('[data-gclog-hint]');
   var launcherHint = $('[data-launcher-hint]');
   var zgc = $('#jvm-flags-zgc');
   var java = NEWEST_JAVA;
@@ -264,6 +265,7 @@
       none: java >= 17 ? 'Only the memory, which Paper suggests trying first on Java 17 or newer.' : 'Only the memory. On Java older than 17, Paper suggests Aikar’s flags.',
     }[s.flags];
     flagsHint.textContent = hint + (java < 21 ? ' ZGC needs Minecraft 1.20.5 or newer.' : '');
+    gclogHint.textContent = java >= 11 ? 'To logs/gc.log, five files of 1 MB at most.' : 'To gc.log in the server’s folder, five files of 1 MB at most.';
 
     $('[data-memory-value]').textContent = gb(s.budget);
     $('[data-mods-value]').textContent = String(s.mods);
