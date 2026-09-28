@@ -1755,6 +1755,18 @@ control "add-on scan: stops with its context" internal/addons/scan.go \
   'l.readLocal(ctx, root, lf, identify, verify)
 			if err := ctx.Err(); false && err != nil {' \
   ./internal/addons '^TestAScanStopsWithItsContext$'
+control "an add-on file may be as large as Pixelmon's jar" internal/addons/addons.go \
+  'DefaultMaxFileSize = 512 << 20' \
+  'DefaultMaxFileSize = 256 << 20' \
+  ./internal/addons '^TestPlanInstallTakesFilesUpTo512MiB$'
+control "an add-on file larger than 512 MiB is refused" internal/addons/addons.go \
+  'DefaultMaxFileSize = 512 << 20' \
+  'DefaultMaxFileSize = 1 << 62' \
+  ./internal/addons '^TestPlanInstallTakesFilesUpTo512MiB$'
+control "an add-on's download must match the hash its library publishes" internal/addons/fetch/download.go \
+  'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
+  ./internal/addons '^TestInstallRefusesBadDownloads$'
 control "pre-generation: a named pipe for the plugins folder is refused before it is opened" internal/gamefiles/gamefiles.go \
   'err = folderError(p, fi)' \
   'err = nil' \
@@ -2009,6 +2021,18 @@ control "only the server files of the pack's own version are used" internal/modp
   'sp.ParentProjectFileID == nil || *sp.ParentProjectFileID != file.ID || ' \
   '' \
   ./internal/modpacks '^TestCurseForgeModsFromServerFiles$'
+control "a modpack's file may be as large as Pixelmon's jar" internal/modpacks/modpacks.go \
+  'File: addons.DefaultMaxFileSize,' \
+  'File: 256 << 20,' \
+  ./internal/modpacks '^TestDefaultFileLimit$'
+control "a modpack's file larger than 512 MiB is refused, listed or not" internal/modpacks/modpacks.go \
+  'File: addons.DefaultMaxFileSize,' \
+  'File: 1 << 62,' \
+  ./internal/modpacks '^TestDefaultFileLimit$'
+control "a modpack's downloads must match the hashes the pack lists" internal/addons/fetch/download.go \
+  'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
+  ./internal/modpacks '^TestDownloadsMustMatchThePacksHashes$'
 control "a pack's settings are read and written without following a link" internal/agent/modpacks.go \
   'cur, err := d.ReadProperties()
 	if errors.Is(err, fs.ErrNotExist) {
