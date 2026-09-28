@@ -42,6 +42,9 @@ type fakeChunky struct {
 	borderX, borderZ, borderRadius int
 	// limit is the radius the host caps new tasks at, or 0 for none.
 	limit int
+	// unsaved has the next stop lose the running task, as when the server
+	// stops before Chunky saved a task it had just started.
+	unsaved bool
 }
 
 type fakeChunkyTask struct {
@@ -197,10 +200,17 @@ func (fc *fakeChunky) serverStarted() {
 func (fc *fakeChunky) serverStopped() {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	if fc.running {
+	if fc.running && !fc.unsaved {
 		fc.save()
 	}
-	fc.loaded, fc.running = false, false
+	fc.loaded, fc.running, fc.unsaved = false, false, false
+}
+
+// loseOnStop has the next stop lose the running task.
+func (fc *fakeChunky) loseOnStop() {
+	fc.mu.Lock()
+	fc.unsaved = true
+	fc.mu.Unlock()
 }
 
 // advance has the running task process n more chunks, 100 a second.
@@ -586,7 +596,7 @@ func TestPregenCancel(t *testing.T) {
 		defer s.pg.mu.Unlock()
 		return !s.pg.idleSince.IsZero()
 	})
-	if v := e.pregen(); v.State != "paused" {
+	if v := e.pregen(); v.State != "unknown" {
 		t.Fatalf("a task Chunky just lost: %+v", v)
 	}
 	s.pg.mu.Lock()
@@ -595,6 +605,58 @@ func TestPregenCancel(t *testing.T) {
 	e.waitFor("the lost task to end", func() bool { return e.pregen().State == "idle" })
 	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND action = 'pregen.cancelled' AND result = 'failed' AND detail = 'Chunky no longer has the task'`, e.sid); n != 1 {
 		t.Errorf("%d audit entries for the lost task", n)
+	}
+}
+
+// On an ARM runner in #27's checks, add-ons were installed and
+// pre-generation started straight after; the server restarted about 20
+// seconds into the task, before Chunky saved it, and Chunky came back with
+// no task to continue. The agent showed it paused for good. Nobody paused
+// it, so the agent now starts it again, and until Chunky runs it says it
+// can't tell rather than that it's paused. A task Chunky loses again in
+// the same run ends as gone, as before.
+func TestPregenATaskARestartDroppedIsStartedAgain(t *testing.T) {
+	e := newAgentEnv(t)
+	e.withSources()
+	e.create()
+	fc := e.chunky()
+	e.installAddon("mvportal")
+	e.startPregen("small", false)
+	if running, task := fc.state(); !running || task.radius != 1000 || task.centerX != 16 || task.centerZ != -32 {
+		t.Fatalf("Chunky runs %v: %+v", running, task)
+	}
+	fc.advance(500)
+
+	s := e.srv()
+	fc.loseOnStop()
+	e.serverOp("/restart")
+	e.waitFor("Chunky to run the task again", func() bool { running, _ := fc.state(); return running })
+	if _, task := fc.state(); task.radius != 1000 || task.centerX != 16 || task.centerZ != -32 || task.total != 16129 {
+		t.Fatalf("Chunky runs another task: %+v", task)
+	}
+	e.waitFor("the task to run", func() bool { return e.pregen().State == "running" })
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND actor = 'playkeeper' AND action = 'pregen.continued'`, e.sid); n != 1 {
+		t.Errorf("%d audit entries for starting it again", n)
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM pregen WHERE server_id = ? AND ended = ''`, e.sid); n != 1 {
+		t.Error("starting the task again ended it or started another")
+	}
+
+	fc.lose()
+	e.waitFor("Chunky to report no task", func() bool {
+		s.pg.mu.Lock()
+		defer s.pg.mu.Unlock()
+		return !s.pg.idleSince.IsZero()
+	})
+	if v := e.pregen(); v.State != "unknown" || v.PausedBy != "" {
+		t.Fatalf("a task Chunky lost again: %+v", v)
+	}
+	s.pg.mu.Lock()
+	s.pg.idleSince = s.pg.idleSince.Add(-pregenIdleGrace)
+	s.pg.mu.Unlock()
+	e.waitFor("the lost task to end", func() bool { return e.pregen().State == "idle" })
+	if running, _ := fc.state(); running {
+		t.Error("the agent started the task again twice in one run")
 	}
 }
 
@@ -621,7 +683,7 @@ func TestPregenFinishesWhenChunkyLogsIt(t *testing.T) {
 	// small task: the save came as the last 50 chunks were loading.
 	fc.endAt(16079, 440900*time.Millisecond)
 	e.waitFor("Chunky to report the saved task", waiting)
-	if v := e.pregen(); v.State != "paused" {
+	if v := e.pregen(); v.State != "unknown" {
 		t.Fatalf("before Chunky logged the finish: %+v", v)
 	}
 	e.fd.addLog("[22:56:56 INFO]: [Chunky] Task finished for world. Processed: 16129 chunks (100.00%), Total time: 0:07:21")
@@ -642,7 +704,7 @@ func TestPregenFinishesWhenChunkyLogsIt(t *testing.T) {
 	e.fd.addLog("[23:10:02 INFO]: [Chunky] Task stopped for world.")
 	e.fd.addLog("[23:10:02 INFO]: [Chunky] Task cancelled for world.")
 	e.waitFor("Chunky to report the cancelled task", waiting)
-	if v := e.pregen(); v.State != "paused" {
+	if v := e.pregen(); v.State != "unknown" {
 		t.Fatalf("a task just cancelled from the console: %+v", v)
 	}
 	s.pg.mu.Lock()

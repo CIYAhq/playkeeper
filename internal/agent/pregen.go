@@ -135,6 +135,10 @@ type pregenCache struct {
 	// override is set when someone continues the task while people play,
 	// so the policy leaves it running until the server is empty.
 	override bool
+	// resumedRun is the run of the server a task a restart dropped was
+	// last sent to Chunky again in: once a run, so a task Chunky keeps
+	// losing ends as gone.
+	resumedRun time.Time
 	// finished is the last "Task finished" line Chunky logged for each
 	// world.
 	finished map[string]pregenFinish
@@ -341,7 +345,8 @@ func (s *server) pregenView(ctx context.Context) (api.Pregen, error) {
 		}
 		return out, nil
 	}
-	if st := s.pg.latest(s.now(), s.pregenFresh()); online && st != nil && st.State == pregen.StateRunning && st.Progress != nil {
+	st := s.pg.latest(s.now(), s.pregenFresh())
+	if online && st != nil && st.State == pregen.StateRunning && st.Progress != nil {
 		out.State = "running"
 		out.Chunks, out.Percent, out.Rate, out.ETASeconds = st.Progress.Chunks, st.Progress.Percent, st.Progress.Rate, st.Progress.ETASeconds
 		return out, nil
@@ -357,6 +362,10 @@ func (s *server) pregenView(ctx context.Context) (api.Pregen, error) {
 		out.PausedBy = "server"
 	case task.PausedByPolicy:
 		out.PausedBy, out.PausedFor = "players", task.PausedFor
+	case st == nil || st.State != pregen.StatePaused:
+		// Chunky couldn't be asked, or has no task for it: that says
+		// nothing about whether it's paused.
+		out.State = "unknown"
 	}
 	return out, nil
 }
@@ -429,9 +438,72 @@ func (s *server) pregenTick(ctx context.Context) {
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	task, st := s.pregenCheck(cctx, p)
 	cancel()
-	if task != nil && st != nil {
+	if task != nil && st != nil && !s.pregenAfterRestart(ctx, p, task, st) {
 		s.pregenPolicy(ctx, p, task, st)
 	}
+}
+
+// pregenAfterRestart has Chunky go on with an unfinished task nobody paused
+// that it doesn't run although the server restarted since the task started:
+// the server stopped before Chunky saved a task it had just started, so it
+// came back without it, or Chunky's settings said not to continue it. A
+// lost task is started again with the plan it was started with. Once a run.
+func (s *server) pregenAfterRestart(ctx context.Context, p pregen.Platform, task *pregenTask, st *pregen.Status) bool {
+	if (st.State != pregen.StateIdle && st.State != pregen.StatePaused) || task.PausedByUser || task.PausedByPolicy {
+		return false
+	}
+	s.mu.Lock()
+	run := s.runStartedAt
+	s.mu.Unlock()
+	s.pg.mu.Lock()
+	tried := s.pg.resumedRun.Equal(run)
+	s.pg.mu.Unlock()
+	if run.IsZero() || !run.After(task.StartedAt) || tried {
+		return false
+	}
+	release, ok := s.holdOpLock()
+	if !ok {
+		return false
+	}
+	defer release()
+	if s.machineBusy() != nil {
+		return false
+	}
+	s.pg.run.Lock()
+	defer s.pg.run.Unlock()
+	if cur, err := s.lastPregen(); err != nil || !cur.unfinished() || cur.PausedByUser || cur.PausedByPolicy || !cur.StartedAt.Equal(task.StartedAt) {
+		return false
+	}
+	s.pg.mu.Lock()
+	s.pg.resumedRun = run
+	s.pg.mu.Unlock()
+	cctx, cancel := context.WithTimeout(ctx, pregenCommandTimeout)
+	defer cancel()
+	ctrl := s.chunky(p)
+	var err error
+	if st.State == pregen.StatePaused {
+		err = ctrl.Continue(cctx, task.World)
+	} else if plan, ok := taskPlan(task); ok {
+		_, err = ctrl.Start(cctx, plan, pregen.StartOptions{ContinueOnRestart: true, Replace: true})
+	} else {
+		err = fmt.Errorf("no plan for the %q size", task.Preset)
+	}
+	if err != nil {
+		s.log.Warn("could not have Chunky go on with the map pre-generation after the server restarted", "server", s.id, "err", err)
+		return false
+	}
+	s.audit("playkeeper", "pregen.continued", task.World, "succeeded", "the server restarted and Chunky didn't go on with it")
+	s.pg.forget()
+	return true
+}
+
+// taskPlan is the plan task was started with: a size around spawn, or the
+// world up to its border.
+func taskPlan(task *pregenTask) (pregen.Plan, bool) {
+	if task.Preset == api.MapAreaBorder {
+		return pregen.BorderPlan(task.World, task.Radius), true
+	}
+	return pregen.PresetPlan(task.Preset, task.World)
 }
 
 // pregenCheck asks Chunky where the unfinished task stands and records it

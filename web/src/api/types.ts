@@ -1274,7 +1274,8 @@ export interface PregenPreset {
 }
 
 export interface Pregen {
-  state: 'idle' | 'starting' | 'running' | 'paused' | 'finished'
+  /** unknown: a task nobody paused that Chunky couldn't be asked about, or has just lost. */
+  state: 'idle' | 'starting' | 'running' | 'paused' | 'unknown' | 'finished'
   step?: 'installing' | 'restarting' | 'starting_server' | 'starting_task'
   world: string
   preset?: PregenPresetId

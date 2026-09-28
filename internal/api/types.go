@@ -1255,8 +1255,9 @@ type PregenPreset struct {
 // Pregen is where pre-generating a server's map stands.
 type Pregen struct {
 	// State is idle (also after a cancel), starting (Playkeeper is
-	// installing Chunky or restarting the server for it), running, paused
-	// or finished.
+	// installing Chunky or restarting the server for it), running, paused,
+	// unknown (an unfinished task nobody paused that Chunky couldn't be
+	// asked about, or has just lost) or finished.
 	State string `json:"state"`
 	// Step is where starting stands: installing (Chunky), restarting (the
 	// server, to load it), starting_server or starting_task.

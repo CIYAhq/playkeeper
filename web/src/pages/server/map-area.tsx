@@ -20,10 +20,10 @@ import { usePoll, type Poll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { longTime, pausedText, shortTime, stepText } from './world-pregen'
 
-/** Whether the map's area is being filled in: starting, running or paused. */
+/** Whether the map's area is being filled in: starting, running, paused or unknown. */
 export function filling(a: MapArea | undefined): boolean {
   const s = a?.fill.state
-  return s === 'starting' || s === 'running' || s === 'paused'
+  return s === 'starting' || s === 'running' || s === 'paused' || s === 'unknown'
 }
 
 /** Follows the map's area: every few seconds while it is filled in, slower otherwise. */
@@ -31,7 +31,7 @@ export function useMapArea(s: ServerStatus): Poll<MapArea> {
   const [every, setEvery] = useState(30_000)
   const poll = usePoll(() => get<MapArea>(serverApi(s.id, '/map/area')), every, s.id)
   const state = poll.data?.fill.state
-  const want = state === 'starting' || state === 'running' ? 3_000 : state === 'paused' ? 10_000 : 30_000
+  const want = state === 'starting' || state === 'running' || state === 'unknown' ? 3_000 : state === 'paused' ? 10_000 : 30_000
   if (want !== every) setEvery(want)
   return poll
 }
@@ -252,8 +252,9 @@ export function MapAreaRow({ area, onOpen }: { area: MapArea | undefined; onOpen
 export function FillCard({ server, area, className }: { server: ServerStatus; area: MapArea; className?: string }) {
   const pg = area.fill
   const paused = pg.state === 'paused'
+  const unknown = pg.state === 'unknown'
   const to = area.area === 'border' ? t('mapArea.border') : t('mapArea.to', { radius: area.radius ?? 0 })
-  const status = paused ? pausedText(pg, server.name) : pg.etaSeconds >= 0 ? t('pregen.left', { time: longTime(pg.etaSeconds) }) : undefined
+  const status = paused ? pausedText(pg, server.name) : unknown ? t('pregen.unknown') : pg.etaSeconds >= 0 ? t('pregen.left', { time: longTime(pg.etaSeconds) }) : undefined
   return (
     <Card className={cn('animate-enter gap-0 rounded-2xl p-4', className)} aria-live="polite">
       <CardTitle className="text-sm">{t('mapArea.filling')}</CardTitle>
@@ -276,7 +277,7 @@ export function FillCard({ server, area, className }: { server: ServerStatus; ar
               )}
             </span>
           </div>
-          <Progress value={pg.percent} tone={paused ? 'muted' : 'info'} className="mt-3" label={t('mapArea.filling')} />
+          <Progress value={pg.percent} tone={paused || unknown ? 'muted' : 'info'} className="mt-3" label={t('mapArea.filling')} />
         </>
       )}
       {pg.pauseForPlayers && !paused && <p className="mt-3 text-xs text-muted-foreground">{t('pregen.pausesForPlayers')}</p>}

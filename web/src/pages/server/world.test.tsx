@@ -187,6 +187,7 @@ describe('Pre-generation words', () => {
     expect(pregenLine(pregen({ state: 'running', percent: 42.7, etaSeconds: 5400 }), 'Survival')).toBe('Pre-generating · 42% · about 1.5 h left')
     expect(pregenLine(pregen({ state: 'running', percent: 99.6, etaSeconds: -1 }), 'Survival')).toBe('Pre-generating · 99%')
     expect(pregenLine(pregen({ state: 'paused', percent: 42.7, pausedBy: 'user' }), 'Survival')).toBe('Paused at 42%')
+    expect(pregenLine(pregen({ state: 'unknown', percent: 42.7 }), 'Survival')).toBe('Checking on it at 42%')
     expect(pregenLine(pregen({ state: 'finished', radius: 2000, percent: 100 }), 'Survival')).toBe('Ready out to 2,000 blocks')
   })
 
@@ -284,6 +285,16 @@ describe('Pre-generate page', () => {
     expect(text).not.toContain('Pauses when someone joins.')
     await click(button('Resume'))
     expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/pregen/continue')
+  })
+
+  it('says it is checking, not that the task is paused, while Chunky can’t be asked about it', async () => {
+    answer({ '/pregen': pregen({ state: 'unknown', preset: 'small', radius: 1000, chunks: 500, total: 16_129, percent: 3, installed: true }) })
+    const text = await render(<PregenPage server={server()} />)
+    expect(text).toContain('Checking whether Chunky is still on it')
+    expect(text).not.toContain('Paused')
+    expect(() => button('Resume')).toThrow()
+    await click(button('Pause'))
+    expect(client.post).toHaveBeenCalledWith('/api/servers/abcdefghjk/pregen/pause')
   })
 
   it('shows Chunky being installed in plain words, without buttons', async () => {
