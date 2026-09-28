@@ -5837,6 +5837,22 @@ control "a dropped task is sent again once a run" internal/agent/pregen.go \
   '	tried := s.pg.resumedRun.Equal(run)' \
   '	tried := s.pg.resumedRun.Equal(run) && run.IsZero()' \
   ./internal/agent '^TestPregenATaskARestartDroppedIsStartedAgain$'
+control "a task the server ran out of memory with twice is paused, not sent again" internal/agent/pregen.go \
+  '	if s.pregenMemoryKills(task) >= 2 {' \
+  '	if false {' \
+  ./internal/agent '^TestPregenATaskACrashDroppedIsStartedAgain$'
+control "a task paused for memory reads so" internal/agent/pregen.go \
+  '	case task.PausedByUser && task.PausedFor == pregenPausedForMemory:' \
+  '	case false:' \
+  ./internal/agent '^TestPregenATaskACrashDroppedIsStartedAgain$'
+control "a task paused for memory doesn't resume when the server restarts" internal/agent/pregen.go \
+  '		if err := ctrl.Configure(cctx, pregen.Config{ContinueOnRestart: false, UpdateInterval: pregenUpdateInterval}); err != nil {' \
+  '		if err := ctrl.Configure(cctx, pregen.Config{ContinueOnRestart: true, UpdateInterval: pregenUpdateInterval}); err != nil {' \
+  ./internal/agent '^TestPregenATaskACrashDroppedIsStartedAgain$'
+control "Resume starts a task Chunky lost again" internal/agent/pregen.go \
+  '			if plan, ok := taskPlan(task); ok && errors.Is(err, pregen.ErrNothingToContinue) {' \
+  '			if plan, ok := taskPlan(task); false && ok && errors.Is(err, pregen.ErrNothingToContinue) {' \
+  ./internal/agent '^TestPregenATaskACrashDroppedIsStartedAgain$'
 control "only a task a restart dropped is sent again" internal/agent/pregen.go \
   '	if run.IsZero() || !run.After(task.StartedAt) || tried {' \
   '	if run.IsZero() || tried {' \

@@ -1275,7 +1275,9 @@ type Pregen struct {
 	ElapsedSeconds int64   `json:"elapsedSeconds,omitempty"`
 	// PausedBy says why a paused task waits: "user" (until someone
 	// resumes it), "players" (until the server has been empty a while;
-	// PausedFor is one of them) or "server" (until the server starts).
+	// PausedFor is one of them), "server" (until the server starts) or
+	// "memory" (the server ran out of memory twice while the task ran:
+	// until someone gives it more memory and resumes it).
 	PausedBy        string     `json:"pausedBy,omitempty"`
 	PausedFor       string     `json:"pausedFor,omitempty"`
 	PauseForPlayers bool       `json:"pauseForPlayers"`

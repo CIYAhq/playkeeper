@@ -1286,7 +1286,7 @@ export interface Pregen {
   rate?: number
   etaSeconds: number
   elapsedSeconds?: number
-  pausedBy?: 'user' | 'players' | 'server'
+  pausedBy?: 'user' | 'players' | 'server' | 'memory'
   pausedFor?: string
   pauseForPlayers: boolean
   startedAt?: string

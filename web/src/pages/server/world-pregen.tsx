@@ -100,6 +100,8 @@ export function pausedText(pg: Pregen, server: string): string {
       return pg.pausedFor ? t('pregen.pausedFor', { name: pg.pausedFor }) : t('pregen.pausedPlayers')
     case 'server':
       return t('pregen.pausedServer', { server })
+    case 'memory':
+      return t('pregen.pausedMemory', { server })
     case 'user':
     case undefined:
       return t('pregen.pausedUser')

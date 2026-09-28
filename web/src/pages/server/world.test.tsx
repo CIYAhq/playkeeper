@@ -195,6 +195,7 @@ describe('Pre-generation words', () => {
     expect(pausedText(pregen({ state: 'paused', pausedBy: 'players', pausedFor: 'mara_k' }), 'Survival')).toBe('Paused while mara_k plays')
     expect(pausedText(pregen({ state: 'paused', pausedBy: 'players' }), 'Survival')).toBe('Paused while people play')
     expect(pausedText(pregen({ state: 'paused', pausedBy: 'server' }), 'Survival')).toBe('Paused while Survival is stopped')
+    expect(pausedText(pregen({ state: 'paused', pausedBy: 'memory' }), 'Survival')).toBe('Survival ran out of memory. Give it more on the Overview, then resume')
     expect(pausedText(pregen({ state: 'paused', pausedBy: 'user' }), 'Survival')).toBe('Paused')
   })
 

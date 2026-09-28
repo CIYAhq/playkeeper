@@ -826,6 +826,7 @@ export const en = {
   'pregen.pausedFor': 'Paused while {name} plays',
   'pregen.pausedPlayers': 'Paused while people play',
   'pregen.pausedServer': 'Paused while {server} is stopped',
+  'pregen.pausedMemory': '{server} ran out of memory. Give it more on the Overview, then resume',
   'pregen.pausedUser': 'Paused',
   'pregen.unknown': 'Checking whether Chunky is still on it',
   'pregen.installing': 'Installing Chunky…',

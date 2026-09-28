@@ -660,10 +660,12 @@ func TestPregenATaskARestartDroppedIsStartedAgain(t *testing.T) {
 	}
 }
 
-// On #49's ARM64 run the server went down 64 chunks into Paper's
-// pre-generation, most likely killed at its memory limit with squaremap
-// drawing the map too, and came back on its own without the task Chunky
-// hadn't saved. The agent starts it again after a crash as after a restart.
+// On #49's ARM64 run Docker killed the server at its memory limit 64 chunks
+// into Paper's pre-generation, with squaremap drawing the map too, and it
+// came back on its own without the task Chunky hadn't saved. The agent
+// starts the task again after a crash as after a restart, once: killed for
+// memory again, the server gets no third try, the task is paused until
+// someone gives it more memory, and Resume starts it again.
 func TestPregenATaskACrashDroppedIsStartedAgain(t *testing.T) {
 	e := newAgentEnv(t)
 	e.withSources()
@@ -684,6 +686,31 @@ func TestPregenATaskACrashDroppedIsStartedAgain(t *testing.T) {
 	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND actor = 'playkeeper' AND action = 'pregen.continued'`, e.sid); n != 1 {
 		t.Errorf("%d audit entries for starting it again", n)
 	}
+
+	fc.advance(64)
+	e.fd.oomKill()
+	e.waitFor("the task paused for memory", func() bool {
+		v := e.pregen()
+		return v.State == "paused" && v.PausedBy == "memory"
+	})
+	if running, _ := fc.state(); running || e.resumesOnRestart() {
+		t.Fatalf("Chunky runs the task (%v) or will after a restart (%v)", running, e.resumesOnRestart())
+	}
+	if n := e.countRows(`SELECT COUNT(*) FROM audit WHERE server_id = ? AND actor = 'playkeeper' AND action = 'pregen.paused' AND detail = 'the server ran out of memory twice while pre-generating'`, e.sid); n != 1 {
+		t.Errorf("%d audit entries for the pause", n)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if running, _ := fc.state(); running || e.pregen().PausedBy != "memory" {
+		t.Fatal("the task paused for memory went on by itself")
+	}
+
+	if v := e.pregenAct("continue"); v.State != "running" && v.State != "unknown" {
+		t.Fatalf("resumed: %+v", v)
+	}
+	if running, task := fc.state(); !running || task.radius != 1000 {
+		t.Fatalf("Resume didn't start the task Chunky lost: running %v, %+v", running, task)
+	}
+	e.waitFor("the resumed task to run", func() bool { return e.pregen().State == "running" })
 }
 
 // A task finishes when Chunky logs so, although it saved the task short of
