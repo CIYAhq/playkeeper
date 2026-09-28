@@ -133,9 +133,13 @@
 .dcard-mem { color: var(--ink); font-weight: 700; }
 .dcard-mem::before { content: "·"; margin-right: 7px; color: #a3a79c; font-weight: 400; }
 .dcard-desc { display: -webkit-box; margin: 10px 0 0; overflow: hidden; color: var(--sage); font-size: 14.5px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; }
-.dcard-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; list-style: none; }
-.dcard-tags:empty { display: none; }
-.dcard-tags li { padding: 3px 8px; border-radius: 7px; background: var(--muted); color: #4e5349; font-size: 12.5px; font-weight: 600; line-height: 1.4; }
+.dcard-installs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; list-style: none; }
+.dcard-installs:empty { display: none; }
+.dcard-installs li { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; padding: 3px 9px 3px 3px; border-radius: 8px; background: var(--muted); color: #4e5349; font-size: 12.5px; font-weight: 600; line-height: 1.4; }
+.dcard-installs li > span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dcard-installs .dcard-more { padding: 3px 9px; }
+.ai { flex: none; width: 18px; height: 18px; border-radius: 5px; object-fit: cover; }
+.ai-initial { display: grid; place-items: center; background: var(--white); color: var(--ink); font-size: 11px; font-weight: 800; line-height: 1; }
 .dcard-open { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: 6px; height: 42px; margin-top: auto; border: 1px solid var(--twine); border-radius: 11px; background: var(--white); color: var(--green-text); font-size: 14.5px; font-weight: 700; transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 0.1s; }
 .dcard-body > :nth-last-child(2) { margin-bottom: 16px; }
 .dcard-open .icon { width: 15px; height: 15px; }
@@ -303,6 +307,7 @@
 .addon { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 14px 18px 14px 14px; }
 .addon + .addon { border-top: 1px solid var(--twine); }
 .addon-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 11px; background: var(--chalk); color: var(--ink); font-size: 17px; font-weight: 800; }
+.addon-icon { object-fit: cover; }
 .addon-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
 .addon-name { color: var(--ink); font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
 a.addon-name:hover { color: var(--green-text); }
