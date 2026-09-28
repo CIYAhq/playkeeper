@@ -54,10 +54,16 @@ func write(out string, o *site.Output) error {
 	return os.WriteFile(filepath.Join(out, "nginx", "site.conf"), o.Nginx, 0o644)
 }
 
-// handler answers like site/nginx.conf: /pricing is pricing.html, and a
-// missing page is 404.html with a 404.
+// handler answers like site/nginx.conf: /pricing is pricing.html, a missing
+// page is 404.html with a 404, and every answer carries the
+// Content-Security-Policy nginx sends, so a page that breaks it breaks here.
 func handler(o *site.Output) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		policy := o.Policy
+		if path.Clean(r.URL.Path) == "/start" {
+			policy = o.StartPolicy
+		}
+		w.Header().Set("Content-Security-Policy", policy)
 		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 		if name == "" {
 			name = "index.html"
