@@ -6037,7 +6037,8 @@ control "visitors share one question to the agent" internal/panel/serverpage.go 
 	if a, ok := lookup(); ok {
 		return a, a.ok
 	}' \
-  '	p.fetch.Lock()
+  '	_ = lookup
+	p.fetch.Lock()
 	defer p.fetch.Unlock()' \
   ./internal/panel '^TestManyVisitorsAskTheAgentOnceAndEachAddressIsLimited$'
 control "port 443 never serves the self-signed certificate" internal/panel/pageports.go \
@@ -6052,7 +6053,7 @@ control "port 443 never serves the self-signed certificate" internal/panel/pagep
   ./internal/panel '^TestThePagesPort80RedirectsOnlyWhileHTTPSServesWithACertificate$'
 control "port 80 redirects only while port 443 serves the page" internal/panel/pageports.go \
   'if https == nil || host == "" || s.pageCerts == nil {' \
-  'if host == "" || s.pageCerts == nil {' \
+  'if _ = https; host == "" || s.pageCerts == nil {' \
   ./internal/panel '^TestThePagesPort80RedirectsOnlyWhileHTTPSServesWithACertificate$'
 control "turning the page off gives the ports back" internal/panel/pageports.go \
   'if !st.On {
