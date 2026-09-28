@@ -2138,6 +2138,39 @@ control "a caller that waited for a build list gets what the fetch found" intern
 	return c.builds[key].builds, c.builds[key].at, nil
 }' \
   ./internal/agent '^TestBuildListWaitersGetWhatTheFetchFound$'
+control "a type's kept version list is offered while its source fails" internal/agent/software.go \
+  '		if a.savedSoftwareList(typ, "", &saved) {' \
+  '		if false && a.savedSoftwareList(typ, "", &saved) {' \
+  ./internal/agent '^TestATypesListsOutliveARestartWhileItsSourceFails$'
+control "a type's kept build list is offered while its source fails" internal/agent/software.go \
+  '		if a.savedSoftwareList(typ, mc, &saved) {' \
+  '		if false && a.savedSoftwareList(typ, mc, &saved) {' \
+  ./internal/agent '^TestATypesListsOutliveARestartWhileItsSourceFails$'
+control "only a supported type names a kept list's file" internal/agent/software.go \
+  '	if !software.Supported(typ) {
+		return "", false
+	}
+	var name string' \
+  '	var name string' \
+  ./internal/agent '^TestAKeptListIsNamedOnlyByATypeAndARelease$'
+control "no build list is taken for the version list" internal/agent/software.go \
+  '	case savedBuilds, *savedBuilds:
+		if !reListedRelease.MatchString(mc) {' \
+  '	case savedBuilds, *savedBuilds:
+		if mc == "" {
+			name = "catalog-" + typ
+			break
+		}
+		if !reListedRelease.MatchString(mc) {' \
+  ./internal/agent '^(TestAKeptListIsNamedOnlyByATypeAndARelease|TestATypesListsOutliveARestartWhileItsSourceFails)$'
+control "only a Minecraft release names a kept build list's file" internal/agent/software.go \
+  '		if !reListedRelease.MatchString(mc) {' \
+  '		if false {' \
+  ./internal/agent '^TestAKeptListIsNamedOnlyByATypeAndARelease$'
+control "NeoForge's Maven is asked again after a 5xx" internal/minecraft/software/fetch.go \
+  '	case http.StatusNotFound, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:' \
+  '	case http.StatusNotFound:' \
+  ./internal/minecraft/software '^TestUpstreamAsksNeoForgeAgainAfterA404OrA5xx$'
 control "a template whose modpack runs on another type is blocked" internal/agent/templates.go \
   'p.Blockers, p.Ready = append(p.Blockers, *n), false' \
   '_ = n' \

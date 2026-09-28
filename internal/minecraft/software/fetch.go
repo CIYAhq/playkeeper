@@ -86,14 +86,24 @@ func (u upstream) client(what string) *http.Client {
 }
 
 // NeoForge's Maven now and then answers 404 for files it has (about one
-// request in five at times), so a 404 from it is asked again before it
-// counts.
+// request in five at times), or a 5xx, and then the same request a moment
+// later, so those answers from it are asked again, after flakyWait and then
+// twice as long each time, before they count.
 var (
-	flaky404Hosts = []string{"maven.neoforged.net"}
-	flakyWait     = 400 * time.Millisecond
+	flakyHosts = []string{"maven.neoforged.net"}
+	flakyWait  = 400 * time.Millisecond
 )
 
-const flakyRetries = 2
+const flakyRetries = 4
+
+// flakyStatus is an answer from a flaky host worth asking again.
+func flakyStatus(code int) bool {
+	switch code {
+	case http.StatusNotFound, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
 
 // open sends a GET and returns the response only when it is 200 OK. what
 // names the thing asked for, as it reads in a sentence: "its version list".
@@ -103,12 +113,12 @@ func (u upstream) open(ctx context.Context, raw, what string) (*http.Response, e
 		return nil, err
 	}
 	resp, err := u.get(ctx, p, what)
-	for try := 1; err == nil && resp.StatusCode == http.StatusNotFound && try <= flakyRetries && slices.Contains(flaky404Hosts, p.Hostname()); try++ {
+	for try := 1; err == nil && flakyStatus(resp.StatusCode) && try <= flakyRetries && slices.Contains(flakyHosts, p.Hostname()); try++ {
 		resp.Body.Close()
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(time.Duration(try) * flakyWait):
+		case <-time.After(flakyWait << (try - 1)):
 		}
 		resp, err = u.get(ctx, p, what)
 	}

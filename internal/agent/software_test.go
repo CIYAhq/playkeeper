@@ -141,6 +141,78 @@ func TestForgeVersionsComeFromForgesLists(t *testing.T) {
 	}
 }
 
+// NeoForge's Maven now and then fails for minutes. The last version list
+// and build lists it sent are kept, so a restart of the agent meanwhile
+// doesn't leave the New server page with nothing to offer; a list it never
+// sent is still an error.
+func TestATypesListsOutliveARestartWhileItsSourceFails(t *testing.T) {
+	e := newAgentEnv(t)
+	e.up.serveMojang()
+	e.up.serveNeoForgeLists()
+	lists := func() (catalog, builds map[string]any) {
+		t.Helper()
+		code, catalog := e.call("GET", "/v1/catalog?type=neoforge", nil)
+		if code != 200 || len(catalog["versions"].([]any)) != 2 {
+			t.Fatalf("catalog: %d %v", code, catalog)
+		}
+		code, builds = e.call("GET", "/v1/catalog/builds?type=neoforge&version=26.2", nil)
+		if code != 200 || len(builds["builds"].([]any)) != 3 {
+			t.Fatalf("builds: %d %v", code, builds)
+		}
+		return catalog, builds
+	}
+	catalog, builds := lists()
+
+	// Any failure will do: NeoForge's 404s and 5xx are asked again first.
+	e.up.handle(neoforgeMetadata, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) })
+	e.stop()
+	e.start()
+	before := e.up.hitCount(neoforgeMetadata)
+	keptCatalog, keptBuilds := lists()
+	if e.up.hitCount(neoforgeMetadata) == before {
+		t.Fatal("the lists were not asked for again after the restart")
+	}
+	if keptCatalog["versionsCheckedAt"] != catalog["versionsCheckedAt"] || keptBuilds["checkedAt"] != builds["checkedAt"] {
+		t.Fatalf("the kept lists say when they were fetched: %v and %v, fetched %v and %v", keptCatalog["versionsCheckedAt"], keptBuilds["checkedAt"], catalog["versionsCheckedAt"], builds["checkedAt"])
+	}
+	if fmt.Sprint(keptCatalog["versions"]) != fmt.Sprint(catalog["versions"]) || fmt.Sprint(keptBuilds["builds"]) != fmt.Sprint(builds["builds"]) {
+		t.Fatalf("the kept lists differ from the ones fetched:\n%v\n%v", keptCatalog["versions"], keptBuilds["builds"])
+	}
+	if code, out := e.call("GET", "/v1/catalog/builds?type=neoforge&version=26.1.2", nil); code == 200 {
+		t.Fatalf("a build list NeoForge never sent: %d %v", code, out)
+	}
+	if code, out := e.call("GET", "/v1/catalog/builds?type=neoforge", nil); code == 200 {
+		t.Fatalf("builds for no Minecraft version, read from the kept version list: %d %v", code, out)
+	}
+}
+
+// Only a supported type and a Minecraft release name a kept list's file, so
+// no request can make the agent read or write another path, and a build
+// list is never read from or written over the version list.
+func TestAKeptListIsNamedOnlyByATypeAndARelease(t *testing.T) {
+	e := newAgentEnv(t)
+	dir := filepath.Join(e.cfg.AgentDir(), "software-lists")
+	for _, c := range []struct {
+		typ, mc string
+		list    any
+		want    string
+	}{
+		{"neoforge", "", savedCatalog{}, filepath.Join(dir, "catalog-neoforge.json")},
+		{"neoforge", "26.2", &savedBuilds{}, filepath.Join(dir, "builds-neoforge-26.2.json")},
+		{"forge", "1.20.1", savedBuilds{}, filepath.Join(dir, "builds-forge-1.20.1.json")},
+		{"neoforge", "", &savedBuilds{}, ""},
+		{"paper", "", savedCatalog{}, ""},
+		{"../../../x", "", savedCatalog{}, ""},
+		{"neoforge", "../../x", savedBuilds{}, ""},
+		{"neoforge", "26.2/../../../x", savedBuilds{}, ""},
+		{"neoforge", "26.3-snapshot-2", savedBuilds{}, ""},
+	} {
+		if got, ok := e.a.softwareListPath(c.typ, c.mc, c.list); got != c.want || ok != (c.want != "") {
+			t.Errorf("%q %q %T: %q %v, want %q", c.typ, c.mc, c.list, got, ok, c.want)
+		}
+	}
+}
+
 func TestCatalogBuildsListsEachTypesBuilds(t *testing.T) {
 	e := newAgentEnv(t)
 	e.up.serveFabricLists()
