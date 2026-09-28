@@ -598,20 +598,26 @@ func TestAHealthTimeoutNamesOnlyTheUnitsTheMachineRuns(t *testing.T) {
 	cert := filepath.Join(dir, "cert.pem")
 
 	both, agentOnly := "(see: sudo journalctl -u playkeeper-agent -u playkeeper-panel)", "(see: sudo journalctl -u playkeeper-agent)"
+	// A socket nobody listens on refuses at once, so 100 ms is plenty there.
+	// Where the agent answers, the wait covers its answer, which a busy
+	// runner can take longer than that to give, and for a silent panel ends
+	// before the next try, a second later, so the error is the panel's.
+	const refused, answered, healthy = 100 * time.Millisecond, 900 * time.Millisecond, 10 * time.Second
 	for _, c := range []struct {
 		name, socket string
 		port         int
+		wait         time.Duration
 		// cause is what didn't answer, and hint how the error must end;
 		// both are empty when the services are healthy.
 		cause, hint string
 	}{
-		{"a dashboard whose agent doesn't answer", silent, 8443, "agent is not reachable", both},
-		{"a dashboard whose panel doesn't answer", answering, 8443, "cert.pem", both},
-		{"a machine without a panel whose agent doesn't answer", silent, 0, "agent is not reachable", agentOnly},
-		{"a machine without a panel whose agent answers", answering, 0, "", ""},
+		{"a dashboard whose agent doesn't answer", silent, 8443, refused, "agent is not reachable", both},
+		{"a dashboard whose panel doesn't answer", answering, 8443, answered, "cert.pem", both},
+		{"a machine without a panel whose agent doesn't answer", silent, 0, refused, "agent is not reachable", agentOnly},
+		{"a machine without a panel whose agent answers", answering, 0, healthy, "", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), c.wait)
 			defer cancel()
 			err := waitHealthy(ctx, c.socket, cert, c.port)
 			switch {
