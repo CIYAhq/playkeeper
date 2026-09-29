@@ -7814,6 +7814,94 @@ webcontrol "customer deletion: Home says the plan ended once the servers are gon
   'const paused = !!ws.me.access.pausedUntil' \
   src/pages/pages.test.tsx 'offers a customer whose servers were deleted their final backups'
 
+# Uploads for a new server counted against a named disk limit, as a
+# creator's are (internal/agent/worldimports.go, handlers.go, backups.go),
+# and every customer upload treated as hostile.
+control "customer uploads: a new server's upload names a limit the machine has" internal/agent/worldimports.go \
+  'if account = a.namedLimit(limit); account == nil {' \
+  'if account = a.namedLimit(limit); account == nil && false {' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: one open world upload per account" internal/agent/worldimports.go \
+  'mine := account != nil && slices.ContainsFunc(' \
+  'mine := false && account != nil && slices.ContainsFunc(' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a named upload's archives count against its limit" internal/agent/worldimports.go \
+  'if err := a.namedLimitRefusal(ctx, imp.limit, size); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a named upload's unsent archives count as on their way" internal/agent/disklimits.go \
+  ' || imp.serverID == "" && imp.limit == l.ID' \
+  '' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: creating a server holds its world against the limit" internal/agent/worldimports.go \
+  'if done, err = a.holdNamedLimit(r.Context(), imp.limit, need); err != nil {' \
+  'if done, err = func(bool) {}, error(nil); err != nil {' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a server made from a world joins the limit" internal/agent/worldimports.go \
+  'if err := a.joinDiskLimit(imp.limit, s.id); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: only an upload for a new server names a limit" internal/agent/worldimports.go \
+  'case req.DiskLimit != "" && serverID != "":' \
+  'case false:' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a world upload's limit is named properly" internal/agent/worldimports.go \
+  'case req.DiskLimit != "" && !reDiskLimitID.MatchString(req.DiskLimit):' \
+  'case false:' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: only a restore for a new server names a limit" internal/agent/handlers.go \
+  'case limit != "" && target != nil:' \
+  'case false:' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a restore upload's limit is named properly" internal/agent/handlers.go \
+  'case limit != "" && !reDiskLimitID.MatchString(limit):' \
+  'case false:' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a backup's size is checked against the limit's room" internal/agent/handlers.go \
+  'if err == nil && r.ContentLength > room {' \
+  'if err == nil && false {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a backup is read no further than the limit's room" internal/agent/handlers.go \
+  'most = min(most, room)' \
+  '_ = room' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a staged backup remembers its limit" internal/agent/backups.go \
+  'f.DiskLimit, f.Preview.DiskLimit = limit, limit' \
+  'f.Preview.DiskLimit = limit' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: an account stages one backup at a time" internal/agent/backups.go \
+  'err == nil && o.DiskLimit == limit {' \
+  'err == nil && o.DiskLimit == limit && false {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a staged backup's limit is read back" internal/agent/backups.go \
+  'st.limit, st.preview.DiskLimit = s.DiskLimit, s.DiskLimit' \
+  'st.preview.DiskLimit = s.DiskLimit' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: restoring a new server holds its world against the limit" internal/agent/handlers.go \
+  'if done, err = a.holdNamedLimit(r.Context(), st.limit, unpackedBytes(st.manifest)); err != nil {' \
+  'if done, err = func(bool) {}, error(nil); err != nil {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a restored new server joins the limit" internal/agent/handlers.go \
+  'if err := a.joinDiskLimit(st.limit, s.id); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a backup unpacks no further than its limit's room" internal/agent/backups.go \
+  'if room >= 0 && room < lim.MaxTotalBytes {' \
+  'if false {' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+control "customer uploads: a backup past its limit's room says so" internal/agent/backups.go \
+  'if errors.Is(err, backup.ErrTooLarge) && room == lim.MaxTotalBytes {' \
+  'if false {' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+control "customer uploads: a backup into a server unpacks no further than its limit's room" internal/agent/backups.go \
+  'named = l.ID' \
+  'return -1, nil' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+control "customer uploads: an archive's total size refusal is told apart" internal/backup/archive.go \
+  ', err: ErrTooLarge}' \
+  '}' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
