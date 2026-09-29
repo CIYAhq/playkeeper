@@ -69,6 +69,7 @@ func footerColumns(s Settings) []FooterColumn {
 			{Label: "Docs", Path: "/docs"},
 			{Label: "Blog", Path: "/blog"},
 			{Label: "Free tools", Path: "/tools"},
+			{Label: "Server errors", Path: "/errors"},
 			{Label: "Community", URL: s.Community.URL},
 		}},
 		{"Project", []FooterLink{
