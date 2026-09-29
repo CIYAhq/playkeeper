@@ -156,7 +156,7 @@ async function routes(page: Page, phone: boolean): Promise<{ live: string[]; sha
   // settings; the dashboard's own machine has both pages. Every machine has a
   // Disk space page.
   for (const m of machines) out.push(...(m.kind === 'remote' ? [`/settings/machines/${m.id}`] : [`/machines/${m.id}`, `/machines/${m.id}/settings`]), `/machines/${m.id}/disk`)
-  out.push('/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/settings/ai-agents', '/settings/machines', '/account', '/account/two-factor', '/recover')
+  out.push('/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/settings/whop', '/settings/ai-agents', '/settings/machines', '/account', '/account/two-factor', '/recover')
   if (phone) out.push('/more')
   return { live: out, shared }
 }
@@ -201,7 +201,7 @@ function fakedCrawls(live: string[], phone: boolean): Crawl[] {
     ['asleep', first ? ['/', first] : []],
     ['in use', [...(plugins ? [plugins] : []), ...(first ? [`${first}/world`, `${first}/world/packs`, `${first}/world/pregen`] : [])]],
     ['paused', first ? [`${first}/world/pregen`] : []],
-    ['friends and team', [...(first ? [`${first}/players`] : []), '/settings/team', '/settings/discord']],
+    ['friends and team', [...(first ? [`${first}/players`] : []), '/settings/team', '/settings/discord', '/settings/whop']],
     ['map on', map ? [map] : []],
     ['map restart', map ? [map] : []],
     ['a few files', first ? [`${first}/files`, `${first}/files/plugins`] : []],
@@ -630,7 +630,7 @@ test('a change to a page crawls the pages its modules draw, after the pages befo
   expect(twoFactor.pages).not.toContain('/servers/*')
   // Settings draws one section on each of its pages.
   expect(reach(['web/src/pages/team.tsx'])).toMatchObject({ mode: 'pages', pages: ['/settings/team'], preludes: ['/', '/settings'] })
-  expect(reach(['web/src/pages/settings.tsx']).pages).toEqual(['/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/settings/ai-agents', '/settings/machines', '/settings/machines/*'])
+  expect(reach(['web/src/pages/settings.tsx']).pages).toEqual(['/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/settings/whop', '/settings/ai-agents', '/settings/machines', '/settings/machines/*'])
   expect(reach(['web/src/pages/server/map.test.tsx', 'internal/panel/server.go', 'docs/ARCHITECTURE.md']).mode).toBe('none')
   // The invite page and How it's running aren't crawled, but their accessibility and width are checked;
   // onboarding's pages are crawled, but views.spec.ts has no view of them.

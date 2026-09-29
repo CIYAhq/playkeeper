@@ -31,6 +31,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/update"
 	usagestats "github.com/CIYAhq/playkeeper/internal/usage"
 	"github.com/CIYAhq/playkeeper/internal/version"
+	"github.com/CIYAhq/playkeeper/internal/whop"
 	"github.com/CIYAhq/playkeeper/web"
 )
 
@@ -239,12 +240,13 @@ func runDev(args []string) error {
 }
 
 // A dev install talks to a names service on this computer (where
-// scripts/names-check.sh runs one) and Let's Encrypt's staging CA unless
-// .dev/config.json names others, so make dev never claims real names or
-// certificates by accident.
+// scripts/names-check.sh runs one), Let's Encrypt's staging CA and Whop's
+// sandbox unless .dev/config.json names others, so make dev never claims
+// real names or certificates, or sells on Whop, by accident.
 const (
 	devNamesURL         = "http://127.0.0.1:8081"
 	devACMEDirectoryURL = "https://acme-staging-v02.api.letsencrypt.org/directory"
+	devWhopAPIURL       = whop.SandboxAPIURL
 )
 
 func devDefaults(cfg *config.Config) {
@@ -253,6 +255,9 @@ func devDefaults(cfg *config.Config) {
 	}
 	if cfg.ACMEDirectoryURL == "" {
 		cfg.ACMEDirectoryURL = devACMEDirectoryURL
+	}
+	if cfg.WhopAPIURL == "" {
+		cfg.WhopAPIURL = devWhopAPIURL
 	}
 }
 

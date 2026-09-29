@@ -266,6 +266,7 @@ function page(route: Route) {
     case 'ai-agents':
     case 'machines':
     case 'machine-details':
+    case 'whop':
       return <GlobalSettingsPage page={route} />
     case 'account':
       return <AccountPage section={route.section} />

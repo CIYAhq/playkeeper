@@ -36,6 +36,10 @@ func (al Allowance) check() error {
 	return nil
 }
 
+// Check reports whether al is within an allowance's bounds, for allowances
+// that come from elsewhere, such as a plan sold on Whop.
+func (al Allowance) Check() error { return al.check() }
+
 // CanGrantAllowance reports whether a may invite a creator with al.
 func CanGrantAllowance(a Account, al Allowance) error {
 	if a.InstallRole != InstallOwner {
