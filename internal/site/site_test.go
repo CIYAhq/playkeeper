@@ -611,9 +611,10 @@ func TestStartPage(t *testing.T) {
 		if strings.Contains(html, "t.whop.tw") {
 			t.Errorf("%s names t.whop.tw in its HTML; start.js loads it", p)
 		}
-		// Send to my computer, beside both of /start's Copy buttons.
+		// Send to my computer, beside both Copy buttons on / and /start,
+		// where most visitors are on phones.
 		want := 0
-		if p == "/start" {
+		if p == "/" || p == "/start" {
 			want = 2
 		}
 		if n := strings.Count(html, share); n != want {
