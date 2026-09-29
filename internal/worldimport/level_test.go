@@ -214,7 +214,7 @@ func TestReadSeed(t *testing.T) {
 		"damaged":                {[]byte("garbage"), ""},
 	}
 	for name, c := range cases {
-		if got := readSeed(c.data, 1<<20); got != c.want {
+		if got := ReadSeed(c.data, 1<<20); got != c.want {
 			t.Errorf("%s: got %q, want %q", name, got, c.want)
 		}
 	}

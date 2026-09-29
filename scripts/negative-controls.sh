@@ -7818,6 +7818,52 @@ webcontrol "customer deletion: Home says the plan ended once the servers are gon
   'const paused = deleted || !!ws.me.access.pausedUntil' \
   'const paused = !!ws.me.access.pausedUntil' \
   src/pages/pages.test.tsx 'offers a customer whose servers were deleted their final backups'
+control "new level.dat: offered next to the restore" internal/diagnose/crashrules.go \
+  '	d.Fixes = append(d.Fixes, rebuild)
+' \
+  '' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "new level.dat: Minecraft 26.1's last line, which names no file, is recognised" internal/diagnose/crashrules.go \
+  'Failed to load world data(?: from \S{1,300} and \S{1,300})?\. World files may be corrupted' \
+  'Failed to load world data from \S{1,300} and \S{1,300}\. World files may be corrupted' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "new level.dat: a world whose level.dat can be read is refused" internal/agent/leveldat.go \
+  'if _, err := worldimport.ParseLevel(b, levelDecode); err == nil {' \
+  'if _, err := worldimport.ParseLevel(b, levelDecode); false && err == nil {' \
+  ./internal/agent '^TestANewLevelDatIsRefusedWhereItDoesnHelp$'
+control "new level.dat: the world is backed up before anything changes" internal/agent/leveldat.go \
+  '		if err := s.backupOp(ctx, h, actor, "Before a new level.dat", false); err != nil {
+			return err
+		}
+' \
+  '' \
+  ./internal/agent '^TestANewLevelDatKeepsTheWorldAndTakesItsSeedFromABackup$'
+control "new level.dat: the world's seed goes into server.properties" internal/agent/leveldat.go \
+  '	if seed != "" {
+		cur, err := d.ReadProperties()' \
+  '	if false && seed != "" {
+		cur, err := d.ReadProperties()' \
+  ./internal/agent '^TestANewLevelDatTakesTheSeedFromTheWorldSince26$'
+control "new level.dat: nothing changes when the backups don't give the seed" internal/agent/leveldat.go \
+  'if seed == "" && from == seedFromBackup {' \
+  'if false && seed == "" && from == seedFromBackup {' \
+  ./internal/agent '^TestANewLevelDatIsRefusedWhereItDoesnHelp$'
+control "new level.dat: game rules kept in their own file since 26.1 don't reset" internal/agent/leveldat.go \
+  'if !has("data/minecraft/game_rules.dat", own+"game_rules.dat") {' \
+  'if true {' \
+  ./internal/agent '^TestANewLevelDatTakesTheSeedFromTheWorldSince26$'
+control "new level.dat: only an admin makes one" internal/panel/server.go \
+  'smAs(actRestore, "POST", "/api/servers/{id}/world/rebuild-level", "/v1/servers/{id}/world/rebuild-level"),' \
+  'smAs(actRunServers, "POST", "/api/servers/{id}/world/rebuild-level", "/v1/servers/{id}/world/rebuild-level"),' \
+  ./internal/panel '^TestOnlyAnAdminMakesANewLevelDat$'
+webcontrol "new level.dat: nothing is sent before the owner confirms in the dialog" web/src/pages/server/overview.tsx \
+  "        case 'rebuild-level':
+          setRebuild(plan)
+          return" \
+  "        case 'rebuild-level':
+          await post(serverApi(s.id, '/world/rebuild-level'), { world: plan.world, start: true })
+          break" \
+  src/pages/pages.test.tsx 'makes a new level.dat only once the owner has read what resets'
 control "client-only mods: a mod for players' games that stopped the server is recognised" internal/diagnose/crashrules.go \
   '	{(*crashCtx).clientOnly, true},
 ' \
@@ -7982,6 +8028,25 @@ control "dns: a wildcard below the zone names what's below its star" internal/dn
   '} else if rest, ok := strings.CutPrefix(name, "*."); ok {' \
   ./internal/dnszone '^TestZoneCheck$'
 
+# Wildcard certificates (internal/certs): proven only over DNS-01, and
+# served for the names just below them.
+control "certs: a wildcard is asked for only with DNS-01" internal/certs/acme.go \
+  'names, err := normalizeNames(req.Names, req.DNS01 != nil && req.DNS01.Challenger != nil)' \
+  'names, err := normalizeNames(req.Names, true)' \
+  ./internal/certs '^TestIssueAWildcardOverDNS01$'
+control "certs: a wildcard serves only the names just below it" internal/certs/store.go \
+  'return ok && slices.Contains(names, "*."+above)' \
+  'return ok && above != "" && slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(n, "*.") && strings.HasSuffix(name, n[1:]) })' \
+  ./internal/certs '^TestIssueAWildcardOverDNS01$'
+control "certs: a wildcard doesn't serve the name it's below" internal/certs/store.go \
+  'return ok && slices.Contains(names, "*."+above)' \
+  'return slices.Contains(names, "*."+name) || ok && slices.Contains(names, "*."+above)' \
+  ./internal/certs '^TestIssueAWildcardOverDNS01$'
+control "certs: the certificate has the wildcard asked for" internal/certs/acme.go \
+  'covered := slices.Contains(leaf.DNSNames, n)' \
+  'covered := true' \
+  ./internal/certs '^TestCheckChain$'
+
 # Servers joined with no port once the machine answers DNS for its own domain
 # and the domain's parent hands the domain to it (internal/agent/address.go).
 control "port-free: public DNS has to give the zone's SRV record" internal/agent/address.go \
@@ -8012,25 +8077,6 @@ control "port-free: a new zone brings the next look forward" internal/agent/dns.
   '		a.recheckOwnSoon()' \
   '		_ = a.recheckOwnSoon' \
   ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
-
-# Wildcard certificates (internal/certs): proven only over DNS-01, and
-# served for the names just below them.
-control "certs: a wildcard is asked for only with DNS-01" internal/certs/acme.go \
-  'names, err := normalizeNames(req.Names, req.DNS01 != nil && req.DNS01.Challenger != nil)' \
-  'names, err := normalizeNames(req.Names, true)' \
-  ./internal/certs '^TestIssueAWildcardOverDNS01$'
-control "certs: a wildcard serves only the names just below it" internal/certs/store.go \
-  'return ok && slices.Contains(names, "*."+above)' \
-  'return ok && above != "" && slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(n, "*.") && strings.HasSuffix(name, n[1:]) })' \
-  ./internal/certs '^TestIssueAWildcardOverDNS01$'
-control "certs: a wildcard doesn't serve the name it's below" internal/certs/store.go \
-  'return ok && slices.Contains(names, "*."+above)' \
-  'return slices.Contains(names, "*."+name) || ok && slices.Contains(names, "*."+above)' \
-  ./internal/certs '^TestIssueAWildcardOverDNS01$'
-control "certs: the certificate has the wildcard asked for" internal/certs/acme.go \
-  'covered := slices.Contains(leaf.DNSNames, n)' \
-  'covered := true' \
-  ./internal/certs '^TestCheckChain$'
 
 # The own domain's wildcard certificate (internal/agent/certificates.go,
 # dns.go): got once the domain is handed to the machine, proven from its own
