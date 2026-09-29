@@ -7854,7 +7854,7 @@ control "ticking entities: Paper's own Nether folder is looked in" internal/agen
   ./internal/agent '^TestRemovingWhatCrashedFindsItInEachLayout$'
 control "ticking entities: a dimension can't climb out of the world" internal/agent/removeentity.go \
   '		if part == "" || part == "." || part == ".." {' \
-  '		if false {' \
+  '		if false && (part == "" || part == "." || part == "..") {' \
   ./internal/agent '^TestRemovingWhatCrashedIsRefusedWhereItCantHelp$'
 control "ticking entities: a fix that can't work isn't offered" internal/agent/crash.go \
   '} else if _, err := s.planEntityFix(*sc, req); err != nil {' \
