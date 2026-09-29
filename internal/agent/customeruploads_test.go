@@ -510,4 +510,23 @@ func TestACustomersBackupUploadIsTreatedAsHostile(t *testing.T) {
 			t.Fatalf("a hostile backup wrote %s", p)
 		}
 	}
+
+	// A backup restored into a server is charged the world it unpacks to,
+	// as the restore holds it, and not its archive besides.
+	e.limitTo(1 << 40)
+	_, raw := e.compressibleBackup()
+	used := e.limitTo(1 << 40)
+	code, probe := e.uploadTo(e.sp("/restore/upload"), raw)
+	if code != 200 {
+		t.Fatalf("a backup into a server: %d %v", code, probe)
+	}
+	f, err := readStageFile(e.a.stageDir(probe["id"].(string)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.call("DELETE", "/v1/restore/"+probe["id"].(string), nil)
+	e.limitTo(used + unpackedBytes(f.Manifest) + int64(len(raw))/2)
+	if code, out := e.uploadTo(e.sp("/restore/upload"), raw); code != 200 {
+		t.Fatalf("a backup whose world fits into a server's room, but not with its archive: %d %v", code, out)
+	}
 }

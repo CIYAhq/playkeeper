@@ -7979,6 +7979,12 @@ control "customer uploads: a newer backup is read into the room of the one it re
   'room, err := a.roomReplacingStage(r.Context(), limit)' \
   'room, err := a.namedLimitRoom(r.Context(), limit)' \
   ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a restore into a server isn't charged its archive besides its world" internal/agent/backups.go \
+  '		if target == nil {
+			room = max(room-n, 0)' \
+  '		if true {
+			room = max(room-n, 0)' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
 control "customer uploads: the staged archive takes some of the room its world unpacks into" internal/agent/backups.go \
   'room = max(room-n, 0)' \
   'room = max(room, 0)' \

@@ -1281,9 +1281,13 @@ func (a *Agent) stageArchive(src io.Reader, source string, limit int64, target *
 	}
 	// It unpacks as it's read, so a world past the room its disk limit has
 	// (-1 for none) stops before it's written: a small archive can't fill
-	// the disk first. The archive, staged beside it, takes some of the room.
+	// the disk first. For a new server the archive, staged beside the world,
+	// takes some of the room, as both count until it's applied (stagedFor);
+	// a restore into a server is charged the world alone.
 	if room >= 0 {
-		room = max(room-n, 0)
+		if target == nil {
+			room = max(room-n, 0)
+		}
 		lim.MaxTotalBytes = min(lim.MaxTotalBytes, room)
 	}
 	af, err := os.Open(arch)
