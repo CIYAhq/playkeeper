@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.8
+
+- Fixed: a mod made for players' games, like Sodium, stopped a NeoForge server at its start with `NoClassDefFoundError: org/lwjgl/Version`, and the Overview only offered to start it again. It now names the mod, says it only runs in players' games, and offers to remove it.
+
 ## 0.4.7
 
 - **Sell servers on Whop (early beta):** **Settings › Sell on Whop** connects a Whop store, and each plan a buyer pays for lets them create servers on this machine within an allowance of servers, memory and disk. Buyers sign in with Whop instead of a password, hear when their server is ready, are paused when their plan ends, and come back when they renew. A plan sells only while the machines have room for it, and one dashboard sells for each Whop business.
