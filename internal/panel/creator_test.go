@@ -11,6 +11,21 @@ import (
 
 const creatorInviteBody = `{"role":"admin","servers":{},"label":"alex","allowance":{"servers":1,"memoryMB":4096}}`
 
+// creatorDialogDefaults is what Invite a creator sends with its defaults, as
+// the dashboard's test of the dialog pins it: no name, 1 server and 4 GB.
+const creatorDialogDefaults = `{"role":"admin","servers":{},"allowance":{"servers":1,"memoryMB":4096}}`
+
+func TestTheCreatorDialogsDefaultsMakeAnInvite(t *testing.T) {
+	e := newJoinEnv(t)
+	own := owner(t, e.env)
+	r := e.do(t, "POST", "/api/team/invites", creatorDialogDefaults, own.auth())
+	inv, _ := r.body["invite"].(map[string]any)
+	allowance, _ := inv["allowance"].(map[string]any)
+	if r.status != http.StatusCreated || inv["role"] != invites.RoleAdmin || allowance["servers"] != float64(1) || allowance["memoryMB"] != float64(4096) {
+		t.Fatalf("Invite a creator with its defaults: %d %v", r.status, r.body)
+	}
+}
+
 // A creator invite (the managed beta's) makes an Admin with no servers and
 // an allowance. Only the owner can make or turn one off, and nobody else on
 // the team sees it. The account starts with no servers.
