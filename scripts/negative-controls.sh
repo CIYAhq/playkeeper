@@ -8025,7 +8025,7 @@ control "wildcard certificate: the check's record goes after the check" internal
   ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
 control "wildcard certificate: a check's record only in the machine's zone" internal/agent/dns.go \
   'if zone == "" || !ok {' \
-  'if zone == "" {' \
+  'if zone == "" || !ok && false {' \
   ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
 control "dns: extra records are answered besides the zone" internal/dnszone/dnszone.go \
   'for _, r := range slices.Concat(a.zone.Records, a.extra) {' \
