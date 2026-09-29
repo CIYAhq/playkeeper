@@ -1,0 +1,79 @@
+{{/*
+path: /errors/unable-to-access-jarfile
+title: Error: Unable to access jarfile on a Minecraft server, fixed
+description: Error: Unable to access jarfile means Java couldn't open the file you named: a wrong name or folder, a space in the path, or no permission. Each case, tested.
+label: Unable to access jarfile
+h1: Error: Unable to access jarfile, and how to fix it
+card: Unable to access jarfile, explained
+kind: Guide
+section: guides
+layout: guide
+crumb: Errors
+og: error-unable-to-access-jarfile
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}Java prints Error: Unable to access jarfile when it can't open the file after -jar. There's no file by that exact name in the folder the command runs in, the path has a space and no quotes, or your user can't read the file. A file that's there but broken gives Invalid or corrupt jarfile instead.{{end}}
+
+{{define "closing-title"}}A server that starts without a start script.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper downloads and checks each server's software, then starts it for you.{{end}}
+
+{{define "side-text"}}Playkeeper downloads and checks each server's software, then starts it.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="meaning">
+  {{template "h2n" (dict "ID" "meaning" "N" 1 "Text" "What Java is telling you" "Toc" "What it means")}}
+  <p>The name after "jarfile" is the file Java looked for, exactly as it read your command, and it's the first clue. On 29 Sep we ran each of these with Java 21 on Linux, next to Minecraft 1.21.1's server jar:</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">What we ran</th><th scope="col">What Java said</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>java -jar server.jar</code>, with no file of that name in the folder</th><td><code>Error: Unable to access jarfile server.jar</code></td></tr>
+        <tr><th scope="row">The same, where the file is really <code>server.jar.jar</code></th><td><code>Error: Unable to access jarfile server.jar</code></td></tr>
+        <tr><th scope="row"><code>java -jar Server.jar</code>, where the file is <code>server.jar</code></th><td><code>Error: Unable to access jarfile Server.jar</code></td></tr>
+        <tr><th scope="row"><code>java -jar My Server/server.jar</code>, without quotes</th><td><code>Error: Unable to access jarfile My</code></td></tr>
+        <tr><th scope="row">A jar the user isn't allowed to read</th><td><code>Error: Unable to access jarfile locked.jar</code></td></tr>
+        <tr><th scope="row">A download cut short, or a folder named <code>.jar</code></th><td><code>Error: Invalid or corrupt jarfile broken.jar</code></td></tr>
+        <tr><th scope="row">A library's jar instead of a server's</th><td><code>no main manifest attribute, in netty-common-4.1.97.Final.jar</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-labelledby="fixes">
+  {{template "h2n" (dict "ID" "fixes" "N" 2 "Text" "The fix for each" "Toc" "Fixes")}}
+  <ul>
+    <li><strong>Use the name the file really has.</strong> List the folder, with <code>ls</code> on Linux or <code>dir</code> on Windows, and copy the name from there. Windows hides known file extensions unless you turn them on in File Explorer's View menu, so a file renamed to <code>server.jar</code> there is often <code>server.jar.jar</code>. On Linux, <code>Server.jar</code> and <code>server.jar</code> are two different names.</li>
+    <li><strong>Run the command in the jar's folder.</strong> A start script launched from somewhere else looks for the jar there. Our script failed when run from another folder, and worked once its first line was <code>cd "$(dirname "$0")"</code>. In a Windows <code>.bat</code> file, <code>cd /d "%~dp0"</code> does the same.</li>
+    <li><strong>Put quotes around a path with spaces:</strong> <code>java -jar "My Server/server.jar"</code> started the server where the same path without quotes stopped at <code>My</code>.</li>
+    <li><strong>After an update, match the new name.</strong> Paper names each download after its version and build, like <code>paper-1.21.1-133.jar</code>, so a script that names the old build finds nothing. Rename the file, or change the script.</li>
+    <li><strong>Let your user read the file.</strong> On Linux, <code>ls -l server.jar</code> shows who may, and <code>chmod a+r server.jar</code> lets everyone.</li>
+    <li><strong>Invalid or corrupt jarfile: download it again.</strong> Our copy of the 51.6 MB server jar cut off after its first 100 kB gave that error. Mojang lists each server jar's SHA-1 and Paper each build's SHA-256, so <code>sha1sum</code> or <code>sha256sum</code> tells whether yours is whole.</li>
+    <li><strong>No main manifest attribute: that's not the server.</strong> Plugins, mods and libraries are jars too. Run the server's own jar, or its installer for Forge and NeoForge.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="full-path">
+  {{template "h2n" (dict "ID" "full-path" "N" 3 "Text" "A full path works, but mind where the files go" "Toc" "Full paths")}}
+  <p><code>java -jar /home/you/server/server.jar nogui</code> starts the server from any folder. It then writes <code>eula.txt</code>, <code>server.properties</code> and <code>logs</code>, and later the world, into the folder the command ran in, not next to the jar: ours made them all in the other folder, and <a href="/errors/agree-to-the-eula">asked for the EULA</a> there. So <code>cd</code> into the server's folder first, as the scripts above do.</p>
+</section>
+
+<section aria-labelledby="playkeeper">
+  {{template "h2n" (dict "ID" "playkeeper" "N" 4 "Text" "On a Playkeeper server" "Toc" "On Playkeeper")}}
+  <p>There's no <code>java -jar</code> to type. Playkeeper downloads each server's software itself, checks it before the first start, and starts it in its own container, with the Java that Minecraft version needs.</p>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Why does it say Unable to access jarfile when the file is there?" "Its real name differs, like server.jar.jar with Windows hiding the extension or a capital letter on Linux, the command runs in another folder, or your user can't read the file.")
+    (qa "What's the difference from Invalid or corrupt jarfile?" "Unable to access means Java couldn't open a file by that name at all. Invalid or corrupt means it opened one, but it isn't a whole jar: a download cut short, or a folder with a .jar name.")
+    (qa "Where do a server's files go when I start it with a full path?" "Into the folder the command runs in, not next to the jar. Change into the server's folder first.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/errors" "/errors/connection-refused" "/tools/jvm-flags")}}{{end}}

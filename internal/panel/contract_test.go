@@ -47,6 +47,7 @@ func TestTheDashboardDeclaresOnlyFieldsThePanelSends(t *testing.T) {
 		"AgentActivity": agentActivityView{}, "ApiToken": tokenView{}, "DialAddress": dialAddress{}, "JoinCode": joinCodeView{},
 		"JoinCommand": joinCommandView{}, "MachineEvent": machineEventView{}, "MachineView": machineView{},
 		"UsageMachine": usageMachine{}, "UsageStatsView": usageView{},
+		"HetznerStock": hetznerView{}, "HetznerPlace": hetznerPlaceView{},
 	}
 	field := regexp.MustCompile(`(?m)^  (\w+)\??:`)
 	found := map[string]bool{}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -65,7 +66,17 @@ type fakeDocker struct {
 	// beforeLogs, when set, runs once with fd.mu held just before a log
 	// read without a tail (the follower's) is answered.
 	beforeLogs func(c *fakeContainer)
+	// networkIPv6, networkDriver and networkBridge are what Docker says of
+	// Playkeeper's network: whether it has IPv6, its driver (bridge when
+	// empty) and the interface name its options give it (none when empty).
+	networkIPv6   bool
+	networkDriver string
+	networkBridge string
 }
+
+// fakeNetworkID is the ID Docker gives Playkeeper's network, which makes its
+// interface br-0123456789ab.
+const fakeNetworkID = "0123456789ab0123456789ab0123456789ab0123456789ab0123456789abcdef"
 
 // fakeListed is a container in Docker's list that the fake doesn't run.
 type fakeListed struct {
@@ -332,12 +343,17 @@ func (fd *fakeDocker) serve(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(path, "/networks/")
 		fd.mu.Lock()
 		labels, ok := fd.networks[name]
+		opts := map[string]string{"com.docker.network.bridge.enable_icc": "false"}
+		if fd.networkBridge != "" {
+			opts["com.docker.network.bridge.name"] = fd.networkBridge
+		}
+		driver, ipv6 := cmp.Or(fd.networkDriver, "bridge"), fd.networkIPv6
 		fd.mu.Unlock()
 		if !ok {
 			jsonOut(w, 404, map[string]string{"message": "network not found"})
 			return
 		}
-		jsonOut(w, 200, map[string]any{"Id": "net1", "Name": name, "Labels": labels})
+		jsonOut(w, 200, map[string]any{"Id": fakeNetworkID, "Name": name, "Driver": driver, "EnableIPv6": ipv6, "Options": opts, "Labels": labels})
 	case r.Method == "POST" && path == "/networks/create":
 		var body struct {
 			Name   string
@@ -347,7 +363,7 @@ func (fd *fakeDocker) serve(w http.ResponseWriter, r *http.Request) {
 		fd.mu.Lock()
 		fd.networks[body.Name] = body.Labels
 		fd.mu.Unlock()
-		jsonOut(w, 201, map[string]string{"Id": "net1"})
+		jsonOut(w, 201, map[string]string{"Id": fakeNetworkID})
 	case r.Method == "POST" && path == "/containers/create":
 		fd.create(w, r)
 	case r.Method == "GET" && path == "/containers/json":

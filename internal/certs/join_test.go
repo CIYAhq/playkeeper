@@ -243,6 +243,102 @@ func TestPlanWithAServersOwnAddress(t *testing.T) {
 	}
 }
 
+// wildMachine is machine with the wildcard record: survival and test are
+// reached through it, and creative keeps its SRV record.
+func wildMachine() Plan {
+	p := machine()
+	p.Wildcard = true
+	p.Servers[0].Host, p.Servers[0].Wild = "survival.mc.example.com", true
+	p.Servers[2].Host, p.Servers[2].Wild = "test.mc.example.com", true
+	return p
+}
+
+func TestPlanWithAWildcard(t *testing.T) {
+	got, err := wildMachine().Records()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Record{
+		{Type: "A", Name: "mc.example.com", Value: "203.0.113.10", TTL: 300},
+		{Type: "AAAA", Name: "mc.example.com", Value: "2001:db8::10", TTL: 300},
+		{Type: "A", Name: "*.mc.example.com", Value: "203.0.113.10", TTL: 300},
+		{Type: "AAAA", Name: "*.mc.example.com", Value: "2001:db8::10", TTL: 300},
+	}
+	if len(got) != 5 || !slices.Equal(got[:4], want) || got[4].ServerID != "creative" || got[4].Type != "SRV" {
+		t.Fatalf("records: %+v", got)
+	}
+	j, err := wildMachine().Join()
+	if err != nil || j[0].Address != "survival.mc.example.com" || j[2].Address != "test.mc.example.com:25567" || j[2].Direct != "mc.example.com:25567" {
+		t.Fatalf("joining: %+v %v", j, err)
+	}
+	for name, edit := range map[string]func(*Plan){
+		"no wildcard":        func(p *Plan) { p.Wildcard = false },
+		"own and wild":       func(p *Plan) { p.Servers[2].Own = true },
+		"not under the name": func(p *Plan) { p.Servers[2].Host = "test.example.org" },
+		"two labels down":    func(p *Plan) { p.Servers[2].Host = "a.test.mc.example.com" },
+		"the name itself":    func(p *Plan) { p.Servers[2].Host = "mc.example.com" },
+	} {
+		p := wildMachine()
+		edit(&p)
+		if _, err := p.Records(); err == nil {
+			t.Errorf("%s: the plan was accepted", name)
+		}
+	}
+}
+
+func TestCheckPlanChecksTheWildcard(t *testing.T) {
+	good := func() *fakeResolver {
+		return &fakeResolver{
+			a:    map[string][]string{"mc.example.com": {"203.0.113.10"}, "*.mc.example.com": {"203.0.113.10"}},
+			aaaa: map[string][]string{"mc.example.com": {"2001:db8::10"}, "*.mc.example.com": {"2001:db8::10"}},
+			srv:  map[string][]*net.SRV{"_minecraft._tcp.creative.example.com": {srv("mc.example.com.", 25566)}},
+		}
+	}
+	wild := func(pc PlanCheck) (RecordCheck, int) {
+		var out RecordCheck
+		n := 0
+		for _, rc := range pc.Records {
+			if rc.Record.Name == "*.mc.example.com" {
+				out = rc
+				n++
+			}
+		}
+		return out, n
+	}
+	res := good()
+	pc, err := CheckPlan(context.Background(), res, wildMachine(), bothHere)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc, n := wild(pc)
+	if n != 1 || !rc.OK || !rc.Own || rc.Code != CodeNameOK || rc.Record.Type != "A" || !pc.Ready || len(pc.Records) != 2 {
+		t.Fatalf("ready %v, records %+v", pc.Ready, pc.Records)
+	}
+	// Each look asks for a name of its own, which no resolver has kept a
+	// "no such name" for.
+	first := slices.Clone(res.asked)
+	CheckPlan(context.Background(), res, wildMachine(), bothHere)
+	for _, name := range first {
+		if strings.HasSuffix(name, ".mc.example.com") && slices.Contains(res.asked[len(first):], name) {
+			t.Fatalf("the second look asked for %s again", name)
+		}
+	}
+	for name, edit := range map[string]func(*fakeResolver){
+		"no wildcard":        func(r *fakeResolver) { delete(r.a, "*.mc.example.com"); delete(r.aaaa, "*.mc.example.com") },
+		"wildcard elsewhere": func(r *fakeResolver) { r.a["*.mc.example.com"] = []string{"198.51.100.7"} },
+	} {
+		res := good()
+		edit(res)
+		pc, _ := CheckPlan(context.Background(), res, wildMachine(), bothHere)
+		rc, _ := wild(pc)
+		// The machine's name works whatever the wildcard does, and the note
+		// names the record to fix, not the name the look made up.
+		if rc.OK || !pc.Ready || !strings.Contains(rc.Message, "*.mc.example.com") || strings.Contains(rc.Message, "playkeeper-") || strings.ContainsAny(rc.Message, "{}") {
+			t.Errorf("%s: ready %v, wildcard %+v", name, pc.Ready, rc)
+		}
+	}
+}
+
 func TestCheckPlanChecksAServersOwnAddress(t *testing.T) {
 	plan := machine()
 	plan.Servers = append(plan.Servers, JoinServer{ID: "alex", Host: "alex.example.org", Port: 25568, Own: true})

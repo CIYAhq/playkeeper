@@ -36,6 +36,42 @@
     }
   },
   {
+    "id": "atm10-to-the-sky",
+    "name": "All the Mods 10: To the Sky",
+    "art": "world-flat.svg",
+    "page": "https://playkeeper.io/modpacks/atm10-to-the-sky-server",
+    "checked": "2026-09-28",
+    "release": "0.4.4",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "All the Mods 10: To the Sky",
+      "description": "All the Mods 10: To the Sky for NeoForge on Minecraft 1.21.1: start on a tree in the void and grow ATM10 from it.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "neoforge",
+        "minecraftVersion": "1.21.1"
+      },
+      "settings": {
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 12288
+      },
+      "modpack": {
+        "source": "curseforge",
+        "project": "1298402",
+        "slug": "all-the-mods-10-sky",
+        "name": "All the Mods 10: To the Sky   ATM10SKY",
+        "pin": {
+          "versionId": "8942261",
+          "versionNumber": "2.0.6",
+          "channel": "release",
+          "hashAlgo": "sha1",
+          "hash": "074241048c6bd9f21fe51827fb5c5e9266e4652c"
+        }
+      }
+    }
+  },
+  {
     "id": "atm9",
     "name": "All the Mods 9",
     "art": "world-big-biomes.svg",
@@ -1177,6 +1213,42 @@
           }
         }
       ]
+    }
+  },
+  {
+    "id": "stoneblock-4",
+    "name": "StoneBlock 4",
+    "art": "world-amplified.svg",
+    "page": "https://playkeeper.io/modpacks/stoneblock-4-server",
+    "checked": "2026-09-28",
+    "release": "0.4.4",
+    "file": {
+      "playkeeperTemplate": 1,
+      "name": "StoneBlock 4",
+      "description": "FTB StoneBlock 4 for NeoForge on Minecraft 1.21.1: survival underground in solid stone, with Vaults to explore and the World Engine to power.",
+      "game": "minecraft-java",
+      "server": {
+        "type": "neoforge",
+        "minecraftVersion": "1.21.1"
+      },
+      "settings": {
+        "maxPlayers": 10,
+        "playStyle": "friends",
+        "memoryMB": 12288
+      },
+      "modpack": {
+        "source": "curseforge",
+        "project": "1373378",
+        "slug": "ftb-stoneblock-4",
+        "name": "FTB StoneBlock 4",
+        "pin": {
+          "versionId": "8947694",
+          "versionNumber": "1.22.0",
+          "channel": "release",
+          "hashAlgo": "sha1",
+          "hash": "f05df3a2dcceeefb9a996e217b51535d96b2803d"
+        }
+      }
     }
   },
   {

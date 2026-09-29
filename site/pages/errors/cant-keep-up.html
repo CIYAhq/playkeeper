@@ -1,0 +1,101 @@
+{{/*
+path: /errors/cant-keep-up
+title: Can't keep up! Is the server overloaded? Minecraft lag, fixed
+description: Can't keep up! Is the server overloaded? means the server fell behind its 20 ticks a second. What made our test server fall 33 seconds behind, and the fixes.
+label: Can't keep up
+h1: Can't keep up! Is the server overloaded? What it means
+card: Can't keep up, explained
+kind: Guide
+section: guides
+layout: guide
+crumb: Errors
+og: error-cant-keep-up
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}A Minecraft server runs the world in ticks, 20 a second, 50 ms each. Can't keep up! means it fell behind that schedule, by the milliseconds and ticks it names. On our test server, generating new land on one CPU core put it 33 seconds behind; fixes are pre-generating the map, a faster CPU and enough memory.{{end}}
+
+{{define "closing-title"}}A server that tells you why it lags.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper shows each server's ticks per second and names what slows it down.{{end}}
+
+{{define "side-text"}}Playkeeper shows each server's ticks per second and names what slows it down.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="meaning">
+  {{template "h2n" (dict "ID" "meaning" "N" 1 "Text" "What the numbers say" "Toc" "What it means")}}
+  <div class="error-card reveal">
+    <h3>From our test server's log</h3>
+    <code class="err">[13:07:46 WARN]: Can't keep up! Is the server overloaded? Running 2505ms or 50 ticks behind</code>
+  </div>
+  <p>Every tick, the server moves mobs, grows crops, runs redstone and answers players, and it has 50 ms for each tick to keep 20 a second. The warning is the server noticing it's behind its schedule: 2505 ms is 50 ticks of 50 ms. It's a warning, not a crash, but players feel the lost ticks as lag.</p>
+</section>
+
+<section aria-labelledby="tests">
+  {{template "h2n" (dict "ID" "tests" "N" 2 "Text" "What made ours fall behind" "Toc" "Our tests")}}
+  <p>On 29 Sep we ran a Paper 1.21.1 server with nobody on, and pushed it three ways:</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">What we did</th><th scope="col">What it logged</th><th scope="col">TPS over the last minute</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Allowed it one CPU core, and loaded 256 chunks nobody had visited</th><td><code>Running 32910ms or 658 ticks behind</code></td><td>12.92</td></tr>
+        <tr><th scope="row">Cut its CPU to a twentieth of a core</th><td><code>Running 2505ms or 50 ticks behind</code>, once</td><td>19.2, with one tick taking 700 ms</td></tr>
+        <tr><th scope="row">Put 333 villagers in one chunk, on one core</th><td>Nothing</td><td>20, with ticks of 6.6 ms</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Generating land was the worst by far: making new chunks is heavy work, and the server waits for the ones it has to load. An empty server needs little CPU, so even a twentieth of a core fell behind only once, and a few hundred villagers were well within one core.</p>
+</section>
+
+<section aria-labelledby="fixes">
+  {{template "h2n" (dict "ID" "fixes" "N" 3 "Text" "The fixes, most useful first" "Toc" "Fixes")}}
+  <ul>
+    <li><strong>Pre-generate the map</strong> around spawn before friends explore, with the Chunky plugin or mod. The server then loads land from disk instead of making it while players wait.</li>
+    <li><strong>Give it a faster core.</strong> Minecraft runs each world's ticks on one thread, so one fast core beats many slow ones. On a VPS, a plan with dedicated cores stops neighbours taking your CPU time.</li>
+    <li><strong>Give it enough memory.</strong> A heap that's nearly full makes Java stop to clean up more often, and each stop is time the ticks don't get. The <a href="/sizing">sizing guide</a> gives a size for what you run.</li>
+    <li><strong>Keep less of the world running.</strong> Lower <code>simulation-distance</code> in server.properties, the chunks around each player where mobs and crops move.</li>
+    <li><strong>A single warning at start-up</strong> or after a burst of work, with the TPS back at 20, needs nothing.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="measure">
+  {{template "h2n" (dict "ID" "measure" "N" 4 "Text" "Measure it" "Toc" "Measure it")}}
+  <p>On Paper and Purpur, two commands show how the server keeps up. Here is ours just after the chunk test:</p>
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="Command">
+        <button type="button" class="code-tab" role="tab" id="tab-tps" aria-controls="code-tps" aria-selected="true">Console</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-tps" role="tabpanel" tabindex="0" aria-labelledby="tab-tps">&gt; tps
+TPS from last 1m, 5m, 15m: 12.92, 18.02, 19.24
+&gt; mspt
+Server tick times (avg/min/max) from last 5s, 10s, 1m:
+0.2/0.1/1.2, 0.1/0.1/1.2, 4.6/0.1/605.2</pre>
+  </div>
+  <p>20 TPS is on time. Tick times under 50 ms leave room; the maximum shows the stalls.</p>
+</section>
+
+<section aria-labelledby="playkeeper">
+  {{template "h2n" (dict "ID" "playkeeper" "N" 5 "Text" "On a Playkeeper server" "Toc" "On Playkeeper")}}
+  <ul>
+    <li><strong>The Overview shows ticks per second</strong> for each running server, and says when it's lagging.</li>
+    <li><strong>How it's running</strong> names what slows the server down, with the fix: players exploring new land, the server using all the CPU it's allowed, a host holding back CPU time, too little memory, a slow disk, or a lot of the world running.</li>
+    <li><strong>The World tab pre-generates the map</strong> with Chunky, and carries on after a restart.</li>
+  </ul>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Is Can't keep up! Is the server overloaded? bad?" "Once, at start-up or after heavy work, it's harmless. Over and over, it means the server can't do 20 ticks a second, and players feel it as lag.")
+    (qa "What does 50 ticks behind mean?" "A tick is 50 ms, so 50 ticks is 2.5 seconds of the world the server couldn't run on time.")
+    (qa "Does more RAM fix Can't keep up?" "Only when the server is short on memory. Most often it's the CPU, or players exploring new land: pre-generate the map, and use a fast core.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/errors" "/sizing" "/errors/connection-refused")}}{{end}}

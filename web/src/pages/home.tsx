@@ -19,7 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
-import { can, welcomeKey } from '@/lib/access'
+import { can, canCreate, canCreateOn, welcomeKey } from '@/lib/access'
 import { demo } from '@/lib/demo'
 import { formatBytes, formatDate, formatList, formatMB, formatMBOf, formatPercent, formatSpan, sameDay } from '@/lib/format'
 import { awayLong, awayOf, byMachine, isAway, isStale, joinOf, machineLabel, machineOf, machineRoute, machineState, reachOf } from '@/lib/machines'
@@ -43,7 +43,7 @@ export function HomePage() {
   const groups = byMachine(servers ?? [], ws.machines)
   const on = (m: MachineView) => groups.find((g) => g.machine.id === m.id)?.servers ?? []
 
-  const create = can(ws.me, 'servers.create')
+  const create = canCreate(ws.me)
   const newButton = create && (
     <Button render={<a {...linkProps({ name: 'new-server' })} />}>
       <PlusIcon />
@@ -400,7 +400,7 @@ function NewServerCard({ machine }: { machine?: MachineView }) {
   const live = m?.live
   const name = m && m.kind === 'remote' ? machineLabel(m) : ws.machineName
   const full = !!live && live.memoryFreeMB <= 0
-  if (!can(ws.me, 'servers.create')) return null
+  if (!canCreateOn(ws.me, m)) return null
   const cls = 'flex min-h-[176px] flex-col items-center justify-center rounded-3xl border border-dashed border-input bg-warm p-4 text-center outline-none'
   if (machine && isAway(machine)) {
     return (

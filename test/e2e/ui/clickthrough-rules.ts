@@ -164,7 +164,7 @@ export const places: Place[] = [
   { what: 'the empty World page', sizes: ['desktop', 'phone'], view: 'empty lists', page: '/servers/*/world', key: /^button "Make my first backup"$/ },
   { what: 'Home with no servers', sizes: ['desktop', 'phone'], view: 'no servers', page: '/', key: /^link "(Next: )?Create your first server"$/ },
   { what: 'the end of onboarding (/welcome)', sizes: ['desktop', 'phone'], view: 'no servers', page: '/welcome', key: /^button "Create my server"$/ },
-  { what: 'a memory choice in onboarding’s "Change the details", which changes only a number', sizes: ['desktop'], view: 'no servers', page: '/welcome', key: /^option "# GB" in listbox ""( #\d+)?$/ },
+  { what: 'a memory choice in onboarding’s "Change the details", which changes only a number', sizes: ['desktop'], view: 'no servers', page: '/welcome', key: /^option "# GB" in listbox "Memory"( #\d+)?$/ },
   { what: 'installing a Playkeeper update', sizes: ['desktop', 'phone'], view: 'update available', page: '/settings', key: /^button "Update( now)?" in dialog "Update Playkeeper to .+"$/ },
   { what: 'waking a sleeping server', sizes: ['desktop', 'phone'], view: 'asleep', page: '/servers/*', key: /^button "Wake up now" in ".+ is asleep"$/ },
   { what: 'a new recovery key for the copies somewhere else', sizes: ['desktop', 'phone'], view: 'looks after itself', page: '/servers/*/world/backup-rules', phonePage: '/servers/*/world/backup-rules/copies', key: /^button "Download new key" in dialog "New recovery key made"$/ },

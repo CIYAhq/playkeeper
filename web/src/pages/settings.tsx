@@ -24,6 +24,7 @@ import { AiAgentsSection } from './ai-agents'
 import { DiscordSettingsSection } from './discord'
 import { MachineDetailsSection, MachinesSection } from './machines'
 import { TeamSection } from './team'
+import { SellOnWhopSection } from './whop'
 
 export type SettingsPage = Extract<Route, { name: 'settings' | SettingsSectionName | 'machine-details' }>
 
@@ -48,6 +49,12 @@ export function GlobalSettingsPage({ page }: { page: SettingsPage }) {
       return (
         <SettingsSection current="discord">
           <DiscordSettingsSection />
+        </SettingsSection>
+      )
+    case 'whop':
+      return (
+        <SettingsSection current="whop">
+          <SellOnWhopSection />
         </SettingsSection>
       )
     case 'ai-agents':

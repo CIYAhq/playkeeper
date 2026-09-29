@@ -19,6 +19,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/discord"
 	"github.com/CIYAhq/playkeeper/internal/docker"
+	"github.com/CIYAhq/playkeeper/internal/hetzner"
 	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 )
@@ -577,8 +578,19 @@ func (a *Agent) hDiscordNotify(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return
+	case api.DiscordInStock:
+		places, ok := stockPlaces(req.ServerType, req.Locations)
+		if !ok {
+			writeError(w, errInvalid("Machines in stock need a Hetzner server type and 1–10 of its locations, by Hetzner's names."))
+			return
+		}
+		if a.discordConnected() {
+			a.disc.n.Notify(discord.InStock("Hetzner", strings.ToUpper(req.ServerType), places))
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
 	default:
-		writeError(w, errInvalid("Only join requests, two-factor changes and Admin confirmations can be reported."))
+		writeError(w, errInvalid("Only join requests, two-factor changes, Admin confirmations and machines in stock can be reported."))
 		return
 	}
 	if !minecraft.ValidPlayerName(req.Player) {
@@ -603,6 +615,24 @@ func (a *Agent) hDiscordNotify(w http.ResponseWriter, r *http.Request) {
 		a.disc.n.Notify(e)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// stockPlaces words where machines of serverType came into stock, each
+// place with Hetzner's link to buy one there, from Hetzner's names alone:
+// the panel never sends the words or the links.
+func stockPlaces(serverType string, locations []string) ([]discord.Place, bool) {
+	if !hetzner.ValidName(serverType) || len(locations) == 0 || len(locations) > 10 {
+		return nil, false
+	}
+	places := make([]discord.Place, 0, len(locations))
+	for _, l := range locations {
+		link := hetzner.BuyURL(serverType, l)
+		if link == "" {
+			return nil, false
+		}
+		places = append(places, discord.Place{Name: hetzner.City(l), Link: link})
+	}
+	return places, true
 }
 
 func discordCode(err error) string {

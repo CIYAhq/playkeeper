@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
-import { roleHint, roleName, welcomeKey } from '@/lib/access'
+import { allowanceText, roleHint, roleName, welcomeKey } from '@/lib/access'
 import { formatDate, formatList } from '@/lib/format'
 import { linkPath, rePlayerName } from '@/lib/router'
 import { cn } from '@/lib/utils'
@@ -376,7 +376,8 @@ function TeamJoin({ code, preview, onRefused, onJoined }: { code: string; previe
   const [again, setAgain] = useState('')
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState<ApiError>()
-  const role = roleName(preview.role)
+  const creator = preview.allowance
+  const role = creator ? t('team.creator') : roleName(preview.role)
   const mismatch = again !== '' && again !== password && again.length >= password.length
   const ready = username.trim() !== '' && password !== '' && again === password
   const nameProblem = failed && (failed.code === 'username_invalid' || failed.code === 'username_taken') ? failed : undefined
@@ -409,7 +410,7 @@ function TeamJoin({ code, preview, onRefused, onJoined }: { code: string; previe
           {preview.inviter ? preview.inviter.slice(0, 1).toUpperCase() : <UsersRoundIcon className="size-5" />}
         </span>
         <div className="min-w-0">
-          <h1 className="text-[22px] leading-7 font-bold tracking-[-0.01em] max-sm:text-xl max-sm:leading-6">{preview.team ? t('join.teamTitle', { team: preview.team, role }) : t('join.teamTitleAny', { role })}</h1>
+          <h1 className="text-[22px] leading-7 font-bold tracking-[-0.01em] max-sm:text-xl max-sm:leading-6">{creator ? (preview.team ? t('join.creatorTitle', { team: preview.team }) : t('join.creatorTitleAny')) : preview.team ? t('join.teamTitle', { team: preview.team, role }) : t('join.teamTitleAny', { role })}</h1>
           <p className="mt-1 text-[13px] text-muted-foreground max-sm:text-sm">{preview.inviter ? t('join.teamFrom', { inviter: preview.inviter }) : t('join.teamFromAnyone')}</p>
         </div>
       </div>
@@ -417,10 +418,10 @@ function TeamJoin({ code, preview, onRefused, onJoined }: { code: string; previe
         <dt className="text-muted-foreground">{t('join.yourRole')}</dt>
         <dd className="font-semibold">
           {role}
-          <span className="mt-0.5 block text-xs font-normal text-muted-foreground max-sm:text-[13px]">{roleHint(preview.role)}</span>
+          <span className="mt-0.5 block text-xs font-normal text-muted-foreground max-sm:text-[13px]">{creator ? t('join.creatorHint') : roleHint(preview.role)}</span>
         </dd>
         <dt className="text-muted-foreground">{t('join.servers')}</dt>
-        <dd className="font-semibold">{servers}</dd>
+        <dd className="font-semibold">{creator ? allowanceText(creator) : servers}</dd>
         <dt className="text-muted-foreground">{t('join.worksUntil')}</dt>
         <dd className="font-semibold">{t('join.worksUntilValue', { date: formatDate(preview.expiresAt) })}</dd>
       </dl>

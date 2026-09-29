@@ -1,0 +1,94 @@
+{{/*
+path: /errors/agree-to-the-eula
+title: You need to agree to the EULA: Minecraft eula.txt, fixed
+description: A new Minecraft server stops with You need to agree to the EULA until eula.txt says eula=true. How to set it, and the trailing space that makes it fail.
+label: Agree to the EULA
+h1: You need to agree to the EULA in order to run the server
+card: The Minecraft server EULA, explained
+kind: Guide
+section: guides
+layout: guide
+crumb: Errors
+og: error-agree-to-the-eula
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}On its first start a Minecraft server writes eula.txt with eula=false and stops, until you accept Minecraft's EULA. Read it, change the line to eula=true in the eula.txt next to the server, and start again. Upper case works and so do spaces around the =, but a space after true doesn't.{{end}}
+
+{{define "closing-title"}}Accept it once, in the dashboard.{{end}}
+{{define "closing-sub"}}Free and open source. New server asks for the EULA once and writes eula.txt for you.{{end}}
+
+{{define "side-text"}}New server asks for the EULA once and writes eula.txt for you.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="meaning">
+  {{template "h2n" (dict "ID" "meaning" "N" 1 "Text" "What the server did" "Toc" "What it means")}}
+  <p>On 29 Sep we started Minecraft 1.21.1's server jar in an empty folder. It logged two lines and stopped:</p>
+  <div class="error-card reveal">
+    <h3>The log</h3>
+    <code class="err">[ServerMain/WARN]: Failed to load eula.txt
+[ServerMain/INFO]: You need to agree to the EULA in order to run the server. Go to eula.txt for more info.</code>
+  </div>
+  <p>It also wrote the file it asks about, in the folder it was started from:</p>
+  <div class="error-card reveal">
+    <h3>eula.txt</h3>
+    <code class="err">#By changing the setting below to TRUE you are indicating your agreement to our EULA (https://aka.ms/MinecraftEULA).
+#Tue Sep 29 12:15:42 UTC 2026
+eula=false</code>
+  </div>
+  <p>Nothing is broken. Every server needs someone to accept Minecraft's End User License Agreement before it runs.</p>
+</section>
+
+<section aria-labelledby="fix">
+  {{template "h2n" (dict "ID" "fix" "N" 2 "Text" "Accept it" "Toc" "The fix")}}
+  {{template "steps" (dict "Class" "steps-lg" "Items" (list
+    (dict "Title" "Read the EULA" "Text" (html "The link in the file, <a href=\"https://aka.ms/MinecraftEULA\">aka.ms/MinecraftEULA</a>, opens Minecraft's End User License Agreement."))
+    (dict "Title" "Change the line" "Text" (html "In <code>eula.txt</code>, next to the server, change <code>eula=false</code> to <code>eula=true</code> and save."))
+    (dict "Title" "Start the server again" "Text" "It gets past the EULA and goes on to make the world.")
+  ))}}
+  <p>On Linux, <code>sed -i 's/^eula=false$/eula=true/' eula.txt</code> changes the line in one go.</p>
+</section>
+
+<section aria-labelledby="gotchas">
+  {{template "h2n" (dict "ID" "gotchas" "N" 3 "Text" "When it still says no" "Toc" "Still says no")}}
+  <p>We tried the line a few ways on the same server:</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">The line in eula.txt</th><th scope="col">What happened</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>eula=TRUE</code></th><td>Started</td></tr>
+        <tr><th scope="row"><code>eula = true</code></th><td>Started</td></tr>
+        <tr><th scope="row"><code>eula=true</code> with a space after it</th><td>Stopped: You need to agree to the EULA</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li><strong>A space after true</strong> makes the value something other than true. Delete everything after the e.</li>
+    <li><strong>The server reads eula.txt from the folder it starts in,</strong> not the jar's folder. Started from somewhere else, it writes and reads another eula.txt there; <code>cd</code> into the server's folder first.</li>
+    <li><strong>On Windows, check the name is eula.txt,</strong> not eula.txt.txt: File Explorer hides known extensions unless you turn them on.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="playkeeper">
+  {{template "h2n" (dict "ID" "playkeeper" "N" 4 "Text" "On a Playkeeper server" "Toc" "On Playkeeper")}}
+  <ul>
+    <li><strong>New server asks you to accept the EULA</strong> before it creates a server, links it, and records who accepted it and when.</li>
+    <li><strong>It writes eula.txt for the server,</strong> so the first start goes straight on to the world.</li>
+    <li><strong>A server that stops for want of it</strong> shows The Minecraft EULA hasn't been accepted on its Overview, with a button to read and accept it.</li>
+  </ul>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "How do I accept the Minecraft server EULA?" "Open eula.txt in the server's folder, change eula=false to eula=true, save, and start the server again.")
+    (qa "Why does my server still say I need to agree to the EULA?" "Look for a space after true, a file named eula.txt.txt, or a server started in another folder, where it reads a different eula.txt.")
+    (qa "Where is eula.txt?" "In the folder the server starts in. It writes the file there on its first start.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/errors" "/errors/unable-to-access-jarfile" "/tools/jvm-flags")}}{{end}}

@@ -99,7 +99,7 @@ schema: article
 
 <section aria-labelledby="own-server">
   {{template "h2n" (dict "ID" "own-server" "N" 7 "Text" "Your own server, always on" "Toc" "Your own server")}}
-  <p>Your own server keeps the world up when you log off, runs mods or plugins, and fits as many friends as it has memory for. On your PC it's free, but the PC stays on and you open port 25565 on your router. On a VPS it's always on, from {{usd $vps.USD}} a month: see <a href="/guides/minecraft-server-cost">what a Minecraft server costs</a>.</p>
+  <p>Your own server keeps the world up when you log off, runs mods or plugins, and fits as many friends as it has memory for. On your PC it's free, but the PC stays on and you <a href="/guides/port-forward-minecraft-server">forward port 25565 on your router</a>. On a VPS it's always on, from {{usd $vps.USD}} a month: see <a href="/guides/minecraft-server-cost">what a Minecraft server costs</a>.</p>
   <p class="p-lead">Playkeeper sets the server up on a VPS you rent, with one command:</p>
   {{template "install" (dict "ID" true)}}
   <ol class="steps shot-steps">
@@ -139,6 +139,11 @@ schema: article
     <p>{{template "icon" "arrow-right"}}It's usually a child account: a parent allows multiplayer in the account's Xbox privacy settings.</p>
   </div>
   <div class="error-card reveal">
+    <h3>The game didn't sign in</h3>
+    <code class="err">Failed to verify username!</code>
+    <p>{{template "icon" "arrow-right"}}They sign in with the Microsoft account that owns Java Edition, as the Minecraft Launcher does. <a href="/errors/failed-to-verify-username">Why it happens</a>.</p>
+  </div>
+  <div class="error-card reveal">
     <h3>Not on the allowlist</h3>
     <code class="err">You are not white-listed on this server!</code>
     <p>{{template "icon" "arrow-right"}}Add them with /whitelist add and their name, or send them an invite link.</p>
@@ -146,7 +151,7 @@ schema: article
   <div class="error-card reveal">
     <h3>The server can't be reached</h3>
     <code class="err">Failed to connect to the server</code>
-    <p>{{template "icon" "arrow-right"}}Check the address, that the server runs, and that TCP 25565 is open in your router or your VPS provider's firewall.</p>
+    <p>{{template "icon" "arrow-right"}}Check the address, that the server runs, and that TCP 25565 is open in your router or your VPS provider's firewall. Under it, <a href="/errors/connection-refused">Connection refused</a> says which.</p>
   </div>
 </section>
 {{end}}

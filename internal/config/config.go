@@ -46,10 +46,16 @@ type Config struct {
 	ACMEAgreedTerms string `json:"acmeAgreedTerms,omitempty"`
 	// NamesURL is the service that hands out free playkeeper.me addresses;
 	// empty means https://names.playkeeper.io.
-	NamesURL     string `json:"namesURL,omitempty"`
-	DataDir      string `json:"dataDir"`
-	SocketPath   string `json:"socketPath"`
-	DockerSocket string `json:"dockerSocket"`
+	NamesURL string `json:"namesURL,omitempty"`
+	// WhopAPIURL is the Whop API Sell on Whop talks to; empty means
+	// Whop's own. `playkeeper dev` uses Whop's sandbox, and tests a fake.
+	WhopAPIURL string `json:"whopAPIURL,omitempty"`
+	// HetznerAPIURL is the Hetzner Cloud API the stock watch asks; empty
+	// means Hetzner's own. Tests use a fake.
+	HetznerAPIURL string `json:"hetznerAPIURL,omitempty"`
+	DataDir       string `json:"dataDir"`
+	SocketPath    string `json:"socketPath"`
+	DockerSocket  string `json:"dockerSocket"`
 	// PanelUser is the only non-root account allowed to call the agent socket.
 	PanelUser string `json:"panelUser"`
 	GameUID   int    `json:"gameUID"`

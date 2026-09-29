@@ -304,9 +304,12 @@ func (c *Client) ImageRemove(ctx context.Context, ref string) error {
 }
 
 type NetworkInfo struct {
-	ID     string            `json:"Id"`
-	Name   string            `json:"Name"`
-	Labels map[string]string `json:"Labels"`
+	ID         string            `json:"Id"`
+	Name       string            `json:"Name"`
+	Driver     string            `json:"Driver"`
+	EnableIPv6 bool              `json:"EnableIPv6"`
+	Options    map[string]string `json:"Options"`
+	Labels     map[string]string `json:"Labels"`
 }
 
 func (c *Client) NetworkInspect(ctx context.Context, name string) (NetworkInfo, error) {

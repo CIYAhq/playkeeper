@@ -1,0 +1,20 @@
+{
+  "name": "FTB StoneBlock 4",
+  "short": "StoneBlock 4",
+  "source": "curseforge",
+  "project": "1373378",
+  "page": "https://www.curseforge.com/minecraft/modpacks/ftb-stoneblock-4",
+  "author": "FTB",
+  "downloads": 2894621,
+  "version": "1.22.0",
+  "released": "2026-09-22",
+  "type": "neoforge",
+  "loader": "21.1.250",
+  "minecraft": "1.21.1",
+  "mods": 370,
+  "downloadMB": 669,
+  "heapMB": 8192,
+  "template": "stoneblock-4",
+  "release": "0.4.4",
+  "checked": "2026-09-28"
+}

@@ -525,8 +525,8 @@ func (s *Server) hJoinAccept(w http.ResponseWriter, r *http.Request, _ *session)
 		if id, err = res.LastInsertId(); err != nil {
 			return err
 		}
-		_, err = conn.ExecContext(r.Context(), `INSERT INTO project_members(project_id, user_id, role, servers, created_at) VALUES(?,?,?,?,?)`,
-			grant.ProjectID, id, grant.Role, grant.Servers.String(), now)
+		_, err = conn.ExecContext(r.Context(), `INSERT INTO project_members(project_id, user_id, role, servers, allowance_servers, allowance_memory_mb, allowance_disk_gb, created_at)
+			VALUES(?,?,?,?,?,?,?,?)`, grant.ProjectID, id, grant.Role, grant.Servers.String(), grant.Allowance.Servers, grant.Allowance.MemoryMB, grant.Allowance.DiskGB, now)
 		return err
 	})
 	switch {
@@ -556,11 +556,24 @@ func (s *Server) hJoinAccept(w http.ResponseWriter, r *http.Request, _ *session)
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Could not start a session.", "")
 		return
 	}
-	s.audit(inv.Actor(), "invite.accept", grant.Username, "succeeded", fmt.Sprintf("%s of %s", grant.Role, scopeText(grant.Servers, servers)))
+	detail := fmt.Sprintf("%s of %s", grant.Role, scopeText(grant.Servers, servers))
+	if !grant.Allowance.IsZero() {
+		detail = allowanceText(grant.Allowance)
+	}
+	s.audit(inv.Actor(), "invite.accept", grant.Username, "succeeded", detail)
 	s.setSessionCookie(w, token)
 	body := s.meBody(sess)
 	body["requires"] = grant.Requires
 	writeJSON(w, http.StatusOK, body)
+}
+
+// allowanceText says what a creator may create, for the audit trail.
+func allowanceText(al invites.Allowance) string {
+	servers := "servers"
+	if al.Servers == 1 {
+		servers = "server"
+	}
+	return fmt.Sprintf("creator: up to %d %s with %d MB", al.Servers, servers, al.MemoryMB)
 }
 
 // scopeText names a scope's servers for the audit trail.

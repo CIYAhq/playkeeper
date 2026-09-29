@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { answerRead, installJob, isAddonRead, recordedFolder, updateJob, type World } from './addon-fixtures'
+import { apiReach, calls, goDecls, webCalls } from './clickthrough-api'
 import {
   closure,
   costOf,
@@ -20,6 +21,7 @@ import {
   preludesOf,
   pullRequestRunners,
   pullRequestShardSeconds,
+  pullRequestShare,
   selects,
   shardsFor,
   type Costs,
@@ -154,7 +156,7 @@ async function routes(page: Page, phone: boolean): Promise<{ live: string[]; sha
   // settings; the dashboard's own machine has both pages. Every machine has a
   // Disk space page.
   for (const m of machines) out.push(...(m.kind === 'remote' ? [`/settings/machines/${m.id}`] : [`/machines/${m.id}`, `/machines/${m.id}/settings`]), `/machines/${m.id}/disk`)
-  out.push('/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/settings/ai-agents', '/settings/machines', '/account', '/account/two-factor', '/recover')
+  out.push('/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/settings/whop', '/settings/ai-agents', '/settings/machines', '/account', '/account/two-factor', '/recover')
   if (phone) out.push('/more')
   return { live: out, shared }
 }
@@ -199,7 +201,7 @@ function fakedCrawls(live: string[], phone: boolean): Crawl[] {
     ['asleep', first ? ['/', first] : []],
     ['in use', [...(plugins ? [plugins] : []), ...(first ? [`${first}/world`, `${first}/world/packs`, `${first}/world/pregen`] : [])]],
     ['paused', first ? [`${first}/world/pregen`] : []],
-    ['friends and team', [...(first ? [`${first}/players`] : []), '/settings/team', '/settings/discord']],
+    ['friends and team', [...(first ? [`${first}/players`] : []), '/settings/team', '/settings/discord', '/settings/whop']],
     ['map on', map ? [map] : []],
     ['map restart', map ? [map] : []],
     ['a few files', first ? [`${first}/files`, `${first}/files/plugins`] : []],
@@ -619,19 +621,27 @@ test('runners get whole groups of pages, a page with its faked states, the costl
 test('a change to a page crawls the pages its modules draw, after the pages before them; one to no page, none', () => {
   const graph = importGraph(fileURLToPath(new URL('../../../web/src', import.meta.url)))
   expect(pageMapProblems(graph)).toEqual([])
-  // Without costs no page is left for the release, so these are all the pages a change reaches.
-  const reach = (changed: string[]) => forPullRequest(changed, graph, {})
-  expect(reach(['web/src/pages/server/console.tsx'])).toMatchObject({ mode: 'pages', pages: ['/servers/*/console'], preludes: ['/', '/servers/*'] })
+  const reach = (changed: string[]) => forPullRequest(changed, graph)
+  expect(reach(['web/src/pages/server/console.tsx'])).toMatchObject({ mode: 'pages', pages: ['/servers/*/console'], preludes: ['/', '/servers/*'], views: ['/servers/*/console'] })
   // The World tab shows pre-generation's row too, and the Map area uses its texts.
   expect(reach(['web/src/pages/server/world-pregen.tsx'])).toMatchObject({ mode: 'pages', pages: ['/servers/*/world', '/servers/*/world/pregen', '/servers/*/map'], preludes: ['/', '/servers/*'] })
   const twoFactor = reach(['web/src/pages/two-factor.tsx'])
   expect(twoFactor.pages).toEqual(expect.arrayContaining(['/account', '/account/two-factor']))
   expect(twoFactor.pages).not.toContain('/servers/*')
+  // Settings draws one section on each of its pages.
+  expect(reach(['web/src/pages/team.tsx'])).toMatchObject({ mode: 'pages', pages: ['/settings/team'], preludes: ['/', '/settings'] })
+  expect(reach(['web/src/pages/settings.tsx']).pages).toEqual(['/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/settings/whop', '/settings/ai-agents', '/settings/machines', '/settings/machines/*'])
   expect(reach(['web/src/pages/server/map.test.tsx', 'internal/panel/server.go', 'docs/ARCHITECTURE.md']).mode).toBe('none')
-  expect(reach(['web/src/pages/join.tsx']).mode).toBe('none')
+  // The invite page and How it's running aren't crawled, but their accessibility and width are checked;
+  // onboarding's pages are crawled, but views.spec.ts has no view of them.
+  expect(reach(['web/src/pages/join.tsx'])).toMatchObject({ mode: 'pages', pages: [], preludes: [], views: ['/join/*'] })
+  expect(reach(['web/src/pages/onboarding.tsx'])).toMatchObject({ mode: 'pages', pages: ['/setup', '/welcome'], views: ['/join/*'] })
+  expect(reach(['web/src/pages/server/running.tsx'])).toMatchObject({ mode: 'pages', pages: [], views: ['/servers/*/running'] })
+  expect(reach(['web/src/pages/server-page.tsx']).mode).toBe('none')
   // A page module the page map doesn't know yet is sampled with Home until it's added.
   expect(reach(['web/src/pages/a-new-page.tsx']).pages).toEqual(['/'])
   expect([...closure(graph, ['pages/server/index.tsx'])]).not.toContain('pages/server/console.tsx')
+  expect(pageOf('/join/AbCdEf123')).toBe('/join/*')
   expect(preludesOf('/servers/*/world/pregen')).toEqual(['/', '/servers/*'])
   expect(preludesOf('/login')).toEqual([])
 
@@ -646,10 +656,10 @@ test('a change to a page crawls the pages its modules draw, after the pages befo
   expect(shardsFor(costs, 'all', 300).filter((s) => s.size === 'phone')).toEqual([{ size: 'phone', shard: 1, of: 1 }])
 })
 
-test("a pull request crawls the pages its change reaches, one page for those a module many share runs on, and no more than its runners", () => {
+test('a pull request crawls every page its change reaches, one page for those a module many share runs on, on no more than its runners', () => {
   const graph = importGraph(fileURLToPath(new URL('../../../web/src', import.meta.url)))
   const costs = JSON.parse(fs.readFileSync(new URL('./clickthrough-costs.json', import.meta.url), 'utf8')) as Costs
-  const plan = (changed: string[], keys?: string[], users: Record<string, string[]> = {}) => forPullRequest(changed, graph, costs, keys, (k) => users[k] ?? [])
+  const plan = (changed: string[], keys?: string[], users: Record<string, string[]> = {}) => forPullRequest(changed, graph, keys, (k) => users[k] ?? [])
   expect(plan(['web/src/pages/server/console.tsx'])).toMatchObject({ mode: 'pages', pages: ['/servers/*/console'], preludes: ['/', '/servers/*'] })
   // A module every page runs on, the crawler and the build take Home for them all.
   expect(plan(['web/src/components/ui/button.tsx'])).toMatchObject({ mode: 'pages', pages: ['/'], preludes: [] })
@@ -671,10 +681,151 @@ test("a pull request crawls the pages its change reaches, one page for those a m
   // Without the keys, as plan.ts --files gives none, the table is a module every page runs on.
   expect(plan(['web/src/i18n/en.ts']).pages).toEqual(['/'])
   expect(plan(['web/src/pages/server/map.test.tsx', 'internal/panel/server.go', 'docs/ARCHITECTURE.md']).mode).toBe('none')
-  // Every page module at once: no more runners than a pull request gets, and the rest wait for the release.
-  const every = forPullRequest([...new Set(Object.values(pageModules).flat())].map((m) => `web/src/${m}`), graph, costs)
-  expect(shardsFor(costs, { pages: every.pages, preludes: every.preludes }, pullRequestShardSeconds).length).toBeLessThanOrEqual(pullRequestRunners)
-  expect(every.why.at(-1)).toMatch(/wait for the release's full crawl/)
+  // Every page module at once: every page, on no more runners than a pull request gets, each taking longer.
+  const every = forPullRequest([...new Set(Object.values(pageModules).flat())].map((m) => `web/src/${m}`), graph)
+  expect(every.pages).toEqual(Object.keys(pageModules))
+  const all = { pages: every.pages, preludes: every.preludes }
+  expect(shardsFor(costs, all, pullRequestShardSeconds).length).toBeGreaterThan(pullRequestRunners)
+  expect(pullRequestShare(costs, all)).toBeGreaterThan(pullRequestShardSeconds)
+  expect(shardsFor(costs, all, pullRequestShare(costs, all)).length).toBeLessThanOrEqual(pullRequestRunners)
+  expect(pullRequestShare(costs, { pages: ['/servers/*/console'], preludes: ['/', '/servers/*'] })).toBe(pullRequestShardSeconds)
+})
+
+test("a change to the Go code behind the API takes the pages of the modules that call what it reaches, and one page for a route many pages' modules call", () => {
+  const graph = importGraph(fileURLToPath(new URL('../../../web/src', import.meta.url)))
+  const api = (routes: Record<string, { path: string; users: string[] }[]>) => (file: string) => routes[file] ?? []
+  const plan = (changed: string[], routes: Record<string, { path: string; users: string[] }[]>) => forPullRequest(changed, graph, undefined, undefined, api(routes))
+  const invites = plan(['internal/panel/team.go'], { 'internal/panel/team.go': [{ path: '/api/team/invites', users: ['pages/team.tsx'] }] })
+  expect(invites).toMatchObject({ mode: 'pages', pages: ['/settings/team'], preludes: ['/', '/settings'], views: ['/settings/team'] })
+  expect(invites.why).toEqual(['internal/panel/team.go changes /api/team/invites: /settings/team'])
+  // A route the dashboard's own data calls on every page takes the first page listing a module that calls it.
+  const everywhere = plan(['internal/agent/handlers.go'], {
+    'internal/agent/handlers.go': [
+      { path: '/api/machines/{mid}', users: ['api/workspace.tsx', 'pages/machine.tsx'] },
+      { path: '/api/machines/{mid}/network-guard', users: ['pages/machine-settings/guard.tsx'] },
+    ],
+  })
+  expect(everywhere.pages).toEqual(['/machines/*', '/machines/*/settings'])
+  expect(everywhere.why[0]).toMatch(/^internal\/agent\/handlers\.go changes \/api\/machines\/\{mid\}, which modules on more than a third of the pages call, so \/machines\/\* stands for them$/)
+  expect(plan(['internal/usage/usage.go'], {}).mode).toBe('none')
+})
+
+test('the API a Go change reaches: the handlers that use what it changed, the routes that run them or pass requests on to them, and the modules that call those', () => {
+  const root = fs.mkdtempSync(path.join(fs.mkdtempSync('/tmp/pk-api-'), 'repo-'))
+  const write = (file: string, text: string) => {
+    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
+    fs.writeFileSync(path.join(root, file), text)
+  }
+  write(
+    'internal/panel/server.go',
+    [
+      'package panel',
+      'import "example.com/playkeeper/internal/invites"',
+      'func (s *Server) Routes() []Route {',
+      '\tsg := func(p, agentPath string) Route { return Route{"GET", p, needSession, actView, s.serverProxy("GET", agentPath)} }',
+      '\treturn []Route{',
+      '\t\t{"GET", "/api/team", needSession, actView, s.hTeam},',
+      '\t\t{"POST", "/api/team/invites", needSessionCSRF, actManageTeam, s.hInvite},',
+      '\t\tsg("/api/servers/{id}/logs", "/v1/servers/{id}/logs"),',
+      '\t\t{"GET", "/api/servers/{id}/icon", needSession, actView, s.rawGet("/v1/servers/{id}/icon")},',
+      '\t}',
+      '}',
+      '',
+      'func (s *Server) hTeam(w http.ResponseWriter, r *http.Request) { s.teamList(w) }',
+      '',
+      'func (s *Server) hInvite(w http.ResponseWriter, r *http.Request) {',
+      '\tc, err := invites.NewMember(spec)',
+      '\ts.teamList(w)',
+      '}',
+      '',
+      '// teamList writes the team.',
+      'func (s *Server) teamList(w http.ResponseWriter) {',
+      '\tw.Start()',
+      '}',
+      '',
+      'func (s *Server) rawGet(agentPath string) http.HandlerFunc {',
+      '\treturn nil',
+      '}',
+      '',
+    ].join('\n'),
+  )
+  write(
+    'internal/agent/agent.go',
+    [
+      'package agent',
+      '',
+      'type server struct {',
+      '\tid string',
+      '\tlog *console',
+      '}',
+      '',
+      'func (a *Agent) routeTable() []Route {',
+      '\tsrv := a.withServer',
+      '\treturn []Route{',
+      '\t\t{"GET", "/v1/servers/{id}/logs", srv((*server).hLogs)},',
+      '\t\t{"GET", "/v1/servers/{id}/icon", srv((*server).hIcon)},',
+      '\t}',
+      '}',
+      '',
+      'func (s *server) hLogs(w http.ResponseWriter, r *http.Request) { s.log.since(limit) }',
+      '',
+      'func (s *server) hIcon(w http.ResponseWriter, r *http.Request) { s.icon.Start() }',
+      '',
+      'func (c *console) since(n int) []string {',
+      '\treturn nil',
+      '}',
+      '',
+      '// Start starts the agent.',
+      'func (a *Agent) Start() {',
+      '}',
+      '',
+    ].join('\n'),
+  )
+  write('internal/invites/invites.go', ['package invites', '', 'func NewMember(spec MemberSpec) (Created, error) {', '\treturn newCreator(spec)', '}', '', 'func newCreator(spec MemberSpec) (Created, error) {', '\treturn Created{}, nil', '}', ''].join('\n'))
+  write('web/src/pages/team.tsx', "export const load = () => get('/api/team').then(() => post('/api/team/invites', {}))\n")
+  write('web/src/pages/console.tsx', "export const logs = (id: string) => get(serverApi(id, `/logs?after=${n}`))\n")
+  write('web/src/pages/icon.tsx', "export const icon = (id: string) => serverApi(id, '/icon')\nexport const any = (id: string, list: string, who: string) => serverApi(id, `/${list}/${who}`)\n")
+  const graph = importGraph(path.join(root, 'web/src'))
+  const reached = (file: string, lines?: number[]) => apiReach(root, graph, new Map([[file, lines]]))(file)
+  // A helper two handlers call reaches both; the modules calling their routes come with each.
+  expect(reached('internal/panel/server.go', [21, 22])).toEqual([
+    { path: '/api/team', users: ['pages/team.tsx'] },
+    { path: '/api/team/invites', users: ['pages/team.tsx'] },
+  ])
+  // A handler reaches its own route only, and a changed route line reaches that route.
+  expect(reached('internal/panel/server.go', [15, 16]).map((r) => r.path)).toEqual(['/api/team/invites'])
+  expect(reached('internal/panel/server.go', [9]).map((r) => r.path)).toEqual(['/api/servers/{id}/icon'])
+  // The agent's handler reaches the panel's route that passes requests on to it; its receiver's
+  // unexported method on another value counts, a method of the same name on another package's type doesn't.
+  expect(reached('internal/agent/agent.go', [20, 21])).toEqual([{ path: '/api/servers/{id}/logs', users: ['pages/console.tsx'] }])
+  expect(reached('internal/agent/agent.go', [25, 26])).toEqual([])
+  // A changed field reaches what uses it, not every use of its type.
+  expect(reached('internal/agent/agent.go', [5]).map((r) => r.path)).toEqual(['/api/servers/{id}/logs'])
+  // Another package reaches the handlers that use what it exports.
+  expect(reached('internal/invites/invites.go', [8]).map((r) => r.path)).toEqual(['/api/team/invites'])
+  expect(reached('internal/panel/server_test.go')).toEqual([])
+  expect(webCalls(path.join(root, 'web/src'), graph).get('pages/icon.tsx')).toEqual(['/api/servers/{}/icon'])
+  expect(calls('/api/servers/{}/logs', '/api/servers/{id}/logs')).toBe(true)
+  expect(calls('/api/servers/{}/files{}', '/api/servers/{id}/files')).toBe(true)
+  expect(calls('/api/servers/{}/files{}', '/api/servers/{id}/files/move')).toBe(false)
+  expect(calls('/api/servers/{}/players/{}', '/api/servers/{id}/players/profile')).toBe(true)
+  expect(calls('/api/team/invites/{}', '/api/team/invites')).toBe(false)
+  expect(calls('/api/public/map/{}/tiles/a/b/c', '/api/public/map/{token}/tiles/{rest...}')).toBe(true)
+  expect(goDecls('type T struct {\n\tA, B int\n\tc string\n}\n').map((d) => [...d.byLine])).toEqual([
+    [
+      [2, ['T.A', 'T.B']],
+      [3, ['T.c']],
+    ],
+  ])
+})
+
+test("the network guard's Go code reaches Machine settings, and not a server's Console", () => {
+  const root = fileURLToPath(new URL('../../..', import.meta.url))
+  const graph = importGraph(path.join(root, 'web/src'))
+  const api = apiReach(root, graph, new Map([['internal/agent/guard.go', undefined]]))
+  const guard = forPullRequest(['internal/agent/guard.go'], graph, undefined, undefined, api)
+  expect(guard.pages).toContain('/machines/*/settings')
+  expect(guard.pages).not.toContain('/servers/*/console')
 })
 
 test('a change to the string table names the keys whose lines it changed, in values spread over lines too, and not comments', () => {
@@ -693,8 +844,8 @@ test('a change to how the state the pages are crawled in is made crawls after th
   // A change to how the state is saved or restored starts from a saved one, which tries it.
   expect(freshSetup(['scripts/e2e/played-state.sh', '.github/actions/played-install/action.yml'])).toBeUndefined()
   const graph = importGraph(fileURLToPath(new URL('../../../web/src', import.meta.url)))
-  expect(forPullRequest(['scripts/e2e/played-state.sh'], graph, {}).pages).toEqual(['/'])
-  expect(forPullRequest(['.github/actions/played-install/action.yml'], graph, {}).pages).toEqual(['/'])
+  expect(forPullRequest(['scripts/e2e/played-state.sh'], graph).pages).toEqual(['/'])
+  expect(forPullRequest(['.github/actions/played-install/action.yml'], graph).pages).toEqual(['/'])
 })
 
 test('the add-on fixtures answer as the panel would, work out plans against the folder and have no answer for what was never recorded', () => {
