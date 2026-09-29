@@ -78,21 +78,30 @@ func TestNormalizeName(t *testing.T) {
 }
 
 func TestNormalizeNames(t *testing.T) {
-	got, err := normalizeNames([]string{"MC.example.com", "www.example.com", "mc.example.com."})
+	got, err := normalizeNames([]string{"MC.example.com", "www.example.com", "mc.example.com."}, false)
 	if err != nil || strings.Join(got, ",") != "mc.example.com,www.example.com" {
 		t.Fatalf("normalizeNames = %v, %v", got, err)
 	}
-	if _, err := normalizeNames(nil); err == nil {
+	if _, err := normalizeNames(nil, false); err == nil {
 		t.Error("no names accepted")
 	}
 	many := make([]string, 11)
 	for i := range many {
 		many[i] = strings.Repeat("a", i+1) + ".example.com"
 	}
-	_, err = normalizeNames(many)
+	_, err = normalizeNames(many, false)
 	wantProblem(t, err, CodeInvalidName, "too_many")
-	_, err = normalizeNames([]string{"mc.example.com", "*.example.com"})
+	_, err = normalizeNames([]string{"mc.example.com", "*.example.com"}, false)
 	wantProblem(t, err, CodeInvalidName, "wildcard")
+	// DNS-01 proves a wildcard: a star, then a dot, then a name.
+	got, err = normalizeNames([]string{"*.Example.com", "*.example.com.", "example.com"}, true)
+	if err != nil || strings.Join(got, ",") != "*.example.com,example.com" {
+		t.Fatalf("wildcards = %v, %v", got, err)
+	}
+	for _, bad := range []string{"*", "*.*.example.com", "a.*.example.com", "*example.com"} {
+		_, err = normalizeNames([]string{bad}, true)
+		wantProblem(t, err, CodeInvalidName, "wildcard")
+	}
 }
 
 func TestFingerprint(t *testing.T) {

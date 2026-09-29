@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -182,6 +183,45 @@ func TestMissingNamesAndTypes(t *testing.T) {
 		if got.rcode != c.rcode || !got.aa || got.an != 0 || got.ns != 1 || got.records[0].rtype != typeSOA {
 			t.Fatalf("%s %d: %+v", c.name, c.qtype, got)
 		}
+	}
+}
+
+// Extra records, such as a certificate check's TXT records, are answered
+// besides the zone's while there's a zone. They aren't part of Zone, stay
+// when the zone is replaced, and go when they're set again.
+func TestExtraRecordsAreAnsweredBesideTheZone(t *testing.T) {
+	a := newAnswerer(testZone)
+	a.SetExtra([]Record{{Name: "_acme-challenge", Type: TypeTXT, Value: "token-2", TTL: 30}})
+	txt := func() []string {
+		t.Helper()
+		var out []string
+		for _, r := range ask(t, a, query("_acme-challenge.beta.example.com", typeTXT)).records {
+			if r.rtype == typeTXT {
+				out = append(out, string(r.data[1:]))
+			}
+		}
+		return out
+	}
+	if got := txt(); !slices.Equal(got, []string{"token-1", "token-2"}) {
+		t.Fatalf("with an extra record: %q", got)
+	}
+	if n := len(a.Zone().Records); n != len(testZone.Records) {
+		t.Fatalf("the zone has %d records, want %d", n, len(testZone.Records))
+	}
+	z := testZone
+	z.Records = z.Records[:1]
+	a.Set(z)
+	if got := txt(); !slices.Equal(got, []string{"token-2"}) {
+		t.Fatalf("after the zone was replaced: %q", got)
+	}
+	a.SetExtra(nil)
+	if got := ask(t, a, query("_acme-challenge.beta.example.com", typeTXT)); got.rcode != rcodeNXDomain {
+		t.Fatalf("after the extra records went: %+v", got)
+	}
+	none := &Answerer{}
+	none.SetExtra([]Record{{Name: "_acme-challenge", Type: TypeTXT, Value: "token-2"}})
+	if got := ask(t, none, query("_acme-challenge.beta.example.com", typeTXT)); got.rcode != rcodeRefused {
+		t.Fatalf("an extra record with no zone: %+v", got)
 	}
 }
 

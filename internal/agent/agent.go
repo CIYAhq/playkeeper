@@ -211,6 +211,10 @@ type Options struct {
 	// off).
 	Firewall      netguard.Runner
 	GuardInterval time.Duration
+
+	// RestoreStarting is called with the stage a restore's operation puts
+	// in place as the operation starts, before it names the stage (tests).
+	RestoreStarting func(stage string)
 }
 
 // Retention bounds stored analytics and audit data.
@@ -337,6 +341,8 @@ type Agent struct {
 	// journal can't be read, and under "" for the staging folder itself, so
 	// each is logged once.
 	unreadableSwaps sync.Map
+	// stages are the restore stages restores are applying.
+	stages stageClaims
 	// copyReads keeps the backup rules from deleting copies while one is
 	// downloaded: a restore, a check or a recovery holds it for reading while
 	// it downloads, and pruning deletes only when it can hold it alone.

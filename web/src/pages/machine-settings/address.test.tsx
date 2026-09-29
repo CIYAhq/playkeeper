@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as client from '@/api/client'
-import type { Address, AddressCheck, AddressPlan, DNSRecord, FreeAddress, JoinAddress, MachineView, Me, NameAvailability, Operation, ServerStatus } from '@/api/types'
+import type { Address, AddressCheck, AddressPlan, DNSAnswers, DNSRecord, FreeAddress, JoinAddress, MachineView, Me, NameAvailability, Operation, ServerStatus } from '@/api/types'
 import { WorkspaceContext, type Workspace } from '@/api/workspace'
 import { toastManager } from '@/components/ui/toast'
 import { formatDate, formatDateTime, formatLongDate } from '@/lib/format'
@@ -13,6 +13,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
   get: vi.fn(),
   post: vi.fn(),
+  put: vi.fn(),
   del: vi.fn(),
 }))
 
@@ -100,6 +101,8 @@ const buttons = (label: string, within: ParentNode = document) => [...within.que
 const button = (label: string, within: ParentNode = document) => need(buttons(label, within)[0], `${label} button`)
 const link = (label: string) => need([...document.querySelectorAll('a')].find((a) => a.textContent?.trim() === label), `${label} link`)
 const dialog = () => need(document.querySelector('[role="dialog"]'), 'dialog')
+/** The switch in the row that says label. */
+const switchIn = (label: string) => need([...document.querySelectorAll<HTMLElement>('[role="switch"]')].find((x) => x.parentElement?.textContent?.includes(label)), `${label} switch`)
 const currentStep = () => document.querySelector('[aria-current="step"]')?.textContent ?? ''
 
 function field(label: string): HTMLInputElement {
@@ -141,6 +144,7 @@ function asPhone() {
 
 let current: Address | client.ApiError = none
 let names: Record<string, NameAvailability | client.ApiError> = {}
+let dns: DNSAnswers | undefined
 let root: Root | undefined
 
 function answerGets() {
@@ -152,15 +156,17 @@ function answerGets() {
       return r instanceof client.ApiError ? Promise.reject(r) : Promise.resolve(r)
     }
     if (path === '/api/machines/m1/address/plan?domain=play.example.com') return Promise.resolve(plan)
+    if (path === '/api/dns-answers' && dns) return Promise.resolve(dns)
     return Promise.reject(refusal(404, 'not_found'))
   }) as typeof client.get)
 }
 
-async function show(a: Address | client.ApiError, { phone = false } = {}) {
+async function show(a: Address | client.ApiError, { phone = false, kind = 'local' } = {}) {
   if (phone) asPhone()
   current = a
   answerGets()
-  const ws = { me, machines: [machine], machine, servers, machineName: 'my-vps' } as unknown as Workspace
+  const m = { ...machine, kind } as MachineView
+  const ws = { me, machines: [m], machine: m, servers, machineName: 'my-vps' } as unknown as Workspace
   const r = createRoot(document.body.appendChild(document.createElement('div')))
   root = r
   await act(async () => r.render(<WorkspaceContext.Provider value={ws}>{<MachineSettingsPage id="m1" />}</WorkspaceContext.Provider>))
@@ -178,8 +184,10 @@ afterEach(async () => {
   root = undefined
   document.body.innerHTML = ''
   names = {}
+  dns = undefined
   vi.mocked(client.get).mockReset()
   vi.mocked(client.post).mockReset()
+  vi.mocked(client.put).mockReset()
   vi.mocked(client.del).mockReset()
   vi.restoreAllMocks()
 })
@@ -743,6 +751,74 @@ describe('an own domain', () => {
     expect(text()).toContain('Add these records where you manage example.com')
     await click(button('Cancel'))
     expect(text()).toContain('play.example.com is ready')
+  })
+
+  describe('addresses without a port', () => {
+    const answers = (over: Partial<DNSAnswers> = {}): DNSAnswers => ({
+      on: false,
+      zone: 'play.example.com',
+      nameserver: 'ns-play.example.com',
+      add: [
+        { type: 'A', name: 'ns-play.example.com', value: ip, ttl: 300 },
+        { type: 'NS', name: 'play.example.com', value: 'ns-play.example.com', ttl: 3600 },
+      ],
+      remove: [
+        { type: 'A', name: 'play.example.com', value: ip, ttl: 300 },
+        { type: 'A', name: '*.play.example.com', value: ip, ttl: 300 },
+      ],
+      servers: 0,
+      listening: [],
+      ...over,
+    })
+    const each = () => own({ serverAddresses: true, servers: [survival({ label: 'survival', address: 'survival.play.example.com:25565', ownAddress: 'survival.play.example.com', automatic: true })] })
+
+    it('lets the owner turn them on, then shows the records to add at the parent and to remove there', async () => {
+      dns = answers()
+      await show(each())
+      expect(text()).toContain('Addresses without a port')
+      expect(text()).toContain('This machine answers DNS for play.example.com itself')
+      expect(text()).not.toContain('ns-play.example.com')
+      vi.mocked(client.put).mockImplementation((async () => {
+        dns = answers({ on: true, answering: 'play.example.com', servers: 2, listening: [`${ip}:53`] })
+        return dns
+      }) as typeof client.put)
+      await click(switchIn('Addresses without a port'))
+      expect(client.put).toHaveBeenCalledWith('/api/dns-answers', { on: true })
+      expect(text()).toContain('Add these two records at example.com:')
+      expect(text()).toContain(`Ans-play.example.com${ip}`)
+      expect(text()).toContain('NSplay.example.comns-play.example.com')
+      expect(text()).toContain('Then remove these there')
+      expect(text()).toContain(`A*.play.example.com${ip}`)
+      expect(text()).toContain('Open port 53 to everyone, over UDP and TCP')
+      expect(text()).toContain(`Answering on ${ip}:53, for 2 servers.`)
+    })
+
+    it('asks before it stops answering', async () => {
+      dns = answers({ on: true, answering: 'play.example.com', servers: 1, listening: [`${ip}:53`] })
+      await show(each())
+      expect(text()).toContain(`Answering on ${ip}:53, for 1 server.`)
+      await click(switchIn('Addresses without a port'))
+      expect(client.put).not.toHaveBeenCalled()
+      expect(dialog().textContent).toContain('Stop answering DNS for play.example.com?')
+      expect(dialog().textContent).toContain('Put back the records you removed at example.com first.')
+      vi.mocked(client.put).mockResolvedValue(answers())
+      await click(button('Stop answering', dialog()))
+      expect(client.put).toHaveBeenCalledWith('/api/dns-answers', { on: false })
+    })
+
+    it('says why a domain with nothing above it that could hand it over can’t be answered', async () => {
+      dns = answers({ zone: 'example.com', nameserver: undefined, unavailable: 'subdomain', add: [], remove: [] })
+      await show(each())
+      expect(text()).toContain('Only a name under your domain can be answered here, like beta.example.com')
+      expect(switchIn('Addresses without a port').getAttribute('aria-disabled')).toBe('true')
+    })
+
+    it('is only on the dashboard’s own machine', async () => {
+      dns = answers()
+      await show(each(), { kind: 'remote' })
+      expect(text()).toContain('An address for each server')
+      expect(text()).not.toContain('Addresses without a port')
+    })
   })
 })
 

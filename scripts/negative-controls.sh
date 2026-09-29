@@ -7998,6 +7998,156 @@ webcontrol "client-only mods: the dashboard says the mod only runs in players' g
   'return c.explanation' \
   web/src/lib/lib.test.ts 'only runs in players'
 
+# Uploads for a new server counted against a named disk limit, as a
+# creator's are (internal/agent/worldimports.go, handlers.go, backups.go),
+# and every customer upload treated as hostile.
+control "customer uploads: a new server's upload names a limit the machine has" internal/agent/worldimports.go \
+  'if account = a.namedLimit(limit); account == nil {' \
+  'if account = a.namedLimit(limit); account == nil && false {' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: one open world upload per account" internal/agent/worldimports.go \
+  'mine := account != nil && slices.ContainsFunc(' \
+  'mine := false && account != nil && slices.ContainsFunc(' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a named upload's archives count against its limit" internal/agent/worldimports.go \
+  'if err := a.namedLimitRefusal(ctx, imp.limit, size); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a named upload's unsent archives count as on their way" internal/agent/disklimits.go \
+  ' || imp.serverID == "" && imp.limit == l.ID' \
+  '' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: creating a server holds its world against the limit" internal/agent/worldimports.go \
+  'if done, err = a.holdNamedLimit(r.Context(), imp.limit, need); err != nil {' \
+  'if done, err = func(bool) {}, error(nil); err != nil {' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a server made from a world joins the limit" internal/agent/worldimports.go \
+  'if err := a.joinDiskLimit(imp.limit, s.id); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: only an upload for a new server names a limit" internal/agent/worldimports.go \
+  'case req.DiskLimit != "" && serverID != "":' \
+  'case false:' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a world upload's limit is named properly" internal/agent/worldimports.go \
+  'case req.DiskLimit != "" && !reDiskLimitID.MatchString(req.DiskLimit):' \
+  'case false:' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: only a restore for a new server names a limit" internal/agent/handlers.go \
+  'case limit != "" && target != nil:' \
+  'case false:' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a restore upload's limit is named properly" internal/agent/handlers.go \
+  'case limit != "" && !reDiskLimitID.MatchString(limit):' \
+  'case false:' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a backup's size is checked against the limit's room" internal/agent/handlers.go \
+  'if err == nil && r.ContentLength > room {' \
+  'if err == nil && false {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a backup is read no further than the limit's room" internal/agent/handlers.go \
+  'most = min(most, room)' \
+  '_ = room' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a staged backup remembers its limit" internal/agent/backups.go \
+  'f.DiskLimit, f.Preview.DiskLimit = limit, limit' \
+  'f.Preview.DiskLimit = limit' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: an account stages one backup at a time" internal/agent/backups.go \
+  'err == nil && o.DiskLimit == limit {' \
+  'err == nil && o.DiskLimit == limit && false {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a staged backup's limit is read back" internal/agent/backups.go \
+  'st.limit, st.preview.DiskLimit = s.DiskLimit, s.DiskLimit' \
+  'st.preview.DiskLimit = s.DiskLimit' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: restoring a new server holds its world against the limit" internal/agent/handlers.go \
+  'if done, err = a.holdNamedLimit(r.Context(), st.limit, unpackedBytes(st.manifest)); err != nil {' \
+  'if done, err = func(bool) {}, error(nil); err != nil {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a restored new server joins the limit" internal/agent/handlers.go \
+  'if err := a.joinDiskLimit(st.limit, s.id); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a backup unpacks no further than its limit's room" internal/agent/backups.go \
+  'lim.MaxTotalBytes = min(lim.MaxTotalBytes, room)' \
+  '_ = room' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+control "customer uploads: a backup past its limit's room says so" internal/agent/backups.go \
+  'if errors.Is(err, backup.ErrTooLarge) && room == lim.MaxTotalBytes {' \
+  'if false {' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+control "customer uploads: a backup into a server unpacks no further than its limit's room" internal/agent/backups.go \
+  'return a.namedLimitRoom(a.ctx, l.ID)' \
+  'return -1, nil' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+control "customer uploads: an archive's total size refusal is told apart" internal/backup/archive.go \
+  ', err: ErrTooLarge}' \
+  '}' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+control "customer uploads: a restore claims the upload it applies" internal/agent/handlers.go \
+  'release, err := a.claimStage(r.PathValue("id"))' \
+  'release, err := func() {}, error(nil)' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a claimed upload is in use" internal/agent/backups.go \
+  'if a.stages.ids[id] {' \
+  'if a.stages.ids[id] && false {' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: one restore at a time claims an upload" internal/agent/backups.go \
+  'if a.stageInUse(id) {' \
+  'if a.stageInUse(id) && false {' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: an upload a restore claimed isn't discarded" internal/agent/handlers.go \
+  'busy := a.stageInUse(id)' \
+  'busy := a.stageInUse(id) && false' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a restore gives its upload up when it's over" internal/agent/handlers.go \
+  '			defer release()' \
+  '			defer func() {}()' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a refused restore gives its upload up" internal/agent/handlers.go \
+  'if !started {' \
+  'if !started && false {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: an upload whose restore left its journal isn't replaced" internal/agent/backups.go \
+  'swapJournalFile)); !errors.Is(err, os.ErrNotExist) {' \
+  'swapJournalFile)); !errors.Is(err, os.ErrNotExist) && false {' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a replaced upload is deleted, not just moved aside" internal/agent/backups.go \
+  'for _, dir := range gone {' \
+  'for _, dir := range gone[:0] {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a discarded upload is deleted, not just moved aside" internal/agent/handlers.go \
+  '		os.RemoveAll(aside)' \
+  '		_ = aside' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a backup staged for a new server counts against its limit" internal/agent/disklimits.go \
+  'n := a.stagedFor(l.ID)' \
+  'n := int64(0)' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a newer backup is read into the room of the one it replaces" internal/agent/handlers.go \
+  'room, err := a.roomReplacingStage(r.Context(), limit)' \
+  'room, err := a.namedLimitRoom(r.Context(), limit)' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a restore into a server isn't charged its archive besides its world" internal/agent/backups.go \
+  '		if target == nil {
+			room = max(room-n, 0)' \
+  '		if true {
+			room = max(room-n, 0)' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+control "customer uploads: the staged archive takes some of the room its world unpacks into" internal/agent/backups.go \
+  'room = max(room-n, 0)' \
+  'room = max(room, 0)' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a newer backup unpacks into the room of the one it replaces" internal/agent/backups.go \
+  'return a.roomReplacingStage(a.ctx, named)' \
+  'return a.namedLimitRoom(a.ctx, named)' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: the replaced backup's room counts before the room is floored at nothing" internal/agent/disklimits.go \
+  'return max(l.LimitBytes-a.limitUsed(rep, l)+staged, 0), nil' \
+  'return max(l.LimitBytes-a.limitUsed(rep, l), 0) + staged, nil' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+
 # The machine answers DNS for the zone the dashboard sets, for port-free
 # addresses (internal/dnszone, internal/agent/dns.go): authoritative only,
 # and every query from the internet parsed with bounds.
@@ -8131,6 +8281,152 @@ control "dns: a wildcard below the zone names what's below its star" internal/dn
   '} else if rest, ok := strings.CutPrefix(name, "*."); ok && rest != "" {' \
   '} else if rest, ok := strings.CutPrefix(name, "*."); ok {' \
   ./internal/dnszone '^TestZoneCheck$'
+
+# The dashboard's DNS answers for its machine's own domain (port-free
+# addresses): who may set them, what goes in the zone, and when the zone
+# stays or goes.
+control "dns answers: only an admin of every server reads them" internal/panel/server.go \
+  '{"GET", "/api/dns-answers", needSession, actManageMachine, s.hDNSAnswers},' \
+  '{"GET", "/api/dns-answers", needSession, actView, s.hDNSAnswers},' \
+  ./internal/panel '^TestOnlyAnAdminOfEveryServerSetsTheDNSAnswers$'
+control "dns answers: only an admin of every server sets them" internal/panel/server.go \
+  '{"PUT", "/api/dns-answers", needSessionCSRF, actManageMachine, s.hDNSAnswersSet},' \
+  '{"PUT", "/api/dns-answers", needSessionCSRF, actView, s.hDNSAnswersSet},' \
+  ./internal/panel '^TestOnlyAnAdminOfEveryServerSetsTheDNSAnswers$'
+control "dns answers: only an own domain is answered" internal/panel/dnsanswers.go \
+  'case addr.Kind != api.AddressOwn || host == "":' \
+  'case host == "":' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: off takes the zone away" internal/panel/dnsanswers.go \
+  'if _, err := s.agent.Do(ctx, "GET", "/v1/dns-zone", nil, nil, &st); err != nil || st.Zone.Name == "" {' \
+  'if _, err := s.agent.Do(ctx, "GET", "/v1/dns-zone", nil, nil, &st); true || err != nil || st.Zone.Name == "" {' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: an address that can't be read keeps the zone" internal/panel/dnsanswers.go \
+  '		if _, err := s.agent.Do(ctx, "GET", "/v1/address", nil, nil, &addr); err != nil {' \
+  '		if _, err := s.agent.Do(ctx, "GET", "/v1/address", nil, nil, &addr); err != nil && false {' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: an address with no IP address keeps the zone" internal/panel/dnsanswers.go \
+  'case api.DNSUnavailableAddress:' \
+  'case "never":' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: a record the zone can't hold is left out, not the zone refused" internal/panel/dnsanswers.go \
+  'if one.Check() == nil {' \
+  'if one.Check() == nil || true {' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: records outside the zone stay out of it" internal/panel/dnsanswers.go \
+  'rel, ok := relName(r.Name, host)' \
+  'rel, ok := relName(r.Name, host); ok = true' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: a server's name keeps its own address record" internal/panel/dnsanswers.go \
+  'p.addRecord(dnszone.Record{Name: j.Label, Type: m.Type, Value: m.Value})' \
+  '_ = m' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: a domain that can't be answered still says which" internal/panel/dnsanswers.go \
+  'return dnsPlan{zone: dnszone.Zone{Name: host}, unavailable: api.DNSUnavailableSubdomain}' \
+  'return dnsPlan{unavailable: api.DNSUnavailableSubdomain}' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: a domain right under a public suffix can't be handed over" internal/panel/dnsanswers.go \
+  'if suffix, icann := publicsuffix.PublicSuffix(parent); icann && suffix == parent {' \
+  'if suffix, icann := publicsuffix.PublicSuffix(parent); icann && suffix == parent && false {' \
+  ./internal/panel '^TestTheNameserverIsBesideTheDomainAtItsParent$'
+webcontrol "dns answers: the switch is only on the dashboard's own machine" web/src/pages/machine-settings/own.tsx \
+  '...(local ? [<DNSAnswersRow key="dns" />] : []),' \
+  '...[<DNSAnswersRow key="dns" />],' \
+  web/src/pages/machine-settings/address.test.tsx 'is only on the dashboard'
+webcontrol "dns answers: the records to add show only once the machine answers" web/src/pages/machine-settings/own.tsx \
+  '{v.on && !v.unavailable && (' \
+  '{!v.unavailable && (' \
+  web/src/pages/machine-settings/address.test.tsx 'lets the owner turn them on'
+webcontrol "dns answers: turning them off asks first" web/src/pages/machine-settings/own.tsx \
+  'onCheckedChange={(on) => (on ? void set(true) : setStopping(true))}' \
+  'onCheckedChange={(on) => void set(on)}' \
+  web/src/pages/machine-settings/address.test.tsx 'asks before it stops answering'
+webcontrol "dns answers: they can't be turned on for a domain that can't be answered" web/src/pages/machine-settings/own.tsx \
+  'disabled={locked || busy || (!v.on && !!v.unavailable)}' \
+  'disabled={locked || busy}' \
+  web/src/pages/machine-settings/address.test.tsx 'says why a domain with nothing above it'
+
+# Wildcard certificates (internal/certs): proven only over DNS-01, and
+# served for the names just below them.
+control "certs: a wildcard is asked for only with DNS-01" internal/certs/acme.go \
+  'names, err := normalizeNames(req.Names, req.DNS01 != nil && req.DNS01.Challenger != nil)' \
+  'names, err := normalizeNames(req.Names, true)' \
+  ./internal/certs '^TestIssueAWildcardOverDNS01$'
+control "certs: a wildcard serves only the names just below it" internal/certs/store.go \
+  'return ok && slices.Contains(names, "*."+above)' \
+  'return ok && above != "" && slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(n, "*.") && strings.HasSuffix(name, n[1:]) })' \
+  ./internal/certs '^TestIssueAWildcardOverDNS01$'
+control "certs: a wildcard doesn't serve the name it's below" internal/certs/store.go \
+  'return ok && slices.Contains(names, "*."+above)' \
+  'return slices.Contains(names, "*."+name) || ok && slices.Contains(names, "*."+above)' \
+  ./internal/certs '^TestIssueAWildcardOverDNS01$'
+control "certs: the certificate has the wildcard asked for" internal/certs/acme.go \
+  'covered := slices.Contains(leaf.DNSNames, n)' \
+  'covered := true' \
+  ./internal/certs '^TestCheckChain$'
+
+# Servers joined with no port once the machine answers DNS for its own domain
+# and the domain's parent hands the domain to it (internal/agent/address.go).
+control "port-free: public DNS has to give the zone's SRV record" internal/agent/address.go \
+  'return err == nil && slices.ContainsFunc(found, func(s *net.SRV) bool {' \
+  'return err != nil || slices.ContainsFunc(found, func(s *net.SRV) bool {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: the public SRV record has the zone's port" internal/agent/address.go \
+  'return strings.TrimSuffix(s.Target, ".") == r.Value && int(s.Port) == r.Port' \
+  'return strings.TrimSuffix(s.Target, ".") == r.Value' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: only the zone for the domain counts" internal/agent/address.go \
+  'if z.Name != host {' \
+  'if false {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: a server joins with no port only with its SRV record in the domain's zone" internal/agent/address.go \
+  'return z.Name == host && slices.ContainsFunc(z.Records, func(r dnszone.Record) bool {' \
+  'return slices.ContainsFunc(z.Records, func(r dnszone.Record) bool {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: a server the zone has no SRV record for keeps its port" internal/agent/address.go \
+  'if st.Check != nil && st.Check.PortFree && a.answersSRV(st.Host, s.slug, s.port) {' \
+  'if st.Check != nil && st.Check.PortFree {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: waiting for the parent looks again soon" internal/agent/address.go \
+  '&& (check.PortFree || !answering) {' \
+  '&& (check.PortFree || !answering || true) {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: a new zone brings the next look forward" internal/agent/dns.go \
+  '		a.recheckOwnSoon()' \
+  '		_ = a.recheckOwnSoon' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+
+# The own domain's wildcard certificate (internal/agent/certificates.go,
+# dns.go): got once the domain is handed to the machine, proven from its own
+# zone, and in place of the servers' own certificates.
+control "wildcard certificate: only once the domain is handed to the machine" internal/agent/certificates.go \
+  'return st.Kind == api.AddressOwn && st.ServerAddresses && st.Check != nil && st.Check.PortFree' \
+  'return st.Kind == api.AddressOwn && st.ServerAddresses' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "wildcard certificate: the servers' addresses it serves get none of their own" internal/agent/ownaddress.go \
+  'if !ownNameOK(st, js) || js.wild && wildcard {' \
+  'if !ownNameOK(st, js) || js.wild && wildcard && false {' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "wildcard certificate: it takes none of the day's certificates for servers" internal/agent/ownaddress.go \
+  'name != st.Host && !strings.HasPrefix(name, "*.") && fromMillis(last).After(since) {' \
+  'name != st.Host && fromMillis(last).After(since) {' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "wildcard certificate: it goes with its domain" internal/agent/ownaddress.go \
+  'a.forgetCertificate(wildcardName(st.Host))' \
+  '_ = wildcardName(st.Host)' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "wildcard certificate: the check's record goes after the check" internal/agent/dns.go \
+  'values := slices.DeleteFunc(d.challenges[rel], func(v string) bool { return v == value })' \
+  'values := d.challenges[rel]' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "wildcard certificate: a check's record only in the machine's zone" internal/agent/dns.go \
+  'if zone == "" || !ok {' \
+  'if zone == "" || !ok && false {' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "dns: extra records are answered besides the zone" internal/dnszone/dnszone.go \
+  'for _, r := range slices.Concat(a.zone.Records, a.extra) {' \
+  'for _, r := range a.zone.Records {' \
+  ./internal/dnszone '^TestExtraRecordsAreAnsweredBesideTheZone$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

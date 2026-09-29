@@ -340,7 +340,7 @@ func (s *server) putBackupBack(b *api.Backup) error {
 	if err != nil {
 		return err
 	}
-	p, err := s.stageArchive(f, "backup:"+b.ID, b.SizeBytes, s)
+	p, err := s.stageArchive(f, "backup:"+b.ID, b.SizeBytes, s, -1)
 	f.Close()
 	if err != nil {
 		return err

@@ -100,13 +100,15 @@ func validLabel(l string) bool {
 }
 
 // normalizeNames normalizes names and drops duplicates, keeping their order.
-func normalizeNames(names []string) ([]string, error) {
+// With wildcards, a name may also be *. and a name, which only DNS-01 can
+// prove.
+func normalizeNames(names []string, wildcards bool) ([]string, error) {
 	if len(names) == 0 {
 		return nil, newProblem(nil, CodeInvalidName, map[string]string{"kind": "empty"})
 	}
 	var out []string
 	for _, raw := range names {
-		n, err := NormalizeName(raw)
+		n, err := normalizeCertName(raw, wildcards)
 		if err != nil {
 			return nil, err
 		}
@@ -118,6 +120,20 @@ func normalizeNames(names []string) ([]string, error) {
 		return nil, newProblem(nil, CodeInvalidName, map[string]string{"kind": "too_many"})
 	}
 	return out, nil
+}
+
+// normalizeCertName is NormalizeName, but with wildcards for *. and a name
+// too.
+func normalizeCertName(raw string, wildcards bool) (string, error) {
+	rest, wild := strings.CutPrefix(strings.TrimSpace(raw), "*.")
+	if !wild || !wildcards {
+		return NormalizeName(raw)
+	}
+	n, err := NormalizeName(rest)
+	if err != nil {
+		return "", err
+	}
+	return "*." + n, nil
 }
 
 // displayName shortens user input for use in a message.

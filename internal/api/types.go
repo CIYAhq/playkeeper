@@ -995,6 +995,9 @@ type RestorePreview struct {
 	ConfirmPhrase      string           `json:"confirmPhrase"`
 	Steps              []string         `json:"steps"`
 	NotRestored        []string         `json:"notRestored"`
+	// DiskLimit is the disk limit an upload for a new server was made
+	// against, as a creator's are (see WorldImportOpenRequest).
+	DiskLimit string `json:"diskLimit,omitempty"`
 }
 
 type RestoreApplyRequest struct {
@@ -1777,6 +1780,12 @@ type AddressCheck struct {
 	Records []RecordCheck `json:"records,omitempty"`
 	// Ready: the name points here and every SRV record is right.
 	Ready bool `json:"ready"`
+	// PortFree: the machine answers DNS for the domain with an SRV record
+	// for each server (the dashboard's zone, for port-free addresses), and
+	// public DNS gives a server's SRV record as the zone has it, so the
+	// domain's parent hands the domain to the machine. Players then join
+	// each server with an SRV record there at its address, with no port.
+	PortFree bool `json:"portFree,omitempty"`
 }
 
 // NameCheck is where the own domain points, compared with this machine.
@@ -2535,8 +2544,20 @@ type WorldImport struct {
 	Files     []WorldImportFile `json:"files"`
 	// LimitBytes bounds all files together.
 	LimitBytes int64 `json:"limitBytes"`
+	// DiskLimit is the disk limit the upload, and the new server it makes,
+	// count against (see WorldImportOpenRequest).
+	DiskLimit string `json:"diskLimit,omitempty"`
 	// Inspection is what the files hold, once they were checked.
 	Inspection *worldimport.Inspection `json:"inspection,omitempty"`
+}
+
+// WorldImportOpenRequest opens a world upload. DiskLimit, for an upload
+// that makes a new server, names the disk limit it and the server count
+// against, as the dashboard names a creator's: the files, and the world
+// they make, are refused beyond it, and the new server joins it.
+type WorldImportOpenRequest struct {
+	Actor     string `json:"actor"`
+	DiskLimit string `json:"diskLimit,omitempty"`
 }
 
 // WorldImportFile is one uploaded archive. Received counts the bytes that
