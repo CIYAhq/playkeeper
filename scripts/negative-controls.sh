@@ -7958,6 +7958,25 @@ control "dns: an address in use is said" internal/agent/dns.go \
   '_ = addr' \
   ./internal/agent '^TestAnAddressInUseIsSaid$'
 
+# Wildcard certificates (internal/certs): proven only over DNS-01, and
+# served for the names just below them.
+control "certs: a wildcard is asked for only with DNS-01" internal/certs/acme.go \
+  'names, err := normalizeNames(req.Names, req.DNS01 != nil && req.DNS01.Challenger != nil)' \
+  'names, err := normalizeNames(req.Names, true)' \
+  ./internal/certs '^TestIssueAWildcardOverDNS01$'
+control "certs: a wildcard serves only the names just below it" internal/certs/store.go \
+  'return ok && slices.Contains(names, "*."+above)' \
+  'return ok && above != "" && slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(n, "*.") && strings.HasSuffix(name, n[1:]) })' \
+  ./internal/certs '^TestIssueAWildcardOverDNS01$'
+control "certs: a wildcard doesn't serve the name it's below" internal/certs/store.go \
+  'return ok && slices.Contains(names, "*."+above)' \
+  'return slices.Contains(names, "*."+name) || ok && slices.Contains(names, "*."+above)' \
+  ./internal/certs '^TestIssueAWildcardOverDNS01$'
+control "certs: the certificate has the wildcard asked for" internal/certs/acme.go \
+  'covered := slices.Contains(leaf.DNSNames, n)' \
+  'covered := true' \
+  ./internal/certs '^TestCheckChain$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
