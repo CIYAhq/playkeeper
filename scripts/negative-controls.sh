@@ -7900,9 +7900,46 @@ control "ticking entities: nothing starts when it isn't there" internal/agent/re
 	}' \
   ./internal/agent '^TestRemovingWhatCrashedIsRefusedWhereItCantHelp$'
 control "ticking entities: Paper's own Nether folder is looked in" internal/agent/removeentity.go \
-  'return []string{modern, level + "/DIM-1", level + "_nether/DIM-1"}' \
-  'return []string{modern, level + "/DIM-1"}' \
+  '	if own && paper != "" {' \
+  '	if false && paper != "" {' \
   ./internal/agent '^TestRemovingWhatCrashedFindsItInEachLayout$'
+control "ticking entities: Paper's own folder comes before a copy in the world folder" internal/agent/removeentity.go \
+  '	if own && paper != "" {
+		out = append(out, paper)
+	}
+	if world != "" {
+		out = append(out, world)
+	}' \
+  '	if world != "" {
+		out = append(out, world)
+	}
+	if own && paper != "" {
+		out = append(out, paper)
+	}' \
+  ./internal/agent '^TestRemovingWhatCrashedLooksInTheWorldThatSavesIt$'
+control "ticking entities: other types never look in Paper's folders" internal/agent/removeentity.go \
+  '	level, own := s.levelName(sc), takesPlugins(sc)' \
+  '	level, own := s.levelName(sc), true' \
+  ./internal/agent '^TestRemovingWhatCrashedLooksInTheWorldThatSavesIt$'
+control "ticking entities: a file without it doesn't end the search" internal/agent/removeentity.go \
+  '		looked = append(looked, file)
+' \
+  '		looked = append(looked, file)
+		break
+' \
+  ./internal/agent '^TestRemovingWhatCrashedLooksInTheWorldThatSavesIt$'
+control "ticking entities: a world a plugin made isn't taken for this one" internal/agent/removeentity.go \
+  '	if own && req.Level != "" && req.Level != level' \
+  '	if false && own && req.Level != "" && req.Level != level' \
+  ./internal/agent '^TestRemovingWhatCrashedLooksInTheWorldThatSavesIt$'
+control "ticking entities: a level that isn't a world's name is refused" internal/agent/removeentity.go \
+  '	case req.Level != "" && !reLevelName.MatchString(req.Level):' \
+  '	case false && req.Level != "" && !reLevelName.MatchString(req.Level):' \
+  ./internal/agent '^TestRemovingWhatCrashedLooksInTheWorldThatSavesIt$'
+control "ticking entities: the crash report's world goes with the fix" internal/diagnose/crashticking.go \
+  '		fix.Params["level"] = t.level' \
+  '		_ = t.level' \
+  ./internal/diagnose '^TestExplainCrashNamesWhatCrashesEachTimeItTicks$'
 control "ticking entities: a dimension can't climb out of the world" internal/agent/removeentity.go \
   '		if part == "" || part == "." || part == ".." {' \
   '		if false && (part == "" || part == "." || part == "..") {' \

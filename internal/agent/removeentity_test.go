@@ -221,6 +221,79 @@ func TestRemovingWhatCrashedFindsItInEachLayout(t *testing.T) {
 	}
 }
 
+// The file is the one the server saves it in. Paper uses its own Nether
+// folder over the world's DIM-1, which may hold a copy from before Paper,
+// and a file of a newer layout without it doesn't end the search. A world a
+// plugin made, which the crash report names, isn't taken for this one, even
+// with a minecart at the same place. Other types never read Paper's folders,
+// and their level.dat may carry the name the world had before it came here.
+func TestRemovingWhatCrashedLooksInTheWorldThatSavesIt(t *testing.T) {
+	e := crashEnv(t)
+	minecart := func(y float64) nbt.Compound {
+		return nbt.Compound{"DataVersion": int32(4671), "Entities": nbt.List{Type: nbt.TagCompound, Items: []any{nbt.Compound{"id": "minecraft:minecart", "Pos": pos(6.5, y, 6.5)}}}}
+	}
+	const paper, copied, modern = "world_nether/DIM-1/entities/r.0.0.mca", "world/DIM-1/entities/r.0.0.mca", "world/dimensions/minecraft/the_nether/entities/r.0.0.mca"
+	e.regionFile(paper, minecart(70))
+	e.regionFile(copied, minecart(70))
+	e.regionFile(modern, nbt.Compound{"DataVersion": int32(4671), "Entities": nbt.List{Type: nbt.TagCompound, Items: []any{nbt.Compound{"id": "minecraft:cow", "Pos": pos(3.5, 70, 3.5)}}}})
+	named := func(report, level string) string {
+		return strings.Replace(report, "Level name: world\n", "Level name: "+level+"\n", 1)
+	}
+	fix := e.removeFix(e.tick(named(tickingReport(false, "minecraft:minecart", 6, 70, 6, "minecraft:the_nether"), "world_nether")))
+	if fix == nil || fix["level"] != "world_nether" {
+		t.Fatalf("the fix for Paper's Nether: %+v", fix)
+	}
+	body := map[string]any{"actor": "admin"}
+	for k, v := range fix {
+		body[k] = v
+	}
+	code, out := e.callWhenFree("POST", e.sp("/world/remove-entity"), body)
+	if code != 202 {
+		t.Fatalf("remove: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded || op.Detail["file"] != paper {
+		t.Fatalf("remove: %+v", op)
+	}
+	if a, b, c := entityIDs(e.regionChunk(paper), "Entities"), entityIDs(e.regionChunk(copied), "Entities"), entityIDs(e.regionChunk(modern), "Entities"); a != "" || b != "minecraft:minecart" || c != "minecraft:cow" {
+		t.Errorf("Paper's folder has %q, the copy %q, the newer layout %q", a, b, c)
+	}
+
+	const overworld = "world/entities/r.0.0.mca"
+	e.regionFile(overworld, minecart(120))
+	if op := e.runOp("POST", "/start"); op.Status != api.OpSucceeded {
+		t.Fatalf("start: %+v", op)
+	}
+	if fix := e.removeFix(e.tick(named(tickingReport(false, "minecraft:minecart", 6, 120, 6, "minecraft:overworld"), "creative"))); fix != nil {
+		t.Errorf("a fix for a plugin's world takes this world's minecart: %+v", fix)
+	}
+	body = map[string]any{"actor": "admin", "what": "entity", "type": "minecraft:minecart", "dimension": "minecraft:overworld", "level": "creative", "x": 6, "y": 120, "z": 6, "pos": []float64{6.5, 120, 6.5}}
+	if code, out := e.callWhenFree("POST", e.sp("/world/remove-entity"), body); code != 409 || !strings.Contains(out["error"].(string), "a world a plugin made") {
+		t.Errorf("a plugin's world: %d %v", code, out)
+	}
+	body["level"] = "../world"
+	if code, out := e.callWhenFree("POST", e.sp("/world/remove-entity"), body); code != 400 {
+		t.Errorf("a level that isn't a world's name: %d %v", code, out)
+	}
+	if got := entityIDs(e.regionChunk(overworld), "Entities"); got != "minecraft:minecart" {
+		t.Errorf("this world's minecart: %q", got)
+	}
+
+	sc, err := e.srv().serverConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc.Type, sc.Software = "vanilla", &api.SoftwarePin{Type: "vanilla", MinecraftVersion: sc.MinecraftVersion}
+	req := api.RemoveEntityRequest{What: "entity", Type: "minecraft:minecart", Dimension: "minecraft:the_nether", Level: "My World", X: 6, Y: 70, Z: 6, Pos: []float64{6.5, 70, 6.5}}
+	if f, err := e.srv().planEntityFix(*sc, req); err != nil || f.file != copied {
+		t.Errorf("vanilla, whose level.dat has another name: %+v %v", f, err)
+	}
+	e.regionFile(copied, nbt.Compound{"DataVersion": int32(4671), "Entities": nbt.List{Type: nbt.TagCompound}})
+	e.regionFile(paper, minecart(70))
+	if f, err := e.srv().planEntityFix(*sc, req); err == nil || !strings.Contains(err.Error(), "isn't in") {
+		t.Errorf("vanilla takes what's in Paper's folder: %+v %v", f, err)
+	}
+}
+
 // Nothing is taken out while the server runs, for a request that isn't one,
 // or when it isn't there any more: then no backup is made either. A crash
 // whose region file isn't in the world offers no fix that can't work.

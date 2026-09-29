@@ -24,7 +24,10 @@ const (
 	maxWorldY  = 4096
 )
 
-var reResourceID = regexp.MustCompile(`^[a-z0-9_.-]{1,64}:[a-z0-9_./-]{1,200}$`)
+var (
+	reResourceID = regexp.MustCompile(`^[a-z0-9_.-]{1,64}:[a-z0-9_./-]{1,200}$`)
+	reLevelName  = regexp.MustCompile(`^[\w.+ -]{1,64}$`)
+)
 
 // entityFix is where the entity or block entity to take out is saved.
 type entityFix struct {
@@ -45,6 +48,8 @@ func validEntityRequest(req api.RemoveEntityRequest) error {
 		return errInvalid("Say whether an entity or a block's data is to be removed.")
 	case !reResourceID.MatchString(req.Type) || !reResourceID.MatchString(req.Dimension):
 		return errInvalid("That isn't the id of an entity or a dimension.")
+	case req.Level != "" && !reLevelName.MatchString(req.Level):
+		return errInvalid("That isn't the name of a world.")
 	case abs(req.X) > maxWorldXZ || abs(req.Z) > maxWorldXZ || abs(req.Y) > maxWorldY:
 		return errInvalid("That place is outside the world.")
 	case len(req.Pos) != 0 && (len(req.Pos) != 3 || req.What != "entity"):
@@ -77,19 +82,30 @@ func abs(n int) int {
 // dimensionFolders are the folders a dimension's files may be in, in the
 // order they're tried: Minecraft 26.1 keeps every dimension under
 // dimensions/; before, the Nether and the End were DIM-1 and DIM1 in the
-// world folder, and Paper gave them folders of their own.
-func dimensionFolders(level, dimension string) []string {
+// world folder. Paper and Purpur gave them, and a data pack's dimension,
+// folders of their own, which they use over the world folder's (own); other
+// types never read those, so what's there isn't their world.
+func dimensionFolders(level, dimension string, own bool) []string {
 	ns, path, _ := strings.Cut(dimension, ":")
-	modern := level + "/dimensions/" + ns + "/" + path
+	out := []string{level + "/dimensions/" + ns + "/" + path}
+	var paper, world string
 	switch dimension {
 	case "minecraft:overworld":
-		return []string{modern, level}
+		world = level
 	case "minecraft:the_nether":
-		return []string{modern, level + "/DIM-1", level + "_nether/DIM-1"}
+		paper, world = level+"_nether/DIM-1", level+"/DIM-1"
 	case "minecraft:the_end":
-		return []string{modern, level + "/DIM1", level + "_the_end/DIM1"}
+		paper, world = level+"_the_end/DIM1", level+"/DIM1"
+	default:
+		paper = level + "_" + ns + "_" + strings.ReplaceAll(path, "/", "_") + "/dimensions/" + ns + "/" + path
 	}
-	return []string{modern, level + "_" + ns + "_" + strings.ReplaceAll(path, "/", "_") + "/dimensions/" + ns + "/" + path}
+	if own && paper != "" {
+		out = append(out, paper)
+	}
+	if world != "" {
+		out = append(out, world)
+	}
+	return out
 }
 
 // planEntityFix finds the region file that saves what req names and checks
@@ -100,63 +116,80 @@ func (s *server) planEntityFix(sc api.ServerConfig, req api.RemoveEntityRequest)
 		return nil, err
 	}
 	defer d.Close()
-	cx, cz := req.X>>4, req.Z>>4
+	f := &entityFix{req: req, cx: req.X >> 4, cz: req.Z >> 4}
+	level, own := s.levelName(sc), takesPlugins(sc)
+	// Paper and Purpur name each world as its folder, and the crash report
+	// gives that name: one that isn't among this world's folders is a world
+	// a plugin made. Other types have one world, whose level.dat may still
+	// carry the name it had before it was imported.
+	if own && req.Level != "" && req.Level != level && req.Level != level+"_nether" && req.Level != level+"_the_end" {
+		return nil, errConflict(fmt.Sprintf("The %s is in %s, a world a plugin made, and Playkeeper doesn't know where that world is saved, so it changed nothing.", f.label(), req.Level), "Restore a backup instead.")
+	}
 	kind := "entities"
 	if req.What == "block_entity" {
 		kind = "region"
 	}
-	name := fmt.Sprintf("%s/r.%d.%d.mca", kind, cx>>5, cz>>5)
-	f := &entityFix{req: req, cx: cx, cz: cz}
-	for _, dir := range dimensionFolders(s.levelName(sc), req.Dimension) {
-		if fi, err := d.Lstat(dir + "/" + name); err == nil && fi.Mode().IsRegular() {
-			f.file = dir + "/" + name
-			break
+	name := fmt.Sprintf("%s/r.%d.%d.mca", kind, f.cx>>5, f.cz>>5)
+	var looked []string
+	for _, dir := range dimensionFolders(level, req.Dimension, own) {
+		file := dir + "/" + name
+		if fi, err := d.Lstat(file); err != nil || !fi.Mode().IsRegular() {
+			continue
 		}
+		f.file = file
+		// A file that can't be read ends the search: it may be the one that
+		// saves it, and the next is at most an old copy.
+		if _, found, err := f.apply(d, s.now()); err != nil {
+			return nil, err
+		} else if found {
+			return f, nil
+		}
+		looked = append(looked, file)
 	}
-	if f.file == "" {
+	if len(looked) == 0 {
 		return nil, errConflict(fmt.Sprintf("Playkeeper found no %s file for the %s in %s, so there's nothing to remove.", kind, f.label(), s.name()), "Start the server.")
 	}
-	if _, err := f.apply(d, s.now()); err != nil {
-		return nil, err
-	}
-	return f, nil
+	return nil, f.gone(looked...)
+}
+
+// gone refuses a fix whose entity or block entity isn't in the files.
+func (f *entityFix) gone(files ...string) error {
+	return errConflict(fmt.Sprintf("The %s isn't in %s any more, so there's nothing to remove.", f.label(), strings.Join(files, " or ")), "Start the server.")
 }
 
 // apply reads the region file and returns it with the entity or block
-// entity taken out, or refuses when it isn't in its chunk.
-func (f *entityFix) apply(d *gamefiles.Dir, now time.Time) ([]byte, error) {
-	b, err := d.ReadFile(f.file, maxRegionFile)
-	if err != nil {
-		return nil, gameFileError(err, "Playkeeper couldn't read "+f.file+".")
+// entity taken out; found is false when it isn't in its chunk.
+func (f *entityFix) apply(d *gamefiles.Dir, now time.Time) (b []byte, found bool, err error) {
+	if b, err = d.ReadFile(f.file, maxRegionFile); err != nil {
+		return nil, false, gameFileError(err, "Playkeeper couldn't read "+f.file+".")
 	}
 	rf, err := region.Parse(b)
 	if err != nil {
-		return nil, errConflict(fmt.Sprintf("%s can't be read (%v), so Playkeeper changed nothing.", f.file, err), "Restore a backup instead.")
+		return nil, false, errConflict(fmt.Sprintf("%s can't be read (%v), so Playkeeper changed nothing.", f.file, err), "Restore a backup instead.")
 	}
 	compression, data, err := rf.Chunk(f.cx, f.cz)
-	gone := errConflict(fmt.Sprintf("The %s isn't in %s any more, so there's nothing to remove.", f.label(), f.file), "Start the server.")
 	if errors.Is(err, region.ErrNoChunk) {
-		return nil, gone
+		return nil, false, nil
 	}
 	if err != nil {
-		return nil, errConflict(fmt.Sprintf("Chunk %d, %d of %s can't be read (%v), so Playkeeper changed nothing.", f.cx, f.cz, f.file, err), "Restore a backup instead.")
+		return nil, false, errConflict(fmt.Sprintf("Chunk %d, %d of %s can't be read (%v), so Playkeeper changed nothing.", f.cx, f.cz, f.file, err), "Restore a backup instead.")
 	}
 	chunk, err := region.Decode(data)
 	if err != nil {
-		return nil, errConflict(fmt.Sprintf("Chunk %d, %d of %s is damaged (%v), so Playkeeper changed nothing.", f.cx, f.cz, f.file, err), "Restore a backup instead.")
+		return nil, false, errConflict(fmt.Sprintf("Chunk %d, %d of %s is damaged (%v), so Playkeeper changed nothing.", f.cx, f.cz, f.file, err), "Restore a backup instead.")
 	}
 	r := f.req
 	if r.What == "entity" && region.RemoveEntity(chunk, r.Type, r.X, r.Y, r.Z, r.Pos) == 0 ||
 		r.What == "block_entity" && !region.RemoveBlockEntity(chunk, r.Type, r.X, r.Y, r.Z) {
-		return nil, gone
+		return nil, false, nil
 	}
 	if data, err = region.Encode(chunk); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := rf.SetChunk(f.cx, f.cz, compression, data, now); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return rf.Bytes(), nil
+	return rf.Bytes(), true, nil
 }
 
 // hRemoveEntity takes one entity, or one block entity's data, out of a
@@ -241,9 +274,12 @@ func (s *server) writeEntityFix(f *entityFix) error {
 		return err
 	}
 	defer d.Close()
-	b, err := f.apply(d, s.now())
+	b, found, err := f.apply(d, s.now())
 	if err != nil {
 		return err
+	}
+	if !found {
+		return f.gone(f.file)
 	}
 	if err := d.WriteFile(f.file, b, 0o640); err != nil {
 		return gameFileError(err, "Playkeeper couldn't write "+f.file+".")
@@ -257,6 +293,7 @@ func entityFixRequest(p map[string]any) api.RemoveEntityRequest {
 	req.What, _ = p["what"].(string)
 	req.Type, _ = p["type"].(string)
 	req.Dimension, _ = p["dimension"].(string)
+	req.Level, _ = p["level"].(string)
 	req.X, _ = p["x"].(int)
 	req.Y, _ = p["y"].(int)
 	req.Z, _ = p["z"].(int)

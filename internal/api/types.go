@@ -193,13 +193,15 @@ type RebuildLevelRequest struct {
 // stopped server's world, the crash helper's fix for one that throws each
 // time the game ticks it. What is "entity" or "block_entity"; Type is its id,
 // like minecraft:minecart; X, Y and Z are its block, in Dimension; Pos, for an
-// entity, is its exact position as a crash report gives it. The world is
-// backed up first. Start starts the server afterwards.
+// entity, is its exact position as a crash report gives it, and Level the
+// world's name there. The world is backed up first. Start starts the server
+// afterwards.
 type RemoveEntityRequest struct {
 	Actor     string    `json:"actor"`
 	What      string    `json:"what"`
 	Type      string    `json:"type"`
 	Dimension string    `json:"dimension"`
+	Level     string    `json:"level,omitempty"`
 	X         int       `json:"x"`
 	Y         int       `json:"y"`
 	Z         int       `json:"z"`

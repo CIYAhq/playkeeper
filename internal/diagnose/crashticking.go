@@ -22,6 +22,7 @@ var (
 	reBlockEntityID  = regexp.MustCompile(`^Name: (` + resourceID + `)(?: // \S{1,300})?$`)
 	reBlockLocation  = regexp.MustCompile(`^Block location: World: \((-?\d{1,9}),(-?\d{1,9}),(-?\d{1,9})\)`)
 	reLevelDimension = regexp.MustCompile(`^Level dimension: (` + resourceID + `)$`)
+	reLevelName      = regexp.MustCompile(`^Level name: ([\w.+ -]{1,64})$`)
 	reReportError    = regexp.MustCompile(`^(?:[a-z][\w$]*\.)+[A-Z][\w$]*(?:Exception|Error)\b`)
 )
 
@@ -62,6 +63,9 @@ func (c *crashCtx) tickingEntity() (CrashDiagnosis, bool) {
 	d.Params["type"], d.Params["dimension"] = t.id, t.dimension
 	d.Params["x"], d.Params["y"], d.Params["z"] = t.x, t.y, t.z
 	fix := Action{Kind: ActionRemoveEntity, Params: map[string]any{"what": d.Params["what"], "type": t.id, "x": t.x, "y": t.y, "z": t.z, "dimension": t.dimension}, Recommended: true}
+	if t.level != "" {
+		fix.Params["level"] = t.level
+	}
 	where := fmt.Sprintf("at x %d, y %d, z %d in %s", t.x, t.y, t.z, dimensionName(t.dimension))
 	d.Title = fmt.Sprintf("The %s at %d, %d, %d crashes the server", t.what, t.x, t.y, t.z)
 	d.Explanation = fmt.Sprintf("%s stopped because the %s %s hit an error each time the game ran it. "+
@@ -92,6 +96,7 @@ func (c *crashCtx) tickingEntity() (CrashDiagnosis, bool) {
 // ticked is the entity or block entity a crash report names.
 type ticked struct {
 	id, what, name, dimension string
+	level                     string // the world's name, which on Paper is its folder
 	x, y, z                   int
 	pos                       []float64 // an entity's exact position
 }
@@ -129,8 +134,12 @@ func (c *crashCtx) tickedTarget(block bool) (ticked, bool) {
 		}
 	}
 	t.dimension = "minecraft:overworld"
-	if dim, ok := firstMatch(c.reportSection("Affected level"), reLevelDimension); ok {
+	level := c.reportSection("Affected level")
+	if dim, ok := firstMatch(level, reLevelDimension); ok {
 		t.dimension = dim[1]
+	}
+	if n, ok := firstMatch(level, reLevelName); ok {
+		t.level = n[1]
 	}
 	_, path, _ := strings.Cut(t.id, ":")
 	t.what = strings.ReplaceAll(path[strings.LastIndex(path, "/")+1:], "_", " ")

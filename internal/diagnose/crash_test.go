@@ -646,7 +646,7 @@ func TestExplainCrashNamesWhatCrashesEachTimeItTicks(t *testing.T) {
 		})
 	}
 	d := ExplainCrash(tickingCrash(t, "vanilla", entity, entityReport, nil))
-	if p := d.Fixes[0].Params; fmt.Sprint(p["pos"]) != "[6.5 120 6.5]" || p["dimension"] != "minecraft:overworld" || p["x"] != 6 || p["y"] != 120 || p["z"] != 6 {
+	if p := d.Fixes[0].Params; fmt.Sprint(p["pos"]) != "[6.5 120 6.5]" || p["dimension"] != "minecraft:overworld" || p["level"] != "world" || p["x"] != 6 || p["y"] != 120 || p["z"] != 6 {
 		t.Errorf("the remove fix says %v", p)
 	}
 	if got := shownText(d.Lines); got != "17:42:52 ERROR net.minecraft.ReportedException: Ticking entity\n17:42:52 ERROR Caused by: java.lang.NullPointerException: Test error: this entity is set to fail when it ticks\n17:42:52 Stopping server" {
