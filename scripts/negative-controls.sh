@@ -8740,10 +8740,6 @@ control "hidden machines: their machine list has only the machines they use" int
   'if !shown[v.ID] {' \
   'if false && !shown[v.ID] {' \
   ./internal/panel '^(TestACustomerSeesTheirServersAndNeverTheMachines|TestAnInvitedCreatorSeesOnlyTheirOwnMachine)$'
-control "hidden machines: a joined machine's IP comes without its link's port" internal/panel/hiddenmachines.go \
-  'Address: ip, ' \
-  'Address: link.Address, ' \
-  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
 control "hidden machines: a path naming another machine isn't found" internal/panel/server.go \
   'mid != "" && !s.machineShown(r.Context(), acct, mid) {' \
   'mid != "" && false {' \

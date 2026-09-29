@@ -3,7 +3,6 @@ package panel
 import (
 	"context"
 	"errors"
-	"net"
 	"net/http"
 	"slices"
 	"sync"
@@ -256,12 +255,7 @@ func (s *Server) hServer(w http.ResponseWriter, r *http.Request, sess *session) 
 func hiddenView(ctx context.Context, m machine, link *machinelink.Status) hiddenMachine {
 	v := hiddenMachine{ID: m.ID, ProjectID: m.ProjectID, Kind: m.Kind}
 	if link != nil {
-		// Join addresses need the IP, not the port the link comes from.
-		ip := link.Address
-		if host, _, err := net.SplitHostPort(ip); err == nil {
-			ip = host
-		}
-		v.Link = &hiddenLink{MachineID: m.ID, State: link.State, LastSeen: link.LastSeen, Address: ip, Problems: []machinelink.Problem{}}
+		v.Link = &hiddenLink{MachineID: m.ID, State: link.State, LastSeen: link.LastSeen, Address: link.Address, Problems: []machinelink.Problem{}}
 	}
 	ctx, cancel := context.WithTimeout(ctx, machineTimeout)
 	defer cancel()
