@@ -122,6 +122,10 @@ func TestRemoveEntityTakesOnlyTheOneNamed(t *testing.T) {
 	if got := ids(t, chunk); got != "minecraft:cow minecraft:villager" {
 		t.Errorf("the boat's rider should stay: %s", got)
 	}
+	edge := entities(mob("minecraft:minecart", 6.998, 120, 6.5, nil))
+	if n := RemoveEntity(edge, "minecraft:minecart", 6, 120, 6, []float64{7.00, 120, 6.5}); n != 1 {
+		t.Errorf("a minecart at 6.998, which a crash report prints as 7.00, stayed: %d", n)
+	}
 	rider := entities(mob("minecraft:oak_boat", 9.5, 63, 9.5, nbt.Compound{"Passengers": nbt.List{Type: nbt.TagCompound, Items: []any{mob("minecraft:minecart", 9.5, 63.5, 9.5, nil)}}}))
 	if n := RemoveEntity(rider, "minecraft:minecart", 9, 63, 9, nil); n != 1 || ids(t, rider) != "minecraft:oak_boat" {
 		t.Errorf("a rider on its own: %d, %s", n, ids(t, rider))

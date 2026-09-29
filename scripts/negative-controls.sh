@@ -7856,6 +7856,10 @@ control "ticking entities: a dimension can't climb out of the world" internal/ag
   '		if part == "" || part == "." || part == ".." {' \
   '		if false && (part == "" || part == "." || part == "..") {' \
   ./internal/agent '^TestRemovingWhatCrashedIsRefusedWhereItCantHelp$'
+control "ticking entities: a position rounded to the next block still names this one" internal/agent/removeentity.go \
+  'if math.IsNaN(v) || v < b-0.01 || v > b+1.01 {' \
+  'if math.IsNaN(v) || int(math.Floor(v)) != int(b) {' \
+  ./internal/agent '^TestRemovingWhatCrashedIsRefusedWhereItCantHelp$'
 control "ticking entities: a fix that can't work isn't offered" internal/agent/crash.go \
   '} else if _, err := s.planEntityFix(*sc, req); err != nil {' \
   '} else if _, err := s.planEntityFix(*sc, req); false && err != nil {' \

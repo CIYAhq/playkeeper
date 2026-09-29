@@ -56,8 +56,11 @@ func validEntityRequest(req api.RemoveEntityRequest) error {
 			return errInvalid("That isn't the id of a dimension.")
 		}
 	}
+	// A crash report rounds the exact position to two decimals, so one at a
+	// block's edge can print as the next block's.
 	for i, v := range req.Pos {
-		if math.IsNaN(v) || math.IsInf(v, 0) || int(math.Floor(v)) != [3]int{req.X, req.Y, req.Z}[i] {
+		b := float64([3]int{req.X, req.Y, req.Z}[i])
+		if math.IsNaN(v) || v < b-0.01 || v > b+1.01 {
 			return errInvalid("The exact position isn't inside the block given.")
 		}
 	}

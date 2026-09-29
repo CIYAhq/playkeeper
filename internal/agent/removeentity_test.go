@@ -252,6 +252,9 @@ func TestRemovingWhatCrashedIsRefusedWhereItCantHelp(t *testing.T) {
 	if code, out := remove(nil); code != 409 || !strings.Contains(out["error"].(string), "isn't in") {
 		t.Errorf("a minecart that isn't there: %d %v", code, out)
 	}
+	if code, out := remove(map[string]any{"pos": []float64{7.0, 120, 6.5}}); code != 409 || !strings.Contains(out["error"].(string), "isn't in") {
+		t.Errorf("a position the report rounded to the next block is refused as a request: %d %v", code, out)
+	}
 	if code, out := remove(map[string]any{"dimension": "minecraft:the_end"}); code != 409 || !strings.Contains(out["error"].(string), "found no entities file") {
 		t.Errorf("a dimension without the file: %d %v", code, out)
 	}
