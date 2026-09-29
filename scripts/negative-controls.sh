@@ -7291,9 +7291,17 @@ control "disk limits: an installed data pack counts" internal/agent/packs.go \
   's.noteDiskWrite(s.id, 0*n)' \
   ./internal/agent '^TestAnInstalledDataPackCounts$'
 control "disk limits: pre-generation stops at the limit" internal/agent/pregen.go \
-  'if err := s.diskLimitRefusal(s.ctx, s.id, est.DiskHigh); err != nil {' \
-  'if err := s.diskLimitRefusal(s.ctx, s.id, 0); err != nil {' \
+  'done, err := s.holdDiskLimit(s.ctx, s.id, est.DiskHigh)' \
+  'done, err := s.holdDiskLimit(s.ctx, s.id, 0*est.DiskHigh)' \
   ./internal/agent '^TestImportsPacksAndPregenStopAtTheDiskLimit$'
+control "disk limits: a pre-generation start holds its area until its task is recorded" internal/agent/pregen.go \
+  'defer done(false)' \
+  'done(false)' \
+  ./internal/agent '^TestPregenHoldsItsAreaFromTheCheck$'
+control "disk limits: a refused pre-generation start leaves the running one's reservation" internal/agent/pregen.go \
+  'if task.unfinished() && !forMap {' \
+  'if task != nil { s.notePregen(s.id, est.DiskHigh) }; if task.unfinished() && !forMap {' \
+  ./internal/agent '^TestPregenHoldsItsAreaFromTheCheck$'
 control "disk limits: pre-generation reserves what it may write" internal/agent/pregen.go \
   's.notePregen(s.id, est.DiskHigh)' \
   's.notePregen(s.id, 0*est.DiskHigh)' \
