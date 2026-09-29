@@ -1825,6 +1825,8 @@ export interface Access {
   needsTwoFactor?: boolean
   /** An admin with two-factor on, waiting for the owner or an admin to confirm them. */
   awaitingConfirmation?: boolean
+  /** A customer whose server is being set up, waiting for room on a machine. */
+  waitingForRoom?: boolean
   can: Action[]
 }
 

@@ -56,8 +56,9 @@ const (
 
 // StartCustomer makes the customer's account the first time, and gives it
 // the plan when called again. Either way it then asks placement for the
-// customer's home machine; with no room the account waits without one. An
-// error after the account is made leaves it for the next call to place.
+// customer's home machine, and tells an active customer that their server is
+// ready to start, or with no room that it's being set up (readyserver.go).
+// An error after the account is made leaves the rest for the next call.
 func (c customerCore) StartCustomer(ctx context.Context, cust Customer, p CustomerPlan) (StartedCustomer, error) {
 	s := c.s
 	al, err := customerAllowance(cust, p)
@@ -79,8 +80,15 @@ func (c customerCore) StartCustomer(ctx context.Context, cust Customer, p Custom
 		return StartedCustomer{}, err
 	}
 	s.kickDiskLimits()
-	if _, err := s.placeCustomer(ctx, info.UserID, p); err != nil && !errors.Is(err, errNoRoom) {
+	_, err = s.placeCustomer(ctx, info.UserID, p)
+	placed := err == nil
+	if !placed && !errors.Is(err, errNoRoom) {
 		return StartedCustomer{}, err
+	}
+	if info.State == CustomerActive {
+		if err := s.tellPlaced(ctx, cust, info.UserID, placed); err != nil {
+			return StartedCustomer{}, err
+		}
 	}
 	dash, _ := s.dashboardURL(ctx)
 	return StartedCustomer{Account: info.Username, Dashboard: dash}, nil
@@ -275,10 +283,11 @@ func (s *Server) runCustomers(ctx context.Context) {
 }
 
 // startWaitingCustomers asks placement again for each active customer with
-// no home machine yet.
+// no home machine yet, and for each one placed but not yet told their server
+// is ready, whose message failed.
 func (s *Server) startWaitingCustomers(ctx context.Context) {
 	rows, err := s.db.QueryContext(ctx, `SELECT c.user_id FROM customers c LEFT JOIN customer_homes h ON h.user_id = c.user_id
-		WHERE c.state = ? AND COALESCE(h.machine_id, '') = '' ORDER BY c.created_at`, string(CustomerActive))
+		WHERE c.state = ? AND (COALESCE(h.machine_id, '') = '' OR c.told_ready = 0) ORDER BY c.created_at`, string(CustomerActive))
 	if err != nil {
 		s.log.Error("could not list the customers waiting for room", "err", err)
 		return
@@ -296,34 +305,6 @@ func (s *Server) startWaitingCustomers(ctx context.Context) {
 			s.log.Warn("could not place a customer waiting for room", "user", id, "err", err)
 		}
 	}
-}
-
-// startWaitingCustomer places a customer who was waiting for room. The fleet
-// calls it when room appears, and runCustomers every minute anyway. A
-// customer still without room is left waiting, and a paused or suspended one
-// isn't placed until they're active again.
-func (s *Server) startWaitingCustomer(ctx context.Context, userID int64) error {
-	s.customersMu.Lock()
-	defer s.customersMu.Unlock()
-	var state, planID string
-	var al invites.Allowance
-	err := s.db.QueryRowContext(ctx, `SELECT c.state, c.plan_id, m.allowance_servers, m.allowance_memory_mb, m.allowance_disk_gb
-		FROM customers c JOIN project_members m ON m.user_id = c.user_id WHERE c.user_id = ? ORDER BY m.created_at LIMIT 1`, userID).
-		Scan(&state, &planID, &al.Servers, &al.MemoryMB, &al.DiskGB)
-	switch {
-	case isNoRows(err):
-		return errNoCustomer
-	case err != nil:
-		return errDB
-	}
-	if CustomerState(state) != CustomerActive {
-		return nil
-	}
-	_, err = s.placeCustomer(ctx, userID, CustomerPlan{ID: planID, Servers: al.Servers, MemoryMB: al.MemoryMB, DiskGB: al.DiskGB})
-	if errors.Is(err, errNoRoom) {
-		return nil
-	}
-	return err
 }
 
 // isCustomer reports whether the account is a billing provider's customer.

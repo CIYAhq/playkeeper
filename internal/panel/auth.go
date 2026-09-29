@@ -480,6 +480,13 @@ CREATE TABLE customers (
   UNIQUE(provider, subject)
 );
 `,
+	// The ready server's messages: when each customer was told their server
+	// is ready to start, and when, while they waited for room, that it's
+	// being set up (see readyserver.go).
+	`
+ALTER TABLE customers ADD COLUMN told_ready   INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN told_waiting INTEGER NOT NULL DEFAULT 0;
+`,
 	// One seller per business: the address this dashboard last marked the
 	// store's products with, and the dashboard that sells for the store
 	// instead of this one, with when it took the store over from this one (0
