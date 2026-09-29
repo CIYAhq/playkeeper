@@ -49,8 +49,9 @@ const (
 
 // StartCustomer makes the customer's account the first time, and gives it
 // the plan when called again. Either way it then asks placement for the
-// customer's home machine; with no room the account waits without one. An
-// error after the account is made leaves it for the next call to place.
+// customer's home machine, and tells an active customer that their server is
+// ready to start, or with no room that it's being set up (readyserver.go).
+// An error after the account is made leaves the rest for the next call.
 func (c customerCore) StartCustomer(ctx context.Context, cust Customer, p CustomerPlan) (StartedCustomer, error) {
 	s := c.s
 	al, err := customerAllowance(cust, p)
@@ -72,8 +73,15 @@ func (c customerCore) StartCustomer(ctx context.Context, cust Customer, p Custom
 		return StartedCustomer{}, err
 	}
 	s.kickDiskLimits()
-	if _, err := s.placeCustomer(ctx, info.UserID, p); err != nil && !errors.Is(err, errNoRoom) {
+	_, err = s.placeCustomer(ctx, info.UserID, p)
+	placed := err == nil
+	if !placed && !errors.Is(err, errNoRoom) {
 		return StartedCustomer{}, err
+	}
+	if info.State == CustomerActive {
+		if err := s.tellPlaced(ctx, cust, info.UserID, placed); err != nil {
+			return StartedCustomer{}, err
+		}
 	}
 	dash, _ := s.dashboardURL(ctx)
 	return StartedCustomer{Account: info.Username, Dashboard: dash}, nil

@@ -147,6 +147,10 @@ func (s *Server) hCreateServer(w http.ResponseWriter, r *http.Request, sess *ses
 		writeErr(w, http.StatusForbidden, api.CodeForbidden, "Creators create servers on the dashboard's own machine.", "")
 		return
 	}
+	if s.customerWaiting(r.Context(), a) {
+		writeRefusal(w, errWaitingForRoom)
+		return
+	}
 	mb, ok := memoryField(w, r)
 	if !ok {
 		return
