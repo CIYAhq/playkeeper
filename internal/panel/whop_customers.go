@@ -180,7 +180,7 @@ func (s *Server) reconcileWhop(ctx context.Context) {
 	s.whopMu.Lock()
 	defer s.whopMu.Unlock()
 	a, ok, err := s.storedWhop()
-	if err != nil || !ok {
+	if err != nil || !ok || a.TakenOverBy != "" {
 		return
 	}
 	c, err := s.whopClient(a.Key)
@@ -199,10 +199,20 @@ func (s *Server) reconcileWhop(ctx context.Context) {
 		s.log.Warn("could not read memberships from Whop", "err", err)
 	}
 	s.refreshWhopPlans(ctx, c, a)
+	if s.whopTakenOver() {
+		return
+	}
 	s.pushWhopStock(ctx, c, a.ID)
 	s.syncWhopCustomers(ctx, c)
 	s.remindCancelled(ctx, a)
 	s.sendWhopMessages(ctx, c, a)
+}
+
+// whopTakenOver says whether another dashboard took the store over, as
+// reading the store may have just found.
+func (s *Server) whopTakenOver() bool {
+	var by string
+	return s.db.QueryRow(`SELECT taken_over_by FROM whop_account WHERE id = 1`).Scan(&by) == nil && by != ""
 }
 
 // ensureWhopWebhook adds the webhook, or moves it to the dashboard's
@@ -297,7 +307,7 @@ func (s *Server) refreshWhopPlans(ctx context.Context, c *whop.Client, a whopAcc
 		}
 	}
 	problem := ""
-	if err := s.readWhopStore(ctx, c, a.ID); err != nil {
+	if err := s.readWhopStore(ctx, c, a.ID, false); err != nil {
 		problem = whopProblem(err)
 		s.log.Warn("could not read the store on Whop", "err", err)
 	}

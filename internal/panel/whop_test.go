@@ -52,6 +52,8 @@ type fakeWhop struct {
 	stockSets []string
 	stockDown bool
 	listDown  bool
+	// requests counts what the dashboard asked.
+	requests int
 	// grants are the sign-ins Whop approved, by code, and revokedTokens
 	// the refresh tokens ended.
 	grants        map[string]oauthGrant
@@ -143,6 +145,7 @@ func newFakeWhop(t *testing.T) *fakeWhop {
 func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.requests++
 	if strings.HasPrefix(r.URL.Path, "/oauth/") {
 		f.serveOAuth(w, r)
 		return

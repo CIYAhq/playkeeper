@@ -452,6 +452,14 @@ CREATE TABLE whop_stock (
   set_at  INTEGER NOT NULL
 );
 `,
+	// One seller per business: the address this dashboard last marked the
+	// store's products with, and the dashboard that took the store over and
+	// when, which stops this one selling until the owner takes it back.
+	`
+ALTER TABLE whop_account ADD COLUMN marked_as     TEXT    NOT NULL DEFAULT '';
+ALTER TABLE whop_account ADD COLUMN taken_over_by TEXT    NOT NULL DEFAULT '';
+ALTER TABLE whop_account ADD COLUMN taken_over_at INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 const (
