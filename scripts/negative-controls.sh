@@ -7939,6 +7939,10 @@ control "dns: a star is nowhere but a wildcard's first label" internal/dnszone/d
   "case c == '_' && underscores && i == 0:" \
   "case c == '_' && underscores && i == 0, c == '*' && underscores:" \
   ./internal/dnszone '^TestZoneCheck$'
+control "dns: a wildcard below the zone names what's below its star" internal/dnszone/dnszone.go \
+  '} else if rest, ok := strings.CutPrefix(name, "*."); ok && rest != "" {' \
+  '} else if rest, ok := strings.CutPrefix(name, "*."); ok {' \
+  ./internal/dnszone '^TestZoneCheck$'
 
 # The dashboard's DNS answers for its machine's own domain (port-free
 # addresses): who may set them, what goes in the zone, and when the zone

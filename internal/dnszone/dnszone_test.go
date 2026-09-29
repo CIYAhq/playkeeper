@@ -321,6 +321,7 @@ func TestZoneCheck(t *testing.T) {
 		"a star in a label":        func(z *Zone) { z.Records = append(z.Records, Record{Name: "*a", Type: TypeA, Value: "203.0.113.5"}) },
 		"a star below":             func(z *Zone) { z.Records = append(z.Records, Record{Name: "a.*", Type: TypeA, Value: "203.0.113.5"}) },
 		"two stars":                func(z *Zone) { z.Records = append(z.Records, Record{Name: "*.*", Type: TypeA, Value: "203.0.113.5"}) },
+		"a star and a dot":         func(z *Zone) { z.Records = append(z.Records, Record{Name: "*.", Type: TypeA, Value: "203.0.113.5"}) },
 		"a star in the zone":       func(z *Zone) { z.Name = "*.example.com" },
 		"a top-level zone":         func(z *Zone) { z.Name = "com" },
 		"an upper-case zone":       func(z *Zone) { z.Name = "Beta.example.com" },
