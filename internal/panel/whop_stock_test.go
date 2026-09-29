@@ -161,6 +161,52 @@ func TestMoreRoomWithPurchasesNotHeardOfYetStillSells(t *testing.T) {
 	}
 }
 
+func TestMoreRoomMatchingThePurchasesHeardOfStillCountsTheOthers(t *testing.T) {
+	f, e, _ := connectedWhop(t)
+	core := useFakeCore(e)
+	core.refuse = errors.New("The machine is full.")
+	e.availability(t, map[string]int{"plan_starter": 5})
+
+	// Whop's webhook tells of alex's purchase, not sam's, and before the
+	// dashboard looks the fleet finds room for one more: six fit, less the
+	// two purchases.
+	e.deliver(t, "evt_alex", whop.EventMembershipActivated, f.buy("mem_alex", "user_alex", "plan_starter", "active"))
+	f.buy("mem_sam", "user_sam", "plan_starter", "active")
+	e.availability(t, map[string]int{"plan_starter": 6})
+	if n := f.stockOf("plan_starter"); n != 4 {
+		t.Fatalf("one more room with a purchase not heard of yet: Starter at %d", n)
+	}
+}
+
+func TestLessRoomWithAPurchaseOnlyTheStoreShowsStillCountsIt(t *testing.T) {
+	f, e, own := connectedWhop(t)
+	e.availability(t, map[string]int{"plan_starter": 5})
+
+	// sam buys with no webhook yet, and the store read again shows Whop's
+	// stock one lower; then the fleet has room for one less: four fit, less
+	// sam's purchase.
+	f.buy("mem_sam", "user_sam", "plan_starter", "active")
+	if r := e.do(t, "POST", "/api/whop/sync", "", own.auth()); r.status != http.StatusOK {
+		t.Fatalf("sync: %d %v", r.status, r.body)
+	}
+	e.availability(t, map[string]int{"plan_starter": 4})
+	if n := f.stockOf("plan_starter"); n != 3 {
+		t.Fatalf("less room with a purchase only the store shows: Starter at %d", n)
+	}
+}
+
+func TestAStockIsSetWhenWhopWontFilterMembershipsByPlan(t *testing.T) {
+	f, e, _ := connectedWhop(t)
+	f.mu.Lock()
+	f.refuseFilter = true
+	f.mu.Unlock()
+	f.buy("mem_alex", "user_alex", "plan_starter", "active")
+	e.availability(t, map[string]int{"plan_starter": 2})
+	if n := f.stockOf("plan_starter"); n != 1 {
+		t.Fatalf("with every membership read instead: Starter at %d", n)
+	}
+}
+
 func TestABuyerWhosePlanEndedNeedsRoomAgainWhenTheyBuyAgain(t *testing.T) {
 	f, e, _ := connectedWhop(t)
 	core := useFakeCore(e)
