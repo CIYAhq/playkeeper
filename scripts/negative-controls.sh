@@ -8025,6 +8025,10 @@ control "dns answers: a domain that can't be answered still says which" internal
   'return dnsPlan{zone: dnszone.Zone{Name: host}, unavailable: api.DNSUnavailableSubdomain}' \
   'return dnsPlan{unavailable: api.DNSUnavailableSubdomain}' \
   ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: a domain right under a public suffix can't be handed over" internal/panel/dnsanswers.go \
+  'if suffix, icann := publicsuffix.PublicSuffix(parent); icann && suffix == parent {' \
+  'if suffix, icann := publicsuffix.PublicSuffix(parent); icann && suffix == parent && false {' \
+  ./internal/panel '^TestTheNameserverIsBesideTheDomainAtItsParent$'
 webcontrol "dns answers: the switch is only on the dashboard's own machine" web/src/pages/machine-settings/own.tsx \
   '...(local ? [<DNSAnswersRow key="dns" />] : []),' \
   '...[<DNSAnswersRow key="dns" />],' \
