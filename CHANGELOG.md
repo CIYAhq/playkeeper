@@ -4,6 +4,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.7
 
+- **Hetzner stock:** **Settings › Machines** can watch Hetzner for the server type you add machines of, such as CX53, which is often sold out. Paste a read-only Hetzner API token, and the dashboard asks Hetzner once a minute and posts to Discord when it comes into stock somewhere, with a link that buys one there. The owner's alone.
 - **Connect a machine › New cloud server:** Settings › Machines gives the command as cloud config too. Paste it in the Cloud config or User data box while you create a server at a cloud like Hetzner, and the server installs Playkeeper and connects to this dashboard as it first starts, with nothing to type on it.
 
 ## 0.4.6

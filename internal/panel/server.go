@@ -142,6 +142,10 @@ type Server struct {
 	// the core calls to tell customers something (see hosting.go).
 	hosting  hostingCore
 	notifier customerNotifier
+	// hetznerMu serialises the Hetzner stock watch's changes and checks,
+	// so a check never writes over a token the owner just replaced (see
+	// hetzner.go).
+	hetznerMu sync.Mutex
 }
 
 func New(opts Options) (*Server, error) {
@@ -523,6 +527,10 @@ func (s *Server) Routes() []Route {
 		{"DELETE", "/api/whop", needSessionCSRF, actSellOnWhop, s.hWhopDisconnect},
 		{"PUT", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInSet},
 		{"DELETE", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInOff},
+		// Hetzner stock (hetzner.go): the owner's alone.
+		{"GET", "/api/hetzner", needSession, actWatchStock, s.hHetzner},
+		{"PUT", "/api/hetzner", needSessionCSRF, actWatchStock, s.hHetznerSet},
+		{"DELETE", "/api/hetzner", needSessionCSRF, actWatchStock, s.hHetznerStop},
 		{"GET", "/api/discord", needSession, actManageMachine, s.discordProxy("GET", "/v1/discord")},
 		{"POST", "/api/discord/connect", needSessionCSRF, actManageMachine, s.discordProxy("POST", "/v1/discord/connect")},
 		{"PUT", "/api/discord", needSessionCSRF, actManageMachine, s.discordProxy("PUT", "/v1/discord")},
@@ -1652,6 +1660,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	s.pageCerts = s.pageCertStore()
 	go s.runPage(ctx)
 	go s.runWhop(ctx)
+	go s.runStock(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)
 	return s.serve(ctx, ln, tc)
 }

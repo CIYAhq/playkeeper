@@ -85,7 +85,7 @@ const actCreateOwnServers action = "servers.create_own"
 // actions lists every action, for the signed-in account's "can" list.
 var actions = []action{actView, actManageAccount, actRunServers, actConsole, actManagePlayers, actMakeBackups,
 	actRestore, actManageServers, actCreateServers, actCreateOwnServers, actManageTeam, actManageMachine, actViewAuditTrail,
-	actManageBackupCopies, actRecoveryKey, actRecoverBackups, actManageAddonSources, actViewFiles, actEditFiles, actSellOnWhop}
+	actManageBackupCopies, actRecoveryKey, actRecoverBackups, actManageAddonSources, actViewFiles, actEditFiles, actSellOnWhop, actWatchStock}
 
 // keyActions are decided by mayHoldBackupKeys rather than actNeeds.
 var keyActions = map[action]bool{actManageBackupCopies: true, actRecoveryKey: true, actRecoverBackups: true}
