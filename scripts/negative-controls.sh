@@ -7716,6 +7716,92 @@ control "kept backups: one is kept until its time is up" internal/agent/keptback
   'if now.Before(k.ExpiresAt) && false {' \
   ./internal/agent '^TestAKeptBackupGoesWhenItsTimeIsUp$'
 
+# Deleting a paused customer's servers once the grace period ends
+# (internal/panel/deletion.go), each with a final backup kept 30 days.
+control "customer deletion: not before the grace period ends" internal/panel/deletion.go \
+  '&& deleteAfter <= s.now().UnixMilli() &&' \
+  '&&' \
+  ./internal/panel '^TestOnlyALapsedCustomerIsDeleted$'
+control "customer deletion: a suspended customer's servers stay" internal/panel/deletion.go \
+  'return info, CustomerState(state) == CustomerPaused && ' \
+  'return info, ' \
+  ./internal/panel '^TestOnlyALapsedCustomerIsDeleted$'
+control "customer deletion: servers deleted once aren't again" internal/panel/deletion.go \
+  '&& deletedAt == 0, nil' \
+  ', nil' \
+  ./internal/panel '^TestOnlyALapsedCustomerIsDeleted$'
+control "customer deletion: a deletion starts only while the customer is lapsed" internal/panel/deletion.go \
+  '} else if !lapsed {' \
+  '} else if !lapsed && false {' \
+  ./internal/panel '^TestOnlyALapsedCustomerIsDeleted$'
+control "customer deletion: each server's final backup is kept 30 days" internal/panel/deletion.go \
+  'KeepFinalBackupDays: finalBackupDays,' \
+  'KeepFinalBackupDays: 0,' \
+  ./internal/panel '^TestALapsedCustomersServersGoWithAFinalBackupKept$'
+control "customer deletion: under the account's label" internal/panel/deletion.go \
+  'KeptFor: keptFor(userID)}' \
+  'KeptFor: ""}' \
+  ./internal/panel '^TestALapsedCustomersServersGoWithAFinalBackupKept$'
+control "customer deletion: a deletion that failed isn't taken for done" internal/panel/deletion.go \
+  'if op.Status != api.OpSucceeded {' \
+  'if false {' \
+  ./internal/panel '^TestADeletionThatFailsIsTriedAgain$'
+control "customer deletion: a deleted server's creator is forgotten" internal/panel/deletion.go \
+  'op.Error)
+	}
+	s.forgetCreatorServer(id)' \
+  'op.Error)
+	}' \
+  ./internal/panel '^TestALapsedCustomersServersGoWithAFinalBackupKept$'
+control "customer deletion: the home machine is freed" internal/panel/deletion.go \
+  'if err := s.setHome(ctx, userID, ""); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestALapsedCustomersServersGoWithAFinalBackupKept$'
+control "customer deletion: a customer who comes back is told their server is ready again" internal/panel/deletion.go \
+  'told_ready = 0, told_waiting = 0, ' \
+  '' \
+  ./internal/panel '^TestARenewalKeepsWhatsLeft$'
+control "customer deletion: the customer is told" internal/panel/deletion.go \
+  'if err := s.notifier.Notify(ctx, info.customer, CustomerMessage{Kind: messageDeleted, Text: s.deletedText(ctx, until, deleted > 0)}); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestALapsedCustomersServersGoWithAFinalBackupKept$'
+control "customer deletion: the limits go out at once" internal/panel/deletion.go \
+  's.kickDiskLimits()' \
+  '' \
+  ./internal/panel '^TestALapsedCustomersServersGoWithAFinalBackupKept$'
+control "customer deletion: the dashboard stops giving a date once the servers are gone" internal/panel/pausing.go \
+  '|| ms == 0 || deleted != 0 {' \
+  '|| ms == 0 {' \
+  ./internal/panel '^TestALapsedCustomersServersGoWithAFinalBackupKept$'
+control "customer deletion: the dashboard says the servers are gone" internal/panel/server.go \
+  'ServersDeleted: s.serversDeleted(a), ' \
+  '' \
+  ./internal/panel '^TestALapsedCustomersServersGoWithAFinalBackupKept$'
+control "customer deletion: renewing clears it" internal/panel/pausing.go \
+  "pause_reason = '', servers_deleted_at = 0, updated_at = ?" \
+  "pause_reason = '', updated_at = ?" \
+  ./internal/panel '^TestARenewalKeepsWhatsLeft$'
+control "final backups: the machine is asked for the account's own" internal/panel/deletion.go \
+  'url.Values{"keptFor": {keptFor(userID)}}' \
+  'url.Values{}' \
+  ./internal/panel '^TestACustomerDownloadsOnlyTheirOwnFinalBackups$'
+control "final backups: another account's aren't listed" internal/panel/deletion.go \
+  'return slices.DeleteFunc(list, func(k api.KeptBackup) bool { return k.KeptFor != keptFor(userID) }), m, nil' \
+  'return list, m, nil' \
+  ./internal/panel '^TestACustomerDownloadsOnlyTheirOwnFinalBackups$'
+control "final backups: only the account's own download" internal/panel/deletion.go \
+  'if !slices.ContainsFunc(list, func(k api.KeptBackup) bool { return k.ID == kid }) {' \
+  'if len(list) < 0 {' \
+  ./internal/panel '^TestACustomerDownloadsOnlyTheirOwnFinalBackups$'
+webcontrol "customer deletion: Home offers the final backups" web/src/pages/home.tsx \
+  '{deleted && <FinalBackups />}' \
+  '{false && <FinalBackups />}' \
+  src/pages/pages.test.tsx 'offers a customer whose servers were deleted their final backups'
+webcontrol "customer deletion: Home says the plan ended once the servers are gone" web/src/pages/home.tsx \
+  'const paused = deleted || !!ws.me.access.pausedUntil' \
+  'const paused = !!ws.me.access.pausedUntil' \
+  src/pages/pages.test.tsx 'offers a customer whose servers were deleted their final backups'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
