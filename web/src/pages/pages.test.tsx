@@ -1543,12 +1543,35 @@ describe('Crash helper', () => {
     expect(posts()).toEqual([])
     const dialog = document.body.textContent ?? ''
     expect(dialog).toContain('Make a new level.dat for Survival?')
-    expect(dialog).toContain('The seed, read from your latest backup, so new land matches the old')
+    expect(dialog).toContain('The seed, read from a backup, so new terrain matches the old')
     expect(dialog).toContain('The game rules go back to their defaults')
     expect(dialog).toContain('The spawn point goes back to where the world first had it')
-    expect(dialog).not.toContain('Playkeeper doesn’t know the old one')
+    expect(dialog).not.toContain('won’t match the old')
     await press('Back up and repair')
-    expect(posts()).toEqual([['/world/rebuild-level', { world: 'world', start: true }]])
+    expect(posts()).toEqual([['/world/rebuild-level', { world: 'world', seedFrom: 'backup', start: true }]])
+  })
+
+  it('says plainly that new terrain won’t match when it can’t find the seed', async () => {
+    for (const [seedFrom, line] of [
+      ['', 'The seed: Playkeeper can’t find the world’s, so new terrain won’t match the old'],
+      ['properties', 'The seed: Playkeeper can’t find the world’s, so new terrain won’t match the old unless the level-seed in server.properties is the one it was made with'],
+    ]) {
+      vi.mocked(client.post).mockClear()
+      const level = crash({
+        start: true,
+        kind: 'corrupt_world',
+        params: { file: 'level.dat', world: 'world' },
+        fixes: [{ kind: 'rebuild_level', params: { world: 'world', seed_from: seedFrom, resets: ['spawn'] }, title: 'Make a new level.dat', recommended: true }],
+      })
+      const text = await render(<Overview server={server({ phase: 'stopped', crash: level })} />)
+      expect(text).toContain('Keeps every build. Resets the spawn point. New terrain won’t match the old')
+      await press('Back up, repair and start Survival')
+      const dialog = document.body.textContent ?? ''
+      expect(dialog).toContain(line)
+      expect(dialog).not.toContain('so new terrain matches the old')
+      await press('Back up and repair')
+      expect(posts()).toEqual([['/world/rebuild-level', { world: 'world', seedFrom, start: true }]])
+    }
   })
 
   it('deletes the oldest backups it planned, then starts', async () => {
@@ -3931,6 +3954,79 @@ describe('Machines and AI agents', () => {
     expect(silent).toContain('Restart it on home-server: sudo systemctl restart playkeeper-agent')
     const answering = await render(<MachineDetailsSection id={home.id} />, workspace({ machines: [machine, { ...home, error: undefined, live: machine.live }] }))
     expect(answering).not.toContain('stopped answering')
+  })
+
+  describe('customers on a joined machine', () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      live: { ...machine.live!, hostname: 'home-server' },
+      joinedAt: '2026-09-29T13:40:00Z',
+      joinedFrom: '65.108.10.20',
+      addedBy: 'siya',
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'Z287KN4CDZD0Z8A4XXJA514NKG', state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const owner = (m: MachineView, can: Action[] = [...everything, 'machines.customers']) => workspace({ machines: [machine, m], me: { ...me, access: { ...me.access, can } } })
+
+    it('places customers on a joined machine once the owner checks it’s theirs', async () => {
+      const refresh = vi.fn(async () => {})
+      await render(<MachineDetailsSection id={home.id} />, { ...owner(home), refresh })
+      expect(page()).toContain('home-server takes no customers')
+      expect(page()).toContain('New customers go on the dashboard’s machine, and on joined machines you confirm are yours.')
+      await click('Take customers…')
+      expect(vi.mocked(client.put)).not.toHaveBeenCalled()
+      const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
+      expect(dialog).toContain('Place customers on home-server?')
+      expect(dialog).toContain('Only if it’s yours: customers’ servers and worlds will run on it.')
+      expect(dialog).toContain('by siya, from 65.108.10.20')
+      expect(dialog).toContain('Z287 KN4C DZD0 Z8A4 XXJA 514N KG')
+      expect(dialog).toContain('Playkeeper keeps servers away from home-server first.')
+      const eventReads = () => vi.mocked(client.get).mock.calls.filter(([p]) => p === '/api/machines/h2345abcde/events').length
+      const before = eventReads()
+      await click('Take customers')
+      expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/machines/h2345abcde/customers', { on: true })
+      expect(refresh).toHaveBeenCalled()
+      expect(eventReads()).toBeGreaterThan(before)
+      expect(document.querySelector('[role="dialog"]')).toBeNull()
+    })
+
+    it('says since when a joined machine takes customers and how many are on it, and stops it', async () => {
+      const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' }, customers: 3 }
+      await render(<MachineDetailsSection id={home.id} />, owner(taking))
+      expect(page()).toContain('home-server takes customers')
+      expect(page()).toContain('Confirmed by siya on Sep 29')
+      expect(page()).toContain('3 customers are on it')
+      await click('Stop taking customers')
+      expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/machines/h2345abcde/customers', { on: false })
+
+      await render(<MachinesSection />, owner(taking))
+      expect(page()).toContain('takes customers')
+      await render(<MachinesSection />, owner(taking, everything))
+      expect(page()).not.toContain('takes customers')
+    })
+
+    it('is the owner’s alone, and waits for a machine that’s away', async () => {
+      await render(<MachineDetailsSection id={home.id} />, owner(home, everything))
+      expect(page()).not.toContain('takes no customers')
+      expect(buttons('Take customers…')).toEqual([])
+      const away = { ...home, link: { ...home.link!, state: 'offline' as const, lastSeen: new Date(Date.now() - 600_000).toISOString() } }
+      await render(<MachineDetailsSection id={home.id} />, owner(away))
+      expect(button('Take customers…').disabled).toBe(true)
+      expect(button('Take customers…').title).toBe('Can’t reach home-server')
+    })
+
+    it('warns before removing a machine customers are on', async () => {
+      await render(<MachineDetailsSection id={home.id} />, owner({ ...home, customers: 2 }))
+      await click('Remove home-server…')
+      const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
+      expect(dialog).toContain('2 customers are on home-server')
+      expect(dialog).toContain('They can’t create servers until they’re moved to another machine.')
+      await render(<MachineDetailsSection id={home.id} />, owner(home))
+      await click('Remove home-server…')
+      expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('customers are on')
+    })
   })
 
   it('opens a joined machine’s details for its machine page and Machine settings, and never asks it for an address', async () => {

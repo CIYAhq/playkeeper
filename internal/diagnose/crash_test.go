@@ -66,6 +66,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 		in          CrashInput
 		kind        CrashKind
 		certain     bool
+		repeats     bool // a restart can only crash it again
 		params      map[string]any
 		fixes       string
 		explanation []string
@@ -281,7 +282,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 		{
 			name: "NeoForge mod made for players' games, in NeoForge's early window",
 			in:   moddedCrash("neoforge", "26.2", crashConsole(t, "neoforge_client_only.txt"), "sodium-neoforge-0.9.2+mc26.2.jar", "lithium-neoforge-0.21.0+mc26.2.jar"),
-			kind: CrashIncompatibleAddon, certain: true,
+			kind: CrashIncompatibleAddon, certain: true, repeats: true,
 			params:      map[string]any{"reason": "client_only", "addon": "sodium", "jar": "sodium-neoforge-0.9.2+mc26.2.jar", "class": "org.lwjgl.Version"},
 			fixes:       "remove_addon* jar=sodium-neoforge-0.9.2+mc26.2.jar",
 			explanation: []string{"NeoForge stopped because sodium needs LWJGL, which draws the game on players' screens", "It only runs in the game itself"},
@@ -290,7 +291,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 		{
 			name: "NeoForge mod made for players' games, in its mixin plugin",
 			in:   moddedCrash("neoforge", "26.2", crashConsole(t, "neoforge_client_only_mixin.txt"), "ImmediatelyFast-NeoForge-1.16.5+26.2.jar", "entityculling-neoforge-1.11.2-mc26.2.jar"),
-			kind: CrashIncompatibleAddon, certain: true,
+			kind: CrashIncompatibleAddon, certain: true, repeats: true,
 			params:   map[string]any{"reason": "client_only", "addon": "immediatelyfast", "jar": "ImmediatelyFast-NeoForge-1.16.5+26.2.jar", "class": "org.lwjgl.system.MathUtil"},
 			fixes:    "remove_addon* jar=ImmediatelyFast-NeoForge-1.16.5+26.2.jar",
 			evidence: []string{"Caused by: java.lang.NoClassDefFoundError: org/lwjgl/system/MathUtil"},
@@ -303,7 +304,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 				"\tat TRANSFORMER/bettergrassify@1.6.0/dev.example.bettergrassify.BetterGrassify.<init>(BetterGrassify.java:31)",
 				"[10:02:12] [main/FATAL] [ne.ne.fm.ModLoader/]: Mod loading has failed",
 			}, "BetterGrassify-1.6.0+neoforge.1.21.1.jar"),
-			kind: CrashIncompatibleAddon, certain: true,
+			kind: CrashIncompatibleAddon, certain: true, repeats: true,
 			params:      map[string]any{"reason": "client_only", "addon": "bettergrassify", "jar": "BetterGrassify-1.6.0+neoforge.1.21.1.jar", "class": "net.minecraft.client.ParticleStatus"},
 			fixes:       "remove_addon* jar=BetterGrassify-1.6.0+neoforge.1.21.1.jar",
 			explanation: []string{"needs Minecraft's client code (net.minecraft.client.ParticleStatus), which only players' games have"},
@@ -317,7 +318,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 				"\tat TRANSFORMER/forge@47.4.10/net.minecraftforge.fml.loading.RuntimeDistCleaner.processClassWithFlags(RuntimeDistCleaner.java:57)",
 				"\tat TRANSFORMER/zoomify@2.14.2/dev.isxander.zoomify.Zoomify.onInitialize(Zoomify.java:40)",
 			}, "zoomify-2.14.2+1.20.1-forge.jar", "ForgeConfigAPIPort-v8.0.2-1.20.1-Forge.jar"),
-			kind: CrashIncompatibleAddon, certain: true, params: map[string]any{"addon": "zoomify", "class": "net.minecraft.client.Minecraft"},
+			kind: CrashIncompatibleAddon, certain: true, repeats: true, params: map[string]any{"addon": "zoomify", "class": "net.minecraft.client.Minecraft"},
 			fixes:       "remove_addon* jar=zoomify-2.14.2+1.20.1-forge.jar",
 			explanation: []string{"Forge stopped because zoomify needs Minecraft's client code"},
 		},
@@ -331,7 +332,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 				"\tat TRANSFORMER/javafmllanguage@4.0.24/net.neoforged.fml.javafmlmod.FMLModContainer.constructMod(FMLModContainer.java:115)",
 				"\tat TRANSFORMER/zoomify@2.14.2/dev.isxander.zoomify.Zoomify.<init>(Zoomify.java:40)",
 			}, "zoomify-2.14.2+1.21.1-neoforge.jar"),
-			kind: CrashIncompatibleAddon, certain: true, params: map[string]any{"addon": "zoomify", "jar": "zoomify-2.14.2+1.21.1-neoforge.jar"},
+			kind: CrashIncompatibleAddon, certain: true, repeats: true, params: map[string]any{"addon": "zoomify", "jar": "zoomify-2.14.2+1.21.1-neoforge.jar"},
 			fixes: "remove_addon* jar=zoomify-2.14.2+1.21.1-neoforge.jar",
 		},
 		{
@@ -341,7 +342,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 				"java.lang.NoClassDefFoundError: org/lwjgl/glfw/GLFW",
 				"\tat net.neoforged.fml.startup.Server.main(Server.java:17)",
 			}, "sodium-neoforge-0.9.2+mc26.2.jar"),
-			kind: CrashIncompatibleAddon, certain: true, params: map[string]any{"reason": "client_only", "class": "org.lwjgl.glfw.GLFW"}, fixes: "",
+			kind: CrashIncompatibleAddon, certain: true, repeats: true, params: map[string]any{"reason": "client_only", "class": "org.lwjgl.glfw.GLFW"}, fixes: "",
 			explanation: []string{"a mod needs LWJGL", "The log doesn't say which mod"},
 		},
 		{
@@ -405,19 +406,19 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 		},
 		{
 			name: "damaged level.dat with a backup", in: moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_level_dat.txt")),
-			kind: CrashCorruptWorld, certain: true, params: map[string]any{"file": "level.dat", "world": "world"}, fixes: "restore_backup*; rebuild_level world=world",
+			kind: CrashCorruptWorld, certain: true, repeats: true, params: map[string]any{"file": "level.dat", "world": "world"}, fixes: "restore_backup*; rebuild_level world=world",
 			explanation: []string{"a new level.dat keeps them"},
 		},
 		{
 			name: "damaged level.dat without a backup",
 			in:   with(moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_level_dat.txt")), func(in *CrashInput) { in.HasBackup = false }),
-			kind: CrashCorruptWorld, certain: true, fixes: "rebuild_level* world=world",
+			kind: CrashCorruptWorld, certain: true, repeats: true, fixes: "rebuild_level* world=world",
 			explanation: []string{"There is no backup to restore."},
 		},
 		{
 			name: "damaged level.dat on Minecraft 26.1 and newer, whose last line names no file",
 			in:   moddedCrash("vanilla", "26.3", crashConsole(t, "vanilla_level_dat_26.txt")),
-			kind: CrashCorruptWorld, certain: true, params: map[string]any{"file": "level.dat", "world": "world"}, fixes: "restore_backup*; rebuild_level world=world",
+			kind: CrashCorruptWorld, certain: true, repeats: true, params: map[string]any{"file": "level.dat", "world": "world"}, fixes: "restore_backup*; rebuild_level world=world",
 			evidence: []string{"Failed to load world data. World files may be corrupted. Shutting down."},
 		},
 		{
@@ -428,7 +429,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 				"[12:00:02] [ServerMain/INFO]: Attempting to use fallback ./Survival-2024/level.dat_old",
 				"[12:00:02] [ServerMain/ERROR]: Failed to load world data. World files may be corrupted. Shutting down.",
 			}),
-			kind: CrashCorruptWorld, certain: true, params: map[string]any{"world": "Survival-2024"}, fixes: "restore_backup*; rebuild_level world=Survival-2024",
+			kind: CrashCorruptWorld, certain: true, repeats: true, params: map[string]any{"world": "Survival-2024"}, fixes: "restore_backup*; rebuild_level world=Survival-2024",
 		},
 		{
 			name: "unreadable chunk is only the likely cause", in: paperCrash(crashConsole(t, "paper_chunk.txt")),
@@ -512,6 +513,9 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 				if fmt.Sprint(d.Params[k]) != fmt.Sprint(v) {
 					t.Errorf("params[%s] = %v, want %v (all: %v)", k, d.Params[k], v, d.Params)
 				}
+			}
+			if d.Repeats != tt.repeats {
+				t.Errorf("repeats = %v, want %v", d.Repeats, tt.repeats)
 			}
 			if got := actionSummary(d.Fixes); got != tt.fixes {
 				t.Errorf("fixes = %q, want %q", got, tt.fixes)
@@ -618,6 +622,9 @@ func TestExplainCrashNamesWhatCrashesEachTimeItTicks(t *testing.T) {
 			d := ExplainCrash(tt.in)
 			if d.Kind != CrashTickingEntity || !d.Certain {
 				t.Fatalf("got %s certain=%v: %s %s\n%s", d.Kind, d.Certain, d.Title, d.Explanation, evidenceText(d))
+			}
+			if !d.Repeats {
+				t.Error("a crash that ticks again at every start doesn't say it repeats")
 			}
 			for k, v := range tt.params {
 				if fmt.Sprint(d.Params[k]) != fmt.Sprint(v) {

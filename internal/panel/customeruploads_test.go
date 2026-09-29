@@ -152,15 +152,16 @@ func TestACreatorMakesAServerFromABackupTheyUpload(t *testing.T) {
 	}
 }
 
-// A creator uploads a world or backup for a new server only to the
-// dashboard's own machine, as they create servers.
-func TestACreatorUploadsForANewServerOnlyToTheDashboardsMachine(t *testing.T) {
+// A creator uploads a world or backup for a new server only to their
+// machine, as they create servers: an invited creator's is the dashboard's
+// own.
+func TestACreatorUploadsForANewServerOnlyToTheirMachine(t *testing.T) {
 	e := newJoinEnv(t)
 	owner(t, e.env)
 	newCreatorAgent(e.env)
 	alex := addCreator(t, e.env, "alex", invites.Allowance{Servers: 1, MemoryMB: 4096})
 	remote := e.addRemote(t, "r2345abcde", "home-server")
-	if r := e.do(t, "POST", "/api/machines/"+remote.ID+"/world-imports", `{}`, alex.auth()); r.status != http.StatusForbidden || !strings.Contains(r.body["error"].(string), "own machine") {
+	if r := e.do(t, "POST", "/api/machines/"+remote.ID+"/world-imports", `{}`, alex.auth()); r.status != http.StatusForbidden || !strings.Contains(r.body["error"].(string), "isn't the machine your servers go on") {
 		t.Fatalf("alex opens a world upload on home-server: %d %v", r.status, r.body)
 	}
 	if r, body := e.raw(t, "POST", "/api/machines/"+remote.ID+"/restore/upload", "backup", alex.auth()); r.StatusCode != http.StatusForbidden {

@@ -22,8 +22,8 @@ import (
 // 53 (internal/agent/dns.go). The zone holds the records the owner was asked
 // for under the domain, so delegating it changes nothing else, and an SRV
 // record for each server with an address under the domain, so that players
-// type no port. Joined machines' servers join it once the fleet gives the
-// dashboard their machines' addresses (machineAddress, cloud-fleet.md).
+// type no port. Servers on joined machines join it too, at their machines'
+// addresses (machineAddress in fleetdns.go, cloud-fleet.md).
 
 // metaDNSAnswers is the panel_meta key set while the owner has the answers
 // on.
@@ -169,6 +169,8 @@ func (s *Server) syncDNSAnswers(ctx context.Context, actor string) error {
 		return err
 	}
 	var z dnszone.Zone
+	var named []zoneServer
+	var found bool
 	if on {
 		var addr api.Address
 		if _, err := s.agent.Do(ctx, "GET", "/v1/address", nil, nil, &addr); err != nil {
@@ -177,18 +179,34 @@ func (s *Server) syncDNSAnswers(ctx context.Context, actor string) error {
 		p := planDNS(addr)
 		switch p.unavailable {
 		case "":
+			joined, err := s.joinedZone(ctx)
+			if err != nil {
+				return err
+			}
+			named, found = p.addJoined(joined), portFree(addr)
 			z = p.zone
 		case api.DNSUnavailableAddress:
 			return nil
 		}
 	} else {
+		s.setZoneAddresses(nil, "", false)
 		var st api.DNSZoneStatus
 		if _, err := s.agent.Do(ctx, "GET", "/v1/dns-zone", nil, nil, &st); err != nil || st.Zone.Name == "" {
 			return err
 		}
 	}
-	_, err = s.agent.Do(asActor(ctx, actor), "PUT", "/v1/dns-zone", nil, api.DNSZoneRequest{Zone: z, Actor: actor}, nil)
-	return err
+	// Joined machines' servers lose their names before their records go,
+	// and get them only once the machine answers their records.
+	if z.Name == "" {
+		s.setZoneAddresses(nil, "", false)
+	}
+	if _, err := s.agent.Do(asActor(ctx, actor), "PUT", "/v1/dns-zone", nil, api.DNSZoneRequest{Zone: z, Actor: actor}, nil); err != nil {
+		return err
+	}
+	if z.Name != "" {
+		s.setZoneAddresses(named, z.Name, found)
+	}
+	return nil
 }
 
 // runDNSAnswers keeps the dashboard machine's zone up to date as its

@@ -7520,7 +7520,7 @@ control "ready server: a customer with no home machine waits" internal/panel/rea
   'return err != nil' \
   ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
 control "ready server: a waiting customer creates no server" internal/panel/creators.go \
-  'if s.customerWaiting(r.Context(), a) {' \
+  'if s.customerWaiting(ctx, a) {' \
   'if false {' \
   ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
 control "ready server: the dashboard says a customer is waiting" internal/panel/server.go \
@@ -7844,10 +7844,49 @@ control "new level.dat: the world's seed goes into server.properties" internal/a
   '	if false && seed != "" {
 		cur, err := d.ReadProperties()' \
   ./internal/agent '^TestANewLevelDatTakesTheSeedFromTheWorldSince26$'
-control "new level.dat: nothing changes when the backups don't give the seed" internal/agent/leveldat.go \
-  'if seed == "" && from == seedFromBackup {' \
-  'if false && seed == "" && from == seedFromBackup {' \
+control "new level.dat: nothing changes without the seed the owner was told it keeps" internal/agent/leveldat.go \
+  'if req.SeedFrom != nil && keepsSeed(*req.SeedFrom) && !keepsSeed(p.from) {' \
+  'if false && req.SeedFrom != nil && keepsSeed(*req.SeedFrom) && !keepsSeed(p.from) {' \
+  ./internal/agent '^TestANewLevelDatIsntMadeWithoutTheSeedItSaidItKeeps$'
+control "new level.dat: a refused one's fix says what a new level.dat does now" internal/agent/leveldat.go \
+  '			s.refreshLevelFix(p)
+' \
+  '' \
+  ./internal/agent '^TestANewLevelDatIsntMadeWithoutTheSeedItSaidItKeeps$'
+control "new level.dat: a backup's seed is read before the fix says it keeps it" internal/agent/leveldat.go \
+  '		if seed := s.archiveSeed(b, world); seed != "" {
+			return seed, &b
+		}' \
+  '		if seed := s.archiveSeed(b, world); true {
+			return cmp.Or(seed, "0"), &b
+		}' \
   ./internal/agent '^TestANewLevelDatIsRefusedWhereItDoesnHelp$'
+control "new level.dat: a backup from before a restore gives no seed" internal/agent/leveldat.go \
+  's.worldPlacedAt().UnixMilli()' \
+  'time.Time{}.UnixMilli()' \
+  ./internal/agent '^TestANewLevelDatTakesTheSeedOnlyFromThisWorldsBackups$'
+control "new level.dat: a 26.1 backup's world_gen_settings.dat gives the seed" internal/agent/leveldat.go \
+  '	files := append(slices.Clone(gen), world+"/level.dat", world+"/level.dat_old")' \
+  '	files := []string{world + "/level.dat", world + "/level.dat_old"}' \
+  ./internal/agent '^TestANewLevelDatTakesTheSeedOnlyFromThisWorldsBackups$'
+control "new level.dat: a backup is read no further than its world_gen_settings.dat" internal/agent/leveldat.go \
+  '		return read[gen[0]] != nil || read[gen[1]] != nil' \
+  '		return false' \
+  ./internal/agent '^TestANewLevelDatTakesTheSeedOnlyFromThisWorldsBackups$'
+control "new level.dat: a pass through a backup ends once it has enough" internal/backup/archive.go \
+  '		if enough != nil && enough(out) {' \
+  '		if false && enough != nil && enough(out) {' \
+  ./internal/backup '^TestReadFilesStopsOncePastTheFiles$'
+control "new level.dat: a server that started with another seed fails it" internal/agent/leveldat.go \
+  '	if m[1] != seed {
+		s.log.Warn' \
+  '	if false {
+		s.log.Warn' \
+  ./internal/agent '^TestANewLevelDatChecksTheServerKeptTheSeed$'
+control "new level.dat: a backup's seed is read without the rest of its archive" internal/backup/archive.go \
+  '			if sorted && hdr.Name > last {' \
+  '			if false && sorted && hdr.Name > last {' \
+  ./internal/backup '^TestReadFilesStopsOncePastTheFiles$'
 control "new level.dat: game rules kept in their own file since 26.1 don't reset" internal/agent/leveldat.go \
   'if !has("data/minecraft/game_rules.dat", own+"game_rules.dat") {' \
   'if true {' \
@@ -7863,6 +7902,21 @@ webcontrol "new level.dat: nothing is sent before the owner confirms in the dial
   "        case 'rebuild-level':
           await post(serverApi(s.id, '/world/rebuild-level'), { world: plan.world, start: true })
           break" \
+  src/pages/pages.test.tsx 'makes a new level.dat only once the owner has read what resets'
+webcontrol "new level.dat: the card warns when only server.properties has a seed" web/src/lib/crash.ts \
+  "  if (seedFrom === 'world' || seedFrom === 'backup') return hint" \
+  "  if (seedFrom) return hint" \
+  web/src/lib/lib.test.ts 'says what a new level.dat resets, and whether new terrain will match'
+webcontrol "new level.dat: the dialog keeps the seed only when it was found" web/src/components/app/rebuild-level.tsx \
+  "  backup: 'rebuildLevel.seedBackup',
+}" \
+  "  backup: 'rebuildLevel.seedBackup',
+  properties: 'rebuildLevel.seedWorld',
+}" \
+  src/pages/pages.test.tsx 'says plainly that new terrain'
+webcontrol "new level.dat: the dialog sends what it said about the seed" web/src/components/app/rebuild-level.tsx \
+  "{ world: plan.world, seedFrom: plan.seedFrom, start: true }" \
+  "{ world: plan.world, start: true }" \
   src/pages/pages.test.tsx 'makes a new level.dat only once the owner has read what resets'
 control "ticking entities: what crashes each time it ticks is named" internal/diagnose/crashrules.go \
   '	{(*crashCtx).tickingEntity, true},
@@ -7997,6 +8051,55 @@ webcontrol "client-only mods: the dashboard says the mod only runs in players' g
   "if (str(p, 'reason') !== 'client_only') return c.explanation" \
   'return c.explanation' \
   web/src/lib/lib.test.ts 'only runs in players'
+control "repeating crashes: a crash that repeats at every start isn't restarted" internal/agent/lifecycle.go \
+  '	if len(s.crashes) < maxCrashes && s.crash != nil && s.crash.Repeats {' \
+  '	if false && len(s.crashes) < maxCrashes && s.crash != nil && s.crash.Repeats {' \
+  ./internal/agent '^TestACrashThatRepeatsIsNotRestarted$'
+control "repeating crashes: a start while the crash was explained moves on from it" internal/agent/lifecycle.go \
+  '	if !wanted || s.runs != run {' \
+  '	if !wanted {' \
+  ./internal/agent '^TestAStartLetsGoOfACrashThatRepeats$'
+control "repeating crashes: a stop while the crash was explained keeps it off" internal/agent/lifecycle.go \
+  '		wanted := s.desired() == api.DesiredRunning' \
+  '		wanted := desired == api.DesiredRunning' \
+  ./internal/agent '^TestAStopWhileTheCrashIsExplainedKeepsItOff$'
+control "repeating crashes: a start lets go of a crash that held the server" internal/agent/lifecycle.go \
+  '	s.runs++
+	s.repeats = false
+' \
+  '	s.runs++
+' \
+  ./internal/agent '^TestAStartLetsGoOfACrashThatRepeats$'
+control "repeating crashes: automatic starts stay off after one" internal/agent/lifecycle.go \
+  'return len(s.crashes) >= maxCrashes || s.repeats' \
+  'return len(s.crashes) >= maxCrashes' \
+  ./internal/agent '^TestACrashThatRepeatsIsNotRestarted$'
+control "repeating crashes: a start that stops the same way each time isn't tried again" internal/agent/lifecycle.go \
+  'if s.crash != nil && s.crash.Repeats && n < maxCrashes {' \
+  'if false && s.crash != nil && s.crash.Repeats && n < maxCrashes {' \
+  ./internal/agent '^TestAStartThatStopsTheSameWayEachTimeIsNotTriedAgain$'
+control "repeating crashes: both level.dat files damaged repeats" internal/diagnose/crashrules.go \
+  'Params: map[string]any{"file": "level.dat"}, Repeats: true,' \
+  'Params: map[string]any{"file": "level.dat"},' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "repeating crashes: a mod for players' games repeats" internal/diagnose/crashaddons.go \
+  '"class": class}, Repeats: true, Evidence:' \
+  '"class": class}, Evidence:' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "repeating crashes: something that crashes each time it's ticked repeats" internal/diagnose/crashticking.go \
+  'Params: map[string]any{"what": "entity"}, Repeats: true,' \
+  'Params: map[string]any{"what": "entity"},' \
+  ./internal/diagnose '^TestExplainCrashNamesWhatCrashesEachTimeItTicks$'
+control "repeating crashes: Discord says it stays off without a restart" internal/discord/alerts.go \
+  '		case e.Repeats:' \
+  '		case false:' \
+  ./internal/discord '^TestAlertEmbedsReadWell$'
+control "repeating crashes: the alert isn't swallowed by an earlier crash's" internal/discord/alerts.go \
+  '		if e.Repeats {
+			return string(e.Kind) + ":repeats"
+		}' \
+  '' \
+  ./internal/discord '^TestRepeatedAlertsAreThrottled$'
 
 # Uploads for a new server counted against a named disk limit, as a
 # creator's are (internal/agent/worldimports.go, handlers.go, backups.go),
@@ -8466,13 +8569,13 @@ control "creator uploads: a server from a backup fits the allowance" internal/pa
   'if s.refuseNewServer(w, r, sess.Access, m, mb) {' \
   'if false {' \
   ./internal/panel '^TestACreatorMakesAServerFromABackupTheyUpload$'
-control "creator uploads: only on the dashboard's own machine" internal/panel/customeruploads.go \
-  'case m.Kind != localKind:' \
-  'case false:' \
-  ./internal/panel '^TestACreatorUploadsForANewServerOnlyToTheDashboardsMachine$'
+control "creator uploads: only on their machine" internal/panel/customeruploads.go \
+  'if err := s.homeRefusal(ctx, a, m); err != nil {' \
+  'if err := s.homeRefusal(ctx, a, m); false && err != nil {' \
+  ./internal/panel '^TestACreatorUploadsForANewServerOnlyToTheirMachine$'
 control "creator uploads: not while waiting for room" internal/panel/customeruploads.go \
-  'case s.customerWaiting(ctx, a):' \
-  'case false:' \
+  'if err := s.homeRefusal(ctx, a, m); err != nil {' \
+  'if err := s.homeRefusal(ctx, a, m); false && err != nil {' \
   ./internal/panel '^TestACustomerWaitingForRoomUploadsNothingForANewServer$'
 control "creator uploads: the allowance's server count" internal/panel/customeruploads.go \
   'if use.servers >= a.Allowance.Servers {' \
@@ -8521,11 +8624,102 @@ control "creator uploads: a customer without a machine has no limit on one" inte
 webcontrol "creator uploads: a creator starts from a world or a backup" web/src/pages/new-server.tsx \
   'const importer = canCreate(ws.me)' \
   "const importer = can(ws.me, 'servers.create')" \
-  src/pages/new-server.test.tsx 'a world or a backup, only on the dashboard'
-webcontrol "creator uploads: a creator's new server stays on the dashboard's machine" web/src/pages/new-server.tsx \
+  src/pages/new-server.test.tsx 'a world or a backup, only on the machine their servers go on'
+webcontrol "creator uploads: a creator's new server stays on the machine their servers go on" web/src/pages/new-server.tsx \
+  'const asked = chooser ? machine : ws.me.access.home' \
+  'const asked = importer ? machine : ws.me.access.home' \
+  src/pages/new-server.test.tsx 'a world or a backup, only on the machine their servers go on'
+webcontrol "creator uploads: a customer's new server goes on the joined machine they were placed on" web/src/pages/new-server.tsx \
+  'const asked = chooser ? machine : ws.me.access.home' \
   'const asked = chooser ? machine : undefined' \
-  'const asked = importer ? machine : undefined' \
-  src/pages/new-server.test.tsx 'a world or a backup, only on the dashboard'
+  src/pages/new-server.test.tsx 'on the joined machine they were placed on'
+
+# Joined machines take customers only once the owner confirms them, which
+# keeps servers away from them first (internal/panel/machinecustomers.go).
+control "confirming: a joined machine takes customers only once confirmed" internal/panel/placement.go \
+  'case m.Kind == remoteKind && !m.customersAt.IsZero():' \
+  'case m.Kind == remoteKind:' \
+  ./internal/panel '^(TestJoinedMachinesTakeNoCustomersUntilConfirmed|TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt)$'
+control "confirming: only the owner confirms a machine" internal/panel/server.go \
+  'actTakeCustomers, s.hMachineCustomers},' \
+  'actManageMachine, s.hMachineCustomers},' \
+  ./internal/panel '^TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt$'
+control "confirming: servers are kept away from the machine first" internal/panel/machinecustomers.go \
+  'if on {
+		g, err := setNetworkGuard(ctx, m, actor, true)' \
+  'if false && on {
+		g, err := setNetworkGuard(ctx, m, actor, true)' \
+  ./internal/panel '^(TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt|TestConfirmingKeepsServersAwayFromTheMachineFirst)$'
+control "confirming: a machine that leaves servers free to reach it isn't confirmed" internal/panel/machinecustomers.go \
+  'if !g.Host {' \
+  'if false && !g.Host {' \
+  ./internal/panel '^TestConfirmingKeepsServersAwayFromTheMachineFirst$'
+control "confirming: stopping a machine takes effect" internal/panel/machinecustomers.go \
+  'if m.customersAt.IsZero() != on {' \
+  'if m.customersAt.IsZero() != on || !on {' \
+  ./internal/panel '^TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt$'
+control "confirming: stopping waits for a customer being placed" internal/panel/machinecustomers.go \
+  's.placeMu.Lock()
+	defer s.placeMu.Unlock()
+	m, err := s.machineByID(id)' \
+  'm, err := s.machineByID(id)' \
+  ./internal/panel '^TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt$'
+control "confirming: a placed customer's machine gets their disk limit at once" internal/panel/placement.go \
+  's.kickDiskLimits()' \
+  '_ = s.kickDiskLimits' \
+  ./internal/panel '^TestPlacingACustomerSendsTheDiskLimitsAtOnce$'
+control "confirming: the customers waiting for room are placed" internal/panel/machinecustomers.go \
+  's.kickRoom()' \
+  '_ = s.kickRoom' \
+  ./internal/panel '^TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt$'
+control "confirming: servers stay away while it takes customers" internal/panel/machinecustomers.go \
+  'case at != 0:' \
+  'case false:' \
+  ./internal/panel '^TestServersStayAwayFromAJoinedMachineWhileItTakesCustomers$'
+control "confirming: servers stay away while it has customers" internal/panel/machinecustomers.go \
+  'case homes > 0:' \
+  'case false:' \
+  ./internal/panel '^TestServersStayAwayFromAJoinedMachineWhileItTakesCustomers$'
+control "confirming: the guard's refusal is kept" internal/panel/creators.go \
+  'if msg != "" {' \
+  'if false && msg != "" {' \
+  ./internal/panel '^TestServersStayAwayFromAJoinedMachineWhileItTakesCustomers$'
+control "confirming: a creator creates servers only on their machine" internal/panel/creators.go \
+  'case !ok || home != m.ID:' \
+  'case !ok || home == "":' \
+  ./internal/panel '^(TestACreatorUploadsForANewServerOnlyToTheirMachine|TestACustomerCreatesServersOnTheJoinedMachineTheyrePlacedOn)$'
+control "confirming: a creator creates servers on their machine" internal/panel/creators.go \
+  'if err := s.homeRefusal(r.Context(), a, m); err != nil {' \
+  'if err := s.homeRefusal(r.Context(), a, m); false && err != nil {' \
+  ./internal/panel '^TestACustomerCreatesServersOnTheJoinedMachineTheyrePlacedOn$'
+control "confirming: another machine's catalog offers a creator no memory for a new server" internal/panel/creators.go \
+  'case server == "" && s.homeRefusal(ctx, a, m) != nil:' \
+  'case false:' \
+  ./internal/panel '^TestACustomerCreatesServersOnTheJoinedMachineTheyrePlacedOn$'
+control "confirming: the dashboard says which machine a creator's servers go on" internal/panel/server.go \
+  'Home: s.creatorHome(a), ' \
+  '' \
+  ./internal/panel '^TestACustomerCreatesServersOnTheJoinedMachineTheyrePlacedOn$'
+webcontrol "confirming: New server here is only on the machine a creator's servers go on" web/src/lib/access.ts \
+  '(!m || m.id === me.access.home)' \
+  '(!m || !!m.id)' \
+  src/lib/lib.test.ts 'a creator only on the one their servers go on'
+webcontrol "confirming: the card is the owner's alone" web/src/pages/machines.tsx \
+  "{can(ws.me, 'machines.customers') && <CustomersCard machine={m} onChange={() => void events.refresh()} />}" \
+  '<CustomersCard machine={m} onChange={() => void events.refresh()} />' \
+  src/pages/pages.test.tsx 'and waits for a machine'
+webcontrol "confirming: the owner checks the machine is theirs first" web/src/pages/machines.tsx \
+  'onClick={() => setConfirming(true)}' \
+  'onClick={() => void set(true)}' \
+  src/pages/pages.test.tsx 'places customers on a joined machine once the owner checks'
+webcontrol "confirming: the machine's events show the change at once" web/src/pages/machines.tsx \
+  '      onChange()' \
+  '      void onChange' \
+  src/pages/pages.test.tsx 'places customers on a joined machine once the owner checks'
+webcontrol "confirming: removing a machine says its customers are on it" web/src/pages/machines.tsx \
+  '{!!m.customers && (' \
+  '{false && (' \
+  src/pages/pages.test.tsx 'warns before removing a machine customers are on'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

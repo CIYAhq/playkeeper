@@ -149,8 +149,15 @@ type Server struct {
 	// hetzner.go).
 	hetznerMu sync.Mutex
 	// placeMu serialises placing customers, so two never get the same room
-	// (see placement.go).
-	placeMu sync.Mutex
+	// (see placement.go), and roomKick has the customers waiting for room
+	// placed now (see machinecustomers.go).
+	placeMu  sync.Mutex
+	roomKick chan struct{}
+	// zoneAddrs are the addresses without a port of joined machines'
+	// servers, and joinedZone lists those servers for the dashboard's zone
+	// (see fleetdns.go); tests stand in for it.
+	zoneAddrs  zoneAddresses
+	joinedZone func(ctx context.Context) ([]zoneServer, error)
 	// customersMu serialises what the hosting core does for customers, so
 	// two starts never take the same name (see customers.go).
 	customersMu sync.Mutex
@@ -226,11 +233,13 @@ func New(opts Options) (*Server, error) {
 		maxAudit:    100_000,
 		whopKick:    make(chan struct{}, 1),
 		diskKick:    make(chan struct{}, 1),
+		roomKick:    make(chan struct{}, 1),
 	}
 	s.hosting = customerCore{s: s}
 	s.notifier = billingNotifier{s: s}
 	s.sales = whopStock{s: s}
 	s.activePacks = &activePacks{fetch: s.fetchActivePacks, now: opts.Now}
+	s.joinedZone = s.joinedZoneServers
 	s.public = newPublicGroup(s.publicRoutes(), opts.Now)
 	s.page = s.newPageSite()
 	if err := s.ensureWorkspace(); err != nil {
@@ -392,6 +401,7 @@ func (s *Server) Routes() []Route {
 		an("/api/machines/{mid}/address/certificate", "/v1/address/certificate"),
 		am("/api/machines/{mid}/address/server-addresses", "/v1/address/server-addresses"),
 		{"POST", "/api/machines/{mid}/network-guard", needSessionCSRF, actManageMachine, s.hNetworkGuard},
+		{"PUT", "/api/machines/{mid}/customers", needSessionCSRF, actTakeCustomers, s.hMachineCustomers},
 		{"DELETE", "/api/machines/{mid}/address", needSessionCSRF, actManageMachine, s.addressProxy("DELETE", "/v1/address")},
 		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actCreateOwnServers, s.hCreateServer},
 		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actCreateOwnServers, s.hRestoreUploadNew},
@@ -1006,8 +1016,10 @@ type accessBody struct {
 	NeedsTwoFactor       bool `json:"needsTwoFactor,omitempty"`
 	AwaitingConfirmation bool `json:"awaitingConfirmation,omitempty"`
 	// WaitingForRoom is set for a customer whose server is being set up,
-	// waiting for room on a machine (see readyserver.go).
-	WaitingForRoom bool `json:"waitingForRoom,omitempty"`
+	// waiting for room on a machine (see readyserver.go), and Home for a
+	// creator is the machine their servers go on (homeMachine).
+	WaitingForRoom bool   `json:"waitingForRoom,omitempty"`
+	Home           string `json:"home,omitempty"`
 	// PausedUntil is set for a customer whose plan ended: when their servers
 	// are deleted unless they renew (see pausing.go). ServersDeleted is set
 	// once they are, and FinalBackups for a customer, paused or renewed,
@@ -1028,7 +1040,7 @@ func (s *Server) meBody(sess session) map[string]any {
 		"csrfToken": sess.CSRF,
 		"access": accessBody{ProjectID: a.ProjectID, Team: s.teamName(a.ProjectID), Role: a.ProjectRole, Servers: a.Servers, TwoFactor: a.FactorOn,
 			NeedsTwoFactor:       invites.RequiresTwoFactor(a.InstallRole, a.ProjectRole) && !a.FactorOn,
-			AwaitingConfirmation: a.awaitingConfirmation(), WaitingForRoom: s.customerWaiting(context.Background(), a), PausedUntil: s.pausedUntil(a),
+			AwaitingConfirmation: a.awaitingConfirmation(), WaitingForRoom: s.customerWaiting(context.Background(), a), Home: s.creatorHome(a), PausedUntil: s.pausedUntil(a),
 			ServersDeleted: s.serversDeleted(a), FinalBackups: s.hasFinalBackups(a), Can: a.can()},
 		"expiresAt":          sess.ExpiresAt.UTC(),
 		"idleTimeoutSeconds": int(s.opts.IdleTimeout.Seconds()),
@@ -1712,6 +1724,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	go s.runDiskLimits(ctx)
 	go s.runDNSAnswers(ctx)
 	go s.runCustomers(ctx)
+	go s.runRoom(ctx)
 	go s.runLapsedCustomers(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)
 	return s.serve(ctx, ln, tc)

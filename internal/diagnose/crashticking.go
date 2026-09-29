@@ -43,7 +43,7 @@ func (c *crashCtx) tickingEntity() (CrashDiagnosis, bool) {
 	if cause.line == "" {
 		cause, _ = c.reportError()
 	}
-	d := CrashDiagnosis{Kind: CrashTickingEntity, Params: map[string]any{"what": "entity"}, Evidence: c.evidenceOf(rep, con, cause)}
+	d := CrashDiagnosis{Kind: CrashTickingEntity, Params: map[string]any{"what": "entity"}, Repeats: true, Evidence: c.evidenceOf(rep, con, cause)}
 	if block {
 		d.Params["what"] = "block_entity"
 	}

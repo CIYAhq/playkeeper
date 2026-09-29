@@ -1001,6 +1001,8 @@ func (s *server) setRunPhase(p api.Phase, detail string) {
 
 func (s *server) resetRun(p api.Phase) {
 	s.mu.Lock()
+	s.runs++
+	s.repeats = false
 	s.runPhase = p
 	s.runPhaseDetail = ""
 	s.sawStopping, s.sawCrash, s.sawOOM, s.crashLineAt = false, false, false, time.Time{}
@@ -1059,7 +1061,7 @@ func (s *server) reconcile(ctx context.Context) {
 			s.resumeSaving(ctx, c, false)
 		}
 		s.mu.Lock()
-		due := len(s.crashes) < maxCrashes && s.now().After(s.nextAutoRestart)
+		due := !s.givenUp() && s.now().After(s.nextAutoRestart)
 		s.mu.Unlock()
 		if docker.IsNotFound(err) && desired == api.DesiredRunning && due {
 			s.autoStart("recover")
@@ -1082,8 +1084,7 @@ func (s *server) reconcile(ctx context.Context) {
 	s.mu.Unlock()
 	if handled {
 		s.mu.Lock()
-		gaveUp := len(s.crashes) >= maxCrashes
-		due := s.crashed && !gaveUp && s.now().After(s.nextAutoRestart)
+		due := s.crashed && !s.givenUp() && s.now().After(s.nextAutoRestart)
 		s.mu.Unlock()
 		if due && desired == api.DesiredRunning {
 			s.autoStart("auto-restart")
@@ -1122,7 +1123,7 @@ func (s *server) reconcile(ctx context.Context) {
 		}
 		s.closeOpenSessions(end, "server_stopped", true)
 		s.mu.Lock()
-		due := len(s.crashes) < maxCrashes && s.now().After(s.nextAutoRestart)
+		due := !s.givenUp() && s.now().After(s.nextAutoRestart)
 		s.mu.Unlock()
 		if desired == api.DesiredRunning && due {
 			s.autoStart("recover")
@@ -1139,23 +1140,51 @@ func (s *server) reconcile(ctx context.Context) {
 	default:
 		s.closeOpenSessions(fin, "server_crashed", true)
 		cause := s.recordCrash(fin, c.State)
-		// A server that wasn't meant to be running is left off, which is
-		// not Playkeeper giving up on it.
-		wanted := desired == api.DesiredRunning
 		s.mu.Lock()
-		restarting := wanted && len(s.crashes) < maxCrashes
+		run := s.runs
 		s.mu.Unlock()
-		s.alert(discord.Event{Kind: discord.KindCrash, Detail: cause, Restarting: restarting, GaveUp: wanted && !restarting, At: fin})
 		s.explainCrash(c.ID, c.State, false, nil)
-		if desired == api.DesiredRunning {
-			s.mu.Lock()
-			due := len(s.crashes) < maxCrashes && s.now().After(s.nextAutoRestart)
-			s.mu.Unlock()
-			if due {
-				s.autoStart("auto-restart")
-			}
+		// Read again: someone may have stopped or started the server while
+		// the crash was explained.
+		wanted := s.desired() == api.DesiredRunning
+		s.mu.Lock()
+		counted := len(s.crashes) >= maxCrashes
+		holds, restarting := s.afterCrash(run, wanted)
+		if holds {
+			cause = s.crash.Title + "."
+		}
+		due := restarting && s.now().After(s.nextAutoRestart)
+		s.mu.Unlock()
+		s.alert(discord.Event{Kind: discord.KindCrash, Detail: cause, Restarting: restarting, GaveUp: wanted && counted, Repeats: holds, At: fin})
+		if due {
+			s.autoStart("auto-restart")
 		}
 	}
+}
+
+// givenUp reports whether automatic starts are off until someone starts the
+// server: after maxCrashes crashes in the window, or one that repeats at
+// every start. The caller holds s.mu.
+func (s *server) givenUp() bool { return len(s.crashes) >= maxCrashes || s.repeats }
+
+// afterCrash decides what follows the crash just explained, of the run that
+// start number run began: whether it holds automatic starts off, as one that
+// repeats at every start does (and the status then says so), and whether
+// Playkeeper restarts the server. A server that wasn't meant to be running
+// is left off, which is not Playkeeper giving up on it, and one someone
+// started while the crash was explained has moved on from it, whatever
+// became of that start. The caller holds s.mu.
+func (s *server) afterCrash(run int, wanted bool) (holds, restart bool) {
+	if !wanted || s.runs != run {
+		return false, false
+	}
+	if len(s.crashes) < maxCrashes && s.crash != nil && s.crash.Repeats {
+		s.repeats = true
+		s.lastError += " It would crash the same way again, so Playkeeper didn't restart it."
+		s.lastErrorHint += " Fix the cause, then press Start."
+		return true, false
+	}
+	return false, !s.givenUp()
 }
 
 type seenExit struct{ fin, at time.Time }
@@ -1258,6 +1287,14 @@ func (s *server) countFailedStart(err error) bool {
 	// container was removed or is still there with its exit already counted.
 	s.crashed = true
 	n := len(s.crashes)
+	// The start explained why the server stopped, and a cause that repeats
+	// at every start fails the next one too.
+	if s.crash != nil && s.crash.Repeats && n < maxCrashes {
+		s.repeats = true
+		s.lastError = "Playkeeper stopped trying to start the server, which would stop the same way each time: " + err.Error()
+		s.lastErrorHint = "Fix the cause, then press Start."
+		return true
+	}
 	if n >= maxCrashes {
 		s.lastError = fmt.Sprintf("Playkeeper stopped trying to start the server after %d failed attempts in %d minutes: %s", n, int(crashWindow.Minutes()), err.Error())
 		s.lastErrorHint = "Fix the cause, then press Start."

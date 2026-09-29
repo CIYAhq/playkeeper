@@ -628,7 +628,7 @@ describe('crash helper', () => {
     expect(crashDetail(crash({ kind: 'ticking_entity', params: { dimension: 'aether:the_aether' } }))).toBe('It’s in aether:the_aether, saved in the world, so starting again crashes again.')
   })
 
-  it('says what a new level.dat resets, and whether new land will match', () => {
+  it('says what a new level.dat resets, and whether new terrain will match', () => {
     const level = (seedFrom: string, resets: string[]) =>
       crash({ kind: 'corrupt_world', params: { file: 'level.dat', world: 'world' }, fixes: [{ kind: 'rebuild_level', params: { world: 'world', seed_from: seedFrom, resets }, title: 'Make a new level.dat', recommended: true }] })
     expect(crashSummary(level('world', ['spawn']), 'Survival', 'my-vps')).toBe('The world’s level.dat file is damaged.')
@@ -644,10 +644,11 @@ describe('crash helper', () => {
       },
     ])
     expect(crashFixes(level('properties', ['game_rules', 'time', 'world_border', 'spawn']), 'Survival', 'my-vps', false)[0]?.hint).toBe(
-      'Keeps every build. Resets the game rules, the time of day, the world border and the spawn point.',
+      'Keeps every build. Resets the game rules, the time of day, the world border and the spawn point. New terrain won’t match the old unless server.properties has the world’s seed.',
     )
+    expect(crashFixes(level('backup', ['game_rules', 'time', 'spawn']), 'Survival', 'my-vps', false)[0]?.hint).toBe('Keeps every build. Resets the game rules, the time of day and the spawn point.')
     expect(crashFixes(level('', ['game_rules', 'time', 'spawn']), 'Survival', 'my-vps', false)[0]?.hint).toBe(
-      'Keeps every build. Resets the game rules, the time of day and the spawn point. New land won’t match the old.',
+      'Keeps every build. Resets the game rules, the time of day and the spawn point. New terrain won’t match the old.',
     )
     const older = crash({ kind: 'corrupt_world', params: { file: 'level.dat' }, fixes: [{ kind: 'rebuild_level', title: 'Make a new level.dat' }] })
     expect(titles(older)).toEqual([
@@ -838,6 +839,16 @@ describe('machine events', () => {
       'Joined with a code siya made · from 203.0.113.24',
     ])
   })
+
+  it('say who confirmed a machine takes customers, and who stopped it', () => {
+    const events: MachineEvent[] = [
+      { at: '2026-09-30T09:00:00Z', kind: 'machine.customers_off', actor: 'siya' },
+      { at: '2026-09-29T17:00:00Z', kind: 'machine.customers_on', actor: 'siya' },
+    ]
+    expect(events.map((_, i) => machineEventText(events, i))).toEqual(['siya stopped it taking new customers', 'siya confirmed it takes customers'])
+    expect(machineEventText([{ at: '2026-09-29T17:00:00Z', kind: 'machine.customers_on' }], 0)).toBe('Confirmed it takes customers')
+    expect(machineEventText([{ at: '2026-09-29T17:00:00Z', kind: 'machine.customers_off' }], 0)).toBe('Stopped taking new customers')
+  })
 })
 
 describe('join addresses', () => {
@@ -859,6 +870,13 @@ describe('join addresses', () => {
     const unknown = { address: '', reason: 'No address yet: the dashboard doesn’t know which machine runs Survival.' }
     expect(joinOf(onHome, local, 'panel.example.com')).toEqual(unknown)
     expect(joinOf(onHome, undefined, 'panel.example.com')).toEqual(unknown)
+  })
+
+  it('give a joined machine’s server its name without a port once the dashboard’s zone has it', () => {
+    const named = server({ machineId: home.id, zoneAddress: 'cobblemon.beta.playkeeper.me' })
+    expect(joinOf(named, home, 'panel.example.com')).toEqual({ address: 'cobblemon.beta.playkeeper.me' })
+    expect(joinOf(named, { ...home, link: { ...home.link!, address: undefined } }, 'panel.example.com')).toEqual({ address: 'cobblemon.beta.playkeeper.me' })
+    expect(joinOf({ ...named, machineId: 'z2345abcde' }, home, 'panel.example.com').address).toBe('')
   })
 
   it('give the dashboard’s own servers their name once it works, else the dashboard’s host', () => {
@@ -1244,13 +1262,18 @@ describe('a restore that didn’t finish', () => {
 })
 
 describe('canCreateOn', () => {
-  const as = (can: string[]) => ({ access: { can } }) as unknown as Me
-  it('lets an admin of every server create on any machine, and a creator only on the dashboard’s own', () => {
+  const as = (can: string[], home?: string) => ({ access: { can, home } }) as unknown as Me
+  const local = { id: 'l2345abcde' }
+  const joined = { id: 'j2345abcde' }
+  it('lets an admin of every server create on any machine, and a creator only on the one their servers go on', () => {
     const admin = as(['servers.create', 'servers.create_own'])
-    const creator = as(['servers.create_own'])
-    const viewer = as(['view'])
-    expect([canCreateOn(admin, { kind: 'local' }), canCreateOn(admin, { kind: 'remote' })]).toEqual([true, true])
-    expect([canCreateOn(creator, { kind: 'local' }), canCreateOn(creator, undefined), canCreateOn(creator, { kind: 'remote' })]).toEqual([true, true, false])
-    expect(canCreateOn(viewer, { kind: 'local' })).toBe(false)
+    const viewer = as(['view'], local.id)
+    expect([canCreateOn(admin, local), canCreateOn(admin, joined)]).toEqual([true, true])
+    const invited = as(['servers.create_own'], local.id)
+    expect([canCreateOn(invited, local), canCreateOn(invited, undefined), canCreateOn(invited, joined)]).toEqual([true, true, false])
+    const placed = as(['servers.create_own'], joined.id)
+    expect([canCreateOn(placed, local), canCreateOn(placed, joined)]).toEqual([false, true])
+    expect(canCreateOn(as(['servers.create_own']), local)).toBe(false)
+    expect(canCreateOn(viewer, local)).toBe(false)
   })
 })

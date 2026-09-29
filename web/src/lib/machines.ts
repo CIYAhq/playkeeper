@@ -131,17 +131,19 @@ export interface Join {
 }
 
 /**
- * Where players join a server. A joined machine's servers join only at the
- * IP the dashboard last saw it at, with their port: free names and own
- * domains stay with the dashboard's machine, and no other host is given for
- * them. The dashboard's own servers join at their name once it works, else
- * at the host the dashboard was opened with. m is the server's machine as
- * machineOf finds it, which is the dashboard's own when it doesn't know the
- * server's.
+ * Where players join a server. A joined machine's servers join at their name
+ * under the dashboard's own domain once the dashboard answers DNS for it,
+ * with no port; until then only at the IP the dashboard last saw the machine
+ * at, with their port, as free names and the machine's own domains stay
+ * with the dashboard's machine. The dashboard's own servers join at their
+ * name once it works, else at the host the dashboard was opened with. m is
+ * the server's machine as machineOf finds it, which is the dashboard's own
+ * when it doesn't know the server's.
  */
-export function joinOf(s: Pick<ServerStatus, 'name' | 'joinAddress' | 'gamePort' | 'machineId'>, m: MachineView | undefined, dashboardHost: string = window.location.hostname): Join {
+export function joinOf(s: Pick<ServerStatus, 'name' | 'joinAddress' | 'gamePort' | 'machineId' | 'zoneAddress'>, m: MachineView | undefined, dashboardHost: string = window.location.hostname): Join {
   if (s.machineId && m?.id !== s.machineId) return { address: '', reason: t('join.noMachine', { server: s.name }) }
   if (m?.kind !== 'remote') return { address: serverJoinAddress(s, dashboardHost) }
+  if (s.zoneAddress) return { address: s.zoneAddress }
   const ip = joinedIP(m)
   return ip ? { address: joinAddress(ip, s.gamePort) } : { address: '', reason: t('join.noIP', { machine: machineLabel(m) }) }
 }
@@ -261,6 +263,10 @@ export function machineEventText(events: MachineEvent[], i: number): string {
       return t('machines.event.left')
     case 'machine.server_disputed':
       return t('machines.event.disputed')
+    case 'machine.customers_on':
+      return e.actor ? t('machines.event.customersOnBy', { actor: e.actor }) : t('machines.event.customersOn')
+    case 'machine.customers_off':
+      return e.actor ? t('machines.event.customersOffBy', { actor: e.actor }) : t('machines.event.customersOff')
     default:
       return e.kind
   }

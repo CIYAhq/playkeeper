@@ -425,7 +425,8 @@ export function levelResets(resets: string[]): string[] {
 function rebuildHint(resets: string[], seedFrom: string): string {
   const list = levelResets(resets)
   const hint = list.length ? t('crash.fix.rebuildHint', { list: formatList(list) }) : t('crash.fix.rebuildHintNothing')
-  return seedFrom ? hint : `${hint} ${t('crash.fix.rebuildNoSeed')}`
+  if (seedFrom === 'world' || seedFrom === 'backup') return hint
+  return `${hint} ${t(seedFrom === 'properties' ? 'crash.fix.rebuildSeedProperties' : 'crash.fix.rebuildNoSeed')}`
 }
 
 function restoreText(p: Params | undefined, server: string, now: Date): FixText {

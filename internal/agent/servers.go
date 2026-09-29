@@ -91,6 +91,8 @@ type server struct {
 	crashes         []time.Time
 	crashed         bool
 	runCrashed      bool // a run crashed and the server hasn't been online since; a failed automatic start sets only crashed
+	repeats         bool // the crash repeats at every start, so nothing starts the server until someone does
+	runs            int  // starts so far; a crash a start came after while it was explained no longer holds the server
 	runReady        bool // this agent has taken the current run's "Done" line
 	crash           *api.Crash
 	recovered       *api.Crash // the crash an automatic restart brought the server back from

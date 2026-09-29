@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -185,9 +186,10 @@ func TestANewLevelDatTakesTheSeedFromTheWorldSince26(t *testing.T) {
 }
 
 // A new level.dat is refused while the server runs, for a world whose
-// level.dat can still be read and for a folder that isn't a world; and when
-// the seed was to come from a backup that no longer gives it, nothing
-// changes and no backup is made.
+// level.dat can still be read and for a folder that isn't a world. A backup
+// whose level.dat was damaged already gives no seed, so the fix doesn't say
+// it keeps one, and a request that says it does changes nothing and makes
+// no backup.
 func TestANewLevelDatIsRefusedWhereItDoesnHelp(t *testing.T) {
 	e := crashEnv(t)
 	world := filepath.Join(e.dataDir(), "world")
@@ -224,15 +226,11 @@ func TestANewLevelDatIsRefusedWhereItDoesnHelp(t *testing.T) {
 	if op := e.runOp("POST", "/start"); op.Status != api.OpSucceeded {
 		t.Fatalf("start: %+v", op)
 	}
-	if fix := e.rebuildFix(e.damageLevelDat()); fix == nil || fix.Params["seed_from"] != "backup" {
-		t.Fatalf("fix: %+v", fix)
+	if fix := e.rebuildFix(e.damageLevelDat()); fix == nil || fix.Params["seed_from"] != "" {
+		t.Fatalf("a backup whose level.dat was damaged already: %+v", fix)
 	}
-	code, out = rebuild(map[string]any{"start": true})
-	if code != 202 {
-		t.Fatalf("rebuild: %d %v", code, out)
-	}
-	if op := e.waitOp(out["id"].(string)); op.Status != api.OpFailed || !strings.Contains(op.Error, "couldn't read the world's seed") {
-		t.Fatalf("a seed the backups don't give: %+v", op)
+	if code, out := rebuild(map[string]any{"seedFrom": "backup", "start": true}); code != 409 || !strings.Contains(out["error"].(string), "can't find the world's seed") {
+		t.Fatalf("a seed the backups don't give: %d %v", code, out)
 	}
 	if !exists(filepath.Join(world, "level.dat")) || !exists(filepath.Join(world, "level.dat_old")) {
 		t.Error("files were deleted although nothing was to change")
@@ -242,6 +240,153 @@ func TestANewLevelDatIsRefusedWhereItDoesnHelp(t *testing.T) {
 	}
 	if worldimport.PropertiesSeed([]byte(e.properties())) != "" {
 		t.Error("a seed was written")
+	}
+}
+
+// A new level.dat the owner was told keeps the seed isn't made once the seed
+// can't be found, as when the backup it was in is deleted: nothing changes,
+// and the fix says what a new level.dat does now. Told it doesn't, the
+// owner can make one, and no seed is written.
+func TestANewLevelDatIsntMadeWithoutTheSeedItSaidItKeeps(t *testing.T) {
+	e := crashEnv(t)
+	world := filepath.Join(e.dataDir(), "world")
+	writeGameFile(t, filepath.Join(world, "level.dat"), levelDat(t, legacyLevelData("world", "1.21.11", 4671)), time.Time{})
+	code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpSucceeded {
+		t.Fatalf("backup: %+v", op)
+	}
+	e.waitFor("online after the backup", e.onlineIdle)
+	if fix := e.rebuildFix(e.damageLevelDat()); fix == nil || fix.Params["seed_from"] != "backup" {
+		t.Fatalf("fix: %+v", fix)
+	}
+	id, _ := op.Detail["backupId"].(string)
+	if code, _ := e.callWhenFree("DELETE", e.sp("/backups/"+id)+"?actor=admin", nil); code != 204 {
+		t.Fatalf("delete the backup: %d", code)
+	}
+
+	rebuild := func(seedFrom string) (int, map[string]any) {
+		return e.callWhenFree("POST", e.sp("/world/rebuild-level"), map[string]any{"actor": "admin", "seedFrom": seedFrom, "start": true})
+	}
+	if code, out := rebuild("backup"); code != 409 || !strings.Contains(out["error"].(string), "can't find the world's seed any more") || !strings.Contains(out["hint"].(string), "won't match the old") {
+		t.Fatalf("a seed that's gone: %d %v", code, out)
+	}
+	if fix := e.rebuildFix(e.status().Crash); fix == nil || fix.Params["seed_from"] != "" {
+		t.Errorf("the fix still says the seed comes from a backup: %+v", fix)
+	}
+	if !exists(filepath.Join(world, "level.dat")) || worldimport.PropertiesSeed([]byte(e.properties())) != "" {
+		t.Fatal("something changed although nothing was to")
+	}
+	if list, _ := e.srv().listBackups(``); len(list) != 0 {
+		t.Fatalf("a backup was made although nothing changed: %d", len(list))
+	}
+
+	code, out = rebuild("")
+	if code != 202 {
+		t.Fatalf("rebuild without the seed: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded || op.Detail["seedFrom"] != "" {
+		t.Fatalf("rebuild without the seed: %+v", op)
+	}
+	if worldimport.PropertiesSeed([]byte(e.properties())) != "" {
+		t.Error("a seed was written without one found")
+	}
+	if n := e.rcon.count("seed"); n != 0 {
+		t.Errorf("the server was asked for a seed there was none to keep: %d times", n)
+	}
+}
+
+// Since Minecraft 26.1 a backup keeps the seed in its copy of
+// world_gen_settings.dat, which a world that lost its own gets the seed
+// back from, reading the backup no further: its dimensions, which come
+// next, are left unread, so a backup cut in them still gives it. A backup
+// made before a restore replaced the world may be of another world, so it
+// gives no seed.
+func TestANewLevelDatTakesTheSeedOnlyFromThisWorldsBackups(t *testing.T) {
+	e := crashEnv(t)
+	world := filepath.Join(e.dataDir(), "world")
+	gen := filepath.Join(world, "data", "minecraft", "world_gen_settings.dat")
+	writeGameFile(t, gen, gzipNBT(t, nbt.Compound{"DataVersion": int32(5023), "data": nbt.Compound{"seed": int64(-269618914698903788)}}), time.Time{})
+	region := make([]byte, 200_000)
+	rand.Read(region)
+	writeGameFile(t, filepath.Join(world, "dimensions", "minecraft", "overworld", "region", "r.0.0.mca"), string(region), time.Time{})
+	code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
+	if code != 202 {
+		t.Fatalf("backup: %d %v", code, out)
+	}
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpSucceeded {
+		t.Fatalf("backup: %+v", op)
+	}
+	e.waitFor("online after the backup", e.onlineIdle)
+	list, _ := e.srv().listBackups(``)
+	if len(list) != 1 {
+		t.Fatalf("backups: %+v", list)
+	}
+	archive := filepath.Join(e.cfg.BackupsDir(), list[0].FileName)
+	fi, err := os.Stat(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(archive, fi.Size()*3/4); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(gen); err != nil {
+		t.Fatal(err)
+	}
+	if fix := e.rebuildFix(e.damageLevelDat()); fix == nil || fix.Params["seed_from"] != "backup" {
+		t.Fatalf("a seed the backup's world_gen_settings.dat has: %+v", fix)
+	}
+
+	now := time.Now()
+	if _, err := e.srv().db.Exec(`INSERT INTO operations(id, server_id, kind, status, actor, started_at, finished_at) VALUES('restored', ?, 'restore', 'succeeded', 'admin', ?, ?)`,
+		e.sid, now.Add(-time.Second).UnixMilli(), now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if op := e.runOp("POST", "/start"); op.Status != api.OpSucceeded {
+		t.Fatalf("start: %+v", op)
+	}
+	if fix := e.rebuildFix(e.damageLevelDat()); fix == nil || fix.Params["seed_from"] != "" {
+		t.Fatalf("a backup from before the world was restored: %+v", fix)
+	}
+}
+
+// Started, the server says which seed it has: a new level.dat that was to
+// keep the world's seed and didn't fails, saying new terrain won't match.
+func TestANewLevelDatChecksTheServerKeptTheSeed(t *testing.T) {
+	e := crashEnv(t)
+	data := filepath.Join(e.dataDir(), "world", "data", "minecraft")
+	writeGameFile(t, filepath.Join(data, "game_rules.dat"), "rules", time.Time{})
+	writeGameFile(t, filepath.Join(data, "world_gen_settings.dat"), gzipNBT(t, nbt.Compound{"DataVersion": int32(5023), "data": nbt.Compound{"seed": int64(-269618914698903788)}}), time.Time{})
+	says := func(seed string) {
+		e.rcon.mu.Lock()
+		e.rcon.answer = func(cmd string) (string, bool) { return "Seed: [" + seed + "]", cmd == "seed" }
+		e.rcon.mu.Unlock()
+	}
+	rebuild := func() *api.Operation {
+		t.Helper()
+		if fix := e.rebuildFix(e.damageLevelDat()); fix == nil || fix.Params["seed_from"] != "world" {
+			t.Fatalf("fix: %+v", fix)
+		}
+		code, out := e.callWhenFree("POST", e.sp("/world/rebuild-level"), map[string]any{"actor": "admin", "seedFrom": "world", "start": true})
+		if code != 202 {
+			t.Fatalf("rebuild: %d %v", code, out)
+		}
+		return e.waitOp(out["id"].(string))
+	}
+
+	says("-269618914698903788")
+	if op := rebuild(); op.Status != api.OpSucceeded || op.Detail["seedKept"] != true {
+		t.Fatalf("a seed kept: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	says("42")
+	op := rebuild()
+	if op.Status != api.OpFailed || op.Detail["seedKept"] != false || !strings.Contains(op.Error, "started with a different seed, so new terrain won't match the old") || !strings.Contains(op.Hint, "Restore the backup") {
+		t.Fatalf("a seed not kept: %+v", op)
 	}
 }
 

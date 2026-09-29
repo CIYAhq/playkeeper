@@ -16,15 +16,11 @@ import (
 )
 
 // Creators, customers included, make a new server from an uploaded world or
-// backup (step 9 of the managed-beta plan): on the dashboard's own machine,
-// as the servers they create, inside their allowance, and against their
-// disk limit. The dashboard names that limit on each upload, never the
-// browser, so the machine counts what they send from the first byte, and
-// the server they make joins their servers.
-
-// errOwnMachine refuses a creator an upload for a new server on a machine
-// other than the dashboard's own.
-var errOwnMachine = &invites.Error{Code: api.CodeForbidden, Status: http.StatusForbidden, Msg: "Creators create servers on the dashboard's own machine."}
+// backup (step 9 of the managed-beta plan): on their machine, as the
+// servers they create, inside their allowance, and against their disk
+// limit. The dashboard names that limit on each upload, never the browser,
+// so the machine counts what they send from the first byte, and the server
+// they make joins their servers.
 
 // accountLimit names the disk limit of the account's servers on a machine.
 func accountLimit(userID int64) string { return diskLimitPrefix + strconv.FormatInt(userID, 10) }
@@ -40,15 +36,12 @@ func uploadCreates(a access, limit string) action {
 }
 
 // newServerRefusal is why creator a may not make another server of memoryMB
-// on m, or nil: only on the dashboard's own machine, once placed, and
-// inside their allowance. memoryMB 0 checks only that there's room for a
-// server. The caller holds s.creators until the request is forwarded.
+// on m, or nil: only on their machine, once placed, and inside their
+// allowance. memoryMB 0 checks only that there's room for a server. The
+// caller holds s.creators until the request is forwarded.
 func (s *Server) newServerRefusal(ctx context.Context, a access, m machine, memoryMB int) error {
-	switch {
-	case m.Kind != localKind:
-		return errOwnMachine
-	case s.customerWaiting(ctx, a):
-		return errWaitingForRoom
+	if err := s.homeRefusal(ctx, a, m); err != nil {
+		return err
 	}
 	use, err := s.allowanceUse(ctx, a, m, "")
 	if err != nil {
