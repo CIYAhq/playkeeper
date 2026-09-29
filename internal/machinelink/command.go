@@ -186,6 +186,18 @@ func (c Command) Install() string {
 // Join is the command for a machine that already runs Playkeeper.
 func (c Command) Join() string { return "sudo playkeeper join " + shellJoin(c.JoinArgs()) }
 
+// CloudConfig is the install command as cloud-init user data, for a cloud
+// server that doesn't exist yet: pasted in the provider's cloud config box
+// while creating it, it installs Playkeeper and joins as the server first
+// starts. cloud-init runs it as root with nobody to answer, so it has no
+// sudo and says --yes.
+func (c Command) CloudConfig() string {
+	cmd := "curl -fsSL " + InstallURL + " | sh -s -- " + shellJoin(append([]string{"--yes"}, c.InstallArgs()...))
+	// Every part was validated to hold no double quote or backslash, so a
+	// double-quoted YAML string holds the command as it is.
+	return "#cloud-config\nruncmd:\n  - \"" + cmd + "\"\n"
+}
+
 // InstallLines and JoinLines are the two forms split for reading: each flag
 // and its value on a line of its own, the lines ending in backslashes, so
 // pasted together they are the same command.

@@ -3631,6 +3631,40 @@ describe('Machines and AI agents', () => {
     expect(vi.mocked(client.post).mock.calls.some(([p]) => String(p).includes('/join-codes'))).toBe(false)
   })
 
+  it('gives the command as cloud config for a cloud server that’s being created', async () => {
+    forgetJoinCode()
+    const fp = 'Z287KN4CDZD0Z8A4XXJA514NKG'
+    const cloudConfig = `#cloud-config\nruncmd:\n  - "curl -fsSL https://playkeeper.io/install | sh -s -- --yes --join 203.0.113.5:8443 --code 7KQ2-M9XD --fingerprint ${fp}"\n`
+    const cmd = {
+      id: 'jc1',
+      dials: '203.0.113.5:8443',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      createdBy: 'siya',
+      state: 'waiting',
+      code: '7KQ2-M9XD',
+      install: `curl -fsSL https://playkeeper.io/install | sudo sh -s -- --join 203.0.113.5:8443 --code 7KQ2-M9XD --fingerprint ${fp}`,
+      join: `sudo playkeeper join 203.0.113.5:8443 --code 7KQ2-M9XD --fingerprint ${fp}`,
+      installLines: ['curl -fsSL https://playkeeper.io/install | sudo sh -s -- \\', '  --join 203.0.113.5:8443 \\', '  --code 7KQ2-M9XD \\', `  --fingerprint ${fp}`],
+      joinLines: ['sudo playkeeper join 203.0.113.5:8443 \\', '  --code 7KQ2-M9XD \\', `  --fingerprint ${fp}`],
+      cloudConfig,
+    }
+    answer({ '/api/machines/link': { addresses: [{ kind: 'ip', address: '203.0.113.5:8443' }], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }] }, sizingUrl: '', available: true, codes: [] } })
+    answerPosts({ '/api/join-codes': cmd })
+    await render(<MachinesSection />)
+    expect(page()).toContain('Run this on it')
+    await click('New cloud server')
+    const shown = [...document.querySelectorAll('[role="group"] pre span')].map((s) => s.textContent)
+    expect(shown).toEqual(cloudConfig.trimEnd().split('\n'))
+    expect(page()).toContain('Paste this while you create it')
+    expect(page()).toContain('Paste it in the cloud’s Cloud config or User data box, with Ubuntu or Debian.')
+    const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+    await click(button('Copy'))
+    expect(copy).toHaveBeenLastCalledWith(cloudConfig)
+    copy.mockRestore()
+    forgetJoinCode()
+  })
+
   it('says why a token can’t be made yet', async () => {
     answer({ '/api/machines/link': { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }, { name: 'Debian', version: '12' }] }, sizingUrl: '', available: true }, '/api/tokens': [] })
     await render(<AiAgentsSection />)

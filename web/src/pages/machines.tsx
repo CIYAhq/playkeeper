@@ -23,7 +23,7 @@ import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 
 type Dial = DialAddress['kind']
-type Form = 'install' | 'join'
+type Form = 'install' | 'join' | 'cloud'
 
 /**
  * The join code this tab made, so leaving Settings and coming back shows the
@@ -117,6 +117,22 @@ function defaultDial(addresses: DialAddress[]): Dial {
   const name = addresses.find((a) => a.kind === 'name')
   if (name && !name.proxied) return 'name'
   return addresses.find((a) => a.kind === 'ip')?.kind ?? addresses[0]?.kind ?? 'ip'
+}
+
+/** A form's command: the lines to show and the text to copy. */
+function formCommand(cmd: JoinCommand, form: Form): { lines: string[]; text: string } {
+  switch (form) {
+    case 'install':
+      return { lines: cmd.installLines, text: cmd.install }
+    case 'join':
+      return { lines: cmd.joinLines, text: cmd.join }
+    case 'cloud':
+      return { lines: cmd.cloudConfig.trimEnd().split('\n'), text: cmd.cloudConfig }
+    default: {
+      const unreachable: never = form
+      return unreachable
+    }
+  }
 }
 
 /** The connect-a-machine card: the four steps, then what became of the code. */
@@ -248,7 +264,7 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
 
   const named = link.addresses.find((a) => a.kind === 'name')
   const left = cmd ? (new Date(cmd.expiresAt).getTime() - now) / 1000 : 0
-  const lines = cmd ? (form === 'install' ? cmd.installLines : cmd.joinLines) : []
+  const shown = cmd ? formCommand(cmd, form) : { lines: [], text: '' }
   const shownName = name.trim() || (made?.name ?? '')
   return (
     <Card aria-labelledby="connect-title" className="animate-fade">
@@ -268,7 +284,7 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
             <span className="text-xs text-muted-foreground">{t('machines.connect.optional')}</span>
           </div>
         </Step>
-        <Step n={3} title={t('machines.connect.step3')}>
+        <Step n={3} title={form === 'cloud' ? t('machines.connect.step3Cloud') : t('machines.connect.step3')}>
           <div className="flex flex-wrap items-center gap-3">
             <Segmented
               value={form}
@@ -276,6 +292,7 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
               label={t('machines.connect.form')}
               options={[
                 { value: 'install', label: t('machines.connect.formNew') },
+                { value: 'cloud', label: t('machines.connect.formCloud') },
                 { value: 'join', label: t('machines.connect.formExisting') },
               ]}
             />
@@ -311,15 +328,16 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
             <>
               <div className="relative mt-3 rounded-xl bg-console px-4 py-3.5" role="group" aria-label={t('machines.connect.command')}>
                 <pre tabIndex={0} className={cn('overflow-x-auto rounded-sm font-mono text-xs leading-[1.7] text-white/90 outline-none focus-visible:ring-2 focus-visible:ring-ring max-sm:break-all max-sm:whitespace-pre-wrap', !phone && 'pr-20')}>
-                  {lines.map((l, i) => (
+                  {shown.lines.map((l, i) => (
                     <span key={i} className="block">
                       {l}
                     </span>
                   ))}
                 </pre>
-                {!phone && <CopyButton text={form === 'install' ? cmd.install : cmd.join} toast={t('machines.connect.copied')} className="absolute top-3 right-3 bg-white" />}
+                {!phone && <CopyButton text={shown.text} toast={t('machines.connect.copied')} className="absolute top-3 right-3 bg-white" />}
               </div>
-              {phone && <CopyButton text={form === 'install' ? cmd.install : cmd.join} toast={t('machines.connect.copied')} size="touch" className="mt-2 w-full" />}
+              {phone && <CopyButton text={shown.text} toast={t('machines.connect.copied')} size="touch" className="mt-2 w-full" />}
+              {form === 'cloud' && <p className="mt-2 text-xs text-muted-foreground">{t('machines.connect.cloudNote')}</p>}
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <p>
                   <strong className="font-semibold">{t('machines.connect.code', { code: cmd.code })}</strong> <span className="text-muted-foreground tabular-nums">{t('machines.connect.codeLeft', { time: countdown(left) })}</span>
