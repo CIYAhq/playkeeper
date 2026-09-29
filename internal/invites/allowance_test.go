@@ -42,12 +42,35 @@ func TestNewCreatorInvite(t *testing.T) {
 		{"too little memory", owner, MemberSpec{Role: RoleAdmin, Allowance: Allowance{Servers: 1, MemoryMB: 512}}, CodeBadOptions},
 		{"too much memory", owner, MemberSpec{Role: RoleAdmin, Allowance: Allowance{Servers: 1, MemoryMB: MaxAllowanceMemoryMB + 512}}, CodeBadOptions},
 		{"memory off the half-gigabyte steps", owner, MemberSpec{Role: RoleAdmin, Allowance: Allowance{Servers: 1, MemoryMB: 4000}}, CodeBadOptions},
+		{"disk below nothing", owner, MemberSpec{Role: RoleAdmin, Allowance: Allowance{Servers: 1, MemoryMB: 4096, DiskGB: -1}}, CodeBadOptions},
+		{"too much disk", owner, MemberSpec{Role: RoleAdmin, Allowance: Allowance{Servers: 1, MemoryMB: 4096, DiskGB: MaxAllowanceDiskGB + 1}}, CodeBadOptions},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.spec.ProjectID = projectID
 			_, err := NewMember(tc.spec, tc.inviter, existing, t0)
 			wantCode(t, err, tc.code)
 		})
+	}
+}
+
+// An allowance's disk is what it sets, or by default 7.5 GB for each GB of
+// memory, as Playkeeper Cloud's plans give.
+func TestAnAllowancesDisk(t *testing.T) {
+	for _, tc := range []struct {
+		al   Allowance
+		want int64
+	}{
+		{wave1, 30 << 30},
+		{Allowance{Servers: 2, MemoryMB: 8192}, 60 << 30},
+		{Allowance{Servers: 1, MemoryMB: 1536}, 11<<30 + 1<<28},
+		{Allowance{Servers: 1, MemoryMB: 4096, DiskGB: 50}, 50 << 30},
+	} {
+		if got := tc.al.DiskBytes(); got != tc.want {
+			t.Errorf("%+v gives %d bytes of disk, not %d", tc.al, got, tc.want)
+		}
+	}
+	if err := (Allowance{Servers: 1, MemoryMB: 4096, DiskGB: MaxAllowanceDiskGB}).Check(); err != nil {
+		t.Fatalf("the most disk an allowance gives: %v", err)
 	}
 }
 
