@@ -7665,6 +7665,57 @@ control "disk limits: a hold's reason is printable" internal/agent/disklimits.go
   'func(r rune) bool { return false && !unicode.IsPrint(r) }' \
   ./internal/agent '^TestAHeldServerDoesntStart$'
 
+# Kept backups (internal/agent/keptbackups.go): a deleted server's final
+# backup, kept for a while after it.
+control "kept backups: a delete asks whether to keep a final backup" internal/agent/handlers.go \
+  'keep, err := checkKeep(req)' \
+  'keep, err := keepFinal{}, error(nil)' \
+  ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
+control "kept backups: how long one is kept is checked" internal/agent/keptbackups.go \
+  'case req.KeepFinalBackupDays < 1 || req.KeepFinalBackupDays > maxKeepDays:' \
+  'case false:' \
+  ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
+control "kept backups: a kept backup's label is checked" internal/agent/keptbackups.go \
+  'case req.KeptFor != "" && !reDiskLimitID.MatchString(req.KeptFor):' \
+  'case false:' \
+  ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
+control "kept backups: the final backup is a new one" internal/agent/keptbackups.go \
+  'if b, err = s.finalArchive(actor); err == nil {' \
+  'if err = errors.New("skipped"); err == nil {' \
+  ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
+control "kept backups: a new final backup needs the room for it" internal/agent/keptbackups.go \
+  'err == nil && free < allowlistedSize(s.dataDir())+minFreeAfterBackup {' \
+  'err == nil && free < 0 {' \
+  ./internal/agent '^TestAServerNoBackupOfWhichCanBeKeptStays$'
+control "kept backups: without room, the newest backup is kept" internal/agent/keptbackups.go \
+  'for _, old := range list {' \
+  'for _, old := range list[:0] {' \
+  ./internal/agent '^TestAServerNoBackupOfWhichCanBeKeptStays$'
+control "kept backups: only a backup that reads back is kept" internal/agent/keptbackups.go \
+  'if b.Verified == nil || !*b.Verified {' \
+  'if false {' \
+  ./internal/agent '^TestAServerNoBackupOfWhichCanBeKeptStays$'
+control "kept backups: a fresh final backup goes with a failed delete" internal/agent/servers.go \
+  'if !moved {' \
+  'if !moved && false {' \
+  ./internal/agent '^TestADeletionThatFailsLeavesNoFinalBackup$'
+control "kept backups: the kept archive stays when the server goes" internal/agent/servers.go \
+  'if kept != nil && b.ID == kept.ID {' \
+  'if false {' \
+  ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
+control "kept backups: a label lists only its own" internal/agent/keptbackups.go \
+  'if keptFor != "" {' \
+  'if false {' \
+  ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
+control "kept backups: a listed label is checked" internal/agent/keptbackups.go \
+  'if keptFor != "" && !reDiskLimitID.MatchString(keptFor) {' \
+  'if false {' \
+  ./internal/agent '^TestAServerNoBackupOfWhichCanBeKeptStays$'
+control "kept backups: one is kept until its time is up" internal/agent/keptbackups.go \
+  'if now.Before(k.ExpiresAt) {' \
+  'if now.Before(k.ExpiresAt) && false {' \
+  ./internal/agent '^TestAKeptBackupGoesWhenItsTimeIsUp$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

@@ -242,5 +242,8 @@ func (a *Agent) automationRoutes() []Route {
 		{"POST", "/v1/disk/clean", a.hDiskClean},
 		{"GET", "/v1/disk-limits", a.hDiskLimits},
 		{"PUT", "/v1/disk-limits", a.hDiskLimitsSet},
+		{"GET", "/v1/kept-backups", a.hKeptBackups},
+		{"GET", "/v1/kept-backups/{kid}/download", a.hKeptBackupDownload},
+		{"DELETE", "/v1/kept-backups/{kid}", a.hKeptBackupDelete},
 	}
 }

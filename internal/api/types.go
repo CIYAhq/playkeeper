@@ -487,6 +487,27 @@ type DeleteServerRequest struct {
 	// recovery_key_not_saved asked, or while that can't be told, as
 	// recovery_key_unknown asked.
 	ForgetKey bool `json:"forgetKey,omitempty"`
+	// KeepFinalBackupDays, from 1 to 90, keeps a final backup of the server
+	// that many days after it's deleted (see KeptBackup): a new one, or its
+	// newest when a new one can't be made. A server none of whose backups
+	// can be kept isn't deleted. KeptFor labels the backup, as the
+	// dashboard's account ids do.
+	KeepFinalBackupDays int    `json:"keepFinalBackupDays,omitempty"`
+	KeptFor             string `json:"keptFor,omitempty"`
+}
+
+// KeptBackup is a deleted server's final backup, kept until ExpiresAt, as a
+// Playkeeper Cloud customer's are once their servers are deleted.
+type KeptBackup struct {
+	ID         string    `json:"id"`
+	ServerID   string    `json:"serverId"`
+	ServerName string    `json:"serverName"`
+	KeptFor    string    `json:"keptFor,omitempty"`
+	FileName   string    `json:"fileName"`
+	SizeBytes  int64     `json:"sizeBytes"`
+	SHA256     string    `json:"sha256"`
+	MadeAt     time.Time `json:"madeAt"`
+	ExpiresAt  time.Time `json:"expiresAt"`
 }
 
 type OperatorEntry struct {

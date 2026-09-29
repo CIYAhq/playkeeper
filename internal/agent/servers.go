@@ -624,10 +624,28 @@ func (a *Agent) migrateSingleServer() error {
 }
 
 // deleteServer removes a stopped server's container, world, backups and
-// records. It runs as the server's last operation.
-func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) error {
+// records, all but the final backup keep asks for. It runs as the server's
+// last operation.
+func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string, keep keepFinal) error {
 	if err := s.stopServer(ctx, h); err != nil {
 		return err
+	}
+	var final *api.Backup
+	moved := false
+	if keep.days > 0 {
+		h.phase("keeping its final backup")
+		b, fresh, err := s.finalBackup(actor)
+		if err != nil {
+			return fmt.Errorf("%s wasn't deleted: %s", s.name(), sentence(clause(err)))
+		}
+		final = b
+		if fresh {
+			defer func() {
+				if !moved {
+					s.dropBackup(b)
+				}
+			}()
+		}
 	}
 	h.phase("deleting")
 	for _, name := range []string{s.containerName(), s.containerName() + "-setup"} {
@@ -639,15 +657,30 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	if err != nil {
 		return err
 	}
+	var kept *api.KeptBackup
+	if final != nil {
+		if kept, err = s.keep(final, keep); err != nil {
+			return err
+		}
+	}
 	// The world moves aside before anything is deleted, so a server whose
-	// files can't be moved keeps its backups.
+	// files can't be moved keeps its backups, and keeps no final one apart.
 	trash := s.dir() + ".deleting-" + s.now().UTC().Format("20060102-150405")
 	if err := renameDir(s.dir(), trash); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if kept != nil {
+			_, _ = s.db.Exec(`DELETE FROM kept_backups WHERE id = ?`, kept.ID)
+		}
 		return err
 	}
+	moved = true
+	deleted := 0
 	for _, b := range backups {
+		if kept != nil && b.ID == kept.ID {
+			continue
+		}
 		os.Remove(s.backupPath(b.FileName))
 		os.Remove(s.backupPath(b.FileName) + ".sha256")
+		deleted++
 	}
 	if err := os.RemoveAll(trash); err != nil {
 		s.log.Warn("could not remove a deleted server's files", "path", trash, "err", err)
@@ -694,7 +727,11 @@ func (s *server) deleteServer(ctx context.Context, h *opHandle, actor string) er
 	if wild != own {
 		s.forgetCertificate(wild)
 	}
-	s.audit(actor, "server.deleted", s.id, "succeeded", fmt.Sprintf("%d backup(s) deleted with it", len(backups)))
+	detail := fmt.Sprintf("%d backup(s) deleted with it", deleted)
+	if kept != nil {
+		detail += fmt.Sprintf(", its final backup %s kept until %s", kept.ID, kept.ExpiresAt.Format(time.DateOnly))
+	}
+	s.audit(actor, "server.deleted", s.id, "succeeded", detail)
 	s.serversChanged()
 	return nil
 }

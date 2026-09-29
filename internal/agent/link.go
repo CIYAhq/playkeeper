@@ -12,6 +12,7 @@ var streamed = map[string]bool{
 	"PUT /v1/servers/{id}/files/content":                true,
 	"PUT /v1/servers/{id}/files/uploads/{up}/files/{n}": true,
 	"GET /v1/servers/{id}/backups/{bid}/download":       true,
+	"GET /v1/kept-backups/{kid}/download":               true,
 	"POST /v1/servers/{id}/restore/upload":              true,
 	"POST /v1/restore/upload":                           true,
 	"POST /v1/servers/{id}/datapacks":                   true,
