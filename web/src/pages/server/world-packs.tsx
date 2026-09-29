@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { formatBytes, relativeTime } from '@/lib/format'
 import { machineOf } from '@/lib/machines'
 import { opLabel, whyNot } from '@/lib/phase'
@@ -254,7 +255,8 @@ function useGate(s: ServerStatus): Gate {
   const here = window.location.hostname
   // Players download resource packs from the dashboard, which can't pass on a joined machine's yet.
   const joined = machineOf(s, ws.machines)?.kind === 'remote'
-  return { blocked: whyNot(s, 'change', ws.stale), here, resource: joined ? t('packs.joinedMachine') : isLocalHost(here) ? t('packs.localHost', { host: here }) : undefined }
+  const joinedText = can(ws.me, 'machines.view') ? t('packs.joinedMachine') : t('packs.joinedMachineHidden')
+  return { blocked: whyNot(s, 'change', ws.stale), here, resource: joined ? joinedText : isLocalHost(here) ? t('packs.localHost', { host: here }) : undefined }
 }
 
 interface PacksProps {

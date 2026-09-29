@@ -114,7 +114,7 @@ export function MemoryCrashNotice({ server: s, crash: c, onDismiss, className }:
         </span>
       }
     >
-      {room ? t('overview.memoryCrashBody', { memory }) : t('overview.memoryCrashNoRoom', { memory, machine: ws.machineName })}
+      {room ? t('overview.memoryCrashBody', { memory }) : ws.machineName ? t('overview.memoryCrashNoRoom', { memory, machine: ws.machineName }) : t('overview.memoryCrashNoRoomPlan', { memory })}
     </Notice>
   )
 }

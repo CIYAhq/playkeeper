@@ -116,7 +116,7 @@ export function CommandPalette({ open, onOpenChange, route, serversOnly, onShort
       for (const p of serverTabsFor(ws.me, s)) go.push({ value: `go:${s.id}:${p.tab}`, label: t('cmd.page', { server: s.name, page: t(p.key) }), icon: p.icon, run: () => navigate({ name: 'server', slug: s.slug, tab: p.tab }) })
     }
     if (canCreate(ws.me)) go.push({ value: 'go:new', label: t('cmd.pageNew'), icon: <PlusIcon />, run: () => navigate({ name: 'new-server' }) })
-    for (const m of machines) {
+    for (const m of can(ws.me, 'machines.view') ? machines : []) {
       const to = machineRoute(m)
       go.push({ value: `go:machine:${m.id}`, label: t('cmd.pageMachine', { machine: m.kind === 'local' ? machineName : machineLabel(m) }), icon: <ServerIcon />, run: () => navigate(to) })
       if (m.kind === 'local') go.push({ value: 'go:machine-settings', label: t('machine.settings'), hint: t('address.title'), icon: <GlobeIcon />, run: () => navigate({ name: 'machine-settings', id: m.id }) })

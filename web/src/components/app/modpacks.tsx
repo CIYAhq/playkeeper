@@ -313,7 +313,7 @@ function PackSheet({ machineId, card, phone, onClose, onUse }: { machineId: stri
               {voicePort !== undefined && (
                 <section className="animate-fade">
                   <h3 className="text-sm font-semibold">{t('voice.ownPort')}</h3>
-                  <p className="mt-1 text-[13px] text-muted-foreground">{t('voice.firewall', { machine: ws.machineName, port: voicePort })}</p>
+                  <p className="mt-1 text-[13px] text-muted-foreground">{ws.machineName ? t('voice.firewall', { machine: ws.machineName, port: voicePort }) : t('voice.firewallHidden')}</p>
                 </section>
               )}
               {externalLink(card.pageUrl) && (

@@ -28,7 +28,7 @@ vi.mock('@/lib/upload', async (importOriginal) => ({
   uploadWorld: vi.fn(),
 }))
 
-const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover']
+const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'backups.copies.manage', 'backups.recovery_key', 'backups.recover', 'machines.view']
 const me: Me = {
   user: { username: 'siya', role: 'owner' },
   csrfToken: 't',
@@ -368,9 +368,9 @@ describe('New server for a creator', () => {
     expect(catalogs().every((p) => p.startsWith(`/api/machines/${machine.id}/`))).toBe(true)
   })
 
-  it('makes a customer’s server on the joined machine they were placed on', async () => {
+  it('makes a customer’s server on the joined machine they were placed on, never naming it', async () => {
     await renderAs(creator(remote.id), machine.id)
-    expect(text()).toContain('home-server')
+    expect(text()).not.toContain('home-server')
     expect(text()).not.toContain('New server on')
     expect(catalogs().length).toBeGreaterThan(0)
     expect(catalogs().every((p) => p.startsWith(`/api/machines/${remote.id}/`))).toBe(true)

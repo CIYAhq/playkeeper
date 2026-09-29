@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { ApiError, get, onUnauthorized, setCsrfToken } from '@/api/client'
 import type { Me, SetupStatus } from '@/api/types'
 import { useWorkspace, WorkspaceProvider } from '@/api/workspace'
@@ -9,6 +9,7 @@ import { PageSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { t } from '@/i18n'
+import { can } from '@/lib/access'
 import { Appear } from '@/lib/presence'
 import { navigate, useRoute, type Route } from '@/lib/router'
 import { afterSignIn, signInPath } from '@/lib/templates'
@@ -194,12 +195,17 @@ export function App() {
   }
 }
 
-export function Routes({ route }: { route: Route }) {
-  const { servers } = useWorkspace()
+/** Pages about the machines themselves, which creators and customers never see. */
+const machinePages: Route['name'][] = ['machine', 'machine-settings', 'machines', 'machine-details', 'welcome']
+
+export function Routes({ route: asked }: { route: Route }) {
+  const { servers, me } = useWorkspace()
+  const hidden = !can(me, 'machines.view') && machinePages.includes(asked.name)
+  const route = useMemo<Route>(() => (hidden ? { name: 'home' } : asked), [hidden, asked])
 
   useEffect(() => {
-    if (route.name === 'login' || route.name === 'setup') navigate('/', true)
-  }, [route.name])
+    if (asked.name === 'login' || asked.name === 'setup' || hidden) navigate('/', true)
+  }, [asked.name, hidden])
 
   // 0.2.0 had one server with pages at /console, /players and /world.
   useEffect(() => {

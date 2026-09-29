@@ -19,7 +19,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
 const viewer = vi.hoisted(() => ({ zone: 'UTC' }))
 vi.mock('@/lib/when', async (importOriginal) => ({ ...(await importOriginal<typeof when>()), viewerTimeZone: () => viewer.zone }))
 
-const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view']
+const everything: Action[] = ['view', 'account.manage', 'servers.run', 'servers.console', 'players.manage', 'backups.make', 'backups.restore', 'servers.manage', 'servers.create', 'team.manage', 'machine.manage', 'audit.view', 'machines.view']
 const me: Me = {
   user: { username: 'siya', role: 'owner' },
   csrfToken: 't',

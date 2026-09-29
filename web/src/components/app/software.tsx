@@ -239,10 +239,10 @@ export function SoftwareChangedView({ server: s, change }: { server: ServerStatu
           <div className="min-w-0">
             <h2 className="text-lg font-bold">{t('crash.what')}</h2>
             <p className="mt-1 text-sm max-sm:text-[15px]">{t('changed.body', { server: s.name })}</p>
-            {!phone && <p className="mt-2 text-[13px] text-muted-foreground">{t('changed.security', { machine: ws.machineName })}</p>}
+            {!phone && <p className="mt-2 text-[13px] text-muted-foreground">{ws.machineName ? t('changed.security', { machine: ws.machineName }) : t('changed.securityHidden')}</p>}
           </div>
         </div>
-        {phone && <p className="mt-3 text-[13px] text-muted-foreground">{t('changed.security', { machine: ws.machineName })}</p>}
+        {phone && <p className="mt-3 text-[13px] text-muted-foreground">{ws.machineName ? t('changed.security', { machine: ws.machineName }) : t('changed.securityHidden')}</p>}
         <div className="mt-5 max-sm:mt-3">
           {!phone && <div className="mb-2 text-xs font-semibold">{t('changed.checked')}</div>}
           <CheckedTable change={change} />

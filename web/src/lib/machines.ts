@@ -98,6 +98,11 @@ export function awayOf(reach: Reach): { name: string; since?: string } | undefin
   return reach.state === 'away' ? { name: machineLabel(reach.machine), since: reach.since } : undefined
 }
 
+/** A status pill's words for a server whose machine is away; a creator or customer sees no machine's name. */
+export function awayLabel(away: { name: string }): string {
+  return away.name ? t('machines.away.pill', { name: away.name }) : t('status.unreachable')
+}
+
 /** Whether what the dashboard shows about a server is the last it heard rather than live. */
 export function isStale(s: ServerStatus, stale: boolean): boolean {
   return stale || !!s.lastKnownAt
@@ -145,7 +150,13 @@ export function joinOf(s: Pick<ServerStatus, 'name' | 'joinAddress' | 'gamePort'
   if (m?.kind !== 'remote') return { address: serverJoinAddress(s, dashboardHost) }
   if (s.zoneAddress) return { address: s.zoneAddress }
   const ip = joinedIP(m)
-  return ip ? { address: joinAddress(ip, s.gamePort) } : { address: '', reason: t('join.noIP', { machine: machineLabel(m) }) }
+  return ip ? { address: joinAddress(ip, s.gamePort) } : { address: '', reason: noIP(m) }
+}
+
+/** Why a joined machine's server has no address yet, naming the machine only to those who see it. */
+function noIP(m: MachineView): string {
+  const name = machineLabel(m)
+  return name ? t('join.noIP', { machine: name }) : t('join.noIPYet')
 }
 
 /** GeyserMC's guide to the ways console players get in. */
@@ -170,7 +181,7 @@ export function bedrockOf(s: Pick<ServerStatus, 'name' | 'bedrock' | 'machineId'
   if (s.machineId && m?.id !== s.machineId) return { host: '', port: b.port, reason: t('join.noMachine', { server: s.name }) }
   if (m?.kind !== 'remote') return { host: b.host || dashboardHost, port: b.port }
   const ip = joinedIP(m)
-  return ip ? { host: ip, port: b.port } : { host: '', port: b.port, reason: t('join.noIP', { machine: machineLabel(m) }) }
+  return ip ? { host: ip, port: b.port } : { host: '', port: b.port, reason: noIP(m) }
 }
 
 /** "10 min", "3 h" or "2 days" since a moment, for a status pill. */

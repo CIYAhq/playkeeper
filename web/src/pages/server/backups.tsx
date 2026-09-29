@@ -237,7 +237,7 @@ function useRulesDraft(server: ServerStatus, view: BackupRulesView) {
 }
 
 function sideTitle(side: Side, machine: string, offsite: OffsiteView | undefined): string {
-  if (side === 'onHost') return t('backupRules.on', { place: machine })
+  if (side === 'onHost') return machine ? t('backupRules.on', { place: machine }) : t('backupRules.onServer')
   return offsite?.configured ? t('backupRules.on', { place: offsite.place }) : t('backupRules.offServer')
 }
 

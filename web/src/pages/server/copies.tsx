@@ -641,10 +641,10 @@ function TestWarning({ result, machine, phone }: { result: OffsiteTestResult; ma
       <div role="status">
         <p className="flex items-center gap-2 text-[13px] font-semibold text-warning-foreground">
           <TriangleAlertIcon className="size-4 shrink-0" aria-hidden="true" />
-          {t(result.skew > 0 ? 'offsite.clockBehind' : 'offsite.clockAhead', { machine, time })}
+          {machine ? t(result.skew > 0 ? 'offsite.clockBehind' : 'offsite.clockAhead', { machine, time }) : t(result.skew > 0 ? 'offsite.clockBehindHidden' : 'offsite.clockAheadHidden', { time })}
         </p>
-        <p className="ms-6 text-xs text-muted-foreground">{t('offsite.clockHint')}</p>
-        <CommandBox command={ntpCommand} phone={phone} className="mt-2.5" />
+        <p className="ms-6 text-xs text-muted-foreground">{machine ? t('offsite.clockHint') : t('offsite.clockHintHidden')}</p>
+        {machine && <CommandBox command={ntpCommand} phone={phone} className="mt-2.5" />}
       </div>
     )
   }
@@ -691,7 +691,7 @@ function CopyStatus({ state, v, c, machine, onChangeRules, phone }: { state: Cop
             <span>{t('offsite.copying.sent', { sent: formatBytes(p.sent), total: formatBytes(p.total) })}</span>
             {left > 0 && <span>{t('offsite.copying.left', { time: formatSpan(left) })}</span>}
           </div>
-          {!phone && <p className="mt-3 text-xs text-muted-foreground">{t('offsite.copying.to', { place: v.place, machine })}</p>}
+          {!phone && <p className="mt-3 text-xs text-muted-foreground">{machine ? t('offsite.copying.to', { place: v.place, machine }) : t('offsite.copying.toHidden', { place: v.place })}</p>}
         </div>
       )
     }
@@ -799,7 +799,7 @@ function KeyRow({ v, c, machine }: { v: OffsiteView; c: Copies; machine: string 
         <KeyRoundIcon className="size-4 shrink-0 text-warning-foreground" aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold text-warning-foreground">{t(renewed ? 'offsite.key.newNotDownloaded' : 'offsite.key.notDownloaded')}</p>
-          <p className="text-xs text-muted-foreground">{renewed ? t('offsite.key.newNotDownloadedHint') : t('offsite.key.notDownloadedHint', { machine })}</p>
+          <p className="text-xs text-muted-foreground">{renewed ? t('offsite.key.newNotDownloadedHint') : lostHint(machine)}</p>
         </div>
         <Button size="sm" variant="outline" loading={c.busy === 'key'} disabledReason={c.keyReadOnly} onClick={() => void c.downloadKey()}>
           <DownloadIcon />
@@ -910,10 +910,18 @@ function HostKeyChangedDialog({ host, changed, phone, busy, onCheck, onClose }: 
   )
 }
 
+/** Why a recovery key that wasn't downloaded matters; a creator or customer, with no machine name, hears of the server. */
+function lostHint(machine: string): string {
+  return machine ? t('offsite.key.notDownloadedHint', { machine }) : t('offsite.key.notDownloadedHintHidden')
+}
+
 function offerText(kind: KeyOffer, k: RecoveryKey, server: string, machine: string, phone: boolean): { title: string; body: string; fileHint: string; notes: string[]; download: string } {
   switch (kind) {
-    case 'first':
-      return { title: t('offsite.key.offerTitle', { server }), body: t('offsite.key.offerBody', { machine }), fileHint: t('offsite.key.fileHint', { server }), notes: [t('offsite.key.where', { machine })], download: t('common.download') }
+    case 'first': {
+      const body = machine ? t('offsite.key.offerBody', { machine }) : t('offsite.key.offerBodyHidden')
+      const where = machine ? t('offsite.key.where', { machine }) : t('offsite.key.whereHidden')
+      return { title: t('offsite.key.offerTitle', { server }), body, fileHint: t('offsite.key.fileHint', { server }), notes: [where], download: t('common.download') }
+    }
     case 'new':
       return { title: t('offsite.key.newTitle'), body: t('offsite.key.newBody'), fileHint: t('offsite.key.newFileHint'), notes: phone ? [t('offsite.key.newWhy')] : [t('offsite.key.newWhy'), t('offsite.key.newLeaked')], download: t('offsite.key.downloadNew') }
     case 'moved':
@@ -1379,7 +1387,7 @@ function PhoneCopies({ server: s, view: v, refresh }: { server: ServerStatus; vi
                   <KeyRoundIcon className="mt-0.5 size-5 shrink-0 text-warning-foreground" aria-hidden="true" />
                   <span className="min-w-0">
                     <span className="block text-base font-semibold text-warning-foreground">{t(k.oldKeys > 0 ? 'offsite.key.newNotDownloaded' : 'offsite.key.notDownloaded')}</span>
-                    <span className="block text-[13px] text-muted-foreground">{k.oldKeys > 0 ? t('offsite.key.newNotDownloadedHint') : t('offsite.key.notDownloadedHint', { machine: machine })}</span>
+                    <span className="block text-[13px] text-muted-foreground">{k.oldKeys > 0 ? t('offsite.key.newNotDownloadedHint') : lostHint(machine)}</span>
                   </span>
                 </div>
               )}
