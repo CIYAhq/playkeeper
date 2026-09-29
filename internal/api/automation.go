@@ -1,6 +1,10 @@
 package api
 
-import "time"
+import (
+	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/dnszone"
+)
 
 // Wave 7 (0.4.0): schedules, sleep when nobody's playing, backup rules with
 // copies somewhere else, and disk space. The routes' own shapes come from the
@@ -70,4 +74,21 @@ type DiskLimit struct {
 type DiskLimitsRequest struct {
 	Limits []DiskLimit `json:"limits"`
 	Actor  string      `json:"actor"`
+}
+
+// DNSZoneRequest sets the zone the machine answers DNS for, as the
+// dashboard builds it for port-free addresses (see internal/dnszone). A
+// zone with no name turns the answers off. The machine numbers its versions
+// itself.
+type DNSZoneRequest struct {
+	Zone  dnszone.Zone `json:"zone"`
+	Actor string       `json:"actor"`
+}
+
+// DNSZoneStatus is the zone a machine answers DNS for, the addresses it
+// answers on, and what keeps it from answering on others, if anything.
+type DNSZoneStatus struct {
+	Zone      dnszone.Zone `json:"zone"`
+	Listening []string     `json:"listening"`
+	Problem   string       `json:"problem,omitempty"`
 }

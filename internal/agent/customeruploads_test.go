@@ -6,11 +6,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
@@ -167,8 +169,8 @@ func TestABackupForANewServerCountsAgainstItsDiskLimit(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("a second backup: %d %v", code, preview)
 	}
-	if exists(e.a.stageDir(first["id"].(string))) {
-		t.Fatal("the backup staged first is still there beside the newer one")
+	if left, _ := filepath.Glob(e.a.stageDir(first["id"].(string)) + "*"); len(left) != 0 {
+		t.Fatalf("the backup staged first is still there beside the newer one: %v", left)
 	}
 	apply := func() (int, map[string]any) {
 		return e.callWhenFree("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": preview["confirmPhrase"], "acceptEula": true, "actor": "alex"})
@@ -192,6 +194,118 @@ func TestABackupForANewServerCountsAgainstItsDiskLimit(t *testing.T) {
 	if code, out := e.uploadTo(e.sp("/restore/upload")+"?diskLimit=account-7", raw); code != 400 {
 		t.Fatalf("an upload into a server naming a limit: %d %v", code, out)
 	}
+}
+
+// A restore claims the upload it applies from before it reads it until its
+// operation is over. A newer upload against the same disk limit, coming in
+// as the operation starts, doesn't take it away, nor does discarding it, and
+// it can't be applied twice at once. An upload whose restore left its swap
+// journal isn't replaced either.
+func TestARestoreKeepsTheUploadItApplies(t *testing.T) {
+	var (
+		raw     []byte
+		preview map[string]any
+		once    sync.Once
+		seen    = make(chan whileRestoring, 1)
+	)
+	e := newAgentEnvWith(t, func(e *agentEnv) {
+		e.tweak = func(o *Options) {
+			o.RestoreStarting = func(string) {
+				once.Do(func() { seen <- interfere(e.ts.URL, preview, raw) })
+			}
+		}
+	})
+	e.create()
+	_, raw = e.compressibleBackup()
+	e.sid = ""
+	e.setLimits(map[string]any{"id": "account-8", "limitBytes": 1 << 30, "servers": []string{}})
+	code, preview := e.uploadTo("/v1/restore/upload?diskLimit=account-8", raw)
+	if code != 200 {
+		t.Fatalf("upload: %d %v", code, preview)
+	}
+	code, out := e.callWhenFree("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": preview["confirmPhrase"], "acceptEula": true, "actor": "alex"})
+	if code != 202 {
+		t.Fatalf("apply: %d %v", code, out)
+	}
+	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+		t.Fatalf("the restore, after a newer upload came in as it started: %+v", op)
+	}
+	var m whileRestoring
+	select {
+	case m = <-seen:
+	default:
+		t.Fatal("the restore ran without saying it started")
+	}
+	switch {
+	case m.err != nil:
+		t.Fatal(m.err)
+	case m.discard != http.StatusConflict:
+		t.Fatalf("discarding the upload a restore is starting from: %d", m.discard)
+	case m.again != http.StatusConflict:
+		t.Fatalf("applying the upload a restore is starting from: %d", m.again)
+	case m.upload != 200 || !exists(e.a.stageDir(m.newer)):
+		t.Fatalf("the newer upload: %d, staged %v", m.upload, exists(e.a.stageDir(m.newer)))
+	}
+	if code, again := e.call("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": preview["confirmPhrase"], "acceptEula": true, "actor": "alex"}); code != 404 {
+		t.Fatalf("applying the upload again once its restore is over: %d %v", code, again)
+	}
+	if l := e.a.diskLimitOf(out["serverId"].(string)); l == nil || l.ID != "account-8" {
+		t.Fatalf("the restored server counts against %+v", l)
+	}
+	j := &swapJournal{ServerID: "abcdefghjk", Aside: "data.replaced-20260929-120000", Failed: "data.failed-restore-20260929-120000", State: swapChecking}
+	if err := writeSwapJournal(e.a.stageDir(m.newer), j); err != nil {
+		t.Fatal(err)
+	}
+	code, last := e.uploadTo("/v1/restore/upload?diskLimit=account-8", raw)
+	if code != 200 {
+		t.Fatalf("an upload after one whose restore left its journal: %d %v", code, last)
+	}
+	if !exists(e.a.stageDir(m.newer)) {
+		t.Fatal("a newer upload replaced one whose restore left its swap journal")
+	}
+	if code, out := e.call("DELETE", "/v1/restore/"+last["id"].(string), nil); code != http.StatusNoContent {
+		t.Fatalf("discarding the last upload: %d %v", code, out)
+	}
+	if left, _ := filepath.Glob(e.a.stageDir(last["id"].(string)) + "*"); len(left) != 0 {
+		t.Fatalf("a discarded upload left %v", left)
+	}
+}
+
+// whileRestoring is what the agent answered as a restore started (see
+// interfere).
+type whileRestoring struct {
+	discard, again, upload int
+	// newer is the stage of the upload.
+	newer string
+	err   error
+}
+
+// interfere discards the upload preview is of, applies it again and uploads
+// raw against its disk limit, at url, as its restore starts.
+func interfere(url string, preview map[string]any, raw []byte) (m whileRestoring) {
+	send := func(method, path string, body io.Reader) (int, map[string]any) {
+		if m.err != nil {
+			return 0, nil
+		}
+		req, _ := http.NewRequest(method, url+path, body)
+		req.Header.Set("X-Playkeeper-Actor", "alex")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			m.err = err
+			return 0, nil
+		}
+		defer resp.Body.Close()
+		out := map[string]any{}
+		json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out
+	}
+	id := preview["id"].(string)
+	m.discard, _ = send("DELETE", "/v1/restore/"+id, nil)
+	again, _ := json.Marshal(map[string]any{"confirm": preview["confirmPhrase"], "acceptEula": true, "actor": "alex"})
+	m.again, _ = send("POST", "/v1/restore/"+id+"/apply", bytes.NewReader(again))
+	code, out := send("POST", "/v1/restore/upload?diskLimit="+preview["diskLimit"].(string), bytes.NewReader(raw))
+	m.upload, m.newer = code, fmt.Sprint(out["id"])
+	return m
 }
 
 // hostileZip is a zip holding files as they're named, however they're named.

@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -645,6 +646,16 @@ type stage struct {
 	preview  api.RestorePreview
 	// limit is the disk limit the upload for a new server counts against.
 	limit string
+}
+
+// stageClaims are the stages restores are applying: one restore claims its
+// stage from before it reads it until its operation is over, so neither
+// another restore nor a newer upload that replaces it (see tagStage) takes
+// it away before the operation names it. mu also serializes tagging uploads
+// with forgetting the ones they replace.
+type stageClaims struct {
+	mu  sync.Mutex
+	ids map[string]bool
 }
 
 func (a *Agent) stageDir(id string) string { return filepath.Join(a.cfg.StagingDir(), id) }
@@ -1324,8 +1335,19 @@ type stageFile struct {
 
 // tagStage records that the staged upload id, for a new server, counts
 // against the disk limit called limit, and forgets any other upload staged
-// against it that no restore is using: one account stages one at a time.
+// against it: one account stages one at a time. One a restore is applying
+// stays, as does one whose restore left its swap journal: it may hold the
+// only copy of a world.
 func (a *Agent) tagStage(id, limit string) error {
+	// Deferred first, so it runs once the lock below is released.
+	var gone []string
+	defer func() {
+		for _, dir := range gone {
+			os.RemoveAll(dir)
+		}
+	}()
+	a.stages.mu.Lock()
+	defer a.stages.mu.Unlock()
 	dir := a.stageDir(id)
 	f, err := readStageFile(dir)
 	if err != nil {
@@ -1341,20 +1363,61 @@ func (a *Agent) tagStage(id, limit string) error {
 	}
 	entries, _ := os.ReadDir(a.cfg.StagingDir())
 	for _, e := range entries {
-		other := e.Name()
-		if other == id || !reStageID.MatchString(other) || a.stageInUse(other) {
+		name := e.Name()
+		if name == id || !reStageID.MatchString(name) || a.stageInUse(name) {
 			continue
 		}
-		if o, err := readStageFile(a.stageDir(other)); err == nil && o.DiskLimit == limit {
-			os.RemoveAll(a.stageDir(other))
+		other := a.stageDir(name)
+		if _, err := os.Lstat(filepath.Join(other, swapJournalFile)); !errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if o, err := readStageFile(other); err == nil && o.DiskLimit == limit {
+			if aside, ok := a.setStageAside(name); ok {
+				gone = append(gone, aside)
+			}
 		}
 	}
 	return nil
 }
 
-// stageInUse reports whether a restore is putting the staged upload id in
-// place.
+// setStageAside renames the stage id to a name no stage has, so no restore
+// reads half of it, for the caller to delete once it no longer holds
+// a.stages.mu: deleting a large world takes a while, and every restore and
+// upload waits for the lock meanwhile. The caller holds a.stages.mu.
+func (a *Agent) setStageAside(id string) (aside string, ok bool) {
+	aside = a.stageDir(id) + ".gone-" + randomSecret(4)
+	return aside, os.Rename(a.stageDir(id), aside) == nil
+}
+
+// claimStage claims the stage id for the restore about to apply it, or
+// refuses while another restore has it or is putting it in place. release
+// gives it up; calling it again does nothing.
+func (a *Agent) claimStage(id string) (release func(), err error) {
+	a.stages.mu.Lock()
+	defer a.stages.mu.Unlock()
+	if a.stageInUse(id) {
+		return nil, errConflict("A restore is in progress.", "")
+	}
+	if a.stages.ids == nil {
+		a.stages.ids = map[string]bool{}
+	}
+	a.stages.ids[id] = true
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			a.stages.mu.Lock()
+			defer a.stages.mu.Unlock()
+			delete(a.stages.ids, id)
+		})
+	}, nil
+}
+
+// stageInUse reports whether a restore has claimed the stage id or is putting
+// it in place. The caller holds a.stages.mu.
 func (a *Agent) stageInUse(id string) bool {
+	if a.stages.ids[id] {
+		return true
+	}
 	for _, s := range a.serverList() {
 		if op := s.currentOp(); op != nil && op.Kind == "restore" && op.Detail["stage"] == id {
 			return true

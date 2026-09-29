@@ -245,5 +245,7 @@ func (a *Agent) automationRoutes() []Route {
 		{"GET", "/v1/kept-backups", a.hKeptBackups},
 		{"GET", "/v1/kept-backups/{kid}/download", a.hKeptBackupDownload},
 		{"DELETE", "/v1/kept-backups/{kid}", a.hKeptBackupDelete},
+		{"GET", "/v1/dns-zone", a.hDNSZone},
+		{"PUT", "/v1/dns-zone", a.hDNSZoneSet},
 	}
 }
