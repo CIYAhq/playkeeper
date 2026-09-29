@@ -52,7 +52,7 @@ Funnels in the analytics are built from pages and these custom events. Each also
 | `github_clicked` | A link to the repository on GitHub, or to `/community` | `link`: `repo`, `releases`, `file`, `discussions`, `community` and so on |
 | `provider_clicked` | See today's price at a VPS provider (`/sizing`, `/alternatives/aternos`), or Get a … server on its guide; its Setup guide link stays on the site and counts nothing | `provider`, and the `plan` it showed |
 | `watch_releases_clicked` | Watch releases on GitHub on `/pricing`, which is also a `github_clicked` | `plan`: `storage` or `partner` |
-| `install_shared` | Send to my computer, beside Copy on `/start` on phones: the page's address shared, or copied where the phone can't share it | `spot`: `box` or `closing`; `how`: `share` (the phone's share sheet) or `copy` |
+| `install_shared` | Send to my computer, beside Copy on the home page and `/start` on phones: the page's address shared, or copied where the phone can't share it | `spot`: `box` or `closing`; `how`: `share` (the phone's share sheet) or `copy` |
 | `demo_opened` | A link to the live demo | `spot`: `page`, `closing`, `header` or `menu` (the phone menu) |
 | `tool_used` | A free tool's result is taken: a file downloaded or a result copied (`static/js/tools.js`) | `tool`: the tool, such as `server-icon`; `action`: `download` or `copy` |
 | `template_opened` | Open in my dashboard on a template's card or page in the template directory | `template`: its id, such as `towny`; `spot`: `card`, `page` (the template's page) or `related` (a card under it) |

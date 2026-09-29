@@ -271,6 +271,9 @@ main:focus { outline: none; }
 .h1-hero .line-green { color: var(--green); }
 .hero-sub { max-width: 540px; font-size: 20px; line-height: 1.5; color: var(--sage); margin-bottom: 26px; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+/* Phones get the live demo first, in green, above a command they can't run
+   there; the outline one beside Star is for wider screens. */
+.hero-demo { display: none; }
 .hero-art { position: absolute; z-index: 1; top: 0; bottom: 0; left: calc(50% + 60px); width: 900px; }
 .hero > .ground { position: relative; z-index: 3; height: 108px; margin-top: -108px; background-image: url("@/img/ground-hills.svg"); background-size: 720px 108px; }
 
@@ -328,6 +331,9 @@ main:focus { outline: none; }
   .hero-sub { font-size: 17px; line-height: 1.55; margin-bottom: 20px; }
   .hero-actions { flex-direction: column; margin-top: 16px; }
   .hero-actions .btn { width: 100%; min-height: 52px; font-size: 16px; }
+  .hero-demo { display: block; margin-bottom: 16px; }
+  .hero-demo .btn { width: 100%; }
+  .hero-actions .hero-demo-wide { display: none; }
   .hero-text { padding: 16px 0 36px; }
   .release-pill { margin-bottom: 20px; }
   .hero-art { height: auto; display: flex; justify-content: center; padding-bottom: 0; }
