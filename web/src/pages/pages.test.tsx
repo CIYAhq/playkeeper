@@ -3933,6 +3933,76 @@ describe('Machines and AI agents', () => {
     expect(answering).not.toContain('stopped answering')
   })
 
+  describe('customers on a joined machine', () => {
+    const home: MachineView = {
+      id: 'h2345abcde',
+      projectId: machine.projectId,
+      name: 'home-server',
+      kind: 'remote',
+      live: { ...machine.live!, hostname: 'home-server' },
+      joinedAt: '2026-09-29T13:40:00Z',
+      joinedFrom: '65.108.10.20',
+      addedBy: 'siya',
+      link: { machineId: 'h2345abcde', name: 'home-server', fingerprint: 'Z287KN4CDZD0Z8A4XXJA514NKG', state: 'connected', connectedAt: new Date().toISOString(), problems: [] },
+    }
+    const owner = (m: MachineView, can: Action[] = [...everything, 'machines.customers']) => workspace({ machines: [machine, m], me: { ...me, access: { ...me.access, can } } })
+
+    it('places customers on a joined machine once the owner checks it’s theirs', async () => {
+      const refresh = vi.fn(async () => {})
+      await render(<MachineDetailsSection id={home.id} />, { ...owner(home), refresh })
+      expect(page()).toContain('home-server takes no customers')
+      expect(page()).toContain('New customers go on the dashboard’s machine, and on joined machines you confirm are yours.')
+      await click('Take customers…')
+      expect(vi.mocked(client.put)).not.toHaveBeenCalled()
+      const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
+      expect(dialog).toContain('Place customers on home-server?')
+      expect(dialog).toContain('Only if it’s yours: customers’ servers and worlds will run on it.')
+      expect(dialog).toContain('by siya, from 65.108.10.20')
+      expect(dialog).toContain('Z287 KN4C DZD0 Z8A4 XXJA 514N KG')
+      expect(dialog).toContain('Playkeeper keeps servers away from home-server first.')
+      await click('Take customers')
+      expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/machines/h2345abcde/customers', { on: true })
+      expect(refresh).toHaveBeenCalled()
+      expect(document.querySelector('[role="dialog"]')).toBeNull()
+    })
+
+    it('says since when a joined machine takes customers and how many are on it, and stops it', async () => {
+      const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' }, customers: 3 }
+      await render(<MachineDetailsSection id={home.id} />, owner(taking))
+      expect(page()).toContain('home-server takes customers')
+      expect(page()).toContain('Confirmed by siya on Sep 29')
+      expect(page()).toContain('3 customers are on it')
+      await click('Stop taking customers')
+      expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/machines/h2345abcde/customers', { on: false })
+
+      await render(<MachinesSection />, owner(taking))
+      expect(page()).toContain('takes customers')
+      await render(<MachinesSection />, owner(taking, everything))
+      expect(page()).not.toContain('takes customers')
+    })
+
+    it('is the owner’s alone, and waits for a machine that’s away', async () => {
+      await render(<MachineDetailsSection id={home.id} />, owner(home, everything))
+      expect(page()).not.toContain('takes no customers')
+      expect(buttons('Take customers…')).toEqual([])
+      const away = { ...home, link: { ...home.link!, state: 'offline' as const, lastSeen: new Date(Date.now() - 600_000).toISOString() } }
+      await render(<MachineDetailsSection id={home.id} />, owner(away))
+      expect(button('Take customers…').disabled).toBe(true)
+      expect(button('Take customers…').title).toBe('Can’t reach home-server')
+    })
+
+    it('warns before removing a machine customers are on', async () => {
+      await render(<MachineDetailsSection id={home.id} />, owner({ ...home, customers: 2 }))
+      await click('Remove home-server…')
+      const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
+      expect(dialog).toContain('2 customers are on home-server')
+      expect(dialog).toContain('They can’t create servers until they’re moved to another machine.')
+      await render(<MachineDetailsSection id={home.id} />, owner(home))
+      await click('Remove home-server…')
+      expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('customers are on')
+    })
+  })
+
   it('opens a joined machine’s details for its machine page and Machine settings, and never asks it for an address', async () => {
     const home: MachineView = {
       id: 'h2345abcde',

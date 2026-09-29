@@ -263,6 +263,10 @@ export function machineEventText(events: MachineEvent[], i: number): string {
       return t('machines.event.left')
     case 'machine.server_disputed':
       return t('machines.event.disputed')
+    case 'machine.customers_on':
+      return e.actor ? t('machines.event.customersOnBy', { actor: e.actor }) : t('machines.event.customersOn')
+    case 'machine.customers_off':
+      return e.actor ? t('machines.event.customersOffBy', { actor: e.actor }) : t('machines.event.customersOff')
     default:
       return e.kind
   }

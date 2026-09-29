@@ -1244,6 +1244,19 @@ const routes: [string, RegExp, Handler][] = [
       return typeof host === 'boolean' ? { status: 200, body: { on: true, host } } : invalid('Say whether to keep servers away from this machine.')
     },
   ],
+  // A joined machine taking customers, which would turn on its Keep servers away from this machine.
+  [
+    'PUT',
+    /^\/api\/machines\/([a-z2-9]{10})\/customers$/,
+    (r, state) => {
+      const on = (r.body as { on?: unknown } | null)?.on
+      const m = state.machines.find((x) => x.id === r.params[0])
+      if (typeof on !== 'boolean') return invalid('Send {"on": true} or {"on": false}.')
+      if (!m) return { status: 404, body: { error: 'Machine not found.', code: 'not_found' } }
+      if (m.kind === 'local') return invalid('The dashboard’s own machine always takes customers.')
+      return { status: 200, body: { ...m, ...(on ? { takesCustomers: { since: new Date().toISOString(), by: 'siya' } } : {}) } }
+    },
+  ],
   // Wave 8: AI agent tokens, join codes and joined machines.
   ['POST', /^\/api\/tokens$/, ({ body }, state) => tokenReply(body, state)],
   ['DELETE', /^\/api\/tokens\/([^/]+)$/, (r) => (id.test(r.params[0] ?? '') ? { status: 204 } : invalid('Invalid token id.'))],

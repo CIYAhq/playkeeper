@@ -838,6 +838,16 @@ describe('machine events', () => {
       'Joined with a code siya made · from 203.0.113.24',
     ])
   })
+
+  it('say who confirmed a machine takes customers, and who stopped it', () => {
+    const events: MachineEvent[] = [
+      { at: '2026-09-30T09:00:00Z', kind: 'machine.customers_off', actor: 'siya' },
+      { at: '2026-09-29T17:00:00Z', kind: 'machine.customers_on', actor: 'siya' },
+    ]
+    expect(events.map((_, i) => machineEventText(events, i))).toEqual(['siya stopped it taking new customers', 'siya confirmed it takes customers'])
+    expect(machineEventText([{ at: '2026-09-29T17:00:00Z', kind: 'machine.customers_on' }], 0)).toBe('Confirmed it takes customers')
+    expect(machineEventText([{ at: '2026-09-29T17:00:00Z', kind: 'machine.customers_off' }], 0)).toBe('Stopped taking new customers')
+  })
 })
 
 describe('join addresses', () => {
@@ -1251,13 +1261,18 @@ describe('a restore that didn’t finish', () => {
 })
 
 describe('canCreateOn', () => {
-  const as = (can: string[]) => ({ access: { can } }) as unknown as Me
-  it('lets an admin of every server create on any machine, and a creator only on the dashboard’s own', () => {
+  const as = (can: string[], home?: string) => ({ access: { can, home } }) as unknown as Me
+  const local = { id: 'l2345abcde' }
+  const joined = { id: 'j2345abcde' }
+  it('lets an admin of every server create on any machine, and a creator only on the one their servers go on', () => {
     const admin = as(['servers.create', 'servers.create_own'])
-    const creator = as(['servers.create_own'])
-    const viewer = as(['view'])
-    expect([canCreateOn(admin, { kind: 'local' }), canCreateOn(admin, { kind: 'remote' })]).toEqual([true, true])
-    expect([canCreateOn(creator, { kind: 'local' }), canCreateOn(creator, undefined), canCreateOn(creator, { kind: 'remote' })]).toEqual([true, true, false])
-    expect(canCreateOn(viewer, { kind: 'local' })).toBe(false)
+    const viewer = as(['view'], local.id)
+    expect([canCreateOn(admin, local), canCreateOn(admin, joined)]).toEqual([true, true])
+    const invited = as(['servers.create_own'], local.id)
+    expect([canCreateOn(invited, local), canCreateOn(invited, undefined), canCreateOn(invited, joined)]).toEqual([true, true, false])
+    const placed = as(['servers.create_own'], joined.id)
+    expect([canCreateOn(placed, local), canCreateOn(placed, joined)]).toEqual([false, true])
+    expect(canCreateOn(as(['servers.create_own']), local)).toBe(false)
+    expect(canCreateOn(viewer, local)).toBe(false)
   })
 })
