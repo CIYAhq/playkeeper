@@ -243,6 +243,7 @@ export const pageModules: Record<string, string[]> = {
   '/settings/team': ['pages/settings.tsx', 'pages/team.tsx'],
   '/settings/addon-sources': ['pages/settings.tsx'],
   '/settings/discord': ['pages/settings.tsx', 'pages/discord.tsx'],
+  '/settings/whop': ['pages/settings.tsx', 'pages/whop.tsx'],
   '/settings/ai-agents': ['pages/settings.tsx', 'pages/ai-agents.tsx'],
   '/settings/machines': ['pages/settings.tsx', 'pages/machines.tsx'],
   '/settings/machines/*': ['pages/settings.tsx', 'pages/machines.tsx'],
@@ -272,7 +273,7 @@ export const unviewed = ['/login', '/setup', '/welcome', '/servers/new#world', '
 const routers = new Set(['main.tsx', 'App.tsx', 'pages/server/index.tsx'])
 
 /** Modules that import a page's own module and draw it only on that page, which lists it in pageModules: Settings draws one section on each of its pages. */
-const sections: Record<string, string[]> = { 'pages/settings.tsx': ['pages/team.tsx', 'pages/discord.tsx', 'pages/ai-agents.tsx', 'pages/machines.tsx'] }
+const sections: Record<string, string[]> = { 'pages/settings.tsx': ['pages/team.tsx', 'pages/discord.tsx', 'pages/whop.tsx', 'pages/ai-agents.tsx', 'pages/machines.tsx'] }
 
 /** The files of the click-through and the state it crawls in (onboarding, the bots' scenario), and its workflow. */
 const crawlerFiles = [

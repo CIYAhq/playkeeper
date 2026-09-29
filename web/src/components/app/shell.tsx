@@ -96,6 +96,7 @@ function pageKey(route: Route): string {
     case 'team':
     case 'addon-sources':
     case 'discord':
+    case 'whop':
       return 'settings/sections'
     case 'machine-settings':
       return `machine-settings/${route.id}`

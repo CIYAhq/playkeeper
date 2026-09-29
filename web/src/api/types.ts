@@ -1798,6 +1798,7 @@ export type Action =
   | 'addon_sources.manage'
   | 'files.view'
   | 'files.edit'
+  | 'whop.manage'
 
 export type ProjectRole = 'admin' | 'moderator' | 'viewer'
 
@@ -1871,6 +1872,35 @@ export interface Invite {
 export interface Allowance {
   servers: number
   memoryMB: number
+}
+
+/** Settings › Sell on Whop: the Whop account this dashboard sells servers for, and the plans its store sells. dashboard is where Whop and buyers reach it, "" until the machine has an address with a certificate. */
+export interface WhopStore {
+  connected: boolean
+  dashboard: string
+  account?: { id: string; title: string; route: string }
+  keyEnding?: string
+  connectedBy?: string
+  connectedAt?: string
+  syncedAt?: string
+  problem?: string
+  plans: WhopPlan[]
+  needs: string[]
+  /** On the answer to a disconnect alone: what the owner still has to do on Whop. */
+  notice?: string
+}
+
+/** One plan of the store; allowanceFrom is "store" when its metadata on Whop sets the allowance, "owner" when set here. */
+export interface WhopPlan {
+  id: string
+  productId: string
+  productTitle: string
+  title: string
+  price: string
+  visibility: string
+  trialDays?: number
+  allowance?: Allowance
+  allowanceFrom?: 'store' | 'owner'
 }
 
 /** Where invite links start: base is https://host:port; friendly is false for a bare address. */

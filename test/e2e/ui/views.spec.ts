@@ -118,6 +118,7 @@ test('every page, desktop and narrow, with no serious accessibility violations a
     { route: '/recover', name: 'recover', heading: 'Restore from a recovery key', phone: 'Restore' },
     { route: '/settings/team', name: 'team', heading: 'Settings', phone: 'Team', view: 'friends and team' },
     { route: '/settings/discord', name: 'discord', heading: 'Settings', phone: 'Discord', view: 'friends and team' },
+    { route: '/settings/whop', name: 'whop', heading: 'Settings', phone: 'Sell on Whop', view: 'friends and team' },
     { route: '/settings/addon-sources', name: 'addon-sources', heading: 'Settings', phone: 'Add-on sources' },
     { route: '/settings/ai-agents', name: 'ai-agents', heading: 'Settings', phone: 'AI agents' },
     { route: '/settings/machines', name: 'machines', heading: 'Settings', phone: 'Machines' },

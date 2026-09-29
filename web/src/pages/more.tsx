@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { BotIcon, ChevronRightIcon, CircleHelpIcon, FolderIcon, HouseIcon, LibraryIcon, ListChecksIcon, LogOutIcon, MapIcon, MessageSquareIcon, PlusIcon, PuzzleIcon, ServerCogIcon, ServerIcon, SettingsIcon, Share2Icon, SlidersHorizontalIcon, UsersIcon } from 'lucide-react'
+import { BotIcon, ChevronRightIcon, CircleHelpIcon, FolderIcon, HouseIcon, LibraryIcon, ListChecksIcon, LogOutIcon, MapIcon, MessageSquareIcon, PlusIcon, PuzzleIcon, ServerCogIcon, ServerIcon, SettingsIcon, Share2Icon, SlidersHorizontalIcon, StoreIcon, UsersIcon } from 'lucide-react'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { SectionLabel, Spinner } from '@/components/app/bits'
 import { stepRoute, stepTitle } from '@/components/app/checklist'
@@ -160,6 +160,11 @@ export function MorePage() {
           {can(ws.me, 'machine.manage') && (
             <li>
               <Row icon={<MessageSquareIcon />} title={t('global.nav.discord')} hint={t('more.discordHint')} to={{ name: 'discord' }} />
+            </li>
+          )}
+          {can(ws.me, 'whop.manage') && (
+            <li>
+              <Row icon={<StoreIcon />} title={t('global.nav.whop')} hint={t('more.whopHint')} to={{ name: 'whop' }} />
             </li>
           )}
           {can(ws.me, 'account.manage') && (
