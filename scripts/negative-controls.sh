@@ -7092,13 +7092,33 @@ control "network guard: the agent puts back rules something removed" internal/ag
   't := time.NewTicker(time.Hour)' \
   ./internal/agent '^TestTheGuardPutsBackRulesSomethingRemoved$'
 control "network guard: servers may reach the machine unless its owner keeps them away" internal/agent/guard.go \
-  'return err == nil && ok && v == "on"' \
-  'return err == nil && ok && v == "on" || true' \
+  'a.keepAway = v == "on"' \
+  'a.keepAway = v == "on" || true' \
   ./internal/agent '^TestByDefaultServersKeepOnlyOutOfTheMetadataService$'
 control "network guard: the owner's switch keeps servers away from the machine" internal/agent/guard.go \
   'host := a.guardHost()' \
   'host := false' \
   ./internal/agent '^TestKeepingServersAwayIsTheOwnersSwitch$'
+control "network guard: the owner's switch lasts when the agent restarts" internal/agent/guard.go \
+  'a.keepAway = v == "on"' \
+  'a.keepAway = v == "on" && false' \
+  ./internal/agent '^TestKeepingServersAwayIsTheOwnersSwitch$'
+control "network guard: the machine's status shows the owner's switch" internal/agent/guard.go \
+  'g := api.NetworkGuard{Host: a.keepAway}' \
+  'g := api.NetworkGuard{Host: false}' \
+  ./internal/agent '^TestKeepingServersAwayIsTheOwnersSwitch$'
+control "network guard: a database error leaves servers kept away" internal/agent/guard.go \
+  'host := a.guardHost()' \
+  'v, _, _ := a.kvGet(kvGuardHost); host := v == "on"' \
+  ./internal/agent '^TestADatabaseErrorLeavesServersKeptAway$'
+control "network guard: the owner's switch changes only once it's stored" internal/agent/guard.go \
+  '[on]); err != nil {' \
+  '[on]); false && err != nil {' \
+  ./internal/agent '^TestADatabaseErrorLeavesServersKeptAway$'
+control "network guard: no agent starts without reading the owner's switch" internal/agent/agent.go \
+  'if err := a.loadGuard(); err != nil {' \
+  'if err := a.loadGuard(); false && err != nil {' \
+  ./internal/agent '^TestTheAgentWontStartWithoutReadingTheSwitch$'
 control "network guard: no server starts while it can't be kept away" internal/agent/guard.go \
   'if g == nil || !g.Host || g.On {' \
   'if g == nil || !g.Host || true {' \
