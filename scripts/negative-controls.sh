@@ -7202,6 +7202,14 @@ control "disk limits: what an operation holds counts" internal/agent/disklimits.
   'used := usedBy(rep, l.Servers) + a.onTheWay(l.Servers) + a.limits.held[l.ID]' \
   'used := usedBy(rep, l.Servers) + a.onTheWay(l.Servers)' \
   ./internal/agent '^TestWhatAnOperationHoldsCountsAgainstTheLimit$'
+control "disk limits: pre-generation under way counts" internal/agent/disklimits.go \
+  ' + a.limits.held[l.ID] + a.pregenOnTheWay(l.Servers)' \
+  ' + a.limits.held[l.ID]' \
+  ./internal/agent '^TestPregenUnderWayCountsAgainstTheLimit$'
+control "disk limits: pre-generation stops counting once it ends" internal/agent/disklimits.go \
+  'case !t.unfinished():' \
+  'case false && !t.unfinished():' \
+  ./internal/agent '^TestPregenUnderWayCountsAgainstTheLimit$'
 control "disk limits: what was just written counts until a scan finds it" internal/agent/disklimits.go \
   'if w.limit == l.ID && !w.at.Before(rep.ScannedAt) {' \
   'if false && w.limit == l.ID && !w.at.Before(rep.ScannedAt) {' \
@@ -7210,14 +7218,26 @@ control "disk limits: files on their way count" internal/agent/disklimits.go \
   'if !up.gone && !f.placed {' \
   'if false && !up.gone && !f.placed {' \
   ./internal/agent '^TestUploadsStopAtTheDiskLimit$'
-control "disk limits: a backup stops at the limit" internal/agent/backups.go \
-  'if done, err = s.holdDiskLimit(ctx, s.id, size.ArchiveBytes()); err != nil {' \
-  'if done, err = s.holdDiskLimit(ctx, s.id, 0); err != nil {' \
+control "disk limits: a backup stops at the limit" internal/agent/disklimits.go \
+  'return s.holdDiskLimit(ctx, s.id, need)' \
+  'return s.holdDiskLimit(ctx, s.id, 0*need)' \
+  ./internal/agent '^TestBackupsStopAtTheDiskLimit$'
+control "disk limits: a backup that can't be measured still counts" internal/agent/disklimits.go \
+  'return usedBy(rep, []string{s.id}), nil' \
+  'return 0*usedBy(rep, []string{s.id}), nil' \
+  ./internal/agent '^TestABackupThatCantBeMeasuredStillCounts$'
+control "disk limits: a backup on request or on schedule is held" internal/agent/backups.go \
+  'done, err := s.holdBackup(ctx)' \
+  'done, err := func(bool) {}, error(nil)' \
   ./internal/agent '^TestBackupsStopAtTheDiskLimit$'
 control "disk limits: a backup counts once it's written" internal/agent/backups.go \
   'done(err == nil)' \
   'done(false && err == nil)' \
   ./internal/agent '^TestBackupsStopAtTheDiskLimit$'
+control "disk limits: the rollback archive before a restore, update or import is held" internal/agent/backups.go \
+  'done, err := s.holdBackup(s.ctx)' \
+  'done, err := func(bool) {}, error(nil)' \
+  ./internal/agent '^TestARestoresRollbackArchiveHasToFit$'
 control "disk limits: a refused scheduled backup shows on the World tab" internal/agent/schedules.go \
   'if errors.As(err, &ae) && ae.Code == api.CodeDiskLimit {' \
   'if false && errors.As(err, &ae) && ae.Code == api.CodeDiskLimit {' \
@@ -7228,7 +7248,7 @@ control "disk limits: a file stops at the limit" internal/agent/fileuploads.go \
   ./internal/agent '^TestUploadsStopAtTheDiskLimit$'
 control "disk limits: a file just put in place counts" internal/agent/fileuploads.go \
   's.noteDiskWrite(s.id, size)' \
-  's.noteDiskWrite(s.id, 0)' \
+  's.noteDiskWrite(s.id, 0*size)' \
   ./internal/agent '^TestUploadsStopAtTheDiskLimit$'
 control "disk limits: a world to import stops at the limit" internal/agent/worldimports.go \
   'if err := a.diskLimitRefusal(ctx, imp.serverID, size); err != nil {' \
@@ -7237,27 +7257,47 @@ control "disk limits: a world to import stops at the limit" internal/agent/world
 control "disk limits: applying an imported world holds what it adds" internal/agent/worldimports.go \
   'done, err := s.holdDiskLimit(r.Context(), s.id, pv.Preview.SizeBytes)' \
   'done, err := s.holdDiskLimit(r.Context(), s.id, 0)' \
-  ./internal/agent '^TestAppliedImportsAndStagedRestoresStopAtTheDiskLimit$'
+  ./internal/agent '^TestAnAppliedImportHoldsTheWorldItAdds$'
 control "disk limits: a restore upload stops at the limit" internal/agent/handlers.go \
   'err = target.diskLimitRefusal(r.Context(), target.id, r.ContentLength)' \
   'err = target.diskLimitRefusal(r.Context(), target.id, 0)' \
   ./internal/agent '^TestImportsPacksAndPregenStopAtTheDiskLimit$'
 control "disk limits: a staged restore counts as the world it unpacks to" internal/agent/handlers.go \
-  'if err := target.diskLimitRefusal(r.Context(), target.id, p.SizeBytes); err != nil {' \
-  'if err := target.diskLimitRefusal(r.Context(), target.id, 0); err != nil {' \
-  ./internal/agent '^TestAppliedImportsAndStagedRestoresStopAtTheDiskLimit$'
+  'err = target.diskLimitRefusal(r.Context(), target.id, unpackedBytes(f.Manifest))' \
+  'err = target.diskLimitRefusal(r.Context(), target.id, 0*unpackedBytes(f.Manifest))' \
+  ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
+control "disk limits: a world's size is its files, not what its manifest claims" internal/agent/disklimits.go \
+  'n += f.Size' \
+  'n = m.TotalBytes + 0*f.Size' \
+  ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
 control "disk limits: a refused restore leaves no stage" internal/agent/handlers.go \
   'os.RemoveAll(a.stageDir(p.ID))' \
   '_ = p.ID' \
-  ./internal/agent '^TestAppliedImportsAndStagedRestoresStopAtTheDiskLimit$'
+  ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
+control "disk limits: applying a restore holds the world it unpacks to" internal/agent/handlers.go \
+  'target.holdDiskLimit(r.Context(), target.id, unpackedBytes(st.manifest))' \
+  'target.holdDiskLimit(r.Context(), target.id, 0*unpackedBytes(st.manifest))' \
+  ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
+control "disk limits: restoring a backup of the server's own is held too" internal/agent/handlers.go \
+  'target.holdDiskLimit(r.Context(), target.id, unpackedBytes(st.manifest))' \
+  'target.holdDiskLimit(r.Context(), target.id, map[bool]int64{true: unpackedBytes(st.manifest)}[strings.HasPrefix(p.Source, "upload")])' \
+  ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
 control "disk limits: a data or resource pack stops at the limit" internal/agent/packs.go \
   'if err := s.diskLimitRefusal(r.Context(), s.id, n); err != nil {' \
   'if err := s.diskLimitRefusal(r.Context(), s.id, 0); err != nil {' \
   ./internal/agent '^TestImportsPacksAndPregenStopAtTheDiskLimit$'
+control "disk limits: an installed data pack counts" internal/agent/packs.go \
+  's.noteDiskWrite(s.id, n)' \
+  's.noteDiskWrite(s.id, 0*n)' \
+  ./internal/agent '^TestAnInstalledDataPackCounts$'
 control "disk limits: pre-generation stops at the limit" internal/agent/pregen.go \
   'if err := s.diskLimitRefusal(s.ctx, s.id, est.DiskHigh); err != nil {' \
   'if err := s.diskLimitRefusal(s.ctx, s.id, 0); err != nil {' \
   ./internal/agent '^TestImportsPacksAndPregenStopAtTheDiskLimit$'
+control "disk limits: pre-generation reserves what it may write" internal/agent/pregen.go \
+  's.notePregen(s.id, est.DiskHigh)' \
+  's.notePregen(s.id, 0*est.DiskHigh)' \
+  ./internal/agent '^TestPregenUnderWayCountsAgainstTheLimit$'
 webcontrol "disk limits: a backup refused at the limit offers no button" web/src/components/app/backup-refused.tsx \
   '!full &&' \
   '(true || !full) &&' \
