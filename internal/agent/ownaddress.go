@@ -92,6 +92,7 @@ func (a *Agent) hServerAddresses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer release()
+	a.notePanelHost(req.PanelHost)
 	st := a.address()
 	if st.Kind != api.AddressOwn {
 		writeError(w, errConflict("An address for each server needs the machine's own domain.", "Give the machine your own domain first, in Machine settings › Address."))
