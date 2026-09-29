@@ -1144,22 +1144,18 @@ func (s *server) reconcile(ctx context.Context) {
 		run := s.runs
 		s.mu.Unlock()
 		s.explainCrash(c.ID, c.State, false, nil)
-		// A server that wasn't meant to be running is left off, which is
-		// not Playkeeper giving up on it. One whose crash repeats at every
-		// start is left off after the first: a restart would only crash it
-		// again. Someone may have started it while the crash was explained,
-		// which it no longer holds.
-		wanted := desired == api.DesiredRunning
+		// Read again: someone may have stopped or started the server while
+		// the crash was explained.
+		wanted := s.desired() == api.DesiredRunning
 		s.mu.Lock()
 		counted := len(s.crashes) >= maxCrashes
-		repeats := wanted && s.crashHolds(run)
-		if repeats {
+		holds, restarting := s.afterCrash(run, wanted)
+		if holds {
 			cause = s.crash.Title + "."
 		}
-		restarting := wanted && !s.givenUp()
 		due := restarting && s.now().After(s.nextAutoRestart)
 		s.mu.Unlock()
-		s.alert(discord.Event{Kind: discord.KindCrash, Detail: cause, Restarting: restarting, GaveUp: wanted && counted, Repeats: repeats, At: fin})
+		s.alert(discord.Event{Kind: discord.KindCrash, Detail: cause, Restarting: restarting, GaveUp: wanted && counted, Repeats: holds, At: fin})
 		if due {
 			s.autoStart("auto-restart")
 		}
@@ -1171,19 +1167,24 @@ func (s *server) reconcile(ctx context.Context) {
 // every start. The caller holds s.mu.
 func (s *server) givenUp() bool { return len(s.crashes) >= maxCrashes || s.repeats }
 
-// crashHolds decides whether the crash just explained, of the run that start
-// number run began, keeps automatic starts off: it repeats at every start,
-// the crashes in the window haven't already, and nobody has started the
-// server since, as they may have while it was explained. It says so in the
-// status. The caller holds s.mu.
-func (s *server) crashHolds(run int) bool {
-	if len(s.crashes) >= maxCrashes || s.runs != run || s.crash == nil || !s.crash.Repeats {
-		return false
+// afterCrash decides what follows the crash just explained, of the run that
+// start number run began: whether it holds automatic starts off, as one that
+// repeats at every start does (and the status then says so), and whether
+// Playkeeper restarts the server. A server that wasn't meant to be running
+// is left off, which is not Playkeeper giving up on it, and one someone
+// started while the crash was explained has moved on from it, whatever
+// became of that start. The caller holds s.mu.
+func (s *server) afterCrash(run int, wanted bool) (holds, restart bool) {
+	if !wanted || s.runs != run {
+		return false, false
 	}
-	s.repeats = true
-	s.lastError += " It would crash the same way again, so Playkeeper didn't restart it."
-	s.lastErrorHint += " Fix the cause, then press Start."
-	return true
+	if len(s.crashes) < maxCrashes && s.crash != nil && s.crash.Repeats {
+		s.repeats = true
+		s.lastError += " It would crash the same way again, so Playkeeper didn't restart it."
+		s.lastErrorHint += " Fix the cause, then press Start."
+		return true, false
+	}
+	return false, !s.givenUp()
 }
 
 type seenExit struct{ fin, at time.Time }

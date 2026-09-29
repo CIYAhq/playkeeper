@@ -8052,13 +8052,17 @@ webcontrol "client-only mods: the dashboard says the mod only runs in players' g
   'return c.explanation' \
   web/src/lib/lib.test.ts 'only runs in players'
 control "repeating crashes: a crash that repeats at every start isn't restarted" internal/agent/lifecycle.go \
-  'repeats := wanted && s.crashHolds(run)' \
-  'repeats := false && wanted && s.crashHolds(run)' \
+  '	if len(s.crashes) < maxCrashes && s.crash != nil && s.crash.Repeats {' \
+  '	if false && len(s.crashes) < maxCrashes && s.crash != nil && s.crash.Repeats {' \
   ./internal/agent '^TestACrashThatRepeatsIsNotRestarted$'
-control "repeating crashes: a start while the crash was explained lets go of it" internal/agent/lifecycle.go \
-  'if len(s.crashes) >= maxCrashes || s.runs != run || s.crash == nil || !s.crash.Repeats {' \
-  'if len(s.crashes) >= maxCrashes || s.crash == nil || !s.crash.Repeats {' \
+control "repeating crashes: a start while the crash was explained moves on from it" internal/agent/lifecycle.go \
+  '	if !wanted || s.runs != run {' \
+  '	if !wanted {' \
   ./internal/agent '^TestAStartLetsGoOfACrashThatRepeats$'
+control "repeating crashes: a stop while the crash was explained keeps it off" internal/agent/lifecycle.go \
+  '		wanted := s.desired() == api.DesiredRunning' \
+  '		wanted := desired == api.DesiredRunning' \
+  ./internal/agent '^TestAStopWhileTheCrashIsExplainedKeepsItOff$'
 control "repeating crashes: a start lets go of a crash that held the server" internal/agent/lifecycle.go \
   '	s.runs++
 	s.repeats = false

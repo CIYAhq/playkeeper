@@ -86,35 +86,69 @@ func TestAStartThatStopsTheSameWayEachTimeIsNotTriedAgain(t *testing.T) {
 	}
 }
 
-// A crash that repeats doesn't keep automatic starts off once someone has
-// started the server, even when they did while the crash was still being
-// explained, and a start lets go of one that did.
+// Someone who starts the server while its crash is still being explained
+// has moved on from it: whatever became of that start, the crash neither
+// holds the server off nor restarts it. With no start since, a crash that
+// repeats holds it, until the next start lets go; one of a server meant to
+// be off does neither; and one Playkeeper doesn't recognise restarts it.
 func TestAStartLetsGoOfACrashThatRepeats(t *testing.T) {
 	e := crashEnv(t)
 	s := e.srv()
+	after := func(run int, wanted bool) (bool, bool) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.afterCrash(run, wanted)
+	}
 	s.mu.Lock()
 	run := s.runs
 	s.crash, s.crashes = &api.Crash{Kind: "ticking_entity", Repeats: true}, []time.Time{time.Now()}
 	s.mu.Unlock()
 	s.resetRun(api.PhaseStartingContainer)
-	s.mu.Lock()
-	held := s.crashHolds(run)
-	s.mu.Unlock()
-	if held {
-		t.Fatal("a crash held the server off although it was started while the crash was explained")
+	if holds, restart := after(run, true); holds || restart {
+		t.Fatalf("a crash someone started the server after: holds %v, restart %v; want neither", holds, restart)
 	}
 
 	s.mu.Lock()
-	held = s.crashHolds(s.runs)
+	run = s.runs
 	s.mu.Unlock()
-	if !held {
-		t.Fatal("a crash that repeats, with no start since, didn't hold the server off")
+	if holds, restart := after(run, false); holds || restart {
+		t.Fatalf("a server meant to be off: holds %v, restart %v; want neither", holds, restart)
+	}
+	if holds, restart := after(run, true); !holds || restart {
+		t.Fatalf("a crash that repeats: holds %v, restart %v; want it held off", holds, restart)
 	}
 	s.resetRun(api.PhaseStartingContainer)
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.givenUp() {
+	gaveUp := s.givenUp()
+	run = s.runs
+	s.crash = &api.Crash{Kind: "unknown"}
+	s.mu.Unlock()
+	if gaveUp {
 		t.Error("a start didn't let go of the crash")
+	}
+	if holds, restart := after(run, true); holds || !restart {
+		t.Errorf("a crash Playkeeper doesn't recognise: holds %v, restart %v; want it restarted", holds, restart)
+	}
+}
+
+// Someone who stops the server while its crash is still being explained
+// keeps it stopped: nothing restarts it once the explanation is done.
+func TestAStopWhileTheCrashIsExplainedKeepsItOff(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	e.waitFor("online", e.onlineIdle)
+	e.fd.mu.Lock()
+	e.fd.logDelay = 2 * time.Second
+	e.fd.mu.Unlock()
+	e.fd.addLog("[12:00:05 INFO]: Timings Reset")
+	e.fd.crash(137)
+	e.waitFor("the crash counted", func() bool { return e.crashEvents() == 1 })
+	if code, out := e.callWhenFree("POST", e.sp("/stop"), map[string]any{"actor": "admin"}); code != 200 {
+		t.Fatalf("stop: %d %v", code, out)
+	}
+	time.Sleep(3 * time.Second)
+	if n := e.autoRestarts(); n != 0 {
+		t.Fatalf("%d automatic restarts of a server stopped while its crash was explained", n)
 	}
 }
 
