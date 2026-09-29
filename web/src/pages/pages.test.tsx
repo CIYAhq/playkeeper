@@ -2835,6 +2835,26 @@ describe('Team', () => {
     expect(document.querySelector<HTMLInputElement>('input[readonly]')?.value).toBe('https://beta.playkeeper.me:8443/join/Qm7xK2pLw9RtVb4n')
   })
 
+  it('shows each creator’s disk, and how much their servers take once it’s counted', async () => {
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [
+        { id: 1, username: 'siya', owner: true, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: '2026-09-01T10:00:00Z', canEdit: false },
+        { id: 4, username: 'alex', owner: false, you: false, role: 'admin', servers: {}, twoFactor: true, addedAt: hoursAgo(2), canEdit: true, allowance: { servers: 1, memoryMB: 4096 }, diskUsedBytes: 12 * 1024 ** 3 },
+        { id: 5, username: 'sam', owner: false, you: false, role: 'admin', servers: {}, twoFactor: true, addedAt: hoursAgo(3), canEdit: true, allowance: { servers: 2, memoryMB: 8192, diskGB: 100 } },
+      ],
+      invites: [],
+      grantableRoles: ['admin', 'moderator', 'viewer'],
+      servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+    }
+    answer({ '/api/team': team })
+    const text = await render(<TeamSection />)
+    expect(text).toContain('12 GB of 30 GB of disk used')
+    expect(text).toContain('100 GB of disk')
+    expect(text).not.toContain('100 GB of disk used')
+  })
+
   it('makes a creator invite with the dialog’s defaults, in the body the panel takes', async () => {
     const team: TeamResponse = {
       projectId: 'p2345abcde',

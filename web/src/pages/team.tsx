@@ -17,8 +17,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
-import { allowanceText, can, projectRoles, roleHint, roleName, scopeText } from '@/lib/access'
-import { formatMB, relativeTime, timeUntil } from '@/lib/format'
+import { allowanceDiskMB, allowanceText, can, projectRoles, roleHint, roleName, scopeText } from '@/lib/access'
+import { formatBytes, formatMB, relativeTime, timeUntil } from '@/lib/format'
 import { usePending } from '@/lib/optimistic'
 import { presenceProps, useListPresence, type Present } from '@/lib/presence'
 import { linkProps } from '@/lib/router'
@@ -235,6 +235,10 @@ function memberLine(m: TeamMember): string {
   const parts = [t('team.added', { time: relativeTime(m.addedAt) }), t(m.twoFactor ? 'team.twoFactorOn' : 'team.twoFactorOff')]
   if (m.you) parts.unshift(t('team.you'))
   if (m.waiting) parts.push(t('team.waiting'))
+  if (m.allowance) {
+    const limit = formatMB(allowanceDiskMB(m.allowance))
+    parts.push(m.diskUsedBytes === undefined ? t('team.diskOf', { limit }) : t('team.diskUsed', { used: formatBytes(m.diskUsedBytes), limit }))
+  }
   return parts.join(t('common.dot'))
 }
 
