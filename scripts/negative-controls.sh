@@ -7477,6 +7477,45 @@ webcontrol "ready server: Home says a waiting customer's server is being set up"
   'const waiting = false' \
   src/pages/pages.test.tsx 'being set up while it waits for room'
 
+# Pausing a customer whose plan ended (internal/panel/pausing.go): their
+# servers stop, and they may only look and download until they renew.
+control "pausing: a paused customer only looks, downloads and looks after their account" internal/panel/workspace.go \
+  'case a.Customer == CustomerPaused && !pausedMay[act]:' \
+  'case false:' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: a suspended customer does nothing" internal/panel/workspace.go \
+  'case a.Customer == CustomerSuspended:' \
+  'case false:' \
+  ./internal/panel '^TestNothingABillingProviderDoesLiftsASuspension$'
+control "pausing: a paused customer's servers stop" internal/panel/pausing.go \
+  's.stopCustomerServers(ctx, info.UserID, cust.Provider)' \
+  '_ = info.UserID' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: a paused customer's tokens are revoked" internal/panel/pausing.go \
+  's.revokeAccountTokens(info.UserID, cust.Provider, "their plan ended")' \
+  '_ = info.UserID' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: only an active customer is paused, once" internal/panel/pausing.go \
+  'case info.State != CustomerActive:' \
+  'case false:' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: a paused customer is told until when" internal/panel/pausing.go \
+  'if err := s.notifier.Notify(ctx, cust, CustomerMessage{Kind: messagePaused, Text: pausedText(until)}); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: renewing brings a paused customer back" internal/panel/customers.go \
+  'if err == nil && info.State == CustomerPaused {' \
+  'if false {' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: the dashboard says until when" internal/panel/server.go \
+  'PausedUntil: s.pausedUntil(a), ' \
+  '' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+webcontrol "pausing: Home tells a paused customer their plan ended" web/src/pages/home.tsx \
+  "if (access.pausedUntil) return <TwoLineNotice tone=\"warning\" title={t('home.pausedTitle')} body={t('home.pausedBody', { date: formatLongDate(access.pausedUntil) })} />" \
+  '' \
+  src/pages/pages.test.tsx 'tells a paused customer their plan has ended'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
