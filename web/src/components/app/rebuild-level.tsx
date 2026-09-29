@@ -24,10 +24,10 @@ const resetKeys: Record<string, MessageKey> = {
   spawn: 'rebuildLevel.resetSpawn',
 }
 
+/** Where the seed comes from when Playkeeper found the world's, and keeps it. */
 const seedKeys: Record<string, MessageKey> = {
   world: 'rebuildLevel.seedWorld',
   backup: 'rebuildLevel.seedBackup',
-  properties: 'rebuildLevel.seedProperties',
 }
 
 /**
@@ -45,14 +45,14 @@ export function RebuildLevelDialog({ server: s, plan, onClose }: { server: Serve
     const seed = seedKeys[plan.seedFrom]
     if (seed) stays.push(seed)
     for (const r of plan.resets) if (resetKeys[r]) resets.push(resetKeys[r])
-    if (!seed) resets.push('rebuildLevel.resetSeed')
+    if (!seed) resets.push(plan.seedFrom === 'properties' ? 'rebuildLevel.resetSeedProperties' : 'rebuildLevel.resetSeed')
   }
 
   async function confirm() {
     if (!plan) return
     setBusy(true)
     try {
-      await post(serverApi(s.id, '/world/rebuild-level'), { world: plan.world, start: true })
+      await post(serverApi(s.id, '/world/rebuild-level'), { world: plan.world, seedFrom: plan.seedFrom, start: true })
       toastManager.add({ title: t('rebuildLevel.started', { server: s.name }), type: 'success' })
       onClose()
       await ws.refresh()
