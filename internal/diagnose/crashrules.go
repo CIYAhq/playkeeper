@@ -319,7 +319,7 @@ func (c *crashCtx) levelData() (CrashDiagnosis, bool) {
 		return CrashDiagnosis{}, false
 	}
 	d := CrashDiagnosis{
-		Kind: CrashCorruptWorld, Params: map[string]any{"file": "level.dat"},
+		Kind: CrashCorruptWorld, Params: map[string]any{"file": "level.dat"}, Repeats: true,
 		Title: "The world's level.dat file is damaged",
 		Explanation: "Minecraft couldn't read level.dat or its spare copy level.dat_old. These files hold the world's settings, " +
 			"so it stopped rather than risk the world. The builds are in other files, so a new level.dat keeps them.",

@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.9
+
+- **No restarts that can't help:** when the crash help knows a crash will happen again at every start (something in the world that crashes each time it's ticked, both of a world's level.dat files damaged, or a mod made for players' games), Playkeeper no longer restarts the server three times first. The Overview shows what happened and the fix after the first crash, and the Discord alert says the server stays off. Crashes it doesn't recognise are still restarted, up to 3 times in 15 minutes.
+
 ## 0.4.8
 
 - **A new level.dat:** when both of a world's level.dat files are damaged, the Overview offers to make a new one next to restoring a backup, so the world keeps every build made since that backup. It says what starts over first: the spawn point, and before Minecraft 26.1 the game rules and the time of day. Playkeeper backs the world up before it changes anything, and keeps the world's seed, so new land matches the old.
