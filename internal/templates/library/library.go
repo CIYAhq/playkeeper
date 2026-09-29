@@ -24,7 +24,8 @@ type Template struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	// Art is the pixel scene on its card: a file in the dashboard's
-	// assets/pixel-art.
+	// assets/pixel-art. A dashboard with the template's thumbnail
+	// (assets/template-thumbs/<id>.webp) shows that instead.
 	Art string `json:"art"`
 	// Page is its page on playkeeper.io, when it has one.
 	Page string `json:"page,omitempty"`
