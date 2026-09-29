@@ -513,13 +513,14 @@ func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, accountID st
 			if !al.IsZero() && p.Visibility != "archived" {
 				selling[p.Product.ID] = true
 			}
-			if _, err := conn.ExecContext(ctx, `INSERT INTO whop_plans(plan_id, product_id, product_title, title, price, visibility, trial_days, allowance_servers, allowance_memory_mb, allowance_from, disk_gb, position, stock, unlimited_stock)
-				VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+			if _, err := conn.ExecContext(ctx, `INSERT INTO whop_plans(plan_id, product_id, product_title, title, price, visibility, trial_days, allowance_servers, allowance_memory_mb, allowance_from, disk_gb, position, stock, unlimited_stock, free)
+				VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 				ON CONFLICT(plan_id) DO UPDATE SET product_id = excluded.product_id, product_title = excluded.product_title, title = excluded.title, price = excluded.price,
 				visibility = excluded.visibility, trial_days = excluded.trial_days, allowance_servers = excluded.allowance_servers, allowance_memory_mb = excluded.allowance_memory_mb,
-				allowance_from = excluded.allowance_from, disk_gb = excluded.disk_gb, position = excluded.position, stock = excluded.stock, unlimited_stock = excluded.unlimited_stock`,
+				allowance_from = excluded.allowance_from, disk_gb = excluded.disk_gb, position = excluded.position, stock = excluded.stock, unlimited_stock = excluded.unlimited_stock,
+				free = excluded.free`,
 				p.ID, p.Product.ID, p.Product.Title, p.Title, p.Price(), p.Visibility, p.TrialDays, al.Servers, al.MemoryMB, from, whop.PlanDiskGB(p.Metadata), i,
-				max(int(p.Stock), 0), p.UnlimitedStock); err != nil {
+				max(int(p.Stock), 0), p.UnlimitedStock, p.Free()); err != nil {
 				return err
 			}
 		}

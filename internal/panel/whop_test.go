@@ -129,7 +129,7 @@ func newFakeWhop(t *testing.T) *fakeWhop {
 		products: map[string]whop.Metadata{"prod_mc": {"color": "green"}},
 		plans: []map[string]any{
 			{"id": "plan_starter", "title": "Starter", "visibility": "hidden", "plan_type": "renewal", "billing_period": 30, "formatted_price": "$8.00 / month",
-				"trial_period_days": 3, "product": map[string]any{"id": "prod_mc", "title": "Minecraft server"},
+				"renewal_price": 8, "trial_period_days": 3, "product": map[string]any{"id": "prod_mc", "title": "Minecraft server"},
 				"metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}, "unlimited_stock": true},
 			{"id": "plan_big", "title": "Big", "visibility": "hidden", "plan_type": "renewal", "billing_period": 30, "currency": "usd", "renewal_price": 16,
 				"product": map[string]any{"id": "prod_mc", "title": "Minecraft server"}, "metadata": map[string]any{}, "unlimited_stock": true},

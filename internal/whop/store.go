@@ -183,6 +183,9 @@ func (p Plan) Price() string {
 	return strings.TrimSpace(fmt.Sprintf("%s %.2f", cur, p.InitialPrice))
 }
 
+// Free reports whether a plan charges nothing, first or on renewal.
+func (p Plan) Free() bool { return p.InitialPrice == 0 && p.RenewalPrice == 0 }
+
 // Plans lists the account's plans, visible and hidden.
 func (c *Client) Plans(ctx context.Context, accountID string) ([]Plan, error) {
 	return list[Plan](ctx, c, "/variants", url.Values{"account_id": {accountID}})

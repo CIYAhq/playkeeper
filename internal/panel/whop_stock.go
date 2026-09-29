@@ -21,8 +21,15 @@ import (
 // as they are. The fleet calls it after every change in room and every few
 // minutes. Neither waits on the billing provider.
 type saleStock interface {
-	SalePlans(ctx context.Context) ([]CustomerPlan, error)
+	SalePlans(ctx context.Context) ([]SalePlan, error)
 	SetAvailability(ctx context.Context, left map[string]int) error
+}
+
+// SalePlan is a plan the store sells. Free is one that charges nothing,
+// such as the hidden creator plan; the fleet gives room to paid plans first.
+type SalePlan struct {
+	CustomerPlan
+	Free bool
 }
 
 // maxWhopStock bounds a plan's stock, far above what machines can take.
@@ -33,18 +40,18 @@ type whopStock struct{ s *Server }
 
 // SalePlans lists the plans with an allowance that aren't archived, hidden
 // ones too, since they sell through their own links.
-func (ws whopStock) SalePlans(ctx context.Context) ([]CustomerPlan, error) {
-	rows, err := ws.s.db.QueryContext(ctx, `SELECT plan_id, title, allowance_servers, allowance_memory_mb, disk_gb FROM whop_plans
+func (ws whopStock) SalePlans(ctx context.Context) ([]SalePlan, error) {
+	rows, err := ws.s.db.QueryContext(ctx, `SELECT plan_id, title, allowance_servers, allowance_memory_mb, disk_gb, free FROM whop_plans
 		WHERE allowance_from != '' AND visibility != 'archived' ORDER BY position`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []CustomerPlan
+	var out []SalePlan
 	for rows.Next() {
-		var p CustomerPlan
+		var p SalePlan
 		var title string
-		if err := rows.Scan(&p.ID, &title, &p.Servers, &p.MemoryMB, &p.DiskGB); err != nil {
+		if err := rows.Scan(&p.ID, &title, &p.Servers, &p.MemoryMB, &p.DiskGB, &p.Free); err != nil {
 			return nil, err
 		}
 		p.Name = cmpOr(title, p.ID)

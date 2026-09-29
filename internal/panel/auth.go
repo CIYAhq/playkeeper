@@ -438,12 +438,13 @@ CREATE TABLE customer_homes (
 );
 `,
 	// Selling only what fits: each plan's stock on Whop as last read or
-	// set, and whether it's unlimited; when each customer was last given
-	// their plan; and how many more of each plan the machines can take, as
-	// last said, and when.
+	// set, whether it's unlimited, and whether the plan is free; when each
+	// customer was last given their plan; and how many more of each plan the
+	// machines can take, as last said, and when.
 	`
 ALTER TABLE whop_plans ADD COLUMN stock           INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE whop_plans ADD COLUMN unlimited_stock INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE whop_plans ADD COLUMN free            INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE whop_customers ADD COLUMN applied_at INTEGER NOT NULL DEFAULT 0;
 CREATE TABLE whop_stock (
   plan_id TEXT    PRIMARY KEY,

@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -23,18 +24,26 @@ func (e *env) availability(t *testing.T, left map[string]int) {
 	e.reconcile()
 }
 
-func TestTheFleetSeesThePlansTheStoreSells(t *testing.T) {
-	_, e, _ := connectedWhop(t)
+func TestTheFleetSeesThePlansTheStoreSellsAndWhichAreFree(t *testing.T) {
+	f, e, own := connectedWhop(t)
+	f.mu.Lock()
+	f.plans = append(f.plans, map[string]any{"id": "plan_creator", "title": "Creator", "visibility": "hidden", "plan_type": "one_time", "initial_price": 0,
+		"product": map[string]any{"id": "prod_mc", "title": "Minecraft server"}, "metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}})
+	f.mu.Unlock()
+	if r := e.do(t, "POST", "/api/whop/sync", "", own.auth()); r.status != http.StatusOK {
+		t.Fatalf("sync: %d %v", r.status, r.body)
+	}
 	plans, err := e.srv.sales.SalePlans(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got []string
 	for _, p := range plans {
-		got = append(got, planText(p))
+		got = append(got, fmt.Sprintf("%s free=%v", planText(p.CustomerPlan), p.Free))
 	}
-	if want := []string{"plan_starter (Starter) 1/4096/0", "plan_big (Big) 2/8192/0"}; !slices.Equal(got, want) {
-		t.Fatalf("plans on sale: %q", got)
+	want := []string{"plan_starter (Starter) 1/4096/0 free=false", "plan_big (Big) 2/8192/0 free=false", "plan_creator (Creator) 1/4096/0 free=true"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("plans on sale:\n%q\nwant\n%q", got, want)
 	}
 }
 
