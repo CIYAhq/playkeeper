@@ -229,6 +229,73 @@ func (a *Agent) issueCertificate(ctx context.Context, h *opHandle) error {
 	return nil
 }
 
+// The own domain's wildcard certificate: once the machine answers DNS for
+// its own domain and the domain's parent hands the domain here (the check's
+// PortFree), one certificate for *.<domain> serves every server's address
+// there, rather than one each. It's proven over DNS-01 from the machine's
+// own zone, with no port 80 and no daily cap.
+
+// wildcardName is the own domain host's wildcard, *.<host>.
+func wildcardName(host string) string { return "*." + host }
+
+// wildcardReady reports whether the own domain st can have its wildcard
+// certificate: an address for each server is on, and the last check found
+// its parent handing the domain to the machine.
+func wildcardReady(st addressState) bool {
+	return st.Kind == api.AddressOwn && st.ServerAddresses && st.Check != nil && st.Check.PortFree
+}
+
+// wildcardDue reports whether the own domain st's wildcard certificate
+// should be got or renewed now.
+func (a *Agent) wildcardDue(st addressState) bool {
+	if !wildcardReady(st) {
+		return false
+	}
+	row := a.loadCertificate(wildcardName(st.Host))
+	return row == nil || row.status.Due(a.now())
+}
+
+// wildcardServes reports whether the own domain st's wildcard certificate
+// is valid now, so the servers' addresses from its wildcard record need no
+// certificates of their own.
+func (a *Agent) wildcardServes(st addressState) bool {
+	row := a.loadCertificate(wildcardName(st.Host))
+	if st.Kind != api.AddressOwn || row == nil || row.status.Certificate == nil {
+		return false
+	}
+	c, now := row.status.Certificate, a.now()
+	return !now.Before(c.NotBefore) && now.Before(c.NotAfter)
+}
+
+// issueWildcardCertificate gets or renews the own domain's wildcard
+// certificate.
+func (a *Agent) issueWildcardCertificate(ctx context.Context, h *opHandle) error {
+	st := a.address()
+	if !wildcardReady(st) {
+		return errConflict("The machine's domain isn't handed to it for its servers' addresses any more.", "")
+	}
+	name := wildcardName(st.Host)
+	h.set("name", name)
+	h.phase("certificate")
+	row := a.loadCertificate(name)
+	if row == nil {
+		row = &certRow{name: name, status: certs.Status{Names: []string{name}}}
+	}
+	row.source, row.challenge = api.AddressOwn, "dns-01"
+	req := certs.Request{Names: []string{name}, Dir: a.cfg.CertsDir(), Owner: a.certOwner(), DNS01: &certs.DNS01{Challenger: zoneChallenger{a}}}
+	cert, err := a.opts.Issue(ctx, a.issuer(), req)
+	row.status.Record(a.now().UTC(), cert, err)
+	if serr := a.saveCertificate(row); serr != nil {
+		return serr
+	}
+	if err != nil {
+		p := row.status.Problem
+		return &apiError{Status: http.StatusBadGateway, Code: p.Code, Msg: p.Message, Hint: p.Hint}
+	}
+	h.set("notAfter", cert.NotAfter)
+	return nil
+}
+
 // saveNameCheck keeps the result of looking up the own domain's name
 // alone, next to the last look at its SRV records. A result that isn't
 // ready brings the loop's next full look forward, as checkOwn's would.

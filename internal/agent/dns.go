@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/netip"
@@ -39,6 +40,10 @@ const (
 // dnsService answers the zone.
 type dnsService struct {
 	answerer dnszone.Answerer
+	// challenges are the TXT records certificates' DNS-01 checks need
+	// meanwhile, by name relative to the zone, answered besides it.
+	challengeMu sync.Mutex
+	challenges  map[string][]string
 
 	mu        sync.Mutex
 	cancel    context.CancelFunc
@@ -136,6 +141,52 @@ func (a *Agent) startDNS() {
 	case len(addrs) == 0:
 		d.problem = "The machine has no address to answer DNS on."
 	}
+}
+
+// zoneChallenger answers certificates' DNS-01 checks from the zone the
+// machine answers DNS for: the machine's parent hands the domain here, so
+// Let's Encrypt asks it.
+type zoneChallenger struct{ a *Agent }
+
+func (c zoneChallenger) SetTXT(_ context.Context, fqdn, value string) error {
+	return c.a.setChallenge(fqdn, value, true)
+}
+
+func (c zoneChallenger) ClearTXT(_ context.Context, fqdn, value string) error {
+	return c.a.setChallenge(fqdn, value, false)
+}
+
+// setChallenge answers, or stops answering, value as a TXT record of fqdn,
+// a name in the zone.
+func (a *Agent) setChallenge(fqdn, value string, on bool) error {
+	d := &a.dns
+	d.challengeMu.Lock()
+	defer d.challengeMu.Unlock()
+	zone := d.answerer.Zone().Name
+	rel, ok := strings.CutSuffix(strings.ToLower(strings.TrimSuffix(fqdn, ".")), "."+zone)
+	if zone == "" || !ok {
+		return fmt.Errorf("the machine doesn't answer DNS for %s", fqdn)
+	}
+	if d.challenges == nil {
+		d.challenges = map[string][]string{}
+	}
+	values := slices.DeleteFunc(d.challenges[rel], func(v string) bool { return v == value })
+	if on {
+		values = append(values, value)
+	}
+	if len(values) == 0 {
+		delete(d.challenges, rel)
+	} else {
+		d.challenges[rel] = values
+	}
+	var extra []dnszone.Record
+	for _, name := range slices.Sorted(maps.Keys(d.challenges)) {
+		for _, v := range d.challenges[name] {
+			extra = append(extra, dnszone.Record{Name: name, Type: dnszone.TypeTXT, Value: v, TTL: 30})
+		}
+	}
+	d.answerer.SetExtra(extra)
+	return nil
 }
 
 // listenDNS listens on addr over UDP and TCP, on the same port. A free port
