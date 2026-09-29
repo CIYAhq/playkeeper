@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type FormEvent } from 'react'
 import { ExternalLinkIcon, KeyRoundIcon, RefreshCwIcon, UnplugIcon } from 'lucide-react'
 import { ApiError, del, get, post, put } from '@/api/client'
-import type { WhopPlan, WhopStore } from '@/api/types'
+import type { WhopCustomer, WhopPlan, WhopStore } from '@/api/types'
 import { errorText, useWorkspace } from '@/api/workspace'
 import { Card, CardTitle, Marker } from '@/components/app/bits'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
@@ -261,6 +261,17 @@ function Connected({ store, onChange }: { store: WhopStore; onChange: (s: WhopSt
           ))}
         </ul>
       )}
+      <h3 className="mt-4 text-[13px] font-semibold">{t('whop.customers')}</h3>
+      {store.dashboard && !store.webhook && <p className="mt-1 text-xs text-muted-foreground">{t('whop.noWebhook')}</p>}
+      {store.customers.length === 0 ? (
+        <p className="py-3 text-[13px] text-muted-foreground">{t('whop.noCustomers')}</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {store.customers.map((c) => (
+            <CustomerRow key={c.whopUserId} customer={c} />
+          ))}
+        </ul>
+      )}
       <AllowanceDialog plan={editing} onClose={() => setEditing(undefined)} onSaved={onChange} />
       <DisconnectDialog open={disconnecting} account={store.account?.title ?? ''} onClose={() => setDisconnecting(false)} onDone={onChange} />
     </div>
@@ -289,6 +300,37 @@ function PlanRow({ plan, onEdit }: { plan: WhopPlan; onEdit: () => void }) {
           {plan.allowance ? t('whop.changeAllowance') : t('whop.setAllowance')}
         </Button>
       )}
+    </li>
+  )
+}
+
+function customerStatus(c: WhopCustomer): string {
+  switch (c.status) {
+    case 'starting':
+      return t('whop.customer.starting')
+    case 'active':
+      return c.account ? t('whop.customer.activeAs', { account: c.account }) : t('whop.customer.active')
+    case 'paused':
+      return t('whop.customer.paused')
+    case 'ended':
+      return t('whop.customer.ended')
+    default: {
+      const unreachable: never = c.status
+      return unreachable
+    }
+  }
+}
+
+function CustomerRow({ customer }: { customer: WhopCustomer }) {
+  const plan = [customer.plan, customer.allowance && allowanceText(customer.allowance)].filter(Boolean).join(t('common.dot'))
+  return (
+    <li className="py-3">
+      <p className="text-[13px] leading-5 font-semibold">{customer.handle || customer.whopUserId}</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {customerStatus(customer)}
+        {plan && `${t('common.dot')}${plan}`}
+      </p>
+      {customer.problem && <p className="mt-1 text-xs text-destructive-foreground">{customer.problem}</p>}
     </li>
   )
 }

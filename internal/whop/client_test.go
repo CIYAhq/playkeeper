@@ -190,6 +190,14 @@ func TestPlanAllowance(t *testing.T) {
 	}
 }
 
+func TestPlanDiskGB(t *testing.T) {
+	for meta, want := range map[string]int{"30": 30, " 60 ": 60, "": 0, "0": 0, "-5": 0, "7.5": 0, "lots": 0, "100001": 0} {
+		if got := PlanDiskGB(Metadata{MetaDiskGB: meta}); got != want {
+			t.Errorf("PlanDiskGB(%q) = %d, want %d", meta, got, want)
+		}
+	}
+}
+
 func TestWithDashboard(t *testing.T) {
 	if _, changed := WithDashboard(Metadata{MetaDashboard: "https://a"}, "https://a"); changed {
 		t.Error("the same address counted as a change")

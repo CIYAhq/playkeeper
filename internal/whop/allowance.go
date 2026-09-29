@@ -13,6 +13,10 @@ const (
 	// whole or half, such as "1" and "4". The blueprint's plans carry them.
 	MetaServers  = "playkeeper_servers"
 	MetaMemoryGB = "playkeeper_memory_gb"
+	// MetaDiskGB on a plan, optional, is the disk its buyer's servers may
+	// use between them in whole GB; without it the hosting core gives the
+	// default for the memory.
+	MetaDiskGB = "playkeeper_disk_gb"
 	// MetaDashboard on a product is the address of the Playkeeper that
 	// sells it. The store takes orders only once its products have one.
 	MetaDashboard = "playkeeper_dashboard"
@@ -36,6 +40,16 @@ func PlanAllowance(m Metadata) (servers, memoryMB int, ok bool) {
 		return 0, 0, false
 	}
 	return n, int(g * 1024), true
+}
+
+// PlanDiskGB reads a plan's disk in whole GB from its metadata, 0 when it
+// says nothing or something that isn't a size up to 100 TB.
+func PlanDiskGB(m Metadata) int {
+	n, err := strconv.Atoi(strings.TrimSpace(m[MetaDiskGB]))
+	if err != nil || n < 1 || n > 100_000 {
+		return 0
+	}
+	return n
 }
 
 // WithDashboard returns meta with the dashboard's address set, or removed
