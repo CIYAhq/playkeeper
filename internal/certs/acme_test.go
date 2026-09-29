@@ -107,6 +107,8 @@ type caOrder struct {
 type caAuthz struct {
 	id, name, status, account string
 	chals                     []*caChallenge
+	// wildcard: the order asked for *.name, which only DNS-01 proves.
+	wildcard bool
 }
 
 type caChallenge struct {
@@ -382,11 +384,15 @@ func (f *fakeCA) newOrder(w http.ResponseWriter, a *caAccount, payload []byte) {
 			return
 		}
 		f.seq++
-		z := &caAuthz{id: strconv.Itoa(f.seq), name: ident.Value, status: "pending", account: a.url}
+		name, wild := strings.CutPrefix(ident.Value, "*.")
+		z := &caAuthz{id: strconv.Itoa(f.seq), name: name, wildcard: wild, status: "pending", account: a.url}
 		if f.validAuthz {
 			z.status = "valid"
 		}
 		for _, typ := range offer {
+			if wild && typ != "dns-01" {
+				continue
+			}
 			z.chals = append(z.chals, &caChallenge{Type: typ, URL: f.url("/chal/" + z.id + "/" + typ), Token: randomToken(), Status: "pending"})
 		}
 		f.authzs[z.id] = z
@@ -439,7 +445,11 @@ func (f *fakeCA) writeOrder(w http.ResponseWriter, status int, o *caOrder) {
 }
 
 func (f *fakeCA) writeAuthz(w http.ResponseWriter, z *caAuthz) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": z.status, "identifier": map[string]string{"type": "dns", "value": z.name}, "challenges": z.chals})
+	v := map[string]any{"status": z.status, "identifier": map[string]string{"type": "dns", "value": z.name}, "challenges": z.chals}
+	if z.wildcard {
+		v["wildcard"] = true
+	}
+	writeJSON(w, http.StatusOK, v)
 }
 
 func (f *fakeCA) challenge(w http.ResponseWriter, a *caAccount, rest string) {
@@ -1497,6 +1507,57 @@ func TestCheckChain(t *testing.T) {
 	if _, err := checkChain(chain, key, []string{"mc.example.com"}, now.Add(-time.Hour-4*time.Minute)); err != nil {
 		t.Errorf("a clock a few minutes behind = %v", err)
 	}
+	if _, err := checkChain(chain, key, []string{"*.example.com"}, now); err == nil {
+		t.Error("a certificate without the wildcard asked for was accepted")
+	}
+	wild := ca.issue(t, &key.PublicKey, []string{"*.example.com"}, now.Add(-time.Hour), now.Add(90*24*time.Hour))
+	if _, err := checkChain(wild, key, []string{"*.example.com"}, now); err != nil {
+		t.Errorf("a wildcard certificate = %v", err)
+	}
+}
+
+// A wildcard is proven over DNS-01 at the name below its star, saved under a
+// file name without one, and served for each name just below it, but not
+// for that name itself or names further down; Forget deletes it. Without
+// DNS-01 it isn't asked for.
+func TestIssueAWildcardOverDNS01(t *testing.T) {
+	f := newFakeCA(t)
+	ch := newChallenger(t)
+	f.txt = ch.txt
+	base := t.TempDir()
+	dir := filepath.Join(base, "certs")
+	req := Request{Names: []string{"*.Beta.example.com"}, DNS01: &DNS01{Challenger: ch, LookupTXT: ch.lookup, Interval: time.Millisecond}, Dir: dir}
+	c, err := f.issuer(base).Issue(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(c.Names, []string{"*.beta.example.com"}) || f.count("validate dns-01") != 1 {
+		t.Fatalf("names = %q, steps %q", c.Names, f.steps)
+	}
+	if log := ch.log(); len(log) != 2 || !strings.HasPrefix(log[0], "set _acme-challenge.beta.example.com ") {
+		t.Errorf("challenger calls = %q", log)
+	}
+	file := filepath.Join(dir, "_.beta.example.com.pem")
+	if _, err := os.Stat(file); err != nil {
+		t.Fatal(err)
+	}
+	st, err := NewStore(StoreOptions{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, served := range map[string]bool{"alex.beta.example.com": true, "Alex.Beta.example.com.": true, "beta.example.com": false, "a.alex.beta.example.com": false} {
+		if _, err := st.GetCertificate(hello(name)); (err == nil) != served {
+			t.Errorf("%s: served %v, want %v", name, err == nil, served)
+		}
+	}
+	if err := Forget(dir, "*.beta.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(file); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("after Forget: %v", err)
+	}
+	_, err = f.issuer(base).Issue(t.Context(), Request{Names: []string{"*.beta.example.com"}, HTTP01: &HTTP01Responder{}, Dir: dir})
+	wantProblem(t, err, CodeInvalidName, "wildcard")
 }
 
 // problemFixtures are problem documents in the format Let's Encrypt sends,

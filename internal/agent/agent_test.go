@@ -761,6 +761,34 @@ func TestServeLeavesOtherFilesAlone(t *testing.T) {
 	}
 }
 
+// Close returns once every database connection is closed, the ones
+// database/sql still holds included: it replaces the connections of the
+// queries the cancellation interrupted from a goroutine of its own. A
+// connection given back after Close would write the database's files after
+// the agent is gone.
+func TestCloseWaitsForTheDatabaseConnectionsInUse(t *testing.T) {
+	e := newAgentEnv(t)
+	c, err := e.a.db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var givenBack atomic.Bool
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		givenBack.Store(true)
+		c.Close()
+	}()
+	e.stop()
+	if !givenBack.Load() {
+		t.Fatal("Close returned while a database connection was still in use")
+	}
+	for _, f := range []string{"agent.db-wal", "agent.db-shm"} {
+		if _, err := os.Stat(filepath.Join(e.cfg.AgentDir(), f)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s is still there after Close: %v", f, err)
+		}
+	}
+}
+
 func TestCreateStartStopAreIdempotent(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
