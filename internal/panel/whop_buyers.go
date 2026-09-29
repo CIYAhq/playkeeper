@@ -176,6 +176,7 @@ func (s *Server) reconcileWhop(ctx context.Context) {
 	if dash != "" {
 		s.inviteWhopBuyers(ctx, c, a, dash)
 	}
+	s.whopLifecycle(ctx, c, a, dash)
 }
 
 // ensureWhopWebhook adds the webhook, or moves it to the dashboard's
@@ -424,13 +425,16 @@ type whopBuyerView struct {
 	WhopUserID string `json:"whopUserId"`
 	Username   string `json:"username,omitempty"`
 	// Status is "invited" (an invite that works was sent), "joined" (they
-	// made their account), "removed" (the owner removed that account),
+	// made their account), "paused" (their plan ended: sign-in paused and
+	// servers stopped until DeletesAt), "deleted" (their servers were
+	// deleted 14 days on), "removed" (the owner removed their account),
 	// "turned_off" (the owner turned their invite off), "sending" (no
 	// invite could be sent yet) or "ended" (no membership grants access).
 	Status    string            `json:"status"`
 	Account   string            `json:"account,omitempty"`
 	Allowance invites.Allowance `json:"allowance,omitzero"`
 	InvitedAt *time.Time        `json:"invitedAt,omitempty"`
+	DeletesAt *time.Time        `json:"deletesAt,omitempty"`
 	Problem   string            `json:"problem,omitempty"`
 }
 
@@ -439,7 +443,8 @@ func (s *Server) whopBuyers(ctx context.Context) ([]whopBuyerView, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT m.whop_user_id,
 		COALESCE(SUM(CASE WHEN m.status IN `+whopAccess+` AND p.allowance_from != '' THEN p.allowance_servers END), 0),
 		COALESCE(SUM(CASE WHEN m.status IN `+whopAccess+` AND p.allowance_from != '' THEN p.allowance_memory_mb END), 0),
-		COALESCE(b.username, ''), COALESCE(u.username, ''), COALESCE(b.joined_at, 0), COALESCE(b.invite_id, ''), COALESCE(b.invited_at, 0), COALESCE(b.problem, '')
+		COALESCE(b.username, ''), COALESCE(u.username, ''), COALESCE(b.joined_at, 0), COALESCE(b.invite_id, ''), COALESCE(b.invited_at, 0), COALESCE(b.problem, ''),
+		COALESCE(b.ended_at, 0), COALESCE(b.deleted_at, 0)
 		FROM whop_memberships m JOIN whop_plans p ON p.plan_id = m.plan_id
 		LEFT JOIN whop_buyers b ON b.whop_user_id = m.whop_user_id LEFT JOIN users u ON u.id = b.user_id
 		GROUP BY m.whop_user_id ORDER BY MAX(m.updated_at) DESC LIMIT 200`)
@@ -451,9 +456,9 @@ func (s *Server) whopBuyers(ctx context.Context) ([]whopBuyerView, error) {
 	out := []whopBuyerView{}
 	for rows.Next() {
 		var v whopBuyerView
-		var joined, invited int64
+		var joined, invited, ended, deleted int64
 		var invite string
-		if err := rows.Scan(&v.WhopUserID, &v.Allowance.Servers, &v.Allowance.MemoryMB, &v.Username, &v.Account, &joined, &invite, &invited, &v.Problem); err != nil {
+		if err := rows.Scan(&v.WhopUserID, &v.Allowance.Servers, &v.Allowance.MemoryMB, &v.Username, &v.Account, &joined, &invite, &invited, &v.Problem, &ended, &deleted); err != nil {
 			return nil, err
 		}
 		v.Allowance = capAllowance(v.Allowance)
@@ -462,6 +467,12 @@ func (s *Server) whopBuyers(ctx context.Context) ([]whopBuyerView, error) {
 			v.InvitedAt = &t
 		}
 		switch {
+		case v.Account != "" && deleted != 0:
+			v.Status = "deleted"
+		case v.Account != "" && ended != 0:
+			v.Status = "paused"
+			t := time.UnixMilli(ended).Add(whopGrace).UTC()
+			v.DeletesAt = &t
 		case v.Account != "":
 			v.Status = "joined"
 		case joined != 0:

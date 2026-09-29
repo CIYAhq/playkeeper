@@ -923,6 +923,18 @@ func (s *Server) hLogin(w http.ResponseWriter, r *http.Request, _ *session) {
 		return
 	}
 	s.locks.succeed(key)
+	// A paused account, such as a Whop buyer's whose plan ended, is told so
+	// only once its password is right.
+	var paused int64
+	if err := s.db.QueryRow(`SELECT paused_at FROM users WHERE id = ?`, u.ID).Scan(&paused); err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	if paused != 0 {
+		s.audit(u.Username, "login", "panel", "refused", "the account is paused")
+		writeErr(w, http.StatusForbidden, api.CodeForbidden, "This account is paused.", "Its plan ended. Renew it on the store to sign in again.")
+		return
+	}
 	if started, err := s.secondFactorNeeded(w, u); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Could not start the second sign-in step.", "")
 		return

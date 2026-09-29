@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { allowanceText } from '@/lib/access'
-import { formatMB, relativeTime } from '@/lib/format'
+import { formatDate, formatMB, relativeTime } from '@/lib/format'
 import { linkProps } from '@/lib/router'
 
 const whopDeveloper = 'https://whop.com/dashboard/developer'
@@ -310,6 +310,10 @@ function buyerStatus(b: WhopBuyer): string {
       return b.invitedAt ? t('whop.buyer.invited', { when: relativeTime(b.invitedAt) }) : t('whop.buyer.sending')
     case 'joined':
       return t('whop.buyer.joined', { account: b.account ?? '' })
+    case 'paused':
+      return b.deletesAt ? t('whop.buyer.paused', { account: b.account ?? '', when: formatDate(b.deletesAt) }) : t('whop.buyer.ended')
+    case 'deleted':
+      return t('whop.buyer.deleted', { account: b.account ?? '' })
     case 'removed':
       return t('whop.buyer.removed')
     case 'turned_off':

@@ -1864,6 +1864,22 @@ describe('Sell on Whop', () => {
     expect(text).not.toContain('checks every few minutes')
   })
 
+  it('says which buyers’ plans ended, when their servers go, and whose went', async () => {
+    const deletesAt = new Date(Date.now() + 10 * 86_400_000).toISOString()
+    answer({
+      '/api/whop': {
+        ...open,
+        buyers: [
+          { whopUserId: 'user_alex', username: 'alexplays', status: 'paused', account: 'alex', deletesAt },
+          { whopUserId: 'user_sam', username: 'samcrafts', status: 'deleted', account: 'sam' },
+        ],
+      },
+    })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain(`alexplaysalex · plan ended, servers stopped and deleted on ${formatDate(deletesAt)} unless renewed`)
+    expect(text).toContain('samcraftssam · servers deleted 14 days after the plan ended')
+  })
+
   it('says when Whop can’t tell the dashboard about buyers as they buy', async () => {
     answer({ '/api/whop': { ...open, webhook: false, buyers: [] } })
     const text = await render(<SellOnWhopSection />, owner)

@@ -2636,6 +2636,8 @@ export const en = {
   'whop.noWebhook': 'Whop can’t tell this dashboard about buyers as they buy yet, so it checks every few minutes.',
   'whop.buyer.invited': 'Invite sent {when}',
   'whop.buyer.joined': 'Joined as {account}',
+  'whop.buyer.paused': '{account} · plan ended, servers stopped and deleted on {when} unless renewed',
+  'whop.buyer.deleted': '{account} · servers deleted 14 days after the plan ended',
   'whop.buyer.removed': 'Their account was removed',
   'whop.buyer.turnedOff': 'Invite turned off',
   'whop.buyer.sending': 'Sending their invite',

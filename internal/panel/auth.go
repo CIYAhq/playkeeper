@@ -382,6 +382,18 @@ CREATE TABLE whop_deliveries (
 );
 CREATE INDEX whop_deliveries_received ON whop_deliveries(received_at);
 `,
+	// Accounts whose sign-in is paused, such as a Whop buyer whose plan
+	// ended; and where each buyer's lifecycle stands: when their plan ended,
+	// when their servers were stopped and deleted, and what they were last
+	// told, with the memberships whose cancellation they were told of.
+	`
+ALTER TABLE users ADD COLUMN paused_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_buyers ADD COLUMN ended_at   INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_buyers ADD COLUMN stopped_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_buyers ADD COLUMN deleted_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_buyers ADD COLUMN told       TEXT    NOT NULL DEFAULT '';
+ALTER TABLE whop_memberships ADD COLUMN told_cancel INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 const (
@@ -547,7 +559,7 @@ func (s *Server) lookupSession(token string) (session, error) {
 	var sess session
 	var created, lastSeen, expires int64
 	err := s.db.QueryRow(`SELECT s.id_hash, s.csrf, s.created_at, s.last_seen, s.expires_at, u.id, u.username, u.role
-		FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id_hash = ?`, tokenHash(token)).
+		FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id_hash = ? AND u.paused_at = 0`, tokenHash(token)).
 		Scan(&sess.IDHash, &sess.CSRF, &created, &lastSeen, &expires, &sess.User.ID, &sess.User.Username, &sess.User.Role)
 	if err != nil {
 		return session{}, errNoSession

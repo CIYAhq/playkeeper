@@ -1893,14 +1893,15 @@ export interface WhopStore {
   notice?: string
 }
 
-/** A buyer of the store: invited (a working invite was sent), joined (made their account), removed (the owner removed it), turned_off (the owner turned their invite off), sending (no invite could be sent yet) or ended (no plan grants access). */
+/** A buyer of the store: invited (a working invite was sent), joined (made their account), paused (their plan ended: sign-in paused and servers stopped until deletesAt), deleted (their servers were deleted 14 days on), removed (the owner removed their account), turned_off (the owner turned their invite off), sending (no invite could be sent yet) or ended (no plan grants access). */
 export interface WhopBuyer {
   whopUserId: string
   username?: string
-  status: 'invited' | 'joined' | 'removed' | 'turned_off' | 'sending' | 'ended'
+  status: 'invited' | 'joined' | 'paused' | 'deleted' | 'removed' | 'turned_off' | 'sending' | 'ended'
   account?: string
   allowance?: Allowance
   invitedAt?: string
+  deletesAt?: string
   problem?: string
 }
 
