@@ -418,6 +418,69 @@ func TestPregenUnderWayCountsAgainstTheLimit(t *testing.T) {
 	}
 }
 
+// Starting pre-generation holds what its area may take from the check until
+// its task is recorded, so nothing takes that room in between, and a start
+// refused because another is under way leaves that one's reservation as it
+// was.
+func TestPregenHoldsItsAreaFromTheCheck(t *testing.T) {
+	e := newAgentEnv(t)
+	e.withSources()
+	e.create()
+	e.chunky()
+	presets := map[string]api.PregenPreset{}
+	for _, p := range e.pregen().Presets {
+		presets[p.ID] = p
+	}
+	small, medium := presets["small"], presets["medium"]
+	if small.DiskBytes <= 0 || medium.DiskBytes <= 2*small.DiskBytes {
+		t.Fatalf("the presets: %+v", presets)
+	}
+	e.rcon.mu.Lock()
+	answer := e.rcon.answer
+	e.rcon.mu.Unlock()
+	starting, release := make(chan struct{}, 1), make(chan struct{})
+	e.rcon.setAnswer(func(cmd string) (string, bool) {
+		if strings.HasPrefix(cmd, "chunky start ") {
+			select {
+			case starting <- struct{}{}:
+			default:
+			}
+			<-release
+		}
+		return answer(cmd)
+	})
+
+	used := e.limitTo(1 << 40)
+	e.limitTo(used + 2*medium.DiskBytes + 64<<10)
+	code, out := e.callWhenFree("POST", e.sp("/pregen/start"), map[string]any{"preset": "medium", "pauseForPlayers": false, "actor": "admin"})
+	opID, _ := out["id"].(string)
+	if code != 202 || opID == "" {
+		close(release)
+		t.Fatalf("start pre-generating: %d %v", code, out)
+	}
+	select {
+	case <-starting:
+	case <-time.After(30 * time.Second):
+		close(release)
+		t.Fatal("the start never reached Chunky")
+	}
+	ctx := context.Background()
+	err := e.a.diskLimitRefusal(ctx, e.sid, medium.DiskBytes)
+	close(release)
+	if err == nil {
+		t.Fatal("room beside a start whose task isn't recorded yet")
+	}
+	if op := e.waitOp(opID); op.Status != api.OpSucceeded {
+		t.Fatalf("the start: %+v", op)
+	}
+	if code, out := e.callWhenFree("POST", e.sp("/pregen/start"), map[string]any{"preset": "small", "pauseForPlayers": false, "actor": "admin"}); code != 409 {
+		t.Fatalf("a second start while one is under way: %d %v", code, out)
+	}
+	if err := e.a.diskLimitRefusal(ctx, e.sid, medium.DiskBytes); err == nil {
+		t.Fatal("room beside the task under way, after a refused start")
+	}
+}
+
 // Worlds imported or restored from an upload, data and resource packs and
 // pre-generation stop at the limit too; a server with no limit doesn't.
 func TestImportsPacksAndPregenStopAtTheDiskLimit(t *testing.T) {

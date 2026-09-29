@@ -45,9 +45,10 @@ type diskLimitState struct {
 	// finds it on the disk.
 	held  map[string]int64
 	wrote []diskWrite
-	// pregen is what each server's pre-generation was expected to write when
-	// it began. While it's unfinished, the part of its area still to do
-	// counts; an agent restarted meanwhile counts what the scans find.
+	// pregen is what each server's pre-generation task was expected to
+	// write when it was recorded. While it's unfinished, the part of its
+	// area still to do counts; an agent restarted meanwhile counts what the
+	// scans find.
 	pregen map[string]int64
 }
 
@@ -286,8 +287,9 @@ func (a *Agent) noteDiskWrite(id string, bytes int64) {
 	a.limits.mu.Unlock()
 }
 
-// notePregen counts what server id's pre-generation, beginning now, may
-// write, while it's unfinished.
+// notePregen counts what server id's pre-generation task, just recorded as
+// started, may write, while it's unfinished. Only a start that recorded its
+// task calls it, so a start refused meanwhile leaves the reservation alone.
 func (a *Agent) notePregen(id string, bytes int64) {
 	a.limits.mu.Lock()
 	a.limits.pregen[id] = bytes
@@ -295,13 +297,13 @@ func (a *Agent) notePregen(id string, bytes int64) {
 }
 
 // pregenOnTheWay is what unfinished pre-generation on servers may still
-// write: each one's estimate, less the part of its area already done. The
+// write: each task's estimate, less the part of its area already done. The
 // caller holds a.limits.mu.
 func (a *Agent) pregenOnTheWay(servers []string) int64 {
 	var n int64
 	for _, id := range servers {
-		bytes := a.limits.pregen[id]
-		if bytes == 0 {
+		bytes, ok := a.limits.pregen[id]
+		if !ok {
 			continue
 		}
 		s := a.serverByID(id)
