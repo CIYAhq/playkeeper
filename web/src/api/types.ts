@@ -225,6 +225,7 @@ export type ActionKind =
   | 'install_addon'
   | 'remove_datapack'
   | 'restore_backup'
+  | 'rebuild_level'
   | 'free_disk'
   | 'change_port'
   | 'accept_eula'

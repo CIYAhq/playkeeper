@@ -588,6 +588,34 @@ describe('crash helper', () => {
     expect(crashSummary(plugin, 'Survival', 'my-vps', { 'update:Multiverse-Portals-5.0.2.jar': { state: 'unavailable', reason: 'Added by hand, so Playkeeper can’t update it' } })).toBe('Multiverse-Portals hit an error while starting.')
   })
 
+  it('says what a new level.dat resets, and whether new land will match', () => {
+    const level = (seedFrom: string, resets: string[]) =>
+      crash({ kind: 'corrupt_world', params: { file: 'level.dat', world: 'world' }, fixes: [{ kind: 'rebuild_level', params: { world: 'world', seed_from: seedFrom, resets }, title: 'Make a new level.dat', recommended: true }] })
+    expect(crashSummary(level('world', ['spawn']), 'Survival', 'my-vps')).toBe('The world’s level.dat file is damaged.')
+    expect(crashFixes(level('world', ['spawn']), 'Survival', 'my-vps', false)).toEqual([
+      {
+        id: '0:rebuild_level',
+        recommended: true,
+        title: 'Make a new level.dat',
+        hint: 'Keeps every build. Resets the spawn point.',
+        plan: { kind: 'rebuild-level', world: 'world', seedFrom: 'world', resets: ['spawn'] },
+        button: 'Back up, repair and start Survival',
+        footnote: 'Your world is backed up first, so you can undo.',
+      },
+    ])
+    expect(crashFixes(level('properties', ['game_rules', 'time', 'world_border', 'spawn']), 'Survival', 'my-vps', false)[0]?.hint).toBe(
+      'Keeps every build. Resets the game rules, the time of day, the world border and the spawn point.',
+    )
+    expect(crashFixes(level('', ['game_rules', 'time', 'spawn']), 'Survival', 'my-vps', false)[0]?.hint).toBe(
+      'Keeps every build. Resets the game rules, the time of day and the spawn point. New land won’t match the old.',
+    )
+    const older = crash({ kind: 'corrupt_world', params: { file: 'level.dat' }, fixes: [{ kind: 'rebuild_level', title: 'Make a new level.dat' }] })
+    expect(titles(older)).toEqual([
+      ['Make a new level.dat', 'Coming later'],
+      ['Start Survival again', 'start'],
+    ])
+  })
+
   it('says where the memory would come from on a phone', () => {
     const oom = crash({ kind: 'heap_out_of_memory', params: { budget_mb: 4096 }, fixes: [{ kind: 'raise_memory', params: { from_mb: 4096, to_mb: 6144 }, title: 'More memory', recommended: true }] })
     const [more] = crashFixes(oom, 'Survival', 'my-vps', true)

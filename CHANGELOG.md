@@ -2,6 +2,11 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.8
+
+- **A new level.dat:** when both of a world's level.dat files are damaged, the Overview offers to make a new one next to restoring a backup, so the world keeps every build made since that backup. It says what starts over first: the spawn point, and before Minecraft 26.1 the game rules and the time of day. Playkeeper backs the world up before it changes anything, and keeps the world's seed, so new land matches the old.
+- Fixed: a world on Minecraft 26.1 or newer with both level.dat files damaged got "stopped unexpectedly" and a restart, because its last line no longer names the files. The Overview now says the world's level.dat is damaged.
+
 ## 0.4.7
 
 - **Sell servers on Whop (early beta):** **Settings › Sell on Whop** connects a Whop store, and each plan a buyer pays for lets them create servers on this machine within an allowance of servers, memory and disk. Buyers sign in with Whop instead of a password, hear when their server is ready, are paused when their plan ends, and come back when they renew. A plan sells only while the machines have room for it, and one dashboard sells for each Whop business.
