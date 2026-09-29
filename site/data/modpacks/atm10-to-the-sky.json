@@ -1,0 +1,26 @@
+{
+  "name": "All the Mods 10: To the Sky",
+  "short": "ATM10 To the Sky",
+  "source": "curseforge",
+  "project": "1298402",
+  "page": "https://www.curseforge.com/minecraft/modpacks/all-the-mods-10-sky",
+  "author": "ATMTeam",
+  "downloads": 3428677,
+  "version": "2.0.6",
+  "released": "2026-09-21",
+  "type": "neoforge",
+  "loader": "21.1.250",
+  "minecraft": "1.21.1",
+  "mods": 316,
+  "downloadMB": 533,
+  "heapMB": 8192,
+  "serverFiles": {
+    "name": "ATM10SKY-2.0.6-server.zip",
+    "url": "https://www.curseforge.com/minecraft/modpacks/all-the-mods-10-sky/files/8942330",
+    "mb": 477,
+    "mods": 316
+  },
+  "template": "atm10-to-the-sky",
+  "release": "0.4.4",
+  "checked": "2026-09-28"
+}

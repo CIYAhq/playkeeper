@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
@@ -193,6 +194,22 @@ func (s *server) findDataPack(sc *api.ServerConfig, name string) (packs.DataPack
 // hDataPackAdd installs an uploaded data pack, replacing one of the same
 // name, and switches it on while the server is online. A stopped server
 // switches a new pack on when it starts.
+// stagePack stages an uploaded data or resource pack, inside the server's
+// disk limit. A data pack goes into the world, and counts once installed; a
+// resource pack goes into the machine's pack store, one per server, so only
+// its upload is checked.
+func (s *server) stagePack(r *http.Request, kind packs.Kind) (*os.File, int64, error) {
+	f, n, err := packs.Stage(s.cfg.StagingDir(), r.Body, kind, packs.Limits{})
+	if err != nil {
+		return nil, 0, packError(err)
+	}
+	if err := s.diskLimitRefusal(r.Context(), s.id, n); err != nil {
+		f.Close()
+		return nil, 0, err
+	}
+	return f, n, nil
+}
+
 func (s *server) hDataPackAdd(w http.ResponseWriter, r *http.Request) {
 	actor := actorFromHeader(r)
 	if actor == "unknown" {
@@ -200,9 +217,9 @@ func (s *server) hDataPackAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := packs.SafeName(r.URL.Query().Get("name"))
-	f, n, err := packs.Stage(s.cfg.StagingDir(), r.Body, packs.Data, packs.Limits{})
+	f, n, err := s.stagePack(r, packs.Data)
 	if err != nil {
-		writeError(w, packError(err))
+		writeError(w, err)
 		return
 	}
 	defer f.Close()
@@ -229,6 +246,7 @@ func (s *server) hDataPackAdd(w http.ResponseWriter, r *http.Request) {
 		writeError(w, packError(err))
 		return
 	}
+	s.noteDiskWrite(s.id, n)
 	action := "datapack.added"
 	if replacing {
 		action = "datapack.replaced"
@@ -624,9 +642,9 @@ func (s *server) hResourcePackSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, packError(err))
 		return
 	}
-	f, n, err := packs.Stage(s.cfg.StagingDir(), r.Body, packs.Resource, packs.Limits{})
+	f, n, err := s.stagePack(r, packs.Resource)
 	if err != nil {
-		writeError(w, packError(err))
+		writeError(w, err)
 		return
 	}
 	defer f.Close()

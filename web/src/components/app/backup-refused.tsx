@@ -13,10 +13,11 @@ import { phaseTone, whyNot } from '@/lib/phase'
 import { past } from '@/lib/when'
 
 /**
- * Scheduled backups refused because world saving couldn't be paused, shown
- * until a backup succeeds. "Back up now" stops a running server for the
+ * Scheduled backups refused, shown until a backup succeeds. When world
+ * saving couldn't be paused, "Back up now" stops a running server for the
  * backup, which needs no pause, and asks first; a server that isn't running
- * is backed up as it is.
+ * is backed up as it is. When the servers' disk limit is reached, it says so
+ * and what to do, with no button, since a backup now would be refused too.
  */
 export function BackupRefusedNotice({ server: s, refusal: r, className }: { server: ServerStatus; refusal: BackupRefusal; className?: string }) {
   const ws = useWorkspace()
@@ -25,6 +26,7 @@ export function BackupRefusedNotice({ server: s, refusal: r, className }: { serv
   const online = s.phase === 'online'
   const blocked = whyNot(s, online || phaseTone(s.phase) === 'busy' ? 'restart' : 'change', ws.stale)
   const last = s.lastBackup
+  const full = r.kind === 'disk_limit_reached'
 
   async function backUp(stopped: boolean) {
     setBusy(true)
@@ -47,6 +49,7 @@ export function BackupRefusedNotice({ server: s, refusal: r, className }: { serv
         className={className}
         title={t('backupRefused.title', { count: r.count })}
         action={
+          !full &&
           can(ws.me, 'backups.make') && (
             <Button size="sm" onClick={() => (online ? setConfirm(true) : void backUp(false))} loading={busy || s.operation?.kind === 'backup'} disabledReason={blocked}>
               <ArchiveIcon />
@@ -55,7 +58,9 @@ export function BackupRefusedNotice({ server: s, refusal: r, className }: { serv
           )
         }
       >
-        {`${r.kind === 'not_online' ? t('backupRefused.notOnline', { server: s.name }) : r.error} ${last ? t('backupRefused.last', { when: past(last.createdAt) }) : t('backupRefused.none')}`}
+        {full
+          ? [r.error, r.hint].filter(Boolean).join(' ')
+          : `${r.kind === 'not_online' ? t('backupRefused.notOnline', { server: s.name }) : r.error} ${last ? t('backupRefused.last', { when: past(last.createdAt) }) : t('backupRefused.none')}`}
       </Notice>
       <Dialog open={confirm} onOpenChange={setConfirm}>
         <DialogPopup className="sm:max-w-[460px]">

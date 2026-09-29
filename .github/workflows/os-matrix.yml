@@ -18,7 +18,10 @@ on:
       - internal/update/**
       - internal/platform/**
       - internal/docker/**
+      - internal/netguard/**
       - internal/agent/host.go
+      - internal/agent/guard.go
+      - scripts/e2e/guard-check.sh
       - packaging/**
       - scripts/package.sh
       - scripts/e2e/vm-lab.sh

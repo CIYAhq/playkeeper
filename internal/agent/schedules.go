@@ -238,7 +238,7 @@ func (ss scheduleServer) Run(ctx context.Context, op schedule.Operation) (string
 		h.set("scheduleId", op.ScheduleID)
 		if op.Kind == schedule.OpBackup {
 			err = s.backupOp(ctx, h, op.Actor, op.Note, false)
-			if why := pauseRefusal(err); why != "" {
+			if why := scheduledRefusal(err); why != "" {
 				s.noteBackupRefused(h.op.ID, op.ScheduleID, why, err)
 			}
 			return err
@@ -299,11 +299,23 @@ func pauseRefusal(err error) string {
 	return ""
 }
 
+// scheduledRefusal is why a scheduled backup was refused in a way the World
+// tab shows until a backup succeeds: pauseRefusal's, or the disk limit's
+// code. It is "" for any other outcome.
+func scheduledRefusal(err error) string {
+	var ae *apiError
+	if errors.As(err, &ae) && ae.Code == api.CodeDiskLimit {
+		return api.CodeDiskLimit
+	}
+	return pauseRefusal(err)
+}
+
 // noteBackupRefused records a scheduled backup refused because world saving
-// couldn't be paused. Scheduled backups never stop a running server, so the
-// refusal mustn't pass unseen: it gets a line in the recent activity, and the
-// World tab shows it until a backup succeeds. The failed operation sends the
-// backup-failed Discord alert.
+// couldn't be paused, or because the server's disk limit is reached.
+// Scheduled backups never stop a running server, so the refusal mustn't pass
+// unseen: it gets a line in the recent activity, and the World tab shows it
+// until a backup succeeds. The failed operation sends the backup-failed
+// Discord alert.
 func (s *server) noteBackupRefused(opID, scheduleID, why string, err error) {
 	now := s.now().UTC()
 	r := api.BackupRefusal{At: now, Since: now, Count: 1, Kind: why, Error: err.Error(), ScheduleID: scheduleID, OperationID: opID}

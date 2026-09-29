@@ -25,14 +25,19 @@ import (
 // CanRemove); these handlers store what they allow.
 
 type teamMember struct {
-	ID        int64         `json:"id"`
-	Username  string        `json:"username"`
-	Owner     bool          `json:"owner"`
-	You       bool          `json:"you"`
-	Role      string        `json:"role"`
-	Servers   invites.Scope `json:"servers"`
-	TwoFactor bool          `json:"twoFactor"`
-	AddedAt   time.Time     `json:"addedAt"`
+	ID       int64         `json:"id"`
+	Username string        `json:"username"`
+	Owner    bool          `json:"owner"`
+	You      bool          `json:"you"`
+	Role     string        `json:"role"`
+	Servers  invites.Scope `json:"servers"`
+	// Allowance is set for a creator (see invites.Allowance), and
+	// DiskUsedBytes is what their servers took of its disk when last
+	// counted, missing before they have been.
+	Allowance     invites.Allowance `json:"allowance,omitzero"`
+	DiskUsedBytes *int64            `json:"diskUsedBytes,omitempty"`
+	TwoFactor     bool              `json:"twoFactor"`
+	AddedAt       time.Time         `json:"addedAt"`
 	// CanEdit says whether the signed-in account may change this member's
 	// role and servers, or remove them.
 	CanEdit bool `json:"canEdit"`
@@ -46,7 +51,7 @@ type teamMember struct {
 // memberRow is t as the Team page shows it to a.
 func memberRow(a, t access, added time.Time) teamMember {
 	return teamMember{ID: t.UserID, Username: t.Name, Owner: t.owner(), You: t.UserID == a.UserID,
-		Role: t.ProjectRole, Servers: t.Servers, TwoFactor: t.FactorOn, AddedAt: added,
+		Role: t.ProjectRole, Servers: t.Servers, Allowance: t.Allowance, TwoFactor: t.FactorOn, AddedAt: added,
 		CanEdit: invites.CanRemove(a.Account, t.Account) == nil, Waiting: t.awaitingConfirmation(),
 		CanConfirm: t.awaitingConfirmation() && canConfirm(a, t) == nil}
 }
@@ -100,7 +105,11 @@ func (s *Server) hTeam(w http.ResponseWriter, r *http.Request, sess *session) {
 		if err != nil || !seesMember(a, t) {
 			continue
 		}
-		out.Members = append(out.Members, memberRow(a, t, invites.FromMillis(x.added)))
+		row := memberRow(a, t, invites.FromMillis(x.added))
+		if !t.Allowance.IsZero() {
+			row.DiskUsedBytes = s.diskUsed(t.UserID)
+		}
+		out.Members = append(out.Members, row)
 	}
 	now := s.now()
 	irows, err := s.db.Query(`SELECT `+inviteColumns+` FROM invites WHERE kind = 'member' AND project_id = ? AND revoked_at = 0 AND uses = 0
@@ -111,10 +120,10 @@ func (s *Server) hTeam(w http.ResponseWriter, r *http.Request, sess *session) {
 	}
 	for irows.Next() {
 		inv, err := scanInvite(irows)
-		if err != nil || !inv.Servers.Within(a.Servers) {
+		if err != nil || !seesInvite(a, inv) {
 			continue
 		}
-		out.Invites = append(out.Invites, teamInvite{Summary: inv.Summarize(now), CanEdit: invites.CanGrant(a.Account, inv.Role, inv.Servers) == nil})
+		out.Invites = append(out.Invites, teamInvite{Summary: inv.Summarize(now), CanEdit: canChangeInvite(a, inv) == nil})
 	}
 	irows.Close()
 	if servers, err := s.listServers(r.Context()); err == nil {
@@ -136,11 +145,33 @@ func seesMember(a, t access) bool {
 	return a.Servers.All || t.UserID == a.UserID || t.owner() || t.Servers.Overlaps(a.Servers)
 }
 
+// seesInvite reports whether a sees an unused team invite on the Team page:
+// one for servers it has, or, for the owner alone, a creator invite, whose
+// label names someone the rest of the team needn't know of.
+func seesInvite(a access, inv invites.Invite) bool {
+	if !inv.Allowance.IsZero() {
+		return canChangeInvite(a, inv) == nil
+	}
+	return inv.Servers.Within(a.Servers)
+}
+
+// canChangeInvite reports whether a may change or turn off an unused team
+// invite: whether it could make it as it stands.
+func canChangeInvite(a access, inv invites.Invite) error {
+	if !inv.Allowance.IsZero() {
+		return invites.CanGrantAllowance(a.Account, inv.Allowance)
+	}
+	return invites.CanGrant(a.Account, inv.Role, inv.Servers)
+}
+
 // grantBody is a role and servers chosen on the Team page.
 type grantBody struct {
 	Role    string        `json:"role"`
 	Servers invites.Scope `json:"servers"`
 	Label   string        `json:"label,omitempty"`
+	// Allowance makes a new invite a creator invite (see
+	// invites.Allowance); an invite's allowance can't be changed.
+	Allowance invites.Allowance `json:"allowance,omitzero"`
 }
 
 // existingServers lists the servers that exist, for choices that must name
@@ -175,18 +206,30 @@ func (s *Server) hTeamInviteCreate(w http.ResponseWriter, r *http.Request, sess 
 	if !ok {
 		return
 	}
-	c, err := invites.NewMember(invites.MemberSpec{ProjectID: s.projectID(sess.Access), Role: req.Role, Servers: req.Servers, Label: req.Label},
-		sess.Access.Account, serverIDs(servers), s.now())
+	c, err := invites.NewMember(invites.MemberSpec{ProjectID: s.projectID(sess.Access), Role: req.Role, Servers: req.Servers, Label: req.Label,
+		Allowance: req.Allowance}, sess.Access.Account, serverIDs(servers), s.now())
 	if err != nil {
 		writeRefusal(w, err)
 		return
+	}
+	// A creator's servers must not reach the machine: that goes on first.
+	if !c.Invite.Allowance.IsZero() {
+		if err := s.keepServersAway(r.Context(), sess.User.Username); err != nil {
+			s.log.Warn("could not keep servers away from this machine for a creator invite", "err", err)
+			writeErr(w, http.StatusBadGateway, api.CodeAgentUnavailable, "Playkeeper couldn't keep servers away from this machine, so it made no creator invite.",
+				"Try again. If it keeps failing, check Machine settings › Keep servers away from this machine.")
+			return
+		}
 	}
 	if err := s.insertInvite(c.Invite); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
-	s.audit(sess.User.Username, "invite.create", c.Invite.Actor(), "succeeded",
-		fmt.Sprintf("team invite; %s of %s; works 7 days", c.Invite.Role, scopeText(c.Invite.Servers, servers)))
+	grant := fmt.Sprintf("%s of %s", c.Invite.Role, scopeText(c.Invite.Servers, servers))
+	if !c.Invite.Allowance.IsZero() {
+		grant = allowanceText(c.Invite.Allowance)
+	}
+	s.audit(sess.User.Username, "invite.create", c.Invite.Actor(), "succeeded", fmt.Sprintf("team invite; %s; works 7 days", grant))
 	writeJSON(w, http.StatusCreated, map[string]any{"invite": c.Invite.Summarize(s.now()), "path": c.Path, "link": s.linkBase(r)})
 }
 
@@ -198,7 +241,7 @@ func (s *Server) teamInvite(w http.ResponseWriter, r *http.Request, sess *sessio
 		inv, err := s.inviteByID(id)
 		switch {
 		case err == nil && inv.Kind == invites.KindMember && inv.ProjectID == s.projectID(sess.Access):
-			if err := invites.CanGrant(sess.Access.Account, inv.Role, inv.Servers); err != nil {
+			if err := canChangeInvite(sess.Access, inv); err != nil {
 				writeRefusal(w, err)
 				return invites.Invite{}, false
 			}
@@ -215,12 +258,16 @@ func (s *Server) teamInvite(w http.ResponseWriter, r *http.Request, sess *sessio
 // hTeamInviteEdit changes the role or servers an unused team invite gives.
 func (s *Server) hTeamInviteEdit(w http.ResponseWriter, r *http.Request, sess *session) {
 	var req grantBody
-	if err := decodeJSON(r, &req); err != nil || req.Label != "" {
+	if err := decodeJSON(r, &req); err != nil || req.Label != "" || !req.Allowance.IsZero() {
 		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid request.", "")
 		return
 	}
 	inv, ok := s.teamInvite(w, r, sess)
 	if !ok {
+		return
+	}
+	if !inv.Allowance.IsZero() {
+		writeErr(w, http.StatusConflict, api.CodeConflict, "A creator invite can't be changed.", "Turn it off and make another.")
 		return
 	}
 	servers, ok := s.existingServers(w, r)
@@ -311,6 +358,10 @@ func (s *Server) hTeamMemberEdit(w http.ResponseWriter, r *http.Request, sess *s
 	}
 	t, ok := s.teamMemberTarget(w, r, sess)
 	if !ok {
+		return
+	}
+	if !t.Allowance.IsZero() {
+		writeErr(w, http.StatusConflict, api.CodeConflict, "A creator's servers are the ones they create.", "Remove them from the team instead.")
 		return
 	}
 	if err := invites.CanEdit(sess.Access.Account, t.Account, req.Role, req.Servers); err != nil {
@@ -436,6 +487,7 @@ func (s *Server) hTeamMemberRemove(w http.ResponseWriter, r *http.Request, sess 
 	}
 	s.deleteUserSessions(t.UserID)
 	s.audit(sess.User.Username, "team.remove", t.Name, "succeeded", "")
+	s.kickDiskLimits()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -516,6 +568,12 @@ func (s *Server) hCatalog(w http.ResponseWriter, r *http.Request, sess *session)
 		}
 	}
 	c["servers"], _ = json.Marshal(mine)
+	if sess.Access.creator() {
+		if err := s.capCatalog(r.Context(), sess.Access, m, r.URL.Query().Get("server"), c); err != nil {
+			s.listFailure(w, err)
+			return
+		}
+	}
 	writeJSON(w, status, c)
 }
 
@@ -703,6 +761,13 @@ func (s *Server) restoreProxy(method, pattern string, then func(machine, *sessio
 		if err := permit(sess.Access, act, p.ServerID); err != nil {
 			writeRefusal(w, err)
 			return
+		}
+		if method == "POST" && sess.Access.creator() {
+			s.creators.Lock()
+			defer s.creators.Unlock()
+			if !s.creatorRestoreFits(w, r, sess.Access, p) {
+				return
+			}
 		}
 		fwd(w, r, sess)
 	}

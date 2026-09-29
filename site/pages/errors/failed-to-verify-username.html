@@ -1,0 +1,77 @@
+{{/*
+path: /errors/failed-to-verify-username
+title: Failed to verify username! on a Minecraft server, fixed
+description: Failed to verify username! means the server asked Mojang whether the player signed in to join it, and Mojang said no. Why that happens, and the fix.
+label: Failed to verify username
+h1: Failed to verify username! What it means, and the fix
+card: Failed to verify username, explained
+kind: Guide
+section: guides
+layout: guide
+crumb: Errors
+og: error-failed-to-verify-username
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}A server in online mode asks Mojang whether each player signed in to join it. Failed to verify username! means Mojang answered no: the player's game didn't sign in with a Microsoft account that owns Minecraft: Java Edition, as with a launcher that plays offline. If the server can't ask at all, players see Authentication servers are down instead.{{end}}
+
+{{define "closing-title"}}A server that knows who's joining.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper checks every player's account and keeps an allowlist from the start.{{end}}
+
+{{define "side-text"}}Playkeeper checks every player's account and keeps an allowlist from the start.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="meaning">
+  {{template "h2n" (dict "ID" "meaning" "N" 1 "Text" "What happened when the player joined" "Toc" "What it means")}}
+  <p>With <code>online-mode=true</code>, the default, the player's game tells Mojang's session server it's joining this server, and the server then asks Mojang whether it did. On 29 Sep we joined a Paper 1.21.1 server in online mode with a test client that doesn't sign in. The client was turned away, and the server logged:</p>
+  <div class="error-card reveal">
+    <h3>The server's log</h3>
+    <code class="err">Disconnecting PkTester (/172.17.0.1:55906): Failed to verify username!
+Username 'PkTester' tried to join with an invalid session</code>
+  </div>
+  <p>The player's screen says <code>Failed to verify username!</code>, in their game's language. So the server did reach Mojang, and Mojang had no record of that player joining.</p>
+</section>
+
+<section aria-labelledby="servers-down">
+  {{template "h2n" (dict "ID" "servers-down" "N" 2 "Text" "Not to be confused with servers down" "Toc" "Servers down")}}
+  <p>We then blocked the same server's outgoing HTTPS, the way it asks Mojang, and joined again. The message changed:</p>
+  <div class="error-card reveal">
+    <h3>The server's log, unable to reach Mojang</h3>
+    <code class="err">Disconnecting PkTester2 (/172.17.0.1:33756): Authentication servers are down. Please try again later, sorry!
+Couldn't verify username because servers are unavailable</code>
+  </div>
+  <p>That one is about the server's connection to Mojang, or Mojang's servers being down, not the player's account. A firewall on the server that blocks outgoing HTTPS causes it, as ours did.</p>
+</section>
+
+<section aria-labelledby="fixes">
+  {{template "h2n" (dict "ID" "fixes" "N" 3 "Text" "What fixes it" "Toc" "Fixes")}}
+  <ul>
+    <li><strong>The player signs in properly.</strong> Online mode admits accounts that own Minecraft: Java Edition, signed in through the Minecraft Launcher or a launcher that signs in with Microsoft, like Prism Launcher. A launcher that plays offline, without signing in, can't pass the check.</li>
+    <li><strong>Turning online mode off is not the fix.</strong> With <code>online-mode=false</code> the server skips the check and believes whatever name a game sends, so anyone can join as anyone, your operators included. Keep it on, and keep an allowlist.</li>
+    <li><strong>Authentication servers are down: check the server's connection.</strong> Let it make outgoing HTTPS connections, and wait out an outage on Mojang's side.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="playkeeper">
+  {{template "h2n" (dict "ID" "playkeeper" "N" 4 "Text" "On a Playkeeper server" "Toc" "On Playkeeper")}}
+  <ul>
+    <li><strong>Online mode is always on,</strong> and the allowlist is enforced from the first start. Playkeeper never takes <code>online-mode</code> from a modpack's settings either.</li>
+    <li><strong>Friends get an invite link</strong> from the Players tab, or you add their Minecraft name there.</li>
+    <li><strong>Bedrock friends</strong> join a Paper or Purpur server with Bedrock players on, signed in with their Xbox account, and go on the allowlist as <code>.</code> and their gamertag.</li>
+  </ul>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Why do I get Failed to verify username on a server?" "The server asked Mojang whether your game signed in to join it, and Mojang said no. Sign in with the Microsoft account that owns Minecraft: Java Edition, through the Minecraft Launcher or another launcher that signs in with Microsoft.")
+    (qa "Should I set online-mode to false?" "No. The server then believes any name a game sends, so anyone can join as you or your operators. Keep online mode on, with an allowlist.")
+    (qa "What does Authentication servers are down mean?" "The server couldn't reach Mojang to check the player, because of its own connection or an outage at Mojang. Its log says Couldn't verify username because servers are unavailable.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/errors" "/errors/connection-refused" "/guides/play-minecraft-with-friends")}}{{end}}

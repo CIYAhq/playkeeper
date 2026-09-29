@@ -327,7 +327,7 @@ func (s *server) hFileUploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	n := 0
 	if err == nil {
-		n, err = s.announceUpload(up, name, req.Size, req.Replace)
+		n, err = s.announceUpload(r.Context(), up, name, req.Size, req.Replace)
 	}
 	if err != nil {
 		writeError(w, err)
@@ -375,7 +375,7 @@ func (s *server) uploadRefusal(ctx context.Context, dest string, replace bool) e
 
 // announceUpload adds a file to an upload if the space open uploads may use
 // has room for it, and returns its index.
-func (s *server) announceUpload(up *fileUpload, name string, size int64, replace bool) (int, error) {
+func (s *server) announceUpload(ctx context.Context, up *fileUpload, name string, size int64, replace bool) (int, error) {
 	s.imports.announce.Lock()
 	defer s.imports.announce.Unlock()
 	s.uploads.mu.Lock()
@@ -384,6 +384,9 @@ func (s *server) announceUpload(up *fileUpload, name string, size int64, replace
 	removeFileUploads(stale)
 	if size > s.uploadAllowance() {
 		return 0, &apiError{Status: http.StatusRequestEntityTooLarge, Code: api.CodeInsufficientSpace, Msg: quotePath(name) + " is larger than the free disk space allows.", Hint: "Free disk space and try again."}
+	}
+	if err := s.diskLimitRefusal(ctx, s.id, size); err != nil {
+		return 0, err
 	}
 	up.mu.Lock()
 	defer up.mu.Unlock()
@@ -417,7 +420,7 @@ func (s *server) announceUpload(up *fileUpload, name string, size int64, replace
 func (s *server) placeUpload(ctx context.Context, up *fileUpload, n int, actor string) {
 	up.mu.Lock()
 	f := up.files[n]
-	name, replace, skip := f.name, f.replace, up.gone || f.placed || f.placing || f.received < f.size
+	name, size, replace, skip := f.name, f.size, f.replace, up.gone || f.placed || f.placing || f.received < f.size
 	f.placing = !skip
 	up.mu.Unlock()
 	if skip {
@@ -425,6 +428,10 @@ func (s *server) placeUpload(ctx context.Context, up *fileUpload, n int, actor s
 	}
 	dest := join(up.folder, name)
 	err := s.place(ctx, dest, up.stagedPath(n), replace)
+	if err == nil {
+		// Counted as written before it stops counting as on its way.
+		s.noteDiskWrite(s.id, size)
+	}
 	up.mu.Lock()
 	f.placing, f.placed, f.err = false, err == nil, ""
 	if err != nil {

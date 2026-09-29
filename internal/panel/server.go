@@ -128,6 +128,39 @@ type Server struct {
 		sync.Mutex
 		list string
 	}
+	// creators serialises what creators create, resize and delete, so each
+	// change is checked against the allowance as it stands.
+	creators sync.Mutex
+	// hostStamped holds each agent route forwardTo stamps panelHost into, as
+	// "METHOD pattern", once Routes has built it: every one must take it.
+	hostStamped sync.Map
+	// whopMu serialises changes to Sell on Whop (see whop.go), and whopKick
+	// has its reconciler look now (see whop_customers.go).
+	whopMu   sync.Mutex
+	whopKick chan struct{}
+	// hosting is the hosting core billing providers call, and notifier what
+	// the core calls to tell customers something (see hosting.go). sales is
+	// what the fleet tells how many more of each plan fit (see whop_stock.go).
+	hosting  hostingCore
+	notifier customerNotifier
+	sales    saleStock
+	// hetznerMu serialises the Hetzner stock watch's changes and checks,
+	// so a check never writes over a token the owner just replaced (see
+	// hetzner.go).
+	hetznerMu sync.Mutex
+	// placeMu serialises placing customers, so two never get the same room
+	// (see placement.go).
+	placeMu sync.Mutex
+	// diskKick has the disk limits sent to the machines now, and diskUse
+	// is what each account's servers took when they were last counted (see
+	// disklimits.go).
+	diskKick chan struct{}
+	diskUse  struct {
+		sync.Mutex
+		at     time.Time
+		used   map[int64]int64
+		failed map[string]string
+	}
 }
 
 func New(opts Options) (*Server, error) {
@@ -185,7 +218,12 @@ func New(opts Options) (*Server, error) {
 		joinGuard:   invites.NewGuard(invites.GuardLimits{}, opts.Now),
 		auditMaxAge: 365 * 24 * time.Hour,
 		maxAudit:    100_000,
+		whopKick:    make(chan struct{}, 1),
+		diskKick:    make(chan struct{}, 1),
+		hosting:     noHostingCore{},
 	}
+	s.notifier = billingNotifier{s: s}
+	s.sales = whopStock{s: s}
 	s.activePacks = &activePacks{fetch: s.fetchActivePacks, now: opts.Now}
 	s.public = newPublicGroup(s.publicRoutes(), opts.Now)
 	s.page = s.newPageSite()
@@ -342,8 +380,10 @@ func (s *Server) Routes() []Route {
 		am("/api/machines/{mid}/address/release", "/v1/address/release"),
 		an("/api/machines/{mid}/address/check", "/v1/address/check"),
 		an("/api/machines/{mid}/address/certificate", "/v1/address/certificate"),
+		am("/api/machines/{mid}/address/server-addresses", "/v1/address/server-addresses"),
+		{"POST", "/api/machines/{mid}/network-guard", needSessionCSRF, actManageMachine, s.hNetworkGuard},
 		{"DELETE", "/api/machines/{mid}/address", needSessionCSRF, actManageMachine, s.addressProxy("DELETE", "/v1/address")},
-		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actCreateServers, s.forwardThen("POST", "/v1/servers", s.claimCreatedBy)},
+		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actCreateOwnServers, s.hCreateServer},
 		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actCreateServers, s.rawUpload("/v1/restore/upload", "application/gzip")},
 		{"GET", "/api/machines/{mid}/restore/{rid}", needSession, actRestore, s.restoreProxy("GET", "/v1/restore/{rid}", nil)},
 		{"POST", "/api/machines/{mid}/restore/{rid}/apply", needSessionCSRF, actRestore, s.restoreProxy("POST", "/v1/restore/{rid}/apply", s.claimCreatedBy)},
@@ -354,9 +394,9 @@ func (s *Server) Routes() []Route {
 		smAs(actRunServers, "POST", "/api/servers/{id}/start", "/v1/servers/{id}/start"),
 		smAs(actRunServers, "POST", "/api/servers/{id}/stop", "/v1/servers/{id}/stop"),
 		smAs(actRunServers, "POST", "/api/servers/{id}/restart", "/v1/servers/{id}/restart"),
-		sm("POST", "/api/servers/{id}/settings", "/v1/servers/{id}/settings"),
+		{"POST", "/api/servers/{id}/settings", needSessionCSRF, actManageServers, s.hServerSettings},
 		sm("POST", "/api/servers/{id}/version", "/v1/servers/{id}/version"),
-		smAs(actCreateServers, "POST", "/api/servers/{id}/delete", "/v1/servers/{id}/delete"),
+		{"POST", "/api/servers/{id}/delete", needSessionCSRF, actCreateOwnServers, s.hDeleteServer},
 		view("/api/servers/{id}/icon", s.rawGet("/v1/servers/{id}/icon", "image/png")),
 		{"POST", "/api/servers/{id}/icon", needSessionCSRF, actManageServers, s.rawUpload("/v1/servers/{id}/icon", "image/png")},
 		sg("/api/servers/{id}/logs", "/v1/servers/{id}/logs"),
@@ -405,8 +445,8 @@ func (s *Server) Routes() []Route {
 		sm("POST", "/api/servers/{id}/addons/remove", "/v1/servers/{id}/addons/remove"),
 		sm("POST", "/api/servers/{id}/addons/adopt", "/v1/servers/{id}/addons/adopt"),
 		sm("POST", "/api/servers/{id}/addons/forget", "/v1/servers/{id}/addons/forget"),
-		sg("/api/servers/{id}/pregen", "/v1/servers/{id}/pregen"),
-		sm("POST", "/api/servers/{id}/pregen/start", "/v1/servers/{id}/pregen/start"),
+		view("/api/servers/{id}/pregen", s.hPregen),
+		{"POST", "/api/servers/{id}/pregen/start", needSessionCSRF, actManageServers, s.hPregenStart},
 		sm("POST", "/api/servers/{id}/pregen/pause", "/v1/servers/{id}/pregen/pause"),
 		sm("POST", "/api/servers/{id}/pregen/continue", "/v1/servers/{id}/pregen/continue"),
 		sm("POST", "/api/servers/{id}/pregen/cancel", "/v1/servers/{id}/pregen/cancel"),
@@ -496,6 +536,18 @@ func (s *Server) Routes() []Route {
 		{"PUT", "/api/team/members/{uid}", needSessionCSRF, actManageTeam, s.hTeamMemberEdit},
 		{"DELETE", "/api/team/members/{uid}", needSessionCSRF, actManageTeam, s.hTeamMemberRemove},
 		{"POST", "/api/team/members/{uid}/confirm-admin", needSessionCSRF, actManageTeam, s.hTeamConfirmAdmin},
+		// Sell on Whop (whop.go): the owner's alone.
+		{"GET", "/api/whop", needSession, actSellOnWhop, s.hWhop},
+		{"POST", "/api/whop/connect", needSessionCSRF, actSellOnWhop, s.hWhopConnect},
+		{"POST", "/api/whop/sync", needSessionCSRF, actSellOnWhop, s.hWhopSync},
+		{"PUT", "/api/whop/plans/{plan}", needSessionCSRF, actSellOnWhop, s.hWhopPlan},
+		{"DELETE", "/api/whop", needSessionCSRF, actSellOnWhop, s.hWhopDisconnect},
+		{"PUT", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInSet},
+		{"DELETE", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInOff},
+		// Hetzner stock (hetzner.go): the owner's alone.
+		{"GET", "/api/hetzner", needSession, actWatchStock, s.hHetzner},
+		{"PUT", "/api/hetzner", needSessionCSRF, actWatchStock, s.hHetznerSet},
+		{"DELETE", "/api/hetzner", needSessionCSRF, actWatchStock, s.hHetznerStop},
 		{"GET", "/api/discord", needSession, actManageMachine, s.discordProxy("GET", "/v1/discord")},
 		{"POST", "/api/discord/connect", needSessionCSRF, actManageMachine, s.discordProxy("POST", "/v1/discord/connect")},
 		{"PUT", "/api/discord", needSessionCSRF, actManageMachine, s.discordProxy("PUT", "/v1/discord")},
@@ -528,8 +580,8 @@ func (s *Server) Routes() []Route {
 	// The map's area: anyone who sees the server sees it; choosing one, which
 	// pre-generates land, needs the rights to change the map.
 	routes = append(routes, []Route{
-		sg("/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
-		sm("POST", "/api/servers/{id}/map/area", "/v1/servers/{id}/map/area"),
+		view("/api/servers/{id}/map/area", s.hMapArea),
+		{"POST", "/api/servers/{id}/map/area", needSessionCSRF, actManageServers, s.hMapAreaSet},
 	}...)
 	// 0.4.3: the public page at the machine's address. Anyone who sees the
 	// server sees its switches; changing them, like sharing the map, needs
@@ -802,7 +854,7 @@ func (s *Server) hSetupStatus(w http.ResponseWriter, r *http.Request, _ *session
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
-	writeJSON(w, http.StatusOK, api.SetupStatus{NeedsSetup: n == 0, Machine: s.localMachineName(), Version: version.Version})
+	writeJSON(w, http.StatusOK, api.SetupStatus{NeedsSetup: n == 0, Machine: s.localMachineName(), Version: version.Version, WhopSignIn: n > 0 && s.whopSignInOn()})
 }
 
 type credentials struct {
@@ -1274,6 +1326,9 @@ func asActor(ctx context.Context, actor string) context.Context {
 // calling then (if set) after a request that succeeded. What the panel stamps
 // replaces anything the browser sent under the same name.
 func (s *Server) forwardTo(method, pattern string, withHost bool, then func(machine, *session, json.RawMessage)) func(http.ResponseWriter, *http.Request, *session) {
+	if withHost && method != http.MethodDelete {
+		s.hostStamped.Store(method+" "+pattern, true)
+	}
 	return func(w http.ResponseWriter, r *http.Request, sess *session) {
 		m, ok := s.target(w, r)
 		if !ok {
@@ -1621,6 +1676,9 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	s.serveAlive(ctx, tc)
 	s.pageCerts = s.pageCertStore()
 	go s.runPage(ctx)
+	go s.runWhop(ctx)
+	go s.runStock(ctx)
+	go s.runDiskLimits(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)
 	return s.serve(ctx, ln, tc)
 }

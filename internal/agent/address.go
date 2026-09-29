@@ -72,6 +72,9 @@ type addressState struct {
 	Released string `json:"released,omitempty"`
 	// Check is the last look at the own domain's records.
 	Check *api.AddressCheck `json:"check,omitempty"`
+	// ServerAddresses gives every server an address under the own domain,
+	// <slug>.<domain>, through one wildcard record (serverAddresses).
+	ServerAddresses bool `json:"serverAddresses,omitempty"`
 }
 
 type freeState struct {
@@ -947,28 +950,60 @@ func (a *Agent) releaseFree(ctx context.Context, st addressState, actor string) 
 // Own domain.
 
 // ownPlan is the own domain's plan: a server with its own address is
-// reached there, through A records of its own and an SRV record; else the
-// server on port 25565 is the domain itself, and every other one is
-// <slug>.<domain> through an SRV record.
-func ownPlan(host string, servers []joinServer, ip netip.Addr) certs.Plan {
-	p := certs.Plan{Name: host}
+// reached there, through A records of its own and an SRV record. With an
+// address for each server (wildcard), every other server is
+// <slug>.<domain>, reached through the wildcard record with its port, as
+// serverAddresses gives them; one without is the domain with its port.
+// Without, the server on port 25565 is the domain itself, and every other
+// one is <slug>.<domain> through an SRV record.
+func ownPlan(host string, servers []joinServer, ip netip.Addr, wildcard bool) certs.Plan {
+	p := certs.Plan{Name: host, Wildcard: wildcard}
 	switch {
 	case ip.Is4():
 		p.IPv4 = ip
 	case ip.Is6():
 		p.IPv6 = ip
 	}
-	for _, s := range servers {
+	for _, s := range serverAddresses(host, wildcard, servers) {
 		js := certs.JoinServer{ID: s.id, Port: s.port}
 		switch {
+		case s.wild:
+			js.Host, js.Wild = s.own, true
 		case s.own != "":
 			js.Host, js.Own = s.own, true
-		case s.port != certs.MinecraftPort:
+		case s.port != certs.MinecraftPort && !wildcard:
 			js.Host = s.slug + "." + host
 		}
 		p.Servers = append(p.Servers, js)
 	}
 	return p
+}
+
+// serverAddresses is servers with, while on, <slug>.<domain> as the own
+// address of each that wasn't given one, marked wild: the domain's
+// wildcard record points it here. A server goes without when that name is
+// another server's own address, or, under playkeeper.me, when its slug is
+// one the names service keeps from everyone (names.Reserved), such as login
+// or admin, so that no server's page there looks like Playkeeper's own.
+// Servers already marked stay as they are.
+func serverAddresses(domain string, on bool, servers []joinServer) []joinServer {
+	if !on {
+		return servers
+	}
+	given := map[string]bool{}
+	for _, js := range servers {
+		if js.own != "" && !js.wild {
+			given[js.own] = true
+		}
+	}
+	official := names.BaseOf(domain) != ""
+	out := slices.Clone(servers)
+	for i, js := range out {
+		if name := js.slug + "." + domain; js.own == "" && !given[name] && !(official && names.Reserved(js.slug)) {
+			out[i].own, out[i].wild = name, true
+		}
+	}
+	return out
 }
 
 // checkOwn looks up the own domain's records as players and Let's Encrypt
@@ -978,7 +1013,7 @@ func (a *Agent) checkOwn(ctx context.Context) (*api.AddressCheck, error) {
 	if st.Kind != api.AddressOwn {
 		return nil, nil
 	}
-	pc, err := certs.CheckPlan(ctx, a.opts.Resolver, ownPlan(st.Host, a.joinServers(), a.machineIP(st)), a.expectedAddrs(st))
+	pc, err := certs.CheckPlan(ctx, a.opts.Resolver, ownPlan(st.Host, a.joinServers(), a.machineIP(st), st.ServerAddresses), a.expectedAddrs(st))
 	if err != nil {
 		return nil, problemError(err, http.StatusBadRequest)
 	}
@@ -1045,10 +1080,13 @@ func noteParams(p map[string]string) map[string]any {
 // Addresses and where they point.
 
 // joinServer is a server with what its join address needs; own is its own
-// address, which counts only under an own domain.
+// address, which counts only under an own domain. wild means own is
+// <slug>.<domain>, which the domain's wildcard record points here
+// (serverAddresses).
 type joinServer struct {
 	id, name, slug, own string
 	port                int
+	wild                bool
 }
 
 // joinServers lists the servers in display order.
@@ -1072,6 +1110,9 @@ func (a *Agent) joinServers() []joinServer {
 func (a *Agent) joinAddresses(st addressState, servers []joinServer) []api.JoinAddress {
 	ip := a.machineIP(st)
 	free := freeServers(servers)
+	if st.Kind == api.AddressOwn {
+		servers = serverAddresses(st.Host, st.ServerAddresses, servers)
+	}
 	out := make([]api.JoinAddress, 0, len(servers))
 	for _, s := range servers {
 		j := api.JoinAddress{ServerID: s.id, Name: s.name, Port: s.port}
@@ -1087,11 +1128,24 @@ func (a *Agent) joinAddresses(st addressState, servers []joinServer) []api.JoinA
 			j.Address = names.ServerAddress(s.slug, st.Free.Name.Name, names.DefaultBase)
 			j.Published = st.Free.Name.State == names.StateActive && !freeLapsed(st.Free.Name, a.now()) && st.Free.serverPublished(s)
 		case api.AddressOwn:
+			if s.wild {
+				// The wildcard record points it here, and no SRV record
+				// says its port.
+				j.Label, j.Automatic = s.slug, true
+				j.Address, j.OwnAddress = hostPort(s.own, s.port), s.own
+				j.Published = st.Check != nil && ownNameOK(st, s)
+				break
+			}
 			if s.own != "" {
 				// An own address has records of its own, so it works
 				// whatever the machine's name does.
 				j.Address, j.OwnAddress = s.own, s.own
 				j.Published = st.Check != nil && ownOK(st.Check, s.id)
+				break
+			}
+			if st.ServerAddresses {
+				j.Address = hostPort(st.Host, s.port)
+				j.Published = st.Check != nil && st.Check.Name.OK
 				break
 			}
 			// The server on 25565 is the domain itself and needs no SRV
@@ -1263,12 +1317,13 @@ func (a *Agent) addressView() api.Address {
 			v.Free = freeView(st.Free, a.now())
 		}
 	case api.AddressOwn:
-		if recs, err := ownPlan(st.Host, servers, a.machineIP(st)).Records(); err == nil {
+		if recs, err := ownPlan(st.Host, servers, a.machineIP(st), st.ServerAddresses).Records(); err == nil {
 			for _, r := range recs {
 				v.Records = append(v.Records, dnsRecord(r))
 			}
 		}
 		v.Check = st.Check
+		v.ServerAddresses = st.ServerAddresses
 	}
 	if st.Host != "" {
 		if row := a.loadCertificate(st.Host); row != nil {
@@ -1495,12 +1550,12 @@ func (a *Agent) hAddressPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	st := a.address()
 	servers := a.joinServers()
-	recs, err := ownPlan(domain, servers, a.machineIP(st)).Records()
+	recs, err := ownPlan(domain, servers, a.machineIP(st), st.ServerAddresses).Records()
 	if err != nil {
 		writeError(w, problemError(err, http.StatusBadRequest))
 		return
 	}
-	plan := api.AddressPlan{Domain: domain, Records: []api.DNSRecord{}, Servers: a.joinAddresses(addressState{Kind: api.AddressOwn, Host: domain, IP: st.IP}, servers)}
+	plan := api.AddressPlan{Domain: domain, Records: []api.DNSRecord{}, Servers: a.joinAddresses(addressState{Kind: api.AddressOwn, Host: domain, IP: st.IP, ServerAddresses: st.ServerAddresses}, servers)}
 	for _, rec := range recs {
 		plan.Records = append(plan.Records, dnsRecord(rec))
 	}
@@ -1575,12 +1630,13 @@ func (a *Agent) hAddressCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errConflict("This machine has a free address.", "Release it first, then use your own domain."))
 		return
 	case st.Kind != api.AddressOwn || st.Host != domain:
-		if err := a.setAddress(addressState{Kind: api.AddressOwn, Host: domain, Since: a.now().UTC(), IP: st.IP, Released: st.Released}); err != nil {
+		if err := a.setAddress(addressState{Kind: api.AddressOwn, Host: domain, Since: a.now().UTC(), IP: st.IP, Released: st.Released, ServerAddresses: st.ServerAddresses}); err != nil {
 			writeError(w, err)
 			return
 		}
 		if st.Kind == api.AddressOwn {
 			a.forgetCertificate(st.Host)
+			a.forgetOwnCertificates(st, true)
 		}
 		a.audit(actor, "address.domain", domain, "succeeded", "")
 	}
@@ -1619,9 +1675,7 @@ func (a *Agent) hAddressDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.forgetCertificate(st.Host)
-	if st.Kind == api.AddressOwn {
-		a.forgetOwnCertificates()
-	}
+	a.forgetOwnCertificates(st, false)
 	a.audit(actor, "address.remove", st.Host, "succeeded", "")
 	writeJSON(w, http.StatusOK, a.addressView())
 }

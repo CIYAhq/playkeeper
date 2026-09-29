@@ -2,10 +2,25 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.7
+
+- **Hetzner stock:** **Settings › Machines** can watch Hetzner for the server type you add machines of, such as CX53, which is often sold out. Paste a read-only Hetzner API token, and the dashboard asks Hetzner once a minute and posts to Discord when it comes into stock somewhere, with a link that buys one there. The owner's alone.
+- **Connect a machine › New cloud server:** Settings › Machines gives the command as cloud config too. Paste it in the Cloud config or User data box while you create a server at a cloud like Hetzner, and the server installs Playkeeper and connects to this dashboard as it first starts, with nothing to type on it.
+- **New server › A template** shows each of Playkeeper's templates with a picture of its own world, the same one playkeeper.io shows, instead of a pixel scene.
+
+## 0.4.6
+
+- Fixed: turning on **An address for each server** in **Machine settings › Address** failed with "unknown field panelHost", so servers couldn't get addresses of their own. It now turns on, and the wildcard record it lists points at the address you opened the dashboard at, which is the right one behind NAT too.
+- Fixed: **An address for each server** showed only once the machine had a server. It now shows as soon as the machine has your own domain, so you can turn it on, and see whether its wildcard record works, before the first server exists.
+
 ## 0.4.5
 
-- **New server › A template** shows each of Playkeeper's templates with a picture of its own world, the same one playkeeper.io shows, instead of a pixel scene.
+- **Creators:** the owner can invite someone to create their own servers on this machine. **Settings › Team › Invite a creator** gives them an allowance of servers and memory. They make their own account, turn on two-factor sign-in, and create, resize and delete their own servers inside it, seeing only those. Their new servers start with a backup each day someone played. It's how Playkeeper's managed beta runs, and it works for sharing a VPS with friends too.
+- **An address for each server:** under your own domain, turn on **An address for each server** in **Machine settings › Address** and add one record, `*.` and your domain. Every server then gets an address like `survival.mc.example.com` by itself, with its own page and certificate, and players type the server's port with it.
+- **Servers can't reach the cloud's metadata service:** plugins and mods can no longer open connections to the address where clouds hand out a VPS's setup data. Nothing else changes by itself: servers still reach the VPS they run on, so a plugin whose database runs there keeps working.
+- **Keep servers away from this machine:** a new switch in **Machine settings** also keeps plugins and mods away from the VPS itself, the dashboard's port included. It's off unless you turn it on, and it turns on by itself when you invite a creator, staying on while you have creators. A plugin that uses a database on the same VPS then gets "connection refused" ([Troubleshooting](docs/TROUBLESHOOTING.md#a-plugin-cant-reach-something-on-the-vps)). `sudo playkeeper status` says which applies.
 - Fixed: records for a server's own address that you added after saving it were found only at Playkeeper's next look, up to 6 hours later. Until they work, Playkeeper now looks every minute, as it does for your domain's records, so the page gets its certificate a minute or two after you add them.
+- Fixed: asking the API for more of a server's console than Playkeeper keeps, its newest 2,000 lines, returned only the newest 500. It now returns all 2,000, so a tool reading a big modpack's start, which can log hundreds of lines in a second, still finds the line saying the server is ready.
 
 ## 0.4.4
 

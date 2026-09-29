@@ -240,6 +240,8 @@ func TestMachineWideActionsNeedEveryServer(t *testing.T) {
 		{"POST", "/api/machines/" + mid + "/address/release"},
 		{"POST", "/api/machines/" + mid + "/address/check"},
 		{"POST", "/api/machines/" + mid + "/address/certificate"},
+		{"POST", "/api/machines/" + mid + "/address/server-addresses"},
+		{"POST", "/api/machines/" + mid + "/network-guard"},
 		{"DELETE", "/api/machines/" + mid + "/address"},
 		{"POST", "/api/machines/" + mid + "/disk/clean"},
 		{"POST", "/api/machines/" + mid + "/offsite/recover"},

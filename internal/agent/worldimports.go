@@ -363,7 +363,7 @@ func (a *Agent) hWorldImportFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("%s is empty.", strconv.Quote(req.Name)))
 		return
 	}
-	if err := a.announceFile(imp, req.Name, req.Size); err != nil {
+	if err := a.announceFile(r.Context(), imp, req.Name, req.Size); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -372,7 +372,7 @@ func (a *Agent) hWorldImportFile(w http.ResponseWriter, r *http.Request) {
 
 // announceFile adds a file to an upload if the upload allowance has room
 // for it once the stale uploads are forgotten.
-func (a *Agent) announceFile(imp *worldImport, name string, size int64) error {
+func (a *Agent) announceFile(ctx context.Context, imp *worldImport, name string, size int64) error {
 	a.imports.announce.Lock()
 	defer a.imports.announce.Unlock()
 	a.imports.mu.Lock()
@@ -381,6 +381,11 @@ func (a *Agent) announceFile(imp *worldImport, name string, size int64) error {
 	removeImports(stale)
 	if size > a.uploadAllowance() {
 		return &apiError{Status: http.StatusRequestEntityTooLarge, Code: api.CodeInsufficientSpace, Msg: "The world is larger than the free disk space allows.", Hint: "Free disk space and try again."}
+	}
+	if imp.serverID != "" {
+		if err := a.diskLimitRefusal(ctx, imp.serverID, size); err != nil {
+			return err
+		}
 	}
 	imp.mu.Lock()
 	defer imp.mu.Unlock()
@@ -970,10 +975,20 @@ func (a *Agent) hWorldImportApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	// The world it replaces stays beside it, so the new one is what it adds.
+	done, err := s.holdDiskLimit(r.Context(), s.id, pv.Preview.SizeBytes)
+	if err != nil {
+		imp.release()
+		writeError(w, err)
+		return
+	}
 	op, err := s.beginOp("world_import", actor, func(ctx context.Context, h *opHandle) error {
-		return s.importWorldOp(ctx, h, imp, in, o, actor)
+		err := s.importWorldOp(ctx, h, imp, in, o, actor)
+		done(err == nil)
+		return err
 	})
 	if err != nil {
+		done(false)
 		imp.release()
 		writeError(w, err)
 		return

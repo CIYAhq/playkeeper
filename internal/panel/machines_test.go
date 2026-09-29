@@ -298,6 +298,10 @@ func TestAMachineJoinsAndItsServersAreReachable(t *testing.T) {
 	if lines, _ := jc["joinLines"].([]any); len(lines) != 4 || lines[0] != `sudo playkeeper join panel.example.com:8443 \` {
 		t.Errorf("join lines: %v", jc["joinLines"])
 	}
+	if cc, _ := jc["cloudConfig"].(string); !strings.HasPrefix(cc, "#cloud-config\nruncmd:\n  - \"curl -fsSL https://playkeeper.io/install | sh -s -- --yes --join panel.example.com:8443 --code "+code) ||
+		!strings.HasSuffix(cc, "--fingerprint "+fp+" --name home-server\"\n") {
+		t.Errorf("the cloud config: %q", cc)
+	}
 	if jc["expiresAt"] != "2026-09-24T12:30:00Z" || jc["state"] != "waiting" || jc["dials"] != "panel.example.com:8443" || jc["createdBy"] != "admin" {
 		t.Errorf("the code: %v", jc)
 	}

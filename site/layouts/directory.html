@@ -181,11 +181,11 @@
 {{define "dir-pages"}}
 <nav class="dir-pages" aria-label="Pages" data-dir-pages{{if le .Pages 1}} hidden{{end}}>
   {{if gt .Pages 1}}
-  {{if gt .Page 1}}<a class="dir-page dir-step" href="{{.PagePath (add .Page -1)}}" rel="prev">{{template "icon" "arrow-left"}}<span>Previous</span></a>{{end}}
+  {{if gt .Page 1}}<a class="dir-page dir-step" href="{{.PagePath (add .Page -1)}}" rel="prev" aria-label="Previous page">{{template "icon" "arrow-left"}}<span>Previous</span></a>{{end}}
   <ol class="dir-page-list">
     {{range .PageLinks}}{{if .Number}}<li>{{if .Current}}<span class="dir-page is-current" aria-current="page">{{.Number}}</span>{{else}}<a class="dir-page" href="{{.Path}}">{{.Number}}</a>{{end}}</li>{{else}}<li class="dir-gap" aria-hidden="true">…</li>{{end}}{{end}}
   </ol>
-  {{if lt .Page .Pages}}<a class="dir-page dir-step" href="{{.PagePath (add .Page 1)}}" rel="next"><span>Next</span>{{template "icon" "arrow-right"}}</a>{{end}}
+  {{if lt .Page .Pages}}<a class="dir-page dir-step" href="{{.PagePath (add .Page 1)}}" rel="next" aria-label="Next page"><span>Next</span>{{template "icon" "arrow-right"}}</a>{{end}}
   {{end}}
 </nav>
 {{end}}

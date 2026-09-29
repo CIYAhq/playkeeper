@@ -21,10 +21,35 @@ interface Pending {
   challenge: Challenge
 }
 
-export function LoginPage({ machine, version, onDone }: { machine?: string; version?: string; onDone: (m: Me) => void }) {
+/** Where Sign in with Whop starts: the dashboard sends the browser on to Whop. */
+const whopSignInStart = '/api/public/whop/signin/start'
+
+/** Why Sign in with Whop sent someone back here, from its ?whop= code. */
+export function whopSignInError(code: string): string {
+  switch (code) {
+    case 'no_account':
+      return t('login.whop.noAccount')
+    case 'starting':
+      return t('login.whop.starting')
+    case 'paused':
+      return t('login.whop.paused')
+    case 'suspended':
+      return t('login.whop.suspended')
+    case 'denied':
+      return t('login.whop.denied')
+    case 'expired':
+      return t('login.whop.expired')
+    case 'off':
+      return t('login.whop.off')
+    default:
+      return t('login.whop.failed')
+  }
+}
+
+export function LoginPage({ machine, version, whopSignIn, whopError, onDone }: { machine?: string; version?: string; whopSignIn?: boolean; whopError?: string; onDone: (m: Me) => void }) {
   const [username, setUsername] = useState('')
   const [pending, setPending] = useState<Pending>()
-  const [error, setError] = useState<string>()
+  const [error, setError] = useState<string | undefined>(() => (whopError ? whopSignInError(whopError) : undefined))
   return (
     <Frame version={version}>
       {pending ? (
@@ -40,6 +65,7 @@ export function LoginPage({ machine, version, onDone }: { machine?: string; vers
       ) : (
         <PasswordStep
           machine={machine}
+          whopSignIn={whopSignIn}
           username={username}
           setUsername={setUsername}
           error={error}
@@ -54,7 +80,7 @@ export function LoginPage({ machine, version, onDone }: { machine?: string; vers
   )
 }
 
-function PasswordStep({ machine, username, setUsername, error, setError, onAnswer }: { machine?: string; username: string; setUsername: (v: string) => void; error?: string; setError: (e?: string) => void; onAnswer: (a: LoginAnswer) => void }) {
+function PasswordStep({ machine, whopSignIn, username, setUsername, error, setError, onAnswer }: { machine?: string; whopSignIn?: boolean; username: string; setUsername: (v: string) => void; error?: string; setError: (e?: string) => void; onAnswer: (a: LoginAnswer) => void }) {
   const phone = useIsPhone()
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -78,7 +104,15 @@ function PasswordStep({ machine, username, setUsername, error, setError, onAnswe
         <h1 className="text-xl font-bold">{t('login.title')}</h1>
         {machine && <p className="mt-0.5 text-[13px] break-words text-muted-foreground max-sm:text-[15px]">{t('login.subtitle', { machine })}</p>}
       </div>
-      <form className="mt-5 flex flex-col gap-4" onSubmit={submit}>
+      {whopSignIn && (
+        <div className="mt-5">
+          <Button variant="outline" size={phone ? 'touch' : 'lg'} className="w-full" render={<a href={whopSignInStart} />}>
+            {t('login.whop.button')}
+          </Button>
+          <p className="mt-4 text-center text-xs text-muted-foreground max-sm:text-[13px]">{t('login.whop.or')}</p>
+        </div>
+      )}
+      <form className={cn('flex flex-col gap-4', whopSignIn ? 'mt-3' : 'mt-5')} onSubmit={submit}>
         <div className="flex flex-col gap-1.5">
           <label htmlFor="login-username" className="text-[13px] font-medium max-sm:text-[15px]">
             {t('login.username')}

@@ -6821,6 +6821,552 @@ control "own addresses: records that don't work yet are looked at every minute" 
   'if check.Ready {' \
   ./internal/agent '^TestAnOwnAddressIsLookedAtEveryMinuteUntilItsRecordsWork$'
 
+# Creator invites (the managed beta): the owner's alone, for an Admin with
+# no servers and an allowance, and nobody else on the team sees them.
+control "creator invites: only the owner can give an allowance" internal/invites/allowance.go \
+  'if a.InstallRole != InstallOwner {' \
+  'if false {' \
+  ./internal/invites '^TestNewCreatorInvite$'
+control "creator invites: a creator starts with no servers" internal/invites/invites.go \
+  'if spec.Role != RoleAdmin || spec.Servers.All || len(spec.Servers.Servers) > 0 {' \
+  'if spec.Role != RoleAdmin {' \
+  ./internal/invites '^TestNewCreatorInvite$'
+control "creator invites: one stops working when its creator couldn't make it as it stands" internal/invites/member.go \
+  'if inviter.UserID != inv.CreatedBy || CanGrantAllowance(inviter, inv.Allowance) != nil || inv.Role != RoleAdmin {' \
+  'if inviter.UserID != inv.CreatedBy {' \
+  ./internal/invites '^TestAcceptCreatorInvite$'
+control "creator invites: only the owner may change or turn one off" internal/panel/team.go \
+  'return invites.CanGrantAllowance(a.Account, inv.Allowance)' \
+  'return nil' \
+  ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
+control "creator invites: the rest of the team doesn't see them" internal/panel/team.go \
+  'return canChangeInvite(a, inv) == nil' \
+  'return true' \
+  ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
+control "creator invites: the member keeps the allowance" internal/panel/join.go \
+  'grant.Servers.String(), grant.Allowance.Servers, grant.Allowance.MemoryMB, now)' \
+  'grant.Servers.String(), 0, 0, now)' \
+  ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
+control "creators: their role and servers aren't changed on the Team page" internal/panel/team.go \
+  'if !t.Allowance.IsZero() {' \
+  'if false {' \
+  ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
+
+# Creators' servers: created inside the allowance, one change at a time,
+# joining their servers; memory changes and restores stay inside it; only
+# their own servers are theirs to delete.
+control "creators: an admin of some servers without an allowance creates none" internal/panel/workspace.go \
+  'case act == actCreateOwnServers && !a.Servers.All && a.Allowance.IsZero():' \
+  'case act == actCreateOwnServers && false:' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: no more servers than the allowance" internal/panel/creators.go \
+  'if use.servers >= a.Allowance.Servers {' \
+  'if false {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: no more memory than the allowance" internal/panel/creators.go \
+  'if left := al.MemoryMB - use.memoryMB; memoryMB > left {' \
+  'if left := al.MemoryMB - use.memoryMB; false && memoryMB > left {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: a server the owner gave them keeps its memory" internal/panel/creators.go \
+  'if memoryMB != cur {' \
+  'if false && memoryMB != cur {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: they delete only the servers they created" internal/panel/creators.go \
+  'if !slices.Contains(owned, r.PathValue("id")) {' \
+  'if false && !slices.Contains(owned, r.PathValue("id")) {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: a new server joins their servers" internal/panel/creators.go \
+  'if !sc.All && !slices.Contains(sc.Servers, op.ServerID) {' \
+  'if false {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: memory changes in settings stay inside the allowance" internal/panel/creators.go \
+  'if !s.creatorMemoryFits(w, r, sess.Access, r.PathValue("id"), mb) {' \
+  'if false {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: a restore's memory stays inside the allowance" internal/panel/team.go \
+  'if method == "POST" && sess.Access.creator() {' \
+  'if false {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: the catalog offers only the memory their allowance has left" internal/panel/team.go \
+  'if sess.Access.creator() {' \
+  'if false {' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: two creates at once are checked one after the other" internal/panel/creators.go \
+  'use, err := s.allowanceUse(r.Context(), a, m, "")' \
+  's.creators.Unlock()
+	defer s.creators.Lock()
+	use, err := s.allowanceUse(r.Context(), a, m, "")' \
+  ./internal/panel '^TestTwoCreatesAtOnceCantBothFitTheAllowance$'
+control "creators: pre-generation only up to 2,500 blocks" internal/panel/creators.go \
+  'return p.Radius <= creatorPregenRadius' \
+  'return p.Radius > 0' \
+  ./internal/panel '^TestCreatorsPreGenerateUpTo2500Blocks$'
+control "creators: a larger pre-generation isn't started" internal/panel/creators.go \
+  'if !creatorPreset(req.Preset) {' \
+  'if false && !creatorPreset(req.Preset) {' \
+  ./internal/panel '^TestCreatorsPreGenerateUpTo2500Blocks$'
+control "creators: the larger sizes aren't offered" internal/panel/creators.go \
+  'if p.Radius <= creatorPregenRadius {' \
+  'if p.Radius > 0 {' \
+  ./internal/panel '^TestCreatorsPreGenerateUpTo2500Blocks$'
+control "creators: the Map tab fills in only the areas they may pre-generate" internal/panel/creators.go \
+  'return id == api.MapAreaExplored || creatorPreset(id)' \
+  'return id != ""' \
+  ./internal/panel '^TestCreatorsPreGenerateUpTo2500Blocks$'
+control "creators: a bigger map area isn't started" internal/panel/creators.go \
+  'if !creatorArea(req.Area) {' \
+  'if false && !creatorArea(req.Area) {' \
+  ./internal/panel '^TestCreatorsPreGenerateUpTo2500Blocks$'
+control "creators: a new server starts with backups" internal/panel/creators.go \
+  's.startCreatorBackups(r.Context(), m, sess.Access, id)' \
+  '_ = id' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+control "creators: the backups a new server starts with are on" internal/panel/creators.go \
+  '"automatic": map[string]any{"enabled": true, "everyHours": 24, "onlyIfPlayed": true},' \
+  '"automatic": map[string]any{"enabled": false, "everyHours": 24, "onlyIfPlayed": true},' \
+  ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
+
+# An address for each server: one wildcard record under the own domain.
+control "server addresses: the wildcard record is among the records to add" internal/certs/join.go \
+  'out = append(out, p.addrRecords("", p.wildcardName())...)' \
+  '_ = p.wildcardName()' \
+  ./internal/certs '^TestPlanWithAWildcard$'
+control "server addresses: a server reached through the wildcard needs no SRV record" internal/certs/join.go \
+  'return s.Host != "" && !s.Wild && ' \
+  'return s.Host != "" && ' \
+  ./internal/certs '^TestPlanWithAWildcard$'
+control "server addresses: each look at the wildcard asks for a name of its own" internal/certs/join.go \
+  '_, _ = rand.Read(b)' \
+  '_, _ = rand.Read(b[:0])' \
+  ./internal/certs '^TestCheckPlanChecksTheWildcard$'
+control "server addresses: the wildcard's note names the record to fix" internal/certs/join.go \
+  'params["name"] = wild' \
+  '_ = params' \
+  ./internal/certs '^TestCheckPlanChecksTheWildcard$'
+control "server addresses: players type the port" internal/agent/address.go \
+  'j.Address, j.OwnAddress = hostPort(s.own, s.port), s.own' \
+  'j.Address, j.OwnAddress = s.own, s.own' \
+  ./internal/agent '^TestEveryServerGetsAnAddressUnderTheWildcard$'
+control "server addresses: an address from the wildcard works once the wildcard does" internal/agent/ownaddress.go \
+  'if js.wild {' \
+  'if false && js.wild {' \
+  ./internal/agent '^TestEveryServerGetsAnAddressUnderTheWildcard$'
+control "server addresses: a name given to one server isn't another's too" internal/agent/address.go \
+  'js.own == "" && !given[name] && ' \
+  'js.own == "" && ' \
+  ./internal/agent '^TestANameGivenBeforeTheWildcardStaysItsServers$'
+control "server addresses: no server is given another's address from the wildcard" internal/agent/ownaddress.go \
+  'if js.id != s.id && js.own == name {' \
+  'if false && js.id != s.id && js.own == name {' \
+  ./internal/agent '^TestServersGivenAnAddressKeepItUnderTheWildcard$'
+control "server addresses: under playkeeper.me, names Playkeeper keeps get none" internal/agent/address.go \
+  '!(official && names.Reserved(js.slug))' \
+  '!(official && false)' \
+  ./internal/agent '^TestUnderPlaykeeperMeOfficialNamesGetNoAddress$'
+control "server addresses: turning it off keeps the certificates" internal/agent/ownaddress.go \
+  'a.audit(actor, "address.server_addresses",' \
+  'a.forgetOwnCertificates(st, true); a.audit(actor, "address.server_addresses",' \
+  ./internal/agent '^TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes$'
+control "server addresses: a deleted server's certificate goes" internal/agent/servers.go \
+  's.forgetCertificate(wild)' \
+  '_ = wild' \
+  ./internal/agent '^TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes$'
+control "server addresses: an old domain's certificates go" internal/agent/address.go \
+  'a.forgetOwnCertificates(st, true)' \
+  '_ = st' \
+  ./internal/agent '^TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes$'
+control "server addresses: a domain's certificates go while the switch is off too" internal/agent/ownaddress.go \
+  'a.forgetCertificate(automaticName(st, servers, js))' \
+  'if st.ServerAddresses { a.forgetCertificate(automaticName(st, servers, js)) }' \
+  ./internal/agent '^TestStoppingTheDomainTakesTheWildcardsCertificatesWhileItsOff$'
+control "server addresses: a name given by hand keeps its certificate when the domain moves" internal/agent/ownaddress.go \
+  'func(o joinServer) bool { return o.own == name }' \
+  'func(o joinServer) bool { return o.id != js.id && o.own == name }' \
+  ./internal/agent '^TestAGivenSlugAddressKeepsItsCertificateWhenTheDomainMoves$'
+control "server addresses: a server's leftover certificate from the wildcard goes with the domain" internal/agent/ownaddress.go \
+  'js.slug == "" || ' \
+  'js.slug == "" || js.own != "" || ' \
+  ./internal/agent '^TestALeftoverCertificateFromTheWildcardGoesWithTheDomain$'
+control "server addresses: a server given another address drops its certificate from the wildcard" internal/agent/ownaddress.go \
+  'if name != "" && wild != name {' \
+  'if false && name != "" && wild != name {' \
+  ./internal/agent '^TestGivingAServerAnAddressForgetsItsCertificateFromTheWildcard$'
+control "server addresses: a server given the name it has keeps its certificate" internal/agent/ownaddress.go \
+  'if name != "" && wild != name {' \
+  'if name != "" {' \
+  ./internal/agent '^TestGivingAServerAnAddressForgetsItsCertificateFromTheWildcard$'
+control "server addresses: each certificate request is logged for the day's count" internal/agent/ownaddress.go \
+  'a.noteOwnCertAttempt()' \
+  '_ = ctx' \
+  ./internal/agent '^TestTheDaysCertificatesCountWhateverBecameOfTheirNames$'
+control "server addresses: the day's count holds once the certificates are forgotten" internal/agent/ownaddress.go \
+  'return max(logged, kept)' \
+  'return kept' \
+  ./internal/agent '^TestTheDaysCertificatesCountWhateverBecameOfTheirNames$'
+control "server addresses: certificates asked before the log count too" internal/agent/ownaddress.go \
+  'name != st.Host && fromMillis(last).After(since)' \
+  'false && name != st.Host && fromMillis(last).After(since)' \
+  ./internal/agent '^TestOwnAddressesGetAFewCertificatesADay$'
+control "server addresses: a deleted server's certificate goes while the switch is off too" internal/agent/ownaddress.go \
+  'return automaticName(s.address(), servers, js)' \
+  'if st := s.address(); st.ServerAddresses { return automaticName(st, servers, js) }' \
+  ./internal/agent '^TestTheWildcardsCertificatesLastUntilTheirServerOrDomainGoes$'
+control "server addresses: only an admin of every server turns it on" internal/panel/server.go \
+  'am("/api/machines/{mid}/address/server-addresses", "/v1/address/server-addresses"),' \
+  '{"POST", "/api/machines/{mid}/address/server-addresses", needSessionCSRF, actView, s.addressProxy("POST", "/v1/address/server-addresses")},' \
+  ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
+webcontrol "server addresses: the switch asks the agent" web/src/pages/machine-settings/own.tsx \
+  "machineApi(id, '/address/server-addresses')" \
+  "machineApi(id, '/address/server-address')" \
+  src/pages/machine-settings/address.test.tsx 'lets the owner turn on an address for each server'
+webcontrol "server addresses: an address from the wildcard leaves the field for one of its own" web/src/pages/machine-settings/own.tsx \
+  "const saved = s.automatic ? '' : (s.ownAddress ?? '')" \
+  "const saved = s.ownAddress ?? ''" \
+  src/pages/machine-settings/address.test.tsx 'gives every server an address with one wildcard record'
+
+# The network guard (internal/netguard): servers can't reach the machine or
+# link-local addresses.
+control "network guard: the rules go first in their chains" internal/netguard/netguard.go \
+  'script = append(script, "-I "+chain+" 1 "+strings.Join(w[i], " "))' \
+  'script = append(script, "-A "+chain+" "+strings.Join(w[i], " "))' \
+  ./internal/netguard '^TestApplyPutsTheRulesFirstInTheirChains$'
+control "network guard: buried rules move back to the top" internal/netguard/netguard.go \
+  'top = top && i < len(w)' \
+  'top = top || i < len(w)' \
+  ./internal/netguard '^TestApplyMovesBuriedRulesBackToTheTop$'
+control "network guard: the rules for an earlier bridge come out" internal/netguard/netguard.go \
+  'script = append(script, "-D"+strings.TrimPrefix(r, "-A"))' \
+  '_ = r' \
+  ./internal/netguard '^TestApplyFollowsANewBridge$'
+control "network guard: rules found at the top are checked for the bridge" internal/netguard/netguard.go \
+  'if len(ours) == len(w) && top && present(ctx, run, f, chain, w) {' \
+  'if len(ours) == len(w) && top {' \
+  ./internal/netguard '^TestApplyFollowsANewBridge$'
+control "network guard: new connections to the machine are refused, replies aren't" internal/netguard/netguard.go \
+  '"!", "--ctstate", "ESTABLISHED,RELATED"' \
+  '"--ctstate", "ESTABLISHED,RELATED"' \
+  ./internal/netguard '^TestApplyPutsTheRulesFirstInTheirChains$'
+control "network guard: DNS to the machine stays open" internal/netguard/netguard.go \
+  '"-p", proto, "!", "--dport", "53",' \
+  '"-p", proto,' \
+  ./internal/netguard '^TestApplyPutsTheRulesFirstInTheirChains$'
+control "network guard: every link-local address is out of reach" internal/netguard/netguard.go \
+  '"-d", "169.254.0.0/16"' \
+  '"-d", "169.254.169.254/32"' \
+  ./internal/netguard '^TestApplyPutsTheRulesFirstInTheirChains$'
+control "network guard: the metadata rule goes in DOCKER-USER when Docker has it" internal/netguard/netguard.go \
+  'if t.chains["DOCKER-USER"] {' \
+  'if false && t.chains["DOCKER-USER"] {' \
+  ./internal/netguard '^TestApplyPutsTheRulesFirstInTheirChains$'
+control "network guard: a restore leaves the other rules in place" internal/netguard/netguard.go \
+  'f.restore, "-w", "5", "--noflush")' \
+  'f.restore, "-w", "5")' \
+  ./internal/netguard '^TestApplyPutsTheRulesFirstInTheirChains$'
+control "network guard: a restore never declares, so empties, a chain" internal/netguard/netguard.go \
+  'for i := len(w) - 1; i >= 0; i-- {' \
+  'script = append(script, ":"+chain+" - [0:0]"); for i := len(w) - 1; i >= 0; i-- {' \
+  ./internal/netguard '^TestApplyPutsTheRulesFirstInTheirChains$'
+control "network guard: an unusable interface name is refused" internal/netguard/netguard.go \
+  'if !ifname.MatchString(n.Bridge) {' \
+  'if false && !ifname.MatchString(n.Bridge) {' \
+  ./internal/netguard '^TestApplyRefusesAnUnusableInterfaceName$'
+control "network guard: an IPv6 network is kept from the machine too" internal/netguard/netguard.go \
+  'if !n.IPv6 {' \
+  'if true || !n.IPv6 {' \
+  ./internal/netguard '^TestAnIPv6NetworkIsKeptFromTheMachineToo$'
+# shellcheck disable=SC2016
+control "network guard: rules listed with quoted comments are the guard's" internal/netguard/netguard.go \
+  'strings.Trim(w[i+1], `"`) == Tag' \
+  'w[i+1] == Tag' \
+  ./internal/netguard '^TestQuotedCommentsAreTheGuards$'
+control "network guard: Remove takes out every rule of the guard's" internal/netguard/netguard.go \
+  'for _, f := range []family{ipv4, ipv6} {' \
+  'for _, f := range []family{} {' \
+  ./internal/netguard '^TestRemoveTakesOutEveryRuleOfTheGuards$'
+control "network guard: in place before a server's container starts" internal/agent/lifecycle.go \
+  'a.guardNetwork(ctx)' \
+  '_ = ctx' \
+  ./internal/agent '^TestTheGuardIsInPlaceBeforeAServersContainerStarts$'
+control "network guard: the agent puts back rules something removed" internal/agent/guard.go \
+  't := time.NewTicker(a.opts.GuardInterval)' \
+  't := time.NewTicker(time.Hour)' \
+  ./internal/agent '^TestTheGuardPutsBackRulesSomethingRemoved$'
+control "network guard: servers may reach the machine unless its owner keeps them away" internal/agent/guard.go \
+  'a.keepAway = v == "on"' \
+  'a.keepAway = v == "on" || true' \
+  ./internal/agent '^TestByDefaultServersKeepOnlyOutOfTheMetadataService$'
+control "network guard: the owner's switch keeps servers away from the machine" internal/agent/guard.go \
+  'host := a.guardHost()' \
+  'host := false' \
+  ./internal/agent '^TestKeepingServersAwayIsTheOwnersSwitch$'
+control "network guard: the owner's switch lasts when the agent restarts" internal/agent/guard.go \
+  'a.keepAway = v == "on"' \
+  'a.keepAway = v == "on" && false' \
+  ./internal/agent '^TestKeepingServersAwayIsTheOwnersSwitch$'
+control "network guard: the machine's status shows the owner's switch" internal/agent/guard.go \
+  'g := api.NetworkGuard{Host: a.keepAway}' \
+  'g := api.NetworkGuard{Host: false}' \
+  ./internal/agent '^TestKeepingServersAwayIsTheOwnersSwitch$'
+control "network guard: a database error leaves servers kept away" internal/agent/guard.go \
+  'host := a.guardHost()' \
+  'v, _, _ := a.kvGet(kvGuardHost); host := v == "on"' \
+  ./internal/agent '^TestADatabaseErrorLeavesServersKeptAway$'
+control "network guard: the owner's switch changes only once it's stored" internal/agent/guard.go \
+  '[on]); err != nil {' \
+  '[on]); false && err != nil {' \
+  ./internal/agent '^TestADatabaseErrorLeavesServersKeptAway$'
+control "network guard: no agent starts without reading the owner's switch" internal/agent/agent.go \
+  'if err := a.loadGuard(); err != nil {' \
+  'if err := a.loadGuard(); false && err != nil {' \
+  ./internal/agent '^TestTheAgentWontStartWithoutReadingTheSwitch$'
+control "network guard: no server starts while it can't be kept away" internal/agent/guard.go \
+  'if g == nil || !g.Host || g.On {' \
+  'if g == nil || !g.Host || true {' \
+  ./internal/agent '^TestAServerWontStartWhileItCantBeKeptAway$'
+control "network guard: with the switch off, servers start without the rules" internal/agent/guard.go \
+  'if g == nil || !g.Host || g.On {' \
+  'if g == nil || g.On {' \
+  ./internal/agent '^TestAServerStartsWhenTheGuardCant$'
+control "network guard: a creator invite keeps servers away from the machine first" internal/panel/team.go \
+  'if err := s.keepServersAway(r.Context(), sess.User.Username); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestACreatorInviteKeepsServersAwayFromTheMachine$'
+control "network guard: no creator invite until the agent keeps servers away" internal/panel/creators.go \
+  'if err == nil && !g.Host {' \
+  'if false && err == nil && !g.Host {' \
+  ./internal/panel '^TestACreatorInviteKeepsServersAwayFromTheMachine$'
+control "network guard: servers stay away while there are creators" internal/panel/creators.go \
+  'if has {' \
+  'if has && false {' \
+  ./internal/panel '^TestServersStayAwayWhileThereAreCreators$'
+control "network guard: a creator invite that still works counts as a creator" internal/panel/creators.go \
+  'AND revoked_at = 0 AND uses < max_uses AND expires_at > ?)' \
+  'AND 0 AND ?)' \
+  ./internal/panel '^TestServersStayAwayWhileThereAreCreators$'
+webcontrol "network guard: the switch in Machine settings asks the agent" web/src/pages/machine-settings/guard.tsx \
+  "machineApi(id, '/network-guard')" \
+  "machineApi(id, '/network-guards')" \
+  src/pages/machine-settings/guard.test.tsx 'keeps servers away from the machine when the owner turns it on'
+control "network guard: the machine's status says what went wrong" internal/agent/guard.go \
+  'st.Problem = err.Error()' \
+  '_ = err' \
+  ./internal/agent '^TestAServerStartsWhenTheGuardCant$'
+control "network guard: rules are for the network's own interface" internal/agent/guard.go \
+  'if b := n.Options["com.docker.network.bridge.name"]; b != "" {' \
+  'if b := ""; b != "" {' \
+  ./internal/agent '^TestTheGuardUsesTheNetworksOwnInterfaceName$'
+control "network guard: an IPv6 network gets the ip6tables rules" internal/agent/guard.go \
+  'IPv6: n.EnableIPv6}' \
+  'IPv6: false}' \
+  ./internal/agent '^TestTheGuardKeepsAnIPv6NetworkFromTheMachine$'
+control "network guard: a network that isn't a bridge isn't taken for one" internal/agent/guard.go \
+  'if n.Driver != "bridge" {' \
+  'if false && n.Driver != "bridge" {' \
+  ./internal/agent '^TestTheGuardNeedsABridge$'
+control "network guard: playkeeper dev leaves the machine's firewall alone" internal/agent/guard.go \
+  'if cfg.Dev || euid != 0 {' \
+  'if euid != 0 {' \
+  ./internal/agent '^TestNoGuardInDevMode$'
+control "network guard: the uninstall takes the rules out" internal/install/uninstall.go \
+  'if sys.Firewall != nil {' \
+  'if sys.Firewall == nil {' \
+  ./internal/install '^TestUninstallTakesOutTheNetworkGuardsRules$'
+control "network guard: the agent's unit lets it run iptables" internal/install/units.go \
+  'CAP_NET_BIND_SERVICE CAP_NET_ADMIN CAP_NET_RAW' \
+  'CAP_NET_BIND_SERVICE' \
+  ./internal/install '^TestTheAgentMayOpenPort80AndChangeTheFirewallAndNothingMore$'
+control "network guard: the agent's unit allows the netlink sockets iptables uses" internal/install/units.go \
+  'AF_INET6 AF_NETLINK' \
+  'AF_INET6' \
+  ./internal/install '^TestTheAgentMayOpenPort80AndChangeTheFirewallAndNothingMore$'
+
+# Playkeeper Cloud's disk limits (internal/agent/disklimits.go): what a
+# customer's servers may take between them.
+control "disk limits: they last when the agent restarts" internal/agent/disklimits.go \
+  'return json.Unmarshal([]byte(v), &a.limits.limits)' \
+  'return json.Unmarshal([]byte(v), &[]api.DiskLimit{})' \
+  ./internal/agent '^TestDiskLimitsLastAndSayWhatTheirServersTake$'
+control "disk limits: a change is kept" internal/agent/disklimits.go \
+  'if err := a.kvSet(kvDiskLimits, string(raw)); err != nil {' \
+  'if err := a.kvSet(kvDiskLimits+"-lost", string(raw)); err != nil {' \
+  ./internal/agent '^TestDiskLimitsLastAndSayWhatTheirServersTake$'
+control "disk limits: a server counts against one limit at most" internal/agent/disklimits.go \
+  'if !reServerID.MatchString(id) || servers[id] {' \
+  'if !reServerID.MatchString(id) {' \
+  ./internal/agent '^TestDiskLimitsLastAndSayWhatTheirServersTake$'
+control "disk limits: a limit is more than nothing" internal/agent/disklimits.go \
+  'case l.LimitBytes <= 0 || l.LimitBytes > maxDiskLimitBytes:' \
+  'case l.LimitBytes < 0 || l.LimitBytes > maxDiskLimitBytes:' \
+  ./internal/agent '^TestDiskLimitsLastAndSayWhatTheirServersTake$'
+control "disk limits: what an operation holds counts" internal/agent/disklimits.go \
+  'used := usedBy(rep, l.Servers) + a.onTheWay(l.Servers) + a.limits.held[l.ID]' \
+  'used := usedBy(rep, l.Servers) + a.onTheWay(l.Servers)' \
+  ./internal/agent '^TestWhatAnOperationHoldsCountsAgainstTheLimit$'
+control "disk limits: pre-generation under way counts" internal/agent/disklimits.go \
+  ' + a.limits.held[l.ID] + a.pregenOnTheWay(l.Servers)' \
+  ' + a.limits.held[l.ID]' \
+  ./internal/agent '^TestPregenUnderWayCountsAgainstTheLimit$'
+control "disk limits: pre-generation stops counting once it ends" internal/agent/disklimits.go \
+  'case !t.unfinished():' \
+  'case false && !t.unfinished():' \
+  ./internal/agent '^TestPregenUnderWayCountsAgainstTheLimit$'
+control "disk limits: what was just written counts until a scan finds it" internal/agent/disklimits.go \
+  'if w.limit == l.ID && !w.at.Before(rep.ScannedAt) {' \
+  'if false && w.limit == l.ID && !w.at.Before(rep.ScannedAt) {' \
+  ./internal/agent '^TestBackupsStopAtTheDiskLimit$'
+control "disk limits: files on their way count" internal/agent/disklimits.go \
+  'if !up.gone && !f.placed {' \
+  'if false && !up.gone && !f.placed {' \
+  ./internal/agent '^TestUploadsStopAtTheDiskLimit$'
+control "disk limits: a backup stops at the limit" internal/agent/disklimits.go \
+  'return s.holdDiskLimit(ctx, s.id, need)' \
+  'return s.holdDiskLimit(ctx, s.id, 0*need)' \
+  ./internal/agent '^TestBackupsStopAtTheDiskLimit$'
+control "disk limits: a backup that can't be measured still counts" internal/agent/disklimits.go \
+  'return usedBy(rep, []string{s.id}), nil' \
+  'return 0*usedBy(rep, []string{s.id}), nil' \
+  ./internal/agent '^TestABackupThatCantBeMeasuredStillCounts$'
+control "disk limits: a backup on request or on schedule is held" internal/agent/backups.go \
+  'done, err := s.holdBackup(ctx)' \
+  'done, err := func(bool) {}, error(nil)' \
+  ./internal/agent '^TestBackupsStopAtTheDiskLimit$'
+control "disk limits: a backup counts once it's written" internal/agent/backups.go \
+  'done(err == nil)' \
+  'done(false && err == nil)' \
+  ./internal/agent '^TestBackupsStopAtTheDiskLimit$'
+control "disk limits: the rollback archive before a restore, update or import is held" internal/agent/backups.go \
+  'done, err := s.holdBackup(s.ctx)' \
+  'done, err := func(bool) {}, error(nil)' \
+  ./internal/agent '^TestARestoresRollbackArchiveHasToFit$'
+control "disk limits: a refused scheduled backup shows on the World tab" internal/agent/schedules.go \
+  'if errors.As(err, &ae) && ae.Code == api.CodeDiskLimit {' \
+  'if false && errors.As(err, &ae) && ae.Code == api.CodeDiskLimit {' \
+  ./internal/agent '^TestBackupsStopAtTheDiskLimit$'
+control "disk limits: a file stops at the limit" internal/agent/fileuploads.go \
+  'if err := s.diskLimitRefusal(ctx, s.id, size); err != nil {' \
+  'if err := s.diskLimitRefusal(ctx, s.id, 0); err != nil {' \
+  ./internal/agent '^TestUploadsStopAtTheDiskLimit$'
+control "disk limits: a file just put in place counts" internal/agent/fileuploads.go \
+  's.noteDiskWrite(s.id, size)' \
+  's.noteDiskWrite(s.id, 0*size)' \
+  ./internal/agent '^TestUploadsStopAtTheDiskLimit$'
+control "disk limits: a world to import stops at the limit" internal/agent/worldimports.go \
+  'if err := a.diskLimitRefusal(ctx, imp.serverID, size); err != nil {' \
+  'if err := a.diskLimitRefusal(ctx, imp.serverID, 0); err != nil {' \
+  ./internal/agent '^TestImportsPacksAndPregenStopAtTheDiskLimit$'
+control "disk limits: applying an imported world holds what it adds" internal/agent/worldimports.go \
+  'done, err := s.holdDiskLimit(r.Context(), s.id, pv.Preview.SizeBytes)' \
+  'done, err := s.holdDiskLimit(r.Context(), s.id, 0)' \
+  ./internal/agent '^TestAnAppliedImportHoldsTheWorldItAdds$'
+control "disk limits: a restore upload stops at the limit" internal/agent/handlers.go \
+  'err = target.diskLimitRefusal(r.Context(), target.id, r.ContentLength)' \
+  'err = target.diskLimitRefusal(r.Context(), target.id, 0)' \
+  ./internal/agent '^TestImportsPacksAndPregenStopAtTheDiskLimit$'
+control "disk limits: a staged restore counts as the world it unpacks to" internal/agent/handlers.go \
+  'err = target.diskLimitRefusal(r.Context(), target.id, unpackedBytes(f.Manifest))' \
+  'err = target.diskLimitRefusal(r.Context(), target.id, 0*unpackedBytes(f.Manifest))' \
+  ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
+control "disk limits: a world's size is its files, not what its manifest claims" internal/agent/disklimits.go \
+  'n += f.Size' \
+  'n = m.TotalBytes + 0*f.Size' \
+  ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
+control "disk limits: a refused restore leaves no stage" internal/agent/handlers.go \
+  'os.RemoveAll(a.stageDir(p.ID))' \
+  '_ = p.ID' \
+  ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
+control "disk limits: applying a restore holds the world it unpacks to" internal/agent/handlers.go \
+  'target.holdDiskLimit(r.Context(), target.id, unpackedBytes(st.manifest))' \
+  'target.holdDiskLimit(r.Context(), target.id, 0*unpackedBytes(st.manifest))' \
+  ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
+control "disk limits: restoring a backup of the server's own is held too" internal/agent/handlers.go \
+  'target.holdDiskLimit(r.Context(), target.id, unpackedBytes(st.manifest))' \
+  'target.holdDiskLimit(r.Context(), target.id, map[bool]int64{true: unpackedBytes(st.manifest)}[strings.HasPrefix(p.Source, "upload")])' \
+  ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
+control "disk limits: a data or resource pack stops at the limit" internal/agent/packs.go \
+  'if err := s.diskLimitRefusal(r.Context(), s.id, n); err != nil {' \
+  'if err := s.diskLimitRefusal(r.Context(), s.id, 0); err != nil {' \
+  ./internal/agent '^TestImportsPacksAndPregenStopAtTheDiskLimit$'
+control "disk limits: an installed data pack counts" internal/agent/packs.go \
+  's.noteDiskWrite(s.id, n)' \
+  's.noteDiskWrite(s.id, 0*n)' \
+  ./internal/agent '^TestAnInstalledDataPackCounts$'
+control "disk limits: pre-generation stops at the limit" internal/agent/pregen.go \
+  'done, err := s.holdDiskLimit(s.ctx, s.id, est.DiskHigh)' \
+  'done, err := s.holdDiskLimit(s.ctx, s.id, 0*est.DiskHigh)' \
+  ./internal/agent '^TestImportsPacksAndPregenStopAtTheDiskLimit$'
+control "disk limits: a pre-generation start holds its area until its task is recorded" internal/agent/pregen.go \
+  'defer done(false)' \
+  'done(false)' \
+  ./internal/agent '^TestPregenHoldsItsAreaFromTheCheck$'
+control "disk limits: a refused pre-generation start leaves the running one's reservation" internal/agent/pregen.go \
+  'if task.unfinished() && !forMap {' \
+  'if task != nil { s.notePregen(s.id, est.DiskHigh) }; if task.unfinished() && !forMap {' \
+  ./internal/agent '^TestPregenHoldsItsAreaFromTheCheck$'
+control "disk limits: pre-generation reserves what it may write" internal/agent/pregen.go \
+  's.notePregen(s.id, est.DiskHigh)' \
+  's.notePregen(s.id, 0*est.DiskHigh)' \
+  ./internal/agent '^TestPregenUnderWayCountsAgainstTheLimit$'
+webcontrol "disk limits: a backup refused at the limit offers no button" web/src/components/app/backup-refused.tsx \
+  '!full &&' \
+  '(true || !full) &&' \
+  src/pages/pages.test.tsx 'says what to do when the disk limit stops scheduled backups, with no button'
+
+# Playkeeper Cloud's disk limits, the dashboard's half
+# (internal/panel/disklimits.go): each creator's servers get their
+# allowance's disk between them on their machine.
+control "dashboard disk limits: an invite keeps its disk" internal/panel/friends.go \
+  'inv.Allowance.Servers, inv.Allowance.MemoryMB, inv.Allowance.DiskGB)' \
+  'inv.Allowance.Servers, inv.Allowance.MemoryMB, 0*inv.Allowance.DiskGB)' \
+  ./internal/panel '^TestACreatorInvitesDiskGoesWithIt$'
+control "dashboard disk limits: the account an invite makes keeps its disk" internal/panel/join.go \
+  'grant.Allowance.Servers, grant.Allowance.MemoryMB, grant.Allowance.DiskGB, now)' \
+  'grant.Allowance.Servers, grant.Allowance.MemoryMB, 0*grant.Allowance.DiskGB, now)' \
+  ./internal/panel '^TestACreatorInvitesDiskGoesWithIt$'
+control "dashboard disk limits: an account's access reads its disk" internal/panel/workspace.go \
+  '&a.Allowance.Servers, &a.Allowance.MemoryMB, &a.Allowance.DiskGB)' \
+  '&a.Allowance.Servers, &a.Allowance.MemoryMB, new(int))' \
+  ./internal/panel '^TestACreatorInvitesDiskGoesWithIt$'
+control "dashboard disk limits: the default disk is 7.5 GB per GB of memory" internal/invites/allowance.go \
+  'return int64(al.MemoryMB) * 15 << 19' \
+  'return int64(al.MemoryMB) * 16 << 19' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+control "dashboard disk limits: an allowance's own disk is what it gives" internal/invites/allowance.go \
+  'return int64(al.DiskGB) << 30' \
+  'return int64(al.DiskGB) << 29' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+control "dashboard disk limits: an allowance's disk has a ceiling" internal/invites/allowance.go \
+  'case al.DiskGB < 0 || al.DiskGB > MaxAllowanceDiskGB:' \
+  'case al.DiskGB < 0:' \
+  ./internal/invites '^TestNewCreatorInvite$'
+control "dashboard disk limits: the limits carry each account's own disk" internal/panel/disklimits.go \
+  'if err := rows.Scan(&uid, &al.Servers, &al.MemoryMB, &al.DiskGB); err != nil {' \
+  'if err := rows.Scan(&uid, &al.Servers, &al.MemoryMB, new(int)); err != nil {' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+control "dashboard disk limits: a creator's new server sends them at once" internal/panel/creators.go \
+  's.kickDiskLimits()' \
+  '_ = s.kickDiskLimits' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+control "dashboard disk limits: removing a creator sends them at once" internal/panel/team.go \
+  's.kickDiskLimits()' \
+  '_ = s.kickDiskLimits' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+control "dashboard disk limits: the Team page shows what a creator's servers take" internal/panel/team.go \
+  'row.DiskUsedBytes = s.diskUsed(t.UserID)' \
+  '_ = s.diskUsed(t.UserID)' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+control "dashboard disk limits: what they take comes from the machine" internal/panel/disklimits.go \
+  'used[uid] = l.UsedBytes' \
+  'used[uid] = 0*l.UsedBytes' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+webcontrol "dashboard disk limits: the Team page says what a creator's servers take" web/src/pages/team.tsx \
+  "m.diskUsedBytes === undefined ? t('team.diskOf', { limit }) : t('team.diskUsed', { used: formatBytes(m.diskUsedBytes), limit })" \
+  "t('team.diskOf', { limit })" \
+  src/pages/pages.test.tsx 'disk, and how much their servers take once'
+webcontrol "dashboard disk limits: the Team page's default disk matches the dashboard's" web/src/lib/access.ts \
+  'al.memoryMB * 7.5' \
+  'al.memoryMB * 8' \
+  src/pages/pages.test.tsx 'disk, and how much their servers take once'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

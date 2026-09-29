@@ -151,16 +151,26 @@ func TestThePublicPageSwitchesRefuseNothingToChange(t *testing.T) {
 // freePort is a TCP port nothing listens on right now. It comes from below
 // the range the kernel hands out for ":0" and outgoing connections, so a
 // connection elsewhere in the run can't take it between the tests' binds.
+// scripts/go-test-shard.sh runs the agent's tests in shards side by side, and
+// each shard takes its ports from its own part of the range, so another
+// shard can't take a port a test lets go of and binds again.
 func freePort(t *testing.T) int {
 	t.Helper()
+	lo, n := 20000, 10000
+	k, kerr := strconv.Atoi(os.Getenv("PLAYKEEPER_TEST_SHARD"))
+	of, oerr := strconv.Atoi(os.Getenv("PLAYKEEPER_TEST_SHARDS"))
+	if kerr == nil && oerr == nil && of > 0 && k >= 1 && k <= of {
+		n = 10000 / of
+		lo += (k - 1) * n
+	}
 	for range 100 {
-		p := 20000 + rand.IntN(10000)
+		p := lo + rand.IntN(n)
 		if ln, err := net.Listen("tcp", ":"+strconv.Itoa(p)); err == nil {
 			ln.Close()
 			return p
 		}
 	}
-	t.Fatal("no free port between 20000 and 29999")
+	t.Fatalf("no free port between %d and %d", lo, lo+n-1)
 	return 0
 }
 

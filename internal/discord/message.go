@@ -258,6 +258,18 @@ func dashboardLink(raw string) string {
 	return strings.NewReplacer("(", "%28", ")", "%29").Replace(s)
 }
 
+// plainLink checks a link away from Playkeeper, such as buying a machine:
+// https, with a host and no user, rebuilt with its query so nothing in it
+// can end a markdown link early. It returns "" for anything else.
+func plainLink(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" || len(raw) > 512 {
+		return ""
+	}
+	s := (&url.URL{Scheme: "https", Host: u.Host, Path: u.Path, RawQuery: u.Query().Encode()}).String()
+	return strings.NewReplacer("(", "%28", ")", "%29", " ", "%20").Replace(s)
+}
+
 // reAddress is a join address as Playkeeper shows it: a host name or IPv4
 // address, or an IPv6 address in brackets, with an optional port.
 var reAddress = regexp.MustCompile(`^(?:[A-Za-z0-9.-]{1,253}|\[[0-9A-Fa-f:.]{2,45}\])(?::[0-9]{1,5})?$`)
