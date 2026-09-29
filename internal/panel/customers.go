@@ -306,34 +306,6 @@ func (s *Server) startWaitingCustomers(ctx context.Context) {
 	}
 }
 
-// startWaitingCustomer places a customer who was waiting for room. The fleet
-// calls it when room appears, and runCustomers every minute anyway. A
-// customer still without room is left waiting, and a paused or suspended one
-// isn't placed until they're active again.
-func (s *Server) startWaitingCustomer(ctx context.Context, userID int64) error {
-	s.customersMu.Lock()
-	defer s.customersMu.Unlock()
-	var state, planID string
-	var al invites.Allowance
-	err := s.db.QueryRowContext(ctx, `SELECT c.state, c.plan_id, m.allowance_servers, m.allowance_memory_mb, m.allowance_disk_gb
-		FROM customers c JOIN project_members m ON m.user_id = c.user_id WHERE c.user_id = ? ORDER BY m.created_at LIMIT 1`, userID).
-		Scan(&state, &planID, &al.Servers, &al.MemoryMB, &al.DiskGB)
-	switch {
-	case isNoRows(err):
-		return errNoCustomer
-	case err != nil:
-		return errDB
-	}
-	if CustomerState(state) != CustomerActive {
-		return nil
-	}
-	_, err = s.placeCustomer(ctx, userID, CustomerPlan{ID: planID, Servers: al.Servers, MemoryMB: al.MemoryMB, DiskGB: al.DiskGB})
-	if errors.Is(err, errNoRoom) {
-		return nil
-	}
-	return err
-}
-
 // isCustomer reports whether the account is a billing provider's customer.
 func (s *Server) isCustomer(userID int64) bool {
 	var n int

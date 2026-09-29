@@ -7409,7 +7409,7 @@ control "customers: a customer waiting for room is placed once there's room" int
   "WHERE c.state = ? AND COALESCE(h.machine_id, '') = '' ORDER BY c.created_at" \
   'WHERE c.state = ? AND 0 ORDER BY c.created_at' \
   ./internal/panel '^TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom$'
-control "customers: a paused customer waiting isn't placed" internal/panel/customers.go \
+control "customers: a paused customer waiting isn't placed" internal/panel/readyserver.go \
   'if CustomerState(state) != CustomerActive {' \
   'if false {' \
   ./internal/panel '^TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom$'

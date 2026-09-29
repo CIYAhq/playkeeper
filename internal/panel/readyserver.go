@@ -72,9 +72,10 @@ func (s *Server) readyText(ctx context.Context) string {
 }
 
 // startWaitingCustomer places a customer who was waiting for room, and tells
-// them their server is ready. The fleet calls it when room appears. A
-// customer still without room is left waiting, and a paused or suspended one
-// gets no server and no message until they're active again.
+// them their server is ready. The fleet calls it when room appears, and
+// runCustomers every minute anyway. A customer still without room is left
+// waiting, and a paused or suspended one gets no server and no message until
+// they're active again.
 func (s *Server) startWaitingCustomer(ctx context.Context, userID int64) error {
 	s.customersMu.Lock()
 	defer s.customersMu.Unlock()
