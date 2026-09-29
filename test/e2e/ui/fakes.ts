@@ -351,15 +351,33 @@ function playerInvite(serverId: string, body: unknown, state: FakeState): Reply 
   return { status: 201, body: { ...inv, kind: 'player', projectId: 'fakeprojct', serverId, approval, label: b.label || undefined, createdBy: 1, expiresAt, maxUses: uses, uses: 0, status: 'active', usesLeft: uses || undefined } }
 }
 
+type Allowance = { servers?: unknown; memoryMB?: unknown }
+
+/** Why the panel would refuse a creator invite: Admin of no servers yet, inside an allowance only the owner gives (invites.newCreator). */
+function creatorProblem(body: unknown): string | undefined {
+  const b = body as { role?: unknown; servers?: { all?: unknown; servers?: unknown } | null; label?: unknown; allowance: Allowance }
+  const { servers = 0, memoryMB = 0 } = b.allowance
+  if (!Number.isInteger(servers) || !Number.isInteger(memoryMB) || badLabel(b.label)) return 'Invalid request.'
+  if (Number(servers) < 1 || Number(servers) > 10) return 'Allow 1 to 10 servers.'
+  if (Number(memoryMB) < 1024 || Number(memoryMB) > 65536 || Number(memoryMB) % 512 !== 0) return 'Allow 1 to 64 GB of memory, in steps of 0.5 GB.'
+  const list = b.servers?.servers
+  if (b.role !== 'admin' || b.servers?.all === true || (Array.isArray(list) && list.length > 0)) return 'A creator starts as Admin with no servers, and creates their own.'
+  return undefined
+}
+
 function teamInvite(body: unknown, state: FakeState): Reply {
-  const why = grantProblem(body, true)
+  const allowance = (body as { allowance?: Allowance | null } | null)?.allowance
+  // An allowance of nothing is no allowance, as the panel reads it.
+  const creator = !!allowance && ((allowance.servers ?? 0) !== 0 || (allowance.memoryMB ?? 0) !== 0)
+  const why = creator ? creatorProblem(body) : grantProblem(body, true)
   if (why) return invalid(why)
   const b = body as { role: string; servers: unknown; label?: string }
   const { path, ...inv } = newInvite(state)
   const expiresAt = new Date(Date.parse(inv.createdAt) + 7 * day).toISOString()
+  const grant = creator ? { role: 'admin', servers: {}, allowance: { servers: allowance.servers, memoryMB: allowance.memoryMB } } : { role: b.role, servers: b.servers }
   return {
     status: 201,
-    body: { invite: { ...inv, kind: 'member', projectId: 'fakeprojct', role: b.role, servers: b.servers, label: b.label || undefined, createdBy: 1, expiresAt, maxUses: 1, uses: 0, status: 'active', usesLeft: 1 }, path, link: { base: state.origin, friendly: false } },
+    body: { invite: { ...inv, kind: 'member', projectId: 'fakeprojct', ...grant, label: b.label || undefined, createdBy: 1, expiresAt, maxUses: 1, uses: 0, status: 'active', usesLeft: 1 }, path, link: { base: state.origin, friendly: false } },
   }
 }
 
