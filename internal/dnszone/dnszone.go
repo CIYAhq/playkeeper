@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -171,8 +172,10 @@ func checkLabels(name string, underscores bool) error {
 type Answerer struct {
 	mu   sync.RWMutex
 	zone Zone
-	// names are the zone's records by full lower-case name, and nodes every
-	// name that has records or names below it with records.
+	// extra are the records answered besides the zone's (SetExtra).
+	extra []Record
+	// names are the records by full lower-case name, and nodes every name
+	// that has records or names below it with records.
 	names map[string][]Record
 	nodes map[string]bool
 }
@@ -180,23 +183,41 @@ type Answerer struct {
 // Set replaces the zone answered for; the zero Zone answers nothing.
 func (a *Answerer) Set(z Zone) {
 	z.Name = strings.ToLower(z.Name)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.zone = z
+	a.index()
+}
+
+// SetExtra replaces the records answered besides the zone's, such as the
+// TXT records a certificate's DNS-01 check needs meanwhile. They're named
+// as the zone's are, answered while there's a zone, and aren't part of
+// Zone.
+func (a *Answerer) SetExtra(records []Record) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.extra = slices.Clone(records)
+	a.index()
+}
+
+// index builds names and nodes from the zone's records and the extra ones.
+// a.mu is held.
+func (a *Answerer) index() {
 	names, nodes := map[string][]Record{}, map[string]bool{}
-	if z.Name != "" {
-		nodes[z.Name] = true
-		for _, r := range z.Records {
-			full := z.Name
+	if z := a.zone.Name; z != "" {
+		nodes[z] = true
+		for _, r := range slices.Concat(a.zone.Records, a.extra) {
+			full := z
 			if r.Name != "" {
-				full = r.Name + "." + z.Name
+				full = r.Name + "." + z
 			}
 			names[full] = append(names[full], r)
-			for n := full; n != z.Name; n = n[strings.IndexByte(n, '.')+1:] {
+			for n := full; n != z; n = n[strings.IndexByte(n, '.')+1:] {
 				nodes[n] = true
 			}
 		}
 	}
-	a.mu.Lock()
-	a.zone, a.names, a.nodes = z, names, nodes
-	a.mu.Unlock()
+	a.names, a.nodes = names, nodes
 }
 
 // Zone is the zone answered for.
