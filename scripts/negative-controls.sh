@@ -7928,6 +7928,10 @@ control "dns: an address in use is said" internal/agent/dns.go \
   'problems = append(problems, dnsBindProblem(addr, err))' \
   '_ = addr' \
   ./internal/agent '^TestAnAddressInUseIsSaid$'
+control "dns: a port it can't have over TCP lets its UDP side go" internal/agent/dns.go \
+  'pc.Close()' \
+  '_ = pc' \
+  ./internal/agent '^TestDNSListensOnOnePortOverUDPAndTCP$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
