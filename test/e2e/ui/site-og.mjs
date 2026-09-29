@@ -40,6 +40,7 @@ const previews = {
   'error-cant-keep-up': { eyebrow: 'Error fix', title: "Can't keep up! Is the server overloaded? What it means", pip: 'pip-hurt' },
   'error-failed-to-bind-to-port': { eyebrow: 'Error fix', title: 'FAILED TO BIND TO PORT! What it means, and the fix', pip: 'pip-hurt' },
   'error-agree-to-the-eula': { eyebrow: 'Error fix', title: 'You need to agree to the EULA: the fix', pip: 'pip-hurt' },
+  'error-outdated-server': { eyebrow: 'Error fix', title: 'Outdated server or Incompatible client: the fix', pip: 'pip-hurt' },
   docs: { eyebrow: 'Docs', title: 'Playkeeper docs', pip: 'pip-letter' },
   pricing: { eyebrow: 'Pricing', title: 'Free and open source. You only pay for your VPS.', pip: 'pip-box' },
   blog: { eyebrow: 'Blog', title: 'Releases, guides and building Playkeeper in public', pip: 'pip-letter' },

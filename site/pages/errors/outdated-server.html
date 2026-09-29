@@ -1,0 +1,71 @@
+{{/*
+path: /errors/outdated-server
+title: Outdated server or Incompatible client in Minecraft, fixed
+description: Minecraft's Outdated server!, Outdated client! and Incompatible client! mean the game and the server run different versions. Which to change, or ViaVersion.
+label: Outdated server
+h1: Outdated server, Outdated client, Incompatible client: the fix
+card: Outdated server, explained
+kind: Guide
+section: guides
+layout: guide
+crumb: Errors
+og: error-outdated-server
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}All three mean the player's game and the server run different Minecraft versions, and the version in the message is the server's. Play that version, update the server to the game's, or add ViaVersion and ViaBackwards to a Paper server so other versions can join: with both, our older and newer test clients joined.{{end}}
+
+{{define "closing-title"}}A server every version can join.{{end}}
+{{define "closing-sub"}}Free and open source. The Older clients welcome template adds ViaVersion and ViaBackwards in one click.{{end}}
+
+{{define "side-text"}}The Older clients welcome template adds ViaVersion and ViaBackwards in one click.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="meaning">
+  {{template "h2n" (dict "ID" "meaning" "N" 1 "Text" "Which message you get" "Toc" "The messages")}}
+  <p>On 29 Sep we joined two 1.21.1 servers with test clients speaking an older and a newer version:</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Server</th><th scope="col">Game on 1.20.4</th><th scope="col">Game on 1.21.4</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Paper 1.21.1</th><td><code>Outdated client! Please use 1.21.1</code></td><td><code>Outdated server! I'm still on 1.21.1</code></td></tr>
+        <tr><th scope="row">Minecraft 1.21.1's own server</th><td><code>Incompatible client! Please use 1.21.1</code></td><td><code>Incompatible client! Please use 1.21.1</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The version named is always the server's. Minecraft's own server says Incompatible client either way: in 1.21.1's language file, even its old Outdated messages read "Incompatible client! Please use". Paper still says which side is behind.</p>
+</section>
+
+<section aria-labelledby="fixes">
+  {{template "h2n" (dict "ID" "fixes" "N" 2 "Text" "Three fixes" "Toc" "Fixes")}}
+  <ul>
+    <li><strong>Play the server's version.</strong> In the Minecraft Launcher, the Installations tab adds an installation for any version; pick the one the message names.</li>
+    <li><strong>Update the server to the game's version,</strong> once its plugins or mods have builds for it.</li>
+    <li><strong>Let other versions join, on Paper or Purpur.</strong> ViaVersion lets newer games join an older server, and ViaBackwards, which needs ViaVersion, lets older ones join a newer server. With both on our Paper 1.21.1 server, the 1.20.4 and the 1.21.4 client each joined the game.</li>
+  </ul>
+  <p>A modded server is different: every player needs the server's modpack, at its version.</p>
+</section>
+
+<section aria-labelledby="playkeeper">
+  {{template "h2n" (dict "ID" "playkeeper" "N" 3 "Text" "On a Playkeeper server" "Toc" "On Playkeeper")}}
+  <ul>
+    <li><strong>The <a href="/templates/smp/old-clients-welcome">Older clients welcome</a> template</strong> is a Paper server with ViaVersion and ViaBackwards, 5.12.0 each on its last check, started for real on 0.4.4.</li>
+    <li><strong>The server's public page shows its Minecraft version,</strong> so friends can pick it before they join.</li>
+    <li><strong>On a modded server,</strong> Share with friends on the Mods tab gives players the exact pack and version.</li>
+  </ul>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "What does Outdated server! I'm still on 1.21.1 mean?" "Your game is newer than the server, which runs 1.21.1. Play 1.21.1, or ask the owner to add ViaVersion, which lets newer games join.")
+    (qa "What does Incompatible client! Please use mean?" "Your game and the server run different versions, and the message names the server's. Minecraft's own server says it whether your game is older or newer.")
+    (qa "Can players on different versions join one server?" "On Paper or Purpur, with ViaVersion for newer games and ViaBackwards for older ones. Modded servers need everyone on the same pack version.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/errors" "/guides/play-minecraft-with-friends" "/errors/failed-to-verify-username")}}{{end}}
