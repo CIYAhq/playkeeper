@@ -1193,6 +1193,15 @@ const routes: [string, RegExp, Handler][] = [
       return op(state, 'disk-cleanup')
     },
   ],
+  // Keep servers away from this machine, which would change the runner's firewall.
+  [
+    'POST',
+    /^\/api\/machines\/(\w+)\/network-guard$/,
+    ({ body }) => {
+      const host = (body as { host?: unknown } | null)?.host
+      return typeof host === 'boolean' ? { status: 200, body: { on: true, host } } : invalid('Say whether to keep servers away from this machine.')
+    },
+  ],
   // Wave 8: AI agent tokens, join codes and joined machines.
   ['POST', /^\/api\/tokens$/, ({ body }, state) => tokenReply(body, state)],
   ['DELETE', /^\/api\/tokens\/([^/]+)$/, (r) => (id.test(r.params[0] ?? '') ? { status: 204 } : invalid('Invalid token id.'))],
