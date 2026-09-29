@@ -30,7 +30,7 @@ checks=$((checks + 1))
 
 expect "" web/src/pages/server/console.tsx internal/agent/pregen.go CHANGELOG.md docs/ARCHITECTURE.md
 expect "" .github/workflows/ci.yml web/src/i18n/en.ts
-expect "install-and-play,restore,views,core-flows,update,site,names,stats,certs,fake-panel" .github/workflows/e2e.yml
+expect "install-and-play,restore,views,core-flows,update,site,names,stats,certs,fake-panel,whop-store" .github/workflows/e2e.yml
 expect "install-and-play,restore,core-flows,update" test/e2e/pkclient.py
 expect "install-and-play,restore" test/e2e/scenario.py test/e2e/bot/bot.js
 expect "install-and-play" test/e2e/ui/onboarding.spec.ts
@@ -54,6 +54,8 @@ expect "site,fake-panel" test/e2e/ui/site-tools-motd.spec.ts
 expect "names" services/names/Dockerfile internal/names/server.go scripts/names-check.sh
 expect "certs" internal/certs/acme.go
 expect "fake-panel" test/e2e/ui/clickthrough-plan.ts
+expect "whop-store" services/whop-store/src/pages.ts services/whop-store/package-lock.json
+expect "whop-store" test/e2e/ui/whop-store.spec.ts test/e2e/ui/playwright.whop-store.config.ts
 expect "" web/src/pages/server/files/index.tsx scripts/site-check.shx internal/certsx/a.go
 
 echo "all $checks checks passed"
