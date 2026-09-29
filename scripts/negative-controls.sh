@@ -7924,6 +7924,33 @@ control "dns: an address in use is said" internal/agent/dns.go \
   '_ = addr' \
   ./internal/agent '^TestAnAddressInUseIsSaid$'
 
+# Servers joined with no port once the machine answers DNS for its own domain
+# and the domain's parent hands the domain to it (internal/agent/address.go).
+control "port-free: public DNS has to give the zone's SRV record" internal/agent/address.go \
+  'return err == nil && slices.ContainsFunc(found, func(s *net.SRV) bool {' \
+  'return err != nil || slices.ContainsFunc(found, func(s *net.SRV) bool {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: the public SRV record has the zone's port" internal/agent/address.go \
+  'return strings.TrimSuffix(s.Target, ".") == r.Value && int(s.Port) == r.Port' \
+  'return strings.TrimSuffix(s.Target, ".") == r.Value' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: only the zone for the domain counts" internal/agent/address.go \
+  'if z.Name != host {' \
+  'if false {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: a server joins with no port only with its SRV record in the domain's zone" internal/agent/address.go \
+  'return z.Name == host && slices.ContainsFunc(z.Records, func(r dnszone.Record) bool {' \
+  'return slices.ContainsFunc(z.Records, func(r dnszone.Record) bool {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: a server the zone has no SRV record for keeps its port" internal/agent/address.go \
+  'if st.Check != nil && st.Check.PortFree && a.answersSRV(st.Host, s.slug, s.port) {' \
+  'if st.Check != nil && st.Check.PortFree {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: waiting for the parent looks again soon" internal/agent/address.go \
+  '&& (check.PortFree || !answering) {' \
+  '&& (check.PortFree || !answering || true) {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
