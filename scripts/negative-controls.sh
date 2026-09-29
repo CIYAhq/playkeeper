@@ -7794,9 +7794,21 @@ control "final backups: only the account's own download" internal/panel/deletion
   'if len(list) < 0 {' \
   ./internal/panel '^TestACustomerDownloadsOnlyTheirOwnFinalBackups$'
 webcontrol "customer deletion: Home offers the final backups" web/src/pages/home.tsx \
-  '{deleted && <FinalBackups />}' \
-  '{false && <FinalBackups />}' \
+  '{ws.me.access.finalBackups && <FinalBackups className="mt-6 w-full max-w-[420px]" />}' \
+  '' \
   src/pages/pages.test.tsx 'offers a customer whose servers were deleted their final backups'
+webcontrol "customer deletion: Home still offers a renewed customer their final backups" web/src/pages/home.tsx \
+  '{ws.me.access.finalBackups && <FinalBackups />}' \
+  '' \
+  src/pages/pages.test.tsx 'still offers a customer who renewed'
+control "customer deletion: the machine keeping the final backups is recorded before a deletion starts" internal/panel/deletion.go \
+  ', m.ID, userID); err != nil {' \
+  ', m.ID, -userID); err != nil {' \
+  ./internal/panel '^TestARenewalDuringADeletionKeepsItsFinalBackup$'
+control "customer deletion: the dashboard says a machine keeps final backups" internal/panel/server.go \
+  'FinalBackups: s.hasFinalBackups(a), ' \
+  '' \
+  ./internal/panel '^TestARenewalDuringADeletionKeepsItsFinalBackup$'
 webcontrol "customer deletion: Home says the plan ended once the servers are gone" web/src/pages/home.tsx \
   'const paused = deleted || !!ws.me.access.pausedUntil' \
   'const paused = !!ws.me.access.pausedUntil' \
