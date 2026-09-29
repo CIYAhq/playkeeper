@@ -7361,11 +7361,11 @@ control "dashboard disk limits: what they take comes from the machine" internal/
 webcontrol "dashboard disk limits: the Team page says what a creator's servers take" web/src/pages/team.tsx \
   "m.diskUsedBytes === undefined ? t('team.diskOf', { limit }) : t('team.diskUsed', { used: formatBytes(m.diskUsedBytes), limit })" \
   "t('team.diskOf', { limit })" \
-  src/pages/pages.test.tsx 'shows each creator’s disk, and how much their servers take once it’s counted'
+  src/pages/pages.test.tsx 'disk, and how much their servers take once'
 webcontrol "dashboard disk limits: the Team page's default disk matches the dashboard's" web/src/lib/access.ts \
   'al.memoryMB * 7.5' \
   'al.memoryMB * 8' \
-  src/pages/pages.test.tsx 'shows each creator’s disk, and how much their servers take once it’s counted'
+  src/pages/pages.test.tsx 'disk, and how much their servers take once'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
