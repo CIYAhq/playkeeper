@@ -40,21 +40,22 @@ func TestTheFleetSeesThePlansTheStoreSells(t *testing.T) {
 
 func TestTheFleetsNumbersBecomeEachPlansStockOnWhop(t *testing.T) {
 	f, e, own := connectedWhop(t)
-	if err := e.srv.sales.SetAvailability(context.Background(), map[string]int{"plan_starter": 2, "plan_big": 1, "plan_old": 5, "plan_nope": 3}); err != nil {
+	if err := e.srv.sales.SetAvailability(context.Background(), map[string]int{"plan_starter": 2, "plan_big": 0, "plan_old": 5, "plan_nope": 3}); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.stockWrites(); len(got) != 0 {
 		t.Fatalf("Whop was asked before the reconciler looked: %q", got)
 	}
 	e.reconcile()
-	if got := f.stockWrites(); !slices.Equal(got, []string{"plan_starter=2", "plan_big=1"}) {
-		t.Fatalf("stock set on Whop: %q", got)
+	if got := f.stockWrites(); !slices.Equal(got, []string{"plan_starter=2", "plan_big=0"}) || f.stockOf("plan_big") != 0 {
+		t.Fatalf("stock set on Whop: %q, Big at %d", got, f.stockOf("plan_big"))
 	}
 	// Nothing new, nothing written; a plan left out stays as it is, and a
 	// number below zero is none.
 	e.reconcile()
-	e.availability(t, map[string]int{"plan_starter": -4})
-	if got := f.stockWrites(); !slices.Equal(got, []string{"plan_starter=2", "plan_big=1", "plan_starter=0"}) || f.stockOf("plan_big") != 1 {
+	e.availability(t, map[string]int{"plan_starter": -4, "plan_big": 1})
+	e.availability(t, map[string]int{"plan_starter": 1})
+	if got := f.stockWrites(); !slices.Equal(got, []string{"plan_starter=2", "plan_big=0", "plan_starter=0", "plan_big=1", "plan_starter=1"}) || f.stockOf("plan_big") != 1 {
 		t.Fatalf("stock set on Whop: %q, Big at %d", got, f.stockOf("plan_big"))
 	}
 	if r := e.do(t, "DELETE", "/api/whop", "", own.auth()); r.status != http.StatusOK {
@@ -112,6 +113,29 @@ func TestAPurchaseCountsOnceUntilTheFleetCountsIt(t *testing.T) {
 	}
 }
 
+func TestAPurchaseNotHeardOfYetStaysSold(t *testing.T) {
+	f, e, _ := connectedWhop(t)
+	core := useFakeCore(e)
+	core.refuse = errors.New("The machine is full.")
+	e.availability(t, map[string]int{"plan_starter": 5})
+
+	// alex and sam buy; Whop's webhook tells of alex's purchase, not sam's.
+	e.deliver(t, "evt_alex", whop.EventMembershipActivated, f.buy("mem_alex", "user_alex", "plan_starter", "active"))
+	f.buy("mem_sam", "user_sam", "plan_starter", "active")
+	e.reconcile()
+	if n := f.stockOf("plan_starter"); n != 3 {
+		t.Fatalf("with a purchase not heard of yet: Starter at %d", n)
+	}
+	var stale int
+	if e.srv.db.QueryRow(`SELECT stale FROM whop_memberships WHERE membership_id = 'mem_sam'`).Scan(&stale); stale != 0 {
+		t.Fatal("sam's purchase wasn't read from Whop")
+	}
+	e.availability(t, map[string]int{"plan_starter": 6})
+	if n := f.stockOf("plan_starter"); n != 4 {
+		t.Fatalf("more room with two purchases waiting: Starter at %d", n)
+	}
+}
+
 func TestABuyerWhosePlanEndedNeedsRoomAgainWhenTheyBuyAgain(t *testing.T) {
 	f, e, _ := connectedWhop(t)
 	core := useFakeCore(e)
@@ -136,40 +160,37 @@ func TestABuyerWhosePlanEndedNeedsRoomAgainWhenTheyBuyAgain(t *testing.T) {
 	}
 }
 
-func TestAStockChangedOnWhopIsRaisedOnlyWhenTheFleetHasMoreRoom(t *testing.T) {
+func TestAStockChangedByHandOnWhopIsPutBack(t *testing.T) {
 	f, e, own := connectedWhop(t)
-	readStore := func() {
-		t.Helper()
+	e.availability(t, map[string]int{"plan_starter": 2})
+	for _, n := range []int{0, 9, -1} {
+		f.setStock("plan_starter", n)
 		if r := e.do(t, "POST", "/api/whop/sync", "", own.auth()); r.status != http.StatusOK {
 			t.Fatalf("sync: %d %v", r.status, r.body)
 		}
 		e.reconcile()
+		if got := f.stockOf("plan_starter"); got != 2 {
+			t.Fatalf("set to %d by hand: Starter at %d", n, got)
+		}
 	}
-	e.availability(t, map[string]int{"plan_starter": 2})
+}
 
-	// Lowered, as a purchase the dashboard hasn't heard of yet does: raising
-	// it could sell that room again.
-	f.setStock("plan_starter", 0)
-	readStore()
+func TestAStockIsSetOnlyOnceThePlansPurchasesAreRead(t *testing.T) {
+	f, e, _ := connectedWhop(t)
+	down := func(v bool) {
+		f.mu.Lock()
+		f.listDown = v
+		f.mu.Unlock()
+	}
+	down(true)
 	e.availability(t, map[string]int{"plan_starter": 2})
-	if n := f.stockOf("plan_starter"); n != 0 {
-		t.Fatalf("a lowered stock was raised to the same number: Starter at %d", n)
+	if n := f.stockOf("plan_starter"); n != -1 {
+		t.Fatalf("without the plan's purchases: Starter at %d", n)
 	}
-	e.availability(t, map[string]int{"plan_starter": 3})
-	if n := f.stockOf("plan_starter"); n != 3 {
-		t.Fatalf("more room didn't raise it: Starter at %d", n)
-	}
-
-	// Raised, or made unlimited: put back at once.
-	f.setStock("plan_starter", 9)
-	readStore()
-	if n := f.stockOf("plan_starter"); n != 3 {
-		t.Fatalf("a raised stock stayed: Starter at %d", n)
-	}
-	f.setStock("plan_starter", -1)
-	readStore()
-	if n := f.stockOf("plan_starter"); n != 3 {
-		t.Fatalf("an unlimited stock stayed: Starter at %d", n)
+	down(false)
+	e.reconcile()
+	if n := f.stockOf("plan_starter"); n != 2 {
+		t.Fatalf("once they could be read: Starter at %d", n)
 	}
 }
 

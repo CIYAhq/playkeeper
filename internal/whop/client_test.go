@@ -169,6 +169,18 @@ func TestSetPlanStockLimitsThePlan(t *testing.T) {
 	if err := c.SetPlanStock(context.Background(), "plan_a", 2); err != nil {
 		t.Fatal(err)
 	}
+	c = fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /memberships": func(w http.ResponseWriter, r *http.Request) {
+			if q := r.URL.Query(); q.Get("account_id") != "biz_pip" || q.Get("plan_id") != "plan_a" {
+				t.Errorf("query %s", r.URL.RawQuery)
+			}
+			answer(map[string]any{"data": []map[string]any{{"id": "mem_1", "status": "active", "plan_id": "plan_a", "user_id": "user_alex"}},
+				"page_info": map[string]any{"has_next_page": false}})(w, r)
+		},
+	})
+	if ms, err := c.PlanMemberships(context.Background(), "biz_pip", "plan_a"); err != nil || len(ms) != 1 || ms[0].ID != "mem_1" || ms[0].PlanID != "plan_a" {
+		t.Fatalf("PlanMemberships = %+v, %v", ms, err)
+	}
 	if !slices.Contains(Needs, "plan:update") {
 		t.Fatal("Sell on Whop doesn't ask for plan:update")
 	}

@@ -81,6 +81,12 @@ func (c *Client) Memberships(ctx context.Context, accountID string) ([]Membershi
 	return list[Membership](ctx, c, "/memberships", url.Values{"account_id": {accountID}})
 }
 
+// PlanMemberships lists the account's memberships of one plan, of every
+// status.
+func (c *Client) PlanMemberships(ctx context.Context, accountID, planID string) ([]Membership, error) {
+	return list[Membership](ctx, c, "/memberships", url.Values{"account_id": {accountID}, "plan_id": {planID}})
+}
+
 // User is a person on Whop, as others see them.
 type User struct {
 	ID       string `json:"id"`

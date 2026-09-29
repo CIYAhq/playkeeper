@@ -199,7 +199,7 @@ func (s *Server) reconcileWhop(ctx context.Context) {
 		s.log.Warn("could not read memberships from Whop", "err", err)
 	}
 	s.refreshWhopPlans(ctx, c, a)
-	s.pushWhopStock(ctx, c)
+	s.pushWhopStock(ctx, c, a.ID)
 	s.syncWhopCustomers(ctx, c)
 	s.remindCancelled(ctx, a)
 	s.sendWhopMessages(ctx, c, a)

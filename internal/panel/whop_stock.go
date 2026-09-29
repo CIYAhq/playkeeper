@@ -76,19 +76,23 @@ func (ws whopStock) SetAvailability(ctx context.Context, left map[string]int) er
 
 // pushWhopStock sets the stock of each plan the fleet spoke for to its
 // number less the purchases that number doesn't count yet (see
-// uncountedPurchases). Whop takes one off a plan's stock for each purchase,
-// and one the dashboard hasn't heard of yet looks just like a stock lowered
-// by hand on Whop. So a stock above that target is lowered at once, and one
-// below it is raised only when the target itself rose, as a stock set
-// without the purchases still on their way would sell their room again.
-func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client) {
+// uncountedPurchases), where that differs from the stock the dashboard last
+// saw on Whop.
+//
+// A write replaces what Whop has, and Whop takes one off for each purchase,
+// including ones the dashboard hasn't heard of yet, while what it last saw
+// may be minutes old. So before writing, it reads the plan's memberships
+// from Whop again: the target then counts every purchase Whop took off, and
+// is right whatever Whop's stock says. A stock changed by hand on Whop is
+// put back once the dashboard reads the store again.
+func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client, accountID string) {
 	type plan struct {
-		id                      string
-		want, lastTarget, stock int
-		setAt                   int64
-		unlimited               bool
+		id          string
+		want, stock int
+		setAt       int64
+		unlimited   bool
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT k.plan_id, k.want, k.set_at, k.last_target, p.stock, p.unlimited_stock FROM whop_stock k
+	rows, err := s.db.QueryContext(ctx, `SELECT k.plan_id, k.want, k.set_at, p.stock, p.unlimited_stock FROM whop_stock k
 		JOIN whop_plans p ON p.plan_id = k.plan_id WHERE p.allowance_from != '' AND p.visibility != 'archived' ORDER BY p.position`)
 	if err != nil {
 		s.log.Error("could not read the plans' stock", "err", err)
@@ -98,7 +102,7 @@ func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client) {
 	setAt := map[string]int64{}
 	for rows.Next() {
 		var p plan
-		if err := rows.Scan(&p.id, &p.want, &p.setAt, &p.lastTarget, &p.stock, &p.unlimited); err != nil {
+		if err := rows.Scan(&p.id, &p.want, &p.setAt, &p.stock, &p.unlimited); err != nil {
 			rows.Close()
 			s.log.Error("could not read the plans' stock", "err", err)
 			return
@@ -116,22 +120,45 @@ func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client) {
 		return
 	}
 	for _, p := range plans {
-		target := max(p.want-uncounted[p.id], 0)
-		if p.unlimited || p.stock > target || (p.stock < target && target > p.lastTarget) {
-			if err := c.SetPlanStock(ctx, p.id, target); err != nil {
-				s.log.Warn("could not set a plan's stock on Whop", "plan", p.id, "err", err)
-				continue
-			}
-			if _, err := s.db.Exec(`UPDATE whop_plans SET stock = ?, unlimited_stock = 0 WHERE plan_id = ?`, target, p.id); err != nil {
-				s.log.Error("could not record a plan's stock", "err", err)
-			}
+		if !p.unlimited && p.stock == max(p.want-uncounted[p.id], 0) {
+			continue
 		}
-		if target != p.lastTarget {
-			if _, err := s.db.Exec(`UPDATE whop_stock SET last_target = ? WHERE plan_id = ?`, target, p.id); err != nil {
-				s.log.Error("could not record a plan's stock", "err", err)
-			}
+		target, err := s.whopStockTarget(ctx, c, accountID, p.id, p.want, p.setAt)
+		if err != nil {
+			s.log.Warn("could not read a plan's purchases from Whop", "plan", p.id, "err", err)
+			continue
+		}
+		if !p.unlimited && p.stock == target {
+			continue
+		}
+		if err := c.SetPlanStock(ctx, p.id, target); err != nil {
+			s.log.Warn("could not set a plan's stock on Whop", "plan", p.id, "err", err)
+			continue
+		}
+		if _, err := s.db.Exec(`UPDATE whop_plans SET stock = ?, unlimited_stock = 0 WHERE plan_id = ?`, target, p.id); err != nil {
+			s.log.Error("could not record a plan's stock", "err", err)
 		}
 	}
+}
+
+// whopStockTarget is the stock a plan should have: the fleet's number, want,
+// said at setAt, less the purchases it doesn't count, with every membership
+// of the plan read from Whop first.
+func (s *Server) whopStockTarget(ctx context.Context, c *whop.Client, accountID, planID string, want int, setAt int64) (int, error) {
+	ms, err := c.PlanMemberships(ctx, accountID, planID)
+	if err != nil {
+		return 0, err
+	}
+	for _, m := range ms {
+		if err := s.keepMembership(m, false); err != nil {
+			return 0, err
+		}
+	}
+	uncounted, err := s.uncountedPurchases(ctx, map[string]int64{planID: setAt})
+	if err != nil {
+		return 0, err
+	}
+	return max(want-uncounted[planID], 0), nil
 }
 
 // uncountedPurchases counts, for each plan in setAt, the purchases with

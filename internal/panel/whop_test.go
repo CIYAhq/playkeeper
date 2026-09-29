@@ -48,9 +48,10 @@ type fakeWhop struct {
 	messages map[string][]string
 	chatDown bool
 	// stockSets are the stocks the dashboard set, as plan=n; stockDown
-	// makes setting one fail.
+	// makes setting one fail, and listDown listing memberships.
 	stockSets []string
 	stockDown bool
+	listDown  bool
 	// grants are the sign-ins Whop approved, by code, and revokedTokens
 	// the refresh tokens ended.
 	grants        map[string]oauthGrant
@@ -202,9 +203,16 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 		f.webhooks[id] = body
 		json.NewEncoder(w).Encode(map[string]any{"id": id, "url": body["url"], "webhook_secret": whopTestSecret})
 	case "GET /memberships":
+		if f.listDown {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
+			return
+		}
 		var data []map[string]any
 		for _, m := range f.memberships {
-			data = append(data, m)
+			if plan := r.URL.Query().Get("plan_id"); plan == "" || m["plan_id"] == plan {
+				data = append(data, m)
+			}
 		}
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
 	case "POST /support_channels":
