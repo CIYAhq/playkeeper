@@ -2658,6 +2658,7 @@ export const en = {
   'whop.signIn.redirect': 'Redirect URL:',
   'whop.signIn.noAddress': 'Give this machine an address first, in Machine settings › Address.',
   'whop.signIn.appId': 'Whop app ID',
+  'whop.signIn.appPlaceholder': 'app_…',
   'whop.signIn.secretLabel': 'App secret, if it has one',
   'whop.signIn.save': 'Turn on',
   'whop.signIn.saved': 'Customers can sign in with Whop',

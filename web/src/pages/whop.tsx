@@ -349,7 +349,7 @@ function SignInWithWhop({ store, onChange }: { store: WhopStore; onChange: (s: W
           )}
           <form onSubmit={save} className="mt-3 flex gap-2 max-sm:flex-col sm:flex-wrap">
             <InputGroup className="max-sm:h-11 sm:min-w-[180px] sm:flex-1">
-              <InputGroupInput value={app} onChange={(e) => setApp(e.target.value)} placeholder="app_…" aria-label={t('whop.signIn.appId')} autoComplete="off" spellCheck={false} />
+              <InputGroupInput value={app} onChange={(e) => setApp(e.target.value)} placeholder={t('whop.signIn.appPlaceholder')} aria-label={t('whop.signIn.appId')} autoComplete="off" spellCheck={false} />
             </InputGroup>
             <InputGroup className="max-sm:h-11 sm:min-w-[180px] sm:flex-1">
               <InputGroupInput type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={t('whop.signIn.secretLabel')} aria-label={t('whop.signIn.secretLabel')} autoComplete="off" spellCheck={false} />
