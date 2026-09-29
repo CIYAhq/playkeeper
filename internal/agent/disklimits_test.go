@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -138,6 +139,64 @@ func TestUploadsStopAtTheDiskLimit(t *testing.T) {
 	e.limitTo(1 << 40)
 	if code, out := e.announceFile(up, "second.jar", 60<<10, false); code != 201 {
 		t.Fatalf("a second file with room: %d %v", code, out)
+	}
+}
+
+// What an operation under way holds counts against the limit until it ends.
+func TestWhatAnOperationHoldsCountsAgainstTheLimit(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	used := e.limitTo(1 << 40)
+	e.limitTo(used + 100<<10)
+	ctx := context.Background()
+	done, err := e.a.holdDiskLimit(ctx, e.sid, 60<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.a.diskLimitRefusal(ctx, e.sid, 60<<10); err == nil {
+		t.Fatal("room beside what another operation holds")
+	}
+	done(false)
+	if err := e.a.diskLimitRefusal(ctx, e.sid, 60<<10); err != nil {
+		t.Fatalf("once the hold ended: %v", err)
+	}
+}
+
+// Applying an uploaded world holds the world it adds, and a world restored
+// from an upload counts as the world it unpacks to, not just the upload.
+func TestAppliedImportsAndStagedRestoresStopAtTheDiskLimit(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	e.limitTo(1 << 40)
+	archive, _ := paperServerUpload(t)
+	imp := e.uploadWorld(e.sp("/world-imports"), "paper-server.zip", archive)
+	pv := e.importPreview(imp, map[string]any{})
+	used := e.limitTo(1 << 40)
+	e.limitTo(used + pv.Preview.SizeBytes/2)
+	if code, out := e.callWhenFree("POST", importPath(imp, "/apply"), map[string]any{"confirm": pv.ConfirmPhrase, "actor": "admin"}); code != 507 || codeOf(out) != api.CodeDiskLimit {
+		t.Fatalf("applying a world past the limit: %d %v", code, out)
+	}
+
+	e.limitTo(1 << 40)
+	e.backupNow(nil)
+	var backups []api.Backup
+	if code := e.callInto("GET", e.sp("/backups"), nil, &backups); code != 200 || len(backups) == 0 {
+		t.Fatalf("backups: %d %+v", code, backups)
+	}
+	raw, err := os.ReadFile(e.srv().backupPath(backups[0].FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The upload fits, and the world it unpacks to doesn't.
+	used = e.limitTo(1 << 40)
+	e.limitTo(used + int64(len(raw)) + 1)
+	before, _ := os.ReadDir(e.cfg.StagingDir())
+	code, out := e.uploadTo(e.sp("/restore/upload"), raw)
+	if code != 507 || codeOf(out) != api.CodeDiskLimit {
+		t.Fatalf("restoring a world past the limit: %d %v", code, out)
+	}
+	if after, _ := os.ReadDir(e.cfg.StagingDir()); len(after) > len(before) {
+		t.Fatalf("the refused restore's stage stayed: %v", after)
 	}
 }
 
