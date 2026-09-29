@@ -7555,7 +7555,7 @@ control "kept backups: the final backup is a new one" internal/agent/keptbackups
   ./internal/agent '^TestDeletingAServerKeepsAFinalBackup$'
 control "kept backups: a new final backup needs the room for it" internal/agent/keptbackups.go \
   'err == nil && free < allowlistedSize(s.dataDir())+minFreeAfterBackup {' \
-  'err == nil && false {' \
+  'err == nil && free < 0 {' \
   ./internal/agent '^TestAServerNoBackupOfWhichCanBeKeptStays$'
 control "kept backups: without room, the newest backup is kept" internal/agent/keptbackups.go \
   'for _, old := range list {' \
@@ -7567,7 +7567,7 @@ control "kept backups: only a backup that reads back is kept" internal/agent/kep
   ./internal/agent '^TestAServerNoBackupOfWhichCanBeKeptStays$'
 control "kept backups: a fresh final backup goes with a failed delete" internal/agent/servers.go \
   'if !moved {' \
-  'if false {' \
+  'if !moved && false {' \
   ./internal/agent '^TestADeletionThatFailsLeavesNoFinalBackup$'
 control "kept backups: the kept archive stays when the server goes" internal/agent/servers.go \
   'if kept != nil && b.ID == kept.ID {' \
@@ -7583,7 +7583,7 @@ control "kept backups: a listed label is checked" internal/agent/keptbackups.go 
   ./internal/agent '^TestAServerNoBackupOfWhichCanBeKeptStays$'
 control "kept backups: one is kept until its time is up" internal/agent/keptbackups.go \
   'if now.Before(k.ExpiresAt) {' \
-  'if false {' \
+  'if now.Before(k.ExpiresAt) && false {' \
   ./internal/agent '^TestAKeptBackupGoesWhenItsTimeIsUp$'
 
 if [ "$bad" != 0 ]; then
