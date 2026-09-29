@@ -22,14 +22,12 @@ func TestACrashThatRepeatsIsNotRestarted(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
 	e.waitFor("online", e.onlineIdle)
-	c := e.tick(tickingReport(false, "minecraft:minecart", 6, 120, 6, "minecraft:overworld"))
-	if c.Kind != "ticking_entity" || !c.Repeats {
-		t.Fatalf("got %s, repeats %v", c.Kind, c.Repeats)
-	}
+	e.tickCrash(tickingReport(false, "minecraft:minecart", 6, 120, 6, "minecraft:overworld"))
+	e.waitFor("the crash counted", func() bool { return e.crashEvents() == 1 })
 	settled()
 	st := e.status()
-	if n := e.autoRestarts(); n != 0 || st.Phase != api.PhaseCrashed || st.CrashCount != 1 || st.Crash == nil {
-		t.Fatalf("%d automatic restarts, phase %s, %d crashes, crash %v; want none, crashed and shown", n, st.Phase, st.CrashCount, st.Crash)
+	if n := e.autoRestarts(); n != 0 || st.Phase != api.PhaseCrashed || st.CrashCount != 1 || st.Crash == nil || st.Crash.Kind != "ticking_entity" || !st.Crash.Repeats {
+		t.Fatalf("%d automatic restarts, phase %s, %d crashes, crash %+v; want none, crashed, and the minecart shown", n, st.Phase, st.CrashCount, st.Crash)
 	}
 	if !strings.Contains(st.LastError, "It would crash the same way again, so Playkeeper didn't restart it.") || !strings.Contains(st.LastErrorHint, "Fix the cause, then press Start.") {
 		t.Errorf("error %q, hint %q", st.LastError, st.LastErrorHint)
