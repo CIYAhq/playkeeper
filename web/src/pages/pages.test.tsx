@@ -316,6 +316,22 @@ describe('Home', () => {
     for (const step of ['Create your first server', 'Invite a friend', 'A friend joins', 'Make a backup', 'Download it']) expect(text).toContain(step)
   })
 
+  it('tells a paused customer their plan has ended, and until when they can download', async () => {
+    const paused = member('admin', ['view', 'backups.make'], { servers: { servers: ['abcdefghjk'] }, pausedUntil: '2026-10-13T12:00:00Z' })
+    const text = await render(<HomePage />, workspace({ me: paused }))
+    expect(text).toContain('Your plan has ended, so your servers are paused')
+    expect(text).toContain(`You can still see them and download backups until ${formatLongDate('2026-10-13T12:00:00Z')}.`)
+  })
+
+  it('tells a paused customer with no servers that their plan has ended, not that one is on its way', async () => {
+    const paused = member('admin', ['view', 'backups.make'], { servers: {}, waitingForRoom: true, pausedUntil: '2026-10-13T12:00:00Z' })
+    const text = await render(<HomePage />, workspace({ servers: [], me: paused }))
+    expect(text).toContain('Your plan has ended')
+    expect(text).toContain('Renew your plan to create your server.')
+    expect(text).not.toContain('Your server is being set up')
+    expect(text).not.toContain('No servers yet')
+  })
+
   it('says a customer’s server is being set up while it waits for room, and offers no way to create one', async () => {
     const text = await render(<HomePage />, workspace({ servers: [], me: member('admin', ['view', 'servers.create_own'], { servers: {}, waitingForRoom: true }) }))
     expect(text).toContain('Your server is being set up')
@@ -1839,7 +1855,7 @@ describe('Sell on Whop', () => {
   it('lists the steps and the permissions a key needs, and asks for the key', async () => {
     answer({ '/api/whop': closed })
     const text = await render(<SellOnWhopSection />, owner)
-    for (const step of ['deploy the Pip Hosting blueprint', 'Make an API key on Whop', 'Paste the key here.', 'access_pass:basic:read, plan:basic:read, support_chat:create', 'only ever sent to Whop']) expect(text).toContain(step)
+    for (const step of ['deploy the Playkeeper Hosting blueprint', 'Make an API key on Whop', 'Paste the key here.', 'access_pass:basic:read, plan:basic:read, support_chat:create', 'only ever sent to Whop']) expect(text).toContain(step)
     expect(keyField()?.type).toBe('password')
     expect(button('Connect').disabled).toBe(true)
     expect(text).not.toContain('needs an address')
@@ -1888,6 +1904,51 @@ describe('Sell on Whop', () => {
     vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(400, { code: 'whop_permissions', error: 'That key can’t do everything selling needs.', params: { missing: 'support_chat:create,developer:manage_webhook' } }))
     await submitKey()
     expect(document.querySelector('[role="alert"]')?.textContent).toBe('That key lacks support_chat:create, developer:manage_webhook. Make a new key with those too.')
+  })
+
+  it('offers to take over a store another dashboard sells for', async () => {
+    answer({ '/api/whop': closed })
+    await render(<SellOnWhopSection />, owner)
+    await typeInto('input[aria-label="Whop API key"]', 'apik_pip_hosting_0123456789abcd')
+    vi.mocked(client.post).mockRejectedValueOnce(
+      new client.ApiError(409, { code: 'whop_other_seller', error: 'Another Playkeeper sells for Pip Hosting.', params: { dashboard: 'https://beta.playkeeper.me:8443' } }),
+    )
+    await submitKey()
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('Another Playkeeper sells for this store, at https://beta.playkeeper.me:8443.')
+    vi.mocked(client.post).mockResolvedValueOnce(open)
+    await click('Take it over')
+    expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/whop/connect', { key: 'apik_pip_hosting_0123456789abcd', takeOver: true })
+    expect(page()).toContain('Pip HostingSelling')
+  })
+
+  it('says another dashboard took the store over, and takes it back', async () => {
+    answer({ '/api/whop': { ...open, takenOverBy: 'https://other.playkeeper.me:8443', takenOverAt: hoursAgo(2) } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('Pip HostingNeeds a look')
+    expect(text).toContain('Another Playkeeper, at https://other.playkeeper.me:8443, took this store over 2 h ago, so this dashboard stopped selling.')
+    expect(text).not.toContain('The store sends buyers to')
+    vi.mocked(client.post).mockResolvedValueOnce(open)
+    await click('Take it back')
+    expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/whop/sync', { takeOver: true })
+    expect(page()).toContain('Pip HostingSelling')
+  })
+
+  it('says the other dashboard still sells while taking the store over isn’t done', async () => {
+    const pending = { ...open, takenOverBy: 'https://beta.playkeeper.me:8443', problem: 'Whop said: Try again' }
+    answer({ '/api/whop': pending })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('Another Playkeeper, at https://beta.playkeeper.me:8443, still sells for this store, so this dashboard doesn’t yet.')
+    expect(text).toContain('Whop said: Try again')
+    const toast = vi.spyOn(toastManager, 'add')
+    vi.mocked(client.post).mockResolvedValueOnce(pending)
+    await click('Take it over')
+    expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/whop/sync', { takeOver: true })
+    expect(toast).toHaveBeenLastCalledWith({ title: 'The store still sells from https://beta.playkeeper.me:8443.', type: 'error' })
+    vi.mocked(client.post).mockResolvedValueOnce(open)
+    await click('Take it over')
+    expect(toast).toHaveBeenLastCalledWith({ title: 'Selling from this dashboard now', type: 'success' })
+    expect(page()).toContain('Pip HostingSelling')
+    toast.mockRestore()
   })
 
   it('shows the connected store with its plans and what each allows', async () => {

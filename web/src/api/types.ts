@@ -1827,6 +1827,8 @@ export interface Access {
   awaitingConfirmation?: boolean
   /** A customer whose server is being set up, waiting for room on a machine. */
   waitingForRoom?: boolean
+  /** A customer whose plan ended: when their servers are deleted unless they renew. */
+  pausedUntil?: string
   can: Action[]
 }
 
@@ -1893,6 +1895,13 @@ export interface WhopStore {
   connectedAt?: string
   syncedAt?: string
   problem?: string
+  /**
+   * The dashboard that sells for the store instead of this one, and when it
+   * took the store over from this one. Without a time, this dashboard's own
+   * takeover isn't done yet.
+   */
+  takenOverBy?: string
+  takenOverAt?: string
   plans: WhopPlan[]
   /** Whether Whop tells the dashboard about memberships as they change; it also reads them every few minutes. */
   webhook: boolean

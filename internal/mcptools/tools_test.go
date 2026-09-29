@@ -211,6 +211,31 @@ func TestEveryToolChecksItsActionWithTheCallersAccount(t *testing.T) {
 	}
 }
 
+// A tool on one server asks, once it has found the server, whether the
+// caller may take its action on that server: one refused there never
+// reaches the agent, and the same tool still runs on another server.
+func TestEachToolOnAServerAsksAboutThatServer(t *testing.T) {
+	b := newWorld(true)
+	b.setAccess(Access{Scope: mcp.ScopeOwner, AllServers: true, OnServer: func(act, id string) error {
+		if id == idA && act != ActView {
+			return &mcp.ToolError{Kind: RefusedAction, Msg: "This server's plan has ended, so it's paused."}
+		}
+		return nil
+	}}, nil)
+	c := connect(t, b, token(mcp.ScopeOwner))
+	if r := c.call("start_server", map[string]any{"server": "survival"}); r.Kind != RefusedAction || !strings.Contains(r.Text, "plan has ended") {
+		t.Errorf("start_server on a held server: %s: %s", r.Kind, r.Text)
+	}
+	if got := b.allRequests(); len(got) != 0 {
+		t.Errorf("a refused tool reached the agent: %+v", got)
+	}
+	if got := b.refusals(); !slices.Equal(got, []string{"start_server " + RefusedAction}) {
+		t.Errorf("refusals %v", got)
+	}
+	ok(t, "get_server_status on the held server", c.call("get_server_status", map[string]any{"server": idA}))
+	ok(t, "start_server on another server", c.call("start_server", map[string]any{"server": idB}))
+}
+
 func TestServersAreFoundByIDSlugOrName(t *testing.T) {
 	b := newWorld(false)
 	b.add("m1", "my-vps", sample("cccccccccc", "skyblock", "Skyblock"), "1111111111111111")

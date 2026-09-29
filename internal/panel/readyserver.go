@@ -104,10 +104,10 @@ func (s *Server) startWaitingCustomer(ctx context.Context, userID int64) error {
 	return s.tellPlaced(ctx, cust, userID, true)
 }
 
-// customerWaiting reports whether a is a customer placement hasn't given a
-// home machine yet. One whose home can't be read waits too.
+// customerWaiting reports whether a is an active customer placement hasn't
+// given a home machine yet. One whose home can't be read waits too.
 func (s *Server) customerWaiting(ctx context.Context, a access) bool {
-	if a.Customer == "" {
+	if a.Customer != CustomerActive {
 		return false
 	}
 	var machineID string

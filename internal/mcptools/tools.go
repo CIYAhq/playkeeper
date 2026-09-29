@@ -84,6 +84,10 @@ type Access struct {
 	// the Act constants) right now. Nil allows every action, as for root on
 	// the machine.
 	May func(act string) bool
+	// OnServer is why the caller may not take an action on one server right
+	// now though May allows it, as a *mcp.ToolError, or nil. Nil allows
+	// every server.
+	OnServer func(act, serverID string) error
 }
 
 func (a Access) allows(s mcp.Scope) bool {
@@ -91,6 +95,13 @@ func (a Access) allows(s mcp.Scope) bool {
 }
 
 func (a Access) mayTake(act string) bool { return a.May == nil || a.May(act) }
+
+func (a Access) onServer(act, id string) error {
+	if a.OnServer == nil {
+		return nil
+	}
+	return a.OnServer(act, id)
+}
 
 func (a Access) covers(id string) bool {
 	return a.AllServers || slices.Contains(a.Servers, id)
@@ -213,6 +224,10 @@ func (s spec) tool(b Backend) mcp.Tool {
 					return nil, err
 				}
 				if c.server, err = c.resolve(ctx, arg.Server); err != nil {
+					return nil, err
+				}
+				if err := access.onServer(s.act, c.server.ID); err != nil {
+					b.Refused(ctx, mc.Principal, s.name, RefusedAction)
 					return nil, err
 				}
 				if c.agent, err = b.Agent(ctx, c.server.ID); err != nil {

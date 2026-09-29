@@ -21,7 +21,7 @@ import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { can, canCreate, canCreateOn, welcomeKey } from '@/lib/access'
 import { demo } from '@/lib/demo'
-import { formatBytes, formatDate, formatList, formatMB, formatMBOf, formatPercent, formatSpan, sameDay } from '@/lib/format'
+import { formatBytes, formatDate, formatList, formatLongDate, formatMB, formatMBOf, formatPercent, formatSpan, sameDay } from '@/lib/format'
 import { awayLong, awayOf, byMachine, isAway, isStale, joinOf, machineLabel, machineOf, machineRoute, machineState, reachOf } from '@/lib/machines'
 import { couldntStart, isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
 import { presenceProps, useListPresence } from '@/lib/presence'
@@ -53,13 +53,16 @@ export function HomePage() {
   )
 
   if (servers && servers.length === 0) {
+    const paused = !!ws.me.access.pausedUntil
+    const title = paused ? t('home.pausedEmptyTitle') : waiting ? t('home.settingUpTitle') : t('home.emptyTitle')
+    const body = paused ? t('home.pausedEmptyBody') : waiting ? t('home.settingUpBody') : create ? t('home.emptyBody') : t('home.emptyMember')
     return (
       <>
         <PageHeader title={t('home.title')} subtitle={phone ? undefined : t('home.emptySubtitle', { machine: ws.machineName })} phoneAction={<PhoneMoreButton />} />
         <PageBody className="flex flex-1 flex-col items-center pt-10 text-center max-sm:pt-0">
           <Pip pose="wave" size={phone ? 104 : 96} />
-          <h2 className="mt-4 text-title font-extrabold tracking-[-0.015em]">{waiting ? t('home.settingUpTitle') : t('home.emptyTitle')}</h2>
-          <p className="mt-2 max-w-[420px] text-sm text-muted-foreground max-sm:text-[15px]">{waiting ? t('home.settingUpBody') : create ? t('home.emptyBody') : t('home.emptyMember')}</p>
+          <h2 className="mt-4 text-title font-extrabold tracking-[-0.015em]">{title}</h2>
+          <p className="mt-2 max-w-[420px] text-sm text-muted-foreground max-sm:text-[15px]">{body}</p>
           {create &&
             (phone ? (
               <Button size="touch" className="mt-6 w-full" render={<a {...linkProps({ name: 'new-server' })} />}>
@@ -163,6 +166,7 @@ function MemberNotice() {
   const ws = useWorkspace()
   const [dismissed, setDismissed] = useState(false)
   const access = ws.me.access
+  if (access.pausedUntil) return <TwoLineNotice tone="warning" title={t('home.pausedTitle')} body={t('home.pausedBody', { date: formatLongDate(access.pausedUntil) })} />
   if (access.needsTwoFactor) {
     const turnOn = (
       <Button variant="outline" size="sm" render={<a {...linkPath('/account/two-factor')} />}>

@@ -57,6 +57,8 @@ export interface Plan {
 
 export interface StoreData {
   account: Account
+  /** The business whose products and plans these are. */
+  business: string
   products: Product[]
   plans: Plan[]
 }
@@ -178,5 +180,5 @@ export async function readStore(env: Env, fetcher: typeof fetch = fetch): Promis
     list('/products', { account_id: accountID }, product),
     list('/variants', { account_id: accountID }, plan),
   ])
-  return { account: me, products, plans }
+  return { account: me, business: accountID, products, plans }
 }

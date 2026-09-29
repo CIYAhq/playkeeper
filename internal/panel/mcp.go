@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/invites"
 	"github.com/CIYAhq/playkeeper/internal/mcp"
 	"github.com/CIYAhq/playkeeper/internal/mcptools"
 	"github.com/CIYAhq/playkeeper/internal/version"
@@ -63,7 +64,20 @@ func (b mcpBackend) Access(_ context.Context, p mcp.Principal) (mcptools.Access,
 		return mcptools.Access{}, err
 	}
 	return mcptools.Access{Scope: scopeOf(r.role), AllServers: r.all, Servers: r.servers,
-		May: func(act string) bool { return permit(account, action(act), "") == nil }}, nil
+		May:      func(act string) bool { return permit(account, action(act), "") == nil },
+		OnServer: func(act, id string) error { return mcpRefusal(act, b.s.heldRefusal(account, action(act), id)) }}, nil
+}
+
+// mcpRefusal is a dashboard refusal of act as a tool's error.
+func mcpRefusal(act string, err error) error {
+	var e *invites.Error
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, &e):
+		return &mcp.ToolError{Kind: mcptools.RefusedAction, Msg: e.Msg, Hint: e.Hint, Params: map[string]string{"action": act}}
+	}
+	return &mcp.ToolError{Kind: mcp.KindInternal, Msg: "The dashboard could not read its database.", Hint: "The details are in the Playkeeper logs."}
 }
 
 func (b mcpBackend) Servers(ctx context.Context) ([]mcptools.Server, error) {

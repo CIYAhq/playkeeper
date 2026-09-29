@@ -141,13 +141,14 @@ func TestSetProductMetadataSendsTheWholeMap(t *testing.T) {
 	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
 		"PATCH /products/prod_mc": func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]map[string]string
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !reflect.DeepEqual(body["metadata"], map[string]string{"color": "green", MetaDashboard: "https://beta.playkeeper.me:8443"}) {
+			want := map[string]string{"color": "green", MetaDashboard: "https://beta.playkeeper.me:8443", MetaBusiness: "biz_pip"}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !reflect.DeepEqual(body["metadata"], want) {
 				t.Errorf("body %v, %v", body, err)
 			}
 			answer(map[string]any{"id": "prod_mc"})(w, r)
 		},
 	})
-	meta, changed := WithDashboard(Metadata{"color": "green"}, "https://beta.playkeeper.me:8443")
+	meta, changed := WithSeller(Metadata{"color": "green"}, "https://beta.playkeeper.me:8443", "biz_pip")
 	if !changed {
 		t.Fatal("adding the address changed nothing")
 	}
@@ -262,16 +263,36 @@ func TestPlanDiskGB(t *testing.T) {
 	}
 }
 
-func TestWithDashboard(t *testing.T) {
-	if _, changed := WithDashboard(Metadata{MetaDashboard: "https://a"}, "https://a"); changed {
-		t.Error("the same address counted as a change")
+func TestWithSeller(t *testing.T) {
+	if _, changed := WithSeller(Metadata{MetaDashboard: "https://a", MetaBusiness: "biz_pip"}, "https://a", "biz_pip"); changed {
+		t.Error("the same marking counted as a change")
 	}
-	out, changed := WithDashboard(Metadata{MetaDashboard: "https://a", "x": "1"}, "")
+	if out, changed := WithSeller(Metadata{MetaDashboard: "https://a"}, "https://a", "biz_pip"); !changed || out[MetaBusiness] != "biz_pip" {
+		t.Errorf("a marking without its business: %v, %v", out, changed)
+	}
+	out, changed := WithSeller(Metadata{MetaDashboard: "https://a", MetaBusiness: "biz_pip", "x": "1"}, "", "biz_pip")
 	if !changed || !reflect.DeepEqual(out, Metadata{"x": "1"}) {
-		t.Errorf("removing the address: %v, %v", out, changed)
+		t.Errorf("removing the marking: %v, %v", out, changed)
 	}
-	if _, changed := WithDashboard(Metadata{"x": "1"}, ""); changed {
-		t.Error("removing an address that wasn't there counted as a change")
+	if _, changed := WithSeller(Metadata{"x": "1"}, "", "biz_pip"); changed {
+		t.Error("removing a marking that wasn't there counted as a change")
+	}
+}
+
+func TestSellerIsTheDashboardMarkingAProductOfItsBusiness(t *testing.T) {
+	for _, tc := range []struct {
+		meta Metadata
+		want string
+	}{
+		{Metadata{}, ""},
+		{Metadata{MetaDashboard: "https://a", MetaBusiness: "biz_pip"}, "https://a"},
+		{Metadata{MetaDashboard: "https://a"}, "https://a"},
+		{Metadata{MetaDashboard: "https://publisher", MetaBusiness: "biz_publisher"}, ""},
+		{Metadata{MetaBusiness: "biz_pip"}, ""},
+	} {
+		if got := Seller(tc.meta, "biz_pip"); got != tc.want {
+			t.Errorf("Seller(%v) = %q, want %q", tc.meta, got, tc.want)
+		}
 	}
 }
 

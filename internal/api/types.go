@@ -1850,11 +1850,14 @@ const CodePlanChanged = "plan_changed"
 const CodeKeyRefused = "curseforge_key_refused"
 
 // Sell on Whop: CodeWhopKeyRefused refuses a Whop API key that Whop doesn't
-// take, or that can't be one, and CodeWhopPermissions one that lacks a
-// permission selling needs, with the missing ones in Params["missing"].
+// take, or that can't be one, CodeWhopPermissions one that lacks a
+// permission selling needs, with the missing ones in Params["missing"], and
+// CodeWhopOtherSeller a store another dashboard sells for, at
+// Params["dashboard"], which the owner may take over.
 const (
 	CodeWhopKeyRefused  = "whop_key_refused"
 	CodeWhopPermissions = "whop_permissions"
+	CodeWhopOtherSeller = "whop_other_seller"
 )
 
 // CodeHetznerTokenRefused refuses a Hetzner API token that Hetzner doesn't

@@ -191,6 +191,10 @@ func permit(a access, act action, serverID string) error {
 		return errForbidden
 	case serverID != "" && !a.covers(serverID):
 		return errNoServer
+	case a.Customer == CustomerSuspended:
+		return errCustomerSuspended
+	case a.Customer == CustomerPaused && !pausedMay[act]:
+		return errCustomerPaused
 	case keyActions[act]:
 		return keysRefusal(a, act)
 	case a.owner():
@@ -216,6 +220,15 @@ func permit(a access, act action, serverID string) error {
 		return errAllServers
 	}
 	return nil
+}
+
+// permitOn is permit, and then heldRefusal for a server whose customer's
+// plan no longer covers act.
+func (s *Server) permitOn(a access, act action, serverID string) error {
+	if err := permit(a, act, serverID); err != nil {
+		return err
+	}
+	return s.heldRefusal(a, act, serverID)
 }
 
 // creator reports whether a creates servers inside an allowance (see
