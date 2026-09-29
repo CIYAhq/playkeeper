@@ -23,21 +23,28 @@ function page(body: Html, status: number, cache: string) {
 /**
  * The store's request handler. Each Worker instance keeps its last read of
  * the store for a minute, so visitors don't each wait on Whop's API, and
- * keeps showing it for an hour while Whop can't be reached.
+ * keeps showing it for an hour while Whop can't be reached. A read that
+ * failed isn't tried again for a minute either, so an outage doesn't keep
+ * every visitor waiting on Whop. Each request reads for itself, since a
+ * Worker can't count on one request's fetch to answer another's.
  */
 export function createHandler(deps: Deps = { fetch: (input, init) => fetch(input, init), now: () => Date.now() }) {
   let last: { at: number; store: Storefront } | undefined
+  let failedAt = -Infinity
 
   async function store(env: Env): Promise<Storefront | undefined> {
     const now = deps.now()
+    const shown = () => (last && now - last.at < stale ? last.store : undefined)
     if (last && now - last.at < fresh) return last.store
+    if (now - failedAt < fresh) return shown()
     try {
       const s = storefront(await readStore(env, deps.fetch))
       last = { at: now, store: s }
       return s
     } catch (err) {
+      failedAt = deps.now()
       console.error(`Reading the store from Whop failed: ${err instanceof Error ? err.message : String(err)}`)
-      return last && now - last.at < stale ? last.store : undefined
+      return shown()
     }
   }
 

@@ -44,7 +44,9 @@ describe('the store’s pages', () => {
     const words = text(page)
     expect(words).toContain('Starter $10.00 / month 3-day free trial 1 server 4 GB of memory')
     expect(words).toContain('Plus $20.00 / month Up to 2 servers 8 GB of memory between them')
-    expect(words).toContain('Pip Hosting sends you an invite in your Whop messages.')
+    expect(words).toContain('Pip Hosting tells you in your Whop messages when your server is ready.')
+    expect(words).toContain('sign in with your Whop account')
+    expect(page.toLowerCase()).not.toContain('invite')
     expect(words).toContain('Not approved by or associated with Mojang or Microsoft.')
     for (const hidden of ['plan_test', 'Owner test', 'plan_old', 'plan_link', 'plan_course', 'Server growth course']) expect(page).not.toContain(hidden)
     expect(page).not.toContain('Not taking orders yet')
@@ -56,7 +58,7 @@ describe('the store’s pages', () => {
     expect(words).toContain('Not taking orders yet Joe’s Hosting opens here soon.')
     expect(words).toContain('connect this store in its Settings › Sell on Whop, then make your plans visible on Whop.')
     expect(page).not.toContain('whop.com/checkout')
-    expect(page).not.toContain('Sign in')
+    expect(page).not.toMatch(/>Sign in( to your dashboard)?<\/a>/)
     expect(page).not.toContain('See the plans')
   })
 
@@ -78,7 +80,8 @@ describe('the store’s pages', () => {
     expect(res.status).toBe(200)
     const words = text(await res.text())
     expect(words).toContain('Terms of service')
-    expect(words).toContain('After 14 days your servers and their backups are deleted for good.')
+    expect(words).toContain('Your servers stop, and you can still sign in to download their backups.')
+    expect(words).toContain('After 14 days your servers are deleted. A final backup of each is kept for 30 days, then deleted for good.')
     expect(words).toContain('Pip Hosting runs the servers as well as it can, with no promise of uptime.')
     const own = await (await store(() => {
       const c = openStore()
@@ -129,6 +132,42 @@ describe('reading Whop', () => {
     expect(gone.headers.get('cache-control')).toBe('no-store')
     expect(text(await gone.text())).toContain('The store couldn’t load its plans from Whop just now.')
     expect(errors).toHaveBeenCalledWith('Reading the store from Whop failed: /accounts/me: Whop is down')
+    errors.mockRestore()
+  })
+
+  it('asks Whop at most once a minute while it can’t be reached, showing what it last read meanwhile', async () => {
+    let down = false
+    const s = store(openStore, { down: () => down })
+    const reads = () => s.whop.seen.filter((x) => x.url.pathname.endsWith('/accounts/me')).length
+    await s.get('/')
+    down = true
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    s.later(fresh)
+    await s.get('/')
+    expect(reads()).toBe(2)
+    s.later(fresh - 1)
+    for (const path of ['/', '/terms', '/']) expect((await s.get(path)).status).toBe(200)
+    expect(reads()).toBe(2)
+    s.later(1)
+    expect(await (await s.get('/')).text()).toContain('Choose Starter')
+    expect(reads()).toBe(3)
+    down = false
+    s.later(fresh)
+    await s.get('/')
+    expect(reads()).toBe(4)
+    errors.mockRestore()
+  })
+
+  it('waits a minute before asking Whop again after a first read failed', async () => {
+    const s = store(openStore, { down: () => true })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect((await s.get('/')).status).toBe(503)
+    s.later(fresh - 1)
+    expect((await s.get('/')).status).toBe(503)
+    expect(s.whop.seen).toHaveLength(1)
+    s.later(1)
+    await s.get('/')
+    expect(s.whop.seen).toHaveLength(2)
     errors.mockRestore()
   })
 

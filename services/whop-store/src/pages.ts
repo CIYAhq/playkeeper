@@ -121,10 +121,10 @@ ${s.dashboard ? html`<p>Already a customer? <a href="${s.dashboard}">Sign in to 
 function questions(name: string): [string, string][] {
   return [
     ['What do I get?', `A Minecraft: Java Edition server on ${name}’s machine, within your plan’s servers and memory. You run it from your own dashboard: starting and stopping it, the console, its files and backups, plugins, mods and modpacks, and who can join.`],
-    ['How soon can I play?', 'Your invite arrives in your Whop messages a few minutes after checkout. A new server takes a minute or two to start the first time.'],
+    ['How soon can I play?', `A few minutes after checkout, ${name} tells you in your Whop messages that your server is ready. Sign in with Whop and start it: the first start takes a minute or two.`],
     ['Which versions can I run?', 'Minecraft: Java Edition 1.20.1 and newer, as Paper, Purpur, Vanilla, Fabric, Quilt, NeoForge or Forge, and modpacks from Modrinth and CurseForge.'],
     ['Can my friends join?', 'Yes. Your server has an address to share, and you choose who can join on its allowlist.'],
-    ['What happens if I cancel?', 'Your servers keep running until the time you’ve paid for ends. Then they get a final backup and stop, and your sign-in pauses. Renew within 14 days and everything is back as it was. After 14 days your servers are deleted with their backups, so download your worlds first.'],
+    ['What happens if I cancel?', 'Your servers keep running until the time you’ve paid for ends. Then they stop, and you can still sign in to download their backups. Renew within 14 days and everything is back as it was. After 14 days your servers are deleted, so download your worlds first.'],
     ['Can I change my plan?', 'Yes, on Whop. Your dashboard follows the new plan’s servers and memory.'],
     ['How do payments and refunds work?', `Whop takes the payments and sends the receipts. To ask for a refund, message ${name} on Whop.`],
     ['Is this an official Minecraft service?', `No. ${name} rents out server time. You play with your own Minecraft: Java Edition account, and accept Mojang’s EULA when you create a server. Not approved by or associated with Mojang or Microsoft.`],
@@ -133,7 +133,7 @@ function questions(name: string): [string, string][] {
 
 export function homePage(s: Storefront) {
   const name = nameOf(s)
-  const lead = s.description || 'Choose a plan, open the invite Whop sends you, and start a server from your own dashboard, with plugins, mods, modpacks and backups.'
+  const lead = s.description || 'Choose a plan, sign in with Whop, and run your server from your own dashboard, with plugins, mods, modpacks and backups.'
   return layout(
     { title: `${name}: Minecraft server hosting`, description: lead, store: s },
     html`<section class="hero">
@@ -155,8 +155,8 @@ ${s.shelves.length > 0 ? open(s) : closed(s)}
 <h2 id="how-title">How it works</h2>
 <ol class="steps">
 <li><h3>Choose a plan</h3><p>Pay on Whop’s checkout. Your plan renews until you cancel it on Whop.</p></li>
-<li><h3>Open your invite</h3><p>${name} sends you an invite in your Whop messages. Open it and make an account on the dashboard.</p></li>
-<li><h3>Start your server</h3><p>Pick Paper, Fabric, a modpack or plain Vanilla, start it, and share its address with your friends.</p></li>
+<li><h3>Sign in with Whop</h3><p>${name} tells you in your Whop messages when your server is ready. Open the dashboard and sign in with your Whop account: there’s no password to make.</p></li>
+<li><h3>Start your server</h3><p>It’s waiting for its first start. Start it, share its address with your friends, and add plugins, mods or a modpack whenever you like.</p></li>
 </ol>
 </div>
 </section>
@@ -186,7 +186,7 @@ export function termsPage(s: Storefront) {
 <h2>Payments</h2>
 <p>Whop takes the payments. A plan renews until you cancel it on Whop, and a cancellation takes effect when the time you’ve paid for ends. Refunds are up to ${name}, within what Whop’s terms allow.</p>
 <h2>When a plan ends</h2>
-<p>Your servers get a final backup and stop, and your sign-in pauses. Renew within 14 days to get everything back as it was. After 14 days your servers and their backups are deleted for good.</p>
+<p>Your servers stop, and you can still sign in to download their backups. Renew within 14 days to get everything back as it was. After 14 days your servers are deleted. A final backup of each is kept for 30 days, then deleted for good.</p>
 <h2>No guarantees</h2>
 <p>${name} runs the servers as well as it can, with no promise of uptime. Keep your own copies of the worlds you care about: backups can be downloaded from your dashboard. ${name} isn’t liable for lost worlds or data, or for more than you paid in the last month.</p>
 <h2>Changes</h2>
