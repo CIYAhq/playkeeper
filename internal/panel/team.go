@@ -788,6 +788,10 @@ func (s *Server) restoreProxy(method, pattern string, then func(machine, *sessio
 				if mb == 0 {
 					mb = p.MemoryMB
 				}
+				if mb <= 0 {
+					writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Choose the server's memory.", "")
+					return
+				}
 				if s.refuseNewServer(w, r, sess.Access, m, mb) {
 					return
 				}

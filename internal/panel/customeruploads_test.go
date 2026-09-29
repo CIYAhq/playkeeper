@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -132,6 +133,14 @@ func TestACreatorMakesAServerFromABackupTheyUpload(t *testing.T) {
 	if r := e.do(t, "POST", apply, `{"confirm":"restore","acceptEula":true,"memoryMB":8192}`, alex.auth()); r.status != http.StatusConflict {
 		t.Fatalf("alex restores it past their memory: %d %v", r.status, r.body)
 	}
+	preview := func(mb int) {
+		e.replyStatus("GET", "/v1/restore/"+backupUpload, http.StatusOK, fmt.Sprintf(`{"id":%q,"diskLimit":%q,"memoryMB":%d}`, backupUpload, accountLimit(alex.id), mb))
+	}
+	preview(0)
+	if r := e.do(t, "POST", apply, `{"confirm":"restore","acceptEula":true}`, alex.auth()); r.status != http.StatusBadRequest {
+		t.Fatalf("alex restores a backup that doesn't say its memory, choosing none: %d %v", r.status, r.body)
+	}
+	preview(2048)
 	if r := e.do(t, "POST", apply, `{"confirm":"restore","acceptEula":true}`, alex.auth()); r.status != http.StatusAccepted || r.body["serverId"] != "cafebabe23" {
 		t.Fatalf("alex restores their backup as a new server: %d %v", r.status, r.body)
 	}

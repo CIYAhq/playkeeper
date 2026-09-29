@@ -8326,6 +8326,10 @@ control "dns: extra records are answered besides the zone" internal/dnszone/dnsz
 
 # Creators make a new server from an uploaded world or backup, inside their
 # allowance and against their disk limit (internal/panel/customeruploads.go).
+control "creator uploads: a server from a backup that doesn't say its memory needs one chosen" internal/panel/team.go \
+  'if mb <= 0 {' \
+  'if mb < 0 {' \
+  ./internal/panel '^TestACreatorMakesAServerFromABackupTheyUpload$'
 control "creator uploads: a creator's world upload names their own limit" internal/panel/customeruploads.go \
   'body["diskLimit"] = accountLimit(a.UserID)' \
   '_ = a' \
