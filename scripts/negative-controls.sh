@@ -7961,6 +7961,26 @@ control "dns: a port it can't have over TCP lets its UDP side go" internal/agent
   'pc.Close()' \
   '_ = pc' \
   ./internal/agent '^TestDNSListensOnOnePortOverUDPAndTCP$'
+control "dns: a wildcard answers names the zone hasn't got" internal/dnszone/dnszone.go \
+  'recs, there = a.names["*."+ce]' \
+  'recs, there = nil, false' \
+  ./internal/dnszone '^TestAWildcardAnswersNamesTheZoneHasnt$'
+control "dns: a name the zone has isn't the wildcard's" internal/dnszone/dnszone.go \
+  'recs, there := a.names[qs.name], a.nodes[qs.name]' \
+  'recs, there := a.names[qs.name], false' \
+  ./internal/dnszone '^TestAWildcardAnswersNamesTheZoneHasnt$'
+control "dns: a wildcard answers only below its closest encloser" internal/dnszone/dnszone.go \
+  'for !a.nodes[ce] {' \
+  'for ce != a.zone.Name {' \
+  ./internal/dnszone '^TestAWildcardAnswersNamesTheZoneHasnt$'
+control "dns: a star is nowhere but a wildcard's first label" internal/dnszone/dnszone.go \
+  "case c == '_' && underscores && i == 0:" \
+  "case c == '_' && underscores && i == 0, c == '*' && underscores:" \
+  ./internal/dnszone '^TestZoneCheck$'
+control "dns: a wildcard below the zone names what's below its star" internal/dnszone/dnszone.go \
+  '} else if rest, ok := strings.CutPrefix(name, "*."); ok && rest != "" {' \
+  '} else if rest, ok := strings.CutPrefix(name, "*."); ok {' \
+  ./internal/dnszone '^TestZoneCheck$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
