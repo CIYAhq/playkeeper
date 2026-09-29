@@ -109,7 +109,7 @@ func (r Record) check(zone string) error {
 	name := r.Name
 	if name == "*" {
 		name = ""
-	} else if rest, ok := strings.CutPrefix(name, "*."); ok {
+	} else if rest, ok := strings.CutPrefix(name, "*."); ok && rest != "" {
 		name = rest
 	}
 	if name != "" {
