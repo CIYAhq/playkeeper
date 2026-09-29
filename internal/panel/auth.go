@@ -463,6 +463,23 @@ CREATE TABLE whop_stock (
 ALTER TABLE invites ADD COLUMN allowance_disk_gb INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE project_members ADD COLUMN allowance_disk_gb INTEGER NOT NULL DEFAULT 0;
 `,
+	// The hosting core's customers: the account a billing provider's
+	// customer has, found only by the provider and its id for them, never
+	// by name, with the handle they had there and where the account stands
+	// (see customers.go).
+	`
+CREATE TABLE customers (
+  user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  provider   TEXT    NOT NULL,
+  subject    TEXT    NOT NULL,
+  handle     TEXT    NOT NULL DEFAULT '',
+  plan_id    TEXT    NOT NULL DEFAULT '',
+  state      TEXT    NOT NULL DEFAULT 'active',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(provider, subject)
+);
+`,
 }
 
 const (
@@ -599,6 +616,12 @@ func (s *Server) authenticate(username, password string) (user, bool) {
 	if err != nil {
 		checkPassword(dummyHash, password)
 		return user{}, false
+	}
+	if h == "" || s.isCustomer(u.ID) {
+		// A customer signs in through their billing provider alone, even
+		// if a password was ever set for them.
+		checkPassword(dummyHash, password)
+		return u, false
 	}
 	return u, checkPassword(h, password)
 }

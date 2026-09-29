@@ -36,8 +36,12 @@ type teamMember struct {
 	// counted, missing before they have been.
 	Allowance     invites.Allowance `json:"allowance,omitzero"`
 	DiskUsedBytes *int64            `json:"diskUsedBytes,omitempty"`
-	TwoFactor     bool              `json:"twoFactor"`
-	AddedAt       time.Time         `json:"addedAt"`
+	// Customer is the billing provider a customer's account came from, and
+	// Handle their name there (see customers.go).
+	Customer  string    `json:"customer,omitempty"`
+	Handle    string    `json:"handle,omitempty"`
+	TwoFactor bool      `json:"twoFactor"`
+	AddedAt   time.Time `json:"addedAt"`
 	// CanEdit says whether the signed-in account may change this member's
 	// role and servers, or remove them.
 	CanEdit bool `json:"canEdit"`
@@ -52,7 +56,7 @@ type teamMember struct {
 func memberRow(a, t access, added time.Time) teamMember {
 	return teamMember{ID: t.UserID, Username: t.Name, Owner: t.owner(), You: t.UserID == a.UserID,
 		Role: t.ProjectRole, Servers: t.Servers, Allowance: t.Allowance, TwoFactor: t.FactorOn, AddedAt: added,
-		CanEdit: invites.CanRemove(a.Account, t.Account) == nil, Waiting: t.awaitingConfirmation(),
+		CanEdit: invites.CanRemove(a.Account, t.Account) == nil && t.Customer == "", Waiting: t.awaitingConfirmation(),
 		CanConfirm: t.awaitingConfirmation() && canConfirm(a, t) == nil}
 }
 
@@ -108,6 +112,9 @@ func (s *Server) hTeam(w http.ResponseWriter, r *http.Request, sess *session) {
 		row := memberRow(a, t, invites.FromMillis(x.added))
 		if !t.Allowance.IsZero() {
 			row.DiskUsedBytes = s.diskUsed(t.UserID)
+		}
+		if t.Customer != "" {
+			_ = s.db.QueryRow(`SELECT provider, handle FROM customers WHERE user_id = ?`, t.UserID).Scan(&row.Customer, &row.Handle)
 		}
 		out.Members = append(out.Members, row)
 	}
@@ -477,6 +484,12 @@ func (s *Server) hTeamMemberRemove(w http.ResponseWriter, r *http.Request, sess 
 	}
 	if err := invites.CanRemove(sess.Access.Account, t.Account); err != nil {
 		writeRefusal(w, err)
+		return
+	}
+	if t.Customer != "" {
+		// Their billing provider started them and won't again, so an
+		// account removed here would leave a paying customer without one.
+		writeRefusal(w, errCustomerStays)
 		return
 	}
 	s.turnOffLinks(r, sess.User, invites.Account{UserID: t.UserID}, "creator removed")

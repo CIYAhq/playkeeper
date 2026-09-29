@@ -7414,6 +7414,73 @@ webcontrol "dashboard disk limits: the Team page's default disk matches the dash
   'al.memoryMB * 8' \
   src/pages/pages.test.tsx 'disk, and how much their servers take once'
 
+# Playkeeper Cloud's customer accounts (internal/panel/customers.go): each
+# customer gets an account of their own, found by provider and id alone.
+control "customers: an account is found by provider and id, and made once" internal/panel/customers.go \
+  'WHERE c.provider = ? AND c.subject = ?`' \
+  'WHERE c.provider = ? AND c.subject = ? AND 0`' \
+  ./internal/panel '^TestACustomerGetsAnAccountOfTheirOwn$'
+control "customers: a name an account has is never taken" internal/panel/customers.go \
+  'if n == 0 {' \
+  'if n >= 0 {' \
+  ./internal/panel '^TestACustomerNamedLikeTheOwnerGetsAnAccountOfTheirOwn$'
+control "customers: a reserved name is never taken" internal/panel/customers.go \
+  'if reservedNames[name] {' \
+  'if false && reservedNames[name] {' \
+  ./internal/panel '^TestCustomersNamesNeverTakeAnother$'
+control "customers: a name is plain lower-case letters, digits and dashes" internal/panel/customers.go \
+  "case r >= 'a' && r <= 'z' || r >= '0' && r <= '9':" \
+  'case unicode.IsLetter(r) || unicode.IsDigit(r):' \
+  ./internal/panel '^TestCustomersNamesNeverTakeAnother$'
+control "customers: password sign-in refuses a customer" internal/panel/auth.go \
+  'if h == "" || s.isCustomer(u.ID) {' \
+  'if h == "" {' \
+  ./internal/panel '^TestPasswordSignInRefusesCustomers$'
+control "customers: a customer is Admin with no two-factor sign-in of ours" internal/panel/workspace.go \
+  'a.FactorOn, a.TwoFactor = true, true' \
+  'a.FactorOn = true' \
+  ./internal/panel '^TestACustomerGetsAnAccountOfTheirOwn$'
+control "customers: a customer's provider and id are checked" internal/panel/customers.go \
+  'if cust.Provider == "" || len(cust.Provider) > maxCustomerProvider || cust.Subject == "" || len(cust.Subject) > maxCustomerSubject ||' \
+  'if false && (cust.Provider == "" || len(cust.Provider) > maxCustomerProvider || cust.Subject == "" || len(cust.Subject) > maxCustomerSubject) ||' \
+  ./internal/panel '^TestTheCoreRefusesWhatIsntACustomer$'
+control "customers: a plan no account may have is refused" internal/panel/customers.go \
+  'if err := al.Check(); err != nil {' \
+  'if err := al.Check(); false && err != nil {' \
+  ./internal/panel '^TestTheCoreRefusesWhatIsntACustomer$'
+control "customers: a new plan gives its allowance" internal/panel/customers.go \
+  'al.Servers, al.MemoryMB, al.DiskGB, info.UserID, al.Servers, al.MemoryMB, al.DiskGB)' \
+  'al.Servers, al.MemoryMB, al.DiskGB, 0*info.UserID, al.Servers, al.MemoryMB, al.DiskGB)' \
+  ./internal/panel '^TestACustomerGetsAnAccountOfTheirOwn$'
+control "customers: a customer waiting for room is placed once there's room" internal/panel/customers.go \
+  "WHERE c.state = ? AND COALESCE(h.machine_id, '') = '' ORDER BY c.created_at" \
+  'WHERE c.state = ? AND 0 ORDER BY c.created_at' \
+  ./internal/panel '^TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom$'
+control "customers: a paused customer waiting isn't placed" internal/panel/customers.go \
+  'if CustomerState(state) != CustomerActive {' \
+  'if false {' \
+  ./internal/panel '^TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom$'
+control "customers: the owner can't remove a customer" internal/panel/team.go \
+  'writeRefusal(w, errCustomerStays)' \
+  '_ = errCustomerStays' \
+  ./internal/panel '^TestTheTeamPageKeepsACustomersAccount$'
+control "customers: the Team page offers no removal of a customer" internal/panel/team.go \
+  ' && t.Customer == ""' \
+  '' \
+  ./internal/panel '^TestTheTeamPageKeepsACustomersAccount$'
+control "customers: the Team page marks a customer" internal/panel/team.go \
+  '.Scan(&row.Customer, &row.Handle)' \
+  '.Scan(new(string), new(string))' \
+  ./internal/panel '^TestACustomerGetsAnAccountOfTheirOwn$'
+webcontrol "customers: the Team page says a customer signs in with Whop" web/src/pages/team.tsx \
+  "m.customer === 'whop' ? t('team.signsInWithWhop', { handle: m.handle ?? '' }) : " \
+  '' \
+  src/pages/pages.test.tsx 'shows a customer as one, signing in with Whop'
+webcontrol "customers: the Team page names a customer's role" web/src/pages/team.tsx \
+  "if (m.customer) return t('team.customer')" \
+  '' \
+  src/pages/pages.test.tsx 'shows a customer as one, signing in with Whop'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

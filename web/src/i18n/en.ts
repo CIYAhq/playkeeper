@@ -2703,6 +2703,8 @@ export const en = {
   'team.add': 'Add a team member',
   'team.addCreator': 'Invite a creator',
   'team.creator': 'Creator',
+  'team.customer': 'Customer',
+  'team.signsInWithWhop': 'signs in with Whop as {handle}',
   'team.allowance': 'Up to {servers} with {memory}',
   'team.diskOf': '{limit} of disk',
   'team.diskUsed': '{used} of {limit} of disk used',
