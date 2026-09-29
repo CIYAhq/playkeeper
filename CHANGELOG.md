@@ -2,6 +2,11 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.6
+
+- Fixed: turning on **An address for each server** in **Machine settings › Address** failed with "unknown field panelHost", so servers couldn't get addresses of their own. It now turns on, and the wildcard record it lists points at the address you opened the dashboard at, which is the right one behind NAT too.
+- Fixed: **An address for each server** showed only once the machine had a server. It now shows as soon as the machine has your own domain, so you can turn it on, and see whether its wildcard record works, before the first server exists.
+
 ## 0.4.5
 
 - **Creators:** the owner can invite someone to create their own servers on this machine. **Settings › Team › Invite a creator** gives them an allowance of servers and memory. They make their own account, turn on two-factor sign-in, and create, resize and delete their own servers inside it, seeing only those. Their new servers start with a backup each day someone played. It's how Playkeeper's managed beta runs, and it works for sharing a VPS with friends too.
