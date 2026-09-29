@@ -136,6 +136,11 @@ func TestEachCreatorsServersGetTheirAllowancesDisk(t *testing.T) {
 		got[1].ID != want[1].ID || got[1].LimitBytes != want[1].LimitBytes || !slices.Equal(got[1].Servers, want[1].Servers) {
 		t.Fatalf("the limits sent: %+v", sent)
 	}
+	for _, l := range got {
+		if l.CPUMilliPerGB != 500 {
+			t.Fatalf("%s's servers get %d thousandths of a core per GB, not half a core", l.ID, l.CPUMilliPerGB)
+		}
+	}
 
 	var team struct {
 		Members []struct {
