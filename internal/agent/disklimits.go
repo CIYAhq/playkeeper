@@ -144,8 +144,13 @@ func (a *Agent) hDiskLimitsSet(w http.ResponseWriter, r *http.Request) {
 	a.limits.mu.Unlock()
 	if changed {
 		a.audit(actor, "disk_limits.set", "", "succeeded", fmt.Sprintf("%d disk limits", len(limits)))
-		a.recapCPUs(r.Context(), old, limits)
 	}
+	// Every set puts the running servers' caps right, changed or not, and a
+	// dashboard that stops waiting doesn't cut it short: the dashboard sets
+	// the limits every minute, so a cap one set missed is caught by the next.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), time.Minute)
+	a.recapCPUs(ctx, limits)
+	cancel()
 	writeJSON(w, http.StatusOK, limits)
 }
 
@@ -166,38 +171,30 @@ func (s *server) cpuCap(memoryMB int) int64 {
 	return cpuCapIn(s.diskLimits(), s.id, memoryMB)
 }
 
-// recapCPUs gives each running server whose processor cap changed from old
-// to cur its new cap at once, and every core where it no longer has one. A
-// server that isn't running gets its cap when its container is next made.
-func (a *Agent) recapCPUs(ctx context.Context, old, cur []api.DiskLimit) {
-	ids := map[string]bool{}
-	for _, l := range slices.Concat(old, cur) {
-		for _, id := range l.Servers {
-			ids[id] = true
-		}
-	}
-	for id := range ids {
-		s := a.serverByID(id)
-		if s == nil {
-			continue
-		}
+// recapCPUs gives each running server the processor cap limits give it, or
+// every core where they give none, against what its container has now, so
+// a cap an earlier change missed is put right too. A server that isn't
+// running gets its cap when its container is next made.
+func (a *Agent) recapCPUs(ctx context.Context, limits []api.DiskLimit) {
+	all := int64(numCPU()) * 1_000_000_000
+	for _, s := range a.serverList() {
 		sc, err := s.serverConfig()
 		if err != nil || sc == nil {
-			continue
-		}
-		before, after := cpuCapIn(old, id, sc.MemoryMB), cpuCapIn(cur, id, sc.MemoryMB)
-		if before == after {
 			continue
 		}
 		c, err := s.docker.ContainerInspect(ctx, s.containerName())
 		if err != nil || !c.State.Running {
 			continue
 		}
-		if after == 0 {
-			after = int64(numCPU()) * 1_000_000_000
+		want, have := cpuCapIn(limits, s.id, sc.MemoryMB), c.HostConfig.NanoCPUs
+		if want == have || want == 0 && have == all {
+			continue
 		}
-		if err := s.docker.ContainerCPUs(ctx, c.ID, after); err != nil {
-			s.log.Warn("could not change a running server's processor cap", "server", id, "err", err)
+		if want == 0 {
+			want = all
+		}
+		if err := s.docker.ContainerCPUs(ctx, c.ID, want); err != nil {
+			s.log.Warn("could not change a running server's processor cap", "server", s.id, "err", err)
 		}
 	}
 }

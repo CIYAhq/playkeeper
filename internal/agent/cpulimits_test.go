@@ -86,6 +86,29 @@ func TestCustomersServersGetTheirShareOfTheProcessor(t *testing.T) {
 	}
 }
 
+// A cap a change missed, because Docker refused it, is put right by the
+// next set of the same limits, as the dashboard sends them every minute.
+func TestACapAChangeMissedIsPutRightByTheNextSet(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	sc, err := e.srv().serverConfig()
+	if err != nil || sc == nil {
+		t.Fatal(sc, err)
+	}
+	want := min(int64(sc.MemoryMB)*500*1_000_000/1024, int64(numCPU())*1_000_000_000)
+	e.fd.mu.Lock()
+	e.fd.updateFails = 1
+	e.fd.mu.Unlock()
+	for i := range 2 {
+		if code, out := e.shareCPUs(500); code != 200 {
+			t.Fatalf("setting the share: %d %v", code, out)
+		}
+		if got := e.containerCPUs(); (i == 0) != (got == 0) || i == 1 && got != want {
+			t.Fatalf("after set %d: cap %d, want %d", i+1, got, want)
+		}
+	}
+}
+
 // A server in a limit with no processor share isn't capped, and its
 // container isn't made again for it.
 func TestServersWithoutAShareKeepEveryCore(t *testing.T) {

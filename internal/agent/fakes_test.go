@@ -29,6 +29,7 @@ type fakeDocker struct {
 	images       map[string]bool
 	pulls        int
 	pullFails    []pullFail // what the next pulls answer instead of the image, one each
+	updateFails  int        // how many of the next container updates fail
 	networks     map[string]map[string]string
 	byName       map[string]*fakeContainer
 	byID         map[string]*fakeContainer
@@ -502,6 +503,12 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 		}
 		json.NewDecoder(r.Body).Decode(&body)
 		fd.mu.Lock()
+		if fd.updateFails > 0 {
+			fd.updateFails--
+			fd.mu.Unlock()
+			jsonOut(w, 500, map[string]string{"message": "fake: the update failed"})
+			return
+		}
 		c.cfg.HostConfig.NanoCPUs = body.NanoCpus
 		fd.mu.Unlock()
 		jsonOut(w, 200, map[string]any{"Warnings": []string{}})
