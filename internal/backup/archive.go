@@ -98,10 +98,20 @@ func (e *RefusedError) Error() string {
 
 func (e *RefusedError) Unwrap() error { return e.Reason }
 
-// archiveLimitError is a limit on the archive as a whole, not on one file.
-type archiveLimitError string
+// ErrTooLarge is wrapped by the refusal of an archive whose files add up
+// to more than Limits.MaxTotalBytes.
+var ErrTooLarge = errors.New("the archive's files add up to more than its limit")
 
-func (e archiveLimitError) Error() string { return string(e) }
+// archiveLimitError is a limit on the archive as a whole, not on one file;
+// err is ErrTooLarge for its total size.
+type archiveLimitError struct {
+	msg string
+	err error
+}
+
+func (e archiveLimitError) Error() string { return e.msg }
+
+func (e archiveLimitError) Unwrap() error { return e.err }
 
 // fileTally applies the rules a restore enforces on each data file and on
 // their running count and size. walk and Create share it so they agree.
@@ -123,11 +133,11 @@ func (t *fileTally) add(rel string, size int64) error {
 	}
 	t.files++
 	if t.files > t.lim.MaxFiles {
-		return archiveLimitError(fmt.Sprintf("archive has more than %d files", t.lim.MaxFiles))
+		return archiveLimitError{msg: fmt.Sprintf("archive has more than %d files", t.lim.MaxFiles)}
 	}
 	t.total += size
 	if t.total > t.lim.MaxTotalBytes {
-		return archiveLimitError(fmt.Sprintf("archive expands beyond the %d byte limit", t.lim.MaxTotalBytes))
+		return archiveLimitError{msg: fmt.Sprintf("archive expands beyond the %d byte limit", t.lim.MaxTotalBytes), err: ErrTooLarge}
 	}
 	return nil
 }

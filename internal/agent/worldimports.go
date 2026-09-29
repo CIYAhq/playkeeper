@@ -11,9 +11,11 @@ import (
 	"hash"
 	"io"
 	"io/fs"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -71,6 +73,9 @@ type worldImport struct {
 	serverID  string
 	createdAt time.Time
 	dir       string
+	// limit is the disk limit an upload for a new server names: its files,
+	// and the server it makes, count against it (see WorldImportOpenRequest).
+	limit string
 
 	mu         sync.Mutex
 	files      []*importFile
@@ -195,24 +200,41 @@ func removeImports(list []*worldImport) {
 	}
 }
 
-// newWorldImport opens an upload, first forgetting the stale ones.
-func (a *Agent) newWorldImport(serverID string) (*worldImport, error) {
+// newWorldImport opens an upload into server serverID, or for a new server
+// counting against the disk limit called limit, first forgetting the stale
+// ones. The servers of one disk limit keep one upload open at a time, so
+// one account can't hold every upload a machine keeps open.
+func (a *Agent) newWorldImport(serverID, limit string) (*worldImport, error) {
 	now := a.now()
+	var account *api.DiskLimit
+	if limit != "" {
+		if account = a.namedLimit(limit); account == nil {
+			return nil, errNoSuchLimit()
+		}
+	} else if serverID != "" {
+		account = a.diskLimitOf(serverID)
+	}
 	a.imports.mu.Lock()
 	if a.imports.byID == nil {
 		a.imports.byID = map[string]*worldImport{}
 	}
 	stale := a.staleImports(now, nil)
 	full := len(a.imports.byID) >= maxWorldImports
+	mine := account != nil && slices.ContainsFunc(slices.Collect(maps.Values(a.imports.byID)), func(o *worldImport) bool {
+		return o.limit == account.ID || slices.Contains(account.Servers, o.serverID)
+	})
 	var imp *worldImport
-	if !full {
+	if !full && !mine {
 		id := randomSecret(8)
-		imp = &worldImport{id: id, serverID: serverID, createdAt: now.UTC(), dir: filepath.Join(a.cfg.StagingDir(), "import-"+id), touched: now}
+		imp = &worldImport{id: id, serverID: serverID, limit: limit, createdAt: now.UTC(), dir: filepath.Join(a.cfg.StagingDir(), "import-"+id), touched: now}
 		a.imports.byID[id] = imp
 	}
 	a.imports.mu.Unlock()
 	removeImports(stale)
-	if full {
+	switch {
+	case mine:
+		return nil, errConflict("A world upload of yours is open already.", "Finish or cancel it, then try again.")
+	case full:
 		return nil, errConflict("Too many world uploads are open on this machine.", "Finish or cancel one, then try again.")
 	}
 	if err := os.MkdirAll(filepath.Join(imp.dir, "uploads"), 0o700); err != nil {
@@ -278,7 +300,7 @@ func (a *Agent) importView(imp *worldImport) api.WorldImport {
 	allowance := a.uploadAllowance()
 	imp.mu.Lock()
 	defer imp.mu.Unlock()
-	v := api.WorldImport{ID: imp.id, ServerID: imp.serverID, CreatedAt: imp.createdAt, Files: []api.WorldImportFile{}, LimitBytes: allowance, Inspection: imp.inspection}
+	v := api.WorldImport{ID: imp.id, ServerID: imp.serverID, CreatedAt: imp.createdAt, Files: []api.WorldImportFile{}, LimitBytes: allowance, DiskLimit: imp.limit, Inspection: imp.inspection}
 	for i, f := range imp.files {
 		v.Files = append(v.Files, api.WorldImportFile{Index: i, Name: f.name, Size: f.size, Received: f.received, SHA256: f.sum})
 	}
@@ -318,11 +340,24 @@ func (a *Agent) hWorldImportNewServer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Agent) openWorldImport(w http.ResponseWriter, r *http.Request, serverID string) {
-	if _, err := actionActor(r); err != nil {
+	var req api.WorldImportOpenRequest
+	if err := decode(r, &req); err != nil {
 		writeError(w, err)
 		return
 	}
-	imp, err := a.newWorldImport(serverID)
+	if _, err := validActor(req.Actor); err != nil {
+		writeError(w, err)
+		return
+	}
+	switch {
+	case req.DiskLimit != "" && serverID != "":
+		writeError(w, errInvalid("An upload into a server counts against that server's disk limit."))
+		return
+	case req.DiskLimit != "" && !reDiskLimitID.MatchString(req.DiskLimit):
+		writeError(w, errInvalid("A disk limit is named with lower-case letters, digits and dashes."))
+		return
+	}
+	imp, err := a.newWorldImport(serverID, req.DiskLimit)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -384,6 +419,11 @@ func (a *Agent) announceFile(ctx context.Context, imp *worldImport, name string,
 	}
 	if imp.serverID != "" {
 		if err := a.diskLimitRefusal(ctx, imp.serverID, size); err != nil {
+			return err
+		}
+	}
+	if imp.limit != "" {
+		if err := a.namedLimitRefusal(ctx, imp.limit, size); err != nil {
 			return err
 		}
 	}
@@ -1058,9 +1098,18 @@ func (a *Agent) hWorldImportCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	done := func(bool) {}
+	if imp.limit != "" {
+		if done, err = a.holdNamedLimit(r.Context(), imp.limit, need); err != nil {
+			imp.release()
+			writeError(w, err)
+			return
+		}
+	}
 	staged := imp.stagedDir()
 	os.RemoveAll(staged)
 	fail := func(err error) {
+		done(false)
 		os.RemoveAll(staged)
 		imp.release()
 		writeError(w, err)
@@ -1088,8 +1137,15 @@ func (a *Agent) hWorldImportCreate(w http.ResponseWriter, r *http.Request) {
 		original = &o
 	}
 	_, op, err := a.addServer(newServerSpec{name: name, typ: api.TypePaper, config: sc, desired: api.DesiredStopped, actor: actor}, "create", func(s *server) func(ctx context.Context, h *opHandle) error {
+		if imp.limit != "" {
+			if err := a.joinDiskLimit(imp.limit, s.id); err != nil {
+				a.log.Warn("a server made from an upload couldn't join its disk limit", "server", s.id, "limit", imp.limit, "err", err)
+			}
+		}
 		return func(ctx context.Context, h *opHandle) error {
-			return s.createFromWorld(ctx, h, imp, p, sc, chosen.Label, original, actor)
+			err := s.createFromWorld(ctx, h, imp, p, sc, chosen.Label, original, actor)
+			done(err == nil)
+			return err
 		}
 	})
 	if err != nil {

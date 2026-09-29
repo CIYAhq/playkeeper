@@ -7894,6 +7894,156 @@ webcontrol "client-only mods: the dashboard says the mod only runs in players' g
   'return c.explanation' \
   web/src/lib/lib.test.ts 'only runs in players'
 
+# Uploads for a new server counted against a named disk limit, as a
+# creator's are (internal/agent/worldimports.go, handlers.go, backups.go),
+# and every customer upload treated as hostile.
+control "customer uploads: a new server's upload names a limit the machine has" internal/agent/worldimports.go \
+  'if account = a.namedLimit(limit); account == nil {' \
+  'if account = a.namedLimit(limit); account == nil && false {' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: one open world upload per account" internal/agent/worldimports.go \
+  'mine := account != nil && slices.ContainsFunc(' \
+  'mine := false && account != nil && slices.ContainsFunc(' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a named upload's archives count against its limit" internal/agent/worldimports.go \
+  'if err := a.namedLimitRefusal(ctx, imp.limit, size); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a named upload's unsent archives count as on their way" internal/agent/disklimits.go \
+  ' || imp.serverID == "" && imp.limit == l.ID' \
+  '' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: creating a server holds its world against the limit" internal/agent/worldimports.go \
+  'if done, err = a.holdNamedLimit(r.Context(), imp.limit, need); err != nil {' \
+  'if done, err = func(bool) {}, error(nil); err != nil {' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a server made from a world joins the limit" internal/agent/worldimports.go \
+  'if err := a.joinDiskLimit(imp.limit, s.id); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: only an upload for a new server names a limit" internal/agent/worldimports.go \
+  'case req.DiskLimit != "" && serverID != "":' \
+  'case false:' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a world upload's limit is named properly" internal/agent/worldimports.go \
+  'case req.DiskLimit != "" && !reDiskLimitID.MatchString(req.DiskLimit):' \
+  'case false:' \
+  ./internal/agent '^TestAWorldForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: only a restore for a new server names a limit" internal/agent/handlers.go \
+  'case limit != "" && target != nil:' \
+  'case false:' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a restore upload's limit is named properly" internal/agent/handlers.go \
+  'case limit != "" && !reDiskLimitID.MatchString(limit):' \
+  'case false:' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a backup's size is checked against the limit's room" internal/agent/handlers.go \
+  'if err == nil && r.ContentLength > room {' \
+  'if err == nil && false {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a backup is read no further than the limit's room" internal/agent/handlers.go \
+  'most = min(most, room)' \
+  '_ = room' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a staged backup remembers its limit" internal/agent/backups.go \
+  'f.DiskLimit, f.Preview.DiskLimit = limit, limit' \
+  'f.Preview.DiskLimit = limit' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: an account stages one backup at a time" internal/agent/backups.go \
+  'err == nil && o.DiskLimit == limit {' \
+  'err == nil && o.DiskLimit == limit && false {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a staged backup's limit is read back" internal/agent/backups.go \
+  'st.limit, st.preview.DiskLimit = s.DiskLimit, s.DiskLimit' \
+  'st.preview.DiskLimit = s.DiskLimit' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: restoring a new server holds its world against the limit" internal/agent/handlers.go \
+  'if done, err = a.holdNamedLimit(r.Context(), st.limit, unpackedBytes(st.manifest)); err != nil {' \
+  'if done, err = func(bool) {}, error(nil); err != nil {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a restored new server joins the limit" internal/agent/handlers.go \
+  'if err := a.joinDiskLimit(st.limit, s.id); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a backup unpacks no further than its limit's room" internal/agent/backups.go \
+  'lim.MaxTotalBytes = min(lim.MaxTotalBytes, room)' \
+  '_ = room' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+control "customer uploads: a backup past its limit's room says so" internal/agent/backups.go \
+  'if errors.Is(err, backup.ErrTooLarge) && room == lim.MaxTotalBytes {' \
+  'if false {' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+control "customer uploads: a backup into a server unpacks no further than its limit's room" internal/agent/backups.go \
+  'return a.namedLimitRoom(a.ctx, l.ID)' \
+  'return -1, nil' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+control "customer uploads: an archive's total size refusal is told apart" internal/backup/archive.go \
+  ', err: ErrTooLarge}' \
+  '}' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+control "customer uploads: a restore claims the upload it applies" internal/agent/handlers.go \
+  'release, err := a.claimStage(r.PathValue("id"))' \
+  'release, err := func() {}, error(nil)' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a claimed upload is in use" internal/agent/backups.go \
+  'if a.stages.ids[id] {' \
+  'if a.stages.ids[id] && false {' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: one restore at a time claims an upload" internal/agent/backups.go \
+  'if a.stageInUse(id) {' \
+  'if a.stageInUse(id) && false {' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: an upload a restore claimed isn't discarded" internal/agent/handlers.go \
+  'busy := a.stageInUse(id)' \
+  'busy := a.stageInUse(id) && false' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a restore gives its upload up when it's over" internal/agent/handlers.go \
+  '			defer release()' \
+  '			defer func() {}()' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a refused restore gives its upload up" internal/agent/handlers.go \
+  'if !started {' \
+  'if !started && false {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: an upload whose restore left its journal isn't replaced" internal/agent/backups.go \
+  'swapJournalFile)); !errors.Is(err, os.ErrNotExist) {' \
+  'swapJournalFile)); !errors.Is(err, os.ErrNotExist) && false {' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a replaced upload is deleted, not just moved aside" internal/agent/backups.go \
+  'for _, dir := range gone {' \
+  'for _, dir := range gone[:0] {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a discarded upload is deleted, not just moved aside" internal/agent/handlers.go \
+  '		os.RemoveAll(aside)' \
+  '		_ = aside' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a backup staged for a new server counts against its limit" internal/agent/disklimits.go \
+  'n := a.stagedFor(l.ID)' \
+  'n := int64(0)' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a newer backup is read into the room of the one it replaces" internal/agent/handlers.go \
+  'room, err := a.roomReplacingStage(r.Context(), limit)' \
+  'room, err := a.namedLimitRoom(r.Context(), limit)' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a restore into a server isn't charged its archive besides its world" internal/agent/backups.go \
+  '		if target == nil {
+			room = max(room-n, 0)' \
+  '		if true {
+			room = max(room-n, 0)' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+control "customer uploads: the staged archive takes some of the room its world unpacks into" internal/agent/backups.go \
+  'room = max(room-n, 0)' \
+  'room = max(room, 0)' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a newer backup unpacks into the room of the one it replaces" internal/agent/backups.go \
+  'return a.roomReplacingStage(a.ctx, named)' \
+  'return a.namedLimitRoom(a.ctx, named)' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: the replaced backup's room counts before the room is floored at nothing" internal/agent/disklimits.go \
+  'return max(l.LimitBytes-a.limitUsed(rep, l)+staged, 0), nil' \
+  'return max(l.LimitBytes-a.limitUsed(rep, l), 0) + staged, nil' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+
 # The machine answers DNS for the zone the dashboard sets, for port-free
 # addresses (internal/dnszone, internal/agent/dns.go): authoritative only,
 # and every query from the internet parsed with bounds.
