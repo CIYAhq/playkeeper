@@ -176,13 +176,27 @@ func TestSignInWithWhopGoesBackWithWhyWhenItCant(t *testing.T) {
 	if to := newBrowser(t, e).signInWithWhop(f, "user_sam"); to != back("starting") {
 		t.Fatalf("a plan whose account is on its way: %q", to)
 	}
-	// An account that can't sign in now, and the owner's, which is never a customer's.
+	// The core decides: a paused account it lets in signs in, a suspended one
+	// never, and the owner's account is never a customer's.
+	alexID := core.accounts["user_alex"].UserID
 	core.mu.Lock()
-	core.accounts["user_alex"] = CustomerAccountInfo{UserID: core.accounts["user_alex"].UserID, Username: "alex", State: CustomerPaused}
+	core.accounts["user_alex"] = CustomerAccountInfo{UserID: alexID, Username: "alex", State: CustomerPaused, SignIn: true}
 	core.accounts["user_own"] = CustomerAccountInfo{UserID: own.id, Username: "siya", State: CustomerActive, SignIn: true}
 	core.mu.Unlock()
+	if to := newBrowser(t, e).signInWithWhop(f, "user_alex"); to != "/" {
+		t.Fatalf("a paused account the core lets in: %q", to)
+	}
+	core.mu.Lock()
+	core.accounts["user_alex"] = CustomerAccountInfo{UserID: alexID, Username: "alex", State: CustomerSuspended}
+	core.mu.Unlock()
+	if to := newBrowser(t, e).signInWithWhop(f, "user_alex"); to != back("suspended") {
+		t.Fatalf("a suspended account: %q", to)
+	}
+	core.mu.Lock()
+	core.accounts["user_alex"] = CustomerAccountInfo{UserID: alexID, Username: "alex", State: CustomerPaused}
+	core.mu.Unlock()
 	if to := newBrowser(t, e).signInWithWhop(f, "user_alex"); to != back("paused") {
-		t.Fatalf("a paused account: %q", to)
+		t.Fatalf("an account the core keeps out: %q", to)
 	}
 	if to := newBrowser(t, e).signInWithWhop(f, "user_own"); to != back("no_account") {
 		t.Fatalf("the owner's account: %q", to)

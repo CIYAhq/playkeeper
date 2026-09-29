@@ -33,6 +33,8 @@ export function whopSignInError(code: string): string {
       return t('login.whop.starting')
     case 'paused':
       return t('login.whop.paused')
+    case 'suspended':
+      return t('login.whop.suspended')
     case 'denied':
       return t('login.whop.denied')
     case 'expired':

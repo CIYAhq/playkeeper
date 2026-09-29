@@ -133,6 +133,7 @@ describe('Sign in with Whop', () => {
       ['no_account', 'That Whop account has no plan here.'],
       ['starting', 'Your account is being set up. Try again in a minute.'],
       ['paused', 'If your plan ended, renew it on Whop.'],
+      ['suspended', 'This account is suspended. Message us on Whop if you think that’s a mistake.'],
       ['expired', 'finished in another browser'],
       ['<script>', 'Whop couldn’t confirm who you are. Try again.'],
     ] as const) {

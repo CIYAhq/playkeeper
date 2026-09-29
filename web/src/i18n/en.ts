@@ -1274,6 +1274,7 @@ export const en = {
   'login.whop.noAccount': 'That Whop account has no plan here. Sign in with the Whop account you bought it with.',
   'login.whop.starting': 'Your account is being set up. Try again in a minute.',
   'login.whop.paused': 'This account can’t sign in right now. If your plan ended, renew it on Whop.',
+  'login.whop.suspended': 'This account is suspended. Message us on Whop if you think that’s a mistake.',
   'login.whop.denied': 'Signing in with Whop was cancelled.',
   'login.whop.expired': 'That sign-in took too long, or finished in another browser. Try again.',
   'login.whop.failed': 'Whop couldn’t confirm who you are. Try again.',

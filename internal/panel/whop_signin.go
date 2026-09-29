@@ -146,8 +146,12 @@ func (s *Server) finishWhopSignIn(w http.ResponseWriter, r *http.Request) {
 		backToSignIn(w, r, s.whopSignInWithoutAccount(ctx, who.Subject))
 		return
 	case !acct.SignIn:
-		s.audit(acct.Username, "login", "panel", "refused", "signed in with Whop while their account can't sign in")
-		backToSignIn(w, r, "paused")
+		why := "paused"
+		if acct.State == CustomerSuspended {
+			why = "suspended"
+		}
+		s.audit(acct.Username, "login", "panel", "refused", "signed in with Whop while their account can't sign in ("+string(acct.State)+")")
+		backToSignIn(w, r, why)
 		return
 	}
 	var u user
