@@ -43,6 +43,7 @@ const previews = {
   'error-outdated-server': { eyebrow: 'Error fix', title: 'Outdated server or Incompatible client: the fix', pip: 'pip-hurt' },
   'error-timed-out': { eyebrow: 'Error fix', title: 'Timed out on a Minecraft server: what it means', pip: 'pip-hurt' },
   'error-ticking-entity': { eyebrow: 'Error fix', title: 'Ticking entity: what the crash means, and the fix', pip: 'pip-hurt' },
+  'error-world-corrupted': { eyebrow: 'Error fix', title: 'Minecraft world corrupted: what the server says, and the fix', pip: 'pip-hurt' },
   docs: { eyebrow: 'Docs', title: 'Playkeeper docs', pip: 'pip-letter' },
   pricing: { eyebrow: 'Pricing', title: 'Free and open source. You only pay for your VPS.', pip: 'pip-box' },
   blog: { eyebrow: 'Blog', title: 'Releases, guides and building Playkeeper in public', pip: 'pip-letter' },
