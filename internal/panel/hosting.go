@@ -41,16 +41,20 @@ type StartedCustomer struct {
 	Server    string
 }
 
-// CustomerState is where a customer's account stands.
+// CustomerState is where a customer's account stands: active, paused
+// because its plan ended, or suspended by the owner, for abuse or anything
+// else. Nothing a billing provider does lifts a suspension.
 type CustomerState string
 
 const (
-	CustomerActive CustomerState = "active"
-	CustomerPaused CustomerState = "paused"
+	CustomerActive    CustomerState = "active"
+	CustomerPaused    CustomerState = "paused"
+	CustomerSuspended CustomerState = "suspended"
 )
 
 // CustomerAccountInfo is which account a customer is, and whether they may
-// sign in to it now.
+// sign in to it now: an active account may, a paused one to see its servers
+// and download backups, and a suspended one never.
 type CustomerAccountInfo struct {
 	UserID   int64
 	Username string
@@ -58,11 +62,16 @@ type CustomerAccountInfo struct {
 	SignIn   bool
 }
 
-// hostingCore is the core's side of the interface.
+// hostingCore is the core's side of the interface. Each call is audited,
+// with the provider as the actor, only when something changed; an error
+// means nothing changed, and the billing provider calls again on its next
+// check. No call lifts a suspension.
 type hostingCore interface {
-	// StartCustomer makes the customer's account and its ready server the
-	// first time, and gives an account that has one the plan, resuming it
-	// if its plan had ended.
+	// StartCustomer makes the customer's account the first time and returns
+	// once it exists, with its first server set up in the background: the
+	// core calls Notify with "ready" once that server waits for the
+	// customer's first start. Called again, it gives the account the plan
+	// and resumes it if its plan had ended.
 	StartCustomer(ctx context.Context, c Customer, p CustomerPlan) (StartedCustomer, error)
 	// ChangeCustomerPlan gives an account the plan's limits.
 	ChangeCustomerPlan(ctx context.Context, c Customer, p CustomerPlan) error
@@ -70,8 +79,6 @@ type hostingCore interface {
 	// stop, starting them is refused, and they're deleted when the grace
 	// period ends.
 	PauseCustomer(ctx context.Context, c Customer, reason string) error
-	// ResumeCustomer brings back a paused customer within the grace period.
-	ResumeCustomer(ctx context.Context, c Customer, p CustomerPlan) error
 	// CustomerAccount says which account a customer is; ok is false while
 	// they have none.
 	CustomerAccount(ctx context.Context, provider, subject string) (info CustomerAccountInfo, ok bool, err error)
@@ -105,10 +112,6 @@ func (noHostingCore) ChangeCustomerPlan(context.Context, Customer, CustomerPlan)
 }
 
 func (noHostingCore) PauseCustomer(context.Context, Customer, string) error { return errNoHostingCore }
-
-func (noHostingCore) ResumeCustomer(context.Context, Customer, CustomerPlan) error {
-	return errNoHostingCore
-}
 
 func (noHostingCore) CustomerAccount(context.Context, string, string) (CustomerAccountInfo, bool, error) {
 	return CustomerAccountInfo{}, false, nil
