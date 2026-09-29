@@ -1,0 +1,27 @@
+[16:59:11] [main/INFO] [ne.ne.fm.st.Entrypoint/]: JVM Uptime at startup: 419ms
+[16:59:11] [main/INFO] [ne.ne.fm.lo.FMLLoader/]: Starting FancyModLoader version 11.0.16 (DEDICATED_SERVER in PROD)
+[16:59:11] [main/INFO] [ne.ne.fm.lo.FMLLoader/]: Game directory: /data
+[16:59:11] [main/INFO] [ne.ne.fm.lo.EarlyServiceDiscovery/]: Found 3 early service jars (out of 67) in 11ms
+[16:59:11] [main/INFO] [ne.ne.fm.lo.FMLLoader/]: Loading FML Early Services:
+[16:59:11] [main/INFO] [ne.ne.fm.lo.FMLLoader/]:  - libraries/net/neoforged/fancymodloader/earlydisplay/11.0.16/earlydisplay-11.0.16.jar
+[16:59:11] [main/INFO] [ne.ne.fm.lo.FMLLoader/]:  - libraries/net/neoforged/fancymodloader/loader/11.0.16/loader-11.0.16.jar
+[16:59:11] [main/INFO] [ne.ne.fm.lo.FMLLoader/]:  - mods/sodium-neoforge-0.9.2+mc26.2.jar
+[16:59:11] [main/INFO] [ne.ne.fm.lo.ImmediateWindowHandler/]: Running graphics bootstrap plugin sodium
+[16:59:11] [main/INFO] [ne.ne.fm.lo.FMLLoader/]: Closing FML Loader 25df00a0
+[16:59:11] [main/INFO] [ne.ne.fm.ModLoader/]: Clearing ModLoader
+java.lang.NoClassDefFoundError: org/lwjgl/Version
+	at FML Early Services//net.caffeinemc.mods.sodium.client.compatibility.checks.PreLaunchChecks.isUsingKnownCompatibleLwjglVersion(PreLaunchChecks.java:136)
+	at FML Early Services//net.caffeinemc.mods.sodium.client.compatibility.checks.PreLaunchChecks.checkLwjglRuntimeVersion(PreLaunchChecks.java:30)
+	at FML Early Services//net.caffeinemc.mods.sodium.client.compatibility.checks.PreLaunchChecks.checkEnvironment(PreLaunchChecks.java:25)
+	at FML Early Services//net.caffeinemc.mods.sodium.service.SodiumWorkarounds.bootstrap(SodiumWorkarounds.java:29)
+	at net.neoforged.fml.loading.ImmediateWindowHandler.lambda$load$0(ImmediateWindowHandler.java:32)
+	at java.base/java.lang.Iterable.forEach(Unknown Source)
+	at net.neoforged.fml.loading.ImmediateWindowHandler.load(ImmediateWindowHandler.java:30)
+	at net.neoforged.fml.loading.FMLLoader.create(FMLLoader.java:335)
+	at net.neoforged.fml.startup.Entrypoint.startup(Entrypoint.java:65)
+	at net.neoforged.fml.startup.Server.main(Server.java:17)
+Caused by: java.lang.ClassNotFoundException: org.lwjgl.Version
+	at java.base/java.net.URLClassLoader.findClass(Unknown Source)
+	at java.base/java.lang.ClassLoader.loadClass(Unknown Source)
+	at java.base/java.lang.ClassLoader.loadClass(Unknown Source)
+	... 10 more
