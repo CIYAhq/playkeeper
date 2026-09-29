@@ -7870,8 +7870,8 @@ control "customer uploads: a staged backup remembers its limit" internal/agent/b
   'f.Preview.DiskLimit = limit' \
   ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
 control "customer uploads: an account stages one backup at a time" internal/agent/backups.go \
-  'err == nil && o.DiskLimit == limit {' \
-  'err == nil && o.DiskLimit == limit && false {' \
+  'err == nil && o.DiskLimit == limit && os.Rename(' \
+  'err == nil && o.DiskLimit == limit && false && os.Rename(' \
   ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
 control "customer uploads: a staged backup's limit is read back" internal/agent/backups.go \
   'st.limit, st.preview.DiskLimit = s.DiskLimit, s.DiskLimit' \
@@ -7901,6 +7901,34 @@ control "customer uploads: an archive's total size refusal is told apart" intern
   ', err: ErrTooLarge}' \
   '}' \
   ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+control "customer uploads: a restore claims the upload it applies" internal/agent/handlers.go \
+  'release, err := a.claimStage(r.PathValue("id"))' \
+  'release, err := func() {}, error(nil)' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a claimed upload is in use" internal/agent/backups.go \
+  'if a.stages.ids[id] {' \
+  'if a.stages.ids[id] && false {' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: one restore at a time claims an upload" internal/agent/backups.go \
+  'if a.stageInUse(id) {' \
+  'if a.stageInUse(id) && false {' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: an upload a restore claimed isn't discarded" internal/agent/handlers.go \
+  'busy := a.stageInUse(id)' \
+  'busy := a.stageInUse(id) && false' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a restore gives its upload up when it's over" internal/agent/handlers.go \
+  '			defer release()' \
+  '			defer func() {}()' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a refused restore gives its upload up" internal/agent/handlers.go \
+  'if !started {' \
+  'if !started && false {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: an upload whose restore left its journal isn't replaced" internal/agent/backups.go \
+  'swapJournalFile)); !errors.Is(err, os.ErrNotExist) {' \
+  'swapJournalFile)); !errors.Is(err, os.ErrNotExist) && false {' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

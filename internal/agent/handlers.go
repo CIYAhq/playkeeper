@@ -1428,6 +1428,17 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	release, err := a.claimStage(r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	started := false
+	defer func() {
+		if !started {
+			release()
+		}
+	}()
 	st, err := a.loadStage(r.PathValue("id"))
 	if err != nil {
 		writeError(w, err)
@@ -1474,6 +1485,10 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 	}
 	restore := func(s *server) func(ctx context.Context, h *opHandle) error {
 		return func(ctx context.Context, h *opHandle) error {
+			defer release()
+			if a.opts.RestoreStarting != nil {
+				a.opts.RestoreStarting(st.preview.ID)
+			}
 			if p.NeedsEULA {
 				s.audit(actor, "eula.accepted", "minecraft-eula", "recorded", "https://www.minecraft.net/en-us/eula")
 			}
@@ -1531,6 +1546,7 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	started = true
 	writeJSON(w, http.StatusAccepted, op)
 }
 
@@ -1540,11 +1556,16 @@ func (a *Agent) hRestoreDiscard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errInvalid("invalid restore id"))
 		return
 	}
-	if a.stageInUse(id) {
+	a.stages.mu.Lock()
+	busy := a.stageInUse(id)
+	if !busy {
+		os.RemoveAll(a.stageDir(id))
+	}
+	a.stages.mu.Unlock()
+	if busy {
 		writeError(w, errConflict("A restore is in progress.", ""))
 		return
 	}
-	os.RemoveAll(a.stageDir(id))
 	w.WriteHeader(http.StatusNoContent)
 }
 
