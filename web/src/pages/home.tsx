@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react'
-import { ArrowRightIcon, CircleAlertIcon, LinkIcon, PlayIcon, PlusIcon, ServerIcon, ShieldCheckIcon, XIcon } from 'lucide-react'
+import { ArrowRightIcon, CircleAlertIcon, DownloadIcon, LinkIcon, PlayIcon, PlusIcon, ServerIcon, ShieldCheckIcon, XIcon } from 'lucide-react'
 import { useCatalog } from '@/api/catalog'
 import { get, post } from '@/api/client'
-import type { Activity, CatalogEntry, MachineView, ProjectRole, ServerStatus, TeamResponse } from '@/api/types'
+import type { Activity, CatalogEntry, FinalBackup, MachineView, ProjectRole, ServerStatus, TeamResponse } from '@/api/types'
 import { errorText, serverApi, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
 import { Emblem, Pip } from '@/components/app/art'
@@ -53,7 +53,8 @@ export function HomePage() {
   )
 
   if (servers && servers.length === 0) {
-    const paused = !!ws.me.access.pausedUntil
+    const deleted = !!ws.me.access.serversDeleted
+    const paused = deleted || !!ws.me.access.pausedUntil
     const title = paused ? t('home.pausedEmptyTitle') : waiting ? t('home.settingUpTitle') : t('home.emptyTitle')
     const body = paused ? t('home.pausedEmptyBody') : waiting ? t('home.settingUpBody') : create ? t('home.emptyBody') : t('home.emptyMember')
     return (
@@ -63,6 +64,7 @@ export function HomePage() {
           <Pip pose="wave" size={phone ? 104 : 96} />
           <h2 className="mt-4 text-title font-extrabold tracking-[-0.015em]">{title}</h2>
           <p className="mt-2 max-w-[420px] text-sm text-muted-foreground max-sm:text-[15px]">{body}</p>
+          {deleted && <FinalBackups />}
           {create &&
             (phone ? (
               <Button size="touch" className="mt-6 w-full" render={<a {...linkProps({ name: 'new-server' })} />}>
@@ -152,6 +154,32 @@ function HomeNotice() {
   if (ws.signInNotice) return <SignInNotice />
   if (disk) return <Notice tone={disk.status === 'fail' ? 'error' : 'warning'} title={t('overview.lowDiskTitle', { detail: disk.detail })}>{disk.fix}</Notice>
   return can(ws.me, 'team.manage') ? <TeamNotice /> : <MemberNotice />
+}
+
+/** A customer's deleted servers' final backups, each downloadable until it goes. */
+function FinalBackups() {
+  const list = usePoll(() => get<FinalBackup[]>('/api/final-backups'), 60_000)
+  if (!list.data?.length) return null
+  return (
+    <section className="mt-6 w-full max-w-[420px] text-left">
+      <h3 className="text-sm font-semibold">{t('home.finalBackupsTitle')}</h3>
+      <p className="mt-1 text-xs text-muted-foreground max-sm:text-[13px]">{t('home.finalBackupsBody')}</p>
+      <ul className="mt-3 divide-y rounded-lg border">
+        {list.data.map((b) => (
+          <li key={b.id} className="flex items-center gap-3 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{b.serverName}</p>
+              <p className="text-xs text-muted-foreground">{t('home.finalBackupLine', { size: formatBytes(b.sizeBytes), date: formatLongDate(b.expiresAt) })}</p>
+            </div>
+            <Button variant="outline" size="sm" render={<a href={`/api/final-backups/${b.id}/download`} download />}>
+              <DownloadIcon />
+              {t('home.finalBackupDownload')}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
 }
 
 /** For whoever can confirm them, a member waiting for their Admin rights comes first. */

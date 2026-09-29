@@ -332,6 +332,20 @@ describe('Home', () => {
     expect(text).not.toContain('No servers yet')
   })
 
+  it('offers a customer whose servers were deleted their final backups, each until it goes', async () => {
+    vi.mocked(client.get).mockImplementation(((path: string) =>
+      path === '/api/final-backups'
+        ? Promise.resolve([{ id: '20260929-150405-abc123', serverName: 'Survival', sizeBytes: 1.5 * 1024 ** 3, madeAt: '2026-10-13T12:00:00Z', expiresAt: '2026-11-12T12:00:00Z' }])
+        : new Promise(() => {})) as typeof client.get)
+    const deleted = member('admin', ['view', 'backups.make'], { servers: {}, serversDeleted: true })
+    const text = await render(<HomePage />, workspace({ servers: [], me: deleted }))
+    expect(text).toContain('Your plan has ended')
+    expect(text).toContain('Survival')
+    expect(text).toContain(`download until ${formatLongDate('2026-11-12T12:00:00Z')}`)
+    expect(document.querySelector('a[href="/api/final-backups/20260929-150405-abc123/download"]')).not.toBeNull()
+    expect(text).not.toContain('No servers yet')
+  })
+
   it('says a customer’s server is being set up while it waits for room, and offers no way to create one', async () => {
     const text = await render(<HomePage />, workspace({ servers: [], me: member('admin', ['view', 'servers.create_own'], { servers: {}, waitingForRoom: true }) }))
     expect(text).toContain('Your server is being set up')

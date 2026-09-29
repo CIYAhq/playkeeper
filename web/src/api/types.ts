@@ -1829,7 +1829,18 @@ export interface Access {
   waitingForRoom?: boolean
   /** A customer whose plan ended: when their servers are deleted unless they renew. */
   pausedUntil?: string
+  /** A customer whose servers were deleted once their plan had ended 14 days before. */
+  serversDeleted?: boolean
   can: Action[]
+}
+
+/** A deleted server's final backup, kept for its customer to download until expiresAt. */
+export interface FinalBackup {
+  id: string
+  serverName: string
+  sizeBytes: number
+  madeAt: string
+  expiresAt: string
 }
 
 export interface Me {
