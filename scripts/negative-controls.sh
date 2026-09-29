@@ -7935,9 +7935,9 @@ control "dns: a wildcard answers only below its closest encloser" internal/dnszo
   'for !a.nodes[ce] {' \
   'for ce != a.zone.Name {' \
   ./internal/dnszone '^TestAWildcardAnswersNamesTheZoneHasnt$'
-control "dns: a wildcard's star is its whole first label" internal/dnszone/dnszone.go \
-  '} else if rest, ok := strings.CutPrefix(name, "*."); ok {' \
-  '} else if rest, ok := strings.CutPrefix(name, "*"); ok {' \
+control "dns: a star is nowhere but a wildcard's first label" internal/dnszone/dnszone.go \
+  "case c == '_' && underscores && i == 0:" \
+  "case c == '_' && underscores && i == 0, c == '*' && underscores:" \
   ./internal/dnszone '^TestZoneCheck$'
 
 if [ "$bad" != 0 ]; then
