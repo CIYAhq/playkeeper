@@ -468,6 +468,9 @@ type joinCommandView struct {
 	Join         string   `json:"join"`
 	InstallLines []string `json:"installLines"`
 	JoinLines    []string `json:"joinLines"`
+	// CloudConfig is the install command as cloud-init user data, for a
+	// cloud server that's being created.
+	CloudConfig string `json:"cloudConfig"`
 }
 
 // hJoinCodeCreate makes a join code and the command that uses it. Neither
@@ -532,7 +535,7 @@ func (s *Server) hJoinCodeCreate(w http.ResponseWriter, r *http.Request, sess *s
 	writeJSON(w, http.StatusCreated, joinCommandView{
 		joinCodeView: joinCodeView{ID: jc.ID, Name: name, Dials: dial.Address, CreatedAt: jc.CreatedAt, ExpiresAt: jc.ExpiresAt,
 			CreatedBy: jc.CreatedBy, State: string(machinelink.JoinCodeWaiting)},
-		Code: cmd.Code, Install: cmd.Install(), Join: cmd.Join(), InstallLines: cmd.InstallLines(), JoinLines: cmd.JoinLines(),
+		Code: cmd.Code, Install: cmd.Install(), Join: cmd.Join(), InstallLines: cmd.InstallLines(), JoinLines: cmd.JoinLines(), CloudConfig: cmd.CloudConfig(),
 	})
 }
 

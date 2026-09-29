@@ -446,7 +446,7 @@ function cleanName(raw: string): string {
     .trim()
 }
 
-/** The join command in both forms, as machinelink.Command writes them. */
+/** The join command in each form, as machinelink.Command writes them. */
 function joinCommand(address: string, code: string, fingerprint: string, machineName: string) {
   const quote = (a: string) => (/^[A-Za-z0-9._:/@%+=,-]+$/.test(a) ? a : `'${a.replaceAll("'", '')}'`)
   const shell = (args: string[]) => args.map(quote).join(' ')
@@ -462,6 +462,7 @@ function joinCommand(address: string, code: string, fingerprint: string, machine
     join: `sudo playkeeper join ${shell([address, ...flags])}`,
     installLines: continued(install, ['--join', address, ...flags]),
     joinLines: continued(`sudo playkeeper join ${quote(address)}`, flags),
+    cloudConfig: `#cloud-config\nruncmd:\n  - "curl -fsSL https://playkeeper.io/install | sh -s -- ${shell(['--yes', '--join', address, ...flags])}"\n`,
   }
 }
 

@@ -475,6 +475,8 @@ export interface JoinCommand extends JoinCode {
   join: string
   installLines: string[]
   joinLines: string[]
+  /** The install command as cloud-init user data, for a cloud server that's being created. */
+  cloudConfig: string
 }
 
 /** What connecting a machine needs: where it dials, the smallest machine that works and the codes. */
