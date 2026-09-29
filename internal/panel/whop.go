@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -482,7 +483,10 @@ func (s *Server) hWhopDisconnect(w http.ResponseWriter, r *http.Request, sess *s
 	if c, err := s.whopClient(a.Key); err == nil {
 		ctx, cancel := context.WithTimeout(r.Context(), whopTimeout)
 		defer cancel()
-		if err := s.markWhopProducts(ctx, c, a.ID, nil, "", a.MarkedAs, false); err != nil {
+		// Marks at the address the machine has now are this dashboard's too,
+		// such as those of a takeover Whop refused after taking them.
+		self, _ := s.dashboardURL(ctx)
+		if err := s.markWhopProducts(ctx, c, a.ID, nil, "", []string{self, a.MarkedAs}, false); err != nil {
 			// A store that still names this dashboard keeps taking orders, so
 			// the key stays for another try, unless Whop no longer takes it.
 			if !whop.KeyRefused(err) {
@@ -646,8 +650,13 @@ func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, accountID st
 			return err
 		}
 	}
-	if err := s.markWhopProducts(ctx, c, accountID, products, dash, markedAs, claim && dash != ""); err != nil {
+	if err := s.markWhopProducts(ctx, c, accountID, products, dash, []string{dash, markedAs}, claim && dash != ""); err != nil {
 		return err
+	}
+	if dash != "" && dash != markedAs {
+		if _, err := s.db.ExecContext(ctx, `UPDATE whop_account SET marked_as = ? WHERE id = 1`, dash); err != nil {
+			return err
+		}
 	}
 	if takenBy != "" {
 		if _, err := s.db.ExecContext(ctx, `UPDATE whop_account SET taken_over_by = '', taken_over_at = 0 WHERE id = 1`); err != nil {
@@ -680,12 +689,17 @@ func (s *Server) noticeTakeover(ctx context.Context, accountID string, products 
 // markWhopProducts gives the products that sell servers (those with a plan
 // that has an allowance) the dashboard's address, and takes it off the
 // others. With dash empty it takes it off them all. products nil reads
-// them first. markedAs is the address it last marked them with.
+// them first. own are the addresses whose marks are this dashboard's.
 //
 // Another dashboard's marks stay, since that dashboard took the store over,
 // unless claim takes the store from it. The caller checks for them first
 // (see readWhopStore): taken over, a dashboard writes nothing.
-func (s *Server) markWhopProducts(ctx context.Context, c *whop.Client, accountID string, products []whop.Product, dash, markedAs string, claim bool) error {
+//
+// The marks change on every product or on none: when Whop refuses one, the
+// products already changed are put back as they were. Otherwise a takeover
+// Whop half took would stop the other dashboard, which sees the new marks,
+// while this one waits for the rest.
+func (s *Server) markWhopProducts(ctx context.Context, c *whop.Client, accountID string, products []whop.Product, dash string, own []string, claim bool) error {
 	if products == nil {
 		var err error
 		if products, err = c.Products(ctx, accountID); err != nil {
@@ -708,28 +722,38 @@ func (s *Server) markWhopProducts(ctx context.Context, c *whop.Client, accountID
 		}
 		rows.Close()
 	}
+	var changed []whop.Product
 	for _, p := range products {
 		addr := ""
 		if selling[p.ID] {
 			addr = dash
 		}
-		if seller := whop.Seller(p.Metadata, accountID); addr == "" && seller != "" && seller != dash && seller != markedAs && !claim {
+		if seller := whop.Seller(p.Metadata, accountID); addr == "" && seller != "" && !slices.Contains(own, seller) && !claim {
 			continue
 		}
-		meta, changed := whop.WithSeller(p.Metadata, addr, accountID)
-		if !changed {
+		meta, differs := whop.WithSeller(p.Metadata, addr, accountID)
+		if !differs {
 			continue
 		}
 		if err := c.SetProductMetadata(ctx, p.ID, meta); err != nil {
+			s.putWhopMarksBack(ctx, c, changed)
 			return err
 		}
-	}
-	if dash != "" && dash != markedAs {
-		if _, err := s.db.ExecContext(ctx, `UPDATE whop_account SET marked_as = ? WHERE id = 1`, dash); err != nil {
-			return err
-		}
+		changed = append(changed, p)
 	}
 	return nil
+}
+
+// putWhopMarksBack gives products the metadata they had, even once the
+// request that changed them ran out of time.
+func (s *Server) putWhopMarksBack(ctx context.Context, c *whop.Client, products []whop.Product) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), whopTimeout)
+	defer cancel()
+	for _, p := range slices.Backward(products) {
+		if err := c.SetProductMetadata(ctx, p.ID, p.Metadata); err != nil {
+			s.log.Warn("could not put a product's marks on Whop back", "product", p.ID, "err", err)
+		}
+	}
 }
 
 // errAddressUnknown is dashboardURL's answer when the agent can't be asked

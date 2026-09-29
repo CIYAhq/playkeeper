@@ -142,6 +142,67 @@ func TestATakeoverCountsOnlyOnceTheStoreCarriesItsMarks(t *testing.T) {
 	}
 }
 
+func TestATakeoverWhopHalfTakesIsPutBack(t *testing.T) {
+	f := newFakeWhop(t)
+	f.products["prod_plus"] = whop.Metadata{}
+	f.plans = append(f.plans, map[string]any{"id": "plan_plus", "title": "Plus", "visibility": "hidden", "plan_type": "renewal", "billing_period": 30, "renewal_price": 16,
+		"product": map[string]any{"id": "prod_plus", "title": "Minecraft server Plus"}, "metadata": map[string]any{whop.MetaServers: "2", whop.MetaMemoryGB: "8"}, "unlimited_stock": true})
+	a := newWhopEnv(t, f)
+	ownA := owner(t, a)
+	if r := a.do(t, "POST", "/api/whop/connect", `{"key":"`+whopTestKey+`"}`, ownA.auth()); r.status != http.StatusOK {
+		t.Fatalf("connect: %d %v", r.status, r.body)
+	}
+	marks := func() []string {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return []string{f.products["prod_mc"][whop.MetaDashboard], f.products["prod_plus"][whop.MetaDashboard]}
+	}
+	if got := marks(); got[0] != whopDashboard || got[1] != whopDashboard {
+		t.Fatalf("the store's marks: %q", got)
+	}
+
+	// Whop takes the second dashboard's mark on the first product and
+	// refuses it on the second, so the first is put back.
+	b, ownB := secondDashboard(t, f)
+	f.mu.Lock()
+	f.refuseProduct = "prod_plus"
+	f.mu.Unlock()
+	r := b.do(t, "POST", "/api/whop/connect", `{"key":"`+whopTestKey+`","takeOver":true}`, ownB.auth())
+	if r.status != http.StatusOK || r.body["takenOverBy"] != whopDashboard {
+		t.Fatalf("a takeover Whop half took: %d %v", r.status, r.body)
+	}
+	if got := marks(); got[0] != whopDashboard || got[1] != whopDashboard {
+		t.Fatalf("the store's marks after a takeover Whop half took: %q", got)
+	}
+	core := useFakeCore(a)
+	a.deliver(t, "evt_alex", whop.EventMembershipActivated, f.buy("mem_alex", "user_alex", "plan_starter", "active"))
+	a.reconcile()
+	if got := core.got(); len(got) != 1 {
+		t.Fatalf("the first dashboard stopped selling: %q", got)
+	}
+}
+
+func TestDisconnectingTakesOffMarksAtTheMachinesAddress(t *testing.T) {
+	f, _, _ := connectedWhop(t)
+	b, ownB := secondDashboard(t, f)
+	f.refuseMarks(true)
+	if r := b.do(t, "POST", "/api/whop/connect", `{"key":"`+whopTestKey+`","takeOver":true}`, ownB.auth()); r.status != http.StatusOK || r.body["takenOverBy"] != whopDashboard {
+		t.Fatalf("a takeover Whop refused: %d %v", r.status, r.body)
+	}
+	// Whop kept the second dashboard's marks though it answered with an
+	// error, which the dashboard never recorded as its own.
+	f.mu.Lock()
+	f.products["prod_mc"] = whop.Metadata{whop.MetaDashboard: otherDashboard, whop.MetaBusiness: "biz_pip", "color": "green"}
+	f.mu.Unlock()
+	f.refuseMarks(false)
+	if r := b.do(t, "DELETE", "/api/whop", "", ownB.auth()); r.status != http.StatusOK {
+		t.Fatalf("disconnecting: %d %v", r.status, r.body)
+	}
+	if got := f.dashboardMeta(); got != "" {
+		t.Fatalf("disconnecting left the store naming %q", got)
+	}
+}
+
 func TestTakingAStoreBackWhopWontMarkLeavesItWithTheOther(t *testing.T) {
 	f, a, ownA := connectedWhop(t)
 	b, ownB := secondDashboard(t, f)

@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -32,8 +34,10 @@ type fakeWhop struct {
 	srv     *httptest.Server
 	missing map[string]bool
 	// permissionsDown makes Whop's permission check fail, patchDown its
-	// product updates, and revoked refuses the test key.
+	// product updates, refuseProduct those of one product, and revoked
+	// refuses the test key.
 	permissionsDown, patchDown, revoked bool
+	refuseProduct                       string
 	products                            map[string]whop.Metadata
 	plans                               []map[string]any
 	patches                             []string
@@ -182,25 +186,12 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"data": data})
 	case "GET /products":
 		var data []map[string]any
-		for id, meta := range f.products {
-			data = append(data, map[string]any{"id": id, "title": "Minecraft server", "metadata": meta})
+		for _, id := range slices.Sorted(maps.Keys(f.products)) {
+			data = append(data, map[string]any{"id": id, "title": "Minecraft server", "metadata": f.products[id]})
 		}
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
 	case "GET /variants":
 		json.NewEncoder(w).Encode(map[string]any{"data": f.plans, "page_info": map[string]any{"has_next_page": false}})
-	case "PATCH /products/prod_mc":
-		if f.patchDown {
-			w.WriteHeader(http.StatusBadGateway)
-			io.WriteString(w, `{"error":{"type":"server_error","message":"Try again"}}`)
-			return
-		}
-		var body struct {
-			Metadata whop.Metadata `json:"metadata"`
-		}
-		json.NewDecoder(r.Body).Decode(&body)
-		f.products["prod_mc"] = body.Metadata
-		f.patches = append(f.patches, body.Metadata[whop.MetaDashboard])
-		json.NewEncoder(w).Encode(map[string]any{"id": "prod_mc"})
 	case "POST /webhooks":
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
@@ -242,6 +233,21 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 		f.messages[body["channel_id"]] = append(f.messages[body["channel_id"]], body["content"])
 		json.NewEncoder(w).Encode(map[string]any{"id": "msg_sent"})
 	default:
+		if id, ok := strings.CutPrefix(r.URL.Path, "/products/"); ok && r.Method == "PATCH" && f.products[id] != nil {
+			if f.patchDown || id == f.refuseProduct {
+				w.WriteHeader(http.StatusBadGateway)
+				io.WriteString(w, `{"error":{"type":"server_error","message":"Try again"}}`)
+				return
+			}
+			var body struct {
+				Metadata whop.Metadata `json:"metadata"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			f.products[id] = body.Metadata
+			f.patches = append(f.patches, body.Metadata[whop.MetaDashboard])
+			json.NewEncoder(w).Encode(map[string]any{"id": id})
+			return
+		}
 		if id, ok := strings.CutPrefix(r.URL.Path, "/webhooks/"); ok {
 			hook, found := f.webhooks[id]
 			switch {
