@@ -270,13 +270,14 @@ type whopBuyer struct {
 // account and no invite that still works: a first one, one to replace an
 // expired one, or one with a new allowance when their plans changed before
 // they joined. A buyer who joined, or whose invite the owner turned off,
-// gets none.
+// gets none. Only memberships read from Whop's API count: a webhook's word
+// alone never makes an invite.
 func (s *Server) inviteWhopBuyers(ctx context.Context, c *whop.Client, a whopAccount, dash string) {
 	rows, err := s.db.QueryContext(ctx, `SELECT m.whop_user_id, SUM(p.allowance_servers), SUM(p.allowance_memory_mb),
 		COALESCE(b.username, ''), b.user_id, COALESCE(b.joined_at, 0), COALESCE(b.invite_id, ''), COALESCE(b.attempts, 0), COALESCE(b.next_try_at, 0)
 		FROM whop_memberships m JOIN whop_plans p ON p.plan_id = m.plan_id AND p.allowance_from != ''
 		LEFT JOIN whop_buyers b ON b.whop_user_id = m.whop_user_id
-		WHERE m.status IN `+whopAccess+` GROUP BY m.whop_user_id ORDER BY MIN(m.updated_at)`)
+		WHERE m.status IN `+whopAccess+` AND m.stale = 0 GROUP BY m.whop_user_id ORDER BY MIN(m.updated_at)`)
 	if err != nil {
 		s.log.Error("could not list Whop buyers", "err", err)
 		return

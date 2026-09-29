@@ -197,6 +197,40 @@ func TestTheWebhookTakesOnlyWhopsOwnDeliveriesOnce(t *testing.T) {
 	}
 }
 
+// A delivery only says where to look: the invite waits for Whop's API to
+// confirm the membership, and one Whop doesn't know makes none.
+func TestAnInviteWaitsForWhopToConfirmTheMembership(t *testing.T) {
+	f, e, _ := connectedWhop(t)
+	e.srv.reconcileWhop(context.Background())
+	unknown := map[string]any{"id": "mem_ghost", "status": "active", "plan_id": "plan_starter", "product_id": "prod_mc", "user_id": "user_ghost"}
+	e.deliver(t, "msg_1", whop.EventMembershipActivated, unknown)
+	e.srv.reconcileWhop(context.Background())
+	if len(f.sent("user_ghost")) != 0 {
+		t.Fatal("a membership Whop doesn't know got an invite")
+	}
+	var n int
+	e.srv.db.QueryRow(`SELECT COUNT(*) FROM whop_memberships WHERE membership_id = 'mem_ghost'`).Scan(&n)
+	if n != 0 {
+		t.Fatal("a membership Whop doesn't know was kept")
+	}
+	// While Whop can't be asked, nothing is sent; once it confirms, it is.
+	m := f.buy("mem_alex1", "user_alex", "plan_starter", "active")
+	e.deliver(t, "msg_2", whop.EventMembershipActivated, m)
+	f.mu.Lock()
+	f.memberships = map[string]map[string]any{}
+	f.mu.Unlock()
+	e.srv.reconcileWhop(context.Background())
+	if len(f.sent("user_alex")) != 0 {
+		t.Fatal("an invite went out before Whop confirmed the membership")
+	}
+	f.buy("mem_alex1", "user_alex", "plan_starter", "active")
+	e.deliver(t, "msg_3", whop.EventMembershipActivated, m)
+	e.srv.reconcileWhop(context.Background())
+	if len(f.sent("user_alex")) != 1 {
+		t.Fatal("no invite once Whop confirmed the membership")
+	}
+}
+
 func TestWithoutAConnectionTheWebhookIsNotThere(t *testing.T) {
 	e := newEnv(t)
 	owner(t, e)
