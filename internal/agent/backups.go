@@ -1320,7 +1320,10 @@ func (a *Agent) unpackRoom(target *server, named string) (int64, error) {
 	if named == "" {
 		return -1, nil
 	}
-	return a.namedLimitRoom(a.ctx, named)
+	// A newer backup for a new server replaces the one staged before, once
+	// it's staged, so it may use its room.
+	room, err := a.namedLimitRoom(a.ctx, named)
+	return room + a.stagedFor(named), err
 }
 
 // stageFile is a stage's stage.json: its preview when it was staged, and the
@@ -1378,6 +1381,26 @@ func (a *Agent) tagStage(id, limit string) error {
 		}
 	}
 	return nil
+}
+
+// stagedFor is what the backups staged for new servers against the disk
+// limit called id take: each archive and the world it unpacked to, but for
+// one a restore is putting in place, whose operation holds what it writes.
+func (a *Agent) stagedFor(id string) int64 {
+	a.stages.mu.Lock()
+	defer a.stages.mu.Unlock()
+	entries, _ := os.ReadDir(a.cfg.StagingDir())
+	var n int64
+	for _, e := range entries {
+		name := e.Name()
+		if !reStageID.MatchString(name) || a.stageInUse(name) {
+			continue
+		}
+		if f, err := readStageFile(a.stageDir(name)); err == nil && f.DiskLimit == id {
+			n += f.Preview.SizeBytes + unpackedBytes(f.Manifest)
+		}
+	}
+	return n
 }
 
 // setStageAside renames the stage id to a name no stage has, so no restore

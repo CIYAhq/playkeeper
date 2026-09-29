@@ -172,6 +172,26 @@ func TestABackupForANewServerCountsAgainstItsDiskLimit(t *testing.T) {
 	if left, _ := filepath.Glob(e.a.stageDir(first["id"].(string)) + "*"); len(left) != 0 {
 		t.Fatalf("the backup staged first is still there beside the newer one: %v", left)
 	}
+	// The staged backup counts against the limit until it's applied or
+	// replaced: a world for a new server gets only what it leaves, and a
+	// newer backup may use its room, as it replaces it.
+	f, err := readStageFile(e.a.stageDir(preview["id"].(string)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged := f.Preview.SizeBytes + unpackedBytes(f.Manifest)
+	e.setLimits(map[string]any{"id": "account-7", "limitBytes": staged + 1000, "servers": []string{}})
+	code, imp := e.openImportFor("account-7")
+	if code != 201 {
+		t.Fatalf("an upload of a world against account-7: %d %v", code, imp)
+	}
+	if code, out := e.announce(imp["id"].(string), "Survival-2024.zip", 2000); code != 507 || codeOf(out) != api.CodeDiskLimit {
+		t.Fatalf("a world past what the staged backup leaves: %d %v", code, out)
+	}
+	code, preview = upload("account-7")
+	if code != 200 {
+		t.Fatalf("a newer backup in the room of the one it replaces: %d %v", code, preview)
+	}
 	apply := func() (int, map[string]any) {
 		return e.callWhenFree("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": preview["confirmPhrase"], "acceptEula": true, "actor": "alex"})
 	}

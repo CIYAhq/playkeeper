@@ -7971,6 +7971,18 @@ control "customer uploads: a discarded upload is deleted, not just moved aside" 
   '		os.RemoveAll(aside)' \
   '		_ = aside' \
   ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a backup staged for a new server counts against its limit" internal/agent/disklimits.go \
+  'n := a.stagedFor(l.ID)' \
+  'n := int64(0)' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a newer backup is read into the room of the one it replaces" internal/agent/handlers.go \
+  'room += a.stagedFor(limit)' \
+  'room += 0' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a newer backup unpacks into the room of the one it replaces" internal/agent/backups.go \
+  'return room + a.stagedFor(named), err' \
+  'return room, err' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
 
 # The machine answers DNS for the zone the dashboard sets, for port-free
 # addresses (internal/dnszone, internal/agent/dns.go): authoritative only,

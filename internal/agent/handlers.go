@@ -1298,6 +1298,7 @@ func (a *Agent) restoreUpload(w http.ResponseWriter, r *http.Request, target *se
 		return
 	case limit != "":
 		room, err := a.namedLimitRoom(r.Context(), limit)
+		room += a.stagedFor(limit)
 		if err == nil && r.ContentLength > room {
 			err = errDiskLimit(0, room, r.ContentLength)
 		}

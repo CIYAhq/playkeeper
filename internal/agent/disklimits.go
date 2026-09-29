@@ -494,10 +494,11 @@ func (a *Agent) forgetDiskWrites(t time.Time) {
 
 // onTheWay is what uploads announced for servers and haven't put in place:
 // files into their folders, and worlds to import into them, other than one
-// being applied, whose operation holds what it writes.
+// being applied, whose operation holds what it writes; and the backups staged
+// for new servers against the limit (stagedFor).
 func (a *Agent) onTheWay(l *api.DiskLimit) int64 {
 	servers := l.Servers
-	var n int64
+	n := a.stagedFor(l.ID)
 	a.uploads.mu.Lock()
 	ups := make([]*fileUpload, 0, len(a.uploads.byID))
 	for _, up := range a.uploads.byID {
