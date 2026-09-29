@@ -106,10 +106,6 @@ func (fc *fakeCore) PauseCustomer(_ context.Context, c Customer, reason string) 
 	return fc.call(c, "pause ("+reason+")")
 }
 
-func (fc *fakeCore) ResumeCustomer(_ context.Context, c Customer, p CustomerPlan) error {
-	return fc.call(c, "resume "+planText(p)+" for")
-}
-
 func (fc *fakeCore) CustomerAccount(_ context.Context, provider, subject string) (CustomerAccountInfo, bool, error) {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
