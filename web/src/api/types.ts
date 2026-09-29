@@ -888,6 +888,8 @@ export interface SetupStatus {
   needsSetup: boolean
   machine?: string
   version: string
+  /** Set when the sign-in page offers Sign in with Whop. */
+  whopSignIn?: boolean
 }
 
 export interface Me {
@@ -1889,9 +1891,18 @@ export interface WhopStore {
   /** Whether Whop tells the dashboard about memberships as they change; it also reads them every few minutes. */
   webhook: boolean
   customers: WhopCustomer[]
+  /** Sign in with Whop's setup, once a store is connected. */
+  signIn?: WhopSignIn
   needs: string[]
   /** On the answer to a disconnect alone: what the owner still has to do on Whop. */
   notice?: string
+}
+
+/** The Whop app customers sign in through, the end of its secret when it has one, and the redirect URL the app must list ("" while the machine has no address). */
+export interface WhopSignIn {
+  clientId?: string
+  secretEnding?: string
+  redirectUri?: string
 }
 
 /** A customer of the store: starting (their plan asks for hosting this machine hasn't given yet), active, paused (their plans ended) or ended (no plan grants access, and they never started). */

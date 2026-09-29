@@ -980,6 +980,8 @@ type SetupStatus struct {
 	NeedsSetup bool   `json:"needsSetup"`
 	Machine    string `json:"machine,omitempty"`
 	Version    string `json:"version"`
+	// WhopSignIn is set when the sign-in page offers Sign in with Whop.
+	WhopSignIn bool `json:"whopSignIn,omitempty"`
 }
 
 // Add-ons are a server's plugins (Paper) or mods, installed from Modrinth

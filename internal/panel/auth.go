@@ -396,6 +396,18 @@ CREATE TABLE whop_deliveries (
 );
 CREATE INDEX whop_deliveries_received ON whop_deliveries(received_at);
 `,
+	// Sign in with Whop: the Whop app customers sign in through, with its
+	// secret when it has one, and each sign-in on its way through Whop, by
+	// the hash of its state, with its PKCE verifier.
+	`
+ALTER TABLE whop_account ADD COLUMN oauth_client_id     TEXT NOT NULL DEFAULT '';
+ALTER TABLE whop_account ADD COLUMN oauth_client_secret TEXT NOT NULL DEFAULT '';
+CREATE TABLE whop_signins (
+  state_hash TEXT    PRIMARY KEY,
+  verifier   TEXT    NOT NULL,
+  created_at INTEGER NOT NULL
+);
+`,
 	// Hetzner stock: the owner's read-only Hetzner API token and the server
 	// type they watch (one row), with what the last checks found: each
 	// location's stock as JSON, the last problem, and whether Hetzner

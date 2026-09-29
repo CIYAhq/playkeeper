@@ -666,6 +666,8 @@ const routes: [string, RegExp, Handler][] = [
     },
   ],
   ['DELETE', /^\/api\/whop$/, () => ({ status: 200, body: { connected: false, dashboard: '', plans: [], webhook: false, customers: [], needs: whopNeeds } })],
+  ['PUT', /^\/api\/whop\/signin$/, () => ({ status: 200, body: whopConnected({}) })],
+  ['DELETE', /^\/api\/whop\/signin$/, () => ({ status: 200, body: { ...whopConnected({}), signIn: { redirectUri: whopSignInRedirect } } })],
   // Hetzner stock never reaches Hetzner: a token typed here isn't one Hetzner knows, so it's refused as the real check would.
   ['PUT', /^\/api\/hetzner$/, () => ({ status: 400, body: { error: 'Hetzner didn’t take that token.', code: 'hetzner_token_refused' }, expected: true })],
   ['DELETE', /^\/api\/hetzner$/, () => ({ status: 200, body: { connected: false, serverType: 'cx53', types: ['cx23', 'cx33', 'cx43', 'cx53'], places: [], discord: false } })],
@@ -1750,6 +1752,9 @@ function friendsRead(path: string, body: Json): unknown {
 }
 
 /** The permissions Sell on Whop's key needs, as the panel lists them. */
+/** Where Whop sends customers back after they sign in, as a machine with an address shows it. */
+const whopSignInRedirect = 'https://my-vps.playkeeper.me:8443/api/public/whop/signin/callback'
+
 const whopNeeds = ['access_pass:basic:read', 'access_pass:update', 'plan:basic:read', 'member:basic:read', 'member:email:read', 'developer:manage_webhook', 'webhook_receive:memberships', 'support_chat:create', 'support_chat:message:create']
 
 /** Sell on Whop connected to a store with a plan whose metadata on Whop sets its allowance and one whose doesn't, keeping the machine's address as the panel sent it. */
@@ -1768,6 +1773,7 @@ function whopConnected(body: Json): Json {
     problem: undefined,
     plans: [plan('plan_fakestarter', 'Starter', '$8.00 / month', { trialDays: 3, allowance: { servers: 1, memoryMB: 4096 }, allowanceFrom: 'store' }), plan('plan_fakebig', 'Big', '$16.00 / month', {})],
     webhook: true,
+    signIn: { clientId: 'app_fakecloud', redirectUri: whopSignInRedirect },
     customers: [
       { whopUserId: 'user_fakealex', handle: 'alexplays', status: 'active', plan: 'Starter', account: 'alexplays', allowance: { servers: 1, memoryMB: 4096 } },
       { whopUserId: 'user_fakesam', handle: 'samcrafts', status: 'paused', plan: 'Starter', allowance: { servers: 1, memoryMB: 4096 } },

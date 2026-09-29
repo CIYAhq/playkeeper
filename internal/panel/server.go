@@ -525,6 +525,8 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/whop/sync", needSessionCSRF, actSellOnWhop, s.hWhopSync},
 		{"PUT", "/api/whop/plans/{plan}", needSessionCSRF, actSellOnWhop, s.hWhopPlan},
 		{"DELETE", "/api/whop", needSessionCSRF, actSellOnWhop, s.hWhopDisconnect},
+		{"PUT", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInSet},
+		{"DELETE", "/api/whop/signin", needSessionCSRF, actSellOnWhop, s.hWhopSignInOff},
 		// Hetzner stock (hetzner.go): the owner's alone.
 		{"GET", "/api/hetzner", needSession, actWatchStock, s.hHetzner},
 		{"PUT", "/api/hetzner", needSessionCSRF, actWatchStock, s.hHetznerSet},
@@ -835,7 +837,7 @@ func (s *Server) hSetupStatus(w http.ResponseWriter, r *http.Request, _ *session
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
-	writeJSON(w, http.StatusOK, api.SetupStatus{NeedsSetup: n == 0, Machine: s.localMachineName(), Version: version.Version})
+	writeJSON(w, http.StatusOK, api.SetupStatus{NeedsSetup: n == 0, Machine: s.localMachineName(), Version: version.Version, WhopSignIn: n > 0 && s.whopSignInOn()})
 }
 
 type credentials struct {
