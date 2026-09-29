@@ -7950,6 +7950,10 @@ control "port-free: waiting for the parent looks again soon" internal/agent/addr
   '&& (check.PortFree || !answering) {' \
   '&& (check.PortFree || !answering || true) {' \
   ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: a new zone brings the next look forward" internal/agent/dns.go \
+  '		a.recheckOwnSoon()' \
+  '		_ = a.recheckOwnSoon' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
