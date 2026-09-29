@@ -115,6 +115,7 @@ const runners = (size: Size) => {
   return n ? `${n} at ${size} size (${Math.round(estimate(costs, size, selection).seconds / 60)} min of pages)` : `none at ${size} size`
 }
 const crawled = plan.mode === 'pages' && plan.pages.length ? plan.pages : []
+const unchecked = crawled.filter((p) => !plan.views.includes(p))
 const lines = [
   plan.mode === 'none'
     ? 'Click-through: none, no page of the dashboard changed.'
@@ -125,6 +126,7 @@ const lines = [
         : 'Click-through: no page it crawls; its runners check the pages below.',
   ...crawled.map((p) => `  ${p}`),
   ...(plan.views.length ? [`Accessibility and width, desktop and narrow (views.spec.ts), split between the runners: ${plan.views.join(', ')}.`] : []),
+  ...(unchecked.length ? [`No accessibility check for ${unchecked.join(', ')}: views.spec.ts has no view of ${unchecked.length === 1 ? 'it' : 'them'} (unviewed, clickthrough-plan.ts).`] : []),
   ...(shards.length ? [`Runners: ${runners('desktop')}, ${runners('phone')}.`] : []),
   ...(shards.length ? [fresh ? `Setup: the onboarding and the bots on every runner, since ${fresh}.` : 'Setup: the newest played state an ancestor of this commit saved, else the onboarding and the bots.'] : []),
   'Why:',

@@ -632,8 +632,10 @@ test('a change to a page crawls the pages its modules draw, after the pages befo
   expect(reach(['web/src/pages/team.tsx'])).toMatchObject({ mode: 'pages', pages: ['/settings/team'], preludes: ['/', '/settings'] })
   expect(reach(['web/src/pages/settings.tsx']).pages).toEqual(['/settings', '/settings/team', '/settings/addon-sources', '/settings/discord', '/settings/ai-agents', '/settings/machines', '/settings/machines/*'])
   expect(reach(['web/src/pages/server/map.test.tsx', 'internal/panel/server.go', 'docs/ARCHITECTURE.md']).mode).toBe('none')
-  // The invite page and How it's running aren't crawled, but their accessibility and width are checked.
+  // The invite page and How it's running aren't crawled, but their accessibility and width are checked;
+  // onboarding's pages are crawled, but views.spec.ts has no view of them.
   expect(reach(['web/src/pages/join.tsx'])).toMatchObject({ mode: 'pages', pages: [], preludes: [], views: ['/join/*'] })
+  expect(reach(['web/src/pages/onboarding.tsx'])).toMatchObject({ mode: 'pages', pages: ['/setup', '/welcome'], views: ['/join/*'] })
   expect(reach(['web/src/pages/server/running.tsx'])).toMatchObject({ mode: 'pages', pages: [], views: ['/servers/*/running'] })
   expect(reach(['web/src/pages/server-page.tsx']).mode).toBe('none')
   // A page module the page map doesn't know yet is sampled with Home until it's added.

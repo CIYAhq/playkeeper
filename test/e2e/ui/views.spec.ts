@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { pageOf } from './clickthrough-plan'
+import { pageOf, unviewed } from './clickthrough-plan'
 import { installFakes, sharedLinks, type View } from './fakes'
 import { firstServer, login, shot, tabTo } from './helpers'
 
@@ -76,6 +76,10 @@ test('every page, desktop and narrow, with no serious accessibility violations a
   let view: View = 'live'
   const fakes = await installFakes(page, baseURL ?? '', () => view)
   const map = mapTypes.includes(s.type || 'paper')
+  const mapPages = [
+    { route: `/servers/${s.slug}/map`, name: 'map-off', heading: s.name, phone: 'Map' },
+    { route: `/servers/${s.slug}/map`, name: 'map-on', heading: s.name, phone: 'Map', view: 'map on' as const },
+  ]
   // phone: the heading a phone shows instead, under its own back header;
   // dialog: the page opens with a dialog, whose heading stands in;
   // view: the state the page is shown in.
@@ -104,12 +108,7 @@ test('every page, desktop and narrow, with no serious accessibility violations a
     // Schedules is a section of the server's Settings.
     { route: `/servers/${s.slug}/players`, name: 'players-friends', heading: s.name, view: 'friends and team' },
     { route: `/servers/${s.slug}/players/${player}`, name: 'player-profile', heading: s.name, phone: player },
-    ...(map
-      ? [
-          { route: `/servers/${s.slug}/map`, name: 'map-off', heading: s.name, phone: 'Map' },
-          { route: `/servers/${s.slug}/map`, name: 'map-on', heading: s.name, phone: 'Map', view: 'map on' as const },
-        ]
-      : []),
+    ...(map ? mapPages : []),
     { route: `/servers/${s.slug}/world/backup-rules`, name: 'backup-rules', heading: s.name, phone: 'Backup rules' },
     { route: `/servers/${s.slug}/world/backup-rules`, name: 'backup-rules-copies-on', heading: s.name, phone: 'Backup rules', view: 'looks after itself' },
     { route: `/servers/${s.slug}/world/backup-rules/copies`, name: 'copies', heading: s.name, phone: 'Copies', view: 'looks after itself' },
@@ -123,6 +122,15 @@ test('every page, desktop and narrow, with no serious accessibility violations a
     { route: '/settings/ai-agents', name: 'ai-agents', heading: 'Settings', phone: 'AI agents' },
     { route: '/settings/machines', name: 'machines', heading: 'Settings', phone: 'Machines' },
   ]
+  // The links friends get open signed out: a friend link, a friends' pack and a shared map.
+  const links = [
+    { route: `/join/${sharedLinks.join}`, name: 'join', heading: 'You’re invited to Survival' },
+    { route: `/packs/${sharedLinks.pack}`, name: 'pack', heading: 'Get the mods for Cobblemon' },
+    { route: `/map/${sharedLinks.map}`, name: 'shared-map', heading: 'Survival' },
+  ]
+  const viewed = new Set([...pages, ...mapPages, { route: '/more' }, ...links].map((v) => pageOf(v.route)))
+  expect([...viewed].filter((p) => unviewed.includes(p)), 'pages clickthrough-plan.ts lists as unviewed that this has a view of').toEqual([])
+  if (only) expect(only.filter((p) => !viewed.has(p)), 'pages the plan asks for that this has no view of: add one, or list them as unviewed in clickthrough-plan.ts').toEqual([])
 
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`/servers/${s.slug}`)
@@ -157,12 +165,7 @@ test('every page, desktop and narrow, with no serious accessibility violations a
     await expect(page).toHaveURL(new RegExp(`/servers/${s.slug}/players$`))
   }
 
-  // The links friends get open signed out: a friend link, a friends' pack and a shared map.
-  const shared = mine([
-    { route: `/join/${sharedLinks.join}`, name: 'join', heading: 'You’re invited to Survival' },
-    { route: `/packs/${sharedLinks.pack}`, name: 'pack', heading: 'Get the mods for Cobblemon' },
-    { route: `/map/${sharedLinks.map}`, name: 'shared-map', heading: 'Survival' },
-  ])
+  const shared = mine(links)
   if (!shared.length) return
   const signedOut = await browser.newContext({ baseURL, ignoreHTTPSErrors: true, locale: 'en-GB', timezoneId: 'UTC' })
   try {

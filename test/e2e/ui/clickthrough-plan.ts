@@ -259,6 +259,15 @@ export const viewPages: Record<string, string[]> = {
   '/join/*': ['pages/join.tsx'],
 }
 
+/**
+ * Pages of pageModules views.spec.ts has no view of, so no accessibility
+ * check: signed out and first-run pages, New server's later steps, a folder
+ * of the Files tab, and pages CI's install doesn't have (a Fabric server's
+ * Mods tab, a joined machine). views.spec.ts fails when a pull request asks
+ * it for a page it has no view of that isn't here.
+ */
+export const unviewed = ['/login', '/setup', '/welcome', '/servers/new#world', '/servers/new#template=*', '/servers/*/mods', '/servers/*/mods/browse', '/servers/*/files/plugins', '/settings/machines/*']
+
 /** Modules whose lazy imports are pages of their own, listed in pageModules, not part of every page they route to. */
 const routers = new Set(['main.tsx', 'App.tsx', 'pages/server/index.tsx'])
 
@@ -363,7 +372,7 @@ export interface Affected {
   mode: 'none' | 'pages' | 'full'
   pages: string[]
   preludes: string[]
-  /** The pages whose accessibility and width it checks (views.spec.ts): its pages, and those of viewPages it reaches. */
+  /** The pages whose accessibility and width it checks (views.spec.ts): its pages but the unviewed, and those of viewPages it reaches. */
   views: string[]
   /** Why, a line for each changed file that decided something. */
   why: string[]
@@ -479,9 +488,9 @@ export function forPullRequest(changed: string[], graph: Graph, keys?: string[],
     if (pages.length) take(`the string ${key}`, pages)
     else why.push(`the string ${key}: no page's modules name it`)
   }
-  const views = [...taken].sort(inPageOrder)
-  if (!views.length) return { mode: 'none', pages: [], preludes: [], views: [], why: why.length ? why : ['no page of the dashboard changed'] }
-  return { mode: 'pages', ...withPreludes(views.filter((p) => pageModules[p])), views, why }
+  const all = [...taken].sort(inPageOrder)
+  if (!all.length) return { mode: 'none', pages: [], preludes: [], views: [], why: why.length ? why : ['no page of the dashboard changed'] }
+  return { mode: 'pages', ...withPreludes(all.filter((p) => pageModules[p])), views: all.filter((p) => !unviewed.includes(p)), why }
 }
 
 /**
@@ -531,5 +540,6 @@ export function pageMapProblems(graph: Graph): string[] {
     if (file.startsWith('pages/') && !isTest(file) && !drawn.has(file) && !uncrawled.includes(file)) problems.push(`web/src/${file} is in no page of pageModules and not in uncrawled`)
   }
   for (const u of uncrawled) if (!graph.has(u)) problems.push(`uncrawled: web/src/${u} doesn't exist`)
+  for (const p of unviewed) if (!pageModules[p]) problems.push(`unviewed: ${p} is no page of pageModules`)
   return problems
 }
