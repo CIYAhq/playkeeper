@@ -101,6 +101,8 @@ func (s *Server) whopWebhook() http.Handler {
 				if json.Unmarshal(ev.Data, &m) == nil && reWhopID.MatchString(m.ID) {
 					if err := s.keepMembership(m, true); err != nil {
 						s.log.Error("could not keep a Whop membership", "err", err)
+						// Whop sends it again, which must not count as seen.
+						_, _ = s.db.Exec(`DELETE FROM whop_deliveries WHERE id = ?`, ev.ID)
 						http.Error(w, "Try again", http.StatusServiceUnavailable)
 						return
 					}
@@ -553,43 +555,64 @@ func (s *Server) queueWhopMessage(ctx context.Context, whopUserID, kind, text st
 	return nil
 }
 
-// remindCancelled reminds each customer who cancelled a plan that still
-// runs to download their world before it ends, once a cancellation.
+// remindCancelled reminds a customer who cancelled the plans that keep their
+// servers running to download their world before the last one ends, once
+// for those cancellations. Cancelling one plan while another goes on stops
+// nothing, so it says nothing.
 func (s *Server) remindCancelled(ctx context.Context, a whopAccount) {
-	rows, err := s.db.QueryContext(ctx, `SELECT m.membership_id, m.whop_user_id, m.period_end FROM whop_memberships m
+	rows, err := s.db.QueryContext(ctx, `SELECT m.membership_id, m.whop_user_id, m.period_end, m.told_cancel FROM whop_memberships m
+		JOIN whop_plans p ON p.plan_id = m.plan_id AND p.allowance_from != ''
 		JOIN whop_customers c ON c.whop_user_id = m.whop_user_id AND c.applied != '' AND c.paused = 0
-		WHERE m.status IN `+whopAccess+` AND m.cancel_at_period_end = 1 AND m.told_cancel = 0 AND m.stale = 0`)
+		WHERE m.stale = 0 AND m.status IN `+whopAccess+` AND NOT EXISTS (
+			SELECT 1 FROM whop_memberships o JOIN whop_plans q ON q.plan_id = o.plan_id AND q.allowance_from != ''
+			WHERE o.whop_user_id = m.whop_user_id AND o.stale = 0 AND o.status IN `+whopAccess+` AND o.cancel_at_period_end = 0)`)
 	if err != nil {
 		s.log.Error("could not list cancelled Whop memberships", "err", err)
 		return
 	}
-	type reminder struct {
-		membership, user string
-		end              int64
+	type ending struct {
+		memberships []string
+		end         int64
+		told        bool
 	}
-	var due []reminder
+	byUser := map[string]*ending{}
+	var users []string
 	for rows.Next() {
-		var r reminder
-		if err := rows.Scan(&r.membership, &r.user, &r.end); err != nil {
+		var id, user string
+		var end int64
+		var told bool
+		if err := rows.Scan(&id, &user, &end, &told); err != nil {
 			rows.Close()
 			return
 		}
-		due = append(due, r)
+		e := byUser[user]
+		if e == nil {
+			e = &ending{told: true}
+			byUser[user] = e
+			users = append(users, user)
+		}
+		e.memberships, e.end, e.told = append(e.memberships, id), max(e.end, end), e.told && told
 	}
 	rows.Close()
-	for _, r := range due {
+	for _, user := range users {
+		e := byUser[user]
+		if e.told {
+			continue
+		}
 		when := "the end of the time you've paid for"
-		if r.end != 0 {
-			when = time.UnixMilli(r.end).UTC().Format("2 January")
+		if e.end != 0 {
+			when = time.UnixMilli(e.end).UTC().Format("2 January")
 		}
 		text := fmt.Sprintf("You cancelled your %s plan. It keeps running until %s, then your servers stop. "+
 			"To keep a copy of your world, download it before then: open your server, then World › Backups › Download.", whopName(a.Account), when)
-		if err := s.queueWhopMessage(ctx, r.user, "cancelling", text); err != nil {
+		if err := s.queueWhopMessage(ctx, user, "cancelling", text); err != nil {
 			s.log.Error("could not queue a cancellation reminder", "err", err)
 			continue
 		}
-		if _, err := s.db.Exec(`UPDATE whop_memberships SET told_cancel = 1 WHERE membership_id = ?`, r.membership); err != nil {
-			s.log.Error("could not record a cancellation reminder", "err", err)
+		for _, id := range e.memberships {
+			if _, err := s.db.Exec(`UPDATE whop_memberships SET told_cancel = 1 WHERE membership_id = ?`, id); err != nil {
+				s.log.Error("could not record a cancellation reminder", "err", err)
+			}
 		}
 	}
 }
@@ -677,9 +700,10 @@ func (s *Server) whopMessageFailed(id int64, attempts int, err error) {
 type whopCustomerView struct {
 	WhopUserID string `json:"whopUserId"`
 	Handle     string `json:"handle,omitempty"`
-	// Status is "starting" (their plan asks for hosting the core hasn't
-	// given yet), "active", "paused" (their plans ended) or "ended" (no
-	// plan grants access, and they were never started).
+	// Status is "starting" (their plans ask for hosting the core hasn't
+	// given yet, as after buying again), "active", "paused" (their plans
+	// ended) or "ended" (no plan grants access, and they were never
+	// started).
 	Status    string            `json:"status"`
 	Plan      string            `json:"plan,omitempty"`
 	Allowance invites.Allowance `json:"allowance,omitzero"`
@@ -701,13 +725,14 @@ func (s *Server) whopCustomerViews(ctx context.Context) ([]whopCustomerView, err
 		}
 		v := whopCustomerView{WhopUserID: wc.WhopUserID, Handle: wc.Handle, Plan: wc.Plan.Name, Problem: wc.Problem,
 			Allowance: invites.Allowance{Servers: wc.Plan.Servers, MemoryMB: wc.Plan.MemoryMB}}
+		has := wc.Plan.Servers > 0 && wc.Plan.MemoryMB > 0
 		switch {
-		case wc.Applied != "" && wc.Paused:
-			v.Status = "paused"
-		case wc.Applied != "":
-			v.Status = "active"
-		case wc.Plan.Servers > 0:
+		case has && (wc.Applied == "" || wc.Paused):
 			v.Status = "starting"
+		case has:
+			v.Status = "active"
+		case wc.Applied != "":
+			v.Status = "paused"
 		default:
 			v.Status = "ended"
 		}
