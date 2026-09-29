@@ -1281,7 +1281,11 @@ func (a *Agent) restoreUpload(w http.ResponseWriter, r *http.Request, target *se
 		return
 	}
 	if target != nil {
-		if err := target.restoreRefusal("restore again"); err != nil {
+		err := target.restoreRefusal("restore again")
+		if err == nil && r.ContentLength > 0 {
+			err = target.diskLimitRefusal(r.Context(), target.id, r.ContentLength)
+		}
+		if err != nil {
 			a.auditFor(target.id, actor, "restore.uploaded", "", "refused", err.Error())
 			writeError(w, err)
 			return
@@ -1292,6 +1296,15 @@ func (a *Agent) restoreUpload(w http.ResponseWriter, r *http.Request, target *se
 		a.auditFor(serverIDOf(target), actor, "restore.uploaded", "", "refused", err.Error())
 		writeError(w, err)
 		return
+	}
+	// The world it would replace stays beside it, so its world is what it adds.
+	if target != nil {
+		if err := target.diskLimitRefusal(r.Context(), target.id, p.SizeBytes); err != nil {
+			os.RemoveAll(a.stageDir(p.ID))
+			a.auditFor(target.id, actor, "restore.uploaded", p.ID, "refused", err.Error())
+			writeError(w, err)
+			return
+		}
 	}
 	a.auditFor(serverIDOf(target), actor, "restore.uploaded", p.ID, "validated", "sha256 "+p.SHA256)
 	writeJSON(w, http.StatusOK, p)

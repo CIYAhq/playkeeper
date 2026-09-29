@@ -771,6 +771,9 @@ func (s *server) pregenRefusal(sc *api.ServerConfig, p pregen.Platform, plan pre
 			return pregen.Estimate{}, pregenError(err)
 		}
 	}
+	if err := s.diskLimitRefusal(s.ctx, s.id, est.DiskHigh); err != nil {
+		return pregen.Estimate{}, err
+	}
 	return est, nil
 }
 

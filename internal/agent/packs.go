@@ -206,6 +206,10 @@ func (s *server) hDataPackAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
+	if err := s.diskLimitRefusal(r.Context(), s.id, n); err != nil {
+		writeError(w, err)
+		return
+	}
 	release, ok := s.holdOpLock()
 	if !ok {
 		writeError(w, s.busyError())
@@ -630,6 +634,10 @@ func (s *server) hResourcePackSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
+	if err := s.diskLimitRefusal(r.Context(), s.id, n); err != nil {
+		writeError(w, err)
+		return
+	}
 	release, ok := s.holdOpLock()
 	if !ok {
 		writeError(w, s.busyError())

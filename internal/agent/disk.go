@@ -107,33 +107,52 @@ func diskZone(tz string) (*time.Location, error) {
 // ?fresh=1 asks for a new one.
 func (a *Agent) hDisk(w http.ResponseWriter, r *http.Request) {
 	tz := r.URL.Query().Get("tz")
-	loc, err := diskZone(tz)
+	if _, err := diskZone(tz); err != nil {
+		writeError(w, err)
+		return
+	}
+	rep, err := a.scanDisk(r.Context(), &tz, r.URL.Query().Get("fresh") == "1")
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	fresh := r.URL.Query().Get("fresh") == "1"
+	writeJSON(w, http.StatusOK, rep)
+}
+
+// scanDisk answers from a scan less than diskCacheFor old in time zone tz,
+// which dates its texts, or scans again. A nil tz takes the last scan's
+// zone: what the servers take doesn't depend on it.
+func (a *Agent) scanDisk(ctx context.Context, tz *string, fresh bool) (*diskusage.Report, error) {
 	a.disk.scan.Lock()
 	defer a.disk.scan.Unlock()
 	a.disk.mu.Lock()
+	zone := a.disk.tz
+	if tz != nil {
+		zone = *tz
+	}
 	rep := a.disk.rep
-	if rep != nil && (fresh || a.disk.tz != tz || a.now().Sub(a.disk.at) >= diskCacheFor) {
+	if rep != nil && (fresh || a.disk.tz != zone || a.now().Sub(a.disk.at) >= diskCacheFor) {
 		rep = nil
 	}
 	a.disk.mu.Unlock()
-	if rep == nil {
-		ctx, cancel := context.WithTimeout(r.Context(), 50*time.Second)
-		defer cancel()
-		rep, err = diskusage.Scan(ctx, a.diskLayout(ctx), a.diskOptions(loc))
-		if err != nil {
-			writeError(w, automationError(err))
-			return
-		}
-		a.disk.mu.Lock()
-		a.disk.at, a.disk.tz, a.disk.rep = a.now(), tz, rep
-		a.disk.mu.Unlock()
+	if rep != nil {
+		return rep, nil
 	}
-	writeJSON(w, http.StatusOK, rep)
+	loc, err := diskZone(zone)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 50*time.Second)
+	defer cancel()
+	rep, err = diskusage.Scan(ctx, a.diskLayout(ctx), a.diskOptions(loc))
+	if err != nil {
+		return nil, automationError(err)
+	}
+	a.disk.mu.Lock()
+	a.disk.at, a.disk.tz, a.disk.rep = a.now(), zone, rep
+	a.disk.mu.Unlock()
+	a.forgetDiskWrites(rep.ScannedAt)
+	return rep, nil
 }
 
 type diskCleanRequest struct {

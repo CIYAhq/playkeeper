@@ -1523,6 +1523,9 @@ const (
 	// params.retryAt.
 	CodeRetryLater  = "retry_later"
 	CodeIconInvalid = "icon_invalid"
+	// CodeDiskLimit: what was asked would take a group of servers past the
+	// disk limit the dashboard set for them (a Playkeeper Cloud plan's).
+	CodeDiskLimit = "disk_limit_reached"
 )
 
 // WorldCopy is a world folder a restore left next to the live one: the

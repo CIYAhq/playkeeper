@@ -327,14 +327,30 @@ func (s *server) errNotOnlineForBackup() error {
 	return e
 }
 
-// backupOp backs up the world, then verifies the archive. An online server
+// backupOp makes a backup on request or on schedule, inside the server's
+// disk limit: what its archive may take is held while it's written.
+func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string, stopped bool) error {
+	done := func(bool) {}
+	if s.diskLimitOf(s.id) != nil {
+		if size, err := backup.Measure(s.dataDir(), archiveLimits()); err == nil {
+			if done, err = s.holdDiskLimit(ctx, s.id, size.ArchiveBytes()); err != nil {
+				return err
+			}
+		}
+	}
+	err := s.makeBackup(ctx, h, actor, note, stopped)
+	done(err == nil)
+	return err
+}
+
+// makeBackup backs up the world, then verifies the archive. An online server
 // keeps its players: backup.Take pauses world saving only while it copies the
 // world. With stopped, a running server is stopped for the backup (players
 // online are warned in chat first) and started again, and its downtime is
 // measured from the stop request until it is online again. A world a restore
 // would refuse is refused before the server stops or saving pauses. A server
 // that isn't running is backed up as it is.
-func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string, stopped bool) error {
+func (s *server) makeBackup(ctx context.Context, h *opHandle, actor, note string, stopped bool) error {
 	sc, err := s.serverConfig()
 	if err != nil {
 		return err
