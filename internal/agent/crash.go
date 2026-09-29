@@ -96,7 +96,7 @@ func (s *server) explainCrash(id string, st docker.ContainerState, start bool, s
 	in.HasBackup = latest != nil
 	d := diagnose.ExplainCrash(in)
 	c := &api.Crash{
-		At: s.now().UTC(), Start: start, Kind: string(d.Kind), Params: d.Params, Certain: d.Certain,
+		At: s.now().UTC(), Start: start, Kind: string(d.Kind), Params: d.Params, Certain: d.Certain, Repeats: d.Repeats,
 		Title: d.Title, Explanation: d.Explanation, Evidence: apiEvidence(d.Evidence), Fixes: apiActions(d.Fixes),
 		Lines: []api.CrashLine{}, RoomMB: in.RoomMB,
 	}

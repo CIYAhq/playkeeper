@@ -30,8 +30,15 @@ func tickingReport(block bool, id string, x, y, z int, dimension string) string 
 }
 
 // tick crashes the server over what the report names, with the lines
-// Minecraft printed.
+// Minecraft printed, and returns the crash as explained.
 func (e *agentEnv) tick(report string) *api.Crash {
+	e.t.Helper()
+	e.tickCrash(report)
+	return e.waitCrash()
+}
+
+// tickCrash is tick without waiting for the explanation.
+func (e *agentEnv) tickCrash(report string) {
 	e.t.Helper()
 	writeGameFile(e.t, filepath.Join(e.dataDir(), "crash-reports", "crash-2026-09-29_17.42.52-server.txt"), report, time.Time{})
 	what := "entity"
@@ -48,7 +55,6 @@ func (e *agentEnv) tick(report string) *api.Crash {
 		e.fd.addLog(l)
 	}
 	e.fd.crash(1)
-	return e.waitCrash()
 }
 
 // regionFile writes a region file of the world, with chunk 0,0.

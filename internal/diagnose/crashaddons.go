@@ -449,7 +449,7 @@ func (c *crashCtx) clientOnly() (CrashDiagnosis, bool) {
 	named, id, name, jar := c.clientMod(f, start)
 	who := firstNonEmpty(name, id)
 	loader := c.loaderName()
-	d := CrashDiagnosis{Kind: CrashIncompatibleAddon, Params: map[string]any{"reason": "client_only", "class": class}, Evidence: c.evidenceOf(named, f)}
+	d := CrashDiagnosis{Kind: CrashIncompatibleAddon, Params: map[string]any{"reason": "client_only", "class": class}, Repeats: true, Evidence: c.evidenceOf(named, f)}
 	if who == "" {
 		d.Title = "A mod doesn't run on servers"
 		d.Explanation = fmt.Sprintf("%s stopped because a mod %s. The log doesn't say which mod, so take off the graphics or menu mod added most recently. Players who want it keep it in their own game.", loader, clientNeed(class))
