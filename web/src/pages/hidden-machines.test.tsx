@@ -231,9 +231,9 @@ describe('What a customer sees of the machines', () => {
       await render(customer, <Routes route={route} />)
       await vi.waitFor(() => expect(window.location.pathname, route.name).toBe('/'))
     }
-    window.history.replaceState(null, '', `/machines/${home.id}`)
-    await render(owner, <Routes route={{ name: 'machine', id: home.id }} />)
+    window.history.replaceState(null, '', `/machines/${local.id}`)
+    await render(owner, <Routes route={{ name: 'machine', id: local.id }} />)
     await act(async () => {})
-    expect(window.location.pathname).toBe(`/machines/${home.id}`)
+    expect(window.location.pathname).toBe(`/machines/${local.id}`)
   })
 })
