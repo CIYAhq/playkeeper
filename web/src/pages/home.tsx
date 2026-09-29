@@ -21,7 +21,7 @@ import { t } from '@/i18n'
 import { rich } from '@/i18n/rich'
 import { can, canCreate, canCreateOn, welcomeKey } from '@/lib/access'
 import { demo } from '@/lib/demo'
-import { formatBytes, formatDate, formatList, formatMB, formatMBOf, formatPercent, formatSpan, sameDay } from '@/lib/format'
+import { formatBytes, formatDate, formatList, formatLongDate, formatMB, formatMBOf, formatPercent, formatSpan, sameDay } from '@/lib/format'
 import { awayLong, awayOf, byMachine, isAway, isStale, joinOf, machineLabel, machineOf, machineRoute, machineState, reachOf } from '@/lib/machines'
 import { couldntStart, isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
 import { presenceProps, useListPresence } from '@/lib/presence'
@@ -163,6 +163,7 @@ function MemberNotice() {
   const ws = useWorkspace()
   const [dismissed, setDismissed] = useState(false)
   const access = ws.me.access
+  if (access.pausedUntil) return <TwoLineNotice tone="warning" title={t('home.pausedTitle')} body={t('home.pausedBody', { date: formatLongDate(access.pausedUntil) })} />
   if (access.needsTwoFactor) {
     const turnOn = (
       <Button variant="outline" size="sm" render={<a {...linkPath('/account/two-factor')} />}>

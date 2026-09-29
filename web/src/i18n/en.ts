@@ -206,6 +206,8 @@ export const en = {
   'home.emptySubtitle': 'Nothing running on {machine} yet',
   'home.emptyTitle': 'No servers yet',
   'home.emptyBody': 'Create a Minecraft server for your friends in about 3 minutes.',
+  'home.pausedTitle': 'Your plan has ended, so your servers are paused',
+  'home.pausedBody': 'You can still see them and download backups until {date}. Renew your plan to start them again.',
   'home.settingUpTitle': 'Your server is being set up',
   'home.settingUpBody': 'There’s no room for it on a machine yet. We’ll message you as soon as it’s ready.',
   'home.newServerFree': '{memory} free on {machine}',

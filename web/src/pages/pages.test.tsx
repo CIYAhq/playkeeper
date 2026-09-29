@@ -316,6 +316,13 @@ describe('Home', () => {
     for (const step of ['Create your first server', 'Invite a friend', 'A friend joins', 'Make a backup', 'Download it']) expect(text).toContain(step)
   })
 
+  it('tells a paused customer their plan has ended, and until when they can download', async () => {
+    const paused = member('admin', ['view', 'backups.make'], { servers: { servers: ['abcdefghjk'] }, pausedUntil: '2026-10-13T12:00:00Z' })
+    const text = await render(<HomePage />, workspace({ me: paused }))
+    expect(text).toContain('Your plan has ended, so your servers are paused')
+    expect(text).toContain(`You can still see them and download backups until ${formatLongDate('2026-10-13T12:00:00Z')}.`)
+  })
+
   it('says a customer’s server is being set up while it waits for room, and offers no way to create one', async () => {
     const text = await render(<HomePage />, workspace({ servers: [], me: member('admin', ['view', 'servers.create_own'], { servers: {}, waitingForRoom: true }) }))
     expect(text).toContain('Your server is being set up')
