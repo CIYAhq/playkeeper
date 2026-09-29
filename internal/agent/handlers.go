@@ -876,6 +876,11 @@ func (s *server) hDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	keep, err := checkKeep(req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	name := s.name()
 	if strings.TrimSpace(req.Confirm) != name {
 		s.audit(actor, "server.deleted", s.id, "refused", "confirmation did not match the name")
@@ -895,7 +900,7 @@ func (s *server) hDelete(w http.ResponseWriter, r *http.Request) {
 		if err := s.setDesired(api.DesiredStopped); err != nil {
 			return err
 		}
-		if err := s.deleteServer(ctx, h, actor); err != nil {
+		if err := s.deleteServer(ctx, h, actor, keep); err != nil {
 			return err
 		}
 		s.prunePacks(s.Agent.ctx)

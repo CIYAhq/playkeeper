@@ -740,6 +740,7 @@ func (a *Agent) pruneLoop(ctx context.Context) {
 	for {
 		a.prune()
 		a.prunePacks(ctx)
+		a.pruneKeptBackups()
 		select {
 		case <-ctx.Done():
 			return

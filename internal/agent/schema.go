@@ -439,4 +439,19 @@ ALTER TABLE servers ADD COLUMN public_board TEXT NOT NULL DEFAULT '';
 	`
 ALTER TABLE servers ADD COLUMN own_address TEXT NOT NULL DEFAULT '';
 `,
+	// A deleted server's final backup, kept until expires_at (see
+	// keptbackups.go). Its archive stays in the backups folder.
+	`
+CREATE TABLE kept_backups (
+  id          TEXT PRIMARY KEY,
+  server_id   TEXT NOT NULL,
+  server_name TEXT NOT NULL,
+  kept_for    TEXT NOT NULL DEFAULT '',
+  file_name   TEXT NOT NULL,
+  size_bytes  INTEGER NOT NULL,
+  sha256      TEXT NOT NULL,
+  made_at     INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL
+);
+`,
 }
