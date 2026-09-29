@@ -216,6 +216,7 @@ jobs:
           name: template-thumbnails
           path: |
             site/static/shots/templates/
+            web/src/assets/template-thumbs/
             /tmp/pk.log
           if-no-files-found: ignore
           retention-days: 14
@@ -242,7 +243,7 @@ jobs:
           MADE: ${{ needs.thumbnails.outputs.made }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          body=$(printf 'New thumbnails for %s, rendered from their real worlds on %s, are in the run'"'"'s template-thumbnails artifact:\n\n%s\n\nThe scheduled template agent commits them to site/static/shots/templates.\n' "$MADE" "$(date -u +%F)" "$RUN")
+          body=$(printf 'New thumbnails for %s, rendered from their real worlds on %s, are in the run'"'"'s template-thumbnails artifact:\n\n%s\n\nThe scheduled template agent commits them to site/static/shots/templates, with their small copies for the dashboard in web/src/assets/template-thumbs.\n' "$MADE" "$(date -u +%F)" "$RUN")
           n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search 'in:title "Template thumbnails to add"' --json number --jq '.[0].number // empty')
           if [ -n "$n" ]; then
             gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$body"

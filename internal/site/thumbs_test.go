@@ -244,3 +244,40 @@ func TestACategoryGuideKeepsItsOwnParts(t *testing.T) {
 		t.Fatal("no category guide was built")
 	}
 }
+
+// The dashboard's New server › A template list carries a small copy of each
+// template's thumbnail, and of no other: site/tools/shots.py writes both.
+func TestTheDashboardCarriesEachThumbnail(t *testing.T) {
+	const copies = "web/src/assets/template-thumbs"
+	root := os.DirFS("../..")
+	var site, dashboard []string
+	shots, err := fs.ReadDir(root, thumbDir)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	for _, e := range shots {
+		if id, ok := strings.CutSuffix(e.Name(), "-960w.webp"); ok {
+			site = append(site, id)
+		}
+	}
+	small, err := fs.ReadDir(root, copies)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	for _, e := range small {
+		id, ok := strings.CutSuffix(e.Name(), ".webp")
+		b, err := fs.ReadFile(root, copies+"/"+e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if w, h, err := webpSize(b); !ok || err != nil || w != 192 || h != 120 {
+			t.Errorf("%s/%s isn't a 192 × 120 WebP image: %d × %d, %v", copies, e.Name(), w, h, err)
+		}
+		dashboard = append(dashboard, id)
+	}
+	slices.Sort(site)
+	slices.Sort(dashboard)
+	if !slices.Equal(site, dashboard) {
+		t.Errorf("the site has thumbnails of %v, and the dashboard of %v: python3 site/tools/shots.py --dashboard makes the dashboard's from the site's", site, dashboard)
+	}
+}
