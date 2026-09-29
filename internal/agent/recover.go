@@ -238,7 +238,7 @@ func (a *Agent) hRecoverRestore(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		defer f.Close()
-		p, err := a.stageArchive(f, "copy "+got.Name, a.uploadLimit(), nil)
+		p, err := a.stageArchive(f, "copy "+got.Name, a.uploadLimit(), nil, -1)
 		if err != nil {
 			a.auditFor("", actor, "restore.staged", archive, "refused", err.Error())
 			return err

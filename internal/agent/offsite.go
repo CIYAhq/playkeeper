@@ -1189,7 +1189,11 @@ func (s *server) hOffsiteRestore(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		defer f.Close()
-		p, err := s.stageArchive(ctxReader{ctx, f}, "copy "+got.Name, s.uploadLimit(), s)
+		room, err := s.unpackRoom(s, "")
+		if err != nil {
+			return err
+		}
+		p, err := s.stageArchive(ctxReader{ctx, f}, "copy "+got.Name, s.uploadLimit(), s, room)
 		if err != nil {
 			if ctx.Err() == nil {
 				s.audit(actor, "restore.staged", archive, "refused", err.Error())

@@ -643,6 +643,8 @@ type stage struct {
 	data     string
 	manifest backup.Manifest
 	preview  api.RestorePreview
+	// limit is the disk limit the upload for a new server counts against.
+	limit string
 }
 
 func (a *Agent) stageDir(id string) string { return filepath.Join(a.cfg.StagingDir(), id) }
@@ -1236,7 +1238,7 @@ func (s *server) hWorldCopyDelete(w http.ResponseWriter, r *http.Request) {
 // stageArchive copies an archive into staging, then verifies and extracts it
 // there, to replace target's world or, with no target, to make a new server.
 // No world is touched; failures delete the staging dir.
-func (a *Agent) stageArchive(src io.Reader, source string, limit int64, target *server) (*api.RestorePreview, error) {
+func (a *Agent) stageArchive(src io.Reader, source string, limit int64, target *server, room int64) (*api.RestorePreview, error) {
 	id := randomSecret(8)
 	dir := a.stageDir(id)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -1266,21 +1268,48 @@ func (a *Agent) stageArchive(src io.Reader, source string, limit int64, target *
 	if free, _, err := a.opts.DiskUsage(dir); err == nil && free-minFreeAfterBackup < lim.MaxTotalBytes {
 		lim.MaxTotalBytes = free - minFreeAfterBackup
 	}
+	// It unpacks as it's read, so a world past the room its disk limit has
+	// (-1 for none) stops before it's written: a small archive can't fill
+	// the disk first.
+	if room >= 0 && room < lim.MaxTotalBytes {
+		lim.MaxTotalBytes = room
+	}
 	af, err := os.Open(arch)
 	if err != nil {
 		return fail(err)
 	}
 	m, err := backup.Extract(af, filepath.Join(dir, "data"), lim)
 	af.Close()
+	if errors.Is(err, backup.ErrTooLarge) && room == lim.MaxTotalBytes {
+		return fail(&apiError{Status: http.StatusInsufficientStorage, Code: api.CodeDiskLimit,
+			Msg: fmt.Sprintf("The world in this archive is larger than the %s its disk limit has left.", humanBytes(room)), Hint: "Delete backups or files you don't need to make room."})
+	}
 	if err != nil {
 		return fail(&apiError{Status: http.StatusUnprocessableEntity, Code: api.CodeInvalid, Msg: "This file cannot be restored: " + err.Error(), Hint: "Nothing was changed. Use an archive downloaded from Playkeeper's World page."})
 	}
 	p := a.buildPreview(id, source, n, hex.EncodeToString(h.Sum(nil)), m, target)
-	pj, _ := json.Marshal(stageFile{p, m})
+	pj, _ := json.Marshal(stageFile{Preview: p, Manifest: m})
 	if err := os.WriteFile(filepath.Join(dir, "stage.json"), pj, 0o600); err != nil {
 		return fail(err)
 	}
 	return &p, nil
+}
+
+// unpackRoom is how much the world an upload stages may unpack to: what the
+// disk limit of the server it's for, or the one it names for a new server,
+// has room for, or -1 with no limit.
+func (a *Agent) unpackRoom(target *server, named string) (int64, error) {
+	if target != nil {
+		l := target.diskLimitOf(target.id)
+		if l == nil {
+			return -1, nil
+		}
+		named = l.ID
+	}
+	if named == "" {
+		return -1, nil
+	}
+	return a.namedLimitRoom(a.ctx, named)
 }
 
 // stageFile is a stage's stage.json: its preview when it was staged, and the
@@ -1288,6 +1317,50 @@ func (a *Agent) stageArchive(src io.Reader, source string, limit int64, target *
 type stageFile struct {
 	Preview  api.RestorePreview `json:"preview"`
 	Manifest backup.Manifest    `json:"manifest"`
+	// DiskLimit is the disk limit an upload for a new server counts
+	// against, and the server it makes (see tagStage).
+	DiskLimit string `json:"diskLimit,omitempty"`
+}
+
+// tagStage records that the staged upload id, for a new server, counts
+// against the disk limit called limit, and forgets any other upload staged
+// against it that no restore is using: one account stages one at a time.
+func (a *Agent) tagStage(id, limit string) error {
+	dir := a.stageDir(id)
+	f, err := readStageFile(dir)
+	if err != nil {
+		return err
+	}
+	f.DiskLimit, f.Preview.DiskLimit = limit, limit
+	raw, err := json.Marshal(f)
+	if err != nil {
+		return err
+	}
+	if err := writeFileAtomic(filepath.Join(dir, "stage.json"), raw, 0o600); err != nil {
+		return err
+	}
+	entries, _ := os.ReadDir(a.cfg.StagingDir())
+	for _, e := range entries {
+		other := e.Name()
+		if other == id || !reStageID.MatchString(other) || a.stageInUse(other) {
+			continue
+		}
+		if o, err := readStageFile(a.stageDir(other)); err == nil && o.DiskLimit == limit {
+			os.RemoveAll(a.stageDir(other))
+		}
+	}
+	return nil
+}
+
+// stageInUse reports whether a restore is putting the staged upload id in
+// place.
+func (a *Agent) stageInUse(id string) bool {
+	for _, s := range a.serverList() {
+		if op := s.currentOp(); op != nil && op.Kind == "restore" && op.Detail["stage"] == id {
+			return true
+		}
+	}
+	return false
 }
 
 func readStageFile(dir string) (*stageFile, error) {
@@ -1414,6 +1487,7 @@ func (a *Agent) loadStage(id string) (*stage, error) {
 	st.preview = a.buildPreview(id, s.Preview.Source, s.Preview.SizeBytes, s.Preview.SHA256, s.Manifest, target)
 	// The staged source already says when the backup was made on this host.
 	st.preview.Source, st.preview.ReceivedAt = s.Preview.Source, s.Preview.ReceivedAt
+	st.limit, st.preview.DiskLimit = s.DiskLimit, s.DiskLimit
 	return st, nil
 }
 

@@ -964,6 +964,9 @@ type RestorePreview struct {
 	ConfirmPhrase      string           `json:"confirmPhrase"`
 	Steps              []string         `json:"steps"`
 	NotRestored        []string         `json:"notRestored"`
+	// DiskLimit is the disk limit an upload for a new server was made
+	// against, as a creator's are (see WorldImportOpenRequest).
+	DiskLimit string `json:"diskLimit,omitempty"`
 }
 
 type RestoreApplyRequest struct {
@@ -2504,8 +2507,20 @@ type WorldImport struct {
 	Files     []WorldImportFile `json:"files"`
 	// LimitBytes bounds all files together.
 	LimitBytes int64 `json:"limitBytes"`
+	// DiskLimit is the disk limit the upload, and the new server it makes,
+	// count against (see WorldImportOpenRequest).
+	DiskLimit string `json:"diskLimit,omitempty"`
 	// Inspection is what the files hold, once they were checked.
 	Inspection *worldimport.Inspection `json:"inspection,omitempty"`
+}
+
+// WorldImportOpenRequest opens a world upload. DiskLimit, for an upload
+// that makes a new server, names the disk limit it and the server count
+// against, as the dashboard names a creator's: the files, and the world
+// they make, are refused beyond it, and the new server joins it.
+type WorldImportOpenRequest struct {
+	Actor     string `json:"actor"`
+	DiskLimit string `json:"diskLimit,omitempty"`
 }
 
 // WorldImportFile is one uploaded archive. Received counts the bytes that
