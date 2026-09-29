@@ -4,9 +4,13 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.8
 
+- **A server from your own world or backup, for creators and customers:** creators and customers can now start a new server from **A world** or **Restore it as a new server** on **New server**, as the owner can, on the dashboard's own machine and within their disk allowance. Each upload counts against the allowance from its first byte, and one that doesn't fit stops.
+- **Addresses without a port (early beta):** each server gets an address players join without typing a port. Under your own domain, turn on **Addresses without a port** in **Machine settings › Address**, below **An address for each server**, and add the two records Playkeeper lists at the domain's parent, which hand the domain to the machine. The machine then answers DNS for it on port 53, which has to reach it, and one wildcard certificate covers every server's address instead of one each. It needs a domain whose parent you run, like `play.example.com` rather than `example.com` itself.
 - **A new level.dat:** when both of a world's level.dat files are damaged, the Overview offers to make a new one next to restoring a backup, so the world keeps every build made since that backup. It says what starts over first: the spawn point, and before Minecraft 26.1 the game rules and the time of day. Playkeeper backs the world up before it changes anything, and keeps the world's seed, so new land matches the old.
+- **Selling on Whop (early beta):** 14 days after a customer's plan ends, their paused servers are deleted, each with a final backup kept for 30 days. Renewing within those 14 days brings the servers back.
 - Fixed: a world on Minecraft 26.1 or newer with both level.dat files damaged got "stopped unexpectedly" and a restart, because its last line no longer names the files. The Overview now says the world's level.dat is damaged.
 - Fixed: a mod made for players' games, like Sodium, stopped a NeoForge server at its start with `NoClassDefFoundError: org/lwjgl/Version`, and the Overview only offered to start it again. It now names the mod, says it only runs in players' games, and offers to remove it.
+- Fixed: when the agent stopped, as it does for an update, a database write still under way could land after it had closed its database. It now waits up to 5 seconds for writes in progress first.
 
 ## 0.4.7
 
