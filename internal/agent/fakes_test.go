@@ -42,6 +42,7 @@ type fakeDocker struct {
 	replayAll    bool
 	logDelay     time.Duration // before answering each logs request
 	bootExit     int           // when set, the server exits with it while starting
+	bootLines    []string      // what a server that exits while starting logs first, instead of an unexpected exception
 	failBoots    int           // the next failBoots servers to start exit with code 1
 	holdImages   bool          // image inspects wait until the caller gives up
 	down         string        // requests whose path starts with it fail, as when Docker stops answering
@@ -611,7 +612,13 @@ func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 		exit = 1
 	}
 	if exit != 0 {
-		fd.log(c, "[12:00:00 ERROR]: Encountered an unexpected exception")
+		lines := fd.bootLines
+		if len(lines) == 0 {
+			lines = []string{"[12:00:00 ERROR]: Encountered an unexpected exception"}
+		}
+		for _, l := range lines {
+			fd.log(c, l)
+		}
 		c.running, c.exitCode, c.finished = false, exit, time.Now().UTC()
 		close(c.wake)
 		c.wake = make(chan struct{})

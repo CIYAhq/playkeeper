@@ -339,6 +339,8 @@ export interface Crash {
   kind: CrashKind
   params?: Params
   certain: boolean
+  /** Starting again can only crash it the same way, so Playkeeper didn't restart it. */
+  repeats?: boolean
   title: string
   explanation: string
   evidence: DiagnosisEvidence[]

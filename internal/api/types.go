@@ -149,10 +149,13 @@ type RestoreUnsettled struct {
 type Crash struct {
 	At time.Time `json:"at"`
 	// Start: the server did not come up, rather than stopping while it ran.
-	Start       bool                `json:"start"`
-	Kind        string              `json:"kind"`
-	Params      map[string]any      `json:"params,omitempty"`
-	Certain     bool                `json:"certain"`
+	Start   bool           `json:"start"`
+	Kind    string         `json:"kind"`
+	Params  map[string]any `json:"params,omitempty"`
+	Certain bool           `json:"certain"`
+	// Repeats: starting again can only crash it the same way, so Playkeeper
+	// didn't restart it.
+	Repeats     bool                `json:"repeats,omitempty"`
 	Title       string              `json:"title"`
 	Explanation string              `json:"explanation"`
 	Evidence    []DiagnosisEvidence `json:"evidence"`

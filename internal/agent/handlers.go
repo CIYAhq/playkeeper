@@ -628,6 +628,7 @@ func (s *server) hStart(w http.ResponseWriter, r *http.Request) {
 func (s *server) forgetCrashes() {
 	s.mu.Lock()
 	s.crashes, s.crashed, s.runCrashed, s.crash, s.nextAutoRestart = nil, false, false, nil, time.Time{}
+	s.repeats = false
 	s.mu.Unlock()
 }
 
