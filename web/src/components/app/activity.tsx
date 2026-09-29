@@ -91,6 +91,7 @@ const refusalReasons: Record<string, MessageKey> = {
   saving_resumed: 'activity.refused.saving_resumed',
   saving_paused: 'activity.refused.saving_paused',
   file_changing: 'activity.refused.file_changing',
+  disk_limit_reached: 'activity.refused.disk_limit_reached',
 }
 
 /** Why a scheduled backup was refused, from the reason the agent recorded. */

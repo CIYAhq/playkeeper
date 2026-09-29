@@ -326,7 +326,8 @@ type Agent struct {
 	uploads fileUploads
 
 	// Wave 7 (0.4.0): the Disk space page's last scan.
-	disk diskCache
+	disk   diskCache
+	limits diskLimitState
 	// unreadableSwaps is the error last logged for each stage whose swap
 	// journal can't be read, and under "" for the staging folder itself, so
 	// each is logged once.
@@ -562,6 +563,10 @@ func New(opts Options) (*Agent, error) {
 	if err := a.loadGuard(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("read the network guard's switch: %w", err)
+	}
+	if err := a.loadDiskLimits(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("read the disk limits: %w", err)
 	}
 	if err := a.migrateSingleServer(); err != nil {
 		db.Close()

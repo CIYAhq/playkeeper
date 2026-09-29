@@ -3282,6 +3282,7 @@ export const en = {
   'activity.refused.saving_resumed': 'saving was turned back on during the copy',
   'activity.refused.saving_paused': 'saving couldn’t be turned back on',
   'activity.refused.file_changing': 'a file kept changing during the copy',
+  'activity.refused.disk_limit_reached': 'the servers’ disk limit is reached',
   'activity.refused.other': 'world saving couldn’t be paused',
   'backupRefused.title': { one: 'A scheduled backup was refused', other: '{count} scheduled backups in a row were refused' },
   'backupRefused.last': 'Scheduled backups never stop the server. The last backup is from {when}.',

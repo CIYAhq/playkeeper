@@ -159,6 +159,7 @@ java -Xms{{$j.HeapMB}}M -Xmx{{$j.HeapMB}}M{{range $j.Aikar}} {{.Flag}}{{end}} -j
       <div>
         <h3 class="tool-how-title reveal">If it won't start</h3>
         <ul class="tool-checks">
+          <li class="reveal"><strong>Error: Unable to access jarfile</strong><span>Java can't open the jar the command names: its real name or folder is different. <a href="/errors/unable-to-access-jarfile">Each cause, and its fix</a>.</span></li>
           <li class="reveal"><strong>UnsupportedClassVersionError</strong><span>The server needs a newer Java. The class file version in the message names it: 61 is Java 17, 65 is Java 21 and 69 is Java 25.</span></li>
           <li class="reveal"><strong>Error opening log file 'logs/gc.log'</strong><span>Java 11 and newer won't start while the GC log's folder is missing. Make a <code>logs</code> folder next to the server; the scripts made here do.</span></li>
           <li class="reveal"><strong>Unrecognized VM option</strong><span>Your Java doesn't have that flag: <code>-XX:+UseCompactObjectHeaders</code> needs Java 25, and <code>-XX:+ZGenerational</code> Java 21.</span></li>

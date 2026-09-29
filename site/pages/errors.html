@@ -1,0 +1,78 @@
+{{/*
+path: /errors
+title: Minecraft server errors: what they mean and how to fix them
+description: Minecraft server and connection errors, one page each: the exact message, what causes it and how to fix it, with each cause checked on a real server.
+label: Server errors
+h1: Minecraft server errors, and how to fix them
+card: Minecraft server errors, explained
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: errors
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}Each page here takes one error message players and server owners search for: the exact words, what causes them, and the fix. Every cause was checked on a real server, and each page says how. Find the words from the screen or the log below.{{end}}
+
+{{define "closing-title"}}A server that tells you what went wrong.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper reads a crashed server's log and names the cause, with the fix.{{end}}
+
+{{define "side-text"}}Playkeeper names the cause when a server crashes, on its Overview.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="list">
+  {{template "h2n" (dict "ID" "list" "N" 1 "Text" "Errors, by what you see" "Toc" "The errors")}}
+  <h3>Players can't connect</h3>
+  <ul>
+    <li><a href="/errors/connection-refused">Connection refused</a>, as io.netty's <code>AnnotatedConnectException</code>: nothing takes connections at that address and port. The same page covers <code>connection timed out</code>.</li>
+  </ul>
+  <h3>Players are turned away</h3>
+  <ul>
+    <li><a href="/errors/failed-to-verify-username">Failed to verify username!</a>: the player's game didn't sign in with Mojang to join. The same page covers <code>Authentication servers are down</code>.</li>
+  </ul>
+  <h3>The server won't start</h3>
+  <ul>
+    <li><a href="/errors/unable-to-access-jarfile">Error: Unable to access jarfile</a>: Java couldn't open the file named after <code>-jar</code>. The same page covers <code>Invalid or corrupt jarfile</code> and <code>no main manifest attribute</code>.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="where">
+  {{template "h2n" (dict "ID" "where" "N" 2 "Text" "Where the whole message is" "Toc" "Where to look")}}
+  <ul>
+    <li><strong>A player's screen</strong> shows the errors from joining: "Failed to connect to the server", then the reason.</li>
+    <li><strong>The server's log,</strong> <code>logs/latest.log</code>, has everything the server printed since it started. In Playkeeper it's the Console tab.</li>
+    <li><strong>Crash reports</strong> go in the server's <code>crash-reports</code> folder, one file for each crash, with the error's stack trace.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="explained">
+  {{template "h2n" (dict "ID" "explained" "N" 3 "Text" "What Playkeeper explains by itself" "Toc" "In Playkeeper")}}
+  <p>When a server stops by itself, Playkeeper reads its log and names the cause on the server's Overview, with a button for the fix where there is one. It knows these:</p>
+  <ul>
+    <li>The port is already in use, or the server couldn't open its port.</li>
+    <li>The server ran out of memory, of memory for code, or hit its thread limit.</li>
+    <li>The disk is full.</li>
+    <li>The Minecraft EULA hasn't been accepted.</li>
+    <li>The server needs a different Java.</li>
+    <li>The world is already open somewhere else, its level.dat file is damaged, or part of it may be damaged.</li>
+    <li>The server froze, or was stopped abruptly.</li>
+    <li>A data pack stopped the world from loading.</li>
+    <li>The server isn't allowed to use its own files.</li>
+    <li>A mod needs another mod or a different version of one, clashes with another, or can't load.</li>
+  </ul>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Where is the Minecraft server log?" "In the logs folder next to the server, as latest.log; older logs are compressed beside it. In Playkeeper, the Console tab shows it as it's written.")
+    (qa "What does Failed to connect to the server mean?" "The game couldn't reach a Minecraft server at that address and port. The line under it says why, like Connection refused or connection timed out.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/errors/connection-refused" "/errors/unable-to-access-jarfile" "/guides/play-minecraft-with-friends")}}{{end}}
