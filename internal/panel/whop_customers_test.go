@@ -479,6 +479,7 @@ func TestACallTheCoreRefusesIsTriedAgainLaterAndAtOnceAfterARestart(t *testing.T
 
 func TestWithoutTheHostingCoreACustomerWaitsAndThePageSaysWhy(t *testing.T) {
 	f, e, own := connectedWhop(t)
+	e.srv.hosting = noHostingCore{}
 	f.buy("mem_alex1", "user_alex", "plan_starter", "active")
 	e.reconcile()
 	v := e.whopView(t, own)
