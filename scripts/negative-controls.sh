@@ -7986,7 +7986,7 @@ control "dns answers: a server's name keeps its own address record" internal/pan
 webcontrol "dns answers: the switch is only on the dashboard's own machine" web/src/pages/machine-settings/own.tsx \
   '...(local ? [<DNSAnswersRow key="dns" />] : []),' \
   '...[<DNSAnswersRow key="dns" />],' \
-  web/src/pages/machine-settings/address.test.tsx 'is only on the dashboard’s own machine'
+  web/src/pages/machine-settings/address.test.tsx 'is only on the dashboard'
 webcontrol "dns answers: the records to add show only once the machine answers" web/src/pages/machine-settings/own.tsx \
   '{v.on && !v.unavailable && (' \
   '{!v.unavailable && (' \
@@ -7998,7 +7998,7 @@ webcontrol "dns answers: turning them off asks first" web/src/pages/machine-sett
 webcontrol "dns answers: they can't be turned on for a domain that can't be answered" web/src/pages/machine-settings/own.tsx \
   'disabled={locked || busy || (!v.on && !!v.unavailable)}' \
   'disabled={locked || busy}' \
-  web/src/pages/machine-settings/address.test.tsx 'can’t be answered'
+  web/src/pages/machine-settings/address.test.tsx 'says why a domain with nothing above it'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
