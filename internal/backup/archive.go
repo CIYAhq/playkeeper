@@ -659,6 +659,63 @@ func ReadFile(r io.Reader, rel string, max int64) ([]byte, error) {
 	}
 }
 
+// ReadFiles reads, in one pass, those of the files rels of the server's data
+// directory that an archive holds, at most max bytes each. Create writes the
+// files in sorted order, so the pass stops once it is past every name asked
+// for, and a missing one doesn't cost a read of the whole archive; an archive
+// out of that order is read to its end. Like ReadFile, it checks no hashes.
+func ReadFiles(r io.Reader, rels []string, max int64) (map[string][]byte, error) {
+	want := map[string]bool{}
+	last := ""
+	for _, rel := range rels {
+		name := dataPrefix + rel
+		want[name] = true
+		if name > last {
+			last = name
+		}
+	}
+	gz, err := gzip.NewReader(bufio.NewReaderSize(r, 256<<10))
+	if err != nil {
+		return nil, fmt.Errorf("not a gzip archive: %w", err)
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	out := map[string][]byte{}
+	prev, sorted := "", true
+	for len(out) < len(want) {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("archive is corrupt: %w", err)
+		}
+		if strings.HasPrefix(hdr.Name, dataPrefix) {
+			sorted = sorted && hdr.Name >= prev
+			prev = hdr.Name
+			if sorted && hdr.Name > last {
+				break
+			}
+		}
+		if !want[hdr.Name] || hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		rel := strings.TrimPrefix(hdr.Name, dataPrefix)
+		if hdr.Size > max {
+			return nil, fmt.Errorf("%s is larger than %d bytes", rel, max)
+		}
+		b, err := io.ReadAll(io.LimitReader(tr, hdr.Size))
+		if err == nil && int64(len(b)) != hdr.Size {
+			err = fmt.Errorf("entry %q is truncated", rel)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("archive is corrupt: %w", err)
+		}
+		out[rel] = b
+	}
+	return out, nil
+}
+
 func sortedKeys(m map[string]FileEntry) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

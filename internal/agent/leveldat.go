@@ -8,10 +8,14 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"regexp"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/backup"
+	"github.com/CIYAhq/playkeeper/internal/diagnose"
 	"github.com/CIYAhq/playkeeper/internal/gamefiles"
 	"github.com/CIYAhq/playkeeper/internal/worldimport"
 )
@@ -33,19 +37,27 @@ var levelFiles = []string{"level.dat", "level.dat_old"}
 // Where a new level.dat takes the world's seed from.
 const (
 	seedFromWorld      = "world"      // world_gen_settings.dat, since Minecraft 26.1
-	seedFromBackup     = "backup"     // level.dat in a checked backup
-	seedFromProperties = "properties" // level-seed in server.properties
+	seedFromBackup     = "backup"     // a checked backup's copy of the world
+	seedFromProperties = "properties" // level-seed in server.properties, which may not be the world's
 )
 
 // levelRepair is what making a new level.dat does for a world whose
-// level.dat and level.dat_old can't be read: where the world's seed comes
-// from ("" for nowhere, so new land won't match the old), and what starts
-// over because this world keeps it in level.dat.
+// level.dat and level.dat_old can't be read: the world's seed, which
+// Playkeeper keeps, and where it read it (from), and what starts over
+// because this world keeps it in level.dat. Without the seed, from is
+// seedFromProperties when server.properties has a level-seed, which
+// Minecraft then uses though nothing says it's the world's, else "".
 type levelRepair struct {
 	world  string
 	seed   string
+	from   string
+	backup *api.Backup // the backup the seed was read from
 	resets []string
 }
+
+// keepsSeed reports whether a new level.dat made with its seed from from
+// keeps the world's seed, so new terrain matches the old.
+func keepsSeed(from string) bool { return from == seedFromWorld || from == seedFromBackup }
 
 // planLevelRepair checks that world, one of the server's world folders, has
 // neither a readable level.dat nor a readable level.dat_old, and says what a
@@ -75,13 +87,12 @@ func (s *server) planLevelRepair(world string) (*levelRepair, error) {
 		}
 	}
 	r := &levelRepair{world: world, resets: levelResets(d, world)}
-	switch {
-	case worldSeed(d, world) != "":
-		r.seed = seedFromWorld
-	case len(s.seedBackups()) > 0:
-		r.seed = seedFromBackup
-	case propertiesSeed(d) != "":
-		r.seed = seedFromProperties
+	if r.seed = worldSeed(d, world); r.seed != "" {
+		r.from = seedFromWorld
+	} else if r.seed, r.backup = s.backupSeed(world); r.seed != "" {
+		r.from = seedFromBackup
+	} else if propertiesSeed(d) != "" {
+		r.from = seedFromProperties
 	}
 	return r, nil
 }
@@ -134,52 +145,82 @@ func propertiesSeed(d *gamefiles.Dir) string {
 	return worldimport.PropertiesSeed(b)
 }
 
-// seedBackups are the newest checked backups, which a world's seed is read
-// from before Minecraft 26.1.
-func (s *server) seedBackups() []api.Backup {
-	list, err := s.listBackups(`verified = 1`)
+// backupSeed reads the world's seed from the newest of the seedBackups
+// newest checked backups that has it, made since the world was last put in
+// place: an older one may be of the world a restore or an import replaced,
+// and one made once the level.dat files were damaged has no seed to give.
+func (s *server) backupSeed(world string) (string, *api.Backup) {
+	list, err := s.listBackups(`verified = 1 AND created_at >= ?`, s.worldPlacedAt().UnixMilli())
 	if err != nil {
-		return nil
+		return "", nil
 	}
-	return list[:min(len(list), seedBackups)]
-}
-
-// backupSeed reads the world's seed from the level.dat, or level.dat_old,
-// of the newest checked backup that has a readable one.
-func (s *server) backupSeed(world string) (seed string, from *api.Backup) {
-	for _, b := range s.seedBackups() {
-		for _, name := range levelFiles {
-			if seed := s.archiveSeed(b, world+"/"+name); seed != "" {
-				return seed, &b
-			}
+	for _, b := range list[:min(len(list), seedBackups)] {
+		if seed := s.archiveSeed(b, world); seed != "" {
+			return seed, &b
 		}
 	}
 	return "", nil
 }
 
-func (s *server) archiveSeed(b api.Backup, rel string) string {
+// worldPlacedAt is when the server's world was last replaced, by a restore
+// or an import; the zero time if it never was.
+func (s *server) worldPlacedAt() time.Time {
+	op, err := s.scanOperation(s.db.QueryRow(`SELECT `+operationColumns+` FROM operations
+		WHERE server_id = ? AND kind IN ('restore', 'offsite-restore', 'world_import') AND status = 'succeeded'
+		ORDER BY started_at DESC LIMIT 1`, s.id))
+	if err != nil || op.FinishedAt == nil {
+		return time.Time{}
+	}
+	return *op.FinishedAt
+}
+
+// archiveSeed reads the world's seed from a backup: from world_gen_settings.dat
+// since Minecraft 26.1, else from level.dat or level.dat_old. Each is its own
+// pass: world_gen_settings.dat comes early in an archive, and a world from
+// before 26.1 has none, so looking for it costs little, while a 26.1 world's
+// level.dat comes after all of its dimensions.
+func (s *server) archiveSeed(b api.Backup, world string) string {
+	for _, files := range [][]string{
+		{world + "/data/minecraft/world_gen_settings.dat", world + "/dimensions/minecraft/overworld/data/minecraft/world_gen_settings.dat"},
+		{world + "/level.dat", world + "/level.dat_old"},
+	} {
+		got, err := s.readBackupFiles(b, files)
+		if err != nil {
+			return ""
+		}
+		for _, rel := range files {
+			data := got[rel]
+			if data == nil {
+				continue
+			}
+			if strings.HasSuffix(rel, "world_gen_settings.dat") {
+				if seed := worldimport.ReadSeed(data, levelDecode); seed != "" {
+					return seed
+				}
+			} else if lv, err := worldimport.ParseLevel(data, levelDecode); err == nil && lv.Seed != "" {
+				return lv.Seed
+			}
+		}
+	}
+	return ""
+}
+
+func (s *server) readBackupFiles(b api.Backup, files []string) (map[string][]byte, error) {
 	f, err := os.Open(s.backupPath(b.FileName))
 	if err != nil {
-		return ""
+		return nil, err
 	}
 	defer f.Close()
-	gz, err := backup.ReadFile(f, rel, maxLevelFile)
-	if err != nil {
-		return ""
-	}
-	lv, err := worldimport.ParseLevel(gz, levelDecode)
-	if err != nil {
-		return ""
-	}
-	return lv.Seed
+	return backup.ReadFiles(f, files, maxLevelFile)
 }
 
 // hRebuildLevel makes a new level.dat for a stopped server's world whose
 // level.dat and level.dat_old can't be read, the crash helper's alternative
 // to restoring a backup. Only the owner's request does it: the world is
-// backed up first, the world's seed is written to server.properties, so new
-// land matches the old, and both files are deleted. Minecraft then makes a
-// new level.dat, and every build, which is in other files, stays.
+// backed up first, the world's seed, when Playkeeper finds it, is written to
+// server.properties, so new terrain matches the old, and both files are
+// deleted. Minecraft then makes a new level.dat, and every build, which is
+// in other files, stays.
 func (s *server) hRebuildLevel(w http.ResponseWriter, r *http.Request) {
 	var req api.RebuildLevelRequest
 	if err := decode(r, &req); err != nil {
@@ -216,7 +257,21 @@ func (s *server) hRebuildLevel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if _, err := s.planLevelRepair(world); err != nil {
+	// The owner confirmed what the dialog said about the seed: a new
+	// level.dat it said keeps the seed isn't made without it.
+	plan := func() (*levelRepair, error) {
+		p, err := s.planLevelRepair(world)
+		if err != nil {
+			return nil, err
+		}
+		if req.SeedFrom != nil && keepsSeed(*req.SeedFrom) && !keepsSeed(p.from) {
+			s.refreshLevelFix(p)
+			return nil, errConflict("Playkeeper can't find the world's seed any more, so it changed nothing.",
+				"Look at the new level.dat again: without the seed, new terrain won't match the old.")
+		}
+		return p, nil
+	}
+	if _, err := plan(); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -225,46 +280,31 @@ func (s *server) hRebuildLevel(w http.ResponseWriter, r *http.Request) {
 		if err := stopFirst(ctx); err != nil {
 			return err
 		}
-		plan, err := s.planLevelRepair(world)
+		p, err := plan()
 		if err != nil {
 			return err
 		}
-		seed, from := "", plan.seed
-		switch plan.seed {
-		case seedFromWorld:
-			if d, err := s.gameFiles(); err == nil {
-				seed = worldSeed(d, world)
-				d.Close()
-			}
-		case seedFromBackup:
-			var b *api.Backup
-			if seed, b = s.backupSeed(world); b != nil {
-				h.set("seedBackupId", b.ID)
-			} else if d, err := s.gameFiles(); err == nil {
-				if propertiesSeed(d) != "" {
-					from = seedFromProperties
-				}
-				d.Close()
-			}
-			if seed == "" && from == seedFromBackup {
-				return errConflict("Playkeeper couldn't read the world's seed from its backups, so it changed nothing.", "Restore the latest backup instead.")
-			}
+		h.set("seedFrom", p.from)
+		if p.backup != nil {
+			h.set("seedBackupId", p.backup.ID)
 		}
-		h.set("seedFrom", from)
 		if err := s.backupOp(ctx, h, actor, "Before a new level.dat", false); err != nil {
 			return err
 		}
 		h.phase("rebuilding_level")
-		if err := s.rebuildLevel(world, seed); err != nil {
+		if err := s.rebuildLevel(world, p.seed); err != nil {
 			s.audit(actor, "world.level_rebuilt", world, "failed", err.Error())
 			return err
 		}
-		s.audit(actor, "world.level_rebuilt", world, "succeeded", "seed from "+cmp.Or(from, "nowhere"))
-		s.log.Info("new level.dat", "server", s.id, "world", world, "seed_from", from)
-		if req.Start {
-			return s.startNow(ctx, h)
+		s.audit(actor, "world.level_rebuilt", world, "succeeded", "seed from "+cmp.Or(p.from, "nowhere"))
+		s.log.Info("new level.dat", "server", s.id, "world", world, "seed_from", p.from)
+		if !req.Start {
+			return nil
 		}
-		return nil
+		if err := s.startNow(ctx, h); err != nil {
+			return err
+		}
+		return s.checkSeedKept(ctx, h, p.seed)
 	})
 	if err != nil {
 		writeError(w, err)
@@ -301,11 +341,70 @@ func (s *server) rebuildLevel(world, seed string) error {
 	return nil
 }
 
+var reSeedReply = regexp.MustCompile(`Seed: \[(-?\d{1,20})\]`)
+
+// checkSeedKept asks the server that started with a new level.dat for its
+// seed, when it was to keep the world's: another would make new terrain
+// that doesn't match the old. The console listens only once the server is
+// done starting, so it tries for a while; seed changes nothing, so asking
+// again is safe. A server that doesn't answer leaves it unchecked.
+func (s *server) checkSeedKept(ctx context.Context, h *opHandle, seed string) error {
+	if seed == "" {
+		return nil
+	}
+	var reply string
+	var err error
+	for try := 0; try < 10; try++ {
+		if reply, err = s.rconCommand("seed"); err == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(time.Second):
+		}
+	}
+	m := reSeedReply.FindStringSubmatch(reply)
+	if err != nil || m == nil {
+		s.log.Warn("the server didn't say its seed after a new level.dat", "server", s.id, "err", err, "reply", reply)
+		return nil
+	}
+	h.set("seedKept", m[1] == seed)
+	if m[1] != seed {
+		s.log.Warn("a new level.dat didn't keep the seed", "server", s.id, "want", seed, "got", m[1])
+		return errConflict(s.name()+" started with a different seed, so new terrain won't match the old.",
+			"Restore the backup Playkeeper made before the new level.dat to undo it.")
+	}
+	return nil
+}
+
 // levelRepairParams describes a new level.dat for the crash helper's fix.
 func (s *server) levelRepairParams(world string) map[string]any {
 	plan, err := s.planLevelRepair(world)
 	if err != nil {
 		return nil
 	}
-	return map[string]any{"world": plan.world, "seed_from": plan.seed, "resets": plan.resets}
+	return plan.params()
+}
+
+func (p *levelRepair) params() map[string]any {
+	return map[string]any{"world": p.world, "seed_from": p.from, "resets": p.resets}
+}
+
+// refreshLevelFix puts what a new level.dat does now into the crash's fix,
+// once it has changed since the crash was explained.
+func (s *server) refreshLevelFix(p *levelRepair) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.crash == nil {
+		return
+	}
+	c := *s.crash
+	c.Fixes = slices.Clone(c.Fixes)
+	for i := range c.Fixes {
+		if diagnose.ActionKind(c.Fixes[i].Kind) == diagnose.ActionRebuildLevel {
+			c.Fixes[i].Params = p.params()
+		}
+	}
+	s.crash = &c
 }
