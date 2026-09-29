@@ -20,7 +20,7 @@ func shareArtFor(t *testing.T, page, key string) (own string, styles map[string]
 		if m[4] != "" {
 			styles[m[4]] = m[1]
 		}
-		if strings.Contains(" "+m[3]+" ", " "+key+" ") {
+		if key != "" && strings.Contains(" "+m[3]+" ", " "+key+" ") {
 			if own != "" {
 				t.Errorf("the share page has two pictures for %s", key)
 			}

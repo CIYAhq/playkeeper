@@ -1,0 +1,60 @@
+--- node_modules/prismarine-viewer/viewer/lib/worldrenderer.js	2026-09-28 08:15:31.862678979 +0000
++++ node_modules/prismarine-viewer/viewer/lib/worldrenderer.js	2026-09-28 08:15:31.878679248 +0000
+@@ -112,7 +112,7 @@
+     for (const worker of this.workers) {
+       worker.postMessage({ type: 'chunk', x, z, chunk })
+     }
+-    for (let y = 0; y < 256; y += 16) {
++    for (let y = -64; y < 320; y += 16) {
+       const loc = new Vec3(x, y, z)
+       this.setSectionDirty(loc)
+       this.setSectionDirty(loc.offset(-16, 0, 0))
+@@ -127,7 +127,7 @@
+     for (const worker of this.workers) {
+       worker.postMessage({ type: 'unloadChunk', x, z })
+     }
+-    for (let y = 0; y < 256; y += 16) {
++    for (let y = -64; y < 320; y += 16) {
+       this.setSectionDirty(new Vec3(x, y, z), false)
+       const key = `${x},${y},${z}`
+       const mesh = this.sectionMeshs[key]
+--- node_modules/prismarine-viewer/viewer/lib/worker.js	2026-09-28 08:15:31.866679046 +0000
++++ node_modules/prismarine-viewer/viewer/lib/worker.js	2026-09-28 08:15:31.878679248 +0000
+@@ -32,7 +32,7 @@
+   if (!value) {
+     delete dirtySections[key]
+     postMessage({ type: 'sectionFinished', key })
+-  } else if (chunk && chunk.sections[Math.floor(y / 16)]) {
++  } else if (chunk && chunk.sections[Math.floor((y - (chunk.minY || 0)) / 16)]) {
+     dirtySections[key] = value
+   } else {
+     postMessage({ type: 'sectionFinished', key })
+@@ -74,7 +74,7 @@
+     y = parseInt(y, 10)
+     z = parseInt(z, 10)
+     const chunk = world.getColumn(x, z)
+-    if (chunk && chunk.sections[Math.floor(y / 16)]) {
++    if (chunk && chunk.sections[Math.floor((y - (chunk.minY || 0)) / 16)]) {
+       delete dirtySections[key]
+       let geometry
+       try {
+--- node_modules/prismarine-viewer/viewer/lib/models.js	2026-09-28 08:16:19.955379043 +0000
++++ node_modules/prismarine-viewer/viewer/lib/models.js	2026-09-28 08:16:19.963379143 +0000
+@@ -130,7 +130,7 @@
+     if (!neighbor) continue
+     if (neighbor.type === type) continue
+     if ((neighbor.isCube && !isUp) || neighbor.material === 'plant' || neighbor.getProperties().waterlogged) continue
+-    if (neighbor.position.y < 0) continue
++    if (neighbor.position.y < -64) continue
+ 
+     let tint = [1, 1, 1]
+     if (water) {
+@@ -241,7 +241,7 @@
+       if (!neighbor) continue
+       if (cullIfIdentical && neighbor.type === block.type) continue
+       if (!neighbor.transparent && neighbor.isCube) continue
+-      if (neighbor.position.y < 0) continue
++      if (neighbor.position.y < -64) continue
+     }
+ 
+     const minx = element.from[0]
