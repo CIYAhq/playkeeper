@@ -8021,6 +8021,10 @@ control "dns answers: a server's name keeps its own address record" internal/pan
   'p.addRecord(dnszone.Record{Name: j.Label, Type: m.Type, Value: m.Value})' \
   '_ = m' \
   ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: a domain that can't be answered still says which" internal/panel/dnsanswers.go \
+  'return dnsPlan{zone: dnszone.Zone{Name: host}, unavailable: api.DNSUnavailableSubdomain}' \
+  'return dnsPlan{unavailable: api.DNSUnavailableSubdomain}' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
 webcontrol "dns answers: the switch is only on the dashboard's own machine" web/src/pages/machine-settings/own.tsx \
   '...(local ? [<DNSAnswersRow key="dns" />] : []),' \
   '...[<DNSAnswersRow key="dns" />],' \

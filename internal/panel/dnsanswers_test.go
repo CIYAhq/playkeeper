@@ -195,7 +195,7 @@ func TestTheDashboardAnswersDNSForItsOwnDomain(t *testing.T) {
 	apex := betaAddress()
 	apex.Host = "example.com"
 	e.addressIs(t, apex)
-	if code, v := answers(); code != http.StatusOK || v.Unavailable != api.DNSUnavailableSubdomain {
+	if code, v := answers(); code != http.StatusOK || v.Unavailable != api.DNSUnavailableSubdomain || v.Zone != "example.com" || v.Nameserver != "" {
 		t.Fatalf("a domain that isn't a name under another: %d %+v", code, v)
 	}
 	if r := e.do(t, "PUT", "/api/dns-answers", `{"on":"yes"}`, auth(cookie, csrf)); r.status != http.StatusBadRequest {

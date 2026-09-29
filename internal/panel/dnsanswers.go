@@ -73,7 +73,7 @@ func planDNS(addr api.Address) dnsPlan {
 	case addr.Kind != api.AddressOwn || host == "":
 		return dnsPlan{unavailable: api.DNSUnavailableOwnDomain}
 	case ns == "":
-		return dnsPlan{unavailable: api.DNSUnavailableSubdomain}
+		return dnsPlan{zone: dnszone.Zone{Name: host}, unavailable: api.DNSUnavailableSubdomain}
 	}
 	p := dnsPlan{zone: dnszone.Zone{Name: host, Nameserver: ns}, add: []api.DNSRecord{}, remove: []api.DNSRecord{}}
 	// machine are the domain's own A and AAAA records, which point at the
