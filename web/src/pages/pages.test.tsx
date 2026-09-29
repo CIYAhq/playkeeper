@@ -1782,10 +1782,25 @@ describe('Add-on sources', () => {
 
 describe('Sell on Whop', () => {
   const needs = ['access_pass:basic:read', 'plan:basic:read', 'support_chat:create']
-  const closed: WhopStore = { connected: false, dashboard: 'https://my-vps.playkeeper.me:8443', plans: [], needs }
+  const closed: WhopStore = { connected: false, dashboard: 'https://my-vps.playkeeper.me:8443', plans: [], webhook: false, customers: [], needs }
   const starter: WhopPlan = { id: 'plan_starter', productId: 'prod_mc', productTitle: 'Minecraft server', title: 'Starter', price: '$8.00 / month', visibility: 'hidden', trialDays: 3, allowance: { servers: 1, memoryMB: 4096 }, allowanceFrom: 'store' }
   const big: WhopPlan = { id: 'plan_big', productId: 'prod_mc', productTitle: 'Minecraft server', title: 'Big', price: '$16.00 / month', visibility: 'visible' }
-  const open: WhopStore = { ...closed, connected: true, account: { id: 'biz_pip', title: 'Pip Hosting', route: 'pip-hosting' }, keyEnding: 'abcd', connectedBy: 'siya', syncedAt: hoursAgo(1), plans: [starter, big] }
+  const open: WhopStore = {
+    ...closed,
+    connected: true,
+    account: { id: 'biz_pip', title: 'Pip Hosting', route: 'pip-hosting' },
+    keyEnding: 'abcd',
+    connectedBy: 'siya',
+    syncedAt: hoursAgo(1),
+    plans: [starter, big],
+    webhook: true,
+    customers: [
+      { whopUserId: 'user_alex', handle: 'alexplays', status: 'active', plan: 'Starter', account: 'alexplays', allowance: { servers: 1, memoryMB: 4096 } },
+      { whopUserId: 'user_sam', handle: 'samcrafts', status: 'paused', plan: 'Old plan', allowance: { servers: 2, memoryMB: 8192 } },
+      { whopUserId: 'user_kai', status: 'starting', plan: 'Starter', allowance: { servers: 1, memoryMB: 4096 }, problem: 'This dashboard can’t host customers yet.' },
+      { whopUserId: 'user_lee', handle: 'leebuilds', status: 'ended' },
+    ],
+  }
   const owner = workspace({ me: { ...me, access: { ...me.access, can: [...everything, 'whop.manage'] } } })
   const keyField = () => document.querySelector<HTMLInputElement>('input[aria-label="Whop API key"]')
   const submitKey = async () => act(async () => button('Connect').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
@@ -1846,6 +1861,18 @@ describe('Sell on Whop', () => {
     expect(text).toContain('BigVisible$16.00 / month · No allowance yet')
     expect(buttons('Set allowance')).toHaveLength(1)
     expect(keyField()).toBeNull()
+    expect(text).toContain('alexplaysActive as alexplays · Starter · Up to 1 server with 4 GB')
+    expect(text).toContain('samcraftsPaused: their plan ended · Old plan · Up to 2 servers with 8 GB')
+    expect(text).toContain('user_kaiSetting up their account · Starter · Up to 1 server with 4 GBThis dashboard can’t host customers yet.')
+    expect(text).toContain('leebuildsTheir plan ended')
+    expect(text).not.toContain('checks every few minutes')
+  })
+
+  it('says when Whop can’t tell the dashboard about customers as they buy', async () => {
+    answer({ '/api/whop': { ...open, webhook: false, customers: [] } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('so it checks every few minutes')
+    expect(text).toContain('No customers yet.')
   })
 
   it('sets what a plan without metadata allows', async () => {

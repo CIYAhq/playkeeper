@@ -1886,9 +1886,24 @@ export interface WhopStore {
   syncedAt?: string
   problem?: string
   plans: WhopPlan[]
+  /** Whether Whop tells the dashboard about memberships as they change; it also reads them every few minutes. */
+  webhook: boolean
+  customers: WhopCustomer[]
   needs: string[]
   /** On the answer to a disconnect alone: what the owner still has to do on Whop. */
   notice?: string
+}
+
+/** A customer of the store: starting (their plan asks for hosting this machine hasn't given yet), active, paused (their plans ended) or ended (no plan grants access, and they never started). */
+export interface WhopCustomer {
+  whopUserId: string
+  handle?: string
+  status: 'starting' | 'active' | 'paused' | 'ended'
+  plan?: string
+  allowance?: Allowance
+  /** Their account on this dashboard, once it's made. */
+  account?: string
+  problem?: string
 }
 
 /** One plan of the store; allowanceFrom is "store" when its metadata on Whop sets the allowance, "owner" when set here. */

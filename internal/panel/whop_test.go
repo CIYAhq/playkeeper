@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	whopTestKey   = "apik_pip_hosting_0123456789abcd"
-	whopOtherKey  = "apik_other_business_0123456789"
-	whopDashboard = "https://beta.playkeeper.me:8443"
+	whopTestKey    = "apik_pip_hosting_0123456789abcd"
+	whopOtherKey   = "apik_other_business_0123456789"
+	whopDashboard  = "https://beta.playkeeper.me:8443"
+	whopTestSecret = "ws_0123456789abcdef0123456789abcdef"
 )
 
 // fakeWhop answers like Whop's API for one seller, Pip Hosting, whose store
@@ -36,11 +37,21 @@ type fakeWhop struct {
 	plans                               []map[string]any
 	patches                             []string
 	keysSeen                            map[string]bool
+	// webhooks are the endpoints the dashboard added, by id.
+	webhooks map[string]map[string]any
+	// memberships are the store's, by id; users the buyers' usernames.
+	memberships map[string]map[string]any
+	users       map[string]string
+	// messages are what was sent to each support chat; chatDown makes
+	// opening one fail.
+	messages map[string][]string
+	chatDown bool
 }
 
 func newFakeWhop(t *testing.T) *fakeWhop {
 	t.Helper()
-	f := &fakeWhop{missing: map[string]bool{}, keysSeen: map[string]bool{},
+	f := &fakeWhop{missing: map[string]bool{}, keysSeen: map[string]bool{}, webhooks: map[string]map[string]any{},
+		memberships: map[string]map[string]any{}, users: map[string]string{"user_alex": "alexplays"}, messages: map[string][]string{},
 		products: map[string]whop.Metadata{"prod_mc": {"color": "green"}},
 		plans: []map[string]any{
 			{"id": "plan_starter", "title": "Starter", "visibility": "hidden", "plan_type": "renewal", "billing_period": 30, "formatted_price": "$8.00 / month",
@@ -106,7 +117,61 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 		f.products["prod_mc"] = body.Metadata
 		f.patches = append(f.patches, body.Metadata[whop.MetaDashboard])
 		json.NewEncoder(w).Encode(map[string]any{"id": "prod_mc"})
+	case "POST /webhooks":
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		id := "hook_" + strings.Repeat("x", len(f.webhooks)+1)
+		body["id"] = id
+		f.webhooks[id] = body
+		json.NewEncoder(w).Encode(map[string]any{"id": id, "url": body["url"], "webhook_secret": whopTestSecret})
+	case "GET /memberships":
+		var data []map[string]any
+		for _, m := range f.memberships {
+			data = append(data, m)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
+	case "POST /support_channels":
+		if f.chatDown {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
+			return
+		}
+		var body map[string]string
+		json.NewDecoder(r.Body).Decode(&body)
+		json.NewEncoder(w).Encode(map[string]any{"id": "chan_" + body["user_id"]})
+	case "POST /messages":
+		var body map[string]string
+		json.NewDecoder(r.Body).Decode(&body)
+		f.messages[body["channel_id"]] = append(f.messages[body["channel_id"]], body["content"])
+		json.NewEncoder(w).Encode(map[string]any{"id": "msg_sent"})
 	default:
+		if id, ok := strings.CutPrefix(r.URL.Path, "/webhooks/"); ok {
+			hook, found := f.webhooks[id]
+			switch {
+			case !found:
+				w.WriteHeader(http.StatusNotFound)
+				io.WriteString(w, `{"error":{"type":"not_found","message":"No such webhook"}}`)
+			case r.Method == "PATCH":
+				json.NewDecoder(r.Body).Decode(&hook)
+				json.NewEncoder(w).Encode(hook)
+			case r.Method == "DELETE":
+				delete(f.webhooks, id)
+				w.WriteHeader(http.StatusNoContent)
+			}
+			return
+		}
+		if id, ok := strings.CutPrefix(r.URL.Path, "/memberships/"); ok && r.Method == "GET" {
+			if m, found := f.memberships[id]; found {
+				json.NewEncoder(w).Encode(m)
+				return
+			}
+		}
+		if id, ok := strings.CutPrefix(r.URL.Path, "/users/"); ok && r.Method == "GET" {
+			if name, found := f.users[id]; found {
+				json.NewEncoder(w).Encode(map[string]any{"id": id, "username": name})
+				return
+			}
+		}
 		w.WriteHeader(http.StatusNotFound)
 		io.WriteString(w, `{"error":{"type":"not_found","message":"No such route"}}`)
 	}
@@ -124,6 +189,7 @@ func newWhopEnv(t *testing.T, f *fakeWhop) *env {
 	t.Helper()
 	e := newEnvConfig(t, func(c *config.Config) { c.WhopAPIURL = f.srv.URL }, nil)
 	e.setAddress(t, "beta.playkeeper.me")
+	e.reply("GET", "/v1/servers", bothServers)
 	return e
 }
 

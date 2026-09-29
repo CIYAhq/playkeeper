@@ -341,6 +341,61 @@ CREATE TABLE whop_plans (
   position            INTEGER NOT NULL DEFAULT 0
 );
 `,
+	// Sell on Whop's customers: the webhook Whop sends membership events to,
+	// with its signing secret; each plan's disk, when its metadata says one;
+	// each membership of the store's plans as the dashboard last heard of
+	// it, and whether its cancellation was reminded; each customer, with the
+	// plan last given to the hosting core, whether their plans' end paused
+	// them, what went wrong and the support chat with them; the messages for
+	// customers, waiting to go or sent; and the deliveries already handled,
+	// so a retried one counts once.
+	`
+ALTER TABLE whop_account ADD COLUMN webhook_id     TEXT    NOT NULL DEFAULT '';
+ALTER TABLE whop_account ADD COLUMN webhook_url    TEXT    NOT NULL DEFAULT '';
+ALTER TABLE whop_account ADD COLUMN webhook_secret TEXT    NOT NULL DEFAULT '';
+ALTER TABLE whop_account ADD COLUMN polled_at      INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_plans ADD COLUMN disk_gb INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE whop_memberships (
+  membership_id        TEXT    PRIMARY KEY,
+  whop_user_id         TEXT    NOT NULL,
+  plan_id              TEXT    NOT NULL,
+  status               TEXT    NOT NULL,
+  cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+  period_end           INTEGER NOT NULL DEFAULT 0,
+  stale                INTEGER NOT NULL DEFAULT 0,
+  told_cancel          INTEGER NOT NULL DEFAULT 0,
+  updated_at           INTEGER NOT NULL
+);
+CREATE INDEX whop_memberships_user ON whop_memberships(whop_user_id);
+CREATE TABLE whop_customers (
+  whop_user_id TEXT    PRIMARY KEY,
+  handle       TEXT    NOT NULL DEFAULT '',
+  applied      TEXT    NOT NULL DEFAULT '',
+  paused       INTEGER NOT NULL DEFAULT 0,
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  next_try_at  INTEGER NOT NULL DEFAULT 0,
+  problem      TEXT    NOT NULL DEFAULT '',
+  channel_id   TEXT    NOT NULL DEFAULT '',
+  updated_at   INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE whop_messages (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  whop_user_id TEXT    NOT NULL,
+  kind         TEXT    NOT NULL DEFAULT '',
+  text         TEXT    NOT NULL,
+  created_at   INTEGER NOT NULL,
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  next_try_at  INTEGER NOT NULL DEFAULT 0,
+  sent_at      INTEGER NOT NULL DEFAULT 0,
+  problem      TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX whop_messages_waiting ON whop_messages(sent_at, id);
+CREATE TABLE whop_deliveries (
+  id          TEXT    PRIMARY KEY,
+  received_at INTEGER NOT NULL
+);
+CREATE INDEX whop_deliveries_received ON whop_deliveries(received_at);
+`,
 	// Hetzner stock: the owner's read-only Hetzner API token and the server
 	// type they watch (one row), with what the last checks found: each
 	// location's stock as JSON, the last problem, and whether Hetzner

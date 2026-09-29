@@ -665,7 +665,7 @@ const routes: [string, RegExp, Handler][] = [
       return { status: 200, body: { ...store, plans } }
     },
   ],
-  ['DELETE', /^\/api\/whop$/, () => ({ status: 200, body: { connected: false, dashboard: '', plans: [], needs: whopNeeds } })],
+  ['DELETE', /^\/api\/whop$/, () => ({ status: 200, body: { connected: false, dashboard: '', plans: [], webhook: false, customers: [], needs: whopNeeds } })],
   // The usage stats switch never changes the machine the crawl runs on.
   ['PUT', /^\/api\/usage-stats$/, (r, state) => ({ status: 200, body: { machines: [], ...state.usage, on: (r.body as { on?: unknown } | null)?.on === true, reason: 'settings', canChange: true } })],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
@@ -1764,6 +1764,11 @@ function whopConnected(body: Json): Json {
     syncedAt: ago(600),
     problem: undefined,
     plans: [plan('plan_fakestarter', 'Starter', '$8.00 / month', { trialDays: 3, allowance: { servers: 1, memoryMB: 4096 }, allowanceFrom: 'store' }), plan('plan_fakebig', 'Big', '$16.00 / month', {})],
+    webhook: true,
+    customers: [
+      { whopUserId: 'user_fakealex', handle: 'alexplays', status: 'active', plan: 'Starter', account: 'alexplays', allowance: { servers: 1, memoryMB: 4096 } },
+      { whopUserId: 'user_fakesam', handle: 'samcrafts', status: 'paused', plan: 'Starter', allowance: { servers: 1, memoryMB: 4096 } },
+    ],
   }
 }
 
