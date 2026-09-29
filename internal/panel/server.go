@@ -394,7 +394,7 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/machines/{mid}/network-guard", needSessionCSRF, actManageMachine, s.hNetworkGuard},
 		{"DELETE", "/api/machines/{mid}/address", needSessionCSRF, actManageMachine, s.addressProxy("DELETE", "/v1/address")},
 		{"POST", "/api/machines/{mid}/servers", needSessionCSRF, actCreateOwnServers, s.hCreateServer},
-		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actCreateServers, s.rawUpload("/v1/restore/upload", "application/gzip")},
+		{"POST", "/api/machines/{mid}/restore/upload", needSessionCSRF, actCreateOwnServers, s.hRestoreUploadNew},
 		{"GET", "/api/machines/{mid}/restore/{rid}", needSession, actRestore, s.restoreProxy("GET", "/v1/restore/{rid}", nil)},
 		{"POST", "/api/machines/{mid}/restore/{rid}/apply", needSessionCSRF, actRestore, s.restoreProxy("POST", "/v1/restore/{rid}/apply", s.claimCreatedBy)},
 		{"DELETE", "/api/machines/{mid}/restore/{rid}", needSessionCSRF, actRestore, s.restoreProxy("DELETE", "/v1/restore/{rid}", nil)},
@@ -580,7 +580,7 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/servers/{id}/map/share", needSessionCSRF, actManageServers, s.sharing("/v1/servers/{id}/map/share", s.recordMapLink)},
 		sm("POST", "/api/servers/{id}/map/restart-later", "/v1/servers/{id}/map/restart-later"),
 		sm("POST", "/api/servers/{id}/world-imports", "/v1/servers/{id}/world-imports"),
-		mm("POST", "/api/machines/{mid}/world-imports", "/v1/world-imports", actCreateServers),
+		{"POST", "/api/machines/{mid}/world-imports", needSessionCSRF, actCreateOwnServers, s.hWorldImportOpen},
 		{"GET", "/api/machines/{mid}/world-imports/{imp}", needSession, actView, s.importGuard(actView, s.machineProxy("GET", "/v1/world-imports/{imp}"))},
 		{"DELETE", "/api/machines/{mid}/world-imports/{imp}", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.machineProxy("DELETE", "/v1/world-imports/{imp}"))},
 		{"POST", "/api/machines/{mid}/world-imports/{imp}/files", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.machineProxy("POST", "/v1/world-imports/{imp}/files"))},
@@ -588,7 +588,7 @@ func (s *Server) Routes() []Route {
 		{"POST", "/api/machines/{mid}/world-imports/{imp}/inspect", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.forwardLong("/v1/world-imports/{imp}/inspect"))},
 		{"POST", "/api/machines/{mid}/world-imports/{imp}/preview", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.forwardLong("/v1/world-imports/{imp}/preview"))},
 		{"POST", "/api/machines/{mid}/world-imports/{imp}/apply", needSessionCSRF, actManageServers, s.importGuard(actManageServers, s.forwardLong("/v1/world-imports/{imp}/apply"))},
-		{"POST", "/api/machines/{mid}/world-imports/{imp}/create", needSessionCSRF, actCreateServers, s.importGuard(actCreateServers, s.forwardLong("/v1/world-imports/{imp}/create"))},
+		{"POST", "/api/machines/{mid}/world-imports/{imp}/create", needSessionCSRF, actCreateOwnServers, s.importGuard(actCreateServers, s.hWorldImportCreate)},
 	}...)
 	// The map's area: anyone who sees the server sees it; choosing one, which
 	// pre-generates land, needs the rights to change the map.

@@ -137,6 +137,11 @@ func (s *Server) syncDiskLimits(ctx context.Context) {
 		s.log.Error("could not read the creators' servers", "err", err)
 		return
 	}
+	homes, err := s.customerHomes(ctx)
+	if err != nil {
+		s.log.Error("could not read the customers' machines", "err", err)
+		return
+	}
 	list, err := s.machines()
 	if err != nil {
 		s.log.Error("could not list the machines for their disk limits", "err", err)
@@ -147,7 +152,7 @@ func (s *Server) syncDiskLimits(ctx context.Context) {
 	s.diskUse.Unlock()
 	used := map[int64]int64{}
 	for _, m := range list {
-		got, err := s.sendDiskLimits(ctx, m, allowances, holds, owners, count)
+		got, err := s.sendDiskLimits(ctx, m, allowances, holds, owners, homes, count)
 		s.noteDiskLimitsFailure(m, err)
 		for uid, n := range got {
 			used[uid] += n
@@ -161,9 +166,10 @@ func (s *Server) syncDiskLimits(ctx context.Context) {
 }
 
 // sendDiskLimits sends m the limits of the accounts whose servers it has,
-// and with count, returns what each one's servers take there. An account's
-// server on m counts against its limit only while m still has it.
-func (s *Server) sendDiskLimits(ctx context.Context, m machine, allowances map[int64]invites.Allowance, holds map[int64]string, owners map[string]int64, count bool) (map[int64]int64, error) {
+// or whose home it is, and with count, returns what each one's servers take
+// there. An account's server on m counts against its limit only while m
+// still has it.
+func (s *Server) sendDiskLimits(ctx context.Context, m machine, allowances map[int64]invites.Allowance, holds map[int64]string, owners map[string]int64, homes map[int64]homeRow, count bool) (map[int64]int64, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var servers []api.ServerStatus
@@ -176,6 +182,16 @@ func (s *Server) sendDiskLimits(ctx context.Context, m machine, allowances map[i
 			if _, ok := allowances[uid]; ok {
 				byAccount[uid] = append(byAccount[uid], sv.ID)
 			}
+		}
+	}
+	// The machine an account's servers go to has its limit before the first
+	// one, so a world or backup uploaded for it counts from the start: a
+	// customer's home, or the dashboard's own for a creator placement never
+	// saw (homeMachine).
+	for uid := range allowances {
+		home, placed := homes[uid]
+		if _, ok := byAccount[uid]; !ok && (placed && home.machineID == m.ID || !placed && m.Kind == localKind) {
+			byAccount[uid] = []string{}
 		}
 	}
 	limits := make([]api.DiskLimit, 0, len(byAccount))

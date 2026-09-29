@@ -769,7 +769,7 @@ func (s *Server) restoreProxy(method, pattern string, then func(machine, *sessio
 		}
 		act := actRestore
 		if p.ServerID == "" {
-			act = actCreateServers
+			act = uploadCreates(sess.Access, p.DiskLimit)
 		}
 		if err := s.permitOn(sess.Access, act, p.ServerID); err != nil {
 			writeRefusal(w, err)
@@ -778,6 +778,26 @@ func (s *Server) restoreProxy(method, pattern string, then func(machine, *sessio
 		if method == "POST" && sess.Access.creator() {
 			s.creators.Lock()
 			defer s.creators.Unlock()
+			if p.ServerID == "" {
+				// A creator's backup for a new server makes one inside their
+				// allowance, which joins their servers.
+				mb, ok := memoryField(w, r)
+				if !ok {
+					return
+				}
+				if mb == 0 {
+					mb = p.MemoryMB
+				}
+				if mb <= 0 {
+					writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Choose the server's memory.", "")
+					return
+				}
+				if s.refuseNewServer(w, r, sess.Access, m, mb) {
+					return
+				}
+				s.forwardTo(method, pattern, false, s.creatorMade(r.Context()))(w, r, sess)
+				return
+			}
 			if !s.creatorRestoreFits(w, r, sess.Access, p) {
 				return
 			}
