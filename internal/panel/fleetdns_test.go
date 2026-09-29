@@ -173,8 +173,9 @@ func TestJoinedServersJoinTheZoneAtTheirMachine(t *testing.T) {
 }
 
 // Once the machine answers DNS for its domain, servers on joined machines
-// join its zone; the server list gives them their address without a port
-// once public DNS finds the zone, and not after the answers go off.
+// join its zone. The server list gives them their address without a port
+// only once public DNS finds the zone and the machine answers their
+// records, and not after the answers go off.
 func TestJoinedServersJoinWithoutAPortOnceDNSFindsTheZone(t *testing.T) {
 	e := newEnv(t)
 	cookie, csrf := e.setup(t)
@@ -182,7 +183,9 @@ func TestJoinedServersJoinWithoutAPortOnceDNSFindsTheZone(t *testing.T) {
 	e.zoneLocally(z)
 	e.addressIs(t, betaAddress())
 	steve := zoneServer{id: "steve00001", label: "steve", port: 25565, machine: "j2345abcde.m", ip: fsnIP}
-	e.srv.joinedZone = func(context.Context) ([]zoneServer, error) { return []zoneServer{steve}, nil }
+	kara := zoneServer{id: "kara000001", label: "kara", port: 25566, machine: "j2345abcde.m", ip: fsnIP}
+	joined := []zoneServer{steve}
+	e.srv.joinedZone = func(context.Context) ([]zoneServer, error) { return joined, nil }
 
 	if r := e.do(t, "PUT", "/api/dns-answers", `{"on":true}`, auth(cookie, csrf)); r.status != http.StatusOK || r.body["servers"] != float64(3) {
 		t.Fatalf("turning the answers on: %d %v", r.status, r.body)
@@ -209,20 +212,60 @@ func TestJoinedServersJoinWithoutAPortOnceDNSFindsTheZone(t *testing.T) {
 		t.Fatalf("once public DNS finds the zone, steve joins at %q", a)
 	}
 
+	// Kara's server appears while the machine won't take a new zone: the
+	// wildcard would answer for her name at the dashboard's machine, so the
+	// list gives her none until the machine answers her records.
+	joined = []zoneServer{steve, kara}
+	e.agent.mu.Lock()
+	e.agent.answers["PUT /v1/dns-zone"] = func(w http.ResponseWriter, _ *http.Request) {
+		writeErr(w, http.StatusBadGateway, api.CodeInternal, "The zone couldn't be saved.", "")
+	}
+	e.agent.mu.Unlock()
+	if err := e.srv.syncDNSAnswers(t.Context(), "playkeeper"); err == nil {
+		t.Fatal("a zone the machine refused")
+	}
+	if a, b := e.srv.zoneAddress(steve.id), e.srv.zoneAddress(kara.id); a != "steve.beta.example.com" || b != "" {
+		t.Fatalf("with the new zone refused, steve joins at %q and kara at %q", a, b)
+	}
+	e.zoneLocally(z)
+	if err := e.srv.syncDNSAnswers(t.Context(), "playkeeper"); err != nil {
+		t.Fatal(err)
+	}
+	if b := e.srv.zoneAddress(kara.id); b != "kara.beta.example.com" {
+		t.Fatalf("once the machine answers her records, kara joins at %q", b)
+	}
+
 	e.srv.joinedZone = func(context.Context) ([]zoneServer, error) { return nil, errDB }
-	if err := e.srv.syncDNSAnswers(t.Context(), "playkeeper"); !errors.Is(err, errDB) || len(z.seen()) != 2 {
+	if err := e.srv.syncDNSAnswers(t.Context(), "playkeeper"); !errors.Is(err, errDB) || len(z.seen()) != 3 {
 		t.Fatalf("with the servers unknown the machine keeps its zone: %v, %d zones sent", err, len(z.seen()))
 	}
 	if a := e.srv.zoneAddress(steve.id); a != "steve.beta.example.com" {
 		t.Fatalf("steve's address went with a failed list: %q", a)
 	}
 
-	e.srv.joinedZone = func(context.Context) ([]zoneServer, error) { return []zoneServer{steve}, nil }
+	e.srv.joinedZone = func(context.Context) ([]zoneServer, error) { return joined, nil }
 	if r := e.do(t, "PUT", "/api/dns-answers", `{"on":false}`, auth(cookie, csrf)); r.status != http.StatusOK {
 		t.Fatalf("turning the answers off: %d %v", r.status, r.body)
 	}
 	if a := e.srv.zoneAddress(steve.id); a != "" {
 		t.Fatalf("with the answers off, steve joins at %q", a)
+	}
+}
+
+// Joined machines' links that can't be read leave the servers on them
+// unknown, which keeps the zone the machine answers, rather than none of
+// them having an address.
+func TestJoinedServersAreUnknownWhileLinksCantBeRead(t *testing.T) {
+	e := newEnvWith(t, func(o *Options) { o.LinkRoutes = nil })
+	e.setup(t)
+	if joined, err := e.srv.joinedZoneServers(t.Context()); err != nil || joined != nil {
+		t.Fatalf("with no machine joined: %+v, %v", joined, err)
+	}
+	if _, err := e.srv.db.Exec(`INSERT INTO machines(id, project_id, name, kind, created_at) SELECT 'j2345abcde', id, 'fsn1-2', ?, 0 FROM projects LIMIT 1`, remoteKind); err != nil {
+		t.Fatal(err)
+	}
+	if joined, err := e.srv.joinedZoneServers(t.Context()); err == nil {
+		t.Fatalf("with links that can't be read: %+v, no error", joined)
 	}
 }
 

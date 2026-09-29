@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"slices"
@@ -105,11 +106,33 @@ func (s *Server) joinedZoneServers(ctx context.Context) ([]zoneServer, error) {
 	if !slices.ContainsFunc(list, func(m machine) bool { return m.Kind == remoteKind }) {
 		return nil, nil
 	}
+	links, err := s.joinedLinks(ctx)
+	if err != nil {
+		return nil, err
+	}
 	servers, list, err := s.allServers(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return zoneServers(servers, list, s.linkStatuses(ctx)), nil
+	return zoneServers(servers, list, links), nil
+}
+
+// joinedLinks are the joined machines' link statuses by machine id. Unlike
+// linkStatuses, links that can't be read are an error, so the machine keeps
+// the joined machines' names it answers rather than losing them all.
+func (s *Server) joinedLinks(ctx context.Context) (map[string]*machinelink.Status, error) {
+	if s.hub == nil {
+		return nil, errors.New("machine links aren't running")
+	}
+	list, err := s.hub.Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]*machinelink.Status, len(list))
+	for i := range list {
+		out[list[i].MachineID] = &list[i]
+	}
+	return out, nil
 }
 
 // addJoined names servers on joined machines in the plan's zone: their

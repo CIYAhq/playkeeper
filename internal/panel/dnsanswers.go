@@ -169,6 +169,8 @@ func (s *Server) syncDNSAnswers(ctx context.Context, actor string) error {
 		return err
 	}
 	var z dnszone.Zone
+	var named []zoneServer
+	var found bool
 	if on {
 		var addr api.Address
 		if _, err := s.agent.Do(ctx, "GET", "/v1/address", nil, nil, &addr); err != nil {
@@ -181,12 +183,10 @@ func (s *Server) syncDNSAnswers(ctx context.Context, actor string) error {
 			if err != nil {
 				return err
 			}
-			s.setZoneAddresses(p.addJoined(joined), p.zone.Name, portFree(addr))
+			named, found = p.addJoined(joined), portFree(addr)
 			z = p.zone
 		case api.DNSUnavailableAddress:
 			return nil
-		default:
-			s.setZoneAddresses(nil, "", false)
 		}
 	} else {
 		s.setZoneAddresses(nil, "", false)
@@ -195,8 +195,18 @@ func (s *Server) syncDNSAnswers(ctx context.Context, actor string) error {
 			return err
 		}
 	}
-	_, err = s.agent.Do(asActor(ctx, actor), "PUT", "/v1/dns-zone", nil, api.DNSZoneRequest{Zone: z, Actor: actor}, nil)
-	return err
+	// Joined machines' servers lose their names before their records go,
+	// and get them only once the machine answers their records.
+	if z.Name == "" {
+		s.setZoneAddresses(nil, "", false)
+	}
+	if _, err := s.agent.Do(asActor(ctx, actor), "PUT", "/v1/dns-zone", nil, api.DNSZoneRequest{Zone: z, Actor: actor}, nil); err != nil {
+		return err
+	}
+	if z.Name != "" {
+		s.setZoneAddresses(named, z.Name, found)
+	}
+	return nil
 }
 
 // runDNSAnswers keeps the dashboard machine's zone up to date as its
