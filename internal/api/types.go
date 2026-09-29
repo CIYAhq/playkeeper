@@ -233,6 +233,30 @@ type Machine struct {
 	// Wave 7 (0.4.0): SleepingMemoryMB is the part of ServersMemoryMB that
 	// sleeping servers gave back for now.
 	SleepingMemoryMB int `json:"sleepingMemoryMB"`
+	// Guard is how the firewall rules that keep servers from the cloud's
+	// metadata service, and from this machine when the owner asks, stand
+	// (0.4.5). It is missing in dev mode.
+	Guard *NetworkGuard `json:"guard,omitempty"`
+}
+
+// NetworkGuard is how the network guard's firewall rules stand.
+type NetworkGuard struct {
+	// On is whether they are in place. There are none until the first
+	// server makes Playkeeper's network.
+	On bool `json:"on"`
+	// Host is the owner's switch, Keep servers away from this machine:
+	// servers are kept from the machine itself too, not only from the
+	// metadata service. The dashboard turns it on when it makes a creator
+	// invite.
+	Host bool `json:"host"`
+	// Problem is why they aren't in place, when they aren't.
+	Problem string `json:"problem,omitempty"`
+}
+
+// NetworkGuardRequest turns keeping servers away from the machine on or off.
+type NetworkGuardRequest struct {
+	Host  bool   `json:"host"`
+	Actor string `json:"actor"`
 }
 
 // UpdateInfo is what Playkeeper knows about its own updates.
@@ -956,6 +980,8 @@ type SetupStatus struct {
 	NeedsSetup bool   `json:"needsSetup"`
 	Machine    string `json:"machine,omitempty"`
 	Version    string `json:"version"`
+	// WhopSignIn is set when the sign-in page offers Sign in with Whop.
+	WhopSignIn bool `json:"whopSignIn,omitempty"`
 }
 
 // Add-ons are a server's plugins (Paper) or mods, installed from Modrinth
@@ -1499,6 +1525,9 @@ const (
 	// params.retryAt.
 	CodeRetryLater  = "retry_later"
 	CodeIconInvalid = "icon_invalid"
+	// CodeDiskLimit: what was asked would take a group of servers past the
+	// disk limit the dashboard set for them (a Playkeeper Cloud plan's).
+	CodeDiskLimit = "disk_limit_reached"
 )
 
 // WorldCopy is a world folder a restore left next to the live one: the
@@ -1549,6 +1578,10 @@ type Address struct {
 	// look at them.
 	Records []DNSRecord   `json:"records,omitempty"`
 	Check   *AddressCheck `json:"check,omitempty"`
+	// ServerAddresses (0.4.5) gives every server an address under the own
+	// domain, <label>.<domain>, through one wildcard record, *.<domain>, in
+	// Records. Players type each server's port with it.
+	ServerAddresses bool `json:"serverAddresses,omitempty"`
 	// Certificate is the dashboard's certificate for Host.
 	Certificate *CertificateStatus `json:"certificate,omitempty"`
 	Names       NamesService       `json:"names"`
@@ -1577,12 +1610,24 @@ type JoinAddress struct {
 	// OwnAddress is the server's own address under an own domain, which is
 	// then Address: its own A and SRV records, and its own public page.
 	OwnAddress string `json:"ownAddress,omitempty"`
+	// Automatic means OwnAddress is <label>.<domain>, from the own domain's
+	// wildcard record (Address.ServerAddresses): it has no records of its
+	// own, and players type the port with it.
+	Automatic bool `json:"automatic,omitempty"`
 }
 
 // OwnAddressRequest sets a server's own address; an empty one clears it.
 type OwnAddressRequest struct {
 	Address string `json:"address"`
 	Actor   string `json:"actor"`
+}
+
+// ServerAddressesRequest turns an address for each server on or off
+// (Address.ServerAddresses).
+type ServerAddressesRequest struct {
+	On        bool   `json:"on"`
+	PanelHost string `json:"panelHost"`
+	Actor     string `json:"actor"`
 }
 
 // FreeAddress is a free playkeeper.me address at the names service.
@@ -1782,6 +1827,18 @@ const CodePlanChanged = "plan_changed"
 // CodeKeyRefused refuses a CurseForge API key that CurseForge doesn't
 // accept, or that can't be one.
 const CodeKeyRefused = "curseforge_key_refused"
+
+// Sell on Whop: CodeWhopKeyRefused refuses a Whop API key that Whop doesn't
+// take, or that can't be one, and CodeWhopPermissions one that lacks a
+// permission selling needs, with the missing ones in Params["missing"].
+const (
+	CodeWhopKeyRefused  = "whop_key_refused"
+	CodeWhopPermissions = "whop_permissions"
+)
+
+// CodeHetznerTokenRefused refuses a Hetzner API token that Hetzner doesn't
+// take, or that can't be one (Settings › Machines › Hetzner stock).
+const CodeHetznerTokenRefused = "hetzner_token_refused"
 
 // AddonSources is Settings › Add-on sources: where the machine finds
 // plugins, mods and modpacks. Modrinth and Hangar are built in and always on.
@@ -2251,8 +2308,9 @@ type DiscordSettingsRequest struct {
 
 // DiscordNotifyRequest is an alert the panel reports: a join request
 // (ServerID and Player), a team member turning two-factor sign-in on or
-// off (Member, On, and Admin for an admin), or an admin other than the
-// owner (Actor) confirming Member's Admin rights.
+// off (Member, On, and Admin for an admin), an admin other than the owner
+// (Actor) confirming Member's Admin rights, or machines the owner watches
+// coming into stock (ServerType and Locations).
 type DiscordNotifyRequest struct {
 	Kind     string `json:"kind"`
 	ServerID string `json:"serverId,omitempty"`
@@ -2263,7 +2321,12 @@ type DiscordNotifyRequest struct {
 	Member     string `json:"member,omitempty"`
 	On         bool   `json:"on,omitempty"`
 	Admin      bool   `json:"admin,omitempty"`
-	Actor      string `json:"actor"`
+	// ServerType and Locations say, for machines in stock, which Hetzner
+	// server type came into stock and at which locations, by Hetzner's
+	// names ("cx53", "fsn1"). The agent words the alert and its links.
+	ServerType string   `json:"serverType,omitempty"`
+	Locations  []string `json:"locations,omitempty"`
+	Actor      string   `json:"actor"`
 }
 
 // Kinds of DiscordNotifyRequest.
@@ -2271,6 +2334,7 @@ const (
 	DiscordJoinRequested    = "join_requested"
 	DiscordTwoFactorChanged = "two_factor_changed"
 	DiscordAdminConfirmed   = "admin_confirmed"
+	DiscordInStock          = "in_stock"
 )
 
 // CodeAdminUnconfirmed refuses an admin action to an admin who turned on

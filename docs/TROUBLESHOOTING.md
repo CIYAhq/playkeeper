@@ -1,6 +1,6 @@
 # Troubleshooting
 
-The five problems people hit most, with what to check first. If none of this helps, ask in [GitHub Discussions](https://github.com/CIYAhq/playkeeper/discussions) with what you tried.
+The problems people hit most, with what to check first. If none of this helps, ask in [GitHub Discussions](https://github.com/CIYAhq/playkeeper/discussions) with what you tried.
 
 ## Can't reach the dashboard
 
@@ -38,3 +38,9 @@ The five problems people hit most, with what to check first. If none of this hel
 - When a server runs out of memory, its Overview says so and offers more; **Settings › Memory** suggests a size from how much the server needed over the last 14 days.
 - The VPS's memory is shared between its servers, and each keeps its share while it's stopped, so a new server may need a bigger VPS or a smaller share for another server.
 - For a new VPS, the [sizing guide](https://playkeeper.io/sizing) suggests a size for how many friends play at once and what you run.
+
+## A plugin can't reach something on the VPS
+
+- With **Keep servers away from this machine** on in **Machine settings**, servers can't open connections to the VPS they run on. That keeps plugins and mods away from the dashboard and anything else the VPS runs, and a plugin that uses a database on the same VPS, such as MySQL for LuckPerms or CoreProtect, gets "connection refused". Turn it off there to let servers reach the VPS again; they keep running meanwhile.
+- It turns on by itself when you invite a creator, and stays on while you have creators or a creator invite that still works, since their servers mustn't reach your VPS. Run that database on another machine instead.
+- Servers never reach the cloud's metadata service. A database on another machine, and the internet, are reachable either way. `sudo playkeeper status` says which applies.

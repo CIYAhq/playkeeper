@@ -76,10 +76,16 @@ const (
 	actEditFiles action = "files.edit"
 )
 
+// actCreateOwnServers creates a new server, or deletes one: what an admin of
+// every server may do, and a creator inside their allowance, with only the
+// servers they created (see creators.go). Imports and restores into a new
+// server stay actCreateServers.
+const actCreateOwnServers action = "servers.create_own"
+
 // actions lists every action, for the signed-in account's "can" list.
 var actions = []action{actView, actManageAccount, actRunServers, actConsole, actManagePlayers, actMakeBackups,
-	actRestore, actManageServers, actCreateServers, actManageTeam, actManageMachine, actViewAuditTrail,
-	actManageBackupCopies, actRecoveryKey, actRecoverBackups, actManageAddonSources, actViewFiles, actEditFiles}
+	actRestore, actManageServers, actCreateServers, actCreateOwnServers, actManageTeam, actManageMachine, actViewAuditTrail,
+	actManageBackupCopies, actRecoveryKey, actRecoverBackups, actManageAddonSources, actViewFiles, actEditFiles, actSellOnWhop, actWatchStock}
 
 // keyActions are decided by mayHoldBackupKeys rather than actNeeds.
 var keyActions = map[action]bool{actManageBackupCopies: true, actRecoveryKey: true, actRecoverBackups: true}
@@ -88,19 +94,20 @@ var keyActions = map[action]bool{actManageBackupCopies: true, actRecoveryKey: tr
 // table says: viewers look, moderators run the servers day to day, admins
 // do everything else. An action missing here is refused.
 var actNeeds = map[action]string{
-	actView:           invites.RoleViewer,
-	actRunServers:     invites.RoleModerator,
-	actConsole:        invites.RoleModerator,
-	actManagePlayers:  invites.RoleModerator,
-	actMakeBackups:    invites.RoleModerator,
-	actRestore:        invites.RoleAdmin,
-	actManageServers:  invites.RoleAdmin,
-	actCreateServers:  invites.RoleAdmin,
-	actManageTeam:     invites.RoleAdmin,
-	actManageMachine:  invites.RoleAdmin,
-	actViewAuditTrail: invites.RoleAdmin,
-	actViewFiles:      invites.RoleAdmin,
-	actEditFiles:      invites.RoleAdmin,
+	actView:             invites.RoleViewer,
+	actRunServers:       invites.RoleModerator,
+	actConsole:          invites.RoleModerator,
+	actManagePlayers:    invites.RoleModerator,
+	actMakeBackups:      invites.RoleModerator,
+	actRestore:          invites.RoleAdmin,
+	actManageServers:    invites.RoleAdmin,
+	actCreateServers:    invites.RoleAdmin,
+	actCreateOwnServers: invites.RoleAdmin,
+	actManageTeam:       invites.RoleAdmin,
+	actManageMachine:    invites.RoleAdmin,
+	actViewAuditTrail:   invites.RoleAdmin,
+	actViewFiles:        invites.RoleAdmin,
+	actEditFiles:        invites.RoleAdmin,
 }
 
 // machineWide actions reach past single servers, so an admin needs all of
@@ -202,8 +209,16 @@ func permit(a access, act action, serverID string) error {
 		return invites.TwoFactorRequired()
 	case machineWide[act] && !a.Servers.All:
 		return errAllServers
+	case act == actCreateOwnServers && !a.Servers.All && a.Allowance.IsZero():
+		return errAllServers
 	}
 	return nil
+}
+
+// creator reports whether a creates servers inside an allowance (see
+// invites.Allowance) rather than as an admin of every server.
+func (a access) creator() bool {
+	return !a.owner() && !a.Servers.All && !a.Allowance.IsZero()
 }
 
 // access reads what u may do: their project role and servers, and whether
@@ -213,8 +228,9 @@ func (s *Server) access(u user) (access, error) {
 	a := access{Account: invites.Account{UserID: u.ID, Name: u.Username, InstallRole: u.Role}}
 	var servers string
 	var adminFactor, seen int64
-	err := s.db.QueryRow(`SELECT project_id, role, servers, admin_factor, factor_seen FROM project_members WHERE user_id = ? ORDER BY created_at LIMIT 1`, u.ID).
-		Scan(&a.ProjectID, &a.ProjectRole, &servers, &adminFactor, &seen)
+	err := s.db.QueryRow(`SELECT project_id, role, servers, admin_factor, factor_seen, allowance_servers, allowance_memory_mb, allowance_disk_gb FROM project_members
+		WHERE user_id = ? ORDER BY created_at LIMIT 1`, u.ID).
+		Scan(&a.ProjectID, &a.ProjectRole, &servers, &adminFactor, &seen, &a.Allowance.Servers, &a.Allowance.MemoryMB, &a.Allowance.DiskGB)
 	if err != nil && !isNoRows(err) {
 		return access{}, err
 	}

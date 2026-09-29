@@ -754,9 +754,20 @@ func (s *server) beginPregen(actor string, sc *api.ServerConfig, p pregen.Platfo
 	if task.unfinished() && !forMap {
 		return nil, pregenBusy()
 	}
-	return s.beginOp("pregen-start", actor, func(ctx context.Context, h *opHandle) error {
-		return s.startPregen(ctx, h, actor, p, plan, preset, pauseForPlayers, forMap, est.Total)
+	// What the area may take is held inside the disk limit until the start
+	// ends. By then a task that started is recorded, and counts on its own.
+	done, err := s.holdDiskLimit(s.ctx, s.id, est.DiskHigh)
+	if err != nil {
+		return nil, err
+	}
+	op, err := s.beginOp("pregen-start", actor, func(ctx context.Context, h *opHandle) error {
+		defer done(false)
+		return s.startPregen(ctx, h, actor, p, plan, preset, pauseForPlayers, forMap, est)
 	})
+	if err != nil {
+		done(false)
+	}
+	return op, err
 }
 
 // pregenRefusal checks that plan can be pre-generated and that the disk has
@@ -782,7 +793,8 @@ func pregenBusy() *apiError {
 // starts the server if Chunky isn't loaded, then starts the task. For the
 // map, an unfinished task gives way only once the new one has started, and
 // is left as it was if the new one doesn't start.
-func (s *server) startPregen(ctx context.Context, h *opHandle, actor string, p pregen.Platform, plan pregen.Plan, preset string, pauseForPlayers, forMap bool, total int64) error {
+func (s *server) startPregen(ctx context.Context, h *opHandle, actor string, p pregen.Platform, plan pregen.Plan, preset string, pauseForPlayers, forMap bool, est pregen.Estimate) error {
+	total := est.Total
 	h.set("preset", preset)
 	h.set("radius", plan.Radius)
 	h.set("pauseForPlayers", pauseForPlayers)
@@ -901,6 +913,7 @@ func (s *server) startPregen(ctx context.Context, h *opHandle, actor string, p p
 		}
 		return err
 	}
+	s.notePregen(s.id, est.DiskHigh)
 	s.pg.reset()
 	if old != nil {
 		s.audit(actor, "pregen.cancelled", old.World, "succeeded", "replaced by "+preset)

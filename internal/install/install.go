@@ -414,6 +414,7 @@ func Plan(f Facts, o Options) []string {
 	} else {
 		p = append(p, fmt.Sprintf("Network:   the server gets its own Docker network, 'playkeeper' (a bridge), and Docker forwards %d/tcp to it", o.GamePort))
 	}
+	p = append(p, "           with iptables rules that keep servers from this machine and the cloud's metadata service")
 	if f.Firewall != nil {
 		p = append(p, f.Firewall.planLine(joinAnd(firewallRules(o))))
 	}

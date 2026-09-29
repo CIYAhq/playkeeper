@@ -106,6 +106,7 @@ export function recordFor(r: DNSRecord, servers: JoinAddress[], short = false): 
     return short ? name : t('address.forServer', { server: name, port: r.srv?.port ?? s?.port ?? 0 })
   }
   if (r.serverId) return t('address.forOwnAddress', { server: servers.find((x) => x.serverId === r.serverId)?.name ?? r.name })
+  if (r.name.startsWith('*.')) return t('address.forEveryServer')
   const bare = servers.find((x) => x.port === 25565 && !x.ownAddress)
   return bare ? t('address.forDashboardAnd', { server: bare.name }) : t('address.dashboard')
 }

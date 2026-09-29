@@ -292,6 +292,177 @@ CREATE TABLE public_links (
 	`
 ALTER TABLE server_machines ADD COLUMN slug TEXT NOT NULL DEFAULT '';
 `,
+	// A creator's allowance (the managed beta): on the invite and on the
+	// member it made, the servers they may create and the memory between
+	// them (see invites.Allowance). Zero for everyone else.
+	`
+ALTER TABLE invites ADD COLUMN allowance_servers INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE invites ADD COLUMN allowance_memory_mb INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE project_members ADD COLUMN allowance_servers INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE project_members ADD COLUMN allowance_memory_mb INTEGER NOT NULL DEFAULT 0;
+`,
+	// The servers each creator created, which count against their allowance
+	// and which alone they may delete.
+	`
+CREATE TABLE creator_servers (
+  server_id  TEXT    PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX creator_servers_user ON creator_servers(user_id);
+`,
+	// Sell on Whop: the Whop account this dashboard sells servers for, with
+	// its API key (one row), and the plans its store sells with what each
+	// lets a buyer create, from the plan's metadata on Whop ('store') or
+	// set here ('owner').
+	`
+CREATE TABLE whop_account (
+  id           INTEGER PRIMARY KEY CHECK (id = 1),
+  account_id   TEXT    NOT NULL,
+  title        TEXT    NOT NULL DEFAULT '',
+  route        TEXT    NOT NULL DEFAULT '',
+  api_key      TEXT    NOT NULL,
+  connected_by TEXT    NOT NULL,
+  connected_at INTEGER NOT NULL,
+  synced_at    INTEGER NOT NULL DEFAULT 0,
+  problem      TEXT    NOT NULL DEFAULT ''
+);
+CREATE TABLE whop_plans (
+  plan_id             TEXT    PRIMARY KEY,
+  product_id          TEXT    NOT NULL,
+  product_title       TEXT    NOT NULL DEFAULT '',
+  title               TEXT    NOT NULL DEFAULT '',
+  price               TEXT    NOT NULL DEFAULT '',
+  visibility          TEXT    NOT NULL DEFAULT '',
+  trial_days          INTEGER NOT NULL DEFAULT 0,
+  allowance_servers   INTEGER NOT NULL DEFAULT 0,
+  allowance_memory_mb INTEGER NOT NULL DEFAULT 0,
+  allowance_from      TEXT    NOT NULL DEFAULT '' CHECK (allowance_from IN ('', 'store', 'owner')),
+  position            INTEGER NOT NULL DEFAULT 0
+);
+`,
+	// Sell on Whop's customers: the webhook Whop sends membership events to,
+	// with its signing secret; each plan's disk, when its metadata says one;
+	// each membership of the store's plans as the dashboard last heard of
+	// it, and whether its cancellation was reminded; each customer, with the
+	// plan last given to the hosting core, whether their plans' end paused
+	// them, what went wrong and the support chat with them; the messages for
+	// customers, waiting to go or sent; and the deliveries already handled,
+	// so a retried one counts once.
+	`
+ALTER TABLE whop_account ADD COLUMN webhook_id     TEXT    NOT NULL DEFAULT '';
+ALTER TABLE whop_account ADD COLUMN webhook_url    TEXT    NOT NULL DEFAULT '';
+ALTER TABLE whop_account ADD COLUMN webhook_secret TEXT    NOT NULL DEFAULT '';
+ALTER TABLE whop_account ADD COLUMN polled_at      INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_plans ADD COLUMN disk_gb INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE whop_memberships (
+  membership_id        TEXT    PRIMARY KEY,
+  whop_user_id         TEXT    NOT NULL,
+  plan_id              TEXT    NOT NULL,
+  status               TEXT    NOT NULL,
+  cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+  period_end           INTEGER NOT NULL DEFAULT 0,
+  stale                INTEGER NOT NULL DEFAULT 0,
+  told_cancel          INTEGER NOT NULL DEFAULT 0,
+  updated_at           INTEGER NOT NULL
+);
+CREATE INDEX whop_memberships_user ON whop_memberships(whop_user_id);
+CREATE TABLE whop_customers (
+  whop_user_id TEXT    PRIMARY KEY,
+  handle       TEXT    NOT NULL DEFAULT '',
+  applied      TEXT    NOT NULL DEFAULT '',
+  paused       INTEGER NOT NULL DEFAULT 0,
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  next_try_at  INTEGER NOT NULL DEFAULT 0,
+  problem      TEXT    NOT NULL DEFAULT '',
+  channel_id   TEXT    NOT NULL DEFAULT '',
+  updated_at   INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE whop_messages (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  whop_user_id TEXT    NOT NULL,
+  kind         TEXT    NOT NULL DEFAULT '',
+  text         TEXT    NOT NULL,
+  created_at   INTEGER NOT NULL,
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  next_try_at  INTEGER NOT NULL DEFAULT 0,
+  sent_at      INTEGER NOT NULL DEFAULT 0,
+  problem      TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX whop_messages_waiting ON whop_messages(sent_at, id);
+CREATE TABLE whop_deliveries (
+  id          TEXT    PRIMARY KEY,
+  received_at INTEGER NOT NULL
+);
+CREATE INDEX whop_deliveries_received ON whop_deliveries(received_at);
+`,
+	// Sign in with Whop: the Whop app customers sign in through, with its
+	// secret when it has one, and each sign-in on its way through Whop, by
+	// the hash of its state, with its PKCE verifier.
+	`
+ALTER TABLE whop_account ADD COLUMN oauth_client_id     TEXT NOT NULL DEFAULT '';
+ALTER TABLE whop_account ADD COLUMN oauth_client_secret TEXT NOT NULL DEFAULT '';
+CREATE TABLE whop_signins (
+  state_hash TEXT    PRIMARY KEY,
+  verifier   TEXT    NOT NULL,
+  created_at INTEGER NOT NULL
+);
+`,
+	// Hetzner stock: the owner's read-only Hetzner API token and the server
+	// type they watch (one row), with what the last checks found: each
+	// location's stock as JSON, the last problem, and whether Hetzner
+	// refused the token, which stops the checks until it's replaced.
+	`
+CREATE TABLE hetzner_watch (
+  id          INTEGER PRIMARY KEY CHECK (id = 1),
+  token       TEXT    NOT NULL,
+  server_type TEXT    NOT NULL,
+  set_by      TEXT    NOT NULL,
+  set_at      INTEGER NOT NULL,
+  checked_at  INTEGER NOT NULL DEFAULT 0,
+  problem     TEXT    NOT NULL DEFAULT '',
+  refused     INTEGER NOT NULL DEFAULT 0,
+  failures    INTEGER NOT NULL DEFAULT 0,
+  places      TEXT    NOT NULL DEFAULT '[]'
+);
+`,
+	// Placement: each customer's home machine, where their plan's memory is
+	// set aside and their servers run, or '' while they wait for room. A
+	// creator without a row, as an owner's invite makes, lives on the
+	// dashboard's own machine.
+	`
+CREATE TABLE customer_homes (
+  user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  machine_id TEXT    NOT NULL DEFAULT '',
+  placed_at  INTEGER NOT NULL
+);
+`,
+	// Selling only what fits: each plan's stock on Whop as last read or
+	// set, whether it's unlimited, and whether the plan is free; when each
+	// customer was last given their plan; how many more of each plan the
+	// machines can take, as last said, and when; and the stock last set on
+	// Whop, with how many of the plan's memberships the dashboard knew of
+	// then (-1 before one was set).
+	`
+ALTER TABLE whop_plans ADD COLUMN stock           INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_plans ADD COLUMN unlimited_stock INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE whop_plans ADD COLUMN free            INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_customers ADD COLUMN applied_at INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE whop_stock (
+  plan_id TEXT    PRIMARY KEY,
+  want    INTEGER NOT NULL,
+  set_at  INTEGER NOT NULL,
+  written INTEGER NOT NULL DEFAULT -1,
+  known   INTEGER NOT NULL DEFAULT -1
+);
+`,
+	// Disk limits: the disk a creator's or customer's servers may take
+	// between them, or 0 for the default from their memory (see
+	// invites.Allowance).
+	`
+ALTER TABLE invites ADD COLUMN allowance_disk_gb INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE project_members ADD COLUMN allowance_disk_gb INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 const (

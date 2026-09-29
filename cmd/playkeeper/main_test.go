@@ -6,10 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/install"
 	"github.com/CIYAhq/playkeeper/internal/names"
 	usagestats "github.com/CIYAhq/playkeeper/internal/usage"
+	"github.com/CIYAhq/playkeeper/internal/whop"
 )
 
 func TestTheInstallerDeletesOnlyTheFolderGetShDownloadedItInto(t *testing.T) {
@@ -83,8 +85,8 @@ func TestDevStaysOffTheRealNamesServiceAndLetsEncrypt(t *testing.T) {
 	if _, err := names.CheckServiceURL(cfg.NamesURL); err != nil {
 		t.Fatalf("the names client refuses the dev names service: %v", err)
 	}
-	if strings.Contains(cfg.NamesURL, "playkeeper.io") || !strings.Contains(cfg.ACMEDirectoryURL, "staging") {
-		t.Fatalf("dev reaches the real services: names %q, ACME %q", cfg.NamesURL, cfg.ACMEDirectoryURL)
+	if strings.Contains(cfg.NamesURL, "playkeeper.io") || !strings.Contains(cfg.ACMEDirectoryURL, "staging") || cfg.WhopAPIURL != whop.SandboxAPIURL {
+		t.Fatalf("dev reaches the real services: names %q, ACME %q, Whop %q", cfg.NamesURL, cfg.ACMEDirectoryURL, cfg.WhopAPIURL)
 	}
 
 	cfg = config.Default()
@@ -113,5 +115,21 @@ func TestTheInstallTakesUsageStatsFromTheEnvironment(t *testing.T) {
 	writeInstallSummary(&summary, &install.Result{URL: "https://192.0.2.10:8443", SetupCode: "abc123", Fingerprint: "AA:BB", UsageOn: true})
 	if !strings.Contains(summary.String(), "Anonymous usage stats are on; Settings › Playkeeper turns them off.") {
 		t.Errorf("the summary doesn't say where usage stats turn off:\n%s", summary.String())
+	}
+}
+
+func TestStatusSaysWhetherServersAreKeptFromTheMachine(t *testing.T) {
+	for _, c := range []struct {
+		g    api.NetworkGuard
+		want string
+	}{
+		{api.NetworkGuard{On: true, Host: true}, "servers can't reach this machine or the cloud's metadata service"},
+		{api.NetworkGuard{On: true}, "servers can reach this machine, not the cloud's metadata service (Keep servers away from this machine is off in Machine settings)"},
+		{api.NetworkGuard{Host: true}, "starts with the first server"},
+		{api.NetworkGuard{Problem: "the iptables command isn't installed"}, "off, so servers can reach this machine and the cloud's metadata service (the iptables command isn't installed)"},
+	} {
+		if got := guardLine(c.g); got != "Network guard: "+c.want {
+			t.Errorf("%+v: got %q", c.g, got)
+		}
 	}
 }

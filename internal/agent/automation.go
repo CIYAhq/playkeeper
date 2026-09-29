@@ -240,5 +240,7 @@ func (a *Agent) automationRoutes() []Route {
 		{"POST", "/v1/offsite/recover/restore", a.hRecoverRestore},
 		{"GET", "/v1/disk", a.hDisk},
 		{"POST", "/v1/disk/clean", a.hDiskClean},
+		{"GET", "/v1/disk-limits", a.hDiskLimits},
+		{"PUT", "/v1/disk-limits", a.hDiskLimitsSet},
 	}
 }

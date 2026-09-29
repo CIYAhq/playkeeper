@@ -185,6 +185,19 @@ func (e *agentEnv) start() {
 		})
 		e.slp = startFakeSLP(e.t, e.rcon)
 	}
+	a, err := New(e.options())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	e.a = a
+	e.live.Store(a)
+	a.Start()
+	e.ts = httptest.NewServer(a.HandlerForTest())
+	e.t.Cleanup(func() { e.stop() })
+}
+
+// options are the agent's options in this environment.
+func (e *agentEnv) options() Options {
 	offset := e.clockOffset
 	backoff := e.crashBackoff
 	if backoff == nil {
@@ -228,15 +241,7 @@ func (e *agentEnv) start() {
 	if e.tweak != nil {
 		e.tweak(&opts)
 	}
-	a, err := New(opts)
-	if err != nil {
-		e.t.Fatal(err)
-	}
-	e.a = a
-	e.live.Store(a)
-	a.Start()
-	e.ts = httptest.NewServer(a.HandlerForTest())
-	e.t.Cleanup(func() { e.stop() })
+	return opts
 }
 
 // osRelease is the system the agent reads it runs on: Debian 13.
@@ -1791,6 +1796,33 @@ func TestConsoleBufferIsBounded(t *testing.T) {
 	}
 	if got := r.since(r.epoch, resp.Next, 10); len(got.Lines) != 0 {
 		t.Fatal("no new lines expected")
+	}
+}
+
+// A log request for more lines than the console keeps gets every line it
+// keeps, newest last: a big modpack logs more than 500 lines in the second
+// after it says Done. One that asks for none gets the newest 500.
+func TestALogRequestForMoreLinesThanTheConsoleKeepsGetsThemAll(t *testing.T) {
+	e := newAgentEnv(t)
+	e.addIdleServer()
+	c := e.srv().console
+	base := time.Now()
+	for i := range consoleCapacity + 100 {
+		c.append(base.Add(time.Duration(i)), fmt.Sprintf("line %d", i))
+	}
+	newest := fmt.Sprintf("line %d", consoleCapacity+99)
+	for _, tc := range []struct {
+		limit string
+		want  int
+	}{{"5000", consoleCapacity}, {"", 500}, {"0", 500}, {"10", 10}} {
+		code, out := e.call("GET", e.sp("/logs?limit="+tc.limit), nil)
+		lines, _ := out["lines"].([]any)
+		if code != 200 || len(lines) != tc.want {
+			t.Fatalf("limit %q: %d with %d lines, want %d", tc.limit, code, len(lines), tc.want)
+		}
+		if last := lines[len(lines)-1].(map[string]any)["text"]; last != newest {
+			t.Fatalf("limit %q ends with %v, not the newest line", tc.limit, last)
+		}
 	}
 }
 

@@ -79,6 +79,43 @@ func TestParseAddressRefusals(t *testing.T) {
 	}
 }
 
+// The cloud config runs the install command as root with --yes, as one
+// double-quoted YAML string that nothing in the command can end early.
+func TestCloudConfig(t *testing.T) {
+	const fp = "Z287KN4CDZD0Z8A4XXJA514NKG"
+	c, err := NewCommand("https://beta.playkeeper.me/", "7kq2-m9xd", fp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "#cloud-config\nruncmd:\n  - \"curl -fsSL https://playkeeper.io/install | sh -s -- --yes --join beta.playkeeper.me:8443 --code 7KQ2-M9XD --fingerprint " + fp + "\"\n"
+	if got := c.CloudConfig(); got != want {
+		t.Errorf("CloudConfig() =\n%s\nwant\n%s", got, want)
+	}
+	c.Name = `fsn1 "two"; \ $(reboot)`
+	v6, err := NewCommand("[2001:db8::1]:9000", "7KQ2-M9XD", fp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v6.Name = "Bob's server"
+	for _, cmd := range []Command{c, v6} {
+		lines := strings.Split(strings.TrimSuffix(cmd.CloudConfig(), "\n"), "\n")
+		if len(lines) != 3 || lines[0] != "#cloud-config" || lines[1] != "runcmd:" {
+			t.Fatalf("CloudConfig() = %q", lines)
+		}
+		quoted, ok := strings.CutPrefix(lines[2], `  - "`)
+		quoted, ok2 := strings.CutSuffix(quoted, `"`)
+		if !ok || !ok2 || strings.ContainsAny(quoted, "\"\\") || strings.Contains(quoted, "sudo") {
+			t.Fatalf("the command isn't one plain double-quoted string: %s", lines[2])
+		}
+		if want := "curl -fsSL " + InstallURL + " | sh -s -- " + shellJoin(append([]string{"--yes"}, cmd.InstallArgs()...)); quoted != want {
+			t.Errorf("runs\n%s\nwant\n%s", quoted, want)
+		}
+	}
+	if got := v6.CloudConfig(); !strings.Contains(got, " --join '[2001:db8::1]:9000' ") || !strings.HasSuffix(got, " --name 'Bobs server'\"\n") {
+		t.Errorf("CloudConfig() = %s", got)
+	}
+}
+
 func TestCommand(t *testing.T) {
 	const fp = "Z287KN4CDZD0Z8A4XXJA514NKG"
 	c, err := NewCommand("https://panel.example.com/", "7kq2-m9xd", strings.ToLower(fp))

@@ -571,6 +571,35 @@ func TestTwoFactorChangesArePostedWhateverTheSwitches(t *testing.T) {
 	}
 }
 
+func TestMachinesInStockArePostedWhateverTheSwitches(t *testing.T) {
+	h := newHarness(t, Settings{Webhook: testWebhook(t, ""), Alerts: Alerts{}})
+	fsn := "https://console.hetzner.com/create/server?location=fsn1&type=cx53&useIPv4=true"
+	hel := "https://console.hetzner.com/create/server?location=hel1&type=cx53&useIPv4=true"
+	h.Notify(InStock("Hetzner", "CX53", []Place{{"Falkenstein", fsn}}))
+	h.Notify(InStock("Hetzner", "CX53", []Place{{"Nuremberg", "https://console.hetzner.com/create/server?type=cx53&location=nbg1"}, {"Helsinki", hel}}))
+	h.Notify(InStock("Hetzner", "CX43", []Place{{"Falkenstein", "javascript:alert(1)"}, {"Helsinki", "http://console.hetzner.com/"}}))
+	h.Notify(InStock("Hetzner", "*CX*", []Place{{"[x](https://evil.example)", "https://console.hetzner.com/create/server?a=(b)"}}))
+	h.sendDue()
+	var got []string
+	for _, r := range h.fake.take() {
+		for _, e := range r.Msg.Embeds {
+			got = append(got, e.Title+": "+strings.TrimSuffix(e.Description, dashboardLine))
+		}
+	}
+	want := []string{
+		"Machines in stock: Hetzner has **CX53** machines in stock. Buy one in [Falkenstein](" + fsn + ").",
+		"Machines in stock: Hetzner has **CX53** machines in stock. Buy one in [Nuremberg](https://console.hetzner.com/create/server?location=nbg1&type=cx53) or [Helsinki](" + hel + ").",
+		"Machines in stock: Hetzner has **CX43** machines in stock in Falkenstein or Helsinki.",
+		`Machines in stock: Hetzner has **\*CX\*** machines in stock. Buy one in [\[x\]\(https\://evil.example\)](https://console.hetzner.com/create/server?a=%28b%29).`,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("with every switch off, machines in stock still go out, linking only to https:\n%q\nwant\n%q", got, want)
+	}
+	if KindInStock.Valid() || ParseAlerts(string(KindInStock)).Has(KindInStock) {
+		t.Error("in_stock must not be a switch: watching is")
+	}
+}
+
 func TestSendTestPostsAConfirmation(t *testing.T) {
 	f := newFakeDiscord(t)
 	ctx := context.Background()

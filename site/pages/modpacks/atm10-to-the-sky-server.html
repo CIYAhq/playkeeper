@@ -1,0 +1,138 @@
+{{/*
+path: /modpacks/atm10-to-the-sky-server
+title: How to make an ATM10 To the Sky server (All the Mods 10: To the Sky)
+description: Set up an ATM10 To the Sky server: NeoForge 21.1.250, Java 21, 11 GB of memory, ATM's server files and the skyblock world type they write.
+label: ATM10 To the Sky server
+h1: How to make an ATM10 To the Sky server
+card: How to make an ATM10 To the Sky server
+kind: Modpack
+section: guides
+layout: guide
+crumb: Modpacks
+og: modpack-atm10-to-the-sky
+published: 2026-09-28
+updated: 2026-09-28
+schema: article
+*/}}
+
+{{define "short"}}{{$m := modpack "atm10-to-the-sky"}}An ATM10 To the Sky server runs {{$m.TypeName}} {{$m.Loader}} on Minecraft {{$m.Minecraft}} with Java {{$m.Java}}, puts each player on an island in the void through Skyblock Builder, and needs about {{$m.Memory}} of memory for the {{$m.HeapGB}} heap the pack asks for. Use ATM's server files, or let Playkeeper install version {{$m.Version}} from CurseForge.{{end}}
+
+{{define "closing-title"}}ATM10 To the Sky on your own server, in one click.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper sizes the server for the pack and fetches every mod.{{end}}
+
+{{define "side-text"}}Playkeeper installs ATM10 To the Sky from CurseForge, skyblock world included.{{end}}
+
+{{define "article"}}{{$m := modpack "atm10-to-the-sky"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+{{$side := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(54.55vw - 48px), 402px"}}
+<section aria-labelledby="needs">
+  {{template "h2n" (dict "ID" "needs" "N" 1 "Text" "What an ATM10 To the Sky server needs" "Toc" "What it needs")}}
+  {{template "modpack-facts" (dict "Pack" $m)}}
+  <p>ATM's team ships fixes in bursts: 2.0.3 on 9 Sep, 2.0.4 on 11 Sep, then 2.0.5 and 2.0.6 on 21 Sep. Every player needs the server's version.</p>
+  <p>On 28 Sep, a server created from its template on the published {{$m.Release}} was online 1 minute 42 seconds after Create, with the {{$m.DownloadSize}} download. Its log said <code>Done (5.906s)!</code>, a timer that starts after the mods have loaded.</p>
+</section>
+
+<section aria-labelledby="world">
+  {{template "h2n" (dict "ID" "world" "N" 2 "Text" "The world is an island in the void" "Toc" "The skyblock world")}}
+  <p>To the Sky is All the Mods 10's machines and magic on a skyblock start. The world comes from Skyblock Builder, one of its {{$m.Mods}} mods, through the world type <code>server.properties</code> names: <code>level-type=skyblockbuilder:skyblock</code>. ATM's start script writes that line on a new server.</p>
+  <ul>
+    <li><strong>A Playkeeper server gets it too.</strong> On the 28 Sep server, <code>server.properties</code> named Skyblock Builder's world type, the pack's seven starting islands loaded, like Simple Life and Witch Cottage, and the area around spawn was ready in 26 ms.</li>
+    <li><strong>Settings says Normal.</strong> Playkeeper's world type setting lists only Minecraft's own four, so it shows Normal for this world. The file on the Files tab is what the server uses.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="memory">
+  {{template "h2n" (dict "ID" "memory" "N" 3 "Text" "How much memory ATM10 To the Sky needs" "Toc" "How much memory")}}
+  <p>The pack's CurseForge file asks Java for {{$m.HeapGB}}. NeoForge and {{$m.Mods}} mods take memory outside the heap, so Playkeeper suggests {{$m.Memory}}, of which Java gets {{$m.JavaHeap}}, and the template rounds it up to {{gb (card $m.Template).MemoryMB}}.</p>
+  <ul>
+    <li><strong>ATM's server files set no heap.</strong> Their <code>user_jvm_args.txt</code> has <code>-Xmx4G</code> commented out, so Java takes a quarter of the machine's memory. In an 11 GB container that was 2.75 GB, and the server still started with nobody on.</li>
+    <li><strong>For 5 or more friends,</strong> the <a href="/sizing">sizing guide</a> gives a big modpack {{(sizingFor 8 "modpack").MemoryGB}} GB.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 4 "Text" "The one-click way")}}
+  <p class="p-lead">Playkeeper runs your server on a VPS you rent. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  {{$open := "Search New server › A modpack"}}{{$how := "Type To the Sky. It comes from CurseForge with NeoForge and the memory it needs."}}{{if $m.OneClick}}{{$open = "Open the template below, or search New server › A modpack"}}{{$how = printf "Either way it's ATM10 To the Sky %s from CurseForge, with NeoForge and the memory it needs." $m.Version}}{{end}}
+  {{template "steps" (dict "Class" "shot-steps" "Items" (list
+    (dict "Title" $open "Text" $how)
+    (dict "Title" "Create and start it" "Text" (printf "Playkeeper downloads the pack's %s, checking each file against CurseForge's hash. The server gets the %d mods ATM's server files have, and nothing is left to add." $m.DownloadSize $m.ServerFiles.Mods))
+    (dict "Title" "Let players fly" "Text" "Set allow-flight=true in server.properties on the Files tab, as ATM's script does, then restart.")
+  ))}}
+  {{template "cardshot" (dict "Name" "guide-modpacks" "Alt" "New server, starting from a modpack: the most downloaded packs, each with its loader, Minecraft version, mods and the memory it needs." "Sizes" $article)}}
+</section>
+
+<section aria-labelledby="manual">
+  {{template "h2n" (dict "ID" "manual" "N" 5 "Text" "By hand, with ATM's server files" "Toc" "By hand")}}
+  {{with $m.ServerFiles}}<p>Download <a href="{{.URL}}">{{.Name}}</a> ({{megabytes .MB}}, {{.Mods}} mods) from the pack's files on CurseForge. Its <code>startserver.sh</code> installs {{$m.TypeName}} {{$m.Loader}} the first time it runs.</p>{{end}}
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="System">
+        <button type="button" class="code-tab" role="tab" id="tab-ubuntu" aria-controls="code-ubuntu" aria-selected="true">Ubuntu 24.04</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-ubuntu" role="tabpanel" tabindex="0" aria-labelledby="tab-ubuntu"><span class="c"># Java {{$m.Java}}, then the server files in ./atm10sky</span>
+sudo apt install -y openjdk-{{$m.Java}}-jre-headless unzip
+unzip {{$m.ServerFiles.Name}} -d atm10sky &amp;&amp; cd atm10sky
+echo "eula=true" &gt; eula.txt
+sed -i 's/^# -Xmx4G$/-Xmx{{gbFlag $m.HeapMB}}/' user_jvm_args.txt   <span class="c"># the heap the pack asks for</span>
+ATM10_RESTART=false sh startserver.sh   <span class="c"># installs {{$m.TypeName}}, then starts</span></pre>
+  </div>
+  <ul>
+    <li><strong>Set the heap with <code>sed</code>, not <code>echo &gt;&gt;</code>:</strong> the file has no line break at its end, so an added line joins the comment above it and does nothing.</li>
+    <li><strong>It ran on 28 Sep</strong> in a Java 21 container: the script installed {{$m.TypeName}}, wrote <code>server.properties</code>, and the server said Done with its {{$m.HeapGB}} heap.</li>
+    <li><strong>Restarts:</strong> the script starts the server again 10 seconds after it stops, unless <code>ATM10_RESTART</code> is <code>false</code>. <code>ATM10_JAVA</code> picks another Java, and anything older than {{$m.Java}} stops with "Minecraft 1.21 requires Java 21".</li>
+    <li><strong>Open TCP 25565</strong> in your provider's firewall.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="settings">
+  {{template "h2n" (dict "ID" "settings" "N" 6 "Text" "What ATM's script writes to server.properties" "Toc" "Settings")}}
+  <p>On a new server it writes four lines. A Playkeeper server has the same world type, and Playkeeper's own values for the rest:</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Setting</th><th scope="col">ATM's script</th><th scope="col">On Playkeeper</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">level-type</th><td>skyblockbuilder:skyblock</td><td>The same</td></tr>
+        <tr><th scope="row">allow-flight</th><td>true</td><td>false: jetpacks and other flying items can get players kicked, so set it</td></tr>
+        <tr><th scope="row">max-tick-time</th><td>180000</td><td>60000: one tick longer than a minute stops the server</td></tr>
+        <tr><th scope="row">motd</th><td>All the Mods 10 To the Sky</td><td>The server's own, from its Settings</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-labelledby="friends">
+  {{template "h2n" (dict "ID" "friends" "N" 7 "Text" "Friends play the same version" "Toc" "Friends join")}}
+  <div class="shot-step">
+    <div>
+      <p>Each friend installs All the Mods 10: To the Sky {{$m.Version}} in the CurseForge app or Prism Launcher, then joins your server's address.</p>
+      <p>Share with friends, on the server's Mods tab, makes them a page with the pack's version and their launcher's steps.</p>
+    </div>
+    {{template "cardshot" (dict "Name" "guide-pack-page" "Alt" "The page friends open: the server's versions, the pack file to download and their launcher's steps." "Sizes" $side)}}
+  </div>
+</section>
+{{end}}
+
+{{define "after"}}{{$m := modpack "atm10-to-the-sky"}}{{$atm := modpack "atm10"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "How much RAM does an ATM10 To the Sky server need?" (printf "About %s for a few friends: the pack asks Java for %s, and %s with %d mods needs memory beside it. Give 5 or more friends %d GB." $m.Memory $m.HeapGB $m.TypeName $m.Mods (sizingFor 8 "modpack").MemoryGB))
+    (qa "Does ATM10 To the Sky need a special world type?" "Yes: level-type=skyblockbuilder:skyblock in server.properties. ATM's start script writes it, and a server Playkeeper creates from the pack gets it too.")
+    (qa "Where are the ATM10 To the Sky server files?" (printf "On the pack's CurseForge page, under its files: %s, %s. Playkeeper doesn't need them from you." $m.ServerFiles.Name (megabytes $m.ServerFiles.MB)))
+    (qa "Should I host ATM10 or ATM10 To the Sky?" (printf "The one your friends play. ATM10 starts in a normal world with %d mods; To the Sky starts on an island in the void with %d. Both run %s on Minecraft %s." $atm.Mods $m.Mods $m.TypeName $m.Minecraft))
+    (qa "Which Java does an ATM10 To the Sky server need?" (printf "Java %d. ATM's start script stops on anything older, and Playkeeper runs the server on Java %d for you." $m.Java $m.Java))
+  ))}}
+  {{if $m.OneClick}}<section class="tpl-section" aria-labelledby="tpl-title">
+    <h2 id="tpl-title" class="h3 reveal">Open it in your dashboard</h2>
+    <div class="tpl-pair">
+      {{template "pack-card" (dict "Pack" $m)}}
+      {{if $atm.OneClick}}{{template "pack-card" (dict "Pack" $atm)}}{{end}}
+    </div>
+  </section>{{end}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/modpacks/atm10-server" "/modpacks/skyfactory-5-server" "/templates/skyblock")}}{{end}}

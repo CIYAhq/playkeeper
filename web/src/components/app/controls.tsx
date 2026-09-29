@@ -120,7 +120,7 @@ export function ChoiceSelect<T extends string>({
       <SelectTrigger id={id} aria-label={label} title={disabledReason} className={cn('w-auto min-w-48', disabledReason && 'data-disabled:pointer-events-auto data-disabled:cursor-not-allowed', className)}>
         <SelectValue />
       </SelectTrigger>
-      <SelectPopup alignItemWithTrigger={false}>
+      <SelectPopup alignItemWithTrigger={false} aria-label={label}>
         {options.map((o, i) => (
           <SelectItem key={o.value} value={o.value} disabled={o.disabled} title={o.disabled ? o.reason : undefined} aria-describedby={why(o, i)} className="py-1.5">
             <span className="flex flex-col">

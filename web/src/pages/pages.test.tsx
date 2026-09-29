@@ -15,6 +15,7 @@ import type {
   Crash,
   DiscordSettings,
   FileRefusal,
+  HetznerStock,
   InvitesResponse,
   JoinInfo,
   JoinPreview,
@@ -40,12 +41,15 @@ import type {
   ServerConfig,
   ServerStatus,
   SignInNotice,
+  TeamInvite,
   TeamResponse,
   TemplateContents,
   TemplateExport,
   TemplateLibrary,
   TemplatePlan,
   TwoFactorSetup,
+  WhopPlan,
+  WhopStore,
 } from '@/api/types'
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
 import { activityText } from '@/components/app/activity'
@@ -61,6 +65,7 @@ import { formatClock, formatDate, formatDuration, formatLongDate } from '@/lib/f
 import { parse } from '@/lib/router'
 import { AiAgentsSection } from './ai-agents'
 import { DiscordSettingsSection } from './discord'
+import { HetznerStockCard } from './hetzner-stock'
 import { HomePage } from './home'
 import { JoinPage } from './join'
 import { DashboardMachineOnly, MachinePage } from './machine'
@@ -81,6 +86,7 @@ import { AsleepCard } from './server/sleep'
 import { WorldPage } from './server/world'
 import { GlobalSettingsPage } from './settings'
 import { TeamSection } from './team'
+import { SellOnWhopSection } from './whop'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
@@ -472,11 +478,13 @@ describe('Home for team members', () => {
       { ts: hoursAgo(1), serverId: 'abcdefghjk', kind: 'backup_refused', actor: 'playkeeper', detail: 'unexpected_reply' },
       { ts: hoursAgo(2), serverId: 'abcdefghjk', kind: 'backup_refused', actor: 'playkeeper', detail: 'not_online' },
       { ts: hoursAgo(3), serverId: 'abcdefghjk', kind: 'backup_refused', actor: 'playkeeper', detail: 'something_newer' },
+      { ts: hoursAgo(4), serverId: 'abcdefghjk', kind: 'backup_refused', actor: 'playkeeper', detail: 'disk_limit_reached' },
     ] })
     const text = await render(<HomePage />, workspace({ servers: both() }))
     expect(text).toContain('Scheduled backup of Survival refused · the server gave an unexpected reply')
     expect(text).toContain('Scheduled backup of Survival refused · the server was starting or stopping')
     expect(text).toContain('Scheduled backup of Survival refused · world saving couldn’t be paused')
+    expect(text).toContain('Scheduled backup of Survival refused · the servers’ disk limit is reached')
   })
 
   it('gives a viewer no Start button and a member no first steps', async () => {
@@ -1192,6 +1200,16 @@ describe('Backups with players online', () => {
     expect(cleared).not.toContain('refused')
   })
 
+  it('says what to do when the disk limit stops scheduled backups, with no button', async () => {
+    answer({ '/backups': [backup()] })
+    const limit = refusal({ count: 1, kind: 'disk_limit_reached', error: 'That needs about 1.2 GB, and these servers have 300.0 MB of their 30.0 GB disk limit left.', hint: 'Delete backups or files you don’t need to make room.' })
+    const text = await render(<WorldPage server={server({ backupRefused: limit })} />)
+    expect(text).toContain('A scheduled backup was refused')
+    expect(text).toContain('That needs about 1.2 GB, and these servers have 300.0 MB of their 30.0 GB disk limit left. Delete backups or files you don’t need to make room.')
+    expect(text).not.toContain('Scheduled backups never stop the server')
+    expect(refusedNotice()?.querySelector('button')).toBeNull()
+  })
+
   it('puts world saving paused first on the Overview, and drops its failure once saving is back on', async () => {
     const paused = failed('backup', '', 'World saving is still paused, and turning it back on failed. No backup was saved.', { errorKind: 'saving_paused', savingPaused: true })
     const text = await render(<Overview server={server({ lastOperation: paused, savingPausedSince: since.toISOString() })} />)
@@ -1771,6 +1789,257 @@ describe('Add-on sources', () => {
     expect(text).toContain('That machine isn’t connected to this dashboard')
     expect(keyField()).toBeNull()
     expect(vi.mocked(client.get).mock.calls.filter(([p]) => String(p).includes('/addon-sources'))).toEqual([])
+  })
+})
+
+describe('Sell on Whop', () => {
+  const needs = ['access_pass:basic:read', 'plan:basic:read', 'support_chat:create']
+  const closed: WhopStore = { connected: false, dashboard: 'https://my-vps.playkeeper.me:8443', plans: [], webhook: false, customers: [], needs }
+  const starter: WhopPlan = { id: 'plan_starter', productId: 'prod_mc', productTitle: 'Minecraft server', title: 'Starter', price: '$8.00 / month', visibility: 'hidden', trialDays: 3, allowance: { servers: 1, memoryMB: 4096 }, allowanceFrom: 'store' }
+  const big: WhopPlan = { id: 'plan_big', productId: 'prod_mc', productTitle: 'Minecraft server', title: 'Big', price: '$16.00 / month', visibility: 'visible' }
+  const open: WhopStore = {
+    ...closed,
+    connected: true,
+    account: { id: 'biz_pip', title: 'Pip Hosting', route: 'pip-hosting' },
+    keyEnding: 'abcd',
+    connectedBy: 'siya',
+    syncedAt: hoursAgo(1),
+    plans: [starter, big],
+    webhook: true,
+    customers: [
+      { whopUserId: 'user_alex', handle: 'alexplays', status: 'active', plan: 'Starter', account: 'alexplays', allowance: { servers: 1, memoryMB: 4096 } },
+      { whopUserId: 'user_sam', handle: 'samcrafts', status: 'paused', plan: 'Old plan', allowance: { servers: 2, memoryMB: 8192 } },
+      { whopUserId: 'user_kai', status: 'starting', plan: 'Starter', allowance: { servers: 1, memoryMB: 4096 }, problem: 'This dashboard can’t host customers yet.' },
+      { whopUserId: 'user_lee', handle: 'leebuilds', status: 'ended' },
+    ],
+  }
+  const owner = workspace({ me: { ...me, access: { ...me.access, can: [...everything, 'whop.manage'] } } })
+  const keyField = () => document.querySelector<HTMLInputElement>('input[aria-label="Whop API key"]')
+  const submitKey = async () => act(async () => button('Connect').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+
+  it('is a Settings section for the owner alone, after Discord', async () => {
+    answer({ '/api/whop': closed })
+    await render(<GlobalSettingsPage page={{ name: 'whop' }} />, owner)
+    const nav = document.querySelector('nav[aria-label="Settings sections"]')
+    expect([...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent)).toEqual(['Team', 'Add-on sources', 'Discord', 'Sell on Whop', 'AI agents', 'Machines', 'Playkeeper'])
+    expect(nav?.querySelector('[aria-current="page"]')?.getAttribute('href')).toBe('/settings/whop')
+    const admin = await render(<GlobalSettingsPage page={{ name: 'discord' }} />)
+    expect(admin).not.toContain('Sell on Whop')
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('lists the steps and the permissions a key needs, and asks for the key', async () => {
+    answer({ '/api/whop': closed })
+    const text = await render(<SellOnWhopSection />, owner)
+    for (const step of ['deploy the Pip Hosting blueprint', 'Make an API key on Whop', 'Paste the key here.', 'access_pass:basic:read, plan:basic:read, support_chat:create', 'only ever sent to Whop']) expect(text).toContain(step)
+    expect(keyField()?.type).toBe('password')
+    expect(button('Connect').disabled).toBe(true)
+    expect(text).not.toContain('needs an address')
+  })
+
+  it('turns on Sign in with Whop with the app’s ID, then off again', async () => {
+    const redirect = 'https://my-vps.playkeeper.me:8443/api/public/whop/signin/callback'
+    answer({ '/api/whop': { ...open, signIn: { redirectUri: redirect } } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain(`Redirect URL: ${redirect}`)
+    expect(button('Turn on').disabled).toBe(true)
+    await typeInto('input[aria-label="Whop app ID"]', ' app_pipcloud ')
+    vi.mocked(client.put).mockResolvedValueOnce({ ...open, signIn: { clientId: 'app_pipcloud', secretEnding: 'wxyz', redirectUri: redirect } })
+    await act(async () => button('Turn on').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/whop/signin', { clientId: 'app_pipcloud', clientSecret: '' })
+    expect(document.body.textContent).toContain('Customers sign in with their Whop account, through app_pipcloud. Its secret ends wxyz.')
+    vi.mocked(client.del).mockResolvedValueOnce({ ...open, signIn: { redirectUri: redirect } })
+    await click('Turn off')
+    expect(vi.mocked(client.del)).toHaveBeenLastCalledWith('/api/whop/signin')
+    expect(document.body.textContent).toContain(`Redirect URL: ${redirect}`)
+  })
+
+  it('says Sign in with Whop needs the machine’s address', async () => {
+    answer({ '/api/whop': { ...open, signIn: {} } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('Give this machine an address first, in Machine settings › Address.')
+  })
+
+  it('says the machine needs an address first, with a way to set one', async () => {
+    answer({ '/api/whop': { ...closed, dashboard: '' } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('This machine needs an address first')
+    expect(link('Set one up').getAttribute('href')).toBe(`/machines/${machine.id}/settings`)
+  })
+
+  it('says why Whop refused a key, and which permissions a key lacks', async () => {
+    answer({ '/api/whop': closed })
+    await render(<SellOnWhopSection />, owner)
+    await typeInto('input[aria-label="Whop API key"]', ' apik_wrong_0123456789 ')
+    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(400, { code: 'whop_key_refused', error: 'Whop didn’t take that key.' }))
+    await submitKey()
+    expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/whop/connect', { key: 'apik_wrong_0123456789' })
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('Whop didn’t take that key')
+    expect(keyField()?.getAttribute('aria-invalid')).toBe('true')
+    await typeInto('input[aria-label="Whop API key"]', 'apik_partial_0123456789')
+    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(400, { code: 'whop_permissions', error: 'That key can’t do everything selling needs.', params: { missing: 'support_chat:create,developer:manage_webhook' } }))
+    await submitKey()
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('That key lacks support_chat:create, developer:manage_webhook. Make a new key with those too.')
+  })
+
+  it('shows the connected store with its plans and what each allows', async () => {
+    answer({ '/api/whop': closed })
+    await render(<SellOnWhopSection />, owner)
+    await typeInto('input[aria-label="Whop API key"]', 'apik_pip_hosting_0123456789abcd')
+    vi.mocked(client.post).mockResolvedValueOnce(open)
+    await submitKey()
+    const text = page()
+    expect(text).toContain('Pip HostingSelling')
+    expect(text).toContain('Key ending abcd')
+    expect(text).toContain('The store sends buyers to https://my-vps.playkeeper.me:8443.')
+    expect(text).toContain('StarterHidden$8.00 / month · 3-day free trial · Up to 1 server with 4 GB · set on Whop')
+    expect(text).toContain('BigVisible$16.00 / month · No allowance yet')
+    expect(buttons('Set allowance')).toHaveLength(1)
+    expect(keyField()).toBeNull()
+    expect(text).toContain('alexplaysActive as alexplays · Starter · Up to 1 server with 4 GB')
+    expect(text).toContain('samcraftsPaused: their plan ended · Old plan · Up to 2 servers with 8 GB')
+    expect(text).toContain('user_kaiSetting up their account · Starter · Up to 1 server with 4 GBThis dashboard can’t host customers yet.')
+    expect(text).toContain('leebuildsTheir plan ended')
+    expect(text).not.toContain('checks every few minutes')
+  })
+
+  it('says when Whop can’t tell the dashboard about customers as they buy', async () => {
+    answer({ '/api/whop': { ...open, webhook: false, customers: [] } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('so it checks every few minutes')
+    expect(text).toContain('No customers yet.')
+  })
+
+  it('sets what a plan without metadata allows', async () => {
+    answer({ '/api/whop': open })
+    await render(<SellOnWhopSection />, owner)
+    await click('Set allowance')
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('What Big allows')
+    vi.mocked(client.put).mockResolvedValueOnce({ ...open, plans: [starter, { ...big, allowance: { servers: 1, memoryMB: 4096 }, allowanceFrom: 'owner' }] })
+    await act(async () => button('Save').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await act(async () => {})
+    expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/whop/plans/plan_big', { servers: 1, memoryMB: 4096 })
+    expect(page()).toContain('BigVisible$16.00 / month · Up to 1 server with 4 GB')
+    expect(buttons('Change')).toHaveLength(1)
+  })
+
+  it('reads the store again, and disconnects after asking', async () => {
+    answer({ '/api/whop': open })
+    await render(<SellOnWhopSection />, owner)
+    answerPosts({ '/api/whop/sync': { ...open, plans: [starter] } })
+    await click('Read the store again')
+    expect(page()).not.toContain('Big')
+    await click('Disconnect')
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Stop selling for Pip Hosting?')
+    vi.mocked(client.del).mockResolvedValueOnce(closed)
+    const confirm = buttons('Disconnect').find((b) => b.closest('[role="dialog"]'))
+    if (!confirm) throw new Error('no Disconnect in the dialog')
+    await click(confirm)
+    expect(vi.mocked(client.del)).toHaveBeenLastCalledWith('/api/whop')
+    expect(keyField()).not.toBeNull()
+  })
+})
+
+describe('Hetzner stock', () => {
+  const off: HetznerStock = { connected: false, serverType: 'cx53', types: ['cx23', 'cx33', 'cx43', 'cx53'], places: [], discord: true }
+  const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
+  const fsnBuy = 'https://console.hetzner.com/create/server?location=fsn1&type=cx53&useIPv4=true'
+  /** Watching CX53 with Falkenstein in stock, its times counted back from the test's clock when it's called. */
+  const watching = (): HetznerStock => ({
+    ...off,
+    connected: true,
+    tokenEnding: 'WXyz',
+    setBy: 'siya',
+    setAt: hoursAgo(2),
+    checkedAt: minutesAgo(1),
+    places: [
+      { location: 'fsn1', city: 'Falkenstein', available: true, since: minutesAgo(4), buyUrl: fsnBuy },
+      { location: 'nbg1', city: 'Nuremberg', available: false, since: minutesAgo(90) },
+      { location: 'hel1', city: 'Helsinki', available: false },
+    ],
+  })
+  const owner = workspace({ me: { ...me, access: { ...me.access, can: [...everything, 'machines.stock'] } } })
+  const tokenField = () => document.querySelector<HTMLInputElement>('input[aria-label="Hetzner API token"]')
+  const submit = async (label: string) => act(async () => button(label).closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+  const machineLink = { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }] }, sizingUrl: '', available: false, codes: [] }
+
+  it('is on the Machines page for the owner alone', async () => {
+    answer({ '/api/machines/link': machineLink, '/api/hetzner': off })
+    expect(await render(<MachinesSection />, owner)).toContain('Hetzner stock')
+    expect(await render(<MachinesSection />)).not.toContain('Hetzner stock')
+  })
+
+  it('asks for a read-only token, and says when Hetzner refuses one', async () => {
+    answer({ '/api/hetzner': off })
+    const text = await render(<HetznerStockCard />, owner)
+    expect(text).toContain('Hear in Discord when Hetzner has the machines you add here, with a link that buys one.')
+    expect(text).toContain('open Security › API tokens and generate a token with Read permission.')
+    expect(link('Open Hetzner Console').getAttribute('href')).toBe('https://console.hetzner.com/projects')
+    expect(text).toContain('The token stays on this machine and only reads.')
+    expect(tokenField()?.type).toBe('password')
+    expect(button('Watch').disabled).toBe(true)
+    await typeInto('input[aria-label="Hetzner API token"]', ' not-a-token ')
+    vi.mocked(client.put).mockRejectedValueOnce(new client.ApiError(400, { code: 'hetzner_token_refused', error: 'That doesn’t look like a Hetzner API token.' }))
+    await submit('Watch')
+    expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/hetzner', { token: 'not-a-token', serverType: 'cx53' })
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('Hetzner didn’t take that token. Copy it again, or make a new one with Read permission.')
+    expect(tokenField()?.getAttribute('aria-invalid')).toBe('true')
+  })
+
+  it('shows where the type is in stock, with a link that buys one there', async () => {
+    // "checked 1 min ago" and "since Today 14:10" read the clock, so it stands still: a slow run or midnight changes neither.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 8, 29, 14, 14, 26))
+    try {
+      answer({ '/api/hetzner': off })
+      await render(<HetznerStockCard />, owner)
+      await typeInto('input[aria-label="Hetzner API token"]', 'a-token')
+      const on = watching()
+      vi.mocked(client.put).mockResolvedValueOnce(on)
+      await submit('Watch')
+      const text = page()
+      expect(text).toContain('CX53In stock')
+      expect(text).toContain('Token ending WXyz · checked 1 min ago')
+      expect(text).toContain(`FalkensteinIn stock since Today ${formatClock(on.places[0]?.since ?? '')}`)
+      expect(text).toContain('NurembergSold out')
+      expect(text).toContain('HelsinkiSold out')
+      const buy = [...document.querySelectorAll('a')].filter((a) => a.textContent === 'Buy one')
+      expect(buy.map((a) => [a.getAttribute('href'), a.getAttribute('target')])).toEqual([[fsnBuy, '_blank']])
+      expect(text).not.toContain('Connect Discord')
+      expect(tokenField()).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('says a problem needs a look, and that Discord isn’t connected', async () => {
+    answer({ '/api/hetzner': { ...watching(), discord: false, problem: 'Hetzner no longer takes the token, so the watch stopped. Paste a new read-only token.' } })
+    const text = await render(<HetznerStockCard />, owner)
+    expect(text).toContain('CX53Needs a look')
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('no longer takes the token')
+    expect(text).toContain('Alerts go to Discord, which isn’t connected.')
+    expect(link('Connect Discord').getAttribute('href')).toBe('/settings/discord')
+  })
+
+  it('watches another type with the token kept, and stops watching', async () => {
+    const on = watching()
+    answer({ '/api/hetzner': on })
+    await render(<HetznerStockCard />, owner)
+    await click('Change')
+    expect(tokenField()?.placeholder).toBe('Keep the token ending WXyz')
+    expect(button('Save').disabled).toBe(true)
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Server type"]')?.click())
+    const cx43 = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((o) => o.textContent === 'CX43')
+    await act(async () => cx43?.click())
+    expect(button('Save').disabled).toBe(false)
+    vi.mocked(client.put).mockResolvedValueOnce({ ...on, serverType: 'cx43' })
+    await submit('Save')
+    expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/hetzner', { token: '', serverType: 'cx43' })
+    expect(page()).toContain('CX43In stock')
+    vi.mocked(client.del).mockResolvedValueOnce(off)
+    await click('Stop watching')
+    expect(vi.mocked(client.del)).toHaveBeenLastCalledWith('/api/hetzner')
+    expect(tokenField()).not.toBeNull()
   })
 })
 
@@ -2547,6 +2816,100 @@ describe('Team', () => {
     await click(survival)
     expect(button('Create link').disabled).toBe(true)
     expect(button('Create link').title).toBe('Pick at least one server.')
+  })
+
+  it('lets the owner invite a creator with an allowance, and shows creators and their links apart', async () => {
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [
+        { id: 1, username: 'siya', owner: true, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: '2026-09-01T10:00:00Z', canEdit: false },
+        { id: 4, username: 'alex', owner: false, you: false, role: 'admin', servers: {}, twoFactor: true, addedAt: hoursAgo(2), canEdit: true, allowance: { servers: 1, memoryMB: 4096 } },
+      ],
+      invites: [{ id: 'ti2', kind: 'member', projectId: 'p2345abcde', role: 'admin', label: 'cambam', createdBy: 1, createdAt: hoursAgo(1), expiresAt: inHours(6 * 24 + 1), maxUses: 1, uses: 0, status: 'active', canEdit: true, allowance: { servers: 1, memoryMB: 8192 } }],
+      grantableRoles: ['admin', 'moderator', 'viewer'],
+      servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+    }
+    answer({ '/api/team': team })
+    answerPosts({ '/api/team/invites': { invite: team.invites[0], path: '/join/Qm7xK2pLw9RtVb4n', link: { base: 'https://beta.playkeeper.me:8443', friendly: true } } })
+    const text = await render(<TeamSection />)
+    for (const line of ['Up to 1 server with 4 GB', 'cambam', 'Creator invite not used yet · runs out in 6 days', 'Up to 1 server with 8 GB']) expect(text).toContain(line)
+    await click(button('More for alex'))
+    expect(page()).toContain('Remove from team')
+    expect(page()).not.toContain('Change servers')
+    await click(button('Invite a creator'))
+    expect(page()).toContain('They see only their own servers, and only you see this link.')
+    await typeInto('input[placeholder="Their handle, like alex"]', 'mogswamp')
+    await click(button('Create link'))
+    expect(client.post).toHaveBeenCalledWith('/api/team/invites', { role: 'admin', servers: {}, label: 'mogswamp', allowance: { servers: 1, memoryMB: 4096 } })
+    expect(document.querySelector<HTMLInputElement>('input[readonly]')?.value).toBe('https://beta.playkeeper.me:8443/join/Qm7xK2pLw9RtVb4n')
+  })
+
+  it('shows each creator’s disk, and how much their servers take once it’s counted', async () => {
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [
+        { id: 1, username: 'siya', owner: true, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: '2026-09-01T10:00:00Z', canEdit: false },
+        { id: 4, username: 'alex', owner: false, you: false, role: 'admin', servers: {}, twoFactor: true, addedAt: hoursAgo(2), canEdit: true, allowance: { servers: 1, memoryMB: 4096 }, diskUsedBytes: 12 * 1024 ** 3 },
+        { id: 5, username: 'sam', owner: false, you: false, role: 'admin', servers: {}, twoFactor: true, addedAt: hoursAgo(3), canEdit: true, allowance: { servers: 2, memoryMB: 8192, diskGB: 100 } },
+      ],
+      invites: [],
+      grantableRoles: ['admin', 'moderator', 'viewer'],
+      servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+    }
+    answer({ '/api/team': team })
+    const text = await render(<TeamSection />)
+    expect(text).toContain('12 GB of 30 GB of disk used')
+    expect(text).toContain('100 GB of disk')
+    expect(text).not.toContain('100 GB of disk used')
+  })
+
+  it('makes a creator invite with the dialog’s defaults, in the body the panel takes', async () => {
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [{ id: 1, username: 'siya', owner: true, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: '2026-09-01T10:00:00Z', canEdit: false }],
+      invites: [],
+      grantableRoles: ['admin', 'moderator', 'viewer'],
+      servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+    }
+    const invite: TeamInvite = { id: 'ti3', kind: 'member', projectId: 'p2345abcde', role: 'admin', createdBy: 1, createdAt: hoursAgo(0), expiresAt: inHours(7 * 24), maxUses: 1, uses: 0, status: 'active', canEdit: true, allowance: { servers: 1, memoryMB: 4096 } }
+    answer({ '/api/team': team })
+    answerPosts({ '/api/team/invites': { invite, path: '/join/Qm7xK2pLw9RtVb4n', link: { base: 'https://beta.playkeeper.me:8443', friendly: true } } })
+    await render(<TeamSection />)
+    await click(button('Invite a creator'))
+    await click(button('Create link'))
+    const [path, body] = vi.mocked(client.post).mock.calls[0] ?? []
+    expect(path).toBe('/api/team/invites')
+    // internal/panel's TestTheCreatorDialogsDefaultsMakeAnInvite posts this body.
+    expect(JSON.stringify(body)).toBe('{"role":"admin","servers":{},"allowance":{"servers":1,"memoryMB":4096}}')
+    expect(document.querySelector<HTMLInputElement>('input[readonly]')?.value).toBe('https://beta.playkeeper.me:8443/join/Qm7xK2pLw9RtVb4n')
+  })
+
+  it('offers creator invites only to the owner', async () => {
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [{ id: 2, username: 'mara', owner: false, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: hoursAgo(49), canEdit: false }],
+      invites: [],
+      grantableRoles: ['moderator', 'viewer'],
+      servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+    }
+    answer({ '/api/team': team })
+    await render(<TeamSection />, workspace({ me: member('admin', everything, { servers: { all: true }, twoFactor: true }) }))
+    expect(buttons('Add a team member')).toHaveLength(1)
+    expect(buttons('Invite a creator')).toHaveLength(0)
+  })
+})
+
+describe('Creator invite page', () => {
+  it('shows what a creator may create instead of servers', async () => {
+    const preview: JoinPreview = { kind: 'member', inviter: '', role: 'admin', servers: {}, expiresAt: '2026-10-02T12:00:00Z', serverNames: [], team: 'Playkeeper beta', allowance: { servers: 1, memoryMB: 4096 } }
+    answerPosts({ '/preview': preview })
+    const text = await render(<JoinPage code="Qm7xK2pLw9RtVb4n" onSignedIn={() => {}} />)
+    for (const line of ['Create your own Minecraft server on Playkeeper beta', 'Creator', 'You create and run your own servers here', 'Up to 1 server with 4 GB']) expect(text).toContain(line)
+    expect(text).not.toContain('No servers')
   })
 })
 
@@ -3426,6 +3789,50 @@ describe('Machines and AI agents', () => {
     expect(text).toContain('Open this dashboard at its IP address or domain name, not localhost, to get the command.')
     expect(text).toContain('Ubuntu 20.04+ or Debian 12+ on x86-64 or ARM64, at least 2 CPU cores, 3 GB of memory and 5 GB of free disk.')
     expect(vi.mocked(client.post).mock.calls.some(([p]) => String(p).includes('/join-codes'))).toBe(false)
+  })
+
+  it('gives the command as cloud config for a cloud server that’s being created', async () => {
+    forgetJoinCode()
+    const fp = 'Z287KN4CDZD0Z8A4XXJA514NKG'
+    const cloudConfig = `#cloud-config\nruncmd:\n  - "curl -fsSL https://playkeeper.io/install | sh -s -- --yes --join 203.0.113.5:8443 --code 7KQ2-M9XD --fingerprint ${fp}"\n`
+    const cmd = {
+      id: 'jc1',
+      dials: '203.0.113.5:8443',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      createdBy: 'siya',
+      state: 'waiting',
+      code: '7KQ2-M9XD',
+      install: `curl -fsSL https://playkeeper.io/install | sudo sh -s -- --join 203.0.113.5:8443 --code 7KQ2-M9XD --fingerprint ${fp}`,
+      join: `sudo playkeeper join 203.0.113.5:8443 --code 7KQ2-M9XD --fingerprint ${fp}`,
+      installLines: ['curl -fsSL https://playkeeper.io/install | sudo sh -s -- \\', '  --join 203.0.113.5:8443 \\', '  --code 7KQ2-M9XD \\', `  --fingerprint ${fp}`],
+      joinLines: ['sudo playkeeper join 203.0.113.5:8443 \\', '  --code 7KQ2-M9XD \\', `  --fingerprint ${fp}`],
+      cloudConfig,
+    }
+    answer({ '/api/machines/link': { addresses: [{ kind: 'ip', address: '203.0.113.5:8443' }], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }] }, sizingUrl: '', available: true, codes: [] } })
+    answerPosts({ '/api/join-codes': cmd })
+    await render(<MachinesSection />)
+    expect(page()).toContain('Run this on it')
+    await click('New cloud server')
+    const shown = [...document.querySelectorAll('[role="group"] pre span')].map((s) => s.textContent)
+    expect(shown).toEqual(cloudConfig.trimEnd().split('\n'))
+    expect(page()).toContain('Paste this while you create it')
+    expect(page()).toContain('Paste it in the cloud’s Cloud config or User data box, with Ubuntu or Debian.')
+    const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+    await click(button('Copy'))
+    expect(copy).toHaveBeenLastCalledWith(cloudConfig)
+    copy.mockRestore()
+
+    // A phone picks the form from a list, which three choices fit.
+    const phone = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+    await render(<MachinesSection />)
+    expect(document.querySelector('[role="group"][aria-label="Which command"]')).toBeNull()
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Which command"]')?.click())
+    const cloud = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((o) => o.textContent === 'New cloud server')
+    await act(async () => cloud?.click())
+    expect([...document.querySelectorAll('[role="group"] pre span')].map((s) => s.textContent)).toEqual(cloudConfig.trimEnd().split('\n'))
+    phone.mockRestore()
+    forgetJoinCode()
   })
 
   it('says why a token can’t be made yet', async () => {

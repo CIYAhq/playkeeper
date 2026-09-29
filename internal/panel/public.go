@@ -38,6 +38,11 @@ func (s *Server) publicRoutes() []publicRoute {
 		// Wave 6: the shared map's page and the calls it makes.
 		{prefix: mapPagePrefix, limits: mapPageLimits, handler: s.mapPage()},
 		{prefix: mapDataPrefix, limits: mapDataLimits, handler: s.mapData()},
+		// Sell on Whop: the webhook Whop sends membership events to, which
+		// must hear a failure as one to send the delivery again.
+		{prefix: whopWebhookPath, limits: whopWebhookLimits, ownRefusals: true, handler: s.whopWebhook()},
+		// Sign in with Whop: leaving for Whop, and coming back.
+		{prefix: whopSignInPrefix, limits: whopSignInLimits, handler: s.whopSignIn()},
 	}
 }
 

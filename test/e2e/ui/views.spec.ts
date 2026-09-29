@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { pageOf, unviewed } from './clickthrough-plan'
 import { installFakes, sharedLinks, type View } from './fakes'
 import { firstServer, login, shot, tabTo } from './helpers'
 
@@ -8,6 +9,16 @@ const viewports = [
   { name: 'narrow', width: 390, height: 844 },
 ]
 const prefix = process.env.PK_SHOT_PREFIX ?? 'view'
+
+// A pull request's crawl runners (clickthrough.yml) check only the pages its
+// change touches: PK_VIEWS names them as the page map does (pageOf),
+// PK_VIEW_SIZE is the runner's size and PK_SHARD (k/n) takes every n-th of
+// them. Unset, every page at both sizes.
+const only = process.env.PK_VIEWS ? (JSON.parse(process.env.PK_VIEWS) as string[]) : undefined
+const [shard, shards] = (process.env.PK_SHARD ?? '1/1').split('/').map(Number) as [number, number]
+const sizes = viewports.filter((vp) => !process.env.PK_VIEW_SIZE || vp.name === process.env.PK_VIEW_SIZE)
+/** The pages of `list` this run checks. */
+const mine = <T extends { route: string }>(list: T[]) => (only ? list.filter((v) => only.includes(pageOf(v.route))).filter((_, i) => i % shards === shard - 1) : list)
 // The server types with a Map tab, as in web/src/lib/map.ts.
 const mapTypes = ['paper', 'purpur', 'fabric', 'quilt', 'neoforge']
 
@@ -65,6 +76,10 @@ test('every page, desktop and narrow, with no serious accessibility violations a
   let view: View = 'live'
   const fakes = await installFakes(page, baseURL ?? '', () => view)
   const map = mapTypes.includes(s.type || 'paper')
+  const mapPages = [
+    { route: `/servers/${s.slug}/map`, name: 'map-off', heading: s.name, phone: 'Map' },
+    { route: `/servers/${s.slug}/map`, name: 'map-on', heading: s.name, phone: 'Map', view: 'map on' as const },
+  ]
   // phone: the heading a phone shows instead, under its own back header;
   // dialog: the page opens with a dialog, whose heading stands in;
   // view: the state the page is shown in.
@@ -93,12 +108,7 @@ test('every page, desktop and narrow, with no serious accessibility violations a
     // Schedules is a section of the server's Settings.
     { route: `/servers/${s.slug}/players`, name: 'players-friends', heading: s.name, view: 'friends and team' },
     { route: `/servers/${s.slug}/players/${player}`, name: 'player-profile', heading: s.name, phone: player },
-    ...(map
-      ? [
-          { route: `/servers/${s.slug}/map`, name: 'map-off', heading: s.name, phone: 'Map' },
-          { route: `/servers/${s.slug}/map`, name: 'map-on', heading: s.name, phone: 'Map', view: 'map on' as const },
-        ]
-      : []),
+    ...(map ? mapPages : []),
     { route: `/servers/${s.slug}/world/backup-rules`, name: 'backup-rules', heading: s.name, phone: 'Backup rules' },
     { route: `/servers/${s.slug}/world/backup-rules`, name: 'backup-rules-copies-on', heading: s.name, phone: 'Backup rules', view: 'looks after itself' },
     { route: `/servers/${s.slug}/world/backup-rules/copies`, name: 'copies', heading: s.name, phone: 'Copies', view: 'looks after itself' },
@@ -108,10 +118,20 @@ test('every page, desktop and narrow, with no serious accessibility violations a
     { route: '/recover', name: 'recover', heading: 'Restore from a recovery key', phone: 'Restore' },
     { route: '/settings/team', name: 'team', heading: 'Settings', phone: 'Team', view: 'friends and team' },
     { route: '/settings/discord', name: 'discord', heading: 'Settings', phone: 'Discord', view: 'friends and team' },
+    { route: '/settings/whop', name: 'whop', heading: 'Settings', phone: 'Sell on Whop', view: 'friends and team' },
     { route: '/settings/addon-sources', name: 'addon-sources', heading: 'Settings', phone: 'Add-on sources' },
     { route: '/settings/ai-agents', name: 'ai-agents', heading: 'Settings', phone: 'AI agents' },
     { route: '/settings/machines', name: 'machines', heading: 'Settings', phone: 'Machines' },
   ]
+  // The links friends get open signed out: a friend link, a friends' pack and a shared map.
+  const links = [
+    { route: `/join/${sharedLinks.join}`, name: 'join', heading: 'You’re invited to Survival' },
+    { route: `/packs/${sharedLinks.pack}`, name: 'pack', heading: 'Get the mods for Cobblemon' },
+    { route: `/map/${sharedLinks.map}`, name: 'shared-map', heading: 'Survival' },
+  ]
+  const viewed = new Set([...pages, ...mapPages, { route: '/more' }, ...links].map((v) => pageOf(v.route)))
+  expect([...viewed].filter((p) => unviewed.includes(p)), 'pages clickthrough-plan.ts lists as unviewed that this has a view of').toEqual([])
+  if (only) expect(only.filter((p) => !viewed.has(p)), 'pages the plan asks for that this has no view of: add one, or list them as unviewed in clickthrough-plan.ts').toEqual([])
 
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`/servers/${s.slug}`)
@@ -123,9 +143,9 @@ test('every page, desktop and narrow, with no serious accessibility violations a
   // the Overview, each with a plain back header instead of the server's.
   // Plugins opens from More under its own heading.
   const phoneHeader: Record<string, string> = { 'server-settings': 'In the game', running: 'How it’s running' }
-  for (const vp of viewports) {
+  for (const vp of sizes) {
     await page.setViewportSize({ width: vp.width, height: vp.height })
-    const list = vp.name === 'narrow' ? [...pages, { route: '/more', name: 'more', heading: 'More' }] : pages
+    const list = mine(vp.name === 'narrow' ? [...pages, { route: '/more', name: 'more', heading: 'More' }] : pages)
     for (const v of list) {
       view = v.view ?? 'live'
       await page.goto(v.route)
@@ -140,21 +160,19 @@ test('every page, desktop and narrow, with no serious accessibility violations a
   expect(fakes.unrecorded, 'add-on and modpack reads the fixtures have no answer for').toEqual([])
 
   // Old 0.2 links open the same page of the first server.
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto('/players')
-  await expect(page).toHaveURL(new RegExp(`/servers/${s.slug}/players$`))
+  if (!only) {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/players')
+    await expect(page).toHaveURL(new RegExp(`/servers/${s.slug}/players$`))
+  }
 
-  // The links friends get open signed out: a friend link, a friends' pack and a shared map.
+  const shared = mine(links)
+  if (!shared.length) return
   const signedOut = await browser.newContext({ baseURL, ignoreHTTPSErrors: true, locale: 'en-GB', timezoneId: 'UTC' })
   try {
     const out = await signedOut.newPage()
     await installFakes(out, baseURL ?? '', () => 'shared links')
-    const shared = [
-      { route: `/join/${sharedLinks.join}`, name: 'join', heading: 'You’re invited to Survival' },
-      { route: `/packs/${sharedLinks.pack}`, name: 'pack', heading: 'Get the mods for Cobblemon' },
-      { route: `/map/${sharedLinks.map}`, name: 'shared-map', heading: 'Survival' },
-    ]
-    for (const vp of viewports) {
+    for (const vp of sizes) {
       await out.setViewportSize({ width: vp.width, height: vp.height })
       for (const v of shared) {
         await out.goto(v.route)

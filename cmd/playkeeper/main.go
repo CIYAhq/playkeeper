@@ -31,6 +31,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/update"
 	usagestats "github.com/CIYAhq/playkeeper/internal/usage"
 	"github.com/CIYAhq/playkeeper/internal/version"
+	"github.com/CIYAhq/playkeeper/internal/whop"
 	"github.com/CIYAhq/playkeeper/web"
 )
 
@@ -239,12 +240,13 @@ func runDev(args []string) error {
 }
 
 // A dev install talks to a names service on this computer (where
-// scripts/names-check.sh runs one) and Let's Encrypt's staging CA unless
-// .dev/config.json names others, so make dev never claims real names or
-// certificates by accident.
+// scripts/names-check.sh runs one), Let's Encrypt's staging CA and Whop's
+// sandbox unless .dev/config.json names others, so make dev never claims
+// real names or certificates, or sells on Whop, by accident.
 const (
 	devNamesURL         = "http://127.0.0.1:8081"
 	devACMEDirectoryURL = "https://acme-staging-v02.api.letsencrypt.org/directory"
+	devWhopAPIURL       = whop.SandboxAPIURL
 )
 
 func devDefaults(cfg *config.Config) {
@@ -253,6 +255,9 @@ func devDefaults(cfg *config.Config) {
 	}
 	if cfg.ACMEDirectoryURL == "" {
 		cfg.ACMEDirectoryURL = devACMEDirectoryURL
+	}
+	if cfg.WhopAPIURL == "" {
+		cfg.WhopAPIURL = devWhopAPIURL
 	}
 }
 
@@ -491,9 +496,14 @@ func runStatus(args []string) error {
 		return err
 	}
 	writeLinkStatus(os.Stdout, cfg, *path, time.Now())
+	ac := agentclient.New(cfg.SocketPath)
 	var servers []api.ServerStatus
-	if _, err := agentclient.New(cfg.SocketPath).Do(context.Background(), "GET", "/v1/servers", nil, nil, &servers); err != nil {
+	if _, err := ac.Do(context.Background(), "GET", "/v1/servers", nil, nil, &servers); err != nil {
 		return err
+	}
+	var m api.Machine
+	if _, err := ac.Do(context.Background(), "GET", "/v1/machine", nil, nil, &m); err == nil && m.Guard != nil {
+		fmt.Printf("%s\n\n", guardLine(*m.Guard))
 	}
 	if len(servers) == 0 {
 		fmt.Println("No servers yet. Create one in the dashboard.")
@@ -514,6 +524,19 @@ func runStatus(args []string) error {
 		}
 	}
 	return nil
+}
+
+// guardLine is what `playkeeper status` says of the network guard.
+func guardLine(g api.NetworkGuard) string {
+	switch {
+	case g.Problem != "":
+		return "Network guard: off, so servers can reach this machine and the cloud's metadata service (" + g.Problem + ")"
+	case !g.On:
+		return "Network guard: starts with the first server"
+	case !g.Host:
+		return "Network guard: servers can reach this machine, not the cloud's metadata service (Keep servers away from this machine is off in Machine settings)"
+	}
+	return "Network guard: servers can't reach this machine or the cloud's metadata service"
 }
 
 func panelUserOwn(path string) {

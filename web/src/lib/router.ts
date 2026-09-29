@@ -47,6 +47,8 @@ export type Route =
   | { name: 'ai-agents' }
   | { name: 'machines' }
   | { name: 'machine-details'; id: string }
+  // Selling servers through a store on Whop.
+  | { name: 'whop' }
 
 const reSlug = /^[a-z0-9][a-z0-9-]{0,40}$/
 const reCode = /^[A-Za-z0-9]{1,64}$/
@@ -108,6 +110,7 @@ export function parse(pathname: string, search = ''): Route {
       if (second === 'addon-sources' && !third) return { name: 'addon-sources', ...targetMachine(search) }
       if (second === 'discord' && !third) return { name: 'discord' }
       if (second === 'ai-agents' && !third) return { name: 'ai-agents' }
+      if (second === 'whop' && !third) return { name: 'whop' }
       if (second === 'machines' && !third) return { name: 'machines' }
       if (second === 'machines' && third && reMachineId.test(third) && parts.length === 3) return { name: 'machine-details', id: third }
       return { name: 'settings' }
@@ -205,6 +208,8 @@ export function href(route: Route): string {
       return '/settings/machines'
     case 'machine-details':
       return `/settings/machines/${route.id}`
+    case 'whop':
+      return '/settings/whop'
     default: {
       const unreachable: never = route
       return unreachable

@@ -113,6 +113,7 @@ export function SelectPopup({
   alignItemWithTrigger = true,
   anchor,
   portalProps,
+  "aria-label": ariaLabel,
   ...props
 }: SelectPrimitive.Popup.Props & {
   portalProps?: SelectPrimitive.Portal.Props;
@@ -147,7 +148,9 @@ export function SelectPopup({
             <ChevronUpIcon className="relative size-4.5 sm:size-4" />
           </SelectPrimitive.ScrollUpArrow>
           <div className="relative h-full min-w-(--anchor-width) rounded-xl border bg-popover not-dark:bg-clip-padding shadow-popup before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]">
+            {/* With a List, the Popup is only presentation: the List is the listbox a label names. */}
             <SelectPrimitive.List
+              aria-label={ariaLabel}
               className={cn(
                 "max-h-(--available-height) overflow-y-auto p-1",
                 className,

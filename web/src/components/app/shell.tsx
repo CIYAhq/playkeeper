@@ -11,7 +11,7 @@ import { useJobToasts } from '@/components/app/jobs'
 import { StickyHeader } from '@/components/app/sticky-header'
 import { UpdateRow } from '@/components/app/update'
 import { t } from '@/i18n'
-import { can, inSettings, roleName, settingsHome } from '@/lib/access'
+import { can, canCreate, inSettings, roleName, settingsHome } from '@/lib/access'
 import { demo } from '@/lib/demo'
 import { byMachine, isStale, machineLabel, machineRoute, machineState, reachOf, type MachineTone } from '@/lib/machines'
 import { isCreating, phaseLabel, statusLabel, statusTone } from '@/lib/phase'
@@ -96,6 +96,7 @@ function pageKey(route: Route): string {
     case 'team':
     case 'addon-sources':
     case 'discord':
+    case 'whop':
       return 'settings/sections'
     case 'machine-settings':
       return `machine-settings/${route.id}`
@@ -291,7 +292,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
             {(ws.servers ?? []).map(serverItem)}
           </div>
         )}
-        {can(ws.me, 'servers.create') && (
+        {canCreate(ws.me) && (
           <div className={cn('flex flex-col', shared && 'mt-3')}>
             <SideItem to={{ name: 'new-server' }} active={route.name === 'new-server'} icon={<PlusIcon />} muted>
               {t('nav.newServer')}
@@ -305,7 +306,7 @@ function Sidebar({ route, onSearch }: { route: Route; onSearch: () => void }) {
         )}
       </nav>
       <div className="flex flex-col gap-0.5 pt-2">
-        {can(ws.me, 'servers.create') && <GetStartedCard route={route} className="mb-2" />}
+        {canCreate(ws.me) && <GetStartedCard route={route} className="mb-2" />}
         {can(ws.me, 'machine.manage') && <UpdateRow />}
         <SideItem to={settingsHome(ws.me)} active={inSettings(route)} icon={<SettingsIcon />}>
           {t('nav.settings')}

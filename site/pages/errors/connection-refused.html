@@ -1,0 +1,119 @@
+{{/*
+path: /errors/connection-refused
+title: AnnotatedConnectException: Connection refused in Minecraft, fixed
+description: Minecraft's io.netty AnnotatedConnectException: Connection refused means nothing took the connection at that address and port. The causes, and each fix.
+label: Connection refused
+h1: Connection refused: what it means in Minecraft, and the fix
+card: Connection refused, explained
+kind: Guide
+section: guides
+layout: guide
+crumb: Errors
+og: error-connection-refused
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}Connection refused means the player's game reached a machine at that address, and nothing there takes connections on that port: the server is off or still starting, the port is wrong, a firewall rejects it, or server-ip limits where it listens. If it says connection timed out instead, nothing answered at all.{{end}}
+
+{{define "closing-title"}}A server your friends can always reach.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper shows each server's address and whether it's online.{{end}}
+
+{{define "side-text"}}Playkeeper shows each server's address and whether it's online.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="meaning">
+  {{template "h2n" (dict "ID" "meaning" "N" 1 "Text" "What the message says" "Toc" "What it says")}}
+  <p>Minecraft shows it under "Failed to connect to the server". The words after the Java class name depend on the system and the Java the game runs on:</p>
+  <div class="error-card reveal">
+    <h3>Windows, Minecraft 1.18 and newer</h3>
+    <code class="err">io.netty.channel.AbstractChannel$AnnotatedConnectException: Connection refused: getsockopt</code>
+  </div>
+  <div class="error-card reveal">
+    <h3>Windows, Minecraft 1.16 and older</h3>
+    <code class="err">io.netty.channel.AbstractChannel$AnnotatedConnectException: Connection refused: no further information</code>
+  </div>
+  <div class="error-card reveal">
+    <h3>Linux</h3>
+    <code class="err">io.netty.channel.AbstractChannel$AnnotatedConnectException: Connection refused: /203.0.113.10:25565</code>
+  </div>
+  <p>All three mean one thing. The game reached a machine at that address, and it answered at once that nothing takes connections on that port. Minecraft itself hasn't spoken yet: it's the network saying no.</p>
+  <p>The ending is Java's. On Windows, Java 8, which Minecraft 1.16 and older ran on, adds "no further information" when it has nothing more to say; Java 17 and 21 name the call that failed, <code>getsockopt</code>.</p>
+</section>
+
+<section aria-labelledby="refused-or-timed-out">
+  {{template "h2n" (dict "ID" "refused-or-timed-out" "N" 2 "Text" "Refused, or timed out" "Toc" "Refused or timed out")}}
+  <p>On 29 Sep we connected to each kind of address with Netty 4.1.97 on Java 21, the network library and Java that Minecraft 1.21 uses:</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">At that address and port</th><th scope="col">What the game gets</th><th scope="col">How fast</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">A Minecraft server, online</th><td>It connects</td><td>57 ms</td></tr>
+        <tr><th scope="row">Nothing listening: the server is off, still starting or on another port</th><td>Connection refused</td><td>61 to 65 ms</td></tr>
+        <tr><th scope="row">A firewall that rejects the connection</th><td>Connection refused</td><td>62 to 67 ms</td></tr>
+        <tr><th scope="row">A firewall that drops it, or no machine at all</th><td><code>io.netty.channel.ConnectTimeoutException: connection timed out</code></td><td>30 seconds</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>30 seconds is Netty's own limit. On Windows the same wait can also end as <code>Connection timed out: getsockopt</code>, the system's own time-out.</p>
+</section>
+
+<section aria-labelledby="causes">
+  {{template "h2n" (dict "ID" "causes" "N" 3 "Text" "The causes, most likely first" "Toc" "Causes and fixes")}}
+  <ul>
+    <li><strong>The server isn't running, or hasn't opened its port yet.</strong> A server opens its port only after it has loaded, mods included. Our Paper 1.21.1 test refused connections until its log said <code>Starting Minecraft server on *:25565</code>, and FTB StoneBlock 4 loads its mods for more than a minute before that. Wait for <code>Done</code> in the log, or for Online in your dashboard.</li>
+    <li><strong>The address has the wrong port.</strong> A Java server listens on 25565 unless it's set otherwise, and any other port goes after a colon, like <code>play.example.com:25566</code>.</li>
+    <li><strong>A firewall rejects it.</strong> A rule that rejects gives Connection refused, and one that drops gives the time-out. On a VPS, allow the port in the provider's firewall, the one in its web console, and in ufw or firewalld on the machine itself.</li>
+    <li><strong><code>server-ip</code> is set in server.properties.</strong> The server then listens on that one address. Our test server with <code>server-ip=127.0.0.1</code> logged <code>Starting Minecraft server on 127.0.0.1:25565</code> and refused everyone else, and one set to an address the machine doesn't have <a href="/errors/failed-to-bind-to-port">fails to bind its port</a> and stops. Leave it empty. The <a href="/tools/server-properties">server.properties guide</a> explains every setting.</li>
+    <li><strong>At home, the router doesn't pass the port on.</strong> Players from outside reach your router, not your PC, until the router forwards port 25565 to it. Depending on the router, they then see refused or timed out. The <a href="/guides/port-forward-minecraft-server">port forwarding guide</a> goes step by step.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="check">
+  {{template "h2n" (dict "ID" "check" "N" 4 "Text" "Check the port yourself" "Toc" "Check it")}}
+  <p>From a machine outside the server's network, ask whether the port takes connections:</p>
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="System">
+        <button type="button" class="code-tab" role="tab" id="tab-nc" aria-controls="code-nc" aria-selected="true">Linux or macOS</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-nc" role="tabpanel" tabindex="0" aria-labelledby="tab-nc">nc -vz -w 5 play.example.com 25565</pre>
+  </div>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">What nc says on Linux</th><th scope="col">What it means</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>Connection to 203.0.113.10 25565 port [tcp/*] succeeded!</code></th><td>The port is open. If the game still can't join, check the address it uses.</td></tr>
+        <tr><th scope="row"><code>connect to 203.0.113.10 port 25565 (tcp) failed: Connection refused</code></th><td>Nothing takes the connection: the causes above.</td></tr>
+        <tr><th scope="row"><code>connect to 203.0.113.10 port 25565 (tcp) timed out: Operation now in progress</code></th><td>Nothing answered in 5 seconds: a firewall drops it, or the address is wrong.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>On Windows, PowerShell's <code>Test-NetConnection play.example.com -Port 25565</code> asks the same. On the server, <code>sudo ss -ltnp 'sport = :25565'</code> shows what listens on the port; no line means nothing does.</p>
+</section>
+
+<section aria-labelledby="playkeeper">
+  {{template "h2n" (dict "ID" "playkeeper" "N" 5 "Text" "On a Playkeeper server" "Toc" "On Playkeeper")}}
+  <ul>
+    <li><strong>The Overview says whether the server is online,</strong> and its Join card shows the address and port to share.</li>
+    <li><strong>The installer allows TCP 25565</strong> in ufw or firewalld when one is on. The provider's firewall needs its own rule: 25565 for the first server, and one more port from 25566 for each further server.</li>
+    <li><strong>A stopped server refuses connections,</strong> like any other. Its public page tells visitors whether it's online.</li>
+  </ul>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Why does it say no further information?" "Java 8 on Windows, which Minecraft 1.16 and older ran on, ends the message that way. Java 17 and 21 end it with getsockopt instead. Both mean nothing took the connection.")
+    (qa "What's the difference between Connection refused and connection timed out?" "Refused: a machine answered at once that nothing takes connections on that port. Timed out: nothing answered at all, usually a firewall that drops the connection or a wrong address. Netty gives up after 30 seconds.")
+    (qa "Why can I join my server but my friends can't?" "You connect from the same machine or network, while their connection has to pass your router or your provider's firewall. Check that the port is open from outside, as above.")
+    (qa "Does server-ip=127.0.0.1 block other players?" "Yes. The server then listens only for connections from its own machine, and everyone else gets Connection refused. Leave server-ip empty.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/errors" "/guides/play-minecraft-with-friends" "/tools/server-properties")}}{{end}}

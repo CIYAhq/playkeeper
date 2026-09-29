@@ -487,17 +487,21 @@ func pullAgain(ctx context.Context, err error) bool {
 	return err != nil && ctx.Err() == nil && !docker.IsNotFound(err) && !strings.Contains(err.Error(), "no space left on device")
 }
 
+// ensureNetwork makes Playkeeper's network if it isn't there, and puts the
+// network guard's rules in place before a container joins it.
 func (a *Agent) ensureNetwork(ctx context.Context) error {
-	if _, err := a.docker.NetworkInspect(ctx, networkName); err == nil {
-		return nil
-	} else if !docker.IsNotFound(err) {
+	_, err := a.docker.NetworkInspect(ctx, networkName)
+	if docker.IsNotFound(err) {
+		_, err = a.docker.NetworkCreate(ctx, networkName, map[string]string{labelManaged: "true", labelInstall: a.cfg.InstallID})
+		if docker.IsConflict(err) {
+			err = nil
+		}
+	}
+	if err != nil {
 		return a.dockerErr(err)
 	}
-	_, err := a.docker.NetworkCreate(ctx, networkName, map[string]string{labelManaged: "true", labelInstall: a.cfg.InstallID})
-	if err != nil && !docker.IsConflict(err) {
-		return a.dockerErr(err)
-	}
-	return nil
+	a.guardNetwork(ctx)
+	return a.guardRefusal()
 }
 
 // ensureDirs makes the server's folders. then is what to do once the world
