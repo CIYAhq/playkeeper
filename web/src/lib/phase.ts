@@ -173,6 +173,7 @@ const opKeys: Record<string, MessageKey> = {
   update: 'op.update',
   'remove-addon': 'op.remove-addon',
   'rebuild-level': 'op.rebuild-level',
+  'remove-entity': 'op.remove-entity',
   // Wave 4.
   reinstall: 'op.reinstall',
   'template-retry': 'op.templateRetry',

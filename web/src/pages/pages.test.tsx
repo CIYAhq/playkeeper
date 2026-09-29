@@ -1503,6 +1503,23 @@ describe('Crash helper', () => {
     expect(document.body.textContent).toContain('Restore this backup?')
   })
 
+  it('takes the entity that crashes the server out of its world, then starts', async () => {
+    vi.mocked(client.post).mockClear()
+    const target = { what: 'entity', type: 'minecraft:minecart', dimension: 'minecraft:overworld', x: 6, y: 120, z: 6, pos: [6.5, 120, 6.5] }
+    const ticking = crash({
+      kind: 'ticking_entity',
+      params: { what: 'entity', type: 'minecraft:minecart', name: 'Minecart', x: 6, y: 120, z: 6, dimension: 'minecraft:overworld' },
+      fixes: [{ kind: 'remove_entity', params: target, title: 'Remove the minecart at 6, 120, 6', recommended: true }],
+    })
+    const text = await render(<Overview server={server({ phase: 'crashed', crash: ticking })} />)
+    expect(text).toContain('The minecart at x 6, y 120, z 6 crashes it each time the game runs it.')
+    expect(text).toContain('It’s in the Overworld, saved in the world, so starting again crashes again.')
+    expect(text).toContain('Remove the minecartRecommendedOnly it goes. Blocks, chests and other mobs stay.')
+    expect(text).not.toContain('Start Survival again')
+    await press('Back up, remove and start Survival')
+    expect(posts()).toEqual([['/world/remove-entity', { ...target, start: true }]])
+  })
+
   it('makes a new level.dat only once the owner has read what resets', async () => {
     vi.mocked(client.post).mockClear()
     const made = new Date()

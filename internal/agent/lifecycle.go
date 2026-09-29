@@ -131,6 +131,7 @@ var opLabels = map[string]string{
 	"remove-addon": "removing a plugin or mod",
 	// 0.4.8: the crash helper's fixes that change the world.
 	"rebuild-level": "making a new level.dat",
+	"remove-entity": "taking what crashed out of its world",
 	// Wave 4.
 	"reinstall": "reinstalling its server software", "template-retry": "installing its template's add-ons",
 	// Wave 7 (0.4.0)

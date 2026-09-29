@@ -804,6 +804,8 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/api\/servers\/(\w+)\/addons\/remove-file$/, (r, state) => (addonJar.test(String((r.body as { jar?: unknown } | null)?.jar ?? '')) ? op(state, 'remove-addon', r.params[0]) : invalid('That is not the name of a plugin or mod file.'))],
   // 0.4.8: a new level.dat for a world whose level.dat files are both damaged.
   ['POST', /^\/api\/servers\/(\w+)\/world\/rebuild-level$/, (r, state) => op(state, 'rebuild-level', r.params[0])],
+  // 0.4.8: taking an entity that crashes the server out of its world.
+  ['POST', /^\/api\/servers\/(\w+)\/world\/remove-entity$/, (r, state) => op(state, 'remove-entity', r.params[0])],
   // Wave 4: reinstalling changed software, trying a template's skipped add-ons again, and the friends' pack switch.
   ['POST', /^\/api\/servers\/(\w+)\/software\/reinstall$/, (r, state) => op(state, 'reinstall', r.params[0])],
   // Wave 4: the CurseForge key. A key typed here isn't one CurseForge knows, so it's refused as the real check would.

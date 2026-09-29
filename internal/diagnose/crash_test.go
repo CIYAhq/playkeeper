@@ -540,6 +540,120 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 	}
 }
 
+// tickingCrash is a server that stopped over something it ticked, with the
+// console and crash report of a real run; change edits the report first.
+func tickingCrash(t *testing.T, serverType, console, report string, change func(string) string, jars ...string) CrashInput {
+	t.Helper()
+	in := moddedCrash(serverType, "26.3", crashConsole(t, console), jars...)
+	in.CrashReport, in.CrashReportName = strings.Join(crashConsole(t, report), "\n"), report
+	if change != nil {
+		in.CrashReport = change(in.CrashReport)
+	}
+	return in
+}
+
+// Something that throws each time the game ticks it is named with where it
+// is, and taking just that one out is the fix, never a plain restart, which
+// runs it again. Real runs: a minecart on Minecraft 26.3, a hopper on
+// NeoForge 26.2.
+func TestExplainCrashNamesWhatCrashesEachTimeItTicks(t *testing.T) {
+	const entity, block = "vanilla_ticking_entity.txt", "neoforge_ticking_block_entity.txt"
+	const entityReport, blockReport = "crash-2026-09-29_17.42.52-server.txt", "crash-2026-09-29_17.45.31-server.txt"
+	tests := []struct {
+		name        string
+		in          CrashInput
+		params      map[string]any
+		fixes       string
+		explanation []string
+		evidence    []string
+	}{
+		{
+			name:        "a minecart on Minecraft",
+			in:          tickingCrash(t, "vanilla", entity, entityReport, nil),
+			params:      map[string]any{"what": "entity", "type": "minecraft:minecart", "name": "Minecart", "x": 6, "y": 120, "z": 6, "dimension": "minecraft:overworld"},
+			fixes:       "remove_entity* what=entity type=minecraft:minecart; restore_backup",
+			explanation: []string{"the minecart at x 6, y 120, z 6 in the Overworld hit an error each time the game ran it", "starting again crashes again", "Removing that minecart fixes it"},
+			evidence:    []string{"Description: Ticking entity", "net.minecraft.ReportedException: Ticking entity", "Caused by: java.lang.NullPointerException: Test error"},
+		},
+		{
+			name:        "a hopper on NeoForge, whose frames are the game's own",
+			in:          tickingCrash(t, "neoforge", block, blockReport, nil, "minecraft-transit-railway-neoforge-26.2-4.0.0.jar"),
+			params:      map[string]any{"what": "block_entity", "type": "minecraft:hopper", "x": 10, "y": 120, "z": 10},
+			fixes:       "remove_entity* what=block_entity type=minecraft:hopper; restore_backup",
+			explanation: []string{"NeoForge stopped because the hopper at x 10, y 120, z 10", "the block stays, and what it held goes"},
+		},
+		{
+			name: "a mod's entity, in the Nether",
+			in: tickingCrash(t, "neoforge", entity, entityReport, func(r string) string {
+				r = strings.Replace(r, "Entity Type: minecraft:minecart (net.minecraft.world.entity.vehicle.minecart.Minecart)", "Entity Type: create:carriage_contraption (com.simibubi.create.content.trains.entity.CarriageContraptionEntity)", 1)
+				return strings.Replace(r, "Level dimension: minecraft:overworld", "Level dimension: minecraft:the_nether", 1)
+			}, "create-26.2-6.1.0.jar", "sodium-neoforge-0.9.2+mc26.2.jar"),
+			params:      map[string]any{"type": "create:carriage_contraption", "dimension": "minecraft:the_nether", "addon": "create", "jar": "create-26.2-6.1.0.jar"},
+			fixes:       "remove_entity* what=entity type=create:carriage_contraption; restore_backup; update_addon jar=create-26.2-6.1.0.jar; remove_addon jar=create-26.2-6.1.0.jar",
+			explanation: []string{"the carriage contraption at x 6, y 120, z 6 in the Nether", "It comes from create, so if more of them fail, update or remove that mod"},
+		},
+		{
+			name: "a block whose error's stack names an installed mod",
+			in: tickingCrash(t, "neoforge", block, blockReport, func(r string) string {
+				return strings.Replace(r, "at TRANSFORMER/minecraft@26.2/net.minecraft.world.level.block.entity.HopperBlockEntity.pushItemsTick(HopperBlockEntity.java)",
+					"at TRANSFORMER/hopperhelper@2.1.0/dev.example.hopperhelper.HopperTicks.push(HopperTicks.java:44)", 1)
+			}, "HopperHelper-2.1.0+neoforge-26.2.jar"),
+			params: map[string]any{"addon": "hopperhelper", "jar": "HopperHelper-2.1.0+neoforge-26.2.jar"},
+			fixes:  "remove_entity* what=block_entity type=minecraft:hopper; restore_backup; update_addon jar=HopperHelper-2.1.0+neoforge-26.2.jar; remove_addon jar=HopperHelper-2.1.0+neoforge-26.2.jar",
+		},
+		{
+			name: "no crash report, only the console",
+			in: func() CrashInput {
+				in := moddedCrash("vanilla", "26.3", crashConsole(t, entity))
+				return in
+			}(),
+			params:      map[string]any{"what": "entity"},
+			fixes:       "restore_backup*",
+			explanation: []string{"without its crash report Playkeeper can't tell what or where", "starting again crashes again"},
+			evidence:    []string{"Caused by: java.lang.NullPointerException: Test error"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := ExplainCrash(tt.in)
+			if d.Kind != CrashTickingEntity || !d.Certain {
+				t.Fatalf("got %s certain=%v: %s %s\n%s", d.Kind, d.Certain, d.Title, d.Explanation, evidenceText(d))
+			}
+			for k, v := range tt.params {
+				if fmt.Sprint(d.Params[k]) != fmt.Sprint(v) {
+					t.Errorf("params[%s] = %v, want %v (all: %v)", k, d.Params[k], v, d.Params)
+				}
+			}
+			if got := actionSummary(d.Fixes); got != tt.fixes {
+				t.Errorf("fixes = %q, want %q", got, tt.fixes)
+			}
+			for _, f := range d.Fixes {
+				if f.Kind == ActionRestart {
+					t.Errorf("a plain restart is offered: %+v", d.Fixes)
+				}
+			}
+			for _, s := range tt.explanation {
+				if !strings.Contains(d.Explanation, s) {
+					t.Errorf("explanation %q lacks %q", d.Explanation, s)
+				}
+			}
+			ev := evidenceText(d)
+			for _, s := range tt.evidence {
+				if !strings.Contains(ev, s) {
+					t.Errorf("evidence lacks %q:\n%s", s, ev)
+				}
+			}
+		})
+	}
+	d := ExplainCrash(tickingCrash(t, "vanilla", entity, entityReport, nil))
+	if p := d.Fixes[0].Params; fmt.Sprint(p["pos"]) != "[6.5 120 6.5]" || p["dimension"] != "minecraft:overworld" || p["level"] != "world" || p["x"] != 6 || p["y"] != 120 || p["z"] != 6 {
+		t.Errorf("the remove fix says %v", p)
+	}
+	if got := shownText(d.Lines); got != "17:42:52 ERROR net.minecraft.ReportedException: Ticking entity\n17:42:52 ERROR Caused by: java.lang.NullPointerException: Test error: this entity is set to fail when it ticks\n17:42:52 Stopping server" {
+		t.Errorf("lines:\n%s", got)
+	}
+}
+
 func TestExplainCrashIgnoresCausesPlayersTypeInChat(t *testing.T) {
 	console := crashConsole(t, "paper_chat_spoof.txt")
 	jars := []string{"EssentialsX-2.21.0.jar", "FarmersDelight-1.21.1-1.2.7.jar", "better-end-4.0.11.jar", "Shopkeepers-2.23.3.jar"}

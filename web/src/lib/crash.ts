@@ -72,6 +72,14 @@ export function crashSummary(c: Crash, server: string, machine: string, lookups:
       const z = num(p, 'chunk_z')
       return x !== undefined && z !== undefined ? t('crash.chunk', { x: x * 16, z: z * 16 }) : t('crash.chunkPlain')
     }
+    case 'ticking_entity': {
+      const x = num(p, 'x')
+      const y = num(p, 'y')
+      const z = num(p, 'z')
+      const type = str(p, 'type')
+      if (!type || x === undefined || y === undefined || z === undefined) return t('crash.tickingPlain')
+      return t('crash.ticking', { what: thingName(type), x, y, z })
+    }
     case 'world_locked':
       return t('crash.locked')
     case 'disk_full': {
@@ -129,11 +137,28 @@ export function failureLine(op: Operation, s: ServerStatus, machine: string): st
   return crash ? crashSummary(crash, s.name, machine) : op.error
 }
 
+/** What a namespaced id like minecraft:chest_minecart is called in a sentence: "chest minecart". */
+function thingName(id: string): string {
+  const path = id.slice(id.indexOf(':') + 1)
+  return path.slice(path.lastIndexOf('/') + 1).replaceAll('_', ' ')
+}
+
+const dimensionKeys: Record<string, MessageKey> = {
+  'minecraft:overworld': 'crash.tickingOverworld',
+  'minecraft:the_nether': 'crash.tickingNether',
+  'minecraft:the_end': 'crash.tickingEnd',
+}
+
 /** A quieter second line, for the kinds that have one. */
 export function crashDetail(c: Crash): string | undefined {
   const backups = num(c.params, 'backups_mb')
   const disk = num(c.params, 'disk_mb')
   if (c.kind === 'disk_full' && backups && disk) return t('crash.diskDetail', { backups: formatMB(backups), disk: formatMB(disk) })
+  if (c.kind === 'ticking_entity') {
+    const dim = str(c.params, 'dimension')
+    if (!dim) return t('crash.tickingSaved')
+    return dimensionKeys[dim] ? t(dimensionKeys[dim]) : t('crash.tickingDimension', { dimension: dim })
+  }
   const holder = str(c.params, 'holder')
   const pid = num(c.params, 'holder_pid')
   if (c.kind === 'port_in_use' && holder && pid) return t('crash.portHolder', { name: holder, pid: String(pid) })
@@ -155,6 +180,7 @@ export type FixPlan =
   | { kind: 'update-addon'; key: AddonKey; fingerprint: string }
   | { kind: 'install-addon'; key: AddonKey; fingerprint: string }
   | { kind: 'restore'; backupId: string }
+  | { kind: 'remove-entity'; target: Params }
   | { kind: 'rebuild-level'; world: string; seedFrom: string; resets: string[] }
   | { kind: 'delete-backups'; ids: string[] }
 
@@ -252,7 +278,10 @@ export function crashFixes(c: Crash, server: string, machine: string, phone: boo
   if (c.kind === 'disk_full' && !starts && out.some((o) => o.plan?.kind === 'delete-backups')) {
     out.push({ id: 'myself', recommended: false, ...startText(t('crash.fix.myself'), server) })
   }
-  if (!out.some((o) => o.plan)) out.push({ id: 'again', recommended: out.length === 0, ...startText(t('crash.fix.again', { server }), server) })
+  if (!out.some((o) => o.plan)) {
+    if (c.kind === 'ticking_entity') out.push({ id: 'myself', recommended: false, ...startText(t('crash.fix.tickingMyself'), server, t('crash.fix.tickingMyselfHint')) })
+    else out.push({ id: 'again', recommended: out.length === 0, ...startText(t('crash.fix.again', { server }), server) })
+  }
   return out
 }
 
@@ -317,6 +346,19 @@ function fixText(c: Crash, f: DiagnosisAction, server: string, machine: string, 
       return { title: t('crash.fix.removePack', { pack: str(p, 'pack') ?? '' }), reason: later }
     case 'restore_backup':
       return restoreText(p, server, now)
+    case 'remove_entity': {
+      const type = str(p, 'type')
+      if (!type || !p) return { title: f.title, reason: later }
+      const what = thingName(type)
+      const block = str(p, 'what') === 'block_entity'
+      return {
+        title: block ? t('crash.fix.resetBlock', { what }) : t('crash.fix.removeEntity', { what }),
+        hint: block ? t('crash.fix.resetBlockHint') : t('crash.fix.removeEntityHint'),
+        plan: { kind: 'remove-entity', target: p },
+        button: block ? t('crash.do.resetBlock', { server }) : t('crash.do.removeEntity', { server }),
+        footnote: t('crash.removeEntityNote'),
+      }
+    }
     case 'rebuild_level': {
       const world = str(p, 'world')
       if (!world) return { title: t('crash.fix.rebuildLevel'), reason: later }

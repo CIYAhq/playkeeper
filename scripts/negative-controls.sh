@@ -7864,6 +7864,110 @@ webcontrol "new level.dat: nothing is sent before the owner confirms in the dial
           await post(serverApi(s.id, '/world/rebuild-level'), { world: plan.world, start: true })
           break" \
   src/pages/pages.test.tsx 'makes a new level.dat only once the owner has read what resets'
+control "ticking entities: what crashes each time it ticks is named" internal/diagnose/crashrules.go \
+  '	{(*crashCtx).tickingEntity, true},
+' \
+  '' \
+  ./internal/diagnose '^TestExplainCrashNamesWhatCrashesEachTimeItTicks$'
+control "ticking entities: no plain restart, which runs it again" internal/diagnose/crashticking.go \
+  '	d.Fixes = []Action{fix}' \
+  '	d.Fixes = []Action{fix, restartFix()}' \
+  ./internal/diagnose '^TestExplainCrashNamesWhatCrashesEachTimeItTicks$'
+control "ticking entities: only the entity at the exact place goes" internal/region/region.go \
+  'len(pos) == 3 && math.Abs(v-pos[i]) > 0.0051' \
+  'false && math.Abs(v-pos[i]) > 0.0051' \
+  ./internal/region '^TestRemoveEntityTakesOnlyTheOneNamed$'
+control "ticking entities: what rode it stays" internal/region/region.go \
+  '					freed = append(freed, riders.Items...)
+' \
+  '' \
+  ./internal/region '^TestRemoveEntityTakesOnlyTheOneNamed$'
+control "ticking entities: the world is backed up before it changes" internal/agent/removeentity.go \
+  '		if err := s.backupOp(ctx, h, actor, "Before removing the "+fix.label(), false); err != nil {
+			return err
+		}
+' \
+  '' \
+  ./internal/agent '^TestRemovingWhatCrashedTakesOnlyThatOneOutOfTheWorld$'
+control "ticking entities: nothing starts when it isn't there" internal/agent/removeentity.go \
+  '	if _, err := s.planEntityFix(*sc, req); err != nil {
+		writeError(w, err)
+		return
+	}' \
+  '	if false {
+		writeError(w, err)
+		return
+	}' \
+  ./internal/agent '^TestRemovingWhatCrashedIsRefusedWhereItCantHelp$'
+control "ticking entities: Paper's own Nether folder is looked in" internal/agent/removeentity.go \
+  '	if own && paper != "" {' \
+  '	if false && paper != "" {' \
+  ./internal/agent '^TestRemovingWhatCrashedFindsItInEachLayout$'
+control "ticking entities: Paper's own folder comes before a copy in the world folder" internal/agent/removeentity.go \
+  '	if own && paper != "" {
+		out = append(out, paper)
+	}
+	if world != "" {
+		out = append(out, world)
+	}' \
+  '	if world != "" {
+		out = append(out, world)
+	}
+	if own && paper != "" {
+		out = append(out, paper)
+	}' \
+  ./internal/agent '^TestRemovingWhatCrashedLooksInTheWorldThatSavesIt$'
+control "ticking entities: other types never look in Paper's folders" internal/agent/removeentity.go \
+  '	level, own := s.levelName(sc), takesPlugins(sc)' \
+  '	level, own := s.levelName(sc), true' \
+  ./internal/agent '^TestRemovingWhatCrashedLooksInTheWorldThatSavesIt$'
+control "ticking entities: a file without it doesn't end the search" internal/agent/removeentity.go \
+  '		looked = append(looked, file)
+' \
+  '		looked = append(looked, file)
+		break
+' \
+  ./internal/agent '^TestRemovingWhatCrashedLooksInTheWorldThatSavesIt$'
+control "ticking entities: a world a plugin made isn't taken for this one" internal/agent/removeentity.go \
+  '	if own && req.Level != "" && req.Level != level' \
+  '	if false && own && req.Level != "" && req.Level != level' \
+  ./internal/agent '^TestRemovingWhatCrashedLooksInTheWorldThatSavesIt$'
+control "ticking entities: a data pack's dimension, a world of its own on Paper, is this one" internal/agent/removeentity.go \
+  '&& req.Level != paperWorld(level, req.Dimension) {' \
+  '&& req.Level != level+"_nether" && req.Level != level+"_the_end" {' \
+  ./internal/agent '^TestRemovingWhatCrashedLooksInTheWorldThatSavesIt$'
+control "ticking entities: a level that isn't a world's name is refused" internal/agent/removeentity.go \
+  '	case req.Level != "" && !reLevelName.MatchString(req.Level):' \
+  '	case false && req.Level != "" && !reLevelName.MatchString(req.Level):' \
+  ./internal/agent '^TestRemovingWhatCrashedLooksInTheWorldThatSavesIt$'
+control "ticking entities: the crash report's world goes with the fix" internal/diagnose/crashticking.go \
+  '		fix.Params["level"] = t.level' \
+  '		_ = t.level' \
+  ./internal/diagnose '^TestExplainCrashNamesWhatCrashesEachTimeItTicks$'
+control "ticking entities: a dimension can't climb out of the world" internal/agent/removeentity.go \
+  '		if part == "" || part == "." || part == ".." {' \
+  '		if false && (part == "" || part == "." || part == "..") {' \
+  ./internal/agent '^TestRemovingWhatCrashedIsRefusedWhereItCantHelp$'
+control "ticking entities: a position rounded to the next block still names this one" internal/agent/removeentity.go \
+  'if math.IsNaN(v) || v < b-0.01 || v > b+1.01 {' \
+  'if math.IsNaN(v) || int(math.Floor(v)) != int(b) {' \
+  ./internal/agent '^TestRemovingWhatCrashedIsRefusedWhereItCantHelp$'
+control "ticking entities: a fix that can't work isn't offered" internal/agent/crash.go \
+  '} else if _, err := s.planEntityFix(*sc, req); err != nil {' \
+  '} else if _, err := s.planEntityFix(*sc, req); false && err != nil {' \
+  ./internal/agent '^TestRemovingWhatCrashedIsRefusedWhereItCantHelp$'
+control "ticking entities: only an admin takes something out of a world" internal/panel/server.go \
+  'smAs(actRestore, "POST", "/api/servers/{id}/world/remove-entity", "/v1/servers/{id}/world/remove-entity"),' \
+  'smAs(actRunServers, "POST", "/api/servers/{id}/world/remove-entity", "/v1/servers/{id}/world/remove-entity"),' \
+  ./internal/panel '^TestOnlyAnAdminTakesSomethingOutOfAWorld$'
+webcontrol "ticking entities: the dashboard names it and where" web/src/lib/crash.ts \
+  "      return t('crash.ticking', { what: thingName(type), x, y, z })" \
+  "      return t('crash.tickingPlain')" \
+  web/src/lib/lib.test.ts 'names what crashes the server each time it ticks'
+webcontrol "ticking entities: with nothing Playkeeper can do, starting again isn't what it recommends" web/src/lib/crash.ts \
+  "    if (c.kind === 'ticking_entity') out.push(" \
+  "    if (false) out.push(" \
+  web/src/lib/lib.test.ts 'names what crashes the server each time it ticks'
 control "client-only mods: a mod for players' games that stopped the server is recognised" internal/diagnose/crashrules.go \
   '	{(*crashCtx).clientOnly, true},
 ' \

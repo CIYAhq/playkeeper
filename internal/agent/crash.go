@@ -114,13 +114,22 @@ func (s *server) explainCrash(id string, st docker.ContainerState, start bool, s
 			if free >= 0 {
 				planFreeDisk(f, backups, free)
 			}
+		case diagnose.ActionRemoveEntity:
+			req := entityFixRequest(f.Params)
+			if validEntityRequest(req) != nil {
+				f.Params = nil
+			} else if _, err := s.planEntityFix(*sc, req); err != nil {
+				s.log.Warn("the crash helper can't take out what crashed", "server", s.id, "err", err)
+				f.Params = nil
+			}
 		case diagnose.ActionRebuildLevel:
 			world, _ := f.Params["world"].(string)
 			f.Params = s.levelRepairParams(cmp.Or(world, s.levelName(*sc)))
 		}
 	}
 	c.Fixes = slices.DeleteFunc(c.Fixes, func(f api.DiagnosisAction) bool {
-		return diagnose.ActionKind(f.Kind) == diagnose.ActionRebuildLevel && f.Params == nil
+		k := diagnose.ActionKind(f.Kind)
+		return (k == diagnose.ActionRemoveEntity || k == diagnose.ActionRebuildLevel) && f.Params == nil
 	})
 	if d.Kind == diagnose.CrashPortInUse && d.Params["reason"] == nil && in.DockerError != "" {
 		if port, ok := d.Params["port"].(int); ok {

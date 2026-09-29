@@ -27,6 +27,7 @@ var crashRules = []struct {
 	{(*crashCtx).modLoader, true},
 	{(*crashCtx).mixin, true},
 	{(*crashCtx).clientOnly, true},
+	{(*crashCtx).tickingEntity, true},
 	{(*crashCtx).modFailed, true},
 	{(*crashCtx).watchdog, true},
 	{(*crashCtx).datapack, true},

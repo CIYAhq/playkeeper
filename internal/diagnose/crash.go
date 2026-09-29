@@ -27,6 +27,7 @@ const (
 	CrashMixinFailed       CrashKind = "mixin_failed"
 	CrashDatapack          CrashKind = "datapack_failed"
 	CrashCorruptWorld      CrashKind = "corrupt_world"
+	CrashTickingEntity     CrashKind = "ticking_entity"
 	CrashWorldLocked       CrashKind = "world_locked"
 	CrashDiskFull          CrashKind = "disk_full"
 	CrashEULA              CrashKind = "eula"

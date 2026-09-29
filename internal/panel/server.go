@@ -424,6 +424,7 @@ func (s *Server) Routes() []Route {
 		sm("POST", "/api/servers/{id}/saving/resume", "/v1/servers/{id}/saving/resume"),
 		sm("POST", "/api/servers/{id}/addons/remove-file", "/v1/servers/{id}/addons/remove-file"),
 		smAs(actRestore, "POST", "/api/servers/{id}/world/rebuild-level", "/v1/servers/{id}/world/rebuild-level"),
+		smAs(actRestore, "POST", "/api/servers/{id}/world/remove-entity", "/v1/servers/{id}/world/remove-entity"),
 		sg("/api/servers/{id}/players/sessions", "/v1/servers/{id}/players/sessions"),
 		sg("/api/servers/{id}/players/summary", "/v1/servers/{id}/players/summary"),
 		sg("/api/servers/{id}/events", "/v1/servers/{id}/events"),

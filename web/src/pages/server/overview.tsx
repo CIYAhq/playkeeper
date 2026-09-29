@@ -609,6 +609,9 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
         case 'restore':
           setPreview(await post<RestorePreview>(serverApi(s.id, `/backups/${encodeURIComponent(plan.backupId)}/restore`)))
           return
+        case 'remove-entity':
+          await post(serverApi(s.id, '/world/remove-entity'), { ...plan.target, start: true })
+          break
         case 'rebuild-level':
           setRebuild(plan)
           return

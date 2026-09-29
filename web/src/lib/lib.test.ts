@@ -588,6 +588,46 @@ describe('crash helper', () => {
     expect(crashSummary(plugin, 'Survival', 'my-vps', { 'update:Multiverse-Portals-5.0.2.jar': { state: 'unavailable', reason: 'Added by hand, so Playkeeper can’t update it' } })).toBe('Multiverse-Portals hit an error while starting.')
   })
 
+  it('names what crashes the server each time it ticks, and takes just it out', () => {
+    const minecart = crash({
+      kind: 'ticking_entity',
+      params: { what: 'entity', type: 'minecraft:minecart', name: 'Minecart', x: 6, y: 120, z: 6, dimension: 'minecraft:overworld' },
+      fixes: [
+        { kind: 'remove_entity', params: { what: 'entity', type: 'minecraft:minecart', dimension: 'minecraft:overworld', x: 6, y: 120, z: 6, pos: [6.5, 120, 6.5] }, title: 'Remove it', recommended: true },
+        { kind: 'restore_backup', params: {}, title: 'Restore' },
+      ],
+    })
+    expect(crashSummary(minecart, 'Survival', 'my-vps')).toBe('The minecart at x 6, y 120, z 6 crashes it each time the game runs it.')
+    expect(crashDetail(minecart)).toBe('It’s in the Overworld, saved in the world, so starting again crashes again.')
+    const [remove, restore] = crashFixes(minecart, 'Survival', 'my-vps', false)
+    expect(remove).toMatchObject({
+      title: 'Remove the minecart',
+      hint: 'Only it goes. Blocks, chests and other mobs stay.',
+      recommended: true,
+      plan: { kind: 'remove-entity', target: { what: 'entity', type: 'minecraft:minecart', dimension: 'minecraft:overworld', x: 6, y: 120, z: 6, pos: [6.5, 120, 6.5] } },
+      button: 'Back up, remove and start Survival',
+      footnote: 'Your world is backed up first, so you can undo.',
+    })
+    expect(restore?.plan).toBeUndefined()
+    expect(crashFixes(minecart, 'Survival', 'my-vps', false).some((o) => o.plan?.kind === 'start')).toBe(false)
+
+    const hopper = crash({
+      kind: 'ticking_entity',
+      params: { what: 'block_entity', type: 'create:mechanical_press', x: 10, y: 64, z: -20, dimension: 'minecraft:the_nether' },
+      fixes: [{ kind: 'remove_entity', params: { what: 'block_entity', type: 'create:mechanical_press', dimension: 'minecraft:the_nether', x: 10, y: 64, z: -20 }, title: 'Reset it', recommended: true }],
+    })
+    expect(crashSummary(hopper, 'Survival', 'my-vps')).toBe('The mechanical press at x 10, y 64, z -20 crashes it each time the game runs it.')
+    expect(crashDetail(hopper)).toBe('It’s in the Nether, saved in the world, so starting again crashes again.')
+    expect(crashFixes(hopper, 'Survival', 'my-vps', false)[0]).toMatchObject({ title: 'Reset the mechanical press', hint: 'The block stays, without what it held.', button: 'Back up, reset and start Survival' })
+
+    const unnamed = crash({ kind: 'ticking_entity', params: { what: 'entity' }, fixes: [] })
+    expect(crashSummary(unnamed, 'Survival', 'my-vps')).toBe('Something in its world crashes it each time the game runs it.')
+    expect(crashFixes(unnamed, 'Survival', 'my-vps', false)).toEqual([
+      { id: 'myself', recommended: false, title: 'I’ll take it out myself', hint: 'Starting again crashes again until it’s gone.', plan: { kind: 'start' }, button: 'Start Survival' },
+    ])
+    expect(crashDetail(crash({ kind: 'ticking_entity', params: { dimension: 'aether:the_aether' } }))).toBe('It’s in aether:the_aether, saved in the world, so starting again crashes again.')
+  })
+
   it('says what a new level.dat resets, and whether new land will match', () => {
     const level = (seedFrom: string, resets: string[]) =>
       crash({ kind: 'corrupt_world', params: { file: 'level.dat', world: 'world' }, fixes: [{ kind: 'rebuild_level', params: { world: 'world', seed_from: seedFrom, resets }, title: 'Make a new level.dat', recommended: true }] })
