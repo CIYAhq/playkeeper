@@ -7902,6 +7902,101 @@ control "customer uploads: an archive's total size refusal is told apart" intern
   '}' \
   ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
 
+# Creators make a new server from an uploaded world or backup, inside their
+# allowance and against their disk limit (internal/panel/customeruploads.go).
+control "creator uploads: a creator's world upload names their own limit" internal/panel/customeruploads.go \
+  'body["diskLimit"] = accountLimit(a.UserID)' \
+  '_ = a' \
+  ./internal/panel '^TestACreatorMakesAServerFromAWorldTheyUpload$'
+control "creator uploads: a world upload names no limit the browser sent" internal/panel/customeruploads.go \
+  'r.Body = io.NopCloser(bytes.NewReader(b))' \
+  '_ = b' \
+  ./internal/panel '^TestACreatorMakesAServerFromAWorldTheyUpload$'
+control "creator uploads: a creator's backup upload names their own limit" internal/panel/customeruploads.go \
+  'q.Set("diskLimit", accountLimit(a.UserID))' \
+  'q.Set("diskLimit", r.URL.Query().Get("diskLimit"))' \
+  ./internal/panel '^TestACreatorMakesAServerFromABackupTheyUpload$'
+control "creator uploads: a world upload for a new server needs room in the allowance" internal/panel/customeruploads.go \
+  'if s.refuseNewServer(w, r, a, m, 0) {
+			return' \
+  'if false {
+			return' \
+  ./internal/panel '^TestACreatorMakesAServerFromAWorldTheyUpload$'
+control "creator uploads: a backup upload for a new server needs room in the allowance" internal/panel/customeruploads.go \
+  'if s.refuseNewServer(w, r, a, m, 0) {
+			s.creators.Unlock()' \
+  'if false {
+			s.creators.Unlock()' \
+  ./internal/panel '^TestACreatorMakesAServerFromABackupTheyUpload$'
+control "creator uploads: a server from a world fits the allowance" internal/panel/customeruploads.go \
+  'if s.refuseNewServer(w, r, a, m, mb) {' \
+  'if false {' \
+  ./internal/panel '^TestACreatorMakesAServerFromAWorldTheyUpload$'
+control "creator uploads: a server from a backup fits the allowance" internal/panel/team.go \
+  'if s.refuseNewServer(w, r, sess.Access, m, mb) {' \
+  'if false {' \
+  ./internal/panel '^TestACreatorMakesAServerFromABackupTheyUpload$'
+control "creator uploads: only on the dashboard's own machine" internal/panel/customeruploads.go \
+  'case m.Kind != localKind:' \
+  'case false:' \
+  ./internal/panel '^TestACreatorUploadsForANewServerOnlyToTheDashboardsMachine$'
+control "creator uploads: not while waiting for room" internal/panel/customeruploads.go \
+  'case s.customerWaiting(ctx, a):' \
+  'case false:' \
+  ./internal/panel '^TestACustomerWaitingForRoomUploadsNothingForANewServer$'
+control "creator uploads: the allowance's server count" internal/panel/customeruploads.go \
+  'if use.servers >= a.Allowance.Servers {' \
+  'if false {' \
+  ./internal/panel '^TestACreatorMakesAServerFromAWorldTheyUpload$'
+control "creator uploads: the allowance's memory" internal/panel/customeruploads.go \
+  'if msg, hint := memoryRefusal(a.Allowance, use, "", memoryMB); msg != "" {' \
+  'if msg, hint := memoryRefusal(a.Allowance, use, "", memoryMB); false && msg != "" {' \
+  ./internal/panel '^TestACreatorMakesAServerFromAWorldTheyUpload$'
+control "creator uploads: a server made from a world joins theirs" internal/panel/customeruploads.go \
+  's.forwardLongThen("/v1/world-imports/{imp}/create", s.creatorMade(r.Context()))(w, r, sess)' \
+  's.forwardLongThen("/v1/world-imports/{imp}/create", nil)(w, r, sess)' \
+  ./internal/panel '^TestACreatorMakesAServerFromAWorldTheyUpload$'
+control "creator uploads: a server restored from a backup joins theirs" internal/panel/team.go \
+  's.forwardTo(method, pattern, false, s.creatorMade(r.Context()))(w, r, sess)' \
+  's.forwardTo(method, pattern, false, nil)(w, r, sess)' \
+  ./internal/panel '^TestACreatorMakesAServerFromABackupTheyUpload$'
+control "creator uploads: the server they make is recorded as theirs" internal/panel/customeruploads.go \
+  's.claimForCreator(sess.Access, id)' \
+  '' \
+  ./internal/panel '^TestACreatorMakesAServerFromAWorldTheyUpload$'
+control "creator uploads: the server they make gets a creator's backups" internal/panel/customeruploads.go \
+  's.startCreatorBackups(ctx, m, sess.Access, id)' \
+  '' \
+  ./internal/panel '^TestACreatorMakesAServerFromAWorldTheyUpload$'
+control "creator uploads: only a creator's own upload is theirs" internal/panel/customeruploads.go \
+  'if a.creator() && limit == accountLimit(a.UserID) {' \
+  'if a.creator() {' \
+  ./internal/panel '^TestACreatorMakesAServerFromAWorldTheyUpload$'
+control "creator uploads: a world upload's guard asks whose it is" internal/panel/worldimports.go \
+  'need = uploadCreates(sess.Access, imp.DiskLimit)' \
+  'need = actCreateOwnServers' \
+  ./internal/panel '^TestACreatorMakesAServerFromAWorldTheyUpload$'
+control "creator uploads: a backup's guard asks whose it is" internal/panel/team.go \
+  'act = uploadCreates(sess.Access, p.DiskLimit)' \
+  'act = actCreateOwnServers' \
+  ./internal/panel '^TestACreatorMakesAServerFromABackupTheyUpload$'
+control "creator uploads: a creator's limit reaches their machine before their first server" internal/panel/disklimits.go \
+  'if _, ok := byAccount[uid]; !ok && (placed && home.machineID == m.ID || !placed && m.Kind == localKind) {' \
+  'if false {' \
+  ./internal/panel '^TestACreatorsLimitReachesTheirMachineBeforeTheirFirstServer$'
+control "creator uploads: a customer without a machine has no limit on one" internal/panel/disklimits.go \
+  '(placed && home.machineID == m.ID || !placed && m.Kind == localKind)' \
+  '(placed && home.machineID != "-" || !placed && m.Kind == localKind)' \
+  ./internal/panel '^TestACreatorsLimitReachesTheirMachineBeforeTheirFirstServer$'
+webcontrol "creator uploads: a creator starts from a world or a backup" web/src/pages/new-server.tsx \
+  'const importer = canCreate(ws.me)' \
+  "const importer = can(ws.me, 'servers.create')" \
+  src/pages/new-server.test.tsx 'a world or a backup, only on the dashboard'
+webcontrol "creator uploads: a creator's new server stays on the dashboard's machine" web/src/pages/new-server.tsx \
+  'const asked = chooser ? machine : undefined' \
+  'const asked = importer ? machine : undefined' \
+  src/pages/new-server.test.tsx 'a world or a backup, only on the dashboard'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
