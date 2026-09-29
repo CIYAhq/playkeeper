@@ -52,6 +52,9 @@ type whopView struct {
 	Buyers  []whopBuyerView `json:"buyers"`
 	// Needs are the permissions the key needs, for the steps to make one.
 	Needs []string `json:"needs"`
+	// Notice, on the answer to a disconnect alone, is what the owner still
+	// has to do on Whop.
+	Notice string `json:"notice,omitempty"`
 }
 
 // whopPlanView is one plan of the store.
@@ -126,7 +129,8 @@ func msTimeOrZero(ms int64) time.Time {
 
 // whopView reads Settings › Sell on Whop as it stands.
 func (s *Server) whopView(ctx context.Context) (whopView, error) {
-	v := whopView{Plans: []whopPlanView{}, Buyers: []whopBuyerView{}, Needs: whop.Needs, Dashboard: s.dashboardURL(ctx)}
+	v := whopView{Plans: []whopPlanView{}, Buyers: []whopBuyerView{}, Needs: whop.Needs}
+	v.Dashboard, _ = s.dashboardURL(ctx)
 	a, ok, err := s.storedWhop()
 	if err != nil || !ok {
 		return v, err
@@ -374,12 +378,21 @@ func (s *Server) hWhopDisconnect(w http.ResponseWriter, r *http.Request, sess *s
 		return
 	}
 	detail := "the store's products keep no address"
+	notice := ""
 	if c, err := s.whopClient(a.Key); err == nil {
 		ctx, cancel := context.WithTimeout(r.Context(), whopTimeout)
 		defer cancel()
 		if err := s.markWhopProducts(ctx, c, a.ID, nil, ""); err != nil {
-			s.log.Warn("could not take the dashboard's address off the store's products", "err", err)
-			detail = "couldn't take the dashboard's address off the store's products: " + err.Error()
+			// A store that still names this dashboard keeps taking orders, so
+			// the key stays for another try, unless Whop no longer takes it.
+			if !whop.KeyRefused(err) {
+				s.log.Warn("could not take the dashboard's address off the store's products", "err", err)
+				writeErr(w, http.StatusBadGateway, api.CodeUpstream, "Playkeeper couldn't close the store on Whop, so it still sells for this dashboard.",
+					"Try again in a minute. Until then the store keeps taking orders.")
+				return
+			}
+			detail = "Whop refused the key, so the store's products keep this dashboard's address"
+			notice = "Whop no longer takes this dashboard's key, so the store may still take orders. On Whop, take " + whop.MetaDashboard + " off the store's products, or hide its plans."
 		}
 		if a.WebhookID != "" {
 			if err := c.DeleteWebhook(ctx, a.WebhookID); err != nil {
@@ -401,7 +414,13 @@ func (s *Server) hWhopDisconnect(w http.ResponseWriter, r *http.Request, sess *s
 		return
 	}
 	s.audit(sess.User.Username, "whop.disconnect", a.ID, "succeeded", detail)
-	s.answerWhop(w, r)
+	v, err := s.whopView(context.WithoutCancel(r.Context()))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	v.Notice = notice
+	writeJSON(w, http.StatusOK, v)
 }
 
 // syncWhop reads the store's plans with what each allows, and marks its
@@ -414,9 +433,11 @@ func (s *Server) syncWhop(ctx context.Context, c *whop.Client, accountID string)
 		s.log.Warn("could not read the store on Whop", "err", err)
 	}
 	if a, ok, err := s.storedWhop(); err == nil && ok {
-		if err := s.ensureWhopWebhook(ctx, c, &a, s.dashboardURL(ctx)); err != nil && problem == "" {
-			problem = whopProblem(err)
-			s.log.Warn("could not add Whop's webhook", "err", err)
+		if dash, err := s.dashboardURL(ctx); err == nil {
+			if err := s.ensureWhopWebhook(ctx, c, &a, dash); err != nil && problem == "" {
+				problem = whopProblem(err)
+				s.log.Warn("could not add Whop's webhook", "err", err)
+			}
 		}
 	}
 	if _, err := s.db.Exec(`UPDATE whop_account SET synced_at = ?, problem = ? WHERE id = 1`, s.now().UnixMilli(), problem); err != nil {
@@ -434,7 +455,7 @@ func whopProblem(err error) string {
 		return "Whop refused part of the work: " + cmpOr(we.Message, "a permission is missing") + ". Connect a key with every permission listed."
 	case errors.As(err, &we):
 		return "Whop said: " + cmpOr(we.Message, fmt.Sprintf("error %d", we.Status))
-	case errors.Is(err, errNoDashboardAddress):
+	case errors.Is(err, errNoDashboardAddress), errors.Is(err, errAddressUnknown):
 		return err.Error()
 	}
 	return "Playkeeper couldn't reach Whop. It tries again when you read the store."
@@ -495,7 +516,10 @@ func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, accountID st
 	if err != nil {
 		return err
 	}
-	dash := s.dashboardURL(ctx)
+	dash, err := s.dashboardURL(ctx)
+	if err != nil {
+		return err
+	}
 	if err := s.markWhopProducts(ctx, c, accountID, products, dash); err != nil {
 		return err
 	}
@@ -548,29 +572,35 @@ func (s *Server) markWhopProducts(ctx context.Context, c *whop.Client, accountID
 	return nil
 }
 
+// errAddressUnknown is dashboardURL's answer when the agent can't be asked
+// for the machine's address. Nothing that depends on the address changes
+// then: a store stays open, or closed, as it was.
+var errAddressUnknown = errors.New("Playkeeper couldn't ask this machine for its address. It tries again when you read the store.")
+
 // dashboardURL is where Whop and buyers reach this dashboard: the machine's
 // address, with the panel's port, once the agent has a certificate for it
 // that's still good. It's "" without one: Whop only calls trusted HTTPS
-// addresses, and a buyer's invite link must open without a warning.
-func (s *Server) dashboardURL(ctx context.Context) string {
+// addresses, and a buyer's invite link must open without a warning. An
+// agent that can't be asked is errAddressUnknown, never "".
+func (s *Server) dashboardURL(ctx context.Context) (string, error) {
 	var addr api.Address
 	if status, err := s.agent.Do(ctx, "GET", "/v1/address", nil, nil, &addr); err != nil || status != http.StatusOK {
-		return ""
+		return "", errAddressUnknown
 	}
 	cert := addr.Certificate
 	if addr.Kind == api.AddressNone || addr.Host == "" || cert == nil || cert.NotAfter == nil || !cert.NotAfter.After(s.now()) {
-		return ""
+		return "", nil
 	}
 	named := false
 	for _, n := range cert.Names {
 		named = named || strings.EqualFold(n, addr.Host)
 	}
 	if !named {
-		return ""
+		return "", nil
 	}
 	host := strings.ToLower(addr.Host)
 	if s.cfg.PanelPort != 443 && s.cfg.PanelPort != 0 {
 		host += ":" + strconv.Itoa(s.cfg.PanelPort)
 	}
-	return "https://" + host
+	return "https://" + host, nil
 }

@@ -1889,6 +1889,8 @@ export interface WhopStore {
   webhook: boolean
   buyers: WhopBuyer[]
   needs: string[]
+  /** On the answer to a disconnect alone: what the owner still has to do on Whop. */
+  notice?: string
 }
 
 /** A buyer of the store: invited (a working invite was sent), joined (made their account), removed (the owner removed it), turned_off (the owner turned their invite off), sending (no invite could be sent yet) or ended (no plan grants access). */

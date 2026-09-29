@@ -161,7 +161,12 @@ func (s *Server) reconcileWhop(ctx context.Context) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	dash := s.dashboardURL(ctx)
+	dash, err := s.dashboardURL(ctx)
+	if err != nil {
+		// Without the address there are no invite links to make, and the
+		// webhook stays where it is; the next minute's look tries again.
+		return
+	}
 	if err := s.ensureWhopWebhook(ctx, c, &a, dash); err != nil {
 		s.log.Warn("could not keep Whop's webhook pointing at this dashboard", "err", err)
 	}
