@@ -43,7 +43,7 @@ func (s *Server) importGuard(act action, next func(http.ResponseWriter, *http.Re
 		if imp.ServerID == "" {
 			need = actCreateServers
 		}
-		if err := permit(sess.Access, need, imp.ServerID); err != nil {
+		if err := s.permitOn(sess.Access, need, imp.ServerID); err != nil {
 			writeRefusal(w, err)
 			return
 		}

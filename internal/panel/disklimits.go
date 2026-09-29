@@ -12,7 +12,8 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/invites"
 )
 
-// Disk limits, the dashboard's half. The servers a creator or customer
+// Disk limits, the dashboard's half, which also carry each server's
+// processor share (cpuMilliPerGB). The servers a creator or customer
 // creates may take their allowance's disk between them (see
 // invites.Allowance.DiskBytes), and each machine's agent refuses what would
 // pass that (internal/agent/disklimits.go). The dashboard sends each machine
@@ -29,6 +30,10 @@ const (
 	diskUseEvery    = 5 * time.Minute
 	// diskLimitPrefix begins each account's limit id on a machine.
 	diskLimitPrefix = "account-"
+	// cpuMilliPerGB is the processor share each creator's or customer's
+	// server gets for each GB of its memory: half a core, as Playkeeper
+	// Cloud's plans give.
+	cpuMilliPerGB = 500
 )
 
 // kickDiskLimits has the limits sent now rather than at the next tick.
@@ -86,6 +91,33 @@ func (s *Server) diskAllowances(ctx context.Context) (map[int64]invites.Allowanc
 	return out, nil
 }
 
+// customerHolds is why each paused or suspended customer's servers may not
+// start, by account, as the machine's refusal finishes "<server> can't
+// start: …".
+func (s *Server) customerHolds(ctx context.Context) (map[int64]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT user_id, state FROM customers WHERE state IN (?, ?)`, string(CustomerPaused), string(CustomerSuspended))
+	if err != nil {
+		return nil, errDB
+	}
+	defer rows.Close()
+	out := map[int64]string{}
+	for rows.Next() {
+		var uid int64
+		var state string
+		if err := rows.Scan(&uid, &state); err != nil {
+			return nil, errDB
+		}
+		out[uid] = "the plan it's on has ended."
+		if CustomerState(state) == CustomerSuspended {
+			out[uid] = "its account is suspended."
+		}
+	}
+	if rows.Err() != nil {
+		return nil, errDB
+	}
+	return out, nil
+}
+
 // syncDiskLimits sends every machine that answers the limits of the
 // accounts whose servers it has, and every diskUseEvery keeps what those
 // servers take.
@@ -93,6 +125,11 @@ func (s *Server) syncDiskLimits(ctx context.Context) {
 	allowances, err := s.diskAllowances(ctx)
 	if err != nil {
 		s.log.Error("could not read the disk allowances", "err", err)
+		return
+	}
+	holds, err := s.customerHolds(ctx)
+	if err != nil {
+		s.log.Error("could not read which customers are paused", "err", err)
 		return
 	}
 	owners, err := s.creatorServerOwners(ctx)
@@ -110,7 +147,7 @@ func (s *Server) syncDiskLimits(ctx context.Context) {
 	s.diskUse.Unlock()
 	used := map[int64]int64{}
 	for _, m := range list {
-		got, err := s.sendDiskLimits(ctx, m, allowances, owners, count)
+		got, err := s.sendDiskLimits(ctx, m, allowances, holds, owners, count)
 		s.noteDiskLimitsFailure(m, err)
 		for uid, n := range got {
 			used[uid] += n
@@ -126,7 +163,7 @@ func (s *Server) syncDiskLimits(ctx context.Context) {
 // sendDiskLimits sends m the limits of the accounts whose servers it has,
 // and with count, returns what each one's servers take there. An account's
 // server on m counts against its limit only while m still has it.
-func (s *Server) sendDiskLimits(ctx context.Context, m machine, allowances map[int64]invites.Allowance, owners map[string]int64, count bool) (map[int64]int64, error) {
+func (s *Server) sendDiskLimits(ctx context.Context, m machine, allowances map[int64]invites.Allowance, holds map[int64]string, owners map[string]int64, count bool) (map[int64]int64, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var servers []api.ServerStatus
@@ -143,7 +180,7 @@ func (s *Server) sendDiskLimits(ctx context.Context, m machine, allowances map[i
 	}
 	limits := make([]api.DiskLimit, 0, len(byAccount))
 	for uid, ids := range byAccount {
-		limits = append(limits, api.DiskLimit{ID: diskLimitPrefix + strconv.FormatInt(uid, 10), LimitBytes: allowances[uid].DiskBytes(), Servers: ids})
+		limits = append(limits, api.DiskLimit{ID: diskLimitPrefix + strconv.FormatInt(uid, 10), LimitBytes: allowances[uid].DiskBytes(), Servers: ids, CPUMilliPerGB: cpuMilliPerGB, Hold: holds[uid]})
 	}
 	req := api.DiskLimitsRequest{Limits: limits, Actor: placementActor}
 	if err := askAgent(ctx, m, http.MethodPut, "/v1/disk-limits", req, nil); err != nil || !count {

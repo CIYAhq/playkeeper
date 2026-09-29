@@ -229,10 +229,17 @@ function serversText(m: TeamMember, team: TeamResponse): string {
   return m.allowance && !m.servers.servers?.length && !m.servers.all ? allowanceText(m.allowance) : scopeText(m.servers, team.servers)
 }
 
-/** The second line under a member's name. */
+/** A member's role as the Team page names it: a customer's and a creator's are their own. */
+function memberRole(m: TeamMember): string {
+  if (m.customer) return t('team.customer')
+  return m.allowance ? t('team.creator') : roleName(m.role)
+}
+
+/** The second line under a member's name. A customer signs in through their billing provider, with no two-factor sign-in here. */
 function memberLine(m: TeamMember): string {
   if (m.owner) return m.you ? t('team.youOwner') : t('team.owner')
-  const parts = [t('team.added', { time: relativeTime(m.addedAt) }), t(m.twoFactor ? 'team.twoFactorOn' : 'team.twoFactorOff')]
+  const signIn = m.customer === 'whop' ? t('team.signsInWithWhop', { handle: m.handle ?? '' }) : t(m.twoFactor ? 'team.twoFactorOn' : 'team.twoFactorOff')
+  const parts = [t('team.added', { time: relativeTime(m.addedAt) }), signIn]
   if (m.you) parts.unshift(t('team.you'))
   if (m.waiting) parts.push(t('team.waiting'))
   if (m.allowance) {
@@ -284,7 +291,7 @@ function MemberRow({ member: m, team, onChanged, onEdit, onConfirm, onRemove, pr
       ) : m.canEdit && !m.allowance ? (
         <ChoiceSelect value={role} onChange={(r) => void pick(r, t('team.roleToast', { name: m.username, role: roleName(r) }))} options={roleChoices(team, m.role)} label={t('team.roleFor', { name: m.username })} className="w-full min-w-0" />
       ) : (
-        <span className="text-[13px]">{m.allowance ? t('team.creator') : roleName(m.role)}</span>
+        <span className="text-[13px]">{memberRole(m)}</span>
       )}
       {(m.canEdit || m.canConfirm) && !m.owner ? (
         <Menu>
@@ -420,7 +427,7 @@ function PhoneTeam({ team, rows: listed, notice, dialogs, owner, onEdit }: { tea
   const rows = listed.map(({ key, item, state }): { key: string; state: Present<TeamRow>['state']; name: string; line: string; edit?: Editing } => {
     if (item.kind === 'member') {
       const m = item.member
-      const role = m.allowance ? t('team.creator') : roleName(m.role)
+      const role = memberRole(m)
       const what = serversText(m, team)
       return {
         key,
