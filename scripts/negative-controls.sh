@@ -8579,7 +8579,7 @@ control "confirming: the guard's refusal is kept" internal/panel/creators.go \
   ./internal/panel '^TestServersStayAwayFromAJoinedMachineWhileItTakesCustomers$'
 control "confirming: a creator creates servers only on their machine" internal/panel/creators.go \
   'case !ok || home != m.ID:' \
-  'case !ok:' \
+  'case !ok || home == "":' \
   ./internal/panel '^(TestACreatorUploadsForANewServerOnlyToTheirMachine|TestACustomerCreatesServersOnTheJoinedMachineTheyrePlacedOn)$'
 control "confirming: a creator creates servers on their machine" internal/panel/creators.go \
   'if err := s.homeRefusal(r.Context(), a, m); err != nil {' \
