@@ -21,6 +21,7 @@ import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps, navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
+import { HetznerStockCard } from './hetzner-stock'
 
 type Dial = DialAddress['kind']
 type Form = 'install' | 'join'
@@ -62,6 +63,7 @@ export function MachinesSection() {
       {manage && link.data?.available && <ConnectCard link={link.data} refresh={link.refresh} onWaiting={setFast} />}
       {manage && !link.data && !link.error && <ConnectSkeleton />}
       {manage && link.error && <p className="text-[13px] text-destructive-foreground">{errorText(link.error)}</p>}
+      {can(ws.me, 'machines.stock') && <HetznerStockCard />}
     </>
   )
 }

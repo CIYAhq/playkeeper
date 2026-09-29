@@ -134,7 +134,7 @@ func TestErrorCodesTheDashboardChecksForExist(t *testing.T) {
 	codes := map[string]bool{}
 	sent := []string{CodeInvalid, CodeEULARequired, CodeBusy, CodeNotFound, CodeConflict, CodeNotCreated, CodeDockerUnavailable, CodeForbidden, CodeUnauthorized, CodeRateLimited, CodeInternal, CodeAgentUnavailable, CodeInsufficientSpace, CodeIconInvalid, pregen.CodeUnsupportedServer,
 		CodeNamesUnreachable, CodeRetryLater, names.CodeInvalidName, names.CodeNotAnswering, certs.CodePort80Unreachable, certs.CodeCertificateLimit,
-		string(twofactor.KindPasswordWrong), CodePlanChanged, CodeKeyRefused, CodeAdminUnconfirmed, CodeWhopKeyRefused, CodeWhopPermissions,
+		string(twofactor.KindPasswordWrong), CodePlanChanged, CodeKeyRefused, CodeAdminUnconfirmed, CodeWhopKeyRefused, CodeWhopPermissions, CodeHetznerTokenRefused,
 		diskusage.CodeDiskSpace, diskusage.CodeRestoresUnknown, retention.CodeEstimateOff,
 		machinelink.ProblemVersion, machinelink.CodeDropped, machinelink.CodeHeartbeatTimeout, CodeWorldInUse, CodeFileChanged}
 	for _, k := range []gamefiles.Kind{gamefiles.KindLink, gamefiles.KindSpecial, gamefiles.KindNotFile, gamefiles.KindNotFolder, gamefiles.KindTooLarge, gamefiles.KindTooMany, gamefiles.KindChanged, gamefiles.KindBadName,

@@ -1799,6 +1799,7 @@ export type Action =
   | 'files.view'
   | 'files.edit'
   | 'whop.manage'
+  | 'machines.stock'
 
 export type ProjectRole = 'admin' | 'moderator' | 'viewer'
 
@@ -1901,6 +1902,29 @@ export interface WhopPlan {
   trialDays?: number
   allowance?: Allowance
   allowanceFrom?: 'store' | 'owner'
+}
+
+/** Settings › Machines › Hetzner stock: the server type the owner watches, and where Hetzner has it now. checkedAt is when Hetzner last answered; discord says whether the dashboard's Discord, where the watch posts, is connected. */
+export interface HetznerStock {
+  connected: boolean
+  tokenEnding?: string
+  serverType: string
+  types: string[]
+  setBy?: string
+  setAt?: string
+  checkedAt?: string
+  problem?: string
+  places: HetznerPlace[]
+  discord: boolean
+}
+
+/** One place Hetzner offers the type; since is when it came into stock or went out, and buyUrl, while it's in stock, opens Hetzner's console with it picked. */
+export interface HetznerPlace {
+  location: string
+  city: string
+  available: boolean
+  since?: string
+  buyUrl?: string
 }
 
 /** Where invite links start: base is https://host:port; friendly is false for a bare address. */

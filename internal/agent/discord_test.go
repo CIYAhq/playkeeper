@@ -884,6 +884,37 @@ func TestDiscordNotifyTakesTwoFactorChangesWithEveryAlertOff(t *testing.T) {
 	f.waitMessage(e, "Admin rights confirmed", "**juno** gave **mara** Admin rights")
 }
 
+// Machines in stock go out with every alert off, since watching is its own
+// switch, worded by the agent from Hetzner's names alone.
+func TestDiscordNotifyTakesMachinesInStockWithEveryAlertOff(t *testing.T) {
+	e, f := newDiscordEnv(t)
+	e.connectDiscord()
+	if code, out := e.call("PUT", "/v1/discord", map[string]any{"alerts": []string{}, "liveStatus": false, "actor": "admin"}); code != 200 {
+		t.Fatalf("turn every alert off: %d %v", code, out)
+	}
+	eleven := []string{"fsn1", "nbg1", "hel1", "ash", "hil", "sin", "a1", "a2", "a3", "a4", "a5"}
+	for _, c := range []struct {
+		name string
+		body map[string]any
+	}{
+		{"no type", map[string]any{"kind": "in_stock", "locations": []string{"fsn1"}, "actor": "admin"}},
+		{"a type that isn't a name", map[string]any{"kind": "in_stock", "serverType": "CX53", "locations": []string{"fsn1"}, "actor": "admin"}},
+		{"no locations", map[string]any{"kind": "in_stock", "serverType": "cx53", "actor": "admin"}},
+		{"a location that isn't a name", map[string]any{"kind": "in_stock", "serverType": "cx53", "locations": []string{"fsn1&type=ccx63"}, "actor": "admin"}},
+		{"too many locations", map[string]any{"kind": "in_stock", "serverType": "cx53", "locations": eleven, "actor": "admin"}},
+		{"no actor", map[string]any{"kind": "in_stock", "serverType": "cx53", "locations": []string{"fsn1"}}},
+	} {
+		if code, out := e.call("POST", "/v1/discord/notify", c.body); code != 400 {
+			t.Errorf("%s: %d %v", c.name, code, out)
+		}
+	}
+	if code, out := e.call("POST", "/v1/discord/notify", map[string]any{"kind": "in_stock", "serverType": "cx53", "locations": []string{"fsn1", "hel1"}, "actor": "admin"}); code != 204 {
+		t.Fatalf("machines in stock: %d %v", code, out)
+	}
+	f.waitMessage(e, "Machines in stock", "Hetzner has **CX53** machines in stock. Buy one in [Falkenstein](https://console.hetzner.com/create/server?location=fsn1",
+		") or [Helsinki](https://console.hetzner.com/create/server?location=hel1")
+}
+
 func TestDiscordTestEndpointMustBeOnThisMachine(t *testing.T) {
 	log := slog.New(slog.DiscardHandler)
 	for _, bad := range []string{

@@ -341,6 +341,24 @@ CREATE TABLE whop_plans (
   position            INTEGER NOT NULL DEFAULT 0
 );
 `,
+	// Hetzner stock: the owner's read-only Hetzner API token and the server
+	// type they watch (one row), with what the last checks found: each
+	// location's stock as JSON, the last problem, and whether Hetzner
+	// refused the token, which stops the checks until it's replaced.
+	`
+CREATE TABLE hetzner_watch (
+  id          INTEGER PRIMARY KEY CHECK (id = 1),
+  token       TEXT    NOT NULL,
+  server_type TEXT    NOT NULL,
+  set_by      TEXT    NOT NULL,
+  set_at      INTEGER NOT NULL,
+  checked_at  INTEGER NOT NULL DEFAULT 0,
+  problem     TEXT    NOT NULL DEFAULT '',
+  refused     INTEGER NOT NULL DEFAULT 0,
+  failures    INTEGER NOT NULL DEFAULT 0,
+  places      TEXT    NOT NULL DEFAULT '[]'
+);
+`,
 }
 
 const (
