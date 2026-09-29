@@ -742,6 +742,11 @@ func (s *Server) allServers(ctx context.Context) ([]map[string]any, []machine, e
 		}
 		for _, sv := range servers {
 			sv["machineId"] = m.ID
+			if id, _ := sv["id"].(string); m.Kind == remoteKind && id != "" {
+				if a := s.zoneAddress(id); a != "" {
+					sv["zoneAddress"] = a
+				}
+			}
 			out = append(out, sv)
 		}
 	}

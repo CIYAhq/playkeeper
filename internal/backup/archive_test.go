@@ -140,6 +140,34 @@ func TestReadFileTakesOneFileOutOfAnArchive(t *testing.T) {
 	}
 }
 
+// ReadFiles takes several files out in one pass and stops once it is past
+// them, so a file the archive doesn't hold costs no read to its end.
+func TestReadFilesStopsOncePastTheFiles(t *testing.T) {
+	arch, _ := createArchive(t, fixtureDataDir(t))
+	got, err := ReadFiles(bytes.NewReader(arch), []string{"world/level.dat", "world/level.dat_old", "server.properties"}, 1<<20, nil)
+	if err != nil || string(got["world/level.dat"]) != "level-data" || got["world/level.dat_old"] != nil || !strings.Contains(string(got["server.properties"]), "level-name=world") {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	cut := arch[:len(arch)*3/4]
+	if _, err := ReadFile(bytes.NewReader(cut), "world/level.dat_old", 1<<20); err == nil || errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the cut must be past world/level.dat, in the region file after it: %v", err)
+	}
+	if got, err := ReadFiles(bytes.NewReader(cut), []string{"world/level.dat", "world/level.dat_old"}, 1<<20, nil); err != nil || string(got["world/level.dat"]) != "level-data" {
+		t.Fatalf("the pass read on past the files it was asked for: %q, %v", got, err)
+	}
+	nether := []string{"server.properties", "world_nether/DIM-1/region/r.0.0.mca"}
+	if _, err := ReadFiles(bytes.NewReader(cut), nether, 1<<20, nil); err == nil {
+		t.Fatal("a pass to a file past the cut gave no error")
+	}
+	enough := func(read map[string][]byte) bool { return read["server.properties"] != nil }
+	if got, err := ReadFiles(bytes.NewReader(cut), nether, 1<<20, enough); err != nil || got["server.properties"] == nil {
+		t.Fatalf("a pass that had enough read on: %q, %v", got, err)
+	}
+	if _, err := ReadFiles(bytes.NewReader(arch), []string{"world/level.dat"}, 5, nil); err == nil {
+		t.Fatal("a file larger than allowed")
+	}
+}
+
 func TestCreateRefusesMissingWorld(t *testing.T) {
 	d := t.TempDir()
 	write(t, d, "server.properties", "level-name=world\n")

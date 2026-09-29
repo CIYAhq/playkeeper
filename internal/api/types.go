@@ -183,13 +183,17 @@ type RemoveAddonRequest struct {
 
 // RebuildLevelRequest makes a new level.dat for a stopped server's world
 // whose level.dat and level.dat_old can't be read: the world is backed up,
-// the world's seed goes into server.properties, and both files are deleted,
-// so Minecraft makes a new one. World names the world folder; empty is the
-// server's own world. Start starts the server afterwards.
+// the world's seed, when Playkeeper finds it, goes into server.properties,
+// and both files are deleted, so Minecraft makes a new one. World names the
+// world folder; empty is the server's own world. SeedFrom is where the
+// owner was told the seed comes from: when that keeps the seed and
+// Playkeeper can't find it now, nothing changes. Start starts the server
+// afterwards, and then checks it kept the seed.
 type RebuildLevelRequest struct {
-	Actor string `json:"actor"`
-	World string `json:"world,omitempty"`
-	Start bool   `json:"start,omitempty"`
+	Actor    string  `json:"actor"`
+	World    string  `json:"world,omitempty"`
+	SeedFrom *string `json:"seedFrom,omitempty"`
+	Start    bool    `json:"start,omitempty"`
 }
 
 // RemoveEntityRequest takes one entity, or one block entity's data, out of a
