@@ -45,7 +45,7 @@ lab_os_url() {
     debian-13) echo https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2 ;;
     almalinux-9 | almalinux-10) echo "https://repo.almalinux.org/almalinux/$v/cloud/x86_64/images/AlmaLinux-$v-GenericCloud-latest.x86_64.qcow2" ;;
     rocky-9 | rocky-10) echo "https://dl.rockylinux.org/pub/rocky/$v/images/x86_64/Rocky-$v-GenericCloud-Base.latest.x86_64.qcow2" ;;
-    centos-stream-9 | centos-stream-10) echo "https://cloud.centos.org/centos/$v-stream/x86_64/images/CentOS-Stream-GenericCloud-$v-latest.x86_64.qcow2" ;;
+    centos-stream-9 | centos-stream-10) lab_centos_url "$v" ;;
     # Oracle keeps earlier updates' images, so this one stays (lab_os_sums).
     oraclelinux-9) echo https://yum.oracle.com/templates/OracleLinux/OL9/u8/x86_64/OL9U8_x86_64-kvm-b293.qcow2 ;;
     amazonlinux-2023)
@@ -65,11 +65,47 @@ lab_os_url() {
   esac
 }
 
+# lab_centos_url V — CentOS Stream V's cloud image. CentOS publishes it on
+# cloud.centos.org, but the copy there can break: on 29 Sep 2026 the latest
+# image and its CHECKSUM line went missing for hours. Then it comes from the
+# compose it was built in, on CentOS's compose server, whose checksum sits
+# next to it (lab_os_sums).
+lab_centos_url() {
+  local v=$1 dir name sums compose list
+  dir="https://cloud.centos.org/centos/$v-stream/x86_64/images"
+  name="CentOS-Stream-GenericCloud-$v-latest.x86_64.qcow2"
+  if sums=$(curl -fsSL --retry 3 "$dir/CHECKSUM" 2>/dev/null) && grep -qF "($name)" <<<"$sums" &&
+    curl -fsSL --retry 3 -r 0-0 -o /dev/null "$dir/$name" 2>/dev/null; then
+    echo "$dir/$name"
+    return
+  fi
+  compose=https://composes.stream.centos.org/production/latest-CentOS-Stream/compose/BaseOS/x86_64/images
+  [ "$v" = 9 ] || compose="https://composes.stream.centos.org/stream-$v/production/latest-CentOS-Stream/compose/BaseOS/x86_64/images"
+  list=$(curl -fsSL --retry 3 "$compose/" 2>/dev/null) || list=
+  # A listing's line names the image twice, in its link and its text.
+  name=$(grep -m1 -oE "CentOS-Stream-GenericCloud-$v-[0-9.]+\.x86_64\.qcow2" <<<"$list" || true)
+  name=${name%%$'\n'*}
+  if [ -z "$name" ]; then
+    lab_log "no CentOS Stream $v cloud image on cloud.centos.org or in $compose"
+    return 1
+  fi
+  lab_log "cloud.centos.org can't serve CentOS Stream $v's image; using $name from its compose"
+  echo "$compose/$name"
+}
+
 # lab_os_sums OS — where OS's cloud image's checksum is published, for
 # lab_image_named: nothing for a SHA256SUMS or SHA512SUMS next to the image.
 lab_os_sums() {
+  local url
   case $1 in
-    almalinux-* | centos-stream-*) echo "$(dirname "$(lab_os_url "$1")")/CHECKSUM" ;;
+    almalinux-*) echo "$(dirname "$(lab_os_url "$1")")/CHECKSUM" ;;
+    centos-stream-*)
+      url=$(lab_os_url "$1") || return 1
+      case $url in
+        https://composes.stream.centos.org/*) echo "$url.SHA256SUM" ;;
+        *) echo "$(dirname "$url")/CHECKSUM" ;;
+      esac
+      ;;
     rocky-*) echo "$(lab_os_url "$1").CHECKSUM" ;;
     # Oracle lists it only on https://yum.oracle.com/oracle-linux-templates.html.
     oraclelinux-9) echo sha256:b12103391327abee8090686759c0d62dac9a7af2bf0f45fdf6b0d085a0fbb52b ;;
