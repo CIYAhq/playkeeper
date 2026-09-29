@@ -2,7 +2,8 @@
 """End-to-end scenario against an installed Playkeeper.
 
 host-a: first-run setup, EULA gate, create server, check from inside it
-        that it can't reach the machine (when Playkeeper runs on this one),
+        that it reaches no link-local address, and the machine only until
+        the owner keeps servers away (when Playkeeper runs on this one),
         invite and join with two protocol bots (offline-mode test harness),
         place a nonce marker, check sessions/charts/console, back up with a
         player online, check the archive independently, restore on the same
@@ -194,7 +195,12 @@ def host_a_play(a, c, anon):
 
     # The check runs on the machine itself; the VM runs call it over ssh.
     if urllib.parse.urlsplit(a.url).hostname in ("127.0.0.1", "::1", "localhost"):
-        step("From inside the server: this machine and link-local addresses are out of reach, the internet isn't")
+        step("From inside the server: link-local addresses are out of reach, this machine only once the owner keeps servers away")
+        r = subprocess.run(["sudo", "bash", GUARD_CHECK, "default"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=300)
+        print(r.stdout, end="", flush=True)
+        check(r.returncode == 0, "as the machine starts, the server reaches it but no link-local address")
+        g = c.ok("POST", c.mp("/network-guard"), {"host": True})
+        check(g.get("host") is True, "the owner keeps servers away from this machine")
         r = subprocess.run(["sudo", "bash", GUARD_CHECK], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=300)
         print(r.stdout, end="", flush=True)
         check(r.returncode == 0, "the network guard keeps the server from this machine and link-local addresses, and the agent puts its rules back")

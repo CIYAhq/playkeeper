@@ -524,10 +524,12 @@ func runStatus(args []string) error {
 // guardLine is what `playkeeper status` says of the network guard.
 func guardLine(g api.NetworkGuard) string {
 	switch {
-	case !g.On:
+	case g.Problem != "":
 		return "Network guard: off, so servers can reach this machine and the cloud's metadata service (" + g.Problem + ")"
-	case g.ServersReachHost:
-		return "Network guard: servers can reach this machine (serversReachHost in config.json), not the cloud's metadata service"
+	case !g.On:
+		return "Network guard: starts with the first server"
+	case !g.Host:
+		return "Network guard: servers can reach this machine, not the cloud's metadata service (Keep servers away from this machine is off in Machine settings)"
 	}
 	return "Network guard: servers can't reach this machine or the cloud's metadata service"
 }

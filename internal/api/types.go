@@ -233,22 +233,30 @@ type Machine struct {
 	// Wave 7 (0.4.0): SleepingMemoryMB is the part of ServersMemoryMB that
 	// sleeping servers gave back for now.
 	SleepingMemoryMB int `json:"sleepingMemoryMB"`
-	// Guard is how the firewall rules that keep servers from this machine
-	// and the cloud's metadata service stand (0.4.5). It is missing in dev
-	// mode, and until the first server's network is there.
+	// Guard is how the firewall rules that keep servers from the cloud's
+	// metadata service, and from this machine when the owner asks, stand
+	// (0.4.5). It is missing in dev mode.
 	Guard *NetworkGuard `json:"guard,omitempty"`
 }
 
 // NetworkGuard is how the network guard's firewall rules stand.
 type NetworkGuard struct {
-	// On is whether they are in place.
+	// On is whether they are in place. There are none until the first
+	// server makes Playkeeper's network.
 	On bool `json:"on"`
-	// ServersReachHost is serversReachHost in config.json: servers may open
-	// connections to this machine, and only the metadata service is kept
-	// from them.
-	ServersReachHost bool `json:"serversReachHost,omitempty"`
+	// Host is the owner's switch, Keep servers away from this machine:
+	// servers are kept from the machine itself too, not only from the
+	// metadata service. The dashboard turns it on when it makes a creator
+	// invite.
+	Host bool `json:"host"`
 	// Problem is why they aren't in place, when they aren't.
 	Problem string `json:"problem,omitempty"`
+}
+
+// NetworkGuardRequest turns keeping servers away from the machine on or off.
+type NetworkGuardRequest struct {
+	Host  bool   `json:"host"`
+	Actor string `json:"actor"`
 }
 
 // UpdateInfo is what Playkeeper knows about its own updates.

@@ -5,7 +5,8 @@
 #   preflight passes; the one-line install (get.sh from a local mirror,
 #   answering its question in a terminal); keyboard-only onboarding in the
 #   browser; two protocol bots, a backup with a player online, a same-host
-#   restore and its rollback; the network guard, from inside the server
+#   restore and its rollback; the network guard, from inside the server,
+#   before and after the owner keeps servers away from the machine
 #   (scripts/e2e/guard-check.sh); an update from the dashboard to a newer
 #   signed build; a reboot, after which the guard's rules are back; and an
 #   uninstall that keeps the world and backups, takes the guard's rules out
@@ -285,8 +286,11 @@ python3 "$root/test/e2e/scenario.py" host-a --existing --url "https://$G:8443" -
   --game-host "$join" --out "$OUT/host" | tee "$OUT/scenario.txt"
 ok "$(python3 -c 'import json, sys; c = json.load(open(sys.argv[1]))["checks"]; n = sum(x["ok"] for x in c); print(f"{n} of {len(c)} checks passed")' "$OUT/host/host-a-results.json")"
 
-step "from inside the server: this machine and link-local addresses are out of reach, the internet isn't"
-g 'sudo bash -s' <"$root/scripts/e2e/guard-check.sh" | tee "$OUT/guard.txt"
+step "from inside the server: link-local addresses are out of reach, this machine only once the owner keeps servers away"
+g 'sudo bash -s -- default' <"$root/scripts/e2e/guard-check.sh" | tee "$OUT/guard.txt"
+pk login admin "$PK_PASSWORD" >/dev/null
+[ "$(pk call POST '/api/machines/{machine}/network-guard' '{"host": true}' | head -1)" = 200 ] || fail "turning on Keep servers away from this machine"
+g 'sudo bash -s' <"$root/scripts/e2e/guard-check.sh" | tee -a "$OUT/guard.txt"
 ok "$(grep -c '^  ok: ' "$OUT/guard.txt") checks passed, the last: $(grep '^  ok: ' "$OUT/guard.txt" | tail -1 | sed 's/^  ok: //')"
 
 if [ -n "$rpm" ] && g 'sudo firewall-cmd --state' >/dev/null 2>&1; then

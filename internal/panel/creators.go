@@ -512,3 +512,65 @@ func (s *Server) hPregenStart(w http.ResponseWriter, r *http.Request, sess *sess
 	r.Body = io.NopCloser(bytes.NewReader(b))
 	forward(w, r, sess)
 }
+
+// hNetworkGuard turns Keep servers away from this machine on or off. On the
+// dashboard's own machine it stays on while there are creators, or a
+// creator invite that still works: their servers must not reach the
+// machine, its dashboard or what else it runs.
+func (s *Server) hNetworkGuard(w http.ResponseWriter, r *http.Request, sess *session) {
+	m, ok := s.machineFromPath(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Host bool `json:"host"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid request.", "")
+		return
+	}
+	if !req.Host && m.Kind == localKind {
+		has, err := s.hasCreators()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+			return
+		}
+		if has {
+			writeErr(w, http.StatusConflict, api.CodeConflict, "Servers stay away from this machine while it has creators.", "Remove the creators and their invites in Settings › Team first.")
+			return
+		}
+	}
+	g, err := setNetworkGuard(r.Context(), m, sess.User.Username, req.Host)
+	if err != nil {
+		s.agentFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, g)
+}
+
+func setNetworkGuard(ctx context.Context, m machine, actor string, host bool) (api.NetworkGuard, error) {
+	var g api.NetworkGuard
+	_, err := m.agent.Do(asActor(ctx, actor), "POST", "/v1/network-guard", nil, map[string]any{"host": host, "actor": actor}, &g)
+	return g, err
+}
+
+// keepServersAway turns Keep servers away from this machine on for the
+// dashboard's own machine, ahead of a creator invite.
+func (s *Server) keepServersAway(ctx context.Context, actor string) error {
+	g, err := setNetworkGuard(ctx, machine{Kind: localKind, agent: s.agent}, actor, true)
+	if err == nil && !g.Host {
+		err = fmt.Errorf("the agent left servers free to reach the machine")
+	}
+	return err
+}
+
+// hasCreators reports whether there are creator accounts, or creator
+// invites that can still be used.
+func (s *Server) hasCreators() (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT
+		(SELECT COUNT(*) FROM project_members WHERE allowance_servers > 0 OR allowance_memory_mb > 0) +
+		(SELECT COUNT(*) FROM invites WHERE (allowance_servers > 0 OR allowance_memory_mb > 0) AND revoked_at = 0 AND uses < max_uses AND expires_at > ?)`,
+		s.now().UnixMilli()).Scan(&n)
+	return n > 0, err
+}

@@ -122,8 +122,9 @@ func TestStatusSaysWhetherServersAreKeptFromTheMachine(t *testing.T) {
 		g    api.NetworkGuard
 		want string
 	}{
-		{api.NetworkGuard{On: true}, "servers can't reach this machine or the cloud's metadata service"},
-		{api.NetworkGuard{On: true, ServersReachHost: true}, "servers can reach this machine (serversReachHost in config.json), not the cloud's metadata service"},
+		{api.NetworkGuard{On: true, Host: true}, "servers can't reach this machine or the cloud's metadata service"},
+		{api.NetworkGuard{On: true}, "servers can reach this machine, not the cloud's metadata service (Keep servers away from this machine is off in Machine settings)"},
+		{api.NetworkGuard{Host: true}, "starts with the first server"},
 		{api.NetworkGuard{Problem: "the iptables command isn't installed"}, "off, so servers can reach this machine and the cloud's metadata service (the iptables command isn't installed)"},
 	} {
 		if got := guardLine(c.g); got != "Network guard: "+c.want {

@@ -41,6 +41,6 @@ The problems people hit most, with what to check first. If none of this helps, a
 
 ## A plugin can't reach something on the VPS
 
-- From 0.4.5, servers can't open connections to the VPS they run on, or to the cloud's metadata service. That keeps plugins and mods away from the dashboard and anything else the VPS runs. A plugin that uses a database on the same VPS, such as MySQL for LuckPerms or CoreProtect, gets "connection refused".
-- To let servers reach the VPS again, add `"serversReachHost": true` to `/etc/playkeeper/config.json`, then run `sudo systemctl restart playkeeper-agent`. Servers keep running while the agent restarts. The metadata service stays out of their reach.
-- `sudo playkeeper status` says whether servers can reach the VPS. A database on another machine, and the internet, are reachable either way.
+- With **Keep servers away from this machine** on in **Machine settings**, servers can't open connections to the VPS they run on. That keeps plugins and mods away from the dashboard and anything else the VPS runs, and a plugin that uses a database on the same VPS, such as MySQL for LuckPerms or CoreProtect, gets "connection refused". Turn it off there to let servers reach the VPS again; they keep running meanwhile.
+- It turns on by itself when you invite a creator, and stays on while you have creators or a creator invite that still works, since their servers mustn't reach your VPS. Run that database on another machine instead.
+- Servers never reach the cloud's metadata service. A database on another machine, and the internet, are reachable either way. `sudo playkeeper status` says which applies.

@@ -379,6 +379,16 @@ export interface Machine {
   servers: number
   /** Wave 7: the part of serversMemoryMB that sleeping servers gave back for now. */
   sleepingMemoryMB?: number
+  /** The firewall rules that keep servers from the cloud's metadata service, and from this machine when the owner asks; missing in dev mode. */
+  guard?: NetworkGuard
+}
+
+export interface NetworkGuard {
+  /** The rules are in place; there are none until the first server makes Playkeeper's network. */
+  on: boolean
+  /** Keep servers away from this machine, the owner's switch, which a creator invite turns on. */
+  host: boolean
+  problem?: string
 }
 
 export interface ApiErrorBody {
