@@ -1297,7 +1297,7 @@ func (a *Agent) restoreUpload(w http.ResponseWriter, r *http.Request, target *se
 		writeError(w, errInvalid("A disk limit is named with lower-case letters, digits and dashes."))
 		return
 	case limit != "":
-		room, err := a.namedLimitRoom(r.Context(), limit)
+		room, err := a.roomReplacingStage(r.Context(), limit)
 		if err == nil && r.ContentLength > room {
 			err = errDiskLimit(0, room, r.ContentLength)
 		}

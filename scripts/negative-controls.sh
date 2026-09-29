@@ -105,6 +105,11 @@ control "agent closed operation list" internal/agent/agent.go \
   'writeErr(w, http.StatusNotFound, api.CodeNotFound, "Unknown agent operation.", "")' \
   'writeJSON(w, http.StatusOK, map[string]any{"ok": true})' \
   ./internal/agent '^TestInvalidInputsAndUnknownVerbsAreRejected$'
+control "the agent closes its database once no connection is in use" internal/agent/agent.go \
+  '	a.waitDBIdle(5 * time.Second)
+	a.db.Close()' \
+  '	a.db.Close()' \
+  ./internal/agent '^TestCloseWaitsForTheDatabaseConnectionsInUse$'
 control "EULA gate" internal/agent/handlers.go \
   'if !req.AcceptEULA {' \
   'if false && !req.AcceptEULA {' \
@@ -7813,6 +7818,35 @@ webcontrol "customer deletion: Home says the plan ended once the servers are gon
   'const paused = deleted || !!ws.me.access.pausedUntil' \
   'const paused = !!ws.me.access.pausedUntil' \
   src/pages/pages.test.tsx 'offers a customer whose servers were deleted their final backups'
+control "client-only mods: a mod for players' games that stopped the server is recognised" internal/diagnose/crashrules.go \
+  '	{(*crashCtx).clientOnly, true},
+' \
+  '' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "client-only mods: a client class the server started past is not blamed" internal/diagnose/crashaddons.go \
+  'if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); started || c.errorAfter(last.idx) {' \
+  'if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); false && started || c.errorAfter(last.idx) {' \
+  ./internal/diagnose '^TestExplainCrashPassesOverAClientClassTheServerStartedPast$'
+control "client-only mods: NeoForge's early window plugin names the mod" internal/diagnose/crashaddons.go \
+  'if p, ok := c.consoleIn(reGraphicsPlugin, start-10, start+1); ok {' \
+  'if p, ok := c.consoleIn(reGraphicsPlugin, start-10, start+1); false && ok {' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "client-only mods: a mod's own frames name it, past the loader's" internal/diagnose/crashaddons.go \
+  'if jar := c.modJar(m[1], ""); jar != "" {' \
+  'if jar := m[1]; jar != "" {' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "client-only mods: a library named after the loader isn't taken for the loader's frames" internal/diagnose/crashaddons.go \
+  'm != nil && !loaderModules[m[1]] {' \
+  'm != nil {' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "client-only mods: a later error that stopped the server wins over an earlier client class" internal/diagnose/crashaddons.go \
+  'if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); started || c.errorAfter(last.idx) {' \
+  'if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); started {' \
+  ./internal/diagnose '^TestExplainCrashBlamesTheClientClassOnlyWhenItStoppedTheServer$'
+webcontrol "client-only mods: the dashboard says the mod only runs in players' games" web/src/lib/crash.ts \
+  "if (str(p, 'reason') !== 'client_only') return c.explanation" \
+  'return c.explanation' \
+  web/src/lib/lib.test.ts 'only runs in players'
 
 # Uploads for a new server counted against a named disk limit, as a
 # creator's are (internal/agent/worldimports.go, handlers.go, backups.go),
@@ -7886,15 +7920,15 @@ control "customer uploads: a restored new server joins the limit" internal/agent
   'if err := error(nil); err != nil {' \
   ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
 control "customer uploads: a backup unpacks no further than its limit's room" internal/agent/backups.go \
-  'if room >= 0 && room < lim.MaxTotalBytes {' \
-  'if false {' \
+  'lim.MaxTotalBytes = min(lim.MaxTotalBytes, room)' \
+  '_ = room' \
   ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
 control "customer uploads: a backup past its limit's room says so" internal/agent/backups.go \
   'if errors.Is(err, backup.ErrTooLarge) && room == lim.MaxTotalBytes {' \
   'if false {' \
   ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
 control "customer uploads: a backup into a server unpacks no further than its limit's room" internal/agent/backups.go \
-  'named = l.ID' \
+  'return a.namedLimitRoom(a.ctx, l.ID)' \
   'return -1, nil' \
   ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
 control "customer uploads: an archive's total size refusal is told apart" internal/backup/archive.go \
@@ -7937,6 +7971,32 @@ control "customer uploads: a discarded upload is deleted, not just moved aside" 
   '		os.RemoveAll(aside)' \
   '		_ = aside' \
   ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a backup staged for a new server counts against its limit" internal/agent/disklimits.go \
+  'n := a.stagedFor(l.ID)' \
+  'n := int64(0)' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a newer backup is read into the room of the one it replaces" internal/agent/handlers.go \
+  'room, err := a.roomReplacingStage(r.Context(), limit)' \
+  'room, err := a.namedLimitRoom(r.Context(), limit)' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a restore into a server isn't charged its archive besides its world" internal/agent/backups.go \
+  '		if target == nil {
+			room = max(room-n, 0)' \
+  '		if true {
+			room = max(room-n, 0)' \
+  ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
+control "customer uploads: the staged archive takes some of the room its world unpacks into" internal/agent/backups.go \
+  'room = max(room-n, 0)' \
+  'room = max(room, 0)' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a newer backup unpacks into the room of the one it replaces" internal/agent/backups.go \
+  'return a.roomReplacingStage(a.ctx, named)' \
+  'return a.namedLimitRoom(a.ctx, named)' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: the replaced backup's room counts before the room is floored at nothing" internal/agent/disklimits.go \
+  'return max(l.LimitBytes-a.limitUsed(rep, l)+staged, 0), nil' \
+  'return max(l.LimitBytes-a.limitUsed(rep, l), 0) + staged, nil' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
 
 # The machine answers DNS for the zone the dashboard sets, for port-free
 # addresses (internal/dnszone, internal/agent/dns.go): authoritative only,
@@ -8047,6 +8107,10 @@ control "dns: an address in use is said" internal/agent/dns.go \
   'problems = append(problems, dnsBindProblem(addr, err))' \
   '_ = addr' \
   ./internal/agent '^TestAnAddressInUseIsSaid$'
+control "dns: a port it can't have over TCP lets its UDP side go" internal/agent/dns.go \
+  'pc.Close()' \
+  '_ = pc' \
+  ./internal/agent '^TestDNSListensOnOnePortOverUDPAndTCP$'
 
 # Creators make a new server from an uploaded world or backup, inside their
 # allowance and against their disk limit (internal/panel/customeruploads.go).
