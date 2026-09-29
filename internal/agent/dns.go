@@ -113,14 +113,8 @@ func (a *Agent) startDNS() {
 	d.cancel = cancel
 	var problems []string
 	for _, addr := range addrs {
-		pc, err := net.ListenPacket("udp", addr)
+		pc, ln, err := listenDNS(addr)
 		if err != nil {
-			problems = append(problems, dnsBindProblem(addr, err))
-			continue
-		}
-		ln, err := net.Listen("tcp", pc.LocalAddr().String())
-		if err != nil {
-			pc.Close()
 			problems = append(problems, dnsBindProblem(addr, err))
 			continue
 		}
@@ -141,6 +135,27 @@ func (a *Agent) startDNS() {
 		d.problem = strings.Join(problems, " ")
 	case len(addrs) == 0:
 		d.problem = "The machine has no address to answer DNS on."
+	}
+}
+
+// listenDNS listens on addr over UDP and TCP, on the same port. A free port
+// (":0", as the tests ask for) is UDP's pick, which TCP may have given away
+// already, so it picks again then.
+func listenDNS(addr string) (net.PacketConn, net.Listener, error) {
+	_, port, _ := net.SplitHostPort(addr)
+	for tries := 1; ; tries++ {
+		pc, err := net.ListenPacket("udp", addr)
+		if err != nil {
+			return nil, nil, err
+		}
+		ln, err := net.Listen("tcp", pc.LocalAddr().String())
+		if err == nil {
+			return pc, ln, nil
+		}
+		pc.Close()
+		if port != "0" || tries == 10 {
+			return nil, nil, err
+		}
 	}
 }
 
