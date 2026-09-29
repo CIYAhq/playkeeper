@@ -92,3 +92,37 @@ type DNSZoneStatus struct {
 	Listening []string     `json:"listening"`
 	Problem   string       `json:"problem,omitempty"`
 }
+
+// DNSAnswers is whether the dashboard's machine answers DNS for its own
+// domain, for port-free addresses, and what the owner adds for it at the
+// domain's parent.
+type DNSAnswers struct {
+	// On is the owner's switch.
+	On bool `json:"on"`
+	// Zone is the machine's own domain and Nameserver the name its parent
+	// delegates it to. Unavailable says why the machine can't answer for its
+	// address, when it can't (the DNSUnavailable reasons).
+	Zone        string `json:"zone,omitempty"`
+	Nameserver  string `json:"nameserver,omitempty"`
+	Unavailable string `json:"unavailable,omitempty"`
+	// Add are the records the owner adds at the parent's DNS, and Remove
+	// the ones there that the zone takes over.
+	Add    []DNSRecord `json:"add"`
+	Remove []DNSRecord `json:"remove"`
+	// Answering is the zone the machine answers now, if any, and Servers
+	// how many servers have an SRV record in it; Listening and Problem are
+	// its DNSZoneStatus's.
+	Answering string   `json:"answering,omitempty"`
+	Servers   int      `json:"servers"`
+	Listening []string `json:"listening"`
+	Problem   string   `json:"problem,omitempty"`
+}
+
+// Why the dashboard's machine can't answer DNS for its address
+// (DNSAnswers.Unavailable): it has no own domain, the domain isn't a name
+// under another that could delegate it, or its IP address isn't known.
+const (
+	DNSUnavailableOwnDomain = "own_domain"
+	DNSUnavailableSubdomain = "subdomain"
+	DNSUnavailableAddress   = "address"
+)
