@@ -4,6 +4,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.9
 
+- **Customers on joined machines:** when you sell on Whop, a machine joined to this dashboard takes customers once you confirm it's yours on its page in **Settings › Machines**, which keeps servers away from the machine first. New customers go on it while it has room and create their servers there, and **Stop taking customers** sends new ones elsewhere. The owner's alone.
 - Fixed: making a new level.dat could say it keeps the world's seed without having found it: before Minecraft 26.1, whenever a checked backup existed, even one saved after the damage or before a restore, and it said nothing when only server.properties had a seed. It now says so only once it has read the seed from the world or from a backup of this world, makes no new level.dat if the seed is gone by the time you confirm, and checks that the started server kept it. Otherwise the dialog says plainly that new terrain won't match the old.
 
 ## 0.4.8
