@@ -36,6 +36,7 @@ const previews = {
   errors: { eyebrow: 'Guide', title: 'Minecraft server errors, and how to fix them', pip: 'pip-hurt' },
   'error-connection-refused': { eyebrow: 'Error fix', title: 'Connection refused: what it means, and the fix', pip: 'pip-hurt' },
   'error-unable-to-access-jarfile': { eyebrow: 'Error fix', title: 'Error: Unable to access jarfile, and the fix', pip: 'pip-hurt' },
+  'error-failed-to-verify-username': { eyebrow: 'Error fix', title: 'Failed to verify username! What it means, and the fix', pip: 'pip-hurt' },
   docs: { eyebrow: 'Docs', title: 'Playkeeper docs', pip: 'pip-letter' },
   pricing: { eyebrow: 'Pricing', title: 'Free and open source. You only pay for your VPS.', pip: 'pip-box' },
   blog: { eyebrow: 'Blog', title: 'Releases, guides and building Playkeeper in public', pip: 'pip-letter' },
