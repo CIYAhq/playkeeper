@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -191,6 +192,47 @@ func TestOnlyALapsedCustomerIsDeleted(t *testing.T) {
 	}
 	if err := e.srv.deleteLapsedCustomer(ctx, p.alex.id); err != nil || len(p.n.kinds()) != 3 {
 		t.Fatalf("deleting again: %v, told %v", err, p.n.kinds())
+	}
+}
+
+// A customer who renews while their server is being deleted keeps what's
+// left, and still gets that server's final backup: it's listed, and their
+// dashboard offers it, once they're back.
+func TestARenewalDuringADeletionKeepsItsFinalBackup(t *testing.T) {
+	p := newPausable(t)
+	e, ctx := p.e, context.Background()
+	p.lapse("succeeded")
+	p.lapsed(t)
+	var once sync.Once
+	e.agent.mu.Lock()
+	e.agent.before["GET /v1/operations/"+deletionOp] = func() {
+		once.Do(func() {
+			if _, err := p.core.StartCustomer(ctx, p.cust, starter); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	e.agent.mu.Unlock()
+	e.srv.deleteLapsedCustomers(ctx)
+	info, _, _ := p.core.CustomerAccount(ctx, whopProvider, "user_alex")
+	if info.State != CustomerActive || p.deletions() != 1 {
+		t.Fatalf("alex renewed during the deletion: %+v, asked %d times", info, p.deletions())
+	}
+	e.reply("GET", "/v1/kept-backups", `[{"id":"20261013-120000-abc123","serverId":"`+p.serverID+`","serverName":"alex","keptFor":"`+keptFor(p.alex.id)+`","fileName":"playkeeper-alex-20261013-120000-abc123.tar.gz","sizeBytes":5,"sha256":"","madeAt":"2026-10-13T12:00:00Z","expiresAt":"2026-11-12T12:00:00Z"}]`)
+	alex := signIn(t, e.env, p.alex.id)
+	var list []finalBackup
+	if st := e.get(t, "/api/final-backups", alex.cookie, &list); st != http.StatusOK || len(list) != 1 {
+		t.Fatalf("alex's final backups once back: %d %+v", st, list)
+	}
+	var me struct {
+		Access struct {
+			ServersDeleted bool `json:"serversDeleted"`
+			FinalBackups   bool `json:"finalBackups"`
+		} `json:"access"`
+	}
+	e.get(t, "/api/auth/me", alex.cookie, &me)
+	if !me.Access.FinalBackups || me.Access.ServersDeleted {
+		t.Fatalf("alex's dashboard once back: final backups %v, servers deleted %v", me.Access.FinalBackups, me.Access.ServersDeleted)
 	}
 }
 

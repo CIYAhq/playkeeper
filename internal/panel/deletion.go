@@ -141,7 +141,8 @@ func (s *Server) deleteLapsedServer(ctx context.Context, m machine, userID int64
 // final backup finalBackupDays, while they're still paused past their grace
 // period, and returns the deletion's operation: "" when m has no such
 // server any more. A renewal waits until the deletion has started, so it
-// can't slip in between.
+// can't slip in between. The machine is recorded as keeping their final
+// backups first, so one that renews during the deletion still gets theirs.
 func (s *Server) startLapsedDelete(ctx context.Context, m machine, userID int64, id string) (string, error) {
 	s.customersMu.Lock()
 	defer s.customersMu.Unlock()
@@ -161,6 +162,9 @@ func (s *Server) startLapsedDelete(ctx context.Context, m machine, userID int64,
 		return "", nil
 	case status != http.StatusOK:
 		return "", fmt.Errorf("the agent answered %d about %s", status, id)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE customers SET final_backups_machine = ? WHERE user_id = ?`, m.ID, userID); err != nil {
+		return "", errDB
 	}
 	req := api.DeleteServerRequest{Confirm: st.Name, Actor: placementActor, ForgetKey: true,
 		KeepFinalBackupDays: finalBackupDays, KeptFor: keptFor(userID)}
@@ -282,6 +286,16 @@ type finalBackup struct {
 	SizeBytes  int64     `json:"sizeBytes"`
 	MadeAt     time.Time `json:"madeAt"`
 	ExpiresAt  time.Time `json:"expiresAt"`
+}
+
+// hasFinalBackups reports whether a is a customer a machine keeps final
+// backups for, paused or renewed.
+func (s *Server) hasFinalBackups(a access) bool {
+	if a.Customer == "" {
+		return false
+	}
+	var mid string
+	return s.db.QueryRow(`SELECT final_backups_machine FROM customers WHERE user_id = ?`, a.UserID).Scan(&mid) == nil && mid != ""
 }
 
 // finalBackupsOf lists the kept backups of the account's deleted servers,

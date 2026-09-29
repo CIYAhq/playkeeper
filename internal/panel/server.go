@@ -1001,9 +1001,11 @@ type accessBody struct {
 	WaitingForRoom bool `json:"waitingForRoom,omitempty"`
 	// PausedUntil is set for a customer whose plan ended: when their servers
 	// are deleted unless they renew (see pausing.go). ServersDeleted is set
-	// once they are (see deletion.go).
+	// once they are, and FinalBackups for a customer, paused or renewed,
+	// whose deleted servers' final backups a machine keeps (see deletion.go).
 	PausedUntil    *time.Time `json:"pausedUntil,omitempty"`
 	ServersDeleted bool       `json:"serversDeleted,omitempty"`
+	FinalBackups   bool       `json:"finalBackups,omitempty"`
 	Can            []action   `json:"can"`
 }
 
@@ -1018,7 +1020,7 @@ func (s *Server) meBody(sess session) map[string]any {
 		"access": accessBody{ProjectID: a.ProjectID, Team: s.teamName(a.ProjectID), Role: a.ProjectRole, Servers: a.Servers, TwoFactor: a.FactorOn,
 			NeedsTwoFactor:       invites.RequiresTwoFactor(a.InstallRole, a.ProjectRole) && !a.FactorOn,
 			AwaitingConfirmation: a.awaitingConfirmation(), WaitingForRoom: s.customerWaiting(context.Background(), a), PausedUntil: s.pausedUntil(a),
-			ServersDeleted: s.serversDeleted(a), Can: a.can()},
+			ServersDeleted: s.serversDeleted(a), FinalBackups: s.hasFinalBackups(a), Can: a.can()},
 		"expiresAt":          sess.ExpiresAt.UTC(),
 		"idleTimeoutSeconds": int(s.opts.IdleTimeout.Seconds()),
 		"version":            version.Version,
