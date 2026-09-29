@@ -254,11 +254,6 @@ func (a *Agent) hPublicPagePorts(w http.ResponseWriter, r *http.Request) {
 	a.pagePorts.hand.Lock()
 	defer a.pagePorts.hand.Unlock()
 	ports, files := a.takePagePorts(r.Context(), want)
-	defer func() {
-		for _, f := range files {
-			f.Close()
-		}
-	}()
 	if err := writeWithFiles(w, ports, files); err != nil {
 		a.log.Warn("could not hand the public page's ports to the panel", "err", err)
 	}
@@ -281,17 +276,29 @@ func (a *Agent) hPublicPagePortsRetry(w http.ResponseWriter, r *http.Request) {
 
 // writeWithFiles answers with v as JSON and passes files along with the
 // answer's first byte, which only a Unix socket carries. It takes the
-// connection over, so it is the last thing a handler does.
+// connection over, so it is the last thing a handler does. It closes the
+// files, and before the connection: the panel reads the answer to its end,
+// so by the time it has the files, the agent holds no copy of them.
 func writeWithFiles(w http.ResponseWriter, v any, files []*os.File) error {
+	closeFiles := func() {
+		for _, f := range files {
+			f.Close()
+		}
+	}
 	body, err := json.Marshal(v)
 	if err != nil {
+		closeFiles()
 		return err
 	}
 	conn, _, err := http.NewResponseController(w).Hijack()
 	if err != nil {
+		closeFiles()
 		return err
 	}
-	defer conn.Close()
+	defer func() {
+		closeFiles()
+		conn.Close()
+	}()
 	uc, ok := conn.(*net.UnixConn)
 	if !ok {
 		msg := `{"error":"Only the agent's own socket can carry the public page's ports.","code":"invalid_request"}`

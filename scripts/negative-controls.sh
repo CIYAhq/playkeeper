@@ -6307,6 +6307,13 @@ control "a hand-over asked for over anything but the agent's socket tries no por
   'if _, ok := r.Context().Value(connKey{}).(*net.UnixConn); !ok {' \
   'if _, ok := r.Context().Value(connKey{}).(*net.UnixConn); false && !ok {' \
   ./internal/agent '^TestThePagesPortsReachThePanelOnlyOverTheAgentSocket$'
+control "the agent lets go of the page's ports before the panel has the answer" internal/agent/pageports.go \
+  '		closeFiles()
+		conn.Close()' \
+  '		conn.Close()
+		time.Sleep(200 * time.Millisecond)
+		closeFiles()' \
+  ./internal/agent '^TestThePagesPortsReachThePanelOnlyOverTheAgentSocket$'
 control "machine links don't carry the public page's ports" internal/agent/link.go \
   '"POST " + pagePortsPath: true,' \
   '"POST " + pagePortsPath: false,' \
