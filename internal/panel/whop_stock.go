@@ -83,8 +83,10 @@ func (ws whopStock) SetAvailability(ctx context.Context, left map[string]int) er
 // including ones the dashboard hasn't heard of yet, while what it last saw
 // may be minutes old. So before writing, it reads the plan's memberships
 // from Whop again: the target then counts every purchase Whop took off, and
-// is right whatever Whop's stock says. A stock changed by hand on Whop is
-// put back once the dashboard reads the store again.
+// is right whatever Whop's stock says. It's written even when it matches
+// what the dashboard last saw, which purchases may have lowered since. A
+// stock changed by hand on Whop is put back once the dashboard reads the
+// store again.
 func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client, accountID string) {
 	type plan struct {
 		id          string
@@ -126,9 +128,6 @@ func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client, accountID st
 		target, err := s.whopStockTarget(ctx, c, accountID, p.id, p.want, p.setAt)
 		if err != nil {
 			s.log.Warn("could not read a plan's purchases from Whop", "plan", p.id, "err", err)
-			continue
-		}
-		if !p.unlimited && p.stock == target {
 			continue
 		}
 		if err := c.SetPlanStock(ctx, p.id, target); err != nil {

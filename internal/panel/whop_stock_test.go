@@ -136,6 +136,22 @@ func TestAPurchaseNotHeardOfYetStaysSold(t *testing.T) {
 	}
 }
 
+func TestMoreRoomWithPurchasesNotHeardOfYetStillSells(t *testing.T) {
+	f, e, _ := connectedWhop(t)
+	core := useFakeCore(e)
+	core.refuse = errors.New("The machine is full.")
+	e.availability(t, map[string]int{"plan_starter": 5})
+
+	// alex and sam buy with no webhook yet, as the fleet finds room for two
+	// more: five fit, less the two purchases.
+	f.buy("mem_alex", "user_alex", "plan_starter", "active")
+	f.buy("mem_sam", "user_sam", "plan_starter", "active")
+	e.availability(t, map[string]int{"plan_starter": 7})
+	if n := f.stockOf("plan_starter"); n != 5 {
+		t.Fatalf("more room with purchases not heard of yet: Starter at %d", n)
+	}
+}
+
 func TestABuyerWhosePlanEndedNeedsRoomAgainWhenTheyBuyAgain(t *testing.T) {
 	f, e, _ := connectedWhop(t)
 	core := useFakeCore(e)
