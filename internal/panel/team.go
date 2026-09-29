@@ -771,7 +771,7 @@ func (s *Server) restoreProxy(method, pattern string, then func(machine, *sessio
 		if p.ServerID == "" {
 			act = actCreateServers
 		}
-		if err := permit(sess.Access, act, p.ServerID); err != nil {
+		if err := s.permitOn(sess.Access, act, p.ServerID); err != nil {
 			writeRefusal(w, err)
 			return
 		}

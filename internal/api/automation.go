@@ -54,12 +54,15 @@ type BackupRefusal struct {
 // take on the machine between them, counted as the Disk space page counts
 // it. UsedBytes, in answers, is what they take at the last scan.
 // CPUMilliPerGB, when set, caps each of the servers' processor use at that
-// many thousandths of a core for each GB of its memory.
+// many thousandths of a core for each GB of its memory. Hold, when set,
+// keeps the servers from starting, whoever or whatever asks, and says why,
+// as when the customer's plan has ended.
 type DiskLimit struct {
 	ID            string   `json:"id"`
 	LimitBytes    int64    `json:"limitBytes"`
 	Servers       []string `json:"servers"`
 	CPUMilliPerGB int      `json:"cpuMilliPerGB,omitempty"`
+	Hold          string   `json:"hold,omitempty"`
 	UsedBytes     int64    `json:"usedBytes"`
 }
 

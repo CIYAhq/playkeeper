@@ -7321,8 +7321,8 @@ webcontrol "disk limits: a backup refused at the limit offers no button" web/src
 # Playkeeper Cloud's processor shares (internal/agent/disklimits.go): a
 # customer's servers get a share of a core for each GB of memory.
 control "processor shares: a share is kept" internal/agent/disklimits.go \
-  'Servers: list, CPUMilliPerGB: l.CPUMilliPerGB})' \
-  'Servers: list})' \
+  'Servers: list, CPUMilliPerGB: l.CPUMilliPerGB, Hold: l.Hold})' \
+  'Servers: list, Hold: l.Hold})' \
   ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
 control "processor shares: a new share is a change" internal/agent/disklimits.go \
   ' && x.CPUMilliPerGB == y.CPUMilliPerGB' \
@@ -7361,8 +7361,8 @@ control "processor shares: no cap passes the machine's cores" internal/agent/dis
   ', int64(numCPU())*1_000_000_000*1000)' \
   ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
 control "processor shares: the dashboard gives each creator's servers half a core per GB" internal/panel/disklimits.go \
-  'Servers: ids, CPUMilliPerGB: cpuMilliPerGB})' \
-  'Servers: ids})' \
+  'Servers: ids, CPUMilliPerGB: cpuMilliPerGB, Hold: holds[uid]})' \
+  'Servers: ids, Hold: holds[uid]})' \
   ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
 
 # Playkeeper Cloud's disk limits, the dashboard's half
@@ -7534,6 +7534,136 @@ webcontrol "ready server: Home says a waiting customer's server is being set up"
   'const waiting = !!ws.me.access.waitingForRoom' \
   'const waiting = false' \
   src/pages/pages.test.tsx 'being set up while it waits for room'
+
+# Pausing a customer whose plan ended (internal/panel/pausing.go): their
+# servers stop, and they may only look and download until they renew.
+control "pausing: a paused customer only looks, downloads and looks after their account" internal/panel/workspace.go \
+  'case a.Customer == CustomerPaused && !pausedMay[act]:' \
+  'case false:' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: a suspended customer does nothing" internal/panel/workspace.go \
+  'case a.Customer == CustomerSuspended:' \
+  'case false:' \
+  ./internal/panel '^TestNothingABillingProviderDoesLiftsASuspension$'
+control "pausing: a paused customer's servers stop" internal/panel/pausing.go \
+  's.stopCustomerServers(ctx, info.UserID, cust.Provider)' \
+  '_ = info.UserID' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: a paused customer's tokens are revoked" internal/panel/pausing.go \
+  's.revokeAccountTokens(info.UserID, cust.Provider, "their plan ended")' \
+  '_ = info.UserID' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: only an active customer is paused, once" internal/panel/pausing.go \
+  'case info.State != CustomerActive:' \
+  'case false:' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: a paused customer is told until when" internal/panel/pausing.go \
+  'if err := s.notifier.Notify(ctx, cust, CustomerMessage{Kind: messagePaused, Text: pausedText(until)}); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: renewing brings a paused customer back" internal/panel/customers.go \
+  'if err == nil && info.State == CustomerPaused {' \
+  'if false {' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: the dashboard says until when" internal/panel/server.go \
+  'PausedUntil: s.pausedUntil(a), ' \
+  '' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+webcontrol "pausing: Home tells a paused customer their plan ended" web/src/pages/home.tsx \
+  "if (access.pausedUntil) return <TwoLineNotice tone=\"warning\" title={t('home.pausedTitle')} body={t('home.pausedBody', { date: formatLongDate(access.pausedUntil) })} />" \
+  '' \
+  src/pages/pages.test.tsx 'tells a paused customer their plan has ended'
+webcontrol "pausing: an empty Home tells a paused customer their plan ended" web/src/pages/home.tsx \
+  'const paused = !!ws.me.access.pausedUntil' \
+  'const paused = false' \
+  src/pages/pages.test.tsx 'with no servers that their plan has ended'
+control "pausing: a paused customer makes no new token" internal/panel/tokens.go \
+  'if sess.Access.Customer == CustomerPaused {' \
+  'if false {' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: only an active customer waits for room" internal/panel/readyserver.go \
+  'if a.Customer != CustomerActive {' \
+  'if a.Customer == "" {' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: pausing sends the machines the hold at once" internal/panel/pausing.go \
+  's.kickDiskLimits()' \
+  '' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: a paused customer's limit holds their servers" internal/panel/disklimits.go \
+  'CPUMilliPerGB: cpuMilliPerGB, Hold: holds[uid]}' \
+  'CPUMilliPerGB: cpuMilliPerGB}' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: a suspended customer's hold says so" internal/panel/disklimits.go \
+  'if CustomerState(state) == CustomerSuspended {' \
+  'if false {' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: others may not run or change a paused customer's server" internal/panel/pausing.go \
+  'return errServerPaused' \
+  'return nil' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: others may only look at a suspended customer's server" internal/panel/pausing.go \
+  'return errServerSuspended' \
+  'return nil' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: others may still look at a held server" internal/panel/pausing.go \
+  'if serverID == "" || act == actView || a.owner() || a.Servers.All {' \
+  'if serverID == "" || a.owner() || a.Servers.All {' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: whoever runs the Playkeeper still looks after a held server" internal/panel/pausing.go \
+  'if serverID == "" || act == actView || a.owner() || a.Servers.All {' \
+  'if serverID == "" || act == actView {' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: permitOn asks whether the server is held" internal/panel/workspace.go \
+  'return s.heldRefusal(a, act, serverID)' \
+  'return nil' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: every dashboard route asks whether its server is held" internal/panel/server.go \
+  'if err := s.permitOn(acct, rt.Act, r.PathValue("id")); err != nil {' \
+  'if err := permit(acct, rt.Act, r.PathValue("id")); err != nil {' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: a restore asks whether its server is held" internal/panel/team.go \
+  'if err := s.permitOn(sess.Access, act, p.ServerID); err != nil {' \
+  'if err := permit(sess.Access, act, p.ServerID); err != nil {' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: a world import asks whether its server is held" internal/panel/worldimports.go \
+  'if err := s.permitOn(sess.Access, need, imp.ServerID); err != nil {' \
+  'if err := permit(sess.Access, need, imp.ServerID); err != nil {' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: a token's tools ask whether their server is held" internal/panel/mcp.go \
+  'return mcpRefusal(act, b.s.heldRefusal(account, action(act), id))' \
+  'return mcpRefusal(act, nil)' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
+  'if err := access.onServer(s.act, c.server.ID); err != nil {' \
+  'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
+  ./internal/mcptools '^TestEachToolOnAServerAsksAboutThatServer$'
+
+# A disk limit's hold (internal/agent/disklimits.go): the machine starts a
+# held customer's servers for nobody.
+control "disk limits: a held server doesn't start" internal/agent/disklimits.go \
+  'if l := s.diskLimitOf(s.id); l != nil && l.Hold != "" {' \
+  'if l := s.diskLimitOf(s.id); l != nil && false {' \
+  ./internal/agent '^TestAHeldServerDoesntStart$'
+control "disk limits: every start asks about the hold" internal/agent/lifecycle.go \
+  'if err := s.holdRefusal(); err != nil {' \
+  'if err := s.holdRefusal(); false && err != nil {' \
+  ./internal/agent '^TestAHeldServerDoesntStart$'
+control "disk limits: the hold is kept" internal/agent/disklimits.go \
+  'CPUMilliPerGB: l.CPUMilliPerGB, Hold: l.Hold})' \
+  'CPUMilliPerGB: l.CPUMilliPerGB})' \
+  ./internal/agent '^TestAHeldServerDoesntStart$'
+control "disk limits: a hold that changes alone is a change" internal/agent/disklimits.go \
+  'x.CPUMilliPerGB == y.CPUMilliPerGB && x.Hold == y.Hold' \
+  'x.CPUMilliPerGB == y.CPUMilliPerGB' \
+  ./internal/agent '^TestAHeldServerDoesntStart$'
+control "disk limits: a hold's reason is bounded" internal/agent/disklimits.go \
+  'case len(l.Hold) > maxDiskLimitHold || ' \
+  'case ' \
+  ./internal/agent '^TestAHeldServerDoesntStart$'
+control "disk limits: a hold's reason is printable" internal/agent/disklimits.go \
+  'func(r rune) bool { return !unicode.IsPrint(r) }' \
+  'func(r rune) bool { return false && !unicode.IsPrint(r) }' \
+  ./internal/agent '^TestAHeldServerDoesntStart$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

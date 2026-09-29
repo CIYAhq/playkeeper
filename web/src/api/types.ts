@@ -1827,6 +1827,8 @@ export interface Access {
   awaitingConfirmation?: boolean
   /** A customer whose server is being set up, waiting for room on a machine. */
   waitingForRoom?: boolean
+  /** A customer whose plan ended: when their servers are deleted unless they renew. */
+  pausedUntil?: string
   can: Action[]
 }
 

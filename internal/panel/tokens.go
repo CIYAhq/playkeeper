@@ -435,6 +435,10 @@ func validTokenServers(ids []string) ([]string, error) {
 }
 
 func (s *Server) hTokenCreate(w http.ResponseWriter, r *http.Request, sess *session) {
+	if sess.Access.Customer == CustomerPaused {
+		writeRefusal(w, errCustomerPaused)
+		return
+	}
 	var req struct {
 		Name       string   `json:"name"`
 		Role       string   `json:"role"`

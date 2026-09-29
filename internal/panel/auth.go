@@ -497,6 +497,13 @@ ALTER TABLE whop_account ADD COLUMN marked_as     TEXT    NOT NULL DEFAULT '';
 ALTER TABLE whop_account ADD COLUMN taken_over_by TEXT    NOT NULL DEFAULT '';
 ALTER TABLE whop_account ADD COLUMN taken_over_at INTEGER NOT NULL DEFAULT 0;
 `,
+	// Pausing a customer whose plan ended: when, why, and when their
+	// servers are deleted unless they renew (see customers.go).
+	`
+ALTER TABLE customers ADD COLUMN paused_at    INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN delete_after INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN pause_reason TEXT    NOT NULL DEFAULT '';
+`,
 }
 
 const (

@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/backup"
@@ -34,6 +35,7 @@ const (
 	maxDiskLimits       = 1000
 	maxDiskLimitServers = 100
 	maxDiskLimitBytes   = 1 << 50
+	maxDiskLimitHold    = 200
 	minCPUMilliPerGB    = 100
 	maxCPUMilliPerGB    = 16000
 )
@@ -130,7 +132,7 @@ func (a *Agent) hDiskLimitsSet(w http.ResponseWriter, r *http.Request) {
 	a.limits.mu.Lock()
 	old := a.limits.limits
 	changed := !slices.EqualFunc(old, limits, func(x, y api.DiskLimit) bool {
-		return x.ID == y.ID && x.LimitBytes == y.LimitBytes && slices.Equal(x.Servers, y.Servers) && x.CPUMilliPerGB == y.CPUMilliPerGB
+		return x.ID == y.ID && x.LimitBytes == y.LimitBytes && slices.Equal(x.Servers, y.Servers) && x.CPUMilliPerGB == y.CPUMilliPerGB && x.Hold == y.Hold
 	})
 	if changed {
 		raw, _ := json.Marshal(limits)
@@ -217,6 +219,8 @@ func checkDiskLimits(in []api.DiskLimit) ([]api.DiskLimit, error) {
 			return nil, errInvalid("A disk limit covers at most %d servers.", maxDiskLimitServers)
 		case l.CPUMilliPerGB != 0 && (l.CPUMilliPerGB < minCPUMilliPerGB || l.CPUMilliPerGB > maxCPUMilliPerGB):
 			return nil, errInvalid("A processor share is from %d to %d thousandths of a core for each GB of memory, or none.", minCPUMilliPerGB, maxCPUMilliPerGB)
+		case len(l.Hold) > maxDiskLimitHold || strings.ContainsFunc(l.Hold, func(r rune) bool { return !unicode.IsPrint(r) }):
+			return nil, errInvalid("A hold's reason is at most %d printable characters.", maxDiskLimitHold)
 		}
 		ids[l.ID] = true
 		list := slices.Clone(l.Servers)
@@ -227,7 +231,7 @@ func checkDiskLimits(in []api.DiskLimit) ([]api.DiskLimit, error) {
 			}
 			servers[id] = true
 		}
-		out = append(out, api.DiskLimit{ID: l.ID, LimitBytes: l.LimitBytes, Servers: list, CPUMilliPerGB: l.CPUMilliPerGB})
+		out = append(out, api.DiskLimit{ID: l.ID, LimitBytes: l.LimitBytes, Servers: list, CPUMilliPerGB: l.CPUMilliPerGB, Hold: l.Hold})
 	}
 	slices.SortFunc(out, func(x, y api.DiskLimit) int { return strings.Compare(x.ID, y.ID) })
 	return out, nil
@@ -269,6 +273,16 @@ func unpackedBytes(m backup.Manifest) int64 {
 		n += f.Size
 	}
 	return n
+}
+
+// holdRefusal refuses to start a server whose limit holds it, and says why.
+// Every start goes through it: a request, a restart, a schedule, a player
+// waking the server, and recovering it.
+func (s *server) holdRefusal() error {
+	if l := s.diskLimitOf(s.id); l != nil && l.Hold != "" {
+		return &apiError{Status: http.StatusConflict, Code: api.CodeConflict, Msg: s.name() + " can't start: " + l.Hold}
+	}
+	return nil
 }
 
 // usedBy is what servers take in a scan.
