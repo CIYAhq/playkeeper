@@ -19,10 +19,37 @@ import (
 // creator invite, and keeps it on while the machine has creators.
 const kvGuardHost = "network_guard_host"
 
+// loadGuard reads the owner's switch, which the agent keeps in memory from
+// then on: a database error on one of its looks at the rules mustn't count
+// as off and take the rules for the machine out.
+func (a *Agent) loadGuard() error {
+	v, _, err := a.kvGet(kvGuardHost)
+	a.keepAway = v == "on"
+	return err
+}
+
 // guardHost reports whether the owner keeps servers away from this machine.
 func (a *Agent) guardHost() bool {
-	v, ok, err := a.kvGet(kvGuardHost)
-	return err == nil && ok && v == "on"
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.keepAway
+}
+
+// setGuardHost stores the owner's switch, and only then changes it, and
+// reports whether it did.
+func (a *Agent) setGuardHost(on bool) (bool, error) {
+	a.guardMu.Lock()
+	defer a.guardMu.Unlock()
+	if on == a.guardHost() {
+		return false, nil
+	}
+	if err := a.kvSet(kvGuardHost, map[bool]string{true: "on", false: "off"}[on]); err != nil {
+		return false, err
+	}
+	a.mu.Lock()
+	a.keepAway = on
+	a.mu.Unlock()
+	return true, nil
 }
 
 // defaultFirewall is what runs iptables for an agent with no Firewall option:
@@ -49,11 +76,12 @@ func (a *Agent) hNetworkGuard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if req.Host != a.guardHost() {
-		if err := a.kvSet(kvGuardHost, map[bool]string{true: "on", false: "off"}[req.Host]); err != nil {
-			writeError(w, err)
-			return
-		}
+	changed, err := a.setGuardHost(req.Host)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if changed {
 		a.audit(actor, "machine.network_guard", "", "changed", map[bool]string{true: "servers kept away from this machine", false: "servers may reach this machine"}[req.Host])
 	}
 	a.guardNetwork(r.Context())
@@ -71,8 +99,8 @@ func (a *Agent) guardView() *api.NetworkGuard {
 	if a.opts.Firewall == nil {
 		return nil
 	}
-	g := api.NetworkGuard{Host: a.guardHost()}
 	a.mu.Lock()
+	g := api.NetworkGuard{Host: a.keepAway}
 	if a.guard != nil {
 		g.On, g.Problem = a.guard.On, a.guard.Problem
 	}

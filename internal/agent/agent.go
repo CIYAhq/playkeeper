@@ -270,10 +270,11 @@ type Agent struct {
 	// selinuxKnown; mu guards both.
 	selinux, selinuxKnown bool
 	// guard is how the network guard's rules stand, once they were first
-	// looked at with the network there (mu); guardMu serializes changing
-	// them.
-	guard   *api.NetworkGuard
-	guardMu sync.Mutex
+	// looked at with the network there, and keepAway the owner's switch as
+	// last stored (both mu); guardMu serializes changing them.
+	guard    *api.NetworkGuard
+	keepAway bool
+	guardMu  sync.Mutex
 
 	allowed map[uint32]bool
 
@@ -557,6 +558,10 @@ func New(opts Options) (*Agent, error) {
 		} else if cfg.Dev {
 			a.allowed[uint32(os.Getuid())] = true
 		}
+	}
+	if err := a.loadGuard(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("read the network guard's switch: %w", err)
 	}
 	if err := a.migrateSingleServer(); err != nil {
 		db.Close()

@@ -185,6 +185,19 @@ func (e *agentEnv) start() {
 		})
 		e.slp = startFakeSLP(e.t, e.rcon)
 	}
+	a, err := New(e.options())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	e.a = a
+	e.live.Store(a)
+	a.Start()
+	e.ts = httptest.NewServer(a.HandlerForTest())
+	e.t.Cleanup(func() { e.stop() })
+}
+
+// options are the agent's options in this environment.
+func (e *agentEnv) options() Options {
 	offset := e.clockOffset
 	backoff := e.crashBackoff
 	if backoff == nil {
@@ -228,15 +241,7 @@ func (e *agentEnv) start() {
 	if e.tweak != nil {
 		e.tweak(&opts)
 	}
-	a, err := New(opts)
-	if err != nil {
-		e.t.Fatal(err)
-	}
-	e.a = a
-	e.live.Store(a)
-	a.Start()
-	e.ts = httptest.NewServer(a.HandlerForTest())
-	e.t.Cleanup(func() { e.stop() })
+	return opts
 }
 
 // osRelease is the system the agent reads it runs on: Debian 13.

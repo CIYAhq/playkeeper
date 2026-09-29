@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/config"
 	"github.com/CIYAhq/playkeeper/internal/netguard"
 	"github.com/CIYAhq/playkeeper/internal/netguard/netguardtest"
+	"github.com/CIYAhq/playkeeper/internal/store"
 )
 
 // newGuardEnv is an agent whose network guard runs iptables in the fake it
@@ -143,6 +145,60 @@ func TestTheGuardPutsBackRulesSomethingRemoved(t *testing.T) {
 	e.waitFor("the rules back at the top", func() bool { return kept(fw) })
 	if n := len(guardRules(fw, "iptables", "INPUT")); n != 2 {
 		t.Fatalf("want the guard's 2 rules in INPUT, got %d: %q", n, fw.Rules("iptables", "INPUT"))
+	}
+}
+
+// A database that can't be read or written for a while leaves servers kept
+// away from the machine: the switch is in memory, and changes once stored.
+func TestADatabaseErrorLeavesServersKeptAway(t *testing.T) {
+	e, fw := newGuardEnv(t, 20*time.Millisecond, nil)
+	e.keepAway(true)
+	e.create()
+	e.waitFor("the rules", func() bool { return kept(fw) })
+	if _, err := e.a.db.Exec(`ALTER TABLE kv RENAME TO kv_unreadable`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { e.a.db.Exec(`ALTER TABLE kv_unreadable RENAME TO kv`) })
+	looks := func() int {
+		return len(slices.DeleteFunc(fw.Calls(), func(c string) bool { return c != "iptables -w 5 -S" }))
+	}
+	n := looks()
+	e.waitFor("three more looks at the rules", func() bool { return looks() >= n+3 })
+	if !kept(fw) {
+		t.Fatalf("servers can reach the machine while the database can't be read: %q", fw.Rules("iptables", "INPUT"))
+	}
+	var out map[string]any
+	if code := e.callInto("POST", "/v1/network-guard", map[string]any{"host": false, "actor": "admin"}, &out); code == 200 {
+		t.Fatalf("the switch turned off without being stored: %v", out)
+	}
+	if g := e.guard(); g == nil || !g.Host || !g.On || !kept(fw) {
+		t.Fatalf("after the switch couldn't be stored: %+v\n%q", g, fw.Rules("iptables", "INPUT"))
+	}
+}
+
+// An agent that can't read the owner's switch doesn't start, rather than
+// start with servers free to reach the machine.
+func TestTheAgentWontStartWithoutReadingTheSwitch(t *testing.T) {
+	e, _ := newGuardEnv(t, -1, nil)
+	e.keepAway(true)
+	e.stop()
+	db, err := store.Open(filepath.Join(e.cfg.AgentDir(), "agent.db"), migrations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The switch's value can't be read, as on a disk error.
+	_, err = db.Exec(`ALTER TABLE kv RENAME TO kv_saved;
+		CREATE VIEW kv AS SELECT key, CASE key WHEN 'network_guard_host' THEN json(value || '{') ELSE value END AS value FROM kv_saved`)
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := New(e.options())
+	if a != nil {
+		a.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "network guard's switch") {
+		t.Fatalf("the agent started without reading the switch: %v", err)
 	}
 }
 
