@@ -2855,6 +2855,25 @@ describe('Team', () => {
     expect(text).not.toContain('100 GB of disk used')
   })
 
+  it('shows a customer as one, signing in with Whop rather than two-factor sign-in here', async () => {
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [
+        { id: 1, username: 'siya', owner: true, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: '2026-09-01T10:00:00Z', canEdit: false },
+        { id: 6, username: 'siya-2', owner: false, you: false, role: 'admin', servers: {}, twoFactor: true, addedAt: hoursAgo(1), canEdit: true, allowance: { servers: 1, memoryMB: 4096 }, customer: 'whop', handle: 'Siya' },
+      ],
+      invites: [],
+      grantableRoles: ['admin', 'moderator', 'viewer'],
+      servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+    }
+    answer({ '/api/team': team })
+    const text = await render(<TeamSection />)
+    expect(text).toContain('Customer')
+    expect(text).toContain('signs in with Whop as Siya')
+    expect(text).not.toContain('two-factor on')
+  })
+
   it('makes a creator invite with the dialog’s defaults, in the body the panel takes', async () => {
     const team: TeamResponse = {
       projectId: 'p2345abcde',

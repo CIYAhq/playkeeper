@@ -36,8 +36,12 @@ type teamMember struct {
 	// counted, missing before they have been.
 	Allowance     invites.Allowance `json:"allowance,omitzero"`
 	DiskUsedBytes *int64            `json:"diskUsedBytes,omitempty"`
-	TwoFactor     bool              `json:"twoFactor"`
-	AddedAt       time.Time         `json:"addedAt"`
+	// Customer is the billing provider a customer's account came from, and
+	// Handle their name there (see customers.go).
+	Customer  string    `json:"customer,omitempty"`
+	Handle    string    `json:"handle,omitempty"`
+	TwoFactor bool      `json:"twoFactor"`
+	AddedAt   time.Time `json:"addedAt"`
 	// CanEdit says whether the signed-in account may change this member's
 	// role and servers, or remove them.
 	CanEdit bool `json:"canEdit"`
@@ -108,6 +112,9 @@ func (s *Server) hTeam(w http.ResponseWriter, r *http.Request, sess *session) {
 		row := memberRow(a, t, invites.FromMillis(x.added))
 		if !t.Allowance.IsZero() {
 			row.DiskUsedBytes = s.diskUsed(t.UserID)
+		}
+		if t.Customer != "" {
+			_ = s.db.QueryRow(`SELECT provider, handle FROM customers WHERE user_id = ?`, t.UserID).Scan(&row.Customer, &row.Handle)
 		}
 		out.Members = append(out.Members, row)
 	}
