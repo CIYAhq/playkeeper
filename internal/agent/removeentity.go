@@ -93,11 +93,11 @@ func dimensionFolders(level, dimension string, own bool) []string {
 	case "minecraft:overworld":
 		world = level
 	case "minecraft:the_nether":
-		paper, world = level+"_nether/DIM-1", level+"/DIM-1"
+		paper, world = paperWorld(level, dimension)+"/DIM-1", level+"/DIM-1"
 	case "minecraft:the_end":
-		paper, world = level+"_the_end/DIM1", level+"/DIM1"
+		paper, world = paperWorld(level, dimension)+"/DIM1", level+"/DIM1"
 	default:
-		paper = level + "_" + ns + "_" + strings.ReplaceAll(path, "/", "_") + "/dimensions/" + ns + "/" + path
+		paper = paperWorld(level, dimension) + "/dimensions/" + ns + "/" + path
 	}
 	if own && paper != "" {
 		out = append(out, paper)
@@ -106,6 +106,22 @@ func dimensionFolders(level, dimension string, own bool) []string {
 		out = append(out, world)
 	}
 	return out
+}
+
+// paperWorld is the world Paper and Purpur keep a dimension in, which names
+// its folder too: the Nether, the End and a data pack's dimension each get
+// one of their own, named after the level.
+func paperWorld(level, dimension string) string {
+	switch dimension {
+	case "minecraft:overworld":
+		return level
+	case "minecraft:the_nether":
+		return level + "_nether"
+	case "minecraft:the_end":
+		return level + "_the_end"
+	}
+	ns, path, _ := strings.Cut(dimension, ":")
+	return level + "_" + ns + "_" + strings.ReplaceAll(path, "/", "_")
 }
 
 // planEntityFix finds the region file that saves what req names and checks
@@ -119,10 +135,10 @@ func (s *server) planEntityFix(sc api.ServerConfig, req api.RemoveEntityRequest)
 	f := &entityFix{req: req, cx: req.X >> 4, cz: req.Z >> 4}
 	level, own := s.levelName(sc), takesPlugins(sc)
 	// Paper and Purpur name each world as its folder, and the crash report
-	// gives that name: one that isn't among this world's folders is a world
+	// gives that name: one that isn't the world of this dimension is a world
 	// a plugin made. Other types have one world, whose level.dat may still
 	// carry the name it had before it was imported.
-	if own && req.Level != "" && req.Level != level && req.Level != level+"_nether" && req.Level != level+"_the_end" {
+	if own && req.Level != "" && req.Level != level && req.Level != paperWorld(level, req.Dimension) {
 		return nil, errConflict(fmt.Sprintf("The %s is in %s, a world a plugin made, and Playkeeper doesn't know where that world is saved, so it changed nothing.", f.label(), req.Level), "Restore a backup instead.")
 	}
 	kind := "entities"

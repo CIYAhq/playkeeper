@@ -7932,6 +7932,10 @@ control "ticking entities: a world a plugin made isn't taken for this one" inter
   '	if own && req.Level != "" && req.Level != level' \
   '	if false && own && req.Level != "" && req.Level != level' \
   ./internal/agent '^TestRemovingWhatCrashedLooksInTheWorldThatSavesIt$'
+control "ticking entities: a data pack's dimension, a world of its own on Paper, is this one" internal/agent/removeentity.go \
+  '&& req.Level != paperWorld(level, req.Dimension) {' \
+  '&& req.Level != level+"_nether" && req.Level != level+"_the_end" {' \
+  ./internal/agent '^TestRemovingWhatCrashedLooksInTheWorldThatSavesIt$'
 control "ticking entities: a level that isn't a world's name is refused" internal/agent/removeentity.go \
   '	case req.Level != "" && !reLevelName.MatchString(req.Level):' \
   '	case false && req.Level != "" && !reLevelName.MatchString(req.Level):' \

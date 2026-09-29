@@ -225,7 +225,8 @@ func TestRemovingWhatCrashedFindsItInEachLayout(t *testing.T) {
 // folder over the world's DIM-1, which may hold a copy from before Paper,
 // and a file of a newer layout without it doesn't end the search. A world a
 // plugin made, which the crash report names, isn't taken for this one, even
-// with a minecart at the same place. Other types never read Paper's folders,
+// with a minecart at the same place; a data pack's dimension, which Paper
+// makes a world of its own, is this one. Other types never read Paper's folders,
 // and their level.dat may carry the name the world had before it came here.
 func TestRemovingWhatCrashedLooksInTheWorldThatSavesIt(t *testing.T) {
 	e := crashEnv(t)
@@ -281,6 +282,12 @@ func TestRemovingWhatCrashedLooksInTheWorldThatSavesIt(t *testing.T) {
 	sc, err := e.srv().serverConfig()
 	if err != nil {
 		t.Fatal(err)
+	}
+	const pack = "world_mypack_sky/dimensions/mypack/sky/entities/r.0.0.mca"
+	e.regionFile(pack, minecart(90))
+	sky := api.RemoveEntityRequest{What: "entity", Type: "minecraft:minecart", Dimension: "mypack:sky", Level: "world_mypack_sky", X: 6, Y: 90, Z: 6, Pos: []float64{6.5, 90, 6.5}}
+	if f, err := e.srv().planEntityFix(*sc, sky); err != nil || f.file != pack {
+		t.Errorf("a data pack's dimension, a world of its own on Paper: %+v %v", f, err)
 	}
 	sc.Type, sc.Software = "vanilla", &api.SoftwarePin{Type: "vanilla", MinecraftVersion: sc.MinecraftVersion}
 	req := api.RemoveEntityRequest{What: "entity", Type: "minecraft:minecart", Dimension: "minecraft:the_nether", Level: "My World", X: 6, Y: 70, Z: 6, Pos: []float64{6.5, 70, 6.5}}
