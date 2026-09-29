@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -58,8 +59,10 @@ const (
 
 // Record is one record of the zone. Name is relative to the zone: "" for
 // the zone itself, "alex" for alex.<zone>, "_minecraft._tcp.alex" for its
-// SRV record. Value is an A or AAAA record's address, a TXT record's text,
-// or an SRV record's target, a full host name; Port is an SRV record's.
+// SRV record, and "*" for a wildcard, which answers for the names below
+// the zone it hasn't got (RFC 4592). Value is an A or AAAA record's
+// address, a TXT record's text, or an SRV record's target, a full host
+// name; Port is an SRV record's.
 type Record struct {
 	Name  string `json:"name"`
 	Type  string `json:"type"`
@@ -103,8 +106,15 @@ func (z Zone) Check() error {
 }
 
 func (r Record) check(zone string) error {
-	if r.Name != "" {
-		if err := checkLabels(r.Name, true); err != nil {
+	// A wildcard's star is its whole first label.
+	name := r.Name
+	if name == "*" {
+		name = ""
+	} else if rest, ok := strings.CutPrefix(name, "*."); ok && rest != "" {
+		name = rest
+	}
+	if name != "" {
+		if err := checkLabels(name, true); err != nil {
 			return fmt.Errorf("the record %q: %v", r.Name, err)
 		}
 	}
@@ -171,8 +181,10 @@ func checkLabels(name string, underscores bool) error {
 type Answerer struct {
 	mu   sync.RWMutex
 	zone Zone
-	// names are the zone's records by full lower-case name, and nodes every
-	// name that has records or names below it with records.
+	// extra are the records answered besides the zone's (SetExtra).
+	extra []Record
+	// names are the records by full lower-case name, and nodes every name
+	// that has records or names below it with records.
 	names map[string][]Record
 	nodes map[string]bool
 }
@@ -180,23 +192,41 @@ type Answerer struct {
 // Set replaces the zone answered for; the zero Zone answers nothing.
 func (a *Answerer) Set(z Zone) {
 	z.Name = strings.ToLower(z.Name)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.zone = z
+	a.index()
+}
+
+// SetExtra replaces the records answered besides the zone's, such as the
+// TXT records a certificate's DNS-01 check needs meanwhile. They're named
+// as the zone's are, answered while there's a zone, and aren't part of
+// Zone.
+func (a *Answerer) SetExtra(records []Record) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.extra = slices.Clone(records)
+	a.index()
+}
+
+// index builds names and nodes from the zone's records and the extra ones.
+// a.mu is held.
+func (a *Answerer) index() {
 	names, nodes := map[string][]Record{}, map[string]bool{}
-	if z.Name != "" {
-		nodes[z.Name] = true
-		for _, r := range z.Records {
-			full := z.Name
+	if z := a.zone.Name; z != "" {
+		nodes[z] = true
+		for _, r := range slices.Concat(a.zone.Records, a.extra) {
+			full := z
 			if r.Name != "" {
-				full = r.Name + "." + z.Name
+				full = r.Name + "." + z
 			}
 			names[full] = append(names[full], r)
-			for n := full; n != z.Name; n = n[strings.IndexByte(n, '.')+1:] {
+			for n := full; n != z; n = n[strings.IndexByte(n, '.')+1:] {
 				nodes[n] = true
 			}
 		}
 	}
-	a.mu.Lock()
-	a.zone, a.names, a.nodes = z, names, nodes
-	a.mu.Unlock()
+	a.names, a.nodes = names, nodes
 }
 
 // Zone is the zone answered for.
@@ -290,7 +320,18 @@ func (a *Answerer) Answer(q []byte, max int) []byte {
 			answers = append(answers, rr{name: qs.raw, rtype: typeNS, ttl: zoneTTL, data: encodeName(a.zone.Nameserver)})
 		}
 	}
-	for _, r := range a.names[qs.name] {
+	recs, there := a.names[qs.name], a.nodes[qs.name]
+	if !there {
+		// A name the zone hasn't got has the records of the wildcard just
+		// below its closest encloser, the nearest name above it the zone
+		// has, if there's one there.
+		ce := qs.name
+		for !a.nodes[ce] {
+			ce = ce[strings.IndexByte(ce, '.')+1:]
+		}
+		recs, there = a.names["*."+ce]
+	}
+	for _, r := range recs {
 		if t, data := r.wire(); t == qs.qtype {
 			answers = append(answers, rr{name: qs.raw, rtype: t, ttl: uint32(ttlOf(r)), data: data})
 		}
@@ -299,7 +340,7 @@ func (a *Answerer) Answer(q []byte, max int) []byte {
 	var authority []rr
 	if len(answers) == 0 {
 		authority = []rr{a.soa()}
-		if !a.nodes[qs.name] {
+		if !there {
 			rcode = rcodeNXDomain
 		}
 	}

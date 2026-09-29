@@ -121,6 +121,9 @@ type fakeIssuer struct {
 	// plan says, for the nth attempt (from 1), whether the certificate is
 	// due for renewal at once and what error to return instead.
 	plan func(n int) (renewNow bool, err error)
+	// during runs while a DNS-01 check's record is set, as Let's Encrypt
+	// looks it up.
+	during func(fqdn, value string)
 }
 
 func (f *fakeIssuer) issue(ctx context.Context, _ *certs.Issuer, req certs.Request) (*certs.Certificate, error) {
@@ -136,9 +139,15 @@ func (f *fakeIssuer) issue(ctx context.Context, _ *certs.Issuer, req certs.Reque
 		return nil, err
 	}
 	if req.DNS01 != nil {
-		fqdn, value := "_acme-challenge."+req.Names[0], strings.Repeat("v", 43)
+		fqdn, value := "_acme-challenge."+strings.TrimPrefix(req.Names[0], "*."), strings.Repeat("v", 43)
 		if err := req.DNS01.Challenger.SetTXT(ctx, fqdn, value); err != nil {
 			return nil, err
+		}
+		f.mu.Lock()
+		during := f.during
+		f.mu.Unlock()
+		if during != nil {
+			during(fqdn, value)
 		}
 		if err := req.DNS01.Challenger.ClearTXT(ctx, fqdn, value); err != nil {
 			return nil, err
@@ -147,7 +156,7 @@ func (f *fakeIssuer) issue(ctx context.Context, _ *certs.Issuer, req certs.Reque
 	if err := os.MkdirAll(req.Dir, 0o700); err != nil {
 		return nil, err
 	}
-	file := filepath.Join(req.Dir, req.Names[0]+".pem")
+	file := filepath.Join(req.Dir, strings.Replace(req.Names[0], "*.", "_.", 1)+".pem")
 	if err := os.WriteFile(file, []byte("test certificate\n"), 0o600); err != nil {
 		return nil, err
 	}

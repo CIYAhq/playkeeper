@@ -405,13 +405,30 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 		},
 		{
 			name: "damaged level.dat with a backup", in: moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_level_dat.txt")),
-			kind: CrashCorruptWorld, certain: true, params: map[string]any{"file": "level.dat"}, fixes: "restore_backup*",
+			kind: CrashCorruptWorld, certain: true, params: map[string]any{"file": "level.dat", "world": "world"}, fixes: "restore_backup*; rebuild_level world=world",
+			explanation: []string{"a new level.dat keeps them"},
 		},
 		{
 			name: "damaged level.dat without a backup",
 			in:   with(moddedCrash("vanilla", "1.21.4", crashConsole(t, "vanilla_level_dat.txt")), func(in *CrashInput) { in.HasBackup = false }),
-			kind: CrashCorruptWorld, certain: true, fixes: "",
+			kind: CrashCorruptWorld, certain: true, fixes: "rebuild_level* world=world",
 			explanation: []string{"There is no backup to restore."},
+		},
+		{
+			name: "damaged level.dat on Minecraft 26.1 and newer, whose last line names no file",
+			in:   moddedCrash("vanilla", "26.3", crashConsole(t, "vanilla_level_dat_26.txt")),
+			kind: CrashCorruptWorld, certain: true, params: map[string]any{"file": "level.dat", "world": "world"}, fixes: "restore_backup*; rebuild_level world=world",
+			evidence: []string{"Failed to load world data. World files may be corrupted. Shutting down."},
+		},
+		{
+			name: "damaged level.dat of a world with a name of its own",
+			in: moddedCrash("vanilla", "26.3", []string{
+				"[12:00:02] [ServerMain/WARN]: Failed to load world data from ./Survival-2024/level.dat",
+				"java.util.zip.ZipException: Not in GZIP format",
+				"[12:00:02] [ServerMain/INFO]: Attempting to use fallback ./Survival-2024/level.dat_old",
+				"[12:00:02] [ServerMain/ERROR]: Failed to load world data. World files may be corrupted. Shutting down.",
+			}),
+			kind: CrashCorruptWorld, certain: true, params: map[string]any{"world": "Survival-2024"}, fixes: "restore_backup*; rebuild_level world=Survival-2024",
 		},
 		{
 			name: "unreadable chunk is only the likely cause", in: paperCrash(crashConsole(t, "paper_chunk.txt")),

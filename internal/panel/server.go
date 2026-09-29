@@ -164,6 +164,9 @@ type Server struct {
 		used   map[int64]int64
 		failed map[string]string
 	}
+	// dnsMu serialises sending the dashboard's machine its DNS zone with
+	// the owner's switch (see dnsanswers.go).
+	dnsMu sync.Mutex
 }
 
 func New(opts Options) (*Server, error) {
@@ -375,6 +378,10 @@ func (s *Server) Routes() []Route {
 		// Usage stats: the switch sets them on every machine of the dashboard.
 		view("/api/usage-stats", s.hUsageStats),
 		{"PUT", "/api/usage-stats", needSessionCSRF, actManageMachine, s.hUsageStatsSet},
+		// Port-free addresses: the dashboard's machine answers DNS for its
+		// own domain.
+		{"GET", "/api/dns-answers", needSession, actManageMachine, s.hDNSAnswers},
+		{"PUT", "/api/dns-answers", needSessionCSRF, actManageMachine, s.hDNSAnswersSet},
 		ag("/api/machines/{mid}/address", "/v1/address"),
 		{"GET", "/api/machines/{mid}/address/available", needSession, actManageMachine, s.machineProxy("GET", "/v1/address/available")},
 		ag("/api/machines/{mid}/address/plan", "/v1/address/plan"),
@@ -416,6 +423,7 @@ func (s *Server) Routes() []Route {
 		sg("/api/servers/{id}/memory", "/v1/servers/{id}/memory"),
 		sm("POST", "/api/servers/{id}/saving/resume", "/v1/servers/{id}/saving/resume"),
 		sm("POST", "/api/servers/{id}/addons/remove-file", "/v1/servers/{id}/addons/remove-file"),
+		smAs(actRestore, "POST", "/api/servers/{id}/world/rebuild-level", "/v1/servers/{id}/world/rebuild-level"),
 		sg("/api/servers/{id}/players/sessions", "/v1/servers/{id}/players/sessions"),
 		sg("/api/servers/{id}/players/summary", "/v1/servers/{id}/players/summary"),
 		sg("/api/servers/{id}/events", "/v1/servers/{id}/events"),
@@ -1701,6 +1709,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	go s.runWhop(ctx)
 	go s.runStock(ctx)
 	go s.runDiskLimits(ctx)
+	go s.runDNSAnswers(ctx)
 	go s.runCustomers(ctx)
 	go s.runLapsedCustomers(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)

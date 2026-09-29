@@ -291,15 +291,38 @@ func (k *keptOrder) drop() {
 	k.dir.Remove(k.file)
 }
 
+// fileStem names the files Issue saves for a certificate whose first name is
+// name: the name, or for a wildcard "_." and the name below it, as no name
+// has an underscore and file names are better without stars.
+func fileStem(name string) string {
+	if rest, ok := strings.CutPrefix(name, "*."); ok {
+		return "_." + rest
+	}
+	return name
+}
+
+// stemName is the name a file stem is for, if it's fileStem's for one.
+func stemName(stem string) (string, bool) {
+	rest, wild := strings.CutPrefix(stem, "_.")
+	if n, err := NormalizeName(rest); err != nil || n != rest {
+		return "", false
+	}
+	if wild {
+		return "*." + rest, true
+	}
+	return rest, true
+}
+
 // Forget deletes what Issue saves in dir for a certificate whose first name
-// is name: the certificate, and the order kept until it is saved.
+// is name, a wildcard's too: the certificate, and the order kept until it
+// is saved.
 func Forget(dir, name string) error {
-	n, err := NormalizeName(name)
+	n, err := normalizeCertName(name, true)
 	if err != nil {
 		return err
 	}
 	var errs []error
-	for _, file := range []string{n + ".pem", n + orderSuffix} {
+	for _, file := range []string{fileStem(n) + ".pem", fileStem(n) + orderSuffix} {
 		if err := os.Remove(filepath.Join(dir, file)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			errs = append(errs, err)
 		}

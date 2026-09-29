@@ -1,7 +1,7 @@
 import { useId, useState, type ReactNode } from 'react'
 import { ExternalLinkIcon, PencilIcon, RefreshCwIcon } from 'lucide-react'
-import { del, get, post } from '@/api/client'
-import type { Address, AddressCheck, AddressPlan, DNSRecord, JoinAddress } from '@/api/types'
+import { del, get, post, put } from '@/api/client'
+import type { Address, AddressCheck, AddressPlan, DNSAnswers, DNSRecord, JoinAddress } from '@/api/types'
 import { machineApi, serverApi, useWorkspace } from '@/api/workspace'
 import { Card, CardHint, CardTitle, SectionLabel, useNow } from '@/components/app/bits'
 import { useIsPhone } from '@/components/app/controls'
@@ -14,6 +14,7 @@ import { t } from '@/i18n'
 import { can } from '@/lib/access'
 import { certState, dashboardURL, ownDone, recordFor, runningOp, zoneOf } from '@/lib/address'
 import { formatList, formatLongDate, relativeTime } from '@/lib/format'
+import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
 import { Group } from '../more'
 import { ErrorLine, refusal } from '../two-factor'
@@ -373,9 +374,15 @@ function Results({ a, now, phone, checking, onCheck, certBusy, onCertificate }: 
  */
 function OwnAddresses({ id, a, refresh }: { id: string; a: Address; refresh: () => Promise<void> }) {
   const phone = useIsPhone()
+  const ws = useWorkspace()
   const servers = a.servers ?? []
   if (a.kind !== 'own' || !a.host) return null
-  const rows = [<ServerAddresses key="each" id={id} a={a} refresh={refresh} />, ...servers.map((s) => <OwnAddressRow key={s.serverId} a={a} s={s} refresh={refresh} />)]
+  const local = ws.machines.find((m) => m.id === id)?.kind === 'local'
+  const rows = [
+    <ServerAddresses key="each" id={id} a={a} refresh={refresh} />,
+    ...(local ? [<DNSAnswersRow key="dns" />] : []),
+    ...servers.map((s) => <OwnAddressRow key={s.serverId} a={a} s={s} refresh={refresh} />),
+  ]
   if (phone) {
     return (
       <Group label={t('address.ownAddresses')}>
@@ -425,6 +432,88 @@ function ServerAddresses({ id, a, refresh }: { id: string; a: Address; refresh: 
         <Switch id={switchId} checked={!!a.serverAddresses} disabled={locked || busy} onCheckedChange={(on) => void toggle(on)} />
       </div>
       {a.serverAddresses && wild.map((r, i) => <OwnRecord key={`${r.type}-${i}`} r={r} check={a.check} />)}
+    </div>
+  )
+}
+
+/**
+ * The owner's switch for addresses without a port, on the dashboard's own
+ * machine: it answers DNS for its domain, with an SRV record for each
+ * server, once the domain's parent hands the domain over with the records
+ * shown. Turning it off asks first: the domain stops working while its
+ * parent still hands it over.
+ */
+function DNSAnswersRow() {
+  const ws = useWorkspace()
+  const switchId = useId()
+  const answers = usePoll(() => get<DNSAnswers>('/api/dns-answers'), 30_000)
+  const [busy, setBusy] = useState(false)
+  const [stopping, setStopping] = useState(false)
+  const v = answers.data
+  if (!v?.zone) return null
+  const domain = v.zone
+  const parent = domain.slice(domain.indexOf('.') + 1)
+  const locked = !can(ws.me, 'machine.manage')
+  async function set(on: boolean) {
+    setBusy(true)
+    try {
+      await put<DNSAnswers>('/api/dns-answers', { on })
+      await answers.refresh()
+      setStopping(false)
+    } catch (e) {
+      toastManager.add({ title: refusal(e), type: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="flex flex-col gap-2 py-3">
+      <div className="flex min-h-12 items-center gap-4">
+        <label htmlFor={switchId} className="min-w-0 flex-1">
+          <span className="block text-[13px] leading-5 font-semibold">{t('address.dnsAnswers')}</span>
+          <span className="block text-xs text-muted-foreground">{t('address.dnsAnswersHint', { domain, example: `alex.${domain}` })}</span>
+        </label>
+        <Switch id={switchId} checked={v.on} disabled={locked || busy || (!v.on && !!v.unavailable)} onCheckedChange={(on) => (on ? void set(true) : setStopping(true))} />
+      </div>
+      {v.unavailable === 'subdomain' && <p className="text-xs text-muted-foreground">{t('address.dnsSubdomain', { domain })}</p>}
+      {v.unavailable === 'address' && <p className="text-xs text-muted-foreground">{t('address.dnsAddress')}</p>}
+      {v.on && !v.unavailable && (
+        <>
+          <p className="text-[13px] leading-5">{t('address.dnsAdd', { parent })}</p>
+          {v.add.map((r, i) => (
+            <DNSRecordLine key={`add-${r.type}-${i}`} r={r} />
+          ))}
+          {v.remove.length > 0 && <p className="text-[13px] leading-5">{t('address.dnsRemove')}</p>}
+          {v.remove.map((r, i) => (
+            <DNSRecordLine key={`remove-${r.type}-${i}`} r={r} />
+          ))}
+          <p className="text-xs text-muted-foreground">{t('address.dnsFirewall')}</p>
+          <p className={cn('text-xs font-medium', v.answering ? 'text-success-strong' : 'text-muted-foreground')}>
+            {v.answering ? t('address.dnsAnswering', { listening: formatList(v.listening), count: v.servers }) : t('address.dnsNotAnswering')}
+          </p>
+          {v.problem && <ErrorLine text={v.problem} className="mt-0" />}
+        </>
+      )}
+      <ConfirmDialog
+        open={stopping}
+        onOpenChange={setStopping}
+        title={t('address.dnsOffTitle', { domain })}
+        body={t('address.dnsOffBody', { domain, parent })}
+        confirm={t('address.dnsOff')}
+        busy={busy}
+        onConfirm={() => void set(false)}
+      />
+    </div>
+  )
+}
+
+/** One of the records the owner adds, or removes, at the domain's parent. */
+function DNSRecordLine({ r }: { r: DNSRecord }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
+      <span className="w-10 font-semibold">{r.type}</span>
+      <CopyCell value={r.name} />
+      <CopyCell value={r.value} />
     </div>
   )
 }

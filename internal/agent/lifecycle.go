@@ -129,6 +129,8 @@ var opLabels = map[string]string{
 	"addon-install": "installing add-ons", "addon-update": "updating add-ons", "pregen-start": "starting map pre-generation",
 	"address.publish": "publishing the address", "certificate.issue": "getting a certificate",
 	"remove-addon": "removing a plugin or mod",
+	// 0.4.8: the crash helper's fixes that change the world.
+	"rebuild-level": "making a new level.dat",
 	// Wave 4.
 	"reinstall": "reinstalling its server software", "template-retry": "installing its template's add-ons",
 	// Wave 7 (0.4.0)

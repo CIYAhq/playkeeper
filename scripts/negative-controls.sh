@@ -7818,6 +7818,52 @@ webcontrol "customer deletion: Home says the plan ended once the servers are gon
   'const paused = deleted || !!ws.me.access.pausedUntil' \
   'const paused = !!ws.me.access.pausedUntil' \
   src/pages/pages.test.tsx 'offers a customer whose servers were deleted their final backups'
+control "new level.dat: offered next to the restore" internal/diagnose/crashrules.go \
+  '	d.Fixes = append(d.Fixes, rebuild)
+' \
+  '' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "new level.dat: Minecraft 26.1's last line, which names no file, is recognised" internal/diagnose/crashrules.go \
+  'Failed to load world data(?: from \S{1,300} and \S{1,300})?\. World files may be corrupted' \
+  'Failed to load world data from \S{1,300} and \S{1,300}\. World files may be corrupted' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "new level.dat: a world whose level.dat can be read is refused" internal/agent/leveldat.go \
+  'if _, err := worldimport.ParseLevel(b, levelDecode); err == nil {' \
+  'if _, err := worldimport.ParseLevel(b, levelDecode); false && err == nil {' \
+  ./internal/agent '^TestANewLevelDatIsRefusedWhereItDoesnHelp$'
+control "new level.dat: the world is backed up before anything changes" internal/agent/leveldat.go \
+  '		if err := s.backupOp(ctx, h, actor, "Before a new level.dat", false); err != nil {
+			return err
+		}
+' \
+  '' \
+  ./internal/agent '^TestANewLevelDatKeepsTheWorldAndTakesItsSeedFromABackup$'
+control "new level.dat: the world's seed goes into server.properties" internal/agent/leveldat.go \
+  '	if seed != "" {
+		cur, err := d.ReadProperties()' \
+  '	if false && seed != "" {
+		cur, err := d.ReadProperties()' \
+  ./internal/agent '^TestANewLevelDatTakesTheSeedFromTheWorldSince26$'
+control "new level.dat: nothing changes when the backups don't give the seed" internal/agent/leveldat.go \
+  'if seed == "" && from == seedFromBackup {' \
+  'if false && seed == "" && from == seedFromBackup {' \
+  ./internal/agent '^TestANewLevelDatIsRefusedWhereItDoesnHelp$'
+control "new level.dat: game rules kept in their own file since 26.1 don't reset" internal/agent/leveldat.go \
+  'if !has("data/minecraft/game_rules.dat", own+"game_rules.dat") {' \
+  'if true {' \
+  ./internal/agent '^TestANewLevelDatTakesTheSeedFromTheWorldSince26$'
+control "new level.dat: only an admin makes one" internal/panel/server.go \
+  'smAs(actRestore, "POST", "/api/servers/{id}/world/rebuild-level", "/v1/servers/{id}/world/rebuild-level"),' \
+  'smAs(actRunServers, "POST", "/api/servers/{id}/world/rebuild-level", "/v1/servers/{id}/world/rebuild-level"),' \
+  ./internal/panel '^TestOnlyAnAdminMakesANewLevelDat$'
+webcontrol "new level.dat: nothing is sent before the owner confirms in the dialog" web/src/pages/server/overview.tsx \
+  "        case 'rebuild-level':
+          setRebuild(plan)
+          return" \
+  "        case 'rebuild-level':
+          await post(serverApi(s.id, '/world/rebuild-level'), { world: plan.world, start: true })
+          break" \
+  src/pages/pages.test.tsx 'makes a new level.dat only once the owner has read what resets'
 control "client-only mods: a mod for players' games that stopped the server is recognised" internal/diagnose/crashrules.go \
   '	{(*crashCtx).clientOnly, true},
 ' \
@@ -8111,6 +8157,172 @@ control "dns: a port it can't have over TCP lets its UDP side go" internal/agent
   'pc.Close()' \
   '_ = pc' \
   ./internal/agent '^TestDNSListensOnOnePortOverUDPAndTCP$'
+control "dns: a wildcard answers names the zone hasn't got" internal/dnszone/dnszone.go \
+  'recs, there = a.names["*."+ce]' \
+  'recs, there = nil, false' \
+  ./internal/dnszone '^TestAWildcardAnswersNamesTheZoneHasnt$'
+control "dns: a name the zone has isn't the wildcard's" internal/dnszone/dnszone.go \
+  'recs, there := a.names[qs.name], a.nodes[qs.name]' \
+  'recs, there := a.names[qs.name], false' \
+  ./internal/dnszone '^TestAWildcardAnswersNamesTheZoneHasnt$'
+control "dns: a wildcard answers only below its closest encloser" internal/dnszone/dnszone.go \
+  'for !a.nodes[ce] {' \
+  'for ce != a.zone.Name {' \
+  ./internal/dnszone '^TestAWildcardAnswersNamesTheZoneHasnt$'
+control "dns: a star is nowhere but a wildcard's first label" internal/dnszone/dnszone.go \
+  "case c == '_' && underscores && i == 0:" \
+  "case c == '_' && underscores && i == 0, c == '*' && underscores:" \
+  ./internal/dnszone '^TestZoneCheck$'
+control "dns: a wildcard below the zone names what's below its star" internal/dnszone/dnszone.go \
+  '} else if rest, ok := strings.CutPrefix(name, "*."); ok && rest != "" {' \
+  '} else if rest, ok := strings.CutPrefix(name, "*."); ok {' \
+  ./internal/dnszone '^TestZoneCheck$'
+
+# The dashboard's DNS answers for its machine's own domain (port-free
+# addresses): who may set them, what goes in the zone, and when the zone
+# stays or goes.
+control "dns answers: only an admin of every server reads them" internal/panel/server.go \
+  '{"GET", "/api/dns-answers", needSession, actManageMachine, s.hDNSAnswers},' \
+  '{"GET", "/api/dns-answers", needSession, actView, s.hDNSAnswers},' \
+  ./internal/panel '^TestOnlyAnAdminOfEveryServerSetsTheDNSAnswers$'
+control "dns answers: only an admin of every server sets them" internal/panel/server.go \
+  '{"PUT", "/api/dns-answers", needSessionCSRF, actManageMachine, s.hDNSAnswersSet},' \
+  '{"PUT", "/api/dns-answers", needSessionCSRF, actView, s.hDNSAnswersSet},' \
+  ./internal/panel '^TestOnlyAnAdminOfEveryServerSetsTheDNSAnswers$'
+control "dns answers: only an own domain is answered" internal/panel/dnsanswers.go \
+  'case addr.Kind != api.AddressOwn || host == "":' \
+  'case host == "":' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: off takes the zone away" internal/panel/dnsanswers.go \
+  'if _, err := s.agent.Do(ctx, "GET", "/v1/dns-zone", nil, nil, &st); err != nil || st.Zone.Name == "" {' \
+  'if _, err := s.agent.Do(ctx, "GET", "/v1/dns-zone", nil, nil, &st); true || err != nil || st.Zone.Name == "" {' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: an address that can't be read keeps the zone" internal/panel/dnsanswers.go \
+  '		if _, err := s.agent.Do(ctx, "GET", "/v1/address", nil, nil, &addr); err != nil {' \
+  '		if _, err := s.agent.Do(ctx, "GET", "/v1/address", nil, nil, &addr); err != nil && false {' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: an address with no IP address keeps the zone" internal/panel/dnsanswers.go \
+  'case api.DNSUnavailableAddress:' \
+  'case "never":' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: a record the zone can't hold is left out, not the zone refused" internal/panel/dnsanswers.go \
+  'if one.Check() == nil {' \
+  'if one.Check() == nil || true {' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: records outside the zone stay out of it" internal/panel/dnsanswers.go \
+  'rel, ok := relName(r.Name, host)' \
+  'rel, ok := relName(r.Name, host); ok = true' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: a server's name keeps its own address record" internal/panel/dnsanswers.go \
+  'p.addRecord(dnszone.Record{Name: j.Label, Type: m.Type, Value: m.Value})' \
+  '_ = m' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: a domain that can't be answered still says which" internal/panel/dnsanswers.go \
+  'return dnsPlan{zone: dnszone.Zone{Name: host}, unavailable: api.DNSUnavailableSubdomain}' \
+  'return dnsPlan{unavailable: api.DNSUnavailableSubdomain}' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: a domain right under a public suffix can't be handed over" internal/panel/dnsanswers.go \
+  'if suffix, icann := publicsuffix.PublicSuffix(parent); icann && suffix == parent {' \
+  'if suffix, icann := publicsuffix.PublicSuffix(parent); icann && suffix == parent && false {' \
+  ./internal/panel '^TestTheNameserverIsBesideTheDomainAtItsParent$'
+webcontrol "dns answers: the switch is only on the dashboard's own machine" web/src/pages/machine-settings/own.tsx \
+  '...(local ? [<DNSAnswersRow key="dns" />] : []),' \
+  '...[<DNSAnswersRow key="dns" />],' \
+  web/src/pages/machine-settings/address.test.tsx 'is only on the dashboard'
+webcontrol "dns answers: the records to add show only once the machine answers" web/src/pages/machine-settings/own.tsx \
+  '{v.on && !v.unavailable && (' \
+  '{!v.unavailable && (' \
+  web/src/pages/machine-settings/address.test.tsx 'lets the owner turn them on'
+webcontrol "dns answers: turning them off asks first" web/src/pages/machine-settings/own.tsx \
+  'onCheckedChange={(on) => (on ? void set(true) : setStopping(true))}' \
+  'onCheckedChange={(on) => void set(on)}' \
+  web/src/pages/machine-settings/address.test.tsx 'asks before it stops answering'
+webcontrol "dns answers: they can't be turned on for a domain that can't be answered" web/src/pages/machine-settings/own.tsx \
+  'disabled={locked || busy || (!v.on && !!v.unavailable)}' \
+  'disabled={locked || busy}' \
+  web/src/pages/machine-settings/address.test.tsx 'says why a domain with nothing above it'
+
+# Wildcard certificates (internal/certs): proven only over DNS-01, and
+# served for the names just below them.
+control "certs: a wildcard is asked for only with DNS-01" internal/certs/acme.go \
+  'names, err := normalizeNames(req.Names, req.DNS01 != nil && req.DNS01.Challenger != nil)' \
+  'names, err := normalizeNames(req.Names, true)' \
+  ./internal/certs '^TestIssueAWildcardOverDNS01$'
+control "certs: a wildcard serves only the names just below it" internal/certs/store.go \
+  'return ok && slices.Contains(names, "*."+above)' \
+  'return ok && above != "" && slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(n, "*.") && strings.HasSuffix(name, n[1:]) })' \
+  ./internal/certs '^TestIssueAWildcardOverDNS01$'
+control "certs: a wildcard doesn't serve the name it's below" internal/certs/store.go \
+  'return ok && slices.Contains(names, "*."+above)' \
+  'return slices.Contains(names, "*."+name) || ok && slices.Contains(names, "*."+above)' \
+  ./internal/certs '^TestIssueAWildcardOverDNS01$'
+control "certs: the certificate has the wildcard asked for" internal/certs/acme.go \
+  'covered := slices.Contains(leaf.DNSNames, n)' \
+  'covered := true' \
+  ./internal/certs '^TestCheckChain$'
+
+# Servers joined with no port once the machine answers DNS for its own domain
+# and the domain's parent hands the domain to it (internal/agent/address.go).
+control "port-free: public DNS has to give the zone's SRV record" internal/agent/address.go \
+  'return err == nil && slices.ContainsFunc(found, func(s *net.SRV) bool {' \
+  'return err != nil || slices.ContainsFunc(found, func(s *net.SRV) bool {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: the public SRV record has the zone's port" internal/agent/address.go \
+  'return strings.TrimSuffix(s.Target, ".") == r.Value && int(s.Port) == r.Port' \
+  'return strings.TrimSuffix(s.Target, ".") == r.Value' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: only the zone for the domain counts" internal/agent/address.go \
+  'if z.Name != host {' \
+  'if false {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: a server joins with no port only with its SRV record in the domain's zone" internal/agent/address.go \
+  'return z.Name == host && slices.ContainsFunc(z.Records, func(r dnszone.Record) bool {' \
+  'return slices.ContainsFunc(z.Records, func(r dnszone.Record) bool {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: a server the zone has no SRV record for keeps its port" internal/agent/address.go \
+  'if st.Check != nil && st.Check.PortFree && a.answersSRV(st.Host, s.slug, s.port) {' \
+  'if st.Check != nil && st.Check.PortFree {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: waiting for the parent looks again soon" internal/agent/address.go \
+  '&& (check.PortFree || !answering) {' \
+  '&& (check.PortFree || !answering || true) {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: a new zone brings the next look forward" internal/agent/dns.go \
+  '		a.recheckOwnSoon()' \
+  '		_ = a.recheckOwnSoon' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+
+# The own domain's wildcard certificate (internal/agent/certificates.go,
+# dns.go): got once the domain is handed to the machine, proven from its own
+# zone, and in place of the servers' own certificates.
+control "wildcard certificate: only once the domain is handed to the machine" internal/agent/certificates.go \
+  'return st.Kind == api.AddressOwn && st.ServerAddresses && st.Check != nil && st.Check.PortFree' \
+  'return st.Kind == api.AddressOwn && st.ServerAddresses' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "wildcard certificate: the servers' addresses it serves get none of their own" internal/agent/ownaddress.go \
+  'if !ownNameOK(st, js) || js.wild && wildcard {' \
+  'if !ownNameOK(st, js) || js.wild && wildcard && false {' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "wildcard certificate: it takes none of the day's certificates for servers" internal/agent/ownaddress.go \
+  'name != st.Host && !strings.HasPrefix(name, "*.") && fromMillis(last).After(since) {' \
+  'name != st.Host && fromMillis(last).After(since) {' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "wildcard certificate: it goes with its domain" internal/agent/ownaddress.go \
+  'a.forgetCertificate(wildcardName(st.Host))' \
+  '_ = wildcardName(st.Host)' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "wildcard certificate: the check's record goes after the check" internal/agent/dns.go \
+  'values := slices.DeleteFunc(d.challenges[rel], func(v string) bool { return v == value })' \
+  'values := d.challenges[rel]' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "wildcard certificate: a check's record only in the machine's zone" internal/agent/dns.go \
+  'if zone == "" || !ok {' \
+  'if zone == "" || !ok && false {' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "dns: extra records are answered besides the zone" internal/dnszone/dnszone.go \
+  'for _, r := range slices.Concat(a.zone.Records, a.extra) {' \
+  'for _, r := range a.zone.Records {' \
+  ./internal/dnszone '^TestExtraRecordsAreAnsweredBesideTheZone$'
 
 # Creators make a new server from an uploaded world or backup, inside their
 # allowance and against their disk limit (internal/panel/customeruploads.go).

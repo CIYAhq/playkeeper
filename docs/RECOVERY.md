@@ -91,11 +91,12 @@ A backup that failed this way saved nothing. If a plugin keeps writing to the wo
 
 ## A server crashed or didn't start
 
-The server's **Overview** explains what happened, from the server's own log (the container's output, not the console view), its newest crash report, its plugin and mod files and the memory the machine has free, and offers the fixes that apply: give it more memory, remove the plugin or mod that failed, restore a backup, or start it again.
+The server's **Overview** explains what happened, from the server's own log (the container's output, not the console view), its newest crash report, its plugin and mod files and the memory the machine has free, and offers the fixes that apply: give it more memory, remove the plugin or mod that failed, restore a backup, make a new level.dat, or start it again.
 
 Each server's files are in `/var/lib/playkeeper/servers/<id>/` (`/var/lib/playkeeper/server/` for a server that came from 0.2.0).
 
 - **A removed plugin or mod** is moved, not deleted, to the server's `removed-addons/` folder, with the time it was removed in front of its name. To put it back, stop the server, move the file into its `data/plugins/` (or `data/mods/`) folder under its original name, and start it.
+- **A new level.dat** is offered next to restoring a backup when both of a world's `level.dat` and `level.dat_old` are damaged. Only you start it, from the dialog that lists what stays and what starts over. Playkeeper backs the world up first, with the note "Before a new level.dat", writes the world's seed to `level-seed` in `server.properties` and deletes both files, and Minecraft makes a new one as the server starts. The seed comes from `world_gen_settings.dat` since Minecraft 26.1, and before that from the newest checked backup, or the `level-seed` already set; with none of them, land made from then on won't match the old. Every build, chest, mob and player stays. Before Minecraft 26.1 the game rules and the time of day go back to their defaults, before 1.21.9 the world border too, and the spawn point goes back to where the world first had it. To undo it, restore the backup it made first.
 - **To read the log yourself:** `sudo docker logs --tail 200 <container>`, with a name from `sudo docker ps -a --filter label=io.playkeeper.managed=true --format '{{.Names}}'`. Crash reports are in the server's `data/crash-reports/` folder.
 
 ## A Playkeeper update went wrong

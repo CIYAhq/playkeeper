@@ -225,6 +225,7 @@ export type ActionKind =
   | 'install_addon'
   | 'remove_datapack'
   | 'restore_backup'
+  | 'rebuild_level'
   | 'free_disk'
   | 'change_port'
   | 'accept_eula'
@@ -1027,6 +1028,25 @@ export interface DNSRecord {
   value: string
   ttl: number
   srv?: SRVParts
+}
+
+/**
+ * Whether the dashboard's machine answers DNS for its own domain, so players
+ * type no port, and the records the owner adds at the domain's parent and
+ * removes there (GET /api/dns-answers).
+ */
+export interface DNSAnswers {
+  on: boolean
+  zone?: string
+  nameserver?: string
+  unavailable?: 'own_domain' | 'subdomain' | 'address'
+  add: DNSRecord[]
+  remove: DNSRecord[]
+  /** The zone the machine answers now, and how many servers have an SRV record in it. */
+  answering?: string
+  servers: number
+  listening: string[]
+  problem?: string
 }
 
 /** Code and params are what the page translates; message and hint are the backend's English. */

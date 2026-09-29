@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -461,5 +462,171 @@ func TestTheWildcardsCertificatesStayWithinTheDaysLimit(t *testing.T) {
 	e.skew.Add(int64(25 * time.Hour))
 	if host, held := e.a.ownCertificateDue(e.a.address()); host == "" || held {
 		t.Fatalf("a day later: %q, held %v", host, held)
+	}
+}
+
+// With the machine answering DNS for its own domain, as the dashboard's zone
+// for port-free addresses has it, a server with an SRV record in the zone is
+// joined at its address with no port once public DNS gives that record as
+// the zone has it: the domain's parent hands the domain here. The machine
+// looks soon once it answers for the domain, and again soon until then;
+// players type the port meanwhile, as they do for a
+// server the zone has no SRV record for yet, and once the zone is another
+// domain's, before the next look too.
+func TestServersJoinWithNoPortOnceTheDomainIsHandedOver(t *testing.T) {
+	e, _, creative, test := ownDomainEnvWith(t, func(o *Options) {
+		o.DNSAddrs = func() ([]string, error) { return []string{"127.0.0.1:0"}, nil }
+	})
+	if code, v := e.setServerAddresses(true); code != 200 || !v.ServerAddresses {
+		t.Fatalf("turning an address for each server on: %d %+v", code, v)
+	}
+	e.dns.set("*.play.example.com", testIP.String())
+	e.dns.mu.Lock()
+	e.dns.srv = nil
+	e.dns.mu.Unlock()
+	zone := func(name string) map[string]any {
+		return map[string]any{"name": name, "nameserver": "ns-" + name, "records": []map[string]any{
+			{"name": "", "type": "A", "value": testIP.String()},
+			{"name": "creative", "type": "A", "value": testIP.String()},
+			{"name": "_minecraft._tcp.creative", "type": "SRV", "value": "play.example.com", "port": 25566},
+		}}
+	}
+	check := func() api.Address {
+		t.Helper()
+		if _, err := e.a.checkOwn(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		return e.address()
+	}
+	next := func() time.Duration {
+		e.a.addr.mu.Lock()
+		defer e.a.addr.mu.Unlock()
+		return e.a.addr.recheck.Sub(e.a.now())
+	}
+	if v := check(); !v.Check.Ready || next() <= ownRecheckPending {
+		t.Fatalf("before the zone: ready %v, the next look in %v", v.Check.Ready, next())
+	}
+	if code, st := e.setZone(zone("play.example.com")); code != 200 {
+		t.Fatalf("the zone: %d %+v", code, st)
+	}
+	if n := next(); n > ownRecheckPending {
+		t.Fatalf("once the machine answers DNS for the domain, the next look is in %v", n)
+	}
+
+	v := check()
+	if j := joinOf(v, creative); v.Check.PortFree || j.Address != "creative.play.example.com:25566" {
+		t.Fatalf("before the parent hands the domain over: port-free %v, %+v", v.Check.PortFree, j)
+	}
+	if n := next(); n > ownRecheckPending {
+		t.Fatalf("before the parent hands the domain over, the next look is in %v", n)
+	}
+
+	e.dns.setSRV("creative.play.example.com", 25599, "play.example.com")
+	if v := check(); v.Check.PortFree {
+		t.Fatal("port-free with public DNS giving another port")
+	}
+	e.dns.setSRV("creative.play.example.com", 25566, "play.example.com")
+	v = check()
+	if j := joinOf(v, creative); !v.Check.PortFree || j.Address != "creative.play.example.com" || !j.Published {
+		t.Fatalf("once public DNS gives the zone's SRV record: port-free %v, %+v", v.Check.PortFree, j)
+	}
+	if got := e.a.serverByID(creative).Status(context.Background()).JoinAddress; got != "creative.play.example.com" {
+		t.Fatalf("the server's join address: %q", got)
+	}
+	if j := joinOf(v, test); j.Address != "test.play.example.com:25567" {
+		t.Fatalf("a server the zone has no SRV record for yet: %+v", j)
+	}
+	if n := next(); n <= ownRecheckPending {
+		t.Fatalf("once handed over, the next look is in %v", n)
+	}
+
+	if code, st := e.setZone(zone("other.example.com")); code != 200 {
+		t.Fatalf("another domain's zone: %d %+v", code, st)
+	}
+	if j := joinOf(e.address(), creative); j.Address != "creative.play.example.com:25566" {
+		t.Fatalf("with another domain's zone, before the next look: %+v", j)
+	}
+	v = check()
+	if j := joinOf(v, creative); v.Check.PortFree || j.Address != "creative.play.example.com:25566" {
+		t.Fatalf("with another domain's zone: port-free %v, %+v", v.Check.PortFree, j)
+	}
+}
+
+// Once the machine answers DNS for its own domain and the domain's parent
+// hands the domain here, one wildcard certificate serves every server's
+// address there. It's proven over DNS-01 with a record the machine answers
+// from its own zone while the check looks, and gone after. No server's
+// address from the wildcard record then gets a certificate of its own, and
+// the wildcard's goes with its domain, as theirs do.
+func TestTheServersShareOneWildcardCertificate(t *testing.T) {
+	e, _, _, _ := ownDomainEnvWith(t, func(o *Options) {
+		o.AddressInterval = 20 * time.Millisecond
+		o.DNSAddrs = func() ([]string, error) { return []string{"127.0.0.1:0"}, nil }
+	})
+	if code, v := e.setServerAddresses(true); code != 200 || !v.ServerAddresses {
+		t.Fatalf("turning an address for each server on: %d %+v", code, v)
+	}
+	if e.a.wildcardDue(e.a.address()) {
+		t.Fatal("the wildcard's certificate is due before the machine answers DNS for its domain")
+	}
+	var seen []byte
+	e.ca.mu.Lock()
+	e.ca.during = func(fqdn, _ string) { seen = e.a.dns.answerer.Answer(dnsQuery(fqdn, 16), 512) }
+	e.ca.mu.Unlock()
+	zone := map[string]any{"name": "play.example.com", "nameserver": "ns-play.example.com", "records": []map[string]any{
+		{"name": "", "type": "A", "value": testIP.String()},
+		{"name": "creative", "type": "A", "value": testIP.String()},
+		{"name": "_minecraft._tcp.creative", "type": "SRV", "value": "play.example.com", "port": 25566},
+	}}
+	if code, st := e.setZone(zone); code != 200 {
+		t.Fatalf("the zone: %d %+v", code, st)
+	}
+	if _, err := e.a.checkOwn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	e.certified("*.play.example.com")
+	if n := e.a.ownCertsToday(e.a.address()); n != 0 {
+		t.Fatalf("the wildcard's certificate took %d of the day's certificates for servers", n)
+	}
+	var wild []certs.Request
+	for _, r := range e.ca.requests() {
+		if slices.Contains(r.Names, "*.play.example.com") {
+			wild = append(wild, r)
+		}
+	}
+	if len(wild) != 1 || len(wild[0].Names) != 1 || wild[0].DNS01 == nil || wild[0].HTTP01 != nil {
+		t.Fatalf("the wildcard's requests: %+v", wild)
+	}
+	q := dnsQuery("_acme-challenge.play.example.com", 16)
+	e.ca.mu.Lock()
+	during := seen
+	e.ca.mu.Unlock()
+	if rcode, n, data := dnsReply(t, during, q); rcode != 0 || n != 1 || string(data[1:]) != strings.Repeat("v", 43) {
+		t.Fatalf("the check's record while it looked: rcode %d, %d answers, %q", rcode, n, data)
+	}
+	if rcode, n, _ := dnsReply(t, e.a.dns.answerer.Answer(q, 512), q); rcode != 3 || n != 0 {
+		t.Fatalf("the check's record after: rcode %d, %d answers", rcode, n)
+	}
+	if err := (zoneChallenger{e.a}).SetTXT(context.Background(), "_acme-challenge.other.example.com", "x"); err == nil {
+		t.Fatal("a check's record outside the zone was taken")
+	}
+
+	e.dns.set("*.play.example.com", testIP.String())
+	if _, err := e.a.checkOwn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if host, held := e.a.ownCertificateDue(e.a.address()); host != "" || held {
+		t.Fatalf("with the wildcard's certificate, %q still needs one of its own (held %v)", host, held)
+	}
+	e.dns.set("mc.example.com", testIP.String())
+	var v api.Address
+	if code := e.callInto("POST", "/v1/address/check", map[string]any{"domain": "mc.example.com", "actor": "admin"}, &v); code != 200 {
+		t.Fatalf("moving to mc.example.com: %d %+v", code, v)
+	}
+	if v.Operation != nil {
+		e.waitOp(v.Operation.ID)
+	}
+	if row := e.a.loadCertificate("*.play.example.com"); row != nil {
+		t.Fatalf("the old domain's wildcard certificate stayed: %+v", row.status)
 	}
 }

@@ -192,6 +192,7 @@ func (a *Agent) forgetOwnCertificates(st addressState, onlyWild bool) {
 		}
 		a.forgetCertificate(automaticName(st, servers, js))
 	}
+	a.forgetCertificate(wildcardName(st.Host))
 }
 
 // automaticName is the address the own domain st's wildcard record gives
@@ -217,10 +218,15 @@ func (s *server) wildName() string {
 	return ""
 }
 
-// startOwnCertificate starts getting the certificate of the first own
-// address that needs one, and reports whether it did. The caller holds the
-// address lock, which the operation takes over.
+// startOwnCertificate starts getting the own domain's wildcard certificate,
+// or else the certificate of the first own address that needs one, and
+// reports whether it did. The caller holds the address lock, which the
+// operation takes over.
 func (a *Agent) startOwnCertificate(st addressState) bool {
+	if a.wildcardDue(st) {
+		a.startAddressOp("certificate.wildcard", "playkeeper", a.issueWildcardCertificate)
+		return true
+	}
 	host, held := a.ownCertificateDue(st)
 	switch {
 	case host != "":
@@ -256,8 +262,9 @@ func (a *Agent) ownCertificateDue(st addressState) (host string, held bool) {
 	if st.Check == nil {
 		return "", false
 	}
+	wildcard := a.wildcardServes(st)
 	for _, js := range a.ownAddresses(st) {
-		if !ownNameOK(st, js) {
+		if !ownNameOK(st, js) || js.wild && wildcard {
 			continue
 		}
 		if row := a.loadCertificate(js.own); row != nil && !row.status.Due(a.now()) {
@@ -331,7 +338,7 @@ func (a *Agent) ownCertsToday(st addressState) int {
 		for rows.Next() {
 			var name string
 			var last sql.NullInt64
-			if rows.Scan(&name, &last) == nil && name != st.Host && fromMillis(last).After(since) {
+			if rows.Scan(&name, &last) == nil && name != st.Host && !strings.HasPrefix(name, "*.") && fromMillis(last).After(since) {
 				kept++
 			}
 		}

@@ -238,6 +238,7 @@ function actionView(a: DiagnosisAction, ctx: CauseContext): CauseAction {
     case 'install_addon':
     case 'remove_datapack':
     case 'restore_backup':
+    case 'rebuild_level':
     case 'free_disk':
     case 'change_port':
     case 'accept_eula':

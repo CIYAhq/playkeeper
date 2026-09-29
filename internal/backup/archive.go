@@ -623,6 +623,42 @@ func walk(r io.Reader, lim Limits, write sink) (Manifest, error) {
 	return m, nil
 }
 
+// ReadFile reads the file rel of the server's data directory, at most max
+// bytes, from an archive; fs.ErrNotExist when the archive doesn't hold it.
+// It reads the archive only as far as that file, so it checks no hashes:
+// read a backup that was verified.
+func ReadFile(r io.Reader, rel string, max int64) ([]byte, error) {
+	gz, err := gzip.NewReader(bufio.NewReaderSize(r, 256<<10))
+	if err != nil {
+		return nil, fmt.Errorf("not a gzip archive: %w", err)
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return nil, fs.ErrNotExist
+		}
+		if err != nil {
+			return nil, fmt.Errorf("archive is corrupt: %w", err)
+		}
+		if hdr.Name != dataPrefix+rel || hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		if hdr.Size > max {
+			return nil, fmt.Errorf("%s is larger than %d bytes", rel, max)
+		}
+		b, err := io.ReadAll(io.LimitReader(tr, hdr.Size))
+		if err == nil && int64(len(b)) != hdr.Size {
+			err = fmt.Errorf("entry %q is truncated", rel)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("archive is corrupt: %w", err)
+		}
+		return b, nil
+	}
+}
+
 func sortedKeys(m map[string]FileEntry) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
