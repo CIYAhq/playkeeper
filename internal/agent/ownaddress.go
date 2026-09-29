@@ -338,7 +338,7 @@ func (a *Agent) ownCertsToday(st addressState) int {
 		for rows.Next() {
 			var name string
 			var last sql.NullInt64
-			if rows.Scan(&name, &last) == nil && name != st.Host && fromMillis(last).After(since) {
+			if rows.Scan(&name, &last) == nil && name != st.Host && !strings.HasPrefix(name, "*.") && fromMillis(last).After(since) {
 				kept++
 			}
 		}

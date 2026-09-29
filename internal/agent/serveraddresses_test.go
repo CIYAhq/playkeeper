@@ -585,6 +585,9 @@ func TestTheServersShareOneWildcardCertificate(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.certified("*.play.example.com")
+	if n := e.a.ownCertsToday(e.a.address()); n != 0 {
+		t.Fatalf("the wildcard's certificate took %d of the day's certificates for servers", n)
+	}
 	var wild []certs.Request
 	for _, r := range e.ca.requests() {
 		if slices.Contains(r.Names, "*.play.example.com") {

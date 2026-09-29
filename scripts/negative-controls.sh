@@ -8043,6 +8043,10 @@ control "wildcard certificate: the servers' addresses it serves get none of thei
   'if !ownNameOK(st, js) || js.wild && wildcard {' \
   'if !ownNameOK(st, js) || js.wild && wildcard && false {' \
   ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "wildcard certificate: it takes none of the day's certificates for servers" internal/agent/ownaddress.go \
+  'name != st.Host && !strings.HasPrefix(name, "*.") && fromMillis(last).After(since) {' \
+  'name != st.Host && fromMillis(last).After(since) {' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
 control "wildcard certificate: it goes with its domain" internal/agent/ownaddress.go \
   'a.forgetCertificate(wildcardName(st.Host))' \
   '_ = wildcardName(st.Host)' \
