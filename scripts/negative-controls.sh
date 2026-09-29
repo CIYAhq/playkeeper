@@ -4543,8 +4543,8 @@ control "refused recoveries from copies are audited" internal/panel/server.go \
   '_ = 0' \
   ./internal/panel '^TestWaveSevenRoutesFollowTheTeamTable$'
 control "the Disk space page needs every server to look at" internal/panel/server.go \
-  'actView, everyServer(s.machineProxy("GET", "/v1/disk"))},' \
-  'actView, s.machineProxy("GET", "/v1/disk")},' \
+  'actViewMachines, everyServer(s.machineProxy("GET", "/v1/disk"))},' \
+  'actViewMachines, s.machineProxy("GET", "/v1/disk")},' \
   ./internal/panel '^TestMachineWideActionsNeedEveryServer$'
 control "the panel never caches the recovery key" internal/panel/automation.go \
   'h.Set("Cache-Control", "no-store")' \
@@ -6900,7 +6900,7 @@ control "creators: a restore's memory stays inside the allowance" internal/panel
   'if false {' \
   ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
 control "creators: the catalog offers only the memory their allowance has left" internal/panel/team.go \
-  'if sess.Access.creator() {' \
+  'if sess.Access.hidesMachines() {' \
   'if false {' \
   ./internal/panel '^TestCreatorsCreateTheirOwnServersInsideTheirAllowance$'
 control "creators: two creates at once are checked one after the other" internal/panel/creators.go \
@@ -7519,8 +7519,8 @@ control "ready server: a customer with no home machine waits" internal/panel/rea
   'return err != nil || machineID == ""' \
   'return err != nil' \
   ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
-control "ready server: a waiting customer creates no server" internal/panel/creators.go \
-  'if s.customerWaiting(ctx, a) {' \
+control "ready server: a waiting customer creates no server" internal/panel/server.go \
+  'if s.customerWaiting(r.Context(), acct) {' \
   'if false {' \
   ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
 control "ready server: the dashboard says a customer is waiting" internal/panel/server.go \
@@ -8524,9 +8524,9 @@ control "creator uploads: only on their machine" internal/panel/customeruploads.
   'if err := s.homeRefusal(ctx, a, m); err != nil {' \
   'if err := s.homeRefusal(ctx, a, m); false && err != nil {' \
   ./internal/panel '^TestACreatorUploadsForANewServerOnlyToTheirMachine$'
-control "creator uploads: not while waiting for room" internal/panel/customeruploads.go \
-  'if err := s.homeRefusal(ctx, a, m); err != nil {' \
-  'if err := s.homeRefusal(ctx, a, m); false && err != nil {' \
+control "creator uploads: not while waiting for room" internal/panel/server.go \
+  'if s.customerWaiting(r.Context(), acct) {' \
+  'if false {' \
   ./internal/panel '^TestACustomerWaitingForRoomUploadsNothingForANewServer$'
 control "creator uploads: the allowance's server count" internal/panel/customeruploads.go \
   'if use.servers >= a.Allowance.Servers {' \
@@ -8671,6 +8671,164 @@ webcontrol "confirming: removing a machine says its customers are on it" web/src
   '{!!m.customers && (' \
   '{false && (' \
   src/pages/pages.test.tsx 'warns before removing a machine customers are on'
+
+# Creators and customers see their servers, never the machines: no machine's
+# name or details, not how many there are, and no machine but the one their
+# servers go on (internal/panel/hiddenmachines.go).
+control "hidden machines: creators and customers may not look at the machines" internal/panel/workspace.go \
+  'case act == actViewMachines && a.hidesMachines():' \
+  'case act == actViewMachines && false:' \
+  ./internal/panel '^(TestOnlyTheTeamSeesTheMachines|TestACustomerSeesTheirServersAndNeverTheMachines)$'
+control "hidden machines: a customer whose plan ended sees none either" internal/panel/workspace.go \
+  'return a.creator() || a.Customer != ""' \
+  'return a.creator()' \
+  ./internal/panel '^TestOnlyTheTeamSeesTheMachines$'
+control "hidden machines: their machine list names none" internal/panel/workspace.go \
+  'if permit(sess.Access, actViewMachines, "") != nil {' \
+  'if false {' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: their machine list has only the machines they use" internal/panel/hiddenmachines.go \
+  'if !shown[v.ID] {' \
+  'if false && !shown[v.ID] {' \
+  ./internal/panel '^(TestACustomerSeesTheirServersAndNeverTheMachines|TestAnInvitedCreatorSeesOnlyTheirOwnMachine)$'
+control "hidden machines: a joined machine's IP comes without its link's port" internal/panel/hiddenmachines.go \
+  'Address: ip, ' \
+  'Address: link.Address, ' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: a path naming another machine isn't found" internal/panel/server.go \
+  'mid != "" && !s.machineShown(r.Context(), acct, mid) {' \
+  'mid != "" && false {' \
+  ./internal/panel '^(TestACustomerSeesTheirServersAndNeverTheMachines|TestACustomerCreatesServersOnTheJoinedMachineTheyrePlacedOn)$'
+control "hidden machines: a machine's page is the team's" internal/panel/server.go \
+  '{"GET", "/api/machines/{mid}", needSession, actViewMachines, s.hMachine},' \
+  '{"GET", "/api/machines/{mid}", needSession, actView, s.hMachine},' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: a machine's events are the team's" internal/panel/server.go \
+  '{"GET", "/api/machines/{mid}/events", needSession, actViewMachines, s.hMachineEvents},' \
+  '{"GET", "/api/machines/{mid}/events", needSession, actView, s.hMachineEvents},' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: joining machines is the team's" internal/panel/server.go \
+  '{"GET", "/api/machines/link", needSession, actViewMachines, s.hMachineLink},' \
+  '{"GET", "/api/machines/link", needSession, actView, s.hMachineLink},' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: usage stats are the team's" internal/panel/server.go \
+  '{"GET", "/api/usage-stats", needSession, actViewMachines, s.hUsageStats},' \
+  '{"GET", "/api/usage-stats", needSession, actView, s.hUsageStats},' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: the 0.2.0 status of the dashboard's machine is the team's" internal/panel/server.go \
+  '{"GET", "/api/server", needSession, actViewMachines, s.hLegacyStatus},' \
+  '{"GET", "/api/server", needSession, actView, s.hLegacyStatus},' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: their answers are marked" internal/panel/server.go \
+  'w = &blindWriter{ResponseWriter: w}' \
+  '_ = &blindWriter{ResponseWriter: w}' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: a machine that can't be reached is their server that can't be" internal/panel/server.go \
+  'if blind(w) {' \
+  'if false && blind(w) {' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: their catalog's memory is their plan's" internal/panel/creators.go \
+  'c["hostMemoryMB"], _ = json.Marshal(a.Allowance.MemoryMB)' \
+  '_ = a.Allowance.MemoryMB' \
+  ./internal/panel '^(TestACustomerSeesTheirServersAndNeverTheMachines|TestAnInvitedCreatorSeesOnlyTheirOwnMachine)$'
+control "hidden machines: their server list shows their plan" internal/panel/workspace.go \
+  'if sess.Access.hidesMachines() {
+		used := s.ownMemory(sess.Access, out)' \
+  'if false {
+		used := s.ownMemory(sess.Access, out)' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: one server's status shows their plan" internal/panel/hiddenmachines.go \
+  'if !sess.Access.hidesMachines() {
+		s.serverProxy(' \
+  'if true {
+		s.serverProxy(' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: a crashed server's room is their plan's" internal/panel/hiddenmachines.go \
+  'if mb, ok := c["roomMB"].(float64); ok && int(mb) > room {' \
+  'if mb, ok := c["roomMB"].(float64); ok && int(mb) < 0 {' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: a crash fix past their plan isn't offered" internal/panel/hiddenmachines.go \
+  'fix["kind"] == "raise_memory" && int(to-memoryMB) > room {' \
+  'fix["kind"] == "raise_memory" && int(to-memoryMB) > room+1<<30 {' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: their servers' disk is their plan's" internal/panel/hiddenmachines.go \
+  'r["diskFreeBytes"], r["diskTotalBytes"] = s.planDisk(a, int64(machineFree))' \
+  '_ = machineFree' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: pre-generating shows their plan's disk" internal/panel/creators.go \
+  'v["diskFreeBytes"], _ = json.Marshal(free)' \
+  '_ = free' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: the resource pack refusal names no machine" internal/panel/packs.go \
+  'if sess.Access.hidesMachines() {
+			msg, hint = ' \
+  'if false {
+			msg, hint = ' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: the sign-in page names no machine once customers sign in there" internal/panel/server.go \
+  'if !st.WhopSignIn {' \
+  'if true {' \
+  ./internal/panel '^TestTheSignInPageNamesNoMachineOnceCustomersSignInThere$'
+control "hidden machines: their AI agents list no machine" internal/mcptools/tools.go \
+  's.MachineID, s.MachineName = "", ""' \
+  '_ = s.MachineID' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+control "hidden machines: their AI agents hear of no machine's trouble" internal/mcptools/tools.go \
+  'if c.seesMachines() || !errors.As(err, &te) || !machineKinds[te.Kind] {' \
+  'if c.seesMachines() || !errors.As(err, &te) || true {' \
+  ./internal/panel '^TestACustomerSeesTheirServersAndNeverTheMachines$'
+webcontrol "hidden machines: a customer's machines come without names" web/src/api/workspace.tsx \
+  'machines.data?.map(nameless)' \
+  'machines.data' \
+  src/pages/hidden-machines.test.tsx 'while its machine is away, never which machine'
+webcontrol "hidden machines: Home doesn't group a customer's servers by machine" web/src/pages/home.tsx \
+  'const grouped = sees && ws.machines.length > 1' \
+  'const grouped = ws.machines.length > 1' \
+  src/pages/hidden-machines.test.tsx 'on Home under no machine'
+webcontrol "hidden machines: Home shows a customer no machine's card" web/src/pages/home.tsx \
+  '{sees && <MachineCard />}' \
+  '<MachineCard />' \
+  src/pages/hidden-machines.test.tsx 'on Home under no machine'
+webcontrol "hidden machines: a customer's New server card says what their plan has left" web/src/pages/home.tsx \
+  'planFreeMB={sees ? undefined : catalog?.memoryFreeMB}' \
+  'planFreeMB={undefined}' \
+  src/pages/hidden-machines.test.tsx 'on Home under no machine'
+webcontrol "hidden machines: an away machine is a server that can't be reached" web/src/lib/machines.ts \
+  "return away.name ? t('machines.away.pill', { name: away.name }) : t('status.unreachable')" \
+  "return t('machines.away.pill', { name: away.name })" \
+  src/pages/hidden-machines.test.tsx 'while its machine is away, never which machine'
+webcontrol "hidden machines: the away view names no machine to a customer" web/src/pages/server/overview.tsx \
+  "if (!sees) title = t('machines.away.pillHidden')" \
+  'if (false) title = ""' \
+  src/pages/hidden-machines.test.tsx 'while its machine is away, never which machine'
+webcontrol "hidden machines: the sidebar puts no machine over a customer's servers" web/src/components/app/shell.tsx \
+  'const shared = sees && ws.machines.length > 1' \
+  'const shared = ws.machines.length > 1' \
+  src/pages/hidden-machines.test.tsx 'in the sidebar under no machine'
+webcontrol "hidden machines: the sidebar puts no machine over one machine's servers either" web/src/components/app/shell.tsx \
+  '{ws.machine && sees && <MachineRow machine={ws.machine} route={route} />}' \
+  '{ws.machine && <MachineRow machine={ws.machine} route={route} />}' \
+  src/pages/hidden-machines.test.tsx 'in the sidebar under no machine'
+webcontrol "hidden machines: the command palette offers a customer no machine" web/src/components/app/command-palette.tsx \
+  "for (const m of can(ws.me, 'machines.view') ? machines : []) {" \
+  'for (const m of machines) {' \
+  src/pages/hidden-machines.test.tsx 'no machine in the command palette'
+webcontrol "hidden machines: Settings has no Machines section for a customer" web/src/lib/access.ts \
+  "label: 'global.nav.machines', act: 'machines.view' }" \
+  "label: 'global.nav.machines', act: 'view' }" \
+  src/pages/hidden-machines.test.tsx 'no machine in the command palette'
+webcontrol "hidden machines: Settings shows a customer no usage stats" web/src/pages/settings.tsx \
+  "{can(ws.me, 'machines.view') ? (" \
+  '{true ? (' \
+  src/pages/hidden-machines.test.tsx 'no machine in the command palette'
+webcontrol "hidden machines: a machine's page sends a customer Home" web/src/App.tsx \
+  "const hidden = !can(me, 'machines.view') && machinePages.includes(asked.name)" \
+  'const hidden = false' \
+  src/pages/hidden-machines.test.tsx 'opens a machine'
+webcontrol "hidden machines: New server names no machine to a customer" web/src/pages/new-server.tsx \
+  '{sees && machineName && (' \
+  '{machineName && (' \
+  src/pages/new-server.test.tsx 'never naming it'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
