@@ -749,6 +749,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 		markRestoreRefusal(h, err)
 		return err
 	}
+	if err := s.holdRefusal(); err != nil {
+		return err
+	}
 	if h.askedFor {
 		s.forgetCrashes()
 	}
