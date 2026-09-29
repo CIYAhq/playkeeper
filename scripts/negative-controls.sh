@@ -7405,6 +7405,22 @@ control "customers: a new plan gives its allowance" internal/panel/customers.go 
   'al.Servers, al.MemoryMB, al.DiskGB, info.UserID, al.Servers, al.MemoryMB, al.DiskGB)' \
   'al.Servers, al.MemoryMB, al.DiskGB, 0*info.UserID, al.Servers, al.MemoryMB, al.DiskGB)' \
   ./internal/panel '^TestACustomerGetsAnAccountOfTheirOwn$'
+control "customers: a customer waiting for room is placed once there's room" internal/panel/customers.go \
+  "WHERE c.state = ? AND COALESCE(h.machine_id, '') = '' ORDER BY c.created_at" \
+  'WHERE c.state = ? AND 0 ORDER BY c.created_at' \
+  ./internal/panel '^TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom$'
+control "customers: a paused customer waiting isn't placed" internal/panel/customers.go \
+  'if CustomerState(state) != CustomerActive {' \
+  'if false {' \
+  ./internal/panel '^TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom$'
+control "customers: the owner can't remove a customer" internal/panel/team.go \
+  'writeRefusal(w, errCustomerStays)' \
+  '_ = errCustomerStays' \
+  ./internal/panel '^TestTheTeamPageKeepsACustomersAccount$'
+control "customers: the Team page offers no removal of a customer" internal/panel/team.go \
+  ' && t.Customer == ""' \
+  '' \
+  ./internal/panel '^TestTheTeamPageKeepsACustomersAccount$'
 control "customers: the Team page marks a customer" internal/panel/team.go \
   '.Scan(&row.Customer, &row.Handle)' \
   '.Scan(new(string), new(string))' \
