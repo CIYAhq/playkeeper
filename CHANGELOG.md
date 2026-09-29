@@ -2,10 +2,14 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.9
+
+- Fixed: making a new level.dat could say it keeps the world's seed without having found it: before Minecraft 26.1, whenever a checked backup existed, even one saved after the damage or before a restore, and it said nothing when only server.properties had a seed. It now says so only once it has read the seed from the world or from a backup of this world, makes no new level.dat if the seed is gone by the time you confirm, and checks that the started server kept it. Otherwise the dialog says plainly that new terrain won't match the old.
+
 ## 0.4.8
 
 - **Addresses without a port on every machine:** with **Addresses without a port** on, servers on machines joined to this dashboard get their name under its domain too, pointing at the machine each runs on, so players join them without a port as well. A machine that reaches the dashboard only from its own network gets none.
-- **A new level.dat:** when both of a world's level.dat files are damaged, the Overview offers to make a new one next to restoring a backup, so the world keeps every build made since that backup. It says what starts over first: the spawn point, and before Minecraft 26.1 the game rules and the time of day. Playkeeper backs the world up before it changes anything, and keeps the world's seed, so new land matches the old.
+- **A new level.dat:** when both of a world's level.dat files are damaged, the Overview offers to make a new one next to restoring a backup, so the world keeps every build made since that backup. It says what starts over first: the spawn point, and before Minecraft 26.1 the game rules and the time of day. Playkeeper backs the world up before it changes anything, and keeps the world's seed when it finds it, so new land matches the old; when it can't, it says new land won't match.
 - **A crash from one broken entity:** when a minecart, a mob, or a block like a hopper or a mod's machine hits an error each time the game runs it ("Ticking entity" in the crash report), the Overview names it and where it is, instead of saying the server stopped unexpectedly. **Remove the minecart** backs the world up and takes just that one out; a block stays, without what it held. Starting again is no longer offered: the world was saved with it, so the server only crashed again until Playkeeper gave up after 3 tries.
 - Fixed: a world on Minecraft 26.1 or newer with both level.dat files damaged got "stopped unexpectedly" and a restart, because its last line no longer names the files. The Overview now says the world's level.dat is damaged.
 - Fixed: a mod made for players' games, like Sodium, stopped a NeoForge server at its start with `NoClassDefFoundError: org/lwjgl/Version`, and the Overview only offered to start it again. It now names the mod, says it only runs in players' games, and offers to remove it.

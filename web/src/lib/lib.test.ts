@@ -628,7 +628,7 @@ describe('crash helper', () => {
     expect(crashDetail(crash({ kind: 'ticking_entity', params: { dimension: 'aether:the_aether' } }))).toBe('It’s in aether:the_aether, saved in the world, so starting again crashes again.')
   })
 
-  it('says what a new level.dat resets, and whether new land will match', () => {
+  it('says what a new level.dat resets, and whether new terrain will match', () => {
     const level = (seedFrom: string, resets: string[]) =>
       crash({ kind: 'corrupt_world', params: { file: 'level.dat', world: 'world' }, fixes: [{ kind: 'rebuild_level', params: { world: 'world', seed_from: seedFrom, resets }, title: 'Make a new level.dat', recommended: true }] })
     expect(crashSummary(level('world', ['spawn']), 'Survival', 'my-vps')).toBe('The world’s level.dat file is damaged.')
@@ -644,10 +644,11 @@ describe('crash helper', () => {
       },
     ])
     expect(crashFixes(level('properties', ['game_rules', 'time', 'world_border', 'spawn']), 'Survival', 'my-vps', false)[0]?.hint).toBe(
-      'Keeps every build. Resets the game rules, the time of day, the world border and the spawn point.',
+      'Keeps every build. Resets the game rules, the time of day, the world border and the spawn point. New terrain won’t match the old unless server.properties has the world’s seed.',
     )
+    expect(crashFixes(level('backup', ['game_rules', 'time', 'spawn']), 'Survival', 'my-vps', false)[0]?.hint).toBe('Keeps every build. Resets the game rules, the time of day and the spawn point.')
     expect(crashFixes(level('', ['game_rules', 'time', 'spawn']), 'Survival', 'my-vps', false)[0]?.hint).toBe(
-      'Keeps every build. Resets the game rules, the time of day and the spawn point. New land won’t match the old.',
+      'Keeps every build. Resets the game rules, the time of day and the spawn point. New terrain won’t match the old.',
     )
     const older = crash({ kind: 'corrupt_world', params: { file: 'level.dat' }, fixes: [{ kind: 'rebuild_level', title: 'Make a new level.dat' }] })
     expect(titles(older)).toEqual([

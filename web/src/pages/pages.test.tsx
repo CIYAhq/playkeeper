@@ -1543,12 +1543,35 @@ describe('Crash helper', () => {
     expect(posts()).toEqual([])
     const dialog = document.body.textContent ?? ''
     expect(dialog).toContain('Make a new level.dat for Survival?')
-    expect(dialog).toContain('The seed, read from your latest backup, so new land matches the old')
+    expect(dialog).toContain('The seed, read from a backup, so new terrain matches the old')
     expect(dialog).toContain('The game rules go back to their defaults')
     expect(dialog).toContain('The spawn point goes back to where the world first had it')
-    expect(dialog).not.toContain('Playkeeper doesn’t know the old one')
+    expect(dialog).not.toContain('won’t match the old')
     await press('Back up and repair')
-    expect(posts()).toEqual([['/world/rebuild-level', { world: 'world', start: true }]])
+    expect(posts()).toEqual([['/world/rebuild-level', { world: 'world', seedFrom: 'backup', start: true }]])
+  })
+
+  it('says plainly that new terrain won’t match when it can’t find the seed', async () => {
+    for (const [seedFrom, line] of [
+      ['', 'The seed: Playkeeper can’t find the world’s, so new terrain won’t match the old'],
+      ['properties', 'The seed: Playkeeper can’t find the world’s, so new terrain won’t match the old unless the level-seed in server.properties is the one it was made with'],
+    ]) {
+      vi.mocked(client.post).mockClear()
+      const level = crash({
+        start: true,
+        kind: 'corrupt_world',
+        params: { file: 'level.dat', world: 'world' },
+        fixes: [{ kind: 'rebuild_level', params: { world: 'world', seed_from: seedFrom, resets: ['spawn'] }, title: 'Make a new level.dat', recommended: true }],
+      })
+      const text = await render(<Overview server={server({ phase: 'stopped', crash: level })} />)
+      expect(text).toContain('Keeps every build. Resets the spawn point. New terrain won’t match the old')
+      await press('Back up, repair and start Survival')
+      const dialog = document.body.textContent ?? ''
+      expect(dialog).toContain(line)
+      expect(dialog).not.toContain('so new terrain matches the old')
+      await press('Back up and repair')
+      expect(posts()).toEqual([['/world/rebuild-level', { world: 'world', seedFrom, start: true }]])
+    }
   })
 
   it('deletes the oldest backups it planned, then starts', async () => {

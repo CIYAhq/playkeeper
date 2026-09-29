@@ -7844,10 +7844,49 @@ control "new level.dat: the world's seed goes into server.properties" internal/a
   '	if false && seed != "" {
 		cur, err := d.ReadProperties()' \
   ./internal/agent '^TestANewLevelDatTakesTheSeedFromTheWorldSince26$'
-control "new level.dat: nothing changes when the backups don't give the seed" internal/agent/leveldat.go \
-  'if seed == "" && from == seedFromBackup {' \
-  'if false && seed == "" && from == seedFromBackup {' \
+control "new level.dat: nothing changes without the seed the owner was told it keeps" internal/agent/leveldat.go \
+  'if req.SeedFrom != nil && keepsSeed(*req.SeedFrom) && !keepsSeed(p.from) {' \
+  'if false && req.SeedFrom != nil && keepsSeed(*req.SeedFrom) && !keepsSeed(p.from) {' \
+  ./internal/agent '^TestANewLevelDatIsntMadeWithoutTheSeedItSaidItKeeps$'
+control "new level.dat: a refused one's fix says what a new level.dat does now" internal/agent/leveldat.go \
+  '			s.refreshLevelFix(p)
+' \
+  '' \
+  ./internal/agent '^TestANewLevelDatIsntMadeWithoutTheSeedItSaidItKeeps$'
+control "new level.dat: a backup's seed is read before the fix says it keeps it" internal/agent/leveldat.go \
+  '		if seed := s.archiveSeed(b, world); seed != "" {
+			return seed, &b
+		}' \
+  '		if seed := s.archiveSeed(b, world); true {
+			return cmp.Or(seed, "0"), &b
+		}' \
   ./internal/agent '^TestANewLevelDatIsRefusedWhereItDoesnHelp$'
+control "new level.dat: a backup from before a restore gives no seed" internal/agent/leveldat.go \
+  's.worldPlacedAt().UnixMilli()' \
+  'time.Time{}.UnixMilli()' \
+  ./internal/agent '^TestANewLevelDatTakesTheSeedOnlyFromThisWorldsBackups$'
+control "new level.dat: a 26.1 backup's world_gen_settings.dat gives the seed" internal/agent/leveldat.go \
+  '	files := append(slices.Clone(gen), world+"/level.dat", world+"/level.dat_old")' \
+  '	files := []string{world + "/level.dat", world + "/level.dat_old"}' \
+  ./internal/agent '^TestANewLevelDatTakesTheSeedOnlyFromThisWorldsBackups$'
+control "new level.dat: a backup is read no further than its world_gen_settings.dat" internal/agent/leveldat.go \
+  '		return read[gen[0]] != nil || read[gen[1]] != nil' \
+  '		return false' \
+  ./internal/agent '^TestANewLevelDatTakesTheSeedOnlyFromThisWorldsBackups$'
+control "new level.dat: a pass through a backup ends once it has enough" internal/backup/archive.go \
+  '		if enough != nil && enough(out) {' \
+  '		if false && enough != nil && enough(out) {' \
+  ./internal/backup '^TestReadFilesStopsOncePastTheFiles$'
+control "new level.dat: a server that started with another seed fails it" internal/agent/leveldat.go \
+  '	if m[1] != seed {
+		s.log.Warn' \
+  '	if false {
+		s.log.Warn' \
+  ./internal/agent '^TestANewLevelDatChecksTheServerKeptTheSeed$'
+control "new level.dat: a backup's seed is read without the rest of its archive" internal/backup/archive.go \
+  '			if sorted && hdr.Name > last {' \
+  '			if false && sorted && hdr.Name > last {' \
+  ./internal/backup '^TestReadFilesStopsOncePastTheFiles$'
 control "new level.dat: game rules kept in their own file since 26.1 don't reset" internal/agent/leveldat.go \
   'if !has("data/minecraft/game_rules.dat", own+"game_rules.dat") {' \
   'if true {' \
@@ -7863,6 +7902,21 @@ webcontrol "new level.dat: nothing is sent before the owner confirms in the dial
   "        case 'rebuild-level':
           await post(serverApi(s.id, '/world/rebuild-level'), { world: plan.world, start: true })
           break" \
+  src/pages/pages.test.tsx 'makes a new level.dat only once the owner has read what resets'
+webcontrol "new level.dat: the card warns when only server.properties has a seed" web/src/lib/crash.ts \
+  "  if (seedFrom === 'world' || seedFrom === 'backup') return hint" \
+  "  if (seedFrom) return hint" \
+  web/src/lib/lib.test.ts 'says what a new level.dat resets, and whether new terrain will match'
+webcontrol "new level.dat: the dialog keeps the seed only when it was found" web/src/components/app/rebuild-level.tsx \
+  "  backup: 'rebuildLevel.seedBackup',
+}" \
+  "  backup: 'rebuildLevel.seedBackup',
+  properties: 'rebuildLevel.seedWorld',
+}" \
+  src/pages/pages.test.tsx 'says plainly that new terrain'
+webcontrol "new level.dat: the dialog sends what it said about the seed" web/src/components/app/rebuild-level.tsx \
+  "{ world: plan.world, seedFrom: plan.seedFrom, start: true }" \
+  "{ world: plan.world, start: true }" \
   src/pages/pages.test.tsx 'makes a new level.dat only once the owner has read what resets'
 control "ticking entities: what crashes each time it ticks is named" internal/diagnose/crashrules.go \
   '	{(*crashCtx).tickingEntity, true},
