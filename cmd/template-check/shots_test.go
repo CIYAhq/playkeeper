@@ -15,8 +15,7 @@ func TestOfflineUUIDIsTheServers(t *testing.T) {
 
 // A server on the bot's version needs nothing; an older one ViaVersion, a
 // newer one ViaBackwards too, on Fabric through ViaFabric; and a server the
-// bot can't join, whatever its version, can't be captured, which isn't a
-// failure.
+// bot can't join, whatever its version, is captured from its saved world.
 func TestViaLetsTheBotOn(t *testing.T) {
 	for _, c := range []struct {
 		typ, version string

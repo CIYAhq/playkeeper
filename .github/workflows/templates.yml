@@ -145,12 +145,13 @@ jobs:
 
   # Thumbnails come from each template's real world: a bot joins its server
   # and saves the land around spawn, or the mode's showpiece, and
-  # site/tools/thumbnails renders it. The bot joins as a player would, so
-  # this job's Playkeeper runs servers in offline mode, on a runner thrown
-  # away afterwards. Nightly it makes them for templates without one; the
-  # scheduled template agent commits them from the artifact. Like the check,
-  # it runs third-party plugins with read-only access; thumbnails-report
-  # files the issue.
+  # site/tools/thumbnails renders it. A server the bot can't join, like a
+  # NeoForge or Forge pack's, is read from the world it saved. The bot joins
+  # as a player would, so this job's Playkeeper runs servers in offline mode,
+  # on a runner thrown away afterwards. Nightly it makes them for templates
+  # without one; the scheduled template agent looks at them and commits them
+  # from the artifact. Like the check, it runs third-party plugins with
+  # read-only access; thumbnails-report files the issue.
   thumbnails:
     name: Thumbnails of templates without one, from their real worlds
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -170,13 +171,10 @@ jobs:
           if [ -n "$ONLY" ]; then
             ids=$(tr , '\n' <<<"$ONLY")
           else
-            # Templates without a thumbnail whose servers the capture bot can
-            # join (cmd/template-check's viaFor): a NeoForge or Forge pack's
-            # comes from its icon, with pack-art.mjs, by hand.
+            # Every template without a thumbnail, until one is committed.
             ids=$(find site/data/templates -maxdepth 1 -name '*.json' ! -name cards.json -printf '%f\n' | sed 's/\.json$//' | sort |
               while read -r id; do
-                [ -f "site/static/shots/templates/$id-960w.webp" ] && continue
-                case $(jq -r .server.type "site/data/templates/$id.json") in paper | purpur | folia | fabric) echo "$id" ;; esac
+                [ -f "site/static/shots/templates/$id-960w.webp" ] || echo "$id"
               done)
           fi
           echo "only=$(paste -sd, <<<"$ids")" >> "$GITHUB_OUTPUT"
@@ -242,7 +240,7 @@ jobs:
           MADE: ${{ needs.thumbnails.outputs.made }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          body=$(printf 'New thumbnails for %s, rendered from their real worlds on %s, are in the run'"'"'s template-thumbnails artifact:\n\n%s\n\nThe scheduled template agent commits them to site/static/shots/templates.\n' "$MADE" "$(date -u +%F)" "$RUN")
+          body=$(printf 'New thumbnails for %s, rendered from their real worlds on %s, are in the run'"'"'s template-thumbnails artifact:\n\n%s\n\nThe scheduled template agent looks at each and commits it to site/static/shots/templates. A NeoForge or Forge pack'"'"'s is drawn from its saved world without the mods'"'"' blocks, or made of the pack'"'"'s logo when its spawn is underground: commit a logo only when it'"'"'s the pack'"'"'s own branding, never a Minecraft-logo lookalike, and when a world doesn'"'"'t look like a real, good world shot, make the picture from the pack'"'"'s logo with site/tools/thumbnails/pack-art.mjs instead (site/README.md, Thumbnails).\n' "$MADE" "$(date -u +%F)" "$RUN")
           n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search 'in:title "Template thumbnails to add"' --json number --jq '.[0].number // empty')
           if [ -n "$n" ]; then
             gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$body"

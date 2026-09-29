@@ -29,7 +29,8 @@ import (
 // world around spawn, or around the mode's showpiece, for
 // site/tools/thumbnails/render.mjs to draw as the template's thumbnails.
 // The bot joins as a player would, so the agent must run its servers in
-// offline mode (playkeeper dev with PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1).
+// offline mode (playkeeper dev with PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1). A
+// server the bot can't join is captured from the world it saved (world.go).
 
 // shotVersion is the Minecraft version the capture bot speaks
 // (site/tools/thumbnails/version.js). A server on another version gets
@@ -44,8 +45,7 @@ const shotBot = "PkShot"
 const shotTool = "site/tools/thumbnails"
 
 // cantShoot says why the capture bot can't join servers like this one: the
-// template's thumbnails come from its modpack's icon instead
-// (site/tools/thumbnails/pack-art.mjs).
+// template's thumbnails come from its saved world instead (savedWorld).
 type cantShoot string
 
 func (e cantShoot) Error() string { return string(e) }
@@ -77,9 +77,12 @@ func viaFor(typ, version string) ([]string, error) {
 
 // shoot captures a passing template's world into c.shots/<id>.json.gz: it
 // adds what the bot needs to join, lets the bot on as an operator, and runs
-// the bot.
+// the bot. A server the bot can't join is captured from its saved world.
 func (c *checker) shoot(ctx context.Context, id, sid string, t *templates.Template) error {
 	via, err := viaFor(t.Server.Type, t.Server.MinecraftVersion)
+	if errors.As(err, new(cantShoot)) {
+		return c.savedWorld(ctx, id, sid, t)
+	}
 	if err != nil {
 		return err
 	}
@@ -136,20 +139,38 @@ func (c *checker) shoot(ctx context.Context, id, sid string, t *templates.Templa
 	if err != nil {
 		return err
 	}
-	run, cancel := context.WithTimeout(ctx, 6*time.Minute)
+	return c.tool(ctx, 6*time.Minute, "capture.js", "--port", strconv.Itoa(s.GamePort), "--name", shotBot, "--template", id, "--out", out)
+}
+
+// toolFailed is a site/tools/thumbnails script's failure: the last line it
+// wrote to stderr, and its exit code.
+type toolFailed struct {
+	why  string
+	code int
+}
+
+func (e *toolFailed) Error() string { return e.why }
+
+// tool runs one of site/tools/thumbnails' scripts, with its output on
+// stderr.
+func (c *checker) tool(ctx context.Context, limit time.Duration, script string, args ...string) error {
+	run, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
-	cmd := exec.CommandContext(run, "node", "capture.js", "--port", strconv.Itoa(s.GamePort), "--name", shotBot, "--template", id, "--out", out)
+	cmd := exec.CommandContext(run, "node", append([]string{script}, args...)...)
 	cmd.Dir = filepath.Join(c.root, shotTool)
 	var log bytes.Buffer
 	cmd.Stdout, cmd.Stderr = os.Stderr, &log
-	if err := cmd.Run(); err != nil {
-		os.Stderr.Write(log.Bytes())
-		if why := strings.TrimSpace(log.String()); why != "" {
-			return errors.New(lastLine(why))
-		}
-		return fmt.Errorf("the capture bot: %w", err)
+	err := cmd.Run()
+	var exit *exec.ExitError
+	if err == nil || !errors.As(err, &exit) {
+		return err
 	}
-	return nil
+	os.Stderr.Write(log.Bytes())
+	why := lastLine(log.String())
+	if why == "" {
+		why = fmt.Sprintf("%s: %v", script, err)
+	}
+	return &toolFailed{why: why, code: exit.ExitCode()}
 }
 
 // addAddon installs the newest version of a Modrinth project that runs on
