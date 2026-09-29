@@ -23,6 +23,11 @@ export function allowanceText(al: Allowance): string {
   return t('team.allowance', { servers: t('unit.servers', { count: al.servers }), memory: formatMB(al.memoryMB) })
 }
 
+/** The disk an allowance's servers may take between them, in MB: its diskGB, or 7.5 GB for each GB of memory, as Allowance.DiskBytes in internal/invites counts it. */
+export function allowanceDiskMB(al: Allowance): number {
+  return al.diskGB ? al.diskGB * 1024 : al.memoryMB * 7.5
+}
+
 export const projectRoles: ProjectRole[] = ['admin', 'moderator', 'viewer']
 
 /** The pref the invite page sets when it makes an account, so Home greets the new member once. */

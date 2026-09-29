@@ -456,6 +456,13 @@ CREATE TABLE whop_stock (
   known   INTEGER NOT NULL DEFAULT -1
 );
 `,
+	// Disk limits: the disk a creator's or customer's servers may take
+	// between them, or 0 for the default from their memory (see
+	// invites.Allowance).
+	`
+ALTER TABLE invites ADD COLUMN allowance_disk_gb INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE project_members ADD COLUMN allowance_disk_gb INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 const (
