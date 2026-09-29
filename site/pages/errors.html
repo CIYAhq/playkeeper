@@ -27,7 +27,7 @@ schema: article
   {{template "h2n" (dict "ID" "list" "N" 1 "Text" "Errors, by what you see" "Toc" "The errors")}}
   <h3>Players can't connect</h3>
   <ul>
-    <li><a href="/errors/connection-refused">Connection refused</a>, as <code>io.netty.channel.AbstractChannel$AnnotatedConnectException</code>: nothing takes connections at that address and port. The same page covers <code>connection timed out</code>.</li>
+    <li><a href="/errors/connection-refused">Connection refused</a>, as io.netty's <code>AnnotatedConnectException</code>: nothing takes connections at that address and port. The same page covers <code>connection timed out</code>.</li>
   </ul>
 </section>
 
