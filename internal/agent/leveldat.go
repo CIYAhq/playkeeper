@@ -174,44 +174,39 @@ func (s *server) worldPlacedAt() time.Time {
 	return *op.FinishedAt
 }
 
-// archiveSeed reads the world's seed from a backup: from world_gen_settings.dat
-// since Minecraft 26.1, else from level.dat or level.dat_old. Each is its own
-// pass: world_gen_settings.dat comes early in an archive, and a world from
-// before 26.1 has none, so looking for it costs little, while a 26.1 world's
-// level.dat comes after all of its dimensions.
+// archiveSeed reads the world's seed from a backup, in one pass: from
+// world_gen_settings.dat since Minecraft 26.1, else from level.dat or
+// level.dat_old. A world with a world_gen_settings.dat keeps no seed in
+// level.dat, which comes after all of its dimensions in the archive, so the
+// pass ends at the first one it reads.
 func (s *server) archiveSeed(b api.Backup, world string) string {
-	for _, files := range [][]string{
-		{world + "/data/minecraft/world_gen_settings.dat", world + "/dimensions/minecraft/overworld/data/minecraft/world_gen_settings.dat"},
-		{world + "/level.dat", world + "/level.dat_old"},
-	} {
-		got, err := s.readBackupFiles(b, files)
-		if err != nil {
-			return ""
+	gen := []string{world + "/data/minecraft/world_gen_settings.dat", world + "/dimensions/minecraft/overworld/data/minecraft/world_gen_settings.dat"}
+	files := append(slices.Clone(gen), world+"/level.dat", world+"/level.dat_old")
+	f, err := os.Open(s.backupPath(b.FileName))
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	got, err := backup.ReadFiles(f, files, maxLevelFile, func(read map[string][]byte) bool {
+		return read[gen[0]] != nil || read[gen[1]] != nil
+	})
+	if err != nil {
+		return ""
+	}
+	for _, rel := range files {
+		data := got[rel]
+		if data == nil {
+			continue
 		}
-		for _, rel := range files {
-			data := got[rel]
-			if data == nil {
-				continue
+		if strings.HasSuffix(rel, "world_gen_settings.dat") {
+			if seed := worldimport.ReadSeed(data, levelDecode); seed != "" {
+				return seed
 			}
-			if strings.HasSuffix(rel, "world_gen_settings.dat") {
-				if seed := worldimport.ReadSeed(data, levelDecode); seed != "" {
-					return seed
-				}
-			} else if lv, err := worldimport.ParseLevel(data, levelDecode); err == nil && lv.Seed != "" {
-				return lv.Seed
-			}
+		} else if lv, err := worldimport.ParseLevel(data, levelDecode); err == nil && lv.Seed != "" {
+			return lv.Seed
 		}
 	}
 	return ""
-}
-
-func (s *server) readBackupFiles(b api.Backup, files []string) (map[string][]byte, error) {
-	f, err := os.Open(s.backupPath(b.FileName))
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	return backup.ReadFiles(f, files, maxLevelFile)
 }
 
 // hRebuildLevel makes a new level.dat for a stopped server's world whose

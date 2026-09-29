@@ -7866,10 +7866,17 @@ control "new level.dat: a backup from before a restore gives no seed" internal/a
   'time.Time{}.UnixMilli()' \
   ./internal/agent '^TestANewLevelDatTakesTheSeedOnlyFromThisWorldsBackups$'
 control "new level.dat: a 26.1 backup's world_gen_settings.dat gives the seed" internal/agent/leveldat.go \
-  '		{world + "/data/minecraft/world_gen_settings.dat", world + "/dimensions/minecraft/overworld/data/minecraft/world_gen_settings.dat"},
-' \
-  '' \
+  '	files := append(slices.Clone(gen), world+"/level.dat", world+"/level.dat_old")' \
+  '	files := []string{world + "/level.dat", world + "/level.dat_old"}' \
   ./internal/agent '^TestANewLevelDatTakesTheSeedOnlyFromThisWorldsBackups$'
+control "new level.dat: a backup is read no further than its world_gen_settings.dat" internal/agent/leveldat.go \
+  '		return read[gen[0]] != nil || read[gen[1]] != nil' \
+  '		return false' \
+  ./internal/agent '^TestANewLevelDatTakesTheSeedOnlyFromThisWorldsBackups$'
+control "new level.dat: a pass through a backup ends once it has enough" internal/backup/archive.go \
+  '		if enough != nil && enough(out) {' \
+  '		if false && enough != nil && enough(out) {' \
+  ./internal/backup '^TestReadFilesStopsOncePastTheFiles$'
 control "new level.dat: a server that started with another seed fails it" internal/agent/leveldat.go \
   '	if m[1] != seed {
 		s.log.Warn' \

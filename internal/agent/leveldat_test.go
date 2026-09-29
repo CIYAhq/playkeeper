@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -300,21 +301,39 @@ func TestANewLevelDatIsntMadeWithoutTheSeedItSaidItKeeps(t *testing.T) {
 
 // Since Minecraft 26.1 a backup keeps the seed in its copy of
 // world_gen_settings.dat, which a world that lost its own gets the seed
-// back from. A backup made before a restore replaced the world may be of
-// another world, so it gives no seed.
+// back from, reading the backup no further: its dimensions, which come
+// next, are left unread, so a backup cut in them still gives it. A backup
+// made before a restore replaced the world may be of another world, so it
+// gives no seed.
 func TestANewLevelDatTakesTheSeedOnlyFromThisWorldsBackups(t *testing.T) {
 	e := crashEnv(t)
 	world := filepath.Join(e.dataDir(), "world")
 	gen := filepath.Join(world, "data", "minecraft", "world_gen_settings.dat")
 	writeGameFile(t, gen, gzipNBT(t, nbt.Compound{"DataVersion": int32(5023), "data": nbt.Compound{"seed": int64(-269618914698903788)}}), time.Time{})
+	region := make([]byte, 200_000)
+	rand.Read(region)
+	writeGameFile(t, filepath.Join(world, "dimensions", "minecraft", "overworld", "region", "r.0.0.mca"), string(region), time.Time{})
 	code, out := e.callWhenFree("POST", e.sp("/backups"), map[string]any{"actor": "admin"})
 	if code != 202 {
 		t.Fatalf("backup: %d %v", code, out)
 	}
-	if op := e.waitOp(out["id"].(string)); op.Status != api.OpSucceeded {
+	op := e.waitOp(out["id"].(string))
+	if op.Status != api.OpSucceeded {
 		t.Fatalf("backup: %+v", op)
 	}
 	e.waitFor("online after the backup", e.onlineIdle)
+	list, _ := e.srv().listBackups(``)
+	if len(list) != 1 {
+		t.Fatalf("backups: %+v", list)
+	}
+	archive := filepath.Join(e.cfg.BackupsDir(), list[0].FileName)
+	fi, err := os.Stat(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(archive, fi.Size()*3/4); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Remove(gen); err != nil {
 		t.Fatal(err)
 	}

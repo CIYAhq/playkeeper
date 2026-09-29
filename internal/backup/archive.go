@@ -663,8 +663,10 @@ func ReadFile(r io.Reader, rel string, max int64) ([]byte, error) {
 // directory that an archive holds, at most max bytes each. Create writes the
 // files in sorted order, so the pass stops once it is past every name asked
 // for, and a missing one doesn't cost a read of the whole archive; an archive
-// out of that order is read to its end. Like ReadFile, it checks no hashes.
-func ReadFiles(r io.Reader, rels []string, max int64) (map[string][]byte, error) {
+// out of that order is read to its end. enough, when given, ends the pass as
+// soon as it says the files read so far will do. Like ReadFile, it checks no
+// hashes.
+func ReadFiles(r io.Reader, rels []string, max int64, enough func(read map[string][]byte) bool) (map[string][]byte, error) {
 	want := map[string]bool{}
 	last := ""
 	for _, rel := range rels {
@@ -712,6 +714,9 @@ func ReadFiles(r io.Reader, rels []string, max int64) (map[string][]byte, error)
 			return nil, fmt.Errorf("archive is corrupt: %w", err)
 		}
 		out[rel] = b
+		if enough != nil && enough(out) {
+			break
+		}
 	}
 	return out, nil
 }
