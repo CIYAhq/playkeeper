@@ -358,6 +358,7 @@ type HostConfig struct {
 	RestartPolicy  RestartPolicy            `json:"RestartPolicy"`
 	Memory         int64                    `json:"Memory,omitempty"`
 	MemorySwap     int64                    `json:"MemorySwap,omitempty"`
+	NanoCPUs       int64                    `json:"NanoCpus,omitempty"`
 	PidsLimit      *int64                   `json:"PidsLimit,omitempty"`
 	CapDrop        []string                 `json:"CapDrop,omitempty"`
 	CapAdd         []string                 `json:"CapAdd,omitempty"`
@@ -429,6 +430,7 @@ type ContainerJSON struct {
 	} `json:"Config"`
 	HostConfig struct {
 		Memory       int64                    `json:"Memory"`
+		NanoCPUs     int64                    `json:"NanoCpus"`
 		PortBindings map[string][]PortBinding `json:"PortBindings"`
 	} `json:"HostConfig"`
 	NetworkSettings struct {
@@ -468,6 +470,13 @@ func (c *Client) ContainerList(ctx context.Context, all bool) ([]ContainerSummar
 
 func (c *Client) ContainerStart(ctx context.Context, id string) error {
 	_, err := c.do(ctx, http.MethodPost, "/containers/"+url.PathEscape(id)+"/start", nil, nil, nil)
+	return err
+}
+
+// ContainerCPUs changes how much processor time a container may use, in
+// billionths of a core, while it runs.
+func (c *Client) ContainerCPUs(ctx context.Context, id string, nanoCPUs int64) error {
+	_, err := c.do(ctx, http.MethodPost, "/containers/"+url.PathEscape(id)+"/update", nil, map[string]int64{"NanoCpus": nanoCPUs}, nil)
 	return err
 }
 
