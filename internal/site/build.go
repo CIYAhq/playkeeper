@@ -446,6 +446,8 @@ func (s *Site) crumbs(p *Page) []Crumb {
 		parent.Path = "/blog"
 	case "Modpacks":
 		parent.Path = "/modpacks"
+	case "Errors":
+		parent.Path = "/errors"
 	case "Templates":
 		parent.Path = "/templates"
 	}

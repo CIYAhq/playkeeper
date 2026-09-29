@@ -32,6 +32,8 @@ const previews = {
   'hostinger-minecraft-server': { eyebrow: 'Guide', title: 'How to host a Minecraft server on Hostinger', pip: 'pip-hardhat' },
   'digitalocean-minecraft-server': { eyebrow: 'Guide', title: 'How to host a Minecraft server on DigitalOcean', pip: 'pip-hardhat' },
   'vultr-minecraft-server': { eyebrow: 'Guide', title: 'How to host a Minecraft server on Vultr', pip: 'pip-hardhat' },
+  errors: { eyebrow: 'Guide', title: 'Minecraft server errors, and how to fix them', pip: 'pip-hurt' },
+  'error-connection-refused': { eyebrow: 'Error fix', title: 'Connection refused: what it means, and the fix', pip: 'pip-hurt' },
   docs: { eyebrow: 'Docs', title: 'Playkeeper docs', pip: 'pip-letter' },
   pricing: { eyebrow: 'Pricing', title: 'Free and open source. You only pay for your VPS.', pip: 'pip-box' },
   blog: { eyebrow: 'Blog', title: 'Releases, guides and building Playkeeper in public', pip: 'pip-letter' },
