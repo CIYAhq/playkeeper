@@ -50,7 +50,7 @@ export function NetworkGuardSettings({ id, guard }: { id: string; guard: Network
     return (
       <div className="mt-5">
         <Group label={t('guard.title')}>
-          <div className="flex flex-col px-4 pb-3">{body}</div>
+          <li className="flex flex-col px-4 pb-3">{body}</li>
         </Group>
       </div>
     )
