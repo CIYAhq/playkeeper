@@ -248,8 +248,8 @@ webcontrol "a memory the user picked stays when the pack's plan answers later" w
   '' \
   web/src/pages/new-server.test.tsx 'keeps a memory picked before the plan'
 webcontrol "New server's memory step waits for the pack's plan before going on" web/src/pages/new-server.tsx \
-  "machineName }) : planPending ? t('reason.checkingPack') : undefined" \
-  "machineName }) : undefined" \
+  "t('new.noMemoryTitle')) : planPending ? t('reason.checkingPack') : undefined" \
+  "t('new.noMemoryTitle')) : undefined" \
   web/src/pages/new-server.test.tsx 'holds Next on memory until'
 webcontrol "a pack only picked on the first step doesn't size a server type" web/src/pages/new-server.tsx \
   'if (step >= 3 && packMemory > 0 && !memoryPicked)' \

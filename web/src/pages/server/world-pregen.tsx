@@ -291,7 +291,7 @@ function Chooser({ server: s, pregen: pg, onStarted }: { server: ServerStatus; p
       {opLabel(otherJob, s)}
     </span>
   ) : pg.diskFreeBytes !== undefined ? (
-    place.name ? t('pregen.diskFree', { machine: place.name, free: formatBytes(pg.diskFreeBytes) }) : t('pregen.diskFreePlan', { free: formatBytes(pg.diskFreeBytes) })
+    place.name ? t('pregen.diskFree', { machine: place.name, free: formatBytes(pg.diskFreeBytes) }) : t('home.diskFree', { free: formatBytes(pg.diskFreeBytes) })
   ) : null
 
   if (phone) {

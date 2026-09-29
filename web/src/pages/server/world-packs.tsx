@@ -255,7 +255,7 @@ function useGate(s: ServerStatus): Gate {
   const here = window.location.hostname
   // Players download resource packs from the dashboard, which can't pass on a joined machine's yet.
   const joined = machineOf(s, ws.machines)?.kind === 'remote'
-  const joinedText = can(ws.me, 'machines.view') ? t('packs.joinedMachine') : t('packs.joinedMachineHidden')
+  const joinedText = can(ws.me, 'machines.view') ? t('packs.joinedMachine') : t('common.notForThisServerYet')
   return { blocked: whyNot(s, 'change', ws.stale), here, resource: joined ? joinedText : isLocalHost(here) ? t('packs.localHost', { host: here }) : undefined }
 }
 

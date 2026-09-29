@@ -60,7 +60,7 @@ export function HomePage() {
     const body = paused ? t('home.pausedEmptyBody') : waiting ? t('home.settingUpBody') : create ? t('home.emptyBody') : t('home.emptyMember')
     return (
       <>
-        <PageHeader title={t('home.title')} subtitle={phone ? undefined : sees ? t('home.emptySubtitle', { machine: ws.machineName }) : t('home.emptySubtitleMine')} phoneAction={<PhoneMoreButton />} />
+        <PageHeader title={t('home.title')} subtitle={phone || !sees ? undefined : t('home.emptySubtitle', { machine: ws.machineName })} phoneAction={<PhoneMoreButton />} />
         <PageBody className="flex flex-1 flex-col items-center pt-10 text-center max-sm:pt-0">
           <Pip pose="wave" size={phone ? 104 : 96} />
           <h2 className="mt-4 text-title font-extrabold tracking-[-0.015em]">{title}</h2>
@@ -94,7 +94,7 @@ export function HomePage() {
 
   const count =
     servers &&
-    (grouped ? t('machines.home.subtitle', { count: servers.length, machines: ws.machines.length }) : sees ? t('home.servers', { count: servers.length, machine: ws.machineName }) : t('home.serversMine', { count: servers.length }))
+    (grouped ? t('machines.home.subtitle', { count: servers.length, machines: ws.machines.length }) : sees ? t('home.servers', { count: servers.length, machine: ws.machineName }) : t('unit.servers', { count: servers.length }))
   const subtitle = !servers ? <InlineSkeleton className="w-56" /> : ws.stale ? count : `${count}${t('common.dot')}${t('home.playing', { count: playersOnline(servers.filter((s) => !s.lastKnownAt)) })}`
   return (
     <>
@@ -459,7 +459,7 @@ function NewServerCard({ machine, planFreeMB }: { machine?: MachineView; planFre
       {live ? (
         <span className="mt-1 text-xs text-muted-foreground">{full ? t('home.newServerFull', { machine: name }) : t('home.newServerFree', { memory: formatMB(live.memoryFreeMB), machine: name })}</span>
       ) : (
-        planFreeMB !== undefined && <span className="mt-1 text-xs text-muted-foreground">{planFreeMB > 0 ? t('home.newServerPlan', { memory: formatMB(planFreeMB) }) : t('home.newServerFullPlan')}</span>
+        planFreeMB !== undefined && <span className="mt-1 text-xs text-muted-foreground">{planFreeMB > 0 ? t('home.newServerPlan', { memory: formatMB(planFreeMB) }) : t('new.noMemoryTitle')}</span>
       )}
     </a>
   )

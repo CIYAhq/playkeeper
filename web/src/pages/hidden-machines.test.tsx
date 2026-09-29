@@ -174,7 +174,7 @@ describe('What a customer sees of the machines', () => {
 
     await render(customer, <Overview server={theirs[0]!} />)
     await vi.waitFor(() => expect(page()).toContain('Can’t reach your server right now'))
-    expect(page()).toContain('Survival may still be running. Playkeeper can’t see it right now.')
+    expect(page()).toContain('Your servers are probably still running. Playkeeper sees them again as soon as it can.')
     expect(page()).toContain('Can’t check it right now')
     expect(page()).toContain('survival.play.example.com')
     expect(page()).not.toContain('Machine details')

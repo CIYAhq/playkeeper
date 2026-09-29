@@ -144,7 +144,7 @@ export function causeText(c: LagCause, ctx: CauseContext): CauseText {
         const body = ctx.machine ? t('running.othersBody', { machine: ctx.machine }) : t('running.othersBodyHidden')
         return { title: t('running.others'), body, evidence: t('running.othersEvidence', { busy: formatPercent(busy), others: formatPercent(others) }) }
       }
-      if (!ctx.machine) return { title: t('running.hostSmallHidden'), body: t('running.hostSmallBodyHidden', { server: ctx.server }), evidence: line }
+      if (!ctx.machine) return { title: t('running.host'), body: t('running.hostSmallBodyHidden', { server: ctx.server }), evidence: line }
       return { title: t('running.hostSmall', { machine: ctx.machine }), body: t('running.hostSmallBody', { server: ctx.server, machine: ctx.machine }), evidence: line }
     }
     case 'memory_pressure': {
@@ -227,7 +227,7 @@ function actionView(a: DiagnosisAction, ctx: CauseContext): CauseAction {
     case 'move_to_dedicated_cpu':
       return { mode: 'advice', kind: a.kind, label: t('running.dedicated'), note: t('running.atProvider') }
     case 'reduce_other_load':
-      return { mode: 'advice', kind: a.kind, label: ctx.machine ? t('running.reduceLoad', { machine: ctx.machine }) : t('running.reduceLoadHidden') }
+      return ctx.machine ? { mode: 'advice', kind: a.kind, label: t('running.reduceLoad', { machine: ctx.machine }) } : advice
     case 'upgrade_host': {
       const resource = str(p, 'resource')
       const label = resource === 'memory' ? t('running.upgradeMemory') : resource === 'disk' ? t('running.upgradeDisk') : t('running.upgradeCPU')

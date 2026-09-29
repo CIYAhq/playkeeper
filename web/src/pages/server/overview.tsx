@@ -444,7 +444,7 @@ function SettingUpView({ server: s }: { server: ServerStatus }) {
   const reserved = formatMB(cfg?.memoryMB ?? 0)
   const checkStep = {
     title: place.name ? t('creating.checked', { machine: place.name }) : t('creating.checkedHidden'),
-    hint: disk === undefined ? t('creating.checkedDetailMemory', { memory: reserved }) : t('creating.checkedDetail', { memory: reserved, disk: formatBytes(disk) }),
+    hint: disk === undefined ? undefined : t('creating.checkedDetail', { memory: reserved, disk: formatBytes(disk) }),
   }
   // Until the pack itself is read, the config holds the recommended loader, not the pack's.
   const packRead = !pack?.pending || !['', 'pulling_image', 'preparing_modpack'].includes(op?.phase ?? '')
@@ -794,7 +794,7 @@ function MachineAwayView({ server: s, machine: m, since }: { server: ServerStatu
         <Pip pose="sleep" size={phone ? 64 : 84} />
         <div className="min-w-0">
           <h2 className="text-[17px] leading-6 font-bold">{title}</h2>
-          <p className="mt-1 text-sm">{sees ? t('machines.away.body', { server: s.name, name }) : t('machines.away.bodyHidden', { server: s.name })}</p>
+          <p className="mt-1 text-sm">{sees ? t('machines.away.body', { server: s.name, name }) : t('agentDown.bodyHidden')}</p>
           {sees && (
             <>
               <p className="mt-2.5 text-xs text-muted-foreground">{since ? t('machines.problem.offlineHint', { name }) : t('machines.problem.neverConnectedHint', { name })}</p>

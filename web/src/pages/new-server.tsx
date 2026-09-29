@@ -285,7 +285,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
       case 2:
         return undefined
       case 3:
-        return noMemory || c.memoryMB <= 0 ? (sees ? t('home.newServerFull', { machine: machineName }) : t('home.newServerFullPlan')) : planPending ? t('reason.checkingPack') : undefined
+        return noMemory || c.memoryMB <= 0 ? (sees ? t('home.newServerFull', { machine: machineName }) : t('new.noMemoryTitle')) : planPending ? t('reason.checkingPack') : undefined
       default:
         return (packed || templated ? nameBlocked(c) : createBlocked(c, version)) ?? (planPending ? t('reason.checkingPack') : undefined)
     }
@@ -662,7 +662,7 @@ export function NewServerPage({ machine }: { machine?: string }) {
             ) : (
               <>
                 {short && largest !== undefined && (
-                  <Notice tone="warning" title={sees ? t('new.packShortTitle', { machine: machineName }) : t('new.packShortTitlePlan')}>
+                  <Notice tone="warning" title={sees ? t('new.packShortTitle', { machine: machineName }) : t('settings.memoryNoRoomPlan')}>
                     {t('new.packShort', { pack: short.name, need: formatMB(packMB), max: formatMB(largest) })}
                   </Notice>
                 )}

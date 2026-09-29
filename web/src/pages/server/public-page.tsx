@@ -202,7 +202,7 @@ function BoardRow({ server: s, board, enabled, onChange }: { server: ServerStatu
 
 /** Why a server off the dashboard's machine has no page; a creator or customer hears of no other machine. */
 function otherMachineText(me: Me): string {
-  return can(me, 'machines.view') ? t('publicPage.otherMachine') : t('publicPage.otherMachineHidden')
+  return can(me, 'machines.view') ? t('publicPage.otherMachine') : t('common.notForThisServerYet')
 }
 
 /** The page row's line: where it answers, or why browsers can't reach it. */
