@@ -2046,6 +2046,9 @@ export interface TeamMember {
   allowance?: Allowance
   /** What a creator's servers took of their disk when last counted; missing until they have been. */
   diskUsedBytes?: number
+  /** Set for a customer: the billing provider their account came from ("whop"), and their name there. */
+  customer?: string
+  handle?: string
 }
 
 export interface TeamInvite extends Invite {

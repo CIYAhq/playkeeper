@@ -7311,6 +7311,53 @@ webcontrol "disk limits: a backup refused at the limit offers no button" web/src
   '(true || !full) &&' \
   src/pages/pages.test.tsx 'says what to do when the disk limit stops scheduled backups, with no button'
 
+# Playkeeper Cloud's processor shares (internal/agent/disklimits.go): a
+# customer's servers get a share of a core for each GB of memory.
+control "processor shares: a share is kept" internal/agent/disklimits.go \
+  'Servers: list, CPUMilliPerGB: l.CPUMilliPerGB})' \
+  'Servers: list})' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: a new share is a change" internal/agent/disklimits.go \
+  ' && x.CPUMilliPerGB == y.CPUMilliPerGB' \
+  '' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: a share has bounds" internal/agent/disklimits.go \
+  'case l.CPUMilliPerGB != 0 && (l.CPUMilliPerGB < minCPUMilliPerGB || l.CPUMilliPerGB > maxCPUMilliPerGB):' \
+  'case l.CPUMilliPerGB < 0:' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: a running server's cap changes at once" internal/agent/disklimits.go \
+  'a.recapCPUs(ctx, a.diskLimits())' \
+  '_ = ctx' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: a cap one set missed is put right by the next" internal/agent/disklimits.go \
+  'a.recapCPUs(ctx, a.diskLimits())' \
+  'if changed { a.recapCPUs(ctx, a.diskLimits()) }' \
+  ./internal/agent '^TestACapAChangeMissedIsPutRightByTheNextSet$'
+control "processor shares: the cap reaches Docker" internal/docker/client.go \
+  'map[string]int64{"NanoCpus": nanoCPUs}' \
+  'map[string]int64{"CpuShares": nanoCPUs}' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: lifting a limit gives every core back" internal/agent/disklimits.go \
+  'want = all' \
+  'want = 0 * all' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: a new container gets its cap" internal/agent/lifecycle.go \
+  'cfg.HostConfig.NanoCPUs = s.cpuCap(sc.MemoryMB)' \
+  'cfg.HostConfig.NanoCPUs = 0 * s.cpuCap(sc.MemoryMB)' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: a stopped container with another cap is made again" internal/agent/lifecycle.go \
+  ' || c.HostConfig.NanoCPUs != spec.HostConfig.NanoCPUs):' \
+  '):' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: no cap passes the machine's cores" internal/agent/disklimits.go \
+  ', int64(numCPU())*1_000_000_000)' \
+  ', int64(numCPU())*1_000_000_000*1000)' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: the dashboard gives each creator's servers half a core per GB" internal/panel/disklimits.go \
+  'Servers: ids, CPUMilliPerGB: cpuMilliPerGB})' \
+  'Servers: ids})' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+
 # Playkeeper Cloud's disk limits, the dashboard's half
 # (internal/panel/disklimits.go): each creator's servers get their
 # allowance's disk between them on their machine.
@@ -7366,6 +7413,73 @@ webcontrol "dashboard disk limits: the Team page's default disk matches the dash
   'al.memoryMB * 7.5' \
   'al.memoryMB * 8' \
   src/pages/pages.test.tsx 'disk, and how much their servers take once'
+
+# Playkeeper Cloud's customer accounts (internal/panel/customers.go): each
+# customer gets an account of their own, found by provider and id alone.
+control "customers: an account is found by provider and id, and made once" internal/panel/customers.go \
+  'WHERE c.provider = ? AND c.subject = ?`' \
+  'WHERE c.provider = ? AND c.subject = ? AND 0`' \
+  ./internal/panel '^TestACustomerGetsAnAccountOfTheirOwn$'
+control "customers: a name an account has is never taken" internal/panel/customers.go \
+  'if n == 0 {' \
+  'if n >= 0 {' \
+  ./internal/panel '^TestACustomerNamedLikeTheOwnerGetsAnAccountOfTheirOwn$'
+control "customers: a reserved name is never taken" internal/panel/customers.go \
+  'if reservedNames[name] {' \
+  'if false && reservedNames[name] {' \
+  ./internal/panel '^TestCustomersNamesNeverTakeAnother$'
+control "customers: a name is plain lower-case letters, digits and dashes" internal/panel/customers.go \
+  "case r >= 'a' && r <= 'z' || r >= '0' && r <= '9':" \
+  'case unicode.IsLetter(r) || unicode.IsDigit(r):' \
+  ./internal/panel '^TestCustomersNamesNeverTakeAnother$'
+control "customers: password sign-in refuses a customer" internal/panel/auth.go \
+  'if h == "" || s.isCustomer(u.ID) {' \
+  'if h == "" {' \
+  ./internal/panel '^TestPasswordSignInRefusesCustomers$'
+control "customers: a customer is Admin with no two-factor sign-in of ours" internal/panel/workspace.go \
+  'a.FactorOn, a.TwoFactor = true, true' \
+  'a.FactorOn = true' \
+  ./internal/panel '^TestACustomerGetsAnAccountOfTheirOwn$'
+control "customers: a customer's provider and id are checked" internal/panel/customers.go \
+  'if cust.Provider == "" || len(cust.Provider) > maxCustomerProvider || cust.Subject == "" || len(cust.Subject) > maxCustomerSubject ||' \
+  'if false && (cust.Provider == "" || len(cust.Provider) > maxCustomerProvider || cust.Subject == "" || len(cust.Subject) > maxCustomerSubject) ||' \
+  ./internal/panel '^TestTheCoreRefusesWhatIsntACustomer$'
+control "customers: a plan no account may have is refused" internal/panel/customers.go \
+  'if err := al.Check(); err != nil {' \
+  'if err := al.Check(); false && err != nil {' \
+  ./internal/panel '^TestTheCoreRefusesWhatIsntACustomer$'
+control "customers: a new plan gives its allowance" internal/panel/customers.go \
+  'al.Servers, al.MemoryMB, al.DiskGB, info.UserID, al.Servers, al.MemoryMB, al.DiskGB)' \
+  'al.Servers, al.MemoryMB, al.DiskGB, 0*info.UserID, al.Servers, al.MemoryMB, al.DiskGB)' \
+  ./internal/panel '^TestACustomerGetsAnAccountOfTheirOwn$'
+control "customers: a customer waiting for room is placed once there's room" internal/panel/customers.go \
+  "WHERE c.state = ? AND COALESCE(h.machine_id, '') = '' ORDER BY c.created_at" \
+  'WHERE c.state = ? AND 0 ORDER BY c.created_at' \
+  ./internal/panel '^TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom$'
+control "customers: a paused customer waiting isn't placed" internal/panel/customers.go \
+  'if CustomerState(state) != CustomerActive {' \
+  'if false {' \
+  ./internal/panel '^TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom$'
+control "customers: the owner can't remove a customer" internal/panel/team.go \
+  'writeRefusal(w, errCustomerStays)' \
+  '_ = errCustomerStays' \
+  ./internal/panel '^TestTheTeamPageKeepsACustomersAccount$'
+control "customers: the Team page offers no removal of a customer" internal/panel/team.go \
+  ' && t.Customer == ""' \
+  '' \
+  ./internal/panel '^TestTheTeamPageKeepsACustomersAccount$'
+control "customers: the Team page marks a customer" internal/panel/team.go \
+  '.Scan(&row.Customer, &row.Handle)' \
+  '.Scan(new(string), new(string))' \
+  ./internal/panel '^TestACustomerGetsAnAccountOfTheirOwn$'
+webcontrol "customers: the Team page says a customer signs in with Whop" web/src/pages/team.tsx \
+  "m.customer === 'whop' ? t('team.signsInWithWhop', { handle: m.handle ?? '' }) : " \
+  '' \
+  src/pages/pages.test.tsx 'shows a customer as one, signing in with Whop'
+webcontrol "customers: the Team page names a customer's role" web/src/pages/team.tsx \
+  "if (m.customer) return t('team.customer')" \
+  '' \
+  src/pages/pages.test.tsx 'shows a customer as one, signing in with Whop'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

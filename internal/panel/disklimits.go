@@ -12,7 +12,8 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/invites"
 )
 
-// Disk limits, the dashboard's half. The servers a creator or customer
+// Disk limits, the dashboard's half, which also carry each server's
+// processor share (cpuMilliPerGB). The servers a creator or customer
 // creates may take their allowance's disk between them (see
 // invites.Allowance.DiskBytes), and each machine's agent refuses what would
 // pass that (internal/agent/disklimits.go). The dashboard sends each machine
@@ -29,6 +30,10 @@ const (
 	diskUseEvery    = 5 * time.Minute
 	// diskLimitPrefix begins each account's limit id on a machine.
 	diskLimitPrefix = "account-"
+	// cpuMilliPerGB is the processor share each creator's or customer's
+	// server gets for each GB of its memory: half a core, as Playkeeper
+	// Cloud's plans give.
+	cpuMilliPerGB = 500
 )
 
 // kickDiskLimits has the limits sent now rather than at the next tick.
@@ -143,7 +148,7 @@ func (s *Server) sendDiskLimits(ctx context.Context, m machine, allowances map[i
 	}
 	limits := make([]api.DiskLimit, 0, len(byAccount))
 	for uid, ids := range byAccount {
-		limits = append(limits, api.DiskLimit{ID: diskLimitPrefix + strconv.FormatInt(uid, 10), LimitBytes: allowances[uid].DiskBytes(), Servers: ids})
+		limits = append(limits, api.DiskLimit{ID: diskLimitPrefix + strconv.FormatInt(uid, 10), LimitBytes: allowances[uid].DiskBytes(), Servers: ids, CPUMilliPerGB: cpuMilliPerGB})
 	}
 	req := api.DiskLimitsRequest{Limits: limits, Actor: placementActor}
 	if err := askAgent(ctx, m, http.MethodPut, "/v1/disk-limits", req, nil); err != nil || !count {
