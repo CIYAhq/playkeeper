@@ -149,7 +149,7 @@ func (a *Agent) hDiskLimitsSet(w http.ResponseWriter, r *http.Request) {
 	// dashboard that stops waiting doesn't cut it short: the dashboard sets
 	// the limits every minute, so a cap one set missed is caught by the next.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), time.Minute)
-	a.recapCPUs(ctx, limits)
+	a.recapCPUs(ctx, a.diskLimits())
 	cancel()
 	writeJSON(w, http.StatusOK, limits)
 }

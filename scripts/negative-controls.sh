@@ -7326,12 +7326,12 @@ control "processor shares: a share has bounds" internal/agent/disklimits.go \
   'case l.CPUMilliPerGB < 0:' \
   ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
 control "processor shares: a running server's cap changes at once" internal/agent/disklimits.go \
-  'a.recapCPUs(ctx, limits)' \
+  'a.recapCPUs(ctx, a.diskLimits())' \
   '_ = ctx' \
   ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
 control "processor shares: a cap one set missed is put right by the next" internal/agent/disklimits.go \
-  'a.recapCPUs(ctx, limits)' \
-  'if changed { a.recapCPUs(ctx, limits) }' \
+  'a.recapCPUs(ctx, a.diskLimits())' \
+  'if changed { a.recapCPUs(ctx, a.diskLimits()) }' \
   ./internal/agent '^TestACapAChangeMissedIsPutRightByTheNextSet$'
 control "processor shares: the cap reaches Docker" internal/docker/client.go \
   'map[string]int64{"NanoCpus": nanoCPUs}' \
