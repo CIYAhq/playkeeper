@@ -821,6 +821,13 @@ describe('join addresses', () => {
     expect(joinOf(onHome, undefined, 'panel.example.com')).toEqual(unknown)
   })
 
+  it('give a joined machine’s server its name without a port once the dashboard’s zone has it', () => {
+    const named = server({ machineId: home.id, zoneAddress: 'cobblemon.beta.playkeeper.me' })
+    expect(joinOf(named, home, 'panel.example.com')).toEqual({ address: 'cobblemon.beta.playkeeper.me' })
+    expect(joinOf(named, { ...home, link: { ...home.link!, address: undefined } }, 'panel.example.com')).toEqual({ address: 'cobblemon.beta.playkeeper.me' })
+    expect(joinOf({ ...named, machineId: 'z2345abcde' }, home, 'panel.example.com').address).toBe('')
+  })
+
   it('give the dashboard’s own servers their name once it works, else the dashboard’s host', () => {
     expect(joinOf(server({ machineId: local.id }), local, 'panel.example.com')).toEqual({ address: 'survival.alex.playkeeper.me' })
     expect(joinOf(server({ machineId: local.id, joinAddress: undefined }), local, 'panel.example.com')).toEqual({ address: 'panel.example.com:25566' })

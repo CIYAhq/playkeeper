@@ -151,6 +151,11 @@ type Server struct {
 	// placeMu serialises placing customers, so two never get the same room
 	// (see placement.go).
 	placeMu sync.Mutex
+	// zoneAddrs are the addresses without a port of joined machines'
+	// servers, and joinedZone lists those servers for the dashboard's zone
+	// (see fleetdns.go); tests stand in for it.
+	zoneAddrs  zoneAddresses
+	joinedZone func(ctx context.Context) ([]zoneServer, error)
 	// customersMu serialises what the hosting core does for customers, so
 	// two starts never take the same name (see customers.go).
 	customersMu sync.Mutex
@@ -231,6 +236,7 @@ func New(opts Options) (*Server, error) {
 	s.notifier = billingNotifier{s: s}
 	s.sales = whopStock{s: s}
 	s.activePacks = &activePacks{fetch: s.fetchActivePacks, now: opts.Now}
+	s.joinedZone = s.joinedZoneServers
 	s.public = newPublicGroup(s.publicRoutes(), opts.Now)
 	s.page = s.newPageSite()
 	if err := s.ensureWorkspace(); err != nil {

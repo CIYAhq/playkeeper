@@ -22,8 +22,8 @@ import (
 // 53 (internal/agent/dns.go). The zone holds the records the owner was asked
 // for under the domain, so delegating it changes nothing else, and an SRV
 // record for each server with an address under the domain, so that players
-// type no port. Joined machines' servers join it once the fleet gives the
-// dashboard their machines' addresses (machineAddress, cloud-fleet.md).
+// type no port. Servers on joined machines join it too, at their machines'
+// addresses (machineAddress in fleetdns.go, cloud-fleet.md).
 
 // metaDNSAnswers is the panel_meta key set while the owner has the answers
 // on.
@@ -177,11 +177,19 @@ func (s *Server) syncDNSAnswers(ctx context.Context, actor string) error {
 		p := planDNS(addr)
 		switch p.unavailable {
 		case "":
+			joined, err := s.joinedZone(ctx)
+			if err != nil {
+				return err
+			}
+			s.setZoneAddresses(p.addJoined(joined), p.zone.Name, portFree(addr))
 			z = p.zone
 		case api.DNSUnavailableAddress:
 			return nil
+		default:
+			s.setZoneAddresses(nil, "", false)
 		}
 	} else {
+		s.setZoneAddresses(nil, "", false)
 		var st api.DNSZoneStatus
 		if _, err := s.agent.Do(ctx, "GET", "/v1/dns-zone", nil, nil, &st); err != nil || st.Zone.Name == "" {
 			return err
