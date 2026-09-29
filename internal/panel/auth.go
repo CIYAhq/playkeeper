@@ -463,6 +463,47 @@ CREATE TABLE whop_stock (
 ALTER TABLE invites ADD COLUMN allowance_disk_gb INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE project_members ADD COLUMN allowance_disk_gb INTEGER NOT NULL DEFAULT 0;
 `,
+	// The hosting core's customers: the account a billing provider's
+	// customer has, found only by the provider and its id for them, never
+	// by name, with the handle they had there and where the account stands
+	// (see customers.go).
+	`
+CREATE TABLE customers (
+  user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  provider   TEXT    NOT NULL,
+  subject    TEXT    NOT NULL,
+  handle     TEXT    NOT NULL DEFAULT '',
+  plan_id    TEXT    NOT NULL DEFAULT '',
+  state      TEXT    NOT NULL DEFAULT 'active',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(provider, subject)
+);
+`,
+	// The ready server's messages: when each customer was told their server
+	// is ready to start, and when, while they waited for room, that it's
+	// being set up (see readyserver.go).
+	`
+ALTER TABLE customers ADD COLUMN told_ready   INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN told_waiting INTEGER NOT NULL DEFAULT 0;
+`,
+	// One seller per business: the address this dashboard last marked the
+	// store's products with, and the dashboard that sells for the store
+	// instead of this one, with when it took the store over from this one (0
+	// while this one's own takeover isn't done). This one doesn't sell until
+	// the owner takes the store over.
+	`
+ALTER TABLE whop_account ADD COLUMN marked_as     TEXT    NOT NULL DEFAULT '';
+ALTER TABLE whop_account ADD COLUMN taken_over_by TEXT    NOT NULL DEFAULT '';
+ALTER TABLE whop_account ADD COLUMN taken_over_at INTEGER NOT NULL DEFAULT 0;
+`,
+	// Pausing a customer whose plan ended: when, why, and when their
+	// servers are deleted unless they renew (see customers.go).
+	`
+ALTER TABLE customers ADD COLUMN paused_at    INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN delete_after INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN pause_reason TEXT    NOT NULL DEFAULT '';
+`,
 }
 
 const (
@@ -599,6 +640,12 @@ func (s *Server) authenticate(username, password string) (user, bool) {
 	if err != nil {
 		checkPassword(dummyHash, password)
 		return user{}, false
+	}
+	if h == "" || s.isCustomer(u.ID) {
+		// A customer signs in through their billing provider alone, even
+		// if a password was ever set for them.
+		checkPassword(dummyHash, password)
+		return u, false
 	}
 	return u, checkPassword(h, password)
 }

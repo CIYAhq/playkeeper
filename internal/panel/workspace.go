@@ -125,6 +125,9 @@ type access struct {
 	ProjectID string
 	// FactorOn says whether two-factor sign-in is on at all.
 	FactorOn bool
+	// Customer is where the account stands when it's a billing provider's
+	// customer (see customers.go), or "".
+	Customer CustomerState
 }
 
 func (a access) owner() bool { return a.InstallRole == roleOwner }
@@ -188,6 +191,10 @@ func permit(a access, act action, serverID string) error {
 		return errForbidden
 	case serverID != "" && !a.covers(serverID):
 		return errNoServer
+	case a.Customer == CustomerSuspended:
+		return errCustomerSuspended
+	case a.Customer == CustomerPaused && !pausedMay[act]:
+		return errCustomerPaused
 	case keyActions[act]:
 		return keysRefusal(a, act)
 	case a.owner():
@@ -215,6 +222,15 @@ func permit(a access, act action, serverID string) error {
 	return nil
 }
 
+// permitOn is permit, and then heldRefusal for a server whose customer's
+// plan no longer covers act.
+func (s *Server) permitOn(a access, act action, serverID string) error {
+	if err := permit(a, act, serverID); err != nil {
+		return err
+	}
+	return s.heldRefusal(a, act, serverID)
+}
+
 // creator reports whether a creates servers inside an allowance (see
 // invites.Allowance) rather than as an admin of every server.
 func (a access) creator() bool {
@@ -226,11 +242,12 @@ func (a access) creator() bool {
 // servers.
 func (s *Server) access(u user) (access, error) {
 	a := access{Account: invites.Account{UserID: u.ID, Name: u.Username, InstallRole: u.Role}}
-	var servers string
+	var servers, customer string
 	var adminFactor, seen int64
-	err := s.db.QueryRow(`SELECT project_id, role, servers, admin_factor, factor_seen, allowance_servers, allowance_memory_mb, allowance_disk_gb FROM project_members
-		WHERE user_id = ? ORDER BY created_at LIMIT 1`, u.ID).
-		Scan(&a.ProjectID, &a.ProjectRole, &servers, &adminFactor, &seen, &a.Allowance.Servers, &a.Allowance.MemoryMB, &a.Allowance.DiskGB)
+	err := s.db.QueryRow(`SELECT m.project_id, m.role, m.servers, m.admin_factor, m.factor_seen, m.allowance_servers, m.allowance_memory_mb, m.allowance_disk_gb,
+		COALESCE(c.state, '') FROM project_members m LEFT JOIN customers c ON c.user_id = m.user_id
+		WHERE m.user_id = ? ORDER BY m.created_at LIMIT 1`, u.ID).
+		Scan(&a.ProjectID, &a.ProjectRole, &servers, &adminFactor, &seen, &a.Allowance.Servers, &a.Allowance.MemoryMB, &a.Allowance.DiskGB, &customer)
 	if err != nil && !isNoRows(err) {
 		return access{}, err
 	}
@@ -243,6 +260,12 @@ func (s *Server) access(u user) (access, error) {
 	factor := s.factorAt(u.ID)
 	a.FactorOn = factor > 0
 	a.TwoFactor = a.FactorOn && (!invites.RequiresTwoFactor(a.InstallRole, a.ProjectRole) || factor == adminFactor)
+	if a.Customer = CustomerState(customer); a.Customer == CustomerActive || a.Customer == CustomerPaused {
+		// A customer signs in through their billing provider, and their plan
+		// confirmed their Admin rights, so no two-factor sign-in of ours is
+		// asked for.
+		a.FactorOn, a.TwoFactor = true, true
+	}
 	if a.ProjectID != "" && !a.owner() && factor != seen {
 		s.factorChanged(a, seen, factor)
 	}

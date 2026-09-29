@@ -25,9 +25,10 @@ schema: article
 {{define "article"}}
 <section aria-labelledby="list">
   {{template "h2n" (dict "ID" "list" "N" 1 "Text" "Errors, by what you see" "Toc" "The errors")}}
-  <h3>Players can't connect</h3>
+  <h3>Players can't connect, or get dropped</h3>
   <ul>
     <li><a href="/errors/connection-refused">Connection refused</a>, as io.netty's <code>AnnotatedConnectException</code>: nothing takes connections at that address and port. The same page covers <code>connection timed out</code>.</li>
+    <li><a href="/errors/timed-out">Timed out</a>: a player in the game and the server stopped hearing from each other.</li>
   </ul>
   <h3>Players are turned away</h3>
   <ul>
@@ -37,6 +38,10 @@ schema: article
   <h3>The server lags</h3>
   <ul>
     <li><a href="/errors/cant-keep-up">Can't keep up! Is the server overloaded?</a>: the server fell behind its 20 ticks a second, by the time and ticks it names.</li>
+  </ul>
+  <h3>The server crashes while it runs</h3>
+  <ul>
+    <li><a href="/errors/ticking-entity">Ticking entity, or Ticking block entity</a>: one mob, cart or block threw an error, so the server stopped. The same page covers Paper's <code>Entity threw exception</code>.</li>
   </ul>
   <h3>The server won't start</h3>
   <ul>

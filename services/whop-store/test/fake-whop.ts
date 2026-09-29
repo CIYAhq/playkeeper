@@ -39,7 +39,7 @@ export function openStore(): Catalogue {
   return {
     account: { id: 'biz_pip', title: 'Pip Hosting', description: null, logo_url: null, terms_of_service: null },
     products: [
-      { id: 'prod_server', title: 'Minecraft server', headline: 'A Java Edition server of your own', visibility: 'visible', metadata: { playkeeper_dashboard: dashboard } },
+      { id: 'prod_server', title: 'Minecraft server', headline: 'A Java Edition server of your own', visibility: 'visible', metadata: { playkeeper_dashboard: dashboard, playkeeper_business: 'biz_pip' } },
       { id: 'prod_course', title: 'Server growth course', headline: null, visibility: 'visible', metadata: {} },
     ],
     plans: [
@@ -53,11 +53,10 @@ export function openStore(): Catalogue {
   }
 }
 
-/** A fresh copy of the blueprint: the same plans, before any Playkeeper is connected. */
+/** A fresh copy of the blueprint: the same plans, before any Playkeeper is connected, its products keeping the publisher's marking as a copy might. */
 export function freshCopy(): Catalogue {
   const c = openStore()
   c.account = { ...c.account, id: 'biz_copy', title: 'Joe’s Hosting' }
-  c.products = c.products.map((p) => ({ ...p, metadata: {} }))
   return c
 }
 

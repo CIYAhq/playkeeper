@@ -79,6 +79,38 @@ func TestDiskLimitsLastAndSayWhatTheirServersTake(t *testing.T) {
 	}
 }
 
+// A limit's hold keeps its servers from starting, whoever asks, and says
+// why; lifted, they start again. A hold's reason is bounded and printable.
+func TestAHeldServerDoesntStart(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	e.runOp("POST", "/stop")
+	hold := func(reason string) (int, map[string]any) {
+		return e.call("PUT", "/v1/disk-limits", map[string]any{"limits": []any{map[string]any{
+			"id": "customer-6", "limitBytes": 1 << 40, "servers": []string{e.sid}, "hold": reason}}, "actor": "admin"})
+	}
+	if code, out := hold("the plan it's on has ended."); code != 200 {
+		t.Fatalf("holding the server: %d %v", code, out)
+	}
+	if op := e.runOp("POST", "/start"); op.Status != api.OpFailed || !strings.HasSuffix(op.Error, "can't start: the plan it's on has ended.") {
+		t.Fatalf("starting a held server: %+v", op)
+	}
+	if running := e.status().Phase == "online"; running {
+		t.Fatal("the held server is running")
+	}
+	for _, bad := range []string{strings.Repeat("x", 201), "two\nlines"} {
+		if code, _ := hold(bad); code != 400 {
+			t.Errorf("a hold of %q: %d", bad, code)
+		}
+	}
+	if code, out := hold(""); code != 200 {
+		t.Fatalf("lifting the hold: %d %v", code, out)
+	}
+	if op := e.runOp("POST", "/start"); op.Status != api.OpSucceeded {
+		t.Fatalf("starting once the hold was lifted: %+v", op)
+	}
+}
+
 // A backup made on request or on schedule stops at the limit, and one that
 // fits counts as soon as it's written, before a scan finds it.
 func TestBackupsStopAtTheDiskLimit(t *testing.T) {

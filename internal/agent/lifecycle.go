@@ -425,6 +425,10 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool,
 	sum := sha256.Sum256(b)
 	hash := hex.EncodeToString(sum[:8])
 	cfg.Labels[labelSpec] = hash
+	// The processor cap stays out of the hash too, so a new one never asks
+	// for a restart: a running server gets it at once (recapCPUs), and a
+	// stopped container with another cap is made again at its start.
+	cfg.HostConfig.NanoCPUs = s.cpuCap(sc.MemoryMB)
 	if !setupOnly {
 		// The GC log stays out of the hash, so adding it never restarts a
 		// running server; startServer recreates a stopped container without
@@ -749,6 +753,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 		markRestoreRefusal(h, err)
 		return err
 	}
+	if err := s.holdRefusal(); err != nil {
+		return err
+	}
 	if h.askedFor {
 		s.forgetCrashes()
 	}
@@ -808,7 +815,7 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 			return err
 		}
 		fallthrough
-	case err == nil && (c.Config.Labels[labelSpec] != hash || c.Config.Labels[labelGCLog] != gcLogVersion):
+	case err == nil && (c.Config.Labels[labelSpec] != hash || c.Config.Labels[labelGCLog] != gcLogVersion || c.HostConfig.NanoCPUs != spec.HostConfig.NanoCPUs):
 		if err := s.docker.ContainerRemove(ctx, c.ID, true); err != nil && !docker.IsNotFound(err) {
 			return s.dockerErr(err)
 		}

@@ -9,6 +9,7 @@ describe('reading the store from Whop', () => {
     const whop = fakeWhop(openStore)
     const data = await readStore(env, whop.fetch)
     expect(data.account).toEqual({ id: 'biz_pip', title: 'Pip Hosting', description: '', logoURL: '', termsURL: '' })
+    expect(data.business).toBe('biz_pip')
     expect(data.products.map((p) => p.id)).toEqual(['prod_server', 'prod_course'])
     expect(data.plans.map((p) => p.id)).toEqual(['plan_plus', 'plan_starter', 'plan_test', 'plan_old', 'plan_link', 'plan_course'])
     expect(whop.seen.map((s) => `${s.url.origin}${s.url.pathname}?${s.url.searchParams}`)).toEqual([
