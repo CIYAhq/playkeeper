@@ -40,6 +40,7 @@ import type {
   ServerConfig,
   ServerStatus,
   SignInNotice,
+  TeamInvite,
   TeamResponse,
   TemplateContents,
   TemplateExport,
@@ -2573,6 +2574,28 @@ describe('Team', () => {
     await typeInto('input[placeholder="Their handle, like alex"]', 'mogswamp')
     await click(button('Create link'))
     expect(client.post).toHaveBeenCalledWith('/api/team/invites', { role: 'admin', servers: {}, label: 'mogswamp', allowance: { servers: 1, memoryMB: 4096 } })
+    expect(document.querySelector<HTMLInputElement>('input[readonly]')?.value).toBe('https://beta.playkeeper.me:8443/join/Qm7xK2pLw9RtVb4n')
+  })
+
+  it('makes a creator invite with the dialog’s defaults, in the body the panel takes', async () => {
+    const team: TeamResponse = {
+      projectId: 'p2345abcde',
+      project: 'My servers',
+      members: [{ id: 1, username: 'siya', owner: true, you: true, role: 'admin', servers: { all: true }, twoFactor: true, addedAt: '2026-09-01T10:00:00Z', canEdit: false }],
+      invites: [],
+      grantableRoles: ['admin', 'moderator', 'viewer'],
+      servers: [{ id: 'abcdefghjk', name: 'Survival' }],
+    }
+    const invite: TeamInvite = { id: 'ti3', kind: 'member', projectId: 'p2345abcde', role: 'admin', createdBy: 1, createdAt: hoursAgo(0), expiresAt: inHours(7 * 24), maxUses: 1, uses: 0, status: 'active', canEdit: true, allowance: { servers: 1, memoryMB: 4096 } }
+    answer({ '/api/team': team })
+    answerPosts({ '/api/team/invites': { invite, path: '/join/Qm7xK2pLw9RtVb4n', link: { base: 'https://beta.playkeeper.me:8443', friendly: true } } })
+    await render(<TeamSection />)
+    await click(button('Invite a creator'))
+    await click(button('Create link'))
+    const [path, body] = vi.mocked(client.post).mock.calls[0] ?? []
+    expect(path).toBe('/api/team/invites')
+    // internal/panel's TestTheCreatorDialogsDefaultsMakeAnInvite posts this body.
+    expect(JSON.stringify(body)).toBe('{"role":"admin","servers":{},"allowance":{"servers":1,"memoryMB":4096}}')
     expect(document.querySelector<HTMLInputElement>('input[readonly]')?.value).toBe('https://beta.playkeeper.me:8443/join/Qm7xK2pLw9RtVb4n')
   })
 
