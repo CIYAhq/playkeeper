@@ -7997,6 +7997,40 @@ webcontrol "client-only mods: the dashboard says the mod only runs in players' g
   "if (str(p, 'reason') !== 'client_only') return c.explanation" \
   'return c.explanation' \
   web/src/lib/lib.test.ts 'only runs in players'
+control "repeating crashes: a crash that repeats at every start isn't restarted" internal/agent/lifecycle.go \
+  'repeats := wanted && !counted && s.crash != nil && s.crash.Repeats' \
+  'repeats := false && wanted && !counted && s.crash != nil && s.crash.Repeats' \
+  ./internal/agent '^TestACrashThatRepeatsIsNotRestarted$'
+control "repeating crashes: automatic starts stay off after one" internal/agent/lifecycle.go \
+  'return len(s.crashes) >= maxCrashes || s.repeats' \
+  'return len(s.crashes) >= maxCrashes' \
+  ./internal/agent '^TestACrashThatRepeatsIsNotRestarted$'
+control "repeating crashes: a start that stops the same way each time isn't tried again" internal/agent/lifecycle.go \
+  'if s.crash != nil && s.crash.Repeats && n < maxCrashes {' \
+  'if false && s.crash != nil && s.crash.Repeats && n < maxCrashes {' \
+  ./internal/agent '^TestAStartThatStopsTheSameWayEachTimeIsNotTriedAgain$'
+control "repeating crashes: both level.dat files damaged repeats" internal/diagnose/crashrules.go \
+  'Params: map[string]any{"file": "level.dat"}, Repeats: true,' \
+  'Params: map[string]any{"file": "level.dat"},' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "repeating crashes: a mod for players' games repeats" internal/diagnose/crashaddons.go \
+  '"class": class}, Repeats: true, Evidence:' \
+  '"class": class}, Evidence:' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "repeating crashes: something that crashes each time it's ticked repeats" internal/diagnose/crashticking.go \
+  'Params: map[string]any{"what": "entity"}, Repeats: true,' \
+  'Params: map[string]any{"what": "entity"},' \
+  ./internal/diagnose '^TestExplainCrashNamesWhatCrashesEachTimeItTicks$'
+control "repeating crashes: Discord says it stays off without a restart" internal/discord/alerts.go \
+  '		case e.Repeats:' \
+  '		case false:' \
+  ./internal/discord '^TestAlertEmbedsReadWell$'
+control "repeating crashes: the alert isn't swallowed by an earlier crash's" internal/discord/alerts.go \
+  '		if e.Repeats {
+			return string(e.Kind) + ":repeats"
+		}' \
+  '' \
+  ./internal/discord '^TestRepeatedAlertsAreThrottled$'
 
 # Uploads for a new server counted against a named disk limit, as a
 # creator's are (internal/agent/worldimports.go, handlers.go, backups.go),
