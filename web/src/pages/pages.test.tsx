@@ -3662,6 +3662,16 @@ describe('Machines and AI agents', () => {
     await click(button('Copy'))
     expect(copy).toHaveBeenLastCalledWith(cloudConfig)
     copy.mockRestore()
+
+    // A phone picks the form from a list, which three choices fit.
+    const phone = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+    await render(<MachinesSection />)
+    expect(document.querySelector('[role="group"][aria-label="Which command"]')).toBeNull()
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Which command"]')?.click())
+    const cloud = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((o) => o.textContent === 'New cloud server')
+    await act(async () => cloud?.click())
+    expect([...document.querySelectorAll('[role="group"] pre span')].map((s) => s.textContent)).toEqual(cloudConfig.trimEnd().split('\n'))
+    phone.mockRestore()
     forgetJoinCode()
   })
 

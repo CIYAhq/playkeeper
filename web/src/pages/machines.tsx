@@ -265,6 +265,11 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
   const named = link.addresses.find((a) => a.kind === 'name')
   const left = cmd ? (new Date(cmd.expiresAt).getTime() - now) / 1000 : 0
   const shown = cmd ? formCommand(cmd, form) : { lines: [], text: '' }
+  const forms: { value: Form; label: string }[] = [
+    { value: 'install', label: t('machines.connect.formNew') },
+    { value: 'cloud', label: t('machines.connect.formCloud') },
+    { value: 'join', label: t('machines.connect.formExisting') },
+  ]
   const shownName = name.trim() || (made?.name ?? '')
   return (
     <Card aria-labelledby="connect-title" className="animate-fade">
@@ -286,16 +291,11 @@ function ConnectCard({ link, refresh, onWaiting }: { link: MachineLinkInfo; refr
         </Step>
         <Step n={3} title={form === 'cloud' ? t('machines.connect.step3Cloud') : t('machines.connect.step3')}>
           <div className="flex flex-wrap items-center gap-3">
-            <Segmented
-              value={form}
-              onChange={setForm}
-              label={t('machines.connect.form')}
-              options={[
-                { value: 'install', label: t('machines.connect.formNew') },
-                { value: 'cloud', label: t('machines.connect.formCloud') },
-                { value: 'join', label: t('machines.connect.formExisting') },
-              ]}
-            />
+            {phone ? (
+              <ChoiceSelect value={form} onChange={setForm} label={t('machines.connect.form')} options={forms} className="h-11 w-full text-[13px]" />
+            ) : (
+              <Segmented value={form} onChange={setForm} label={t('machines.connect.form')} options={forms} />
+            )}
             {dialable && (
               <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
                 {t('machines.connect.dials')}
