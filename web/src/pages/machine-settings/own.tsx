@@ -377,7 +377,7 @@ function OwnAddresses({ id, a, refresh }: { id: string; a: Address; refresh: () 
   if (phone) {
     return (
       <Group label={t('address.ownAddresses')}>
-        <div className="flex flex-col divide-y divide-border px-4">{rows}</div>
+        <li className="flex flex-col divide-y divide-border px-4">{rows}</li>
       </Group>
     )
   }

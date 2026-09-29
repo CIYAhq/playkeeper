@@ -91,6 +91,11 @@ function need<T>(x: T | null | undefined, what: string): T {
 }
 
 const text = () => document.body.textContent ?? ''
+
+/** What axe's list rule refuses: anything but li, script and template directly in a list. */
+function strayListChildren(): string[] {
+  return [...document.querySelectorAll('ul, ol')].flatMap((l) => [...l.children].filter((c) => !['LI', 'SCRIPT', 'TEMPLATE'].includes(c.tagName)).map((c) => c.tagName))
+}
 const buttons = (label: string, within: ParentNode = document) => [...within.querySelectorAll('button')].filter((b) => b.textContent?.trim() === label)
 const button = (label: string, within: ParentNode = document) => need(buttons(label, within)[0], `${label} button`)
 const link = (label: string) => need([...document.querySelectorAll('a')].find((a) => a.textContent?.trim() === label), `${label} link`)
@@ -750,5 +755,12 @@ describe('on a phone', () => {
     expect(text()).toContain('A record · Dashboard and Survival')
     expect(text()).toContain('SRV record · Creative')
     expect(button('Check again')).toBeTruthy()
+  })
+
+  it('keeps servers’ own addresses and their switch in list items', async () => {
+    await show(own({ serverAddresses: true, servers: [survival({ label: 'survival', address: 'survival.play.example.com', ownAddress: 'survival.play.example.com', automatic: true }), creative({ address: 'play.example.com:25566' })] }), { phone: true })
+    expect(text()).toContain('Servers’ own addresses')
+    expect(text()).toContain('An address for each server')
+    expect(strayListChildren()).toEqual([])
   })
 })
