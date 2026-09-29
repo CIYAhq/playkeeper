@@ -45,6 +45,11 @@ type whopView struct {
 	// Problem is what went wrong the last time the dashboard talked to Whop.
 	Problem string         `json:"problem,omitempty"`
 	Plans   []whopPlanView `json:"plans"`
+	// Webhook says whether Whop tells the dashboard about memberships as
+	// they change; without it, the dashboard still reads them every few
+	// minutes.
+	Webhook bool            `json:"webhook"`
+	Buyers  []whopBuyerView `json:"buyers"`
 	// Needs are the permissions the key needs, for the steps to make one.
 	Needs []string `json:"needs"`
 }
@@ -80,6 +85,11 @@ type whopAccount struct {
 	ConnectedAt time.Time
 	SyncedAt    time.Time
 	Problem     string
+	// WebhookID is the webhook Whop sends membership events to, at
+	// WebhookURL, signed with WebhookSecret.
+	WebhookID, WebhookURL, WebhookSecret string
+	// PolledAt is when the dashboard last read every membership.
+	PolledAt time.Time
 }
 
 func (s *Server) whopClient(key string) (*whop.Client, error) {
@@ -93,16 +103,17 @@ func (s *Server) whopClient(key string) (*whop.Client, error) {
 // storedWhop is the connection, or ok false when there is none.
 func (s *Server) storedWhop() (whopAccount, bool, error) {
 	var a whopAccount
-	var connected, synced int64
-	err := s.db.QueryRow(`SELECT account_id, title, route, api_key, connected_by, connected_at, synced_at, problem FROM whop_account WHERE id = 1`).
-		Scan(&a.ID, &a.Title, &a.Route, &a.Key, &a.ConnectedBy, &connected, &synced, &a.Problem)
+	var connected, synced, polled int64
+	err := s.db.QueryRow(`SELECT account_id, title, route, api_key, connected_by, connected_at, synced_at, problem, webhook_id, webhook_url, webhook_secret, polled_at
+		FROM whop_account WHERE id = 1`).
+		Scan(&a.ID, &a.Title, &a.Route, &a.Key, &a.ConnectedBy, &connected, &synced, &a.Problem, &a.WebhookID, &a.WebhookURL, &a.WebhookSecret, &polled)
 	if isNoRows(err) {
 		return whopAccount{}, false, nil
 	}
 	if err != nil {
 		return whopAccount{}, false, err
 	}
-	a.ConnectedAt, a.SyncedAt = time.UnixMilli(connected).UTC(), msTimeOrZero(synced)
+	a.ConnectedAt, a.SyncedAt, a.PolledAt = time.UnixMilli(connected).UTC(), msTimeOrZero(synced), msTimeOrZero(polled)
 	return a, true, nil
 }
 
@@ -115,13 +126,17 @@ func msTimeOrZero(ms int64) time.Time {
 
 // whopView reads Settings › Sell on Whop as it stands.
 func (s *Server) whopView(ctx context.Context) (whopView, error) {
-	v := whopView{Plans: []whopPlanView{}, Needs: whop.Needs, Dashboard: s.dashboardURL(ctx)}
+	v := whopView{Plans: []whopPlanView{}, Buyers: []whopBuyerView{}, Needs: whop.Needs, Dashboard: s.dashboardURL(ctx)}
 	a, ok, err := s.storedWhop()
 	if err != nil || !ok {
 		return v, err
 	}
 	acc := a.Account
 	v.Connected, v.Account, v.KeyEnding, v.ConnectedBy, v.Problem = true, &acc, whop.Ending(a.Key), a.ConnectedBy, a.Problem
+	v.Webhook = a.WebhookID != "" && v.Dashboard != "" && a.WebhookURL == v.Dashboard+whopWebhookPath
+	if v.Buyers, err = s.whopBuyers(ctx); err != nil {
+		return v, err
+	}
 	v.ConnectedAt = &a.ConnectedAt
 	if !a.SyncedAt.IsZero() {
 		v.SyncedAt = &a.SyncedAt
@@ -366,9 +381,15 @@ func (s *Server) hWhopDisconnect(w http.ResponseWriter, r *http.Request, sess *s
 			s.log.Warn("could not take the dashboard's address off the store's products", "err", err)
 			detail = "couldn't take the dashboard's address off the store's products: " + err.Error()
 		}
+		if a.WebhookID != "" {
+			if err := c.DeleteWebhook(ctx, a.WebhookID); err != nil {
+				s.log.Warn("could not remove Whop's webhook", "err", err)
+				detail += "; couldn't remove the webhook: " + err.Error()
+			}
+		}
 	}
 	err = s.immediate(r.Context(), func(c *sql.Conn) error {
-		for _, q := range []string{`DELETE FROM whop_plans`, `DELETE FROM whop_account`} {
+		for _, q := range []string{`DELETE FROM whop_plans`, `DELETE FROM whop_memberships`, `DELETE FROM whop_buyers`, `DELETE FROM whop_deliveries`, `DELETE FROM whop_account`} {
 			if _, err := c.ExecContext(r.Context(), q); err != nil {
 				return err
 			}
@@ -392,9 +413,16 @@ func (s *Server) syncWhop(ctx context.Context, c *whop.Client, accountID string)
 		problem = whopProblem(err)
 		s.log.Warn("could not read the store on Whop", "err", err)
 	}
+	if a, ok, err := s.storedWhop(); err == nil && ok {
+		if err := s.ensureWhopWebhook(ctx, c, &a, s.dashboardURL(ctx)); err != nil && problem == "" {
+			problem = whopProblem(err)
+			s.log.Warn("could not add Whop's webhook", "err", err)
+		}
+	}
 	if _, err := s.db.Exec(`UPDATE whop_account SET synced_at = ?, problem = ? WHERE id = 1`, s.now().UnixMilli(), problem); err != nil {
 		s.log.Error("could not record reading the store on Whop", "err", err)
 	}
+	s.kickWhop()
 }
 
 func whopProblem(err error) string {

@@ -1885,7 +1885,21 @@ export interface WhopStore {
   syncedAt?: string
   problem?: string
   plans: WhopPlan[]
+  /** Whether Whop tells the dashboard about memberships as they change; it also reads them every few minutes. */
+  webhook: boolean
+  buyers: WhopBuyer[]
   needs: string[]
+}
+
+/** A buyer of the store: invited (a working invite was sent), joined (made their account), removed (the owner removed it), turned_off (the owner turned their invite off), sending (no invite could be sent yet) or ended (no plan grants access). */
+export interface WhopBuyer {
+  whopUserId: string
+  username?: string
+  status: 'invited' | 'joined' | 'removed' | 'turned_off' | 'sending' | 'ended'
+  account?: string
+  allowance?: Allowance
+  invitedAt?: string
+  problem?: string
 }
 
 /** One plan of the store; allowanceFrom is "store" when its metadata on Whop sets the allowance, "owner" when set here. */

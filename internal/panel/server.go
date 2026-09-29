@@ -134,8 +134,10 @@ type Server struct {
 	// hostStamped holds each agent route forwardTo stamps panelHost into, as
 	// "METHOD pattern", once Routes has built it: every one must take it.
 	hostStamped sync.Map
-	// whopMu serialises changes to Sell on Whop (see whop.go).
-	whopMu sync.Mutex
+	// whopMu serialises changes to Sell on Whop (see whop.go), and whopKick
+	// has its reconciler look now (see whop_buyers.go).
+	whopMu   sync.Mutex
+	whopKick chan struct{}
 }
 
 func New(opts Options) (*Server, error) {
@@ -193,6 +195,7 @@ func New(opts Options) (*Server, error) {
 		joinGuard:   invites.NewGuard(invites.GuardLimits{}, opts.Now),
 		auditMaxAge: 365 * 24 * time.Hour,
 		maxAudit:    100_000,
+		whopKick:    make(chan struct{}, 1),
 	}
 	s.activePacks = &activePacks{fetch: s.fetchActivePacks, now: opts.Now}
 	s.public = newPublicGroup(s.publicRoutes(), opts.Now)
@@ -1640,6 +1643,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	s.serveAlive(ctx, tc)
 	s.pageCerts = s.pageCertStore()
 	go s.runPage(ctx)
+	go s.runWhop(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)
 	return s.serve(ctx, ln, tc)
 }
