@@ -622,6 +622,9 @@ describe('crash helper', () => {
 
     const unnamed = crash({ kind: 'ticking_entity', params: { what: 'entity' }, fixes: [] })
     expect(crashSummary(unnamed, 'Survival', 'my-vps')).toBe('Something in its world crashes it each time the game runs it.')
+    expect(crashFixes(unnamed, 'Survival', 'my-vps', false)).toEqual([
+      { id: 'myself', recommended: false, title: 'I’ll take it out myself', hint: 'Starting again crashes again until it’s gone.', plan: { kind: 'start' }, button: 'Start Survival' },
+    ])
     expect(crashDetail(crash({ kind: 'ticking_entity', params: { dimension: 'aether:the_aether' } }))).toBe('It’s in aether:the_aether, saved in the world, so starting again crashes again.')
   })
 

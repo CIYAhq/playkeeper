@@ -7923,6 +7923,10 @@ webcontrol "ticking entities: the dashboard names it and where" web/src/lib/cras
   "      return t('crash.ticking', { what: thingName(type), x, y, z })" \
   "      return t('crash.tickingPlain')" \
   web/src/lib/lib.test.ts 'names what crashes the server each time it ticks'
+webcontrol "ticking entities: with nothing Playkeeper can do, starting again isn't what it recommends" web/src/lib/crash.ts \
+  "    if (c.kind === 'ticking_entity') out.push(" \
+  "    if (false) out.push(" \
+  web/src/lib/lib.test.ts 'names what crashes the server each time it ticks'
 control "client-only mods: a mod for players' games that stopped the server is recognised" internal/diagnose/crashrules.go \
   '	{(*crashCtx).clientOnly, true},
 ' \

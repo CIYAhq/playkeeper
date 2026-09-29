@@ -603,6 +603,8 @@ export const en = {
   'crash.fix.deleteBackups': { one: 'Delete the oldest backup', other: 'Delete the {count} oldest backups' },
   'crash.fix.deleteHint': { one: 'Frees {size}. The newest stays.', other: 'Frees {size}. The {count} newest stay.' },
   'crash.fix.myself': 'I’ll make room myself',
+  'crash.fix.tickingMyself': 'I’ll take it out myself',
+  'crash.fix.tickingMyselfHint': 'Starting again crashes again until it’s gone.',
   'crash.fix.port': 'Move {server} to another port',
   'crash.fix.eula': 'Accept the Minecraft EULA',
   'crash.fix.permissions': 'Give {server} back its files',

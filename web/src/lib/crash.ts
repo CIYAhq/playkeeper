@@ -278,7 +278,10 @@ export function crashFixes(c: Crash, server: string, machine: string, phone: boo
   if (c.kind === 'disk_full' && !starts && out.some((o) => o.plan?.kind === 'delete-backups')) {
     out.push({ id: 'myself', recommended: false, ...startText(t('crash.fix.myself'), server) })
   }
-  if (!out.some((o) => o.plan)) out.push({ id: 'again', recommended: out.length === 0, ...startText(t('crash.fix.again', { server }), server) })
+  if (!out.some((o) => o.plan)) {
+    if (c.kind === 'ticking_entity') out.push({ id: 'myself', recommended: false, ...startText(t('crash.fix.tickingMyself'), server, t('crash.fix.tickingMyselfHint')) })
+    else out.push({ id: 'again', recommended: out.length === 0, ...startText(t('crash.fix.again', { server }), server) })
+  }
   return out
 }
 
