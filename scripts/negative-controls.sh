@@ -7349,6 +7349,10 @@ control "processor shares: no cap passes the machine's cores" internal/agent/dis
   ', int64(numCPU())*1_000_000_000)' \
   ', int64(numCPU())*1_000_000_000*1000)' \
   ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: the dashboard gives each creator's servers half a core per GB" internal/panel/disklimits.go \
+  'Servers: ids, CPUMilliPerGB: cpuMilliPerGB})' \
+  'Servers: ids})' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
 
 # Playkeeper Cloud's disk limits, the dashboard's half
 # (internal/panel/disklimits.go): each creator's servers get their
