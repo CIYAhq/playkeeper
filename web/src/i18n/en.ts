@@ -527,6 +527,8 @@ export const en = {
   'crash.addonLoad': 'It couldn’t load {jar}.',
   'crash.mixin': '{addon} couldn’t patch the game.',
   'crash.mixinPlain': 'A mod couldn’t patch the game.',
+  'crash.clientOnly': '{addon} only runs in players’ games, not on servers.',
+  'crash.clientOnlyPlain': 'A mod that only runs in players’ games stopped it.',
   'crash.datapack': 'The data pack {pack} stopped the world from loading.',
   'crash.datapackPlain': 'A data pack stopped the world from loading.',
   'crash.levelDat': 'The world’s level.dat file is damaged.',
