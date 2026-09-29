@@ -624,7 +624,24 @@ func (a *Agent) Close() {
 	for _, s := range a.serverList() {
 		s.resetRCON()
 	}
+	a.waitDBIdle(5 * time.Second)
 	a.db.Close()
+}
+
+// waitDBIdle waits, up to limit, until no database connection is in use. A
+// query the cancellation interrupted gives up its connection, and
+// database/sql opens the ones other queries were waiting for from a
+// goroutine of its own. db.Close doesn't wait for that connection, which
+// can still create the database's files after the agent has closed.
+func (a *Agent) waitDBIdle(limit time.Duration) {
+	deadline := time.Now().Add(limit)
+	for a.db.Stats().InUse > 0 {
+		if time.Now().After(deadline) {
+			a.log.Warn("closing the database with connections still in use", "inUse", a.db.Stats().InUse)
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 // machineOp is the machine-wide operation in progress, if any.
