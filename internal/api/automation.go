@@ -49,3 +49,19 @@ type BackupRefusal struct {
 	ScheduleID  string `json:"scheduleId,omitempty"`
 	OperationID string `json:"operationId,omitempty"`
 }
+
+// DiskLimit is what a group of servers, a Playkeeper Cloud customer's, may
+// take on the machine between them, counted as the Disk space page counts
+// it. UsedBytes, in answers, is what they take at the last scan.
+type DiskLimit struct {
+	ID         string   `json:"id"`
+	LimitBytes int64    `json:"limitBytes"`
+	Servers    []string `json:"servers"`
+	UsedBytes  int64    `json:"usedBytes"`
+}
+
+// DiskLimitsRequest replaces every disk limit.
+type DiskLimitsRequest struct {
+	Limits []DiskLimit `json:"limits"`
+	Actor  string      `json:"actor"`
+}
