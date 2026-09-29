@@ -59,8 +59,8 @@ describe('what the store shows', () => {
     expect(s.shelves[0]?.title).toBe('Minecraft server')
     expect(s.shelves[0]?.headline).toBe('A Java Edition server of your own')
     expect(s.shelves[0]?.offers).toEqual([
-      { id: 'plan_starter', name: 'Starter', description: '', price: '$8.00 / month', trialDays: 3, allowance: { servers: 1, memoryGB: 4 }, action: { kind: 'buy', url: 'https://whop.com/checkout/plan_starter' } },
-      { id: 'plan_plus', name: 'Plus', description: '', price: '$16.00 / month', trialDays: 0, allowance: { servers: 2, memoryGB: 8 }, action: { kind: 'buy', url: 'https://whop.com/checkout/plan_plus' } },
+      { id: 'plan_starter', name: 'Starter', description: '', price: '$10.00 / month', trialDays: 3, allowance: { servers: 1, memoryGB: 4 }, action: { kind: 'buy', url: 'https://whop.com/checkout/plan_starter' } },
+      { id: 'plan_plus', name: 'Plus', description: '', price: '$20.00 / month', trialDays: 0, allowance: { servers: 2, memoryGB: 8 }, action: { kind: 'buy', url: 'https://whop.com/checkout/plan_plus' } },
     ])
   })
 

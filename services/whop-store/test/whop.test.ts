@@ -36,7 +36,7 @@ describe('reading the store from Whop', () => {
       formattedPrice: '',
       currency: 'usd',
       initialPrice: 0,
-      renewalPrice: 8,
+      renewalPrice: 10,
       billingPeriod: 30,
       trialDays: 7,
       stock: 1,
