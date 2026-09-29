@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -50,6 +51,74 @@ type fakeWhop struct {
 	// makes setting one fail.
 	stockSets []string
 	stockDown bool
+	// grants are the sign-ins Whop approved, by code, and revokedTokens
+	// the refresh tokens ended.
+	grants        map[string]oauthGrant
+	revokedTokens []string
+}
+
+// oauthGrant is one sign-in Whop approved: who, for which app and
+// redirect, and the PKCE challenge the code must be traded with.
+type oauthGrant struct {
+	user, clientID, redirect, challenge string
+}
+
+// approve does what Whop does when someone signs in: it checks the link the
+// dashboard sent the browser to and answers with where Whop sends them back.
+func (f *fakeWhop) approve(t *testing.T, authorize, user string) string {
+	t.Helper()
+	u, err := url.Parse(authorize)
+	if err != nil || u.Path != "/oauth/authorize" {
+		t.Fatalf("not Whop's sign-in: %q", authorize)
+	}
+	q := u.Query()
+	if q.Get("response_type") != "code" || q.Get("code_challenge_method") != "S256" || q.Get("scope") != whop.SignInScope || q.Get("state") == "" || q.Get("nonce") == "" {
+		t.Fatalf("sign-in link: %s", authorize)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	code := fmt.Sprintf("code_%d", len(f.grants)+1)
+	if f.grants == nil {
+		f.grants = map[string]oauthGrant{}
+	}
+	f.grants[code] = oauthGrant{user: user, clientID: q.Get("client_id"), redirect: q.Get("redirect_uri"), challenge: q.Get("code_challenge")}
+	return q.Get("redirect_uri") + "?code=" + code + "&state=" + url.QueryEscape(q.Get("state"))
+}
+
+func (f *fakeWhop) serveOAuth(w http.ResponseWriter, r *http.Request) {
+	var body map[string]string
+	json.NewDecoder(r.Body).Decode(&body)
+	refuse := func(code, why string) {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": code, "error_description": why})
+	}
+	switch r.Method + " " + r.URL.Path {
+	case "POST /oauth/token":
+		g, ok := f.grants[body["code"]]
+		delete(f.grants, body["code"])
+		switch {
+		case !ok:
+			refuse("invalid_grant", "Authorization code has expired")
+		case body["grant_type"] != "authorization_code" || body["client_id"] != g.clientID || body["redirect_uri"] != g.redirect:
+			refuse("invalid_request", "That code isn't for this app")
+		case whop.Challenge(body["code_verifier"]) != g.challenge:
+			refuse("invalid_grant", "PKCE verification failed")
+		default:
+			json.NewEncoder(w).Encode(map[string]any{"access_token": "at_" + g.user, "refresh_token": "rt_" + g.user, "token_type": "bearer", "expires_in": 3600})
+		}
+	case "GET /oauth/userinfo":
+		user, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer at_")
+		if !ok {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"sub": user, "preferred_username": f.users[user]})
+	case "POST /oauth/revoke":
+		f.revokedTokens = append(f.revokedTokens, body["token"])
+		w.WriteHeader(http.StatusOK)
+	default:
+		w.WriteHeader(http.StatusNotFound)
+	}
 }
 
 func newFakeWhop(t *testing.T) *fakeWhop {
@@ -73,6 +142,10 @@ func newFakeWhop(t *testing.T) *fakeWhop {
 func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if strings.HasPrefix(r.URL.Path, "/oauth/") {
+		f.serveOAuth(w, r)
+		return
+	}
 	key, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	f.keysSeen[key] = true
 	w.Header().Set("Content-Type", "application/json")

@@ -50,6 +50,8 @@ type whopView struct {
 	// minutes.
 	Webhook   bool               `json:"webhook"`
 	Customers []whopCustomerView `json:"customers"`
+	// SignIn is Sign in with Whop's setup, once a store is connected.
+	SignIn *whopSignInView `json:"signIn,omitempty"`
 	// Needs are the permissions the key needs, for the steps to make one.
 	Needs []string `json:"needs"`
 	// Notice, on the answer to a disconnect alone, is what the owner still
@@ -138,6 +140,11 @@ func (s *Server) whopView(ctx context.Context) (whopView, error) {
 	acc := a.Account
 	v.Connected, v.Account, v.KeyEnding, v.ConnectedBy, v.Problem = true, &acc, whop.Ending(a.Key), a.ConnectedBy, a.Problem
 	v.Webhook = a.WebhookID != "" && v.Dashboard != "" && a.WebhookURL == v.Dashboard+whopWebhookPath
+	signIn, err := s.readWhopSignIn(ctx, v.Dashboard)
+	if err != nil {
+		return v, err
+	}
+	v.SignIn = &signIn
 	if v.Customers, err = s.whopCustomerViews(ctx); err != nil {
 		return v, err
 	}

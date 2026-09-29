@@ -1823,6 +1823,29 @@ describe('Sell on Whop', () => {
     expect(text).not.toContain('needs an address')
   })
 
+  it('turns on Sign in with Whop with the app’s ID, then off again', async () => {
+    const redirect = 'https://my-vps.playkeeper.me:8443/api/public/whop/signin/callback'
+    answer({ '/api/whop': { ...open, signIn: { redirectUri: redirect } } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain(`Redirect URL: ${redirect}`)
+    expect(button('Turn on').disabled).toBe(true)
+    await typeInto('input[aria-label="Whop app ID"]', ' app_pipcloud ')
+    vi.mocked(client.put).mockResolvedValueOnce({ ...open, signIn: { clientId: 'app_pipcloud', secretEnding: 'wxyz', redirectUri: redirect } })
+    await act(async () => button('Turn on').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/whop/signin', { clientId: 'app_pipcloud', clientSecret: '' })
+    expect(document.body.textContent).toContain('Customers sign in with their Whop account, through app_pipcloud. Its secret ends wxyz.')
+    vi.mocked(client.del).mockResolvedValueOnce({ ...open, signIn: { redirectUri: redirect } })
+    await click('Turn off')
+    expect(vi.mocked(client.del)).toHaveBeenLastCalledWith('/api/whop/signin')
+    expect(document.body.textContent).toContain(`Redirect URL: ${redirect}`)
+  })
+
+  it('says Sign in with Whop needs the machine’s address', async () => {
+    answer({ '/api/whop': { ...open, signIn: {} } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('Give this machine an address first, in Machine settings › Address.')
+  })
+
   it('says the machine needs an address first, with a way to set one', async () => {
     answer({ '/api/whop': { ...closed, dashboard: '' } })
     const text = await render(<SellOnWhopSection />, owner)
