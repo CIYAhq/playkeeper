@@ -8004,6 +8004,34 @@ control "certs: the certificate has the wildcard asked for" internal/certs/acme.
   'covered := true' \
   ./internal/certs '^TestCheckChain$'
 
+# The own domain's wildcard certificate (internal/agent/certificates.go,
+# dns.go): got once the domain is handed to the machine, proven from its own
+# zone, and in place of the servers' own certificates.
+control "wildcard certificate: only once the domain is handed to the machine" internal/agent/certificates.go \
+  'return st.Kind == api.AddressOwn && st.ServerAddresses && st.Check != nil && st.Check.PortFree' \
+  'return st.Kind == api.AddressOwn && st.ServerAddresses' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "wildcard certificate: the servers' addresses it serves get none of their own" internal/agent/ownaddress.go \
+  'if !ownNameOK(st, js) || js.wild && wildcard {' \
+  'if !ownNameOK(st, js) || js.wild && wildcard && false {' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "wildcard certificate: it goes with its domain" internal/agent/ownaddress.go \
+  'a.forgetCertificate(wildcardName(st.Host))' \
+  '_ = wildcardName(st.Host)' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "wildcard certificate: the check's record goes after the check" internal/agent/dns.go \
+  'values := slices.DeleteFunc(d.challenges[rel], func(v string) bool { return v == value })' \
+  'values := d.challenges[rel]' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "wildcard certificate: a check's record only in the machine's zone" internal/agent/dns.go \
+  'if zone == "" || !ok {' \
+  'if zone == "" {' \
+  ./internal/agent '^TestTheServersShareOneWildcardCertificate$'
+control "dns: extra records are answered besides the zone" internal/dnszone/dnszone.go \
+  'for _, r := range slices.Concat(a.zone.Records, a.extra) {' \
+  'for _, r := range a.zone.Records {' \
+  ./internal/dnszone '^TestExtraRecordsAreAnsweredBesideTheZone$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
