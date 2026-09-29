@@ -1,6 +1,6 @@
 # The Whop store site
 
-This folder is the storefront a Minecraft hosting business runs on Whop: a small site Whop hosts at `<route>.whop.site`, showing the plans of the Playkeeper that sells them, with Whop's checkout. It's the site of the Pip Hosting blueprint, which anyone can copy from Whop's gallery to start a hosting business on their own VPS. It is not part of the Playkeeper release.
+This folder is the storefront a Minecraft hosting business runs on Whop: a small site Whop hosts at `<route>.whop.site`, showing the plans of the Playkeeper that sells them, with Whop's checkout. It's the site of the Playkeeper Hosting blueprint, which anyone can copy from Whop's gallery to start a hosting business on their own VPS. It is not part of the Playkeeper release.
 
 Whop runs it as a Cloudflare Worker. Cloudflare's Vite plugin builds it into `dist/client` (the stylesheet, favicon and `robots.txt`, served as they are) and `dist/server/index.js` (the Worker), and Whop's `whop()` plugin packs both into `dist/whop-build.zip`, which `whop apps deploy` uploads.
 
@@ -8,8 +8,8 @@ Whop runs it as a Cloudflare Worker. Cloudflare's Vite plugin builds it into `di
 
 It reads the business, its products and its plans from Whop's API. On Whop, requests go through Whop hosting's own proxy, which adds the app's API key, so no key is in the code or its settings. It pins Whop's API version, keeps each read for a minute, and keeps showing the last one for an hour while Whop can't be reached.
 
-- **The plans on sale:** each visible plan of a product that a connected Playkeeper has marked with its address (`playkeeper_dashboard`, which **Settings › Sell on Whop** sets), cheapest first. A plan shows its servers and memory from its metadata (`playkeeper_servers`, `playkeeper_memory_gb`), its free trial, and Whop's checkout link. Sold-out and waitlist plans say so.
-- **Not taking orders yet:** a fresh copy of the blueprint, whose Playkeeper isn't connected, or a store whose plans are all hidden. The page tells a seller how to open it.
+- **The plans on sale:** each visible plan of a product that a connected Playkeeper has marked with its address for this business (`playkeeper_dashboard` and `playkeeper_business`, which **Settings › Sell on Whop** sets), cheapest first. A plan shows its servers and memory from its metadata (`playkeeper_servers`, `playkeeper_memory_gb`), its free trial, and Whop's checkout link. Sold-out and waitlist plans say so.
+- **Not taking orders yet:** a fresh copy of the blueprint, whose Playkeeper isn't connected, even if it kept the marking of the store it was copied from, or a store whose plans are all hidden. The page tells a seller how to open it.
 - **Sign in:** a link to the Playkeeper that sells the plans, for customers.
 - **Pages:** the store with how it works and questions, terms (or the business's own terms from Whop), a 404, and a page for when Whop can't be reached. It carries the "not an official Minecraft service" line and no Minecraft logo or art.
 - **Safety:** everything from Whop is escaped. Checkout links must be `https` links on `whop.com`, and the dashboard, logo and terms links must be `https`.

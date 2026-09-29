@@ -1,6 +1,7 @@
 package whop
 
 import (
+	"maps"
 	"math"
 	"strconv"
 	"strings"
@@ -18,8 +19,12 @@ const (
 	// default for the memory.
 	MetaDiskGB = "playkeeper_disk_gb"
 	// MetaDashboard on a product is the address of the Playkeeper that
-	// sells it. The store takes orders only once its products have one.
+	// sells it, and MetaBusiness the Whop business it marked the product
+	// in. The store takes orders only once its products have both, for its
+	// own business: a copy of a product in another business, as deploying
+	// a blueprint makes, doesn't count.
 	MetaDashboard = "playkeeper_dashboard"
+	MetaBusiness  = "playkeeper_business"
 )
 
 // PlanAllowance reads what a plan's metadata lets a buyer create: servers,
@@ -52,20 +57,32 @@ func PlanDiskGB(m Metadata) int {
 	return n
 }
 
-// WithDashboard returns meta with the dashboard's address set, or removed
-// when addr is empty, and whether that changed anything. The other keys
-// stay, since Whop replaces a product's metadata as a whole.
-func WithDashboard(meta Metadata, addr string) (Metadata, bool) {
-	out := make(Metadata, len(meta)+1)
-	for k, v := range meta {
-		out[k] = v
+// Seller is the address of the dashboard that sells a product of business,
+// "" when none does. A marking without a business, as dashboards wrote
+// before MetaBusiness, counts as the product's own.
+func Seller(meta Metadata, business string) string {
+	addr := strings.TrimSpace(meta[MetaDashboard])
+	if b := strings.TrimSpace(meta[MetaBusiness]); addr == "" || b != "" && b != business {
+		return ""
 	}
+	return addr
+}
+
+// WithSeller returns meta with the selling dashboard's address and business
+// set, or both removed when addr is empty, and whether that changed
+// anything. The other keys stay, since Whop replaces a product's metadata as
+// a whole.
+func WithSeller(meta Metadata, addr, business string) (Metadata, bool) {
+	out := make(Metadata, len(meta)+2)
+	maps.Copy(out, meta)
 	if addr == "" {
-		_, had := out[MetaDashboard]
+		_, hadAddr := out[MetaDashboard]
+		_, hadBusiness := out[MetaBusiness]
 		delete(out, MetaDashboard)
-		return out, had
+		delete(out, MetaBusiness)
+		return out, hadAddr || hadBusiness
 	}
-	changed := out[MetaDashboard] != addr
-	out[MetaDashboard] = addr
+	changed := out[MetaDashboard] != addr || out[MetaBusiness] != business
+	out[MetaDashboard], out[MetaBusiness] = addr, business
 	return out, changed
 }

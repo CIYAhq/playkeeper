@@ -487,6 +487,16 @@ CREATE TABLE customers (
 ALTER TABLE customers ADD COLUMN told_ready   INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE customers ADD COLUMN told_waiting INTEGER NOT NULL DEFAULT 0;
 `,
+	// One seller per business: the address this dashboard last marked the
+	// store's products with, and the dashboard that sells for the store
+	// instead of this one, with when it took the store over from this one (0
+	// while this one's own takeover isn't done). This one doesn't sell until
+	// the owner takes the store over.
+	`
+ALTER TABLE whop_account ADD COLUMN marked_as     TEXT    NOT NULL DEFAULT '';
+ALTER TABLE whop_account ADD COLUMN taken_over_by TEXT    NOT NULL DEFAULT '';
+ALTER TABLE whop_account ADD COLUMN taken_over_at INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 const (
