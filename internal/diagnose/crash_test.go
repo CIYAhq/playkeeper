@@ -322,6 +322,19 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 			explanation: []string{"Forge stopped because zoomify needs Minecraft's client code"},
 		},
 		{
+			name: "NeoForge mod loading a client class under the loader's own modules",
+			in: moddedCrash("neoforge", "1.21.1", []string{
+				"[10:05:40] [main/ERROR] [minecraft/Main]: Failed to start the minecraft server",
+				"java.lang.RuntimeException: Attempted to load class net/minecraft/client/Minecraft for invalid dist DEDICATED_SERVER",
+				"\tat MC-BOOTSTRAP/fml_loader@4.0.24/net.neoforged.fml.loading.RuntimeDistCleaner.processClassWithFlags(RuntimeDistCleaner.java:57)",
+				"\tat MC-BOOTSTRAP/cpw.mods.modlauncher@11.0.4/cpw.mods.modlauncher.LaunchPluginHandler.offerClassNodeToPlugins(LaunchPluginHandler.java:88)",
+				"\tat TRANSFORMER/javafmllanguage@4.0.24/net.neoforged.fml.javafmlmod.FMLModContainer.constructMod(FMLModContainer.java:115)",
+				"\tat TRANSFORMER/zoomify@2.14.2/dev.isxander.zoomify.Zoomify.<init>(Zoomify.java:40)",
+			}, "zoomify-2.14.2+1.21.1-neoforge.jar"),
+			kind: CrashIncompatibleAddon, certain: true, params: map[string]any{"addon": "zoomify", "jar": "zoomify-2.14.2+1.21.1-neoforge.jar"},
+			fixes: "remove_addon* jar=zoomify-2.14.2+1.21.1-neoforge.jar",
+		},
+		{
 			name: "mod made for players' games that the log doesn't name",
 			in: moddedCrash("neoforge", "26.2", []string{
 				"[16:59:11] [main/INFO] [ne.ne.fm.ModLoader/]: Clearing ModLoader",
@@ -522,18 +535,43 @@ func TestExplainCrashIgnoresCausesPlayersTypeInChat(t *testing.T) {
 }
 
 // A mod that reached for a class only players' games have, then carried on
-// while the server started, didn't stop it: the crash later on is something
-// else.
+// while the server started, didn't stop it: the server killed later on
+// stopped for something else.
 func TestExplainCrashPassesOverAClientClassTheServerStartedPast(t *testing.T) {
-	d := ExplainCrash(moddedCrash("neoforge", "26.2", []string{
+	in := moddedCrash("neoforge", "26.2", []string{
 		"[09:14:02] [modloading-worker-0/WARN] [dynamic_fps/]: Couldn't set up an optional client feature",
 		"java.lang.NoClassDefFoundError: org/lwjgl/glfw/GLFW",
 		"[09:14:09] [Server thread/INFO] [minecraft/DedicatedServer]: Done (7.113s)! For help, type \"help\"",
-		"[09:40:51] [Server thread/ERROR] [minecraft/MinecraftServer]: Encountered an unexpected exception",
-		"java.lang.IllegalStateException: Recursive call to getBlockState",
-	}, "dynamic-fps-3.11.9+minecraft-26.2.0-neoforge.jar"))
-	if d.Kind == CrashIncompatibleAddon {
+		"[09:40:51] [Server thread/INFO] [minecraft/MinecraftServer]: PkBotBuilder joined the game",
+	}, "dynamic-fps-3.11.9+minecraft-26.2.0-neoforge.jar")
+	in.ExitCode = 137
+	if d := ExplainCrash(in); d.Kind != CrashKilled {
 		t.Fatalf("a client class the server started past was blamed: %s %s", d.Title, d.Explanation)
+	}
+}
+
+// A client class a mod only warned about, before another mod failed to
+// start, is passed over for the error that stopped the server; and a
+// client class error under the loader's own frames alone names no mod.
+func TestExplainCrashBlamesTheClientClassOnlyWhenItStoppedTheServer(t *testing.T) {
+	d := ExplainCrash(moddedCrash("neoforge", "26.2", []string{
+		"[09:14:02] [modloading-worker-0/WARN] [dynamic_fps/]: Couldn't set up an optional client feature",
+		"java.lang.NoClassDefFoundError: org/lwjgl/glfw/GLFW",
+		"[09:14:03] [main/ERROR] [ne.ne.fm.ModLoader/LOADING]: Farmer's Delight (farmersdelight) has failed to load correctly",
+		"java.lang.NullPointerException: Cannot invoke \"Object.toString()\" because \"x\" is null",
+		"[09:14:03] [main/FATAL] [ne.ne.fm.ModLoader/]: Mod loading has failed",
+	}, "dynamic-fps-3.11.9+minecraft-26.2.0-neoforge.jar", "FarmersDelight-26.2-1.3.0.jar"))
+	if d.Kind != CrashAddonFailed || d.Params["addon"] != "Farmer's Delight" {
+		t.Errorf("an earlier warning was blamed over the mod that failed: %s %v", d.Kind, d.Params)
+	}
+	d = ExplainCrash(moddedCrash("neoforge", "1.21.1", []string{
+		"[10:05:40] [main/ERROR] [minecraft/Main]: Failed to start the minecraft server",
+		"java.lang.RuntimeException: Attempted to load class net/minecraft/client/Minecraft for invalid dist DEDICATED_SERVER",
+		"\tat MC-BOOTSTRAP/fml_loader@4.0.24/net.neoforged.fml.loading.RuntimeDistCleaner.processClassWithFlags(RuntimeDistCleaner.java:57)",
+		"\tat TRANSFORMER/javafmllanguage@4.0.24/net.neoforged.fml.javafmlmod.FMLModContainer.constructMod(FMLModContainer.java:115)",
+	}, "sodium-neoforge-0.6.13+mc1.21.1.jar"))
+	if d.Kind != CrashIncompatibleAddon || d.Params["addon"] != nil || len(d.Fixes) != 0 {
+		t.Errorf("the loader's own module was named: %v %+v", d.Params, d.Fixes)
 	}
 }
 

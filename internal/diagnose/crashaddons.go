@@ -57,10 +57,11 @@ var (
 	reGraphicsPlugin = regexp.MustCompile(`^Running graphics bootstrap plugin ([A-Za-z0-9_.-]{1,64})$`)
 	reWindowFrame    = regexp.MustCompile(`^\s*at \S*net\.neoforged\.fml\.loading\.ImmediateWindowHandler\.`)
 	reModInstance    = regexp.MustCompile(`^Failed to create mod instance\. ModID: ([a-z][a-z0-9_]{1,63}),`)
-	// A frame of NeoForge's or Forge's names the mod its code is from:
-	// "at TRANSFORMER/sodium@0.6.13/net.caffeinemc…".
+	// A frame of NeoForge's or Forge's names the module its code is from, a
+	// mod's or the loader's own: "at TRANSFORMER/sodium@0.6.13/net.caffeinemc…".
 	reModFrame = regexp.MustCompile(`^\s*at [A-Z][A-Z -]{0,40}/([a-z][a-z0-9_]{1,63})@[^/\s]{1,64}/`)
 	reDone     = regexp.MustCompile(`^Done \(`)
+	reGivingUp = regexp.MustCompile(`^(?:Mod loading has failed|Crash report saved to |This crash report has been saved to|Failed to start the minecraft server|Stopping (?:the )?server)`)
 )
 
 // modLoader explains a mod loader refusing to start: a missing or wrong
@@ -432,13 +433,14 @@ func (c *crashCtx) newerJavaDiagnosis(f found, name, jar string, need, have int,
 
 // clientOnly explains a mod made for players' games that stopped the server
 // by reaching for a class only the game itself has. A server that started
-// after such an error kept going without it, so that doesn't count.
+// after such an error kept going without it, and a later error stopped it,
+// so neither counts.
 func (c *crashCtx) clientOnly() (CrashDiagnosis, bool) {
 	last, ok := c.console(reClientClass)
 	if !ok {
 		return CrashDiagnosis{}, false
 	}
-	if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); started {
+	if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); started || c.errorAfter(last.idx) {
 		return CrashDiagnosis{}, false
 	}
 	start := c.entryStart(last.idx)
@@ -466,6 +468,17 @@ func (c *crashCtx) clientOnly() (CrashDiagnosis, bool) {
 	return d, true
 }
 
+// errorAfter reports whether another error follows the log entry of line
+// i, besides the lines a loader prints as it gives up.
+func (c *crashCtx) errorAfter(i int) bool {
+	for j := c.stackEnd(i); j < len(c.split); j++ {
+		if l := c.split[j]; (l.level == "ERROR" || l.level == "FATAL") && !reGivingUp.MatchString(l.msg) {
+			return true
+		}
+	}
+	return false
+}
+
 // clientNeed says what a mod needed, from the class it couldn't load.
 func clientNeed(class string) string {
 	if strings.HasPrefix(class, "org.lwjgl.") {
@@ -476,8 +489,8 @@ func clientNeed(class string) string {
 
 // clientMod names the mod behind a client class error at f, whose log entry
 // begins at start, and the line that names it: the early window plugin
-// NeoForge was running, the mod a loading error names, or the module or jar
-// of its frames.
+// NeoForge was running, the mod a loading error names, or the first of its
+// frames whose module or jar is an installed mod, past the loader's own.
 func (c *crashCtx) clientMod(f found, start int) (named found, id, name, jar string) {
 	end := c.stackEnd(f.idx)
 	if _, ok := c.firstIn(reWindowFrame, f.idx+1, end); ok {
@@ -495,9 +508,10 @@ func (c *crashCtx) clientMod(f found, start int) (named found, id, name, jar str
 		}
 	}
 	for i := f.idx + 1; i < end; i++ {
-		m := reModFrame.FindStringSubmatch(c.split[i].msg)
-		if m != nil && m[1] != "minecraft" && m[1] != "neoforge" && m[1] != "forge" {
-			return found{}, m[1], "", c.modJar(m[1], "")
+		if m := reModFrame.FindStringSubmatch(c.split[i].msg); m != nil {
+			if jar := c.modJar(m[1], ""); jar != "" {
+				return found{}, m[1], "", jar
+			}
 		}
 	}
 	if jar = c.frameAddon(f.idx+1, end); jar != "" {
