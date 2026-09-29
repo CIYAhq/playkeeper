@@ -8598,12 +8598,16 @@ webcontrol "confirming: New server here is only on the machine a creator's serve
   '(!m || !!m.id)' \
   src/lib/lib.test.ts 'a creator only on the one their servers go on'
 webcontrol "confirming: the card is the owner's alone" web/src/pages/machines.tsx \
-  "{can(ws.me, 'machines.customers') && <CustomersCard machine={m} />}" \
-  '<CustomersCard machine={m} />' \
+  "{can(ws.me, 'machines.customers') && <CustomersCard machine={m} onChange={() => void events.refresh()} />}" \
+  '<CustomersCard machine={m} onChange={() => void events.refresh()} />' \
   src/pages/pages.test.tsx 'and waits for a machine'
 webcontrol "confirming: the owner checks the machine is theirs first" web/src/pages/machines.tsx \
   'onClick={() => setConfirming(true)}' \
   'onClick={() => void set(true)}' \
+  src/pages/pages.test.tsx 'places customers on a joined machine once the owner checks'
+webcontrol "confirming: the machine's events show the change at once" web/src/pages/machines.tsx \
+  '      onChange()' \
+  '      void onChange' \
   src/pages/pages.test.tsx 'places customers on a joined machine once the owner checks'
 webcontrol "confirming: removing a machine says its customers are on it" web/src/pages/machines.tsx \
   '{!!m.customers && (' \

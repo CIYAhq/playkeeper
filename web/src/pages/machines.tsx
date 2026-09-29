@@ -553,7 +553,7 @@ export function MachineDetailsSection({ id }: { id: string }) {
           </Fact>
         </dl>
       </Card>
-      {can(ws.me, 'machines.customers') && <CustomersCard machine={m} />}
+      {can(ws.me, 'machines.customers') && <CustomersCard machine={m} onChange={() => void events.refresh()} />}
       <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
         <Card aria-labelledby="machine-events">
           <CardTitle id="machine-events">{t('machines.events')}</CardTitle>
@@ -595,7 +595,7 @@ export function MachineDetailsSection({ id }: { id: string }) {
 }
 
 /** Whether a joined machine takes customers, for the owner, who confirms it's theirs or stops it. */
-function CustomersCard({ machine: m }: { machine: MachineView }) {
+function CustomersCard({ machine: m, onChange }: { machine: MachineView; onChange: () => void }) {
   const ws = useWorkspace()
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -608,6 +608,7 @@ function CustomersCard({ machine: m }: { machine: MachineView }) {
       toastManager.add({ title: on ? t('machines.customers.taken', { name }) : t('machines.customers.stopped', { name }), type: 'success' })
       setConfirming(false)
       void ws.refresh()
+      onChange()
     } catch (e) {
       toastManager.add({ title: errorText(e), type: 'error' })
     } finally {

@@ -3960,9 +3960,12 @@ describe('Machines and AI agents', () => {
       expect(dialog).toContain('by siya, from 65.108.10.20')
       expect(dialog).toContain('Z287 KN4C DZD0 Z8A4 XXJA 514N KG')
       expect(dialog).toContain('Playkeeper keeps servers away from home-server first.')
+      const eventReads = () => vi.mocked(client.get).mock.calls.filter(([p]) => p === '/api/machines/h2345abcde/events').length
+      const before = eventReads()
       await click('Take customers')
       expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/machines/h2345abcde/customers', { on: true })
       expect(refresh).toHaveBeenCalled()
+      expect(eventReads()).toBeGreaterThan(before)
       expect(document.querySelector('[role="dialog"]')).toBeNull()
     })
 
