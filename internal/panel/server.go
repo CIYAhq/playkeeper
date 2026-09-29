@@ -1685,6 +1685,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	go s.runWhop(ctx)
 	go s.runStock(ctx)
 	go s.runDiskLimits(ctx)
+	go s.runCustomers(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)
 	return s.serve(ctx, ln, tc)
 }

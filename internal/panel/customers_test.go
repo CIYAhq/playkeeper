@@ -129,6 +129,70 @@ func TestACustomerNamedLikeTheOwnerGetsAnAccountOfTheirOwn(t *testing.T) {
 	}
 }
 
+// A customer who started while every machine was full is placed once one
+// has room, since their billing provider won't start them again; a paused
+// one waits until they're active again.
+func TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom(t *testing.T) {
+	e := newJoinEnv(t)
+	owner(t, e.env)
+	e.reply("GET", "/v1/machine", liveMachine(0, true))
+	e.reply("GET", "/v1/servers", `[]`)
+	core := customerCore{s: e.srv}
+	ctx := context.Background()
+	home := func(id int64) string {
+		var m string
+		e.srv.db.QueryRow(`SELECT machine_id FROM customer_homes WHERE user_id = ?`, id).Scan(&m)
+		return m
+	}
+	var ids []int64
+	for _, subject := range []string{"user_alex", "user_sam"} {
+		if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Subject: subject, Handle: subject[5:]}, starter); err != nil {
+			t.Fatal(err)
+		}
+		info, _, _ := core.CustomerAccount(ctx, whopProvider, subject)
+		if home(info.UserID) != "" {
+			t.Fatalf("%s has a home with no room", subject)
+		}
+		ids = append(ids, info.UserID)
+	}
+	if _, err := e.srv.db.Exec(`UPDATE customers SET state = 'paused' WHERE user_id = ?`, ids[1]); err != nil {
+		t.Fatal(err)
+	}
+	e.reply("GET", "/v1/machine", liveMachine(30000, true))
+	e.srv.startWaitingCustomers(ctx)
+	if got, want := home(ids[0]), machineID(t, e.env); got != want {
+		t.Fatalf("alex's home once there was room: %q, want %q", got, want)
+	}
+	if err := e.srv.startWaitingCustomer(ctx, ids[1]); err != nil || home(ids[1]) != "" {
+		t.Fatalf("a paused customer was placed: %v", err)
+	}
+}
+
+// A customer's account follows their plan, so the owner can't remove it
+// from the team: their billing provider wouldn't make it again.
+func TestTheTeamPageKeepsACustomersAccount(t *testing.T) {
+	e, own, core := customerEnv(t)
+	ctx := context.Background()
+	if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
+		t.Fatal(err)
+	}
+	info, _, _ := core.CustomerAccount(ctx, whopProvider, "user_alex")
+	alex := member{id: info.UserID}
+	if r := e.do(t, "DELETE", alex.path(), "", own.auth()); r.status != http.StatusConflict {
+		t.Fatalf("removing a customer: %d %v", r.status, r.body)
+	}
+	if _, ok, err := core.CustomerAccount(ctx, whopProvider, "user_alex"); err != nil || !ok {
+		t.Fatalf("alex's account after the refused removal: %v, %v", ok, err)
+	}
+	var team teamBody
+	e.get(t, "/api/team", own.cookie, &team)
+	for _, m := range team.Members {
+		if m.Username == "alex" && m.CanEdit {
+			t.Fatal("the Team page offers to change or remove a customer")
+		}
+	}
+}
+
 // A customer's account is named after their handle in plain lower-case
 // letters, digits and dashes, and never takes a name an account has, a
 // reserved one, or a look-alike of either.

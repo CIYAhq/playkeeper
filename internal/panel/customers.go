@@ -5,10 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
+	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/invites"
 )
 
@@ -33,6 +36,10 @@ var (
 	errNoCustomer = errors.New("That customer has no account here yet.")
 	// errNoPausing is PauseCustomer's answer until pausing is built.
 	errNoPausing = errors.New("This dashboard can't pause customers yet.")
+	// errCustomerStays refuses removing a customer from the team: their
+	// account follows their plan.
+	errCustomerStays = &invites.Error{Code: api.CodeConflict, Status: http.StatusConflict,
+		Msg: "This is a customer's account, which follows their plan.", Hint: "It pauses when their plan ends."}
 )
 
 // reservedNames are names no customer's account takes, so the audit log
@@ -253,6 +260,78 @@ func customerName(ctx context.Context, q querier, base string) (string, error) {
 		}
 	}
 	return "", errors.New("every name for this customer is taken")
+}
+
+// customersEvery is how often the core asks placement again for customers
+// still waiting for room.
+const customersEvery = time.Minute
+
+// runCustomers asks placement again every customersEvery, until ctx ends,
+// for each active customer still waiting for room, since their billing
+// provider doesn't call again once it started them.
+func (s *Server) runCustomers(ctx context.Context) {
+	t := time.NewTicker(customersEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			s.startWaitingCustomers(ctx)
+		}
+	}
+}
+
+// startWaitingCustomers asks placement again for each active customer with
+// no home machine yet.
+func (s *Server) startWaitingCustomers(ctx context.Context) {
+	rows, err := s.db.QueryContext(ctx, `SELECT c.user_id FROM customers c LEFT JOIN customer_homes h ON h.user_id = c.user_id
+		WHERE c.state = ? AND COALESCE(h.machine_id, '') = '' ORDER BY c.created_at`, string(CustomerActive))
+	if err != nil {
+		s.log.Error("could not list the customers waiting for room", "err", err)
+		return
+	}
+	var waiting []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			waiting = append(waiting, id)
+		}
+	}
+	rows.Close()
+	for _, id := range waiting {
+		if err := s.startWaitingCustomer(ctx, id); err != nil {
+			s.log.Warn("could not place a customer waiting for room", "user", id, "err", err)
+		}
+	}
+}
+
+// startWaitingCustomer places a customer who was waiting for room. The fleet
+// calls it when room appears, and runCustomers every minute anyway. A
+// customer still without room is left waiting, and a paused or suspended one
+// isn't placed until they're active again.
+func (s *Server) startWaitingCustomer(ctx context.Context, userID int64) error {
+	s.customersMu.Lock()
+	defer s.customersMu.Unlock()
+	var state, planID string
+	var al invites.Allowance
+	err := s.db.QueryRowContext(ctx, `SELECT c.state, c.plan_id, m.allowance_servers, m.allowance_memory_mb, m.allowance_disk_gb
+		FROM customers c JOIN project_members m ON m.user_id = c.user_id WHERE c.user_id = ? ORDER BY m.created_at LIMIT 1`, userID).
+		Scan(&state, &planID, &al.Servers, &al.MemoryMB, &al.DiskGB)
+	switch {
+	case isNoRows(err):
+		return errNoCustomer
+	case err != nil:
+		return errDB
+	}
+	if CustomerState(state) != CustomerActive {
+		return nil
+	}
+	_, err = s.placeCustomer(ctx, userID, CustomerPlan{ID: planID, Servers: al.Servers, MemoryMB: al.MemoryMB, DiskGB: al.DiskGB})
+	if errors.Is(err, errNoRoom) {
+		return nil
+	}
+	return err
 }
 
 // isCustomer reports whether the account is a billing provider's customer.
