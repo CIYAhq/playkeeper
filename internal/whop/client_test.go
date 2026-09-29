@@ -169,20 +169,53 @@ func TestSetPlanStockLimitsThePlan(t *testing.T) {
 	if err := c.SetPlanStock(context.Background(), "plan_a", 2); err != nil {
 		t.Fatal(err)
 	}
-	c = fake(t, map[string]func(http.ResponseWriter, *http.Request){
-		"GET /memberships": func(w http.ResponseWriter, r *http.Request) {
-			if q := r.URL.Query(); q.Get("account_id") != "biz_pip" || q.Get("plan_id") != "plan_a" {
-				t.Errorf("query %s", r.URL.RawQuery)
-			}
-			answer(map[string]any{"data": []map[string]any{{"id": "mem_1", "status": "active", "plan_id": "plan_a", "user_id": "user_alex"}},
-				"page_info": map[string]any{"has_next_page": false}})(w, r)
-		},
-	})
-	if ms, err := c.PlanMemberships(context.Background(), "biz_pip", "plan_a"); err != nil || len(ms) != 1 || ms[0].ID != "mem_1" || ms[0].PlanID != "plan_a" {
-		t.Fatalf("PlanMemberships = %+v, %v", ms, err)
-	}
 	if !slices.Contains(Needs, "plan:update") {
 		t.Fatal("Sell on Whop doesn't ask for plan:update")
+	}
+}
+
+func TestPlanMembershipsAreThePlansAlone(t *testing.T) {
+	all := []map[string]any{
+		{"id": "mem_1", "status": "active", "plan_id": "plan_a", "user_id": "user_alex"},
+		{"id": "mem_2", "status": "active", "plan_id": "plan_b", "user_id": "user_sam"},
+	}
+	for _, how := range []string{"filters", "ignores", "refuses", "fails"} {
+		unfiltered := 0
+		c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+			"GET /memberships": func(w http.ResponseWriter, r *http.Request) {
+				q := r.URL.Query()
+				data := all
+				switch {
+				case q.Get("account_id") != "biz_pip":
+					t.Errorf("Whop %s: query %s", how, r.URL.RawQuery)
+				case !q.Has("plan_id") && !q.Has("plan_ids"):
+					unfiltered++
+				case q.Get("plan_id") != "plan_a" || q.Get("plan_ids") != "plan_a":
+					t.Errorf("Whop %s: query %s", how, r.URL.RawQuery)
+				case how == "refuses":
+					w.WriteHeader(http.StatusBadRequest)
+					io.WriteString(w, `{"error":{"type":"invalid_request_error","message":"Unknown parameter: plan_ids"}}`)
+					return
+				case how == "fails":
+					w.WriteHeader(http.StatusInternalServerError)
+					io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
+					return
+				case how == "filters":
+					data = all[:1]
+				}
+				answer(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})(w, r)
+			},
+		})
+		ms, err := c.PlanMemberships(context.Background(), "biz_pip", "plan_a")
+		if how == "fails" {
+			if err == nil || unfiltered != 0 {
+				t.Fatalf("Whop fails: PlanMemberships = %+v, %v, after %d reads of every membership", ms, err, unfiltered)
+			}
+			continue
+		}
+		if err != nil || len(ms) != 1 || ms[0].ID != "mem_1" || unfiltered != map[string]int{"refuses": 1}[how] {
+			t.Fatalf("Whop %s the filter: PlanMemberships = %+v, %v, after %d reads of every membership", how, ms, err, unfiltered)
+		}
 	}
 }
 

@@ -52,6 +52,9 @@ type fakeWhop struct {
 	stockSets []string
 	stockDown bool
 	listDown  bool
+	// refuseFilter refuses listing memberships by plan, as a Whop that
+	// doesn't know the filter might.
+	refuseFilter bool
 	// grants are the sign-ins Whop approved, by code, and revokedTokens
 	// the refresh tokens ended.
 	grants        map[string]oauthGrant
@@ -208,9 +211,15 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
 			return
 		}
+		plan := r.URL.Query().Get("plan_id")
+		if plan != "" && f.refuseFilter {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":{"type":"invalid_request_error","message":"Unknown parameter: plan_id"}}`)
+			return
+		}
 		var data []map[string]any
 		for _, m := range f.memberships {
-			if plan := r.URL.Query().Get("plan_id"); plan == "" || m["plan_id"] == plan {
+			if plan == "" || m["plan_id"] == plan {
 				data = append(data, m)
 			}
 		}

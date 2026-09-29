@@ -83,25 +83,27 @@ func (ws whopStock) SetAvailability(ctx context.Context, left map[string]int) er
 
 // pushWhopStock sets the stock of each plan the fleet spoke for to its
 // number less the purchases that number doesn't count yet (see
-// uncountedPurchases), where that differs from the stock the dashboard last
-// saw on Whop.
+// uncountedPurchases).
 //
-// A write replaces what Whop has, and Whop takes one off for each purchase,
-// including ones the dashboard hasn't heard of yet, while what it last saw
-// may be minutes old. So before writing, it reads the plan's memberships
-// from Whop again: the target then counts every purchase Whop took off, and
-// is right whatever Whop's stock says. It's written even when it matches
-// what the dashboard last saw, which purchases may have lowered since. A
-// stock changed by hand on Whop is put back once the dashboard reads the
-// store again.
+// Whop takes one off a plan's stock for each purchase, including ones the
+// dashboard hasn't heard of yet, and a write replaces what Whop has. So
+// before writing, it reads the plan's memberships from Whop again: the
+// target then counts every purchase Whop took off, and is right whatever
+// Whop's stock says. There's nothing to write while the dashboard's own
+// count still gives the stock it last set, the store as last read shows
+// that stock, and no membership of the plan came or went since: Whop's
+// stock is then the one set less the purchases not heard of yet, and so is
+// the target. A stock changed by hand on Whop is put back once the
+// dashboard reads the store again.
 func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client, accountID string) {
 	type plan struct {
-		id          string
-		want, stock int
-		setAt       int64
-		unlimited   bool
+		id                                    string
+		want, stock, written, known, knownNow int
+		setAt                                 int64
+		unlimited                             bool
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT k.plan_id, k.want, k.set_at, p.stock, p.unlimited_stock FROM whop_stock k
+	rows, err := s.db.QueryContext(ctx, `SELECT k.plan_id, k.want, k.set_at, k.written, k.known, p.stock, p.unlimited_stock,
+		(SELECT COUNT(*) FROM whop_memberships m WHERE m.plan_id = k.plan_id) FROM whop_stock k
 		JOIN whop_plans p ON p.plan_id = k.plan_id WHERE p.allowance_from != '' AND p.visibility != 'archived' ORDER BY p.position`)
 	if err != nil {
 		s.log.Error("could not read the plans' stock", "err", err)
@@ -111,7 +113,7 @@ func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client, accountID st
 	setAt := map[string]int64{}
 	for rows.Next() {
 		var p plan
-		if err := rows.Scan(&p.id, &p.want, &p.setAt, &p.stock, &p.unlimited); err != nil {
+		if err := rows.Scan(&p.id, &p.want, &p.setAt, &p.written, &p.known, &p.stock, &p.unlimited, &p.knownNow); err != nil {
 			rows.Close()
 			s.log.Error("could not read the plans' stock", "err", err)
 			return
@@ -129,10 +131,10 @@ func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client, accountID st
 		return
 	}
 	for _, p := range plans {
-		if !p.unlimited && p.stock == max(p.want-uncounted[p.id], 0) {
+		if !p.unlimited && p.stock == p.written && p.known == p.knownNow && p.stock == max(p.want-uncounted[p.id], 0) {
 			continue
 		}
-		target, err := s.whopStockTarget(ctx, c, accountID, p.id, p.want, p.setAt)
+		target, known, err := s.whopStockTarget(ctx, c, accountID, p.id, p.want, p.setAt)
 		if err != nil {
 			s.log.Warn("could not read a plan's purchases from Whop", "plan", p.id, "err", err)
 			continue
@@ -144,27 +146,35 @@ func (s *Server) pushWhopStock(ctx context.Context, c *whop.Client, accountID st
 		if _, err := s.db.Exec(`UPDATE whop_plans SET stock = ?, unlimited_stock = 0 WHERE plan_id = ?`, target, p.id); err != nil {
 			s.log.Error("could not record a plan's stock", "err", err)
 		}
+		if _, err := s.db.Exec(`UPDATE whop_stock SET written = ?, known = ? WHERE plan_id = ?`, target, known, p.id); err != nil {
+			s.log.Error("could not record a plan's stock", "err", err)
+		}
 	}
 }
 
 // whopStockTarget is the stock a plan should have: the fleet's number, want,
 // said at setAt, less the purchases it doesn't count, with every membership
-// of the plan read from Whop first.
-func (s *Server) whopStockTarget(ctx context.Context, c *whop.Client, accountID, planID string, want int, setAt int64) (int, error) {
+// of the plan read from Whop first. known is how many of the plan's
+// memberships the dashboard knew of just before, so the target takes each
+// of them into account.
+func (s *Server) whopStockTarget(ctx context.Context, c *whop.Client, accountID, planID string, want int, setAt int64) (target, known int, err error) {
 	ms, err := c.PlanMemberships(ctx, accountID, planID)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	for _, m := range ms {
 		if err := s.keepMembership(m, false); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships WHERE plan_id = ?`, planID).Scan(&known); err != nil {
+		return 0, 0, err
 	}
 	uncounted, err := s.uncountedPurchases(ctx, map[string]int64{planID: setAt})
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return max(want-uncounted[planID], 0), nil
+	return max(want-uncounted[planID], 0), known, nil
 }
 
 // uncountedPurchases counts, for each plan in setAt, the purchases with
