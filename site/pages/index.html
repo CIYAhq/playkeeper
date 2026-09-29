@@ -20,7 +20,7 @@ scripts: js/landing.js, js/sizing-data.js, js/sizing.js
 <section class="hero band-chalk" aria-labelledby="hero-title" data-channels="{{channelCodes}}">
   <div class="container hero-row">
     <div class="hero-text">
-      {{with page "/blog/playkeeper-0-4-0"}}<a class="release-pill hero-rise" href="{{.Path}}"><span class="dot" aria-hidden="true"></span>Playkeeper {{$.Site.Version}} is out <strong>What's new{{template "icon" "arrow-right"}}</strong></a>{{end}}
+      <a class="hero-pill hero-rise" href="/docs/machines-and-ai-agents" data-oa-event="ai_agents_clicked"><span class="dot" aria-hidden="true"></span>Let Claude or GPT run your server{{template "icon" "arrow-right"}}</a>
       <h1 id="hero-title" class="h1-hero"><span class="line hero-rise">Host your own</span> <span class="line hero-rise">Minecraft server.</span> <span class="line line-green hero-rise">Online 24/7.</span></h1>
       <p class="hero-sub hero-after">Playkeeper turns a VPS you rent into a Minecraft: Java Edition server for you and your friends. One command sets it up. Free and open source.</p>
       <div class="hero-demo hero-after"><a class="btn btn-primary btn-lg" href="/demo/">Try the live demo{{template "icon" "arrow-right"}}</a></div>

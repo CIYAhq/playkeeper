@@ -261,11 +261,10 @@ main:focus { outline: none; }
 .hero { position: relative; overflow: hidden; }
 .hero-row { position: relative; min-height: 808px; }
 .hero-text { position: relative; z-index: 2; max-width: 800px; padding: 64px 0 120px; }
-.release-pill { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px 0 12px; margin-bottom: 26px; border: 1px solid var(--twine); border-radius: 999px; background: var(--white); color: var(--ink); font-size: 14px; font-weight: 500; box-shadow: var(--shadow-sm); }
-.release-pill:hover { text-decoration: none; border-color: var(--input); }
-.release-pill .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--marigold); box-shadow: 0 0 0 3px var(--marigold-soft); }
-.release-pill strong { color: var(--green-text); font-weight: 600; display: inline-flex; align-items: center; gap: 5px; margin-left: 4px; }
-.release-pill .icon { width: 14px; height: 14px; }
+.hero-pill { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px 0 12px; margin-bottom: 26px; border: 1px solid var(--twine); border-radius: 999px; background: var(--white); color: var(--ink); font-size: 14px; font-weight: 500; box-shadow: var(--shadow-sm); }
+.hero-pill:hover { text-decoration: none; border-color: var(--input); }
+.hero-pill .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--marigold); box-shadow: 0 0 0 3px var(--marigold-soft); }
+.hero-pill .icon { width: 14px; height: 14px; color: var(--green-text); }
 .h1-hero { font-size: 72px; line-height: 0.99; letter-spacing: -0.045em; margin-bottom: 30px; }
 .h1-hero .line { display: block; }
 .h1-hero .line-green { color: var(--green); }
@@ -335,7 +334,7 @@ main:focus { outline: none; }
   .hero-demo .btn { width: 100%; }
   .hero-actions .hero-demo-wide { display: none; }
   .hero-text { padding: 16px 0 36px; }
-  .release-pill { margin-bottom: 20px; }
+  .hero-pill { margin-bottom: 20px; }
   .hero-art { height: auto; display: flex; justify-content: center; padding-bottom: 0; }
   .product { position: relative; }
   .product-browser, .moment-joined { display: none; }
