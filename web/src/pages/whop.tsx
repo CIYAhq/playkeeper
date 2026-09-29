@@ -130,7 +130,8 @@ function KeyForm({ onSaved, onCancel }: { onSaved: (s: WhopStore) => void; onCan
     setRefused(undefined)
     try {
       const s = await post<WhopStore>('/api/whop/connect', takeOver ? { key: key.trim(), takeOver: true } : { key: key.trim() })
-      toastManager.add({ title: t('whop.connected', { account: s.account?.title ?? '' }), type: 'success' })
+      if (s.takenOverBy) toastManager.add({ title: t('whop.stillOther', { dashboard: s.takenOverBy }), type: 'error' })
+      else toastManager.add({ title: t('whop.connected', { account: s.account?.title ?? '' }), type: 'success' })
       onSaved(s)
     } catch (err) {
       if (err instanceof ApiError && err.code === 'whop_other_seller') setOther(String(err.params?.dashboard ?? ''))
@@ -203,7 +204,7 @@ function KeyForm({ onSaved, onCancel }: { onSaved: (s: WhopStore) => void; onCan
 function Connected({ store, onChange }: { store: WhopStore; onChange: (s: WhopStore) => void }) {
   const [replacing, setReplacing] = useState(false)
   const [syncing, setSyncing] = useState(false)
-  const [takingBack, setTakingBack] = useState(false)
+  const [takingOver, setTakingOver] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
   const [editing, setEditing] = useState<WhopPlan>()
   const selling = store.plans.filter((p) => p.allowance)
@@ -221,15 +222,17 @@ function Connected({ store, onChange }: { store: WhopStore; onChange: (s: WhopSt
     }
   }
 
-  async function takeBack() {
-    setTakingBack(true)
+  async function takeOver() {
+    setTakingOver(true)
     try {
-      onChange(await post<WhopStore>('/api/whop/sync', { takeOver: true }))
-      toastManager.add({ title: t('whop.tookBack'), type: 'success' })
+      const s = await post<WhopStore>('/api/whop/sync', { takeOver: true })
+      onChange(s)
+      if (s.takenOverBy) toastManager.add({ title: t('whop.stillOther', { dashboard: s.takenOverBy }), type: 'error' })
+      else toastManager.add({ title: t('whop.tookOver'), type: 'success' })
     } catch (e) {
       toastManager.add({ title: errorText(e), type: 'error' })
     } finally {
-      setTakingBack(false)
+      setTakingOver(false)
     }
   }
 
@@ -270,10 +273,12 @@ function Connected({ store, onChange }: { store: WhopStore; onChange: (s: WhopSt
       {store.takenOverBy && (
         <div className="mt-1 flex flex-wrap items-center gap-2" role="alert">
           <p className="min-w-0 flex-1 text-xs text-destructive-foreground">
-            {t('whop.takenOver', { dashboard: store.takenOverBy, when: store.takenOverAt ? relativeTime(store.takenOverAt) : '' })}
+            {store.takenOverAt
+              ? t('whop.takenOver', { dashboard: store.takenOverBy, when: relativeTime(store.takenOverAt) })
+              : t('whop.otherSells', { dashboard: store.takenOverBy })}
           </p>
-          <Button variant="outline" size="sm" loading={takingBack} onClick={() => void takeBack()}>
-            {t('whop.takeBack')}
+          <Button variant="outline" size="sm" loading={takingOver} onClick={() => void takeOver()}>
+            {store.takenOverAt ? t('whop.takeBack') : t('whop.takeOver')}
           </Button>
         </div>
       )}

@@ -50,8 +50,9 @@ type whopView struct {
 	SyncedAt    *time.Time    `json:"syncedAt,omitempty"`
 	// Problem is what went wrong the last time the dashboard talked to Whop.
 	Problem string `json:"problem,omitempty"`
-	// TakenOverBy is the dashboard that took the store over, at
-	// TakenOverAt, which stopped this one selling.
+	// TakenOverBy is the dashboard that sells for the store instead of this
+	// one. TakenOverAt is when it took the store over from this one; it's
+	// absent while this dashboard's own takeover isn't done.
 	TakenOverBy string         `json:"takenOverBy,omitempty"`
 	TakenOverAt *time.Time     `json:"takenOverAt,omitempty"`
 	Plans       []whopPlanView `json:"plans"`
@@ -173,7 +174,10 @@ func (s *Server) whopView(ctx context.Context) (whopView, error) {
 		v.SyncedAt = &a.SyncedAt
 	}
 	if a.TakenOverBy != "" {
-		v.TakenOverBy, v.TakenOverAt = a.TakenOverBy, &a.TakenOverAt
+		v.TakenOverBy = a.TakenOverBy
+		if !a.TakenOverAt.IsZero() {
+			v.TakenOverAt = &a.TakenOverAt
+		}
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT plan_id, product_id, product_title, title, price, visibility, trial_days, allowance_servers, allowance_memory_mb, allowance_from
 		FROM whop_plans WHERE visibility != 'archived' ORDER BY position`)
@@ -271,23 +275,36 @@ func (s *Server) hWhopConnect(w http.ResponseWriter, r *http.Request, sess *sess
 			Hint: "Take the store over to sell from this dashboard instead. That one stops selling.", Params: map[string]any{"dashboard": other}})
 		return
 	}
+	// Until the store carries this dashboard's marks, the other dashboard
+	// sells and this one doesn't (see readWhopStore).
 	now := s.now().UnixMilli()
-	if _, err := s.db.Exec(`INSERT INTO whop_account(id, account_id, title, route, api_key, connected_by, connected_at) VALUES(1,?,?,?,?,?,?)
-		ON CONFLICT(id) DO UPDATE SET title = excluded.title, route = excluded.route, api_key = excluded.api_key, problem = '', taken_over_by = '', taken_over_at = 0`,
-		acc.ID, acc.Title, acc.Route, key, sess.User.Username, now); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO whop_account(id, account_id, title, route, api_key, connected_by, connected_at, taken_over_by) VALUES(1,?,?,?,?,?,?,?)
+		ON CONFLICT(id) DO UPDATE SET title = excluded.title, route = excluded.route, api_key = excluded.api_key, problem = '',
+		taken_over_by = excluded.taken_over_by, taken_over_at = 0`,
+		acc.ID, acc.Title, acc.Route, key, sess.User.Username, now, other); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
 		return
 	}
+	s.syncWhop(ctx, c, acc.ID, true)
 	detail := "key ending " + whop.Ending(key)
 	if had {
 		detail = "replaced the key; " + detail
 	}
 	if other != "" {
-		detail += "; took the store over from " + other
+		detail += "; " + s.takeoverOutcome(other)
 	}
 	s.audit(sess.User.Username, "whop.connect", acc.ID, "succeeded", detail)
-	s.syncWhop(ctx, c, acc.ID, true)
 	s.answerWhop(w, r)
+}
+
+// takeoverOutcome says whether taking the store over from other worked,
+// and if not, why, for the audit log.
+func (s *Server) takeoverOutcome(other string) string {
+	a, ok, err := s.storedWhop()
+	if err == nil && ok && a.TakenOverBy == "" {
+		return "took the store over from " + other
+	}
+	return "couldn't take the store over from " + other + ": " + cmpOr(a.Problem, "the store isn't marked for this dashboard yet")
 }
 
 // otherSeller is the address of another dashboard that sells for business,
@@ -326,8 +343,8 @@ func cmpOr(a, b string) string {
 
 func whopName(a whop.Account) string { return cmpOr(a.Title, a.ID) }
 
-// whopSyncBody asks to read the store again. TakeOver takes the store back
-// from a dashboard that took it over.
+// whopSyncBody asks to read the store again. TakeOver takes the store over
+// from the dashboard that sells for it, as when that one took it over.
 type whopSyncBody struct {
 	TakeOver bool `json:"takeOver"`
 }
@@ -357,16 +374,17 @@ func (s *Server) hWhopSync(w http.ResponseWriter, r *http.Request, sess *session
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Playkeeper's Whop settings are wrong: "+err.Error(), "")
 		return
 	}
-	if req.TakeOver && a.TakenOverBy != "" {
-		if _, err := s.db.Exec(`UPDATE whop_account SET taken_over_by = '', taken_over_at = 0 WHERE id = 1`); err != nil {
-			writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
-			return
-		}
-		s.audit(sess.User.Username, "whop.take_back", a.ID, "succeeded", "took the store back from "+a.TakenOverBy)
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), whopTimeout)
 	defer cancel()
 	s.syncWhop(ctx, c, a.ID, req.TakeOver)
+	if req.TakeOver && a.TakenOverBy != "" {
+		outcome := s.takeoverOutcome(a.TakenOverBy)
+		result := "succeeded"
+		if s.whopTakenOver() {
+			result = "failed"
+		}
+		s.audit(sess.User.Username, "whop.take_over", a.ID, result, outcome)
+	}
 	s.answerWhop(w, r)
 }
 
@@ -464,7 +482,7 @@ func (s *Server) hWhopDisconnect(w http.ResponseWriter, r *http.Request, sess *s
 	if c, err := s.whopClient(a.Key); err == nil {
 		ctx, cancel := context.WithTimeout(r.Context(), whopTimeout)
 		defer cancel()
-		if err := s.markWhopProducts(ctx, c, a.ID, nil, "", false); err != nil {
+		if err := s.markWhopProducts(ctx, c, a.ID, nil, "", a.MarkedAs, false); err != nil {
 			// A store that still names this dashboard keeps taking orders, so
 			// the key stays for another try, unless Whop no longer takes it.
 			if !whop.KeyRefused(err) {
@@ -547,6 +565,11 @@ func whopProblem(err error) string {
 
 var errNoDashboardAddress = errors.New("This machine has no address with a certificate yet, so the store can't take orders. Give it one in Machine settings › Address.")
 
+// readWhopStore reads the store's plans with what each allows, and marks
+// its products for this dashboard. A dashboard another one took the store
+// over from marks nothing. One that claims the store sells again only once
+// its marks are written, which needs an address: until then the other
+// dashboard still sells.
 func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, accountID string, claim bool) error {
 	products, err := c.Products(ctx, accountID)
 	if err != nil {
@@ -609,8 +632,27 @@ func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, accountID st
 	if err != nil {
 		return err
 	}
-	if err := s.markWhopProducts(ctx, c, accountID, products, dash, claim); err != nil {
+	var markedAs, takenBy string
+	if err := s.db.QueryRowContext(ctx, `SELECT marked_as, taken_over_by FROM whop_account WHERE id = 1`).Scan(&markedAs, &takenBy); err != nil && !isNoRows(err) {
 		return err
+	}
+	switch {
+	case takenBy != "" && !claim:
+		return nil
+	case takenBy != "" && dash == "":
+		return errNoDashboardAddress
+	case !claim && dash != "":
+		if taken, err := s.noticeTakeover(ctx, accountID, products, dash, markedAs); taken || err != nil {
+			return err
+		}
+	}
+	if err := s.markWhopProducts(ctx, c, accountID, products, dash, markedAs, claim && dash != ""); err != nil {
+		return err
+	}
+	if takenBy != "" {
+		if _, err := s.db.ExecContext(ctx, `UPDATE whop_account SET taken_over_by = '', taken_over_at = 0 WHERE id = 1`); err != nil {
+			return err
+		}
 	}
 	if dash == "" && len(selling) > 0 {
 		return errNoDashboardAddress
@@ -618,38 +660,36 @@ func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, accountID st
 	return nil
 }
 
+// noticeTakeover records that another dashboard took the store over when
+// the store's products carry another dashboard's marks for this business,
+// and says whether they do. dash and markedAs are this dashboard's own
+// addresses, now and when it last marked the products, so a new address
+// isn't mistaken for another dashboard.
+func (s *Server) noticeTakeover(ctx context.Context, accountID string, products []whop.Product, dash, markedAs string) (bool, error) {
+	other := otherSeller(products, accountID, dash, markedAs)
+	if other == "" {
+		return false, nil
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE whop_account SET taken_over_by = ?, taken_over_at = ? WHERE id = 1`, other, s.now().UnixMilli()); err != nil {
+		return true, err
+	}
+	s.audit("system", "whop.taken_over", accountID, "succeeded", "another Playkeeper took the store over, at "+other+"; this dashboard stopped selling")
+	return true, nil
+}
+
 // markWhopProducts gives the products that sell servers (those with a plan
 // that has an allowance) the dashboard's address, and takes it off the
 // others. With dash empty it takes it off them all. products nil reads
-// them first.
+// them first. markedAs is the address it last marked them with.
 //
-// A product another dashboard marked for this business means that dashboard
-// took the store over: unless claim takes it back, nothing is written, and
-// this dashboard stops selling until its owner takes the store back or
-// disconnects. Its own marks are the address it has and the one it last
-// wrote, so a new address isn't mistaken for another dashboard, and taking
-// its marks off leaves another dashboard's alone.
-func (s *Server) markWhopProducts(ctx context.Context, c *whop.Client, accountID string, products []whop.Product, dash string, claim bool) error {
+// Another dashboard's marks stay, since that dashboard took the store over,
+// unless claim takes the store from it. The caller checks for them first
+// (see readWhopStore): taken over, a dashboard writes nothing.
+func (s *Server) markWhopProducts(ctx context.Context, c *whop.Client, accountID string, products []whop.Product, dash, markedAs string, claim bool) error {
 	if products == nil {
 		var err error
 		if products, err = c.Products(ctx, accountID); err != nil {
 			return err
-		}
-	}
-	var markedAs, takenBy string
-	if err := s.db.QueryRowContext(ctx, `SELECT marked_as, taken_over_by FROM whop_account WHERE id = 1`).Scan(&markedAs, &takenBy); err != nil && !isNoRows(err) {
-		return err
-	}
-	if dash != "" && !claim {
-		if takenBy != "" {
-			return nil
-		}
-		if other := otherSeller(products, accountID, dash, markedAs); other != "" {
-			if _, err := s.db.ExecContext(ctx, `UPDATE whop_account SET taken_over_by = ?, taken_over_at = ? WHERE id = 1`, other, s.now().UnixMilli()); err != nil {
-				return err
-			}
-			s.audit("system", "whop.taken_over", accountID, "succeeded", "another Playkeeper took the store over, at "+other+"; this dashboard stopped selling")
-			return nil
 		}
 	}
 	selling := map[string]bool{}

@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -89,12 +90,129 @@ func TestAnotherDashboardIsRefusedAStoreThisOneSellsForUnlessItTakesItOver(t *te
 	if got := core.got(); len(got) != 1 || !strings.HasPrefix(got[0], "start ") {
 		t.Fatalf("the first dashboard's calls once it sells again: %q", got)
 	}
-	if rows := a.auditRows(t, "whop.take_back"); len(rows) != 1 || !strings.HasSuffix(rows[0], "took the store back from "+otherDashboard) {
+	if rows := a.auditRows(t, "whop.take_over"); len(rows) != 1 || !strings.HasSuffix(rows[0], "took the store over from "+otherDashboard) {
 		t.Fatalf("audit: %q", rows)
 	}
 	b.do(t, "POST", "/api/whop/sync", "", ownB.auth())
 	if v := b.whopView(t, ownB); v.TakenOverBy != whopDashboard {
 		t.Fatalf("the second dashboard wasn't stopped: %+v", v)
+	}
+}
+
+func (f *fakeWhop) refuseMarks(v bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.patchDown = v
+}
+
+func TestATakeoverCountsOnlyOnceTheStoreCarriesItsMarks(t *testing.T) {
+	f, a, _ := connectedWhop(t)
+	b, ownB := secondDashboard(t, f)
+	coreA, coreB := useFakeCore(a), useFakeCore(b)
+
+	// Whop won't take the second dashboard's marks, so the first still
+	// sells and the second doesn't.
+	f.refuseMarks(true)
+	r := b.do(t, "POST", "/api/whop/connect", `{"key":"`+whopTestKey+`","takeOver":true}`, ownB.auth())
+	if r.status != http.StatusOK || r.body["takenOverBy"] != whopDashboard || r.body["takenOverAt"] != nil || r.body["problem"] == nil {
+		t.Fatalf("a takeover Whop didn't mark: %d %v", r.status, r.body)
+	}
+	a.deliver(t, "evt_alex", whop.EventMembershipActivated, f.buy("mem_alex", "user_alex", "plan_starter", "active"))
+	b.clock.add(whopPollEvery)
+	b.reconcile()
+	a.reconcile()
+	if got := coreB.got(); len(got) != 0 || f.dashboardMeta() != whopDashboard {
+		t.Fatalf("the second dashboard sold before the store was its: calls %q, store names %q", got, f.dashboardMeta())
+	}
+	if got := coreA.got(); len(got) != 1 {
+		t.Fatalf("the first dashboard's calls: %q", got)
+	}
+	if rows := b.auditRows(t, "whop.connect"); len(rows) != 1 || !strings.Contains(rows[0], "couldn't take the store over from "+whopDashboard+": Whop said: Try again") {
+		t.Fatalf("audit: %q", rows)
+	}
+
+	// Trying again once Whop takes them makes the store the second's.
+	f.refuseMarks(false)
+	r = b.do(t, "POST", "/api/whop/sync", `{"takeOver":true}`, ownB.auth())
+	if r.status != http.StatusOK || r.body["takenOverBy"] != nil || f.dashboardMeta() != otherDashboard {
+		t.Fatalf("taking it over again: %d %v, store names %q", r.status, r.body, f.dashboardMeta())
+	}
+	if rows := b.auditRows(t, "whop.take_over"); len(rows) != 1 || !strings.Contains(rows[0], " succeeded took the store over from "+whopDashboard) {
+		t.Fatalf("audit: %q", rows)
+	}
+}
+
+func TestTakingAStoreBackWhopWontMarkLeavesItWithTheOther(t *testing.T) {
+	f, a, ownA := connectedWhop(t)
+	b, ownB := secondDashboard(t, f)
+	if r := b.do(t, "POST", "/api/whop/connect", `{"key":"`+whopTestKey+`","takeOver":true}`, ownB.auth()); r.status != http.StatusOK || r.body["takenOverBy"] != nil {
+		t.Fatalf("taking the store over: %d %v", r.status, r.body)
+	}
+	a.reconcile()
+	f.refuseMarks(true)
+	r := a.do(t, "POST", "/api/whop/sync", `{"takeOver":true}`, ownA.auth())
+	if r.status != http.StatusOK || r.body["takenOverBy"] != otherDashboard || r.body["takenOverAt"] == nil || f.dashboardMeta() != otherDashboard {
+		t.Fatalf("taking the store back while Whop won't mark it: %d %v, store names %q", r.status, r.body, f.dashboardMeta())
+	}
+	core := useFakeCore(a)
+	a.deliver(t, "evt_alex", whop.EventMembershipActivated, f.buy("mem_alex", "user_alex", "plan_starter", "active"))
+	a.reconcile()
+	if got := core.got(); len(got) != 0 {
+		t.Fatalf("the first dashboard sold after taking the store back failed: %q", got)
+	}
+	if rows := a.auditRows(t, "whop.take_over"); len(rows) != 1 || !strings.Contains(rows[0], " failed couldn't take the store over from "+otherDashboard) {
+		t.Fatalf("audit: %q", rows)
+	}
+}
+
+func TestADashboardTakenOverStopsBeforeItActsAgain(t *testing.T) {
+	f, a, _ := connectedWhop(t)
+	b, ownB := secondDashboard(t, f)
+	core := useFakeCore(a)
+	if r := b.do(t, "POST", "/api/whop/connect", `{"key":"`+whopTestKey+`","takeOver":true}`, ownB.auth()); r.status != http.StatusOK {
+		t.Fatalf("taking the store over: %d %v", r.status, r.body)
+	}
+
+	// A buyer and more room reach the first dashboard before its next read
+	// of the store is due.
+	if err := a.srv.sales.SetAvailability(context.Background(), map[string]int{"plan_starter": 2}); err != nil {
+		t.Fatal(err)
+	}
+	a.deliver(t, "evt_alex", whop.EventMembershipActivated, f.buy("mem_alex", "user_alex", "plan_starter", "active"))
+	a.reconcile()
+	if got := core.got(); len(got) != 0 || len(f.stockWrites()) != 0 {
+		t.Fatalf("a dashboard taken over still acted: calls %q, stock written %q", got, f.stockWrites())
+	}
+	if !a.srv.whopTakenOver() {
+		t.Fatal("the first dashboard didn't notice it was taken over")
+	}
+}
+
+func TestTakingAStoreOverNeedsAnAddress(t *testing.T) {
+	f, a, ownA := connectedWhop(t)
+	b := newWhopEnv(t, f)
+	b.setAddress(t, "")
+	ownB := owner(t, b)
+	r := b.do(t, "POST", "/api/whop/connect", `{"key":"`+whopTestKey+`","takeOver":true}`, ownB.auth())
+	problem, _ := r.body["problem"].(string)
+	if r.status != http.StatusOK || r.body["takenOverBy"] != whopDashboard || !strings.Contains(problem, "no address") || f.dashboardMeta() != whopDashboard {
+		t.Fatalf("taking a store over without an address: %d %v, store names %q", r.status, r.body, f.dashboardMeta())
+	}
+
+	// Nor does a dashboard that lost its address take another's marks off,
+	// and it notices it was taken over all the same.
+	c, ownC := secondDashboard(t, f)
+	if r := c.do(t, "POST", "/api/whop/connect", `{"key":"`+whopTestKey+`","takeOver":true}`, ownC.auth()); r.status != http.StatusOK || r.body["takenOverBy"] != nil {
+		t.Fatalf("taking the store over: %d %v", r.status, r.body)
+	}
+	a.setAddress(t, "")
+	a.do(t, "POST", "/api/whop/sync", `{"takeOver":true}`, ownA.auth())
+	if got := f.dashboardMeta(); got != otherDashboard {
+		t.Fatalf("a dashboard without an address took the store's marks off: it names %q", got)
+	}
+	a.reconcile()
+	if !a.srv.whopTakenOver() {
+		t.Fatal("a dashboard without an address didn't notice it was taken over")
 	}
 }
 

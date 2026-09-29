@@ -1889,7 +1889,11 @@ export interface WhopStore {
   connectedAt?: string
   syncedAt?: string
   problem?: string
-  /** The dashboard that took the store over, and when; this one stopped selling until it's taken back. */
+  /**
+   * The dashboard that sells for the store instead of this one, and when it
+   * took the store over from this one. Without a time, this dashboard's own
+   * takeover isn't done yet.
+   */
   takenOverBy?: string
   takenOverAt?: string
   plans: WhopPlan[]

@@ -1909,6 +1909,24 @@ describe('Sell on Whop', () => {
     expect(page()).toContain('Pip HostingSelling')
   })
 
+  it('says the other dashboard still sells while taking the store over isn’t done', async () => {
+    const pending = { ...open, takenOverBy: 'https://beta.playkeeper.me:8443', problem: 'Whop said: Try again' }
+    answer({ '/api/whop': pending })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('Another Playkeeper, at https://beta.playkeeper.me:8443, still sells for this store, so this dashboard doesn’t yet.')
+    expect(text).toContain('Whop said: Try again')
+    const toast = vi.spyOn(toastManager, 'add')
+    vi.mocked(client.post).mockResolvedValueOnce(pending)
+    await click('Take it over')
+    expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/whop/sync', { takeOver: true })
+    expect(toast).toHaveBeenLastCalledWith({ title: 'The store still sells from https://beta.playkeeper.me:8443.', type: 'error' })
+    vi.mocked(client.post).mockResolvedValueOnce(open)
+    await click('Take it over')
+    expect(toast).toHaveBeenLastCalledWith({ title: 'Selling from this dashboard now', type: 'success' })
+    expect(page()).toContain('Pip HostingSelling')
+    toast.mockRestore()
+  })
+
   it('shows the connected store with its plans and what each allows', async () => {
     answer({ '/api/whop': closed })
     await render(<SellOnWhopSection />, owner)

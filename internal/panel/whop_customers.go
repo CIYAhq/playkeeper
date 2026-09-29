@@ -199,7 +199,7 @@ func (s *Server) reconcileWhop(ctx context.Context) {
 		s.log.Warn("could not read memberships from Whop", "err", err)
 	}
 	s.refreshWhopPlans(ctx, c, a)
-	if s.whopTakenOver() {
+	if s.whopTakenOver() || !s.stillSellsFor(ctx, c, a.ID) {
 		return
 	}
 	s.pushWhopStock(ctx, c, a.ID)
@@ -213,6 +213,31 @@ func (s *Server) reconcileWhop(ctx context.Context) {
 func (s *Server) whopTakenOver() bool {
 	var by string
 	return s.db.QueryRow(`SELECT taken_over_by FROM whop_account WHERE id = 1`).Scan(&by) == nil && by != ""
+}
+
+// stillSellsFor reads the store's products again just before the
+// reconciler writes stock, calls the core or sends messages, so a dashboard
+// another one took the store over from stops within a pass rather than at
+// its next read of the store. That holds without an address too, since a
+// dashboard's own marks are the address it last marked with. Without
+// Whop's answer, or when the machine can't be asked for its address, it
+// does none of that this pass.
+func (s *Server) stillSellsFor(ctx context.Context, c *whop.Client, accountID string) bool {
+	dash, err := s.dashboardURL(ctx)
+	if err != nil {
+		return false
+	}
+	products, err := c.Products(ctx, accountID)
+	if err != nil {
+		s.log.Warn("could not check that this dashboard still sells for the store", "err", err)
+		return false
+	}
+	var markedAs string
+	if err := s.db.QueryRowContext(ctx, `SELECT marked_as FROM whop_account WHERE id = 1`).Scan(&markedAs); err != nil {
+		return false
+	}
+	taken, err := s.noticeTakeover(ctx, accountID, products, dash, markedAs)
+	return err == nil && !taken
 }
 
 // ensureWhopWebhook adds the webhook, or moves it to the dashboard's
