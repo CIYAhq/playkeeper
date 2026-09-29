@@ -234,7 +234,9 @@ func kindRank(kind string) int {
 // plan's memory, and returns it. A customer who has one keeps it. With no
 // room anywhere they wait, and the answer is errNoRoom. A machine that
 // doesn't keep servers away from itself yet gets that turned on first, as
-// a creator invite does, and is passed over if it can't be.
+// a creator invite does, and is passed over if it can't be. The disk limits
+// are sent at once, so the machine has the customer's before they upload a
+// world or backup for their first server.
 func (s *Server) placeCustomer(ctx context.Context, userID int64, plan CustomerPlan) (string, error) {
 	if plan.MemoryMB <= 0 {
 		return "", fmt.Errorf("the plan %q allows no memory", plan.ID)
@@ -276,6 +278,7 @@ func (s *Server) placeCustomer(ctx context.Context, userID int64, plan CustomerP
 		if err := s.setHome(ctx, userID, m.ID); err != nil {
 			return "", err
 		}
+		s.kickDiskLimits()
 		s.audit(placementActor, "customer.place", fmt.Sprint(userID), "placed", fmt.Sprintf("on %s, with %s set aside for %s", cmp.Or(m.Name, m.ID), gbText(plan.MemoryMB), cmp.Or(plan.Name, plan.ID)))
 		return m.ID, nil
 	}

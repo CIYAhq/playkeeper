@@ -8561,6 +8561,10 @@ control "confirming: stopping waits for a customer being placed" internal/panel/
 	m, err := s.machineByID(id)' \
   'm, err := s.machineByID(id)' \
   ./internal/panel '^TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt$'
+control "confirming: a placed customer's machine gets their disk limit at once" internal/panel/placement.go \
+  's.kickDiskLimits()' \
+  '_ = s.kickDiskLimits' \
+  ./internal/panel '^TestPlacingACustomerSendsTheDiskLimitsAtOnce$'
 control "confirming: the customers waiting for room are placed" internal/panel/machinecustomers.go \
   's.kickRoom()' \
   '_ = s.kickRoom' \

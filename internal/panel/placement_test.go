@@ -144,6 +144,29 @@ func TestPlacementSetsAsideEachPlanUntilItsUsed(t *testing.T) {
 	}
 }
 
+// Placing a customer has the disk limits sent at once, so their machine has
+// their limit before they upload a world or backup for their first server,
+// rather than a minute later.
+func TestPlacingACustomerSendsTheDiskLimitsAtOnce(t *testing.T) {
+	e := newEnv(t)
+	owner(t, e)
+	e.reply("GET", "/v1/machine", liveMachine(30000, true))
+	e.reply("GET", "/v1/servers", `[]`)
+	alex := addCreator(t, e, "alexplays", fourGB)
+	select {
+	case <-e.srv.diskKick:
+	default:
+	}
+	if _, err := e.srv.placeCustomer(t.Context(), alex.id, starter); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-e.srv.diskKick:
+	default:
+		t.Fatal("placing alex didn't have the disk limits sent at once")
+	}
+}
+
 func TestJoinedMachinesTakeNoCustomersUntilConfirmed(t *testing.T) {
 	e := newEnv(t)
 	owner(t, e)
