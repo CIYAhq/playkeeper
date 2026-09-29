@@ -169,8 +169,8 @@ func TestABackupForANewServerCountsAgainstItsDiskLimit(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("a second backup: %d %v", code, preview)
 	}
-	if exists(e.a.stageDir(first["id"].(string))) {
-		t.Fatal("the backup staged first is still there beside the newer one")
+	if left, _ := filepath.Glob(e.a.stageDir(first["id"].(string)) + "*"); len(left) != 0 {
+		t.Fatalf("the backup staged first is still there beside the newer one: %v", left)
 	}
 	apply := func() (int, map[string]any) {
 		return e.callWhenFree("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": preview["confirmPhrase"], "acceptEula": true, "actor": "alex"})
@@ -256,11 +256,18 @@ func TestARestoreKeepsTheUploadItApplies(t *testing.T) {
 	if err := writeSwapJournal(e.a.stageDir(m.newer), j); err != nil {
 		t.Fatal(err)
 	}
-	if code, out := e.uploadTo("/v1/restore/upload?diskLimit=account-8", raw); code != 200 {
-		t.Fatalf("an upload after one whose restore left its journal: %d %v", code, out)
+	code, last := e.uploadTo("/v1/restore/upload?diskLimit=account-8", raw)
+	if code != 200 {
+		t.Fatalf("an upload after one whose restore left its journal: %d %v", code, last)
 	}
 	if !exists(e.a.stageDir(m.newer)) {
 		t.Fatal("a newer upload replaced one whose restore left its swap journal")
+	}
+	if code, out := e.call("DELETE", "/v1/restore/"+last["id"].(string), nil); code != http.StatusNoContent {
+		t.Fatalf("discarding the last upload: %d %v", code, out)
+	}
+	if left, _ := filepath.Glob(e.a.stageDir(last["id"].(string)) + "*"); len(left) != 0 {
+		t.Fatalf("a discarded upload left %v", left)
 	}
 }
 

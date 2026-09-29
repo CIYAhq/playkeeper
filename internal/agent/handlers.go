@@ -1558,13 +1558,17 @@ func (a *Agent) hRestoreDiscard(w http.ResponseWriter, r *http.Request) {
 	}
 	a.stages.mu.Lock()
 	busy := a.stageInUse(id)
+	aside, ok := "", false
 	if !busy {
-		os.RemoveAll(a.stageDir(id))
+		aside, ok = a.setStageAside(id)
 	}
 	a.stages.mu.Unlock()
 	if busy {
 		writeError(w, errConflict("A restore is in progress.", ""))
 		return
+	}
+	if ok {
+		os.RemoveAll(aside)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

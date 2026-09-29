@@ -1339,8 +1339,7 @@ type stageFile struct {
 // stays, as does one whose restore left its swap journal: it may hold the
 // only copy of a world.
 func (a *Agent) tagStage(id, limit string) error {
-	// What it forgets is moved aside while it holds the claims, so a restore
-	// never reads half of one, and deleted once it doesn't.
+	// Deferred first, so it runs once the lock below is released.
 	var gone []string
 	defer func() {
 		for _, dir := range gone {
@@ -1372,11 +1371,22 @@ func (a *Agent) tagStage(id, limit string) error {
 		if _, err := os.Lstat(filepath.Join(other, swapJournalFile)); !errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		if o, err := readStageFile(other); err == nil && o.DiskLimit == limit && os.Rename(other, other+".gone") == nil {
-			gone = append(gone, other+".gone")
+		if o, err := readStageFile(other); err == nil && o.DiskLimit == limit {
+			if aside, ok := a.setStageAside(name); ok {
+				gone = append(gone, aside)
+			}
 		}
 	}
 	return nil
+}
+
+// setStageAside renames the stage id to a name no stage has, so no restore
+// reads half of it, for the caller to delete once it no longer holds
+// a.stages.mu: deleting a large world takes a while, and every restore and
+// upload waits for the lock meanwhile. The caller holds a.stages.mu.
+func (a *Agent) setStageAside(id string) (aside string, ok bool) {
+	aside = a.stageDir(id) + ".gone-" + randomSecret(4)
+	return aside, os.Rename(a.stageDir(id), aside) == nil
 }
 
 // claimStage claims the stage id for the restore about to apply it, or

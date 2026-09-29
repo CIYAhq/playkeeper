@@ -7870,8 +7870,8 @@ control "customer uploads: a staged backup remembers its limit" internal/agent/b
   'f.Preview.DiskLimit = limit' \
   ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
 control "customer uploads: an account stages one backup at a time" internal/agent/backups.go \
-  'err == nil && o.DiskLimit == limit && os.Rename(' \
-  'err == nil && o.DiskLimit == limit && false && os.Rename(' \
+  'err == nil && o.DiskLimit == limit {' \
+  'err == nil && o.DiskLimit == limit && false {' \
   ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
 control "customer uploads: a staged backup's limit is read back" internal/agent/backups.go \
   'st.limit, st.preview.DiskLimit = s.DiskLimit, s.DiskLimit' \
@@ -7928,6 +7928,14 @@ control "customer uploads: a refused restore gives its upload up" internal/agent
 control "customer uploads: an upload whose restore left its journal isn't replaced" internal/agent/backups.go \
   'swapJournalFile)); !errors.Is(err, os.ErrNotExist) {' \
   'swapJournalFile)); !errors.Is(err, os.ErrNotExist) && false {' \
+  ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
+control "customer uploads: a replaced upload is deleted, not just moved aside" internal/agent/backups.go \
+  'for _, dir := range gone {' \
+  'for _, dir := range gone[:0] {' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: a discarded upload is deleted, not just moved aside" internal/agent/handlers.go \
+  '		os.RemoveAll(aside)' \
+  '		_ = aside' \
   ./internal/agent '^TestARestoreKeepsTheUploadItApplies$'
 
 if [ "$bad" != 0 ]; then
