@@ -8600,11 +8600,11 @@ webcontrol "confirming: New server here is only on the machine a creator's serve
 webcontrol "confirming: the card is the owner's alone" web/src/pages/machines.tsx \
   "{can(ws.me, 'machines.customers') && <CustomersCard machine={m} />}" \
   '<CustomersCard machine={m} />' \
-  src/pages/pages.test.tsx 'is the owner’s alone'
+  src/pages/pages.test.tsx 'and waits for a machine'
 webcontrol "confirming: the owner checks the machine is theirs first" web/src/pages/machines.tsx \
   'onClick={() => setConfirming(true)}' \
   'onClick={() => void set(true)}' \
-  src/pages/pages.test.tsx 'once the owner checks it’s theirs'
+  src/pages/pages.test.tsx 'places customers on a joined machine once the owner checks'
 webcontrol "confirming: removing a machine says its customers are on it" web/src/pages/machines.tsx \
   '{!!m.customers && (' \
   '{false && (' \
