@@ -248,6 +248,17 @@ func TestDiscordAlertSequences(t *testing.T) {
 			}
 			lastError(e, "stopped restarting")
 		}, want: []sentAlert{crashed, back, gaveUp}, status: discord.StateCrashed},
+		{name: "a crash that repeats at every start, which stays off", steps: func(e *agentEnv) {
+			e.tick(tickingReport(false, "minecraft:minecart", 6, 120, 6, "minecraft:overworld"))
+			lastError(e, "didn't restart it")
+		}, want: []sentAlert{gaveUp}, status: discord.StateCrashed},
+		{name: "a crash, then a restart that stops the same way each time", steps: func(e *agentEnv) {
+			e.fd.mu.Lock()
+			e.fd.bootExit, e.fd.bootLines = 1, []string{"[12:00:00 ERROR]: Failed to load world data. World files may be corrupted. Shutting down."}
+			e.fd.mu.Unlock()
+			crash(e)
+			lastError(e, "would stop the same way each time")
+		}, want: []sentAlert{crashed, didntStart}, status: discord.StateCrashed},
 		{name: "a crash, then restarts fail until Playkeeper gives up", steps: func(e *agentEnv) {
 			portTaken(e, true)
 			crash(e)
