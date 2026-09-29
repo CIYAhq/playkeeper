@@ -227,6 +227,14 @@ func TestSignInWithWhopNeedsAnAppAndTheMachinesAddress(t *testing.T) {
 	}
 }
 
+// Coming back waits on Whop, after the one-time state is used, and the
+// public guard ends the request at its read or write deadline.
+func TestSignInWithWhopWaitsOnWhopWithinItsDeadlines(t *testing.T) {
+	if l := whopSignInLimits; l.read <= whopCallsFor || l.write <= whopCallsFor {
+		t.Fatalf("the route's deadlines (read %v, write %v) end before its calls to Whop may (%v)", l.read, l.write, whopCallsFor)
+	}
+}
+
 func TestSignInWithWhopIsSetUpByTheOwnerAlone(t *testing.T) {
 	f := newFakeWhop(t)
 	e := newWhopEnv(t, f)

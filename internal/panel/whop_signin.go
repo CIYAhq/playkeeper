@@ -27,10 +27,15 @@ const (
 	whopSignInCookie   = "pk_whop_signin"
 	// whopSignInFor is how long someone may take on Whop's side.
 	whopSignInFor = 10 * time.Minute
+	// whopCallsFor bounds the calls to Whop when someone comes back: the
+	// exchange, reading who they are, and ending the refresh token.
+	whopCallsFor = 30 * time.Second
 )
 
 // whopSignInLimits bound sign-ins from one address like password sign-ins.
-var whopSignInLimits = publicLimits{perMinute: 30, open: 8, read: 10 * time.Second, write: 10 * time.Second}
+// Coming back waits on Whop, and the route's read deadline ends the
+// request's context, so both deadlines outlast whopCallsFor.
+var whopSignInLimits = publicLimits{perMinute: 30, open: 8, read: whopCallsFor + 10*time.Second, write: whopCallsFor + 10*time.Second}
 
 func (s *Server) whopSignIn() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -177,7 +182,7 @@ func (s *Server) whoOnWhop(ctx context.Context, o whop.OAuth, code, verifier str
 	if code == "" || len(code) > 2048 {
 		return whop.UserInfo{}, errors.New("Whop sent back no code")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, whopCallsFor)
 	defer cancel()
 	tokens, err := o.Exchange(ctx, code, verifier)
 	if err != nil {
