@@ -1877,6 +1877,8 @@ export interface Invite {
 export interface Allowance {
   servers: number
   memoryMB: number
+  /** The disk their servers may take between them; missing for the default from the memory (see allowanceDiskMB). */
+  diskGB?: number
 }
 
 /** Settings › Sell on Whop: the Whop account this dashboard sells servers for, and the plans its store sells. dashboard is where Whop and buyers reach it, "" until the machine has an address with a certificate. */
@@ -2042,6 +2044,8 @@ export interface TeamMember {
   canConfirm?: boolean
   /** Set for a creator. */
   allowance?: Allowance
+  /** What a creator's servers took of their disk when last counted; missing until they have been. */
+  diskUsedBytes?: number
 }
 
 export interface TeamInvite extends Invite {

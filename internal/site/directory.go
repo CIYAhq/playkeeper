@@ -337,12 +337,12 @@ func (d *Directory) Crossplay() []*TemplateCard {
 func (c *TemplateCard) Thumb() string { return c.thumb }
 
 // Thumbnails, which Render real template thumbnails makes from each
-// template's own world: shots/templates/<id>-480w and -960w, in AVIF and
-// WebP, 16:10 (site/tools/shots.py). They show in place of a template's
+// template's own world: shots/templates/<id>-480w, -960w and -1200w, in
+// AVIF and WebP, 16:10 (site/tools/shots.py). They show in place of a template's
 // pixel-art scene wherever it is, once they're there.
 var (
 	reThumb     = regexp.MustCompile(`^shots/templates/([a-z0-9]+(?:-[a-z0-9]+)*)-(\d+)w\.(avif|webp)$`)
-	thumbWidths = []int{480, 960}
+	thumbWidths = []int{480, 960, 1200}
 )
 
 // addThumbs gives each template its thumbnail, and refuses one for no
@@ -355,20 +355,20 @@ func (s *Site) addThumbs() error {
 		}
 		m := reThumb.FindStringSubmatch(key)
 		if m == nil {
-			return fmt.Errorf("site/static/%s isn't a template's thumbnail, <id>-480w or -960w, .avif or .webp", key)
+			return fmt.Errorf("site/static/%s isn't a template's thumbnail, <id>-480w, -960w or -1200w, .avif or .webp", key)
 		}
 		if s.cards[m[1]] == nil {
 			return fmt.Errorf("site/static/%s is a thumbnail for %s, which isn't a template", key, m[1])
 		}
 		w, _ := strconv.Atoi(m[2])
 		if !slices.Contains(thumbWidths, w) || a.Height*16 != a.Width*10 {
-			return fmt.Errorf("site/static/%s is %d × %d; a thumbnail is 480 × 300 or 960 × 600", key, a.Width, a.Height)
+			return fmt.Errorf("site/static/%s is %d × %d; a thumbnail is 480 × 300, 960 × 600 or 1200 × 750", key, a.Width, a.Height)
 		}
 		have[m[1]]++
 	}
 	for id, n := range have {
 		if n != 2*len(thumbWidths) {
-			return fmt.Errorf("the thumbnail of %s has %d files; site/tools/shots.py makes four, 480w and 960w in AVIF and WebP", id, n)
+			return fmt.Errorf("the thumbnail of %s has %d files; site/tools/shots.py makes six, 480w, 960w and 1200w in AVIF and WebP", id, n)
 		}
 		if _, err := s.shot("templates/"+id, "100vw"); err != nil {
 			return err
@@ -830,8 +830,8 @@ type indexTemplate struct {
 	// their icons, as indexes into the index's icons (-1 for none).
 	Addons []string `json:"addons"`
 	Icons  []int    `json:"ai"`
-	// Thumb is its thumbnail's WebP files, 480 and 960 pixels wide, when it
-	// has one.
+	// Thumb is its thumbnail's WebP files, 480, 960 and 1200 pixels wide,
+	// when it has one.
 	Thumb []string `json:"th,omitempty"`
 }
 

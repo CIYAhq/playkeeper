@@ -40,6 +40,9 @@ type checker struct {
 	retryAfter time.Duration
 	// release is the agent's version, as it answered.
 	release string
+	// shots is the folder -shots saves passing templates' worlds into, and
+	// root the repository, whose site/tools/thumbnails runs the bot.
+	shots, root string
 }
 
 // result is one template's check.
@@ -52,8 +55,12 @@ type result struct {
 	Warnings []string `json:"warnings,omitempty"`
 	// CrossplayFailure says why crossplay didn't turn on for a passing
 	// template's server, where the release offers it.
-	CrossplayFailure string  `json:"crossplayFailure,omitempty"`
-	Seconds          float64 `json:"seconds"`
+	CrossplayFailure string `json:"crossplayFailure,omitempty"`
+	// ShotFailure says why -shots has no world for a passing template, and
+	// ShotSkipped why the bot can't join its server at all.
+	ShotFailure string  `json:"shotFailure,omitempty"`
+	ShotSkipped string  `json:"shotSkipped,omitempty"`
+	Seconds     float64 `json:"seconds"`
 	// pinned is the template file with the exact versions that installed,
 	// when -pin asked for it.
 	pinned []byte
@@ -176,6 +183,16 @@ func (c *checker) check(ctx context.Context, id string, f *templateFile, bump, p
 			}
 		}
 		facts.Modpack = &m
+	}
+	if c.shots != "" {
+		var cant cantShoot
+		if err := c.shoot(ctx, id, sid, t); errors.As(err, &cant) {
+			r.ShotSkipped = cant.Error()
+		} else if err != nil {
+			r.ShotFailure = err.Error()
+		}
+		r.Status, r.Check = statusPassing, facts
+		return r
 	}
 	facts.Crossplay, r.CrossplayFailure = c.crossplay(ctx, sid)
 	if r.CrossplayFailure != "" && transient(r.CrossplayFailure) && sleep(ctx, c.retryAfter) == nil {

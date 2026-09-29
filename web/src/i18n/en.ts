@@ -2711,6 +2711,8 @@ export const en = {
   'team.addCreator': 'Invite a creator',
   'team.creator': 'Creator',
   'team.allowance': 'Up to {servers} with {memory}',
+  'team.diskOf': '{limit} of disk',
+  'team.diskUsed': '{used} of {limit} of disk used',
   'team.creatorInviteLine': 'Creator invite not used yet · runs out {when}',
   'team.phone.creatorInvite': 'creator invite not used yet',
   'team.creatorHint': 'They make their own account, turn on two-factor sign-in and create their own servers inside this allowance. They see only their own servers, and only you see this link.',

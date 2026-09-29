@@ -525,8 +525,8 @@ func (s *Server) hJoinAccept(w http.ResponseWriter, r *http.Request, _ *session)
 		if id, err = res.LastInsertId(); err != nil {
 			return err
 		}
-		_, err = conn.ExecContext(r.Context(), `INSERT INTO project_members(project_id, user_id, role, servers, allowance_servers, allowance_memory_mb, created_at)
-			VALUES(?,?,?,?,?,?,?)`, grant.ProjectID, id, grant.Role, grant.Servers.String(), grant.Allowance.Servers, grant.Allowance.MemoryMB, now)
+		_, err = conn.ExecContext(r.Context(), `INSERT INTO project_members(project_id, user_id, role, servers, allowance_servers, allowance_memory_mb, allowance_disk_gb, created_at)
+			VALUES(?,?,?,?,?,?,?,?)`, grant.ProjectID, id, grant.Role, grant.Servers.String(), grant.Allowance.Servers, grant.Allowance.MemoryMB, grant.Allowance.DiskGB, now)
 		return err
 	})
 	switch {
