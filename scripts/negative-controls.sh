@@ -7862,8 +7862,8 @@ control "new level.dat: a backup's seed is read before the fix says it keeps it"
 		}' \
   ./internal/agent '^TestANewLevelDatIsRefusedWhereItDoesnHelp$'
 control "new level.dat: a backup from before a restore gives no seed" internal/agent/leveldat.go \
-  's.listBackups(`verified = 1 AND created_at >= ?`, s.worldPlacedAt().UnixMilli())' \
-  's.listBackups(`verified = 1 AND created_at >= ?`, time.Time{}.UnixMilli())' \
+  's.worldPlacedAt().UnixMilli()' \
+  'time.Time{}.UnixMilli()' \
   ./internal/agent '^TestANewLevelDatTakesTheSeedOnlyFromThisWorldsBackups$'
 control "new level.dat: a 26.1 backup's world_gen_settings.dat gives the seed" internal/agent/leveldat.go \
   '		{world + "/data/minecraft/world_gen_settings.dat", world + "/dimensions/minecraft/overworld/data/minecraft/world_gen_settings.dat"},
@@ -7906,7 +7906,7 @@ webcontrol "new level.dat: the dialog keeps the seed only when it was found" web
   "  backup: 'rebuildLevel.seedBackup',
   properties: 'rebuildLevel.seedWorld',
 }" \
-  src/pages/pages.test.tsx 'says plainly that new terrain won’t match when it can’t find the seed'
+  src/pages/pages.test.tsx 'says plainly that new terrain'
 webcontrol "new level.dat: the dialog sends what it said about the seed" web/src/components/app/rebuild-level.tsx \
   "{ world: plan.world, seedFrom: plan.seedFrom, start: true }" \
   "{ world: plan.world, start: true }" \
