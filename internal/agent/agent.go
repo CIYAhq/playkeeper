@@ -75,7 +75,10 @@ type Options struct {
 	// UDPPortInUse reports a UDP port something on the machine listens on;
 	// add-ons such as voice chat get one no one uses.
 	UDPPortInUse func(port int) bool
-	Retention    Retention
+	// DNSAddrs are the addresses the machine answers DNS on (default: port
+	// 53 of each of its own addresses, see ownDNSAddrs).
+	DNSAddrs  func() ([]string, error)
+	Retention Retention
 	// StopTimeout bounds a graceful server stop (default 90s).
 	StopTimeout time.Duration
 	// ReadyTimeout bounds waiting for "Done" after a start (default 10m).
@@ -332,6 +335,8 @@ type Agent struct {
 	// Wave 7 (0.4.0): the Disk space page's last scan.
 	disk   diskCache
 	limits diskLimitState
+	// dns answers the zone the dashboard sets, for port-free addresses.
+	dns dnsService
 	// unreadableSwaps is the error last logged for each stage whose swap
 	// journal can't be read, and under "" for the staging folder itself, so
 	// each is logged once.
@@ -385,6 +390,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.UDPPortInUse == nil {
 		opts.UDPPortInUse = udpPortInUse
+	}
+	if opts.DNSAddrs == nil {
+		opts.DNSAddrs = ownDNSAddrs
 	}
 	if opts.RCONAddr == nil {
 		opts.RCONAddr = func(ip string) string { return net.JoinHostPort(ip, strconv.Itoa(rconPort)) }
@@ -574,6 +582,10 @@ func New(opts Options) (*Agent, error) {
 		db.Close()
 		return nil, fmt.Errorf("read the disk limits: %w", err)
 	}
+	if err := a.loadDNSZone(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("read the DNS zone: %w", err)
+	}
 	if err := a.migrateSingleServer(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate the existing server: %w", err)
@@ -612,6 +624,7 @@ func (a *Agent) Start() {
 	a.loop(a.addressLoop)
 	a.loop(a.disc.n.Run)
 	a.loop(a.discordLoop)
+	a.startDNS()
 }
 
 func (a *Agent) loop(fn func(ctx context.Context)) {
@@ -626,6 +639,9 @@ func (a *Agent) loop(fn func(ctx context.Context)) {
 // cancellation.
 func (a *Agent) Close() {
 	a.cancel()
+	a.dns.mu.Lock()
+	a.stopDNSLocked()
+	a.dns.mu.Unlock()
 	a.wg.Wait()
 	for _, s := range a.serverList() {
 		s.resetRCON()
