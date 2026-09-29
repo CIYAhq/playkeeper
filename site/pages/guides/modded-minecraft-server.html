@@ -11,7 +11,7 @@ layout: guide
 crumb: Guides
 og: modded-minecraft-server
 published: 2026-09-26
-updated: 2026-09-28
+updated: 2026-09-29
 schema: article
 */}}
 
@@ -143,6 +143,7 @@ sudo ufw allow 25565/tcp
     <code class="err">Attempted to load class net/minecraft/client/Minecraft for invalid dist DEDICATED_SERVER</code>
     <p>{{template "icon" "arrow-right"}}Minimaps, shaders and menus belong in players' games. Take them off the server.</p>
   </div>
+  <p>A server that crashes while it runs, with Description: Ticking entity in its crash report, has one mob, cart or machine that keeps failing: <a href="/errors/ticking-entity">how to find it and remove it</a>.</p>
   {{template "cardshot" (dict "Name" "guide-crash" "Alt" "A crashed server's Overview: what happened, the last lines of the log, and how to fix it." "Caption" "Playkeeper reads the log and offers the fix." "Sizes" $article)}}
 </section>
 {{end}}
