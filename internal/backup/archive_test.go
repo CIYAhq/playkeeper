@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,6 +118,25 @@ func TestRoundTripAllowlistAndSecrets(t *testing.T) {
 	}
 	if _, err := Extract(bytes.NewReader(arch), dest, DefaultLimits()); err == nil {
 		t.Fatal("extracting over an existing directory must fail")
+	}
+}
+
+// ReadFile takes one file out of an archive: nothing past the size it's
+// allowed, and a missing file is fs.ErrNotExist.
+func TestReadFileTakesOneFileOutOfAnArchive(t *testing.T) {
+	arch, _ := createArchive(t, fixtureDataDir(t))
+	b, err := ReadFile(bytes.NewReader(arch), "world/level.dat", 1<<20)
+	if err != nil || string(b) != "level-data" {
+		t.Fatalf("world/level.dat: %q, %v", b, err)
+	}
+	if _, err := ReadFile(bytes.NewReader(arch), "world/level.dat_old", 1<<20); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a file the archive doesn't hold: %v", err)
+	}
+	if _, err := ReadFile(bytes.NewReader(arch), "world/level.dat", 5); err == nil || errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a file larger than allowed: %v", err)
+	}
+	if _, err := ReadFile(bytes.NewReader(arch[:len(arch)/2]), "world_nether/DIM-1/region/r.0.0.mca", 1<<20); err == nil {
+		t.Fatal("a cut archive gave no error")
 	}
 }
 

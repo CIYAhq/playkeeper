@@ -295,6 +295,7 @@ func (a *Agent) hDNSZoneSet(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.dns.answerer.Set(z)
+		a.recheckOwnSoon()
 	}
 	if changed && (z.Name == "") != (old.Name == "") || z.Name != "" && len(a.dnsStatus().Listening) == 0 {
 		a.startDNS()

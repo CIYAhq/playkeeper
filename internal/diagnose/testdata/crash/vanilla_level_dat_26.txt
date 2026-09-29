@@ -1,0 +1,30 @@
+[16:48:52] [ServerMain/INFO]: Environment: Environment[discoveryUrl=https://discovery.minecraftservices.com/minecraft/client, name=PROD]
+[16:48:52] [ServerMain/WARN]: Failed to load world data from ./world/level.dat
+java.util.zip.ZipException: Not in GZIP format
+	at java.base/java.util.zip.GZIPInputStream.readHeader(Unknown Source)
+	at java.base/java.util.zip.GZIPInputStream.<init>(Unknown Source)
+	at java.base/java.util.zip.GZIPInputStream.<init>(Unknown Source)
+	at net.minecraft.nbt.NbtIo.createDecompressorStream(NbtIo.java:41)
+	at net.minecraft.nbt.NbtIo.readCompressed(NbtIo.java:49)
+	at net.minecraft.nbt.NbtIo.readCompressed(NbtIo.java:36)
+	at net.minecraft.world.level.storage.LevelStorageSource.readLevelDataTagRaw(LevelStorageSource.java:269)
+	at net.minecraft.world.level.storage.LevelStorageSource$LevelStorageAccess.getUnfixedDataTag(LevelStorageSource.java:513)
+	at net.minecraft.world.level.storage.LevelStorageSource$LevelStorageAccess.getUnfixedDataTagWithFallback(LevelStorageSource.java:500)
+	at net.minecraft.server.Main.main(Main.java:148)
+	at net.minecraft.bundler.Main.lambda$run$0(Main.java:54)
+	at java.base/java.lang.Thread.run(Unknown Source)
+[16:48:52] [ServerMain/INFO]: Attempting to use fallback ./world/level.dat_old
+[16:48:52] [ServerMain/ERROR]: Failed to load world data. World files may be corrupted. Shutting down.
+java.util.zip.ZipException: Not in GZIP format
+	at java.base/java.util.zip.GZIPInputStream.readHeader(Unknown Source)
+	at java.base/java.util.zip.GZIPInputStream.<init>(Unknown Source)
+	at java.base/java.util.zip.GZIPInputStream.<init>(Unknown Source)
+	at net.minecraft.nbt.NbtIo.createDecompressorStream(NbtIo.java:41)
+	at net.minecraft.nbt.NbtIo.readCompressed(NbtIo.java:49)
+	at net.minecraft.nbt.NbtIo.readCompressed(NbtIo.java:36)
+	at net.minecraft.world.level.storage.LevelStorageSource.readLevelDataTagRaw(LevelStorageSource.java:269)
+	at net.minecraft.world.level.storage.LevelStorageSource$LevelStorageAccess.getUnfixedDataTag(LevelStorageSource.java:513)
+	at net.minecraft.world.level.storage.LevelStorageSource$LevelStorageAccess.getUnfixedDataTagWithFallback(LevelStorageSource.java:504)
+	at net.minecraft.server.Main.main(Main.java:148)
+	at net.minecraft.bundler.Main.lambda$run$0(Main.java:54)
+	at java.base/java.lang.Thread.run(Unknown Source)

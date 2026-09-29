@@ -1503,6 +1503,37 @@ describe('Crash helper', () => {
     expect(document.body.textContent).toContain('Restore this backup?')
   })
 
+  it('makes a new level.dat only once the owner has read what resets', async () => {
+    vi.mocked(client.post).mockClear()
+    const made = new Date()
+    made.setHours(0, 5, 0, 0)
+    const level = crash({
+      start: true,
+      kind: 'corrupt_world',
+      params: { file: 'level.dat', world: 'world' },
+      fixes: [
+        { kind: 'restore_backup', params: { backup_id: 'b20260925', made_at: made.toISOString() }, title: 'Restore the latest backup of the world', recommended: true },
+        { kind: 'rebuild_level', params: { world: 'world', seed_from: 'backup', resets: ['game_rules', 'time', 'spawn'] }, title: 'Make a new level.dat' },
+      ],
+    })
+    const text = await render(<Overview server={server({ phase: 'stopped', crash: level })} />)
+    expect(text).toContain('The world’s level.dat file is damaged.')
+    expect(text).toContain('Restore today’s 00:05 backupRecommended')
+    expect(text).toContain('Make a new level.datKeeps every build. Resets the game rules, the time of day and the spawn point.')
+    await act(async () => labelled('Make a new level.dat')?.click())
+    expect(document.body.textContent).toContain('Your world is backed up first, so you can undo.')
+    await press('Back up, repair and start Survival')
+    expect(posts()).toEqual([])
+    const dialog = document.body.textContent ?? ''
+    expect(dialog).toContain('Make a new level.dat for Survival?')
+    expect(dialog).toContain('The seed, read from your latest backup, so new land matches the old')
+    expect(dialog).toContain('The game rules go back to their defaults')
+    expect(dialog).toContain('The spawn point goes back to where the world first had it')
+    expect(dialog).not.toContain('Playkeeper doesn’t know the old one')
+    await press('Back up and repair')
+    expect(posts()).toEqual([['/world/rebuild-level', { world: 'world', start: true }]])
+  })
+
   it('deletes the oldest backups it planned, then starts', async () => {
     vi.mocked(client.post).mockClear()
     vi.mocked(client.del).mockClear()
