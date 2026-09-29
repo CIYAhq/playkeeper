@@ -40,6 +40,11 @@ async function show(guard: NetworkGuard, can = ['view', 'machine.manage']) {
 }
 
 const text = () => document.body.textContent ?? ''
+
+/** What axe's list rule refuses: anything but li, script and template directly in a list. */
+function strayListChildren(): string[] {
+  return [...document.querySelectorAll('ul, ol')].flatMap((l) => [...l.children].filter((c) => !['LI', 'SCRIPT', 'TEMPLATE'].includes(c.tagName)).map((c) => c.tagName))
+}
 function toggle(): HTMLElement {
   const el = document.querySelector<HTMLElement>('[role="switch"]')
   if (!el) throw new Error('no switch')
@@ -89,5 +94,17 @@ describe('servers and this machine', () => {
   it('is the owner’s to change', async () => {
     await show({ on: true, host: false }, ['view'])
     expect(toggle().hasAttribute('data-disabled')).toBe(true)
+  })
+
+  it('is an item of its list on a phone', async () => {
+    const real = window.matchMedia.bind(window)
+    vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => {
+      const list = real(query)
+      if (query === '(max-width: 639px)') Object.defineProperty(list, 'matches', { value: true })
+      return list
+    })
+    await show({ on: true, host: false })
+    expect(document.querySelector('section ul')?.textContent).toContain('Keep servers away from this machine')
+    expect(strayListChildren()).toEqual([])
   })
 })
