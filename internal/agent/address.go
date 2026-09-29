@@ -1064,6 +1064,17 @@ func (a *Agent) answersSRV(host, label string, port int) bool {
 	})
 }
 
+// recheckOwnSoon brings the own domain's next look forward to within
+// ownRecheckPending: the machine now answers DNS for another zone, which its
+// parent may hand here (portFree).
+func (a *Agent) recheckOwnSoon() {
+	a.addr.mu.Lock()
+	defer a.addr.mu.Unlock()
+	if next := a.now().Add(ownRecheckPending); a.addr.recheck.After(next) {
+		a.addr.recheck = next
+	}
+}
+
 func (a *Agent) saveCheck(host string, check *api.AddressCheck) {
 	_ = a.updateAddress(func(st *addressState) {
 		if st.Kind == api.AddressOwn && st.Host == host {

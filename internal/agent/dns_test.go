@@ -2,9 +2,11 @@ package agent
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -196,5 +198,36 @@ func TestAnAddressInUseIsSaid(t *testing.T) {
 	_, st := e.setZone(betaZone)
 	if len(st.Listening) != 1 || !strings.Contains(st.Problem, "Another program answers DNS on "+taken.LocalAddr().String()) {
 		t.Fatalf("with an address taken: %+v", st)
+	}
+}
+
+// DNS is answered on one port over UDP and TCP. A port whose TCP side
+// another program holds isn't answered on, and its UDP side is let go
+// again; a free port is one both sides get.
+func TestDNSListensOnOnePortOverUDPAndTCP(t *testing.T) {
+	tcp, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tcp.Close()
+	addr := tcp.Addr().String()
+	if _, _, err := listenDNS(addr); !errors.Is(err, syscall.EADDRINUSE) {
+		t.Fatalf("a port whose TCP side is taken: %v", err)
+	}
+	udp, err := net.ListenPacket("udp", addr)
+	if err != nil {
+		t.Fatalf("its UDP side afterwards: %v", err)
+	}
+	udp.Close()
+	for range 20 {
+		pc, ln, err := listenDNS("127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if pc.LocalAddr().String() != ln.Addr().String() {
+			t.Fatalf("UDP on %s, TCP on %s", pc.LocalAddr(), ln.Addr())
+		}
+		pc.Close()
+		ln.Close()
 	}
 }

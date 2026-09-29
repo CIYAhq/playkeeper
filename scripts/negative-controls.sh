@@ -7957,6 +7957,30 @@ control "dns: an address in use is said" internal/agent/dns.go \
   'problems = append(problems, dnsBindProblem(addr, err))' \
   '_ = addr' \
   ./internal/agent '^TestAnAddressInUseIsSaid$'
+control "dns: a port it can't have over TCP lets its UDP side go" internal/agent/dns.go \
+  'pc.Close()' \
+  '_ = pc' \
+  ./internal/agent '^TestDNSListensOnOnePortOverUDPAndTCP$'
+control "dns: a wildcard answers names the zone hasn't got" internal/dnszone/dnszone.go \
+  'recs, there = a.names["*."+ce]' \
+  'recs, there = nil, false' \
+  ./internal/dnszone '^TestAWildcardAnswersNamesTheZoneHasnt$'
+control "dns: a name the zone has isn't the wildcard's" internal/dnszone/dnszone.go \
+  'recs, there := a.names[qs.name], a.nodes[qs.name]' \
+  'recs, there := a.names[qs.name], false' \
+  ./internal/dnszone '^TestAWildcardAnswersNamesTheZoneHasnt$'
+control "dns: a wildcard answers only below its closest encloser" internal/dnszone/dnszone.go \
+  'for !a.nodes[ce] {' \
+  'for ce != a.zone.Name {' \
+  ./internal/dnszone '^TestAWildcardAnswersNamesTheZoneHasnt$'
+control "dns: a star is nowhere but a wildcard's first label" internal/dnszone/dnszone.go \
+  "case c == '_' && underscores && i == 0:" \
+  "case c == '_' && underscores && i == 0, c == '*' && underscores:" \
+  ./internal/dnszone '^TestZoneCheck$'
+control "dns: a wildcard below the zone names what's below its star" internal/dnszone/dnszone.go \
+  '} else if rest, ok := strings.CutPrefix(name, "*."); ok && rest != "" {' \
+  '} else if rest, ok := strings.CutPrefix(name, "*."); ok {' \
+  ./internal/dnszone '^TestZoneCheck$'
 
 # Servers joined with no port once the machine answers DNS for its own domain
 # and the domain's parent hands the domain to it (internal/agent/address.go).
@@ -7983,6 +8007,10 @@ control "port-free: a server the zone has no SRV record for keeps its port" inte
 control "port-free: waiting for the parent looks again soon" internal/agent/address.go \
   '&& (check.PortFree || !answering) {' \
   '&& (check.PortFree || !answering || true) {' \
+  ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
+control "port-free: a new zone brings the next look forward" internal/agent/dns.go \
+  '		a.recheckOwnSoon()' \
+  '		_ = a.recheckOwnSoon' \
   ./internal/agent '^TestServersJoinWithNoPortOnceTheDomainIsHandedOver$'
 
 # Wildcard certificates (internal/certs): proven only over DNS-01, and

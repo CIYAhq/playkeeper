@@ -468,8 +468,9 @@ func TestTheWildcardsCertificatesStayWithinTheDaysLimit(t *testing.T) {
 // With the machine answering DNS for its own domain, as the dashboard's zone
 // for port-free addresses has it, a server with an SRV record in the zone is
 // joined at its address with no port once public DNS gives that record as
-// the zone has it: the domain's parent hands the domain here. Until then the
-// machine looks again soon, and players type the port, as they do for a
+// the zone has it: the domain's parent hands the domain here. The machine
+// looks soon once it answers for the domain, and again soon until then;
+// players type the port meanwhile, as they do for a
 // server the zone has no SRV record for yet, and once the zone is another
 // domain's, before the next look too.
 func TestServersJoinWithNoPortOnceTheDomainIsHandedOver(t *testing.T) {
@@ -490,9 +491,6 @@ func TestServersJoinWithNoPortOnceTheDomainIsHandedOver(t *testing.T) {
 			{"name": "_minecraft._tcp.creative", "type": "SRV", "value": "play.example.com", "port": 25566},
 		}}
 	}
-	if code, st := e.setZone(zone("play.example.com")); code != 200 {
-		t.Fatalf("the zone: %d %+v", code, st)
-	}
 	check := func() api.Address {
 		t.Helper()
 		if _, err := e.a.checkOwn(context.Background()); err != nil {
@@ -504,6 +502,15 @@ func TestServersJoinWithNoPortOnceTheDomainIsHandedOver(t *testing.T) {
 		e.a.addr.mu.Lock()
 		defer e.a.addr.mu.Unlock()
 		return e.a.addr.recheck.Sub(e.a.now())
+	}
+	if v := check(); !v.Check.Ready || next() <= ownRecheckPending {
+		t.Fatalf("before the zone: ready %v, the next look in %v", v.Check.Ready, next())
+	}
+	if code, st := e.setZone(zone("play.example.com")); code != 200 {
+		t.Fatalf("the zone: %d %+v", code, st)
+	}
+	if n := next(); n > ownRecheckPending {
+		t.Fatalf("once the machine answers DNS for the domain, the next look is in %v", n)
 	}
 
 	v := check()
