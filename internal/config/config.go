@@ -46,7 +46,10 @@ type Config struct {
 	ACMEAgreedTerms string `json:"acmeAgreedTerms,omitempty"`
 	// NamesURL is the service that hands out free playkeeper.me addresses;
 	// empty means https://names.playkeeper.io.
-	NamesURL     string `json:"namesURL,omitempty"`
+	NamesURL string `json:"namesURL,omitempty"`
+	// WhopAPIURL is the Whop API Sell on Whop talks to; empty means
+	// Whop's own. `playkeeper dev` uses Whop's sandbox, and tests a fake.
+	WhopAPIURL   string `json:"whopAPIURL,omitempty"`
 	DataDir      string `json:"dataDir"`
 	SocketPath   string `json:"socketPath"`
 	DockerSocket string `json:"dockerSocket"`

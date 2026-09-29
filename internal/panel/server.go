@@ -131,6 +131,8 @@ type Server struct {
 	// creators serialises what creators create, resize and delete, so each
 	// change is checked against the allowance as it stands.
 	creators sync.Mutex
+	// whopMu serialises changes to Sell on Whop (see whop.go).
+	whopMu sync.Mutex
 }
 
 func New(opts Options) (*Server, error) {
@@ -501,6 +503,12 @@ func (s *Server) Routes() []Route {
 		{"PUT", "/api/team/members/{uid}", needSessionCSRF, actManageTeam, s.hTeamMemberEdit},
 		{"DELETE", "/api/team/members/{uid}", needSessionCSRF, actManageTeam, s.hTeamMemberRemove},
 		{"POST", "/api/team/members/{uid}/confirm-admin", needSessionCSRF, actManageTeam, s.hTeamConfirmAdmin},
+		// Sell on Whop (whop.go): the owner's alone.
+		{"GET", "/api/whop", needSession, actSellOnWhop, s.hWhop},
+		{"POST", "/api/whop/connect", needSessionCSRF, actSellOnWhop, s.hWhopConnect},
+		{"POST", "/api/whop/sync", needSessionCSRF, actSellOnWhop, s.hWhopSync},
+		{"PUT", "/api/whop/plans/{plan}", needSessionCSRF, actSellOnWhop, s.hWhopPlan},
+		{"DELETE", "/api/whop", needSessionCSRF, actSellOnWhop, s.hWhopDisconnect},
 		{"GET", "/api/discord", needSession, actManageMachine, s.discordProxy("GET", "/v1/discord")},
 		{"POST", "/api/discord/connect", needSessionCSRF, actManageMachine, s.discordProxy("POST", "/v1/discord/connect")},
 		{"PUT", "/api/discord", needSessionCSRF, actManageMachine, s.discordProxy("PUT", "/v1/discord")},

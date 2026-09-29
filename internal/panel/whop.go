@@ -1,0 +1,548 @@
+package panel
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/invites"
+	"github.com/CIYAhq/playkeeper/internal/version"
+	"github.com/CIYAhq/playkeeper/internal/whop"
+)
+
+// Sell on Whop sells this machine's servers through a store on Whop: Whop
+// takes the money and runs the buyers' memberships, and each plan the store
+// sells lets a buyer create servers inside an allowance, as a creator does
+// (see creators.go). Settings › Sell on Whop keeps the seller's Whop
+// account and its API key, reads the store's plans with what each allows,
+// and marks the store's products with the dashboard's address, so the store
+// takes orders only once a dashboard sells for it. Only the owner may,
+// since a key that runs a store and buyers who create servers on the
+// machine are theirs to decide.
+const actSellOnWhop action = "whop.manage"
+
+// whopTimeout bounds one exchange with Whop, which takes a few requests.
+const whopTimeout = 30 * time.Second
+
+// whopView is Settings › Sell on Whop.
+type whopView struct {
+	Connected bool `json:"connected"`
+	// Dashboard is where Whop and buyers reach this dashboard: its address
+	// with the panel's port, "" until the machine has an address with a
+	// certificate. The store takes orders only once it has one.
+	Dashboard   string        `json:"dashboard"`
+	Account     *whop.Account `json:"account,omitempty"`
+	KeyEnding   string        `json:"keyEnding,omitempty"`
+	ConnectedBy string        `json:"connectedBy,omitempty"`
+	ConnectedAt *time.Time    `json:"connectedAt,omitempty"`
+	SyncedAt    *time.Time    `json:"syncedAt,omitempty"`
+	// Problem is what went wrong the last time the dashboard talked to Whop.
+	Problem string         `json:"problem,omitempty"`
+	Plans   []whopPlanView `json:"plans"`
+	// Needs are the permissions the key needs, for the steps to make one.
+	Needs []string `json:"needs"`
+}
+
+// whopPlanView is one plan of the store.
+type whopPlanView struct {
+	ID           string `json:"id"`
+	ProductID    string `json:"productId"`
+	ProductTitle string `json:"productTitle"`
+	Title        string `json:"title"`
+	Price        string `json:"price"`
+	// Visibility is Whop's: "visible", "hidden" (reachable only by its
+	// direct link), "archived" or "quick_link".
+	Visibility string `json:"visibility"`
+	TrialDays  int    `json:"trialDays,omitempty"`
+	// Allowance is what a buyer of the plan may create, zero while unset.
+	Allowance invites.Allowance `json:"allowance,omitzero"`
+	// AllowanceFrom is "store" when the plan's metadata on Whop sets it,
+	// "owner" when it was set here, and "" while it's unset.
+	AllowanceFrom string `json:"allowanceFrom,omitempty"`
+}
+
+// whopKeyBody is the key pasted in Settings › Sell on Whop.
+type whopKeyBody struct {
+	Key string `json:"key"`
+}
+
+// whopAccount is the stored connection.
+type whopAccount struct {
+	whop.Account
+	Key         string
+	ConnectedBy string
+	ConnectedAt time.Time
+	SyncedAt    time.Time
+	Problem     string
+}
+
+func (s *Server) whopClient(key string) (*whop.Client, error) {
+	base, err := whop.CheckAPIURL(s.cfg.WhopAPIURL)
+	if err != nil {
+		return nil, err
+	}
+	return &whop.Client{APIURL: base, Key: key, UserAgent: "Playkeeper/" + version.Version}, nil
+}
+
+// storedWhop is the connection, or ok false when there is none.
+func (s *Server) storedWhop() (whopAccount, bool, error) {
+	var a whopAccount
+	var connected, synced int64
+	err := s.db.QueryRow(`SELECT account_id, title, route, api_key, connected_by, connected_at, synced_at, problem FROM whop_account WHERE id = 1`).
+		Scan(&a.ID, &a.Title, &a.Route, &a.Key, &a.ConnectedBy, &connected, &synced, &a.Problem)
+	if isNoRows(err) {
+		return whopAccount{}, false, nil
+	}
+	if err != nil {
+		return whopAccount{}, false, err
+	}
+	a.ConnectedAt, a.SyncedAt = time.UnixMilli(connected).UTC(), msTimeOrZero(synced)
+	return a, true, nil
+}
+
+func msTimeOrZero(ms int64) time.Time {
+	if ms == 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(ms).UTC()
+}
+
+// whopView reads Settings › Sell on Whop as it stands.
+func (s *Server) whopView(ctx context.Context) (whopView, error) {
+	v := whopView{Plans: []whopPlanView{}, Needs: whop.Needs, Dashboard: s.dashboardURL(ctx)}
+	a, ok, err := s.storedWhop()
+	if err != nil || !ok {
+		return v, err
+	}
+	acc := a.Account
+	v.Connected, v.Account, v.KeyEnding, v.ConnectedBy, v.Problem = true, &acc, whop.Ending(a.Key), a.ConnectedBy, a.Problem
+	v.ConnectedAt = &a.ConnectedAt
+	if !a.SyncedAt.IsZero() {
+		v.SyncedAt = &a.SyncedAt
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT plan_id, product_id, product_title, title, price, visibility, trial_days, allowance_servers, allowance_memory_mb, allowance_from
+		FROM whop_plans ORDER BY position`)
+	if err != nil {
+		return v, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p whopPlanView
+		if err := rows.Scan(&p.ID, &p.ProductID, &p.ProductTitle, &p.Title, &p.Price, &p.Visibility, &p.TrialDays, &p.Allowance.Servers, &p.Allowance.MemoryMB, &p.AllowanceFrom); err != nil {
+			return v, err
+		}
+		v.Plans = append(v.Plans, p)
+	}
+	return v, rows.Err()
+}
+
+func (s *Server) hWhop(w http.ResponseWriter, r *http.Request, _ *session) {
+	v, err := s.whopView(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+// hWhopConnect checks a key with Whop, keeps it, and reads the store.
+func (s *Server) hWhopConnect(w http.ResponseWriter, r *http.Request, sess *session) {
+	var req whopKeyBody
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid request.", "")
+		return
+	}
+	key := strings.TrimSpace(req.Key)
+	if !whop.ValidKey(key) {
+		writeErr(w, http.StatusBadRequest, api.CodeWhopKeyRefused, "That doesn't look like a Whop API key.", "Copy it again from Whop's dashboard, under Developer.")
+		return
+	}
+	s.whopMu.Lock()
+	defer s.whopMu.Unlock()
+	c, err := s.whopClient(key)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Playkeeper's Whop settings are wrong: "+err.Error(), "")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), whopTimeout)
+	defer cancel()
+	acc, err := c.Me(ctx)
+	if err != nil {
+		s.whopRefusal(w, sess, err)
+		return
+	}
+	prev, had, err := s.storedWhop()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	if had && prev.ID != acc.ID {
+		writeErr(w, http.StatusConflict, api.CodeConflict, fmt.Sprintf("This dashboard sells for %s. That key belongs to %s.", whopName(prev.Account), whopName(acc)),
+			"Disconnect first to sell for another business.")
+		return
+	}
+	missing, err := c.Missing(ctx, acc.ID)
+	var checkErr *whop.Error
+	switch {
+	case err != nil && errors.As(err, &checkErr) && !whop.KeyRefused(err):
+		// Whop wouldn't say what the key may do. The work itself says so
+		// soon enough, as the connection's problem, so it isn't refused here.
+		s.log.Warn("could not check the Whop key's permissions", "err", err)
+		missing = nil
+	case err != nil:
+		s.whopRefusal(w, sess, err)
+		return
+	}
+	if len(missing) > 0 {
+		s.audit(sess.User.Username, "whop.connect", acc.ID, "refused", "the key lacks "+strings.Join(missing, ", "))
+		writeJSON(w, http.StatusBadRequest, api.Error{Code: api.CodeWhopPermissions, Error: "That key can't do everything selling needs.",
+			Hint: "Make a new key on Whop with these permissions too: " + strings.Join(missing, ", ") + ".", Params: map[string]any{"missing": strings.Join(missing, ",")}})
+		return
+	}
+	now := s.now().UnixMilli()
+	if _, err := s.db.Exec(`INSERT INTO whop_account(id, account_id, title, route, api_key, connected_by, connected_at) VALUES(1,?,?,?,?,?,?)
+		ON CONFLICT(id) DO UPDATE SET title = excluded.title, route = excluded.route, api_key = excluded.api_key, problem = ''`,
+		acc.ID, acc.Title, acc.Route, key, sess.User.Username, now); err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	detail := "key ending " + whop.Ending(key)
+	if had {
+		detail = "replaced the key; " + detail
+	}
+	s.audit(sess.User.Username, "whop.connect", acc.ID, "succeeded", detail)
+	s.syncWhop(ctx, c, acc.ID)
+	s.answerWhop(w, r)
+}
+
+// whopRefusal answers a request Whop refused or couldn't be asked.
+func (s *Server) whopRefusal(w http.ResponseWriter, sess *session, err error) {
+	var we *whop.Error
+	switch {
+	case whop.KeyRefused(err):
+		s.audit(sess.User.Username, "whop.connect", "", "refused", "Whop refused the key")
+		writeErr(w, http.StatusBadRequest, api.CodeWhopKeyRefused, "Whop didn't take that key.", "Copy it again from Whop's dashboard, under Developer, or make a new one.")
+	case errors.As(err, &we):
+		writeErr(w, http.StatusBadGateway, api.CodeUpstream, "Whop said: "+cmpOr(we.Message, fmt.Sprintf("error %d", we.Status)), "Try again in a minute.")
+	default:
+		s.log.Warn("could not reach Whop", "err", err)
+		writeErr(w, http.StatusBadGateway, api.CodeUpstream, "Playkeeper couldn't reach Whop.", "Check that this machine can reach api.whop.com, then try again.")
+	}
+}
+
+func cmpOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+func whopName(a whop.Account) string { return cmpOr(a.Title, a.ID) }
+
+// hWhopSync reads the store again.
+func (s *Server) hWhopSync(w http.ResponseWriter, r *http.Request, sess *session) {
+	s.whopMu.Lock()
+	defer s.whopMu.Unlock()
+	a, ok, err := s.storedWhop()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusConflict, api.CodeConflict, "This dashboard doesn't sell on Whop yet.", "Connect a Whop API key first.")
+		return
+	}
+	c, err := s.whopClient(a.Key)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Playkeeper's Whop settings are wrong: "+err.Error(), "")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), whopTimeout)
+	defer cancel()
+	s.syncWhop(ctx, c, a.ID)
+	s.answerWhop(w, r)
+}
+
+func (s *Server) answerWhop(w http.ResponseWriter, r *http.Request) {
+	v, err := s.whopView(context.WithoutCancel(r.Context()))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+// whopPlanBody sets what a plan allows; zeros clear it.
+type whopPlanBody struct {
+	Servers  int `json:"servers"`
+	MemoryMB int `json:"memoryMB"`
+}
+
+// hWhopPlan sets what a plan lets a buyer create, when its metadata on Whop
+// doesn't say, then marks the store's products again.
+func (s *Server) hWhopPlan(w http.ResponseWriter, r *http.Request, sess *session) {
+	var req whopPlanBody
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid request.", "")
+		return
+	}
+	al := invites.Allowance{Servers: req.Servers, MemoryMB: req.MemoryMB}
+	if !al.IsZero() {
+		if err := al.Check(); err != nil {
+			writeRefusal(w, err)
+			return
+		}
+	}
+	s.whopMu.Lock()
+	defer s.whopMu.Unlock()
+	a, ok, err := s.storedWhop()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	id := r.PathValue("plan")
+	var from, title string
+	if ok {
+		err = s.db.QueryRow(`SELECT allowance_from, title FROM whop_plans WHERE plan_id = ?`, id).Scan(&from, &title)
+	}
+	switch {
+	case !ok || isNoRows(err):
+		writeErr(w, http.StatusNotFound, api.CodeNotFound, "No such plan.", "Read the store again.")
+		return
+	case err != nil:
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	case from == "store":
+		writeErr(w, http.StatusConflict, api.CodeConflict, "This plan's allowance comes from the plan on Whop.", "Change its metadata on Whop, then read the store again.")
+		return
+	}
+	newFrom := "owner"
+	if al.IsZero() {
+		newFrom = ""
+	}
+	if _, err := s.db.Exec(`UPDATE whop_plans SET allowance_servers = ?, allowance_memory_mb = ?, allowance_from = ? WHERE plan_id = ?`,
+		al.Servers, al.MemoryMB, newFrom, id); err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	detail := "no allowance"
+	if !al.IsZero() {
+		detail = allowanceText(al)
+	}
+	s.audit(sess.User.Username, "whop.plan", id, "succeeded", fmt.Sprintf("%s: %s", cmpOr(title, id), detail))
+	if c, err := s.whopClient(a.Key); err == nil {
+		ctx, cancel := context.WithTimeout(r.Context(), whopTimeout)
+		defer cancel()
+		s.syncWhop(ctx, c, a.ID)
+	}
+	s.answerWhop(w, r)
+}
+
+// hWhopDisconnect stops selling: the store's products lose the dashboard's
+// address, so the store stops taking orders, and the key is forgotten.
+func (s *Server) hWhopDisconnect(w http.ResponseWriter, r *http.Request, sess *session) {
+	s.whopMu.Lock()
+	defer s.whopMu.Unlock()
+	a, ok, err := s.storedWhop()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	if !ok {
+		s.answerWhop(w, r)
+		return
+	}
+	detail := "the store's products keep no address"
+	if c, err := s.whopClient(a.Key); err == nil {
+		ctx, cancel := context.WithTimeout(r.Context(), whopTimeout)
+		defer cancel()
+		if err := s.markWhopProducts(ctx, c, a.ID, nil, ""); err != nil {
+			s.log.Warn("could not take the dashboard's address off the store's products", "err", err)
+			detail = "couldn't take the dashboard's address off the store's products: " + err.Error()
+		}
+	}
+	err = s.immediate(r.Context(), func(c *sql.Conn) error {
+		for _, q := range []string{`DELETE FROM whop_plans`, `DELETE FROM whop_account`} {
+			if _, err := c.ExecContext(r.Context(), q); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	s.audit(sess.User.Username, "whop.disconnect", a.ID, "succeeded", detail)
+	s.answerWhop(w, r)
+}
+
+// syncWhop reads the store's plans with what each allows, and marks its
+// products with the dashboard's address. What went wrong is kept as the
+// connection's problem for the page to show.
+func (s *Server) syncWhop(ctx context.Context, c *whop.Client, accountID string) {
+	problem := ""
+	if err := s.readWhopStore(ctx, c, accountID); err != nil {
+		problem = whopProblem(err)
+		s.log.Warn("could not read the store on Whop", "err", err)
+	}
+	if _, err := s.db.Exec(`UPDATE whop_account SET synced_at = ?, problem = ? WHERE id = 1`, s.now().UnixMilli(), problem); err != nil {
+		s.log.Error("could not record reading the store on Whop", "err", err)
+	}
+}
+
+func whopProblem(err error) string {
+	var we *whop.Error
+	switch {
+	case whop.KeyRefused(err):
+		return "Whop no longer takes this dashboard's key. Connect a new one."
+	case errors.As(err, &we) && we.Status == http.StatusForbidden:
+		return "Whop refused part of the work: " + cmpOr(we.Message, "a permission is missing") + ". Connect a key with every permission listed."
+	case errors.As(err, &we):
+		return "Whop said: " + cmpOr(we.Message, fmt.Sprintf("error %d", we.Status))
+	case errors.Is(err, errNoDashboardAddress):
+		return err.Error()
+	}
+	return "Playkeeper couldn't reach Whop. It tries again when you read the store."
+}
+
+var errNoDashboardAddress = errors.New("This machine has no address with a certificate yet, so the store can't take orders. Give it one in Machine settings › Address.")
+
+func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, accountID string) error {
+	products, err := c.Products(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	plans, err := c.Plans(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	selling := map[string]bool{}
+	err = s.immediate(ctx, func(conn *sql.Conn) error {
+		owned := map[string]invites.Allowance{}
+		rows, err := conn.QueryContext(ctx, `SELECT plan_id, allowance_servers, allowance_memory_mb FROM whop_plans WHERE allowance_from = 'owner'`)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id string
+			var al invites.Allowance
+			if err := rows.Scan(&id, &al.Servers, &al.MemoryMB); err != nil {
+				rows.Close()
+				return err
+			}
+			owned[id] = al
+		}
+		rows.Close()
+		if _, err := conn.ExecContext(ctx, `DELETE FROM whop_plans`); err != nil {
+			return err
+		}
+		for i, p := range plans {
+			if p.Visibility == "archived" {
+				continue
+			}
+			var al invites.Allowance
+			from := ""
+			if n, mb, ok := whop.PlanAllowance(p.Metadata); ok && (invites.Allowance{Servers: n, MemoryMB: mb}).Check() == nil {
+				al, from = invites.Allowance{Servers: n, MemoryMB: mb}, "store"
+			} else if o, ok := owned[p.ID]; ok {
+				al, from = o, "owner"
+			}
+			if !al.IsZero() {
+				selling[p.Product.ID] = true
+			}
+			if _, err := conn.ExecContext(ctx, `INSERT INTO whop_plans(plan_id, product_id, product_title, title, price, visibility, trial_days, allowance_servers, allowance_memory_mb, allowance_from, position)
+				VALUES(?,?,?,?,?,?,?,?,?,?,?)`, p.ID, p.Product.ID, p.Product.Title, p.Title, p.Price(), p.Visibility, p.TrialDays, al.Servers, al.MemoryMB, from, i); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	dash := s.dashboardURL(ctx)
+	if err := s.markWhopProducts(ctx, c, accountID, products, dash); err != nil {
+		return err
+	}
+	if dash == "" && len(selling) > 0 {
+		return errNoDashboardAddress
+	}
+	return nil
+}
+
+// markWhopProducts gives the products that sell servers (those with a plan
+// that has an allowance) the dashboard's address, and takes it off the
+// others. With dash empty it takes it off them all. products nil reads
+// them first.
+func (s *Server) markWhopProducts(ctx context.Context, c *whop.Client, accountID string, products []whop.Product, dash string) error {
+	if products == nil {
+		var err error
+		if products, err = c.Products(ctx, accountID); err != nil {
+			return err
+		}
+	}
+	selling := map[string]bool{}
+	if dash != "" {
+		rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT product_id FROM whop_plans WHERE allowance_from != ''`)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			selling[id] = true
+		}
+		rows.Close()
+	}
+	for _, p := range products {
+		addr := ""
+		if selling[p.ID] {
+			addr = dash
+		}
+		meta, changed := whop.WithDashboard(p.Metadata, addr)
+		if !changed {
+			continue
+		}
+		if err := c.SetProductMetadata(ctx, p.ID, meta); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// dashboardURL is where Whop and buyers reach this dashboard: the machine's
+// address, with the panel's port, once the agent has a certificate for it
+// that's still good. It's "" without one: Whop only calls trusted HTTPS
+// addresses, and a buyer's invite link must open without a warning.
+func (s *Server) dashboardURL(ctx context.Context) string {
+	var addr api.Address
+	if status, err := s.agent.Do(ctx, "GET", "/v1/address", nil, nil, &addr); err != nil || status != http.StatusOK {
+		return ""
+	}
+	cert := addr.Certificate
+	if addr.Kind == api.AddressNone || addr.Host == "" || cert == nil || cert.NotAfter == nil || !cert.NotAfter.After(s.now()) {
+		return ""
+	}
+	named := false
+	for _, n := range cert.Names {
+		named = named || strings.EqualFold(n, addr.Host)
+	}
+	if !named {
+		return ""
+	}
+	host := strings.ToLower(addr.Host)
+	if s.cfg.PanelPort != 443 && s.cfg.PanelPort != 0 {
+		host += ":" + strconv.Itoa(s.cfg.PanelPort)
+	}
+	return "https://" + host
+}

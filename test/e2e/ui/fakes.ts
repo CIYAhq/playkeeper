@@ -652,6 +652,20 @@ const routes: [string, RegExp, Handler][] = [
   ['PUT', /^\/api\/discord$/, (r, state) => discordAlerts(r.body, state)],
   ['DELETE', /^\/api\/discord$/, () => noContent],
   ['POST', /^\/api\/discord\/test$/, (_r, state) => ({ status: 200, body: { ...state.discord, delivery: { sent: new Date().toISOString() } } })],
+  // Sell on Whop never reaches Whop: a key typed here isn't one Whop knows, so it's refused as the real check would.
+  ['POST', /^\/api\/whop\/connect$/, () => ({ status: 400, body: { error: 'Whop didn’t take that key.', code: 'whop_key_refused' }, expected: true })],
+  ['POST', /^\/api\/whop\/sync$/, () => ({ status: 200, body: whopConnected({}) })],
+  [
+    'PUT',
+    /^\/api\/whop\/plans\/(\w+)$/,
+    ({ body, params }) => {
+      const b = (body ?? {}) as { servers?: unknown; memoryMB?: unknown }
+      const store = whopConnected({})
+      const plans = (store.plans as Json[]).map((p) => (p.id !== params[0] ? p : b.servers ? { ...p, allowance: { servers: b.servers, memoryMB: b.memoryMB }, allowanceFrom: 'owner' } : { ...p, allowance: undefined, allowanceFrom: undefined }))
+      return { status: 200, body: { ...store, plans } }
+    },
+  ],
+  ['DELETE', /^\/api\/whop$/, () => ({ status: 200, body: { connected: false, dashboard: '', plans: [], needs: whopNeeds } })],
   // The usage stats switch never changes the machine the crawl runs on.
   ['PUT', /^\/api\/usage-stats$/, (r, state) => ({ status: 200, body: { machines: [], ...state.usage, on: (r.body as { on?: unknown } | null)?.on === true, reason: 'settings', canChange: true } })],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
@@ -1728,7 +1742,29 @@ function friendsRead(path: string, body: Json): unknown {
     const kinds = (body.kinds ?? []) as string[]
     return { ...body, connected: true, webhookName: 'Playkeeper alerts', connectedAt: ago(3 * 86_400), alerts: kinds.filter((k) => k !== 'player_joined' && k !== 'player_left'), liveStatus: true, delivery: { sent: ago(3600) } }
   }
+  if (path === '/api/whop') return whopConnected(body)
   return undefined
+}
+
+/** The permissions Sell on Whop's key needs, as the panel lists them. */
+const whopNeeds = ['access_pass:basic:read', 'access_pass:update', 'plan:basic:read', 'member:basic:read', 'member:email:read', 'developer:manage_webhook', 'webhook_receive:memberships', 'support_chat:create', 'support_chat:message:create']
+
+/** Sell on Whop connected to a store with a plan whose metadata on Whop sets its allowance and one whose doesn't, keeping the machine's address as the panel sent it. */
+function whopConnected(body: Json): Json {
+  const plan = (id: string, title: string, price: string, extra: Json) => ({ id, productId: 'prod_fakemcserver', productTitle: 'Minecraft server', title, price, visibility: 'hidden', ...extra })
+  return {
+    dashboard: '',
+    needs: whopNeeds,
+    ...body,
+    connected: true,
+    account: { id: 'biz_fakepiphosting', title: 'Pip Hosting', route: 'pip-hosting' },
+    keyEnding: 'a1b2',
+    connectedBy: 'admin',
+    connectedAt: ago(2 * 86_400),
+    syncedAt: ago(600),
+    problem: undefined,
+    plans: [plan('plan_fakestarter', 'Starter', '$8.00 / month', { trialDays: 3, allowance: { servers: 1, memoryMB: 4096 }, allowanceFrom: 'store' }), plan('plan_fakebig', 'Big', '$16.00 / month', {})],
+  }
 }
 
 /** Wave 6's map in the 'map on' view (drawn, shared, with a player out exploring) or the 'map restart' view (installed, waiting for a restart). */

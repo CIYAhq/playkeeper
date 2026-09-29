@@ -311,6 +311,36 @@ CREATE TABLE creator_servers (
 );
 CREATE INDEX creator_servers_user ON creator_servers(user_id);
 `,
+	// Sell on Whop: the Whop account this dashboard sells servers for, with
+	// its API key (one row), and the plans its store sells with what each
+	// lets a buyer create, from the plan's metadata on Whop ('store') or
+	// set here ('owner').
+	`
+CREATE TABLE whop_account (
+  id           INTEGER PRIMARY KEY CHECK (id = 1),
+  account_id   TEXT    NOT NULL,
+  title        TEXT    NOT NULL DEFAULT '',
+  route        TEXT    NOT NULL DEFAULT '',
+  api_key      TEXT    NOT NULL,
+  connected_by TEXT    NOT NULL,
+  connected_at INTEGER NOT NULL,
+  synced_at    INTEGER NOT NULL DEFAULT 0,
+  problem      TEXT    NOT NULL DEFAULT ''
+);
+CREATE TABLE whop_plans (
+  plan_id             TEXT    PRIMARY KEY,
+  product_id          TEXT    NOT NULL,
+  product_title       TEXT    NOT NULL DEFAULT '',
+  title               TEXT    NOT NULL DEFAULT '',
+  price               TEXT    NOT NULL DEFAULT '',
+  visibility          TEXT    NOT NULL DEFAULT '',
+  trial_days          INTEGER NOT NULL DEFAULT 0,
+  allowance_servers   INTEGER NOT NULL DEFAULT 0,
+  allowance_memory_mb INTEGER NOT NULL DEFAULT 0,
+  allowance_from      TEXT    NOT NULL DEFAULT '' CHECK (allowance_from IN ('', 'store', 'owner')),
+  position            INTEGER NOT NULL DEFAULT 0
+);
+`,
 }
 
 const (

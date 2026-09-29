@@ -1822,6 +1822,14 @@ const CodePlanChanged = "plan_changed"
 // accept, or that can't be one.
 const CodeKeyRefused = "curseforge_key_refused"
 
+// Sell on Whop: CodeWhopKeyRefused refuses a Whop API key that Whop doesn't
+// take, or that can't be one, and CodeWhopPermissions one that lacks a
+// permission selling needs, with the missing ones in Params["missing"].
+const (
+	CodeWhopKeyRefused  = "whop_key_refused"
+	CodeWhopPermissions = "whop_permissions"
+)
+
 // AddonSources is Settings › Add-on sources: where the machine finds
 // plugins, mods and modpacks. Modrinth and Hangar are built in and always on.
 type AddonSources struct {

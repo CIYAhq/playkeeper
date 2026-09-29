@@ -77,13 +77,14 @@ export function tokenRoles(me: Me): TokenRole[] {
   return tokenRoleOrder.slice(0, tokenRoleOrder.indexOf(me.access.role) + 1)
 }
 
-export type SettingsSectionName = 'team' | 'addon-sources' | 'discord' | 'ai-agents' | 'machines'
+export type SettingsSectionName = 'team' | 'addon-sources' | 'discord' | 'whop' | 'ai-agents' | 'machines'
 
 /** The sections of Settings in the design's order, each for the accounts that may use it. */
 export const settingsSections: { route: Route & { name: SettingsSectionName }; label: MessageKey; act: Action }[] = [
   { route: { name: 'team' }, label: 'global.nav.team', act: 'team.manage' },
   { route: { name: 'addon-sources' }, label: 'global.nav.addonSources', act: 'machine.manage' },
   { route: { name: 'discord' }, label: 'global.nav.discord', act: 'machine.manage' },
+  { route: { name: 'whop' }, label: 'global.nav.whop', act: 'whop.manage' },
   { route: { name: 'ai-agents' }, label: 'global.nav.aiAgents', act: 'account.manage' },
   { route: { name: 'machines' }, label: 'global.nav.machines', act: 'view' },
 ]

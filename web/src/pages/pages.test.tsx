@@ -47,6 +47,8 @@ import type {
   TemplateLibrary,
   TemplatePlan,
   TwoFactorSetup,
+  WhopPlan,
+  WhopStore,
 } from '@/api/types'
 import { useWorkspace, WorkspaceContext, WorkspaceProvider, type Workspace } from '@/api/workspace'
 import { activityText } from '@/components/app/activity'
@@ -82,6 +84,7 @@ import { AsleepCard } from './server/sleep'
 import { WorldPage } from './server/world'
 import { GlobalSettingsPage } from './settings'
 import { TeamSection } from './team'
+import { SellOnWhopSection } from './whop'
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof client>()),
@@ -1772,6 +1775,104 @@ describe('Add-on sources', () => {
     expect(text).toContain('That machine isn’t connected to this dashboard')
     expect(keyField()).toBeNull()
     expect(vi.mocked(client.get).mock.calls.filter(([p]) => String(p).includes('/addon-sources'))).toEqual([])
+  })
+})
+
+describe('Sell on Whop', () => {
+  const needs = ['access_pass:basic:read', 'plan:basic:read', 'support_chat:create']
+  const closed: WhopStore = { connected: false, dashboard: 'https://my-vps.playkeeper.me:8443', plans: [], needs }
+  const starter: WhopPlan = { id: 'plan_starter', productId: 'prod_mc', productTitle: 'Minecraft server', title: 'Starter', price: '$8.00 / month', visibility: 'hidden', trialDays: 3, allowance: { servers: 1, memoryMB: 4096 }, allowanceFrom: 'store' }
+  const big: WhopPlan = { id: 'plan_big', productId: 'prod_mc', productTitle: 'Minecraft server', title: 'Big', price: '$16.00 / month', visibility: 'visible' }
+  const open: WhopStore = { ...closed, connected: true, account: { id: 'biz_pip', title: 'Pip Hosting', route: 'pip-hosting' }, keyEnding: 'abcd', connectedBy: 'siya', syncedAt: hoursAgo(1), plans: [starter, big] }
+  const owner = workspace({ me: { ...me, access: { ...me.access, can: [...everything, 'whop.manage'] } } })
+  const keyField = () => document.querySelector<HTMLInputElement>('input[aria-label="Whop API key"]')
+  const submitKey = async () => act(async () => button('Connect').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+
+  it('is a Settings section for the owner alone, after Discord', async () => {
+    answer({ '/api/whop': closed })
+    await render(<GlobalSettingsPage page={{ name: 'whop' }} />, owner)
+    const nav = document.querySelector('nav[aria-label="Settings sections"]')
+    expect([...(nav?.querySelectorAll('a') ?? [])].map((a) => a.textContent)).toEqual(['Team', 'Add-on sources', 'Discord', 'Sell on Whop', 'AI agents', 'Machines', 'Playkeeper'])
+    expect(nav?.querySelector('[aria-current="page"]')?.getAttribute('href')).toBe('/settings/whop')
+    const admin = await render(<GlobalSettingsPage page={{ name: 'discord' }} />)
+    expect(admin).not.toContain('Sell on Whop')
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('lists the steps and the permissions a key needs, and asks for the key', async () => {
+    answer({ '/api/whop': closed })
+    const text = await render(<SellOnWhopSection />, owner)
+    for (const step of ['deploy the Pip Hosting blueprint', 'Make an API key on Whop', 'Paste the key here.', 'access_pass:basic:read, plan:basic:read, support_chat:create', 'only ever sent to Whop']) expect(text).toContain(step)
+    expect(keyField()?.type).toBe('password')
+    expect(button('Connect').disabled).toBe(true)
+    expect(text).not.toContain('needs an address')
+  })
+
+  it('says the machine needs an address first, with a way to set one', async () => {
+    answer({ '/api/whop': { ...closed, dashboard: '' } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('This machine needs an address first')
+    expect(link('Set one up').getAttribute('href')).toBe(`/machines/${machine.id}/settings`)
+  })
+
+  it('says why Whop refused a key, and which permissions a key lacks', async () => {
+    answer({ '/api/whop': closed })
+    await render(<SellOnWhopSection />, owner)
+    await typeInto('input[aria-label="Whop API key"]', ' apik_wrong_0123456789 ')
+    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(400, { code: 'whop_key_refused', error: 'Whop didn’t take that key.' }))
+    await submitKey()
+    expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/whop/connect', { key: 'apik_wrong_0123456789' })
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('Whop didn’t take that key')
+    expect(keyField()?.getAttribute('aria-invalid')).toBe('true')
+    await typeInto('input[aria-label="Whop API key"]', 'apik_partial_0123456789')
+    vi.mocked(client.post).mockRejectedValueOnce(new client.ApiError(400, { code: 'whop_permissions', error: 'That key can’t do everything selling needs.', params: { missing: 'support_chat:create,developer:manage_webhook' } }))
+    await submitKey()
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('That key lacks support_chat:create, developer:manage_webhook. Make a new key with those too.')
+  })
+
+  it('shows the connected store with its plans and what each allows', async () => {
+    answer({ '/api/whop': closed })
+    await render(<SellOnWhopSection />, owner)
+    await typeInto('input[aria-label="Whop API key"]', 'apik_pip_hosting_0123456789abcd')
+    vi.mocked(client.post).mockResolvedValueOnce(open)
+    await submitKey()
+    const text = page()
+    expect(text).toContain('Pip HostingSelling')
+    expect(text).toContain('Key ending abcd')
+    expect(text).toContain('The store sends buyers to https://my-vps.playkeeper.me:8443.')
+    expect(text).toContain('StarterHidden$8.00 / month · 3-day free trial · Up to 1 server with 4 GB · set on Whop')
+    expect(text).toContain('BigVisible$16.00 / month · No allowance yet')
+    expect(buttons('Set allowance')).toHaveLength(1)
+    expect(keyField()).toBeNull()
+  })
+
+  it('sets what a plan without metadata allows', async () => {
+    answer({ '/api/whop': open })
+    await render(<SellOnWhopSection />, owner)
+    await click('Set allowance')
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('What Big allows')
+    vi.mocked(client.put).mockResolvedValueOnce({ ...open, plans: [starter, { ...big, allowance: { servers: 1, memoryMB: 4096 }, allowanceFrom: 'owner' }] })
+    await act(async () => button('Save').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await act(async () => {})
+    expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/whop/plans/plan_big', { servers: 1, memoryMB: 4096 })
+    expect(page()).toContain('BigVisible$16.00 / month · Up to 1 server with 4 GB')
+    expect(buttons('Change')).toHaveLength(1)
+  })
+
+  it('reads the store again, and disconnects after asking', async () => {
+    answer({ '/api/whop': open })
+    await render(<SellOnWhopSection />, owner)
+    answerPosts({ '/api/whop/sync': { ...open, plans: [starter] } })
+    await click('Read the store again')
+    expect(page()).not.toContain('Big')
+    await click('Disconnect')
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Stop selling for Pip Hosting?')
+    vi.mocked(client.del).mockResolvedValueOnce(closed)
+    const confirm = buttons('Disconnect').find((b) => b.closest('[role="dialog"]'))
+    if (!confirm) throw new Error('no Disconnect in the dialog')
+    await click(confirm)
+    expect(vi.mocked(client.del)).toHaveBeenLastCalledWith('/api/whop')
+    expect(keyField()).not.toBeNull()
   })
 })
 
