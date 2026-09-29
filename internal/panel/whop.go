@@ -736,7 +736,8 @@ func (s *Server) markWhopProducts(ctx context.Context, c *whop.Client, accountID
 			continue
 		}
 		if err := c.SetProductMetadata(ctx, p.ID, meta); err != nil {
-			s.putWhopMarksBack(ctx, c, changed)
+			// Whop may have made the change before its answer went wrong.
+			s.putWhopMarksBack(ctx, c, append(changed, p))
 			return err
 		}
 		changed = append(changed, p)

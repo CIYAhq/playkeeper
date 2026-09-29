@@ -182,6 +182,24 @@ func TestATakeoverWhopHalfTakesIsPutBack(t *testing.T) {
 	}
 }
 
+func TestATakeoverWhopMadeButAnsweredWithAnErrorIsPutBack(t *testing.T) {
+	f, a, _ := connectedWhop(t)
+	b, ownB := secondDashboard(t, f)
+	f.mu.Lock()
+	f.lostReply = "prod_mc"
+	f.mu.Unlock()
+	r := b.do(t, "POST", "/api/whop/connect", `{"key":"`+whopTestKey+`","takeOver":true}`, ownB.auth())
+	if r.status != http.StatusOK || r.body["takenOverBy"] != whopDashboard || f.dashboardMeta() != whopDashboard {
+		t.Fatalf("a takeover whose answer was lost: %d %v, store names %q", r.status, r.body, f.dashboardMeta())
+	}
+	core := useFakeCore(a)
+	a.deliver(t, "evt_alex", whop.EventMembershipActivated, f.buy("mem_alex", "user_alex", "plan_starter", "active"))
+	a.reconcile()
+	if got := core.got(); len(got) != 1 {
+		t.Fatalf("the first dashboard stopped selling: %q", got)
+	}
+}
+
 func TestDisconnectingTakesOffMarksAtTheMachinesAddress(t *testing.T) {
 	f, _, _ := connectedWhop(t)
 	b, ownB := secondDashboard(t, f)

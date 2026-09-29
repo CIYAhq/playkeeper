@@ -35,9 +35,10 @@ type fakeWhop struct {
 	missing map[string]bool
 	// permissionsDown makes Whop's permission check fail, patchDown its
 	// product updates, refuseProduct those of one product, and revoked
-	// refuses the test key.
+	// refuses the test key. lostReply is a product whose next update Whop
+	// makes but answers with an error, as when its answer is lost.
 	permissionsDown, patchDown, revoked bool
-	refuseProduct                       string
+	refuseProduct, lostReply            string
 	products                            map[string]whop.Metadata
 	plans                               []map[string]any
 	patches                             []string
@@ -245,6 +246,12 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 			json.NewDecoder(r.Body).Decode(&body)
 			f.products[id] = body.Metadata
 			f.patches = append(f.patches, body.Metadata[whop.MetaDashboard])
+			if id == f.lostReply {
+				f.lostReply = ""
+				w.WriteHeader(http.StatusGatewayTimeout)
+				io.WriteString(w, `{"error":{"type":"server_error","message":"Try again"}}`)
+				return
+			}
 			json.NewEncoder(w).Encode(map[string]any{"id": id})
 			return
 		}
