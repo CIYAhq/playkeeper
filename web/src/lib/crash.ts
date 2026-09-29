@@ -92,8 +92,11 @@ export function crashSummary(c: Crash, server: string, machine: string, lookups:
       return t('crash.permission')
     case 'killed':
       return t('crash.killed')
-    case 'incompatible_addon':
-      return c.explanation
+    case 'incompatible_addon': {
+      if (str(p, 'reason') !== 'client_only') return c.explanation
+      const addon = str(p, 'addon')
+      return addon ? t('crash.clientOnly', { addon }) : t('crash.clientOnlyPlain')
+    }
     case 'unknown':
       return c.start ? t('crash.unknownStart') : t('crash.unknown')
     default: {

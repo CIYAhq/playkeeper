@@ -625,6 +625,21 @@ describe('crash helper', () => {
     expect(crashDetail(crash({ kind: 'ticking_entity', params: { dimension: 'aether:the_aether' } }))).toBe('It’s in aether:the_aether, saved in the world, so starting again crashes again.')
   })
 
+  it('says a mod only runs in players’ games, and takes it off', () => {
+    const sodium = crash({
+      start: true,
+      kind: 'incompatible_addon',
+      params: { reason: 'client_only', addon: 'sodium', jar: 'sodium-neoforge-0.9.2+mc26.2.jar', class: 'org.lwjgl.Version' },
+      fixes: [{ kind: 'remove_addon', params: { jar: 'sodium-neoforge-0.9.2+mc26.2.jar' }, title: 'Remove it', recommended: true }],
+    })
+    expect(crashSummary(sodium, 'Survival', 'my-vps')).toBe('sodium only runs in players’ games, not on servers.')
+    expect(crashFixes(sodium, 'Survival', 'my-vps', false).map((o) => [o.title, o.hint, o.plan, o.button])).toEqual([
+      ['Remove sodium', 'Survival starts without it. The file is kept.', { kind: 'remove-addon', jar: 'sodium-neoforge-0.9.2+mc26.2.jar' }, 'Remove and start Survival'],
+    ])
+    expect(crashSummary(crash({ kind: 'incompatible_addon', params: { reason: 'client_only' } }), 'Survival', 'my-vps')).toBe('A mod that only runs in players’ games stopped it.')
+    expect(crashSummary(crash({ kind: 'incompatible_addon', params: { jar: 'x.jar' } }), 'Survival', 'my-vps')).toBe('The agent’s words.')
+  })
+
   it('says where the memory would come from on a phone', () => {
     const oom = crash({ kind: 'heap_out_of_memory', params: { budget_mb: 4096 }, fixes: [{ kind: 'raise_memory', params: { from_mb: 4096, to_mb: 6144 }, title: 'More memory', recommended: true }] })
     const [more] = crashFixes(oom, 'Survival', 'my-vps', true)

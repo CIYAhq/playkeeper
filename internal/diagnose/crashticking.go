@@ -23,9 +23,6 @@ var (
 	reBlockLocation  = regexp.MustCompile(`^Block location: World: \((-?\d{1,9}),(-?\d{1,9}),(-?\d{1,9})\)`)
 	reLevelDimension = regexp.MustCompile(`^Level dimension: (` + resourceID + `)$`)
 	reReportError    = regexp.MustCompile(`^(?:[a-z][\w$]*\.)+[A-Z][\w$]*(?:Exception|Error)\b`)
-	// A frame of NeoForge's or Forge's names the module its code is from, a
-	// mod's or the loader's own: "at TRANSFORMER/create@6.0.4/com.simibubi…".
-	reFrameModule = regexp.MustCompile(`^at [A-Z][A-Z -]{0,40}/([a-z][a-z0-9_]{1,63})@[^/\s]{1,64}/`)
 )
 
 // tickingEntity explains an entity, or a block entity, that throws every time
@@ -164,7 +161,7 @@ func (c *crashCtx) tickingMod(id string) (mod, jar string) {
 		if l == "" {
 			break
 		}
-		if m := reFrameModule.FindStringSubmatch(l); m != nil {
+		if m := reModFrame.FindStringSubmatch(l); m != nil && !loaderModules[m[1]] {
 			if jar := c.modJar(m[1], ""); jar != "" {
 				return m[1], jar
 			}

@@ -5,6 +5,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 ## 0.4.8
 
 - **A crash from one broken entity:** when a minecart, a mob, or a block like a hopper or a mod's machine hits an error each time the game runs it ("Ticking entity" in the crash report), the Overview names it and where it is, instead of saying the server stopped unexpectedly. **Remove the minecart** backs the world up and takes just that one out; a block stays, without what it held. Starting again is no longer offered: the world was saved with it, so the server only crashed again until Playkeeper gave up after 3 tries.
+- Fixed: a mod made for players' games, like Sodium, stopped a NeoForge server at its start with `NoClassDefFoundError: org/lwjgl/Version`, and the Overview only offered to start it again. It now names the mod, says it only runs in players' games, and offers to remove it.
 
 ## 0.4.7
 
