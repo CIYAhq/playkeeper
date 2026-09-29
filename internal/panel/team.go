@@ -31,10 +31,13 @@ type teamMember struct {
 	You      bool          `json:"you"`
 	Role     string        `json:"role"`
 	Servers  invites.Scope `json:"servers"`
-	// Allowance is set for a creator (see invites.Allowance).
-	Allowance invites.Allowance `json:"allowance,omitzero"`
-	TwoFactor bool              `json:"twoFactor"`
-	AddedAt   time.Time         `json:"addedAt"`
+	// Allowance is set for a creator (see invites.Allowance), and
+	// DiskUsedBytes is what their servers took of its disk when last
+	// counted, missing before they have been.
+	Allowance     invites.Allowance `json:"allowance,omitzero"`
+	DiskUsedBytes *int64            `json:"diskUsedBytes,omitempty"`
+	TwoFactor     bool              `json:"twoFactor"`
+	AddedAt       time.Time         `json:"addedAt"`
 	// CanEdit says whether the signed-in account may change this member's
 	// role and servers, or remove them.
 	CanEdit bool `json:"canEdit"`
@@ -102,7 +105,11 @@ func (s *Server) hTeam(w http.ResponseWriter, r *http.Request, sess *session) {
 		if err != nil || !seesMember(a, t) {
 			continue
 		}
-		out.Members = append(out.Members, memberRow(a, t, invites.FromMillis(x.added)))
+		row := memberRow(a, t, invites.FromMillis(x.added))
+		if !t.Allowance.IsZero() {
+			row.DiskUsedBytes = s.diskUsed(t.UserID)
+		}
+		out.Members = append(out.Members, row)
 	}
 	now := s.now()
 	irows, err := s.db.Query(`SELECT `+inviteColumns+` FROM invites WHERE kind = 'member' AND project_id = ? AND revoked_at = 0 AND uses = 0
@@ -480,6 +487,7 @@ func (s *Server) hTeamMemberRemove(w http.ResponseWriter, r *http.Request, sess 
 	}
 	s.deleteUserSessions(t.UserID)
 	s.audit(sess.User.Username, "team.remove", t.Name, "succeeded", "")
+	s.kickDiskLimits()
 	w.WriteHeader(http.StatusNoContent)
 }
 

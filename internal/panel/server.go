@@ -149,6 +149,16 @@ type Server struct {
 	// placeMu serialises placing customers, so two never get the same room
 	// (see placement.go).
 	placeMu sync.Mutex
+	// diskKick has the disk limits sent to the machines now, and diskUse
+	// is what each account's servers took when they were last counted (see
+	// disklimits.go).
+	diskKick chan struct{}
+	diskUse  struct {
+		sync.Mutex
+		at     time.Time
+		used   map[int64]int64
+		failed map[string]string
+	}
 }
 
 func New(opts Options) (*Server, error) {
@@ -207,6 +217,7 @@ func New(opts Options) (*Server, error) {
 		auditMaxAge: 365 * 24 * time.Hour,
 		maxAudit:    100_000,
 		whopKick:    make(chan struct{}, 1),
+		diskKick:    make(chan struct{}, 1),
 		hosting:     noHostingCore{},
 	}
 	s.notifier = billingNotifier{s: s}
@@ -1664,6 +1675,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	go s.runPage(ctx)
 	go s.runWhop(ctx)
 	go s.runStock(ctx)
+	go s.runDiskLimits(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)
 	return s.serve(ctx, ln, tc)
 }

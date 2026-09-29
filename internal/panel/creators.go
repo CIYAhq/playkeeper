@@ -175,6 +175,7 @@ func (s *Server) hCreateServer(w http.ResponseWriter, r *http.Request, sess *ses
 		s.claimCreated(m, raw)
 		if id := createdServer(raw); id != "" {
 			s.claimForCreator(sess.Access, id)
+			s.kickDiskLimits()
 			s.startCreatorBackups(r.Context(), m, sess.Access, id)
 		}
 	})(w, r, sess)
