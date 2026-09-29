@@ -108,6 +108,42 @@ describe('sign-in page', () => {
   })
 })
 
+describe('Sign in with Whop', () => {
+  async function show(props: { whopSignIn?: boolean; whopError?: string }) {
+    const r = createRoot(document.body.appendChild(document.createElement('div')))
+    root = r
+    await act(async () => r.render(<LoginPage {...props} onDone={vi.fn()} />))
+  }
+  const whopLink = () => [...document.querySelectorAll('a')].find((a) => a.textContent?.trim() === 'Sign in with Whop')
+
+  it('is offered above the password when the dashboard sells on Whop, and leaves through the dashboard', async () => {
+    await show({ whopSignIn: true })
+    expect(whopLink()?.getAttribute('href')).toBe('/api/public/whop/signin/start')
+    expect(text()).toContain('or with a username and password')
+    expect(document.querySelector('#login-username')).not.toBeNull()
+  })
+
+  it('isn’t offered otherwise', async () => {
+    await show({})
+    expect(whopLink()).toBeUndefined()
+  })
+
+  it('says why a sign-in with Whop came back, and says little about a code it doesn’t know', async () => {
+    for (const [code, words] of [
+      ['no_account', 'That Whop account has no plan here.'],
+      ['starting', 'Your account is being set up. Try again in a minute.'],
+      ['paused', 'If your plan ended, renew it on Whop.'],
+      ['expired', 'finished in another browser'],
+      ['<script>', 'Whop couldn’t confirm who you are. Try again.'],
+    ] as const) {
+      await show({ whopSignIn: true, whopError: code })
+      expect(document.querySelector('[role="alert"]')?.textContent).toContain(words)
+      await act(async () => root?.unmount())
+      document.body.innerHTML = ''
+    }
+  })
+})
+
 describe('second sign-in step', () => {
   it('asks for a code after the password and signs in with the sixth digit', async () => {
     const onDone = await secondStep()

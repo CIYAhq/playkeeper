@@ -69,6 +69,9 @@ export function App() {
   const [state, setState] = useState<AuthState>('loading')
   const [me, setMe] = useState<Me>()
   const [status, setStatus] = useState<SetupStatus>()
+  // Why Sign in with Whop sent the browser back, read before signing out
+  // takes the address to the bare sign-in page.
+  const [whopError] = useState(() => new URLSearchParams(window.location.search).get('whop') ?? undefined)
 
   const signedIn = useCallback((m: Me) => {
     setCsrfToken(m.csrfToken)
@@ -165,6 +168,8 @@ export function App() {
             <LoginPage
               machine={status?.machine}
               version={status?.version}
+              whopSignIn={status?.whopSignIn}
+              whopError={whopError}
               onDone={(m) => {
                 signedIn(m)
                 navigate(afterSignIn(window.location), true)

@@ -261,6 +261,7 @@ function Connected({ store, onChange }: { store: WhopStore; onChange: (s: WhopSt
           ))}
         </ul>
       )}
+      <SignInWithWhop store={store} onChange={onChange} />
       <h3 className="mt-4 text-[13px] font-semibold">{t('whop.customers')}</h3>
       {store.dashboard && !store.webhook && <p className="mt-1 text-xs text-muted-foreground">{t('whop.noWebhook')}</p>}
       {store.customers.length === 0 ? (
@@ -275,6 +276,96 @@ function Connected({ store, onChange }: { store: WhopStore; onChange: (s: WhopSt
       <AllowanceDialog plan={editing} onClose={() => setEditing(undefined)} onSaved={onChange} />
       <DisconnectDialog open={disconnecting} account={store.account?.title ?? ''} onClose={() => setDisconnecting(false)} onDone={onChange} />
     </div>
+  )
+}
+
+/** Sign in with Whop: the Whop app customers sign in through instead of a password. */
+function SignInWithWhop({ store, onChange }: { store: WhopStore; onChange: (s: WhopStore) => void }) {
+  const id = useId()
+  const phone = useIsPhone()
+  const [app, setApp] = useState('')
+  const [secret, setSecret] = useState('')
+  const [busy, setBusy] = useState(false)
+  const signIn = store.signIn
+
+  async function save(e: FormEvent) {
+    e.preventDefault()
+    setBusy(true)
+    try {
+      onChange(await put<WhopStore>('/api/whop/signin', { clientId: app.trim(), clientSecret: secret.trim() }))
+      toastManager.add({ title: t('whop.signIn.saved'), type: 'success' })
+      setApp('')
+      setSecret('')
+    } catch (err) {
+      toastManager.add({ title: errorText(err), type: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function turnOff() {
+    setBusy(true)
+    try {
+      onChange(await del<WhopStore>('/api/whop/signin'))
+      toastManager.add({ title: t('whop.signIn.turnedOff'), type: 'success' })
+    } catch (err) {
+      toastManager.add({ title: errorText(err), type: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section aria-labelledby={`${id}-title`} className="mt-4">
+      <h3 id={`${id}-title`} className="text-[13px] font-semibold">
+        {t('whop.signIn')}
+      </h3>
+      {signIn?.clientId ? (
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+            {t('whop.signIn.on', { app: signIn.clientId })}
+            {signIn.secretEnding && ` ${t('whop.signIn.secret', { ending: signIn.secretEnding })}`}
+          </p>
+          <Button variant="ghost" size="sm" onClick={() => void turnOff()} loading={busy}>
+            {t('whop.signIn.off')}
+          </Button>
+        </div>
+      ) : (
+        <>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t('whop.signIn.about')}{' '}
+            <a href={whopDeveloper} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-success-strong hover:underline">
+              {t('whop.signIn.developer')}
+              <ExternalLinkIcon className="size-3" aria-hidden="true" />
+            </a>
+          </p>
+          {signIn?.redirectUri ? (
+            <p className="mt-2 text-xs">
+              <span className="text-muted-foreground">{t('whop.signIn.redirect')} </span>
+              <code className="rounded bg-muted px-1 py-0.5 text-[11px] break-all">{signIn.redirectUri}</code>
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-muted-foreground">{t('whop.signIn.noAddress')}</p>
+          )}
+          <form onSubmit={save} className="mt-3 flex gap-2 max-sm:flex-col sm:flex-wrap">
+            <InputGroup className="max-sm:h-11 sm:min-w-[180px] sm:flex-1">
+              <InputGroupInput value={app} onChange={(e) => setApp(e.target.value)} placeholder="app_…" aria-label={t('whop.signIn.appId')} autoComplete="off" spellCheck={false} />
+            </InputGroup>
+            <InputGroup className="max-sm:h-11 sm:min-w-[180px] sm:flex-1">
+              <InputGroupInput type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={t('whop.signIn.secretLabel')} aria-label={t('whop.signIn.secretLabel')} autoComplete="off" spellCheck={false} />
+            </InputGroup>
+            <Button
+              type="submit"
+              size={phone ? 'touch' : 'default'}
+              loading={busy}
+              disabledReason={!signIn?.redirectUri ? t('whop.signIn.noAddress') : app.trim() ? undefined : t('reason.pasteAppId')}
+            >
+              {t('whop.signIn.save')}
+            </Button>
+          </form>
+        </>
+      )}
+    </section>
   )
 }
 

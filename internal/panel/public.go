@@ -40,6 +40,8 @@ func (s *Server) publicRoutes() []publicRoute {
 		{prefix: mapDataPrefix, limits: mapDataLimits, handler: s.mapData()},
 		// Sell on Whop: the webhook Whop sends membership events to.
 		{prefix: whopWebhookPath, limits: whopWebhookLimits, handler: s.whopWebhook()},
+		// Sign in with Whop: leaving for Whop, and coming back.
+		{prefix: whopSignInPrefix, limits: whopSignInLimits, handler: s.whopSignIn()},
 	}
 }
 
