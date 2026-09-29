@@ -4,6 +4,8 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.7
 
+- **Sell servers on Whop (early beta):** **Settings › Sell on Whop** connects a Whop store, and each plan a buyer pays for lets them create servers on this machine within an allowance of servers, memory and disk. Buyers sign in with Whop instead of a password, hear when their server is ready, are paused when their plan ends, and come back when they renew. A plan sells only while the machines have room for it, and one dashboard sells for each Whop business.
+- **Limits for creators and customers:** their servers share a disk allowance, by default 7.5 GB for each GB of memory, and each gets half a core per GB of memory, so one busy server can't take the whole machine.
 - **Hetzner stock:** **Settings › Machines** can watch Hetzner for the server type you add machines of, such as CX53, which is often sold out. Paste a read-only Hetzner API token, and the dashboard asks Hetzner once a minute and posts to Discord when it comes into stock somewhere, with a link that buys one there. The owner's alone.
 - **Connect a machine › New cloud server:** Settings › Machines gives the command as cloud config too. Paste it in the Cloud config or User data box while you create a server at a cloud like Hetzner, and the server installs Playkeeper and connects to this dashboard as it first starts, with nothing to type on it.
 - **New server › A template** shows each of Playkeeper's templates with a picture of its own world, the same one playkeeper.io shows, instead of a pixel scene.
