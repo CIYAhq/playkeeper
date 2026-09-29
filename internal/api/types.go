@@ -178,6 +178,17 @@ type RemoveAddonRequest struct {
 	Start bool   `json:"start,omitempty"`
 }
 
+// RebuildLevelRequest makes a new level.dat for a stopped server's world
+// whose level.dat and level.dat_old can't be read: the world is backed up,
+// the world's seed goes into server.properties, and both files are deleted,
+// so Minecraft makes a new one. World names the world folder; empty is the
+// server's own world. Start starts the server afterwards.
+type RebuildLevelRequest struct {
+	Actor string `json:"actor"`
+	World string `json:"world,omitempty"`
+	Start bool   `json:"start,omitempty"`
+}
+
 // FirstSteps is what the "Get started" checklist ticks off for a server.
 type FirstSteps struct {
 	// Invited is a name on the allowlist, if anyone is on it.

@@ -273,7 +273,7 @@ func (in *Inspection) readLevel(p string) (*Level, string) {
 func (in *Inspection) seed(p string) string {
 	for _, f := range []string{paperDataDir + "world_gen_settings.dat", "data/minecraft/world_gen_settings.dat"} {
 		if b, ok := in.ix.data[p+"/"+f]; ok {
-			if s := readSeed(b, in.lim.MaxLevelBytes); s != "" {
+			if s := ReadSeed(b, in.lim.MaxLevelBytes); s != "" {
 				return s
 			}
 		}

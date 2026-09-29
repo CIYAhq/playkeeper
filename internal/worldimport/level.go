@@ -149,9 +149,9 @@ func spawnOf(data nbt.Compound) *Spawn {
 	return nil
 }
 
-// readSeed reads the seed from world_gen_settings.dat, where it lives since
-// Minecraft 26.1.
-func readSeed(gz []byte, maxBytes int64) string {
+// ReadSeed reads the seed from world_gen_settings.dat, where it lives since
+// Minecraft 26.1; "" when it has none.
+func ReadSeed(gz []byte, maxBytes int64) string {
 	lim := nbt.DefaultLimits()
 	lim.MaxBytes = maxBytes
 	_, root, err := nbt.ReadGzip(bytes.NewReader(gz), lim)
