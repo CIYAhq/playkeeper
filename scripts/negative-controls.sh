@@ -7830,6 +7830,10 @@ control "client-only mods: a mod's own frames name it, past the loader's" intern
   'if jar := c.modJar(m[1], ""); jar != "" {' \
   'if jar := m[1]; jar != "" {' \
   ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "client-only mods: a library named after the loader isn't taken for the loader's frames" internal/diagnose/crashaddons.go \
+  'm != nil && !loaderModules[m[1]] {' \
+  'm != nil {' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
 control "client-only mods: a later error that stopped the server wins over an earlier client class" internal/diagnose/crashaddons.go \
   'if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); started || c.errorAfter(last.idx) {' \
   'if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); started {' \

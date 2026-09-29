@@ -316,7 +316,7 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 				"java.lang.RuntimeException: Attempted to load class net/minecraft/client/Minecraft for invalid dist DEDICATED_SERVER",
 				"\tat TRANSFORMER/forge@47.4.10/net.minecraftforge.fml.loading.RuntimeDistCleaner.processClassWithFlags(RuntimeDistCleaner.java:57)",
 				"\tat TRANSFORMER/zoomify@2.14.2/dev.isxander.zoomify.Zoomify.onInitialize(Zoomify.java:40)",
-			}, "zoomify-2.14.2+1.20.1-forge.jar"),
+			}, "zoomify-2.14.2+1.20.1-forge.jar", "ForgeConfigAPIPort-v8.0.2-1.20.1-Forge.jar"),
 			kind: CrashIncompatibleAddon, certain: true, params: map[string]any{"addon": "zoomify", "class": "net.minecraft.client.Minecraft"},
 			fixes:       "remove_addon* jar=zoomify-2.14.2+1.20.1-forge.jar",
 			explanation: []string{"Forge stopped because zoomify needs Minecraft's client code"},

@@ -508,7 +508,7 @@ func (c *crashCtx) clientMod(f found, start int) (named found, id, name, jar str
 		}
 	}
 	for i := f.idx + 1; i < end; i++ {
-		if m := reModFrame.FindStringSubmatch(c.split[i].msg); m != nil {
+		if m := reModFrame.FindStringSubmatch(c.split[i].msg); m != nil && !loaderModules[m[1]] {
 			if jar := c.modJar(m[1], ""); jar != "" {
 				return found{}, m[1], "", jar
 			}
@@ -518,6 +518,14 @@ func (c *crashCtx) clientMod(f found, start int) (named found, id, name, jar str
 		return found{}, "", jar, jar
 	}
 	return found{}, "", "", ""
+}
+
+// loaderModules are the modules of the game and its loaders, which frames
+// name as they name a mod's. A library jar called after one, like Forge
+// Config API Port, isn't what they mean.
+var loaderModules = map[string]bool{
+	"minecraft": true, "neoforge": true, "forge": true, "fml_loader": true, "fmlloader": true, "fml_core": true, "fmlcore": true,
+	"fmlearlydisplay": true, "javafmllanguage": true, "lowcodelanguage": true, "mclanguage": true,
 }
 
 // loaderName names what loads the server's mods.
