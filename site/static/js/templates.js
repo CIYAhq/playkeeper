@@ -204,9 +204,9 @@
     var el = shell.content.firstElementChild.cloneNode(true);
     var img = slot(el, 'art');
     if (t.th) {
-      // Its thumbnail, a picture of its world, 480 and 960 pixels wide.
+      // Its thumbnail, a picture of its world, 480, 960 and 1200 pixels wide.
       img.src = t.th[0];
-      img.srcset = t.th[0] + ' 480w, ' + t.th[1] + ' 960w';
+      img.srcset = t.th[0] + ' 480w, ' + t.th[1] + ' 960w, ' + t.th[2] + ' 1200w';
       img.sizes = '(max-width: 639.98px) 100vw, (max-width: 1199.98px) 50vw, 300px';
       img.width = 480;
       img.height = 300;

@@ -7311,6 +7311,53 @@ webcontrol "disk limits: a backup refused at the limit offers no button" web/src
   '(true || !full) &&' \
   src/pages/pages.test.tsx 'says what to do when the disk limit stops scheduled backups, with no button'
 
+# Playkeeper Cloud's processor shares (internal/agent/disklimits.go): a
+# customer's servers get a share of a core for each GB of memory.
+control "processor shares: a share is kept" internal/agent/disklimits.go \
+  'Servers: list, CPUMilliPerGB: l.CPUMilliPerGB, Hold: l.Hold})' \
+  'Servers: list, Hold: l.Hold})' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: a new share is a change" internal/agent/disklimits.go \
+  ' && x.CPUMilliPerGB == y.CPUMilliPerGB' \
+  '' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: a share has bounds" internal/agent/disklimits.go \
+  'case l.CPUMilliPerGB != 0 && (l.CPUMilliPerGB < minCPUMilliPerGB || l.CPUMilliPerGB > maxCPUMilliPerGB):' \
+  'case l.CPUMilliPerGB < 0:' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: a running server's cap changes at once" internal/agent/disklimits.go \
+  'a.recapCPUs(ctx, a.diskLimits())' \
+  '_ = ctx' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: a cap one set missed is put right by the next" internal/agent/disklimits.go \
+  'a.recapCPUs(ctx, a.diskLimits())' \
+  'if changed { a.recapCPUs(ctx, a.diskLimits()) }' \
+  ./internal/agent '^TestACapAChangeMissedIsPutRightByTheNextSet$'
+control "processor shares: the cap reaches Docker" internal/docker/client.go \
+  'map[string]int64{"NanoCpus": nanoCPUs}' \
+  'map[string]int64{"CpuShares": nanoCPUs}' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: lifting a limit gives every core back" internal/agent/disklimits.go \
+  'want = all' \
+  'want = 0 * all' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: a new container gets its cap" internal/agent/lifecycle.go \
+  'cfg.HostConfig.NanoCPUs = s.cpuCap(sc.MemoryMB)' \
+  'cfg.HostConfig.NanoCPUs = 0 * s.cpuCap(sc.MemoryMB)' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: a stopped container with another cap is made again" internal/agent/lifecycle.go \
+  ' || c.HostConfig.NanoCPUs != spec.HostConfig.NanoCPUs):' \
+  '):' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: no cap passes the machine's cores" internal/agent/disklimits.go \
+  ', int64(numCPU())*1_000_000_000)' \
+  ', int64(numCPU())*1_000_000_000*1000)' \
+  ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: the dashboard gives each creator's servers half a core per GB" internal/panel/disklimits.go \
+  'Servers: ids, CPUMilliPerGB: cpuMilliPerGB, Hold: holds[uid]})' \
+  'Servers: ids, Hold: holds[uid]})' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+
 # Playkeeper Cloud's disk limits, the dashboard's half
 # (internal/panel/disklimits.go): each creator's servers get their
 # allowance's disk between them on their machine.
@@ -7536,8 +7583,8 @@ control "pausing: pausing sends the machines the hold at once" internal/panel/pa
   '' \
   ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
 control "pausing: a paused customer's limit holds their servers" internal/panel/disklimits.go \
-  'Servers: ids, Hold: holds[uid]}' \
-  'Servers: ids}' \
+  'CPUMilliPerGB: cpuMilliPerGB, Hold: holds[uid]}' \
+  'CPUMilliPerGB: cpuMilliPerGB}' \
   ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
 control "pausing: a suspended customer's hold says so" internal/panel/disklimits.go \
   'if CustomerState(state) == CustomerSuspended {' \
@@ -7595,12 +7642,12 @@ control "disk limits: every start asks about the hold" internal/agent/lifecycle.
   'if err := s.holdRefusal(); false && err != nil {' \
   ./internal/agent '^TestAHeldServerDoesntStart$'
 control "disk limits: the hold is kept" internal/agent/disklimits.go \
-  'Servers: list, Hold: l.Hold})' \
-  'Servers: list})' \
+  'CPUMilliPerGB: l.CPUMilliPerGB, Hold: l.Hold})' \
+  'CPUMilliPerGB: l.CPUMilliPerGB})' \
   ./internal/agent '^TestAHeldServerDoesntStart$'
 control "disk limits: a hold that changes alone is a change" internal/agent/disklimits.go \
-  'slices.Equal(x.Servers, y.Servers) && x.Hold == y.Hold' \
-  'slices.Equal(x.Servers, y.Servers)' \
+  'x.CPUMilliPerGB == y.CPUMilliPerGB && x.Hold == y.Hold' \
+  'x.CPUMilliPerGB == y.CPUMilliPerGB' \
   ./internal/agent '^TestAHeldServerDoesntStart$'
 control "disk limits: a hold's reason is bounded" internal/agent/disklimits.go \
   'case len(l.Hold) > maxDiskLimitHold || ' \

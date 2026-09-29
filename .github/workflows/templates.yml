@@ -30,6 +30,9 @@ on:
       only:
         description: Template ids, comma-separated (empty checks them all)
         required: false
+      thumbnails:
+        description: Template ids to make thumbnails of, comma-separated (empty makes them for templates without one)
+        required: false
 
 permissions:
   contents: read
@@ -139,6 +142,113 @@ jobs:
             /tmp/pk.log
           if-no-files-found: ignore
           retention-days: 14
+
+  # Thumbnails come from each template's real world: a bot joins its server
+  # and saves the land around spawn, or the mode's showpiece, and
+  # site/tools/thumbnails renders it. The bot joins as a player would, so
+  # this job's Playkeeper runs servers in offline mode, on a runner thrown
+  # away afterwards. Nightly it makes them for templates without one; the
+  # scheduled template agent commits them from the artifact. Like the check,
+  # it runs third-party plugins with read-only access; thumbnails-report
+  # files the issue.
+  thumbnails:
+    name: Thumbnails of templates without one, from their real worlds
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    outputs:
+      made: ${{ steps.made.outputs.made }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Pick the templates
+        id: pick
+        env:
+          ONLY: ${{ inputs.thumbnails }}
+        run: |
+          if [ -n "$ONLY" ]; then
+            ids=$(tr , '\n' <<<"$ONLY")
+          else
+            # Templates without a thumbnail whose servers the capture bot can
+            # join (cmd/template-check's viaFor): a NeoForge or Forge pack's
+            # comes from its icon, with pack-art.mjs, by hand.
+            ids=$(find site/data/templates -maxdepth 1 -name '*.json' ! -name cards.json -printf '%f\n' | sed 's/\.json$//' | sort |
+              while read -r id; do
+                [ -f "site/static/shots/templates/$id-960w.webp" ] && continue
+                case $(jq -r .server.type "site/data/templates/$id.json") in paper | purpur | folia | fabric) echo "$id" ;; esac
+              done)
+          fi
+          echo "only=$(paste -sd, <<<"$ids")" >> "$GITHUB_OUTPUT"
+          echo "count=$(grep -c . <<<"$ids" || true)" >> "$GITHUB_OUTPUT"
+          echo "Thumbnails for: ${ids:-none}"
+      - name: Set up pinned toolchains, and Pillow for AVIF
+        if: steps.pick.outputs.count != '0'
+        run: |
+          ./scripts/setup.sh
+          python3 -m pip install --user --quiet 'pillow>=11.3'
+      - name: The Playkeeper release people install
+        if: steps.pick.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/release
+          gh release download --repo "$GITHUB_REPOSITORY" --pattern 'playkeeper-linux-amd64.tar.gz*' --dir /tmp/release
+          cd /tmp/release
+          sha256sum -c playkeeper-linux-amd64.tar.gz.sha256
+          tar -xzf playkeeper-linux-amd64.tar.gz
+      - name: Run it in dev mode, its servers in offline mode for the capture bot
+        if: steps.pick.outputs.count != '0'
+        run: |
+          pk=$(ls -d /tmp/release/playkeeper-*-linux-amd64)/playkeeper
+          PLAYKEEPER_E2E_OFFLINE_MODE_UNSAFE=1 nohup "$pk" dev --dir /tmp/pk > /tmp/pk.log 2>&1 &
+          for _ in $(seq 60); do [ -S /tmp/pk/agent.sock ] && break; sleep 1; done
+          [ -S /tmp/pk/agent.sock ] || { cat /tmp/pk.log; exit 1; }
+      - name: Capture and render
+        if: steps.pick.outputs.count != '0'
+        env:
+          ONLY: ${{ steps.pick.outputs.only }}
+        run: make template-thumbnails SOCKET=/tmp/pk/agent.sock SHOTS=/tmp/shots ARGS="-only '$ONLY'"
+      - name: Keep the thumbnails and Playkeeper's log
+        if: always() && steps.pick.outputs.count != '0'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: template-thumbnails
+          path: |
+            site/static/shots/templates/
+            /tmp/pk.log
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Which templates have new thumbnails
+        id: made
+        if: always() && steps.pick.outputs.count != '0'
+        run: |
+          made=$(git status --porcelain --untracked-files=all site/static/shots/templates | sed -nE 's#.*site/static/shots/templates/([a-z0-9-]+)-960w\.webp$#\1#p' | sort -u | paste -sd, -)
+          echo "made=$made" >> "$GITHUB_OUTPUT"
+          echo "New thumbnails: ${made:-none}"
+
+  thumbnails-report:
+    name: File an issue with the new thumbnails for the template agent
+    needs: thumbnails
+    if: always() && needs.thumbnails.outputs.made != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open the issue, or add to the open one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MADE: ${{ needs.thumbnails.outputs.made }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          body=$(printf 'New thumbnails for %s, rendered from their real worlds on %s, are in the run'"'"'s template-thumbnails artifact:\n\n%s\n\nThe scheduled template agent commits them to site/static/shots/templates.\n' "$MADE" "$(date -u +%F)" "$RUN")
+          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search 'in:title "Template thumbnails to add"' --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "Template thumbnails to add" --body "$body"
+          fi
 
   report:
     name: File an issue naming the templates that failed

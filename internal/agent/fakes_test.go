@@ -29,6 +29,7 @@ type fakeDocker struct {
 	images       map[string]bool
 	pulls        int
 	pullFails    []pullFail // what the next pulls answer instead of the image, one each
+	updateFails  int        // how many of the next container updates fail
 	networks     map[string]map[string]string
 	byName       map[string]*fakeContainer
 	byID         map[string]*fakeContainer
@@ -468,7 +469,7 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 			"Id": c.id, "Name": "/" + c.name, "Image": "sha256:img",
 			"State":           map[string]any{"Status": map[bool]string{true: "running", false: "exited"}[c.running], "Running": c.running, "ExitCode": c.exitCode, "OOMKilled": c.oom, "StartedAt": st, "FinishedAt": fin},
 			"Config":          map[string]any{"Image": c.cfg.Image, "Env": c.cfg.Env, "Labels": c.cfg.Labels},
-			"HostConfig":      map[string]any{"Memory": c.cfg.HostConfig.Memory},
+			"HostConfig":      map[string]any{"Memory": c.cfg.HostConfig.Memory, "NanoCpus": c.cfg.HostConfig.NanoCPUs},
 			"NetworkSettings": map[string]any{"Networks": map[string]any{networkName: map[string]string{"IPAddress": "127.0.0.1"}}},
 		})
 	case r.Method == "POST" && action == "start":
@@ -496,6 +497,21 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 		}
 		go fd.boot(c, setup)
 		w.WriteHeader(204)
+	case r.Method == "POST" && action == "update":
+		var body struct {
+			NanoCpus int64
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		fd.mu.Lock()
+		if fd.updateFails > 0 {
+			fd.updateFails--
+			fd.mu.Unlock()
+			jsonOut(w, 500, map[string]string{"message": "fake: the update failed"})
+			return
+		}
+		c.cfg.HostConfig.NanoCPUs = body.NanoCpus
+		fd.mu.Unlock()
+		jsonOut(w, 200, map[string]any{"Warnings": []string{}})
 	case r.Method == "POST" && action == "stop":
 		fd.mu.Lock()
 		before := fd.beforeStop

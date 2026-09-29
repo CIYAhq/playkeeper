@@ -17,4 +17,6 @@ web/dist-demo/
 !SECURITY.md
 !docs/
 site/dist/
+site/tools/thumbnails/node_modules/
+site/tools/thumbnails/dist/
 **/.DS_Store

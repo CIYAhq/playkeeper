@@ -25,13 +25,15 @@ schema: article
 {{define "article"}}
 <section aria-labelledby="list">
   {{template "h2n" (dict "ID" "list" "N" 1 "Text" "Errors, by what you see" "Toc" "The errors")}}
-  <h3>Players can't connect</h3>
+  <h3>Players can't connect, or get dropped</h3>
   <ul>
     <li><a href="/errors/connection-refused">Connection refused</a>, as io.netty's <code>AnnotatedConnectException</code>: nothing takes connections at that address and port. The same page covers <code>connection timed out</code>.</li>
+    <li><a href="/errors/timed-out">Timed out</a>: a player in the game and the server stopped hearing from each other.</li>
   </ul>
   <h3>Players are turned away</h3>
   <ul>
     <li><a href="/errors/failed-to-verify-username">Failed to verify username!</a>: the player's game didn't sign in with Mojang to join. The same page covers <code>Authentication servers are down</code>.</li>
+    <li><a href="/errors/outdated-server">Outdated server!, Outdated client! or Incompatible client!</a>: the game and the server run different versions.</li>
   </ul>
   <h3>The server lags</h3>
   <ul>
@@ -40,6 +42,8 @@ schema: article
   <h3>The server won't start</h3>
   <ul>
     <li><a href="/errors/unable-to-access-jarfile">Error: Unable to access jarfile</a>: Java couldn't open the file named after <code>-jar</code>. The same page covers <code>Invalid or corrupt jarfile</code> and <code>no main manifest attribute</code>.</li>
+    <li><a href="/errors/agree-to-the-eula">You need to agree to the EULA</a>: a new server stops until <code>eula.txt</code> says <code>eula=true</code>.</li>
+    <li><a href="/errors/failed-to-bind-to-port">FAILED TO BIND TO PORT!</a>: the server couldn't take its port, because another program has it, <code>server-ip</code> is wrong or the port is under 1024.</li>
   </ul>
 </section>
 

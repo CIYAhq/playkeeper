@@ -14,8 +14,8 @@ A capture narrower than the widest of them is an error: nothing is ever
 enlarged.
 
 Template thumbnails, pictures of each template's world, are captures named
-templates/<template id>.png, 16:10 and at least 960 pixels wide: each is
-written at the two widths the directory's cards and pages use (THUMBS), to
+templates/<template id>.png, 16:10 and at least 1200 pixels wide: each is
+written at the widths the directory's cards and pages use (THUMBS), to
 site/static/shots/templates, encoded for pictures rather than screens.
 
 Usage: python3 site/tools/shots.py <captures-dir>
@@ -88,8 +88,9 @@ SLOTS = {
 
 
 # A template thumbnail's widths: a card is at most 480 pixels wide at 1x and
-# a template's page 520, so 960 covers both at 2x.
-THUMBS = [480, 960]
+# a template's page 520, so 960 covers both at 2x, and a phone's full-width
+# card, about 350 pixels at 3x, needs 1200.
+THUMBS = [480, 960, 1200]
 
 
 def widths(name):

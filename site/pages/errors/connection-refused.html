@@ -56,7 +56,7 @@ schema: article
       </tbody>
     </table>
   </div>
-  <p>30 seconds is Netty's own limit. On Windows the same wait can also end as <code>Connection timed out: getsockopt</code>, the system's own time-out.</p>
+  <p>30 seconds is Netty's own limit. On Windows the same wait can also end as <code>Connection timed out: getsockopt</code>, the system's own time-out. A connection that goes quiet once you're in the game ends differently, as <a href="/errors/timed-out">Timed out</a>.</p>
 </section>
 
 <section aria-labelledby="causes">
@@ -65,7 +65,7 @@ schema: article
     <li><strong>The server isn't running, or hasn't opened its port yet.</strong> A server opens its port only after it has loaded, mods included. Our Paper 1.21.1 test refused connections until its log said <code>Starting Minecraft server on *:25565</code>, and FTB StoneBlock 4 loads its mods for more than a minute before that. Wait for <code>Done</code> in the log, or for Online in your dashboard.</li>
     <li><strong>The address has the wrong port.</strong> A Java server listens on 25565 unless it's set otherwise, and any other port goes after a colon, like <code>play.example.com:25566</code>.</li>
     <li><strong>A firewall rejects it.</strong> A rule that rejects gives Connection refused, and one that drops gives the time-out. On a VPS, allow the port in the provider's firewall, the one in its web console, and in ufw or firewalld on the machine itself.</li>
-    <li><strong><code>server-ip</code> is set in server.properties.</strong> The server then listens on that one address. Our test server with <code>server-ip=127.0.0.1</code> logged <code>Starting Minecraft server on 127.0.0.1:25565</code> and refused everyone else. Leave it empty. The <a href="/tools/server-properties">server.properties guide</a> explains every setting.</li>
+    <li><strong><code>server-ip</code> is set in server.properties.</strong> The server then listens on that one address. Our test server with <code>server-ip=127.0.0.1</code> logged <code>Starting Minecraft server on 127.0.0.1:25565</code> and refused everyone else, and one set to an address the machine doesn't have <a href="/errors/failed-to-bind-to-port">fails to bind its port</a> and stops. Leave it empty. The <a href="/tools/server-properties">server.properties guide</a> explains every setting.</li>
     <li><strong>At home, the router doesn't pass the port on.</strong> Players from outside reach your router, not your PC, until the router forwards port 25565 to it. Depending on the router, they then see refused or timed out. The <a href="/guides/port-forward-minecraft-server">port forwarding guide</a> goes step by step.</li>
   </ul>
 </section>

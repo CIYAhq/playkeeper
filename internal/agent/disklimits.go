@@ -29,12 +29,15 @@ import (
 
 const kvDiskLimits = "disk_limits"
 
-// Bounds of a request: the limits, each one's servers, and each one's size.
+// Bounds of a request: the limits, each one's servers, and each one's size
+// and processor share for each GB of memory, in thousandths of a core.
 const (
 	maxDiskLimits       = 1000
 	maxDiskLimitServers = 100
 	maxDiskLimitBytes   = 1 << 50
 	maxDiskLimitHold    = 200
+	minCPUMilliPerGB    = 100
+	maxCPUMilliPerGB    = 16000
 )
 
 var reDiskLimitID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
@@ -127,8 +130,9 @@ func (a *Agent) hDiskLimitsSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.limits.mu.Lock()
-	changed := !slices.EqualFunc(a.limits.limits, limits, func(x, y api.DiskLimit) bool {
-		return x.ID == y.ID && x.LimitBytes == y.LimitBytes && slices.Equal(x.Servers, y.Servers) && x.Hold == y.Hold
+	old := a.limits.limits
+	changed := !slices.EqualFunc(old, limits, func(x, y api.DiskLimit) bool {
+		return x.ID == y.ID && x.LimitBytes == y.LimitBytes && slices.Equal(x.Servers, y.Servers) && x.CPUMilliPerGB == y.CPUMilliPerGB && x.Hold == y.Hold
 	})
 	if changed {
 		raw, _ := json.Marshal(limits)
@@ -143,7 +147,58 @@ func (a *Agent) hDiskLimitsSet(w http.ResponseWriter, r *http.Request) {
 	if changed {
 		a.audit(actor, "disk_limits.set", "", "succeeded", fmt.Sprintf("%d disk limits", len(limits)))
 	}
+	// Every set puts the running servers' caps right, changed or not, and a
+	// dashboard that stops waiting doesn't cut it short: the dashboard sets
+	// the limits every minute, so a cap one set missed is caught by the next.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), time.Minute)
+	a.recapCPUs(ctx, a.diskLimits())
+	cancel()
 	writeJSON(w, http.StatusOK, limits)
+}
+
+// cpuCapIn is server id's processor cap under limits, in billionths of a
+// core, or 0 for none: its limit's share for each GB of memoryMB, and at most
+// every core the machine has, which Docker allows no more than.
+func cpuCapIn(limits []api.DiskLimit, id string, memoryMB int) int64 {
+	for _, l := range limits {
+		if l.CPUMilliPerGB > 0 && slices.Contains(l.Servers, id) {
+			return min(int64(memoryMB)*int64(l.CPUMilliPerGB)*1_000_000/1024, int64(numCPU())*1_000_000_000)
+		}
+	}
+	return 0
+}
+
+// cpuCap is the server's processor cap for memoryMB under the limits now.
+func (s *server) cpuCap(memoryMB int) int64 {
+	return cpuCapIn(s.diskLimits(), s.id, memoryMB)
+}
+
+// recapCPUs gives each running server the processor cap limits give it, or
+// every core where they give none, against what its container has now, so
+// a cap an earlier change missed is put right too. A server that isn't
+// running gets its cap when its container is next made.
+func (a *Agent) recapCPUs(ctx context.Context, limits []api.DiskLimit) {
+	all := int64(numCPU()) * 1_000_000_000
+	for _, s := range a.serverList() {
+		sc, err := s.serverConfig()
+		if err != nil || sc == nil {
+			continue
+		}
+		c, err := s.docker.ContainerInspect(ctx, s.containerName())
+		if err != nil || !c.State.Running {
+			continue
+		}
+		want, have := cpuCapIn(limits, s.id, sc.MemoryMB), c.HostConfig.NanoCPUs
+		if want == have || want == 0 && have == all {
+			continue
+		}
+		if want == 0 {
+			want = all
+		}
+		if err := s.docker.ContainerCPUs(ctx, c.ID, want); err != nil {
+			s.log.Warn("could not change a running server's processor cap", "server", s.id, "err", err)
+		}
+	}
 }
 
 // checkDiskLimits refuses limits a server would count against twice, or
@@ -162,6 +217,8 @@ func checkDiskLimits(in []api.DiskLimit) ([]api.DiskLimit, error) {
 			return nil, errInvalid("A disk limit is more than nothing and at most 1 PiB.")
 		case len(l.Servers) > maxDiskLimitServers:
 			return nil, errInvalid("A disk limit covers at most %d servers.", maxDiskLimitServers)
+		case l.CPUMilliPerGB != 0 && (l.CPUMilliPerGB < minCPUMilliPerGB || l.CPUMilliPerGB > maxCPUMilliPerGB):
+			return nil, errInvalid("A processor share is from %d to %d thousandths of a core for each GB of memory, or none.", minCPUMilliPerGB, maxCPUMilliPerGB)
 		case len(l.Hold) > maxDiskLimitHold || strings.ContainsFunc(l.Hold, func(r rune) bool { return !unicode.IsPrint(r) }):
 			return nil, errInvalid("A hold's reason is at most %d printable characters.", maxDiskLimitHold)
 		}
@@ -174,7 +231,7 @@ func checkDiskLimits(in []api.DiskLimit) ([]api.DiskLimit, error) {
 			}
 			servers[id] = true
 		}
-		out = append(out, api.DiskLimit{ID: l.ID, LimitBytes: l.LimitBytes, Servers: list, Hold: l.Hold})
+		out = append(out, api.DiskLimit{ID: l.ID, LimitBytes: l.LimitBytes, Servers: list, CPUMilliPerGB: l.CPUMilliPerGB, Hold: l.Hold})
 	}
 	slices.SortFunc(out, func(x, y api.DiskLimit) int { return strings.Compare(x.ID, y.ID) })
 	return out, nil
