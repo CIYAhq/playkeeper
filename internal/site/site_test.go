@@ -621,7 +621,7 @@ func TestStartPage(t *testing.T) {
 		}
 	}
 	start := pages(o)["/start"]
-	if !strings.Contains(start, `<meta name="robots" content="noindex">`) || strings.Contains(string(o.Files["sitemap.xml"]), "/start") {
+	if !strings.Contains(start, `<meta name="robots" content="noindex">`) || strings.Contains(string(o.Files["sitemap.xml"]), "<loc>"+Default.BaseURL+"/start</loc>") {
 		t.Error("/start isn't kept out of search engines and the sitemap")
 	}
 	under := between(start, share, `class="start-how`)
