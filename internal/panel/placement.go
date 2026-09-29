@@ -21,10 +21,10 @@ import (
 // servers away from itself. The dashboard's own machine is always the
 // owner's, so a standalone Playkeeper, such as a Whop blueprint seller's,
 // places customers on itself with no Hetzner token and no other machine.
-// Joined machines take none until the owner confirms them, a later step, so
-// a join code that leaked can't pull customers onto a stranger's machine.
-// Of the machines with room for a plan, the fullest gets the customer, so
-// machines fill one at a time.
+// A joined machine takes none until the owner confirms it's theirs (see
+// machinecustomers.go), so a join code that leaked can't pull customers
+// onto a stranger's machine. Of the machines with room for a plan, the
+// fullest gets the customer, so machines fill one at a time.
 
 // errNoRoom is placeCustomer's answer when no machine that takes customers
 // has room for the plan: the customer waits without a home, and the core
@@ -194,8 +194,10 @@ func (s *Server) machineRoom(ctx context.Context, m machine, local string, excep
 	}
 	r.FreeMB = live.MemoryFreeMB - aside
 	r.Guarded = live.Guard != nil && live.Guard.Host
-	switch m.Kind {
-	case localKind:
+	switch {
+	case m.Kind == localKind:
+		r.Takes = true
+	case m.Kind == remoteKind && !m.customersAt.IsZero():
 		r.Takes = true
 	default:
 		r.Why = "Joined machines take customers once you confirm them."

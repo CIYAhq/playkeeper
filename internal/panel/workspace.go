@@ -85,7 +85,7 @@ const actCreateOwnServers action = "servers.create_own"
 // actions lists every action, for the signed-in account's "can" list.
 var actions = []action{actView, actManageAccount, actRunServers, actConsole, actManagePlayers, actMakeBackups,
 	actRestore, actManageServers, actCreateServers, actCreateOwnServers, actManageTeam, actManageMachine, actViewAuditTrail,
-	actManageBackupCopies, actRecoveryKey, actRecoverBackups, actManageAddonSources, actViewFiles, actEditFiles, actSellOnWhop, actWatchStock}
+	actManageBackupCopies, actRecoveryKey, actRecoverBackups, actManageAddonSources, actViewFiles, actEditFiles, actSellOnWhop, actWatchStock, actTakeCustomers}
 
 // keyActions are decided by mayHoldBackupKeys rather than actNeeds.
 var keyActions = map[action]bool{actManageBackupCopies: true, actRecoveryKey: true, actRecoverBackups: true}
@@ -368,6 +368,11 @@ type machine struct {
 	joinedAt   time.Time
 	joinedFrom string
 	addedBy    string
+	// customersAt and customersBy say when and by whom the owner confirmed
+	// a joined machine takes customers (see machinecustomers.go), zero
+	// until they do.
+	customersAt time.Time
+	customersBy string
 }
 
 var reMachineID = regexp.MustCompile(`^[a-z2-9]{10}$`)
@@ -422,7 +427,7 @@ func (s *Server) ensureOwnerMember(userID int64) {
 // machines lists the machines the panel manages, the local one first and
 // removed ones left out.
 func (s *Server) machines() ([]machine, error) {
-	rows, err := s.db.Query(`SELECT id, project_id, name, kind, endpoint, created_at, joined_from, created_by FROM machines
+	rows, err := s.db.Query(`SELECT id, project_id, name, kind, endpoint, created_at, joined_from, created_by, customers_at, customers_by FROM machines
 		WHERE revoked_at = 0 ORDER BY kind != ?, created_at, id`, localKind)
 	if err != nil {
 		return nil, err
@@ -431,8 +436,8 @@ func (s *Server) machines() ([]machine, error) {
 	var out []machine
 	for rows.Next() {
 		var m machine
-		var created int64
-		if err := rows.Scan(&m.ID, &m.ProjectID, &m.Name, &m.Kind, &m.dials, &created, &m.joinedFrom, &m.addedBy); err != nil {
+		var created, customers int64
+		if err := rows.Scan(&m.ID, &m.ProjectID, &m.Name, &m.Kind, &m.dials, &created, &m.joinedFrom, &m.addedBy, &customers, &m.customersBy); err != nil {
 			return nil, err
 		}
 		switch m.Kind {
@@ -441,6 +446,7 @@ func (s *Server) machines() ([]machine, error) {
 		case remoteKind:
 			m.agent = agentclient.Via(s.machineTransport(m.ID))
 			m.joinedAt = fromMillis(created)
+			m.customersAt = fromMillis(customers)
 		default:
 			continue
 		}
@@ -567,6 +573,11 @@ type machineView struct {
 	JoinedAt   *time.Time          `json:"joinedAt,omitempty"`
 	JoinedFrom string              `json:"joinedFrom,omitempty"`
 	AddedBy    string              `json:"addedBy,omitempty"`
+	// TakesCustomers is set on a joined machine the owner confirmed takes
+	// customers, and Customers is how many customers placement gave the
+	// machine (see machinecustomers.go).
+	TakesCustomers *takesCustomers `json:"takesCustomers,omitempty"`
+	Customers      int             `json:"customers,omitempty"`
 }
 
 // machineTimeout bounds how long one machine may take to answer a list, so
@@ -574,10 +585,13 @@ type machineView struct {
 const machineTimeout = 8 * time.Second
 
 func (s *Server) machineView(ctx context.Context, m machine, link *machinelink.Status) machineView {
-	v := machineView{machine: m, Link: link}
+	v := machineView{machine: m, Link: link, Customers: s.customersOn(m.ID)}
 	if m.Kind == remoteKind {
 		v.Dials, v.JoinedFrom, v.AddedBy = m.dials, m.joinedFrom, m.addedBy
 		v.JoinedAt = &m.joinedAt
+		if !m.customersAt.IsZero() {
+			v.TakesCustomers = &takesCustomers{Since: m.customersAt, By: m.customersBy}
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, machineTimeout)
 	defer cancel()

@@ -154,6 +154,10 @@ func TestJoinedMachinesTakeNoCustomersUntilConfirmed(t *testing.T) {
 	if r.Takes || r.Why == "" || r.FreeMB != 30000 || !r.Guarded {
 		t.Fatalf("a joined machine: %+v", r)
 	}
+	joined.customersAt = e.clock.now()
+	if r := e.srv.machineRoom(t.Context(), joined, machineID(t, e), 0, nil, nil, nil); !r.Takes || r.Why != "" {
+		t.Fatalf("a joined machine the owner confirmed: %+v", r)
+	}
 }
 
 func TestTheFullestMachineThatTakesCustomersWins(t *testing.T) {
