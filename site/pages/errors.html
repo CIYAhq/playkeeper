@@ -29,6 +29,10 @@ schema: article
   <ul>
     <li><a href="/errors/connection-refused">Connection refused</a>, as io.netty's <code>AnnotatedConnectException</code>: nothing takes connections at that address and port. The same page covers <code>connection timed out</code>.</li>
   </ul>
+  <h3>The server won't start</h3>
+  <ul>
+    <li><a href="/errors/unable-to-access-jarfile">Error: Unable to access jarfile</a>: Java couldn't open the file named after <code>-jar</code>. The same page covers <code>Invalid or corrupt jarfile</code> and <code>no main manifest attribute</code>.</li>
+  </ul>
 </section>
 
 <section aria-labelledby="where">
@@ -67,4 +71,4 @@ schema: article
 </div>
 {{end}}
 
-{{define "keep-reading"}}{{template "related" (related 3 "/errors/connection-refused" "/guides/play-minecraft-with-friends" "/tools/server-properties")}}{{end}}
+{{define "keep-reading"}}{{template "related" (related 3 "/errors/connection-refused" "/errors/unable-to-access-jarfile" "/guides/play-minecraft-with-friends")}}{{end}}

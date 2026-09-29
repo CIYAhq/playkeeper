@@ -117,13 +117,14 @@ var (
 )
 
 // Google treats pages made at scale from one template with little of their
-// own as spam, so most of each pack page's and template directory guide's
-// sentences are its own: said on no other page under the same hub. Pages
+// own as spam, so most of each pack page's, template directory guide's and
+// error page's sentences are its own: said on no other page under the same
+// hub. Pages
 // kept out of search engines, like a template's page without notes of its
 // own, don't compete, so they aren't compared.
 func TestModpackAndTemplatePagesAreMostlyTheirOwn(t *testing.T) {
 	built := pages(build(t, Default))
-	for _, hub := range []string{"/modpacks/", "/templates/"} {
+	for _, hub := range []string{"/modpacks/", "/templates/", "/errors/"} {
 		t.Run(strings.Trim(hub, "/"), func(t *testing.T) {
 			sentences := map[string][]string{}
 			seen := map[string]int{}
