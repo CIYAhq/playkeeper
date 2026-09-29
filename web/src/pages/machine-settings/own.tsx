@@ -366,13 +366,15 @@ function Results({ a, now, phone, checking, onCheck, certBusy, onCertificate }: 
 }
 
 /**
- * Each server's own address under the domain, as the owner gives them, with
- * the two records each needs and whether the last check found them.
+ * The switch for an address for each server, there as soon as the domain is,
+ * so the owner can turn it on before the first server; then each server's
+ * own address under the domain, as the owner gives them, with the two records
+ * each needs and whether the last check found them.
  */
 function OwnAddresses({ id, a, refresh }: { id: string; a: Address; refresh: () => Promise<void> }) {
   const phone = useIsPhone()
   const servers = a.servers ?? []
-  if (a.kind !== 'own' || !a.host || servers.length === 0) return null
+  if (a.kind !== 'own' || !a.host) return null
   const rows = [<ServerAddresses key="each" id={id} a={a} refresh={refresh} />, ...servers.map((s) => <OwnAddressRow key={s.serverId} a={a} s={s} refresh={refresh} />)]
   if (phone) {
     return (

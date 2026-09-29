@@ -621,6 +621,24 @@ describe('an own domain', () => {
     expect(document.querySelector('[aria-label="Remove Creative’s address"]')).toBeNull()
   })
 
+  it('offers an address for each server before the first server', async () => {
+    vi.mocked(client.post).mockResolvedValue(own({ servers: [], serverAddresses: true }))
+    await show(own({ servers: [] }))
+    expect(text()).toContain('Servers’ own addresses')
+    expect(text()).toContain('An address for each server')
+    const toggle = need(document.querySelector<HTMLElement>('[role="switch"]'), 'the switch')
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    await click(toggle)
+    expect(client.post).toHaveBeenCalledWith('/api/machines/m1/address/server-addresses', { on: true })
+  })
+
+  it('says whether the wildcard record works before the first server', async () => {
+    const wild: DNSRecord = { type: 'A', name: '*.play.example.com', value: ip, ttl: 300 }
+    await show(own({ servers: [], serverAddresses: true, records: [aRecord, wild], check: check({}, true, [{ record: wild, ok: true, code: 'name_ok', message: 'It points here.', own: true }]) }))
+    expect(need(document.querySelector<HTMLElement>('[role="switch"]'), 'the switch').getAttribute('aria-checked')).toBe('true')
+    expect(text()).toContain(`A*.play.example.com${ip}Works`)
+  })
+
   it('says why a server has no address of its own under the wildcard', async () => {
     await show(own({ serverAddresses: true, servers: [survival({ label: 'survival', address: 'survival.play.example.com', ownAddress: 'survival.play.example.com', automatic: true }), creative({ address: 'play.example.com:25566' })] }))
     expect(text()).toContain('Players join it at play.example.com:25566: its name can’t be an address here.')
