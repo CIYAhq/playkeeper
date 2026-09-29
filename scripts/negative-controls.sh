@@ -7923,6 +7923,22 @@ control "dns: an address in use is said" internal/agent/dns.go \
   'problems = append(problems, dnsBindProblem(addr, err))' \
   '_ = addr' \
   ./internal/agent '^TestAnAddressInUseIsSaid$'
+control "dns: a wildcard answers names the zone hasn't got" internal/dnszone/dnszone.go \
+  'recs, there = a.names["*."+ce]' \
+  'recs, there = nil, false' \
+  ./internal/dnszone '^TestAWildcardAnswersNamesTheZoneHasnt$'
+control "dns: a name the zone has isn't the wildcard's" internal/dnszone/dnszone.go \
+  'recs, there := a.names[qs.name], a.nodes[qs.name]' \
+  'recs, there := a.names[qs.name], false' \
+  ./internal/dnszone '^TestAWildcardAnswersNamesTheZoneHasnt$'
+control "dns: a wildcard answers only below its closest encloser" internal/dnszone/dnszone.go \
+  'for !a.nodes[ce] {' \
+  'for ce != a.zone.Name {' \
+  ./internal/dnszone '^TestAWildcardAnswersNamesTheZoneHasnt$'
+control "dns: a wildcard's star is its whole first label" internal/dnszone/dnszone.go \
+  '} else if rest, ok := strings.CutPrefix(name, "*."); ok {' \
+  '} else if rest, ok := strings.CutPrefix(name, "*"); ok {' \
+  ./internal/dnszone '^TestZoneCheck$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

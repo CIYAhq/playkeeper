@@ -185,6 +185,46 @@ func TestMissingNamesAndTypes(t *testing.T) {
 	}
 }
 
+// wildZone is testZone with a wildcard.
+func wildZone() Zone {
+	z := testZone
+	z.Records = append(append([]Record{}, testZone.Records...), Record{Name: "*", Type: TypeA, Value: "203.0.113.9"})
+	return z
+}
+
+// A wildcard answers the names the zone hasn't got, however deep, with the
+// name asked as the owner: a server the zone doesn't list yet, or the name
+// Playkeeper's own check makes up. A name the zone has keeps its records, a
+// name with names below it has nothing of a type it hasn't got, and a name
+// below one the zone has isn't the wildcard's.
+func TestAWildcardAnswersNamesTheZoneHasnt(t *testing.T) {
+	a := newAnswerer(wildZone())
+	for _, name := range []string{"playkeeper-0a1b2c.beta.example.com", "New.Server.beta.example.com"} {
+		got := ask(t, a, query(name, typeA))
+		if got.rcode != rcodeNoError || !got.aa || got.an != 1 || got.records[0].name != name || netip.AddrFrom4([4]byte(got.records[0].data)).String() != "203.0.113.9" {
+			t.Fatalf("%s: %+v", name, got)
+		}
+	}
+	got := ask(t, a, query("alex.beta.example.com", typeA))
+	if got.an != 1 || netip.AddrFrom4([4]byte(got.records[0].data)).String() != "203.0.113.5" {
+		t.Fatalf("alex's own A record: %+v", got)
+	}
+	for _, c := range []struct {
+		name  string
+		qtype uint16
+		rcode int
+	}{
+		{"bob.beta.example.com", typeSRV, rcodeNoError},
+		{"_tcp.alex.beta.example.com", typeA, rcodeNoError},
+		{"deep.alex.beta.example.com", typeA, rcodeNXDomain},
+	} {
+		got := ask(t, a, query(c.name, c.qtype))
+		if got.rcode != c.rcode || got.an != 0 || got.ns != 1 || got.records[0].rtype != typeSOA {
+			t.Fatalf("%s %d: %+v", c.name, c.qtype, got)
+		}
+	}
+}
+
 // Names outside the zone, including ones that only end in its letters, and
 // classes other than IN are refused without authority, as they are by a
 // machine with no zone at all; ANY is not implemented.
@@ -272,7 +312,16 @@ func TestZoneCheck(t *testing.T) {
 	if err := testZone.Check(); err != nil {
 		t.Fatalf("a good zone: %v", err)
 	}
+	wild := wildZone()
+	wild.Records = append(wild.Records, Record{Name: "*.sub", Type: TypeTXT, Value: "x"})
+	if err := wild.Check(); err != nil {
+		t.Fatalf("a zone with wildcards: %v", err)
+	}
 	for name, bad := range map[string]func(z *Zone){
+		"a star in a label":        func(z *Zone) { z.Records = append(z.Records, Record{Name: "*a", Type: TypeA, Value: "203.0.113.5"}) },
+		"a star below":             func(z *Zone) { z.Records = append(z.Records, Record{Name: "a.*", Type: TypeA, Value: "203.0.113.5"}) },
+		"two stars":                func(z *Zone) { z.Records = append(z.Records, Record{Name: "*.*", Type: TypeA, Value: "203.0.113.5"}) },
+		"a star in the zone":       func(z *Zone) { z.Name = "*.example.com" },
 		"a top-level zone":         func(z *Zone) { z.Name = "com" },
 		"an upper-case zone":       func(z *Zone) { z.Name = "Beta.example.com" },
 		"no nameserver":            func(z *Zone) { z.Nameserver = "" },
@@ -310,7 +359,7 @@ func TestZoneCheck(t *testing.T) {
 
 // Whatever arrives, the answerer doesn't panic, and its replies are whole.
 func FuzzAnswer(f *testing.F) {
-	for _, q := range [][]byte{query("alex.beta.example.com", typeA), query("x", typeSRV), {0, 1, 0, 0, 0, 1}} {
+	for _, q := range [][]byte{query("alex.beta.example.com", typeA), query("new.beta.example.com", typeA), query("x", typeSRV), {0, 1, 0, 0, 0, 1}} {
 		f.Add(q)
 	}
 	r := rand.New(rand.NewSource(1))
@@ -319,7 +368,7 @@ func FuzzAnswer(f *testing.F) {
 		r.Read(b)
 		f.Add(b)
 	}
-	a := newAnswerer(testZone)
+	a := newAnswerer(wildZone())
 	f.Fuzz(func(t *testing.T, q []byte) {
 		out := a.Answer(q, MaxUDP)
 		if out != nil && (len(out) < headerLen || len(out) > MaxUDP && out[2]&0x02 == 0) {

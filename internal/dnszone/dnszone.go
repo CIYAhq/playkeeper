@@ -58,8 +58,10 @@ const (
 
 // Record is one record of the zone. Name is relative to the zone: "" for
 // the zone itself, "alex" for alex.<zone>, "_minecraft._tcp.alex" for its
-// SRV record. Value is an A or AAAA record's address, a TXT record's text,
-// or an SRV record's target, a full host name; Port is an SRV record's.
+// SRV record, and "*" for a wildcard, which answers for the names below
+// the zone it hasn't got (RFC 4592). Value is an A or AAAA record's
+// address, a TXT record's text, or an SRV record's target, a full host
+// name; Port is an SRV record's.
 type Record struct {
 	Name  string `json:"name"`
 	Type  string `json:"type"`
@@ -103,8 +105,15 @@ func (z Zone) Check() error {
 }
 
 func (r Record) check(zone string) error {
-	if r.Name != "" {
-		if err := checkLabels(r.Name, true); err != nil {
+	// A wildcard's star is its whole first label.
+	name := r.Name
+	if name == "*" {
+		name = ""
+	} else if rest, ok := strings.CutPrefix(name, "*."); ok {
+		name = rest
+	}
+	if name != "" {
+		if err := checkLabels(name, true); err != nil {
 			return fmt.Errorf("the record %q: %v", r.Name, err)
 		}
 	}
@@ -290,7 +299,18 @@ func (a *Answerer) Answer(q []byte, max int) []byte {
 			answers = append(answers, rr{name: qs.raw, rtype: typeNS, ttl: zoneTTL, data: encodeName(a.zone.Nameserver)})
 		}
 	}
-	for _, r := range a.names[qs.name] {
+	recs, there := a.names[qs.name], a.nodes[qs.name]
+	if !there {
+		// A name the zone hasn't got has the records of the wildcard just
+		// below its closest encloser, the nearest name above it the zone
+		// has, if there's one there.
+		ce := qs.name
+		for !a.nodes[ce] {
+			ce = ce[strings.IndexByte(ce, '.')+1:]
+		}
+		recs, there = a.names["*."+ce]
+	}
+	for _, r := range recs {
 		if t, data := r.wire(); t == qs.qtype {
 			answers = append(answers, rr{name: qs.raw, rtype: t, ttl: uint32(ttlOf(r)), data: data})
 		}
@@ -299,7 +319,7 @@ func (a *Answerer) Answer(q []byte, max int) []byte {
 	var authority []rr
 	if len(answers) == 0 {
 		authority = []rr{a.soa()}
-		if !a.nodes[qs.name] {
+		if !there {
 			rcode = rcodeNXDomain
 		}
 	}
