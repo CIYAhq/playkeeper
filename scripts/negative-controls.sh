@@ -7326,16 +7326,20 @@ control "processor shares: a share has bounds" internal/agent/disklimits.go \
   'case l.CPUMilliPerGB < 0:' \
   ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
 control "processor shares: a running server's cap changes at once" internal/agent/disklimits.go \
-  'a.recapCPUs(r.Context(), old, limits)' \
-  '_ = old' \
+  'a.recapCPUs(ctx, limits)' \
+  '_ = ctx' \
   ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
+control "processor shares: a cap one set missed is put right by the next" internal/agent/disklimits.go \
+  'a.recapCPUs(ctx, limits)' \
+  'if changed { a.recapCPUs(ctx, limits) }' \
+  ./internal/agent '^TestACapAChangeMissedIsPutRightByTheNextSet$'
 control "processor shares: the cap reaches Docker" internal/docker/client.go \
   'map[string]int64{"NanoCpus": nanoCPUs}' \
   'map[string]int64{"CpuShares": nanoCPUs}' \
   ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
 control "processor shares: lifting a limit gives every core back" internal/agent/disklimits.go \
-  'after = int64(numCPU()) * 1_000_000_000' \
-  'after = 0' \
+  'want = all' \
+  'want = 0 * all' \
   ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
 control "processor shares: a new container gets its cap" internal/agent/lifecycle.go \
   'cfg.HostConfig.NanoCPUs = s.cpuCap(sc.MemoryMB)' \
