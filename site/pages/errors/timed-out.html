@@ -1,0 +1,76 @@
+{{/*
+path: /errors/timed-out
+title: Minecraft server Timed out: what it means, and the fix
+description: In Minecraft, Timed out means the game and the server stopped hearing from each other while playing. How to tell which side went quiet, and the fix.
+label: Timed out
+h1: Timed out on a Minecraft server: what it means
+card: Timed out, explained
+kind: Guide
+section: guides
+layout: guide
+crumb: Errors
+og: error-timed-out
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}A player who was already in the game gets Timed out when the game and the server stop hearing from each other. The server drops a player whose game goes quiet: ours did 29 seconds after our test client froze. The server's log tells you whether one player's connection went quiet, or the whole server stalled.{{end}}
+
+{{define "closing-title"}}A server that says when it stalls.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper shows each server's ticks per second and explains a server that froze.{{end}}
+
+{{define "side-text"}}Playkeeper shows each server's ticks per second and explains a server that froze.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="meaning">
+  {{template "h2n" (dict "ID" "meaning" "N" 1 "Text" "Two sides of the same message" "Toc" "What it means")}}
+  <p>While a player is in the game, the game and the server keep sending each other small messages. When either stops for long enough, the connection ends with <code>Timed out</code>, the text Minecraft 1.21.1's language file gives <code>disconnect.timeout</code>.</p>
+  <p>On 29 Sep we joined a Paper 1.21.1 server with a test client, then froze the client's process at 14:03:56. The server dropped it 29 seconds later:</p>
+  <div class="error-card reveal">
+    <h3>The server's log</h3>
+    <code class="err">[14:04:25 INFO]: Frozen lost connection: Timed out
+[14:04:25 INFO]: Frozen left the game</code>
+  </div>
+  <p>It's not the error you get joining: a server that can't be reached at all gives <a href="/errors/connection-refused">connection timed out or Connection refused</a> before you're in.</p>
+</section>
+
+<section aria-labelledby="which">
+  {{template "h2n" (dict "ID" "which" "N" 2 "Text" "Which side went quiet" "Toc" "Which side")}}
+  <ul>
+    <li><strong>One player drops while the others play on:</strong> that player's game or connection went quiet, as our frozen client did. A game that freezes, a Wi-Fi drop or a connection that loses packets for half a minute all end this way.</li>
+    <li><strong>Everyone drops at once:</strong> the server itself stalled, or its network did. Look in its log for <a href="/errors/cant-keep-up">Can't keep up!</a> just before: generating new land put our test server 33 seconds behind, longer than the 29 seconds it gave our quiet client.</li>
+    <li><strong>The server stopped with a watchdog message</strong> after a tick that never finished: it froze, and it shuts itself down after a single tick takes a minute, the default <code>max-tick-time</code> of 60000 ms.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="fixes">
+  {{template "h2n" (dict "ID" "fixes" "N" 3 "Text" "What fixes it" "Toc" "Fixes")}}
+  <ul>
+    <li><strong>For one player:</strong> check their connection, and that their game has enough memory not to freeze.</li>
+    <li><strong>For the whole server:</strong> the fixes for lag. Pre-generate the map, give it a faster CPU and enough memory, and keep less of the world running.</li>
+    <li><strong>For a server that froze:</strong> a profiler such as spark, run while it lags, shows what takes the time.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="playkeeper">
+  {{template "h2n" (dict "ID" "playkeeper" "N" 4 "Text" "On a Playkeeper server" "Toc" "On Playkeeper")}}
+  <ul>
+    <li><strong>The Overview shows who's playing and the server's ticks per second,</strong> so a stall shows next to the players it dropped.</li>
+    <li><strong>How it's running</strong> names what slows the server down, like players exploring new land, with the fix.</li>
+    <li><strong>A server that froze</strong> gets its own explanation on the Overview, with a button to start it again and a suggestion to run a profiler.</li>
+  </ul>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Why do I keep getting Timed out on a Minecraft server?" "Your game and the server stopped hearing from each other. If only you drop, look at your connection and your game's memory; if everyone drops, the server stalled.")
+    (qa "How long before Minecraft times out a player?" "On our Paper 1.21.1 test server, 29 seconds after the player's game went quiet.")
+    (qa "Is Timed out the same as connection timed out?" "No. Timed out ends a connection you already had; connection timed out means the game never reached the server.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/errors" "/errors/cant-keep-up" "/errors/connection-refused")}}{{end}}
