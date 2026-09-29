@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeftIcon, ChevronRightIcon, CircleArrowUpIcon, ExternalLinkIcon, PlusIcon, RefreshCwIcon, ServerIcon, Trash2Icon } from 'lucide-react'
-import { ApiError, del, get, post } from '@/api/client'
+import { ApiError, del, get, post, put } from '@/api/client'
 import type { DialAddress, JoinCommand, MachineEvent, MachineLinkInfo, MachineView } from '@/api/types'
 import { errorText, machineApi, useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
@@ -16,7 +16,7 @@ import { t } from '@/i18n'
 import { can } from '@/lib/access'
 import { demo } from '@/lib/demo'
 import { formatBytes, formatClock, formatDate, formatList, formatWhen, relativeTime } from '@/lib/format'
-import { agentSilent, byMachine, countdown, groupFingerprint, machineEventText, machineLabel, machineState, olderMachine, problemText, systemLine, type MachineTone } from '@/lib/machines'
+import { agentSilent, byMachine, countdown, groupFingerprint, isAway, machineEventText, machineLabel, machineState, olderMachine, problemText, systemLine, type MachineTone } from '@/lib/machines'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkProps, navigate } from '@/lib/router'
 import { usePoll } from '@/lib/usePoll'
@@ -74,6 +74,7 @@ function MachineList({ fingerprint }: { fingerprint?: string }) {
   const ws = useWorkspace()
   const rows = useListPresence(ws.machines.length ? ws.machines : undefined, machineKey)
   const serversOn = new Map(byMachine(ws.servers ?? [], ws.machines).map((g) => [g.machine.id, g.servers]))
+  const customers = can(ws.me, 'machines.customers')
   return (
     <Card aria-labelledby="machines-title">
       <CardTitle id="machines-title">{t('machines.title')}</CardTitle>
@@ -91,7 +92,7 @@ function MachineList({ fingerprint }: { fingerprint?: string }) {
                   <span className="text-sm font-semibold">{machineLabel(m)}</span>
                   {local && <span className="text-xs text-muted-foreground">{t('machines.here')}</span>}
                 </span>
-                <span className="block text-xs text-muted-foreground">{systemLine(m.live, t('machines.serverCount', { count: servers.length }))}</span>
+                <span className="block text-xs text-muted-foreground">{systemLine(m.live, t('machines.serverCount', { count: servers.length }), customers && m.takesCustomers ? t('machines.customers.short') : '')}</span>
                 {local && fingerprint && <span className="block text-xs text-muted-foreground">{t('machines.fingerprint', { fingerprint: groupFingerprint(fingerprint) })}</span>}
               </span>
               <StateLabel tone={state.tone} label={state.label} />
@@ -552,6 +553,7 @@ export function MachineDetailsSection({ id }: { id: string }) {
           </Fact>
         </dl>
       </Card>
+      {can(ws.me, 'machines.customers') && <CustomersCard machine={m} onChange={() => void events.refresh()} />}
       <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
         <Card aria-labelledby="machine-events">
           <CardTitle id="machine-events">{t('machines.events')}</CardTitle>
@@ -589,6 +591,70 @@ export function MachineDetailsSection({ id }: { id: string }) {
       </div>
       <RemoveDialog machine={m} servers={servers.map((s) => s.name)} open={removing} onOpenChange={setRemoving} />
     </>
+  )
+}
+
+/** Whether a joined machine takes customers, for the owner, who confirms it's theirs or stops it. */
+function CustomersCard({ machine: m, onChange }: { machine: MachineView; onChange: () => void }) {
+  const ws = useWorkspace()
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const name = machineLabel(m)
+  const takes = m.takesCustomers
+  async function set(on: boolean) {
+    setBusy(true)
+    try {
+      await put<MachineView>(machineApi(m.id, '/customers'), { on })
+      toastManager.add({ title: on ? t('machines.customers.taken', { name }) : t('machines.customers.stopped', { name }), type: 'success' })
+      setConfirming(false)
+      void ws.refresh()
+      onChange()
+    } catch (e) {
+      toastManager.add({ title: errorText(e), type: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Card aria-labelledby="machine-customers">
+      <CardTitle id="machine-customers">{t('machines.customers.title')}</CardTitle>
+      <p className="mt-3 text-[13px] font-semibold">{takes ? t('machines.customers.on', { name }) : t('machines.customers.off', { name })}</p>
+      <p className="text-xs text-muted-foreground">{takes ? t('machines.customers.onHint', { actor: takes.by, date: formatDate(takes.since) }) : t('machines.customers.offHint')}</p>
+      {!!m.customers && <p className="mt-1 text-xs text-muted-foreground">{t('machines.customers.count', { count: m.customers })}</p>}
+      {takes ? (
+        <Button variant="outline" size="sm" className="mt-3 self-start" loading={busy} onClick={() => void set(false)}>
+          {t('machines.customers.stop')}
+        </Button>
+      ) : (
+        <Button size="sm" className="mt-3 self-start" disabledReason={isAway(m) ? t('machines.away.pill', { name }) : undefined} onClick={() => setConfirming(true)}>
+          {t('machines.customers.take')}
+        </Button>
+      )}
+      <Dialog open={confirming} onOpenChange={setConfirming}>
+        <DialogPopup className="sm:max-w-[500px]" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold">{t('machines.customers.confirmTitle', { name })}</DialogTitle>
+            <DialogDescription>{t('machines.customers.confirmBody')}</DialogDescription>
+          </DialogHeader>
+          <dl className="mx-6 mb-3 flex flex-col rounded-lg border border-border px-3 text-[13px]">
+            <Fact label={t('machines.fact.added')}>{addedText(m)}</Fact>
+            <Fact label={t('machines.fact.fingerprint')}>
+              <span className="font-semibold tracking-wide">{m.link?.fingerprint ? groupFingerprint(m.link.fingerprint) : t('common.none')}</span>
+              <span className="block text-xs text-muted-foreground">{t('machines.fact.compare', { name })}</span>
+            </Fact>
+          </dl>
+          <p className="px-6 pb-4 text-xs text-muted-foreground">{t('machines.customers.confirmGuard', { name })}</p>
+          <DialogFooter variant="bare" className="mx-6 border-t border-border px-0 pt-4">
+            <Button variant="ghost" onClick={() => setConfirming(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={() => void set(true)} loading={busy}>
+              {t('machines.customers.confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+    </Card>
   )
 }
 
@@ -676,6 +742,12 @@ function RemoveDialog({ machine: m, servers, open, onOpenChange }: { machine: Ma
         <div className="px-6 pb-4 text-[13px]">
           <p className="font-semibold">{servers.length ? t('machines.remove.keeps', { count: servers.length, servers: formatList(servers), name }) : t('machines.remove.keepsAny', { name })}</p>
           <p className="text-xs text-muted-foreground">{t('machines.remove.keepsHint')}</p>
+          {!!m.customers && (
+            <>
+              <p className="mt-3 font-semibold text-warning-foreground">{t('machines.remove.customers', { count: m.customers, name })}</p>
+              <p className="text-xs text-muted-foreground">{t('machines.remove.customersHint')}</p>
+            </>
+          )}
         </div>
         <DialogFooter variant="bare" className="mx-6 border-t border-border px-0 pt-4">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>

@@ -345,19 +345,35 @@ describe('New server from a world', () => {
 })
 
 describe('New server for a creator', () => {
-  it('starts from a server type, a modpack, a template, a world or a backup, only on the dashboard’s machine', async () => {
-    const creator: Me = { ...me, user: { username: 'alex', role: 'member' }, access: { ...me.access, servers: {}, twoFactor: true, can: ['view', 'account.manage', 'servers.run', 'servers.manage', 'servers.create_own'] } }
-    const remote = { id: 'r2345abcde', projectId: 'p2345abcde', name: 'home-server', kind: 'remote', link: { machineId: 'r2345abcde', name: 'home-server', fingerprint: '', state: 'connected', problems: [] } } as MachineView
+  const creator = (home: string): Me => ({ ...me, user: { username: 'alex', role: 'member' }, access: { ...me.access, servers: {}, twoFactor: true, home, can: ['view', 'account.manage', 'servers.run', 'servers.manage', 'servers.create_own'] } })
+  const remote = { id: 'r2345abcde', projectId: 'p2345abcde', name: 'home-server', kind: 'remote', link: { machineId: 'r2345abcde', name: 'home-server', fingerprint: '', state: 'connected', problems: [] } } as MachineView
+  const catalogs = () => vi.mocked(client.get).mock.calls.map(([p]) => String(p)).filter((p) => p.includes('/catalog'))
+
+  async function renderAs(me: Me, asked?: string) {
     window.history.replaceState(null, '', '/servers/new')
+    vi.mocked(client.get).mockClear()
     const r = createRoot(document.body.appendChild(document.createElement('div')))
     root = r
-    await act(async () => r.render(<WorkspaceContext.Provider value={{ ...workspace, me: creator, machines: [machine, remote] }}>{<NewServerPage machine={remote.id} />}</WorkspaceContext.Provider>))
+    await act(async () => r.render(<WorkspaceContext.Provider value={{ ...workspace, me, machines: [machine, remote] }}>{<NewServerPage machine={asked} />}</WorkspaceContext.Provider>))
     await act(settle)
+  }
+
+  it('starts from a server type, a modpack, a template, a world or a backup, only on the machine their servers go on', async () => {
+    await renderAs(creator(machine.id), remote.id)
     expect(text()).toContain('A server type')
     expect(text()).toContain('A world')
     expect(text()).toContain('Restore it as a new server')
     expect(text()).not.toContain('New server on')
     expect(text()).not.toContain('home-server')
+    expect(catalogs().every((p) => p.startsWith(`/api/machines/${machine.id}/`))).toBe(true)
+  })
+
+  it('makes a customer’s server on the joined machine they were placed on', async () => {
+    await renderAs(creator(remote.id), machine.id)
+    expect(text()).toContain('home-server')
+    expect(text()).not.toContain('New server on')
+    expect(catalogs().length).toBeGreaterThan(0)
+    expect(catalogs().every((p) => p.startsWith(`/api/machines/${remote.id}/`))).toBe(true)
   })
 })
 

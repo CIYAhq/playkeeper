@@ -150,19 +150,20 @@ function unavailable(machine: string | undefined, target: MachineView | undefine
 }
 
 /**
- * Makes a server on the dashboard's machine, or on the machine given. A
- * machine that's away is never swapped for another: the page says so and
- * holds Create back until it's back. App keys the page by machine, so the
- * machine can't change while the page is open.
+ * Makes a server on the dashboard's machine, or on the machine given, and
+ * for a creator on the machine their servers go on. A machine that's away
+ * is never swapped for another: the page says so and holds Create back
+ * until it's back. App keys the page by machine, so the machine can't
+ * change while the page is open.
  */
 export function NewServerPage({ machine }: { machine?: string }) {
   const ws = useWorkspace()
   const phone = useIsPhone()
-  // A creator creates servers, worlds and backups they upload included, only on the dashboard's own machine.
+  // A creator creates servers, worlds and backups they upload included, only on the machine their servers go on.
   const chooser = can(ws.me, 'servers.create')
   const importer = canCreate(ws.me)
   const froms = importer ? startFroms : startFroms.filter((f) => f.value !== 'world')
-  const asked = chooser ? machine : undefined
+  const asked = chooser ? machine : ws.me.access.home
   const target = asked ? ws.machines.find((m) => m.id === asked) : ws.machine
   const away = unavailable(asked, target, ws.machines)
   const machineName = target?.kind === 'remote' || (asked && !target) ? machineLabel(target) : ws.machineName

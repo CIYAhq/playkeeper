@@ -45,7 +45,7 @@ func TestTheDashboardDeclaresOnlyFieldsThePanelSends(t *testing.T) {
 		"MemberPreview": memberPreview{}, "PlayerPreview": invites.PlayerPage{}, "Requirement": invites.Requirement{}, "Scope": invites.Scope{},
 		"TeamInvite": teamInvite{}, "TeamMember": teamMember{}, "TeamResponse": teamBody{},
 		"AgentActivity": agentActivityView{}, "ApiToken": tokenView{}, "DialAddress": dialAddress{}, "JoinCode": joinCodeView{},
-		"JoinCommand": joinCommandView{}, "MachineEvent": machineEventView{}, "MachineView": machineView{},
+		"JoinCommand": joinCommandView{}, "MachineEvent": machineEventView{}, "MachineView": machineView{}, "TakesCustomers": takesCustomers{},
 		"UsageMachine": usageMachine{}, "UsageStatsView": usageView{},
 		"HetznerStock": hetznerView{}, "HetznerPlace": hetznerPlaceView{},
 	}

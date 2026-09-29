@@ -16,13 +16,14 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 )
 
-// Creators (the managed beta) create servers on the dashboard's own machine
-// inside an allowance: how many servers, and how much memory between them
-// (see invites.Allowance). A server a creator creates joins their servers
-// and creator_servers. Only those count against the allowance, and only
-// those may they delete or resize; a server the owner also gave them keeps
-// its memory. s.creators serialises every such change, so two requests at
-// once can't both fit into what is left.
+// Creators (the managed beta) create servers on their machine inside an
+// allowance: how many servers, and how much memory between them (see
+// invites.Allowance). Their machine is the dashboard's own, or for a
+// customer the one placement gave them (homeMachine). A server a creator
+// creates joins their servers and creator_servers. Only those count against
+// the allowance, and only those may they delete or resize; a server the
+// owner also gave them keeps its memory. s.creators serialises every such
+// change, so two requests at once can't both fit into what is left.
 
 // allowanceUse is what a creator's servers take of their allowance.
 type allowanceUse struct {
@@ -53,8 +54,8 @@ func (s *Server) creatorServers(userID int64) ([]string, error) {
 	return ids, nil
 }
 
-// allowanceUse counts the servers a created that the dashboard's machine m
-// still has, and their memory, leaving out except's.
+// allowanceUse counts the servers a created that machine m still has, and
+// their memory, leaving out except's.
 func (s *Server) allowanceUse(ctx context.Context, a access, m machine, except string) (allowanceUse, error) {
 	owned, err := s.creatorServers(a.UserID)
 	if err != nil {
@@ -131,8 +132,8 @@ func memoryField(w http.ResponseWriter, r *http.Request) (int, bool) {
 }
 
 // hCreateServer creates a server: as the route's forward for an admin of
-// every server, and for a creator on the dashboard's own machine only,
-// inside their allowance, the new server joining their servers.
+// every server, and for a creator on their machine only, inside their
+// allowance, the new server joining their servers.
 func (s *Server) hCreateServer(w http.ResponseWriter, r *http.Request, sess *session) {
 	a := sess.Access
 	if !a.creator() {
@@ -143,12 +144,8 @@ func (s *Server) hCreateServer(w http.ResponseWriter, r *http.Request, sess *ses
 	if !ok {
 		return
 	}
-	if m.Kind != localKind {
-		writeErr(w, http.StatusForbidden, api.CodeForbidden, "Creators create servers on the dashboard's own machine.", "")
-		return
-	}
-	if s.customerWaiting(r.Context(), a) {
-		writeRefusal(w, errWaitingForRoom)
+	if err := s.homeRefusal(r.Context(), a, m); err != nil {
+		writeRefusal(w, err)
 		return
 	}
 	mb, ok := memoryField(w, r)
@@ -183,6 +180,40 @@ func (s *Server) hCreateServer(w http.ResponseWriter, r *http.Request, sess *ses
 			s.startCreatorBackups(r.Context(), m, sess.Access, id)
 		}
 	})(w, r, sess)
+}
+
+// errOtherMachine refuses a creator a new server on a machine their
+// servers don't go on.
+var errOtherMachine = &invites.Error{Code: api.CodeForbidden, Status: http.StatusForbidden, Msg: "This isn't the machine your servers go on."}
+
+// homeRefusal is why creator a may make no new server on m, or nil: they
+// wait for room, or m isn't their machine (homeMachine).
+func (s *Server) homeRefusal(ctx context.Context, a access, m machine) error {
+	if s.customerWaiting(ctx, a) {
+		return errWaitingForRoom
+	}
+	home, ok, err := s.homeMachine(ctx, a.UserID)
+	switch {
+	case err != nil:
+		return err
+	case !ok || home != m.ID:
+		return errOtherMachine
+	}
+	return nil
+}
+
+// creatorHome is the machine creator a's servers go on, or "" for anyone
+// else and for a customer waiting for room.
+func (s *Server) creatorHome(a access) string {
+	ctx := context.Background()
+	if !a.creator() || s.customerWaiting(ctx, a) {
+		return ""
+	}
+	home, ok, err := s.homeMachine(ctx, a.UserID)
+	if err != nil || !ok {
+		return ""
+	}
+	return home
 }
 
 // createdServer is the server a create answer names, or "" for a refusal.
@@ -342,7 +373,7 @@ func (s *Server) capCatalog(ctx context.Context, a access, m machine, server str
 	switch cur, ok := use.others[server]; {
 	case ok:
 		left = cur
-	case server == "" && m.Kind != localKind:
+	case server == "" && s.homeRefusal(ctx, a, m) != nil:
 		left = 0
 	}
 	var opts []int
@@ -521,7 +552,8 @@ func (s *Server) hPregenStart(w http.ResponseWriter, r *http.Request, sess *sess
 // hNetworkGuard turns Keep servers away from this machine on or off. On the
 // dashboard's own machine it stays on while there are creators, or a
 // creator invite that still works: their servers must not reach the
-// machine, its dashboard or what else it runs.
+// machine, its dashboard or what else it runs. On a joined machine it stays
+// on while the machine takes customers or has any (guardHeld).
 func (s *Server) hNetworkGuard(w http.ResponseWriter, r *http.Request, sess *session) {
 	m, ok := s.machineFromPath(w, r)
 	if !ok {
@@ -542,6 +574,19 @@ func (s *Server) hNetworkGuard(w http.ResponseWriter, r *http.Request, sess *ses
 		}
 		if has {
 			writeErr(w, http.StatusConflict, api.CodeConflict, "Servers stay away from this machine while it has creators.", "Remove the creators and their invites in Settings › Team first.")
+			return
+		}
+	}
+	if !req.Host && m.Kind == remoteKind {
+		s.placeMu.Lock()
+		defer s.placeMu.Unlock()
+		msg, hint, err := s.guardHeld(r.Context(), m.ID)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+			return
+		}
+		if msg != "" {
+			writeErr(w, http.StatusConflict, api.CodeConflict, msg, hint)
 			return
 		}
 	}

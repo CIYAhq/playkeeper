@@ -452,6 +452,16 @@ export interface MachineView {
   joinedFrom?: string
   /** Who made the code it joined with. */
   addedBy?: string
+  /** A joined machine the owner confirmed takes customers. */
+  takesCustomers?: TakesCustomers
+  /** How many customers placement gave the machine. */
+  customers?: number
+}
+
+/** When and by whom the owner confirmed a joined machine takes customers. */
+export interface TakesCustomers {
+  since: string
+  by: string
 }
 
 /** An address another machine can dial to reach this dashboard. */
@@ -1830,6 +1840,7 @@ export type Action =
   | 'files.edit'
   | 'whop.manage'
   | 'machines.stock'
+  | 'machines.customers'
 
 export type ProjectRole = 'admin' | 'moderator' | 'viewer'
 
@@ -1853,6 +1864,8 @@ export interface Access {
   awaitingConfirmation?: boolean
   /** A customer whose server is being set up, waiting for room on a machine. */
   waitingForRoom?: boolean
+  /** A creator's machine: the one their servers go on. */
+  home?: string
   /** A customer whose plan ended: when their servers are deleted unless they renew. */
   pausedUntil?: string
   /** A customer whose servers were deleted once their plan had ended 14 days before. */
