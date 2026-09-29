@@ -1831,6 +1831,8 @@ export interface Access {
   pausedUntil?: string
   /** A customer whose servers were deleted once their plan had ended 14 days before. */
   serversDeleted?: boolean
+  /** A customer, paused or renewed, whose deleted servers' final backups a machine keeps. */
+  finalBackups?: boolean
   can: Action[]
 }
 

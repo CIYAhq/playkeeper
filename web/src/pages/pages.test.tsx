@@ -337,13 +337,25 @@ describe('Home', () => {
       path === '/api/final-backups'
         ? Promise.resolve([{ id: '20260929-150405-abc123', serverName: 'Survival', sizeBytes: 1.5 * 1024 ** 3, madeAt: '2026-10-13T12:00:00Z', expiresAt: '2026-11-12T12:00:00Z' }])
         : new Promise(() => {})) as typeof client.get)
-    const deleted = member('admin', ['view', 'backups.make'], { servers: {}, serversDeleted: true })
+    const deleted = member('admin', ['view', 'backups.make'], { servers: {}, serversDeleted: true, finalBackups: true })
     const text = await render(<HomePage />, workspace({ servers: [], me: deleted }))
     expect(text).toContain('Your plan has ended')
     expect(text).toContain('Survival')
     expect(text).toContain(`download until ${formatLongDate('2026-11-12T12:00:00Z')}`)
     expect(document.querySelector('a[href="/api/final-backups/20260929-150405-abc123/download"]')).not.toBeNull()
     expect(text).not.toContain('No servers yet')
+  })
+
+  it('still offers a customer who renewed their deleted servers’ final backups', async () => {
+    vi.mocked(client.get).mockImplementation(((path: string) =>
+      path === '/api/final-backups'
+        ? Promise.resolve([{ id: '20260929-150405-abc123', serverName: 'Old survival', sizeBytes: 1.5 * 1024 ** 3, madeAt: '2026-10-13T12:00:00Z', expiresAt: '2026-11-12T12:00:00Z' }])
+        : new Promise(() => {})) as typeof client.get)
+    const renewed = member('admin', ['view', 'servers.run', 'backups.make', 'servers.create_own'], { servers: { servers: ['abcdefghjk'] }, finalBackups: true })
+    const text = await render(<HomePage />, workspace({ me: renewed }))
+    expect(text).toContain('Final backups')
+    expect(text).toContain('Old survival')
+    expect(document.querySelector('a[href="/api/final-backups/20260929-150405-abc123/download"]')).not.toBeNull()
   })
 
   it('says a customer’s server is being set up while it waits for room, and offers no way to create one', async () => {

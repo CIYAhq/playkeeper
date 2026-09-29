@@ -64,7 +64,7 @@ export function HomePage() {
           <Pip pose="wave" size={phone ? 104 : 96} />
           <h2 className="mt-4 text-title font-extrabold tracking-[-0.015em]">{title}</h2>
           <p className="mt-2 max-w-[420px] text-sm text-muted-foreground max-sm:text-[15px]">{body}</p>
-          {deleted && <FinalBackups />}
+          {ws.me.access.finalBackups && <FinalBackups className="mt-6 w-full max-w-[420px]" />}
           {create &&
             (phone ? (
               <Button size="touch" className="mt-6 w-full" render={<a {...linkProps({ name: 'new-server' })} />}>
@@ -116,6 +116,7 @@ export function HomePage() {
             {demo ? <demo.HomeCard wide={!!servers && servers.length % 3 === 0} /> : <NewServerCard />}
           </ServerRow>
         )}
+        {ws.me.access.finalBackups && <FinalBackups />}
         {!grouped && (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.23fr)_minmax(0,1fr)]">
             <Card>
@@ -156,14 +157,14 @@ function HomeNotice() {
   return can(ws.me, 'team.manage') ? <TeamNotice /> : <MemberNotice />
 }
 
-/** A customer's deleted servers' final backups, each downloadable until it goes. */
-function FinalBackups() {
+/** A customer's deleted servers' final backups, each downloadable until it goes, whether they renewed or not. */
+function FinalBackups({ className }: { className?: string }) {
   const list = usePoll(() => get<FinalBackup[]>('/api/final-backups'), 60_000)
   if (!list.data?.length) return null
   return (
-    <section className="mt-6 w-full max-w-[420px] text-left">
-      <h3 className="text-sm font-semibold">{t('home.finalBackupsTitle')}</h3>
-      <p className="mt-1 text-xs text-muted-foreground max-sm:text-[13px]">{t('home.finalBackupsBody')}</p>
+    <Card className={cn('text-left', className)}>
+      <CardTitle>{t('home.finalBackupsTitle')}</CardTitle>
+      <CardHint>{t('home.finalBackupsBody')}</CardHint>
       <ul className="mt-3 divide-y rounded-lg border">
         {list.data.map((b) => (
           <li key={b.id} className="flex items-center gap-3 px-4 py-3">
@@ -178,7 +179,7 @@ function FinalBackups() {
           </li>
         ))}
       </ul>
-    </section>
+    </Card>
   )
 }
 
