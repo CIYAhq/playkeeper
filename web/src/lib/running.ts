@@ -239,6 +239,7 @@ function actionView(a: DiagnosisAction, ctx: CauseContext): CauseAction {
     case 'remove_datapack':
     case 'restore_backup':
     case 'remove_entity':
+    case 'rebuild_level':
     case 'free_disk':
     case 'change_port':
     case 'accept_eula':

@@ -12,6 +12,7 @@ import { CardGroup, ChoiceCard, useIsPhone } from '@/components/app/controls'
 import { loaderLabel } from '@/components/app/modpacks'
 import { FailedJobNotice, MemoryCrashNotice, SavingPausedNotice } from '@/components/app/notices'
 import { PlayersChart } from '@/components/app/players-chart'
+import { RebuildLevelDialog, type RebuildPlan } from '@/components/app/rebuild-level'
 import { RestoreDialog } from '@/components/app/restore'
 import { SignInNotice } from '@/components/app/sign-in-notice'
 import { SoftwareChangedView } from '@/components/app/software'
@@ -574,6 +575,7 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
   const logs = usePoll(() => (s.crash || refusal ? Promise.resolve(undefined) : get<LogsResponse>(serverApi(s.id, '/logs?limit=3'))), 10_000, `${s.id}:${s.crash || refusal ? 'crash' : 'tail'}`)
   const [picked, setPicked] = useState<string>()
   const [preview, setPreview] = useState<RestorePreview>()
+  const [rebuild, setRebuild] = useState<RebuildPlan>()
   const [busy, setBusy] = useState(false)
   const lookups = useAddonLookups(s)
   const summary = refusal ? refusalLine(refusal, s.name) : s.crash ? crashSummary(s.crash, s.name, place.name, lookups) : (s.lastError ?? t('crash.generic', { server: s.name }))
@@ -610,6 +612,9 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
         case 'remove-entity':
           await post(serverApi(s.id, '/world/remove-entity'), { ...plan.target, start: true })
           break
+        case 'rebuild-level':
+          setRebuild(plan)
+          return
         case 'delete-backups':
           for (const id of plan.ids) await del(serverApi(s.id, `/backups/${encodeURIComponent(id)}`))
           await post(serverApi(s.id, '/start'))
@@ -633,7 +638,12 @@ function CrashedView({ server: s }: { server: ServerStatus }) {
       {choice?.button}
     </Button>
   )
-  const dialog = <RestoreDialog preview={preview} server={s} onClose={() => setPreview(undefined)} />
+  const dialog = (
+    <>
+      <RestoreDialog preview={preview} server={s} onClose={() => setPreview(undefined)} />
+      <RebuildLevelDialog server={s} plan={rebuild} onClose={() => setRebuild(undefined)} />
+    </>
+  )
 
   if (phone) {
     return (

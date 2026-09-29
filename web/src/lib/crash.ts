@@ -181,6 +181,7 @@ export type FixPlan =
   | { kind: 'install-addon'; key: AddonKey; fingerprint: string }
   | { kind: 'restore'; backupId: string }
   | { kind: 'remove-entity'; target: Params }
+  | { kind: 'rebuild-level'; world: string; seedFrom: string; resets: string[] }
   | { kind: 'delete-backups'; ids: string[] }
 
 /** What the library says about updating or installing an add-on for a fix. */
@@ -355,6 +356,12 @@ function fixText(c: Crash, f: DiagnosisAction, server: string, machine: string, 
         footnote: t('crash.removeEntityNote'),
       }
     }
+    case 'rebuild_level': {
+      const world = str(p, 'world')
+      if (!world) return { title: t('crash.fix.rebuildLevel'), reason: later }
+      const plan = { kind: 'rebuild-level', world, seedFrom: str(p, 'seed_from') ?? '', resets: strs(p, 'resets') } as const
+      return { title: t('crash.fix.rebuildLevel'), hint: rebuildHint(plan.resets, plan.seedFrom), plan, button: t('crash.do.rebuildLevel', { server }), footnote: t('crash.rebuildNote') }
+    }
     case 'free_disk': {
       const ids = strs(p, 'backup_ids')
       if (!ids.length) return startText(t('crash.fix.myself'), server)
@@ -404,6 +411,18 @@ function restartText(c: Crash, server: string): FixText {
   if (c.kind === 'world_locked') return startText(t('crash.fix.again', { server }), server, t('crash.fix.lockedHint'))
   if (c.kind === 'disk_full' && free !== undefined) return startText(t('crash.fix.again', { server }), server, t('crash.fix.freeNow', { free: formatMB(free) }))
   return startText(t('crash.fix.again', { server }), server)
+}
+
+/** What a new level.dat starts over, in words: resets as the agent names them. */
+export function levelResets(resets: string[]): string[] {
+  const words: Record<string, MessageKey> = { game_rules: 'crash.reset.gameRules', time: 'crash.reset.time', world_border: 'crash.reset.worldBorder', spawn: 'crash.reset.spawn' }
+  return resets.flatMap((r) => (words[r] ? [t(words[r])] : []))
+}
+
+function rebuildHint(resets: string[], seedFrom: string): string {
+  const list = levelResets(resets)
+  const hint = list.length ? t('crash.fix.rebuildHint', { list: formatList(list) }) : t('crash.fix.rebuildHintNothing')
+  return seedFrom ? hint : `${hint} ${t('crash.fix.rebuildNoSeed')}`
 }
 
 function restoreText(p: Params | undefined, server: string, now: Date): FixText {

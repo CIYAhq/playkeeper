@@ -130,6 +130,7 @@ var opLabels = map[string]string{
 	"address.publish": "publishing the address", "certificate.issue": "getting a certificate",
 	"remove-addon": "removing a plugin or mod",
 	// 0.4.8: the crash helper's fixes that change the world.
+	"rebuild-level": "making a new level.dat",
 	"remove-entity": "taking what crashed out of its world",
 	// Wave 4.
 	"reinstall": "reinstalling its server software", "template-retry": "installing its template's add-ons",

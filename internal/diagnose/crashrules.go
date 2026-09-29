@@ -2,6 +2,7 @@ package diagnose
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -56,7 +57,10 @@ var (
 	reServerClass  = regexp.MustCompile(`^(?:net/minecraft|com/mojang|io/papermc|org/bukkit|org/spigotmc|net/fabricmc|net/neoforged|net/minecraftforge|cpw/mods)/`)
 
 	reSessionLock = regexp.MustCompile(`session\.lock: already locked|The save is being accessed from another location`)
-	reLevelDat    = regexp.MustCompile(`Failed to load world data from \S{1,300} and \S{1,300}\. World files may be corrupted`)
+	// Minecraft 26.1 and newer leave the file names out of the last line;
+	// the line about level.dat before it names the world folder.
+	reLevelDat     = regexp.MustCompile(`Failed to load world data(?: from \S{1,300} and \S{1,300})?\. World files may be corrupted`)
+	reLevelDatPath = regexp.MustCompile(`Failed to load world data from (\S{1,300})/level\.dat\b`)
 
 	reBindFailed = regexp.MustCompile(`FAILED TO BIND TO PORT`)
 	reBindReason = regexp.MustCompile(`^The exception was: (.{1,300})$`)
@@ -318,10 +322,18 @@ func (c *crashCtx) levelData() (CrashDiagnosis, bool) {
 		Kind: CrashCorruptWorld, Params: map[string]any{"file": "level.dat"},
 		Title: "The world's level.dat file is damaged",
 		Explanation: "Minecraft couldn't read level.dat or its spare copy level.dat_old. These files hold the world's settings, " +
-			"so it stopped rather than risk the world.",
+			"so it stopped rather than risk the world. The builds are in other files, so a new level.dat keeps them.",
 		Evidence: c.evidenceOf(f),
 	}
+	rebuild := Action{Kind: ActionRebuildLevel, Title: "Make a new level.dat, keeping the world's builds"}
+	if p, ok := c.consoleIn(reLevelDatPath, f.idx-40, f.idx+1); ok && !f.inReport() {
+		if world := path.Base(path.Clean(p.groups[1])); validPackName(world) {
+			d.Params["world"] = world
+			rebuild.Params = map[string]any{"world": world}
+		}
+	}
 	c.backupFix(&d, true)
+	d.Fixes = append(d.Fixes, rebuild)
 	return d, true
 }
 

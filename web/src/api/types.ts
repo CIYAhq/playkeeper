@@ -226,6 +226,7 @@ export type ActionKind =
   | 'remove_datapack'
   | 'restore_backup'
   | 'remove_entity'
+  | 'rebuild_level'
   | 'free_disk'
   | 'change_port'
   | 'accept_eula'

@@ -83,6 +83,7 @@ const (
 	ActionRemoveDatapack  ActionKind = "remove_datapack"           // pack: its name in the world's datapacks folder
 	ActionRestoreBackup   ActionKind = "restore_backup"            //
 	ActionRemoveEntity    ActionKind = "remove_entity"             // what (entity, block_entity), type, dimension, x, y, z; pos for an entity
+	ActionRebuildLevel    ActionKind = "rebuild_level"             // world: the world folder; the agent adds seed and resets
 	ActionFreeDisk        ActionKind = "free_disk"                 // free_mb
 	ActionChangePort      ActionKind = "change_port"               // port
 	ActionAcceptEULA      ActionKind = "accept_eula"               //

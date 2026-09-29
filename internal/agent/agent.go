@@ -953,6 +953,7 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/servers/{id}/backups/{bid}/restore", srv((*server).hRestoreFromBackup)},
 		{"POST", "/v1/servers/{id}/saving/resume", srv((*server).hSavingResume)},
 		{"POST", "/v1/servers/{id}/addons/remove-file", srv((*server).hRemoveAddon)},
+		{"POST", "/v1/servers/{id}/world/rebuild-level", srv((*server).hRebuildLevel)},
 		{"POST", "/v1/servers/{id}/world/remove-entity", srv((*server).hRemoveEntity)},
 		{"POST", "/v1/servers/{id}/restore/upload", srv((*server).hRestoreUpload)},
 		{"GET", "/v1/servers/{id}/addons", srv((*server).hAddons)},

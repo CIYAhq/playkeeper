@@ -178,6 +178,17 @@ type RemoveAddonRequest struct {
 	Start bool   `json:"start,omitempty"`
 }
 
+// RebuildLevelRequest makes a new level.dat for a stopped server's world
+// whose level.dat and level.dat_old can't be read: the world is backed up,
+// the world's seed goes into server.properties, and both files are deleted,
+// so Minecraft makes a new one. World names the world folder; empty is the
+// server's own world. Start starts the server afterwards.
+type RebuildLevelRequest struct {
+	Actor string `json:"actor"`
+	World string `json:"world,omitempty"`
+	Start bool   `json:"start,omitempty"`
+}
+
 // RemoveEntityRequest takes one entity, or one block entity's data, out of a
 // stopped server's world, the crash helper's fix for one that throws each
 // time the game ticks it. What is "entity" or "block_entity"; Type is its id,
