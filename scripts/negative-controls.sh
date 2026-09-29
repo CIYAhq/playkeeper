@@ -7820,7 +7820,7 @@ control "client-only mods: a mod for players' games that stopped the server is r
   ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
 control "client-only mods: a client class the server started past is not blamed" internal/diagnose/crashaddons.go \
   'if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); started || c.errorAfter(last.idx) {' \
-  'if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); c.errorAfter(last.idx) {' \
+  'if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); false && started || c.errorAfter(last.idx) {' \
   ./internal/diagnose '^TestExplainCrashPassesOverAClientClassTheServerStartedPast$'
 control "client-only mods: NeoForge's early window plugin names the mod" internal/diagnose/crashaddons.go \
   'if p, ok := c.consoleIn(reGraphicsPlugin, start-10, start+1); ok {' \
