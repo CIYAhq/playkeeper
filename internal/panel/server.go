@@ -424,6 +424,8 @@ func (s *Server) Routes() []Route {
 		smAs(actMakeBackups, "POST", "/api/servers/{id}/backups", "/v1/servers/{id}/backups"),
 		smAs(actMakeBackups, "POST", "/api/servers/{id}/backups/{bid}/verify", "/v1/servers/{id}/backups/{bid}/verify"),
 		{"GET", "/api/servers/{id}/backups/{bid}/download", needSession, actMakeBackups, s.hDownload},
+		{"GET", "/api/final-backups", needSession, actMakeBackups, s.hFinalBackups},
+		{"GET", "/api/final-backups/{kid}/download", needSession, actMakeBackups, s.hFinalBackupDownload},
 		sm("DELETE", "/api/servers/{id}/backups/{bid}", "/v1/servers/{id}/backups/{bid}"),
 		smAs(actRestore, "POST", "/api/servers/{id}/backups/{bid}/restore", "/v1/servers/{id}/backups/{bid}/restore"),
 		{"POST", "/api/servers/{id}/restore/upload", needSessionCSRF, actRestore, s.rawUpload("/v1/servers/{id}/restore/upload", "application/gzip")},
@@ -998,9 +1000,11 @@ type accessBody struct {
 	// waiting for room on a machine (see readyserver.go).
 	WaitingForRoom bool `json:"waitingForRoom,omitempty"`
 	// PausedUntil is set for a customer whose plan ended: when their servers
-	// are deleted unless they renew (see pausing.go).
-	PausedUntil *time.Time `json:"pausedUntil,omitempty"`
-	Can         []action   `json:"can"`
+	// are deleted unless they renew (see pausing.go). ServersDeleted is set
+	// once they are (see deletion.go).
+	PausedUntil    *time.Time `json:"pausedUntil,omitempty"`
+	ServersDeleted bool       `json:"serversDeleted,omitempty"`
+	Can            []action   `json:"can"`
 }
 
 func (s *Server) meBody(sess session) map[string]any {
@@ -1013,7 +1017,8 @@ func (s *Server) meBody(sess session) map[string]any {
 		"csrfToken": sess.CSRF,
 		"access": accessBody{ProjectID: a.ProjectID, Team: s.teamName(a.ProjectID), Role: a.ProjectRole, Servers: a.Servers, TwoFactor: a.FactorOn,
 			NeedsTwoFactor:       invites.RequiresTwoFactor(a.InstallRole, a.ProjectRole) && !a.FactorOn,
-			AwaitingConfirmation: a.awaitingConfirmation(), WaitingForRoom: s.customerWaiting(context.Background(), a), PausedUntil: s.pausedUntil(a), Can: a.can()},
+			AwaitingConfirmation: a.awaitingConfirmation(), WaitingForRoom: s.customerWaiting(context.Background(), a), PausedUntil: s.pausedUntil(a),
+			ServersDeleted: s.serversDeleted(a), Can: a.can()},
 		"expiresAt":          sess.ExpiresAt.UTC(),
 		"idleTimeoutSeconds": int(s.opts.IdleTimeout.Seconds()),
 		"version":            version.Version,
@@ -1474,7 +1479,13 @@ func (s *Server) hDownload(w http.ResponseWriter, r *http.Request, sess *session
 	if !ok {
 		return
 	}
-	resp, err := m.agent.Raw(r.Context(), "GET", agentPath("/v1/servers/{id}/backups/{bid}/download", r), nil, nil, map[string]string{"X-Playkeeper-Actor": sess.User.Username}, true)
+	s.relayArchive(w, r, m, agentPath("/v1/servers/{id}/backups/{bid}/download", r), bid, sess.User.Username)
+}
+
+// relayArchive streams the backup archive bid from m's agent path as a
+// download the panel describes itself (see hDownload).
+func (s *Server) relayArchive(w http.ResponseWriter, r *http.Request, m machine, path, bid, actor string) {
+	resp, err := m.agent.Raw(r.Context(), "GET", path, nil, nil, map[string]string{"X-Playkeeper-Actor": actor}, true)
 	if err != nil {
 		s.agentFailure(w, err)
 		return
@@ -1689,6 +1700,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	go s.runStock(ctx)
 	go s.runDiskLimits(ctx)
 	go s.runCustomers(ctx)
+	go s.runLapsedCustomers(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)
 	return s.serve(ctx, ln, tc)
 }
