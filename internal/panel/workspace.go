@@ -191,6 +191,10 @@ func permit(a access, act action, serverID string) error {
 		return errForbidden
 	case serverID != "" && !a.covers(serverID):
 		return errNoServer
+	case a.Customer == CustomerSuspended:
+		return errCustomerSuspended
+	case a.Customer == CustomerPaused && !pausedMay[act]:
+		return errCustomerPaused
 	case keyActions[act]:
 		return keysRefusal(a, act)
 	case a.owner():

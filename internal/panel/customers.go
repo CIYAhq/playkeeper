@@ -34,8 +34,6 @@ type customerCore struct{ s *Server }
 var (
 	// errNoCustomer refuses a change for a customer who has no account yet.
 	errNoCustomer = errors.New("That customer has no account here yet.")
-	// errNoPausing is PauseCustomer's answer until pausing is built.
-	errNoPausing = errors.New("This dashboard can't pause customers yet.")
 	// errCustomerStays refuses removing a customer from the team: their
 	// account follows their plan.
 	errCustomerStays = &invites.Error{Code: api.CodeConflict, Status: http.StatusConflict,
@@ -73,6 +71,9 @@ func (c customerCore) StartCustomer(ctx context.Context, cust Customer, p Custom
 		return StartedCustomer{}, err
 	case ok:
 		err = s.applyCustomerPlan(ctx, cust, info, p, al)
+		if err == nil && info.State == CustomerPaused {
+			err = s.resumeCustomer(ctx, cust, &info)
+		}
 	default:
 		info, err = s.makeCustomerAccount(ctx, cust, p, al)
 	}
@@ -112,10 +113,6 @@ func (c customerCore) ChangeCustomerPlan(ctx context.Context, cust Customer, p C
 	}
 	return c.s.applyCustomerPlan(ctx, cust, info, p, al)
 }
-
-// PauseCustomer is refused until pausing and the grace period are built;
-// the billing provider asks again later.
-func (customerCore) PauseCustomer(context.Context, Customer, string) error { return errNoPausing }
 
 // CustomerAccount says which account the customer is, found by provider
 // and subject alone. Any account but a suspended one may sign in.
