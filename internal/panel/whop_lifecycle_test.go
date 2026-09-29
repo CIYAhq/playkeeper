@@ -173,7 +173,7 @@ func TestWhenAPlanEndsSignInPausesAndTheServerGetsAFinalBackupThenStops(t *testi
 		t.Fatalf("asked of the server: %v", got)
 	}
 	msgs := b.f.sent("user_alex")
-	if len(msgs) != 2 || !strings.Contains(msgs[1], "Your Pip Hosting plan ended, so your server is stopped") || !strings.Contains(msgs[1], "Renew within 14 days") {
+	if len(msgs) != 2 || !strings.Contains(msgs[1], "Your Pip Hosting plan ended, so your server stops after a final backup") || !strings.Contains(msgs[1], "Renew within 14 days") {
 		t.Fatalf("messages: %q", msgs)
 	}
 	// The next look finds the final backup and stops the server.

@@ -106,10 +106,14 @@ func (s *Server) stepBuyer(ctx context.Context, c *whop.Client, a whopAccount, d
 			return err
 		}
 		detail := "a plan started again; sign-in open"
-		msg := fmt.Sprintf("Welcome back to %s! Your panel is open again: sign in at %s and start your server.", store, dash)
+		at := ""
+		if dash != "" {
+			at = " at " + dash
+		}
+		msg := fmt.Sprintf("Welcome back to %s! Your panel is open again: sign in%s and start your server.", store, at)
 		if b.DeletedAt != 0 {
 			detail += "; their servers were deleted before"
-			msg = fmt.Sprintf("Welcome back to %s! Your panel is open again at %s. Your old server was deleted after your last plan ended, so create a new one.", store, dash)
+			msg = fmt.Sprintf("Welcome back to %s! Your panel is open again%s. Your old server was deleted after your last plan ended, so create a new one.", store, at)
 		}
 		s.audit("whop", "whop.buyer_back", b.Account, "succeeded", detail)
 		s.tellBuyer(ctx, c, a, b, toldBack, msg)
@@ -122,7 +126,7 @@ func (s *Server) stepBuyer(ctx context.Context, c *whop.Client, a whopAccount, d
 			return err
 		}
 		s.audit("whop", "whop.buyer_ended", b.Account, "succeeded", "their plan ended; sign-in paused, servers get a final backup and stop")
-		s.tellBuyer(ctx, c, a, b, toldEnded, fmt.Sprintf("Your %s plan ended, so your server is stopped and your panel is paused. "+
+		s.tellBuyer(ctx, c, a, b, toldEnded, fmt.Sprintf("Your %s plan ended, so your server stops after a final backup and your panel is paused. "+
 			"Renew within 14 days to pick up where you left off: your world and its backups are kept until %s, then deleted.", store, now.Add(whopGrace).Format("2 January")))
 		return s.windDown(ctx, b)
 	case b.DeletedAt == 0 && !now.Before(time.UnixMilli(b.EndedAt).Add(whopGrace)):
