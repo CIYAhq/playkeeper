@@ -1,0 +1,127 @@
+{{/*
+path: /errors/world-corrupted
+title: Minecraft world corrupted? What the server log says, and the fix
+description: What a damaged Minecraft world looks like in the server's log, tested on real servers: level.dat, damaged chunks and a full disk, and how to get it back.
+label: World corrupted
+h1: Minecraft world corrupted: what the server says, and the fix
+card: Corrupted world, explained
+kind: Guide
+section: guides
+layout: guide
+crumb: Errors
+og: error-world-corrupted
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}A Minecraft world is a folder of files. When level.dat, which holds its settings, can't be read, the server uses its spare copy, level.dat_old; with both damaged, it won't start. A chunk it can't read comes back as new land, and what was built there is gone once the server saves. Stop the server, copy the world, then restore from a backup.{{end}}
+
+{{define "closing-title"}}Worlds backed up before they break.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper backs up each world on a schedule, and keeps the old world when it restores one.{{end}}
+
+{{define "side-text"}}Playkeeper backs up each world on a schedule, and keeps the old world when it restores one.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="meaning">
+  {{template "h2n" (dict "ID" "meaning" "N" 1 "Text" "What the server says" "Toc" "What it says")}}
+  <div class="error-card reveal">
+    <h3>Minecraft 1.21.1 with both level.dat files damaged: the log's lines</h3>
+    <code class="err">[15:24:20] [ServerMain/WARN]: Failed to load world data from ./world/level.dat
+[15:24:20] [ServerMain/INFO]: Attempting to use fallback
+[15:24:20] [ServerMain/ERROR]: Failed to load world data from ./world/level.dat_old
+[15:24:20] [ServerMain/ERROR]: Failed to load world data from ./world/level.dat and ./world/level.dat_old. World files may be corrupted. Shutting down.</code>
+  </div>
+  <p>A world is a folder of files, and each kind of damage shows differently. <code>level.dat</code> holds the world's settings, like its seed and game rules, and <code>level.dat_old</code> is the copy from the save before. The land is in the <code>region</code> folder, 32 by 32 chunks to a file, and mobs, animals and item frames are in <code>entities</code>, in files of the same shape.</p>
+</section>
+
+<section aria-labelledby="tests">
+  {{template "h2n" (dict "ID" "tests" "N" 2 "Text" "What each kind of damage did" "Toc" "Our tests")}}
+  <p>On 29 Sep we built a small Minecraft 1.21.1 world with a gold block, a chest of 5 diamonds, a diamond block and a named cow in three chunks. Then we damaged a copy of it one way at a time, and started the server:</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">What we damaged</th><th scope="col">What the log said</th><th scope="col">What happened</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">level.dat, with random bytes</th><td><code>Failed to load world data from ./world/level.dat</code>, then <code>Attempting to use fallback</code></td><td>It started from level.dat_old with everything in place, and kept the bad file as <code>level.dat_corrupted_</code> and the date</td></tr>
+        <tr><th scope="row">level.dat and level.dat_old</th><td>The lines above</td><td>It didn't start</td></tr>
+        <tr><th scope="row">One chunk's data in the region file</th><td><code>Failed to read chunk [0, 0]</code>, then <code>Failed to load chunk 0,0</code></td><td>That chunk came back as new land, without the gold block; the others were fine</td></tr>
+        <tr><th scope="row">The region file, cut to 100,000 bytes</th><td><code>has an invalid sector at index</code>, 233 times: once for each chunk past the cut</td><td>Those chunks came back as new land</td></tr>
+        <tr><th scope="row">The region file, cut inside its first 8 KB</th><td><code>has truncated header: 4000</code></td><td>Every chunk in the file came back as new land</td></tr>
+        <tr><th scope="row">The region file, filled with zeros</th><td>Nothing</td><td>Every chunk in the file came back as new land</td></tr>
+        <tr><th scope="row">One chunk in the entities file</th><td><code>Failed to load entity chunk [0, 0]</code></td><td>The cow was gone; the blocks were fine</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>For each damaged chunk, the server wrote a Chunk IO Error Report in its <code>debug</code> folder, with the chunk's Position and whether it was land or entities. Paper 1.21.1 printed the same lines about level.dat. For the damaged chunk it logged <code>chunk data will be lost</code>, and made new land too.</p>
+</section>
+
+<section aria-labelledby="first">
+  {{template "h2n" (dict "ID" "first" "N" 3 "Text" "Once it saves, the old chunk is gone" "Toc" "Act first")}}
+  <p>The server doesn't wait for you. It makes new land for what it can't read and saves it over the damaged chunk: when we started the damaged world a second time, there was no error at all, just grass where the gold block had been. A region file of zeros gives no error even the first time. So when you see these lines, or builds are missing, stop the server and copy the world folder before anything else.</p>
+</section>
+
+<section aria-labelledby="disk">
+  {{template "h2n" (dict "ID" "disk" "N" 4 "Text" "What a full disk did" "Toc" "Full disk")}}
+  <p>A full disk often gets the blame, so we filled one: the world on a 12 MB disk with 40 KB free, while the server made new land.</p>
+  <div class="error-card reveal">
+    <h3>The lines that matter, from our full disk</h3>
+    <code class="err">[15:29:13] [IO-Worker-7/ERROR]: Failed to store chunk [126, 126]
+java.io.IOException: No space left on device
+[15:29:13] [IO-Worker-7/ERROR]: Failed to save chunk 126,126
+[15:29:18] [Server thread/ERROR]: Failed to save level /tmp/corruptrun/small/world
+[15:29:18] [Server thread/INFO]: Saved the game</code>
+  </div>
+  <p>It logged Failed to save chunk 1,081 times, yet said Saved the game. Stopping logged <code>Exception stopping the server</code>, and the process ran for 45 seconds or more after that before it quit. Nothing was damaged, though: once we deleted a file to make room, it started without a warning and with every build, even those made after the disk filled. The new land it couldn't store, it simply made again.</p>
+</section>
+
+<section aria-labelledby="fixes">
+  {{template "h2n" (dict "ID" "fixes" "N" 5 "Text" "How to get it back" "Toc" "Fixes")}}
+  <ul>
+    <li><strong>Stop the server and copy the world folder first.</strong> The next save makes a damaged chunk's loss permanent.</li>
+    <li><strong>Only level.dat damaged: nothing to do.</strong> Minecraft used level.dat_old by itself, with every build in place.</li>
+    <li><strong>Both level.dat files: restore a backup, or let the server make a new one.</strong> We deleted both, and the server said <code>No existing world data, creating new world</code>. Every build, the chest and the cow were still there, but the seed was new, so new land wouldn't match the old, and game rules and the time started over. With the old seed in <code>level-seed</code> in server.properties first, ours came back as -7710755848644571073. A crash report's World Seed line, or the output of <code>/seed</code> in an old log, gives yours.</li>
+    <li><strong>Damaged chunks: restore the backup, or just its region file.</strong> With the server stopped, copying <code>region/r.0.0.mca</code> back from our copy of the world brought the gold block back. Everything else in that 512 by 512 block area goes back to the backup's time too.</li>
+    <li><strong>No backup: start it, and rebuild what's missing.</strong> The server keeps every chunk it can read, and makes new land for the rest.</li>
+    <li><strong>Keep free space on the disk.</strong> A full disk didn't damage our world, but saves failed until there was room again.</li>
+  </ul>
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="What's damaged">
+        <button type="button" class="code-tab" role="tab" id="tab-leveldat" aria-controls="code-leveldat" aria-selected="true">level.dat</button>
+        <button type="button" class="code-tab" role="tab" id="tab-region" aria-controls="code-region" aria-selected="false" tabindex="-1">A region</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-leveldat" role="tabpanel" tabindex="0" aria-labelledby="tab-leveldat"><span class="c"># In the server's folder, with the server stopped</span>
+cp -r world world-copy
+rm world/level.dat world/level.dat_old
+<span class="c"># Then set level-seed= in server.properties to the old seed, and start</span></pre>
+<pre id="code-region" role="tabpanel" tabindex="0" aria-labelledby="tab-region" hidden><span class="c"># In the server's folder, with the server stopped</span>
+cp -r world world-copy
+cp backup/world/region/r.0.0.mca world/region/r.0.0.mca   <span class="c"># from your backup</span></pre>
+  </div>
+</section>
+
+<section aria-labelledby="playkeeper">
+  {{template "h2n" (dict "ID" "playkeeper" "N" 6 "Text" "On a Playkeeper server" "Toc" "On Playkeeper")}}
+  <ul>
+    <li><strong>When both level.dat files are damaged,</strong> the Overview says The world's level.dat file is damaged, and offers to restore the latest backup, if there is one.</li>
+    <li><strong>A damaged chunk doesn't stop the server.</strong> The Console shows the Failed to read chunk lines. If the server stops later with them in its log, the Overview says Part of the world may be damaged, and offers to start it again or restore a backup.</li>
+    <li><strong>When it stops with the disk full,</strong> the Overview says The disk is full, with how much is free.</li>
+    <li><strong>Schedules in Settings back up each server,</strong> and the World tab restores a backup. It saves the current world as a rollback archive first, and puts it back by itself if the restored world doesn't start: <a href="/docs/recovery">how to recover a world</a>.</li>
+  </ul>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Can a corrupted Minecraft world be fixed?" "Often. A damaged level.dat is replaced by level.dat_old by itself, and a damaged chunk costs only that chunk. A backup brings back everything.")
+    (qa "What is level.dat_old?" "The level.dat from the save before. Minecraft uses it when level.dat can't be read, and keeps the damaged file as level.dat_corrupted with the date.")
+    (qa "Why is part of my world new land?" "The server couldn't read those chunks, so it made them again. Once it saves, the old ones are gone from the file; only a backup has them.")
+    (qa "Does a full disk corrupt a Minecraft world?" "Not in our test. Saves failed with No space left on device, and once there was room, the world started with everything in it.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/errors" "/errors/ticking-entity" "/docs/recovery")}}{{end}}

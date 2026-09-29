@@ -247,7 +247,8 @@ function fit (pts, c, dir, vfov, aspect, fill) {
 }
 
 // subject frames the blocks around where the bot stood: an island in the
-// void, or the one block.
+// void, or the one block. A saved world's island, with no bot on it
+// (world.mjs), is framed whole, around spawn.
 function subject (snap, w, aspect) {
   const f = snap.player || snap.focus
   const blocks = w.blocks(f, 40)
@@ -257,8 +258,8 @@ function subject (snap, w, aspect) {
   const pts = []
   const head = f.y + 3
   // Islands further off stay in the picture, but only the bot's is framed.
-  const island = blocks.filter((b) => Math.hypot(b.x + 0.5 - f.x, b.z + 0.5 - f.z) <= 14)
-  const framed = island.filter((b) => b.y < head && !/leaves|_log$|_wood$/.test(b.name))
+  const island = snap.player ? blocks.filter((b) => Math.hypot(b.x + 0.5 - f.x, b.z + 0.5 - f.z) <= 14) : blocks
+  const framed = snap.player ? island.filter((b) => b.y < head && !/leaves|_log$|_wood$/.test(b.name)) : island
   for (const b of framed.length ? framed : blocks) for (const [dx, dy, dz] of [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 0], [1, 0, 1], [0, 1, 1], [1, 1, 1]]) pts.push([b.x + dx, b.y + dy, b.z + dz])
   if (snap.player) for (const [dx, dy, dz] of [[-0.3, 0, -0.3], [0.3, 1.85, 0.3], [-0.3, 1.85, 0.3], [0.3, 0, -0.3]]) pts.push([snap.player.x + dx, snap.player.y + dy, snap.player.z + dz])
   const lo = [0, 1, 2].map((i) => Math.min(...pts.map((p) => p[i])))
@@ -286,7 +287,7 @@ function subject (snap, w, aspect) {
   const dir = [best.dx * Math.cos(pitch), Math.sin(pitch), best.dz * Math.cos(pitch)]
   // Something tall above the ground, like a tree, gets the upper part of
   // the picture: the ground is framed smaller and lower.
-  const tall = island.some((b) => b.y >= head + 2)
+  const tall = snap.player && island.some((b) => b.y >= head + 2)
   const dist = fit(pts, c, dir, vfov, aspect, blocks.length < 20 ? 0.6 : tall ? 0.52 : 0.8)
   const lift = tall ? dist * Math.tan(rad(vfov) / 2) * 0.32 : 0
   const cam = { x: c[0] + dir[0] * dist, y: c[1] + dir[1] * dist + lift, z: c[2] + dir[2] * dist, tx: c[0], ty: c[1] + lift, tz: c[2], fov: vfov }

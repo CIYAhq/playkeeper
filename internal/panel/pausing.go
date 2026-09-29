@@ -87,7 +87,7 @@ func (c customerCore) PauseCustomer(ctx context.Context, cust Customer, reason s
 // they're active again, and their servers stay stopped until they start
 // them. The caller holds s.customersMu.
 func (s *Server) resumeCustomer(ctx context.Context, cust Customer, info *CustomerAccountInfo) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE customers SET state = ?, paused_at = 0, delete_after = 0, pause_reason = '', updated_at = ? WHERE user_id = ? AND state = ?`,
+	res, err := s.db.ExecContext(ctx, `UPDATE customers SET state = ?, paused_at = 0, delete_after = 0, pause_reason = '', servers_deleted_at = 0, updated_at = ? WHERE user_id = ? AND state = ?`,
 		string(CustomerActive), s.now().UnixMilli(), info.UserID, string(CustomerPaused))
 	if err != nil {
 		return errDB
@@ -167,15 +167,25 @@ func (s *Server) heldRefusal(a access, act action, serverID string) error {
 }
 
 // pausedUntil is when a paused customer's servers are deleted unless they
-// renew, or nil for anyone else.
+// renew, or nil for anyone else, and once they're deleted.
 func (s *Server) pausedUntil(a access) *time.Time {
 	if a.Customer != CustomerPaused {
 		return nil
 	}
-	var ms int64
-	if err := s.db.QueryRow(`SELECT delete_after FROM customers WHERE user_id = ?`, a.UserID).Scan(&ms); err != nil || ms == 0 {
+	var ms, deleted int64
+	if err := s.db.QueryRow(`SELECT delete_after, servers_deleted_at FROM customers WHERE user_id = ?`, a.UserID).Scan(&ms, &deleted); err != nil || ms == 0 || deleted != 0 {
 		return nil
 	}
 	t := time.UnixMilli(ms).UTC()
 	return &t
+}
+
+// serversDeleted reports whether a is a paused customer whose servers were
+// deleted once the grace period ended (see deletion.go).
+func (s *Server) serversDeleted(a access) bool {
+	if a.Customer != CustomerPaused {
+		return false
+	}
+	var deleted int64
+	return s.db.QueryRow(`SELECT servers_deleted_at FROM customers WHERE user_id = ?`, a.UserID).Scan(&deleted) == nil && deleted != 0
 }

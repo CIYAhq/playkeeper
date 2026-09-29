@@ -504,6 +504,12 @@ ALTER TABLE customers ADD COLUMN paused_at    INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE customers ADD COLUMN delete_after INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE customers ADD COLUMN pause_reason TEXT    NOT NULL DEFAULT '';
 `,
+	// A paused customer's servers deleted once the grace period ended: when,
+	// and the machine keeping their final backups (see deletion.go).
+	`
+ALTER TABLE customers ADD COLUMN servers_deleted_at    INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN final_backups_machine TEXT    NOT NULL DEFAULT '';
+`,
 }
 
 const (
