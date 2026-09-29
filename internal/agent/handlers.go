@@ -1281,7 +1281,11 @@ func (a *Agent) restoreUpload(w http.ResponseWriter, r *http.Request, target *se
 		return
 	}
 	if target != nil {
-		if err := target.restoreRefusal("restore again"); err != nil {
+		err := target.restoreRefusal("restore again")
+		if err == nil && r.ContentLength > 0 {
+			err = target.diskLimitRefusal(r.Context(), target.id, r.ContentLength)
+		}
+		if err != nil {
 			a.auditFor(target.id, actor, "restore.uploaded", "", "refused", err.Error())
 			writeError(w, err)
 			return
@@ -1292,6 +1296,20 @@ func (a *Agent) restoreUpload(w http.ResponseWriter, r *http.Request, target *se
 		a.auditFor(serverIDOf(target), actor, "restore.uploaded", "", "refused", err.Error())
 		writeError(w, err)
 		return
+	}
+	// The world it would replace stays beside it until it's in place, so the
+	// world it unpacks to is what it adds.
+	if target != nil {
+		f, err := readStageFile(a.stageDir(p.ID))
+		if err == nil {
+			err = target.diskLimitRefusal(r.Context(), target.id, unpackedBytes(f.Manifest))
+		}
+		if err != nil {
+			os.RemoveAll(a.stageDir(p.ID))
+			a.auditFor(target.id, actor, "restore.uploaded", p.ID, "refused", err.Error())
+			writeError(w, err)
+			return
+		}
 	}
 	a.auditFor(serverIDOf(target), actor, "restore.uploaded", p.ID, "validated", "sha256 "+p.SHA256)
 	writeJSON(w, http.StatusOK, p)
@@ -1417,7 +1435,23 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 	if target == nil {
 		op, err = a.restoreAsNewServer(st, req, name, actor, restore)
 	} else {
-		op, err = target.beginOp("restore", actor, restore(target))
+		// The restored world stays beside the one it replaces until it's in
+		// place, from a backup of the server's own as from an upload, and
+		// the rollback archive it saves first is held on its own.
+		var done func(bool)
+		if done, err = target.holdDiskLimit(r.Context(), target.id, unpackedBytes(st.manifest)); err != nil {
+			a.auditFor(p.ServerID, actor, "restore.applied", r.PathValue("id"), "refused", err.Error())
+			writeError(w, err)
+			return
+		}
+		op, err = target.beginOp("restore", actor, func(ctx context.Context, h *opHandle) error {
+			err := restore(target)(ctx, h)
+			done(err == nil)
+			return err
+		})
+		if err != nil {
+			done(false)
+		}
 	}
 	if err != nil {
 		writeError(w, err)
