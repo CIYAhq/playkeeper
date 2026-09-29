@@ -142,6 +142,9 @@ type Server struct {
 	// the core calls to tell customers something (see hosting.go).
 	hosting  hostingCore
 	notifier customerNotifier
+	// placeMu serialises placing customers, so two never get the same room
+	// (see placement.go).
+	placeMu sync.Mutex
 }
 
 func New(opts Options) (*Server, error) {
