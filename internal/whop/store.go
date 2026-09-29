@@ -11,14 +11,16 @@ import (
 )
 
 // Needs are the permissions Sell on Whop's key must have, in the order the
-// dashboard lists them: reading the store's products and plans and marking
-// the products with the dashboard's address, reading buyers' memberships and
-// hearing about them, and sending buyers their invites in a support chat.
-// Whop calls products access passes in its permissions.
+// dashboard lists them: reading the store's products and plans, marking the
+// products with the dashboard's address and setting how many more of each
+// plan can sell, reading buyers' memberships and hearing about them, and
+// sending buyers messages in a support chat. Whop calls products access
+// passes in its permissions.
 var Needs = []string{
 	"access_pass:basic:read",
 	"access_pass:update",
 	"plan:basic:read",
+	"plan:update",
 	"member:basic:read",
 	"member:email:read",
 	"developer:manage_webhook",
@@ -132,6 +134,10 @@ type Plan struct {
 	TrialDays int      `json:"trial_period_days"`
 	Product   Ref      `json:"product"`
 	Metadata  Metadata `json:"metadata"`
+	// Stock is how many more of the plan can sell, unless UnlimitedStock.
+	// Whop's schema calls it a number, not an integer.
+	Stock          float64 `json:"stock"`
+	UnlimitedStock bool    `json:"unlimited_stock"`
 }
 
 // Ref names another object, such as a plan's product.
@@ -177,7 +183,16 @@ func (p Plan) Price() string {
 	return strings.TrimSpace(fmt.Sprintf("%s %.2f", cur, p.InitialPrice))
 }
 
+// Free reports whether a plan charges nothing, first or on renewal.
+func (p Plan) Free() bool { return p.InitialPrice == 0 && p.RenewalPrice == 0 }
+
 // Plans lists the account's plans, visible and hidden.
 func (c *Client) Plans(ctx context.Context, accountID string) ([]Plan, error) {
 	return list[Plan](ctx, c, "/variants", url.Values{"account_id": {accountID}})
+}
+
+// SetPlanStock limits how many more of a plan can sell to n, which Whop
+// enforces at checkout.
+func (c *Client) SetPlanStock(ctx context.Context, planID string, n int) error {
+	return c.do(ctx, http.MethodPatch, "/variants/"+url.PathEscape(planID), nil, map[string]any{"stock": n, "unlimited_stock": false}, nil)
 }

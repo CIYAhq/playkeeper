@@ -3,8 +3,10 @@ package whop
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"time"
 )
 
@@ -79,6 +81,22 @@ func (c *Client) Membership(ctx context.Context, id string) (Membership, error) 
 // Memberships lists the account's memberships, of every status.
 func (c *Client) Memberships(ctx context.Context, accountID string) ([]Membership, error) {
 	return list[Membership](ctx, c, "/memberships", url.Values{"account_id": {accountID}})
+}
+
+// PlanMemberships lists the account's memberships of one plan, of every
+// status. Whop's two API references name the filter plan_id and plan_ids,
+// so both are sent, and when Whop refuses them, or ignores them, the plan's
+// are picked from every membership.
+func (c *Client) PlanMemberships(ctx context.Context, accountID, planID string) ([]Membership, error) {
+	ms, err := list[Membership](ctx, c, "/memberships", url.Values{"account_id": {accountID}, "plan_id": {planID}, "plan_ids": {planID}})
+	var e *Error
+	if errors.As(err, &e) && (e.Status == http.StatusBadRequest || e.Status == http.StatusUnprocessableEntity) {
+		ms, err = c.Memberships(ctx, accountID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(ms, func(m Membership) bool { return m.PlanID != planID }), nil
 }
 
 // User is a person on Whop, as others see them.
