@@ -1889,6 +1889,9 @@ export interface WhopStore {
   connectedAt?: string
   syncedAt?: string
   problem?: string
+  /** The dashboard that took the store over, and when; this one stopped selling until it's taken back. */
+  takenOverBy?: string
+  takenOverAt?: string
   plans: WhopPlan[]
   /** Whether Whop tells the dashboard about memberships as they change; it also reads them every few minutes. */
   webhook: boolean

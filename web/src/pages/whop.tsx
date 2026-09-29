@@ -123,22 +123,29 @@ function KeyForm({ onSaved, onCancel }: { onSaved: (s: WhopStore) => void; onCan
   const [key, setKey] = useState('')
   const [busy, setBusy] = useState(false)
   const [refused, setRefused] = useState<string>()
+  const [other, setOther] = useState<string>()
 
-  async function save(e: FormEvent) {
-    e.preventDefault()
-    if (!key.trim()) return
+  async function connect(takeOver: boolean) {
     setBusy(true)
     setRefused(undefined)
     try {
-      const s = await post<WhopStore>('/api/whop/connect', { key: key.trim() })
+      const s = await post<WhopStore>('/api/whop/connect', takeOver ? { key: key.trim(), takeOver: true } : { key: key.trim() })
       toastManager.add({ title: t('whop.connected', { account: s.account?.title ?? '' }), type: 'success' })
       onSaved(s)
     } catch (err) {
-      if (err instanceof ApiError && err.code === 'whop_key_refused') setRefused(t('whop.refused'))
+      if (err instanceof ApiError && err.code === 'whop_other_seller') setOther(String(err.params?.dashboard ?? ''))
+      else if (err instanceof ApiError && err.code === 'whop_key_refused') setRefused(t('whop.refused'))
       else if (err instanceof ApiError && err.code === 'whop_permissions') setRefused(t('whop.missing', { permissions: String(err.params?.missing ?? '').split(',').join(', ') }))
       else toastManager.add({ title: errorText(err), type: 'error' })
       setBusy(false)
     }
+  }
+
+  async function save(e: FormEvent) {
+    e.preventDefault()
+    if (!key.trim()) return
+    setOther(undefined)
+    await connect(false)
   }
 
   return (
@@ -154,6 +161,7 @@ function KeyForm({ onSaved, onCancel }: { onSaved: (s: WhopStore) => void; onCan
             onChange={(e) => {
               setKey(e.target.value)
               setRefused(undefined)
+              setOther(undefined)
             }}
             placeholder={t('whop.keyPlaceholder')}
             aria-label={t('whop.keyLabel')}
@@ -172,7 +180,14 @@ function KeyForm({ onSaved, onCancel }: { onSaved: (s: WhopStore) => void; onCan
           {t('whop.connect')}
         </Button>
       </div>
-      {refused ? (
+      {other !== undefined ? (
+        <div className="mt-2 flex animate-fade flex-wrap items-center gap-2" role="alert">
+          <p className="min-w-0 flex-1 text-xs text-destructive-foreground">{t('whop.otherSeller', { dashboard: other })}</p>
+          <Button type="button" variant="outline" size="sm" loading={busy} onClick={() => void connect(true)}>
+            {t('whop.takeOver')}
+          </Button>
+        </div>
+      ) : refused ? (
         <p id={`${id}-refused`} className="mt-2 animate-fade text-xs text-destructive-foreground" role="alert">
           {refused}
         </p>
@@ -188,9 +203,11 @@ function KeyForm({ onSaved, onCancel }: { onSaved: (s: WhopStore) => void; onCan
 function Connected({ store, onChange }: { store: WhopStore; onChange: (s: WhopStore) => void }) {
   const [replacing, setReplacing] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [takingBack, setTakingBack] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
   const [editing, setEditing] = useState<WhopPlan>()
   const selling = store.plans.filter((p) => p.allowance)
+  const needsLook = Boolean(store.problem || store.takenOverBy)
 
   async function sync() {
     setSyncing(true)
@@ -204,13 +221,25 @@ function Connected({ store, onChange }: { store: WhopStore; onChange: (s: WhopSt
     }
   }
 
+  async function takeBack() {
+    setTakingBack(true)
+    try {
+      onChange(await post<WhopStore>('/api/whop/sync', { takeOver: true }))
+      toastManager.add({ title: t('whop.tookBack'), type: 'success' })
+    } catch (e) {
+      toastManager.add({ title: errorText(e), type: 'error' })
+    } finally {
+      setTakingBack(false)
+    }
+  }
+
   return (
     <div className="animate-fade">
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2 py-2">
         <div className="min-w-0 flex-1">
           <p className="flex items-baseline gap-2 text-[13px] leading-5 font-semibold">
             {store.account?.title}
-            <Marker tone={store.problem ? 'amber' : 'green'}>{store.problem ? t('whop.needsLook') : t('whop.on')}</Marker>
+            <Marker tone={needsLook ? 'amber' : 'green'}>{needsLook ? t('whop.needsLook') : t('whop.on')}</Marker>
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {t('whop.keyEnding', { ending: store.keyEnding ?? '' })}
@@ -238,13 +267,25 @@ function Connected({ store, onChange }: { store: WhopStore; onChange: (s: WhopSt
           onCancel={() => setReplacing(false)}
         />
       )}
+      {store.takenOverBy && (
+        <div className="mt-1 flex flex-wrap items-center gap-2" role="alert">
+          <p className="min-w-0 flex-1 text-xs text-destructive-foreground">
+            {t('whop.takenOver', { dashboard: store.takenOverBy, when: store.takenOverAt ? relativeTime(store.takenOverAt) : '' })}
+          </p>
+          <Button variant="outline" size="sm" loading={takingBack} onClick={() => void takeBack()}>
+            {t('whop.takeBack')}
+          </Button>
+        </div>
+      )}
       {store.problem && (
         <p className="mt-1 text-xs text-destructive-foreground" role="alert">
           {store.problem}
         </p>
       )}
       <AddressLine store={store} />
-      {store.dashboard && <p className="mt-2 text-xs text-muted-foreground">{selling.length > 0 ? t('whop.selling', { dashboard: store.dashboard }) : t('whop.noneSelling')}</p>}
+      {store.dashboard && !store.takenOverBy && (
+        <p className="mt-2 text-xs text-muted-foreground">{selling.length > 0 ? t('whop.selling', { dashboard: store.dashboard }) : t('whop.noneSelling')}</p>
+      )}
       <div className="mt-3 flex items-center justify-between gap-3">
         <h3 className="text-[13px] font-semibold">{t('whop.plans')}</h3>
         <Button variant="ghost" size="sm" onClick={() => void sync()} loading={syncing}>
