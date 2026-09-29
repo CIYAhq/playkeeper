@@ -374,6 +374,71 @@ func TestACancellationIsRemindedOnceAndAgainAfterItsUndone(t *testing.T) {
 	}
 }
 
+func TestCancellingOnePlanWhileAnotherGoesOnSaysNothingUntilTheLast(t *testing.T) {
+	f, e, _ := connectedWhop(t)
+	useFakeCore(e)
+	f.buy("mem_alex1", "user_alex", "plan_starter", "active")
+	f.buy("mem_alex2", "user_alex", "plan_big", "active")
+	e.reconcile()
+	cancel := func(id, end, delivery string) {
+		f.mu.Lock()
+		m := f.memberships[id]
+		m["cancel_at_period_end"], m["current_period_end"] = true, end
+		f.mu.Unlock()
+		e.deliver(t, delivery, whop.EventMembershipCancelling, m)
+		e.reconcile()
+	}
+	cancel("mem_alex1", "2026-10-12T09:00:00Z", "msg_1")
+	if msgs := f.sent("user_alex"); len(msgs) != 0 {
+		t.Fatalf("cancelling one of two plans: %q", msgs)
+	}
+	cancel("mem_alex2", "2026-10-20T09:00:00Z", "msg_2")
+	e.reconcile()
+	if msgs := f.sent("user_alex"); len(msgs) != 1 || !strings.Contains(msgs[0], "It keeps running until 20 October, then your servers stop.") {
+		t.Fatalf("cancelling the last: %q", msgs)
+	}
+}
+
+func TestACustomerWhoBuysAgainIsSettingUpUntilTheCoreTakesThemBack(t *testing.T) {
+	f, e, own := connectedWhop(t)
+	core := useFakeCore(e)
+	f.buy("mem_alex1", "user_alex", "plan_starter", "active")
+	e.reconcile()
+	e.deliver(t, "msg_1", whop.EventMembershipDeactivated, f.buy("mem_alex1", "user_alex", "plan_starter", "canceled"))
+	e.reconcile()
+	if v := e.whopView(t, own); v.Customers[0].Status != "paused" {
+		t.Fatalf("after the plan ended: %+v", v.Customers[0])
+	}
+	core.refuse = errors.New("The machine is full.")
+	e.deliver(t, "msg_2", whop.EventMembershipActivated, f.buy("mem_alex2", "user_alex", "plan_starter", "active"))
+	e.reconcile()
+	if c := e.whopView(t, own).Customers[0]; c.Status != "starting" || c.Problem != "The machine is full." {
+		t.Fatalf("buying again while the core refuses: %+v", c)
+	}
+}
+
+func TestADeliveryThatCantBeKeptIsTakenAgain(t *testing.T) {
+	f, e, _ := connectedWhop(t)
+	m := f.buy("mem_alex1", "user_alex", "plan_starter", "active")
+	if _, err := e.srv.db.Exec(`ALTER TABLE whop_memberships RENAME TO whop_memberships_away`); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.deliver(t, "msg_1", whop.EventMembershipActivated, m); r.status != http.StatusServiceUnavailable {
+		t.Fatalf("a delivery that couldn't be kept: %d", r.status)
+	}
+	if _, err := e.srv.db.Exec(`ALTER TABLE whop_memberships_away RENAME TO whop_memberships`); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.deliver(t, "msg_1", whop.EventMembershipActivated, m); r.status != http.StatusOK {
+		t.Fatalf("Whop sending it again: %d", r.status)
+	}
+	var n int
+	e.srv.db.QueryRow(`SELECT COUNT(*) FROM whop_memberships WHERE membership_id = 'mem_alex1'`).Scan(&n)
+	if n != 1 {
+		t.Fatal("the delivery sent again wasn't kept")
+	}
+}
+
 func TestACallTheCoreRefusesIsTriedAgainLaterAndAtOnceAfterARestart(t *testing.T) {
 	f, e, own := connectedWhop(t)
 	core := useFakeCore(e)
