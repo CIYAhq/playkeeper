@@ -249,6 +249,15 @@ func (s *Server) checkToken(t apiToken) (access, rights, error) {
 	if !t.RevokedAt.IsZero() || !s.now().Before(t.ExpiresAt) {
 		return access{}, rights{}, errTokenGone
 	}
+	// Pausing an account revokes its tokens; this catches one it missed.
+	var paused int64
+	if err := s.db.QueryRow(`SELECT paused_at FROM users WHERE id = ?`, t.UserID).Scan(&paused); err != nil && !isNoRows(err) {
+		return access{}, rights{}, errDB
+	}
+	if paused != 0 {
+		s.revokeToken(t, "whop", "its account was paused when its plan ended")
+		return access{}, rights{}, errTokenGone
+	}
 	a, err := s.access(user{ID: t.UserID, Username: t.Username, Role: t.AccountRole})
 	if err != nil {
 		return access{}, rights{}, errDB

@@ -64,9 +64,11 @@ func newBuyerEnv(t *testing.T) buyerEnv {
 	}
 	var alexID int64
 	e.srv.db.QueryRow(`SELECT id FROM users WHERE username = 'alex'`).Scan(&alexID)
-	if _, err := e.srv.db.Exec(`INSERT INTO creator_servers(server_id, user_id, created_at) VALUES(?,?,0)`, buyerServer, alexID); err != nil {
+	a, err := e.srv.access(user{ID: alexID, Username: "alex", Role: roleMember})
+	if err != nil {
 		t.Fatal(err)
 	}
+	e.srv.claimForCreator(a, buyerServer)
 	fs := &fakeServer{phase: "online"}
 	path := "/v1/servers/" + buyerServer
 	e.agent.mu.Lock()
@@ -140,7 +142,10 @@ func (b buyerEnv) buyerView(t *testing.T) whopBuyerView {
 func TestWhenAPlanEndsSignInPausesAndTheServerGetsAFinalBackupThenStops(t *testing.T) {
 	b := newBuyerEnv(t)
 	e := b.e
-	token := e.do(t, "POST", "/api/tokens", `{"name":"alex's bot","role":"viewer","allServers":false,"servers":[],"days":30}`, b.alex.auth())
+	tokenID, secret := e.newToken(t, b.alex.cookie, b.alex.csrf, alexsBot)
+	if r := e.mcpRequest(t, secret, "tools/list", nil); r.status != http.StatusOK {
+		t.Fatalf("alex's token before the plan ended: %d %v", r.status, r.body)
+	}
 	b.end(t)
 
 	var paused int64
@@ -158,12 +163,11 @@ func TestWhenAPlanEndsSignInPausesAndTheServerGetsAFinalBackupThenStops(t *testi
 	if r := e.do(t, "POST", "/api/auth/login", `{"username":"alex","password":"wrong password 1"}`, map[string]string{"X-Requested-With": "playkeeper"}); r.status != http.StatusUnauthorized {
 		t.Fatalf("a wrong password for a paused account: %d %v", r.status, r.body)
 	}
-	if id, _ := token.body["token"].(map[string]any); id != nil {
-		var revoked int64
-		e.srv.db.QueryRow(`SELECT revoked_at FROM api_tokens WHERE id = ?`, id["id"]).Scan(&revoked)
-		if revoked == 0 {
-			t.Fatal("alex's token still works")
-		}
+	if by := revokedBy(t, e, tokenID); by != "whop" {
+		t.Fatalf("alex's token was revoked by %q", by)
+	}
+	if r := e.mcpRequest(t, secret, "tools/list", nil); r.status != http.StatusUnauthorized {
+		t.Fatalf("alex's token after the plan ended: %d", r.status)
 	}
 	if got := b.server.askedFor(); len(got) != 1 || got[0] != "backup" {
 		t.Fatalf("asked of the server: %v", got)
@@ -191,6 +195,26 @@ func TestWhenAPlanEndsSignInPausesAndTheServerGetsAFinalBackupThenStops(t *testi
 	}
 	if rows := e.auditRows(t, "whop.buyer_ended"); len(rows) != 1 {
 		t.Fatalf("audit: %v", rows)
+	}
+}
+
+// alexsBot is an API token alex can make for his own server.
+const alexsBot = `{"name":"alex's bot","role":"viewer","servers":["` + buyerServer + `"],"days":30}`
+
+func TestATokenThePauseMissedStopsWorkingToo(t *testing.T) {
+	b := newBuyerEnv(t)
+	e := b.e
+	tokenID, secret := e.newToken(t, b.alex.cookie, b.alex.csrf, alexsBot)
+	b.end(t)
+	// As if revoking it had failed when alex's plan ended.
+	if _, err := e.srv.db.Exec(`UPDATE api_tokens SET revoked_at = 0, revoked_by = '' WHERE id = ?`, tokenID); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.mcpRequest(t, secret, "tools/list", nil); r.status != http.StatusUnauthorized {
+		t.Fatalf("a paused account's token: %d %v", r.status, r.body)
+	}
+	if by := revokedBy(t, e, tokenID); by != "whop" {
+		t.Fatalf("the token was revoked by %q", by)
 	}
 }
 

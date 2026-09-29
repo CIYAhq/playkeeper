@@ -187,9 +187,7 @@ func (s *Server) pauseAccount(userID int64) {
 		return
 	}
 	s.deleteUserSessions(userID)
-	if _, err := s.db.Exec(`UPDATE api_tokens SET revoked_at = ?, revoked_by = 'whop' WHERE user_id = ? AND revoked_at = 0`, now, userID); err != nil {
-		s.log.Error("could not revoke a paused account's tokens", "err", err)
-	}
+	s.revokeAccountTokens(userID, "whop", "its account was paused when its plan ended")
 }
 
 // buyerServers are the servers a buyer created on the dashboard's machine.
