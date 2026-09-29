@@ -1297,9 +1297,14 @@ func (a *Agent) restoreUpload(w http.ResponseWriter, r *http.Request, target *se
 		writeError(w, err)
 		return
 	}
-	// The world it would replace stays beside it, so its world is what it adds.
+	// The world it would replace stays beside it until it's in place, so the
+	// world it unpacks to is what it adds.
 	if target != nil {
-		if err := target.diskLimitRefusal(r.Context(), target.id, p.SizeBytes); err != nil {
+		f, err := readStageFile(a.stageDir(p.ID))
+		if err == nil {
+			err = target.diskLimitRefusal(r.Context(), target.id, unpackedBytes(f.Manifest))
+		}
+		if err != nil {
 			os.RemoveAll(a.stageDir(p.ID))
 			a.auditFor(target.id, actor, "restore.uploaded", p.ID, "refused", err.Error())
 			writeError(w, err)
@@ -1430,7 +1435,23 @@ func (a *Agent) hRestoreApply(w http.ResponseWriter, r *http.Request) {
 	if target == nil {
 		op, err = a.restoreAsNewServer(st, req, name, actor, restore)
 	} else {
-		op, err = target.beginOp("restore", actor, restore(target))
+		// The restored world stays beside the one it replaces until it's in
+		// place, from a backup of the server's own as from an upload, and
+		// the rollback archive it saves first is held on its own.
+		var done func(bool)
+		if done, err = target.holdDiskLimit(r.Context(), target.id, unpackedBytes(st.manifest)); err != nil {
+			a.auditFor(p.ServerID, actor, "restore.applied", r.PathValue("id"), "refused", err.Error())
+			writeError(w, err)
+			return
+		}
+		op, err = target.beginOp("restore", actor, func(ctx context.Context, h *opHandle) error {
+			err := restore(target)(ctx, h)
+			done(err == nil)
+			return err
+		})
+		if err != nil {
+			done(false)
+		}
 	}
 	if err != nil {
 		writeError(w, err)

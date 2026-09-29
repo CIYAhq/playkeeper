@@ -747,6 +747,7 @@ func (s *server) beginPregen(actor string, sc *api.ServerConfig, p pregen.Platfo
 	if err != nil {
 		return nil, err
 	}
+	s.notePregen(s.id, est.DiskHigh)
 	task, err := s.lastPregen()
 	if err != nil {
 		return nil, err

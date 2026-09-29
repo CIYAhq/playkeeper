@@ -330,15 +330,11 @@ func (s *server) errNotOnlineForBackup() error {
 // backupOp makes a backup on request or on schedule, inside the server's
 // disk limit: what its archive may take is held while it's written.
 func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string, stopped bool) error {
-	done := func(bool) {}
-	if s.diskLimitOf(s.id) != nil {
-		if size, err := backup.Measure(s.dataDir(), archiveLimits()); err == nil {
-			if done, err = s.holdDiskLimit(ctx, s.id, size.ArchiveBytes()); err != nil {
-				return err
-			}
-		}
+	done, err := s.holdBackup(ctx)
+	if err != nil {
+		return err
 	}
-	err := s.makeBackup(ctx, h, actor, note, stopped)
+	err = s.makeBackup(ctx, h, actor, note, stopped)
 	done(err == nil)
 	return err
 }
@@ -1842,9 +1838,15 @@ func sentence(msg string) string {
 }
 
 // saveVerifiedRollback archives the current world and reads the archive back.
-// A restore replaces the world only once this copy is known to be good.
+// A restore replaces the world only once this copy is known to be good. The
+// copy is kept, so it has to fit the server's disk limit like any backup.
 func (s *server) saveVerifiedRollback(sc api.ServerConfig, actor, note string) (*api.Backup, error) {
+	done, err := s.holdBackup(s.ctx)
+	if err != nil {
+		return nil, err
+	}
 	rb, err := s.createArchive(sc, "rollback", actor, note)
+	done(err == nil)
 	if err != nil {
 		return nil, err
 	}

@@ -1,10 +1,15 @@
 package agent
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -162,9 +167,8 @@ func TestWhatAnOperationHoldsCountsAgainstTheLimit(t *testing.T) {
 	}
 }
 
-// Applying an uploaded world holds the world it adds, and a world restored
-// from an upload counts as the world it unpacks to, not just the upload.
-func TestAppliedImportsAndStagedRestoresStopAtTheDiskLimit(t *testing.T) {
+// Applying an uploaded world holds the world it adds.
+func TestAnAppliedImportHoldsTheWorldItAdds(t *testing.T) {
 	e := newAgentEnv(t)
 	e.create()
 	e.limitTo(1 << 40)
@@ -176,27 +180,241 @@ func TestAppliedImportsAndStagedRestoresStopAtTheDiskLimit(t *testing.T) {
 	if code, out := e.callWhenFree("POST", importPath(imp, "/apply"), map[string]any{"confirm": pv.ConfirmPhrase, "actor": "admin"}); code != 507 || codeOf(out) != api.CodeDiskLimit {
 		t.Fatalf("applying a world past the limit: %d %v", code, out)
 	}
+}
 
-	e.limitTo(1 << 40)
-	e.backupNow(nil)
-	var backups []api.Backup
-	if code := e.callInto("GET", e.sp("/backups"), nil, &backups); code != 200 || len(backups) == 0 {
-		t.Fatalf("backups: %d %+v", code, backups)
+// compressibleBackup gives the env's world a file that compresses to almost
+// nothing and backs it up, so the backup's archive unpacks to far more than
+// it takes.
+func (e *agentEnv) compressibleBackup() (api.Backup, []byte) {
+	e.t.Helper()
+	world := filepath.Join(e.srv().dataDir(), "world")
+	if err := os.MkdirAll(world, 0o755); err != nil {
+		e.t.Fatal(err)
 	}
-	raw, err := os.ReadFile(e.srv().backupPath(backups[0].FileName))
+	if err := os.WriteFile(filepath.Join(world, "filler.dat"), make([]byte, 2<<20), 0o644); err != nil {
+		e.t.Fatal(err)
+	}
+	op := e.backupNow(nil)
+	id, _ := op.Detail["backupId"].(string)
+	if op.Status != api.OpSucceeded || id == "" {
+		e.t.Fatalf("backing up: %+v", op)
+	}
+	var backups []api.Backup
+	if code := e.callInto("GET", e.sp("/backups"), nil, &backups); code != 200 {
+		e.t.Fatalf("backups: %d", code)
+	}
+	for _, b := range backups {
+		if b.ID != id {
+			continue
+		}
+		raw, err := os.ReadFile(e.srv().backupPath(b.FileName))
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		if len(raw) > 256<<10 {
+			e.t.Fatalf("the backup's archive takes %d bytes", len(raw))
+		}
+		return b, raw
+	}
+	e.t.Fatalf("backup %s isn't listed: %+v", id, backups)
+	return api.Backup{}, nil
+}
+
+// claimingTotal rewrites an archive's manifest to claim its world takes n
+// bytes, leaving its files as they are.
+func claimingTotal(t *testing.T, archive []byte, n int64) []byte {
+	t.Helper()
+	zr, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The upload fits, and the world it unpacks to doesn't.
-	used = e.limitTo(1 << 40)
-	e.limitTo(used + int64(len(raw)) + 1)
-	before, _ := os.ReadDir(e.cfg.StagingDir())
-	code, out := e.uploadTo(e.sp("/restore/upload"), raw)
-	if code != 507 || codeOf(out) != api.CodeDiskLimit {
-		t.Fatalf("restoring a world past the limit: %d %v", code, out)
+	tr := tar.NewReader(zr)
+	var out bytes.Buffer
+	zw := gzip.NewWriter(&out)
+	tw := tar.NewWriter(zw)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(tr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasSuffix(hdr.Name, "/manifest.json") {
+			var m backup.Manifest
+			if err := json.Unmarshal(body, &m); err != nil {
+				t.Fatal(err)
+			}
+			m.TotalBytes = n
+			if body, err = json.Marshal(m); err != nil {
+				t.Fatal(err)
+			}
+			hdr.Size = int64(len(body))
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(body); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if after, _ := os.ReadDir(e.cfg.StagingDir()); len(after) > len(before) {
-		t.Fatalf("the refused restore's stage stayed: %v", after)
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
+}
+
+// A restore counts the world it unpacks to, not its archive, by the sizes of
+// the files the archive holds rather than what its manifest claims. An
+// upload is refused once it's staged, leaving no stage, and a staged restore
+// is held when it's applied, from an upload or a backup of the server's own.
+func TestRestoresCountTheWorldTheyUnpackTo(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	b, raw := e.compressibleBackup()
+	stages := func() int {
+		entries, _ := os.ReadDir(e.cfg.StagingDir())
+		return len(entries)
+	}
+
+	used := e.limitTo(1 << 40)
+	e.limitTo(used + int64(len(raw)) + 256<<10)
+	before := stages()
+	for name, archive := range map[string][]byte{"the archive": raw, "an archive claiming 1 byte": claimingTotal(t, raw, 1)} {
+		if code, out := e.uploadTo(e.sp("/restore/upload"), archive); code != 507 || codeOf(out) != api.CodeDiskLimit {
+			t.Fatalf("restoring %s past the limit: %d %v", name, code, out)
+		}
+	}
+	if n := stages(); n != before {
+		t.Fatalf("%d stages after the refused restores, %d before", n, before)
+	}
+
+	e.limitTo(1 << 40)
+	staged := map[string]string{}
+	stage := func(code int, out map[string]any) {
+		t.Helper()
+		id, _ := out["id"].(string)
+		confirm, _ := out["confirmPhrase"].(string)
+		if code != 200 || id == "" {
+			t.Fatalf("staging a restore: %d %v", code, out)
+		}
+		staged[id] = confirm
+	}
+	stage(e.uploadTo(e.sp("/restore/upload"), raw))
+	var out map[string]any
+	code := e.callInto("POST", e.sp("/backups/"+b.ID+"/restore"), map[string]any{"actor": "admin"}, &out)
+	stage(code, out)
+	used = e.limitTo(1 << 40)
+	e.limitTo(used + 1<<20)
+	for id, confirm := range staged {
+		if code, out := e.callWhenFree("POST", "/v1/restore/"+id+"/apply", map[string]any{"confirm": confirm, "actor": "admin"}); code != 507 || codeOf(out) != api.CodeDiskLimit {
+			t.Fatalf("applying a staged restore past the limit: %d %v", code, out)
+		}
+	}
+}
+
+// The rollback archive a restore saves of the world it replaces is kept, so
+// it has to fit the limit like any backup: a restore with room for its world
+// but not for that archive stops before replacing anything.
+func TestARestoresRollbackArchiveHasToFit(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	b, _ := e.compressibleBackup()
+	var out map[string]any
+	if code := e.callInto("POST", e.sp("/backups/"+b.ID+"/restore"), map[string]any{"actor": "admin"}, &out); code != 200 {
+		t.Fatalf("staging a restore: %d %v", code, out)
+	}
+	id, _ := out["id"].(string)
+	confirm, _ := out["confirmPhrase"].(string)
+	f, err := readStageFile(e.a.stageDir(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	used := e.limitTo(1 << 40)
+	e.limitTo(used + unpackedBytes(f.Manifest) + 256<<10)
+	code, out := e.callWhenFree("POST", "/v1/restore/"+id+"/apply", map[string]any{"confirm": confirm, "actor": "admin"})
+	opID, _ := out["id"].(string)
+	if code != 202 || opID == "" {
+		t.Fatalf("applying a restore with room for its world: %d %v", code, out)
+	}
+	if op := e.waitOp(opID); op.Status != api.OpFailed || !strings.Contains(op.Error, "disk limit") || !strings.Contains(op.Error, "nothing was replaced") {
+		t.Fatalf("a restore with no room for its rollback archive: %+v", op)
+	}
+}
+
+// A backup whose world can't be measured still counts, as everything the
+// server takes.
+func TestABackupThatCantBeMeasuredStillCounts(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	props := filepath.Join(e.srv().dataDir(), "server.properties")
+	if err := os.Remove(props); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/hostname", props); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backup.Measure(e.srv().dataDir(), archiveLimits()); err == nil {
+		t.Fatal("a server.properties that's a link measured")
+	}
+	used := e.limitTo(1 << 40)
+	e.limitTo(used + 1024)
+	if op := e.backupNow(nil); op.Status != api.OpFailed || !strings.Contains(op.Error, "disk limit") {
+		t.Fatalf("a backup that can't be measured, past the limit: %+v", op)
+	}
+}
+
+// An installed data pack counts before a scan finds it.
+func TestAnInstalledDataPackCounts(t *testing.T) {
+	e := newAgentEnv(t)
+	e.create()
+	zip := dataPackZip(t, "Keeps your items", true)
+	used := e.limitTo(1 << 40)
+	e.limitTo(used + int64(len(zip))*3/2)
+	e.addDataPack("graves.zip", zip)
+	if code, out := e.whenFree(func() (int, map[string]any) {
+		return e.uploadTo(e.sp("/datapacks?name=more-graves.zip"), zip)
+	}); code != 507 || codeOf(out) != api.CodeDiskLimit {
+		t.Fatalf("a second data pack, before a scan found the first: %d %v", code, out)
+	}
+}
+
+// Pre-generation under way counts what its area may still take, until it
+// ends.
+func TestPregenUnderWayCountsAgainstTheLimit(t *testing.T) {
+	e := newAgentEnv(t)
+	e.withSources()
+	e.create()
+	e.chunky()
+	var small api.PregenPreset
+	for _, p := range e.pregen().Presets {
+		if p.ID == "small" {
+			small = p
+		}
+	}
+	if small.DiskBytes <= 0 {
+		t.Fatalf("the small preset: %+v", small)
+	}
+	// Room for the most its area may take, which is at most twice the
+	// preset's middle estimate, and then for the middle estimate again only
+	// once it has ended.
+	used := e.limitTo(1 << 40)
+	e.limitTo(used + 2*small.DiskBytes + 64<<10)
+	e.startPregen("small", false)
+	ctx := context.Background()
+	if err := e.a.diskLimitRefusal(ctx, e.sid, small.DiskBytes); err == nil {
+		t.Fatal("room beside pre-generation under way")
+	}
+	e.pregenAct("cancel")
+	if err := e.a.diskLimitRefusal(ctx, e.sid, small.DiskBytes); err != nil {
+		t.Fatalf("once pre-generation ended: %v", err)
 	}
 }
 

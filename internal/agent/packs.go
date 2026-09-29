@@ -195,7 +195,9 @@ func (s *server) findDataPack(sc *api.ServerConfig, name string) (packs.DataPack
 // name, and switches it on while the server is online. A stopped server
 // switches a new pack on when it starts.
 // stagePack stages an uploaded data or resource pack, inside the server's
-// disk limit.
+// disk limit. A data pack goes into the world, and counts once installed; a
+// resource pack goes into the machine's pack store, one per server, so only
+// its upload is checked.
 func (s *server) stagePack(r *http.Request, kind packs.Kind) (*os.File, int64, error) {
 	f, n, err := packs.Stage(s.cfg.StagingDir(), r.Body, kind, packs.Limits{})
 	if err != nil {
@@ -244,6 +246,7 @@ func (s *server) hDataPackAdd(w http.ResponseWriter, r *http.Request) {
 		writeError(w, packError(err))
 		return
 	}
+	s.noteDiskWrite(s.id, n)
 	action := "datapack.added"
 	if replacing {
 		action = "datapack.replaced"

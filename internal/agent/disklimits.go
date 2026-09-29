@@ -3,9 +3,10 @@ package agent
 // Playkeeper Cloud's disk limits: what a group of servers, one customer's,
 // may take on the machine between them, counted as the Disk space page
 // counts it. The dashboard sets them. What would take a group past its
-// limit is refused: a backup made on request or on schedule, a file
-// uploaded into a server's folder, a data or resource pack, a world imported
-// or restored from an upload, and pre-generation. Play itself isn't held
+// limit is refused: a backup, whether made on request, on schedule or
+// before a restore, an update or an import; a file uploaded into a server's
+// folder; a data or resource pack; a world imported or restored; and
+// pre-generation. Play itself isn't held
 // back, so a group can pass its limit, and those then stay refused until
 // it's under again.
 
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/backup"
 	"github.com/CIYAhq/playkeeper/internal/diskusage"
 )
 
@@ -43,6 +45,10 @@ type diskLimitState struct {
 	// finds it on the disk.
 	held  map[string]int64
 	wrote []diskWrite
+	// pregen is what each server's pre-generation was expected to write when
+	// it began. While it's unfinished, the part of its area still to do
+	// counts; an agent restarted meanwhile counts what the scans find.
+	pregen map[string]int64
 }
 
 type diskWrite struct {
@@ -54,7 +60,7 @@ type diskWrite struct {
 // loadDiskLimits reads the disk limits. An agent that can't read them
 // doesn't start, rather than start without them.
 func (a *Agent) loadDiskLimits() error {
-	a.limits.held = map[string]int64{}
+	a.limits.held, a.limits.pregen = map[string]int64{}, map[string]int64{}
 	v, ok, err := a.kvGet(kvDiskLimits)
 	if err != nil || !ok {
 		return err
@@ -169,6 +175,44 @@ func checkDiskLimits(in []api.DiskLimit) ([]api.DiskLimit, error) {
 	return out, nil
 }
 
+// holdBackup holds what a backup of the server may take against its disk
+// limit, until done.
+func (s *server) holdBackup(ctx context.Context) (done func(wrote bool), err error) {
+	if s.diskLimitOf(s.id) == nil {
+		return func(bool) {}, nil
+	}
+	need, err := s.backupNeed(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.holdDiskLimit(ctx, s.id, need)
+}
+
+// backupNeed is what a backup of the server may take: its measure, or, for a
+// world that can't be measured, everything the server takes now, so a backup
+// counts even when it can't be sized.
+func (s *server) backupNeed(ctx context.Context) (int64, error) {
+	if size, err := backup.Measure(s.dataDir(), archiveLimits()); err == nil {
+		return size.ArchiveBytes(), nil
+	}
+	rep, err := s.scanDisk(ctx, nil, false)
+	if err != nil {
+		return 0, err
+	}
+	return usedBy(rep, []string{s.id}), nil
+}
+
+// unpackedBytes is what a staged world takes once unpacked: the sizes of its
+// files, each checked against the archive when it was staged. The manifest's
+// own total is the uploader's word, so it isn't used.
+func unpackedBytes(m backup.Manifest) int64 {
+	var n int64
+	for _, f := range m.Files {
+		n += f.Size
+	}
+	return n
+}
+
 // usedBy is what servers take in a scan.
 func usedBy(rep *diskusage.Report, servers []string) int64 {
 	var n int64
@@ -196,7 +240,7 @@ func (a *Agent) holdDiskLimit(ctx context.Context, id string, need int64) (done 
 	}
 	a.limits.mu.Lock()
 	defer a.limits.mu.Unlock()
-	used := usedBy(rep, l.Servers) + a.onTheWay(l.Servers) + a.limits.held[l.ID]
+	used := usedBy(rep, l.Servers) + a.onTheWay(l.Servers) + a.limits.held[l.ID] + a.pregenOnTheWay(l.Servers)
 	for _, w := range a.limits.wrote {
 		if w.limit == l.ID && !w.at.Before(rep.ScannedAt) {
 			used += w.bytes
@@ -240,6 +284,43 @@ func (a *Agent) noteDiskWrite(id string, bytes int64) {
 	a.limits.mu.Lock()
 	a.limits.wrote = append(a.limits.wrote, diskWrite{limit: l.ID, at: a.now(), bytes: bytes})
 	a.limits.mu.Unlock()
+}
+
+// notePregen counts what server id's pre-generation, beginning now, may
+// write, while it's unfinished.
+func (a *Agent) notePregen(id string, bytes int64) {
+	a.limits.mu.Lock()
+	a.limits.pregen[id] = bytes
+	a.limits.mu.Unlock()
+}
+
+// pregenOnTheWay is what unfinished pre-generation on servers may still
+// write: each one's estimate, less the part of its area already done. The
+// caller holds a.limits.mu.
+func (a *Agent) pregenOnTheWay(servers []string) int64 {
+	var n int64
+	for _, id := range servers {
+		bytes := a.limits.pregen[id]
+		if bytes == 0 {
+			continue
+		}
+		s := a.serverByID(id)
+		if s == nil {
+			delete(a.limits.pregen, id)
+			continue
+		}
+		t, err := s.lastPregen()
+		switch {
+		case err != nil:
+		case !t.unfinished():
+			delete(a.limits.pregen, id)
+			continue
+		case t.Total > 0:
+			bytes = bytes * max(t.Total-t.Chunks, 0) / t.Total
+		}
+		n += bytes
+	}
+	return n
 }
 
 // forgetDiskWrites forgets the writes before a scan that began at t, which
