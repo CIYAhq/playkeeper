@@ -7819,7 +7819,7 @@ webcontrol "customer deletion: Home says the plan ended once the servers are gon
 # and every query from the internet parsed with bounds.
 control "dns: names outside the zone are refused" internal/dnszone/dnszone.go \
   'case !inside || qs.class != classIN:' \
-  'case false:' \
+  'case false && (!inside || qs.class != classIN):' \
   ./internal/dnszone '^TestRefusesWhatIsntItsZone$'
 control "dns: the zone ends at a dot" internal/dnszone/dnszone.go \
   'strings.HasSuffix(qs.name, "."+zone)' \
@@ -7867,7 +7867,7 @@ control "dns: host names have no underscores" internal/dnszone/dnszone.go \
   ./internal/dnszone '^TestZoneCheck$'
 control "dns: an address fits its record's type" internal/dnszone/dnszone.go \
   'if err != nil || ip.Is4() != (r.Type == TypeA) || ip.Zone() != "" {' \
-  'if err != nil {' \
+  'if err != nil || ip.Zone() != "" {' \
   ./internal/dnszone '^TestZoneCheck$'
 control "dns: an SRV record has a port" internal/dnszone/dnszone.go \
   'if r.Port < 1 || r.Port > 65535 {' \
@@ -7899,7 +7899,7 @@ control "dns: a zone is numbered when it changes" internal/agent/dns.go \
   ./internal/agent '^TestTheMachineAnswersTheZoneTheDashboardSets$'
 control "dns: an unchanged zone keeps its number" internal/agent/dns.go \
   'changed := z.Name != old.Name || z.Nameserver != old.Nameserver || !slices.Equal(z.Records, old.Records)' \
-  'changed := true' \
+  'changed := true || z.Name != old.Name || z.Nameserver != old.Nameserver || !slices.Equal(z.Records, old.Records)' \
   ./internal/agent '^TestTheMachineAnswersTheZoneTheDashboardSets$'
 control "dns: the zone lasts across a restart" internal/agent/dns.go \
   'if err := a.kvSet(kvDNSZone, string(raw)); err != nil {' \
