@@ -1944,7 +1944,8 @@ describe('Hetzner stock', () => {
   const off: HetznerStock = { connected: false, serverType: 'cx53', types: ['cx23', 'cx33', 'cx43', 'cx53'], places: [], discord: true }
   const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
   const fsnBuy = 'https://console.hetzner.com/create/server?location=fsn1&type=cx53&useIPv4=true'
-  const on: HetznerStock = {
+  /** Watching CX53 with Falkenstein in stock, its times counted back from the test's clock when it's called. */
+  const watching = (): HetznerStock => ({
     ...off,
     connected: true,
     tokenEnding: 'WXyz',
@@ -1956,7 +1957,7 @@ describe('Hetzner stock', () => {
       { location: 'nbg1', city: 'Nuremberg', available: false, since: minutesAgo(90) },
       { location: 'hel1', city: 'Helsinki', available: false },
     ],
-  }
+  })
   const owner = workspace({ me: { ...me, access: { ...me.access, can: [...everything, 'machines.stock'] } } })
   const tokenField = () => document.querySelector<HTMLInputElement>('input[aria-label="Hetzner API token"]')
   const submit = async (label: string) => act(async () => button(label).closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
@@ -1986,25 +1987,33 @@ describe('Hetzner stock', () => {
   })
 
   it('shows where the type is in stock, with a link that buys one there', async () => {
-    answer({ '/api/hetzner': off })
-    await render(<HetznerStockCard />, owner)
-    await typeInto('input[aria-label="Hetzner API token"]', 'a-token')
-    vi.mocked(client.put).mockResolvedValueOnce(on)
-    await submit('Watch')
-    const text = page()
-    expect(text).toContain('CX53In stock')
-    expect(text).toContain('Token ending WXyz · checked 1 min ago')
-    expect(text).toContain(`FalkensteinIn stock since Today ${formatClock(minutesAgo(4))}`)
-    expect(text).toContain('NurembergSold out')
-    expect(text).toContain('HelsinkiSold out')
-    const buy = [...document.querySelectorAll('a')].filter((a) => a.textContent === 'Buy one')
-    expect(buy.map((a) => [a.getAttribute('href'), a.getAttribute('target')])).toEqual([[fsnBuy, '_blank']])
-    expect(text).not.toContain('Connect Discord')
-    expect(tokenField()).toBeNull()
+    // "checked 1 min ago" and "since Today 14:10" read the clock, so it stands still: a slow run or midnight changes neither.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 8, 29, 14, 14, 26))
+    try {
+      answer({ '/api/hetzner': off })
+      await render(<HetznerStockCard />, owner)
+      await typeInto('input[aria-label="Hetzner API token"]', 'a-token')
+      const on = watching()
+      vi.mocked(client.put).mockResolvedValueOnce(on)
+      await submit('Watch')
+      const text = page()
+      expect(text).toContain('CX53In stock')
+      expect(text).toContain('Token ending WXyz · checked 1 min ago')
+      expect(text).toContain(`FalkensteinIn stock since Today ${formatClock(on.places[0]?.since ?? '')}`)
+      expect(text).toContain('NurembergSold out')
+      expect(text).toContain('HelsinkiSold out')
+      const buy = [...document.querySelectorAll('a')].filter((a) => a.textContent === 'Buy one')
+      expect(buy.map((a) => [a.getAttribute('href'), a.getAttribute('target')])).toEqual([[fsnBuy, '_blank']])
+      expect(text).not.toContain('Connect Discord')
+      expect(tokenField()).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('says a problem needs a look, and that Discord isn’t connected', async () => {
-    answer({ '/api/hetzner': { ...on, discord: false, problem: 'Hetzner no longer takes the token, so the watch stopped. Paste a new read-only token.' } })
+    answer({ '/api/hetzner': { ...watching(), discord: false, problem: 'Hetzner no longer takes the token, so the watch stopped. Paste a new read-only token.' } })
     const text = await render(<HetznerStockCard />, owner)
     expect(text).toContain('CX53Needs a look')
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('no longer takes the token')
@@ -2013,6 +2022,7 @@ describe('Hetzner stock', () => {
   })
 
   it('watches another type with the token kept, and stops watching', async () => {
+    const on = watching()
     answer({ '/api/hetzner': on })
     await render(<HetznerStockCard />, owner)
     await click('Change')
