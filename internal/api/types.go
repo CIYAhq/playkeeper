@@ -1757,6 +1757,12 @@ type AddressCheck struct {
 	Records []RecordCheck `json:"records,omitempty"`
 	// Ready: the name points here and every SRV record is right.
 	Ready bool `json:"ready"`
+	// PortFree: the machine answers DNS for the domain with an SRV record
+	// for each server (the dashboard's zone, for port-free addresses), and
+	// public DNS gives a server's SRV record as the zone has it, so the
+	// domain's parent hands the domain to the machine. Players then join
+	// each server with an SRV record there at its address, with no port.
+	PortFree bool `json:"portFree,omitempty"`
 }
 
 // NameCheck is where the own domain points, compared with this machine.
