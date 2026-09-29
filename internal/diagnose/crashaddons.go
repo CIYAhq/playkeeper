@@ -48,6 +48,19 @@ var (
 	reJarPath  = regexp.MustCompile(`(?:mods|plugins)/([^/\\\s'"():]{1,200}\.jar)`)
 	reCausedBy = regexp.MustCompile(`^\s*Caused by: `)
 	reInt      = regexp.MustCompile(`\d{1,4}`)
+
+	// Classes only players' games have: LWJGL, which draws the game and
+	// reads the keyboard, and Minecraft's own client code.
+	reClientClass = regexp.MustCompile(`(?:NoClassDefFoundError|ClassNotFoundException): (org[/.]lwjgl[/.][\w/.$]{1,200}|net[/.]minecraft[/.]client[/.][\w/.$]{1,200})|Attempted to load class (net/minecraft/client/[\w/$]{1,200}) for invalid dist DEDICATED_SERVER`)
+	// NeoForge runs a mod's early window code before it loads mods, and
+	// names the mod first.
+	reGraphicsPlugin = regexp.MustCompile(`^Running graphics bootstrap plugin ([A-Za-z0-9_.-]{1,64})$`)
+	reWindowFrame    = regexp.MustCompile(`^\s*at \S*net\.neoforged\.fml\.loading\.ImmediateWindowHandler\.`)
+	reModInstance    = regexp.MustCompile(`^Failed to create mod instance\. ModID: ([a-z][a-z0-9_]{1,63}),`)
+	// A frame of NeoForge's or Forge's names the mod its code is from:
+	// "at TRANSFORMER/sodium@0.6.13/net.caffeinemc…".
+	reModFrame = regexp.MustCompile(`^\s*at [A-Z][A-Z -]{0,40}/([a-z][a-z0-9_]{1,63})@[^/\s]{1,64}/`)
+	reDone     = regexp.MustCompile(`^Done \(`)
 )
 
 // modLoader explains a mod loader refusing to start: a missing or wrong
@@ -415,6 +428,91 @@ func (c *crashCtx) newerJavaDiagnosis(f found, name, jar string, need, have int,
 			Title: fmt.Sprintf("Replace %s with a version that runs on Java %d", jar, have)}}
 	}
 	return d
+}
+
+// clientOnly explains a mod made for players' games that stopped the server
+// by reaching for a class only the game itself has. A server that started
+// after such an error kept going without it, so that doesn't count.
+func (c *crashCtx) clientOnly() (CrashDiagnosis, bool) {
+	last, ok := c.console(reClientClass)
+	if !ok {
+		return CrashDiagnosis{}, false
+	}
+	if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); started {
+		return CrashDiagnosis{}, false
+	}
+	start := c.entryStart(last.idx)
+	f, _ := c.firstIn(reClientClass, start, last.idx+1)
+	class := strings.ReplaceAll(firstNonEmpty(f.groups[1:]...), "/", ".")
+	named, id, name, jar := c.clientMod(f, start)
+	who := firstNonEmpty(name, id)
+	loader := c.loaderName()
+	d := CrashDiagnosis{Kind: CrashIncompatibleAddon, Params: map[string]any{"reason": "client_only", "class": class}, Evidence: c.evidenceOf(named, f)}
+	if who == "" {
+		d.Title = "A mod doesn't run on servers"
+		d.Explanation = fmt.Sprintf("%s stopped because a mod %s. The log doesn't say which mod, so take off the graphics or menu mod added most recently. Players who want it keep it in their own game.", loader, clientNeed(class))
+		return d, true
+	}
+	d.Params["addon"] = who
+	if id != "" {
+		d.Params["addon_id"] = id
+	}
+	d.Title = who + " doesn't run on servers"
+	d.Explanation = fmt.Sprintf("%s stopped because %s %s. It only runs in the game itself, so players who want it keep it in their own game.", loader, who, clientNeed(class))
+	if jar != "" {
+		d.Params["jar"] = jar
+		d.Fixes = []Action{removeFix(jar, true)}
+	}
+	return d, true
+}
+
+// clientNeed says what a mod needed, from the class it couldn't load.
+func clientNeed(class string) string {
+	if strings.HasPrefix(class, "org.lwjgl.") {
+		return "needs LWJGL, which draws the game on players' screens and isn't part of a server"
+	}
+	return fmt.Sprintf("needs Minecraft's client code (%s), which only players' games have", class)
+}
+
+// clientMod names the mod behind a client class error at f, whose log entry
+// begins at start, and the line that names it: the early window plugin
+// NeoForge was running, the mod a loading error names, or the module or jar
+// of its frames.
+func (c *crashCtx) clientMod(f found, start int) (named found, id, name, jar string) {
+	end := c.stackEnd(f.idx)
+	if _, ok := c.firstIn(reWindowFrame, f.idx+1, end); ok {
+		if p, ok := c.consoleIn(reGraphicsPlugin, start-10, start+1); ok {
+			id = strings.ToLower(p.groups[1])
+			return p, id, "", c.modJar(id, "")
+		}
+	}
+	if l, ok := c.consoleIn(reNeoModFailed, start, f.idx+1); ok {
+		return l, l.groups[2], l.groups[1], c.modJar(l.groups[2], l.groups[1])
+	}
+	for _, re := range []*regexp.Regexp{reModInstance, reFabricEntrypoint} {
+		if l, ok := c.consoleIn(re, start, f.idx+1); ok {
+			return l, l.groups[1], "", c.modJar(l.groups[1], "")
+		}
+	}
+	for i := f.idx + 1; i < end; i++ {
+		m := reModFrame.FindStringSubmatch(c.split[i].msg)
+		if m != nil && m[1] != "minecraft" && m[1] != "neoforge" && m[1] != "forge" {
+			return found{}, m[1], "", c.modJar(m[1], "")
+		}
+	}
+	if jar = c.frameAddon(f.idx+1, end); jar != "" {
+		return found{}, "", jar, jar
+	}
+	return found{}, "", "", ""
+}
+
+// loaderName names what loads the server's mods.
+func (c *crashCtx) loaderName() string {
+	switch c.in.ServerType {
+	case "neoforge", "forge":
+		return c.fmlName()
+	}
+	return c.typeName()
 }
 
 func (c *crashCtx) mixin() (CrashDiagnosis, bool) {

@@ -279,6 +279,59 @@ func TestExplainCrashRecognisesEachCause(t *testing.T) {
 			explanation: []string{"it is a Fabric mod, not a NeoForge mod", "skips files like this and keeps running"},
 		},
 		{
+			name: "NeoForge mod made for players' games, in NeoForge's early window",
+			in:   moddedCrash("neoforge", "26.2", crashConsole(t, "neoforge_client_only.txt"), "sodium-neoforge-0.9.2+mc26.2.jar", "lithium-neoforge-0.21.0+mc26.2.jar"),
+			kind: CrashIncompatibleAddon, certain: true,
+			params:      map[string]any{"reason": "client_only", "addon": "sodium", "jar": "sodium-neoforge-0.9.2+mc26.2.jar", "class": "org.lwjgl.Version"},
+			fixes:       "remove_addon* jar=sodium-neoforge-0.9.2+mc26.2.jar",
+			explanation: []string{"NeoForge stopped because sodium needs LWJGL, which draws the game on players' screens", "It only runs in the game itself"},
+			evidence:    []string{"Running graphics bootstrap plugin sodium", "java.lang.NoClassDefFoundError: org/lwjgl/Version"},
+		},
+		{
+			name: "NeoForge mod made for players' games, in its mixin plugin",
+			in:   moddedCrash("neoforge", "26.2", crashConsole(t, "neoforge_client_only_mixin.txt"), "ImmediatelyFast-NeoForge-1.16.5+26.2.jar", "entityculling-neoforge-1.11.2-mc26.2.jar"),
+			kind: CrashIncompatibleAddon, certain: true,
+			params:   map[string]any{"reason": "client_only", "addon": "immediatelyfast", "jar": "ImmediatelyFast-NeoForge-1.16.5+26.2.jar", "class": "org.lwjgl.system.MathUtil"},
+			fixes:    "remove_addon* jar=ImmediatelyFast-NeoForge-1.16.5+26.2.jar",
+			evidence: []string{"Caused by: java.lang.NoClassDefFoundError: org/lwjgl/system/MathUtil"},
+		},
+		{
+			name: "NeoForge mod that needs Minecraft's client code to be made",
+			in: moddedCrash("neoforge", "1.21.1", []string{
+				"[10:02:11] [modloading-worker-0/ERROR] [ne.ne.fm.ja.FMLModContainer/LOADING]: Failed to create mod instance. ModID: bettergrassify, class dev.example.bettergrassify.BetterGrassify",
+				"java.lang.NoClassDefFoundError: net/minecraft/client/ParticleStatus",
+				"\tat TRANSFORMER/bettergrassify@1.6.0/dev.example.bettergrassify.BetterGrassify.<init>(BetterGrassify.java:31)",
+				"[10:02:12] [main/FATAL] [ne.ne.fm.ModLoader/]: Mod loading has failed",
+			}, "BetterGrassify-1.6.0+neoforge.1.21.1.jar"),
+			kind: CrashIncompatibleAddon, certain: true,
+			params:      map[string]any{"reason": "client_only", "addon": "bettergrassify", "jar": "BetterGrassify-1.6.0+neoforge.1.21.1.jar", "class": "net.minecraft.client.ParticleStatus"},
+			fixes:       "remove_addon* jar=BetterGrassify-1.6.0+neoforge.1.21.1.jar",
+			explanation: []string{"needs Minecraft's client code (net.minecraft.client.ParticleStatus), which only players' games have"},
+			evidence:    []string{"Failed to create mod instance. ModID: bettergrassify", "NoClassDefFoundError: net/minecraft/client/ParticleStatus"},
+		},
+		{
+			name: "Forge mod loading a client class, named by its frame past Forge's own",
+			in: moddedCrash("forge", "1.20.1", []string{
+				"[10:05:40] [main/ERROR] [minecraft/Main]: Failed to start the minecraft server",
+				"java.lang.RuntimeException: Attempted to load class net/minecraft/client/Minecraft for invalid dist DEDICATED_SERVER",
+				"\tat TRANSFORMER/forge@47.4.10/net.minecraftforge.fml.loading.RuntimeDistCleaner.processClassWithFlags(RuntimeDistCleaner.java:57)",
+				"\tat TRANSFORMER/zoomify@2.14.2/dev.isxander.zoomify.Zoomify.onInitialize(Zoomify.java:40)",
+			}, "zoomify-2.14.2+1.20.1-forge.jar"),
+			kind: CrashIncompatibleAddon, certain: true, params: map[string]any{"addon": "zoomify", "class": "net.minecraft.client.Minecraft"},
+			fixes:       "remove_addon* jar=zoomify-2.14.2+1.20.1-forge.jar",
+			explanation: []string{"Forge stopped because zoomify needs Minecraft's client code"},
+		},
+		{
+			name: "mod made for players' games that the log doesn't name",
+			in: moddedCrash("neoforge", "26.2", []string{
+				"[16:59:11] [main/INFO] [ne.ne.fm.ModLoader/]: Clearing ModLoader",
+				"java.lang.NoClassDefFoundError: org/lwjgl/glfw/GLFW",
+				"\tat net.neoforged.fml.startup.Server.main(Server.java:17)",
+			}, "sodium-neoforge-0.9.2+mc26.2.jar"),
+			kind: CrashIncompatibleAddon, certain: true, params: map[string]any{"reason": "client_only", "class": "org.lwjgl.glfw.GLFW"}, fixes: "",
+			explanation: []string{"a mod needs LWJGL", "The log doesn't say which mod"},
+		},
+		{
 			name: "NeoForge mod failing while starting",
 			in:   moddedCrash("neoforge", "1.21.1", crashConsole(t, "neoforge_mod_failed.txt"), "FarmersDelight-1.21.1-1.2.7.jar"),
 			kind: CrashAddonFailed, certain: true, params: map[string]any{"addon": "Farmer's Delight", "jar": "FarmersDelight-1.21.1-1.2.7.jar"},
@@ -465,6 +518,22 @@ func TestExplainCrashIgnoresCausesPlayersTypeInChat(t *testing.T) {
 		if d.Kind != CrashUnknown || len(d.Evidence) != 1 || d.Evidence[0].Kind != EvidenceExitCode {
 			t.Errorf("%s: chat lines were taken as evidence: %s %s\n%s", serverType, d.Kind, d.Explanation, evidenceText(d))
 		}
+	}
+}
+
+// A mod that reached for a class only players' games have, then carried on
+// while the server started, didn't stop it: the crash later on is something
+// else.
+func TestExplainCrashPassesOverAClientClassTheServerStartedPast(t *testing.T) {
+	d := ExplainCrash(moddedCrash("neoforge", "26.2", []string{
+		"[09:14:02] [modloading-worker-0/WARN] [dynamic_fps/]: Couldn't set up an optional client feature",
+		"java.lang.NoClassDefFoundError: org/lwjgl/glfw/GLFW",
+		"[09:14:09] [Server thread/INFO] [minecraft/DedicatedServer]: Done (7.113s)! For help, type \"help\"",
+		"[09:40:51] [Server thread/ERROR] [minecraft/MinecraftServer]: Encountered an unexpected exception",
+		"java.lang.IllegalStateException: Recursive call to getBlockState",
+	}, "dynamic-fps-3.11.9+minecraft-26.2.0-neoforge.jar"))
+	if d.Kind == CrashIncompatibleAddon {
+		t.Fatalf("a client class the server started past was blamed: %s %s", d.Title, d.Explanation)
 	}
 }
 
