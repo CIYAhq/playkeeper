@@ -105,6 +105,11 @@ control "agent closed operation list" internal/agent/agent.go \
   'writeErr(w, http.StatusNotFound, api.CodeNotFound, "Unknown agent operation.", "")' \
   'writeJSON(w, http.StatusOK, map[string]any{"ok": true})' \
   ./internal/agent '^TestInvalidInputsAndUnknownVerbsAreRejected$'
+control "the agent closes its database once no connection is in use" internal/agent/agent.go \
+  '	a.waitDBIdle(5 * time.Second)
+	a.db.Close()' \
+  '	a.db.Close()' \
+  ./internal/agent '^TestCloseWaitsForTheDatabaseConnectionsInUse$'
 control "EULA gate" internal/agent/handlers.go \
   'if !req.AcceptEULA {' \
   'if false && !req.AcceptEULA {' \
