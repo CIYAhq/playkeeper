@@ -8052,9 +8052,20 @@ webcontrol "client-only mods: the dashboard says the mod only runs in players' g
   'return c.explanation' \
   web/src/lib/lib.test.ts 'only runs in players'
 control "repeating crashes: a crash that repeats at every start isn't restarted" internal/agent/lifecycle.go \
-  'repeats := wanted && !counted && s.crash != nil && s.crash.Repeats' \
-  'repeats := false && wanted && !counted && s.crash != nil && s.crash.Repeats' \
+  'repeats := wanted && s.crashHolds(run)' \
+  'repeats := false && wanted && s.crashHolds(run)' \
   ./internal/agent '^TestACrashThatRepeatsIsNotRestarted$'
+control "repeating crashes: a start while the crash was explained lets go of it" internal/agent/lifecycle.go \
+  'if len(s.crashes) >= maxCrashes || s.runs != run || s.crash == nil || !s.crash.Repeats {' \
+  'if len(s.crashes) >= maxCrashes || s.crash == nil || !s.crash.Repeats {' \
+  ./internal/agent '^TestAStartLetsGoOfACrashThatRepeats$'
+control "repeating crashes: a start lets go of a crash that held the server" internal/agent/lifecycle.go \
+  '	s.runs++
+	s.repeats = false
+' \
+  '	s.runs++
+' \
+  ./internal/agent '^TestAStartLetsGoOfACrashThatRepeats$'
 control "repeating crashes: automatic starts stay off after one" internal/agent/lifecycle.go \
   'return len(s.crashes) >= maxCrashes || s.repeats' \
   'return len(s.crashes) >= maxCrashes' \

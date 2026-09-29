@@ -1001,6 +1001,8 @@ func (s *server) setRunPhase(p api.Phase, detail string) {
 
 func (s *server) resetRun(p api.Phase) {
 	s.mu.Lock()
+	s.runs++
+	s.repeats = false
 	s.runPhase = p
 	s.runPhaseDetail = ""
 	s.sawStopping, s.sawCrash, s.sawOOM, s.crashLineAt = false, false, false, time.Time{}
@@ -1138,19 +1140,20 @@ func (s *server) reconcile(ctx context.Context) {
 	default:
 		s.closeOpenSessions(fin, "server_crashed", true)
 		cause := s.recordCrash(fin, c.State)
+		s.mu.Lock()
+		run := s.runs
+		s.mu.Unlock()
 		s.explainCrash(c.ID, c.State, false, nil)
 		// A server that wasn't meant to be running is left off, which is
 		// not Playkeeper giving up on it. One whose crash repeats at every
 		// start is left off after the first: a restart would only crash it
-		// again.
+		// again. Someone may have started it while the crash was explained,
+		// which it no longer holds.
 		wanted := desired == api.DesiredRunning
 		s.mu.Lock()
 		counted := len(s.crashes) >= maxCrashes
-		repeats := wanted && !counted && s.crash != nil && s.crash.Repeats
+		repeats := wanted && s.crashHolds(run)
 		if repeats {
-			s.repeats = true
-			s.lastError += " It would crash the same way again, so Playkeeper didn't restart it."
-			s.lastErrorHint += " Fix the cause, then press Start."
 			cause = s.crash.Title + "."
 		}
 		restarting := wanted && !s.givenUp()
@@ -1167,6 +1170,21 @@ func (s *server) reconcile(ctx context.Context) {
 // server: after maxCrashes crashes in the window, or one that repeats at
 // every start. The caller holds s.mu.
 func (s *server) givenUp() bool { return len(s.crashes) >= maxCrashes || s.repeats }
+
+// crashHolds decides whether the crash just explained, of the run that start
+// number run began, keeps automatic starts off: it repeats at every start,
+// the crashes in the window haven't already, and nobody has started the
+// server since, as they may have while it was explained. It says so in the
+// status. The caller holds s.mu.
+func (s *server) crashHolds(run int) bool {
+	if len(s.crashes) >= maxCrashes || s.runs != run || s.crash == nil || !s.crash.Repeats {
+		return false
+	}
+	s.repeats = true
+	s.lastError += " It would crash the same way again, so Playkeeper didn't restart it."
+	s.lastErrorHint += " Fix the cause, then press Start."
+	return true
+}
 
 type seenExit struct{ fin, at time.Time }
 

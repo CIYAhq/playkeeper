@@ -86,6 +86,38 @@ func TestAStartThatStopsTheSameWayEachTimeIsNotTriedAgain(t *testing.T) {
 	}
 }
 
+// A crash that repeats doesn't keep automatic starts off once someone has
+// started the server, even when they did while the crash was still being
+// explained, and a start lets go of one that did.
+func TestAStartLetsGoOfACrashThatRepeats(t *testing.T) {
+	e := crashEnv(t)
+	s := e.srv()
+	s.mu.Lock()
+	run := s.runs
+	s.crash, s.crashes = &api.Crash{Kind: "ticking_entity", Repeats: true}, []time.Time{time.Now()}
+	s.mu.Unlock()
+	s.resetRun(api.PhaseStartingContainer)
+	s.mu.Lock()
+	held := s.crashHolds(run)
+	s.mu.Unlock()
+	if held {
+		t.Fatal("a crash held the server off although it was started while the crash was explained")
+	}
+
+	s.mu.Lock()
+	held = s.crashHolds(s.runs)
+	s.mu.Unlock()
+	if !held {
+		t.Fatal("a crash that repeats, with no start since, didn't hold the server off")
+	}
+	s.resetRun(api.PhaseStartingContainer)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.givenUp() {
+		t.Error("a start didn't let go of the crash")
+	}
+}
+
 // A crash Playkeeper doesn't recognise is restarted, as before.
 func TestAnUnrecognisedCrashIsStillRestarted(t *testing.T) {
 	e := newAgentEnv(t)
