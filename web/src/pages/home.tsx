@@ -53,13 +53,16 @@ export function HomePage() {
   )
 
   if (servers && servers.length === 0) {
+    const paused = !!ws.me.access.pausedUntil
+    const title = paused ? t('home.pausedEmptyTitle') : waiting ? t('home.settingUpTitle') : t('home.emptyTitle')
+    const body = paused ? t('home.pausedEmptyBody') : waiting ? t('home.settingUpBody') : create ? t('home.emptyBody') : t('home.emptyMember')
     return (
       <>
         <PageHeader title={t('home.title')} subtitle={phone ? undefined : t('home.emptySubtitle', { machine: ws.machineName })} phoneAction={<PhoneMoreButton />} />
         <PageBody className="flex flex-1 flex-col items-center pt-10 text-center max-sm:pt-0">
           <Pip pose="wave" size={phone ? 104 : 96} />
-          <h2 className="mt-4 text-title font-extrabold tracking-[-0.015em]">{waiting ? t('home.settingUpTitle') : t('home.emptyTitle')}</h2>
-          <p className="mt-2 max-w-[420px] text-sm text-muted-foreground max-sm:text-[15px]">{waiting ? t('home.settingUpBody') : create ? t('home.emptyBody') : t('home.emptyMember')}</p>
+          <h2 className="mt-4 text-title font-extrabold tracking-[-0.015em]">{title}</h2>
+          <p className="mt-2 max-w-[420px] text-sm text-muted-foreground max-sm:text-[15px]">{body}</p>
           {create &&
             (phone ? (
               <Button size="touch" className="mt-6 w-full" render={<a {...linkProps({ name: 'new-server' })} />}>

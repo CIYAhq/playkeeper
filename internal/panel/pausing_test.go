@@ -69,8 +69,9 @@ func (p pausable) tokens(t *testing.T) int {
 // A customer whose plan ends is paused: their server stops, their API token
 // is revoked, and they're told until when they can still download. They may
 // sign in to see their servers and download backups, but not start or
-// create one, or make a new token. Pausing again changes nothing, and
-// renewing brings them back.
+// create one, or make a new token, and their dashboard never says a server
+// is on its way. Pausing again changes nothing, and renewing brings them
+// back.
 func TestAPausedCustomerSeesTheirServersButRunsNothing(t *testing.T) {
 	p := newPausable(t)
 	e, ctx := p.e, context.Background()
@@ -95,14 +96,18 @@ func TestAPausedCustomerSeesTheirServersButRunsNothing(t *testing.T) {
 	if k := p.n.kinds(); !slices.Equal(k, []string{messageReady, messagePaused}) || !strings.Contains(p.n.sent[1].Text, "until") {
 		t.Fatalf("what alex was told: %v %+v", k, p.n.sent)
 	}
+	if _, err := e.srv.db.Exec(`UPDATE customer_homes SET machine_id = '' WHERE user_id = ?`, p.alex.id); err != nil {
+		t.Fatal(err)
+	}
 	var me struct {
 		Access struct {
-			PausedUntil *time.Time `json:"pausedUntil"`
+			PausedUntil    *time.Time `json:"pausedUntil"`
+			WaitingForRoom bool       `json:"waitingForRoom"`
 		} `json:"access"`
 	}
 	e.get(t, "/api/auth/me", p.alex.cookie, &me)
-	if me.Access.PausedUntil == nil || me.Access.PausedUntil.Sub(e.clock.now()) < 13*24*time.Hour {
-		t.Fatalf("alex's dashboard says paused until %v", me.Access.PausedUntil)
+	if me.Access.PausedUntil == nil || me.Access.PausedUntil.Sub(e.clock.now()) < 13*24*time.Hour || me.Access.WaitingForRoom {
+		t.Fatalf("alex's dashboard says paused until %v, waiting for room %v", me.Access.PausedUntil, me.Access.WaitingForRoom)
 	}
 	if st := e.do(t, "GET", "/api/servers/"+p.serverID, "", p.alex.auth()).status; st != http.StatusOK {
 		t.Fatalf("alex looks at their server: %d", st)
