@@ -446,7 +446,7 @@ function cleanName(raw: string): string {
     .trim()
 }
 
-/** The join command in both forms, as machinelink.Command writes them. */
+/** The join command in each form, as machinelink.Command writes them. */
 function joinCommand(address: string, code: string, fingerprint: string, machineName: string) {
   const quote = (a: string) => (/^[A-Za-z0-9._:/@%+=,-]+$/.test(a) ? a : `'${a.replaceAll("'", '')}'`)
   const shell = (args: string[]) => args.map(quote).join(' ')
@@ -462,6 +462,7 @@ function joinCommand(address: string, code: string, fingerprint: string, machine
     join: `sudo playkeeper join ${shell([address, ...flags])}`,
     installLines: continued(install, ['--join', address, ...flags]),
     joinLines: continued(`sudo playkeeper join ${quote(address)}`, flags),
+    cloudConfig: `#cloud-config\nruncmd:\n  - "curl -fsSL https://playkeeper.io/install | sh -s -- ${shell(['--yes', '--join', address, ...flags])}"\n`,
   }
 }
 
@@ -668,6 +669,9 @@ const routes: [string, RegExp, Handler][] = [
   ['DELETE', /^\/api\/whop$/, () => ({ status: 200, body: { connected: false, dashboard: '', plans: [], webhook: false, customers: [], needs: whopNeeds } })],
   ['PUT', /^\/api\/whop\/signin$/, () => ({ status: 200, body: whopConnected({}) })],
   ['DELETE', /^\/api\/whop\/signin$/, () => ({ status: 200, body: { ...whopConnected({}), signIn: { redirectUri: whopSignInRedirect } } })],
+  // Hetzner stock never reaches Hetzner: a token typed here isn't one Hetzner knows, so it's refused as the real check would.
+  ['PUT', /^\/api\/hetzner$/, () => ({ status: 400, body: { error: 'Hetzner didn’t take that token.', code: 'hetzner_token_refused' }, expected: true })],
+  ['DELETE', /^\/api\/hetzner$/, () => ({ status: 200, body: { connected: false, serverType: 'cx53', types: ['cx23', 'cx33', 'cx43', 'cx53'], places: [], discord: false } })],
   // The usage stats switch never changes the machine the crawl runs on.
   ['PUT', /^\/api\/usage-stats$/, (r, state) => ({ status: 200, body: { machines: [], ...state.usage, on: (r.body as { on?: unknown } | null)?.on === true, reason: 'settings', canChange: true } })],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],

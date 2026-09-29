@@ -2,6 +2,11 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.7
+
+- **Hetzner stock:** **Settings › Machines** can watch Hetzner for the server type you add machines of, such as CX53, which is often sold out. Paste a read-only Hetzner API token, and the dashboard asks Hetzner once a minute and posts to Discord when it comes into stock somewhere, with a link that buys one there. The owner's alone.
+- **Connect a machine › New cloud server:** Settings › Machines gives the command as cloud config too. Paste it in the Cloud config or User data box while you create a server at a cloud like Hetzner, and the server installs Playkeeper and connects to this dashboard as it first starts, with nothing to type on it.
+
 ## 0.4.6
 
 - Fixed: turning on **An address for each server** in **Machine settings › Address** failed with "unknown field panelHost", so servers couldn't get addresses of their own. It now turns on, and the wildcard record it lists points at the address you opened the dashboard at, which is the right one behind NAT too.

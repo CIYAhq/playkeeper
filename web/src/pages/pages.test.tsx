@@ -15,6 +15,7 @@ import type {
   Crash,
   DiscordSettings,
   FileRefusal,
+  HetznerStock,
   InvitesResponse,
   JoinInfo,
   JoinPreview,
@@ -64,6 +65,7 @@ import { formatClock, formatDate, formatDuration, formatLongDate } from '@/lib/f
 import { parse } from '@/lib/router'
 import { AiAgentsSection } from './ai-agents'
 import { DiscordSettingsSection } from './discord'
+import { HetznerStockCard } from './hetzner-stock'
 import { HomePage } from './home'
 import { JoinPage } from './join'
 import { DashboardMachineOnly, MachinePage } from './machine'
@@ -1926,6 +1928,99 @@ describe('Sell on Whop', () => {
   })
 })
 
+describe('Hetzner stock', () => {
+  const off: HetznerStock = { connected: false, serverType: 'cx53', types: ['cx23', 'cx33', 'cx43', 'cx53'], places: [], discord: true }
+  const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
+  const fsnBuy = 'https://console.hetzner.com/create/server?location=fsn1&type=cx53&useIPv4=true'
+  const on: HetznerStock = {
+    ...off,
+    connected: true,
+    tokenEnding: 'WXyz',
+    setBy: 'siya',
+    setAt: hoursAgo(2),
+    checkedAt: minutesAgo(1),
+    places: [
+      { location: 'fsn1', city: 'Falkenstein', available: true, since: minutesAgo(4), buyUrl: fsnBuy },
+      { location: 'nbg1', city: 'Nuremberg', available: false, since: minutesAgo(90) },
+      { location: 'hel1', city: 'Helsinki', available: false },
+    ],
+  }
+  const owner = workspace({ me: { ...me, access: { ...me.access, can: [...everything, 'machines.stock'] } } })
+  const tokenField = () => document.querySelector<HTMLInputElement>('input[aria-label="Hetzner API token"]')
+  const submit = async (label: string) => act(async () => button(label).closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+  const machineLink = { addresses: [], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }] }, sizingUrl: '', available: false, codes: [] }
+
+  it('is on the Machines page for the owner alone', async () => {
+    answer({ '/api/machines/link': machineLink, '/api/hetzner': off })
+    expect(await render(<MachinesSection />, owner)).toContain('Hetzner stock')
+    expect(await render(<MachinesSection />)).not.toContain('Hetzner stock')
+  })
+
+  it('asks for a read-only token, and says when Hetzner refuses one', async () => {
+    answer({ '/api/hetzner': off })
+    const text = await render(<HetznerStockCard />, owner)
+    expect(text).toContain('Hear in Discord when Hetzner has the machines you add here, with a link that buys one.')
+    expect(text).toContain('open Security › API tokens and generate a token with Read permission.')
+    expect(link('Open Hetzner Console').getAttribute('href')).toBe('https://console.hetzner.com/projects')
+    expect(text).toContain('The token stays on this machine and only reads.')
+    expect(tokenField()?.type).toBe('password')
+    expect(button('Watch').disabled).toBe(true)
+    await typeInto('input[aria-label="Hetzner API token"]', ' not-a-token ')
+    vi.mocked(client.put).mockRejectedValueOnce(new client.ApiError(400, { code: 'hetzner_token_refused', error: 'That doesn’t look like a Hetzner API token.' }))
+    await submit('Watch')
+    expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/hetzner', { token: 'not-a-token', serverType: 'cx53' })
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('Hetzner didn’t take that token. Copy it again, or make a new one with Read permission.')
+    expect(tokenField()?.getAttribute('aria-invalid')).toBe('true')
+  })
+
+  it('shows where the type is in stock, with a link that buys one there', async () => {
+    answer({ '/api/hetzner': off })
+    await render(<HetznerStockCard />, owner)
+    await typeInto('input[aria-label="Hetzner API token"]', 'a-token')
+    vi.mocked(client.put).mockResolvedValueOnce(on)
+    await submit('Watch')
+    const text = page()
+    expect(text).toContain('CX53In stock')
+    expect(text).toContain('Token ending WXyz · checked 1 min ago')
+    expect(text).toContain(`FalkensteinIn stock since Today ${formatClock(minutesAgo(4))}`)
+    expect(text).toContain('NurembergSold out')
+    expect(text).toContain('HelsinkiSold out')
+    const buy = [...document.querySelectorAll('a')].filter((a) => a.textContent === 'Buy one')
+    expect(buy.map((a) => [a.getAttribute('href'), a.getAttribute('target')])).toEqual([[fsnBuy, '_blank']])
+    expect(text).not.toContain('Connect Discord')
+    expect(tokenField()).toBeNull()
+  })
+
+  it('says a problem needs a look, and that Discord isn’t connected', async () => {
+    answer({ '/api/hetzner': { ...on, discord: false, problem: 'Hetzner no longer takes the token, so the watch stopped. Paste a new read-only token.' } })
+    const text = await render(<HetznerStockCard />, owner)
+    expect(text).toContain('CX53Needs a look')
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('no longer takes the token')
+    expect(text).toContain('Alerts go to Discord, which isn’t connected.')
+    expect(link('Connect Discord').getAttribute('href')).toBe('/settings/discord')
+  })
+
+  it('watches another type with the token kept, and stops watching', async () => {
+    answer({ '/api/hetzner': on })
+    await render(<HetznerStockCard />, owner)
+    await click('Change')
+    expect(tokenField()?.placeholder).toBe('Keep the token ending WXyz')
+    expect(button('Save').disabled).toBe(true)
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Server type"]')?.click())
+    const cx43 = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((o) => o.textContent === 'CX43')
+    await act(async () => cx43?.click())
+    expect(button('Save').disabled).toBe(false)
+    vi.mocked(client.put).mockResolvedValueOnce({ ...on, serverType: 'cx43' })
+    await submit('Save')
+    expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/hetzner', { token: '', serverType: 'cx43' })
+    expect(page()).toContain('CX43In stock')
+    vi.mocked(client.del).mockResolvedValueOnce(off)
+    await click('Stop watching')
+    expect(vi.mocked(client.del)).toHaveBeenLastCalledWith('/api/hetzner')
+    expect(tokenField()).not.toBeNull()
+  })
+})
+
 describe('Sidebar', () => {
   it('stops saying Creating once a create failed, like the server’s page', async () => {
     const failedCreate = failed('create', 'downloading_server', 'The server stopped while starting (exit code 1).')
@@ -3652,6 +3747,50 @@ describe('Machines and AI agents', () => {
     expect(text).toContain('Open this dashboard at its IP address or domain name, not localhost, to get the command.')
     expect(text).toContain('Ubuntu 20.04+ or Debian 12+ on x86-64 or ARM64, at least 2 CPU cores, 3 GB of memory and 5 GB of free disk.')
     expect(vi.mocked(client.post).mock.calls.some(([p]) => String(p).includes('/join-codes'))).toBe(false)
+  })
+
+  it('gives the command as cloud config for a cloud server that’s being created', async () => {
+    forgetJoinCode()
+    const fp = 'Z287KN4CDZD0Z8A4XXJA514NKG'
+    const cloudConfig = `#cloud-config\nruncmd:\n  - "curl -fsSL https://playkeeper.io/install | sh -s -- --yes --join 203.0.113.5:8443 --code 7KQ2-M9XD --fingerprint ${fp}"\n`
+    const cmd = {
+      id: 'jc1',
+      dials: '203.0.113.5:8443',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      createdBy: 'siya',
+      state: 'waiting',
+      code: '7KQ2-M9XD',
+      install: `curl -fsSL https://playkeeper.io/install | sudo sh -s -- --join 203.0.113.5:8443 --code 7KQ2-M9XD --fingerprint ${fp}`,
+      join: `sudo playkeeper join 203.0.113.5:8443 --code 7KQ2-M9XD --fingerprint ${fp}`,
+      installLines: ['curl -fsSL https://playkeeper.io/install | sudo sh -s -- \\', '  --join 203.0.113.5:8443 \\', '  --code 7KQ2-M9XD \\', `  --fingerprint ${fp}`],
+      joinLines: ['sudo playkeeper join 203.0.113.5:8443 \\', '  --code 7KQ2-M9XD \\', `  --fingerprint ${fp}`],
+      cloudConfig,
+    }
+    answer({ '/api/machines/link': { addresses: [{ kind: 'ip', address: '203.0.113.5:8443' }], minimum: { cores: 2, memoryGB: 3, freeDiskGB: 5, systems: [{ name: 'Ubuntu', version: '20.04' }] }, sizingUrl: '', available: true, codes: [] } })
+    answerPosts({ '/api/join-codes': cmd })
+    await render(<MachinesSection />)
+    expect(page()).toContain('Run this on it')
+    await click('New cloud server')
+    const shown = [...document.querySelectorAll('[role="group"] pre span')].map((s) => s.textContent)
+    expect(shown).toEqual(cloudConfig.trimEnd().split('\n'))
+    expect(page()).toContain('Paste this while you create it')
+    expect(page()).toContain('Paste it in the cloud’s Cloud config or User data box, with Ubuntu or Debian.')
+    const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+    await click(button('Copy'))
+    expect(copy).toHaveBeenLastCalledWith(cloudConfig)
+    copy.mockRestore()
+
+    // A phone picks the form from a list, which three choices fit.
+    const phone = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({ matches: query === '(max-width: 639px)', media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+    await render(<MachinesSection />)
+    expect(document.querySelector('[role="group"][aria-label="Which command"]')).toBeNull()
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Which command"]')?.click())
+    const cloud = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((o) => o.textContent === 'New cloud server')
+    await act(async () => cloud?.click())
+    expect([...document.querySelectorAll('[role="group"] pre span')].map((s) => s.textContent)).toEqual(cloudConfig.trimEnd().split('\n'))
+    phone.mockRestore()
+    forgetJoinCode()
   })
 
   it('says why a token can’t be made yet', async () => {

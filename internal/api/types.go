@@ -1833,6 +1833,10 @@ const (
 	CodeWhopPermissions = "whop_permissions"
 )
 
+// CodeHetznerTokenRefused refuses a Hetzner API token that Hetzner doesn't
+// take, or that can't be one (Settings › Machines › Hetzner stock).
+const CodeHetznerTokenRefused = "hetzner_token_refused"
+
 // AddonSources is Settings › Add-on sources: where the machine finds
 // plugins, mods and modpacks. Modrinth and Hangar are built in and always on.
 type AddonSources struct {
@@ -2301,8 +2305,9 @@ type DiscordSettingsRequest struct {
 
 // DiscordNotifyRequest is an alert the panel reports: a join request
 // (ServerID and Player), a team member turning two-factor sign-in on or
-// off (Member, On, and Admin for an admin), or an admin other than the
-// owner (Actor) confirming Member's Admin rights.
+// off (Member, On, and Admin for an admin), an admin other than the owner
+// (Actor) confirming Member's Admin rights, or machines the owner watches
+// coming into stock (ServerType and Locations).
 type DiscordNotifyRequest struct {
 	Kind     string `json:"kind"`
 	ServerID string `json:"serverId,omitempty"`
@@ -2313,7 +2318,12 @@ type DiscordNotifyRequest struct {
 	Member     string `json:"member,omitempty"`
 	On         bool   `json:"on,omitempty"`
 	Admin      bool   `json:"admin,omitempty"`
-	Actor      string `json:"actor"`
+	// ServerType and Locations say, for machines in stock, which Hetzner
+	// server type came into stock and at which locations, by Hetzner's
+	// names ("cx53", "fsn1"). The agent words the alert and its links.
+	ServerType string   `json:"serverType,omitempty"`
+	Locations  []string `json:"locations,omitempty"`
+	Actor      string   `json:"actor"`
 }
 
 // Kinds of DiscordNotifyRequest.
@@ -2321,6 +2331,7 @@ const (
 	DiscordJoinRequested    = "join_requested"
 	DiscordTwoFactorChanged = "two_factor_changed"
 	DiscordAdminConfirmed   = "admin_confirmed"
+	DiscordInStock          = "in_stock"
 )
 
 // CodeAdminUnconfirmed refuses an admin action to an admin who turned on
