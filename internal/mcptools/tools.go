@@ -68,6 +68,10 @@ const (
 	ActManagePlayers = "players.manage"
 	ActMakeBackups   = "backups.make"
 	ActManageServers = "servers.manage"
+	// ActViewMachines sees the machines. A caller who may not, a creator or
+	// customer, never hears which machine runs a server, or a machine's name
+	// when one can't be reached.
+	ActViewMachines = "machines.view"
 )
 
 // ErrRevoked is what Backend.Access returns for a token that was revoked or
@@ -231,17 +235,41 @@ func (s spec) tool(b Backend) mcp.Tool {
 					return nil, err
 				}
 				if c.agent, err = b.Agent(ctx, c.server.ID); err != nil {
-					return nil, agentError(err)
+					return nil, c.blind(agentError(err))
 				}
 			}
 			res, err := s.run(ctx, c)
 			if err == nil {
 				b.Done(ctx, mc.Principal, s.name, c.server)
 			}
-			return res, err
+			return res, c.blind(err)
 		},
 	}
 }
+
+// machineKinds are the errors that come from a machine rather than a
+// server: it can't be reached, its agent doesn't answer, or two machines
+// list the server.
+var machineKinds = map[string]bool{
+	machinelink.CodeNotConnected: true, machinelink.CodeMachineRemoved: true, machinelink.CodeMachineUnknown: true, machinelink.CodeTimeout: true,
+	machinelink.CodeProtocol: true, machinelink.CodeTooLarge: true, machinelink.CodeDropped: true, machinelink.CodeHeartbeatTimeout: true,
+	machinelink.CodeRouteNotAllowed: true, machinelink.CodeActorRequired: true, machinelink.CodeVersionUnsupported: true,
+	api.CodeAgentUnavailable: true, "server_disputed": true,
+}
+
+// blind is err as a caller who doesn't see the machines hears it (see
+// ActViewMachines): a machine's trouble is the server's, with no machine's
+// name or what to do on it.
+func (c *call) blind(err error) error {
+	var te *mcp.ToolError
+	if c.seesMachines() || !errors.As(err, &te) || !machineKinds[te.Kind] {
+		return err
+	}
+	return &mcp.ToolError{Kind: te.Kind, Msg: "The server can't be reached right now.", Hint: "It's probably still running. Try again in a few minutes."}
+}
+
+// seesMachines reports whether the caller may hear about the machines.
+func (c *call) seesMachines() bool { return c.access.mayTake(ActViewMachines) }
 
 func (c *call) actor() string { return c.Principal.ID }
 
@@ -253,6 +281,9 @@ func (c *call) covered(ctx context.Context, arg string) (list []Server, other bo
 		return nil, false, agentError(err)
 	}
 	for _, s := range all {
+		if !c.seesMachines() {
+			s.MachineID, s.MachineName = "", ""
+		}
 		switch {
 		case s.ID == "":
 		case c.access.covers(s.ID):

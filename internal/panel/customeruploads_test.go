@@ -154,13 +154,23 @@ func TestACreatorMakesAServerFromABackupTheyUpload(t *testing.T) {
 
 // A creator uploads a world or backup for a new server only to their
 // machine, as they create servers: an invited creator's is the dashboard's
-// own.
+// own. Another machine is one they don't see, or one that runs a server
+// the owner gave them.
 func TestACreatorUploadsForANewServerOnlyToTheirMachine(t *testing.T) {
 	e := newJoinEnv(t)
 	owner(t, e.env)
 	newCreatorAgent(e.env)
 	alex := addCreator(t, e.env, "alex", invites.Allowance{Servers: 1, MemoryMB: 4096})
 	remote := e.addRemote(t, "r2345abcde", "home-server")
+	if r := e.do(t, "POST", "/api/machines/"+remote.ID+"/world-imports", `{}`, alex.auth()); r.status != http.StatusNotFound {
+		t.Fatalf("alex opens a world upload on a machine they don't see: %d %v", r.status, r.body)
+	}
+	if _, err := e.srv.db.Exec(`INSERT INTO server_machines(server_id, machine_id) VALUES('sharedsrv2', ?)`, remote.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.srv.db.Exec(`UPDATE project_members SET servers = 'sharedsrv2' WHERE user_id = ?`, alex.id); err != nil {
+		t.Fatal(err)
+	}
 	if r := e.do(t, "POST", "/api/machines/"+remote.ID+"/world-imports", `{}`, alex.auth()); r.status != http.StatusForbidden || !strings.Contains(r.body["error"].(string), "isn't the machine your servers go on") {
 		t.Fatalf("alex opens a world upload on home-server: %d %v", r.status, r.body)
 	}

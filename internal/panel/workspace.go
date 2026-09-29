@@ -82,10 +82,17 @@ const (
 // server stay actCreateServers.
 const actCreateOwnServers action = "servers.create_own"
 
+// actViewMachines looks at the machines themselves: their names, details,
+// events and addresses. Everyone on the team may but creators and
+// customers, who see their servers and never the machines they run on (see
+// access.hidesMachines).
+const actViewMachines action = "machines.view"
+
 // actions lists every action, for the signed-in account's "can" list.
 var actions = []action{actView, actManageAccount, actRunServers, actConsole, actManagePlayers, actMakeBackups,
 	actRestore, actManageServers, actCreateServers, actCreateOwnServers, actManageTeam, actManageMachine, actViewAuditTrail,
-	actManageBackupCopies, actRecoveryKey, actRecoverBackups, actManageAddonSources, actViewFiles, actEditFiles, actSellOnWhop, actWatchStock, actTakeCustomers}
+	actManageBackupCopies, actRecoveryKey, actRecoverBackups, actManageAddonSources, actViewFiles, actEditFiles, actSellOnWhop, actWatchStock, actTakeCustomers,
+	actViewMachines}
 
 // keyActions are decided by mayHoldBackupKeys rather than actNeeds.
 var keyActions = map[action]bool{actManageBackupCopies: true, actRecoveryKey: true, actRecoverBackups: true}
@@ -108,6 +115,7 @@ var actNeeds = map[action]string{
 	actViewAuditTrail:   invites.RoleAdmin,
 	actViewFiles:        invites.RoleAdmin,
 	actEditFiles:        invites.RoleAdmin,
+	actViewMachines:     invites.RoleViewer,
 }
 
 // machineWide actions reach past single servers, so an admin needs all of
@@ -153,6 +161,9 @@ var (
 	// sign-in is on but whose Admin rights nobody has confirmed yet.
 	errAdminUnconfirmed = &invites.Error{Code: api.CodeAdminUnconfirmed, Status: http.StatusForbidden,
 		Msg: "The owner or an admin needs to confirm your Admin rights.", Hint: "Until then, you have Moderator rights."}
+	// errMachinesHidden refuses a creator or customer the machines
+	// themselves (see access.hidesMachines).
+	errMachinesHidden = &invites.Error{Code: api.CodeForbidden, Status: http.StatusForbidden, Msg: "Your account sees its servers, not the machines they run on."}
 )
 
 // mayHoldBackupKeys reports whether an account may change where backup
@@ -191,6 +202,8 @@ func permit(a access, act action, serverID string) error {
 		return errForbidden
 	case serverID != "" && !a.covers(serverID):
 		return errNoServer
+	case act == actViewMachines && a.hidesMachines():
+		return errMachinesHidden
 	case a.Customer == CustomerSuspended:
 		return errCustomerSuspended
 	case a.Customer == CustomerPaused && !pausedMay[act]:
@@ -235,6 +248,14 @@ func (s *Server) permitOn(a access, act action, serverID string) error {
 // invites.Allowance) rather than as an admin of every server.
 func (a access) creator() bool {
 	return !a.owner() && !a.Servers.All && !a.Allowance.IsZero()
+}
+
+// hidesMachines reports whether the dashboard keeps its machines from a:
+// creators, and customers whatever their plan, see their servers and their
+// plan, never which machine or how many machines there are, or their names
+// or addresses (see hiddenMachines).
+func (a access) hidesMachines() bool {
+	return a.creator() || a.Customer != ""
 }
 
 // access reads what u may do: their project role and servers, and whether
@@ -643,6 +664,10 @@ func (s *Server) hMachines(w http.ResponseWriter, r *http.Request, sess *session
 		return
 	}
 	links := s.linkStatuses(r.Context())
+	if permit(sess.Access, actViewMachines, "") != nil {
+		writeJSON(w, http.StatusOK, s.hiddenMachines(r.Context(), sess.Access, list, links))
+		return
+	}
 	out := make([]machineView, len(list))
 	var wg sync.WaitGroup
 	for i, m := range list {
@@ -693,6 +718,12 @@ func (s *Server) hServers(w http.ResponseWriter, r *http.Request, sess *session)
 			continue
 		}
 		out = append(out, sv)
+	}
+	if sess.Access.hidesMachines() {
+		used := s.ownMemory(sess.Access, out)
+		for _, sv := range out {
+			s.planFigures(sess.Access, sv, used)
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
