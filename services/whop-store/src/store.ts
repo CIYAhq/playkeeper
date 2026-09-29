@@ -3,10 +3,12 @@ import type { Plan, Product, StoreData } from './whop.ts'
 // Metadata Playkeeper's Sell on Whop reads and writes (internal/whop in the
 // Playkeeper repository). A plan's servers and memory say what a buyer of it
 // may create; a product's dashboard is the address of the Playkeeper that
-// sells it, which it sets once it's connected.
+// sells it, which it sets once it's connected, with the business it marked
+// the product in.
 export const metaServers = 'playkeeper_servers'
 export const metaMemoryGB = 'playkeeper_memory_gb'
 export const metaDashboard = 'playkeeper_dashboard'
+export const metaBusiness = 'playkeeper_business'
 
 export interface Allowance {
   servers: number
@@ -102,16 +104,17 @@ function action(p: Plan, url: string): Action {
 /**
  * What the store shows: the visible plans of the products a connected
  * Playkeeper sells. A product counts once Playkeeper has put its address on
- * it, so a copy of the store takes no orders before there's a machine to
- * run the servers, and a plan counts only while it's visible on Whop and
- * has a checkout link there. Hidden plans stay reachable by their own links
- * but never appear here.
+ * it for this business, so a copy of the store, even one that kept the
+ * marking of the store it was copied from, takes no orders before there's
+ * a machine to run the servers. A plan counts only while it's visible on
+ * Whop and has a checkout link there. Hidden plans stay reachable by their
+ * own links but never appear here.
  */
 export function storefront(data: StoreData): Storefront {
   const selling = new Map<string, { product: Product; dashboard: string }>()
   for (const p of data.products) {
     const dashboard = httpsURL(p.metadata[metaDashboard] ?? '')
-    if (!dashboard || p.visibility === 'archived') continue
+    if (!dashboard || p.metadata[metaBusiness] !== data.business || p.visibility === 'archived') continue
     selling.set(p.id, { product: p, dashboard: dashboard.href })
   }
   const offered = new Map<string, { shelf: Shelf; plans: Plan[] }>()

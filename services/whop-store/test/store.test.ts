@@ -81,9 +81,17 @@ describe('what the store shows', () => {
     const archived = storefront(await data((c) => (c.products[0] = { ...c.products[0], visibility: 'archived' })))
     expect(archived.shelves).toEqual([])
     for (const marker of ['http://beta.playkeeper.me', 'javascript:alert(1)', 'beta.playkeeper.me', '']) {
-      const s = storefront(await data((c) => (c.products[0] = { ...c.products[0], metadata: { playkeeper_dashboard: marker } })))
+      const s = storefront(await data((c) => (c.products[0] = { ...c.products[0], metadata: { playkeeper_dashboard: marker, playkeeper_business: 'biz_pip' } })))
       expect(s.shelves, marker).toEqual([])
       expect(s.dashboard, marker).toBe('')
+    }
+  })
+
+  it('never offers a product marked for another business, or for none', async () => {
+    for (const business of ['biz_other', '', undefined]) {
+      const s = storefront(await data((c) => (c.products[0] = { ...c.products[0], metadata: { playkeeper_dashboard: dashboard, playkeeper_business: business } })))
+      expect(s.shelves, String(business)).toEqual([])
+      expect(s.dashboard, String(business)).toBe('')
     }
   })
 
@@ -107,7 +115,7 @@ describe('what the store shows', () => {
 
   it('shows each product’s plans on a shelf of its own, the cheapest shelf first', async () => {
     const s = storefront(await data((c) => {
-      c.products.push({ id: 'prod_modded', title: 'Modded server', headline: null, visibility: 'visible', metadata: { playkeeper_dashboard: dashboard } })
+      c.products.push({ id: 'prod_modded', title: 'Modded server', headline: null, visibility: 'visible', metadata: { playkeeper_dashboard: dashboard, playkeeper_business: 'biz_pip' } })
       c.plans.push(plan('plan_modded', { title: 'Modded', renewal_price: 4, product: { id: 'prod_modded', title: 'Modded server' } }))
     }))
     expect(s.shelves.map((sh) => [sh.title, sh.offers.map((o) => o.id)])).toEqual([['Modded server', ['plan_modded']], ['Minecraft server', ['plan_starter', 'plan_plus']]])
