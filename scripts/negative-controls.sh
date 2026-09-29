@@ -7818,6 +7818,35 @@ webcontrol "customer deletion: Home says the plan ended once the servers are gon
   'const paused = deleted || !!ws.me.access.pausedUntil' \
   'const paused = !!ws.me.access.pausedUntil' \
   src/pages/pages.test.tsx 'offers a customer whose servers were deleted their final backups'
+control "client-only mods: a mod for players' games that stopped the server is recognised" internal/diagnose/crashrules.go \
+  '	{(*crashCtx).clientOnly, true},
+' \
+  '' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "client-only mods: a client class the server started past is not blamed" internal/diagnose/crashaddons.go \
+  'if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); started || c.errorAfter(last.idx) {' \
+  'if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); false && started || c.errorAfter(last.idx) {' \
+  ./internal/diagnose '^TestExplainCrashPassesOverAClientClassTheServerStartedPast$'
+control "client-only mods: NeoForge's early window plugin names the mod" internal/diagnose/crashaddons.go \
+  'if p, ok := c.consoleIn(reGraphicsPlugin, start-10, start+1); ok {' \
+  'if p, ok := c.consoleIn(reGraphicsPlugin, start-10, start+1); false && ok {' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "client-only mods: a mod's own frames name it, past the loader's" internal/diagnose/crashaddons.go \
+  'if jar := c.modJar(m[1], ""); jar != "" {' \
+  'if jar := m[1]; jar != "" {' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "client-only mods: a library named after the loader isn't taken for the loader's frames" internal/diagnose/crashaddons.go \
+  'm != nil && !loaderModules[m[1]] {' \
+  'm != nil {' \
+  ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
+control "client-only mods: a later error that stopped the server wins over an earlier client class" internal/diagnose/crashaddons.go \
+  'if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); started || c.errorAfter(last.idx) {' \
+  'if _, started := c.consoleIn(reDone, last.idx+1, len(c.split)); started {' \
+  ./internal/diagnose '^TestExplainCrashBlamesTheClientClassOnlyWhenItStoppedTheServer$'
+webcontrol "client-only mods: the dashboard says the mod only runs in players' games" web/src/lib/crash.ts \
+  "if (str(p, 'reason') !== 'client_only') return c.explanation" \
+  'return c.explanation' \
+  web/src/lib/lib.test.ts 'only runs in players'
 
 # The machine answers DNS for the zone the dashboard sets, for port-free
 # addresses (internal/dnszone, internal/agent/dns.go): authoritative only,
