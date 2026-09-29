@@ -666,6 +666,9 @@ const routes: [string, RegExp, Handler][] = [
     },
   ],
   ['DELETE', /^\/api\/whop$/, () => ({ status: 200, body: { connected: false, dashboard: '', plans: [], webhook: false, customers: [], needs: whopNeeds } })],
+  // Hetzner stock never reaches Hetzner: a token typed here isn't one Hetzner knows, so it's refused as the real check would.
+  ['PUT', /^\/api\/hetzner$/, () => ({ status: 400, body: { error: 'Hetzner didn’t take that token.', code: 'hetzner_token_refused' }, expected: true })],
+  ['DELETE', /^\/api\/hetzner$/, () => ({ status: 200, body: { connected: false, serverType: 'cx53', types: ['cx23', 'cx33', 'cx43', 'cx53'], places: [], discord: false } })],
   // The usage stats switch never changes the machine the crawl runs on.
   ['PUT', /^\/api\/usage-stats$/, (r, state) => ({ status: 200, body: { machines: [], ...state.usage, on: (r.body as { on?: unknown } | null)?.on === true, reason: 'settings', canChange: true } })],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
