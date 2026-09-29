@@ -682,7 +682,7 @@ func (s *Server) guard(rt Route) http.HandlerFunc {
 				return
 			}
 			sess.Access = acct
-			if err := permit(acct, rt.Act, r.PathValue("id")); err != nil {
+			if err := s.permitOn(acct, rt.Act, r.PathValue("id")); err != nil {
 				switch rt.Act {
 				case actRecoveryKey:
 					s.audit(sess.User.Username, "offsite.recovery_key", r.PathValue("id"), "refused", "not allowed to hold backup keys")

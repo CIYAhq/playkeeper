@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/mcptools"
 )
 
 // pausable is alex, a customer on a dashboard with room, with a server they
@@ -16,13 +18,14 @@ type pausable struct {
 	core     customerCore
 	n        *recordingNotifier
 	cust     Customer
+	own      member
 	alex     member
 	serverID string
 }
 
 func newPausable(t *testing.T) pausable {
 	t.Helper()
-	e, _, core := customerEnv(t)
+	e, own, core := customerEnv(t)
 	newCreatorAgent(e.env, "cafebabe23")
 	n := &recordingNotifier{}
 	e.srv.notifier = n
@@ -39,7 +42,7 @@ func newPausable(t *testing.T) pausable {
 	if r := e.do(t, "POST", "/api/tokens", `{"name":"bot","role":"moderator","servers":["cafebabe23"]}`, alex.auth()); r.status != http.StatusCreated && r.status != http.StatusOK {
 		t.Fatalf("alex makes a token: %d %v", r.status, r.body)
 	}
-	return pausable{e: e, core: core, n: n, cust: cust, alex: alex, serverID: "cafebabe23"}
+	return pausable{e: e, core: core, n: n, cust: cust, own: own, alex: alex, serverID: "cafebabe23"}
 }
 
 func (p pausable) stops() int {
@@ -121,6 +124,78 @@ func TestAPausedCustomerSeesTheirServersButRunsNothing(t *testing.T) {
 	}
 	if r := e.do(t, "POST", "/api/servers/"+p.serverID+"/start", `{}`, p.alex.auth()); r.status == http.StatusForbidden {
 		t.Fatalf("alex, renewed, starts their server: %d %v", r.status, r.body)
+	}
+}
+
+// Whoever alex shares their server with can't run or change it once alex
+// is paused, from the dashboard or with a token, restores and world imports
+// included, though they can still look at it, and its machine is told to
+// start it for nobody. The owner may still look after it. Renewing lifts
+// the hold, and a suspension brings back a stricter one, under which they
+// may only look.
+func TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith(t *testing.T) {
+	p := newPausable(t)
+	e, ctx := p.e, context.Background()
+	disk := newDiskLimitsAgent(e.env, 0)
+	kim := addAdmin(t, e.env, "kim", p.serverID)
+	_, secret := e.newToken(t, kim.cookie, kim.csrf, `{"name":"kim's bot","role":"moderator","servers":["`+p.serverID+`"]}`)
+	held := func(want string) {
+		t.Helper()
+		e.srv.syncDiskLimits(ctx)
+		if l := disk.last().Limits; len(l) != 1 || l[0].Hold != want {
+			t.Fatalf("the limits sent: %+v, want the hold %q", l, want)
+		}
+	}
+	start := func(who member) resp {
+		return e.do(t, "POST", "/api/servers/"+p.serverID+"/start", `{}`, who.auth())
+	}
+	held("")
+	kicked(e.env)
+	if err := p.core.PauseCustomer(ctx, p.cust, "their Whop membership is expired"); err != nil {
+		t.Fatal(err)
+	}
+	if !kicked(e.env) {
+		t.Fatal("pausing alex didn't send the limits at once")
+	}
+	held("the plan it's on has ended.")
+	if r := start(kim); r.status != http.StatusForbidden || !strings.Contains(r.body["error"].(string), "plan has ended") {
+		t.Fatalf("kim starts alex's paused server: %d %v", r.status, r.body)
+	}
+	if a := e.callTool(t, secret, "start_server", map[string]any{"server": p.serverID}); a.kind != mcptools.RefusedAction || !strings.Contains(a.text, "plan has ended") {
+		t.Fatalf("kim's token starts alex's paused server: %+v", a)
+	}
+	mid := machineID(t, e.env)
+	e.reply("GET", "/v1/restore/0123456789abcdef", `{"id":"0123456789abcdef","serverId":"`+p.serverID+`"}`)
+	e.reply("GET", "/v1/world-imports/0123456789abcdef", `{"id":"0123456789abcdef","serverId":"`+p.serverID+`","files":[]}`)
+	for _, path := range []string{"/api/machines/" + mid + "/restore/0123456789abcdef/apply", "/api/machines/" + mid + "/world-imports/0123456789abcdef/apply"} {
+		if r := e.do(t, "POST", path, `{}`, kim.auth()); r.status != http.StatusForbidden || !strings.Contains(r.body["error"].(string), "plan has ended") {
+			t.Fatalf("kim posts %s onto alex's paused server: %d %v", path, r.status, r.body)
+		}
+	}
+	if st := e.do(t, "GET", "/api/servers/"+p.serverID, "", kim.auth()).status; st != http.StatusOK {
+		t.Fatalf("kim looks at alex's paused server: %d", st)
+	}
+	if r := start(p.own); r.status == http.StatusForbidden {
+		t.Fatalf("the owner looks after alex's paused server: %d %v", r.status, r.body)
+	}
+
+	if _, err := p.core.StartCustomer(ctx, p.cust, starter); err != nil {
+		t.Fatal(err)
+	}
+	held("")
+	if r := start(kim); r.status == http.StatusForbidden {
+		t.Fatalf("kim starts alex's server once alex renewed: %d %v", r.status, r.body)
+	}
+
+	if _, err := e.srv.db.Exec(`UPDATE customers SET state = 'suspended' WHERE user_id = ?`, p.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	held("its account is suspended.")
+	if r := e.do(t, "POST", "/api/servers/"+p.serverID+"/backups", `{}`, kim.auth()); r.status != http.StatusForbidden || !strings.Contains(r.body["error"].(string), "suspended") {
+		t.Fatalf("kim backs up a suspended customer's server: %d %v", r.status, r.body)
+	}
+	if st := e.do(t, "GET", "/api/servers/"+p.serverID, "", kim.auth()).status; st != http.StatusOK {
+		t.Fatalf("kim looks at a suspended customer's server: %d", st)
 	}
 }
 
