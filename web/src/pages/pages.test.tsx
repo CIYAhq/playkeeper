@@ -476,11 +476,13 @@ describe('Home for team members', () => {
       { ts: hoursAgo(1), serverId: 'abcdefghjk', kind: 'backup_refused', actor: 'playkeeper', detail: 'unexpected_reply' },
       { ts: hoursAgo(2), serverId: 'abcdefghjk', kind: 'backup_refused', actor: 'playkeeper', detail: 'not_online' },
       { ts: hoursAgo(3), serverId: 'abcdefghjk', kind: 'backup_refused', actor: 'playkeeper', detail: 'something_newer' },
+      { ts: hoursAgo(4), serverId: 'abcdefghjk', kind: 'backup_refused', actor: 'playkeeper', detail: 'disk_limit_reached' },
     ] })
     const text = await render(<HomePage />, workspace({ servers: both() }))
     expect(text).toContain('Scheduled backup of Survival refused · the server gave an unexpected reply')
     expect(text).toContain('Scheduled backup of Survival refused · the server was starting or stopping')
     expect(text).toContain('Scheduled backup of Survival refused · world saving couldn’t be paused')
+    expect(text).toContain('Scheduled backup of Survival refused · the servers’ disk limit is reached')
   })
 
   it('gives a viewer no Start button and a member no first steps', async () => {
@@ -1194,6 +1196,16 @@ describe('Backups with players online', () => {
     expect(refusedNotice()?.querySelector('button')).toBeNull()
     const cleared = await render(<WorldPage server={server()} />)
     expect(cleared).not.toContain('refused')
+  })
+
+  it('says what to do when the disk limit stops scheduled backups, with no button', async () => {
+    answer({ '/backups': [backup()] })
+    const limit = refusal({ count: 1, kind: 'disk_limit_reached', error: 'That needs about 1.2 GB, and these servers have 300.0 MB of their 30.0 GB disk limit left.', hint: 'Delete backups or files you don’t need to make room.' })
+    const text = await render(<WorldPage server={server({ backupRefused: limit })} />)
+    expect(text).toContain('A scheduled backup was refused')
+    expect(text).toContain('That needs about 1.2 GB, and these servers have 300.0 MB of their 30.0 GB disk limit left. Delete backups or files you don’t need to make room.')
+    expect(text).not.toContain('Scheduled backups never stop the server')
+    expect(refusedNotice()?.querySelector('button')).toBeNull()
   })
 
   it('puts world saving paused first on the Overview, and drops its failure once saving is back on', async () => {
