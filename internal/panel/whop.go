@@ -403,7 +403,7 @@ func (s *Server) hWhopDisconnect(w http.ResponseWriter, r *http.Request, sess *s
 	}
 	err = s.immediate(r.Context(), func(c *sql.Conn) error {
 		for _, q := range []string{`DELETE FROM whop_plans`, `DELETE FROM whop_memberships`, `DELETE FROM whop_customers`, `DELETE FROM whop_messages`,
-			`DELETE FROM whop_deliveries`, `DELETE FROM whop_account`} {
+			`DELETE FROM whop_deliveries`, `DELETE FROM whop_stock`, `DELETE FROM whop_account`} {
 			if _, err := c.ExecContext(r.Context(), q); err != nil {
 				return err
 			}
@@ -506,12 +506,13 @@ func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, accountID st
 			if !al.IsZero() && p.Visibility != "archived" {
 				selling[p.Product.ID] = true
 			}
-			if _, err := conn.ExecContext(ctx, `INSERT INTO whop_plans(plan_id, product_id, product_title, title, price, visibility, trial_days, allowance_servers, allowance_memory_mb, allowance_from, disk_gb, position)
-				VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+			if _, err := conn.ExecContext(ctx, `INSERT INTO whop_plans(plan_id, product_id, product_title, title, price, visibility, trial_days, allowance_servers, allowance_memory_mb, allowance_from, disk_gb, position, stock, unlimited_stock)
+				VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 				ON CONFLICT(plan_id) DO UPDATE SET product_id = excluded.product_id, product_title = excluded.product_title, title = excluded.title, price = excluded.price,
 				visibility = excluded.visibility, trial_days = excluded.trial_days, allowance_servers = excluded.allowance_servers, allowance_memory_mb = excluded.allowance_memory_mb,
-				allowance_from = excluded.allowance_from, disk_gb = excluded.disk_gb, position = excluded.position`,
-				p.ID, p.Product.ID, p.Product.Title, p.Title, p.Price(), p.Visibility, p.TrialDays, al.Servers, al.MemoryMB, from, whop.PlanDiskGB(p.Metadata), i); err != nil {
+				allowance_from = excluded.allowance_from, disk_gb = excluded.disk_gb, position = excluded.position, stock = excluded.stock, unlimited_stock = excluded.unlimited_stock`,
+				p.ID, p.Product.ID, p.Product.Title, p.Title, p.Price(), p.Visibility, p.TrialDays, al.Servers, al.MemoryMB, from, whop.PlanDiskGB(p.Metadata), i,
+				max(int(p.Stock), 0), p.UnlimitedStock); err != nil {
 				return err
 			}
 		}

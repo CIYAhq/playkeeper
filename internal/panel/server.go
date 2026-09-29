@@ -139,9 +139,11 @@ type Server struct {
 	whopMu   sync.Mutex
 	whopKick chan struct{}
 	// hosting is the hosting core billing providers call, and notifier what
-	// the core calls to tell customers something (see hosting.go).
+	// the core calls to tell customers something (see hosting.go). sales is
+	// what the fleet tells how many more of each plan fit (see whop_stock.go).
 	hosting  hostingCore
 	notifier customerNotifier
+	sales    saleStock
 }
 
 func New(opts Options) (*Server, error) {
@@ -203,6 +205,7 @@ func New(opts Options) (*Server, error) {
 		hosting:     noHostingCore{},
 	}
 	s.notifier = billingNotifier{s: s}
+	s.sales = whopStock{s: s}
 	s.activePacks = &activePacks{fetch: s.fetchActivePacks, now: opts.Now}
 	s.public = newPublicGroup(s.publicRoutes(), opts.Now)
 	s.page = s.newPageSite()

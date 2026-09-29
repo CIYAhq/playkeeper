@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -115,11 +116,11 @@ func TestPlansFollowPagesAndReadNulls(t *testing.T) {
 			if r.URL.Query().Get("after") == "" {
 				_, _ = io.WriteString(w, `{"data":[{"id":"plan_a","title":"Starter","visibility":"hidden","plan_type":"renewal","billing_period":30,
 					"trial_period_days":null,"formatted_price":"$8.00 / month","product":{"id":"prod_mc","title":"Minecraft server"},
-					"metadata":{"playkeeper_servers":"1","playkeeper_memory_gb":4}}],"page_info":{"end_cursor":"c1","has_next_page":true}}`)
+					"metadata":{"playkeeper_servers":"1","playkeeper_memory_gb":4},"stock":2.0,"unlimited_stock":false}],"page_info":{"end_cursor":"c1","has_next_page":true}}`)
 				return
 			}
 			_, _ = io.WriteString(w, `{"data":[{"id":"plan_b","title":null,"visibility":"visible","plan_type":"one_time","billing_period":null,
-				"trial_period_days":3,"product":null,"metadata":null}],"page_info":{"end_cursor":null,"has_next_page":false}}`)
+				"trial_period_days":3,"product":null,"metadata":null,"stock":null,"unlimited_stock":true}],"page_info":{"end_cursor":null,"has_next_page":false}}`)
 		},
 	})
 	plans, err := c.Plans(context.Background(), "biz_pip")
@@ -128,8 +129,8 @@ func TestPlansFollowPagesAndReadNulls(t *testing.T) {
 	}
 	want := []Plan{
 		{ID: "plan_a", Title: "Starter", Visibility: "hidden", PlanType: "renewal", BillingPeriod: 30, FormattedPrice: "$8.00 / month",
-			Product: Ref{ID: "prod_mc", Title: "Minecraft server"}, Metadata: Metadata{MetaServers: "1", MetaMemoryGB: "4"}},
-		{ID: "plan_b", Visibility: "visible", PlanType: "one_time", TrialDays: 3},
+			Product: Ref{ID: "prod_mc", Title: "Minecraft server"}, Metadata: Metadata{MetaServers: "1", MetaMemoryGB: "4"}, Stock: 2},
+		{ID: "plan_b", Visibility: "visible", PlanType: "one_time", TrialDays: 3, UnlimitedStock: true},
 	}
 	if !reflect.DeepEqual(plans, want) || calls.Load() != 2 {
 		t.Fatalf("Plans = %+v after %d calls", plans, calls.Load())
@@ -152,6 +153,24 @@ func TestSetProductMetadataSendsTheWholeMap(t *testing.T) {
 	}
 	if err := c.SetProductMetadata(context.Background(), "prod_mc", meta); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSetPlanStockLimitsThePlan(t *testing.T) {
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"PATCH /variants/plan_a": func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !reflect.DeepEqual(body, map[string]any{"stock": 2.0, "unlimited_stock": false}) {
+				t.Errorf("body %v, %v", body, err)
+			}
+			answer(map[string]any{"id": "plan_a", "stock": 2, "unlimited_stock": false})(w, r)
+		},
+	})
+	if err := c.SetPlanStock(context.Background(), "plan_a", 2); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(Needs, "plan:update") {
+		t.Fatal("Sell on Whop doesn't ask for plan:update")
 	}
 }
 

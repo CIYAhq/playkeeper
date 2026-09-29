@@ -396,6 +396,21 @@ CREATE TABLE whop_deliveries (
 );
 CREATE INDEX whop_deliveries_received ON whop_deliveries(received_at);
 `,
+	// Selling only what fits: each plan's stock on Whop as last read or
+	// set, and whether it's unlimited; when each customer was last given
+	// their plan; and how many more of each plan the machines can take, as
+	// last said, when, and the stock last aimed for (-1 before any).
+	`
+ALTER TABLE whop_plans ADD COLUMN stock           INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_plans ADD COLUMN unlimited_stock INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE whop_customers ADD COLUMN applied_at INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE whop_stock (
+  plan_id     TEXT    PRIMARY KEY,
+  want        INTEGER NOT NULL,
+  set_at      INTEGER NOT NULL,
+  last_target INTEGER NOT NULL DEFAULT -1
+);
+`,
 }
 
 const (

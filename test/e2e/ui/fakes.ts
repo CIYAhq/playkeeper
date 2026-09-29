@@ -1747,7 +1747,7 @@ function friendsRead(path: string, body: Json): unknown {
 }
 
 /** The permissions Sell on Whop's key needs, as the panel lists them. */
-const whopNeeds = ['access_pass:basic:read', 'access_pass:update', 'plan:basic:read', 'member:basic:read', 'member:email:read', 'developer:manage_webhook', 'webhook_receive:memberships', 'support_chat:create', 'support_chat:message:create']
+const whopNeeds = ['access_pass:basic:read', 'access_pass:update', 'plan:basic:read', 'plan:update', 'member:basic:read', 'member:email:read', 'developer:manage_webhook', 'webhook_receive:memberships', 'support_chat:create', 'support_chat:message:create']
 
 /** Sell on Whop connected to a store with a plan whose metadata on Whop sets its allowance and one whose doesn't, keeping the machine's address as the panel sent it. */
 function whopConnected(body: Json): Json {
