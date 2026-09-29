@@ -69,7 +69,8 @@ func (p pausable) tokens(t *testing.T) int {
 // A customer whose plan ends is paused: their server stops, their API token
 // is revoked, and they're told until when they can still download. They may
 // sign in to see their servers and download backups, but not start or
-// create one. Pausing again changes nothing, and renewing brings them back.
+// create one, or make a new token. Pausing again changes nothing, and
+// renewing brings them back.
 func TestAPausedCustomerSeesTheirServersButRunsNothing(t *testing.T) {
 	p := newPausable(t)
 	e, ctx := p.e, context.Background()
@@ -109,6 +110,7 @@ func TestAPausedCustomerSeesTheirServersButRunsNothing(t *testing.T) {
 	for path, body := range map[string]string{
 		"/api/servers/" + p.serverID + "/start":             `{}`,
 		"/api/machines/" + machineID(t, e.env) + "/servers": `{"name":"two","acceptEula":true,"memoryMB":2048}`,
+		"/api/tokens": `{"name":"bot two","role":"viewer","servers":["` + p.serverID + `"]}`,
 	} {
 		if r := e.do(t, "POST", path, body, p.alex.auth()); r.status != http.StatusForbidden || !strings.Contains(r.body["error"].(string), "plan has ended") {
 			t.Fatalf("alex, paused, posts %s: %d %v", path, r.status, r.body)
