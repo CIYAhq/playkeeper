@@ -192,6 +192,10 @@ func TestABackupForANewServerCountsAgainstItsDiskLimit(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("a newer backup in the room of the one it replaces: %d %v", code, preview)
 	}
+	e.setLimits(map[string]any{"id": "account-7", "limitBytes": staged - f.Preview.SizeBytes/2, "servers": []string{}})
+	if code, out := upload("account-7"); code != 507 || codeOf(out) != api.CodeDiskLimit {
+		t.Fatalf("a newer backup whose archive and world together pass the room: %d %v", code, out)
+	}
 	apply := func() (int, map[string]any) {
 		return e.callWhenFree("POST", "/v1/restore/"+preview["id"].(string)+"/apply", map[string]any{"confirm": preview["confirmPhrase"], "acceptEula": true, "actor": "alex"})
 	}

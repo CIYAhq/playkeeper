@@ -7920,15 +7920,15 @@ control "customer uploads: a restored new server joins the limit" internal/agent
   'if err := error(nil); err != nil {' \
   ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
 control "customer uploads: a backup unpacks no further than its limit's room" internal/agent/backups.go \
-  'if room >= 0 && room < lim.MaxTotalBytes {' \
-  'if false {' \
+  'lim.MaxTotalBytes = min(lim.MaxTotalBytes, room)' \
+  '_ = room' \
   ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
 control "customer uploads: a backup past its limit's room says so" internal/agent/backups.go \
   'if errors.Is(err, backup.ErrTooLarge) && room == lim.MaxTotalBytes {' \
   'if false {' \
   ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
 control "customer uploads: a backup into a server unpacks no further than its limit's room" internal/agent/backups.go \
-  'named = l.ID' \
+  'return a.namedLimitRoom(a.ctx, l.ID)' \
   'return -1, nil' \
   ./internal/agent '^TestACustomersBackupUploadIsTreatedAsHostile$'
 control "customer uploads: an archive's total size refusal is told apart" internal/backup/archive.go \
@@ -7976,12 +7976,20 @@ control "customer uploads: a backup staged for a new server counts against its l
   'n := int64(0)' \
   ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
 control "customer uploads: a newer backup is read into the room of the one it replaces" internal/agent/handlers.go \
-  'room += a.stagedFor(limit)' \
-  'room += 0' \
+  'room, err := a.roomReplacingStage(r.Context(), limit)' \
+  'room, err := a.namedLimitRoom(r.Context(), limit)' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: the staged archive takes some of the room its world unpacks into" internal/agent/backups.go \
+  'room = max(room-n, 0)' \
+  'room = max(room, 0)' \
   ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
 control "customer uploads: a newer backup unpacks into the room of the one it replaces" internal/agent/backups.go \
-  'return room + a.stagedFor(named), err' \
-  'return room, err' \
+  'return a.roomReplacingStage(a.ctx, named)' \
+  'return a.namedLimitRoom(a.ctx, named)' \
+  ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
+control "customer uploads: the replaced backup's room counts before the room is floored at nothing" internal/agent/disklimits.go \
+  'return max(l.LimitBytes-a.limitUsed(rep, l)+staged, 0), nil' \
+  'return max(l.LimitBytes-a.limitUsed(rep, l), 0) + staged, nil' \
   ./internal/agent '^TestABackupForANewServerCountsAgainstItsDiskLimit$'
 
 # The machine answers DNS for the zone the dashboard sets, for port-free

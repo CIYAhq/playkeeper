@@ -398,6 +398,24 @@ func (a *Agent) namedLimitRoom(ctx context.Context, id string) (int64, error) {
 	return max(l.LimitBytes-a.limitUsed(rep, l), 0), nil
 }
 
+// roomReplacingStage is namedLimitRoom for a backup staged for a new server,
+// which replaces the one staged against the limit before it once it's
+// staged itself, so that one's room is its too.
+func (a *Agent) roomReplacingStage(ctx context.Context, id string) (int64, error) {
+	l := a.namedLimit(id)
+	if l == nil {
+		return 0, errNoSuchLimit()
+	}
+	rep, err := a.scanDisk(ctx, nil, false)
+	if err != nil {
+		return 0, err
+	}
+	staged := a.stagedFor(id)
+	a.limits.mu.Lock()
+	defer a.limits.mu.Unlock()
+	return max(l.LimitBytes-a.limitUsed(rep, l)+staged, 0), nil
+}
+
 // joinDiskLimit counts the new server made from an upload against the disk
 // limit called id, the upload's, until the dashboard sends the limits again
 // with it.

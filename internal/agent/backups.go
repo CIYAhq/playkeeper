@@ -1281,9 +1281,10 @@ func (a *Agent) stageArchive(src io.Reader, source string, limit int64, target *
 	}
 	// It unpacks as it's read, so a world past the room its disk limit has
 	// (-1 for none) stops before it's written: a small archive can't fill
-	// the disk first.
-	if room >= 0 && room < lim.MaxTotalBytes {
-		lim.MaxTotalBytes = room
+	// the disk first. The archive, staged beside it, takes some of the room.
+	if room >= 0 {
+		room = max(room-n, 0)
+		lim.MaxTotalBytes = min(lim.MaxTotalBytes, room)
 	}
 	af, err := os.Open(arch)
 	if err != nil {
@@ -1315,15 +1316,12 @@ func (a *Agent) unpackRoom(target *server, named string) (int64, error) {
 		if l == nil {
 			return -1, nil
 		}
-		named = l.ID
+		return a.namedLimitRoom(a.ctx, l.ID)
 	}
 	if named == "" {
 		return -1, nil
 	}
-	// A newer backup for a new server replaces the one staged before, once
-	// it's staged, so it may use its room.
-	room, err := a.namedLimitRoom(a.ctx, named)
-	return room + a.stagedFor(named), err
+	return a.roomReplacingStage(a.ctx, named)
 }
 
 // stageFile is a stage's stage.json: its preview when it was staged, and the
