@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/net/publicsuffix"
+
 	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/dnszone"
 )
@@ -141,10 +143,14 @@ func relName(name, host string) (string, bool) {
 // nameserverFor is the name host's parent delegates it to: ns-<its first
 // label> beside it, such as ns-beta.playkeeper.me for beta.playkeeper.me,
 // which a record at the parent points at the machine. It's "" for a host
-// that isn't a name under another domain.
+// whose parent no owner adds records at: a top-level domain, or another
+// public suffix a registry runs, such as co.uk for example.co.uk.
 func nameserverFor(host string) string {
 	first, parent, ok := strings.Cut(host, ".")
 	if !ok || !strings.Contains(parent, ".") || len(first)+len("ns-") > 63 {
+		return ""
+	}
+	if suffix, icann := publicsuffix.PublicSuffix(parent); icann && suffix == parent {
 		return ""
 	}
 	return "ns-" + first + "." + parent

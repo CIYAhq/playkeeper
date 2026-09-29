@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -225,4 +226,23 @@ func TestOnlyAnAdminOfEveryServerSetsTheDNSAnswers(t *testing.T) {
 
 func zonesEqual(a, b dnszone.Zone) bool {
 	return a.Name == b.Name && a.Nameserver == b.Nameserver && slices.Equal(a.Records, b.Records)
+}
+
+// The nameserver a domain is handed over to sits beside it at its parent,
+// which has to be a zone its owner adds records at, not a top-level domain
+// or another public suffix a registry runs.
+func TestTheNameserverIsBesideTheDomainAtItsParent(t *testing.T) {
+	for host, want := range map[string]string{
+		"beta.playkeeper.me":                     "ns-beta.playkeeper.me",
+		"play.example.co.uk":                     "ns-play.example.co.uk",
+		"example.com":                            "",
+		"example.co.uk":                          "",
+		"example.com.au":                         "",
+		"com":                                    "",
+		strings.Repeat("a", 61) + ".example.com": "",
+	} {
+		if got := nameserverFor(host); got != want {
+			t.Errorf("%s: %q, want %q", host, got, want)
+		}
+	}
 }

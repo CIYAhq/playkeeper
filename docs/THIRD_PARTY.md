@@ -14,6 +14,7 @@ List exactly what is compiled in with `go version -m dist/playkeeper-*-linux-amd
 | golang.org/x/crypto (argon2, acme, ssh, and age's primitives) | v0.57.0 | BSD-3-Clause |
 | filippo.io/age | v1.3.2 | BSD-3-Clause |
 | filippo.io/hpke (used by age) | v0.4.0 | BSD-3-Clause |
+| golang.org/x/net (publicsuffix, for the domains a machine can answer DNS for) | v0.59.0 | BSD-3-Clause |
 | golang.org/x/sys | v0.48.0 | BSD-3-Clause |
 | modernc.org/sqlite | v1.59.0 | BSD-3-Clause |
 | modernc.org/libc | v1.75.7 | BSD-3-Clause |
