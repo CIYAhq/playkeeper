@@ -2,6 +2,10 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.8
+
+- **A crash from one broken entity:** when a minecart, a mob, or a block like a hopper or a mod's machine hits an error each time the game runs it ("Ticking entity" in the crash report), the Overview names it and where it is, instead of saying the server stopped unexpectedly. **Remove the minecart** backs the world up and takes just that one out; a block stays, without what it held. Starting again is no longer offered: the world was saved with it, so the server only crashed again until Playkeeper gave up after 3 tries.
+
 ## 0.4.7
 
 - **Sell servers on Whop (early beta):** **Settings › Sell on Whop** connects a Whop store, and each plan a buyer pays for lets them create servers on this machine within an allowance of servers, memory and disk. Buyers sign in with Whop instead of a password, hear when their server is ready, are paused when their plan ends, and come back when they renew. A plan sells only while the machines have room for it, and one dashboard sells for each Whop business.

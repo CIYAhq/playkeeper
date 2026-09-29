@@ -178,6 +178,24 @@ type RemoveAddonRequest struct {
 	Start bool   `json:"start,omitempty"`
 }
 
+// RemoveEntityRequest takes one entity, or one block entity's data, out of a
+// stopped server's world, the crash helper's fix for one that throws each
+// time the game ticks it. What is "entity" or "block_entity"; Type is its id,
+// like minecraft:minecart; X, Y and Z are its block, in Dimension; Pos, for an
+// entity, is its exact position as a crash report gives it. The world is
+// backed up first. Start starts the server afterwards.
+type RemoveEntityRequest struct {
+	Actor     string    `json:"actor"`
+	What      string    `json:"what"`
+	Type      string    `json:"type"`
+	Dimension string    `json:"dimension"`
+	X         int       `json:"x"`
+	Y         int       `json:"y"`
+	Z         int       `json:"z"`
+	Pos       []float64 `json:"pos,omitempty"`
+	Start     bool      `json:"start,omitempty"`
+}
+
 // FirstSteps is what the "Get started" checklist ticks off for a server.
 type FirstSteps struct {
 	// Invited is a name on the allowlist, if anyone is on it.

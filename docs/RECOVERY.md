@@ -96,6 +96,7 @@ The server's **Overview** explains what happened, from the server's own log (the
 Each server's files are in `/var/lib/playkeeper/servers/<id>/` (`/var/lib/playkeeper/server/` for a server that came from 0.2.0).
 
 - **A removed plugin or mod** is moved, not deleted, to the server's `removed-addons/` folder, with the time it was removed in front of its name. To put it back, stop the server, move the file into its `data/plugins/` (or `data/mods/`) folder under its original name, and start it.
+- **Something that crashes the server each time the game runs it**, like a broken minecart or a mod's machine ("Ticking entity" or "Ticking block entity" in the crash report), is named on the Overview with where it is. **Remove the …** backs the world up first, with a note naming it, and takes only that entity out of the chunk the world saves it in; **Reset the …**, for a block, takes only that block's own data, so the block stays, without what it held. It finds the chunk wherever the server keeps that dimension, on every server type. Starting again isn't offered, because the world was saved with it and it would crash again. To undo it, restore the backup it made first.
 - **To read the log yourself:** `sudo docker logs --tail 200 <container>`, with a name from `sudo docker ps -a --filter label=io.playkeeper.managed=true --format '{{.Names}}'`. Crash reports are in the server's `data/crash-reports/` folder.
 
 ## A Playkeeper update went wrong

@@ -7813,6 +7813,61 @@ webcontrol "customer deletion: Home says the plan ended once the servers are gon
   'const paused = deleted || !!ws.me.access.pausedUntil' \
   'const paused = !!ws.me.access.pausedUntil' \
   src/pages/pages.test.tsx 'offers a customer whose servers were deleted their final backups'
+control "ticking entities: what crashes each time it ticks is named" internal/diagnose/crashrules.go \
+  '	{(*crashCtx).tickingEntity, true},
+' \
+  '' \
+  ./internal/diagnose '^TestExplainCrashNamesWhatCrashesEachTimeItTicks$'
+control "ticking entities: no plain restart, which runs it again" internal/diagnose/crashticking.go \
+  '	d.Fixes = []Action{fix}' \
+  '	d.Fixes = []Action{fix, restartFix()}' \
+  ./internal/diagnose '^TestExplainCrashNamesWhatCrashesEachTimeItTicks$'
+control "ticking entities: only the entity at the exact place goes" internal/region/region.go \
+  'len(pos) == 3 && math.Abs(v-pos[i]) > 0.0051' \
+  'false && math.Abs(v-pos[i]) > 0.0051' \
+  ./internal/region '^TestRemoveEntityTakesOnlyTheOneNamed$'
+control "ticking entities: what rode it stays" internal/region/region.go \
+  '					freed = append(freed, riders.Items...)
+' \
+  '' \
+  ./internal/region '^TestRemoveEntityTakesOnlyTheOneNamed$'
+control "ticking entities: the world is backed up before it changes" internal/agent/removeentity.go \
+  '		if err := s.backupOp(ctx, h, actor, "Before removing the "+fix.label(), false); err != nil {
+			return err
+		}
+' \
+  '' \
+  ./internal/agent '^TestRemovingWhatCrashedTakesOnlyThatOneOutOfTheWorld$'
+control "ticking entities: nothing starts when it isn't there" internal/agent/removeentity.go \
+  '	if _, err := s.planEntityFix(*sc, req); err != nil {
+		writeError(w, err)
+		return
+	}' \
+  '	if false {
+		writeError(w, err)
+		return
+	}' \
+  ./internal/agent '^TestRemovingWhatCrashedIsRefusedWhereItCantHelp$'
+control "ticking entities: Paper's own Nether folder is looked in" internal/agent/removeentity.go \
+  'return []string{modern, level + "/DIM-1", level + "_nether/DIM-1"}' \
+  'return []string{modern, level + "/DIM-1"}' \
+  ./internal/agent '^TestRemovingWhatCrashedFindsItInEachLayout$'
+control "ticking entities: a dimension can't climb out of the world" internal/agent/removeentity.go \
+  '		if part == "" || part == "." || part == ".." {' \
+  '		if false {' \
+  ./internal/agent '^TestRemovingWhatCrashedIsRefusedWhereItCantHelp$'
+control "ticking entities: a fix that can't work isn't offered" internal/agent/crash.go \
+  '} else if _, err := s.planEntityFix(*sc, req); err != nil {' \
+  '} else if _, err := s.planEntityFix(*sc, req); false && err != nil {' \
+  ./internal/agent '^TestRemovingWhatCrashedIsRefusedWhereItCantHelp$'
+control "ticking entities: only an admin takes something out of a world" internal/panel/server.go \
+  'smAs(actRestore, "POST", "/api/servers/{id}/world/remove-entity", "/v1/servers/{id}/world/remove-entity"),' \
+  'smAs(actRunServers, "POST", "/api/servers/{id}/world/remove-entity", "/v1/servers/{id}/world/remove-entity"),' \
+  ./internal/panel '^TestOnlyAnAdminTakesSomethingOutOfAWorld$'
+webcontrol "ticking entities: the dashboard names it and where" web/src/lib/crash.ts \
+  "      return t('crash.ticking', { what: thingName(type), x, y, z })" \
+  "      return t('crash.tickingPlain')" \
+  web/src/lib/lib.test.ts 'names what crashes the server each time it ticks'
 
 # The machine answers DNS for the zone the dashboard sets, for port-free
 # addresses (internal/dnszone, internal/agent/dns.go): authoritative only,

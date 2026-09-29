@@ -802,6 +802,8 @@ const routes: [string, RegExp, Handler][] = [
   // Wave 3: the crash screen's fixes that act on a plugin or mod, then start
   // the server. Its update and install with `start` are Wave 1's entries.
   ['POST', /^\/api\/servers\/(\w+)\/addons\/remove-file$/, (r, state) => (addonJar.test(String((r.body as { jar?: unknown } | null)?.jar ?? '')) ? op(state, 'remove-addon', r.params[0]) : invalid('That is not the name of a plugin or mod file.'))],
+  // 0.4.8: taking an entity that crashes the server out of its world.
+  ['POST', /^\/api\/servers\/(\w+)\/world\/remove-entity$/, (r, state) => op(state, 'remove-entity', r.params[0])],
   // Wave 4: reinstalling changed software, trying a template's skipped add-ons again, and the friends' pack switch.
   ['POST', /^\/api\/servers\/(\w+)\/software\/reinstall$/, (r, state) => op(state, 'reinstall', r.params[0])],
   // Wave 4: the CurseForge key. A key typed here isn't one CurseForge knows, so it's refused as the real check would.

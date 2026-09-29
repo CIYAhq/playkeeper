@@ -13,5 +13,6 @@
 [20:01:39 INFO]: <Griefer> de/oliver/X has been compiled by a more recent version of the Java Runtime (class file version 70.0), this version of the Java Runtime only recognizes class file versions up to 69.0
 [20:01:42 INFO]: Griefer: Error occurred while enabling Shopkeepers v2.23.3 (Is it up to date?)
 [20:01:45 INFO]: [Server] You need to agree to the EULA in order to run the server.
+[20:01:47 INFO]: <Griefer> net.minecraft.ReportedException: Ticking entity
 [20:01:48 INFO]: Griefer lost connection: Disconnected
 [20:02:30 INFO]: Stopping server

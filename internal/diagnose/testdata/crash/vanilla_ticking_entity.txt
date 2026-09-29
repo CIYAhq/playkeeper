@@ -1,0 +1,35 @@
+[17:42:41] [Server thread/INFO]: Done (2.271s)! For help, type "help"
+[17:42:41] [Server thread/INFO]: Starting remote control listener
+[17:42:41] [Server thread/INFO]: Thread RCON Listener started
+[17:42:41] [Server thread/INFO]: RCON running on 0.0.0.0:25575
+[17:42:41] [Server thread/INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:overworld
+[17:42:41] [Server thread/INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:the_end
+[17:42:41] [Server thread/INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:the_nether
+[17:42:43] [RCON Listener #1/INFO]: Thread RCON Client /172.18.0.1 started
+[17:42:52] [Server thread/ERROR]: Encountered an unexpected exception
+net.minecraft.ReportedException: Ticking entity
+	at net.minecraft.server.MinecraftServer.tickChildren(MinecraftServer.java:1120)
+	at net.minecraft.server.MinecraftServer.tickServer(MinecraftServer.java:980)
+	at net.minecraft.server.dedicated.DedicatedServer.tickServer(DedicatedServer.java:278)
+	at net.minecraft.server.MinecraftServer.processPacketsAndTick(MinecraftServer.java:1013)
+	at net.minecraft.server.MinecraftServer.runServer(MinecraftServer.java:752)
+	at net.minecraft.server.MinecraftServer.lambda$spin$0(MinecraftServer.java:310)
+	at java.base/java.lang.Thread.run(Unknown Source)
+Caused by: java.lang.NullPointerException: Test error: this entity is set to fail when it ticks
+	at net.minecraft.server.level.ServerLevel.tickNonPassenger(ServerLevel.java)
+	at net.minecraft.world.level.Level.guardEntityTick(Level.java:484)
+	at net.minecraft.server.level.ServerLevel.lambda$tick$0(ServerLevel.java:457)
+	at net.minecraft.world.level.entity.EntityTickList.forEach(EntityTickList.java:53)
+	at net.minecraft.server.level.ServerLevel.tick(ServerLevel.java:427)
+	at net.minecraft.server.MinecraftServer.tickChildren(MinecraftServer.java:1116)
+	... 6 more
+[17:42:52] [Server thread/ERROR]: This crash report has been saved to: /data/crash-reports/crash-2026-09-29_17.42.52-server.txt
+[17:42:52] [Server thread/INFO]: Stopping server
+[17:42:52] [Server thread/INFO]: Saving players
+[17:42:52] [Server thread/INFO]: Saving worlds
+[17:42:52] [Server thread/INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:overworld
+[17:42:53] [Server thread/INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:the_end
+[17:42:53] [Server thread/INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:the_nether
+[17:42:53] [Server thread/INFO]: Thread RCON Listener stopped
+[17:42:53] [RCON Client /172.18.0.1 #2/INFO]: Thread RCON Client /172.18.0.1 shutting down
+[17:42:53] [Server thread/INFO]: Thread RCON Client /172.18.0.1 stopped
