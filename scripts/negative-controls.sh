@@ -7910,7 +7910,7 @@ control "creator uploads: a creator's world upload names their own limit" intern
   ./internal/panel '^TestACreatorMakesAServerFromAWorldTheyUpload$'
 control "creator uploads: a world upload names no limit the browser sent" internal/panel/customeruploads.go \
   'r.Body = io.NopCloser(bytes.NewReader(b))' \
-  '_ = b' \
+  '_ = io.NopCloser(bytes.NewReader(b))' \
   ./internal/panel '^TestACreatorMakesAServerFromAWorldTheyUpload$'
 control "creator uploads: a creator's backup upload names their own limit" internal/panel/customeruploads.go \
   'q.Set("diskLimit", accountLimit(a.UserID))' \
@@ -7919,7 +7919,7 @@ control "creator uploads: a creator's backup upload names their own limit" inter
 control "creator uploads: a world upload for a new server needs room in the allowance" internal/panel/customeruploads.go \
   'if s.refuseNewServer(w, r, a, m, 0) {
 			return' \
-  'if false {
+  'if s.refuseNewServer(w, r, a, m, 0) && false {
 			return' \
   ./internal/panel '^TestACreatorMakesAServerFromAWorldTheyUpload$'
 control "creator uploads: a backup upload for a new server needs room in the allowance" internal/panel/customeruploads.go \
@@ -7930,7 +7930,7 @@ control "creator uploads: a backup upload for a new server needs room in the all
   ./internal/panel '^TestACreatorMakesAServerFromABackupTheyUpload$'
 control "creator uploads: a server from a world fits the allowance" internal/panel/customeruploads.go \
   'if s.refuseNewServer(w, r, a, m, mb) {' \
-  'if false {' \
+  'if s.refuseNewServer(w, r, a, m, mb) && false {' \
   ./internal/panel '^TestACreatorMakesAServerFromAWorldTheyUpload$'
 control "creator uploads: a server from a backup fits the allowance" internal/panel/team.go \
   'if s.refuseNewServer(w, r, sess.Access, m, mb) {' \
@@ -7982,7 +7982,7 @@ control "creator uploads: a backup's guard asks whose it is" internal/panel/team
   ./internal/panel '^TestACreatorMakesAServerFromABackupTheyUpload$'
 control "creator uploads: a creator's limit reaches their machine before their first server" internal/panel/disklimits.go \
   'if _, ok := byAccount[uid]; !ok && (placed && home.machineID == m.ID || !placed && m.Kind == localKind) {' \
-  'if false {' \
+  'if _, ok := byAccount[uid]; !ok && (placed && home.machineID == m.ID || !placed && m.Kind == localKind) && false {' \
   ./internal/panel '^TestACreatorsLimitReachesTheirMachineBeforeTheirFirstServer$'
 control "creator uploads: a customer without a machine has no limit on one" internal/panel/disklimits.go \
   '(placed && home.machineID == m.ID || !placed && m.Kind == localKind)' \
