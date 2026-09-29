@@ -132,6 +132,39 @@ func TestAnAddressForEachServerTakesTheDashboardsHost(t *testing.T) {
 	}
 }
 
+// The managed beta's machine before any creator has a server: the owner
+// turns the switch on first, and the wildcard record is listed and checked.
+func TestTheWildcardIsCheckedBeforeTheFirstServer(t *testing.T) {
+	e := newAddressEnv(t, func(o *Options) { o.AddressInterval = 20 * time.Millisecond })
+	e.dns.set("play.example.com", testIP.String())
+	var v api.Address
+	check := map[string]any{"domain": "play.example.com", "acceptTerms": true, "panelHost": "203.0.113.10:8443", "actor": "admin"}
+	if code := e.callInto("POST", "/v1/address/check", check, &v); code != 200 || !v.Check.Ready || v.Operation == nil {
+		t.Fatalf("the machine's domain: %d %+v", code, v)
+	}
+	if op := e.waitOp(v.Operation.ID); op.Status != api.OpSucceeded {
+		t.Fatalf("the machine's certificate: %+v", op)
+	}
+	code, v := e.setServerAddresses(true)
+	if code != 200 || !v.ServerAddresses || len(v.Servers) != 0 || !slices.ContainsFunc(v.Records, func(r api.DNSRecord) bool { return r.Name == "*.play.example.com" && r.Value == testIP.String() }) {
+		t.Fatalf("turning it on with no server: %d %+v", code, v)
+	}
+	wildcard := func(ok bool) func() bool {
+		return func() bool {
+			c := e.address().Check
+			return c != nil && slices.ContainsFunc(c.Records, func(rc api.RecordCheck) bool { return rc.Record.Name == "*.play.example.com" && rc.OK == ok })
+		}
+	}
+	e.waitFor("a look with the wildcard missing", wildcard(false))
+	e.dns.set("*.play.example.com", testIP.String())
+	if _, err := e.a.checkOwn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !wildcard(true)() {
+		t.Fatalf("with the wildcard record: %+v", e.address().Check)
+	}
+}
+
 func portOf(j api.JoinAddress) string {
 	if j.Port == 25565 {
 		return ""
