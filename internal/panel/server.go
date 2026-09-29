@@ -146,6 +146,9 @@ type Server struct {
 	// so a check never writes over a token the owner just replaced (see
 	// hetzner.go).
 	hetznerMu sync.Mutex
+	// placeMu serialises placing customers, so two never get the same room
+	// (see placement.go).
+	placeMu sync.Mutex
 }
 
 func New(opts Options) (*Server, error) {

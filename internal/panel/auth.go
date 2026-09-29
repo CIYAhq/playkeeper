@@ -426,6 +426,17 @@ CREATE TABLE hetzner_watch (
   places      TEXT    NOT NULL DEFAULT '[]'
 );
 `,
+	// Placement: each customer's home machine, where their plan's memory is
+	// set aside and their servers run, or '' while they wait for room. A
+	// creator without a row, as an owner's invite makes, lives on the
+	// dashboard's own machine.
+	`
+CREATE TABLE customer_homes (
+  user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  machine_id TEXT    NOT NULL DEFAULT '',
+  placed_at  INTEGER NOT NULL
+);
+`,
 }
 
 const (
