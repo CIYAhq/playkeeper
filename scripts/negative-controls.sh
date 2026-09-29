@@ -7519,6 +7519,97 @@ webcontrol "pausing: Home tells a paused customer their plan ended" web/src/page
   "if (access.pausedUntil) return <TwoLineNotice tone=\"warning\" title={t('home.pausedTitle')} body={t('home.pausedBody', { date: formatLongDate(access.pausedUntil) })} />" \
   '' \
   src/pages/pages.test.tsx 'tells a paused customer their plan has ended'
+webcontrol "pausing: an empty Home tells a paused customer their plan ended" web/src/pages/home.tsx \
+  'const paused = !!ws.me.access.pausedUntil' \
+  'const paused = false' \
+  src/pages/pages.test.tsx 'with no servers that their plan has ended'
+control "pausing: a paused customer makes no new token" internal/panel/tokens.go \
+  'if sess.Access.Customer == CustomerPaused {' \
+  'if false {' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: only an active customer waits for room" internal/panel/readyserver.go \
+  'if a.Customer != CustomerActive {' \
+  'if a.Customer == "" {' \
+  ./internal/panel '^TestAPausedCustomerSeesTheirServersButRunsNothing$'
+control "pausing: pausing sends the machines the hold at once" internal/panel/pausing.go \
+  's.kickDiskLimits()' \
+  '' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: a paused customer's limit holds their servers" internal/panel/disklimits.go \
+  'Servers: ids, Hold: holds[uid]}' \
+  'Servers: ids}' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: a suspended customer's hold says so" internal/panel/disklimits.go \
+  'if CustomerState(state) == CustomerSuspended {' \
+  'if false {' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: others may not run or change a paused customer's server" internal/panel/pausing.go \
+  'return errServerPaused' \
+  'return nil' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: others may only look at a suspended customer's server" internal/panel/pausing.go \
+  'return errServerSuspended' \
+  'return nil' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: others may still look at a held server" internal/panel/pausing.go \
+  'if serverID == "" || act == actView || a.owner() || a.Servers.All {' \
+  'if serverID == "" || a.owner() || a.Servers.All {' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: whoever runs the Playkeeper still looks after a held server" internal/panel/pausing.go \
+  'if serverID == "" || act == actView || a.owner() || a.Servers.All {' \
+  'if serverID == "" || act == actView {' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: permitOn asks whether the server is held" internal/panel/workspace.go \
+  'return s.heldRefusal(a, act, serverID)' \
+  'return nil' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: every dashboard route asks whether its server is held" internal/panel/server.go \
+  'if err := s.permitOn(acct, rt.Act, r.PathValue("id")); err != nil {' \
+  'if err := permit(acct, rt.Act, r.PathValue("id")); err != nil {' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: a restore asks whether its server is held" internal/panel/team.go \
+  'if err := s.permitOn(sess.Access, act, p.ServerID); err != nil {' \
+  'if err := permit(sess.Access, act, p.ServerID); err != nil {' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: a world import asks whether its server is held" internal/panel/worldimports.go \
+  'if err := s.permitOn(sess.Access, need, imp.ServerID); err != nil {' \
+  'if err := permit(sess.Access, need, imp.ServerID); err != nil {' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "pausing: a token's tools ask whether their server is held" internal/panel/mcp.go \
+  'return mcpRefusal(act, b.s.heldRefusal(account, action(act), id))' \
+  'return mcpRefusal(act, nil)' \
+  ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
+control "mcp tools: a tool on one server asks about that server" internal/mcptools/tools.go \
+  'if err := access.onServer(s.act, c.server.ID); err != nil {' \
+  'if err := access.onServer(s.act, c.server.ID); false && err != nil {' \
+  ./internal/mcptools '^TestEachToolOnAServerAsksAboutThatServer$'
+
+# A disk limit's hold (internal/agent/disklimits.go): the machine starts a
+# held customer's servers for nobody.
+control "disk limits: a held server doesn't start" internal/agent/disklimits.go \
+  'if l := s.diskLimitOf(s.id); l != nil && l.Hold != "" {' \
+  'if l := s.diskLimitOf(s.id); l != nil && false {' \
+  ./internal/agent '^TestAHeldServerDoesntStart$'
+control "disk limits: every start asks about the hold" internal/agent/lifecycle.go \
+  'if err := s.holdRefusal(); err != nil {' \
+  'if err := s.holdRefusal(); false && err != nil {' \
+  ./internal/agent '^TestAHeldServerDoesntStart$'
+control "disk limits: the hold is kept" internal/agent/disklimits.go \
+  'Servers: list, Hold: l.Hold})' \
+  'Servers: list})' \
+  ./internal/agent '^TestAHeldServerDoesntStart$'
+control "disk limits: a hold that changes alone is a change" internal/agent/disklimits.go \
+  'slices.Equal(x.Servers, y.Servers) && x.Hold == y.Hold' \
+  'slices.Equal(x.Servers, y.Servers)' \
+  ./internal/agent '^TestAHeldServerDoesntStart$'
+control "disk limits: a hold's reason is bounded" internal/agent/disklimits.go \
+  'case len(l.Hold) > maxDiskLimitHold || ' \
+  'case ' \
+  ./internal/agent '^TestAHeldServerDoesntStart$'
+control "disk limits: a hold's reason is printable" internal/agent/disklimits.go \
+  'func(r rune) bool { return !unicode.IsPrint(r) }' \
+  'func(r rune) bool { return false && !unicode.IsPrint(r) }' \
+  ./internal/agent '^TestAHeldServerDoesntStart$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
