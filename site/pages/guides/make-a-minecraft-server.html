@@ -1,0 +1,165 @@
+{{/*
+path: /guides/make-a-minecraft-server
+title: How to make a Minecraft server, step by step (Java 26.3)
+description: How to make a Minecraft Java server: install Java 25, download the server jar, accept the EULA, let friends in past the new allowlist and open the port.
+label: Make a server
+h1: How to make a Minecraft server (Java Edition 26.3)
+card: How to make a Minecraft server
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: make-a-minecraft-server
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}Install Java 25, download the server jar from minecraft.net into an empty folder and run it with java -jar server.jar nogui. It stops at the EULA the first time: set eula=true in eula.txt and run it again. From Minecraft 26.3 the allowlist is on by default, so add each friend with whitelist add and their name, then open port 25565 for players outside your network.{{end}}
+
+{{define "closing-title"}}A server that stays on, without the terminal.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper sets up the server on your VPS, lets friends in with an invite link and backs it up.{{end}}
+
+{{define "side-text"}}Playkeeper sets up the server on your VPS, lets friends in with an invite link and backs it up.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="java">
+  {{template "h2n" (dict "ID" "java" "N" 1 "Text" "Install Java 25" "Toc" "Java")}}
+  <p>Minecraft 26.1 and newer need Java 25: Mojang's file for 26.3 asks for it by name, and an older Java stops the server at once. Minecraft 1.21 needs Java 21.</p>
+  <ul>
+    <li><strong>Ubuntu 24.04:</strong> <code>sudo apt install openjdk-25-jre-headless</code>. On 29 Sep the package was 25.0.4.1.</li>
+    <li><strong>Windows and macOS:</strong> Temurin 25 from Adoptium, the same Java we ran our server on.</li>
+    <li><strong>To check:</strong> <code>java -version</code> should begin <code>openjdk version "25</code>.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="download">
+  {{template "h2n" (dict "ID" "download" "N" 2 "Text" "Download the server jar" "Toc" "Download")}}
+  <p>minecraft.net's server page links the newest version's jar and gives the command to run it: <code>java -Xmx4G -Xms4G -jar</code>, the file, and <code>nogui</code>. Mojang's version list has the same jar for each version, with its SHA-1. For 26.3 it's 62 MB, so you can download and check it from a terminal:</p>
+  <div class="codeblock">
+    <div class="code-head">
+      <div class="code-tabs" role="tablist" aria-label="Steps">
+        <button type="button" class="code-tab" role="tab" id="tab-first" aria-controls="code-first" aria-selected="true">Download and start</button>
+        <button type="button" class="code-tab" role="tab" id="tab-keep" aria-controls="code-keep" aria-selected="false" tabindex="-1">Keep it running</button>
+      </div>
+      <button type="button" class="code-copy" data-copy="" hidden>{{template "icon" "copy"}}{{template "icon" "check"}}<span data-copy-label>Copy</span></button>
+    </div>
+<pre id="code-first" role="tabpanel" tabindex="0" aria-labelledby="tab-first"><span class="c"># An empty folder for the server</span>
+mkdir minecraft-server &amp;&amp; cd minecraft-server
+curl -o server.jar https://piston-data.mojang.com/v1/objects/33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c/server.jar
+sha1sum server.jar   <span class="c"># 33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c</span>
+java -Xmx2G -jar server.jar nogui
+<span class="c"># It stops at the EULA the first time</span>
+sed -i 's/eula=false/eula=true/' eula.txt
+java -Xmx2G -jar server.jar nogui</pre>
+<pre id="code-keep" role="tabpanel" tabindex="0" aria-labelledby="tab-keep" hidden><span class="c"># Run it in tmux, so it keeps going when you log out</span>
+tmux new -s minecraft
+java -Xmx2G -jar server.jar nogui
+<span class="c"># Ctrl+B, then D, leaves it running. To come back:</span>
+tmux attach -t minecraft
+<span class="c"># In the server's console, stop saves the world and quits</span>
+stop</pre>
+  </div>
+</section>
+
+<section aria-labelledby="start">
+  {{template "h2n" (dict "ID" "start" "N" 3 "Text" "Start it, and accept the EULA" "Toc" "First start")}}
+  {{template "steps" (dict "Items" (list
+    (dict "Title" "Run it once" "Text" "Ours took 4 seconds: it unpacked about 70 MB of libraries next to the jar, wrote eula.txt and server.properties, and stopped with You need to agree to the EULA in order to run the server.")
+    (dict "Title" "Accept the EULA" "Text" "Open eula.txt, change eula=false to eula=true, and save it. It's Minecraft's licence, and the server won't start without it.")
+    (dict "Title" "Run it again" "Text" "The log says Starting Minecraft server on *:25565, then Done. Ours was ready 7 seconds after it started, with a new world, and used about 600 MB of memory with nobody on.")
+  ))}}
+  <p>The EULA stop has <a href="/errors/agree-to-the-eula">its own page</a>, with the ways eula.txt goes wrong. Type <code>stop</code> in the console to save the world and quit.</p>
+</section>
+
+<section aria-labelledby="allowlist">
+  {{template "h2n" (dict "ID" "allowlist" "N" 4 "Text" "Let your friends in" "Toc" "Allowlist")}}
+  <p>Minecraft 26.3's <code>server.properties</code> starts with <code>white-list=true</code>, where 26.2's and 26.1's started with false. So a new server lets in only the players you add, and anyone else sees the game's message:</p>
+  <div class="error-card reveal">
+    <h3>A player who isn't on the list</h3>
+    <code class="err">You are not white-listed on this server!</code>
+    <p>{{template "icon" "arrow-right"}}Add them in the server's console, or set <code>white-list=false</code> to let anyone in.</p>
+  </div>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">In the console</th><th scope="col">What it answered</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>whitelist add Notch</code></th><td>Added Notch to the whitelist</td></tr>
+        <tr><th scope="row"><code>whitelist add</code> and a name with no Minecraft account</th><td>That player does not exist</td></tr>
+        <tr><th scope="row"><code>op Notch</code></th><td>Made Notch a server operator, who can use every command</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The server looks each name up with Mojang, so spell it as it is in the game. Once our test player's name was on the list, it got in.</p>
+</section>
+
+<section aria-labelledby="settings">
+  {{template "h2n" (dict "ID" "settings" "N" 5 "Text" "The settings worth a look" "Toc" "Settings")}}
+  <p>These are 26.3's own defaults in <code>server.properties</code>. Change them with the server stopped, or use the <a href="/tools/server-properties">server.properties editor</a>.</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">Setting</th><th scope="col">Default</th><th scope="col">What it does</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><code>difficulty</code></th><td>easy</td><td>peaceful, easy, normal or hard</td></tr>
+        <tr><th scope="row"><code>gamemode</code></th><td>survival</td><td>The mode new players start in</td></tr>
+        <tr><th scope="row"><code>max-players</code></th><td>20</td><td>How many can be on at once</td></tr>
+        <tr><th scope="row"><code>view-distance</code></th><td>10</td><td>How many chunks around each player the server sends</td></tr>
+        <tr><th scope="row"><code>white-list</code></th><td>true</td><td>Only players you add can join</td></tr>
+        <tr><th scope="row"><code>online-mode</code></th><td>true</td><td>Players must sign in with Mojang, which stops anyone taking another's name</td></tr>
+        <tr><th scope="row"><code>pause-when-empty-seconds</code></th><td>60</td><td>Ours logged Server empty for 60 seconds, pausing a minute after it started</td></tr>
+        <tr><th scope="row"><code>server-port</code></th><td>25565</td><td>The port players connect to</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>PvP isn't in the file any more: in 26.3 it's a game rule, and <code>gamerule pvp</code> answered Game rule pvp is currently set to true.</p>
+</section>
+
+<section aria-labelledby="port">
+  {{template "h2n" (dict "ID" "port" "N" 6 "Text" "Let players reach it" "Toc" "Port")}}
+  <ul>
+    <li><strong>On the same network,</strong> players add the computer's local address, like 192.168.1.20. The game shows the server's version and player count when it's reachable: ours showed 26.3, 0 of 20.</li>
+    <li><strong>From anywhere else,</strong> open TCP port 25565 in the computer's firewall and forward it on your router: <a href="/guides/port-forward-minecraft-server">port forwarding, step by step</a>. On a VPS there's no router, just the firewall.</li>
+    <li><strong>A server on your PC runs only while the PC is on.</strong> Friends can't play while it's off; a VPS stays on.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="backup">
+  {{template "h2n" (dict "ID" "backup" "N" 7 "Text" "Back up the world" "Toc" "Backups")}}
+  <p>The world is the <code>world</code> folder. Stop the server first, so nothing is written while you copy, then copy it somewhere else, like <code>cp -r world world-backup</code>. <a href="/errors/world-corrupted">What a damaged world does</a> shows how a backup brings one back.</p>
+</section>
+
+<section aria-labelledby="errors">
+  {{template "h2n" (dict "ID" "errors" "N" 8 "Text" "When it won't start" "Toc" "When it won't start")}}
+  <ul>
+    <li><strong>Error: LinkageError occurred while loading main class,</strong> then UnsupportedClassVersionError and class file version 69.0: 26.3 was started on an older Java, Java 21 in our test. Install Java 25.</li>
+    <li><strong>Error: Unable to access jarfile:</strong> Java can't find the file you named. <a href="/errors/unable-to-access-jarfile">The fix</a>.</li>
+    <li><strong>FAILED TO BIND TO PORT!:</strong> something else has port 25565. <a href="/errors/failed-to-bind-to-port">The fix</a>.</li>
+  </ul>
+  <p>Every error we've tested, with its fix, is on <a href="/errors">the errors page</a>.</p>
+</section>
+
+<section aria-labelledby="one-click">
+  {{template "h2n" (dict "ID" "one-click" "N" 9 "Text" "The one-click way")}}
+  <p class="p-lead">Playkeeper does all of this on a VPS you rent: Java, the server, the port and the allowlist. Install it with one command:</p>
+  {{template "install" (dict "ID" true)}}
+  <ul>
+    <li><strong>New server</strong> creates one on the Java its version needs, and keeps it on.</li>
+    <li><strong>Invite links</strong> on the Players tab put a friend on the allowlist when they type their Minecraft name, right away or once you say yes.</li>
+    <li><strong>Schedules</strong> back up each server on the days and times you choose, and the World tab restores a backup.</li>
+  </ul>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "Is it free to make a Minecraft server?" "The server software is: Mojang's jar costs nothing. It needs a computer that stays on while friends play, your own or a VPS you rent.")
+    (qa "How much RAM does a Minecraft server need?" `Ours used about 600 MB with nobody on; minecraft.net's command gives it 4 GB. Players and view distance add to that: <a href="/sizing">the sizing guide</a> suggests a size.`)
+    (qa "Why can't my friends join?" "On 26.3 the allowlist is on: add them with whitelist add. Past that, the port must be open and forwarded, and their game must be the same version.")
+    (qa "Where do I download the Minecraft server?" "From minecraft.net's server page, which links Mojang's server.jar for the newest version. Other versions are in Mojang's version list, each with its SHA-1.")
+    (qa "Which Java does a Minecraft server need?" "Java 25 for Minecraft 26.1 and newer, and Java 21 for 1.21.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/guides/port-forward-minecraft-server" "/sizing" "/guides/play-minecraft-with-friends")}}{{end}}

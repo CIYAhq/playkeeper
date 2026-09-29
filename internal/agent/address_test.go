@@ -835,6 +835,18 @@ func (e *addressEnv) settled() {
 	})
 }
 
+// loopSawServers waits until the address loop has taken the change that
+// adding or removing servers made. Until it has, its next look updates or
+// checks the servers' records under whatever address the machine has then.
+func (e *addressEnv) loopSawServers() {
+	e.t.Helper()
+	e.waitFor("the loop to see the servers", func() bool {
+		e.a.addr.mu.Lock()
+		defer e.a.addr.mu.Unlock()
+		return !e.a.addr.serversUp && len(e.a.addr.kick) == 0
+	})
+}
+
 // failSaves makes saving the address fail, as with a full disk, or work
 // again.
 func (e *addressEnv) failSaves(fail bool) {
@@ -1747,6 +1759,10 @@ func TestOwnDomainChecksTheNameBeforeHTTP01(t *testing.T) {
 	e := newAddressEnv(t, nil)
 	survival := e.addServerNamed("Survival")
 	creative := e.addServerNamed("Creative")
+	// Adding the servers kicked the address loop. Left for a look after the
+	// records are set below, that change makes the loop check them and get
+	// the certificate itself, before the second check can.
+	e.loopSawServers()
 
 	var plan api.AddressPlan
 	if code := e.callInto("GET", "/v1/address/plan?domain=Play.Example.com&panelHost=203.0.113.10:8443", nil, &plan); code != 200 {
@@ -2222,11 +2238,7 @@ func TestServerAddressesCoveredByThePublishAreNotAskedAgain(t *testing.T) {
 	look := func() { e.a.addressTick(t.Context(), false) }
 	// Adding the server kicked the loop; wait until that look has taken
 	// the change, so the one made below stays for the look after the claim.
-	e.waitFor("the loop to see the new server", func() bool {
-		e.a.addr.mu.Lock()
-		defer e.a.addr.mu.Unlock()
-		return !e.a.addr.serversUp && len(e.a.addr.kick) == 0
-	})
+	e.loopSawServers()
 
 	e.a.addr.mu.Lock()
 	e.a.addr.serversUp = true
