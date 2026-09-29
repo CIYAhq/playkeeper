@@ -118,6 +118,20 @@ func TestEveryServerGetsAnAddressUnderTheWildcard(t *testing.T) {
 	}
 }
 
+// Behind NAT the machine's public address shows only in the host the
+// dashboard was opened with. The switch takes it, as the other address
+// requests do, and the wildcard record points there.
+func TestAnAddressForEachServerTakesTheDashboardsHost(t *testing.T) {
+	e, _, _, _ := ownDomainEnvWith(t, nil)
+	var v api.Address
+	if code := e.callInto("POST", "/v1/address/server-addresses", map[string]any{"on": true, "panelHost": "198.51.100.7:8443", "actor": "admin"}, &v); code != 200 || !v.ServerAddresses {
+		t.Fatalf("turning it on from the dashboard: %d %+v", code, v)
+	}
+	if !slices.ContainsFunc(v.Records, func(r api.DNSRecord) bool { return r.Name == "*.play.example.com" && r.Value == "198.51.100.7" }) {
+		t.Fatalf("the wildcard record: %+v", v.Records)
+	}
+}
+
 // The managed beta's machine before any creator has a server: the owner
 // turns the switch on first, and the wildcard record is listed and checked.
 func TestTheWildcardIsCheckedBeforeTheFirstServer(t *testing.T) {

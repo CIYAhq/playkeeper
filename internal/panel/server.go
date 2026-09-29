@@ -131,6 +131,9 @@ type Server struct {
 	// creators serialises what creators create, resize and delete, so each
 	// change is checked against the allowance as it stands.
 	creators sync.Mutex
+	// hostStamped holds each agent route forwardTo stamps panelHost into, as
+	// "METHOD pattern", once Routes has built it: every one must take it.
+	hostStamped sync.Map
 }
 
 func New(opts Options) (*Server, error) {
@@ -1279,6 +1282,9 @@ func asActor(ctx context.Context, actor string) context.Context {
 // calling then (if set) after a request that succeeded. What the panel stamps
 // replaces anything the browser sent under the same name.
 func (s *Server) forwardTo(method, pattern string, withHost bool, then func(machine, *session, json.RawMessage)) func(http.ResponseWriter, *http.Request, *session) {
+	if withHost && method != http.MethodDelete {
+		s.hostStamped.Store(method+" "+pattern, true)
+	}
 	return func(w http.ResponseWriter, r *http.Request, sess *session) {
 		m, ok := s.target(w, r)
 		if !ok {

@@ -1620,8 +1620,9 @@ type OwnAddressRequest struct {
 // ServerAddressesRequest turns an address for each server on or off
 // (Address.ServerAddresses).
 type ServerAddressesRequest struct {
-	On    bool   `json:"on"`
-	Actor string `json:"actor"`
+	On        bool   `json:"on"`
+	PanelHost string `json:"panelHost"`
+	Actor     string `json:"actor"`
 }
 
 // FreeAddress is a free playkeeper.me address at the names service.
