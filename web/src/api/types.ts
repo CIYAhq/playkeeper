@@ -185,6 +185,8 @@ export interface ServerStatus {
   disputed?: boolean
   /** A joined machine lists this server, but the dashboard couldn't save that yet, so its requests are refused with "try again" until it can. */
   unsaved?: boolean
+  /** A joined machine's server's address without a port, under the dashboard's own domain, once public DNS finds the dashboard's zone. */
+  zoneAddress?: string
   /** A backup left world saving off since then; Playkeeper keeps turning it back on. */
   savingPausedSince?: string
   /** Why the server last stopped unexpectedly or could not start. */
