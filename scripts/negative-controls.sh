@@ -7814,6 +7814,116 @@ webcontrol "customer deletion: Home says the plan ended once the servers are gon
   'const paused = !!ws.me.access.pausedUntil' \
   src/pages/pages.test.tsx 'offers a customer whose servers were deleted their final backups'
 
+# The machine answers DNS for the zone the dashboard sets, for port-free
+# addresses (internal/dnszone, internal/agent/dns.go): authoritative only,
+# and every query from the internet parsed with bounds.
+control "dns: names outside the zone are refused" internal/dnszone/dnszone.go \
+  'case !inside || qs.class != classIN:' \
+  'case false && (!inside || qs.class != classIN):' \
+  ./internal/dnszone '^TestRefusesWhatIsntItsZone$'
+control "dns: the zone ends at a dot" internal/dnszone/dnszone.go \
+  'strings.HasSuffix(qs.name, "."+zone)' \
+  'strings.HasSuffix(qs.name, zone)' \
+  ./internal/dnszone '^TestRefusesWhatIsntItsZone$'
+control "dns: ANY is not implemented" internal/dnszone/dnszone.go \
+  'case qs.qtype == typeANY:' \
+  'case false:' \
+  ./internal/dnszone '^TestRefusesWhatIsntItsZone$'
+control "dns: a reply too large for UDP is truncated" internal/dnszone/dnszone.go \
+  'if len(out) > max {' \
+  'if false {' \
+  ./internal/dnszone '^TestALargeReplyIsTruncated$'
+control "dns: a query asks one question" internal/dnszone/dnszone.go \
+  'if q[2]&0x80 != 0 || binary.BigEndian.Uint16(q[4:6]) != 1 {' \
+  'if q[2]&0x80 != 0 {' \
+  ./internal/dnszone '^TestMalformedQueries$'
+control "dns: a label is at most 63 bytes" internal/dnszone/dnszone.go \
+  'if n > 63 || i+1+n > len(q) || i+1+n-headerLen > 255 {' \
+  'if i+1+n > len(q) || i+1+n-headerLen > 255 {' \
+  ./internal/dnszone '^TestMalformedQueries$'
+control "dns: a name is at most 255 bytes" internal/dnszone/dnszone.go \
+  'if n > 63 || i+1+n > len(q) || i+1+n-headerLen > 255 {' \
+  'if n > 63 || i+1+n > len(q) {' \
+  ./internal/dnszone '^TestMalformedQueries$'
+control "dns: a reply gets no answer" internal/dnszone/dnszone.go \
+  'if len(q) < headerLen || q[2]&0x80 != 0 {' \
+  'if len(q) < headerLen {' \
+  ./internal/dnszone '^TestMalformedQueries$'
+control "dns: only queries are answered" internal/dnszone/dnszone.go \
+  'if opcode := q[2] >> 3 & 0x0f; opcode != 0 {' \
+  'if opcode := q[2] >> 3 & 0x0f; false && opcode != 0 {' \
+  ./internal/dnszone '^TestMalformedQueries$'
+control "dns: a missing name is said to be missing" internal/dnszone/dnszone.go \
+  'if !a.nodes[qs.name] {' \
+  'if false {' \
+  ./internal/dnszone '^TestMissingNamesAndTypes$'
+control "dns: a zone isn't a top-level domain" internal/dnszone/dnszone.go \
+  'if !strings.Contains(z.Name, ".") {' \
+  'if false {' \
+  ./internal/dnszone '^TestZoneCheck$'
+control "dns: host names have no underscores" internal/dnszone/dnszone.go \
+  "case c == '_' && underscores && i == 0:" \
+  "case c == '_':" \
+  ./internal/dnszone '^TestZoneCheck$'
+control "dns: an address fits its record's type" internal/dnszone/dnszone.go \
+  'if err != nil || ip.Is4() != (r.Type == TypeA) || ip.Zone() != "" {' \
+  'if err != nil || ip.Zone() != "" {' \
+  ./internal/dnszone '^TestZoneCheck$'
+control "dns: an SRV record has a port" internal/dnszone/dnszone.go \
+  'if r.Port < 1 || r.Port > 65535 {' \
+  'if false {' \
+  ./internal/dnszone '^TestZoneCheck$'
+control "dns: a TXT record is printable and short" internal/dnszone/dnszone.go \
+  'if len(r.Value) > 255 || strings.ContainsFunc(r.Value, func(c rune) bool { return c < 0x20 || c > 0x7e }) {' \
+  'if false {' \
+  ./internal/dnszone '^TestZoneCheck$'
+control "dns: only the types answered" internal/dnszone/dnszone.go \
+  'return fmt.Errorf("the record %q has the type %q", r.Name, r.Type)' \
+  'return nil' \
+  ./internal/dnszone '^TestZoneCheck$'
+control "dns: a record's time to live is bounded" internal/dnszone/dnszone.go \
+  'if r.TTL != 0 && (r.TTL < 30 || r.TTL > 86400) {' \
+  'if false {' \
+  ./internal/dnszone '^TestZoneCheck$'
+control "dns: a zone's size is bounded" internal/dnszone/dnszone.go \
+  'if len(z.Records) > MaxRecords {' \
+  'if false {' \
+  ./internal/dnszone '^TestZoneCheck$'
+control "dns: the machine checks the zone it's sent" internal/agent/dns.go \
+  'if err := z.Check(); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestABadZoneIsRefused$'
+control "dns: a zone is numbered when it changes" internal/agent/dns.go \
+  'z.Serial = max(old.Serial+1, uint32(a.now().Unix()))' \
+  'z.Serial = old.Serial' \
+  ./internal/agent '^TestTheMachineAnswersTheZoneTheDashboardSets$'
+control "dns: an unchanged zone keeps its number" internal/agent/dns.go \
+  'changed := z.Name != old.Name || z.Nameserver != old.Nameserver || !slices.Equal(z.Records, old.Records)' \
+  'changed := true || z.Name != old.Name || z.Nameserver != old.Nameserver || !slices.Equal(z.Records, old.Records)' \
+  ./internal/agent '^TestTheMachineAnswersTheZoneTheDashboardSets$'
+control "dns: the zone lasts across a restart" internal/agent/dns.go \
+  'if err := a.kvSet(kvDNSZone, string(raw)); err != nil {' \
+  'if err := error(nil); raw == nil && err != nil {' \
+  ./internal/agent '^TestTheMachineAnswersTheZoneTheDashboardSets$'
+control "dns: the zone is read back at start" internal/agent/dns.go \
+  'a.dns.answerer.Set(z)
+	return nil' \
+  '_ = z
+	return nil' \
+  ./internal/agent '^TestTheMachineAnswersTheZoneTheDashboardSets$'
+control "dns: turning the answers off stops them" internal/agent/dns.go \
+  'if changed && (z.Name == "") != (old.Name == "") || z.Name != "" && len(a.dnsStatus().Listening) == 0 {' \
+  'if z.Name != "" && len(a.dnsStatus().Listening) == 0 {' \
+  ./internal/agent '^TestTheMachineAnswersTheZoneTheDashboardSets$'
+control "dns: no zone, no answers" internal/agent/dns.go \
+  'if d.answerer.Zone().Name == "" {' \
+  'if false {' \
+  ./internal/agent '^TestTheMachineAnswersTheZoneTheDashboardSets$'
+control "dns: an address in use is said" internal/agent/dns.go \
+  'problems = append(problems, dnsBindProblem(addr, err))' \
+  '_ = addr' \
+  ./internal/agent '^TestAnAddressInUseIsSaid$'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
