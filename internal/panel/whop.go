@@ -48,8 +48,8 @@ type whopView struct {
 	// Webhook says whether Whop tells the dashboard about memberships as
 	// they change; without it, the dashboard still reads them every few
 	// minutes.
-	Webhook bool            `json:"webhook"`
-	Buyers  []whopBuyerView `json:"buyers"`
+	Webhook   bool               `json:"webhook"`
+	Customers []whopCustomerView `json:"customers"`
 	// Needs are the permissions the key needs, for the steps to make one.
 	Needs []string `json:"needs"`
 	// Notice, on the answer to a disconnect alone, is what the owner still
@@ -129,7 +129,7 @@ func msTimeOrZero(ms int64) time.Time {
 
 // whopView reads Settings › Sell on Whop as it stands.
 func (s *Server) whopView(ctx context.Context) (whopView, error) {
-	v := whopView{Plans: []whopPlanView{}, Buyers: []whopBuyerView{}, Needs: whop.Needs}
+	v := whopView{Plans: []whopPlanView{}, Customers: []whopCustomerView{}, Needs: whop.Needs}
 	v.Dashboard, _ = s.dashboardURL(ctx)
 	a, ok, err := s.storedWhop()
 	if err != nil || !ok {
@@ -138,7 +138,7 @@ func (s *Server) whopView(ctx context.Context) (whopView, error) {
 	acc := a.Account
 	v.Connected, v.Account, v.KeyEnding, v.ConnectedBy, v.Problem = true, &acc, whop.Ending(a.Key), a.ConnectedBy, a.Problem
 	v.Webhook = a.WebhookID != "" && v.Dashboard != "" && a.WebhookURL == v.Dashboard+whopWebhookPath
-	if v.Buyers, err = s.whopBuyers(ctx); err != nil {
+	if v.Customers, err = s.whopCustomerViews(ctx); err != nil {
 		return v, err
 	}
 	v.ConnectedAt = &a.ConnectedAt
@@ -146,7 +146,7 @@ func (s *Server) whopView(ctx context.Context) (whopView, error) {
 		v.SyncedAt = &a.SyncedAt
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT plan_id, product_id, product_title, title, price, visibility, trial_days, allowance_servers, allowance_memory_mb, allowance_from
-		FROM whop_plans ORDER BY position`)
+		FROM whop_plans WHERE visibility != 'archived' ORDER BY position`)
 	if err != nil {
 		return v, err
 	}
@@ -402,7 +402,8 @@ func (s *Server) hWhopDisconnect(w http.ResponseWriter, r *http.Request, sess *s
 		}
 	}
 	err = s.immediate(r.Context(), func(c *sql.Conn) error {
-		for _, q := range []string{`DELETE FROM whop_plans`, `DELETE FROM whop_memberships`, `DELETE FROM whop_buyers`, `DELETE FROM whop_deliveries`, `DELETE FROM whop_account`} {
+		for _, q := range []string{`DELETE FROM whop_plans`, `DELETE FROM whop_memberships`, `DELETE FROM whop_customers`, `DELETE FROM whop_messages`,
+			`DELETE FROM whop_deliveries`, `DELETE FROM whop_account`} {
 			if _, err := c.ExecContext(r.Context(), q); err != nil {
 				return err
 			}
@@ -489,13 +490,12 @@ func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, accountID st
 			owned[id] = al
 		}
 		rows.Close()
-		if _, err := conn.ExecContext(ctx, `DELETE FROM whop_plans`); err != nil {
+		// A plan someone still has stays, even once it's archived or gone
+		// from the list, so its customers keep what it gives them.
+		if _, err := conn.ExecContext(ctx, `DELETE FROM whop_plans WHERE plan_id NOT IN (SELECT plan_id FROM whop_memberships)`); err != nil {
 			return err
 		}
 		for i, p := range plans {
-			if p.Visibility == "archived" {
-				continue
-			}
 			var al invites.Allowance
 			from := ""
 			if n, mb, ok := whop.PlanAllowance(p.Metadata); ok && (invites.Allowance{Servers: n, MemoryMB: mb}).Check() == nil {
@@ -503,11 +503,15 @@ func (s *Server) readWhopStore(ctx context.Context, c *whop.Client, accountID st
 			} else if o, ok := owned[p.ID]; ok {
 				al, from = o, "owner"
 			}
-			if !al.IsZero() {
+			if !al.IsZero() && p.Visibility != "archived" {
 				selling[p.Product.ID] = true
 			}
-			if _, err := conn.ExecContext(ctx, `INSERT INTO whop_plans(plan_id, product_id, product_title, title, price, visibility, trial_days, allowance_servers, allowance_memory_mb, allowance_from, position)
-				VALUES(?,?,?,?,?,?,?,?,?,?,?)`, p.ID, p.Product.ID, p.Product.Title, p.Title, p.Price(), p.Visibility, p.TrialDays, al.Servers, al.MemoryMB, from, i); err != nil {
+			if _, err := conn.ExecContext(ctx, `INSERT INTO whop_plans(plan_id, product_id, product_title, title, price, visibility, trial_days, allowance_servers, allowance_memory_mb, allowance_from, disk_gb, position)
+				VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+				ON CONFLICT(plan_id) DO UPDATE SET product_id = excluded.product_id, product_title = excluded.product_title, title = excluded.title, price = excluded.price,
+				visibility = excluded.visibility, trial_days = excluded.trial_days, allowance_servers = excluded.allowance_servers, allowance_memory_mb = excluded.allowance_memory_mb,
+				allowance_from = excluded.allowance_from, disk_gb = excluded.disk_gb, position = excluded.position`,
+				p.ID, p.Product.ID, p.Product.Title, p.Title, p.Price(), p.Visibility, p.TrialDays, al.Servers, al.MemoryMB, from, whop.PlanDiskGB(p.Metadata), i); err != nil {
 				return err
 			}
 		}
@@ -542,7 +546,7 @@ func (s *Server) markWhopProducts(ctx context.Context, c *whop.Client, accountID
 	}
 	selling := map[string]bool{}
 	if dash != "" {
-		rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT product_id FROM whop_plans WHERE allowance_from != ''`)
+		rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT product_id FROM whop_plans WHERE allowance_from != '' AND visibility != 'archived'`)
 		if err != nil {
 			return err
 		}

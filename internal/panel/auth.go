@@ -341,17 +341,20 @@ CREATE TABLE whop_plans (
   position            INTEGER NOT NULL DEFAULT 0
 );
 `,
-	// Sell on Whop's buyers: the webhook Whop sends membership events to,
-	// with its signing secret; each membership of a plan the store sells, as
-	// the dashboard last heard of it; each buyer, with the invite Sell on
-	// Whop sent them, the support chat it went to and the account they made
-	// (cleared if the owner removes it, while joined_at stays); and the
-	// deliveries already handled, so a retried one counts once.
+	// Sell on Whop's customers: the webhook Whop sends membership events to,
+	// with its signing secret; each plan's disk, when its metadata says one;
+	// each membership of the store's plans as the dashboard last heard of
+	// it, and whether its cancellation was reminded; each customer, with the
+	// plan last given to the hosting core, whether their plans' end paused
+	// them, what went wrong and the support chat with them; the messages for
+	// customers, waiting to go or sent; and the deliveries already handled,
+	// so a retried one counts once.
 	`
 ALTER TABLE whop_account ADD COLUMN webhook_id     TEXT    NOT NULL DEFAULT '';
 ALTER TABLE whop_account ADD COLUMN webhook_url    TEXT    NOT NULL DEFAULT '';
 ALTER TABLE whop_account ADD COLUMN webhook_secret TEXT    NOT NULL DEFAULT '';
 ALTER TABLE whop_account ADD COLUMN polled_at      INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_plans ADD COLUMN disk_gb INTEGER NOT NULL DEFAULT 0;
 CREATE TABLE whop_memberships (
   membership_id        TEXT    PRIMARY KEY,
   whop_user_id         TEXT    NOT NULL,
@@ -360,22 +363,33 @@ CREATE TABLE whop_memberships (
   cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
   period_end           INTEGER NOT NULL DEFAULT 0,
   stale                INTEGER NOT NULL DEFAULT 0,
+  told_cancel          INTEGER NOT NULL DEFAULT 0,
   updated_at           INTEGER NOT NULL
 );
 CREATE INDEX whop_memberships_user ON whop_memberships(whop_user_id);
-CREATE TABLE whop_buyers (
+CREATE TABLE whop_customers (
   whop_user_id TEXT    PRIMARY KEY,
-  username     TEXT    NOT NULL DEFAULT '',
-  user_id      INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  joined_at    INTEGER NOT NULL DEFAULT 0,
-  invite_id    TEXT    NOT NULL DEFAULT '',
-  invited_at   INTEGER NOT NULL DEFAULT 0,
-  channel_id   TEXT    NOT NULL DEFAULT '',
+  handle       TEXT    NOT NULL DEFAULT '',
+  applied      TEXT    NOT NULL DEFAULT '',
+  paused       INTEGER NOT NULL DEFAULT 0,
   attempts     INTEGER NOT NULL DEFAULT 0,
   next_try_at  INTEGER NOT NULL DEFAULT 0,
+  problem      TEXT    NOT NULL DEFAULT '',
+  channel_id   TEXT    NOT NULL DEFAULT '',
+  updated_at   INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE whop_messages (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  whop_user_id TEXT    NOT NULL,
+  kind         TEXT    NOT NULL DEFAULT '',
+  text         TEXT    NOT NULL,
+  created_at   INTEGER NOT NULL,
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  next_try_at  INTEGER NOT NULL DEFAULT 0,
+  sent_at      INTEGER NOT NULL DEFAULT 0,
   problem      TEXT    NOT NULL DEFAULT ''
 );
-CREATE INDEX whop_buyers_invite ON whop_buyers(invite_id);
+CREATE INDEX whop_messages_waiting ON whop_messages(sent_at, id);
 CREATE TABLE whop_deliveries (
   id          TEXT    PRIMARY KEY,
   received_at INTEGER NOT NULL

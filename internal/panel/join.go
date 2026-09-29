@@ -527,11 +527,6 @@ func (s *Server) hJoinAccept(w http.ResponseWriter, r *http.Request, _ *session)
 		}
 		_, err = conn.ExecContext(r.Context(), `INSERT INTO project_members(project_id, user_id, role, servers, allowance_servers, allowance_memory_mb, created_at)
 			VALUES(?,?,?,?,?,?,?)`, grant.ProjectID, id, grant.Role, grant.Servers.String(), grant.Allowance.Servers, grant.Allowance.MemoryMB, now)
-		if err != nil {
-			return err
-		}
-		// An invite Sell on Whop sent: its buyer now has this account.
-		_, err = conn.ExecContext(r.Context(), `UPDATE whop_buyers SET user_id = ?, joined_at = ? WHERE invite_id = ?`, id, now, inv.ID)
 		return err
 	})
 	switch {

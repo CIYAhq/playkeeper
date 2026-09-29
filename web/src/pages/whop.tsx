@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type FormEvent } from 'react'
 import { ExternalLinkIcon, KeyRoundIcon, RefreshCwIcon, UnplugIcon } from 'lucide-react'
 import { ApiError, del, get, post, put } from '@/api/client'
-import type { WhopBuyer, WhopPlan, WhopStore } from '@/api/types'
+import type { WhopCustomer, WhopPlan, WhopStore } from '@/api/types'
 import { errorText, useWorkspace } from '@/api/workspace'
 import { Card, CardTitle, Marker } from '@/components/app/bits'
 import { ChoiceSelect, useIsPhone } from '@/components/app/controls'
@@ -261,14 +261,14 @@ function Connected({ store, onChange }: { store: WhopStore; onChange: (s: WhopSt
           ))}
         </ul>
       )}
-      <h3 className="mt-4 text-[13px] font-semibold">{t('whop.buyers')}</h3>
+      <h3 className="mt-4 text-[13px] font-semibold">{t('whop.customers')}</h3>
       {store.dashboard && !store.webhook && <p className="mt-1 text-xs text-muted-foreground">{t('whop.noWebhook')}</p>}
-      {store.buyers.length === 0 ? (
-        <p className="py-3 text-[13px] text-muted-foreground">{t('whop.noBuyers')}</p>
+      {store.customers.length === 0 ? (
+        <p className="py-3 text-[13px] text-muted-foreground">{t('whop.noCustomers')}</p>
       ) : (
         <ul className="divide-y divide-border">
-          {store.buyers.map((b) => (
-            <BuyerRow key={b.whopUserId} buyer={b} />
+          {store.customers.map((c) => (
+            <CustomerRow key={c.whopUserId} customer={c} />
           ))}
         </ul>
       )}
@@ -304,36 +304,33 @@ function PlanRow({ plan, onEdit }: { plan: WhopPlan; onEdit: () => void }) {
   )
 }
 
-function buyerStatus(b: WhopBuyer): string {
-  switch (b.status) {
-    case 'invited':
-      return b.invitedAt ? t('whop.buyer.invited', { when: relativeTime(b.invitedAt) }) : t('whop.buyer.sending')
-    case 'joined':
-      return t('whop.buyer.joined', { account: b.account ?? '' })
-    case 'removed':
-      return t('whop.buyer.removed')
-    case 'turned_off':
-      return t('whop.buyer.turnedOff')
-    case 'sending':
-      return t('whop.buyer.sending')
+function customerStatus(c: WhopCustomer): string {
+  switch (c.status) {
+    case 'starting':
+      return t('whop.customer.starting')
+    case 'active':
+      return c.account ? t('whop.customer.activeAs', { account: c.account }) : t('whop.customer.active')
+    case 'paused':
+      return t('whop.customer.paused')
     case 'ended':
-      return t('whop.buyer.ended')
+      return t('whop.customer.ended')
     default: {
-      const unreachable: never = b.status
+      const unreachable: never = c.status
       return unreachable
     }
   }
 }
 
-function BuyerRow({ buyer }: { buyer: WhopBuyer }) {
+function CustomerRow({ customer }: { customer: WhopCustomer }) {
+  const plan = [customer.plan, customer.allowance && allowanceText(customer.allowance)].filter(Boolean).join(t('common.dot'))
   return (
     <li className="py-3">
-      <p className="text-[13px] leading-5 font-semibold">{buyer.username || buyer.whopUserId}</p>
+      <p className="text-[13px] leading-5 font-semibold">{customer.handle || customer.whopUserId}</p>
       <p className="mt-1 text-xs text-muted-foreground">
-        {buyerStatus(buyer)}
-        {buyer.allowance && `${t('common.dot')}${allowanceText(buyer.allowance)}`}
+        {customerStatus(customer)}
+        {plan && `${t('common.dot')}${plan}`}
       </p>
-      {buyer.problem && <p className="mt-1 text-xs text-destructive-foreground">{buyer.problem}</p>}
+      {customer.problem && <p className="mt-1 text-xs text-destructive-foreground">{customer.problem}</p>}
     </li>
   )
 }

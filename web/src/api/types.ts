@@ -1887,20 +1887,21 @@ export interface WhopStore {
   plans: WhopPlan[]
   /** Whether Whop tells the dashboard about memberships as they change; it also reads them every few minutes. */
   webhook: boolean
-  buyers: WhopBuyer[]
+  customers: WhopCustomer[]
   needs: string[]
   /** On the answer to a disconnect alone: what the owner still has to do on Whop. */
   notice?: string
 }
 
-/** A buyer of the store: invited (a working invite was sent), joined (made their account), removed (the owner removed it), turned_off (the owner turned their invite off), sending (no invite could be sent yet) or ended (no plan grants access). */
-export interface WhopBuyer {
+/** A customer of the store: starting (their plan asks for hosting this machine hasn't given yet), active, paused (their plans ended) or ended (no plan grants access, and they never started). */
+export interface WhopCustomer {
   whopUserId: string
-  username?: string
-  status: 'invited' | 'joined' | 'removed' | 'turned_off' | 'sending' | 'ended'
-  account?: string
+  handle?: string
+  status: 'starting' | 'active' | 'paused' | 'ended'
+  plan?: string
   allowance?: Allowance
-  invitedAt?: string
+  /** Their account on this dashboard, once it's made. */
+  account?: string
   problem?: string
 }
 

@@ -135,9 +135,13 @@ type Server struct {
 	// "METHOD pattern", once Routes has built it: every one must take it.
 	hostStamped sync.Map
 	// whopMu serialises changes to Sell on Whop (see whop.go), and whopKick
-	// has its reconciler look now (see whop_buyers.go).
+	// has its reconciler look now (see whop_customers.go).
 	whopMu   sync.Mutex
 	whopKick chan struct{}
+	// hosting is the hosting core billing providers call, and notifier what
+	// the core calls to tell customers something (see hosting.go).
+	hosting  hostingCore
+	notifier customerNotifier
 }
 
 func New(opts Options) (*Server, error) {
@@ -196,7 +200,9 @@ func New(opts Options) (*Server, error) {
 		auditMaxAge: 365 * 24 * time.Hour,
 		maxAudit:    100_000,
 		whopKick:    make(chan struct{}, 1),
+		hosting:     noHostingCore{},
 	}
+	s.notifier = billingNotifier{s: s}
 	s.activePacks = &activePacks{fetch: s.fetchActivePacks, now: opts.Now}
 	s.public = newPublicGroup(s.publicRoutes(), opts.Now)
 	s.page = s.newPageSite()

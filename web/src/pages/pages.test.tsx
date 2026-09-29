@@ -1780,7 +1780,7 @@ describe('Add-on sources', () => {
 
 describe('Sell on Whop', () => {
   const needs = ['access_pass:basic:read', 'plan:basic:read', 'support_chat:create']
-  const closed: WhopStore = { connected: false, dashboard: 'https://my-vps.playkeeper.me:8443', plans: [], webhook: false, buyers: [], needs }
+  const closed: WhopStore = { connected: false, dashboard: 'https://my-vps.playkeeper.me:8443', plans: [], webhook: false, customers: [], needs }
   const starter: WhopPlan = { id: 'plan_starter', productId: 'prod_mc', productTitle: 'Minecraft server', title: 'Starter', price: '$8.00 / month', visibility: 'hidden', trialDays: 3, allowance: { servers: 1, memoryMB: 4096 }, allowanceFrom: 'store' }
   const big: WhopPlan = { id: 'plan_big', productId: 'prod_mc', productTitle: 'Minecraft server', title: 'Big', price: '$16.00 / month', visibility: 'visible' }
   const open: WhopStore = {
@@ -1792,10 +1792,11 @@ describe('Sell on Whop', () => {
     syncedAt: hoursAgo(1),
     plans: [starter, big],
     webhook: true,
-    buyers: [
-      { whopUserId: 'user_alex', username: 'alexplays', status: 'joined', account: 'alex', allowance: { servers: 1, memoryMB: 4096 } },
-      { whopUserId: 'user_sam', username: 'samcrafts', status: 'invited', invitedAt: hoursAgo(2), allowance: { servers: 2, memoryMB: 8192 } },
-      { whopUserId: 'user_kai', status: 'sending', allowance: { servers: 1, memoryMB: 4096 }, problem: 'Playkeeper couldn’t reach Whop.' },
+    customers: [
+      { whopUserId: 'user_alex', handle: 'alexplays', status: 'active', plan: 'Starter', account: 'alexplays', allowance: { servers: 1, memoryMB: 4096 } },
+      { whopUserId: 'user_sam', handle: 'samcrafts', status: 'paused', plan: 'Old plan', allowance: { servers: 2, memoryMB: 8192 } },
+      { whopUserId: 'user_kai', status: 'starting', plan: 'Starter', allowance: { servers: 1, memoryMB: 4096 }, problem: 'This dashboard can’t host customers yet.' },
+      { whopUserId: 'user_lee', handle: 'leebuilds', status: 'ended' },
     ],
   }
   const owner = workspace({ me: { ...me, access: { ...me.access, can: [...everything, 'whop.manage'] } } })
@@ -1858,17 +1859,18 @@ describe('Sell on Whop', () => {
     expect(text).toContain('BigVisible$16.00 / month · No allowance yet')
     expect(buttons('Set allowance')).toHaveLength(1)
     expect(keyField()).toBeNull()
-    expect(text).toContain('alexplaysJoined as alex · Up to 1 server with 4 GB')
-    expect(text).toContain('samcraftsInvite sent 2 h ago · Up to 2 servers with 8 GB')
-    expect(text).toContain('user_kaiSending their invite · Up to 1 server with 4 GBPlaykeeper couldn’t reach Whop.')
+    expect(text).toContain('alexplaysActive as alexplays · Starter · Up to 1 server with 4 GB')
+    expect(text).toContain('samcraftsPaused: their plan ended · Old plan · Up to 2 servers with 8 GB')
+    expect(text).toContain('user_kaiSetting up their account · Starter · Up to 1 server with 4 GBThis dashboard can’t host customers yet.')
+    expect(text).toContain('leebuildsTheir plan ended')
     expect(text).not.toContain('checks every few minutes')
   })
 
-  it('says when Whop can’t tell the dashboard about buyers as they buy', async () => {
-    answer({ '/api/whop': { ...open, webhook: false, buyers: [] } })
+  it('says when Whop can’t tell the dashboard about customers as they buy', async () => {
+    answer({ '/api/whop': { ...open, webhook: false, customers: [] } })
     const text = await render(<SellOnWhopSection />, owner)
     expect(text).toContain('so it checks every few minutes')
-    expect(text).toContain('No buyers yet.')
+    expect(text).toContain('No customers yet.')
   })
 
   it('sets what a plan without metadata allows', async () => {
