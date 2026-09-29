@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"html"
 	"io/fs"
 	"os"
 	"regexp"
@@ -23,6 +24,9 @@ type mergedFS struct {
 }
 
 const thumbDir = "site/static/shots/templates"
+
+// reCardName finds the template a template card opens, as its link says.
+var reCardName = regexp.MustCompile(`<span class="visually-hidden"> the (.+?) template</span>`)
 
 func (m mergedFS) Open(name string) (fs.File, error) {
 	if f, ok := m.extra[name]; ok && !f.Mode.IsDir() {
@@ -102,16 +106,18 @@ func TestThumbnailsTakeTheScenesPlace(t *testing.T) {
 	plain := build(t, Default)
 	idx := indexOf(t, plain)
 	first := idx.Templates[0].ID
-	extra := thumbFiles("towny")
-	for k, v := range thumbFiles(first) {
-		extra[k] = v
+	withThumb := map[string]bool{"towny": true, first: true, "survival-with-friends": true, "cobblemon": true}
+	extra := fstest.MapFS{}
+	for id := range withThumb {
+		for k, v := range thumbFiles(id) {
+			extra[k] = v
+		}
 	}
 	o, err := buildWith(extra)
 	if err != nil {
 		t.Fatal(err)
 	}
 	built := pages(o)
-	withThumb := map[string]bool{"towny": true, first: true}
 	hub := built["/templates"]
 	for i, e := range indexOf(t, o).Templates {
 		card := cardOf(hub, e.Page)
@@ -137,6 +143,47 @@ func TestThumbnailsTakeTheScenesPlace(t *testing.T) {
 	}
 	if !strings.Contains(built["/templates/towny"], `class="cat-scene is-photo"`) || !strings.Contains(built["/templates/towny"], `media="(min-width: 1024px)" fetchpriority="high">`) {
 		t.Error("/templates/towny's picture isn't Towny's thumbnail, asked for early on screens that show it")
+	}
+	// So does the template card on the landing page, the guides and the
+	// modpack pages.
+	cards, err := loadTemplateCards(os.DirFS("../.."), "site/data/templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]string{}
+	for id, c := range cards {
+		byName[c.Name] = id
+	}
+	photos := map[string]int{}
+	for p, page := range built {
+		for _, c := range strings.Split(page, `<article class="tpl-card reveal">`)[1:] {
+			c, _, _ = strings.Cut(c, "</article>")
+			m := reCardName.FindStringSubmatch(c)
+			if m == nil || byName[html.UnescapeString(m[1])] == "" {
+				t.Errorf("a template card on %s doesn't name a template: %s", p, c)
+				continue
+			}
+			id := byName[html.UnescapeString(m[1])]
+			photo := strings.Contains(c, `class="tpl-art is-photo"><picture><source type="image/avif" srcset="/assets/shots/templates/`+id+`-480w.`)
+			if photo != withThumb[id] {
+				t.Errorf("%s's card on %s shows its thumbnail %v, want %v", id, p, photo, withThumb[id])
+			}
+			if photo {
+				photos[p]++
+				for _, w := range thumbWidths {
+					for _, ext := range []string{"avif", "webp"} {
+						if !regexp.MustCompile(fmt.Sprintf(`/assets/shots/templates/%s-%dw\.[0-9a-f]+\.%s %dw`, id, w, ext, w)).MatchString(c) {
+							t.Errorf("%s's card on %s doesn't offer its %dw %s", id, p, w, ext)
+						}
+					}
+				}
+			}
+		}
+	}
+	for _, p := range []string{"/", "/guides/play-minecraft-with-friends", "/guides/modded-minecraft-server", "/modpacks/cobblemon-server"} {
+		if photos[p] == 0 {
+			t.Errorf("no template card on %s shows a thumbnail", p)
+		}
 	}
 	// Every page's pictures keep the site's rules for screenshots.
 	for p, html := range built {

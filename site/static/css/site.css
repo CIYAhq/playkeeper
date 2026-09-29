@@ -444,6 +444,7 @@ main:focus { outline: none; }
 .tpl-card { display: flex; flex-direction: column; border: 1px solid var(--twine); border-radius: var(--radius); background: var(--white); overflow: hidden; }
 .tpl-art { aspect-ratio: 204 / 118; background: #cfe6f7; overflow: hidden; }
 .tpl-art img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
+.tpl-art.is-photo img { image-rendering: auto; }
 .tpl-body { display: flex; flex: 1; flex-direction: column; padding: 18px 20px 20px; }
 .tpl-name { font-size: 19px; letter-spacing: -0.02em; }
 .tpl-facts { margin: 6px 0 0; font-size: 15px; font-weight: 500; }
