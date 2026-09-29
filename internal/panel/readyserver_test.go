@@ -124,6 +124,40 @@ func TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears(t *testing.T) {
 	}
 }
 
+// A customer placed once room appeared whose ready message couldn't be sent
+// is told by the next round, though they have a home by then.
+func TestAReadyMessageThatFailedAfterPlacingIsSentLater(t *testing.T) {
+	e := newJoinEnv(t)
+	owner(t, e.env)
+	e.reply("GET", "/v1/machine", liveMachine(0, true))
+	e.reply("GET", "/v1/servers", `[]`)
+	n := &recordingNotifier{}
+	e.srv.notifier = n
+	core := customerCore{s: e.srv}
+	ctx := context.Background()
+	if _, err := core.StartCustomer(ctx, Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
+		t.Fatal(err)
+	}
+	info, _, _ := core.CustomerAccount(ctx, whopProvider, "user_alex")
+	e.reply("GET", "/v1/machine", liveMachine(30000, true))
+	n.mu.Lock()
+	n.fail = errors.New("the provider is away")
+	n.mu.Unlock()
+	if err := e.srv.startWaitingCustomer(ctx, info.UserID); err == nil {
+		t.Fatal("placing alex whose ready message couldn't be sent went through")
+	}
+	if _, ok, _ := e.srv.homeMachine(ctx, info.UserID); !ok {
+		t.Fatal("alex wasn't placed")
+	}
+	n.mu.Lock()
+	n.fail = nil
+	n.mu.Unlock()
+	e.srv.startWaitingCustomers(ctx)
+	if k := n.kinds(); !slices.Equal(k, []string{messageSettingUp, messageReady}) {
+		t.Fatalf("what alex was told: %v", k)
+	}
+}
+
 // A customer paused while waiting gets no server and no ready message when
 // room appears, and a suspended one isn't told it's ready when their plan
 // starts again.

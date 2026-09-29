@@ -280,10 +280,11 @@ func (s *Server) runCustomers(ctx context.Context) {
 }
 
 // startWaitingCustomers asks placement again for each active customer with
-// no home machine yet.
+// no home machine yet, and for each one placed but not yet told their server
+// is ready, whose message failed.
 func (s *Server) startWaitingCustomers(ctx context.Context) {
 	rows, err := s.db.QueryContext(ctx, `SELECT c.user_id FROM customers c LEFT JOIN customer_homes h ON h.user_id = c.user_id
-		WHERE c.state = ? AND COALESCE(h.machine_id, '') = '' ORDER BY c.created_at`, string(CustomerActive))
+		WHERE c.state = ? AND (COALESCE(h.machine_id, '') = '' OR c.told_ready = 0) ORDER BY c.created_at`, string(CustomerActive))
 	if err != nil {
 		s.log.Error("could not list the customers waiting for room", "err", err)
 		return
