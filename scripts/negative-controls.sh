@@ -7940,6 +7940,62 @@ control "dns: a star is nowhere but a wildcard's first label" internal/dnszone/d
   "case c == '_' && underscores && i == 0, c == '*' && underscores:" \
   ./internal/dnszone '^TestZoneCheck$'
 
+# The dashboard's DNS answers for its machine's own domain (port-free
+# addresses): who may set them, what goes in the zone, and when the zone
+# stays or goes.
+control "dns answers: only an admin of every server reads them" internal/panel/server.go \
+  '{"GET", "/api/dns-answers", needSession, actManageMachine, s.hDNSAnswers},' \
+  '{"GET", "/api/dns-answers", needSession, actView, s.hDNSAnswers},' \
+  ./internal/panel '^TestOnlyAnAdminOfEveryServerSetsTheDNSAnswers$'
+control "dns answers: only an admin of every server sets them" internal/panel/server.go \
+  '{"PUT", "/api/dns-answers", needSessionCSRF, actManageMachine, s.hDNSAnswersSet},' \
+  '{"PUT", "/api/dns-answers", needSessionCSRF, actView, s.hDNSAnswersSet},' \
+  ./internal/panel '^TestOnlyAnAdminOfEveryServerSetsTheDNSAnswers$'
+control "dns answers: only an own domain is answered" internal/panel/dnsanswers.go \
+  'case addr.Kind != api.AddressOwn || host == "":' \
+  'case host == "":' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: off takes the zone away" internal/panel/dnsanswers.go \
+  'if _, err := s.agent.Do(ctx, "GET", "/v1/dns-zone", nil, nil, &st); err != nil || st.Zone.Name == "" {' \
+  'if _, err := s.agent.Do(ctx, "GET", "/v1/dns-zone", nil, nil, &st); true || err != nil || st.Zone.Name == "" {' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: an address that can't be read keeps the zone" internal/panel/dnsanswers.go \
+  '		if _, err := s.agent.Do(ctx, "GET", "/v1/address", nil, nil, &addr); err != nil {' \
+  '		if _, err := s.agent.Do(ctx, "GET", "/v1/address", nil, nil, &addr); err != nil && false {' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: an address with no IP address keeps the zone" internal/panel/dnsanswers.go \
+  'case api.DNSUnavailableAddress:' \
+  'case "never":' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: a record the zone can't hold is left out, not the zone refused" internal/panel/dnsanswers.go \
+  'if one.Check() == nil {' \
+  'if one.Check() == nil || true {' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: records outside the zone stay out of it" internal/panel/dnsanswers.go \
+  'rel, ok := relName(r.Name, host)' \
+  'rel, ok := relName(r.Name, host); ok = true' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+control "dns answers: a server's name keeps its own address record" internal/panel/dnsanswers.go \
+  'p.addRecord(dnszone.Record{Name: j.Label, Type: m.Type, Value: m.Value})' \
+  '_ = m' \
+  ./internal/panel '^TestTheDashboardAnswersDNSForItsOwnDomain$'
+webcontrol "dns answers: the switch is only on the dashboard's own machine" web/src/pages/machine-settings/own.tsx \
+  '...(local ? [<DNSAnswersRow key="dns" />] : []),' \
+  '...[<DNSAnswersRow key="dns" />],' \
+  web/src/pages/machine-settings/address.test.tsx 'is only on the dashboard’s own machine'
+webcontrol "dns answers: the records to add show only once the machine answers" web/src/pages/machine-settings/own.tsx \
+  '{v.on && !v.unavailable && (' \
+  '{!v.unavailable && (' \
+  web/src/pages/machine-settings/address.test.tsx 'lets the owner turn them on'
+webcontrol "dns answers: turning them off asks first" web/src/pages/machine-settings/own.tsx \
+  'onCheckedChange={(on) => (on ? void set(true) : setStopping(true))}' \
+  'onCheckedChange={(on) => void set(on)}' \
+  web/src/pages/machine-settings/address.test.tsx 'asks before it stops answering'
+webcontrol "dns answers: they can't be turned on for a domain that can't be answered" web/src/pages/machine-settings/own.tsx \
+  'disabled={locked || busy || (!v.on && !!v.unavailable)}' \
+  'disabled={locked || busy}' \
+  web/src/pages/machine-settings/address.test.tsx 'can’t be answered'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1
