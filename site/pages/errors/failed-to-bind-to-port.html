@@ -1,0 +1,89 @@
+{{/*
+path: /errors/failed-to-bind-to-port
+title: FAILED TO BIND TO PORT! on a Minecraft server, fixed
+description: Minecraft's FAILED TO BIND TO PORT! means the server couldn't listen on its port: another program has it, server-ip is wrong, or the port is under 1024.
+label: Failed to bind to port
+h1: FAILED TO BIND TO PORT! What it means, and the fix
+card: Failed to bind to port, explained
+kind: Guide
+section: guides
+layout: guide
+crumb: Errors
+og: error-failed-to-bind-to-port
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}A server that can't listen on its port logs FAILED TO BIND TO PORT! and stops. The line after it says why: Address already in use means another program has the port, Cannot assign requested address means server-ip names an address the machine doesn't have, and Permission denied means a port under 1024 without root.{{end}}
+
+{{define "closing-title"}}A port for every server, given out for you.{{end}}
+{{define "closing-sub"}}Free and open source. Playkeeper gives each server its own port and says what's in the way.{{end}}
+
+{{define "side-text"}}Playkeeper gives each server its own port and says what's in the way.{{end}}
+
+{{define "article"}}
+<section aria-labelledby="meaning">
+  {{template "h2n" (dict "ID" "meaning" "N" 1 "Text" "The line that matters" "Toc" "What it means")}}
+  <div class="error-card reveal">
+    <h3>Minecraft 1.21.1's log, on Linux</h3>
+    <code class="err">Starting Minecraft server on *:25577
+**** FAILED TO BIND TO PORT!
+The exception was: io.netty.channel.unix.Errors$NativeIoException: bind(..) failed: Address already in use
+Perhaps a server is already running on that port?</code>
+  </div>
+  <p>The server tried to take its port, couldn't, and stopped. Read the line that starts with "The exception was": it names the reason. The last line is printed whatever the reason, so it can be wrong.</p>
+</section>
+
+<section aria-labelledby="reasons">
+  {{template "h2n" (dict "ID" "reasons" "N" 2 "Text" "Three reasons, from our tests" "Toc" "The reasons")}}
+  <p>On 29 Sep we started Minecraft 1.21.1's own server jar on Linux, as a normal user, three ways:</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">What was wrong</th><th scope="col">The exception, on Linux</th><th scope="col">On Windows, Java 21</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Another program already listened on the port</th><td><code>bind(..) failed: Address already in use</code></td><td><code>java.net.BindException: Address already in use: bind</code></td></tr>
+        <tr><th scope="row"><code>server-ip=203.0.113.10</code>, an address the machine doesn't have</th><td><code>bind(..) failed: Cannot assign requested address</code></td><td><code>java.net.BindException: Cannot assign requested address: bind</code></td></tr>
+        <tr><th scope="row"><code>server-port=80</code>, as a user that isn't root</th><td><code>bind(..) failed: Permission denied</code></td><td>Doesn't apply</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Linux servers use Netty's own network code, hence <code>NativeIoException</code>. With <code>use-native-transport=false</code>, Java's standard networking, which Windows and macOS always use, the first case read <code>java.net.BindException: Address already in use</code>, and Windows adds <code>: bind</code>.</p>
+</section>
+
+<section aria-labelledby="fixes">
+  {{template "h2n" (dict "ID" "fixes" "N" 3 "Text" "The fix for each" "Toc" "Fixes")}}
+  <ul>
+    <li><strong>Address already in use: find what has the port.</strong> Often it's the same server started twice, an old copy still running in another window or session. On Linux, <code>sudo ss -ltnp 'sport = :25565'</code> names the program; on Windows, <code>netstat -ano | findstr :25565</code> gives its process ID. Stop it, or give your server another port with <code>server-port</code>, like 25566.</li>
+    <li><strong>Cannot assign requested address: empty <code>server-ip</code>.</strong> With it empty the server listens on every address the machine has, which is what you want almost always.</li>
+    <li><strong>Permission denied: use a port from 1024 up.</strong> Linux keeps the ports below 1024 for root. Use 25565 and put a DNS SRV record in front, if you want an address without a port.</li>
+    <li><strong>Inside one server, two things on one port:</strong> an RCON port or a plugin's own port set to the game's port clashes with it. Query can share it: ours ran with <code>query.port</code> on the game's port, since query uses UDP and the game TCP.</li>
+  </ul>
+  <div class="error-card reveal">
+    <h3>What ss showed while our test port was taken</h3>
+    <code class="err">State  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process
+LISTEN 0      1          127.0.0.1:25577      0.0.0.0:*    users:(("nc",pid=4321,fd=5))</code>
+  </div>
+</section>
+
+<section aria-labelledby="playkeeper">
+  {{template "h2n" (dict "ID" "playkeeper" "N" 4 "Text" "On a Playkeeper server" "Toc" "On Playkeeper")}}
+  <ul>
+    <li><strong>Each server gets its own port,</strong> 25565 for the first and one more from 25566 for each further server, so two of yours never ask for the same one.</li>
+    <li><strong>When another program has a server's port,</strong> the Overview says Port 25565 is already in use, with a button to give the server a different port.</li>
+    <li><strong>When it happens inside the server,</strong> it explains the cause: a plugin, a mod or RCON set to the game's port, or a <code>server-ip</code> the machine doesn't have.</li>
+  </ul>
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "What does FAILED TO BIND TO PORT mean?" "The server couldn't take its port, so it stopped. The line after it says why: another program has the port, server-ip names an address the machine doesn't have, or the port is under 1024 without root.")
+    (qa "Is a server already running on that port?" "Only if the exception says Address already in use; the log suggests it whatever the reason. Check with ss on Linux or netstat on Windows.")
+    (qa "What should server-ip be?" "Empty. The server then listens on every address the machine has.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/errors" "/errors/connection-refused" "/tools/server-properties")}}{{end}}

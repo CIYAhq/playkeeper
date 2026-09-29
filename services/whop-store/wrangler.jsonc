@@ -1,0 +1,10 @@
+// The store's Worker, as Whop hosts it: `whop apps deploy` renames it after
+// the app's route.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pip-hosting",
+  "main": "./src/worker.ts",
+  "compatibility_date": "2026-09-29",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true }
+}

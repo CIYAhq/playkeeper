@@ -351,15 +351,33 @@ function playerInvite(serverId: string, body: unknown, state: FakeState): Reply 
   return { status: 201, body: { ...inv, kind: 'player', projectId: 'fakeprojct', serverId, approval, label: b.label || undefined, createdBy: 1, expiresAt, maxUses: uses, uses: 0, status: 'active', usesLeft: uses || undefined } }
 }
 
+type Allowance = { servers?: unknown; memoryMB?: unknown }
+
+/** Why the panel would refuse a creator invite: Admin of no servers yet, inside an allowance only the owner gives (invites.newCreator). */
+function creatorProblem(body: unknown): string | undefined {
+  const b = body as { role?: unknown; servers?: { all?: unknown; servers?: unknown } | null; label?: unknown; allowance: Allowance }
+  const { servers = 0, memoryMB = 0 } = b.allowance
+  if (!Number.isInteger(servers) || !Number.isInteger(memoryMB) || badLabel(b.label)) return 'Invalid request.'
+  if (Number(servers) < 1 || Number(servers) > 10) return 'Allow 1 to 10 servers.'
+  if (Number(memoryMB) < 1024 || Number(memoryMB) > 65536 || Number(memoryMB) % 512 !== 0) return 'Allow 1 to 64 GB of memory, in steps of 0.5 GB.'
+  const list = b.servers?.servers
+  if (b.role !== 'admin' || b.servers?.all === true || (Array.isArray(list) && list.length > 0)) return 'A creator starts as Admin with no servers, and creates their own.'
+  return undefined
+}
+
 function teamInvite(body: unknown, state: FakeState): Reply {
-  const why = grantProblem(body, true)
+  const allowance = (body as { allowance?: Allowance | null } | null)?.allowance
+  // An allowance of nothing is no allowance, as the panel reads it.
+  const creator = !!allowance && ((allowance.servers ?? 0) !== 0 || (allowance.memoryMB ?? 0) !== 0)
+  const why = creator ? creatorProblem(body) : grantProblem(body, true)
   if (why) return invalid(why)
   const b = body as { role: string; servers: unknown; label?: string }
   const { path, ...inv } = newInvite(state)
   const expiresAt = new Date(Date.parse(inv.createdAt) + 7 * day).toISOString()
+  const grant = creator ? { role: 'admin', servers: {}, allowance: { servers: allowance.servers, memoryMB: allowance.memoryMB } } : { role: b.role, servers: b.servers }
   return {
     status: 201,
-    body: { invite: { ...inv, kind: 'member', projectId: 'fakeprojct', role: b.role, servers: b.servers, label: b.label || undefined, createdBy: 1, expiresAt, maxUses: 1, uses: 0, status: 'active', usesLeft: 1 }, path, link: { base: state.origin, friendly: false } },
+    body: { invite: { ...inv, kind: 'member', projectId: 'fakeprojct', ...grant, label: b.label || undefined, createdBy: 1, expiresAt, maxUses: 1, uses: 0, status: 'active', usesLeft: 1 }, path, link: { base: state.origin, friendly: false } },
   }
 }
 
@@ -428,7 +446,7 @@ function cleanName(raw: string): string {
     .trim()
 }
 
-/** The join command in both forms, as machinelink.Command writes them. */
+/** The join command in each form, as machinelink.Command writes them. */
 function joinCommand(address: string, code: string, fingerprint: string, machineName: string) {
   const quote = (a: string) => (/^[A-Za-z0-9._:/@%+=,-]+$/.test(a) ? a : `'${a.replaceAll("'", '')}'`)
   const shell = (args: string[]) => args.map(quote).join(' ')
@@ -444,6 +462,7 @@ function joinCommand(address: string, code: string, fingerprint: string, machine
     join: `sudo playkeeper join ${shell([address, ...flags])}`,
     installLines: continued(install, ['--join', address, ...flags]),
     joinLines: continued(`sudo playkeeper join ${quote(address)}`, flags),
+    cloudConfig: `#cloud-config\nruncmd:\n  - "curl -fsSL https://playkeeper.io/install | sh -s -- ${shell(['--yes', '--join', address, ...flags])}"\n`,
   }
 }
 
@@ -634,6 +653,25 @@ const routes: [string, RegExp, Handler][] = [
   ['PUT', /^\/api\/discord$/, (r, state) => discordAlerts(r.body, state)],
   ['DELETE', /^\/api\/discord$/, () => noContent],
   ['POST', /^\/api\/discord\/test$/, (_r, state) => ({ status: 200, body: { ...state.discord, delivery: { sent: new Date().toISOString() } } })],
+  // Sell on Whop never reaches Whop: a key typed here isn't one Whop knows, so it's refused as the real check would.
+  ['POST', /^\/api\/whop\/connect$/, () => ({ status: 400, body: { error: 'Whop didn’t take that key.', code: 'whop_key_refused' }, expected: true })],
+  ['POST', /^\/api\/whop\/sync$/, () => ({ status: 200, body: whopConnected({}) })],
+  [
+    'PUT',
+    /^\/api\/whop\/plans\/(\w+)$/,
+    ({ body, params }) => {
+      const b = (body ?? {}) as { servers?: unknown; memoryMB?: unknown }
+      const store = whopConnected({})
+      const plans = (store.plans as Json[]).map((p) => (p.id !== params[0] ? p : b.servers ? { ...p, allowance: { servers: b.servers, memoryMB: b.memoryMB }, allowanceFrom: 'owner' } : { ...p, allowance: undefined, allowanceFrom: undefined }))
+      return { status: 200, body: { ...store, plans } }
+    },
+  ],
+  ['DELETE', /^\/api\/whop$/, () => ({ status: 200, body: { connected: false, dashboard: '', plans: [], webhook: false, customers: [], needs: whopNeeds } })],
+  ['PUT', /^\/api\/whop\/signin$/, () => ({ status: 200, body: whopConnected({}) })],
+  ['DELETE', /^\/api\/whop\/signin$/, () => ({ status: 200, body: { ...whopConnected({}), signIn: { redirectUri: whopSignInRedirect } } })],
+  // Hetzner stock never reaches Hetzner: a token typed here isn't one Hetzner knows, so it's refused as the real check would.
+  ['PUT', /^\/api\/hetzner$/, () => ({ status: 400, body: { error: 'Hetzner didn’t take that token.', code: 'hetzner_token_refused' }, expected: true })],
+  ['DELETE', /^\/api\/hetzner$/, () => ({ status: 200, body: { connected: false, serverType: 'cx53', types: ['cx23', 'cx33', 'cx43', 'cx53'], places: [], discord: false } })],
   // The usage stats switch never changes the machine the crawl runs on.
   ['PUT', /^\/api\/usage-stats$/, (r, state) => ({ status: 200, body: { machines: [], ...state.usage, on: (r.body as { on?: unknown } | null)?.on === true, reason: 'settings', canChange: true } })],
   ['DELETE', /^\/api\/servers\/(\w+)\/world-copies\/([^/]+)$/, (r) => (worldCopyName.test(decodeURIComponent(r.params[1] ?? '')) ? { status: 204, raw: '' } : invalid('Invalid world copy name.'))],
@@ -1193,6 +1231,15 @@ const routes: [string, RegExp, Handler][] = [
       return op(state, 'disk-cleanup')
     },
   ],
+  // Keep servers away from this machine, which would change the runner's firewall.
+  [
+    'POST',
+    /^\/api\/machines\/(\w+)\/network-guard$/,
+    ({ body }) => {
+      const host = (body as { host?: unknown } | null)?.host
+      return typeof host === 'boolean' ? { status: 200, body: { on: true, host } } : invalid('Say whether to keep servers away from this machine.')
+    },
+  ],
   // Wave 8: AI agent tokens, join codes and joined machines.
   ['POST', /^\/api\/tokens$/, ({ body }, state) => tokenReply(body, state)],
   ['DELETE', /^\/api\/tokens\/([^/]+)$/, (r) => (id.test(r.params[0] ?? '') ? { status: 204 } : invalid('Invalid token id.'))],
@@ -1701,7 +1748,38 @@ function friendsRead(path: string, body: Json): unknown {
     const kinds = (body.kinds ?? []) as string[]
     return { ...body, connected: true, webhookName: 'Playkeeper alerts', connectedAt: ago(3 * 86_400), alerts: kinds.filter((k) => k !== 'player_joined' && k !== 'player_left'), liveStatus: true, delivery: { sent: ago(3600) } }
   }
+  if (path === '/api/whop') return whopConnected(body)
   return undefined
+}
+
+/** The permissions Sell on Whop's key needs, as the panel lists them. */
+/** Where Whop sends customers back after they sign in, as a machine with an address shows it. */
+const whopSignInRedirect = 'https://my-vps.playkeeper.me:8443/api/public/whop/signin/callback'
+
+const whopNeeds = ['access_pass:basic:read', 'access_pass:update', 'plan:basic:read', 'plan:update', 'member:basic:read', 'member:email:read', 'developer:manage_webhook', 'webhook_receive:memberships', 'support_chat:create', 'support_chat:message:create']
+
+/** Sell on Whop connected to a store with a plan whose metadata on Whop sets its allowance and one whose doesn't, keeping the machine's address as the panel sent it. */
+function whopConnected(body: Json): Json {
+  const plan = (id: string, title: string, price: string, extra: Json) => ({ id, productId: 'prod_fakemcserver', productTitle: 'Minecraft server', title, price, visibility: 'hidden', ...extra })
+  return {
+    dashboard: '',
+    needs: whopNeeds,
+    ...body,
+    connected: true,
+    account: { id: 'biz_fakepiphosting', title: 'Pip Hosting', route: 'pip-hosting' },
+    keyEnding: 'a1b2',
+    connectedBy: 'admin',
+    connectedAt: ago(2 * 86_400),
+    syncedAt: ago(600),
+    problem: undefined,
+    plans: [plan('plan_fakestarter', 'Starter', '$8.00 / month', { trialDays: 3, allowance: { servers: 1, memoryMB: 4096 }, allowanceFrom: 'store' }), plan('plan_fakebig', 'Big', '$16.00 / month', {})],
+    webhook: true,
+    signIn: { clientId: 'app_fakecloud', redirectUri: whopSignInRedirect },
+    customers: [
+      { whopUserId: 'user_fakealex', handle: 'alexplays', status: 'active', plan: 'Starter', account: 'alexplays', allowance: { servers: 1, memoryMB: 4096 } },
+      { whopUserId: 'user_fakesam', handle: 'samcrafts', status: 'paused', plan: 'Starter', allowance: { servers: 1, memoryMB: 4096 } },
+    ],
+  }
 }
 
 /** Wave 6's map in the 'map on' view (drawn, shared, with a player out exploring) or the 'map restart' view (installed, waiting for a restart). */

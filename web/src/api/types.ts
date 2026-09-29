@@ -379,6 +379,16 @@ export interface Machine {
   servers: number
   /** Wave 7: the part of serversMemoryMB that sleeping servers gave back for now. */
   sleepingMemoryMB?: number
+  /** The firewall rules that keep servers from the cloud's metadata service, and from this machine when the owner asks; missing in dev mode. */
+  guard?: NetworkGuard
+}
+
+export interface NetworkGuard {
+  /** The rules are in place; there are none until the first server makes Playkeeper's network. */
+  on: boolean
+  /** Keep servers away from this machine, the owner's switch, which a creator invite turns on. */
+  host: boolean
+  problem?: string
 }
 
 export interface ApiErrorBody {
@@ -465,6 +475,8 @@ export interface JoinCommand extends JoinCode {
   join: string
   installLines: string[]
   joinLines: string[]
+  /** The install command as cloud-init user data, for a cloud server that's being created. */
+  cloudConfig: string
 }
 
 /** What connecting a machine needs: where it dials, the smallest machine that works and the codes. */
@@ -878,6 +890,8 @@ export interface SetupStatus {
   needsSetup: boolean
   machine?: string
   version: string
+  /** Set when the sign-in page offers Sign in with Whop. */
+  whopSignIn?: boolean
 }
 
 export interface Me {
@@ -956,6 +970,8 @@ export interface JoinAddress {
   published: boolean
   /** The server's own address under an own domain, which is then `address`, with its own records and page. */
   ownAddress?: string
+  /** `ownAddress` is `label`.domain from the domain's wildcard record (`Address.serverAddresses`): no records of its own, and players type the port. */
+  automatic?: boolean
 }
 
 export interface FreeAddress {
@@ -1081,6 +1097,8 @@ export interface Address {
   free?: FreeAddress
   records?: DNSRecord[] | null
   check?: AddressCheck
+  /** Every server gets `label`.host through one wildcard record, *.host, in `records`. */
+  serverAddresses?: boolean
   certificate?: CertificateStatus
   names: NamesService
   termsAccepted?: string
@@ -1774,6 +1792,7 @@ export type Action =
   | 'backups.restore'
   | 'servers.manage'
   | 'servers.create'
+  | 'servers.create_own'
   | 'team.manage'
   | 'machine.manage'
   | 'audit.view'
@@ -1783,6 +1802,8 @@ export type Action =
   | 'addon_sources.manage'
   | 'files.view'
   | 'files.edit'
+  | 'whop.manage'
+  | 'machines.stock'
 
 export type ProjectRole = 'admin' | 'moderator' | 'viewer'
 
@@ -1848,6 +1869,92 @@ export interface Invite {
   usesLeft?: number
   /** /join/<code>; only for links whose code is still known. */
   path?: string
+  /** Set on a creator invite: Admin with no servers yet, and this allowance. */
+  allowance?: Allowance
+}
+
+/** What a creator may create on a shared machine, as in the managed beta. */
+export interface Allowance {
+  servers: number
+  memoryMB: number
+  /** The disk their servers may take between them; missing for the default from the memory (see allowanceDiskMB). */
+  diskGB?: number
+}
+
+/** Settings › Sell on Whop: the Whop account this dashboard sells servers for, and the plans its store sells. dashboard is where Whop and buyers reach it, "" until the machine has an address with a certificate. */
+export interface WhopStore {
+  connected: boolean
+  dashboard: string
+  account?: { id: string; title: string; route: string }
+  keyEnding?: string
+  connectedBy?: string
+  connectedAt?: string
+  syncedAt?: string
+  problem?: string
+  plans: WhopPlan[]
+  /** Whether Whop tells the dashboard about memberships as they change; it also reads them every few minutes. */
+  webhook: boolean
+  customers: WhopCustomer[]
+  /** Sign in with Whop's setup, once a store is connected. */
+  signIn?: WhopSignIn
+  needs: string[]
+  /** On the answer to a disconnect alone: what the owner still has to do on Whop. */
+  notice?: string
+}
+
+/** The Whop app customers sign in through, the end of its secret when it has one, and the redirect URL the app must list ("" while the machine has no address). */
+export interface WhopSignIn {
+  clientId?: string
+  secretEnding?: string
+  redirectUri?: string
+}
+
+/** A customer of the store: starting (their plan asks for hosting this machine hasn't given yet), active, paused (their plans ended) or ended (no plan grants access, and they never started). */
+export interface WhopCustomer {
+  whopUserId: string
+  handle?: string
+  status: 'starting' | 'active' | 'paused' | 'ended'
+  plan?: string
+  allowance?: Allowance
+  /** Their account on this dashboard, once it's made. */
+  account?: string
+  problem?: string
+}
+
+/** One plan of the store; allowanceFrom is "store" when its metadata on Whop sets the allowance, "owner" when set here. */
+export interface WhopPlan {
+  id: string
+  productId: string
+  productTitle: string
+  title: string
+  price: string
+  visibility: string
+  trialDays?: number
+  allowance?: Allowance
+  allowanceFrom?: 'store' | 'owner'
+}
+
+/** Settings › Machines › Hetzner stock: the server type the owner watches, and where Hetzner has it now. checkedAt is when Hetzner last answered; discord says whether the dashboard's Discord, where the watch posts, is connected. */
+export interface HetznerStock {
+  connected: boolean
+  tokenEnding?: string
+  serverType: string
+  types: string[]
+  setBy?: string
+  setAt?: string
+  checkedAt?: string
+  problem?: string
+  places: HetznerPlace[]
+  discord: boolean
+}
+
+/** One place Hetzner offers the type; since is when it came into stock or went out, and buyUrl, while it's in stock, opens Hetzner's console with it picked. */
+export interface HetznerPlace {
+  location: string
+  city: string
+  available: boolean
+  since?: string
+  buyUrl?: string
 }
 
 /** Where invite links start: base is https://host:port; friendly is false for a bare address. */
@@ -1928,6 +2035,10 @@ export interface TeamMember {
   /** An admin with two-factor on whose Admin rights wait for confirmation. */
   waiting?: boolean
   canConfirm?: boolean
+  /** Set for a creator. */
+  allowance?: Allowance
+  /** What a creator's servers took of their disk when last counted; missing until they have been. */
+  diskUsedBytes?: number
 }
 
 export interface TeamInvite extends Invite {
@@ -1947,6 +2058,8 @@ export interface Grant {
   role: ProjectRole
   servers: Scope
   label?: string
+  /** Makes a new invite a creator invite (the owner's alone). */
+  allowance?: Allowance
 }
 
 /** A new team invite: its link is link.base + path, shown only now. */
@@ -2015,6 +2128,8 @@ export interface MemberPreview {
   requires?: Requirement[]
   team?: string
   serverNames: string[]
+  /** Set when the invite is a creator's. */
+  allowance?: Allowance
 }
 
 export type JoinPreview = PlayerPreview | MemberPreview

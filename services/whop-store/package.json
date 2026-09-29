@@ -1,0 +1,23 @@
+{
+  "name": "playkeeper-whop-store",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "A Minecraft server hosting store on Whop: the plans a Playkeeper sells, with Whop's checkout.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "deploy": "whop apps deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.62.0",
+    "@whop/cli": "0.22.0",
+    "typescript": "6.0.3",
+    "vite": "8.3.1",
+    "vitest": "5.0.1",
+    "wrangler": "4.143.0"
+  }
+}

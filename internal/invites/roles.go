@@ -47,6 +47,8 @@ type Account struct {
 	Servers Scope
 	// TwoFactor says whether two-factor sign-in is on.
 	TwoFactor bool
+	// Allowance is what a creator may make; zero for everyone else.
+	Allowance Allowance
 }
 
 // RequiresTwoFactor reports whether an account must have two-factor sign-in

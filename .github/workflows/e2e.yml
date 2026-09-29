@@ -7,8 +7,8 @@ name: End to end
 # played install; the core flows at desktop and phone sizes, with the usage
 # stats they send; the current release upgraded to this build, updated from
 # the dashboard, and a broken update rolled back; the playkeeper.io, names
-# and stats service images; certificates from Pebble; and the browser checks
-# against a faked panel.
+# and stats service images; certificates from Pebble; the browser checks
+# against a faked panel; and the Whop store site, built and run in workerd.
 # The Release check runs every part on the release it builds
 # (release-check.yml). Pull requests run only the parts whose own files they
 # change, and pushes to main only the first runner, when the played state
@@ -37,7 +37,7 @@ on:
   workflow_dispatch:
     inputs:
       parts:
-        description: The parts to run, comma-separated (install-and-play, restore, views, core-flows, update, site, names, stats, certs, fake-panel), or all
+        description: The parts to run, comma-separated (install-and-play, restore, views, core-flows, update, site, names, stats, certs, fake-panel, whop-store), or all
         type: string
         default: all
 
@@ -612,5 +612,38 @@ jobs:
         if: failure()
         with:
           name: ui-fake-panel-traces
+          path: test/e2e/ui/test-results
+          retention-days: 7
+
+  whop-store:
+    name: Whop store site — build it, run the build in workerd against a fake Whop, check its pages at desktop and phone sizes
+    if: inputs.parts == 'all' || contains(format(',{0},', inputs.parts), ',whop-store,')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Pinned toolchains, the store's dependencies and the test browser
+        run: |
+          ./scripts/setup.sh
+          echo "$PWD/.tools/node/bin" >> "$GITHUB_PATH"
+          (cd services/whop-store && ../../.tools/node/bin/npm ci --no-audit --no-fund)
+          cd test/e2e/ui
+          ../../../.tools/node/bin/npm ci --no-audit --no-fund
+          sudo env "PATH=$PWD/../../../.tools/node/bin:$PATH" npx playwright install-deps chromium
+          PATH="$PWD/../../../.tools/node/bin:$PATH" npx playwright install chromium
+      - name: Typecheck, unit tests and the build Whop hosting deploys
+        run: |
+          cd services/whop-store
+          npm run typecheck
+          npm test
+          npm run build
+          unzip -p dist/whop-build.zip manifest.json | grep -qF '"entry":"index.js"'
+          unzip -Z1 dist/whop-build.zip | grep -qx 'client/store.css'
+      - name: The built store in workerd against a fake Whop, in a browser (plans, a fresh copy, terms, a 404, Whop unreachable)
+        run: cd test/e2e/ui && npx playwright test -c playwright.whop-store.config.ts --reporter=list
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: whop-store-traces
           path: test/e2e/ui/test-results
           retention-days: 7

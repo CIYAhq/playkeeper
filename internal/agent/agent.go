@@ -31,6 +31,7 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/minecraft"
 	"github.com/CIYAhq/playkeeper/internal/modpacks"
 	"github.com/CIYAhq/playkeeper/internal/modpacks/curseforge"
+	"github.com/CIYAhq/playkeeper/internal/netguard"
 	"github.com/CIYAhq/playkeeper/internal/pregen"
 	"github.com/CIYAhq/playkeeper/internal/store"
 	"github.com/CIYAhq/playkeeper/internal/templates"
@@ -199,6 +200,14 @@ type Options struct {
 	Getenv        func(string) string
 	OSRelease     string
 	Processes     func() []string
+
+	// 0.4.5: the network guard (internal/netguard). Firewall runs iptables
+	// for it; nil runs the commands themselves, but in dev mode, or when
+	// the agent isn't root, there is no guard. GuardInterval is how often
+	// the rules are looked at (default 1 minute; negative turns the ticker
+	// off).
+	Firewall      netguard.Runner
+	GuardInterval time.Duration
 }
 
 // Retention bounds stored analytics and audit data.
@@ -260,6 +269,12 @@ type Agent struct {
 	// selinux is set when Docker labels containers for SELinux, once
 	// selinuxKnown; mu guards both.
 	selinux, selinuxKnown bool
+	// guard is how the network guard's rules stand, once they were first
+	// looked at with the network there, and keepAway the owner's switch as
+	// last stored (both mu); guardMu serializes changing them.
+	guard    *api.NetworkGuard
+	keepAway bool
+	guardMu  sync.Mutex
 
 	allowed map[uint32]bool
 
@@ -311,7 +326,8 @@ type Agent struct {
 	uploads fileUploads
 
 	// Wave 7 (0.4.0): the Disk space page's last scan.
-	disk diskCache
+	disk   diskCache
+	limits diskLimitState
 	// unreadableSwaps is the error last logged for each stage whose swap
 	// journal can't be read, and under "" for the staging folder itself, so
 	// each is logged once.
@@ -463,6 +479,12 @@ func New(opts Options) (*Agent, error) {
 	if opts.Processes == nil {
 		opts.Processes = procCmdlines
 	}
+	if opts.Firewall == nil {
+		opts.Firewall = defaultFirewall(opts.Config, os.Geteuid())
+	}
+	if opts.GuardInterval == 0 {
+		opts.GuardInterval = time.Minute
+	}
 	cfg := opts.Config
 	for _, d := range []string{cfg.AgentDir(), cfg.BackupsDir(), cfg.StagingDir()} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
@@ -538,6 +560,14 @@ func New(opts Options) (*Agent, error) {
 			a.allowed[uint32(os.Getuid())] = true
 		}
 	}
+	if err := a.loadGuard(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("read the network guard's switch: %w", err)
+	}
+	if err := a.loadDiskLimits(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("read the disk limits: %w", err)
+	}
 	if err := a.migrateSingleServer(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate the existing server: %w", err)
@@ -560,7 +590,8 @@ func New(opts Options) (*Agent, error) {
 }
 
 // Start launches the background loops: each server's follower, collector and
-// reconciler, and the machine's pruning, sampling, update checks and address.
+// reconciler, and the machine's pruning, sampling, network guard, update
+// checks and address.
 // A restore a previous agent process was in the middle of is finished first.
 func (a *Agent) Start() {
 	for _, s := range a.serverList() {
@@ -571,6 +602,7 @@ func (a *Agent) Start() {
 	a.loop(a.updateLoop)
 	a.loop(a.usageLoop)
 	a.loop(a.hostLoop)
+	a.loop(a.guardLoop)
 	a.loop(a.addressLoop)
 	a.loop(a.disc.n.Run)
 	a.loop(a.discordLoop)
@@ -850,6 +882,7 @@ func (a *Agent) routeTable() []Route {
 	return append([]Route{
 		{"GET", "/v1/health", a.hHealth},
 		{"GET", "/v1/machine", a.hMachine},
+		{"POST", "/v1/network-guard", a.hNetworkGuard},
 		{"GET", "/v1/preflight", a.hPreflight},
 		{"GET", "/v1/catalog", a.hCatalog},
 		{"GET", "/v1/servers", a.hServers},
@@ -952,6 +985,7 @@ func (a *Agent) routeTable() []Route {
 		{"POST", "/v1/address/release", a.hAddressRelease},
 		{"POST", "/v1/address/check", a.hAddressCheck},
 		{"POST", "/v1/address/certificate", a.hAddressCertificate},
+		{"POST", "/v1/address/server-addresses", a.hServerAddresses},
 
 		// Wave 4: every server type.
 		{"GET", "/v1/catalog/builds", a.hCatalogBuilds},

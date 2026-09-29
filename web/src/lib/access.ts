@@ -1,11 +1,31 @@
-import type { Action, Me, ProjectRole, Scope, TokenRole } from '@/api/types'
+import type { Action, Allowance, Me, ProjectRole, Scope, TokenRole } from '@/api/types'
 import { t, type MessageKey } from '@/i18n'
-import { formatList } from './format'
+import { formatList, formatMB } from './format'
 import type { Route } from './router'
 
 /** Whether the signed-in account may take act. The panel checks every request anyway. */
 export function can(me: Me, act: Action): boolean {
   return me.access.can.includes(act)
+}
+
+/** Whether the account may create servers: as an admin of every server, or as a creator inside their allowance. */
+export function canCreate(me: Me): boolean {
+  return can(me, 'servers.create') || can(me, 'servers.create_own')
+}
+
+/** Whether the account may create a server on machine m: an admin of every server on any machine, a creator only on the dashboard's own. */
+export function canCreateOn(me: Me, m: { kind: string } | undefined): boolean {
+  return can(me, 'servers.create') || (can(me, 'servers.create_own') && (!m || m.kind === 'local'))
+}
+
+/** "Up to 1 server with 4 GB": what a creator may create. */
+export function allowanceText(al: Allowance): string {
+  return t('team.allowance', { servers: t('unit.servers', { count: al.servers }), memory: formatMB(al.memoryMB) })
+}
+
+/** The disk an allowance's servers may take between them, in MB: its diskGB, or 7.5 GB for each GB of memory, as Allowance.DiskBytes in internal/invites counts it. */
+export function allowanceDiskMB(al: Allowance): number {
+  return al.diskGB ? al.diskGB * 1024 : al.memoryMB * 7.5
 }
 
 export const projectRoles: ProjectRole[] = ['admin', 'moderator', 'viewer']
@@ -62,13 +82,14 @@ export function tokenRoles(me: Me): TokenRole[] {
   return tokenRoleOrder.slice(0, tokenRoleOrder.indexOf(me.access.role) + 1)
 }
 
-export type SettingsSectionName = 'team' | 'addon-sources' | 'discord' | 'ai-agents' | 'machines'
+export type SettingsSectionName = 'team' | 'addon-sources' | 'discord' | 'whop' | 'ai-agents' | 'machines'
 
 /** The sections of Settings in the design's order, each for the accounts that may use it. */
 export const settingsSections: { route: Route & { name: SettingsSectionName }; label: MessageKey; act: Action }[] = [
   { route: { name: 'team' }, label: 'global.nav.team', act: 'team.manage' },
   { route: { name: 'addon-sources' }, label: 'global.nav.addonSources', act: 'machine.manage' },
   { route: { name: 'discord' }, label: 'global.nav.discord', act: 'machine.manage' },
+  { route: { name: 'whop' }, label: 'global.nav.whop', act: 'whop.manage' },
   { route: { name: 'ai-agents' }, label: 'global.nav.aiAgents', act: 'account.manage' },
   { route: { name: 'machines' }, label: 'global.nav.machines', act: 'view' },
 ]

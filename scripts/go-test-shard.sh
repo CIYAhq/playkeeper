@@ -89,7 +89,7 @@ if [ "${1:-}" = --jobs ]; then
     (
       status=0
       if [ -s "$out/mine-$k.txt" ]; then
-        (cd "$dir" && go tool test2json -t -p "$path" "$out/pkg.test" -test.v=test2json -test.paniconexit0 -test.count=1 -test.timeout=30m \
+        (cd "$dir" && PLAYKEEPER_TEST_SHARD=$k PLAYKEEPER_TEST_SHARDS=$jobs go tool test2json -t -p "$path" "$out/pkg.test" -test.v=test2json -test.paniconexit0 -test.count=1 -test.timeout=30m \
           -test.run "^($(paste -sd'|' "$out/mine-$k.txt"))\$") >"$out/test-$k.json" 2>&1 || status=$?
       else
         : >"$out/test-$k.json"

@@ -69,11 +69,26 @@ func notFound(name string) error {
 	return &net.DNSError{Err: "no such host", Name: name, IsNotFound: true}
 }
 
+// covered is what f holds for name, or for the closest wildcard (*.parent)
+// above it when name has nothing of its own, as in DNS; f.mu is held.
+func (f *fakeResolver) covered(name string) []netip.Addr {
+	if v, ok := f.a[name]; ok {
+		return v
+	}
+	for rest := name; strings.Contains(rest, "."); {
+		_, rest, _ = strings.Cut(rest, ".")
+		if v, ok := f.a["*."+rest]; ok {
+			return v
+		}
+	}
+	return nil
+}
+
 func (f *fakeResolver) LookupNetIP(_ context.Context, network, host string) ([]netip.Addr, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var out []netip.Addr
-	for _, a := range f.a[strings.TrimSuffix(host, ".")] {
+	for _, a := range f.covered(strings.TrimSuffix(host, ".")) {
 		if a.Is4() == (network == "ip4") {
 			out = append(out, a)
 		}

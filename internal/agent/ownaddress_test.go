@@ -247,10 +247,12 @@ func TestAnOwnAddressWorksWithoutTheMachinesName(t *testing.T) {
 	}
 	e.dns.set("alex.example.com", testIP.String())
 	e.dns.setSRV("alex.example.com", 25566, "alex.example.com")
+	// The machine's name moves first, so the look the new address sets off
+	// in the address loop sees the same records as the one below.
+	e.dns.set("play.example.com", "198.51.100.7")
 	if code, out := e.setOwn(creative, "alex.example.com"); code != 200 {
 		t.Fatalf("setting it: %d %v", code, out)
 	}
-	e.dns.set("play.example.com", "198.51.100.7")
 	if _, err := e.a.checkOwn(context.Background()); err != nil {
 		t.Fatal(err)
 	}

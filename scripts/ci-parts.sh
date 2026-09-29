@@ -8,12 +8,12 @@
 set -euo pipefail
 
 files=$(cat)
-parts=(install-and-play restore views core-flows update site names stats certs fake-panel)
+parts=(install-and-play restore views core-flows update site names stats certs fake-panel whop-store)
 
 # checks PART: the changed files that part checks, as an extended regex.
 checks() {
   case $1 in
-    install-and-play) echo '^(test/e2e/(scenario|pkclient)\.py$|test/e2e/bot/|test/e2e/ui/onboarding\.spec\.ts$|scripts/e2e/played-state\.sh$|\.github/actions/played-install/)' ;;
+    install-and-play) echo '^(test/e2e/(scenario|pkclient)\.py$|test/e2e/bot/|test/e2e/ui/onboarding\.spec\.ts$|scripts/e2e/(played-state|guard-check)\.sh$|\.github/actions/played-install/)' ;;
     restore) echo '^(test/e2e/(scenario|pkclient)\.py$|test/e2e/bot/)' ;;
     views) echo '^(test/e2e/ui/views\.spec\.ts$|scripts/e2e/played-state\.sh$|\.github/actions/played-install/)' ;;
     core-flows) echo '^(test/e2e/(pkclient|stats_recorder)\.py$|test/e2e/ui/smoke\.spec\.ts$|internal/usage/)' ;;
@@ -23,11 +23,12 @@ checks() {
     stats) echo '^(services/stats/|cmd/playkeeper-stats/|internal/usage/|scripts/stats-check\.sh$)' ;;
     certs) echo '^internal/certs/' ;;
     fake-panel) echo '^(test/e2e/ui/|site/|cmd/site/|internal/site/|cmd/playkeeper-stats/|internal/usage/)' ;;
+    whop-store) echo '^(services/whop-store/|test/e2e/ui/(whop-store\.spec|playwright\.whop-store\.config)\.ts$)' ;;
   esac
 }
 
 # The specs under test/e2e/ui other parts run, which the fake-panel job doesn't.
-others='^test/e2e/ui/(onboarding|views|smoke|demo|demo-iphone)\.spec\.ts$'
+others='^test/e2e/ui/((onboarding|views|smoke|demo|demo-iphone|whop-store)\.spec|playwright\.whop-store\.config)\.ts$'
 
 out=()
 for part in "${parts[@]}"; do

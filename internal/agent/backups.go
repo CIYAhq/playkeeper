@@ -327,14 +327,26 @@ func (s *server) errNotOnlineForBackup() error {
 	return e
 }
 
-// backupOp backs up the world, then verifies the archive. An online server
+// backupOp makes a backup on request or on schedule, inside the server's
+// disk limit: what its archive may take is held while it's written.
+func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string, stopped bool) error {
+	done, err := s.holdBackup(ctx)
+	if err != nil {
+		return err
+	}
+	err = s.makeBackup(ctx, h, actor, note, stopped)
+	done(err == nil)
+	return err
+}
+
+// makeBackup backs up the world, then verifies the archive. An online server
 // keeps its players: backup.Take pauses world saving only while it copies the
 // world. With stopped, a running server is stopped for the backup (players
 // online are warned in chat first) and started again, and its downtime is
 // measured from the stop request until it is online again. A world a restore
 // would refuse is refused before the server stops or saving pauses. A server
 // that isn't running is backed up as it is.
-func (s *server) backupOp(ctx context.Context, h *opHandle, actor, note string, stopped bool) error {
+func (s *server) makeBackup(ctx context.Context, h *opHandle, actor, note string, stopped bool) error {
 	sc, err := s.serverConfig()
 	if err != nil {
 		return err
@@ -1826,9 +1838,15 @@ func sentence(msg string) string {
 }
 
 // saveVerifiedRollback archives the current world and reads the archive back.
-// A restore replaces the world only once this copy is known to be good.
+// A restore replaces the world only once this copy is known to be good. The
+// copy is kept, so it has to fit the server's disk limit like any backup.
 func (s *server) saveVerifiedRollback(sc api.ServerConfig, actor, note string) (*api.Backup, error) {
+	done, err := s.holdBackup(s.ctx)
+	if err != nil {
+		return nil, err
+	}
 	rb, err := s.createArchive(sc, "rollback", actor, note)
+	done(err == nil)
 	if err != nil {
 		return nil, err
 	}

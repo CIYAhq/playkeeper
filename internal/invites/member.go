@@ -67,6 +67,8 @@ type MemberGrant struct {
 	Servers     Scope
 	InstallRole string
 	Username    string
+	// Allowance is a creator's (see Allowance); zero for other members.
+	Allowance Allowance
 	// Requires lists what the new member must do before they can use the
 	// role. The panel enforces it (see RequiresTwoFactor).
 	Requires []Requirement
@@ -78,6 +80,7 @@ type MemberPage struct {
 	Inviter   string        `json:"inviter"`
 	Role      string        `json:"role"`
 	Servers   Scope         `json:"servers"`
+	Allowance Allowance     `json:"allowance,omitzero"`
 	ExpiresAt time.Time     `json:"expiresAt"`
 	Requires  []Requirement `json:"requires,omitempty"`
 }
@@ -92,7 +95,7 @@ func PreviewMember(inv Invite, code string, inviter Account, existing []string, 
 	if err != nil {
 		return MemberPage{}, err
 	}
-	return MemberPage{Kind: KindMember, Inviter: inviter.Name, Role: inv.Role, Servers: servers, ExpiresAt: inv.ExpiresAt,
+	return MemberPage{Kind: KindMember, Inviter: inviter.Name, Role: inv.Role, Servers: servers, Allowance: inv.Allowance, ExpiresAt: inv.ExpiresAt,
 		Requires: requirements(inv.Role)}, nil
 }
 
@@ -112,7 +115,7 @@ func AcceptMember(inv Invite, req MemberRequest, inviter Account, existing []str
 		return MemberGrant{}, err
 	}
 	return MemberGrant{InviteID: inv.ID, ProjectID: inv.ProjectID, Role: inv.Role, Servers: servers, InstallRole: InstallMember,
-		Username: req.Username, Requires: requirements(inv.Role)}, nil
+		Username: req.Username, Allowance: inv.Allowance, Requires: requirements(inv.Role)}, nil
 }
 
 func requirements(role string) []Requirement {
@@ -128,6 +131,12 @@ func requirements(role string) []Requirement {
 func checkMember(inv Invite, code string, inviter Account, existing []string, now time.Time) (Scope, error) {
 	err := Check(inv, code, KindMember, now)
 	if CodeOf(err) == CodeNotWorking {
+		return Scope{}, err
+	}
+	if !inv.Allowance.IsZero() {
+		if inviter.UserID != inv.CreatedBy || CanGrantAllowance(inviter, inv.Allowance) != nil || inv.Role != RoleAdmin {
+			return Scope{}, notWorking("the invite's creator can no longer invite creators")
+		}
 		return Scope{}, err
 	}
 	servers, ok := inv.Servers.narrow(existing)

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/CIYAhq/playkeeper/internal/docker"
+	"github.com/CIYAhq/playkeeper/internal/netguard"
 )
 
 // System is every host interaction the installer performs. Production uses
@@ -52,6 +53,9 @@ type System struct {
 	// Version runs a playkeeper binary's `version` command and returns the
 	// version it reports.
 	Version func(binary string) (string, error)
+	// Firewall runs iptables for the uninstall, which takes out the network
+	// guard's rules (internal/netguard); nil leaves them.
+	Firewall netguard.Runner
 }
 
 type DockerInfo struct {
@@ -134,6 +138,7 @@ func Real() System {
 		WaitHealthy: waitHealthy,
 		WaitVersion: waitVersion,
 		Version:     binaryVersion,
+		Firewall:    netguard.Exec,
 	}
 }
 

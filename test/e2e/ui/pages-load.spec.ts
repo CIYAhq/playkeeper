@@ -73,6 +73,7 @@ test('every page loads', async ({ page }) => {
     '/settings/team',
     '/settings/addon-sources',
     '/settings/discord',
+    '/settings/whop',
     '/settings/ai-agents',
     '/settings/machines',
     `/settings/machines/${machine.id}`,

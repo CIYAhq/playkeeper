@@ -1,0 +1,102 @@
+{{/*
+path: /guides/port-forward-minecraft-server
+title: How to port forward a Minecraft server (2026)
+description: Port forward a Minecraft server step by step: TCP 25565 to your PC's local address, the firewall rule, how to test it, and what to do when CGNAT blocks it.
+label: Port forwarding
+h1: How to port forward a Minecraft server
+card: How to port forward a Minecraft server
+kind: Guide
+section: guides
+layout: guide
+crumb: Guides
+og: port-forward-minecraft-server
+published: 2026-09-29
+updated: 2026-09-29
+schema: article
+*/}}
+
+{{define "short"}}Forward TCP port 25565 on your router to the local address of the PC that runs the server, allow the port in that PC's firewall, and give friends your public IP address. It only works when your router has a public address of its own: behind carrier-grade NAT, no forward can reach you.{{end}}
+
+{{define "closing-title"}}A server with no router to set up.{{end}}
+{{define "closing-sub"}}Free and open source. On a VPS there's no port to forward, and friends join at a free name.{{end}}
+
+{{define "side-title"}}No port forwarding{{end}}
+{{define "side-text"}}On a VPS, Playkeeper opens the game port and friends join at a free name.{{end}}
+
+{{define "article"}}
+{{$article := "(max-width: 639.98px) calc(100vw - 40px), (max-width: 1023.98px) calc(100vw - 64px), 760px"}}
+<section aria-labelledby="what">
+  {{template "h2n" (dict "ID" "what" "N" 1 "Text" "What a port forward does" "Toc" "What it does")}}
+  <p>Friends outside your home reach your router's public address, not your PC. A port forward tells the router that connections to port 25565 go to one PC on your network. Without it the router has nowhere to send them, and friends get <a href="/errors/connection-refused">Connection refused or connection timed out</a>.</p>
+</section>
+
+<section aria-labelledby="ports">
+  {{template "h2n" (dict "ID" "ports" "N" 2 "Text" "The ports to forward" "Toc" "Which ports")}}
+  <p>A new Minecraft 1.21.1 server's <code>server.properties</code> starts with these, and add-ons bring their own:</p>
+  <div class="table-scroll" tabindex="0">
+    <table class="data">
+      <thead><tr><th scope="col">What</th><th scope="col">Port</th><th scope="col">Forward it?</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">The server, <code>server-port</code></th><td>25565 TCP</td><td>Yes</td></tr>
+        <tr><th scope="row">Bedrock players, through Geyser</th><td>19132 UDP</td><td>Only for Bedrock friends</td></tr>
+        <tr><th scope="row">Simple Voice Chat</th><td>24454 UDP</td><td>Only if the server has it</td></tr>
+        <tr><th scope="row">Query, <code>query.port</code></th><td>25565 UDP</td><td>No: it's off unless <code>enable-query</code> is on</td></tr>
+        <tr><th scope="row">RCON, <code>rcon.port</code></th><td>25575 TCP</td><td>Never: anyone with the password could run commands</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>A second server on the same PC needs a port of its own, like 25566, with its own forward.</p>
+</section>
+
+<section aria-labelledby="steps">
+  {{template "h2n" (dict "ID" "steps" "N" 3 "Text" "Forward the port, step by step" "Toc" "Step by step")}}
+  {{template "steps" (dict "Class" "steps-lg" "Items" (list
+    (dict "Title" "Find the PC's local address" "Text" (html "On Windows, <code>ipconfig</code> lists it as IPv4 Address. On Linux, <code>hostname -I</code> prints it. It looks like 192.168.1.20."))
+    (dict "Title" "Keep that address fixed" "Text" "In the router's DHCP settings, reserve the address for the PC. Otherwise the router can give it a new one, and the forward points at nothing.")
+    (dict "Title" "Open the router's settings" "Text" (html "Type its address in a browser: <code>ipconfig</code> calls it Default Gateway, and <code>ip -4 route show default</code> on Linux prints it after <code>default via</code>."))
+    (dict "Title" "Add the forward" "Text" "External port 25565, protocol TCP, to the PC's address and port 25565. Routers call the page Port Forwarding, Virtual Server or NAT.")
+    (dict "Title" "Allow the port on the PC" "Text" (html "On Windows, allow Java when the firewall asks as the server first starts, or add a rule for TCP 25565. On Ubuntu, <code>sudo ufw allow 25565/tcp</code>."))
+    (dict "Title" "Test it from outside" "Text" (html "Ask a friend to join, or run <code>nc -vz</code> with your public address and 25565 from a machine outside your network. <code>curl -4 ifconfig.me</code> prints your public address."))
+  ))}}
+  <p>Friends then join at your public address, followed by <code>:25566</code> or whichever port when it isn't 25565.</p>
+  <p class="fine">Checked on 29 Sep: the ports from a new Minecraft 1.21.1 server.properties, the Linux and ufw commands on Ubuntu 24.04, and nc against open, closed and blocked ports. The Windows steps follow Microsoft's documentation; router pages differ by maker.</p>
+</section>
+
+<section aria-labelledby="cgnat">
+  {{template "h2n" (dict "ID" "cgnat" "N" 4 "Text" "When no forward can work" "Toc" "CGNAT")}}
+  <p>Compare the internet address on your router's status page with the one <code>curl -4 ifconfig.me</code> prints. If they differ, something between your router and the internet shares one address among many homes, and connections from outside stop there:</p>
+  <ul>
+    <li><strong>A router address from 100.64.0.0 to 100.127.255.255</strong> is carrier-grade NAT, the range set aside for it in RFC 6598. Ask your internet provider for a public IPv4 address, or host the server somewhere else.</li>
+    <li><strong>An ISP box in front of your own router:</strong> forward the port on both, or set the ISP box to bridge mode.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="home">
+  {{template "h2n" (dict "ID" "home" "N" 5 "Text" "Joining from home, and keeping it safe" "Toc" "At home, and safety")}}
+  <ul>
+    <li><strong>On your own network,</strong> join at the PC's local address. Some routers don't send a connection to their own public address back inside.</li>
+    <li><strong>Forward only the game port,</strong> never RCON, and keep <code>online-mode=true</code> with an allowlist, so only friends you add can join.</li>
+    <li><strong>Your public address can change.</strong> Many home connections get a new one now and then; check it again when friends can't join.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="vps">
+  {{template "h2n" (dict "ID" "vps" "N" 6 "Text" "Or skip the router: a VPS" "Toc" "On a VPS")}}
+  <p>A VPS has a public address and no router in front of it, so there's nothing to forward. Allow the port in the provider's firewall instead. Playkeeper's installer allows TCP 25565 in ufw or firewalld when one is on, each further server takes the next port from 25566, and friends join at a free name like <code>survival.alex.playkeeper.me</code> instead of an address that changes.</p>
+  <p class="p-lead">Install it on a VPS with one command:</p>
+  {{template "install" (dict "ID" true)}}
+</section>
+{{end}}
+
+{{define "after"}}
+<div class="article-after">
+  {{template "faq" (dict "ID" "questions" "Items" (list
+    (qa "What port does a Minecraft server use?" "TCP 25565 for Java Edition, set by server-port in server.properties. Bedrock players joining through Geyser use UDP 19132.")
+    (qa "Do I forward TCP or UDP for Minecraft Java?" "TCP. Java Edition's players connect over TCP 25565; UDP is only for Bedrock through Geyser, voice chat mods and query.")
+    (qa "Is port forwarding a Minecraft server safe?" "It opens only that port to the internet. Keep online mode on and an allowlist, forward nothing else, and never forward RCON.")
+    (qa "Why doesn't my port forward work?" "Most often the PC's local address changed, the PC's firewall blocks the port, the server isn't running, or the router has no public address because of carrier-grade NAT.")
+  ))}}
+</div>
+{{end}}
+
+{{define "keep-reading"}}{{template "related" (related 3 "/errors/connection-refused" "/guides/play-minecraft-with-friends" "/guides/minecraft-server-cost")}}{{end}}

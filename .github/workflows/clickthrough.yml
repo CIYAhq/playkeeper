@@ -7,8 +7,10 @@ name: Click-through
 # onboarding and the protocol bots' scenario: .github/actions/played-install)
 # and crawls its share; the gate then checks that together they crawled every
 # page and pressed every page's controls. CI calls it with the pages a change
-# touches, or every page (plan.ts); the Release check with every page, on the
-# release it built, after the onboarding and the bots.
+# touches (plan.ts), whose accessibility and width the runners then check
+# too (views.spec.ts, each its share at its own size); the Release check
+# with every page, on the release it built, and checks every page's
+# accessibility in its end-to-end run.
 
 on:
   workflow_call:
@@ -33,6 +35,10 @@ on:
         description: What the pages are crawled after, from plan.ts ("saved", a saved played state when one fits, or "fresh", the onboarding and the bots)
         type: string
         default: fresh
+      views:
+        description: The pages whose accessibility and width the runners check after the crawl, from plan.ts (a JSON list of the page map's names); none when empty
+        type: string
+        default: "[]"
 
 permissions:
   contents: read
@@ -68,6 +74,7 @@ jobs:
       # The state the pages are crawled in, with time limits on each step, so a
       # hung onboarding or bot fails the runner in minutes instead of holding it.
       - name: A played install of the build under test
+        id: install
         uses: ./.github/actions/played-install
         with:
           assets: /tmp/release/${{ inputs.assets }}
@@ -81,6 +88,16 @@ jobs:
           PK_SELECTION: ${{ inputs.selection }}
           SIZE: ${{ matrix.size }}
         run: cd test/e2e/ui && npx playwright test clickthrough.spec.ts --reporter=list -g "every control does something on $SIZE\$"
+      - name: No serious accessibility violations and nothing wider than the screen (this runner's share of the pages the change touches, at its size)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.views != '[]' }}
+        env:
+          PK_URL: https://127.0.0.1:8443
+          PK_OUT: /tmp/evidence/ui
+          PK_SHOTS: /tmp/evidence/views
+          PK_SHARD: ${{ matrix.shard }}/${{ matrix.of }}
+          PK_VIEWS: ${{ inputs.views }}
+          PK_VIEW_SIZE: ${{ matrix.size == 'phone' && 'narrow' || 'desktop' }}
+        run: cd test/e2e/ui && npx playwright test views.spec.ts --reporter=list -g "every page, desktop and narrow"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

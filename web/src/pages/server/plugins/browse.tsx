@@ -12,7 +12,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/in
 import { Skeleton } from '@/components/ui/skeleton'
 import { t, type MessageKey } from '@/i18n'
 import { rich } from '@/i18n/rich'
-import { can } from '@/lib/access'
+import { canCreate } from '@/lib/access'
 import { alsoInstalls, appendCards, browseSorts, compactCount, footerFor, maxSearch, searchPath, sourceNames, type BrowseSort } from '@/lib/addons'
 import { busyReason } from '@/lib/phase'
 import { presenceProps, useListPresence, type Presence } from '@/lib/presence'
@@ -190,7 +190,7 @@ export function BrowseView() {
       <div className="flex animate-fade flex-col items-center py-14 text-center">
         <Pip pose="search" size={88} />
         <h3 className="mt-4 text-lg font-bold">{text.trim() ? t('addons.nothingMatches', { q: text.trim() }) : t('cmd.emptyPlain')}</h3>
-        {text.trim() && can(ws.me, 'servers.create') && (
+        {text.trim() && canCreate(ws.me) && (
           <p className="mt-1 text-sm text-muted-foreground">
             {rich('addons.packHint', {
               link: (chunk) => (
