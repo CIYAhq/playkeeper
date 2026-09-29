@@ -53,11 +53,14 @@ type BackupRefusal struct {
 // DiskLimit is what a group of servers, a Playkeeper Cloud customer's, may
 // take on the machine between them, counted as the Disk space page counts
 // it. UsedBytes, in answers, is what they take at the last scan.
+// CPUMilliPerGB, when set, caps each of the servers' processor use at that
+// many thousandths of a core for each GB of its memory.
 type DiskLimit struct {
-	ID         string   `json:"id"`
-	LimitBytes int64    `json:"limitBytes"`
-	Servers    []string `json:"servers"`
-	UsedBytes  int64    `json:"usedBytes"`
+	ID            string   `json:"id"`
+	LimitBytes    int64    `json:"limitBytes"`
+	Servers       []string `json:"servers"`
+	CPUMilliPerGB int      `json:"cpuMilliPerGB,omitempty"`
+	UsedBytes     int64    `json:"usedBytes"`
 }
 
 // DiskLimitsRequest replaces every disk limit.
