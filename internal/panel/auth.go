@@ -437,6 +437,32 @@ CREATE TABLE customer_homes (
   placed_at  INTEGER NOT NULL
 );
 `,
+	// Selling only what fits: each plan's stock on Whop as last read or
+	// set, whether it's unlimited, and whether the plan is free; when each
+	// customer was last given their plan; how many more of each plan the
+	// machines can take, as last said, and when; and the stock last set on
+	// Whop, with how many of the plan's memberships the dashboard knew of
+	// then (-1 before one was set).
+	`
+ALTER TABLE whop_plans ADD COLUMN stock           INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_plans ADD COLUMN unlimited_stock INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE whop_plans ADD COLUMN free            INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE whop_customers ADD COLUMN applied_at INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE whop_stock (
+  plan_id TEXT    PRIMARY KEY,
+  want    INTEGER NOT NULL,
+  set_at  INTEGER NOT NULL,
+  written INTEGER NOT NULL DEFAULT -1,
+  known   INTEGER NOT NULL DEFAULT -1
+);
+`,
+	// Disk limits: the disk a creator's or customer's servers may take
+	// between them, or 0 for the default from their memory (see
+	// invites.Allowance).
+	`
+ALTER TABLE invites ADD COLUMN allowance_disk_gb INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE project_members ADD COLUMN allowance_disk_gb INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 const (

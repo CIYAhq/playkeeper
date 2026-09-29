@@ -174,7 +174,8 @@ func (s *Server) retryWhopNow() {
 
 // reconcileWhop brings customers in line with their memberships: it keeps
 // the webhook pointing at the dashboard, reads memberships and plans from
-// Whop, makes the core's calls, and sends the messages waiting to go.
+// Whop, keeps each plan's stock to what the machines can take, makes the
+// core's calls, and sends the messages waiting to go.
 func (s *Server) reconcileWhop(ctx context.Context) {
 	s.whopMu.Lock()
 	defer s.whopMu.Unlock()
@@ -198,6 +199,7 @@ func (s *Server) reconcileWhop(ctx context.Context) {
 		s.log.Warn("could not read memberships from Whop", "err", err)
 	}
 	s.refreshWhopPlans(ctx, c, a)
+	s.pushWhopStock(ctx, c, a.ID)
 	s.syncWhopCustomers(ctx, c)
 	s.remindCancelled(ctx, a)
 	s.sendWhopMessages(ctx, c, a)
@@ -464,6 +466,9 @@ func (s *Server) syncWhopCustomers(ctx context.Context, c *whop.Client) {
 func (s *Server) stepWhopCustomer(ctx context.Context, c *whop.Client, wc whopCustomer) error {
 	has := wc.Plan.Servers > 0 && wc.Plan.MemoryMB > 0
 	cust := Customer{Provider: whopProvider, Subject: wc.WhopUserID, Handle: wc.Handle}
+	// Taken before the core's call, since the fleet may count the customer
+	// in its room before the call returns (see pushWhopStock).
+	at := s.now()
 	switch {
 	case has && (wc.Applied == "" || wc.Paused):
 		if cust.Handle == "" {
@@ -480,28 +485,28 @@ func (s *Server) stepWhopCustomer(ctx context.Context, c *whop.Client, wc whopCu
 		if _, err := s.hosting.StartCustomer(ctx, cust, wc.Plan); err != nil {
 			return err
 		}
-		return s.recordWhopCustomer(cust, planKey(wc.Plan), false)
+		return s.recordWhopCustomer(cust, planKey(wc.Plan), false, at)
 	case has && wc.Applied != planKey(wc.Plan):
 		if err := s.hosting.ChangeCustomerPlan(ctx, cust, wc.Plan); err != nil {
 			return err
 		}
-		return s.recordWhopCustomer(cust, planKey(wc.Plan), false)
+		return s.recordWhopCustomer(cust, planKey(wc.Plan), false, at)
 	case !has && wc.Applied != "" && !wc.Paused:
 		if err := s.hosting.PauseCustomer(ctx, cust, "their Whop membership is "+cmpOr(wc.Latest, "gone")); err != nil {
 			return err
 		}
-		return s.recordWhopCustomer(cust, wc.Applied, true)
+		return s.recordWhopCustomer(cust, wc.Applied, true, at)
 	}
 	return nil
 }
 
-// recordWhopCustomer notes the plan the core now has for a customer, and
-// whether they're paused, clearing any problem.
-func (s *Server) recordWhopCustomer(cust Customer, applied string, paused bool) error {
-	_, err := s.db.Exec(`INSERT INTO whop_customers(whop_user_id, handle, applied, paused, updated_at) VALUES(?,?,?,?,?)
-		ON CONFLICT(whop_user_id) DO UPDATE SET handle = excluded.handle, applied = excluded.applied, paused = excluded.paused,
+// recordWhopCustomer notes the plan the core now has for a customer, since
+// at, and whether they're paused, clearing any problem.
+func (s *Server) recordWhopCustomer(cust Customer, applied string, paused bool, at time.Time) error {
+	_, err := s.db.Exec(`INSERT INTO whop_customers(whop_user_id, handle, applied, paused, applied_at, updated_at) VALUES(?,?,?,?,?,?)
+		ON CONFLICT(whop_user_id) DO UPDATE SET handle = excluded.handle, applied = excluded.applied, paused = excluded.paused, applied_at = excluded.applied_at,
 		attempts = 0, next_try_at = 0, problem = '', updated_at = excluded.updated_at`,
-		cust.Subject, cust.Handle, applied, paused, s.now().UnixMilli())
+		cust.Subject, cust.Handle, applied, paused, at.UnixMilli(), s.now().UnixMilli())
 	return err
 }
 

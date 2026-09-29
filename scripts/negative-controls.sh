@@ -7350,6 +7350,62 @@ control "processor shares: no cap passes the machine's cores" internal/agent/dis
   ', int64(numCPU())*1_000_000_000*1000)' \
   ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
 
+# Playkeeper Cloud's disk limits, the dashboard's half
+# (internal/panel/disklimits.go): each creator's servers get their
+# allowance's disk between them on their machine.
+control "dashboard disk limits: an invite keeps its disk" internal/panel/friends.go \
+  'inv.Allowance.Servers, inv.Allowance.MemoryMB, inv.Allowance.DiskGB)' \
+  'inv.Allowance.Servers, inv.Allowance.MemoryMB, 0*inv.Allowance.DiskGB)' \
+  ./internal/panel '^TestACreatorInvitesDiskGoesWithIt$'
+control "dashboard disk limits: the account an invite makes keeps its disk" internal/panel/join.go \
+  'grant.Allowance.Servers, grant.Allowance.MemoryMB, grant.Allowance.DiskGB, now)' \
+  'grant.Allowance.Servers, grant.Allowance.MemoryMB, 0*grant.Allowance.DiskGB, now)' \
+  ./internal/panel '^TestACreatorInvitesDiskGoesWithIt$'
+control "dashboard disk limits: an account's access reads its disk" internal/panel/workspace.go \
+  '&a.Allowance.Servers, &a.Allowance.MemoryMB, &a.Allowance.DiskGB)' \
+  '&a.Allowance.Servers, &a.Allowance.MemoryMB, new(int))' \
+  ./internal/panel '^TestACreatorInvitesDiskGoesWithIt$'
+control "dashboard disk limits: the default disk is 7.5 GB per GB of memory" internal/invites/allowance.go \
+  'return int64(al.MemoryMB) * 15 << 19' \
+  'return int64(al.MemoryMB) * 16 << 19' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+control "dashboard disk limits: an allowance's own disk is what it gives" internal/invites/allowance.go \
+  'return int64(al.DiskGB) << 30' \
+  'return int64(al.DiskGB) << 29' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+control "dashboard disk limits: an allowance's disk has a ceiling" internal/invites/allowance.go \
+  'case al.DiskGB < 0 || al.DiskGB > MaxAllowanceDiskGB:' \
+  'case al.DiskGB < 0:' \
+  ./internal/invites '^TestNewCreatorInvite$'
+control "dashboard disk limits: the limits carry each account's own disk" internal/panel/disklimits.go \
+  'if err := rows.Scan(&uid, &al.Servers, &al.MemoryMB, &al.DiskGB); err != nil {' \
+  'if err := rows.Scan(&uid, &al.Servers, &al.MemoryMB, new(int)); err != nil {' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+control "dashboard disk limits: a creator's new server sends them at once" internal/panel/creators.go \
+  's.kickDiskLimits()' \
+  '_ = s.kickDiskLimits' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+control "dashboard disk limits: removing a creator sends them at once" internal/panel/team.go \
+  's.kickDiskLimits()' \
+  '_ = s.kickDiskLimits' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+control "dashboard disk limits: the Team page shows what a creator's servers take" internal/panel/team.go \
+  'row.DiskUsedBytes = s.diskUsed(t.UserID)' \
+  '_ = s.diskUsed(t.UserID)' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+control "dashboard disk limits: what they take comes from the machine" internal/panel/disklimits.go \
+  'used[uid] = l.UsedBytes' \
+  'used[uid] = 0*l.UsedBytes' \
+  ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
+webcontrol "dashboard disk limits: the Team page says what a creator's servers take" web/src/pages/team.tsx \
+  "m.diskUsedBytes === undefined ? t('team.diskOf', { limit }) : t('team.diskUsed', { used: formatBytes(m.diskUsedBytes), limit })" \
+  "t('team.diskOf', { limit })" \
+  src/pages/pages.test.tsx 'disk, and how much their servers take once'
+webcontrol "dashboard disk limits: the Team page's default disk matches the dashboard's" web/src/lib/access.ts \
+  'al.memoryMB * 7.5' \
+  'al.memoryMB * 8' \
+  src/pages/pages.test.tsx 'disk, and how much their servers take once'
+
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
   exit 1

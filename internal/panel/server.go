@@ -139,9 +139,11 @@ type Server struct {
 	whopMu   sync.Mutex
 	whopKick chan struct{}
 	// hosting is the hosting core billing providers call, and notifier what
-	// the core calls to tell customers something (see hosting.go).
+	// the core calls to tell customers something (see hosting.go). sales is
+	// what the fleet tells how many more of each plan fit (see whop_stock.go).
 	hosting  hostingCore
 	notifier customerNotifier
+	sales    saleStock
 	// hetznerMu serialises the Hetzner stock watch's changes and checks,
 	// so a check never writes over a token the owner just replaced (see
 	// hetzner.go).
@@ -149,6 +151,16 @@ type Server struct {
 	// placeMu serialises placing customers, so two never get the same room
 	// (see placement.go).
 	placeMu sync.Mutex
+	// diskKick has the disk limits sent to the machines now, and diskUse
+	// is what each account's servers took when they were last counted (see
+	// disklimits.go).
+	diskKick chan struct{}
+	diskUse  struct {
+		sync.Mutex
+		at     time.Time
+		used   map[int64]int64
+		failed map[string]string
+	}
 }
 
 func New(opts Options) (*Server, error) {
@@ -207,9 +219,11 @@ func New(opts Options) (*Server, error) {
 		auditMaxAge: 365 * 24 * time.Hour,
 		maxAudit:    100_000,
 		whopKick:    make(chan struct{}, 1),
+		diskKick:    make(chan struct{}, 1),
 		hosting:     noHostingCore{},
 	}
 	s.notifier = billingNotifier{s: s}
+	s.sales = whopStock{s: s}
 	s.activePacks = &activePacks{fetch: s.fetchActivePacks, now: opts.Now}
 	s.public = newPublicGroup(s.publicRoutes(), opts.Now)
 	s.page = s.newPageSite()
@@ -1664,6 +1678,7 @@ func (s *Server) ListenAndServeTLS(ctx context.Context) error {
 	go s.runPage(ctx)
 	go s.runWhop(ctx)
 	go s.runStock(ctx)
+	go s.runDiskLimits(ctx)
 	s.log.Info("panel listening", "addr", "https://"+addr)
 	return s.serve(ctx, ln, tc)
 }

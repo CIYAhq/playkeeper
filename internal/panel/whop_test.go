@@ -47,6 +47,14 @@ type fakeWhop struct {
 	// opening one fail.
 	messages map[string][]string
 	chatDown bool
+	// stockSets are the stocks the dashboard set, as plan=n; stockDown
+	// makes setting one fail, and listDown listing memberships.
+	stockSets []string
+	stockDown bool
+	listDown  bool
+	// refuseFilter refuses listing memberships by plan, as a Whop that
+	// doesn't know the filter might.
+	refuseFilter bool
 	// grants are the sign-ins Whop approved, by code, and revokedTokens
 	// the refresh tokens ended.
 	grants        map[string]oauthGrant
@@ -124,10 +132,10 @@ func newFakeWhop(t *testing.T) *fakeWhop {
 		products: map[string]whop.Metadata{"prod_mc": {"color": "green"}},
 		plans: []map[string]any{
 			{"id": "plan_starter", "title": "Starter", "visibility": "hidden", "plan_type": "renewal", "billing_period": 30, "formatted_price": "$8.00 / month",
-				"trial_period_days": 3, "product": map[string]any{"id": "prod_mc", "title": "Minecraft server"},
-				"metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}},
+				"renewal_price": 8, "trial_period_days": 3, "product": map[string]any{"id": "prod_mc", "title": "Minecraft server"},
+				"metadata": map[string]any{whop.MetaServers: "1", whop.MetaMemoryGB: "4"}, "unlimited_stock": true},
 			{"id": "plan_big", "title": "Big", "visibility": "hidden", "plan_type": "renewal", "billing_period": 30, "currency": "usd", "renewal_price": 16,
-				"product": map[string]any{"id": "prod_mc", "title": "Minecraft server"}, "metadata": map[string]any{}},
+				"product": map[string]any{"id": "prod_mc", "title": "Minecraft server"}, "metadata": map[string]any{}, "unlimited_stock": true},
 			{"id": "plan_old", "title": "Old", "visibility": "archived", "product": map[string]any{"id": "prod_mc"}},
 		}}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
@@ -198,9 +206,22 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 		f.webhooks[id] = body
 		json.NewEncoder(w).Encode(map[string]any{"id": id, "url": body["url"], "webhook_secret": whopTestSecret})
 	case "GET /memberships":
+		if f.listDown {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, `{"error":{"type":"server_error","message":"Something went wrong"}}`)
+			return
+		}
+		plan := r.URL.Query().Get("plan_id")
+		if plan != "" && f.refuseFilter {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":{"type":"invalid_request_error","message":"Unknown parameter: plan_id"}}`)
+			return
+		}
 		var data []map[string]any
 		for _, m := range f.memberships {
-			data = append(data, m)
+			if plan == "" || m["plan_id"] == plan {
+				data = append(data, m)
+			}
 		}
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "page_info": map[string]any{"has_next_page": false}})
 	case "POST /support_channels":
@@ -245,6 +266,24 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if id, ok := strings.CutPrefix(r.URL.Path, "/variants/"); ok && r.Method == "PATCH" {
+			if f.stockDown {
+				w.WriteHeader(http.StatusBadGateway)
+				io.WriteString(w, `{"error":{"type":"server_error","message":"Try again"}}`)
+				return
+			}
+			var body struct {
+				Stock          *int  `json:"stock"`
+				UnlimitedStock *bool `json:"unlimited_stock"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			if p := f.plan(id); p != nil && body.Stock != nil && body.UnlimitedStock != nil {
+				p["stock"], p["unlimited_stock"] = *body.Stock, *body.UnlimitedStock
+				f.stockSets = append(f.stockSets, fmt.Sprintf("%s=%d", id, *body.Stock))
+				json.NewEncoder(w).Encode(p)
+				return
+			}
+		}
 		w.WriteHeader(http.StatusNotFound)
 		io.WriteString(w, `{"error":{"type":"not_found","message":"No such route"}}`)
 	}
@@ -254,6 +293,43 @@ func (f *fakeWhop) dashboardMeta() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.products["prod_mc"][whop.MetaDashboard]
+}
+
+// plan is the fake's plan id, nil when there's none; f.mu must be held.
+func (f *fakeWhop) plan(id string) map[string]any {
+	for _, p := range f.plans {
+		if p["id"] == id {
+			return p
+		}
+	}
+	return nil
+}
+
+// setStock changes a plan's stock on Whop as its seller could by hand, or
+// makes it unlimited for n < 0.
+func (f *fakeWhop) setStock(id string, n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := f.plan(id)
+	p["stock"], p["unlimited_stock"] = max(n, 0), n < 0
+}
+
+// stockOf is a plan's stock on Whop, -1 when it's unlimited.
+func (f *fakeWhop) stockOf(id string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := f.plan(id)
+	if p["unlimited_stock"] != false {
+		return -1
+	}
+	n, _ := p["stock"].(int)
+	return n
+}
+
+func (f *fakeWhop) stockWrites() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.stockSets...)
 }
 
 // newWhopEnv is a dashboard whose Sell on Whop talks to f, on a machine
