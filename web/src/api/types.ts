@@ -1886,6 +1886,8 @@ export interface WhopStore {
   problem?: string
   plans: WhopPlan[]
   needs: string[]
+  /** On the answer to a disconnect alone: what the owner still has to do on Whop. */
+  notice?: string
 }
 
 /** One plan of the store; allowanceFrom is "store" when its metadata on Whop sets the allowance, "owner" when set here. */

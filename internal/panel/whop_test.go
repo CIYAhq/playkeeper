@@ -2,6 +2,7 @@ package panel
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -28,12 +29,13 @@ type fakeWhop struct {
 	mu      sync.Mutex
 	srv     *httptest.Server
 	missing map[string]bool
-	// permissionsDown makes Whop's permission check fail.
-	permissionsDown bool
-	products        map[string]whop.Metadata
-	plans           []map[string]any
-	patches         []string
-	keysSeen        map[string]bool
+	// permissionsDown makes Whop's permission check fail, patchDown its
+	// product updates, and revoked refuses the test key.
+	permissionsDown, patchDown, revoked bool
+	products                            map[string]whop.Metadata
+	plans                               []map[string]any
+	patches                             []string
+	keysSeen                            map[string]bool
 }
 
 func newFakeWhop(t *testing.T) *fakeWhop {
@@ -60,9 +62,9 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 	f.keysSeen[key] = true
 	w.Header().Set("Content-Type", "application/json")
 	account := map[string]any{"id": "biz_pip", "title": "Pip Hosting", "route": "pip-hosting"}
-	switch key {
-	case whopTestKey:
-	case whopOtherKey:
+	switch {
+	case key == whopTestKey && !f.revoked:
+	case key == whopOtherKey:
 		account = map[string]any{"id": "biz_other", "title": "Other", "route": "other"}
 	default:
 		w.WriteHeader(http.StatusUnauthorized)
@@ -92,6 +94,11 @@ func (f *fakeWhop) serve(w http.ResponseWriter, r *http.Request) {
 	case "GET /variants":
 		json.NewEncoder(w).Encode(map[string]any{"data": f.plans, "page_info": map[string]any{"has_next_page": false}})
 	case "PATCH /products/prod_mc":
+		if f.patchDown {
+			w.WriteHeader(http.StatusBadGateway)
+			io.WriteString(w, `{"error":{"type":"server_error","message":"Try again"}}`)
+			return
+		}
 		var body struct {
 			Metadata whop.Metadata `json:"metadata"`
 		}
@@ -328,6 +335,46 @@ func TestDisconnectingClosesTheStoreAndForgetsTheKey(t *testing.T) {
 	}
 	if rows := e.auditRows(t, "whop.disconnect"); len(rows) != 1 {
 		t.Fatalf("audit: %v", rows)
+	}
+}
+
+// A store that still names this dashboard keeps taking orders, so a
+// disconnect that can't close it keeps the key for another try, unless
+// Whop no longer takes the key, which then can't close it either.
+func TestADisconnectThatCantCloseTheStoreKeepsTheKey(t *testing.T) {
+	f := newFakeWhop(t)
+	e := newWhopEnv(t, f)
+	own := owner(t, e)
+	e.do(t, "POST", "/api/whop/connect", `{"key":"`+whopTestKey+`"}`, own.auth())
+	f.mu.Lock()
+	f.patchDown = true
+	f.mu.Unlock()
+	if r := e.do(t, "DELETE", "/api/whop", "", own.auth()); r.status != http.StatusBadGateway {
+		t.Fatalf("disconnect while Whop fails: %d %v", r.status, r.body)
+	}
+	if v := e.whopView(t, own); !v.Connected || f.dashboardMeta() != whopDashboard {
+		t.Fatalf("after a disconnect that failed: connected %v, product %q", v.Connected, f.dashboardMeta())
+	}
+	f.mu.Lock()
+	f.revoked = true
+	f.mu.Unlock()
+	r := e.do(t, "DELETE", "/api/whop", "", own.auth())
+	if r.status != http.StatusOK || r.body["connected"] != false || !strings.Contains(fmt.Sprint(r.body["notice"]), whop.MetaDashboard) {
+		t.Fatalf("disconnect with a key Whop refuses: %d %v", r.status, r.body)
+	}
+}
+
+// An agent that can't be asked for the address leaves the store as it was,
+// rather than closing it as if the machine had none.
+func TestAnAgentThatCantBeAskedLeavesTheStoreOpen(t *testing.T) {
+	f := newFakeWhop(t)
+	e := newWhopEnv(t, f)
+	own := owner(t, e)
+	e.do(t, "POST", "/api/whop/connect", `{"key":"`+whopTestKey+`"}`, own.auth())
+	e.replyStatus("GET", "/v1/address", http.StatusServiceUnavailable, `{"error":"Busy.","code":"busy"}`)
+	r := e.do(t, "POST", "/api/whop/sync", "", own.auth())
+	if r.status != http.StatusOK || f.dashboardMeta() != whopDashboard || !strings.Contains(fmt.Sprint(r.body["problem"]), "couldn't ask this machine for its address") {
+		t.Fatalf("sync while the agent can't be asked: %d %v, product %q", r.status, r.body, f.dashboardMeta())
 	}
 }
 

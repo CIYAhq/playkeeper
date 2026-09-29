@@ -378,8 +378,9 @@ function DisconnectDialog({ open, account, onClose, onDone }: { open: boolean; a
   async function disconnect() {
     setBusy(true)
     try {
-      onDone(await del<WhopStore>('/api/whop'))
-      toastManager.add({ title: t('whop.disconnected'), type: 'success' })
+      const s = await del<WhopStore>('/api/whop')
+      onDone(s)
+      toastManager.add(s.notice ? { title: t('whop.disconnected'), description: s.notice, type: 'warning' } : { title: t('whop.disconnected'), type: 'success' })
       onClose()
     } catch (e) {
       toastManager.add({ title: errorText(e), type: 'error' })
