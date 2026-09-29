@@ -7520,7 +7520,7 @@ control "ready server: a customer with no home machine waits" internal/panel/rea
   'return err != nil' \
   ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
 control "ready server: a waiting customer creates no server" internal/panel/creators.go \
-  'if s.customerWaiting(r.Context(), a) {' \
+  'if s.customerWaiting(ctx, a) {' \
   'if false {' \
   ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
 control "ready server: the dashboard says a customer is waiting" internal/panel/server.go \
@@ -8466,13 +8466,13 @@ control "creator uploads: a server from a backup fits the allowance" internal/pa
   'if s.refuseNewServer(w, r, sess.Access, m, mb) {' \
   'if false {' \
   ./internal/panel '^TestACreatorMakesAServerFromABackupTheyUpload$'
-control "creator uploads: only on the dashboard's own machine" internal/panel/customeruploads.go \
-  'case m.Kind != localKind:' \
-  'case false:' \
-  ./internal/panel '^TestACreatorUploadsForANewServerOnlyToTheDashboardsMachine$'
+control "creator uploads: only on their machine" internal/panel/customeruploads.go \
+  'if err := s.homeRefusal(ctx, a, m); err != nil {' \
+  'if err := s.homeRefusal(ctx, a, m); false && err != nil {' \
+  ./internal/panel '^TestACreatorUploadsForANewServerOnlyToTheirMachine$'
 control "creator uploads: not while waiting for room" internal/panel/customeruploads.go \
-  'case s.customerWaiting(ctx, a):' \
-  'case false:' \
+  'if err := s.homeRefusal(ctx, a, m); err != nil {' \
+  'if err := s.homeRefusal(ctx, a, m); false && err != nil {' \
   ./internal/panel '^TestACustomerWaitingForRoomUploadsNothingForANewServer$'
 control "creator uploads: the allowance's server count" internal/panel/customeruploads.go \
   'if use.servers >= a.Allowance.Servers {' \
@@ -8521,11 +8521,94 @@ control "creator uploads: a customer without a machine has no limit on one" inte
 webcontrol "creator uploads: a creator starts from a world or a backup" web/src/pages/new-server.tsx \
   'const importer = canCreate(ws.me)' \
   "const importer = can(ws.me, 'servers.create')" \
-  src/pages/new-server.test.tsx 'a world or a backup, only on the dashboard'
-webcontrol "creator uploads: a creator's new server stays on the dashboard's machine" web/src/pages/new-server.tsx \
+  src/pages/new-server.test.tsx 'a world or a backup, only on the machine their servers go on'
+webcontrol "creator uploads: a creator's new server stays on the machine their servers go on" web/src/pages/new-server.tsx \
+  'const asked = chooser ? machine : ws.me.access.home' \
+  'const asked = importer ? machine : ws.me.access.home' \
+  src/pages/new-server.test.tsx 'a world or a backup, only on the machine their servers go on'
+webcontrol "creator uploads: a customer's new server goes on the joined machine they were placed on" web/src/pages/new-server.tsx \
+  'const asked = chooser ? machine : ws.me.access.home' \
   'const asked = chooser ? machine : undefined' \
-  'const asked = importer ? machine : undefined' \
-  src/pages/new-server.test.tsx 'a world or a backup, only on the dashboard'
+  src/pages/new-server.test.tsx 'on the joined machine they were placed on'
+
+# Joined machines take customers only once the owner confirms them, which
+# keeps servers away from them first (internal/panel/machinecustomers.go).
+control "confirming: a joined machine takes customers only once confirmed" internal/panel/placement.go \
+  'case m.Kind == remoteKind && !m.customersAt.IsZero():' \
+  'case m.Kind == remoteKind:' \
+  ./internal/panel '^(TestJoinedMachinesTakeNoCustomersUntilConfirmed|TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt)$'
+control "confirming: only the owner confirms a machine" internal/panel/server.go \
+  'actTakeCustomers, s.hMachineCustomers},' \
+  'actManageMachine, s.hMachineCustomers},' \
+  ./internal/panel '^TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt$'
+control "confirming: servers are kept away from the machine first" internal/panel/machinecustomers.go \
+  'if on {
+		g, err := setNetworkGuard(ctx, m, actor, true)' \
+  'if false && on {
+		g, err := setNetworkGuard(ctx, m, actor, true)' \
+  ./internal/panel '^(TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt|TestConfirmingKeepsServersAwayFromTheMachineFirst)$'
+control "confirming: a machine that leaves servers free to reach it isn't confirmed" internal/panel/machinecustomers.go \
+  'if !g.Host {' \
+  'if false && !g.Host {' \
+  ./internal/panel '^TestConfirmingKeepsServersAwayFromTheMachineFirst$'
+control "confirming: stopping a machine takes effect" internal/panel/machinecustomers.go \
+  'if m.customersAt.IsZero() != on {' \
+  'if m.customersAt.IsZero() != on || !on {' \
+  ./internal/panel '^TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt$'
+control "confirming: stopping waits for a customer being placed" internal/panel/machinecustomers.go \
+  's.placeMu.Lock()
+	defer s.placeMu.Unlock()
+	m, err := s.machineByID(id)' \
+  'm, err := s.machineByID(id)' \
+  ./internal/panel '^TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt$'
+control "confirming: the customers waiting for room are placed" internal/panel/machinecustomers.go \
+  's.kickRoom()' \
+  '_ = s.kickRoom' \
+  ./internal/panel '^TestAJoinedMachineTakesCustomersOnceTheOwnerConfirmsIt$'
+control "confirming: servers stay away while it takes customers" internal/panel/machinecustomers.go \
+  'case at != 0:' \
+  'case false:' \
+  ./internal/panel '^TestServersStayAwayFromAJoinedMachineWhileItTakesCustomers$'
+control "confirming: servers stay away while it has customers" internal/panel/machinecustomers.go \
+  'case homes > 0:' \
+  'case false:' \
+  ./internal/panel '^TestServersStayAwayFromAJoinedMachineWhileItTakesCustomers$'
+control "confirming: the guard's refusal is kept" internal/panel/creators.go \
+  'if msg != "" {' \
+  'if false && msg != "" {' \
+  ./internal/panel '^TestServersStayAwayFromAJoinedMachineWhileItTakesCustomers$'
+control "confirming: a creator creates servers only on their machine" internal/panel/creators.go \
+  'case !ok || home != m.ID:' \
+  'case !ok:' \
+  ./internal/panel '^(TestACreatorUploadsForANewServerOnlyToTheirMachine|TestACustomerCreatesServersOnTheJoinedMachineTheyrePlacedOn)$'
+control "confirming: a creator creates servers on their machine" internal/panel/creators.go \
+  'if err := s.homeRefusal(r.Context(), a, m); err != nil {' \
+  'if err := s.homeRefusal(r.Context(), a, m); false && err != nil {' \
+  ./internal/panel '^TestACustomerCreatesServersOnTheJoinedMachineTheyrePlacedOn$'
+control "confirming: another machine's catalog offers a creator no memory for a new server" internal/panel/creators.go \
+  'case server == "" && s.homeRefusal(ctx, a, m) != nil:' \
+  'case false:' \
+  ./internal/panel '^TestACustomerCreatesServersOnTheJoinedMachineTheyrePlacedOn$'
+control "confirming: the dashboard says which machine a creator's servers go on" internal/panel/server.go \
+  'Home: s.creatorHome(a), ' \
+  '' \
+  ./internal/panel '^TestACustomerCreatesServersOnTheJoinedMachineTheyrePlacedOn$'
+webcontrol "confirming: New server here is only on the machine a creator's servers go on" web/src/lib/access.ts \
+  '(!m || m.id === me.access.home)' \
+  '(!m || !!m.id)' \
+  src/lib/lib.test.ts 'a creator only on the one their servers go on'
+webcontrol "confirming: the card is the owner's alone" web/src/pages/machines.tsx \
+  "{can(ws.me, 'machines.customers') && <CustomersCard machine={m} />}" \
+  '<CustomersCard machine={m} />' \
+  src/pages/pages.test.tsx 'is the owner’s alone'
+webcontrol "confirming: the owner checks the machine is theirs first" web/src/pages/machines.tsx \
+  'onClick={() => setConfirming(true)}' \
+  'onClick={() => void set(true)}' \
+  src/pages/pages.test.tsx 'once the owner checks it’s theirs'
+webcontrol "confirming: removing a machine says its customers are on it" web/src/pages/machines.tsx \
+  '{!!m.customers && (' \
+  '{false && (' \
+  src/pages/pages.test.tsx 'warns before removing a machine customers are on'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
