@@ -7819,8 +7819,8 @@ control "new level.dat: offered next to the restore" internal/diagnose/crashrule
   '' \
   ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
 control "new level.dat: Minecraft 26.1's last line, which names no file, is recognised" internal/diagnose/crashrules.go \
-  '`Failed to load world data(?: from \S{1,300} and \S{1,300})?\. World files may be corrupted`' \
-  '`Failed to load world data from \S{1,300} and \S{1,300}\. World files may be corrupted`' \
+  'Failed to load world data(?: from \S{1,300} and \S{1,300})?\. World files may be corrupted' \
+  'Failed to load world data from \S{1,300} and \S{1,300}\. World files may be corrupted' \
   ./internal/diagnose '^TestExplainCrashRecognisesEachCause$'
 control "new level.dat: a world whose level.dat can be read is refused" internal/agent/leveldat.go \
   'if _, err := worldimport.ParseLevel(b, levelDecode); err == nil {' \
