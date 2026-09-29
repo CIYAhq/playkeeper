@@ -31,6 +31,10 @@ const (
 	// member's Admin rights. It is always posted too, so the owner hears of
 	// every new admin.
 	KindAdminConfirmed Kind = "admin_confirmed"
+	// KindInStock is machines the owner watches for coming into stock at
+	// their cloud provider. Watching is its own switch, so it is always
+	// posted.
+	KindInStock Kind = "in_stock"
 )
 
 // kindInfo is what Playkeeper knows about each kind, in the order the
@@ -79,7 +83,7 @@ func (k Kind) DefaultOn() bool {
 
 // always reports whether alerts of kind k are posted whatever the switches
 // say.
-func (k Kind) always() bool { return k == KindTwoFactor || k == KindAdminConfirmed }
+func (k Kind) always() bool { return k == KindTwoFactor || k == KindAdminConfirmed || k == KindInStock }
 
 func (k Kind) quiet() time.Duration {
 	if k.always() {
@@ -178,9 +182,25 @@ type Event struct {
 	On     bool
 	Admin  bool
 	By     string
+	// Provider and Machine say which machines came into stock, such as
+	// "Hetzner" and "CX53", and Places where, each with its link to buy one.
+	Provider string
+	Machine  string
+	Places   []Place
 	// Server is the server the event is about, for a Notifier that posts
 	// about several; zero means the Notifier's own server.
 	Server ServerInfo
+}
+
+// Place is where machines are in stock, and the link that buys one there.
+type Place struct {
+	Name string
+	Link string
+}
+
+// InStock is machines coming into stock at the owner's cloud provider.
+func InStock(provider, machine string, places []Place) Event {
+	return Event{Kind: KindInStock, Provider: provider, Machine: machine, Places: places}
 }
 
 // JoinRequested is a player asking to join through an invite link that needs
@@ -273,6 +293,12 @@ func (e Event) subjectInServer() string {
 		return string(e.Kind) + ":" + oneLine(e.Version)
 	case KindTwoFactor, KindAdminConfirmed:
 		return string(e.Kind) + ":" + strings.ToLower(oneLine(e.Member))
+	case KindInStock:
+		var places []string
+		for _, p := range e.Places {
+			places = append(places, oneLine(p.Name))
+		}
+		return string(e.Kind) + ":" + oneLine(e.Machine) + ":" + strings.Join(places, ",")
 	case KindCrash:
 		if e.GaveUp {
 			return string(e.Kind) + ":gave_up"
@@ -365,6 +391,8 @@ func (e Event) embed(info ServerInfo) embed {
 		}
 	case KindAdminConfirmed:
 		title, text = "Admin rights confirmed", member(e.By)+" gave "+member(e.Member)+" Admin rights after they turned on two-factor sign-in."
+	case KindInStock:
+		title, text = "Machines in stock", inStockText(e)
 	default:
 		title, text = "Server alert", name+"."
 	}
@@ -396,6 +424,56 @@ func (info ServerInfo) card(title, text string, color int, at time.Time) embed {
 	}
 	e.fit()
 	return e
+}
+
+// maxPlaces bounds the places one in-stock alert names.
+const maxPlaces = 10
+
+// inStockText says which machines came into stock where, linking each place
+// to buying one there: "Hetzner has CX53 machines in stock. Buy one in
+// Falkenstein or Helsinki."
+func inStockText(e Event) string {
+	provider := userText(e.Provider, 40)
+	if provider == "" {
+		provider = "Your cloud provider"
+	}
+	what := "the machines you watch"
+	if m := userText(e.Machine, 40); m != "" {
+		what = "**" + m + "** machines"
+	}
+	var names []string
+	linked := true
+	for _, p := range e.Places {
+		if len(names) == maxPlaces {
+			break
+		}
+		name := userText(p.Name, 40)
+		if name == "" {
+			continue
+		}
+		if l := plainLink(p.Link); l != "" {
+			name = "[" + name + "](" + l + ")"
+		} else {
+			linked = false
+		}
+		names = append(names, name)
+	}
+	switch {
+	case len(names) == 0:
+		return provider + " has " + what + " in stock."
+	case linked:
+		return provider + " has " + what + " in stock. Buy one in " + orList(names) + "."
+	default:
+		return provider + " has " + what + " in stock in " + orList(names) + "."
+	}
+}
+
+// orList joins items as "A", "A or B", or "A, B or C".
+func orList(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " or " + items[len(items)-1]
 }
 
 func detail(s string) string {

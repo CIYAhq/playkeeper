@@ -26,17 +26,24 @@ var starter = CustomerPlan{ID: "plan_starter", Name: "Starter", Servers: 1, Memo
 // siya.playkeeper.me as the Pip Hosting test seller, has no other machine
 // and no fleet setup: its own machine takes its customers.
 func TestAStandaloneDashboardPlacesCustomersOnItsOwnMachine(t *testing.T) {
-	e := newEnv(t)
+	hetzner := newFakeHetzner(t)
+	e := newHetznerEnv(t, hetzner)
 	owner(t, e)
 	e.reply("GET", "/v1/machine", liveMachine(30000, true))
 	e.reply("GET", "/v1/servers", `[]`)
 	alex := addCreator(t, e, "alexplays", fourGB)
 	local := machineID(t, e)
-	var machines int
+	var machines, tokens int
 	e.srv.db.QueryRow(`SELECT COUNT(*) FROM machines`).Scan(&machines)
-	if machines != 1 {
-		t.Fatalf("%d machines, want the dashboard's own alone", machines)
+	e.srv.db.QueryRow(`SELECT COUNT(*) FROM hetzner_watch`).Scan(&tokens)
+	if machines != 1 || tokens != 0 {
+		t.Fatalf("%d machines and %d Hetzner tokens, want the dashboard's own machine alone and no token", machines, tokens)
 	}
+	defer func() {
+		if n := hetzner.questions(); n != 0 {
+			t.Errorf("placement asked Hetzner %d times", n)
+		}
+	}()
 
 	got, err := e.srv.placeCustomer(t.Context(), alex.id, starter)
 	if err != nil || got != local {
