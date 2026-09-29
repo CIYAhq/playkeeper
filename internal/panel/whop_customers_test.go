@@ -30,12 +30,19 @@ func connectedWhop(t *testing.T) (*fakeWhop, *env, member) {
 	return f, e, own
 }
 
-// buy gives a customer a membership of a plan on the fake Whop.
+// buy gives a customer a membership of a plan on the fake Whop, or changes
+// its status. A new one takes one off the plan's stock when it has one.
 func (f *fakeWhop) buy(id, user, plan, status string) map[string]any {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	m := map[string]any{"id": id, "status": status, "plan_id": plan, "product_id": "prod_mc", "user_id": user, "cancel_at_period_end": false}
+	_, had := f.memberships[id]
 	f.memberships[id] = m
+	if p := f.plan(plan); p != nil && !had && p["unlimited_stock"] == false {
+		if n, _ := p["stock"].(int); n > 0 {
+			p["stock"] = n - 1
+		}
+	}
 	return m
 }
 
