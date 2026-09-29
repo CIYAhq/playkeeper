@@ -4,6 +4,7 @@ Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard
 
 ## 0.4.8
 
+- **Addresses without a port on every machine:** with **Addresses without a port** on, servers on machines joined to this dashboard get their name under its domain too, pointing at the machine each runs on, so players join them without a port as well. A machine that reaches the dashboard only from its own network gets none.
 - **A new level.dat:** when both of a world's level.dat files are damaged, the Overview offers to make a new one next to restoring a backup, so the world keeps every build made since that backup. It says what starts over first: the spawn point, and before Minecraft 26.1 the game rules and the time of day. Playkeeper backs the world up before it changes anything, and keeps the world's seed, so new land matches the old.
 - Fixed: a world on Minecraft 26.1 or newer with both level.dat files damaged got "stopped unexpectedly" and a restart, because its last line no longer names the files. The Overview now says the world's level.dat is damaged.
 - Fixed: a mod made for players' games, like Sodium, stopped a NeoForge server at its start with `NoClassDefFoundError: org/lwjgl/Version`, and the Overview only offered to start it again. It now names the mod, says it only runs in players' games, and offers to remove it.
