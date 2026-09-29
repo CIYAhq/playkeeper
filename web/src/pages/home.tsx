@@ -43,7 +43,8 @@ export function HomePage() {
   const groups = byMachine(servers ?? [], ws.machines)
   const on = (m: MachineView) => groups.find((g) => g.machine.id === m.id)?.servers ?? []
 
-  const create = canCreate(ws.me)
+  const waiting = !!ws.me.access.waitingForRoom
+  const create = canCreate(ws.me) && !waiting
   const newButton = create && (
     <Button render={<a {...linkProps({ name: 'new-server' })} />}>
       <PlusIcon />
@@ -57,8 +58,8 @@ export function HomePage() {
         <PageHeader title={t('home.title')} subtitle={phone ? undefined : t('home.emptySubtitle', { machine: ws.machineName })} phoneAction={<PhoneMoreButton />} />
         <PageBody className="flex flex-1 flex-col items-center pt-10 text-center max-sm:pt-0">
           <Pip pose="wave" size={phone ? 104 : 96} />
-          <h2 className="mt-4 text-title font-extrabold tracking-[-0.015em]">{t('home.emptyTitle')}</h2>
-          <p className="mt-2 max-w-[420px] text-sm text-muted-foreground max-sm:text-[15px]">{create ? t('home.emptyBody') : t('home.emptyMember')}</p>
+          <h2 className="mt-4 text-title font-extrabold tracking-[-0.015em]">{waiting ? t('home.settingUpTitle') : t('home.emptyTitle')}</h2>
+          <p className="mt-2 max-w-[420px] text-sm text-muted-foreground max-sm:text-[15px]">{waiting ? t('home.settingUpBody') : create ? t('home.emptyBody') : t('home.emptyMember')}</p>
           {create &&
             (phone ? (
               <Button size="touch" className="mt-6 w-full" render={<a {...linkProps({ name: 'new-server' })} />}>

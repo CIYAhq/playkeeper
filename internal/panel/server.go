@@ -992,9 +992,12 @@ type accessBody struct {
 	// NeedsTwoFactor is set for an admin whose admin rights wait until
 	// two-factor sign-in is on; AwaitingConfirmation once it's on and they
 	// wait for the owner or an admin to confirm them.
-	NeedsTwoFactor       bool     `json:"needsTwoFactor,omitempty"`
-	AwaitingConfirmation bool     `json:"awaitingConfirmation,omitempty"`
-	Can                  []action `json:"can"`
+	NeedsTwoFactor       bool `json:"needsTwoFactor,omitempty"`
+	AwaitingConfirmation bool `json:"awaitingConfirmation,omitempty"`
+	// WaitingForRoom is set for a customer whose server is being set up,
+	// waiting for room on a machine (see readyserver.go).
+	WaitingForRoom bool     `json:"waitingForRoom,omitempty"`
+	Can            []action `json:"can"`
 }
 
 func (s *Server) meBody(sess session) map[string]any {
@@ -1007,7 +1010,7 @@ func (s *Server) meBody(sess session) map[string]any {
 		"csrfToken": sess.CSRF,
 		"access": accessBody{ProjectID: a.ProjectID, Team: s.teamName(a.ProjectID), Role: a.ProjectRole, Servers: a.Servers, TwoFactor: a.FactorOn,
 			NeedsTwoFactor:       invites.RequiresTwoFactor(a.InstallRole, a.ProjectRole) && !a.FactorOn,
-			AwaitingConfirmation: a.awaitingConfirmation(), Can: a.can()},
+			AwaitingConfirmation: a.awaitingConfirmation(), WaitingForRoom: s.customerWaiting(context.Background(), a), Can: a.can()},
 		"expiresAt":          sess.ExpiresAt.UTC(),
 		"idleTimeoutSeconds": int(s.opts.IdleTimeout.Seconds()),
 		"version":            version.Version,

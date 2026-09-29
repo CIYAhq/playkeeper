@@ -7453,10 +7453,14 @@ control "customers: a new plan gives its allowance" internal/panel/customers.go 
   'al.Servers, al.MemoryMB, al.DiskGB, 0*info.UserID, al.Servers, al.MemoryMB, al.DiskGB)' \
   ./internal/panel '^TestACustomerGetsAnAccountOfTheirOwn$'
 control "customers: a customer waiting for room is placed once there's room" internal/panel/customers.go \
-  "WHERE c.state = ? AND COALESCE(h.machine_id, '') = '' ORDER BY c.created_at" \
+  "WHERE c.state = ? AND (COALESCE(h.machine_id, '') = '' OR c.told_ready = 0) ORDER BY c.created_at" \
   'WHERE c.state = ? AND 0 ORDER BY c.created_at' \
   ./internal/panel '^TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom$'
-control "customers: a paused customer waiting isn't placed" internal/panel/customers.go \
+control "ready server: a ready message that failed after placing is sent later" internal/panel/customers.go \
+  ' OR c.told_ready = 0)' \
+  ')' \
+  ./internal/panel '^TestAReadyMessageThatFailedAfterPlacingIsSentLater$'
+control "customers: a paused customer waiting isn't placed" internal/panel/readyserver.go \
   'if CustomerState(state) != CustomerActive {' \
   'if false {' \
   ./internal/panel '^TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom$'
@@ -7480,6 +7484,49 @@ webcontrol "customers: the Team page names a customer's role" web/src/pages/team
   "if (m.customer) return t('team.customer')" \
   '' \
   src/pages/pages.test.tsx 'shows a customer as one, signing in with Whop'
+
+# Playkeeper Cloud's ready server (internal/panel/readyserver.go): a
+# customer is told once that their server is ready, or being set up.
+control "ready server: ready is said once" internal/panel/readyserver.go \
+  'case toldReady != 0:' \
+  'case false:' \
+  ./internal/panel '^TestACustomerIsToldOnceTheirServerIsReady$'
+control "ready server: a ready message is kept only once it's sent" internal/panel/readyserver.go \
+  'if err := s.notifier.Notify(ctx, cust, CustomerMessage{Kind: messageReady, Text: s.readyText(ctx)}); err != nil {' \
+  'if err := s.notifier.Notify(ctx, cust, CustomerMessage{Kind: messageReady, Text: s.readyText(ctx)}); false && err != nil {' \
+  ./internal/panel '^TestACustomerIsToldOnceTheirServerIsReady$'
+control "ready server: a start whose message wasn't sent says so" internal/panel/customers.go \
+  'if err := s.tellPlaced(ctx, cust, info.UserID, placed); err != nil {' \
+  'if err := s.tellPlaced(ctx, cust, info.UserID, placed); false && err != nil {' \
+  ./internal/panel '^TestACustomerIsToldOnceTheirServerIsReady$'
+control "ready server: being set up is said once a wait" internal/panel/readyserver.go \
+  'case toldWaiting == 0:' \
+  'case true:' \
+  ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
+control "ready server: a customer with no home machine waits" internal/panel/readyserver.go \
+  'return err != nil || machineID == ""' \
+  'return err != nil' \
+  ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
+control "ready server: a waiting customer creates no server" internal/panel/creators.go \
+  'if s.customerWaiting(r.Context(), a) {' \
+  'if false {' \
+  ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
+control "ready server: the dashboard says a customer is waiting" internal/panel/server.go \
+  'WaitingForRoom: s.customerWaiting(context.Background(), a), ' \
+  '' \
+  ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
+control "ready server: only an active customer is told it's ready" internal/panel/customers.go \
+  'if info.State == CustomerActive {' \
+  'if true {' \
+  ./internal/panel '^TestOnlyAnActiveCustomerIsToldTheirServerIsReady$'
+control "ready server: a paused customer waiting gets no server" internal/panel/readyserver.go \
+  'if CustomerState(state) != CustomerActive {' \
+  'if false {' \
+  ./internal/panel '^TestOnlyAnActiveCustomerIsToldTheirServerIsReady$'
+webcontrol "ready server: Home says a waiting customer's server is being set up" web/src/pages/home.tsx \
+  'const waiting = !!ws.me.access.waitingForRoom' \
+  'const waiting = false' \
+  src/pages/pages.test.tsx 'being set up while it waits for room'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
