@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { ApiReach } from './clickthrough-api.ts'
 
 // Which pages of the click-through a change touches, and how the pages it
 // crawls are split between runners. It imports nothing of the crawler's at
@@ -26,7 +27,7 @@ export function pageOf(route: string): string {
     .replace(/^\/servers\/\*\/players\/[^/]+/, '/servers/*/players/*')
     .replace(/^\/machines\/[^/]+/, '/machines/*')
     .replace(/^\/settings\/machines\/[^/]+/, '/settings/machines/*')
-    .replace(/^\/(map|packs)\/[^/]+/, '/$1/*')
+    .replace(/^\/(map|packs|join)\/[^/]+/, '/$1/*')
 }
 
 /** The crawlers of one size's run; each remembers what it pressed (crawl.ts), and only its own. */
@@ -239,12 +240,12 @@ export const pageModules: Record<string, string[]> = {
   '/machines/*/settings': ['pages/machine.tsx', 'pages/machine-settings/index.tsx'],
   '/machines/*/disk': ['pages/disk.tsx'],
   '/settings': ['pages/settings.tsx'],
-  '/settings/team': ['pages/settings.tsx'],
+  '/settings/team': ['pages/settings.tsx', 'pages/team.tsx'],
   '/settings/addon-sources': ['pages/settings.tsx'],
-  '/settings/discord': ['pages/settings.tsx'],
-  '/settings/ai-agents': ['pages/settings.tsx'],
-  '/settings/machines': ['pages/settings.tsx'],
-  '/settings/machines/*': ['pages/settings.tsx'],
+  '/settings/discord': ['pages/settings.tsx', 'pages/discord.tsx'],
+  '/settings/ai-agents': ['pages/settings.tsx', 'pages/ai-agents.tsx'],
+  '/settings/machines': ['pages/settings.tsx', 'pages/machines.tsx'],
+  '/settings/machines/*': ['pages/settings.tsx', 'pages/machines.tsx'],
   '/account': ['pages/account.tsx'],
   '/account/two-factor': ['pages/account.tsx'],
 }
@@ -252,12 +253,30 @@ export const pageModules: Record<string, string[]> = {
 /** Page modules the click-through opens no page of: the invite page, Overview › How it's running, and the public server page, which only ports 443 and 80 serve (server-page.spec.ts checks it). */
 export const uncrawled = ['pages/join.tsx', 'pages/server/running.tsx', 'pages/server-page.tsx']
 
+/** The pages of `uncrawled` whose accessibility and width views.spec.ts checks, and the modules that draw them. */
+export const viewPages: Record<string, string[]> = {
+  '/servers/*/running': ['pages/server/index.tsx', 'pages/server/running.tsx'],
+  '/join/*': ['pages/join.tsx'],
+}
+
+/**
+ * Pages of pageModules views.spec.ts has no view of, so no accessibility
+ * check: signed out and first-run pages, New server's later steps, a folder
+ * of the Files tab, and pages CI's install doesn't have (a Fabric server's
+ * Mods tab, a joined machine). views.spec.ts fails when a pull request asks
+ * it for a page it has no view of that isn't here.
+ */
+export const unviewed = ['/login', '/setup', '/welcome', '/servers/new#world', '/servers/new#template=*', '/servers/*/mods', '/servers/*/mods/browse', '/servers/*/files/plugins', '/settings/machines/*']
+
 /** Modules whose lazy imports are pages of their own, listed in pageModules, not part of every page they route to. */
 const routers = new Set(['main.tsx', 'App.tsx', 'pages/server/index.tsx'])
 
+/** Modules that import a page's own module and draw it only on that page, which lists it in pageModules: Settings draws one section on each of its pages. */
+const sections: Record<string, string[]> = { 'pages/settings.tsx': ['pages/team.tsx', 'pages/discord.tsx', 'pages/ai-agents.tsx', 'pages/machines.tsx'] }
+
 /** The files of the click-through and the state it crawls in (onboarding, the bots' scenario), and its workflow. */
 const crawlerFiles = [
-  /^test\/e2e\/ui\/(crawl|crawl-page|fakes|addon-fixtures|modpack-fixtures|software-fixtures|helpers|clickthrough-plan|clickthrough-rules|plan)\.ts$/,
+  /^test\/e2e\/ui\/(crawl|crawl-page|fakes|addon-fixtures|modpack-fixtures|software-fixtures|helpers|clickthrough-plan|clickthrough-rules|clickthrough-api|plan)\.ts$/,
   /^test\/e2e\/ui\/(clickthrough|clickthrough-gate|onboarding)\.spec\.ts$/,
   /^test\/e2e\/ui\/(clickthrough-costs\.json|playwright\.config\.ts|package\.json|package-lock\.json)$/,
   /^test\/e2e\/ui\/fixtures\//,
@@ -333,7 +352,7 @@ export function importGraph(src: string): Graph {
   return graph
 }
 
-/** Every module that runs for a page: its modules and what they import, lazily too except a router's pages. */
+/** Every module that runs for a page: its modules and what they import, lazily too, except a router's pages and a page's sections. */
 export function closure(graph: Graph, entries: string[]): Set<string> {
   const out = new Set<string>()
   const todo = [...entries]
@@ -343,7 +362,7 @@ export function closure(graph: Graph, entries: string[]): Set<string> {
     out.add(f)
     const node = graph.get(f)
     if (!node) continue
-    todo.push(...node.imports)
+    todo.push(...node.imports.filter((i) => !sections[f]?.includes(i)))
     if (!routers.has(f)) todo.push(...node.lazy)
   }
   return out
@@ -353,11 +372,14 @@ export interface Affected {
   mode: 'none' | 'pages' | 'full'
   pages: string[]
   preludes: string[]
+  /** The pages whose accessibility and width it checks (views.spec.ts): its pages but the unviewed, and those of viewPages it reaches. */
+  views: string[]
   /** Why, a line for each changed file that decided something. */
   why: string[]
 }
 
-const inPageOrder = (a: string, b: string) => Object.keys(pageModules).indexOf(a) - Object.keys(pageModules).indexOf(b)
+const pageOrder = Object.keys({ ...pageModules, ...viewPages })
+const inPageOrder = (a: string, b: string) => pageOrder.indexOf(a) - pageOrder.indexOf(b)
 
 /** Pages in the page map's order, with the pages crawled before them as they are. */
 function withPreludes(pages: string[]): { pages: string[]; preludes: string[] } {
@@ -366,91 +388,109 @@ function withPreludes(pages: string[]): { pages: string[]; preludes: string[] } 
 }
 
 /**
- * A pull request's runners take this many seconds of pages each, at most
- * pullRequestRunners of them, so its crawl ends a few minutes after the fast
- * checks; the Release check crawls every page before each release. A page
- * with its states is never split, so the costliest ones take longer alone.
+ * A pull request's runners take this many seconds of pages each, so its
+ * crawl ends a few minutes after the fast checks. A change that reaches so
+ * many pages that this would take more than pullRequestRunners runners gets
+ * longer shares instead (pullRequestShare): every page it touches is
+ * crawled. A page with its states is never split, so the costliest ones
+ * take longer alone.
  */
 export const pullRequestShardSeconds = 300
-export const pullRequestRunners = 4
+export const pullRequestRunners = 10
+
+/** The seconds of pages each of a pull request's runners takes: pullRequestShardSeconds, or more when that would take more than pullRequestRunners runners. */
+export function pullRequestShare(costs: Costs, selection: Selection): number {
+  let share = pullRequestShardSeconds
+  while (shardsFor(costs, selection, share).length > pullRequestRunners) share += 60
+  return share
+}
 
 /** Every page loads the string table, so a change to it reaches the pages whose modules use the keys it changed. */
 const stringTable = 'i18n/en.ts'
 
+const routeList = (paths: string[]) => (paths.length > 3 ? `${paths.slice(0, 2).join(', ')} and ${paths.length - 2} more` : paths.join(', '))
+
 /**
- * What a pull request's crawl takes, which is never every page: the Release
- * check crawls them all before each release. A module under web/src takes
- * the pages it runs on (their modules and what they import); a change to
- * the string table takes the pages whose modules use the keys it changed
- * (usesOf), when they're given. A module more than a third of the pages run
- * on takes the first of them as their sample. A stylesheet, the app's shell
+ * What a pull request's crawl takes: the pages its change touches; the
+ * Release check crawls every page before each release. A module under
+ * web/src takes the pages it runs on (their modules and what they import);
+ * a change to the string table takes the pages whose modules use the keys
+ * it changed (usesOf), when they're given; a change to the Go code behind
+ * the API takes the pages of the modules that call what it reaches (api,
+ * from clickthrough-api.ts). A module more than a third of the pages run on
+ * takes the first of them as their sample. A stylesheet, the app's shell
  * above the pages, a change to how the dashboard is built or to the crawler
  * and the state it crawls in takes Home, which shows the crawl still works
- * and stands for the pages they reach. When that's more than
- * pullRequestRunners runners' worth, the pages that list a changed module as
- * their own come first, then the other pages a changed page module runs on,
- * and the rest wait for the release.
+ * and stands for the pages they reach. Every page it takes is crawled in
+ * all its states, at both sizes, and has its accessibility and width
+ * checked (views); a page of viewPages has only the check.
  */
-export function forPullRequest(changed: string[], graph: Graph, costs: Costs, keys?: string[], usesOf: (key: string) => string[] = () => []): Affected {
-  const drawn = Object.entries(pageModules).map(([page, entries]) => ({ page, modules: closure(graph, entries.filter((e) => graph.has(e))) }))
+export function forPullRequest(changed: string[], graph: Graph, keys?: string[], usesOf: (key: string) => string[] = () => [], api: (file: string) => ApiReach[] = () => []): Affected {
+  const drawn = Object.entries({ ...pageModules, ...viewPages }).map(([page, entries]) => ({ page, modules: closure(graph, entries.filter((e) => graph.has(e))) }))
   const reach = (rel: string) => drawn.filter((d) => d.modules.has(rel)).map((d) => d.page)
-  const own = new Set<string>()
-  const reached = new Set<string>()
-  const touched = new Set<string>()
+  const taken = new Set<string>()
   const why: string[] = []
   // A module many pages run on is sampled by the first page whose own
   // modules list it, or else the first it runs on.
-  const take = (what: string, pages: string[], into: Set<string>, rel?: string) => {
+  const take = (what: string, pages: string[], rel?: string) => {
     if (pages.length > drawn.length / 3) {
       const sample = pages.find((p) => rel !== undefined && pageModules[p]?.includes(rel)) ?? (pages[0] as string)
-      reached.add(sample)
+      taken.add(sample)
       why.push(`${what} runs on ${pages.length} of the ${drawn.length} pages, so ${sample} stands for them`)
     } else {
-      for (const p of pages) into.add(p)
+      for (const p of pages) taken.add(p)
       why.push(`${what}: ${pages.join(', ')}`)
     }
   }
   for (const file of changed) {
     const tooling = crawlerOrBuild(file)
     if (tooling) {
-      reached.add('/')
+      taken.add('/')
       why.push(`${tooling}, so Home shows the crawl still works`)
       continue
     }
-    if (!file.startsWith('web/src/') || isTest(file)) continue
+    if (!file.startsWith('web/src/')) {
+      // Each route takes the pages of the modules that call it, or, when those are many, the first that lists one of them.
+      const groups = new Map<string, { paths: string[]; pages: string[]; shared: boolean }>()
+      for (const { path, users } of api(file)) {
+        const pages = [...new Set(users.flatMap(reach))].sort(inPageOrder)
+        if (!pages.length) continue
+        const shared = pages.length > drawn.length / 3
+        const chosen = shared ? [pages.find((p) => users.some((m) => pageModules[p]?.includes(m))) ?? (pages[0] as string)] : pages
+        const key = `${shared} ${chosen.join(' ')}`
+        const g = groups.get(key) ?? { paths: [], pages: chosen, shared }
+        g.paths.push(path)
+        groups.set(key, g)
+      }
+      for (const g of groups.values()) {
+        for (const p of g.pages) taken.add(p)
+        why.push(g.shared ? `${file} changes ${routeList(g.paths)}, which modules on more than a third of the pages call, so ${g.pages[0]} stands for them` : `${file} changes ${routeList(g.paths)}: ${g.pages.join(', ')}`)
+      }
+      continue
+    }
+    if (isTest(file)) continue
     const rel = file.slice('web/src/'.length)
     if (rel.endsWith('.css')) {
-      reached.add('/')
+      taken.add('/')
       why.push(`${file} is a stylesheet, which the page map doesn't follow, so Home stands for the pages it styles`)
       continue
     }
     if (!sourceFile.test(file) || rel.startsWith('demo/') || (rel === stringTable && keys)) continue
-    touched.add(rel)
     const pages = reach(rel)
-    if (pages.length) take(file, pages, rel.startsWith('pages/') ? own : reached, rel)
+    if (pages.length) take(file, pages, rel)
     else if (!uncrawled.includes(rel)) {
-      reached.add('/')
+      taken.add('/')
       why.push(`${file} runs above the pages in pageModules (clickthrough-plan.ts), as the app's shell does, or on none it knows yet, so Home stands in`)
     }
   }
   for (const key of keys ?? []) {
-    const users = usesOf(key)
-    for (const m of users) touched.add(m)
-    const pages = [...new Set(users.flatMap(reach))].sort(inPageOrder)
-    if (pages.length) take(`the string ${key}`, pages, reached)
+    const pages = [...new Set(usesOf(key).flatMap(reach))].sort(inPageOrder)
+    if (pages.length) take(`the string ${key}`, pages)
     else why.push(`the string ${key}: no page's modules name it`)
   }
-  const rank = (p: string) => ((pageModules[p] ?? []).some((m) => touched.has(m)) ? 0 : own.has(p) ? 1 : 2)
-  const ranked = [...new Set([...own, ...reached])].sort((a, b) => rank(a) - rank(b) || inPageOrder(a, b))
-  const pages: string[] = []
-  const left: string[] = []
-  for (const p of ranked) {
-    if (!pages.length || shardsFor(costs, withPreludes([...pages, p]), pullRequestShardSeconds).length <= pullRequestRunners) pages.push(p)
-    else left.push(p)
-  }
-  if (left.length) why.push(`that's more than ${pullRequestRunners} runners' worth, so these wait for the release's full crawl: ${left.join(', ')}`)
-  if (!pages.length) return { mode: 'none', pages: [], preludes: [], why: why.length ? why : ['no page of the dashboard changed'] }
-  return { mode: 'pages', ...withPreludes(pages), why }
+  const all = [...taken].sort(inPageOrder)
+  if (!all.length) return { mode: 'none', pages: [], preludes: [], views: [], why: why.length ? why : ['no page of the dashboard changed'] }
+  return { mode: 'pages', ...withPreludes(all.filter((p) => pageModules[p])), views: all.filter((p) => !unviewed.includes(p)), why }
 }
 
 /**
@@ -494,11 +534,12 @@ export function keysChanged(diff: string, before: string, after: string): string
 /** What's wrong with the page map: modules that are gone, and page modules no page draws. */
 export function pageMapProblems(graph: Graph): string[] {
   const problems: string[] = []
-  for (const [page, entries] of Object.entries(pageModules)) for (const e of entries) if (!graph.has(e)) problems.push(`${page}: web/src/${e} doesn't exist`)
+  for (const [page, entries] of Object.entries({ ...pageModules, ...viewPages })) for (const e of entries) if (!graph.has(e)) problems.push(`${page}: web/src/${e} doesn't exist`)
   const drawn = new Set(Object.values(pageModules).flatMap((entries) => [...closure(graph, entries)]))
   for (const file of graph.keys()) {
     if (file.startsWith('pages/') && !isTest(file) && !drawn.has(file) && !uncrawled.includes(file)) problems.push(`web/src/${file} is in no page of pageModules and not in uncrawled`)
   }
   for (const u of uncrawled) if (!graph.has(u)) problems.push(`uncrawled: web/src/${u} doesn't exist`)
+  for (const p of unviewed) if (!pageModules[p]) problems.push(`unviewed: ${p} is no page of pageModules`)
   return problems
 }
