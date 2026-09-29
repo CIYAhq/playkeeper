@@ -43,31 +43,12 @@ func (c *checker) savedWorld(ctx context.Context, id, sid string, t *templates.T
 			return fmt.Errorf("loading the land around spawn: %w", err)
 		}
 	}
-	// Stopping it saves every chunk it has loaded.
-	var op api.Operation
-	if _, err := c.agent.Do(ctx, "POST", "/v1/servers/"+sid+"/stop", nil, map[string]string{"actor": c.actor}, &op); err != nil {
-		return fmt.Errorf("stopping it to read its world: %w", err)
-	}
-	if op.ID != "" {
-		if _, err := c.wait(ctx, op.ID, 5*time.Minute); err != nil {
-			return fmt.Errorf("stopping it to read its world: %w", err)
-		}
-	}
-	level, err := c.levelName(ctx, sid)
-	if err != nil {
-		return fmt.Errorf("reading its server.properties: %w", err)
-	}
 	dir, err := filepath.Abs(filepath.Join(c.shots, "worlds", id))
 	if err != nil {
 		return err
 	}
-	if err := os.RemoveAll(dir); err != nil {
+	if err := c.fetchWorld(ctx, sid, dir); err != nil {
 		return err
-	}
-	for _, p := range []string{level + "/level.dat", level + "/region"} {
-		if err := c.download(ctx, sid, p, dir); err != nil {
-			return fmt.Errorf("downloading its %s: %w", p, err)
-		}
 	}
 	out, err := filepath.Abs(filepath.Join(c.shots, id+".json.gz"))
 	if err != nil {
@@ -94,32 +75,68 @@ func (c *checker) savedWorld(ctx context.Context, id, sid string, t *templates.T
 // noView is world.mjs's exit code for a spawn under the ground.
 const noView = 3
 
+// fetchWorld stops the server, which saves every chunk it has loaded, and
+// downloads its world's level.dat and region files into dir.
+func (c *checker) fetchWorld(ctx context.Context, sid, dir string) error {
+	var op api.Operation
+	if _, err := c.agent.Do(ctx, "POST", "/v1/servers/"+sid+"/stop", nil, map[string]string{"actor": c.actor}, &op); err != nil {
+		return fmt.Errorf("stopping it to read its world: %w", err)
+	}
+	if op.ID != "" {
+		if _, err := c.wait(ctx, op.ID, 5*time.Minute); err != nil {
+			return fmt.Errorf("stopping it to read its world: %w", err)
+		}
+	}
+	level, err := c.levelName(ctx, sid)
+	if err != nil {
+		return fmt.Errorf("reading its server.properties: %w", err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	for _, p := range []string{level + "/level.dat", level + "/region"} {
+		if err := c.download(ctx, sid, p, dir); err != nil {
+			return fmt.Errorf("downloading its %s: %w", p, err)
+		}
+	}
+	return nil
+}
+
 // loadSpawn has the server keep the chunks around spawn's loaded, which
 // generates them, and waits until they are. The console's commands run at
 // spawn, and a chunk within the radius less one is only loaded (entity
-// ticking) once the chunks around it are generated: these four positions
-// are in such chunks, wherever spawn is in its own, near the square's
-// corners, the last the server gets to.
+// ticking) once the chunks around it are generated: the four positions it
+// asks about are in such chunks, wherever spawn is in its own, near the
+// square's corners, the last the server gets to.
 func (c *checker) loadSpawn(ctx context.Context, sid string) error {
-	if _, err := c.command(ctx, sid, fmt.Sprintf("gamerule spawnChunkRadius %d", worldRadius)); err != nil {
-		return err
-	}
-	d := (worldRadius-1)*16 - 15
 	deadline := c.now().Add(10 * time.Minute)
-	for _, corner := range [][2]int{{d, d}, {-d, d}, {d, -d}, {-d, -d}} {
+	// A server busy generating answers late, which the agent reports as an
+	// error, so a command is sent again until it answers as it should.
+	until := func(cmd string, ok func(string) bool) error {
 		for {
-			// A server busy generating answers late, which the agent reports
-			// as an error, so it's asked again.
-			out, err := c.command(ctx, sid, fmt.Sprintf("execute if loaded ~%d ~ ~%d", corner[0], corner[1]))
-			if err == nil && strings.HasPrefix(strings.TrimSpace(out), "Test passed") {
-				break
+			out, err := c.command(ctx, sid, cmd)
+			if err == nil && ok(out) {
+				return nil
 			}
 			if c.now().After(deadline) {
-				return errors.New("its chunks weren't loaded after 10 minutes")
+				if err == nil {
+					err = errors.New(strings.TrimSpace(out))
+				}
+				return fmt.Errorf("%s, after 10 minutes: %w", cmd, err)
 			}
 			if err := sleep(ctx, c.poll); err != nil {
 				return err
 			}
+		}
+	}
+	if err := until(fmt.Sprintf("gamerule spawnChunkRadius %d", worldRadius), func(string) bool { return true }); err != nil {
+		return err
+	}
+	d := (worldRadius-1)*16 - 15
+	for _, corner := range [][2]int{{d, d}, {-d, d}, {d, -d}, {-d, -d}} {
+		passed := func(out string) bool { return strings.HasPrefix(strings.TrimSpace(out), "Test passed") }
+		if err := until(fmt.Sprintf("execute if loaded ~%d ~ ~%d", corner[0], corner[1]), passed); err != nil {
+			return err
 		}
 	}
 	return nil
