@@ -38,6 +38,7 @@ const previews = {
   'error-unable-to-access-jarfile': { eyebrow: 'Error fix', title: 'Error: Unable to access jarfile, and the fix', pip: 'pip-hurt' },
   'error-failed-to-verify-username': { eyebrow: 'Error fix', title: 'Failed to verify username! What it means, and the fix', pip: 'pip-hurt' },
   'error-cant-keep-up': { eyebrow: 'Error fix', title: "Can't keep up! Is the server overloaded? What it means", pip: 'pip-hurt' },
+  'error-failed-to-bind-to-port': { eyebrow: 'Error fix', title: 'FAILED TO BIND TO PORT! What it means, and the fix', pip: 'pip-hurt' },
   docs: { eyebrow: 'Docs', title: 'Playkeeper docs', pip: 'pip-letter' },
   pricing: { eyebrow: 'Pricing', title: 'Free and open source. You only pay for your VPS.', pip: 'pip-box' },
   blog: { eyebrow: 'Blog', title: 'Releases, guides and building Playkeeper in public', pip: 'pip-letter' },
