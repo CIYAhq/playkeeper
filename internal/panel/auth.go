@@ -560,6 +560,42 @@ CREATE TABLE move_restarts (
   user_id    INTEGER NOT NULL
 );
 `,
+	// Customers per store: the store each billing provider's customer bought
+	// from, such as a Whop business, which with the provider and its id for
+	// them finds their account, so someone who buys from two stores has two
+	// accounts; and the store a sign-in with Whop is for, when it names one.
+	// The Whop customers so far bought from the store the dashboard sells
+	// for; with none connected, the next store connected takes them on (see
+	// adoptWhopCustomers).
+	`
+CREATE TABLE customers_by_store (
+  user_id               INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  provider              TEXT    NOT NULL,
+  store                 TEXT    NOT NULL DEFAULT '',
+  subject               TEXT    NOT NULL,
+  handle                TEXT    NOT NULL DEFAULT '',
+  plan_id               TEXT    NOT NULL DEFAULT '',
+  state                 TEXT    NOT NULL DEFAULT 'active',
+  created_at            INTEGER NOT NULL,
+  updated_at            INTEGER NOT NULL,
+  told_ready            INTEGER NOT NULL DEFAULT 0,
+  told_waiting          INTEGER NOT NULL DEFAULT 0,
+  paused_at             INTEGER NOT NULL DEFAULT 0,
+  delete_after          INTEGER NOT NULL DEFAULT 0,
+  pause_reason          TEXT    NOT NULL DEFAULT '',
+  servers_deleted_at    INTEGER NOT NULL DEFAULT 0,
+  final_backups_machine TEXT    NOT NULL DEFAULT '',
+  UNIQUE(provider, store, subject)
+);
+INSERT INTO customers_by_store(user_id, provider, store, subject, handle, plan_id, state, created_at, updated_at, told_ready, told_waiting,
+  paused_at, delete_after, pause_reason, servers_deleted_at, final_backups_machine)
+SELECT user_id, provider, CASE WHEN provider = 'whop' THEN COALESCE((SELECT account_id FROM whop_account WHERE id = 1), '') ELSE '' END,
+  subject, handle, plan_id, state, created_at, updated_at, told_ready, told_waiting, paused_at, delete_after, pause_reason, servers_deleted_at, final_backups_machine
+FROM customers;
+DROP TABLE customers;
+ALTER TABLE customers_by_store RENAME TO customers;
+ALTER TABLE whop_signins ADD COLUMN store_id TEXT NOT NULL DEFAULT '';
+`,
 }
 
 const (

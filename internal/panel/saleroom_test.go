@@ -80,7 +80,7 @@ func TestEachPlansStockFollowsTheMachinesRoom(t *testing.T) {
 	// before any plan's once there's some.
 	e.kicked()
 	e.reply("GET", "/v1/machine", liveMachine(2048, true))
-	if _, err := (customerCore{s: e.srv}).StartCustomer(ctx, Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
+	if _, err := (customerCore{s: e.srv}).StartCustomer(ctx, Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
 		t.Fatal(err)
 	}
 	if !e.kicked() {
@@ -105,7 +105,7 @@ func TestEachPlansStockFollowsTheMachinesRoom(t *testing.T) {
 
 	// alex's plan grows to Big, whose memory is set aside instead.
 	big := CustomerPlan{ID: "plan_big", Name: "Big", Servers: 2, MemoryMB: 8192}
-	if _, err := (customerCore{s: e.srv}).StartCustomer(ctx, Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, big); err != nil {
+	if _, err := (customerCore{s: e.srv}).StartCustomer(ctx, Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}, big); err != nil {
 		t.Fatal(err)
 	}
 	if !e.kicked() {
@@ -120,7 +120,7 @@ func TestEachPlansStockFollowsTheMachinesRoom(t *testing.T) {
 // mustCustomer is the account of the customer with Whop user subject.
 func mustCustomer(t *testing.T, e *env, subject string) int64 {
 	t.Helper()
-	info, ok, err := (customerCore{s: e.srv}).CustomerAccount(context.Background(), whopProvider, subject)
+	info, ok, err := (customerCore{s: e.srv}).CustomerAccount(context.Background(), whopProvider, testStore, subject)
 	if err != nil || !ok {
 		t.Fatalf("no account for %s: %v", subject, err)
 	}
@@ -225,7 +225,7 @@ func TestOnlyTheOwnerSeesTheRoomForCustomers(t *testing.T) {
 	if r := e.do(t, "GET", "/api/machines/room", "", lena.auth()); r.status != http.StatusForbidden {
 		t.Fatalf("an admin of every server looks at the room for customers: %d %v", r.status, r.body)
 	}
-	if _, err := (customerCore{s: e.srv}).StartCustomer(context.Background(), Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
+	if _, err := (customerCore{s: e.srv}).StartCustomer(context.Background(), Customer{Provider: whopProvider, Store: testStore, Subject: "user_alex", Handle: "alex"}, starter); err != nil {
 		t.Fatal(err)
 	}
 	alex := signIn(t, e, mustCustomer(t, e, "user_alex"))
