@@ -9599,6 +9599,21 @@ control "moving customers: a machine that doesn't answer for a server's check re
   '	return uncheckedRefusal(m, name)' \
   '	return nil' \
   ./internal/panel '^TestAMoveChecksEveryServerBeforeAnyStops$'
+control "moving customers: a server already where they go doesn't keep the rest from following" internal/panel/moves.go \
+  '		if sz := sizes[sid]; sz.refused != nil && sz.machineID != id {' \
+  '		if sz := sizes[sid]; sz.refused != nil {' \
+  ./internal/panel '^TestAServerAlreadyWhereTheyGoDoesntKeepTheRestFromFollowing$'
+control "moving customers: a server that has to go and can't refuses a move to the machine named" internal/panel/moves.go \
+  '		if refused := carryRefusal(sizes, target.ID); refused != nil {
+			return "", refused
+		}
+		if need := diskNeed(sizes, target.ID); !diskFits(target, need) {' \
+  '		if need := diskNeed(sizes, target.ID); !diskFits(target, need) {' \
+  ./internal/panel '^TestAServerAlreadyWhereTheyGoDoesntKeepTheRestFromFollowing$'
+control "moving customers: a server that has to go and can't refuses a move to the fullest machine" internal/panel/moves.go \
+  '			if refused := carryRefusal(sizes, target.ID); refused != nil {' \
+  '			if refused := carryRefusal(sizes, target.ID); refused != nil && false {' \
+  ./internal/panel '^TestAMoveChecksEveryServerBeforeAnyStops$'
 control "moving customers: a move goes only to a machine with room on its disk" internal/panel/moves.go \
   '		if need := diskNeed(sizes, target.ID); !diskFits(target, need) {' \
   '		if need := diskNeed(sizes, target.ID); false && !diskFits(target, need) {' \
