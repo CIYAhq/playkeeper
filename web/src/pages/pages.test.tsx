@@ -2767,6 +2767,19 @@ describe('Machine page', () => {
 })
 
 describe('Command palette', () => {
+  it('opens from the sidebar once its code loads, and its shortcuts from its footer', async () => {
+    await render(<AppShell route={{ name: 'home' }}><p>page</p></AppShell>)
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    const search = [...document.querySelectorAll('aside button')].find((b) => b.textContent?.includes('Search or jump to…'))
+    if (!search) throw new Error('no Search in the sidebar')
+    await act(async () => (search as HTMLButtonElement).click())
+    await vi.waitFor(() => expect(document.querySelector('[role="dialog"][aria-label="Search or jump to"]')).not.toBeNull())
+    const shortcuts = [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent?.includes('all shortcuts'))
+    if (!shortcuts) throw new Error('no shortcuts button in the palette')
+    await act(async () => (shortcuts as HTMLButtonElement).click())
+    await vi.waitFor(() => expect(page()).toContain('Keyboard shortcuts'))
+  })
+
   it('keeps Tab and Shift+Tab inside the palette', async () => {
     await render(<CommandPalette open onOpenChange={() => {}} route={{ name: 'home' }} onShortcuts={() => {}} />)
     const palette = document.querySelector<HTMLElement>('[role="dialog"]')

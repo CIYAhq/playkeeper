@@ -4,7 +4,7 @@ import type { Me, SetupStatus } from '@/api/types'
 import { useWorkspace, WorkspaceProvider } from '@/api/workspace'
 import { Frame, FrameCard } from '@/components/app/frame'
 import { LoadBoundary } from '@/components/app/load-boundary'
-import { AppShell } from '@/components/app/shell'
+import { AppShell, loadPalette } from '@/components/app/shell'
 import { PageSkeleton } from '@/components/app/skeletons'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -50,7 +50,7 @@ const ServerPage = lazy(() => pages.server().then((m) => ({ default: m.ServerPag
 const GlobalSettingsPage = lazy(() => pages.settings().then((m) => ({ default: m.GlobalSettingsPage })))
 
 function preloadPages() {
-  for (const load of Object.values(pages)) void load().catch(() => {})
+  for (const load of [...Object.values(pages), loadPalette]) void load().catch(() => {})
   void pages.server().then((m) => m.preloadTabs(), () => {})
 }
 

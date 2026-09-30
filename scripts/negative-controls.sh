@@ -336,6 +336,26 @@ webcontrol "every server tab's code loads after sign-in" web/src/App.tsx \
 ' \
   '' \
   web/src/pages/server/preload.test.tsx 'every server tab'
+webcontrol "the command palette's code stays out of the first screens" web/src/components/app/shell.tsx \
+  "export const loadPalette = () => import('@/components/app/command-palette')" \
+  "export const loadPalette = ((p) => () => p)(import('@/components/app/command-palette'))" \
+  web/src/pages/server/preload.test.tsx 'every server tab'
+webcontrol "the command palette's code loads after sign-in" web/src/App.tsx \
+  'for (const load of [...Object.values(pages), loadPalette]) void load().catch(() => {})' \
+  'for (const load of Object.values(pages)) void load().catch(() => {})' \
+  web/src/pages/server/preload.test.tsx 'every server tab'
+webcontrol "the command palette opens once its code loads" web/src/components/app/shell.tsx \
+  '{used && (' \
+  '{false && (' \
+  web/src/pages/pages.test.tsx 'opens from the sidebar once its code loads'
+webcontrol "the first screens' budget stays where it is" web/src/lib/first-load.ts \
+  "bytes: 900_000, gzipBytes: 285_000" \
+  "bytes: 910_000, gzipBytes: 285_000" \
+  web/src/lib/first-load.test.ts 'over its budget'
+webcontrol "any page's budget stays where it is" web/src/lib/first-load.ts \
+  "bytes: 1_200_000, gzipBytes: 380_000" \
+  "bytes: 1_210_000, gzipBytes: 380_000" \
+  web/src/lib/first-load.test.ts 'over its budget'
 webcontrol "code an update replaced reloads the page" web/src/components/app/load-boundary.tsx \
   '        sessionStorage.setItem(reloadedAt, String(Date.now()))
         window.location.reload()' \
