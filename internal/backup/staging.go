@@ -2,12 +2,14 @@ package backup
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"io"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -40,11 +42,15 @@ func (s Size) ArchiveBytes() int64 {
 // returns a *RefusedError for a world a restore would refuse, and an error for
 // a server.properties Playkeeper won't read. Zero Limits mean DefaultLimits.
 func Measure(dataDir string, lim Limits) (Size, error) {
-	rels, err := archivedFiles(dataDir)
+	level, err := levelName(dataDir)
 	if err != nil {
 		return Size{}, err
 	}
-	return measure(dataDir, rels, lim)
+	rels, err := archiveFiles(dataDir, level)
+	if err != nil {
+		return Size{}, err
+	}
+	return measure(dataDir, Manifest{LevelName: level}, rels, lim)
 }
 
 // MeasureWhole sizes CreateWhole's archive of dataDir as Measure sizes a
@@ -52,19 +58,24 @@ func Measure(dataDir string, lim Limits) (Size, error) {
 // full, and each of a file's links apart, since the archive carries each
 // path's content.
 func MeasureWhole(dataDir string, lim Limits) (Size, error) {
-	if _, err := levelName(dataDir); err != nil {
+	level, err := levelName(dataDir)
+	if err != nil {
 		return Size{}, err
 	}
 	rels, err := wholeFiles(dataDir)
 	if err != nil {
 		return Size{}, err
 	}
-	return measure(dataDir, rels, lim)
+	return measure(dataDir, Manifest{LevelName: level, Whole: true}, rels, lim)
 }
 
-// measure sizes the files rels of dataDir as an archive holds them.
-func measure(dataDir string, rels []string, lim Limits) (Size, error) {
-	tally := fileTally{lim: lim.orDefault()}
+// measure sizes the files rels of dataDir as an archive holds them, with m
+// as its manifest, and refuses them as Create would. The manifest is
+// estimated as Check estimates it.
+func measure(dataDir string, m Manifest, rels []string, lim Limits) (Size, error) {
+	lim = lim.orDefault()
+	tally := fileTally{lim: lim}
+	m.Format = FormatVersion
 	dirs := map[string]bool{}
 	var s Size
 	for _, rel := range rels {
@@ -78,12 +89,17 @@ func measure(dataDir string, rels []string, lim Limits) (Size, error) {
 		if err := tally.add(rel, size); err != nil {
 			return s, refusal(rel, err)
 		}
+		m.Files = append(m.Files, FileEntry{Path: rel, Size: size, SHA256: strings.Repeat("0", 2*sha256.Size)})
+		m.TotalBytes += size
 		s.Files++
 		s.Bytes += size
 		s.DiskBytes += (size + blockSize - 1) / blockSize * blockSize
 		for d := path.Dir(rel); d != "." && !dirs[d]; d = path.Dir(d) {
 			dirs[d] = true
 		}
+	}
+	if _, err := marshalManifest(m, lim); err != nil {
+		return s, err
 	}
 	s.DiskBytes += int64(len(dirs)) * blockSize
 	return s, nil

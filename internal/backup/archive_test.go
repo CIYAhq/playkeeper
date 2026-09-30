@@ -208,6 +208,21 @@ func TestAWholeFolderIsMeasuredAsItArrives(t *testing.T) {
 	if _, err := MeasureWhole(src, lim); !errors.As(err, &refused) || !strings.Contains(err.Error(), "more than 3 files") {
 		t.Errorf("a whole folder of more files than a move carries measures: %v", err)
 	}
+
+	m, err := CreateWhole(io.Discard, src, Manifest{}, DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, _ := json.MarshalIndent(m, "", "  ")
+	lim = DefaultLimits()
+	lim.MaxManifestBytes = len(manifest)
+	if _, err := MeasureWhole(src, lim); err != nil {
+		t.Errorf("a whole folder whose manifest just fits measures: %v", err)
+	}
+	lim.MaxManifestBytes = len(manifest) - 1
+	if _, err := MeasureWhole(src, lim); !errors.As(err, &refused) || !strings.Contains(err.Error(), "manifest") {
+		t.Errorf("a whole folder whose manifest a move can't carry measures: %v", err)
+	}
 }
 
 func TestReadFileTakesOneFileOutOfAnArchive(t *testing.T) {
