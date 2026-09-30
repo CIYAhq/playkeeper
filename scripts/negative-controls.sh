@@ -9110,6 +9110,7 @@ control "moving in: a restore kept stopped doesn't start" internal/agent/backups
   'return s.keepStopped(h, stageDir, j)' \
   '_ = s.keepStopped' \
   ./internal/agent '^TestAServerMovedInKeepsWhatItHadWhereItWas$'
+# shellcheck disable=SC2016
 control "moving in: it stays stopped after the agent restarts" internal/agent/backups.go \
   'Stopped bool `json:"stopped,omitempty"`' \
   'Stopped bool `json:"-"`' \
