@@ -220,7 +220,7 @@ func TestTheZoneLeavesOutCopiesAMoveMakesOrLeaves(t *testing.T) {
 	if _, err := e.srv.db.Exec(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine) VALUES('movingzzz5', 7, 'a2345abcde', ?)`, local); err != nil {
 		t.Fatal(err)
 	}
-	if err := leftCopy(t.Context(), e.srv.db, "leftzzzzz6", local, 7, movedBackupDays); err != nil {
+	if err := leftCopy(t.Context(), e.srv.db, "leftzzzzz6", local, 7, movedBackupDays, 0); err != nil {
 		t.Fatal(err)
 	}
 	if r := e.do(t, "PUT", "/api/dns-answers", `{"on":true}`, auth(cookie, csrf)); r.status != http.StatusOK {

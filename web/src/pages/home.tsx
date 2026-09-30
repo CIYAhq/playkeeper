@@ -24,7 +24,7 @@ import { can, canCreate, canCreateOn, welcomeKey } from '@/lib/access'
 import { demo } from '@/lib/demo'
 import { formatBytes, formatDate, formatList, formatLongDate, formatMB, formatMBOf, formatPercent, formatSpan, sameDay } from '@/lib/format'
 import { awayLabel, awayLong, awayOf, byMachine, isAway, isStale, joinOf, machineLabel, machineOf, machineRoute, machineState, reachOf } from '@/lib/machines'
-import { couldntStart, isSettingUp, phaseLabel, phaseTone, statusTone } from '@/lib/phase'
+import { couldntStart, isSettingUp, phaseTone, statusLabel, statusTone } from '@/lib/phase'
 import { presenceProps, useListPresence } from '@/lib/presence'
 import { linkPath, linkProps } from '@/lib/router'
 import { iconURL, newerStable, playersOnline, softwareLabel } from '@/lib/servers'
@@ -57,8 +57,9 @@ export function HomePage() {
   if (servers && servers.length === 0) {
     const deleted = !!ws.me.access.serversDeleted
     const paused = deleted || !!ws.me.access.pausedUntil
-    const title = paused ? t('home.pausedEmptyTitle') : waiting ? t('home.settingUpTitle') : t('home.emptyTitle')
-    const body = paused ? t('home.pausedEmptyBody') : waiting ? t('home.settingUpBody') : create ? t('home.emptyBody') : t('home.emptyMember')
+    const again = !!ws.me.access.waitingAgain
+    const title = paused ? t('home.pausedEmptyTitle') : waiting ? t(again ? 'home.noRoomTitle' : 'home.settingUpTitle') : t('home.emptyTitle')
+    const body = paused ? t('home.pausedEmptyBody') : waiting ? t(again ? 'home.noRoomBody' : 'home.settingUpBody') : create ? t('home.emptyBody') : t('home.emptyMember')
     return (
       <>
         <PageHeader title={t('home.title')} subtitle={phone || !sees ? undefined : t('home.emptySubtitle', { machine: ws.machineName })} phoneAction={<PhoneMoreButton />} />
@@ -334,7 +335,7 @@ function CardDetail({ server: s }: { server: ServerStatus }) {
       return (
         <span className="flex items-center gap-2 text-[13px] text-info-foreground">
           <Spinner />
-          {phaseLabel(s.phase)}
+          {statusLabel(s)}
         </span>
       )
     case 'stopped':

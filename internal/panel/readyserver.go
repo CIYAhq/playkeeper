@@ -19,23 +19,38 @@ import (
 // creating a server waits. The fleet calls startWaitingCustomer when room
 // appears, which places them and tells them it's ready.
 
-// Kinds of the messages the core sends through the notifier.
+// Kinds of the messages the core sends through the notifier. A customer
+// told their server was ready who loses their machine, as a removed
+// machine's customers do, is told there's no room for their servers while
+// no machine has any, and then that there's room again.
 const (
 	messageReady     = "ready"
 	messageSettingUp = "setting_up"
+	messageNoRoom    = "no_room"
+	messageRoomAgain = "room_again"
 )
 
-const settingUpText = "Your Playkeeper server is being set up. We'll message you here as soon as it's ready."
+const (
+	settingUpText = "Your Playkeeper server is being set up. We'll message you here as soon as it's ready."
+	noRoomText    = "There's no room for your Playkeeper servers right now. We'll message you here as soon as there is."
+)
 
 // errWaitingForRoom refuses a server to a customer placement hasn't given a
-// home machine yet.
-var errWaitingForRoom = &invites.Error{Code: api.CodeConflict, Status: http.StatusConflict,
-	Msg: "Your server is being set up: there's no room for it on a machine yet.", Hint: "We'll message you as soon as it's ready."}
+// home machine yet, and errNoRoomAgain to one told their server was ready
+// who has lost their machine.
+var (
+	errWaitingForRoom = &invites.Error{Code: api.CodeConflict, Status: http.StatusConflict,
+		Msg: "Your server is being set up: there's no room for it on a machine yet.", Hint: "We'll message you as soon as it's ready."}
+	errNoRoomAgain = &invites.Error{Code: api.CodeConflict, Status: http.StatusConflict,
+		Msg: "There's no room for your servers right now.", Hint: "We'll message you as soon as there is."}
+)
 
 // tellPlaced tells an active customer where their server stands: that it's
 // ready to start once placed, and that it's being set up while they wait for
 // room. Each is sent once, recorded as sent, and "being set up" never after
-// "ready", so a repeated call sends nothing. A message that couldn't be
+// "ready", so a repeated call sends nothing. One told it was ready who has
+// lost their machine is told instead that there's no room for their
+// servers, and once placed again, that there is. A message that couldn't be
 // sent is sent by the next call.
 func (s *Server) tellPlaced(ctx context.Context, cust Customer, userID int64, placed bool) error {
 	var toldReady, toldWaiting int64
@@ -43,6 +58,20 @@ func (s *Server) tellPlaced(ctx context.Context, cust Customer, userID int64, pl
 		return errDB
 	}
 	switch {
+	case toldReady != 0 && placed && toldWaiting != 0:
+		if err := s.notifier.Notify(ctx, cust, CustomerMessage{Kind: messageRoomAgain, Text: s.roomAgainText(ctx, cust)}); err != nil {
+			return err
+		}
+		if _, err := s.db.ExecContext(ctx, `UPDATE customers SET told_waiting = 0 WHERE user_id = ?`, userID); err != nil {
+			return errDB
+		}
+	case toldReady != 0 && !placed && toldWaiting == 0:
+		if err := s.notifier.Notify(ctx, cust, CustomerMessage{Kind: messageNoRoom, Text: noRoomText}); err != nil {
+			return err
+		}
+		if _, err := s.db.ExecContext(ctx, `UPDATE customers SET told_waiting = ? WHERE user_id = ?`, s.now().UnixMilli(), userID); err != nil {
+			return errDB
+		}
 	case toldReady != 0:
 		return nil
 	case placed:
@@ -70,6 +99,15 @@ func (s *Server) readyText(ctx context.Context, cust Customer) string {
 		return "Your Playkeeper server is ready to start. Sign in at " + at + " and create your server: it's up a few minutes later."
 	}
 	return "Your Playkeeper server is ready to start. Sign in on your Playkeeper dashboard and create your server: it's up a few minutes later."
+}
+
+// roomAgainText is the message for customer cust, who lost their machine,
+// once there's room for their servers again.
+func (s *Server) roomAgainText(ctx context.Context, cust Customer) string {
+	if at := s.signInAt(ctx, cust); at != "" {
+		return "There's room for your Playkeeper servers again. Sign in at " + at + " to create your server."
+	}
+	return "There's room for your Playkeeper servers again. Sign in on your Playkeeper dashboard to create your server."
 }
 
 // signInAt is where the customer signs in: the dashboard's sign-in page for
@@ -110,7 +148,7 @@ func (s *Server) startWaitingCustomer(ctx context.Context, userID int64) error {
 	_, err = s.placeCustomer(ctx, userID, CustomerPlan{ID: planID, Servers: al.Servers, MemoryMB: al.MemoryMB, DiskGB: al.DiskGB})
 	switch {
 	case errors.Is(err, errNoRoom):
-		return nil
+		return s.tellPlaced(ctx, cust, userID, false)
 	case err != nil:
 		return err
 	}
@@ -126,4 +164,26 @@ func (s *Server) customerWaiting(ctx context.Context, a access) bool {
 	var machineID string
 	err := s.db.QueryRowContext(ctx, `SELECT machine_id FROM customer_homes WHERE user_id = ?`, a.UserID).Scan(&machineID)
 	return err != nil || machineID == ""
+}
+
+// waitingAgain reports whether customer a, waiting for room, was told
+// their server was ready before: they lost their machine.
+func (s *Server) waitingAgain(ctx context.Context, a access) bool {
+	if !s.customerWaiting(ctx, a) {
+		return false
+	}
+	var toldReady int64
+	return s.db.QueryRowContext(ctx, `SELECT told_ready FROM customers WHERE user_id = ?`, a.UserID).Scan(&toldReady) == nil && toldReady != 0
+}
+
+// waitingRefusal is why customer a may make no server while they wait for
+// room, or nil.
+func (s *Server) waitingRefusal(ctx context.Context, a access) error {
+	switch {
+	case s.waitingAgain(ctx, a):
+		return errNoRoomAgain
+	case s.customerWaiting(ctx, a):
+		return errWaitingForRoom
+	}
+	return nil
 }

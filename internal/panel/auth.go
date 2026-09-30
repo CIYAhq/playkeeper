@@ -716,6 +716,12 @@ CREATE TABLE whop_store_closures (
 	`
 ALTER TABLE whop_signins ADD COLUMN redirect_uri TEXT NOT NULL DEFAULT '';
 `,
+	// When the server whose copy a move left on a machine stopped being that
+	// copy, as its requests went where it moved, or 0 for the copy a failed
+	// move made, which never was the server (see adoptLeftCopy).
+	`
+ALTER TABLE left_copies ADD COLUMN switched_at INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 const (

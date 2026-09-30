@@ -238,7 +238,7 @@ function serverMeta(s: ServerStatus, stale: boolean): ReactNode {
     case 'crashed':
       return <span className="text-xs font-medium text-destructive-foreground">{statusLabel(s)}</span>
     case 'busy':
-      return <span className="text-xs text-info-foreground">{phaseLabel(s.phase)}</span>
+      return <span className="text-xs text-info-foreground">{statusLabel(s)}</span>
     case 'stopped':
     case 'unknown':
       return <span className="text-xs text-muted-foreground">{phaseLabel(s.phase)}</span>

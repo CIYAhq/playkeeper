@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net/http"
 	"net/url"
 	"slices"
@@ -210,6 +211,15 @@ func (s *Server) customerMoving(ctx context.Context, userID int64) bool {
 	err := s.db.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM customer_moves WHERE user_id = ?) + (SELECT COUNT(*) FROM server_moves WHERE user_id = ?)`,
 		userID, userID).Scan(&n)
 	return err != nil || n > 0 || s.serversApart(ctx, userID)
+}
+
+// moveUnderWay reports whether customer userID's servers are being moved,
+// or a restart stopped their move before it ended, rather than it stopping
+// on an error. When that can't be read, one is.
+func (s *Server) moveUnderWay(ctx context.Context, userID int64) bool {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM customer_moves WHERE user_id = ? AND error = '') + (SELECT COUNT(*) FROM server_moves WHERE user_id = ?)`, userID, userID).Scan(&n)
+	return err != nil || n > 0
 }
 
 // serversApart reports whether any server customer userID created is on a
@@ -654,6 +664,7 @@ func (s *Server) moveCustomer(ctx context.Context, userID int64) {
 			s.log.Error("could not record why a customer's move stopped", "user", userID, "err", dbErr)
 		}
 		s.audit(placementActor, "customer.move", name, "failed", err.Error())
+		s.recountDisk()
 		return
 	}
 	if _, err := s.db.Exec(`DELETE FROM customer_moves WHERE user_id = ?`, userID); err != nil {
@@ -661,7 +672,7 @@ func (s *Server) moveCustomer(ctx context.Context, userID int64) {
 		return
 	}
 	s.audit(placementActor, "customer.move", name, "succeeded", fmt.Sprintf("%d server(s) moved", moved))
-	s.kickDiskLimits()
+	s.recountDisk()
 	s.kickSaleRoom()
 }
 
@@ -821,21 +832,13 @@ func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, 
 		err = s.copyMoveState(ctx, id, from, to)
 	}
 	if err == nil {
-		if err = s.sendLimitsTo(ctx, to); err != nil {
-			err = fmt.Errorf("%s didn't take their disk limit: %w", machineLabel(to), err)
-		}
+		err = s.switchTo(ctx, mv, to, slug)
 	}
 	if err != nil {
 		if ctx.Err() == nil {
 			s.abandonMove(ctx, mv, from)
 		}
 		return false, fmt.Errorf("%s: %w", st.Name, err)
-	}
-	if err := s.switchServer(ctx, mv, to, slug); err != nil {
-		if ctx.Err() == nil {
-			s.abandonMove(ctx, mv, from)
-		}
-		return false, fmt.Errorf("%s: its requests couldn't go to %s: %w", st.Name, machineLabel(to), err)
 	}
 	// Pausing a customer while it moved stopped it where its requests went
 	// then, not here, where its copy may have started, before a restart of
@@ -1043,7 +1046,7 @@ func (s *Server) switchServer(ctx context.Context, mv serverMove, to machine, sl
 		if _, err := c.ExecContext(ctx, `DELETE FROM left_copies WHERE server_id = ? AND machine_id = ?`, mv.serverID, to.ID); err != nil {
 			return err
 		}
-		if err := leftCopy(ctx, c, mv.serverID, mv.from, mv.userID, movedBackupDays); err != nil {
+		if err := leftCopy(ctx, c, mv.serverID, mv.from, mv.userID, movedBackupDays, now); err != nil {
 			return err
 		}
 		if _, err := c.ExecContext(ctx, `DELETE FROM move_restarts WHERE server_id = ?`, mv.serverID); err != nil {
@@ -1059,11 +1062,81 @@ func (s *Server) switchServer(ctx context.Context, mv serverMove, to machine, sl
 }
 
 // leftCopy records the copy of server id a move left on machineID, whose
-// final backup is kept there keepDays when it's deleted.
-func leftCopy(ctx context.Context, q querier, id, machineID string, userID int64, keepDays int) error {
-	_, err := q.ExecContext(ctx, `INSERT INTO left_copies(server_id, machine_id, user_id, keep_days) VALUES(?,?,?,?)
-		ON CONFLICT(server_id, machine_id) DO UPDATE SET user_id = excluded.user_id, keep_days = excluded.keep_days, left_at = 0`, id, machineID, userID, keepDays)
+// final backup is kept there keepDays when it's deleted, and which stopped
+// being the server at switchedAt, or never was for 0.
+func leftCopy(ctx context.Context, q querier, id, machineID string, userID int64, keepDays int, switchedAt int64) error {
+	_, err := q.ExecContext(ctx, `INSERT INTO left_copies(server_id, machine_id, user_id, keep_days, switched_at) VALUES(?,?,?,?,?)
+		ON CONFLICT(server_id, machine_id) DO UPDATE SET user_id = excluded.user_id, keep_days = excluded.keep_days, switched_at = excluded.switched_at, left_at = 0`,
+		id, machineID, userID, keepDays, switchedAt)
 	return err
+}
+
+// leftOnRemoved picks server id's copies a move left on machines since
+// removed that weren't deleted.
+const leftOnRemoved = `server_id = ? AND left_at = 0 AND machine_id NOT IN (SELECT id FROM machines WHERE revoked_at = 0)`
+
+// adoptLeftCopy takes server id, as machine machineID lists it (sv), for
+// one of the copies moves left of it on machines since removed, and has
+// machineID delete it as that machine would have: a removed machine's host
+// joins again only as another machine. It's taken only when it surely is
+// one: when it stopped before the server's requests went where it moved, as
+// the copy did when its move stopped it; or, while the server's own machine
+// is joined and connected (ownerOnline), whatever it is, since that machine's
+// host is another, and has the server. Otherwise one running, stopped since
+// or not saying when may be the server, so it isn't. Each copy is taken
+// once, and the others stay for their hosts. When machineID has a copy of
+// its own recorded already, one it deleted (one it hasn't hides the
+// listing), that record is taken up again instead, and no other host's is.
+// It reports whether it was taken.
+func adoptLeftCopy(ctx context.Context, q querier, id, machineID string, sv map[string]any, ownerOnline bool) (bool, error) {
+	var from string
+	err := q.QueryRowContext(ctx, `SELECT machine_id FROM left_copies WHERE `+leftOnRemoved+` AND switched_at > ? ORDER BY switched_at, machine_id LIMIT 1`, id, listedStop(sv)).Scan(&from)
+	if isNoRows(err) && ownerOnline {
+		err = q.QueryRowContext(ctx, `SELECT machine_id FROM left_copies WHERE `+leftOnRemoved+` ORDER BY switched_at, machine_id LIMIT 1`, id).Scan(&from)
+	}
+	switch {
+	case isNoRows(err):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	res, err := q.ExecContext(ctx, `INSERT INTO left_copies(server_id, machine_id, user_id, keep_days, switched_at)
+		SELECT server_id, ?, user_id, keep_days, switched_at FROM left_copies WHERE server_id = ? AND machine_id = ?
+		ON CONFLICT(server_id, machine_id) DO NOTHING`, machineID, id, from)
+	if err != nil {
+		return false, err
+	}
+	added, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if added == 0 {
+		_, err = q.ExecContext(ctx, `UPDATE left_copies SET left_at = 0 WHERE server_id = ? AND machine_id = ?`, id, machineID)
+		return err == nil, err
+	}
+	_, err = q.ExecContext(ctx, `DELETE FROM left_copies WHERE server_id = ? AND machine_id = ?`, id, from)
+	return err == nil, err
+}
+
+// listedStop is when the server listed as sv stopped, in milliseconds, or
+// the latest time there is for one that isn't stopped or doesn't say when.
+// Docker's stop times are real ones, so it's after any switch time of 0.
+func listedStop(sv map[string]any) int64 {
+	stoppedAt, _ := sv["stoppedAt"].(string)
+	stopped, err := time.Parse(time.RFC3339Nano, stoppedAt)
+	if sv["phase"] != string(api.PhaseStopped) || err != nil {
+		return math.MaxInt64
+	}
+	return millis(stopped)
+}
+
+// copiesLeftOnRemoved reports whether a move left a copy of server id on a
+// machine since removed, which a listing of it can't surely be told from
+// once the server's own machine was removed too.
+func copiesLeftOnRemoved(ctx context.Context, q querier, id string) (bool, error) {
+	var n int
+	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM left_copies WHERE `+leftOnRemoved, id).Scan(&n)
+	return n > 0, err
 }
 
 // abandonMove ends mv, a move that failed before its server's requests
@@ -1225,7 +1298,7 @@ func (s *Server) undoMoves(ctx context.Context, userID int64) {
 // whether it could.
 func (s *Server) endMove(ctx context.Context, mv serverMove) bool {
 	err := s.immediate(ctx, func(c *sql.Conn) error {
-		if err := leftCopy(ctx, c, mv.serverID, mv.to, mv.userID, 0); err != nil {
+		if err := leftCopy(ctx, c, mv.serverID, mv.to, mv.userID, 0, 0); err != nil {
 			return err
 		}
 		_, err := c.ExecContext(ctx, `DELETE FROM server_moves WHERE server_id = ?`, mv.serverID)
@@ -1247,8 +1320,9 @@ func (s *Server) leaveMoveCopy(ctx context.Context, mv serverMove) {
 // leaveCopy has machineID delete the copy of server id a move left on it,
 // keeping the final backup its left_copies row says, and records when it
 // went: that machine's listings count again from one asked for after that
-// (see forgetLeft). A removed machine's never count, and a copy that is the
-// server, or one it's moving to, stays.
+// (see forgetLeft). A copy that is the server, or one it's moving to,
+// stays. A removed machine's copy stays recorded, for its host joining
+// again (see adoptLeftCopy).
 func (s *Server) leaveCopy(ctx context.Context, id, machineID string) error {
 	var userID int64
 	var days int
@@ -1265,11 +1339,13 @@ func (s *Server) leaveCopy(ctx context.Context, id, machineID string) error {
 		return errDB
 	}
 	m, err := s.machineByID(machineID)
-	if busy > 0 || errors.Is(err, errNotFound) {
+	switch {
+	case busy > 0:
 		_, err = s.db.ExecContext(ctx, `DELETE FROM left_copies WHERE server_id = ? AND machine_id = ?`, id, machineID)
 		return err
-	}
-	if err != nil {
+	case errors.Is(err, errNotFound):
+		return nil
+	case err != nil:
 		return err
 	}
 	var st api.ServerStatus
@@ -1363,26 +1439,36 @@ func waitMoveOp(ctx context.Context, m machine, id string) (api.Operation, error
 	}
 }
 
+// switchTo sends to the disk limits with mv's copy counted as the server,
+// then has the server's requests go there (switchServer). Sending machines
+// their limits waits meanwhile, so a sync that read to's servers while the
+// copy was hidden can't send them after the switch, leaving the server out
+// of its customer's limit, hold and processor share there.
+func (s *Server) switchTo(ctx context.Context, mv serverMove, to machine, slug string) error {
+	s.diskSending.Lock()
+	defer s.diskSending.Unlock()
+	if err := s.sendLimitsTo(ctx, to, mv.serverID); err != nil {
+		return fmt.Errorf("%s didn't take their disk limit: %w", machineLabel(to), err)
+	}
+	if err := s.switchServer(ctx, mv, to, slug); err != nil {
+		return fmt.Errorf("its requests couldn't go to %s: %w", machineLabel(to), err)
+	}
+	return nil
+}
+
 // sendLimitsTo sends m the disk limits it should have now, as
-// syncDiskLimits does for every machine.
-func (s *Server) sendLimitsTo(ctx context.Context, m machine) error {
-	allowances, err := s.diskAllowances(ctx)
+// syncDiskLimits does for every machine, with the copy of server
+// switching there counted as the server it's about to be.
+func (s *Server) sendLimitsTo(ctx context.Context, m machine, switching string) error {
+	list, err := s.machines()
 	if err != nil {
 		return err
 	}
-	holds, err := s.customerHolds(ctx)
+	in, err := s.diskInputs(ctx, list)
 	if err != nil {
 		return err
 	}
-	owners, err := s.creatorServerOwners(ctx)
-	if err != nil {
-		return err
-	}
-	homes, err := s.customerHomes(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = s.sendDiskLimits(ctx, m, allowances, holds, owners, homes, false)
+	_, err = s.sendDiskLimits(ctx, m, in, false, switching)
 	return err
 }
 

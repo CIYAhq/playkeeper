@@ -363,6 +363,31 @@ webcontrol "any page's budget stays where it is" web/src/lib/first-load.ts \
   "bytes: 1_200_000, gzipBytes: 380_000" \
   "bytes: 1_210_000, gzipBytes: 380_000" \
   web/src/lib/first-load.test.ts 'over its budget'
+# buildcontrol checks the first-load budget as CI's web-tests job does, with
+# make web-budget's production build. Only a build that fails on the budget
+# counts: one that breaks for another reason is INVALID.
+buildcontrol() { # NAME FILE FROM TO
+  local name=$1 file=$2
+  if [ ! -e web/node_modules ] && [ -d "$root/web/node_modules" ]; then
+    ln -s "$root/web/node_modules" web/node_modules
+  fi
+  if [ ! -d web/node_modules ]; then
+    problem "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
+    return
+  fi
+  mutate "$name" "$file" "$3" "$4" || return 0
+  if make --no-print-directory web-budget >/tmp/negative-control.out 2>&1; then
+    problem "MISSED   $name: make web-budget still passes"
+  elif ! grep -q 'First load over budget' /tmp/negative-control.out; then
+    problem "INVALID  $name: make web-budget failed, but not on the budget"
+  else
+    echo "caught   $name: $(grep -m1 -o 'First load over budget.*' /tmp/negative-control.out | cut -c1-200)"
+  fi
+  git checkout -q -- "$file"
+}
+buildcontrol "a build over the first-load budget fails CI's check" web/vite.config.ts \
+  "sourcemap: false, target: 'es2022'" \
+  "sourcemap: false, minify: false, target: 'es2022'"
 webcontrol "code an update replaced reloads the page" web/src/components/app/load-boundary.tsx \
   '        sessionStorage.setItem(reloadedAt, String(Date.now()))
         window.location.reload()' \
@@ -5228,8 +5253,8 @@ control "a removed machine's server goes to no machine, not the dashboard's own"
 		return machine{}, errUnknownServer' \
   ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
 control "a machine that lists a removed machine's server takes it over" internal/panel/machines.go \
-  'case owner != m.ID && !ownerActive:' \
-  'case false && owner != m.ID && !ownerActive:' \
+  '				if !ownerActive && !unsure {' \
+  '				if false && !ownerActive && !unsure {' \
   ./internal/panel '^TestServerRecordsFollowWhichMachinesAreStillJoined$'
 control "every server in the list has its own slug" internal/panel/workspace.go \
   's.stableSlugs(ctx, out, list)' \
@@ -7780,8 +7805,8 @@ control "processor shares: no cap passes the machine's cores" internal/agent/dis
   ', int64(numCPU())*1_000_000_000*1000)' \
   ./internal/agent '^TestCustomersServersGetTheirShareOfTheProcessor$'
 control "processor shares: the dashboard gives each creator's servers half a core per GB" internal/panel/disklimits.go \
-  'Servers: ids, CPUMilliPerGB: cpuMilliPerGB, Hold: holds[uid]})' \
-  'Servers: ids, Hold: holds[uid]})' \
+  'Servers: ids, CPUMilliPerGB: cpuMilliPerGB, Hold: in.holds[uid]})' \
+  'Servers: ids, Hold: in.holds[uid]})' \
   ./internal/panel '^TestEachCreatorsServersGetTheirAllowancesDisk$'
 
 # Playkeeper Cloud's disk limits, the dashboard's half
@@ -7880,13 +7905,17 @@ control "customers: a new plan gives its allowance" internal/panel/customers.go 
   'al.Servers, al.MemoryMB, al.DiskGB, 0*info.UserID, al.Servers, al.MemoryMB, al.DiskGB)' \
   ./internal/panel '^TestACustomerGetsAnAccountOfTheirOwn$'
 control "customers: a customer waiting for room is placed once there's room" internal/panel/customers.go \
-  "WHERE c.state = ? AND (COALESCE(h.machine_id, '') = '' OR c.told_ready = 0) ORDER BY c.created_at" \
+  "WHERE c.state = ? AND (COALESCE(h.machine_id, '') = '' OR c.told_ready = 0 OR c.told_waiting != 0) ORDER BY c.created_at" \
   'WHERE c.state = ? AND 0 ORDER BY c.created_at' \
   ./internal/panel '^TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom$'
 control "ready server: a ready message that failed after placing is sent later" internal/panel/customers.go \
-  ' OR c.told_ready = 0)' \
-  ')' \
+  ' OR c.told_ready = 0 OR' \
+  ' OR' \
   ./internal/panel '^TestAReadyMessageThatFailedAfterPlacingIsSentLater$'
+control "removing a machine: a message that there's room again, which failed, is sent later" internal/panel/customers.go \
+  ' OR c.told_waiting != 0)' \
+  ')' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
 control "customers: a paused customer waiting isn't placed" internal/panel/readyserver.go \
   'if CustomerState(state) != CustomerActive {' \
   'if false {' \
@@ -8216,8 +8245,8 @@ control "ready server: a customer with no home machine waits" internal/panel/rea
   'return err != nil' \
   ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
 control "ready server: a waiting customer creates no server" internal/panel/server.go \
-  'if s.customerWaiting(r.Context(), acct) {' \
-  'if false {' \
+  'if err := s.waitingRefusal(r.Context(), acct); err != nil {' \
+  'if err := error(nil); err != nil {' \
   ./internal/panel '^TestACustomerWaitingForRoomIsToldAndStartedWhenRoomAppears$'
 control "ready server: the dashboard says a customer is waiting" internal/panel/server.go \
   'WaitingForRoom: s.customerWaiting(context.Background(), a), ' \
@@ -8291,7 +8320,7 @@ control "pausing: pausing sends the machines the hold at once" internal/panel/pa
   '' \
   ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
 control "pausing: a paused customer's limit holds their servers" internal/panel/disklimits.go \
-  'CPUMilliPerGB: cpuMilliPerGB, Hold: holds[uid]}' \
+  'CPUMilliPerGB: cpuMilliPerGB, Hold: in.holds[uid]}' \
   'CPUMilliPerGB: cpuMilliPerGB}' \
   ./internal/panel '^TestAPausedCustomersServerIsHeldForWhoeverTheyShareItWith$'
 control "pausing: a suspended customer's hold says so" internal/panel/disklimits.go \
@@ -9519,8 +9548,8 @@ control "creator uploads: only on their machine" internal/panel/customeruploads.
   'if err := s.homeRefusal(ctx, a, m); false && err != nil {' \
   ./internal/panel '^TestACreatorUploadsForANewServerOnlyToTheirMachine$'
 control "creator uploads: not while waiting for room" internal/panel/server.go \
-  'if s.customerWaiting(r.Context(), acct) {' \
-  'if false {' \
+  'if err := s.waitingRefusal(r.Context(), acct); err != nil {' \
+  'if err := error(nil); err != nil {' \
   ./internal/panel '^TestACustomerWaitingForRoomUploadsNothingForANewServer$'
 control "creator uploads: the allowance's server count" internal/panel/customeruploads.go \
   'if use.servers >= a.Allowance.Servers {' \
@@ -10205,8 +10234,8 @@ control "moving customers: a copy that went stays recorded a while, for listings
   'millis(listedAt))' \
   ./internal/panel '^TestALateListingStillLeavesOutACopyThatWent$'
 control "moving customers: a moved server counts against its customer's disk limit before its requests go there" internal/panel/moves.go \
-  'if err = s.sendLimitsTo(ctx, to); err != nil {' \
-  'if err = error(nil); err != nil {' \
+  'if err := s.sendLimitsTo(ctx, to, mv.serverID); err != nil {' \
+  'if err := error(nil); err != nil {' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving customers: the server's folder doesn't count against the customer's disk limit beside their server" internal/panel/moves.go \
   '"/v1/restore/upload", nil, io.TeeReader(down.Body, sent),' \
@@ -10473,7 +10502,7 @@ control "moving customers: a copy left where a server moves goes with its record
   '`DELETE FROM left_copies WHERE server_id = ? AND machine_id = ?`, mv.serverID, mv.from' \
   ./internal/panel '^TestAMoveDeletesAnOldCopyOnTheMachineItGoesTo$'
 control "moving customers: the machine a server left deletes its copy" internal/panel/moves.go \
-  'if err := leftCopy(ctx, c, mv.serverID, mv.from, mv.userID, movedBackupDays); err != nil {' \
+  'if err := leftCopy(ctx, c, mv.serverID, mv.from, mv.userID, movedBackupDays, now); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving customers: the copy a server left keeps its final backup a week" internal/panel/moves.go \
@@ -10481,8 +10510,8 @@ control "moving customers: the copy a server left keeps its final backup a week"
   'if err := deleteOn(ctx, m, id, st.Name, 0, userID); err != nil {' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving customers: nothing deletes the server as a copy left" internal/panel/moves.go \
-  'if busy > 0 || errors.Is(err, errNotFound) {' \
-  'if errors.Is(err, errNotFound) {' \
+  '	case busy > 0:' \
+  '	case false:' \
   ./internal/panel '^TestALeftCopyThatIsTheServerIsNeverDeleted$'
 control "moving customers: a server whose move failed starts again where it was" internal/panel/moves.go \
   'if mv.ran && !s.customerHeld(ctx, mv.userID) {' \
@@ -10493,7 +10522,7 @@ control "moving customers: a paused customer's server whose move failed isn't st
   'if mv.ran {' \
   ./internal/panel '^TestAPausedCustomersServerMovesStopped$'
 control "moving customers: the machine a failed move was going to deletes its copy" internal/panel/moves.go \
-  'if err := leftCopy(ctx, c, mv.serverID, mv.to, mv.userID, 0); err != nil {' \
+  'if err := leftCopy(ctx, c, mv.serverID, mv.to, mv.userID, 0, 0); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestAFailedMoveLeavesTheServerWhereItWas$'
 # shellcheck disable=SC2016
@@ -10531,6 +10560,66 @@ control "removing a machine: a server left on it doesn't stop its customer's mov
   'case errors.Is(err, errNotFound):' \
   'case false:' \
   ./internal/panel '^TestARemovedMachinesCustomersGetRoomElsewhere$'
+webcontrol "moving customers: nothing can be done to a server being moved" web/src/lib/phase.ts \
+  "if (st.moving) return t('reason.moving')" \
+  "if (false) return t('reason.moving')" \
+  src/lib/lib.test.ts 'why a control can'
+webcontrol "moving customers: a server being moved says so" web/src/lib/phase.ts \
+  "if (st.moving) return t('status.moving')" \
+  "if (false) return t('status.moving')" \
+  src/lib/lib.test.ts 'calls a server being moved one being moved'
+webcontrol "moving customers: the dashboard's machine's customers are the owner's alone" web/src/pages/machine.tsx \
+  "{can(ws.me, 'machines.customers') && <CustomerList machine={m} card />}" \
+  '<CustomerList machine={m} card />' \
+  src/pages/pages.test.tsx 'lists the customers on the dashboard'
+webcontrol "moving customers: a customer goes where the owner picks" web/src/pages/machine-customers.tsx \
+  'to === fullest ? {} : { machineId: to }' \
+  '{}' \
+  src/pages/pages.test.tsx 'moves one to the machine the owner picks'
+webcontrol "moving customers: only machines that take customers are offered" web/src/pages/machine-customers.tsx \
+  "(x.kind === 'local' || x.takesCustomers || x.id === home)" \
+  'true' \
+  src/pages/pages.test.tsx 'moves one to the machine the owner picks'
+webcontrol "moving customers: a customer with servers left on a machine goes to their own machine by default" web/src/pages/machine-customers.tsx \
+  'setTo(home || fullest)' \
+  'setTo(fullest)' \
+  src/pages/pages.test.tsx 'their own machine by default'
+webcontrol "moving customers: a customer's own machine is offered though it takes no new customers" web/src/pages/machine-customers.tsx \
+  ' || x.id === home))' \
+  '))' \
+  src/pages/pages.test.tsx 'their own machine by default'
+webcontrol "moving customers: the machine a customer is on isn't offered" web/src/pages/machine-customers.tsx \
+  'x.id !== from.id && ' \
+  '' \
+  src/pages/pages.test.tsx 'moves one to the machine the owner picks'
+webcontrol "moving customers: a move that stopped is tried again to their own machine" web/src/pages/machine-customers.tsx \
+  'c.machineId ? { machineId: c.machineId } : {}' \
+  '{ machineId: m.id }' \
+  src/pages/pages.test.tsx 'tries their move again to their own machine'
+webcontrol "moving customers: a customer whose servers go on another machine has some still here" web/src/pages/machine-customers.tsx \
+  'const theirs = c.machineId === m.id' \
+  'const theirs = true' \
+  src/pages/pages.test.tsx 'lists customers a stopped move left servers with'
+webcontrol "removing a machine: only the owner removes one customers are on, on its page" web/src/pages/machines.tsx \
+  "const ownerOnly = !!m.customers && !can(ws.me, 'machines.customers')" \
+  'const ownerOnly = false' \
+  src/pages/pages.test.tsx 'leaves removing a machine customers are on to the owner'
+webcontrol "moving customers: a server being moved offers nothing to do to it" web/src/lib/phase.ts \
+  "const reachable = st.exists && !st.moving && st.phase !== 'docker_unavailable'" \
+  "const reachable = st.exists && st.phase !== 'docker_unavailable'" \
+  src/lib/lib.test.ts 'offers nothing to do to it'
+webcontrol "moving customers: a server's status pill says it's being moved" web/src/components/app/bits.tsx \
+  "return { tone, label: statusLabel(st), labelClass: 'text-info-foreground' }" \
+  "return { tone, label: phaseLabel(st.phase), labelClass: 'text-info-foreground' }" \
+  src/lib/lib.test.ts 'offers nothing to do to it'
+webcontrol "moving customers: the sidebar says a server is being moved" web/src/components/app/shell.tsx \
+  '<span className="text-xs text-info-foreground">{statusLabel(s)}</span>' \
+  '<span className="text-xs text-info-foreground">{phaseLabel(s.phase)}</span>' \
+  src/pages/pages.test.tsx 'says a server being moved is being moved'
+webcontrol "moving customers: a server's card on Home says it's being moved" web/src/pages/home.tsx \
+  '{statusLabel(s)}' \
+  '{s.phase}' \
+  src/pages/pages.test.tsx 'says on its card that a server being moved is being moved'
 control "moving customers: a customer whose servers are apart gives none more memory" internal/panel/creators.go \
   '(!ok || memoryMB > cur) && s.customerMoving(r.Context(), a.UserID)' \
   '(!ok || memoryMB > cur) && false' \
@@ -10548,11 +10637,134 @@ control "removing a machine: only the owner removes one customers are on" intern
   '} else if n > 0 && false {' \
   ./internal/panel '^TestOnlyTheOwnerMovesCustomers$'
 control "moving customers: a move whose switch fails leaves its server where it was" internal/panel/moves.go \
-  'if err := s.switchServer(ctx, mv, to, slug); err != nil {
+  '		err = s.switchTo(ctx, mv, to, slug)
+	}
+	if err != nil {
 		if ctx.Err() == nil {' \
-  'if err := s.switchServer(ctx, mv, to, slug); err != nil {
+  '		err = s.switchTo(ctx, mv, to, slug)
+	}
+	if err != nil {
 		if false {' \
   ./internal/panel '^TestAMoveWhoseSwitchFailsLeavesTheServerWhereItWas$'
+control "moving customers: a copy left on a removed machine stays recorded" internal/panel/moves.go \
+  '	case busy > 0:' \
+  '	case busy > 0 || errors.Is(err, errNotFound):' \
+  ./internal/panel '^TestACopyLeftOnARemovedMachineIsntTakenForTheServer$'
+control "moving customers: a removed machine's host joining again lists its copy as one, not the server" internal/panel/machines.go \
+  '				adopted, err := adoptLeftCopy(ctx, c, id, m.ID, sv, ownerOnline)' \
+  '				adopted, err := ownerOnline && false, error(nil)' \
+  ./internal/panel '^TestACopyLeftOnARemovedMachineIsntTakenForTheServer$'
+control "removing a machine: a customer who lost theirs is told there's no room for their servers" internal/panel/readyserver.go \
+  '	case toldReady != 0 && !placed && toldWaiting == 0:' \
+  '	case false && toldReady != 0 && !placed && toldWaiting == 0:' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
+control "removing a machine: a customer who lost theirs is told once there's room again" internal/panel/readyserver.go \
+  '	case toldReady != 0 && placed && toldWaiting != 0:' \
+  '	case false && toldReady != 0 && placed && toldWaiting != 0:' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
+control "removing a machine: the round for customers waiting tells one who lost theirs there's no room" internal/panel/readyserver.go \
+  '		return s.tellPlaced(ctx, cust, userID, false)' \
+  '		return nil' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
+control "removing a machine: a customer who lost theirs is refused a server as having no room, not as being set up" internal/panel/readyserver.go \
+  '		return errNoRoomAgain' \
+  '		return errWaitingForRoom' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
+control "removing a machine: a customer who lost theirs has a dashboard that says so" internal/panel/server.go \
+  'WaitingAgain: s.waitingAgain(context.Background(), a),' \
+  'WaitingAgain: false,' \
+  ./internal/panel '^TestACustomerWhoLostTheirMachineIsToldThereIsNoRoomNotThatTheirServerIsBeingSetUp$'
+webcontrol "removing a machine: Home tells a customer who lost theirs there's no room, not that a server is being set up" web/src/pages/home.tsx \
+  "t(again ? 'home.noRoomTitle' : 'home.settingUpTitle')" \
+  "t('home.settingUpTitle')" \
+  src/pages/pages.test.tsx 'lost their machine'
+control "moving customers: a customer whose servers are apart gets their disk once between the machines" internal/panel/disklimits.go \
+  '		if in.split[uid] {' \
+  '		if false {' \
+  ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "moving customers: a copy a move is making isn't its customer's on the machine making it" internal/panel/disklimits.go \
+  'if sv.ID != switching && copyHidden(copies, sv.ID, now) {' \
+  'if false && sv.ID != switching && copyHidden(copies, sv.ID, now) {' \
+  ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "moving customers: the copy about to become the server counts against its customer's limit there" internal/panel/disklimits.go \
+  'if sv.ID != switching && copyHidden(copies, sv.ID, now) {' \
+  'if copyHidden(copies, sv.ID, now) {' \
+  ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
+control "moving customers: a customer's disk isn't split while their move is under way" internal/panel/disklimits.go \
+  'return s.serversApart(ctx, userID) && !s.moveUnderWay(ctx, userID)' \
+  'return s.serversApart(ctx, userID)' \
+  ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "moving customers: a move that stops has what its customer's servers take counted again" internal/panel/moves.go \
+  's.audit(placementActor, "customer.move", name, "failed", err.Error())
+		s.recountDisk()' \
+  's.audit(placementActor, "customer.move", name, "failed", err.Error())' \
+  ./internal/panel '^TestAFailedMoveLeavesTheServerWhereItWas$'
+control "disk limits: counting again means the next sync counts" internal/panel/disklimits.go \
+  '	s.diskUse.at = time.Time{}' \
+  '	_ = time.Time{}' \
+  ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "disk limits: a sync that counts has a split made from its counts at once" internal/panel/disklimits.go \
+  '			if split {' \
+  '			if split && false {' \
+  ./internal/panel '^TestACustomerWhoseServersAreApartGetsTheirDiskOnce$'
+control "disk limits: a count under way when a move ends doesn't stand for the count it asks for" internal/panel/disklimits.go \
+  '		if s.diskUse.recounts == recounts {' \
+  '		if s.diskUse.recounts == recounts || true {' \
+  ./internal/panel '^TestACountUnderWayWhenAMoveEndsIsntTakenForTheCountAfter$'
+control "moving customers: a sync of the disk limits during a switch doesn't leave the server out of its limit" internal/panel/disklimits.go \
+  '		s.diskSending.Lock()
+		got, err := s.sendDiskLimits(ctx, m, in, count, "")
+		s.diskSending.Unlock()' \
+  '		got, err := s.sendDiskLimits(ctx, m, in, count, "")' \
+  ./internal/panel '^TestASyncDuringASwitchLeavesTheServerInItsLimit$'
+control "moving customers: a copy left on a removed machine, stopped before its server moved, isn't taken over" internal/panel/moves.go \
+  ' AND switched_at > ? ORDER BY switched_at, machine_id LIMIT 1' \
+  ' AND switched_at > ? AND 0 = 1 ORDER BY switched_at, machine_id LIMIT 1' \
+  ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
+control "moving customers: the server where it moved, stopped since, isn't taken for its copy" internal/panel/moves.go \
+  ' AND switched_at > ? ORDER BY' \
+  ' AND switched_at > 0 AND ? > 0 ORDER BY' \
+  ./internal/panel '^(TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs|TestEachCopyLeftOnARemovedMachineIsTakenOnce)$'
+control "moving customers: a server that isn't stopped is never taken for a copy a move left" internal/panel/moves.go \
+  '	if sv["phase"] != string(api.PhaseStopped) || err != nil {' \
+  '	if err != nil {' \
+  ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
+control "moving customers: a listing is taken for a copy whatever it says only while the server's own machine is online" internal/panel/moves.go \
+  '	if isNoRows(err) && ownerOnline {' \
+  '	if isNoRows(err) {' \
+  ./internal/panel '^(TestAFailedMovesCopyNeverGetsTheServerItselfDeleted|TestEachCopyLeftOnARemovedMachineIsTakenOnce)$'
+control "moving customers: while the server's own machine is online, a copy a move left is taken for one whatever it says" internal/panel/machines.go \
+  '				ownerOnline := ownerActive && (ownerKind == localKind || s.hub.Connected(owner))' \
+  '				ownerOnline := false && ownerActive && (ownerKind == localKind || s.hub.Connected(owner))' \
+  ./internal/panel '^TestACopyLeftOnARemovedMachineIsntTakenForTheServer$'
+control "moving customers: a disconnected machine's server isn't taken for a copy by what a listing doesn't say" internal/panel/machines.go \
+  '				ownerOnline := ownerActive && (ownerKind == localKind || s.hub.Connected(owner))' \
+  '				ownerOnline := ownerActive' \
+  ./internal/panel '^TestEachCopyLeftOnARemovedMachineIsTakenOnce$'
+control "moving customers: a listing that can't surely be told from a copy a move left is disputed, not taken over" internal/panel/machines.go \
+  '				if !ownerActive && !unsure {' \
+  '				if !ownerActive {' \
+  ./internal/panel '^(TestAFailedMovesCopyNeverGetsTheServerItselfDeleted|TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs)$'
+# shellcheck disable=SC2016
+control "moving customers: each copy left on a removed machine is taken once, the others kept" internal/panel/moves.go \
+  '	_, err = q.ExecContext(ctx, `DELETE FROM left_copies WHERE server_id = ? AND machine_id = ?`, id, from)' \
+  '	_, err = q.ExecContext(ctx, `DELETE FROM left_copies WHERE `+leftOnRemoved+` OR machine_id = ?`, id, from)' \
+  ./internal/panel '^TestEachCopyLeftOnARemovedMachineIsTakenOnce$'
+control "moving customers: a machine listing a copy it deleted again takes up its own record, not another host's" internal/panel/moves.go \
+  '	if added == 0 {' \
+  '	if added == 0 && false {' \
+  ./internal/panel '^TestAMachineListingItsDeletedCopyAgainKeepsAnotherHostsCopy$'
+# shellcheck disable=SC2016
+control "moving customers: a copy a machine deleted and lists again is deleted once more" internal/panel/moves.go \
+  '		_, err = q.ExecContext(ctx, `UPDATE left_copies SET left_at = 0 WHERE server_id = ? AND machine_id = ?`, id, machineID)' \
+  '		_, err = q.ExecContext(ctx, `UPDATE left_copies SET left_at = left_at WHERE server_id = ? AND machine_id = ?`, id, machineID)' \
+  ./internal/panel '^TestAMachineListingItsDeletedCopyAgainKeepsAnotherHostsCopy$'
+control "moving customers: a customer's disk isn't split while it can't be told whether a move of theirs is under way" internal/panel/moves.go \
+  '	return err != nil || n > 0
+}' \
+  '	return err == nil && n > 0
+}' \
+  ./internal/panel '^TestADiskSplitNeedsToKnowNoMoveIsUnderWay$'
 
 # AI keys (0.4.9): only admins see, save and remove them; a key must look
 # like its provider's; its file and folder are the game user's alone, beside
