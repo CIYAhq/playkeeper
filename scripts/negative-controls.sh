@@ -1792,6 +1792,34 @@ control "an add-on's download must match the hash its library publishes" interna
   'if got := hex.EncodeToString(v.hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
   'if got := hex.EncodeToString(v.hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
   ./internal/addons '^TestInstallRefusesBadDownloads$'
+control "Playkeeper's own plugins install only on the server types they run on" internal/addons/firstparty.go \
+  'if !fp.RunsOn(t.Type) {' \
+  'if false && !fp.RunsOn(t.Type) {' \
+  ./internal/addons '^TestPlaykeeperRefusesOtherServerTypes$'
+control "a template's plugin of Playkeeper's own must be one this Playkeeper carries" internal/templates/validate.go \
+  'if src == addons.Playkeeper && firstparty.Lookup(project) == nil {' \
+  'if false && src == addons.Playkeeper && firstparty.Lookup(project) == nil {' \
+  ./internal/templates '^TestValidateRefusesPlaykeeperPlugins$'
+control "a template lists a plugin of Playkeeper's own only for the server types it runs on" internal/templates/validate.go \
+  'return fp != nil && fp.RunsOn(target.Type)' \
+  'return fp != nil' \
+  ./internal/templates '^TestValidateRefusesPlaykeeperPlugins$'
+control "a template's add-on installs only when the file has its pinned hash" internal/templates/install.go \
+  'if p := a.Pin; p != nil && !a.Unpinned && (s.VersionID != p.VersionID || s.HashAlgo != p.HashAlgo || strings.ToLower(s.Hash) != p.Hash) {' \
+  'if p := a.Pin; p != nil && !a.Unpinned && (s.VersionID != p.VersionID || s.HashAlgo != p.HashAlgo) {' \
+  ./internal/templates '^TestInstallPlaykeeperPlugin$'
+control "the site asks no source for an icon of Playkeeper's own plugins" internal/site/icons.go \
+  'if !seen[p.key()] && p.Source != string(addons.Playkeeper) {' \
+  'if !seen[p.key()] && addons.Playkeeper != "" {' \
+  ./internal/site '^TestPlaykeepersOwnPluginsAreListedWithoutARegistry$'
+control "a template page's Docker command asks Modrinth for none of Playkeeper's own plugins" internal/site/library.go \
+  'if a.Source == addons.Playkeeper {' \
+  'if false && a.Source == addons.Playkeeper {' \
+  ./internal/site '^TestPlaykeepersOwnPluginsAreListedWithoutARegistry$'
+control "a library page's plugin facts come from a check of the template's own source" internal/site/library.go \
+  'p.Name != a.Name || p.Source != string(a.Source) || p.Slug != a.Slug' \
+  'p.Name != a.Name || p.Slug != a.Slug' \
+  ./internal/site '^TestLibraryFactsTheTemplateCantBackStopTheBuild$'
 control "pre-generation: a named pipe for the plugins folder is refused before it is opened" internal/gamefiles/gamefiles.go \
   'err = folderError(p, fi)' \
   'err = nil' \
