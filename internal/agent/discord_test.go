@@ -510,7 +510,9 @@ func TestDiscordStartFailuresAreNotCrashLoops(t *testing.T) {
 
 // A server that wasn't meant to be running stays off after it stops
 // unexpectedly: the alert says it crashed, not that Playkeeper gave up
-// restarting it after crashes that never happened.
+// restarting it after crashes that never happened. That holds at its third
+// crash in the window too, when something outside Playkeeper started it
+// each time, and its status doesn't say Playkeeper stopped restarting it.
 func TestDiscordCrashOfAServerMeantToBeOffIsNoGiveUp(t *testing.T) {
 	e, f := newDiscordEnv(t)
 	e.connectDiscord()
@@ -518,14 +520,35 @@ func TestDiscordCrashOfAServerMeantToBeOffIsNoGiveUp(t *testing.T) {
 	if err := e.srv().setDesired(api.DesiredStopped); err != nil {
 		t.Fatal(err)
 	}
-	e.fd.addLog("[12:00:05 INFO]: Timings Reset")
-	e.fd.crash(137)
-	f.waitMessage(e, "Server crashed", "stopped unexpectedly. Open the dashboard to see what went wrong.")
-	time.Sleep(300 * time.Millisecond)
-	for _, wrong := range []string{"stays off", "kept crashing", "Playkeeper is restarting it"} {
-		if f.count(wrong) != 0 {
-			t.Fatalf("one crash of a server meant to be off, and the alert says %q", wrong)
+	crashed := "stopped unexpectedly. Open the dashboard to see what went wrong."
+	wrongs := []string{"stays off", "kept crashing", "Playkeeper is restarting it"}
+	wrong := func() (n int) {
+		for _, w := range wrongs {
+			n += f.count(w)
 		}
+		return n
+	}
+	for n := 1; n <= maxCrashes; n++ {
+		if n > 1 {
+			if err := e.a.docker.ContainerStart(context.Background(), e.cname()); err != nil {
+				t.Fatal(err)
+			}
+			e.waitFor("online", func() bool { return e.status().Phase == api.PhaseOnline })
+			// Past the quiet period, so each crash's alert goes out.
+			e.skew.Add(int64(6 * time.Minute))
+		}
+		e.fd.addLog("[12:00:05 INFO]: Timings Reset")
+		e.fd.crash(137)
+		e.waitFor(fmt.Sprintf("crash %d's alert", n), func() bool { return f.count(crashed) == n || wrong() > 0 })
+		time.Sleep(300 * time.Millisecond)
+		for _, w := range wrongs {
+			if f.count(w) != 0 {
+				t.Fatalf("crash %d of a server meant to be off, and the alert says %q", n, w)
+			}
+		}
+	}
+	if st := e.status(); st.CrashCount != maxCrashes || strings.Contains(st.LastError, "stopped restarting") || strings.Contains(st.LastErrorHint, "Fix the cause") {
+		t.Errorf("after %d crashes of a server meant to be off: error %q, hint %q", st.CrashCount, st.LastError, st.LastErrorHint)
 	}
 }
 

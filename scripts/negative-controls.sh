@@ -7314,6 +7314,16 @@ control "disk limits: a staged restore counts as the world it unpacks to" intern
   'err = target.diskLimitRefusal(r.Context(), target.id, unpackedBytes(f.Manifest))' \
   'err = target.diskLimitRefusal(r.Context(), target.id, 0*unpackedBytes(f.Manifest))' \
   ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
+control "disk limits: a restore refused once it's staged leaves no stage" internal/agent/handlers.go \
+  'err = target.diskLimitRefusal(r.Context(), target.id, unpackedBytes(f.Manifest))
+		}
+		if err != nil {
+			os.RemoveAll(a.stageDir(p.ID))' \
+  'err = target.diskLimitRefusal(r.Context(), target.id, unpackedBytes(f.Manifest))
+		}
+		if err != nil {
+			_ = p.ID' \
+  ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
 control "disk limits: a world's size is its files, not what its manifest claims" internal/agent/disklimits.go \
   'n += f.Size' \
   'n = m.TotalBytes + 0*f.Size' \
@@ -8136,6 +8146,16 @@ control "repeating crashes: the alert isn't swallowed by an earlier crash's" int
 		}' \
   '' \
   ./internal/discord '^TestRepeatedAlertsAreThrottled$'
+control "a third crash of a server meant to be off is no give-up either" internal/agent/lifecycle.go \
+  'GaveUp: wanted && counted' \
+  'GaveUp: counted' \
+  ./internal/agent '^TestDiscordCrashOfAServerMeantToBeOffIsNoGiveUp$'
+control "a server meant to be off doesn't say Playkeeper stopped restarting it" internal/agent/lifecycle.go \
+  '	case wanted:
+		s.lastError += fmt.Sprintf(" Playkeeper stopped restarting it' \
+  '	default:
+		s.lastError += fmt.Sprintf(" Playkeeper stopped restarting it' \
+  ./internal/agent '^TestDiscordCrashOfAServerMeantToBeOffIsNoGiveUp$'
 
 # Uploads for a new server counted against a named disk limit, as a
 # creator's are (internal/agent/worldimports.go, handlers.go, backups.go),
