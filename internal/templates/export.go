@@ -35,7 +35,8 @@ type Setup struct {
 	// Folder is the add-on library's scan of the server's add-on folder
 	// with those rows (Library.Scan with identify). When set, it decides
 	// what travels: add-ons whose file is gone are left out, changed files
-	// are noted, and files added by hand travel when Modrinth knows them.
+	// are noted, and files added by hand travel when Modrinth knows them or
+	// they are Playkeeper's own plugins.
 	Folder *addons.ScanResult
 	// Modpack is the modpack the server was created from.
 	Modpack *ModpackSetup
@@ -345,10 +346,13 @@ func (x *exporter) addon(rec addons.Installed, target addons.Target) (Addon, boo
 	name := printable(a.Name)
 	params := kv("name", name, "source", a.Source.Name())
 	switch {
-	case a.Source != addons.Modrinth && a.Source != addons.Hangar:
-		x.leftOut(KindLeftOutAddon, params, fmt.Sprintf("%s was left out: templates carry add-ons from Modrinth and Hangar only.", name), "")
+	case a.Source != addons.Modrinth && a.Source != addons.Hangar && a.Source != addons.Playkeeper:
+		x.leftOut(KindLeftOutAddon, params, fmt.Sprintf("%s was left out: templates carry add-ons from Modrinth, Hangar and Playkeeper only.", name), "")
 		return a, false
-	case !slices.Contains(target.Sources(), a.Source):
+	case a.Source == addons.Playkeeper && !fits(target, a):
+		x.leftOut(KindLeftOutAddon, params, fmt.Sprintf("%s was left out: this Playkeeper has no build of it for %s servers.", name, target.Name()), "")
+		return a, false
+	case !fits(target, a):
 		x.leftOut(KindLeftOutAddon, params, fmt.Sprintf("%s was left out: %s has no add-ons for %s servers.", name, a.Source.Name(), target.Name()), "")
 		return a, false
 	}
@@ -574,8 +578,12 @@ func (x *exporter) notes() {
 			x.note(KindNoteChanged, kv("name", name),
 				fmt.Sprintf("%s has changed on this server since Playkeeper installed it; the template names the version Playkeeper installed.", name))
 		case KindNoteIdentified:
-			x.note(KindNoteIdentified, kv("name", name),
-				fmt.Sprintf("%s was added by hand; Modrinth knows the file, so it travels like the others.", name))
+			known := "Modrinth knows the file"
+			if a.Source == addons.Playkeeper {
+				known = "it is one of Playkeeper's own plugins"
+			}
+			x.note(KindNoteIdentified, kv("name", name, "source", a.Source.Name()),
+				fmt.Sprintf("%s was added by hand; %s, so it travels like the others.", name, known))
 		}
 	}
 	if x.s.HasIcon {

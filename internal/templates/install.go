@@ -45,10 +45,11 @@ type AddonResult struct {
 
 // InstallAddon installs one add-on of a confirmed import on the new server,
 // through the add-on library, which downloads it from its source and
-// verifies it against the hash the source publishes. Before that, the
-// source's answer must match the template: the same project and name and,
-// when pinned, the same version and hash. An add-on that cannot be
-// installed is skipped with the reason; err is only for failures that
+// verifies it against the hash the source publishes; Playkeeper's own
+// plugins are written from the binary and checked the same way. Before
+// that, the source's answer must match the template: the same project and
+// name and, when pinned, the same version and hash. An add-on that cannot
+// be installed is skipped with the reason; err is only for failures that
 // should stop the import, such as a cancelled context. installed are the
 // server's add-ons so far, including the Records of earlier calls.
 func InstallAddon(ctx context.Context, lib Installer, srv addons.Server, installed []addons.Installed, a PlannedAddon) (*AddonResult, error) {
@@ -163,12 +164,22 @@ func projectMismatch(a Addon, s addons.Step) Notice {
 	name, found := printable(a.Name), printable(s.Name)
 	return notice(KindProjectMismatch, kv("name", name, "found", found, "source", a.Source.Name()),
 		fmt.Sprintf("The template calls this add-on %s, but %s's project %s is %s, so Playkeeper did not install it.", name, a.Source.Name(), a.Project, found),
-		"The template may be out of date or altered. Install the add-on you want from the library.")
+		altered(a, "Install the add-on you want from the library."))
 }
 
 func pinMismatch(a Addon, s addons.Step) Notice {
 	name := printable(a.Name)
 	return notice(KindPinMismatch, kv("name", name, "version", printable(a.Pin.VersionNumber), "source", a.Source.Name()),
 		fmt.Sprintf("The file %s offers for %s %s is not the one the template names, so Playkeeper did not install it.", a.Source.Name(), name, printable(a.Pin.VersionNumber)),
-		"The template may be out of date or altered. Install "+name+" from the library if you want it.")
+		altered(a, "Install "+name+" from the library if you want it."))
+}
+
+// altered is the hint for an add-on its source answers for differently from
+// the template, with what to do instead. Playkeeper's own plugins aren't in
+// the library to install that way.
+func altered(a Addon, instead string) string {
+	if a.Source == addons.Playkeeper {
+		return "The template may be out of date or altered."
+	}
+	return "The template may be out of date or altered. " + instead
 }

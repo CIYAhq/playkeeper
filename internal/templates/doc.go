@@ -30,4 +30,9 @@
 // Nothing is installed here: after the user confirms the plan, InstallAddon
 // installs each add-on through the add-on library, which verifies every
 // download against the hash its source publishes.
+//
+// Playkeeper's own plugins (source "playkeeper", internal/addons/firstparty)
+// travel the same way, pinned by version and SHA-256. They come from the
+// importing Playkeeper's binary, not a download: a pin to a build other than
+// the one it carries is skipped, like a version its source no longer has.
 package templates
