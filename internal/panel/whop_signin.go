@@ -64,6 +64,12 @@ func (s *Server) whopOAuth(ctx context.Context) (whop.OAuth, bool) {
 	if err := s.db.QueryRowContext(ctx, `SELECT oauth_client_id, oauth_client_secret FROM whop_account WHERE id = 1`).Scan(&id, &secret); err != nil || id == "" {
 		return whop.OAuth{}, false
 	}
+	return s.whopOAuthFor(ctx, id, secret)
+}
+
+// whopOAuthFor is sign-in through the Whop app id with its secret, or ok
+// false without an address for Whop to send people back to.
+func (s *Server) whopOAuthFor(ctx context.Context, id, secret string) (whop.OAuth, bool) {
 	dash, err := s.dashboardURL(ctx)
 	if err != nil || dash == "" {
 		return whop.OAuth{}, false
@@ -265,6 +271,31 @@ func (s *Server) hWhopSignInSet(w http.ResponseWriter, r *http.Request, sess *se
 	if req.ClientSecret != "" && !whop.ValidKey(req.ClientSecret) {
 		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "That isn't a Whop app's secret.", "Copy it again from the app on Whop, or leave it empty.")
 		return
+	}
+	var stores int
+	if err := s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM whop_account WHERE id = 1`).Scan(&stores); err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	}
+	if stores == 0 {
+		writeErr(w, http.StatusConflict, api.CodeConflict, "Connect a store on Whop first.", "")
+		return
+	}
+	// Every sign-in would fail with an app Whop refuses, as with a secret
+	// that isn't the app's, or none when Whop wants one.
+	if o, ok := s.whopOAuthFor(r.Context(), req.ClientID, req.ClientSecret); ok {
+		ctx, cancel := context.WithTimeout(r.Context(), whopTimeout)
+		err := o.CheckClient(ctx)
+		cancel()
+		var oe *whop.OAuthError
+		if errors.As(err, &oe) {
+			hint := "Copy the app's ID and its client secret again from Whop's developer dashboard."
+			if strings.Contains(oe.Description, whop.TokenExchange) {
+				hint = "On Whop's developer dashboard, add " + whop.TokenExchange + " on the app's own Permissions tab, not on an API key, and save. Then turn this on again."
+			}
+			writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Whop refused this app: "+cmpOr(oe.Description, oe.Code)+".", hint)
+			return
+		}
 	}
 	s.whopMu.Lock()
 	defer s.whopMu.Unlock()

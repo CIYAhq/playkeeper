@@ -200,7 +200,7 @@ func TestTheSignInPageNamesNoMachineOnceCustomersSignInThere(t *testing.T) {
 	if e.get(t, "/api/setup/status", "", &st); st.Machine == "" || st.WhopSignIn {
 		t.Fatalf("the sign-in page before Sign in with Whop: %+v", st)
 	}
-	if r := e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`"}`, own.auth()); r.status != http.StatusOK {
+	if r := e.do(t, "PUT", "/api/whop/signin", `{"clientId":"`+whopTestApp+`","clientSecret":"`+whopTestAppSecret+`"}`, own.auth()); r.status != http.StatusOK {
 		t.Fatalf("setting up Sign in with Whop: %d %v", r.status, r.body)
 	}
 	st = api.SetupStatus{}
