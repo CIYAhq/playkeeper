@@ -466,7 +466,7 @@ export interface TakesCustomers {
   by: string
 }
 
-/** A customer whose servers go on a machine, as the owner sees them on its page. */
+/** A customer whose servers go on a machine, or who still has servers there, as the owner sees them on its page. */
 export interface MachineCustomer {
   id: number
   name: string
@@ -475,6 +475,10 @@ export interface MachineCustomer {
   planId?: string
   memoryMB: number
   servers: number
+  /** The machine their servers go on, or empty while they wait for room. */
+  machineId: string
+  /** How many of their servers are on the machine listing them. */
+  here: number
   move?: CustomerMove
 }
 

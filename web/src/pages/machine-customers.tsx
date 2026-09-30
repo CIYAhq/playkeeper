@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { get, post } from '@/api/client'
 import type { MachineCustomer, MachineView } from '@/api/types'
-import { errorText, machineApi, useWorkspace } from '@/api/workspace'
+import { errorText, machineApi, useWorkspace, type Workspace } from '@/api/workspace'
 import { Card, CardTitle, Spinner } from '@/components/app/bits'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog'
@@ -16,22 +16,38 @@ import { usePoll } from '@/lib/usePoll'
 const customersMs = 30_000
 const movingMs = 3000
 
-/** A customer's plan and servers, and where their move to this machine stands. */
-function customerLine(c: MachineCustomer): string {
+/** How the owner's pages name a machine: the dashboard's own by the dashboard's name. */
+function nameOf(ws: Workspace, x?: MachineView): string {
+  return (x?.kind === 'local' ? ws.machineName : machineLabel(x)) || x?.id || ''
+}
+
+/**
+ * A customer's plan and servers, and where their move stands. One whose
+ * servers go on another machine, or who waits for room, is on m only
+ * because some of their servers are still there.
+ */
+function customerLine(c: MachineCustomer, m: MachineView, ws: Workspace): string {
   const parts = [t('machines.customers.planLine', { memory: formatMB(c.memoryMB), dot: t('common.dot'), servers: t('machines.customers.servers', { count: c.servers }) })]
   if (c.state === 'paused') parts.push(t('machines.customers.paused'))
   if (c.state === 'suspended') parts.push(t('machines.customers.suspended'))
-  if (c.move?.error) parts.push(t('machines.customers.moveStopped', { error: c.move.error }))
-  else if (c.move) parts.push(t('machines.customers.moving', { count: c.move.left }))
+  const theirs = c.machineId === m.id
+  if (!theirs) {
+    const home = ws.machines.find((x) => x.id === c.machineId)
+    parts.push(c.machineId ? t('machines.customers.leftHere', { count: c.here, name: nameOf(ws, home) || c.machineId }) : t('machines.customers.leftWaiting', { count: c.here }))
+  }
+  if (c.move?.error) parts.push(t(theirs ? 'machines.customers.moveStopped' : 'machines.customers.moveStoppedElsewhere', { error: c.move.error }))
+  else if (c.move) parts.push(t(theirs ? 'machines.customers.moving' : 'machines.customers.movingElsewhere', { count: c.move.left }))
   return parts.join(t('common.dot'))
 }
 
 /**
- * The customers whose servers go on a machine, each with Move…, for the
- * owner: in a card of its own on the dashboard's machine's page, and in the
- * Customers card on a joined machine's. Nothing shows while it has none.
+ * The customers whose servers go on a machine, or who still have servers
+ * there, each with Move…, for the owner: in a card of its own on the
+ * dashboard's machine's page, and in the Customers card on a joined
+ * machine's. Nothing shows while it has none.
  */
 export function CustomerList({ machine: m, card = false }: { machine: MachineView; card?: boolean }) {
+  const ws = useWorkspace()
   const [interval, setIntervalMs] = useState(customersMs)
   const list = usePoll(() => get<MachineCustomer[]>(machineApi(m.id, '/customers')), interval, m.id)
   const [moving, setMoving] = useState<MachineCustomer>()
@@ -41,7 +57,7 @@ export function CustomerList({ machine: m, card = false }: { machine: MachineVie
   async function tryAgain(c: MachineCustomer) {
     setAgain(c.id)
     try {
-      await post(`/api/customers/${c.id}/move`, { machineId: m.id })
+      await post(`/api/customers/${c.id}/move`, c.machineId ? { machineId: c.machineId } : {})
       void list.refresh()
     } catch (e) {
       toastManager.add({ title: errorText(e), type: 'error' })
@@ -57,7 +73,7 @@ export function CustomerList({ machine: m, card = false }: { machine: MachineVie
           <li key={c.id} className="flex items-center gap-3 border-t border-border py-2 text-[13px] first:border-t-0">
             <span className="min-w-0 flex-1">
               <span className="block font-medium">{c.name}</span>
-              <span className="block text-xs text-muted-foreground">{customerLine(c)}</span>
+              <span className="block text-xs text-muted-foreground">{customerLine(c, m, ws)}</span>
             </span>
             {c.move && !c.move.error ? (
               <Spinner className="size-4 shrink-0" />
@@ -97,7 +113,6 @@ function MoveDialog({ customer, from, onClose, onMoved }: { customer?: MachineCu
   useEffect(() => {
     if (customer) setTo(fullest)
   }, [customer])
-  const nameOf = (x?: MachineView) => (x?.kind === 'local' ? ws.machineName : machineLabel(x)) || x?.id || ''
   const targets = ws.machines.filter((x) => x.id !== from.id && (x.kind === 'local' || x.takesCustomers))
   const who = customer?.name ?? ''
   async function move() {
@@ -105,7 +120,7 @@ function MoveDialog({ customer, from, onClose, onMoved }: { customer?: MachineCu
     setBusy(true)
     try {
       const r = await post<{ machineId: string }>(`/api/customers/${customer.id}/move`, to === fullest ? {} : { machineId: to })
-      toastManager.add({ title: t('machines.customers.moveStarted', { customer: customer.name, name: nameOf(ws.machines.find((x) => x.id === r.machineId)) || r.machineId }), type: 'success' })
+      toastManager.add({ title: t('machines.customers.moveStarted', { customer: customer.name, name: nameOf(ws, ws.machines.find((x) => x.id === r.machineId)) || r.machineId }), type: 'success' })
       onClose()
       onMoved()
       void ws.refresh()
@@ -132,7 +147,7 @@ function MoveDialog({ customer, from, onClose, onMoved }: { customer?: MachineCu
             {targets.map((x) => (
               <label key={x.id} className="flex items-center gap-2.5 text-[13px] max-sm:text-[15px]">
                 <Radio value={x.id} />
-                {nameOf(x)}
+                {nameOf(ws, x)}
               </label>
             ))}
           </RadioGroupPrimitive>

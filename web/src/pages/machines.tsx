@@ -729,6 +729,7 @@ function RemoveDialog({ machine: m, servers, open, onOpenChange }: { machine: Ma
   const ws = useWorkspace()
   const [busy, setBusy] = useState(false)
   const name = machineLabel(m)
+  const ownerOnly = !!m.customers && !can(ws.me, 'machines.customers')
   async function remove() {
     setBusy(true)
     try {
@@ -756,7 +757,7 @@ function RemoveDialog({ machine: m, servers, open, onOpenChange }: { machine: Ma
           {!!m.customers && (
             <>
               <p className="mt-3 font-semibold text-warning-foreground">{t('machines.remove.customers', { count: m.customers, name })}</p>
-              <p className="text-xs text-muted-foreground">{t('machines.remove.customersHint', { name })}</p>
+              <p className="text-xs text-muted-foreground">{ownerOnly ? t('machines.remove.ownerOnly') : t('machines.remove.customersHint', { name })}</p>
             </>
           )}
         </div>
@@ -764,7 +765,7 @@ function RemoveDialog({ machine: m, servers, open, onOpenChange }: { machine: Ma
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button variant="destructive" onClick={() => void remove()} loading={busy}>
+          <Button variant="destructive" onClick={() => void remove()} loading={busy} disabled={ownerOnly}>
             <Trash2Icon />
             {t('machines.remove.confirm', { name })}
           </Button>

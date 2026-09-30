@@ -9662,11 +9662,18 @@ webcontrol "moving customers: the machine a customer is on isn't offered" web/sr
   'x.id !== from.id && ' \
   '' \
   src/pages/pages.test.tsx 'moves one to the machine the owner picks'
-# shellcheck disable=SC2016
-webcontrol "moving customers: a move that stopped is tried again to the same machine" web/src/pages/machine-customers.tsx \
-  'await post(`/api/customers/${c.id}/move`, { machineId: m.id })' \
-  'await post(`/api/customers/${c.id}/move`, {})' \
-  src/pages/pages.test.tsx 'tries one that stopped again'
+webcontrol "moving customers: a move that stopped is tried again to their own machine" web/src/pages/machine-customers.tsx \
+  'c.machineId ? { machineId: c.machineId } : {}' \
+  '{ machineId: m.id }' \
+  src/pages/pages.test.tsx 'tries their move again to their own machine'
+webcontrol "moving customers: a customer whose servers go on another machine has some still here" web/src/pages/machine-customers.tsx \
+  'const theirs = c.machineId === m.id' \
+  'const theirs = true' \
+  src/pages/pages.test.tsx 'lists customers a stopped move left servers with'
+webcontrol "removing a machine: only the owner removes one customers are on, on its page" web/src/pages/machines.tsx \
+  "const ownerOnly = !!m.customers && !can(ws.me, 'machines.customers')" \
+  'const ownerOnly = false' \
+  src/pages/pages.test.tsx 'leaves removing a machine customers are on to the owner'
 control "moving customers: a customer whose servers are apart gives none more memory" internal/panel/creators.go \
   '(!ok || memoryMB > cur) && s.customerMoving(r.Context(), a.UserID)' \
   '(!ok || memoryMB > cur) && false' \

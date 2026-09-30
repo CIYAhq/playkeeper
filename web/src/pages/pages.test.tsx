@@ -4078,8 +4078,8 @@ describe('Machines and AI agents', () => {
       const cellar: MachineView = { ...home, id: 'c2345abcde', name: 'cellar' }
       answer({
         '/api/machines/h2345abcde/customers': [
-          { id: 7, name: 'alex', handle: 'alex', state: 'active', planId: 'plan_plus', memoryMB: 8192, servers: 2 },
-          { id: 8, name: 'sam', state: 'paused', memoryMB: 4096, servers: 1 },
+          { id: 7, name: 'alex', handle: 'alex', state: 'active', planId: 'plan_plus', memoryMB: 8192, servers: 2, machineId: 'h2345abcde', here: 2 },
+          { id: 8, name: 'sam', state: 'paused', memoryMB: 4096, servers: 1, machineId: 'h2345abcde', here: 1 },
         ],
       })
       answerPosts({ '/api/customers/7/move': { machineId: 'a2345abcde' } })
@@ -4112,7 +4112,7 @@ describe('Machines and AI agents', () => {
 
     it('lists the customers on the dashboard’s machine on its page, for the owner alone', async () => {
       const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' } }
-      answer({ '/api/machines/m2345abcde/customers': [{ id: 7, name: 'alex', state: 'active', memoryMB: 4096, servers: 1 }] })
+      answer({ '/api/machines/m2345abcde/customers': [{ id: 7, name: 'alex', state: 'active', memoryMB: 4096, servers: 1, machineId: 'm2345abcde', here: 1 }] })
       await render(<MachinePage id={machine.id} />, owner(taking))
       expect(document.querySelector('#machine-customers')?.textContent).toBe('Customers')
       expect(page()).toContain('4 GB plan · 1 server')
@@ -4128,16 +4128,36 @@ describe('Machines and AI agents', () => {
       const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' }, customers: 2 }
       answer({
         '/api/machines/h2345abcde/customers': [
-          { id: 7, name: 'alex', state: 'active', memoryMB: 8192, servers: 2, move: { startedAt: '2026-09-30T02:00:00Z', startedBy: 'siya', left: 1 } },
-          { id: 8, name: 'sam', state: 'active', memoryMB: 4096, servers: 1, move: { startedAt: '2026-09-30T02:00:00Z', startedBy: 'siya', left: 1, error: 'survival: attic couldn’t make it from its backup.' } },
+          { id: 7, name: 'alex', state: 'active', memoryMB: 8192, servers: 2, machineId: 'h2345abcde', here: 1, move: { startedAt: '2026-09-30T02:00:00Z', startedBy: 'siya', left: 1 } },
+          { id: 8, name: 'sam', state: 'active', memoryMB: 4096, servers: 1, machineId: 'h2345abcde', here: 0, move: { startedAt: '2026-09-30T02:00:00Z', startedBy: 'siya', left: 1, error: 'survival: attic couldn’t make it from its folder.' } },
         ],
       })
       await render(<MachineDetailsSection id={home.id} />, owner(taking))
       expect(page()).toContain('8 GB plan · 2 servers · Moving here: 1 server to go')
-      expect(page()).toContain('Their move here stopped: survival: attic couldn’t make it from its backup.')
+      expect(page()).toContain('Their move here stopped: survival: attic couldn’t make it from its folder.')
       expect(buttons('Move…')).toEqual([])
       await click('Try again')
       expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/customers/8/move', { machineId: 'h2345abcde' })
+    })
+
+    it('lists customers a stopped move left servers with, and tries their move again to their own machine', async () => {
+      const taking = { ...home, takesCustomers: { since: '2026-09-29T14:00:00Z', by: 'siya' }, customers: 2 }
+      const attic: MachineView = { ...taking, id: 'a2345abcde', name: 'attic' }
+      const stopped = { startedAt: '2026-09-30T02:00:00Z', startedBy: 'siya', left: 1, error: 'survival didn’t stop.' }
+      answer({
+        '/api/machines/h2345abcde/customers': [
+          { id: 7, name: 'alex', state: 'active', memoryMB: 8192, servers: 2, machineId: 'a2345abcde', here: 1, move: stopped },
+          { id: 8, name: 'sam', state: 'active', memoryMB: 4096, servers: 1, machineId: '', here: 1, move: stopped },
+        ],
+      })
+      await render(<MachineDetailsSection id={home.id} />, workspace({ machines: [machine, taking, attic], me: { ...me, access: { ...me.access, can: [...everything, 'machines.customers'] } } }))
+      expect(page()).toContain('8 GB plan · 2 servers · 1 still here, their servers go on attic · Their move stopped: survival didn’t stop.')
+      expect(page()).toContain('4 GB plan · 1 server · 1 still here, waiting for room on another machine · Their move stopped: survival didn’t stop.')
+      expect(page()).not.toContain('Their move here')
+      await click(buttons('Try again')[0]!)
+      expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/customers/7/move', { machineId: 'a2345abcde' })
+      await click(buttons('Try again')[1]!)
+      expect(vi.mocked(client.post)).toHaveBeenLastCalledWith('/api/customers/8/move', {})
     })
 
     it('warns before removing a machine customers are on', async () => {
@@ -4146,9 +4166,23 @@ describe('Machines and AI agents', () => {
       const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
       expect(dialog).toContain('2 customers are on home-server')
       expect(dialog).toContain('Move them first, in Customers on this page, to take their servers along. Otherwise they get room on another machine to start again, and their servers stay on home-server, out of reach.')
+      expect(button('Remove home-server').disabled).toBe(false)
       await render(<MachineDetailsSection id={home.id} />, owner(home))
       await click('Remove home-server…')
       expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('customers are on')
+    })
+
+    it('leaves removing a machine customers are on to the owner', async () => {
+      await render(<MachineDetailsSection id={home.id} />, owner({ ...home, customers: 2 }, everything))
+      await click('Remove home-server…')
+      const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
+      expect(dialog).toContain('2 customers are on home-server')
+      expect(dialog).toContain('Only the owner can remove a machine customers are on, as removing it places them on another machine.')
+      expect(dialog).not.toContain('Move them first')
+      expect(button('Remove home-server').disabled).toBe(true)
+      await render(<MachineDetailsSection id={home.id} />, owner(home, everything))
+      await click('Remove home-server…')
+      expect(button('Remove home-server').disabled).toBe(false)
     })
   })
 
