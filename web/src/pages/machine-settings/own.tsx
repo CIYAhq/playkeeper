@@ -12,7 +12,7 @@ import { Switch } from '@/components/ui/switch'
 import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can } from '@/lib/access'
-import { certState, dashboardURL, ownDone, recordFor, runningOp, zoneOf } from '@/lib/address'
+import { certState, dashboardPort, dashboardURL, ownDone, recordFor, runningOp, zoneOf } from '@/lib/address'
 import { formatList, formatLongDate, relativeTime } from '@/lib/format'
 import { usePoll } from '@/lib/usePoll'
 import { cn } from '@/lib/utils'
@@ -326,7 +326,7 @@ function Results({ a, now, phone, checking, onCheck, certBusy, onCertificate }: 
       </ResultBlock>,
     )
   } else if (cert === 'active') {
-    const url = dashboardURL(domain, a.panelPort)
+    const url = dashboardURL(domain, dashboardPort(a))
     blocks.push(
       <ResultBlock
         key="cert"
@@ -658,8 +658,8 @@ export function OwnDomain(props: AddressProps) {
   )
 
   if (!editing && ownDone(a, now)) {
-    const open = dashboardURL(domain, a.panelPort)
-    const rows: AddressRowData[] = [...(a.servers ?? []).flatMap((s) => (s.address ? [{ id: s.serverId, label: s.name, value: s.address }] : [])), dashboardRow(domain, a.panelPort)]
+    const open = dashboardURL(domain, dashboardPort(a))
+    const rows: AddressRowData[] = [...(a.servers ?? []).flatMap((s) => (s.address ? [{ id: s.serverId, label: s.name, value: s.address }] : [])), dashboardRow(domain, dashboardPort(a))]
     return (
       <>
         <DoneView

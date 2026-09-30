@@ -15,7 +15,7 @@ import { allowanceText, roleHint, roleName, welcomeKey } from '@/lib/access'
 import { formatDate, formatList } from '@/lib/format'
 import { linkPath, rePlayerName } from '@/lib/router'
 import { cn } from '@/lib/utils'
-import { PasswordField } from './onboarding'
+import { PasswordField } from '@/components/app/password-field'
 import { CodesView, ErrorLine, KeyBox, QrImage, useSetup } from './two-factor'
 
 // The page an invite link opens, for friends and new team members alike. It

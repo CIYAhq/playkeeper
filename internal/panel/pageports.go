@@ -16,12 +16,14 @@ import (
 	"github.com/CIYAhq/playkeeper/internal/certs"
 )
 
-// The public page's ports. The panel can't open ports below 1024, so it
-// asks the agent, which opens 443 and 80 only when nothing else wants them
-// and passes the listening sockets over its socket (internal/agent,
-// pageports.go). The keeper holds them while a server is on the page and
-// the machine has an address, and closes them as soon as that stops, so
-// the owner gets the ports back by turning the page off.
+// The public page's ports, which also carry the dashboard while Serve the
+// dashboard on the standard HTTPS port is on (dashboard443.go). The panel
+// can't open ports below 1024, so it asks the agent, which opens 443 and 80
+// only when nothing else wants them and passes the listening sockets over
+// its socket (internal/agent, pageports.go). The keeper holds them while a
+// server is on the page and the machine has an address, or the dashboard
+// wants them, and closes them as soon as that stops, so the owner gets the
+// ports back by turning the page and the switch off.
 
 const (
 	// pageFirstLook is how soon after starting the keeper first looks.
@@ -66,21 +68,35 @@ func (s *Server) runPage(ctx context.Context) {
 }
 
 // lookAtPage opens or closes the page's ports to match what the agent
-// says: held while a server is on the page and the machine has an address.
+// says: held while a server is on the page and the machine has an address,
+// or while the dashboard answers the machine's name on port 443.
 func (s *Server) lookAtPage(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	p := s.page
+	p.mu.Lock()
+	gen := p.gen
+	p.mu.Unlock()
 	var st api.PublicPageState
 	if _, err := s.agent.Do(ctx, http.MethodGet, "/v1/public-page/state", nil, nil, &st); err != nil {
 		// Without the agent the page can't show anything new, but what it
 		// holds stays: the agent is back in a moment after an update.
 		return
 	}
-	p := s.page
 	p.mu.Lock()
-	p.host, p.hosts = st.Host, st.Hosts
+	p.host, p.hosts, p.on = st.Host, st.Hosts, st.On
+	current := p.gen == gen
+	if current {
+		p.dashboard, p.reached = st.Dashboard, st.Dashboard && st.Reached
+	}
+	dashboard := p.dashboard
 	p.mu.Unlock()
-	if !st.On {
+	if !current {
+		// A visit was noted or the switch turned off while the agent was
+		// being asked: another look reads what the agent says since.
+		s.kickPage()
+	}
+	if !st.On && !dashboard {
 		s.closePagePorts(api.PortOff)
 		return
 	}
@@ -156,7 +172,8 @@ func (s *Server) servePagePorts(want api.PagePortsRequest, ports api.PublicPageP
 	}
 }
 
-// servePagePort serves the page on the listening socket f.
+// servePagePort serves the page on the listening socket f, and on port 443
+// the dashboard too, for the machine's name while it's wanted there.
 func (s *Server) servePagePort(f *os.File, port int, secure bool) (*pageListener, error) {
 	ln, err := net.FileListener(f)
 	f.Close()
@@ -165,18 +182,22 @@ func (s *Server) servePagePort(f *os.File, port int, secure bool) (*pageListener
 	}
 	ln = limitListener(ln, maxPageConns)
 	srv := &http.Server{
-		Handler:           s.securityHeaders(s.logPageRequests(s.pageHandler(secure))),
+		Handler:           s.securityHeaders(s.logPageRequests(s.pageHandler(false))),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       time.Minute,
 		MaxHeaderBytes:    16 << 10,
 		ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelDebug),
 	}
+	serve := func() error { return srv.Serve(ln) }
 	if secure {
+		// The dashboard may answer here, so the port has the panel's own
+		// port's limits, HTTP/2 included.
+		srv.Handler, srv.IdleTimeout, srv.MaxHeaderBytes = s.httpsHandler(), 2*time.Minute, 0
 		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: s.pageCertificate}
-		ln = tls.NewListener(ln, srv.TLSConfig)
+		serve = func() error { return srv.ServeTLS(ln, "", "") }
 	}
 	go func() {
-		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.log.Warn("the public page stopped answering", "port", port, "err", err)
 		}
 	}()
