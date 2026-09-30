@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -322,6 +323,93 @@ func TestUpdaterInstallsAVerifiedStagedRelease(t *testing.T) {
 	if err := SelfUpdate(context.Background(), h.system(t), cfg, "0.2.1", s.keys, &out); err != nil {
 		t.Fatalf("without a request the updater has nothing to do: %v", err)
 	}
+}
+
+// An update from the dashboard allows port 443 where the install opens its
+// ports, as a new install does, once: in ufw or in firewalld's zone, not in
+// a firewall that's off or on a joined machine, and a rule that was already
+// there stays the admin's.
+func TestAnUpdateFromTheDashboardAllowsPort443WhereTheInstallOpensPorts(t *testing.T) {
+	update := func(t *testing.T, h *fakeHost, cfg config.Config, from, to string) {
+		t.Helper()
+		s := stage(t, h, cfg, from, to)
+		var out bytes.Buffer
+		if err := SelfUpdate(context.Background(), h.system(t), cfg, from, s.keys, &out); err != nil {
+			t.Fatalf("update failed: %v\n%s", err, out.String())
+		}
+	}
+	rules := func(t *testing.T, h *fakeHost, cfg config.Config, set []string) {
+		t.Helper()
+		path := filepath.Join(h.root, cfg.ManifestPath())
+		var m Manifest
+		if err := readJSONFile(path, &m); err != nil {
+			t.Fatal(err)
+		}
+		m.FirewallRules = set
+		if err := writeJSONFile(path, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("ufw", func(t *testing.T) {
+		h := newFakeHost(t)
+		cfg := installedAt(t, h, "0.4.10", true)
+		h.ufwActive = true
+		h.ufwRules["8443/tcp"], h.ufwRules["25565/tcp"], h.ufwRules["80/tcp"] = true, true, true
+		rules(t, h, cfg, []string{"8443/tcp", "25565/tcp", "80/tcp"})
+		update(t, h, cfg, "0.4.10", "0.4.11")
+		if m := manifestOf(t, h); !h.ufwRules["443/tcp"] || !slices.Equal(m.FirewallRules, []string{"8443/tcp", "25565/tcp", "80/tcp", "443/tcp"}) {
+			t.Fatalf("after the update: ufw %v, manifest %v", h.ufwRules, m.FirewallRules)
+		}
+		h.cmds = nil
+		update(t, h, cfg, "0.4.11", "0.4.12")
+		for _, cmd := range h.cmds {
+			if strings.HasPrefix(cmd, "ufw allow") {
+				t.Fatalf("the next update ran %q", cmd)
+			}
+		}
+	})
+	t.Run("the admin's own rule", func(t *testing.T) {
+		h := newFakeHost(t)
+		cfg := installedAt(t, h, "0.4.10", true)
+		h.ufwActive = true
+		h.ufwRules["443/tcp"] = true
+		rules(t, h, cfg, []string{"8443/tcp", "25565/tcp", "80/tcp"})
+		update(t, h, cfg, "0.4.10", "0.4.11")
+		if m := manifestOf(t, h); slices.Contains(m.FirewallRules, "443/tcp") {
+			t.Fatalf("the admin's rule was recorded for uninstall: %v", m.FirewallRules)
+		}
+	})
+	t.Run("firewalld", func(t *testing.T) {
+		h := newFakeHost(t)
+		cfg := installedAt(t, h, "0.4.10", true)
+		h.withFirewalld("public", true, "22/tcp", "8443/tcp", "25565/tcp", "80/tcp")
+		path := filepath.Join(h.root, cfg.ManifestPath())
+		var m Manifest
+		readJSONFile(path, &m)
+		m.Firewall, m.FirewallZone, m.FirewallRules = "firewalld", "public", []string{"8443/tcp", "25565/tcp", "80/tcp"}
+		writeJSONFile(path, m)
+		update(t, h, cfg, "0.4.10", "0.4.11")
+		if !h.firewalld.perm["public 443/tcp"] || !h.firewalld.run["public 443/tcp"] || !slices.Contains(manifestOf(t, h).FirewallRules, "443/tcp") {
+			t.Fatalf("firewalld after the update: %v %v", h.firewalld.perm, manifestOf(t, h).FirewallRules)
+		}
+	})
+	t.Run("no firewall, or a joined machine", func(t *testing.T) {
+		for _, joined := range []bool{false, true} {
+			h := newFakeHost(t)
+			cfg := installedAt(t, h, "0.4.10", true)
+			if joined {
+				cfg.NoPanel = true
+				h.ufwActive = true
+			}
+			update(t, h, cfg, "0.4.10", "0.4.11")
+			for _, cmd := range h.cmds {
+				if strings.HasPrefix(cmd, "ufw allow") || strings.HasPrefix(cmd, "firewall-cmd") {
+					t.Fatalf("joined %v: the update ran %q", joined, cmd)
+				}
+			}
+		}
+	})
 }
 
 func TestUpdaterRefusesAnythingItCannotVerify(t *testing.T) {

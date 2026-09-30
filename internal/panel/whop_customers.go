@@ -471,17 +471,12 @@ func (s *Server) refreshWhopMemberships(ctx context.Context, c *whop.Client, st 
 }
 
 // refreshWhopPlans reads the store again every whopPollEvery, so a plan's
-// allowance changed on Whop reaches its customers, and sooner when a
-// membership is of a plan the dashboard hasn't read yet. It says whether it
-// just read the store.
+// allowance changed on Whop reaches its customers, and sooner when the
+// store may be out of date (see whopStoreDue). It says whether it just read
+// the store.
 func (s *Server) refreshWhopPlans(ctx context.Context, c *whop.Client, st whopStore) bool {
-	since := s.now().Sub(st.SyncedAt)
-	if since < whopPollEvery {
-		var unknown int
-		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships m WHERE m.store_id = ? AND m.stale = 0
-			AND NOT EXISTS (SELECT 1 FROM whop_plans p WHERE p.store_id = m.store_id AND p.plan_id = m.plan_id)`, st.ID).Scan(&unknown); err != nil || unknown == 0 || since < 2*time.Minute {
-			return false
-		}
+	if !s.whopStoreDue(ctx, st) {
+		return false
 	}
 	problem := ""
 	if err := s.readWhopStore(ctx, c, st.ID, false); err != nil {
@@ -492,6 +487,28 @@ func (s *Server) refreshWhopPlans(ctx context.Context, c *whop.Client, st whopSt
 		s.log.Error("could not record reading the store on Whop", "err", err)
 	}
 	return problem == ""
+}
+
+// whopStoreDue says whether the reconciler reads the store this pass: every
+// whopPollEvery; at once when the products name another address than the
+// dashboard's, since the store sends buyers there and the old one may no
+// longer answer (the dashboard losing port 443, say), but only a minute
+// after a read that failed; and two minutes after the last read when a
+// membership is of a plan the dashboard hasn't read yet.
+func (s *Server) whopStoreDue(ctx context.Context, st whopStore) bool {
+	since := s.now().Sub(st.SyncedAt)
+	if since >= whopPollEvery {
+		return true
+	}
+	if st.Problem == "" || since >= time.Minute {
+		if dash, err := s.dashboardURL(ctx); err == nil && dash != "" && dash != st.MarkedAs {
+			return true
+		}
+	}
+	var unknown int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_memberships m WHERE m.store_id = ? AND m.stale = 0
+		AND NOT EXISTS (SELECT 1 FROM whop_plans p WHERE p.store_id = m.store_id AND p.plan_id = m.plan_id)`, st.ID).Scan(&unknown)
+	return err == nil && unknown > 0 && since >= 2*time.Minute
 }
 
 // whopCustomer is one customer as the reconciler sees them.

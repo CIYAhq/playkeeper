@@ -8,7 +8,7 @@ import { axisLabel } from '@/components/app/players-chart'
 import { packRequest } from '@/pages/new-server'
 import { passwordStrength } from '@/components/app/password-field'
 import { canCreateOn, tokenRoles } from './access'
-import { certState, claimStep, dashboardURL, freeServers, freeStage, nameProblem, normalizeName, ownDone, recordFor, zoneOf } from './address'
+import { certState, claimStep, dashboardPort, dashboardURL, freeServers, freeStage, namedDashboard, nameProblem, normalizeName, ownDone, recordFor, zoneOf } from './address'
 import { niceMax, regroup, ticks } from './chart'
 import { checklist, complete, progress } from './checklist'
 import { behindSeconds, parseLine } from './console'
@@ -300,6 +300,7 @@ describe('AI agents', () => {
     expect(mcpAddress([{ kind: 'ip', address: '203.0.113.10:8443' }, { kind: 'name', address: 'alex.playkeeper.me:8443' }], 'https://203.0.113.10:8443')).toBe('https://alex.playkeeper.me:8443/mcp')
     expect(mcpAddress([{ kind: 'ip', address: '203.0.113.10:8443' }], 'https://203.0.113.10:8443')).toBe('https://203.0.113.10:8443/mcp')
     expect(mcpAddress(undefined, 'https://localhost:8448')).toBe('https://localhost:8448/mcp')
+    expect(mcpAddress([{ kind: 'name', address: 'alex.playkeeper.me:8443' }], 'https://203.0.113.10:8443', 'https://alex.playkeeper.me')).toBe('https://alex.playkeeper.me/mcp')
   })
 
   it('writes MCP settings an AI tool can read, and shows the secret cut short', () => {
@@ -1159,6 +1160,26 @@ describe('address', () => {
   it('keeps the dashboard port in its address unless it is 443', () => {
     expect(dashboardURL('alex.playkeeper.me', 8443)).toBe('https://alex.playkeeper.me:8443')
     expect(dashboardURL('play.example.com', 443)).toBe('https://play.example.com')
+  })
+
+  it('drops the port once the dashboard answers on port 443, and not before', () => {
+    expect(dashboardPort({ panelPort: 8443 })).toBe(8443)
+    expect(dashboardPort({ panelPort: 8443, dashboard: { on: true, state: 'open', port: 8443 } })).toBe(8443)
+    expect(dashboardPort({ panelPort: 8443, dashboard: { on: true, state: 'open', reached: true, port: 443 } })).toBe(443)
+    const now = Date.parse('2026-09-30T12:00:00Z')
+    const a: Address = {
+      kind: 'own',
+      host: 'play.example.com',
+      panelPort: 8443,
+      base: 'playkeeper.me',
+      servers: [],
+      names: { url: '', unreachable: false },
+      check: { ready: true } as Address['check'],
+      certificate: { names: ['play.example.com'], challenge: 'http-01', notAfter: '2026-12-01T00:00:00Z' } as Address['certificate'],
+      dashboard: { on: true, state: 'open', reached: true, port: 443 },
+    }
+    expect(namedDashboard(a, now)).toBe('https://play.example.com')
+    expect(namedDashboard({ ...a, dashboard: undefined }, now)).toBe('https://play.example.com:8443')
   })
 
   it('names the zone where records are managed', () => {

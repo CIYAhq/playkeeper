@@ -187,9 +187,10 @@
     <tbody>
       <tr><th scope="row">TCP 22</th><td>SSH, so you can still log in</td></tr>
       <tr><th scope="row">TCP 8443</th><td>The dashboard</td></tr>
+      <tr><th scope="row">TCP 443</th><td>The dashboard without a port once your VPS has a name, and your servers' public page</td></tr>
       <tr><th scope="row">TCP 25565</th><td>The first Minecraft server; 25566, 25567 and so on for each one after it</td></tr>
       <tr><th scope="row">UDP 24454</th><td>Voice chat, for each server that has it; the next takes the next free port</td></tr>
-      <tr><th scope="row">TCP 80</th><td>Only for your own domain, while Let's Encrypt checks it</td></tr>
+      <tr><th scope="row">TCP 80</th><td>Sends browsers on to port 443, and for your own domain, Let's Encrypt's checks</td></tr>
     </tbody>
   </table>
 </div>

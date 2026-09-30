@@ -1387,6 +1387,7 @@ func (a *Agent) addressView() api.Address {
 			v.Certificate = certificateView(row)
 		}
 	}
+	v.Dashboard = a.dashboard443View()
 	return v
 }
 
@@ -1750,6 +1751,7 @@ func (a *Agent) addressLoop(ctx context.Context) {
 		tick = t.C
 	}
 	a.addressTick(ctx, true)
+	a.refreshDiscordDashboard()
 	for {
 		select {
 		case <-ctx.Done():
@@ -1758,6 +1760,9 @@ func (a *Agent) addressLoop(ctx context.Context) {
 		case <-a.addr.kick:
 		}
 		a.addressTick(ctx, false)
+		// The dashboard's address changes with the machine's name, and with
+		// port 443 coming and going.
+		a.refreshDiscordDashboard()
 	}
 }
 
