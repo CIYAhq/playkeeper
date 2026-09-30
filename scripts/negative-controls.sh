@@ -1208,7 +1208,7 @@ webcontrol "the phone's More dot is the notice's" web/src/components/app/shell.t
 webcontrol "the automatic check's switch is only for those who manage the machine" web/src/pages/settings.tsx \
   "{manage && info?.supported && (" \
   "{info?.supported && (" \
-  web/src/pages/settings.test.tsx 'isn’t there for those who can’t manage the machine'
+  web/src/pages/settings.test.tsx 'there for those who'
 control "a machine joins one dashboard at a time" internal/install/link.go \
   'if d, err := machinelink.LoadDashboard(sys.P(cfg.LinkDashboardPath())); err == nil {' \
   'if d, err := machinelink.LoadDashboard(sys.P(cfg.LinkDashboardPath())); false && err == nil {' \

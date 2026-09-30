@@ -254,7 +254,7 @@ for f in playkeeper-release.json playkeeper-release.json.sig; do
   [ -n "$modified" ] || fail "/releases/latest/$f has no Last-Modified"
   for ask in "If-None-Match: $etag" "If-Modified-Since: $modified"; do
     read -r code size < <(curl -sS -o /dev/null -w '%{http_code} %{size_download}\n' -H "$ask" "$url")
-    [ "$code" = 304 ] && [ "$size" = 0 ] || fail "/releases/latest/$f asked with '$ask' answered $code with $size bytes, not 304 with none"
+    if [ "$code" != 304 ] || [ "$size" != 0 ]; then fail "/releases/latest/$f asked with '$ask' answered $code with $size bytes, not 304 with none"; fi
   done
 done
 grep -q '"schema": 1' "$work/playkeeper-release.json" || fail "/releases/latest/playkeeper-release.json is not a release manifest"
