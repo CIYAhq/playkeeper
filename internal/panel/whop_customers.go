@@ -253,10 +253,14 @@ func (s *Server) reconcileWhopStore(ctx context.Context, st whopStore) {
 		return
 	}
 	// A store that left ends its customers' plans from what the dashboard
-	// kept, whether or not Whop still answers for it.
+	// kept, whether or not Whop still answers for it, so once its own
+	// suspension is lifted, its customers' is too, into their ended plans.
 	left := !st.LeftAt.IsZero()
 	if left {
 		s.endLeftStorePlans(ctx, st)
+		if st.SuspendedAt.IsZero() {
+			s.liftWithStore(ctx, st)
+		}
 	}
 	c, err := s.whopClientFor(ctx, st)
 	if err != nil {

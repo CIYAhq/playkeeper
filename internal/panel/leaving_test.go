@@ -177,6 +177,39 @@ func TestAStoreThatLeftIsBackOnceAddedAgain(t *testing.T) {
 	}
 }
 
+// A store that leaves while suspended ends its customers' plans, so once
+// its suspension is lifted they're paused, not suspended, even with the
+// app uninstalled.
+func TestLiftingAStoreThatLeftLeavesItsCustomersPaused(t *testing.T) {
+	f, e, own := storesWithCustomers(t)
+	ctx := context.Background()
+	if r := e.do(t, "POST", "/api/whop/stores/biz_other/suspension", `{"reason":"selling to cheaters"}`, own.auth()); r.status != http.StatusOK {
+		t.Fatalf("suspending Other Hosting: %d %v", r.status, r.body)
+	}
+	f.mu.Lock()
+	f.installed["biz_other"].revoked = true
+	f.mu.Unlock()
+	if err := e.srv.whopStoreLeft(ctx, "biz_other", "the Playkeeper Cloud app's grant has been missing for 7 days"); err != nil {
+		t.Fatal(err)
+	}
+	e.reconcile()
+	if info := storeAccount(t, e, "biz_other", "user_alex"); info.State != CustomerSuspended {
+		t.Fatalf("alex at Other once it left, suspended: %+v", info)
+	}
+	if r := e.do(t, "DELETE", "/api/whop/stores/biz_other/suspension", "", own.auth()); r.status != http.StatusOK {
+		t.Fatalf("lifting Other Hosting's suspension: %d %v", r.status, r.body)
+	}
+	e.reconcile()
+	for _, subject := range []string{"user_alex", "user_sam"} {
+		if info := storeAccount(t, e, "biz_other", subject); info.State != CustomerPaused {
+			t.Fatalf("%s at Other once its suspension was lifted: %+v", subject, info)
+		}
+	}
+	if info := storeAccount(t, e, testStore, "user_alex"); info.State != CustomerActive {
+		t.Fatalf("alex at Pip: %+v", info)
+	}
+}
+
 // Only an app store leaves: the dashboard's own store doesn't, and one it
 // doesn't sell for is refused.
 func TestOnlyAnAppStoreLeaves(t *testing.T) {
