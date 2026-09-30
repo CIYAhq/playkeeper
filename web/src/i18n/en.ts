@@ -221,6 +221,8 @@ export const en = {
   'home.finalBackupDownload': 'Download',
   'home.settingUpTitle': 'Your server is being set up',
   'home.settingUpBody': 'There’s no room for it on a machine yet. We’ll message you as soon as it’s ready.',
+  'home.noRoomTitle': 'No room for your servers yet',
+  'home.noRoomBody': 'There’s no room for your servers right now. We’ll message you as soon as there is.',
   'home.newServerFree': '{memory} free on {machine}',
   'home.newServerFull': 'No memory left on {machine}',
   'home.newServerPlan': '{memory} left in your plan',

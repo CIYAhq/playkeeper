@@ -118,68 +118,148 @@ func (s *Server) customerHolds(ctx context.Context) (map[int64]string, error) {
 	return out, nil
 }
 
+// diskInputs are what the limits are made from: each account's allowance
+// and hold, whose each server is, the customers' machines, the accounts
+// whose allowance is split between machines (splitDisk), and what each
+// account's servers took on each machine when last counted.
+type diskInputs struct {
+	allowances map[int64]invites.Allowance
+	holds      map[int64]string
+	owners     map[string]int64
+	homes      map[int64]homeRow
+	split      map[int64]bool
+	usedOn     map[string]map[int64]int64
+}
+
+// splitDisk reports whether account userID's allowance is split between the
+// machines its servers are on: they're on more than one while no move of
+// theirs is under way. During a move the last counts are from before its
+// servers switched machines, and the move counts them again once it ends.
+func (s *Server) splitDisk(ctx context.Context, userID int64) bool {
+	return s.serversApart(ctx, userID) && !s.moveUnderWay(ctx, userID)
+}
+
+// diskInputs reads what the limits for the machines in list are made from.
+func (s *Server) diskInputs(ctx context.Context, list []machine) (diskInputs, error) {
+	var in diskInputs
+	var err error
+	if in.allowances, err = s.diskAllowances(ctx); err != nil {
+		return in, fmt.Errorf("the disk allowances: %w", err)
+	}
+	if in.holds, err = s.customerHolds(ctx); err != nil {
+		return in, fmt.Errorf("which customers are paused: %w", err)
+	}
+	if in.owners, err = s.creatorServerOwners(ctx); err != nil {
+		return in, fmt.Errorf("the creators' servers: %w", err)
+	}
+	if in.homes, err = s.customerHomes(ctx); err != nil {
+		return in, fmt.Errorf("the customers' machines: %w", err)
+	}
+	in.split = map[int64]bool{}
+	for uid := range in.allowances {
+		in.split[uid] = s.splitDisk(ctx, uid)
+	}
+	in.usedOn = map[string]map[int64]int64{}
+	s.diskUse.Lock()
+	for _, m := range list {
+		if used, ok := s.diskUse.usedOn[m.ID]; ok {
+			in.usedOn[m.ID] = used
+		}
+	}
+	s.diskUse.Unlock()
+	return in, nil
+}
+
+// recountDisk has the limits sent now, counting what each account's
+// servers take first, as a move that ended changed which machine has them.
+// A count under way meanwhile began before that, so it doesn't stand for
+// this one.
+func (s *Server) recountDisk() {
+	s.diskUse.Lock()
+	s.diskUse.at = time.Time{}
+	s.diskUse.recounts++
+	s.diskUse.Unlock()
+	s.kickDiskLimits()
+}
+
 // syncDiskLimits sends every machine that answers the limits of the
 // accounts whose servers it has, and every diskUseEvery keeps what those
-// servers take.
+// servers take. The limits of an account split between machines come from
+// the counts before a sync, so one that counts has another sync right after
+// it make them from its counts.
 func (s *Server) syncDiskLimits(ctx context.Context) {
-	allowances, err := s.diskAllowances(ctx)
-	if err != nil {
-		s.log.Error("could not read the disk allowances", "err", err)
-		return
-	}
-	holds, err := s.customerHolds(ctx)
-	if err != nil {
-		s.log.Error("could not read which customers are paused", "err", err)
-		return
-	}
-	owners, err := s.creatorServerOwners(ctx)
-	if err != nil {
-		s.log.Error("could not read the creators' servers", "err", err)
-		return
-	}
-	homes, err := s.customerHomes(ctx)
-	if err != nil {
-		s.log.Error("could not read the customers' machines", "err", err)
-		return
-	}
 	list, err := s.machines()
 	if err != nil {
 		s.log.Error("could not list the machines for their disk limits", "err", err)
 		return
 	}
+	in, err := s.diskInputs(ctx, list)
+	if err != nil {
+		s.log.Error("could not read what the disk limits are made from", "err", err)
+		return
+	}
 	s.diskUse.Lock()
 	count := s.diskUse.used == nil || s.now().Sub(s.diskUse.at) >= diskUseEvery
+	recounts := s.diskUse.recounts
 	s.diskUse.Unlock()
 	used := map[int64]int64{}
+	on := map[string]map[int64]int64{}
 	for _, m := range list {
-		got, err := s.sendDiskLimits(ctx, m, allowances, holds, owners, homes, count)
+		s.diskSending.Lock()
+		got, err := s.sendDiskLimits(ctx, m, in, count, "")
+		s.diskSending.Unlock()
 		s.noteDiskLimitsFailure(m, err)
 		for uid, n := range got {
 			used[uid] += n
 		}
+		if prev, ok := in.usedOn[m.ID]; err != nil && ok {
+			on[m.ID] = prev
+		} else if err == nil {
+			on[m.ID] = got
+		}
 	}
 	if count {
 		s.diskUse.Lock()
-		s.diskUse.at, s.diskUse.used = s.now(), used
+		s.diskUse.used, s.diskUse.usedOn = used, on
+		if s.diskUse.recounts == recounts {
+			s.diskUse.at = s.now()
+		}
 		s.diskUse.Unlock()
+		for _, split := range in.split {
+			if split {
+				s.kickDiskLimits()
+				break
+			}
+		}
 	}
 }
 
 // sendDiskLimits sends m the limits of the accounts whose servers it has,
 // or whose home it is, and with count, returns what each one's servers take
 // there. An account's server on m counts against its limit only while m
-// still has it.
-func (s *Server) sendDiskLimits(ctx context.Context, m machine, allowances map[int64]invites.Allowance, holds map[int64]string, owners map[string]int64, homes map[int64]homeRow, count bool) (map[int64]int64, error) {
+// still has it, and a copy a move makes or leaves there only once it's the
+// server, or when it's switching, about to be. An account whose allowance
+// is split between machines gets on m what its servers on the others leave
+// of it, as last counted, so it gets its allowance once between them.
+func (s *Server) sendDiskLimits(ctx context.Context, m machine, in diskInputs, count bool, switching string) (map[int64]int64, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var servers []api.ServerStatus
 	if err := askAgent(ctx, m, http.MethodGet, "/v1/servers", nil, &servers); err != nil {
 		return nil, err
 	}
+	copies, err := hiddenCopies(ctx, s.db, m.ID)
+	if err != nil {
+		return nil, errDB
+	}
+	now := s.now()
 	byAccount := map[int64][]string{}
 	for _, sv := range servers {
-		if uid, ok := owners[sv.ID]; ok {
-			if _, ok := allowances[uid]; ok {
+		if sv.ID != switching && copyHidden(copies, sv.ID, now) {
+			continue
+		}
+		if uid, ok := in.owners[sv.ID]; ok {
+			if _, ok := in.allowances[uid]; ok {
 				byAccount[uid] = append(byAccount[uid], sv.ID)
 			}
 		}
@@ -188,15 +268,24 @@ func (s *Server) sendDiskLimits(ctx context.Context, m machine, allowances map[i
 	// one, so a world or backup uploaded for it counts from the start: a
 	// customer's home, or the dashboard's own for a creator placement never
 	// saw (homeMachine).
-	for uid := range allowances {
-		home, placed := homes[uid]
+	for uid := range in.allowances {
+		home, placed := in.homes[uid]
 		if _, ok := byAccount[uid]; !ok && (placed && home.machineID == m.ID || !placed && m.Kind == localKind) {
 			byAccount[uid] = []string{}
 		}
 	}
 	limits := make([]api.DiskLimit, 0, len(byAccount))
 	for uid, ids := range byAccount {
-		limits = append(limits, api.DiskLimit{ID: diskLimitPrefix + strconv.FormatInt(uid, 10), LimitBytes: allowances[uid].DiskBytes(), Servers: ids, CPUMilliPerGB: cpuMilliPerGB, Hold: holds[uid]})
+		limit := in.allowances[uid].DiskBytes()
+		if in.split[uid] {
+			for mid, used := range in.usedOn {
+				if mid != m.ID {
+					limit -= used[uid]
+				}
+			}
+			limit = max(limit, 1)
+		}
+		limits = append(limits, api.DiskLimit{ID: diskLimitPrefix + strconv.FormatInt(uid, 10), LimitBytes: limit, Servers: ids, CPUMilliPerGB: cpuMilliPerGB, Hold: in.holds[uid]})
 	}
 	req := api.DiskLimitsRequest{Limits: limits, Actor: placementActor}
 	if err := askAgent(ctx, m, http.MethodPut, "/v1/disk-limits", req, nil); err != nil || !count {
