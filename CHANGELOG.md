@@ -2,6 +2,11 @@
 
 Each release's section, headed `## MAJOR.MINOR.PATCH`, is shown in the dashboard as "what changed" when the update is offered, and in the release notes. The release workflow refuses to release a version without a section.
 
+## 0.4.11
+
+- **The dashboard without a port:** **Machine settings › Serve the dashboard on the standard HTTPS port (443)** opens the dashboard at your machine's name, like `https://beta.playkeeper.me`, instead of `…:8443`. New installs turn it on when nothing uses port 443; on an existing one, turn it on after allowing TCP 443 in your provider's firewall. It can't be turned on while another program, a Docker container or a web server set to start with the machine has port 443, and it says which. The address loses its port once a browser from outside the machine reaches it there, so a firewall that drops port 443 never leaves an address that doesn't open. Port 8443 keeps working and sends browsers on, so old links and bookmarks still open, and invite links, customers' messages, Whop's webhook, Discord's links and AI agents' address use the address without a port. Machine settings lists what outside Playkeeper keeps the old address, with the exact change: with Sign in with Whop, add the new redirect URL on the app's OAuth tab. Until you do, customers keep coming back through the old one, which still works. Signed in, the name opens the dashboard; anyone else sees your servers' public page with **Sign in**, or the sign-in page where customers sign in with Whop. The panel still can't open ports below 1024: the agent opens port 443 for it, as for the public page.
+- **Sign in with Whop:** **Turn on** now also checks that the Whop app lists the dashboard's redirect URL, and says which one to add.
+
 ## 0.4.10
 
 - **Customers get their "your server is ready" message on Whop:** messages now go out as the store's owner, since Whop doesn't accept them from a store key. They go out in the store's support chat, and any still waiting go out as soon as the dashboard updates. A message that can't go out shows on its customer in **Settings › Sell on Whop**, with Whop's reason, and the store shows **Needs a look**.

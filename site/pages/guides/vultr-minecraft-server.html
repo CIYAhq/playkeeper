@@ -48,7 +48,7 @@ schema: article
 
 <section aria-labelledby="ports">
   {{template "h2n" (dict "ID" "ports" "N" 3 "Text" "Open the ports")}}
-  <p>Vultr's Ubuntu image turns on ufw with only SSH allowed. The installer allows 8443, 25565 and 80 in it for you; open the rest yourself as you need them, such as <code>sudo ufw allow 24454/udp</code> for voice chat or <code>sudo ufw allow 25566/tcp</code> for a second server. A Vultr Firewall group is optional; if you add one, it needs every port you use:</p>
+  <p>Vultr's Ubuntu image turns on ufw with only SSH allowed. The installer allows 8443, 25565, 443 and 80 in it for you; open the rest yourself as you need them, such as <code>sudo ufw allow 24454/udp</code> for voice chat or <code>sudo ufw allow 25566/tcp</code> for a second server. A Vultr Firewall group is optional; if you add one, it needs every port you use:</p>
   {{template "provider-ports"}}
 </section>
 
