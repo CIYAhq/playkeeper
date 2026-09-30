@@ -122,11 +122,19 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		page(data)
 	case strings.HasPrefix(route, "GET /memberships/"):
 		json.NewEncoder(w).Encode(b.memberships[id])
+	case strings.HasPrefix(route, "PATCH /variants/") && body["renewal_price"] != nil && f.priceDown:
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":{"type":"forbidden","message":"App API key is not authorized for the plan:update scope."}}`)
 	case strings.HasPrefix(route, "PATCH /variants/"):
-		n, _ := body["stock"].(float64)
 		p := b.plan(id)
-		p["stock"], p["unlimited_stock"] = int(n), false
-		f.stockSets = append(f.stockSets, fmt.Sprintf("%s=%d", id, int(n)))
+		if n, ok := body["stock"].(float64); ok {
+			p["stock"], p["unlimited_stock"] = int(n), false
+			f.stockSets = append(f.stockSets, fmt.Sprintf("%s=%d", id, int(n)))
+		}
+		if price, ok := body["renewal_price"]; ok {
+			p["initial_price"], p["renewal_price"] = body["initial_price"], price
+			f.priceSets = append(f.priceSets, fmt.Sprintf("%s=%v", id, price))
+		}
 		json.NewEncoder(w).Encode(p)
 	case route == "POST /affiliates":
 		b.partner, _ = body["user_identifier"].(string)
