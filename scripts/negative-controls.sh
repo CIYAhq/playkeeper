@@ -9609,6 +9609,10 @@ control "moving customers: a moved server is listed as it last was until its mac
   'seen_at = excluded.seen_at, disputed_by = '"''" \
   'seen_at = excluded.seen_at, status = '"''"', disputed_by = '"''" \
   ./internal/panel '^TestTheCopiesAMoveMakesAndLeavesDontCountAsTheServer$'
+control "removing a machine: only the owner removes one customers are on" internal/panel/machines.go \
+  '} else if n > 0 && !sess.Access.owner() {' \
+  '} else if n > 0 && false {' \
+  ./internal/panel '^TestOnlyTheOwnerMovesCustomers$'
 
 if [ "$bad" != 0 ]; then
   echo

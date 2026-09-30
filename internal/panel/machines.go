@@ -249,6 +249,15 @@ func (s *Server) hMachineRemove(w http.ResponseWriter, r *http.Request, sess *se
 		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "This is the dashboard's own machine, so it can't be removed.", "")
 		return
 	}
+	// Removing a machine places its customers again, which is the owner's to
+	// do, as moving them is.
+	if n, err := s.customersOn(r.Context(), m.ID); err != nil {
+		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Database error.", "")
+		return
+	} else if n > 0 && !sess.Access.owner() {
+		writeErr(w, http.StatusForbidden, api.CodeForbidden, "Only the owner removes a machine customers are on.", "")
+		return
+	}
 	if err := s.hub.Remove(r.Context(), m.ID, sess.User.Username); err != nil {
 		writeErr(w, http.StatusInternalServerError, api.CodeInternal, "Could not remove the machine.", "")
 		return

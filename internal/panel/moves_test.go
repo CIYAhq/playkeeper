@@ -493,10 +493,11 @@ func TestAFailedMoveLeavesTheServerWhereItWas(t *testing.T) {
 
 // Only the owner moves customers and sees whose servers go on a machine:
 // the move's what customers can never see, and it's the owner's machines'
-// room it uses.
+// room it uses. So only the owner removes a machine customers are on, which
+// places them again.
 func TestOnlyTheOwnerMovesCustomers(t *testing.T) {
 	f := newMoveFleet(t)
-	admin := addMember(t, f.e, "sam", "admin", "*")
+	admin := addAdmin(t, f.e, "sam", "*")
 	for _, who := range []member{admin, f.alex} {
 		if r := f.e.do(t, "POST", "/api/customers/"+strconv.FormatInt(f.alex.id, 10)+"/move", `{}`, who.auth()); r.status != http.StatusForbidden {
 			t.Errorf("account %d moves alex: %d %v", who.id, r.status, r.body)
@@ -504,6 +505,9 @@ func TestOnlyTheOwnerMovesCustomers(t *testing.T) {
 		if r, body := f.e.raw(t, "GET", "/api/machines/"+f.rid+"/customers", "", who.auth()); r.StatusCode != http.StatusForbidden {
 			t.Errorf("account %d lists home-server's customers: %d %s", who.id, r.StatusCode, body)
 		}
+	}
+	if r := f.e.do(t, "DELETE", "/api/machines/"+f.rid, "", admin.auth()); r.status != http.StatusForbidden || !strings.Contains(fmt.Sprint(r.body), "Only the owner removes") {
+		t.Errorf("an admin of every server removes home-server, which alex is on: %d %v", r.status, r.body)
 	}
 	if f.e.srv.moves.running(f.alex.id) || f.rows(t, `SELECT COUNT(*) FROM customer_moves`) != 0 {
 		t.Error("a refused move started")
