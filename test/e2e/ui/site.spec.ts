@@ -371,7 +371,7 @@ test('/start: the start channel’s command, Send to my computer on phones, Whop
   await gpc.close()
 })
 
-test('/templates/ai-build-battle, where /ai sends people from the videos: its clip plays muted while it shows and not with reduced motion, Send to my computer shares the address with the link’s tags, and our events', async ({ browser, baseURL }) => {
+test('/templates/ai-build-battle, where /ai sends people from the videos: its clip plays muted while it shows and not with reduced motion, Send to my computer shares the address with the link’s tags, Open in my dashboard asks where the dashboard is, and our events', async ({ browser, baseURL }) => {
   const phone = { baseURL, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, permissions: ['clipboard-read', 'clipboard-write'] }
   const ctx = await browser.newContext(phone)
   const { events, release } = await recordEvents(ctx)
@@ -416,6 +416,13 @@ test('/templates/ai-build-battle, where /ai sends people from the videos: its cl
   await page.locator('#install .install-copy').click()
   await sent(['install_copied', { spot: 'box', where }])
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('curl -fsSL https://playkeeper.io/install | sudo sh')
+  // Open in my dashboard, in the second step, counts as the template's page, and the first time asks where the dashboard is.
+  await page.locator('.aibb-steps').getByRole('link', { name: 'Open in my dashboard the AI Build Battle template' }).click()
+  await sent(['template_opened', { template: 'ai-build-battle', spot: 'page', where }], ['flush'])
+  const ask = page.getByRole('dialog')
+  await expect(ask).toContainText('Where’s your dashboard?')
+  await ask.getByRole('button', { name: 'Cancel' }).click()
+  await expect(ask).toBeHidden()
   await page.locator('[data-closing]').getByRole('link', { name: 'Try the live demo' }).click()
   await page.waitForURL(/\/demo\/$/)
   await sent(['demo_opened', { spot: 'closing', where }], ['flush'])

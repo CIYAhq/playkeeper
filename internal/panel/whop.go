@@ -161,7 +161,7 @@ func (s *Server) whopView(ctx context.Context) (whopView, error) {
 	}
 	acc := a.Account
 	v.Connected, v.Account, v.KeyEnding, v.ConnectedBy, v.Problem = true, &acc, whop.Ending(a.Key), a.ConnectedBy, a.Problem
-	v.Webhook = a.WebhookID != "" && v.Dashboard != "" && a.WebhookURL == v.Dashboard+whopWebhookPath
+	v.Webhook = whopHooked(a, v.Dashboard)
 	signIn, err := s.readWhopSignIn(ctx, v.Dashboard)
 	if err != nil {
 		return v, err
