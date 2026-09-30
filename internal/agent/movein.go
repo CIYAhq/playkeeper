@@ -110,6 +110,11 @@ func (a *Agent) hRestoreMoveIn(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	st.stopped = !in.start
+	if err := a.stageStopped(rid, st.stopped); err != nil {
+		done(false)
+		writeError(w, err)
+		return
+	}
 	op, err := a.newFromStage(st, in.spec, in.mem, &in.prev, func(s *server) func(ctx context.Context, h *opHandle) error {
 		if st.limit != "" {
 			if err := a.joinDiskLimit(st.limit, s.id); err != nil {

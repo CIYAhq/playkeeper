@@ -1342,6 +1342,28 @@ type stageFile struct {
 	// DiskLimit is the disk limit an upload for a new server counts
 	// against, and the server it makes (see tagStage).
 	DiskLimit string `json:"diskLimit,omitempty"`
+	// Stopped keeps the server a move-in makes from it stopped, from before
+	// its restore writes its journal (see movein.go).
+	Stopped bool `json:"stopped,omitempty"`
+}
+
+// stageStopped records whether the server a move-in makes from the staged
+// upload id stays stopped, so an agent that stops before the restore's
+// journal is written still knows it (see adoptRestore).
+func (a *Agent) stageStopped(id string, stopped bool) error {
+	a.stages.mu.Lock()
+	defer a.stages.mu.Unlock()
+	dir := a.stageDir(id)
+	f, err := readStageFile(dir)
+	if err != nil {
+		return err
+	}
+	f.Stopped = stopped
+	raw, err := json.Marshal(f)
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(filepath.Join(dir, "stage.json"), raw, 0o600)
 }
 
 // tagStage records that the staged upload id, for a new server, counts
@@ -1759,6 +1781,7 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	}
 	_, err = os.Stat(live)
 	j.HadLive = err == nil
+	restoreStep(ctx, "journal")
 	if err := writeSwapJournal(st.dir, j); err != nil {
 		s.startPrevious(ctx, h, prev, wasRunning)
 		return fmt.Errorf("could not save the restore's progress file, so nothing was replaced: %w", err)

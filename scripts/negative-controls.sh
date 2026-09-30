@@ -9115,6 +9115,14 @@ control "moving in: it stays stopped after the agent restarts" internal/agent/ba
   'Stopped bool `json:"stopped,omitempty"`' \
   'Stopped bool `json:"-"`' \
   ./internal/agent '^TestAMoveInFinishedAfterARestartStaysStopped$'
+control "moving in: its stage says it stays stopped before its journal does" internal/agent/movein.go \
+  'if err := a.stageStopped(rid, st.stopped); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAMoveInFinishedAfterARestartStaysStopped$'
+control "moving in: an agent that dies before its journal keeps it stopped" internal/agent/recovery.go \
+  'Stopped: f.Stopped,' \
+  '' \
+  ./internal/agent '^TestAMoveInFinishedAfterARestartStaysStopped$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"
