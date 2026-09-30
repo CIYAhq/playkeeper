@@ -947,7 +947,8 @@ func TestALapsedCustomersServersLeftOnARemovedMachineArentTakenForDeleted(t *tes
 // A paused customer's servers stay stopped wherever they go: one that ran
 // is made stopped on the machine it moves to, and one whose customer is
 // paused while it moves stops there once its requests go there, as does
-// one whose copy started before a restart of the dashboard.
+// one whose copy started before a restart of the dashboard. One whose move
+// fails isn't started again where it was.
 func TestAPausedCustomersServerMovesStopped(t *testing.T) {
 	f := newMoveFleet(t)
 	f.pause(t, f.e.clock.now().Add(time.Hour))
@@ -1001,6 +1002,19 @@ func TestAPausedCustomersServerMovesStopped(t *testing.T) {
 	}
 	if !f.e.sawLocally("POST /v1/servers/" + movedServer + "/stop") {
 		t.Error("a copy that started before a restart kept running once its customer was paused")
+	}
+
+	f = newMoveFleet(t)
+	f.e.reply("GET", "/v1/operations/op-movein", `{"id":"op-movein","status":"failed","error":"The restored world did not start."}`)
+	f.pause(t, f.e.clock.now().Add(time.Hour))
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex while they're paused: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why == "" {
+		t.Fatal("the move whose move-in fails finished")
+	}
+	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/start"); ok {
+		t.Error("a paused customer's server whose move failed started again where it was")
 	}
 }
 

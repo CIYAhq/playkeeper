@@ -707,12 +707,15 @@ func leftCopy(ctx context.Context, q querier, id, machineID string, userID int64
 
 // abandonMove ends mv, a move that failed before its server's requests
 // went to the machine it was going to: they go where it is again, it
-// starts there again if it ran, and that machine deletes the copy it made.
+// starts there again if it ran and its customer isn't paused or suspended,
+// and that machine deletes the copy it made. A customer paused while it
+// moved had it stopped already, and the hold on its machine may not be
+// there yet to refuse the start.
 func (s *Server) abandonMove(ctx context.Context, mv serverMove, from machine) {
 	if !s.endMove(ctx, mv) {
 		return
 	}
-	if mv.ran {
+	if mv.ran && !s.customerHeld(ctx, mv.userID) {
 		var op api.Operation
 		if _, err := from.agent.Do(asActor(ctx, placementActor), http.MethodPost, "/v1/servers/"+mv.serverID+"/start", nil, api.ActionRequest{Actor: placementActor}, &op); err != nil {
 			s.log.Warn("a server whose move failed didn't start again where it is", "server", mv.serverID, "err", err)

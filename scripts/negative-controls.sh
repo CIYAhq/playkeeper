@@ -9411,9 +9411,13 @@ control "moving customers: nothing deletes the server as a copy left" internal/p
   'if errors.Is(err, errNotFound) {' \
   ./internal/panel '^TestALeftCopyThatIsTheServerIsNeverDeleted$'
 control "moving customers: a server whose move failed starts again where it was" internal/panel/moves.go \
-  'if mv.ran {' \
+  'if mv.ran && !s.customerHeld(ctx, mv.userID) {' \
   'if false {' \
   ./internal/panel '^TestAFailedMoveLeavesTheServerWhereItWas$'
+control "moving customers: a paused customer's server whose move failed isn't started again" internal/panel/moves.go \
+  'if mv.ran && !s.customerHeld(ctx, mv.userID) {' \
+  'if mv.ran {' \
+  ./internal/panel '^TestAPausedCustomersServerMovesStopped$'
 control "moving customers: the machine a failed move was going to deletes its copy" internal/panel/moves.go \
   'if err := leftCopy(ctx, c, mv.serverID, mv.to, mv.userID, 0); err != nil {' \
   'if err := error(nil); err != nil {' \
