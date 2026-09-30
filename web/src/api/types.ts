@@ -2241,6 +2241,14 @@ export interface TeamMember {
 /** Where a customer's account stands: active, paused because its plan ended, or suspended by the owner. */
 export type CustomerState = 'active' | 'paused' | 'suspended'
 
+/** The owner's setting: how many days after a customer's servers were deleted the customer is deleted too, with its default, the fewest and the most. */
+export interface CustomerRetentionView {
+  days: number
+  default: number
+  min: number
+  max: number
+}
+
 /** A customer's account once the owner suspended it or lifted that. */
 export interface CustomerSuspension {
   state: CustomerState

@@ -2052,6 +2052,21 @@ describe('Sell on Whop', () => {
     await act(async () => [...document.querySelectorAll('[role="dialog"] form')].at(-1)?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
     expect(client.del).toHaveBeenCalledWith('/api/whop/stores/biz_gone/suspension')
   })
+
+  it('lets the owner choose how long after their servers a customer is deleted, from the days their final backups are kept', async () => {
+    answer({ '/api/customers/retention': { days: 45, default: 30, min: 30, max: 3650 }, '/api/whop': open })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('Deleting customers')
+    expect(text).toContain('Their payments stay for the store’s accounts, without who paid.')
+    expect(text).toContain('At least 30 days, while their final backups can still be downloaded. A shorter time deletes anyone already past it at once.')
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Delete their account"]')?.click())
+    const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+    expect(options.map((o) => o.textContent)).toEqual(['30 days after their servers', '45 days after their servers', '60 days after their servers', '90 days after their servers', '180 days after their servers', '365 days after their servers', '730 days after their servers'])
+    await act(async () => options.find((o) => o.textContent === '90 days after their servers')?.click())
+    // internal/panel's TestACustomerIsDeletedSomeDaysAfterTheirServers puts this body.
+    expect(client.put).toHaveBeenCalledWith('/api/customers/retention', { days: 90 })
+  })
+
   it('saves the app’s key and webhook secret, so businesses that install the app sell here', async () => {
     const redirect = 'https://my-vps.playkeeper.me:8443/api/public/whop/signin/callback'
     const webhookUrl = 'https://my-vps.playkeeper.me:8443/api/public/whop/app-webhook'

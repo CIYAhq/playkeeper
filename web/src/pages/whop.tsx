@@ -15,6 +15,7 @@ import { t } from '@/i18n'
 import { allowanceText } from '@/lib/access'
 import { formatMB, relativeTime } from '@/lib/format'
 import { linkProps } from '@/lib/router'
+import { CustomerRetention } from './whop-retention'
 import { StoreSuspensions } from './whop-stores'
 
 const whopDeveloper = 'https://whop.com/dashboard/developer'
@@ -322,6 +323,7 @@ function Connected({ store, onChange }: { store: WhopStore; onChange: (s: WhopSt
         </ul>
       )}
       <StoreSuspensions />
+      <CustomerRetention />
       <AllowanceDialog plan={editing} onClose={() => setEditing(undefined)} onSaved={onChange} />
       <DisconnectDialog open={disconnecting} account={store.account?.title ?? ''} onClose={() => setDisconnecting(false)} onDone={onChange} />
     </div>
