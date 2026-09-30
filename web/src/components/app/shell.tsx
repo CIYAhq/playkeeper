@@ -1,15 +1,15 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Component, createContext, lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeftIcon, CircleHelpIcon, EllipsisIcon, GlobeIcon, HouseIcon, LayoutGridIcon, LogOutIcon, PlugIcon, PlusIcon, SearchIcon, ServerIcon, SettingsIcon, SquareTerminalIcon, UsersIcon } from 'lucide-react'
 import type { MachineView, Me, ServerStatus } from '@/api/types'
 import { usePhoneServer, useWorkspace } from '@/api/workspace'
 import { BrandMark } from '@/components/app/art'
 import { Dot, Kbd, Spinner } from '@/components/app/bits'
 import { GetStartedCard } from '@/components/app/checklist'
-import { CommandPalette, ShortcutsDialog } from '@/components/app/command-palette'
 import { useIsPhone } from '@/components/app/controls'
 import { useJobToasts } from '@/components/app/jobs'
 import { StickyHeader } from '@/components/app/sticky-header'
 import { UpdateRow } from '@/components/app/update'
+import { toastManager } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { can, canCreate, inSettings, roleName, settingsHome } from '@/lib/access'
 import { demo } from '@/lib/demo'
@@ -18,6 +18,30 @@ import { isCreating, phaseLabel, statusLabel, statusTone } from '@/lib/phase'
 import { presenceProps, useAppearAtOnce, useListPresence } from '@/lib/presence'
 import { linkProps, navigate, type Route, type ServerTab } from '@/lib/router'
 import { cn } from '@/lib/utils'
+
+// The command palette and the shortcuts load the first time either opens,
+// keeping their search code out of the first screens, and while the
+// browser is idle after sign-in (see App.tsx).
+export const loadPalette = () => import('@/components/app/command-palette')
+const CommandPalette = lazy(() => loadPalette().then((m) => ({ default: m.CommandPalette })))
+const ShortcutsDialog = lazy(() => loadPalette().then((m) => ({ default: m.ShortcutsDialog })))
+
+/** Keeps the dashboard on screen when the palette's code doesn't load, and says so. Only a reload tries again. */
+class PaletteBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  componentDidCatch() {
+    toastManager.add({ title: t('load.searchFailed'), description: t('load.failedBody'), type: 'error', actionProps: { children: t('load.reload'), onClick: () => window.location.reload() } })
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children
+  }
+}
 
 const ShellCtx = createContext<{ openPalette: () => void }>({ openPalette: () => undefined })
 
@@ -32,6 +56,16 @@ export function AppShell({ route, children }: { route: Route; children: ReactNod
   const { servers, setLastSlug } = useWorkspace()
   const [palette, setPalette] = useState<{ open: boolean; servers?: boolean }>({ open: false })
   const [shortcuts, setShortcuts] = useState(false)
+  // Mounted from the first time either opens, so each closes with its animation.
+  const [used, setUsed] = useState(false)
+  const openPalette = (servers?: boolean) => {
+    setUsed(true)
+    setPalette({ open: true, servers })
+  }
+  const openShortcuts = () => {
+    setUsed(true)
+    setShortcuts(true)
+  }
 
   const slug = route.name === 'server' || route.name === 'player' ? route.slug : undefined
   useEffect(() => {
@@ -40,21 +74,27 @@ export function AppShell({ route, children }: { route: Route; children: ReactNod
 
   useJobToasts()
   useShortcuts({
-    palette: () => setPalette({ open: true }),
-    switchServer: () => setPalette({ open: true, servers: true }),
+    palette: () => openPalette(),
+    switchServer: () => openPalette(true),
     home: () => navigate({ name: 'home' }),
-    help: () => setShortcuts(true),
+    help: openShortcuts,
   })
 
   const overlays = (
     <>
-      <CommandPalette open={palette.open} serversOnly={palette.servers} onOpenChange={(open) => setPalette({ open })} route={route} onShortcuts={() => setShortcuts(true)} />
-      <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
+      {used && (
+        <PaletteBoundary>
+          <Suspense fallback={null}>
+            <CommandPalette open={palette.open} serversOnly={palette.servers} onOpenChange={(open) => setPalette({ open })} route={route} onShortcuts={openShortcuts} />
+            <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
+          </Suspense>
+        </PaletteBoundary>
+      )}
       {demo?.Overlay && <demo.Overlay />}
     </>
   )
 
-  const shell = { openPalette: () => setPalette({ open: true }) }
+  const shell = { openPalette: () => openPalette() }
   if (phone) {
     return (
       <ShellCtx.Provider value={shell}>

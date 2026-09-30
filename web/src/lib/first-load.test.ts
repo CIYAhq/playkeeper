@@ -35,10 +35,10 @@ describe('first loads', () => {
 
   it('fails a first screen over its budget, and any page over the most a page may load', () => {
     const over = budget.firstScreens.bytes - dashboard + 1
-    expect(overBudget(firstLoads(build({ login: over })))).toEqual([expect.stringMatching(/^pages\/login\.tsx loads [\d,.]+ kB \([\d,.]+ kB gzipped\), over the first screens' 910\.0 kB/)])
-    expect(overBudget(firstLoads(build({ home: over })))).toEqual([expect.stringMatching(/^pages\/home\.tsx loads 910\.0 kB .*, over the first screens' 910\.0 kB \(285\.0 kB\)$/)])
+    expect(overBudget(firstLoads(build({ login: over })))).toEqual([expect.stringMatching(/^pages\/login\.tsx loads [\d,.]+ kB \([\d,.]+ kB gzipped\), over the first screens' 900\.0 kB/)])
+    expect(overBudget(firstLoads(build({ home: over })))).toEqual([expect.stringMatching(/^pages\/home\.tsx loads 900\.0 kB .*, over the first screens' 900\.0 kB \(285\.0 kB\)$/)])
     const huge = firstLoads(build()).map((l) => (l.page === 'pages/server/settings.tsx' ? { ...l, bytes: budget.anyPage.bytes + 1 } : l))
-    expect(overBudget(huge)).toEqual([expect.stringMatching(/^pages\/server\/settings\.tsx loads 1,210\.0 kB/)])
+    expect(overBudget(huge)).toEqual([expect.stringMatching(/^pages\/server\/settings\.tsx loads 1,200\.0 kB/)])
     expect(overBudget([])).toEqual(['no first load for pages/login.tsx', 'no first load for pages/home.tsx'])
   })
 })
