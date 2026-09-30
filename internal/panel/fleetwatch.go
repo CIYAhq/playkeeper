@@ -41,6 +41,10 @@ const (
 	fleetSlowQuiet = 24 * time.Hour
 )
 
+// fleetAskTimeout bounds each question the watch asks a machine, so one
+// that's connected but doesn't answer holds up no other part of the look.
+var fleetAskTimeout = machineTimeout
+
 // fleetWatch is what the watch keeps between looks.
 type fleetWatch struct {
 	mu sync.Mutex
@@ -133,15 +137,20 @@ func (s *Server) watchFleet(ctx context.Context) {
 		if !online {
 			continue
 		}
+		ask := func(path string, out any) error {
+			ctx, cancel := context.WithTimeout(ctx, fleetAskTimeout)
+			defer cancel()
+			return askAgent(ctx, m, http.MethodGet, path, nil, out)
+		}
 		var live api.Machine
-		if err := askAgent(ctx, m, http.MethodGet, "/v1/machine", nil, &live); err == nil {
+		if err := ask("/v1/machine", &live); err == nil {
 			posts = append(posts, s.watchDisk(m, live)...)
 			if h, ok := s.watchCPU(m, live, now); ok {
 				ended = append(ended, h)
 			}
 		}
 		var servers []api.ServerStatus
-		if err := askAgent(ctx, m, http.MethodGet, "/v1/servers", nil, &servers); err == nil {
+		if err := ask("/v1/servers", &servers); err == nil {
 			posts = append(posts, s.watchTicks(m, servers, now)...)
 		}
 	}

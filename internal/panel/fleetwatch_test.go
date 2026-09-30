@@ -211,6 +211,39 @@ func TestAServerLaggingTenMinutesWithPlayersOnIsPosted(t *testing.T) {
 	e.posted(t, []map[string]any{{"minutes": 10}}, "slow_ticks")
 }
 
+// A joined machine that's connected but doesn't answer holds up no other
+// part of the look: each question the watch asks a machine has its time.
+func TestAMachineThatDoesntAnswerHoldsUpNoLook(t *testing.T) {
+	e := newEnvConfig(t, withDomain, nil)
+	cookie, csrf := e.setup(t)
+	e.reply("GET", "/v1/machine", fmt.Sprintf(`{"hostname":"my-vps","agentVersion":"0.4.0","diskFreeBytes":%d,"diskTotalBytes":%d}`, int64(20)<<30, int64(100)<<30))
+	e.reply("GET", "/v1/servers", `[]`)
+	ra := newRemoteAgent()
+	e.joinedAs(t, cookie, csrf, ra)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	ra.handle("GET /v1/machine", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	})
+	was := fleetAskTimeout
+	fleetAskTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { fleetAskTimeout = was })
+	done := make(chan struct{})
+	go func() {
+		e.srv.watchFleet(context.Background())
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("a joined machine that doesn't answer held up the look")
+	}
+	e.posted(t, []map[string]any{{"kind": "disk_filling", "machine": "the dashboard's machine", "percent": 80}}, "disk_filling")
+}
+
 // A look that can't read the plans on sale is skipped, not taken for a
 // dashboard without a fleet, so what the watch keeps stays: nothing is
 // posted again once the plans read.

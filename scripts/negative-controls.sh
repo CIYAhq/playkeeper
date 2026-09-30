@@ -10501,6 +10501,10 @@ control "fleet watch: a look that can't read the plans keeps what the watch kept
 		return' \
   '		s.log.Warn("could not read the plans on sale to watch the fleet", "err", err)' \
   ./internal/panel '^TestALookThatCantReadThePlansKeepsWhatTheWatchKept$'
+control "fleet watch: a machine that doesn't answer holds up no look" internal/panel/fleetwatch.go \
+  'ctx, cancel := context.WithTimeout(ctx, fleetAskTimeout)' \
+  'ctx, cancel := context.WithCancel(ctx)' \
+  ./internal/panel '^TestAMachineThatDoesntAnswerHoldsUpNoLook$'
 control "fleet watch: a machine is posted off only after 5 minutes" internal/panel/fleetwatch.go \
   'case !online && !f.offPosted[m.ID] && now.Sub(since) >= fleetOffAfter:' \
   'case !online && !f.offPosted[m.ID] && now.Sub(since) >= 0:' \
