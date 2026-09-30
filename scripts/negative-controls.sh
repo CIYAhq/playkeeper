@@ -9493,6 +9493,10 @@ control "moving in: an own address that doesn't fit the machine is left out" int
   'if fit, err := s.validOwnAddress(name); err != nil || fit != name {' \
   'if false {' \
   ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
+control "moving in: a server's sleep runs by the setting it had, not one read before it arrived" internal/agent/movestate.go \
+  '	s.reloadSleep()' \
+  '	// s.reloadSleep()' \
+  ./internal/agent '^TestAServerMovedInKeepsItsSettings$'
 control "moving in: a server keeps Playkeeper's record of the add-ons it installed" internal/agent/movestate.go \
   '	{"addons", []string{' \
   '	// {"addons", []string{' \

@@ -44,9 +44,15 @@ func TestAServerMovedInKeepsItsSettings(t *testing.T) {
 
 	to := newAgentEnv(t)
 	to.addIdleServer()
+	if code, out := to.call("GET", to.sp(""), nil); code != http.StatusOK {
+		t.Fatalf("the server moved in, before what it had arrives: %d %v", code, out)
+	}
 	code, out := to.call("PUT", to.sp("/move-state"), map[string]any{"state": state, "actor": "playkeeper"})
 	if code != http.StatusOK || fmt.Sprint(out["left"]) != "[ownAddress]" {
 		t.Fatalf("giving the server moved in what it had: %d %v", code, out)
+	}
+	if code, out := to.call("GET", to.sp(""), nil); code != http.StatusOK || fmt.Sprint(out["sleep"]) != "map[enabled:true idleMinutes:15 listening:false]" {
+		t.Errorf("the server moved in doesn't sleep as it did: %d %v", code, out["sleep"])
 	}
 	var sleep, about, own, packs, share, secret, keys string
 	var page, public int
