@@ -8142,8 +8142,8 @@ control "suspending: a store's customers are suspended with it" internal/panel/s
   'did, err := id < 0, error(nil)' \
   ./internal/panel '^TestSuspendingAStoreSuspendsItsOwnCustomersAlone$'
 control "suspending: lifting a store lifts its customers" internal/panel/whop_customers.go \
-  's.liftWithStore(ctx, st)' \
-  '_ = st' \
+  'if read == nil {' \
+  'if false {' \
   ./internal/panel '^TestSuspendingAStoreSuspendsItsOwnCustomersAlone$'
 control "suspending: a lifted store's customers wait for its memberships to be read" internal/panel/whop_customers.go \
   'if read == nil {' \
@@ -8248,8 +8248,8 @@ control "leaving: a store that left tells its customers while it can" internal/p
   '_ = c' \
   ./internal/panel '^TestAStoreThatLeftSellsNothingAndTellsItsCustomers$'
 control "leaving: the owner's list says a store left" internal/panel/suspension.go \
-  'if !st.LeftAt.IsZero() {' \
-  'if false {' \
+  'v.LeftAt = &st.LeftAt' \
+  '_ = st.LeftAt' \
   ./internal/panel '^TestAStoreThatLeftSellsNothingAndTellsItsCustomers$'
 control "leaving: a store that left is back when added again" internal/panel/whop_stores.go \
   'return s.bringBackWhopStore(ctx, a)' \
