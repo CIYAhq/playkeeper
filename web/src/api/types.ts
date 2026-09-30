@@ -1989,6 +1989,8 @@ export interface WhopApp {
   stores: number
   webhook: boolean
   webhookUrl?: string
+  /** The username of the Whop account Playkeeper's share of their sales goes to, once the owner names one. */
+  shareUser?: string
 }
 
 /** A customer of the store: starting (their plan asks for hosting this machine hasn't given yet), active, paused (their plans ended) or ended (no plan grants access, and they never started). */

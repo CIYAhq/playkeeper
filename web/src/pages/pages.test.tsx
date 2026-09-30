@@ -2005,7 +2005,7 @@ describe('Sell on Whop', () => {
     const text = await render(<SellOnWhopSection />, owner)
     expect(text).toContain('Other businesses on Whop can sell servers from this dashboard by installing app_pipcloud, the app customers sign in through.')
     expect(text).toContain('The app’s API key isn’t set, so businesses that install it wait.No business that installed it sells here yet.Without the app’s webhook, their purchases are read every minute.')
-    expect(text).toContain(`membership.cancel_at_period_end_changed, then paste its secret here. Its URL: ${webhookUrl}`)
+    expect(text).toContain(`membership.cancel_at_period_end_changed, payment.succeeded, refund.created and refund.updated, then paste its secret here. Its URL: ${webhookUrl}`)
     for (const label of ['App’s API key', 'App webhook’s secret']) expect(document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)?.type).toBe('password')
     expect(button('Save').disabled).toBe(true)
     await typeInto('input[aria-label="App’s API key"]', ' apik_cloud_0123456789abcdef ')
@@ -2019,6 +2019,19 @@ describe('Sell on Whop', () => {
     vi.mocked(client.put).mockResolvedValueOnce({ ...open, signIn, app: { stores: 2, webhook: false, webhookUrl } })
     await click('Remove the key and webhook secret')
     expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/whop/app', { key: '', webhookSecret: '' })
+  })
+
+  it('names the Whop account that receives Playkeeper’s share of their sales', async () => {
+    const signIn = { clientId: 'app_pipcloud', secretEnding: 'wxyz', redirectUri: 'https://my-vps.playkeeper.me:8443/api/public/whop/signin/callback' }
+    answer({ '/api/whop': { ...open, signIn, app: { keyEnding: 'cdef', stores: 0, webhook: true } } })
+    const text = await render(<SellOnWhopSection />, owner)
+    expect(text).toContain('Nobody receives Playkeeper’s share of their sales yet, so they can’t open their stores.')
+    expect(button('Set').disabled).toBe(true)
+    await typeInto('input[aria-label="Whop username that receives Playkeeper’s share"]', ' @siyabuilt ')
+    vi.mocked(client.put).mockResolvedValueOnce({ ...open, signIn, app: { keyEnding: 'cdef', stores: 0, webhook: true, shareUser: 'siyabuilt' } })
+    await act(async () => button('Set').closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    expect(vi.mocked(client.put)).toHaveBeenLastCalledWith('/api/whop/app', { shareUser: '@siyabuilt' })
+    expect(document.body.textContent).toContain('Playkeeper’s share of their sales goes to @siyabuilt.')
   })
 
   it('shows the businesses that install the app only once Sign in with Whop is on', async () => {
