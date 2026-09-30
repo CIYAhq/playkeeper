@@ -6581,6 +6581,164 @@ control "a port the keeper didn't ask for keeps its holder and its wait" interna
   'if p.held[i] != nil || !asked[i] {' \
   'if p.held[i] != nil || false && !asked[i] {' \
   ./internal/panel '^TestAPortNotAskedForKeepsItsHolderAndItsWait$'
+# 0.4.11: the dashboard on the standard HTTPS port, which the agent opens
+# for the panel through the page's hand-over.
+control "turning the dashboard's port on refuses a port a container or a web server claims" internal/agent/dashboardport.go \
+  'if holder, ok := a.portClaims(ctx, port)[port]; ok {' \
+  'if holder, ok := a.portClaims(ctx, port)[port]; false && ok {' \
+  ./internal/agent '^TestTheDashboardNeverTakesPort443FromAnotherProgram$'
+control "turning the dashboard's port on refuses a port another program listens on" internal/agent/dashboardport.go \
+  'if p, ok := a.check443(r.Context(), req.Held); !ok {' \
+  'if p, ok := a.check443(r.Context(), req.Held); false && !ok {' \
+  ./internal/agent '^TestTheDashboardNeverTakesPort443FromAnotherProgram$'
+control "port 443 the panel holds for the page isn't tried again" internal/agent/dashboardport.go \
+  'if held {' \
+  'if false && held {' \
+  ./internal/agent '^TestTheDashboardNeverTakesPort443FromAnotherProgram$'
+control "the dashboard's address keeps its port until a browser from outside reaches it" internal/agent/dashboardport.go \
+  'if v.Reached && !blocked {' \
+  'if !blocked {' \
+  ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
+control "another program on port 443 gives the dashboard's address its port back" internal/agent/dashboardport.go \
+  'if v.Reached && !blocked {' \
+  'if v.Reached {' \
+  ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
+control "a visit from the machine itself doesn't count as one from outside" internal/agent/dashboardport.go \
+  '!ok || ip == a.machineIP(a.address())' \
+  '!ok' \
+  ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
+control "only the machine's working name counts as reached" internal/agent/dashboardport.go \
+  'if named == "" || host != named {' \
+  'if named == "" {' \
+  ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
+control "turning the dashboard's port off forgets the visit" internal/agent/dashboardport.go \
+  '		a.dash.reached = ""' \
+  '		_ = ""' \
+  ./internal/agent '^TestTheDashboardsAddressLosesItsPortOnceABrowserReachesIt$'
+control "the hand-over opens port 443 for the dashboard with the page off" internal/agent/pageports.go \
+  'if st := a.publicPageState(); !st.On && !st.Dashboard || !want.HTTPS && !want.HTTP {' \
+  'if st := a.publicPageState(); !st.On || !want.HTTPS && !want.HTTP {' \
+  ./internal/agent '^TestTheDashboardHasPort443WithThePageOff$'
+control "the dashboard wants port 443 only once the machine's name works" internal/agent/dashboardport.go \
+  '	return a.namedHost()' \
+  '	return a.pageHost()' \
+  ./internal/agent '^TestTheDashboardHasPort443WithThePageOff$'
+control "machine links don't carry the dashboard's port switch" internal/agent/link.go \
+  '"PUT " + dashboard443Path:         true,' \
+  '"PUT " + dashboard443Path:         false,' \
+  ./internal/agent '^TestAJoinedMachineHasNoDashboardPort$'
+control "a joined machine never turns the dashboard's port on" internal/agent/dashboardport.go \
+  'd.on = !a.cfg.NoPanel && (v == "on" || !chosen && a.cfg.Dashboard443 == "on")' \
+  'd.on = v == "on" || !chosen && a.cfg.Dashboard443 == "on"' \
+  ./internal/agent '^TestAJoinedMachineHasNoDashboardPort$'
+control "port 443 answers only the machine's name with the dashboard" internal/panel/dashboard443.go \
+  'return p.dashboard && pageHost(host, p.host)' \
+  'return p.dashboard' \
+  ./internal/panel '^TestPort443AnswersTheMachinesNameWithTheDashboard$'
+control "the dashboard's root shows the page only to someone signed out" internal/panel/dashboard443.go \
+  'if _, err := s.sessionFrom(r); err == nil {' \
+  'if _, err := s.sessionFrom(r); false && err == nil {' \
+  ./internal/panel '^TestPort443AnswersTheMachinesNameWithTheDashboard$'
+control "where customers sign in with Whop the root is the sign-in page" internal/panel/dashboard443.go \
+  'if s.whopSignInOn() {' \
+  'if false && s.whopSignInOn() {' \
+  ./internal/panel '^TestPort443AnswersTheMachinesNameWithTheDashboard$'
+control "no cache answers the dashboard's root for another session" internal/panel/dashboard443.go \
+  '			w.Header().Add("Vary", "Cookie")' \
+  '			_ = "Vary"' \
+  ./internal/panel '^TestPort443AnswersTheMachinesNameWithTheDashboard$'
+control "port 80 held for the dashboard alone only redirects" internal/panel/serverpage.go \
+  'if s.page.dashboardOnly() {' \
+  'if false && s.page.dashboardOnly() {' \
+  ./internal/panel '^TestPort80HeldForTheDashboardAloneOnlyRedirects$'
+control "8443 sends pages to 443 only once a browser from outside reached it" internal/panel/dashboard443.go \
+  'live := p.dashboard && p.reached && held != nil' \
+  'live := p.dashboard && held != nil' \
+  ./internal/panel '^TestThePanelsPortSendsPagesTo443OnlyWhileTheDashboardAnswersThere$'
+control "8443 sends pages to 443 only while the panel holds it" internal/panel/dashboard443.go \
+  'live := p.dashboard && p.reached && held != nil' \
+  'live := p.dashboard && p.reached' \
+  ./internal/panel '^TestThePanelsPortSendsPagesTo443OnlyWhileTheDashboardAnswersThere$'
+control "8443 never sends its API, webhooks or /mcp away" internal/panel/dashboard443.go \
+  'case strings.HasPrefix(p, "/api/"), p == "/api", p == "/mcp", strings.HasPrefix(p, "/mcp/"), p == "/healthz",' \
+  'case p == "/healthz",' \
+  ./internal/panel '^TestThePanelsPortSendsPagesTo443OnlyWhileTheDashboardAnswersThere$'
+control "8443 sends only GET and HEAD away" internal/panel/dashboard443.go \
+  'if r.Method != http.MethodGet && r.Method != http.MethodHead || !dashboardPage(r.URL.Path) {' \
+  'if !dashboardPage(r.URL.Path) {' \
+  ./internal/panel '^TestThePanelsPortSendsPagesTo443OnlyWhileTheDashboardAnswersThere$'
+control "8443's redirect to 443 is never permanent" internal/panel/dashboard443.go \
+  'http.RedirectHandler(to, http.StatusTemporaryRedirect)' \
+  'http.RedirectHandler(to, http.StatusPermanentRedirect)' \
+  ./internal/panel '^TestThePanelsPortSendsPagesTo443OnlyWhileTheDashboardAnswersThere$'
+control "only a public address counts as a visit from outside" internal/panel/dashboard443.go \
+  'return ip, ip.IsGlobalUnicast() && !ip.IsPrivate() && !sharedSpace.Contains(ip)' \
+  'return ip, ip.IsGlobalUnicast()' \
+  ./internal/panel '^TestPort443TellsTheAgentABrowserFromOutsideReachedIt$'
+control "the agent hears of a visit from outside once" internal/panel/dashboard443.go \
+  'due := p.dashboard && !p.reached && !p.reporting && host != "" && now.Sub(p.reportedAt) >= reportAgainAfter' \
+  'due := p.dashboard && host != ""' \
+  ./internal/panel '^TestPort443TellsTheAgentABrowserFromOutsideReachedIt$'
+control "the dashboard's pages may connect only to a DNS name on port 443" internal/panel/dashboard443.go \
+  'if !reDomainName.MatchString(host) {' \
+  'if host == "" {' \
+  ./internal/panel '^TestTheDashboardsPagesMayCheckPort443$'
+control "only the owner sees what Whop keeps of the old address" internal/panel/dashboard443.go \
+  'if permit(sess.Access, actSellOnWhop, "") == nil {' \
+  'if true {' \
+  ./internal/panel '^TestTheSwitchSaysWhatOutsidePlaykeeperKeepsTheOldAddress$'
+control "the dashboard's address has no port only while the agent says so" internal/panel/whop.go \
+  '		port = addr.Dashboard.Port' \
+  '		port = 443' \
+  ./internal/panel '^TestTheDashboardsAddressFollowsItsPort$'
+control "Sign in with Whop keeps the old redirect URL while Whop refuses the new one" internal/panel/whop_signin.go \
+  'if accepted, known := s.whopAccepts(ctx, o, fresh); accepted || !known {' \
+  'if accepted, known := s.whopAccepts(ctx, o, fresh); true || accepted || !known {' \
+  ./internal/panel '^TestSignInWithWhopKeepsARedirectURLTheAppLists$'
+control "a sign-in with Whop trades its code with the redirect URL it left with" internal/panel/whop_signin.go \
+  'if redirect != "" {' \
+  'if false && redirect != "" {' \
+  ./internal/panel '^TestSignInWithWhopKeepsARedirectURLTheAppLists$'
+control "Turn on refuses a Whop app that lists neither redirect URL" internal/panel/whop_signin.go \
+  'if accepted, known := s.whopAccepts(ctx, o, false); known && !accepted {' \
+  'if accepted, known := s.whopAccepts(ctx, o, false); false && known && !accepted {' \
+  ./internal/panel '^TestSignInWithWhopKeepsARedirectURLTheAppLists$'
+control "a new install leaves the dashboard on 8443 while something has port 443" internal/install/install.go \
+  'return o.Join == "" && f.Port443 == "" && !f.ReuseData' \
+  'return o.Join == "" && !f.ReuseData' \
+  ./internal/install '^TestANewInstallServesTheDashboardOnPort443OnlyWhenItsFree$'
+control "an install that reuses earlier data keeps the dashboard's port" internal/install/install.go \
+  'return o.Join == "" && f.Port443 == "" && !f.ReuseData' \
+  'return o.Join == "" && f.Port443 == ""' \
+  ./internal/install '^TestANewInstallServesTheDashboardOnPort443OnlyWhenItsFree$'
+control "a web server set to start with the machine keeps port 443 from a new install" internal/install/install.go \
+  'if unit := webservers.FirstEnabled(sys.P(UnitDir)); unit != "" {' \
+  'if unit := webservers.FirstEnabled(sys.P(UnitDir)); false && unit != "" {' \
+  ./internal/install '^TestANewInstallServesTheDashboardOnPort443OnlyWhenItsFree$'
+control "the installer allows port 443 in ufw" internal/install/install.go \
+  '		add(httpsRule)' \
+  '		_ = httpsRule' \
+  ./internal/install '^TestActiveUFWAllowsPort80AndUninstallLeavesTheAdminsRules$'
+webcontrol "the browser's check of port 443 sends no cookies" web/src/pages/machine-settings/dashboard-port.tsx \
+  "credentials: 'omit'" \
+  "credentials: 'include'" \
+  src/pages/machine-settings/dashboard-port.test.tsx 'checks from this browser that port 443 answers'
+webcontrol "turning the dashboard's port off asks first once links without a port went out" web/src/pages/machine-settings/dashboard-port.tsx \
+  'if (!next && v?.reached) setConfirmOff(true)' \
+  'if (false) setConfirmOff(true)' \
+  src/pages/machine-settings/dashboard-port.test.tsx 'asks before links without a port stop working'
+webcontrol "the public page offers Sign in only at the dashboard's own address" web/src/pages/server-page.tsx \
+  '{signIn && (' \
+  '{true && (' \
+  src/pages/server/crossplay.test.tsx 'offers the dashboard'
+webcontrol "the address shown follows the dashboard's port" web/src/lib/address.ts \
+  'return a.dashboard?.port || a.panelPort' \
+  'return a.panelPort' \
+  src/lib/lib.test.ts 'drops the port once the dashboard answers on port 443'
+webcontrol "Sell on Whop names the old redirect URL only while Whop lists it alone" web/src/pages/whop.tsx \
+  '{signIn.using && signIn.redirectUri && (' \
+  '{signIn.redirectUri && (' \
+  src/pages/pages.test.tsx 'says when customers still come back through the dashboard'
 # What the owner adds to the page: About, a stream and a status board.
 control "a page's stream is only a Twitch or YouTube channel" internal/agent/publicblocks.go \
   'case host == "twitch.tv" && len(parts) == 1 && reTwitchLogin.MatchString(parts[0]):' \

@@ -218,8 +218,10 @@ func TestThePanelsPortSendsPagesTo443OnlyWhileTheDashboardAnswersThere(t *testin
 		}
 	}
 	for _, m := range []string{"POST", "PUT", "DELETE"} {
-		if resp := get(m, withPort, "/api/public/whop/webhook", nil); resp.StatusCode == http.StatusTemporaryRedirect {
-			t.Errorf("%s of Whop's webhook was sent away", m)
+		for _, p := range []string{"/api/public/whop/webhook", "/login", "/"} {
+			if resp := get(m, withPort, p, nil); resp.StatusCode == http.StatusTemporaryRedirect {
+				t.Errorf("%s %s was sent away", m, p)
+			}
 		}
 	}
 	if resp := get("GET", withPort, "/", map[string]string{"Sec-Fetch-Dest": "empty"}); resp.StatusCode == http.StatusTemporaryRedirect {
