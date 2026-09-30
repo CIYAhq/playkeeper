@@ -1789,8 +1789,8 @@ control "an add-on file larger than 512 MiB is refused" internal/addons/addons.g
   'DefaultMaxFileSize = 1 << 62' \
   ./internal/addons '^TestPlanInstallTakesFilesUpTo512MiB$'
 control "an add-on's download must match the hash its library publishes" internal/addons/fetch/download.go \
-  'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
-  'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(v.hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(v.hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
   ./internal/addons '^TestInstallRefusesBadDownloads$'
 control "pre-generation: a named pipe for the plugins folder is refused before it is opened" internal/gamefiles/gamefiles.go \
   'err = folderError(p, fi)' \
@@ -2178,8 +2178,8 @@ control "the settings check looks again while the pack's mod hasn't used its fil
 	}' \
   ./internal/agent '^TestAnUpdateDuringAFirstStartLooksAgainOnceThePackModHasRun$'
 control "a modpack's downloads must match the hashes the pack lists" internal/addons/fetch/download.go \
-  'if got := hex.EncodeToString(hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
-  'if got := hex.EncodeToString(hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(v.hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
+  'if got := hex.EncodeToString(v.hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
   ./internal/modpacks '^TestDownloadsMustMatchThePacksHashes$'
 control "a pack's settings are read and written without following a link" internal/agent/modpacks.go \
   'if err := setProperties(d, props); err != nil {
