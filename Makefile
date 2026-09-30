@@ -9,7 +9,7 @@ export CGO_ENABLED ?= 0
 GO_PKGS := ./cmd/... ./internal/... ./web
 SH_FILES := $(wildcard scripts/*.sh scripts/e2e/*.sh packaging/*.sh)
 
-.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-go-other test-agent test-web test-sh web build package notices site dev e2e-vm clean template-check template-thumbnails
+.PHONY: help setup check lint lint-go lint-web lint-notices lint-sh typecheck test test-go test-go-other test-agent test-web test-sh web build package notices site dev e2e-vm clean template-check template-thumbnails plugins
 
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-z0-9-]+:.*## /{printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -74,6 +74,10 @@ build: web ## Build ./dist/playkeeper for this machine
 
 package: ## Build dist/playkeeper-<version>-linux-{amd64,arm64}.tar.gz and the one-line installer assets
 	./scripts/package.sh
+
+plugins: ## Build the plugins that ship inside Playkeeper into internal/addons/firstparty (needs Java 21)
+	cd plugins/ai-build-battle && ./gradlew --no-daemon -q clean build
+	cp plugins/ai-build-battle/build/libs/ai-build-battle-*.jar internal/addons/firstparty/ai-build-battle.jar
 
 notices: ## Regenerate THIRD_PARTY_NOTICES after changing Go or npm dependencies
 	./scripts/third-party-notices.sh

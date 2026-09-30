@@ -12,12 +12,14 @@ import (
 	"unicode/utf8"
 
 	"github.com/CIYAhq/playkeeper/internal/addons"
+	"github.com/CIYAhq/playkeeper/internal/addons/firstparty"
 	"github.com/CIYAhq/playkeeper/internal/modpacks"
 )
 
 var (
 	// modpackSources are where a template's modpack may come from; its
-	// add-ons come from Modrinth and Hangar (checkRef).
+	// add-ons come from Modrinth and Hangar, or are Playkeeper's own
+	// plugins (checkRef).
 	modpackSources = []addons.Source{addons.Modrinth, modpacks.CurseForge}
 	difficulties   = []string{"peaceful", "easy", "normal", "hard"}
 	gameModes      = []string{"survival", "creative", "adventure", "spectator"}
@@ -136,8 +138,12 @@ func (t *Template) validateAddons() *Error {
 			return e
 		}
 		name := printable(a.Name)
-		if unknownType == nil && !slices.Contains(target.Sources(), a.Source) {
-			return invalid(field+".source", "not_allowed", fmt.Sprintf("%s comes from %s, which has no add-ons for %s servers.", name, a.Source.Name(), target.Name()))
+		if unknownType == nil && !fits(target, a) {
+			msg := fmt.Sprintf("%s comes from %s, which has no add-ons for %s servers.", name, a.Source.Name(), target.Name())
+			if a.Source == addons.Playkeeper {
+				msg = fmt.Sprintf("%s does not run on %s servers.", name, target.Name())
+			}
+			return invalid(field+".source", "not_allowed", msg)
 		}
 		switch {
 		case a.Pin == nil && !a.Latest:
@@ -183,6 +189,17 @@ func (t *Template) validateAddons() *Error {
 		}
 	}
 	return nil
+}
+
+// fits reports whether a server of target's type can take add-on a: its
+// source has add-ons for the type or, for one of Playkeeper's own plugins,
+// the plugin runs on it.
+func fits(target addons.Target, a Addon) bool {
+	if a.Source == addons.Playkeeper {
+		fp := firstparty.Lookup(a.Project)
+		return fp != nil && fp.RunsOn(target.Type)
+	}
+	return slices.Contains(target.Sources(), a.Source)
 }
 
 func (t *Template) validateModpack() *Error {
@@ -262,12 +279,20 @@ func (t *Template) validatePacks() *Error {
 	return nil
 }
 
-// checkRef checks the source and ids of an add-on.
+// checkRef checks the source and ids of an add-on. One of Playkeeper's own
+// plugins must be one this Playkeeper carries.
 func checkRef(field, what string, src addons.Source, project, slug string) *Error {
-	if src != addons.Modrinth && src != addons.Hangar {
-		return invalid(field+".source", "value", fmt.Sprintf("%s comes from \"%s\"; templates list add-ons from Modrinth and Hangar.", what, printable(string(src))))
+	if src != addons.Modrinth && src != addons.Hangar && src != addons.Playkeeper {
+		return invalid(field+".source", "value", fmt.Sprintf("%s comes from \"%s\"; templates list add-ons from Modrinth, Hangar and Playkeeper.", what, printable(string(src))))
 	}
-	return checkIDs(field, what, src, project, slug)
+	if e := checkIDs(field, what, src, project, slug); e != nil {
+		return e
+	}
+	if src == addons.Playkeeper && firstparty.Lookup(project) == nil {
+		return fail(KindInvalid, kv("field", field+".project", "problem", "value"),
+			fmt.Sprintf("%s is a plugin of Playkeeper's own that this Playkeeper does not have.", what), "Update Playkeeper: a newer version may have it.")
+	}
+	return nil
 }
 
 // checkIDs checks the project id and slug of an add-on or modpack from src.
@@ -365,7 +390,7 @@ func clearSetting(s *Settings, field string) {
 
 func hashAlgo(src addons.Source) string {
 	switch src {
-	case addons.Hangar:
+	case addons.Hangar, addons.Playkeeper:
 		return "sha256"
 	case modpacks.CurseForge:
 		return "sha1"
@@ -417,11 +442,14 @@ func validBuildValue(s string) bool {
 }
 
 // validID checks a project or version id: base62 on Modrinth, a number on
-// Hangar and CurseForge.
+// Hangar and CurseForge, and for Playkeeper's own plugins the slug and the
+// version number.
 func validID(src addons.Source, s string) bool {
 	switch src {
 	case addons.Modrinth:
 		return s != "" && len(s) <= 64 && onlyRunes(s, isAlnum)
+	case addons.Playkeeper:
+		return validRef(s)
 	case addons.Hangar, modpacks.CurseForge:
 		if s == "" || len(s) > 18 || s[0] == '0' {
 			return false

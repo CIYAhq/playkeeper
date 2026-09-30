@@ -169,9 +169,40 @@ jobs:
       - name: make test-web test-sh
         run: make test-web test-sh
 
+  # The plugins Playkeeper ships inside its binary (plugins/, embedded from
+  # internal/addons/firstparty): their unit tests, and the jars checked
+  # against a fresh build, which is reproducible. A pull request that touches
+  # neither skips both.
+  plugins:
+    name: Plugins — their tests, and the jars Playkeeper embeds checked against their sources
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Whether the change touches a plugin or its jar
+        id: changed
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" != pull_request ] || git diff --name-only "$BASE"...HEAD | grep -qE '^(plugins/|internal/addons/firstparty/|Makefile$|\.github/workflows/ci\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No plugin or jar changed."
+          fi
+      - name: make plugins, with the runner's Java 21
+        if: steps.changed.outputs.run == 'true'
+        run: JAVA_HOME="$JAVA_HOME_21_X64" PATH="$JAVA_HOME_21_X64/bin:$PATH" make plugins
+      - name: The jars Playkeeper embeds are what their sources build
+        if: steps.changed.outputs.run == 'true'
+        run: git diff --exit-code --stat -- internal/addons/firstparty/
+
   check:
     name: Lint, typecheck and unit tests — every job passed
-    needs: [lint, go-tests, agent-tests, web-tests]
+    needs: [lint, go-tests, agent-tests, web-tests, plugins]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

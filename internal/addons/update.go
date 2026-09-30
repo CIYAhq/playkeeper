@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/CIYAhq/playkeeper/internal/addons/firstparty"
 	"github.com/CIYAhq/playkeeper/internal/addons/modrinth"
 )
 
@@ -198,10 +199,17 @@ func upToDate(rec Installed) *Error {
 		fmt.Sprintf("%s is already at version %s.", rec.Name, rec.VersionNumber), "")
 }
 
-// newer reports whether c is an update for rec: another version, published
-// later (a newer release never loses to an older pre-release).
-func newer(c candidate, rec Installed) bool {
-	return c.VersionID != rec.VersionID && (rec.Published.IsZero() || c.Published.After(rec.Published))
+func newer(c candidate, rec Installed) bool { return IsUpdate(rec, c.info()) }
+
+// IsUpdate reports whether v, a version of rec's add-on, is an update for
+// it: another version, published later (a newer release never loses to an
+// older pre-release). Every build of one of Playkeeper's own plugins carries
+// the same date, so theirs are compared by version.
+func IsUpdate(rec Installed, v VersionInfo) bool {
+	if rec.Source == Playkeeper {
+		return firstparty.Newer(v.VersionID, rec.VersionID)
+	}
+	return v.VersionID != rec.VersionID && (rec.Published.IsZero() || v.Published.After(rec.Published))
 }
 
 func recProject(rec Installed) *project {

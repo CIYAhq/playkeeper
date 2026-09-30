@@ -432,3 +432,40 @@ func TestDownloadChecksEveryListedHash(t *testing.T) {
 		t.Error("a malformed second hash was accepted")
 	}
 }
+
+// A file Playkeeper carries itself is checked as a download is, and a
+// refusal leaves nothing behind.
+func TestSaveChecksAFileAsADownloadIs(t *testing.T) {
+	body := []byte("PK\x03\x04 a jar")
+	_, s256 := sums(body)
+	n := int64(len(body))
+	var got int64
+	dir := t.TempDir()
+	p, err := Save(strings.NewReader(string(body)), dir, Want{Algo: "sha256", Hash: strings.ToUpper(s256), Size: n, Max: 1 << 20, Progress: func(r int64) { got = r }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(p); string(b) != string(body) || got != n {
+		t.Fatalf("saved %q, progress %d", b, got)
+	}
+	for _, c := range []struct {
+		name string
+		body string
+		want Want
+		as   any
+	}{
+		{"tampered", "PK\x03\x04 a jaR", Want{Algo: "sha256", Hash: s256, Size: n, Max: 1 << 20}, new(*HashError)},
+		{"wrong size", string(body), Want{Algo: "sha256", Hash: s256, Size: n - 1, Max: 1 << 20}, new(*SizeError)},
+		{"listed too large", string(body), Want{Algo: "sha256", Hash: s256, Size: n, Max: n - 1}, new(*TooLargeError)},
+		{"too large", string(body), Want{Algo: "sha256", Hash: s256, Max: n - 1}, new(*TooLargeError)},
+	} {
+		dir := t.TempDir()
+		if _, err := Save(strings.NewReader(c.body), dir, c.want); err == nil || !errors.As(err, c.as) {
+			t.Errorf("%s: err = %v, want %T", c.name, err, c.as)
+		}
+		assertEmpty(t, dir)
+	}
+	if _, err := Save(strings.NewReader(string(body)), t.TempDir(), Want{Algo: "sha256", Max: 1 << 20}); err == nil {
+		t.Error("a file without a hash was accepted")
+	}
+}

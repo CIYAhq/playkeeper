@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/CIYAhq/playkeeper/internal/addons/firstparty"
 )
 
 // project is what a check records from an add-on's source: its licence and
@@ -17,7 +19,9 @@ type project struct {
 
 // sources asks Modrinth and Hangar about projects, once each per run. A
 // source that doesn't answer leaves the fields empty rather than failing a
-// template that installed.
+// template that installed. Playkeeper's own plugins are answered from the
+// registry the binary carries, with no request: their licence, and no
+// downloads, since nothing counts them.
 type sources struct {
 	hc       *http.Client
 	modrinth string
@@ -59,6 +63,10 @@ func (s *sources) project(ctx context.Context, source, id, slug string) project 
 		}
 		if s.get(ctx, s.hangar+"/projects/"+url.PathEscape(firstOf(slug, id)), &h) {
 			p = project{licence: h.Settings.License.Type, downloads: h.Stats.Downloads}
+		}
+	case "playkeeper":
+		if fp := firstparty.Lookup(id); fp != nil {
+			p = project{licence: fp.License}
 		}
 	}
 	s.seen[key] = p

@@ -1,0 +1,41 @@
+# AI Build Battle: /aibuild <prompt> has an AI model build it in front of you,
+# block by block, with the build tools, rules and limits of the build battle videos.
+#
+# The OpenRouter key never goes in this file. On Playkeeper, set it in the
+# dashboard: this server's Plugins tab, AI Build Battle. Anywhere else, set the
+# OPENROUTER_API_KEY environment variable for the server.
+
+# The model /aibuild uses: an OpenRouter model id that can call tools.
+# Change it in the game with /aibuild model <id>.
+model: anthropic/claude-sonnet-5.5
+
+# Spending caps in US dollars, counted from OpenRouter's own cost of each request.
+# Both are shown before a build starts. The day starts at midnight UTC.
+spend:
+  per-build: 1.00
+  per-day: 5.00
+
+# What each build may use, as in the videos.
+limits:
+  build-calls: 10
+  blocks: 6000
+  minutes: 45
+
+# The plot in front of the player: x and z from -half-width to half-width.
+plot:
+  half-width: 30
+  height: 80
+
+# How fast blocks appear.
+blocks-per-second: 20
+
+# Ask for a click on [Start] after showing the caps. Off starts right away.
+confirm: true
+
+# How hard the model thinks, and the most it may answer in one request.
+request:
+  reasoning-effort: high
+  max-tokens: 48000
+
+# Keep each picture the model gets after a build call, in plugins/AIBuildBattle/pictures.
+save-pictures: false

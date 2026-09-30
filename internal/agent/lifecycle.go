@@ -383,10 +383,17 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool,
 	pids := int64(2048)
 	stop := int(s.opts.StopTimeout.Seconds())
 	data, secret := s.dataDir()+":/data", s.containerSecret()+":/run/secrets/rcon_password:ro"
+	keys := s.secretsDir() + ":" + secretsMount + ":ro"
 	if s.selinuxLabels() {
-		// Docker relabels both for containers at every start, so a world a
+		// Docker relabels them for containers at every start, so a world a
 		// restore moved in is readable too.
-		data, secret = data+":z", secret+",z"
+		data, secret, keys = data+":z", secret+",z", keys+",z"
+	}
+	binds := []string{data, secret}
+	// Only a server with its secrets folder mounts it, so no other server's
+	// definition changes.
+	if !setupOnly && s.hasSecretsDir() {
+		binds = append(binds, keys)
 	}
 	cfg := docker.ContainerConfig{
 		Image:       runtimeImage(sc.MinecraftVersion),
@@ -396,7 +403,7 @@ func (s *server) specWith(sc api.ServerConfig, typeEnv []string, setupOnly bool,
 		StopTimeout: &stop,
 		Labels:      s.labels(),
 		HostConfig: docker.HostConfig{
-			Binds:         []string{data, secret},
+			Binds:         binds,
 			RestartPolicy: docker.RestartPolicy{Name: "no"},
 			Memory:        limit,
 			MemorySwap:    limit,
@@ -796,6 +803,9 @@ func (s *server) startServer(ctx context.Context, h *opHandle, sc api.ServerConf
 		}
 	}
 	if err := s.writeMapConfig(); err != nil {
+		return err
+	}
+	if err := s.prepareSecrets(); err != nil {
 		return err
 	}
 	name := s.containerName()

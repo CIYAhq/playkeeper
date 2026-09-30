@@ -598,6 +598,11 @@ func synthetic(t testing.TB, n int) fstest.MapFS {
 				t.Fatal(err)
 			}
 			for _, a := range tpl.Addons {
+				// Playkeeper's own plugins run only on the types their
+				// registry lists, which a made-up template's may not be.
+				if a.Source == "playkeeper" {
+					continue
+				}
 				if !slices.ContainsFunc(pool, func(b addon) bool { return b.Slug == a.Slug }) {
 					pool = append(pool, a)
 				}
