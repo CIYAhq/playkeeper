@@ -8844,7 +8844,7 @@ control "confirming: servers stay away while it takes customers" internal/panel/
   'case false:' \
   ./internal/panel '^TestServersStayAwayFromAJoinedMachineWhileItTakesCustomers$'
 control "confirming: servers stay away while it has customers" internal/panel/machinecustomers.go \
-  'case homes > 0:' \
+  'case n > 0:' \
   'case false:' \
   ./internal/panel '^TestServersStayAwayFromAJoinedMachineWhileItTakesCustomers$'
 control "confirming: the guard's refusal is kept" internal/panel/creators.go \
@@ -9381,9 +9381,9 @@ control "moving customers: a moved server counts against its customer's disk lim
   'if err = s.sendLimitsTo(ctx, to); err != nil {' \
   'if err = error(nil); err != nil {' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
-control "moving customers: the backup doesn't count against the customer's disk limit beside their server" internal/panel/moves.go \
-  '"/v1/restore/upload", nil, down.Body,' \
-  '"/v1/restore/upload", url.Values{"diskLimit": {"account-1"}}, down.Body,' \
+control "moving customers: the server's folder doesn't count against the customer's disk limit beside their server" internal/panel/moves.go \
+  '"/v1/restore/upload", nil, io.TeeReader(down.Body, sent),' \
+  '"/v1/restore/upload", url.Values{"diskLimit": {"account-1"}}, io.TeeReader(down.Body, sent),' \
   ./internal/panel '^TestTheOwnerMovesACustomerAndTheirServerFollows$'
 control "moving customers: a paused customer's server is made stopped where it moves" internal/panel/moves.go \
   'start := mv.ran && !s.customerHeld(ctx, userID)' \
