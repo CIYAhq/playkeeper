@@ -9062,6 +9062,86 @@ webcontrol "room for sale: no card without plans on sale" web/src/pages/sale-roo
   'if (false) return null' \
   src/pages/pages.test.tsx 'for the owner alone, and only while plans are on sale'
 
+# Step 8 of the fleet plan: a server moved in from another machine keeps its
+# id, and only the dashboard's move-in picks one.
+control "moving in: an id a server here has is refused" internal/agent/servers.go \
+  'case a.idTaken(id):' \
+  'case false:' \
+  ./internal/agent '^TestAServerMovedInKeepsWhatItHadWhereItWas$'
+control "moving in: files of a server where its would go keep the id taken" internal/agent/servers.go \
+  'return !errors.Is(err, os.ErrNotExist)' \
+  'return false && !errors.Is(err, os.ErrNotExist)' \
+  ./internal/agent '^TestAServerMovedInKeepsWhatItHadWhereItWas$'
+control "moving in: only an id of a server's shape" internal/agent/movein.go \
+  'if !reServerID.MatchString(req.ServerID) {' \
+  'if false {' \
+  ./internal/agent '^TestAMoveInTakesOnlyWhatTheDashboardSends$'
+control "moving in: only a slug of a slug's shape" internal/agent/movein.go \
+  'if req.Slug != "" && !reSlug.MatchString(req.Slug) {' \
+  'if false {' \
+  ./internal/agent '^TestAMoveInTakesOnlyWhatTheDashboardSends$'
+control "moving in: only a play style Playkeeper knows" internal/agent/movein.go \
+  'if !playStyles[req.PlayStyle] {' \
+  'if false {' \
+  ./internal/agent '^TestAMoveInTakesOnlyWhatTheDashboardSends$'
+control "moving in: only with the EULA acceptance the server had" internal/agent/movein.go \
+  'if err != nil || req.EULAAcceptedAt.IsZero() {' \
+  'if false {' \
+  ./internal/agent '^TestAMoveInTakesOnlyWhatTheDashboardSends$'
+control "moving in: an upload into a server here isn't moved in" internal/agent/movein.go \
+  'if st.preview.ServerID != "" {' \
+  'if false {' \
+  ./internal/agent '^TestAMoveInTakesOnlyWhatTheDashboardSends$'
+control "moving in: the world has to fit the disk limit its upload named" internal/agent/movein.go \
+  'if done, err = a.holdNamedLimit(r.Context(), st.limit, unpackedBytes(st.manifest)); err != nil {' \
+  'if done, err = func(bool) {}, error(nil); err != nil {' \
+  ./internal/agent '^TestAMoveInTakesOnlyWhatTheDashboardSends$'
+control "moving in: the server joins the disk limit its upload named" internal/agent/movein.go \
+  'if err := a.joinDiskLimit(st.limit, s.id); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAServerMovedInKeepsWhatItHadWhereItWas$'
+control "moving in: it keeps the EULA acceptance, creation time and play style it had" internal/agent/movein.go \
+  'op, err := a.newFromStage(st, in.spec, in.mem, &in.prev, func(' \
+  'op, err := a.newFromStage(st, in.spec, in.mem, nil, func(' \
+  ./internal/agent '^TestAServerMovedInKeepsWhatItHadWhereItWas$'
+control "moving in: a name a server here has gets a number" internal/agent/movein.go \
+  'name = a.uniqueName(name)' \
+  '_ = name' \
+  ./internal/agent '^TestAServerMovedInThatRanThereStartsHere$'
+control "moving in: it keeps its slug" internal/agent/servers.go \
+  'slug := spec.slug' \
+  'slug := ""' \
+  ./internal/agent '^TestAServerMovedInKeepsWhatItHadWhereItWas$'
+control "moving in: a slug a server here has gets another" internal/agent/servers.go \
+  'if slug == "" || a.slugTaken(slug) {' \
+  'if slug == "" {' \
+  ./internal/agent '^TestAServerMovedInThatRanThereStartsHere$'
+control "moving in: a server that didn't run there stays stopped" internal/agent/movein.go \
+  'st.stopped = !in.start' \
+  'st.stopped = false' \
+  ./internal/agent '^TestAServerMovedInKeepsWhatItHadWhereItWas$'
+control "moving in: the restore's journal keeps it stopped" internal/agent/backups.go \
+  'State: swapMoving, Stopped: st.stopped,' \
+  'State: swapMoving,' \
+  ./internal/agent '^TestAServerMovedInKeepsWhatItHadWhereItWas$'
+control "moving in: a restore kept stopped doesn't start" internal/agent/backups.go \
+  'return s.keepStopped(h, stageDir, j)' \
+  '_ = s.keepStopped' \
+  ./internal/agent '^TestAServerMovedInKeepsWhatItHadWhereItWas$'
+# shellcheck disable=SC2016
+control "moving in: it stays stopped after the agent restarts" internal/agent/backups.go \
+  'Stopped bool `json:"stopped,omitempty"`' \
+  'Stopped bool `json:"-"`' \
+  ./internal/agent '^TestAMoveInFinishedAfterARestartStaysStopped$'
+control "moving in: its stage says it stays stopped before its journal does" internal/agent/movein.go \
+  'if err := a.stageStopped(rid, st.stopped); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAMoveInFinishedAfterARestartStaysStopped$'
+control "moving in: an agent that dies before its journal keeps it stopped" internal/agent/recovery.go \
+  'Stopped: f.Stopped,' \
+  '' \
+  ./internal/agent '^TestAMoveInFinishedAfterARestartStaysStopped$'
+
 if [ "${#problems[@]}" != 0 ]; then
   echo
   echo "problems: ${#problems[@]} (a STALE control's guard moved, a MISSED one's test passes without it, an INVALID one doesn't build or run)"

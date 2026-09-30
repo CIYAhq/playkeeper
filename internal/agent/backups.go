@@ -646,6 +646,9 @@ type stage struct {
 	preview  api.RestorePreview
 	// limit is the disk limit the upload for a new server counts against.
 	limit string
+	// stopped keeps the server its restore makes stopped: one moved in that
+	// didn't run (see movein.go).
+	stopped bool
 }
 
 // stageClaims are the stages restores are applying: one restore claims its
@@ -719,6 +722,9 @@ type swapJournal struct {
 	// MovedBack is set once Playkeeper has moved the previous world back
 	// into place, so a settle tried again still says it did.
 	MovedBack bool `json:"movedBack,omitempty"`
+	// Stopped keeps the restored server stopped, unchecked by a start: a
+	// server moved in that didn't run where it was.
+	Stopped bool `json:"stopped,omitempty"`
 }
 
 // swapState is how far a restore's world swap got.
@@ -1336,6 +1342,28 @@ type stageFile struct {
 	// DiskLimit is the disk limit an upload for a new server counts
 	// against, and the server it makes (see tagStage).
 	DiskLimit string `json:"diskLimit,omitempty"`
+	// Stopped keeps the server a move-in makes from it stopped, from before
+	// its restore writes its journal (see movein.go).
+	Stopped bool `json:"stopped,omitempty"`
+}
+
+// stageStopped records whether the server a move-in makes from the staged
+// upload id stays stopped, so an agent that stops before the restore's
+// journal is written still knows it (see adoptRestore).
+func (a *Agent) stageStopped(id string, stopped bool) error {
+	a.stages.mu.Lock()
+	defer a.stages.mu.Unlock()
+	dir := a.stageDir(id)
+	f, err := readStageFile(dir)
+	if err != nil {
+		return err
+	}
+	f.Stopped = stopped
+	raw, err := json.Marshal(f)
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(filepath.Join(dir, "stage.json"), raw, 0o600)
 }
 
 // tagStage records that the staged upload id, for a new server, counts
@@ -1582,22 +1610,29 @@ func (a *Agent) loadStage(id string) (*stage, error) {
 // restoreAsNewServer records the server a restore creates, stopped and with
 // the backup's settings, and starts the restore that puts its world in place.
 func (a *Agent) restoreAsNewServer(st *stage, req api.RestoreApplyRequest, name, actor string, restore func(s *server) func(ctx context.Context, h *opHandle) error) (*api.Operation, error) {
-	m := st.manifest
-	rt, err := a.restoreTargetFor(a.ctx, m)
-	if err != nil {
-		return nil, errInvalid("This backup cannot be restored: %v.", err)
-	}
 	mem := st.preview.MemoryMB
 	if req.MemoryMB != 0 {
 		mem = req.MemoryMB
 	}
 	if name == "" {
-		if n, err := validName(m.Settings["name"]); err == nil {
+		if n, err := validName(st.manifest.Settings["name"]); err == nil {
 			name = a.uniqueName(n)
 		}
 	}
-	sc := a.restoredConfigFor(m, rt, mem, nil, actor)
-	_, op, err := a.addServer(newServerSpec{name: name, typ: rt.typ, config: sc, desired: api.DesiredStopped, actor: actor}, "restore", restore)
+	return a.newFromStage(st, newServerSpec{name: name, actor: actor}, mem, nil, restore)
+}
+
+// newFromStage records the server a restore into a new server makes, as
+// spec names it, stopped and with the backup's settings and prev's (see
+// restoredConfigFor), and starts the restore that puts its world in place.
+func (a *Agent) newFromStage(st *stage, spec newServerSpec, mem int, prev *api.ServerConfig, restore func(s *server) func(ctx context.Context, h *opHandle) error) (*api.Operation, error) {
+	rt, err := a.restoreTargetFor(a.ctx, st.manifest)
+	if err != nil {
+		return nil, errInvalid("This backup cannot be restored: %v.", err)
+	}
+	spec.typ, spec.desired = rt.typ, api.DesiredStopped
+	spec.config = a.restoredConfigFor(st.manifest, rt, mem, prev, spec.actor)
+	_, op, err := a.addServer(spec, "restore", restore)
 	return op, err
 }
 
@@ -1716,7 +1751,7 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	j := &swapJournal{
 		ServerID: s.id, OpID: h.op.ID, Actor: actor, Aside: "data.replaced-" + stamp, Failed: "data.failed-restore-" + stamp,
 		StartedAt: start.UTC(), Previous: prev, Restored: s.restoredConfigFor(m, rt, mem, prev, actor), SHA256: st.preview.SHA256,
-		Detail: fmt.Sprintf("restored %s (sha256 %s)", m.LevelName, st.preview.SHA256), State: swapMoving,
+		Detail: fmt.Sprintf("restored %s (sha256 %s)", m.LevelName, st.preview.SHA256), State: swapMoving, Stopped: st.stopped,
 	}
 	var prevPack *api.ResourcePackOffer
 	if prev != nil {
@@ -1746,6 +1781,7 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 	}
 	_, err = os.Stat(live)
 	j.HadLive = err == nil
+	restoreStep(ctx, "journal")
 	if err := writeSwapJournal(st.dir, j); err != nil {
 		s.startPrevious(ctx, h, prev, wasRunning)
 		return fmt.Errorf("could not save the restore's progress file, so nothing was replaced: %w", err)
@@ -1842,6 +1878,9 @@ func (s *server) restoreOp(ctx context.Context, h *opHandle, st *stage, req api.
 // never because the agent stopped: then the operation stays running and the
 // journal as it is, and the next start checks the restored world again.
 func (s *server) finishRestore(ctx context.Context, h *opHandle, stageDir string, j *swapJournal) error {
+	if j.Stopped {
+		return s.keepStopped(h, stageDir, j)
+	}
 	_ = s.setDesired(api.DesiredRunning)
 	s.holdRestoredPregen(j.Restored)
 	err := s.startServer(ctx, h, j.Restored)
@@ -1872,6 +1911,20 @@ func (s *server) finishRestore(ctx context.Context, h *opHandle, stageDir string
 		s.log.Warn("could not save the restore's progress file, so the previous world's copy is kept", "server", s.id, "err", err)
 	}
 	restoreStep(ctx, "kept")
+	return s.keepRestore(h, j, keepCopy)
+}
+
+// keepStopped keeps the restored world of a server that stays stopped, as a
+// server moved in that didn't run where it was: nothing starts it to check
+// it, and its next start doesn't resume a map pre-generation it had.
+func (s *server) keepStopped(h *opHandle, stageDir string, j *swapJournal) error {
+	s.holdRestoredPregen(j.Restored)
+	j.State = swapKept
+	keepCopy := false
+	if err := writeSwapJournal(stageDir, j); err != nil {
+		keepCopy = true
+		s.log.Warn("could not save the restore's progress file, so the previous world's copy is kept", "server", s.id, "err", err)
+	}
 	return s.keepRestore(h, j, keepCopy)
 }
 

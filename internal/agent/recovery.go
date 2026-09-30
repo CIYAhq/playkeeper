@@ -203,6 +203,7 @@ func (s *server) adoptRestore(ctx context.Context, p *pendingRestore) (*swapJour
 	j := &swapJournal{
 		ServerID: s.id, OpID: p.op.ID, Actor: p.op.Actor, Aside: aside, Failed: failed, HadLive: hasAside || hasLive && hasStaged,
 		StartedAt: p.op.StartedAt, Restored: *cur, SHA256: f.Preview.SHA256, Detail: fmt.Sprintf("restored %s (sha256 %s)", m.LevelName, f.Preview.SHA256),
+		Stopped: f.Stopped,
 	}
 	if rollbackID != "" {
 		j.Detail += "; rollback archive " + rollbackID
