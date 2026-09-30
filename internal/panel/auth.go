@@ -774,6 +774,19 @@ CREATE TABLE whop_fee_lines (
   PRIMARY KEY (payment_id, n)
 );
 `,
+	// Since when each app store's share has been gone or short, and its
+	// grant lacking what its pass reads, 0 while not; when its payments and
+	// refunds were last read; and when the oldest refund still unsettled then
+	// was asked for, 0 for none (see whop_share_hooks.go).
+	`
+CREATE TABLE whop_share_watch (
+  store_id         TEXT    PRIMARY KEY,
+  share_bad_since  INTEGER NOT NULL DEFAULT 0,
+  grant_gone_since INTEGER NOT NULL DEFAULT 0,
+  payments_read_at INTEGER NOT NULL DEFAULT 0,
+  refunds_from     INTEGER NOT NULL DEFAULT 0
+);
+`,
 	// Deleting a customer (see erasure.go): when the owner asked for it, and
 	// who; and, for each customer deleted, a hash of who they were at their
 	// store, so the store's next read doesn't bring back a membership of
