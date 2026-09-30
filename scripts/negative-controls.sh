@@ -7963,6 +7963,54 @@ control "user tokens: Whop's keys aren't read at every request" internal/whop/us
   '' \
   ./internal/whop '^TestUserTokensFollowWhopsKeysWithoutAskingAtEveryRequest$'
 
+# A seller's page inside Whop (the hosted blueprint's 2.1,
+# internal/panel/whop_sellerpage.go): it opens only with Whop's token, for
+# the team of the business it names, and only from the page itself; a
+# business that hasn't approved everything the app asks for isn't
+# registered; and only that page may be framed, by Whop alone.
+control "seller page: only the business's team opens it" internal/panel/whop_sellerpage.go \
+  'if level != "admin" {' \
+  'if level != "admin" && level != "customer" {' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamOpensItsPageFromWhop$'
+control "seller page: the team of the business it names" internal/panel/whop_sellerpage.go \
+  'c.Access(ctx, user, storeID)' \
+  'c.Access(ctx, user, "biz_other")' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamOpensItsPageFromWhop$'
+control "seller page: only with Whop's token" internal/panel/whop_sellerpage.go \
+  'if errors.Is(err, whop.ErrUserToken) {
+		return "", errSellerToken
+	}
+	if err != nil {
+		return "", err
+	}
+	level, err := c.Access(ctx, user, storeID)' \
+  'level, err := c.Access(ctx, user, storeID)' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamOpensItsPageFromWhop$'
+control "seller page: only calls from the page itself" internal/panel/whop_sellerpage.go \
+  'r.Header.Get("X-Requested-With") == "playkeeper" && ' \
+  '' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamOpensItsPageFromWhop$'
+control "seller page: a browser's call from another site is refused" internal/panel/whop_sellerpage.go \
+  '(site == "" || site == "same-origin")' \
+  'len(site) >= 0' \
+  ./internal/panel '^TestOnlyTheBusinesssTeamOpensItsPageFromWhop$'
+control "seller page: a business that hasn't approved everything isn't registered" internal/panel/whop_sellerpage.go \
+  'if len(lacking) > 0 {' \
+  'if false && len(lacking) > 0 {' \
+  ./internal/panel '^TestABusinessThatHasntApprovedTheAppIsToldToApproveIt$'
+control "seller page: only it may be framed" internal/panel/server.go \
+  'if strings.HasPrefix(r.URL.Path, whopSellerPage) {' \
+  'if strings.HasPrefix(r.URL.Path, "/") {' \
+  ./internal/panel '^TestOnlyTheSellersPageMayBeFramedAndOnlyByWhop$'
+control "seller page: only Whop's frames show it" internal/panel/server.go \
+  'frame-ancestors https://whop.com https://*.whop.com;' \
+  'frame-ancestors *;' \
+  ./internal/panel '^TestOnlyTheSellersPageMayBeFramedAndOnlyByWhop$'
+webcontrol "seller page: only a business's id reaches its call" web/src/lib/router.ts \
+  'third && reWhopBusiness.test(third) && parts.length === 3' \
+  'third && parts.length === 3' \
+  web/src/pages/whop-seller.test.tsx 'is at /whop/seller/<business>, and nothing else is'
+
 # Playkeeper Cloud's ready server (internal/panel/readyserver.go): a
 # customer is told once that their server is ready, or being set up.
 control "ready server: ready is said once" internal/panel/readyserver.go \
