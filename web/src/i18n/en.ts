@@ -2009,7 +2009,7 @@ export const en = {
   'machines.remove.keepsAny': 'Its servers keep running on {name}',
   'machines.remove.keepsHint': 'You can’t manage it from here until it joins again.',
   'machines.remove.customers': { one: '{count} customer is on {name}', other: '{count} customers are on {name}' },
-  'machines.remove.customersHint': 'They can’t create servers until they’re moved to another machine.',
+  'machines.remove.customersHint': 'Move them first, in Customers on this page, to take their servers along. Otherwise they get room on another machine to start again, and their servers stay on {name}, out of reach.',
   'machines.remove.confirm': 'Remove {name}',
   'machines.removed': '{name} removed',
   'machines.problem.offline': '{name} hasn’t called in for {duration}',

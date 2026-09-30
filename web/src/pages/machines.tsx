@@ -882,7 +882,7 @@ function RemoveDialog({ machine: m, servers, open, onOpenChange }: { machine: Ma
           {!!m.customers && (
             <>
               <p className="mt-3 font-semibold text-warning-foreground">{t('machines.remove.customers', { count: m.customers, name })}</p>
-              <p className="text-xs text-muted-foreground">{t('machines.remove.customersHint')}</p>
+              <p className="text-xs text-muted-foreground">{t('machines.remove.customersHint', { name })}</p>
             </>
           )}
         </div>

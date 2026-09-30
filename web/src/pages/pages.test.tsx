@@ -4131,7 +4131,7 @@ describe('Machines and AI agents', () => {
       await click('Remove home-server…')
       const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
       expect(dialog).toContain('2 customers are on home-server')
-      expect(dialog).toContain('They can’t create servers until they’re moved to another machine.')
+      expect(dialog).toContain('Move them first, in Customers on this page, to take their servers along. Otherwise they get room on another machine to start again, and their servers stay on home-server, out of reach.')
       await render(<MachineDetailsSection id={home.id} />, owner(home))
       await click('Remove home-server…')
       expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('customers are on')
