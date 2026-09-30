@@ -1523,6 +1523,8 @@ export const en = {
   'dashboardPort.whopSignIn': 'Sign in with Whop',
   'dashboardPort.whopSignInDone': 'The Whop app lists the new redirect URL, so customers come back to it.',
   'dashboardPort.whopSignInTodo': 'On Whop’s developer dashboard, open the app {app} and add this redirect URL on its OAuth tab. Keep {keep}: customers come back through it until then.',
+  'dashboardPort.whopAppWebhook': 'The app’s webhook',
+  'dashboardPort.whopAppWebhookBody': 'The webhook you made for {app} on Whop’s developer dashboard sends to {keep}, which keeps working. To move it to the address without a port, change its URL to this:',
   'dashboardPort.whopWebhook': 'Whop’s webhook',
   'dashboardPort.whopWebhookDone': 'Playkeeper moved it to {url}.',
   'dashboardPort.whopWebhookTodo': 'Nothing to do: Playkeeper moves it to {url} once the dashboard answers there.',

@@ -162,6 +162,7 @@ describe('the dashboard on the standard HTTPS port', () => {
         port: 443,
         outside: [
           { kind: 'whop_signin', app: 'app_6oyNYgGluUMTx4', add: `${url}/api/public/whop/signin/callback`, keep: `${old}/api/public/whop/signin/callback`, done: false },
+          { kind: 'whop_app_webhook', app: 'app_6oyNYgGluUMTx4', add: `${url}/api/public/whop/app-webhook`, keep: `${old}/api/public/whop/app-webhook`, done: false },
           { kind: 'whop_webhook', add: `${url}/api/public/whop/webhook`, automatic: true, done: true },
           { kind: 'mcp', add: `${url}/mcp`, keep: `${old}/mcp`, done: false },
         ],
@@ -172,6 +173,8 @@ describe('the dashboard on the standard HTTPS port', () => {
     expect(text()).toContain(`open the app app_6oyNYgGluUMTx4 and add this redirect URL on its OAuth tab. Keep ${old}/api/public/whop/signin/callback`)
     expect(document.querySelector('code')?.textContent).toBe(`${url}/api/public/whop/signin/callback`)
     expect(text()).toContain('To do')
+    expect(text()).toContain(`The webhook you made for app_6oyNYgGluUMTx4 on Whop’s developer dashboard sends to ${old}/api/public/whop/app-webhook, which keeps working.`)
+    expect([...document.querySelectorAll('code')].map((c) => c.textContent)).toContain(`${url}/api/public/whop/app-webhook`)
     expect(text()).toContain(`Playkeeper moved it to ${url}/api/public/whop/webhook.`)
     expect(text()).toContain(`Agents set up with ${old}/mcp keep working.`)
     expect(text()).toContain('Links and bookmarks with :8443 keep working')

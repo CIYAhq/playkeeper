@@ -1179,12 +1179,14 @@ export interface DashboardPortView extends Dashboard443 {
 
 /**
  * A place outside Playkeeper that keeps the dashboard's address: the Whop
- * app customers sign in through, which must list `add` beside `keep`; Whop's
- * webhook, which Playkeeper moves to `add` itself; or AI agents set up with
- * `keep`, which keeps working. done: Whop takes `add`, or the webhook is there.
+ * app customers sign in through, which must list `add` beside `keep`; the
+ * webhook the owner made for that app on Whop, which keeps working at `keep`;
+ * Whop's webhook, which Playkeeper moves to `add` itself; or AI agents set up
+ * with `keep`, which keeps working. done: Whop takes `add`, or the webhook is
+ * there.
  */
 export interface OutsideChange {
-  kind: 'whop_signin' | 'whop_webhook' | 'mcp'
+  kind: 'whop_signin' | 'whop_app_webhook' | 'whop_webhook' | 'mcp'
   app?: string
   add: string
   keep?: string

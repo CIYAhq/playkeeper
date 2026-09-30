@@ -366,6 +366,11 @@ func (s *Server) outsideChanges(ctx context.Context, sess *session, url, old str
 				o.RedirectURI = c.Add
 				c.Done, _ = s.whopAccepts(ctx, o, fresh)
 				out = append(out, c)
+				// The owner made the app's webhook on Whop, at the address Sell on
+				// Whop showed then; which one Whop keeps isn't the dashboard's to see.
+				if s.whopAppHooked(ctx) {
+					out = append(out, outsideChange{Kind: "whop_app_webhook", App: o.ClientID, Add: url + whopAppWebhookPath, Keep: old + whopAppWebhookPath})
+				}
 			}
 		}
 		// App stores' deliveries come through the app's webhook, which isn't

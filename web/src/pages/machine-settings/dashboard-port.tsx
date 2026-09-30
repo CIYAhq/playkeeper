@@ -286,6 +286,8 @@ function outsideItem(c: OutsideChange): { key: string; title: string; body: Reac
         copy: c.done ? undefined : c.add,
         done: c.done,
       }
+    case 'whop_app_webhook':
+      return { key: c.kind, title: t('dashboardPort.whopAppWebhook'), body: t('dashboardPort.whopAppWebhookBody', { app: c.app ?? '', keep: c.keep ?? '' }), copy: c.add }
     case 'whop_webhook':
       return { key: c.kind, title: t('dashboardPort.whopWebhook'), body: c.done ? t('dashboardPort.whopWebhookDone', { url: c.add }) : t('dashboardPort.whopWebhookTodo', { url: c.add }) }
     case 'mcp':

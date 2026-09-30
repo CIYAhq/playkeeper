@@ -549,6 +549,15 @@ func TestTheSwitchSaysWhatOutsidePlaykeeperKeepsTheOldAddress(t *testing.T) {
 	if len(v.Outside) == 0 || !v.Outside[0].Done {
 		t.Fatalf("once Whop lists the new redirect URL: %+v", v.Outside)
 	}
+	// The app's webhook, which the owner made on Whop, keeps its address too.
+	if _, err := e.srv.db.Exec(`UPDATE whop_app SET webhook_secret = 'ws_0123456789abcdef0123' WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	var hooked dashboardPortView
+	e.get(t, "/api/dashboard-port", own.cookie, &hooked)
+	if hook := (outsideChange{Kind: "whop_app_webhook", App: whopTestApp, Add: bare + whopAppWebhookPath, Keep: old + whopAppWebhookPath}); len(hooked.Outside) != 4 || hooked.Outside[1] != hook {
+		t.Fatalf("with the app's webhook: %+v", hooked.Outside)
+	}
 	// An admin sees no Whop.
 	lena := addAdmin(t, e, "lena", "*")
 	e.get(t, "/api/dashboard-port", lena.cookie, &v)

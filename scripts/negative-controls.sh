@@ -6711,6 +6711,10 @@ control "the dashboard's pages may connect only to a DNS name on port 443" inter
   'if !reDomainName.MatchString(host) {' \
   'if host == "" {' \
   ./internal/panel '^TestTheDashboardsPagesMayCheckPort443$'
+control "the setting lists the app's webhook the owner made on Whop" internal/panel/dashboard443.go \
+  'if s.whopAppHooked(ctx) {' \
+  'if false && s.whopAppHooked(ctx) {' \
+  ./internal/panel '^TestTheSwitchSaysWhatOutsidePlaykeeperKeepsTheOldAddress$'
 control "only the owner sees what Whop keeps of the old address" internal/panel/dashboard443.go \
   'if permit(sess.Access, actSellOnWhop, "") == nil {' \
   'if true {' \
