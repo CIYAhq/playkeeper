@@ -417,10 +417,12 @@ func (s *Server) startMove(ctx context.Context, userID int64, to, actor string) 
 const moveDiskReserve = 512 << 20
 
 // serverSize is what one of a customer's servers takes where it moves
-// (api.MoveCheck), and the machine it's on.
+// (api.MoveCheck), the machine it's on, and the machines a move left a copy
+// of it on that isn't deleted yet.
 type serverSize struct {
 	api.MoveCheck
 	machineID string
+	copiesOn  []string
 }
 
 // moveSizes has each of customer name's servers that a move would carry
@@ -452,7 +454,33 @@ func (s *Server) moveSizes(ctx context.Context, userID int64, name string) (map[
 			s.log.Warn("a server wasn't checked for its move", "machine", m.ID, "server", id, "err", err)
 			return nil, refused
 		}
-		out[id] = serverSize{MoveCheck: check, machineID: at}
+		copies, err := s.copiesLeftOf(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out[id] = serverSize{MoveCheck: check, machineID: at, copiesOn: copies}
+	}
+	return out, nil
+}
+
+// copiesLeftOf lists the machines a move left a copy of server id on that
+// isn't deleted yet.
+func (s *Server) copiesLeftOf(ctx context.Context, id string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT machine_id FROM left_copies WHERE server_id = ? AND left_at = 0`, id)
+	if err != nil {
+		return nil, errDB
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var m string
+		if err := rows.Scan(&m); err != nil {
+			return nil, errDB
+		}
+		out = append(out, m)
+	}
+	if rows.Err() != nil {
+		return nil, errDB
 	}
 	return out, nil
 }
@@ -481,15 +509,19 @@ func uncheckedRefusal(m machine, name string) *invites.Error {
 
 // diskNeed is what moving the servers sizes names to machine id takes on
 // its disk: each of those not there already unpacked, and the largest's
-// upload beside them meanwhile.
+// upload beside them meanwhile. One a move left a copy of there counts
+// nothing unpacked, as that copy goes first (copyServer) and frees about as
+// much; the check as its turn comes (checkRoomFor) sees what it truly freed.
 func diskNeed(sizes map[string]serverSize, id string) int64 {
 	var need, upload int64
 	for _, sz := range sizes {
 		if sz.machineID == id {
 			continue
 		}
-		need += sz.DiskBytes
 		upload = max(upload, sz.ArchiveBytes)
+		if !slices.Contains(sz.copiesOn, id) {
+			need += sz.DiskBytes
+		}
 	}
 	return need + upload
 }

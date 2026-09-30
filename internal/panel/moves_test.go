@@ -669,6 +669,38 @@ func TestAMoveGoesOnlyWhereTheirServersFitOnDisk(t *testing.T) {
 	}
 }
 
+// A copy a failed move left on the machine a customer goes to, not yet
+// deleted, goes before their server arrives, so moving them there again
+// counts the room it frees rather than refusing for want of it. The check
+// as the server's turn comes sees the room that deleting it truly freed.
+func TestACopyAMoveLeftCountsAsTheRoomItFrees(t *testing.T) {
+	f := newMoveFleet(t)
+	f.ra.reply("GET /v1/servers/"+movedServer+"/move-check", `{"diskBytes":`+strconv.FormatInt(20<<30, 10)+`,"archiveBytes":`+strconv.FormatInt(10<<30, 10)+`}`)
+	f.e.reply("GET", "/v1/machine", liveMachineDisk(30000, true, 30<<30))
+	f.mu.Lock()
+	f.madeHere = true
+	f.mu.Unlock()
+	if err := leftCopy(context.Background(), f.e.srv.db, movedServer, f.local, f.alex.id, 0); err != nil {
+		t.Fatal(err)
+	}
+	f.e.answer("POST /v1/servers/"+movedServer+"/delete", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		f.madeHere = false
+		f.mu.Unlock()
+		f.e.reply("GET", "/v1/machine", liveMachineDisk(30000, true, 50<<30))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, `{"id":"op-old","status":"running"}`)
+	})
+	f.e.reply("GET", "/v1/operations/op-old", `{"id":"op-old","status":"succeeded"}`)
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex again to the machine their failed move left a copy on: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+}
+
 // A server that no longer fits on the other machine's disk by its turn, as
 // when that disk filled meanwhile, isn't stopped: the move stops before it,
 // saying why, and it keeps running where it is.
