@@ -57,11 +57,11 @@ schema: article
     (dict "Title" "Deploy the store on Whop" "Text" (html `Open the <a href="https://whop.com/blueprints/app_h3NhVSwzpw0Z6h">Playkeeper Hosting blueprint</a> and choose Deploy. Pick a business, or make one, and your store's address. You get the plans above and a store site that says it's not taking orders yet.`))
     (dict "Title" "Connect the two" "Text" (html `In Playkeeper, open <strong>Settings › Sell on Whop</strong>. Make an API key on Whop, under Developer, with the permissions the page lists, and paste it. The page then shows your plans and what each lets a buyer create.`))
     (dict "Title" "Turn on Sign in with Whop" "Text" (html `In Whop's developer dashboard, make an app and add the redirect URL that Settings › Sell on Whop shows. On the app's own Permissions tab, not on an API key, add <code>oauth:token_exchange</code> and save. Paste the app's ID and client secret in Settings › Sell on Whop, and buyers sign in with their Whop account.`))
-    (dict "Title" "Open the store" "Text" "On Whop, make the plans visible and give each a stock: how many more buyers your VPS can take. Whop stops selling a plan when its stock runs out.")
+    (dict "Title" "Open the store" "Text" "On Whop, make the plans visible. Playkeeper keeps each plan's stock to how many more buyers your VPS can take, so Whop stops selling a plan while the VPS is full.")
   ))}}
   <p class="p-lead">Install Playkeeper on a VPS with one command:</p>
   {{template "install" (dict "ID" true)}}
-  <p>To see it work before anyone pays, add a free hidden plan with a stock of 1 and claim it from its link. The ready message arrives in Whop's chat, and you sign in to your dashboard with Whop.</p>
+  <p>To see it work before anyone pays, add a free hidden plan on Whop, give it an allowance in Settings › Sell on Whop, and claim it from its link with another Whop account. The ready message arrives in that account's Whop messages, and it signs in to your dashboard with Whop.</p>
 </section>
 
 <section aria-labelledby="buyers">
