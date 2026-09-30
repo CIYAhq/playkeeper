@@ -343,17 +343,17 @@ func (s *Server) refreshWhopPlans(ctx context.Context, c *whop.Client, a whopAcc
 }
 
 // whopStoreDue says whether the reconciler reads the store this pass: every
-// whopPollEvery; a minute after the last read when the products name
-// another address than the dashboard's, since the store sends buyers there
-// and the old one may no longer answer (the dashboard losing port 443, say);
-// and two minutes after it when a membership is of a plan the dashboard
-// hasn't read yet.
+// whopPollEvery; at once when the products name another address than the
+// dashboard's, since the store sends buyers there and the old one may no
+// longer answer (the dashboard losing port 443, say), but only a minute
+// after a read that failed; and two minutes after the last read when a
+// membership is of a plan the dashboard hasn't read yet.
 func (s *Server) whopStoreDue(ctx context.Context, a whopAccount) bool {
 	since := s.now().Sub(a.SyncedAt)
 	if since >= whopPollEvery {
 		return true
 	}
-	if since >= time.Minute {
+	if a.Problem == "" || since >= time.Minute {
 		if dash, err := s.dashboardURL(ctx); err == nil && dash != "" && dash != a.MarkedAs {
 			return true
 		}

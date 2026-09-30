@@ -6680,8 +6680,12 @@ control "only a public address counts as a visit from outside" internal/panel/da
   'return ip, ip.IsGlobalUnicast()' \
   ./internal/panel '^TestPort443TellsTheAgentABrowserFromOutsideReachedIt$'
 control "the agent hears of a visit from outside once" internal/panel/dashboard443.go \
-  'due := p.dashboard && !p.reached && !p.reporting && host != "" && now.Sub(p.reportedAt) >= reportAgainAfter' \
+  'due := p.dashboard && !p.reached && !p.reporting && host != "" && now.Sub(p.reportedAt[key]) >= reportAgainAfter' \
   'due := p.dashboard && host != ""' \
+  ./internal/panel '^TestPort443TellsTheAgentABrowserFromOutsideReachedIt$'
+control "a visit from the machine's own address doesn't hold up one from outside" internal/panel/dashboard443.go \
+  '	key := from' \
+  '	key := netip.Addr{}' \
   ./internal/panel '^TestPort443TellsTheAgentABrowserFromOutsideReachedIt$'
 control "the dashboard's pages may connect only to a DNS name on port 443" internal/panel/dashboard443.go \
   'if !reDomainName.MatchString(host) {' \
@@ -6707,14 +6711,14 @@ control "Turn on refuses a Whop app that lists neither redirect URL" internal/pa
   'if accepted, known := s.whopAccepts(ctx, o, false); known && !accepted {' \
   'if accepted, known := s.whopAccepts(ctx, o, false); false && known && !accepted {' \
   ./internal/panel '^TestSignInWithWhopKeepsARedirectURLTheAppLists$'
-control "the store's marks follow the dashboard's port within a minute" internal/panel/whop_customers.go \
+control "the store's marks follow the dashboard's port at once" internal/panel/whop_customers.go \
   'err == nil && dash != "" && dash != a.MarkedAs {' \
   'err == nil && false && dash != a.MarkedAs {' \
-  ./internal/panel '^TestTheStoreFollowsTheDashboardsPortWithinAMinute$'
+  ./internal/panel '^TestTheStoreFollowsTheDashboardsPortAtOnce$'
 control "a Whop refusing the marks is asked again a minute later, not every pass" internal/panel/whop_customers.go \
-  '	if since >= time.Minute {' \
-  '	if since >= 0 {' \
-  ./internal/panel '^TestTheStoreFollowsTheDashboardsPortWithinAMinute$'
+  '	if a.Problem == "" || since >= time.Minute {' \
+  '	if true {' \
+  ./internal/panel '^TestTheStoreFollowsTheDashboardsPortAtOnce$'
 control "a new install leaves the dashboard on 8443 while something has port 443" internal/install/install.go \
   'return o.Join == "" && f.Port443 == "" && !f.ReuseData' \
   'return o.Join == "" && !f.ReuseData' \

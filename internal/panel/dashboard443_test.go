@@ -375,11 +375,11 @@ func TestTheDashboardsAddressFollowsItsPort(t *testing.T) {
 }
 
 // The store sends buyers to the address its products name, so the marks
-// follow the dashboard's port a minute after the last read of the store
-// rather than at the ten-minute one: losing port 443 closes the address
-// without a port. The webhook follows at once, and a Whop refusing the
-// marks is asked again a minute later, not at every pass.
-func TestTheStoreFollowsTheDashboardsPortWithinAMinute(t *testing.T) {
+// follow the dashboard's port at once, as the webhook does, rather than at
+// the next ten-minute read of the store: losing port 443 closes the address
+// without a port. A Whop refusing the marks is asked again a minute later,
+// not at every pass.
+func TestTheStoreFollowsTheDashboardsPortAtOnce(t *testing.T) {
 	f, e, _ := connectedWhop(t)
 	const bare = "https://beta.playkeeper.me"
 	port := func(p int) {
@@ -403,7 +403,6 @@ func TestTheStoreFollowsTheDashboardsPortWithinAMinute(t *testing.T) {
 	}
 
 	port(443)
-	e.clock.add(time.Minute)
 	e.reconcile()
 	if f.dashboardMeta() != bare || hook() != bare+whopWebhookPath {
 		t.Fatalf("on port 443: the store names %q, the webhook %v", f.dashboardMeta(), hook())
@@ -417,7 +416,6 @@ func TestTheStoreFollowsTheDashboardsPortWithinAMinute(t *testing.T) {
 
 	port(8443)
 	f.refuseMarks(true)
-	e.clock.add(time.Minute)
 	e.reconcile()
 	if hook() != whopDashboard+whopWebhookPath || f.dashboardMeta() != bare {
 		t.Fatalf("with Whop refusing the marks: the webhook %v, the store names %q", hook(), f.dashboardMeta())
