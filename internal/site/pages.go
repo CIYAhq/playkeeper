@@ -55,6 +55,9 @@ type Page struct {
 	// location in nginx gets a Content-Security-Policy that lets the site's
 	// media in, which the site's own doesn't. /start's location does already.
 	Film bool
+	// Short is the page's short address for posts and videos, like /ai:
+	// nginx sends it on to the page with its query string, UTM tags and all.
+	Short string
 	// Partner names the provider (providers) whose partner links a guide
 	// carries; its top then says so, while the provider has one.
 	Partner string
@@ -221,6 +224,11 @@ func parsePage(src string) (*Page, error) {
 				return nil, fmt.Errorf("film is true or false, not %q", value)
 			}
 			p.Film = b
+		case "short":
+			if !reShort.MatchString(value) {
+				return nil, fmt.Errorf("short is an address like /ai, one word of a-z, 0-9 and -, not %q", value)
+			}
+			p.Short = value
 		case "partner":
 			p.Partner = value
 		case "scripts":

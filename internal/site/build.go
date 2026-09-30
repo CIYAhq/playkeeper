@@ -150,6 +150,9 @@ func Build(o Options) (*Output, error) {
 		}
 	}
 	sort.SliceStable(s.posts, func(i, j int) bool { return s.posts[i].Published > s.posts[j].Published })
+	if err := checkShort(s.pages); err != nil {
+		return nil, err
+	}
 	if err := s.addSearchIndex(); err != nil {
 		return nil, err
 	}
