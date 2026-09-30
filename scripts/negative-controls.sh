@@ -7934,6 +7934,35 @@ control "app stores: the owner comes from one of the business's products" intern
   '"/accounts/"+url.PathEscape(accountID)' \
   ./internal/panel '^TestAStoresMessagesGoOutInItsOwnChats$'
 
+# Whop's user tokens (the hosted blueprint's 2.1, internal/whop/usertoken.go):
+# a seller's page and its calls are taken only with a token Whop signed for
+# this app, for a user, and not expired, and Whop's keys aren't read at
+# every request.
+control "user tokens: only Whop's signature" internal/whop/usertoken.go \
+  'if ecdsa.Verify(k, sum[:], r, s) {' \
+  'if true {' \
+  ./internal/whop '^TestUserTokensAreWhopsForTheAppAndUnexpired$'
+control "user tokens: only for this app" internal/whop/usertoken.go \
+  'aud != app || app == "" || ' \
+  '' \
+  ./internal/whop '^TestUserTokensAreWhopsForTheAppAndUnexpired$'
+control "user tokens: only unexpired" internal/whop/usertoken.go \
+  'claims.Exp == nil || !now.Before(time.Unix(int64(*claims.Exp), 0))' \
+  'claims.Exp == nil' \
+  ./internal/whop '^TestUserTokensAreWhopsForTheAppAndUnexpired$'
+control "user tokens: only Whop's proxy issues them" internal/whop/usertoken.go \
+  'claims.Iss != userTokenIssuer || ' \
+  '' \
+  ./internal/whop '^TestUserTokensAreWhopsForTheAppAndUnexpired$'
+control "user tokens: only ES256" internal/whop/usertoken.go \
+  'head.Alg != "ES256"' \
+  'false' \
+  ./internal/whop '^TestUserTokensAreWhopsForTheAppAndUnexpired$'
+control "user tokens: Whop's keys aren't read at every request" internal/whop/usertoken.go \
+  ' && (u.triedAt.IsZero() || now.Sub(u.triedAt) >= keysCooldown)' \
+  '' \
+  ./internal/whop '^TestUserTokensFollowWhopsKeysWithoutAskingAtEveryRequest$'
+
 # Playkeeper Cloud's ready server (internal/panel/readyserver.go): a
 # customer is told once that their server is ready, or being set up.
 control "ready server: ready is said once" internal/panel/readyserver.go \
