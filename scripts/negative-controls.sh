@@ -9557,6 +9557,10 @@ control "moving customers: whoever starts or stops a server since its failed mov
   '		s.forwardThen(http.MethodPost, pattern, func(machine, *session, json.RawMessage) { s.forgetRestart(id) })(w, r, sess)' \
   '		s.forwardThen(http.MethodPost, pattern, func(machine, *session, json.RawMessage) { _ = id })(w, r, sess)' \
   ./internal/panel '^TestAServerStoppedSinceItsFailedMoveStaysStopped$'
+control "whole folders: a folder whose manifest a move can't carry is refused when measured" internal/backup/staging.go \
+  '	if _, err := marshalManifest(m, lim); err != nil {' \
+  '	if _, err := marshalManifest(m, lim); err != nil && false {' \
+  ./internal/backup '^TestAWholeFolderIsMeasuredAsItArrives$'
 control "moving customers: an AI agent's start or stop since a failed move decides whether the server runs" internal/panel/mcp.go \
   '	if server != nil && runTools[tool] {' \
   '	if server != nil && runTools[tool] && false {' \
