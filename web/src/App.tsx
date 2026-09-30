@@ -74,6 +74,9 @@ export function App() {
   // takes the address to the bare sign-in page, and forgotten once someone
   // signs in, so a later sign-out doesn't show it again.
   const [whopError, setWhopError] = useState(() => new URLSearchParams(window.location.search).get('whop') ?? undefined)
+  // The store a customer's sign-in link is for, so someone who bought from
+  // two stores signs in to that store's account.
+  const [whopStore] = useState(() => new URLSearchParams(window.location.search).get('store') ?? undefined)
 
   const signedIn = useCallback((m: Me) => {
     setCsrfToken(m.csrfToken)
@@ -173,6 +176,7 @@ export function App() {
               version={status?.version}
               whopSignIn={status?.whopSignIn}
               whopError={whopError}
+              whopStore={whopStore}
               onDone={(m) => {
                 signedIn(m)
                 navigate(afterSignIn(window.location), true)

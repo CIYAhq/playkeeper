@@ -7615,10 +7615,11 @@ webcontrol "dashboard disk limits: the Team page's default disk matches the dash
   src/pages/pages.test.tsx 'disk, and how much their servers take once'
 
 # Playkeeper Cloud's customer accounts (internal/panel/customers.go): each
-# customer gets an account of their own, found by provider and id alone.
-control "customers: an account is found by provider and id, and made once" internal/panel/customers.go \
-  'WHERE c.provider = ? AND c.subject = ?`' \
-  'WHERE c.provider = ? AND c.subject = ? AND 0`' \
+# customer gets an account of their own, found by provider, store and id
+# alone.
+control "customers: an account is found by provider, store and id, and made once" internal/panel/customers.go \
+  'WHERE c.provider = ? AND c.store = ? AND c.subject = ?`' \
+  'WHERE c.provider = ? AND c.store = ? AND c.subject = ? AND 0`' \
   ./internal/panel '^TestACustomerGetsAnAccountOfTheirOwn$'
 control "customers: a name an account has is never taken" internal/panel/customers.go \
   'if n == 0 {' \
@@ -7685,6 +7686,87 @@ webcontrol "customers: the Team page names a customer's role" web/src/pages/team
   '' \
   src/pages/pages.test.tsx 'shows a customer as one, signing in with Whop'
 
+# Customers per store (the hosted blueprint's 1.2): someone who buys from two
+# stores has two accounts that share nothing, found only with their store;
+# what they're told goes only to that store's chat, and Sign in with Whop
+# opens the account of the store the sign-in is for.
+control "customers per store: an account is found only with its store" internal/panel/customers.go \
+  'WHERE c.provider = ? AND c.store = ? AND c.subject = ?`' \
+  'WHERE c.provider = ? AND (c.store = ? OR 1) AND c.subject = ?`' \
+  ./internal/panel '^TestACustomerOfTwoStoresHasTwoAccounts$'
+control "customers per store: a new account keeps its store" internal/panel/customers.go \
+  'id, cust.Provider, cust.Store, cust.Subject, cust.Handle, p.ID, string(CustomerActive), now, now); err != nil {' \
+  'id, cust.Provider, cust.Store[:0], cust.Subject, cust.Handle, p.ID, string(CustomerActive), now, now); err != nil {' \
+  ./internal/panel '^TestACustomerOfTwoStoresHasTwoAccounts$'
+control "customers per store: a customer needs a store" internal/panel/customers.go \
+  'cust.Store == "" || len(cust.Store) > maxCustomerStore ||' \
+  'false && cust.Store == "" || len(cust.Store) > maxCustomerStore ||' \
+  ./internal/panel '^TestTheCoreRefusesWhatIsntACustomer$'
+control "customers per store: no customer is found without a store" internal/panel/customers.go \
+  'if store == "" {' \
+  'if false {' \
+  ./internal/panel '^TestTheStoreConnectedNextTakesOnTheCustomersFromBeforeStores$'
+control "customers per store: a customer from before stores is in no store" internal/panel/customers.go \
+  "AND store != '' ORDER BY created_at, user_id" \
+  'ORDER BY created_at, user_id' \
+  ./internal/panel '^TestTheStoreConnectedNextTakesOnTheCustomersFromBeforeStores$'
+control "customers per store: a Whop user has an account at each store they buy from" internal/panel/auth.go \
+  '  UNIQUE(provider, store, subject)' \
+  '  UNIQUE(provider, subject)' \
+  ./internal/panel '^TestTheMigrationGivesCustomersTheirStore$'
+control "customers per store: never two accounts at one store" internal/panel/auth.go \
+  '  UNIQUE(provider, store, subject)' \
+  '  UNIQUE(provider, store, subject, user_id)' \
+  ./internal/panel '^TestTheMigrationGivesCustomersTheirStore$'
+control "customers per store: the migration gives Whop customers the store sold for" internal/panel/auth.go \
+  "CASE WHEN provider = 'whop' THEN COALESCE((SELECT account_id FROM whop_account WHERE id = 1), '') ELSE '' END" \
+  "''" \
+  ./internal/panel '^TestTheMigrationGivesCustomersTheirStore$'
+control "customers per store: only customers of no store are taken on" internal/panel/whop.go \
+  "customers SET store = ? WHERE provider = ? AND store = ''" \
+  'customers SET store = ? WHERE provider = ? AND store = store' \
+  ./internal/panel '^TestTheStoreConnectedNextTakesOnTheCustomersFromBeforeStores$'
+control "customers per store: the Whop side starts each customer at its store" internal/panel/whop_customers.go \
+  'cust := Customer{Provider: whopProvider, Store: store, Subject: wc.WhopUserID, Handle: wc.Handle}' \
+  'cust := Customer{Provider: whopProvider, Store: store[:0], Subject: wc.WhopUserID, Handle: wc.Handle}' \
+  ./internal/panel '^TestAConfirmedMembershipStartsTheCustomerAndTheCoresMessageReachesThem$'
+control "customers per store: a message goes only to its customer's store's chat" internal/panel/whop_customers.go \
+  'if store == "" || store != selling {' \
+  'if store == "" {' \
+  ./internal/panel '^TestTheNotifierTakesOnlyWhopCustomersAndSendsTheirMessagesInOrder$'
+control "customers per store: nothing is taken for a customer of no store" internal/panel/whop_customers.go \
+  'if store == "" || store != selling {' \
+  'if store != selling {' \
+  ./internal/panel '^TestTheStoreConnectedNextTakesOnTheCustomersFromBeforeStores$'
+control "customers per store: a waiting customer's message names their store" internal/panel/readyserver.go \
+  'Scan(&cust.Provider, &cust.Store, &cust.Subject, &cust.Handle, &state, &planID, &al.Servers, &al.MemoryMB, &al.DiskGB)' \
+  'Scan(&cust.Provider, new(string), &cust.Subject, &cust.Handle, &state, &planID, &al.Servers, &al.MemoryMB, &al.DiskGB)' \
+  ./internal/panel '^TestACustomerWaitingForRoomIsPlacedOnceThereIsRoom$'
+control "customers per store: a lapsed customer's message names their store" internal/panel/deletion.go \
+  'Scan(&info.customer.Provider, &info.customer.Store, &info.customer.Subject' \
+  'Scan(&info.customer.Provider, new(string), &info.customer.Subject' \
+  ./internal/panel '^TestALapsedCustomersServersGoWithAFinalBackupKept$'
+control "customers per store: a sign-in keeps the store it's for" internal/panel/whop_signin.go \
+  'tokenHash(state), verifier, now.UnixMilli(), store); err != nil {' \
+  'tokenHash(state), verifier, now.UnixMilli(), store[:0]); err != nil {' \
+  ./internal/panel '^TestSignInWithWhopOpensTheStoresAccount$'
+control "customers per store: coming back from Whop opens the store's account" internal/panel/whop_signin.go \
+  'acct, ok, err := s.signInAccount(ctx, store, who.Subject)' \
+  'acct, ok, err := s.signInAccount(ctx, "", who.Subject)' \
+  ./internal/panel '^TestSignInWithWhopOpensTheStoresAccount$'
+control "customers per store: with accounts at two stores and none named, neither opens" internal/panel/whop_signin.go \
+  'case len(stores) > 1:' \
+  'case false:' \
+  ./internal/panel '^TestSignInWithWhopOpensTheStoresAccount$'
+control "customers per store: an account on its way is on its way at its own store" internal/panel/whop_signin.go \
+  '|| store != "" && store != selling {' \
+  ' {' \
+  ./internal/panel '^TestSignInWithWhopOpensTheStoresAccount$'
+webcontrol "customers per store: the sign-in page signs in for its link's store" web/src/pages/login.tsx \
+  'render={<a href={whopSignInFor(whopStore)} />}' \
+  'render={<a href={whopSignInFor()} />}' \
+  src/pages/login.test.tsx 'signs in for the store a customer'
+
 # Playkeeper Cloud's ready server (internal/panel/readyserver.go): a
 # customer is told once that their server is ready, or being set up.
 control "ready server: ready is said once" internal/panel/readyserver.go \
@@ -7692,8 +7774,8 @@ control "ready server: ready is said once" internal/panel/readyserver.go \
   'case false:' \
   ./internal/panel '^TestACustomerIsToldOnceTheirServerIsReady$'
 control "ready server: a ready message is kept only once it's sent" internal/panel/readyserver.go \
-  'if err := s.notifier.Notify(ctx, cust, CustomerMessage{Kind: messageReady, Text: s.readyText(ctx)}); err != nil {' \
-  'if err := s.notifier.Notify(ctx, cust, CustomerMessage{Kind: messageReady, Text: s.readyText(ctx)}); false && err != nil {' \
+  'if err := s.notifier.Notify(ctx, cust, CustomerMessage{Kind: messageReady, Text: s.readyText(ctx, cust)}); err != nil {' \
+  'if err := s.notifier.Notify(ctx, cust, CustomerMessage{Kind: messageReady, Text: s.readyText(ctx, cust)}); false && err != nil {' \
   ./internal/panel '^TestACustomerIsToldOnceTheirServerIsReady$'
 control "ready server: a start whose message wasn't sent says so" internal/panel/customers.go \
   'if err := s.tellPlaced(ctx, cust, info.UserID, placed); err != nil {' \
@@ -7955,7 +8037,7 @@ control "customer deletion: a customer who comes back is told their server is re
   '' \
   ./internal/panel '^TestARenewalKeepsWhatsLeft$'
 control "customer deletion: the customer is told" internal/panel/deletion.go \
-  'if err := s.notifier.Notify(ctx, info.customer, CustomerMessage{Kind: messageDeleted, Text: s.deletedText(ctx, until, deleted > 0)}); err != nil {' \
+  'if err := s.notifier.Notify(ctx, info.customer, CustomerMessage{Kind: messageDeleted, Text: s.deletedText(ctx, info.customer, until, deleted > 0)}); err != nil {' \
   'if err := error(nil); err != nil {' \
   ./internal/panel '^TestALapsedCustomersServersGoWithAFinalBackupKept$'
 control "customer deletion: the limits go out at once" internal/panel/deletion.go \

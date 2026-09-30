@@ -17,10 +17,12 @@ import (
 
 // The hosting core's customer accounts (hostingCore, in hosting.go). Each
 // customer a billing provider starts gets an account of their own, found
-// only by the provider and its id for them, never by name, so a handle that
-// matches an existing account, the owner's included, never reaches it. The
-// account's name is the handle in plain lower-case letters, digits and
-// dashes, numbered when that's taken, and the handle is kept as a label.
+// only by the provider, the store they bought from and the provider's id
+// for them, never by name, so a handle that matches an existing account,
+// the owner's included, never reaches it, and a customer of one store
+// never reaches an account of another's. The account's name is the handle
+// in plain lower-case letters, digits and dashes, numbered when that's
+// taken, and the handle is kept as a label.
 //
 // The account has no password, so password sign-in refuses it: it signs in
 // through its provider. Its plan, which the provider confirmed, makes it
@@ -47,6 +49,7 @@ var reservedNames = map[string]bool{"admin": true, "administrator": true, "owner
 // Bounds of a customer as a billing provider names them.
 const (
 	maxCustomerProvider = 32
+	maxCustomerStore    = 64
 	maxCustomerSubject  = 128
 	maxCustomerHandle   = 64
 	maxCustomerBase     = 28
@@ -65,7 +68,7 @@ func (c customerCore) StartCustomer(ctx context.Context, cust Customer, p Custom
 	}
 	s.customersMu.Lock()
 	defer s.customersMu.Unlock()
-	info, ok, err := c.CustomerAccount(ctx, cust.Provider, cust.Subject)
+	info, ok, err := c.CustomerAccount(ctx, cust.Provider, cust.Store, cust.Subject)
 	switch {
 	case err != nil:
 		return StartedCustomer{}, err
@@ -104,7 +107,7 @@ func (c customerCore) ChangeCustomerPlan(ctx context.Context, cust Customer, p C
 	}
 	c.s.customersMu.Lock()
 	defer c.s.customersMu.Unlock()
-	info, ok, err := c.CustomerAccount(ctx, cust.Provider, cust.Subject)
+	info, ok, err := c.CustomerAccount(ctx, cust.Provider, cust.Store, cust.Subject)
 	switch {
 	case err != nil:
 		return err
@@ -114,13 +117,17 @@ func (c customerCore) ChangeCustomerPlan(ctx context.Context, cust Customer, p C
 	return c.s.applyCustomerPlan(ctx, cust, info, p, al)
 }
 
-// CustomerAccount says which account the customer is, found by provider
-// and subject alone. Any account but a suspended one may sign in.
-func (c customerCore) CustomerAccount(ctx context.Context, provider, subject string) (CustomerAccountInfo, bool, error) {
+// CustomerAccount says which account the store's customer is, found by
+// provider, store and subject alone. Any account but a suspended one may
+// sign in. No customer is found without a store.
+func (c customerCore) CustomerAccount(ctx context.Context, provider, store, subject string) (CustomerAccountInfo, bool, error) {
+	if store == "" {
+		return CustomerAccountInfo{}, false, nil
+	}
 	var info CustomerAccountInfo
 	var state string
 	err := c.s.db.QueryRowContext(ctx, `SELECT c.user_id, u.username, c.state FROM customers c JOIN users u ON u.id = c.user_id
-		WHERE c.provider = ? AND c.subject = ?`, provider, subject).Scan(&info.UserID, &info.Username, &state)
+		WHERE c.provider = ? AND c.store = ? AND c.subject = ?`, provider, store, subject).Scan(&info.UserID, &info.Username, &state)
 	switch {
 	case isNoRows(err):
 		return CustomerAccountInfo{}, false, nil
@@ -132,12 +139,34 @@ func (c customerCore) CustomerAccount(ctx context.Context, provider, subject str
 	return info, true, nil
 }
 
+// CustomerStores lists the stores where the provider's subject has an
+// account, the oldest first.
+func (c customerCore) CustomerStores(ctx context.Context, provider, subject string) ([]string, error) {
+	rows, err := c.s.db.QueryContext(ctx, `SELECT store FROM customers WHERE provider = ? AND subject = ? AND store != '' ORDER BY created_at, user_id`, provider, subject)
+	if err != nil {
+		return nil, errDB
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var store string
+		if err := rows.Scan(&store); err != nil {
+			return nil, errDB
+		}
+		out = append(out, store)
+	}
+	if rows.Err() != nil {
+		return nil, errDB
+	}
+	return out, nil
+}
+
 // customerAllowance checks a customer as their billing provider names them,
 // and gives their plan as an allowance.
 func customerAllowance(cust Customer, p CustomerPlan) (invites.Allowance, error) {
 	if cust.Provider == "" || len(cust.Provider) > maxCustomerProvider || cust.Subject == "" || len(cust.Subject) > maxCustomerSubject ||
-		len(cust.Handle) > maxCustomerHandle || !printable(cust.Provider+cust.Subject+cust.Handle) {
-		return invites.Allowance{}, errors.New("a customer needs a provider and its id for them")
+		cust.Store == "" || len(cust.Store) > maxCustomerStore || len(cust.Handle) > maxCustomerHandle || !printable(cust.Provider+cust.Store+cust.Subject+cust.Handle) {
+		return invites.Allowance{}, errors.New("a customer needs a provider, the store they bought from and the provider's id for them")
 	}
 	al := invites.Allowance{Servers: p.Servers, MemoryMB: p.MemoryMB, DiskGB: p.DiskGB}
 	if err := al.Check(); err != nil {
@@ -178,8 +207,8 @@ func (s *Server) makeCustomerAccount(ctx context.Context, cust Customer, p Custo
 			VALUES(?,?,?,?,?,?,?,?)`, project, id, invites.RoleAdmin, "", al.Servers, al.MemoryMB, al.DiskGB, now); err != nil {
 			return err
 		}
-		if _, err := conn.ExecContext(ctx, `INSERT INTO customers(user_id, provider, subject, handle, plan_id, state, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)`,
-			id, cust.Provider, cust.Subject, cust.Handle, p.ID, string(CustomerActive), now, now); err != nil {
+		if _, err := conn.ExecContext(ctx, `INSERT INTO customers(user_id, provider, store, subject, handle, plan_id, state, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+			id, cust.Provider, cust.Store, cust.Subject, cust.Handle, p.ID, string(CustomerActive), now, now); err != nil {
 			return err
 		}
 		info = CustomerAccountInfo{UserID: id, Username: name, State: CustomerActive, SignIn: true}
@@ -188,7 +217,7 @@ func (s *Server) makeCustomerAccount(ctx context.Context, cust Customer, p Custo
 	if err != nil {
 		return CustomerAccountInfo{}, err
 	}
-	s.audit(cust.Provider, "customer.start", info.Username, "succeeded", fmt.Sprintf("%s as %s; %s", cust.Subject, cust.Handle, allowanceText(al)))
+	s.audit(cust.Provider, "customer.start", info.Username, "succeeded", fmt.Sprintf("%s of %s as %s; %s", cust.Subject, cust.Store, cust.Handle, allowanceText(al)))
 	return info, nil
 }
 
