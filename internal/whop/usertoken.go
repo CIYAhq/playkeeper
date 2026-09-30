@@ -36,6 +36,9 @@ const (
 	// with a key they don't have, as when Whop rotates them.
 	keysKept     = 12 * time.Hour
 	keysCooldown = 30 * time.Second
+	// keysReadFor bounds a read of Whop's keys, which goes on when the
+	// request that started it gives up.
+	keysReadFor  = 10 * time.Second
 	maxUserToken = 8 << 10
 )
 
@@ -127,7 +130,11 @@ func (u *UserTokens) keysFor(ctx context.Context, kid string, fresh bool, now ti
 	due := u.keys == nil || now.Sub(u.fetchedAt) >= keysKept || (fresh && (kid == "" || !known))
 	if due && (u.triedAt.IsZero() || now.Sub(u.triedAt) >= keysCooldown) {
 		u.triedAt = now
-		keys, err := u.fetch(ctx)
+		// A read cut short by its caller would start the cooldown with no
+		// keys, refusing every token until it ends, so it outlives the caller.
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), keysReadFor)
+		keys, err := u.fetch(rctx)
+		cancel()
 		if err == nil {
 			u.keys, u.fetchedAt = keys, now
 		} else if u.keys == nil {
