@@ -75,6 +75,12 @@ type fakeDocker struct {
 	networkIPv6   bool
 	networkDriver string
 	networkBridge string
+	// work counts the requests the fake is answering and the containers it
+	// is booting, and closed ends with the test. The fake's cleanup waits
+	// for work, so none of it writes into the test's folders, as a boot's
+	// world does, while they are removed after it.
+	work   sync.WaitGroup
+	closed chan struct{}
 }
 
 // fakeNetworkID is the ID Docker gives Playkeeper's network, which makes its
@@ -148,15 +154,41 @@ type fakeContainer struct {
 
 func startFakeDocker(t *testing.T, sock string) *fakeDocker {
 	t.Helper()
-	fd := &fakeDocker{t: t, images: map[string]bool{}, networks: map[string]map[string]string{}, byName: map[string]*fakeContainer{}, byID: map[string]*fakeContainer{}, jarContent: []byte("fake paper jar"), bootDelay: 30 * time.Millisecond}
+	fd := &fakeDocker{t: t, images: map[string]bool{}, networks: map[string]map[string]string{}, byName: map[string]*fakeContainer{}, byID: map[string]*fakeContainer{}, jarContent: []byte("fake paper jar"), bootDelay: 30 * time.Millisecond, closed: make(chan struct{})}
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &http.Server{Handler: http.HandlerFunc(fd.serve)}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !fd.begin() {
+			jsonOut(w, 503, map[string]string{"message": "fake Docker has stopped"})
+			return
+		}
+		defer fd.work.Done()
+		fd.serve(w, r)
+	})}
 	go srv.Serve(ln)
-	t.Cleanup(func() { srv.Close() })
+	t.Cleanup(func() {
+		srv.Close()
+		fd.mu.Lock()
+		close(fd.closed)
+		fd.mu.Unlock()
+		fd.work.Wait()
+	})
 	return fd
+}
+
+// begin counts a request or a boot as work, unless the test has ended.
+func (fd *fakeDocker) begin() bool {
+	fd.mu.Lock()
+	defer fd.mu.Unlock()
+	select {
+	case <-fd.closed:
+		return false
+	default:
+		fd.work.Add(1)
+		return true
+	}
 }
 
 func (fd *fakeDocker) log(c *fakeContainer, text string) {
@@ -502,7 +534,12 @@ func (fd *fakeDocker) container(w http.ResponseWriter, r *http.Request, c *fakeC
 		if started != nil && !setup {
 			started(c)
 		}
-		go fd.boot(c, setup)
+		if fd.begin() {
+			go func() {
+				defer fd.work.Done()
+				fd.boot(c, setup)
+			}()
+		}
 		w.WriteHeader(204)
 	case r.Method == "POST" && action == "update":
 		var body struct {
@@ -569,7 +606,11 @@ func (fd *fakeDocker) boot(c *fakeContainer, setup bool) {
 	if before != nil && !setup {
 		before()
 	}
-	time.Sleep(delay)
+	select {
+	case <-time.After(delay):
+	case <-fd.closed:
+		return
+	}
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
 	if !c.running {
