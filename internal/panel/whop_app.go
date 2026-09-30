@@ -36,12 +36,18 @@ type whopApp struct {
 	// is read again (see whopAppEvery).
 	WebhookSecret string
 	HookedAt      time.Time
+	// ShareUser is the Whop user Playkeeper's share of the app stores' sales
+	// goes to (user_…), "" while the owner hasn't named one, and
+	// ShareUsername their username.
+	ShareUser     string
+	ShareUsername string
 }
 
 func (s *Server) readWhopApp(ctx context.Context) (whopApp, error) {
 	var a whopApp
 	var hooked int64
-	err := s.db.QueryRowContext(ctx, `SELECT api_key, webhook_secret, hooked_at FROM whop_app WHERE id = 1`).Scan(&a.Key, &a.WebhookSecret, &hooked)
+	err := s.db.QueryRowContext(ctx, `SELECT api_key, webhook_secret, hooked_at, share_user, share_username FROM whop_app WHERE id = 1`).Scan(
+		&a.Key, &a.WebhookSecret, &hooked, &a.ShareUser, &a.ShareUsername)
 	if errors.Is(err, sql.ErrNoRows) {
 		return whopApp{}, nil
 	}
@@ -158,6 +164,9 @@ type whopAppView struct {
 	// the machine has no address.
 	Webhook    bool   `json:"webhook"`
 	WebhookURL string `json:"webhookUrl,omitempty"`
+	// ShareUser is the username of the Whop user Playkeeper's share goes
+	// to, while the owner has named one.
+	ShareUser string `json:"shareUser,omitempty"`
 }
 
 func (s *Server) whopAppView(ctx context.Context, dash string) (whopAppView, error) {
@@ -165,7 +174,7 @@ func (s *Server) whopAppView(ctx context.Context, dash string) (whopAppView, err
 	if err != nil {
 		return whopAppView{}, err
 	}
-	v := whopAppView{KeyEnding: whop.Ending(app.Key), Webhook: app.WebhookSecret != ""}
+	v := whopAppView{KeyEnding: whop.Ending(app.Key), Webhook: app.WebhookSecret != "", ShareUser: cmpOr(app.ShareUsername, app.ShareUser)}
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM whop_stores WHERE via = ?`, whopViaApp).Scan(&v.Stores); err != nil {
 		return whopAppView{}, err
 	}
@@ -176,19 +185,26 @@ func (s *Server) whopAppView(ctx context.Context, dash string) (whopAppView, err
 }
 
 // whopAppBody is what the owner sets of the Playkeeper Cloud app: its API
-// key, and the secret of the webhook they made for it on Whop. A field left
-// out stays as it is, and an empty one clears it.
+// key, the secret of the webhook they made for it on Whop, and the Whop
+// user Playkeeper's share goes to, by username or id. A field left out
+// stays as it is, and an empty one clears it.
 type whopAppBody struct {
 	Key           *string `json:"key"`
 	WebhookSecret *string `json:"webhookSecret"`
+	ShareUser     *string `json:"shareUser"`
 }
 
-// hWhopAppSet keeps the Playkeeper Cloud app's key, or its webhook's
-// secret.
+// hWhopAppSet keeps the Playkeeper Cloud app's key, its webhook's secret,
+// or who receives Playkeeper's share.
 func (s *Server) hWhopAppSet(w http.ResponseWriter, r *http.Request, sess *session) {
 	var req whopAppBody
-	if err := decodeJSON(r, &req); err != nil || (req.Key == nil && req.WebhookSecret == nil) {
+	if err := decodeJSON(r, &req); err != nil || (req.Key == nil && req.WebhookSecret == nil && req.ShareUser == nil) ||
+		(req.ShareUser != nil && (req.Key != nil || req.WebhookSecret != nil)) {
 		writeErr(w, http.StatusBadRequest, api.CodeInvalid, "Invalid request.", "")
+		return
+	}
+	if req.ShareUser != nil {
+		s.setWhopShareUser(w, r, sess, *req.ShareUser)
 		return
 	}
 	var key, secret string

@@ -428,7 +428,7 @@ func TestRevenueSharesAreAPercentageOfEachPaymentBeforeFees(t *testing.T) {
 	}
 	if got := strings.Join(sent, "\n"); got != `POST {"account_id":"biz_seller","user_identifier":"playkeeper"}`+"\n"+
 		`POST {"commission_type":"percentage","commission_value":70.84,"override_type":"rev_share","product_id":"prod_4gb","revenue_basis":"pre_fees"}`+"\n"+
-		`PATCH {"commission_value":56.67}` {
+		`PATCH {"commission_type":"percentage","commission_value":56.67,"revenue_basis":"pre_fees"}` {
 		t.Fatalf("requests:\n%s", got)
 	}
 	for _, bad := range []struct {
@@ -452,6 +452,7 @@ func TestSharePercentPaysAtLeastTheFee(t *testing.T) {
 		dollars, price, want float64
 	}{
 		{8.5, 12, 70.84}, {8.5, 15, 56.67}, {8.5, 20, 42.5}, {8.5, 10, 85}, {8.5, 8.5, 100}, {17, 24, 70.84}, {8.5, 12.99, 65.44},
+		{8.5, 850, 1}, {8.5, 900, 1}, {8.5, 2000, 1},
 	} {
 		got, err := SharePercent(c.dollars, c.price)
 		if err != nil || got != c.want {
@@ -481,6 +482,69 @@ func TestPaymentFeesListEveryLine(t *testing.T) {
 	fees, err := c.PaymentFees(context.Background(), "pay_1")
 	if err != nil || len(fees) != 2 || fees[1] != (PaymentFee{Type: "affiliate_program_fee", Origin: "affiliate_fee", Label: "Revenue share", Settled: Money{Amount: "8.50", Currency: "usd"}}) {
 		t.Fatalf("PaymentFees = %+v, %v", fees, err)
+	}
+}
+
+// Whop writes money as exact decimals; Minor reads them in the smallest
+// unit, and refuses anything that isn't exactly that.
+func TestMoneyIsReadExactlyInTheSmallestUnit(t *testing.T) {
+	for _, c := range []struct {
+		m    Money
+		want int64
+	}{
+		{Money{Amount: "8.50", Currency: "usd", Decimals: 2}, 850},
+		{Money{Amount: "8.5", Currency: "usd", Decimals: 2}, 850},
+		{Money{Amount: "12", Currency: "usd", Decimals: 2}, 1200},
+		{Money{Amount: "-8.50", Currency: "usd", Decimals: 2}, -850},
+		{Money{Amount: "0.01", Currency: "usd", Decimals: 2}, 1},
+		{Money{Amount: "1500", Currency: "jpy", Decimals: 0}, 1500},
+	} {
+		if got, err := c.m.Minor(); err != nil || got != c.want {
+			t.Errorf("Minor(%+v) = %d, %v; want %d", c.m, got, err, c.want)
+		}
+	}
+	for _, m := range []Money{
+		{Amount: "8.505", Currency: "usd", Decimals: 2},
+		{Amount: "8.50", Currency: "usd"},
+		{Amount: "", Currency: "usd", Decimals: 2},
+		{Amount: ".50", Currency: "usd", Decimals: 2},
+		{Amount: "8,50", Currency: "usd", Decimals: 2},
+		{Amount: "1e3", Currency: "usd", Decimals: 2},
+		{Amount: "--8", Currency: "usd", Decimals: 2},
+		{Amount: "99999999999999", Currency: "usd", Decimals: 2},
+	} {
+		if got, err := m.Minor(); err == nil {
+			t.Errorf("Minor(%+v) = %d, not refused", m, got)
+		}
+	}
+}
+
+// A membership's paid payments are read newest first, from its account,
+// whatever order Whop's answer comes in.
+func TestPaidPaymentsAreAMembershipsNewestFirst(t *testing.T) {
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /payments": func(w http.ResponseWriter, r *http.Request) {
+			q := r.URL.Query()
+			if q.Get("account_id") != "biz_other" || q.Get("membership_id") != "mem_1" || q.Get("status") != "paid" || q.Get("first") != "10" ||
+				q.Get("order") != "paid_at" || q.Get("direction") != "desc" {
+				t.Errorf("GET /payments?%s", r.URL.RawQuery)
+			}
+			answer(map[string]any{"data": []map[string]any{
+				{"id": "pay_1", "status": "paid", "membership_id": "mem_1", "plan_id": "plan_other", "product_id": "prod_other",
+					"total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}, "paid_at": "2026-09-30T12:00:00.000Z", "billing_reason": "subscription_create"},
+				{"id": "pay_2", "status": "paid", "membership_id": "mem_1", "plan_id": "plan_other", "product_id": "prod_other",
+					"total": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}, "refunded_amount": nil,
+					"paid_at": "2026-10-30T12:00:00.000Z", "billing_reason": "subscription_cycle", "user": map[string]any{"id": "user_alex", "username": "alex"}},
+			}, "page_info": map[string]any{"has_next_page": true, "end_cursor": "c2"}})(w, r)
+		},
+	})
+	pays, err := c.PaidPayments(context.Background(), "biz_other", "mem_1")
+	if err != nil || len(pays) != 2 || pays[0].ID != "pay_2" || pays[0].Total == nil || pays[0].Refunded != nil || pays[0].User == nil || pays[0].User.ID != "user_alex" ||
+		pays[1].BillingReason != "subscription_create" || pays[1].User != nil {
+		t.Fatalf("PaidPayments = %+v, %v", pays, err)
+	}
+	if n, err := pays[0].Total.Minor(); err != nil || n != 1200 {
+		t.Fatalf("the newest payment's total: %d, %v", n, err)
 	}
 }
 

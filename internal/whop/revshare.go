@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
+	"strings"
 )
 
 // A revenue share pays a partner a percentage of every payment on a
@@ -33,14 +35,15 @@ type RevShare struct {
 }
 
 // SharePercent is the percentage of price that pays at least dollars:
-// dollars ÷ price, rounded up to two decimals, as Whop takes a percentage.
-// Whop caps a share at 100%, so a price under dollars can't carry it.
+// dollars ÷ price, rounded up to two decimals, as Whop takes a percentage,
+// and 1% at least, the least Whop takes. Whop caps a share at 100%, so a
+// price under dollars can't carry it.
 func SharePercent(dollars, price float64) (float64, error) {
 	d, p := int64(math.Round(dollars*100)), int64(math.Round(price*100))
 	if d <= 0 || p < d {
 		return 0, fmt.Errorf("a price of %.2f can't carry a share of %.2f, since Whop caps a share at 100%%", price, dollars)
 	}
-	return float64((d*10000+p-1)/p) / 100, nil
+	return float64(max((d*10000+p-1)/p, 100)) / 100, nil
 }
 
 // Partner makes user, by id or username, a partner of the account, or finds
@@ -72,15 +75,16 @@ func (c *Client) AddRevShare(ctx context.Context, partnerID, productID string, p
 	return r, err
 }
 
-// UpdateRevShare sets a partner's share to percent, as when its product's
-// price changed.
+// UpdateRevShare sets a partner's share to percent of the full price before
+// Whop's fees, as when its product's price changed, or the seller changed
+// how it's taken.
 func (c *Client) UpdateRevShare(ctx context.Context, partnerID, shareID string, percent float64) (RevShare, error) {
 	if err := checkSharePercent(percent); err != nil {
 		return RevShare{}, err
 	}
 	var r RevShare
 	err := c.do(ctx, http.MethodPatch, "/affiliates/"+url.PathEscape(partnerID)+"/overrides/"+url.PathEscape(shareID), nil,
-		map[string]any{"commission_value": percent}, &r)
+		map[string]any{"commission_type": "percentage", "commission_value": percent, "revenue_basis": "pre_fees"}, &r)
 	return r, err
 }
 
@@ -102,10 +106,32 @@ func (c *Client) RevShares(ctx context.Context, partnerID string) ([]RevShare, e
 	return slices.DeleteFunc(all, func(r RevShare) bool { return r.Type != "rev_share" }), nil
 }
 
-// Money is an amount as Whop writes it, such as "8.50" in usd.
+// Money is an amount as Whop writes it, such as "8.50" in usd: an exact
+// decimal in major units, carrying Decimals places.
 type Money struct {
 	Amount   string `json:"amount"`
 	Currency string `json:"currency"`
+	Decimals int    `json:"decimals"`
+}
+
+// Minor is the amount in the currency's smallest unit, such as cents, or an
+// error for an amount that isn't an exact decimal of at most Decimals
+// places.
+func (m Money) Minor() (int64, error) {
+	s := strings.TrimSpace(m.Amount)
+	neg := strings.HasPrefix(s, "-")
+	whole, frac, _ := strings.Cut(strings.TrimPrefix(s, "-"), ".")
+	if m.Decimals < 0 || m.Decimals > 8 || len(frac) > m.Decimals || whole == "" || strings.Trim(whole+frac, "0123456789") != "" || len(whole) > 12 {
+		return 0, fmt.Errorf("%q isn't an amount in %s", m.Amount, m.Currency)
+	}
+	n, err := strconv.ParseInt(whole+frac+strings.Repeat("0", m.Decimals-len(frac)), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%q isn't an amount in %s", m.Amount, m.Currency)
+	}
+	if neg {
+		n = -n
+	}
+	return n, nil
 }
 
 // PaymentFee is one line of what came out of a payment besides the seller's
