@@ -35,8 +35,15 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&body)
 	route := r.Method + " " + r.URL.Path
 	id := route[strings.LastIndexByte(route, '/')+1:]
-	if name, ok := f.users[id]; ok && route == "GET /users/"+id {
-		json.NewEncoder(w).Encode(map[string]any{"id": id, "username": name})
+	if route == "GET /users/"+id {
+		for uid, name := range f.users {
+			if uid == id || name == id {
+				json.NewEncoder(w).Encode(map[string]any{"id": uid, "username": name})
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"error":{"type":"not_found","message":"User not found"}}`)
 		return
 	}
 	biz := r.URL.Query().Get("account_id")
@@ -46,6 +53,7 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 	if named, _ := body["account_id"].(string); named != "" {
 		biz = named
 	}
+	parts := strings.Split(r.URL.Path, "/")
 	for b, fb := range f.installed {
 		switch {
 		case route == "GET /accounts/"+b:
@@ -55,6 +63,10 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		case strings.HasPrefix(route, "PATCH /variants/") && fb.plan(id) != nil:
 			biz = b
 		case strings.HasPrefix(route, "GET /products/") && fb.products[id] != nil:
+			biz = b
+		case len(parts) > 3 && parts[1] == "affiliates" && parts[2] == "aff_"+b && fb.partner != "":
+			biz = b
+		case len(parts) == 4 && parts[1] == "payments" && parts[3] == "fees" && fb.fees[parts[2]] != nil:
 			biz = b
 		}
 	}
@@ -114,6 +126,40 @@ func (f *fakeWhop) serveInstalled(w http.ResponseWriter, r *http.Request) {
 		p["stock"], p["unlimited_stock"] = int(n), false
 		f.stockSets = append(f.stockSets, fmt.Sprintf("%s=%d", id, int(n)))
 		json.NewEncoder(w).Encode(p)
+	case route == "POST /affiliates":
+		b.partner, _ = body["user_identifier"].(string)
+		json.NewEncoder(w).Encode(map[string]any{"id": "aff_" + biz, "status": "active"})
+	case route == "GET /affiliates/aff_"+biz+"/overrides":
+		page(b.shares)
+	case route == "POST /affiliates/aff_"+biz+"/overrides":
+		share := map[string]any{"id": fmt.Sprintf("ovr_%s_%d", biz, len(b.shares)+1)}
+		for _, k := range []string{"override_type", "product_id", "commission_type", "commission_value", "revenue_basis"} {
+			share[k] = body[k]
+		}
+		b.shares = append(b.shares, share)
+		f.shareWrites = append(f.shareWrites, fmt.Sprintf("add %v %v", body["product_id"], body["commission_value"]))
+		json.NewEncoder(w).Encode(share)
+	case strings.HasPrefix(route, "PATCH /affiliates/aff_"+biz+"/overrides/"):
+		for _, share := range b.shares {
+			if share["id"] == id {
+				share["commission_value"] = body["commission_value"]
+				f.shareWrites = append(f.shareWrites, fmt.Sprintf("set %s %v", id, body["commission_value"]))
+				json.NewEncoder(w).Encode(share)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"error":{"type":"not_found","message":"No such override"}}`)
+	case route == "GET /payments":
+		var data []map[string]any
+		for _, p := range b.payments {
+			if p["membership_id"] == r.URL.Query().Get("membership_id") && p["status"] == r.URL.Query().Get("status") {
+				data = append(data, p)
+			}
+		}
+		page(data)
+	case len(parts) == 4 && parts[1] == "payments" && parts[3] == "fees":
+		json.NewEncoder(w).Encode(map[string]any{"data": b.fees[parts[2]]})
 	case route == "POST /support_channels":
 		user, _ := body["user_id"].(string)
 		chat := "chan_" + biz + "_" + user

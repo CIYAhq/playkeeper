@@ -679,6 +679,40 @@ DROP TABLE whop_account;
 ALTER TABLE whop_app ADD COLUMN webhook_secret TEXT    NOT NULL DEFAULT '';
 ALTER TABLE whop_app ADD COLUMN hooked_at      INTEGER NOT NULL DEFAULT 0;
 `,
+	// Playkeeper's share of the app stores' sales (see whop_share.go): the
+	// Whop user it goes to, each store's partner on Whop, each hosting
+	// product's share as it was last set, in basis points, and every fee
+	// line a payment was checked with.
+	`
+ALTER TABLE whop_app ADD COLUMN share_user     TEXT NOT NULL DEFAULT '';
+ALTER TABLE whop_app ADD COLUMN share_username TEXT NOT NULL DEFAULT '';
+CREATE TABLE whop_partners (
+  store_id   TEXT    PRIMARY KEY,
+  partner_id TEXT    NOT NULL,
+  user_id    TEXT    NOT NULL,
+  made_at    INTEGER NOT NULL
+);
+CREATE TABLE whop_shares (
+  store_id     TEXT    NOT NULL,
+  product_id   TEXT    NOT NULL,
+  share_id     TEXT    NOT NULL,
+  basis_points INTEGER NOT NULL,
+  set_at       INTEGER NOT NULL,
+  PRIMARY KEY (store_id, product_id)
+);
+CREATE TABLE whop_fee_lines (
+  payment_id   TEXT    NOT NULL,
+  n            INTEGER NOT NULL,
+  store_id     TEXT    NOT NULL,
+  type         TEXT    NOT NULL,
+  origin       TEXT    NOT NULL,
+  label        TEXT    NOT NULL,
+  amount       TEXT    NOT NULL,
+  currency     TEXT    NOT NULL,
+  read_at      INTEGER NOT NULL,
+  PRIMARY KEY (payment_id, n)
+);
+`,
 }
 
 const (
