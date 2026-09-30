@@ -1428,6 +1428,67 @@ func TestACustomerWhoseServersAreApartGetsTheirDiskOnce(t *testing.T) {
 	}
 }
 
+// A sync of the disk limits that read a machine's servers while a moving
+// server's copy there was still hidden doesn't send them after the server
+// switched there: the server stays in its customer's limit on the machine
+// it moved to, with the hold and processor share that go with it.
+func TestASyncDuringASwitchLeavesTheServerInItsLimit(t *testing.T) {
+	f := newMoveFleet(t)
+	s := f.e.srv
+	var mu sync.Mutex
+	var applied []api.DiskLimitsRequest
+	entered, release, synced := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	first := true
+	f.e.answer("PUT /v1/disk-limits", func(w http.ResponseWriter, _ *http.Request) {
+		var req api.DiskLimitsRequest
+		json.Unmarshal([]byte(f.e.agentBody("PUT /v1/disk-limits")), &req)
+		mu.Lock()
+		wait := first
+		first = false
+		mu.Unlock()
+		if wait {
+			close(entered)
+			<-release
+		}
+		mu.Lock()
+		applied = append(applied, req)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{}`)
+	})
+	f.e.answer("POST /v1/restore/"+movedUpload+"/move-in", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		f.madeHere = true
+		f.mu.Unlock()
+		go func() {
+			s.syncDiskLimits(context.Background())
+			close(synced)
+		}()
+		<-entered
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, `{"id":"op-movein","status":"running"}`)
+	})
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	for deadline := time.Now().Add(time.Second); s.moves.running(f.alex.id) && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	close(release)
+	<-synced
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+	mu.Lock()
+	last := applied[len(applied)-1]
+	mu.Unlock()
+	i := slices.IndexFunc(last.Limits, func(l api.DiskLimit) bool { return l.ID == accountLimit(f.alex.id) })
+	if i < 0 || !slices.Contains(last.Limits[i].Servers, movedServer) {
+		t.Errorf("the dashboard's machine was last given limits leaving out the server moved there: %+v", last.Limits)
+	}
+}
+
 // A machine still has a customer whose move stopped with a server on it: it
 // counts them, and lists them with their machine and the servers left
 // there, so it isn't taken for empty and removed with those servers on it.

@@ -617,21 +617,13 @@ func (s *Server) moveServer(ctx context.Context, userID int64, id string, from, 
 		err = s.copyMoveState(ctx, id, from, to)
 	}
 	if err == nil {
-		if err = s.sendLimitsTo(ctx, to, id); err != nil {
-			err = fmt.Errorf("%s didn't take their disk limit: %w", machineLabel(to), err)
-		}
+		err = s.switchTo(ctx, mv, to, slug)
 	}
 	if err != nil {
 		if ctx.Err() == nil {
 			s.abandonMove(ctx, mv, from)
 		}
 		return false, fmt.Errorf("%s: %w", st.Name, err)
-	}
-	if err := s.switchServer(ctx, mv, to, slug); err != nil {
-		if ctx.Err() == nil {
-			s.abandonMove(ctx, mv, from)
-		}
-		return false, fmt.Errorf("%s: its requests couldn't go to %s: %w", st.Name, machineLabel(to), err)
 	}
 	// Pausing a customer while it moved stopped it where its requests went
 	// then, not here, where its copy may have started, before a restart of
@@ -1167,6 +1159,23 @@ func waitMoveOp(ctx context.Context, m machine, id string) (api.Operation, error
 		case <-t.C:
 		}
 	}
+}
+
+// switchTo sends to the disk limits with mv's copy counted as the server,
+// then has the server's requests go there (switchServer). Sending machines
+// their limits waits meanwhile, so a sync that read to's servers while the
+// copy was hidden can't send them after the switch, leaving the server out
+// of its customer's limit, hold and processor share there.
+func (s *Server) switchTo(ctx context.Context, mv serverMove, to machine, slug string) error {
+	s.diskSending.Lock()
+	defer s.diskSending.Unlock()
+	if err := s.sendLimitsTo(ctx, to, mv.serverID); err != nil {
+		return fmt.Errorf("%s didn't take their disk limit: %w", machineLabel(to), err)
+	}
+	if err := s.switchServer(ctx, mv, to, slug); err != nil {
+		return fmt.Errorf("its requests couldn't go to %s: %w", machineLabel(to), err)
+	}
+	return nil
 }
 
 // sendLimitsTo sends m the disk limits it should have now, as

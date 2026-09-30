@@ -201,7 +201,9 @@ func (s *Server) syncDiskLimits(ctx context.Context) {
 	used := map[int64]int64{}
 	on := map[string]map[int64]int64{}
 	for _, m := range list {
+		s.diskSending.Lock()
 		got, err := s.sendDiskLimits(ctx, m, in, count, "")
+		s.diskSending.Unlock()
 		s.noteDiskLimitsFailure(m, err)
 		for uid, n := range got {
 			used[uid] += n

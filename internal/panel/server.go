@@ -177,6 +177,10 @@ type Server struct {
 		usedOn map[string]map[int64]int64
 		failed map[string]string
 	}
+	// diskSending is held while a machine is sent its disk limits, and
+	// by a move from sending the machine a server goes to its limits
+	// until the server's requests go there (switchTo).
+	diskSending sync.Mutex
 	// dnsMu serialises sending the dashboard's machine its DNS zone with
 	// the owner's switch (see dnsanswers.go).
 	dnsMu sync.Mutex
