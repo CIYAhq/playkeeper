@@ -8347,7 +8347,7 @@ control "share hooks: three days of a bad share and the store leaves" internal/p
   ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
 control "share hooks: a store not open yet has no share checked" internal/panel/whop_share_hooks.go \
   'if err != nil || notOpen {' \
-  'if err != nil {' \
+  'if err != nil || (notOpen && false) {' \
   ./internal/panel '^TestAStoreNotOpenYetHasNoShareChecked$'
 control "grant watch: a week without the grant and the store leaves" internal/panel/whop_share_hooks.go \
   's.now().Sub(since) < whopGrantGrace' \
