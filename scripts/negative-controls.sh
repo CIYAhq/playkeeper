@@ -8262,16 +8262,16 @@ control "stores: the key store's delivery kicks the key store alone" internal/pa
   's.kickWhop()' \
   ./internal/panel '^TestAKickHurriesItsOwnStoresPass$'
 control "stores: an app store whose grant is gone changes nothing" internal/panel/whop_customers.go \
-  'if problem := whopGrantProblem(ctx, c, st); problem != "" {' \
-  'if problem := whopGrantProblem(ctx, c, st); false && problem != "" {' \
+  'lost, problem := whopGrantProblem(ctx, c, st)' \
+  'lost, problem := whopGrantProblem(ctx, c, st); problem = ""' \
   ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
 control "stores: a read the app's grant lacks is why a store changes nothing" internal/panel/whop_stores.go \
   'if slices.Contains(whopStoreReads, a) {' \
   'if false && slices.Contains(whopStoreReads, a) {' \
   ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
 control "stores: a grant that can't be checked changes nothing" internal/panel/whop_stores.go \
-  "return \"Playkeeper couldn't check the Playkeeper Cloud app's grant on this store, so nothing changed here: \" + whopProblem(err)" \
-  'return ""' \
+  "return nil, \"Playkeeper couldn't check the Playkeeper Cloud app's grant on this store, so nothing changed here: \" + whopProblem(err)" \
+  'return nil, ""' \
   ./internal/panel '^TestAStoreWhoseGrantIsGoneChangesNothing$'
 control "stores: a store that needed a look is read again once it can be" internal/panel/whop_customers.go \
   'SET problem = ?, synced_at = 0, polled_at = 0 WHERE' \
@@ -8537,6 +8537,79 @@ control "share user: stays while a store pays them" internal/panel/whop_share.go
   'SELECT user_id FROM whop_partners WHERE user_id != ? LIMIT 1' \
   'SELECT user_id FROM whop_partners WHERE user_id != ? AND 0 LIMIT 1' \
   ./internal/panel '^TestOnlyTheOwnerNamesWhoReceivesPlaykeepersShare$'
+
+# Where the store's pass meets Playkeeper's share (the hosted blueprint's
+# 2.2, internal/panel/whop_share_hooks.go): a bad share closes an open
+# store, at once for the rest of its pass, until it's right, when it opens
+# for that reason alone, and after three days the store leaves; a store not
+# open yet has no share checked; a week without the grant and the store
+# leaves, a grant back starting the week again and one Whop couldn't check
+# counting neither way; and a customer starts, or their plan grows, only on
+# payments that carried the share.
+control "share hooks: a bad share closes the store" internal/panel/whop_share_hooks.go \
+  'if err := s.closeWhopStore(ctx, st.ID, whopShareClosed, problem); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: the rest of the pass sees the store closed" internal/panel/whop_share_hooks.go \
+  'st.ClosedWhy = fresh.ClosedWhy' \
+  '_ = fresh' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: a share set right opens the store for that reason alone" internal/panel/whop_share_hooks.go \
+  's.openWhopStore(ctx, st.ID, whopShareClosed)' \
+  's.openWhopStore(ctx, st.ID, whopNotOpenYet)' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: three days of a bad share and the store leaves" internal/panel/whop_share_hooks.go \
+  's.now().Sub(since) >= whopShareGrace' \
+  's.now().Sub(since) >= 1000*whopShareGrace' \
+  ./internal/panel '^TestAnOpenStoreWhoseShareIsGoneClosesUntilItsBackThenLeaves$'
+control "share hooks: a store not open yet has no share checked" internal/panel/whop_share_hooks.go \
+  'if err != nil || notOpen {' \
+  'if err != nil || (notOpen && false) {' \
+  ./internal/panel '^TestAStoreNotOpenYetHasNoShareChecked$'
+control "grant watch: a week without the grant and the store leaves" internal/panel/whop_share_hooks.go \
+  's.now().Sub(since) < whopGrantGrace' \
+  's.now().Sub(since) < 1000*whopGrantGrace' \
+  ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
+control "grant watch: a grant back starts the week again" internal/panel/whop_share_hooks.go \
+  'case problem == "":' \
+  'case false:' \
+  ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
+control "grant watch: a grant Whop couldn't check counts neither way" internal/panel/whop_share_hooks.go \
+  'case problem == "":' \
+  'default:' \
+  ./internal/panel '^TestAnAppStoreWhoseGrantIsGoneForAWeekLeaves$'
+control "payment check: before a customer starts" internal/panel/whop_customers.go \
+  'if err := s.whopCustomerPaid(ctx, c, st, wc.WhopUserID); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
+control "payments: the one a customer starts on is kept for the seller's view" internal/panel/whop_share.go \
+  's.keepCheckedPayment(ctx, st, pay, lines, whopUserID)' \
+  '_ = whopUserID' \
+  ./internal/panel '^TestACustomerStartsOnlyWhenTheirPaymentCarriedPlaykeepersShare$'
+control "payments: renewals are read on the share check's schedule" internal/panel/whop_share_hooks.go \
+  's.whopReadPayments(ctx, c, *st)' \
+  '' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: a refund keeps its payment again" internal/panel/whop_share_hooks.go \
+  'pays = append(pays, pay)' \
+  '_ = pay' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: only the hosting products' payments are kept" internal/panel/whop_share_hooks.go \
+  'if _, ok := hosting[pay.ProductID]; !ok {' \
+  'if _, ok := hosting[pay.ProductID]; !ok && false {' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: one paid since the last read is read, however long ago it was made" internal/whop/payments.go \
+  '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}}' \
+  '"order": {"paid_at"}, "direction": {"desc"}, "first": {strconv.Itoa(100)}, "created_after": {since.UTC().Format(time.RFC3339)}}' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payments: a refund still unsettled is read again once it settles" internal/panel/whop_share_hooks.go \
+  'r.Unsettled() && !at.IsZero()' \
+  'false && r.Unsettled() && !at.IsZero()' \
+  ./internal/panel '^TestEveryPaymentTheChecksReadIsKeptForTheSellersView$'
+control "payment check: before a customer's plan grows" internal/panel/whop_customers.go \
+  'if st.Via == whopViaApp && whopPlanGrows(wc.Applied, wc.Plan) {' \
+  'if false {' \
+  ./internal/panel '^TestACustomerStartsOrGrowsOnlyOnPaymentsThatCarriedTheShare$'
 
 # Pausing a customer whose plan ended (internal/panel/pausing.go): their
 # servers stop, and they may only look and download until they renew.

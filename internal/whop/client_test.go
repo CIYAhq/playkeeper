@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 const testKey = "apik_test_0123456789abcdef"
@@ -516,6 +517,67 @@ func TestMoneyIsReadExactlyInTheSmallestUnit(t *testing.T) {
 		if got, err := m.Minor(); err == nil {
 			t.Errorf("Minor(%+v) = %d, not refused", m, got)
 		}
+	}
+}
+
+// An account's payments paid since a time are read newest paid first, page
+// by page until one reaches back past it, whenever they were created; one
+// payment by its id; and the account's refunds asked for since a time.
+func TestPaymentsAndRefundsSinceATime(t *testing.T) {
+	since := time.Date(2026, 9, 30, 14, 0, 0, 0, time.FixedZone("Cyprus", 3*3600))
+	var pages []string
+	c := fake(t, map[string]func(http.ResponseWriter, *http.Request){
+		"GET /payments": func(w http.ResponseWriter, r *http.Request) {
+			q := r.URL.Query()
+			if q.Get("account_id") != "biz_other" || q.Get("status") != "paid" || q.Has("created_after") || q.Get("order") != "paid_at" || q.Get("direction") != "desc" {
+				t.Errorf("GET /payments?%s", r.URL.RawQuery)
+			}
+			pages = append(pages, q.Get("after"))
+			switch q.Get("after") {
+			case "":
+				answer(map[string]any{"data": []map[string]any{
+					{"id": "pay_3", "status": "paid", "paid_at": "2026-09-30T12:30:00.000Z"},
+					{"id": "pay_2", "status": "paid", "created_at": "2026-09-20T10:00:00.000Z", "paid_at": "2026-09-30T12:00:00.000Z"},
+				}, "page_info": map[string]any{"has_next_page": true, "end_cursor": "c2"}})(w, r)
+			case "c2":
+				answer(map[string]any{"data": []map[string]any{
+					{"id": "pay_1", "status": "paid", "paid_at": "2026-09-30T11:30:00.000Z"},
+					{"id": "pay_0", "status": "paid", "paid_at": "2026-09-30T10:59:00.000Z"},
+				}, "page_info": map[string]any{"has_next_page": true, "end_cursor": "c3"}})(w, r)
+			default:
+				t.Errorf("a page past the one that reached back past since: %q", q.Get("after"))
+				answer(map[string]any{"data": []map[string]any{}, "page_info": map[string]any{"has_next_page": false}})(w, r)
+			}
+		},
+		"GET /payments/pay_1": answer(map[string]any{"id": "pay_1", "status": "paid", "refunded_amount": map[string]any{"amount": "12.00", "currency": "usd", "decimals": 2}}),
+		"GET /refunds": func(w http.ResponseWriter, r *http.Request) {
+			if q := r.URL.Query(); q.Get("account_id") != "biz_other" || q.Get("created_after") != "2026-09-30T11:00:00Z" {
+				t.Errorf("GET /refunds?%s", r.URL.RawQuery)
+			}
+			answer(map[string]any{"data": []map[string]any{
+				{"id": "ref_1", "payment_id": "pay_1", "status": "succeeded", "created_at": "2026-09-30T11:40:00.000Z"},
+				{"id": "ref_2", "payment_id": "pay_2", "status": "requires_action", "created_at": "2026-09-30T12:10:00.000Z"},
+			}, "page_info": map[string]any{"has_next_page": false}})(w, r)
+		},
+	})
+	ctx := context.Background()
+	pays, err := c.PaidSince(ctx, "biz_other", since)
+	var ids []string
+	for _, p := range pays {
+		ids = append(ids, p.ID)
+	}
+	if err != nil || !slices.Equal(ids, []string{"pay_3", "pay_2", "pay_1"}) || !slices.Equal(pages, []string{"", "c2"}) ||
+		!pays[1].PaidTime().Equal(time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("PaidSince = %v over pages %q, %v", ids, pages, err)
+	}
+	pay, err := c.Payment(ctx, "pay_1")
+	if err != nil || pay.Refunded == nil || pay.Refunded.Amount != "12.00" {
+		t.Fatalf("Payment = %+v, %v", pay, err)
+	}
+	refunds, err := c.RefundsSince(ctx, "biz_other", since)
+	if err != nil || len(refunds) != 2 || refunds[0].ID != "ref_1" || refunds[0].PaymentID != "pay_1" || refunds[0].Unsettled() ||
+		!refunds[1].Unsettled() || !refunds[1].Created().Equal(time.Date(2026, 9, 30, 12, 10, 0, 0, time.UTC)) {
+		t.Fatalf("RefundsSince = %+v, %v", refunds, err)
 	}
 }
 

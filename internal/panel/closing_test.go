@@ -17,7 +17,11 @@ func closedStores(t *testing.T) (*fakeWhop, *env, member) {
 	t.Helper()
 	f, e, own := connectedWhop(t)
 	f.installOther()
-	if _, err := e.srv.db.Exec(`INSERT INTO whop_app(id, api_key) VALUES(1, ?) ON CONFLICT(id) DO UPDATE SET api_key = excluded.api_key`, whopTestAppKey); err != nil {
+	f.mu.Lock()
+	f.users["user_siya"] = "siyabuilt"
+	f.mu.Unlock()
+	if _, err := e.srv.db.Exec(`INSERT INTO whop_app(id, api_key, share_user, share_username) VALUES(1, ?, 'user_siya', 'siyabuilt')
+		ON CONFLICT(id) DO UPDATE SET api_key = excluded.api_key, share_user = excluded.share_user, share_username = excluded.share_username`, whopTestAppKey); err != nil {
 		t.Fatal(err)
 	}
 	if added, err := e.srv.addWhopStore(context.Background(), whop.Account{ID: "biz_other", Title: "Other Hosting", Route: "other-hosting"}); err != nil || !added {
@@ -114,7 +118,7 @@ func TestAClosedStoresCustomersGoOnButNobodyStarts(t *testing.T) {
 	f.mu.Unlock()
 	f.buyAt("biz_other", "mem_alex2", "user_alex", "plan_other", "active")
 	e.reconcile()
-	if err := e.srv.closeWhopStore(ctx, "biz_other", "share", "Playkeeper's share is gone from Other"); err != nil {
+	if err := e.srv.closeWhopStore(ctx, "biz_other", "held", "Other is held closed"); err != nil {
 		t.Fatal(err)
 	}
 	f.buyAt("biz_other", "mem_alex2", "user_alex", "plan_other", "expired")
@@ -128,7 +132,7 @@ func TestAClosedStoresCustomersGoOnButNobodyStarts(t *testing.T) {
 	if len(got) != 2 || !strings.HasPrefix(got[1], "pause (") || !strings.Contains(got[1], "whop/biz_other/user_alex") {
 		t.Fatalf("the core's calls while Other is closed: %q", got)
 	}
-	if open, err := e.srv.openWhopStore(ctx, "biz_other", "share"); err != nil || !open {
+	if open, err := e.srv.openWhopStore(ctx, "biz_other", "held"); err != nil || !open {
 		t.Fatalf("opening Other: %v, %v", open, err)
 	}
 	e.reconcile()
