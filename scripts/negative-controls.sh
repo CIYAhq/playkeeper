@@ -6874,8 +6874,10 @@ control "creator invites: the member keeps the allowance" internal/panel/join.go
   'grant.Servers.String(), 0, 0, grant.Allowance.DiskGB, now)' \
   ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
 control "creators: their role and servers aren't changed on the Team page" internal/panel/team.go \
-  'if !t.Allowance.IsZero() {' \
-  'if false {' \
+  "if !t.Allowance.IsZero() {
+		writeErr(w, http.StatusConflict, api.CodeConflict, \"A creator's servers are the ones they create.\"" \
+  "if false {
+		writeErr(w, http.StatusConflict, api.CodeConflict, \"A creator's servers are the ones they create.\"" \
   ./internal/panel '^TestCreatorInvitesAreTheOwnersAlone$'
 
 # Creators' servers: created inside the allowance, one change at a time,
@@ -7296,9 +7298,9 @@ control "disk limits: a world's size is its files, not what its manifest claims"
   'n += f.Size' \
   'n = m.TotalBytes + 0*f.Size' \
   ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
-control "disk limits: a refused restore leaves no stage" internal/agent/handlers.go \
-  'os.RemoveAll(a.stageDir(p.ID))' \
-  '_ = p.ID' \
+control "disk limits: a refused restore leaves no stage" internal/agent/backups.go \
+  'return fail(&apiError{Status: http.StatusInsufficientStorage, Code: api.CodeDiskLimit,' \
+  'return nil, (&apiError{Status: http.StatusInsufficientStorage, Code: api.CodeDiskLimit,' \
   ./internal/agent '^TestRestoresCountTheWorldTheyUnpackTo$'
 control "disk limits: applying a restore holds the world it unpacks to" internal/agent/handlers.go \
   'target.holdDiskLimit(r.Context(), target.id, unpackedBytes(st.manifest))' \
