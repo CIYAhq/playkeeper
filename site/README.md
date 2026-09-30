@@ -17,6 +17,7 @@ This folder is the website at [playkeeper.io](https://playkeeper.io): the landin
 | `/install` | `install.sh`, which runs the latest release's `get.sh` and tells it the install came through playkeeper.io |
 | `/install/<code>` | the same script with a channel's code filled in, for the usage stats and the install log (see Channels below) |
 | `/go/<code>` | `302` to the landing page with a channel's UTM tags (see Channels below) |
+| `/releases/latest/playkeeper-release.json`, `/releases/latest/playkeeper-release.json.sig` | the latest release's signed manifest and its signature, which installed Playkeepers check for a new release (see Release checks below) |
 | `/healthz` | `200` with `ok`, for health checks |
 
 ## How it's built
@@ -142,6 +143,18 @@ The release workflow's check of `/install` after each release counts as one ther
 - **A guide** is `pages/templates/<category>.html`, and its `data/library/<name>.json` names the template it describes (the seven that came first are named after their category). It copies the closest one and keeps the blocks in `layouts/library.html` (facts and Docker). What the plugins make you do first, with the commands and defaults from their own configs, is what it's for, and the 60% rule above holds for guides too.
 - **Social previews** carry the guides' headings: `node site-og.mjs templates template-<id>`. Each other category page and each template's page (and its `/t/<id>`, which Copy link shares) gets its own, drawn while the site builds (`internal/site/previews.go`): what it is, its name, what it runs on and its memory, and the same picture as its card, its thumbnail once it has one. They're drawn on `og/frame.png` (`node site-og.mjs frame`) in Inter, cut down to Latin letters (`og/`, SIL Open Font License). `go run ./cmd/site -previews=false` builds without them, as the tests do, and those pages then share `og/templates.png`.
 
+## Release checks
+
+From 0.4.9 an installed Playkeeper looks for a new release when it starts and about every 30 minutes after (each wait 24 to 36 minutes, at random), by asking this site for `/releases/latest/playkeeper-release.json.sig` with the ETag and Last-Modified of the copy it has (`internal/agent/update.go`, `update.CheckURL`). Until a release comes out the answer is `304 Not Modified`, a few hundred bytes of headers; the manifest beside it is fetched only when the signature changed. A machine joined to another dashboard doesn't ask, and an owner can turn the looking off in Settings.
+
+- **Where the files come from:** `release-mirror` (`cmd/release-mirror`), which the image's entrypoint starts (`release-mirror.sh`), asks GitHub's latest release every minute whether its manifest and signature changed, and writes them into the web root only once the signature verifies against `internal/update/release.pub`, the manifest first. They're dated the release's date, so their ETag and Last-Modified stay the same across deploys and installs keep getting 304s. A new release is here within a minute; `docker logs` of the site's container says `release-mirror: serving Playkeeper X`, or why it couldn't.
+- **Caching:** `Cache-Control: public, max-age=300, stale-while-revalidate=300, stale-if-error=86400`: a cache in front (a CDN, if the site ever gets one) may keep them five minutes, refresh them in the background and serve them for a day while this server is down. They're signed, so an old copy can only make an install hear of a release late, never install anything. They're served unzipped, so the ETag stays strong, and nginx logs no request for them.
+- **When the site is down:** installs ask GitHub instead, and each check that found this site failing waits twice as long as the last (1, 2, 4, then 6 hours), so after the first day an install asks GitHub four times a day, about what 0.4.8 and older versions send it.
+
+**Load, per install:** 48 checks a day (24 hours at one every 30 minutes on average), plus one each time Playkeeper starts, each a single request answered 304: about 49 requests a day. Measured on playkeeper.io, a check is 0.15 KB out and a 304 of 0.8 KB back, plus a TLS handshake of 5.5 KB, since each check opens a new connection: about 6.5 KB, 0.3 MB a day. A release adds one request per install: the new manifest, about 5 KB. Versions 0.2.0 to 0.4.8 send GitHub 12 requests a day instead (two checks, each two files through two redirects), each file in full.
+
+**At 10,000 installs:** about 490,000 requests a day, 5.7 a second on average; installs start at random times and every wait is drawn at random, so they don't bunch up, and the busiest seconds see perhaps 15 to 20. Every one is a static file's 304 for nginx and a TLS handshake for the Coolify proxy, about 3.2 GB a day with the handshakes (37 KB/s). When a release comes out, each install fetches it on its next check, within about 37 minutes: 10,000 × 5 KB = 50 MB, about 5 installs a second, no spike. GitHub sees the site's one look a minute (1,440 a day whatever the number of installs, each three requests through its redirects, the last a 304) and the tarball downloads when owners update.
+
 ## Host it with Coolify
 
 You need a server with Coolify on it, the Coolify proxy running (it is by default), and inbound TCP ports **80** and **443** open in the server's firewall. Coolify gets the HTTPS certificate from Let's Encrypt, which checks the domain through those ports.
@@ -226,7 +239,7 @@ Before 0.4.0, Coolify built the image from the `site` folder alone. The image no
 
 ## Updating
 
-- **A new Playkeeper release:** nothing to do for `/install`, which always runs the latest release's `get.sh`. The site's docs, version and server types come from the repository, so deploy again once the release is on `main`.
+- **A new Playkeeper release:** nothing to do for `/install`, which always runs the latest release's `get.sh`, nor for `/releases/latest/`, which `release-mirror` copies within a minute. The site's docs, version and server types come from the repository, so deploy again once the release is on `main`.
 - **A change to this folder, the docs or the dashboard:** in Coolify, open the application and select **Deploy** again. An application added by repository URL is not redeployed on its own when `main` changes. That includes new sizing numbers in `internal/sizing`, which reach `/sizing` only with the next deploy, and changes in `web/`, which reach the live demo only with the next deploy.
 - **A new nginx, Go or Node version:** change the tag and the digest on the matching `FROM` line of `Dockerfile` (Docker Hub lists both for each tag; nginx uses an `…-alpine-slim` tag, Go and Node the `…-alpine` tags of the versions in `scripts/toolchains.txt`), then check and redeploy.
 

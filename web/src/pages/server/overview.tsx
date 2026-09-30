@@ -4,6 +4,7 @@ import { del, get, post } from '@/api/client'
 import type { Activity, AddonNotice, Crash, LagStatus, LogsResponse, MachineView, RestorePreview, ServerStatus, SessionsResponse } from '@/api/types'
 import { errorText, serverApi, useServerMachine, useWorkspace } from '@/api/workspace'
 import { ActivityList } from '@/components/app/activity'
+import { AIKeyNotice } from '@/components/app/ai-key'
 import { Pip } from '@/components/app/art'
 import { DeleteServerDialog } from '@/components/app/delete-server'
 import { Card, CardTitle, CopyButton, MeterRow, Notice, PlayerFace, SectionLabel, useNow } from '@/components/app/bits'
@@ -81,7 +82,7 @@ function Running({ server: s }: { server: ServerStatus }) {
   )
 }
 
-/** One quiet line at a time: test mode, Docker, world saving paused, a failed job, a run out of memory, or settings waiting for a restart. */
+/** One quiet line at a time: test mode, Docker, world saving paused, a failed job, a run out of memory, settings waiting for a restart, or AI Build Battle waiting for its key. */
 function ServerNotices({ server: s }: { server: ServerStatus }) {
   const { stale, offline, machine } = useServerMachine(s)
   const { refresh } = useWorkspace()
@@ -161,7 +162,7 @@ function ServerNotices({ server: s }: { server: ServerStatus }) {
   const template = s.config?.template
   if (template?.lost) return <Notice tone="warning" title={t('templateLost.title', { template: template.name })}>{t('templateLost.body')}</Notice>
   if (s.config?.modpackUnknown) return <Notice title={t('modpackUnknown.title', { server: s.name })}>{t('modpackUnknown.body')}</Notice>
-  return null
+  return <AIKeyNotice server={s} />
 }
 
 function JoinCard({ server: s }: { server: ServerStatus }) {

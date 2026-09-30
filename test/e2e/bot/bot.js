@@ -74,33 +74,57 @@ async function placeOn (bot, below, item) {
   }
 }
 
+// onServer waits until the server's own world has the gold block and the
+// sign's text, which is what a backup copies; the client only shows what the
+// server sent it.
+async function onServer (bot, gold, sign, nonce) {
+  let block, text
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    block = (await panelCommand(`execute if block ${gold.x} ${gold.y} ${gold.z} minecraft:gold_block`)).trim()
+    text = (await panelCommand(`data get block ${sign.x} ${sign.y} ${sign.z} front_text.messages`)).trim()
+    if (block === 'Test passed' && text.includes(nonce)) return
+    await bot.waitForTicks(10)
+  }
+  throw new Error(`the server doesn't have the marker: gold block at ${gold}: ${block}; sign at ${sign}: ${text}`)
+}
+
 async function place () {
   const bot = await connect(a.name)
   await bot.waitForTicks(20)
   const p = bot.entity.position.floored()
   const [x, y, z] = [p.x, p.y, p.z]
+  const gold = new Vec3(x + 2, y, z)
+  const sign = gold.offset(0, 1, 0)
   log('spawned', a.name, 'at', x, y, z)
   for (const cmd of [
+    // Minecraft 26.1 keeps no chunks loaded at spawn, so the marker's chunk
+    // is held until the scenario's last check on this server lets it go.
+    `forceload add ${gold.x} ${gold.z}`,
+    // A creeper that comes for a bot while the marker waits for its backup
+    // would blow it up.
+    'gamerule mob_griefing false',
     `fill ${x - 1} ${y - 1} ${z - 1} ${x + 3} ${y - 1} ${z + 1} minecraft:stone`,
     `fill ${x - 1} ${y} ${z - 1} ${x + 3} ${y + 3} ${z + 1} minecraft:air`,
     // The server refuses a block where an animal stands, and a new world has
     // animals near its spawn.
     `kill @e[type=!player,x=${x - 1},y=${y},z=${z - 1},dx=4,dy=3,dz=2]`,
-    `tp ${a.name} ${x}.5 ${y} ${z}.5 -90 30`,
+    `tp ${a.name} ${x + 0.5} ${y} ${z + 0.5} -90 30`,
     `give ${a.name} minecraft:gold_block 1`,
     `give ${a.name} minecraft:oak_sign 1`
   ]) log('console>', cmd, '=>', await panelCommand(cmd))
   await bot.waitForTicks(30)
-  await placeOn(bot, new Vec3(x + 2, y - 1, z), 'gold_block')
-  const gold = bot.blockAt(new Vec3(x + 2, y, z))
-  log('client placed', gold.name, 'at', x + 2, y, z)
-  await placeOn(bot, new Vec3(x + 2, y, z), 'oak_sign').catch(e => log('sign placement note:', e.message))
+  await placeOn(bot, gold.offset(0, -1, 0), 'gold_block')
+  log('client placed', bot.blockAt(gold).name, 'at', gold.x, gold.y, gold.z)
+  await placeOn(bot, gold, 'oak_sign').catch(e => log('sign placement note:', e.message))
   await bot.waitForTicks(10)
-  const sign = bot.blockAt(new Vec3(x + 2, y + 1, z))
-  if (sign.name !== 'oak_sign') throw new Error('sign was not placed: ' + sign.name)
-  bot.updateSign(sign, a.nonce)
+  const placed = bot.blockAt(sign)
+  if (placed.name !== 'oak_sign') throw new Error('sign was not placed: ' + placed.name)
+  bot.updateSign(placed, a.nonce)
   await bot.waitForTicks(30)
-  const marker = { gold: [x + 2, y, z], sign: [x + 2, y + 1, z], nonce: a.nonce, placedBy: a.name, at: new Date().toISOString() }
+  await onServer(bot, gold, sign, a.nonce)
+  // Written to the region file now, not whenever the chunk is next saved.
+  log('console>', 'save-all flush', '=>', await panelCommand('save-all flush'))
+  const marker = { gold: [gold.x, gold.y, gold.z], sign: [sign.x, sign.y, sign.z], nonce: a.nonce, placedBy: a.name, at: new Date().toISOString() }
   fs.writeFileSync(a.out, JSON.stringify(marker, null, 2))
   log('marker written', JSON.stringify(marker))
   bot.quit('done')
@@ -141,7 +165,7 @@ async function visit () {
   await Promise.race([new Promise(resolve => setTimeout(resolve, Number(a.stay || 10) * 1000)), gone])
   if (!ended) {
     bot.quit('done')
-    log('left', a.name)
+    log('left', a.name, 'with health', bot.health)
   }
   await new Promise(resolve => setTimeout(resolve, 1500))
 }

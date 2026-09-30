@@ -8,6 +8,7 @@
 import { ApiError } from '@/api/client'
 import type { ApiToken, Backup, Gameplay, NewToken, Operation, PlayStyle, PlayerStat, RestorePreview, ServerStatus, TokenRole } from '@/api/types'
 import { t } from '@/i18n'
+import { aiKeyRoutes } from './ai-keys'
 import { count } from './analytics'
 import { automationReads, copyNewBackup } from './automation'
 import { chatter, config, demoUser, demoVersion, fakeSha, fill, freeName, iso, logText, machineId, me, noise, reads, sample, sampleVersion, serverOf, update, usageStats, versionsOf, buildsFor, pinOf, type DemoState, type Job, type JobKind, type Live, type Request, type Routes, type Step } from './data'
@@ -616,7 +617,7 @@ const writes: Routes = {
     if (srv.operation) throw busy(srv)
     s.servers = s.servers.filter((x) => x !== srv)
     s.activity = s.activity.filter((a) => a.serverId !== srv.id)
-    for (const table of [s.live, s.backups, s.logs, s.whitelist, s.operators, s.roster, s.jobs, s.addons, s.pregen, s.packs, s.copies, s.runs, s.files] as Record<string, unknown>[]) delete table[srv.id]
+    for (const table of [s.live, s.backups, s.logs, s.whitelist, s.operators, s.roster, s.jobs, s.addons, s.pregen, s.packs, s.copies, s.runs, s.files, s.aiKeys ?? {}] as Record<string, unknown>[]) delete table[srv.id]
     audit(s, r.now, 'server.deleted', srv)
     demoToast('delete')
     return {}
@@ -691,7 +692,12 @@ const writes: Routes = {
     if (srv) srv.worldBytes = worldBytes
     return op
   },
-  'POST /api/machines/:machine/update/check': (_, r) => update(r.now),
+  'POST /api/machines/:machine/update/check': (s, r) => update(s, r.now),
+  'PUT /api/machines/:machine/update/auto': (s, r) => {
+    s.updateAuto = (r.body as { on?: boolean } | undefined)?.on === true
+    audit(s, r.now, s.updateAuto ? 'update_checks.on' : 'update_checks.off')
+    return update(s, r.now)
+  },
   'PUT /api/usage-stats': (s, r) => {
     s.usageOn = (r.body as { on?: boolean } | undefined)?.on === true
     audit(s, r.now, s.usageOn ? 'usage_stats.on' : 'usage_stats.off')
@@ -716,7 +722,7 @@ const writes: Routes = {
   },
 }
 
-const routes = Object.entries({ ...reads, ...peopleReads, ...automationReads, ...worldRoutes, ...fileRoutes, ...writes }).map(([key, handler]) => {
+const routes = Object.entries({ ...reads, ...peopleReads, ...automationReads, ...worldRoutes, ...fileRoutes, ...aiKeyRoutes, ...writes }).map(([key, handler]) => {
   const [method = '', pattern = ''] = key.split(' ')
   const names: string[] = []
   const re = new RegExp(`^${pattern.replace(/:(\w+)/g, (_, name: string) => (names.push(name), '([^/]+)'))}$`)

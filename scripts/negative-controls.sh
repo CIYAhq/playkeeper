@@ -1107,6 +1107,108 @@ control "uninstall disables the updater even if the manifest misses it" internal
   'if contains(m.Units, u) || extra[u] {' \
   'if contains(m.Units, u) {' \
   ./internal/install '^TestUninstallRemovesTheUpdaterEvenIfTheManifestMissesIt$'
+# Checks for a new release in the background (0.4.9): when the agent starts
+# and about every 30 minutes, asking only whether the release changed, one
+# at a time, off with the owner's switch, and the notice only for those who
+# can install it.
+control "a check asks only whether the release changed" internal/update/fetch.go \
+  'req.Header.Set(k, v)' \
+  '_, _ = k, v' \
+  ./internal/update '^TestAReleaseThatDidNotChangeCostsOneNotModified$'
+control "the same signature again spares the manifest" internal/update/fetch.go \
+  'if sig == nil || (have && bytes.Equal(sig, prev.Signature)) {' \
+  'if sig == nil || (false && bytes.Equal(sig, prev.Signature)) {' \
+  ./internal/update '^TestTheSameSignatureAgainSparesTheManifest$'
+control "a busy release location's Retry-After is kept" internal/update/fetch.go \
+  'se.RetryAfter = retryAfter(resp.Header, time.Now())' \
+  'se.RetryAfter = 0' \
+  ./internal/update '^TestALocationsRetryAfterIsKept$'
+control "checks drift apart at random" internal/agent/update.go \
+  'wait = time.Duration(float64(wait) * (1 - checkJitter + 2*checkJitter*r))' \
+  'wait = time.Duration(float64(wait) * (1 - checkJitter + 2*checkJitter*0.5))' \
+  ./internal/agent '^TestChecksWaitAboutTheIntervalGiveOrTakeAFifth$'
+control "failed checks back off" internal/agent/update.go \
+  'wait *= 2' \
+  'wait *= 1' \
+  ./internal/agent '^(TestFailedChecksBackOff|TestAFailingSourceIsAskedLessOften)$'
+control "a check waits at least a source's Retry-After" internal/agent/update.go \
+  'return max(wait, retryAfter)' \
+  'return wait' \
+  ./internal/agent '^(TestFailedChecksBackOff|TestAFailingSourceIsAskedLessOften)$'
+control "the first check comes at a random moment of the first minute" internal/agent/update.go \
+  'u.next = a.now().Add(time.Duration(a.opts.UpdateJitter() * float64(a.opts.UpdateCheckFirst)))' \
+  'u.next = a.now().Add(a.opts.UpdateCheckFirst)' \
+  ./internal/agent '^TestTheFirstCheckComesAtARandomMomentOfTheFirstMinute$'
+control "one check however many tabs are open" internal/agent/update.go \
+  'if running := u.checking; running != nil {' \
+  'if running := u.checking; false && running != nil {' \
+  ./internal/agent '^TestOneCheckHoweverManyTabsAreOpen$'
+control "the automatic check asks only whether the release changed" internal/agent/update.go \
+  'a.checkUpdate(true)' \
+  'a.checkUpdate(false)' \
+  ./internal/agent '^TestTheAgentChecksWhenItStartsAndAboutEveryInterval$'
+control "turned off, the agent doesn't check by itself" internal/agent/update.go \
+  'due := a.opts.UpdateCheckInterval > 0 && !u.off && !a.now().Before(u.next)' \
+  'due := a.opts.UpdateCheckInterval > 0 && !a.now().Before(u.next)' \
+  ./internal/agent '^TestTurnedOffTheAgentChecksOnlyWhenAsked$'
+control "a joined machine leaves the checks to its dashboard" internal/agent/update.go \
+  'return due && a.updatesUnsupported() == "" && !a.joined()' \
+  'return due && a.updatesUnsupported() == ""' \
+  ./internal/agent '^TestAJoinedMachineLeavesTheChecksToItsDashboard$'
+control "checks ask GitHub when playkeeper.io doesn't answer" internal/agent/update.go \
+  'return []update.Source{{BaseURL: update.CheckURL, Client: a.opts.HTTPClient}, a.updateSource()}' \
+  'return []update.Source{{BaseURL: update.CheckURL, Client: a.opts.HTTPClient}}' \
+  ./internal/agent '^TestChecksAskPlaykeeperIoThenGitHub$'
+control "playkeeper.io failing backs checks off, though GitHub answered" internal/agent/update.go \
+  'firstFailed = firstFailed || i == 0' \
+  'firstFailed = firstFailed && i == 0' \
+  ./internal/agent '^TestChecksAskPlaykeeperIoThenGitHub$'
+control "what a check kept survives a restart" internal/agent/update.go \
+  'u.latest, u.checkedAt, u.checkErr, u.cached = s.Latest, s.CheckedAt, s.Error, s.Cached' \
+  'u.latest, u.checkedAt, u.checkErr = s.Latest, s.CheckedAt, s.Error' \
+  ./internal/agent '^TestAfterARestartTheCheckAsksOnlyWhetherTheReleaseChanged$'
+control "creators and customers never hear of a release" internal/panel/workspace.go \
+  'if permit(sess.Access, actViewMachines, "") != nil {' \
+  'if false {' \
+  ./internal/panel '^TestOnlyThoseWhoCanUpdateHearOfARelease$'
+control "the automatic check's switch needs the rights to manage the machine" internal/panel/server.go \
+  'mm("PUT", "/api/machines/{mid}/update/auto", "/v1/update/auto", actManageMachine),' \
+  'mm("PUT", "/api/machines/{mid}/update/auto", "/v1/update/auto", actView),' \
+  ./internal/panel '^TestTheAutomaticCheckSwitchIsForThoseWhoCanUpdate$'
+control "playkeeper.io puts the manifest in place before its signature" cmd/release-mirror/main.go \
+  '	if err := m.rename(tmpManifest, update.ManifestFile); err != nil {
+		return "", false, err
+	}
+	if err := m.rename(tmpSig, update.SignatureFile); err != nil {' \
+  '	if err := m.rename(tmpSig, update.SignatureFile); err != nil {
+		return "", false, err
+	}
+	if err := m.rename(tmpManifest, update.ManifestFile); err != nil {' \
+  ./cmd/release-mirror '^TestTheSiteServesOnlyReleasesThatVerify$'
+control "playkeeper.io leaves a release that didn't change alone" cmd/release-mirror/main.go \
+  'if had && bytes.Equal(was.manifest, rel.Raw) && bytes.Equal(was.signature, rel.Signature) {' \
+  'if false && bytes.Equal(was.manifest, rel.Raw) && bytes.Equal(was.signature, rel.Signature) {' \
+  ./cmd/release-mirror '^TestTheSiteServesOnlyReleasesThatVerify$'
+webcontrol "only those who can install a release are told of it" web/src/components/app/update.tsx \
+  "ws.prefsLoading || !can(ws.me, 'machine.manage') || ws.prefs[dismissedKey] === version" \
+  "ws.prefsLoading || ws.prefs[dismissedKey] === version" \
+  web/src/components/app/update-notice.test.tsx 'never shows to'
+webcontrol "a dismissed notice stays away for its release" web/src/components/app/update.tsx \
+  "ws.prefs[dismissedKey] === version) return undefined" \
+  "ws.prefs[dismissedKey] === 'never') return undefined" \
+  web/src/components/app/update-notice.test.tsx 'goes when dismissed'
+webcontrol "a dismissed notice doesn't flash while the preferences load" web/src/components/app/update.tsx \
+  "ws.updating || ws.prefsLoading ||" \
+  "ws.updating ||" \
+  web/src/components/app/update-notice.test.tsx 'waits for the preferences'
+webcontrol "the phone's More dot is the notice's" web/src/components/app/shell.tsx \
+  "const updateDot = !!notice || (!!ws.updating && can(ws.me, 'machine.manage'))" \
+  "const updateDot = !!ws.machine?.live?.updateAvailable || !!ws.updating" \
+  web/src/components/app/update-notice.test.tsx 'More tab'
+webcontrol "the automatic check's switch is only for those who manage the machine" web/src/pages/settings.tsx \
+  "{manage && info?.supported && (" \
+  "{info?.supported && (" \
+  web/src/pages/settings.test.tsx 'there for those who'
 control "a machine joins one dashboard at a time" internal/install/link.go \
   'if d, err := machinelink.LoadDashboard(sys.P(cfg.LinkDashboardPath())); err == nil {' \
   'if d, err := machinelink.LoadDashboard(sys.P(cfg.LinkDashboardPath())); false && err == nil {' \
@@ -1792,6 +1894,34 @@ control "an add-on's download must match the hash its library publishes" interna
   'if got := hex.EncodeToString(v.hs[i].Sum(nil)); got != strings.ToLower(s.Hash) {' \
   'if got := hex.EncodeToString(v.hs[i].Sum(nil)); false && got != strings.ToLower(s.Hash) {' \
   ./internal/addons '^TestInstallRefusesBadDownloads$'
+control "Playkeeper's own plugins install only on the server types they run on" internal/addons/firstparty.go \
+  'if !fp.RunsOn(t.Type) {' \
+  'if false && !fp.RunsOn(t.Type) {' \
+  ./internal/addons '^TestPlaykeeperRefusesOtherServerTypes$'
+control "a template's plugin of Playkeeper's own must be one this Playkeeper carries" internal/templates/validate.go \
+  'if src == addons.Playkeeper && firstparty.Lookup(project) == nil {' \
+  'if false && src == addons.Playkeeper && firstparty.Lookup(project) == nil {' \
+  ./internal/templates '^TestValidateRefusesPlaykeeperPlugins$'
+control "a template lists a plugin of Playkeeper's own only for the server types it runs on" internal/templates/validate.go \
+  'return fp != nil && fp.RunsOn(target.Type)' \
+  'return fp != nil' \
+  ./internal/templates '^TestValidateRefusesPlaykeeperPlugins$'
+control "a template's add-on installs only when the file has its pinned hash" internal/templates/install.go \
+  'if p := a.Pin; p != nil && !a.Unpinned && (s.VersionID != p.VersionID || s.HashAlgo != p.HashAlgo || strings.ToLower(s.Hash) != p.Hash) {' \
+  'if p := a.Pin; p != nil && !a.Unpinned && (s.VersionID != p.VersionID || s.HashAlgo != p.HashAlgo) {' \
+  ./internal/templates '^TestInstallPlaykeeperPlugin$'
+control "the site asks no source for an icon of Playkeeper's own plugins" internal/site/icons.go \
+  'if !seen[p.key()] && p.Source != string(addons.Playkeeper) {' \
+  'if !seen[p.key()] && addons.Playkeeper != "" {' \
+  ./internal/site '^TestPlaykeepersOwnPluginsAreListedWithoutARegistry$'
+control "a template page's Docker command asks Modrinth for none of Playkeeper's own plugins" internal/site/library.go \
+  'if a.Source == addons.Playkeeper {' \
+  'if false && a.Source == addons.Playkeeper {' \
+  ./internal/site '^TestPlaykeepersOwnPluginsAreListedWithoutARegistry$'
+control "a library page's plugin facts come from a check of the template's own source" internal/site/library.go \
+  'p.Name != a.Name || p.Source != string(a.Source) || p.Slug != a.Slug' \
+  'p.Name != a.Name || p.Slug != a.Slug' \
+  ./internal/site '^TestLibraryFactsTheTemplateCantBackStopTheBuild$'
 control "pre-generation: a named pipe for the plugins folder is refused before it is opened" internal/gamefiles/gamefiles.go \
   'err = folderError(p, fi)' \
   'err = nil' \
@@ -9143,6 +9273,56 @@ control "moving in: an agent that dies before its journal keeps it stopped" inte
   'Stopped: f.Stopped,' \
   '' \
   ./internal/agent '^TestAMoveInFinishedAfterARestartStaysStopped$'
+
+# AI keys (0.4.9): only admins see, save and remove them; a key must look
+# like its provider's; its file and folder are the game user's alone, beside
+# data/; only a server with the folder mounts it, read-only, so no other
+# server's container changes; the plugin's server gets the folder before it
+# starts; a running container without the mount says it waits for a restart.
+control "seeing whether a server has an AI key needs the Files tab's rights" internal/panel/aikeys.go \
+  '{"GET", "/api/servers/{id}/ai-keys", needSession, actViewFiles,' \
+  '{"GET", "/api/servers/{id}/ai-keys", needSession, actView,' \
+  ./internal/panel '^TestAIKeysAreForAdmins$'
+control "saving an AI key needs the Files tab's rights" internal/panel/aikeys.go \
+  '{"PUT", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actEditFiles,' \
+  '{"PUT", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actRunServers,' \
+  ./internal/panel '^TestAIKeysAreForAdmins$'
+control "removing an AI key needs the Files tab's rights" internal/panel/aikeys.go \
+  '{"DELETE", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actEditFiles,' \
+  '{"DELETE", "/api/servers/{id}/ai-keys/{provider}", needSessionCSRF, actRunServers,' \
+  ./internal/panel '^TestAIKeysAreForAdmins$'
+control "an AI key that isn't its provider's is refused" internal/agent/aikeys.go \
+  'case !strings.HasPrefix(key, p.prefix):' \
+  'case false:' \
+  ./internal/agent '^TestAnAIKeyIsCheckedWithoutBeingQuoted$'
+control "an AI key with spaces or other characters is refused" internal/agent/aikeys.go \
+  "case strings.ContainsFunc(key, func(r rune) bool { return r < '!' || r > '~' }):" \
+  'case false:' \
+  ./internal/agent '^TestAnAIKeyIsCheckedWithoutBeingQuoted$'
+control "an AI key's file is the game user's alone to read" internal/agent/aikeys.go \
+  'err = f.Chmod(0o400)' \
+  'err = f.Chmod(0o644)' \
+  ./internal/agent '^TestAnAIKeyIsKeptBesideTheWorldForTheGameUserAlone$'
+control "the secrets folder is the game user's alone" internal/agent/aikeys.go \
+  'return s.setSecretsMode(0o500)' \
+  'return s.setSecretsMode(0o755)' \
+  ./internal/agent '^TestAServerWithThePluginMountsItsSecretsFolderFromItsStart$'
+control "only a server with its secrets folder mounts it" internal/agent/lifecycle.go \
+  'if !setupOnly && s.hasSecretsDir() {' \
+  'if !setupOnly {' \
+  ./internal/agent '^TestOnlyAServerWithASecretsFolderMountsIt$'
+control "the secrets folder is mounted read-only" internal/agent/lifecycle.go \
+  'keys := s.secretsDir() + ":" + secretsMount + ":ro"' \
+  'keys := s.secretsDir() + ":" + secretsMount' \
+  ./internal/agent '^TestOnlyAServerWithASecretsFolderMountsIt$'
+control "a server with the AI Build Battle plugin gets its secrets folder before it starts" internal/agent/lifecycle.go \
+  'if err := s.prepareSecrets(); err != nil {' \
+  'if err := error(nil); err != nil {' \
+  ./internal/agent '^TestAServerWithThePluginMountsItsSecretsFolderFromItsStart$'
+control "a key saved while the container lacks the mount waits for a restart" internal/agent/aikeys.go \
+  'out.Pending = set && s.secretsPending(ctx)' \
+  'out.Pending = false' \
+  ./internal/agent '^TestAnAIKeyIsKeptBesideTheWorldForTheGameUserAlone$'
 
 if [ "$bad" != 0 ]; then
   echo "some guards are not covered by a failing test"

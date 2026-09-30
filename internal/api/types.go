@@ -311,6 +311,16 @@ type UpdateInfo struct {
 	CheckError  string        `json:"checkError,omitempty"`
 	Installing  string        `json:"installing,omitempty"`
 	LastResult  *UpdateResult `json:"lastResult,omitempty"`
+	// AutoCheck is Settings' Check for updates automatically: whether the
+	// agent looks for a new release by itself, when it starts and about
+	// every half hour (0.4.9).
+	AutoCheck bool `json:"autoCheck"`
+}
+
+// UpdateAutoRequest turns the automatic check for a new release on or off.
+type UpdateAutoRequest struct {
+	On    bool   `json:"on"`
+	Actor string `json:"actor"`
 }
 
 // UpdateResult is how the last update ended: updated, rolled_back (the new
@@ -1954,6 +1964,29 @@ type CurseForgeSource struct {
 
 // CurseForgeKeyRequest saves the owner's own CurseForge API key.
 type CurseForgeKeyRequest struct {
+	Key   string `json:"key"`
+	Actor string `json:"actor"`
+}
+
+// AIKeys is what a server's owner has of their own AI keys, which the AI
+// Build Battle plugin builds with: whether each provider's is set, never
+// the key or any part of it.
+type AIKeys struct {
+	Keys map[string]AIKey `json:"keys"`
+	// Pending is set while a saved key waits for a restart: the running
+	// container was made before the server had its secrets folder.
+	Pending bool `json:"pending"`
+	// Available is set while the server has the AI Build Battle plugin.
+	Available bool `json:"available"`
+}
+
+// AIKey is one provider's key on a server.
+type AIKey struct {
+	Set bool `json:"set"`
+}
+
+// AIKeyRequest saves a provider's key, in place of the one it had.
+type AIKeyRequest struct {
 	Key   string `json:"key"`
 	Actor string `json:"actor"`
 }

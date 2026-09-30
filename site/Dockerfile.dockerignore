@@ -1,10 +1,12 @@
 # site/Dockerfile builds from the repository root; it needs the site, the
-# code cmd/site reads, the docs and the dashboard in web/ for the live demo
-# (whose art the site uses too), without anything installed or built.
+# code cmd/site and cmd/release-mirror read, the docs and the dashboard in
+# web/ for the live demo (whose art the site uses too), without anything
+# installed or built.
 *
 !go.mod
 !go.sum
 !cmd/site/
+!cmd/release-mirror/
 !internal/
 !site/
 !web/

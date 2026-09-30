@@ -226,7 +226,7 @@ func (e *agentEnv) options() Options {
 		},
 		CheckEgress: func(context.Context) error { return nil }, PortInUse: func(int) bool { return false }, UDPPortInUse: func(int) bool { return false },
 		StopTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, WarnDelay: 50 * time.Millisecond, BackupWarnDelay: 10 * time.Millisecond,
-		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
+		FillURL: e.fill.srv.URL, UpdateCheckInterval: -1, MinecraftCheckInterval: -1, UpdateKeys: e.updateKeys, BinaryVersion: e.binaryVersion,
 		DiscordClient: e.discordClient,
 		Addons:        e.addons, PregenInterval: 50 * time.Millisecond, PregenResumeAfter: e.pregenResumeAfter,
 		UpstreamClient: e.up.client(), PackClient: e.up.client(),

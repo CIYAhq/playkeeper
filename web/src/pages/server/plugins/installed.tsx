@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { ChevronRightIcon, CircleArrowUpIcon, DownloadIcon, EllipsisIcon, ExternalLinkIcon, RotateCwIcon, SearchIcon, Trash2Icon } from 'lucide-react'
+import { ChevronRightIcon, CircleArrowUpIcon, DownloadIcon, EllipsisIcon, ExternalLinkIcon, KeyRoundIcon, RotateCwIcon, SearchIcon, Trash2Icon } from 'lucide-react'
 import { useWorkspace } from '@/api/workspace'
 import { Pip } from '@/components/app/art'
 import { Marker, Notice, SectionLabel } from '@/components/app/bits'
@@ -200,7 +200,15 @@ function RowStatus({ row: r }: { row: AddonRow }) {
   switch (r.state) {
     case 'managed': {
       const friends = a.friends(r)
-      body = r.update ? (
+      body = a.needsKey(r) ? (
+        <>
+          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{t('aiKey.needs')}</span>
+          <Button variant="outline" size="sm" onClick={() => a.openKey(true)}>
+            <KeyRoundIcon />
+            {t('aiKey.add')}
+          </Button>
+        </>
+      ) : r.update ? (
         <Marker tone="green">{t('addons.updateAvailable', { version: r.update.versionNumber })}</Marker>
       ) : r.pending ? (
         <Marker tone="amber">{t('addons.new')}</Marker>
@@ -389,10 +397,12 @@ function phoneLine(r: AddonRow, friends?: FriendsLabel): string {
 }
 
 function PhoneMark({ row: r }: { row: AddonRow }) {
+  const a = useAddons()
   const cls = 'shrink-0 text-[13px]'
   if (r.state === 'changed') return <Marker tone="amber" className={cls}>{t('addons.markChanged')}</Marker>
   if (r.state === 'missing') return <Marker tone="red" className={cls}>{t('addons.markMissing')}</Marker>
   if (r.state === 'identified') return <Marker tone="green" className={cls}>{t('addons.markManage')}</Marker>
+  if (a.needsKey(r)) return <Marker tone="amber" className={cls}>{t('aiKey.markNeeds')}</Marker>
   if (r.update) return <Marker tone="green" className={cls}>{t('addons.markUpdate')}</Marker>
   if (r.pending) return <Marker tone="amber" className={cls}>{t('addons.new')}</Marker>
   return <ChevronRightIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />

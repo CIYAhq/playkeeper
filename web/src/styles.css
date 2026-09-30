@@ -247,6 +247,38 @@
   top: 8px;
 }
 
+/* SecretField: a text field that hides its letters until its own button
+   shows them, without the buttons browsers add to password fields. Each
+   pseudo-element has a rule to itself: a browser drops a whole rule for one
+   it doesn't know. */
+.secret-field input {
+  -webkit-text-security: disc;
+}
+.secret-field[data-shown] input {
+  -webkit-text-security: none;
+}
+.secret-field input::placeholder {
+  -webkit-text-security: none;
+}
+.secret-field input::-ms-reveal {
+  display: none;
+}
+.secret-field input::-ms-clear {
+  display: none;
+}
+.secret-field input::-webkit-credentials-auto-fill-button {
+  display: none !important;
+}
+.secret-field input::-webkit-contacts-auto-fill-button {
+  display: none !important;
+}
+.secret-field input::-webkit-strong-password-auto-fill-button {
+  display: none !important;
+}
+.secret-field input::-webkit-caps-lock-indicator {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-press-scale: 1;
