@@ -6673,8 +6673,8 @@ control "an HTTP-01 check goes ahead on a busy port only when its holder passes 
   'if errors.Is(err, syscall.EADDRINUSE) {' \
   ./internal/certs '^TestHTTP01GoesAheadOnlyWhenThePortsHolderPassesChecksOn$'
 control "the page's ports answer only the machine's address" internal/panel/serverpage.go \
-  'if !check && !s.page.answers(r.Host) {' \
-  'if false && !check && !s.page.answers(r.Host) {' \
+  'if !check && !s.page.answers(r.Host) && !s.joinedPageOn(r.Context(), r.Host) {' \
+  'if false && !check && !s.page.answers(r.Host) && !s.joinedPageOn(r.Context(), r.Host) {' \
   ./internal/panel '^TestThePagesPortsServeThePageAndNothingElse$'
 control "the page escapes what the owner typed" internal/panel/serverpage.go \
   'head := "<title>" + html.EscapeString(title) + "</title>"' \
@@ -6700,14 +6700,14 @@ control "visitors share one question to the agent" internal/panel/serverpage.go 
   '	if a, ok := lookup(); ok {
 		return a, a.ok
 	}
-	p.fetch.Lock()
-	defer p.fetch.Unlock()
+	c.fetch.Lock()
+	defer c.fetch.Unlock()
 	if a, ok := lookup(); ok {
 		return a, a.ok
 	}' \
   '	_ = lookup
-	p.fetch.Lock()
-	defer p.fetch.Unlock()' \
+	c.fetch.Lock()
+	defer c.fetch.Unlock()' \
   ./internal/panel '^TestManyVisitorsAskTheAgentOnceAndEachAddressIsLimited$'
 control "port 443 never serves the self-signed certificate" internal/panel/pageports.go \
   '	return s.pageCerts.GetCertificate(hello)
@@ -6977,7 +6977,7 @@ webcontrol "Sell on Whop names the old redirect URL only while Whop lists it alo
   '{signIn.redirectUri && (' \
   src/pages/pages.test.tsx 'says when customers still come back through the dashboard'
 # What the owner adds to the page: About, a stream and a status board.
-control "a page's stream is only a Twitch or YouTube channel" internal/agent/publicblocks.go \
+control "a page's stream is only a Twitch or YouTube channel" internal/pagestream/pagestream.go \
   'case host == "twitch.tv" && len(parts) == 1 && reTwitchLogin.MatchString(parts[0]):' \
   'case len(parts) == 1 && reTwitchLogin.MatchString(parts[0]):' \
   ./internal/agent '^TestTheOwnersWordsAndStreamShowOnThePage$'
@@ -7001,6 +7001,97 @@ control "only the page's ports may frame the stream players" internal/panel/serv
   "\"+s.reachSource()+\"; font-src 'self'; object-src 'none';" \
   "\"+s.reachSource()+\"; font-src 'self'; frame-src https://player.twitch.tv; object-src 'none';" \
   ./internal/panel '^TestThePageHasALiveShareCardAndMayFrameAStream$'
+# 0.4.12: the page of a server on a joined machine, which the dashboard's
+# machine serves at the server's name: only while the machine says it's on
+# the page, that server alone, and nothing that says which machine runs it.
+control "joined page: a server's name answers only while its machine says it's on the page" internal/panel/joinedpage.go \
+  '	_, ok = s.joinedPage(ctx, j)
+	return ok' \
+  '	_, _ = s.joinedPage(ctx, j)
+	return true' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: only the machine the dashboard knows runs the server is asked" internal/panel/joinedpage.go \
+  'if err != nil || m.ID != j.machineID || m.Kind != remoteKind {' \
+  'if err != nil || m.Kind != remoteKind {' \
+  ./internal/panel '^TestAJoinedServersPageAsksOnlyTheMachineThatRunsIt$'
+control "joined page: the server's address is the name the zone gives it" internal/panel/joinedpage.go \
+  'sv.Slug, sv.Address, sv.Bedrock = j.label, j.address, nil' \
+  'sv.Slug, sv.Bedrock = j.label, nil' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: the server has no Bedrock address, which would be its machine's" internal/panel/joinedpage.go \
+  'sv.Slug, sv.Address, sv.Bedrock = j.label, j.address, nil' \
+  'sv.Slug, sv.Address = j.label, j.address' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: the server's slug is the dashboard's" internal/panel/joinedpage.go \
+  'sv.Slug, sv.Address, sv.Bedrock = j.label, j.address, nil' \
+  'sv.Address, sv.Bedrock = j.address, nil' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: a state the page doesn't know reads as offline" internal/panel/joinedpage.go \
+  '		sv.State = api.PublicOffline' \
+  '		_ = api.PublicOffline' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: players count only while the server is online" internal/panel/joinedpage.go \
+  'if p := sv.Players; p != nil && sv.State == api.PublicOnline {' \
+  'if p := sv.Players; p != nil {' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: the page lists only real players' names" internal/panel/joinedpage.go \
+  'if minecraft.ValidPlayerName(n) && len(names) < maxPageNames {' \
+  'if len(names) < maxPageNames {' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: a stream is only a channel's page" internal/panel/joinedpage.go \
+  '		sv.Stream = nil
+		if parsed, ok' \
+  '		if parsed, ok' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: its links are the dashboard's, never the machine's" internal/panel/joinedpage.go \
+  '	sv.Map, sv.Pack = s.joinedPageLinks(ctx, shown, j)' \
+  '	_, _ = s.joinedPageLinks(ctx, shown, j)' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: a link shows only for the server the dashboard saw it made for" internal/panel/publiclinks.go \
+  'return err == nil && sid == serverID && mid == machineID' \
+  'return err == nil && mid == machineID' \
+  ./internal/panel '^TestAJoinedServersNameOpensItsPageAndNothingOfItsMachine$'
+control "joined page: the keeper holds the ports while a joined server is on the page" internal/panel/pageports.go \
+  'st.On = st.On || s.anyJoinedPageOn(ctx)' \
+  'st.On = st.On || false && s.anyJoinedPageOn(ctx)' \
+  ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
+control "joined page: the keeper gives the ports back once the joined server is off" internal/panel/joinedpage.go \
+  '		if _, ok := s.joinedPage(ctx, j); ok {' \
+  '		if _, ok := s.joinedPage(ctx, j); ok || true {' \
+  ./internal/panel '^TestTheKeeperHoldsThePortsWhileAJoinedServersPageIsOn$'
+control "joined page: a changed zone forgets the page and asks the keeper to look again" internal/panel/fleetdns.go \
+  '	if changed {
+		s.pageChanged()' \
+  '	if false && changed {
+		s.pageChanged()' \
+  ./internal/panel '^TestAChangedZoneForgetsThePageAndLooksAgain$'
+control "joined page: an unchanged zone leaves the page and the keeper alone" internal/panel/fleetdns.go \
+  'changed := !maps.Equal(s.zoneAddrs.byName, byName)' \
+  'changed := !maps.Equal(s.zoneAddrs.byName, byName) || true' \
+  ./internal/panel '^TestAChangedZoneForgetsThePageAndLooksAgain$'
+control "joined page: a joined server's name points at the dashboard's machine" internal/panel/fleetdns.go \
+  '		for _, m := range p.machine {
+			add = append(add, dnszone.Record{Name: j.label, Type: m.Type, Value: m.Value})
+		}' \
+  '		add = append(add, dnszone.Record{Name: j.label, Type: typ, Value: j.ip.String()})' \
+  ./internal/panel '^TestJoinedServersJoinTheZoneAtTheirMachine$'
+control "joined page: a joined server's Settings never give an address its machine has" internal/panel/serverpage.go \
+  '	if m.Kind != localKind {
+		v.Host = s.zoneAddress(r.PathValue("id"))' \
+  '	if false && m.Kind != localKind {
+		v.Host = s.zoneAddress(r.PathValue("id"))' \
+  ./internal/panel '^TestAJoinedServersSettingsGiveItsPageAtItsName$'
+control "joined page: the dashboard hears nothing of a server off the page" internal/agent/publicpage.go \
+  'set := s.publicPageSettings()
+	if !set.Enabled {' \
+  'set := s.publicPageSettings()
+	if false && !set.Enabled {' \
+  ./internal/agent '^TestThePageShowsTheDashboardAServerButNotTheMachinesAddress$'
+control "joined page: the dashboard hears no link under the machine's own name" internal/agent/publicpage.go \
+  '	out := api.PublicServerShown{PublicServer: sh.server, PackToken: sh.packToken}' \
+  '	ps, _ := s.publicServer(r.Context(), s.pageHost(), api.JoinAddress{})
+	out := api.PublicServerShown{PublicServer: ps, PackToken: sh.packToken}' \
+  ./internal/agent '^TestThePageShowsTheDashboardAServerButNotTheMachinesAddress$'
 
 # Usage stats (internal/usage): nothing is sent that its check refuses, while
 # they're off, or before the installer has said so; root's choices outrank
