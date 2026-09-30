@@ -3171,6 +3171,18 @@ type PublicServer struct {
 	Board  *PublicBoard  `json:"board,omitempty"`
 }
 
+// PublicServerShown (from 0.4.12) is what the public page shows of one
+// server, for the page the dashboard serves at the name of a server on a
+// joined machine: where players join, Bedrock included, and the links'
+// addresses are the dashboard's to say, so Address, Bedrock, Map and Pack
+// are empty, and MapToken and PackToken are the tokens of the shared map's
+// and the friends' pack page's links while they're shared.
+type PublicServerShown struct {
+	PublicServer
+	MapToken  string `json:"mapToken,omitempty"`
+	PackToken string `json:"packToken,omitempty"`
+}
+
 // PublicPlayers is how many are online, of how many the server lets in.
 type PublicPlayers struct {
 	Online int      `json:"online"`

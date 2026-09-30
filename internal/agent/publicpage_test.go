@@ -17,6 +17,7 @@ import (
 
 	"github.com/CIYAhq/playkeeper/internal/agentclient"
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/webmap"
 )
 
 const pageTestHost = "mc.example.com"
@@ -131,6 +132,68 @@ func TestAMachineWithoutAnAddressHasNoPublicPage(t *testing.T) {
 	ports, files := e.a.takePagePorts(context.Background(), api.PagePortsRequest{HTTPS: true, HTTP: true})
 	if len(files) != 0 || ports.HTTPS.State != api.PortOff || ports.HTTP.State != api.PortOff {
 		t.Fatalf("without an address the agent opened %v: %+v", len(files), ports)
+	}
+}
+
+// The dashboard serves the page of a server on a joined machine at the
+// server's name, and asks the machine what the page shows of it: all the
+// machine's own page shows of it but where players join, which is the
+// dashboard's to say, and its shared links as tokens, not links under the
+// machine's own name. A server off the page is the page's 404.
+func TestThePageShowsTheDashboardAServerButNotTheMachinesAddress(t *testing.T) {
+	e, _, _ := newMapEnv(t)
+	e.nameWorks("play.example.com")
+	e.createWith(map[string]any{"name": "Survival"})
+	if op := e.mapOp("/map/enable", map[string]any{}); op.Status != api.OpSucceeded {
+		t.Fatalf("enable: %+v", op)
+	}
+	e.waitFor("online", e.onlineIdle)
+	code, out := e.call("POST", e.sp("/map/share"), map[string]any{"public": true, "actor": "admin"})
+	path, _ := out["path"].(string)
+	mapToken := strings.TrimPrefix(path, "/map/")
+	if code != 200 || !webmap.ValidShareToken(mapToken) {
+		t.Fatalf("share: %d %v", code, out)
+	}
+	const packToken = "Pk7uYt2wQz9mN4bV6cX1aL"
+	if _, err := e.a.db.Exec(`UPDATE servers SET packs_public = 1, packs_token = ? WHERE id = ?`, packToken, e.sid); err != nil {
+		t.Fatal(err)
+	}
+	e.rcon.setOnline("mara_k")
+	e.call("POST", e.sp("/public-page"), map[string]any{"players": true, "actor": "admin"})
+	var own api.PublicServer
+	e.waitFor("the machine's own page to name the player", func() bool {
+		code, p, _ := e.page("play.example.com")
+		if code != 200 || len(p.Servers) != 1 || p.Servers[0].Players == nil {
+			return false
+		}
+		own = p.Servers[0]
+		return len(own.Players.Names) == 1
+	})
+	if !strings.Contains(own.Map, "play.example.com") || !strings.Contains(own.Pack, "play.example.com") || own.Address == "" {
+		t.Fatalf("the machine's own page, under its own name: %+v", own)
+	}
+
+	code, _, raw := e.get(e.sp("/public-page/shown"))
+	var shown api.PublicServerShown
+	if code != 200 || json.Unmarshal(raw, &shown) != nil {
+		t.Fatalf("what the page shows of the server: %d %s", code, raw)
+	}
+	if shown.Name != "Survival" || shown.State != api.PublicOnline || shown.Players == nil || !slices.Equal(shown.Players.Names, []string{"mara_k"}) ||
+		shown.MapToken != mapToken || shown.PackToken != packToken {
+		t.Fatalf("the dashboard hears %s", raw)
+	}
+	if shown.Address != "" || shown.Bedrock != nil || shown.Map != "" || shown.Pack != "" {
+		t.Fatalf("the dashboard hears where players join or a link: %s", raw)
+	}
+	for _, leak := range []string{"play.example.com", testIP.String()} {
+		if strings.Contains(string(raw), leak) {
+			t.Errorf("what the page shows of the server holds %q: %s", leak, raw)
+		}
+	}
+
+	e.call("POST", e.sp("/public-page"), map[string]any{"enabled": false, "actor": "admin"})
+	if code, _, _ := e.get(e.sp("/public-page/shown")); code != 404 {
+		t.Fatalf("a server off the page answers %d", code)
 	}
 }
 

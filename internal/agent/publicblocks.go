@@ -4,25 +4,19 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
-	"regexp"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/CIYAhq/playkeeper/internal/api"
+	"github.com/CIYAhq/playkeeper/internal/pagestream"
 )
 
 // What the owner adds to the public page: their words for it (About), a
 // live stream it offers to play, and a status board their tools post
 // through the API or MCP. Everything is plain text the page shows as it
 // is, within the bounds in api.
-
-var (
-	reTwitchLogin = regexp.MustCompile(`^[A-Za-z0-9_]{4,25}$`)
-	reYouTubeID   = regexp.MustCompile(`^UC[A-Za-z0-9_-]{22}$`)
-)
 
 // plainSpaces is s with tabs and other kinds of space (a no-break space
 // pasted from a document, say) as plain spaces.
@@ -71,27 +65,14 @@ func errStreamLink() error {
 // parseStream is the stream a channel link names, and its link written the
 // one way the page stores it. An empty link is no stream.
 func parseStream(raw string) (api.PublicStream, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	if strings.TrimSpace(raw) == "" {
 		return api.PublicStream{}, nil
 	}
-	if !strings.Contains(raw, "://") {
-		raw = "https://" + raw
-	}
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.Port() != "" {
+	st, ok := pagestream.Parse(raw)
+	if !ok {
 		return api.PublicStream{}, errStreamLink()
 	}
-	host := strings.TrimPrefix(strings.TrimPrefix(strings.ToLower(u.Hostname()), "www."), "m.")
-	parts := strings.Split(strings.Trim(u.EscapedPath(), "/"), "/")
-	switch {
-	case host == "twitch.tv" && len(parts) == 1 && reTwitchLogin.MatchString(parts[0]):
-		login := strings.ToLower(parts[0])
-		return api.PublicStream{Site: "twitch", Channel: login, URL: "https://www.twitch.tv/" + login}, nil
-	case host == "youtube.com" && len(parts) == 2 && parts[0] == "channel" && reYouTubeID.MatchString(parts[1]):
-		return api.PublicStream{Site: "youtube", Channel: parts[1], URL: "https://www.youtube.com/channel/" + parts[1]}, nil
-	}
-	return api.PublicStream{}, errStreamLink()
+	return st, nil
 }
 
 // boardLine is one line of a board: trimmed, printable, between 1 and max

@@ -18,6 +18,9 @@ import (
 // shows. A server is on the page until its owner turns that off, and the
 // page names who's playing only while the owner shows them. It never
 // holds an IP address, a crash, a backup or anything about the machine.
+// A joined machine serves no page: the dashboard serves each of its
+// servers' pages at the server's name, and asks it what the page shows of
+// the server (hPublicPageShown).
 
 // maxPublicNames bounds the players' names the page lists.
 const maxPublicNames = 100
@@ -224,31 +227,80 @@ func (a *Agent) publicPage(ctx context.Context, host string) (api.PublicPage, bo
 	return page, true
 }
 
-// publicServer is what the page shows of the server, and false while it
-// is off the page or not created yet.
+// publicServer is what the page at host shows of the server, whose
+// addresses are j, and false while it is off the page or not created yet.
 func (s *server) publicServer(ctx context.Context, host string, j api.JoinAddress) (api.PublicServer, bool) {
-	set := s.publicPageSettings()
-	if !set.Enabled {
+	sh, ok := s.pageShows(ctx)
+	if !ok {
 		return api.PublicServer{}, false
 	}
-	st := s.Status(ctx)
-	sc := st.Config
-	if sc == nil {
-		return api.PublicServer{}, false
-	}
-	ps := api.PublicServer{Slug: st.Slug, Name: st.Name, MOTD: sc.MOTD, MinecraftVersion: sc.MinecraftVersion, Type: s.serverType(sc), InviteOnly: sc.Whitelist,
-		Address: publicJoinAddress(host, j, s.gamePort), State: publicState(st)}
-	if _, err := s.readIcon(); err == nil {
-		ps.HasIcon = true
-	}
-	if crossplayOn(sc) {
+	ps := sh.server
+	ps.Address = publicJoinAddress(host, j, s.gamePort)
+	if sh.crossplay {
 		// Bedrock follows A records only, which a working own address has.
 		bedrock := host
 		if j.OwnAddress != "" && j.Published {
 			bedrock = j.OwnAddress
 		}
-		ps.Bedrock = &api.BedrockJoin{Host: bedrock, Port: sc.CrossplayPort}
+		ps.Bedrock = &api.BedrockJoin{Host: bedrock, Port: sh.crossplayPort}
 	}
+	if sh.sharedMap != nil {
+		ps.Map = s.mapLink(sh.sharedMap)
+	}
+	if sh.packToken != "" {
+		ps.Pack = s.panelLink("/packs/" + sh.packToken)
+	}
+	return ps, true
+}
+
+// hPublicPageShown is what the page shows of the server, for the page the
+// dashboard serves at the server's name while it runs on a joined machine:
+// 404 while it's off the page. Where players join and the links' addresses
+// are left to the dashboard, so nothing of this machine's own address, if
+// it has one, reaches that page.
+func (s *server) hPublicPageShown(w http.ResponseWriter, r *http.Request) {
+	sh, ok := s.pageShows(r.Context())
+	if !ok {
+		writePageGone(w)
+		return
+	}
+	out := api.PublicServerShown{PublicServer: sh.server, PackToken: sh.packToken}
+	if sh.sharedMap.sharePath() != "" {
+		out.MapToken = sh.sharedMap.shareToken
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// pageShown is what the page shows of a server wherever it answers: the
+// server without where players join, whether Bedrock players join it and on
+// which port, its shared map while it's shared, and its friends' pack
+// page's link token while that's public.
+type pageShown struct {
+	server        api.PublicServer
+	crossplay     bool
+	crossplayPort int
+	sharedMap     *mapRecord
+	packToken     string
+}
+
+// pageShows is what the page shows of the server, and false while it is off
+// the page or not created yet.
+func (s *server) pageShows(ctx context.Context) (pageShown, bool) {
+	set := s.publicPageSettings()
+	if !set.Enabled {
+		return pageShown{}, false
+	}
+	st := s.Status(ctx)
+	sc := st.Config
+	if sc == nil {
+		return pageShown{}, false
+	}
+	ps := api.PublicServer{Slug: st.Slug, Name: st.Name, MOTD: sc.MOTD, MinecraftVersion: sc.MinecraftVersion, Type: s.serverType(sc), InviteOnly: sc.Whitelist,
+		State: publicState(st)}
+	if _, err := s.readIcon(); err == nil {
+		ps.HasIcon = true
+	}
+	sh := pageShown{crossplay: crossplayOn(sc), crossplayPort: sc.CrossplayPort}
 	if ps.State == api.PublicOnline && st.Players != nil {
 		p := &api.PublicPlayers{Online: st.Players.Online, Max: st.Players.Max}
 		if p.Max <= 0 {
@@ -265,13 +317,14 @@ func (s *server) publicServer(ctx context.Context, host string, j api.JoinAddres
 		ps.Modpack = &api.PublicModpack{Name: rec.Pack.Name, Version: rec.Pack.VersionNumber}
 	}
 	if rec, err := s.activeMap(); err == nil && rec != nil && rec.public {
-		ps.Map = s.mapLink(rec)
+		sh.sharedMap = rec
 	}
 	if on, token := s.packsPublic(); on {
-		ps.Pack = s.panelLink("/packs/" + token)
+		sh.packToken = token
 	}
 	ps.About, ps.Stream, ps.Board = set.About, s.pageStream(set.Stream), s.publicBoard()
-	return ps, true
+	sh.server = ps
+	return sh, true
 }
 
 // publicJoinAddress is what players type for the server: its own address
