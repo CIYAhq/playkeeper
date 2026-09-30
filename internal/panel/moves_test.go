@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CIYAhq/playkeeper/internal/api"
 	"github.com/CIYAhq/playkeeper/internal/mcp"
 )
 
@@ -84,7 +85,14 @@ func newMoveFleet(t *testing.T) *moveFleet {
 	ra.reply("GET /v1/servers/"+movedServer+"/backup-rules", `{"automatic":{"enabled":true,"everyHours":24,"onlyIfPlayed":true},"rules":{"onHost":{"daily":5}},"custom":true}`)
 
 	e.reply("GET", "/v1/machine", liveMachine(30000, true))
-	e.reply("GET", "/v1/servers", `[]`)
+	e.answer("GET /v1/servers", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if f.made() {
+			io.WriteString(w, "["+movedStatus+"]")
+			return
+		}
+		io.WriteString(w, `[]`)
+	})
 	e.answer("GET /v1/servers/"+movedServer, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if !f.made() {
@@ -178,24 +186,64 @@ func (f *moveFleet) rows(t *testing.T, query string, args ...any) int {
 	return n
 }
 
+// pause pauses alex, whose servers are deleted at until unless they renew.
+func (f *moveFleet) pause(t *testing.T, until time.Time) {
+	t.Helper()
+	if _, err := f.e.srv.db.Exec(`UPDATE customers SET state = ?, delete_after = ? WHERE user_id = ?`, string(CustomerPaused), until.UnixMilli(), f.alex.id); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// stopped records a move of alex's to machine to that stopped before their
+// server left home-server, with home their machine since.
+func (f *moveFleet) stopped(t *testing.T, to, home string) {
+	t.Helper()
+	if _, err := f.e.srv.db.Exec(`INSERT INTO customer_moves(user_id, to_machine, started_at, started_by, error) VALUES(?, ?, 0, 'admin', 'It stopped.')`, f.alex.id, to); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.e.srv.db.Exec(`UPDATE customer_homes SET machine_id = ? WHERE user_id = ?`, home, f.alex.id); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// deleted is alex's record once their servers are deleted: when, and the
+// machine keeping their final backups.
+func (f *moveFleet) deleted(t *testing.T) (at int64, keptOn string) {
+	t.Helper()
+	if err := f.e.srv.db.QueryRow(`SELECT servers_deleted_at, final_backups_machine FROM customers WHERE user_id = ?`, f.alex.id).Scan(&at, &keptOn); err != nil {
+		t.Fatal(err)
+	}
+	return at, keptOn
+}
+
 // The owner moves a customer to another machine: their plan's memory is set
 // aside there at once, and their server follows. It stops, is backed up,
-// and the backup goes to the other machine as an upload against their disk
-// limit, which makes it with the same id, name and slug, the EULA
-// acceptance it had, and started, since it ran. Its requests then go
-// there, and the machine it left deletes it, keeping its final backup a
-// week. Each step goes in the audit log.
+// and the backup goes to the other machine as an upload, which makes it
+// with the same id, name and slug, the EULA acceptance it had, and
+// started, since it ran. It counts against their disk limit there before
+// its requests go there, and the upload doesn't, since the server it's a
+// backup of counts already. The machine it left then deletes it, keeping
+// its final backup a week. Each step goes in the audit log.
 func TestTheOwnerMovesACustomerAndTheirServerFollows(t *testing.T) {
 	f := newMoveFleet(t)
 	if _, err := f.e.srv.db.Exec(`INSERT INTO public_links(kind, token_hash, server_id, machine_id, created_at) VALUES('map', 'h', ?, ?, 0)`, movedServer, f.rid); err != nil {
 		t.Fatal(err)
 	}
+	gate := make(chan struct{})
+	f.e.agent.mu.Lock()
+	f.e.agent.gates["PUT /v1/disk-limits"] = gate
+	f.e.agent.mu.Unlock()
 	if r := f.move(t, f.local); r.status != http.StatusAccepted || r.body["machineId"] != f.local {
 		t.Fatalf("moving alex: %d %v", r.status, r.body)
 	}
 	if home, _, _ := f.e.srv.homeMachine(context.Background(), f.alex.id); home != f.local {
 		t.Fatalf("alex's machine once the move starts: %q", home)
 	}
+	eventually(t, "the dashboard's machine is sent alex's disk limit", func() bool { return f.e.sawLocally("PUT /v1/disk-limits") })
+	if at := f.recorded(t); at != f.rid {
+		t.Errorf("the server's requests went to %q before its disk limit did", at)
+	}
+	close(gate)
 	if why := f.moved(t); why != "" {
 		t.Fatalf("the move stopped: %s", why)
 	}
@@ -209,19 +257,26 @@ func TestTheOwnerMovesACustomerAndTheirServerFollows(t *testing.T) {
 		t.Errorf("the dashboard's machine got %q as the backup", upload)
 	}
 	var query string
+	var limits api.DiskLimitsRequest
 	f.e.agent.mu.Lock()
-	for _, r := range f.e.agent.reqs {
-		if r.method == "POST" && r.path == "/v1/restore/upload" {
+	for i, r := range f.e.agent.reqs {
+		switch {
+		case r.method == "POST" && r.path == "/v1/restore/upload":
 			query = r.query.Get("diskLimit")
+		case r.method == "PUT" && r.path == "/v1/disk-limits" && limits.Limits == nil:
+			json.Unmarshal([]byte(f.e.agent.bodies[i]), &limits)
 		}
 	}
 	f.e.agent.mu.Unlock()
-	if query != accountLimit(f.alex.id) {
-		t.Errorf("the backup came against the disk limit %q", query)
+	if query != "" {
+		t.Errorf("the backup came against the disk limit %q, beside the server it's a backup of", query)
+	}
+	if i := slices.IndexFunc(limits.Limits, func(l api.DiskLimit) bool { return l.ID == accountLimit(f.alex.id) }); i < 0 || !slices.Equal(limits.Limits[i].Servers, []string{movedServer}) {
+		t.Errorf("the dashboard's machine was sent the disk limits %+v, without the server moved to it in alex's", limits.Limits)
 	}
 	hits := f.e.agentHits()
-	if limits, upload := slices.Index(hits, "PUT /v1/disk-limits"), slices.Index(hits, "POST /v1/restore/upload"); limits < 0 || limits > upload {
-		t.Errorf("the dashboard's machine didn't have alex's disk limit before the backup: %v", hits)
+	if movein, sent := slices.Index(hits, "POST /v1/restore/"+movedUpload+"/move-in"), slices.Index(hits, "PUT /v1/disk-limits"); movein < 0 || sent < movein {
+		t.Errorf("alex's disk limit went to the dashboard's machine before it made the server: %v", hits)
 	}
 	if n := f.rows(t, `SELECT COUNT(*) FROM public_links WHERE server_id = ? AND machine_id = ?`, movedServer, f.local); n != 1 {
 		t.Error("the server's public link stayed with the machine it left")
@@ -790,20 +845,187 @@ func TestARemovedMachinesCustomersGetRoomElsewhere(t *testing.T) {
 }
 
 // A customer whose servers are being moved, or whose move stopped, isn't
-// deleted once their grace period ends until their servers are all on
-// their machine: the deletion looks there.
+// deleted once their grace period ends while they have a machine the owner
+// can move them to again: their servers may be on two. The owner can still
+// move them again, their plan having ended, and once their servers are
+// together they're deleted there, their final backups kept there.
 func TestALapsedCustomerBeingMovedIsDeletedLater(t *testing.T) {
 	f := newMoveFleet(t)
-	if _, err := f.e.srv.db.Exec(`INSERT INTO customer_moves(user_id, to_machine, started_at, started_by, error) VALUES(?, ?, 0, 'admin', 'It stopped.')`, f.alex.id, f.local); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.e.srv.db.Exec(`UPDATE customers SET state = ?, delete_after = ? WHERE user_id = ?`, string(CustomerPaused), f.e.clock.now().Add(-time.Hour).UnixMilli(), f.alex.id); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.e.srv.deleteLapsedCustomer(context.Background(), f.alex.id); err != nil {
+	ctx := context.Background()
+	f.stopped(t, f.local, f.local)
+	f.pause(t, f.e.clock.now().Add(-time.Hour))
+	if err := f.e.srv.deleteLapsedCustomer(ctx, f.alex.id); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/delete"); ok {
-		t.Error("the servers of a customer whose move stopped were deleted")
+		t.Fatal("the servers of a customer whose move stopped were deleted")
 	}
+
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex again once their plan ended: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move tried again stopped: %s", why)
+	}
+	f.e.answer("POST /v1/servers/"+movedServer+"/delete", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, `{"id":"op-lapsed","status":"running"}`)
+	})
+	f.e.reply("GET", "/v1/operations/op-lapsed", `{"id":"op-lapsed","status":"succeeded"}`)
+	if err := f.e.srv.deleteLapsedCustomer(ctx, f.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	var del map[string]any
+	json.Unmarshal([]byte(f.e.agentBody("POST /v1/servers/"+movedServer+"/delete")), &del)
+	if at, keptOn := f.deleted(t); del["keepFinalBackupDays"] != float64(finalBackupDays) || at == 0 || keptOn != f.local {
+		t.Errorf("alex once their servers came together: deleted with %v at %d, final backups on %q", del, at, keptOn)
+	}
+}
+
+// A customer whose plan ended with a move of theirs stopped, and whose
+// machine, where it was going, was removed, has no machine to be moved to
+// again: their servers are deleted where the move left them, their final
+// backups kept there, and the move ends.
+func TestALapsedCustomerWhoseMoveCantGoOnIsDeletedWhereTheirServersAre(t *testing.T) {
+	f := newMoveFleet(t)
+	f.stopped(t, "gonemach12", "")
+	f.pause(t, f.e.clock.now().Add(-time.Hour))
+	if err := f.e.srv.deleteLapsedCustomer(context.Background(), f.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	var del map[string]any
+	json.Unmarshal([]byte(f.ra.body("POST /v1/servers/"+movedServer+"/delete")), &del)
+	if at, keptOn := f.deleted(t); del["keepFinalBackupDays"] != float64(finalBackupDays) || at == 0 || keptOn != f.rid {
+		t.Errorf("alex's deletion: %v at %d, final backups on %q", del, at, keptOn)
+	}
+	if n := f.rows(t, `SELECT COUNT(*) FROM customer_moves WHERE user_id = ?`, f.alex.id); n != 0 {
+		t.Error("the move that couldn't go on is still recorded")
+	}
+}
+
+// A customer whose machine was removed has their servers left on it, out
+// of reach. Once their plan ends past its grace period those servers are
+// forgotten, not taken for deleted: nothing is deleted on the machine they
+// were given since, and they're promised no final backups of them.
+func TestALapsedCustomersServersLeftOnARemovedMachineArentTakenForDeleted(t *testing.T) {
+	f := newMoveFleet(t)
+	ctx := context.Background()
+	if r := f.e.do(t, "DELETE", "/api/machines/"+f.rid, "", f.own.auth()); r.status != http.StatusNoContent {
+		t.Fatalf("removing home-server: %d %v", r.status, r.body)
+	}
+	f.e.srv.startWaitingCustomers(ctx)
+	if home, _, _ := f.e.srv.homeMachine(ctx, f.alex.id); home != f.local {
+		t.Fatalf("alex's machine once placed again: %q", home)
+	}
+	f.pause(t, f.e.clock.now().Add(-time.Hour))
+	if err := f.e.srv.deleteLapsedCustomer(ctx, f.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(f.e.agentHits(), "POST /v1/servers/"+movedServer+"/delete") {
+		t.Error("the server left on the removed machine was deleted on the one alex was given since")
+	}
+	n := f.e.srv.notifier.(*recordingNotifier)
+	n.mu.Lock()
+	sent := slices.Clone(n.sent)
+	n.mu.Unlock()
+	if len(sent) == 0 || sent[len(sent)-1].Kind != messageDeleted || strings.Contains(sent[len(sent)-1].Text, "final backup") {
+		t.Errorf("what alex was told: %+v", sent)
+	}
+	if at, keptOn := f.deleted(t); at == 0 || keptOn != "" {
+		t.Errorf("alex's record: deleted at %d, final backups on %q", at, keptOn)
+	}
+	if ids, _ := f.e.srv.creatorServers(f.alex.id); len(ids) != 0 {
+		t.Errorf("alex still created %v", ids)
+	}
+}
+
+// A paused customer's servers stay stopped wherever they go: one that ran
+// is made stopped on the machine it moves to, and one whose customer is
+// paused while it moves stops there once its requests go there, as does
+// one whose copy started before a restart of the dashboard.
+func TestAPausedCustomersServerMovesStopped(t *testing.T) {
+	f := newMoveFleet(t)
+	f.pause(t, f.e.clock.now().Add(time.Hour))
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex while they're paused: %d %v", r.status, r.body)
+	}
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+	f.mu.Lock()
+	in := f.moveIn
+	f.mu.Unlock()
+	if in["serverId"] != movedServer || in["start"] == true {
+		t.Errorf("a paused customer's server was made where it moved from %v", in)
+	}
+
+	f = newMoveFleet(t)
+	gate := make(chan struct{})
+	f.e.agent.mu.Lock()
+	f.e.agent.gates["PUT /v1/disk-limits"] = gate
+	f.e.agent.mu.Unlock()
+	if r := f.move(t, f.local); r.status != http.StatusAccepted {
+		t.Fatalf("moving alex: %d %v", r.status, r.body)
+	}
+	eventually(t, "the dashboard's machine is sent alex's disk limit", func() bool { return f.e.sawLocally("PUT /v1/disk-limits") })
+	f.pause(t, f.e.clock.now().Add(time.Hour))
+	close(gate)
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move stopped: %s", why)
+	}
+	hits := f.e.agentHits()
+	if sent, stopped := slices.Index(hits, "PUT /v1/disk-limits"), slices.Index(hits, "POST /v1/servers/"+movedServer+"/stop"); stopped < sent {
+		t.Errorf("a server whose customer was paused while it moved kept running where it went: %v", hits)
+	}
+
+	f = newMoveFleet(t)
+	f.mu.Lock()
+	f.madeHere = true
+	f.mu.Unlock()
+	f.stopped(t, f.local, f.local)
+	if _, err := f.e.srv.db.Exec(`UPDATE customer_moves SET error = '' WHERE user_id = ?`, f.alex.id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.e.srv.db.Exec(`INSERT INTO server_moves(server_id, user_id, from_machine, to_machine, ran) VALUES(?, ?, ?, ?, 1)`, movedServer, f.alex.id, f.rid, f.local); err != nil {
+		t.Fatal(err)
+	}
+	f.pause(t, f.e.clock.now().Add(time.Hour))
+	f.e.srv.resumeMoves(context.Background())
+	if why := f.moved(t); why != "" {
+		t.Fatalf("the move carried on stopped: %s", why)
+	}
+	if !f.e.sawLocally("POST /v1/servers/" + movedServer + "/stop") {
+		t.Error("a copy that started before a restart kept running once its customer was paused")
+	}
+}
+
+// Pausing a customer stops each of their servers where it is: one a move of
+// theirs that stopped left on the machine it came from stops there.
+func TestPausingStopsTheServersAStoppedMoveLeftBehind(t *testing.T) {
+	f := newMoveFleet(t)
+	f.stopped(t, f.local, f.local)
+	core := customerCore{s: f.e.srv}
+	if err := core.PauseCustomer(context.Background(), Customer{Provider: whopProvider, Subject: "user_alex", Handle: "alex"}, "their Whop membership is expired"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.ra.saw("POST /v1/servers/" + movedServer + "/stop"); !ok {
+		t.Error("the server a stopped move left on home-server kept running once alex was paused")
+	}
+}
+
+// With no machine named, a move passes over one that can't keep servers
+// away from itself, as placement does, for the next fullest with room.
+func TestAMoveToTheFullestPassesOverAMachineItCantGuard(t *testing.T) {
+	f := newMoveFleet(t)
+	attic, _, _, _ := joinForCustomers(t, f.e, f.own)
+	if r := f.e.do(t, "PUT", "/api/machines/"+attic+"/customers", `{"on":true}`, f.own.auth()); r.status != http.StatusOK {
+		t.Fatalf("the owner confirms attic: %d %v", r.status, r.body)
+	}
+	f.e.reply("GET", "/v1/machine", liveMachine(8192, false))
+	f.e.reply("POST", "/v1/network-guard", `{"on":true,"host":false}`)
+	if r := f.move(t, ""); r.status != http.StatusAccepted || r.body["machineId"] != attic {
+		t.Errorf("moving alex to the fullest machine with room it can guard: %d %v", r.status, r.body)
+	}
+	f.moved(t)
 }
