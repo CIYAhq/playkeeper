@@ -9659,9 +9659,17 @@ webcontrol "moving customers: a customer goes where the owner picks" web/src/pag
   '{}' \
   src/pages/pages.test.tsx 'moves one to the machine the owner picks'
 webcontrol "moving customers: only machines that take customers are offered" web/src/pages/machine-customers.tsx \
-  "(x.kind === 'local' || x.takesCustomers)" \
+  "(x.kind === 'local' || x.takesCustomers || x.id === home)" \
   'true' \
   src/pages/pages.test.tsx 'moves one to the machine the owner picks'
+webcontrol "moving customers: a customer with servers left on a machine goes to their own machine by default" web/src/pages/machine-customers.tsx \
+  'setTo(home || fullest)' \
+  'setTo(fullest)' \
+  src/pages/pages.test.tsx 'their own machine by default'
+webcontrol "moving customers: a customer's own machine is offered though it takes no new customers" web/src/pages/machine-customers.tsx \
+  ' || x.id === home))' \
+  '))' \
+  src/pages/pages.test.tsx 'their own machine by default'
 webcontrol "moving customers: the machine a customer is on isn't offered" web/src/pages/machine-customers.tsx \
   'x.id !== from.id && ' \
   '' \
