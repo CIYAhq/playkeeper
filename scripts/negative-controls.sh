@@ -363,6 +363,31 @@ webcontrol "any page's budget stays where it is" web/src/lib/first-load.ts \
   "bytes: 1_200_000, gzipBytes: 380_000" \
   "bytes: 1_210_000, gzipBytes: 380_000" \
   web/src/lib/first-load.test.ts 'over its budget'
+# buildcontrol checks the first-load budget as CI's web-tests job does, with
+# make web-budget's production build. Only a build that fails on the budget
+# counts: one that breaks for another reason is INVALID.
+buildcontrol() { # NAME FILE FROM TO
+  local name=$1 file=$2
+  if [ ! -e web/node_modules ] && [ -d "$root/web/node_modules" ]; then
+    ln -s "$root/web/node_modules" web/node_modules
+  fi
+  if [ ! -d web/node_modules ]; then
+    problem "INVALID  $name: web/node_modules is missing; run scripts/setup.sh"
+    return
+  fi
+  mutate "$name" "$file" "$3" "$4" || return 0
+  if make --no-print-directory web-budget >/tmp/negative-control.out 2>&1; then
+    problem "MISSED   $name: make web-budget still passes"
+  elif ! grep -q 'First load over budget' /tmp/negative-control.out; then
+    problem "INVALID  $name: make web-budget failed, but not on the budget"
+  else
+    echo "caught   $name: $(grep -m1 -o 'First load over budget.*' /tmp/negative-control.out | cut -c1-200)"
+  fi
+  git checkout -q -- "$file"
+}
+buildcontrol "a build over the first-load budget fails CI's check" web/vite.config.ts \
+  "sourcemap: false, target: 'es2022'" \
+  "sourcemap: false, minify: false, target: 'es2022'"
 webcontrol "code an update replaced reloads the page" web/src/components/app/load-boundary.tsx \
   '        sessionStorage.setItem(reloadedAt, String(Date.now()))
         window.location.reload()' \

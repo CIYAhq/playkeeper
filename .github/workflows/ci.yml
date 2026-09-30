@@ -1,7 +1,8 @@
 name: CI
 
 # The fast checks, on every pull request and every push to main: lint and
-# typecheck, and the Go, agent, web and installer-script unit tests, side by
+# typecheck, the Go, agent, web and installer-script unit tests, and the
+# dashboard's first-load budget when the change touches its code, side by
 # side, then a job that checks they all passed. A pull request also crawls
 # the pages of the dashboard it changes, through their modules or the Go
 # code behind the API they call, and checks their accessibility and width
@@ -158,16 +159,38 @@ jobs:
       - name: make test-agent
         run: make test-agent OUT=/tmp/agent-tests
 
+  # The web and installer-script unit tests, then the first-load budget: a
+  # production build of the dashboard, about a second, which fails when a
+  # page loads more than web/src/lib/first-load.ts allows. It runs on every
+  # push to main and on a pull request that changes the dashboard's code,
+  # every time, since main moving under it changes what its merge builds.
   web-tests:
     name: Web and installer-script unit tests
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request's run is on its merge with main, whose first parent is main.
+          fetch-depth: 2
+          persist-credentials: false
       - name: Set up pinned toolchains
         run: ./scripts/setup.sh
       - name: make test-web test-sh
         run: make test-web test-sh
+      - name: Whether the change touches the dashboard's code
+        id: web
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != pull_request ] || git diff --name-only HEAD^1 HEAD | grep -qE '^(web/|Makefile$|\.github/workflows/ci\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No dashboard code changed."
+          fi
+      - name: make web-budget
+        if: steps.web.outputs.run == 'true'
+        run: make web-budget
 
   # The plugins Playkeeper ships inside its binary (plugins/, embedded from
   # internal/addons/firstparty): their unit tests, and the jars checked
