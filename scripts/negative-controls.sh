@@ -8211,6 +8211,10 @@ control "leaving: lifting a store that left leaves its customers paused" interna
   'if st.SuspendedAt.IsZero() {' \
   'if false {' \
   ./internal/panel '^TestLiftingAStoreThatLeftLeavesItsCustomersPaused$'
+control "leaving: an unconfirmed membership doesn't hold up lifting a store that left" internal/panel/suspension.go \
+  'pending[wc.WhopUserID] = !wc.Paused' \
+  'pending[wc.WhopUserID] = wc.Unconfirmed > 0 || !wc.Paused' \
+  ./internal/panel '^TestLiftingAStoreThatLeftLeavesItsCustomersPaused$'
 control "leaving: a paused customer isn't paused again" internal/panel/leaving.go \
   'if wc.Applied == "" || wc.Paused || wc.NextTryAt > now {' \
   'if wc.Applied == "" || wc.NextTryAt > now {' \
