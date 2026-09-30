@@ -9736,16 +9736,12 @@ control "moving customers: a copy left on a removed machine, stopped before its 
   '				if adopted, err := adoptStaleCopy(ctx, c, id, m.ID, sv); err != nil || true {' \
   ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
 control "moving customers: the server where it moved, stopped since, isn't taken for its copy" internal/panel/moves.go \
-  '	if switched == 0 || sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched {' \
-  '	if switched == 0 || sv["phase"] != string(api.PhaseStopped) || perr != nil {' \
+  '	if sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched {' \
+  '	if sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched && false {' \
   ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
 control "moving customers: a server that isn't stopped is never taken for a copy a move left" internal/panel/moves.go \
-  '	if switched == 0 || sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched {' \
-  '	if switched == 0 || perr != nil || millis(stopped) >= switched {' \
-  ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
-control "moving customers: a copy whose move isn't known to have finished isn't taken for the server's" internal/panel/moves.go \
-  '	if switched == 0 || sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched {' \
   '	if sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched {' \
+  '	if perr != nil || millis(stopped) >= switched {' \
   ./internal/panel '^TestAServerBothOfWhoseMachinesWereRemovedIsTakenForWhatItIs$'
 
 # AI keys (0.4.9): only admins see, save and remove them; a key must look

@@ -880,7 +880,8 @@ func adoptLeftCopy(ctx context.Context, q querier, id, machineID string) (bool, 
 // removed too, where machineID may be either host joining again: it takes
 // the server machineID lists as sv for the copy only when that stopped
 // before the server's requests went where it moved, as the copy did when
-// its move stopped it, and never for the server where it moved.
+// its move stopped it, and never for the server where it moved. A copy
+// whose switch isn't known (0) never is, as every stop comes after it.
 func adoptStaleCopy(ctx context.Context, q querier, id, machineID string, sv map[string]any) (bool, error) {
 	var switched int64
 	err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(switched_at), 0) FROM left_copies WHERE `+leftOnRemoved, id).Scan(&switched)
@@ -889,7 +890,7 @@ func adoptStaleCopy(ctx context.Context, q querier, id, machineID string, sv map
 	}
 	stoppedAt, _ := sv["stoppedAt"].(string)
 	stopped, perr := time.Parse(time.RFC3339Nano, stoppedAt)
-	if switched == 0 || sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched {
+	if sv["phase"] != string(api.PhaseStopped) || perr != nil || millis(stopped) >= switched {
 		return false, nil
 	}
 	return adoptLeftCopy(ctx, q, id, machineID)
