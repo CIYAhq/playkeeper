@@ -369,8 +369,8 @@ describe('Home', () => {
   })
 
   it('says on its card that a server being moved is being moved', async () => {
-    const text = await render(<HomePage />, workspace({ servers: [server({ phase: 'online', moving: true })] }))
-    expect(text).toContain('Being moved')
+    await render(<HomePage />, workspace({ servers: [server({ phase: 'online', moving: true })] }))
+    expect([...document.querySelectorAll('.animate-spin')].map((spin) => spin.parentElement?.textContent)).toEqual(['Being moved', 'Being moved'])
   })
 
   it('shows a sleeping server, the memory it gave back, and wakes it', async () => {
