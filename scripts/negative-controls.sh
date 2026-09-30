@@ -2963,6 +2963,11 @@ shcontrol "the shards' check fails when shards listed other tests" scripts/go-te
   'if ! cmp -s "$dir/all-1.txt" "$dir/all-$k.txt"; then' \
   'if false; then' \
   scripts/go-test-shard_test.sh
+# shellcheck disable=SC2016
+shcontrol "a shard runs the tests a panic kept from starting" scripts/go-test-shard.sh \
+  'todo=$(grep -vxF -e "$started" <<<"$todo" || true)' \
+  'todo=' \
+  scripts/go-test-shard_test.sh
 
 control "names service owns only records with the name's marker" internal/names/service/dns.go \
   'if names.CheckName(name) != nil || names.Reserved(name) || r.Comment != marker(name) {' \

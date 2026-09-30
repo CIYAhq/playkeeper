@@ -31,7 +31,11 @@ import (
 )
 
 func TestA(t *testing.T) {}
-func TestB(t *testing.T) {}
+func TestB(t *testing.T) {
+	if os.Getenv("PANIC_B") != "" {
+		panic("B panicked on purpose")
+	}
+}
 func TestC(t *testing.T) { t.Run("inner", func(t *testing.T) {}) }
 func TestD(t *testing.T) {}
 func TestE(t *testing.T) {
@@ -72,6 +76,23 @@ if BREAK_E=1 shard 2/3; then fail "shard 2 of 3 passed with TestE failing"; fi
 grep -q 'E broke on purpose' "$t/log-2" || fail "the failing test's output wasn't shown: $(cat "$t/log-2")"
 grep -qx TestE "$t/out/ran-2.txt" || fail "a failing test isn't among the tests its shard ran"
 ok "a failing test fails its shard, shows its output and still counts as run"
+
+rm -rf "$t/out"
+if PANIC_B=1 shard 1/1; then fail "the shard passed with TestB panicking"; fi
+grep -q 'B panicked on purpose' "$t/log-1" || fail "the panic wasn't shown: $(cat "$t/log-1")"
+[ "$(tr '\n' ' ' <"$t/out/ran-1.txt")" = "TestA TestB TestC TestD TestE " ] || fail "after TestB panicked the shard ran $(tr '\n' ' ' <"$t/out/ran-1.txt")"
+"$root/scripts/go-test-shard.sh" --check "$t/out" 1 >"$t/check" 2>&1 || fail "--check after the panic: $(cat "$t/check")"
+ok "a test that panics fails its shard, and the tests after it still run"
+
+jobs() { "$root/scripts/go-test-shard.sh" --jobs 2 ./pkg "$t/jobs" >"$t/log-jobs" 2>&1; }
+jobs || fail "two shards side by side failed: $(cat "$t/log-jobs")"
+grep -q 'the 2 shards ran all 5 tests' "$t/log-jobs" || fail "two shards side by side said: $(cat "$t/log-jobs")"
+ok "shards side by side run every test"
+rm -rf "$t/jobs"
+if PANIC_B=1 jobs; then fail "shards side by side passed with TestB panicking"; fi
+grep -q 'B panicked on purpose' "$t/log-jobs" || fail "the panic wasn't shown: $(cat "$t/log-jobs")"
+grep -q 'the 2 shards ran all 5 tests' "$t/log-jobs" || fail "after TestB panicked, shards side by side said: $(cat "$t/log-jobs")"
+ok "shards side by side run every test when one panics, and fail"
 
 rm -rf "$t/out"
 printf '# PACKAGE TEST WHY\n./pkg TestE   breaks now and then\n./other TestA   in another package\n' >"$t/quarantine.txt"
