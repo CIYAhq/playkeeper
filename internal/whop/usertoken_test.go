@@ -172,6 +172,24 @@ func TestUserTokensFollowWhopsKeysWithoutAskingAtEveryRequest(t *testing.T) {
 	}
 }
 
+// A request that's gone before Whop's keys are read, as when a seller
+// leaves the page, doesn't cut the read short: the keys are kept, and the
+// next request is checked with them instead of refused until the cooldown
+// ends.
+func TestAReadOfWhopsKeysOutlivesTheRequestThatStartedIt(t *testing.T) {
+	key := newKey(t)
+	ks := newKeyServer(t, "k1", key)
+	u := &UserTokens{URL: ks.srv.URL}
+	now := time.Date(2026, 9, 30, 17, 0, 0, 0, time.UTC)
+	token := SignUserToken(key, "k1", "app_pk", "user_seller", now.Add(time.Hour))
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	u.Verify(gone, token, "app_pk", now)
+	if user, err := u.Verify(context.Background(), token, "app_pk", now.Add(time.Second)); err != nil || user != "user_seller" || ks.count() != 1 {
+		t.Fatalf("the next request: %q, %v, %d reads", user, err, ks.count())
+	}
+}
+
 // Whop's keys are at its API's origin.
 func TestJWKSURLIsAtTheAPIsOrigin(t *testing.T) {
 	for api, want := range map[string]string{"": "https://api.whop.com/.well-known/jwks.json", "https://api.whop.com/api/v1": "https://api.whop.com/.well-known/jwks.json",

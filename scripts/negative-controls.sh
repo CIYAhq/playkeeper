@@ -7962,6 +7962,10 @@ control "user tokens: Whop's keys aren't read at every request" internal/whop/us
   ' && (u.triedAt.IsZero() || now.Sub(u.triedAt) >= keysCooldown)' \
   '' \
   ./internal/whop '^TestUserTokensFollowWhopsKeysWithoutAskingAtEveryRequest$'
+control "user tokens: a read of Whop's keys outlives the request that started it" internal/whop/usertoken.go \
+  'context.WithoutCancel(ctx)' \
+  'ctx' \
+  ./internal/whop '^TestAReadOfWhopsKeysOutlivesTheRequestThatStartedIt$'
 
 # A seller's page inside Whop (the hosted blueprint's 2.1,
 # internal/panel/whop_sellerpage.go): it opens only with Whop's token, for
